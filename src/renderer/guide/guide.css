@@ -6,7 +6,7 @@
 .w-guide__backdrop {
   position: fixed;
   inset: 0;
-  /* z-index: SETTINGS_LAYER (settings-window.ts), set inline. */
+  /* The layer of the Settings window sits on the portal around it (theme/kit/Dialog.tsx). */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -49,31 +49,7 @@
   font-weight: 600;
 }
 
-/* EN / RU: a segmented control, the track and thumb of the Settings segments. */
-.w-guide__languages {
-  display: inline-flex;
-  padding: 2px;
-  border-radius: 7px;
-  background: var(--segment-track);
-}
-.w-guide__language {
-  min-width: 36px;
-  padding: 3px var(--space-2);
-  border: none;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: var(--text-12);
-  font-weight: 600;
-  cursor: pointer;
-}
-.w-guide__language[aria-pressed='true'] {
-  background: var(--segment-thumb);
-  color: var(--text);
-  box-shadow: var(--shadow-control);
-}
-.w-guide__language:focus-visible,
+/* EN / RU is the shared SegmentedControl (theme/primitives.tsx). */
 .w-guide__list-item:focus-visible,
 .w-guide__under-summary:focus-visible,
 .w-guide a:focus-visible {

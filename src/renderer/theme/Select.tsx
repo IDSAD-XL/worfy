@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactElement } from 'react'
+import { useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import './select.css'
+import { SelectListContainer } from './select-container'
 
 /*
  * The shared Select of worfy: a styled list in place of the native select element, after the WAI-ARIA
@@ -15,9 +16,10 @@ import './select.css'
  * not get it. Esc on a closed Select is left alone, so it still closes the dialog.
  *
  * The list is drawn into document.body with `position: fixed`, above every dialog and the focus
- * mode: a parent's overflow does not cut it. It opens under the button, or over it when there is
- * more room there, and is placed again whenever its options change. It is no wider than 480 px and
- * than the window less its margins, starts at the button's left edge and moves left only as far as
+ * mode: a parent's overflow does not cut it. Inside a window of the kit (theme/kit/Dialog.tsx) it is
+ * drawn into the window instead (SelectListContainer, select-container.ts), so the window counts it
+ * as its own. It opens under the button, or over it when there is more room there, and is placed
+ * again whenever its options change. It is no wider than 480 px and than the window less its margins, starts at the button's left edge and moves left only as far as
  * the window's right edge makes it; a longer option ends in «…» and shows its text as a tooltip. A press outside, a scroll of
  * anything that holds the button, a resize, the window losing focus and the Select becoming
  * disabled close it; a scroll next to the button (a transcript that follows its last row) does not.
@@ -94,6 +96,7 @@ function labelText(button: HTMLButtonElement | null): string | undefined {
 export function Select<V extends string = string>(props: SelectProps<V>): ReactElement {
   const { value, options, onChange, disabled = false, mono = false, onOpen, prefix, title, className, style } = props
   const base = useId()
+  const container = useContext(SelectListContainer)
   const buttonId = props.id ?? `${base}-button`
   const listId = `${base}-list`
   const optionId = (index: number): string => `${base}-option-${index}`
@@ -370,7 +373,7 @@ export function Select<V extends string = string>(props: SelectProps<V>): ReactE
             )
           })}
         </div>,
-        document.body,
+        container ?? document.body,
       )
     : null
 

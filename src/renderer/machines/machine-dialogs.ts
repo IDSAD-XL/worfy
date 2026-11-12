@@ -23,8 +23,9 @@ export function closeMachineDialog(): void {
 }
 
 /**
- * Above the Settings window (SETTINGS_LAYER, 110, settings/settings-window.ts): "Remove" of Settings →
- * Machines opens its confirmation over it, and the Settings modal guard lets a higher layer keep its keys.
+ * Above the Settings window (SETTINGS_LAYER, settings/settings-window.ts): "Remove" of Settings →
+ * Machines opens its confirmation over it, and the kit's modal window lets a higher layer keep its
+ * keys (theme/kit/Dialog.tsx).
  */
 const MACHINE_DIALOG_LAYER = 120
 

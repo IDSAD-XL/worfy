@@ -58,8 +58,9 @@ test('Settings… in the menu opens Settings with General and the version; Esc c
     await expect(sections.first()).toHaveText('General')
     await expect(sections.first()).toHaveAttribute('aria-current', 'true')
     await expect(dialog.getByTestId('settings-version')).toHaveText(version)
-    // Above everything else of the window: the backdrop covers the toolbar.
-    await expect(window.locator('.w-settings__backdrop')).toHaveCSS('z-index', '110')
+    // Above everything else of the window: the backdrop covers the toolbar. The layer (the dialog
+    // layer of the scale, theme/layers.ts) sits on the portal around the backdrop (theme/kit/layer.ts).
+    await expect(window.locator('.w-settings__backdrop').locator('xpath=..')).toHaveCSS('z-index', '100')
     await snapshotThemes(window, 'settings-general')
 
     // The keyboard stays in the window: Tab goes through the rows of the section list, however many
@@ -208,7 +209,8 @@ test('Settings is modal: ⌘K, ⌘F and ⌘↩ do nothing under it, also with th
     await selectNote()
     await window.keyboard.press('ControlOrMeta+Enter')
     await expect(focusMode).toBeVisible()
-    const tileText = focusMode.getByTestId('focus-tile').getByRole('textbox', { name: 'Note text' })
+    // includeHidden: under the modal Settings window focus mode is hidden from a screen reader.
+    const tileText = focusMode.getByTestId('focus-tile').getByRole('textbox', { name: 'Note text', includeHidden: true })
     await expect(tileText).toHaveCount(1)
     await expect(tileText).toHaveValue('one')
     await clickMenuItem(app, SETTINGS_MENU_ITEM_ID)

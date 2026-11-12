@@ -1,7 +1,7 @@
 # 04 — Dialog kit: Settings, Keyboard shortcuts и Guide одним шагом, без трёх guard-ов
 
 Type: task
-Status: open
+Status: claimed 2026-11-12T14:18Z
 Blocked by: 03
 Source: [spec.md](../spec.md), «Ticket-ы», строка 04; «Решения по реализации» (Settings, Keyboard shortcuts и Guide;
 toast-ы; `Select` внутри окна kit); «Решения по test-ам» (Seam 1, Seam 2); истории 1, 2, 3, 9, 11, 14, 25;

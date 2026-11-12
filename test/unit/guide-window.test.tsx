@@ -12,6 +12,7 @@ import { GuideHost } from '../../src/renderer/guide/GuideHost'
 import { GUIDE_REPO_URL } from '../../src/renderer/guide/links'
 import { GUIDE_TOPICS } from '../../src/renderer/guide/registry'
 import { closeGuide, openGuide, useGuide } from '../../src/renderer/guide/store'
+import { pressTab } from './tab-key'
 
 const globals = globalThis as { worfy?: WorfyBridge }
 
@@ -141,7 +142,7 @@ describe('opening and closing', () => {
     // Close is not the last control: Tab from the last one comes back to the first.
     const controls = [...dialog.querySelectorAll<HTMLElement>('button, [href], summary, [tabindex]:not([tabindex="-1"])')]
     controls.at(-1)!.focus()
-    fireEvent.keyDown(controls.at(-1)!, { key: 'Tab' })
+    await pressTab()
     expect(dialog.contains(document.activeElement)).toBe(true)
     expect(document.activeElement).not.toBe(controls.at(-1))
     window.removeEventListener('keydown', appKeys)

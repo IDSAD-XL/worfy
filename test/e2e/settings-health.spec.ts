@@ -212,7 +212,8 @@ test('"Move…" in Health opens the move form above Settings; the keyboard stays
     await expect(form.getByTestId('migration-actions')).toBeVisible({ timeout: ms(30_000) })
     // Above the window: its layer is higher, and it is what the middle of the window shows.
     const formLayer = await zIndexOf(form.locator('xpath=..'))
-    expect(formLayer).toBeGreaterThan(await zIndexOf(window.locator('.w-settings__backdrop')))
+    // The layer of the Settings window sits on the portal around its backdrop (theme/kit/layer.ts).
+    expect(formLayer).toBeGreaterThan(await zIndexOf(window.locator('.w-settings__backdrop').locator('xpath=..')))
     expect(
       await window.evaluate(() => {
         const page = globalThis as unknown as PageGlobals

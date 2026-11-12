@@ -69,7 +69,8 @@ function renderApp(options: { firstRun?: boolean } = {}) {
 }
 
 const settings = () => screen.getByRole('dialog', { name: 'Settings' })
-const firstRun = () => screen.getByRole('dialog', { name: 'First run' })
+// Under the Settings window First run is hidden from a screen reader (the kit's modal Dialog), not gone.
+const firstRun = () => screen.getByRole('dialog', { name: 'First run', hidden: true })
 const rowsOf = (place: HTMLElement): HTMLElement[] => [...place.querySelectorAll<HTMLElement>('[data-check]')]
 const rowOf = (place: HTMLElement, id: Check['id']): HTMLElement => {
   const found = place.querySelector<HTMLElement>(`[data-check="${id}"]`)
@@ -530,8 +531,8 @@ describe('Settings → Health: the mark of First run and the shared checks', () 
     handlers['firstRun.run'] = () => running.answer
     fireEvent.click(within(rowOf(settings(), 'qmd-models')).getByRole('button', { name: 'Skip…' }))
     expect(rowOf(firstRun(), 'qmd-models').querySelector('.w-chip')?.textContent).toBe('Running…')
-    fireEvent.click(within(firstRun()).getByRole('button', { name: 'Close' }))
-    expect(screen.queryByRole('dialog', { name: 'First run' })).not.toBeNull()
+    fireEvent.click(within(firstRun()).getByRole('button', { name: 'Close', hidden: true }))
+    expect(screen.queryByRole('dialog', { name: 'First run', hidden: true })).not.toBeNull()
     const skipped = report({ harness: { status: 'ok', actions: [] }, 'qmd-models': { status: 'ok', detail: 'skipped', actions: [] } })
     await running.give({ ok: true, value: { outcome: 'done', message: null, report: skipped } })
     expect(rowsOf(firstRun()).map(readRow)).toEqual(expected(skipped))
@@ -540,7 +541,7 @@ describe('Settings → Health: the mark of First run and the shared checks', () 
     fireEvent.click(within(settings()).getByRole('button', { name: 'Close' }))
     expect(rowsOf(firstRun()).map(readRow)).toEqual(expected(skipped))
     expect(callsOf('firstRun.close')).toHaveLength(0)
-    fireEvent.click(within(firstRun()).getByRole('button', { name: 'Close' }))
+    fireEvent.click(within(firstRun()).getByRole('button', { name: 'Close', hidden: true }))
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(callsOf('firstRun.close')).toHaveLength(1)
   })

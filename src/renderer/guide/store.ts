@@ -10,14 +10,13 @@
 // One modal window at a time: opening the Guide closes the Keyboard shortcuts and the Settings
 // window, and either of them opening closes the Guide.
 //
-// The window is modal. The guard below sits on `window` in the capture phase and on `document`,
-// added when this file loads — before every listener a component adds, as the Settings window's
-// (settings/settings-window.ts): while the Guide is on screen, Esc closes it and goes no further,
-// Tab goes round its controls, and no other key reaches a shortcut of the app.
+// The window is a modal Dialog of the kit (theme/kit/Dialog.tsx): while the Guide is on screen, Esc
+// closes it and goes no further, Tab goes round its controls, and no other key reaches a shortcut of
+// the app.
 import { create } from 'zustand'
 import { followMenuCommand } from '../menu-command'
 import { hasPreloadBridge, invoke } from '../ipc'
-import { closeSettings, focusablesOf, useSettingsWindow } from '../settings/settings-window'
+import { closeSettings, useSettingsWindow } from '../settings/settings-window'
 import { closeShortcuts, useShortcutsWindow } from '../shortcuts/shortcuts-window'
 
 export interface GuideBuild {
@@ -80,50 +79,4 @@ function askBuild(): void {
 export function followGuideCommands(): () => void {
   askBuild()
   return followMenuCommand('guide', () => openGuide())
-}
-
-let dialogElement: HTMLElement | null = null
-
-/** The Guide's window names its dialog element while it is on screen, and null when it leaves. */
-export function setGuideDialogElement(element: HTMLElement | null): void {
-  dialogElement = element
-}
-
-function activeDialog(): HTMLElement | null {
-  return useGuide.getState().open && dialogElement !== null && dialogElement.isConnected ? dialogElement : null
-}
-
-/** On `window`, capture phase: Esc closes, Tab goes round, and the app's shortcuts with ⌘ or Ctrl stay quiet. */
-function guardKeys(event: KeyboardEvent): void {
-  const dialog = activeDialog()
-  if (dialog === null) return
-  const inside = event.target instanceof Node && dialog.contains(event.target)
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    event.stopImmediatePropagation()
-    closeGuide()
-    return
-  }
-  if (event.key === 'Tab') {
-    event.preventDefault()
-    event.stopImmediatePropagation()
-    const stops = focusablesOf(dialog)
-    const at = inside ? stops.indexOf(event.target as HTMLElement) : -1
-    const next = at === -1 ? (event.shiftKey ? stops.length - 1 : 0) : (at + (event.shiftKey ? -1 : 1) + stops.length) % stops.length
-    ;(stops[next] ?? dialog).focus()
-    return
-  }
-  // A key outside the window, or one with ⌘ or Ctrl, reaches no listener of the app. The menu's
-  // accelerators still work: Electron hands them the presses the page did not cancel.
-  if (!inside || event.metaKey || event.ctrlKey) event.stopImmediatePropagation()
-}
-
-/** On `document`, bubble phase: a key pressed in the window stops before the listeners on `window`. */
-function stopKeysAtDocument(event: KeyboardEvent): void {
-  if (activeDialog() !== null) event.stopImmediatePropagation()
-}
-
-if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-  window.addEventListener('keydown', guardKeys, true)
-  document.addEventListener('keydown', stopKeysAtDocument)
 }

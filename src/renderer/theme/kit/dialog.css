@@ -1,0 +1,12 @@
+/* The modal window of the kit (Dialog.tsx): the backdrop over the whole app window, the window in its
+   middle. The window is placed by the flex box, not with `transform`: the list of a Select inside it
+   is `position: fixed` and must count from the app window (spike, step 3). The layer (z-index) sits
+   on the portal around the backdrop (theme/kit/layer.ts). The look of the window is its own class. */
+.w-kit-dialog__backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.25);
+}

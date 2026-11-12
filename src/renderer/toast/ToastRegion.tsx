@@ -12,7 +12,9 @@
 //
 // Accessibility: the area is a landmark "Notifications"; `info`, `success` and `action` toasts are in
 // a polite live region (role="status"), `error` toasts in role="alert". Both regions stay in the DOM
-// while empty, so a toast added later is announced. A toast never takes the focus; its buttons are
+// while empty, so a toast added later is announced, also while a modal window of the kit is open:
+// the window hides the page from a screen reader but not a live region, and a press on a toast does
+// not close it (theme/kit/Dialog.tsx). The area's layer (--z-toast) is above the windows'. A toast never takes the focus; its buttons are
 // reached by Tab, and Escape on a toast in focus closes it and gives the focus back to where it was.
 //
 // The file is not named Toasts.tsx: next to toasts.ts, on a file system that ignores case (macOS,
@@ -147,7 +149,9 @@ export function ToastRegion({ projectId }: { projectId: string | undefined }) {
   }, [any, lineup])
   return createPortal(
     <section ref={region} className="w-toasts" aria-label="Notifications" data-testid="toasts">
-      <div role="alert" className="w-toasts__list">
+      {/* aria-live as well as the role: a modal window of the kit leaves a live region visible to a
+          screen reader (theme/kit/Dialog.tsx) and hides the rest of the page. */}
+      <div role="alert" aria-live="assertive" className="w-toasts__list">
         {alerts.map((toast) => (
           <ToastView key={toast.id} toast={toast} />
         ))}

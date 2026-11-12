@@ -1,6 +1,7 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { Dialog as KitDialog } from '../../src/renderer/theme/kit/Dialog'
 import { Select, type SelectOption } from '../../src/renderer/theme/Select'
 
 // The shared Select of worfy: a button and a listbox after the WAI-ARIA "select-only combobox"
@@ -304,6 +305,67 @@ describe('Select: Esc', () => {
     } finally {
       window.removeEventListener('keydown', windowListener)
     }
+  })
+})
+
+// In a window of the kit (theme/kit/Dialog.tsx, worfy-ui-kit ticket 04) the list is drawn into the
+// window, so Base UI's focus trap, its hiding of the page and its press outside count it as part of
+// the window (the spike's choice, .scratch/worfy-ui-kit/spike-base-ui.md, step 3).
+describe('Select: inside a window of the kit', () => {
+  /** Lets Base UI's effects and frames run. */
+  const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 20)))
+
+  /** A pointer press as a browser sends it. */
+  function pressPointer(element: Element): void {
+    fireEvent.pointerDown(element, { button: 0, pointerType: 'mouse' })
+    fireEvent.mouseDown(element, { button: 0 })
+    fireEvent.pointerUp(element, { button: 0, pointerType: 'mouse' })
+    fireEvent.mouseUp(element, { button: 0 })
+    fireEvent.click(element, { button: 0 })
+  }
+
+  function InWindow({ onClose }: { onClose: () => void }) {
+    return (
+      <KitDialog open onClose={onClose} label="Window" className="probe">
+        <Harness />
+      </KitDialog>
+    )
+  }
+
+  afterEach(async () => {
+    cleanup()
+    await flush()
+  })
+
+  it('the list is drawn inside the window and a screen reader sees it; an option chosen with the mouse keeps the window open', async () => {
+    const onClose = vi.fn()
+    render(<InWindow onClose={onClose} />)
+    await flush()
+    const window = screen.getByRole('dialog', { name: 'Window' })
+    pressPointer(button())
+    await flush()
+    const list = screen.getByRole('listbox')
+    expect(window.contains(list)).toBe(true)
+    for (let node: Element | null = list; node !== null; node = node.parentElement) expect(node.getAttribute('aria-hidden')).not.toBe('true')
+    pressPointer(list.querySelector('[data-value="sonnet"]')!)
+    await flush()
+    expect(button().getAttribute('data-value')).toBe('sonnet')
+    expect(listbox()).toBeNull()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('Esc on the open list closes only the list; the next Esc closes the window', async () => {
+    const onClose = vi.fn()
+    render(<InWindow onClose={onClose} />)
+    await flush()
+    key('ArrowDown')
+    expect(listbox()).not.toBeNull()
+    key('Escape')
+    await flush()
+    expect(listbox()).toBeNull()
+    expect(onClose).not.toHaveBeenCalled()
+    key('Escape')
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
 
