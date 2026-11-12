@@ -112,6 +112,10 @@ so the toolbar fits the smallest window with the sidebar open. The panel is 560 
 Typing ranks the rows. ↑ and ↓ walk all the rows across the groups and wrap round, and the pointer over a row selects it.
 Enter or a click runs the selected row. Esc or a press outside the panel closes the palette.
 
+The palette is modal. Tab and Shift+Tab stay inside it. While it is open, the window's own ⌘ shortcuts (⌘F, ⌘↩) do
+nothing; the items of the app menu still work. On closing, the focus goes back where it was before the palette opened. Settings opened over the palette with ⌘, lies on
+top of it and takes the keys; when Settings closes, the focus goes back to the palette's field, with the query kept.
+
 A command that worked closes the palette. A command that failed leaves it open with the reason at the bottom, until the
 next typing or pick. While a command runs, another pick does nothing.
 
@@ -202,6 +206,7 @@ Machine of the Project.
 | What | Where |
 |---|---|
 | The field, the panel, the keys, the transcript search | `src/renderer/palette/CommandPalette.tsx` |
+| The modal window under the panel: focus, Esc, the layer | `src/renderer/theme/kit/Dialog.tsx`, `src/renderer/theme/layers.ts` |
 | Building the commands from the window's state | `src/renderer/palette/commands.ts` |
 | Grouping the ranked rows | `src/renderer/palette/groups.ts` |
 | Ranking (`rankItems`), shared with Canvas find | `src/renderer/find/search-index.ts` |
@@ -210,7 +215,7 @@ Machine of the Project.
 | The transcript search and its limits | `src/main/claude-home/search.ts`, `src/shared/ipc/claude-home.ts` |
 | The Codex threads the search reads | `src/main/ipc/claude-home.ts`, `src/main/vendors/codex/sessions-on-canvas.ts` |
 
-Main tests: `test/unit/palette-commands.test.tsx`, `test/unit/palette-groups.test.tsx`,
+Main tests: `test/unit/palette-commands.test.tsx`, `test/unit/palette-groups.test.tsx`, `test/unit/palette-dialog.test.tsx`,
 `test/unit/palette-transcripts.test.tsx`, `test/unit/palette-manual-check-row.test.tsx`,
 `test/contract/claude-home-search.test.ts`, `test/e2e/palette-find.spec.ts`, `test/e2e/palette-groups.spec.ts`.
 

@@ -6,6 +6,7 @@
 export const LAYERS = {
   panel: 80,
   popover: 90,
+  palette: 101,
   dialog: 110,
   toast: 120,
   canvasOverlay: 1000,

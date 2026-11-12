@@ -1,0 +1,6 @@
+/* The Command palette on the kit's window (theme/kit/Dialog.tsx, worfy-ui-kit ticket 08). Its backdrop
+   takes a press outside the palette, as before, and stays clear: the palette hangs under the toolbar
+   over the window as it is, not over a dimmed one. The panel places itself (CommandPalette.tsx). */
+.w-kit-dialog__backdrop.w-palette__backdrop {
+  background: transparent;
+}
