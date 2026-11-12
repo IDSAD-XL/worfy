@@ -568,10 +568,10 @@ describe('on the screen of a Linked machine that shares its Projects read-only (
   it('a running Session: Close, Hide and Remove are inactive and say why; the field takes no message and no file', async () => {
     const node = await mountRunning()
     const close = screen.getByTestId('session-node-close')
-    await vi.waitFor(() => expect(close.getAttribute('title')).toBe(HINT))
+    await vi.waitFor(() => expect(close.getAttribute('data-kit-hint')).toBe(HINT))
     for (const button of [close, screen.getByRole('button', { name: 'Hide' }), screen.getByTestId('session-node-remove')]) {
       expect(button.getAttribute('aria-disabled')).toBe('true')
-      expect(button.getAttribute('title')).toBe(HINT)
+      expect(button.getAttribute('data-kit-hint')).toBe(HINT)
       fireEvent.click(button)
     }
     const field = screen.getByTestId('session-node-input') as HTMLInputElement
@@ -590,7 +590,7 @@ describe('on the screen of a Linked machine that shares its Projects read-only (
     views = []
     await mount({ origin: 'worfy', sessionId: SAVED }, 'finished')
     const resume = screen.getByTestId('session-node-resume')
-    await vi.waitFor(() => expect(resume.getAttribute('title')).toBe(HINT))
+    await vi.waitFor(() => expect(resume.getAttribute('data-kit-hint')).toBe(HINT))
     expect(resume.getAttribute('aria-disabled')).toBe('true')
     fireEvent.click(resume)
     expect(called('sessions.start')).toEqual([])

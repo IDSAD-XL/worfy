@@ -272,7 +272,7 @@ describe('the Archive popover', () => {
     const restore = screen.getByRole('button', { name: 'Restore Refactor the parser' })
     const all = screen.getByRole('button', { name: 'Restore all from today' })
     expect(restore.getAttribute('aria-disabled')).toBe('true')
-    expect(restore.getAttribute('title')).toBe('Studio gives this Machine read-only access')
+    expect(restore.getAttribute('data-kit-hint')).toBe('Studio gives this Machine read-only access')
     expect(all.getAttribute('aria-disabled')).toBe('true')
     fireEvent.click(restore)
     fireEvent.click(all)

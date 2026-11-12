@@ -235,7 +235,12 @@ test('two worfy link by address and code, and each lists the other as online', a
     await expect(railBadge(a.window)).toBeVisible()
     await expect(railBadge(a.window)).toHaveAttribute('data-tone', 'ready')
     await expect(machinesTab(a.window)).toHaveAccessibleDescription('1 linked machine online')
-    await expect(machinesTab(a.window)).toHaveAttribute('title', 'Machines — 1 linked machine online')
+    // The tab's tooltip is the Tooltip kit's (worfy-ui-kit ticket 13): the pointer resting on the tab shows it.
+    await expect(machinesTab(a.window)).not.toHaveAttribute('title', /./)
+    await machinesTab(a.window).hover()
+    await expect(a.window.getByRole('tooltip')).toHaveText('Machines — 1 linked machine online')
+    await a.window.mouse.move(0, 0)
+    await expect(a.window.getByRole('tooltip')).toHaveCount(0)
     await snapshotThemes(a.window, 'machines-dot')
 
     // The other worfy quits: nobody is online, so the dot goes; the Linked machine stays in the list.

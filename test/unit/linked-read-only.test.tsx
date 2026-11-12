@@ -172,10 +172,15 @@ afterEach(() => {
   delete (globalThis as { worfy?: WorfyBridge }).worfy
 })
 
-/** Expects an action to be inactive with the read-only hint as its tooltip. */
+/**
+ * Expects a write action to be inactive with the read-only hint as its tooltip: the Tooltip kit's
+ * (writeAction, worfy-ui-kit ticket 13), heard as the description, with no native `title` beside it.
+ */
 function expectInactive(element: HTMLElement): void {
   expect(element.getAttribute('aria-disabled')).toBe('true')
-  expect(element.getAttribute('title')).toBe(HINT)
+  expect(element.getAttribute('data-kit-hint')).toBe(HINT)
+  expect(element.getAttribute('aria-description')).toBe(HINT)
+  expect(element.hasAttribute('title')).toBe(false)
 }
 
 describe('useReadOnly and readOnlyNow', () => {
@@ -570,6 +575,25 @@ describe('the Session view, the sidebar and the Orchestrator', () => {
     await waitFor(() => expect(fake.sent).toContain('sessions.new'))
   })
 
+  it('read-only: the keyboard focus on the inactive "New session" shows why in the Tooltip kit; Esc hides it', async () => {
+    await windowOn(M, true)
+    const { default: SessionsSection } = await import('../../src/renderer/shell/sidebar/SessionsSection')
+    const { HintTooltips } = await import('../../src/renderer/theme/kit/Tooltip')
+    render(
+      <>
+        <HintTooltips />
+        <SessionsSection />
+      </>,
+    )
+    const inactive = await screen.findByTestId('sidebar-new-session')
+    expect(screen.queryByRole('tooltip')).toBeNull()
+    fireEvent.keyDown(document.body, { key: 'Tab' })
+    act(() => inactive.focus())
+    expect((await screen.findByRole('tooltip')).textContent).toBe(HINT)
+    fireEvent.keyDown(inactive, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('tooltip')).toBeNull())
+  })
+
   it('read-only: the history shows the Sessions, Resume is inactive and resumes nothing', async () => {
     const session = { sessionId: 's-1', title: 'one', size: 10, modifiedAt: 1, live: false }
     await windowOn(M, true, {
@@ -726,7 +750,9 @@ describe('the selection toolbar, the Command palette and Focus mode', () => {
     try {
       const row = await draw(true)
       for (const id of ['new:session', 'tidy-up']) {
-        expectInactive(row(id))
+        // A row of the palette says why under its name and in its own native tooltip (not a write action's).
+        expect(row(id).getAttribute('aria-disabled')).toBe('true')
+        expect(row(id).getAttribute('title')).toBe(HINT)
         expect(within(row(id)).getByTestId('palette-option-note').textContent).toBe(HINT)
       }
       fireEvent.click(row('new:session'))

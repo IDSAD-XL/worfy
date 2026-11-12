@@ -209,7 +209,9 @@ describe('an inactive Button (F-SPEC, "Read only": dimmed to 50 %)', () => {
     const button = screen.getByRole('button', { name: 'New session' })
     expect(button.getAttribute('aria-disabled')).toBe('true')
     expect(button.hasAttribute('data-read-only')).toBe(true)
-    expect(button.getAttribute('title')).toBe('Mac mini gives this Machine read-only access')
+    // The hint is the Tooltip kit's (worfy-ui-kit ticket 13), not a native title.
+    expect(button.getAttribute('data-kit-hint')).toBe('Mac mini gives this Machine read-only access')
+    expect(button.hasAttribute('title')).toBe(false)
     fireEvent.click(button)
     expect(onClick).not.toHaveBeenCalled()
     expect(bodyFor(".w-button[aria-disabled='true']", 'opacity')).toMatch(/opacity:\s*0\.5;/)

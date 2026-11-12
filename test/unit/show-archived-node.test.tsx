@@ -190,7 +190,7 @@ describe('Show of an archived Node', () => {
     const row = await screen.findByTestId('sidebar-session')
     // The Layout is read: the Node is known as archived.
     await waitFor(() => expect(row.getAttribute('aria-disabled')).toBe('true'))
-    expect(row.getAttribute('title')).toBe(HINT)
+    expect(row.getAttribute('data-kit-hint')).toBe(HINT)
     fireEvent.click(row)
     expect(ops()).toEqual([])
   })

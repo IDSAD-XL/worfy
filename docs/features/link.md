@@ -299,7 +299,8 @@ does not block the start, and the start names it.
 
 **A read-only screen.** The Canvas can be looked at, panned and zoomed. A notice at the top says `<name> gives this
 Machine read-only access`. Write actions stay on screen, inactive, with that tooltip, and main refuses such a call
-anyway. Nodes do not move and do not resize. A Terminal Node shows a stand-in, its shell does not start, and its
+anyway. The tooltip shows under the pointer and when the keyboard focuses the action; Esc hides it, and a screen
+reader hears it as the action's description. Nodes do not move and do not resize. A Terminal Node shows a stand-in, its shell does not start, and its
 output is not sent.
 
 #### Windows

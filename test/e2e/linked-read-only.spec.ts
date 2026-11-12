@@ -114,10 +114,29 @@ async function drawnAt(window: Page, nodeId: string): Promise<string> {
   return (await window.locator(`.react-flow__node[data-id="${nodeId}"]`).getAttribute('style'))?.match(/translate\([^)]*\)/)?.[0] ?? ''
 }
 
-/** Expects `action` to be inactive with the read-only hint as its tooltip. */
+/** Expects `action` to be inactive with the read-only hint as its native tooltip (an action button of an Epic frame). */
 async function expectInactive(action: Locator): Promise<void> {
   await expect(action).toHaveAttribute('aria-disabled', 'true')
   await expect(action).toHaveAttribute('title', HINT)
+}
+
+/**
+ * Expects a write action (projects/read-only.ts, writeAction) to be inactive with the read-only hint
+ * in the Tooltip kit (worfy-ui-kit ticket 13): no native title; the keyboard focus shows the hint
+ * beside it, Esc hides it.
+ */
+async function expectInactiveWithKitTooltip(window: Page, action: Locator): Promise<void> {
+  await expect(action).toHaveAttribute('aria-disabled', 'true')
+  await expect(action).toHaveAttribute('aria-description', HINT)
+  await expect(action).not.toHaveAttribute('title', /./)
+  // A key press first: after it the focus counts as the keyboard's, not as the last click's.
+  await window.keyboard.press('Shift')
+  await action.focus()
+  const tooltip = window.getByRole('tooltip')
+  await expect(tooltip).toHaveText(HINT)
+  await expect(tooltip).toBeVisible()
+  await window.keyboard.press('Escape')
+  await expect(tooltip).toHaveCount(0)
 }
 
 test('Read only: A marks B in the sidebar, B\'s Canvas in A only shows — inactive actions, no drag, no Terminal; Full access makes them active again', async () => {
@@ -171,7 +190,8 @@ test('Read only: A marks B in the sidebar, B\'s Canvas in A only shows — inact
     // The actions of the Epic frame and the sidebar's "New session": inactive, saying why.
     const frame = a.window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
     await showSidebarSection(a.window, 'Sessions')
-    for (const action of [frame.getByTestId('action-run-wave'), frame.getByTestId('action-autopilot'), a.window.getByTestId('sidebar-new-session')]) await expectInactive(action)
+    for (const action of [frame.getByTestId('action-run-wave'), frame.getByTestId('action-autopilot')]) await expectInactive(action)
+    await expectInactiveWithKitTooltip(a.window, a.window.getByTestId('sidebar-new-session'))
     // Playwright waits for an aria-disabled button to become enabled; the click is forced, as a person's would land.
     await a.window.getByTestId('sidebar-new-session').click({ force: true })
     await expect(a.window.locator('[data-testid="session-node"][data-live="true"]')).toHaveCount(0)

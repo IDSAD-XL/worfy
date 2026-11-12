@@ -97,3 +97,17 @@ Ticket 10 (popover-ы Queued messages и Effort в composer-е, `test/e2e/layers
   popover-ов, 6 menu и 5 context menu остаётся своим кодом, где 17 из 147 commit-ов чинили поведение (критик spec-а,
   `docs/product/critic/worfy-ui-kit-2026-11-11.md`).
 - **Base UI** (выбрано).
+
+## Amendments
+
+- 2026-11-12 — Tooltip kit (`theme/kit/Tooltip.tsx`, Ticket 13 Epic-а `worfy-ui-kit`, PR #1828) — исключение из пунктов 5
+  и 7. Popup tooltip-а не несёт ни пометку kit-а `data-kit-popup`, ни `data-toast-keep-out`; закрытие по blur окна и при
+  смене вида остаётся. Tooltip — не слой, в котором находится пользователь, поэтому Esc с ним обходится так:
+  - фокус на элементе tooltip-а: Esc прячет tooltip и дальше не идёт, как на trigger-е popup-а (пункт 7); Esc предка
+    (окно, панель справа) срабатывает на следующем нажатии;
+  - фокус в другом месте (tooltip показан наведением): Esc прячет tooltip и уходит дальше без отметки — к слоям и полям
+    ниже. Base UI 1.9.0 на `document` отмечает такое нажатие (`preventDefault`, `stopPropagation`); kit это отменяет
+    (`cancel()` и `allowPropagation()` в `onOpenChange`). Поэтому focus mode выходит, а поле ввода чата прерывает ход
+    на том же нажатии, и `escapeBelongsToPopup` tooltip не считает: пометки kit-а у него нет;
+  - toast-ы tooltip не обходят: он нарисован на верхнем слое шкалы (`LAYERS.top`) поверх них и не берёт указатель
+    (`pointer-events: none`).

@@ -395,7 +395,7 @@ describe('the question card', () => {
     await click(options(card)[0]!)
     await key(card.querySelector('.w-question') as HTMLElement, '1')
     expect(options(card).map((each) => each.getAttribute('aria-checked'))).toEqual(['false', 'false'])
-    expect(within(card).getByTestId('question-decline').getAttribute('title')).toBe('Studio gives this Machine read-only access')
+    expect(within(card).getByTestId('question-decline').getAttribute('data-kit-hint')).toBe('Studio gives this Machine read-only access')
     expect((within(card).getByTestId('question-other') as HTMLInputElement).readOnly).toBe(true)
     await click(within(card).getByTestId('question-decline'))
     await click(within(card).getByTestId('question-submit'))

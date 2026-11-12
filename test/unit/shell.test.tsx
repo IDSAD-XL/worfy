@@ -168,7 +168,9 @@ describe('AppShell', () => {
     document.documentElement.dataset.platform = system
     render(<AppShell />)
     const button = screen.getByRole('button', { name: 'Hide sidebar' })
-    expect(button.getAttribute('title')).toBe(tooltip)
+    // The tooltip is the Tooltip kit's (worfy-ui-kit ticket 13); a screen reader hears it as the description.
+    expect(button.getAttribute('aria-description')).toBe(tooltip)
+    expect(button.hasAttribute('title')).toBe(false)
     expect(button.getAttribute('aria-keyshortcuts')).toBe(keys)
     expect(button.getAttribute('aria-pressed')).toBe('true')
   })

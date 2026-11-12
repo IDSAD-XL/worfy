@@ -3,6 +3,7 @@ import { useFocusState } from '../focus/focus-state'
 import { openSettings } from '../settings/settings-window'
 import { SHORTCUTS } from '../../shared/shortcuts'
 import { label } from '../shortcuts/match'
+import { Tooltip } from '../theme/kit/Tooltip'
 import { ProjectSwitcher } from './ProjectSwitcher'
 import { collectExtensions, type ShellExtension } from './registry'
 import { pickSection, showSidebarSection, useRailBadge, useSidebarScope } from './sidebar-scope'
@@ -64,27 +65,28 @@ function RailTab({ section, selected, first, tabId, panelId, onSelect, onKeyDown
   const badge = useRailBadge(section.id)
   const Icon = section.rail?.Icon ?? PlainIcon
   return (
-    <button
-      type="button"
-      role="tab"
-      id={tabId}
-      className="w-sidebar__rail-button"
-      aria-selected={selected}
-      aria-controls={panelId}
-      aria-label={title}
-      // A screen reader hears the badge as the description of the tab; its name stays the section's.
-      aria-description={badge?.label}
-      title={badge === undefined ? title : `${title} — ${badge.label}`}
-      tabIndex={selected ? 0 : -1}
-      data-section-tab={section.id}
-      // The first of the sections at the foot of the rail: the room above it pushes them down (shell.css).
-      data-rail-foot={first ? '' : undefined}
-      onClick={onSelect}
-      onKeyDown={onKeyDown}
-    >
-      <Icon />
-      <RailBadgeMark id={section.id} />
-    </button>
+    <Tooltip label={badge === undefined ? title : `${title} — ${badge.label}`} side="right">
+      <button
+        type="button"
+        role="tab"
+        id={tabId}
+        className="w-sidebar__rail-button"
+        aria-selected={selected}
+        aria-controls={panelId}
+        aria-label={title}
+        // A screen reader hears the badge as the description of the tab; its name stays the section's.
+        aria-description={badge?.label}
+        tabIndex={selected ? 0 : -1}
+        data-section-tab={section.id}
+        // The first of the sections at the foot of the rail: the room above it pushes them down (shell.css).
+        data-rail-foot={first ? '' : undefined}
+        onClick={onSelect}
+        onKeyDown={onKeyDown}
+      >
+        <Icon />
+        <RailBadgeMark id={section.id} />
+      </button>
+    </Tooltip>
   )
 }
 
@@ -153,9 +155,11 @@ export function SidebarView({ sections, onToggle }: SidebarViewProps) {
           <div ref={rail} role="tablist" aria-label="Sidebar sections" aria-orientation="vertical" className="w-sidebar__tabs">
             {ordered.map(tab)}
           </div>
-          <button type="button" className="w-sidebar__rail-button" aria-label="Settings" title={`Settings (${label(SHORTCUTS.settings)})`} onClick={() => openSettings()}>
-            {gearIcon}
-          </button>
+          <Tooltip label={`Settings (${label(SHORTCUTS.settings)})`} side="right">
+            <button type="button" className="w-sidebar__rail-button" aria-label="Settings" onClick={() => openSettings()}>
+              {gearIcon}
+            </button>
+          </Tooltip>
         </div>
         <div className="w-sidebar__sections">
           {ordered.map(({ id, Component }) => (

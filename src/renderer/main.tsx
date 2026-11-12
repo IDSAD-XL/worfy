@@ -20,6 +20,7 @@ import { activeProject, followActiveProject, useLinked, useProjects } from './pr
 import { setView, useNavigation } from './session/navigation'
 import { installQuestionToasts } from './session/question-toast'
 import { SessionView } from './session/SessionView'
+import { HintTooltips } from './theme/kit/Tooltip'
 import { ToastRegion } from './toast/ToastRegion'
 import { installPrInboxDigest } from './pr-inbox/digest'
 import { installUpdateToasts } from './update/toasts'
@@ -97,6 +98,8 @@ export function App() {
         history={<RunsView activeProjectId={active?.id} />}
       />
       <ToastRegion projectId={active?.id} />
+      {/* The tooltips of the inactive write actions on a read-only Linked machine (projects/read-only.ts). */}
+      <HintTooltips />
     </>
   )
 }
