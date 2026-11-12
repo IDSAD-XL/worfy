@@ -12,6 +12,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PROFILE_CHANGED, PROFILE_EDIT_FIELDS, type ProfileEditRead } from '../../src/shared/ipc/profile-edit'
 import { ms } from '../time-scale'
+import { expectKitWindow, expectTabStaysIn, flush } from './kit-window'
 
 type Answer = { ok: true; value: unknown } | { ok: false; error: string }
 const main = vi.hoisted(() => ({
@@ -114,7 +115,10 @@ afterEach(() => {
 async function openForm(machine?: string): Promise<HTMLElement> {
   render(<ProjectSettings project={PROJECT} machine={machine} onClose={() => undefined} />)
   await act(async () => {})
-  fireEvent.click(screen.getByRole('button', { name: 'Edit profile…' }))
+  // The focus on the button first, as a press in a browser puts it there: the window gives it back on closing.
+  const button = screen.getByRole('button', { name: 'Edit profile…' })
+  button.focus()
+  fireEvent.click(button)
   const form = await screen.findByTestId('edit-profile')
   await within(form).findByLabelText('Title')
   return form
@@ -278,6 +282,36 @@ describe('Edit profile', () => {
     expect(screen.queryByTestId('edit-profile')).toBeNull()
     expect(screen.getByTestId('project-settings')).toBeTruthy()
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Edit profile…' }))
+  })
+
+  it('a window of the kit over Project settings: the dialog layer, drawn after it so it is on top, Tab stays in it (worfy-ui-kit ticket 05)', async () => {
+    const form = await openForm()
+    await flush()
+    expectKitWindow(form)
+    // Base UI puts the portal of a window opened from a window into the portal of the first, after its backdrop.
+    const settings = screen.getByTestId('project-settings')
+    expect(settings.contains(form)).toBe(false)
+    expect(settings.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    await expectTabStaysIn(form)
+  })
+
+  it('Edit profile is the top window: an Esc with the focus fallen to the page closes it alone, the next one closes Project settings', async () => {
+    const onClose = vi.fn()
+    render(<ProjectSettings project={PROJECT} onClose={onClose} />)
+    await act(async () => {})
+    const button = screen.getByRole('button', { name: 'Edit profile…' })
+    button.focus()
+    fireEvent.click(button)
+    await within(await screen.findByTestId('edit-profile')).findByLabelText('Title')
+    await flush()
+    act(() => (document.activeElement as HTMLElement).blur())
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    await flush()
+    expect(screen.queryByTestId('edit-profile')).toBeNull()
+    expect(onClose).not.toHaveBeenCalled()
+    act(() => (document.activeElement as HTMLElement).blur())
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledOnce()
   })
 
   it('a cleared ticket path is sent empty and refused at its field; a cleared optional text field is null', async () => {

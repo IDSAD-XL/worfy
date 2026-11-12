@@ -112,8 +112,9 @@ test('the Profile form of "Add project": a field opens from the keyboard, letter
     await expect(list.getByRole('option', { name: 'en' })).toHaveAttribute('aria-selected', 'true')
     expect(await activeOption(reports)).toBe('en')
     await expect(reports).toBeFocused()
-    // Drawn over the dialog, in document.body: the dialog's scrolling body does not cut it.
-    expect(await list.evaluate((element) => element.parentElement === element.ownerDocument.body)).toBe(true)
+    // Drawn into the dialog, a window of the kit (worfy-ui-kit ticket 05), so its focus trap counts the
+    // list; a child of the window itself, not of its scrolling body, which does not cut it.
+    expect(await list.evaluate((element) => element.parentElement?.getAttribute('data-testid'))).toBe('connect-project')
     await shoot(launched, [languages, list], 'select-open')
 
     // "r" goes to "ru"; Enter chooses it and closes the list.

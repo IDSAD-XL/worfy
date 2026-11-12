@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
-import { createPortal } from 'react-dom'
+import { flushSync } from 'react-dom'
 import '../../canvas/actions/actions.css'
 import type { LinkState } from '../../../shared/ipc/link'
 import type { ProjectPulse } from '../../../shared/ipc/project-pulse'
@@ -14,6 +14,7 @@ import { onAddProjectRequest } from '../../projects/add-project'
 import { useGateQueue } from '../../projects/useGateQueue'
 import { pulseOf, pulseParts, useProjectPulse } from '../../projects/useProjectPulse'
 import { acceptMachineProjects, openProject, useProjectGroups, useProjects, type ProjectGroup } from '../../projects/useProjects'
+import { Dialog } from '../../theme/kit/Dialog'
 import { StatusChip } from '../../theme/primitives'
 import { openFirstRun } from '../first-run-store'
 import { ProjectSettings } from '../ProjectSettings'
@@ -91,7 +92,6 @@ const styles = {
 type Message = { kind: 'notice' | 'error'; text: string }
 
 const choiceStyles = {
-  backdrop: { position: 'fixed', inset: 0, zIndex: 95, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0, 0, 0, 0.25)' },
   dialog: {
     width: 440,
     maxWidth: 'calc(100vw - 32px)',
@@ -167,76 +167,50 @@ interface MachineChoiceProps {
   onCancel: () => void
 }
 
-/** The first step of "Add project" when there are Linked machines: on which Machine. */
+/** The first step of "Add project" when there are Linked machines: on which Machine. A modal window of the kit (theme/kit/Dialog.tsx). */
 function MachineChoice({ options, onChoose, onCancel }: MachineChoiceProps) {
   const titleId = useId()
-  const dialog = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    dialog.current?.focus()
-  }, [])
-  return createPortal(
-    <div
-      style={choiceStyles.backdrop}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onCancel()
-      }}
-    >
-      <div
-        ref={dialog}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
-        style={choiceStyles.dialog}
-        data-testid="add-project-machine"
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.stopPropagation()
-            onCancel()
-          }
-        }}
-      >
-        <div style={choiceStyles.header}>
-          <h2 id={titleId} style={choiceStyles.title}>
-            Add project
-          </h2>
-          <p style={choiceStyles.hint}>Choose the Machine the project&apos;s folder is on. The Project is added there.</p>
-        </div>
-        <ul style={choiceStyles.list} aria-label="Machines">
-          {options.map((option) => (
-            <li key={option.machine ?? ''}>
-              <button
-                type="button"
-                className="w-row"
-                style={{ ...choiceStyles.option, ...(option.unavailable === null ? {} : choiceStyles.optionOff), height: 'auto' }}
-                disabled={option.unavailable !== null}
-                aria-disabled={option.unavailable === null ? undefined : 'true'}
-                data-testid="add-project-machine-option"
-                data-machine-id={option.machine ?? undefined}
-                onClick={() => option.unavailable === null && onChoose(option)}
-              >
-                <span style={choiceStyles.optionName}>
-                  <MachineName name={option.name} />
-                </span>
-                {option.unavailable !== null ? (
-                  <span style={choiceStyles.optionReason} data-testid="add-project-machine-reason">
-                    {option.unavailable}
-                  </span>
-                ) : (
-                  <span style={choiceStyles.optionDetail}>{option.machine === null ? 'This Machine: its own folder picker' : 'Browse its folders here'}</span>
-                )}
-              </button>
-            </li>
-          ))}
-        </ul>
-        <div style={choiceStyles.footer}>
-          <button type="button" className="w-action" onClick={onCancel}>
-            Cancel
-          </button>
-        </div>
+  return (
+    <Dialog open onClose={onCancel} labelledBy={titleId} className="" style={choiceStyles.dialog} data-testid="add-project-machine">
+      <div style={choiceStyles.header}>
+        <h2 id={titleId} style={choiceStyles.title}>
+          Add project
+        </h2>
+        <p style={choiceStyles.hint}>Choose the Machine the project&apos;s folder is on. The Project is added there.</p>
       </div>
-    </div>,
-    document.body,
+      <ul style={choiceStyles.list} aria-label="Machines">
+        {options.map((option) => (
+          <li key={option.machine ?? ''}>
+            <button
+              type="button"
+              className="w-row"
+              style={{ ...choiceStyles.option, ...(option.unavailable === null ? {} : choiceStyles.optionOff), height: 'auto' }}
+              disabled={option.unavailable !== null}
+              aria-disabled={option.unavailable === null ? undefined : 'true'}
+              data-testid="add-project-machine-option"
+              data-machine-id={option.machine ?? undefined}
+              onClick={() => option.unavailable === null && onChoose(option)}
+            >
+              <span style={choiceStyles.optionName}>
+                <MachineName name={option.name} />
+              </span>
+              {option.unavailable !== null ? (
+                <span style={choiceStyles.optionReason} data-testid="add-project-machine-reason">
+                  {option.unavailable}
+                </span>
+              ) : (
+                <span style={choiceStyles.optionDetail}>{option.machine === null ? 'This Machine: its own folder picker' : 'Browse its folders here'}</span>
+              )}
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div style={choiceStyles.footer}>
+        <button type="button" className="w-action" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </Dialog>
   )
 }
 
@@ -480,9 +454,20 @@ export default function ProjectsSection() {
 
   /** The folder on Machine `machine`: this Machine's system picker, or a Linked machine's folders inside worfy. */
   const pickOn = async (machine: string | null, machineName: string): Promise<void> => {
+    if (machine !== null) {
+      // The window on screen (the Machine step, the connect dialog) closes first, in a commit of its
+      // own: a window of the kit gives the focus back to what opened it as it closes, and the folder
+      // browser takes the focus from there, and gives it back there (theme/kit/Dialog.tsx). Opened
+      // in the same commit, it would find the focus nowhere and give it back to nothing.
+      flushSync(() => {
+        setMessage(undefined)
+        setConnecting(undefined)
+        setPicking(undefined)
+      })
+      return setPicking({ kind: 'browse', machine, name: machineName })
+    }
     setMessage(undefined)
     setConnecting(undefined)
-    if (machine !== null) return setPicking({ kind: 'browse', machine, name: machineName })
     setPicking(undefined)
     const picked = await invokeOn(null, 'projects.pickFolder', { purpose: 'project' })
     if (!picked.ok) return fail(picked.error)

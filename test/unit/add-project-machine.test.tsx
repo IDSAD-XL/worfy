@@ -9,6 +9,7 @@ import type { LinkState } from '../../src/shared/ipc/link'
 import type { LinkedState } from '../../src/shared/ipc/linked'
 import type { ProjectsState } from '../../src/shared/ipc/projects'
 import { ms } from '../time-scale'
+import { expectKitWindow, expectTabStaysIn, flush } from './kit-window'
 
 const THIS = '11111111-1111-4111-8111-111111111111'
 /** Online, shares its Projects. */
@@ -259,5 +260,80 @@ describe('"Add project" with Linked machines: the Machine first', () => {
     await waitFor(() => expect(screen.getByTestId('folder-browser').getAttribute('data-loading')).toBe('no'))
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Choose' })))
     await waitFor(() => expect(screen.getByTestId('projects-error').textContent).toBe('Mini is unreachable'))
+  })
+})
+
+// The windows of "Add project" on the kit's Dialog (worfy-ui-kit ticket 05): one after the other, each
+// takes the focus, and the focus comes back to "Add project" when the last one closes.
+describe('"Add project" with Linked machines: the windows of the kit', () => {
+  const BROWSE = { 'projects.browse': () => ({ ok: true, path: '/Users/someone', parent: '/Users', truncated: false, folders: [] }) }
+
+  /** "Add project" pressed with the focus on it, as a press in a browser leaves it. */
+  async function addProject(): Promise<HTMLElement> {
+    const button = screen.getByRole('button', { name: 'Add project' })
+    button.focus()
+    fireEvent.click(button)
+    await screen.findByTestId('add-project-machine')
+    await flush()
+    return button
+  }
+
+  afterEach(flush)
+
+  it('the Machine step is a modal dialog named "Add project", on the dialog layer, that takes the focus; Tab does not leave it', async () => {
+    await mount(MACHINES)
+    await addProject()
+    const step = screen.getByTestId('add-project-machine')
+    expect(screen.getByRole('dialog', { name: 'Add project' })).toBe(step)
+    expectKitWindow(step)
+    expect(document.activeElement).toBe(step)
+    await expectTabStaysIn(step)
+  })
+
+  it('Esc and Cancel of the Machine step give the focus back to "Add project"', async () => {
+    await mount(MACHINES)
+    const button = await addProject()
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await flush()
+    expect(screen.queryByTestId('add-project-machine')).toBeNull()
+    expect(document.activeElement).toBe(button)
+    await addProject()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await flush()
+    expect(screen.queryByTestId('add-project-machine')).toBeNull()
+    expect(document.activeElement).toBe(button)
+  })
+
+  it('a Linked machine chosen: the folder browser takes the place of the Machine step and the focus; its Cancel gives the focus back to "Add project"', async () => {
+    await mount(MACHINES, BROWSE)
+    const button = await addProject()
+    fireEvent.click(option(MINI))
+    const browser = await screen.findByTestId('folder-browser')
+    await waitFor(() => expect(browser.getAttribute('data-loading')).toBe('no'))
+    await flush()
+    expect(screen.queryByTestId('add-project-machine')).toBeNull()
+    expectKitWindow(browser)
+    expect(document.activeElement).toBe(browser)
+    fireEvent.click(within(browser).getByRole('button', { name: 'Cancel' }))
+    await flush()
+    expect(screen.queryByTestId('folder-browser')).toBeNull()
+    expect(document.activeElement).toBe(button)
+  })
+
+  it('a new folder chosen there: the connect dialog takes the focus, and its Esc gives it back to "Add project"', async () => {
+    const folder = { kind: 'git', root: '/Users/someone', repos: [{ name: 'someone', path: '/Users/someone' }], notice: null }
+    await mount(MACHINES, { ...BROWSE, 'projects.connect.inspect': () => ({ status: 'new', folder, harnessHome: '/Users/someone/.claude/worfy-harness' }) })
+    const button = await addProject()
+    fireEvent.click(option(MINI))
+    await waitFor(() => expect(screen.getByTestId('folder-browser').getAttribute('data-loading')).toBe('no'))
+    await flush()
+    fireEvent.click(screen.getByRole('button', { name: 'Choose' }))
+    const dialog = await screen.findByTestId('connect-project')
+    await flush()
+    expect(document.activeElement).toBe(dialog)
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    await flush()
+    expect(screen.queryByTestId('connect-project')).toBeNull()
+    expect(document.activeElement).toBe(button)
   })
 })

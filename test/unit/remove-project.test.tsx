@@ -2,10 +2,12 @@
 // leaves the Harness and what stays, the refusal of a Workflow folder with tickets and of the script,
 // and "Remove from list" as the other choice. The dialog runs over the real renderer IPC client and a
 // fake preload whose answers each test gives.
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { ProjectsState, ProjectView, RemovalPreview } from '../../src/shared/ipc/projects'
+import { expectKitWindow, expectTabStaysIn, flush } from './kit-window'
 
 const SHOP: ProjectView = { id: 'shop-0000000a', name: 'shop', path: '/Users/someone/code/shop', branch: 'main' }
 const AFTER: ProjectsState = { projects: [], activeId: null, revision: 2 }
@@ -23,14 +25,15 @@ const ready = (over: Partial<Extract<RemovalPreview, { status: 'ready' }>> = {})
   ...over,
 })
 
-/** The preload: `answers` answer by channel; every call is noted. */
-async function mount(answers: Record<string, (input: unknown) => unknown>) {
+/** The preload: `answers` answer by channel, a promise when it comes later; every call is noted. */
+async function preload(answers: Record<string, (input: unknown) => unknown>) {
   const calls: [string, unknown][] = []
   const bridge: WorfyBridge = {
     invoke: (channel, input) => {
       calls.push([channel, input])
       const answer = answers[channel]
-      return Promise.resolve((answer ? { ok: true, value: answer(input) } : { ok: false, error: `unexpected ${channel}` }) as never)
+      if (answer === undefined) return Promise.resolve({ ok: false, error: `unexpected ${channel}` } as never)
+      return Promise.resolve(answer(input)).then((value) => ({ ok: true, value }) as never)
     },
     on: () => 1,
     off: () => undefined,
@@ -38,6 +41,11 @@ async function mount(answers: Record<string, (input: unknown) => unknown>) {
   ;(globalThis as { worfy?: WorfyBridge }).worfy = bridge
   vi.resetModules()
   const { RemoveProject } = await import('../../src/renderer/projects/RemoveProject')
+  return { calls, RemoveProject }
+}
+
+async function mount(answers: Record<string, (input: unknown) => unknown>) {
+  const { calls, RemoveProject } = await preload(answers)
   const props = { onCancel: vi.fn(), onRemoveFromList: vi.fn(), onRemoved: vi.fn() }
   render(<RemoveProject project={SHOP} {...props} />)
   return { calls, ...props }
@@ -151,5 +159,73 @@ describe('Remove project: the removal and its refusals', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(view.onCancel).toHaveBeenCalledTimes(2)
     expect(view.calls.map(([channel]) => channel)).toStrictEqual(['projects.removal.preview'])
+  })
+})
+
+// The window on the kit's Dialog (worfy-ui-kit ticket 05).
+describe('Remove project is a window of the kit', () => {
+  /** A page with a button that opens the window, as the Project's menu does. */
+  async function openFromButton(answers: Record<string, (input: unknown) => unknown>) {
+    const { calls, RemoveProject } = await preload(answers)
+    function Page() {
+      const [shown, setShown] = useState(false)
+      return (
+        <>
+          <button type="button" onClick={() => setShown(true)}>
+            Remove…
+          </button>
+          {shown ? <RemoveProject project={SHOP} onCancel={() => setShown(false)} onRemoveFromList={() => undefined} onRemoved={() => undefined} /> : null}
+        </>
+      )
+    }
+    render(<Page />)
+    const opener = screen.getByRole('button', { name: 'Remove…' })
+    opener.focus()
+    fireEvent.click(opener)
+    await screen.findByTestId('remove-project-goes')
+    await flush()
+    return { calls, opener, window: screen.getByRole('dialog', { name: 'Remove shop?' }) }
+  }
+
+  afterEach(flush)
+
+  it('a modal dialog named by its title, on the dialog layer, that takes the focus; Tab does not leave it', async () => {
+    const { window } = await openFromButton({ 'projects.removal.preview': () => ready() })
+    expectKitWindow(window)
+    expect(document.activeElement).toBe(window)
+    await expectTabStaysIn(window)
+  })
+
+  it('Esc closes it and the focus goes back to the button that opened it; so does Cancel', async () => {
+    const { opener } = await openFromButton({ 'projects.removal.preview': () => ready() })
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await flush()
+    expect(screen.queryByTestId('remove-project')).toBeNull()
+    expect(document.activeElement).toBe(opener)
+    fireEvent.click(opener)
+    await screen.findByTestId('remove-project-goes')
+    await flush()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await flush()
+    expect(screen.queryByTestId('remove-project')).toBeNull()
+    expect(document.activeElement).toBe(opener)
+  })
+
+  it('while the removal runs, neither Esc nor a press on the backdrop closes it', async () => {
+    let finish: (value: unknown) => void = () => undefined
+    const { window } = await openFromButton({
+      'projects.removal.preview': () => ready(),
+      'projects.removeProject': () => new Promise((resolve) => (finish = resolve)),
+    })
+    fireEvent.click(confirm())
+    await waitFor(() => expect(confirm().textContent).toBe('Removing…'))
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.mouseDown(window.parentElement!)
+    await flush()
+    expect(screen.getByTestId('remove-project')).toBe(window)
+    await act(async () => finish({ status: 'refused', reason: 'held', workflowFolder: null }))
+    fireEvent.mouseDown(window.parentElement!)
+    await flush()
+    expect(screen.queryByTestId('remove-project')).toBeNull()
   })
 })

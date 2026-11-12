@@ -1,7 +1,7 @@
 # 05 — Окна Project-ов на Dialog kit
 
 Type: task
-Status: open
+Status: claimed 2026-11-12T17:31Z
 Blocked by: 04
 Source: [spec.md](../spec.md), «Ticket-ы», строка 05; «Решения по реализации» (остальные модальные окна); истории 1, 2, 9;
 заметка темы `docs/product/ui-overhaul/notes/inventory-overlays.md`, раздел 1.1
