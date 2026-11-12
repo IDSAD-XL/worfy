@@ -9,9 +9,10 @@ import { earlierControl, loadEarlierTranscript, loadEarlierUntil, sessionTranscr
 import { invoke } from '../ipc'
 import { writeAction } from '../projects/read-only'
 import { useProjects, useReadOnly } from '../projects/useProjects'
+import { AnimatedNumber } from '../theme/AnimatedNumber'
 import { StatusChip } from '../theme/primitives'
 import { showToast } from '../toast/toasts'
-import { formatCost, permissionLabel, STATE_CHIPS } from './format'
+import { costNumber, permissionLabel, STATE_CHIPS } from './format'
 import { codexDefaultEffort, headerEffort, headerModel, useCodexModels } from './header-facts'
 import { promptHistory } from './history'
 import { ExternalSessionPanel } from './ExternalSessionPanel'
@@ -413,7 +414,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
             <span className="w-session__fact">
               <span className="w-session__fact-label">Cost</span>
               <span className="w-mono w-session__cost" data-testid="session-cost">
-                {orchestrator ? formatCost(orchestrator.costUsd) : '—'}
+                {orchestrator ? <AnimatedNumber {...costNumber(orchestrator.costUsd)} /> : '—'}
               </span>
               <span className="w-session__fact-label">this session</span>
             </span>

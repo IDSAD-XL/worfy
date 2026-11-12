@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react'
 import type { ContextUsage } from '../../../shared/agent/events'
 import { BLOCKED_FROM, WORKING_FROM, type LimitLevel } from '../../../shared/agent/limits'
+import { AnimatedNumber } from '../../theme/AnimatedNumber'
 import { useSessionContext } from '../store'
 import type { ComposerItemProps } from './index'
 
@@ -108,7 +109,7 @@ export default function ContextMeter({ sessionId }: ComposerItemProps) {
         ) : null}
       </svg>
       <span data-testid="context-meter-value" style={{ ...(percent === null ? {} : mono), color: level === 'blocked' ? 'var(--blocked-text)' : undefined }}>
-        {percent === null ? 'no data' : `${percent}%`}
+        {percent === null ? 'no data' : <AnimatedNumber value={percent} suffix="%" />}
       </span>
     </span>
   )

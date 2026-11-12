@@ -1,7 +1,7 @@
 # 17 — NumberFlow: проценты limits, context meter, стоимость
 
 Type: task
-Status: open
+Status: claimed 2026-11-12T16:53Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», строка 17; «Решения по реализации» (NumberFlow); истории 19, 20; решение
 владельца 2026-11-11 «NumberFlow можно»; заметка темы `docs/product/ui-overhaul/notes/inventory-foundation.md`, раздел 2.2

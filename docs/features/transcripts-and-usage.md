@@ -197,6 +197,8 @@ any data arrives it says "no data yet". A window without data says "no data".
   reset time, with a thin bar under them; the labels, values and times line up between the lines. The text is 10 px, and the
   reset line is the time alone (`Thu 09:00`), with `resets …` as its tooltip. A Vendor that reports more than two windows gets
   a second column of two. This is the same with one Vendor and with several.
+- **Rolling digits.** When a share changes, its digits roll to the new value. The first value shows at once, and so does
+  every new one under Reduce motion. A screen reader gets the final value.
 - **Several sections** make the panel compact, so it fits next to the rest of the toolbar in a 1280 px window and the Project
   title with its branch line stays whole: no "Limits" heading and a thin line between the sections.
 

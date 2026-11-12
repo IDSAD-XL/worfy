@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp, repoRoot, type LaunchedApp } from './helpers'
+import { animatedText, launchApp, repoRoot, type LaunchedApp } from './helpers'
 import { profileJsonScript } from '../harness-node'
 
 // The Limits panel by Vendor (worfy-multi-vendor ticket 26) against the built app: Claude's section from
@@ -175,7 +175,7 @@ test('signed in to Codex: a Codex section with the windows of its plan next to C
     await expect(codex.getByRole('meter')).toHaveCount(2)
     await expect(codex.getByRole('meter', { name: '5h limit' })).toHaveAttribute('aria-valuenow', '12')
     await expect(codex.getByRole('meter', { name: 'weekly limit' })).toHaveAttribute('aria-valuenow', '40')
-    await expect(codex.getByTestId('limit-codex-primary-value')).toHaveText('12%')
+    await expect(animatedText(codex.getByTestId('limit-codex-primary-value'))).toHaveText('12%')
     // Two sections make the panel compact: the reset line is the time alone, the whole line its tooltip.
     await expect(meter).toHaveAttribute('data-compact', 'true')
     await expect(codex.getByTestId('limit-codex-secondary-note')).toHaveText(/^[A-Z][a-z]{2} \d\d:\d\d$/)
@@ -190,8 +190,8 @@ test('signed in to Codex: a Codex section with the windows of its plan next to C
     }
 
     // Claude's section keeps its bars and their test ids.
-    await expect(claude.getByTestId('limit-five_hour-value')).toHaveText('62%')
-    await expect(claude.getByTestId('limit-seven_day-value')).toHaveText('38%')
+    await expect(animatedText(claude.getByTestId('limit-five_hour-value'))).toHaveText('62%')
+    await expect(animatedText(claude.getByTestId('limit-seven_day-value'))).toHaveText('38%')
     // Short labels in the toolbar (owner, 2026-11-10), the full ones in the meters' names and the values' tooltips.
     await expect(claude.locator('.w-limit-bar__label')).toHaveText(['5h', '7d'])
     await expect(codex.locator('.w-limit-bar__label')).toHaveText(['5h', '7d'])
@@ -285,7 +285,7 @@ test('Claude Code alone, at 1280 px and 1600 px: its two windows one above the o
     const claude = meter.getByRole('group', { name: 'Claude Code limits' })
     for (const width of [WIDTH, 1600]) {
       await sizeWindow(launched, width)
-      await expect(claude.getByTestId('limit-five_hour-value')).toHaveText('62%')
+      await expect(animatedText(claude.getByTestId('limit-five_hour-value'))).toHaveText('62%')
       await expect(meter.getByRole('group', { name: 'Codex limits' })).toHaveCount(0)
       await expect(meter).not.toHaveAttribute('data-compact', 'true')
       await expect(meter.getByText('Limits', { exact: true })).toBeVisible()

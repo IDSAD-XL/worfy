@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { writeMarkedTranscript } from '../big-transcript'
-import { launchApp } from './helpers'
+import { animatedText, launchApp } from './helpers'
 import { ms } from '../time-scale'
 
 // The Session view against the built app, on the fake agent: the script
@@ -170,7 +170,7 @@ test('the Session view: opened from the Orchestrator Node, a turn, an interrupte
     await expect(canvasView).toBeHidden()
     const view = sessionView.getByTestId('session-view')
     await expect(view.getByTestId('session-state')).toHaveText('idle')
-    await expect(view.getByTestId('session-cost')).toHaveText('$0.00')
+    await expect(animatedText(view.getByTestId('session-cost'))).toHaveText('$0.00')
     const nodeId = await node.getAttribute('data-node-id')
     await expect(view).toHaveAttribute('data-node-id', nodeId ?? '')
 
@@ -203,7 +203,7 @@ test('the Session view: opened from the Orchestrator Node, a turn, an interrupte
     await expect(view.getByTestId('tool-ok')).toHaveCount(1)
     await expect(view.getByTestId('session-state')).toHaveText('idle')
     await expect(view.getByTestId('transcript-turn-done')).toHaveCount(1)
-    await expect(view.getByTestId('session-cost')).toHaveText('$0.0021')
+    await expect(animatedText(view.getByTestId('session-cost'))).toHaveText('$0.0021')
     await expect(view.getByTestId('session-model')).toHaveText('claude-haiku-4-5-20251001')
     await expect(view.getByTestId('session-permissions')).toHaveText('bypass')
     // main sends `orchestrator.changed` (the header) before the `agent.event` of the same change.
@@ -224,7 +224,7 @@ test('the Session view: opened from the Orchestrator Node, a turn, an interrupte
     await expect(view.getByTestId('transcript-interrupted')).toHaveCount(1)
     await expect(view.getByTestId('session-state')).toHaveText('idle')
     await expect(view.getByTestId('input-send')).toHaveAttribute('aria-label', 'Send message')
-    await expect(view.getByTestId('session-cost')).toHaveText('$0.0026')
+    await expect(animatedText(view.getByTestId('session-cost'))).toHaveText('$0.0026')
     // The interruption is a marker, not a message from the user.
     await expect(view.getByTestId('transcript-prompt')).toHaveCount(2)
 

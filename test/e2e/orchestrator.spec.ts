@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp } from './helpers'
+import { animatedText, launchApp } from './helpers'
 
 // The Orchestrator Node against the built app, on the fake agent: the script
 // test/fixtures/agent-scripts/orchestrator.jsonl plays three turns. Turn 1 answers with a status
@@ -149,7 +149,7 @@ test('the Orchestrator Node: locked, live on the fake agent with its state, cost
     await expect(node).toContainText('Orchestrator')
     await expect(node.getByTestId('orchestrator-state')).toHaveText('idle')
     await expect(node.getByTestId('orchestrator-status-block-empty')).toHaveText('No status block yet')
-    await expect(node.getByTestId('orchestrator-cost')).toHaveText('$0.00')
+    await expect(animatedText(node.getByTestId('orchestrator-cost'))).toHaveText('$0.00')
     const [created] = await orchestratorNodes(window)
     if (!created) throw new Error('no Orchestrator Node')
     expect(created).toMatchObject({ locked: true, x: 40, y: 40 })
@@ -176,18 +176,18 @@ test('the Orchestrator Node: locked, live on the fake agent with its state, cost
     await expect(node.getByTestId('orchestrator-status-block')).toHaveText(BLOCK_1, { useInnerText: true })
     await release(window, sessionId)
     await expect(node.getByTestId('orchestrator-state')).toHaveText('idle')
-    await expect(node.getByTestId('orchestrator-cost')).toHaveText('$0.0125')
+    await expect(animatedText(node.getByTestId('orchestrator-cost'))).toHaveText('$0.0125')
     await expect(node.getByTestId('orchestrator-model')).toHaveText('claude-opus-5-5')
 
     // Turn 2: an answer without a block leaves the old one.
     await send(window, sessionId, 'статус')
-    await expect(node.getByTestId('orchestrator-cost')).toHaveText('$0.0200')
+    await expect(animatedText(node.getByTestId('orchestrator-cost'))).toHaveText('$0.0200')
     await expect(node.getByTestId('orchestrator-status-block')).toHaveText(BLOCK_1, { useInnerText: true })
 
     // Turn 3: a new block replaces it; of two, the last.
     await send(window, sessionId, 'статус')
     await expect(node.getByTestId('orchestrator-status-block')).toHaveText(BLOCK_3, { useInnerText: true })
-    await expect(node.getByTestId('orchestrator-cost')).toHaveText('$0.0300')
+    await expect(animatedText(node.getByTestId('orchestrator-cost'))).toHaveText('$0.0300')
     await expect(node.getByTestId('orchestrator-state')).toHaveText('idle')
 
     // The events reached the window too: busy → idle for each turn.
@@ -219,7 +219,7 @@ test('the Orchestrator Node: locked, live on the fake agent with its state, cost
     // Before any turn: the model and the newest block of the transcript, and the kept cost.
     await expect(node.getByTestId('orchestrator-status-block')).toHaveText(BLOCK_TERMINAL, { useInnerText: true })
     await expect(node.getByTestId('orchestrator-model')).toHaveText('claude-sonnet-5')
-    await expect(node.getByTestId('orchestrator-cost')).toHaveText('$0.0300')
+    await expect(animatedText(node.getByTestId('orchestrator-cost'))).toHaveText('$0.0300')
     await expect(node.getByTestId('orchestrator-state')).toHaveText('idle')
     expect(await orchestratorNodes(window)).toHaveLength(1)
 
@@ -231,7 +231,7 @@ test('the Orchestrator Node: locked, live on the fake agent with its state, cost
     // The fake agent answers under the session it was asked to resume: the same one as before.
     await expect.poll(async () => (await recorded(window)).find((e) => e.event.type === 'renamed')?.sessionId).toBe(savedSessionId)
     // A new Claude Code process counts from zero; the Node keeps the sum.
-    await expect(node.getByTestId('orchestrator-cost')).toHaveText('$0.0425')
+    await expect(animatedText(node.getByTestId('orchestrator-cost'))).toHaveText('$0.0425')
     expect((await orchestratorNodes(window))[0]?.data.sessionId).toBe(savedSessionId)
     // The live Session's answer replaces the transcript's block.
     await expect(node.getByTestId('orchestrator-status-block')).toHaveText(BLOCK_1, { useInnerText: true })

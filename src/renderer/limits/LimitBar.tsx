@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react'
 import type { LimitBar, LimitLevel } from '../../shared/agent/limits'
+import { AnimatedNumber } from '../theme/AnimatedNumber'
 
 // One Limits window drawn as a bar in the toolbar (src/renderer/shell/toolbar/LimitsMeter.tsx).
 // The Limits are shown only there: the Session view's rail no longer repeats them.
@@ -82,7 +83,8 @@ export function LimitBarView({ bar, testId = `limit-${bar.window}` }: { bar: Lim
         style={{ ...(bar.percent === null ? {} : digits), color: valueColor }}
         data-testid={`${testId}-value`}
       >
-        {bar.value}
+        {/* A share rolls to its new value; a status in words is plain text. `value` is `${percent}%` when there is a share (src/shared/agent/limits.ts). */}
+        {bar.percent === null ? bar.value : <AnimatedNumber value={bar.percent} suffix="%" />}
       </span>
       {bar.resets !== null && <ResetsLine text={bar.resets} testId={`${testId}-note`} />}
       <Meter bar={bar} />
