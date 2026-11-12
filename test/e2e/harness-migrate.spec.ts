@@ -69,7 +69,12 @@ test('the move form: from the toolbar, rows by group and the CLAUDE.md diff, swi
     await expect(item.getByTestId('harness-text')).toHaveText(`Harness ${bundledVersion()}`)
     const open = item.getByTestId('harness-migrate')
     await expect(open).toHaveAccessibleName('Move old Harness…')
-    await expect(open).toHaveAttribute('title', 'Move old Harness…')
+    // The tooltip is the Tooltip kit's (worfy-ui-kit ticket 13): the pointer resting on the icon shows it.
+    await expect(open).not.toHaveAttribute('title', /./)
+    await open.hover()
+    await expect(window.getByRole('tooltip')).toHaveText('Move old Harness…')
+    await window.mouse.move(0, 0)
+    await expect(window.getByRole('tooltip')).toHaveCount(0)
     await shoot(launched, window.getByRole('banner'), 'toolbar')
 
     await open.click()

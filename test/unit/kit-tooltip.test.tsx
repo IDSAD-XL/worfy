@@ -273,6 +273,19 @@ describe('the hint of an aria-disabled write action (writeAction, HintTooltips)'
     expect(tooltip()).toBeNull()
   })
 
+  it('after a click, Tab onto the action shows the hint: the key press makes the next focus the keyboard\'s', async () => {
+    render(<Probe />)
+    const field = screen.getByRole('textbox', { name: 'Message' })
+    fireEvent.pointerDown(field)
+    fireEvent.mouseDown(field)
+    act(() => field.focus())
+    fireEvent.click(field)
+    await flush()
+    expect(tooltip()).toBeNull()
+    await tabTo(action())
+    expect(tooltip()?.textContent).toBe(HINT)
+  })
+
   it('Esc with the focus elsewhere hides a tooltip the pointer showed, and the press goes on unmarked', async () => {
     const onEscape = vi.fn()
     render(<Probe onEscape={onEscape} />)

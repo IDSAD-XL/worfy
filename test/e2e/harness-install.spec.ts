@@ -262,7 +262,9 @@ test('another version installed: "Update Harness" → the dialog shows from → 
 
     const item = launched.window.getByTestId('harness-status')
     await expect(item.getByTestId('harness-action')).toHaveAccessibleName('Update Harness')
-    await expect(item.getByTestId('harness-action')).toHaveAttribute('title', `Update Harness: ${OLD} → ${bundledVersion()}`)
+    // The tooltip is the Tooltip kit's (worfy-ui-kit ticket 13): no native title; a screen reader hears it as the description.
+    await expect(item.getByTestId('harness-action')).toHaveAttribute('aria-description', `Update Harness: ${OLD} → ${bundledVersion()}`)
+    await expect(item.getByTestId('harness-action')).not.toHaveAttribute('title', /./)
     await expect(item.getByTestId('harness-text')).toHaveText(`Harness ${OLD}`)
     await shoot(launched, 'update')
 
@@ -313,7 +315,10 @@ test('a failing install of the dependency: "Harness error: dependency install", 
     const retry = item.getByTestId('harness-action')
     await expect(retry).toHaveAccessibleName('Retry')
     // Retry installs the dependency itself: its hint names no command to run by hand.
-    expect(await retry.getAttribute('title')).not.toContain('claude plugin install')
+    // The hint is the Tooltip kit's description of the button (worfy-ui-kit ticket 13).
+    const retryHint = (await retry.getAttribute('aria-description')) ?? ''
+    expect(retryHint).not.toBe('')
+    expect(retryHint).not.toContain('claude plugin install')
     expect(existsSync(join(launched.claudeHome, 'worfy-harness'))).toBe(false)
     expect(calls()).toEqual([LIST, MARKETPLACES, ADD_OFFICIAL, INSTALL_DEP])
     await shoot(launched, 'dependency-error')
