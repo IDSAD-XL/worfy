@@ -87,7 +87,8 @@ removes a message. An Interrupt or a crash holds the queue: the list title chang
 goes until "Send queued". An empty queue is never held. A queue does not outlive its Session. The exception is the
 Orchestrator, whose queue moves to the new process when Autopilot gives it back.
 
-**Interrupt.** The Session view's button, or Esc in its input field, works in `busy` and `needs_permission`. Interrupt holds
+**Interrupt.** The Session view's button, or Esc in its input field, works in `busy` and `needs_permission`. An Esc that
+closes a popup of the field, such as the slash menu, only closes the popup and leaves the turn running. Interrupt holds
 the queue, cancels open permission requests and questions, and asks Claude Code to stop the turn.
 
 **A crash.** The Session goes to `error`. The queue is held, open requests are cancelled and the background tasks are

@@ -341,7 +341,10 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, draf
       void send()
       return
     }
-    if (event.key === 'Escape' && busy) {
+    // A press a popup of the field already took (it called preventDefault) closed that popup: one
+    // press, one action, so the turn goes on (worfy-ui-kit ticket 02). The native event, because a
+    // listener outside React may have taken it before React saw the press.
+    if (event.key === 'Escape' && busy && !event.nativeEvent.defaultPrevented) {
       event.preventDefault()
       onInterrupt()
       return

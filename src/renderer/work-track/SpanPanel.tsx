@@ -29,6 +29,7 @@ import { invoke } from '../ipc'
 import { useProjects } from '../projects/useProjects'
 import { nodeSession, openSession, type OpenedSession } from '../session/navigation'
 import { sessionNodeViewOf } from '../session/node-sessions'
+import { openLayers } from '../theme/open-layers'
 import { useWorkflow } from '../workflow/useWorkflow'
 import { startOfDay } from './store'
 
@@ -111,14 +112,14 @@ export function SpanPanel({ projectId, span, view, onClose }: SpanPanelProps) {
   const sessionName = session === null ? null : (view.sessions.find((each) => each.id === session)?.name ?? `Session ${session.slice(0, 4)}`)
   const run = runOf(fact, facts)
 
-  // Esc closes the panel, unless another dialog or a menu is open, or the press is in a text field: then it
+  // Esc closes the panel, unless another layer (a dialog, a menu, a Select's list) is open, or the press is in a text field: then it
   // is theirs. The panel is a dialog itself, so Run history's Esc back to the Canvas leaves it this press.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return
       const target = event.target instanceof Element ? event.target : null
       if (target?.closest('input, textarea, [contenteditable="true"], [contenteditable=""]')) return
-      const others = [...document.querySelectorAll('[role="dialog"], [role="menu"]')].filter((popup) => !popup.matches('[data-testid="work-track-panel"]') && popup.closest('[hidden]') === null)
+      const others = openLayers().filter((popup) => !popup.matches('[data-testid="work-track-panel"]'))
       if (others.length > 0) return
       event.preventDefault()
       onClose()

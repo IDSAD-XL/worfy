@@ -217,6 +217,14 @@ describe('ToastRegion', () => {
         vi.advanceTimersByTime(PLACE_MS)
       })
       expect(section.style.top).toBe('248px')
+      // The open list of a Select in the column is kept clear of too (worfy-ui-kit ticket 02).
+      const list = mark({ role: 'listbox' }, new DOMRect(880, 240, 300, 200))
+      added.push(list)
+      act(() => {
+        vi.advanceTimersByTime(PLACE_MS)
+      })
+      expect(section.style.top).toBe(`${440 + 12}px`)
+      list.remove()
       dialog.removeAttribute('data-toast-over')
       // A popup over the whole column: the stack keeps its place in toast.css, over it.
       boxes.set(dialog, new DOMRect(360, 0, 920, 768))

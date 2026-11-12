@@ -1,9 +1,10 @@
 /* The toasts of the window (ToastRegion.tsx; worfy-ui ticket 16). Values come from tokens.css, so the
    light and the dark theme both follow the system.
 
-   The area is drawn on <body> at z-index 120: above focus mode (inside the main area's own stacking
-   context, shell.css), above the dialogs of the app (90–101) and above the Settings window (110,
-   settings-window.ts), whose modal guard lets a layer above it keep its keys and its focus.
+   The area is drawn on <body> at the toasts' layer (--z-toast, 120, tokens.css): above focus mode
+   (inside the main area's own stacking context, shell.css), above the dialogs of the app (90–101) and
+   above the Settings window (110, settings-window.ts), whose modal guard lets a layer above it keep
+   its keys and its focus.
 
    Place: the right edge of the window, not the top centre, where the Command palette and Canvas find
    open. The height there is measured while a toast is shown (ToastRegion.tsx, placement.ts): the
@@ -14,7 +15,7 @@
   position: fixed;
   top: calc(var(--toolbar-height) + var(--space-3));
   right: var(--space-4);
-  z-index: 120;
+  z-index: var(--z-toast);
   width: min(360px, calc(100vw - 2 * var(--space-4)));
   pointer-events: none;
   font-family: var(--font-ui);

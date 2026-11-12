@@ -1,7 +1,7 @@
 # 02 — Фундамент слоёв без Base UI: шкала z-index, helper «открытые слои», Esc поля ввода чата
 
 Type: task
-Status: open
+Status: claimed 2026-11-11T23:53Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», строка 02; «Решения по реализации» (шкала слоёв, helper «открытые слои»,
 Esc); истории 4, 26, 27; [критик](../../../docs/product/critic/worfy-ui-kit-2026-11-11.md), возражение 2

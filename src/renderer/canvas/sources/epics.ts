@@ -36,6 +36,7 @@ import type { Epic, Ticket, WorkflowModel } from '../../../shared/workflow/types
 import { useProjects } from '../../projects/useProjects'
 import { usePipeline } from '../../pipeline/usePipeline'
 import { usePrInbox } from '../../pr-inbox/usePrInbox'
+import { openLayers } from '../../theme/open-layers'
 import { useWorkflow } from '../../workflow/useWorkflow'
 import { reviewChipsOf } from '../badges/review-threads'
 import { useProjectRepos } from '../badges/use-checks'
@@ -165,16 +166,17 @@ export type EscapePress = Pick<KeyboardEvent, 'key' | 'defaultPrevented' | 'altK
  * True when a press of Esc on the Canvas may fold the last open done stack: a bare Esc nobody
  * took, outside a text field, with nothing selected on the Canvas — React Flow's Esc takes the
  * selection off first, and the active Node of worfy-week ticket 16 is always selected — and no
- * dialog or menu open, as each of them closes on the same press. The Canvas's key listener
+ * layer open — a dialog, a menu, a Select's list (theme/open-layers.ts) — as each of them closes on
+ * the same press. The Canvas's key listener
  * (overlays/SelectionToolbar.tsx) adds that the Canvas is on screen and the press is on it.
  */
-export function escapeFoldsDoneStack(event: EscapePress, selected: number, doc: Pick<Document, 'querySelector'>): boolean {
+export function escapeFoldsDoneStack(event: EscapePress, selected: number, doc: ParentNode): boolean {
   if (event.key !== 'Escape' || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false
   if (selected > 0) return false
   // A place to type, as the Canvas's other keys see it (isTextTarget in SelectionToolbar.tsx).
   const target = event.target
   if (target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]') !== null)) return false
-  return doc.querySelector('[role="dialog"], [role="menu"]') === null
+  return openLayers(doc).length === 0
 }
 
 /** The Epics of the Project whose done stack is open, in the order they were opened. */

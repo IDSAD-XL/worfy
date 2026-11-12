@@ -54,10 +54,11 @@
   color: var(--text-muted);
 }
 
-/* Above every dialog (90–110), the focus mode (1000) and the Binding menu (2000). */
+/* Above every dialog (90–110), the toasts, the focus mode (1000) and the Binding menu (2000): the layer
+   of a menu over a dialog (tokens.css). */
 .w-select-list {
   position: fixed;
-  z-index: 3000;
+  z-index: var(--z-dialog-menu);
   top: 0;
   left: 0;
   max-height: 320px;

@@ -5,9 +5,9 @@
 // the toolbar, a view's header with its buttons (focus mode, a focused Ticket, the Session view, an
 // ADR, an Epic frame on the Canvas), an open popup (the Command palette, Settings, a menu) — and puts the stack into the first
 // free band from the top that holds it (placement.ts). An element marks itself with
-// `data-toast-keep-out` (the toolbar, the headers, the Session's message field with Send); a dialog
-// or a menu is kept clear of without a mark, unless it says `data-toast-over` (the ADR panel, a
-// whole column high: only its header is kept clear). The minimap is kept clear of by its class:
+// `data-toast-keep-out` (the toolbar, the headers, the Session's message field with Send); an open
+// layer — a dialog, a menu, a Select's list (theme/open-layers.ts) — is kept clear of without a mark,
+// unless it says `data-toast-over` (the ADR panel, a whole column high: only its header is kept clear). The minimap is kept clear of by its class:
 // React Flow's MiniMap passes no other attribute to its element.
 //
 // Accessibility: the area is a landmark "Notifications"; `info`, `success` and `action` toasts are in
@@ -20,6 +20,7 @@
 import { useEffect, useLayoutEffect, useRef, type FocusEvent, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useStore } from 'zustand'
+import { openLayers } from '../theme/open-layers'
 import { PLACE_MS, placeStack, type Span } from './placement'
 import './toast.css'
 import { dismissToast, holdToast, pressToastAction, setToastProject, shownToasts, toasts, type Toast } from './toasts'
@@ -95,14 +96,19 @@ function ToastView({ toast }: { toast: Toast }) {
   )
 }
 
-/** What the stack keeps clear of (see the head of the file). */
-const KEEP_OUT = '[data-toast-keep-out], [role="dialog"]:not([data-toast-over]), [role="menu"], .w-focus [data-node-header], .w-minimap'
+/** What the stack keeps clear of besides the open layers (see the head of the file). */
+const KEEP_OUT = '[data-toast-keep-out], .w-focus [data-node-header], .w-minimap'
+
+/** Everything the stack keeps clear of: the marked elements and the open layers that do not let toasts over them. */
+function keptOut(): Set<Element> {
+  return new Set([...document.querySelectorAll(KEEP_OUT), ...openLayers().filter((layer) => !layer.matches('[data-toast-over]'))])
+}
 
 /** Measures what lies in the column of `region` and moves the stack into the free band (placement.ts). */
 function place(region: HTMLElement): void {
   const column = region.getBoundingClientRect()
   const blocked: Span[] = []
-  for (const element of document.querySelectorAll(KEEP_OUT)) {
+  for (const element of keptOut()) {
     const rect = element.getBoundingClientRect()
     if (rect.width === 0 || rect.height === 0 || rect.right <= column.left || rect.left >= column.right) continue
     blocked.push({ top: rect.top, bottom: rect.bottom })

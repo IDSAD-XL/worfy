@@ -19,6 +19,7 @@ import { invoke, readableReason } from '../ipc'
 import { useNow } from '../limits/useLimits'
 import { ticketRef } from '../pipeline/board'
 import { activeProject, useProjects, useReadOnly } from '../projects/useProjects'
+import { layerOf } from '../theme/open-layers'
 import { StatusChip } from '../theme/primitives'
 import { useWorkflow } from '../workflow/useWorkflow'
 import { CommentBody } from './CommentBody'
@@ -642,7 +643,7 @@ function listKey(event: KeyboardEvent, frame: HTMLElement | null): 1 | -1 | null
   if (frame === null || frame.closest('[hidden]') !== null) return null
   const target = event.target
   if (target instanceof Element && target !== document.body && target !== document.documentElement && !frame.contains(target)) return null
-  if (target instanceof HTMLElement && (target.isContentEditable || target.closest('textarea, input, select, [role="dialog"], [role="menu"], [role="listbox"]') !== null)) return null
+  if (target instanceof HTMLElement && (target.isContentEditable || target.closest('textarea, input, select') !== null || layerOf(target) !== null)) return null
   return event.key === 'ArrowDown' ? 1 : -1
 }
 
