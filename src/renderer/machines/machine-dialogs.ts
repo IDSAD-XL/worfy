@@ -3,6 +3,7 @@
 // openChangeAddress; MachineDialogs.tsx, in the shell, shows it. Also the look the two windows share.
 import type { CSSProperties } from 'react'
 import { create } from 'zustand'
+import type { LayerName } from '../theme/kit/layer'
 
 type MachineDialog = { kind: 'remove' | 'address'; id: string }
 
@@ -23,14 +24,13 @@ export function closeMachineDialog(): void {
 }
 
 /**
- * Above the Settings window (SETTINGS_LAYER, settings/settings-window.ts): "Remove" of Settings →
- * Machines opens its confirmation over it, and the kit's modal window lets a higher layer keep its
- * keys (theme/kit/Dialog.tsx).
+ * The layer of the scale (theme/layers.ts) both windows take: the toasts' layer, above the dialog
+ * layer of Settings — "Remove" of Settings → Machines opens its confirmation over it — and, drawn
+ * after the toasts, over them, as these windows always were (test/unit/layers.test.tsx).
  */
-const MACHINE_DIALOG_LAYER = 120
+export const MACHINE_WINDOW_LAYER = 'toast' satisfies LayerName
 
 export const dialogStyles = {
-  backdrop: { position: 'fixed', inset: 0, zIndex: MACHINE_DIALOG_LAYER, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0, 0, 0, 0.25)' },
   dialog: {
     width: 440,
     maxWidth: 'calc(100vw - 32px)',

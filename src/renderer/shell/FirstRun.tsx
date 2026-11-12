@@ -10,16 +10,22 @@
 // start, it shows the three concepts first (FirstRunConcepts.tsx) while its checks run, and "Next"
 // goes to them; under the checks a new user gets "Start Getting started" until step 6 is marked.
 import { useEffect, useId, useRef, type CSSProperties } from 'react'
-import { createPortal } from 'react-dom'
 import { openGettingStarted, useGettingStarted } from '../getting-started/store'
 import { isMac } from '../platform'
+import { Dialog } from '../theme/kit/Dialog'
+import { LAYERS } from '../theme/layers'
 import { showToast } from '../toast/toasts'
 import { FirstRunChecks, type FirstRunChecksParts } from './FirstRunChecks'
 import { CONCEPTS_LEAD, CONCEPTS_NOTE, CONCEPTS_TITLE, FirstRunConcepts } from './FirstRunConcepts'
 import { askAtStartup, closeFirstRun, showFirstRunChecks, useFirstRun } from './first-run-store'
 
+/**
+ * The move form of the old Harness opens over this window (FirstRunChecks.tsx, `formLayer`): one
+ * layer above the kit's dialog layer, as over Settings → Health, so it keeps its keys and the focus.
+ */
+const FORM_LAYER = LAYERS.dialog + 10
+
 const styles = {
-  backdrop: { position: 'fixed', inset: 0, zIndex: 90, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0, 0, 0, 0.25)' },
   dialog: {
     width: 720,
     maxWidth: 'calc(100vw - 32px)',
@@ -66,79 +72,79 @@ function StartGettingStarted({ running }: { running: boolean }) {
   )
 }
 
-/** The dialog around the parts of the checks, or around the concepts before them; on screen only while First run is open. */
+/**
+ * The dialog around the parts of the checks, or around the concepts before them; on screen only while
+ * First run is open. A modal Dialog of the kit (theme/kit/Dialog.tsx) on the dialog layer: Tab stays
+ * in it, the focus goes back to what had it on closing, and a window of the kit opened over it later
+ * (Settings by ⌘,, the Guide) is on top and gives the focus back to it. Esc closes it, except while a
+ * check's action runs or the move form is open; a click outside does nothing.
+ */
 function FirstRunDialog({ summary, list, message, checkAgain, running, migrating }: FirstRunChecksParts) {
   const titleId = useId()
-  const dialog = useRef<HTMLDivElement>(null)
+  const title = useRef<HTMLHeadingElement>(null)
   const page = useFirstRun((state) => state.page)
   const concepts = page === 'concepts'
 
-  // Again on "Next": the button that had the focus is gone, and Escape needs the focus in the dialog.
+  // On "Next" the button that had the focus is gone: the focus goes to the window, not to the page.
   useEffect(() => {
-    dialog.current?.focus()
+    const frame = title.current?.closest<HTMLElement>('[role="dialog"]')
+    if (frame !== null && frame !== undefined && !frame.contains(document.activeElement)) frame.focus()
   }, [page])
 
   const close = (): void => {
     if (!running) closeFirstRun()
   }
 
-  return createPortal(
-    <div style={styles.backdrop}>
-      <div
-        ref={dialog}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
-        style={styles.dialog}
-        data-testid="first-run"
-        data-page={page}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape' && !migrating) {
-            event.stopPropagation()
-            close()
-          }
-        }}
-      >
-        <div style={styles.header}>
-          <div style={styles.headerText}>
-            <h2 id={titleId} style={styles.title}>
-              {concepts ? CONCEPTS_TITLE : 'First run'}
-            </h2>
-            {concepts ? (
-              <p style={styles.lead}>{CONCEPTS_LEAD}</p>
-            ) : (
-              <p style={styles.subtitle} data-testid="first-run-subtitle">
-                worfy checks this {isMac() ? 'Mac' : 'PC'} for itself and the Harness. Nothing changes until you confirm it.
-              </p>
-            )}
-          </div>
-          {concepts ? null : summary}
+  return (
+    <Dialog
+      open
+      onClose={() => {
+      if (!migrating) close()
+      }}
+      labelledBy={titleId}
+      className="w-first-run"
+      style={styles.dialog}
+      closeOnBackdrop={false}
+      data-testid="first-run"
+      data-page={page}
+    >
+      <div style={styles.header}>
+        <div style={styles.headerText}>
+          <h2 ref={title} id={titleId} style={styles.title}>
+            {concepts ? CONCEPTS_TITLE : 'First run'}
+          </h2>
+          {concepts ? (
+            <p style={styles.lead}>{CONCEPTS_LEAD}</p>
+          ) : (
+            <p style={styles.subtitle} data-testid="first-run-subtitle">
+              worfy checks this {isMac() ? 'Mac' : 'PC'} for itself and the Harness. Nothing changes until you confirm it.
+            </p>
+          )}
         </div>
-        <div style={styles.body}>{concepts ? <FirstRunConcepts /> : list}</div>
-        {concepts ? (
-          <div style={styles.footer}>
-            <span style={styles.note}>{CONCEPTS_NOTE}</span>
-            <button type="button" className="w-action" onClick={close}>
-              Close
-            </button>
-            <button type="button" className="w-action w-action--primary" onClick={showFirstRunChecks}>
-              Next
-            </button>
-          </div>
-        ) : (
-          <div style={styles.footer}>
-            {message}
-            {checkAgain}
-            <StartGettingStarted running={running} />
-            <button type="button" className="w-action w-action--primary" aria-disabled={running ? 'true' : undefined} onClick={close}>
-              Close
-            </button>
-          </div>
-        )}
+        {concepts ? null : summary}
       </div>
-    </div>,
-    document.body,
+      <div style={styles.body}>{concepts ? <FirstRunConcepts /> : list}</div>
+      {concepts ? (
+        <div style={styles.footer}>
+          <span style={styles.note}>{CONCEPTS_NOTE}</span>
+          <button type="button" className="w-action" onClick={close}>
+            Close
+          </button>
+          <button type="button" className="w-action w-action--primary" onClick={showFirstRunChecks}>
+            Next
+          </button>
+        </div>
+      ) : (
+        <div style={styles.footer}>
+          {message}
+          {checkAgain}
+          <StartGettingStarted running={running} />
+          <button type="button" className="w-action w-action--primary" aria-disabled={running ? 'true' : undefined} onClick={close}>
+            Close
+          </button>
+        </div>
+      )}
+    </Dialog>
   )
 }
 
@@ -148,5 +154,5 @@ export function FirstRun() {
   useEffect(askAtStartup, [])
 
   if (!open) return null
-  return <FirstRunChecks onTerminalOpened={closeFirstRun}>{(parts) => <FirstRunDialog {...parts} />}</FirstRunChecks>
+  return <FirstRunChecks onTerminalOpened={closeFirstRun} formLayer={FORM_LAYER}>{(parts) => <FirstRunDialog {...parts} />}</FirstRunChecks>
 }

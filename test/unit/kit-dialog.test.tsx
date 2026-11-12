@@ -331,6 +331,43 @@ describe('the keys of the app while a kit window is open', () => {
     }
   })
 
+  it('a window takes its own ⌘ shortcuts through onModifierKey: before every listener of the app and of its controls, marked handled; the others stay unheard and keep their default (worfy-ui-kit ticket 06)', async () => {
+    const taken: string[] = []
+    const onModifierKey = vi.fn((event: KeyboardEvent): boolean => {
+      if (event.key !== 'Enter') return false
+      taken.push(event.target === document.body ? 'page' : 'window')
+      return true
+    })
+    const ownKeyDown = vi.fn()
+    render(
+      <Dialog open onClose={() => undefined} label="Shortcut window" className="probe" onModifierKey={onModifierKey} onKeyDown={ownKeyDown}>
+        <button type="button">Inside</button>
+      </Dialog>,
+    )
+    await flush()
+    const inside = screen.getByRole('button', { name: 'Inside' })
+    const { heard, stop } = listenBehind()
+    try {
+      expect(pressKey(inside, { key: 'Enter', metaKey: true }).defaultPrevented).toBe(true)
+      expect(pressKey(inside, { key: 'k', metaKey: true }).defaultPrevented).toBe(false)
+      expect(pressKey(inside, { key: 'Enter', ctrlKey: true }).defaultPrevented).toBe(true)
+      // A plain Enter is not a ⌘ key: the handler is not asked, the window's controls get it.
+      pressKey(inside, { key: 'Enter' })
+      // With the focus fallen to the page the window still takes its shortcut.
+      act(() => inside.blur())
+      expect(pressKey(document.body, { key: 'Enter', metaKey: true }).defaultPrevented).toBe(true)
+      expect(taken).toEqual(['window', 'window', 'page'])
+      expect(onModifierKey).toHaveBeenCalledTimes(4)
+      expect(ownKeyDown.mock.calls.map(([event]) => (event as { key: string }).key)).toEqual(['Enter'])
+      // The plain Enter reached the capture listener, as any plain key in the window does; no ⌘ key did.
+      expect(heard.capture).toHaveBeenCalledTimes(1)
+      expect(heard.bubble).not.toHaveBeenCalled()
+      expect(heard.document).not.toHaveBeenCalled()
+    } finally {
+      stop()
+    }
+  })
+
   it('closed, the window keeps no key', async () => {
     await openFromOpener()
     pressKey(document.activeElement!, { key: 'Escape' })

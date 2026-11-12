@@ -7,13 +7,22 @@
 //
 // - Cancel leaves the run waiting; "Interrupt and start" (the danger button) takes the Orchestrator at
 //   once (`autopilot.startNow`), interrupting as Force stop does (ADR-0050).
-// - Keys: the focus is on Cancel when the window opens, Tab and Shift+Tab go round its two buttons, Esc
-//   is Cancel. No key starts: the start interrupts work, so it takes a click on the button.
-import { useEffect, useId, useLayoutEffect, useRef } from 'react'
-import { createPortal } from 'react-dom'
+// - Keys: the focus is on Cancel when the window opens, Tab and Shift+Tab go round its two buttons (the
+//   focus trap of the kit's Dialog), Esc is Cancel. No key starts: the start interrupts work, so it
+//   takes a click on the button.
+import { useId, useRef } from 'react'
 import type { AutopilotState } from '../../shared/ipc/autopilot'
-import { focusablesOf } from '../settings/settings-window'
+import { Dialog } from '../theme/kit/Dialog'
+import type { LayerName } from '../theme/kit/layer'
 import './autopilot-modal.css'
+
+/**
+ * The layer of the scale (theme/layers.ts) of this window and of Start Autopilot: the layer of the
+ * windows of a Linked machine (MACHINE_WINDOW_LAYER, machines/machine-dialogs.ts), above the kit's
+ * other windows (Settings among them) and, drawn after the toasts, over them, as these windows
+ * always were (test/unit/layers.test.tsx).
+ */
+export const AUTOPILOT_WINDOW_LAYER = 'toast' satisfies LayerName
 
 /** What keeps the Orchestrator busy, as the state of a waiting run says it. */
 export type OrchestratorBusy = NonNullable<AutopilotState['busy']>
@@ -49,88 +58,51 @@ export interface StartNowModalProps {
 }
 
 export function StartNowModal({ epic, busy, starting, onCancel, onStart }: StartNowModalProps) {
-  const frame = useRef<HTMLDivElement>(null)
   const cancelButton = useRef<HTMLButtonElement>(null)
   const titleId = useId()
-  // The newest handler for the key listener, which is added once.
-  const cancel = useRef(onCancel)
-  useLayoutEffect(() => {
-    cancel.current = starting ? () => undefined : onCancel
-  })
 
-  // The focus goes to Cancel, so Enter right after opening interrupts nothing; it goes back where it
-  // was when the window closes.
-  useEffect(() => {
-    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    cancelButton.current?.focus()
-    return () => {
-      if (before?.isConnected === true) before.focus({ preventScroll: true })
-    }
-  }, [])
-
-  // On `window` in the capture phase: before the Canvas's and focus mode's own keys.
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      const dialog = frame.current
-      if (dialog === null) return
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        event.stopImmediatePropagation()
-        cancel.current()
-      } else if (event.key === 'Tab') {
-        event.preventDefault()
-        event.stopImmediatePropagation()
-        const focusable = focusablesOf(dialog)
-        if (focusable.length === 0) return
-        const at = focusable.indexOf(document.activeElement as HTMLElement)
-        const next = at < 0 ? (event.shiftKey ? focusable.length - 1 : 0) : (at + (event.shiftKey ? -1 : 1) + focusable.length) % focusable.length
-        focusable[next]?.focus()
-      }
-    }
-    // Focus that lands behind the window (a click on the backdrop) comes back to it.
-    const keep = (event: FocusEvent): void => {
-      const dialog = frame.current
-      if (dialog === null || (event.target instanceof Node && dialog.contains(event.target))) return
-      cancelButton.current?.focus()
-    }
-    window.addEventListener('keydown', onKey, true)
-    document.addEventListener('focusin', keep)
-    return () => {
-      window.removeEventListener('keydown', onKey, true)
-      document.removeEventListener('focusin', keep)
-    }
-  }, [])
-
-  return createPortal(
-    <div className="w-apstart-backdrop">
-      <div ref={frame} className="w-apstart" style={{ width: WIDTH }} role="dialog" aria-modal="true" aria-labelledby={titleId} data-testid="start-now">
-        <div className="w-apstart__head">
-          <h2 id={titleId}>Start now?</h2>
-        </div>
-        <div className="w-apstart__body">
-          <p style={{ margin: 0 }}>{`Autopilot ${epic} starts right away. This stops:`}</p>
-          <ul data-testid="start-now-list" style={{ listStyle: 'none', margin: 'var(--space-2) 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
-            {startNowRows(busy).map((row) => (
-              <li key={row.text} data-stops={row.stops ? '' : undefined} style={{ display: 'flex', gap: 'var(--space-2)' }}>
-                <span aria-hidden="true" style={{ flex: 'none', width: 12, fontWeight: 600, color: row.stops ? 'var(--blocked-text)' : 'var(--ready-text)' }}>
-                  {row.stops ? '✕' : '✓'}
-                </span>
-                <span style={{ color: row.stops ? 'var(--text)' : 'var(--text-secondary)' }}>{row.text}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div className="w-apstart__foot">
-          <span style={{ flex: 1 }} />
-          <button ref={cancelButton} type="button" className="w-apstart__button" data-testid="start-now-cancel" disabled={starting} onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="button" className="w-apstart__button w-apstart__button--danger" data-testid="start-now-start" disabled={starting} onClick={onStart}>
-            Interrupt and start
-          </button>
-        </div>
+  return (
+    <Dialog
+      open
+      // Esc is Cancel, except while the start is on its way.
+      onClose={() => {
+      if (!starting) onCancel()
+      }}
+      labelledBy={titleId}
+      className="w-apstart"
+      style={{ width: WIDTH }}
+      // A click outside does nothing, as in the Start Autopilot window.
+      closeOnBackdrop={false}
+      layer={AUTOPILOT_WINDOW_LAYER}
+      // The focus goes to Cancel, so Enter right after opening interrupts nothing.
+      initialFocus={() => cancelButton.current}
+      data-testid="start-now"
+    >
+      <div className="w-apstart__head">
+        <h2 id={titleId}>Start now?</h2>
       </div>
-    </div>,
-    document.body,
+      <div className="w-apstart__body">
+        <p style={{ margin: 0 }}>{`Autopilot ${epic} starts right away. This stops:`}</p>
+        <ul data-testid="start-now-list" style={{ listStyle: 'none', margin: 'var(--space-2) 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+          {startNowRows(busy).map((row) => (
+            <li key={row.text} data-stops={row.stops ? '' : undefined} style={{ display: 'flex', gap: 'var(--space-2)' }}>
+              <span aria-hidden="true" style={{ flex: 'none', width: 12, fontWeight: 600, color: row.stops ? 'var(--blocked-text)' : 'var(--ready-text)' }}>
+                {row.stops ? '✕' : '✓'}
+              </span>
+              <span style={{ color: row.stops ? 'var(--text)' : 'var(--text-secondary)' }}>{row.text}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="w-apstart__foot">
+        <span style={{ flex: 1 }} />
+        <button ref={cancelButton} type="button" className="w-apstart__button" data-testid="start-now-cancel" disabled={starting} onClick={onCancel}>
+          Cancel
+        </button>
+        <button type="button" className="w-apstart__button w-apstart__button--danger" data-testid="start-now-start" disabled={starting} onClick={onStart}>
+          Interrupt and start
+        </button>
+      </div>
+    </Dialog>
   )
 }

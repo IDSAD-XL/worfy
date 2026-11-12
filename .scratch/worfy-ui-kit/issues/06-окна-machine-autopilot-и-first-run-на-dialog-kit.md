@@ -1,7 +1,8 @@
 # 06 — Окна Machine, Autopilot и First run на Dialog kit
 
 Type: task
-Status: open
+Status: claimed 2026-11-12T17:33Z
+Branch: worfy-ui-kit/06
 Blocked by: 04
 Source: [spec.md](../spec.md), «Ticket-ы», строка 06; «Решения по реализации» (остальные модальные окна); истории 1, 2, 9;
 заметка темы `docs/product/ui-overhaul/notes/inventory-overlays.md`, разделы 1.1 и 10.1

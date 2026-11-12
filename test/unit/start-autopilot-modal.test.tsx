@@ -20,6 +20,7 @@ import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import { DEFAULT_ACTION_TEMPLATES } from '../../src/shared/projects/action-templates'
 import { defaultAppSettings } from '../../src/shared/settings/app-settings'
 import type { Epic, Ticket, WorkflowModel } from '../../src/shared/workflow/types'
+import { pressTab } from './tab-key'
 
 const ROOT = '/work/demo'
 const PROJECT = 'demo-0000000d'
@@ -207,9 +208,9 @@ describe('the Autopilot button opens the Start Autopilot window', () => {
     const stops = [...dialog.querySelectorAll<HTMLElement>('button, input, [tabindex]')].filter((each) => each.tabIndex >= 0 && !(each as HTMLButtonElement).disabled)
     const before = stops[stops.indexOf(chosen) - 1]!
     act(() => before.focus())
-    fireEvent.keyDown(before, { key: 'Tab' })
+    await pressTab()
     expect(document.activeElement).toBe(chosen)
-    fireEvent.keyDown(chosen, { key: 'Tab' })
+    await pressTab()
     expect(radios).not.toContain(document.activeElement)
     expect(document.activeElement?.tagName).toBe('BUTTON')
     act(() => chosen.focus())
@@ -228,17 +229,17 @@ describe('the Autopilot button opens the Start Autopilot window', () => {
     expect(document.activeElement).toBe(cancel)
     // Forward from the last control (Start) comes back to the first; back from the first goes to the last.
     const start = within(dialog).getByTestId('start-autopilot-start')
-    fireEvent.keyDown(cancel, { key: 'Tab' })
+    await pressTab()
     expect(document.activeElement).toBe(start)
-    fireEvent.keyDown(start, { key: 'Tab' })
+    await pressTab()
     const first = within(dialog).getByTestId('start-autopilot-change-modes')
     expect(document.activeElement).toBe(first)
-    fireEvent.keyDown(first, { key: 'Tab', shiftKey: true })
+    await pressTab(true)
     expect(document.activeElement).toBe(start)
     // Every step of a full round stays inside the window.
     const controls = dialog.querySelectorAll('button')
     for (let step = 0; step < controls.length + 2; step += 1) {
-      fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Tab' })
+      await pressTab()
       expect(dialog.contains(document.activeElement)).toBe(true)
     }
     expect(starts()).toEqual([])
@@ -265,6 +266,59 @@ describe('the Autopilot button opens the Start Autopilot window', () => {
     await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(starts()).toEqual([{ projectId: PROJECT, epic: 'demo', mode: 'fastest' }])
     await screen.findByRole('button', { name: 'Stop autopilot' })
+  })
+
+  it('⌘↩ is the window\'s own shortcut on the kit\'s Dialog: it starts, marked handled, and no listener of the app behind hears it; ⌘K does not open the Command palette (worfy-ui-kit ticket 06)', async () => {
+    const { CommandPalette } = await import('../../src/renderer/palette/CommandPalette')
+    render(<CommandPalette />)
+    const dialog = await openWindow()
+    // As focus mode's ⌘↩ and the Canvas's keys listen: on window, in both phases.
+    const behind = { capture: vi.fn(), bubble: vi.fn() }
+    globalThis.addEventListener('keydown', behind.capture, true)
+    globalThis.addEventListener('keydown', behind.bubble)
+    try {
+      const cancel = within(dialog).getByTestId('start-autopilot-cancel')
+      fireEvent.keyDown(cancel, { key: 'k', metaKey: true })
+      await settle()
+      expect(screen.queryByRole('dialog', { name: 'Command palette' })).toBeNull()
+      expect(starts()).toEqual([])
+      const key = new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true })
+      act(() => {
+        cancel.dispatchEvent(key)
+      })
+      expect(key.defaultPrevented).toBe(true)
+      await vi.waitFor(() => expect(screen.queryByRole('dialog', { name: 'Start Autopilot' })).toBeNull())
+      expect(starts()).toEqual([{ projectId: PROJECT, epic: 'demo', mode: 'budget-aware' }])
+      expect(behind.capture).not.toHaveBeenCalled()
+      expect(behind.bubble).not.toHaveBeenCalled()
+    } finally {
+      globalThis.removeEventListener('keydown', behind.capture, true)
+      globalThis.removeEventListener('keydown', behind.bubble)
+    }
+  })
+
+  it('a ⌘ key that is not the window\'s own is not taken: ⌘A keeps its default (worfy-ui-kit ticket 06)', async () => {
+    const dialog = await openWindow()
+    const key = new KeyboardEvent('keydown', { key: 'a', metaKey: true, bubbles: true, cancelable: true })
+    act(() => {
+      within(dialog).getByTestId('start-autopilot-cancel').dispatchEvent(key)
+    })
+    expect(key.defaultPrevented).toBe(false)
+    await settle()
+    expect(screen.getByRole('dialog', { name: 'Start Autopilot' })).toBe(dialog)
+    expect(starts()).toEqual([])
+  })
+
+  it('closed by Esc, the window gives the focus back to the Autopilot button that opened it (worfy-ui-kit ticket 06)', async () => {
+    const autopilot = await button()
+    autopilot.focus()
+    fireEvent.click(autopilot)
+    const dialog = await screen.findByRole('dialog', { name: 'Start Autopilot' })
+    await settle()
+    expect(document.activeElement).toBe(within(dialog).getByTestId('start-autopilot-cancel'))
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(document.activeElement).toBe(autopilot)
   })
 
   it('"Start Autopilot" starts with the default mode', async () => {

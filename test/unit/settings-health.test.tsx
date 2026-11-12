@@ -10,6 +10,7 @@ import { collectSections, settingsSections } from '../../src/renderer/settings/s
 import { closeSettings, openSettings, selectSection, SETTINGS_LAYER, useSettingsWindow } from '../../src/renderer/settings/settings-window'
 import { FirstRun } from '../../src/renderer/shell/FirstRun'
 import { openFirstRun, useFirstRun } from '../../src/renderer/shell/first-run-store'
+import { LAYERS } from '../../src/renderer/theme/layers'
 import { resetToasts, toasts } from '../../src/renderer/toast/toasts'
 
 // worfy-ui ticket 6: Settings → Health shows the checks of the First run dialog, from the same
@@ -564,7 +565,7 @@ describe('Settings → Health: the move form of the old Harness', () => {
   const form = () => screen.getByTestId('migration-form')
   const layerOfForm = (): number => Number(form().parentElement?.style.zIndex)
 
-  it('"Move…" in Health draws the form in a layer above the Settings window; from First run it keeps its own layer', async () => {
+  it('"Move…" draws the form in a layer above the window it is opened from: Settings → Health, and First run, a window of the kit too (worfy-ui-kit ticket 06)', async () => {
     handlers['harnessMigration.plan'] = () => ({ ok: true, value: plan })
     renderApp({ firstRun: true })
     const health = await openHealth()
@@ -580,14 +581,15 @@ describe('Settings → Health: the move form of the old Harness', () => {
     moveInDialog.focus()
     fireEvent.click(moveInDialog)
     await waitFor(() => expect(within(form()).getByTestId('migration-missing')).toBeTruthy())
-    expect(layerOfForm()).toBe(100)
-    // The dialog is as it was: its form does not take the focus (only the one over Settings does).
-    expect(document.activeElement).toBe(moveInDialog)
+    expect(layerOfForm()).toBeGreaterThan(LAYERS.dialog)
+    // As over Settings, the form takes the keyboard while it is open.
+    expect(form().contains(document.activeElement)).toBe(true)
     // Esc on the dialog under the form does not close the dialog (F-SPEC "First run", Keys).
     fireEvent.keyDown(firstRun(), { key: 'Escape' })
-    expect(screen.queryByRole('dialog', { name: 'First run' })).not.toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'First run', hidden: true })).not.toBeNull()
     fireEvent.click(within(form()).getByTestId('migration-close'))
     expect(screen.queryByTestId('migration-form')).toBeNull()
+    expect(document.activeElement).toBe(moveInDialog)
   })
 
   it('the keyboard is the form\'s while it is open: the focus goes into it and stays through its change, Tab turns round inside, Esc closes the form and not Settings, and the checks run again', async () => {
@@ -770,17 +772,17 @@ describe('Settings → Health: the move form of the old Harness', () => {
     expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeNull()
   })
 
-  it('opened from First run the form is as before: a press on its text leaves the focus on the page', async () => {
+  it('opened from First run, a modal window of the kit, the form keeps the keyboard as over Settings: a press on its text gives the focus back to the control that had it', async () => {
     handlers['harnessMigration.plan'] = () => ({ ok: true, value: plan })
     renderApp({ firstRun: true })
     act(() => openFirstRun())
     await waitFor(() => expect(rowsOf(firstRun())).toHaveLength(report().checks.length))
     fireEvent.click(within(rowOf(firstRun(), 'legacy-harness')).getByRole('button', { name: 'Move…' }))
     await waitFor(() => expect(within(form()).getByTestId('migration-actions')).toBeTruthy())
-    within(form()).getByTestId('migration-close').focus()
+    const close = within(form()).getByTestId('migration-close')
+    close.focus()
     await pressOnText()
-    expect(document.activeElement).toBe(document.body)
-    expect(form().parentElement?.hasAttribute('tabindex')).toBe(false)
+    expect(document.activeElement).toBe(close)
     fireEvent.click(within(form()).getByTestId('migration-close'))
     fireEvent.click(within(firstRun()).getByRole('button', { name: 'Close' }))
   })

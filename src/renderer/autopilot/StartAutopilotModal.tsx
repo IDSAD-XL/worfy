@@ -1,8 +1,8 @@
 // The Start Autopilot window inside worfy (worfy-autopilot-queue ticket 09, owner's decisions 10, 11, 13
 // and 15 of the spec; prototype Card card-918c77d9, views "Canvas button" and "Orchestrator busy"). It
 // stands where the Autopilot button used to start a run at once: the button asks through askStart
-// (start-modal.ts) and the window shows over everything, as the windows of a Linked machine do
-// (machines/ChangeAddressDialog.tsx: a portal, role="dialog", aria-modal, Esc).
+// (start-modal.ts) and the window shows over everything, as the windows of a Linked machine do: a
+// modal Dialog of the kit (theme/kit/Dialog.tsx) on their layer (AUTOPILOT_WINDOW_LAYER, StartNowModal.tsx).
 //
 // - The facts come from main (`autopilot.prepare`): the Project, the Epic, its Tickets and Waves left,
 //   the Orchestrator's Vendor and Session, the forecast against the budget, the Limits now and whether
@@ -15,7 +15,8 @@
 // - The Orchestrator busy (a turn, queued messages, background tasks): a notice in the blocked colours,
 //   and the main button is "Start when free" — the run is accepted and waits for it (ticket 07).
 // - Keys: the focus is on Cancel when the window opens, Tab and Shift+Tab go round the window's
-//   controls only, Esc is Cancel, ⌘↩ (Ctrl+Enter off macOS) starts. A click outside does nothing: a
+//   controls only (the kit's focus trap), Esc is Cancel, ⌘↩ (Ctrl+Enter off macOS) starts — the
+//   window's own ⌘ shortcut (`onModifierKey` of the kit's Dialog). A click outside does nothing: a
 //   start is not asked about by accident.
 // - The start goes to main with the chosen mode; the window closes once main answers — started,
 //   waiting for the Orchestrator, or refused (the refusal is a toast, as before, and the button's reason).
@@ -40,8 +41,7 @@
 //   Run mode refused, with `override`, and the window closes on main's answer. Another tick, order or mode
 //   takes the reason and the button away: the plain start of the new queue asks again. An agent's ask has no
 //   such button (start-modal.ts).
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ticketNumber } from '../../shared/actions/render-template'
 import { duration } from '../../shared/autopilot/limits-estimate'
 import { hourText, RUN_MODE_LABELS, RUN_MODES, type RunMode } from '../../shared/autopilot/run-mode'
@@ -55,12 +55,13 @@ import { isMac, isPrimary } from '../platform'
 import { AUTO_APPROVAL_LABELS, AUTO_APPROVAL_TITLES, useAutoApproval } from '../session/modes/auto-approval'
 import { useAutoContinue } from '../session/modes/auto-continue'
 import { useEcoMode } from '../session/modes/eco-mode'
-import { focusablesOf } from '../settings/settings-window'
 import { useAppSettings } from '../settings/useAppSettings'
 import { Chip, type ChipVariant } from '../theme/Chip'
+import { Dialog } from '../theme/kit/Dialog'
 import { Radio, RadioGroup } from '../theme/kit/RadioGroup'
 import { QueueList, type QueueFacts, type QueueRow } from './QueueList'
 import { agentTimeUp, askFromAgent, openOrchestratorModes, useStartModal, type OpenStart } from './start-modal'
+import { AUTOPILOT_WINDOW_LAYER } from './StartNowModal'
 import './autopilot-modal.css'
 
 /** The line under the modes when main has no forecast line for the chosen one. */
@@ -337,7 +338,6 @@ function StartWindow({ open }: { open: OpenStart }) {
   const [starting, setStarting] = useState(false)
   // The start refused for a run elsewhere: main's words, and the queue and mode it was asked with.
   const [refusedElsewhere, setRefusedElsewhere] = useState<{ text: string; mode: RunMode; epics: readonly string[] } | null>(null)
-  const frame = useRef<HTMLDivElement>(null)
   const cancelButton = useRef<HTMLButtonElement>(null)
   const titleId = useId()
   const busy = answer?.busy ?? null
@@ -380,11 +380,13 @@ function StartWindow({ open }: { open: OpenStart }) {
     open.settle(undefined)
     openOrchestratorModes(open.projectId)
   }
-  // The newest handlers for the key listener, which is added once.
-  const keys = useRef({ cancel, start })
-  useLayoutEffect(() => {
-    keys.current = { cancel, start }
-  })
+  // ⌘↩ (Ctrl+Enter off macOS) starts, wherever the focus is: the window's own shortcut, taken before
+  // the app's (focus mode's ⌘↩ among them), which never hear it while the window is open.
+  const shortcut = (event: KeyboardEvent): boolean => {
+    if (event.key !== 'Enter' || !isPrimary(event)) return false
+    start()
+    return true
+  }
 
   const { settle } = open
   // Time up: the window says so for a while, then closes; main has answered the Session already.
@@ -394,172 +396,126 @@ function StartWindow({ open }: { open: OpenStart }) {
     return () => clearTimeout(timer)
   }, [timeUp, settle])
 
-  // The focus goes to Cancel, so Enter right after opening starts nothing; it goes back where it was
-  // when the window closes.
-  useEffect(() => {
-    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    cancelButton.current?.focus()
-    return () => {
-      if (before?.isConnected === true) before.focus({ preventScroll: true })
-    }
-  }, [])
-
-  // On `window` in the capture phase: before the Canvas's and focus mode's own keys. Esc, ⌘↩ and Tab
-  // are the window's while it is open, wherever the focus is.
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      const dialog = frame.current
-      if (dialog === null) return
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        event.stopImmediatePropagation()
-        keys.current.cancel()
-      } else if (event.key === 'Enter' && isPrimary(event)) {
-        event.preventDefault()
-        event.stopImmediatePropagation()
-        keys.current.start()
-      } else if (event.key === 'Tab') {
-        event.preventDefault()
-        event.stopImmediatePropagation()
-        // A radio group of the kit is one Tab stop: its other radios and Base UI's hidden inputs carry tabindex=-1.
-        const focusable = focusablesOf(dialog).filter((element) => element.tabIndex >= 0)
-        if (focusable.length === 0) return
-        const at = focusable.indexOf(document.activeElement as HTMLElement)
-        const next = at < 0 ? (event.shiftKey ? focusable.length - 1 : 0) : (at + (event.shiftKey ? -1 : 1) + focusable.length) % focusable.length
-        focusable[next]?.focus()
-      }
-    }
-    // Focus that lands behind the window (a click on the backdrop) comes back to it.
-    const keep = (event: FocusEvent): void => {
-      const dialog = frame.current
-      if (dialog === null || (event.target instanceof Node && dialog.contains(event.target))) return
-      cancelButton.current?.focus()
-    }
-    window.addEventListener('keydown', onKey, true)
-    document.addEventListener('focusin', keep)
-    return () => {
-      window.removeEventListener('keydown', onKey, true)
-      document.removeEventListener('focusin', keep)
-    }
-  }, [])
-
   const hint = [MODE_HINTS[mode], ...(answer === null ? [] : [modeLine(answer.forecast.lines, mode)])].filter((line): line is string => line !== null).join(' ')
   const label = busy === null ? 'Start Autopilot' : 'Start when free'
-  return createPortal(
-    <div className="w-apstart-backdrop">
-      <div
-        ref={frame}
-        className="w-apstart"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        data-testid="start-autopilot"
-        data-from={open.from}
-        data-busy={busy === null ? undefined : ''}
-        data-facts={facts.kind}
-        data-time-up={timeUp ? '' : undefined}
-      >
-        <div className="w-apstart__head">
-          <h2 id={titleId}>
-            Start Autopilot
-            {queue ? (
-              <span className="w-apstart__count-line" data-testid="start-autopilot-queue-count">
-                {' '}
-                · {ticked.length} {ticked.length === 1 ? 'Epic' : 'Epics'}
-                {tickedWaves.every((waves) => waves !== undefined) ? `, ${wavesCount(tickedWaves.reduce<number>((sum, waves) => sum + (waves ?? 0), 0))}` : null}
-              </span>
-            ) : null}
-          </h2>
-          <AskedLine open={open} seconds={seconds} timeUp={timeUp} />
-        </div>
-        <div className="w-apstart__body">
-          {busy === null ? null : (
-            <div className="w-apstart__notice" role="status" data-testid="start-autopilot-busy">
-              <p>
-                <span className="w-apstart__notice-title">The Orchestrator is busy:</span> {busyText(busy)}
-              </p>
-              {busy.tasks.length === 0 ? null : (
-                <p className="w-apstart__notice-sub">
-                  Background tasks: <span className="w-mono">{busy.tasks.map((task) => task.description ?? task.id).join(', ')}</span>
-                </p>
-              )}
-            </div>
-          )}
-          {elsewhere === null ? null : (
-            <div className="w-apstart__notice" role="alert" data-testid="start-autopilot-elsewhere">
-              <p>
-                <span className="w-apstart__notice-title">Runs elsewhere:</span> {elsewhere.text}
-              </p>
-              <p className="w-apstart__notice-sub">&quot;Start anyway&quot; starts this queue here too, for every Epic of it: both runs take the same Tickets.</p>
-            </div>
-          )}
-          {facts.kind === 'failed' ? (
-            <p className="w-apstart__error" role="alert" data-testid="start-autopilot-error">
-              Could not read the facts of this start: {facts.reason}
-            </p>
-          ) : null}
-          <FactsGrid facts={facts} open={open} queue={queue} empty={empty} onChangeModes={changeModes} off={off} />
+  return (
+    <Dialog
+      open
+      // Esc is Cancel; while the start is on its way, or the time is up, the window stays.
+      onClose={cancel}
+      labelledBy={titleId}
+      className="w-apstart"
+      // A click outside does nothing: a start is not asked about by accident.
+      closeOnBackdrop={false}
+      layer={AUTOPILOT_WINDOW_LAYER}
+      // The focus goes to Cancel, so Enter right after opening starts nothing.
+      initialFocus={() => cancelButton.current}
+      onModifierKey={shortcut}
+      data-testid="start-autopilot"
+      data-from={open.from}
+      data-busy={busy === null ? undefined : ''}
+      data-facts={facts.kind}
+      data-time-up={timeUp ? '' : undefined}
+    >
+      <div className="w-apstart__head">
+        <h2 id={titleId}>
+          Start Autopilot
           {queue ? (
-            <div className="w-apstart__section">
-              <h3>
-                Queue{' '}
-                <span className="w-apstart__queue-hint" data-testid="start-autopilot-queue-hint">
-                  {open.from === 'agent' ? 'In the order the Session asked' : open.from === 'accepted' ? 'Ordered by acceptance date' : 'In the order asked'} · drag to reorder, untick to drop
-                </span>
-              </h3>
-              <QueueList rows={rows} facts={known} onChange={setRows} off={off} />
-            </div>
+            <span className="w-apstart__count-line" data-testid="start-autopilot-queue-count">
+              {' '}
+              · {ticked.length} {ticked.length === 1 ? 'Epic' : 'Epics'}
+              {tickedWaves.every((waves) => waves !== undefined) ? `, ${wavesCount(tickedWaves.reduce<number>((sum, waves) => sum + (waves ?? 0), 0))}` : null}
+            </span>
           ) : null}
+        </h2>
+        <AskedLine open={open} seconds={seconds} timeUp={timeUp} />
+      </div>
+      <div className="w-apstart__body">
+        {busy === null ? null : (
+          <div className="w-apstart__notice" role="status" data-testid="start-autopilot-busy">
+            <p>
+              <span className="w-apstart__notice-title">The Orchestrator is busy:</span> {busyText(busy)}
+            </p>
+            {busy.tasks.length === 0 ? null : (
+              <p className="w-apstart__notice-sub">
+                Background tasks: <span className="w-mono">{busy.tasks.map((task) => task.description ?? task.id).join(', ')}</span>
+              </p>
+            )}
+          </div>
+        )}
+        {elsewhere === null ? null : (
+          <div className="w-apstart__notice" role="alert" data-testid="start-autopilot-elsewhere">
+            <p>
+              <span className="w-apstart__notice-title">Runs elsewhere:</span> {elsewhere.text}
+            </p>
+            <p className="w-apstart__notice-sub">&quot;Start anyway&quot; starts this queue here too, for every Epic of it: both runs take the same Tickets.</p>
+          </div>
+        )}
+        {facts.kind === 'failed' ? (
+          <p className="w-apstart__error" role="alert" data-testid="start-autopilot-error">
+            Could not read the facts of this start: {facts.reason}
+          </p>
+        ) : null}
+        <FactsGrid facts={facts} open={open} queue={queue} empty={empty} onChangeModes={changeModes} off={off} />
+        {queue ? (
           <div className="w-apstart__section">
-            <h3>Mode</h3>
-            <RadioGroup className="w-apstart__modes" aria-label="Mode" value={mode} onValueChange={(next: RunMode) => setPicked(next)}>
-              {RUN_MODES.map((each) => (
-                <Radio key={each} value={each} data-testid={`start-autopilot-mode-${each}`} disabled={timeUp}>
-                  {RUN_MODE_LABELS[each]}
-                  {each === 'start-window' ? ` (${hourText(hours.from)}–${hourText(hours.to)})` : ''}
-                  {each === defaultMode ? <span className="w-apstart__muted"> (default)</span> : null}
-                </Radio>
-              ))}
-            </RadioGroup>
-            <div className="w-apstart__mode-hint" data-testid="start-autopilot-mode-hint">
-              {hint}
-            </div>
+            <h3>
+              Queue{' '}
+              <span className="w-apstart__queue-hint" data-testid="start-autopilot-queue-hint">
+                {open.from === 'agent' ? 'In the order the Session asked' : open.from === 'accepted' ? 'Ordered by acceptance date' : 'In the order asked'} · drag to reorder, untick to drop
+              </span>
+            </h3>
+            <QueueList rows={rows} facts={known} onChange={setRows} off={off} />
+          </div>
+        ) : null}
+        <div className="w-apstart__section">
+          <h3>Mode</h3>
+          <RadioGroup className="w-apstart__modes" aria-label="Mode" value={mode} onValueChange={(next: RunMode) => setPicked(next)}>
+            {RUN_MODES.map((each) => (
+              <Radio key={each} value={each} data-testid={`start-autopilot-mode-${each}`} disabled={timeUp}>
+                {RUN_MODE_LABELS[each]}
+                {each === 'start-window' ? ` (${hourText(hours.from)}–${hourText(hours.to)})` : ''}
+                {each === defaultMode ? <span className="w-apstart__muted"> (default)</span> : null}
+              </Radio>
+            ))}
+          </RadioGroup>
+          <div className="w-apstart__mode-hint" data-testid="start-autopilot-mode-hint">
+            {hint}
           </div>
         </div>
-        <div className="w-apstart__foot">
-          <span className="w-apstart__keys" aria-hidden="true">
-            <kbd>esc</kbd> Cancel · <kbd>tab</kbd> next · <kbd>{isMac() ? '⌘' : 'Ctrl'}</kbd>
-            <kbd>↩</kbd> Start
-          </span>
-          <button ref={cancelButton} type="button" className="w-apstart__button" data-testid="start-autopilot-cancel" disabled={off} onClick={cancel}>
-            Cancel
-          </button>
-          {elsewhere === null ? null : (
-            <button
-              type="button"
-              className="w-apstart__button w-apstart__button--danger"
-              data-testid="start-autopilot-anyway"
-              title="Start Autopilot over this queue here although another run has an Epic of it: both runs take the same Tickets"
-              disabled={off}
-              onClick={startAnyway}
-            >
-              Start anyway
-            </button>
-          )}
+      </div>
+      <div className="w-apstart__foot">
+        <span className="w-apstart__keys" aria-hidden="true">
+          <kbd>esc</kbd> Cancel · <kbd>tab</kbd> next · <kbd>{isMac() ? '⌘' : 'Ctrl'}</kbd>
+          <kbd>↩</kbd> Start
+        </span>
+        <button ref={cancelButton} type="button" className="w-apstart__button" data-testid="start-autopilot-cancel" disabled={off} onClick={cancel}>
+          Cancel
+        </button>
+        {elsewhere === null ? null : (
           <button
             type="button"
-            className="w-apstart__button w-apstart__button--primary"
-            data-testid="start-autopilot-start"
-            aria-keyshortcuts={isMac() ? 'Meta+Enter' : 'Control+Enter'}
-            disabled={off || empty}
-            onClick={start}
+            className="w-apstart__button w-apstart__button--danger"
+            data-testid="start-autopilot-anyway"
+            title="Start Autopilot over this queue here although another run has an Epic of it: both runs take the same Tickets"
+            disabled={off}
+            onClick={startAnyway}
           >
-            {label}
+            Start anyway
           </button>
-        </div>
+        )}
+        <button
+          type="button"
+          className="w-apstart__button w-apstart__button--primary"
+          data-testid="start-autopilot-start"
+          aria-keyshortcuts={isMac() ? 'Meta+Enter' : 'Control+Enter'}
+          disabled={off || empty}
+          onClick={start}
+        >
+          {label}
+        </button>
       </div>
-    </div>,
-    document.body,
+    </Dialog>
   )
 }
 

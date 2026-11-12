@@ -17,17 +17,7 @@
   }
 }
 
-/* Above the modal windows of the kit (--z-dialog, Settings among them) and in the layer of the windows of a Linked machine (120). */
-.w-apstart-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 120;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.25);
-}
-
+/* The window is a Dialog of the kit (theme/kit/Dialog.tsx): its backdrop and its layer (AUTOPILOT_WINDOW_LAYER, StartNowModal.tsx) are the kit's. */
 .w-apstart {
   width: 720px;
   max-width: calc(100vw - 32px);
