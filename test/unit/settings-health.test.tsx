@@ -798,18 +798,25 @@ describe('Settings → Health: the move form of the old Harness', () => {
     expect(screen.queryByRole('dialog', { name: 'Settings', hidden: true })).not.toBeNull()
   })
 
-  it('opened from First run, a modal window of the kit, the form keeps the keyboard as over Settings: a press on its text gives the focus back to the control that had it', async () => {
+  it('opened from First run, a modal window of the kit, the form keeps the keyboard as over Settings: after a press on its text, Tab brings the focus into the form, Esc closes the form only', async () => {
     handlers['harnessMigration.plan'] = () => ({ ok: true, value: plan })
     renderApp({ firstRun: true })
     act(() => openFirstRun())
     await waitFor(() => expect(rowsOf(firstRun())).toHaveLength(report().checks.length))
     fireEvent.click(within(rowOf(firstRun(), 'legacy-harness')).getByRole('button', { name: 'Move…' }))
     await waitFor(() => expect(within(form()).getByTestId('migration-actions')).toBeTruthy())
-    const close = within(form()).getByTestId('migration-close')
-    close.focus()
+    within(form()).getByTestId('migration-close').focus()
     await pressOnText()
-    expect(document.activeElement).toBe(close)
-    fireEvent.click(within(form()).getByTestId('migration-close'))
+
+    // Tab, pressed with the focus on the page, goes into the form instead of walking First run.
+    fireEvent.keyDown(document.activeElement!, { key: 'Tab' })
+    expect(form().contains(document.activeElement)).toBe(true)
+
+    await pressOnText()
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await frames()
+    expect(screen.queryByTestId('migration-form')).toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'First run' })).not.toBeNull()
     fireEvent.click(within(firstRun()).getByRole('button', { name: 'Close' }))
   })
 })

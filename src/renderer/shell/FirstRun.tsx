@@ -13,17 +13,10 @@ import { useEffect, useId, useRef, type CSSProperties } from 'react'
 import { openGettingStarted, useGettingStarted } from '../getting-started/store'
 import { isMac } from '../platform'
 import { Dialog } from '../theme/kit/Dialog'
-import { LAYERS } from '../theme/layers'
 import { showToast } from '../toast/toasts'
 import { FirstRunChecks, type FirstRunChecksParts } from './FirstRunChecks'
 import { CONCEPTS_LEAD, CONCEPTS_NOTE, CONCEPTS_TITLE, FirstRunConcepts } from './FirstRunConcepts'
 import { askAtStartup, closeFirstRun, showFirstRunChecks, useFirstRun } from './first-run-store'
-
-/**
- * The move form of the old Harness opens over this window (FirstRunChecks.tsx, `formLayer`): one
- * layer above the kit's dialog layer, as over Settings → Health, so it keeps its keys and the focus.
- */
-const FORM_LAYER = LAYERS.dialog + 10
 
 const styles = {
   dialog: {
@@ -154,5 +147,5 @@ export function FirstRun() {
   useEffect(askAtStartup, [])
 
   if (!open) return null
-  return <FirstRunChecks onTerminalOpened={closeFirstRun} formLayer={FORM_LAYER}>{(parts) => <FirstRunDialog {...parts} />}</FirstRunChecks>
+  return <FirstRunChecks onTerminalOpened={closeFirstRun}>{(parts) => <FirstRunDialog {...parts} />}</FirstRunChecks>
 }
