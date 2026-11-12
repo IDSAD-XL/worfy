@@ -62,11 +62,12 @@ popover, действия над сервером, подхват сервера
 
 #### Сервер, добавленный во время работы Session
 
-Пользователь добавляет сервер как привык (`claude mcp add`, connector claude.ai), пока работает Session Claude Code.
-Открытие popover-а даёт main подхватить сервер, который разрешает список Profile, в том же процессе, без перезапуска. Это
-бывает только между ходами и только в Session, за которой человек: никогда во время хода, никогда в Session Autopilot и
-никогда само после хода. Сервер, которого список не называет, вместо этого показывается в группе «Not allowed in this
-Project».
+Пользователь добавляет сервер в свою конфигурацию (`claude mcp add`), пока работает Session Claude Code. Открытие
+popover-а даёт main подхватить сервер, который разрешает список Profile, в том же процессе, без перезапуска. Это бывает
+только между ходами и только в Session, за которой человек: никогда во время хода, никогда в Session Autopilot и никогда
+само после хода. Сервер, которого список не называет, вместо этого показывается в группе «Not allowed in this Project».
+Подхватывает ли тот же шаг connector claude.ai, подключённый во время работы Session, пока не проверено: это ждёт живой
+проверки владельца.
 
 #### Серверы, не разрешённые в Project
 
@@ -106,8 +107,8 @@ Project-а, строка с Allow говорит «Allow takes effect from the n
 
 #### В Project settings
 
-Edit profile показывает под полем «MCP servers» каждое имя списка с его статусом в самой новой Session Project-а на этой
-Machine, его Orchestrator-е или Session Node, по событиям, которые получило это окно. Имя, которого в этой Session нет,
+Edit profile показывает под полем «MCP servers» каждое имя списка с его статусом в той Session Project-а на этой
+Machine, его Orchestrator-е или Session Node, чьи строки пришли в это окно последними. Имя, которого в этой Session нет,
 показано без статуса; без Session не показано ничего. Сама форма — на странице [Projects](projects.md).
 
 #### On a Linked machine
@@ -172,7 +173,8 @@ transcript-а. Chip один раз спрашивает `agent.mcp`, пока �
 | Test | Что проверяет |
 |---|---|
 | `test/unit/mcp-status-row.test.ts` | Источник каждого слова SDK и строки записанного ответа. |
-| `test/unit/mcp-chip.test.tsx` | Счёт chip-а, его предупреждение, строки и группа popover-а, кнопки, вопрос с `pickUp` при открытии, статус в Edit profile. |
+| `test/unit/mcp-chip.test.tsx` | Счёт chip-а, его предупреждение, строки и группа popover-а, кнопки, вопрос с `pickUp` при открытии. |
+| `test/unit/edit-profile.test.tsx` | Статус рядом с каждым именем списка MCP servers в Edit profile, его нет без Session и у Project-а Linked machine. |
 | `test/unit/codex-mcp-row.test.ts` | Строки Codex: каждый статус, Sign in только для HTTP-сервера, tool-ы, источник, никогда не «not allowed». |
 | `test/contract/claude-mcp-status.test.ts` | Событие `mcp` Session Claude Code над fake agent-ом, `agent.mcp`, Reconnect и порядок ответов. |
 | `test/contract/claude-mcp-pickup.test.ts` | Подхват нового сервера только между ходами и ничего в Session Autopilot. |

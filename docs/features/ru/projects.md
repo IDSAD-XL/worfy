@@ -304,8 +304,8 @@ Project Machine этого окна. Строка секции Pipeline или n
   account из «Add project»: аккаунты gh с правом push, аккаунт Profile-а отмечен, пока gh его знает. Загрузка списка ничего не
   меняет: аккаунт и его finish задаёт только выбор в списке, а Save ждёт, пока аккаунты загружаются. Поле-список, которого в
   Profile нет, оставленное пустым, так и остаётся без значения; поле, которое есть, после очистки пишется пустым списком, а для
-  MCP servers и разрешённых skills это «ни одного». Под «MCP servers» у каждого имени списка стоит его статус в самой новой
-  Session Project-а на этой Machine, его Orchestrator-е или Session Node; у имени, которого в этой Session нет, статуса нет,
+  MCP servers и разрешённых skills это «ни одного». Под «MCP servers» у каждого имени списка стоит его статус в той Session
+  Project-а на этой Machine, его Orchestrator-е или Session Node, чьи строки пришли в это окно последними; у имени, которого в этой Session нет, статуса нет,
   а без такой Session или у Project-а Linked machine не показано ничего. Connector claude.ai, которого popover Session может
   не перечислить, разрешают, вписав его имя в этот список ([MCP servers of a Session](mcp-servers.md)). Project Linked
   machine и Project с доступом только на чтение показывают форму без Save: Profile пишется только на своей машине.

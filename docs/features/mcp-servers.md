@@ -62,10 +62,12 @@ does not allow, and the same status in Project settings. Which servers a Session
 
 #### A server added while the Session runs
 
-The user adds a server the usual way (`claude mcp add`, a claude.ai connector) while a Claude Code Session runs. Opening
-the popover lets main take in a server the Profile's list allows, in the same process, with no Restart. It does so only
-between turns and only in a Session a person is at: never during a turn, never in an Autopilot Session, and never on its
-own after a turn. A server the list does not name shows in the group "Not allowed in this Project" instead.
+The user adds a server to the user's config (`claude mcp add`) while a Claude Code Session runs. Opening the popover
+lets main take in a server the Profile's list allows, in the same process, with no Restart. It does so only between
+turns and only in a Session a person is at: never during a turn, never in an Autopilot Session, and never on its own
+after a turn. A server the list does not name shows in the group "Not allowed in this Project" instead. Whether the same
+take-in brings in a claude.ai connector connected while the Session runs is not verified yet: it waits for the owner's
+live check.
 
 #### Servers not allowed in the Project
 
@@ -104,8 +106,8 @@ A Codex Session has the same chip and popover, with these differences:
 
 #### In Project settings
 
-Edit profile shows, under the field "MCP servers", each name of the list with its status in the newest Session of the
-Project on this Machine, its Orchestrator or a Session Node, by the events this window got. A name that Session does not
+Edit profile shows, under the field "MCP servers", each name of the list with its status in the Session of the Project
+on this Machine, its Orchestrator or a Session Node, whose rows reached this window last. A name that Session does not
 have shows without a status; with no Session, nothing shows. The form is on [Projects](projects.md).
 
 #### On a Linked machine
@@ -172,7 +174,8 @@ not act.
 | Test | Covers |
 |---|---|
 | `test/unit/mcp-status-row.test.ts` | The source of each SDK word and the rows of a recorded answer. |
-| `test/unit/mcp-chip.test.tsx` | The count of the chip, its warning, the popover's rows and group, the buttons, the ask with `pickUp` on opening, the status in Edit profile. |
+| `test/unit/mcp-chip.test.tsx` | The count of the chip, its warning, the popover's rows and group, the buttons, the ask with `pickUp` on opening. |
+| `test/unit/edit-profile.test.tsx` | The status beside each name of the MCP servers list in Edit profile, none without a Session, none for a Project of a Linked machine. |
 | `test/unit/codex-mcp-row.test.ts` | The rows of Codex: each status, Sign in only for an HTTP server, the tools, the source, never not allowed. |
 | `test/contract/claude-mcp-status.test.ts` | The `mcp` event of a Claude Code Session over the fake agent, `agent.mcp`, Reconnect and the order of answers. |
 | `test/contract/claude-mcp-pickup.test.ts` | Taking in a new server between turns only, and nothing in an Autopilot Session. |
