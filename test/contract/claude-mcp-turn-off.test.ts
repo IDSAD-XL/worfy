@@ -303,7 +303,12 @@ describe('turn-off and turn-on for this Session', () => {
     expect(h.stub.order().map((each) => each.split(' ').slice(0, 2).join(' '))).toEqual(['spawn 1', 'exit 1', 'spawn 2'])
     expect(h.stub.order().filter((each) => each.includes('SIGKILL'))).toEqual([])
     expect(h.starts[1]?.resume).toBe(sdkId)
-    expect(h.starts[1]?.managedSettings).toEqual({ allowManagedMcpServersOnly: true, allowedMcpServers: [{ serverName: CANVAS_SERVER_NAME }] })
+    // And denied by its name (worfy-mcp-live ticket 12): another server's address pattern may cover a remote server's address.
+    expect(h.starts[1]?.managedSettings).toEqual({
+      allowManagedMcpServersOnly: true,
+      allowedMcpServers: [{ serverName: CANVAS_SERVER_NAME }],
+      deniedMcpServers: [{ serverName: 'example-notes' }],
+    })
     expect(Object.keys(h.starts[1]?.mcpServers ?? {})).toEqual([CANVAS_SERVER_NAME])
     await vi.waitFor(() => expect(h.ofType('mcp').at(-1)).toEqual({ type: 'mcp', servers: [CANVAS, NOTES_OFF] }))
 
