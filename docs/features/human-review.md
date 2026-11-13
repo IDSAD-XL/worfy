@@ -114,7 +114,9 @@ GitHub, no model. "Update", here or in "Project settings…", opens a Session wi
   installed ones with new examples of the slice merged in, up to 6 per tier, and the diff names the examples each tier
   adds and drops. Each run labels reviewers again by its own window, so a kept example takes the label of this run
   when its comment is in the slice, and a label it cannot pair becomes `reviewer A (before <date>)`: such a label
-  may be the same person as another one, and the diff says so.
+  may be the same person as another one, and the diff says so. In a tier with such a label, the rule that no reviewer
+  gives more than a third of the examples holds in each group apart: the examples of this run's labels, and the
+  earlier ones.
 - It checks the draft on 5 of the new pull requests, as a build does.
 - **Accept** moves the installed skill, its examples, `research.md`, `lint.json` and the old check pages into
   `previous/` with a time stamp, and puts the new ones in place. **Reject**, or no answer, deletes the draft and

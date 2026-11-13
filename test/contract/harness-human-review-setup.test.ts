@@ -729,7 +729,12 @@ describe('refresh.md: the update with --refresh (worfy-human-review ticket 10)',
     // The counts are of labels, and a `(before …)` label may be one person with another: said in the file and the diff.
     expect(five).toMatch(/Count the reviewers of each tier again[^.]*by label/)
     expect(five).toMatch(/`\(before …\)` label may be the same person as another label/)
+    // So one person under two labels cannot pass the rule of a third or the one-or-two line: each group is checked apart.
+    expect(five).toMatch(/counted in two groups apart — its examples under the labels of this run, and its examples under `\(before …\)` labels/)
+    expect(five).toMatch(/rule of a third holds inside each group[^.]*not only over the whole tier/)
+    expect(five).toMatch(/line on one or two reviewers when neither group has more than two labels/)
     const six = part(6).replace(/\s+/g, ' ')
+    expect(six).toMatch(/rule of a third and the line on one or two reviewers were checked in each group apart/)
     expect(six).toMatch(/labels the kept examples changed, old → new/)
     expect(six).toMatch(/`\(before …\)`[^.]*may be (one|the same) person/)
   })

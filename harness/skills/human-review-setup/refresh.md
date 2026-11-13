@@ -121,8 +121,11 @@ file better — an area of code the tier lacks, or a reviewer over a third. A ti
 keeps its examples as they are; a tier that said "No comments of this tier in the window." takes the new ones in
 place of that line. Count the reviewers of each tier again by label for the line on one or two reviewers. Nothing
 tells whether a `(before …)` label names a reviewer of this run: a `(before …)` label may be the same person as
-another label of the tier, so in a tier that has one the line says its count is of labels, and the rule of a third
-and the Node script of write.md, section 5, which count by label, may take one person for two.
+another label of the tier. So a tier that has one is also counted in two groups apart — its examples under the
+labels of this run, and its examples under `(before …)` labels. The rule of a third holds inside each group that
+has examples from three or more labels, not only over the whole tier, which is all the Node script of write.md,
+section 5, checks. The tier takes the line on one or two reviewers when neither group has more than two labels,
+and in a tier with a `(before …)` label the line says its count is of labels.
 
 `raw/prs.jsonl` holds the slice only, while the sections of before and the kept examples keep their links, so the
 lint gets those as known links too: `"<plugin>/bin/review-draft-lint" --skill "<private folder>/raw/skill" --prs
@@ -151,7 +154,7 @@ stay as they were, and the sections of `research.md` that are new. Then **Voice 
 example, and for each tier name the examples added and the ones dropped — the link, the reviewer label and the
 length, never the text — and the count kept. Name too the labels the kept examples changed, old → new, and each
 `(before …)` label with its tiers, saying that such a label may be the same person as another label of the tier and
-that the rule of a third counts it apart. Write the result to `raw/refresh/diff.md` and
+that the rule of a third and the line on one or two reviewers were checked in each group apart. Write the result to `raw/refresh/diff.md` and
 run `"<plugin>/bin/evidence-check" "<private folder>/raw/refresh/diff.md"; echo "EXIT=$?"`: no home folder path,
 host name, email or token; and the Node script of write.md, section 5, finds none of the logins of
 `raw/reviewers.json` in it. A finding — fix and check again.
