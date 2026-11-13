@@ -60,13 +60,21 @@ export function prewarmOptions(input: PrewarmOptionsInput): Options {
   }
 }
 
+/**
+ * The Haiku a request without thinking names, by its id. Not the alias `haiku`: since Claude Code 2.1.322
+ * (Agent SDK 0.3.322) the alias resolves to Haiku 5.5, whose catalog entry says `rejects_disabled_thinking`,
+ * and Claude Code then turns thinking-off into adaptive thinking. A Suggestion that thinks is cancelled
+ * (ADR-0058, point 3), and the narrator's thinking would spend its short output limit. When Haiku 4.5 is
+ * retired, the request fails like any other: no Suggestion from the model, a silent narrator, a line in the log.
+ */
+export const HAIKU_WITHOUT_THINKING = 'claude-haiku-4-5'
+
 /** What one request sets at claim(). Haiku runs without thinking, Sonnet at low effort. */
 export function claimOptions(feature: TerminalAiFeature, settings: TerminalAiSettings, dataDir: string): ClaimOptions {
   const model = featureModel(feature, settings)
   return {
     cwd: assistDir(dataDir),
-    model,
-    ...(model === 'haiku' ? { maxThinkingTokens: 0 } : { settings: { effortLevel: 'low' } }),
+    ...(model === 'haiku' ? { model: HAIKU_WITHOUT_THINKING, maxThinkingTokens: 0 } : { model, settings: { effortLevel: 'low' } }),
     appendSystemPrompt: FEATURE_PROMPTS[feature],
     title: FEATURE_TITLES[feature],
   }

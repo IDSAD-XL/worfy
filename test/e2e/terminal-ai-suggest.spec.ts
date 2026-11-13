@@ -68,7 +68,7 @@ test('a line the history has nothing for is completed in grey by the model after
     await expect.poll(async () => (await greyText(node)).text, { timeout: ms(15_000) }).toBe('acon')
     const requests = sandbox.requests().filter((r) => r.feature === 'suggest')
     expect(requests.map((r) => r.context.line)).toEqual([typed, laterTyped])
-    expect(requests[0]).toMatchObject({ feature: 'suggest', model: 'haiku', cancelled: false, context: { line: typed, cwd: sandbox.root, commands: [] } })
+    expect(requests[0]).toMatchObject({ feature: 'suggest', model: 'claude-haiku-4-5', cancelled: false, context: { line: typed, cwd: sandbox.root, commands: [] } })
   } finally {
     await launched.close()
   }

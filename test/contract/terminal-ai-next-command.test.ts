@@ -304,7 +304,7 @@ describe('the handler of Next command', () => {
     const w = world({ settings: { nextCommandModel: 'haiku' } })
     w.answers([{ feature: 'next', answer: ANSWER }])
     expect((await asked(w)).shows).toEqual([ANSWER])
-    expect(w.requests()).toMatchObject([{ feature: 'next', model: 'haiku' }])
+    expect(w.requests()).toMatchObject([{ feature: 'next', model: 'claude-haiku-4-5' }])
     w.service.setSettings({ nextCommand: false })
     expect((await asked(w)).shows).toEqual([])
     w.service.setSettings({ nextCommand: true })
@@ -624,7 +624,7 @@ describe('Next command on a real zsh', () => {
     await t.run('echo worfy-next-1')
     await askNumber(1)
     await t.greyShown(ANSWER)
-    expect(requests()).toMatchObject([{ feature: 'next', model: 'haiku', cancelled: false }])
+    expect(requests()).toMatchObject([{ feature: 'next', model: 'claude-haiku-4-5', cancelled: false }])
   })
 
   it('with Next command off the shell asks nothing; with the Limits at allowed_warning the model is not asked and nothing is shown', async () => {

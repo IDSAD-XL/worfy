@@ -153,7 +153,7 @@ describe('the narrator’s cadence', () => {
     await vi.waitFor(() => expect(h.emitted).toEqual([['Reads the roadmap draft to weigh it against the critic']]))
     expect(h.starts()).toHaveLength(1)
     // Haiku, through the same fake Claude Code a Session would start.
-    expect(h.starts()[0]).toMatchObject({ kind: 'start', resume: null, settings: { model: 'haiku' } })
+    expect(h.starts()[0]).toMatchObject({ kind: 'start', resume: null, settings: { model: 'claude-haiku-4-5' } })
     const [digest] = h.digests()
     expect(digest).toContain('How big is the niche of small teams?')
     expect(digest).toContain('Read: {"file_path":"/repo/docs/product/roadmap/map.md"}')

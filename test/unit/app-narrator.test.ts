@@ -75,6 +75,6 @@ it('asks nothing while the stored live summary is off, and asks once it is turne
   narrator.event(read)
   await vi.waitFor(() => expect(emitted).toEqual([['Reads the roadmap draft to check it against the critic before answering']]))
   const calls = (await readFile(log, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as { narrator?: boolean; kind: string; settings?: { model: string } })
-  expect(calls.filter((call) => call.kind === 'start')).toMatchObject([{ narrator: true, settings: { model: 'haiku' } }])
+  expect(calls.filter((call) => call.kind === 'start')).toMatchObject([{ narrator: true, settings: { model: 'claude-haiku-4-5' } }])
   narrator.close()
 })

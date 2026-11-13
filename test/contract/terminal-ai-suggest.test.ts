@@ -455,7 +455,7 @@ describe('the handler of the feature', () => {
     expect(w.requests()).toEqual([
       {
         feature: 'suggest',
-        model: 'haiku',
+        model: 'claude-haiku-4-5',
         context: { line: 'npm run', request: null, cwd: root, commands: ['npm install', 'npm test'], branch: BRANCH, exitCode: 2, output: null },
         cancelled: false,
         cold: false,
@@ -595,7 +595,7 @@ describe('the Suggestion from the model on a real zsh', () => {
 
     expect(await t.greyShown('untu bash')).toMatch(lineWithGrey(TYPED, 'untu bash'))
     expect(ask.shows).toEqual(['untu bash'])
-    expect(requests()).toMatchObject([{ feature: 'suggest', model: 'haiku', cancelled: false, context: { line: TYPED, cwd: root, branch: BRANCH } }])
+    expect(requests()).toMatchObject([{ feature: 'suggest', model: 'claude-haiku-4-5', cancelled: false, context: { line: TYPED, cwd: root, branch: BRANCH } }])
 
     t.type(RIGHT)
     expect(await t.redrawn()).toMatch(lineAlone(ANSWER))
@@ -696,7 +696,7 @@ describe('the Suggestion from the model on a real zsh', () => {
     expect(more).toEqual([])
     expect(request).toEqual({
       feature: 'suggest',
-      model: 'haiku',
+      model: 'claude-haiku-4-5',
       context: {
         line: 'docker ps',
         request: null,
