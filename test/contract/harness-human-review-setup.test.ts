@@ -711,6 +711,29 @@ describe('refresh.md: the update with --refresh (worfy-human-review ticket 10)',
     expect(five).toContain('--known "<private folder>/.claude/skills/human-review/voice-examples.md"')
   })
 
+  it('puts the labels of the kept voice examples into the labels of this run before the merge (audit a, round 2)', () => {
+    const five = part(5).replace(/\s+/g, ' ')
+    // Each run gives `reviewer A`, `reviewer B`, … again by its own window: a kept `reviewer A` may be another person.
+    expect(five).toMatch(/may be another person than `reviewer A` of `raw\/reviewers\.json`/)
+    // The pairing goes through the link of a kept example: a `url` of `raw/prs.jsonl`, its author, its label.
+    expect(five).toMatch(/link is a `url` of `raw\/prs\.jsonl`[^.]*author[^.]*`raw\/reviewers\.json`/)
+    expect(five).toMatch(/prints labels only, never a login/)
+    // A label of before with no pair never passes for a label of this run.
+    expect(five).toContain('`<label> (before <date>)`')
+    expect(five).toMatch(/already carries `\(before …\)`[^.]*stays/)
+    // The relabelling comes before the examples are picked and before the counts.
+    const relabel = five.indexOf('First put its labels')
+    expect(relabel, five).toBeGreaterThan(five.indexOf('copy `<private folder>/.claude/skills/human-review/voice-examples.md`'))
+    expect(relabel).toBeLessThan(five.indexOf('Each tier keeps its earlier examples'))
+    expect(relabel).toBeLessThan(five.indexOf('Count the reviewers of each tier again'))
+    // The counts are of labels, and a `(before …)` label may be one person with another: said in the file and the diff.
+    expect(five).toMatch(/Count the reviewers of each tier again[^.]*by label/)
+    expect(five).toMatch(/`\(before …\)` label may be the same person as another label/)
+    const six = part(6).replace(/\s+/g, ' ')
+    expect(six).toMatch(/labels the kept examples changed, old → new/)
+    expect(six).toMatch(/`\(before …\)`[^.]*may be (one|the same) person/)
+  })
+
   it('shows the person which voice examples the update adds and drops before Accept (audit a)', () => {
     const six = part(6).replace(/\s+/g, ' ')
     expect(six).toContain('**Voice examples**')

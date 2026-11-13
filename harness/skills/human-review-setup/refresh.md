@@ -102,12 +102,27 @@ in place of `research.md`: the draft is built in `raw/skill/` and checked there 
 
 Its section 3 does not start from the template: `raw/analysis/` holds the slice only, and examples picked from it
 alone would drop every example of before and leave each tier the slice has no comment of empty. Instead, copy
-`<private folder>/.claude/skills/human-review/voice-examples.md` to `raw/skill/voice-examples.md`. Each tier keeps its
-earlier examples and takes new ones from the slice, picked as section 3 says, up to 6; a tier the earlier ones
-already fill takes a new example in place of an earlier one only where that meets a rule of the file better — an
-area of code the tier lacks, or a reviewer over a third. A tier the slice has no new comment of keeps its examples
-as they are; a tier that said "No comments of this tier in the window." takes the new ones in place of that line.
-Count the reviewers of each tier again for the line on one or two reviewers.
+`<private folder>/.claude/skills/human-review/voice-examples.md` to `raw/skill/voice-examples.md`.
+
+First put its labels into the labels of this run. Every run gives `reviewer A`, `reviewer B`, … again, by the counts
+of its own window (analyse.md, section 1, item 3), and the `raw/reviewers.json` of the run that picked a kept example
+went with its `raw/`: so `reviewer A` of the installed file may be another person than `reviewer A` of
+`raw/reviewers.json`. A short Node script over `raw/skill/voice-examples.md`, `raw/prs.jsonl` and `raw/reviewers.json`
+relabels the kept examples; it prints labels only, never a login. Each distinct label of the file is one reviewer of
+an earlier run. A kept example whose link is a `url` of `raw/prs.jsonl` — a pull request of the slice that carries an
+old comment — pairs its label with the label its author has in `raw/reviewers.json`, and every kept example with that
+label takes the label of this run. A label paired with two labels of this run counts as unpaired. A label with no
+pair becomes `<label> (before <date>)`, as `reviewer A (before 2026-10-01)`, with the `<date>` of step 1; a label
+that already carries `(before …)` and has no pair stays as it is.
+
+Each tier keeps its earlier examples and takes new ones from the slice, picked as section 3 says, up to 6; a tier
+the earlier ones already fill takes a new example in place of an earlier one only where that meets a rule of the
+file better — an area of code the tier lacks, or a reviewer over a third. A tier the slice has no new comment of
+keeps its examples as they are; a tier that said "No comments of this tier in the window." takes the new ones in
+place of that line. Count the reviewers of each tier again by label for the line on one or two reviewers. Nothing
+tells whether a `(before …)` label names a reviewer of this run: a `(before …)` label may be the same person as
+another label of the tier, so in a tier that has one the line says its count is of labels, and the rule of a third
+and the Node script of write.md, section 5, which count by label, may take one person for two.
 
 `raw/prs.jsonl` holds the slice only, while the sections of before and the kept examples keep their links, so the
 lint gets those as known links too: `"<plugin>/bin/review-draft-lint" --skill "<private folder>/raw/skill" --prs
@@ -134,7 +149,9 @@ its sections in `raw/refresh/research-before.md` and in `raw/refresh/research.md
 stay as they were, and the sections of `research.md` that are new. Then **Voice examples**: compare
 `<private folder>/.claude/skills/human-review/voice-examples.md` with `raw/skill/voice-examples.md` by the link of each
 example, and for each tier name the examples added and the ones dropped — the link, the reviewer label and the
-length, never the text — and the count kept. Write the result to `raw/refresh/diff.md` and
+length, never the text — and the count kept. Name too the labels the kept examples changed, old → new, and each
+`(before …)` label with its tiers, saying that such a label may be the same person as another label of the tier and
+that the rule of a third counts it apart. Write the result to `raw/refresh/diff.md` and
 run `"<plugin>/bin/evidence-check" "<private folder>/raw/refresh/diff.md"; echo "EXIT=$?"`: no home folder path,
 host name, email or token; and the Node script of write.md, section 5, finds none of the logins of
 `raw/reviewers.json` in it. A finding — fix and check again.
