@@ -336,6 +336,27 @@ describe('a message to a Session in error waits for the process it closed', () =
     expect(r.messages(1)).toEqual(['hello'])
   })
 
+  // Force stop (ADR-0050): a halted Session sends nothing more, and what it holds goes only on "Send queued".
+  // A message that waits for the next process has reached none: the halt holds it in the queue, ahead of the
+  // rest, so the relaunch hands it over held, and the next process does not get it on its own.
+  it('a halt holds a message that waits for the next process: handed over held, never sent into the new process', async () => {
+    const processes = new FakeProcesses()
+    const r = rig(fixtures, 'turn', { throwOn: failOnResult, processes })
+    await vi.waitFor(() => expect(r.session.state).toBe('idle'))
+    r.session.send('hello')
+    await vi.waitFor(() => expect(r.session.state).toBe('error'))
+    r.session.send('the wave')
+    await r.session.halt()
+    expect(r.session.queued()).toEqual({ items: [expect.objectContaining({ text: 'the wave' })], paused: true })
+    processes.process(1).exit()
+    await vi.waitFor(() => expect(processes.log.entries).toContain('start 2'))
+    await settle()
+    expect(r.messages(2)).toEqual([])
+    expect(r.session.handOverQueue()).toEqual({ items: [expect.objectContaining({ text: 'the wave', attachments: [] })], paused: true })
+    r.session.close()
+    await r.session.exited()
+  })
+
   it('a Session closed while it waits starts no process', async () => {
     const processes = new FakeProcesses()
     const r = rig(fixtures, 'turn', { throwOn: failOnResult, processes })
