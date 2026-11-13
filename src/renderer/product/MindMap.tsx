@@ -18,6 +18,7 @@ import {
   type NodeChange,
   type NodeProps,
   type NodeTypes,
+  type Viewport,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { createContext, Fragment, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
@@ -141,6 +142,10 @@ const VIEWS = [
 const ZOOM_MIN = 0.1
 const ZOOM_MAX = 2.5
 const FIT = { padding: 0.12, maxZoom: 1.25 }
+
+/** The viewport that fits the nodes' own boxes into a pane of this size. */
+const fitting = (nodes: MindFlowNode[], width: number, height: number): Viewport =>
+  getViewportForBounds(getNodesBounds(nodes), width, height, ZOOM_MIN, FIT.maxZoom, FIT.padding)
 
 const KIND_LABEL: Readonly<Record<MapNode['kind'], string>> = {
   topic: 'Topic',
@@ -622,7 +627,7 @@ function usePlacement(graph: MapGraph, view: MindMapView): { key: string; placem
 }
 
 /** «−», «+» and «Fit»; `onMoved` hears whether the owner set the zoom by hand (true) or fitted the map (false). */
-function ZoomControls({ onMoved }: { onMoved: (byHand: boolean) => void }) {
+function ZoomControls({ onMoved, onFit }: { onMoved: (byHand: boolean) => void; onFit: () => void }) {
   const flow = useReactFlow()
   const zoom = useStore((store) => store.transform[2])
   return (
@@ -660,7 +665,7 @@ function ZoomControls({ onMoved }: { onMoved: (byHand: boolean) => void }) {
         title="Fit every node into view"
         onClick={() => {
           onMoved(false)
-          void flow.fitView({ ...FIT, duration: 0 })
+          onFit()
         }}
       >
         Fit
@@ -1120,17 +1125,6 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
   // on the map keeps the owner's view; «Fit» and a fit on another topic or view clear it.
   const movedByHand = useRef(false)
 
-  // The map is fitted when it opens on a topic or a view, and once more when ELK's layout replaces
-  // the first one; a node added later leaves the camera where the reader put it («Fit» brings it in).
-  const fitted = useRef<string | null>(null)
-  const fitFor = `${topic.name}\n${view}\n${byElk}`
-  useEffect(() => {
-    if (fitted.current === fitFor) return
-    fitted.current = fitFor
-    movedByHand.current = false
-    void flow.fitView({ ...FIT, duration: 0 })
-  }, [fitFor, flow])
-
   // As in the prototype (ticket 23): when the map's area changes size — the window, the divider beside the
   // chat — the map is fitted again, so no column ends up cut off at the edge; not after the owner moved it.
   // React Flow's own size of the pane, the one fitView fits into.
@@ -1149,17 +1143,30 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
     void flow.setViewport(getViewportForBounds(flow.getNodesBounds(nodes), paneWidth, paneHeight, ZOOM_MIN, FIT.maxZoom, FIT.padding), { duration: 0 })
   }, [paneWidth, paneHeight, flow])
 
-  // The fit «Prettify» asks for (ticket 31), once the nodes it put back are drawn. Not through fitView: React
-  // Flow keeps that one queued until it has measured every node, and a node that only moved has lost its
-  // measure and is not measured again (its size is the same), so the fit never came. The viewport «Fit»
-  // gives, from the nodes' own boxes, as the fit on a new size above.
+  // The map is fitted when it opens on a topic or a view, and once more when ELK's layout replaces
+  // the first one; a node added later leaves the camera where the reader put it («Fit» brings it in).
+  // «Prettify» asks for a fit too (ticket 31), once the nodes it put back are drawn. None goes through
+  // fitView: React Flow drops a node's measured size whenever the node object is rebuilt (a click on a node,
+  // ELK's answer), and does not measure it again while its size stays the same, so fitView stays queued, and
+  // the next node drawn, measured alone, pulls the camera to itself. The viewport comes from the nodes' own
+  // boxes, as passed (React Flow's lookup may still hold a moved node's last place), as the fit on a new size above.
+  const fitted = useRef<string | null>(null)
+  const fitFor = `${topic.name}\n${view}\n${byElk}`
   const fitPending = useRef(false)
+  const fitNodes = (): void => {
+    if (paneWidth <= 0 || paneHeight <= 0 || nodes.length === 0) return
+    void flow.setViewport(fitting(nodes, paneWidth, paneHeight), { duration: 0 })
+  }
   useEffect(() => {
+    if (fitted.current !== fitFor) {
+      fitted.current = fitFor
+      movedByHand.current = false
+      fitPending.current = true
+    }
     if (!fitPending.current || paneWidth <= 0 || paneHeight <= 0 || nodes.length === 0) return
     fitPending.current = false
-    // The boxes of the nodes as passed: React Flow's own lookup may still hold a moved node's last place.
-    void flow.setViewport(getViewportForBounds(getNodesBounds(nodes), paneWidth, paneHeight, ZOOM_MIN, FIT.maxZoom, FIT.padding), { duration: 0 })
-  }, [nodes, paneWidth, paneHeight, flow])
+    void flow.setViewport(fitting(nodes, paneWidth, paneHeight), { duration: 0 })
+  }, [fitFor, nodes, paneWidth, paneHeight, flow])
 
   const pickedPlace = picked === null ? undefined : shown.get(picked)
 
@@ -1285,6 +1292,7 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
           onMoved={(byHand) => {
             movedByHand.current = byHand
           }}
+          onFit={fitNodes}
         />
       </div>
       <Errors errors={topic.errors} />

@@ -6,6 +6,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ELK from 'elkjs/lib/elk.bundled.js'
+import { getViewportForBounds } from '@xyflow/react'
 import type { ProductTopicState } from '../../src/shared/ipc/product'
 import { setElkEngine } from '../../src/renderer/canvas/elk/client'
 import { MindMap } from '../../src/renderer/product/MindMap'
@@ -546,6 +547,60 @@ describe('MindMap fit, text and card', () => {
     const before = camera()
     await resizePane(420, 600)
     expect(camera()).toEqual(before)
+  })
+
+  // React Flow forgets a node's measured size when the node object is rebuilt (a click on a node, ELK's
+  // answer) and does not measure it again while its size stays the same; a fitView it then queues waits
+  // for a measure, and the next node drawn gets measured alone and pulls the camera to itself.
+  it('«Fit» fits every node after the nodes were rebuilt, and a node added later leaves the camera alone', async () => {
+    const { rerender } = render(<MindMap projectId="p1" topic={topic()} />)
+    await fitted()
+    // A click on a node rebuilds every node object; then the owner zooms in far.
+    fireEvent.click(nodeOf('who-pays')!)
+    fireEvent.click(screen.getByRole('button', { name: 'Close the card' }))
+    for (let step = 0; step < 4; step += 1) await zoomBy('Zoom in')
+    expect(allInside(PANE)).toBe(false)
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Fit' }))
+      await new Promise((resolve) => setTimeout(resolve, 60))
+    })
+    expect(allInside(PANE)).toBe(true)
+    const fit = camera()
+
+    rerender(<MindMap projectId="p1" topic={topic({ nodes: [...topic().nodes, { id: 'late', kind: 'idea', text: 'Added later', from: 'who-pays' }] })} />)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 60))
+    })
+    expect(nodeOf('late')).not.toBeNull()
+    expect(camera()).toEqual(fit)
+  })
+
+  it('fits the map to ELK’s layout once ELK answers', async () => {
+    const elk = new ELK()
+    setElkEngine({ layout: (input) => elk.layout(input) })
+    try {
+      render(<MindMap projectId="p1" topic={topic()} />)
+      const graph = buildMindMapGraph(topic(), { hideRejected: false })
+      const byElk = (await layoutElk(graph, elk)).get('@topic')!
+      await waitFor(() => expect(nodeOf('@topic')!.closest<HTMLElement>('.react-flow__node')!.style.transform).toBe(`translate(${byElk.x}px,${byElk.y}px)`))
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 60))
+      })
+      const boxes = Array.from(document.querySelectorAll<HTMLElement>('.react-flow__node')).map((element) => {
+        const place = /translate\((-?[\d.]+)px, ?(-?[\d.]+)px\)/.exec(element.style.transform)!
+        return { x: Number(place[1]), y: Number(place[2]), width: Number.parseFloat(element.style.width), height: Number.parseFloat(element.style.height) }
+      })
+      const left = Math.min(...boxes.map((box) => box.x))
+      const top = Math.min(...boxes.map((box) => box.y))
+      const bounds = { x: left, y: top, width: Math.max(...boxes.map((box) => box.x + box.width)) - left, height: Math.max(...boxes.map((box) => box.y + box.height)) - top }
+      const want = getViewportForBounds(bounds, PANE.width, PANE.height, 0.1, 1.25, 0.12)
+      const got = camera()
+      expect(got.scale).toBeCloseTo(want.zoom, 3)
+      expect(got.tx).toBeCloseTo(want.x, 1)
+      expect(got.ty).toBeCloseTo(want.y, 1)
+    } finally {
+      setElkEngine(null)
+    }
   })
 
   it('clamps a node’s text to the lines its box holds, so a text wider than measured ends inside the box', () => {
