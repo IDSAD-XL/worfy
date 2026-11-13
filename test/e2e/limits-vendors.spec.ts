@@ -60,12 +60,19 @@ test.beforeEach(() => {
   // Claude's windows as a Session left them a minute ago: fresh, so the bars are not dimmed.
   const receivedAt = Date.now() - 60_000
   const inHours = (hours: number): number => Math.floor(Date.now() / 1000) + hours * 3600
+  // The 7-day window resets on the next Wednesday, 1 to 7 days ahead, whatever day the run is on. Its reset
+  // line names the weekday (`Wed 01:16`), and the weekday is what makes a section's width change from day to
+  // day: `Fri` is 12.4 px at 10 px in the macOS UI font, `Wed` 21.4 px, the widest of the seven. A reset
+  // 72 hours ahead made the width depend on the date of the run (a run on a Friday in UTC got `Mon`, and
+  // the section 112.34 px), so the test now measures the widest case on every run.
+  let sevenDayReset = inHours(24)
+  while (new Date(sevenDayReset * 1000).getDay() !== 3) sevenDayReset += 24 * 3600
   writeFileSync(
     join(dataDir, 'limits.json'),
     JSON.stringify({
       windows: {
         five_hour: { utilization: 0.62, resetsAt: inHours(2), status: 'allowed', receivedAt, source: 'sdk' },
-        seven_day: { utilization: 0.38, resetsAt: inHours(72), status: 'allowed', receivedAt, source: 'sdk' },
+        seven_day: { utilization: 0.38, resetsAt: sevenDayReset, status: 'allowed', receivedAt, source: 'sdk' },
       },
     }),
   )
@@ -136,9 +143,11 @@ async function expectStacked(section: Locator, ids: readonly string[]): Promise<
  * The widest a Vendor's section may be. Before worfy-polish ticket 93 a section was its logo and two bars
  * of 72 px side by side, 172 px. One line of label, share and reset time at 10 px measured 125 px for
  * Claude's and 128 px for Codex's with the full labels; with the short ones (`7d 38% Fri 11:19`,
- * `7d 40% Sat 00:40`; owner, 2026-11-10) 104 px and 107 px on macOS.
+ * `7d 40% Sat 00:40`; owner, 2026-11-10) 104 px and 107 px on macOS. Claude's reset weekday is the widest one,
+ * `Wed`, 9 px wider than `Fri` (see beforeEach): about 113 px, measured as 112.34 px with `Mon` on the macOS
+ * runner. The limit leaves 2 px over that for font rendering; it is still well under the 172 px of before.
  */
-const SECTION_MAX = 112
+const SECTION_MAX = 115
 
 test('signed in to Codex: a Codex section with the windows of its plan next to Claude\'s, inside the toolbar', async () => {
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, CODEX_HOME: codexHome, WORFY_CODEX_SCRIPT: 'account-plus', WORFY_CODEX_SCRIPTS: join(repoRoot, 'test', 'fixtures', 'codex-scripts') } })
