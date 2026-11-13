@@ -424,8 +424,7 @@ test('Esc with a popup of the sidebar open next to focus mode: History, the ADR 
     await expect(menu).toHaveCount(0)
     await escape()
     await expect(focus).toHaveCount(0)
-    // A press outside the menu closes it, as ever.
-    await again()
+    // Out of focus mode, a press outside the menu closes it, as ever.
     await window.getByTestId('project-row').first().click({ button: 'right' })
     await expect(menu).toBeVisible()
     await window.locator('.w-toolbar__name').click()
