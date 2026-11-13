@@ -99,9 +99,19 @@ Read `<plugin>/skills/human-review-setup/analyse.md` and follow it, with these c
 
 Read `<plugin>/skills/human-review-setup/write.md` and follow its sections 1 to 5 with `raw/refresh/research.md`
 in place of `research.md`: the draft is built in `raw/skill/` and checked there with `review-draft-lint --skill`.
-`raw/prs.jsonl` holds the slice only, while the sections of before keep their links, so the lint gets those as known
-links too: `"<plugin>/bin/review-draft-lint" --skill "<private folder>/raw/skill" --prs "<private folder>/raw/prs.jsonl"
---known "<private folder>/raw/refresh/research-before.md"; echo "EXIT=$?"`.
+
+Its section 3 does not start from the template: `raw/analysis/` holds the slice only, and examples picked from it
+alone would drop every example of before and leave each tier the slice has no comment of empty. Instead, copy
+`<private folder>/.claude/skills/human-review/voice-examples.md` to `raw/skill/voice-examples.md`. Each tier keeps its
+earlier examples and takes new ones from the slice, picked as section 3 says, up to 6; a tier the earlier ones
+already fill takes a new example in place of an earlier one only where that meets a rule of the file better — an
+area of code the tier lacks, or a reviewer over a third. A tier the slice has no new comment of keeps its examples
+as they are; a tier that said "No comments of this tier in the window." takes the new ones in place of that line.
+Count the reviewers of each tier again for the line on one or two reviewers.
+
+`raw/prs.jsonl` holds the slice only, while the sections of before and the kept examples keep their links, so the
+lint gets those as known links too: `"<plugin>/bin/review-draft-lint" --skill "<private folder>/raw/skill" --prs
+"<private folder>/raw/prs.jsonl" --known "<private folder>/raw/refresh/research-before.md" --known "<private folder>/.claude/skills/human-review/voice-examples.md"; echo "EXIT=$?"`.
 The `forbidden` words of `lint.json` are those of the installed `<private folder>/lint.json`. Its section 6, the
 install, does not run now: the files are put in place only on **Accept** of step 8.
 
@@ -121,7 +131,10 @@ changed rule, not a removed one and an added one. Within a round, several candid
 Each line names the step, the rule as written, its `[R<n>]` (for a changed rule both sets, before → now), and for
 each number of the rule "before → now": the number in the installed rule and in the draft for a changed rule; for an added or a removed rule, the numbers of
 its sections in `raw/refresh/research-before.md` and in `raw/refresh/research.md`. Add the count of the rules that
-stay as they were, and the sections of `research.md` that are new. Write the result to `raw/refresh/diff.md` and
+stay as they were, and the sections of `research.md` that are new. Then **Voice examples**: compare
+`<private folder>/.claude/skills/human-review/voice-examples.md` with `raw/skill/voice-examples.md` by the link of each
+example, and for each tier name the examples added and the ones dropped — the link, the reviewer label and the
+length, never the text — and the count kept. Write the result to `raw/refresh/diff.md` and
 run `"<plugin>/bin/evidence-check" "<private folder>/raw/refresh/diff.md"; echo "EXIT=$?"`: no home folder path,
 host name, email or token; and the Node script of write.md, section 5, finds none of the logins of
 `raw/reviewers.json` in it. A finding — fix and check again.
@@ -141,7 +154,7 @@ With none held out, say the draft could not be checked on pull requests it has n
 ## 8. The person decides
 
 Show the person the diff of `raw/refresh/diff.md` — the **Added**, **Changed** and **Removed** rules with their
-`[R<n>]` and their numbers before → now — and the check of step 7: the line of each pull request, the total with
+`[R<n>]` and their numbers before → now, and the **Voice examples** each tier adds and drops — and the check of step 7: the line of each pull request, the total with
 the words "a rough measure", and the paths of the pages in `raw/refresh/check/`. Then ask: accept the update, or
 reject it.
 

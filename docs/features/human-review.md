@@ -74,7 +74,9 @@ this order:
 
 **Using it.** Once built, the reviewer reaches every Claude Code Session of the Project that a person is at, as the
 skill `/human-review`: the Orchestrator, "New session", "Ship ticket" and a Product Session. Asked to review a pull
-request, it writes a draft in the team's voice, checks it with `review-draft-lint`, and shows it. Nothing goes to
+request, it writes a draft in the team's voice, checks it with `review-draft-lint`, and shows it. It only reads the
+pull request: the Session's shell carries the person's GitHub token, so it never builds, tests or runs the author's
+code, and what only a run would show becomes a question. Nothing goes to
 GitHub without the person's explicit "yes" to that draft in the conversation; a request to change it, a question or
 silence is not a "yes". These Sessions never get it:
 
@@ -108,7 +110,9 @@ GitHub, no model. "Update", here or in "Project settings…", opens a Session wi
 - It asks the same "yes" after the estimate, then analyses the new comments together with the `research.md` of
   before. Old sections keep their numbers, and new themes get the next ones.
 - It writes the new skill as a draft and shows the diff of the rules: **Added**, **Changed** and **Removed**, each
-  with its `[R<n>]` and, for every number in the rule, "before → now".
+  with its `[R<n>]` and, for every number in the rule, "before → now". The voice examples of the draft are the
+  installed ones with new examples of the slice merged in, up to 6 per tier, and the diff names the examples each tier
+  adds and drops.
 - It checks the draft on 5 of the new pull requests, as a build does.
 - **Accept** moves the installed skill, its examples, `research.md`, `lint.json` and the old check pages into
   `previous/` with a time stamp, and puts the new ones in place. **Reject**, or no answer, deletes the draft and

@@ -330,6 +330,21 @@ describe('the template of the generated skill', () => {
     expect(three).toMatch(/Spec axis/)
   })
 
+  it('only reads the pull request: its code never runs, since the shell carries the person\'s GitHub token (audit a)', () => {
+    const one = templateStep(1)
+    const rule = blocks(one).find((b) => /^Read only\./.test(b))
+    expect(rule, one).toBeDefined()
+    expect(rule).toContain('`GH_TOKEN`')
+    expect(rule).toMatch(/never runs/)
+    for (const what of ['no build', 'no test', 'no package manager', 'no script of the repository']) expect(rule, what).toContain(what)
+    // What only a run would show is asked, never claimed, as step 4 does with a candidate it could not check.
+    expect(rule).toMatch(/becomes a question/)
+    // A paragraph, never a list item: review-draft-lint --skill takes a list item under a `## ` heading for a rule with [R<n>].
+    expect(one).not.toMatch(/^\s*[-*] .*never runs/m)
+    // /worfy:code-review and its sub-agents are bound by it too.
+    expect(templateStep(3)).toMatch(/read-only paragraph of step 1/)
+  })
+
   it('in step 4 checks every candidate on the head commit and turns an unchecked one into a question', () => {
     const four = templateStep(4)
     expect(four).toContain('git show <headRefOid>:<path>')
@@ -681,6 +696,29 @@ describe('refresh.md: the update with --refresh (worfy-human-review ticket 10)',
     expect(five).toContain('`raw/skill/`')
     expect(five).toMatch(/section 6[^.]*(does not run|not now)/i)
     expect(five).toMatch(/Accept/)
+  })
+
+  it('merges the new voice examples into the installed voice-examples.md, never replaces it by the slice alone (audit a)', () => {
+    const five = part(5).replace(/\s+/g, ' ')
+    expect(five).toMatch(/section 3/)
+    // The draft starts from the installed file, not from the template.
+    expect(five).toContain('copy `<private folder>/.claude/skills/human-review/voice-examples.md` to `raw/skill/voice-examples.md`')
+    expect(five).toMatch(/keeps? (its|the) earlier examples/)
+    expect(five).toMatch(/up to 6/)
+    // A tier the slice has no comment of keeps its examples instead of "No comments of this tier in the window."
+    expect(five).toMatch(/no new comment[^.]*keeps/)
+    // The kept examples link to pull requests outside the slice: the lint knows them from the installed file.
+    expect(five).toContain('--known "<private folder>/.claude/skills/human-review/voice-examples.md"')
+  })
+
+  it('shows the person which voice examples the update adds and drops before Accept (audit a)', () => {
+    const six = part(6).replace(/\s+/g, ' ')
+    expect(six).toContain('**Voice examples**')
+    expect(six).toMatch(/added/)
+    expect(six).toMatch(/dropped/)
+    const eight = part(8)
+    expect(eight.indexOf('**Voice examples**'), eight).toBeGreaterThan(-1)
+    expect(eight.indexOf('**Voice examples**')).toBeLessThan(eight.indexOf('- **Accept**'))
   })
 
   it('the diff of the rules names the added, changed and removed rules, each with [R<n>] and its numbers "before → now"', () => {

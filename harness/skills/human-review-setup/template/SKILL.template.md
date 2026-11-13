@@ -42,6 +42,12 @@ git worktree add --detach "<tmp>/pr-<n>" "<headRefOid>"; echo "EXIT=$?"
 
 Remove it when the review is over, posted or not: `git worktree remove "<tmp>/pr-<n>"`.
 
+Read only. The pull request is its author's code, and the shell of this session carries the person's GitHub token
+(`GH_TOKEN`), so that code never runs here: no build, no test, no package manager (`npm`, `pnpm`, `go`, `cargo`,
+`pip`, `make`…), no script of the repository and no hook of it. The worktree is there to be read. Besides the
+commands this skill writes out, run only reading commands — `git diff`, `git show`, `git grep`, `git log` — and read
+files. What only a run would show becomes a question, as step 4 says of a candidate it could not check.
+
 ## 2. Triage
 
 Decide first whether the pull request needs comments at all, and whether to ask for a split. Small is not safe:
@@ -64,8 +70,9 @@ What this team really catches, by area of code or by repository, with its share 
 Find the candidates with `/worfy:code-review`, run in the worktree of step 1 with the fixed point
 `<baseRefOid>`. This checklist is one more source of standards for it: add it to the standards sources of its
 step 3, and paste it in full into the brief of its Standards sub-agent, which has no other copy. The Spec axis
-runs when step 1 found the linked task: that task is the spec. What `/worfy:code-review` returns are candidates,
-not comments yet.
+runs when step 1 found the linked task: that task is the spec. Paste the read-only paragraph of step 1 into the brief
+of each of its sub-agents too: they run nothing of the pull request either. What `/worfy:code-review` returns are
+candidates, not comments yet.
 
 ## 4. Verify and grade
 
