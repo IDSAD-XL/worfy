@@ -184,7 +184,9 @@ git -C "$R" remote add origin git@github.com:acme/shop.git
 git -C "$FR" remote add origin https://github.com/acme/full.git
 git -C "$WS/a" remote add upstream https://github.com/Acme/WS-A.git
 git -C "$WS/b" remote add origin ssh://git@github.com/acme/ws-b
-[ "$(node "$HARNESS/bin/profile" -C "$WS" --field _resolved.workspace)" = "$WS" ] && ok "the folder above sw's repositories is its workspace" \
+# bin/profile prints a native path: C:\…\ws on Windows, where $WS is C:/…/ws (node_path above).
+ws_got="$(node "$HARNESS/bin/profile" -C "$WS" --field _resolved.workspace)"
+[ "${ws_got//\\//}" = "$WS" ] && ok "the folder above sw's repositories is its workspace" \
     || bad "the folder above sw's repositories is not its workspace: $(node "$HARNESS/bin/profile" -C "$WS" --json 2>&1 | head -c 300)"
 expect "silent: gh api write from the workspace root, the endpoint names a repository of it -> deny" deny "$WS" \
     "gh api repos/acme/ws-a/issues/7/comments -f body='Ticket 05 done'" 'Ticket 05'
@@ -200,6 +202,17 @@ expect "full: gh api write from the Silent repository into the Full project's PR
     "gh api repos/acme/full/issues/7/comments -f body='Ticket 05 done'"
 expect "silent: gh api write into a repository no checkout has -> checked from the directory, deny" deny "$R" \
     "gh api repos/acme/unknown/issues/7/comments -f body='Ticket 05 done'" 'Ticket 05'
+# A write that names no repository the guard can resolve, sent from the workspace root: checked from every
+# repository of the workspace's project.
+GQL_ADD="gh api graphql -f query='mutation { addComment(input: {subjectId: \"PR_x\", body: \"Ticket 05 done\"}) { clientMutationId } }'"
+expect "silent: gh api graphql mutation from the workspace root -> checked from its repositories, deny" deny "$WS" "$GQL_ADD" 'Ticket 05'
+expect "silent: gh api write from the workspace root, a shell variable in the endpoint -> deny" deny "$WS" \
+    "gh api \"repos/\$O/ws-a/issues/7/comments\" -f body='Ticket 05 done'" 'Ticket 05'
+expect "silent: gh api graphql mutation from the workspace root, a clean body -> allow" allow "$WS" \
+    "gh api graphql -f query='mutation { addComment(input: {subjectId: \"PR_x\", body: \"The state is kept now.\"}) { clientMutationId } }'"
+# shortcut (guard.mjs): from a folder outside every registered project a GraphQL mutation names no repository the
+# guard can find without a network call, so it goes through. Pinned here: when that changes, so does this case.
+expect "silent: gh api graphql mutation from outside the registry -> allow (a known limit)" allow "$HOME" "$GQL_ADD"
 cp "$T/config.saved" "$HARNESS_HOME/gate/config.json"
 git -C "$R" remote remove origin; git -C "$FR" remote remove origin
 

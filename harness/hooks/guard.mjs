@@ -34,9 +34,11 @@ import { codexAgent, isCodexInput, isHarnessAgent, READ_ONLY_AGENTS } from "./co
 import { git as GIT } from "./eval-env.cjs"
 import { gateConfigFile } from "./gate-paths.mjs"
 
-// bin/silent-check of this Harness: the folder above hooks/, found from this script's real file.
-const SILENT_CHECK =
-    process.env.CLAUDE_SILENT_CHECK_BIN || path.join(path.dirname(path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)))), "bin", "silent-check")
+// bin/ of this Harness: the folder above hooks/, found from this script's real file.
+const BIN = path.join(path.dirname(path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)))), "bin")
+const SILENT_CHECK = process.env.CLAUDE_SILENT_CHECK_BIN || path.join(BIN, "silent-check")
+// bin/profile: which project's workspace a directory is (a gh api write sent from there).
+const PROFILE = process.env.CLAUDE_PROFILE_BIN || path.join(BIN, "profile")
 
 let raw = ""
 process.stdin.setEncoding("utf8")
@@ -672,9 +674,15 @@ function ghApi(args, dir, checks, bodies, flat) {
         const at = flat.indexOf(u.written)
         u.earlier = at !== -1 && at < start
     }
-    // The text lands in the repository the endpoint names, so that repository's project decides; the directory the
-    // command runs in decides only when no registered checkout has that repository (or the endpoint names none).
-    const targets = graphql ? [] : endpointCheckouts(p, dir)
+    // The text lands in the repository the endpoint names, so that repository's project decides. A GraphQL mutation
+    // and an endpoint the guard cannot resolve (a shell variable, gh's {owner}, a repository no checkout has) name
+    // none: sent from the common folder above a project's repositories (its workspace), they are checked from every
+    // repository of that project; anywhere else the directory the command runs in decides.
+    // shortcut: such a write sent from a folder outside every registered project (a GraphQL addComment by node id
+    // from $HOME) is checked from that folder, which no profile covers, so it goes through; redo when the guard
+    // can tell the target repository of a node id without a network call.
+    let targets = graphql ? [] : endpointCheckouts(p, dir)
+    if (!targets.length) targets = workspaceCheckouts(dir)
     for (const at of targets.length ? targets : [dir])
         checks.push({
             dir: at,
@@ -686,12 +694,17 @@ function ghApi(args, dir, checks, bodies, flat) {
         })
 }
 
+// One budget of a few seconds for every lookup of a command (git remotes, bin/profile), counted from the first: the
+// hook must end within its own limit in hooks.json, and the trace checks after them take up to two tries.
+let lookupUntil = 0
+const lookupLeft = () => (lookupUntil ||= Date.now() + 4000) - Date.now()
+
 // The registered checkouts (the gate registry's `match` folders) of the GitHub repository a REST endpoint names
 // (repos/<owner>/<repo>/…): those with a remote of that owner and name, letter case aside. A write sent from the
 // common folder above a project's repositories, or from a folder outside the registry, is checked by the project it
 // lands in, not by the folder. None — a shell variable or gh's {owner} placeholder in the path, a repository no
 // registered checkout has, an unreadable registry — leaves the check with the folder the command runs in. The git
-// calls share a budget of a few seconds: the hook must end within its own limit in hooks.json.
+// calls take from the lookup budget above.
 function endpointCheckouts(p, cwd) {
     const m = p.match(/^repos\/([\w.-]+)\/([\w.-]+)\//)
     if (!m) return []
@@ -703,14 +716,13 @@ function endpointCheckouts(p, cwd) {
         return []
     }
     const found = []
-    const until = Date.now() + 4000
     for (const r of Array.isArray(entries) ? entries : []) {
-        if (typeof r?.match !== "string" || !r.match || Date.now() > until) continue
+        if (typeof r?.match !== "string" || !r.match || lookupLeft() <= 0) continue
         const repo = path.resolve(r.match)
         if (found.includes(repo) || !fs.existsSync(repo)) continue
         const run = spawnSync(GIT, ["-C", repo, "config", "--get-regexp", "^remote\\..*\\.url$"], {
             encoding: "utf8",
-            timeout: Math.max(1, Math.min(2000, until - Date.now())),
+            timeout: Math.max(1, Math.min(2000, lookupLeft())),
             windowsHide: true,
         })
         // `remote.origin.url git@github.com:o/r.git`, `… https://github.com/o/r`, `… ssh://git@host/o/r.git`
@@ -727,6 +739,34 @@ function endpointCheckouts(p, cwd) {
         )
         if (names.includes(want)) found.push(repo)
     }
+    return found
+}
+
+// The repositories of the project whose workspace `dir` is (bin/profile: a directory above all the repositories of
+// one profile, matched by no registry entry itself — `_resolved.workspace` set, `_resolved.gate_key` null) that exist
+// on disk. None for a project repository, a folder outside the registry, or a profile that cannot be read in time:
+// the folder the command runs in then decides, as before.
+function workspaceCheckouts(dir) {
+    let at = dir
+    while (!fs.existsSync(at) && path.dirname(at) !== at) at = path.dirname(at)
+    if (!fs.existsSync(PROFILE) || lookupLeft() <= 0) return []
+    const run = spawnSync(process.execPath, [PROFILE, "-C", at, "--json"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: Math.max(1, lookupLeft()),
+        windowsHide: true,
+    })
+    if (run.status !== 0) return []
+    let r
+    try {
+        r = JSON.parse(run.stdout)._resolved || {}
+    } catch {
+        return []
+    }
+    if (!r.workspace || r.gate_key || !Array.isArray(r.repos)) return []
+    const found = []
+    for (const repo of r.repos)
+        if (typeof repo?.path === "string" && !found.includes(repo.path) && fs.existsSync(repo.path)) found.push(repo.path)
     return found
 }
 
