@@ -1318,7 +1318,7 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
               setPicked(null)
               setPickNote(null)
             }}
-            // A move with an event is the owner's (the wheel, a drag of the background); fitView and setCenter have none.
+            // A move with an event is the owner's (the wheel, a drag of the background); setViewport and setCenter have none.
             onMove={(event) => {
               if (event !== null) movedByHand.current = true
             }}
@@ -1332,8 +1332,8 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
             elementsSelectable={false}
             minZoom={ZOOM_MIN}
             maxZoom={ZOOM_MAX}
-            fitView
-            fitViewOptions={FIT}
+            // No `fitView` here: React Flow runs it on the first node it measures, and when the nodes are measured
+            // in more than one batch it fits that first batch alone. The fit when the map opens is the effect above.
             zoomOnDoubleClick={false}
             deleteKeyCode={null}
             colorMode="system"

@@ -99,7 +99,12 @@ afterEach(() => {
 
 const nodeOf = (id: string): HTMLElement | null => document.querySelector<HTMLElement>(`[data-testid="mind-node"][data-id="${id}"]`)
 const wrapperOf = (id: string): HTMLElement => nodeOf(id)!.closest<HTMLElement>('.react-flow__node')!
-const zoomOf = (): number => Number.parseInt(screen.getByTestId('mind-map-zoom').textContent ?? '100', 10) / 100
+/** The camera's zoom, exact: the viewport's CSS scale, not the rounded percent the zoom label shows. */
+const zoomOf = (): number => {
+  const match = /scale\(([\d.]+)\)/.exec(document.querySelector<HTMLElement>('.react-flow__viewport')!.style.transform)
+  if (match === null) throw new Error('the viewport has no scale')
+  return Number(match[1])
+}
 
 /** Where React Flow draws a node now, from its wrapper's transform. */
 function placeOf(id: string): { x: number; y: number } {
