@@ -31,6 +31,8 @@ import path from "node:path"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import { codexAgent, isCodexInput, isHarnessAgent, READ_ONLY_AGENTS } from "./codex-input.mjs"
+import { git as GIT } from "./eval-env.cjs"
+import { gateConfigFile } from "./gate-paths.mjs"
 
 // bin/silent-check of this Harness: the folder above hooks/, found from this script's real file.
 const SILENT_CHECK =
@@ -670,14 +672,62 @@ function ghApi(args, dir, checks, bodies, flat) {
         const at = flat.indexOf(u.written)
         u.earlier = at !== -1 && at < start
     }
-    checks.push({
-        dir,
-        what: graphql ? "This GraphQL mutation (gh api graphql)" : `This text of gh api ${endpoint}`,
-        command: `gh api ${endpoint}`,
-        texts: all,
-        diff: [],
-        unread,
-    })
+    // The text lands in the repository the endpoint names, so that repository's project decides; the directory the
+    // command runs in decides only when no registered checkout has that repository (or the endpoint names none).
+    const targets = graphql ? [] : endpointCheckouts(p, dir)
+    for (const at of targets.length ? targets : [dir])
+        checks.push({
+            dir: at,
+            what: graphql ? "This GraphQL mutation (gh api graphql)" : `This text of gh api ${endpoint}`,
+            command: `gh api ${endpoint}`,
+            texts: all,
+            diff: [],
+            unread,
+        })
+}
+
+// The registered checkouts (the gate registry's `match` folders) of the GitHub repository a REST endpoint names
+// (repos/<owner>/<repo>/…): those with a remote of that owner and name, letter case aside. A write sent from the
+// common folder above a project's repositories, or from a folder outside the registry, is checked by the project it
+// lands in, not by the folder. None — a shell variable or gh's {owner} placeholder in the path, a repository no
+// registered checkout has, an unreadable registry — leaves the check with the folder the command runs in. The git
+// calls share a budget of a few seconds: the hook must end within its own limit in hooks.json.
+function endpointCheckouts(p, cwd) {
+    const m = p.match(/^repos\/([\w.-]+)\/([\w.-]+)\//)
+    if (!m) return []
+    const want = `${m[1]}/${m[2]}`.toLowerCase()
+    let entries
+    try {
+        entries = JSON.parse(fs.readFileSync(gateConfigFile(process.env, cwd), "utf8")).repos
+    } catch {
+        return []
+    }
+    const found = []
+    const until = Date.now() + 4000
+    for (const r of Array.isArray(entries) ? entries : []) {
+        if (typeof r?.match !== "string" || !r.match || Date.now() > until) continue
+        const repo = path.resolve(r.match)
+        if (found.includes(repo) || !fs.existsSync(repo)) continue
+        const run = spawnSync(GIT, ["-C", repo, "config", "--get-regexp", "^remote\\..*\\.url$"], {
+            encoding: "utf8",
+            timeout: Math.max(1, Math.min(2000, until - Date.now())),
+            windowsHide: true,
+        })
+        // `remote.origin.url git@github.com:o/r.git`, `… https://github.com/o/r`, `… ssh://git@host/o/r.git`
+        const names = (run.stdout || "").split("\n").map((line) =>
+            line
+                .slice(line.indexOf(" ") + 1)
+                .trim()
+                .replace(/\/+$/, "")
+                .replace(/\.git$/, "")
+                .split(/[/:]/)
+                .slice(-2)
+                .join("/")
+                .toLowerCase()
+        )
+        if (names.includes(want)) found.push(repo)
+    }
+    return found
 }
 
 // The published text of a JSON payload of a REST write: its text fields at any depth (a review's body and
