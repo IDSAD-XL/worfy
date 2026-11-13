@@ -764,6 +764,9 @@ export function sessionOptions(input: SessionOptionsInput): Options {
     // Always the key, an empty list too: without `allowedMcpServers` the policy tier would let every server through.
     const entries = allowedMcpEntries(allowlist.filter((name) => !off.includes(name)), input.mcpAddresses ?? null)
     options.managedSettings = { allowManagedMcpServersOnly: true, allowedMcpServers: entries }
+    // A server turned off is denied by its name too: another allowed server's address pattern may cover its address
+    // (two connectors behind one service). Claude Code checks the deny list first and compares names verbatim, dots too.
+    if (off.length > 0) options.managedSettings.deniedMcpServers = off.map((serverName) => ({ serverName }))
   } else if (off.length > 0) {
     // No list to leave them out of: the policy tier denies them by name. Not measured on Claude Code in
     // this form, a deny list alone: the spike sent it together with a list (F:turnoff-restart-denied).

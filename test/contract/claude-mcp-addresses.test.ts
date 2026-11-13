@@ -18,6 +18,7 @@ import { SessionRegistry, type QueryHandle, type QueryRequest } from '../../src/
 import type { CanvasSession } from '../../src/main/mcp/canvas-server'
 import {
   MCP_NOT_ALLOWABLE,
+  MCP_NOT_ALLOWABLE_REMOTE,
   MCP_NOT_STARTED,
   MCP_NOT_STARTED_FOUND_LATER,
   MCP_NOT_STARTED_FOUND_LATER_UNATTENDED,
@@ -84,6 +85,8 @@ const ANSWER = [
   { name: DOCS, status: 'connected', scope: 'claudeai', source: 'claudeai', config: { type: 'claudeai-proxy', url: DOCS_URL, id: 'acme-1' }, tools: [] },
   // A connector the answer gives no address for.
   { name: WIKI, status: 'needs-auth', scope: 'claudeai', source: 'claudeai', config: { type: 'claudeai-proxy', id: 'acme-2' } },
+  // The proxy case: a claudeai-proxy server outside scope claudeai, whose address Claude Code computes itself.
+  { name: 'acme-proxied', status: 'connected', scope: 'managed', source: 'managed', config: { type: 'claudeai-proxy', url: 'https://proxy.acme.example/acme-3', id: 'acme-3' } },
 ]
 
 /** An inventory whose query answers `answer()`; `starts` counts its runs. Every folder stands for itself (no git). */
@@ -103,9 +106,10 @@ describe('the inventory keeps the addresses of remote servers next to its rows',
     const { inventory } = inventoryOf(() => ANSWER)
     expect(inventory.addresses(cwd)).toBeNull()
     const rows = await inventory.refresh(cwd)
-    expect(rows?.map((row) => row.name)).toEqual(['example-notes', DOCS, WIKI])
+    expect(rows?.map((row) => row.name)).toEqual(['example-notes', DOCS, WIKI, 'acme-proxied'])
     expect(JSON.stringify(rows)).not.toContain('acme.example')
     expect(Object.fromEntries(inventory.addresses(cwd) ?? [])).toEqual({ [DOCS]: DOCS_URL })
+    expect([...(inventory.unaddressed(cwd) ?? [])].sort()).toEqual(['acme-proxied', WIKI])
   })
 
   it('a failed run keeps the last answer’s addresses', async () => {
@@ -147,7 +151,7 @@ describe('a Session’s start takes the inventory’s addresses', () => {
   const reasons = (rows: readonly McpServerRow[]) => rows.filter((row) => row.status === 'not-started').map((row) => ({ name: row.name, error: row.error, actions: row.actions }))
 
   it('the first start has none: the connector found after it says the next start has it; the next start has its address', async () => {
-    const h = sessions(['example-notes', DOCS, WIKI])
+    const h = sessions(['example-notes', DOCS, WIKI, 'acme-proxied'])
     const first = h.start()
     await vi.waitFor(() => expect(h.requests).toHaveLength(1))
     expect(h.requests[0]).not.toHaveProperty('mcpAddresses')
@@ -155,6 +159,7 @@ describe('a Session’s start takes the inventory’s addresses', () => {
       expect(reasons(first.rows())).toEqual([
         { name: DOCS, error: MCP_NOT_STARTED_FOUND_LATER, actions: ['restart'] },
         { name: WIKI, error: MCP_NOT_ALLOWABLE, actions: [] },
+        { name: 'acme-proxied', error: MCP_NOT_ALLOWABLE_REMOTE, actions: [] },
       ]),
     )
     const second = h.start()
@@ -199,7 +204,7 @@ describe('the query factory writes the list by address', () => {
     await factory(request({ mcpAddresses: new Map([[DOCS, DOCS_URL]]) }))
     expect(seen[0]?.managedSettings).toEqual({
       allowManagedMcpServersOnly: true,
-      allowedMcpServers: [{ serverName: 'example-notes' }, { serverUrl: 'https://docs.acme.example/mcp*' }, { serverName: CANVAS_SERVER_NAME }],
+      allowedMcpServers: [{ serverName: 'example-notes' }, { serverUrl: 'https://docs.acme.example/mcp?*' }, { serverName: CANVAS_SERVER_NAME }],
     })
     expect(JSON.stringify(seen[0])).not.toContain('acme-secret')
     // No inventory answer yet: the connector is left out, Claude Code would drop its name anyway.
@@ -212,6 +217,7 @@ describe('the reason of a row not-started (notStartedRows)', () => {
   const row = (name: string, source: McpServerRow['source'] = 'user'): McpServerRow => ({ name, status: 'connected', tools: 1, error: null, source, sourceWord: null, actions: [] })
   const inventory = [row('example-notes'), row(DOCS, 'claudeai'), row(WIKI, 'claudeai'), row('acme-remote')]
   const set = { listed: ['example-notes', DOCS, WIKI, 'acme-remote'], rows: [row('example-notes')], off: [] as string[] }
+  const unaddressed = new Set([WIKI, 'acme-proxied'])
   const now = new Map([
     [DOCS, DOCS_URL],
     ['acme-remote', 'https://remote.acme.example/mcp'],
@@ -236,6 +242,13 @@ describe('the reason of a row not-started (notStartedRows)', () => {
       [WIKI, MCP_NOT_ALLOWABLE, []],
       ['acme-remote', MCP_NOT_STARTED_FOUND_LATER_UNATTENDED, []],
     ])
+  })
+
+  it('a remote server the inventory has no address for (the proxy case) says Claude Code allows it only by address, no Restart', () => {
+    const proxied = notStartedRows([...inventory, row('acme-proxied')], { ...set, listed: [...set.listed, 'acme-proxied'], attended: true, addressesNow: now, unaddressedNow: unaddressed })
+    expect(proxied.map((each) => [each.name, each.error, each.actions]).slice(-1)).toEqual([['acme-proxied', MCP_NOT_ALLOWABLE_REMOTE, []]])
+    // A connector without an address keeps the reason of its name.
+    expect(proxied.find((each) => each.name === WIKI)?.error).toBe(MCP_NOT_ALLOWABLE)
   })
 
   it('without addresses — a Claude Code older than the field — a readable name keeps the plain row, a connector says why it never starts', () => {

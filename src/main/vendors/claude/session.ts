@@ -415,7 +415,7 @@ class ClaudeSession implements SessionHandle, ClaudeLiveSession, ClaudeMcpLive {
     const inventory = this.inventory
     if (rows === null || inventory === null || this.listed === null) return rows
     const found = inventory.of.latest(inventory.cwd)
-    const set = { listed: this.listed, rows, off: this.off, attended: this.attended(), addressesAtStart: this.startAddresses, addressesNow: inventory.of.addresses(inventory.cwd) }
+    const set = { listed: this.listed, rows, off: this.off, attended: this.attended(), addressesAtStart: this.startAddresses, addressesNow: inventory.of.addresses(inventory.cwd), unaddressedNow: inventory.of.unaddressed(inventory.cwd) }
     return [...rows, ...notStartedRows(found, set), ...notAllowedRows(found, set)]
   }
 

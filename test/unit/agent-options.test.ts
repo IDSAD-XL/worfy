@@ -141,14 +141,14 @@ describe('MCP servers of a Session in a Project', () => {
       ['claude.ai Acme Docs', 'https://docs.acme.example/mcp?token=acme-secret'],
     ])
 
-    it('stdio servers by name, remote ones by address, a query cut to origin and path with `*`', () => {
+    it('stdio servers by name, remote ones by address, a query cut to origin and path with `?*`', () => {
       const options = sessionOptions(input({ canvas, mcpAllowlist: ['acme-notes', 'acme-remote', 'claude.ai Acme Docs', CANVAS_SERVER_NAME], mcpAddresses: addresses }))
       expect(options.managedSettings).toEqual({
         allowManagedMcpServersOnly: true,
         allowedMcpServers: [
           { serverName: 'acme-notes' },
           { serverUrl: 'https://remote.acme.example/mcp' },
-          { serverUrl: 'https://docs.acme.example/mcp*' },
+          { serverUrl: 'https://docs.acme.example/mcp?*' },
           { serverName: CANVAS_SERVER_NAME },
         ],
       })
@@ -158,13 +158,30 @@ describe('MCP servers of a Session in a Project', () => {
 
     it('a list left empty by the filtering is sent as an empty list, never left out', () => {
       const options = sessionOptions(input({ canvas, mcpAllowlist: ['claude.ai Acme Wiki', 'acme-remote'], mcpOff: ['acme-remote'], mcpAddresses: addresses }))
-      expect(options.managedSettings).toEqual({ allowManagedMcpServersOnly: true, allowedMcpServers: [] })
+      expect(options.managedSettings).toEqual({ allowManagedMcpServersOnly: true, allowedMcpServers: [], deniedMcpServers: [{ serverName: 'acme-remote' }] })
       expect(options.managedSettings).toHaveProperty('allowedMcpServers')
     })
 
-    it('a remote server turned off for this Session is neither by address nor by name', () => {
+    it('a remote server turned off for this Session is neither by address nor by name, and denied by its name', () => {
       const options = sessionOptions(input({ canvas, mcpAllowlist: ['acme-notes', 'acme-remote'], mcpOff: ['acme-remote'], mcpAddresses: addresses }))
       expect(options.managedSettings?.allowedMcpServers).toEqual([{ serverName: 'acme-notes' }])
+      expect(options.managedSettings?.deniedMcpServers).toEqual([{ serverName: 'acme-remote' }])
+    })
+
+    // Review of #1847: another allowed server's pattern may cover the address of the one turned off (two connectors
+    // behind one address). Claude Code checks the deny list first and compares its names verbatim, dots and spaces too.
+    it('a connector turned off while another pattern covers its address is still denied by its name, verbatim', () => {
+      const shared = new Map([...addresses, ['claude.ai Acme Docs (2)', 'https://docs.acme.example/mcp?token=other']])
+      const options = sessionOptions(input({ canvas, mcpAllowlist: ['claude.ai Acme Docs', 'claude.ai Acme Docs (2)'], mcpOff: ['claude.ai Acme Docs (2)'], mcpAddresses: shared }))
+      expect(options.managedSettings).toEqual({
+        allowManagedMcpServersOnly: true,
+        allowedMcpServers: [{ serverUrl: 'https://docs.acme.example/mcp?*' }],
+        deniedMcpServers: [{ serverName: 'claude.ai Acme Docs (2)' }],
+      })
+    })
+
+    it('nothing turned off: no deny list next to the list', () => {
+      expect(sessionOptions(input({ canvas, mcpAllowlist: ['acme-notes'], mcpAddresses: addresses })).managedSettings).not.toHaveProperty('deniedMcpServers')
     })
 
     it('outside a Project the addresses change nothing', () => {

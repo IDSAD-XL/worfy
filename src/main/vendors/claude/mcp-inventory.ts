@@ -29,7 +29,7 @@ import { repositoryRoot } from '../../mcp/canvas-server'
 import type { QueryHandle } from '../../agent/session/types'
 import type { McpServerRow } from '../../../shared/agent/mcp-status'
 import { mcpServerRowsOf } from '../../../shared/vendors/claude/events'
-import { allowableByName, remoteAddressesOf, serverUrlPattern, type McpAddresses } from './mcp-addresses'
+import { allowableByName, remoteServersOf, serverUrlPattern, type McpAddresses } from './mcp-addresses'
 
 /** Starts the query of the inventory in the folder `cwd` with `prompt` as its input: one that never yields a message. */
 export type InventoryQueryStarter = (cwd: string, prompt: AsyncIterable<never>) => Promise<QueryHandle>
@@ -78,6 +78,8 @@ export class McpInventory {
   private readonly answers = new Map<string, McpServerRow[]>()
   /** The addresses of the remote servers of each Project's last answer, by name; in memory only, never in a row. */
   private readonly found = new Map<string, McpAddresses>()
+  /** The remote servers of each Project's last answer that it gave no usable address for. */
+  private readonly unaddressedOf = new Map<string, ReadonlySet<string>>()
   /** The run of each Project that has not ended yet. */
   private readonly running = new Map<string, Promise<McpServerRow[] | null>>()
   /** The Project of each folder asked about, once known: what latest() reads. */
@@ -101,6 +103,12 @@ export class McpInventory {
   addresses(cwd: string): McpAddresses | null {
     const folder = resolve(cwd)
     return this.found.get(this.projects.get(folder) ?? folder) ?? null
+  }
+
+  /** The remote servers the last answer gave no usable address for (the proxy case, a connector without url); null before any answer. */
+  unaddressed(cwd: string): ReadonlySet<string> | null {
+    const folder = resolve(cwd)
+    return this.unaddressedOf.get(this.projects.get(folder) ?? folder) ?? null
   }
 
   /**
@@ -162,7 +170,9 @@ export class McpInventory {
       }
       if (rows !== null) {
         this.answers.set(key, rows)
-        this.found.set(key, remoteAddressesOf(answer))
+        const remote = remoteServersOf(answer)
+        this.found.set(key, remote.addresses)
+        this.unaddressedOf.set(key, remote.unaddressed)
       }
       return rows
     } catch (error) {
@@ -194,6 +204,8 @@ export interface SessionSet {
   addressesAtStart?: McpAddresses | null
   /** The addresses of the remote servers by the inventory's last answer (McpInventory.addresses); null or absent: none. */
   addressesNow?: McpAddresses | null
+  /** The remote servers the inventory's last answer gave no usable address for (McpInventory.unaddressed); null or absent: none. */
+  unaddressedNow?: ReadonlySet<string> | null
 }
 
 /** Why a server of the Session's list has no row of the Session's own: what the person reads in its row. */
@@ -212,6 +224,14 @@ export const MCP_NOT_STARTED_FOUND_LATER_UNATTENDED = 'Found after this Session 
 export const MCP_NOT_ALLOWABLE =
   "Claude Code cannot allow a server by a name with a dot or a space, and it gave no address for this one, so a Session with the Project's list does not start it."
 
+/**
+ * The reason of a remote server Claude Code matches only by an address the inventory does not know (the proxy case:
+ * a `claudeai-proxy` server outside scope claudeai): once the list has an address entry its name does not let it
+ * through, and a Restart would send the same list, so the row offers none.
+ */
+export const MCP_NOT_ALLOWABLE_REMOTE =
+  "Claude Code allows this remote server only by its address, and it gave none worfy can use, so a Session with the Project's list does not start it."
+
 /** The reason and the actions of a row `not-started` of the server `name`. */
 function notStartedReason(name: string, session: SessionSet): Pick<McpServerRow, 'error' | 'actions'> {
   const restart = session.attended === true ? ['restart' as const] : []
@@ -221,6 +241,7 @@ function notStartedReason(name: string, session: SessionSet): Pick<McpServerRow,
     return { error: session.attended === true ? MCP_NOT_STARTED_FOUND_LATER : MCP_NOT_STARTED_FOUND_LATER_UNATTENDED, actions: restart }
   }
   if (!byAddress && !allowableByName(name)) return { error: MCP_NOT_ALLOWABLE, actions: [] }
+  if (!byAddress && session.unaddressedNow?.has(name) === true) return { error: MCP_NOT_ALLOWABLE_REMOTE, actions: [] }
   return { error: MCP_NOT_STARTED, actions: restart }
 }
 

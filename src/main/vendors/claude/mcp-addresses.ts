@@ -13,12 +13,15 @@
 //   whose address is not known yet (added after the inventory's last answer; its row says so, notStartedRows);
 // - a name it cannot read that has no known address is left out: Claude Code would drop it anyway.
 //
-// An address with a query, a fragment or a user name and password is written as its origin and path followed
-// by `*` (Claude Code's wildcard), never with that part: a token there would land in `--managed-settings`,
-// which `ps` shows to every process of the user (the owner's rule of proportionate security: the address is
-// not a secret, a token is). Two servers with one address and path are allowed together; a server whose URL
-// carries a user name and password does not match such a pattern if Claude Code compares it with them. The
-// addresses stay in main: no row, log, Journal or Flight recorder line ever carries one.
+// The pattern is the address's origin and path, exact (Claude Code 2.1.322 compares a pattern's path and query
+// with the server's path and query; its `*` matches any characters, `/` too, so a `*` after the path would allow
+// every sibling path and subpath of the host). An address with a query is written as origin, path and `?*`, never
+// with the query: a token there would land in `--managed-settings`, which `ps` shows to every process of the user
+// (the owner's rule of proportionate security: the address is not a secret, a token is). Cost: every query on that
+// same path is allowed, so two servers with one origin and path are allowed together. A user name and password and
+// a fragment are left out: Claude Code compares neither, so a server whose URL carries them still matches. A bare
+// host is written with its path `/`: a pattern with an empty path would allow the whole host. The addresses stay
+// in main: no row, log, Journal or Flight recorder line ever carries one.
 import { z } from 'zod'
 
 /** The names Claude Code takes in a `serverName` entry of `allowedMcpServers`. */
@@ -39,34 +42,50 @@ const statusEntry = z.object({
   config: z.object({ type: z.string().optional(), url: z.string().min(1).optional() }).passthrough().optional(),
 })
 
+/** The remote servers of an answer of mcpServerStatus(): the address of each one that has a usable one, and the rest. */
+export interface McpRemoteServers {
+  addresses: Map<string, string>
+  /** The remote servers it gives no usable address for: Claude Code matches them by an address worfy does not know. */
+  unaddressed: Set<string>
+}
+
+/** The config types of remote servers Claude Code matches by address. */
+const REMOTE_TYPES: ReadonlySet<string> = new Set(['http', 'sse', 'ws', 'claudeai-proxy'])
+
 /**
- * The addresses of the remote servers in an answer of mcpServerStatus(): `config.url` of an http or sse server
+ * The remote servers in an answer of mcpServerStatus(). The address is `config.url` of an http, sse or ws server
  * of any scope, and of a server whose scope is `claudeai` — a claude.ai connector, whose `url` is the address of
  * its service in claude.ai's list of connectors, the one Claude Code matches it by.
  *
  * The proxy case: an entry of type `claudeai-proxy` whose scope is not `claudeai` (a server reaching its service
- * through claude.ai's proxy that is not one of the user's connectors). Its address is not taken: what its `url`
- * names — the service or the proxy — is not checked, and a pattern made of the proxy's address could match every
- * server behind it. It stays a `serverName` entry if its name can be one, and is left out if not.
+ * through claude.ai's proxy that is not one of the user's connectors). Claude Code matches it by the proxy's
+ * address it makes of the server's id, not by `config.url`, so its address is not taken. It is unaddressed: with
+ * any `serverUrl` entry on the list it does not start, and its row says so (notStartedRows). So is a connector the
+ * answer gives no `url`, and a remote server whose `url` has no pattern.
  */
-export function remoteAddressesOf(answer: unknown): Map<string, string> {
-  const found = new Map<string, string>()
+export function remoteServersOf(answer: unknown): McpRemoteServers {
+  const found: McpRemoteServers = { addresses: new Map(), unaddressed: new Set() }
   if (!Array.isArray(answer)) return found
   for (const each of answer) {
     const entry = statusEntry.safeParse(each)
     if (!entry.success) continue
     const { name, scope, config } = entry.data
+    const type = config?.type ?? ''
+    if (scope !== 'claudeai' && !REMOTE_TYPES.has(type)) continue
+    const proxied = type === 'claudeai-proxy' && scope !== 'claudeai'
     const url = config?.url
-    if (url === undefined) continue
-    const remote = scope === 'claudeai' || config?.type === 'http' || config?.type === 'sse'
-    if (remote) found.set(name, url)
+    if (!proxied && url !== undefined && serverUrlPattern(url) !== null) found.addresses.set(name, url)
+    else found.unaddressed.add(name)
   }
   return found
 }
 
+/** The schemes of the remote servers' addresses. */
+const REMOTE_SCHEMES: ReadonlySet<string> = new Set(['http:', 'https:', 'ws:', 'wss:'])
+
 /**
- * The `serverUrl` pattern of `url`: the address itself, or — when it has a query, a fragment or a user name and
- * password — its origin and path followed by `*`. Null for what is not an http or https address.
+ * The `serverUrl` pattern of `url`: its origin and path, exact, followed by `?*` when it has a query. Null for
+ * what is not an http, https, ws or wss address.
  */
 export function serverUrlPattern(url: string): string | null {
   let parsed: URL
@@ -75,9 +94,9 @@ export function serverUrlPattern(url: string): string | null {
   } catch {
     return null
   }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
-  const plain = parsed.search === '' && parsed.hash === '' && parsed.username === '' && parsed.password === '' && !url.includes('?') && !url.includes('#')
-  return plain ? url : `${parsed.origin}${parsed.pathname}*`
+  if (!REMOTE_SCHEMES.has(parsed.protocol)) return null
+  const exact = `${parsed.origin}${parsed.pathname}`
+  return parsed.search === '' ? exact : `${exact}?*`
 }
 
 /**

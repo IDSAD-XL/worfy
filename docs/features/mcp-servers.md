@@ -108,8 +108,8 @@ live check.
   connector) in main, never in a row, a log or the Journal. Claude Code allows a server by name only when the name has
   nothing but letters, digits, `_` and `-`, and a connector's name (`claude.ai <name>`) has a dot and a space. So a
   Session starts with every allowed remote server the inventory's last answer knows in the list by its address, the other
-  servers by name. An address with a query is written as its origin and path followed by `*`, so no token reaches the
-  arguments of the Claude Code process.
+  servers by name. The address is written as its exact origin and path, followed by `?*` when it has a query, so no token
+  reaches the arguments of the Claude Code process. A server turned off for the Session is denied by its name as well.
 - A row "not started" is a server the list names that the inventory finds but that the Session does not have: Claude
   Code left it out (a remote server found after the Session started, or one connected after the process started). It
   stands with the Session's servers, counts in m, has the blocked status chip as failed has, and offers Restart with the

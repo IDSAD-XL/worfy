@@ -26,8 +26,11 @@ Source: spike Ticket 11 (`.scratch/worfy-mcp-live/spike-claudeai-connectors.md`,
 2. Старт Session берёт адреса последнего ответа инвентаря. Каждый разрешённый удалённый сервер с известным адресом —
    запись `serverUrl`, все сразу; остальные имена, которые Claude Code может прочитать, — `serverName`; имя без адреса,
    которое Claude Code не прочитает, в список не идёт.
-3. Адрес с query (а также fragment, имя и пароль) пишется как origin + path + `*`, без query: token не должен попасть в
-   `--managed-settings`, который видит `ps` (решение по правилу владельца о соразмерной защите).
+3. Шаблон адреса — origin + path точно; адрес с query — origin + path + `?*`, без query: token не должен попасть в
+   `--managed-settings`, который видит `ps` (решение по правилу владельца о соразмерной защите). `*` после path не
+   пишется: в Claude Code он пропускает соседние пути и подпути host-а (ревью #1847). Голый host — с path `/`.
+   Fragment, имя и пароль не пишутся: Claude Code их не сравнивает. Адреса ws и wss берутся так же. Сервер, выключенный
+   для Session, кроме того уходит в `deniedMcpServers` по имени.
 4. Пустой после фильтра список уходит как `allowedMcpServers: []`, ключ не опускается никогда (без ключа разрешено всё).
 5. Удалённый сервер, адрес которого старт Session ещё не знал (добавлен после ответа инвентаря), не пропадает молча:
    инвентарь перечитывается при следующем старте, а до него строка `not-started` говорит «Found after this Session
@@ -39,7 +42,7 @@ Source: spike Ticket 11 (`.scratch/worfy-mcp-live/spike-claudeai-connectors.md`,
 
 ## Готово, когда
 
-- [ ] Записи списка: stdio — `serverName`, удалённый сервер с адресом — `serverUrl`, query срезан до origin + path + `*`,
+- [ ] Записи списка: stdio — `serverName`, удалённый сервер с адресом — `serverUrl`, query срезан до origin + path + `?*`,
       пустой список — `[]`, имя без адреса, которое Claude Code не прочитает, — не в списке. Unit- и contract-тесты.
   - evidence: test-run pass · `pnpm test` exit 0 · mac - · 780617bbcd544e6801593bd916a39f380f7da8bc
 - [ ] Адреса только в main: строки, лог и Journal их не несут. Contract-тест.
