@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useId, useState, type CSSProperties } from 'react'
 import { flushSync } from 'react-dom'
 import '../../canvas/actions/actions.css'
 import type { LinkState } from '../../../shared/ipc/link'
@@ -9,12 +9,14 @@ import { useMachines } from '../../machines/useMachines'
 import { ConnectProject } from '../../projects/ConnectProject'
 import { FolderBrowser } from '../../projects/FolderBrowser'
 import { RemoveProject } from '../../projects/RemoveProject'
-import { readOnlyHint, writeAction } from '../../projects/read-only'
+import { readOnlyHint, writeItem } from '../../projects/read-only'
 import { onAddProjectRequest } from '../../projects/add-project'
 import { useGateQueue } from '../../projects/useGateQueue'
 import { pulseOf, pulseParts, useProjectPulse } from '../../projects/useProjectPulse'
 import { acceptMachineProjects, openProject, useProjectGroups, useProjects, type ProjectGroup } from '../../projects/useProjects'
+import { ContextMenu } from '../../theme/kit/ContextMenu'
 import { Dialog } from '../../theme/kit/Dialog'
+import { MenuItem } from '../../theme/kit/Menu'
 import { Tooltip } from '../../theme/kit/Tooltip'
 import { StatusChip } from '../../theme/primitives'
 import { openFirstRun } from '../first-run-store'
@@ -89,16 +91,6 @@ const styles = {
   separator: { flex: 'none', width: PULSE_SEPARATOR, textAlign: 'center' },
   busy: { display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--working-text)' },
   needs: { color: 'var(--blocked-text)' },
-  menu: {
-    position: 'fixed',
-    zIndex: 90,
-    minWidth: 180,
-    padding: 'var(--space-1)',
-    borderRadius: 'var(--radius-popover)',
-    border: '1px solid var(--border)',
-    background: 'var(--surface)',
-    boxShadow: 'var(--shadow-node)',
-  },
 } satisfies Record<string, CSSProperties>
 
 type Message = { kind: 'notice' | 'error'; text: string }
@@ -235,6 +227,8 @@ const folderIcon = (
 interface MenuProps {
   x: number
   y: number
+  /** The row's own button: it gets the focus back when the menu closes, and when a window an item opens closes. */
+  opener: HTMLElement | null
   /** The read-only hint of the row's Machine (worfy-link ticket 25): "Remove from list" is inactive. */
   readOnly: string | null
   onSettings: () => void
@@ -249,63 +243,31 @@ interface MenuProps {
   onClose: () => void
 }
 
-/** The context menu of a Project row. Escape, a click elsewhere or leaving the menu closes it. */
-function ProjectMenu({ x, y, readOnly, onSettings, onGateQueue, onRemove, onRemoveProject, onClose }: MenuProps) {
-  const menu = useRef<HTMLDivElement>(null)
-  // The latest onClose, so the effect below runs once per opening and not on every render.
-  const close = useRef(onClose)
-  useEffect(() => {
-    close.current = onClose
-  })
-
-  useEffect(() => {
-    menu.current?.querySelector('button')?.focus()
-    const outside = (event: MouseEvent): void => {
-      if (!menu.current?.contains(event.target as Node)) close.current()
-    }
-    const blur = (): void => close.current()
-    document.addEventListener('mousedown', outside)
-    window.addEventListener('blur', blur)
-    return () => {
-      document.removeEventListener('mousedown', outside)
-      window.removeEventListener('blur', blur)
-    }
-  }, [])
-
+/**
+ * The context menu of a Project row: the kit's ContextMenu (theme/kit/ContextMenu.tsx, worfy-ui-kit
+ * ticket 12). Escape, a choice, a click elsewhere or leaving the window closes it, and the focus goes
+ * back to the row — and there again when a window an item opened (Project settings…) closes.
+ */
+function ProjectMenu({ x, y, opener, readOnly, onSettings, onGateQueue, onRemove, onRemoveProject, onClose }: MenuProps) {
   return (
-    <div
-      ref={menu}
-      role="menu"
-      aria-label="Project"
-      style={{ ...styles.menu, left: x, top: y }}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') onClose()
-        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-          event.preventDefault()
-          const items = [...(menu.current?.querySelectorAll('button') ?? [])]
-          const current = items.indexOf(document.activeElement as HTMLButtonElement)
-          const next = (current + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length
-          items[next]?.focus()
-        }
-      }}
-    >
-      <button type="button" role="menuitem" className="w-row" onClick={onSettings}>
+    <ContextMenu at={{ x, y }} onClose={onClose} label="Project" opener={opener}>
+      <MenuItem className="w-row" onClick={onSettings}>
         Project settings…
-      </button>
+      </MenuItem>
       {onGateQueue !== null ? (
-        <button type="button" role="menuitem" className="w-row" {...writeAction(readOnly, onGateQueue)}>
+        <MenuItem className="w-row" {...writeItem(readOnly, onGateQueue)}>
           Process gate queue
-        </button>
+        </MenuItem>
       ) : null}
-      <button type="button" role="menuitem" className="w-row" {...writeAction(readOnly, onRemove)}>
+      <MenuItem className="w-row" {...writeItem(readOnly, onRemove)}>
         Remove from list
-      </button>
+      </MenuItem>
       {onRemoveProject !== null ? (
-        <button type="button" role="menuitem" className="w-row" onClick={onRemoveProject}>
+        <MenuItem className="w-row" onClick={onRemoveProject}>
           Remove project…
-        </button>
+        </MenuItem>
       ) : null}
-    </div>
+    </ContextMenu>
   )
 }
 
@@ -337,7 +299,8 @@ function GroupState({ group }: { group: ProjectGroup }) {
 interface RowsProps {
   group: Pick<ProjectGroup, 'machine' | 'projects' | 'selectedId'>
   onSelect: (project: ProjectView) => void
-  onMenu: (project: ProjectView, x: number, y: number) => void
+  /** A right click on a row: its Project, the point, and the row's button. */
+  onMenu: (project: ProjectView, x: number, y: number, opener: HTMLElement | null) => void
 }
 
 const busyDot = <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--working-dot)', flex: 'none' }} aria-hidden="true" />
@@ -396,7 +359,7 @@ function ProjectRows({ group, onSelect, onMenu }: RowsProps) {
           title={project.path}
           onContextMenu={(event) => {
             event.preventDefault()
-            onMenu(project, event.clientX, event.clientY)
+            onMenu(project, event.clientX, event.clientY, event.currentTarget.querySelector('button'))
           }}
         >
           <ProjectCard project={project} selected={project.id === group.selectedId} pulse={live ? pulseOf(state, project.id) : undefined} onSelect={() => onSelect(project)} />
@@ -447,7 +410,7 @@ export default function ProjectsSection() {
   const link = useMachines()
   const groups = useProjectGroups(link)
   const [message, setMessage] = useState<Message>()
-  const [menu, setMenu] = useState<{ machine: string | null; project: ProjectView; x: number; y: number }>()
+  const [menu, setMenu] = useState<{ machine: string | null; project: ProjectView; x: number; y: number; opener: HTMLElement | null }>()
   const [settingsFor, setSettingsFor] = useState<{ machine: string | null; project: ProjectView }>()
   /** The Project whose "Remove project…" dialog is open; always one of this Machine. */
   const [removing, setRemoving] = useState<ProjectView>()
@@ -547,7 +510,7 @@ export default function ProjectsSection() {
     <ProjectRows
       group={group}
       onSelect={(project) => void select(group.machine, project)}
-      onMenu={(project, x, y) => setMenu({ machine: group.machine, project, x, y })}
+      onMenu={(project, x, y, opener) => setMenu({ machine: group.machine, project, x, y, opener })}
     />
   )
 
@@ -579,6 +542,7 @@ export default function ProjectsSection() {
             <ProjectMenu
               x={menu.x}
               y={menu.y}
+              opener={menu.opener}
               readOnly={menuGroup?.readOnly === true ? readOnlyHint(menuGroup.name) : null}
               onClose={() => setMenu(undefined)}
               onSettings={() => {

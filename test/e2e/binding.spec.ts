@@ -416,9 +416,14 @@ test('agents are bound by claim, worktree folder, /epic-wave and their task; a m
     await expect(sessionEdge(window, CLAIM)).toHaveAttribute('aria-label', `bound to ${EPIC}/07 · ticket claim`)
     await expect.poll(savedBindings).toEqual([{ sessionId: WAVE, agentId: IMPLEMENTER, target: { kind: 'ticket', epic: EPIC, num: 12 } }])
 
-    // "Remove binding" from the Subagent Node's menu: the brief binds it again.
+    // "Remove binding" from the Subagent Node's menu, by the keyboard: the brief binds it again. The menu
+    // is named and takes the focus (the kit's ContextMenu, worfy-ui-kit ticket 12).
     await subagentNode(window, IMPLEMENTER).getByTestId('subagent-name').click({ button: 'right' })
-    await window.getByTestId('binding-menu').getByRole('menuitem', { name: 'Remove binding' }).click()
+    const bindingMenu = window.getByRole('menu', { name: 'Binding' })
+    await expect(bindingMenu).toHaveAttribute('data-testid', 'binding-menu')
+    await expect(bindingMenu.getByRole('menuitem', { name: 'Remove binding' })).toBeFocused()
+    await window.keyboard.press('Enter')
+    await expect(bindingMenu).toHaveCount(0)
     await expect(await subagentEdge(window, IMPLEMENTER)).toHaveAttribute('aria-label', `bound to ${EPIC}/16 · task`)
     await expect.poll(savedBindings).toEqual([])
     // A Node without a manual Binding has no such menu.

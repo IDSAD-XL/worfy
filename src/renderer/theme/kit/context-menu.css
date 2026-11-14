@@ -1,0 +1,7 @@
+/* The kit's ContextMenu (ContextMenu.tsx): the line between its items, the look the Canvas menu set
+   (canvas/overlays/CanvasMenu.tsx). The frame is the Menu kit's (menu.css); values come from tokens.css. */
+:where(.w-kit-context-menu__separator) {
+  height: 1px;
+  margin: var(--space-1) 0;
+  background: var(--border);
+}

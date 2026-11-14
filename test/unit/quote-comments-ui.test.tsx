@@ -157,8 +157,10 @@ describe('the page around the comments', () => {
   })
 
   it('what floats over the transcript is fixed too: none of it adds to the page’s size', () => {
-    // The popover and the card are popups of the kit (worfy-ui-kit ticket 10): Base UI's positioner places them.
-    expect(rule('.w-qfab,\n.w-qmenu')).toMatch(/position:\s*fixed;/)
+    // The menu, the popover and the card are popups of the kit (worfy-ui-kit tickets 10 and 12): Base UI's
+    // positioner places them, the menu's with `position: fixed`.
+    expect(rule('.w-qfab')).toMatch(/position:\s*fixed;/)
+    expect(rule('.w-qmenu')).not.toMatch(/position:|z-index:/)
   })
 
   it('the button next to a selection is on the scale of layers, under the card and the popover of a comment', () => {

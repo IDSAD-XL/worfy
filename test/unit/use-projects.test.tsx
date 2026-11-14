@@ -527,6 +527,37 @@ describe('the Projects of Linked machines', () => {
     })
   })
 
+  it('the Project menu gives the focus back to its row: on Esc, and when a window one of its items opened closes (worfy-ui-kit ticket 12)', async () => {
+    await loadModules({ link: linkState([]), linked: linkedState([]) })
+    const { default: ProjectsSection } = await import('../../src/renderer/shell/sidebar/ProjectsSection')
+    render(<ProjectsSection />)
+    await waitFor(() => expect(screen.getAllByTestId('project-row')).toHaveLength(2))
+    const row = screen.getAllByTestId('project-row')[1]!
+    const rowButton = within(row).getByRole('button')
+    // The focus is elsewhere when the row is right-clicked: it comes back to the row, not to where it was.
+    screen.getByRole('button', { name: 'Add project' }).focus()
+
+    fireEvent.contextMenu(row, { clientX: 40, clientY: 60 })
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Project settings…' })))
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    expect(screen.queryByRole('menu', { name: 'Project' })).toBeNull()
+    expect(document.activeElement).toBe(rowButton)
+
+    for (const [item, name] of [
+      ['Project settings…', 'Project settings'],
+      ['Remove project…', 'Remove studio two?'],
+    ] as const) {
+      fireEvent.contextMenu(row, { clientX: 40, clientY: 60 })
+      await waitFor(() => expect(document.activeElement?.getAttribute('role')).toBe('menuitem'))
+      fireEvent.click(screen.getByRole('menuitem', { name: item }))
+      const dialog = await screen.findByRole('dialog', { name })
+      await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true))
+      fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      await waitFor(() => expect(document.activeElement, name).toBe(rowButton))
+    }
+  })
+
   it('"Remove from list" inside the "Remove project…" dialog removes from the list only, on this Machine, and closes the dialog', async () => {
     const { calls } = await loadModules({ link: linkState([]), linked: linkedState([]) })
     const { default: ProjectsSection } = await import('../../src/renderer/shell/sidebar/ProjectsSection')
