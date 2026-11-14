@@ -389,6 +389,9 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
   whatever the answer. The watch stops because a Silent mode Workflow folder lies in the Profile folder, and Windows
   refuses to rename a folder while a watch holds a folder inside it. "Remove from list" in the same dialog does what the menu row of that name does.
   worfy deletes nothing itself, and the Harness never touches a repository.
+- "Remove project…" on the row of the [Demo project](onboarding.md) of Getting started opens no such dialog: it runs the
+  demo's own removal, the one of "Remove the demo project", which asks with a native dialog, also deletes the demo's
+  folder and lets Getting started forget the demo. The section says "The demo project was removed." or the reason it was not.
 - "Remove project…" refuses before anything closes, and removes nothing, when the default Workflow folder of a Silent
   mode Profile holds files or commits (the project's tickets): the dialog says so and offers "Show in Finder" for that
   folder, so the person moves the whole folder out of the Profile folder first. It also refuses a folder the Harness has no

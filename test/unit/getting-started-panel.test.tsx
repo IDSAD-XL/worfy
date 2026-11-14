@@ -577,3 +577,70 @@ describe('the ready text of the input field', () => {
     expect(field().value).toBe('')
   })
 })
+
+// Audit finding 129: "Remove project…" of the Projects section on the Demo project ran the removal of an
+// ordinary Project (`projects.removeProject`), which leaves the record `demo` of Getting started behind:
+// the steps then open a Project that is gone. On the demo's row the menu item runs the demo's own
+// removal (`gettingStarted.removeDemo`, src/main/getting-started/remove.ts) instead.
+describe('"Remove project…" on the Demo project', () => {
+  const OWN = 'own-00000001'
+  const list = {
+    projects: [
+      { id: DEMO, name: 'worfy-demo', path: '/Users/someone/worfy-demo', branch: 'main' },
+      { id: OWN, name: 'own', path: '/repos/own', branch: 'main' },
+    ],
+    activeId: DEMO,
+    revision: 1,
+  }
+
+  async function renderSection(): Promise<void> {
+    preload(twoDone())
+    const { acceptGettingStarted } = await import('../../src/renderer/getting-started/store')
+    const { default: ProjectsSection } = await import('../../src/renderer/shell/sidebar/ProjectsSection')
+    render(<ProjectsSection />)
+    act(() => acceptGettingStarted(twoDone()))
+    const read = await callOf('projects.list')
+    await act(async () => read.answer({ ok: true, value: list }))
+    await waitFor(() => expect(screen.getAllByTestId('project-row')).toHaveLength(2))
+  }
+
+  const removeProjectOf = (id: string): void => {
+    fireEvent.contextMenu(screen.getAllByTestId('project-row').find((row) => row.getAttribute('data-project-id') === id)!)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove project…' }))
+  }
+
+  const asked = (channel: string) => main.calls.filter((call) => call.channel === channel)
+
+  it("runs the demo's own removal, never the dialog of an ordinary Project, and says when it is done", async () => {
+    await renderSection()
+    removeProjectOf(DEMO)
+    const removal = await callOf('gettingStarted.removeDemo')
+    expect(asked('projects.removal.preview')).toEqual([])
+    expect(screen.queryByRole('dialog')).toBeNull()
+    await act(async () => removal.answer({ ok: true, value: { removed: true } }))
+    expect((await screen.findByTestId('projects-notice')).textContent).toBe('The demo project was removed.')
+    expect(asked('projects.removeProject')).toEqual([])
+  })
+
+  it("shows the demo removal's refusal; Cancel says nothing", async () => {
+    await renderSection()
+    removeProjectOf(DEMO)
+    const refused = await callOf('gettingStarted.removeDemo')
+    await act(async () => refused.answer({ ok: true, value: { removed: false, reason: 'The folder is not the demo worfy made.' } }))
+    expect((await screen.findByTestId('projects-error')).textContent).toBe('The folder is not the demo worfy made.')
+
+    main.calls.length = 0
+    removeProjectOf(DEMO)
+    const cancelled = await callOf('gettingStarted.removeDemo')
+    await act(async () => cancelled.answer({ ok: true, value: { removed: false, reason: null } }))
+    expect(screen.queryByTestId('projects-error')).toBeNull()
+    expect(screen.queryByTestId('projects-notice')).toBeNull()
+  })
+
+  it('another Project of the list still opens the "Remove project" dialog', async () => {
+    await renderSection()
+    removeProjectOf(OWN)
+    await callOf('projects.removal.preview')
+    expect(asked('gettingStarted.removeDemo')).toEqual([])
+  })
+})

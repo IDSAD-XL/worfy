@@ -338,7 +338,8 @@ expensive". The demo starts on Sonnet with effort medium. Opus uses the model's 
 Orchestrator and reaches a running Session from its next turn. If that Session refuses it, the switch says that the pick is saved for
 the next start and that the running Session kept its settings. The switch changes only the demo.
 
-**Removing it.** "Remove the demo project" is on the screen Done, so it is offered once step 6 is marked. Nothing removes the demo by
+**Removing it.** "Remove the demo project" is on the screen Done, so it is offered once step 6 is marked. "Remove project…" in the
+context menu of the demo's row in Projects runs the same removal at any step. Nothing removes the demo by
 itself: not Skip, not Done, not a restart. First worfy checks that the folder is the demo it made, and otherwise refuses with nothing
 touched, before asking anything. The folder may not be the root of a disk, the home folder or a folder above it, or overlap worfy's
 data folder. The Harness must also know it as `worfy-demo`, with that Profile tied to this folder alone.
