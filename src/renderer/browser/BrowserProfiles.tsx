@@ -6,8 +6,10 @@
 //
 // Deleting a profile erases its cookies and logins. It is asked once more, naming how many Browsers
 // of the Canvas use the profile (decision 3); those Browsers then show «Choose a profile».
-import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
-import { createPortal } from 'react-dom'
+//
+// The window is a modal window of the kit (theme/kit/Dialog.tsx, worfy-ui-kit ticket 07): the focus
+// trap, Esc, the backdrop and the focus given back are the kit's.
+import { useId, useState, type CSSProperties } from 'react'
 import { useStore, type InternalNode, type ReactFlowState } from '@xyflow/react'
 import { readOrigins, readSignIn, type BrowserProfile } from '../../shared/browser/profiles'
 import { BROWSER_KIND, browserProfileUsage } from '../canvas/nodes/browser-frame'
@@ -15,6 +17,7 @@ import type { CanvasFlowNode } from '../canvas/nodes'
 import { invoke } from '../ipc'
 import { useReadOnly } from '../projects/useProjects'
 import { Button } from '../theme/Button'
+import { Dialog } from '../theme/kit/Dialog'
 import { useBrowserProfiles } from './profiles'
 
 export interface BrowserProfilesProps {
@@ -25,10 +28,9 @@ export interface BrowserProfilesProps {
 }
 
 const styles = {
-  backdrop: { position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0, 0, 0, 0.25)' },
   dialog: {
     width: 520,
-    // It takes the focus only so Escape reaches it; the ring would mark the whole window.
+    // The window itself takes the focus on opening; the ring would mark the whole window.
     outline: 'none',
     maxWidth: 'calc(100vw - 32px)',
     maxHeight: 'calc(100vh - 32px)',
@@ -252,11 +254,6 @@ export function BrowserProfiles({ project, selected, onClose }: BrowserProfilesP
   const [creating, setCreating] = useState(false)
   const [failure, setFailure] = useState<string>()
   const titleId = useId()
-  // The window takes the focus when it opens, so Escape closes it before anything is clicked.
-  const dialog = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    dialog.current?.focus()
-  }, [])
   // A profile shown that goes away (deleted here or in another window) leaves the first one shown.
   const shown = profiles?.find((profile) => profile.id === current) ?? profiles?.[0]
 
@@ -272,33 +269,11 @@ export function BrowserProfiles({ project, selected, onClose }: BrowserProfilesP
     } else setFailure(result.error)
   }
 
-  // Inside a Browser frame on the Canvas: the window's own presses, keys and clicks are not the frame's.
-  const own = { onClick: stop, onMouseDown: stop, onPointerDown: stop, onDoubleClick: stop, onContextMenu: stop, onKeyDown: stop, onWheel: stop }
-
-  return createPortal(
-    <div
-      style={styles.backdrop}
-      {...own}
-      onMouseDown={(event) => {
-        event.stopPropagation()
-        if (event.target === event.currentTarget) onClose()
-      }}
-    >
-      <div
-        ref={dialog}
-        tabIndex={-1}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        style={styles.dialog}
-        data-testid="browser-profiles"
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.stopPropagation()
-            onClose()
-          }
-        }}
-      >
+  // Inside a Browser frame on the Canvas: React passes the window's presses, keys and clicks on to the
+  // frame, through the portal; they are not the frame's. The element only stands in React's tree.
+  return (
+    <div style={{ display: 'contents' }} onClick={stop} onMouseDown={stop} onPointerDown={stop} onDoubleClick={stop} onContextMenu={stop} onKeyDown={stop} onWheel={stop}>
+      <Dialog open onClose={onClose} labelledBy={titleId} className="" style={styles.dialog} data-testid="browser-profiles">
         <h2 id={titleId} style={styles.title}>
           Browser profiles
         </h2>
@@ -374,9 +349,8 @@ export function BrowserProfiles({ project, selected, onClose }: BrowserProfilesP
             Close
           </Button>
         </div>
-      </div>
-    </div>,
-    document.body,
+      </Dialog>
+    </div>
   )
 }
 

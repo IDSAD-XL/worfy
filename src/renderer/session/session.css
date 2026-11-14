@@ -2289,11 +2289,16 @@ body.w-split-dragging * {
   color: var(--text-muted);
 }
 
-/* Above the app's dialogs (90–101), under the modal windows of the kit (--z-dialog, tokens.css). */
+/* The window of the full-size image (ImageOverlay, a modal window of the kit): its layer is the kit's
+   (--z-dialog, tokens.css). It fills the backdrop and darkens the app itself, so the kit's backdrop
+   under it adds no shade of its own. */
+.w-kit-dialog__backdrop.w-image-overlay__backdrop {
+  background: none;
+}
+
 .w-image-overlay {
   position: fixed;
   inset: 0;
-  z-index: 105;
   display: flex;
   align-items: center;
   justify-content: center;

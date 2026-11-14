@@ -4,12 +4,12 @@
 // name. No path is shown anywhere. The image comes from main's copy of it by worfy-image://
 // (src/shared/images.ts); an image with no copy — none was made, or it is gone — shows as a chip
 // with its name instead of a broken picture.
-import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
+import { useState, type ReactNode } from 'react'
 import { IMAGE_EXTENSIONS, type MessageAttachment } from '../../shared/agent/attachments'
 import { machineLabel } from '../../shared/cards/bridge'
 import { attachmentImageUrl } from '../../shared/images'
 import { windowMachine } from '../ipc'
+import { Dialog } from '../theme/kit/Dialog'
 import { documentKind, formatLabel, formatSize, type DocumentKind } from './attachment-format'
 
 const DOCUMENT_PATHS: Readonly<Record<DocumentKind, string>> = {
@@ -72,32 +72,21 @@ function ImageChip({ image }: { image: ImageAttachment }) {
  * The image at full size over the window; Escape, a click on it or Close shut it, and the focus goes back.
  * `actions`, buttons under the image, are the Evidence matrix's (src/renderer/canvas/nodes/EvidencePreview.tsx);
  * a message's image has none; so has `onError`, when the image does not load.
+ *
+ * A modal window of the kit (theme/kit/Dialog.tsx, worfy-ui-kit ticket 07), on its dialog layer: the
+ * focus trap, Esc (which closes the picture, not the turn of MessageInput nor focus mode) and the focus
+ * given back are the kit's. The window fills the backdrop, so a click anywhere on it is a click on the
+ * picture.
  */
 export function ImageOverlay({ src, name, onClose, actions, onError }: { src: string; name: string; onClose: () => void; actions?: ReactNode; onError?: () => void }) {
-  const dialog = useRef<HTMLDivElement>(null)
-  useLayoutEffect(() => {
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    dialog.current?.focus()
-    return () => {
-      if (previous?.isConnected) previous.focus()
-    }
-  }, [])
-  const onKeyDown = (event: KeyboardEvent) => {
-    if (event.key !== 'Escape') return
-    // Escape here closes the picture, not the turn (MessageInput) nor focus mode.
-    event.preventDefault()
-    event.stopPropagation()
-    onClose()
-  }
-  return createPortal(
-    <div ref={dialog} className="w-image-overlay" role="dialog" aria-modal="true" aria-label={name} tabIndex={-1} data-testid="image-overlay" onKeyDown={onKeyDown} onClick={onClose}>
+  return (
+    <Dialog open onClose={onClose} label={name} className="w-image-overlay" backdropClassName="w-image-overlay__backdrop" data-testid="image-overlay" onClick={onClose}>
       <img className="w-image-overlay__image" src={src} alt={name} data-testid="image-overlay-image" onError={onError} />
       {actions}
       <button type="button" className="w-image-overlay__close" aria-label="Close" data-testid="image-overlay-close" onClick={onClose}>
         ×
       </button>
-    </div>,
-    document.body,
+    </Dialog>
   )
 }
 
