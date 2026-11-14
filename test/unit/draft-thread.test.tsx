@@ -317,6 +317,59 @@ describe('the drafts of a PR', () => {
     expect(rewrite(1).title).toMatch(/^You changed this reply/u)
   })
 
+  it('Ask the Session to rewrite names the reply by its thread: two threads at one path:line get different requests', async () => {
+    // Audit finding 167: the request named the reply only by `path:line`, so the Session could not tell two threads
+    // at the same place apart and could rewrite the other one.
+    preload(draftsOf([item(0), item(1)]))
+    const bridge = (globalThis as { worfy?: WorfyBridge }).worfy!
+    const invoke = bridge.invoke
+    bridge.invoke = ((channel: string, input: unknown) => {
+      if (channel === 'actions.prReply') {
+        main.calls.push({ channel, input })
+        return Promise.resolve({ ok: true, value: { sessionId: 'S-draft' } })
+      }
+      if (channel === 'agent.list') return Promise.resolve({ ok: true, value: [{ sessionId: 'S-draft', state: 'idle' }] })
+      if (channel === 'agent.send') {
+        main.calls.push({ channel, input })
+        return Promise.resolve({ ok: true, value: undefined })
+      }
+      return invoke(channel as never, input as never)
+    }) as WorfyBridge['invoke']
+    const { DraftRepliesButton, PrDrafts } = await import('../../src/renderer/pr-inbox/DraftThread')
+    // Both threads sit on the same line of the same file.
+    const samePlace = [
+      { id: 'T0', path: 'src/same.ts', line: 7 },
+      { id: 'T1', path: 'src/same.ts', line: 7 },
+    ]
+    render(
+      <>
+        <DraftRepliesButton projectId={PROJECT} repo={API} number={118} readOnly={null} />
+        <PrDrafts projectId={PROJECT} repo={API} number={118} readOnly={null} threads={samePlace}>
+          {(renderItem, list) => <div data-testid="threads">{renderItem === null ? null : list.map(renderItem)}</div>}
+        </PrDrafts>
+      </>,
+    )
+    await waitFor(() => expect(screen.getAllByTestId('pr-draft')).toHaveLength(2))
+    fireEvent.click(screen.getByTestId('pr-inbox-draft-replies'))
+    const rewrite = (index: number): HTMLButtonElement => within(draftAt(index)).getByTestId('pr-draft-rewrite') as HTMLButtonElement
+    await waitFor(() => expect(rewrite(1).disabled).toBe(false))
+    await act(async () => {
+      fireEvent.click(rewrite(1))
+    })
+    const asked = (): { sessionId: string; text: string }[] => main.calls.filter((call) => call.channel === 'agent.send').map((call) => call.input as { sessionId: string; text: string })
+    await waitFor(() => expect(asked()).toHaveLength(1))
+    expect(asked()[0]!.sessionId).toBe('S-draft')
+    expect(asked()[0]!.text).toContain('T1')
+    expect(asked()[0]!.text).not.toContain('T0')
+    await act(async () => {
+      fireEvent.click(rewrite(0))
+    })
+    await waitFor(() => expect(asked()).toHaveLength(2))
+    expect(asked()[1]!.text).toContain('T0')
+    expect(asked()[1]!.text).not.toContain('T1')
+    expect(sends()).toEqual([])
+  })
+
   it('Send all sends what its dialog showed, though a read of the file brought another text meanwhile', async () => {
     await drafts([item(0), item(1)])
     fireEvent.click(screen.getByTestId('pr-drafts-send-all'))

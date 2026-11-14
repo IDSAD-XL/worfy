@@ -153,4 +153,6 @@ the draft file and the clean line of `review-draft-lint` from step 6; and the re
 them. Say that nothing was posted.
 
 When the person asks to change a reply in this conversation, change only that item's `body` (and `fixPlan` if
-asked), keep the other replies as they are, and run step 6 again with all of them. Still post nothing.
+asked), keep the other replies as they are, and run step 6 again with all of them. Still post nothing. A request
+that names a review thread's id (worfy's request to rewrite one reply does) is about the item with that `threadId`,
+whatever `path:line` it also shows: two threads can sit on the same line.

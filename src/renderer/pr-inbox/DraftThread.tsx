@@ -44,9 +44,14 @@ function placeOf(item: Pick<PrReplyItem, 'kind'>, thread: { path: string | null;
   return thread.line === null ? thread.path : `${thread.path}:${thread.line}`
 }
 
-/** The message "Ask the Session to rewrite" sends to the Session that wrote the draft. */
-function rewriteMessage(repo: string, number: number, place: string): string {
-  return `Rewrite the draft reply for ${place} in ${repo}#${number}, keep the other replies as they are, and run pr-reply-draft again. Post nothing.`
+/**
+ * The message "Ask the Session to rewrite" sends to the Session that wrote the draft. A thread's reply is named by the
+ * thread's id, the `threadId` the Session wrote into the draft file: two threads can sit on one `path:line`, which
+ * stays in the message only for the person reading the conversation (audit finding 167).
+ */
+function rewriteMessage(repo: string, number: number, item: Pick<PrReplyItem, 'kind' | 'threadId'>, place: string): string {
+  const which = item.kind === 'thread' && item.threadId !== null ? `the draft reply to review thread ${item.threadId} (${place}; the item whose threadId is ${item.threadId})` : `the draft reply for ${place}`
+  return `Rewrite ${which} in ${repo}#${number}, keep the other replies as they are, and run pr-reply-draft again. Post nothing.`
 }
 
 // ── the drafts of one PR ─────────────────────────────────────────────────────
@@ -568,7 +573,7 @@ function ThisMachineDrafts({ projectId, repo, number, readOnly, threads, childre
         setAsked(off)
         return
       }
-      void invoke('agent.send', { sessionId: state.session, text: rewriteMessage(repo, number, place(item)), attachments: [] }).then((result) =>
+      void invoke('agent.send', { sessionId: state.session, text: rewriteMessage(repo, number, item, place(item)), attachments: [] }).then((result) =>
         setAsked(result.ok ? `Asked the Session to rewrite the reply for ${place(item)}` : readableReason(result.error)),
       )
     })
