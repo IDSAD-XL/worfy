@@ -138,10 +138,12 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
   every branch at once: no worktree is taken as gone, each branch keeps the status its last good read gave, and each open
   Ticket counts as one whose branch read failed (it is in no Wave) until the list is read again on the same waits. A
   one-off read with no earlier read to keep asks a failed list once more at once, unless the list ran out of time
-  (60 s): a hung git would hold the read that long again. Autopilot's own reads of the workflow, at the start of a run
-  and after each turn of the Orchestrator, take a list that fails twice, or once by a timeout, as a failed read of the
-  workflow (`workflow-error`). The read that sends "Run wave" holds the open Tickets instead, so a list that fails right
-  then sends none of them, and with nothing else to send the run stops with `send-failed` ("No ready wave"). On macOS a Tickets root that is not a
+  (60 s): a hung git would hold the read that long again. Autopilot's own reads of the workflow take a list that fails
+  twice, or once by a timeout, as a failed read of the workflow. At the start of a run this refuses the start ("Cannot
+  read the workflow: …"), and a run that waited for the Orchestrator ends with `start-refused`. After a turn of the
+  Orchestrator it stops the run with `workflow-error`. The read that sends "Run wave" holds the open Tickets instead. A
+  list that fails right then sends only the interrupted Tickets that the first Wave of a run takes back after a Force
+  stop or a `session-error`; with nothing to send, the run stops with `send-failed` ("No ready wave"). On macOS a Tickets root that is not a
   folder is looked for every 2 s. Only the files `epic-status` reads are watched: Epic folders, `spec.md`, `map.md` and `issues/*.md`.
 - **A branch never undoes the checkout.** This is why a blocked Ticket with an old worktree branch does not look open
   ([ADR-0033](../adr/0033-autopilot-names-wave-tickets.md)).
