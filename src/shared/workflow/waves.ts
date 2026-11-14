@@ -58,10 +58,15 @@ const closed = (ticket: WaveTicket | undefined): boolean => ticket?.state === 'd
 export const doneOnlyInBranch = (ticket: Pick<Ticket, 'state'> & Partial<Pick<Ticket, 'fromBranch'>>): boolean => ticket.state === 'done' && Boolean(ticket.fromBranch)
 
 /**
- * In work, done only in its unmerged worktree branch, or open with a worktree branch that could
- * not be read (it may hold a claim): its files are held, its dependants wait.
+ * In work: claimed, or open with a worktree branch that could not be read (`unreadBranch`): that branch may hold a
+ * claim, so the Ticket counts as in work until a read works — for the ready Wave, for the Tickets a resumed run takes
+ * (shared/actions/render-template.ts, resumedTickets) and for the end of an Autopilot Wave (shared/autopilot/cycle.ts).
  */
-const inFlight = (ticket: WaveTicket): boolean => ticket.state === 'work' || doneOnlyInBranch(ticket) || (ticket.state === 'open' && ticket.unreadBranch !== undefined)
+export const inWork = (ticket: Pick<Ticket, 'state'> & Partial<Pick<Ticket, 'unreadBranch'>>): boolean =>
+  ticket.state === 'work' || (ticket.state === 'open' && ticket.unreadBranch !== undefined)
+
+/** In work (inWork) or done only in its unmerged worktree branch: its files are held, its dependants wait. */
+const inFlight = (ticket: WaveTicket): boolean => inWork(ticket) || doneOnlyInBranch(ticket)
 
 const byNum = (a: { num: number }, b: { num: number }) => a.num - b.num
 

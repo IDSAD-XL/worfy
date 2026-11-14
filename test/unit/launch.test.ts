@@ -150,6 +150,19 @@ describe('runWaveState', () => {
     expect(runWaveState({ ...input, autopilot: false, template: LEGACY_RUN_WAVE_TEMPLATE, tickets: [t(1, 'work'), t(2, 'open', [1])], resumable: [1] })).toMatchObject({ enabled: true, text: '/epic-wave волна 1 эпика worfy-mvp' })
   })
 
+  it('takes an interrupted Ticket whose worktree branch could not be read: it may be claimed with no implementer left (audit 204)', () => {
+    const input = { epic: 'worfy-mvp', template: DEFAULT_ACTION_TEMPLATES.runWave, branch: null, autopilot: true }
+    const unread: Ticket = { ...t(1, 'open'), unreadBranch: 'worfy-mvp/01' }
+    expect(runWaveState({ ...input, tickets: [unread, t(2, 'open', [1])], resumable: [1] })).toEqual({
+      enabled: true,
+      text: '/epic-wave Ticket-ы 01 эпика worfy-mvp',
+      tickets: [1],
+      skipped: [],
+    })
+    // Not interrupted: it waits for a read that works, as it does for the ready Wave.
+    expect(runWaveState({ ...input, tickets: [unread, t(2, 'open', [1])] })).toEqual({ enabled: false, reason: 'No ready wave' })
+  })
+
   it('is inactive without a ready Wave, with an empty template, and with {NN}', () => {
     expect(runWaveState({ epic: 'worfy-mvp', tickets: [t(1, 'work'), t(2, 'open', [1])], template: 'x', branch: null })).toEqual({ enabled: false, reason: 'No ready wave' })
     expect(runWaveState({ epic: 'worfy-mvp', tickets: TICKETS, template: '', branch: null })).toEqual({ enabled: false, reason: 'Set the Run wave template in Project settings' })
