@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
@@ -169,7 +169,7 @@ describe('the step from the toolbar Harness item', () => {
       'harnessMigration.offer': ok({ offered: false }),
       'harness.codexHooks': ok({ trust: 'approved', status: withCodex(false) }),
     })
-    render(<HarnessStatus />)
+    render(<HarnessStatus opensHooksStep />)
     await screen.findByTestId('harness-text')
     expect(screen.queryByTestId('codex-hooks-step')).toBeNull()
     // An install from this window, another one or the first-run screen: `harness.changed`.
@@ -184,7 +184,7 @@ describe('the step from the toolbar Harness item', () => {
 
   it('a window that opens while hooks wait does not open the step; "Codex: approve hooks" does, and closed, a status that still asks does not reopen it', async () => {
     const main = fakeBridge({ 'harness.state': ok(withCodex(true)), 'harnessMigration.offer': ok({ offered: false }) })
-    render(<HarnessStatus />)
+    render(<HarnessStatus opensHooksStep />)
     await screen.findByTestId('harness-codex')
     // The first status only seeds the window: a new window, a reload or another screen opens no dialog.
     await act(async () => {
@@ -201,6 +201,35 @@ describe('the step from the toolbar Harness item', () => {
     expect(screen.queryByTestId('codex-hooks-step')).toBeNull()
     fireEvent.click(screen.getByTestId('harness-codex'))
     expect(screen.getByTestId('codex-hooks-step')).toBeTruthy()
+  })
+
+  // worfy-ui-kit ticket 07, review round 1: the toolbar's item and the one of Settings → Pipeline both
+  // hear `harness.changed`. Both opened the step in one commit: two windows of the kit, the focus in the
+  // one drawn under the other, and Esc closed that hidden one. Only the toolbar's item opens it by itself.
+  it('two Harness items, one change of the state: exactly one step opens, the toolbar\'s; the focus is in it and Esc closes it', async () => {
+    const main = fakeBridge({ 'harness.state': ok(withCodex(false)), 'harnessMigration.offer': ok({ offered: false }) })
+    render(
+      <>
+        <div data-testid="toolbar-item">
+          <HarnessStatus opensHooksStep />
+        </div>
+        <div data-testid="pipeline-item">
+          <HarnessStatus />
+        </div>
+      </>,
+    )
+    await vi.waitFor(() => expect(screen.getAllByTestId('harness-text')).toHaveLength(2))
+    act(() => main.emit('harness.changed', withCodex(true)))
+    await flush()
+    const steps = screen.getAllByTestId('codex-hooks-step')
+    expect(steps).toHaveLength(1)
+    expect(steps[0]!.contains(document.activeElement)).toBe(true)
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await flush()
+    expect(screen.queryAllByTestId('codex-hooks-step')).toHaveLength(0)
+    // The item of Pipeline still opens the step on a click of "Codex: approve hooks".
+    fireEvent.click(within(screen.getByTestId('pipeline-item')).getByTestId('harness-codex'))
+    expect(screen.getAllByTestId('codex-hooks-step')).toHaveLength(1)
   })
 })
 

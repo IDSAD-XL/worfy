@@ -321,9 +321,12 @@ function codexPart(codex: NonNullable<Status['codex']>): CodexPart | null {
 /**
  * The Harness state from main (`harness.state`, then `harness.changed`), and the install through
  * `harness.install`. Settings → Pipeline shows it too, when the Harness is too old for the editor;
- * worfy's memory stands only in the toolbar (`memory`, given by the toolbar item below).
+ * worfy's memory stands only in the toolbar (`memory`, given by the toolbar item below). Only the
+ * toolbar's item opens the Codex hooks step by itself (`opensHooksStep`): both items hear the same
+ * `harness.changed`, and two steps opened in one commit would be two windows of the kit, the keys in
+ * the one drawn under the other (worfy-ui-kit ticket 07).
  */
-export function HarnessStatus({ memory = false }: { memory?: boolean }) {
+export function HarnessStatus({ memory = false, opensHooksStep = false }: { memory?: boolean; opensHooksStep?: boolean }) {
   const [status, setStatus] = useState<Status>()
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string>()
@@ -397,14 +400,15 @@ export function HarnessStatus({ memory = false }: { memory?: boolean }) {
   // The step opens by itself when an install or update in Codex leaves hooks to approve, whichever
   // window or screen ran it; once per such install, not on every status that still says so. Only a
   // change seen by this window counts: the first status a window reads only seeds it, so a window
-  // opened while hooks wait does not open the step (its "Codex: approve hooks" still does).
+  // opened while hooks wait does not open the step (its "Codex: approve hooks" still does). Only the
+  // item that `opensHooksStep` does this.
   const hooksToApprove = status === undefined ? undefined : status.codex?.hooksToApprove === true
   const hadHooksToApprove = useRef<boolean | undefined>(undefined)
   useEffect(() => {
     if (hooksToApprove === undefined) return
-    if (hooksToApprove && hadHooksToApprove.current === false) setHooksStep(true)
+    if (opensHooksStep && hooksToApprove && hadHooksToApprove.current === false) setHooksStep(true)
     hadHooksToApprove.current = hooksToApprove
-  }, [hooksToApprove])
+  }, [hooksToApprove, opensHooksStep])
 
   const onInstall = (): void => {
     setBusy(true)
@@ -456,5 +460,5 @@ export function HarnessStatus({ memory = false }: { memory?: boolean }) {
 
 /** The toolbar item: the Harness column with worfy's memory after the app version. */
 export default function HarnessStatusItem() {
-  return <HarnessStatus memory />
+  return <HarnessStatus memory opensHooksStep />
 }
