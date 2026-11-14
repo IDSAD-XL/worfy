@@ -122,7 +122,8 @@ shown here". A plan for a code change, when the skill wrote one, shows under the
 - **Send** posts the text in the field, once. It is inactive while the field is empty.
 - **Discard**: the reply will not be sent, and it leaves the view.
 - **Ask the Session to rewrite** sends a message to the Session that **Draft replies** started for this PR in this
-  window, asking it to rewrite that one reply. Inactive when no such Session is known; when it has closed, the line
+  window, asking it to rewrite that one reply. The message names a thread's reply by the thread's id, not only by
+  its `path:line`, so two threads on the same line are told apart. Inactive when no such Session is known; when it has closed, the line
   under the replies says so. Inactive too for a reply the user has changed (`Edited`, or a text typed in the field),
   with the tooltip "You changed this reply: the Session keeps your text when it drafts again, so it cannot rewrite
   it": the skill keeps an edited reply as it is while its thread waits, so a rewrite would change nothing.
