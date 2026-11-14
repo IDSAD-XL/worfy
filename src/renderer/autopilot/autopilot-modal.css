@@ -206,9 +206,13 @@
   color: var(--text-muted);
   text-decoration: line-through;
 }
-/* Where a dragged row lands: a line above the row under the pointer. */
+/* Where a dragged row lands: a line above the row under the pointer, or, under the lower half of the
+   last row, a line along its bottom edge for the end of the list. */
 .w-apstart__queue-row--over {
   box-shadow: inset 0 2px 0 var(--accent);
+}
+.w-apstart__queue-row--over-end {
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 .w-apstart__grip {
   width: 14px;

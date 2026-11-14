@@ -56,6 +56,8 @@ export function QueueList({
 }) {
   const list = useRef<HTMLUListElement>(null)
   const dragged = useRef<number | null>(null)
+  // Where a dragged row lands: the gap above the row of that index, or `rows.length` for the end of the
+  // list, under the lower half of the last row.
   const [over, setOver] = useState<number | null>(null)
   // The grip a key moved: it keeps the focus after the rows are drawn again.
   const focusEpic = useRef<string | null>(null)
@@ -77,14 +79,21 @@ export function QueueList({
     focusEpic.current = rows[index]?.epic ?? null
     onChange(moveRow(rows, index, to))
   }
+  /** The gap the pointer is over on the row at `index`: above it, or the end of the list under the lower half of the last row. */
+  const gapAt = (event: DragEvent<HTMLLIElement>, index: number): number => {
+    if (index !== rows.length - 1) return index
+    const box = event.currentTarget.getBoundingClientRect()
+    return event.clientY > box.top + box.height / 2 ? rows.length : index
+  }
   const drop = (event: DragEvent<HTMLLIElement>, index: number): void => {
     event.preventDefault()
     setOver(null)
     const from = dragged.current
     dragged.current = null
-    // The line is drawn above the row dropped on; a row dragged down leaves a gap above it, so it goes
-    // one place up from that row's index to land on the line.
-    if (from !== null && !off) onChange(moveRow(rows, from, from < index ? index - 1 : index))
+    // The line is drawn at the gap dropped on; a row dragged down leaves a gap above it, so it goes one
+    // place up from that gap to land on the line.
+    const gap = gapAt(event, index)
+    if (from !== null && !off) onChange(moveRow(rows, from, from < gap ? gap - 1 : gap))
   }
 
   const ticked = rows.filter((row) => row.on)
@@ -92,7 +101,13 @@ export function QueueList({
     <ul ref={list} className="w-apstart__queue" data-testid="start-autopilot-queue">
       {rows.map((row, index) => {
         const fact = facts[row.epic]
-        const classes = ['w-apstart__queue-row', ...(row.on ? [] : ['w-apstart__queue-row--off']), ...(over === index ? ['w-apstart__queue-row--over'] : [])]
+        const last = index === rows.length - 1
+        const classes = [
+          'w-apstart__queue-row',
+          ...(row.on ? [] : ['w-apstart__queue-row--off']),
+          ...(over === index ? ['w-apstart__queue-row--over'] : []),
+          ...(last && over === rows.length ? ['w-apstart__queue-row--over-end'] : []),
+        ]
         return (
           <li
             key={row.epic}
@@ -114,9 +129,9 @@ export function QueueList({
             onDragOver={(event) => {
               if (dragged.current === null) return
               event.preventDefault()
-              setOver(index)
+              setOver(gapAt(event, index))
             }}
-            onDragLeave={() => setOver((now) => (now === index ? null : now))}
+            onDragLeave={() => setOver((now) => (now === index || (last && now === rows.length) ? null : now))}
             onDrop={(event) => drop(event, index)}
           >
             <button

@@ -14,7 +14,7 @@
 //   the answer to main carries the Run mode and the ticked Epics in their order (`epics`); an ask of one
 //   Epic answers no list.
 // What main answers to `autopilot.prepare` for several Epics is test/contract/autopilot-prepare.test.ts.
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, createEvent, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AutopilotConfirmAsk } from '../../src/shared/ipc/autopilot-confirm'
 import type { AutopilotPrepareAnswer } from '../../src/shared/ipc/autopilot-prepare'
@@ -262,6 +262,43 @@ describe('the queue of the window', () => {
     fireEvent.dragEnd(row(dialog, 'bravo'), { dataTransfer: transfer })
     await settle()
     expect(order(dialog)).toEqual(['bravo', 'alpha', 'charlie'])
+  })
+
+  it('a drag over the lower half of the last row lands the row last, under a line along that row\'s bottom edge', async () => {
+    const dialog = await queueWindow()
+    const transfer = { setData: () => undefined, effectAllowed: 'all', dropEffect: 'none' }
+    const last = row(dialog, 'charlie')
+    // jsdom lays nothing out: the last row is 32px tall from the top of the window.
+    vi.spyOn(last, 'getBoundingClientRect').mockReturnValue({ top: 0, bottom: 32, height: 32, left: 0, right: 300, width: 300, x: 0, y: 0, toJSON: () => ({}) })
+    /** A drag event at `clientY` (jsdom has no DragEvent, so the coordinate is set on the plain event). */
+    const at = (make: typeof createEvent.dragOver, target: HTMLElement, clientY: number): Event => {
+      const event = make(target, { dataTransfer: transfer })
+      Object.defineProperty(event, 'clientY', { value: clientY })
+      return event
+    }
+    fireEvent.dragStart(row(dialog, 'alpha'), { dataTransfer: transfer })
+    // The upper half of the last row: the line along its top edge, as on any row.
+    fireEvent(last, at(createEvent.dragOver, last, 10))
+    expect(last.classList.contains('w-apstart__queue-row--over')).toBe(true)
+    expect(last.classList.contains('w-apstart__queue-row--over-end')).toBe(false)
+    // The lower half: the line along its bottom edge, the end of the list.
+    fireEvent(last, at(createEvent.dragOver, last, 25))
+    expect(last.classList.contains('w-apstart__queue-row--over')).toBe(false)
+    expect(last.classList.contains('w-apstart__queue-row--over-end')).toBe(true)
+    fireEvent(last, at(createEvent.drop, last, 25))
+    fireEvent.dragEnd(row(dialog, 'alpha'), { dataTransfer: transfer })
+    await settle()
+    expect(order(dialog)).toEqual(['bravo', 'charlie', 'alpha'])
+    expect(prepares().at(-1)).toEqual(['bravo', 'charlie', 'alpha'])
+    expect(rows(dialog).some((each) => each.classList.contains('w-apstart__queue-row--over-end'))).toBe(false)
+    // The last row itself dropped at the end of the list stays where it is.
+    fireEvent.dragStart(row(dialog, 'alpha'), { dataTransfer: transfer })
+    const now = row(dialog, 'alpha')
+    vi.spyOn(now, 'getBoundingClientRect').mockReturnValue({ top: 0, bottom: 32, height: 32, left: 0, right: 300, width: 300, x: 0, y: 0, toJSON: () => ({}) })
+    fireEvent(now, at(createEvent.drop, now, 25))
+    fireEvent.dragEnd(now, { dataTransfer: transfer })
+    await settle()
+    expect(order(dialog)).toEqual(['bravo', 'charlie', 'alpha'])
   })
 
   it('⌥↑ and ⌥↓ on a row\'s grip move it a place, the focus with it; at the ends nothing moves', async () => {
