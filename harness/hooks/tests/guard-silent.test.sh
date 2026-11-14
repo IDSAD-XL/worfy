@@ -166,6 +166,56 @@ node -e 'const n = 20000; process.stdout.write("{\"body\":\"Ticket 05\",\"x\":" 
 expect "silent: gh api --input <a payload nested 20000 deep> -> deny with the trace" deny "$R" \
     "gh api --method POST repos/o/r/pulls/7/reviews --input $T/review-deep.json" 'Ticket 05'
 
+# The project of a gh api write is the repository its endpoint names (repos/<owner>/<repo>/…), found among the
+# registered checkouts by their remotes, not the directory the command runs in: from the common directory above a
+# project's repositories, or from a folder outside the registry, the write still lands in that repository's PR.
+# A second Silent profile with two repositories under one folder of their own (a workspace).
+WS="$T/ws"; cp "$HARNESS_HOME/gate/config.json" "$T/config.saved"
+for r in a b; do
+    git init -q -b main "$WS/$r" && echo 'export const c = 3' >"$WS/$r/c.ts" && git -C "$WS/$r" add -A && git -C "$WS/$r" commit -q -m init
+done
+mkdir -p "$HARNESS_HOME/projects/sw"
+printf '{"schema":2,"name":"sw","mode":"silent","attribution":"off","workflow":{"folder":"%s"},"tickets":{"root":".scratch/"}}\n' "$WF" \
+    >"$HARNESS_HOME/projects/sw/profile.json"
+node -e 'const fs = require("fs"), f = process.argv[1], c = JSON.parse(fs.readFileSync(f, "utf8"))
+for (const r of ["a", "b"]) c.repos.push({ key: "sw-" + r, match: process.argv[2] + "/" + r, profile: "sw", pm: "npm", root: {}, workspace: {} })
+fs.writeFileSync(f, JSON.stringify(c))' "$HARNESS_HOME/gate/config.json" "$WS"
+git -C "$R" remote add origin git@github.com:acme/shop.git
+git -C "$FR" remote add origin https://github.com/acme/full.git
+git -C "$WS/a" remote add upstream https://github.com/Acme/WS-A.git
+git -C "$WS/b" remote add origin ssh://git@github.com/acme/ws-b
+# bin/profile prints a native path: C:\…\ws on Windows, where $WS is C:/…/ws (node_path above).
+ws_got="$(node "$HARNESS/bin/profile" -C "$WS" --field _resolved.workspace)"
+[ "${ws_got//\\//}" = "$WS" ] && ok "the folder above sw's repositories is its workspace" \
+    || bad "the folder above sw's repositories is not its workspace: $(node "$HARNESS/bin/profile" -C "$WS" --json 2>&1 | head -c 300)"
+expect "silent: gh api write from the workspace root, the endpoint names a repository of it -> deny" deny "$WS" \
+    "gh api repos/acme/ws-a/issues/7/comments -f body='Ticket 05 done'" 'Ticket 05'
+expect "silent: gh api write from the workspace root, an ssh:// remote without .git -> deny" deny "$WS" \
+    "gh api -X PATCH repos/acme/ws-b/pulls/7 -f title='checkout-flow/05: fix'" 'checkout-flow/05'
+expect "silent: gh api write from outside the registry into a Silent project's PR -> deny" deny "$HOME" \
+    "gh api --method POST repos/acme/shop/pulls/7/comments/11/replies -f body='Done in checkout-flow/03'" 'checkout-flow/03'
+expect "silent: gh api write from outside the registry, the owner in another letter case -> deny" deny "$HOME" \
+    "gh api https://api.github.com/repos/ACME/Shop/issues/7/comments -f body='see HANDOFF'" 'HANDOFF'
+expect "silent: gh api write from outside the registry, a clean body -> allow" allow "$HOME" \
+    "gh api repos/acme/shop/issues/7/comments -f body='The state is kept now.'"
+expect "full: gh api write from the Silent repository into the Full project's PR -> allow" allow "$R" \
+    "gh api repos/acme/full/issues/7/comments -f body='Ticket 05 done'"
+expect "silent: gh api write into a repository no checkout has -> checked from the directory, deny" deny "$R" \
+    "gh api repos/acme/unknown/issues/7/comments -f body='Ticket 05 done'" 'Ticket 05'
+# A write that names no repository the guard can resolve, sent from the workspace root: checked from every
+# repository of the workspace's project.
+GQL_ADD="gh api graphql -f query='mutation { addComment(input: {subjectId: \"PR_x\", body: \"Ticket 05 done\"}) { clientMutationId } }'"
+expect "silent: gh api graphql mutation from the workspace root -> checked from its repositories, deny" deny "$WS" "$GQL_ADD" 'Ticket 05'
+expect "silent: gh api write from the workspace root, a shell variable in the endpoint -> deny" deny "$WS" \
+    "gh api \"repos/\$O/ws-a/issues/7/comments\" -f body='Ticket 05 done'" 'Ticket 05'
+expect "silent: gh api graphql mutation from the workspace root, a clean body -> allow" allow "$WS" \
+    "gh api graphql -f query='mutation { addComment(input: {subjectId: \"PR_x\", body: \"The state is kept now.\"}) { clientMutationId } }'"
+# shortcut (guard.mjs): from a folder outside every registered project a GraphQL mutation names no repository the
+# guard can find without a network call, so it goes through. Pinned here: when that changes, so does this case.
+expect "silent: gh api graphql mutation from outside the registry -> allow (a known limit)" allow "$HOME" "$GQL_ADD"
+cp "$T/config.saved" "$HARNESS_HOME/gate/config.json"
+git -C "$R" remote remove origin; git -C "$FR" remote remove origin
+
 # A file path as the shell of the command reads it.
 mkdir -p "$HOME/r" "$T/tmpd/r" "$T/vars"
 for d in "$HOME/r" "$T/tmpd/r" "$T/vars"; do cp "$T/review.json" "$d/review.json"; done

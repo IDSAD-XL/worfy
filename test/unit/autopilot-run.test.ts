@@ -401,6 +401,22 @@ describe('the Wave a result ends', () => {
     expect(s.removed).toEqual(['queued-2'])
   })
 
+  // The Wave went while the Session was still starting its process: its turn began (`prompt`), but the
+  // message waited for the process, and the halt put it back in the queue, held (Session.halt).
+  it('Force stop takes out the Wave the halt put back in the queue; a person\'s own queued message stays', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    s.queue.push({ id: 'person', text: 'and then this' })
+    s.onHalt = () => {
+      s.queue.unshift({ id: 'unsent', text: '/epic-wave 1 2' })
+      return Promise.resolve()
+    }
+    await s.autopilot.forceStop(PROJECT)
+    expect(s.removed).toEqual(['unsent'])
+    expect(s.queue).toEqual([{ id: 'person', text: 'and then this' }])
+  })
+
   it('Force stop leaves the queue alone when the Wave\'s turn has started', async () => {
     const s = standIn()
     await s.autopilot.start(PROJECT, EPIC)

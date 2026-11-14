@@ -2803,15 +2803,19 @@ export class Autopilot {
    * A Wave still in the Session's queue when the run stops is taken out: no one would follow its
    * turn. So is STOP_TEXT of a graceful Stop that has not gone yet: a Force stop or another stop
    * came first, and the person who gets the Orchestrator back should not find it in the queue.
+   * `beforeHalt`, after a Force stop's halt: the ids queued before it. A Wave sent while the Session
+   * was still starting its process began its turn (`prompt`) but reached no process; the halt put it
+   * back in the queue under a new id, and it is taken out too.
    */
-  private dropQueuedWave(run: Run): void {
+  private dropQueuedWave(run: Run, beforeHalt?: ReadonlySet<string>): void {
     const session = run.session
     if (session === null) return
-    const prompt = run.wavePrompt !== null && run.waveTurn === null ? run.wavePrompt : null
+    const prompt = run.wavePrompt
     const stop = run.cycle.stopping ? STOP_LABEL : null
     if (prompt === null && stop === null) return
+    const unsentWave = (id: string, text: string) => text === prompt && (run.waveTurn === null || (beforeHalt !== undefined && !beforeHalt.has(id)))
     try {
-      for (const item of session.queued().items) if (item.text === prompt || item.text === stop) session.removeQueued(item.id)
+      for (const item of session.queued().items) if (unsentWave(item.id, item.text) || item.text === stop) session.removeQueued(item.id)
     } catch (error) {
       console.warn(`[autopilot] ${run.projectId}: could not take the run's messages out of the queue`, error)
     }
@@ -2965,6 +2969,16 @@ export class Autopilot {
     }
   }
 
+  /** The ids in the run's Session's queue now; none when it cannot tell. */
+  private queuedIds(run: Run): Set<string> {
+    try {
+      return new Set(run.session?.queued().items.map((item) => item.id))
+    } catch (error) {
+      console.warn(`[autopilot] ${run.projectId}: could not read the Session's queue`, error)
+      return new Set()
+    }
+  }
+
   /**
    * Force stop (worfy-week tickets 17, 18, ADR-0050): no wait for the turn or the tasks. The
    * run's timers go first, so nothing of the run fires during the halt; then the Session is halted
@@ -2978,11 +2992,13 @@ export class Autopilot {
     const session = run.session
     let returned = false
     if (session !== null) {
+      const beforeHalt = this.queuedIds(run)
       try {
         await session.halt(this.deps.haltTurnMs)
       } catch (error) {
         console.warn(`[autopilot] ${run.projectId}: could not halt the Orchestrator's Session`, error)
       }
+      this.dropQueuedWave(run, beforeHalt)
       const killed = new Map(atStop.map((task) => [task.taskId, task]))
       for (const task of this.liveTasks(run)) killed.set(task.taskId, task)
       if (killed.size > 0) await this.write(run, { kind: 'tasks-killed', reason: 'user-force-stop', tasks: journalTasks([...killed.values()]) })

@@ -488,11 +488,15 @@ export class Session {
    * and from now on sends nothing more into this process. A running turn is interrupted and waited
    * for — its `result`, an error or the close — `timeoutMs` at most; the caller then closes the
    * process, which ends whatever is still running in it, background tasks included. Answers whether
-   * a turn was interrupted.
+   * a turn was interrupted. A message that waits for a process still being started has reached
+   * none: it goes back to the front of the queue, held with the rest (ADR-0050), rather than into
+   * that process or, unheld, to the Session the relaunch gives the queue to (handOverQueue).
    */
   async halt(timeoutMs = HALT_TURN_MS): Promise<boolean> {
     if (this.closing) return false
     this.halted = true
+    const unsent = this.run?.waiting.splice(0) ?? []
+    this.queue.adopt({ items: unsent.map((message) => ({ id: randomUUID(), ...message })), paused: true })
     this.queue.pause()
     this.permissions.cancelAll()
     const handle = this.run?.handle
