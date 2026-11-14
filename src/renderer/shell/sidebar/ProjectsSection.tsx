@@ -4,7 +4,9 @@ import '../../canvas/actions/actions.css'
 import type { LinkState } from '../../../shared/ipc/link'
 import type { ProjectPulse } from '../../../shared/ipc/project-pulse'
 import type { ConnectFolder, ProjectsState, ProjectView } from '../../../shared/ipc/projects'
-import { invokeOn, readableReason, windowMachine } from '../../ipc'
+import { REMOVED_TEXT } from '../../getting-started/DoneScreen'
+import { useGettingStartedStore } from '../../getting-started/store'
+import { invoke, invokeOn, readableReason, windowMachine } from '../../ipc'
 import { useMachines } from '../../machines/useMachines'
 import { ConnectProject } from '../../projects/ConnectProject'
 import { FolderBrowser } from '../../projects/FolderBrowser'
@@ -454,6 +456,8 @@ export default function ProjectsSection() {
   const [connecting, setConnecting] = useState<{ machine: string | null; machineName: string; folder: ConnectFolder; harnessHome: string }>()
   /** "Add project" before the folder: the Machine step, or the folders of a Linked machine. */
   const [picking, setPicking] = useState<{ kind: 'machine' } | { kind: 'browse'; machine: string; name: string }>()
+  // The Demo project of Getting started, always one of this Machine; the panel keeps the state read.
+  const demoId = useGettingStartedStore((store) => store.snapshot?.demo?.projectId ?? null)
 
   const fail = (error: string): void => setMessage({ kind: 'error', text: readableReason(error) })
 
@@ -530,6 +534,21 @@ export default function ProjectsSection() {
     else fail(result.error)
   }
 
+  /**
+   * "Remove project…" on the Demo project: the demo's own removal (`gettingStarted.removeDemo`, as
+   * "Remove the demo project" of Getting started), which also drops the record `demo` and the demo's
+   * folder after main's native confirmation. The removal of an ordinary Project would leave that
+   * record naming a Project that is gone (audit finding 129).
+   */
+  const removeDemo = async (): Promise<void> => {
+    setMessage(undefined)
+    const result = await invoke('gettingStarted.removeDemo')
+    if (!result.ok) fail(result.error)
+    else if (result.value.removed) setMessage({ kind: 'notice', text: REMOVED_TEXT })
+    // Cancel (no reason) says nothing.
+    else if (result.value.reason !== null) setMessage({ kind: 'error', text: result.value.reason })
+  }
+
   // The Machine of the row whose menu is open: its Projects may be read-only (worfy-link ticket 25).
   const menuGroup = menu === undefined ? undefined : groups?.find((group) => group.machine === menu.machine)
   // The gate queue of the row whose menu is open, read on its Machine at each opening.
@@ -601,7 +620,8 @@ export default function ProjectsSection() {
                 menu.machine === null
                   ? () => {
                       setMenu(undefined)
-                      setRemoving(menu.project)
+                      if (menu.project.id === demoId) void removeDemo()
+                      else setRemoving(menu.project)
                     }
                   : null
               }
