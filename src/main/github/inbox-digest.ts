@@ -10,11 +10,15 @@
 // - `pending`: a Project whose reader is on has not been read yet since worfy started; the window asks again when an
 //   inbox changes. A Project whose read failed does not hold the digest back. A Project whose next search is due
 //   (its `nextSearchAt` has passed: the computer slept, or the read runs now) is `pending` too, so the digest counts the
-//   fresh read and not yesterday's snapshot.
+//   fresh read and not yesterday's snapshot. When that read fails (no network yet after a wake), the reader keeps the
+//   old rows and `readAt` and moves the next search ahead: a Project whose last read failed and whose last good read is
+//   older than one search interval is `pending` as well. It holds the digest at most INBOX_MAX_INTERVAL_MS after the
+//   first ask of the day; then the digest is decided without that Project's old rows.
 // - `prInboxDigest` off in the app settings: nothing, and the day is not taken.
 // - shortcut: the day lives in main's memory, so a restart of worfy shows the digest again that day; keep it in a
 //   file of WORFY_DATA_DIR (an entry of ADR-0005's inventory) if people restart often enough to mind.
 import type { PrInboxDigestAnswer, PrInboxSnapshot } from '../../shared/ipc/pr-inbox'
+import { INBOX_MAX_INTERVAL_MS, INBOX_SEARCH_INTERVAL_MS } from './inbox'
 
 export interface PrInboxDigestCounts {
   /** PRs in Needs my review. */
@@ -82,6 +86,11 @@ function due(snapshot: PrInboxSnapshot, now: number): boolean {
   return snapshot.nextSearchAt !== null && Date.parse(snapshot.nextSearchAt) <= now
 }
 
+/** The Project's last read failed and its last good read is older than a search interval: its rows may be from before a sleep. */
+function stale(snapshot: PrInboxSnapshot, now: number): boolean {
+  return snapshot.error !== null && snapshot.readAt !== null && Date.parse(snapshot.readAt) <= now - INBOX_SEARCH_INTERVAL_MS
+}
+
 export interface PrInboxDigestOptions {
   /** The snapshot of each Project of this Machine, in the order of the list. */
   snapshots: () => readonly PrInboxSnapshot[]
@@ -94,6 +103,8 @@ export interface PrInboxDigestOptions {
 export class PrInboxDigest {
   /** The day the digest was last decided on; null since worfy started. */
   private day: string | null = null
+  /** The time of the first ask of `day` that was not decided yet: a stale Project holds the digest for a while after it. */
+  private firstAsk: { day: string; at: number } | null = null
 
   constructor(private readonly options: PrInboxDigestOptions) {}
 
@@ -103,8 +114,12 @@ export class PrInboxDigest {
     const now = this.options.now?.() ?? Date.now()
     const day = localDay(now)
     if (this.day === day) return { state: 'none' }
-    const snapshots = this.options.snapshots().filter((snapshot) => snapshot.enabled)
-    if (snapshots.some((snapshot) => (snapshot.readAt === null && snapshot.error === null) || due(snapshot, now))) return { state: 'pending' }
+    if (this.firstAsk?.day !== day) this.firstAsk = { day, at: now }
+    const enabled = this.options.snapshots().filter((snapshot) => snapshot.enabled)
+    if (enabled.some((snapshot) => (snapshot.readAt === null && snapshot.error === null) || due(snapshot, now))) return { state: 'pending' }
+    const waited = now - this.firstAsk.at
+    if (enabled.some((snapshot) => stale(snapshot, now)) && waited < INBOX_MAX_INTERVAL_MS) return { state: 'pending' }
+    const snapshots = enabled.filter((snapshot) => !stale(snapshot, now))
     this.day = day
     const text = digestText(digestCounts(snapshots, now))
     if (text === null) return { state: 'none' }

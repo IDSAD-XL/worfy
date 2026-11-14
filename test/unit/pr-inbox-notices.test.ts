@@ -370,6 +370,37 @@ describe('PrInboxDigest: the morning digest', () => {
     expect(ask()).toEqual({ state: 'none' })
   })
 
+  it("when the read after the night fails, waits for a good one instead of counting yesterday's snapshot", () => {
+    const yesterday = NOW - 24 * 3_600_000
+    // The read after the wake failed: the reader kept yesterday's rows and readAt and moved the next search ahead.
+    const failed = { ...counted, readAt: new Date(yesterday - MINUTE).toISOString(), nextSearchAt: new Date(NOW + 10 * MINUTE).toISOString(), error: 'error connecting to api.github.com' }
+    const { clock, state, ask } = digest([failed])
+    expect(ask()).toEqual({ state: 'pending' })
+    // The next read, ten minutes later, is good: the digest counts it, and the day is taken.
+    clock.now += 10 * MINUTE
+    state.snapshots = [{ ...counted, readAt: new Date(clock.now).toISOString(), nextSearchAt: new Date(clock.now + 5 * MINUTE).toISOString() }]
+    expect(ask().state).toBe('show')
+    expect(ask()).toEqual({ state: 'none' })
+  })
+
+  it('waits at most half an hour for a Project whose reads keep failing, then leaves its old rows out', () => {
+    const yesterday = NOW - 24 * 3_600_000
+    const failing = snap({ 'needs-review': [row(5, { author: ANA })] }, { projectId: 'a-1', readAt: new Date(yesterday).toISOString(), nextSearchAt: new Date(NOW + 10 * MINUTE).toISOString(), error: 'gh failed' })
+    const fresh = snap({ ready: [row(4)] }, { projectId: 'b-2' })
+    const { clock, state, ask } = digest([failing, fresh])
+    expect(ask()).toEqual({ state: 'pending' })
+    clock.now += 29 * MINUTE
+    state.snapshots = [{ ...failing, nextSearchAt: new Date(clock.now + 20 * MINUTE).toISOString() }, { ...fresh, readAt: new Date(clock.now).toISOString(), nextSearchAt: new Date(clock.now + 5 * MINUTE).toISOString() }]
+    expect(ask()).toEqual({ state: 'pending' })
+    clock.now += MINUTE
+    expect(ask()).toEqual({ state: 'show', text: '1 ready to merge', projectIds: ['b-2'] })
+  })
+
+  it('a failed read of a Project read within the last search interval does not hold the digest back', () => {
+    const { ask } = digest([{ ...counted, error: 'gh failed' }])
+    expect(ask().state).toBe('show')
+  })
+
   it('waits while a Project on is not read yet, and an empty inbox shows nothing', () => {
     const { state, ask } = digest([snap({}, { readAt: null })])
     expect(ask()).toEqual({ state: 'pending' })
