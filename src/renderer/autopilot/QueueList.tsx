@@ -82,7 +82,9 @@ export function QueueList({
     setOver(null)
     const from = dragged.current
     dragged.current = null
-    if (from !== null && !off) onChange(moveRow(rows, from, index))
+    // The line is drawn above the row dropped on; a row dragged down leaves a gap above it, so it goes
+    // one place up from that row's index to land on the line.
+    if (from !== null && !off) onChange(moveRow(rows, from, from < index ? index - 1 : index))
   }
 
   const ticked = rows.filter((row) => row.on)

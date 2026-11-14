@@ -244,6 +244,26 @@ describe('the queue of the window', () => {
     expect(prepares().at(-1)).toEqual(['charlie', 'alpha', 'bravo'])
   })
 
+  it('a drag down lands the row where the line is drawn: above the row under the pointer (audit finding 45)', async () => {
+    const dialog = await queueWindow()
+    const transfer = { setData: () => undefined, effectAllowed: 'all', dropEffect: 'none' }
+    fireEvent.dragStart(row(dialog, 'alpha'), { dataTransfer: transfer })
+    fireEvent.dragOver(row(dialog, 'charlie'), { dataTransfer: transfer })
+    // The row under the pointer carries the class the CSS paints as a line along its top edge.
+    expect(row(dialog, 'charlie').classList.contains('w-apstart__queue-row--over')).toBe(true)
+    fireEvent.drop(row(dialog, 'charlie'), { dataTransfer: transfer })
+    fireEvent.dragEnd(row(dialog, 'alpha'), { dataTransfer: transfer })
+    await settle()
+    expect(order(dialog)).toEqual(['bravo', 'alpha', 'charlie'])
+    expect(prepares().at(-1)).toEqual(['bravo', 'alpha', 'charlie'])
+    // Dropped on the row just below it, the line sits where the row already is: nothing moves.
+    fireEvent.dragStart(row(dialog, 'bravo'), { dataTransfer: transfer })
+    fireEvent.drop(row(dialog, 'alpha'), { dataTransfer: transfer })
+    fireEvent.dragEnd(row(dialog, 'bravo'), { dataTransfer: transfer })
+    await settle()
+    expect(order(dialog)).toEqual(['bravo', 'alpha', 'charlie'])
+  })
+
   it('⌥↑ and ⌥↓ on a row\'s grip move it a place, the focus with it; at the ends nothing moves', async () => {
     const dialog = await queueWindow()
     const grip = within(dialog).getByRole('button', { name: 'Reorder alpha' })
