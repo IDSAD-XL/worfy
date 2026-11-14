@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
-import type { McpServerAction, McpServerRow, McpServerSource } from '../../shared/agent/mcp-status'
-import { failureReason } from '../../shared/ipc/channels'
+import { mcpShownName, type McpServerAction, type McpServerRow, type McpServerSource } from '../../shared/agent/mcp-status'
+import { failureReason, type IpcResult } from '../../shared/ipc/channels'
 import { useOrchestratorViews } from '../canvas/nodes/orchestrator-view'
 import { invoke, subscribe } from '../ipc'
 import { writeAction } from '../projects/read-only'
 import { useProjects, useReadOnly } from '../projects/useProjects'
 import { Button } from '../theme/Button'
+import { Tooltip } from '../theme/kit/Tooltip'
 import { StatusChip, type Status } from '../theme/primitives'
 import { showToast } from '../toast/toasts'
 import { useSessionNodeViews } from './node-sessions'
@@ -40,6 +41,13 @@ import './mcp-chip.css'
 // and it waits while any action of the popover runs; its refusal is a toast and stays written under the
 // heading until the next Allow all, as a row's does. worfy's own servers offer no Turn off for this Session
 // (main, ticket 09); their other actions (Reconnect, Sign in) stay.
+//
+// Ticket 10 (owner 2026-11-12, Q8–Q10): the rows «not started» stand in a group of their own, between the
+// Session's servers and «Not allowed in this Project». Its heading says once why they are there and has one
+// «Restart Session» — the same Restart a row of theirs offered, with the same conversation, as its tooltip says;
+// its rows have no button and no error line. A row's name is shown whole and wraps rather than being cut; a
+// claude.ai connector drops the «claude.ai » its source column says (mcpShownName), and the full name is the
+// name's tooltip. «Allow all» is the one primary button of the popover; a row's Allow is the secondary Button.
 //
 // Project settings show the same status beside each name of the Profile's MCP list (EditProfile.tsx,
 // McpProfileStatus): the rows of the newest Session of the Project on this Machine.
@@ -79,7 +87,7 @@ const ACTION_LABELS: Readonly<Record<McpServerAction, string>> = {
   'turn-on': 'Turn on',
   allow: 'Allow',
   'sign-in': 'Sign in',
-  restart: 'Restart Session with the same conversation',
+  restart: 'Restart Session',
 }
 
 /**
@@ -90,6 +98,17 @@ export const CONNECTOR_HINT = 'A claude.ai connector missing here: add its name 
 
 /** The button in the heading of the group «Not allowed in this Project» (ticket 09). */
 export const ALLOW_ALL_LABEL = 'Allow all'
+
+/** The tooltip of «Restart Session» in the heading of the group «not started» (ticket 10). */
+export const RESTART_HINT = 'Restarts the Session with the same conversation, so Claude Code starts again with the list'
+
+/** The tooltip of a group's button while another action of the popover runs. */
+const WAIT_HINT = 'Wait for the action that runs now'
+
+/** The heading of the group «not started» (ticket 10): why its `count` servers are there. */
+function notStartedReason(count: number): string {
+  return `Allowed in this Project, but Claude Code did not start ${count === 1 ? 'it' : 'them'} in this Session.`
+}
 
 /** The gap between the chip and its popover. */
 const POPOVER_GAP = 4
@@ -147,17 +166,21 @@ interface RowProps {
   failure: string | null
   readOnly: string | null
   onAction: (row: McpServerRow, action: McpServerAction) => void
+  /** A row of the group «not started» (ticket 10): its heading has the reason and the Restart, so the row has neither. */
+  grouped?: boolean
 }
 
-function ServerRow({ row, autopilot, running, failure, readOnly, onAction }: RowProps) {
+function ServerRow({ row, autopilot, running, failure, readOnly, onAction, grouped = false }: RowProps) {
   const source = SOURCE_LABELS[row.source]
   const note = autopilot && row.actions.includes('allow') ? 'Allow takes effect from the next Wave' : null
   return (
     <li className="w-mcp__row" data-testid="mcp-row" data-name={row.name} data-status={row.status}>
       <div className="w-mcp__line">
-        <span className="w-mcp__name w-mono" title={row.name}>
-          {row.name}
-        </span>
+        <Tooltip label={row.name}>
+          <span className="w-mcp__name w-mono" data-testid="mcp-row-name">
+            {mcpShownName(row)}
+          </span>
+        </Tooltip>
         <span data-testid="mcp-row-status">
           <McpStatusChip status={row.status} />
         </span>
@@ -170,25 +193,27 @@ function ServerRow({ row, autopilot, running, failure, readOnly, onAction }: Row
           {source}
         </span>
         <span className="w-mcp__spacer" />
-        {row.actions.map((action) => {
-          const waiting = running !== null
-          return (
-            <button
-              key={action}
-              type="button"
-              className={`w-action${action === 'allow' ? ' w-action--primary' : ''}`}
-              data-action={action}
-              aria-busy={running === action ? 'true' : undefined}
-              {...(waiting
-                ? { onClick: () => undefined, 'aria-disabled': 'true' as const, title: `${ACTION_LABELS[running]} ${row.name}…` }
-                : writeAction(readOnly, () => onAction(row, action)))}
-            >
+        {(grouped ? [] : row.actions).map((action) => {
+          const props = {
+            'data-action': action,
+            'aria-busy': running === action ? ('true' as const) : undefined,
+            ...(running !== null
+              ? { onClick: () => undefined, 'aria-disabled': 'true' as const, title: `${ACTION_LABELS[running]} ${row.name}…` }
+              : writeAction(readOnly, () => onAction(row, action))),
+          }
+          // Allow is the secondary Button (ticket 10): the one primary button of the popover is «Allow all».
+          return action === 'allow' ? (
+            <Button key={action} className="w-mcp__allow" {...props}>
+              {ACTION_LABELS[action]}
+            </Button>
+          ) : (
+            <button key={action} type="button" className="w-action" {...props}>
               {ACTION_LABELS[action]}
             </button>
           )
         })}
       </div>
-      {row.error === null ? null : (
+      {row.error === null || grouped ? null : (
         <p className="w-mcp__error" data-testid="mcp-row-error">
           {row.error}
         </p>
@@ -218,20 +243,68 @@ interface AllowAllProps {
   onAllowAll: (names: readonly string[]) => void
 }
 
-/** «Allow all» in the heading of the group «Not allowed in this Project» (ticket 09): the secondary Button. */
+/**
+ * «Allow all» in the heading of the group «Not allowed in this Project» (ticket 09): the primary Button, the one of
+ * the popover (ticket 10).
+ */
 function AllowAllButton({ names, running, waiting, readOnly, onAllowAll }: AllowAllProps) {
   return (
     <Button
-      className="w-mcp__allow-all"
+      variant="primary"
+      className="w-mcp__group-button"
       data-testid="mcp-allow-all"
       aria-busy={running ? 'true' : undefined}
       {...(waiting
-        ? { onClick: () => undefined, 'aria-disabled': 'true' as const, title: running ? `${ALLOW_ALL_LABEL}…` : 'Wait for the action that runs now' }
+        ? { onClick: () => undefined, 'aria-disabled': 'true' as const, title: running ? `${ALLOW_ALL_LABEL}…` : WAIT_HINT }
         : writeAction(readOnly, () => onAllowAll(names), `Put ${names.length} servers on the Project's list and restart the Session once`))}
     >
       {ALLOW_ALL_LABEL}
     </Button>
   )
+}
+
+interface RestartProps {
+  /** The row whose Restart the button sends: any row of the group restarts the same Session. */
+  name: string
+  /** The Restart runs now. */
+  running: boolean
+  /** An action of the popover runs now: the button waits. */
+  waiting: boolean
+  readOnly: string | null
+  onRestart: (name: string) => void
+}
+
+/**
+ * «Restart Session» in the heading of the group «not started» (ticket 10): the secondary Button, its tooltip the
+ * kit's. On a read-only screen the tooltip is writeAction's hint of why it is inactive, as on every write action.
+ */
+function RestartButton({ name, running, waiting, readOnly, onRestart }: RestartProps) {
+  const button = (
+    <Button
+      className="w-mcp__group-button"
+      data-testid="mcp-restart"
+      aria-busy={running ? 'true' : undefined}
+      {...(waiting ? { onClick: () => undefined, 'aria-disabled': 'true' as const } : writeAction(readOnly, () => onRestart(name)))}
+    >
+      {ACTION_LABELS.restart}
+    </Button>
+  )
+  if (readOnly !== null && !waiting) return button
+  return <Tooltip label={running ? `${ACTION_LABELS.restart}…` : waiting ? WAIT_HINT : RESTART_HINT}>{button}</Tooltip>
+}
+
+/** What a group's heading runs (McpChip, runGroup). */
+interface GroupRun {
+  /** The rows the call is for: they wait while it runs. */
+  names: readonly string[]
+  /** The action each of those rows waits on. */
+  action: McpServerAction
+  /** The button's label, the start of its toast and of its failure line. */
+  label: string
+  /** The channel of the call, whose name main may put before a refusal. */
+  channel: 'agent.mcpAllowAll' | 'agent.mcpAction'
+  call: (sessionId: string) => Promise<IpcResult<{ servers: McpServerRow[] | null; error: string | null }>>
+  setFailure: (failure: string | null) => void
 }
 
 export interface McpChipProps {
@@ -254,6 +327,8 @@ export function McpChip({ sessionId, rows, autopilot }: McpChipProps) {
   const [failures, setFailures] = useState<Readonly<Record<string, string>>>({})
   /** Why the last Allow all failed; kept under the group's heading after its toast is gone. */
   const [allowAllFailure, setAllowAllFailure] = useState<string | null>(null)
+  /** Why the last Restart Session of the group «not started» failed; kept under its heading as Allow all's is. */
+  const [restartFailure, setRestartFailure] = useState<string | null>(null)
   const runningNow = useRef(new Set<string>())
   const chip = useRef<HTMLButtonElement>(null)
   const popover = useRef<HTMLDivElement>(null)
@@ -323,18 +398,23 @@ export function McpChip({ sessionId, rows, autopilot }: McpChipProps) {
       })
   }
 
-  /** Allow all (ticket 09): every name of `names` in one call; the rows wait meanwhile, as for their own Allow. */
-  const allowAll = (names: readonly string[]): void => {
+  /**
+   * An action of a group's heading (Allow all, ticket 09; Restart Session, ticket 10): one call for the rows `names`,
+   * which wait meanwhile as for an action of their own; it starts only while nothing else of the popover runs. Its
+   * refusal is a toast and stays written under the heading (`setFailure`) until its next answer.
+   */
+  const runGroup = (group: GroupRun): void => {
+    const { names, action, label, channel, call, setFailure } = group
     if (sessionId === null || names.length === 0 || runningNow.current.size > 0) return
     for (const name of names) runningNow.current.add(name)
-    setRunning((now) => ({ ...now, ...Object.fromEntries(names.map((name) => [name, 'allow' as const])) }))
+    setRunning((now) => ({ ...now, ...Object.fromEntries(names.map((name) => [name, action])) }))
     const failed = (reason: string | null): void => {
-      setAllowAllFailure(reason === null ? null : `${ALLOW_ALL_LABEL} failed: ${reason}`)
-      if (reason !== null) showToast({ kind: 'error', key: `mcp:${sessionId}:allow-all`, testId: 'mcp-action-error', text: `${ALLOW_ALL_LABEL}: ${reason}` })
+      setFailure(reason === null ? null : `${label} failed: ${reason}`)
+      if (reason !== null) showToast({ kind: 'error', key: `mcp:${sessionId}:${action}-group`, testId: 'mcp-action-error', text: `${label}: ${reason}` })
     }
-    void invoke('agent.mcpAllowAll', { sessionId, names: [...names] })
+    void call(sessionId)
       .then((result) => {
-        if (!result.ok) return failed(failureReason('agent.mcpAllowAll', result.error))
+        if (!result.ok) return failed(failureReason(channel, result.error))
         if (result.value.servers !== null) acceptMcpServers(sessionId, result.value.servers)
         failed(result.value.error)
       })
@@ -349,16 +429,31 @@ export function McpChip({ sessionId, rows, autopilot }: McpChipProps) {
       })
   }
 
+  /** Allow all (ticket 09): every name of `names` in one call; the rows wait meanwhile, as for their own Allow. */
+  const allowAll = (names: readonly string[]): void =>
+    runGroup({ names, action: 'allow', label: ALLOW_ALL_LABEL, channel: 'agent.mcpAllowAll', call: (id) => invoke('agent.mcpAllowAll', { sessionId: id, names: [...names] }), setFailure: setAllowAllFailure })
+
+  /**
+   * Restart Session of the group «not started» (ticket 10): the Restart a row of the group offers, sent once, by the
+   * name of the row `name`; every row of the group waits meanwhile.
+   */
+  const restartAll = (names: readonly string[], name: string): void =>
+    runGroup({ names, action: 'restart', label: ACTION_LABELS.restart, channel: 'agent.mcpAction', call: (id) => invoke('agent.mcpAction', { sessionId: id, name, action: 'restart' }), setFailure: setRestartFailure })
+
   if (rows === null || rows.length === 0) return null
   const { connected, total, warn } = mcpCount(rows)
   const title = chipTitle(rows)
-  const allowed = rows.filter((row) => row.status !== 'not-allowed')
+  const allowed = rows.filter((row) => row.status !== 'not-allowed' && row.status !== 'not-started')
+  const notStarted = rows.filter((row) => row.status === 'not-started')
   const notAllowed = rows.filter((row) => row.status === 'not-allowed')
+  /** The row whose Restart the group's button sends: none in a Session no person acts on (main offers no Restart there). */
+  const restartable = notStarted.find((row) => row.actions.includes('restart'))
+  const notStartedNames = notStarted.map((row) => row.name)
   /** The names Allow all puts on the list: the group's rows that offer Allow. With one, its own Allow does it. */
   const allowable = notAllowed.filter((row) => row.actions.includes('allow')).map((row) => row.name)
   const busy = Object.keys(running).length > 0
   const draw = (row: McpServerRow) => (
-    <ServerRow key={row.name} row={row} autopilot={autopilot} running={running[row.name] ?? null} failure={failures[row.name] ?? null} readOnly={readOnly} onAction={act} />
+    <ServerRow key={row.name} row={row} autopilot={autopilot} running={running[row.name] ?? null} failure={failures[row.name] ?? null} readOnly={readOnly} onAction={act} grouped={row.status === 'not-started'} />
   )
 
   const onKey = (event: KeyboardEvent<HTMLDivElement>): void => {
@@ -406,6 +501,28 @@ export function McpChip({ sessionId, rows, autopilot }: McpChipProps) {
                 </span>
               </div>
               <ul className="w-mcp__list">{allowed.map(draw)}</ul>
+              {notStarted.length === 0 ? null : (
+                <section className="w-mcp__group" data-testid="mcp-not-started" aria-label="Not started in this Session">
+                  <div className="w-mcp__group-head">
+                    <h2 className="w-mcp__heading w-mcp__heading--reason">{notStartedReason(notStarted.length)}</h2>
+                    {restartable === undefined ? null : (
+                      <RestartButton
+                        name={restartable.name}
+                        running={notStartedNames.every((name) => running[name] === 'restart')}
+                        waiting={busy}
+                        readOnly={readOnly}
+                        onRestart={(name) => restartAll(notStartedNames, name)}
+                      />
+                    )}
+                  </div>
+                  {restartFailure === null ? null : (
+                    <p className="w-mcp__error w-mcp__group-error" data-testid="mcp-restart-error" role="alert">
+                      {restartFailure}
+                    </p>
+                  )}
+                  <ul className="w-mcp__list">{notStarted.map(draw)}</ul>
+                </section>
+              )}
               {notAllowed.length === 0 ? null : (
                 <section className="w-mcp__group" data-testid="mcp-not-allowed" aria-label="Not allowed in this Project">
                   <div className="w-mcp__group-head">

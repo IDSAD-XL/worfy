@@ -429,6 +429,16 @@ jobs:
           path: test-results/
           if-no-files-found: ignore
           retention-days: 14
+      # The shots the e2e tests take of a look in both themes (test-results/e2e/snapshots/: test/e2e/snapshots.ts
+      # and a spec's own, as session-mcp.spec.ts takes) are kept on a green run too, so the owner sees a look
+      # change on its pull request without a local e2e run (worfy-mcp-live ticket 10).
+      - if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-snapshots-${{ strategy.job-index }}-${{ github.run_attempt }}
+          path: test-results/e2e/snapshots/
+          if-no-files-found: ignore
+          retention-days: 14
 
   macos-package:
     needs: changes
