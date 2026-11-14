@@ -39,7 +39,7 @@
 // the start as after a Wave. Without a list the run is over the whole Epic.
 import { resumedTickets } from '../actions/render-template'
 import type { Ticket } from '../workflow/types'
-import { doneOnlyInBranch, readyWave } from '../workflow/waves'
+import { doneOnlyInBranch, inWork, readyWave } from '../workflow/waves'
 
 /**
  * Why a run ended; the `reason` of its `run-stopped` journal line. `start-cancelled` and
@@ -266,8 +266,9 @@ const sameSet = (a: readonly number[], b: readonly number[]): boolean => a.lengt
 function evaluate(state: CycleState, tickets: readonly CycleTicket[]): CycleStep {
   // A graceful Stop: nothing is left running, and Tickets still in work are a person's now.
   if (state.stopping) return stop(state, 'user-stop')
-  const inWork = state.tickets.filter((num) => tickets.some((ticket) => ticket.epic === state.epic && ticket.num === num && ticket.state === 'work'))
-  if (inWork.length > 0) return stay({ ...state, phase: 'settling' })
+  // In work counts a Ticket whose worktree branch could not be read (waves.ts, inWork): that branch may still hold its claim.
+  const settling = state.tickets.some((num) => tickets.some((ticket) => ticket.epic === state.epic && ticket.num === num && inWork(ticket)))
+  if (settling) return stay({ ...state, phase: 'settling' })
   const finished: CycleEffect = { kind: 'wave-finished', wave: state.wave, tickets: state.tickets }
   const next = readyNums(state, tickets)
   if (next.length === 0) return nothingReady(state, tickets, [finished])

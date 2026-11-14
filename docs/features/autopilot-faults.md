@@ -96,8 +96,8 @@ interrupts the turn (up to 15 seconds), closes the Claude Code process and with 
 and gives the Orchestrator back to the person. Worktrees and branches stay. A message a person queued stays, held, in the
 new Session's queue. The Wave and the stop message leave the queue.
 
-The next run of the same Epic takes the Tickets interrupted by a Force stop into its first Wave, if they are still in work,
-even when nothing else is ready. So it does after a run that stopped with `session-error` during a Wave: the implementers
+The next run of the same Epic takes the Tickets interrupted by a Force stop into its first Wave, if they are still in work
+(claimed, or open with a worktree branch whose read failed, which may hold the claim), even when nothing else is ready. So it does after a run that stopped with `session-error` during a Wave: the implementers
 died with the Orchestrator's process, and a Ticket one of them claimed stays `claimed`. The first Wave command of the next run
 names it along with the ready Tickets, and the Orchestrator resumes it as a resumed Wave (the `epic-wave` skill, "How to
 resume a wave"): by its branch, PR and result it carries the work on or hands the Ticket out again. worfy writes no

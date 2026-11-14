@@ -26,6 +26,7 @@ import {
   repoUrlOf,
   ticketBranches,
   ticketWorktrees,
+  worktreeListError,
   type EpicStatusRunner,
 } from '../../src/main/workflow/reader'
 import { Debounce, ticketsIgnored, WorkflowHub, WorkflowWatcher, type WatchOptions } from '../../src/main/workflow/watch'
@@ -586,6 +587,49 @@ describe('workflow reader', () => {
     const fresh = await readBranches(repo, checkout, newHead, twice, run, clock)
     expect(refs).toHaveLength(4)
     expect(fresh.get('demo/02')!.retry).toEqual({ at: now + BRANCH_RETRY_MS[0]!, failures: 1 })
+  })
+
+  it('takes a failed `git worktree list` as an error, not as no worktrees: a claim read before stands, open Tickets are held, the list is asked again after the pause (audit 203)', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    claimInWorktree(repo, 'demo/02', '02', '02-second.md')
+    const run = epicStatusRunner(home, ownEnv)
+    const realGit = async (cwd: string, args: string[]): Promise<string> => execFileSync('git', args, { cwd, encoding: 'utf8' })
+    const brokenList = async (cwd: string, args: string[]): Promise<string> => {
+      if (args[0] === 'worktree') throw Object.assign(new Error('git worktree list timed out'), { killed: true, code: null })
+      return realGit(cwd, args)
+    }
+    // Outside git the list is still empty; in a repository a list that fails rejects.
+    const plain = join(dir, 'plain')
+    mkdirSync(plain)
+    expect(await ticketWorktrees(plain)).toEqual([])
+    await expect(ticketWorktrees(repo, brokenList)).rejects.toThrow('git worktree list timed out')
+
+    let now = 1_000
+    const clock = { now: () => now }
+    const checkout = await readCheckout(repo, run)
+    const failed = await ticketWorktrees(repo, brokenList).catch(worktreeListError)
+
+    // Nothing read before: any open Ticket may be claimed in a worktree no one can list now, so none is ready.
+    const cold = await readBranches(repo, checkout, failed, new Map(), run, clock)
+    const coldModel = applyBranches(checkout, cold)
+    expect(ticketOf(coldModel, 2)).toMatchObject({ state: 'open', unreadBranch: 'demo/02' })
+    expect(ticketOf(coldModel, 1)).not.toHaveProperty('unreadBranch')
+    expect(readyWave(coldModel.tickets, 'demo').ready).toEqual([])
+    expect(coldModel.branchErrors).toContainEqual({ branch: 'demo/02', message: 'git worktree list failed: git worktree list timed out' })
+    expect(cold.get('demo/02')!.retry).toEqual({ at: now + BRANCH_RETRY_MS[0]!, failures: 1 })
+
+    // A good read before: the claim it gave stands, marked as not read now.
+    const good = await readBranches(repo, checkout, await ticketWorktrees(repo), new Map(), run, clock)
+    const warm = applyBranches(checkout, await readBranches(repo, checkout, failed, good, run, clock))
+    expect(ticketOf(warm, 2)).toMatchObject({ state: 'work', fromBranch: 'demo/02', unreadBranch: 'demo/02' })
+
+    // After the pause the list works again: the branch is read, and the hold goes.
+    now += BRANCH_RETRY_MS[0]!
+    const back = applyBranches(checkout, await readBranches(repo, checkout, await ticketWorktrees(repo), cold, run, clock))
+    expect(back.branchErrors).toEqual([])
+    expect(ticketOf(back, 2)).toMatchObject({ state: 'work', fromBranch: 'demo/02' })
+    expect(ticketOf(back, 4)).not.toHaveProperty('unreadBranch')
   })
 
   it('does not let a branch left over after the merge override a Ticket done in the checkout', async () => {

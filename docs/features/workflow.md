@@ -134,7 +134,9 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
   at the latest 1 s after the first event of a series. Reads never overlap. In Full mode the git refs and the worktree list
   are watched too, and only branches whose head moved are read again, four at a time. A branch whose read failed keeps
   the status its last good read gave and is read again by itself after 30 s, then 1 min, 2 min and every 5 minutes while
-  it keeps failing; a new commit on it starts the waits over. On macOS a Tickets root that is not a
+  it keeps failing; a new commit on it starts the waits over. A failed `git worktree list` is such a failed read for
+  every branch at once: no worktree is taken as gone, each branch keeps the status its last good read gave, and each open
+  Ticket counts as one whose branch read failed (it is in no Wave) until the list is read again on the same waits. On macOS a Tickets root that is not a
   folder is looked for every 2 s. Only the files `epic-status` reads are watched: Epic folders, `spec.md`, `map.md` and `issues/*.md`.
 - **A branch never undoes the checkout.** This is why a blocked Ticket with an old worktree branch does not look open
   ([ADR-0033](../adr/0033-autopilot-names-wave-tickets.md)).

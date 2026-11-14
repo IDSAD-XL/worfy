@@ -61,6 +61,7 @@ import {
   readBranches,
   readCheckout,
   ticketWorktrees,
+  worktreeListError,
   type BranchCache,
   type CheckoutModel,
   type EpicStatusRunner,
@@ -796,7 +797,9 @@ export class WorkflowWatcher {
       }
       if (checkout.error || layout.mode === 'silent') this.branches = new Map()
       else if (checkoutChanged || branchesChanged) {
-        this.branches = await readBranches(root, checkout, await ticketWorktrees(root), this.branches, run, this.options.branchRetryMs ? { retryMs: this.options.branchRetryMs } : {})
+        // A failed list keeps what was read and holds the open Tickets (reader.ts, unlistedBranches); retryBranches asks it again.
+        const worktrees = await ticketWorktrees(root).catch(worktreeListError)
+        this.branches = await readBranches(root, checkout, worktrees, this.branches, run, this.options.branchRetryMs ? { retryMs: this.options.branchRetryMs } : {})
       }
       this.retryBranches()
       const previous = this.model
