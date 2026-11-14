@@ -15,7 +15,7 @@
 //
 // Epics in play, in this order, at most MAX_LINES:
 //   1. the Epic of the current branch, when the branch has the profile's form (`tickets.branch`, e.g.
-//      `<epic>/<NN>`); its line comes from `epic-status <epic>`, which also names the branch;
+//      `<epic>/<NN>` or `<epic>/<NN>-<slug>`); its line comes from `epic-status <epic>`, which also names the branch;
 //   2. Epics with a claimed ticket in this tree (Silent mode, or a claim committed where the session is);
 //   3. Epics of the local branches of that form, newest commit first, whose ticket is not done in this tree:
 //      a claim lives on its ticket branch, so the main checkout sees only the branch, not the claim;
@@ -112,13 +112,24 @@ function epicOf(line) {
     return field.split(" ")[0] ?? ""
 }
 
-/** A matcher of the profile's branch form (`<epic>/<NN>`): branch name -> {epic, num}, or null. */
+/**
+ * A matcher of the profile's branch form (`<epic>/<NN>`, `<epic>/<NN>-<slug>`): branch name -> {epic, num}, or
+ * null. Any other placeholder (`<slug>`) stands for any text.
+ */
 function branchForm(template) {
     if (typeof template !== "string" || !template.includes("<epic>") || !template.includes("<NN>")) return () => null
     const epicFirst = template.indexOf("<epic>") < template.indexOf("<NN>")
     const source = template
-        .split(/(<epic>|<NN>)/)
-        .map((part) => (part === "<epic>" ? "([^/\\s]+)" : part === "<NN>" ? "(\\d+)" : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
+        .split(/(<[A-Za-z-]+>)/)
+        .map((part) =>
+            part === "<epic>"
+                ? "([^/\\s]+)"
+                : part === "<NN>"
+                  ? "(\\d+)"
+                  : /^<[A-Za-z-]+>$/.test(part)
+                    ? ".*"
+                    : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+        )
         .join("")
     const re = new RegExp(`^${source}$`)
     return (name) => {

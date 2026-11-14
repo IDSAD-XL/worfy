@@ -7,6 +7,7 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join, relative, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -80,6 +81,7 @@ const UPSTREAM: Record<string, string> = {
 // beyond the list changes the hash. A new edit updates THIRD_PARTY.md and this map together.
 const EDITED: Record<string, string> = {
   'code-review/SKILL.md': '37cce433b54816e5b64544faee76bc971296bdd0b32459c8d1f6fe8a1e77183c',
+  'domain-modeling/SKILL.md': '0bc08303c0874c9ef11a54fa0783c55d6520844ad5c7bce8202a314c9276eabd',
   'grill-me/SKILL.md': '310e9e01d9b18a9bbe949de4d9c238402919c570342de771f2e221af6221d6df',
   'grill-with-docs/SKILL.md': '55287c9fd1f0b72bdb01657d4c25db66911c8e171c90bb42c86d3063d8e01be3',
   'improve-codebase-architecture/HTML-REPORT.md': '907a9abe4b549e46477384195f0e07cf42dfbb61eaab68f14b025484ea191382',
@@ -88,7 +90,7 @@ const EDITED: Record<string, string> = {
   'tdd/SKILL.md': '6c5b6da52ffe622f30c3deba006811e3e7e0532ae1e539a0bc3578d8dbf8eaf2',
   'teach/SKILL.md': '04c70a169b35aae5f8e10861250aedd81a3b7d4f859a1248d8e94f327f5cc5bc',
   'to-spec/SKILL.md': '8f9c899397afb0fcbbf6e65d5a80746e7d9dec532cd7c8867b6ae33ef80e3f2e',
-  'to-tickets/SKILL.md': 'c32c365c660d434c602f2330e4fec016c85d2db7e6bed87b215b89d024e4adeb',
+  'to-tickets/SKILL.md': 'f86ca820e96422dc4dde977bb84d03497c51d2c347a5b9e0065027dc3afe0ee7',
   'wayfinder/SKILL.md': 'e0bc29e391256cb08b00d8c754ff826daf6f40e9a553d5351234083c8c1f3801',
 }
 
@@ -331,5 +333,31 @@ describe('the copied planning skills write tickets in the language of bin/TICKET
     const section = text.split(/^## Copied skills$/m)[1]?.split(/^## /m)[0] ?? ''
     const names = [...section.matchAll(/`([a-z0-9-]+)`/g)].map((match) => match[1])
     expect([...new Set(names)].sort()).toEqual([...COPIED].sort())
+  })
+})
+
+// Audit findings 99 and 98: two reference edits that make a copied skill write where worfy reads.
+describe('the copied skills write where worfy reads', () => {
+  // Finding 99: domain-modeling created GLOSSARY.md at the root, while a worfy project names its glossary in the
+  // profile (docs.context). bin/TICKETS.md, "Wayfinding operations", maps the word, but domain-modeling never
+  // pointed there.
+  it('domain-modeling takes the glossary and the ADR folder from the profile, not a GLOSSARY.md at the root', () => {
+    const text = readFileSync(join(SKILLS, 'domain-modeling', 'SKILL.md'), 'utf8')
+    const structure = text.split(/^## File structure$/m)[1]?.split(/^## /m)[0] ?? ''
+    expect(structure).toContain('"${CLAUDE_PLUGIN_ROOT}/bin/profile" --field docs.context.path')
+    expect(structure).toContain('docs.adr_dir')
+    expect(structure).toContain('`${CLAUDE_PLUGIN_ROOT}/bin/TICKETS.md`, section "Wayfinding operations"')
+  })
+
+  // Finding 98: Evidence attaches only to the items under the done section (tickets.done_section, `## Done when`
+  // without one); the local ticket template of to-tickets put its criteria under no heading, so none was found.
+  it('to-tickets puts the criteria of a local ticket under the done section, where Evidence finds them', () => {
+    const evidence = createRequire(join(REPO, 'package.json'))('./harness/lib/evidence.cjs') as {
+      parseDoneSection: (markdown: string, headings?: { doneSection?: string }) => { text: string }[]
+    }
+    const text = readFileSync(join(SKILLS, 'to-tickets', 'SKILL.md'), 'utf8')
+    const template = /<local-ticket-template>\n([\s\S]*?)<\/local-ticket-template>/.exec(text)?.[1] ?? ''
+    expect(evidence.parseDoneSection(template).map((item) => item.text)).toEqual(['Acceptance criterion 1', 'Acceptance criterion 2'])
+    expect(text.replaceAll(/\s+/g, ' ')).toContain('its `## Done when` heading is the heading `tickets.done_section` of the profile')
   })
 })

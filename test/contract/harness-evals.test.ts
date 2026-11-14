@@ -624,6 +624,27 @@ describe('harness/evals: critic-verdict', () => {
     expect(relative(tree, workflowFolder).startsWith('..')).toBe(true)
   })
 
+  // Audit finding 102: in Silent mode the plan lives in the Workflow folder, outside the repository, and
+  // bin/profile finds no project from there (exit 3), so a critic that ran `profile -C <the folder of the plan>`
+  // lost the mode and the critic folder. It finds the profile by the repository instead.
+  it('finds the profile by the repository, not by the folder of the plan, which lies outside it in Silent mode', () => {
+    const flat = readFileSync(join(HARNESS, 'agents', 'critic.md'), 'utf8').replaceAll(/\s+/g, ' ')
+    const first = flat.slice(flat.indexOf('## First: the project'), flat.indexOf('Language.'))
+    expect(/bin\/profile -C <([^>]+)>/.exec(first)?.[1]).toBe('the repository')
+    expect(first).toContain('not by the folder of the plan')
+
+    const { work, home } = caseFixtureToChange('critic-verdict')
+    const profilePath = join(home, '.claude', 'worfy-harness', 'projects', 'demo', 'profile.json')
+    writeFileSync(profilePath, JSON.stringify({ ...(JSON.parse(readFileSync(profilePath, 'utf8')) as Record<string, unknown>), mode: 'silent' }))
+    const workflowFolder = harness(home, work, 'profile', ['-C', work, '--field', '_resolved.workflow_folder']).stdout.trim()
+    const planFolder = join(workflowFolder, 'export')
+    mkdirSync(planFolder, { recursive: true })
+    expect(harness(home, work, 'profile', ['-C', planFolder, '--field', '_resolved.mode']).status).toBe(3)
+    const byRepository = harness(home, work, 'profile', ['-C', work, '--field', '_resolved.mode'])
+    expect(byRepository.status, byRepository.stderr).toBe(0)
+    expect(byRepository.stdout.trim()).toBe('silent')
+  })
+
   it('example.md passes the format check: one verdict of the four words, at most three objections, each with a fact, a judgement and an owner decision line', () => {
     const text = example()
     expect(text.match(/^Verdict: (?:Keep|Reorder|Split|Defer) — \S/gm)).toHaveLength(1)

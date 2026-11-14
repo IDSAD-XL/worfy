@@ -32,8 +32,10 @@ plugin carries eleven skills of worfy's own and twenty copied from Matt Pocock's
 the licence file, and lists every line that differs from 1.3.1. A reference to another skill names it `worfy:<name>`.
 Where a skill asked for its upstream setup skill, it now reads the Project's Ticket folder (`tickets.root` of the
 Profile) as its tracker, with the operations of `harness/bin/TICKETS.md`, and points a Project without a Profile to
-`/worfy:connect-project`. `to-tickets` writes worfy's Ticket header (`Type`, `Status: open`, `Blocked by`), and
-neither it nor `to-spec` applies a triage label. The copy is frozen: nothing syncs it with upstream, and a newer version
+`/worfy:connect-project`. `to-tickets` writes worfy's Ticket header (`Type`, `Status: open`, `Blocked by`) and puts
+the acceptance criteria under the Profile's done heading (`tickets.done_section`), where Evidence attaches;
+`domain-modeling` keeps the glossary in the Profile's `docs.context` file, not a `GLOSSARY.md` at the root; neither
+`to-tickets` nor `to-spec` applies a triage label. The copy is frozen: nothing syncs it with upstream, and a newer version
 comes in only as a PR of its own.
 
 | Skill | When | What it does |
@@ -195,7 +197,8 @@ list of files for a Ticket. It edits no file of a repository and runs no stack.
 **The critic.** It gets the path of a spec or a plan and looks for objections, not for reasons to agree. A verdict or
 self-assessment of the plan's author, in the brief or in the plan, is a claim it checks, never a fact it cites. It writes
 `docs/product/critic/<epic>-<YYYY-MM-DD>.md` in Full mode and `<Workflow folder>/product/critic/<epic>-<YYYY-MM-DD>.md`,
-outside git, in Silent mode (the mode and folders come from `profile`), adding `-2`, `-3` rather than writing over an
+outside git, in Silent mode (the mode and folders come from `profile`, run on the repository: in Silent mode the
+plan lies outside it), adding `-2`, `-3` rather than writing over an
 earlier review: a verdict `Keep`, `Reorder`, `Split` or `Defer` with one sentence why, at most three objections, one
 alternative and what it cannot know (there is no product analytics). Each objection has a `Fact:` line, a `path:line`, a
 Ticket, a PR or a URL with what it says, a separate `Judgement:` line with what the critic concludes from it, and an

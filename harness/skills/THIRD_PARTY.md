@@ -37,9 +37,9 @@ these folders alone: upstream links the files of a skill relatively, not through
 
 ## Reference edits
 
-Every file is the 1.3.1 file byte for byte, except the references and the ticket header below.
-Nothing else in the text changed: words such as issue, label, `resolved` and `GLOSSARY.md` stay
-upstream's, and `bin/TICKETS.md`, section "Wayfinding operations", reads them in worfy's terms.
+Every file is the 1.3.1 file byte for byte, except the references, the ticket header and the two
+pointers to the profile below. Nothing else in the text changed: words such as issue, label,
+`resolved` and `GLOSSARY.md` stay upstream's, and `bin/TICKETS.md`, section "Wayfinding operations", reads them in worfy's terms.
 
 - A call of the Skill tool names the skill `worfy:<name>` instead of `<name>`.
 - A skill named as a slash command is `/worfy:<name>` instead of `/<name>`.
@@ -52,10 +52,17 @@ upstream's, and `bin/TICKETS.md`, section "Wayfinding operations", reads them in
   label, and the local ticket template of `to-tickets` has the header `Type: task`, `Status: open`,
   `Blocked by: None — can start immediately` instead of `**Blocked by:**` and
   `**Status:** ready-for-agent`.
+- `domain-modeling` says, under "File structure", that the glossary of a worfy project is the file
+  `docs.context` of the profile and its ADRs live in `docs.adr_dir`, so it does not create a
+  `GLOSSARY.md` at the root of a project that names another file.
+- The local ticket template of `to-tickets` puts its acceptance criteria under `## Done when`, the
+  heading `tickets.done_section` of the profile: Evidence (`bin/ticket evidence`) attaches only to
+  the items of that section.
 
 | File | Line | Edit |
 | --- | --- | --- |
 | `skills/code-review/SKILL.md` | 13 | tracker sentence |
+| `skills/domain-modeling/SKILL.md` | 12 | the glossary and the ADR folder of the profile |
 | `skills/grill-me/SKILL.md` | 7 | Skill tool: `"worfy:grilling"` |
 | `skills/grill-with-docs/SKILL.md` | 7 | Skill tool: `"worfy:grilling"`, `"worfy:domain-modeling"` |
 | `skills/improve-codebase-architecture/SKILL.md` | 13, 71 | Skill tool: `"worfy:codebase-design"` |
@@ -72,9 +79,10 @@ upstream's, and `bin/TICKETS.md`, section "Wayfinding operations", reads them in
 | `skills/to-spec/SKILL.md` | 19 | no triage label |
 | `skills/to-tickets/SKILL.md` | 11 | tracker sentence |
 | `skills/to-tickets/SKILL.md` | 60 | the tracker `/worfy:connect-project` configured |
-| `skills/to-tickets/SKILL.md` | 62 | the `Blocked by:` line of the header |
+| `skills/to-tickets/SKILL.md` | 62 | the `Blocked by:` line of the header; the `## Done when` heading |
 | `skills/to-tickets/SKILL.md` | 63 | no triage label |
 | `skills/to-tickets/SKILL.md` | 73-77 | ticket header: `Type: task`, `Status: open`, `Blocked by:` |
+| `skills/to-tickets/SKILL.md` | 79 | `## Done when` above the acceptance criteria |
 | `skills/wayfinder/SKILL.md` | 25 | tracker sentence |
 | `skills/wayfinder/SKILL.md` | 77, 115 | Skill tool: `"worfy:research"` |
 | `skills/wayfinder/SKILL.md` | 78 | Skill tool: `"worfy:prototype"` |
