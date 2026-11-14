@@ -12,7 +12,8 @@ import { ms } from '../time-scale'
 // graphql.json of invented PRs (test/fixtures/gh/gh-stub.mjs), as test/e2e/pr-inbox.spec.ts sets them up.
 // - the first focus of the window in a day: one action toast with the counts of both inboxes;
 // - a second focus the same day: no toast;
-// - main's clock a day ahead (a stub of Date.now in main): the next focus shows it again, and Open opens the view;
+// - main's clock a day ahead (a stub of Date.now in main): once the reader has read both inboxes again, a focus shows
+//   it again, and Open opens the view;
 // - the stub's log holds no write of any kind after all of it: the digest only reads (ADR-0105).
 // The windows of an e2e run never take the system's focus (quiet windows), so the test sends the window its focus
 // event itself. No system notification is shown in an e2e run. Every name, login and text is invented.
@@ -139,6 +140,8 @@ const focusWindow = (page: Page): Promise<boolean> => page.evaluate(() => (globa
 const sectionRow = (window: Page, project: string, group: string): Locator => window.locator(`[data-testid="pr-inbox-section-row"][data-project="${project}"][data-group="${group}"]`)
 
 test('the first focus of the day shows one digest toast; the second shows none; the next day it comes again and Open opens the view; nothing is written to GitHub', async () => {
+  // The next day waits for a fresh read, up to one look of the reader (30 s).
+  test.setTimeout(ms(120_000))
   const launched: LaunchedApp = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, GH_STUB_DIR: ghDir, GH_STUB_LOG: ghLog } })
   try {
     const { app, window } = launched
@@ -164,8 +167,12 @@ test('the first focus of the day shows one digest toast; the second shows none; 
       const real = Date.now.bind(Date)
       Date.now = () => real() + ahead
     }, DAY_MS)
-    await focusWindow(window)
-    await expect(digest(window)).toHaveCount(1)
+    // Yesterday's searches are due: the digest waits for the reader's next look (every 30 s) to read both Projects
+    // again, and comes at a focus after it.
+    await expect(async () => {
+      await focusWindow(window)
+      await expect(digest(window)).toHaveCount(1, { timeout: ms(1_000) })
+    }).toPass({ timeout: ms(60_000) })
     await digest(window).getByRole('button', { name: 'Open' }).click()
     await expect(window.getByTestId('pr-inbox-view')).toBeVisible()
     await expect(window.getByTestId('pr-inbox-view')).toHaveAttribute('data-project', WEB)

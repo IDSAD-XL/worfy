@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { INBOX_MAX_INTERVAL_MS, INBOX_SEARCH_INTERVAL_MS, PrInbox, remoteRepos, type PrInboxOptions, type PrInboxProject } from '../../src/main/github/inbox'
+import { PrInboxDigest } from '../../src/main/github/inbox-digest'
 import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import { prInboxHandlers } from '../../src/main/ipc/pr-inbox'
 import { PR_INBOX_FILE, prInboxSetting } from '../../src/main/projects/pr-inbox-state'
@@ -234,6 +235,28 @@ describe('the search of a Project', () => {
     expect(gh.calls().flat().some((arg) => arg.includes('notifications'))).toBe(false)
   })
 
+  it('a snapshot taken while the first read runs has no next search time, and does not throw', async () => {
+    const gh = world([stubPull(API, 1)])
+    let entered!: () => void
+    const reading = new Promise<void>((resolve) => (entered = resolve))
+    let release!: () => void
+    const held = new Promise<void>((resolve) => (release = resolve))
+    const inbox = reader(gh, [project('p1', [API])], {
+      repos: async () => {
+        entered()
+        await held
+        return [API]
+      },
+    })
+    const tick = inbox.tick()
+    await reading
+    const during = inbox.snapshot('p1')
+    expect(prInboxSnapshotSchema.parse(during)).toMatchObject({ enabled: true, readAt: null, nextSearchAt: null })
+    release()
+    await tick
+    expect(inbox.snapshot('p1').nextSearchAt).toBe(new Date(START + INBOX_SEARCH_INTERVAL_MS).toISOString())
+  })
+
   it('refresh(repo, number) reads the details of that PR at once, outside the search queue', async () => {
     const gh = world([stubPull(API, 1)])
     const inbox = reader(gh, [project('p1', [API])])
@@ -414,6 +437,33 @@ describe('failures and the pace', () => {
     expect(tries).toEqual([5, 15, 35, 65, 95, 100, 105, 110, 115, 120, 125, 130])
     expect(INBOX_MAX_INTERVAL_MS).toBe(30 * MINUTE)
     expect(inbox.snapshot('p1').error).toBeNull()
+  })
+
+  it("the morning digest does not count yesterday's inbox when the read after the night fails", async () => {
+    const gh = world([stubPull(API, 1), stubPull(API, 2, { author: ANA, requested: [ME] })])
+    const inbox = reader(gh, [project('p1', [API])])
+    const digest = new PrInboxDigest({ snapshots: () => [inbox.snapshot('p1')], enabled: () => true, now: () => clock })
+    await inbox.tick()
+    expect(digest.ask().state).toBe('show')
+
+    // The next morning, before the network is back.
+    clock = START + 24 * 60 * MINUTE
+    writeFileSync(join(gh.dir, 'fail'), 'error connecting to api.github.com')
+    expect(digest.ask()).toEqual({ state: 'pending' })
+    await inbox.tick()
+    expect(inbox.snapshot('p1')).toMatchObject({ readAt: new Date(START).toISOString(), error: expect.stringContaining('api.github.com') })
+    expect(digest.ask()).toEqual({ state: 'pending' })
+
+    // The network is back; the next read is good and finds the review request gone overnight, and the digest counts it.
+    rmSync(join(gh.dir, 'fail'))
+    gh.set([stubPull(API, 1)])
+    clock += 2 * INBOX_SEARCH_INTERVAL_MS
+    await inbox.tick()
+    expect(inbox.snapshot('p1').error).toBeNull()
+    const answer = digest.ask()
+    expect(answer.state).not.toBe('pending')
+    expect(JSON.stringify(answer)).not.toContain('review')
+    expect(digest.ask()).toEqual({ state: 'none' })
   })
 
   it('a 503 asks the same call again', async () => {
