@@ -17,6 +17,30 @@
       "rule": "email",
       "sha256": "634602560ddfa0ee8be4331611f0cf7d428a525f0d643ba3f3f2e5f3dda1018a",
       "reason": "the public support address of Termalin (an SSH client vendor) on its own site, quoted in the Product Session research note; not a person"
+    },
+    {
+      "path": "docs/research/2026-11-13-competitors/emdash.md",
+      "rule": "email",
+      "sha256": "c4c9cc242c936acbd2b31fee72627ac05d0a1622eda8b1447fede08c3092c06d",
+      "reason": "the commit author address of the Cursor agent, a bot identity of the Cursor product quoted in a competitor dossier; not a person"
+    },
+    {
+      "path": "docs/research/2026-11-13-competitors/gas-town.md",
+      "rule": "email",
+      "sha256": "4337990cd11e2174cb0664fb97f732b4b2a2d100b87b2999d78814e187a3aa68",
+      "reason": "the address of the \"Mayor\" agent role of Gas Town, a product identity quoted in a competitor dossier; not a person"
+    },
+    {
+      "path": "docs/research/2026-11-13-competitors/vibe-kanban.md",
+      "rule": "email",
+      "sha256": "4ec8232264c0c51acbb30841352eb359a92b16977232e278be8f34a366329dac",
+      "reason": "the public security contact of Bloop, the vendor of Vibe Kanban, from its security policy, quoted in a competitor dossier; not a person"
+    },
+    {
+      "path": "docs/research/2026-11-13-competitors/vibe-kanban.md",
+      "rule": "email",
+      "sha256": "7acca1cfcad743c98d6c328443d4cbfd321459a54f36e3a85e946988a7b9c586",
+      "reason": "the public security contact of Vibe Kanban from its security policy, quoted in a competitor dossier; not a person"
     }
   ]
 }
