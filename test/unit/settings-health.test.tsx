@@ -704,7 +704,7 @@ describe('Settings → Health: the move form of the old Harness', () => {
     expect(document.activeElement).toBe(held)
   })
 
-  it('a control switched off under the focus ("Move" while main moves): the next Tab lands on a control of the form that is on; Esc closes neither the form nor Settings', async () => {
+  it('"Move" switched off under the focus while main moves, the focus fallen to the page: the next Tab brings it back into the form, onto a control that is on, and neither Tab nor Esc reaches Settings', async () => {
     renderApp()
     await openForm(movable)
     const moving = later()
@@ -756,7 +756,7 @@ describe('Settings → Health: the move form of the old Harness', () => {
     await moving.give({ ok: true, value: { outcome: 'refused', reason: 'not now' } })
   })
 
-  it('Esc while the form still reads ~/.claude, or says it could not, closes neither the form nor Settings; "Cancel" closes the form', async () => {
+  it('Esc while the form still reads ~/.claude, or says it could not, closes neither the form nor Settings, with the focus in the form or fallen to the page; "Cancel" closes the form', async () => {
     const reading = later()
     handlers['harnessMigration.plan'] = () => reading.answer
     renderApp()
@@ -769,11 +769,25 @@ describe('Settings → Health: the move form of the old Harness', () => {
     await frames()
     expect(screen.queryByTestId('migration-form')).not.toBeNull()
     expect(screen.queryByRole('dialog', { name: 'Settings', hidden: true })).not.toBeNull()
+    // The focus fallen to the page: the kit's guard of the keys takes that Esc for the top window, the form.
+    act(() => (document.activeElement as HTMLElement).blur())
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    await frames()
+    expect(screen.queryByTestId('migration-form')).not.toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'Settings', hidden: true })).not.toBeNull()
+    // Tab with the focus on the page brings it back into the form.
+    fireEvent.keyDown(document.body, { key: 'Tab' })
+    expect(form().contains(document.activeElement)).toBe(true)
 
     await reading.give({ ok: false, error: 'cannot read ~/.claude' })
     expect(form().textContent).toContain('cannot read ~/.claude')
     expect(form().contains(document.activeElement)).toBe(true)
     fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await frames()
+    expect(screen.queryByTestId('migration-form')).not.toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'Settings', hidden: true })).not.toBeNull()
+    act(() => (document.activeElement as HTMLElement).blur())
+    fireEvent.keyDown(document.body, { key: 'Escape' })
     await frames()
     expect(screen.queryByTestId('migration-form')).not.toBeNull()
     expect(screen.queryByRole('dialog', { name: 'Settings', hidden: true })).not.toBeNull()

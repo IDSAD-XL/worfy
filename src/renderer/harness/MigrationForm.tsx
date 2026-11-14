@@ -294,13 +294,15 @@ function MigrationWindow({ plan, failure, busy, result, onMove, onClose }: Omit<
   return (
     <Dialog
       open
-      // Nothing closes the form while main moves: neither Esc nor a press on the backdrop.
+      // Nothing closes the form while main moves: neither Esc nor a press on the backdrop. While main
+      // reads the plan, or after it could not, only Cancel closes it: here for an Esc the kit's guard
+      // of the keys sends to the form with the focus fallen to the page, and for the backdrop.
       onClose={() => {
-        if (!busy) onClose()
+        if (!busy && plan !== undefined) onClose()
       }}
-      closeOnBackdrop={!busy}
-      // While main reads the plan, or after it could not, only Cancel closes the form: the Esc is
-      // marked taken, so the kit keeps the form open and the window under it does not get the key.
+      closeOnBackdrop={!busy && plan !== undefined}
+      // An Esc in the form while it has no plan is marked taken, so the kit keeps the form open and
+      // the window under it does not get the key.
       onKeyDown={(event) => {
         if (plan === undefined && event.key === 'Escape') event.preventDefault()
       }}
