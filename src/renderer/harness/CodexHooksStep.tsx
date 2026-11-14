@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
-import { createPortal } from 'react-dom'
 import { codexHooksCommand, type HarnessHooksTrust, type HarnessStatus } from '../../shared/ipc/harness'
 import { invoke } from '../ipc'
 import { Button } from '../theme/Button'
+import { Dialog } from '../theme/kit/Dialog'
 
 // The step "Approve the Harness hooks in Codex" (worfy-multi-vendor ticket 39; ADR-0094, risk 3). Codex
 // keeps a plugin's hooks off after each install or update of it until the user approves them in Codex
@@ -18,11 +18,17 @@ import { Button } from '../theme/Button'
 // the step shows a command that starts it from the home folder, with Copy: started from a folder that no
 // longer exists (a removed worktree), Codex stops with "No such file or directory (os error 2)". Only a
 // command to copy, no button that opens a terminal: the same text works in any terminal of either system.
+//
+// The step is a modal window of the kit (theme/kit/Dialog.tsx, worfy-ui-kit ticket 07): the focus
+// trap, Esc, the backdrop and the focus given back are the kit's. Opened from Settings → Pipeline, it
+// is drawn inside the layer of the Settings window, above it, and is the top window of the kit: Esc
+// closes the step and leaves Settings open.
 
 const styles = {
-  backdrop: { position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0, 0, 0, 0.25)' },
   dialog: {
     width: 480,
+    // The window itself takes the focus on opening; the ring would mark the whole window.
+    outline: 'none',
     maxWidth: 'calc(100vw - 32px)',
     boxSizing: 'border-box',
     padding: 'var(--space-4)',
@@ -81,8 +87,8 @@ export interface CodexHooksStepProps {
 export default function CodexHooksStep({ onClose, onStatus }: CodexHooksStepProps) {
   const [check, setCheck] = useState<Check>({ kind: 'idle' })
   const checking = check.kind === 'checking'
-  // Whether a check runs, for the Escape listener: set where the check starts and ends, so a key pressed
-  // right after the answer is drawn sees it even before React re-runs the listener's effect.
+  // Whether a check runs, for Esc: set where the check starts and ends, so a key pressed right after
+  // the answer is drawn sees it at once.
   const checkingNow = useRef(false)
   const [binary, setBinary] = useState<Binary>({ kind: 'asking' })
   const [copied, setCopied] = useState(false)
@@ -104,14 +110,6 @@ export default function CodexHooksStep({ onClose, onStatus }: CodexHooksStepProp
     return () => clearTimeout(timer)
   }, [copied])
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape' && !checkingNow.current) onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
   const checkAgain = (): void => {
     checkingNow.current = true
     setCheck({ kind: 'checking' })
@@ -129,49 +127,52 @@ export default function CodexHooksStep({ onClose, onStatus }: CodexHooksStepProp
   const result = check.kind === 'answered' ? RESULTS[check.trust] : check.kind === 'failed' ? { text: `The check failed: ${check.error}`, color: 'var(--blocked-text)' } : null
   const approved = check.kind === 'answered' && check.trust === 'approved'
 
-  return createPortal(
-    <div
-      style={styles.backdrop}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !checking) onClose()
+  return (
+    <Dialog
+      open
+      // Nothing closes the step while Codex is asked: neither Esc nor a press on the backdrop.
+      onClose={() => {
+        if (!checkingNow.current) onClose()
       }}
+      closeOnBackdrop={!checking}
+      labelledBy="codex-hooks-step-title"
+      className=""
+      style={styles.dialog}
+      data-testid="codex-hooks-step"
     >
-      <div role="dialog" aria-modal="true" aria-labelledby="codex-hooks-step-title" style={styles.dialog} data-testid="codex-hooks-step">
-        <h2 id="codex-hooks-step-title" style={styles.title}>
-          Approve the Harness hooks in Codex
-        </h2>
-        <p style={styles.text}>
-          Codex turns the Harness hooks off after every install or update of the Harness, until you approve them. Without them the gate and the guards of the workflow do not run in Codex,
-          so a Codex Autopilot Run does not start.
-        </p>
-        <ol style={styles.steps} data-testid="codex-hooks-step-steps">
-          <li>
-            <OpenCodex binary={binary} copied={copied} onCopy={(command) => void navigator.clipboard?.writeText(command).then(() => setCopied(true))} />
-          </li>
-          <li>
-            Type <code style={styles.code}>/hooks</code>
-          </li>
-          <li>
-            Approve the hooks of the plugin <code style={styles.code}>worfy</code>
-          </li>
-          <li>Come back here and press Check again.</li>
-        </ol>
-        <p role="status" aria-live="polite" style={{ ...styles.result, color: result?.color ?? 'var(--text-muted)' }} data-testid="codex-hooks-step-result" data-trust={check.kind === 'answered' ? check.trust : check.kind}>
-          {checking ? 'Asking Codex…' : (result?.text ?? '')}
-        </p>
-        <div style={styles.footer}>
-          <Button onClick={onClose} disabled={checking} data-testid="codex-hooks-step-close">
-            {approved ? 'Done' : 'Close'}
+      <h2 id="codex-hooks-step-title" style={styles.title}>
+        Approve the Harness hooks in Codex
+      </h2>
+      <p style={styles.text}>
+        Codex turns the Harness hooks off after every install or update of the Harness, until you approve them. Without them the gate and the guards of the workflow do not run in Codex,
+        so a Codex Autopilot Run does not start.
+      </p>
+      <ol style={styles.steps} data-testid="codex-hooks-step-steps">
+        <li>
+          <OpenCodex binary={binary} copied={copied} onCopy={(command) => void navigator.clipboard?.writeText(command).then(() => setCopied(true))} />
+        </li>
+        <li>
+          Type <code style={styles.code}>/hooks</code>
+        </li>
+        <li>
+          Approve the hooks of the plugin <code style={styles.code}>worfy</code>
+        </li>
+        <li>Come back here and press Check again.</li>
+      </ol>
+      <p role="status" aria-live="polite" style={{ ...styles.result, color: result?.color ?? 'var(--text-muted)' }} data-testid="codex-hooks-step-result" data-trust={check.kind === 'answered' ? check.trust : check.kind}>
+        {checking ? 'Asking Codex…' : (result?.text ?? '')}
+      </p>
+      <div style={styles.footer}>
+        <Button onClick={onClose} disabled={checking} data-testid="codex-hooks-step-close">
+          {approved ? 'Done' : 'Close'}
+        </Button>
+        {approved ? null : (
+          <Button variant="primary" onClick={checkAgain} disabled={checking}>
+            Check again
           </Button>
-          {approved ? null : (
-            <Button variant="primary" onClick={checkAgain} disabled={checking}>
-              Check again
-            </Button>
-          )}
-        </div>
+        )}
       </div>
-    </div>,
-    document.body,
+    </Dialog>
   )
 }
 

@@ -18,7 +18,9 @@ export const useSettingsWindow = create<SettingsWindowState>(() => ({ open: fals
  * The z-index of the window's layer: the dialog layer of the scale (theme/layers.ts), the same as the
  * Keyboard shortcuts and the Guide. Focus mode's layer is drawn inside the main area of the window
  * shell, a stacking context of its own (focus.css), so the window opens above focus mode too and
- * leaves it as it was. A form a section opens over the window sits above this value.
+ * leaves it as it was. A form a section opens over the window (the move form of the old Harness, the
+ * Codex hooks step) is a window of the kit too: drawn inside this layer, above the window, and the top
+ * of the kit's windows.
  */
 export const SETTINGS_LAYER = LAYERS.dialog
 

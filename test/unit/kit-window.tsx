@@ -1,6 +1,8 @@
 // Checks shared by the tests of the windows drawn in the kit's Dialog (theme/kit/Dialog.tsx; the
-// windows of the Projects, worfy-ui-kit ticket 05): the focus stays in the window on Tab, and the
-// window sits on the dialog layer of the scale.
+// windows of the Projects, worfy-ui-kit ticket 05, and the Harness forms, Browser profiles, Send all
+// and the full-size image, ticket 07): the focus is in the window when it opens and stays there on
+// Tab (Base UI's focus trap, driven by pressTab as a browser would), and the window sits on the
+// dialog layer of the scale. That the focus goes back to the opener on closing each test checks itself.
 import { act } from '@testing-library/react'
 import { expect } from 'vitest'
 import { KIT_DIALOG_ATTRIBUTE } from '../../src/renderer/theme/kit/Dialog'
@@ -26,6 +28,20 @@ export async function expectTabStaysIn(window: HTMLElement): Promise<void> {
   expect(document.activeElement).toBe(stops[0])
   await pressTab(true)
   expect(document.activeElement).toBe(stops.at(-1))
+}
+
+/** The focus is in `window`; Tab from its last stop goes to its first, Shift+Tab from the first to the last. */
+export async function expectFocusKeptIn(window: HTMLElement): Promise<void> {
+  expect(window.contains(document.activeElement), 'the focus is in the window').toBe(true)
+  const stops = tabStops(window)
+  const first = stops[0]
+  const last = stops.at(-1)
+  if (first === undefined || last === undefined) throw new Error('the window has no stop of Tab')
+  act(() => last.focus())
+  await pressTab()
+  expect(document.activeElement, 'Tab from the last stop').toBe(first)
+  await pressTab(true)
+  expect(document.activeElement, 'Shift+Tab from the first stop').toBe(last)
 }
 
 /** The z-index of the layer `element` is drawn in: of its ancestor right under <body>. */

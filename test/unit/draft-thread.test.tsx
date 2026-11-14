@@ -14,6 +14,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import type { PrReplyDrafts, PrReplyItem } from '../../src/shared/ipc/pr-inbox'
+import { expectFocusKeptIn, flush } from './kit-window'
 
 const API = 'example-org/api'
 const PROJECT = 'web-00000001'
@@ -370,5 +371,32 @@ describe('the drafts of a PR', () => {
     expect(screen.queryByTestId('pr-drafts-error')).toBeNull()
     // Not posted: Send stays on for another try.
     expect(sendButton(0).disabled).toBe(false)
+  })
+})
+
+// worfy-ui-kit ticket 07: the dialog of Send all is a modal window of the kit (theme/kit/Dialog.tsx).
+describe('the dialog of Send all as a window of the kit', () => {
+  it('takes the focus on opening, keeps Tab inside, and gives the focus back to Send all… on Esc and on Cancel', async () => {
+    await drafts([item(0), item(1)])
+    const opener = screen.getByTestId('pr-drafts-send-all')
+    opener.focus()
+    fireEvent.click(opener)
+    await flush()
+    const dialog = screen.getByRole('dialog', { name: `Send 2 replies to ${API}#118?` })
+    expect(dialog.dataset.testid).toBe('pr-send-all-dialog')
+    expect(document.activeElement).toBe(dialog)
+    await expectFocusKeptIn(dialog)
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await flush()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(opener)
+
+    fireEvent.click(opener)
+    await flush()
+    fireEvent.click(screen.getByTestId('pr-send-all-cancel'))
+    await flush()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(opener)
+    expect(sends()).toEqual([])
   })
 })

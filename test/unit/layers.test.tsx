@@ -2,11 +2,15 @@
 // values for inline styles in theme/layers.ts, and the first places that take them.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { useState } from 'react'
+import { afterEach, describe, expect, it } from 'vitest'
 import { PINNED_Z_INDEX } from '../../src/renderer/canvas/pinning'
 import { AUTOPILOT_WINDOW_LAYER } from '../../src/renderer/autopilot/StartNowModal'
 import { MACHINE_WINDOW_LAYER } from '../../src/renderer/machines/machine-dialogs'
+import { ImageOverlay } from '../../src/renderer/session/MessageAttachments'
 import { SETTINGS_LAYER } from '../../src/renderer/settings/settings-window'
+import { Dialog } from '../../src/renderer/theme/kit/Dialog'
 import { LAYERS } from '../../src/renderer/theme/layers'
 
 const read = (path: string): string => readFileSync(join(import.meta.dirname, '../../src/renderer', path), 'utf8')
@@ -66,20 +70,15 @@ describe('the places on the scale', () => {
 })
 
 describe('the modal windows of the kit among the layers that are not on the scale yet', () => {
-  const imageOverlay = Number(/\.w-image-overlay \{[^}]*z-index: (\d+);/.exec(read('session/session.css'))?.[1])
-
   it('Settings, Keyboard shortcuts and the Guide sit on the dialog layer', () => {
     expect(SETTINGS_LAYER).toBe(LAYERS.dialog)
   })
 
-  it('a kit window is above the Command palette and a full-screen image: ⌘, over either opens the window on top', () => {
+  it('a kit window is above the Command palette: ⌘, over it opens the window on top', () => {
     // The palette kept its z-index of before the kit (101) when it moved onto the kit (worfy-ui-kit ticket 08).
+    // A full-screen image, a kit window since ticket 07, so stays over the palette, as it was at 105.
     expect(LAYERS.palette).toBe(101)
-    expect(imageOverlay).toBe(105)
     expect(LAYERS.dialog).toBeGreaterThan(LAYERS.palette)
-    expect(LAYERS.dialog).toBeGreaterThan(imageOverlay)
-    // A full-screen image stays over the palette, as before.
-    expect(imageOverlay).toBeGreaterThan(LAYERS.palette)
   })
 
   it('a kit window is under the toasts', () => {
@@ -138,5 +137,55 @@ describe('the windows of the Projects on the dialog layer', () => {
     const source = read(path)
     expect(source).not.toMatch(/zIndex/)
     expect(source).not.toContain("'Escape'")
+  })
+})
+
+// A full-screen image (session/MessageAttachments.tsx, ImageOverlay) was a layer of its own at 105,
+// under the windows of the kit; since worfy-ui-kit ticket 07 it is a window of the kit itself, on the
+// dialog layer, with no z-index of its own. A kit window opened over it (⌘, opens Settings from the
+// app menu) is still drawn above it and takes the keys: the same layer, later in the page.
+describe('a full-screen image among the windows of the kit', () => {
+  afterEach(cleanup)
+
+  it('keeps no z-index of its own', () => {
+    expect(read('session/session.css')).not.toMatch(/\.w-image-overlay \{[^}]*z-index/)
+  })
+
+  /** The image, and a button that opens a kit window over it, as ⌘, opens Settings. */
+  function Page() {
+    const [settings, setSettings] = useState(false)
+    return (
+      <>
+        <ImageOverlay src="worfy-image://attachments/shot.png" name="shot.png" onClose={() => undefined} actions={<button type="button" onClick={() => setSettings(true)}>Settings</button>} />
+        <Dialog open={settings} onClose={() => setSettings(false)} label="Settings" className="">
+          <button type="button">Inside Settings</button>
+        </Dialog>
+      </>
+    )
+  }
+
+  /** The element right under <body> that holds `element`: its layer. */
+  const layerOf = (element: Element): HTMLElement => {
+    let layer = element as HTMLElement
+    while (layer.parentElement !== document.body) layer = layer.parentElement!
+    return layer
+  }
+
+  it('a kit window opened over it is drawn above it, on the same layer later in the page, and takes Esc', async () => {
+    render(<Page />)
+    const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 20)))
+    await flush()
+    const image = screen.getByRole('dialog', { name: 'shot.png' })
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    await flush()
+    const settings = screen.getByRole('dialog', { name: 'Settings' })
+    expect(Number(layerOf(image).style.zIndex)).toBe(LAYERS.dialog)
+    expect(Number(layerOf(settings).style.zIndex)).toBe(LAYERS.dialog)
+    expect(layerOf(image).compareDocumentPosition(layerOf(settings)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(settings.contains(document.activeElement)).toBe(true)
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await flush()
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).toBeNull()
+    expect(screen.getByRole('dialog', { name: 'shot.png' })).toBe(image)
   })
 })

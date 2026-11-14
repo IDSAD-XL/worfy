@@ -11,7 +11,7 @@
 // The checks and whether one is running are the store's (first-run-store.ts); the action that is
 // running is kept here, outside React. So both places show the same thing, and a section that left
 // the screen and came back finds its action still running.
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { create } from 'zustand'
 import '../canvas/actions/actions.css'
 import { failureReason } from '../../shared/ipc/channels'
@@ -309,120 +309,6 @@ function forgetWhenUnwatched(): void {
   stopWaiting = stop
 }
 
-/** What Tab stops at inside the move form. */
-const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-const focusablesOf = (element: HTMLElement): HTMLElement[] => [...element.querySelectorAll<HTMLElement>(FOCUSABLE)]
-
-/**
- * The move form over a modal window (Settings → Health). The form is drawn in a layer above that
- * window, and the window's guard (settings/settings-window.ts) leaves the keys and the focus of
- * such a layer alone — but only while the focus is in it: with the focus on the page or on the
- * window under the form, Esc would close the window and Tab would walk its controls, unseen. So
- * the focus goes into the form when it opens and is brought back whenever the form loses it to
- * nothing: a press on text of the form, the control that had it gone (the form draws itself anew
- * when main answers) or switched off ("Move" while main moves). Tab turns round at the form's
- * ends, and the focus returns to where it was when the form closes. Keys pressed in the form stop
- * here: React passes them on to the window the form was opened from, which would take Tab and Esc
- * for its own.
- */
-function KeyboardInForm({ children }: { children: ReactNode }) {
-  const layer = useRef<HTMLElement | null>(null)
-
-  useEffect(() => {
-    // The form draws itself into document.body: its backdrop is the layer.
-    const element = document.querySelector<HTMLElement>('[data-testid="migration-form"]')?.parentElement ?? null
-    layer.current = element
-    if (element === null) return
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    /** The control of the form that had the focus last. */
-    let held: HTMLElement | null = null
-    /** The focus is on its way from a control of the form to another element: a focus() now would cancel that move. */
-    let moving = false
-
-    /** A control of the form that can hold the focus: in the layer, and not switched off. */
-    const holds = (node: Element | null): node is HTMLElement => node instanceof HTMLElement && node !== element && element.contains(node) && !node.matches(':disabled')
-
-    /** Puts the focus into the form: on the control that had it, else on the first one. */
-    const enter = (options?: FocusOptions): void => {
-      const control = holds(held) ? held : focusablesOf(element)[0]
-      if (control !== undefined) {
-        control.focus(options)
-        return
-      }
-      // Every control is off (main is moving): the layer itself holds the focus, so the keys still come here.
-      element.tabIndex = -1
-      element.style.outline = 'none'
-      element.focus()
-    }
-
-    /**
-     * Brings the focus back when the form lost it to nothing: to the page (a press on text, or the
-     * control that had it is gone), to the layer itself, or to a control of the form that is off.
-     * The focus on anything else is not this form's to take. The form stays where it is scrolled to:
-     * a press on text far down a long plan must not jump back to the control that has the focus.
-     */
-    const keep = (): void => {
-      if (moving) return
-      const active = document.activeElement
-      if (active === null || active === document.body || (element.contains(active) && !holds(active))) enter({ preventScroll: true })
-    }
-
-    // Capture: before a handler of the control itself can redraw the form in the middle of the move.
-    const onBlur = (event: FocusEvent): void => {
-      moving = event.relatedTarget !== null
-      // To nothing: a press on text. (The app window losing the focus looks the same; the control still has it then.)
-      if (!moving) queueMicrotask(keep)
-    }
-    const onFocusIn = (event: FocusEvent): void => {
-      moving = false
-      if (event.target instanceof Element && holds(event.target)) held = event.target
-      // On the layer itself (a press on text once the layer takes the focus): on to a control.
-      else queueMicrotask(keep)
-    }
-
-    const observer = new MutationObserver(keep)
-    observer.observe(element, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled'] })
-    element.addEventListener('blur', onBlur, true)
-    document.addEventListener('focusin', onFocusIn, true)
-    enter()
-    return () => {
-      observer.disconnect()
-      element.removeEventListener('blur', onBlur, true)
-      document.removeEventListener('focusin', onFocusIn, true)
-      layer.current = null
-      if (previous?.isConnected) previous.focus()
-    }
-  }, [])
-
-  const onKeyDown = (event: ReactKeyboardEvent): void => {
-    event.stopPropagation()
-    const element = layer.current
-    if (event.key !== 'Tab' || element === null) return
-    const focusable = focusablesOf(element)
-    const first = focusable[0]
-    const last = focusable.at(-1)
-    if (first === undefined || last === undefined) {
-      // Nothing to stop at: Tab must not leave for the window under the form.
-      event.preventDefault()
-      return
-    }
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault()
-      last.focus()
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault()
-      first.focus()
-    }
-  }
-
-  // The form's own elements are in document.body; this one only stands in React's tree above them.
-  return (
-    <div style={{ display: 'contents' }} onKeyDown={onKeyDown}>
-      {children}
-    </div>
-  )
-}
-
 /** The parts of the checks, for the place that shows them to lay out. */
 export interface FirstRunChecksParts {
   /** The chip that sums the checks up: "Checking…", "2 failed · 1 warning", "Everything is ready"; null before the first checks. */
@@ -448,16 +334,11 @@ export interface FirstRunChecksProps {
    * (openFirstRun for the dialog).
    */
   checkOnShow?: boolean
-  /**
-   * The z-index for the move form when the place is a modal window above the form's own layer
-   * (Settings). The form then also takes the keyboard while it is open.
-   */
-  formLayer?: number
   children: (parts: FirstRunChecksParts) => ReactNode
 }
 
 /** The checks and their actions; `children` lays the parts out. */
-export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, formLayer, children }: FirstRunChecksProps) {
+export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, children }: FirstRunChecksProps) {
   const report = useFirstRun((state) => state.report)
   const checking = useFirstRun((state) => state.checking)
   const failure = useFirstRun((state) => state.failure)
@@ -536,7 +417,6 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, formLaye
 
   const form = migrating ? (
     <MigrationForm
-      layer={formLayer}
       onClose={() => {
         setMigrating(false)
         void checkAgain()
@@ -596,7 +476,7 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, formLaye
         running: running !== null,
         migrating,
       })}
-      {form !== null && formLayer !== undefined ? <KeyboardInForm>{form}</KeyboardInForm> : form}
+      {form}
     </>
   )
 }
