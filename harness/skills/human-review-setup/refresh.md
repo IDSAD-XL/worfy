@@ -74,7 +74,7 @@ After the "yes", first the **Full history** of step 2 of SKILL.md: a shallow clo
 stops there. Then, before the analysis, hold 5 pull requests of the new slice out of it for the check of step 7, by
 the rules and with the script over `raw/prs.jsonl` that step 2 of SKILL.md gives for the first run, but counting
 only the new comments of step 2 — those of the team dated after `<date>`: the newest pull requests with a new
-comment of the team at least 20 characters long, from different areas, one with a `CHANGES_REQUESTED` review of
+substantive comment of the team (`substantive: true`), from different areas, one with a `CHANGES_REQUESTED` review of
 the team submitted after `<date>` when the slice has one; with fewer than 15 such pull requests a third of them,
 rounded down, and say so. A pull request whose team comments are all from before `<date>` is never held out: the
 first run analysed them. The script reads the dates too, still no text. `commit_id` of a held-out pull request is

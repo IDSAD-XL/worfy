@@ -33,7 +33,7 @@ repositories, the folder of that repository. A repository with no checkout on th
 and say so. For each pull request of `held_out`:
 
 ```bash
-gh pr view <n> --repo <owner>/<name> --json number,url,title,body,baseRefName,mergeCommit,closingIssuesReferences; echo "EXIT=$?"
+gh pr view <n> --repo <owner>/<name> --json number,url,title,body,baseRefName,mergeCommit,closingIssuesReferences,commits; echo "EXIT=$?"
 git fetch origin "pull/<n>/head" "+refs/heads/<baseRefName>:refs/remotes/origin/<baseRefName>"; echo "EXIT=$?"
 git cat-file -e "<commit_id>^{commit}"; echo "EXIT=$?"
 ```
@@ -42,6 +42,13 @@ The base branch is fetched with a refspec of its own: a clone made by `git clone
 and a bare `<baseRefName>` would leave `origin/<baseRefName>` missing. When the commit is still missing (the branch was force-pushed after the review), `git fetch origin "<commit_id>"`
 once more; still missing, skip this pull request and say so. A merged pull request has `mergeCommit`
 (`mergeCommit.oid`, below `<mergeCommit>`); check it is here the same way and fetch it by its sha when it is not.
+
+**The next commit** ends the conversation on `commit_id` (section 3). `commits` lists the commits of the pull
+request in order, each with its `oid` and `committedDate`. The next commit is the one after `commit_id` in that
+list: call its `committedDate` `<next>`. With `commit_id` last in the list there is no next commit, and `<next>` is
+empty. With `commit_id` not in the list (the branch was force-pushed after the review), `<next>` is the earliest
+`submitted_at` of a review, or `created_at` of a thread comment, of the team on another `commit_id` and later than
+the first review of the team on `commit_id`; with none, it is empty.
 
 **The base** is the commit the pull request branched from, as it stood when the reviewer saw `commit_id`. One rule
 for every pull request:
@@ -83,12 +90,15 @@ load it either: the brief carries the skill instead. Each brief has:
 - the text of `<private folder>/.claude/skills/human-review/SKILL.md` and of
   `<private folder>/.claude/skills/human-review/voice-examples.md`, pasted in full, and the path of the private
   folder, which that skill otherwise finds three levels up from its own file;
-- what step 1 gave: the repository, the number, the title, the body, the linked task, `<base>`, `commit_id`, and
-  the commands of the item "only reading" below with both shas written out;
+- what step 1 gave: the repository, the folder of the repository's checkout, written out in full, the number, the
+  title, the body, the linked task, `<base>`, `commit_id`, and the commands of the item "only reading" below with
+  both shas written out, each starting with `cd "<checkout>" &&` and that folder in place of `<checkout>`: in a
+  project of several repositories the Subagent's shell may start in another one, and its shell does not keep a
+  `cd` from one command to the next;
 - the output file `<private folder>/raw/check/<PR>-draft.json`;
 - the changes to the skill below, and these rules: the Subagent never reads `raw/` (it holds what the team said
   on this pull request) and never reads `check/`; it writes only its output file.
-- only reading: the Subagent runs nothing but `git diff "<base>" "<commit_id>"` (with `--stat` or `--shortstat` too),
+- only reading: the Subagent runs nothing but, in the folder of the checkout, `git diff "<base>" "<commit_id>"` (with `--stat` or `--shortstat` too),
   `git show "<commit_id>:<path>"`, `git grep -n <pattern> "<commit_id>"` (with `-- <path>` too), and
   `review-draft-lint` of step 7; besides those it only reads files — the files of the repository's standards
   (`CLAUDE.md`, `AGENTS.md`) and the brief. It never runs the code of the repository: no build, no test, no package
@@ -127,16 +137,18 @@ with at least 20 characters of its own text (quoted lines `>` left out), of thes
   in the file at that commit, the same file the draft places its lines in. Never the thread's `line`, which is a
   line of the pull request's head today, and empty for an outdated thread. A first comment with no
   `original_line` (a comment on a whole file) is a general one;
-- a conversation comment written no later than the last review of the team on `commit_id` (`created_at` against
-  `submitted_at`).
+- a conversation comment written before the next commit: `created_at` earlier than `<next>` of section 1, or
+  any one when `<next>` is empty. The last review on `commit_id` is no bound: the team may go on talking about
+  that code after it, and a review of a later commit may come before the talk about it.
 
 N is their count. Review bodies and conversation comments are general comments, with no line. The comments of the
-team on later commits — a review or a thread on another `commit_id`, a conversation comment after the last review
-on `commit_id` — are about code the draft never saw: they are not remarks, are not in N, and the page lists them
+team on later commits — a review or a thread on another `commit_id`, a conversation comment written at or after
+`<next>` — are about code the draft never saw: they are not remarks, are not in N, and the page lists them
 apart (section 5). The draft's remarks: each item of `payload.comments` at its `path` and `line`, and
 `payload.body` when it is not empty, a general one.
 
-A short Node script over `raw/prs.jsonl` and the drafts writes `raw/check/<PR>-pairs.json`: the remarks of both
+A short Node script over `raw/prs.jsonl` and the drafts, given `<next>` of each pull request, writes
+`raw/check/<PR>-pairs.json`: the remarks of both
 sides with their text, tier (the draft's own), length and place, and the candidate pairs:
 
 - two line comments are a candidate pair when they are on the same file and their lines — the team's
@@ -206,8 +218,10 @@ is a label of `raw/reviewers.json`, and a mention in a quote becomes `@someone`.
 "<plugin>/bin/evidence-check" "<private folder>/check/<PR>.md"; echo "EXIT=$?"
 ```
 
-and a short Node script finds none of the logins of `raw/reviewers.json` (case-insensitive) in the pages. A
-finding — fix the page and check again.
+and a short Node script finds none of the logins of `raw/reviewers.json` (case-insensitive) in the pages, with
+every `https://` address and every `<owner>/<repo>` of `repo` in `raw/prs.jsonl` taken out of the text first: the
+owner of a repository may be a reviewer too, and that name is part of each link and of the heading. A finding —
+fix the page and check again.
 
 ## 6. Record
 

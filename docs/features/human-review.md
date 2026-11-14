@@ -49,8 +49,8 @@ this order:
    examples of a tier when three or more people gave examples.
 4. **Analysis.** After the "yes", a shallow clone of the project is fetched in full (`git fetch --unshallow`, with a
    message), because the check below needs the common history of each pull request; when that fetch fails, the run
-   stops before the analysis and says to run it by hand. Then 5 recent pull requests are held out for the check
-   below, or a third of them when fewer than 15 qualify. Subagents read the rest in
+   stops before the analysis and says to run it by hand. Then 5 recent pull requests, each with a substantive comment of
+   the team, are held out for the check below, or a third of them when fewer than 15 qualify. Subagents read the rest in
    batches by area of code and sort every comment of the team by tier (let go, nit, question, heads-up, followup,
    argued, blocker) and by theme. A plain approval ("LGTM, thanks", or only what the reviewer tested before
    approving) gets no tier: it is counted apart, under the review states, and never shapes the voice. The result is
@@ -79,7 +79,9 @@ pull request: the Session's shell carries the person's GitHub token, so it never
 code, fetches and checks the pull request out with git hooks switched off, and what only a run would show becomes a
 question. Nothing goes to
 GitHub without the person's explicit "yes" to that draft in the conversation; a request to change it, a question or
-silence is not a "yes". These Sessions never get it:
+silence is not a "yes". When GitHub refuses the whole review, say for a comment on a line outside the diff or an
+approval of the person's own pull request, the skill moves such comments into the review's text or makes the approval
+a comment, and asks for a "yes" to the changed draft again. These Sessions never get it:
 
 - an Autopilot Session and any other Session that runs without a person: nobody there can say "yes";
 - the draft Session of "Add project";

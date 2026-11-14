@@ -12,8 +12,9 @@ exact.
 A line of `raw/prs.jsonl` has `repo`, `number`, `url`, `title`, `additions`, `deletions`, `files` (paths),
 `reviews[]` (`id`, `url`, `state`, `body`, `submitted_at`, `commit_id`, `author`, `role`), `threads[]` (`id`, `path`,
 `line`, `is_resolved`, `is_outdated`, `comments[]` with `id`, `url`, `body`, `created_at`, `path`, `line`,
-`original_line`, `diff_hunk`, `in_reply_to`, `commit_id`, `author`, `role`) and `comments[]` (the conversation, `id`,
-`url`, `body`, `created_at`, `author`, `role`).
+`original_line`, `diff_hunk`, `in_reply_to`, `commit_id`, `author`, `role`, `substantive`) and `comments[]` (the
+conversation, `id`, `url`, `body`, `created_at`, `author`, `role`, `substantive`). `substantive` is `review-history`'s
+own test of a text: a substantive comment, as its estimate counts them; the reviews have it too.
 
 A link is a `url` of `raw/prs.jsonl`, copied as it is: never build a link from an `id`, a number or the pattern of
 other links. The `url` of a review body is `reviews[].url`, of a line comment `threads[].comments[].url`, of a
@@ -190,7 +191,9 @@ Rules for every section:
 ## 7. Check before step 5
 
 - Every `## R` line of research.md matches `## R<n> — <title>`, numbered from 1 with no gap.
-- A short Node script finds none of the logins of `raw/reviewers.json` in research.md (case-insensitive).
+- A short Node script finds none of the logins of `raw/reviewers.json` in research.md (case-insensitive), with
+  every `https://` address and every `<owner>/<repo>` of `repo` in `raw/prs.jsonl` taken out of the text first:
+  the owner of a repository may be a reviewer too, and that name is part of each of its links.
 - `"<plugin>/bin/evidence-check" "<private folder>/research.md"; echo "EXIT=$?"` — exit 0: no home
   folder path, host name, email or token.
 

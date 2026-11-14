@@ -121,9 +121,9 @@ describe('SKILL.md of /worfy:human-review-setup', () => {
     expect(two.indexOf('step 3 (Too little history)')).toBeLessThan(two.indexOf('explicit "yes"'))
   })
 
-  it('picks the held-out pull requests by the role and length of the comments, never their text', () => {
+  it('picks the held-out pull requests by the role and the substantive flag of the comments, never their text', () => {
     const two = step(2)
-    for (const field of ['reviews[].role', 'reviews[].commit_id', 'threads[].comments[]', '`role` and the length of\n  `body`'])
+    for (const field of ['reviews[].role', 'reviews[].commit_id', 'threads[].comments[]', '`role` and `substantive` of\n  `reviews[]`'])
       expect(two, field).toContain(field)
     expect(two).toMatch(/prints no text/)
   })
@@ -1261,5 +1261,87 @@ describe('the fixes of the live run (worfy-human-review 13)', () => {
     expect(five).not.toMatch(/no `\{\{` left/)
     expect(five).toMatch(/no placeholder of the template is left/)
     expect(five).toMatch(/a `\{\{` inside a quote[^.]*is no finding/i)
+  })
+})
+
+// The re-review of merged pull requests (audit n): findings 4, 5, 10, 11, 13 and 14 of
+// .scratch/audit-pr-rereview-2026-11-13/spec.md, each a step that went wrong as written.
+describe('the fixes of the merged-PR re-review (audit n)', () => {
+  const flat = (text: string): string => text.replace(/\s+/g, ' ')
+
+  it('finding 4: step 2 holds out only pull requests with a substantive comment, never one the team only approved', () => {
+    const two = flat(step(2))
+    // The 20 characters alone let a long "LGTM, thanks for the fix!" through, and check.md then drops it from N.
+    expect(two).not.toMatch(/with a comment of the team at least 20 characters long/)
+    expect(two).toMatch(/with a substantive comment of the team[^;]*`substantive: true`[^;]*not a plain approval/)
+    // The script still reads no text: the flag of review-history, not the body.
+    expect(two).toContain('the `role` and `substantive` of `reviews[]`, `threads[].comments[]` and `comments[]`')
+    expect(two).toMatch(/never a `body`/)
+    const three = flat(sectionOf(refresh, 3, 'refresh.md'))
+    expect(three).not.toMatch(/at least 20 characters long/)
+    expect(three).toMatch(/a new substantive comment of the team \(`substantive: true`\)/)
+    // analyse.md lists the field among those of raw/prs.jsonl.
+    expect(flat(analyse)).toMatch(/`commit_id`, `author`, `role`, `substantive`\)/)
+  })
+
+  it('finding 5: every search for a login takes the links and the repository names out first', () => {
+    const searches = [
+      ['analyse.md, section 7', sectionOf(analyse, 7, 'analyse.md')],
+      ['write.md, section 5', sectionOf(write, 5, 'write.md')],
+      ['check.md, section 5', sectionOf(check, 5, 'check.md')],
+    ] as const
+    for (const [name, text] of searches) {
+      const rule = blocks(text).find((b) => b.includes('logins of `raw/reviewers.json`'))
+      expect(rule, name).toBeDefined()
+      expect(rule, name).toMatch(/every `https:\/\/` address and every `<owner>\/<repo>` of `repo` in `raw\/prs\.jsonl` taken out of the text first/)
+      expect(rule, name).toMatch(/owner[^.]*may be a reviewer/)
+    }
+  })
+
+  it('finding 10: step 1 of the template goes to the folder of the pull request\'s repository before gh and git', () => {
+    const one = templateStep(1)
+    expect(flat(one)).toMatch(/in a project of several repositories, the folder of the repository the pull request belongs to/)
+    expect(flat(one)).toMatch(/The project root of such a project is no repository/)
+    const cd = one.indexOf('cd "<repository folder>"; echo "EXIT=$?"')
+    expect(cd, one).toBeGreaterThan(-1)
+    expect(cd).toBeLessThan(one.indexOf('gh pr view <n>'))
+    expect(cd).toBeLessThan(one.indexOf('git -c core.hooksPath=/dev/null fetch'))
+    // A paragraph, never a list item: the lint would take a list item for a rule without [R<n>].
+    expect(one).not.toMatch(/^\s*[-*] /m)
+  })
+
+  it('finding 11: step 8 of the template says what to do when GitHub refuses the whole review', () => {
+    const eight = templateStep(8)
+    const rule = blocks(eight).find((b) => b.startsWith('When `gh api` does not exit 0'))
+    expect(rule, eight).toBeDefined()
+    expect(rule).toMatch(/refused the whole review and nothing was posted/)
+    // A comment outside the diff moves into the body; an event refused on the person's own pull request becomes COMMENT.
+    expect(rule).toMatch(/must be part of the diff/)
+    expect(rule).toMatch(/moves into `payload\.body`/)
+    expect(rule).toMatch(/own pull request[^.]*becomes `COMMENT`/)
+    // The changed draft is a new draft: linted, shown and asked again before it is posted.
+    expect(rule).toMatch(/Run `review-draft-lint` again, show the changed draft/)
+    expect(rule).toMatch(/ask again: the "yes" was for the draft before/)
+    expect(eight.indexOf(rule!.slice(0, 30))).toBeGreaterThan(eight.indexOf('gh api --method POST'))
+    expect(rule).not.toMatch(/^\s*[-*] /)
+  })
+
+  it('finding 13: the brief of the drafting Subagent names the folder of the checkout', () => {
+    const two = sectionOf(check, 2, 'check.md')
+    const gave = blocks(two).find((b) => b.startsWith('- what step 1 gave:'))
+    expect(gave, two).toBeDefined()
+    expect(gave).toMatch(/the folder of the repository's checkout, written out in full/)
+    expect(gave).toContain('cd "<checkout>" &&')
+  })
+
+  it('finding 14: the conversation on commit_id ends at the next commit, not at the last review on commit_id', () => {
+    const one = sectionOf(check, 1, 'check.md')
+    expect(one).toMatch(/gh pr view <n> --repo <owner>\/<name> --json [^\n]*\bcommits\b/)
+    expect(flat(one)).toMatch(/`committedDate`/)
+    expect(flat(one)).toMatch(/call its `committedDate` `<next>`/)
+    const three = flat(sectionOf(check, 3, 'check.md'))
+    expect(three).not.toMatch(/no later than the last review of the team on `commit_id`/)
+    expect(three).toMatch(/a conversation comment written before the next commit: `created_at` earlier than `<next>`/)
+    expect(three).toMatch(/a conversation comment written at or after `<next>`/)
   })
 })

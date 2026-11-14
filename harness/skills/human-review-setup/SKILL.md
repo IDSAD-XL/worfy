@@ -122,14 +122,15 @@ no model has read a comment yet.
 After the full history, before the analysis, hold 5 pull requests out of it for the check of step 6, so the check
 does not grade the skill on answers it has already seen:
 
-- the newest pull requests of the window with a comment of the team at least 20 characters long (the
-  length `review-history` takes for a substantive comment), from different areas of code (top-level
-  folders, or repositories when there are several), and at least one with a `CHANGES_REQUESTED` review of
-  the team when the window has one;
+- the newest pull requests of the window with a substantive comment of the team — `substantive: true` in
+  `raw/prs.jsonl`, which `review-history` sets as it counts: at least 20 characters of its own text or a
+  `suggestion` block, and not a plain approval such as "LGTM, thanks for the fix!", which check.md would drop
+  from the remarks of the team — from different areas of code (top-level folders, or repositories when there
+  are several), and at least one with a `CHANGES_REQUESTED` review of the team when the window has one;
 - with fewer than 15 such pull requests, hold out a third of them, rounded down, and say so;
 - pick them with a short Node script over `raw/prs.jsonl` that reads only `repo`, `number`, `updated_at`,
-  `files`, `reviews[].state`, `reviews[].role`, `reviews[].commit_id`, and the `role` and the length of
-  `body` of `reviews[]`, `threads[].comments[]` and `comments[]` — the length only: it prints no text;
+  `files`, `reviews[].state`, `reviews[].role`, `reviews[].commit_id`, and the `role` and `substantive` of
+  `reviews[]`, `threads[].comments[]` and `comments[]` — never a `body`: it prints no text;
 - record them in `meta.json` under the key `held_out`: `[{"repo": "<owner>/<name>", "number": <n>,
   "commit_id": "<sha>"}]`, where `commit_id` is the commit the first review of the team saw. Change only
   this key; `review-history` keeps the keys of other writers.
