@@ -205,8 +205,8 @@ any data arrives it says "no data yet". A window without data says "no data".
 - **Value:** the used share, `62%`. Without a share it is the status in words: allowed, near limit, limit reached.
 - **Reset:** `14:20` for the 5-hour window and `Thu 09:00` for the 7-day one, with `resets 14:20` and `resets Thu 09:00` as their
   tooltips; a Codex window longer than a day shows the weekday too.
-- **Colour:** changes at 60% and 85%. A near-limit status also gives the first colour, and a rejected one the second; so does a Codex
-  window Codex reports as reached.
+- **Colour:** changes at 60% and 85%. A near-limit status also gives the first colour, and a rejected one the second; so does a used-up
+  Codex window.
 - **Old data:** older than an hour, the bar dims and its tooltip ends with `as of 13:05`.
 - **Narrow window:** up to 1100 px wide, each bar shows its value alone, with no "Limits" heading, label or reset time. The
   value's tooltip names the rest: `5-hour: 62% · resets 14:20`, with `· as of 13:05` for old data.

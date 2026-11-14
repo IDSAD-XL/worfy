@@ -47,12 +47,13 @@ export function codexWindowLabel(minutes: number | null, id: CodexWindowId): str
 }
 
 /**
- * The windows of one snapshot of Codex's rate limits. A window is `reached` when Codex says a limit
- * was reached (`rateLimitReachedType`) or it is used up (`usedPercent` 100 or more), `ok` otherwise:
- * Codex sends no warning level.
+ * The windows of one snapshot of Codex's rate limits. A window is `reached` when it is used up
+ * (`usedPercent` 100 or more), `ok` otherwise: Codex sends no warning level. A reached limit Codex
+ * names (`rateLimitReachedType`) names no window, so it marks none: were every window reached, a wait
+ * after a used-up 5-hour window would last until the weekly reset (audit 47), and credits that ran out
+ * would look like windows to wait for.
  */
 export function codexLimitWindows(snapshot: RateLimitSnapshot, receivedAt: number, source: CodexLimitsSource): LimitWindow[] {
-  const reachedType = snapshot.rateLimitReachedType ?? null
   return (['primary', 'secondary'] as const).flatMap((id): LimitWindow[] => {
     const window = snapshot[id] ?? null
     if (window === null) return []
@@ -65,7 +66,7 @@ export function codexLimitWindows(snapshot: RateLimitSnapshot, receivedAt: numbe
         usedPercent: window.usedPercent,
         windowMinutes,
         resetsAt: window.resetsAt ?? null,
-        state: reachedType !== null || window.usedPercent >= 100 ? 'reached' : 'ok',
+        state: window.usedPercent >= 100 ? 'reached' : 'ok',
         receivedAt,
         source,
       },

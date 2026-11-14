@@ -165,9 +165,13 @@ describe('a snapshot of Codex\'s rate limits as Limit windows', () => {
     expect(codexLimitWindows(snapshot({ primary: { usedPercent: 130, windowDurationMins: 300, resetsAt: 1 } }), NOW, 'read')[0]!.state).toBe('reached')
   })
 
-  it('every window is reached while Codex names a reached limit (rateLimitReachedType), whatever its use', () => {
-    const windows = codexLimitWindows(snapshot({ rateLimitReachedType: 'workspace_member_credits_depleted', primary: { usedPercent: 12, windowDurationMins: 300, resetsAt: 1 }, secondary: { usedPercent: 0, windowDurationMins: 10080, resetsAt: 2 } }), NOW, 'read')
-    expect(windows.map(({ state }) => state)).toEqual(['reached', 'reached'])
+  it('a reached limit Codex names (rateLimitReachedType) marks no window: each window is judged by its own use (audit 47)', () => {
+    // Only the 5-hour window ran out: the weekly one stays ok, so a wait after it is for the 5-hour reset, not the weekly one.
+    const fiveHourOut = codexLimitWindows(snapshot({ rateLimitReachedType: 'rate_limit_reached', primary: { usedPercent: 100, windowDurationMins: 300, resetsAt: 1 }, secondary: { usedPercent: 64, windowDurationMins: 10080, resetsAt: 2 } }), NOW, 'read')
+    expect(fiveHourOut.map(({ state }) => state)).toEqual(['reached', 'ok'])
+    // Credits ran out with no window used up: no window is reached, there is nothing to wait for (a quota).
+    const credits = codexLimitWindows(snapshot({ rateLimitReachedType: 'workspace_member_credits_depleted', primary: { usedPercent: 12, windowDurationMins: 300, resetsAt: 1 }, secondary: { usedPercent: 0, windowDurationMins: 10080, resetsAt: 2 } }), NOW, 'read')
+    expect(credits.map(({ state }) => state)).toEqual(['ok', 'ok'])
     const absent = { ...snapshot({ primary: { usedPercent: 12, windowDurationMins: 300, resetsAt: 1 } }), rateLimitReachedType: undefined } as unknown as RateLimitSnapshot
     expect(codexLimitWindows(absent, NOW, 'read')[0]!.state).toBe('ok')
   })
