@@ -77,8 +77,10 @@ email or token. Then check `lint.json` itself with an empty draft,
 "<plugin>/bin/review-draft-lint" "<private folder>/raw/skill/empty-draft.json" --rules "<private folder>/raw/skill/lint.json"; echo "EXIT=$?"
 ```
 
-And a short Node script over `raw/skill/`: none of the logins of `raw/reviewers.json` (case-insensitive) and no
-`@<name>` but `@someone` in `SKILL.md` and `voice-examples.md`; in each tier of `voice-examples.md` with examples
+And a short Node script over `raw/skill/`: none of the logins of `raw/reviewers.json` (case-insensitive), with
+every `https://` address and every `<owner>/<repo>` of `repo` in `raw/prs.jsonl` taken out of the text first — the
+owner of a repository may be a reviewer too, and that name is part of each of its links — and no `@<name>` but
+`@someone` in `SKILL.md` and `voice-examples.md`; in each tier of `voice-examples.md` with examples
 from three or more labels, no label gives more than a third of them.
 
 A finding (exit 1) — fix it: add the missing reference, drop a rule no section supports, fill a place left, put the

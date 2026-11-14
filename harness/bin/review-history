@@ -17,8 +17,10 @@
 // The private folder is <profile folder>/state/human-review/ (STATE_PATH below, the one place that names it):
 // `state/` of a profile is outside the history of the Harness home. In it:
 //   raw/prs.jsonl  one line per pull request of the last fetch: the reviews, the review threads with their
-//                  line comments, the conversation comments, each with `role` "team" or "context". Colleagues'
-//                  words: it lives one run — the caller deletes it with `clean` when it is done with it
+//                  line comments, the conversation comments, each with `role` "team" or "context" and
+//                  `substantive` (a substantive comment, below; the hold-out of human-review-setup picks by it
+//                  without reading a text). Colleagues' words: it lives one run — the caller deletes it with
+//                  `clean` when it is done with it
 //   meta.json      the window, the counts, the voice and the date of the last whole fetch; `update` — the same for
 //                  the slice of the last `fetch --since`, which never overwrites the history's counts; `raw` — which
 //                  of the two raw/ holds; repositories[].last_pr — the cursor, the newest pull request read
@@ -34,8 +36,8 @@
 // first, that have at least one review of the team; at most 500 of them per repository. A pull request approved
 // without a single comment counts. Pages of 100 pull requests, one request at a time; a pull request with more
 // than 30 reviews, 50 review threads, 50 conversation comments or 20 comments in a thread is read on with
-// requests of its own. A rate limit answer is retried after `retry-after`, else after `x-ratelimit-reset`, else
-// after 60 s, at most 3 times; then exit 1. A failure of GitHub's side (readPage below): a timeout — HTTP 504 or
+// requests of its own. A rate limit answer is retried after `retry-after`, else after `x-ratelimit-reset` when
+// `x-ratelimit-remaining` is 0, else (a secondary rate limit) after 60 s, at most 3 times; then exit 1. A failure of GitHub's side (readPage below): a timeout — HTTP 504 or
 // 502, GitHub's GraphQL timeout error, an answer cut short that is not JSON — asks the same page again from the same
 // cursor with half the pull requests (100, 50, 25, 12, 10 at the smallest) after a pause of 5 s, and the smaller page
 // stays for the rest of the repository; HTTP 503 asks the same page again. At the smallest page the same request is
@@ -301,11 +303,13 @@ function rateLimit(res, stderr) {
     const limited = typed || res.status === 429 || ((res.status === 403 || res.status === 0) && (h["retry-after"] || h["x-ratelimit-remaining"] === "0" || /rate limit/i.test(msg)))
     if (!limited) return null
     let wait = DEFAULT_WAIT_S
-    let basis = "no retry-after or x-ratelimit-reset"
+    let basis = "no retry-after, and the primary window not spent"
     if (/^\d+$/.test(h["retry-after"] || "")) {
         wait = Number(h["retry-after"])
         basis = `retry-after ${wait} s`
-    } else if (/^\d+$/.test(h["x-ratelimit-reset"] || "")) {
+    } else if (h["x-ratelimit-remaining"] === "0" && /^\d+$/.test(h["x-ratelimit-reset"] || "")) {
+        // The reset is that of the primary window: a secondary limit, with requests of the window left, is waited
+        // out in 60 s, as GitHub's documentation of the rate limits says, never until a reset up to an hour away.
         wait = Math.max(1, Number(h["x-ratelimit-reset"]) - Math.floor(Date.now() / 1000) + 1)
         basis = `x-ratelimit-reset in ${wait} s`
     }
@@ -493,7 +497,7 @@ function filterPull(node, repo, ignore) {
     for (const rv of node.reviews.nodes) {
         if (rv.state === "PENDING") continue
         const k = keep(rv)
-        if (k) reviews.push({ id: rv.id, url: rv.url, state: rv.state, body: rv.body || "", submitted_at: rv.submittedAt, commit_id: rv.commit?.oid || null, author: k.login, role: k.r })
+        if (k) reviews.push({ id: rv.id, url: rv.url, state: rv.state, body: rv.body || "", submitted_at: rv.submittedAt, commit_id: rv.commit?.oid || null, author: k.login, role: k.r, substantive: isSubstantive(rv.body) })
     }
     const threads = []
     for (const t of node.reviewThreads.nodes) {
@@ -501,14 +505,14 @@ function filterPull(node, repo, ignore) {
         for (const c of t.comments.nodes) {
             const k = keep(c)
             if (k)
-                comments.push({ id: c.id, url: c.url, body: c.body || "", created_at: c.createdAt, path: c.path, line: c.line ?? null, original_line: c.originalLine ?? null, diff_hunk: c.diffHunk || "", in_reply_to: c.replyTo?.id || null, commit_id: c.originalCommit?.oid || null, author: k.login, role: k.r })
+                comments.push({ id: c.id, url: c.url, body: c.body || "", created_at: c.createdAt, path: c.path, line: c.line ?? null, original_line: c.originalLine ?? null, diff_hunk: c.diffHunk || "", in_reply_to: c.replyTo?.id || null, commit_id: c.originalCommit?.oid || null, author: k.login, role: k.r, substantive: isSubstantive(c.body) })
         }
         if (comments.length) threads.push({ id: t.id, path: t.path, line: t.line ?? null, is_resolved: !!t.isResolved, is_outdated: !!t.isOutdated, comments })
     }
     const comments = []
     for (const c of node.comments.nodes) {
         const k = keep(c)
-        if (k) comments.push({ id: c.id, url: c.url, body: c.body || "", created_at: c.createdAt, author: k.login, role: k.r })
+        if (k) comments.push({ id: c.id, url: c.url, body: c.body || "", created_at: c.createdAt, author: k.login, role: k.r, substantive: isSubstantive(c.body) })
     }
     const pull = {
         repo: `${repo.owner}/${repo.name}`,

@@ -20,10 +20,14 @@ no person to answer, the skill stops at the draft.
 
 ## 1. Load the pull request
 
-The person names a pull request: a number, a link, or the pull request of the current branch. Read it in the
-project root:
+The person names a pull request: a number, a link, or the pull request of the current branch. Every command of
+this skill runs in the checkout of the pull request's repository: the project root, or, in a project of several
+repositories, the folder of the repository the pull request belongs to — the one whose `git remote get-url origin`
+names the `<owner>/<repo>` of the link; with only a number, ask which repository. The project root of such a project
+is no repository, and `gh` and `git` fail there. Go to that folder first, then read the pull request:
 
 ```bash
+cd "<repository folder>"; echo "EXIT=$?"
 gh pr view <n> --json number,url,title,body,baseRefName,baseRefOid,headRefOid,additions,deletions,changedFiles,files,closingIssuesReferences; echo "EXIT=$?"
 gh pr diff <n>; echo "EXIT=$?"
 ```
@@ -169,6 +173,15 @@ gh api --method POST "repos/<owner>/<repo>/pulls/<n>/reviews" --input "<tmp>/pay
 
 Show the link of the posted review (`html_url` of the answer). That `gh api` call is the only command of this
 skill that writes to GitHub.
+
+When `gh api` does not exit 0 (HTTP 422 among others), GitHub refused the whole review and nothing was posted.
+Change the draft by what its message names: a comment on a line outside the diff of the pull request ("must be
+part of the diff", "could not be resolved") moves into `payload.body`, its `path:line` written out, or onto a
+line of the diff it is about; an `event` of `APPROVE` or `REQUEST_CHANGES` on the person's own pull request ("Can
+not approve your own pull request") becomes `COMMENT`. Run `review-draft-lint` again, show the changed draft and
+what changed in it, and ask again: the "yes" was for the draft before. On a new "yes", run the two commands above
+again. A message this paragraph does not name: show it, post nothing, and say the draft waits in
+`<tmp>/review-<n>.json`.
 
 On "no", or to drop the draft: post nothing and say the draft was not posted.
 

@@ -40,7 +40,8 @@ export REVIEW_HISTORY_NOW="2026-06-01T00:00:00Z"
 # One line per call into $GH_LOG: the call number, the GraphQL operation, the cursor, the GH_TOKEN it saw and its
 # first two arguments. Answers like `gh api --include`: headers, a blank line, the body of the fixture file
 # $GH_FIX/<page|reviews-N|…>-<cursor>.json. $RL_CALLS (",2,3,") — the call numbers answered with a rate limit
-# (HTTP 403, retry-after 1), and with it or $ERR_CALLS set the time of each call in ms goes to $GH_TIMES; $DENY — a GraphQL
+# (HTTP 403, retry-after 1; with $RL_KIND "secondary" no retry-after and the primary window far from spent, with
+# "primary" no retry-after and that window spent), and with it or $ERR_CALLS set the time of each call in ms goes to $GH_TIMES; $DENY — a GraphQL
 # NOT_FOUND, as for a repository the token cannot see. $ERR_CALLS (",1:504,2:trunc,") — a failure of GitHub's side for
 # those call numbers: 504, 502 and 503 (the status line, no body, "gh: HTTP 50x" on stderr), 502timeout (HTTP 502 with
 # GitHub's GraphQL timeout error in the body), trunc (an answer cut short, "unexpected end of JSON input"), cutquiet
@@ -65,7 +66,14 @@ done
 echo "call=$n op=$op cursor=$cursor token=${GH_TOKEN:-unset} args=${1:-} ${2:-} first=$first" >>"$GH_LOG"
 [ -z "${RL_CALLS:-}${ERR_CALLS:-}" ] || node -e 'process.stdout.write(Date.now() + "\n")' >>"$GH_TIMES"
 case ",${RL_CALLS:-}," in *",$n,"*)
-    printf 'HTTP/2.0 403 Forbidden\r\nRetry-After: 1\r\nX-Ratelimit-Remaining: 0\r\n\r\n{"message":"You have exceeded a secondary rate limit."}\n'
+    case "${RL_KIND:-}" in
+        # A secondary rate limit as GitHub may send it: no retry-after, the primary window far from spent, its reset
+        # 50 minutes away.
+        secondary) printf 'HTTP/2.0 403 Forbidden\r\nX-Ratelimit-Remaining: 4990\r\nX-Ratelimit-Reset: %s\r\n\r\n{"message":"You have exceeded a secondary rate limit."}\n' "$(( $(date +%s) + 3000 ))" ;;
+        # The primary window spent: no retry-after, its reset 2 s away.
+        primary) printf 'HTTP/2.0 403 Forbidden\r\nX-Ratelimit-Remaining: 0\r\nX-Ratelimit-Reset: %s\r\n\r\n{"message":"API rate limit exceeded."}\n' "$(( $(date +%s) + 2 ))" ;;
+        *) printf 'HTTP/2.0 403 Forbidden\r\nRetry-After: 1\r\nX-Ratelimit-Remaining: 0\r\n\r\n{"message":"You have exceeded a secondary rate limit."}\n' ;;
+    esac
     echo "gh: You have exceeded a secondary rate limit. (HTTP 403)" >&2; exit 1 ;;
 esac
 err=""
@@ -126,7 +134,7 @@ project() { # project <name> <origin url or "">
     mkdir -p "$HH/projects/$1" && printf '{"schema":2,"name":"%s","mode":"full"}\n' "$1" >"$HH/projects/$1/profile.json"
     entries="$entries${entries:+,}{\"key\":\"$1\",\"match\":\"$TN/r/$1\",\"profile\":\"$1\"}"
 }
-for p in filt v29 v30 chars cap since probe probe2 rl rlmid deny nogh clean upg upgnone upgbad trbase tr504 trtrunc trshrink trfloor tr502 tr502b tr503 trempty tr400 trrl trrlpage trrlmix tron; do project "$p" "git@github.com:acme/$p.git"; done
+for p in filt v29 v30 chars cap since probe probe2 rl rlmid rlsec rlpri deny nogh clean upg upgnone upgbad trbase tr504 trtrunc trshrink trfloor tr502 tr502b tr503 trempty tr400 trrl trrlpage trrlmix tron; do project "$p" "git@github.com:acme/$p.git"; done
 project local "$T/elsewhere.git"
 printf '{"repos":[%s]}\n' "$entries" >"$HH/gate/config.json"
 state() { echo "$HH/projects/$1/state/human-review"; }
@@ -201,6 +209,15 @@ rh v29 "$T/fx-v29" estimate --json; rc=$?
 # count both, and a plain approval is only a text with nothing but approval words.
 grep -q "LGTM, but rename" "$(state v29)/raw/prs.jsonl" && grep -q "Thanks! One thing" "$(state v29)/raw/prs.jsonl" \
     && ok "fetch keeps the two approvals with a remark in raw/" || bad "approvals with a remark missing in raw/"
+# Each text in raw/ carries `substantive`, the count's own test (audit n, finding 4): the hold-out of
+# human-review-setup picks by it and reads no text, so a long plain approval never makes a pull request held out.
+flags="$(node -e '
+const pr = JSON.parse(require("fs").readFileSync(0, "utf8").trim().split("\n")[0])
+const of = (start) => pr.comments.find((c) => c.body.startsWith(start))?.substantive
+process.stdout.write([of("LGTM, thanks for the fix!"), of("Thanks a lot, looks great."), of("LGTM 👍"), of("Remark 1:"), of("LGTM, but rename"), of("```suggestion"), pr.reviews[0].substantive].join(" "))
+' <"$(state v29)/raw/prs.jsonl")"
+[ "$flags" = "false false false true true true false" ] \
+    && ok "raw/ marks each text substantive or not: long plain approvals and an empty review body false, remarks and a suggestion true" || bad "substantive flags in raw/: [$flags]"
 rh v30 "$T/fx-v30" estimate; rc=$?
 [ "$rc" -eq 1 ] && grep -q "fetch first" "$T/err" && ok "estimate without raw/: exit 1, says to fetch first" || bad "estimate without raw: exit $rc $(cat "$T/err")"
 rh v30 "$T/fx-v30" fetch && rh v30 "$T/fx-v30" estimate; rc=$?
@@ -280,6 +297,24 @@ RL_CALLS=",1,2,3,4,5," rh rl "$FIX/filter" fetch; rc=$?
 make "$T/fx-rlmid" cap 150
 RL_CALLS=",2,3,4,5," rh rlmid "$T/fx-rlmid" fetch; rc=$?
 [ "$rc" -eq 1 ] && [ ! -e "$(state rlmid)/raw" ] && [ ! -e "$(state rlmid)/.raw-next" ] && ok "a rate limit on the second page: no half-written raw/ is left" || bad "rate limit mid: exit $rc $(ls -a "$(state rlmid)" 2>&1)"
+# A secondary rate limit without retry-after while the primary window is far from spent (audit n, finding 8): the
+# wait is 60 s, never the primary window's reset 50 minutes away. The run is stopped once it names its wait.
+(cd "$T/r/rlsec" && env HOME="$H" HARNESS_HOME="$HH" GH_FIX="$FIX/filter" GH_LOG="$T/gh-rlsec.log" GH_COUNT="$T/count-rlsec" GH_TIMES="$T/times-rlsec" RL_CALLS=",1," RL_KIND=secondary \
+    node -e '
+const { spawn } = require("child_process")
+const c = spawn(process.execPath, [process.argv[1], "fetch"], { stdio: ["ignore", "ignore", "pipe"] })
+let err = ""
+const stop = () => { clearTimeout(timer); c.kill() }
+const timer = setTimeout(stop, 30000)
+c.stderr.on("data", (d) => { err += d; if (/waiting \d+ s/.test(err)) stop() })
+c.on("close", () => process.stderr.write(err))
+' "$RH") >"$T/out" 2>"$T/err"
+grep -q "secondary rate limit.*waiting 60 s, retry 1 of 3" "$T/err" \
+    && ok "a secondary rate limit without retry-after, the primary window not spent: waits 60 s, not until its reset" || bad "secondary rate limit wait: $(cat "$T/err")"
+# The primary window spent, no retry-after: the wait is until its reset, then the page is read.
+RL_CALLS=",1," RL_KIND=primary rh rlpri "$FIX/filter" fetch; rc=$?
+[ "$rc" -eq 0 ] && grep -Eq "x-ratelimit-reset in [1-3] s\); waiting [1-3] s, retry 1 of 3" "$T/err" && raw_has rlpri TEAM-NIT-TEXT \
+    && ok "the primary window spent: waits until x-ratelimit-reset, then reads the page" || bad "primary rate limit wait: exit $rc $(cat "$T/err")"
 
 # --- 5a. failures of GitHub's side: retries and the page size (worfy-human-review 14) -----------------------------------
 # 230 reviewed pull requests as one list: the stand-in pages it by the page size asked for, so a smaller page reads on
