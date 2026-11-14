@@ -91,6 +91,8 @@ Repo: app
   (`workflow.finish` `local-green`) closes such a ticket with `done` alone: the PR set is not checked there.
 - On a ticket of one repository `ticket done … --pr A --pr B` is exit 2: it has one PR. Before this rule the last
   `--pr` won silently.
+- On a ticket of one repository `--pr` takes `N` or `#N`, as `ticket pr` does; anything else, `web3#17` too, is exit 2
+  and nothing is written. Before this rule every character but the digits was dropped, and `web3#17` wrote `PR: #317`.
 - `claim`, `open` and `block` keep every `PR:` and `Release:` line. The group lines stand right after Status, in the
   order `Blocked reason:`, `Waits:`, `PR:`, `Release:`; `Branch:` and `Repo:` stay where they are, after the group.
   This is the order of the example above, not the one of the epic spec that introduced the header (`Branch:` and

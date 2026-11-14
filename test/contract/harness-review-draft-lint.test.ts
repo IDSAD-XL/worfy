@@ -24,6 +24,8 @@ let outside: string
 /** The repository of the Silent project `sp` (attribution off) and its Workflow folder, whose path names a host. */
 let silentRepo: string
 let workflowFolder: string
+/** The repository of the Full project `zorblax`, whose own name holds a word of the personal list. */
+let ownRepo: string
 
 // A home folder path with a user name, a host name and an email address that are not stand-ins (lib/privacy.cjs),
 // built here so this file does not carry one.
@@ -39,6 +41,7 @@ beforeAll(() => {
   outside = join(root, 'outside')
   silentRepo = join(root, 'silent-repo')
   workflowFolder = join(root, HOST, 'wf')
+  ownRepo = join(root, 'Zorblax-Extension')
   for (const dir of [
     home,
     join(harnessHome, 'gate'),
@@ -46,16 +49,26 @@ beforeAll(() => {
     join(harnessHome, 'projects', 'sp'),
     join(repo, '.scratch', 'checkout-flow', 'issues'),
     join(workflowFolder, '.scratch', 'billing-sync', 'issues'),
+    join(harnessHome, 'projects', 'zorblax'),
+    join(harnessHome, 'user'),
+    join(ownRepo, '.scratch'),
     silentRepo,
     outside,
   ])
     mkdirSync(dir, { recursive: true })
-  for (const dir of [repo, silentRepo, workflowFolder]) {
+  for (const dir of [repo, silentRepo, workflowFolder, ownRepo]) {
     const init = spawnSync('git', ['init', '-q', dir], { encoding: 'utf8' })
     expect(init.status, init.stderr).toBe(0)
   }
   const entry = (key: string, match: string): object => ({ key, match, profile: key, pm: 'npm', root: {}, workspace: {} })
-  writeFileSync(join(harnessHome, 'gate', 'config.json'), JSON.stringify({ repos: [entry('fp', repo), entry('sp', silentRepo)] }))
+  writeFileSync(join(harnessHome, 'gate', 'config.json'), JSON.stringify({ repos: [entry('fp', repo), entry('sp', silentRepo), entry('zorblax', ownRepo)] }),
+  )
+  writeFileSync(
+    join(harnessHome, 'projects', 'zorblax', 'profile.json'),
+    JSON.stringify({ schema: 2, name: 'zorblax', mode: 'full', attribution: 'on', tickets: { root: '.scratch/' } }),
+  )
+  // The personal list: the name of the project zorblax, and a word no project is named by.
+  writeFileSync(join(harnessHome, 'user', 'privacy.json'), JSON.stringify({ deny: ['Zorblax', 'Quuxley'] }))
   writeFileSync(
     join(harnessHome, 'projects', 'fp', 'profile.json'),
     JSON.stringify({ schema: 2, name: 'fp', mode: 'full', attribution: 'on', tickets: { root: '.scratch/' } }),
@@ -183,7 +196,24 @@ describe('review-draft-lint', () => {
     expect(run.stderr).toContain('not a registered project')
   })
 
-  it('gives exit 2 on broken input: JSON, an unknown field of lint.json, a tier lint.json does not name', { timeout: ms(30_000) }, () => {
+  it("does not count a word of the personal list that is part of the project's own name", { timeout: ms(30_000) }, () => {
+    const rules = file(RULES, 'lint.json')
+    const link = 'nit: as in https://github.com/ZorblaxLLC/Zorblax-Extension/blob/main/src/cart.ts'
+    const own = lint([file(draft([['nit', link]])), '--rules', rules, '-C', ownRepo], ownRepo)
+    expect(own.status, own.stdout + own.stderr).toBe(0)
+    const reply = lint(['--reply', file({ schema: 1, repo: 'ZorblaxLLC/Zorblax-Extension', pr: 3, headOid: 'a'.repeat(40), items: [{ kind: 'conversation', threadId: null, replyTo: null, label: 'FYI', body: link, fixPlan: null, state: 'draft', sentUrl: null }] }), '-C', ownRepo], ownRepo)
+    expect(reply.status, reply.stdout + reply.stderr).toBe(0)
+    // The other words of the list stay findings in that project, and the name stays one in any other project.
+    const other = lint([file(draft([['nit', 'nit: Quuxley wrote the first version']])), '--rules', rules, '-C', ownRepo], ownRepo)
+    expect(other.status, other.stdout + other.stderr).toBe(1)
+    expect(other.stdout).toContain('personal data deny')
+    const elsewhere = lint([file(draft([['nit', link]])), '--rules', rules, '-C', repo])
+    expect(elsewhere.status, elsewhere.stdout + elsewhere.stderr).toBe(1)
+    expect(elsewhere.stdout).toContain('personal data deny')
+    expect(elsewhere.stdout).not.toContain('Zorblax')
+  })
+
+  it('gives exit 2 on broken input: JSON, an unknown field of lint.json, a tier lint.json does not name',{ timeout: ms(30_000) }, () => {
     const rules = file(RULES, 'lint.json')
     const broken = lint([file('{ "payload": '), '--rules', rules], outside)
     expect(broken.status, broken.stdout + broken.stderr).toBe(2)

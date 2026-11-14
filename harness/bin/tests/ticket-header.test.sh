@@ -316,6 +316,12 @@ out="$(mt done mr 04 --pr '#13' 2>&1 | sed -E "s/$NOW/T/g")"
 [ "$out" = "$(printf '%s\n' '.scratch/mr/issues/04-t.md:4' '  was: Status: done T' '  now: Status: done T' '  - PR: #12' '  + PR: #13')" ] \
     && [ "$(grep -c '^PR:' "$ME/04-t.md")" = 1 ] && ok "one repository: a second done --pr replaces PR: #N" || bad "one repo second done: [$out]"
 cp "$ME/04-t.md" "$T/m04"
+# --pr is the number of the PR, N or #N: the digits of a repository name are not part of it (web3#17 is not PR: #317).
+for v in 'web3#17' 'api#14' '12a' 'x'; do
+    out="$(mt done mr 04 --pr "$v" 2>&1)"; rc=$?
+    [ "$rc" -eq 2 ] && [[ "$out" == *"PR: #N"* ]] && cmp -s "$T/m04" "$ME/04-t.md" \
+        && ok "one repository: done --pr $v -> exit 2, the file unchanged" || bad "one repo done --pr $v: exit $rc, $out, $(hdr 04)"
+done
 out="$(mt pr mr 04 api#14 2>&1)"; rc=$?
 [ "$rc" -eq 2 ] && cmp -s "$T/m04" "$ME/04-t.md" && ok "one repository: pr <repo>#N -> exit 2, a ticket of one repository writes PR: #N" || bad "one repo pr api#14: exit $rc, $out"
 out="$(mt pr mr 04 '#14' 2>&1)"; rc=$?

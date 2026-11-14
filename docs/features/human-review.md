@@ -160,7 +160,9 @@ for the reminder: answering it writes the reminder's date. A screen with full ac
   answer is never retried.
 - **A draft is checked before a person sees it.** `review-draft-lint` refuses a comment longer than the limit of its
   tier, a trace of the workflow (an Epic, a Ticket, an ADR number, `.scratch`, `HANDOFF`), an AI authorship line,
-  personal data, and a word the person added to `forbidden` in `lint.json`.
+  personal data, and a word the person added to `forbidden` in `lint.json`. A word of the personal list that is part
+  of the project's own name (its profile name or title, a folder of its repositories) is not personal data in that
+  project's drafts: its comments and links name it.
 - **The check never sees the answer.** The draft of a held-out pull request is built from the diff between the commit
   the pull request branched from and the commit the first review saw. For a merged pull request that base is the merge
   base of the merge commit's first parent and that commit; for one not merged, of `origin/<base branch>` and that
