@@ -637,10 +637,11 @@ describe('workflow reader', () => {
     const { home } = makeClaudeHome(dir)
     claimInWorktree(repo, 'demo/02', '02', '02-second.md')
     const realGit = async (cwd: string, args: string[]): Promise<string> => execFileSync('git', args, { cwd, encoding: 'utf8' })
+    // A git error, not a timeout: a list that timed out is not asked again (the next test).
     const listing = (fails: number) => {
       const calls = { lists: 0 }
       const git = async (cwd: string, args: string[]): Promise<string> => {
-        if (args[0] === 'worktree' && calls.lists++ < fails) throw Object.assign(new Error('git worktree list timed out'), { killed: true, code: null })
+        if (args[0] === 'worktree' && calls.lists++ < fails) throw Object.assign(new Error('fatal: unable to read .git/worktrees'), { code: 128 })
         return realGit(cwd, args)
       }
       return { calls, git }
@@ -665,9 +666,35 @@ describe('workflow reader', () => {
     const strict = listing(2)
     const failed = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv, git: strict.git, listFailure: 'error' })
     expect(strict.calls.lists).toBe(2)
-    expect(failed.model.error).toEqual({ code: 'failed', message: 'git worktree list failed: git worktree list timed out' })
+    expect(failed.model.error).toEqual({ code: 'failed', message: 'git worktree list failed: fatal: unable to read .git/worktrees' })
     expect(failed.model.tickets).toEqual([])
     expect(failed.branches.size).toBe(0)
+  })
+
+  it('runs a `git worktree list` that timed out only once: no second list and no rev-parse after it, so a hung git holds a read for one timeout, not three (audit 203, review round 3)', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    claimInWorktree(repo, 'demo/02', '02', '02-second.md')
+    const calls: string[] = []
+    // What execFile gives when its `timeout` kills git: `killed`, no exit code, SIGTERM.
+    const hung = async (cwd: string, args: string[]): Promise<string> => {
+      calls.push(args.join(' '))
+      if (args[0] === 'worktree') throw Object.assign(new Error('Command failed: git worktree list --porcelain'), { killed: true, code: null, signal: 'SIGTERM' })
+      return execFileSync('git', args, { cwd, encoding: 'utf8' })
+    }
+
+    await expect(ticketWorktrees(repo, hung)).rejects.toThrow('Command failed: git worktree list --porcelain')
+    expect(calls).toEqual(['worktree list --porcelain'])
+
+    calls.length = 0
+    const held = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv, git: hung })
+    expect(calls).toEqual(['worktree list --porcelain'])
+    expect(ticketOf(held.model, 2)).toMatchObject({ state: 'open', unreadBranch: 'demo/02' })
+
+    calls.length = 0
+    const failed = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv, git: hung, listFailure: 'error' })
+    expect(calls).toEqual(['worktree list --porcelain'])
+    expect(failed.model.error).toEqual({ code: 'failed', message: 'git worktree list failed: Command failed: git worktree list --porcelain' })
   })
 
   it('does not let a branch left over after the merge override a Ticket done in the checkout', async () => {
@@ -1522,6 +1549,54 @@ describe('workflow watcher', () => {
     const afterRecovery = refReads
     await new Promise((done) => setTimeout(done, ms(1000)))
     expect(refReads).toBe(afterRecovery)
+  })
+
+  it('holds a Ticket claimed in a worktree while `git worktree list` fails, and reads the claim once a later list works (audit 203)', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    claimInWorktree(repo, 'demo/02', '02', '02-second.md')
+    let failing = true
+    let lists = 0
+    const git = async (cwd: string, args: string[]): Promise<string> => {
+      if (args[0] === 'worktree') {
+        lists += 1
+        if (failing) throw Object.assign(new Error('fatal: unable to read .git/worktrees'), { code: 128 })
+      }
+      return execFileSync('git', args, { cwd, encoding: 'utf8' })
+    }
+    const watcher = await WorkflowWatcher.start({ root: repo, claudeHome: home, env: ownEnv, git, branchRetryMs: [ms(200)], onChange: () => undefined })
+    cleanups.push(() => watcher.close())
+    const ticket = (num: number) => ticketOf(watcher.current, num)
+
+    // The first read has no earlier one to keep: the claim is unknown, so each open Ticket is held and none is Ready.
+    expect(lists).toBeGreaterThan(0)
+    expect(ticket(2)).toMatchObject({ state: 'open', unreadBranch: 'demo/02' })
+    expect(ticket(4)).toMatchObject({ state: 'open', unreadBranch: 'demo/04' })
+    expect(readyWave(watcher.current.tickets, 'demo').ready).toEqual([])
+    expect(watcher.current.branchErrors).toContainEqual({ branch: 'demo/02', message: 'git worktree list failed: fatal: unable to read .git/worktrees' })
+
+    // The list works again: the retry after the pause reads the claim by itself, with no file event.
+    failing = false
+    await until('the claim read from the branch', () => ticket(2)?.state === 'work')
+    expect(ticket(2)).toMatchObject({ state: 'work', fromBranch: 'demo/02' })
+    expect(ticket(2)).not.toHaveProperty('unreadBranch')
+    expect(ticket(4)).not.toHaveProperty('unreadBranch')
+    expect(watcher.current.branchErrors).toEqual([])
+
+    // The list fails on a later read (a Ticket file is saved): the claim read before stands, marked as not read now.
+    failing = true
+    const before = lists
+    const file = join(repo, '.scratch/demo/issues/04-fourth.md')
+    writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: blocked\nBlocked reason: waiting'))
+    await until('a read with a failed list', () => lists > before && ticket(4)?.state === 'blocked')
+    expect(ticket(2)).toMatchObject({ state: 'work', fromBranch: 'demo/02', unreadBranch: 'demo/02' })
+    expect(ticket(3)).toMatchObject({ state: 'open', unreadBranch: 'demo/03' })
+    expect(readyWave(watcher.current.tickets, 'demo').ready).toEqual([])
+
+    failing = false
+    await until('the hold gone after the list works', () => watcher.current.branchErrors.length === 0)
+    expect(ticket(2)).toMatchObject({ state: 'work', fromBranch: 'demo/02' })
+    expect(ticket(2)).not.toHaveProperty('unreadBranch')
   })
 
   it('reports a removed Ticket', async () => {

@@ -188,7 +188,7 @@ export function sharedAutopilot(): Autopilot {
   const autopilot = new Autopilot({
     projectRoot: (projectId) => projectStore().get(projectId).path,
     selfRefusal: (root) => selfProjectRefusal({ packaged: app.isPackaged, appPath: app.getAppPath(), projectRoot: root, gitCommonDir }),
-    // A worktree list that fails twice is the read's error (workflow-error, a refused start), not a held Wave (audit finding 203).
+    // A worktree list that fails twice, or times out once, is the read's error (workflow-error, a refused start), not a held Wave (audit finding 203).
     workflow: async (root) => (await readWorkflow({ root, claudeHome: claudeHome(), env: harnessScriptEnv, listFailure: 'error' })).model,
     watchWorkflow: workflowWatch(workflowHub),
     orchestrators: {

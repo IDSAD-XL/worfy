@@ -60,7 +60,7 @@ export interface ReaderOptions {
   /** Runs git for the list of worktrees (ticketWorktrees); tests replace it. */
   git?: GitRunner
   /**
-   * What a `git worktree list` that failed twice in a row makes of the read (audit finding 203). `hold`, the
+   * What a `git worktree list` that failed twice in a row, or once by a timeout, makes of the read (audit finding 203). `hold`, the
    * default: the open Tickets are held as unread (unlistedBranches). `error`: the model's error, with no Tickets —
    * for a read whose answer decides at once and that nothing asks again by itself (Autopilot, src/main/ipc/autopilot.ts):
    * held Tickets would read there as a Wave still in work or as no ready Wave.
@@ -446,7 +446,7 @@ function git(cwd: string, args: string[]): Promise<string> {
 /**
  * Worktrees of the Project whose branch names a Ticket (`git worktree list --porcelain`). The
  * first entry is the checkout itself and is skipped: its state is the checkout's read. Outside
- * git the list is empty. Rejects when the list fails in a repository (a timeout, a git error):
+ * git the list is empty. Rejects when the list fails in a repository (a git error), and on a timeout anywhere:
  * no worktrees is not what git said, and a Ticket claimed in one would read as open
  * (readBranches with a WorktreeListError). `run` runs git; tests replace it.
  */
@@ -455,7 +455,8 @@ export async function ticketWorktrees(root: string, run: GitRunner = git): Promi
   try {
     output = await run(root, ['worktree', 'list', '--porcelain'])
   } catch (error) {
-    if (await outsideGit(root, run)) return []
+    // A list that ran out of time is not asked about further: one more git run could hang as long (TIMEOUT_MS).
+    if (!gitTimedOut(error) && (await outsideGit(root, run))) return []
     throw error
   }
   const result: TicketWorktree[] = []
@@ -471,6 +472,12 @@ export async function ticketWorktrees(root: string, run: GitRunner = git): Promi
   }
   return result
 }
+
+/**
+ * Whether a git run was stopped for taking longer than TIMEOUT_MS: execFile kills it then and sets `killed` on
+ * the error (its `code` is null). A git that hangs answers the next run no sooner, so such a failure is not asked again.
+ */
+const gitTimedOut = (error: unknown): boolean => (error as { killed?: unknown } | null)?.killed === true
 
 /**
  * Whether `root` is outside any git work tree: `git rev-parse --is-inside-work-tree` ends with git's
@@ -705,8 +712,11 @@ export async function readWorkflow(
   // Silent mode: no `--ref` (the Harness answers it with exit code 3), no status from branches.
   if (checkout.error || layout.mode === 'silent') return { model: { ...checkout, branchErrors: [] }, checkout, branches: new Map() }
   // A failed list is asked again at once: a read like this one may have no last good value to keep (audit finding 203).
+  // Not after a timeout: a hung git would hold the read, and Autopilot's queue behind it, for another TIMEOUT_MS.
   const list = () => ticketWorktrees(root, options.git)
-  const worktrees = await list().catch(list).catch(worktreeListError)
+  const worktrees = await list()
+    .catch((error: unknown) => (gitTimedOut(error) ? Promise.reject(error) : list()))
+    .catch(worktreeListError)
   if (!Array.isArray(worktrees) && options.listFailure === 'error') {
     return { model: { ...checkout, epics: [], tickets: [], error: { code: 'failed', message: worktrees.error }, branchErrors: [] }, checkout, branches: new Map() }
   }
