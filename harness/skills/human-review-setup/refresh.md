@@ -8,7 +8,8 @@ A reviewer built and kept by the first run lies in the private folder (`<_resolv
 with the `research.md` of before, writes a new skill as a draft beside the installed one, shows the person which
 rules it adds, changes and removes, checks the draft on 5 of the new pull requests, and replaces the installed
 files only when the person accepts. Until then everything new lies in `raw/`, and nothing else of the private
-folder changes but the record `review-history fetch --since` keeps in `meta.json` itself.
+folder changes but the record `review-history fetch --since` keeps in `meta.json` itself, and step 1 of the installed
+skill, which `review-history upgrade` brings up to the read-only step 1 of the template (step 1 below).
 
 What it costs and who sees what are the same as for the first run (SKILL.md, the opening section): GitHub API
 points only until the person says "yes" to the estimate, then the texts of the new comments go to the vendor of
@@ -20,6 +21,14 @@ Step 1 of SKILL.md has given `_resolved.dir` and the private folder. Then:
 
 - No `<private folder>/.claude/skills/human-review/SKILL.md`: there is no reviewer to update. Say so, offer the
   first run, `/worfy:human-review-setup` without `--refresh`, and stop.
+- **The read-only step 1.** Run `"<plugin>/bin/review-history" upgrade; echo "EXIT=$?"` before anything else. A
+  reviewer built before the template's step 1 became read-only fetches and checks out the pull request with the
+  person's git hooks on, and nothing in it forbids running the author's code while the shell carries the person's
+  `GH_TOKEN`. `upgrade` puts the template's step 1 in place of the installed one and adds the line of step 3 that
+  binds the sub-agents of `/worfy:code-review` to it; the rules and `voice-examples.md` stay as they are, and the
+  file before goes to `previous/SKILL-<stamp>-step1.md`. It is a fix of the installed skill, not part of the update:
+  it stays on "Nothing new", on "no" and on **Reject**. Show the person its line. On exit 1 show its stderr line, tell
+  the person to build the reviewer again with `/worfy:human-review-setup` without `--refresh`, and stop.
 - The date the update reads from is the later of two dates of `meta.json`: `analysed_through`, which the last
   update the person accepted wrote (step 8), and `fetched_at`, the last whole read of the history, which a first
   run or a whole build again analysed. Compare them: a whole build after an update keeps the older
@@ -115,10 +124,18 @@ label takes the label of this run. A label paired with two labels of this run co
 pair becomes `<label> (before <date>)`, as `reviewer A (before 2026-10-01)`, with the `<date>` of step 1; a label
 that already carries `(before …)` and has no pair stays as it is.
 
-Each tier keeps its earlier examples and takes new ones from the slice, picked as section 3 says, up to 6; a tier
+Then drop every kept example of a held-out pull request: one whose link names, as `<owner>/<repo>#<number>`, a
+pull request of `raw/refresh/held_out.json` (the repository compared without case). Step 3 may hold out a pull
+request the team reviewed before `<date>` and again after it, and the installed file may quote that earlier review;
+step 7 pastes `raw/skill/voice-examples.md` into the brief of the Subagent that drafts the review of that very pull
+request, so the kept example would show it what the team said there. Section 3 of write.md leaves the held-out pull
+requests out of the new examples for the same reason. The Node script of the labels does it too, and prints the links
+it dropped, never a text.
+
+Each tier keeps its earlier examples left after that and takes new ones from the slice, picked as section 3 says, up to 6; a tier
 the earlier ones already fill takes a new example in place of an earlier one only where that meets a rule of the
 file better — an area of code the tier lacks, or a reviewer over a third. A tier the slice has no new comment of
-keeps its examples as they are; a tier that said "No comments of this tier in the window." takes the new ones in
+keeps its examples as they are, and one the drop has left with none says "No comments of this tier in the window."; a tier that said "No comments of this tier in the window." takes the new ones in
 place of that line. Count the reviewers of each tier again by label for the line on one or two reviewers. Nothing
 tells whether a `(before …)` label names a reviewer of this run: a `(before …)` label may be the same person as
 another label of the tier. So a tier that has one is also counted in two groups apart — its examples under the
@@ -152,7 +169,7 @@ its sections in `raw/refresh/research-before.md` and in `raw/refresh/research.md
 stay as they were, and the sections of `research.md` that are new. Then **Voice examples**: compare
 `<private folder>/.claude/skills/human-review/voice-examples.md` with `raw/skill/voice-examples.md` by the link of each
 example, and for each tier name the examples added and the ones dropped — the link, the reviewer label and the
-length, never the text — and the count kept. Name too the labels the kept examples changed, old → new, and each
+length, never the text, and for a dropped one of a held-out pull request the words "held out" — and the count kept. Name too the labels the kept examples changed, old → new, and each
 `(before …)` label with its tiers, saying that such a label may be the same person as another label of the tier and
 that the rule of a third and the line on one or two reviewers were checked in each group apart. Write the result to `raw/refresh/diff.md` and
 run `"<plugin>/bin/evidence-check" "<private folder>/raw/refresh/diff.md"; echo "EXIT=$?"`: no home folder path,

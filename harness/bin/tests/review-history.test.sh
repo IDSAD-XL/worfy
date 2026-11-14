@@ -16,7 +16,8 @@
 # error, and the owner's answer (headers, no body, "unexpected end of JSON input") halve the page too; HTTP 503 retries
 # the same page after a pause of 1×, then 2× the wait; HTTP 400 is not retried; a rate limit keeps a count of its own,
 # at most 3 for a page across its sizes; a read-on request is retried too; the global gh account
-# is never switched; clean removes raw/ and nothing else; stats names no login; profiles/README.md names the folder.
+# is never switched; clean removes raw/ and nothing else; upgrade puts the template's read-only step 1 and the line of
+# step 3 into an installed skill built before them, keeps the file before in previous/, and changes no rule; stats names no login; profiles/README.md names the folder.
 # Run: bash harness/bin/tests/review-history.test.sh; exit code 0 — everything passed.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -125,7 +126,7 @@ project() { # project <name> <origin url or "">
     mkdir -p "$HH/projects/$1" && printf '{"schema":2,"name":"%s","mode":"full"}\n' "$1" >"$HH/projects/$1/profile.json"
     entries="$entries${entries:+,}{\"key\":\"$1\",\"match\":\"$TN/r/$1\",\"profile\":\"$1\"}"
 }
-for p in filt v29 v30 chars cap since probe probe2 rl rlmid deny nogh clean trbase tr504 trtrunc trshrink trfloor tr502 tr502b tr503 trempty tr400 trrl trrlpage trrlmix tron; do project "$p" "git@github.com:acme/$p.git"; done
+for p in filt v29 v30 chars cap since probe probe2 rl rlmid deny nogh clean upg upgnone upgbad trbase tr504 trtrunc trshrink trfloor tr502 tr502b tr503 trempty tr400 trrl trrlpage trrlmix tron; do project "$p" "git@github.com:acme/$p.git"; done
 project local "$T/elsewhere.git"
 printf '{"repos":[%s]}\n' "$entries" >"$HH/gate/config.json"
 state() { echo "$HH/projects/$1/state/human-review"; }
@@ -392,6 +393,45 @@ left="$(cd "$C" && find . -type f | sort | tr '\n' ' ')"
     && ok "clean removes raw/ (and an unfinished copy) and nothing else" || bad "clean: exit $rc left [$left]"
 rh clean "$T/fx-clean" clean; rc=$?
 [ "$rc" -eq 0 ] && grep -q "nothing to remove" "$T/out" && ok "clean without raw/: exit 0, nothing to remove" || bad "clean again: exit $rc $(cat "$T/out")"
+
+# --- 8b. upgrade: the read-only step 1 of an installed skill (audit a) --------------------------------------------------
+# A skill built before the read-only step 1: the template with its rules filled, step 1 of before (git without the hooks
+# guard, no "Read only." paragraph) and step 3 without the line that binds the sub-agents of /worfy:code-review.
+TPL="$BIN/../skills/human-review-setup/template/SKILL.template.md"
+U="$(state upg)/.claude/skills/human-review"; mkdir -p "$U"
+node -e '
+const fs = require("fs")
+let t = fs.readFileSync(process.argv[1], "utf8").replace(/\r\n/g, "\n")
+t = t.replace(/^\{\{rules: .*\}\}$/gm, "- A rule of this team [R1]")
+t = t.replace(/git -c core\.hooksPath=\/dev\/null /g, "git ")
+t = t.replace(/\nKeep `-c core\.hooksPath[\s\S]*?\n\n/, "\n")
+t = t.replace(/\nRead only\.[\s\S]*?\n\n/, "\n")
+t = t.replace(/ Paste the read-only paragraph of step 1[\s\S]*?either\./, "")
+fs.writeFileSync(process.argv[2], t)' "$TPL" "$U/SKILL.md"
+cp "$U/SKILL.md" "$T/upg-before.md"
+step1() { awk '/^## 1\. /{p=1} /^## 2\. /{p=0} p' "$1"; }
+rh upg "$FIX/filter" upgrade; rc=$?
+P="$(state upg)/previous/SKILL-2026-06-01T00-00-00-step1.md"
+[ "$rc" -eq 0 ] && [ "$(step1 "$U/SKILL.md")" = "$(step1 "$TPL")" ] && grep -q "upgraded step 1 and 3" "$T/out" \
+    && ok "upgrade: step 1 of an old installed skill becomes the template's" || bad "upgrade: exit $rc $(cat "$T/out" "$T/err")"
+grep -c "git -c core.hooksPath=/dev/null " "$U/SKILL.md" | grep -qx 2 && grep -q "^Read only\." "$U/SKILL.md" \
+    && ok "upgrade: both git commands of step 1 run with hooks off, and the Read only paragraph is there" || bad "upgrade: step 1 lacks the hooks guard or Read only"
+[ "$(tr -s ' \n' '  ' <"$U/SKILL.md" | grep -o "Paste the read-only paragraph of step 1" | wc -l | tr -d ' ')" = 1 ] \
+    && tr -s ' \n' '  ' <"$U/SKILL.md" | grep -q "that task is the spec. Paste the read-only paragraph of step 1 into the brief of each of its sub-agents too" \
+    && ok "upgrade: step 3 binds the sub-agents of /worfy:code-review to the read-only paragraph, once" || bad "upgrade: step 3 line missing or twice"
+[ "$(grep -c '\[R1\]$' "$U/SKILL.md")" = "$(grep -c '\[R1\]$' "$T/upg-before.md")" ] && cmp -s "$P" "$T/upg-before.md" \
+    && ok "upgrade: no rule changes, the file before is kept in previous/" || bad "upgrade: rules changed or no copy of before at $P"
+cp "$U/SKILL.md" "$T/upg-after.md"
+rh upg "$FIX/filter" upgrade; rc=$?
+[ "$rc" -eq 0 ] && grep -q "^up to date" "$T/out" && cmp -s "$U/SKILL.md" "$T/upg-after.md" && [ "$(ls "$(state upg)/previous" | wc -l | tr -d ' ')" = 1 ] \
+    && ok "upgrade again: up to date, nothing written" || bad "upgrade again: exit $rc $(cat "$T/out")"
+rh upgnone "$FIX/filter" upgrade; rc=$?
+[ "$rc" -eq 0 ] && grep -q "nothing to upgrade" "$T/out" && [ ! -e "$(state upgnone)" ] \
+    && ok "upgrade without an installed skill: exit 0, writes nothing" || bad "upgrade none: exit $rc $(cat "$T/out")"
+B="$(state upgbad)/.claude/skills/human-review"; mkdir -p "$B" && printf '# a reviewer by hand\n\nNo steps.\n' >"$B/SKILL.md"
+rh upgbad "$FIX/filter" upgrade; rc=$?
+[ "$rc" -eq 1 ] && grep -q "human-review-setup" "$T/err" && [ "$(cat "$B/SKILL.md")" = "$(printf '# a reviewer by hand\n\nNo steps.')" ] && [ ! -e "$(state upgbad)/previous" ] \
+    && ok "upgrade of a skill with no step 1: exit 1, says to build it again, writes nothing" || bad "upgrade bad: exit $rc $(cat "$T/err")"
 
 # --- 9. usage ------------------------------------------------------------------------------------------------------------
 rh filt "$FIX/filter" probe --since 2026-01-01; rc=$?

@@ -105,6 +105,10 @@ your team reviewer?" with "Update" and "Later". The reminder reads only the priv
 GitHub, no model. "Update", here or in "Project settings…", opens a Session with
 `/worfy:human-review-setup --refresh`:
 
+- First, `review-history upgrade` brings step 1 of the installed skill up to the read-only one of the template: a
+  reviewer built before it fetched and checked out the pull request with git hooks on and did not forbid running the
+  author's code. The rules stay as they are, and the file before goes to `previous/`. This fix stays even when
+  nothing new comes and on **Reject**; a skill with no step 1 to fix makes the update stop and ask for a new build.
 - It reads only the pull requests since the last analysis, and counts only the team's comments written after that
   date. With none, it says there is no new pull request with a review of the team since that date, deletes what it
   read and spends no tokens.
@@ -113,7 +117,8 @@ GitHub, no model. "Update", here or in "Project settings…", opens a Session wi
 - It writes the new skill as a draft and shows the diff of the rules: **Added**, **Changed** and **Removed**, each
   with its `[R<n>]` and, for every number in the rule, "before → now". The voice examples of the draft are the
   installed ones with new examples of the slice merged in, up to 6 per tier, and the diff names the examples each tier
-  adds and drops. Each run labels reviewers again by its own window, so a kept example takes the label of this run
+  adds and drops. A kept example of a pull request held out for the check is dropped, so the draft is never checked
+  on a pull request whose team comment it quotes. Each run labels reviewers again by its own window, so a kept example takes the label of this run
   when its comment is in the slice, and a label it cannot pair becomes `reviewer A (before <date>)`: such a label
   may be the same person as another one, and the diff says so. In a tier with such a label, the rule that no reviewer
   gives more than a third of the examples holds in each group apart: the examples of this run's labels, and the
@@ -180,7 +185,7 @@ for the reminder: answering it writes the reminder's date. A screen with full ac
 | `humanReview.offer` and `humanReview.remindedAt` | `src/main/projects/settings.ts` |
 | The private folder in a Session (`privateSkillsFolder`, `additionalDirectories`) | `src/main/vendors/claude/query.ts`, `src/main/vendors/claude/options.ts` |
 | The Profile folder (`readProfileFolder`) | `src/main/workflow/profile.ts` |
-| Reading the history, the estimate, the probe | `harness/bin/review-history` |
+| Reading the history, the estimate, the probe, the upgrade of an installed step 1 | `harness/bin/review-history` |
 | Checking a draft and a skill | `harness/bin/review-draft-lint`, `harness/lib/workflow-traces.cjs` |
 | The generator | `harness/skills/human-review-setup/SKILL.md`, with `analyse.md`, `write.md`, `check.md`, `refresh.md` |
 | The template of the generated skill | `harness/skills/human-review-setup/template/` |

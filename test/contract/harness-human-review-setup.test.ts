@@ -749,6 +749,39 @@ describe('refresh.md: the update with --refresh (worfy-human-review ticket 10)',
     expect(six).toMatch(/`\(before …\)`[^.]*may be (one|the same) person/)
   })
 
+  it('drops the kept voice examples of the held-out pull requests before the merge: the check never sees the team\'s comment on its own pull request (audit a, round 4)', () => {
+    const five = part(5).replace(/\s+/g, ' ')
+    const drop = five.indexOf('Then drop every kept example of a held-out pull request')
+    expect(drop, five).toBeGreaterThan(-1)
+    expect(five.slice(drop)).toMatch(/^[^.]*link names, as `<owner>\/<repo>#<number>`, a pull request of `raw\/refresh\/held_out\.json`/)
+    // After the labels are put into this run's labels, before the tiers keep, take and count their examples.
+    expect(drop).toBeGreaterThan(five.indexOf('First put its labels'))
+    expect(drop).toBeLessThan(five.indexOf('Each tier keeps its earlier examples'))
+    expect(drop).toBeLessThan(five.indexOf('Count the reviewers of each tier again'))
+    expect(five).toMatch(/prints the links it dropped, never a text/)
+    expect(five).toMatch(/one the drop has left with none says "No comments of this tier in the window\."/)
+    // The diff tells the person why such an example went.
+    expect(part(6).replace(/\s+/g, ' ')).toMatch(/dropped one of a held-out pull request the words "held out"/)
+  })
+
+  it('brings step 1 of the installed skill up to the read-only one before anything else, kept on Nothing new and Reject (audit a, round 4)', () => {
+    const one = part(1).replace(/\s+/g, ' ')
+    const upgrade = one.indexOf('"<plugin>/bin/review-history" upgrade; echo "EXIT=$?"')
+    expect(upgrade, one).toBeGreaterThan(one.indexOf('there is no reviewer to update'))
+    expect(upgrade).toBeLessThan(one.indexOf('The date the update reads from'))
+    expect(one).toMatch(/stays on "Nothing new", on "no" and on \*\*Reject\*\*/)
+    expect(one).toMatch(/On exit 1 [^.]*build the reviewer again with `\/worfy:human-review-setup` without `--refresh`, and stop/)
+    // The opening of the file names it among what changes before Accept.
+    expect(refresh.split(/^## /m)[0].replace(/\s+/g, ' ')).toMatch(/step 1 of the installed skill, which `review-history upgrade` brings up/)
+  })
+
+  it('the template keeps what review-history upgrade relies on: step 1 without a placeholder, the line of step 3 after "that task is the spec." (audit a, round 4)', () => {
+    // The generator copies a step with no placeholder as it is, so upgrade may put the template's step 1 in place of an installed one.
+    expect(templateStep(1)).not.toMatch(/\{\{/)
+    const three = templateStep(3).replace(/\s+/g, ' ')
+    expect(three).toMatch(/that task is the spec\. Paste the read-only paragraph of step 1 [^.]*either\./)
+  })
+
   it('shows the person which voice examples the update adds and drops before Accept (audit a)', () => {
     const six = part(6).replace(/\s+/g, ' ')
     expect(six).toContain('**Voice examples**')
