@@ -8,7 +8,9 @@
 //   `pending`: an empty inbox shows nothing and takes the day too, so a review request that comes later that day
 //   waits for the next morning (the notifications of notify.ts tell of it at once).
 // - `pending`: a Project whose reader is on has not been read yet since worfy started; the window asks again when an
-//   inbox changes. A Project whose read failed does not hold the digest back.
+//   inbox changes. A Project whose read failed does not hold the digest back. A Project whose next search is due
+//   (its `nextSearchAt` has passed: the computer slept, or the read runs now) is `pending` too, so the digest counts the
+//   fresh read and not yesterday's snapshot.
 // - `prInboxDigest` off in the app settings: nothing, and the day is not taken.
 // - shortcut: the day lives in main's memory, so a restart of worfy shows the digest again that day; keep it in a
 //   file of WORFY_DATA_DIR (an entry of ADR-0005's inventory) if people restart often enough to mind.
@@ -75,6 +77,11 @@ function localDay(at: number): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
+/** The Project's next search is due and has not ended yet: what the snapshot holds may be from before a sleep. */
+function due(snapshot: PrInboxSnapshot, now: number): boolean {
+  return snapshot.nextSearchAt !== null && Date.parse(snapshot.nextSearchAt) <= now
+}
+
 export interface PrInboxDigestOptions {
   /** The snapshot of each Project of this Machine, in the order of the list. */
   snapshots: () => readonly PrInboxSnapshot[]
@@ -97,7 +104,7 @@ export class PrInboxDigest {
     const day = localDay(now)
     if (this.day === day) return { state: 'none' }
     const snapshots = this.options.snapshots().filter((snapshot) => snapshot.enabled)
-    if (snapshots.some((snapshot) => snapshot.readAt === null && snapshot.error === null)) return { state: 'pending' }
+    if (snapshots.some((snapshot) => (snapshot.readAt === null && snapshot.error === null) || due(snapshot, now))) return { state: 'pending' }
     this.day = day
     const text = digestText(digestCounts(snapshots, now))
     if (text === null) return { state: 'none' }

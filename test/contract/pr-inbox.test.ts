@@ -234,6 +234,28 @@ describe('the search of a Project', () => {
     expect(gh.calls().flat().some((arg) => arg.includes('notifications'))).toBe(false)
   })
 
+  it('a snapshot taken while the first read runs has no next search time, and does not throw', async () => {
+    const gh = world([stubPull(API, 1)])
+    let entered!: () => void
+    const reading = new Promise<void>((resolve) => (entered = resolve))
+    let release!: () => void
+    const held = new Promise<void>((resolve) => (release = resolve))
+    const inbox = reader(gh, [project('p1', [API])], {
+      repos: async () => {
+        entered()
+        await held
+        return [API]
+      },
+    })
+    const tick = inbox.tick()
+    await reading
+    const during = inbox.snapshot('p1')
+    expect(prInboxSnapshotSchema.parse(during)).toMatchObject({ enabled: true, readAt: null, nextSearchAt: null })
+    release()
+    await tick
+    expect(inbox.snapshot('p1').nextSearchAt).toBe(new Date(START + INBOX_SEARCH_INTERVAL_MS).toISOString())
+  })
+
   it('refresh(repo, number) reads the details of that PR at once, outside the search queue', async () => {
     const gh = world([stubPull(API, 1)])
     const inbox = reader(gh, [project('p1', [API])])

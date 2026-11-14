@@ -85,6 +85,8 @@ counts.
   the PRs of Ready. A PR two Projects both read counts once. An empty inbox shows nothing.
 - Until every Project whose inbox is on has been read once since worfy started, the digest waits, and comes with the first
   read. A Project whose read failed does not hold it back.
+- It also waits while the next search of a Project is due, for example after the computer slept through the night, so it
+  counts the fresh read and not the inbox of the day before. It comes at the first focus after that read.
 - The day is taken by the first decision, so an empty inbox in the morning shows no digest later that day. The notifications
   tell of what comes later.
 - The day is kept in main's memory: a restart of worfy shows the digest again that day.

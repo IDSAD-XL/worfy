@@ -316,7 +316,11 @@ describe('openNote of a PR inbox note', () => {
 
 describe('PrInboxDigest: the morning digest', () => {
   const NOW = Date.parse('2026-11-10T09:00:00')
-  const counted = snapshot({
+  const MINUTE = 60_000
+  /** A snapshot read a minute before `at`, its next search four minutes after it. */
+  const snap = (groups: Partial<Record<PrInboxGroup, PrInboxRow[]>>, over: Partial<PrInboxSnapshot> = {}, at = NOW): PrInboxSnapshot =>
+    snapshot(groups, { readAt: new Date(at - MINUTE).toISOString(), nextSearchAt: new Date(at + 4 * MINUTE).toISOString(), ...over })
+  const counted = snap({
     'needs-review': [row(5, { author: ANA, createdAt: new Date(NOW - 2 * 86_400_000 - 60_000).toISOString() }), row(6, { author: ANA, createdAt: new Date(NOW - 3_600_000).toISOString() }), row(9, { author: ANA })],
     'needs-answer': [row(118, { newSinceSeen: 2 })],
     'needs-fix': [row(40, { newSinceSeen: 1 })],
@@ -326,13 +330,13 @@ describe('PrInboxDigest: the morning digest', () => {
   it('counts the reviews, their oldest, the PRs with new comments and those ready to merge', () => {
     expect(digestCounts([counted], NOW)).toMatchObject({ reviews: 3, commented: 2, ready: 1 })
     expect(digestText(digestCounts([counted], NOW))).toBe('3 reviews wait for you (oldest 2 days) · 2 PRs have new comments · 1 ready to merge')
-    expect(digestText(digestCounts([snapshot({ 'needs-review': [row(6, { author: ANA, createdAt: new Date(NOW - 5 * 3_600_000).toISOString() })] })], NOW))).toBe('1 review waits for you (5 hours)')
-    expect(digestText(digestCounts([snapshot({ waiting: [row(3, { newSinceSeen: 1 })] })], NOW))).toBe('1 PR has new comments')
-    expect(digestText(digestCounts([snapshot({ waiting: [row(3)] })], NOW))).toBeNull()
+    expect(digestText(digestCounts([snap({ 'needs-review': [row(6, { author: ANA, createdAt: new Date(NOW - 5 * 3_600_000).toISOString() })] })], NOW))).toBe('1 review waits for you (5 hours)')
+    expect(digestText(digestCounts([snap({ waiting: [row(3, { newSinceSeen: 1 })] })], NOW))).toBe('1 PR has new comments')
+    expect(digestText(digestCounts([snap({ waiting: [row(3)] })], NOW))).toBeNull()
   })
 
   it('a PR two Projects both read is counted once', () => {
-    const twice = [snapshot({ ready: [row(12)], 'needs-review': [row(5, { author: ANA })] }), snapshot({ ready: [row(12)], 'needs-review': [row(5, { author: ANA })] }, { projectId: 'ops-0000000o' })]
+    const twice = [snap({ ready: [row(12)], 'needs-review': [row(5, { author: ANA })] }), snap({ ready: [row(12)], 'needs-review': [row(5, { author: ANA })] }, { projectId: 'ops-0000000o' })]
     expect(digestCounts(twice, NOW)).toMatchObject({ ready: 1, reviews: 1 })
   })
 
@@ -344,20 +348,33 @@ describe('PrInboxDigest: the morning digest', () => {
   }
 
   it('the first ask of a day shows it once; the next ask that day shows nothing; the next day shows it again', () => {
-    const { clock, ask } = digest([counted])
+    const { clock, state, ask } = digest([counted])
     expect(ask()).toEqual({ state: 'show', text: '3 reviews wait for you (oldest 2 days) · 2 PRs have new comments · 1 ready to merge', projectIds: [PROJECT.id] })
     expect(ask()).toEqual({ state: 'none' })
     clock.now += 3 * 3_600_000
     expect(ask()).toEqual({ state: 'none' })
     clock.now += 24 * 3_600_000
+    state.snapshots = [{ ...counted, readAt: new Date(clock.now - MINUTE).toISOString(), nextSearchAt: new Date(clock.now + 4 * MINUTE).toISOString() }]
     expect(ask().state).toBe('show')
   })
 
+  it("after a night's sleep waits for a fresh read instead of counting yesterday's snapshots", () => {
+    const yesterday = NOW - 24 * 3_600_000
+    // Read yesterday; its next search came due while the computer slept, and the reader has not run it yet.
+    const { state, ask } = digest([{ ...counted, readAt: new Date(yesterday - MINUTE).toISOString(), nextSearchAt: new Date(yesterday + 4 * MINUTE).toISOString() }])
+    expect(ask()).toEqual({ state: 'pending' })
+    expect(ask()).toEqual({ state: 'pending' })
+    // The fresh read came: the digest counts it, and the day is taken.
+    state.snapshots = [counted]
+    expect(ask().state).toBe('show')
+    expect(ask()).toEqual({ state: 'none' })
+  })
+
   it('waits while a Project on is not read yet, and an empty inbox shows nothing', () => {
-    const { state, ask } = digest([snapshot({}, { readAt: null })])
+    const { state, ask } = digest([snap({}, { readAt: null })])
     expect(ask()).toEqual({ state: 'pending' })
     expect(ask()).toEqual({ state: 'pending' })
-    state.snapshots = [snapshot({ waiting: [row(3)] })]
+    state.snapshots = [snap({ waiting: [row(3)] })]
     expect(ask()).toEqual({ state: 'none' })
     // The day is taken: a request that comes later that day waits for the next one.
     state.snapshots = [counted]
@@ -365,7 +382,7 @@ describe('PrInboxDigest: the morning digest', () => {
   })
 
   it('a Project whose read failed, or that is off, does not hold the digest back', () => {
-    const { ask } = digest([counted, snapshot({}, { projectId: 'a-1', readAt: null, error: 'gh failed' }), snapshot({}, { projectId: 'b-2', readAt: null, enabled: false })])
+    const { ask } = digest([counted, snap({}, { projectId: 'a-1', readAt: null, error: 'gh failed' }), snap({}, { projectId: 'b-2', readAt: null, enabled: false })])
     expect(ask().state).toBe('show')
   })
 
@@ -377,7 +394,7 @@ describe('PrInboxDigest: the morning digest', () => {
   })
 
   it('names the Projects with something to show, in the order of the list', () => {
-    const { ask } = digest([snapshot({ waiting: [row(3)] }, { projectId: 'a-1' }), snapshot({ ready: [row(4)] }, { projectId: 'b-2' }), snapshot({ 'needs-review': [row(5, { author: ANA })] }, { projectId: 'c-3' })])
+    const { ask } = digest([snap({ waiting: [row(3)] }, { projectId: 'a-1' }), snap({ ready: [row(4)] }, { projectId: 'b-2' }), snap({ 'needs-review': [row(5, { author: ANA })] }, { projectId: 'c-3' })])
     expect(ask()).toMatchObject({ state: 'show', projectIds: ['b-2', 'c-3'] })
   })
 })

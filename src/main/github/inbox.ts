@@ -277,7 +277,8 @@ export class PrInbox {
   private readonly trigger: NotificationsTrigger | null
 
   constructor(private readonly options: PrInboxOptions) {
-    this.now = options.now ?? Date.now
+    // Date.now read at each call, so an e2e test may move main's clock for the reader and the digest alike.
+    this.now = options.now ?? (() => Date.now())
     this.base = options.searchIntervalMs ?? INBOX_SEARCH_INTERVAL_MS
     this.max = options.maxIntervalMs ?? INBOX_MAX_INTERVAL_MS
     const notifications = options.notifications
@@ -394,7 +395,8 @@ export class PrInbox {
       viewer,
       groups: PR_INBOX_GROUPS.map((group) => ({ group, rows: grouped.get(group)!.map(({ pull, viaTeam }) => rowOf(pull, viaTeam, viewer, seen[keyOf(pull.repo, pull.number)]?.seenAt ?? null)) })),
       readAt: state?.readAt == null ? null : new Date(state.readAt).toISOString(),
-      nextSearchAt: on && state ? new Date(state.nextAt).toISOString() : null,
+      // -Infinity until the first read ends: no time to show yet.
+      nextSearchAt: on && state && Number.isFinite(state.nextAt) ? new Date(state.nextAt).toISOString() : null,
       error: on ? (state?.error ?? null) : null,
       notice: on && state ? (this.trigger?.notice(state.account ?? '') ?? null) : null,
     }
