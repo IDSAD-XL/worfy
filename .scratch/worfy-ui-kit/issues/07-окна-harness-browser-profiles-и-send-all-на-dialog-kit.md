@@ -1,7 +1,8 @@
 # 07 — Окна Harness, Browser profiles, Send all и Image overlay на Dialog kit
 
 Type: task
-Status: claimed 2026-11-12T17:12Z
+Status: done 2026-11-14T23:34Z
+PR: #1842
 Blocked by: 04
 Source: [spec.md](../spec.md), «Ticket-ы», строка 07 и уточнение про Image overlay под таблицей; «Решения по реализации»
 (остальные модальные окна); истории 1, 2, 9; заметка темы `docs/product/ui-overhaul/notes/inventory-overlays.md`,
@@ -43,9 +44,11 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 07 и уточнен�
   - evidence: test-run pass · `pnpm test` on the unit tests of the touched modules (87 files) after the rebase on ui-kit 06 exit 0 · mac - · 1e1478e8e41360a6b2fa0e030603508892e267cd
 - [ ] Существующие unit test-ы и e2e `harness-migrate.spec.ts`, `codex-hooks-step.spec.ts`, `browser-profile.spec.ts`,
       `pr-inbox.spec.ts`, `chat-attachments.spec.ts` зелёные без правок ролей и `data-testid`.
+  - evidence: ci-check pass · CI green on PR #1842 (ci-ok, e2e jobs included) · mac - · b37957d7fe1ef096c6c15d10ebd62181cff6fee5
 - [ ] Своих focus trap и backdrop в этих пяти окнах нет.
   - evidence: commit pass · Harness forms, Browser profiles, Send all and the full-size image on the kit's Dialog (worfy-ui-kit 07) · - - · c19a05162c6f5a2d1b2ca71862f7a91da5d6eb45
 - [ ] Правка вида, если она есть, названа в PR отдельной строкой.
+  - evidence: review pass · Look changes named in the body of PR #1842; reviewer VERIFIED · - - · b37957d7fe1ef096c6c15d10ebd62181cff6fee5
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0 · mac - · c19a05162c6f5a2d1b2ca71862f7a91da5d6eb45
   - evidence: gate pass · `gate fast` exit 0 · mac - · 1e1478e8e41360a6b2fa0e030603508892e267cd
