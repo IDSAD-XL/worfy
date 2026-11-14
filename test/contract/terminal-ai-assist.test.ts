@@ -242,7 +242,7 @@ describe('the assist process', () => {
     expect(service.state().process).toBe('busy')
     const spare = sdk.claimedSpare
     expect(spare).toBe(sdk.spares[0])
-    expect(spare.query?.options).toMatchObject({ cwd: join(dataDir, 'terminal-ai'), model: 'haiku', maxThinkingTokens: 0 })
+    expect(spare.query?.options).toMatchObject({ cwd: join(dataDir, 'terminal-ai'), model: 'claude-haiku-4-5', maxThinkingTokens: 0 })
     spare.query?.answer('git status')
     expect(await answer).toEqual({ ok: true, command: 'git status', model: 'haiku' })
   })
@@ -566,7 +566,7 @@ describe('Limits and refusals', () => {
     const { service, sdk } = world()
     service.setSettings({ nextCommandModel: 'haiku' })
     const { answer: next } = await start(service, 'next', { line: '' })
-    expect(sdk.claimedSpare.query?.options).toMatchObject({ model: 'haiku', maxThinkingTokens: 0 })
+    expect(sdk.claimedSpare.query?.options).toMatchObject({ model: 'claude-haiku-4-5', maxThinkingTokens: 0 })
     sdk.claimedSpare.query?.answer('ls')
     expect(await next).toEqual({ ok: true, command: 'ls', model: 'haiku' })
   })
@@ -837,7 +837,7 @@ describe('the fake backend and the real one', () => {
     expect(lines).toEqual([
       {
         feature: 'suggest',
-        model: 'haiku',
+        model: 'claude-haiku-4-5',
         context: { line: 'git st', request: null, cwd: '/Users/someone/work', commands: [`GH_TOKEN=${REDACTED} gh pr list`], branch: null, exitCode: 0, output: null },
         cancelled: false,
         cold: false,

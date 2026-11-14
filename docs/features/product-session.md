@@ -186,7 +186,8 @@ in [ADR-0101](../adr/0101-product-session-folder-and-mind-map.md).
 **The live summary is not a Session.** main follows the turn's events and sends Haiku a digest of the turn: the owner's
 message, the latest tool calls with short inputs, the latest text and thinking, and the summary's previous lines, 5000
 characters at most. Each request is a single Agent SDK `query()` under the owner's own
-Claude Code login, never an API key: model `haiku`, no thinking, no settings, no MCP servers, no tools, one turn, no
+Claude Code login, never an API key: model `claude-haiku-4-5` by its id (the alias `haiku` now names a Haiku whose
+thinking cannot be turned off), no thinking, no settings, no MCP servers, no tools, one turn, no
 transcript, in an empty folder of worfy's own outside every Project. Sessions never run on haiku; the live summary
 does, as it is not one. The limit is per Product Session: each runs its own live summary, never two of its requests at
 once, and there is no limit across the app. The end of the turn aborts a request still out, and its answer is dropped.

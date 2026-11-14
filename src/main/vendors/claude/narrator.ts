@@ -5,7 +5,8 @@
 // Sessions take, never an API key: the agent environment without API_KEY_VARS. Its options (narratorOptions, a
 // pure function, so a unit test reads exactly what goes to the SDK) are those of Terminal AI's spare process
 // (terminal-ai.ts, ADR-0058): no settings of the user or a Project, no MCP servers, no tools, one turn, no
-// transcript, no thinking — and the model haiku. The narrator is not a Session, so it is not bound by
+// transcript, no thinking — and Haiku 4.5 by its id (HAIKU_WITHOUT_THINKING: the alias haiku now takes thinking-off
+// as adaptive thinking, which would spend the short output limit). The narrator is not a Session, so it is not bound by
 // isSelectableModel (Sessions never run on haiku). Its folder is the empty <WORFY_DATA_DIR>/narrator, outside
 // every Project, so no Node is ever made for it. CLAUDE_CODE_MAX_OUTPUT_TOKENS keeps the answer short.
 //
@@ -24,9 +25,10 @@ import { NARRATOR_SYSTEM_PROMPT, type NarratorAsk, type NarratorCadence } from '
 import type { QueryFactory } from '../../agent/session'
 import { oneMessage } from './one-shot'
 import { claudeExecutablePath, type RuntimeInfo } from './options'
+import { HAIKU_WITHOUT_THINKING } from './terminal-ai'
 
 /** The model of every request: the narrator is not a Session (see the head of this file). */
-export const NARRATOR_MODEL = 'haiku'
+export const NARRATOR_MODEL = HAIKU_WITHOUT_THINKING
 /** The folder every request runs in, under worfy's data folder: empty, worfy's own, outside every Project. */
 export const NARRATOR_DIR = 'narrator'
 export const narratorDir = (dataDir: string): string => join(dataDir, NARRATOR_DIR)

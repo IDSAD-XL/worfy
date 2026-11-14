@@ -63,7 +63,7 @@ describe('claimOptions', () => {
 
   it('asks Haiku without thinking for a Suggestion', () => {
     const options = claimOptions('suggest', DEFAULT_TERMINAL_AI_SETTINGS, DATA_DIR)
-    expect(options).toMatchObject({ model: 'haiku', maxThinkingTokens: 0 })
+    expect(options).toMatchObject({ model: 'claude-haiku-4-5', maxThinkingTokens: 0 })
     expect(options).not.toHaveProperty('settings')
   })
 
@@ -77,8 +77,27 @@ describe('claimOptions', () => {
 
   it('asks Haiku without thinking for Next command when Settings say Haiku; the other features stay', () => {
     const settings = { ...DEFAULT_TERMINAL_AI_SETTINGS, nextCommandModel: 'haiku' as const }
-    expect(claimOptions('next', settings, DATA_DIR)).toMatchObject({ model: 'haiku', maxThinkingTokens: 0 })
+    expect(claimOptions('next', settings, DATA_DIR)).toMatchObject({ model: 'claude-haiku-4-5', maxThinkingTokens: 0 })
     expect(claimOptions('fix', settings, DATA_DIR)).toMatchObject({ model: 'sonnet' })
+  })
+})
+
+// Claude Code 2.1.322 (Agent SDK 0.3.322) resolves the alias `haiku` to Haiku 5.5, which rejects disabled thinking:
+// Claude Code turns the request's thinking-off into adaptive thinking, and a Suggestion that thinks is cancelled
+// (ADR-0058, point 3). Haiku 4.5 still takes thinking-off, so a request without thinking names it by its id.
+describe('the Haiku of a request without thinking', () => {
+  it('is Haiku 4.5 by its id, never the alias haiku, for every feature that runs on Haiku', () => {
+    const settings = { ...DEFAULT_TERMINAL_AI_SETTINGS, nextCommandModel: 'haiku' as const }
+    for (const feature of ['suggest', 'next'] as const) {
+      const options = claimOptions(feature, settings, DATA_DIR)
+      expect(options.model).not.toBe('haiku')
+      expect(options.model).toBe('claude-haiku-4-5')
+    }
+  })
+
+  it('reaches a cold query() of a Suggestion with thinking off', () => {
+    const options = coldQueryOptions(prewarmOptions({ env: ENV, runtime: DEV }), claimOptions('suggest', DEFAULT_TERMINAL_AI_SETTINGS, DATA_DIR))
+    expect(options).toMatchObject({ model: 'claude-haiku-4-5', maxThinkingTokens: 0 })
   })
 })
 

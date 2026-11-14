@@ -16,7 +16,7 @@ describe('narratorOptions', () => {
     const options = narratorOptions({ env: ENV, runtime: DEV, cwd: narratorDir(DATA_DIR) })
     expect(options).toMatchObject({
       cwd: join(DATA_DIR, 'narrator'),
-      model: 'haiku',
+      model: 'claude-haiku-4-5',
       thinking: { type: 'disabled' },
       settingSources: [],
       mcpServers: {},
@@ -28,6 +28,9 @@ describe('narratorOptions', () => {
       systemPrompt: NARRATOR_SYSTEM_PROMPT,
     })
     expect(options).not.toHaveProperty('pathToClaudeCodeExecutable')
+    // Not the alias haiku: Claude Code 2.1.322 resolves it to Haiku 5.5, which turns thinking-off into adaptive
+    // thinking, and thinking would spend the NARRATOR_MAX_OUTPUT_TOKENS meant for the line.
+    expect(options.model).not.toBe('haiku')
     expect(options).not.toHaveProperty('resume')
   })
 
