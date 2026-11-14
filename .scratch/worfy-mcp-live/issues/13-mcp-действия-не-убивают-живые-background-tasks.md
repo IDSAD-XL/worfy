@@ -25,8 +25,11 @@ Turn off, Turn on, Restart и Allow в списке MCP-серверов пер�
 
 - [ ] Test, красный на нынешнем коде: Session с живой background task, Restart (и Allow, Turn off, Turn on) — задача
       жива, process не перезапущен, ответ — отказ с причиной.
+  - evidence: test-run pass · `pnpm test test/contract/claude-mcp-turn-off.test.ts test/contract/claude-mcp-allow.test.ts` exit 0 · mac - · eda1bb53d2ce48975c1203126397563467c85016
 - [ ] Test: без живых задач действия перезапускают Session, как раньше.
+  - evidence: test-run pass · `pnpm test test/contract/claude-mcp-turn-off.test.ts test/contract/claude-mcp-allow.test.ts` exit 0 · mac - · eda1bb53d2ce48975c1203126397563467c85016
 - [ ] Строка отказа видна в списке MCP; unit test renderer-а.
+  - evidence: test-run pass · `pnpm test test/unit/mcp-chip.test.tsx` exit 0 · mac - · eda1bb53d2ce48975c1203126397563467c85016
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
 
 ## Где в коде
