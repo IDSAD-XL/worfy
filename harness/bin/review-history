@@ -9,6 +9,8 @@
 //                                                          comment, writes nothing
 //   review-history stats                                   mechanical numbers of raw/ for the evidence file, JSON
 //   review-history clean                                   delete raw/
+//   review-history upgrade                                 bring step 1 of an installed review skill up to the
+//                                                          read-only step 1 of the template (refresh.md, step 1)
 // Common flags: -C <dir> — the project is the one bin/profile finds from <dir> (default: the current
 // directory); --json — one JSON object on stdout instead of text.
 //
@@ -92,7 +94,7 @@ const MAX_WAIT_S = 3700
 const TEAM = new Set(["OWNER", "MEMBER", "COLLABORATOR"])
 const DROPPED = ["bot", "ignored_login", "ignored_prefix", "pr_author"]
 
-const USAGE = `usage: review-history <fetch|estimate|probe|stats|clean> [-C <dir>] [--json]
+const USAGE = `usage: review-history <fetch|estimate|probe|stats|clean|upgrade> [-C <dir>] [--json]
        review-history fetch [--since <date>] [--passes <n>]
        review-history estimate [--passes <n>]
 exit: 0 done, 1 failed, 2 usage, 3 not available (no registered project, no origin on GitHub, no gh, no access)`
@@ -145,7 +147,7 @@ function parseArgs(argv) {
         else if (!opts.command) opts.command = a
         else throw usage(`unexpected argument: ${a}`)
     }
-    if (!["fetch", "estimate", "probe", "stats", "clean"].includes(opts.command))
+    if (!["fetch", "estimate", "probe", "stats", "clean", "upgrade"].includes(opts.command))
         throw usage(opts.command ? `unknown command: ${opts.command}` : "no command")
     if (opts.since && opts.command !== "fetch") throw usage("--since goes with fetch only")
     if (opts.passes !== 1 && !["fetch", "estimate"].includes(opts.command)) throw usage("--passes goes with fetch and estimate only")
@@ -913,6 +915,64 @@ function cmdClean(opts, R, f) {
     return opts.json ? { removed: had ? f.raw : null } : had ? `removed ${f.raw}` : `nothing to remove: no ${f.raw}`
 }
 
+// --- upgrade: the read-only step 1 of an installed review skill --------------------------------------------------
+// A skill human-review-setup wrote before the template's step 1 became read-only (audit a) fetches and checks out
+// the pull request with the person's git hooks on, and nothing in it forbids running the author's code, while the
+// shell carries the person's GH_TOKEN. Step 1 of the template has no placeholder, so the generator copied it as it
+// is: `upgrade` puts the template's step 1 in place of the installed one, and adds the sentence of step 3 that binds
+// the sub-agents of /worfy:code-review to it. The rules of steps 2 to 7 and voice-examples.md stay as they are.
+// The file before goes to previous/SKILL-<stamp>-step1.md. Nothing is written when the skill is up to date, and
+// nothing at all when a piece is missing: then the person rebuilds it (exit 1).
+const TEMPLATE = path.join(BIN, "..", "skills", "human-review-setup", "template", "SKILL.template.md")
+const STEP3_LINE = /Paste the read-only paragraph of step 1[\s\S]*?either\./
+const STEP3_ANCHOR = /that\s+task\s+is\s+the\s+spec\./
+
+// Where `## <n>. ` starts and where the next `## ` heading after it does, or null without the step.
+function stepOf(text, n) {
+    const start = text.search(new RegExp(`^## ${n}\\. `, "m"))
+    if (start < 0) return null
+    const next = text.slice(start + 1).search(/^## /m)
+    return { start, end: next < 0 ? text.length : start + 1 + next }
+}
+
+function cmdUpgrade(opts, R, f) {
+    const skillFile = path.join(f.dir, ".claude", "skills", "human-review", "SKILL.md")
+    if (!fs.existsSync(skillFile)) return opts.json ? { upgraded: false, skill: null } : "no installed review skill: nothing to upgrade"
+    let template
+    try {
+        template = fs.readFileSync(TEMPLATE, "utf8").replace(/\r\n/g, "\n")
+    } catch (e) {
+        throw fail(`the template is not readable: ${e.message}`)
+    }
+    const before = fs.readFileSync(skillFile, "utf8").replace(/\r\n/g, "\n")
+    const want = stepOf(template, 1)
+    const line = STEP3_LINE.exec(template)
+    if (!want || !line) throw fail(`the template has no read-only step 1: ${TEMPLATE}`)
+    const one = stepOf(before, 1)
+    if (!one || before.search(/^## 2\. /m) < 0)
+        throw fail(`${skillFile} has no step 1 to upgrade: build the reviewer again with /worfy:human-review-setup`)
+    let after = before.slice(0, one.start) + template.slice(want.start, want.end) + before.slice(one.end)
+    const steps = after === before ? [] : [1]
+    if (!/Paste\s+the\s+read-only\s+paragraph\s+of\s+step\s+1/.test(after)) {
+        const three = stepOf(after, 3)
+        const anchor = three ? STEP3_ANCHOR.exec(after.slice(three.start, three.end)) : null
+        if (!anchor) throw fail(`${skillFile} has no step 3 sentence on the spec to add the read-only line after: build the reviewer again with /worfy:human-review-setup`)
+        const at = three.start + anchor.index + anchor[0].length
+        after = `${after.slice(0, at)} ${line[0].replace(/\s+/g, " ")}${after.slice(at)}`
+        steps.push(3)
+    }
+    if (!steps.length) return opts.json ? { upgraded: false, skill: skillFile } : `up to date: step 1 of ${skillFile} is the template's`
+    const stamp = now().toISOString().slice(0, 19).replace(/:/g, "-")
+    const previous = path.join(f.dir, "previous", `SKILL-${stamp}-step1.md`)
+    fs.mkdirSync(path.dirname(previous), { recursive: true })
+    fs.copyFileSync(skillFile, previous)
+    const tmp = `${skillFile}.${process.pid}.tmp`
+    fs.writeFileSync(tmp, after)
+    fs.renameSync(tmp, skillFile)
+    if (opts.json) return { upgraded: true, skill: skillFile, steps, previous }
+    return `upgraded step ${steps.join(" and ")} of ${skillFile} to the template's read-only step 1; the file before: ${previous}`
+}
+
 function main() {
     let opts = null
     try {
@@ -921,7 +981,7 @@ function main() {
         const R = prof._resolved || {}
         if (!R.dir) throw fail("the profile has no _resolved.dir")
         const f = folder(R)
-        const run = { fetch: cmdFetch, estimate: cmdEstimate, probe: cmdProbe, stats: cmdStats, clean: cmdClean }[opts.command]
+        const run = { fetch: cmdFetch, estimate: cmdEstimate, probe: cmdProbe, stats: cmdStats, clean: cmdClean, upgrade: cmdUpgrade }[opts.command]
         const result = run(opts, R, f)
         process.stdout.write((typeof result === "string" ? result : JSON.stringify(result, null, 2)) + "\n")
         process.exit(0)

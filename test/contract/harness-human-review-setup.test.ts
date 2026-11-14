@@ -330,6 +330,31 @@ describe('the template of the generated skill', () => {
     expect(three).toMatch(/Spec axis/)
   })
 
+  it('only reads the pull request: its code never runs, since the shell carries the person\'s GitHub token (audit a)', () => {
+    const one = templateStep(1)
+    const rule = blocks(one).find((b) => /^Read only\./.test(b))
+    expect(rule, one).toBeDefined()
+    expect(rule).toContain('`GH_TOKEN`')
+    expect(rule).toMatch(/never runs/)
+    for (const what of ['no build', 'no test', 'no package manager', 'no script of the repository']) expect(rule, what).toContain(what)
+    // What only a run would show is asked, never claimed, as step 4 does with a candidate it could not check.
+    expect(rule).toMatch(/becomes a question/)
+    // A paragraph, never a list item: review-draft-lint --skill takes a list item under a `## ` heading for a rule with [R<n>].
+    expect(one).not.toMatch(/^\s*[-*] .*never runs/m)
+    // /worfy:code-review and its sub-agents are bound by it too.
+    expect(templateStep(3)).toMatch(/read-only paragraph of step 1/)
+  })
+
+  it('fetches and checks out the pull request with hooks off: a hook manager would run the author\'s configuration (audit a)', () => {
+    const one = templateStep(1)
+    // Every git command step 1 writes out that brings the author's code in: fetch, worktree add, checkout, switch, clone, pull.
+    const commands = one.split('\n').filter((line) => /^\s*git\b.*\b(fetch|worktree add|checkout|switch|clone|pull)\b/.test(line))
+    expect(commands, one).toHaveLength(2)
+    expect(commands.some((c) => /\bworktree add\b/.test(c)), one).toBe(true)
+    for (const c of commands) expect(c, c).toMatch(/^\s*git -c core\.hooksPath=\/dev\/null (fetch|worktree add) /)
+    expect(one).toMatch(/post-checkout/)
+  })
+
   it('in step 4 checks every candidate on the head commit and turns an unchecked one into a question', () => {
     const four = templateStep(4)
     expect(four).toContain('git show <headRefOid>:<path>')
@@ -681,6 +706,90 @@ describe('refresh.md: the update with --refresh (worfy-human-review ticket 10)',
     expect(five).toContain('`raw/skill/`')
     expect(five).toMatch(/section 6[^.]*(does not run|not now)/i)
     expect(five).toMatch(/Accept/)
+  })
+
+  it('merges the new voice examples into the installed voice-examples.md, never replaces it by the slice alone (audit a)', () => {
+    const five = part(5).replace(/\s+/g, ' ')
+    expect(five).toMatch(/section 3/)
+    // The draft starts from the installed file, not from the template.
+    expect(five).toContain('copy `<private folder>/.claude/skills/human-review/voice-examples.md` to `raw/skill/voice-examples.md`')
+    expect(five).toMatch(/keeps? (its|the) earlier examples/)
+    expect(five).toMatch(/up to 6/)
+    // A tier the slice has no comment of keeps its examples instead of "No comments of this tier in the window."
+    expect(five).toMatch(/no new comment[^.]*keeps/)
+    // The kept examples link to pull requests outside the slice: the lint knows them from the installed file.
+    expect(five).toContain('--known "<private folder>/.claude/skills/human-review/voice-examples.md"')
+  })
+
+  it('puts the labels of the kept voice examples into the labels of this run before the merge (audit a, round 2)', () => {
+    const five = part(5).replace(/\s+/g, ' ')
+    // Each run gives `reviewer A`, `reviewer B`, … again by its own window: a kept `reviewer A` may be another person.
+    expect(five).toMatch(/may be another person than `reviewer A` of `raw\/reviewers\.json`/)
+    // The pairing goes through the link of a kept example: a `url` of `raw/prs.jsonl`, its author, its label.
+    expect(five).toMatch(/link is a `url` of `raw\/prs\.jsonl`[^.]*author[^.]*`raw\/reviewers\.json`/)
+    expect(five).toMatch(/prints labels only, never a login/)
+    // A label of before with no pair never passes for a label of this run.
+    expect(five).toContain('`<label> (before <date>)`')
+    expect(five).toMatch(/already carries `\(before …\)`[^.]*stays/)
+    // The relabelling comes before the examples are picked and before the counts.
+    const relabel = five.indexOf('First put its labels')
+    expect(relabel, five).toBeGreaterThan(five.indexOf('copy `<private folder>/.claude/skills/human-review/voice-examples.md`'))
+    expect(relabel).toBeLessThan(five.indexOf('Each tier keeps its earlier examples'))
+    expect(relabel).toBeLessThan(five.indexOf('Count the reviewers of each tier again'))
+    // The counts are of labels, and a `(before …)` label may be one person with another: said in the file and the diff.
+    expect(five).toMatch(/Count the reviewers of each tier again[^.]*by label/)
+    expect(five).toMatch(/`\(before …\)` label may be the same person as another label/)
+    // So one person under two labels cannot pass the rule of a third or the one-or-two line: each group is checked apart.
+    expect(five).toMatch(/counted in two groups apart — its examples under the labels of this run, and its examples under `\(before …\)` labels/)
+    expect(five).toMatch(/rule of a third holds inside each group[^.]*not only over the whole tier/)
+    expect(five).toMatch(/line on one or two reviewers when neither group has more than two labels/)
+    const six = part(6).replace(/\s+/g, ' ')
+    expect(six).toMatch(/rule of a third and the line on one or two reviewers were checked in each group apart/)
+    expect(six).toMatch(/labels the kept examples changed, old → new/)
+    expect(six).toMatch(/`\(before …\)`[^.]*may be (one|the same) person/)
+  })
+
+  it('drops the kept voice examples of the held-out pull requests before the merge: the check never sees the team\'s comment on its own pull request (audit a, round 4)', () => {
+    const five = part(5).replace(/\s+/g, ' ')
+    const drop = five.indexOf('Then drop every kept example of a held-out pull request')
+    expect(drop, five).toBeGreaterThan(-1)
+    expect(five.slice(drop)).toMatch(/^[^.]*link names, as `<owner>\/<repo>#<number>`, a pull request of `raw\/refresh\/held_out\.json`/)
+    // After the labels are put into this run's labels, before the tiers keep, take and count their examples.
+    expect(drop).toBeGreaterThan(five.indexOf('First put its labels'))
+    expect(drop).toBeLessThan(five.indexOf('Each tier keeps its earlier examples'))
+    expect(drop).toBeLessThan(five.indexOf('Count the reviewers of each tier again'))
+    expect(five).toMatch(/prints the links it dropped, never a text/)
+    expect(five).toMatch(/one the drop has left with none says "No comments of this tier in the window\."/)
+    // The diff tells the person why such an example went.
+    expect(part(6).replace(/\s+/g, ' ')).toMatch(/dropped one of a held-out pull request the words "held out"/)
+  })
+
+  it('brings step 1 of the installed skill up to the read-only one before anything else, kept on Nothing new and Reject (audit a, round 4)', () => {
+    const one = part(1).replace(/\s+/g, ' ')
+    const upgrade = one.indexOf('"<plugin>/bin/review-history" upgrade; echo "EXIT=$?"')
+    expect(upgrade, one).toBeGreaterThan(one.indexOf('there is no reviewer to update'))
+    expect(upgrade).toBeLessThan(one.indexOf('The date the update reads from'))
+    expect(one).toMatch(/stays on "Nothing new", on "no" and on \*\*Reject\*\*/)
+    expect(one).toMatch(/On exit 1 [^.]*build the reviewer again with `\/worfy:human-review-setup` without `--refresh`, and stop/)
+    // The opening of the file names it among what changes before Accept.
+    expect((refresh.split(/^## /m)[0] ?? '').replace(/\s+/g, ' ')).toMatch(/step 1 of the installed skill, which `review-history upgrade` brings up/)
+  })
+
+  it('the template keeps what review-history upgrade relies on: step 1 without a placeholder, the line of step 3 after "that task is the spec." (audit a, round 4)', () => {
+    // The generator copies a step with no placeholder as it is, so upgrade may put the template's step 1 in place of an installed one.
+    expect(templateStep(1)).not.toMatch(/\{\{/)
+    const three = templateStep(3).replace(/\s+/g, ' ')
+    expect(three).toMatch(/that task is the spec\. Paste the read-only paragraph of step 1 [^.]*either\./)
+  })
+
+  it('shows the person which voice examples the update adds and drops before Accept (audit a)', () => {
+    const six = part(6).replace(/\s+/g, ' ')
+    expect(six).toContain('**Voice examples**')
+    expect(six).toMatch(/added/)
+    expect(six).toMatch(/dropped/)
+    const eight = part(8)
+    expect(eight.indexOf('**Voice examples**'), eight).toBeGreaterThan(-1)
+    expect(eight.indexOf('**Voice examples**')).toBeLessThan(eight.indexOf('- **Accept**'))
   })
 
   it('the diff of the rules names the added, changed and removed rules, each with [R<n>] and its numbers "before → now"', () => {
