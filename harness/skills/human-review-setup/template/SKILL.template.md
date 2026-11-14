@@ -36,9 +36,12 @@ To read files at the head commit without touching the person's working tree, ope
 head commit in a new temporary folder (`mktemp -d`, below `<tmp>`):
 
 ```bash
-git fetch origin "pull/<n>/head" "<baseRefName>"; echo "EXIT=$?"
-git worktree add --detach "<tmp>/pr-<n>" "<headRefOid>"; echo "EXIT=$?"
+git -c core.hooksPath=/dev/null fetch origin "pull/<n>/head" "<baseRefName>"; echo "EXIT=$?"
+git -c core.hooksPath=/dev/null worktree add --detach "<tmp>/pr-<n>" "<headRefOid>"; echo "EXIT=$?"
 ```
+
+Keep `-c core.hooksPath=/dev/null` in both. A checkout runs the person's `post-checkout` hook inside the new
+worktree, and a hook manager there (lefthook, pre-commit, husky) reads its configuration from the author's files.
 
 Remove it when the review is over, posted or not: `git worktree remove "<tmp>/pr-<n>"`.
 

@@ -76,7 +76,8 @@ this order:
 skill `/human-review`: the Orchestrator, "New session", "Ship ticket" and a Product Session. Asked to review a pull
 request, it writes a draft in the team's voice, checks it with `review-draft-lint`, and shows it. It only reads the
 pull request: the Session's shell carries the person's GitHub token, so it never builds, tests or runs the author's
-code, and what only a run would show becomes a question. Nothing goes to
+code, fetches and checks the pull request out with git hooks switched off, and what only a run would show becomes a
+question. Nothing goes to
 GitHub without the person's explicit "yes" to that draft in the conversation; a request to change it, a question or
 silence is not a "yes". These Sessions never get it:
 

@@ -345,6 +345,16 @@ describe('the template of the generated skill', () => {
     expect(templateStep(3)).toMatch(/read-only paragraph of step 1/)
   })
 
+  it('fetches and checks out the pull request with hooks off: a hook manager would run the author\'s configuration (audit a)', () => {
+    const one = templateStep(1)
+    // Every git command step 1 writes out that brings the author's code in: fetch, worktree add, checkout, switch, clone, pull.
+    const commands = one.split('\n').filter((line) => /^\s*git\b.*\b(fetch|worktree add|checkout|switch|clone|pull)\b/.test(line))
+    expect(commands, one).toHaveLength(2)
+    expect(commands.some((c) => /\bworktree add\b/.test(c)), one).toBe(true)
+    for (const c of commands) expect(c, c).toMatch(/^\s*git -c core\.hooksPath=\/dev\/null (fetch|worktree add) /)
+    expect(one).toMatch(/post-checkout/)
+  })
+
   it('in step 4 checks every candidate on the head commit and turns an unchecked one into a question', () => {
     const four = templateStep(4)
     expect(four).toContain('git show <headRefOid>:<path>')
