@@ -275,6 +275,27 @@ describe('the popover', () => {
     expect(within(rowOf(shown, 'example-tracker')).getByTestId('mcp-row-action-error').textContent).toBe('Reconnect failed: connection refused again')
   })
 
+  it('a Turn off main refuses while background tasks run: the reason in a toast and in the row; the button stays, and a later try clears it (ticket 13)', async () => {
+    // main's words (restartWouldEndTasks, src/main/agent/session.ts); the rows come back as they were.
+    const reason = '2 background tasks of this Session are still running, and a Restart would end them. Try again once they finish.'
+    main.answers['agent.mcpAction'] = () => ({ ok: true, value: { servers: ROWS, error: reason } })
+    render(<McpChip sessionId="s" rows={ROWS} autopilot={false} />)
+    const popover = open()
+    const turnOff = () => within(rowOf(popover, 'example-notes')).getByRole('button', { name: 'Turn off for this Session' })
+    await act(async () => fireEvent.click(turnOff()))
+    expect(main.toasts).toEqual([expect.objectContaining({ kind: 'error', text: `Turn off for this Session example-notes: ${reason}` })])
+    expect(within(rowOf(popover, 'example-notes')).getByTestId('mcp-row-action-error').textContent).toBe(`Turn off for this Session failed: ${reason}`)
+    expect(turnOff().getAttribute('aria-disabled')).toBeNull()
+
+    // The tasks ended: the same button, with no new read of the rows, does it.
+    const off = ROWS.map((each) => (each.name === 'example-notes' ? { ...each, status: 'disabled' as const, tools: null, actions: ['turn-on' as const] } : each))
+    main.answers['agent.mcpAction'] = () => ({ ok: true, value: { servers: off, error: null } })
+    await act(async () => fireEvent.click(turnOff()))
+    expect(main.calls.filter((call) => call.channel === 'agent.mcpAction')).toHaveLength(2)
+    expect(within(rowOf(popover, 'example-notes')).queryByTestId('mcp-row-action-error')).toBeNull()
+    expect(useSessionLogs.getState().logs.s?.mcp?.servers).toEqual(off)
+  })
+
   it('Escape closes the popover and gives the focus back to the chip, and the press goes no further', () => {
     render(<McpChip sessionId="s" rows={ROWS} autopilot={false} />)
     const popover = open()

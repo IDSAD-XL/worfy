@@ -21,7 +21,7 @@ import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeInventoryStarter, fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
-import { allowAllNotStarted, allowNotStarted, SessionRegistry, type QueryHandle, type QueryRequest } from '../../src/main/agent/session'
+import { allowAllNotStarted, allowNotStarted, restartWouldEndTasks, SessionRegistry, type QueryHandle, type QueryRequest } from '../../src/main/agent/session'
 import { agentHandlers, allowQueueKey } from '../../src/main/ipc/agent'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import type { ProfileSetRunner } from '../../src/main/ipc/pipeline'
@@ -513,6 +513,41 @@ describe('Allow all in an unattended Session (Autopilot)', () => {
     expect(h.queries()).toHaveLength(queriesBefore)
     expect(names.map((name) => answer.servers?.find((each) => each.name === name)?.status)).toEqual(['not-allowed', 'not-allowed', 'not-allowed'])
     await h.stopped(1)
+  })
+})
+
+describe('Allow and Allow all while a background task runs (ADR-0029, worfy-mcp-live ticket 13)', () => {
+  /** The fake agent's close() calls that cut background tasks short: Claude Code would have killed them. */
+  const killed = (h: Awaited<ReturnType<typeof harness>>) => h.calls.filter((call) => call.kind === 'close' && call.backgroundTasks.length > 0)
+
+  it('Allow is refused with the reason over IPC: nothing written, no Restart, the task lives', async () => {
+    const h = await harness(LIST, undefined, 'mcp-allow-tasks')
+    await withTrackerOutside(h)
+    await vi.waitFor(() => expect(h.session.backgroundTasks()).toHaveLength(1))
+
+    const result = await h.allow('example-tracker')
+    expect(result).toEqual({ ok: true, value: { servers: [NOTES, CANVAS, TRACKER_NOT_ALLOWED], error: restartWouldEndTasks(1) } })
+    expect(h.set.calls).toEqual([])
+    expect(h.processStarts()).toHaveLength(1)
+    expect(h.stub.order().map((each) => each.split(' ').slice(0, 2).join(' '))).toEqual(['spawn 1'])
+    expect(killed(h)).toEqual([])
+    expect(h.session.backgroundTasks().map((task) => task.taskId)).toEqual(['task_mcp_0001'])
+    expect(h.session.state).toBe('idle')
+  })
+
+  it('Allow all is refused the same way', async () => {
+    const h = await harness(LIST, undefined, 'mcp-allow-three-tasks')
+    await h.turn('one')
+    const three = ['example-tracker', 'example-docs', 'example-wiki']
+    await vi.waitFor(() => expect(h.ofType('mcp').at(-1)?.servers?.filter((each) => each.status === 'not-allowed').map((each) => each.name)).toEqual(three))
+    await vi.waitFor(() => expect(h.session.backgroundTasks()).toHaveLength(1))
+
+    const result = await h.allowAll(three)
+    expect(result).toEqual({ ok: true, value: { servers: expect.any(Array) as unknown, error: restartWouldEndTasks(1) } })
+    expect(h.set.calls).toEqual([])
+    expect(h.processStarts()).toHaveLength(1)
+    expect(killed(h)).toEqual([])
+    expect(h.session.backgroundTasks()).toHaveLength(1)
   })
 })
 
