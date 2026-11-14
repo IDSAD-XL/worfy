@@ -13,7 +13,8 @@
 // - Details: a second query only for the PRs whose `updatedAt` moved past what the cache holds, 10 PRs a call, without
 //   `diffHunk` or `files` (large pages timed out with 504 on a big repository). CI finishing or a new conflict does
 //   not move `updatedAt`, so a cached PR whose CI runs or whose mergeability GitHub had not computed yet is read again
-//   too, at most one page of them per search. HTTP 502 or 504 — the same PRs again in two halves; HTTP 503 — the
+//   too, and any other PR whose details are 30 minutes old (a conflict a merge of another PR made, a rerun of CI):
+//   all in one page per search at most, the unsettled first, then the longest unread. HTTP 502 or 504 — the same PRs again in two halves; HTTP 503 — the
 //   same call again, at most twice; as harness/bin/review-history does. A PR GitHub cannot resolve (deleted, or
 //   moved) fails the whole page in gh: the page's PRs are then read one by one, and that PR leaves the cache.
 // - Pace: a search per Project every 5 minutes, focused or not. A failed read doubles the interval up to 30 minutes;
@@ -46,6 +47,12 @@ export const INBOX_MAX_INTERVAL_MS = 30 * 60_000
 export const INBOX_TICK_MS = 30_000
 export const INBOX_SEARCH_LIMIT = 100
 export const INBOX_DETAILS_PAGE = 10
+/**
+ * The age of a cached PR's details after which a search reads them again though its `updatedAt` stays: a conflict a
+ * merge of another PR made, or a rerun of CI, does not move it. Six searches; the room left in the one page of
+ * unsettled PRs takes them, so a Project of a few PRs costs one details call per 30 minutes at most.
+ */
+export const INBOX_REREAD_MS = 30 * 60_000
 /** Below this share of the rate limit left, the account's calls wait for `resetAt`. */
 export const RATE_LIMIT_FLOOR = 0.1
 /** Retries of one call after HTTP 503, or after 502/504 on a page of one PR. */
@@ -241,6 +248,8 @@ export interface PrInboxOptions {
 
 interface CachedPull {
   pull: InboxPull
+  /** When its details were read last. */
+  readAt: number
 }
 
 interface AccountCache {
@@ -514,10 +523,13 @@ export class PrInbox {
           const cached = cache!.pulls.get(key)
           return cached === undefined || timeOf(member.updatedAt) > timeOf(cached.pull.updatedAt)
         })
-        // CI finishing or a new conflict does not move updatedAt: such PRs are read again too, one page at most.
+        // CI finishing or a new conflict does not move updatedAt: such PRs are read again too, one page at most — the
+        // unsettled first, then the PRs read INBOX_REREAD_MS ago or earlier, the longest unread first.
         const movedKeys = new Set(moved.map(([key]) => key))
-        const settling = [...state.members].filter(([key]) => !movedKeys.has(key) && unsettled(cache!.pulls.get(key)!.pull)).slice(0, INBOX_DETAILS_PAGE)
-        const stale = [...moved, ...settling]
+        const unmoved = [...state.members].filter(([key]) => !movedKeys.has(key)).map(([key]) => [key, cache!.pulls.get(key)!] as const)
+        const settling = unmoved.filter(([, cached]) => unsettled(cached.pull))
+        const quiet = unmoved.filter(([, cached]) => !unsettled(cached.pull) && now - cached.readAt >= INBOX_REREAD_MS).sort(([, a], [, b]) => a.readAt - b.readAt)
+        const stale = [...moved, ...[...settling, ...quiet].slice(0, INBOX_DETAILS_PAGE)]
         const repos = new Map(stale.map(([key]) => [key, this.repoOfKey(key, state)]))
         const refs = stale.map(([key]) => refOf(key, repos.get(key)!))
         for (let at = 0; at < refs.length && cache.pausedUntil <= now; at += INBOX_DETAILS_PAGE) {
@@ -604,7 +616,7 @@ export class PrInbox {
       const key = keyOf(`${ref.owner}/${ref.name}`, ref.number)
       const raw = (json.data[`p${n}`] as { pullRequest?: unknown } | null | undefined)?.pullRequest
       const parsed = pullSchema.safeParse(raw)
-      if (parsed.success) cache.pulls.set(key, { pull: toPull(repos.get(key) ?? `${ref.owner}/${ref.name}`, parsed.data) })
+      if (parsed.success) cache.pulls.set(key, { pull: toPull(repos.get(key) ?? `${ref.owner}/${ref.name}`, parsed.data), readAt: this.now() })
       else cache.pulls.delete(key)
     }
   }

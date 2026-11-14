@@ -203,7 +203,9 @@ replies**, and the channels of drafts and Send are refused to a Linked machine a
 ### How it works
 
 - Main reads GitHub, by Project, with the Project's GitHub account, only the Project's repositories: a search every 5
-  minutes, then the details of the PRs that moved, their size (`additions`, `deletions`) among them. It computes the groups and the counts and sends the view a snapshot
+  minutes, then the details of the PRs that moved, their size (`additions`, `deletions`) among them. A conflict that a
+  merge of another PR made, or a rerun of CI, does not move a PR on GitHub's side: such a PR is read again once its
+  details are 30 minutes old, at most one page of 10 PRs per search. It computes the groups and the counts and sends the view a snapshot
   ([ADR-0105](../adr/0105-pr-reply-only-on-the-users-click.md), point 1). The view only draws it.
 - The words of colleagues stay in main's memory. What the user has seen goes to the Project's data folder as ids, a
   commit and a time, never a text ([ADR-0005](../adr/0005-worfy-own-state-inventory.md), amended by ADR-0105).

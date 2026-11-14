@@ -312,6 +312,44 @@ describe('the search of a Project', () => {
     expect(detailsAsked(gh).map((page) => page.length)).toEqual([10, 2, 10])
   })
 
+  it('re-reads a settled PR whose updatedAt stays within 30 minutes: a conflict from another merge moves it to needs-fix (audit 159)', async () => {
+    const gh = world([quietPull(API, 1, { reviewDecision: 'APPROVED' })])
+    const inbox = reader(gh, [project('p1', [API])])
+    await inbox.tick()
+    const groupOf = () => inbox.snapshot('p1').groups.find((group) => group.rows.some((row) => row.number === 1))?.group
+    expect(groupOf()).toBe('ready')
+
+    // Another PR merged into the base: a conflict, and updatedAt did not move.
+    gh.set([quietPull(API, 1, { reviewDecision: 'APPROVED', mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY' })])
+    for (let search = 1; search < 6; search++) {
+      clock += INBOX_SEARCH_INTERVAL_MS
+      await inbox.tick()
+    }
+    // Not at every search: five searches later, still the one read of the start.
+    expect(detailsAsked(gh)).toHaveLength(1)
+    clock += INBOX_SEARCH_INTERVAL_MS
+    await inbox.tick()
+    expect(detailsAsked(gh)).toEqual([[`${API}#1`], [`${API}#1`]])
+    expect(groupOf()).toBe('needs-fix')
+  })
+
+  it('re-reads quiet PRs one page per search at most, the longest unread first, in the page of the unsettled ones (audit 159)', async () => {
+    const gh = world([...Array.from({ length: 12 }, (_, index) => quietPull(API, index + 1)), quietPull(API, 13, rollup('PENDING'))])
+    const inbox = reader(gh, [project('p1', [API])])
+    await inbox.tick()
+    expect(detailsAsked(gh).map((page) => page.length)).toEqual([10, 3])
+    for (let search = 1; search <= 6; search++) {
+      clock += INBOX_SEARCH_INTERVAL_MS
+      await inbox.tick()
+    }
+    // Five searches re-read the running PR alone; the sixth fills its page with the first nine quiet PRs.
+    expect(detailsAsked(gh).slice(2).map((page) => page.length)).toEqual([1, 1, 1, 1, 1, 10])
+    expect(detailsAsked(gh).at(-1)).toEqual([`${API}#13`, ...Array.from({ length: 9 }, (_, index) => `${API}#${index + 1}`)])
+    clock += INBOX_SEARCH_INTERVAL_MS
+    await inbox.tick()
+    expect(detailsAsked(gh).at(-1)).toEqual([`${API}#13`, `${API}#10`, `${API}#11`, `${API}#12`])
+  })
+
   it('a PR no search finds any more leaves the cache: found again, its details are read again', async () => {
     const gh = world([stubPull(API, 1), stubPull(API, 2)])
     const inbox = reader(gh, [project('p1', [API])])
