@@ -77,7 +77,7 @@ beforeEach(() => {
   calls = join(dir, 'npm-calls.log')
   writeFileSync(calls, '')
   writeFileSync(join(dir, 'gitconfig'), '')
-  stubVars = { RELEASE_STUB_PUBLISHED: '', RELEASE_STUB_CODE: '0' }
+  stubVars = { RELEASE_STUB_PUBLISHED: '', RELEASE_STUB_CODE: '0', RELEASE_STUB_MISSING: '' }
   // The stand-in npm first on the PATH, git from the PATH of the tests. On Windows a `npm.cmd`, as npm leaves one there.
   if (WINDOWS) writeFileSync(join(bin, 'npm.cmd'), `@"${NODE}" "${join(STUBS, 'npm.mjs')}" %*\r\n`)
   else symlinkSync(join(STUBS, 'npm'), join(bin, 'npm'))
@@ -154,6 +154,20 @@ describe('the release reader', () => {
     expect(gone.reason).toMatch(/^git ls-remote exited \d+/u)
   })
 
+  it('tag: a tag in the changesets form <name>@<version>, scoped or not, is asked about; a sign cmd.exe reads is not', async () => {
+    const lib = repoAt(join(dir, 'lib'), join(dir, 'lib-origin.git'))
+    const reader = new ReleaseReader({ env, intervalMs: 0 })
+    const places: ReleasePlaces = { library: lib, consumer: null }
+    for (const ref of ['@acme/lots@1.4.0', 'lots@1.4.0']) {
+      const line: TicketRelease = { ...tagLine, ref }
+      expect(await reader.check(line, places)).toEqual({ state: 'waiting', reason: null })
+      git(lib, 'tag', ref)
+      git(lib, 'push', '-q', 'origin', ref)
+      expect(await reader.check(line, places)).toEqual({ state: 'released', reason: null })
+    }
+    expect(await reader.check({ ...tagLine, ref: 'lots@1.4.0&calc' }, places)).toEqual({ state: 'not checked', reason: 'lots@1.4.0&calc is not a tag name worfy passes to git' })
+  })
+
   it('tag: a library folder that is not the top level of its repository, or none, is not checked', async () => {
     const outer = repoAt(join(dir, 'outer'), join(dir, 'outer-origin.git'))
     git(outer, 'tag', TAG)
@@ -184,6 +198,25 @@ describe('the release reader', () => {
     stubVars.RELEASE_STUB_CODE = '1'
     const check = await new ReleaseReader({ env, intervalMs: 0 }).check(packageLine, { library: null, consumer: app })
     expect(check).toEqual({ state: 'not checked', reason: 'npm view exited 1: npm error network request to https://registry.example/ failed' })
+  })
+
+  it('package: npm 11 answers a version that is not there with E404 and exit 1 — waiting, and a second answer calls nobody back', async () => {
+    const app = repoAt(join(dir, 'app'))
+    stubVars.RELEASE_STUB_MISSING = 'e404'
+    let now = 0
+    const reader = new ReleaseReader({ env, intervalMs: 1000, now: () => now })
+    const places: ReleasePlaces = { library: null, consumer: app }
+    expect(await reader.check(packageLine, places)).toEqual({ state: 'waiting', reason: null })
+    // npm names a new log file on every run: had the reason carried it, each ask would call the Stages back.
+    now = 1000
+    let calledBack = 0
+    reader.peek(packageLine, places, () => (calledBack += 1))
+    await reader.idle()
+    expect(calledBack).toBe(0)
+    expect(npmCalls()).toHaveLength(2)
+    stubVars.RELEASE_STUB_PUBLISHED = PACKAGE
+    now = 2000
+    expect(await reader.check(packageLine, places)).toEqual({ state: 'released', reason: null })
   })
 
   it('package: a ref that is not <name>@<version>, an unknown kind, no consumer — not checked, and npm is not run', async () => {

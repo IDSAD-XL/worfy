@@ -53,8 +53,12 @@ const NPM_TIMEOUT_MS = 30_000
 /** Variables that would point git at another repository than the one `-C` names. */
 const GIT_LOCATION_VARS = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE']
 
-/** A tag worfy passes to git: letters, digits and `._/+-`, not starting with a sign. */
-const TAG = /^[A-Za-z0-9][A-Za-z0-9._/+-]*$/u
+/**
+ * A tag worfy passes to git: letters, digits and `._/+-@`, not starting with a sign other than `@`. `@` is for the tags
+ * changesets makes, `<name>@<version>` and `@scope/name@<version>`; cmd.exe gives it no meaning inside a command line.
+ * Not all `git check-ref-format` takes: `&`, `|`, `%` and the like would reach cmd.exe.
+ */
+const TAG = /^[A-Za-z0-9@][A-Za-z0-9._/+@-]*$/u
 /** `<name>@<version>` of npm: a name of lower case letters, with a scope or without. */
 const PACKAGE = /^((?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*)@(.+)$/u
 /**
@@ -85,6 +89,9 @@ const lastLine = (text: string): string =>
 const keyOf = (release: TicketRelease, places: ReleasePlaces): string => [release.kind, release.ref, places.library ?? '', places.consumer ?? ''].join('\n')
 
 const notChecked = (reason: string): ReleaseCheck => ({ state: 'not checked', reason })
+
+/** npm 11 answers a version or a package that is not there with `npm error code E404` and exit 1 (older npm: `npm ERR!`). */
+const NOT_FOUND = /^npm (?:error|ERR!) code E404\s*$/mu
 
 /** Why a run that did not exit 0 tells nothing: its exit code and the last line of its stderr. */
 const failure = (command: string, run: ToolRun): string =>
@@ -174,8 +181,9 @@ export class ReleaseReader {
     if ('reason' in found) return notChecked(found.reason)
     if (consumer === null) return notChecked('no checkout of a consumer to run npm view in')
     const run = await this.run('npm', ['view', `${found.name}@${found.version}`, 'version'], consumer, await this.options.env(), NPM_TIMEOUT_MS)
-    if (run.code !== 0) return notChecked(failure('npm view', run))
-    // A published version is printed alone; a version that is not there prints nothing, with exit 0.
+    // Not published yet: npm 11 fails with E404, and the reason would carry a new log path on every ask.
+    if (run.code !== 0) return NOT_FOUND.test(run.stderr) ? { state: 'waiting', reason: null } : notChecked(failure('npm view', run))
+    // A published version is printed alone; a version that is not there prints nothing, with exit 0 (npm before 11).
     const printed = run.stdout.split(/\r?\n/u).map((line) => line.replace(/'/gu, '').trim().split(/\s+/u).at(-1))
     return { state: printed.includes(found.version) ? 'released' : 'waiting', reason: null }
   }

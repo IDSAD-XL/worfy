@@ -336,9 +336,11 @@ list, because it notified of it itself. A click on a Linked machine's note opens
   for each `Release:` line of a Ticket in work. `Release: <repo> tag <tag>` is met when `git ls-remote --tags origin
   refs/tags/<tag>` in the checkout of that repository lists the tag. `Release: <repo> package <name>@<version>` is met when
   `npm view <name>@<version> version` prints the version; it runs in the checkout of the Ticket's first other repository,
-  the consumer, so that checkout's `.npmrc` and registry settings apply. Both run with the login shell's environment. A
+  the consumer, so that checkout's `.npmrc` and registry settings apply. A version npm does not find (no output, or the
+  E404 error with exit code 1 that npm 11 gives) waits. Both run with the login shell's environment. A
   remote or registry that does not answer, a folder that is not the top level of its repository, and a ref that is not a
-  plain tag name or `<name>@<version>` with a plain version (`1.4.0`, `1.4.0-rc.1`; not `latest`, `v1.4.0` or
+  plain tag name (letters, digits and `._/+-@`, so the changesets form `@scope/name@1.4.0` counts) or `<name>@<version>`
+  with a plain version (`1.4.0`, `1.4.0-rc.1`; not `latest`, `v1.4.0` or
   `1.4.0+b1`) give "not checked", never released, and a line in the snapshot's reasons. The Stages never wait for these
   commands: all lines are asked at the same time in the background, a read takes the last answer, or "not checked" before
   the first, and an answer that changes what was known computes the Stages again. An answer is asked again after 5

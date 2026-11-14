@@ -2,7 +2,9 @@
 # npm for the release check (test/contract/workflow-release.test.ts): only shell built-ins. Logs its arguments and the
 # folder it ran in to $RELEASE_STUB_CALLS. `npm view <name>@<version> version` prints the version when
 # "<name>@<version>" is in $RELEASE_STUB_PUBLISHED (space separated) and nothing otherwise, as npm does for a version
-# that is not there; with $RELEASE_STUB_CODE not 0 it fails as npm does when the registry does not answer.
+# that is not there; with $RELEASE_STUB_MISSING=e404 such a version fails with E404 and exit 1 instead, as npm 11 does,
+# its log path different on every run; with $RELEASE_STUB_CODE not 0 it fails as npm does when the registry does not
+# answer.
 printf 'npm %s cwd=%s\n' "$*" "$(pwd)" >>"$RELEASE_STUB_CALLS"
 if [ "${RELEASE_STUB_CODE:-0}" -ne 0 ]; then
   printf 'npm error code ENOTFOUND\nnpm error network request to https://registry.example/ failed\n' >&2
@@ -10,4 +12,10 @@ if [ "${RELEASE_STUB_CODE:-0}" -ne 0 ]; then
 fi
 case " $RELEASE_STUB_PUBLISHED " in
   *" $2 "*) printf '%s\n' "${2##*@}" ;;
+  *)
+    if [ "${RELEASE_STUB_MISSING:-}" = e404 ]; then
+      printf "npm error code E404\nnpm error 404 No match found for version %s\nnpm error 404\nnpm error 404  The requested resource '%s' could not be found or you do not have permission to access it.\nnpm error A complete log of this run can be found in: /npm/_logs/%s-debug-0.log\n" "${2##*@}" "$2" "$$" >&2
+      exit 1
+    fi
+    ;;
 esac
