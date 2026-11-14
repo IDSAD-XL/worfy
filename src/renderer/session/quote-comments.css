@@ -94,15 +94,11 @@
   }
 }
 
-/* What floats over the transcript: the button, the menu, the popover, the card. The button and the menu
-   place themselves (QuoteCommentParts.tsx, placeNear); the popover and the card are popups of the kit
-   (theme/kit/Popover.tsx, PreviewCard.tsx), whose positioner places them. The compound selectors win over
-   the kit's frame (`.w-kit-popover`) whatever the order of the stylesheets: the look is the one before the kit. */
-.w-qfab,
-.w-qmenu {
-  position: fixed;
-}
-
+/* What floats over the transcript: the button, the menu, the popover, the card. The button places itself
+   (QuoteCommentParts.tsx, placeNear); the menu, the popover and the card are popups of the kit
+   (theme/kit/ContextMenu.tsx, Popover.tsx, PreviewCard.tsx), whose positioner places them. The compound
+   selectors win over the kit's frame (`.w-kit-popover`) whatever the order of the stylesheets: the look is
+   the one before the kit. */
 .w-qfab,
 .w-qmenu,
 .w-kit-popover.w-qpop,
@@ -118,8 +114,9 @@
   animation: w-quote-pop-in 0.12s ease-out;
 }
 
-/* The button next to a selection: under the popover and the card of a comment (the popover layer). */
+/* The button next to a selection: under the menu, the popover and the card of a comment (the popover layer). */
 .w-qfab {
+  position: fixed;
   z-index: var(--z-panel);
   border-radius: var(--radius-node);
 }
@@ -164,13 +161,13 @@
 
 /* The menu of a right click in an agent's message. */
 .w-qmenu {
-  z-index: 320;
   min-width: 210px;
   padding: 4px;
   animation-duration: 0.1s;
 }
 
 .w-qmenu__item {
+  box-sizing: border-box;
   width: 100%;
   height: 26px;
   display: flex;
@@ -186,13 +183,13 @@
   cursor: pointer;
 }
 
-.w-qmenu__item:hover:not(:disabled),
-.w-qmenu__item:focus-visible {
+.w-qmenu__item[data-highlighted]:not([aria-disabled='true']),
+.w-qmenu__item[aria-disabled='true']:focus-visible {
   background: color-mix(in srgb, var(--primary) 16%, transparent);
   outline: none;
 }
 
-.w-qmenu__item:disabled {
+.w-qmenu__item[aria-disabled='true'] {
   color: var(--text-muted);
   cursor: default;
 }
