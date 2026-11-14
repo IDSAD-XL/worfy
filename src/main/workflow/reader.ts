@@ -57,7 +57,19 @@ export interface ReaderOptions {
   concurrency?: number
   /** Where the workflow lives; read from the Harness (src/main/workflow/folder.ts) when absent. */
   layout?: ProjectLayout
+  /** Runs git for the list of worktrees (ticketWorktrees); tests replace it. */
+  git?: GitRunner
+  /**
+   * What a `git worktree list` that failed twice in a row makes of the read (audit finding 203). `hold`, the
+   * default: the open Tickets are held as unread (unlistedBranches). `error`: the model's error, with no Tickets —
+   * for a read whose answer decides at once and that nothing asks again by itself (Autopilot, src/main/ipc/autopilot.ts):
+   * held Tickets would read there as a Wave still in work or as no ready Wave.
+   */
+  listFailure?: 'hold' | 'error'
 }
+
+/** Runs git in `cwd` with `args` and answers its stdout. */
+export type GitRunner = (cwd: string, args: string[]) => Promise<string>
 
 /** A worktree whose branch names a Ticket. */
 export interface TicketWorktree {
@@ -438,7 +450,7 @@ function git(cwd: string, args: string[]): Promise<string> {
  * no worktrees is not what git said, and a Ticket claimed in one would read as open
  * (readBranches with a WorktreeListError). `run` runs git; tests replace it.
  */
-export async function ticketWorktrees(root: string, run: (cwd: string, args: string[]) => Promise<string> = git): Promise<TicketWorktree[]> {
+export async function ticketWorktrees(root: string, run: GitRunner = git): Promise<TicketWorktree[]> {
   let output: string
   try {
     output = await run(root, ['worktree', 'list', '--porcelain'])
@@ -464,7 +476,7 @@ export async function ticketWorktrees(root: string, run: (cwd: string, args: str
  * Whether `root` is outside any git work tree: `git rev-parse --is-inside-work-tree` ends with git's
  * fatal exit code 128 there. Any other failure (a timeout, no git) says nothing, so it is not taken as outside.
  */
-async function outsideGit(root: string, run: (cwd: string, args: string[]) => Promise<string>): Promise<boolean> {
+async function outsideGit(root: string, run: GitRunner): Promise<boolean> {
   return run(root, ['rev-parse', '--is-inside-work-tree']).then(
     () => false,
     (error: unknown) => (error as { code?: unknown } | null)?.code === 128,
@@ -692,7 +704,12 @@ export async function readWorkflow(
   const checkout = await readCheckout(root, run, layout.ticketsRoot, layout.headings)
   // Silent mode: no `--ref` (the Harness answers it with exit code 3), no status from branches.
   if (checkout.error || layout.mode === 'silent') return { model: { ...checkout, branchErrors: [] }, checkout, branches: new Map() }
-  const worktrees = await ticketWorktrees(root).catch(worktreeListError)
+  // A failed list is asked again at once: a read like this one may have no last good value to keep (audit finding 203).
+  const list = () => ticketWorktrees(root, options.git)
+  const worktrees = await list().catch(list).catch(worktreeListError)
+  if (!Array.isArray(worktrees) && options.listFailure === 'error') {
+    return { model: { ...checkout, epics: [], tickets: [], error: { code: 'failed', message: worktrees.error }, branchErrors: [] }, checkout, branches: new Map() }
+  }
   const branches = await readBranches(root, checkout, worktrees, previous, run, options.concurrency === undefined ? {} : { concurrency: options.concurrency })
   return { model: applyBranches(checkout, branches), checkout, branches }
 }

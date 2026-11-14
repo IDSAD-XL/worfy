@@ -632,6 +632,44 @@ describe('workflow reader', () => {
     expect(ticketOf(back, 4)).not.toHaveProperty('unreadBranch')
   })
 
+  it('asks a failed `git worktree list` again in a full read, and with listFailure error makes a second failure the model error (audit 203, Autopilot)', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    claimInWorktree(repo, 'demo/02', '02', '02-second.md')
+    const realGit = async (cwd: string, args: string[]): Promise<string> => execFileSync('git', args, { cwd, encoding: 'utf8' })
+    const listing = (fails: number) => {
+      const calls = { lists: 0 }
+      const git = async (cwd: string, args: string[]): Promise<string> => {
+        if (args[0] === 'worktree' && calls.lists++ < fails) throw Object.assign(new Error('git worktree list timed out'), { killed: true, code: null })
+        return realGit(cwd, args)
+      }
+      return { calls, git }
+    }
+
+    // One failure: the read has no last good value to keep, so it asks the list again at once and reads the claim.
+    const once = listing(1)
+    const { model: recovered } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv, git: once.git })
+    expect(once.calls.lists).toBe(2)
+    expect(recovered.error).toBeNull()
+    expect(recovered.branchErrors).toEqual([])
+    expect(ticketOf(recovered, 2)).toMatchObject({ state: 'work', fromBranch: 'demo/02' })
+    expect(ticketOf(recovered, 2)).not.toHaveProperty('unreadBranch')
+
+    // Two failures, by default: the open Tickets are held as unread, the model has no error.
+    const held = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv, git: listing(2).git })
+    expect(held.model.error).toBeNull()
+    expect(ticketOf(held.model, 2)).toMatchObject({ state: 'open', unreadBranch: 'demo/02' })
+
+    // Two failures, for a read whose answer decides now (Autopilot): the failure is the model's error, no Ticket is
+    // taken as open or as held, and nothing reads as the end of a Wave or as no ready Wave.
+    const strict = listing(2)
+    const failed = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv, git: strict.git, listFailure: 'error' })
+    expect(strict.calls.lists).toBe(2)
+    expect(failed.model.error).toEqual({ code: 'failed', message: 'git worktree list failed: git worktree list timed out' })
+    expect(failed.model.tickets).toEqual([])
+    expect(failed.branches.size).toBe(0)
+  })
+
   it('does not let a branch left over after the merge override a Ticket done in the checkout', async () => {
     const repo = makeRepo(dir)
     const { home } = makeClaudeHome(dir)

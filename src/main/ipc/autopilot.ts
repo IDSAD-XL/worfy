@@ -188,7 +188,8 @@ export function sharedAutopilot(): Autopilot {
   const autopilot = new Autopilot({
     projectRoot: (projectId) => projectStore().get(projectId).path,
     selfRefusal: (root) => selfProjectRefusal({ packaged: app.isPackaged, appPath: app.getAppPath(), projectRoot: root, gitCommonDir }),
-    workflow: async (root) => (await readWorkflow({ root, claudeHome: claudeHome(), env: harnessScriptEnv })).model,
+    // A worktree list that fails twice is the read's error (workflow-error, a refused start), not a held Wave (audit finding 203).
+    workflow: async (root) => (await readWorkflow({ root, claudeHome: claudeHome(), env: harnessScriptEnv, listFailure: 'error' })).model,
     watchWorkflow: workflowWatch(workflowHub),
     orchestrators: {
       setUnattended: (projectId, unattended, approval, options) => sharedOrchestrators().setUnattended(projectId, unattended, approval, options),
@@ -288,7 +289,7 @@ let sharedStarts: ChatStarts | undefined
 export function sharedChatStarts(): ChatStarts {
   sharedStarts ??= new ChatStarts({
     autopilot: sharedAutopilot(),
-    workflow: async (projectId) => (await readWorkflow({ root: projectStore().get(projectId).path, claudeHome: claudeHome(), env: harnessScriptEnv })).model,
+    workflow: async (projectId) => (await readWorkflow({ root: projectStore().get(projectId).path, claudeHome: claudeHome(), env: harnessScriptEnv, listFailure: 'error' })).model,
     notify: (sessionId, text) => {
       try {
         sharedRegistry().get(sessionId).notice(text)

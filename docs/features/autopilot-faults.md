@@ -148,7 +148,7 @@ keep running. They become the new run's tasks, and the old run's journal gets no
 | `session-error` | The Orchestrator's Session failed, or, before a later Wave or the gate queue's turn, Codex no longer runs the Harness's hooks. |
 | `session-closed` | The Orchestrator's Session closed. |
 | `send-failed` | "Run wave" could not be sent. |
-| `workflow-error` | The workflow could not be read when the run had to judge the Wave. |
+| `workflow-error` | The workflow could not be read when the run had to judge the Wave, including a `git worktree list` that failed twice in a row. |
 | `user-stop` | Stop autopilot. |
 | `user-force-stop` | Force stop. |
 | `start-cancelled` | Cancel, Stop or Force stop while the run waited for the Orchestrator. |
