@@ -198,10 +198,11 @@ A Wave is over when all of this is true:
 
 1. A turn of the Wave ended without an error and without an interrupt.
 2. The Session is idle and has no live background task.
-3. In a fresh read of the workflow no Ticket of the Wave is in work (`claimed`).
+3. In a fresh read of the workflow no Ticket of the Wave is in work: `claimed`, or open with a worktree branch whose read
+   failed, which may still hold a claim.
 
 The run then computes the ready Wave again. If it is the same set of Tickets as the Wave just finished, the run stops
-with `no-progress`. A Ticket of the Wave that is still open after the turn does not hold the Wave.
+with `no-progress`. A Ticket of the Wave that is still open after the turn, with its branch read, does not hold the Wave.
 
 A Ticket still in work after the turn makes the run wait up to 10 minutes. Each change of the workflow checks again, and a
 new turn of the Orchestrator waits for its own result. After that the run stops with `wave-unfinished`.

@@ -18,7 +18,7 @@
 // turning into an empty string: the agent would get a command with a hole in it.
 import { ACTION_LABELS, AUTOPILOT_TEMPLATE_HINT, isActionConfigured, namesWaveTickets, PLACEHOLDERS, unknownPlaceholders, type Action, type Placeholder } from '../projects/action-templates'
 import type { Ticket } from '../workflow/types'
-import { doneOnlyInBranch, readyWave, waveNumbers, type SkippedTicket } from '../workflow/waves'
+import { doneOnlyInBranch, inWork, readyWave, waveNumbers, type SkippedTicket } from '../workflow/waves'
 
 /** The values one action has; a placeholder without one cannot be rendered. */
 export type TemplateValues = Partial<Record<Placeholder, string>>
@@ -91,11 +91,12 @@ function planWaveNumber(tickets: readonly WaveTicket[], epic: string, nums: read
 
 /**
  * The Tickets of `resumable` — the Wave a Stop of Autopilot interrupted (worfy-week ticket 17) —
- * that are still in work in `epic`, by number. A later run takes them into its first Wave: the
- * implementers the Stop killed left them claimed, so the ready Wave never would.
+ * that are still in work in `epic` (waves.ts, inWork: claimed, or open with a worktree branch that
+ * could not be read), by number. A later run takes them into its first Wave: the implementers the
+ * Stop killed left them claimed, so the ready Wave never would.
  */
 export function resumedTickets(tickets: readonly WaveTicket[], epic: string, resumable: readonly number[]): number[] {
-  return [...new Set(resumable)].filter((num) => tickets.some((ticket) => ticket.epic === epic && ticket.num === num && ticket.state === 'work')).sort((a, b) => a - b)
+  return [...new Set(resumable)].filter((num) => tickets.some((ticket) => ticket.epic === epic && ticket.num === num && inWork(ticket))).sort((a, b) => a - b)
 }
 
 /** Whether an action can run now: the text it would send, or why not, in words for the button. */

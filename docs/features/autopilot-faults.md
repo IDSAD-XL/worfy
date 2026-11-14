@@ -96,8 +96,8 @@ interrupts the turn (up to 15 seconds), closes the Claude Code process and with 
 and gives the Orchestrator back to the person. Worktrees and branches stay. A message a person queued stays, held, in the
 new Session's queue. The Wave and the stop message leave the queue.
 
-The next run of the same Epic takes the Tickets interrupted by a Force stop into its first Wave, if they are still in work,
-even when nothing else is ready. So it does after a run that stopped with `session-error` during a Wave: the implementers
+The next run of the same Epic takes the Tickets interrupted by a Force stop into its first Wave, if they are still in work
+(claimed, or open with a worktree branch whose read failed, which may hold the claim), even when nothing else is ready. So it does after a run that stopped with `session-error` during a Wave: the implementers
 died with the Orchestrator's process, and a Ticket one of them claimed stays `claimed`. The first Wave command of the next run
 names it along with the ready Tickets, and the Orchestrator resumes it as a resumed Wave (the `epic-wave` skill, "How to
 resume a wave"): by its branch, PR and result it carries the work on or hands the Ticket out again. worfy writes no
@@ -148,7 +148,7 @@ keep running. They become the new run's tasks, and the old run's journal gets no
 | `session-error` | The Orchestrator's Session failed, or, before a later Wave or the gate queue's turn, Codex no longer runs the Harness's hooks. |
 | `session-closed` | The Orchestrator's Session closed. |
 | `send-failed` | "Run wave" could not be sent. |
-| `workflow-error` | The workflow could not be read when the run had to judge the Wave. |
+| `workflow-error` | The workflow could not be read when the run had to judge the Wave, including a `git worktree list` that failed twice in a row or ran out of time. |
 | `user-stop` | Stop autopilot. |
 | `user-force-stop` | Force stop. |
 | `start-cancelled` | Cancel, Stop or Force stop while the run waited for the Orchestrator. |

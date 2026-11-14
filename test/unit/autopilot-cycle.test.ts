@@ -104,6 +104,20 @@ describe('the Autopilot cycle', () => {
     expect(finished.effects).toEqual([{ kind: 'wave-finished', wave: 1, tickets: [1, 2] }, { kind: 'send-wave' }])
   })
 
+  it('a Ticket of the Wave whose worktree branch could not be read keeps the Wave going: it may still be claimed (audit 205)', () => {
+    const unread: Ticket = { ...t(2, 'open'), unreadBranch: 'demo/02' }
+    const settling = run([ok([t(1, 'done'), unread, t(3, 'open', [1, 2])])], inWave1())
+    expect(settling.effects).toEqual([])
+    expect(settling.state.phase).toBe('settling')
+    const finished = run([{ type: 'workflow', tickets: WAVE1_DONE }], settling.state)
+    expect(finished.effects).toEqual([{ kind: 'wave-finished', wave: 1, tickets: [1, 2] }, { kind: 'send-wave' }])
+  })
+
+  it('a start takes an interrupted Ticket whose worktree branch could not be read (audit 204)', () => {
+    const unread: Ticket = { ...t(1, 'open'), unreadBranch: 'demo/01' }
+    expect(run([{ type: 'start', tickets: [unread, t(2, 'open', [1])], resume: [1] }]).effects).toEqual([{ kind: 'send-wave' }])
+  })
+
   it('a new turn of the Orchestrator while settling waits for that turn; the settle time-out stops the run', () => {
     const settling = run([ok([t(1, 'done'), t(2, 'work'), t(3, 'open', [1, 2])])], inWave1()).state
     const busy = run([{ type: 'busy' }], settling)

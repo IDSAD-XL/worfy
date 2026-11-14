@@ -57,7 +57,19 @@ export interface ReaderOptions {
   concurrency?: number
   /** Where the workflow lives; read from the Harness (src/main/workflow/folder.ts) when absent. */
   layout?: ProjectLayout
+  /** Runs git for the list of worktrees (ticketWorktrees); tests replace it. */
+  git?: GitRunner
+  /**
+   * What a `git worktree list` that failed twice in a row, or once by a timeout, makes of the read (audit finding 203). `hold`, the
+   * default: the open Tickets are held as unread (unlistedBranches). `error`: the model's error, with no Tickets —
+   * for a read whose answer decides at once and that nothing asks again by itself (Autopilot, src/main/ipc/autopilot.ts):
+   * held Tickets would read there as a Wave still in work or as no ready Wave.
+   */
+  listFailure?: 'hold' | 'error'
 }
+
+/** Runs git in `cwd` with `args` and answers its stdout. */
+export type GitRunner = (cwd: string, args: string[]) => Promise<string>
 
 /** A worktree whose branch names a Ticket. */
 export interface TicketWorktree {
@@ -434,10 +446,19 @@ function git(cwd: string, args: string[]): Promise<string> {
 /**
  * Worktrees of the Project whose branch names a Ticket (`git worktree list --porcelain`). The
  * first entry is the checkout itself and is skipped: its state is the checkout's read. Outside
- * git the list is empty.
+ * git the list is empty. Rejects when the list fails in a repository (a git error), and on a timeout anywhere:
+ * no worktrees is not what git said, and a Ticket claimed in one would read as open
+ * (readBranches with a WorktreeListError). `run` runs git; tests replace it.
  */
-export async function ticketWorktrees(root: string): Promise<TicketWorktree[]> {
-  const output = await git(root, ['worktree', 'list', '--porcelain']).catch(() => '')
+export async function ticketWorktrees(root: string, run: GitRunner = git): Promise<TicketWorktree[]> {
+  let output: string
+  try {
+    output = await run(root, ['worktree', 'list', '--porcelain'])
+  } catch (error) {
+    // A list that ran out of time is not asked about further: one more git run could hang as long (TIMEOUT_MS).
+    if (!gitTimedOut(error) && (await outsideGit(root, run))) return []
+    throw error
+  }
   const result: TicketWorktree[] = []
   const blocks = output.split(/\n\n+/).filter((block) => block.trim())
   for (const block of blocks.slice(1)) {
@@ -451,6 +472,31 @@ export async function ticketWorktrees(root: string): Promise<TicketWorktree[]> {
   }
   return result
 }
+
+/**
+ * Whether a git run was stopped for taking longer than TIMEOUT_MS: execFile kills it then and sets `killed` on
+ * the error (its `code` is null). A git that hangs answers the next run no sooner, so such a failure is not asked again.
+ */
+const gitTimedOut = (error: unknown): boolean => (error as { killed?: unknown } | null)?.killed === true
+
+/**
+ * Whether `root` is outside any git work tree: `git rev-parse --is-inside-work-tree` ends with git's
+ * fatal exit code 128 there. Any other failure (a timeout, no git) says nothing, so it is not taken as outside.
+ */
+async function outsideGit(root: string, run: GitRunner): Promise<boolean> {
+  return run(root, ['rev-parse', '--is-inside-work-tree']).then(
+    () => false,
+    (error: unknown) => (error as { code?: unknown } | null)?.code === 128,
+  )
+}
+
+/** A `git worktree list` that failed (ticketWorktrees rejected): the reason, for readBranches. */
+export interface WorktreeListError {
+  error: string
+}
+
+/** The rejection of ticketWorktrees as a WorktreeListError: `ticketWorktrees(root).catch(worktreeListError)`. */
+export const worktreeListError = (error: unknown): WorktreeListError => ({ error: `git worktree list failed: ${errorOf(error).message}` })
 
 /** A branch of a Ticket in one of the repositories it names (ticketBranches). */
 export interface RepoTicketBranch {
@@ -531,16 +577,18 @@ async function inPool<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[
  * or when its last read failed and the wait after it (BRANCH_RETRY_MS) is over; branches whose
  * worktree is gone, or whose Ticket the checkout does not know, drop out. A failed read keeps what
  * the last read that worked said, so a Ticket claimed in the branch does not fall back to the
- * checkout's open for one timeout.
+ * checkout's open for one timeout. A failed list of the worktrees (WorktreeListError) is such a
+ * failed read for every branch at once (unlistedBranches).
  */
 export async function readBranches(
   root: string,
   checkout: CheckoutModel,
-  worktrees: TicketWorktree[],
+  worktrees: TicketWorktree[] | WorktreeListError,
   previous: BranchCache,
   run: EpicStatusRunner,
   { concurrency = 4, now = Date.now, retryMs = BRANCH_RETRY_MS }: BranchReadOptions = {},
 ): Promise<BranchCache> {
+  if (!Array.isArray(worktrees)) return unlistedBranches(checkout, previous, worktrees.error, now(), retryMs)
   const known = new Set(checkout.tickets.map(ticketKey))
   const next: BranchCache = new Map()
   const stale: TicketWorktree[] = []
@@ -565,13 +613,44 @@ export async function readBranches(
         const before = previous.get(worktree.branch)
         // A new head starts the waits over: the commit may have fixed what failed.
         const failures = (before?.head === worktree.head ? (before.retry?.failures ?? 0) : 0) + 1
-        const wait = retryMs[Math.min(failures, retryMs.length) - 1] ?? BRANCH_RETRY_MS[0]!
-        return [worktree.branch, { head: worktree.head, ticket: before?.ticket ?? null, error: errorOf(error).message, retry: { at: now() + wait, failures } }]
+        return [worktree.branch, { head: worktree.head, ticket: before?.ticket ?? null, error: errorOf(error).message, retry: { at: now() + retryWait(retryMs, failures), failures } }]
       }
     }),
     concurrency,
   )
   for (const [branch, snapshot] of fresh) next.set(branch, snapshot)
+  return next
+}
+
+/** The wait after `failures` failed reads in a row: one step of `retryMs` per failure, the last repeated. */
+const retryWait = (retryMs: readonly number[], failures: number): number => retryMs[Math.min(failures, retryMs.length) - 1] ?? BRANCH_RETRY_MS[0]!
+
+/**
+ * The branch cache after a failed `git worktree list` (audit finding 203): which worktrees there are is unknown, so
+ * none is taken as gone. Each branch read before keeps the status its last read gave and is marked failed with the
+ * list's reason; each open Ticket no branch was read for gets a failed entry under its `<epic>/<NN>` branch, with
+ * no head and no status. applyBranches then marks those Tickets `unreadBranch`, so none goes into a Wave as open
+ * while it may be claimed in a worktree no one can list, and the waits of BRANCH_RETRY_MS ask the list again.
+ */
+function unlistedBranches(checkout: CheckoutModel, previous: BranchCache, reason: string, at: number, retryMs: readonly number[]): BranchCache {
+  const known = new Set(checkout.tickets.map(ticketKey))
+  const next: BranchCache = new Map()
+  const covered = new Set<string>()
+  const failed = (before: BranchSnapshot | undefined, head: string): BranchSnapshot => {
+    const failures = (before?.retry?.failures ?? 0) + 1
+    return { head, ticket: before?.ticket ?? null, error: reason, retry: { at: at + retryWait(retryMs, failures), failures } }
+  }
+  for (const [branch, before] of previous) {
+    const ref = parseTicketBranch(branch)
+    if (!ref || !known.has(ticketKey(ref))) continue
+    next.set(branch, failed(before, before.head))
+    covered.add(ticketKey(ref))
+  }
+  for (const ticket of checkout.tickets) {
+    if (ticket.state !== 'open' || covered.has(ticketKey(ticket))) continue
+    const branch = `${ticket.epic}/${String(ticket.num).padStart(2, '0')}`
+    next.set(branch, failed(previous.get(branch), ''))
+  }
   return next
 }
 
@@ -632,6 +711,15 @@ export async function readWorkflow(
   const checkout = await readCheckout(root, run, layout.ticketsRoot, layout.headings)
   // Silent mode: no `--ref` (the Harness answers it with exit code 3), no status from branches.
   if (checkout.error || layout.mode === 'silent') return { model: { ...checkout, branchErrors: [] }, checkout, branches: new Map() }
-  const branches = await readBranches(root, checkout, await ticketWorktrees(root), previous, run, options.concurrency === undefined ? {} : { concurrency: options.concurrency })
+  // A failed list is asked again at once: a read like this one may have no last good value to keep (audit finding 203).
+  // Not after a timeout: a hung git would hold the read, and Autopilot's queue behind it, for another TIMEOUT_MS.
+  const list = () => ticketWorktrees(root, options.git)
+  const worktrees = await list()
+    .catch((error: unknown) => (gitTimedOut(error) ? Promise.reject(error) : list()))
+    .catch(worktreeListError)
+  if (!Array.isArray(worktrees) && options.listFailure === 'error') {
+    return { model: { ...checkout, epics: [], tickets: [], error: { code: 'failed', message: worktrees.error }, branchErrors: [] }, checkout, branches: new Map() }
+  }
+  const branches = await readBranches(root, checkout, worktrees, previous, run, options.concurrency === undefined ? {} : { concurrency: options.concurrency })
   return { model: applyBranches(checkout, branches), checkout, branches }
 }
