@@ -629,9 +629,11 @@ if (severalRepos) {
     }
 } else {
     if (prs.length > 1) refuse(`a ticket of one repository has one PR, got --pr ${prs.join(" --pr ")}`)
+    // N or #N, as `ticket pr` takes it: the digits of a repository name are not the PR's (web3#17 is not #317).
     const pr = prs[0] ?? null
-    prNum = pr === null ? null : String(pr).replace(/\D/g, "")
-    if (prNum === "") die(`--pr needs a number, got "${pr}"`)
+    const m = pr === null ? null : /^#?(\d+)$/.exec(pr)
+    if (pr !== null && !m) refuse(`a ticket of one repository writes PR: #N, got --pr "${pr}"`)
+    prNum = m ? m[1] : null
 }
 const wasBlocked = sh.kind === "new" && STATUS_NEW.exec(lines[sh.first])[1] === "blocked"
 // `block --waits W` without a reason: the ticket stays blocked as it is, only Waits is set.

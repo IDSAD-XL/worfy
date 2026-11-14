@@ -23,9 +23,9 @@
 //   printed.
 //   A name is a field of the profile, dotted below the top ("tickets.path", "docs.context.path"); one
 //   name inside another ("docs" and "docs.adr_dir") is refused. name, mode, schema, workflow.folder,
-//   workflow.pipeline and an object holding one of them (workflow) are read but never written here: the
-//   name holds the profile's folder, the mode and the Workflow folder move with the workflow files, the
-//   Pipeline has the calls above. A field the schema closes (agents.orchestrator) is a usage error.
+//   workflow.pipeline, an object holding one of them (workflow) and a name inside one of them (mode.x) are
+//   read but never written here: the name holds the profile's folder, the mode and the Workflow folder
+//   move with the workflow files, the Pipeline has the calls above. A field the schema closes (agents.orchestrator) is a usage error.
 //   A value is checked by the draft schema's rules for that field (profiles/draft.schema.json, through
 //   lib/draft-schema.cjs, the checker bin/project-connect uses); a field the schema has no rules for takes
 //   any JSON value. The profile the change leaves is then checked by the rules bin/profile reads the gate,
@@ -202,7 +202,8 @@ for (const f of fields) {
     const other = fields.find((g) => g !== f && within(f, g))
     if (other !== undefined) usage(`--field ${f} lies inside --field ${other}: name one of them`)
     if (mode === "read" || mode === "move") continue
-    const fixed = READ_ONLY.find((r) => within(r, f))
+    // A read-only field inside f, or f inside a read-only field (mode.x would turn the string mode into an object).
+    const fixed = READ_ONLY.find((r) => within(r, f) || within(f, r))
     if (fixed !== undefined) usage(`--field ${f}: ${fixed} is read, never written by --field${fixed === "workflow.pipeline" ? " (write the Pipeline without --field)" : ""}`)
 }
 // The draft schema, for the rules of the fields; only a write or a check of fields reads it.

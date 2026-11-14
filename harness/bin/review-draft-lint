@@ -18,7 +18,7 @@
 //     registered project the rules that need one (epic names, the Workflow folder) are skipped, and stderr says so;
 //   - AI authorship: the Claude attribution lines, a text that calls its author an AI;
 //   - personal data (lib/privacy.cjs, with the host name of this machine and the personal list of the Harness
-//     home), printed only through mask();
+//     home, less the words of that list that are part of the project's own name), printed only through mask();
 //   - a word of lint.json forbidden, matched case-insensitively as a whole word.
 // Every value is printed with the personal data in it masked, in the error lines of exit 2 too. A UTF-8 byte order
 // mark at the start of a file is dropped.
@@ -375,8 +375,16 @@ try {
     if (e.status !== 3) die(2, `profile not read (exit ${e.status ?? e.code}): ${firstLine(e)}`)
     process.stderr.write(`review-draft-lint: ${dir} is not a registered project — epic names and the Workflow folder are not checked\n`)
 }
+// The search for personal data: a word of the personal list that is part of the project's own name (its profile
+// name and title, the folders of its repositories) is no finding in that project. Its comments and links name it,
+// so the finding would come back after every fix. The mask of printed values still takes the whole list.
+let findOptions = options
 if (prof) {
     workflowFolder = (prof._resolved || {}).workflow_folder || null
+    const own = [prof.name, prof.title, (prof._resolved || {}).name, ...((prof._resolved || {}).repos || []).map((r) => r && r.name)]
+        .filter((n) => typeof n === "string" && n !== "")
+        .map((n) => n.toLowerCase())
+    findOptions = { ...options, deny: options.deny.filter((w) => !own.some((n) => n.includes(String(w).trim().toLowerCase()))) }
     try {
         epics = traces.epicNames(runScript(TICKET, ["root"], { cwd: dir }).trim())
     } catch (e) {
@@ -402,7 +410,7 @@ for (const [where, text, max, limit, needsText] of texts) {
     const length = [...text].length
     if (length > max) found.push(`${where}: length ${length} chars, over ${max} of ${limit}`)
     for (const line of text.split(/\r?\n/)) for (const f of traces.scan(line, rules)) found.push(`${where}: ${f.kind} "${show(f.text)}"`)
-    for (const f of privacy.findings(text, options))
+    for (const f of privacy.findings(text, findOptions))
         found.push(`${where}: personal data ${f.rule} "${privacy.mask(text.slice(f.index, f.index + f.length))}"`)
     for (const [w, re] of words) if (text.search(re) !== -1) found.push(`${where}: forbidden "${show(w)}"`)
 }

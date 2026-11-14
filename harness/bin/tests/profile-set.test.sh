@@ -630,6 +630,21 @@ for fixed in mode name schema workflow.folder workflow.pipeline workflow; do
     run "$SET" -C "$T/r/demo" --field "$fixed" --expect null --set '{}' >/dev/null 2>&1
     check "--field $fixed: a field profile-set does not write -> exit 2" [ $? -eq 2 ]
 done
+# A field inside a read-only one is read-only too: a write there would put an object where the profile has a string
+# (mode, name), a number (schema) or the Pipeline, and bin/profile could not read the profile after it.
+for fixed in mode.x name.x schema.x workflow.folder.x workflow.pipeline.x; do
+    before_text="$(cat "$PJ")"
+    before_commits="$(commits)"
+    fp="$(run "$SET" -C "$T/r/demo" --field "$fixed" --read | json_get fingerprint)"
+    run "$SET" -C "$T/r/demo" --field "$fixed" --expect "$fp" --set "{\"$fixed\":\"v\"}" >/dev/null 2>&1
+    rc=$?
+    check "--field $fixed: inside a field profile-set does not write -> exit 2" [ "$rc" -eq 2 ]
+    same=no
+    [ "$(cat "$PJ")" = "$before_text" ] && [ "$(commits)" -eq "$before_commits" ] && same=yes
+    check "--field $fixed: profile.json unchanged, no commit" [ "$same" = yes ]
+    run "$SET" -C "$T/r/demo" --field "$fixed" --expect "$fp" --reset >/dev/null 2>&1
+    check "--field $fixed --reset -> exit 2" [ $? -eq 2 ]
+done
 run "$SET" -C "$T/r/demo" --field mode --field workflow.folder --read >"$T/out" 2>&1
 check "--field mode --read: read, not refused" [ "$(json_get fields <"$T/out")" = '{"mode":"full","workflow.folder":null}' ]
 out="$(run "$SET" -C "$T/r/demo" --field workflow.agents --field agents --read)"
