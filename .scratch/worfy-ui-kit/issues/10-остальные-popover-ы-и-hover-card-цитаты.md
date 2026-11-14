@@ -1,7 +1,8 @@
 # 10 — Остальные popover-ы и hover card комментария к цитате
 
 Type: task
-Status: claimed 2026-11-12T16:33Z
+Status: done 2026-11-14T23:34Z
+PR: #1833
 Blocked by: 09
 Source: [spec.md](../spec.md), «Ticket-ы», строка 10; «Решения по реализации» (kit, PreviewCard); истории 13, 16, 25;
 заметка темы `docs/product/ui-overhaul/notes/inventory-overlays.md`, разделы 2.1 и 5
@@ -39,9 +40,11 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 10; «Решения 
   - evidence: test-run pass · `pnpm test test/unit/history-popover.test.tsx test/unit/composer-popovers.test.tsx` exit 0 · mac - · aad21245d0eaa725fcfb579afef23fd6b7c8db84
 - [ ] Существующие test-ы мест и e2e `quote-comments.spec.ts` зелёные без правок ролей и `data-testid`; дописанный
       `layers-popover.spec.ts` зелёный на macOS и Windows runner-е.
+  - evidence: ci-check pass · CI green on PR #1833 (ci-ok, e2e jobs included) · mac - · 808291954ce8bc8600b070d9b45753e41f4170cc
 - [ ] В «Итог» — какие места остались своими и почему.
   - evidence: commit pass · Remaining popovers on the kit Popover; a kit PreviewCard for the quote hover card (worfy-ui-kit 10) · - - · aad21245d0eaa725fcfb579afef23fd6b7c8db84
 - [ ] Правка вида, если она есть, названа в PR отдельной строкой.
+  - evidence: review pass · Look changes named in the body of PR #1833; reviewer VERIFIED · - - · 808291954ce8bc8600b070d9b45753e41f4170cc
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0 · mac - · aad21245d0eaa725fcfb579afef23fd6b7c8db84
 

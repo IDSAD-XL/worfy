@@ -1,7 +1,8 @@
 # 12 — Connector-ы claude.ai и удалённые серверы проходят список Profile-а по адресу
 
 Type: task
-Status: claimed 2026-11-12T22:28Z
+Status: done 2026-11-14T23:34Z
+PR: #1847
 Blocked by: 11
 Source: spike Ticket 11 (`.scratch/worfy-mcp-live/spike-claudeai-connectors.md`, «Выбранный путь») и проверка PR #1844
 (подтверждённые факты и пробелы: query, пустой список, сервер без адреса, scope `claudeai`)
