@@ -875,6 +875,25 @@ cr="$(ctx | tr -cd '\r' | wc -c | tr -d ' ')"
 [ "$got" = "e7 e3 e6 " ] && [ "$cr" -eq 0 ] && ctx | sed -n 2p | grep -qF 'e7/05' \
     && ok "stage-lines: epic-status printing CRLF: the same Epics and lines, no carriage return in the context" \
     || bad "stage-lines: CRLF: in play '$got', $cr carriage returns"
+# The branch form with a slug, <epic>/<NN>-<slug> (profiles/README.md, tickets.branch): a placeholder other than
+# <epic> and <NN> stands for any text, so the same branches with a slug give the same Epics.
+SLUGS="$T/slug-repo"
+mkdir -p "$SLUGS"
+(
+    cd "$SLUGS" && git init -q -b main . && git config user.email t@example.invalid && git config user.name t
+    n=1
+    for b in main e4/01-four e6/03-six e5/02-five e7/05-seven; do
+        [ "$b" = main ] || git checkout -q -b "$b"
+        GIT_COMMITTER_DATE="2026-01-0${n}T00:00:00Z" GIT_AUTHOR_DATE="2026-01-0${n}T00:00:00Z" git commit -q --allow-empty -m "$b"
+        n=$((n + 1))
+        [ "$b" = e7/05-seven ] || git checkout -q main
+    done
+) >"$T/slug-repo.log" 2>&1 || bad "stage-lines: slug branch fixture: $(tail -n 3 "$T/slug-repo.log" | tr '\n' ' ')"
+stage "$SLUGS" "${FAKES[@]}" FAKE_FORM='<epic>/<NN>-<slug>'
+got="$(epics)"
+[ "$got" = "e7 e3 e6 " ] && ctx | sed -n 2p | grep -qF 'e7/05' \
+    && ok "stage-lines: the branch form <epic>/<NN>-<slug>: the branch's Epic first, then claimed tickets' Epics, then branches with a ticket not done" \
+    || bad "stage-lines: slug form: in play '$got'"
 stage "$REPO" "${FAKES[@]}" FAKE_FORM=none FAKE_ES=none
 got="$(epics)"
 [ "$got" = "e3 e4 e5 " ] && ok "stage-lines: with no Epic in play, the Epics that are not closed, blocked ones last" || bad "stage-lines: fallback '$got'"

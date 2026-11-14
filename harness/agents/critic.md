@@ -21,7 +21,11 @@ author said so has checked nothing.
 
 ## First: the project
 
-Run `${CLAUDE_PLUGIN_ROOT}/bin/profile -C <the folder of the plan>`. Exit code `0`: take the tickets
+Run `${CLAUDE_PLUGIN_ROOT}/bin/profile -C <the repository>`: the repository the brief names, else your
+working directory, the checkout the session runs in. Find it by the repository, not by the folder of the
+plan: in Silent mode the plan lives in the Workflow folder, outside the repository, and `profile` finds no
+project from there. Only when the repository gives no profile, try `-C <the folder of the plan>`. Exit
+code `0`: take the tickets
 root (`tickets.root`) and the languages from it, and three fields that decide where the review goes:
 `--field _resolved.mode` (`full` or `silent`), `--field _resolved.workflow_folder` (the Workflow
 folder) and `--field _resolved.checkout` (the Project root, the working tree). Any other code: work

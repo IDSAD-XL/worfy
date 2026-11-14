@@ -9,6 +9,8 @@ Actively build and sharpen the project's domain model as you design. This is the
 
 ## File structure
 
+In a worfy project the glossary is the file `docs.context` of the project profile (`"${CLAUDE_PLUGIN_ROOT}/bin/profile" --field docs.context.path`) and the ADRs live in `docs.adr_dir`: read `GLOSSARY.md` and `docs/adr/` below as those files, and a missing glossary as `${CLAUDE_PLUGIN_ROOT}/bin/TICKETS.md`, section "Wayfinding operations", says.
+
 Most repos have a single context:
 
 ```

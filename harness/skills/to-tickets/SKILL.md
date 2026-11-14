@@ -59,7 +59,7 @@ Iterate until the user approves the breakdown.
 
 Publish the approved tickets. **How** depends on the tracker `/worfy:connect-project` configured; the tickets are the same either way, only the shape of the blocking edges changes:
 
-- **Local files** → write one file per ticket under `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01` in dependency order (blockers first). Each file's `Blocked by:` line lists the numbers of the tickets it depends on (`Blocked by: 01, 03`), or says `None — can start immediately`. Use the per-ticket file template below: one ticket per file, never a single combined file.
+- **Local files** → write one file per ticket under `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01` in dependency order (blockers first). Each file's `Blocked by:` line lists the numbers of the tickets it depends on (`Blocked by: 01, 03`), or says `None — can start immediately`. Use the per-ticket file template below: one ticket per file, never a single combined file; its `## Done when` heading is the heading `tickets.done_section` of the profile (`"${CLAUDE_PLUGIN_ROOT}/bin/profile" --field tickets.done_section`).
 - **A real issue tracker (GitHub, Linear, …)** → publish one issue per ticket in dependency order (blockers first) so each ticket's blocking edges can reference real identifiers. Use the platform's native blocking relationship where it has one; otherwise set each ticket's "Blocked by" to the blocking issues. If the source was an existing issue, make each ticket its sub-issue (tracker doc's operation). The tickets carry no label; they are agent-grabbable by construction.
 
 Work the **frontier**: any ticket whose blockers are all done. For a purely linear chain that means top to bottom.
@@ -75,6 +75,8 @@ Status: open
 Blocked by: None — can start immediately
 
 **What to build:** the end-to-end behaviour this ticket makes work, from the user's perspective, not a layer-by-layer implementation list.
+
+## Done when
 
 - [ ] Acceptance criterion 1
 - [ ] Acceptance criterion 2
