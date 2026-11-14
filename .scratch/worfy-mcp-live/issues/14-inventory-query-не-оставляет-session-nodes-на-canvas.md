@@ -26,7 +26,9 @@ PR #1822), запускается в папке Project и регистриру�
 
 - [ ] Test, красный на нынешнем коде: inventory-query не запускается с cwd папки Project / не пишет запись Session
       Project-а (temp HOME).
+  - evidence: test-run pass · `pnpm test -- test/contract/claude-mcp-inventory.test.ts` exit 0; 3 tests red on fa396326f · mac - · 47dfc19806c07ae0e1790a56f6af3c543766d23e
 - [ ] Contract test: список серверов Project-а (из `.mcp.json` Project-а) по-прежнему приходит в инвентарь.
+  - evidence: test-run pass · `pnpm test -- test/contract/claude-mcp-inventory.test.ts test/unit/claude-project-mcp.test.ts` exit 0 · mac - · 47dfc19806c07ae0e1790a56f6af3c543766d23e
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
 
 ## Где в коде
