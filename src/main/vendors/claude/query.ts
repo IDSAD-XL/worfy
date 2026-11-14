@@ -22,7 +22,7 @@
 // other one for any other Session — so a change reaches the next start, never a running process.
 // A window the person never chose gives way to `autoCompactWindow` of the user's settings.json,
 // read at the same moment (worfy-polish ticket 29, autoCompactWindowSource).
-import { appendFileSync, existsSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Options } from '@anthropic-ai/claude-agent-sdk'
@@ -44,10 +44,12 @@ import { projectStore, type ProjectStore } from '../../projects/store'
 import { harnessScriptEnv } from '../../harness/script-env'
 import { appSettingsStore } from '../../settings/store'
 import { claudeHome, dataRoot, harnessHome } from '../../storage/paths'
+import { assistDir } from '../../terminal-ai/options'
 import { projectLayouts, type ProjectLayout } from '../../workflow/folder'
 import { readMcpAllowlist, readProfileFolder, readSkillsAllowlist, type ProfileFolder, type ReadProfileOptions } from '../../workflow/profile'
 import type { InventoryQueryStarter } from './mcp-inventory'
 import { inventoryOptions, productGuard, sessionHarnessPlugin, sessionOptions, toolUseHooks, userExtensions, withBrowserServer, withMindMapServer, type ProductWrites } from './options'
+import { projectMcpServers, withProjectScopes } from './project-mcp'
 
 /** The canvas of a Session (ticket 24); a failure leaves the Session without canvas tools rather than without a Session. */
 async function canvasOrNull(canvas: CanvasResolver, request: QueryRequest): Promise<CanvasSession | null> {
@@ -416,14 +418,21 @@ export function queryFactoryFromEnv(env: NodeJS.ProcessEnv = process.env): Query
 /**
  * The query of the MCP inventory (worfy-mcp-live ticket 05, mcp-inventory.ts): Claude Code with the
  * user's settings as a Session reads them, but without the Profile's list, without worfy's own servers and
- * without a single message, so no model is called: its input never yields. `loadSdk`: the
- * Agent SDK by default, a test's query() otherwise.
+ * without a single message, so no model is called: its input never yields. It runs in `runDir`, outside
+ * every Project, as the Limits probe does (limits.ts), so Claude Code registers no Session of the Project
+ * and the Canvas gets no Session Node from it (ticket 14); the servers of the Project's folder `cwd` are
+ * read by worfy and handed to it (project-mcp.ts). `loadSdk`: the Agent SDK by default, a test's query()
+ * otherwise; `runDir`: <WORFY_DATA_DIR>/terminal-ai by default.
  */
-export function sdkInventoryStarter(loadSdk: () => Promise<AgentSdk> = importSdk): InventoryQueryStarter {
+export function sdkInventoryStarter(loadSdk: () => Promise<AgentSdk> = importSdk, runDir: () => string = () => assistDir(dataRoot())): InventoryQueryStarter {
   return async (cwd, prompt) => {
     const [{ query }, environment] = await Promise.all([loadSdk(), agentEnv()])
+    const project = await projectMcpServers(cwd, environment.env)
+    const at = runDir()
+    mkdirSync(at, { recursive: true })
     const runtime = { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform, arch: process.arch }
-    return query({ prompt, options: inventoryOptions({ cwd, env: environment.env, runtime }) }) as QueryHandle
+    const handle = query({ prompt, options: inventoryOptions({ cwd: at, env: environment.env, runtime, servers: project.servers }) }) as QueryHandle
+    return withProjectScopes(handle, project.scopes)
   }
 }
 
