@@ -7,8 +7,8 @@
 | 1. Сгенерированный skill review не запрещает запускать код PR (high) | PR #1849, смёржен 2026-11-14 после четвёртого круга review |
 | 2. Принятый refresh затирает примеры голоса команды (high) | PR #1849, тот же |
 | medium, оставшееся после четвёртого круга #1849: `/human-review`, установленный до этого PR, получает защиту от hook-ов только после «Update» | владелец 2026-11-14: смёржить и один раз нажать «Update» в project-ах, где ревьюер уже стоит; обязательное напоминание для старых установок — в разбор medium вместе с остальными |
-| 28. Turn off, Restart и Allow убивают живые background tasks (high) | передано Orchestrator-у 2026-11-13, в его очереди |
-| 29. Inventory-query создаёт Session Nodes на Canvas (high) | передано Orchestrator-у 2026-11-13, в его очереди |
+| 28. Turn off, Restart и Allow убивают живые background tasks (high) | Ticket worfy-mcp-live 13 (после 12) |
+| 29. Inventory-query создаёт Session Nodes на Canvas (high) | Ticket worfy-mcp-live 14 (после 12) |
 | 44. Force stop отдаёт ждущую Wave в Session человека (high) | PR #1851, смёржен |
 | 57. «Fit» не срабатывает после пересборки nodes (high) | PR #1853, смёржен |
 | 94. Записи через gh api проверяются по project текущей папки (high) | PR #1850, смёржен |
