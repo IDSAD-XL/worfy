@@ -5,6 +5,7 @@
 // manual turn (orchestrator-continue.ts).
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LimitsWait, type VendorUsage } from '../../src/main/autopilot/limits-wait'
+import { codexLimitWindows } from '../../src/main/vendors/codex/limits'
 import type { LimitWindow } from '../../src/shared/agent/limits'
 
 const NOW = 1_793_000_000_000
@@ -98,6 +99,27 @@ describe('LimitsWait.stillRefused (worfy-retry ticket 08)', () => {
     cut()
     expect(await answerOrHeld(answer)).toEqual({ window: 'primary', resetsAt: NOW / 1000 + 3600 })
     expect(usage.calls).toEqual([[0, 'codex']])
+  })
+
+  it('a read that names a reached limit with only the 5-hour window used up waits for the 5-hour reset, not the weekly one (audit 47)', async () => {
+    const inMinutes = (minutes: number): number => NOW / 1000 + minutes * 60
+    const read = codexLimitWindows(
+      {
+        limitId: 'codex',
+        limitName: null,
+        normalModelSlug: null,
+        primary: { usedPercent: 100, windowDurationMins: 300, resetsAt: inMinutes(60) },
+        secondary: { usedPercent: 64, windowDurationMins: 10080, resetsAt: inMinutes(3 * 24 * 60) },
+        credits: null,
+        individualLimit: null,
+        spendControlReached: null,
+        planType: null,
+        rateLimitReachedType: 'rate_limit_reached',
+      },
+      NOW,
+      'read',
+    )
+    expect(await limitsWait({ windows: read }).stillRefused('codex', undefined)).toEqual({ window: 'primary', resetsAt: inMinutes(60) })
   })
 
   it('without usage nothing is read: the windows known decide', async () => {
