@@ -360,6 +360,8 @@ export function sdkQueryFactory(
       canUseTool: request.canUseTool,
       unattended: request.unattended,
       mcpAllowlist: allowlist,
+      // An allowed remote server the inventory knows goes by its address (worfy-mcp-live ticket 12).
+      mcpAddresses: request.mcpAddresses,
       // Turned off for this Session (worfy-mcp-live ticket 03): left out of the list, or denied by name without one.
       mcpOff: request.mcpOff,
       skillsAllowlist,

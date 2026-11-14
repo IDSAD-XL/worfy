@@ -13,7 +13,9 @@
 // A Session whose query started with a Profile list (QueryRequest.mcpListed, ticket 05) runs the MCP
 // inventory (mcp-inventory.ts) when it starts and when a person opens the list of its servers: the rows of
 // the servers the list keeps out are added as `not-allowed`, offering Allow, those it names that Claude Code
-// did not start as `not-started`, and an `mcp` event goes out once the inventory has answered.
+// did not start as `not-started`, and an `mcp` event goes out once the inventory has answered. Its start takes the
+// addresses of the inventory's last answer (QueryRequest.mcpAddresses, ticket 12): an allowed remote server goes into
+// the list by its address, and one found after the start says that the next start has it.
 // It keeps the catalog of slash commands from system/init and system/commands_changed, which the
 // next handle of the same Session takes over (SessionStart.previous).
 //
@@ -65,6 +67,7 @@ import { contextUsageOf, initMcpServers, isCompactBoundary, sdkMessageToEvents }
 import type { ApprovalWhere, PermissionAsker, RefusalDetails, SessionApproval, SessionHandle, SessionMessage, SessionPart, SessionStart } from '../session'
 import { claudeSignedIn } from './account'
 import { claudeMcpStatus, type ClaudeMcpLive } from './mcp'
+import type { McpAddresses } from './mcp-addresses'
 import { McpInventory, notAllowedRows, notStartedRows } from './mcp-inventory'
 import { claudeSettings } from './options'
 import { inventoryStarterFromEnv, queryFactoryFromEnv } from './query'
@@ -349,6 +352,8 @@ class ClaudeSession implements SessionHandle, ClaudeLiveSession, ClaudeMcpLive {
   private initServers: McpServerRow[] | null = null
   /** The Profile's list the query started with (QueryRequest.mcpListed); null: none, or not told. */
   private listed: readonly string[] | null = null
+  /** The addresses of the remote servers the query started with (QueryRequest.mcpAddresses, ticket 12); null: none. */
+  private startAddresses: McpAddresses | null = null
 
   constructor(
     readonly catalog: CommandCatalog,
@@ -380,8 +385,12 @@ class ClaudeSession implements SessionHandle, ClaudeLiveSession, ClaudeMcpLive {
 
   /** Starts the query; rejects when Claude Code cannot be started. Its first inventory runs once it has started. */
   async open(factory: QueryFactory, request: Omit<QueryRequest, 'prompt'>): Promise<void> {
+    // The inventory's last answer: an allowed remote server, a claude.ai connector too, goes into the list by its address.
+    const inventory = this.inventory
+    this.startAddresses = inventory === null ? null : inventory.of.addresses(inventory.cwd)
+    const addresses = this.startAddresses === null ? {} : { mcpAddresses: this.startAddresses }
     try {
-      this.queryValue = await factory({ ...request, prompt: this.input, mcpListed: (listed) => (this.listed = listed) })
+      this.queryValue = await factory({ ...request, ...addresses, prompt: this.input, mcpListed: (listed) => (this.listed = listed) })
     } catch (error) {
       this.input.end()
       throw error
@@ -406,7 +415,7 @@ class ClaudeSession implements SessionHandle, ClaudeLiveSession, ClaudeMcpLive {
     const inventory = this.inventory
     if (rows === null || inventory === null || this.listed === null) return rows
     const found = inventory.of.latest(inventory.cwd)
-    const set = { listed: this.listed, rows, off: this.off, attended: this.attended() }
+    const set = { listed: this.listed, rows, off: this.off, attended: this.attended(), addressesAtStart: this.startAddresses, addressesNow: inventory.of.addresses(inventory.cwd) }
     return [...rows, ...notStartedRows(found, set), ...notAllowedRows(found, set)]
   }
 

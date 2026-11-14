@@ -18,7 +18,12 @@
 // its Profile's list (src/main/workflow/profile.ts). The list goes to Claude Code as the policy
 // tier (`managedSettings`): `allowedMcpServers` filters every server the user's settings bring —
 // user, project and local config, plugins, claude.ai connectors — and `allowManagedMcpServersOnly`
-// keeps an `allowedMcpServers` in the user's own settings from widening it. settingSources stay
+// keeps an `allowedMcpServers` in the user's own settings from widening it. An entry Claude Code cannot
+// read is dropped alone, the rest of the list still applies (Claude Code 2.1.322, the spike of
+// worfy-mcp-live ticket 11): a `serverName` takes letters, digits, `_` and `-` only, so a claude.ai
+// connector (`claude.ai <name>`) never passes by name. Every allowed remote server whose address the MCP
+// inventory knows goes by its address (`serverUrl`), the other names by name (mcp-addresses.ts, ticket 12);
+// an empty list is sent as it is, since no list would let every server through. settingSources stay
 // as they are, so CLAUDE.md and hooks still come from the user (ADR-0002), and skills too unless the
 // Profile lists them (below). The policy
 // covers the whole Claude Code process, so the Session's Subagents get the same set. It does not
@@ -102,6 +107,7 @@ import type { ToolUseFacts } from '../../agent/session/types'
 import { bundledHarnessDir } from '../../harness/bundled'
 import { HARNESS_PLUGIN_NAME } from '../../harness/locate'
 import { sdkServerConfig, type ClaudeMcpServer } from './mcp'
+import { allowedMcpEntries, type McpAddresses } from './mcp-addresses'
 
 export interface RuntimeInfo {
   /** app.isPackaged */
@@ -306,6 +312,12 @@ export interface SessionOptionsInput {
    * Project — leaves the user's servers as they are.
    */
   mcpAllowlist?: readonly string[] | null | undefined
+  /**
+   * The addresses of the user's remote MCP servers by the MCP inventory's last answer (worfy-mcp-live ticket 12,
+   * mcp-addresses.ts): an allowed server named here goes into the list by its address. Read only with a list.
+   * Absent or null: no answer yet, every allowed name goes by name.
+   */
+  mcpAddresses?: McpAddresses | null | undefined
   /**
    * The MCP servers turned off for this Session (Turn off for this Session, worfy-mcp-live ticket 03):
    * left out of the Profile's list, or — with no list — named in `deniedMcpServers`, and a server of the
@@ -749,7 +761,9 @@ export function sessionOptions(input: SessionOptionsInput): Options {
   const off = input.mcpOff ?? []
   const allowed = (name: string): boolean => allowlist === null || allowlist.includes(name)
   if (allowlist !== null) {
-    options.managedSettings = { allowManagedMcpServersOnly: true, allowedMcpServers: allowlist.filter((name) => !off.includes(name)).map((serverName) => ({ serverName })) }
+    // Always the key, an empty list too: without `allowedMcpServers` the policy tier would let every server through.
+    const entries = allowedMcpEntries(allowlist.filter((name) => !off.includes(name)), input.mcpAddresses ?? null)
+    options.managedSettings = { allowManagedMcpServersOnly: true, allowedMcpServers: entries }
   } else if (off.length > 0) {
     // No list to leave them out of: the policy tier denies them by name. Not measured on Claude Code in
     // this form, a deny list alone: the spike sent it together with a list (F:turnoff-restart-denied).
