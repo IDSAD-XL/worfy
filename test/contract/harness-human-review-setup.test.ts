@@ -1338,10 +1338,20 @@ describe('the fixes of the merged-PR re-review (audit n)', () => {
     const one = sectionOf(check, 1, 'check.md')
     expect(one).toMatch(/gh pr view <n> --repo <owner>\/<name> --json [^\n]*\bcommits\b/)
     expect(flat(one)).toMatch(/`committedDate`/)
-    expect(flat(one)).toMatch(/call its `committedDate` `<next>`/)
+    expect(flat(one)).toMatch(/The next commit is the one after `commit_id` in that list/)
     const three = flat(sectionOf(check, 3, 'check.md'))
     expect(three).not.toMatch(/no later than the last review of the team on `commit_id`/)
     expect(three).toMatch(/a conversation comment written before the next commit: `created_at` earlier than `<next>`/)
     expect(three).toMatch(/a conversation comment written at or after `<next>`/)
+  })
+
+  it('finding 14: <next> never falls before the last review of the team on commit_id (a commit made before that review and pushed after it)', () => {
+    const one = flat(sectionOf(check, 1, 'check.md'))
+    // `committedDate` is the time on the author's machine, not the push: it is only one side of the bound.
+    expect(one).toMatch(/`<next>` is the later of two times: its `committedDate` and the `submitted_at` of the last review of the team on `commit_id`/)
+    expect(one).not.toMatch(/call its `committedDate` `<next>`/)
+    expect(one).toMatch(/`committedDate` is the time the commit was made on the author's machine, not the time it was pushed/)
+    const three = flat(sectionOf(check, 3, 'check.md'))
+    expect(three).toMatch(/The last review on `commit_id` is no upper bound/)
   })
 })

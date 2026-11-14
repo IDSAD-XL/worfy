@@ -45,10 +45,13 @@ once more; still missing, skip this pull request and say so. A merged pull reque
 
 **The next commit** ends the conversation on `commit_id` (section 3). `commits` lists the commits of the pull
 request in order, each with its `oid` and `committedDate`. The next commit is the one after `commit_id` in that
-list: call its `committedDate` `<next>`. With `commit_id` last in the list there is no next commit, and `<next>` is
-empty. With `commit_id` not in the list (the branch was force-pushed after the review), `<next>` is the earliest
-`submitted_at` of a review, or `created_at` of a thread comment, of the team on another `commit_id` and later than
-the first review of the team on `commit_id`; with none, it is empty.
+list: `<next>` is the later of two times: its `committedDate` and the `submitted_at` of the last review of the team
+on `commit_id`. `committedDate` is the time the commit was made on the author's machine, not the time it was pushed:
+a commit made before the team's review on `commit_id` and pushed after it would otherwise end the conversation before
+that review, and the talk of that round would drop out of N. With `commit_id` last in the list there is no next
+commit, and `<next>` is empty. With `commit_id` not in the list (the branch was force-pushed after the review),
+`<next>` is the earliest `submitted_at` of a review, or `created_at` of a thread comment, of the team on another
+`commit_id` and later than the first review of the team on `commit_id`; with none, it is empty.
 
 **The base** is the commit the pull request branched from, as it stood when the reviewer saw `commit_id`. One rule
 for every pull request:
@@ -138,7 +141,7 @@ with at least 20 characters of its own text (quoted lines `>` left out), of thes
   line of the pull request's head today, and empty for an outdated thread. A first comment with no
   `original_line` (a comment on a whole file) is a general one;
 - a conversation comment written before the next commit: `created_at` earlier than `<next>` of section 1, or
-  any one when `<next>` is empty. The last review on `commit_id` is no bound: the team may go on talking about
+  any one when `<next>` is empty. The last review on `commit_id` is no upper bound: the team may go on talking about
   that code after it, and a review of a later commit may come before the talk about it.
 
 N is their count. Review bodies and conversation comments are general comments, with no line. The comments of the
