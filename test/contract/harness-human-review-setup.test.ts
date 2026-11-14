@@ -772,7 +772,7 @@ describe('refresh.md: the update with --refresh (worfy-human-review ticket 10)',
     expect(one).toMatch(/stays on "Nothing new", on "no" and on \*\*Reject\*\*/)
     expect(one).toMatch(/On exit 1 [^.]*build the reviewer again with `\/worfy:human-review-setup` without `--refresh`, and stop/)
     // The opening of the file names it among what changes before Accept.
-    expect(refresh.split(/^## /m)[0].replace(/\s+/g, ' ')).toMatch(/step 1 of the installed skill, which `review-history upgrade` brings up/)
+    expect((refresh.split(/^## /m)[0] ?? '').replace(/\s+/g, ' ')).toMatch(/step 1 of the installed skill, which `review-history upgrade` brings up/)
   })
 
   it('the template keeps what review-history upgrade relies on: step 1 without a placeholder, the line of step 3 after "that task is the spec." (audit a, round 4)', () => {
