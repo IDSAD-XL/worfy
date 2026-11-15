@@ -31,10 +31,13 @@ Tooling доступности нет: в `package.json` нет `eslint-plugin-j
   - evidence: test-run pass · `pnpm lint` exit 0; mutant `pnpm test test/unit/a11y-lint.test.ts` exit 0 · mac - · 84352b5bad327dd473b91030dec139787c4762fd
 - [ ] E2e `test/e2e/a11y.spec.ts` зелёный на macOS и Windows runner-е; mutant (dialog без имени) роняет его.
 - [ ] axe в `a11y.spec.ts` проверяет и два места, которые остаются на своей вёрстке, а не на kit (решение владельца 2026-11-12, Q3): окно запроса команды Terminal AI и карточку Mind map.
+  - evidence: commit pass · jsx-a11y in pnpm lint and axe on the main screens (worfy-ui-kit 18) · - - · c9c531767b249f72680658516db4df9e08d49ab9
 - [ ] В «Итог» — включённые правила и оставленные вне lint с причиной.
   - evidence: commit pass · jsx-a11y in pnpm lint and axe on the main screens (worfy-ui-kit 18) · - - · 84352b5bad327dd473b91030dec139787c4762fd
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0; e2e test бюджета старта зелёный.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck` exit 0 · mac - · 84352b5bad327dd473b91030dec139787c4762fd
+  - evidence: gate pass · `gate fast` exit 0 · mac - · c69b6bf807602f40fc7426078faa5c5becd34f74
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck` exit 0; module unit tests exit 0 · mac - · c9c531767b249f72680658516db4df9e08d49ab9
 
 ## Где в коде
 
