@@ -2,6 +2,8 @@
 
 Type: task
 Status: claimed 2026-11-14T23:35Z
+PR: #1879
+Branch: worfy-ui-kit/18
 Blocked by: 05, 06, 07, 08, 10, 12, 13, 14
 Source: [spec.md](../spec.md), «Ticket-ы», строка 18; «Решения по реализации» (доступность под присмотром); «Решения по
 test-ам» (axe); история 29; заметка темы `docs/product/ui-overhaul/notes/inventory-foundation.md`, раздел 7
