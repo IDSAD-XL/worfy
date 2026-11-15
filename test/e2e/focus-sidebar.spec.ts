@@ -305,7 +305,8 @@ test('Esc with a popup of the sidebar open next to focus mode: History, the ADR 
     await historyButton.click()
     await expect(history).toBeVisible()
     await expect(focus).toBeVisible()
-    expect(await holdsFocus(history)).toBe(true)
+    // Base UI gives the Popover its first focus a frame after it opens.
+    await expect.poll(() => holdsFocus(history)).toBe(true)
     // The first press closes History alone; the focus is back on its button, in the sidebar, and an Esc
     // pressed in the sidebar is never focus mode's.
     await escape()
@@ -387,7 +388,7 @@ test('Esc with a popup of the sidebar open next to focus mode: History, the ADR 
     await showSidebarSection(window, 'Projects')
     await window.getByTestId('project-row').first().click({ button: 'right' })
     await expect(menu).toBeVisible()
-    expect(await holdsFocus(menu)).toBe(true)
+    await expect.poll(() => holdsFocus(menu)).toBe(true)
     await escape()
     await expect(menu).toHaveCount(0)
     await expect(focus).toBeVisible()
