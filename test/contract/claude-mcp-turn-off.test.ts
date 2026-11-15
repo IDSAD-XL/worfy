@@ -7,7 +7,8 @@
 // list, or with no list named in `deniedMcpServers`; worfy's own server is not passed in `mcpServers`.
 // Claude Code's toggleMcpServer is never called: it writes the user's .claude.json (the spike of
 // ticket 01), so the test's .claude.json, in a temporary HOME, must stay byte for byte as it was.
-// The Session keeps what it turned off; a new Session gets every server again.
+// The Session keeps what it turned off; a new Session gets every server again. While background tasks of the
+// Session live, none of the three restarts: the answer is the reason, and the tasks live on (ticket 13, ADR-0029).
 //
 // The chain runs for real from the Session registry through the Claude driver down to the options of
 // query() (sdkQueryFactory); query() is the test's, and answers the fake agent's query, so the
@@ -20,7 +21,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FakeReleases, fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
-import { EXIT_WAIT_MS, SessionRegistry, STATIC_CLAUDE_PARTS, type QueryRequest, type SessionVendorParts } from '../../src/main/agent/session'
+import { EXIT_WAIT_MS, restartWouldEndTasks, SessionRegistry, STATIC_CLAUDE_PARTS, type QueryRequest, type SessionVendorParts } from '../../src/main/agent/session'
 import { claudeMcp } from '../../src/main/vendors/claude/mcp'
 import { claudeSessions } from '../../src/main/vendors/claude/session'
 import type { McpPart } from '../../src/main/vendors/mcp'
@@ -402,5 +403,89 @@ describe('turn-off and turn-on for this Session', () => {
     await expect(h.session.mcpAction('example-notes', 'turn-on')).rejects.toThrow(/not available/)
     expect(h.processStarts()).toHaveLength(1)
     expect(h.session.state).toBe('idle')
+  })
+})
+
+describe('live background tasks keep the process (ADR-0029, worfy-mcp-live ticket 13)', () => {
+  /** The live process order of the stubs, `spawn 1` / `exit 1`…: a Restart adds `exit 1`, `spawn 2`. */
+  const order = (h: ReturnType<typeof harness>) => h.stub.order().map((each) => each.split(' ').slice(0, 2).join(' '))
+  /** The fake agent's close() calls that cut background tasks short: Claude Code would have killed them. */
+  const killed = (h: ReturnType<typeof harness>) => h.calls.filter((call) => call.kind === 'close' && call.backgroundTasks.length > 0)
+
+  it.each(['restart', 'turn-off'] as const)('%s while a background task runs: the answer is the reason, the process and the task stay, nothing turned off', async (action) => {
+    const h = harness(LIST, (n) => (n === 1 ? 'mcp-restart-tasks' : 'mcp-restart'))
+    await h.turn('one')
+    await vi.waitFor(() => expect(h.session.backgroundTasks()).toHaveLength(1))
+
+    const states = h.ofType('state').length
+    const answer = await h.session.mcpAction('example-notes', action)
+    expect(answer).toEqual({ servers: [NOTES, CANVAS], error: restartWouldEndTasks(1) })
+    expect(h.processStarts()).toHaveLength(1)
+    expect(order(h)).toEqual(['spawn 1'])
+    expect(killed(h)).toEqual([])
+    expect(h.session.backgroundTasks().map((task) => task.taskId)).toEqual(['task_mcp_0001'])
+    // The Session never left idle: no `starting`, nothing interrupted.
+    expect(h.ofType('state').slice(states)).toEqual([])
+    expect(h.session.state).toBe('idle')
+
+    // Once the task ends the same action restarts, with no new read of the rows in between.
+    h.releases.release('tasks')
+    await vi.waitFor(() => expect(h.session.backgroundTasks()).toEqual([]))
+    const after = await h.session.mcpAction('example-notes', action)
+    expect(after.error).toBeNull()
+    expect(h.processStarts()).toHaveLength(2)
+    expect(order(h)).toEqual(['spawn 1', 'exit 1', 'spawn 2'])
+    expect(killed(h)).toEqual([])
+  })
+
+  it('turn-on while a background task runs: refused with the reason, the server stays off; after the task it turns on', async () => {
+    const h = harness(LIST, (n) => (n === 2 ? 'mcp-restart-tasks' : 'mcp-restart'))
+    await h.turn('one')
+    await h.session.mcpAction('example-notes', 'turn-off')
+    await vi.waitFor(() => expect(h.session.state).toBe('idle'))
+    await h.turn('two')
+    await vi.waitFor(() => expect(h.session.backgroundTasks()).toHaveLength(1))
+
+    const answer = await h.session.mcpAction('example-notes', 'turn-on')
+    expect(answer).toEqual({ servers: [CANVAS, NOTES_OFF], error: restartWouldEndTasks(1) })
+    expect(h.processStarts()).toHaveLength(2)
+    expect(killed(h)).toEqual([])
+    expect(h.session.backgroundTasks()).toHaveLength(1)
+
+    h.releases.release('tasks')
+    await vi.waitFor(() => expect(h.session.backgroundTasks()).toEqual([]))
+    expect(await h.session.mcpAction('example-notes', 'turn-on')).toEqual({ servers: [NOTES, CANVAS], error: null })
+    expect(allowedNames(h.starts[2])).toEqual(LIST)
+  })
+
+  it('a task the running turn starts as the Restart interrupts it keeps the process too; the server stays as it was', async () => {
+    // The turn runs with no task; the task appears as the interrupt lands, before the turn's result.
+    const h = harness(LIST, (n) => (n === 1 ? 'mcp-restart-long-tasks' : 'mcp-restart'))
+    await vi.waitFor(() => expect(h.session.state).toBe('idle'))
+    h.session.send('long')
+    await vi.waitFor(() => expect(h.ofType('init')).toHaveLength(1))
+    expect(h.session.backgroundTasks()).toEqual([])
+
+    const answer = await h.session.mcpAction('example-notes', 'turn-off')
+    expect(answer).toEqual({ servers: [NOTES, CANVAS], error: restartWouldEndTasks(1) })
+    expect(h.ofType('result')).toEqual([expect.objectContaining({ interrupted: true }) as unknown])
+    expect(h.processStarts()).toHaveLength(1)
+    expect(order(h)).toEqual(['spawn 1'])
+    expect(killed(h)).toEqual([])
+    expect(h.session.backgroundTasks().map((task) => task.taskId)).toEqual(['task_mcp_0001'])
+    await vi.waitFor(() => expect(h.session.state).toBe('idle'))
+
+    // The Turn off that did not happen left nothing turned off: the next Restart starts with example-notes.
+    h.releases.release('tasks')
+    await vi.waitFor(() => expect(h.session.backgroundTasks()).toEqual([]))
+    expect(await h.session.mcpAction('example-notes', 'restart')).toEqual({ servers: [NOTES, CANVAS], error: null })
+    expect(h.processStarts()).toHaveLength(2)
+    expect(allowedNames(h.starts[1])).toEqual(LIST)
+    expect(h.starts[1]?.managedSettings?.deniedMcpServers?.map((each) => each.serverName) ?? []).not.toContain('example-notes')
+  })
+
+  it('the reason counts the tasks', () => {
+    expect(restartWouldEndTasks(1)).toBe('1 background task of this Session is still running, and a Restart would end it. Try again once it finishes.')
+    expect(restartWouldEndTasks(3)).toBe('3 background tasks of this Session are still running, and a Restart would end them. Try again once they finish.')
   })
 })

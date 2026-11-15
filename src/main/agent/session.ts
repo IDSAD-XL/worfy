@@ -173,6 +173,14 @@ export const allowAllNotStarted = (names: readonly string[]): string =>
   names.length === 1
     ? allowNotStarted(names[0] ?? '')
     : `${names.join(', ')} are on the Project's list now, but Claude Code did not start them in this Session after the Restart.`
+/**
+ * The error of Turn off, Turn on, Restart, Allow and Allow all while `count` background tasks of the Session
+ * live (ADR-0029, worfy-mcp-live ticket 13): their Restart would end the process, and the tasks with it.
+ */
+export const restartWouldEndTasks = (count: number): string =>
+  count === 1
+    ? '1 background task of this Session is still running, and a Restart would end it. Try again once it finishes.'
+    : `${count} background tasks of this Session are still running, and a Restart would end them. Try again once they finish.`
 /** How often it asks meanwhile. */
 const ALLOW_POLL_MS = 250
 /** The statuses of a row that is not a server of the Session's process. */
@@ -680,7 +688,8 @@ export class Session {
    * Does `action` on the MCP server `name` of the live process through the Vendor's driver, then asks
    * for the rows again (mcp()). Throws — nothing reaching the agent — when the Session is closed, no
    * process runs, or the driver does not do the action (McpActionRefused); the Vendor's own refusal is
-   * answered as `error`, with the rows after it.
+   * answered as `error`, with the rows after it. An action that restarts the process is answered as `error`,
+   * nothing changed, while background tasks of the Session live (restartWouldEndTasks, ticket 13).
    */
   async mcpAction(name: string, action: McpServerAction, deps: McpActionDeps = {}): Promise<McpActionAnswer> {
     this.assertOpen()
@@ -734,8 +743,11 @@ export class Session {
   private async allowNames(names: readonly string[], write: (names: readonly string[]) => Promise<void>, settleMs: number): Promise<McpActionAnswer> {
     const offers = (name: string): boolean => this.mcpValue?.find((each) => each.name === name)?.actions.includes('allow') === true
     if (!names.every(offers)) throw new McpActionRefused('allow')
+    const restarts = !this.launch.unattended && !this.halted && this.parts.mcp?.restarts === true
+    // Nothing written while live background tasks would keep the Restart from happening (ticket 13).
+    if (restarts && this.liveTaskList.length > 0) return this.keptForTasks()
     await write(names)
-    if (this.launch.unattended || this.halted || this.parts.mcp?.restarts !== true) return { servers: await this.mcp(), error: null }
+    if (!restarts || this.halted) return { servers: await this.mcp(), error: null }
     const missing = (rows: McpServerRow[] | null): string[] =>
       names.filter((name) => {
         const now = rows?.find((each) => each.name === name)
@@ -754,7 +766,9 @@ export class Session {
     }
     // Asked of the process itself: mcp() answers what the Session holds when another ask overtakes this one
     // (the other action's own read), and that may still be the rows of the process before (ticket 09).
-    if (missing(await this.rowsNow()).length > 0) await this.restartProcess()
+    // A task started since the check above keeps the process: the list is written, the reason says why it did not
+    // take, and the same Allow restarts once the tasks end (the list then needs no write).
+    if (missing(await this.rowsNow()).length > 0 && !(await this.restartProcess())) return this.keptForTasks()
     const until = Date.now() + settleMs
     let servers = await this.mcp()
     const settled = (rows: McpServerRow[] | null): boolean => missing(rows).length === 0 && names.every((name) => rows?.find((each) => each.name === name)?.status !== 'pending')
@@ -787,20 +801,33 @@ export class Session {
    * changes, then its process is restarted with the same conversation (restartProcess). Refused —
    * nothing changes — for a driver that does not `restart`, an unattended or halted Session, a server
    * whose row does not offer Turn off or that is one of worfy's own (isWorfyOwnServer, ticket 09: whatever a
-   * driver offered), and one not turned off for Turn on.
+   * driver offered), and one not turned off for Turn on. Answered with the reason — nothing changes either — while
+   * background tasks of the Session live (ticket 13).
    */
   private async restartFor(name: string, action: 'turn-off' | 'turn-on' | 'restart'): Promise<McpActionAnswer> {
     if (this.parts.mcp?.restarts !== true || this.launch.unattended || this.halted) throw new McpActionRefused(action)
     if ((this.run?.handle ?? null) === null) throw new Error("The Session's agent is not running")
-    if (action === 'turn-off') {
-      const row = this.mcpValue?.find((each) => each.name === name)
-      if (row === undefined || isWorfyOwnServer(row) || !row.actions.includes('turn-off')) throw new McpActionRefused(action)
-      this.mcpOff.set(name, { ...row, status: 'disabled', tools: null, error: null, actions: ['turn-on'] })
-    } else if (action === 'turn-on') {
-      if (!this.mcpOff.delete(name)) throw new McpActionRefused(action)
-    }
-    await this.restartProcess()
-    return { servers: await this.mcp(), error: null }
+    const was = this.mcpOff.get(name)
+    const row = this.mcpValue?.find((each) => each.name === name)
+    if (action === 'turn-off' && (row === undefined || isWorfyOwnServer(row) || !row.actions.includes('turn-off'))) throw new McpActionRefused(action)
+    if (action === 'turn-on' && was === undefined) throw new McpActionRefused(action)
+    if (this.liveTaskList.length > 0) return this.keptForTasks()
+    if (action === 'turn-off' && row !== undefined) this.mcpOff.set(name, { ...row, status: 'disabled', tools: null, error: null, actions: ['turn-on'] })
+    if (action === 'turn-on') this.mcpOff.delete(name)
+    if (await this.restartProcess()) return { servers: await this.mcp(), error: null }
+    // A task started while the turn was ending kept the process: the server stays as it was.
+    if (was === undefined) this.mcpOff.delete(name)
+    else this.mcpOff.set(name, was)
+    return this.keptForTasks()
+  }
+
+  /**
+   * The answer of an action whose Restart live background tasks keep from happening (ADR-0029, worfy-mcp-live
+   * ticket 13): the rows as they are and the reason. Nothing restarted, so the same action works once they end.
+   */
+  private async keptForTasks(): Promise<McpActionAnswer> {
+    const count = this.liveTaskList.length
+    return { servers: await this.mcp(), error: restartWouldEndTasks(count) }
   }
 
   /**
@@ -808,12 +835,15 @@ export class Session {
    * Interrupt does — the queue held, open requests refused — and waited for, HALT_TURN_MS at most; the
    * process is closed, and a new one resumes the same Vendor session once the old one has exited
    * (begin(), ADR-0064). The Session is `starting` meanwhile and keeps what is sent to it. Settles once
-   * the new process has started, or failed to (the Session is then in `error`).
+   * the new process has started, or failed to (the Session is then in `error`). false, the process kept: live
+   * background tasks of the Session (ADR-0029, worfy-mcp-live ticket 13), also one the interrupted turn started
+   * before it ended; the turn stays interrupted and the queue held, as after an Interrupt.
    */
-  private async restartProcess(): Promise<void> {
+  private async restartProcess(): Promise<boolean> {
     const run = this.run
     const handle = run?.handle ?? null
     if (run === null || handle === null) throw new Error("The Session's agent is not running")
+    if (this.liveTaskList.length > 0) return false
     if (inTurn(this.stateValue)) {
       this.queue.pause()
       this.permissions.cancelAll()
@@ -821,7 +851,8 @@ export class Session {
     }
     // Closed (close() clears the run), halted or restarted by another Restart while the turn was
     // ending: a new process here would be a second one on the same conversation (ADR-0064).
-    if (this.halted || this.run !== run) return
+    if (this.halted || this.run !== run) return true
+    if (this.liveTaskList.length > 0) return false
     // The old process is closed first: begin() then only waits for its exit, never kills it at the limit.
     this.run = null
     try {
@@ -834,6 +865,7 @@ export class Session {
     this.resetTasks()
     this.setState('starting')
     await this.begin()
+    return true
   }
 
   close(): void {

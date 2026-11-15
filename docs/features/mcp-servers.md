@@ -56,6 +56,14 @@ does not allow, and the same status in Project settings. Which servers a Session
   queue is held. The Session is `starting` meanwhile, and what is sent to it waits for the new process. After a turn has
   run the Session keeps its id; before the first turn there is no conversation to resume, so the new process starts a new
   one under a new id. Only a not started row has a Restart button of its own.
+- **Not while background tasks run.** Ending the process would end the Session's background tasks too (commands and
+  agents the Session started in the background). In a Session with a person at it, while any of them runs, Turn off,
+  Turn on, Allow, Allow all and Restart change nothing: no turn is interrupted, nothing is written to the Profile, and
+  the answer is the reason ("1 background task of this Session is still running, and a Restart would end it. Try again
+  once it finishes."), shown as any refused action is. A task that starts while the running turn is being interrupted,
+  or while Allow writes the Profile, keeps the process too; that turn stays interrupted, and a list Allow wrote by then
+  stays written. Once the tasks end, the same button works, with no new read of the rows. An Autopilot Session is not
+  touched by this rule: Allow there writes the list with no Restart, as described below.
 - **Turn off for this Session** changes neither the Profile nor the user's config: a new Session gets the server again.
   worfy's own servers (`worfy-canvas`, `worfy-browser`, `worfy-mind-map`) are never turned off: their rows offer no Turn
   off, and main refuses a Turn off of such a server asked for all the same, before anything restarts. A server of a
