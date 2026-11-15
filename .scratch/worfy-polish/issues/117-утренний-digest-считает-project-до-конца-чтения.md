@@ -2,6 +2,7 @@
 
 Type: bug
 Status: claimed 2026-11-15T04:45Z
+PR: #1884
 Branch: worfy-polish/117
 Blocked by: none
 Source: красный e2e в CI-run 43673031109 (PR #1841, job macos-e2e 2/2, обе попытки; PR трогает только MCP popover),
