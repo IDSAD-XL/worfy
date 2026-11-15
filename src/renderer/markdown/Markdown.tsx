@@ -1,4 +1,4 @@
-import { useMemo, useState, type MouseEvent, type ReactNode } from 'react'
+import { createContext, useContext, useMemo, useState, type InputHTMLAttributes, type MouseEvent, type ReactNode } from 'react'
 import ReactMarkdown, { defaultUrlTransform, type Components, type Options } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { invoke } from '../ipc'
@@ -141,6 +141,31 @@ function Suggestion({ text }: { text: string }) {
   )
 }
 
+// The checkbox of a task list item ("- [x] tests") is named by the item's own text, without its nested
+// lists: a form control needs a name (axe, rule label), and the text beside it is not a <label>.
+const TaskItemText = createContext<string | undefined>(undefined)
+
+type HastChild = { type?: string; tagName?: string; value?: unknown; children?: unknown[] }
+
+/** The words of a list item, its nested lists left out. */
+function itemText(node: HastChild | undefined): string {
+  const own = (node?.children ?? []).filter((child) => {
+    const tag = (child as HastChild).tagName
+    return tag !== 'ul' && tag !== 'ol'
+  })
+  return own
+    .map((child) => textOf(child as HastChild))
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function TaskCheckbox({ node, ...rest }: InputHTMLAttributes<HTMLInputElement> & { node?: unknown }) {
+  void node // react-markdown's syntax node: not an attribute of the element.
+  const name = useContext(TaskItemText)
+  return <input {...rest} aria-label={rest.type === 'checkbox' && name !== undefined && name !== '' ? name : rest['aria-label']} />
+}
+
 export function Markdown({ text, projectId, baseDir, breaks = false, github }: MarkdownProps) {
   const githubRepo = github === undefined ? undefined : github.repo
   const plugins = useMemo<NonNullable<Options['remarkPlugins']>>(() => {
@@ -154,6 +179,15 @@ export function Markdown({ text, projectId, baseDir, breaks = false, github }: M
           {children}
         </Link>
       ),
+      li: ({ node, children, ...rest }) =>
+        typeof rest.className === 'string' && rest.className.split(' ').includes('task-list-item') ? (
+          <li {...rest}>
+            <TaskItemText.Provider value={itemText(node as HastChild | undefined)}>{children}</TaskItemText.Provider>
+          </li>
+        ) : (
+          <li {...rest}>{children}</li>
+        ),
+      input: TaskCheckbox,
       img: ({ alt, src }) => (
         <span className="w-md__image" title={typeof src === 'string' ? src : undefined}>
           {alt || 'image'}

@@ -313,7 +313,9 @@ function AgentsStrip({ projectId, agents, root, session, drafts }: AgentsStripPr
               className="w-product__agents-button"
               aria-expanded={open === each}
               aria-controls={open === each ? panelId : undefined}
-              aria-label={TITLES[each]}
+              // The count it shows is in its name too (axe, label-content-name-mismatch), not in brackets:
+              // axe leaves a bracketed part out of the name it compares.
+              aria-label={count === undefined ? TITLES[each] : `${TITLES[each]}: ${count}`}
               title={count === undefined ? TITLES[each] : `${TITLES[each]} (${count})`}
               data-testid={each === 'agents' ? 'product-agents-toggle' : `product-rail-${each}`}
               onClick={() => setOpen((was) => (was === each ? null : each))}
@@ -329,6 +331,7 @@ function AgentsStrip({ projectId, agents, root, session, drafts }: AgentsStripPr
         })}
       </div>
       {open !== null ? (
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Esc collapses the panel: the keys come up from the focused controls inside; it is not a control itself.
         <div
           key={open}
           id={panelId}

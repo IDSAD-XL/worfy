@@ -113,6 +113,7 @@ export function WorkTrackView({ projectId, active, switcher }: { projectId: stri
   let body: ReactNode
   if (view !== undefined)
     body = (
+      // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- one listener for the clicks on the bars inside; a mouse shortcut with no keyboard path yet: the ticket result of worfy-ui-kit 18 names it as a finding.
       <div className="w-wt-body" onClick={choose}>
         <Lanes view={view} mode={lanes} expanded={expanded} density={density} />
         {span !== undefined ? <SpanPanel key={span.id} projectId={projectId} span={span} view={view} onClose={close} /> : null}

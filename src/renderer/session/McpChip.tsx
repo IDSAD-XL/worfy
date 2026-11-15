@@ -398,6 +398,7 @@ export function McpChip({ sessionId, rows, autopilot }: McpChipProps) {
       {place === null
         ? null
         : createPortal(
+            // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- the dialog's Esc and Tab handling: the keys come up from the controls inside.
             <div ref={popover} role="dialog" aria-label="MCP servers" tabIndex={-1} className="w-mcp" style={place} data-testid="session-mcp-popover" onKeyDown={onKey}>
               <div className="w-mcp__head">
                 <span className="w-mcp__title">MCP servers</span>

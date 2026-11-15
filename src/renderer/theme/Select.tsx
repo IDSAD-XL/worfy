@@ -332,6 +332,7 @@ export function Select<V extends string = string>(props: SelectProps<V>): ReactE
   const classes = ['w-select', mono ? 'w-select--mono' : null, className ?? null].filter((name) => name !== null).join(' ')
   const list = shown
     ? createPortal(
+        // eslint-disable-next-line jsx-a11y/interactive-supports-focus -- the focus stays on the field or button, which moves the active option with the arrows (aria-activedescendant); the click is the mouse path.
         <div
           ref={listRef}
           id={listId}
@@ -345,6 +346,7 @@ export function Select<V extends string = string>(props: SelectProps<V>): ReactE
           {options.map((option, index) => {
             const isSelected = option.value === value
             return (
+              // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/interactive-supports-focus -- the focus stays on the field or button, which moves the active option with the arrows (aria-activedescendant); the click is the mouse path.
               <div
                 key={option.value}
                 id={optionId(index)}

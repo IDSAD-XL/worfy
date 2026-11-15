@@ -60,6 +60,7 @@ export function SettingsDialogView({ sections }: SettingsDialogViewProps) {
       data-testid="settings"
     >
       <div className="w-settings__main">
+        {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- the arrow keys come up from the focused section link inside the navigation. */}
         <div ref={nav} className="w-settings__nav" role="navigation" aria-label="Settings sections" onKeyDown={onNavKeyDown}>
           <p id={titleId} className="w-settings__nav-title">
             Settings

@@ -5,6 +5,7 @@ import js from '@eslint/js'
 import { defineConfig } from 'eslint/config'
 import reactHooks from 'eslint-plugin-react-hooks'
 import { reactRefresh } from 'eslint-plugin-react-refresh'
+import jsxA11y from 'eslint-plugin-jsx-a11y'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
 import { noCyrillic } from './scripts/check-cyrillic.mjs'
@@ -114,6 +115,22 @@ export default defineConfig(
   {
     files: ['src/renderer/**/*.tsx'],
     extends: [reactRefresh.configs.vite()],
+  },
+  {
+    // Accessibility of the markup (worfy-ui-kit ticket 18): the recommended set of jsx-a11y, plus the
+    // rules the renderer already passes. control-has-associated-label is what catches an icon-only
+    // <button> without a name (an svg inside, no aria-label); its options are the plugin's own strict
+    // ones, which leave the fields to label-has-associated-control. A label here often wraps the text
+    // two spans deep (a radio card: label > span > span > text), so that rule looks three levels down.
+    // The rules left out, and why, are listed in the ticket's result section.
+    files: ['src/renderer/**/*.tsx'],
+    extends: [jsxA11y.flatConfigs.recommended],
+    rules: {
+      'jsx-a11y/control-has-associated-label': ['error', jsxA11y.flatConfigs.strict.rules['jsx-a11y/control-has-associated-label'][1]],
+      'jsx-a11y/label-has-associated-control': ['error', { depth: 3 }],
+      'jsx-a11y/anchor-ambiguous-text': 'error',
+      'jsx-a11y/lang': 'error',
+    },
   },
   {
     // .mjs and .mts too: src/shared/flight-recorder holds plain ES modules (with .d.mts declarations) that a

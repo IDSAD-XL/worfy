@@ -120,7 +120,8 @@ export default function ReviewExample() {
                 {part.verdict !== null ? <span style={part.verdict === 'REJECTED' ? styles.rejected : styles.verified}>{part.verdict}</span> : null}
               </span>
               {part.verdict === null ? (
-                // Focusable, so the keyboard scrolls it too.
+                // Focusable, so the keyboard scrolls it too (axe's scrollable-region-focusable asks for that).
+                // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a scrolling region is reached with Tab.
                 <pre className="w-mono" style={styles.diff} tabIndex={0} aria-label="The Orchestrator's fix">
                   {part.text.split('\n').map((line, at) => (
                     <DiffLine key={at} line={line} />

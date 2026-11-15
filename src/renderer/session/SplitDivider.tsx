@@ -109,6 +109,7 @@ export function SplitDivider({ share, min, reset, onMove, onCommit, label, title
   }
 
   return (
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- a focusable separator with a value is the WAI-ARIA window splitter; jsx-a11y counts every separator as static.
     <div
       className="w-split-divider"
       role="separator"
@@ -117,6 +118,7 @@ export function SplitDivider({ share, min, reset, onMove, onCommit, label, title
       aria-valuemin={Math.round(min * 100)}
       aria-valuemax={Math.round((1 - min) * 100)}
       aria-valuenow={Math.round(share * 100)}
+      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- the window splitter takes the focus to move with the arrows.
       tabIndex={0}
       title={title}
       data-testid={testId}

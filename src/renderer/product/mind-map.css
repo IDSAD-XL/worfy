@@ -560,6 +560,12 @@
 }
 
 .w-mind__fold {
+  /* A span with the box a <button> had: centred content, the border inside the size, no text selection. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  user-select: none;
   flex: none;
   align-self: center;
   margin-left: auto;

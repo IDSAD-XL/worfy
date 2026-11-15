@@ -69,6 +69,7 @@ function ToastView({ toast }: { toast: Toast }) {
     closing(() => dismissToast(id))
   }
   return (
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- Esc closes the toast: the keys come up from the focused controls inside; it is not a control itself.
     <div
       ref={self}
       className={`w-toast w-toast--${toast.kind}`}

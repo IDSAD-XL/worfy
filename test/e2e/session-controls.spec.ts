@@ -100,7 +100,7 @@ test('the pickers change the live Session and survive a restart; the queue sends
     await expect(model).toHaveAttribute('data-value', '')
     await expect(model).toHaveText('ModelDefault (recommended)')
     await expect(effort).toHaveAttribute('data-value', '')
-    await expect(effort).toHaveText('Effortdefault')
+    await expect(effort).toHaveText('Effort default')
     await expect(mode).toHaveAttribute('data-value', 'bypassPermissions')
     await expect(mode).toHaveText('PermissionsBypass permissions')
     // None of the three is a native select element.
@@ -137,7 +137,7 @@ test('the pickers change the live Session and survive a restart; the queue sends
     // The thumb rests: the level is sent with the popover still open, and the button shows it once
     // main reports it. Enter then closes the popover and sends nothing more (the control calls below).
     await expect(effort).toHaveAttribute('data-value', 'low')
-    await expect(effort).toHaveText('Effortlow')
+    await expect(effort).toHaveText('Effort low')
     await expect(popover).toBeVisible()
     await window.keyboard.press('Enter')
     await expect(popover).toHaveCount(0)

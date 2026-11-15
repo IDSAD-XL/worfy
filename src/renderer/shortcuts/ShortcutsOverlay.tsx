@@ -86,6 +86,7 @@ export function ShortcutsOverlay() {
         Keyboard shortcuts
       </h2>
       {/* A stop of Tab: the list scrolls with the arrows. */}
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a scrolling region is reached with Tab. */}
       <div ref={body} className="w-shortcuts__body" tabIndex={0} data-shortcuts-stop="">
         <ShortcutList />
       </div>

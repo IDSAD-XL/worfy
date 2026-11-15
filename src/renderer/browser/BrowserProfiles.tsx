@@ -272,6 +272,7 @@ export function BrowserProfiles({ project, selected, onClose }: BrowserProfilesP
   // Inside a Browser frame on the Canvas: React passes the window's presses, keys and clicks on to the
   // frame, through the portal; they are not the frame's. The element only stands in React's tree.
   return (
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- no box and no role: it only stops the window's events in React's tree.
     <div style={{ display: 'contents' }} onClick={stop} onMouseDown={stop} onPointerDown={stop} onDoubleClick={stop} onContextMenu={stop} onKeyDown={stop} onWheel={stop}>
       <Dialog open onClose={onClose} labelledBy={titleId} className="" style={styles.dialog} data-testid="browser-profiles">
         <h2 id={titleId} style={styles.title}>

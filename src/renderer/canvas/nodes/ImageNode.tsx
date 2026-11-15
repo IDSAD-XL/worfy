@@ -60,6 +60,7 @@ export default function ImageNode({ id, data, selected }: CanvasNodeProps) {
         />
       )}
       {shown ? (
+        // eslint-disable-next-line jsx-a11y/img-redundant-alt -- "Image" is the kind of the Node (CONTEXT.md), not a word about the picture; the app knows nothing else about it.
         <img className="w-image__img" style={FIT} src={src} alt="Image" draggable={false} onError={() => onError(src)} />
       ) : (
         <div className="w-image__missing" role="img" aria-label={failure}>

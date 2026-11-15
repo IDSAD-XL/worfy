@@ -138,6 +138,7 @@ export function Dialog(props: DialogProps) {
   return (
     <BaseDialog.Root open={open} onOpenChange={onOpenChange} modal>
       <BaseDialog.Portal style={layerStyle(layer)}>
+        {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- the backdrop: a press outside the window is the mouse path to close it, Esc the keyboard one. */}
         <div
           className={backdropClassName === undefined ? 'w-kit-dialog__backdrop' : `w-kit-dialog__backdrop ${backdropClassName}`}
           data-testid={backdropTestId}

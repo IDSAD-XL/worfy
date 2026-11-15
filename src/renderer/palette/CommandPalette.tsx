@@ -602,8 +602,9 @@ export function CommandPalette() {
         style={styles.trigger}
         title="Command palette"
         // A narrow window hides the words and keeps the icon and the shortcut (worfy-polish ticket 48,
-        // src/renderer/shell/shell.css): the name stays the same either way.
-        aria-label="Search or run…"
+        // src/renderer/shell/shell.css): the name stays the same either way. It holds the shortcut too,
+        // as every visible word of a button is part of its name (axe, label-content-name-mismatch).
+        aria-label={`Search or run… ${label(SHORTCUTS.palette)}`}
         aria-haspopup="dialog"
         aria-expanded={open}
         data-testid="palette-trigger"

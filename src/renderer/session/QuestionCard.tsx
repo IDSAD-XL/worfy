@@ -202,6 +202,7 @@ export function QuestionCard({ request, sessionId, projectId }: QuestionCardProp
     <div className="w-tr__row" data-testid="question-card" data-request-id={request.requestId} data-resolution="open">
       <div className="w-tr__who w-mono w-tr__who--assistant">ask</div>
       <div className="w-tr__body">
+        {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- the keys come up from the focused option or field inside; the card is not a control. */}
         <div className="w-permission w-question" data-open="true" data-read-only={hint !== null ? '' : undefined} onKeyDown={onKeyDown}>
           <div className="w-permission__head">
             <span className="w-permission__title">{questions.length > 1 ? 'Claude Code asks' : 'Claude Code asks a question'}</span>

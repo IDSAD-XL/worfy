@@ -178,6 +178,9 @@ describe('MindMap by hand', () => {
     expect(within(nodeOf('per-seat')!).queryByRole('button')).toBeNull()
     const fold = within(nodeOf('idea-teams')!).getByRole('button', { name: 'Fold the branch' })
     expect(fold.getAttribute('aria-expanded')).toBe('true')
+    // The focusable node says it too (worfy-ui-kit ticket 18); a node with no branch says nothing.
+    expect(nodeOf('idea-teams')!.getAttribute('aria-expanded')).toBe('true')
+    expect(nodeOf('per-seat')!.hasAttribute('aria-expanded')).toBe(false)
     // The node stays the one stop for Tab (ticket 08): the mark is reached by the pointer.
     expect(fold.tabIndex).toBe(-1)
     fireEvent.click(fold)
@@ -191,6 +194,7 @@ describe('MindMap by hand', () => {
     expect(nodeOf('per-seat')).toBeNull()
     const unfold = within(nodeOf('idea-teams')!).getByRole('button', { name: 'Unfold the branch: 2 nodes' })
     expect(unfold.getAttribute('aria-expanded')).toBe('false')
+    expect(nodeOf('idea-teams')!.getAttribute('aria-expanded')).toBe('false')
     fireEvent.click(unfold)
     expect(layoutCalls()).toEqual([
       { projectId: 'p1', name: 'demo-roadmap', id: 'idea-teams', collapsed: true },

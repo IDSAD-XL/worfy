@@ -649,7 +649,7 @@ test('a narrow chat column keeps the heading on one line and every chip inside i
     // The card quotes the message: its number, the author and the start of the text.
     const card = map.getByRole('region', { name: 'Node' })
     await expect(card).toContainText('First Epic: try the advisor')
-    await expect(card.getByRole('button', { name: 'Show the message in the chat' })).toHaveText('#2 Advisor')
+    await expect(card.getByRole('button', { name: '#2 Advisor: Show in the chat', exact: true })).toHaveText('#2 Advisor')
     await expect(card).toContainText('#2 Advisor: “Three more nodes on the map. The advisor proposes, the cri…”')
     await view.screenshot({ path: test.info().outputPath('24-chip-and-card-1160.png') })
     // Ticket 25: closing the card takes the ring off the message, as the prototype does — by its button and by Escape.

@@ -19,7 +19,6 @@ const style = {
   fontSize: 'var(--text-11)',
   lineHeight: '13px',
   color: 'var(--text-muted)',
-  opacity: 0.8,
 } as const
 
 /** The figure for a sample; "…" until the first one. Exported for tests, which pass their own. */

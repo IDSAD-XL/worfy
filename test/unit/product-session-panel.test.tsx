@@ -536,7 +536,10 @@ describe('the Critic, Idea generator and Drafts buttons of the strip', () => {
 
   it('has four buttons in the prototype’s order, the Agents number on a violet badge', async () => {
     await mount()
-    expect(buttons().map((button) => button.getAttribute('aria-label'))).toEqual(['Agents', 'Critic', 'Idea generator', 'Drafts'])
+    // A button that shows a number says it in its name too: "Agents: 2".
+    const names = buttons().map((button) => button.getAttribute('aria-label'))
+    expect(names[0]).toBe(`Agents: ${screen.getByTestId('product-agents-count').textContent}`)
+    expect(names.slice(1)).toEqual(['Critic', 'Idea generator', 'Drafts'])
     expect(buttons().every((button) => button.querySelector('svg') !== null)).toBe(true)
     expect(screen.getByTestId('product-agents-count').classList.contains('w-product__agents-count')).toBe(true)
     // No drafts: the Drafts button has no number.

@@ -213,6 +213,7 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
           {agentId !== undefined ? (
             <>
               {source === '' ? 'of ' : ' · of '}
+              {/* eslint-disable-next-line jsx-a11y/anchor-is-valid -- a link on purpose: it goes to the parent Session, a place in the app with no URL; the tests find it by role link. */}
               <a
                 href="#"
                 style={styles.link}

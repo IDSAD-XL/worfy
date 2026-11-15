@@ -318,7 +318,8 @@ function EffortPicker({ effort, efforts, order, disabled, configure }: EffortPic
             data-value={effort ?? DEFAULT_VALUE}
             disabled={inactive}
           >
-            <span className="w-select__prefix">Effort</span>
+            {/* The space is not drawn (the button is a flex box) but keeps "Effort" and the level two words in its text. */}
+            <span className="w-select__prefix">Effort</span>{' '}
             <span className="w-select__value">{inactive ? '—' : markName(effort)}</span>
             <SelectChevron />
           </button>

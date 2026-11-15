@@ -152,7 +152,7 @@ describe('chips of Mind map nodes under a message', () => {
     render(<ProductBody />)
     fireEvent.click(nodeOf('who-pays')!)
     const card = screen.getByRole('region', { name: 'Node' })
-    act(() => fireEvent.click(within(card).getByRole('button', { name: 'Show the message in the chat' })))
+    act(() => fireEvent.click(within(card).getByRole('button', { name: /^(#\d+ (You|Advisor): )?Show in the chat$/u })))
     const shown = document.querySelector<HTMLElement>('[data-item][data-shown]')
     expect(shown).not.toBeNull()
     expect(within(shown!).queryAllByTestId('tool-call')).toEqual([])
@@ -175,7 +175,7 @@ describe('chips of Mind map nodes under a message', () => {
     const row = screen.getByTestId('transcript-prompt').closest<HTMLElement>('[data-item]')!
     expect(within(row).getAllByTestId('node-chip').map((chip) => chip.dataset['id'])).toEqual(['who-pays'])
     fireEvent.click(nodeOf('who-pays')!)
-    act(() => fireEvent.click(within(screen.getByRole('region', { name: 'Node' })).getByRole('button', { name: 'Show the message in the chat' })))
+    act(() => fireEvent.click(within(screen.getByRole('region', { name: 'Node' })).getByRole('button', { name: /^(#\d+ (You|Advisor): )?Show in the chat$/u })))
     expect(document.querySelector<HTMLElement>('[data-item][data-shown]')).toBe(row)
   })
 
@@ -195,7 +195,7 @@ describe('chips of Mind map nodes under a message', () => {
     const row = screen.getByTestId('transcript-prompt').closest<HTMLElement>('[data-item]')!
     expect(within(row).getAllByTestId('node-chip').map((chip) => chip.dataset['id'])).toEqual(['who-pays'])
     fireEvent.click(nodeOf('who-pays')!)
-    act(() => fireEvent.click(within(screen.getByRole('region', { name: 'Node' })).getByRole('button', { name: 'Show the message in the chat' })))
+    act(() => fireEvent.click(within(screen.getByRole('region', { name: 'Node' })).getByRole('button', { name: /^(#\d+ (You|Advisor): )?Show in the chat$/u })))
     expect(document.querySelector<HTMLElement>('[data-item][data-shown]')).toBe(row)
   })
 
@@ -223,7 +223,7 @@ describe('chips of Mind map nodes under a message', () => {
     expect(nodeOf('who-pays')!.dataset['lit']).toBe('true')
     act(() => fireEvent.mouseLeave(end))
     fireEvent.click(nodeOf('who-pays')!)
-    act(() => fireEvent.click(within(screen.getByRole('region', { name: 'Node' })).getByRole('button', { name: 'Show the message in the chat' })))
+    act(() => fireEvent.click(within(screen.getByRole('region', { name: 'Node' })).getByRole('button', { name: /^(#\d+ (You|Advisor): )?Show in the chat$/u })))
     expect(end.hasAttribute('data-shown')).toBe(true)
   })
 
@@ -244,14 +244,14 @@ describe('chips of Mind map nodes under a message', () => {
   it('a chat opened again after «Show in the chat» does not act on that request again: nothing is marked, the log stays at its end', () => {
     const { unmount } = render(<ProductBody />)
     fireEvent.click(nodeOf('who-pays')!)
-    act(() => fireEvent.click(within(screen.getByRole('region', { name: 'Node' })).getByRole('button', { name: 'Show the message in the chat' })))
+    act(() => fireEvent.click(within(screen.getByRole('region', { name: 'Node' })).getByRole('button', { name: /^(#\d+ (You|Advisor): )?Show in the chat$/u })))
     expect(document.querySelector('[data-item][data-shown]')).not.toBeNull()
     unmount()
     render(<ProductBody />)
     expect(document.querySelector('[data-item][data-shown]')).toBeNull()
     // A new request still acts.
     fireEvent.click(nodeOf('idea-teams')!)
-    act(() => fireEvent.click(within(screen.getByRole('region', { name: 'Node' })).getByRole('button', { name: 'Show the message in the chat' })))
+    act(() => fireEvent.click(within(screen.getByRole('region', { name: 'Node' })).getByRole('button', { name: /^(#\d+ (You|Advisor): )?Show in the chat$/u })))
     expect(document.querySelector('[data-item][data-shown]')).not.toBeNull()
   })
 
@@ -374,7 +374,7 @@ describe('chips of Mind map nodes under a message', () => {
     expect(scrolls).toEqual([])
 
     // The card's «Show in the chat» for the same message does scroll the log to it.
-    act(() => fireEvent.click(within(screen.getByRole('region', { name: 'Node' })).getByRole('button', { name: 'Show the message in the chat' })))
+    act(() => fireEvent.click(within(screen.getByRole('region', { name: 'Node' })).getByRole('button', { name: /^(#\d+ (You|Advisor): )?Show in the chat$/u })))
     expect(scrolls).toEqual([500])
   })
 
@@ -384,7 +384,8 @@ describe('chips of Mind map nodes under a message', () => {
     const { unmount } = render(<ProductBody />)
     fireEvent.click(nodeOf('who-pays')!)
     let card = screen.getByRole('region', { name: 'Node' })
-    const link = within(card).getByRole('button', { name: 'Show the message in the chat' })
+    // The name holds what the link shows (worfy-ui-kit ticket 18: axe, label-content-name-mismatch).
+    const link = within(card).getByRole('button', { name: '#2 Advisor: Show in the chat' })
     expect(link.textContent).toBe('#2 Advisor')
     expect(link.closest('dd')!.textContent).toBe('#2 Advisor: “Two nodes: an idea and the question it raises.”')
     act(() => fireEvent.click(link))
@@ -395,7 +396,7 @@ describe('chips of Mind map nodes under a message', () => {
     render(<ProductBody shown={events.slice(0, 4)} />)
     fireEvent.click(nodeOf('who-pays')!)
     card = screen.getByRole('region', { name: 'Node' })
-    expect(within(card).getByRole('button', { name: 'Show the message in the chat' }).textContent).toBe('Show in the chat')
+    expect(within(card).getByRole('button', { name: /^(#\d+ (You|Advisor): )?Show in the chat$/u }).textContent).toBe('Show in the chat')
   })
 
   // worfy-product-session ticket 25 (R1 of the final comparison): as the prototype's selectNode(null) clears
@@ -427,7 +428,7 @@ describe('chips of Mind map nodes under a message', () => {
 
     // A node's own «Show in the chat» rings while its card is open; picking another chip keeps a ring.
     act(() => fireEvent.click(nodeOf('who-pays')!))
-    act(() => fireEvent.click(within(card()!).getByRole('button', { name: 'Show the message in the chat' })))
+    act(() => fireEvent.click(within(card()!).getByRole('button', { name: /^(#\d+ (You|Advisor): )?Show in the chat$/u })))
     expect(ringed()).not.toBeNull()
     act(() => fireEvent.click(first!))
     expect(card()).not.toBeNull()
