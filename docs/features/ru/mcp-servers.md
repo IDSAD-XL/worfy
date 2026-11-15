@@ -25,17 +25,25 @@
   «3 of 4 MCP servers connected: 1 failed. 2 more not allowed in this Project».
 - Клик открывает popover над chip-ом, поверх поля ввода, с заголовком «MCP servers» и строкой «n/m connected». Popover
   остаётся в окне: его высота не больше места над chip-ом, строки сверх неё прокручиваются. У каждого сервера своя
-  строка: имя, статус (connected, failed, needs auth, pending, disabled, not allowed), число tool-ов, если Vendor его
+  строка: имя целиком (имя, которое не помещается, переносится на вторую строку; кнопки строки уходят под имя, а не
+  сжимают его), статус (connected, failed, needs auth, pending, disabled, not allowed, not started), число tool-ов, если Vendor его
   сообщил, ошибка словами Vendor-а и источник: claude.ai, user config, Project или worfy. Источник, которого worfy не знает
   по имени (`managed`, `enterprise`, `agent` или новый), показан как user config, а слово Vendor-а стоит в tooltip-е.
-  Серверы, не разрешённые в Project, стоят ниже отдельной группой «Not allowed in this Project».
+  У connector-а claude.ai из имени убрана приставка «claude.ai »: колонка источника уже её говорит («claude.ai Example
+  Notebook» показан как «Example Notebook»); полное имя — в tooltip-е имени, у каждой строки.
+- Серверы, которые не запустились, стоят отдельной группой под серверами Session. Её заголовок один раз говорит почему:
+  «Allowed in this Project, but Claude Code did not start them in this Session.» («it» для одного сервера), и справа в
+  нём одна кнопка «Restart Session»; её tooltip говорит, что разговор сохраняется. В строках группы — имя, статус и
+  источник, без кнопок и без строки ошибки.
+- Серверы, не разрешённые в Project, стоят ниже отдельной группой «Not allowed in this Project».
 - Пока в этой группе две строки с Allow или больше, справа в её заголовке стоит «Allow all». При одной такой строке «Allow
-  all» нет: то же делает Allow самой строки.
+  all» нет: то же делает Allow самой строки. «Allow all» — единственная primary кнопка popover-а; Allow в строках —
+  secondary.
 - У строки по кнопке на каждое действие, которое предлагает для неё main; своих кнопок окно не добавляет. У строки
   собственного сервера worfy (`worfy-canvas`, `worfy-browser`, `worfy-mind-map`) нет Turn off for this Session; упавший
   такой сервер по-прежнему предлагает Reconnect. Пока действие идёт, кнопки
-  его строки ждут, и «Allow all» тоже ждёт. Отказ показывается toast-ом с названием действия, именем сервера и причиной; строки после
-  действия приходят в его ответе.
+  его строки ждут, и «Allow all» и «Restart Session» тоже ждут. Отказ показывается toast-ом с названием действия, именем сервера и причиной; строки после
+  действия приходят в его ответе. Отказ «Allow all» или «Restart Session» остаётся под заголовком их группы.
 - Esc закрывает popover и не прерывает ход. Нажатие вне его, изменение размера окна и потеря окном фокуса тоже его
   закрывают.
 
@@ -49,12 +57,13 @@
 | Turn on | выключенный для этой Session | Перезапускает Session с тем же разговором, вернув сервер. |
 | Allow | not allowed, Claude Code | Пишет сервер в список Profile и перезапускает Session с тем же разговором. |
 | Allow all | заголовок «Not allowed in this Project», пока строк с Allow две или больше | Пишет все серверы группы в список Profile одной записью и перезапускает Session один раз. |
+| Restart Session | заголовок группы not started, Claude Code, Session, за которой человек | Перезапускает Session с тем же разговором, один раз на всю группу, чтобы Claude Code запустился снова со списком. |
 
-- **Перезапуск с тем же разговором.** Turn off, Turn on, Allow и Allow all завершают процесс Session и запускают новый, который
+- **Перезапуск с тем же разговором.** Turn off, Turn on, Allow, Allow all и Restart Session завершают процесс Session и запускают новый, который
   продолжает тот же разговор, в той же Session. Идущий ход сначала прерывается, как Interrupt, и очередь придерживается.
   Session тем временем в `starting`, и то, что ей отправили, ждёт нового процесса. Если ход уже был, у Session тот же id;
-  до первого хода продолжать нечего, и новый процесс начинает новый разговор под новым id. Отдельной кнопки Restart нет
-  ни у одной строки.
+  до первого хода продолжать нечего, и новый процесс начинает новый разговор под новым id. Своя кнопка Restart есть только у
+  группы not started, в её заголовке.
 - **Turn off for this Session** не меняет ни Profile, ни конфигурацию пользователя: новая Session снова получит сервер.
   Собственные серверы worfy (`worfy-canvas`, `worfy-browser`, `worfy-mind-map`) не выключаются никогда: у их строк нет
   Turn off, а Turn off такого сервера, если его всё же попросили, main отклоняет, ничего не перезапуская. Сервер plugin-а,
@@ -95,7 +104,11 @@ popover-а даёт main подхватить сервер, который ра�
 - Строка «not allowed» — сервер пользователя, не worfy и не plugin-а, которого список не называет, которого нет в Session
   и который не выключен для этой Session. Она предлагает Allow, а её число tool-ов, если инвентарь его знал, говорит, что
   Allow добавит к каждому ходу.
-- Группа кончается строкой «A claude.ai connector missing here: add its name to MCP servers in Project settings (Edit
+- Строка «not started» — сервер, который список называет и инвентарь находит, но которого нет в Session: Claude Code его
+  не запустил (connector claude.ai, разрешённый по имени, или подключённый после старта процесса). Она стоит в группе
+  not started, считается в m и несёт статус blocked, как failed; в Session, за которой человек, заголовок группы
+  предлагает Restart Session.
+- Группа «Not allowed in this Project» кончается строкой «A claude.ai connector missing here: add its name to MCP servers in Project settings (Edit
   profile).». Инвентарь может не перечислять connector-ы claude.ai, поэтому connector, которого в группе нет, разрешают,
   вписав его имя в список.
 - У Session вне всех Project-ов списка нет: она не запускает инвентарь, и таких строк у неё нет.
@@ -191,16 +204,16 @@ transcript-а. Chip один раз спрашивает `agent.mcp`, пока �
 | Test | Что проверяет |
 |---|---|
 | `test/unit/mcp-status-row.test.ts` | Источник каждого слова SDK, строки записанного ответа, нет Turn off у собственных серверов worfy, а у сервера plugin-а он есть. |
-| `test/unit/mcp-chip.test.tsx` | Счёт chip-а, его предупреждение, строки и группа popover-а, кнопки, «Allow all», popover вверх, вопрос с `pickUp` при открытии. |
+| `test/unit/mcp-chip.test.tsx` | Счёт chip-а, его предупреждение, строки и группы popover-а, кнопки, «Allow all», группа not started и её «Restart Session», имена целиком, popover вверх, вопрос с `pickUp` при открытии. |
 | `test/unit/session-view.test.tsx` | Chip в строке под полем ввода, не в шапке, и его нет у Product Session. |
 | `test/unit/edit-profile.test.tsx` | Статус рядом с каждым именем списка MCP servers в Edit profile, его нет без Session и у Project-а Linked machine. |
 | `test/unit/codex-mcp-row.test.ts` | Строки Codex: каждый статус, Sign in только для HTTP-сервера, tool-ы, источник, никогда не «not allowed». |
 | `test/contract/claude-mcp-status.test.ts` | Событие `mcp` Session Claude Code над fake agent-ом, `agent.mcp`, Reconnect и порядок ответов. |
 | `test/contract/claude-mcp-pickup.test.ts` | Подхват нового сервера только между ходами и ничего в Session Autopilot. |
 | `test/contract/claude-mcp-turn-off.test.ts` | Перезапуск с тем же разговором после выхода старого процесса, Turn off и Turn on, нет Turn off у сервера worfy, перезапуск до первого хода. |
-| `test/contract/claude-mcp-inventory.test.ts` | Query инвентаря и строки «not allowed». |
+| `test/contract/claude-mcp-inventory.test.ts` | Query инвентаря, строки «not allowed» и строки «not started» серверов, которые находит только инвентарь. |
 | `test/contract/claude-mcp-allow.test.ts` | Allow и Allow all через stub `bin/profile-set`, отклонённая запись, ключ очереди worktree-а, отказ Turn off у worfy-canvas через IPC. |
 | `test/contract/claude-mcp-sign-in.test.ts` | Sign in, connector claude.ai, ничего в log-е, Claude Code без входа. |
 | `test/contract/codex-mcp-status.test.ts` | Session Codex на fake app-server: уведомления, список, Reconnect, Sign in, отклонённые действия. |
 | `test/contract/sdk-compat.test.ts` | В SDK всё ещё есть метод входа, который зовёт worfy. |
-| `test/e2e/session-mcp.spec.ts` | Chip под полем ввода и popover над ним в собранном приложении, Reconnect, Allow в той же Session. |
+| `test/e2e/session-mcp.spec.ts` | Chip под полем ввода и popover над ним в собранном приложении, Reconnect, Allow в той же Session, группа not started с её Restart Session; снимки popover-а в обеих темах. |

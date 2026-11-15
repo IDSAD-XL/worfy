@@ -383,6 +383,14 @@ describe('ci.yml: every pull request and every push to main, one check for the m
     }
   })
 
+  it('keeps the shots of the macOS e2e run on a green run too, for a look on the pull request (worfy-mcp-live ticket 10)', () => {
+    const text = job('macos-e2e').join('\n')
+    expect(text).toMatch(/- if: success\(\)\n\s+uses: actions\/upload-artifact@v\d+\n\s+with:\n\s+name: e2e-snapshots-\$\{\{ strategy\.job-index \}\}-\$\{\{ github\.run_attempt \}\}\n\s+path: test-results\/e2e\/snapshots\/\n/)
+    // Where the shots are written: test.info().project.outputDir of playwright.config.ts, then snapshots/.
+    expect(readFileSync(join(REPO, 'playwright.config.ts'), 'utf8')).toMatch(/^const OUTPUT_DIR = 'test-results\/e2e'$/m)
+    expect(readFileSync(join(REPO, 'test/e2e/snapshots.ts'), 'utf8')).toContain("join(test.info().project.outputDir, 'snapshots', name)")
+  })
+
   it('ci-ok needs every other job, runs whatever happened before it, and asks scripts/ci-ok.mjs', () => {
     const ok = job('ci-ok')
     expect(items(under(ok, '    needs:'))).toEqual(JOBS.filter((name) => name !== 'ci-ok'))

@@ -78,6 +78,19 @@ export function mcpSourceOf(word: string | null | undefined): { source: McpServe
   return known === undefined ? { source: 'user', sourceWord: word } : { source: known, sourceWord: null }
 }
 
+/** The word Claude Code puts before the name of a claude.ai connector, with its space. */
+const CLAUDEAI_PREFIX = 'claude.ai '
+
+/**
+ * The name the popover shows for `row` (worfy-mcp-live ticket 10): a claude.ai connector's name without the
+ * leading «claude.ai », which its source already says; every other name whole. The row keeps its full name:
+ * the actions go to main by it, and the popover shows it in a tooltip.
+ */
+export function mcpShownName(row: Pick<McpServerRow, 'name' | 'source'>): string {
+  const rest = row.name.slice(CLAUDEAI_PREFIX.length)
+  return row.source === 'claudeai' && row.name.startsWith(CLAUDEAI_PREFIX) && rest.trim() !== '' ? rest : row.name
+}
+
 /** Whether two lists of rows are the same; null is "no data". */
 export function sameMcpRows(a: readonly McpServerRow[] | null, b: readonly McpServerRow[] | null): boolean {
   if (a === null || b === null) return a === b
