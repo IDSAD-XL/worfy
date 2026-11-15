@@ -162,6 +162,14 @@
           "required": ["allowed"],
           "properties": { "allowed": { "type": "array", "items": { "type": "string" } } }
         },
+        "code_stories": {
+          "type": ["object", "null"],
+          "description": "Code stories of the project (profiles/README.md, code_stories.pr). Absent or null — every field at its default.",
+          "additionalProperties": false,
+          "properties": {
+            "pr": { "enum": ["on", "off", null], "description": "Whether the implementer writes a story of each ticket's PR and the merge waits for it: on (absent or null resolve to it) or off." }
+          }
+        },
         "skills": {
           "type": "object",
           "description": "The user's plugins and skills the sessions worfy starts in the project get (profiles/README.md, skills.allowed). Absent — all of them.",

@@ -385,6 +385,20 @@ if (pages !== undefined && pages !== null && !(typeof pages === "string" && page
     err(`profile: ${pjPath}: docs.feature_pages must be a non-empty path or null, got ${JSON.stringify(pages)} — ignored`)
     delete profile.docs.feature_pages
 }
+// code_stories.pr (profiles/README.md): whether the implementer writes a story of each ticket's PR. Absent or
+// null — "on", the owner's default (worfy-code-stories, decision 14). Any other value is one warning and the
+// default, as with feature_pages: a typo must not stop the project from being read, and "on" is the stricter side.
+const STORY_SWITCH = ["on", "off"]
+const stories = profile.code_stories
+if (stories !== undefined && stories !== null && (typeof stories !== "object" || Array.isArray(stories))) {
+    err(`profile: ${pjPath}: code_stories must be an object such as {"pr": "off"} or null, got ${JSON.stringify(stories)} — ignored`)
+    profile.code_stories = {}
+}
+profile.code_stories ??= {}
+const storyPr = profile.code_stories.pr
+if (storyPr !== undefined && storyPr !== null && !STORY_SWITCH.includes(storyPr))
+    err(`profile: ${pjPath}: code_stories.pr is "on" or "off", got ${JSON.stringify(storyPr)} — read as "on"`)
+if (!STORY_SWITCH.includes(storyPr)) profile.code_stories.pr = "on"
 
 let checkoutReal = null
 if (checkout) {
