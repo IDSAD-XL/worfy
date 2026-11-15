@@ -92,8 +92,9 @@ function RailTab({ section, selected, first, tabId, panelId, onSelect, onKeyDown
 
 const gearIcon = (
   <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <circle cx="8" cy="8" r="2.2" />
-    <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" />
+    {/* A gear with eight teeth: the earlier rays read as a sun, that is, a theme switch (owner, 2026-11-15). */}
+    <path d="M7.01 3.2L7.17 1.45L8.83 1.45L8.99 3.2A4.9 4.9 0 0 1 10.69 3.9L12.05 2.78L13.22 3.95L12.1 5.31A4.9 4.9 0 0 1 12.8 7.01L14.55 7.17L14.55 8.83L12.8 8.99A4.9 4.9 0 0 1 12.1 10.69L13.22 12.05L12.05 13.22L10.69 12.1A4.9 4.9 0 0 1 8.99 12.8L8.83 14.55L7.17 14.55L7.01 12.8A4.9 4.9 0 0 1 5.31 12.1L3.95 13.22L2.78 12.05L3.9 10.69A4.9 4.9 0 0 1 3.2 8.99L1.45 8.83L1.45 7.17L3.2 7.01A4.9 4.9 0 0 1 3.9 5.31L2.78 3.95L3.95 2.78L5.31 3.9A4.9 4.9 0 0 1 7.01 3.2Z" />
+    <circle cx="8" cy="8" r="2.1" />
   </svg>
 )
 
