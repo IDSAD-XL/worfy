@@ -640,7 +640,7 @@ describe('composer: pickers and queue (ticket 19)', () => {
 
   it("offers the picked model's effort levels on a slider; a model without effort disables the picker", async () => {
     await mountInput()
-    expect(picker('picker-effort').textContent).toBe('Effortdefault')
+    expect(picker('picker-effort').textContent).toBe('Effort default')
     expect(effortMarks()).toEqual(['default', 'low', 'medium', 'high', 'xhigh', 'max'])
     // The thumb goes to "high"; the level is sent when the popover closes.
     fireEvent.click(picker('picker-effort'))
@@ -652,7 +652,7 @@ describe('composer: pickers and queue (ticket 19)', () => {
     expect(effortMarks()).toEqual(['default', 'low', 'high'])
     emit('s', { type: 'settings', settings: { ...DEFAULTS, model: 'haiku' } })
     expect(picker('picker-effort').disabled).toBe(true)
-    expect(picker('picker-effort').textContent).toBe('Effort—')
+    expect(picker('picker-effort').textContent).toBe('Effort —')
     expect(value('picker-effort')).toBe('')
   })
 

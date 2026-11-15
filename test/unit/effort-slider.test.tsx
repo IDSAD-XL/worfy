@@ -157,7 +157,7 @@ describe('the marks of the effort slider', () => {
   it('are "default" and the saved level for a model that lists none', async () => {
     await mount({ settings: { model: 'haiku', effort: 'high' } })
     expect(button().disabled).toBe(false)
-    expect(button().textContent).toBe('Efforthigh')
+    expect(button().textContent).toBe('Effort high')
     open()
     expect(marks()).toEqual(['default', 'high'])
   })
@@ -165,7 +165,7 @@ describe('the marks of the effort slider', () => {
   it('there are none for a model without levels and no saved one: the button reads "Effort —" and does not open', async () => {
     await mount({ settings: { model: 'haiku' } })
     expect(button().disabled).toBe(true)
-    expect(button().textContent).toBe('Effort—')
+    expect(button().textContent).toBe('Effort —')
     fireEvent.click(button())
     expect(popover()).toBeNull()
   })
@@ -174,13 +174,13 @@ describe('the marks of the effort slider', () => {
 describe('the button of the effort picker', () => {
   it('shows the level main reports and says that it is the level asked for, not the one applied', async () => {
     await mount({ settings: { effort: 'high' } })
-    expect(button().textContent).toBe('Efforthigh')
+    expect(button().textContent).toBe('Effort high')
     expect(button().dataset['value']).toBe('high')
     expect(button().getAttribute('aria-label')).toBe('Effort: high')
     expect(button().title).toBe('Claude Code does not report the effort it applies: this is the level worfy asked for')
     expect(button().getAttribute('aria-expanded')).toBe('false')
     await emit('s', { type: 'settings', settings: DEFAULTS })
-    expect(button().textContent).toBe('Effortdefault')
+    expect(button().textContent).toBe('Effort default')
     expect(button().dataset['value']).toBe('')
   })
 
@@ -189,12 +189,12 @@ describe('the button of the effort picker', () => {
     open()
     press('ArrowRight')
     expect(screen.getByTestId('effort-current').textContent).toBe('medium')
-    expect(button().textContent).toBe('Effortlow')
+    expect(button().textContent).toBe('Effort low')
     expect(button().getAttribute('aria-label')).toBe('Effort: low')
     press('Enter')
-    expect(button().textContent).toBe('Effortlow')
+    expect(button().textContent).toBe('Effort low')
     await emit('s', { type: 'settings', settings: { ...saved, effort: 'medium' } })
-    expect(button().textContent).toBe('Effortmedium')
+    expect(button().textContent).toBe('Effort medium')
   })
 
   it('opens the popover with the focus on the slider; a second click closes it', async () => {

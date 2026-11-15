@@ -83,6 +83,8 @@ function NodeShape({ title, note }: { title: string; note: string }) {
       <text className="w-guide-scene__title" x="26" y={HEADER_HEIGHT / 2 + 4.5}>
         {title}
       </text>
+      {/* A space outside the <text> elements: drawn nowhere, it keeps the title and the note two words apart
+          in the block's text, which must hold its aria-label's words (axe, label-content-name-mismatch). */}{' '}
       {lines.length === 1 ? (
         <text className="w-guide-scene__note" x="12" y={HEADER_HEIGHT + 20}>
           {note}
@@ -91,7 +93,8 @@ function NodeShape({ title, note }: { title: string; note: string }) {
         <text className="w-guide-scene__note is-wrapped" x="12" y={HEADER_HEIGHT + 13}>
           {lines.map((line, index) => (
             <tspan key={index} x="12" dy={index === 0 ? 0 : 12}>
-              {line}
+              {/* Each line but the last ends in a space, so the lines read as words apart, not glued. */}
+              {index < lines.length - 1 ? `${line} ` : line}
             </tspan>
           ))}
         </text>
@@ -108,7 +111,7 @@ function TabShape({ title, note, width }: { title: string; note: string; width: 
       <circle className="w-guide-scene__group" cx="14" cy={TAB_HEIGHT / 2} r="4.5" />
       <text className="w-guide-scene__title is-tab" x="25" y={TAB_HEIGHT / 2 + 5}>
         {title}
-      </text>
+      </text>{' '}
       {note === '' ? null : (
         <text className="w-guide-scene__tab-note" x={width + 10} y="11">
           {note}

@@ -1,3 +1,5 @@
+import { writeFile } from 'node:fs/promises'
+import { basename } from 'node:path'
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 
@@ -20,10 +22,10 @@ export interface AxeScan {
   include?: string
 }
 
-/** One line per violation: the rule, its impact, what it asks, and up to five of the elements it found. */
+/** One line per violation: the rule, its impact, what it asks, and up to five of the elements it found with their HTML. */
 export function describeViolations(violations: Result[]): string[] {
   return violations.map((violation) => {
-    const targets = violation.nodes.slice(0, 5).map((node) => node.target.join(' '))
+    const targets = violation.nodes.slice(0, 5).map((node) => `${node.target.join(' ')} ${node.html.slice(0, 160)}`)
     const more = violation.nodes.length > 5 ? ` (+${violation.nodes.length - 5} more)` : ''
     return `${violation.id} [${violation.impact ?? 'no impact'}] ${violation.help}: ${targets.join(' | ')}${more}`
   })
@@ -44,7 +46,10 @@ export async function axeViolations(page: Page, scan: AxeScan = {}): Promise<Res
  */
 export async function expectAccessible(page: Page, screen: string, scan: AxeScan = {}): Promise<void> {
   const violations = await axeViolations(page, scan)
-  await test.info().attach(`axe-${screen.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.json`, { body: JSON.stringify(violations, null, 2), contentType: 'application/json' })
+  // A file in the test's output folder, so CI keeps it with the failure's other files.
+  const file = test.info().outputPath(`axe-${screen.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.json`)
+  await writeFile(file, JSON.stringify(violations, null, 2))
+  await test.info().attach(basename(file), { path: file, contentType: 'application/json' })
   const failing = violations.filter((violation) => FAILING_IMPACTS.includes(violation.impact ?? ''))
   const lesser = violations.filter((violation) => !FAILING_IMPACTS.includes(violation.impact ?? ''))
   if (lesser.length > 0) console.log(`axe, ${screen}, below serious:\n  ${describeViolations(lesser).join('\n  ')}`)

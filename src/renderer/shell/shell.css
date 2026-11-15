@@ -462,8 +462,8 @@ html[data-platform='linux'] .w-sidebar__titlebar {
 .w-toolbar__version {
   font-size: var(--text-11);
   line-height: 13px;
+  /* The muted colour at full strength: at 80% it fell to 3.5:1 on the toolbar (axe, color-contrast). */
   color: var(--text-muted);
-  opacity: 0.8;
   white-space: nowrap;
 }
 /* The step of an Update build on the version chip ("Updating · 2/3 Installing dependencies",

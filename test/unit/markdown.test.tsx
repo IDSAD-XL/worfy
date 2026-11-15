@@ -71,6 +71,13 @@ describe('Markdown: GitHub-flavoured syntax', () => {
       [false, true],
     ])
   })
+
+  it('names each task checkbox by the words of its item, its nested list left out', () => {
+    render(<Markdown text={['- [x] tests', '- [ ] review', '  - [ ] the diff', '', 'Not a task'].join('\n')} />)
+    expect(screen.getByRole('checkbox', { name: 'tests' })).toHaveProperty('checked', true)
+    expect(screen.getByRole('checkbox', { name: 'review' })).toHaveProperty('checked', false)
+    expect(screen.getByRole('checkbox', { name: 'the diff' })).toHaveProperty('checked', false)
+  })
 })
 
 describe('Markdown: line breaks', () => {

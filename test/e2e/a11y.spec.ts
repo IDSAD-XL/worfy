@@ -107,7 +107,7 @@ test('the Mind map of a Product Session, with a node card open, has no serious a
     { id: 'root-idea', kind: 'idea', text: 'A screen for product work: the map of decisions beside the conversation', from: null, advice: true, message },
     { id: 'who', kind: 'question', text: 'Who decides when the advisor and the critic disagree?', from: 'root-idea', message },
     { id: 'split', kind: 'decision', text: 'Mind map and chat side by side', from: 'root-idea', status: 'accepted', reason: 'seen in the prototype', message },
-    { id: 'laptop', kind: 'objection', text: 'The agent edits the file, not the owner', from: 'split', message },
+    { id: 'laptop', kind: 'objection', text: 'The agent edits the file, not the owner', from: 'split', source: 'docs/design/F-SPEC.md', message },
   ]
 
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'product-mind-map' } })

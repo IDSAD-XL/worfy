@@ -90,3 +90,14 @@ Electron нет. `test/e2e/a11y.spec.ts`: Canvas, Command palette, Settings, Gui
 Session с открытой карточкой узла; панель Command request Terminal AI (только она, на Windows пропуск — нет zsh,
 как у остальных test-ов Terminal AI). Проверка самого helper-а: окно `role="dialog"` без имени на Canvas даёт
 `aria-dialog-name serious`.
+
+**Исправлено по находкам axe** (первый прогон CI, Windows, светлая тема):
+- color-contrast: версия приложения и память worfy в toolbar — `--text-muted` с `opacity: 0.8` давал 3.52:1 на
+  `--surface-raised`; opacity убрана, цвет тот же token (`shell.css`, `memory/AppMemory.tsx`). Правка вида: эти две
+  подписи чуть темнее (светлая тема) или светлее (тёмная).
+- label-content-name-mismatch: кнопка Command palette в toolbar — имя теперь содержит и shortcut («Search or run… ⌘K»,
+  на Windows «Ctrl+K»), который виден на кнопке; кнопка Effort — пробел между «Effort» и уровнем (кнопка — flex,
+  пробел не рисуется; `textContent` стал «Effort high» вместо «Efforthigh», test-ы поправлены); блоки сцены Guide —
+  пробел между заголовком и заметкой и между строками заметки (вне `<text>`, не рисуется).
+- label (critical): checkbox-ы task list в markdown (`markdown/Markdown.tsx`) получили имя — слова своего пункта без
+  вложенных списков.
