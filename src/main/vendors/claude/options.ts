@@ -707,12 +707,23 @@ function claudeEffort(setting: string | null): EffortChoice | null {
  * settings as a Session reads them (settingSources user, project and local), and nothing of worfy's — no
  * managedSettings, so no Profile list cuts a server; no server and no plugin of worfy; no permission
  * callback, since no message ever reaches the model. As the spike of ticket 01 ran it (F:inventory-status).
- * `cwd` is outside every Project (ticket 14): the servers of the Project's folder come as `servers`
- * (project-mcp.ts), and no transcript is kept.
+ * `cwd` is outside every Project and no transcript is kept (ticket 14): the Session's folder comes as
+ * `projectConfigRoot`, where Claude Code reads the Project's .mcp.json, settings and plugins and starts its stdio
+ * servers; the local servers of the Project's record in .claude.json come as `servers`, and the ones turned off
+ * there as `disabled` (project-mcp.ts).
  */
-export function inventoryOptions(input: { cwd: string; env: Env; runtime: RuntimeInfo; servers?: Record<string, McpServerConfig> }): Options {
+export function inventoryOptions(input: {
+  cwd: string
+  env: Env
+  runtime: RuntimeInfo
+  projectConfigRoot?: string
+  servers?: Record<string, McpServerConfig>
+  disabled?: readonly string[]
+}): Options {
   const options: Options = { cwd: input.cwd, env: input.env, settingSources: ['user', 'project', 'local'], persistSession: false }
+  if (input.projectConfigRoot !== undefined) options.projectConfigRoot = input.projectConfigRoot
   if (input.servers !== undefined && Object.keys(input.servers).length > 0) options.mcpServers = input.servers
+  if (input.disabled !== undefined && input.disabled.length > 0) options.settings = { disabledMcpjsonServers: [...input.disabled] }
   const executable = claudeExecutablePath(input.runtime)
   if (executable !== undefined) options.pathToClaudeCodeExecutable = executable
   return options

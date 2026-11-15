@@ -24,7 +24,7 @@
 // read at the same moment (worfy-polish ticket 29, autoCompactWindowSource).
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import type { Options } from '@anthropic-ai/claude-agent-sdk'
 import { app } from 'electron'
 import { productFolder } from '../../../shared/product/paths'
@@ -49,7 +49,7 @@ import { projectLayouts, type ProjectLayout } from '../../workflow/folder'
 import { readMcpAllowlist, readProfileFolder, readSkillsAllowlist, type ProfileFolder, type ReadProfileOptions } from '../../workflow/profile'
 import type { InventoryQueryStarter } from './mcp-inventory'
 import { inventoryOptions, productGuard, sessionHarnessPlugin, sessionOptions, toolUseHooks, userExtensions, withBrowserServer, withMindMapServer, type ProductWrites } from './options'
-import { projectMcpServers, withProjectScopes } from './project-mcp'
+import { projectLocalMcp, withLocalScope } from './project-mcp'
 
 /** The canvas of a Session (ticket 24); a failure leaves the Session without canvas tools rather than without a Session. */
 async function canvasOrNull(canvas: CanvasResolver, request: QueryRequest): Promise<CanvasSession | null> {
@@ -420,19 +420,24 @@ export function queryFactoryFromEnv(env: NodeJS.ProcessEnv = process.env): Query
  * user's settings as a Session reads them, but without the Profile's list, without worfy's own servers and
  * without a single message, so no model is called: its input never yields. It runs in `runDir`, outside
  * every Project, as the Limits probe does (limits.ts), so Claude Code registers no Session of the Project
- * and the Canvas gets no Session Node from it (ticket 14); the servers of the Project's folder `cwd` are
- * read by worfy and handed to it (project-mcp.ts). `loadSdk`: the Agent SDK by default, a test's query()
- * otherwise; `runDir`: <WORFY_DATA_DIR>/terminal-ai by default.
+ * and the Canvas gets no Session Node from it (ticket 14). The Project's folder `cwd` is its
+ * projectConfigRoot, and the Project's record in .claude.json is read by worfy (project-mcp.ts). `loadSdk`:
+ * the Agent SDK by default, a test's query() otherwise; `runDir`: <WORFY_DATA_DIR>/terminal-ai by default;
+ * `rootOf`: the main repository root of a folder.
  */
-export function sdkInventoryStarter(loadSdk: () => Promise<AgentSdk> = importSdk, runDir: () => string = () => assistDir(dataRoot())): InventoryQueryStarter {
+export function sdkInventoryStarter(
+  loadSdk: () => Promise<AgentSdk> = importSdk,
+  runDir: () => string = () => assistDir(dataRoot()),
+  rootOf?: (folder: string) => Promise<string | null>,
+): InventoryQueryStarter {
   return async (cwd, prompt) => {
     const [{ query }, environment] = await Promise.all([loadSdk(), agentEnv()])
-    const project = await projectMcpServers(cwd, environment.env)
+    const local = await projectLocalMcp(cwd, environment.env, rootOf)
     const at = runDir()
     mkdirSync(at, { recursive: true })
     const runtime = { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform, arch: process.arch }
-    const handle = query({ prompt, options: inventoryOptions({ cwd: at, env: environment.env, runtime, servers: project.servers }) }) as QueryHandle
-    return withProjectScopes(handle, project.scopes)
+    const options = inventoryOptions({ cwd: at, env: environment.env, runtime, projectConfigRoot: resolve(cwd), servers: local.servers, disabled: local.disabled })
+    return withLocalScope(query({ prompt, options }) as QueryHandle, Object.keys(local.servers))
   }
 }
 

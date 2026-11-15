@@ -177,10 +177,12 @@ have shows without a status; with no Session, nothing shows. The form is on [Pro
   more, an stdio server as a process of its own. The answer is kept in main's memory until the next run, never on disk.
 - **The inventory leaves no Session on the Canvas.** Its Claude Code runs in worfy's own folder
   (`<WORFY_DATA_DIR>/terminal-ai`, as the Limits probe does), keeps no transcript, and so is no Session of the Project
-  and no Session Node. The servers Claude Code would take from the Project's folder worfy reads and hands to it: those of
-  each `.mcp.json` from the Session's folder up (less the ones the user rejected in `disabledMcpjsonServers`) and the
-  folder's local servers in the user's `.claude.json`. Their rows keep the Project's source. A plugin the Project's
-  settings turn on is not loaded there; its servers never get a row anyway.
+  and no Session Node. The Session's folder is its project config root (`--project-config-root`): Claude Code reads the
+  Project's `.mcp.json`, settings and plugins there, and starts the Project's stdio servers in that folder with
+  `CLAUDE_PROJECT_DIR` set to it, as for the Session. The Project's record in the user's `.claude.json` is the one thing
+  that flag does not move, so worfy reads it, by the main checkout's root as Claude Code keys it, also for a Session in a
+  worktree: its local servers are handed to the query and keep their rows, and the servers turned off there with `/mcp`
+  are not started, except a user server turned off only in this Project, which runs for the inventory's seconds.
 - **The user's servers stay on the user's screen.** A row carries no config: the server's URL and headers stay in the
   driver. When Claude Code fails to report the status, to take in a server or to run the inventory, the log gets the
   kind of the failure alone, without a server's name, and the address of a sign-in page reaches only the browser. The
@@ -224,8 +226,8 @@ and `agent.mcpAllowAll` write channels, so read-only access on a Linked machine 
 | `test/contract/claude-mcp-status.test.ts` | The `mcp` event of a Claude Code Session over the fake agent, `agent.mcp`, Reconnect and the order of answers. |
 | `test/contract/claude-mcp-pickup.test.ts` | Taking in a new server between turns only, and nothing in an Autopilot Session. |
 | `test/contract/claude-mcp-turn-off.test.ts` | Restart with the same conversation after the old process exits, Turn off and Turn on, no Turn off of worfy's own server, Restart before the first turn. |
-| `test/contract/claude-mcp-inventory.test.ts` | The query of the inventory, run outside the Project with its servers handed over, and the rows not allowed. |
-| `test/unit/claude-project-mcp.test.ts` | The servers of a Project's folder the inventory hands to Claude Code: `.mcp.json` up the folders, rejected ones, local servers, their source in the answer. |
+| `test/contract/claude-mcp-inventory.test.ts` | The query of the inventory, run outside the Project with the Session's folder as its config root, and the rows not allowed. |
+| `test/unit/claude-project-mcp.test.ts` | The Project's record in `.claude.json` the inventory reads: by the main checkout's root, local servers as written, the turned-off ones, their source in the answer. |
 | `test/unit/mcp-addresses.test.ts` | The entries of the list: a name Claude Code takes, an address and its pattern without the query, the addresses of an answer of the inventory, an empty list. |
 | `test/contract/claude-mcp-addresses.test.ts` | The addresses kept in main only, a Session's start taking them, the list by address, the reason of a row not started. |
 | `test/contract/claude-mcp-allow.test.ts` | Allow and Allow all through a stub `bin/profile-set`: two Allows at once, a list changed in between, a refused write, a server the restarted process does not have, the queue key of a worktree, a Turn off of worfy-canvas refused over IPC. |

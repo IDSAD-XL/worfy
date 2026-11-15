@@ -112,8 +112,9 @@ describe('the query of the inventory', () => {
     // Outside the folder asked about, in worfy's own folder (ticket 14); a folder without .mcp.json hands it no server.
     expect(options.cwd).toBe(runDir)
     expect(options.persistSession).toBe(false)
+    expect(options.projectConfigRoot).toBe(cwd)
     expect(options.settingSources).toEqual(['user', 'project', 'local'])
-    for (const key of ['managedSettings', 'mcpServers', 'plugins', 'canUseTool', 'resume', 'sessionId', 'systemPrompt', 'model']) expect(options, key).not.toHaveProperty(key)
+    for (const key of ['managedSettings', 'mcpServers', 'settings', 'plugins', 'canUseTool', 'resume', 'sessionId', 'systemPrompt', 'model']) expect(options, key).not.toHaveProperty(key)
     // The input: nothing until the inventory stops it, then its end — no message ever reaches the model.
     const next = prompt[Symbol.asyncIterator]().next()
     const early = await Promise.race([next.then(() => 'yielded'), new Promise((done) => setTimeout(() => done('waiting'), 50))])
@@ -382,13 +383,16 @@ describe('the answer goes to the Session’s rows only', () => {
 
 // Audit finding 29 (ticket 14): the query of the inventory ran in the Project's folder, so Claude Code registered it
 // in ~/.claude/sessions as a Session of the Project, and the Canvas got a read-only Session Node from each run. It
-// runs in worfy's own folder now; the servers of the Project's folder are read by worfy and handed to it.
+// runs in worfy's own folder now, with the Session's folder as its projectConfigRoot (--project-config-root); the
+// Project's record in .claude.json, which Claude Code keys by its cwd's git root whatever that flag says, worfy reads
+// by the main repository root and hands over.
 describe('the query of the inventory leaves the Project alone', () => {
   /**
-   * A query() that does what Claude Code does with the options it is given: registers itself in
-   * <home>/sessions/<pid>.json with its cwd, keeps a transcript under <home>/projects/<its cwd's folder> unless
-   * persistSession is false, and answers mcpServerStatus() with the user's server and each server handed to it
-   * as `dynamic`. The servers of a Project's folder it does not read itself: what reaches it is what worfy hands.
+   * A query() that does with its options what Claude Code 2.1.322 does (project-mcp.ts names the binary's
+   * functions): registers itself in <home>/sessions/<pid>.json with its cwd; keeps a transcript under
+   * <home>/projects/<its cwd's folder> unless persistSession is false; reads .mcp.json in projectConfigRoot (its cwd
+   * without one), less the names of disabledMcpjsonServers of its flag settings, as scope `project`; and reports
+   * each server handed to it as `dynamic`, next to the user's server.
    */
   function claudeCode(home: string) {
     const seen: Record<string, unknown>[] = []
@@ -402,42 +406,54 @@ describe('the query of the inventory leaves the Project alone', () => {
         mkdirSync(join(home, 'projects', projectDirName(at)), { recursive: true })
         writeFileSync(join(home, 'projects', projectDirName(at), 'inventory-1.jsonl'), `${JSON.stringify({ type: 'system', cwd: at, sessionId: 'inventory-1' })}\n`)
       }
-      const handed = Object.entries((options.mcpServers ?? {}) as Record<string, { url?: string }>).map(([name, config]) => ({
-        name,
-        status: 'connected',
-        source: 'dynamic',
-        scope: 'dynamic',
-        config,
-        tools: [],
-      }))
-      const answer = [{ name: 'user-notes', status: 'connected', source: 'user', scope: 'user', tools: [] }, ...handed]
+      const configRoot = String(options.projectConfigRoot ?? at)
+      const rejected = ((options.settings as { disabledMcpjsonServers?: string[] } | undefined)?.disabledMcpjsonServers ?? []) as string[]
+      let mcpJson: Record<string, object> = {}
+      try {
+        mcpJson = (JSON.parse(readFileSync(join(configRoot, '.mcp.json'), 'utf8')) as { mcpServers: Record<string, object> }).mcpServers
+      } catch {
+        // No .mcp.json there.
+      }
+      const project = Object.entries(mcpJson)
+        .filter(([name]) => !rejected.includes(name))
+        .map(([name, config]) => ({ name, status: 'connected', source: 'project', scope: 'project', config, tools: [] }))
+      const handed = Object.entries((options.mcpServers ?? {}) as Record<string, object>).map(([name, config]) => ({ name, status: 'connected', source: 'dynamic', scope: 'dynamic', config, tools: [] }))
+      const answer = [{ name: 'user-notes', status: 'connected', source: 'user', scope: 'user', tools: [] }, ...project, ...handed]
       return { close: vi.fn(), mcpServerStatus: () => Promise.resolve(answer) }
     }
     return { seen, loadSdk: () => Promise.resolve({ query }) as never }
   }
 
-  /** A Project at <cwd>/project with servers in .mcp.json, one the user rejected, and a local server in the user's .claude.json. */
-  function project(): { root: string; home: string; runDir: string } {
+  const git = (at: string, ...args: string[]) => execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.invalid', ...args], { cwd: at, stdio: 'pipe' })
+
+  /**
+   * A Project in a git repository at <cwd>/project with a worktree, servers in .mcp.json, and its record in the
+   * user's .claude.json (the temp HOME: agentEnv answers HOME = cwd), keyed by the main root as Claude Code keys it:
+   * a local server, one turned off with /mcp, and a .mcp.json server turned off too.
+   */
+  function project(): { root: string; worktree: string; home: string; runDir: string } {
     const root = join(realpathSync(cwd), 'project')
-    mkdirSync(join(root, '.claude'), { recursive: true })
+    mkdirSync(root, { recursive: true })
+    git(root, 'init', '-q', '-b', 'main')
     writeFileSync(
       join(root, '.mcp.json'),
+      JSON.stringify({ mcpServers: { 'project-notes': { command: 'node', args: ['./mcp/server.js'] }, 'project-docs': { type: 'http', url: 'https://docs.example.test/mcp' }, 'project-off': { command: 'off' } } }),
+    )
+    git(root, 'add', '.mcp.json')
+    git(root, 'commit', '-q', '-m', 'first')
+    const worktree = join(root, '.claude', 'worktrees', 'wave')
+    git(root, 'worktree', 'add', '-q', worktree)
+    const tracker = { command: 'tracker', env: { TOKEN: '${TRACKER_TOKEN}' }, timeout: 5000 }
+    writeFileSync(
+      join(cwd, '.claude.json'),
       JSON.stringify({
-        mcpServers: {
-          'project-notes': { command: 'node', args: ['${NOTES_DIR:-notes}/server.js'] },
-          'project-docs': { type: 'http', url: 'https://docs.example.test/mcp' },
-          'project-rejected': { command: 'node' },
-          'project-broken': { type: 'ws' },
+        projects: {
+          [root]: { mcpServers: { 'local-tracker': tracker, 'local-off': { command: 'off' } }, disabledMcpServers: ['local-off', 'project-off'] },
+          [worktree]: { mcpServers: { 'worktree-only': { command: 'x' } } },
         },
       }),
     )
-    writeFileSync(join(root, '.claude', 'settings.local.json'), JSON.stringify({ disabledMcpjsonServers: ['project-rejected'] }))
-    // The user's .claude.json in the temp HOME (agentEnv answers HOME = cwd): a local server of this folder, and one of another.
-    writeFileSync(
-      join(cwd, '.claude.json'),
-      JSON.stringify({ projects: { [root]: { mcpServers: { 'local-tracker': { command: 'tracker' } } }, '/elsewhere': { mcpServers: { 'other-local': { command: 'x' } } } } }),
-    )
-    return { root, home: join(cwd, '.claude'), runDir: join(cwd, 'worfy-data', 'terminal-ai') }
+    return { root, worktree, home: join(cwd, '.claude'), runDir: join(cwd, 'worfy-data', 'terminal-ai') }
   }
 
   it('registers no Session of the Project and keeps no transcript in its folder of Claude projects', async () => {
@@ -446,6 +462,7 @@ describe('the query of the inventory leaves the Project alone', () => {
     const inventory = new McpInventory(sdkInventoryStarter(sdk.loadSdk, () => runDir), { settleMs: 0, pollMs: 0 }, () => Promise.resolve(root))
     expect(await inventory.refresh(root)).not.toBeNull()
     expect(sdk.seen[0]!.cwd).toBe(runDir)
+    expect(sdk.seen[0]!.persistSession).toBe(false)
     const registry = new ClaudeHomeRegistry({ home, listWorktrees: () => Promise.resolve([]), isAlive: () => Promise.resolve(true) })
     expect(await registry.sessions(root)).toEqual({ live: [], history: [] })
     expect(existsSync(join(home, 'projects', projectDirName(root)))).toBe(false)
@@ -453,13 +470,14 @@ describe('the query of the inventory leaves the Project alone', () => {
     expect((await registry.liveAll()).map((session) => session.cwd)).toEqual([runDir])
   })
 
-  it('still lists the servers of the Project’s .mcp.json and its local servers, as the Project’s', async () => {
+  it('passes the Session’s folder as projectConfigRoot, the record’s local servers as written, and the turned-off ones', async () => {
     const { root, home, runDir } = project()
     const sdk = claudeCode(home)
     const inventory = new McpInventory(sdkInventoryStarter(sdk.loadSdk, () => runDir), { settleMs: 0, pollMs: 0 }, () => Promise.resolve(root))
     const rows = await inventory.refresh(root)
-    expect(Object.keys(sdk.seen[0]!.mcpServers as object).sort()).toEqual(['local-tracker', 'project-docs', 'project-notes'])
-    expect((sdk.seen[0]!.mcpServers as Record<string, unknown>)['project-notes']).toEqual({ type: 'stdio', command: 'node', args: ['notes/server.js'] })
+    expect(sdk.seen[0]!.projectConfigRoot).toBe(root)
+    expect(sdk.seen[0]!.mcpServers).toEqual({ 'local-tracker': { command: 'tracker', env: { TOKEN: '${TRACKER_TOKEN}' }, timeout: 5000 } })
+    expect(sdk.seen[0]!.settings).toEqual({ disabledMcpjsonServers: ['local-off', 'project-off'] })
     expect(rows?.map((row) => [row.name, row.source]).sort()).toEqual([
       ['local-tracker', 'user'],
       ['project-docs', 'project'],
@@ -468,5 +486,17 @@ describe('the query of the inventory leaves the Project alone', () => {
     ])
     // The address of the Project's remote server reaches a Session's start as before (ticket 12).
     expect(inventory.addresses(root)?.get('project-docs')).toBe('https://docs.example.test/mcp')
+  })
+
+  it('asked from a worktree, reads the record of the main checkout, and the worktree is the config root', async () => {
+    const { root, worktree, home, runDir } = project()
+    const sdk = claudeCode(home)
+    const rows = await new McpInventory(sdkInventoryStarter(sdk.loadSdk, () => runDir), { settleMs: 0, pollMs: 0 }).refresh(worktree)
+    expect(sdk.seen[0]!.projectConfigRoot).toBe(worktree)
+    expect(Object.keys(sdk.seen[0]!.mcpServers as object)).toEqual(['local-tracker'])
+    expect(sdk.seen[0]!.settings).toEqual({ disabledMcpjsonServers: ['local-off', 'project-off'] })
+    expect(rows?.map((row) => row.name).sort()).toEqual(['local-tracker', 'project-docs', 'project-notes', 'user-notes'])
+    const registry = new ClaudeHomeRegistry({ home, listWorktrees: () => Promise.resolve([worktree]), isAlive: () => Promise.resolve(true) })
+    expect(await registry.sessions(root)).toEqual({ live: [], history: [] })
   })
 })

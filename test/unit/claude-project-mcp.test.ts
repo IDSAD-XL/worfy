@@ -1,12 +1,12 @@
-// The MCP servers of a Project's folder that the inventory hands to Claude Code, now that it runs outside the
-// Project (worfy-mcp-live ticket 14; src/main/vendors/claude/project-mcp.ts). Only temp folders: the user's
-// config is read from the HOME or CLAUDE_CONFIG_DIR the test gives, never from the real one.
+// What the inventory reads from the Project's record in the user's .claude.json, now that it runs outside the
+// Project (worfy-mcp-live ticket 14; src/main/vendors/claude/project-mcp.ts). Only temp folders: the record is read
+// from the HOME or CLAUDE_CONFIG_DIR the test gives, never from the real one; the repository root is given.
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { QueryHandle } from '../../src/main/agent/session'
-import { projectMcpServers, withProjectScopes } from '../../src/main/vendors/claude/project-mcp'
+import { projectLocalMcp, withLocalScope } from '../../src/main/vendors/claude/project-mcp'
 import { removeTestTree } from '../remove'
 
 const made: string[] = []
@@ -25,69 +25,60 @@ const write = (file: string, value: unknown): void => {
   writeFileSync(file, JSON.stringify(value))
 }
 
-describe('projectMcpServers', () => {
-  it('reads .mcp.json from the folder up, the nearer file winning a name', async () => {
+const noRepository = (): Promise<string | null> => Promise.resolve(null)
+
+describe('projectLocalMcp', () => {
+  it('reads the record of the main repository root, not of the folder asked from', async () => {
     const home = temp()
-    const folder = join(home, 'work', 'project')
-    write(join(home, 'work', '.mcp.json'), { mcpServers: { shared: { command: 'outer' }, outer: { command: 'outer' } } })
-    write(join(folder, '.mcp.json'), { mcpServers: { shared: { command: 'inner' } } })
-    const { servers, scopes } = await projectMcpServers(folder, { HOME: home })
-    expect(servers).toEqual({ shared: { type: 'stdio', command: 'inner' }, outer: { type: 'stdio', command: 'outer' } })
-    expect([...scopes]).toEqual([
-      ['shared', 'project'],
-      ['outer', 'project'],
-    ])
+    const root = join(home, 'project')
+    const worktree = join(root, '.claude', 'worktrees', 'w')
+    mkdirSync(worktree, { recursive: true })
+    write(join(home, '.claude.json'), { projects: { [root]: { mcpServers: { tracker: { command: 'tracker' } } }, [worktree]: { mcpServers: { other: { command: 'x' } } } } })
+    expect(await projectLocalMcp(worktree, { HOME: home }, () => Promise.resolve(root))).toEqual({ servers: { tracker: { command: 'tracker' } }, disabled: [] })
   })
 
-  it('leaves out a server rejected in any settings file, and one Claude Code would refuse', async () => {
-    const home = temp()
-    const folder = join(home, 'project')
-    write(join(folder, '.mcp.json'), {
-      mcpServers: { a: { command: 'a' }, b: { command: 'b' }, c: { command: 'c' }, d: { command: 'd' }, bad: { command: 3 }, ide: { type: 'sse-ide', url: 'x' } },
-    })
-    write(join(home, '.claude', 'settings.json'), { disabledMcpjsonServers: ['a'] })
-    write(join(folder, '.claude', 'settings.json'), { disabledMcpjsonServers: ['b'] })
-    write(join(folder, '.claude', 'settings.local.json'), { disabledMcpjsonServers: ['c'] })
-    expect(Object.keys((await projectMcpServers(folder, { HOME: home })).servers)).toEqual(['d'])
-  })
-
-  it('takes the local servers of the folder from CLAUDE_CONFIG_DIR/.claude.json, over a project one, with ${VAR} expanded', async () => {
+  it('keeps a server as written, leaves out a turned-off one and a shape Claude Code refuses, and names the turned-off ones', async () => {
     const home = temp()
     const config = join(home, 'config')
     const folder = join(home, 'project')
-    write(join(folder, '.mcp.json'), { mcpServers: { notes: { command: 'project' } } })
+    mkdirSync(folder, { recursive: true })
+    const remote = { type: 'http', url: 'https://${HOST}/mcp', headersHelper: 'helper', oauth: { clientId: 'c' }, timeout: 1000 }
     write(join(config, '.claude.json'), {
-      projects: { [folder]: { mcpServers: { notes: { type: 'http', url: 'https://${HOST}/mcp', headers: { token: '${TOKEN:-none}' } } } } },
+      projects: {
+        [folder]: {
+          mcpServers: { remote, socket: { type: 'ws', url: 'ws://localhost:1' }, off: { command: 'off' }, bad: { command: 3 }, ide: { type: 'sse-ide', url: 'x' } },
+          disabledMcpServers: ['off', 'from-mcp-json', 7],
+        },
+      },
     })
-    const { servers, scopes } = await projectMcpServers(folder, { HOME: home, CLAUDE_CONFIG_DIR: config, HOST: 'notes.example.test' })
-    expect(servers).toEqual({ notes: { type: 'http', url: 'https://notes.example.test/mcp', headers: { token: 'none' } } })
-    expect(scopes.get('notes')).toBe('local')
+    expect(await projectLocalMcp(folder, { HOME: home, CLAUDE_CONFIG_DIR: config }, noRepository)).toEqual({
+      servers: { remote, socket: { type: 'ws', url: 'ws://localhost:1' } },
+      disabled: ['off', 'from-mcp-json'],
+    })
   })
 
-  it('gives nothing for a folder without config', async () => {
+  it('gives nothing without a record, or without .claude.json', async () => {
     const home = temp()
-    expect(await projectMcpServers(join(home, 'none'), { HOME: home })).toEqual({ servers: {}, scopes: new Map() })
+    expect(await projectLocalMcp(join(home, 'none'), { HOME: home }, noRepository)).toEqual({ servers: {}, disabled: [] })
+    write(join(home, '.claude.json'), { projects: { '/elsewhere': { mcpServers: { x: { command: 'x' } } } } })
+    expect(await projectLocalMcp(join(home, 'none'), { HOME: home }, noRepository)).toEqual({ servers: {}, disabled: [] })
   })
 })
 
-describe('withProjectScopes', () => {
-  it('gives a handed server its scope back, and leaves any other source alone', async () => {
+describe('withLocalScope', () => {
+  it('gives a handed server its scope local back, and leaves any other source alone', async () => {
     const handle = {
       close: () => undefined,
       mcpServerStatus: () =>
         Promise.resolve([
-          { name: 'notes', status: 'connected', source: 'dynamic', scope: 'dynamic' },
-          { name: 'tracker', status: 'connected', source: 'user', scope: 'user' },
+          { name: 'tracker', status: 'connected', source: 'dynamic', scope: 'dynamic' },
+          { name: 'notes', status: 'connected', source: 'project', scope: 'project' },
           { name: 'other', status: 'connected', source: 'dynamic' },
         ]),
     } as unknown as QueryHandle
-    const scoped = withProjectScopes(handle, new Map([
-      ['notes', 'project'],
-      ['tracker', 'local'],
-    ]))
-    expect(await scoped.mcpServerStatus!()).toEqual([
+    expect(await withLocalScope(handle, ['tracker', 'notes']).mcpServerStatus!()).toEqual([
+      { name: 'tracker', status: 'connected', source: 'local', scope: 'local' },
       { name: 'notes', status: 'connected', source: 'project', scope: 'project' },
-      { name: 'tracker', status: 'connected', source: 'user', scope: 'user' },
       { name: 'other', status: 'connected', source: 'dynamic' },
     ])
   })

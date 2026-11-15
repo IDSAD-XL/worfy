@@ -10,8 +10,8 @@
 // Claude driver's handle, session.ts); one at a time per Project of this Machine: a Session in a worktree of
 // the Project asks as one in its main checkout does (repositoryRoot, the way main tells a Project by a folder),
 // so a Wave of Sessions in N worktrees starts one Claude Code, not N; a second ask while one runs gets the
-// running one. It reads the servers of the folder of the Session that asked first, but runs outside every
-// Project (ticket 14, query.ts sdkInventoryStarter, project-mcp.ts), so it leaves no Session Node on the Canvas. The answer is kept in memory until the next run, never written to disk, never
+// running one. It reads the config of the folder of the Session that asked first (its project config root), but runs
+// outside every Project (ticket 14, query.ts sdkInventoryStarter, project-mcp.ts), so it leaves no Session Node on the Canvas. The answer is kept in memory until the next run, never written to disk, never
 // logged, and never told to the Autopilot journal or to the Flight recorder: it reaches the person only as
 // the rows of the Session (notAllowedRows). A failure is logged by its kind alone, with no server in it.
 //

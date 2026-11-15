@@ -1,44 +1,50 @@
-// The MCP servers a Project's folder brings to Claude Code (worfy-mcp-live ticket 14, audit finding 29). The
-// query of the MCP inventory runs outside every Project — in <WORFY_DATA_DIR>/terminal-ai, like the Limits
-// probe — so Claude Code registers no Session of the Project in ~/.claude/sessions, and the Canvas shows no
-// read-only Session Node for it. Claude Code started there reads the user's servers and the claude.ai
-// connectors as before, but not the ones it takes from the Project's folder; worfy reads those itself and
-// hands them to the query (options.ts, inventoryOptions):
+// What the query of the MCP inventory needs from the Project's record in the user's .claude.json (worfy-mcp-live
+// ticket 14, audit finding 29). The inventory runs outside every Project — in <WORFY_DATA_DIR>/terminal-ai, like
+// the Limits probe — so Claude Code registers no Session of the Project in ~/.claude/sessions and the Canvas shows
+// no read-only Session Node for it. The Session's folder goes to it as `projectConfigRoot` (--project-config-root,
+// options.ts inventoryOptions): Claude Code 2.1.322 (SDK 0.3.322) then reads the Project's .mcp.json, its settings
+// and plugins from there and starts its stdio servers there, with CLAUDE_PROJECT_DIR set to it.
 //
-// - project scope: `mcpServers` of each `.mcp.json` from the folder up to the root of the disk, the nearer
-//   file winning a name, less the names the user rejected (`disabledMcpjsonServers` of the user's settings,
-//   the Project's `.claude/settings.json` and `.claude/settings.local.json`, or the folder's record in
-//   .claude.json). A server nobody approved stays: Claude Code under the SDK starts it when the project
-//   settings are read, as they are for a Session (settingSources project).
-// - local scope: `mcpServers` of the folder's record in the user's .claude.json (`claude mcp add` in it).
+// One thing that flag does not move: Claude Code keys the Project's record in .claude.json (`projects[...]`: the
+// local servers of `claude mcp add`, and `disabledMcpServers` of /mcp disable) by its working folder's canonical git
+// root, never by the config root (binary: `Axe` reads `Ce()`, the original cwd, through `YH`, the canonical git root).
+// So worfy reads that record itself, by the main repository root of the Session's folder (a worktree's record is
+// the main checkout's, as Claude Code keys it), and:
 //
-// A local server wins a name over a project one, as in Claude Code. Claude Code reports a server handed to
-// it so as `dynamic`; the inventory's answer gets its scope back (withProjectScopes), so its row still reads
-// as the Project's. Nothing here writes, and no server's configuration leaves memory.
+// - hands its local servers, as written, to the query (mcpServers; Claude Code expands and checks them as it does
+//   a local server), less the ones turned off; Claude Code reports a handed server as `dynamic`, and the answer
+//   gives it back its scope `local` (withLocalScope);
+// - names the turned-off ones as `disabledMcpjsonServers` of the query's flag settings, so a server of the
+//   Project's .mcp.json turned off with /mcp is not started either. A user server turned off only in this
+//   Project is not stopped: Claude Code takes no such setting from anything but that record (shortcut: it runs
+//   for the inventory's seconds, redo when Claude Code takes disabledMcpServers from settings).
+//
+// Nothing here writes, and no server's configuration leaves memory.
 import { readFile, realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk'
 import type { QueryHandle } from '../../agent/session/types'
+import { repositoryRoot } from '../../mcp/canvas-server'
 
 type Env = Readonly<Record<string, string | undefined>>
 
-/** The scope Claude Code gives a server of the Project's folder when it reads the folder itself. */
-export type ProjectScope = 'project' | 'local'
-
 /** Not exported: an SDK type does not leave the driver's folder (test/contract/vendor-sdk-imports.test.ts). */
-interface ProjectMcp {
-  /** The servers by name, as the query's mcpServers. */
+interface LocalMcp {
+  /** The local servers of the Project's record that are not turned off, as written. */
   servers: Record<string, McpServerConfig>
-  /** The scope of each of them. */
-  scopes: ReadonlyMap<string, ProjectScope>
+  /** The servers turned off in the Project with /mcp (`disabledMcpServers` of its record). */
+  disabled: string[]
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
-const isStringRecord = (value: unknown): value is Record<string, string> => isRecord(value) && Object.values(value).every((item) => typeof item === 'string')
-const isStringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every((item) => typeof item === 'string')
 
-/** A JSON file as a record; null when it is missing, unreadable or not an object. */
+/** The user's .claude.json as Claude Code started with `env` reads it: in CLAUDE_CONFIG_DIR when set, else in HOME. */
+function claudeJsonPath(env: Env): string {
+  if (env.CLAUDE_CONFIG_DIR) return join(resolve(env.CLAUDE_CONFIG_DIR), '.claude.json')
+  return join(env.HOME ?? homedir(), '.claude.json')
+}
+
 async function readJson(file: string): Promise<Record<string, unknown> | null> {
   try {
     const parsed: unknown = JSON.parse(await readFile(file, 'utf8'))
@@ -48,115 +54,52 @@ async function readJson(file: string): Promise<Record<string, unknown> | null> {
   }
 }
 
-/** `${VAR}` and `${VAR:-default}` of `text` by `env`, as Claude Code expands a server of .mcp.json; an unset one without a default stays as written. */
-function expand(text: string, env: Env): string {
-  return text.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g, (whole, name: string, fallback: string | undefined) => env[name] ?? fallback ?? whole)
+/** The key Claude Code files the folder's record under: the main repository root, or the folder outside git; NFC. */
+async function recordKeys(folder: string, rootOf: (folder: string) => Promise<string | null>): Promise<string[]> {
+  const root = (await rootOf(folder).catch(() => null)) ?? folder
+  const real = await realpath(root).catch(() => root)
+  return [...new Set([real, resolve(root)].map((key) => key.normalize('NFC')))]
 }
 
 /**
- * The server of one entry of a configuration, its strings expanded; null for a shape Claude Code would refuse
- * on its command line (one bad entry there would stop the whole query, not just leave the server out).
+ * A server Claude Code can take on its command line, kept as written: a stdio one with a string command, a remote
+ * one (http, sse, ws) with a string url. Any other shape is left out: Claude Code refuses the whole query for one.
  */
-function serverOf(config: unknown, env: Env): McpServerConfig | null {
-  if (!isRecord(config)) return null
-  const put = (text: string): string => expand(text, env)
+function takeable(config: unknown): config is McpServerConfig {
+  if (!isRecord(config)) return false
   const type = config.type ?? 'stdio'
-  if (type === 'stdio') {
-    if (typeof config.command !== 'string' || (config.args !== undefined && !isStringArray(config.args)) || (config.env !== undefined && !isStringRecord(config.env))) return null
-    return {
-      type: 'stdio',
-      command: put(config.command),
-      ...(config.args === undefined ? {} : { args: config.args.map(put) }),
-      ...(config.env === undefined ? {} : { env: Object.fromEntries(Object.entries(config.env).map(([key, value]) => [key, put(value)])) }),
-    }
-  }
-  if (type === 'http' || type === 'sse') {
-    if (typeof config.url !== 'string' || (config.headers !== undefined && !isStringRecord(config.headers))) return null
-    return {
-      type,
-      url: put(config.url),
-      ...(config.headers === undefined ? {} : { headers: Object.fromEntries(Object.entries(config.headers).map(([key, value]) => [key, put(value)])) }),
-    }
-  }
-  return null
-}
-
-/** The servers of `mcpServers` of a record, each one Claude Code can take; the rest left out. */
-function serversOf(record: Record<string, unknown> | null, env: Env): [string, McpServerConfig][] {
-  if (record === null || !isRecord(record.mcpServers)) return []
-  return Object.entries(record.mcpServers).flatMap(([name, config]): [string, McpServerConfig][] => {
-    const server = serverOf(config, env)
-    return server === null ? [] : [[name, server]]
-  })
-}
-
-/** The folders from `folder` up to the root of the disk, the root first. */
-function foldersUp(folder: string): string[] {
-  const up = [folder]
-  for (let at = folder; dirname(at) !== at; at = dirname(at)) up.push(dirname(at))
-  return up.reverse()
-}
-
-/** Where Claude Code started with `env` keeps the user's config: its settings folder and its .claude.json. */
-function claudeConfig(env: Env): { dir: string; json: string } {
-  if (env.CLAUDE_CONFIG_DIR) return { dir: resolve(env.CLAUDE_CONFIG_DIR), json: join(resolve(env.CLAUDE_CONFIG_DIR), '.claude.json') }
-  const home = env.HOME ?? homedir()
-  return { dir: join(home, '.claude'), json: join(home, '.claude.json') }
-}
-
-/** The folder's record in .claude.json, by its path as given or as the disk has it (Claude Code keys it by its real cwd). */
-async function folderRecord(claudeJson: Record<string, unknown> | null, folder: string): Promise<Record<string, unknown> | null> {
-  const projects = claudeJson?.projects
-  if (!isRecord(projects)) return null
-  const real = await realpath(folder).catch(() => folder)
-  const record = projects[real] ?? projects[folder]
-  return isRecord(record) ? record : null
-}
-
-/** The MCP servers Claude Code would take from the folder `folder`, with `env` as the user's environment. */
-export async function projectMcpServers(folder: string, env: Env): Promise<ProjectMcp> {
-  const at = resolve(folder)
-  const config = claudeConfig(env)
-  const [mcpFiles, claudeJson, ...settings] = await Promise.all([
-    Promise.all(foldersUp(at).map((dir) => readJson(join(dir, '.mcp.json')))),
-    readJson(config.json),
-    readJson(join(config.dir, 'settings.json')),
-    readJson(join(at, '.claude', 'settings.json')),
-    readJson(join(at, '.claude', 'settings.local.json')),
-  ])
-  const record = await folderRecord(claudeJson, at)
-  const rejected = new Set([...settings, record].flatMap((source) => (source !== null && isStringArray(source.disabledMcpjsonServers) ? source.disabledMcpjsonServers : [])))
-  const servers: Record<string, McpServerConfig> = {}
-  const scopes = new Map<string, ProjectScope>()
-  for (const file of mcpFiles) {
-    for (const [name, server] of serversOf(file, env)) {
-      if (rejected.has(name)) continue
-      servers[name] = server
-      scopes.set(name, 'project')
-    }
-  }
-  for (const [name, server] of serversOf(record, env)) {
-    servers[name] = server
-    scopes.set(name, 'local')
-  }
-  return { servers, scopes }
+  if (type === 'stdio') return typeof config.command === 'string'
+  return (type === 'http' || type === 'sse' || type === 'ws') && typeof config.url === 'string'
 }
 
 /**
- * `handle` whose mcpServerStatus() gives each server of `scopes` that Claude Code reports as `dynamic` (handed
- * to it) its scope in the Project's folder back, in `source` and `scope`.
+ * The Project's record in the user's .claude.json for the folder `folder`: its local servers that are not turned
+ * off, and the turned-off ones. `rootOf`: the main repository root of a folder (repositoryRoot by default).
  */
-export function withProjectScopes(handle: QueryHandle, scopes: ReadonlyMap<string, ProjectScope>): QueryHandle {
+export async function projectLocalMcp(folder: string, env: Env, rootOf: (folder: string) => Promise<string | null> = repositoryRoot): Promise<LocalMcp> {
+  const [claudeJson, keys] = await Promise.all([readJson(claudeJsonPath(env)), recordKeys(resolve(folder), rootOf)])
+  const projects = isRecord(claudeJson?.projects) ? claudeJson.projects : {}
+  const record = keys.map((key) => projects[key]).find(isRecord)
+  if (record === undefined) return { servers: {}, disabled: [] }
+  const disabled = Array.isArray(record.disabledMcpServers) ? record.disabledMcpServers.filter((name): name is string => typeof name === 'string') : []
+  const servers: Record<string, McpServerConfig> = {}
+  if (isRecord(record.mcpServers)) {
+    for (const [name, config] of Object.entries(record.mcpServers)) if (!disabled.includes(name) && takeable(config)) servers[name] = config
+  }
+  return { servers, disabled }
+}
+
+/** `handle` whose mcpServerStatus() gives each server of `names` that Claude Code reports as `dynamic` (handed to it) its scope `local` back. */
+export function withLocalScope(handle: QueryHandle, names: readonly string[]): QueryHandle {
   const status = handle.mcpServerStatus
-  if (status === undefined || scopes.size === 0) return handle
+  if (status === undefined || names.length === 0) return handle
   handle.mcpServerStatus = async () => {
     const answer: unknown = await status.call(handle)
     if (!Array.isArray(answer)) return answer
     return answer.map((entry: unknown) => {
-      if (!isRecord(entry) || typeof entry.name !== 'string') return entry
-      const scope = scopes.get(entry.name)
-      if (scope === undefined || (entry.source !== undefined && entry.source !== 'dynamic')) return entry
-      return { ...entry, source: scope, ...(entry.scope === undefined || entry.scope === 'dynamic' ? { scope } : {}) }
+      if (!isRecord(entry) || typeof entry.name !== 'string' || !names.includes(entry.name)) return entry
+      if (entry.source !== undefined && entry.source !== 'dynamic') return entry
+      return { ...entry, source: 'local', ...(entry.scope === undefined || entry.scope === 'dynamic' ? { scope: 'local' } : {}) }
     })
   }
   return handle
