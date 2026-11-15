@@ -1,7 +1,7 @@
 # 117 — утренний digest PR inbox считает Project, чьё первое чтение ещё не кончилось
 
 Type: bug
-Status: claimed 2026-11-15T04:45Z
+Status: done 2026-11-15T05:25Z
 PR: #1884
 Branch: worfy-polish/117
 Blocked by: none
@@ -57,6 +57,7 @@ details для них нет — `snapshot()` (`inbox.ts:394-397`) отдаёт 
 - [ ] lint, typecheck, gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0, lint and typecheck exit 0 · mac - · 6ccf7e62321f1179fd2a23a588b8d21d5c8aa244
 - [ ] CI PR зелёный, в том числе macos-e2e с `pr-inbox-digest.spec.ts`.
+  - evidence: ci-check pass · CI green on PR #1884 (ci-ok, macos-e2e 1/2 and 2/2 with pr-inbox-digest.spec) · mac - · eee6773800c502ae6cfcade4c20a2875f65dbb6c
 
 ## Где в коде
 
