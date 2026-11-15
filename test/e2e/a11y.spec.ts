@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
-import { axeViolations, expectAccessible } from './axe'
+import { axeViolations, expectAccessible, failingViolations } from './axe'
 import { canvasReady, closeSettings, launchApp } from './helpers'
 import { clickMenuItem } from './menu'
 import { openTerminal, terminalAiSandbox } from './terminal-ai-helpers'
@@ -58,7 +58,8 @@ test('the Canvas, the Command palette, Settings, the Guide and the Session view 
       "(() => { const box = document.createElement('div'); box.setAttribute('role', 'dialog'); box.setAttribute('data-a11y-probe', ''); box.textContent = 'A window without a name'; document.body.append(box) })()",
     )
     const probe = await axeViolations(window, { include: '[data-a11y-probe]' })
-    expect(probe.map((violation) => `${violation.id} ${violation.impact}`)).toContain('aria-dialog-name serious')
+    // Through the same filter as every scan below: the window lands among the violations that fail a screen.
+    expect(failingViolations(probe).map((violation) => violation.id)).toContain('aria-dialog-name')
     await window.locator('[data-a11y-probe]').evaluate((box) => box.remove())
 
     await window.keyboard.press('ControlOrMeta+k')

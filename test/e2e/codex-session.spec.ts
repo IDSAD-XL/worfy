@@ -90,7 +90,9 @@ test('a Codex Session: its presets, its slash menu and its approval with four an
 
     // The slash menu: the commands the app-server runs and the scenario's enabled skills, and the line
     // that says Codex's own terminal has more.
-    const field = view.getByTestId('message-input').getByRole('textbox')
+    // The textarea itself: while the slash menu is open the field is a combobox, a textbox otherwise
+    // (worfy-ui-kit ticket 18).
+    const field = view.getByTestId('message-input').locator('textarea')
     await field.fill('/')
     const menu = view.getByTestId('slash-menu')
     await expect(menu).toBeVisible()

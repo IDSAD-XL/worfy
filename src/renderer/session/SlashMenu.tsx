@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useId, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { SlashCommand } from '../../shared/agent/commands'
 import { invoke } from '../ipc'
 import { slashHint } from './hints'
@@ -75,9 +75,25 @@ function useCommands(sessionId: string | null, open: boolean): readonly SlashCom
   return found !== null && found.sessionId === sessionId ? found.commands : []
 }
 
+/**
+ * What the message field carries for the menu. While the menu is open the field is a combobox (WAI-ARIA
+ * 1.2, editable combobox with a list popup): it keeps the focus, points at the active option with
+ * aria-activedescendant and names the list with aria-controls, so a screen reader hears the option the
+ * arrows reach. While it is closed the field is the plain textbox it always was.
+ */
+export interface SlashFieldProps {
+  role?: 'combobox'
+  'aria-expanded'?: boolean
+  'aria-controls'?: string
+  'aria-activedescendant'?: string
+  'aria-autocomplete'?: 'list'
+}
+
 export interface SlashMenuState {
   /** The popover, or null while the menu is closed. */
   element: ReactNode
+  /** Spread on the message field: its combobox attributes while the menu is open, none while closed. */
+  fieldProps: SlashFieldProps
   /** Handles a key of the field while the menu is open; true when the key was the menu's. */
   keyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => boolean
 }
@@ -115,6 +131,9 @@ export function useSlashMenu(
   const matches = query === null ? [] : matchCommands(commands, query)
   // A selection (a double click on the word, say) keeps the menu closed but not dismissed: Return sends.
   const open = query !== null && !dismissed && matches.length > 0 && selection.start === selection.end
+  const listId = useId()
+  /** An option's id: the list's own id and the option's place, the same on every render of that list. */
+  const optionId = (index: number) => `${listId}-option-${index}`
 
   const at = Math.min(selected, matches.length - 1)
   const pick = (command: SlashCommand) => {
@@ -139,16 +158,17 @@ export function useSlashMenu(
   }
 
   const element = open ? (
-    <div className="w-slash" role="listbox" aria-label={`Commands matching /${query}`} data-testid="slash-menu">
+    <div className="w-slash" id={listId} role="listbox" aria-label={`Commands matching /${query}`} data-testid="slash-menu">
       <div className="w-slash__head">
         <span className="w-slash__title">Commands</span>
         <span className="w-mono">{slashHint()}</span>
       </div>
       <div className="w-slash__list">
         {matches.map((command, index) => (
-          // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/interactive-supports-focus -- the focus stays on the field or button, which moves the active option with the arrows (aria-activedescendant); the click is the mouse path.
+          // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/interactive-supports-focus -- the focus stays in the message field, a combobox while the menu is open, whose aria-activedescendant names the active option (fieldProps); the arrows move it, the click is the mouse path.
           <div
             key={command.name}
+            id={optionId(index)}
             role="option"
             aria-selected={index === at}
             className="w-slash__item"
@@ -187,5 +207,9 @@ export function useSlashMenu(
     </div>
   ) : null
 
-  return { element, keyDown }
+  const fieldProps: SlashFieldProps = open
+    ? { role: 'combobox', 'aria-expanded': true, 'aria-controls': listId, 'aria-activedescendant': optionId(at), 'aria-autocomplete': 'list' }
+    : {}
+
+  return { element, fieldProps, keyDown }
 }

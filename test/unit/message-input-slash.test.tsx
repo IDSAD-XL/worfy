@@ -187,6 +187,35 @@ describe('the slash menu', () => {
     expect(screen.queryByTestId('slash-incomplete')).toBeNull()
   })
 
+  // worfy-ui-kit ticket 18: a screen reader hears the option the arrows reach. While the menu is open the
+  // field is a combobox that points at the list and at its active option; closed, it is a plain textbox.
+  it('the open menu makes the field a combobox whose aria-activedescendant follows ↓; closed, a plain textbox again', async () => {
+    const { field, type, key } = await mount()
+    expect(field.getAttribute('role')).toBeNull()
+    await type('/sh')
+    await vi.waitFor(() => expect(items()).toEqual(['ship-ticket', 'reship']))
+    const list = screen.getByRole('listbox')
+    expect(screen.getByRole('combobox', { name: 'Message Orchestrator' })).toBe(field)
+    expect(field.getAttribute('aria-expanded')).toBe('true')
+    expect(field.getAttribute('aria-autocomplete')).toBe('list')
+    expect(list.id).not.toBe('')
+    expect(field.getAttribute('aria-controls')).toBe(list.id)
+    const options = screen.getAllByRole('option')
+    const active = () => document.getElementById(field.getAttribute('aria-activedescendant') ?? '')
+    expect(active()).toBe(options[0])
+    expect(options[0]!.getAttribute('aria-selected')).toBe('true')
+    await key('ArrowDown')
+    expect(active()).toBe(screen.getAllByRole('option')[1])
+    expect(active()!.getAttribute('aria-selected')).toBe('true')
+    // Every option keeps its own id, and the ids are unique.
+    const ids = screen.getAllByRole('option').map((option) => option.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    await key('Escape')
+    expect(screen.queryByTestId('slash-menu')).toBeNull()
+    for (const name of ['role', 'aria-expanded', 'aria-controls', 'aria-activedescendant', 'aria-autocomplete']) expect(field.hasAttribute(name), name).toBe(false)
+    expect(screen.getByRole('textbox', { name: 'Message Orchestrator' })).toBe(field)
+  })
+
   it('/sh shows /ship-ticket with its description; Tab puts it into the field', async () => {
     const { field, type, key, send } = await mount()
     await type('/sh')

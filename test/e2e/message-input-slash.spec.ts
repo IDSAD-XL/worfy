@@ -85,7 +85,9 @@ test('the slash menu lists the skills, Tab puts one in; a pasted image, a droppe
   try {
     const { app, window } = launched
     const view = await openSession(window)
-    const field = view.getByRole('textbox', { name: 'Message Orchestrator' })
+    // By its label, not its role: while the slash menu is open the field is a combobox, a textbox otherwise
+    // (worfy-ui-kit ticket 18).
+    const field = view.getByLabel('Message Orchestrator', { exact: true })
 
     // `/sh` shows /ship-ticket; Tab puts it into the field.
     await field.fill('/sh')

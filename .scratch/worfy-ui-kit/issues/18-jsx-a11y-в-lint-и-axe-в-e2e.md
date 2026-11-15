@@ -75,9 +75,8 @@ Tooling доступности нет: в `package.json` нет `eslint-plugin-j
 - `control-has-associated-label` с опциями по умолчанию — 23 места, все поля ввода с `aria-label` или `label`,
   которых правило не видит; отсюда опции `strict`.
 
-**Отключения по строке** (25 комментариев в 20 файлах, у каждого причина после `--`): контейнеры, которые ловят
-всплывающие клавиши (Esc, стрелки) от фокусируемых детей; listbox с `aria-activedescendant` (`theme/Select.tsx`,
-`session/SlashMenu.tsx`); separator-ползунок `SplitDivider` (паттерн window splitter WAI-ARIA); прокручиваемые
+**Отключения по строке** (26 комментариев в 20 файлах, у каждого причина после `--`): контейнеры, которые ловят
+всплывающие клавиши (Esc, стрелки) от фокусируемых детей; listbox с `aria-activedescendant` (`theme/Select.tsx`; `session/SlashMenu.tsx` — см. ниже); separator-ползунок `SplitDivider` (паттерн window splitter WAI-ARIA); прокручиваемые
 области с `tabIndex={0}` (`ReviewExample`, `ShortcutsOverlay`); backdrop Dialog kit; `autoFocus` поля нового тега;
 `alt="Image"` (это вид Node); `aria-description` (ARIA 1.3) у вкладок Sidebar; ссылка `href="#"` на Session-источник
 в `ExternalSessionPanel` (переход внутри приложения без URL; unit test `session-back` ищет её по роли link).
@@ -113,3 +112,18 @@ Session с открытой карточкой узла; панель Command re
   своё число: «Agents: 2» (часть в скобках axe из имени выбрасывает).
 - Осталось вне этого Ticket-а: у той же ссылки с цитатой («#5 Advisor») видимый текст не входит в имя; в e2e его
   нет (в фикстуре чата нет сообщения), а для неё нужно другое имя или другой текст ссылки.
+
+**Раунд 2 ревью:**
+- Slash menu (`session/SlashMenu.tsx`, `session/MessageInput.tsx`): причина отключения в первом раунде была
+  неверной — поле сообщения не указывало на активный пункт. Теперь, пока меню открыто, `textarea` — combobox
+  (`role="combobox"`, `aria-expanded`, `aria-controls` на listbox, `aria-autocomplete="list"`,
+  `aria-activedescendant` на id активного пункта); у каждого пункта свой id. Меню закрыто — поле снова обычный
+  textbox: на роль textbox опираются test-ы в 40 файлах, поэтому роль меняется только на время меню. Unit test
+  в `test/unit/message-input-slash.test.tsx`; e2e `message-input-slash` и `codex-session` находят поле по label и
+  по тегу, а не по роли.
+- Self-test axe идёт через тот же фильтр, что и проверка экранов: `failingViolations` в `test/e2e/axe-results.ts`
+  (без браузера, unit test `test/unit/e2e-axe-results.test.ts`).
+- Mind map: `aria-expanded` и на самом узле с веткой (фокусируемом), не только на метке свёртки; ссылка карточки с
+  цитатой называется «#2 Advisor: Show in the chat» — видимый текст входит в имя. Пункт «осталось вне Ticket-а» про
+  эту ссылку закрыт.
+- Отключений по строке 26, не 25: в таблице не хватало `product/MindMap.tsx` (метка свёртки, span без фокуса).

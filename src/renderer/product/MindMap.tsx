@@ -289,6 +289,8 @@ function MindNodeView({ data, selected, width, height }: NodeProps<MindFlowNode>
       role="button"
       tabIndex={0}
       aria-label={`${kindLine(node)}: ${node.text}`}
+      // A node with a branch says whether the branch is shown: ArrowLeft and ArrowRight on it fold and unfold.
+      aria-expanded={fold === null ? undefined : !fold.folded}
       onKeyDown={onKeyDown}
     >
       <NodeOutline kind={node.kind} width={size.width} height={size.height} folded={fold?.folded === true} />
@@ -736,9 +738,9 @@ function MessageLink({ projectId, message, onShowMessage, label = 'Show in the c
   const quote = useMindMapFocus((state) => state.quotes[projectId]?.get(message))
   if (onShowMessage === undefined) return <span className="w-mono w-mind__muted">{message}</span>
   const link = (
-    // Without a quote the name starts with the words the link shows: every visible word of a button is in
-    // its name (axe, label-content-name-mismatch).
-    <button type="button" className="w-mind__link" aria-label={label} title={message} onClick={() => onShowMessage(message)}>
+    // The name holds the words the link shows, the quote's number and author included: every visible word
+    // of a button is in its name (axe, label-content-name-mismatch).
+    <button type="button" className="w-mind__link" aria-label={quote === undefined ? label : `${quoteLabel(quote)}: ${label}`} title={message} onClick={() => onShowMessage(message)}>
       {quote === undefined ? 'Show in the chat' : quoteLabel(quote)}
     </button>
   )

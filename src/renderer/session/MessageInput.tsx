@@ -435,6 +435,8 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, draf
       ref={field}
       className="w-composer__field"
       aria-label={`Message ${recipient}`}
+      // A combobox while the slash menu is open (SlashMenu.tsx, SlashFieldProps); a textbox otherwise.
+      {...slash.fieldProps}
       placeholder={readOnly ?? (disabled ? 'The Session is not running' : `Message ${recipient}`)}
       title={readOnly ?? undefined}
       rows={1}
