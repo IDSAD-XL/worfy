@@ -1,5 +1,8 @@
 # worfy-code-stories: Code story — рассказ о готовом изменении для того, кто отвечает за код
 
+Moved to .scratch/worfy-code-stories/spec.md on 2026-11-16 ([spec](../../../../.scratch/worfy-code-stories/spec.md), 17
+Ticket-ов в `.scratch/worfy-code-stories/issues/`). Этот файл больше не правится.
+
 Advisor draft
 
 Status: принят владельцем 2026-11-16 («да да», Q28). Возражения критика и решения, которые советник принял без

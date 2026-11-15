@@ -87,6 +87,9 @@
 - [Как выглядит вид Story](issues/12-как-выглядит-вид-story.md): подача «Stories» — шаг на экран, полоска сегментов
   сверху, клик по половинам, главы-PR в story Epic-а. От карты изменения — только маленькая схема в шаге «Стыки между
   Ticket-ами», брошенная передача — красная пунктирная стрелка.
+- 2026-11-16 orchestrator перенёс черновик в Epic `worfy-code-stories`:
+  [.scratch/worfy-code-stories/spec.md](../../../.scratch/worfy-code-stories/spec.md), 17 Ticket-ов в 7 Wave-ах. Черновик
+  [worfy-code-stories](drafts/worfy-code-stories.md) остаётся с пометкой «Moved».
 
 ## Not yet specified
 
