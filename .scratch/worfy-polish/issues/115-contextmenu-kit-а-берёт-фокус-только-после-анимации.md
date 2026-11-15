@@ -46,11 +46,14 @@ Base UI ждёт снятия `data-starting-style` (кадр, `requestAnimation
 
 - [ ] Сразу после открытия, без конца анимации (анимация, которая не кончается никогда), фокус уже на первом пункте
       меню. Unit test в `test/unit/kit-context-menu.test.tsx`, красный до правки.
+  - evidence: test-run pass · `pnpm test test/unit/kit-context-menu.test.tsx` exit 0, exit 1 before the fix · mac - · 1926d69d5aafce4a60299e9ed735cc35de0ade2a
 - [ ] Остальные test-ы `test/unit/kit-context-menu.test.tsx` зелёные без правок: первый пункт при открытии, Esc —
       фокус к opener-у, фокус в другом месте остаётся там.
+  - evidence: test-run pass · `pnpm test test/unit/kit-context-menu.test.tsx` exit 0, 13 of 13, the 12 earlier tests unchanged · mac - · 1926d69d5aafce4a60299e9ed735cc35de0ade2a
 - [ ] e2e `focus-sidebar.spec.ts` и `layers-popover.spec.ts` ждут фокус и место через `expect.poll`. Локально не
       запускаются (правило владельца) — проверяет CI.
 - [ ] lint, typecheck, unit test-ы kit-а, gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 1926d69d5aafce4a60299e9ed735cc35de0ade2a
 
 ## Где в коде
 
