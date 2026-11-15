@@ -193,6 +193,7 @@ export function TagsSection({ nodes }: SelectionSectionProps) {
           aria-label="New tag"
           placeholder="Tag…"
           maxLength={40}
+          // eslint-disable-next-line jsx-a11y/no-autofocus -- the field appears on a press of the add-tag button, and the typing goes into it at once.
           autoFocus
           value={draft}
           onChange={(event) => setDraft(event.target.value)}

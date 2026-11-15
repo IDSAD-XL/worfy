@@ -1,7 +1,7 @@
 # 18 — `eslint-plugin-jsx-a11y` в `pnpm lint`; axe в e2e главных экранов
 
 Type: task
-Status: open
+Status: claimed 2026-11-14T23:35Z
 Blocked by: 05, 06, 07, 08, 10, 12, 13, 14
 Source: [spec.md](../spec.md), «Ticket-ы», строка 18; «Решения по реализации» (доступность под присмотром); «Решения по
 test-ам» (axe); история 29; заметка темы `docs/product/ui-overhaul/notes/inventory-foundation.md`, раздел 7
@@ -40,3 +40,48 @@ Tooling доступности нет: в `package.json` нет `eslint-plugin-j
 - `test/e2e/a11y.spec.ts` (новый)
 
 Правки в `src/renderer/` по находкам lint и axe — заранее неизвестные файлы; Ticket называет их в PR.
+
+## Итог
+
+**Зависимости** (`devDependencies`, точные версии, `minimumReleaseAge` проходят, исключений нет):
+`eslint-plugin-jsx-a11y` 6.10.2 (2024-10-26, MIT) и
+`@axe-core/playwright` 4.14.0 (2026-10-15, MPL-2.0) с `axe-core` 4.14.0 (MPL-2.0); вместе +84 пакета в lockfile. Последний выпуск
+`eslint-plugin-jsx-a11y` объявляет peer `eslint` до 9, у нас 10.12.0: `pnpm peers check` называет это, правила
+работают (lint exit 0, unit test `test/unit/a11y-lint.test.ts`).
+
+**Включено в `pnpm lint`** (`eslint.config.js`, только `src/renderer/**/*.tsx`):
+- весь набор `recommended` плагина;
+- `control-has-associated-label` с опциями набора `strict` плагина (поля `input`/`textarea` оставлены правилу
+  `label-has-associated-control`) — оно ловит кнопку-иконку без имени: mutant (у кнопки закрытия toast-а убран
+  `aria-label`) роняет lint на `ToastRegion.tsx:93`;
+- `label-has-associated-control` с `depth: 3`: у radio-карточек `ConnectProject` и `GithubAccount` текст лежит в
+  `label > span > span`, по умолчанию правило смотрит на два уровня;
+- `anchor-ambiguous-text` и `lang` — код их уже проходит.
+
+**Оставлены вне lint:**
+- `prefer-tag-over-role` — 98 мест: свои виджеты и kit ставят роль на `div`/`span` намеренно (listbox, option,
+  group, region); замена тегами — переделка вёрстки, не этот Ticket.
+- `no-aria-hidden-on-focusable` — одно ложное срабатывание: `<canvas aria-hidden>` внутри кнопки `BrowserNode`,
+  canvas фокус не берёт.
+- `label-has-for`, `no-onchange`, `accessible-emoji` — плагин сам называет их устаревшими.
+- `control-has-associated-label` с опциями по умолчанию — 23 места, все поля ввода с `aria-label` или `label`,
+  которых правило не видит; отсюда опции `strict`.
+
+**Отключения по строке** (25 комментариев в 20 файлах, у каждого причина после `--`): контейнеры, которые ловят
+всплывающие клавиши (Esc, стрелки) от фокусируемых детей; listbox с `aria-activedescendant` (`theme/Select.tsx`,
+`session/SlashMenu.tsx`); separator-ползунок `SplitDivider` (паттерн window splitter WAI-ARIA); прокручиваемые
+области с `tabIndex={0}` (`ReviewExample`, `ShortcutsOverlay`); backdrop Dialog kit; `autoFocus` поля нового тега;
+`alt="Image"` (это вид Node); `aria-description` (ARIA 1.3) у вкладок Sidebar; ссылка `href="#"` на Session-источник
+в `ExternalSessionPanel` (переход внутри приложения без URL; unit test `session-back` ищет её по роли link).
+
+**Находка для отдельного Ticket-а:** в Run history (`flight-recorder/Timeline.tsx`: строки и полосы) и в Work track
+(`work-track/WorkTrackView.tsx`, полосы `Lanes.tsx`) span выбирается только мышью, пути с клавиатуры нет. Правка —
+фокусируемые строки с навигацией стрелками, не мелкая; здесь — отключение по строке со ссылкой на эту находку.
+
+**axe:** helper `test/e2e/axe.ts` гоняет все правила axe по умолчанию и роняет экран на нарушениях impact
+critical и serious (soft-проверка: один прогон перечисляет нарушения всех экранов; меньшие пишутся в вывод).
+Legacy mode — axe идёт в самой странице: обычный режим доделывает прогон в новой пустой странице, которой у
+Electron нет. `test/e2e/a11y.spec.ts`: Canvas, Command palette, Settings, Guide, Session view; Mind map Product
+Session с открытой карточкой узла; панель Command request Terminal AI (только она, на Windows пропуск — нет zsh,
+как у остальных test-ов Terminal AI). Проверка самого helper-а: окно `role="dialog"` без имени на Canvas даёт
+`aria-dialog-name serious`.

@@ -104,6 +104,7 @@ export function BrowserSidebar({ id, viewport, onClose }: { id: string; viewport
     else panel.current?.focus()
   }, [])
   return (
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Esc closes the sidebar: the keys come up from the focused controls inside; it is not a control itself.
     <aside
       ref={panel}
       tabIndex={-1}

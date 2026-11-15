@@ -66,6 +66,7 @@ function RailTab({ section, selected, first, tabId, panelId, onSelect, onKeyDown
   const Icon = section.rail?.Icon ?? PlainIcon
   return (
     <Tooltip label={badge === undefined ? title : `${title} — ${badge.label}`} side="right">
+      {/* eslint-disable-next-line jsx-a11y/role-supports-aria-props -- aria-description is ARIA 1.3, which Chromium reads; the plugin's list stops at 1.2. */}
       <button
         type="button"
         role="tab"

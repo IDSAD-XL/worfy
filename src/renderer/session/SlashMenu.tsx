@@ -146,6 +146,7 @@ export function useSlashMenu(
       </div>
       <div className="w-slash__list">
         {matches.map((command, index) => (
+          // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/interactive-supports-focus -- the focus stays on the field or button, which moves the active option with the arrows (aria-activedescendant); the click is the mouse path.
           <div
             key={command.name}
             role="option"

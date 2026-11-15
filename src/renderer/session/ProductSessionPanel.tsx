@@ -329,6 +329,7 @@ function AgentsStrip({ projectId, agents, root, session, drafts }: AgentsStripPr
         })}
       </div>
       {open !== null ? (
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Esc collapses the panel: the keys come up from the focused controls inside; it is not a control itself.
         <div
           key={open}
           id={panelId}

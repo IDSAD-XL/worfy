@@ -1234,6 +1234,7 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
   }
 
   return (
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- the keys come up from the focused node or button inside; the map itself is not a control.
     <div ref={root} className="w-mind" data-testid="mind-map" data-view={view} onKeyDown={onKeyDown}>
       <div className="w-mind__toolbar">
         <SegmentedControl label="View" options={VIEWS} value={view} onChange={choose} />
@@ -1254,6 +1255,7 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
           Move nodes
         </button>
         {asking && view === 'tree' && movedByHandCount > 0 && readOnly === null ? (
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Esc closes the question: the keys come up from the focused controls inside; it is not a control itself.
           <span
             className="w-mind__ask"
             role="group"

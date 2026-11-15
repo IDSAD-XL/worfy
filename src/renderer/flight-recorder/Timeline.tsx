@@ -168,6 +168,7 @@ function Axis({ view, window, domain, width }: { view: RunView; window: TimeWind
 
   const minimapSpans = view.timeline.spans.filter((span) => span.kind === 'ticket' || span.kind === 'wait')
   return (
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- the press starts the mouse drag over the axis; the axis is not a control.
     <div ref={area} className="w-fr-axis" data-testid="run-history-axis" onMouseDown={start}>
       <div className="w-fr-minimap" data-testid="run-history-minimap">
         {minimapSpans.map((span) => (
@@ -303,6 +304,7 @@ function RowView({ row, view, x, width, highlights, onToggle }: { row: Row; view
     onToggle(row.id)
   }
   return (
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- a mouse shortcut with no keyboard path yet: the ticket result of worfy-ui-kit 18 names it as a finding.
     <div
       className={`w-fr-row${isSelected ? ' is-selected' : ''}${isCause ? ' is-cause' : ''}${isRelated ? ' is-related' : ''}${span === null ? ' w-fr-row--lane' : ''}`}
       data-testid="run-history-row"
@@ -352,6 +354,7 @@ function RowView({ row, view, x, width, highlights, onToggle }: { row: Row; view
           if (of.id === selected) classes.push('is-selected')
           if (of.id === highlights.cause) classes.push('is-cause')
           return (
+            // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- a mouse shortcut with no keyboard path yet: the ticket result of worfy-ui-kit 18 names it as a finding.
             <div
               key={bar.key}
               className={classes.join(' ')}
