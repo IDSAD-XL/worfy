@@ -50,8 +50,11 @@ details для них нет — `snapshot()` (`inbox.ts:394-397`) отдаёт 
 - [ ] Contract test: два Project-а одного account-а, details второго задержаны; вопрос digest-а в это время —
       `pending`, `readAt` второго — `null`; после чтения — «2 reviews wait for you…». Красный до правки (digest
       отвечал `show` с «1 review waits for you (1 day) · 1 PR has new comments»).
+  - evidence: test-run pass · `pnpm test test/contract/pr-inbox.test.ts -t "worfy-polish 117"` exit 0, exit 1 before the fix (digest answered show "1 review waits for you") · mac - · 6ccf7e62321f1179fd2a23a588b8d21d5c8aa244
 - [ ] Остальные unit и contract test-ы PR inbox зелёные без правок.
+  - evidence: test-run pass · `pnpm test` of the 8 PR inbox unit and contract files exit 0, 213 of 213 · mac - · 6ccf7e62321f1179fd2a23a588b8d21d5c8aa244
 - [ ] lint, typecheck, gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0, lint and typecheck exit 0 · mac - · 6ccf7e62321f1179fd2a23a588b8d21d5c8aa244
 - [ ] CI PR зелёный, в том числе macos-e2e с `pr-inbox-digest.spec.ts`.
 
 ## Где в коде
