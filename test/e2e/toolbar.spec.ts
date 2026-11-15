@@ -304,10 +304,11 @@ test('in the smallest window with the sidebar open the toolbar is no wider than 
     await expect(fiveHour.getByTestId('limit-five_hour-note')).toBeHidden()
     await expect(toolbar.getByTestId('limits-meter').getByText('Limits', { exact: true })).toBeHidden()
     await expect(percent).toHaveAttribute('title', /^5-hour: 62% · resets ([A-Z][a-z]{2} )?\d\d:\d\d$/u)
-    // The search field: its icon and its shortcut; its name stays.
+    // The search field: its icon and its shortcut; its name stays, the shortcut it shows included
+    // (worfy-ui-kit ticket 18: every visible word of a button is in its name).
     await expect(search.locator('.w-toolbar__palette-text')).toBeHidden()
     await expect(search.locator('kbd')).toBeVisible()
-    await expect(search).toHaveAccessibleName('Search or run…')
+    await expect(search).toHaveAccessibleName(/^Search or run… (⌘K|Ctrl\+K)$/u)
     // The Harness line may end with an ellipsis: its whole text is the tooltip.
     await expect(toolbar.getByTestId('harness-text')).toHaveAttribute('title', 'Harness not installed')
     for (const scheme of ['light', 'dark'] as const) {
