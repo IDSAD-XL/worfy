@@ -192,6 +192,7 @@ describe('a server the Session’s list leaves out', () => {
 
 // The fake agent's servers marked `inventory_only` (worfy-mcp-live ticket 10, the script of test/e2e/session-mcp.spec.ts):
 // Claude Code leaves them out of the Session although the list names them, as it did the owner's claude.ai connectors.
+// Each has an address (config.url): Claude Code allows a connector only by it (ticket 12), so a Restart can start it.
 describe('a server the list names that only the inventory finds', () => {
   const CONNECTORS = ['claude.ai Example Notebook', 'claude.ai Example Planning Board for the Whole Team']
 

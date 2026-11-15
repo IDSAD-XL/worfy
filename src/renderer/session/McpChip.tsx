@@ -110,6 +110,15 @@ function notStartedReason(count: number): string {
   return `Allowed in this Project, but Claude Code did not start ${count === 1 ? 'it' : 'them'} in this Session.`
 }
 
+/**
+ * Whether a row of the group «not started» shows its reason under its name: only when a Restart would not start it
+ * (main gave it none, worfy-mcp-live ticket 12: a server Claude Code can allow neither by its name nor by an address)
+ * and the reason is not the heading's own words. A row Restart helps leaves its reason to the heading's Restart Session.
+ */
+function ownReason(row: McpServerRow): boolean {
+  return !row.actions.includes('restart') && row.error !== notStartedReason(1)
+}
+
 /** The gap between the chip and its popover. */
 const POPOVER_GAP = 4
 /** The popover keeps this far from the window's edges. */
@@ -166,7 +175,10 @@ interface RowProps {
   failure: string | null
   readOnly: string | null
   onAction: (row: McpServerRow, action: McpServerAction) => void
-  /** A row of the group «not started» (ticket 10): its heading has the reason and the Restart, so the row has neither. */
+  /**
+   * A row of the group «not started» (ticket 10): its heading has the reason and the Restart, so the row has no button,
+   * and a reason only when it is its own (ownReason).
+   */
   grouped?: boolean
 }
 
@@ -213,7 +225,7 @@ function ServerRow({ row, autopilot, running, failure, readOnly, onAction, group
           )
         })}
       </div>
-      {row.error === null || grouped ? null : (
+      {row.error === null || (grouped && !ownReason(row)) ? null : (
         <p className="w-mcp__error" data-testid="mcp-row-error">
           {row.error}
         </p>

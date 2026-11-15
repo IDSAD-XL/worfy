@@ -475,6 +475,30 @@ describe('the group «not started»', () => {
     expect(within(groupOf(popover)).getByRole('heading').textContent).toBe(NOT_STARTED)
     expect(buttonsOf(groupOf(popover))).toEqual([])
   })
+
+  it('a row a Restart would not start keeps its own reason under its name; a row Restart helps leaves it to the heading (ticket 12)', () => {
+    // main's words (src/main/vendors/claude/mcp-inventory.ts): its sentence for a row Restart helps is the heading's for one.
+    const generic = 'Allowed in this Project, but Claude Code did not start it in this Session.'
+    const inventory = readFileSync(join(import.meta.dirname, '../../src/main/vendors/claude/mcp-inventory.ts'), 'utf8')
+    expect(inventory).toContain(`export const MCP_NOT_STARTED = '${generic}'`)
+    const remote = "Claude Code allows this remote server only by its address, and it gave none worfy can use, so a Session with the Project's list does not start it."
+    const later = 'Found after this Session started: restart the Session to start it.'
+    const mixed = [
+      row('example-notes', { actions: ['turn-off'] }),
+      unstarted('claude.ai Example Notebook', { error: later }),
+      unstarted('example-proxied', { source: 'user', error: remote, actions: [] }),
+      unstarted('claude.ai Example Board', { error: generic, actions: [] }),
+    ]
+    render(<McpChip sessionId="s" rows={mixed} autopilot={false} />)
+    const group = groupOf(open())
+    // All three stand in the group, under its one heading; its Restart Session is the restartable row's.
+    expect(within(group).getAllByTestId('mcp-row').map((each) => each.dataset.name)).toEqual(['claude.ai Example Notebook', 'example-proxied', 'claude.ai Example Board'])
+    expect(buttonsOf(group)).toEqual(['Restart Session'])
+    const reason = (name: string) => within(rowOf(group, name)).queryByTestId('mcp-row-error')?.textContent ?? null
+    expect(reason('claude.ai Example Notebook')).toBeNull()
+    expect(reason('example-proxied')).toBe(remote)
+    expect(reason('claude.ai Example Board')).toBeNull()
+  })
 })
 
 describe('the names of the servers', () => {
