@@ -1,7 +1,8 @@
 # 116 — Иконка Settings в rail-е похожа на смену темы
 
 Type: bug
-Status: claimed 2026-11-15T03:22Z
+Status: done 2026-11-15T05:25Z
+PR: #1883
 Branch: worfy-polish/116
 Blocked by: none
 Source: сообщение владельца со снимком экрана 2026-11-15.
@@ -20,8 +21,11 @@ Source: сообщение владельца со снимком экрана 2
 ## Готово, когда
 
 - [ ] Иконка Settings в rail-е — шестерёнка с зубцами, без лучей; размер и цвет как у остальных кнопок rail-а.
+  - evidence: commit pass · A gear for the Settings button in the rail, not a sun (worfy-polish 116); rendered preview checked by the orchestrator · - - · 64aeaae032247ae197fa2174ca9869dd6354f2d3
 - [ ] Правка вида названа в PR отдельной строкой.
+  - evidence: review pass · Look change named in the body of PR #1883 · - - · 64aeaae032247ae197fa2174ca9869dd6354f2d3
 - [ ] lint, typecheck и CI на PR — зелёные.
+  - evidence: ci-check pass · CI green on PR #1883 (ci-ok: lint-typecheck, unit, e2e) · mac - · 64aeaae032247ae197fa2174ca9869dd6354f2d3
 
 ## Trail
 

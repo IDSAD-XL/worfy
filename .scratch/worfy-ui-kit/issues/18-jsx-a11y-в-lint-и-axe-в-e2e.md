@@ -1,7 +1,7 @@
 # 18 — `eslint-plugin-jsx-a11y` в `pnpm lint`; axe в e2e главных экранов
 
 Type: task
-Status: claimed 2026-11-14T23:35Z
+Status: done 2026-11-15T05:25Z
 PR: #1879
 Branch: worfy-ui-kit/18
 Blocked by: 05, 06, 07, 08, 10, 12, 13, 14
@@ -30,6 +30,7 @@ Tooling доступности нет: в `package.json` нет `eslint-plugin-j
 - [ ] `pnpm lint` с `eslint-plugin-jsx-a11y` — exit 0; mutant (кнопка-иконка без `aria-label`) роняет lint.
   - evidence: test-run pass · `pnpm lint` exit 0; mutant `pnpm test test/unit/a11y-lint.test.ts` exit 0 · mac - · 84352b5bad327dd473b91030dec139787c4762fd
 - [ ] E2e `test/e2e/a11y.spec.ts` зелёный на macOS и Windows runner-е; mutant (dialog без имени) роняет его.
+  - evidence: ci-check pass · CI green on PR #1879: a11y.spec on macos-e2e and windows-e2e; the nameless-dialog self-test goes through failingViolations (unit test e2e-axe-results) · mac - · 07fb25d425c11050361e883a2840ea17ed89936c
 - [ ] axe в `a11y.spec.ts` проверяет и два места, которые остаются на своей вёрстке, а не на kit (решение владельца 2026-11-12, Q3): окно запроса команды Terminal AI и карточку Mind map.
   - evidence: commit pass · jsx-a11y in pnpm lint and axe on the main screens (worfy-ui-kit 18) · - - · c9c531767b249f72680658516db4df9e08d49ab9
 - [ ] В «Итог» — включённые правила и оставленные вне lint с причиной.
