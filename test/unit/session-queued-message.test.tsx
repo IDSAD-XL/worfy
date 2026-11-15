@@ -79,17 +79,38 @@ describe('a message Claude Code took into a running turn (worfy-polish ticket 11
     expect(prompts(joinPastAndLive(mainThreadEvents(parseTranscriptLines(file.slice(0, 6))), events))).toEqual(['Run the wave', TYPED])
   })
 
-  it('keeps a queued task-notification out of the prompts, as before', () => {
-    const events = mainThreadEvents(parseTranscriptLines(file.slice(0, 5)))
-    expect(events.filter((event) => event.type === 'notice')).toEqual([expect.objectContaining({ kind: 'user', text: 'Run the wave' })])
+  it('shows it once when the live events start at the message itself', () => {
+    const live: AgentEventEnvelope['event'][] = [
+      { type: 'prompt', text: TYPED },
+      ...sdkMessageToEvents(assistant('msg_c', [{ type: 'text', text: 'No, the wave goes on.' }])),
+      result('No, the wave goes on.'),
+    ]
+    for (const event of live) acceptAgentEvent({ sessionId: SESSION, event })
+    const events = useSessionLogs.getState().logs[SESSION]?.events ?? []
+    expect(prompts(joinPastAndLive(mainThreadEvents(parseTranscriptLines(file)), events))).toEqual(['Run the wave', TYPED])
+  })
+
+  it('reads a queued message from another Session or agent as synthetic text, not as the user\'s', () => {
+    const PEER = '<cross-session-message from="another-session">Please look at the build.</cross-session-message>'
+    const line = record({ type: 'attachment', uuid: 'q3', attachment: { type: 'queued_command', prompt: PEER, commandMode: 'prompt', isMeta: true, origin: { kind: 'peer' } } })
+    const events = mainThreadEvents(parseTranscriptLines([line]))
+    expect(events).toEqual([expect.objectContaining({ type: 'notice', kind: 'synthetic', text: PEER })])
+    expect(prompts(events)).toEqual([])
+  })
+
+  it('reads a queued task-notification, and a queued command with no commandMode, as unknown only, as before', () => {
+    const notification = mainThreadEvents(parseTranscriptLines(file.slice(3, 4)))
+    expect(notification.map((event) => event.type)).toEqual(['unknown'])
+    const forward = record({ type: 'attachment', uuid: 'q4', attachment: { type: 'queued_command', prompt: 'Look at the failing check', origin: { kind: 'agent_intent_forward' } } })
+    expect(mainThreadEvents(parseTranscriptLines([forward])).map((event) => event.type)).toEqual(['unknown'])
   })
 
   it('reads a queued message with an image as one prompt with its attachment', () => {
     const PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
     const prompt = [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: PIXEL } }, { type: 'text', text: `${TYPED}\n\nAttached images: shot.png` }]
     const line = record({ type: 'attachment', uuid: 'q2', attachment: { type: 'queued_command', prompt, commandMode: 'prompt' } })
-    const items = foldTranscript(mainThreadEvents(parseTranscriptLines([line])))
-    expect(items).toEqual([expect.objectContaining({ kind: 'prompt', text: TYPED, attachments: [expect.objectContaining({ kind: 'image', name: 'shot.png' })] })])
+    const items = foldTranscript(mainThreadEvents(parseTranscriptLines([line], { imageRef: (data) => (data === PIXEL ? 'copy-of-shot' : null) })))
+    expect(items).toEqual([expect.objectContaining({ kind: 'prompt', text: TYPED, attachments: [expect.objectContaining({ kind: 'image', name: 'shot.png', ref: 'copy-of-shot' })] })])
   })
 
   it('still shows it after a restart of worfy, with no live events', () => {

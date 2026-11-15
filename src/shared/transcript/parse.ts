@@ -276,9 +276,10 @@ function attachmentRecord(record: Json, options: ParseOptions): AgentEvent[] {
   const type = str(attachment.type)
   // A message the user sent while Claude Code was in a turn — one worfy did not count as a turn, as the
   // turn a task-notification starts — is taken into that turn: the file has it only here, with no
-  // `user` record (worfy-polish ticket 114). It reads as the user record it stands for.
+  // `user` record (worfy-polish ticket 114). It reads as the user record it stands for. A message from
+  // another Session or agent (`origin.kind: "peer"`) comes the same way, marked `isMeta`: it stays synthetic.
   if (type === 'queued_command' && attachment.commandMode === 'prompt') {
-    return userRecord({ ...record, type: 'user', message: { role: 'user', content: attachment.prompt } }, options)
+    return userRecord({ ...record, type: 'user', isMeta: record.isMeta === true || attachment.isMeta === true, message: { role: 'user', content: attachment.prompt } }, options)
   }
   if (type?.startsWith('hook_')) {
     const kind = type.slice('hook_'.length)
