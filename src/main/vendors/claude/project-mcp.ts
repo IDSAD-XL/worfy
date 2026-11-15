@@ -6,26 +6,23 @@
 // and plugins from there and starts its stdio servers there, with CLAUDE_PROJECT_DIR set to it.
 //
 // One thing that flag does not move: Claude Code keys the Project's record in .claude.json (`projects[...]`: the
-// local servers of `claude mcp add`, and `disabledMcpServers` of /mcp disable) by its working folder's canonical git
-// root, never by the config root (binary: `Axe` reads `Ce()`, the original cwd, through `YH`, the canonical git root).
-// So worfy reads that record itself, by the main repository root of the Session's folder (a worktree's record is
-// the main checkout's, as Claude Code keys it), and:
+// local servers of `claude mcp add`, and `disabledMcpServers` of /mcp disable) by its working folder, never by the
+// config root (binary: `Axe` keys it by `E8(YH(Ce()))`, Ce() being the original cwd). So worfy reads that record
+// itself, under the key Claude Code would have used in the Session's folder (claudeConfigKey), and:
 //
-// - hands its local servers, as written, to the query (mcpServers; Claude Code expands and checks them as it does
-//   a local server), less the ones turned off; Claude Code reports a handed server as `dynamic`, and the answer
-//   gives it back its scope `local` (withLocalScope);
-// - names the turned-off ones as `disabledMcpjsonServers` of the query's flag settings, so a server of the
-//   Project's .mcp.json turned off with /mcp is not started either. A user server turned off only in this
-//   Project is not stopped: Claude Code takes no such setting from anything but that record (shortcut: it runs
-//   for the inventory's seconds, redo when Claude Code takes disabledMcpServers from settings).
+// - hands its local servers, as written, to the query (mcpServers; Claude Code expands and checks them as it does a
+//   local server), less the ones turned off. Their rows read as user config, as a local server's always did;
+// - names the turned-off ones as `disabledMcpjsonServers` of the query's flag settings. That setting only rejects a
+//   server of the Project's .mcp.json: a user server or a claude.ai connector turned off with /mcp in this Project
+//   still connects for the inventory's seconds, since Claude Code reads `disabledMcpServers` from the cwd's record
+//   alone (shortcut: such a server runs during the inventory, redo when Claude Code takes disabledMcpServers from
+//   settings or from the config root).
 //
 // Nothing here writes, and no server's configuration leaves memory.
-import { readFile, realpath } from 'node:fs/promises'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { posix, win32 } from 'node:path'
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk'
-import type { QueryHandle } from '../../agent/session/types'
-import { repositoryRoot } from '../../mcp/canvas-server'
 
 type Env = Readonly<Record<string, string | undefined>>
 
@@ -37,28 +34,89 @@ interface LocalMcp {
   disabled: string[]
 }
 
+/** What claudeConfigKey reads of the disk: whether a path exists, a file's text (null when it cannot be read), a real path. */
+export interface KeyDisk {
+  exists(path: string): boolean
+  read(path: string): string | null
+  /** The path as the disk has it; the path itself when that cannot be read. */
+  real(path: string): string
+}
+
+const nodeDisk: KeyDisk = {
+  exists: (path) => existsSync(path),
+  read: (path) => {
+    try {
+      return readFileSync(path, 'utf8')
+    } catch {
+      return null
+    }
+  },
+  real: (path) => {
+    try {
+      return realpathSync.native(path)
+    } catch {
+      return path
+    }
+  },
+}
+
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/**
+ * The canonical root of the git root `root`, as Claude Code finds it (binary: `cr` under `kt`): a linked worktree
+ * (`.git` a file `gitdir: <common>/worktrees/<name>` whose `gitdir` points back at it) stands for the repository
+ * it belongs to — the main checkout when the common folder is `<main>/.git`, else the bare repository's folder
+ * (`repo.git`, `repo/.bare`), unless that folder has a `.git` of its own; anything else stands for itself.
+ */
+function canonicalRoot(root: string, path: typeof posix, disk: KeyDisk): string {
+  const text = disk.read(path.join(root, '.git'))?.trim()
+  if (text === undefined || !text.startsWith('gitdir:')) return root
+  const gitDir = path.resolve(root, text.slice('gitdir:'.length).trim())
+  const common = disk.read(path.join(gitDir, 'commondir'))?.trim()
+  if (common === undefined || common === '') return root
+  const commonDir = path.resolve(gitDir, common)
+  if (path.resolve(path.dirname(gitDir)) !== path.join(commonDir, 'worktrees')) return root
+  const back = disk.read(path.join(gitDir, 'gitdir'))?.trim()
+  if (back === undefined || back === '' || disk.real(path.resolve(gitDir, back)) !== path.join(disk.real(root), '.git')) return root
+  if (path.basename(commonDir) !== '.git') return disk.exists(path.join(commonDir, '.git')) ? root : commonDir.normalize('NFC')
+  return path.dirname(commonDir).normalize('NFC')
+}
+
+/** The nearest folder from `start` up that holds a `.git` (binary: `lr`); null outside git. */
+function gitRoot(start: string, path: typeof posix, disk: KeyDisk): string | null {
+  for (let at = start; ; at = path.dirname(at)) {
+    if (disk.exists(path.join(at, '.git'))) return at.normalize('NFC')
+    if (path.dirname(at) === at) return null
+  }
+}
+
+/**
+ * The key of the record Claude Code keeps in .claude.json for a session started in the folder `cwd` (binary: `Axe`):
+ * the canonical root of its git root, else the folder itself (NFC), normalised (`E8`) — with forward slashes on
+ * Windows, so `D:\work\proj` is `D:/work/proj`.
+ */
+export function claudeConfigKey(cwd: string, platform: NodeJS.Platform = process.platform, disk: KeyDisk = nodeDisk): string {
+  const path = platform === 'win32' ? win32 : posix
+  const start = path.resolve(cwd)
+  const root = gitRoot(start, path, disk)
+  const key = path.normalize(root === null ? start.normalize('NFC') : canonicalRoot(root, path, disk))
+  return platform === 'win32' ? key.replaceAll('\\', '/') : key
+}
 
 /** The user's .claude.json as Claude Code started with `env` reads it: in CLAUDE_CONFIG_DIR when set, else in HOME. */
 function claudeJsonPath(env: Env): string {
-  if (env.CLAUDE_CONFIG_DIR) return join(resolve(env.CLAUDE_CONFIG_DIR), '.claude.json')
-  return join(env.HOME ?? homedir(), '.claude.json')
+  const path = process.platform === 'win32' ? win32 : posix
+  if (env.CLAUDE_CONFIG_DIR) return path.join(path.resolve(env.CLAUDE_CONFIG_DIR), '.claude.json')
+  return path.join(env.HOME ?? homedir(), '.claude.json')
 }
 
-async function readJson(file: string): Promise<Record<string, unknown> | null> {
+function readJson(file: string): Record<string, unknown> | null {
   try {
-    const parsed: unknown = JSON.parse(await readFile(file, 'utf8'))
+    const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'))
     return isRecord(parsed) ? parsed : null
   } catch {
     return null
   }
-}
-
-/** The key Claude Code files the folder's record under: the main repository root, or the folder outside git; NFC. */
-async function recordKeys(folder: string, rootOf: (folder: string) => Promise<string | null>): Promise<string[]> {
-  const root = (await rootOf(folder).catch(() => null)) ?? folder
-  const real = await realpath(root).catch(() => root)
-  return [...new Set([real, resolve(root)].map((key) => key.normalize('NFC')))]
 }
 
 /**
@@ -73,13 +131,14 @@ function takeable(config: unknown): config is McpServerConfig {
 }
 
 /**
- * The Project's record in the user's .claude.json for the folder `folder`: its local servers that are not turned
- * off, and the turned-off ones. `rootOf`: the main repository root of a folder (repositoryRoot by default).
+ * The Project's record in the user's .claude.json for a Session in the folder `folder`: its local servers that are
+ * not turned off, and the turned-off ones. The folder is keyed as given and as the disk has it, since Claude Code's
+ * cwd is the real one.
  */
-export async function projectLocalMcp(folder: string, env: Env, rootOf: (folder: string) => Promise<string | null> = repositoryRoot): Promise<LocalMcp> {
-  const [claudeJson, keys] = await Promise.all([readJson(claudeJsonPath(env)), recordKeys(resolve(folder), rootOf)])
+export function projectLocalMcp(folder: string, env: Env): LocalMcp {
+  const claudeJson = readJson(claudeJsonPath(env))
   const projects = isRecord(claudeJson?.projects) ? claudeJson.projects : {}
-  const record = keys.map((key) => projects[key]).find(isRecord)
+  const record = [...new Set([nodeDisk.real(folder), folder].map((at) => claudeConfigKey(at)))].map((key) => projects[key]).find(isRecord)
   if (record === undefined) return { servers: {}, disabled: [] }
   const disabled = Array.isArray(record.disabledMcpServers) ? record.disabledMcpServers.filter((name): name is string => typeof name === 'string') : []
   const servers: Record<string, McpServerConfig> = {}
@@ -87,20 +146,4 @@ export async function projectLocalMcp(folder: string, env: Env, rootOf: (folder:
     for (const [name, config] of Object.entries(record.mcpServers)) if (!disabled.includes(name) && takeable(config)) servers[name] = config
   }
   return { servers, disabled }
-}
-
-/** `handle` whose mcpServerStatus() gives each server of `names` that Claude Code reports as `dynamic` (handed to it) its scope `local` back. */
-export function withLocalScope(handle: QueryHandle, names: readonly string[]): QueryHandle {
-  const status = handle.mcpServerStatus
-  if (status === undefined || names.length === 0) return handle
-  handle.mcpServerStatus = async () => {
-    const answer: unknown = await status.call(handle)
-    if (!Array.isArray(answer)) return answer
-    return answer.map((entry: unknown) => {
-      if (!isRecord(entry) || typeof entry.name !== 'string' || !names.includes(entry.name)) return entry
-      if (entry.source !== undefined && entry.source !== 'dynamic') return entry
-      return { ...entry, source: 'local', ...(entry.scope === undefined || entry.scope === 'dynamic' ? { scope: 'local' } : {}) }
-    })
-  }
-  return handle
 }

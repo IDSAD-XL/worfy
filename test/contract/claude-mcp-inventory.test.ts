@@ -424,6 +424,8 @@ describe('the query of the inventory leaves the Project alone', () => {
     return { seen, loadSdk: () => Promise.resolve({ query }) as never }
   }
 
+  /** A folder as Claude Code writes it as a key of .claude.json: forward slashes on Windows (its `E8`). */
+  const configKey = (folder: string): string => (process.platform === 'win32' ? folder.replaceAll('\\', '/') : folder)
   const git = (at: string, ...args: string[]) => execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.invalid', ...args], { cwd: at, stdio: 'pipe' })
 
   /**
@@ -432,7 +434,7 @@ describe('the query of the inventory leaves the Project alone', () => {
    * a local server, one turned off with /mcp, and a .mcp.json server turned off too.
    */
   function project(): { root: string; worktree: string; home: string; runDir: string } {
-    const root = join(realpathSync(cwd), 'project')
+    const root = join(realpathSync.native(cwd), 'project')
     mkdirSync(root, { recursive: true })
     git(root, 'init', '-q', '-b', 'main')
     writeFileSync(
@@ -449,8 +451,8 @@ describe('the query of the inventory leaves the Project alone', () => {
       join(cwd, '.claude.json'),
       JSON.stringify({
         projects: {
-          [root]: { mcpServers: { 'local-tracker': tracker, 'local-off': { command: 'off' } }, disabledMcpServers: ['local-off', 'project-off'] },
-          [worktree]: { mcpServers: { 'worktree-only': { command: 'x' } } },
+          [configKey(root)]: { mcpServers: { 'local-tracker': tracker, 'local-off': { command: 'off' } }, disabledMcpServers: ['local-off', 'project-off'] },
+          [configKey(worktree)]: { mcpServers: { 'worktree-only': { command: 'x' } } },
         },
       }),
     )

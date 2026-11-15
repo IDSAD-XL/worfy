@@ -49,7 +49,7 @@ import { projectLayouts, type ProjectLayout } from '../../workflow/folder'
 import { readMcpAllowlist, readProfileFolder, readSkillsAllowlist, type ProfileFolder, type ReadProfileOptions } from '../../workflow/profile'
 import type { InventoryQueryStarter } from './mcp-inventory'
 import { inventoryOptions, productGuard, sessionHarnessPlugin, sessionOptions, toolUseHooks, userExtensions, withBrowserServer, withMindMapServer, type ProductWrites } from './options'
-import { projectLocalMcp, withLocalScope } from './project-mcp'
+import { projectLocalMcp } from './project-mcp'
 
 /** The canvas of a Session (ticket 24); a failure leaves the Session without canvas tools rather than without a Session. */
 async function canvasOrNull(canvas: CanvasResolver, request: QueryRequest): Promise<CanvasSession | null> {
@@ -422,22 +422,17 @@ export function queryFactoryFromEnv(env: NodeJS.ProcessEnv = process.env): Query
  * every Project, as the Limits probe does (limits.ts), so Claude Code registers no Session of the Project
  * and the Canvas gets no Session Node from it (ticket 14). The Project's folder `cwd` is its
  * projectConfigRoot, and the Project's record in .claude.json is read by worfy (project-mcp.ts). `loadSdk`:
- * the Agent SDK by default, a test's query() otherwise; `runDir`: <WORFY_DATA_DIR>/terminal-ai by default;
- * `rootOf`: the main repository root of a folder.
+ * the Agent SDK by default, a test's query() otherwise; `runDir`: <WORFY_DATA_DIR>/terminal-ai by default.
  */
-export function sdkInventoryStarter(
-  loadSdk: () => Promise<AgentSdk> = importSdk,
-  runDir: () => string = () => assistDir(dataRoot()),
-  rootOf?: (folder: string) => Promise<string | null>,
-): InventoryQueryStarter {
+export function sdkInventoryStarter(loadSdk: () => Promise<AgentSdk> = importSdk, runDir: () => string = () => assistDir(dataRoot())): InventoryQueryStarter {
   return async (cwd, prompt) => {
     const [{ query }, environment] = await Promise.all([loadSdk(), agentEnv()])
-    const local = await projectLocalMcp(cwd, environment.env, rootOf)
+    const local = projectLocalMcp(cwd, environment.env)
     const at = runDir()
     mkdirSync(at, { recursive: true })
     const runtime = { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform, arch: process.arch }
     const options = inventoryOptions({ cwd: at, env: environment.env, runtime, projectConfigRoot: resolve(cwd), servers: local.servers, disabled: local.disabled })
-    return withLocalScope(query({ prompt, options }) as QueryHandle, Object.keys(local.servers))
+    return query({ prompt, options }) as QueryHandle
   }
 }
 

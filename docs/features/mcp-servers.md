@@ -180,9 +180,12 @@ have shows without a status; with no Session, nothing shows. The form is on [Pro
   and no Session Node. The Session's folder is its project config root (`--project-config-root`): Claude Code reads the
   Project's `.mcp.json`, settings and plugins there, and starts the Project's stdio servers in that folder with
   `CLAUDE_PROJECT_DIR` set to it, as for the Session. The Project's record in the user's `.claude.json` is the one thing
-  that flag does not move, so worfy reads it, by the main checkout's root as Claude Code keys it, also for a Session in a
-  worktree: its local servers are handed to the query and keep their rows, and the servers turned off there with `/mcp`
-  are not started, except a user server turned off only in this Project, which runs for the inventory's seconds.
+  that flag does not move, so worfy reads it under the key Claude Code gives the Session's folder: the main checkout's
+  root for a worktree, the bare repository's folder for a worktree of a bare one, and on Windows with forward slashes
+  (`D:/work/proj`). Its local servers are handed to the query and keep their rows. Of the servers turned off there
+  with `/mcp`, a server of the Project's `.mcp.json` is not started; a user server or a claude.ai connector turned off
+  only in this Project still connects for the inventory's few seconds, since Claude Code reads that setting from its
+  own folder's record alone.
 - **The user's servers stay on the user's screen.** A row carries no config: the server's URL and headers stay in the
   driver. When Claude Code fails to report the status, to take in a server or to run the inventory, the log gets the
   kind of the failure alone, without a server's name, and the address of a sign-in page reaches only the browser. The
