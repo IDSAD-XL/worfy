@@ -518,7 +518,6 @@ export class PrInbox {
       } else {
         const env = await this.envOf(project.root, state.account)
         await this.search(project.root, state, env, cache)
-        state.readAt = now
         const moved = [...state.members].filter(([key, member]) => {
           const cached = cache!.pulls.get(key)
           return cached === undefined || timeOf(member.updatedAt) > timeOf(cached.pull.updatedAt)
@@ -535,6 +534,9 @@ export class PrInbox {
         for (let at = 0; at < refs.length && cache.pausedUntil <= now; at += INBOX_DETAILS_PAGE) {
           await this.readPage(refs.slice(at, at + INBOX_DETAILS_PAGE), project.root, env, cache, repos)
         }
+        // Only now, with the details in: the search alone leaves the snapshot without the rows of the PRs it found, and
+        // the morning digest takes a Project with a readAt as read (worfy-polish 117).
+        state.readAt = now
         state.intervalMs = this.base
         state.error = cache.pausedUntil > now ? cache.pauseReason : null
       }
