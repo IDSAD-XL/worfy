@@ -1,7 +1,8 @@
 # 115 — ContextMenu kit-а берёт фокус только после анимации открытия
 
 Type: bug
-Status: claimed 2026-11-15T01:35Z
+Status: done 2026-11-15T02:54Z
+PR: #1881
 Blocked by: none
 Source: flaky e2e в CI-run 43661097233 (PR #1877, renderer не трогает), бриф Orchestrator-а 2026-11-15.
 
@@ -52,6 +53,7 @@ Base UI ждёт снятия `data-starting-style` (кадр, `requestAnimation
   - evidence: test-run pass · `pnpm test test/unit/kit-context-menu.test.tsx` exit 0, 13 of 13, the 12 earlier tests unchanged · mac - · 1926d69d5aafce4a60299e9ed735cc35de0ade2a
 - [ ] e2e `focus-sidebar.spec.ts` и `layers-popover.spec.ts` ждут фокус и место через `expect.poll`. Локально не
       запускаются (правило владельца) — проверяет CI.
+  - evidence: ci-check pass · CI green on PR #1881 (macos-e2e 1/2 and 2/2, windows-e2e 1-4/4) · mac - · 240bf0a5d24c79060e0992629689d4a989100180
 - [ ] lint, typecheck, unit test-ы kit-а, gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 1926d69d5aafce4a60299e9ed735cc35de0ade2a
 

@@ -1,7 +1,8 @@
 # 14 — Inventory-query не оставляет Session Nodes на Canvas
 
 Type: bug
-Status: open
+Status: done 2026-11-15T02:54Z
+PR: #1877
 Blocked by: 12
 Source: аудит смёрженных PR 2026-11-13, находка 29 (high), `.scratch/audit-pr-rereview-2026-11-13/spec.md`; передана
 Orchestrator-у 2026-11-13
@@ -30,6 +31,7 @@ PR #1822), запускается в папке Project и регистриру�
 - [ ] Contract test: список серверов Project-а (из `.mcp.json` Project-а) по-прежнему приходит в инвентарь.
   - evidence: test-run pass · `pnpm test -- test/contract/claude-mcp-inventory.test.ts test/unit/claude-project-mcp.test.ts` exit 0 · mac - · 47dfc19806c07ae0e1790a56f6af3c543766d23e
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
+  - evidence: ci-check pass · CI green on PR #1877 (ci-ok); local gate fast red only from file-watcher tests in untouched files (fseventsd load), re-run alone; owner rule 2026-11-13 Q1 · mac - · 5f8fb8a283e301749a63d1e85312d654ed08ae28
 
 ## Где в коде
 
