@@ -157,7 +157,7 @@ describe('MindMap', () => {
     let card = screen.getByRole('region', { name: 'Node' })
     expect(within(card).getByText('Decision · accepted')).toBeTruthy()
     expect(within(card).getByText('Seen in the prototype')).toBeTruthy()
-    fireEvent.click(within(card).getByRole('button', { name: 'Show the message in the chat' }))
+    fireEvent.click(within(card).getByRole('button', { name: 'Show in the chat' }))
     expect(show).toHaveBeenCalledWith('m-2')
     // «Grew from» leads to the parent's card.
     fireEvent.click(within(card).getByRole('button', { name: 'Pick the screen' }))
@@ -682,9 +682,9 @@ describe('MindMap fit, text and card', () => {
     expect(steps.map((step) => step.textContent)).toEqual(['accepted — Cheaper to start', 'rejected — The owner wants to see the screen'])
     expect(steps.map((step) => step.dataset['overturn'])).toEqual([undefined, 'true'])
     // «Message» is where the Decision appeared, «Changed by» the message that overturned it.
-    fireEvent.click(within(card).getByRole('button', { name: 'Show the message in the chat' }))
+    fireEvent.click(within(card).getByRole('button', { name: 'Show in the chat' }))
     expect(show).toHaveBeenLastCalledWith('m-1')
-    fireEvent.click(within(card).getByRole('button', { name: 'Show the message that changed it in the chat' }))
+    fireEvent.click(within(card).getByRole('button', { name: 'Show in the chat: the message that changed it' }))
     expect(show).toHaveBeenLastCalledWith('m-3')
     expect(within(card).getByText('Changed by')).toBeTruthy()
 

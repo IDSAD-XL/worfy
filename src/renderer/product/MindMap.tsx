@@ -732,14 +732,14 @@ function Legend() {
  * A node's message on its card: quoted as the prototype does — «#5 Advisor: “…”», the number a link to the
  * message — when the Project's chat has it loaded (ticket 24); else the link «Show in the chat».
  */
-function MessageLink({ projectId, message, onShowMessage, label = 'Show the message in the chat' }: { projectId: string; message: string; onShowMessage: MindMapProps['onShowMessage']; label?: string }) {
+function MessageLink({ projectId, message, onShowMessage, label = 'Show in the chat' }: { projectId: string; message: string; onShowMessage: MindMapProps['onShowMessage']; label?: string }) {
   const quote = useMindMapFocus((state) => state.quotes[projectId]?.get(message))
   if (onShowMessage === undefined) return <span className="w-mono w-mind__muted">{message}</span>
   const link = (
-    // Without a quote the link reads its whole name: every visible word of a button is in its name (axe,
-    // label-content-name-mismatch).
+    // Without a quote the name starts with the words the link shows: every visible word of a button is in
+    // its name (axe, label-content-name-mismatch).
     <button type="button" className="w-mind__link" aria-label={label} title={message} onClick={() => onShowMessage(message)}>
-      {quote === undefined ? label : quoteLabel(quote)}
+      {quote === undefined ? 'Show in the chat' : quoteLabel(quote)}
     </button>
   )
   if (quote === undefined) return link
@@ -893,7 +893,7 @@ function NodeCard({
             <Fragment key={index}>
               <dt>Changed by</dt>
               <dd>
-                <MessageLink projectId={projectId} message={step.message} onShowMessage={onShowMessage} label="Show the message that changed it in the chat" />
+                <MessageLink projectId={projectId} message={step.message} onShowMessage={onShowMessage} label="Show in the chat: the message that changed it" />
               </dd>
             </Fragment>
           ),
