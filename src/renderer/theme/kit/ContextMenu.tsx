@@ -12,7 +12,8 @@
  * The shared part (layer.ts) adds Esc that closes only this menu and is marked handled, the close on
  * a blur of the window and on a switch of the view, the layer of the scale and the in-node mark. The
  * kit adds its own:
- * - opening moves the focus to the first item (or the one `focusOnOpen` names);
+ * - opening moves the focus to the first item (or the one `focusOnOpen` names), at once, in the commit
+ *   that draws the menu, not when its open animation ends;
  * - closing gives the focus back to the opener — `opener`, else what had the focus when the menu
  *   opened — when the focus is in the menu or lost to the page. It does so at once, in the same event
  *   as the choice: a window of the kit an item opens (theme/kit/Dialog.tsx) then finds the opener as
@@ -116,6 +117,23 @@ export function ContextMenu({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
+  // The focus goes into the menu at once, in the commit that draws it, as the kit's Dialog does: not
+  // when Base UI reports the open animation done, which takes a frame and the popup's animations. A
+  // window that gets no frames — busy, or behind another — would show the menu and leave the focus on
+  // the opener, and a key pressed then would not reach the menu. Base UI's own first focus, a frame
+  // later, then finds the focus already inside and leaves it. Once per opening: an item the arrows
+  // reached keeps the focus.
+  const [popup, setPopup] = useState<HTMLDivElement | null>(null)
+  const popupRefs = useCallback((element: HTMLDivElement | null) => {
+    popupRef.current = element
+    setPopup(element)
+  }, [])
+  useLayoutEffect(() => {
+    if (!open || popup === null || popup.contains(document.activeElement)) return
+    ;(popup.querySelector<HTMLElement>(focusOnOpen) ?? popup).focus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, popup])
+
   /**
    * Gives the focus back to the opener when it is in the menu or lost to the page; a close caused by
    * the focus going elsewhere leaves it there. At once, in the event that closes the menu.
@@ -180,10 +198,6 @@ export function ContextMenu({
     return () => document.removeEventListener('focusin', elsewhere)
   }, [open, onClose])
 
-  // Once the menu is open, after Base UI's own first focus, which is the menu itself.
-  const focusFirst = (opened: boolean) => {
-    if (opened) popupRef.current?.querySelector<HTMLElement>(focusOnOpen)?.focus()
-  }
 
   const onPopupKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     // Base UI marks every key but Tab on an inactive item handled, so the shared part would take Esc
@@ -207,7 +221,6 @@ export function ContextMenu({
       onOpenChange={(next) => {
         if (!next && openNow.current) close()
       }}
-      onOpenChangeComplete={focusFirst}
       modal={false}
       loopFocus
     >
@@ -216,7 +229,7 @@ export function ContextMenu({
           <BaseMenu.Popup
             {...popupProps}
             {...kit.popup}
-            ref={popupRef}
+            ref={popupRefs}
             className={popupClass}
             style={style}
             aria-label={label}

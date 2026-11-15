@@ -131,6 +131,22 @@ describe('the kit ContextMenu', () => {
     expect(document.activeElement).toBe(item('Stop'))
   })
 
+  it('takes the focus at once on opening, not when the open animation ends: an animation that never ends', async () => {
+    // jsdom has no animations, so Base UI would report the open complete at once; a browser waits for
+    // a frame and for the popup's animations, and a busy or hidden window gives it no frames.
+    const never = { effect: { getTiming: () => ({ duration: 150, iterations: 1 }) }, finished: new Promise<never>(() => undefined), pending: false, playState: 'running' }
+    Object.defineProperty(HTMLElement.prototype, 'getAnimations', { configurable: true, value: () => [never] })
+    try {
+      render(<Area />)
+      fireEvent.contextMenu(screen.getByTestId('area'), { clientX: 100, clientY: 120 })
+      expect(document.activeElement).toBe(item('Run'))
+      await flush()
+      expect(document.activeElement).toBe(item('Run'))
+    } finally {
+      delete (HTMLElement.prototype as { getAnimations?: unknown }).getAnimations
+    }
+  })
+
   it('focusOnOpen names another first item: the first active one', async () => {
     render(<Area focusOnOpen='[role="menuitem"]:not([aria-disabled="true"])' />)
     fireEvent.contextMenu(screen.getByTestId('area'), { clientX: 10, clientY: 10 })
