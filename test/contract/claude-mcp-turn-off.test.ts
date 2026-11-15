@@ -474,6 +474,14 @@ describe('live background tasks keep the process (ADR-0029, worfy-mcp-live ticke
     expect(killed(h)).toEqual([])
     expect(h.session.backgroundTasks().map((task) => task.taskId)).toEqual(['task_mcp_0001'])
     await vi.waitFor(() => expect(h.session.state).toBe('idle'))
+
+    // The Turn off that did not happen left nothing turned off: the next Restart starts with example-notes.
+    h.releases.release('tasks')
+    await vi.waitFor(() => expect(h.session.backgroundTasks()).toEqual([]))
+    expect(await h.session.mcpAction('example-notes', 'restart')).toEqual({ servers: [NOTES, CANVAS], error: null })
+    expect(h.processStarts()).toHaveLength(2)
+    expect(allowedNames(h.starts[1])).toEqual(LIST)
+    expect(h.starts[1]?.managedSettings?.deniedMcpServers?.map((each) => each.serverName) ?? []).not.toContain('example-notes')
   })
 
   it('the reason counts the tasks', () => {
