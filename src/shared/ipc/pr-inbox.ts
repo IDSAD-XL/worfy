@@ -96,7 +96,7 @@ export const prInboxSnapshotSchema = z.object({
   viewer: z.string().nullable(),
   /** Every group, in the order of PR_INBOX_GROUPS, empty ones too. */
   groups: z.array(z.object({ group: prInboxGroupSchema, rows: z.array(prInboxRowSchema) })),
-  /** When the last search answered (ISO); null before the first one. */
+  /** When the last read that ended with its details began (ISO); null before the first one, and while it runs. */
   readAt: z.string().nullable(),
   /** When the next search runs (ISO); null while the reader is off. */
   nextSearchAt: z.string().nullable(),

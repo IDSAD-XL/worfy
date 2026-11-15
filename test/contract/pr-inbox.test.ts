@@ -257,6 +257,33 @@ describe('the search of a Project', () => {
     expect(inbox.snapshot('p1').nextSearchAt).toBe(new Date(START + INBOX_SEARCH_INTERVAL_MS).toISOString())
   })
 
+  it('a Project whose search answered but whose details are still being read is not read yet: the digest waits for them (worfy-polish 117)', async () => {
+    const gh = world([stubPull(WEB, 41, { author: ANA, requested: [ME] }), stubPull(API, 5, { author: ANA, requested: [ME] })])
+    let entered!: () => void
+    const reading = new Promise<void>((resolve) => (entered = resolve))
+    let release!: () => void
+    const held = new Promise<void>((resolve) => (release = resolve))
+    // The details of API#5, the second Project's, wait until the test lets them through.
+    const run: PrInboxOptions['run'] = async (args, cwd, env) => {
+      if (!isSearch(args) && varsOf(args).n0 === 'api') {
+        entered()
+        await held
+      }
+      return gh.run(args, cwd, env)
+    }
+    const inbox = reader(gh, [project('web', [WEB]), project('ops', [API])], { run })
+    const digest = new PrInboxDigest({ snapshots: () => [inbox.snapshot('web'), inbox.snapshot('ops')], enabled: () => true, now: () => clock })
+    const tick = inbox.tick()
+    await reading
+    // A window's ask now, as one with the focus asks at each change of an inbox: the second Project's rows are not in yet.
+    expect(digest.ask()).toEqual({ state: 'pending' })
+    expect(inbox.snapshot('ops')).toMatchObject({ readAt: null, error: null })
+    release()
+    await tick
+    expect(inbox.snapshot('ops').readAt).toBe(new Date(START).toISOString())
+    expect(digest.ask()).toMatchObject({ state: 'show', text: expect.stringMatching(/^2 reviews wait for you/u) })
+  })
+
   it('refresh(repo, number) reads the details of that PR at once, outside the search queue', async () => {
     const gh = world([stubPull(API, 1)])
     const inbox = reader(gh, [project('p1', [API])])
