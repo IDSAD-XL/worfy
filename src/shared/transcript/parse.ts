@@ -270,10 +270,17 @@ function systemRecord(record: Json): AgentEvent[] {
   return [unknownType('system', subtype)]
 }
 
-function attachmentRecord(record: Json): AgentEvent[] {
+function attachmentRecord(record: Json, options: ParseOptions): AgentEvent[] {
   const attachment = record.attachment
   if (!isObject(attachment)) return [invalid('attachment')]
   const type = str(attachment.type)
+  // A message the user sent while Claude Code was in a turn — one worfy did not count as a turn, as the
+  // turn a task-notification starts — is taken into that turn: the file has it only here, with no
+  // `user` record (worfy-polish ticket 114). It reads as the user record it stands for. A message from
+  // another Session or agent (`origin.kind: "peer"`) comes the same way, marked `isMeta`: it stays synthetic.
+  if (type === 'queued_command' && attachment.commandMode === 'prompt') {
+    return userRecord({ ...record, type: 'user', isMeta: record.isMeta === true || attachment.isMeta === true, message: { role: 'user', content: attachment.prompt } }, options)
+  }
   if (type?.startsWith('hook_')) {
     const kind = type.slice('hook_'.length)
     const blocking = isObject(attachment.blockingError) ? attachment.blockingError : {}
@@ -322,7 +329,7 @@ function recordEvents(record: Json, options: ParseOptions): AgentEvent[] {
     case 'system':
       return systemRecord(record)
     case 'attachment':
-      return attachmentRecord(record)
+      return attachmentRecord(record, options)
     case 'custom-title':
     case 'ai-title':
     case 'agent-name': {
