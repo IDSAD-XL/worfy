@@ -395,7 +395,7 @@ describe('chips of Mind map nodes under a message', () => {
     render(<ProductBody shown={events.slice(0, 4)} />)
     fireEvent.click(nodeOf('who-pays')!)
     card = screen.getByRole('region', { name: 'Node' })
-    expect(within(card).getByRole('button', { name: 'Show the message in the chat' }).textContent).toBe('Show in the chat')
+    expect(within(card).getByRole('button', { name: 'Show the message in the chat' }).textContent).toBe('Show the message in the chat')
   })
 
   // worfy-product-session ticket 25 (R1 of the final comparison): as the prototype's selectNode(null) clears

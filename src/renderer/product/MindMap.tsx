@@ -210,13 +210,14 @@ const Actions = createContext<NodeActions>({ open: () => undefined, fold: () => 
 function FoldMark({ id, fold }: { id: string; fold: Fold }) {
   const actions = useContext(Actions)
   const label = fold.folded ? `Unfold the branch: ${fold.hidden} node${fold.hidden === 1 ? '' : 's'}` : 'Fold the branch'
-  const { onClick, ...rest } = writeAction<MouseEvent<HTMLButtonElement>>(actions.readOnly, () => actions.fold(id, !fold.folded), label)
+  const { onClick, ...rest } = writeAction<MouseEvent<HTMLSpanElement>>(actions.readOnly, () => actions.fold(id, !fold.folded), label)
   return (
-    <button
-      type="button"
-      // Not a second stop for Tab: the node is the one stop, and ArrowLeft or ArrowRight on it fold. `nodrag`:
-      // pressing the mark does not start a drag of the node.
-      tabIndex={-1}
+    // Not a second stop for Tab, and not focusable at all: the node is the one stop, and ArrowLeft or
+    // ArrowRight on it fold. A <button>, even at tabIndex -1, is a focusable control inside the node's own
+    // button (axe, nested-interactive). `nodrag`: pressing the mark does not start a drag of the node.
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/interactive-supports-focus -- the keys of the fold are ArrowLeft and ArrowRight on the node; the mark is the pointer's.
+    <span
+      role="button"
       className="w-mind__fold nodrag nopan"
       aria-expanded={!fold.folded}
       aria-label={label}
@@ -229,7 +230,7 @@ function FoldMark({ id, fold }: { id: string; fold: Fold }) {
       }}
     >
       {fold.folded ? `+${fold.hidden}` : '−'}
-    </button>
+    </span>
   )
 }
 
@@ -735,8 +736,10 @@ function MessageLink({ projectId, message, onShowMessage, label = 'Show the mess
   const quote = useMindMapFocus((state) => state.quotes[projectId]?.get(message))
   if (onShowMessage === undefined) return <span className="w-mono w-mind__muted">{message}</span>
   const link = (
+    // Without a quote the link reads its whole name: every visible word of a button is in its name (axe,
+    // label-content-name-mismatch).
     <button type="button" className="w-mind__link" aria-label={label} title={message} onClick={() => onShowMessage(message)}>
-      {quote === undefined ? 'Show in the chat' : quoteLabel(quote)}
+      {quote === undefined ? label : quoteLabel(quote)}
     </button>
   )
   if (quote === undefined) return link

@@ -313,7 +313,8 @@ function AgentsStrip({ projectId, agents, root, session, drafts }: AgentsStripPr
               className="w-product__agents-button"
               aria-expanded={open === each}
               aria-controls={open === each ? panelId : undefined}
-              aria-label={TITLES[each]}
+              // The count it shows is in its name too (axe, label-content-name-mismatch).
+              aria-label={count === undefined ? TITLES[each] : `${TITLES[each]} (${count})`}
               title={count === undefined ? TITLES[each] : `${TITLES[each]} (${count})`}
               data-testid={each === 'agents' ? 'product-agents-toggle' : `product-rail-${each}`}
               onClick={() => setOpen((was) => (was === each ? null : each))}
