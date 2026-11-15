@@ -20,6 +20,9 @@ all drawn. Past that, only the rows in sight and 1000 pixels around them are, at
 live events of a Session.
 
 **Past and live.** A view of a Session with a transcript shows the file first and the live events after it, with no turn twice.
+A message Claude Code took into a turn that was already running is in the file only as a queued command, not as a user
+message. The file is read with it as the user's prompt, so the message stays on screen when the view reads that part from
+the file: after a restart of worfy, or when Autopilot starts the Orchestrator again.
 
 **Hide tools.** A button in the header folds tool calls into one "N tools" line. A failed call and a call that starts a Subagent
 stay visible. The choice is per Session, in the window's local storage, and follows the Session to its new id.
