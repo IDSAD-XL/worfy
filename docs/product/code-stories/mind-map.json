@@ -1,0 +1,411 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "n33c876e1",
+      "kind": "decision",
+      "text": "Destination: владелец принял черновик Epic-а worfy-code-stories; до приёмки — прототип Code story на настоящем изменении worfy и разбор критика.",
+      "from": null,
+      "status": "accepted",
+      "reason": "Со всем согласен",
+      "advice": true,
+      "message": "60591176-d99b-47c7-a8e5-645392830728"
+    },
+    {
+      "id": "n0447df98",
+      "kind": "decision",
+      "text": "Code story на каждый PR не прочитать: за 7 дней в main влито 160 PR, в пиковый день 52 — при 5–10 шагах это до 500 шагов в день.",
+      "from": "ticket:03",
+      "status": "accepted",
+      "reason": "Со всем согласен. Стори на пулл реквесты тоже очень важны; 6-8 согласен",
+      "source": "git log --first-parent main --since=\"7 days ago\" на 1673088fe: 160 PR (12, 52, 39, 20, 31, 6 по дням); docs/research/2026-11-13-competitors/README.md:1218 («Когда PR Ticket-а готов, worfy предлагает короткий рассказ»)",
+      "advice": true,
+      "message": "3f4dc442-eb38-40da-b27f-6fd17796ae85"
+    },
+    {
+      "id": "nbfde156f",
+      "kind": "decision",
+      "text": "Code story пишется на Epic: worfy предлагает её сама, когда влит последний PR Epic-а (не когда закрыт последний Ticket — Ticket-ы приёмки владельца закрываются позже). Story отдельного Ticket-а или PR — по кнопке.",
+      "from": "ticket:03",
+      "status": "accepted",
+      "reason": "Со всем согласен. Стори на пулл реквесты тоже очень важны",
+      "advice": true,
+      "message": "5b12b2e0-2711-4d92-a4d1-a1a132fdd4f8"
+    },
+    {
+      "id": "nfb4abeac",
+      "kind": "decision",
+      "text": "Термин всегда целиком — «Code story»; её части — «шаги» (Story step), а не «карточки»: Card — Node Canvas-а, карточка есть у Ticket-а на доске, «story» в spec-ах — «Истории пользователя».",
+      "from": "ticket:03",
+      "status": "accepted",
+      "reason": "Со всем согласен",
+      "advice": true,
+      "message": "47a5d866-9498-4d05-84cb-7e1c55b70f94"
+    },
+    {
+      "id": "n9b7b7d5a",
+      "kind": "decision",
+      "text": "Code story — markdown-файл в папке Epic-а в tickets root: в git в режиме Full, в папке Workflow в режиме Silent. Фрагменты кода процитированы на commit merge-а; файл переживает transcript-ы.",
+      "from": "ticket:04",
+      "status": "accepted",
+      "reason": "Со всем согласен",
+      "advice": true,
+      "message": "4f09b19a-8e55-4e0e-af44-1dce0c8229ad"
+    },
+    {
+      "id": "ncc07b16a",
+      "kind": "decision",
+      "text": "Code stories идёт отдельно от worfy-changes-view и worfy-acceptance: фрагменты — статичные цитаты, полный diff — ссылка на PR. Когда появится экран Changes, вопрос к строке добавится туда отдельным Ticket-ом.",
+      "from": "ticket:05",
+      "status": "accepted",
+      "reason": "Со всем согласен",
+      "advice": true,
+      "message": "d5110460-dcb5-420e-9ab8-92da5c3791e3"
+    },
+    {
+      "id": "ne728a608",
+      "kind": "decision",
+      "text": "Ход работы агента нигде не хранится: Flight Recorder своего не хранит, блоки thinking в transcript-ах пустые, а сам transcript живёт 35 дней. «Почему» придётся записывать во время работы. Уточнение 2026-11-15 по исследованию Ticket-а 01 (research-из-чего-строить-code-story.md, раздел 2): рассуждение лежит в transcript-е зашифрованным (поле signature); прочесть его может только сама модель при resume, пока жив transcript и не было compaction. Человеку и worfy оно недоступно, поэтому вывод — записывать «почему» во время работы — остаётся.",
+      "from": "ticket:06",
+      "status": "accepted",
+      "reason": "Со всем согласен",
+      "source": "docs/features/flight-recorder.md (первый абзац; строка 201 — срок жизни transcript-ов); замер 2026-11-15: 38 из 38 блоков thinking пустые в transcript-е implementer-а, 2879 из 3171 — у Orchestrator-а; против docs/research/2026-11-13-competitors/README.md:1223",
+      "advice": true,
+      "message": "bff17275-d670-47e4-8c7f-b31482e150ff"
+    },
+    {
+      "id": "n33815ab2",
+      "kind": "decision",
+      "text": "Code story бывает у любого PR: PR Ticket-а (story появляется сама), PR обычной Session и PR коллег в виде Pull requests (story по кнопке; у PR коллег рассуждений агента нет — только diff, описание PR и код).",
+      "from": "ticket:11",
+      "status": "accepted",
+      "reason": "6-8 согласен",
+      "advice": true,
+      "message": "77b699aa-0b8f-46e6-850a-c93b6c8a5bd5"
+    },
+    {
+      "id": "n593bd3b4",
+      "kind": "decision",
+      "text": "Story PR Ticket-а пишет сам implementer последним шагом перед PR, пока его рассуждения в контексте: что сделал, почему так, что отбросил, где не уверен, чего не проверяют test-ы. worfy её не навязывает — она ждёт на карточке Ticket-а и в PR, без уведомления. Story Epic-а собирается из story его PR. Поправка к решению Q2: story PR Ticket-а появляется сама, а не по кнопке; story Epic-а worfy по-прежнему предлагает, когда влит последний PR Epic-а.",
+      "from": "ticket:11",
+      "status": "accepted",
+      "reason": "6-8 согласен",
+      "advice": true,
+      "replaces": "nbfde156f",
+      "message": "243d6d6c-1bc3-45d7-b4f4-267c49b47ab9"
+    },
+    {
+      "id": "nfaaed52f",
+      "kind": "decision",
+      "text": "Размер story по размеру изменения: в story PR 1–3 шага для маленького PR и до 10 для большого; в story Epic-а 5–10 главных шагов из story его PR.",
+      "from": "ticket:11",
+      "status": "accepted",
+      "reason": "6-8 согласен",
+      "advice": true,
+      "message": "448d46af-ba96-4d1f-b7fa-75eb73d034b6"
+    },
+    {
+      "id": "n07ae2852",
+      "kind": "decision",
+      "text": "Story PR Ticket-а — файл stories/NN-slug.md в папке Epic-а рядом с issues/; implementer коммитит его в тот же PR: reviewer-ы читают story вместе с кодом, правки по review обновляют её в той же ветке, privacy check уже смотрит всё, что ветка добавляет в tickets root. Story по кнопке (PR Session, PR коллег) — в данных worfy на этой машине, не в репозитории.",
+      "from": "ticket:11",
+      "status": "accepted",
+      "reason": "9-10 да",
+      "advice": true,
+      "message": "65ee7085-4bc9-4ffc-ad26-51ccdbb61b0c"
+    },
+    {
+      "id": "n1a4f0d04",
+      "kind": "decision",
+      "text": "Code story пишется на языке отчётов из profile (language.reports): она для человека, который отвечает за код. Код, имена и термины — как в коде и глоссарии.",
+      "from": "ticket:04",
+      "status": "accepted",
+      "reason": "9-10 да",
+      "advice": true,
+      "message": "518b1966-3df0-4c26-9713-3c4d1108d4ef"
+    },
+    {
+      "id": "nf34f21ee",
+      "kind": "decision",
+      "text": "На вопрос к строке отвечает новая Session со story, diff-ом, файлом Ticket-а, текстом PR и вердиктами; каждый ответ цитирует строки и источник. Работает для любого PR и Vendor-а и не зависит от срока transcript-ов. «Спросить автора» (resume implementer-а) — отдельный Ticket в конце Epic-а, только если замер на 5 вопросах покажет, что автор отвечает лучше.",
+      "from": "ticket:07",
+      "status": "accepted",
+      "reason": "Новая Session (рекомендую)",
+      "advice": true,
+      "message": "64ec0dbd-db51-4462-b24d-bf65870e57dd"
+    },
+    {
+      "id": "n478242c1",
+      "kind": "decision",
+      "text": "Как story остаётся правдивой: инструкция просит решения и доказательства, а не запись хода рассуждений; script сверяет каждый фрагмент с кодом PR; verifier проверяет утверждения story как часть обычного review; последний шаг story PR — «Что нашёл review и что осталось» из вердикта; правки по review обновляют story в той же ветке.",
+      "from": "ticket:11",
+      "status": "accepted",
+      "reason": "Пять правил (рекомендую)",
+      "advice": true,
+      "message": "b47d91e7-73fd-495b-a22c-26e63edf57d9"
+    },
+    {
+      "id": "n5530762f",
+      "kind": "decision",
+      "text": "Story Epic-а собирает Orchestrator: когда влит последний PR Epic-а с кодом, он даёт отдельному агенту story PR Epic-а, его spec и вердикты; тот пишет story.md в папке Epic-а, файл уходит в ближайший docs PR. В режиме Silent файл просто ложится в папку Workflow. worfy предлагает прочитать, когда видит файл.",
+      "from": "ticket:03",
+      "status": "accepted",
+      "reason": "Оркестратор, но иногда нужно получить сторис еще до завершения эпика, по открытому пуллреквесту например. Нужно что бы это тоже было возможно. Важно что бы при создании стори юзер ничего не видел, открытой отдельной сессии (если такая нужна), а просто какой-то прогресс бар.",
+      "advice": true,
+      "message": "78fbed9d-602b-476a-a9a0-43a528516d0f"
+    },
+    {
+      "id": "n1451578a",
+      "kind": "decision",
+      "text": "Story PR включена по умолчанию; настройка Project-а её выключает. Цена — по оценке несколько процентов от Ticket-а (несколько лишних вызовов к 66–286 вызовам implementer-а); прототип и первые Ticket-ы дадут число.",
+      "from": "ticket:11",
+      "status": "accepted",
+      "reason": "Включена, с выключателем (рекомендую)",
+      "advice": true,
+      "message": "04511a41-f680-4ded-bbe2-ef701ea730e9"
+    },
+    {
+      "id": "n5f843810",
+      "kind": "decision",
+      "text": "Прототип — на Epic-е worfy-mcp-live: его последний PR с кодом (#1841) влит сегодня, приёмка владельца (Ticket 08 Epic-а) впереди. Story Epic-а и две story PR (большой #1841 и один маленький) в одном HTML-файле.",
+      "from": "ticket:08",
+      "status": "accepted",
+      "reason": "со всем согласен",
+      "advice": true,
+      "message": "830c6538-624d-4082-98ee-631203365e3c"
+    },
+    {
+      "id": "nb71fd74c",
+      "kind": "decision",
+      "text": "Проверка понимания — кнопка «Проверить себя» в конце story: 2–3 вопроса о решениях, сбоях, пути данных и границах изменения, без мелочей. После ответа — правильный ответ со ссылками на строки. Ничего от неё не зависит. Шаги получают отметку «прочитано»; требовать её или нет, решит приёмка (worfy-acceptance), если её примут.",
+      "from": "ticket:10",
+      "status": "accepted",
+      "reason": "16-17 да",
+      "advice": true,
+      "message": "f7c4338d-e54f-45d7-80f6-e41a86600604"
+    },
+    {
+      "id": "nfb5981b6",
+      "kind": "decision",
+      "text": "Шаги идут в порядке, в котором изменение объяснил бы человек, а не по файлам; контракт, его реализация и test-ы — один шаг. Первый шаг — что было не так или что просил Ticket; последние — что сознательно не меняли, как проверено, что нашёл review. Объяснение ведёт к проверке — строке, test-у, требованию — а не пересказывает код.",
+      "from": "ticket:03",
+      "status": "accepted",
+      "reason": "16-17 да",
+      "advice": true,
+      "message": "3147ea52-dc23-498d-b3e5-94f81d9b35be"
+    },
+    {
+      "id": "nedf411de",
+      "kind": "decision",
+      "text": "В story Epic-а есть шаг «Стыки между Ticket-ами»: что один Ticket оставил другому и сделал ли тот это; что разошлось со spec-ом. Агент, который собирает story Epic-а, читает Ticket-ы вместе и проверяет такие передачи по коду.",
+      "from": "ticket:08",
+      "status": "accepted",
+      "reason": "18 да",
+      "advice": true,
+      "message": "3f00aeb5-11da-4090-933f-3952993d1d52"
+    },
+    {
+      "id": "ndbb817ad",
+      "kind": "decision",
+      "text": "Story по кнопке в любой момент. У открытого PR Ticket-а story уже лежит в ветке — кнопка её открывает. У PR без story (обычной Session, коллег, старых PR) кнопка её собирает. Story Epic-а до его конца собирается по кнопке из готовых story PR и помечает Ticket-ы, которые ещё не готовы; она лежит в данных worfy. Окончательную story.md пишет Orchestrator после последнего PR.",
+      "from": "ticket:03",
+      "status": "accepted",
+      "reason": "со всем согласен",
+      "advice": true,
+      "message": "0b175731-9883-4a76-9945-4c87c667048a"
+    },
+    {
+      "id": "n3c941db4",
+      "kind": "decision",
+      "text": "Сборка story по кнопке и ответы на вопросы к строке идут невидимо: агент без Session Node на Canvas-е и без своего окна; на месте кнопки — progress bar, ответ появляется рядом со строкой в story. worfy так уже умеет: inventory MCP не оставляет Session Nodes (worfy-mcp-live 14, #1877). Агент Orchestrator-а, который пишет окончательную story Epic-а, виден как обычный его Subagent.",
+      "from": "ticket:09",
+      "status": "accepted",
+      "reason": "со всем согласен",
+      "advice": true,
+      "message": "e9bc9476-6bed-487c-b4f5-8df077d3ed71"
+    },
+    {
+      "id": "n8730f575",
+      "kind": "decision",
+      "text": "Story открывается в своём виде на всю основную область окна, как Run history; Esc — назад на Canvas. Входы: «Story» на рамке Epic-а и на карточке Ticket-а, «Code story» у PR в виде Pull requests, toast «Story Epic-а готова» с «Открыть» — один на Epic. С телефона — файл story на GitHub в режиме Full.",
+      "from": "ticket:09",
+      "status": "accepted",
+      "reason": "со всем согласен",
+      "advice": true,
+      "message": "259cf15a-fc08-4854-a4df-04a4a66beaec"
+    },
+    {
+      "id": "n8e17ec2e",
+      "kind": "decision",
+      "text": "Test seams Epic-а: (А) общие fixture-файлы story — их сверяет script Harness-а (shell-test) и читает worfy; (Б) e2e worfy с fake агентом: story по кнопке и вопрос к строке без нового Session Node; (В) поведение агентов — на приёмке первого Epic-а, плюс guard: PR Ticket-а без своей story не вливается.",
+      "from": null,
+      "status": "accepted",
+      "reason": "Плюс eval implementer-а",
+      "advice": true,
+      "message": "81cc2139-c8d4-4887-8842-e2c2216f4a60"
+    },
+    {
+      "id": "n81cad2d2",
+      "kind": "decision",
+      "text": "Содержание прототипа принято; UI вида Story нужно сделать интереснее.",
+      "from": "ticket:08",
+      "status": "accepted",
+      "reason": "Насчет прототипа чуть детальнее, содержание мне понравилось. Юайку нужно сделать интереснее.",
+      "advice": false,
+      "message": "31b9324a-30ac-4684-bc1d-f314632d1812"
+    },
+    {
+      "id": "n2e13dac0",
+      "kind": "decision",
+      "text": "Три направления UI вида Story на том же содержании: A «Прокрутка с кодом» — текст идёт, код рядом меняется и подсвечивает строки; B «Stories» — шаг на экран, полоска прогресса сверху, PR как главы; C «Карта изменения» — Ticket-ы и файлы как Node-ы, шаги — путь, брошенная передача — красное ребро. Владелец выбирает или смешивает.",
+      "from": "ticket:12",
+      "status": "accepted",
+      "reason": "Вариант В действительно самый подходящий, хотя и функционал варианта С довольно интересный, но запутанный и легко потеряться",
+      "advice": true,
+      "message": "9dad5b27-88ca-4dd5-ab3b-cb9269295bae"
+    },
+    {
+      "id": "n388c21c6",
+      "kind": "decision",
+      "text": "Критик, возражение 1: признак «все Ticket-ы с PR — done» появляется только внутри documents PR, который land сам создаёт и вливает за один run; у Orchestrator-а нет точки «до documents PR». Ticket 07 должен менять land, ждать Ticket 06 и уйти в Wave 5.",
+      "from": "ticket:03",
+      "status": "accepted",
+      "reason": "22-25 да",
+      "source": "docs/product/critic/worfy-code-stories-2026-11-15.md, возражение 1 (harness/bin/land:50-58, harness/bin/ticket:13)",
+      "advice": false,
+      "message": "b60f3824-c62f-451a-abd9-36532509c077"
+    },
+    {
+      "id": "n9541d706",
+      "kind": "decision",
+      "text": "Критик, возражение 2: невидимый агент с read-only tools и каналом прогресса уже есть — oneShot драйвера Vendor-а (ADR-0094, п. 2; onActivity — прогресс), им пользуется черновик профиля. Ticket 04 сжимается до вызова oneShot и contract test-а «нет Session Node»; git — через diff в prompt-е.",
+      "from": "ticket:09",
+      "status": "accepted",
+      "reason": "22-25 да",
+      "source": "docs/product/critic/worfy-code-stories-2026-11-15.md, возражение 2 (src/main/vendors/one-shot.ts:1-15, src/main/projects/connect.ts:522-528)",
+      "advice": false,
+      "message": "1b43b8e6-2cb0-4dde-863a-80944588387b"
+    },
+    {
+      "id": "n597fd813",
+      "kind": "decision",
+      "text": "Критик, возражение 3: story, закоммиченная в PR, не может назвать commit, с которым сверяются её фрагменты: hash commit-а не входит в сам commit, правки по review его меняют, а после squash merge head PR нет в main. Убрать commit из шапки; сверять с деревом commit-а, где лежит story; worfy находит код через commit, который принёс файл в main.",
+      "from": "ticket:11",
+      "status": "accepted",
+      "reason": "22-25 да",
+      "source": "docs/product/critic/worfy-code-stories-2026-11-15.md, возражение 3 (harness/bin/land:40 — gh pr merge --squash)",
+      "advice": false,
+      "message": "c91f44b1-a701-42ce-99f7-e5f06269e11b"
+    },
+    {
+      "id": "n02450d7d",
+      "kind": "decision",
+      "text": "Guard на merge (PR Ticket-а без story не вливается) стоит в land или в gate; где именно, решает Ticket.",
+      "from": "ticket:11",
+      "status": "accepted",
+      "reason": "22-25 да",
+      "advice": true,
+      "message": "09f2c8de-e87e-4b0a-aa0e-b185e8100533"
+    },
+    {
+      "id": "n3c379628",
+      "kind": "decision",
+      "text": "Шаг «Что нашёл review и что осталось» дописывает documents PR по файлу вердикта, без модели — тем же путём, каким land пишет Evidence-строки.",
+      "from": "ticket:11",
+      "status": "accepted",
+      "reason": "22-25 да",
+      "advice": true,
+      "message": "296e3c09-2a28-4f81-8c7f-c7d1428c8d96"
+    },
+    {
+      "id": "n79d09240",
+      "kind": "decision",
+      "text": "Выключатель story PR — поле Profile code_stories.pr (Harness читает только Profile); тумблер в Project settings пишет его через profile-set.",
+      "from": "ticket:11",
+      "status": "accepted",
+      "reason": "22-25 да",
+      "advice": true,
+      "message": "8add4f2c-9a39-4fcc-b488-8eb78d8a72d4"
+    },
+    {
+      "id": "nddda971d",
+      "kind": "decision",
+      "text": "Story по кнопке и ответы на вопросы идут на Vendor-е Project-а через oneShot: он есть и у Claude, и у Codex.",
+      "from": "ticket:09",
+      "status": "accepted",
+      "reason": "22-25 да",
+      "advice": true,
+      "message": "58e37606-8af3-48d4-99ab-0c65e0ee5fcb"
+    },
+    {
+      "id": "na15aa349",
+      "kind": "decision",
+      "text": "Story PR коллеги хранит только текст агента и ссылки на строки, без слов коллег — как PR inbox (pr-inbox-state.ts:4, ADR-0105).",
+      "from": "ticket:11",
+      "status": "accepted",
+      "reason": "22-25 да",
+      "advice": true,
+      "message": "7e7eaa6f-4de1-4d7a-a96b-f70b46e688a9"
+    },
+    {
+      "id": "nfe5a4837",
+      "kind": "decision",
+      "text": "Story для правок, которые ещё не стали PR, — не в этом Epic-е; вернуться с экраном Changes.",
+      "from": null,
+      "status": "accepted",
+      "reason": "22-25 да",
+      "advice": true,
+      "message": "69e8835c-c3ab-446a-b138-96ee54088ae2"
+    },
+    {
+      "id": "n639ab54c",
+      "kind": "decision",
+      "text": "Мерило успеха без аналитики — pilot на первом Epic-е после выхода: не меньше 3 вопросов к строкам, одно «Проверить себя» и слово владельца, помогла ли story принять Epic.",
+      "from": null,
+      "status": "accepted",
+      "reason": "22-25 да",
+      "advice": true,
+      "message": "be15a88c-c6cd-43a7-bdff-478c0ef75716"
+    },
+    {
+      "id": "nf8b4bd2a",
+      "kind": "decision",
+      "text": "Вид Story — вариант B «Stories»: шаг на экран, полоска сегментов, PR как главы; читается и на телефоне.",
+      "from": "ticket:12",
+      "status": "accepted",
+      "reason": "Вариант В действительно самый подходящий, хотя и функционал варианта С довольно интересный, но запутанный и легко потеряться",
+      "advice": true,
+      "message": "c68eca6e-8679-48ad-a5ae-18c9d1c577b7"
+    },
+    {
+      "id": "n52493b1a",
+      "kind": "decision",
+      "text": "Карта из варианта C — первый экран story Epic-а: Ticket-ы, файлы и стыки, брошенная передача красным ребром; оттуда шаги ведут в «Stories».",
+      "from": "ticket:12",
+      "status": "rejected",
+      "reason": "Вариант В действительно самый подходящий, хотя и функционал варианта С довольно интересный, но запутанный и легко потеряться",
+      "advice": true,
+      "message": "75c9103c-3767-4de4-bb1d-7b7d98f8934c"
+    },
+    {
+      "id": "n9d8b063e",
+      "kind": "decision",
+      "text": "Карту C целиком не берём. От неё остаётся маленькая схема только в шаге «Стыки между Ticket-ами»: два-три Ticket-а и передача между ними, брошенная — красной пунктирной стрелкой. Без панорамы, масштаба и пути по файлам.",
+      "from": "ticket:12",
+      "status": "accepted",
+      "reason": "да да",
+      "advice": true,
+      "message": "ebd67d58-3a17-41e6-bb1d-8f6f8dfc6078"
+    },
+    {
+      "id": "n18c53305",
+      "kind": "decision",
+      "text": "Принять черновик Epic-а worfy-code-stories: 17 Ticket-ов в 7 Wave, решения карты, три возражения критика, подача «Stories» и схема в шаге «Стыки между Ticket-ами».",
+      "from": null,
+      "status": "accepted",
+      "reason": "да да",
+      "advice": true,
+      "message": "6f7e1d5d-95e6-4e3a-9ccc-8aad87b7e3cc"
+    }
+  ]
+}
