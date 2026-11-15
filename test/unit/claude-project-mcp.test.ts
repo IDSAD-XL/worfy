@@ -42,6 +42,7 @@ describe('projectLocalMcp', () => {
     const config = join(home, 'config')
     const folder = join(home, 'project')
     mkdirSync(folder, { recursive: true })
+    // unscaled: a field of a server's configuration handed through as written, not a limit of the test
     const remote = { type: 'http', url: 'https://${HOST}/mcp', headersHelper: 'helper', oauth: { clientId: 'c' }, timeout: 1000 }
     write(join(config, '.claude.json'), {
       projects: {

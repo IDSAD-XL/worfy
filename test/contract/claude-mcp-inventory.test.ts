@@ -443,6 +443,7 @@ describe('the query of the inventory leaves the Project alone', () => {
     git(root, 'commit', '-q', '-m', 'first')
     const worktree = join(root, '.claude', 'worktrees', 'wave')
     git(root, 'worktree', 'add', '-q', worktree)
+    // unscaled: a field of a server's configuration handed through as written, not a limit of the test
     const tracker = { command: 'tracker', env: { TOKEN: '${TRACKER_TOKEN}' }, timeout: 5000 }
     writeFileSync(
       join(cwd, '.claude.json'),
