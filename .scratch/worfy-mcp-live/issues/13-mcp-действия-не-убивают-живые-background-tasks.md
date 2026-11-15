@@ -1,7 +1,8 @@
 # 13 — MCP-действия не убивают живые background tasks
 
 Type: bug
-Status: open
+Status: done 2026-11-15T02:54Z
+PR: #1876
 Blocked by: 12
 Source: аудит смёрженных PR 2026-11-13, находка 28 (high), `.scratch/audit-pr-rereview-2026-11-13/spec.md`; передана
 Orchestrator-у 2026-11-13
@@ -31,6 +32,7 @@ Turn off, Turn on, Restart и Allow в списке MCP-серверов пер�
 - [ ] Строка отказа видна в списке MCP; unit test renderer-а.
   - evidence: test-run pass · `pnpm test test/unit/mcp-chip.test.tsx` exit 0 · mac - · eda1bb53d2ce48975c1203126397563467c85016
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
+  - evidence: ci-check pass · CI green on PR #1876 (ci-ok); local gate fast red only from file-watcher tests in untouched files (fseventsd load), re-run alone; owner rule 2026-11-13 Q1 · mac - · 184de8e8fb52195b42f49fa3bab2cca0a0347829
 
 ## Где в коде
 

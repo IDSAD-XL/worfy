@@ -238,7 +238,7 @@ and `agent.mcpAllowAll` write channels, so read-only access on a Linked machine 
 | `test/contract/claude-mcp-pickup.test.ts` | Taking in a new server between turns only, and nothing in an Autopilot Session. |
 | `test/contract/claude-mcp-turn-off.test.ts` | Restart with the same conversation after the old process exits, Turn off and Turn on, no Turn off of worfy's own server, Restart before the first turn. |
 | `test/contract/claude-mcp-inventory.test.ts` | The query of the inventory, run outside the Project with the Session's folder as its config root, and the rows not allowed. |
-| `test/unit/claude-project-mcp.test.ts` | The Project's record in `.claude.json` the inventory reads: by the main checkout's root, local servers as written, the turned-off ones, their source in the answer. |
+| `test/unit/claude-project-mcp.test.ts` | The Project's record in `.claude.json` the inventory reads: by the main checkout's root, local servers as written, the turned-off ones; its key on Windows, in a linked worktree, a bare repository and a nested one. |
 | `test/unit/mcp-addresses.test.ts` | The entries of the list: a name Claude Code takes, an address and its pattern without the query, the addresses of an answer of the inventory, an empty list. |
 | `test/contract/claude-mcp-addresses.test.ts` | The addresses kept in main only, a Session's start taking them, the list by address, the reason of a row not started. |
 | `test/contract/claude-mcp-allow.test.ts` | Allow and Allow all through a stub `bin/profile-set`: two Allows at once, a list changed in between, a refused write, a server the restarted process does not have, the queue key of a worktree, a Turn off of worfy-canvas refused over IPC. |
