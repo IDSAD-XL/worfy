@@ -32,13 +32,18 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 11; «Решения 
 5. Сборку можно остановить. Остановленная сборка ничего не сохраняет. Повторное нажатие на PR с сохранённой story
    открывает её, а не собирает заново; пересобрать — отдельное действие.
 6. Vendor — тот, что у Project-а (решение 25). Project на Codex без `oneShot` — причина из Ticket-а 04.
-7. Цену первых сборок (token-ы из ответа `oneShot`, если Vendor их даёт) записать в «Итог».
+7. Story Epic-а до конца: главы взяты из разных PR, у каждой свой head, и одно поле `Commit:` в шапке (`TICKETS.md`,
+   раздел «Code story», поле Header) не подходит. Каждая глава несёт head своего PR; Ticket дописывает это в формат
+   `TICKETS.md`.
+8. Цену первых сборок (token-ы из ответа `oneShot`, если Vendor их даёт) записать в «Итог».
 
 ## Готово, когда
 
 - [ ] e2e (`WORFY_AGENT=fake`): «Code story» у PR обычной Session → progress bar → вид Story; ни одного нового Session
       Node (проверка как у contract test-а запроса списка MCP, `worfy-mcp-live` 14).
 - [ ] e2e: story Epic-а до конца — неготовые Ticket-ы помечены в «Начале».
+- [ ] `TICKETS.md` описывает head PR у каждой главы story Epic-а по кнопке. Contract test: в сохранённой story у каждой
+      главы свой head, и код главы читается из него.
 - [ ] Contract test: в запросе есть diff, текст PR, файл Ticket-а и вердикты; у PR коллеги в сохранённом файле нет
       текста PR и комментариев.
 - [ ] Contract test: остановка во время сборки — ничего не сохранено; повторное нажатие на PR с сохранённой story
@@ -52,6 +57,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 11; «Решения 
 
 ## Где в коде
 
+- `harness/bin/TICKETS.md` (head PR у главы story Epic-а по кнопке)
 - `src/main/stories/by-button.ts` (новый: вход агента для PR и для Epic-а)
 - `src/main/stories/one-shot.ts`, `src/main/stories/store.ts` (из Ticket-ов 04 и 08)
 - `src/main/ipc/stories.ts`, `src/shared/ipc/stories.ts`

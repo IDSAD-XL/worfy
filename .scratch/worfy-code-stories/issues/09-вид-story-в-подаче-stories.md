@@ -35,6 +35,10 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 09; «Решения 
 5. Шаг «Стыки между Ticket-ами» — маленькая схема по списку передач: два-три Ticket-а и стрелки между ними, брошенная
    передача — красная пунктирная. Без панорамы, масштаба и пути по файлам (решение 27).
 6. Тексты UI — на английском; текст story — на языке story.
+7. Решить правило: цитируют ли frame-шаги фрагменты. `TICKETS.md` сейчас говорит и то и другое: в разделе «Code story»
+   (поле Fields) любой frame-шаг может цитировать фрагмент, в разделе «Story anchor» `Start`, `Seams between tickets`,
+   `Summary`, `Check` не цитируют ни одного. Выбор Ticket-а: frame-шаги фрагментов не цитируют; PR правит формулировку
+   `TICKETS.md`.
 
 ## Готово, когда
 
@@ -46,6 +50,8 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 09; «Решения 
       `suggestion` работает как раньше.
 - [ ] Unit test схемы стыков: по списку передач fixture-а — узлы Ticket-ов и стрелки; брошенная передача — красная
       пунктирная; у схемы нет масштаба и панорамы.
+- [ ] `TICKETS.md` в разделах «Code story» и «Story anchor» говорит одно: frame-шаги фрагментов не цитируют. Unit test:
+      frame-шаг показывается без блока кода.
 - [ ] e2e `test/e2e/code-story.spec.ts` на fixture-Epic-е: вид открывается, шаги листаются, Esc возвращает на Canvas.
 - [ ] `test/e2e/a11y.spec.ts`: axe на виде Story без нарушений (как на основных экранах, worfy-ui-kit 18).
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
@@ -56,6 +62,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 09; «Решения 
 
 ## Где в коде
 
+- `harness/bin/TICKETS.md` (формулировка о frame-шагах)
 - `src/renderer/stories/StoryView.tsx` (новый)
 - `src/renderer/stories/JunctionsDiagram.tsx` (новый: схема шага «Стыки между Ticket-ами»)
 - `src/renderer/stories/stories.css` (новый)

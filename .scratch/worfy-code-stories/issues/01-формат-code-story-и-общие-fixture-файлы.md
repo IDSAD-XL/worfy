@@ -1,7 +1,7 @@
 # 01 — Формат Code story: шапка без commit-а, шаги, список передач, общие fixture-файлы
 
 Type: task
-Status: claimed 2026-11-15T23:45Z
+Status: done 2026-11-16T00:47Z
 PR: #1889
 Branch: worfy-code-stories/01
 Blocked by: —

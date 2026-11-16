@@ -25,14 +25,14 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 02; «Решения 
 1. `harness/bin/story-check` по образцу `shortcut-ledger`: в начале файла комментарий с вызовом и exit code-ами;
    сообщения на английском.
 2. Проверки:
-   - каждый фрагмент `path:from-to` совпадает с кодом в дереве commit-а, в котором лежит story;
+   - каждый фрагмент `path:from-to` совпадает с кодом head-а PR (`TICKETS.md`, раздел «Story anchor»);
    - у каждого шага есть все поля формата;
    - шапка — по формату, без поля commit-а;
    - у story Epic-а список передач шага «Стыки между Ticket-ами» разбирается;
    - личные данные ищет `harness/lib/privacy.cjs`, как у `evidence-check`; находка в выводе маскируется.
-3. Какой commit брать:
-   - story в ветке — дерево commit-а, где story лежит;
-   - story в main — по правилу Ticket-а 01 (commit, который принёс файл);
+3. Какой commit брать — только head PR, никогда не main (`TICKETS.md`, раздел «Story anchor»):
+   - story в ветке — `HEAD` ветки PR;
+   - documents PR, который дописал шаг review, — head PR, который влил `land`, а не своя ветка;
    - story ещё не закоммичена (implementer проверяет её до commit-а) — файлы рабочего дерева. Вывод называет, с чем
      сверял.
 4. Exit 0 — зелёно. Exit 2 — красно, с перечнем `файл:шаг: что не так`. Если script не может проверить (нет git, нет
@@ -46,11 +46,11 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 02; «Решения 
 - [ ] Shell-test: шаг без поля — exit 2, в выводе шаг и имя поля.
 - [ ] Shell-test: личные данные в story (подставная home-папка из stand-in-ов `privacy.cjs`) — exit 2, значение в выводе
       замаскировано.
-- [ ] Shell-test squash-а: во временном repo story коммитится в ветку, ветка вливается squash-ем в main. `story-check`
-      на main находит commit, который принёс файл, и зелёный. После следующего commit-а в main, который меняет те же
-      строки кода, он по-прежнему зелёный.
-- [ ] Shell-test: story, в которую documents commit позже дописал шаг review (Ticket 06), сверяется с тем же commit-ом,
-      что и до дописывания.
+- [ ] `story-check` сверяет story только с head-ом PR; на main его не запускают (`TICKETS.md`, раздел «Story anchor»).
+- [ ] Shell-test на fixture `repo-main-shifted/`: ветка не rebase-нута на main, в main строки над фрагментом сдвинулись.
+      `story-check` на head-е ветки — exit 0: он сверяет head, а не main.
+- [ ] Shell-test: documents PR дописал шаг review (Ticket 06) — `story-check` сверяет файл с head-ом, который влил
+      `land`, а не со своей веткой; exit 0.
 - [ ] Shell-test: story Epic-а с брошенной передачей разбирается и зелёная; передача без поля «сделано ли» — exit 2.
 - [ ] Shell-test: незакоммиченная story сверяется с рабочим деревом, и вывод это называет.
 - [ ] Все `harness/bin/tests/*.test.sh` зелёные, в том числе `plugin-neutral.test.sh`; `node scripts/check-personal.mjs` —

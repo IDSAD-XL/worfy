@@ -32,9 +32,10 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 08; «Решения 
 
    Файл, который не разбирается, даёт ошибку с причиной, а не пустую story.
 3. Reader отдаёт story Epic-а и story PR Ticket-ов вместе с Epic-ом, в режимах Full и Silent.
-4. Код фрагмента worfy читает из git, когда показывает шаг. Commit берётся по правилу привязки Ticket-а 01: в main — commit,
-   который принёс файл story. Если код недоступен (shallow clone, файл удалён), шаг показывает фрагмент из самой story
-   и пометку.
+4. Код фрагмента worfy читает из git, когда показывает шаг, по `TICKETS.md`, раздел «Story anchor». На main — anchor
+   commit командой оттуда (`git log --first-parent --follow --diff-filter=A --format=%H -1 <main> -- <story path>`);
+   фрагмент ищется в его дереве по коду, из нескольких совпадений — ближайшее к номерам строк story. Не найден
+   (файл изменился, удалён, shallow clone) — шаг показывает код из самой story с видимой пометкой.
 5. Хранилище story по кнопке и ответов: `<папка данных Project-а>/stories.json` (или папка), zod-схема, атомарная
    запись, по образцу `pr-inbox-state.ts`. Для PR коллег — только текст агента и ссылки `path:line@commit`, без слов
    коллег (ADR-0105).
@@ -48,8 +49,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 08; «Решения 
       передач (брошенная передача отмечена), шаг без поля — ошибка с именем поля.
 - [ ] Contract test `test/contract/workflow-reader.test.ts`: reader отдаёт story Epic-а и story PR Ticket-ов; в режиме
       Silent — из папки Workflow.
-- [ ] Contract test: код фрагмента читается из commit-а, который принёс story в main (временный repo со squash
-      merge-ем); при недоступном коде — фрагмент из story с пометкой.
+- [ ] Contract test на fixture `repo-main-shifted/` (временный repo со squash merge-ем): фрагмент найден по коду в anchor
+      commit-е, номера строк — anchor-а, главные строки сдвинуты на ту же величину; код изменён или недоступен — код из
+      story с видимой пометкой.
 - [ ] Contract test хранилища: запись атомарная; файл, который не проходит схему, не роняет чтение; у PR коллеги в
       файле нет текста PR и комментариев — только текст агента и ссылки.
 - [ ] lint, typecheck, test-ы модуля `src/main/workflow/` и gate fast — exit 0.
