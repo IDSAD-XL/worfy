@@ -23,6 +23,7 @@ export const CASES: [name: string, tag: 'main' | 'gui'][] = [
   ['ship-ticket-local-green', 'main'],
   ['ship-ticket-pr-green-ci', 'main'],
   ['implementer-report', 'main'],
+  ['implementer-story', 'main'],
   ['reviewer-verdict', 'main'],
   ['no-os-screen-capture', 'gui'],
   ['status-block', 'main'],

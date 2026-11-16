@@ -1,7 +1,7 @@
 # 14 — Eval-сценарий implementer-а: story PR на учебном Ticket-е проходит `story-check`
 
 Type: task
-Status: open
+Status: claimed 2026-11-16T13:28Z
 Blocked by: 05
 Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения владельца» 21 (строки 123–124); «Решения по test-ам», В
 (строки 285–289); «Риски»: «Отказ `reasoning_extraction`», «Codex» (строки 346–356); «Готово, когда» spec-а, пункт eval

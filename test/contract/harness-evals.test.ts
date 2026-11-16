@@ -205,7 +205,7 @@ afterEach(() => {
 })
 
 describe('harness/evals: the cases', () => {
-  it('holds exactly the twenty-one cases', () => {
+  it('holds exactly the twenty-two cases', () => {
     const found = existsSync(EVALS)
       ? readdirSync(EVALS, { withFileTypes: true })
           .filter((entry) => entry.isDirectory() && existsSync(join(EVALS, entry.name, 'prompt.md')))
