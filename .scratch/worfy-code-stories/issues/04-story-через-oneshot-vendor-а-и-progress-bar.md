@@ -54,15 +54,24 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 04; «Решения 
 
 - [ ] Contract test: `oneShot` story с папкой внутри Project-а не даёт нового Session Node на Canvas; первый результат
       test-а и выбранный путь записаны в «Итог».
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/story-one-shot.test.ts` exit 0 (first run red: live Session of the Project) · mac - · a51c424f3
 - [ ] Contract test: запрос получает только Read, Glob, Grep, Bash запрещён; diff PR — в тексте запроса; `outputSchema` —
       схема story.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/story-one-shot.test.ts` exit 0 · mac - · a51c424f3
 - [ ] Contract test: ответ, который не проходит схему, — ошибка с причиной, без падения и без записи.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/story-one-shot.test.ts` exit 0 · mac - · a51c424f3
 - [ ] Contract test: `signal` останавливает запрос; после остановки ничего не записано, процесс Vendor-а закрыт.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/story-one-shot.test.ts` exit 0 · mac - · a51c424f3
 - [ ] Unit test progress bar: строки `onActivity` показываются по порядку; остановка и ошибка видны на месте кнопки.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/story-progress.test.tsx` exit 0 · mac - · a51c424f3
 - [ ] Unit test: на Project-е с Codex без `oneShot` запрос не начинается, причина из `capabilities` показана.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/story-one-shot.test.ts test/unit/story-progress.test.tsx` exit 0 · mac - · a51c424f3
 - [ ] Новый ADR есть, только если test остался красным и путь inventory-query не помог; иначе ADR нет, и «Итог» это
       говорит.
+  - evidence: commit pass · Build a Code story through the Project Vendor oneShot, with a progress bar (no ADR: the inventory-query path worked) · - - · a51c424f3
 - [ ] lint, typecheck, test-ы модуля `src/main/vendors/` и gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · a51c424f3
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · a51c424f3
 
 ## Тесты
 
@@ -90,3 +99,30 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 04; «Решения 
 ## Вне скоупа
 
 - Кнопки story по кнопке и вопроса к строке — Ticket-ы 11 и 12.
+
+## Итог
+
+- **Contract test «нет Session Node» — первый результат красный.** `test/contract/story-one-shot.test.ts`, первый
+  запуск с `cwd` = папка внутри Project-а (как у черновика профиля в `connect.ts`): 2 из 10 test-ов красные. Stand-in
+  Agent SDK и fake агент оба зарегистрировали запрос в `<home>/sessions` с `cwd` папки Project-а, и
+  `ClaudeHomeRegistry.sessions(<Project>)` вернул live Session — на Canvas появился бы Session Node.
+- **Выбранный путь — путь inventory-query, ADR не нужен.** Запрос идёт в папке самого worfy
+  (`<WORFY_DATA_DIR>/terminal-ai`, там же inventory MCP, Limits и Terminal AI), а Project агент читает Read, Glob, Grep
+  по абсолютным путям, которые названы в тексте запроса. `projectConfigRoot` не понадобился: запрос story берёт только
+  настройки пользователя (`draftSessionOptions`: `settingSources: ['user']`, пустой список MCP), конфиг Project-а ему не
+  нужен. Код Vendor-ов (`src/main/vendors/claude/one-shot.ts`, `options.ts`) не менялся: `cwd` — поле нейтрального
+  `OneShotOptions`. После правки test зелёный: Session-ов Project-а нет, ни live, ни history; запрос зарегистрирован в
+  папке worfy, которая не Project.
+- **Схема story** (`src/shared/stories/schema.ts`) взята из spec, Ticket 01 ещё не влит: агент отвечает шагами
+  (`title`, `fragment` `path`/`startLine`/`endLine`/`mainLines`/`code` или `null`, `what`, `why`, `without`,
+  `requirement`, `risks`) и списком передач (`from`, `to`, `what`, `done`); шапку (`kind`, `epic`, `ticket`, `pr`,
+  `language`, без commit-а) ставит worfy. Кто вливается вторым — 01 или 04 — выравнивает имена полей с `TICKETS.md`.
+- **Codex.** `oneShot` Codex по-прежнему отказывает (`PartNotWired`). На Project-е с Codex запрос не начинается: build
+  отвечает `unavailable` с причиной `capabilities.unsupported.oneShotToolFree`, в текст которой добавлено «a Code
+  story»; progress bar показывает её на месте кнопки. **Вопрос владельцу:** для story на Project-е с Codex подключить
+  `oneShot` Codex или брать Claude Code (решение 25 говорит «на Vendor-е Project-а»)? До ответа story там недоступна с
+  этой причиной.
+- **Не проверено живым Claude Code:** что Read, Glob, Grep по абсолютным путям вне `cwd` проходят без вопроса —
+  в test-ах их пропускает `canUseTool` (`readOnlyCanUseTool`), реальный Claude Code не запускался (правило брифа).
+- Последняя строка прогресса Claude `oneShot` — «The draft is ready» (`activityOf`, общая с черновиком профиля); для
+  story это неточный текст. Правка трогает test-ы черновика вне следа Ticket-а — оставлено Orchestrator-у.

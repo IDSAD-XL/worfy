@@ -3,7 +3,7 @@
 // agent, no Session, no Session Node. The request reads with Read, Glob and Grep only; it cannot run git,
 // so the diff of the PR comes in its text. Its answer has the shape of the story's schema
 // (src/shared/stories/schema.ts); each line of what it does goes to `onActivity` (the progress bar), and
-// Stop ends it. The module writes nothing: a story it answers is kept by its caller (tickets 11 and 12),
+// Stop ends it. The module keeps no story: one it answers is kept by its caller (tickets 11 and 12),
 // a stopped or failed build answers no story at all.
 //
 // Where it runs (the contract test «no Session Node», test/contract/story-one-shot.test.ts, red at first):
