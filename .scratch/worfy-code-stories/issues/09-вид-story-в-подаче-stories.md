@@ -61,14 +61,17 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 09; «Решения 
 - [ ] Unit test схемы стыков: по списку передач fixture-а — узлы Ticket-ов и стрелки; брошенная передача — красная
       пунктирная; у схемы нет масштаба и панорамы.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/story-view.test.tsx test/unit/markdown.test.tsx` exit 0; in `gate fast` exit 0 · mac - · eb770856843310dcb4efeb70560bebfc736e5146
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/story-view.test.tsx` exit 0, empty handoff list draws no diagram (round 2) · mac - · 47ce81220718b397e6d4d3039c49e3e63e2bb29f
 - [ ] `TICKETS.md` в разделах «Code story» и «Story anchor» говорит одно: frame-шаги фрагментов не цитируют. Unit test:
       frame-шаг показывается без блока кода.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/story-view.test.tsx test/contract/story-one-shot.test.ts` exit 0; in `gate fast` exit 0 · mac - · eb770856843310dcb4efeb70560bebfc736e5146
+  - evidence: test-run pass · `HOME=$(mktemp -d) bash harness/bin/tests/story-check.test.sh` exit 0, story-check refuses a fragment on a frame step (round 2) · mac - · 47ce81220718b397e6d4d3039c49e3e63e2bb29f
 - [ ] e2e `test/e2e/code-story.spec.ts` на fixture-Epic-е: вид открывается, шаги листаются, Esc возвращает на Canvas.
 - [ ] `test/e2e/a11y.spec.ts`: axe на виде Story без нарушений (как на основных экранах, worfy-ui-kit 18).
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0 · mac - · eb770856843310dcb4efeb70560bebfc736e5146
   - evidence: gate pass · `gate fast` exit 0 (after the look fix and a rebase) · mac - · 145f1392d29c78f4d0d6e9a91a2c0f39661b3249
+  - evidence: gate pass · `gate fast` exit 0 (round 2) · mac - · 47ce81220718b397e6d4d3039c49e3e63e2bb29f
 
 ## Тесты
 
