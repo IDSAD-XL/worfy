@@ -21,6 +21,13 @@ export interface AxeScan {
 
 /** Runs axe on the page (or its `include` part) and returns the violations of every impact. */
 export async function axeViolations(page: Page, scan: AxeScan = {}): Promise<Result[]> {
+  // axe reads the colours as painted: an element still fading in (the Story view's steps slide in from
+  // opacity 0 for 0.3 s) has a lower contrast than at rest, so a scan in that window fails at random.
+  // Wait for every finite animation and transition of the page to end first.
+  // A string, as elsewhere in test/e2e: the e2e TypeScript project has no DOM types.
+  await page.evaluate(
+    'Promise.all(document.getAnimations().filter((a) => a.effect?.getComputedTiming().endTime !== Infinity).map((a) => a.finished.catch(() => undefined)))',
+  )
   let builder = new AxeBuilder({ page }).setLegacyMode(true)
   if (scan.include !== undefined) builder = builder.include(scan.include)
   const results = await builder.analyze()
