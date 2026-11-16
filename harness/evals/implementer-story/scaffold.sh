@@ -5,14 +5,14 @@
 #     an empty total): where a story needs the reason, story-pr.md asks for `not recorded` (in Russian, the
 #     demo profile's language.reports), not a guess;
 #   - code_stories.pr set to "on" in the profile: the default, written out so that the case keeps its
-#     meaning if the default changes;
-#   - a post-commit hook that runs bin/story-check of this copy of the Harness on every Code story the new
-#     HEAD holds and replaces .git/story-check.log with the stories, those the branch added since main
-#     (`in-branch:`), the output and `EXIT=<code>`; it also keeps the story as HEAD has it in
+#     meaning if the default changes; an origin (a bare repository in .git) and worktree.base origin/main,
+#     so that the preflight of pr-green-ci answers GO;
+#   - .git/eval-finish.sh, which the session of the run starts after the implementer's report: it runs
+#     bin/story-check of this copy of the Harness on every Code story HEAD holds and replaces
+#     .git/story-check.log with the stories, those the branch added since main (`in-branch:`), the output
+#     and `EXIT=<code>` (`EXIT=no-story` without a story), and keeps the story as HEAD has it in
 #     .git/story-check/. The graders read those files: no grader type of `claude plugin eval` runs a
-#     command, and the implementer's own story-check run is a claim of its report, not a check. The hook
-#     prints nothing and never fails a commit; a commit without a story writes nothing before the first
-#     story and a red log (`EXIT=no-story`) after it.
+#     command, and the implementer's own story-check run is a claim of its report, not a check.
 # The Harness state of the demo project is where demo-project.sh put it: .git/worfy-harness, and the
 # temporary HOME's ~/.claude/worfy-harness when EVAL_HARNESS_HOME is unset.
 set -euo pipefail
@@ -61,7 +61,16 @@ EOF
 git add .scratch/demo/issues/01-alpha.md
 git commit -q -m "demo: ticket 01 asks for percent"
 
-# code_stories.pr "on" in each profile of the demo project the fixture wrote.
+# An origin, a bare repository in .git, as demo-project.sh gives local-green: with pr-green-ci and no origin
+# the preflight answers BLOCKED, and the implementer of the first paid run stopped at a local finish there
+# and never reached the story (2026-11-16, three runs of 3, the log and the story copy missing).
+git init -q --bare .git/demo-origin.git
+git remote add origin "$(pwd -P)/.git/demo-origin.git"
+git push -q origin main
+git fetch -q origin
+git remote set-head origin main
+
+# code_stories.pr "on" and worktree.base origin/main in each profile of the demo project the fixture wrote.
 eval_env="$here/../../hooks/eval-env.cjs"
 state="$(unset HARNESS_HOME; EVAL_HARNESS_HOME="${EVAL_HARNESS_HOME:-worfy-harness}" exec node "$eval_env" harness-home)"
 home_state="$state"
@@ -72,24 +81,26 @@ const fs = require("node:fs")
 const file = process.argv[1]
 const profile = JSON.parse(fs.readFileSync(file, "utf8"))
 profile.code_stories = { pr: "on" }
+profile.worktree.base = "origin/main"
 fs.writeFileSync(file, JSON.stringify(profile, null, 2) + "\n")
 ' "$dir/projects/demo/profile.json"
 done
 
-hook="$(git rev-parse --git-path hooks)/post-commit"
-mkdir -p "${hook%/*}"
-cat >"$hook" <<'EOF'
+# The check the session of the run starts after the implementer's report (prompt.md). Not a git hook:
+# Claude Code runs git with repository hooks switched off (claude 2.1.322), and in the paid run of
+# 2026-11-16 a post-commit hook never ran although the story was committed.
+check="$(git rev-parse --git-common-dir)/eval-finish.sh"
+cat >"$check" <<'EOF'
 #!/bin/sh
 # The eval case implementer-story (harness/evals/implementer-story/scaffold.sh), not the demo project.
-# After a commit whose HEAD holds a Code story: a copy of each story as HEAD has it in
-# <common .git>/story-check/, and into <common .git>/story-check.log, replaced each time, the stories of
-# HEAD, those the branch added or changed since main, the output of story-check and its exit code. A commit
-# without a story leaves no log where there was none, and turns an existing one red.
-stories=$(git ls-tree -r --name-only HEAD -- .scratch/demo/stories) || exit 0
+# Replaces <common .git>/story-check.log: the Code stories of HEAD, those the branch added or changed since
+# main (in-branch), the output of story-check and its exit code, or EXIT=no-story when HEAD holds none.
+# Keeps a copy of each story as HEAD has it in <common .git>/story-check/. Prints nothing, exits 0.
+# Started from the top of the work tree: the session runs it in the run's folder.
 common=$(git rev-parse --path-format=absolute --git-common-dir) || exit 0
-# A commit that drops the story after a green log turns the log red: the last word belongs to this commit.
+stories=$(git ls-tree -r --name-only HEAD -- .scratch/demo/stories) || exit 0
 if [ -z "$stories" ]; then
-    [ ! -f "$common/story-check.log" ] || printf 'stories: none\nEXIT=no-story\n' >"$common/story-check.log"
+    printf 'stories: none\nEXIT=no-story\n' >"$common/story-check.log"
     exit 0
 fi
 mkdir -p "$common/story-check" || exit 0
@@ -97,9 +108,6 @@ for story in $stories; do
     git show "HEAD:$story" >"$common/story-check/${story##*/}" || exit 0
 done
 in_branch=$(git diff --name-only --diff-filter=AM main...HEAD -- .scratch/demo/stories 2>/dev/null)
-# Git gives a hook GIT_DIR (and in a linked worktree that is the worktree's own git folder): story-check
-# finds the work tree from the current folder, the top of the tree that made the commit.
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 {
     printf 'stories: %s\n' $stories
     [ -z "$in_branch" ] || printf 'in-branch: %s\n' $in_branch
@@ -108,6 +116,5 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 } >"$common/story-check.log" 2>&1
 exit 0
 EOF
-hook_text="$(cat "$hook")"
-printf '%s\n' "${hook_text//@STORY_CHECK@/$story_check}" >"$hook"
-chmod +x "$hook"
+check_text="$(cat "$check")"
+printf '%s\n' "${check_text//@STORY_CHECK@/$story_check}" >"$check"

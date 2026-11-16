@@ -9,8 +9,8 @@ The story has the parts story-pr.md asks for, in Russian (the demo profile's lan
 ticket 01, the header of a PR story, `Что было не так` as the first step, a code step with its fragment and the
 five fields, `не записано` as the value of at least one field (any of the five, continuation lines included; the
 format allows it in any field), since the ticket gives no reason for rounding down or for 0 on an empty total, and no `Что нашёл review` step, which only the
-documents PR appends. It reads the copy of the story as the last commit that holds it has it, which the
-post-commit hook of the fixture keeps in .git/story-check/, so the parts and story-check grade the same text. The
+documents PR appends. It reads the copy of the story as HEAD has it, which the check of the fixture
+(.git/eval-finish.sh) keeps in .git/story-check/, so the parts and story-check grade the same text. The
 pattern is anchored at the start of the file, so the negative check covers the whole story.
 A regex cannot tell a recorded reason from a guess written as one: a story that says `не записано` in one field
 and invents a reason in another passes here. Only a reader of the story catches that.

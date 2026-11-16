@@ -7,4 +7,4 @@ timeout_seconds: 1800
 allowed_tools: [Read, Glob, Grep, Skill, Agent, TodoWrite, TaskCreate, TaskGet, TaskList, TaskUpdate]
 ---
 
-Отдай Ticket 01 эпика demo агенту `worfy:implementer`: репозиторий — текущая папка. Когда он закончит, сохрани его отчёт как есть, без правок, в файл `implementer-report.json` в текущей папке.
+Отдай Ticket 01 эпика demo агенту `worfy:implementer`: репозиторий — текущая папка. Когда он закончит, сохрани его отчёт как есть, без правок, в файл `implementer-report.json` в текущей папке. Последним шагом выполни в текущей папке `sh .git/eval-finish.sh` — служебная команда fixture-а, она ничего не печатает; агенту о ней не говори.

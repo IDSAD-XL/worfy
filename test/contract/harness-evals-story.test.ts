@@ -16,7 +16,7 @@ const NAME = 'implementer-story'
 const CASE = join(EVALS, NAME)
 const STORY = '.scratch/demo/stories/01-alpha.md'
 const LOG = '.git/story-check.log'
-// The copy of the story at the last commit that holds it, which the post-commit hook keeps for the graders.
+// The copy of the story at HEAD, which the fixture's check (.git/eval-finish.sh) keeps for the graders.
 const COPY = '.git/story-check/01-alpha.md'
 const GRADERS = ['implementer-dispatched.md', 'no-refusal.md', 'story-check-green.md', 'story-required-parts.md']
 // The pass mark of a case: `--threshold` of every `claude plugin eval` call that pnpm eval:harness starts.
@@ -85,10 +85,22 @@ const put = (work: string, rel: string, text: string): void => {
   mkdirSync(dirname(join(work, rel)), { recursive: true })
   writeFileSync(join(work, rel), text)
 }
+/**
+ * The fixture's check as the session of the run starts it after the implementer's report (prompt.md):
+ * `sh .git/eval-finish.sh` from the run's folder, or from a linked worktree `tree` of it.
+ */
+const check = (tree: string, home: string): void => {
+  const common = git(tree, home, 'rev-parse', '--path-format=absolute', '--git-common-dir').stdout.trim()
+  const done = spawnSync('sh', [join(common, 'eval-finish.sh')], { cwd: tree, env: env(home), encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
+  expect(done.status, done.stderr).toBe(0)
+  expect(done.stdout).toBe('')
+}
+/** A commit of everything in `work`, then the check, as if the run ended there. */
 const commit = (work: string, home: string, message: string): void => {
   expect(git(work, home, 'add', '-A').status).toBe(0)
   const done = git(work, home, 'commit', '-q', '-m', message)
   expect(done.status, done.stderr).toBe(0)
+  check(work, home)
 }
 const log = (work: string): string => (existsSync(join(work, LOG)) ? readFileSync(join(work, LOG), 'utf8') : '')
 
@@ -149,7 +161,7 @@ const GOOD_STORY = [
 ].join('\n')
 
 describe('harness/evals: implementer-story', () => {
-  it('the fixture: ticket 01 asks for percent with two rules and no reason for them, code_stories.pr is on, a post-commit hook waits for a story', () => {
+  it('the fixture: ticket 01 asks for percent with two rules and no reason for them, code_stories.pr is on, the check script is in .git and no git hook', () => {
     const { work, home, run } = build()
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
     const ticket = readFileSync(join(work, '.scratch', 'demo', 'issues', '01-alpha.md'), 'utf8')
@@ -164,22 +176,29 @@ describe('harness/evals: implementer-story', () => {
       expect(profile.stdout.trim()).toBe('on')
       const finish = spawnSync(scriptNode(), [join(HARNESS, 'bin', 'profile'), '-C', work, '--field', 'workflow.finish'], { cwd: work, env: env(home, extra), encoding: 'utf8' })
       expect(finish.stdout.trim()).toBe('pr-green-ci')
+      // With pr-green-ci and no origin the preflight answers BLOCKED, and the first paid run stopped there.
+      const base = spawnSync(scriptNode(), [join(HARNESS, 'bin', 'profile'), '-C', work, '--field', 'worktree.base'], { cwd: work, env: env(home, extra), encoding: 'utf8' })
+      expect(base.stdout.trim()).toBe('origin/main')
     }
-    expect(existsSync(join(work, '.git', 'hooks', 'post-commit'))).toBe(true)
+    expect(git(work, home, 'remote', 'get-url', 'origin').stdout.trim()).toMatch(/[\\/]\.git[\\/]demo-origin\.git$/)
+    expect(git(work, home, 'rev-parse', 'origin/main').stdout).toBe(git(work, home, 'rev-parse', 'main').stdout)
+    expect(existsSync(join(work, '.git', 'eval-finish.sh'))).toBe(true)
+    expect(existsSync(join(work, '.git', 'hooks', 'post-commit'))).toBe(false)
     expect(existsSync(join(work, LOG))).toBe(false)
     expect(git(work, home, 'status', '--porcelain').stdout).toBe('')
     expect(git(work, home, 'branch', '--show-current').stdout.trim()).toBe('main')
   })
 
-  it('a commit without a story writes no log; the commit of the story on the ticket branch logs it in the branch with story-check exit 0, keeps a HEAD copy, and every grader passes', () => {
+  it('without a story the check logs EXIT=no-story; with the story on the ticket branch logs it in the branch with story-check exit 0, keeps a HEAD copy, and every grader passes', () => {
     const { work, home, run } = build()
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
     expect(git(work, home, 'switch', '-q', '-c', 'demo/01').status).toBe(0)
     put(work, 'src/alpha.mjs', CODE)
     put(work, 'test/alpha.test.mjs', TEST)
     commit(work, home, 'demo/01: percent')
-    expect(log(work)).toBe('')
+    expect(log(work)).toBe('stories: none\nEXIT=no-story\n')
     expect(existsSync(join(work, COPY))).toBe(false)
+    expect(score(work)).toBeLessThan(THRESHOLD)
 
     put(work, STORY, GOOD_STORY)
     commit(work, home, 'demo/01: Code story')
@@ -201,7 +220,7 @@ describe('harness/evals: implementer-story', () => {
     expect(log(work).trimEnd().split('\n').at(-1)).toBe('EXIT=0')
     expect(score(work)).toBe(1)
 
-    // A commit that deletes the story replaces the green log with a red one.
+    // A commit that deletes the story: the check replaces the green log with a red one.
     expect(git(work, home, 'rm', '-q', STORY).status).toBe(0)
     commit(work, home, 'demo/01: the story is gone')
     expect(log(work)).toMatch(/^EXIT=no-story$/m)
@@ -286,7 +305,7 @@ describe('harness/evals: implementer-story', () => {
     expect(passes('story-check-green.md', text)).toBe(false)
   })
 
-  it('in a linked worktree the hook checks that worktree: exit 0 on a valid story, the log and the copy in the common .git', () => {
+  it('in a linked worktree the check reads that worktree: exit 0 on a valid story, the log and the copy in the common .git', () => {
     const { work, home, run } = build()
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
     const tree = join(dirname(work), 'tree-01')
@@ -311,6 +330,7 @@ describe('harness/evals: implementer-story', () => {
     put(work, STORY, GOOD_STORY)
     const done = git(work, home, 'commit', '-q', '-m', 'demo/01: percent and a story with a guess')
     expect(done.status, done.stderr).toBe(0)
+    check(work, home)
     expect(passes('story-required-parts.md', readFileSync(join(work, STORY), 'utf8'))).toBe(true)
     expect(passes('story-required-parts.md', readFileSync(join(work, COPY), 'utf8'))).toBe(false)
     expect(git(work, home, 'switch', '-q', '--discard-changes', 'main').status).toBe(0)
@@ -398,6 +418,10 @@ describe('harness/evals: implementer-story', () => {
     expect(JSON.stringify({ description: 'map', subagent_type: 'worfy:scout', prompt: 'x' })).not.toMatch(new RegExp(field(dispatched, 'input_match') ?? '<none>'))
     const prompt = frontMatter(join(CASE, 'prompt.md'))
     expect(field(prompt, 'tags')).toBe('[main]')
+    // The session starts the fixture's check last, after the report; the prompt names no story.
+    const text = readFileSync(join(CASE, 'prompt.md'), 'utf8').slice(prompt.length)
+    expect(text.indexOf('`sh .git/eval-finish.sh`')).toBeGreaterThan(text.indexOf('implementer-report.json'))
+    expect(text).not.toMatch(/story|story-check/i)
 
     const workflows = join(REPO, '.github', 'workflows')
     for (const file of readdirSync(workflows)) expect(readFileSync(join(workflows, file), 'utf8'), file).not.toContain(NAME)

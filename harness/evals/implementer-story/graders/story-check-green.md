@@ -9,7 +9,9 @@ The ticket branch `demo/01` (`tickets.branch` of the demo profile, named by stor
 story of the PR at the path of story-pr.md, `.scratch/demo/stories/01-alpha.md` (`in-branch:`, from
 `git diff main...HEAD`), and bin/story-check exits 0 on the stories of the last commit that
 holds one: the fragments match the code of that commit, every field is there, the branch is not the main branch.
-The post-commit hook of the fixture (scaffold.sh) writes both into .git/story-check.log, replaced at each such
-commit, and turned red (`EXIT=no-story`) by a later commit without the story; the implementer's own story-check run is not what is graded. One grader, not two: a run scores the share
+The check of the fixture (.git/eval-finish.sh, written by scaffold.sh), which the session starts after the
+implementer's report, writes both into .git/story-check.log, or `EXIT=no-story` when HEAD holds no story; the
+implementer's own story-check run is not what is graded. Not a git hook: Claude Code runs git with repository
+hooks off. One grader, not two: a run scores the share
 of graders passed against the threshold 0.8, so with four graders any one that fails fails the case, and a red
 story-check must.
