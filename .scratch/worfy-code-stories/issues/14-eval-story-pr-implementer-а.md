@@ -42,16 +42,20 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения 
 - [ ] `harness/evals/implementer-story/` с `case.yaml`, `prompt.md`, `scaffold.sh` и graders; `node
       scripts/eval-harness-coverage.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/eval-harness-coverage.mjs` exit 0 · mac - · b1bb184b224bfcecaf69deda07ce4fee2d615f33
+  - evidence: test-run pass · `node scripts/eval-harness-coverage.mjs` exit 0 · mac - · ca361a7574821b99d3fb9bce1cc833d674ab090e
 - [ ] Четыре grader-а в `graders/`, по одному на проверку п. 1: файл story есть, `story-check` — exit 0, обязательные
       части на месте, отказа `reasoning_extraction` нет. Тип — как у `implementer-report/graders` (`regex` по файлу,
       где его хватает).
   - evidence: test-run pass · `npx vitest run --project contract test/contract/harness-evals-story.test.ts` exit 0 · mac - · b1bb184b224bfcecaf69deda07ce4fee2d615f33
+  - evidence: test-run pass · `npx vitest run --project contract test/contract/harness-evals-story.test.ts` exit 0 · mac - · ca361a7574821b99d3fb9bce1cc833d674ab090e
 - [ ] Dry run `pnpm eval:harness -- --case implementer-story --dry-run` — exit 0; план вызовов в «Итог».
   - evidence: test-run pass · `pnpm eval:harness -- --case implementer-story --dry-run` exit 0 · mac - · b1bb184b224bfcecaf69deda07ce4fee2d615f33
+  - evidence: test-run pass · `pnpm eval:harness -- --case implementer-story --dry-run` exit 0 · mac - · ca361a7574821b99d3fb9bce1cc833d674ab090e
 - [ ] (manual) Платный run руками с `--max-cost-usd` ниже 100: graders зелёные; цена и число run-ов в «Итог».
 - [ ] Сценарий не входит ни в один workflow CI и ни в gate (grep по `.github/workflows` и `harness/hooks/gate.mjs`
       пустой).
   - evidence: test-run pass · `grep -rn implementer-story .github/workflows harness/hooks/gate.mjs` exit 1 (no match) · mac - · b1bb184b224bfcecaf69deda07ce4fee2d615f33
+  - evidence: test-run pass · `grep -rn implementer-story .github/workflows harness/hooks/gate.mjs` exit 1 (no match) · mac - · ca361a7574821b99d3fb9bce1cc833d674ab090e
 
 ## Тесты
 
@@ -72,13 +76,17 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения 
 
 - Сценарий `harness/evals/implementer-story/`: ticket 01 учебного Epic-а `demo` (finish `pr-green-ci`) уходит агенту
   `worfy:implementer`. Scaffold переписывает ticket 01 так, что два его правила без причины, явно ставит
-  `code_stories.pr: on` и кладёт post-commit hook: после каждого commit-а со story в HEAD он запускает `bin/story-check`
-  и пишет вывод и `EXIT=<код>` в `.git/story-check.log`. У `claude plugin eval` нет grader-а, который запускает команду,
-  поэтому exit code проверки читается из этого файла, а не из слов implementer-а.
-- Graders: `story-in-branch` (story в commit-е по пути `.scratch/demo/stories/01-alpha.md`), `story-check-green`
-  (`EXIT=0`), `story-required-parts` (первый шаг «Что было не так», фрагмент, пять полей, `не записано`, нет шага
-  review), `no-refusal` (нет отказа `reasoning_extraction` в trace), плюс `implementer-dispatched` (`tool_used`: его
-  требует contract test каждого сценария).
+  `code_stories.pr: on` и кладёт post-commit hook. После каждого commit-а со story в HEAD hook запускает
+  `bin/story-check` и заново пишет `.git/story-check.log`: story HEAD, строку `in-branch:` для story, которую ветка
+  добавила с `main`, вывод и `EXIT=<код>`. Копию story из HEAD он кладёт в `.git/story-check/`. У `claude plugin eval`
+  нет grader-а, который запускает команду, поэтому exit code проверки читается из этого файла, а не из слов
+  implementer-а.
+- Graders (четыре, порог 0.8: любой один красный валит сценарий, 3/4 = 0.75): `story-check-green` (story ветки по пути
+  `.scratch/demo/stories/01-alpha.md` и `EXIT=0` в одном regex), `story-required-parts` (по копии из HEAD: первый шаг
+  «Что было не так», фрагмент, пять полей, `не записано` в поле «Почему здесь», нет шага review), `no-refusal` (нет
+  отказа `reasoning_extraction` в trace), `implementer-dispatched` (`tool_used`: его требует contract test каждого
+  сценария). Review круг 1 (PR #1916) нашёл, что при пяти grader-ах красный `story-check` давал 4/5 = 0.8 и сценарий
+  проходил; graders «story в ветке» и «story-check — exit 0» слиты в один.
 - Dry run `pnpm eval:harness -- --case implementer-story --dry-run` — exit 0. План: один вызов `main-implementer-story` —
   `claude plugin eval <plugin-copy> --scaffold --trust-plugin --ablation none --threshold 0.8 --no-publish --model
   claude-sonnet-5 --judge-model claude-haiku-4-5 --max-cost-usd 30 --tag main --case implementer-story --allow-tools Bash

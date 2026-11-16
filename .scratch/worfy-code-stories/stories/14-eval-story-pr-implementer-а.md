@@ -12,34 +12,55 @@ Story PR пишет implementer по шагу `ship-ticket` (Ticket 05), но н
 
 ## 2. Exit code `story-check` записывает hook, а не implementer
 
-Code: `harness/evals/implementer-story/scaffold.sh:83-91` · key lines: 83, 88, 89
+Code: `harness/evals/implementer-story/scaffold.sh:93-103` · key lines: 93, 96, 100, 102
 
 ```sh
-stories=$(git ls-tree -r --name-only HEAD -- .scratch/demo/stories) || exit 0
-[ -n "$stories" ] || exit 0
-log="$(git rev-parse --git-common-dir)/story-check.log" || exit 0
+in_branch=$(git diff --name-only --diff-filter=AM main...HEAD -- .scratch/demo/stories 2>/dev/null)
+# Git gives a hook GIT_DIR (and in a linked worktree that is the worktree's own git folder): story-check
+# finds the work tree from the current folder, the top of the tree that made the commit.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 {
     printf 'stories: %s\n' $stories
+    [ -z "$in_branch" ] || printf 'in-branch: %s\n' $in_branch
     node '@STORY_CHECK@' $stories
     echo "EXIT=$?"
-} >"$log" 2>&1
+} >"$common/story-check.log" 2>&1
 exit 0
 ```
 
-- Что делает: после каждого commit-а, где HEAD содержит story учебного Epic-а, запускает `story-check` этой копии
-  Harness-а и пишет список story, вывод и `EXIT=<код>` в `.git/story-check.log`. Commit без story log не трогает.
+- Что делает: после каждого commit-а, где HEAD содержит story учебного Epic-а, заново пишет `.git/story-check.log`:
+  story, которые ветка добавила с `main` (`in-branch:`), вывод `story-check` этой копии Harness-а и `EXIT=<код>`.
+  Перед запуском снимает `GIT_DIR`, который git даёт hook-у, чтобы `story-check` нашёл дерево по текущей папке и в
+  связанном worktree.
 - Почему здесь: у `claude plugin eval` нет grader-а, который запускает команду; есть `regex`, `tool_used`,
   `file_exists`, `llm` по файлу или transcript-у. Свой запуск `story-check` implementer-ом — утверждение его отчёта,
   а не проверка. Hook ставит scaffold, потому что только он знает путь к `bin/story-check` копии.
 - Без него: grader «`story-check` — exit 0» читал бы слова implementer-а, а не результат проверки.
 - Требование: [Что делаем, п. 1](../issues/14-eval-story-pr-implementer-а.md#что-делаем)
-- Риски и пробелы test-ов: hook проверяет HEAD последнего commit-а со story; если implementer работает в отдельном
-  worktree, log всё равно в общей `.git`, но файл story — нет, и grader обязательных частей упадёт. На настоящем
-  run-е hook не запускался: проверено только в contract test-е, без sandbox-а eval-а.
+- Риски и пробелы test-ов: на настоящем run-е hook не запускался: проверено только в contract test-е, без
+  sandbox-а eval-а. Ветка сравнивается с `main` учебного repo: другого base у fixture-а нет.
 
-## 3. Учебный Ticket не даёт причины двум правилам
+## 3. Красный `story-check` один валит сценарий
 
-Code: `harness/evals/implementer-story/scaffold.sh:42-43` · key lines: 42, 43
+Code: `harness/evals/implementer-story/graders/story-check-green.md:3-5` · key lines: 4
+
+```md
+target: { source: file, path: .git/story-check.log }
+pattern: '^in-branch: \.scratch/demo/stories/01-alpha\.md\r?$[\s\S]*^EXIT=0\r?$'
+flags: m
+```
+
+- Что делает: один regex требует и story этой ветки по пути из `story-pr.md`, и `EXIT=0` после неё в том же log-е.
+- Почему здесь: run получает долю пройденных grader-ов, порог — 0.8 (`scripts/eval-harness.mjs`). При пяти grader-ах
+  красный `story-check` давал 4/5 = 0.8, и сценарий проходил (review круг 1). При четырёх любой красный даёт 0.75.
+- Без него: story с неверным фрагментом или story, закоммиченная на `main`, проходили бы сценарий.
+- Требование: [Готово, когда, п. 2](../issues/14-eval-story-pr-implementer-а.md#готово-когда)
+- Риски и пробелы test-ов: пятый grader снова поднимет долю одного красного до 0.8; contract test считает счёт run-а
+  и проверяет, что (n − 1) / n ниже порога.
+
+## 4. Учебный Ticket не даёт причины двум правилам
+
+Code: `harness/evals/implementer-story/scaffold.sh:43-44` · key lines: 43, 44
 
 ```md
 `src/alpha.mjs` экспортирует `percent(done, total)`: целый процент `done` от `total`, округлённый вниз
@@ -47,14 +68,16 @@ Code: `harness/evals/implementer-story/scaffold.sh:42-43` · key lines: 42, 43
 ```
 
 - Что делает: просит округлять вниз и отдавать 0 при пустом `total`, не говоря почему.
-- Почему здесь: grader обязательных частей ищет `не записано`; оно уместно, только если причину правда нигде не
-  записали. Ticket `01-alpha` из общего fixture-а не содержит решения без причины, поэтому scaffold переписывает его.
+- Почему здесь: grader обязательных частей ищет `не записано` в поле «Почему здесь»; оно уместно, только если причину
+  правда нигде не записали. Ticket `01-alpha` из общего fixture-а не содержит решения без причины, поэтому scaffold
+  переписывает его.
 - Без него: story могла бы без вымысла обойтись без `не записано`, и grader проверял бы не то.
 - Требование: [Что делаем, п. 1](../issues/14-eval-story-pr-implementer-а.md#что-делаем)
-- Риски и пробелы test-ов: grader видит только, что `не записано` есть где-то в story, а не в каком поле; придуманную
-  причину рядом с ним он не поймает.
+- Риски и пробелы test-ов: implementer может честно написать в «Почему здесь» место из «Где в коде» и `не записано`
+  только про округление; regex это пропускает, если обе части в значении поля. Придуманную причину в другом поле
+  grader не ловит.
 
-## 4. Сценарий привязан к файлам шага story
+## 5. Сценарий привязан к файлам шага story
 
 Code: `harness/evals/lib/coverage.json:9-9` · key lines: 9
 
@@ -71,14 +94,16 @@ Code: `harness/evals/lib/coverage.json:9-9` · key lines: 9
 - Риски и пробелы test-ов: правка `agents/implementer.md` теперь выбирает два сценария; test-ы `harness-evals-run`,
   которым нужен один, меняют `implementer-report.md`.
 
-## 5. Что сознательно не меняли
+## 6. Что сознательно не меняли
 
 `harness/evals/lib/demo-project.sh` общий для всех сценариев; Ticket, `code_stories.pr` и hook добавляет только
 scaffold этого сценария. Платный run не запускали: только `--dry-run`, решение о платном run-е за владельцем.
 
-## 6. Как проверено
+## 7. Как проверено
 
-- `npx vitest run --project contract test/contract/harness-evals-story.test.ts` — exit 0: hook пишет `EXIT=0` на
-  верной story, `EXIT=2` на неверном фрагменте, `EXIT=1` на main; grader-ы проходят и падают на сломанных story.
+- `npx vitest run --project contract test/contract/harness-evals*.test.ts` — exit 0: hook пишет `EXIT=0` на верной
+  story, `EXIT=2` на неверном фрагменте и на story, которую обогнал код, `EXIT=1` на `main`, нет `in-branch:` для
+  story с `main`, `EXIT=0` в связанном worktree; счёт run-а с одним красным `story-check` ниже порога. Восемь mutant-ов
+  (дописывание log-а, без `unset`, без сравнения с `main`, копия из рабочего файла, ослабленный regex) — все убиты.
 - `pnpm eval:harness -- --case implementer-story --dry-run` — exit 0: один вызов `main`, бюджет 30 USD.
-- `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast — exit 0, `[gate] green (fast)`.
+- `pnpm lint`, `pnpm typecheck` — exit 0; gate fast — exit 0, `[gate] green (fast)`.
