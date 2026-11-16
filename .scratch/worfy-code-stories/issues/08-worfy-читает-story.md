@@ -69,6 +69,7 @@ Ticket-а — worfy не читает: шаг показывает код из s
       story с видимой пометкой.
   - evidence: test-run pass · `pnpm test test/contract/story-code.test.ts` exit 0 · mac - · 684049112
   - evidence: test-run pass · `pnpm test test/contract/story-code.test.ts` exit 0 · mac - · facc67e27
+  - evidence: test-run pass · `pnpm test test/contract/story-code.test.ts` exit 0 · mac - · 37f481a9b
 - [ ] Contract test хранилища: запись атомарная; файл, который не проходит схему, не роняет чтение; у PR коллеги в
       файле нет текста PR и комментариев — только текст агента и ссылки.
   - evidence: test-run pass · `pnpm test test/contract/story-store.test.ts` exit 0 · mac - · 684049112
@@ -76,6 +77,7 @@ Ticket-а — worfy не читает: шаг показывает код из s
 - [ ] lint, typecheck, test-ы модуля `src/main/workflow/` и gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 684049112
   - evidence: gate pass · `gate fast` exit 0 · mac - · facc67e27
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 37f481a9b
 
 ## Тесты
 
