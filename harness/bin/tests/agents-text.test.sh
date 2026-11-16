@@ -299,8 +299,8 @@ rv "the borrowed rules name Thermos, the file and the commit" "$THERMOS_SOURCE"
 # No word written wholly in capitals: such pressure gives newer models false alarms. A word here is
 # a run of four or more capital Latin letters; the allowed ones are names of the protocol, of files and
 # of environment variables (the temporary HOME recipe: HOME, USERPROFILE, HARNESS_HOME, EVAL_HARNESS_HOME,
-# CLAUDE_GATE_CONFIG).
-CAPS_ALLOWED='VERIFIED REJECTED NARROW EXIT JSON CLAUDE PLUGIN ROOT AGENTS TOKEN SKILL HOME USERPROFILE HARNESS EVAL GATE CONFIG'
+# CLAUDE_GATE_CONFIG; the format of tickets and Code stories, bin/TICKETS.md).
+CAPS_ALLOWED='VERIFIED REJECTED NARROW EXIT JSON CLAUDE PLUGIN ROOT AGENTS TOKEN SKILL HOME USERPROFILE HARNESS EVAL GATE CONFIG TICKETS'
 caps="$(CAPS_ALLOWED="$CAPS_ALLOWED" perl -ne 'BEGIN { %ok = map { $_ => 1 } split " ", $ENV{CAPS_ALLOWED} }
     while (/(?<![A-Z])([A-Z]{4,})(?![A-Z])/g) { print "$.: $1\n" unless $ok{$1} }' "$AGENTS/reviewer.md")"
 [ -z "$caps" ] && ok "reviewer: no word of four or more capital letters outside the allowed names" \
@@ -652,6 +652,10 @@ how to list them :: `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" evidence <epic> <NN>` pr
 what to check in each :: For each line: its `ref` exists (run the command it names and compare the exit code, open the file it names), its `sha` is in the branch (`git merge-base --is-ancestor <sha> <branch>` exits 0), and it matches the item's `needs` line, if there is one.
 a line that does not hold :: A line that does not hold is an unconfirmed claim.
 the reviewer writes none :: You write no Evidence lines yourself.
+the Code story is a claim :: - **The Code story.** The story of the PR, `<tickets root>/<epic>/stories/<NN>-<slug>.md` (`"${CLAUDE_PLUGIN_ROOT}/bin/TICKETS.md"`, section **Code story**), is a claim too.
+where the story is, by mode :: In Full mode it is in the PR diff; in Silent mode it is in the Workflow folder, under the same tickets root as the Evidence lines, and the diff has none.
+what to check in the story :: Check three things: every statement of the story holds in the code; its fragments quote the PR's latest head (`"${CLAUDE_PLUGIN_ROOT}/bin/story-check" --repo <the PR's worktree> --head <head> <story>` exits 0); and no field gives a reason in place of `not recorded` (in a story in another language, its word for it) that neither the ticket, the spec, the diff nor the report holds — such a reason is invented.
+a wrong story statement weighs as a code defect :: A statement of the story that does not hold is a finding of the same weight as a defect in the code: an unconfirmed claim, with its step and the `file:line` that refutes it.
 the verdict line, literally :: The first line of the answer is the verdict, plain text exactly as written here: `VERIFIED`, or `REJECTED:` and the unconfirmed claims.
 the last message is the answer :: Your last message is the answer and nothing else: a remark on what the last command or read showed goes into a message before your last tool call, or nowhere, and never in front of the verdict.
 a right first line :: Right: `REJECTED: node --test exits 1, the report says 0`.
@@ -852,6 +856,28 @@ else
     out="$(bash -c "${run_ev// 7 / 8 }" 2>&1)"
     [[ "$out" == *'no PR #8 in '* && "$out" == *'EXIT=1' ]] && ok "epic-wave: the prs[].evidence recipe refuses a PR the state file lacks" \
         || bad "epic-wave: the prs[].evidence recipe on a missing PR: [$out]"
+fi
+# The review step of a Code story: the orchestrator gives land the saved verdict in prs[].verdict (Full mode), or
+# appends the step itself in the Workflow folder (Silent mode, no documents PR).
+for p in '**The review step of the Code story**' '`prs[].verdict`' '"${CLAUDE_PLUGIN_ROOT}/bin/verdict" "<scratchpad>/review-<N>.md" >"<scratchpad>/verdict-<N>.md"; echo "EXIT=$?"' \
+    'the head `land` merged, `prs[].result.head` of the state file' 'a line a rebase changed is not quoted' \
+    'The step changes no anchor of the story: the commit that added the story to the main branch stays its anchor.' \
+    'A PR without a story or without `verdict`, and a story that has the step already, get nothing.' \
+    'In Silent mode `land` does not append the step and prints `review step of #N is the orchestrator'"'"'s (tickets outside the repository)`.' \
+    'After that run, before `ticket done`, append it yourself to the story in the Workflow folder' \
+    '"${CLAUDE_PLUGIN_ROOT}/bin/story-check" --repo <repo> --head <merged head> <story>; echo "EXIT=$?"'; do
+    ev "$EWS" "epic-wave, the review step" "$p"
+done
+RECIPE_VD="$(grep -F "node -e 'const fs = require(\"fs\"), path = require(\"path\"), [file, n, verdict]" "$EWS" | head -n 1 | sed 's/^`//; s/`$//')"
+if [ -z "$RECIPE_VD" ]; then bad "epic-wave: no recipe that sets prs[].verdict in the state file"
+else
+    printf '%s\n' '{"tickets_root": ".scratch", "prs": [{"number": 7, "epic": "demo", "ticket": "02", "head": "abc1234", "checks": []}]}' >"$T/land-verdict.json"
+    run_vd="${RECIPE_VD//<state file>/$T/land-verdict.json}"; run_vd="${run_vd//<N>/7}"; run_vd="${run_vd//<scratchpad>/$T/pad}"
+    out="$(bash -c "$run_vd" 2>&1)"
+    got="$(jq -r '.prs[0].verdict' "$T/land-verdict.json" 2>&1)"
+    want="$(node -p 'require("path").resolve(process.argv[1])' "$T/pad/verdict-7.md")"
+    [ "$out" = "EXIT=0" ] && [ "$got" = "$want" ] && ok "epic-wave: the prs[].verdict recipe gives the PR the absolute path of the saved verdict" \
+        || bad "epic-wave: the prs[].verdict recipe: [$out] [$got] want [$want]"
 fi
 ev "$IM" "implementer, the Evidence lines" '`EXIT=1` — an argument error (an unknown flag, or a flag without its value), and nothing was written either.'
 for p in 'owner-check pass --ref "<date>: <the owner'"'"'s word>" --copy <copy>' \

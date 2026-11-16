@@ -235,6 +235,16 @@ to check, not a fact. Read `not_verified` first: it names what the implementer d
   its `sha` is in the branch (`git merge-base --is-ancestor <sha> <branch>` exits 0), and it matches the
   item's `needs` line, if there is one. A line that does not hold is an unconfirmed claim. You write
   no Evidence lines yourself.
+- **The Code story.** The story of the PR, `<tickets root>/<epic>/stories/<NN>-<slug>.md`
+  (`"${CLAUDE_PLUGIN_ROOT}/bin/TICKETS.md"`, section **Code story**), is a claim too. In Full mode it
+  is in the PR diff; in Silent mode it is in the Workflow folder, under the same tickets root as the
+  Evidence lines, and the diff has none. Check three things: every statement of the story holds in
+  the code; its fragments quote the PR's latest head
+  (`"${CLAUDE_PLUGIN_ROOT}/bin/story-check" --repo <the PR's worktree> --head <head> <story>` exits
+  0); and no field gives a reason in place of `not recorded` (in a story in another language, its
+  word for it) that neither the ticket, the spec, the diff nor the report holds — such a reason is
+  invented. A statement of the story that does not hold is a finding of the same weight as a defect
+  in the code: an unconfirmed claim, with its step and the `file:line` that refutes it.
 
 The first line of the answer is the verdict, plain text exactly as written here: `VERIFIED`, or
 `REJECTED:` and the unconfirmed claims. Your last message is the answer and nothing else: a remark

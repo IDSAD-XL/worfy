@@ -364,7 +364,10 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
   Profile as it is now. Any other refusal shows under the switch. A read-only Linked machine sees the value with the
   switch turned off. On, the implementer writes the story before the PR and checks it with `harness/bin/story-check`
   (`harness/skills/ship-ticket/story-pr.md`), and `harness/bin/land` does not merge a ticket's PR without its story
-  or with a red check of it; off, neither happens.
+  or with a red check of it; off, neither happens. Either way, after the merge `land`'s documents PR appends to a
+  ticket's story the step "What review found and what remains": the saved review verdict quoted as it is and the lines
+  of the merged head it names, with no model call (`harness/skills/epic-wave/SKILL.md`, "The review step of the Code
+  story").
 - "Edit profile…" in "Project settings…" opens the Project's Profile in a form over the dialog. It has the fields of the
   Review step of "Add project" and those that step does not show: the title, the commands, the ticket path, spec, files
   section, done section and branch, the finish, `parallel`, the review and ticket lenses, the MCP servers, the skills

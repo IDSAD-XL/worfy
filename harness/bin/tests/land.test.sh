@@ -5,7 +5,9 @@
 # main-branch lock, one documents PR per run with `ticket done` for every merged PR, the Evidence lines of
 # prs[].evidence written by `ticket evidence` and the privacy check (evidence-check) before its push, a run broken
 # off by a kill and resumed, --watch, and the Code story guard (code_stories.pr on: a ticket's PR merges only with its
-# story read from the head and green by the real story-check; off, no ticket or no profile — no story needed).
+# story read from the head and green by the real story-check; off, no ticket or no profile — no story needed), and the
+# review step the documents PR appends to a story from prs[].verdict (the verdict quoted, the lines of the merged head it
+# names, story-check green against that head; nothing without a story or a verdict; evidence-check before the commit).
 # The world: a bare origin with PR refs (refs/pull/<N>/head), a clone of it as the orchestrator's checkout, and
 # node stubs for gh, ticket, the wait between tries (sleep) and the documents check. gh is
 # always the stub: no network, no real gh, no credential.
@@ -890,6 +892,105 @@ echo 3 >"$GHD/profile-rc"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && grep -q 'no profile.*no Code story is required' "$W/state.log" \
     && ok "story guard: a project with no profile (exit 3) -> no story required, merged, the log says why" || bad "story guard unregistered: exit $rc: $(cat "$W/out")"
+
+# --- the review step: the documents PR appends "What review found and what remains" to the story, from prs[].verdict ------
+# The step quotes the saved verdict (the output of bin/verdict) and, for each `path:<line>` or `path:<from>-<to>` of it that
+# the merged head holds, those lines of that head; the real story-check is green on the result against the same head
+# (bin/TICKETS.md, "Story anchor", item 2). No model is called: the step is made of the verdict's own text.
+# show_at <ref> <path>: the file at <ref>:<path> of the origin, read through node (see the evidence case above).
+show_at() { node -e 'process.stdout.write(require("child_process").execFileSync("git", ["-C", process.argv[1], "show", `${process.argv[2]}:${process.argv[3]}`], { encoding: "utf8" }))' "$W/origin.git" "$1" "$2"; }
+# verdict_of <line>…: the lines become the saved verdict $W/verdict.md, and the state file names it for PR 1
+verdict_of() { printf '%s\n' "$@" >"$W/verdict.md"; edit "s.prs[0].verdict=$(node -p 'JSON.stringify(process.argv[1])' "$(tn "$W/verdict.md")")"; }
+docs_files() { git -C "$W/origin.git" show --name-only --format= refs/pull/900/head | sort | tr '\n' ' '; }
+story_world rs-step pr-en.md
+h1="$(head_of 1)"
+verdict_of 'VERIFIED' \
+    'src/cart.ts:13: [low] a line with a zero quantity is skipped silently — kept: the ticket allows it' \
+    'ran: pnpm test test/unit/cart.test.ts — exit 0' \
+    'not verified: a price with three decimals (`src/money.ts:9-11`), `src/gone.ts:3`, base.txt:99'
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+doc="$(show_at refs/pull/900/head "$STORY_PATH" 2>&1)"
+step="$(printf '%s\n' \
+    '## 6. What review found and what remains' '' \
+    '> VERIFIED' \
+    '> src/cart.ts:13: [low] a line with a zero quantity is skipped silently — kept: the ticket allows it' \
+    '> ran: pnpm test test/unit/cart.test.ts — exit 0' \
+    '> not verified: a price with three decimals (`src/money.ts:9-11`), `src/gone.ts:3`, base.txt:99' '' \
+    'Code: `src/cart.ts:13-13` · key lines: 13' '' '```ts' '    if (line.quantity <= 0) continue' '```' '' \
+    'Code: `src/money.ts:9-11` · key lines: 9' '' '```ts' '  const whole = Number(match[1])' \
+    "  const part = Number((match[2] ?? '0').padEnd(2, '0'))" '  return whole * 100 + part' '```')"
+[ "$rc" = 0 ] && [ "$doc" = "$(cat "$FIX/pr-en.md")"$'\n\n'"$step" ] \
+    && ok "review step: verdict and story -> the documents PR appends the step last: the verdict quoted, a fragment per path:line the head holds" \
+    || bad "review step: exit $rc: $(cat "$W/out") story: $(printf '%s' "$doc" | tail -n 25)"
+[ "$(docs_files)" = ".scratch/demo-cart/issues/04.md $STORY_PATH " ] && ok "review step: the story is in the same documents commit as the ticket" || bad "review step: documents commit $(docs_files)"
+printf '%s\n' "$doc" >"$W/story-after.md"
+STORY_CHECK="$HERE/../story-check"
+sc="$(node "$STORY_CHECK" --repo "$W/repo" --head "$h1" "$W/story-after.md" 2>&1)"; sc_rc=$?
+[ "$sc_rc" = 0 ] && grep -q "4 fragments checked against $h1" <<<"$sc" && grep -q "story-check --head $h1 $STORY_PATH — exit 0" "$W/state.log" \
+    && ok "review step: story-check is green on the appended story against the merged head, in land and again here" || bad "review step: story-check exit $sc_rc: $sc log $(grep -i story-check "$W/state.log")"
+# the anchor stays the commit that added the story to the main branch, and story-check reads the same head as the guard did
+squash="$(q "$S" 's.prs[0].result.sha')"
+added_by() { git -C "$W/origin.git" log --first-parent --follow --diff-filter=A --format=%H -1 "$1" -- "$STORY_PATH"; }
+[ "$(added_by "$squash")" = "$squash" ] && [ "$(added_by refs/heads/main)" = "$squash" ] && [ "$(q "$S" 's.prs[0].result.head')" = "$h1" ] \
+    && [ "$(grep -c "fragments checked against $h1 (--head $h1)" "$W/state.log")" = 2 ] \
+    && ok "review step: after the append the story's anchor is the same squash commit, and story-check reads the same head before and after" \
+    || bad "review step: anchor before $squash, after $(added_by refs/heads/main), head $(q "$S" 's.prs[0].result.head'), log $(grep 'checked against' "$W/state.log")"
+# no story, or no verdict in the state file: the documents PR is what it was before the review step, byte for byte
+story_world rs-nostory
+echo off >"$GHD/code-stories"
+verdict_of 'VERIFIED'
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(docs_files)" = ".scratch/demo-cart/issues/04.md " ] && ! grep -qi "review step\|story-check" "$W/state.log" \
+    && ok "review step: a verdict but no story -> the documents PR has the ticket only, nothing said" || bad "review step no story: exit $rc: $(cat "$W/out") files $(docs_files)"
+story_world rs-noverdict pr-en.md
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(docs_files)" = ".scratch/demo-cart/issues/04.md " ] && [ "$(show_at refs/pull/900/head "$STORY_PATH")" = "$(cat "$FIX/pr-en.md")" ] \
+    && ok "review step: a story but no verdict -> the documents PR has the ticket only, the story byte for byte the PR's" || bad "review step no verdict: exit $rc: $(cat "$W/out") files $(docs_files)"
+# personal data in the verdict: evidence-check is red before anything is committed, as with the Evidence lines
+story_world rs-leak pr-en.md
+leak="gh""p_$(printf 'Zq%.0s' $(seq 1 15))"
+verdict_of 'VERIFIED' "ran: with token $leak — exit 0"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 2 ] && [ "$(merged_of 1)" = 1 ] && ! grep -q '^pr create\|^pr list' "$GHD/log" && [ -z "$(git -C "$W/origin.git" for-each-ref 'refs/heads/land-docs/*')" ] \
+    && grep -q '^documents land-docs/.* waits: evidence-check found 1 findings' "$W/out" && ! grep -qF "$leak" "$W/out" "$S" "$W/state.log" \
+    && ok "review step: personal data in the verdict -> evidence-check red, nothing committed or pushed, the value printed nowhere" || bad "review step leak: exit $rc: $(cat "$W/out")"
+# an unreadable verdict: the documents wait, nothing pushed
+story_world rs-unread pr-en.md
+edit "s.prs[0].verdict=$(node -p 'JSON.stringify(process.argv[1])' "$(tn "$W/no-such-verdict.md")")"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ -z "$(git -C "$W/origin.git" for-each-ref 'refs/heads/land-docs/*')" ] && grep -q '^documents land-docs/.* waits: the verdict of #1 cannot be read' "$W/out" \
+    && ok "review step: the verdict file cannot be read -> the documents wait, nothing pushed" || bad "review step unread: exit $rc: $(cat "$W/out")"
+# a relative verdict path is an input error
+story_world rs-relative pr-en.md
+edit 's.prs[0].verdict="verdict.md"'
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 1 ] && grep -q '"verdict" must be the absolute path of the saved verdict' "$W/out" && [ "$(merges)" = 0 ] \
+    && ok "review step: a relative verdict path -> exit 1, nothing merged" || bad "review step relative: exit $rc: $(cat "$W/out")"
+# a rebase after the review: the fragments quote the merged head where the reviewed lines stand now; a line the rebase
+# changed is not quoted (the review never saw it)
+story_world rs-rebase pr-en.md
+h1="$(head_of 1)"
+{ printf 'a\nb\n'; seq 1 40 | sed 's/^10$/ten/'; } >"$W/seed/base.txt" && git -C "$W/seed" commit -q -am "main moves" && git -C "$W/seed" push -q origin main
+git -C "$W/seed" fetch -q origin refs/pull/1/head && git -C "$W/seed" checkout -q --detach FETCH_HEAD && git -C "$W/seed" rebase -q main \
+    && git -C "$W/seed" push -q -f origin HEAD:refs/pull/1/head && git -C "$W/seed" checkout -q main
+h2="$(head_of 1)"
+edit "s.prs[0].head='$h1'"
+verdict_of 'VERIFIED' 'base.txt:5-6: [low] two lines the rebase moved' 'base.txt:10: [low] a line the rebase changed'
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+doc="$(show_at refs/pull/900/head "$STORY_PATH" 2>&1)"
+want="$(printf '%s\n' 'Code: `base.txt:7-8` · key lines: 7' '' '```txt' 5 6 '```')"
+[ "$rc" = 0 ] && [ "$h1" != "$h2" ] && [ "$(q "$S" 's.prs[0].result.head')" = "$h2" ] && [[ "$doc" == *"$want" ]] && [ "$(grep -c '^Code: `base.txt' <<<"$doc")" = 1 ] \
+    && grep -q "story-check --head $h2 $STORY_PATH — exit 0" "$W/state.log" \
+    && ok "review step: after a rebase the reviewed lines are quoted where the merged head has them, a changed line not at all" \
+    || bad "review step rebase: exit $rc h1 $h1 h2 $h2: $(cat "$W/out") story: $(printf '%s' "$doc" | tail -n 12)"
+# Silent mode: no documents PR, so the step is the orchestrator's; land says so
+new_world rs-silent 1
+state 1
+edit "s.tickets_root=null"
+verdict_of 'VERIFIED'
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && grep -qx "review step of #1 is the orchestrator's (tickets outside the repository)" "$W/out" \
+    && ok "review step: tickets_root null -> no documents PR, the line 'review step of #1 is the orchestrator's'" || bad "review step silent: exit $rc: $(cat "$W/out")"
 
 # --- the state-file block of skill epic-wave ("Merge with land") writes a file land takes -------------------------
 SKILL="${SKILL_FILE:-$HERE/../../skills/epic-wave/SKILL.md}"
