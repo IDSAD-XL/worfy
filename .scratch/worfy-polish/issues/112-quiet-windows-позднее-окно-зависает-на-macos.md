@@ -62,9 +62,11 @@ occurred in the main process» (`src/main/diagnostics/uncaught-stderr.ts:1-10`),
 
 - [ ] Test проходит без пути с `destroy()`, или root cause найдена и исправлена.
   - evidence: gate pass · `gate fast` exit 0 (lint, typecheck, pnpm test 18422 passed); the e2e run itself is the macos-e2e CI job · mac - · 28c6fb214c36c28f2d42420e7a33765634e46184
+  - evidence: ci-check pass · macos-e2e 2/2 on PR #1893: the later-window test passed without destroy(), 2.2 s, no retry · mac - · 2cb2713776a699b88730ca3ec5ae5aaf39264061
 - [ ] Запись quarantine `test/quarantine/quiet-windows-later-window-quiet.json` удалена, test снова объявлен через `test(...)`.
   - evidence: commit pass · test(e2e): open quiet-windows later window beside the first instead of destroying it (worfy-polish 112) — quarantine entry deleted, test declared with test() · - - · 28c6fb214c36c28f2d42420e7a33765634e46184
 - [ ] CI e2e на macOS зелёный.
+  - evidence: ci-check pass · CI green on PR #1893 (ci-ok; macos-e2e 2/2 ran quiet-windows.spec, the later-window test passed on its first attempt in 2.2 s) · mac - · 2cb2713776a699b88730ca3ec5ae5aaf39264061
 
 ## Trail
 
