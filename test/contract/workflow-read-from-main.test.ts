@@ -466,7 +466,7 @@ describe('fetch keeps the main branch current', () => {
 describe('no test fetches from a remote that is not on the disk', () => {
   it('tells a repository on the disk from one on another machine', () => {
     for (const url of ['/tmp/origin.git', 'C:\\work\\origin.git', 'C:/work/origin.git', 'file:///tmp/origin.git', '../origin.git', 'origin.git']) expect(isLocalRemote(url), url).toBe(true)
-    for (const url of ['https://github.com/o/r.git', 'git@github.com:o/r.git', 'ssh://host/r.git', 'https://example.invalid/demo.git']) expect(isLocalRemote(url), url).toBe(false)
+    for (const url of ['https://example.invalid/o/r.git', 'git@example.invalid:o/r.git', 'ssh://host/r.git', 'https://example.invalid/demo.git']) expect(isLocalRemote(url), url).toBe(false)
   })
 
   it('the test setup guards every fetch, and a guard refuses the fetch before git talks to the remote', async () => {
