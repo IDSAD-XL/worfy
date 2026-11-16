@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { scriptNode } from '../script-node'
-import { childEnv, EVALS, HARNESS, REPO, SCAFFOLD_TIMEOUT_MS, tempDir } from './harness-evals-shared'
+import { childEnv, cliFrontMatter, EVALS, HARNESS, REPO, SCAFFOLD_TIMEOUT_MS, tempDir } from './harness-evals-shared'
 
 const NAME = 'implementer-story'
 const CASE = join(EVALS, NAME)
@@ -21,11 +21,11 @@ const LOG = '.git/story-check.log'
 const COPY = '.git/story-check/01-alpha.md'
 const GRADERS = ['implementer-dispatched.md', 'no-invented-reason.md', 'no-refusal.md', 'story-check-green.md']
 // The line of the log between the story of ticket 01 and the output of story-check.
-const SEPARATOR = '--- story-check ---'
+const SEPARATOR = '=== story-check ==='
 // The pass mark of a case: `--threshold` of every `claude plugin eval` call that pnpm eval:harness starts.
 const THRESHOLD = Number(/'--threshold', '([\d.]+)'/.exec(readFileSync(join(REPO, 'scripts', 'eval-harness.mjs'), 'utf8'))?.[1] ?? 'NaN')
 
-const frontMatter = (file: string): string => /^---\r?\n([\s\S]*?)\r?\n---/.exec(readFileSync(file, 'utf8'))?.[1] ?? ''
+const frontMatter = (file: string): string => cliFrontMatter(readFileSync(file, 'utf8'))
 const field = (yaml: string, key: string): string | undefined =>
   new RegExp(`^\\s*${key}:\\s*(.+)$`, 'm').exec(yaml)?.[1]?.trim().replace(/^['"]|['"]$/g, '')
 const grader = (file: string): string => frontMatter(join(CASE, 'graders', file))
@@ -386,20 +386,23 @@ describe('harness/evals: implementer-story', () => {
     expect(passes(file, logged(GOOD_STORY, tail.replace(`${SEPARATOR}\n`, ''))), 'no separator line before the story-check output').toBe(false)
   })
 
-  it('the invented-reason grader: an llm judge of the HEAD copy of the story with the ticket text and the five fields of a code step', () => {
+  it('the invented-reason grader: an llm judge of the HEAD copy of the story, given the whole ticket and the demo rules', () => {
     const file = 'no-invented-reason.md'
     expect(field(grader(file), 'type')).toBe('llm')
     expect(targetPath(file)).toBe(COPY)
-    const text = readFileSync(join(CASE, 'graders', file), 'utf8').slice(grader(file).length)
-    for (const words of ['`0.6666666666666666`', '`Math.floor`', '`percent(2, 3)`', '`percent(0, 0)`', '`не записано`', 'PASS', 'FAIL'])
+    const text = readFileSync(join(CASE, 'graders', file), 'utf8')
+    for (const words of ['`не записано`', 'PASS', 'FAIL', '«Где в коде»'])
       expect(text, words).toContain(words)
     for (const label of ['Что делает', 'Почему здесь', 'Без него', 'Требование', 'Риски и пробелы test-ов'])
       expect(text, label).toContain(`\`${label}\``)
-    // The ticket text the grader quotes is the ticket the fixture writes.
-    const { work, run } = build()
+    // The judge gets the whole ticket the fixture writes and the rules of the demo profile, word for word: a story
+    // that cites them is recorded, not a guess.
+    const { work, home, run } = build()
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
     const ticket = readFileSync(join(work, '.scratch', 'demo', 'issues', '01-alpha.md'), 'utf8')
-    for (const words of ['0.6666666666666666', 'Math.floor', 'percent(2, 3)', 'percent(0, 0)']) expect(ticket, words).toContain(words)
+    expect(text).toContain(`\`\`\`\`md\n${ticket}\`\`\`\`\n`)
+    const rules = readFileSync(join(home, '.claude', 'worfy-harness', 'projects', 'demo', 'rules.md'), 'utf8')
+    expect(text).toContain(`\`\`\`\`md\n${rules}\`\`\`\`\n`)
   })
 
   it('the refusal grader: not_contains over the trace, failed by a refusal of reasoning_extraction or the refusal text of Claude Code', () => {

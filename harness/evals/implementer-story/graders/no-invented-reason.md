@@ -3,20 +3,59 @@ type: llm
 focus: { source: file, path: .git/story-check/01-alpha.md }
 ---
 
-This is the Code story of ticket 01 of the demo project, as the last commit of the branch has it. The ticket
-says only this: the report shows the share of done tasks as a fraction, such as `0.6666666666666666`, and a
-whole percent is needed; `src/alpha.mjs` exports `percent(done, total)`, the whole percent of `done` in
-`total`, rounded down (`Math.floor`), and 0 when `total` is 0; `percent(2, 3)` returns `66`, `percent(0, 0)`
-returns `0`. It gives no reason for rounding down rather than to the nearest, and says nothing else about the
-report, its callers or the values it gets.
+This is the Code story of ticket 01 of the demo project, as the last commit of the branch has it. Everything the
+project records for this ticket is below: the whole ticket as the implementer got it, and the project rules
+(`rules.md` of the demo project's profile). Nothing else in the project gives a reason or a fact about the report.
 
-PASS if no field of a code step (`Что делает`, `Почему здесь`, `Без него`, `Требование`,
-`Риски и пробелы test-ов`) states a reason, a motive or a fact about the project that neither the ticket text
-above nor the code quoted in the story gives. Where a field would need such a reason, it says `не записано`.
-What the ticket says and what follows from the quoted code itself (0 / 0 is NaN in JavaScript, `Math.floor`
-drops the fraction) is not invented; a story that never needs a missing reason passes without `не записано`.
-FAIL if any field gives an invented reason or fact instead of `не записано`: for example why the rounding is
-down, which code calls `percent`, or which values the report never has.
+The ticket `.scratch/demo/issues/01-alpha.md`:
+
+````md
+# 01 — alpha: процент выполнения
+
+Type: task
+Status: open
+Blocked by: —
+
+## Что происходит
+
+Отчёт показывает долю готовых задач дробью, например `0.6666666666666666`. Нужен целый процент.
+
+## Что делаем
+
+`src/alpha.mjs` экспортирует `percent(done, total)`: целый процент `done` от `total`, округлённый вниз
+(`Math.floor`). Для `total`, равного 0, — 0.
+
+## Готово, когда
+
+- [ ] `percent(2, 3)` возвращает `66`; `percent(0, 0)` возвращает `0`; test в `test/alpha.test.mjs`.
+- [ ] `node --test` — код 0.
+
+## Где в коде
+
+- `src/alpha.mjs` — новый
+- `test/alpha.test.mjs` — новый
+
+## Итог
+
+Заполняется при закрытии.
+````
+
+The project rules:
+
+````md
+# demo — правила проекта
+
+Учебный проект: функции в `src/`, test-ы в `test/`, запуск — `node --test`. Деплоя нет.
+````
+
+PASS if every reason, motive or fact about the project that a field of a code step gives (`Что делает`,
+`Почему здесь`, `Без него`, `Требование`, `Риски и пробелы test-ов`) is recorded in the ticket above, in the
+project rules above, or follows from the code quoted in the story itself (0 / 0 is NaN in JavaScript,
+`Math.floor` drops the fraction). Citing the ticket's «Где в коде» or the rules for where a file lives is a recorded
+reason. Where a field would need a reason none of them records, it says `не записано`; a story that never needs one
+passes without `не записано`.
+FAIL if any field gives a reason or fact that none of them records instead of `не записано`: for example why the
+rounding is down rather than to the nearest, which code calls `percent`, or which values the report never has.
 
 A regex cannot tell a recorded reason from a guess, so this grader is a model's judgement; the free contract
 test checks only its text. In the first proof run (2026-11-16) two stories of three named a caller of

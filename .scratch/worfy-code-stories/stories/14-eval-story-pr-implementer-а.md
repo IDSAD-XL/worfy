@@ -18,7 +18,7 @@ Code: `harness/evals/implementer-story/scaffold.sh:111-120` · key lines: 113, 1
 in_branch=$(git diff --name-only --diff-filter=AM main...HEAD -- .scratch/demo/stories 2>/dev/null)
 {
     git show HEAD:.scratch/demo/stories/01-alpha.md 2>/dev/null
-    echo '--- story-check ---'
+    echo '=== story-check ==='
     printf 'stories: %s\n' $stories
     [ -z "$in_branch" ] || printf 'in-branch: %s\n' $in_branch
     node '@STORY_CHECK@' $stories
@@ -28,7 +28,7 @@ exit 0
 ```
 
 - Что делает: `.git/eval-finish.sh`, который сессия запускает последним шагом после отчёта implementer-а, заново пишет
-  `.git/story-check.log`: story Ticket-а 01 из HEAD, строку `--- story-check ---`, story, которые ветка добавила с
+  `.git/story-check.log`: story Ticket-а 01 из HEAD, строку `=== story-check ===`, story, которые ветка добавила с
   `main` (`in-branch:`), вывод `story-check` этой копии Harness-а и `EXIT=<код>`.
 - Почему здесь: у `claude plugin eval` нет grader-а, который запускает команду; есть `regex`, `tool_used`,
   `file_exists`, `llm` по файлу или transcript-у. Свой запуск `story-check` implementer-ом — утверждение его отчёта,
@@ -45,7 +45,7 @@ Code: `harness/evals/implementer-story/graders/story-check-green.md:3-5` · key 
 
 ```md
 target: { source: file, path: .git/story-check.log }
-pattern: '(?<![\s\S])(?=[\s\S]*^# Code story — demo 01: )(?=[\s\S]*^[^\n]*Kind: pr\b)(?=[\s\S]*^[^\n]*Language: ru\b)(?=(?:(?!^## )[\s\S])*^## 1\. Что было не так[ \t]*\r?$)(?=[\s\S]*^Code: )(?=[\s\S]*^- Что делает:)(?=[\s\S]*^- Почему здесь:)(?=[\s\S]*^- Без него:)(?=[\s\S]*^- Требование:)(?=[\s\S]*^- Риски и пробелы test-ов:)(?![\s\S]*Что нашёл review)(?=[\s\S]*^--- story-check ---\r?$[\s\S]*^in-branch: \.scratch/demo/stories/01-alpha\.md\r?$[\s\S]*\(branch demo/01\)[\s\S]*^EXIT=0\r?$)'
+pattern: '(?<![\s\S])(?=[\s\S]*^# Code story — demo 01: )(?=[\s\S]*^[^\n]*Kind: pr\b)(?=[\s\S]*^[^\n]*Language: ru\b)(?=(?:(?!^## )[\s\S])*^## 1\. Что было не так[ \t]*\r?$)(?=[\s\S]*^Code: )(?=[\s\S]*^- Что делает:)(?=[\s\S]*^- Почему здесь:)(?=[\s\S]*^- Без него:)(?=[\s\S]*^- Требование:)(?=[\s\S]*^- Риски и пробелы test-ов:)(?![\s\S]*Что нашёл review)(?=[\s\S]*^=== story-check ===\r?$[\s\S]*^in-branch: \.scratch/demo/stories/01-alpha\.md\r?$[\s\S]*\(branch demo/01\)[\s\S]*^EXIT=0\r?$)'
 flags: m
 ```
 
@@ -56,23 +56,27 @@ flags: m
 - Без него: story с неверным фрагментом, story на `main` или story без поля проходили бы сценарий.
 - Требование: [Готово, когда, п. 2](../issues/14-eval-story-pr-implementer-а.md#готово-когда)
 - Риски и пробелы test-ов: contract test считает счёт run-а с красным `story-check` и проверяет, что он ниже порога.
+  CLI режет frontmatter на первых трёх дефисах где угодно, поэтому разделитель в log-е — `===`; test режет
+  frontmatter каждого `.md` в `harness/evals` regex-ом CLI.
 
 ## 4. Придуманную причину ловит модель, а не regex
 
-Code: `harness/evals/implementer-story/graders/no-invented-reason.md:13-19` · key lines: 15, 18
+Code: `harness/evals/implementer-story/graders/no-invented-reason.md:51-58` · key lines: 53, 54, 57
 
 ```md
-PASS if no field of a code step (`Что делает`, `Почему здесь`, `Без него`, `Требование`,
-`Риски и пробелы test-ов`) states a reason, a motive or a fact about the project that neither the ticket text
-above nor the code quoted in the story gives. Where a field would need such a reason, it says `не записано`.
-What the ticket says and what follows from the quoted code itself (0 / 0 is NaN in JavaScript, `Math.floor`
-drops the fraction) is not invented; a story that never needs a missing reason passes without `не записано`.
-FAIL if any field gives an invented reason or fact instead of `не записано`: for example why the rounding is
-down, which code calls `percent`, or which values the report never has.
+PASS if every reason, motive or fact about the project that a field of a code step gives (`Что делает`,
+`Почему здесь`, `Без него`, `Требование`, `Риски и пробелы test-ов`) is recorded in the ticket above, in the
+project rules above, or follows from the code quoted in the story itself (0 / 0 is NaN in JavaScript,
+`Math.floor` drops the fraction). Citing the ticket's «Где в коде» or the rules for where a file lives is a recorded
+reason. Where a field would need a reason none of them records, it says `не записано`; a story that never needs one
+passes without `не записано`.
+FAIL if any field gives a reason or fact that none of them records instead of `не записано`: for example why the
+rounding is down rather than to the nearest, which code calls `percent`, or which values the report never has.
 ```
 
-- Что делает: `llm` grader читает копию story из HEAD и валит run, если поле code step-а называет причину или факт,
-  которых нет ни в Ticket-е, ни в цитате кода.
+- Что делает: `llm` grader получает весь текст Ticket-а и правила учебного проекта, читает копию story из HEAD и
+  валит run, если поле code step-а называет причину или факт, которых нет ни в Ticket-е, ни в правилах, ни в цитате
+  кода.
 - Почему здесь: прежний regex требовал `не записано` в поле; в proof run-е все три story были честны по структуре, но
   без `не записано`, а две из трёх придумали факты про отчёт. Regex не отличает записанную причину от догадки.
 - Без него: сценарий не проверял бы правило `story-pr.md` «причину не придумывать».

@@ -94,7 +94,7 @@ cat >"$check" <<'EOF'
 #!/bin/sh
 # The eval case implementer-story (harness/evals/implementer-story/scaffold.sh), not the demo project.
 # Replaces <common .git>/story-check.log: the story of ticket 01 as HEAD has it, then after a line
-# `--- story-check ---` the Code stories of HEAD, those the branch added or changed since main (in-branch),
+# `=== story-check ===` the Code stories of HEAD, those the branch added or changed since main (in-branch),
 # the output of story-check and its exit code; or EXIT=no-story when HEAD holds none.
 # Keeps a copy of each story as HEAD has it in <common .git>/story-check/. Prints nothing, exits 0.
 # Started from the top of the work tree: the session runs it in the run's folder.
@@ -111,7 +111,7 @@ done
 in_branch=$(git diff --name-only --diff-filter=AM main...HEAD -- .scratch/demo/stories 2>/dev/null)
 {
     git show HEAD:.scratch/demo/stories/01-alpha.md 2>/dev/null
-    echo '--- story-check ---'
+    echo '=== story-check ==='
     printf 'stories: %s\n' $stories
     [ -z "$in_branch" ] || printf 'in-branch: %s\n' $in_branch
     node '@STORY_CHECK@' $stories

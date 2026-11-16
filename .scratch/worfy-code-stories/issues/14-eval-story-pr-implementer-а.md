@@ -82,7 +82,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения 
   `worfy:implementer`. Scaffold переписывает ticket 01 так, что два его правила без причины, явно ставит
   `code_stories.pr: on`, создаёт bare origin в `.git` с `worktree.base` `origin/main` и кладёт
   `.git/eval-finish.sh`. Сессия запускает этот скрипт последним шагом, после отчёта implementer-а. Скрипт запускает
-  `bin/story-check` и пишет `.git/story-check.log`: story ticket-а 01 из HEAD, строку `--- story-check ---`, строку
+  `bin/story-check` и пишет `.git/story-check.log`: story ticket-а 01 из HEAD, строку `=== story-check ===`, строку
   `in-branch:` для story, которую ветка добавила с `main`, вывод и `EXIT=<код>`; копию story из HEAD он кладёт в
   `.git/story-check/`. У `claude plugin eval` нет grader-а, который запускает команду, поэтому exit code проверки
   читается из этого файла, а не из слов implementer-а.
@@ -92,8 +92,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения 
     `.scratch/demo/stories/01-alpha.md` и `EXIT=0`. Пункт «Готово, когда» просил отдельные graders «файл есть»,
     «exit 0» и «части на месте»; при пяти grader-ах один красный давал 4/5 = 0.8, и сценарий проходил (review круг 1),
     поэтому три проверки — один regex.
-  - `no-invented-reason` — `llm` по копии story: ни одно поле code step-а не называет причину или факт, которых нет в
-    ticket-е и в цитате кода, а где причина нужна — `не записано`. Regex этого не различает.
+  - `no-invented-reason` — `llm` по копии story, с полным текстом ticket-а и правилами учебного проекта: ни одно поле
+    code step-а не называет причину или факт, которых нет в ticket-е, в правилах и в цитате кода, а где причина
+    нужна — `не записано`. Regex этого не различает.
   - `no-refusal` — нет отказа `reasoning_extraction` в trace.
   - `implementer-dispatched` — `tool_used`: его требует contract test каждого сценария.
 - Dry run `pnpm eval:harness -- --case implementer-story --dry-run` — exit 0. План: один вызов `main-implementer-story` —
@@ -111,6 +112,10 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения 
     придумали факты, которых нет в ticket-е («percent — единственная функция, которую вызывает отчёт», «в отчёте такие
     значения не встречаются»). Исправлено: regex заменён на `llm` grader `no-invented-reason`, структура story ушла в
     `story-check-green`.
+  - run координатора на 619762e1a не стартовал (0 USD): CLI 2.1.323 режет frontmatter regex-ом
+    `/^---\s*\n([\s\S]*?)---\s*\n?/`, на первых трёх дефисах где угодно, а `pattern` содержал `--- story-check ---`.
+    Исправлено: разделитель `=== story-check ===`, contract test режет frontmatter каждого `.md` в `harness/evals`
+    regex-ом CLI. `llm` grader теперь получает весь Ticket и правила учебного проекта.
   - Всего 7.55 USD. Proof run исправленного head-а — за владельцем:
     `pnpm eval:harness -- --case implementer-story --keep-temp --max-cost-usd 10`. По proof run-у он, скорее всего,
     упадёт на `no-invented-reason` (implementer придумывает причины в 2 из 3 run-ов) — это пробел в поведении
