@@ -71,17 +71,22 @@ Harness-а.
       локального run-а (на настоящем списке `shellTests`, для нового снимка). Проверка `ci-workflow.test.ts:732`
       остаётся и покрывает новое разбиение; если меняется число обёрток или способ резать части (п. 4–5) — та же
       проверка «ровно один раз» для частей `1/4…4/4`, `1/2…2/2` и `1/1`.
+  - evidence: test-run pass · `HOME=$(mktemp -d) node scripts/vitest-electron.mjs test/contract/ci-workflow.test.ts test/contract/harness-scripts-1.test.ts` exit 0 (runs every real shell test exactly once: files of a local run, parts 1/4…4/4, 1/2…2/2, 1/1) · mac - · 413c30be7
 - [ ] Test (`ci-workflow.test.ts:552`): каждый shell test идёт ровно в одном Windows job-е — зелёный.
+  - evidence: test-run pass · `HOME=$(mktemp -d) node scripts/vitest-electron.mjs test/contract/ci-workflow.test.ts` exit 0 (runs each test file in exactly one Windows job, and each Harness shell test in exactly one) · mac - · 413c30be7
 - [ ] В описании PR: wall time локального полного run-а до и после, время, старт и конец каждой обёртки из JSON
       report-а vitest до и после, одна машина, по два run-а.
 - [ ] В описании PR: время job-ов CI до и после из `gh run view` двух push run-ов на main до и двух после
       (`linux-tests` 1–4 и их шаг shell test-ов, `macos-tests`, `windows (harness-scripts 1/2)`, `(2/2)`).
 - [ ] После: обёртки локального run-а расходятся по концу не больше, чем на самый долгий shell test; или PR называет
       причину, почему это недостижимо, с числами.
+  - evidence: test-run pass · `HOME=$(mktemp -d) node scripts/vitest-electron.mjs --reporter=json` exit 0 twice: harness-scripts files end at 207/210/216/226 s and 223/228/233/245 s, spread 19 and 22 s, longest shell test 97 s · mac - · 413c30be7
 - [ ] Все unit- и contract-test-ы модуля зелёные: `test/contract/ci-workflow.test.ts`,
       `test/contract/windows-tests-workflow.test.ts`, `test/contract/harness-scripts-1…4.test.ts` (и новая обёртка,
       если есть), `test/unit/affected-tests.test.ts`, `test/contract/first-run-checks.test.ts`,
       `test/unit/first-run-windows.test.ts`, `test/unit/getting-started-progress.test.ts`.
+  - evidence: test-run pass · `HOME=$(mktemp -d) node scripts/vitest-electron.mjs <the 10 files of the item> test/unit/dev-bundle-config.test.ts` exit 0 (11 files, 663 passed) · mac - · 413c30be7
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 413c30be7
 - [ ] Новая обёртка, если появилась, учтена везде, где перечислены четыре: `ci.yml`, `windows-tests.yml`,
       `scripts/windows-test-list.mjs`, `scripts/windows-verdict-scope.mjs`, `scripts/affected-tests.table.json`,
       `vitest.config.ts`, `test/global-setup-git-bash.ts`, `test/e2e/first-run.spec.ts`,
