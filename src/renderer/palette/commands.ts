@@ -45,6 +45,9 @@
 // "New Product Session" (worfy-product-session ticket 06) is an entry of its own beside "New
 // session": a Session of kind `product` on Claude Code, opened in the Session view at once.
 // "Pull requests" (worfy-pr-inbox ticket 03) opens the PR inbox of the active Project (pr-inbox/open.ts).
+// "Open code story" (worfy-code-stories ticket 10) is a row per Epic with its `story.md` and per Ticket with the story of
+// its PR (`stories/<NN>-<slug>.md`), the Epic or the Ticket its detail: it opens that story in the Story view, as the
+// "Code story" buttons of the Epic frame and the Ticket card do (stories/open.ts). A read, so a read-only screen keeps it.
 import type { AdrEntry } from '../../shared/ipc/docs'
 import type { ProjectView } from '../../shared/ipc/projects'
 import type { HistorySession } from '../../shared/ipc/claude-home'
@@ -72,6 +75,7 @@ import { askRemoveMachine } from '../machines/machine-dialogs'
 import { linkStateNow, reconnectMachine } from '../machines/useMachines'
 import { openPrInboxOf } from '../pr-inbox/open'
 import { openProject } from '../projects/useProjects'
+import { epicStoryPath, openStoryFile, ticketStoryPath } from '../stories/open'
 import { openOrchestrator, openSession, setView } from '../session/navigation'
 import { openSettings } from '../settings/settings-window'
 import { openFirstRun } from '../shell/first-run-store'
@@ -655,6 +659,42 @@ function updateCommands({ update }: CommandContext): PaletteCommand[] {
   ]
 }
 
+/** "Open code story" for each Epic with its story and each Ticket with the story of its PR (worfy-code-stories ticket 10). */
+function storyCommands({ project, model }: CommandContext): PaletteCommand[] {
+  if (!project || !model || model.error !== null) return []
+  const projectId = project.id
+  const commands: PaletteCommand[] = []
+  for (const epic of model.epics) {
+    const path = epicStoryPath(epic)
+    if (path === null) continue
+    commands.push({
+      id: `code-story:${epic.epic}`,
+      group: 'View',
+      title: 'Open code story',
+      detail: `Epic ${epic.epic}`,
+      keys: [`code story ${epic.epic}`, `story ${epic.epic}`],
+      run: () => openStoryFile(projectId, path),
+    })
+  }
+  for (const ticket of model.tickets) {
+    const path = ticketStoryPath(
+      model.epics.find((epic) => epic.epic === ticket.epic),
+      ticket.num,
+    )
+    if (path === null) continue
+    const ref = `${ticket.epic}/${nn(ticket.num)}`
+    commands.push({
+      id: `code-story:${ref}`,
+      group: 'View',
+      title: 'Open code story',
+      detail: `${ref} — ${ticket.title}`,
+      keys: [`code story ${ref}`, `story ${ref}`],
+      run: () => openStoryFile(projectId, path),
+    })
+  }
+  return commands
+}
+
 /** The commands the palette ranks for `query`: with an empty field, those without `queryOnly`. */
 export function forQuery(commands: readonly PaletteCommand[], query: string): readonly PaletteCommand[] {
   return normalizeQuery(query) === '' ? commands.filter((command) => command.queryOnly !== true) : commands
@@ -669,6 +709,7 @@ export function buildCommands(context: CommandContext): PaletteCommand[] {
     ...actionCommands(context),
     ...updateCommands(context),
     ...viewCommands(context),
+    ...storyCommands(context),
     ...workflowActionCommands(context),
     ...machineCommands(context),
     ...goToCommands(context),

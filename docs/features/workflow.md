@@ -176,6 +176,17 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
   takes its PR from its Ticket's `PR:` line. When that commit no longer holds the fragment in this form, or there is
   no such commit (a Silent story whose Ticket has no PR yet, a commit this clone does not have), the story's own code
   is shown, marked as the code of the PR's head with the reason.
+- **A Code story opens from where its Epic or Ticket is.** The Story view shows a story over the whole main area; Esc
+  goes back to the Canvas. It opens from **Code story** on the Epic frame, beside its archived Sessions, and in the
+  frame's **⋯**; from **Code story** on a Ticket card, beside **Open PR**; from **Code story** of a pull request in
+  [Pull requests](pr-inbox.md); from the Command palette's **Open code story**, a row per Epic and per Ticket with a
+  story; and from the toast "The Code story of Epic <name> is ready" with **Open**. **Code story** on the frame is inactive
+  until the Epic has its `story.md`, and its tooltip says the story comes when the last PR of the Epic is merged. On a
+  card it is inactive, with the reason, for a Ticket that is done or has a `PR:` line and no story of its PR; a Ticket
+  with neither has no button. The toast comes once per Epic, the first time worfy sees its `story.md`, and never
+  again: the Epics it was shown for are kept in the window's local storage in worfy's data folder. The first time
+  worfy reads a Project it only notes the stories that are already there, so a Project with finished Epics brings no
+  stack of toasts. A PR story gives no toast. When the story cannot be read, **Open** shows the reason in an error toast.
 - **A branch never undoes the checkout.** This is why a blocked Ticket with an old worktree branch does not look open
   ([ADR-0033](../adr/0033-autopilot-names-wave-tickets.md)).
 - **Frames and cards are computed, not saved.** The Layout keeps only a frame's offset and collapse
@@ -206,6 +217,7 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
 | Headings, manual checks | `src/shared/workflow/doc-headings.ts`, `src/shared/workflow/manual-checks.ts` |
 | The IPC of the model and of a Ticket's text | `src/shared/ipc/workflow.ts`, `src/main/ipc/workflow.ts`, `src/shared/ipc/tickets.ts`, `src/main/ipc/tickets.ts` |
 | Code stories: the format, a story file, the code of a fragment, the stories made by the button | `src/shared/stories/parse.ts`, `src/shared/stories/schema.ts`, `src/main/ipc/stories.ts`, `src/main/stories/code.ts`, `src/main/stories/store.ts` |
+| The entries into the Story view and the toast of an Epic story | `src/renderer/stories/open.ts`, `src/renderer/canvas/actions/EpicStory.tsx`, `src/renderer/canvas/actions/TicketStory.tsx`, `src/renderer/stories/story-toast.ts`, `src/renderer/stories/use-story-toasts.ts` |
 | The renderer's shared copy | `src/renderer/workflow/useWorkflow.ts` |
 | Frames and cards as Nodes; columns; card height | `src/renderer/canvas/sources/epics.ts`, `src/renderer/canvas/epic-layout.ts`, `src/renderer/canvas/ticket-card.ts` |
 | The views | `src/renderer/canvas/nodes/TicketNode.tsx`, `src/renderer/canvas/nodes/TicketBody.tsx`, `src/renderer/canvas/nodes/ticket-text.ts`, `src/renderer/canvas/nodes/EpicFrameNode.tsx` |
@@ -230,6 +242,8 @@ copy, and `sources/epics.ts` turns the copy into Nodes. The same hub serves the 
 - `test/unit/waves.test.ts`, `test/unit/epic-layout.test.ts`, `test/unit/ticket-card.test.tsx`,
   `test/unit/render-template.test.ts`, `test/unit/launch.test.ts`: the pure rules; the last also runs `ActionLauncher` over fakes.
 - `test/unit/evidence-matrix.test.tsx`: the Evidence chip, the matrix and where its links lead.
+- `test/unit/story-entries.test.tsx`, `test/unit/story-toast.test.ts`, `test/e2e/code-story.spec.ts`: the entries into the
+  Story view, the toast of an Epic story once per Epic, the code of a fragment asked where the story is anchored.
 - `test/unit/story-parse.test.ts`, `test/contract/story-code.test.ts`, `test/contract/story-store.test.ts`: the Code story
   format on the shared fixtures of `harness/bin/tests/fixtures/code-story/`, the code of a fragment from git, the store.
 - `test/contract/workflow-watch-retry.test.ts`: retries of the layout.

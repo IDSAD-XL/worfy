@@ -94,6 +94,45 @@ describe('palette commands', () => {
     expect(ids(context()).filter((id) => id.startsWith('run-wave:'))).toEqual(['run-wave:e'])
   })
 
+  it('offers "Open code story" for an Epic with its story.md and a Ticket with the story of its PR, none without (worfy-code-stories/10)', async () => {
+    const plain = context()
+    expect(ids(plain).filter((id) => id.startsWith('code-story:'))).toEqual([])
+    const model = plain.model!
+    const withStories: WorkflowModel = {
+      ...model,
+      epics: [
+        { ...model.epics[0]!, stories: [{ kind: 'epic', path: 'e/story.md', ticket: null, version: 'v1' }, { kind: 'pr', path: 'e/stories/07-t7.md', ticket: '07', version: 'v2' }] },
+        // A PR story alone gives its Ticket the command, not the Epic.
+        { ...model.epics[1]!, stories: [{ kind: 'pr', path: 'finished/stories/02-t2.md', ticket: '02', version: 'v3' }] },
+      ],
+    }
+    const commands = buildCommands(context({ model: withStories })).filter((command) => command.id.startsWith('code-story:'))
+    expect(commands.map((command) => [command.id, command.title, command.detail])).toEqual([
+      ['code-story:e', 'Open code story', 'Epic e'],
+      ['code-story:e/07', 'Open code story', 'e/07 — 07 — Ticket 7'],
+      ['code-story:finished/02', 'Open code story', 'finished/02 — 02 — Ticket 2'],
+    ])
+    // Found by the Epic or the Ticket; a read only, so a read-only screen keeps it active.
+    expect(rankItems(buildCommands(context({ model: withStories })), 'code story e/07')[0]?.id).toBe('code-story:e/07')
+    expect(buildCommands(context({ model: withStories, readOnly: 'Read-only' })).find((command) => command.id === 'code-story:e')?.readOnly).toBeUndefined()
+    // Picking it reads the file through main, as the buttons do.
+    const asked: { channel: string; input: unknown }[] = []
+    const globals = globalThis as { worfy?: WorfyBridge }
+    globals.worfy = {
+      invoke: (channel: string, input: unknown) => {
+        asked.push({ channel, input })
+        return Promise.resolve({ ok: true, value: { ok: false, reason: 'e/story.md does not exist in the main branch' } })
+      },
+      on: () => 1,
+      off: () => undefined,
+    } as unknown as WorfyBridge
+    onTestFinished(() => {
+      delete globals.worfy
+    })
+    expect(await commands[0]!.run()).toBe('e/story.md does not exist in the main branch')
+    expect(asked).toEqual([{ channel: 'stories.read', input: { projectId: 'p1', path: 'e/story.md' } }])
+  })
+
   it('goes to Epics, Tickets, Sessions, Cards, Nodes and ADRs, but not to anchors', () => {
     const all = ids(context())
     expect(all).toEqual(expect.arrayContaining(['epic:e', 'ticket:e/07', 'node:s1', 'node:c1', 'node:n1', 'adr:docs/adr/0002-view.md']))

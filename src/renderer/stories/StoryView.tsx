@@ -14,8 +14,8 @@ import {
   notRecorded,
   seamsStepNumber,
   storyLabels,
-  type Story,
   type StoryChapter,
+  type StoryFile,
   type StoryFragment,
   type StoryHandoff,
   type StoryLabels,
@@ -37,7 +37,7 @@ const NARROW_WIDTH = 760
 
 /** One screen of the story. */
 type Screen =
-  | { kind: 'step'; step: StoryStep; number: number; head: string | null; chapter: StoryChapter | null }
+  | { kind: 'step'; step: StoryStep; number: number; head: string | null; pr: number | null; chapter: StoryChapter | null }
   | { kind: 'start'; text: string; requirement: string }
   | { kind: 'not-ready'; chapter: StoryChapter }
   | { kind: 'seams'; number: number; text: string; handoffs: readonly StoryHandoff[] }
@@ -57,7 +57,7 @@ interface Chapter {
 }
 
 /** The screens of a story in order, and the chapters of an Epic story (none for the story of a PR). */
-function screensOf(story: Story): { screens: Screen[]; chapters: Chapter[] } {
+function screensOf(story: StoryFile): { screens: Screen[]; chapters: Chapter[] } {
   const labels = storyLabels(story.header.language)
   const screens: Screen[] = []
   const chapters: Chapter[] = []
@@ -67,7 +67,7 @@ function screensOf(story: Story): { screens: Screen[]; chapters: Chapter[] } {
     chapters.push({ id, ring, label, title, from, to: screens.length - 1, ready })
   }
   if (story.kind === 'pr') {
-    story.steps.forEach((step, index) => screens.push({ kind: 'step', step, number: index + 1, head: story.header.commit, chapter: null }))
+    story.steps.forEach((step, index) => screens.push({ kind: 'step', step, number: index + 1, head: story.header.commit, pr: story.header.pr, chapter: null }))
   } else {
     let number = 0
     chapter('start', '!', labels.start, labels.start, () => screens.push({ kind: 'start', text: story.start.text, requirement: story.start.requirement }))
@@ -80,7 +80,7 @@ function screensOf(story: Story): { screens: Screen[]; chapters: Chapter[] } {
         `${each.pr === null ? 'PR -' : `PR #${String(each.pr)}`} · ${each.ticket} — ${each.title}`,
         () => {
           if (!each.ready) screens.push({ kind: 'not-ready', chapter: each })
-          else for (const step of each.steps) screens.push({ kind: 'step', step, number: (number += 1), head: each.head, chapter: each })
+          else for (const step of each.steps) screens.push({ kind: 'step', step, number: (number += 1), head: each.head, pr: each.pr, chapter: each })
         },
         each.ready,
       )
@@ -142,12 +142,20 @@ function Value({ text, context }: { text: string; context: Context }) {
   return <Markdown text={text} projectId={context.storyDir === undefined ? undefined : context.projectId} baseDir={context.storyDir} />
 }
 
+/** Above the story's own code when the anchor commit holds other code there (`stories.code`, reason `changed`). */
+const CHANGED_NOTE = 'The code of the PR head: the main branch no longer holds it in this form.'
+/**
+ * Above the story's own code when main answers `no-anchor`: no anchor commit, a commit git cannot read (a shallow clone, a
+ * PR head not fetched), or a path outside the repository.
+ */
+const NO_ANCHOR_NOTE = "The code as the story quotes it: git cannot read the code at this story's commit."
+
 /** The code of one fragment on the dark card: its path and lines over it, the lines from `codeOf`. */
-function FragmentBlock({ fragment, head, context }: { fragment: StoryFragment; head: string | null; context: Context }) {
+function FragmentBlock({ fragment, head, pr, context }: { fragment: StoryFragment; head: string | null; pr: number | null; context: Context }) {
   const [shown, setShown] = useState<{ code: FragmentCode } | { error: string } | null>(null)
   useEffect(() => {
     let live = true
-    context.codeOf(fragment, head).then(
+    context.codeOf(fragment, head, pr).then(
       (code) => {
         if (live) setShown({ code })
       },
@@ -158,7 +166,7 @@ function FragmentBlock({ fragment, head, context }: { fragment: StoryFragment; h
     return () => {
       live = false
     }
-  }, [context, fragment, head])
+  }, [context, fragment, head, pr])
   const slash = fragment.path.lastIndexOf('/')
   const code = shown === null ? null : 'code' in shown ? shown.code : { code: fragment.code, startLine: fragment.startLine, keyLines: fragment.keyLines, fromHead: true }
   const lines = code === null ? `${String(fragment.startLine)}–${String(fragment.endLine)}` : `${String(code.startLine)}–${String(code.startLine + code.code.split('\n').length - 1)}`
@@ -176,7 +184,7 @@ function FragmentBlock({ fragment, head, context }: { fragment: StoryFragment; h
           The code could not be read ({shown.error}): shown as the story quotes it.
         </p>
       ) : code?.fromHead === true ? (
-        <p className="w-story-code__note">The code of the PR head: the main branch no longer holds it in this form.</p>
+        <p className="w-story-code__note">{code.reason === 'no-anchor' ? NO_ANCHOR_NOTE : CHANGED_NOTE}</p>
       ) : null}
       {code === null ? <p className="w-story-code__note">Reading the code…</p> : <Markdown text={storyCodeMarkdown(code)} story />}
     </div>
@@ -234,7 +242,7 @@ function ScreenView({ screen, context, narrow }: { screen: Screen; context: Cont
   let kicker: ReactNode
   let title: string
   let text: ReactNode
-  let fragments: { fragments: readonly StoryFragment[]; head: string | null } | null = null
+  let fragments: { fragments: readonly StoryFragment[]; head: string | null; pr: number | null } | null = null
   switch (screen.kind) {
     case 'step': {
       const { step } = screen
@@ -250,7 +258,7 @@ function ScreenView({ screen, context, narrow }: { screen: Screen; context: Cont
             <FieldTabs step={step} context={context} />
           </>
         )
-        fragments = { fragments: [step.fragment], head: screen.head }
+        fragments = { fragments: [step.fragment], head: screen.head, pr: screen.pr }
       } else {
         kicker = <Kicker label={labels[step.frame]} number={screen.number} chapter={screen.chapter} />
         title = labels[step.frame]
@@ -268,7 +276,7 @@ function ScreenView({ screen, context, narrow }: { screen: Screen; context: Cont
           </>
         )
         // A frame step quotes no fragment; only "What review found and what remains" may (TICKETS.md, "Code story").
-        if (step.frame === 'review' && step.fragments.length > 0) fragments = { fragments: step.fragments, head: screen.head }
+        if (step.frame === 'review' && step.fragments.length > 0) fragments = { fragments: step.fragments, head: screen.head, pr: screen.pr }
       }
       break
     }
@@ -359,7 +367,7 @@ function ScreenView({ screen, context, narrow }: { screen: Screen; context: Cont
     fragments === null ? null : (
       <div className="w-story__code" data-testid="story-code-column">
         {fragments.fragments.map((fragment, index) => (
-          <FragmentBlock key={`${String(index)}:${fragment.path}:${String(fragment.startLine)}`} fragment={fragment} head={fragments.head} context={context} />
+          <FragmentBlock key={`${String(index)}:${fragment.path}:${String(fragment.startLine)}`} fragment={fragment} head={fragments.head} pr={fragments.pr} context={context} />
         ))}
       </div>
     )
@@ -410,7 +418,7 @@ function takenElsewhere(event: KeyboardEvent): boolean {
 const CLICK_OWNERS = 'a, button, input, textarea, select, label, [role="tab"], [role="tabpanel"], .w-story-code, .w-story-seams'
 
 export interface StoryViewProps {
-  story: Story
+  story: StoryFile
   codeOf: FragmentCodeSource
   projectId?: string | undefined
   storyDir?: string | undefined

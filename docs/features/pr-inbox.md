@@ -84,8 +84,9 @@ chooses again only when the selected PR leaves the inbox. With one PR, that PR i
 - four cells: **CI**; **Review** (Approved, Changes requested, Review required, or None yet); **Merge** (Mergeable,
   Behind the base, Blocked, Checks failing, Conflicts, Draft, or Unknown, from GitHub's merge state); **Size** — the
   lines added and removed (`+184 −22`) with a bar of their shares, or `—` when GitHub gave none;
-- **Open on GitHub**, **Draft replies** (below; in the strip instead when it is the strip's button) and **Mark seen**,
-  active while the PR has new comments;
+- **Open on GitHub**; **Code story** when the PR's Ticket has a Code story in the Tickets root, which opens it in the
+  Story view ([Workflow](workflow.md)); **Draft replies** (below; in the strip instead when it is the strip's button) and
+  **Mark seen**, active while the PR has new comments;
 - "Threads N open · M resolved", then the review threads, open ones first, then resolved ones dimmed. Each has its file and line, a link to the comment on
   GitHub, which shows that code line, `Outdated` when the code moved on, and its last three comments with the author and
   their age. A deleted account is `ghost`, as on GitHub;
