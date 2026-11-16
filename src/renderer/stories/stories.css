@@ -360,10 +360,13 @@
   line-height: 23px;
 }
 
+/* A list item, not a flex box: a flex item loses its number. Its parts are spaced by their top margin. */
 .w-self-check__item {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+  display: list-item;
+}
+
+.w-self-check__item > * + * {
+  margin-top: var(--space-2);
 }
 
 .w-self-check__question .w-md p {
