@@ -99,8 +99,9 @@
 //                                    binary in test/contract/ask-user-question-sdk.test.ts. "agentID":
 //                                    the Subagent that asks, as for a `permission` line
 // In SDK messages, "{{session}}" becomes the SDK session id (the id passed as `resume`, else the one
-// passed as `sessionId`, else a new uuid), "{{cwd}}" the Session's cwd and "{{home}}" the user's
-// home folder (os.homedir()). After the last line the
+// passed as `sessionId`, else a new uuid), "{{cwd}}" the Session's cwd, "{{folder}}" the first extra
+// folder of a single request (its `additionalDirectories`: the Project folder the profile draft reads
+// from worfy's own folder), else the cwd, and "{{home}}" the user's home folder (os.homedir()). After the last line the
 // script starts over, so one script serves any number of turns; it ends when the Session closes its
 // input.
 //
@@ -307,7 +308,13 @@ const DIRECTIVES: Record<string, (value: Record<string, unknown>, path: string) 
   commands: (value) => ({ kind: 'config', config: { commands: value.commands as CommandInfoLike[] } }),
 }
 
-function parseScript(path: string, session: string, cwd: string): Line[] {
+/** The folder "{{folder}}" stands for: a single request's first extra folder, else the cwd. */
+function folderOf(request: QueryRequest): string {
+  const extra = (request as { additionalDirectories?: readonly string[] | undefined }).additionalDirectories
+  return extra?.[0] ?? request.cwd
+}
+
+function parseScript(path: string, session: string, cwd: string, folder: string): Line[] {
   return readFileSync(path, 'utf8')
     .split('\n')
     .filter((line) => line.trim() !== '')
@@ -316,6 +323,7 @@ function parseScript(path: string, session: string, cwd: string): Line[] {
         text
           .replaceAll('{{session}}', session)
           .replaceAll('{{cwd}}', JSON.stringify(cwd).slice(1, -1))
+          .replaceAll('{{folder}}', JSON.stringify(folder).slice(1, -1))
           .replaceAll('{{home}}', JSON.stringify(homedir()).slice(1, -1)),
       ) as Record<string, unknown>
       if (value.fake === undefined) return { kind: 'message', message: value }
@@ -473,7 +481,7 @@ class FakeQuery implements QueryHandle {
     this.preToolUse = preToolUse?.(request)?.catch(() => undefined) ?? null
     this.session = request.resume ?? request.sessionId ?? randomUUID()
     this.registryEntry = registryHome === null ? null : register(registryHome, this.session, request.cwd)
-    const lines = parseScript(path, this.session, request.cwd)
+    const lines = parseScript(path, this.session, request.cwd, folderOf(request))
     this.steps = lines.filter((line): line is Step => line.kind !== 'config')
     const config = configOf(lines)
     this.account = config.account ?? { info: SUBSCRIPTION }
