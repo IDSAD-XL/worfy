@@ -53,8 +53,8 @@ out="$("$LAND" "$S" --epic-story 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$out" = "epic story of e is not due: tickets with code still open: 05" ] \
     && ok "trigger: another ticket with code is open -> not due, the line names it" || bad "trigger not due: exit $rc: $out"
 # The header rule: Who only as a word of its own at the start of the value, outside code blocks, before the first `## `
-# heading after the Status line. Each case: ticket 02 is the state file's, ticket 06 has the header below; 06 has code.
-# header_case <name> <line>…: the lines are ticket 06 on the main branch; 06 must count as a ticket with code
+# heading after the Status line. Each case: e 02 is the state file's ticket, e 06 has the header below and has code.
+# header_case <name> <line>…: the lines are the ticket e 06 on the main branch; it must count as a ticket with code
 header_case() {
     local name="$1"; shift
     new_world "es-header-$name" 2
@@ -63,7 +63,7 @@ header_case() {
     state 2
     out="$("$LAND" "$S" --epic-story 2>&1)"; rc=$?
     [ "$rc" = 0 ] && [ "$out" = "epic story of e is not due: tickets with code still open: 06" ] \
-        && ok "trigger, header rule: $name -> ticket 06 has code" || bad "trigger, header rule $name: exit $rc: $out"
+        && ok "trigger, header rule: $name -> e 06 has code" || bad "trigger, header rule $name: exit $rc: $out"
 }
 header_case "a word that only starts with owner" '# 06' '' 'Status: open' 'Who: owners of the cart' '' '## What happens'
 header_case "Who: owner inside a code block of the header" '# 06' '' 'Status: open' '```text' 'Who: owner' '```' '' '## What happens'
