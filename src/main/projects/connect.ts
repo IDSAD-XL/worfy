@@ -21,7 +21,9 @@
 //    sets what it owns (applyChoices: the mode, the Workflow folder, and in Silent mode `attribution`
 //    off as the form's starting value) and asks `--check` for the form.
 //    The request runs outside the folder, in worfy's own folder (`runDir`, <WORFY_DATA_DIR>/terminal-ai),
-//    reads the folder as an extra one (`readFolders`) and keeps no transcript (`ephemeral`). Claude Code
+//    reads the folder as an extra one (`readFolders`; a read outside it, the cwd and the Harness plugin's
+//    folder is refused, src/main/vendors/claude/read-guard.ts), loads the Harness plugin (`harness`) for
+//    the skill and keeps no transcript (`ephemeral`). Claude Code
 //    registers a request under its cwd and keeps its transcript under the cwd's folder of
 //    ~/.claude/projects: a draft run in the folder became a history Session of the Project once the folder
 //    was connected — a Session the person never started, holding the draft's prompt (contract test
@@ -542,6 +544,8 @@ export class ProjectConnector {
         cwd,
         readFolders: [folder.root],
         ephemeral: true,
+        // The draft runs /worfy:connect-project, a skill of the Harness plugin.
+        harness: true,
         readOnlyTools: DRAFT_TOOLS,
         outputSchema: sessionSchema(this.deps.draftSchema()),
         onActivity,

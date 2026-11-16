@@ -26,6 +26,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 11; «Решения 
    - для PR — diff PR, текст PR, файл Ticket-а и вердикты, если они есть. Diff идёт в тексте запроса: Bash у
      `oneShot` запрещён;
    - для Epic-а до конца — готовые story PR и spec. Неготовые Ticket-ы помечены в «Начале» (решение 18).
+   - запрос передаёт `readFolders` (checkout PR), как `StoryBuilder` Ticket-а 04: только с ним драйвер Claude Code
+     отказывает в Read, Glob и Grep вне этой папки и cwd запроса (`src/main/vendors/claude/read-guard.ts`, аудит
+     2026-11-16). Diff и текст PR пишет автор PR, в том числе посторонний; `harness: true` запросу не нужен.
 3. Выход — story по формату Ticket-а 01 через `outputSchema`. Сохраняется в хранилище Ticket-а 08.
 4. PR коллег — только текст агента и ссылки `path:line@commit`, без слов коллег. Код фрагментов worfy читает из git,
    когда показывает шаг. Опубликовать story на GitHub нельзя (раздел «Не в этом Epic-е»).

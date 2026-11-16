@@ -49,6 +49,9 @@ import { ms } from '../time-scale'
 const REPO = join(__dirname, '..', '..')
 const BIN = join(REPO, 'harness', 'bin')
 const SCRIPTS = join(REPO, 'test', 'fixtures', 'agent-scripts')
+/** The Harness plugin's folder the draft's request loads: this checkout's harness/ (the app's bundled copy). */
+const HARNESS_PLUGIN = join(REPO, 'harness')
+const harnessFolder = (): Promise<string | null> => Promise.resolve(HARNESS_PLUGIN)
 const SCHEMA = JSON.parse(readFileSync(join(REPO, 'harness', 'profiles', 'draft.schema.json'), 'utf8')) as Record<string, unknown>
 /** The 2020-12 meta-schema the schema file names; the validator of Claude Code has no such schema. */
 const META_2020_12 = 'https://json-schema.org/draft/2020-12/schema'
@@ -214,7 +217,7 @@ function connectorWith(overrides: Partial<ConnectDeps> & { script?: string; scri
     oneShot: claudeOneShotOver((request) => {
       requests.push(request)
       return fake(request)
-    }),
+    }, harnessFolder),
     runDir: () => join(scratch, 'worfy-data', 'terminal-ai'),
     draftSchema: () => SCHEMA,
     reportsLanguage: () => 'ru',
@@ -997,7 +1000,9 @@ describe('the draft Session (step 4)', () => {
     expect(request?.additionalDirectories).toEqual([repo])
     expect(request?.persistSession).toBe(false)
     expect(request?.outputFormat.type).toBe('json_schema')
-    expect(request?.allowedTools).toEqual(['Read', 'Glob', 'Grep'])
+    // Read, Glob and Grep ask canUseTool on every call, which checks their paths (read-guard.ts).
+    expect(request?.allowedTools).toEqual([])
+    expect(request?.harnessPlugin).toBe(HARNESS_PLUGIN)
     expect(request?.disallowedTools).toEqual(expect.arrayContaining(['Bash', 'Write', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Task']))
     expect(request?.allowedTools).not.toContain('Bash')
     expect(request?.settings.permissionMode).toBe('default')
@@ -1141,7 +1146,7 @@ describe('the draft Session (step 4)', () => {
           close: () => void (closed += 1),
         }
         return Promise.resolve(handle as unknown as QueryHandle)
-      }),
+      }, harnessFolder),
     })
     return { connector, closed: () => closed }
   }
@@ -1194,8 +1199,11 @@ describe('the draft Session (step 4)', () => {
     if (request === undefined) throw new Error('no request of the draft')
     const signal = new AbortController().signal
     for (const tool of ['Read', 'Glob', 'Grep', 'StructuredOutput']) {
-      expect((await request.canUseTool(tool, { file_path: '/x' }, { signal })).behavior, tool).toBe('allow')
+      expect((await request.canUseTool(tool, { file_path: join(repo, 'package.json') }, { signal })).behavior, tool).toBe('allow')
     }
+    // Outside the folder, the cwd and the plugin's folder, a read is refused.
+    expect((await request.canUseTool('Read', { file_path: join(scratch, 'home', '.ssh', 'id_ed25519') }, { signal })).behavior).toBe('deny')
+    expect((await request.canUseTool('Read', { file_path: join(HARNESS_PLUGIN, 'profiles', 'README.md') }, { signal })).behavior).toBe('allow')
     for (const tool of ['Bash', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Task', 'Agent', 'BashOutput', 'mcp__x__y', 'Skill']) {
       expect((await request.canUseTool(tool, { command: 'git remote -v' }, { signal })).behavior, tool).toBe('deny')
     }

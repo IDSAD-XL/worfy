@@ -13,7 +13,10 @@
 // ticket 14. So the request runs in worfy's own folder outside every Project (<WORFY_DATA_DIR>/terminal-ai,
 // where the inventory, Limits and Terminal AI run too), keeps no transcript (`ephemeral`: its text holds the
 // diff, the PR and its verdicts), and reads the Project's checkout as an extra folder (`readFolders`), by the
-// absolute paths its text names.
+// absolute paths its text names. The diff and the PR text come from whoever wrote the PR, so the request
+// reads nothing outside the checkout and its cwd: the Claude driver refuses such a Read, Glob or Grep
+// (src/main/vendors/claude/read-guard.ts). It runs without the Harness plugin: it uses none of its skills,
+// and the plugin's rules and hooks would only add to its cost.
 //
 // The checkout is the Project's root, or one of its git worktrees where the PR's head is checked out
 // (storyFolder); any other folder is refused before the request.

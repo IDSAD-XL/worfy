@@ -82,6 +82,7 @@ const { ProjectConnector } = await import('../../src/main/projects/connect')
 const { vendorDriver } = await import('../../src/main/vendors/registry')
 const { ClaudeHomeRegistry, projectDirName } = await import('../../src/main/claude-home/registry')
 const { ProjectStore, runGit } = await import('../../src/main/projects/store')
+const { bundledHarnessDir } = await import('../../src/main/harness/bundled')
 const { profileRegistryFiles } = await import('../../src/main/harness/locate')
 const { ghRunner } = await import('../../src/main/github/prs')
 
@@ -203,5 +204,21 @@ describe('the profile draft leaves no Session behind', () => {
     expect(call?.text.startsWith(`/worfy:connect-project ${repo} silent --draft-only\n`)).toBe(true)
     // Glob and Grep without a path look in the cwd, which is not the folder: the prompt says so.
     expect(call?.text).toContain(`absolute paths under ${repo}`)
+  })
+
+  it('keeps the Harness plugin for /worfy:connect-project, and reads only the folder, its cwd and the plugin\'s files', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    await appConnector().draft({ draftId: 'd1', root: repo, mode: 'silent', workflowFolder: null }, () => undefined)
+    const options = mocks.calls[0]!.options
+    expect(options.plugins).toEqual([{ type: 'local', path: bundledHarnessDir(), skipMcpDiscovery: true }])
+    expect(options).not.toHaveProperty('allowedTools')
+    const canUseTool = options.canUseTool as (name: string, input: Record<string, unknown>, extra: { signal: AbortSignal }) => Promise<{ behavior: string }>
+    const ask = async (name: string, input: Record<string, unknown>): Promise<string> => (await canUseTool(name, input, { signal: new AbortController().signal })).behavior
+    expect(await ask('Read', { file_path: join(repo, 'package.json') })).toBe('allow')
+    expect(await ask('Grep', { pattern: 'name', path: repo })).toBe('allow')
+    // The skill reads its schema and README in the plugin's folder.
+    expect(await ask('Read', { file_path: join(bundledHarnessDir(), 'profiles', 'draft.schema.json') })).toBe('allow')
+    expect(await ask('Read', { file_path: join(home, '.claude', 'worfy-harness', 'gate', 'config.json') })).toBe('deny')
+    expect(await ask('Glob', { pattern: `${home}/**/*` })).toBe('deny')
   })
 })

@@ -163,8 +163,11 @@ describe('the request', () => {
   it('reads with Read, Glob and Grep only, runs without Bash, carries the diff in its text and answers in the story schema', async () => {
     await appBuilder().build({ storyId: 's1', folder: root, vendor: 'claude', input: input() }, () => undefined)
     const { options, text } = mocks.calls[0]!
-    expect(options.allowedTools).toEqual(['Read', 'Glob', 'Grep'])
+    // The three run through canUseTool, which checks their paths (test/contract/one-shot-read-guard.test.ts).
+    expect(options).not.toHaveProperty('allowedTools')
     expect(STORY_TOOLS).toEqual(['Read', 'Glob', 'Grep'])
+    // No Harness plugin: the story uses none of its skills (audit 2026-11-16, item 2).
+    expect(options).not.toHaveProperty('plugins')
     expect(options.disallowedTools).toEqual(ONE_SHOT_DISALLOWED_TOOLS)
     expect(options.disallowedTools).toContain('Bash')
     expect(options.outputFormat).toEqual({ type: 'json_schema', schema: storyOutputSchema('pr') })
