@@ -37,9 +37,10 @@ export const MIN_FRAME_WIDTH = 520
  * icon, the progress bar and count, "Run wave", the Autopilot buttons, the collapse button and the
  * gaps, with some slack. Measured in the built app (Electron) on 2026-10-21: 464.9 px while no
  * Autopilot runs, 517.5 px while one runs over this Epic ("Stop autopilot" and "⋯"), the widest.
- * (453 px on 2026-10-06, before the Stop and "⋯" buttons and the kind icon.)
+ * (453 px on 2026-10-06, before the Stop and "⋯" buttons and the kind icon.) Plus 60 px since worfy-code-stories
+ * ticket 10: the "Story" action button (5 letters of 12 px, 8 px padding each side, its border) and its 10 px gap.
  */
-export const HEADER_CHROME_WIDTH = 535
+export const HEADER_CHROME_WIDTH = 595
 /** One character of the Epic's name in the header: 18 px monospace, 0.6 em. */
 export const NAME_CHAR_WIDTH = 11
 export const PROGRESS_SEGMENTS = 12

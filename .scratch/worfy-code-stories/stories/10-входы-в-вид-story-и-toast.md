@@ -127,3 +127,5 @@ Code: `src/renderer/canvas/actions/AutopilotAction.tsx:652-653` · key lines: 65
 `pnpm lint && pnpm typecheck && pnpm test` под временным HOME — exit 0. Unit test-ы `story-entries.test.tsx`,
 `story-toast.test.ts`, `palette-commands.test.tsx`, `story-view.test.tsx` сначала были красными. e2e
 `test/e2e/code-story.spec.ts` (входы, toast, снимки в обеих темах) — только в CI.
+Первый CI PR-а уронил `test/e2e/epic-frame.spec.ts` (длинное имя Epic-а не помещалось в заголовок рамки): кнопка «Story»
+заняла место, и `HEADER_CHROME_WIDTH` в `src/renderer/canvas/epic-layout.ts` вырос с 535 до 595 px.
