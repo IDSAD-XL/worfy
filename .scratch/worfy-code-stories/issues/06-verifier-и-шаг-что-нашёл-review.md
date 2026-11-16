@@ -45,20 +45,27 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 06; «Решения 
 - [ ] `harness/agents/reviewer.md`: в линзе «implementer's report» пункт story с весом находки, как у ошибки в коде;
       `agents-text.test.sh` зелёный.
   - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 · mac - · fd86c84a68ac00f93f91b0a2486f8047f3270fe9
+  - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 · mac - · ae2927eeb144bfef64f3df4dfb5304edc721fb22
 - [ ] Shell-test `land`: PR с полем вердикта и story → в documents PR у `stories/NN-*.md` новый последний шаг «Что нашёл
       review и что осталось» с текстом из вердикта; `story-check` по этому файлу зелёный.
   - evidence: test-run pass · `bash harness/bin/tests/land-story.test.sh` exit 0 · mac - · fd86c84a68ac00f93f91b0a2486f8047f3270fe9
+  - evidence: test-run pass · `bash harness/bin/tests/land-story.test.sh` exit 0 · mac - · ae2927eeb144bfef64f3df4dfb5304edc721fb22
 - [ ] Shell-test `land`: PR без story или без поля вердикта — documents PR такой же, как до Ticket-а, байт в байт.
   - evidence: test-run pass · `bash harness/bin/tests/land-story.test.sh` exit 0 · mac - · fd86c84a68ac00f93f91b0a2486f8047f3270fe9
+  - evidence: test-run pass · `bash harness/bin/tests/land-story.test.sh` exit 0 · mac - · ae2927eeb144bfef64f3df4dfb5304edc721fb22
 - [ ] Shell-test `land`: личные данные в вердикте не уходят в documents PR — `evidence-check` красный, ничего не
       закоммичено (как у Evidence-строк).
   - evidence: test-run pass · `bash harness/bin/tests/land-story.test.sh` exit 0 · mac - · fd86c84a68ac00f93f91b0a2486f8047f3270fe9
+  - evidence: test-run pass · `bash harness/bin/tests/land-story.test.sh` exit 0 · mac - · ae2927eeb144bfef64f3df4dfb5304edc721fb22
 - [ ] Shell-test: после дописывания `story-check` сверяет story с тем же commit-ом, что и до него.
   - evidence: test-run pass · `bash harness/bin/tests/land-story.test.sh` exit 0 · mac - · fd86c84a68ac00f93f91b0a2486f8047f3270fe9
+  - evidence: test-run pass · `bash harness/bin/tests/land-story.test.sh` exit 0 · mac - · ae2927eeb144bfef64f3df4dfb5304edc721fb22
 - [ ] Skill `epic-wave`: шаг Silent-режима и новое поле state-файла описаны; skill-text test-ы зелёные.
   - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 · mac - · fd86c84a68ac00f93f91b0a2486f8047f3270fe9
+  - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 · mac - · ae2927eeb144bfef64f3df4dfb5304edc721fb22
 - [ ] Все `harness/bin/tests/*.test.sh` зелёные; gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0 · mac - · fd86c84a68ac00f93f91b0a2486f8047f3270fe9
+  - evidence: gate pass · `gate fast` exit 0 · mac - · ae2927eeb144bfef64f3df4dfb5304edc721fb22
 
 ## Тесты
 
