@@ -9,6 +9,7 @@ import { PullRequestsView } from '../pr-inbox/PrInboxView'
 import { useInterfaceScale } from '../settings/interface-scale'
 import { SettingsDialog } from '../settings/SettingsDialog'
 import { ShortcutsOverlay } from '../shortcuts/ShortcutsOverlay'
+import { StoryScreen } from '../stories/StoryView'
 import { FirstRun } from './FirstRun'
 import { Sidebar } from './Sidebar'
 import { followSidebarCommand, SIDEBAR_TOGGLE_SELECTOR, useSidebarVisibility } from './sidebar-visibility'
@@ -73,8 +74,15 @@ class SidebarFocusKeeper extends Component<{ visible: boolean; shell: RefObject<
   }
 }
 
-/** The name of the main area for each view, as its tab in the toolbar says it (Run history has no tab). */
-const VIEW_NAMES: Record<ShellView, string> = { canvas: 'Canvas', session: 'Session', pipeline: 'Pipeline', history: 'Run history', 'pull-requests': 'Pull requests' }
+/** The name of the main area for each view, as its tab in the toolbar says it (Run history and Code story have no tab). */
+const VIEW_NAMES: Record<ShellView, string> = {
+  canvas: 'Canvas',
+  session: 'Session',
+  pipeline: 'Pipeline',
+  history: 'Run history',
+  'pull-requests': 'Pull requests',
+  story: 'Code story',
+}
 
 /** The window of design F: sidebar, unified toolbar and the main area under it. */
 export function AppShell({ project, canvas, session, pipeline, history, view: controlledView, onViewChange }: AppShellProps) {
@@ -123,6 +131,10 @@ export function AppShell({ project, canvas, session, pipeline, history, view: co
           {/* The PR inbox of the active Project (worfy-pr-inbox ticket 03): the view finds the Project itself. */}
           <div className="w-shell__view" data-view="pull-requests" hidden={view !== 'pull-requests'}>
             <PullRequestsView />
+          </div>
+          {/* A Code story (worfy-code-stories ticket 09): openStory (stories/open.ts) opens it, Esc leaves it. */}
+          <div className="w-shell__view" data-view="story" hidden={view !== 'story'}>
+            <StoryScreen activeProjectId={project?.id} />
           </div>
         </main>
       </div>

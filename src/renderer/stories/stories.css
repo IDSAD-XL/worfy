@@ -1,0 +1,518 @@
+/*
+ * The Story view (stories/StoryView.tsx, worfy-code-stories ticket 09): variant B «Stories» of
+ * docs/product/code-stories/prototype-story-ui-variants.html, on the tokens of theme/tokens.css. The code card
+ * itself is the ```story block of the Markdown renderer (markdown/markdown.css, `.w-md__story-code`).
+ *
+ * Two colours of its own, as the prototype has them: the red of a dropped handoff in the diagram of "Seams between
+ * tickets", and the pale ground behind the code card's head. The dropped handoff is dashed as well, so the
+ * colour is never the only mark.
+ */
+.w-story-holder {
+  position: absolute;
+  inset: 0;
+}
+
+.w-story {
+  --story-dropped: #c4262e;
+  --story-code-head: #26262a;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  color: var(--text);
+  overflow: hidden;
+  outline: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  .w-story {
+    --story-dropped: #ff6b70;
+    --story-code-head: #1a1917;
+  }
+}
+
+.w-story__empty {
+  margin: 0;
+  padding: var(--space-4);
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+
+/* ---------- the top: chapters, segments, the meta line ---------- */
+.w-story__top {
+  flex: none;
+  padding: 10px var(--space-4) var(--space-2);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.w-story__chapters {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 2px 2px var(--space-2);
+  scrollbar-width: none;
+}
+
+.w-story__chapter-button {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 72px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-11);
+  line-height: 13px;
+}
+
+.w-story__chapter-button--current {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.w-story__ring {
+  width: 40px;
+  height: 40px;
+  padding: 2.5px;
+  border-radius: 50%;
+  background: conic-gradient(var(--accent) var(--share, 0%), var(--border-strong) 0);
+  transition: transform 0.2s;
+}
+
+.w-story__chapter-button--current .w-story__ring {
+  transform: scale(1.1);
+}
+
+.w-story__ring > span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  font-weight: 700;
+}
+
+/* A chapter whose PR is not merged yet: a dashed ring. */
+.w-story__chapter-button--not-ready .w-story__ring > span {
+  border-style: dashed;
+  border-color: var(--border-strong);
+  color: var(--text-muted);
+}
+
+.w-story__chapter-label {
+  display: -webkit-box;
+  max-width: 100%;
+  overflow: hidden;
+  text-align: center;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.w-story__segments {
+  display: flex;
+  gap: 6px;
+  height: 4px;
+}
+
+.w-story__segment-group {
+  flex-basis: 0;
+  flex-shrink: 1;
+  display: flex;
+  gap: 2px;
+  min-width: 0;
+}
+
+.w-story__segment {
+  flex: 1;
+  height: 4px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: var(--segment-track);
+}
+
+.w-story__segment--read {
+  background: color-mix(in srgb, var(--accent) 55%, var(--surface));
+}
+
+.w-story__segment--current {
+  background: var(--accent);
+}
+
+.w-story__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px var(--space-3);
+  margin-top: var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+
+.w-story__meta b {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.w-story__name {
+  min-width: 0;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.w-story__spacer {
+  flex: 1;
+}
+
+.w-story__hint kbd {
+  padding: 0 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-chip);
+  background: var(--surface-raised);
+  font-family: var(--font-ui);
+  font-size: var(--text-11);
+}
+
+/* ---------- the stage: one screen, an edge button on each side ---------- */
+.w-story__stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.w-story__edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 52px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 28px;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+
+.w-story__edge:hover,
+.w-story__edge:focus-visible {
+  opacity: 1;
+  color: var(--text);
+}
+
+.w-story__edge:disabled {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.w-story__edge--previous {
+  left: 0;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--text) 6%, transparent), transparent);
+}
+
+.w-story__edge--next {
+  right: 0;
+  background: linear-gradient(270deg, color-mix(in srgb, var(--text) 6%, transparent), transparent);
+}
+
+.w-story__screen {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+  grid-template-rows: auto 1fr;
+  align-content: start;
+  gap: 14px 30px;
+  padding: 20px 64px 48px;
+  overflow-y: auto;
+  animation: w-story-in 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes w-story-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
+/* A screen without code: the text alone, in a column of a readable width. */
+.w-story__screen--prose {
+  grid-template-columns: minmax(0, 760px);
+  justify-content: center;
+}
+
+.w-story__headrow {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.w-story__kicker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+
+.w-story__title {
+  margin: 0;
+  max-width: 980px;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 32px;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+
+.w-story__text,
+.w-story__code {
+  min-width: 0;
+}
+
+.w-story__code {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.w-story__caption {
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: var(--text-11);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.w-story__lead .w-md {
+  font-size: 15px;
+  line-height: 23px;
+}
+
+.w-story__field {
+  margin-top: var(--space-3);
+}
+
+.w-story__missing {
+  margin: 0;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.w-story__fields {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.w-story__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.w-story__tab {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-12);
+  font-weight: 500;
+}
+
+.w-story__tab[aria-selected='true'] {
+  border-color: var(--text);
+  background: var(--text);
+  color: var(--surface);
+  font-weight: 600;
+}
+
+.w-story__panel {
+  margin-top: 10px;
+  font-size: 14px;
+  line-height: 21px;
+}
+
+.w-story__intro {
+  margin: 0 0 var(--space-3);
+  color: var(--text-secondary);
+}
+
+.w-story__questions {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 15px;
+  line-height: 23px;
+}
+
+/* ---------- the code card ---------- */
+.w-story-code {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #2c2c2e;
+  border-radius: var(--radius-node);
+  background: var(--terminal-bg);
+}
+
+.w-story-code__head {
+  padding: 5px 10px;
+  border-bottom: 1px solid #2c2c2e;
+  background: var(--story-code-head);
+  color: var(--terminal-dim);
+  font-size: var(--text-11);
+}
+
+.w-story-code__path {
+  color: #c7c7cc;
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  overflow-wrap: anywhere;
+}
+
+.w-story-code__path b {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.w-story-code__lines {
+  color: var(--terminal-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.w-story-code__note {
+  margin: 0;
+  padding: 5px 10px;
+  border-bottom: 1px solid #2c2c2e;
+  color: var(--terminal-dim);
+  font-size: var(--text-12);
+}
+
+/* ---------- the diagram of "Seams between tickets" ---------- */
+.w-story-seams {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-node);
+  background: var(--surface);
+}
+
+.w-story-seams__svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.w-story-seams__box {
+  fill: var(--surface-raised);
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+.w-story-seams__ticket {
+  fill: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.w-story-seams__arrow {
+  fill: none;
+  stroke: var(--text-secondary);
+  stroke-width: 1.6;
+}
+
+.w-story-seams__arrow--dropped {
+  stroke: var(--story-dropped);
+  stroke-width: 2;
+}
+
+.w-story-seams__head {
+  fill: var(--text-secondary);
+}
+
+.w-story-seams__head--dropped {
+  fill: var(--story-dropped);
+}
+
+.w-story__handoffs {
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-13);
+  line-height: 19px;
+}
+
+.w-story__handoffs li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px var(--space-2);
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+
+.w-story__handoffs .w-md p {
+  margin: 0;
+}
+
+.w-story__handoff-route {
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+
+.w-story__handoff-done {
+  color: var(--ready-text);
+}
+
+.w-story__handoff-dropped {
+  color: var(--story-dropped);
+  font-weight: 600;
+}
+
+/* ---------- a narrow window: one column, the text first ---------- */
+.w-story[data-layout='narrow'] .w-story__top {
+  padding: var(--space-2) 10px 6px;
+}
+
+.w-story[data-layout='narrow'] .w-story__screen {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  padding: 14px var(--space-4) 48px;
+}
+
+.w-story[data-layout='narrow'] .w-story__edge {
+  width: 26px;
+  font-size: 22px;
+}
+
+.w-story[data-layout='narrow'] .w-story__title {
+  font-size: 21px;
+  line-height: 26px;
+}
+
+.w-story[data-layout='narrow'] .w-story__hint {
+  display: none;
+}

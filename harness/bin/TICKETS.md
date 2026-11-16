@@ -252,7 +252,9 @@ Code: `src/cart.ts:10-17` · key lines: 13, 14
   story file. A field whose reason nobody wrote down says so — the value `not recorded` — and is never filled with
   a guess; any field may say it. A step whose title is not a frame title and that lacks the fragment or a field is
   an error, named by the step and the field. A frame step is prose: `What was wrong` carries a `Requirement`
-  field, the others need no field, and any frame step may quote fragments, which are checked like the rest.
+  field, the others need no field. A frame step quotes no fragment, with one exception: `What review found and
+  what remains` may quote the lines of the head review checked (**Story anchor**, item 2), and those fragments
+  are checked like the rest. worfy shows every other frame step without a code block.
 - **Labels** — the field labels, the frame titles, the section titles and `not recorded` follow the story's
   `Language:`: a story in `ru` uses the Russian words, any other language the English ones. The pairs are the
   table in the README of `bin/tests/fixtures/code-story`; a reader keeps them in its own word list. The fragment
@@ -298,7 +300,8 @@ reaches the main branch.
    step quotes the lines of that head, which review checked.
 3. The epic's story takes its steps from the stories of its PRs, so the line numbers of a chapter are those of
    that chapter's PR head, and each chapter is checked against it. The steps and screens outside the chapters
-   (`Start`, `Seams between tickets`, `Summary`, `Check`) quote no fragment.
+   (`Start`, `Seams between tickets`, `Summary`, `Check`) quote no fragment, like every frame step but `What
+   review found and what remains` (**Fields** above).
 
 On the main branch the code may differ from the head. This repository merges a PR without rebasing it onto a fresh
 main branch, so when the main branch changed a quoted file between the branch point and the merge, the merged file

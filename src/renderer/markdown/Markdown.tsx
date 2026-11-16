@@ -29,6 +29,9 @@ import './markdown.css'
 // With the opt-in prop `github` it reads a comment of a pull request as GitHub shows it (worfy-polish ticket 104):
 // `@login` mentions, `#123` references, a ```suggestion block as a suggested change, an image as a link to it, and
 // headings sized for a comment (github.ts, markdown.css `.w-md--github`). Without the prop nothing of that applies.
+//
+// With the opt-in prop `story` a ```story block is the code of a Code story fragment, with line numbers and key
+// lines (StoryCode; the Story view, stories/StoryView.tsx, writes such blocks).
 
 export interface MarkdownProps {
   text: string
@@ -40,6 +43,8 @@ export interface MarkdownProps {
   breaks?: boolean
   /** Read the text as a GitHub comment of a PR in this repository (github.ts); off by default. */
   github?: GithubOptions | undefined
+  /** Draw a ```story block as the code of a Code story fragment (StoryCode below); off by default. */
+  story?: boolean
 }
 
 /** remark plugins: autolink-edges runs last, on the links remark-gfm made. */
@@ -141,6 +146,45 @@ function Suggestion({ text }: { text: string }) {
   )
 }
 
+/** The first line and the key lines of a ```story block, from its info string: `story from=<n> key=<n>,<n>`. */
+function storyMeta(meta: string): { from: number; keys: ReadonlySet<number> } {
+  const from = /(?:^|\s)from=(\d+)(?:\s|$)/.exec(meta)
+  const keys = /(?:^|\s)key=([\d,]+)(?:\s|$)/.exec(meta)
+  return {
+    from: from === null ? 1 : Math.max(1, Number(from[1])),
+    keys: new Set((keys?.[1] ?? '').split(',').filter((part) => part !== '').map(Number)),
+  }
+}
+
+/**
+ * A ```story block of a Code story (Epic worfy-code-stories, ticket 09): the lines of a fragment, each with its
+ * number in the file — counted on from `from=` — and the key lines (`key=`) highlighted: a bold number and a bar at
+ * the left edge, so the mark is not a colour alone. No syntax colouring: worfy has no highlighting library, and the
+ * first version does not need one (spec of the Epic).
+ */
+function StoryCode({ text, meta }: { text: string; meta: string }) {
+  const { from, keys } = storyMeta(meta)
+  const lines = text.replace(/\n$/, '').split('\n')
+  return (
+    <pre className="w-md__story-code" data-testid="md-story-code">
+      <code>
+        {lines.map((line, at) => {
+          const number = from + at
+          const key = keys.has(number)
+          return (
+            <span key={at} className={key ? 'w-md__story-line w-md__story-line--key' : 'w-md__story-line'} data-line={number} data-key={key ? 'true' : undefined}>
+              <span className="w-md__story-number" aria-hidden="true">
+                {number}
+              </span>
+              <span className="w-md__story-text">{line === '' ? '​' : line}</span>
+            </span>
+          )
+        })}
+      </code>
+    </pre>
+  )
+}
+
 // The checkbox of a task list item ("- [x] tests") is named by the item's own text, without its nested
 // lists: a form control needs a name (axe, rule label), and the text beside it is not a <label>.
 const TaskItemText = createContext<string | undefined>(undefined)
@@ -166,7 +210,7 @@ function TaskCheckbox({ node, ...rest }: InputHTMLAttributes<HTMLInputElement> &
   return <input {...rest} aria-label={rest.type === 'checkbox' && name !== undefined && name !== '' ? name : rest['aria-label']} />
 }
 
-export function Markdown({ text, projectId, baseDir, breaks = false, github }: MarkdownProps) {
+export function Markdown({ text, projectId, baseDir, breaks = false, github, story = false }: MarkdownProps) {
   const githubRepo = github === undefined ? undefined : github.repo
   const plugins = useMemo<NonNullable<Options['remarkPlugins']>>(() => {
     const base = breaks ? PLUGINS_WITH_BREAKS : PLUGINS
@@ -193,18 +237,24 @@ export function Markdown({ text, projectId, baseDir, breaks = false, github }: M
           {alt || 'image'}
         </span>
       ),
-      ...(githubRepo === undefined
+      ...(githubRepo === undefined && !story
         ? {}
         : {
             pre: ({ node, children }) => {
               const code = node?.children[0]
               const classes = code?.type === 'element' ? code.properties.className : undefined
-              if (Array.isArray(classes) && classes.includes('language-suggestion')) return <Suggestion text={textOf(code)} />
+              const language = (name: string) => Array.isArray(classes) && classes.includes(`language-${name}`)
+              if (githubRepo !== undefined && language('suggestion')) return <Suggestion text={textOf(code)} />
+              if (story && language('story')) {
+                // The info string after the language: remark keeps it as the code element's `data.meta`.
+                const meta = code?.type === 'element' ? (code.data as { meta?: unknown } | undefined)?.meta : undefined
+                return <StoryCode text={textOf(code)} meta={typeof meta === 'string' ? meta : ''} />
+              }
               return <pre>{children}</pre>
             },
           }),
     }),
-    [projectId, baseDir, githubRepo],
+    [projectId, baseDir, githubRepo, story],
   )
   return (
     <div className={githubRepo === undefined ? 'w-md' : 'w-md w-md--github'}>

@@ -14,8 +14,9 @@ const items = collectExtensions(import.meta.glob('./toolbar/*.tsx', { eager: tru
  * (flight-recorder/RunHistoryView.tsx) — has the `Runs` tab here, which opens it at the active
  * Project's newest Run (openRunHistory); its other entries open it too, Esc leaves it.
  * `pull-requests` — the PR inbox of the active Project (pr-inbox/PrInboxView.tsx) — is the fifth tab.
+ * `story` — a Code story (stories/StoryView.tsx) — has no tab: openStory (stories/open.ts) opens it, Esc leaves it.
  */
-export type ShellView = 'canvas' | 'session' | 'pipeline' | 'history' | 'pull-requests'
+export type ShellView = 'canvas' | 'session' | 'pipeline' | 'history' | 'pull-requests' | 'story'
 
 /** The Project the window shows. Until Projects exist (ticket 04) the toolbar shows none. */
 export interface ToolbarProject {

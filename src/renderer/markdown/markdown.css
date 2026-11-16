@@ -285,3 +285,58 @@
   color: var(--ready-text);
   user-select: none;
 }
+
+/*
+ * A ```story block (Markdown.tsx, StoryCode; worfy-code-stories ticket 09): the code of a Code story fragment
+ * on the dark card of the terminal tokens in both themes, as variant B of the prototype draws it
+ * (docs/product/code-stories/prototype-story-ui-variants.html). Each line is a row: its number in the file, then
+ * the code. A key line has a pale yellow ground, a 3 px yellow bar at its left edge and a bold, brighter
+ * number: the bar and the weight carry the mark without the colour.
+ */
+.w-md .w-md__story-code {
+  margin: 0;
+  padding: var(--space-1) 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--terminal-bg);
+  color: var(--terminal-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  line-height: 18px;
+  overflow-x: auto;
+}
+
+.w-md .w-md__story-code code {
+  display: block;
+  min-width: max-content;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  white-space: pre;
+}
+
+.w-md__story-line {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+}
+
+.w-md__story-line--key {
+  background: rgba(240, 228, 66, 0.12);
+  box-shadow: inset 3px 0 0 #f0e442;
+}
+
+.w-md__story-number {
+  padding-right: var(--space-3);
+  color: var(--terminal-dim);
+  text-align: right;
+  user-select: none;
+}
+
+.w-md__story-line--key .w-md__story-number {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.w-md__story-text {
+  padding-right: var(--space-3);
+}
