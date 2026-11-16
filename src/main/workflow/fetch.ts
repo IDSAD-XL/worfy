@@ -62,15 +62,26 @@ export function fetchEnv(env: Readonly<Record<string, string | undefined>>, sshC
   return { ...base, GCM_INTERACTIVE: 'never', ...(command === null || !isSsh(command) ? {} : { GIT_SSH_COMMAND: `${command} -o BatchMode=yes` }) }
 }
 
+/** The last part of a path, `/` or `\` between the parts. */
+const fileName = (path: string): string => path.split(/[\\/]/u).pop() ?? ''
+
+/** A shell assignment before the program: `NAME=value`. */
+const ASSIGNMENT = /^[A-Za-z_]\w*=/u
+
 /**
- * Whether the shell command `command` runs ssh: its program — the first word, or the first quoted string — has the
- * file name `ssh` or `ssh.exe`, in any case, under any folder.
+ * Whether the shell command `command` runs ssh: its program has the file name `ssh` or `ssh.exe`, in any case, under
+ * any folder. The program is the first word after the leading `NAME=value` words, and after a leading `env` with its
+ * own `NAME=value` words; a word may be quoted, in part or whole (`"C:\Program Files\…\ssh.exe"`, `B="x y"`).
  */
 export function isSsh(command: string): boolean {
-  const quoted = /^\s*(["'])(.*?)\1/u.exec(command)
-  const program = quoted ? quoted[2]! : (command.trim().split(/\s+/u)[0] ?? '')
-  const name = program.split(/[\\/]/u).pop() ?? ''
-  return /^ssh(?:\.exe)?$/iu.test(name)
+  const words = (command.match(/(?:"[^"]*"|'[^']*'|[^\s"'])+/gu) ?? []).map((word) => word.replace(/["']/gu, ''))
+  let at = 0
+  while (at < words.length && ASSIGNMENT.test(words[at]!)) at += 1
+  if (at < words.length && /^env(?:\.exe)?$/iu.test(fileName(words[at]!))) {
+    at += 1
+    while (at < words.length && ASSIGNMENT.test(words[at]!)) at += 1
+  }
+  return at < words.length && /^ssh(?:\.exe)?$/iu.test(fileName(words[at]!))
 }
 
 function nonEmpty(value: string | undefined | null): string | null {

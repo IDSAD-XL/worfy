@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DocsState } from '../../src/shared/ipc/docs'
-import { DocsHub, DocsWatcher, SETTLE_READS_MS, versionOf, type DocsTreeSource, type WatchRoot } from '../../src/main/docs/watch'
+import { DocsHub, DocsWatcher, READ_RETRY_MAX_MS, SETTLE_READS_MS, versionOf, type DocsTreeSource, type WatchRoot } from '../../src/main/docs/watch'
 import type { RepoTree } from '../../src/main/workflow/main-ref'
 import { removeTestTree } from '../remove'
 import { ms } from '../time-scale'
@@ -129,5 +129,61 @@ describe('a first read of the documents that fails on git', () => {
     source.move()
     await vi.waitFor(() => expect(sent.at(-1)?.handoff?.version).toBe(versionOf(HANDOFF)), { timeout: ms(5_000), interval: 10 })
     expect(states.at(-1)?.handoff?.version).toBe(versionOf(HANDOFF))
+  })
+
+  it('a watch made anew (a hold let go) whose first read fails keeps what the windows show, and sends the next read that works', async () => {
+    quietErrors()
+    const source = flakySource()
+    source.failing = false
+    const sent: DocsState[] = []
+    const hub = new DocsHub({ debounceMs: 5 })
+    cleanups.push(() => hub.closeAll())
+    const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-docs-retry-')))
+    cleanups.push(() => removeTestTree(root))
+    const opened = await hub.open('p1', root, { id: 'window', send: (state) => sent.push(state) }, undefined, undefined, source)
+    expect(opened.handoff?.version).toBe(versionOf(HANDOFF))
+
+    // Something renames the folder (project-connect --remove, a move between Full and Silent mode); main is unreadable then.
+    const release = await hub.hold('p1')
+    source.failing = true
+    await release()
+    await new Promise((done) => setTimeout(done, 150))
+    // No empty state over the documents the window shows.
+    expect(sent.filter((state) => state.handoff === null)).toEqual([])
+
+    source.failing = false
+    source.move()
+    await vi.waitFor(() => expect(sent.at(-1)?.handoff?.version).toBe(versionOf(HANDOFF)), { timeout: ms(5_000), interval: 10 })
+    expect(sent.filter((state) => state.handoff === null)).toEqual([])
+  })
+
+  it('waits 2 s before the first try, twice as long before each next one, at most a minute, and stops at close', async () => {
+    quietErrors()
+    vi.useFakeTimers()
+    cleanups.push(() => vi.useRealTimers())
+    const source = flakySource()
+    const at: number[] = []
+    const tree = source.tree
+    source.tree = () => {
+      at.push(Date.now())
+      return tree()
+    }
+    const start = Date.now()
+    const watcher = await DocsWatcher.start({ root: '/project', debounceMs: 5, watch: noWatch, source, onChange: () => undefined })
+    cleanups.push(() => watcher.close())
+
+    await vi.advanceTimersByTimeAsync(1_999)
+    // The start's own read and the reads after the start of a watch; no try yet.
+    expect(at.map((time) => time - start)).toEqual([0, ...SETTLE_READS_MS])
+    // Up to 4 min from the start: the tries at 2, 6, 14, 30, 62, 122 and 182 s.
+    await vi.advanceTimersByTimeAsync(240_000 - 1_999)
+    const tries = [0, ...at.slice(1 + SETTLE_READS_MS.length).map((time) => time - start)]
+    const waits = tries.slice(1).map((time, index) => time - tries[index]!)
+    expect(waits).toEqual([2_000, 4_000, 8_000, 16_000, 32_000, READ_RETRY_MAX_MS, READ_RETRY_MAX_MS])
+
+    await watcher.close()
+    const asked = source.asked
+    await vi.advanceTimersByTimeAsync(READ_RETRY_MAX_MS * 3)
+    expect(source.asked).toBe(asked)
   })
 })

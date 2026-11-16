@@ -137,7 +137,7 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
   Project, worfy runs `git fetch --prune origin <main>` when the window opens it, every 2 minutes, and when a window gets
   the focus (at most once in 30 s); a Project only Autopilot or the notices follow is not fetched, and a fetch from a
   terminal is seen too. A fetch asks nothing: no password prompt, no credential window, ssh in batch mode
-  (`-o BatchMode=yes` goes only to a command that runs ssh itself; plink, TortoiseGitPlink and other programs are left as
+  (`-o BatchMode=yes` goes only to a command that runs ssh itself, after any leading `NAME=value` words and `env`; plink, TortoiseGitPlink and other programs are left as
   they are). A failed fetch keeps the list as it was. When git cannot read the main branch for `HANDOFF.md` and the ADRs,
   they keep their last read; at the start, with none yet, they show empty. Either way they are read again after 2 s,
   then after twice as long each time up to once a minute, and at once when the branch moves. The canvas tools of a

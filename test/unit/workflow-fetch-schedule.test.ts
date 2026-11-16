@@ -152,6 +152,17 @@ describe('nothing in a fetch asks the user anything', () => {
     }
   })
 
+  it('looks past leading NAME=value words and env, with its own NAME=value words, for the program', () => {
+    for (const ssh of ['SSH_AUTH_SOCK=/x ssh -i k', 'env GIT_TRACE=1 ssh', 'env ssh', 'A=1 B="x y" /usr/bin/ssh', '/usr/bin/env FOO=1 BAR=\'a b\' C:\\OpenSSH\\ssh.exe -v']) {
+      expect(fetchEnv({ GIT_SSH_COMMAND: ssh }, null).GIT_SSH_COMMAND, ssh).toBe(`${ssh} -o BatchMode=yes`)
+      expect(fetchEnv({}, ssh).GIT_SSH_COMMAND, ssh).toBe(`${ssh} -o BatchMode=yes`)
+    }
+    for (const other of ['SSH_AUTH_SOCK=/x plink', 'env GIT_TRACE=1 plink -batch', 'env', 'FOO=1', 'A=ssh plink']) {
+      expect(fetchEnv({ GIT_SSH_COMMAND: other }, null).GIT_SSH_COMMAND, other).toBe(other)
+      expect(fetchEnv({}, other).GIT_SSH_COMMAND, other).toBeUndefined()
+    }
+  })
+
   it('leaves plink, TortoiseGitPlink and any other program as it is: they take no ssh options', () => {
     for (const other of ['plink -batch', 'C:/PuTTY/plink.exe', 'C:\\PuTTY\\PLINK.EXE -batch', '"C:\\Program Files\\TortoiseGit\\bin\\TortoiseGitPlink.exe"', '/usr/local/bin/ssh-wrapper', 'sshpass -p secret ssh', '"/opt/ssh dir/connect"']) {
       // From GIT_SSH_COMMAND: passed on unchanged.

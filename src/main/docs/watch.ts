@@ -465,12 +465,13 @@ export class DocsWatcher {
   }
 
   /**
-   * A read failed: tries again after READ_RETRY_FIRST_MS (the watcher's `retryMs` when given), twice as long after each
-   * failure in a row, never longer than READ_RETRY_MAX_MS. A move of the main branch reads at once meanwhile.
+   * A read failed: tries again after READ_RETRY_FIRST_MS (the watcher's `retryMs` when given), and after twice as long
+   * at each try that fails again, never longer than READ_RETRY_MAX_MS. A move of the main branch reads at once meanwhile.
    */
   private retryRead(): void {
-    this.readFailures += 1
+    // A read that fails while a try waits (the reads after the start, a move) neither moves that try nor lengthens the next.
     if (this.closed || this.readRetry) return
+    this.readFailures += 1
     const first = this.options.retryMs ?? READ_RETRY_FIRST_MS
     const delay = Math.min(first * 2 ** (this.readFailures - 1), READ_RETRY_MAX_MS)
     this.readRetry = setTimeout(() => {
@@ -912,13 +913,17 @@ export class DocsHub {
     }
   }
 
-  /** Starts the watch of `project` anew (at `at`, or where it was) and sends its subscribers the state. */
+  /**
+   * Starts the watch of `project` anew (at `at`, or where it was) and sends its subscribers the state. A watcher whose
+   * first read failed sends nothing here, as in `follow`: the windows keep the documents they show, and the first read
+   * that works reaches them through `onChange`.
+   */
   private async restart(projectId: string, project: OpenProject, at: DocsRoot | undefined): Promise<void> {
     const watcher = project.start(project.adrStatusLabel, at)
     project.watcher = watcher
     this.follow(projectId, watcher)
     const fresh = await watcher.catch(() => null)
-    if (fresh === null || project.watcher !== watcher) return
+    if (fresh === null || project.watcher !== watcher || !fresh.read) return
     const state = { projectId, ...fresh.current }
     for (const target of project.subscribers.values()) target.send(state)
   }
