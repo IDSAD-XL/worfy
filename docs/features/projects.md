@@ -362,7 +362,9 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
   `"off"` at once, not with Save, through `harness/bin/profile-set --field code_stories.pr`, and only while the Profile
   still has the value the switch read. If it changed in between, nothing is written: the dialog says so and shows the
   Profile as it is now. Any other refusal shows under the switch. A read-only Linked machine sees the value with the
-  switch turned off. The step that writes the story and the merge check that reads the field are not built yet.
+  switch turned off. On, the implementer writes the story before the PR and checks it with `harness/bin/story-check`
+  (`harness/skills/ship-ticket/story-pr.md`), and `harness/bin/land` does not merge a ticket's PR without its story
+  or with a red check of it; off, neither happens.
 - "Edit profile…" in "Project settings…" opens the Project's Profile in a form over the dialog. It has the fields of the
   Review step of "Add project" and those that step does not show: the title, the commands, the ticket path, spec, files
   section, done section and branch, the finish, `parallel`, the review and ticket lenses, the MCP servers, the skills

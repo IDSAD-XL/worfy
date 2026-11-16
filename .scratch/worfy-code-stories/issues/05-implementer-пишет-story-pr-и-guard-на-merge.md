@@ -1,7 +1,7 @@
 # 05 — Implementer пишет story PR перед PR (`ship-ticket`), ссылка в тексте PR, guard на merge
 
 Type: feature
-Status: open
+Status: claimed 2026-11-16T07:26Z
 Blocked by: 01, 02, 03
 Source: [spec.md](../spec.md), «Ticket-ы», строка 05; «Решения владельца» 7, 8, 10, 12, 14, 16, 25 (строки 98–116,
 129–131); «Решения по реализации» → Harness: «Implementer», «Guard», «Язык» (строки 210–216, 236–237); «Решения по
@@ -43,21 +43,32 @@ test-ам», В (строки 285–289); «Риски»: «Отказ `reasonin
    (решение 25). PR без Ticket-а (`prs[].epic` пустой) guard не трогает.
 7. Codex implementer работает по тому же skill. Как он держит инструкцию, проверит первый Ticket на Codex: это не
    условие готовности.
+8. Решение review Ticket-а 02: guard в `land` не читает story из рабочего дерева. Он достаёт `<head PR>:<путь story>`
+   через `git show` во временный файл и прогоняет на нём `story-check` с `--repo <checkout>` и `--head <head>`
+   (`story-check` идёт только против head-а PR; номера строк — head-а PR).
+9. Решение review Ticket-а 02, режим Silent: пока PR нет, якорь story — `HEAD` ветки. Implementer сначала коммитит код,
+   потом пишет story; `story-check` отказывает story, чей код не закоммичен.
 
 ## Готово, когда
 
 - [ ] `ship-ticket` (и его файлы `implementer-*.md`) содержит шаг story PR с `story-check` и условием `code_stories.pr`;
       skill-text test-ы Harness-а (`skill-blocks.test.sh`, `agents-text.test.sh`, `plugin-neutral.test.sh`) зелёные.
+  - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0, `skill-blocks-gate.test.sh` exit 0, `pnpm test` (plugin-neutral, skill-blocks included) exit 0 · mac - · 9dff302e01f78ee792492b21bf73a216888b470a
 - [ ] В инструкции нет просьбы вести ход рассуждений; test текста skill-а ловит слова «reasoning log» и
       «running log of its reasoning», если их кто-то вернёт.
+  - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 (it fails when a reasoning-log request is added to story-pr.md) · mac - · 9dff302e01f78ee792492b21bf73a216888b470a
 - [ ] Shell-test guard-а: PR Ticket-а без story при включённом `code_stories.pr` — не вливается, причина названа;
       с красным `story-check` — не вливается; с зелёной story — вливается; при выключенном поле — вливается без story;
       PR без Ticket-а — guard его не трогает.
+  - evidence: test-run pass · `bash harness/bin/tests/land.test.sh` exit 0 (the story guard cases) · mac - · 9dff302e01f78ee792492b21bf73a216888b470a
 - [ ] `implementer-report.md` называет путь story в отчёте; `step-8-pr-and-ci.md` — раздел ссылки на story через
       `--body-file`.
+  - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0, `bash harness/bin/tests/skill-blocks-gate.test.sh` exit 0 · mac - · 9dff302e01f78ee792492b21bf73a216888b470a
 - [ ] Режим Silent: shell-test (по образцу `silent-mode.test.sh`) — ветка story не получает, guard ищет её в папке
       Workflow.
+  - evidence: test-run pass · `bash harness/bin/tests/silent-mode.test.sh` exit 0 (section 6) · mac - · 9dff302e01f78ee792492b21bf73a216888b470a
 - [ ] Все `harness/bin/tests/*.test.sh` зелёные; gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0, `pnpm test` exit 0 · mac - · 9dff302e01f78ee792492b21bf73a216888b470a
 
 ## Тесты
 
@@ -81,3 +92,20 @@ test-ам», В (строки 285–289); «Риски»: «Отказ `reasonin
 ## Вне скоупа
 
 - Пункт verifier-а и шаг review в story — Ticket 06. Eval — Ticket 14.
+
+## Итог
+
+- Guard стоит в `land`, в условии merge (`ready`), перед `gh pr merge`, а не в gate. Причины: gate бежит на каждом
+  head-е ветки, в том числе до того, как implementer написал story, и краснел бы на каждой промежуточной проверке;
+  `land` — одно место, где PR Ticket-а вливается, он уже знает `epic` и `ticket` PR и его head, а условие перечитывается
+  под замком main. Переключатель `code_stories.pr` `land` читает сам через `bin/profile -C <checkout>`: Orchestrator не
+  может его забыть в state-файле. Profile не читается (exit 1) — PR ждёт; у checkout-а нет Profile (exit 3) — story не
+  нужна.
+- Story читается из head-а PR (`git show <head>:<путь>` во временный файл), в режиме Silent и при tickets root вне
+  репозитория — из папки, которую печатает `ticket root`. `story-check` идёт с `--repo <checkout> --head <head>`; флаг
+  `--pr-head` брифа — для глав story Epic-а, story PR он отвергает, поэтому здесь `--head`.
+- `story-check` отказывает (exit 1), когда story читается против `HEAD`, а цитируемый файл изменён и не закоммичен;
+  правило записано и в `harness/bin/TICKETS.md`, раздел «Story anchor».
+- Шаг implementer-а — `harness/skills/ship-ticket/story-pr.md`; его называют `agents/implementer.md` (шаг 6),
+  `implementer-finish.md` и `step-8-pr-and-ci.md`. Ссылка на story в тексте PR — блок шага 8 (`## Code story` через
+  `--body-file`), в режиме Silent текст PR её не получает.

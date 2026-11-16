@@ -24,6 +24,12 @@ The quotes around `<ref>` are single: in double quotes the shell runs what stand
   In Silent mode `ticket` writes them into the ticket file in the Workflow folder, and the branch gets nothing.
 - In the report, each claim that proves an item carries its number in `item`.
 
+**The Code story of the PR, after the Evidence lines and before the PR** — only with `workflow.finish:
+"pr-green-ci"` and when `"${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field code_stories.pr` prints `on`: write
+the story, run `"${CLAUDE_PLUGIN_ROOT}/bin/story-check"` on it until it is green, and commit it in the same PR
+(Silent mode: it stays in the Workflow folder). Without it `land` does not merge the PR.
+Where the story lies, what it says and how it is checked: `story-pr.md` next to this file, which your definition names at its step 6.
+
 `workflow.finish: "pr-green-ci"` — a PR and a green step 5 (gate fast); after the PR you wait for nothing.
 The orchestrator waits for CI after your report. The CI wait of skill `/worfy:ship-ticket`, step 8, is the main session's and the orchestrator's, not yours. Check `gh pr view <N> --json mergeStateStatus` once:
 with `DIRTY` CI does not start — rebase onto the base and push. Then read the PR's CI once — its

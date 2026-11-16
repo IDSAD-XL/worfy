@@ -28,7 +28,9 @@
 //     names the head that `land` merged;
 //   - without --head: the git work tree that holds the story (or --repo <dir>, the work tree of the code
 //     when the story lies elsewhere). A story that is not committed — new, changed, staged — is read
-//     against the files of the working tree; a committed one against HEAD. The check refuses when
+//     against the files of the working tree; a committed one — and one outside that work tree, as a story in
+//     the Workflow folder of Silent mode — against HEAD, and then a quoted file with changes HEAD does not
+//     hold (changed, staged, untracked) is refused: commit the code first. The check also refuses when
 //     that work tree is on the main branch: its branch is named as a main branch (main, master,
 //     init.defaultBranch, the branch <remote>/HEAD points to for any remote), or its HEAD is the tip
 //     of one, local or of a remote — a detached HEAD on that commit too — and the story is in HEAD
@@ -643,6 +645,10 @@ function checkStory(arg, opts, privacyOptions) {
         for (const key of f.keys || [])
             if (key < f.from || key > f.to) add(`fragment ${f.path}:${f.from}-${f.to}: key line ${key} is outside the fragment`)
         const anchor = f.chapterPr ? chapters.get(f.chapterPr) : defaultAnchor()
+        // Read against HEAD (no --head; the story committed, or kept outside the work tree as in Silent mode), a quoted
+        // file with changes HEAD does not hold would be compared with code the PR will not have: commit the code first.
+        if (anchor === fallback && anchor.sha && gitOut(top, ["status", "--porcelain", "-z", "--untracked-files=all", "--", f.path], "git status failed"))
+            throw new CannotCheck(`${f.path} is not committed: the story is read against HEAD ${anchor.sha}; commit the code first, then check the story`)
         used.set(anchor.name, (used.get(anchor.name) || 0) + 1)
         const problem = compare(f, read(anchor, f.path), anchor.sha ? anchor.sha : "the working tree", mask)
         if (problem) add(problem)

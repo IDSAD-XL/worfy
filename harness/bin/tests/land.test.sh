@@ -4,7 +4,8 @@
 # mark and its carry over a rebase, the Check marks a PR lists, the head the orchestrator verified), mergeable UNKNOWN asked again, BEHIND merged without a rebase and a conflict waiting, the
 # main-branch lock, one documents PR per run with `ticket done` for every merged PR, the Evidence lines of
 # prs[].evidence written by `ticket evidence` and the privacy check (evidence-check) before its push, a run broken
-# off by a kill and resumed, and --watch.
+# off by a kill and resumed, --watch, and the Code story guard (code_stories.pr on: a ticket's PR merges only with its
+# story read from the head and green by the real story-check; off, no ticket or no profile — no story needed).
 # The world: a bare origin with PR refs (refs/pull/<N>/head), a clone of it as the orchestrator's checkout, and
 # node stubs for gh, ticket, the wait between tries (sleep) and the documents check. gh is
 # always the stub: no network, no real gh, no credential.
@@ -120,10 +121,15 @@ printf '#!/usr/bin/env bash\nexec node "%s" "$@"\n' "$STUBS/gh.mjs" >"$STUBS/gh"
 # ticket: `done <epic> <NN> --pr <N> --root <root>` writes <root>/<epic>/issues/<NN>.md (with the text of $GHD/ticket-leak
 # appended when it is there) and logs the call and its cwd; with $GHD/ticket-fail it writes nothing and exits 1.
 # `evidence … --root <root>` writes nothing and logs its arguments before --root and the root relative to its cwd.
+# `root` prints the text of $GHD/tickets-root (the tickets root outside the repository, as in Silent mode).
 cat >"$STUBS/ticket.mjs" <<'EOF'
 import fs from "node:fs"
 import path from "node:path"
 const a = process.argv.slice(2), root = a[a.indexOf("--root") + 1], D = process.env.GHD
+if (a[0] === "root") {
+    process.stdout.write(fs.readFileSync(path.join(D, "tickets-root"), "utf8"))
+    process.exit(0)
+}
 if (a[0] === "evidence") {
     fs.appendFileSync(path.join(D, "ticket.log"), `${a.slice(0, a.indexOf("--root")).join(" ")} root=${path.relative(process.cwd(), root).split(path.sep).join("/")}\n`)
     process.exit(0)
@@ -178,8 +184,21 @@ fs.appendFileSync(path.join(D, "docs-check.log"), process.cwd() + "\n")
 const p = path.join(D, "docs-check-rc")
 process.exit(fs.existsSync(p) ? +fs.readFileSync(p, "utf8") : 0)
 EOF
+# bin/profile: `-C <dir> --field code_stories.pr` prints $GHD/code-stories ("off" without it) and exits with
+# $GHD/profile-rc (0 without it); logs its arguments.
+cat >"$STUBS/profile.mjs" <<'EOF'
+import fs from "node:fs"
+import path from "node:path"
+const D = process.env.GHD
+fs.appendFileSync(path.join(D, "profile.log"), process.argv.slice(2).join(" ") + "\n")
+const read = (n, d) => (fs.existsSync(path.join(D, n)) ? fs.readFileSync(path.join(D, n), "utf8").trim() : d)
+const rc = +read("profile-rc", "0")
+if (rc) process.stderr.write(`profile: stub exit ${rc}\n`)
+else process.stdout.write(read("code-stories", "off") + "\n")
+process.exit(rc)
+EOF
 # Environment values: Git Bash turns a path in them into the Windows form for node itself.
-export PATH="$STUBS:$PATH" LAND_GH="$STUBS/gh.mjs" LAND_TICKET="$STUBS/ticket.mjs" LAND_SLEEP="$STUBS/sleep.mjs"
+export PATH="$STUBS:$PATH" LAND_GH="$STUBS/gh.mjs" LAND_TICKET="$STUBS/ticket.mjs" LAND_SLEEP="$STUBS/sleep.mjs" LAND_PROFILE="$STUBS/profile.mjs"
 . "$HERE/gh-stand-in.sh"
 gh_guard LAND_GH "$STUBS/gh" "$STUBS/gh.mjs"
 
@@ -803,6 +822,74 @@ for bad_input in 's.prs[0].main_fix="yes"' 's.docs_only=""' 's.docs_only=3'; do
     "$LAND" "$S" >"$W/out" 2>&1; rc=$?
     [ "$rc" = 1 ] && [ ! -s "$GHD/log" ] && ok "input: $bad_input is refused before any gh call" || bad "input $bad_input: exit $rc: $(cat "$W/out")"
 done
+
+# --- the Code story guard: with code_stories.pr on, a ticket's PR merges only with its story, green on the head ----------
+# The story is read from the PR's head commit, never from the checkout's working tree, and checked by the real
+# story-check against that head (bin/TICKETS.md, "Story anchor"); the fixtures are the shared ones of the format.
+FIX="$HERE/fixtures/code-story"
+STORY_PATH=".scratch/demo-cart/stories/04-cart-total.md"
+# story_world <name> [<story fixture>]: PR 1's head gets the code of the fixtures and, when named, the story at STORY_PATH;
+# the state file names the PR's ticket demo-cart 04; code_stories.pr is on.
+story_world() {
+    new_world "$1" 1
+    git -C "$W/seed" fetch -q origin refs/pull/1/head && git -C "$W/seed" checkout -q --detach FETCH_HEAD
+    cp -R "$FIX/repo/src" "$W/seed/src"
+    if [ -n "${2:-}" ]; then mkdir -p "$W/seed/.scratch/demo-cart/stories" && cp "$FIX/$2" "$W/seed/$STORY_PATH"; fi
+    git -C "$W/seed" add -A && git -C "$W/seed" commit -q -m "pr 1 code" && git -C "$W/seed" push -q -f origin HEAD:refs/pull/1/head
+    git -C "$W/seed" checkout -q main
+    state 1
+    edit 's.prs[0].epic="demo-cart";s.prs[0].ticket="04"'
+    echo on >"$GHD/code-stories"
+}
+story_world sg-green pr-en.md
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && grep -q "story-check .* $STORY_PATH — exit 0" "$W/state.log" && grep -qx ".* $STORY_PATH: ok" "$W/state.log" \
+    && ok "story guard: on, the story green on the head -> merged (the checkout on main has no src/: the code is read from the head)" || bad "story guard green: exit $rc: $(cat "$W/out") log $(grep -i story "$W/state.log")"
+grep -qx -- "-C $(tn "$W/repo") --field code_stories.pr" "$GHD/profile.log" \
+    && ok "story guard: the switch is the profile's code_stories.pr of the checkout" || bad "story guard: profile calls $(cat "$GHD/profile.log")"
+[ "$(grep -c 'story-check --repo' "$W/state.log")" = 1 ] \
+    && ok "story guard: a story green at a head is not checked again under the main-branch lock" || bad "story guard cache: $(grep -c 'story-check --repo' "$W/state.log") story-check runs"
+# Silent mode (tickets_root null): the story is in the folder `ticket root` prints, and the PR's head, never fetched into
+# the checkout (only refs/pull/1/head of the origin has it), is fetched before story-check reads its code.
+story_world sg-silent
+edit 's.tickets_root=null'
+mkdir -p "$W/wf/demo-cart/stories" && cp "$FIX/pr-en.md" "$W/wf/demo-cart/stories/04-cart-total.md" && printf '%s\n' "$(tn "$W/wf")" >"$GHD/tickets-root"
+! git -C "$W/repo" cat-file -e "$(head_of 1)^{commit}" 2>/dev/null && had=no || had=yes
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$had" = no ] && [ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && grep -q "story-check .*04-cart-total.md — exit 0" "$W/state.log" \
+    && ok "story guard, tickets outside the repository: the head not in the checkout is fetched, the story of the folder green -> merged" || bad "story guard silent: had=$had exit $rc: $(cat "$W/out") log $(grep -i story "$W/state.log")"
+story_world sg-none
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 2 ] && [ "$(merged_of 1)" = 0 ] && grep -q "^#1 waits: no Code story of ticket demo-cart 04: .scratch/demo-cart/stories/04-<slug>.md is not in the head $(head_of 1 | cut -c1-8)" "$W/out" && tail -n 1 "$W/out" | grep -qx 'LAND=red' \
+    && ok "story guard: on, no story in the head -> not merged, LAND=red, the reason names the path" || bad "story guard none: exit $rc: $(cat "$W/out")"
+# a story in the checkout's working tree does not count: the guard reads the head only
+mkdir -p "$W/repo/.scratch/demo-cart/stories" && cp "$FIX/pr-en.md" "$W/repo/$STORY_PATH" && cp -R "$FIX/repo/src" "$W/repo/src"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 2 ] && [ "$(merged_of 1)" = 0 ] && grep -q '^#1 waits: no Code story' "$W/out" \
+    && ok "story guard: a story in the checkout's working tree but not in the head -> still not merged" || bad "story guard worktree: exit $rc: $(cat "$W/out")"
+story_world sg-red bad-fragment.md
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 2 ] && [ "$(merged_of 1)" = 0 ] && grep -q "^#1 waits: story-check is red on $STORY_PATH at $(head_of 1 | cut -c1-8): $STORY_PATH:2: .*src/cart.ts:10-17" "$W/out" \
+    && ok "story guard: on, story-check red -> not merged, LAND=red, the first problem named with the story's path" || bad "story guard red: exit $rc: $(cat "$W/out")"
+story_world sg-off
+echo off >"$GHD/code-stories"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && ok "story guard: code_stories.pr off -> merged without a story" || bad "story guard off: exit $rc: $(cat "$W/out")"
+story_world sg-noticket
+edit 'delete s.prs[0].epic;delete s.prs[0].ticket'
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && [ ! -e "$GHD/profile.log" ] && ! grep -qi "story" "$W/state.log" \
+    && ok "story guard: a PR without a ticket -> merged, the guard does not read the profile or look for a story" || bad "story guard no ticket: exit $rc: $(cat "$W/out")"
+story_world sg-unread pr-en.md
+echo 1 >"$GHD/profile-rc"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merged_of 1)" = 0 ] && grep -q '^#1 waits: code_stories.pr could not be read: bin/profile exit 1' "$W/out" \
+    && ok "story guard: the profile cannot be read (exit 1) -> waits, never merges" || bad "story guard unread: exit $rc: $(cat "$W/out")"
+story_world sg-unregistered
+echo 3 >"$GHD/profile-rc"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && grep -q 'no profile.*no Code story is required' "$W/state.log" \
+    && ok "story guard: a project with no profile (exit 3) -> no story required, merged, the log says why" || bad "story guard unregistered: exit $rc: $(cat "$W/out")"
 
 # --- the state-file block of skill epic-wave ("Merge with land") writes a file land takes -------------------------
 SKILL="${SKILL_FILE:-$HERE/../../skills/epic-wave/SKILL.md}"

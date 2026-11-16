@@ -17,7 +17,7 @@
 #     link, in the working tree or in a commit, is a problem and is not followed; a personal value in a
 #     line of code is masked before the line is cut for the output;
 #   - what cannot be checked (no file, no git work tree, an unknown commit, a usage error) is exit code 1
-#     with the reason.
+#     with the reason; so is a story read against HEAD whose quoted file has changes HEAD does not hold.
 # Run: bash harness/bin/tests/story-check.test.sh; exit code 0 means everything passed.
 # BIN_DIR points it at another copy of bin/ (a mutant of the script).
 #
@@ -362,6 +362,21 @@ check "--help: exit code 0 and the usage on stdout" "$([ "$rc" = 0 ] && has "$T/
 # --- 10. The real ~/.claude is untouched ------------------------------------------------------------
 after="$(real_home_snapshot "$REAL_HOME" "$T")"
 [ "$before" = "$after" ] && ok "the real ~/.claude did not change" || bad "the real ~/.claude changed during the test"
+
+# --- 11. Read against HEAD, the quoted code must be committed --------------------------------------
+# A committed story (or one outside the work tree) is read against HEAD; a quoted file with changes HEAD does not
+# hold is refused rather than compared with the old code. A changed file the story does not quote is no reason.
+printf '// changed\n' >>"$R/src/cart.ts"
+run "$EN"
+check "a committed story, a quoted file changed and not committed: exit code 1, the file named" \
+    "$([ "$rc" = 1 ] && has "$T/err" "src/cart.ts is not committed" && has "$T/err" "commit the code first" && echo 0 || echo 1)"
+g checkout -q -- src/cart.ts
+printf '// changed\n' >>"$R/src/coupon.ts"
+run "$EN"
+check "a committed story, a file it does not quote changed: exit code 0" "$([ "$rc" = 0 ] && echo 0 || echo 1)"
+g checkout -q -- src/coupon.ts
+run --repo "$R" "$L/story.md"
+check "a story outside the work tree, the code committed: exit code 0 against HEAD" "$([ "$rc" = 0 ] && has "$T/out" "HEAD $PRHEAD" && echo 0 || echo 1)"
 
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]

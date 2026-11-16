@@ -130,7 +130,8 @@ Steps 5–6 are mandatory in both cases, with exactly these commands, even if th
 
    Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-e2e.md` when the profile sets `commands.e2e`: it says which e2e files are yours to run and that you wait for the e2e lock 2 min at most.
 6. The finish, by `workflow.finish` of the profile.
-   Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-finish.md` at this step: it holds the `ticket evidence` lines before the PR and the finish for `pr-green-ci`, `batch` CI and `local-green`; after the PR you wait for nothing.
+   Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-finish.md` at this step: it holds the `ticket evidence` lines and the Code story of the PR (with `code_stories.pr` on) before the PR, and the finish for `pr-green-ci`, `batch` CI and `local-green`; after the PR you wait for nothing.
+   Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/story-pr.md` at this step, before the PR, when `profile --field code_stories.pr` prints `on` and the finish is `pr-green-ci`: where the Code story lies, what it says and how `story-check` checks it.
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-browser-checks.md` when an acceptance criterion is checked in the project's web pages: it holds the Browser checks — roles, `browser_open` with your ticket, and what an answer `Sign-in expired in Browser profile "<name>"` means.
 

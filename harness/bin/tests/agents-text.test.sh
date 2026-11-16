@@ -915,5 +915,39 @@ for f in "$ROOT/agents/implementer.md" "$ROOT/agents/reviewer.md" "$FINISH" "$RE
         || bad "$n: names what is not there:$miss"
 done
 
+# The Code story of a ticket's PR (skills/ship-ticket/story-pr.md): the implementer writes it before the PR when
+# code_stories.pr is on, checks it with story-check, commits it in the same PR (Silent mode: the Workflow folder),
+# names its path in the report; step 8 links it from the PR description through --body-file. The text asks for
+# decisions and evidence: a request to keep a log of how the model thinks is answered by the API with a refusal
+# (reasoning_extraction), so those words never come back into the skill or an agent.
+STORY="$SK/ship-ticket/story-pr.md" STEP8="$SK/ship-ticket/step-8-pr-and-ci.md" SILENT_IM="$SK/ship-ticket/implementer-silent-mode.md"
+for p in 'decisions and the evidence for them' '`not recorded`' 'Never fill it with a guess.' 'Order of explanation, not of files.' \
+    'The first step is `What was wrong`' '`What was deliberately not changed` and `How it was checked`' \
+    'one to three code steps for a small PR, up to ten for a large one' 'the language of `language.reports`' \
+    '<tickets root>/<epic>/stories/<NN>-<slug>.md' '"${CLAUDE_PLUGIN_ROOT}/bin/ticket" root' '--field code_stories.pr` prints `on`' \
+    '"${CLAUDE_PLUGIN_ROOT}/bin/story-check" <story>; echo "EXIT=$?"' 'commit the story on your branch, in the same PR' \
+    'commit the code first and write the story after' '--repo <your worktree> <story>' \
+    'update the story together with the code and run `story-check` again on the new head' \
+    'the branch gets nothing' '`land` does not merge a ticket'"'"'s PR without its story or with a red `story-check`'; do
+    ev "$STORY" "ship-ticket story-pr.md" "$p"
+    ev "$IM" "implementer (as read in full), the Code story" "$p"
+done
+for p in 'The Code story of the PR, after the Evidence lines and before the PR' '--field code_stories.pr` prints `on`' \
+    '"${CLAUDE_PLUGIN_ROOT}/bin/story-check"' 'commit it in the same PR' '`story-pr.md` next to this file, which your definition names at its step 6'; do
+    ev "$FINISH" "implementer-finish.md, the Code story" "$p"
+done
+ev "$REPORT" "implementer-report.md, the Code story" '`Code story: <story path>`'
+ev "$IM" "implementer (as read in full), the Code story" '`Code story: <story path>`'
+for p in 'The Code story of the PR comes first.' 'Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/story-pr.md` before `gh pr create`' \
+    'the section `## Code story`' 'through `--body-file`' 'gh pr edit <N> --body-file "$B"'; do
+    ev "$STEP8" "ship-ticket step 8, the link to the story" "$p"
+done
+ev "$SILENT_IM" "implementer Silent mode, the Code story" 'it lies in the Workflow folder, the branch never gets it'
+grep -qF 'the Code story of the PR (with `code_stories.pr` on)' "$ROOT/agents/implementer.md" \
+    && ok "implementer.md: the finish pointer names the Code story" || bad "implementer.md: the finish pointer does not name the Code story"
+# No request for a log of the model's thinking, in any ship-ticket file or agent definition.
+leak="$(grep -rniE 'reasoning log|running log of (its|your|the) reasoning|log of (its|your) reasoning' "$SK/ship-ticket" "$ROOT/agents" 2>/dev/null)"
+[ -z "$leak" ] && ok "no ship-ticket file or agent asks for a reasoning log" || bad "a request for a reasoning log: $leak"
+
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]
