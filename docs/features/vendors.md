@@ -124,7 +124,8 @@ shows how. The install, the approval and how each guarantee of the workflow hold
 
 **What a Codex Session does not have.** worfy emulates nothing a Vendor lacks. The capability `hooks` is off for Codex,
 with the reason "worfy does not run hooks in Codex yet."; the Harness's hooks are run by Codex itself, once approved.
-One-off requests, the Project profile draft and [Terminal AI](terminal.md) run on Claude Code only.
+One-off requests — the Project profile draft, [Terminal AI](terminal.md) and a Code story — run on Claude Code only: on a
+Codex Project a Code story does not start, and its progress bar shows that reason.
 
 **Limits per Vendor.** The Limits panel of the toolbar has a section per Vendor: Claude Code's 5-hour and 7-day windows, and
 while the user is signed in to Codex, the windows its plan reports, labelled by their length (`5h`, `weekly`), which the toolbar shortens (`weekly` shows as `7d`). The details

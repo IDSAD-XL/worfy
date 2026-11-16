@@ -130,7 +130,7 @@ export const CODEX_CAPABILITIES: Capabilities = {
   unsupported: {
     hooks: 'worfy does not run hooks in Codex yet.',
     inProcessMcp: 'Codex runs in a process of its own: worfy reaches it over HTTP, not inside the app.',
-    oneShotToolFree: 'One-off requests (the Project profile draft, Terminal AI) run on Claude Code only.',
+    oneShotToolFree: 'One-off requests (the Project profile draft, Terminal AI, a Code story) run on Claude Code only.',
     commandsComplete: 'The slash menu lists Codex skills and the commands the app server runs; the other Codex commands work only in its own terminal.',
   },
 }
