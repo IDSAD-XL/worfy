@@ -85,7 +85,7 @@ const styles = {
 type Load = { kind: 'loading' } | { kind: 'failed'; reason: string } | { kind: 'form'; read: Extract<ProfileEditRead, { available: true }> }
 
 /** How long an edit waits for the next one before the Harness checks the values, as on "Add project". */
-const CHECK_DELAY_MS = 350
+export const CHECK_DELAY_MS = 350
 /** Under `mode` and the Workflow folder: why the form does not edit them. */
 const FIXED_NOTE = 'Changed by moving the workflow files'
 

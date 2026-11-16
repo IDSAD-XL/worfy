@@ -8,10 +8,9 @@
 // it was asked is recorded; the check answers as bin/profile-set --check does. Beside the MCP servers list
 // stands the status of each name in the newest Session of the Project on this Machine (worfy-mcp-live
 // ticket 04): the rows of the `mcp` events this window got.
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PROFILE_CHANGED, PROFILE_EDIT_FIELDS, type ProfileEditRead } from '../../src/shared/ipc/profile-edit'
-import { ms } from '../time-scale'
 import { expectKitWindow, expectTabStaysIn, flush } from './kit-window'
 
 type Answer = { ok: true; value: unknown } | { ok: false; error: string }
@@ -44,6 +43,7 @@ vi.mock('../../src/renderer/ipc', () => ({
 vi.mock('../../src/renderer/projects/useProjects', () => ({ useReadOnly: () => main.readOnly, useProjects: () => main.projects }))
 
 const { ProjectSettings } = await import('../../src/renderer/shell/ProjectSettings')
+const { CHECK_DELAY_MS } = await import('../../src/renderer/projects/EditProfile')
 const { acceptAgentEvent, useSessionLogs } = await import('../../src/renderer/session/store')
 const { acceptOrchestratorView } = await import('../../src/renderer/canvas/nodes/orchestrator-view')
 const { acceptSessionNodeView } = await import('../../src/renderer/session/node-sessions')
@@ -107,30 +107,49 @@ beforeEach(() => {
   }
 })
 afterEach(() => {
+  vi.useRealTimers()
   cleanup()
   useSessionLogs.setState({ logs: {} })
 })
 
-/** Project settings, then "Edit profile…", and the Profile read. */
-async function openForm(machine?: string): Promise<HTMLElement> {
+/**
+ * Project settings, then "Edit profile…", and the Profile read. From then on the clock is fake (unless
+ * `realClock`): the check's debounce (CHECK_DELAY_MS) is the only timer an edit starts, and the whole
+ * path — the form and the mocked ipc — runs in this process. Testing Library's waitFor and findBy* do not
+ * move vitest's fake clock, so the tests wait with vi.waitFor; the kit's flush waits on real timers.
+ */
+async function openForm(machine?: string, { realClock = false }: { realClock?: boolean } = {}): Promise<HTMLElement> {
   render(<ProjectSettings project={PROJECT} machine={machine} onClose={() => undefined} />)
   await act(async () => {})
   // The focus on the button first, as a press in a browser puts it there: the window gives it back on closing.
   const button = screen.getByRole('button', { name: 'Edit profile…' })
   button.focus()
   fireEvent.click(button)
-  const form = await screen.findByTestId('edit-profile')
-  await within(form).findByLabelText('Title')
+  const form = await vi.waitFor(() => screen.getByTestId('edit-profile'))
+  await vi.waitFor(() => within(form).getByLabelText('Title'))
+  if (!realClock) vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], now: new Date('2026-11-16T09:00:00Z') })
   return form
 }
+
+/**
+ * Moves the fake clock by `by` ms inside act, then lets every promise the timers started settle (the mocked
+ * ipc answers in promises; setImmediate is not faked). What follows checks the DOM at once: vi.waitFor
+ * would move the fake clock by itself and hide a debounce that is longer than CHECK_DELAY_MS.
+ */
+const advance = (by: number) =>
+  act(async () => {
+    await vi.advanceTimersByTimeAsync(by)
+    await new Promise<void>((done) => setImmediate(done))
+  })
 const input = (form: HTMLElement, label: string): HTMLInputElement => within(form).getByLabelText(label) as HTMLInputElement
 const calls = (channel: string): unknown[] => main.calls.filter((call) => call.channel === channel).map((call) => call.input)
 /** The values of the last check: what the form would send. */
 const lastCheck = (): Record<string, unknown> => (calls('profileEdit.check').at(-1) as { values: Record<string, unknown> }).values
 const save = (form: HTMLElement): HTMLButtonElement => within(form).getByRole('button', { name: 'Save' }) as HTMLButtonElement
-/** Waits for the check of the last edit to come back. */
+/** Moves the clock past the debounce; the check of the last edit has come back then. */
 const checked = async (form: HTMLElement): Promise<void> => {
-  await waitFor(() => expect(form.textContent).not.toContain('Checking with the Harness'), { timeout: ms(2000) })
+  await advance(CHECK_DELAY_MS)
+  expect(form.textContent).not.toContain('Checking with the Harness')
 }
 
 describe('Edit profile', () => {
@@ -191,6 +210,20 @@ describe('Edit profile', () => {
     expect(save(form).disabled).toBe(true)
   })
 
+  it('an edit is checked once CHECK_DELAY_MS have passed with no other edit: edits closer together give one check, of the last one', async () => {
+    const form = await openForm()
+    fireEvent.change(input(form, 'Title'), { target: { value: 'Shop' } })
+    await advance(CHECK_DELAY_MS - 1)
+    fireEvent.change(input(form, 'Title'), { target: { value: 'Shop 2' } })
+    await advance(CHECK_DELAY_MS - 1)
+    expect(calls('profileEdit.check')).toHaveLength(0)
+    expect(form.textContent).toContain('Checking with the Harness')
+    await advance(1)
+    expect(calls('profileEdit.check')).toHaveLength(1)
+    expect(lastCheck().title).toBe('Shop 2')
+    expect(form.textContent).not.toContain('Checking with the Harness')
+  })
+
   it('Save writes the edited values with the fingerprint read, and Project settings says it was saved', async () => {
     const form = await openForm()
     fireEvent.change(input(form, 'Ticket path'), { target: { value: 'tickets/NN-*.md' } })
@@ -228,7 +261,7 @@ describe('Edit profile', () => {
       fireEvent.click(save(form))
     })
     expect(within(form).getByTestId('edit-profile-message').textContent).toContain('The profile changed since you opened it')
-    await waitFor(() => expect(input(form, 'verify').value).toBe('make verify'))
+    await vi.waitFor(() => expect(input(form, 'verify').value).toBe('make verify'))
     expect(input(form, 'Title').value).toBe('title')
     expect(calls('profileEdit.read')).toHaveLength(2)
     // The next Save goes with the fingerprint read again.
@@ -258,7 +291,7 @@ describe('Edit profile', () => {
     const form = await openForm()
     expect(calls('projects.connect.accounts')).toEqual([])
     fireEvent.click(within(form).getByRole('button', { name: 'Change account…' }))
-    const group = await within(form).findByRole('radiogroup', { name: 'GitHub account' })
+    const group = await vi.waitFor(() => within(form).getByRole('radiogroup', { name: 'GitHub account' }))
     expect(calls('projects.connect.accounts')).toEqual([{ root: '/repos/shop' }])
     // The Profile's account stays picked, not the step's default.
     expect((within(group).getByRole('radio', { name: /shop-bot/ }) as HTMLInputElement).checked).toBe(true)
@@ -285,7 +318,7 @@ describe('Edit profile', () => {
   })
 
   it('a window of the kit over Project settings: the dialog layer, drawn after it so it is on top, Tab stays in it (worfy-ui-kit ticket 05)', async () => {
-    const form = await openForm()
+    const form = await openForm(undefined, { realClock: true })
     await flush()
     expectKitWindow(form)
     // Base UI puts the portal of a window opened from a window into the portal of the first, after its backdrop.
@@ -410,7 +443,7 @@ describe('Edit profile', () => {
     await act(async () => {
       accounts.settle({ ok: true, value: { ...ACCOUNTS, accounts: [], selected: null } })
     })
-    const group = await within(form).findByRole('radiogroup', { name: 'GitHub account' })
+    const group = await vi.waitFor(() => within(form).getByRole('radiogroup', { name: 'GitHub account' }))
     // The row marked is the account as written: gh does not list it, so none, not "No account".
     expect((within(group).getByRole('radio', { name: /No account/ }) as HTMLInputElement).checked).toBe(false)
     expect(within(form).getByTestId('edit-profile-account').textContent).toBe('shop-bot')
@@ -425,13 +458,13 @@ describe('Edit profile', () => {
     main.answers['profileEdit.write'] = { ok: true, value: { status: 'conflict' } }
     const form = await openForm()
     fireEvent.click(within(form).getByRole('button', { name: 'Change account…' }))
-    await within(form).findByRole('radiogroup', { name: 'GitHub account' })
+    await vi.waitFor(() => within(form).getByRole('radiogroup', { name: 'GitHub account' }))
     fireEvent.change(input(form, 'Title'), { target: { value: 'Shop' } })
     await checked(form)
     await act(async () => {
       fireEvent.click(save(form))
     })
-    await waitFor(() => expect(calls('profileEdit.read')).toHaveLength(2))
+    await vi.waitFor(() => expect(calls('profileEdit.read')).toHaveLength(2))
     expect(within(form).queryByRole('radiogroup', { name: 'GitHub account' })).toBeNull()
     expect(within(form).getByRole('button', { name: 'Change account…' })).toBeTruthy()
     fireEvent.change(input(form, 'Title'), { target: { value: 'Shop' } })
@@ -452,7 +485,7 @@ describe('Edit profile', () => {
       fireEvent.click(within(form).getByRole('button', { name: 'Move files' }))
     })
     expect(calls('profileEdit.move')).toEqual([{ root: '/repos/shop', to: 'silent', folder: '/work/shop-workflow', expected: FIXED_FP }])
-    await waitFor(() => expect(within(form).getByTestId('edit-profile-mode').textContent).toBe('silent'))
+    await vi.waitFor(() => expect(within(form).getByTestId('edit-profile-mode').textContent).toBe('silent'))
     expect(within(form).getByTestId('edit-profile-message').textContent).toBe('Moved to Silent mode: 12 files, committed in the repository and in the Workflow folder.')
     expect(within(form).getByTestId('edit-profile-folder').textContent).toBe('/work/shop-workflow')
     expect(within(form).getByRole('button', { name: 'Move to Full mode…' })).toBeTruthy()
@@ -501,7 +534,7 @@ describe('Edit profile', () => {
     await act(async () => {
       answer.settle({ ok: true, value: { status: 'conflict' } })
     })
-    await waitFor(() => expect(calls('profileEdit.read')).toHaveLength(2))
+    await vi.waitFor(() => expect(calls('profileEdit.read')).toHaveLength(2))
     expect(screen.queryByText('Moving the workflow files…')).toBeNull()
     expect(within(form).getByTestId('edit-profile-message').textContent).toBe(PROFILE_CHANGED)
 
@@ -524,7 +557,7 @@ describe('Edit profile', () => {
     expect(within(form).getByTestId('edit-profile-message').textContent).toBe(
       'The move failed and was not fully rolled back: the commit in the Workflow folder failed. Put right by hand: the repository: git reset --keep 1234567',
     )
-    await waitFor(() => expect(calls('profileEdit.read')).toHaveLength(2))
+    await vi.waitFor(() => expect(calls('profileEdit.read')).toHaveLength(2))
   })
 
   it('a move names a rolled-back earlier move, the ignored files and the qmd collections that still index the old place', async () => {
@@ -543,7 +576,7 @@ describe('Edit profile', () => {
     expect(text).toContain('A move stopped half-way before was rolled back first.')
     expect(text).toContain('1 file is ignored by the .gitignore at the new place and committed all the same: docs/adr/a.png.')
     expect(text).toContain('The qmd collections shop-docs, shop-tickets still index the old place')
-    await waitFor(() => expect(within(form).queryByTestId('move-workflow-interrupted')).toBeNull())
+    await vi.waitFor(() => expect(within(form).queryByTestId('move-workflow-interrupted')).toBeNull())
   })
 
   it('a Silent Project of several repositories gets no move to Full mode, one of a single repository does', async () => {

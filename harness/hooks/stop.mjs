@@ -38,7 +38,7 @@
 // held on red too and told to report the red gate rather than fix it.
 //
 // For tests: CLAUDE_GATE_STATE (the state folder), CLAUDE_GATE_RESOLVE (the resolver),
-// CLAUDE_GATE_CONFIG (read by the resolver), CLAUDE_STOP_STDIN_WAIT_MS (a shorter wait for the input).
+// CLAUDE_GATE_RESOLVE_MS (a shorter limit for the resolver), CLAUDE_GATE_CONFIG (read by the resolver), CLAUDE_STOP_STDIN_WAIT_MS (a shorter wait for the input).
 // Tests: hooks/tests/gate-notverified.test.sh, gate-unregistered.test.sh, bin/tests/harness-home.test.sh;
 // the gate on Codex in the main checkout and in a linked worktree hooks/tests/stop-codex-checkout.test.sh;
 // on Codex inputs and on the reading of stdin test/contract/harness-codex-hooks.test.ts.
@@ -53,8 +53,9 @@ import { FIRST_BYTE_MS, firstByteWait, readStdin } from "./hook-stdin.mjs"
 
 const MAX_BLOCKS = 2
 // How long the resolver may take: about the 10 s the whole hook had under Claude Code before its
-// limit in hooks.json became the 900 s the gate run on Codex needs.
-const RESOLVE_MS = 10_000
+// limit in hooks.json became the 900 s the gate run on Codex needs. CLAUDE_GATE_RESOLVE_MS may only
+// shorten it (a test of that limit then waits 1 s, not 10); anything but a positive whole number leaves it.
+const RESOLVE_MS = firstByteWait(10_000, "CLAUDE_GATE_RESOLVE_MS")
 
 // The hook input: hook-stdin.mjs reads it as a stream (a synchronous read after a look at process.stdin
 // fails with EAGAIN when the writer is late). Without it, on Codex, the hook ran no gate and held or let

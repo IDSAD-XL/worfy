@@ -22,7 +22,7 @@ const ipc = vi.hoisted(() => ({
 }))
 vi.mock('../../src/renderer/ipc', () => ipc)
 
-const { ConnectProject } = await import('../../src/renderer/projects/ConnectProject')
+const { CHECK_DELAY_MS, ConnectProject } = await import('../../src/renderer/projects/ConnectProject')
 
 const folder: ConnectFolder = { kind: 'git', root: '/repos/shop', repos: [{ name: 'shop', path: '/repos/shop' }], notice: null }
 const draft: ProfileDraft = {
@@ -113,6 +113,31 @@ describe('the chips of the steps', () => {
 
 const NO_ORIGIN: GithubAccountsStep ={ status: 'no-origin', reason: 'No GitHub origin: shop has no origin remote.' }
 
+/**
+ * The form's tests run on fake timers: the check's debounce (CHECK_DELAY_MS) is the only timer on the way,
+ * and the whole path — the form and the mocked ipc — runs in this process. Testing Library's waitFor and
+ * findBy* do not move vitest's fake clock, so these tests wait with vi.waitFor.
+ */
+function onFakeClock(): void {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], now: new Date('2026-11-16T09:00:00Z') })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+}
+
+/**
+ * Moves the fake clock by `by` ms inside act, then lets every promise the timers started settle (the mocked
+ * ipc answers in promises; setImmediate is not faked). What follows checks the DOM at once: vi.waitFor
+ * would move the fake clock by itself and hide a debounce that is longer than CHECK_DELAY_MS.
+ */
+const advance = (by: number) =>
+  act(async () => {
+    await vi.advanceTimersByTimeAsync(by)
+    await new Promise<void>((done) => setImmediate(done))
+  })
+
 /** The dialog in its form: the draft, the account step's answer, and the check that answer started. */
 async function toForm(issues: { path: string; kind: string; message: string }[], accounts: GithubAccountsStep | Promise<GithubAccountsStep> = NO_ORIGIN, mode: 'silent' | 'full' = 'silent') {
   ipc.invoke.mockImplementation((channel: string, input?: { mode?: string }) =>
@@ -125,19 +150,35 @@ async function toForm(issues: { path: string; kind: string; message: string }[],
   open()
   if (mode === 'full') fireEvent.click(screen.getByTestId('connect-mode-full').querySelector('input') as HTMLInputElement)
   fireEvent.click(screen.getByRole('button', { name: 'Write draft' }))
-  await screen.findByLabelText('Name')
+  await vi.waitFor(() => screen.getByLabelText('Name'))
 }
 
-/** Waits until the accounts have come and the check of the last edit has come back. */
+/** Waits until the accounts have come, moves the clock past the debounce, and waits for the check of the last edit to come back. */
 const checked = async () => {
-  await waitFor(() => expect(screen.queryByTestId('connect-github-loading')).toBeNull())
-  await waitFor(() => expect(screen.getByRole('button', { name: /Connect/ }).closest('[role=dialog]')?.textContent).not.toContain('Checking the draft'), { timeout: ms(2000) })
+  await vi.waitFor(() => expect(screen.queryByTestId('connect-github-loading')).toBeNull())
+  await advance(CHECK_DELAY_MS)
+  expect(screen.getByRole('button', { name: /Connect/ }).closest('[role=dialog]')?.textContent).not.toContain('Checking the draft')
 }
 
 /** The drafts the form sent to the check, in order. */
 const checkedDrafts = (): ProfileDraft[] => ipc.invoke.mock.calls.filter(([channel]) => channel === 'projects.connect.check').map(([, input]) => (input as { draft: ProfileDraft }).draft)
 
 describe('the form', () => {
+  onFakeClock()
+
+  it('an edit is checked once CHECK_DELAY_MS have passed with no other edit: edits closer together give one check, of the last one', async () => {
+    await toForm([])
+    await checked()
+    const before = checkedDrafts().length
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'shop2' } })
+    await advance(CHECK_DELAY_MS - 1)
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'shop3' } })
+    await advance(CHECK_DELAY_MS - 1)
+    expect(checkedDrafts()).toHaveLength(before)
+    await advance(1)
+    expect(checkedDrafts()).toHaveLength(before + 1)
+    expect(checkedDrafts().at(-1)?.profile.name).toBe('shop3')
+  })
 
   it('a field the Harness refused has the blocked colour on its border; a valid one does not', async () => {
     await toForm([{ path: 'profile.name', kind: 'conflict', message: 'the name is taken' }])
@@ -158,7 +199,8 @@ describe('the form', () => {
 
     ipc.invoke.mockImplementation(() => Promise.resolve({ ok: false, error: 'main is gone' }))
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'shop2' } })
-    await waitFor(() => expect(screen.getByTestId('connect-message').textContent).toContain('The draft could not be checked'), { timeout: ms(2000) })
+    await advance(CHECK_DELAY_MS)
+    expect(screen.getByTestId('connect-message').textContent).toContain('The draft could not be checked')
     expect(connect.disabled).toBe(true)
     // Clicking it anyway writes nothing.
     await act(async () => {
@@ -169,7 +211,8 @@ describe('the form', () => {
 
     ipc.invoke.mockImplementation(() => Promise.resolve({ ok: true, value: { issues: [] } }))
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'shop3' } })
-    await waitFor(() => expect(connect.disabled).toBe(false), { timeout: ms(2000) })
+    await advance(CHECK_DELAY_MS)
+    expect(connect.disabled).toBe(false)
     expect(screen.queryByTestId('connect-message')).toBeNull()
   })
 
@@ -178,14 +221,16 @@ describe('the form', () => {
     await checked()
     ipc.invoke.mockImplementation((channel: string) => Promise.resolve(channel === 'projects.connect.write' ? { ok: false, error: 'the write broke' } : { ok: false, error: 'main is gone' }))
     fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
-    await waitFor(() => expect(screen.getByTestId('connect-message').textContent).toContain('the write broke'))
+    await vi.waitFor(() => expect(screen.getByTestId('connect-message').textContent).toContain('the write broke'))
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'shop2' } })
-    await waitFor(() => expect(screen.getByTestId('connect-message').textContent).toContain('The draft could not be checked'), { timeout: ms(2000) })
+    await advance(CHECK_DELAY_MS)
+    expect(screen.getByTestId('connect-message').textContent).toContain('The draft could not be checked')
     expect(screen.getByTestId('connect-message').textContent).not.toContain('the write broke')
   })
 })
 
 describe('attribution in the form', () => {
+  onFakeClock()
   const attribution = (): HTMLElement => screen.getByLabelText('Attribution')
   /** Chooses `value` in the Attribution field: a click on the field, then on the option. */
   const pickAttribution = (value: string): void => {
@@ -251,7 +296,6 @@ describe('attribution in the form', () => {
     fireEvent.click(shown)
     fireEvent.keyDown(shown, { key: 'Enter' })
     fireEvent.keyDown(shown, { key: ' ' })
-    await new Promise((resolve) => setTimeout(resolve, 500))
     await checked()
     expect(checkedDrafts()).toHaveLength(before)
     expect(screen.getByTestId('connect-form-mode').textContent).toBe('silent')
@@ -282,13 +326,13 @@ describe('attribution in the form', () => {
     })
     open()
     fireEvent.click(screen.getByRole('button', { name: 'Write draft' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Back' }))
+    fireEvent.click(await vi.waitFor(() => screen.getByRole('button', { name: 'Back' })))
     // The mode step again: the controls the form of a draft does not have.
     expect(screen.getByRole('radiogroup', { name: 'Mode' })).toBeTruthy()
     expect(screen.getAllByRole('radio', { name: /Silent mode|Full mode/ })).toHaveLength(2)
     fireEvent.click(screen.getByTestId('connect-mode-full').querySelector('input') as HTMLInputElement)
     fireEvent.click(screen.getByRole('button', { name: 'Write draft' }))
-    await screen.findByLabelText('Name')
+    await vi.waitFor(() => screen.getByLabelText('Name'))
     expect(draftCalls()).toMatchObject([{ mode: 'silent' }, { mode: 'full' }])
     expect(screen.getByTestId('connect-form-mode').textContent).toBe('full')
     expect(attribution().getAttribute('data-value')).toBe('on')
@@ -296,6 +340,7 @@ describe('attribution in the form', () => {
 })
 
 describe('the GitHub account step', () => {
+  onFakeClock()
   const ACCOUNTS: GithubAccountsStep = {
     status: 'accounts',
     repos: [{ name: 'shop', host: 'github.com', slug: 'acme/shop' }],
@@ -323,7 +368,7 @@ describe('the GitHub account step', () => {
     await checked()
     expect(checkedDrafts().at(-1)?.profile).toMatchObject({ github: { account: null }, workflow: { finish: 'local-green' } })
     // Connect writes the draft with the last choice.
-    await waitFor(() => expect((screen.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(false))
+    await vi.waitFor(() => expect((screen.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(false))
     fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
     const write = ipc.invoke.mock.calls.find(([channel]) => channel === 'projects.connect.write')
     expect((write?.[1] as { draft: ProfileDraft }).draft.profile).toMatchObject({ github: { account: null }, workflow: { finish: 'local-green' } })
@@ -333,13 +378,15 @@ describe('the GitHub account step', () => {
     let answer: (step: GithubAccountsStep) => void = () => undefined
     await toForm([], new Promise<GithubAccountsStep>((resolve) => (answer = resolve)))
     expect(screen.getByTestId('connect-github-loading')).toBeTruthy()
-    await new Promise((resolve) => setTimeout(resolve, 400))
+    // Past the check's debounce, the accounts still out: Connect still waits.
+    await advance(CHECK_DELAY_MS)
     expect((screen.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(true)
     await act(async () => {
       answer(ACCOUNTS)
       await Promise.resolve()
     })
-    await waitFor(() => expect((screen.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(false), { timeout: ms(2000) })
+    await advance(CHECK_DELAY_MS)
+    expect((screen.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(false)
     expect(checkedDrafts().at(-1)?.profile).toMatchObject({ github: { account: 'alice' } })
   })
 
@@ -421,7 +468,8 @@ describe('Add project is a window of the kit', () => {
     const later = await openFromButton()
     fireEvent.click(screen.getByRole('button', { name: 'Write draft' }))
     await screen.findByLabelText('Name')
-    await checked()
+    // Real timers here (flush waits on them): the check's debounce runs out by itself.
+    await waitFor(() => expect(later.window.textContent).not.toContain('Checking the draft'), { timeout: ms(2000) })
     fireEvent.mouseDown(later.window.parentElement!)
     await flush()
     expect(later.onClose).not.toHaveBeenCalled()

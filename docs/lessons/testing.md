@@ -175,3 +175,23 @@ test (worfy-polish 50). Набор Fault scenario-ев теперь есть: te
 исправление. Сценарий не лечит: дефект — свой Ticket с подразделом «Инцидент» в «Итог», сценарий — его первый падающий test.
 Проверка: test/contract/autopilot-faults-api.test.ts:64 — API 500: Run останавливается с `turn-error`, новый старт той же Session проходит, команда Wave уходит один раз, `checkRecovery` пуст.
 Источник: worfy-polish/50, worfy-faults/07.
+
+## Fake timers — только когда весь путь test-а идёт в его процессе; иначе короткое значение через опцию продукта
+
+Fake timers vitest двигают только timer-ы процесса test-а. Дочерний процесс (git, shell в pty, fake agent, hook), chokidar
+и fs.watch, сокеты, чтение файлов между timer-ами живут на настоящем времени, и `advanceTimersByTimeAsync` опережает их
+ответ: получается порядок событий, которого в приложении нет. Fake timers без `now` уже давали flaky test
+(`orchestrator-continue`, PR #1760). Testing Library под ними висит: его `waitFor`/`findBy*` ждут через фейковый
+`setTimeout` (`asyncWrapper`), а `vi.waitFor` сам двигает фейковые часы на свой интервал и прячет задержку длиннее
+заданной.
+Как узнать: test высиживает задержку продукта (debounce формы, задержку tooltip-а, предел ожидания хода) или паузу
+«за N ms ничего не случилось».
+Что делать: весь путь в процессе test-а (jsdom, mocked ipc) — `vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], now: <дата> })`,
+время — `await act(() => vi.advanceTimersByTimeAsync(<задержка из экспорта продукта>))`, проверка сразу после, ожидание
+условия — `vi.waitFor`, `vi.useRealTimers()` в `afterEach` или `finally`; для кадров React Flow добавить в `toFake`
+`requestAnimationFrame`. Рядом настоящий процесс — короткое значение через опцию продукта (`haltTurnMs` Autopilot-а,
+`CLAUDE_GATE_RESOLVE_MS` Stop hook-а, `returnGraceMs`), значение по умолчанию прежнее; или барьер (`watcher.idle()`).
+Негативная пауза пишется без `ms()`: множитель нужен пределам ожидания того, что должно прийти.
+Замер, риски и кандидаты — [docs/research/2026-11-16-fake-timers.md](../research/2026-11-16-fake-timers.md).
+Проверка: проверки нет: правило о том, как пишется test; lint опций `useFakeTimers` нет, урок держится ревью линзы «тесты».
+Источник: worfy-polish/119.

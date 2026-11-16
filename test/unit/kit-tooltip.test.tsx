@@ -7,7 +7,7 @@
 // that writeAction spreads (projects/read-only.ts), shown by HintTooltips mounted once for the window.
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { KeyboardEvent, ReactNode } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { writeAction } from '../../src/renderer/projects/read-only'
 import { HINT_ATTRIBUTE } from '../../src/renderer/theme/kit/hint'
 import { HintTooltips, Tooltip, TOOLTIP_DELAY_MS } from '../../src/renderer/theme/kit/Tooltip'
@@ -16,8 +16,17 @@ import { LAYERS } from '../../src/renderer/theme/layers'
 
 const HINT = 'Mini gives this Machine read-only access'
 
-/** Lets Base UI's effects and timers run. */
-const flush = (ms = 20) => act(() => new Promise<void>((resolve) => setTimeout(resolve, ms)))
+// The tooltip's delay (TOOLTIP_DELAY_MS) and Base UI's own timers run on fake timers: the whole path — the
+// element, the pointer and key events, the tooltip — runs in this process.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], now: new Date('2026-11-16T09:00:00Z') })
+})
+afterEach(() => {
+  vi.useRealTimers()
+})
+
+/** Lets Base UI's effects and timers run: the fake clock moves by `by` ms, inside act. */
+const flush = (by = 20) => act(() => vi.advanceTimersByTimeAsync(by))
 
 /** The keyboard moves the focus onto `element`: a Tab press, then the focus. */
 async function tabTo(element: HTMLElement): Promise<void> {
@@ -243,9 +252,9 @@ describe('the hint of an aria-disabled write action (writeAction, HintTooltips)'
     const onClick = vi.fn()
     render(<Probe onClick={onClick} />)
     fireEvent.mouseOver(action())
-    await flush(TOOLTIP_DELAY_MS / 2)
+    await flush(TOOLTIP_DELAY_MS - 1)
     expect(tooltip()).toBeNull()
-    await flush(TOOLTIP_DELAY_MS)
+    await flush(1)
     expect(tooltip()?.textContent).toBe(HINT)
     fireEvent.pointerDown(action())
     fireEvent.mouseDown(action())
