@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-15T23:45Z
+PR: #1889
 Branch: worfy-code-stories/01
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», строка 01; «Решения владельца» 3, 4, 8, 9, 16, 17, 24, 27 (строки 94–135);
