@@ -2,12 +2,42 @@
 # npm for the release check (test/contract/workflow-release.test.ts): only shell built-ins. Logs its arguments and the
 # folder it ran in to $RELEASE_STUB_CALLS. `npm view <name>@<version> version` prints the version when
 # "<name>@<version>" is in $RELEASE_STUB_PUBLISHED (space separated) and nothing otherwise, as npm does for a version
-# that is not there; with $RELEASE_STUB_CODE not 0 it fails as npm does when the registry does not answer.
+# that is not there; with $RELEASE_STUB_MISSING=e404 such a version fails with E404 and exit 1 instead, as npm 11 does;
+# with $RELEASE_STUB_MISSING=package the package itself is not found (no access, a typo), npm 11's other E404; with
+# $RELEASE_STUB_CODE not 0 it fails as npm 11 does when the registry does not answer, after a warning about the
+# user's .npmrc; with $RELEASE_STUB_CRASH=1 it fails with an error that has no code, after that warning. Each failure
+# ends with the line of npm 11 that names the debug log, its path different on every run.
 printf 'npm %s cwd=%s\n' "$*" "$(pwd)" >>"$RELEASE_STUB_CALLS"
+warn() {
+  printf 'npm warn Unknown user config "always-auth". This will stop working in the next major version of npm.\n' >&2
+}
+log() {
+  printf 'npm error A complete log of this run can be found in: /npm/_logs/%s-debug-0.log\n' "$$" >&2
+}
 if [ "${RELEASE_STUB_CODE:-0}" -ne 0 ]; then
-  printf 'npm error code ENOTFOUND\nnpm error network request to https://registry.example/ failed\n' >&2
+  warn
+  printf "npm error code ENOTFOUND\nnpm error syscall getaddrinfo\nnpm error errno ENOTFOUND\nnpm error network request to https://registry.example/ failed\nnpm error network This is a problem related to network connectivity.\nnpm error network In most cases you are behind a proxy or have bad network settings.\nnpm error network\nnpm error network If you are behind a proxy, please make sure that the\nnpm error network 'proxy' config is set properly.  See: 'npm help config'\n" >&2
+  log
   exit "$RELEASE_STUB_CODE"
+fi
+if [ "${RELEASE_STUB_CRASH:-}" = 1 ]; then
+  warn
+  printf "npm error Cannot read properties of undefined (reading 'version')\n" >&2
+  log
+  exit 1
 fi
 case " $RELEASE_STUB_PUBLISHED " in
   *" $2 "*) printf '%s\n' "${2##*@}" ;;
+  *)
+    if [ "${RELEASE_STUB_MISSING:-}" = e404 ]; then
+      printf "npm error code E404\nnpm error 404 No match found for version %s\nnpm error 404\nnpm error 404  The requested resource '%s' could not be found or you do not have permission to access it.\n" "${2##*@}" "$2" >&2
+      log
+      exit 1
+    fi
+    if [ "${RELEASE_STUB_MISSING:-}" = package ]; then
+      printf "npm error code E404\nnpm error 404 Not Found - GET https://registry.example/%s - Not found\nnpm error 404\nnpm error 404  The requested resource '%s' could not be found or you do not have permission to access it.\nnpm error 404\nnpm error 404 Note that you can also install from a\nnpm error 404 tarball, folder, http url, or git url.\n" "${2%@*}" "$2" >&2
+      log
+      exit 1
+    fi
+    ;;
 esac

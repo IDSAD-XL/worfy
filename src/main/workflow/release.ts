@@ -53,8 +53,12 @@ const NPM_TIMEOUT_MS = 30_000
 /** Variables that would point git at another repository than the one `-C` names. */
 const GIT_LOCATION_VARS = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE']
 
-/** A tag worfy passes to git: letters, digits and `._/+-`, not starting with a sign. */
-const TAG = /^[A-Za-z0-9][A-Za-z0-9._/+-]*$/u
+/**
+ * A tag worfy passes to git: letters, digits and `._/+-@`, not starting with a sign other than `@`. `@` is for the tags
+ * changesets makes, `<name>@<version>` and `@scope/name@<version>`; cmd.exe gives it no meaning inside a command line.
+ * Not all `git check-ref-format` takes: `&`, `|`, `%` and the like would reach cmd.exe.
+ */
+const TAG = /^[A-Za-z0-9@][A-Za-z0-9._/+@-]*$/u
 /** `<name>@<version>` of npm: a name of lower case letters, with a scope or without. */
 const PACKAGE = /^((?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*)@(.+)$/u
 /**
@@ -75,20 +79,46 @@ export function packageOf(ref: string): { name: string; version: string } | { re
 
 const defaultRun: ReleaseToolRunner = (name, args, cwd, env, timeoutMs) => runTool(name, args, env, timeoutMs, { cwd })
 
-const lastLine = (text: string): string =>
+const linesOf = (text: string): string[] =>
   text
     .split(/\r?\n/u)
     .map((line) => line.trim())
     .filter((line) => line !== '')
-    .at(-1) ?? ''
+
+const lastLine = (text: string): string => linesOf(text).at(-1) ?? ''
 
 const keyOf = (release: TicketRelease, places: ReleasePlaces): string => [release.kind, release.ref, places.library ?? '', places.consumer ?? ''].join('\n')
 
 const notChecked = (reason: string): ReleaseCheck => ({ state: 'not checked', reason })
 
-/** Why a run that did not exit 0 tells nothing: its exit code and the last line of its stderr. */
-const failure = (command: string, run: ToolRun): string =>
-  run.missing ? `${command.split(' ')[0] ?? command} is not on the PATH` : `${command} exited ${run.code === null ? 'without a code' : String(run.code)}${lastLine(run.stderr) === '' ? '' : `: ${lastLine(run.stderr)}`}`
+/**
+ * npm 11 answers a version the package does not have with E404, exit 1 and this summary (its lib/commands/view.js);
+ * npm before 11 printed nothing and exited 0. A package that is not there or not readable with the consumer's .npmrc
+ * is an E404 too, but with `404 Not Found - GET …`: that is not checked, as a private registry without access looks
+ * the same.
+ */
+const NO_SUCH_VERSION = /^npm error 404 No match found for version /mu
+
+/** npm's last line on a failure names its debug log, a new file on every run. */
+const NPM_LOG = /A complete log of this run can be found in:/u
+
+/**
+ * What failed, by npm's stderr: the line after `npm error code <code>` that is not its syscall or errno, where npm puts
+ * the summary before its help text; without a code, the last line. Never the debug log line.
+ */
+const npmReason = (stderr: string): string => {
+  const lines = linesOf(stderr).filter((line) => !NPM_LOG.test(line))
+  const code = lines.findIndex((line) => /^npm \S+ code \S+$/u.test(line))
+  const summary = code === -1 ? undefined : lines.slice(code + 1).find((line) => !/^npm \S+ (?:syscall|errno) /u.test(line))
+  return summary ?? lines.at(-1) ?? ''
+}
+
+/** Why a run that did not exit 0 tells nothing: its exit code and the line of its stderr `reasonOf` picks (the last). */
+const failure = (command: string, run: ToolRun, reasonOf: (stderr: string) => string = lastLine): string => {
+  if (run.missing) return `${command.split(' ')[0] ?? command} is not on the PATH`
+  const reason = reasonOf(run.stderr)
+  return `${command} exited ${run.code === null ? 'without a code' : String(run.code)}${reason === '' ? '' : `: ${reason}`}`
+}
 
 export class ReleaseReader {
   private readonly run: ReleaseToolRunner
@@ -174,8 +204,9 @@ export class ReleaseReader {
     if ('reason' in found) return notChecked(found.reason)
     if (consumer === null) return notChecked('no checkout of a consumer to run npm view in')
     const run = await this.run('npm', ['view', `${found.name}@${found.version}`, 'version'], consumer, await this.options.env(), NPM_TIMEOUT_MS)
-    if (run.code !== 0) return notChecked(failure('npm view', run))
-    // A published version is printed alone; a version that is not there prints nothing, with exit 0.
+    // Not published yet: npm 11 fails with E404 and `No match found for version`. Any other failure is not checked.
+    if (run.code !== 0) return NO_SUCH_VERSION.test(run.stderr) ? { state: 'waiting', reason: null } : notChecked(failure('npm view', run, npmReason))
+    // A published version is printed alone; a version that is not there prints nothing, with exit 0 (npm before 11).
     const printed = run.stdout.split(/\r?\n/u).map((line) => line.replace(/'/gu, '').trim().split(/\s+/u).at(-1))
     return { state: printed.includes(found.version) ? 'released' : 'waiting', reason: null }
   }
