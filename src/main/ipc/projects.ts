@@ -60,8 +60,9 @@ import { ProjectRemover, removalPreview, type ProjectRemovalDeps } from '../proj
 import { deleteTeamReviewer, offerTeamReviewer, privateFolder, probeRunner, readProfileDir, readTeamReviewer, remindTeamReviewer } from '../projects/review-offer'
 import { readProjectSettings, writeHumanReviewOffer, writeHumanReviewReminder, writeProjectSettings } from '../projects/settings'
 import { projectStore, runGit } from '../projects/store'
-import { claudeHome, harnessHome } from '../storage/paths'
+import { claudeHome, dataRoot, harnessHome } from '../storage/paths'
 import type { TerminalRegistry } from '../terminal/pty'
+import { assistDir } from '../terminal-ai/options'
 import { claudeOneShotOver } from '../vendors/claude/one-shot'
 import type { OneShot } from '../vendors/one-shot'
 import { vendorDriver } from '../vendors/registry'
@@ -151,6 +152,8 @@ function connector(): ProjectConnector {
     connect: appConnectScript(),
     harness: () => appInstaller().status(),
     oneShot: draftOneShotFromEnv(),
+    // Outside every Project, as the story request (ipc/stories.ts): no Session of the Project is left behind.
+    runDir: () => assistDir(dataRoot()),
     draftSchema: () => JSON.parse(readFileSync(join(bundledHarnessDir(), 'profiles', 'draft.schema.json'), 'utf8')) as Record<string, unknown>,
     reportsLanguage: systemLanguage,
     add: async (root, options) => {

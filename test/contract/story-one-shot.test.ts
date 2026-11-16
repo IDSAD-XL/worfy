@@ -151,7 +151,7 @@ describe('the build of a story leaves no Session Node', () => {
     expect(existsSync(join(claudeHome(), 'projects'))).toBe(false)
   })
 
-  it('the draft of a profile, the other oneShot, still runs as it did: no persistSession, no extra folder', async () => {
+  it('a oneShot that asks for neither ephemeral nor readFolders gets neither option', async () => {
     mocks.answer = { profile: {} }
     await vendorDriver('claude').oneShot('draft', { cwd: root, readOnlyTools: ['Read'], outputSchema: { type: 'object' } })
     expect(mocks.calls[0]!.options).not.toHaveProperty('persistSession')

@@ -215,6 +215,7 @@ function connectorWith(overrides: Partial<ConnectDeps> & { script?: string; scri
       requests.push(request)
       return fake(request)
     }),
+    runDir: () => join(scratch, 'worfy-data', 'terminal-ai'),
     draftSchema: () => SCHEMA,
     reportsLanguage: () => 'ru',
     add: async (root, options): Promise<AddOutcome> => {
@@ -981,7 +982,7 @@ describe('the Harness check (step 3)', () => {
 })
 
 describe('the draft Session (step 4)', () => {
-  it('runs in the folder with the draft schema and only Read/Glob/Grep; its first message is the skill with the facts of the repository', async () => {
+  it('runs in worfy\'s own folder, reads the folder as an extra one, keeps no transcript, with the draft schema and only Read/Glob/Grep; its first message is the skill with the facts of the repository', async () => {
     const repo = makeRepo(join(scratch, 'shop'))
     const run = connectorWith()
     const activity: string[] = []
@@ -991,7 +992,10 @@ describe('the draft Session (step 4)', () => {
 
     expect(run.requests).toHaveLength(1)
     const request = run.requests[0]
-    expect(request?.cwd).toBe(repo)
+    // Outside the folder, so no Session of the Project stays behind (test/contract/profile-draft-session.test.ts).
+    expect(request?.cwd).toBe(join(scratch, 'worfy-data', 'terminal-ai'))
+    expect(request?.additionalDirectories).toEqual([repo])
+    expect(request?.persistSession).toBe(false)
     expect(request?.outputFormat.type).toBe('json_schema')
     expect(request?.allowedTools).toEqual(['Read', 'Glob', 'Grep'])
     expect(request?.disallowedTools).toEqual(expect.arrayContaining(['Bash', 'Write', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Task']))
@@ -1003,6 +1007,7 @@ describe('the draft Session (step 4)', () => {
     expect(messages).toEqual([draftMessage(repo, 'silent', facts)])
     expect(messages[0]?.startsWith(`/worfy:connect-project ${repo} silent --draft-only\n`)).toBe(true)
     expect(messages[0]).toContain('run no commands')
+    expect(messages[0]).toContain(`read its files by absolute paths under ${repo}`)
     expect(messages[0]).toContain('"origin": null')
     expect(activity).toEqual(['Reading the repositories', 'Claude Code started', `Read ${repo}/package.json`, `Grep ${repo}/package.json`, 'The draft is ready'])
 

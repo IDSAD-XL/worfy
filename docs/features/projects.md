@@ -225,6 +225,9 @@ Project joins the list there without changing that Machine's active Project, and
   or starts agents is taken away and refused. It has no shell, so what only a command could tell (remotes, branches) is read
   first by a Harness script and handed to it as data. worfy then sets over the answer the values it owns: the mode, the
   Workflow folder, the worktree root, the language of reports, no GitHub account and the Profile name in each Gate entry.
+- **The draft leaves no Session behind.** Its request runs in worfy's own folder `<WORFY_DATA_DIR>/terminal-ai`, reads the
+  picked folder as an extra folder by absolute paths, and Claude Code keeps no transcript of it. So once the folder is a
+  Project, its Sessions list holds no Session the person never started, and the facts of the draft stay nowhere on disk.
 - **What Connect writes**, all through `harness/bin/project-connect`: `profile.json` and `rules.md`, the Gate registry
   entries, the default Workflow folder with `git init`, and one commit in the Harness home. A failure half-way rolls it back.
   In Silent mode the repositories get one thing, the line `.claude/worktrees/` in `.git/info/exclude`. Nothing goes into a
@@ -285,6 +288,8 @@ Project joins the list there without changing that Machine's active Project, and
 
 - `test/contract/projects-connect.test.ts`: the steps with stand-ins and with the real scripts, the tools of the draft
   Session, the time limits, the attribution held to `bin/profile`.
+- `test/contract/profile-draft-session.test.ts`: after the draft and Connect, the Project has no live and no history
+  Session, and no transcript of the draft exists.
 - `test/e2e/projects-connect.spec.ts`: Silent by default, the draft, the form, Connect, the Harness not installed, the account.
 - `test/e2e/silent-project.spec.ts`: a Silent Project and a Project over two repositories in the built app, with nothing
   written into the Workflow folder or the repositories.

@@ -20,6 +20,14 @@
 //    checked against the whole schema of the file by `bin/project-connect --schema-only`; worfy then
 //    sets what it owns (applyChoices: the mode, the Workflow folder, and in Silent mode `attribution`
 //    off as the form's starting value) and asks `--check` for the form.
+//    The request runs outside the folder, in worfy's own folder (`runDir`, <WORFY_DATA_DIR>/terminal-ai),
+//    reads the folder as an extra one (`readFolders`) and keeps no transcript (`ephemeral`). Claude Code
+//    registers a request under its cwd and keeps its transcript under the cwd's folder of
+//    ~/.claude/projects: a draft run in the folder became a history Session of the Project once the folder
+//    was connected — a Session the person never started, holding the draft's prompt (contract test
+//    test/contract/profile-draft-session.test.ts, red at first). The story request does the same
+//    (src/main/stories/one-shot.ts). With its cwd elsewhere, the request reads the folder by absolute
+//    paths, which its first message asks for (draftMessage).
 // 5./6. The form's checks and the write go through `bin/project-connect` only (ADR-0002: worfy
 //    changes workflow state only with the Harness's tools); worfy writes nothing itself — not in the
 //    Harness home and never in the Project's repositories (ADR-0005). After the write `bin/profile -C`
@@ -33,7 +41,7 @@
 // draft, the list — comes in through ConnectDeps, so the contract test runs the steps with stand-ins.
 // connectScriptRunner is the app's `connect`: it starts bin/project-connect through the shared
 // launcher of the Harness scripts (src/main/workflow/profile.ts), as `node <script>`.
-import { existsSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import type { HarnessStatus } from '../../shared/ipc/harness'
 import type { ConnectFolder, ConnectMode, DraftIssue, GithubAccountsStep, ProfileDraft } from '../../shared/ipc/projects'
@@ -132,6 +140,11 @@ export interface ConnectDeps {
   harness: () => Promise<HarnessStatus>
   /** The single request of the draft: vendorDriver(<vendor>).oneShot, or one over the fake agent in tests. */
   oneShot: OneShot
+  /**
+   * worfy's own folder outside every Project the draft's request runs in (<WORFY_DATA_DIR>/terminal-ai);
+   * made before the request.
+   */
+  runDir: () => string
   /** harness/profiles/draft.schema.json of the Harness this build carries, as the file has it; the Session gets `sessionSchema` of it. */
   draftSchema: () => Record<string, unknown>
   /** `language.reports` by default: the system language (`app.getLocale()`), `ru` or `en`. */
@@ -290,13 +303,17 @@ export function harnessBlocker(status: HarnessStatus): string | null {
 // ── step 4: the draft Session ───────────────────────────────────────────────
 
 /**
- * The first message of the draft Session; a folder with a space goes in double quotes. The facts of
- * `bin/project-connect --facts` follow as JSON: what the Session would otherwise need a command for.
+ * The first message of the draft Session; a folder with a space goes in double quotes. The request
+ * runs outside the folder, so the message asks for absolute paths under it: Glob and Grep without a
+ * path look in the cwd. The facts of `bin/project-connect --facts` follow as JSON: what the Session
+ * would otherwise need a command for.
  */
 export function draftMessage(root: string, mode: ConnectMode, facts: unknown): string {
   const folder = /\s/.test(root) ? `"${root}"` : root
   return [
     `/worfy:connect-project ${folder} ${mode} --draft-only`,
+    '',
+    `The folder is not your working directory: read its files by absolute paths under ${root}, and give Glob and Grep that folder as their path.`,
     '',
     'Facts of the repositories, read by bin/project-connect --facts (run no commands; use these):',
     '```json',
@@ -519,8 +536,12 @@ export class ProjectConnector {
         return { status: 'failed', reason: error instanceof Error ? error.message : String(error), issues: [] }
       }
       if (stopped()) return { status: 'stopped' }
+      const cwd = this.deps.runDir()
+      mkdirSync(cwd, { recursive: true })
       const answer = await this.deps.oneShot(draftMessage(folder.root, input.mode, facts), {
-        cwd: folder.root,
+        cwd,
+        readFolders: [folder.root],
+        ephemeral: true,
         readOnlyTools: DRAFT_TOOLS,
         outputSchema: sessionSchema(this.deps.draftSchema()),
         onActivity,
