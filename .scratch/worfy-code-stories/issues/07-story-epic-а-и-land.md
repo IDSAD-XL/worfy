@@ -1,7 +1,8 @@
 # 07 — Story Epic-а: последний PR Epic-а с кодом узнаётся до `land`, `story.md` едет в documents PR
 
 Type: feature
-Status: open
+Status: done 2026-11-16T19:30Z
+PR: #1922
 Blocked by: 02, 05, 06
 Source: [spec.md](../spec.md), «Ticket-ы», строка 07; «Волны», Wave 5; «Решения владельца» 2, 7, 8, 13, 17, 19, 22
 (строки 92–93, 98–100, 109–112, 117–120, 125–126); «Решения по реализации» → Harness: «Story Epic-а» (строки 222–233);
