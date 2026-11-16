@@ -1,7 +1,8 @@
 # 14 — Eval-сценарий implementer-а: story PR на учебном Ticket-е проходит `story-check`
 
 Type: task
-Status: claimed 2026-11-16T13:28Z
+Status: done 2026-11-16T18:42Z
+PR: #1916
 Blocked by: 05
 Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения владельца» 21 (строки 123–124); «Решения по test-ам», В
 (строки 285–289); «Риски»: «Отказ `reasoning_extraction`», «Codex» (строки 346–356); «Готово, когда» spec-а, пункт eval
@@ -67,6 +68,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения 
   - evidence: test-run pass · `pnpm eval:harness -- --case implementer-story --dry-run` exit 0 · mac - · cd5efde2783f2e34ba6cc95e0d8efc779aaf277c
   - evidence: test-run pass · `pnpm eval:harness -- --case implementer-story --dry-run` exit 0 · mac - · ab699c3ba626053e81850f9d6a4c33a6e118463a
 - [ ] (manual) Платный run руками с `--max-cost-usd` ниже 100: graders зелёные; цена и число run-ов в «Итог».
+  - evidence: test-run pass · paid run pnpm eval:harness --case implementer-story: score 0.83 over 3 runs (threshold 0.8), 2.67 USD; run 1 wrote no story (no GitHub in the fixture) · mac - · d15b37c1c4373f40bc1830429730f67336cfb8ea
 - [ ] Сценарий не входит ни в один workflow CI и ни в gate (grep по `.github/workflows` и `harness/hooks/gate.mjs`
       пустой).
   - evidence: test-run pass · `grep -rn implementer-story .github/workflows harness/hooks/gate.mjs` exit 1 (no match) · mac - · b1bb184b224bfcecaf69deda07ce4fee2d615f33
