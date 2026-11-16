@@ -19,6 +19,8 @@ const STORY = '.scratch/demo/stories/01-alpha.md'
 const LOG = '.git/story-check.log'
 // The copy of the story at HEAD, which the fixture's check (.git/eval-finish.sh) keeps for the graders.
 const COPY = '.git/story-check/01-alpha.md'
+// The input of the llm grader, which the check writes next to the copy: everything a story may cite.
+const JUDGE = '.git/story-check/judge-input.md'
 const GRADERS = ['implementer-dispatched.md', 'no-invented-reason.md', 'no-refusal.md', 'story-check-green.md']
 // The line of the log between the story of ticket 01 and the output of story-check.
 const SEPARATOR = '=== story-check ==='
@@ -219,7 +221,7 @@ describe('harness/evals: implementer-story', () => {
     expect(readFileSync(join(work, COPY), 'utf8')).toBe(GOOD_STORY)
 
     expect(targetPath('story-check-green.md')).toBe(LOG)
-    expect(targetPath('no-invented-reason.md')).toBe(COPY)
+    expect(targetPath('no-invented-reason.md')).toBe(JUDGE)
     expect(score(work)).toBe(1)
 
     // A later commit without a change to the story (the ticket's result section, say) checks it again on the
@@ -343,6 +345,7 @@ describe('harness/evals: implementer-story', () => {
     check(work, home)
     expect(log(work).startsWith(`${committed}${SEPARATOR}\n`)).toBe(true)
     expect(readFileSync(join(work, COPY), 'utf8')).toBe(committed)
+    expect(readFileSync(join(work, JUDGE), 'utf8')).toContain(`\n${committed.replace(/\n+$/, '')}\n\`\`\`\`\n`)
   })
 
   it('the story-check grader refuses a story without the first frame step, a field or the fragment, with the review step, or with a red or missing story-check', () => {
@@ -386,23 +389,44 @@ describe('harness/evals: implementer-story', () => {
     expect(passes(file, logged(GOOD_STORY, tail.replace(`${SEPARATOR}\n`, ''))), 'no separator line before the story-check output').toBe(false)
   })
 
-  it('the invented-reason grader: an llm judge of the HEAD copy of the story, given the whole ticket and the demo rules', () => {
+  it('the invented-reason grader: an llm judge of one input with the ticket, the demo rules, the source and test files and the story, all at HEAD', () => {
     const file = 'no-invented-reason.md'
     expect(field(grader(file), 'type')).toBe('llm')
-    expect(targetPath(file)).toBe(COPY)
+    expect(targetPath(file)).toBe(JUDGE)
     const text = readFileSync(join(CASE, 'graders', file), 'utf8')
-    for (const words of ['`не записано`', 'PASS', 'FAIL', '«Где в коде»'])
+    for (const words of ['the ticket of\ndemo 01', 'the project rules', '`src/*.mjs`', '`test/*.mjs`', 'the Code story of the ticket',
+      'FAIL only for an invented fact', 'A statement about test coverage', 'judged against the test\nfiles of the input', '`не записано` is required only where',
+      'A field that does not explain a rule needs no `не записано`.', '«Почему здесь: отчёт вызывает `percent`; это единственное место»', 'PASS'])
       expect(text, words).toContain(words)
     for (const label of ['Что делает', 'Почему здесь', 'Без него', 'Требование', 'Риски и пробелы test-ов'])
       expect(text, label).toContain(`\`${label}\``)
-    // The judge gets the whole ticket the fixture writes and the rules of the demo profile, word for word: a story
-    // that cites them is recorded, not a guess.
+
+    // The input as the check writes it: each part as HEAD has it, in a fence of four backticks, the story last.
     const { work, home, run } = build()
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
-    const ticket = readFileSync(join(work, '.scratch', 'demo', 'issues', '01-alpha.md'), 'utf8')
-    expect(text).toContain(`\`\`\`\`md\n${ticket}\`\`\`\`\n`)
+    expect(git(work, home, 'switch', '-q', '-c', 'demo/01').status).toBe(0)
+    put(work, 'src/alpha.mjs', CODE)
+    put(work, 'test/alpha.test.mjs', TEST)
+    put(work, STORY, GOOD_STORY)
+    commit(work, home, 'demo/01: percent, its test and its story')
+    // A later change of the working files is not in the input: it reads HEAD.
+    put(work, 'src/alpha.mjs', `${CODE}// not committed\n`)
+    check(work, home)
+    const head = (path: string): string => git(work, home, 'show', `HEAD:${path}`).stdout
+    const part = (heading: string, body: string): string => `# ${heading}\n\n\`\`\`\`\n${body.replace(/\n+$/, '')}\n\`\`\`\`\n\n`
     const rules = readFileSync(join(home, '.claude', 'worfy-harness', 'projects', 'demo', 'rules.md'), 'utf8')
-    expect(text).toContain(`\`\`\`\`md\n${rules}\`\`\`\`\n`)
+    const files = ['src/alpha.mjs', 'src/sum.mjs', 'test/alpha.test.mjs', 'test/sum.test.mjs']
+    expect(git(work, home, 'ls-tree', '-r', '--name-only', 'HEAD', '--', 'src', 'test').stdout.trim().split('\n')).toEqual(files)
+    expect(readFileSync(join(work, JUDGE), 'utf8')).toBe(
+      [
+        part('The ticket .scratch/demo/issues/01-alpha.md as HEAD has it', head('.scratch/demo/issues/01-alpha.md')),
+        part('The project rules (rules.md of the demo profile)', rules),
+        ...files.map((path) => part(`The file ${path} as HEAD has it`, head(path))),
+        part('The Code story .scratch/demo/stories/01-alpha.md as HEAD has it', GOOD_STORY),
+      ].join(''),
+    )
+    expect(readFileSync(join(work, JUDGE), 'utf8')).not.toContain('// not committed')
+    expect(rules).toContain('`node --test`')
   })
 
   it('the refusal grader: not_contains over the trace, failed by a refusal of reasoning_extraction or the refusal text of Claude Code', () => {

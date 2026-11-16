@@ -103,9 +103,10 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения 
     `.scratch/demo/stories/01-alpha.md` и `EXIT=0`. Пункт «Готово, когда» просил отдельные graders «файл есть»,
     «exit 0» и «части на месте»; при пяти grader-ах один красный давал 4/5 = 0.8, и сценарий проходил (review круг 1),
     поэтому три проверки — один regex.
-  - `no-invented-reason` — `llm` по копии story, с полным текстом ticket-а и правилами учебного проекта: ни одно поле
-    code step-а не называет причину или факт, которых нет в ticket-е, в правилах и в цитате кода, а где причина
-    нужна — `не записано`. Regex этого не различает.
+  - `no-invented-reason` — `llm` по `.git/story-check/judge-input.md` (ticket, правила учебного проекта, исходные
+    файлы и test-ы из HEAD, story): ни одно поле code step-а не называет факт, которого нет в ticket-е и правилах и
+    который не следует из кода и test-ов; `не записано` — только вместо причины правила, которую ticket не записал.
+    Regex этого не различает.
   - `no-refusal` — нет отказа `reasoning_extraction` в trace.
   - `implementer-dispatched` — `tool_used`: его требует contract test каждого сценария.
 - Dry run `pnpm eval:harness -- --case implementer-story --dry-run` — exit 0. План: один вызов `main-implementer-story` —
@@ -133,5 +134,11 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения 
     Это пробел текста Harness-а, не grader-а: в `story-pr.md` добавлено правило для `Why here` — только то, что
     записано в ticket-е, правилах или коде; место из списка файлов ticket-а и `not recorded` для причины; не
     выводить, кто вызывает код, что ещё его использует, и мотив.
-  - Всего 10.63 USD. Proof run исправленного head-а — за владельцем:
+  - head b67409e1d, 3 run-а, 3.19 USD (run координатора) — 0.75: implementer прочитал новое правило, все три story
+    честные («Почему здесь: ticket называет `src/alpha.mjs` в «Где в коде»»), а судья ставил FAIL 9 из 9. Причина —
+    вход и критерий судьи: он видел только story и Ticket, без test-ов, и считал вымыслом «отрицательные `done`
+    test-ом не покрыты» в «Рисках». Исправлено: `.git/eval-finish.sh` пишет `.git/story-check/judge-input.md` (Ticket,
+    правила, `src/*.mjs`, `test/*.mjs` из HEAD и story); критерий валит только придуманный факт, покрытие сверяет с
+    test-ами, `не записано` требует только для причины правила, которой нет в Ticket-е. Судья остаётся haiku.
+  - Всего 13.82 USD. Proof run исправленного head-а — за владельцем:
     `pnpm eval:harness -- --case implementer-story --keep-temp --max-cost-usd 10`.

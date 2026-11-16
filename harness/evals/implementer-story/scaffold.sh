@@ -10,8 +10,9 @@
 #   - .git/eval-finish.sh, which the session of the run starts after the implementer's report: it runs
 #     bin/story-check of this copy of the Harness on every Code story HEAD holds and replaces
 #     .git/story-check.log with the story of ticket 01, the stories, those the branch added since main
-#     (`in-branch:`), the output and `EXIT=<code>` (`EXIT=no-story` without a story), and keeps the story
-#     as HEAD has it in .git/story-check/. The graders read those files: no grader type of `claude plugin eval` runs a
+#     (`in-branch:`), the output and `EXIT=<code>` (`EXIT=no-story` without a story), keeps the story
+#     as HEAD has it in .git/story-check/, and writes .git/story-check/judge-input.md, the input of the llm
+#     grader: the ticket, the demo rules, the source and test files of HEAD and the story. The graders read those files: no grader type of `claude plugin eval` runs a
 #     command, and the implementer's own story-check run is a claim of its report, not a check.
 # The Harness state of the demo project is where demo-project.sh put it: .git/worfy-harness, and the
 # temporary HOME's ~/.claude/worfy-harness when EVAL_HARNESS_HOME is unset.
@@ -86,6 +87,10 @@ fs.writeFileSync(file, JSON.stringify(profile, null, 2) + "\n")
 ' "$dir/projects/demo/profile.json"
 done
 
+# The demo rules, for the input of the llm grader: the check runs in the session, where the profile's folder
+# is not known.
+cp "$state/projects/demo/rules.md" "$(git rev-parse --git-common-dir)/demo-rules.md"
+
 # The check the session of the run starts after the implementer's report (prompt.md). Not a git hook:
 # Claude Code runs git with repository hooks switched off (claude 2.1.322), and in the paid run of
 # 2026-11-16 a post-commit hook never ran although the story was committed.
@@ -96,7 +101,9 @@ cat >"$check" <<'EOF'
 # Replaces <common .git>/story-check.log: the story of ticket 01 as HEAD has it, then after a line
 # `=== story-check ===` the Code stories of HEAD, those the branch added or changed since main (in-branch),
 # the output of story-check and its exit code; or EXIT=no-story when HEAD holds none.
-# Keeps a copy of each story as HEAD has it in <common .git>/story-check/. Prints nothing, exits 0.
+# Keeps a copy of each story as HEAD has it in <common .git>/story-check/, and writes there judge-input.md,
+# everything a story may cite: the ticket of 01, the demo rules, src/*.mjs and test/*.mjs, all as HEAD has
+# them, and the story. Prints nothing, exits 0.
 # Started from the top of the work tree: the session runs it in the run's folder.
 common=$(git rev-parse --path-format=absolute --git-common-dir) || exit 0
 stories=$(git ls-tree -r --name-only HEAD -- .scratch/demo/stories) || exit 0
@@ -117,6 +124,18 @@ in_branch=$(git diff --name-only --diff-filter=AM main...HEAD -- .scratch/demo/s
     node '@STORY_CHECK@' $stories
     echo "EXIT=$?"
 } >"$common/story-check.log" 2>&1
+fence='````'
+part() { # $1 = the heading, $2 = the text
+    printf '# %s\n\n%s\n%s\n%s\n\n' "$1" "$fence" "$2" "$fence"
+}
+{
+    part 'The ticket .scratch/demo/issues/01-alpha.md as HEAD has it' "$(git show HEAD:.scratch/demo/issues/01-alpha.md 2>/dev/null)"
+    part 'The project rules (rules.md of the demo profile)' "$(cat "$common/demo-rules.md" 2>/dev/null)"
+    for file in $(git ls-tree -r --name-only HEAD -- src test | grep '\.mjs$'); do
+        part "The file $file as HEAD has it" "$(git show "HEAD:$file")"
+    done
+    part 'The Code story .scratch/demo/stories/01-alpha.md as HEAD has it' "$(git show HEAD:.scratch/demo/stories/01-alpha.md 2>/dev/null)"
+} >"$common/story-check/judge-input.md"
 exit 0
 EOF
 check_text="$(cat "$check")"

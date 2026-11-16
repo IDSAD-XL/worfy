@@ -12,7 +12,7 @@ Story PR пишет implementer по шагу `ship-ticket` (Ticket 05), но н
 
 ## 2. Exit code `story-check` записывает скрипт fixture-а, а не implementer
 
-Code: `harness/evals/implementer-story/scaffold.sh:111-120` · key lines: 113, 114, 117, 118
+Code: `harness/evals/implementer-story/scaffold.sh:118-126` · key lines: 120, 121, 124, 125
 
 ```sh
 in_branch=$(git diff --name-only --diff-filter=AM main...HEAD -- .scratch/demo/stories 2>/dev/null)
@@ -24,7 +24,6 @@ in_branch=$(git diff --name-only --diff-filter=AM main...HEAD -- .scratch/demo/s
     node '@STORY_CHECK@' $stories
     echo "EXIT=$?"
 } >"$common/story-check.log" 2>&1
-exit 0
 ```
 
 - Что делает: `.git/eval-finish.sh`, который сессия запускает последним шагом после отчёта implementer-а, заново пишет
@@ -61,29 +60,60 @@ flags: m
 
 ## 4. Придуманную причину ловит модель, а не regex
 
-Code: `harness/evals/implementer-story/graders/no-invented-reason.md:51-58` · key lines: 53, 54, 57
+Code: `harness/evals/implementer-story/graders/no-invented-reason.md:11-20` · key lines: 11, 14, 16, 18
 
 ```md
-PASS if every reason, motive or fact about the project that a field of a code step gives (`Что делает`,
-`Почему здесь`, `Без него`, `Требование`, `Риски и пробелы test-ов`) is recorded in the ticket above, in the
-project rules above, or follows from the code quoted in the story itself (0 / 0 is NaN in JavaScript,
-`Math.floor` drops the fraction). Citing the ticket's «Где в коде» or the rules for where a file lives is a recorded
-reason. Where a field would need a reason none of them records, it says `не записано`; a story that never needs one
-passes without `не записано`.
-FAIL if any field gives a reason or fact that none of them records instead of `не записано`: for example why the
-rounding is down rather than to the nearest, which code calls `percent`, or which values the report never has.
+FAIL only for an invented fact: a statement in a field of a code step (`Что делает`, `Почему здесь`,
+`Без него`, `Требование`, `Риски и пробелы test-ов`) that no part records. A fact is not invented when the
+ticket or the project rules record it, or when it follows from the source files or the test files of the
+input. A statement about test coverage (what the tests check, what they leave out) is judged against the test
+files of the input. Naming the place because the ticket lists the file is recorded.
+`не записано` is required only where a field states a reason for a rule that the ticket does not record; it
+stands in place of that reason. A field that does not explain a rule needs no `не записано`.
+Bad, from earlier runs: «Почему здесь: отчёт вызывает `percent`; это единственное место» — no part has code of a
+report or anything that calls `percent`, so who calls it is invented.
+PASS when no field holds an invented fact.
 ```
 
-- Что делает: `llm` grader получает весь текст Ticket-а и правила учебного проекта, читает копию story из HEAD и
-  валит run, если поле code step-а называет причину или факт, которых нет ни в Ticket-е, ни в правилах, ни в цитате
-  кода.
-- Почему здесь: прежний regex требовал `не записано` в поле; в proof run-е все три story были честны по структуре, но
-  без `не записано`, а две из трёх придумали факты про отчёт. Regex не отличает записанную причину от догадки.
-- Без него: сценарий не проверял бы правило `story-pr.md` «причину не придумывать».
+- Что делает: `llm` grader валит run только за придуманный факт: то, чего нет ни в Ticket-е, ни в правилах, ни в
+  исходных файлах и test-ах из входа. Утверждения о покрытии сверяет с test-ами; `не записано` требует только там,
+  где поле объясняет правило, причину которого Ticket не записал.
+- Почему здесь: прежний regex требовал `не записано` в поле, а regex не отличает записанную причину от догадки.
+  В run-е head-а b67409e1d все три story следовали правилу `story-pr.md`, а судья ставил FAIL 9 из 9: прежний
+  критерий не видел test-ов, и «отрицательные `done` test-ом не покрыты» в «Рисках» был для него вымыслом.
+- Без него: сценарий не проверял бы правило `story-pr.md` «причину не придумывать» или валил бы честные story.
 - Требование: [Что делаем, п. 1](../issues/14-eval-story-pr-implementer-а.md#что-делаем)
-- Риски и пробелы test-ов: суждение модели бесплатный test не проверяет, только текст grader-а и путь файла.
+- Риски и пробелы test-ов: суждение модели бесплатный test не проверяет, только текст критерия и вход судьи.
 
-## 5. Правило для «Почему здесь» в шаге story
+## 5. Вход судьи — всё, на что story может сослаться
+
+Code: `harness/evals/implementer-story/scaffold.sh:127-138` · key lines: 133, 134, 135, 138
+
+```sh
+fence='````'
+part() { # $1 = the heading, $2 = the text
+    printf '# %s\n\n%s\n%s\n%s\n\n' "$1" "$fence" "$2" "$fence"
+}
+{
+    part 'The ticket .scratch/demo/issues/01-alpha.md as HEAD has it' "$(git show HEAD:.scratch/demo/issues/01-alpha.md 2>/dev/null)"
+    part 'The project rules (rules.md of the demo profile)' "$(cat "$common/demo-rules.md" 2>/dev/null)"
+    for file in $(git ls-tree -r --name-only HEAD -- src test | grep '\.mjs$'); do
+        part "The file $file as HEAD has it" "$(git show "HEAD:$file")"
+    done
+    part 'The Code story .scratch/demo/stories/01-alpha.md as HEAD has it' "$(git show HEAD:.scratch/demo/stories/01-alpha.md 2>/dev/null)"
+} >"$common/story-check/judge-input.md"
+```
+
+- Что делает: `.git/eval-finish.sh` пишет `.git/story-check/judge-input.md`: Ticket 01, правила учебного проекта,
+  `src/*.mjs` и `test/*.mjs` — всё из HEAD — и story последней, каждую часть в fence из четырёх backtick-ов.
+- Почему здесь: `llm` grader читает ровно один файл (`focus`); вход собирает тот же скрипт, что пишет log, после
+  отчёта implementer-а. Правила scaffold заранее копирует в `.git/demo-rules.md`: в сессии путь к profile неизвестен.
+- Без него: судья видел бы только story и критерий и считал бы вымыслом всё, что взято из test-ов.
+- Требование: [Что делаем, п. 1](../issues/14-eval-story-pr-implementer-а.md#что-делаем)
+- Риски и пробелы test-ов: contract test сравнивает файл целиком с частями из HEAD; незакоммиченная правка в
+  него не попадает.
+
+## 6. Правило для «Почему здесь» в шаге story
 
 Code: `harness/skills/ship-ticket/story-pr.md:35-40` · key lines: 35, 37, 38
 
@@ -107,9 +137,9 @@ Code: `harness/skills/ship-ticket/story-pr.md:35-40` · key lines: 35, 37, 38
 - Риски и пробелы test-ов: `agents-text.test.sh` проверяет только наличие текста правила; действует ли оно на
   модель, покажет следующий платный run.
 
-## 6. Учебный Ticket не даёт причины двум правилам, и у fixture-а есть origin
+## 7. Учебный Ticket не даёт причины двум правилам, и у fixture-а есть origin
 
-Code: `harness/evals/implementer-story/scaffold.sh:64-71` · key lines: 67, 68, 71
+Code: `harness/evals/implementer-story/scaffold.sh:65-72` · key lines: 68, 69, 72
 
 ```sh
 # An origin, a bare repository in .git, as demo-project.sh gives local-green: with pr-green-ci and no origin
@@ -130,19 +160,20 @@ git remote set-head origin main
 - Требование: [Что делаем, п. 1](../issues/14-eval-story-pr-implementer-а.md#что-делаем)
 - Риски и пробелы test-ов: `gh pr create` в sandbox-е падает, и PR нет; story оценивается по ветке.
 
-## 7. Что сознательно не меняли
+## 8. Что сознательно не меняли
 
 `harness/evals/lib/demo-project.sh` общий для всех сценариев; Ticket, `code_stories.pr`, origin и скрипт проверки
 добавляет только scaffold этого сценария. `coverage.json` связывает сценарий с `agents/implementer.md`,
 `story-pr.md` и `implementer-finish.md`.
 
-## 8. Как проверено
+## 9. Как проверено
 
 - `npx vitest run --project contract test/contract/harness-evals*.test.ts` — exit 0: скрипт пишет `EXIT=0` на верной
   story, `EXIT=2` на неверном фрагменте и на story, которую обогнал код, `EXIT=1` на `main`, `EXIT=no-story` после
   удаления story; счёт run-а с одним красным `story-check` ниже порога. Mutant-ы скрипта и grader-ов убиты.
 - Платные run-ы: диагностика 1 и 2 нашли BLOCKED без origin и выключенные hook-и; proof run дал 0.75 из-за regex
   `не записано`, после чего grader заменён на `llm`; run head-а b6020ada0 дал 0.75 из-за придуманного «Почему
-  здесь», после чего добавлено правило в `story-pr.md`. Новый run — за владельцем.
+  здесь», после чего добавлено правило в `story-pr.md`; run head-а b67409e1d — честные story и FAIL судьи 9 из 9,
+  после чего судья получил вход со всеми частями и новый критерий. Новый run — за владельцем.
 - `HOME=$(mktemp -d) bash harness/bin/tests/agents-text.test.sh` — exit 0, проверяет текст нового правила.
 - `pnpm lint`, `pnpm typecheck` — exit 0; gate fast — exit 0, `[gate] green (fast)`.
