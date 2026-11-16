@@ -39,7 +39,7 @@ describe('the store of the stories made by the button', () => {
     // A story kept by the button is a story file too: a view of story files shows it (typecheck holds this line).
     const shown: StoryFile = saved.story
     expect(shown.kind).toBe('pr')
-    const answer = { at: '2026-11-16T10:05:00.000Z', question: 'Why cents?', answer: 'Floats drift.', source: 'code' as const, about: { step: 2, path: 'src/cart.ts', from: 13, to: 14 }, lines: [`src/cart.ts:14@${HEAD}`], digest: storyDigest(saved.story) }
+    const answer = { at: '2026-11-16T10:05:00.000Z', question: 'Why cents?', answer: 'Floats drift.', source: 'code' as const, about: { ticket: null, step: 2, path: 'src/cart.ts', from: 13, to: 14 }, lines: [`src/cart.ts:14@${HEAD}`], digest: storyDigest(saved.story) }
     addStoryAnswer(dir, 'owner/name#77', answer)
     expect(storiesPath(dir)).toBe(join(dir, STORIES_FILE))
     expect(readStoryAnswers(dir, 'owner/name#77')).toEqual([answer])
@@ -56,6 +56,16 @@ describe('the store of the stories made by the button', () => {
     expect(() => saveStory(dir, 'owner/name#78', { story: broken, colleague: false })).toThrow(/schema/u)
     expect(readFileSync(storiesPath(dir), 'utf8')).toBe(before)
     expect(readdirSync(dir)).toEqual([STORIES_FILE])
+  })
+
+  it('reads a story kept by the first build of ticket 08, with its answers inside it, and drops them', () => {
+    const story = prStory('Kept before ticket 12')
+    writeFileSync(storiesPath(dir), JSON.stringify({ stories: { 'owner/name#77': { savedAt: '2026-11-15T09:00:00.000Z', colleague: false, story, answers: [] } } }))
+    expect(readSavedStory(dir, 'owner/name#77')).toEqual({ savedAt: '2026-11-15T09:00:00.000Z', colleague: false, story })
+    expect(Object.keys(readSavedStories(dir))).toEqual(['owner/name#77'])
+    // A rebuild writes it without them.
+    saveStory(dir, 'owner/name#77', { story, colleague: false })
+    expect((JSON.parse(readFileSync(storiesPath(dir), 'utf8')) as { stories: Record<string, object> }).stories['owner/name#77']).not.toHaveProperty('answers')
   })
 
   it('a file that does not fit the schema does not stop the read: a broken entry is left out and kept; a file that is no JSON is set aside', () => {
@@ -80,13 +90,13 @@ describe('the store of the stories made by the button', () => {
     const input = { story: prStory(words), colleague: true, prText: words, comments: [words] }
     const saved = saveStory(dir, 'owner/name#77', input as Parameters<typeof saveStory>[2])
     expect(saved.story.header).toMatchObject({ title: 'PR #77', pr: 77, commit: HEAD })
-    addStoryAnswer(dir, 'owner/name#77', { at: '2026-11-16T10:05:00.000Z', question: 'Why?', answer: 'Because.', source: 'code', about: { step: 2, path: 'src/cart.ts', from: 13, to: 14 }, lines: [`src/cart.ts:10-17@${HEAD}`], digest: storyDigest(saved.story) })
+    addStoryAnswer(dir, 'owner/name#77', { at: '2026-11-16T10:05:00.000Z', question: 'Why?', answer: 'Because.', source: 'code', about: { ticket: null, step: 2, path: 'src/cart.ts', from: 13, to: 14 }, lines: [`src/cart.ts:10-17@${HEAD}`], digest: storyDigest(saved.story) })
     const text = readFileSync(storiesPath(dir), 'utf8')
     expect(text).not.toContain(words)
     expect(text).not.toContain('prText')
     expect(text).not.toContain('comments')
     // A link that is not path:line@commit is refused.
-    expect(() => addStoryAnswer(dir, 'owner/name#77', { at: '2026-11-16T10:06:00.000Z', question: 'Why?', answer: 'Because.', source: 'code', about: { step: 2, path: 'src/cart.ts', from: 13, to: 14 }, lines: ['src/cart.ts:10'], digest: storyDigest(saved.story) })).toThrow(/schema/u)
+    expect(() => addStoryAnswer(dir, 'owner/name#77', { at: '2026-11-16T10:06:00.000Z', question: 'Why?', answer: 'Because.', source: 'code', about: { ticket: null, step: 2, path: 'src/cart.ts', from: 13, to: 14 }, lines: ['src/cart.ts:10'], digest: storyDigest(saved.story) })).toThrow(/schema/u)
   })
 
   it('writes only into the Project data folder it is given', () => {
@@ -107,7 +117,7 @@ describe('the answers to questions about lines of a story (ticket 12)', () => {
     question,
     answer: 'Floats drift.',
     source: 'code' as const,
-    about: { step: 2, path: 'src/cart.ts', from: 13, to: 14 },
+    about: { ticket: null, step: 2, path: 'src/cart.ts', from: 13, to: 14 },
     lines: [`src/cart.ts:13@${HEAD}`],
     digest: storyDigest(story),
   })

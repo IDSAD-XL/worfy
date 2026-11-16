@@ -198,7 +198,10 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
   on (code, story, PR text, review verdict, or "no support" in the story's words) and the lines it quotes, as
   `path:line` at the checkout's HEAD. Answers are kept in
   `stories.json` of worfy's data by what the story names — its file, or its PR or Epic for one made by the button — and
-  show again when the story is opened, also after an edit: then marked as asked about an earlier text of the story. The
+  show again when the story is opened, also after an edit: then marked as asked about an earlier text of the story. An
+  answer names the step by its Ticket and its number inside that Ticket's chapter, so a chapter that becomes ready
+  before it moves nothing; one about lines or a file the step no longer shows is listed at the end of its code card or
+  step, marked the same way. The
   field and the answer speak the story's language. A stopped or failed question keeps nothing.
 - **A branch never undoes the checkout.** This is why a blocked Ticket with an old worktree branch does not look open
   ([ADR-0033](../adr/0033-autopilot-names-wave-tickets.md)).

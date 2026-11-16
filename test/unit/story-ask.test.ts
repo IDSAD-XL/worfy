@@ -36,7 +36,7 @@ describe('the answer of the invisible agent', () => {
     key: 'demo-cart/stories/04-cart-total.md',
     vendor: 'claude' as const,
     story: STORY,
-    about: { step: 2, path: 'src/cart.ts', from: 13, to: 14 },
+    about: { ticket: '04', step: 2, path: 'src/cart.ts', from: 13, to: 14 },
     code: 'x',
     question: 'Why?',
   }

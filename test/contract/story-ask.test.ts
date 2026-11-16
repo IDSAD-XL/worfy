@@ -110,7 +110,7 @@ const request = (overrides: Partial<AskRequest> = {}): AskRequest => ({
   key: 'demo-cart/stories/04-cart-total.md',
   vendor: 'claude',
   story: STORY,
-  about: { step: 2, path: 'src/cart.ts', from: 13, to: 14 },
+  about: { ticket: '04', step: 2, path: 'src/cart.ts', from: 13, to: 14 },
   code: SELECTED,
   question: 'Why is a zero quantity skipped here?',
   ...overrides,
@@ -123,7 +123,7 @@ describe('a question about lines of a Code story', () => {
     const saved: { key: string; answer: StoryAnswer }[] = []
     const lines: string[] = []
     const answer = { answer: 'A line with no items adds nothing and would hide a negative quantity.', source: 'code', lines: [{ path: 'src/cart.ts', from: 13, to: 13 }] }
-    const outcome = await asker(answer, saved, recorded, (req) => gatherMaterial(join(dir, 'checkout'), req.story, req.about.step, sources(asked))).ask(request(), (text) => lines.push(text))
+    const outcome = await asker(answer, saved, recorded, (req) => gatherMaterial(join(dir, 'checkout'), req.story, req.about, sources(asked))).ask(request(), (text) => lines.push(text))
 
     // The header names the PR: the Ticket's PR is not looked up.
     expect([...asked].sort()).toEqual(['diff 212', 'ticket demo-cart 04', 'view 212'])
@@ -160,7 +160,7 @@ describe('a question about lines of a Code story', () => {
       question: 'Why is a zero quantity skipped here?',
       answer: answer.answer,
       source: 'code',
-      about: { step: 2, path: 'src/cart.ts', from: 13, to: 14 },
+      about: { ticket: '04', step: 2, path: 'src/cart.ts', from: 13, to: 14 },
       lines: [`src/cart.ts:13@${HEAD}`],
       digest: storyDigest(STORY),
     }
@@ -180,7 +180,7 @@ describe('a question about lines of a Code story', () => {
     }
     const story: StoryFile = { ...STORY, header: { ...STORY.header, pr: null } } as StoryFile
     const answer = { answer: 'No support: nothing says why.', source: 'none', lines: [] }
-    const outcome = await asker(answer, saved, recorded, (req) => gatherMaterial(join(dir, 'checkout'), req.story, req.about.step, failing)).ask(request({ story }), () => undefined)
+    const outcome = await asker(answer, saved, recorded, (req) => gatherMaterial(join(dir, 'checkout'), req.story, req.about, failing)).ask(request({ story }), () => undefined)
     expect(outcome.status === 'answer' && outcome.answer.source).toBe('none')
     expect(saved.map((one) => one.answer.source)).toEqual(['none'])
     const { prompt } = recorded[0]!
@@ -215,7 +215,7 @@ describe('a question about lines of a Code story', () => {
       prDiff: () => Promise.resolve(huge),
       ticketFile: () => Promise.resolve({ file: '04-cart-total.md', text: huge }),
     }
-    const material = await gatherMaterial(join(dir, 'checkout'), STORY, 2, many)
+    const material = await gatherMaterial(join(dir, 'checkout'), STORY, { ticket: '04', step: 2 }, many)
     expect(material.verdicts).toHaveLength(ASK_MAX_VERDICTS)
     expect(material.verdicts[0]).toMatch(/^REJECTED round 10 /u)
     expect(material.verdicts.at(-1)).toMatch(/^REJECTED round 29 /u)
@@ -224,7 +224,7 @@ describe('a question about lines of a Code story', () => {
     expect(prompt.length).toBeLessThanOrEqual(ASK_PROMPT_MAX_CHARS)
     expect(material.ticket!.text.length).toBeLessThan(huge.length)
     // Without the Project's account no comment is a verdict.
-    const none = await gatherMaterial(join(dir, 'checkout'), STORY, 2, { ...many, account: () => Promise.resolve(null) })
+    const none = await gatherMaterial(join(dir, 'checkout'), STORY, { ticket: '04', step: 2 }, { ...many, account: () => Promise.resolve(null) })
     expect(none.verdicts).toEqual([])
     expect(none.missing.join(' ')).toContain('no GitHub account')
   })
@@ -232,7 +232,7 @@ describe('a question about lines of a Code story', () => {
   it('keeps the answer without links, and says so, when git names no commit of the checkout', async () => {
     const saved: { key: string; answer: StoryAnswer }[] = []
     const answer = { answer: 'The loop skips it.', source: 'code', lines: [{ path: 'src/cart.ts', from: 13, to: 13 }] }
-    const outcome = await asker(answer, saved, [], (req) => gatherMaterial(join(dir, 'checkout'), req.story, req.about.step, sources()), claudeCan, null).ask(request(), () => undefined)
+    const outcome = await asker(answer, saved, [], (req) => gatherMaterial(join(dir, 'checkout'), req.story, req.about, sources()), claudeCan, null).ask(request(), () => undefined)
     expect(outcome.status === 'answer' && outcome.answer).toMatchObject({ source: 'code', lines: [] })
   })
 })
@@ -252,7 +252,26 @@ describe('the checkout a question reads', () => {
   })
 
   it('takes the head of the step: the header of a PR story, the chapter of an Epic story', () => {
-    expect(storyHeadOf({ ...STORY, header: { ...STORY.header, commit: 'f'.repeat(40) } } as StoryFile, 2)).toBe('f'.repeat(40))
-    expect(storyHeadOf(STORY, 2)).toBeNull()
+    expect(storyHeadOf({ ...STORY, header: { ...STORY.header, commit: 'f'.repeat(40) } } as StoryFile, { ticket: '04', step: 2 })).toBe('f'.repeat(40))
+    expect(storyHeadOf(STORY, { ticket: '04', step: 2 })).toBeNull()
+  })
+
+  it('finds the chapter of an Epic story by its Ticket, so a chapter that becomes ready before it moves nothing', async () => {
+    const chapters = (JSON.parse(readFileSync(join(ANSWERS, 'epic-ru.json'), 'utf8')) as { chapters: Record<string, unknown>[] }).chapters
+    const epicStory = (ready03: boolean): StoryFile =>
+      ({
+        kind: 'epic',
+        header: { epic: 'demo-cart', language: 'ru' },
+        ...(JSON.parse(readFileSync(join(ANSWERS, 'epic-ru.json'), 'utf8')) as object),
+        chapters: chapters.map((chapter) => (chapter.ticket === '03' && !ready03 ? { ...chapter, ready: false, pr: null, head: null, steps: [] } : chapter)),
+      }) as unknown as StoryFile
+    const place = { ticket: '04', step: 1 }
+    expect(storyHeadOf(epicStory(false), place)).toBe('212'.padEnd(40, '0'))
+    expect(storyHeadOf(epicStory(true), place)).toBe('212'.padEnd(40, '0'))
+    const asked: string[] = []
+    await gatherMaterial(join(dir, 'checkout'), epicStory(true), place, sources(asked))
+    expect([...asked].sort()).toEqual(['diff 212', 'ticket demo-cart 04', 'view 212'])
+    // A step the chapter does not have names no Ticket.
+    expect(storyHeadOf(epicStory(true), { ticket: '04', step: 9 })).toBeNull()
   })
 })

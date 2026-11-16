@@ -3,12 +3,13 @@
 // folder that is neither the Project's root nor one of its git worktrees is refused before any request. The
 // Vendor's driver is a stand-in that records the requests; no Claude Code runs.
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { StoryInput } from '../../src/shared/ipc/stories'
+import { storyFileSchema, type StoryFile } from '../../src/shared/stories/schema'
 import type { OneShotOptions } from '../../src/main/vendors/one-shot'
 
 const mocks = vi.hoisted(() => ({
@@ -36,7 +37,7 @@ vi.mock('../../src/main/vendors/registry', () => ({
   }),
 }))
 
-const { default: handlers } = await import('../../src/main/ipc/stories')
+const { default: handlers, answersKey } = await import('../../src/main/ipc/stories')
 const { gitWorktrees } = await import('../../src/main/claude-home/registry')
 const { storyFolder } = await import('../../src/main/stories/one-shot')
 
@@ -106,5 +107,40 @@ describe('stories.build reads only the folder storyFolder checked', () => {
   it('no folder asked: the request reads the Project root', async () => {
     await build('s3', undefined)
     expect(mocks.requests.map((request) => request.opts.readFolders)).toEqual([[mocks.root]])
+  })
+})
+
+describe('the key the answers of a story are kept under (answersKey)', () => {
+  const steps = JSON.parse(readFileSync(join(import.meta.dirname, '..', 'fixtures', 'code-story-answers', 'pr-en.json'), 'utf8')) as object
+  const prStory = (commit: string | null): StoryFile =>
+    storyFileSchema.parse({ kind: 'pr', header: { title: 'Cart total in cents', epic: 'demo-cart', ticket: '04', pr: 212, language: 'en', commit }, ...steps })
+  /** The workflow model of the Project: Epic demo-cart with the story file of Ticket 04's PR and its own story. */
+  const model = () =>
+    Promise.resolve({
+      epics: [
+        {
+          epic: 'demo-cart',
+          stories: [
+            { kind: 'epic' as const, path: 'demo-cart/story.md', ticket: null, version: 'v1' },
+            { kind: 'pr' as const, path: 'demo-cart/stories/04-cart-total.md', ticket: '04', version: 'v1' },
+          ],
+        },
+      ],
+    } as never)
+
+  beforeEach(() => {
+    git(mocks.root, 'remote', 'add', 'origin', 'https://github.com/example-org/demo-cart.git')
+  })
+
+  it('a story read from its file: the file the workflow model lists for its Epic and Ticket', async () => {
+    const repo = vi.fn((root: string) => Promise.resolve(root === mocks.root ? 'example-org/demo-cart' : null))
+    expect(await answersKey(mocks.root, prStory(null), { model, repo })).toBe('demo-cart/stories/04-cart-total.md')
+    // Without the model's entry it is named by its PR, so a question is still kept.
+    expect(await answersKey(mocks.root, prStory(null), { model: () => Promise.reject(new Error('no epic-status')), repo })).toBe('example-org/demo-cart#212')
+  })
+
+  it("a story made by the button: owner/name#N of the Project's GitHub remote, read from git", async () => {
+    const { remoteRepos } = await import('../../src/main/github/inbox')
+    expect(await answersKey(mocks.root, prStory('b'.repeat(40)), { model, repo: async (root) => (await remoteRepos([root]))[0] ?? null })).toBe('example-org/demo-cart#212')
   })
 })

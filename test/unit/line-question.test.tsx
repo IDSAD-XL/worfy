@@ -2,7 +2,7 @@
 // question field after them (src/renderer/stories/LineQuestion.tsx); the progress bar stands in its place while the
 // invisible agent answers; the answer appears after the same lines, with its source and the lines it rests on. An
 // answer with nothing to rest on says so in the story's words. main is stood in; its side is test/unit/story-ask.test.ts.
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -39,7 +39,7 @@ const ANSWER: StoryAnswer = {
   question: 'Why skip a zero quantity?',
   answer: 'A line with no items adds nothing.',
   source: 'code',
-  about: { step: 2, path: 'src/coupon.ts', from: 11, to: 12 },
+  about: { ticket: '04', step: 2, path: 'src/coupon.ts', from: 11, to: 12 },
   lines: [`src/coupon.ts:11@${HEAD}`],
   digest: DIGEST,
 }
@@ -107,7 +107,7 @@ describe('a question about lines of a Code story', () => {
     fireEvent.change(field, { target: { value: 'Why skip a zero quantity?' } })
     fireEvent.click(screen.getByRole('button', { name: 'Спросить' }))
     const asked = ipc.invoke.mock.calls.find(([channel]) => channel === 'stories.ask')![1] as { questionId: string; projectId: string; story: StoryFile; about: unknown; code: string; question: string }
-    expect(asked).toMatchObject({ projectId: 'project-1', story: STORY, about: { step: 2, path: 'src/coupon.ts', from: 11, to: 12 }, question: 'Why skip a zero quantity?' })
+    expect(asked).toMatchObject({ projectId: 'project-1', story: STORY, about: { ticket: '04', step: 2, path: 'src/coupon.ts', from: 11, to: 12 }, question: 'Why skip a zero quantity?' })
     expect(asked.code).toBe('  if (coupon.expires < today) return 0\n  if (coupon.percent <= 0) return 0')
 
     const progress = await screen.findByTestId('line-question-progress')
@@ -167,7 +167,10 @@ describe('a question about lines of a Code story', () => {
     fireEvent.change(await screen.findByRole('textbox', { name: 'Вопрос о строке 11' }), { target: { value: 'Why?' } })
     fireEvent.click(screen.getByRole('button', { name: 'Спросить' }))
     await screen.findByTestId('line-question-progress')
-    selectLines(code, 13, 14)
+    // The field replaced the single <pre> by runs of them: the selection is made in the code as it is now.
+    const now = await screen.findByTestId('md-story-code')
+    expect(now).not.toBe(code)
+    selectLines(now, 13, 14)
     const askButton = screen.getByRole('button', { name: 'Задать вопрос' })
     expect(askButton.getAttribute('aria-disabled')).toBe('true')
     fireEvent.click(askButton)
@@ -208,6 +211,53 @@ describe('a question about lines of a Code story', () => {
     expect(shown[0]!.dataset.earlier).toBeUndefined()
     expect(shown[1]!.dataset.earlier).toBe('true')
     expect(shown[1]!.textContent).toContain('Вопрос задан к прежнему тексту story')
+  })
+
+  it('keeps an answer on its step when a chapter before it becomes ready: it names the Ticket and the step inside it', async () => {
+    // Asked while chapter 03 was not ready: the step of chapter 04 was then the first of the Epic. Now 03 is ready, and
+    // the same step is the third; the answer stays on it, after its line, and on no step of chapter 03.
+    kept = { digest: DIGEST, answers: [{ ...ANSWER, question: 'Why cents?', about: { ticket: '04', step: 1, path: 'src/cart.ts', from: 13, to: 13 } }] }
+    const epic = storySchema.parse({ kind: 'epic', header: { epic: 'demo-cart', language: 'ru' }, ...(JSON.parse(readFileSync(join(FIXTURES, 'epic-ru.json'), 'utf8')) as object) })
+    render(<StoryView story={epic} codeOf={storyOwnCode} projectId="project-1" />)
+    const view = screen.getByTestId('story-view')
+    const next = () => fireEvent.click(screen.getByRole('button', { name: 'Next screen' }))
+    next()
+    await screen.findByTestId('md-story-code')
+    expect(screen.getByTestId('story-code').dataset.path).toBe('src/money.ts')
+    expect(screen.queryByTestId('line-answer')).toBeNull()
+    next()
+    next()
+    await waitFor(() => expect(screen.getByTestId('story-code').dataset.path).toBe('src/cart.ts'))
+    const shown = await screen.findByTestId('line-answer')
+    expect(shown.textContent).toContain('Why cents?')
+    expect(before(view.querySelector('[data-line="13"]')!, shown)).toBe(true)
+    expect(before(shown, view.querySelector('[data-line="14"]')!)).toBe(true)
+  })
+
+  it('lists the answers about lines or a file the step no longer shows at its end, marked as asked about an earlier text', async () => {
+    kept = {
+      digest: DIGEST,
+      answers: [
+        { ...ANSWER, question: 'About a line that left the fragment', about: { ...ANSWER.about, from: 40, to: 41 } },
+        { ...ANSWER, question: 'About a file the step no longer quotes', about: { ...ANSWER.about, path: 'src/gone.ts' } },
+        { ...ANSWER, question: 'About a line it shows' },
+      ],
+    }
+    const code = await atCodeStep()
+    const inCode = await screen.findByTestId('story-code-answers')
+    expect(within(inCode).getAllByTestId('line-answer').map((one) => [one.querySelector('.w-line-answer__question')?.textContent, one.dataset.earlier])).toEqual([
+      ['About a line that left the fragment', 'true'],
+    ])
+    expect(within(inCode).getByText('Вопрос задан к прежнему тексту story')).toBeTruthy()
+    const atEnd = screen.getByTestId('story-step-answers')
+    expect(within(atEnd).getAllByTestId('line-answer').map((one) => [one.querySelector('.w-line-answer__question')?.textContent, one.dataset.earlier])).toEqual([
+      ['About a file the step no longer quotes', 'true'],
+    ])
+    // The one about a shown line stands after it, inside the code, unmarked.
+    const inline = within(screen.getByTestId('md-story-code')).getByTestId('line-answer')
+    expect(inline.textContent).toContain('About a line it shows')
+    expect(inline.dataset.earlier).toBeUndefined()
+    expect(code).toBeTruthy()
   })
 
   it('says so when an answer that rests on the code could not link its lines', () => {

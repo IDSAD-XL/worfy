@@ -114,17 +114,19 @@ export interface AskSources {
   account(root: string): Promise<string | null>
 }
 
-/** The Epic, the Ticket and the PR the step `step` of `story` belongs to: a PR story's own, an Epic story's chapter's. */
-function placeOf(story: StoryFile, step: number): { epic: string | null; ticket: string | null; pr: number | null } {
+/** Where a step is: its Ticket (a PR story's own, an Epic story's chapter's) and its number inside it. */
+export type StepPlace = Pick<StoryQuestionLines, 'ticket' | 'step'>
+
+/** The ready chapter of an Epic story that holds step `place`; undefined when none does. */
+function chapterOf(story: Extract<StoryFile, { kind: 'epic' }>, place: StepPlace): Extract<StoryFile, { kind: 'epic' }>['chapters'][number] | undefined {
+  return story.chapters.find((chapter) => chapter.ready && chapter.ticket === place.ticket && place.step <= chapter.steps.length)
+}
+
+/** The Epic, the Ticket and the PR the step `place` of `story` belongs to: a PR story's own, an Epic story's chapter's. */
+function placeOf(story: StoryFile, place: StepPlace): { epic: string | null; ticket: string | null; pr: number | null } {
   if (story.kind === 'pr') return { epic: story.header.epic, ticket: story.header.ticket, pr: story.header.pr }
-  // The steps of the ready chapters are numbered on from 1 across the Epic, as the view numbers them.
-  let before = 0
-  for (const chapter of story.chapters) {
-    if (!chapter.ready) continue
-    if (step <= before + chapter.steps.length) return { epic: story.header.epic, ticket: chapter.ticket, pr: chapter.pr }
-    before += chapter.steps.length
-  }
-  return { epic: story.header.epic, ticket: null, pr: null }
+  const chapter = chapterOf(story, place)
+  return chapter === undefined ? { epic: story.header.epic, ticket: null, pr: null } : { epic: story.header.epic, ticket: chapter.ticket, pr: chapter.pr }
 }
 
 /** `text` cut to `max` characters, saying so. */
@@ -132,16 +134,10 @@ const bounded = (text: string, max: number = ASK_PART_MAX_CHARS): string => (tex
 
 const messageOf = (error: unknown): string => bounded(error instanceof Error ? error.message : String(error), ASK_NOTE_MAX_CHARS)
 
-/** The head the code of step `step` of `story` is read at: a PR story's header, an Epic story's chapter; null for a committed story. */
-export function storyHeadOf(story: StoryFile, step: number): string | null {
+/** The head the code of step `place` of `story` is read at: a PR story's header, an Epic story's chapter; null for a committed story. */
+export function storyHeadOf(story: StoryFile, place: StepPlace): string | null {
   if (story.kind === 'pr') return story.header.commit
-  let before = 0
-  for (const chapter of story.chapters) {
-    if (!chapter.ready) continue
-    if (step <= before + chapter.steps.length) return chapter.head
-    before += chapter.steps.length
-  }
-  return null
+  return chapterOf(story, place)?.head ?? null
 }
 
 /**
@@ -163,8 +159,8 @@ export async function askFolder(
   return { ok: true, folder: root }
 }
 
-/** The material of a question about step `step` of `story`, in the Project at `root`. Never rejects: what fails is `missing`. */
-export async function gatherMaterial(root: string, story: StoryFile, step: number, sources: AskSources): Promise<AskMaterial> {
+/** The material of a question about step `place` of `story`, in the Project at `root`. Never rejects: what fails is `missing`. */
+export async function gatherMaterial(root: string, story: StoryFile, step: StepPlace, sources: AskSources): Promise<AskMaterial> {
   const missing: string[] = []
   const place = placeOf(story, step)
   if (place.epic === null || place.ticket === null) missing.push('The story names no Ticket: its file is not given.')
@@ -258,7 +254,7 @@ export function askPrompt(request: AskRequest, material: AskMaterial): string {
   if (material.prText !== null) parts.push(section('PR', material.prText))
   if (material.ticket !== null) parts.push(section(`Ticket ${material.ticket.file}`, material.ticket.text))
   material.verdicts.forEach((verdict, index) => parts.push(section(`Review verdict ${String(index + 1)}`, verdict)))
-  parts.push(section('Selected lines', `${bounded(about.path, ASK_NOTE_MAX_CHARS)}, ${lines}, step ${String(about.step)}\n${bounded(request.code, FRAGMENT_MAX_CHARS)}`))
+  parts.push(section('Selected lines', `${bounded(about.path, ASK_NOTE_MAX_CHARS)}, ${lines}, step ${String(about.step)}${about.ticket === null ? '' : ` of Ticket ${about.ticket}`}\n${bounded(request.code, FRAGMENT_MAX_CHARS)}`))
   parts.push(section('Question', request.question))
   return parts.join('\n\n')
 }

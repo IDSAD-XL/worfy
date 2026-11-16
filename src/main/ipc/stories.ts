@@ -39,6 +39,7 @@ import { projectStore } from '../projects/store'
 import { claudeHome, dataRoot } from '../storage/paths'
 import { cachedPrCommits, storyFragmentCode, storyPathParts, ticketPrFromModel, type PrCommits } from '../stories/code'
 import type { StoryFile } from '../../shared/stories/schema'
+import type { WorkflowModel } from '../../shared/workflow/types'
 import { remoteRepos } from '../github/inbox'
 import { askFolder, gatherMaterial, StoryAsker, storyHeadOf, type AskSources } from '../stories/ask'
 import { StoryBuilder, storyFolder } from '../stories/one-shot'
@@ -112,7 +113,7 @@ const asker = (): StoryAsker =>
     oneShot: storyOneShotFromEnv(process.env, process.env.WORFY_STORY_ASK_SCRIPT ?? 'story-answer'),
     capabilities: (vendor) => vendorDriver(vendor).capabilities(),
     runDir: () => assistDir(dataRoot()),
-    material: async (request) => gatherMaterial(request.folder, request.story, request.about.step, { ...(await ghSources()), ticketPr, ticketFile: ticketFileOf, account: projectAccount }),
+    material: async (request) => gatherMaterial(request.folder, request.story, request.about, { ...(await ghSources()), ticketPr, ticketFile: ticketFileOf, account: projectAccount }),
     commit: headOf,
     save: (dataDir, key, answer) => addStoryAnswer(dataDir, key, answer),
   }))
@@ -131,14 +132,23 @@ async function headOf(folder: string): Promise<string | null> {
  * model lists for the story's Epic — its PR story for the header's Ticket, or its Epic story — and the Project's
  * `owner/name` on GitHub. A committed story is the file it was read from; one made by the button names its PR.
  */
-async function answersKey(root: string, story: StoryFile): Promise<string> {
-  const model = await readWorkflow({ root, claudeHome: claudeHome(), env: harnessScriptEnv })
-    .then((read) => read.model)
-    .catch(() => null)
+export async function answersKey(root: string, story: StoryFile, sources: AnswersKeySources = answersKeySources): Promise<string> {
+  const model = await sources.model(root).catch(() => null)
   const epic = story.header.epic === null ? undefined : model?.epics.find((one) => one.epic === story.header.epic)
   const entry = epic?.stories?.find((one) => (story.kind === 'epic' ? one.kind === 'epic' : one.kind === 'pr' && one.ticket !== null && one.ticket === story.header.ticket))
-  const repo = (await remoteRepos([root]).catch(() => []))[0] ?? null
+  const repo = await sources.repo(root).catch(() => null)
   return storyAnswersKey(story, { file: entry?.path ?? null, repo })
+}
+
+/** Where answersKey reads the Epics' story files and the Project's `owner/name`; stood in by tests. */
+export interface AnswersKeySources {
+  model(root: string): Promise<Pick<WorkflowModel, 'epics'> | null>
+  repo(root: string): Promise<string | null>
+}
+
+const answersKeySources: AnswersKeySources = {
+  model: async (root) => (await readWorkflow({ root, claudeHome: claudeHome(), env: harnessScriptEnv })).model,
+  repo: async (root) => (await remoteRepos([root]))[0] ?? null,
 }
 
 function toSender(sender: EventTarget & { isDestroyed?: () => boolean }, send: (target: EventTarget) => void): void {
@@ -238,7 +248,7 @@ const handlers: HandlerModule = [
     const store = projectStore()
     const project = store.get(projectId)
     // The checkout the story's code was read from, as for a build (storyFolder): the PR's worktree when it is checked out.
-    const chosen = await askFolder(project.path, folder, storyHeadOf(story, about.step), await gitWorktrees(project.path), (one) => headOf(one).catch(() => null))
+    const chosen = await askFolder(project.path, folder, storyHeadOf(story, about), await gitWorktrees(project.path), (one) => headOf(one).catch(() => null))
     if (!chosen.ok) return { status: 'failed' as const, reason: chosen.reason }
     const vendor = readProjectSettings(store.dataDir(project.id)).defaultVendor ?? 'claude'
     const key = await answersKey(project.path, story)

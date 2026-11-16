@@ -177,12 +177,14 @@ export const storyAnswerSourceSchema = z.enum(['code', 'story', 'pr', 'verdict',
 export type StoryAnswerSource = z.output<typeof storyAnswerSourceSchema>
 
 /**
- * The lines a question was asked about, so its answer shows after them: the number of the step as the view shows it
- * ("Step N"), the fragment's file and its first and last line, numbered as the step shows them. Numbers and a path, no
- * code.
+ * The lines a question was asked about, so its answer shows after them: the Ticket of the step — a PR story's own, an
+ * Epic story's chapter's; null for a PR story without one — and the number of the step inside it, so a chapter that
+ * becomes ready before it moves no answer; the fragment's file and its first and last line, numbered as the step shows
+ * them. Numbers and a path, no code.
  */
 export const storyQuestionLinesSchema = z
   .object({
+    ticket: z.string().regex(/^\d{2}$/u, 'the Ticket number, two digits').nullable(),
     step: z.number().int().min(1),
     path: z.string().min(1).max(500),
     from: z.number().int().min(1),
@@ -226,8 +228,11 @@ export const savedStorySchema = z
     savedAt: z.iso.datetime(),
     colleague: z.boolean(),
     story: storySchema,
+    // A story kept by ticket 08's first build carries its answers (then always none) inside it: read, and dropped.
+    answers: z.array(z.unknown()).optional(),
   })
   .strict()
+  .transform((saved) => ({ savedAt: saved.savedAt, colleague: saved.colleague, story: saved.story }))
 export type SavedStory = z.output<typeof savedStorySchema>
 
 /** The story made by the button under `key`; null when there is none. */

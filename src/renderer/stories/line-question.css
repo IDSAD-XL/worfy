@@ -144,3 +144,19 @@
   color: var(--text-muted);
   font-size: var(--text-11);
 }
+
+/*
+ * Answers about lines a step no longer shows (an earlier text of the story): a list at the end of the code card, or
+ * after the cards of the step, on the same light panel as an answer between the lines.
+ */
+.w-story-code__answers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) 10px;
+  border-top: 1px solid var(--story-code-border);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--text-12);
+}
