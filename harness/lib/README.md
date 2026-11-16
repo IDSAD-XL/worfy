@@ -48,7 +48,12 @@ the plugin, where `lib/` lies next to `bin/` and `hooks/`.
   - `blockedByNone` — words that mean "no blockers" in a `Blocked by` line (`bin/epic-status`);
   - `blockedByAnd` — the word "and" between two ticket numbers in a `Blocked by` line (`bin/epic-status`);
   - `ticketWord` — the word "ticket", followed by any ending of the word and a number, that
-    `bin/silent-check` finds as a ticket number in a Silent project.
+    `bin/silent-check` finds as a ticket number in a Silent project;
+  - `codeStoryLabels` — not a list but a map: for each language code, the English label of a Code story
+    (a field, a frame title, a section title, `not recorded`; `bin/TICKETS.md`, section **Code story**)
+    and the word a story in that language writes instead. `bin/story-check` reads a story whose
+    `Language:` is one of these codes with the words of that code, any other story with the English
+    labels. A label is matched as written, so it is one word, not a list of spellings.
 
   A word is matched as a whole word, as written: list each spelling (capital letter, ending) that should
   count. Adding a language is a change of this file only. The words are the only text in another

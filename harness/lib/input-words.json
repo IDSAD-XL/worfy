@@ -11,5 +11,26 @@
     "по решениям владельца", "По решениям владельца"
   ],
   "specAcceptedDecisions": ["решения владельца", "Решения владельца"],
-  "specAcceptedDecisionsWord": ["приняты"]
+  "specAcceptedDecisionsWord": ["приняты"],
+  "codeStoryLabels": {
+    "ru": {
+      "What it does": "Что делает",
+      "Why here": "Почему здесь",
+      "Without it": "Без него",
+      "Requirement": "Требование",
+      "Risks and test gaps": "Риски и пробелы test-ов",
+      "not recorded": "не записано",
+      "What was wrong": "Что было не так",
+      "What was deliberately not changed": "Что сознательно не меняли",
+      "How it was checked": "Как проверено",
+      "What review found and what remains": "Что нашёл review и что осталось",
+      "Start": "Начало",
+      "Seams between tickets": "Стыки между Ticket-ами",
+      "Summary": "Итог",
+      "Check": "Проверка",
+      "Check yourself": "Проверить себя",
+      "Answer": "Ответ",
+      "Lines": "Строки"
+    }
+  }
 }

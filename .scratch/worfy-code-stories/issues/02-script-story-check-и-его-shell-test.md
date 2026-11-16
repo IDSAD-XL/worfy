@@ -1,7 +1,8 @@
 # 02 — Script `story-check` и его shell-test
 
 Type: feature
-Status: open
+Status: claimed 2026-11-16T01:10Z
+Branch: worfy-code-stories/02
 Blocked by: 01
 Source: [spec.md](../spec.md), «Ticket-ы», строка 02; «Решения владельца» 12, 24 (строки 106–108, 128);
 «Решения по реализации» → Harness: «Script `story-check`» (строки 207–209); «Решения по test-ам», А (строки 279–281);
@@ -42,19 +43,49 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 02; «Решения 
 ## Готово, когда
 
 - [ ] Shell-test: story PR на русском и на английском — exit 0.
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 · mac - · 90f117b856be601947b872b2631204d0d1f49df2
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 (round 2: 50 passed) · mac - · 742fc55cd50f256695c5ffb48eeae1ea88b833c5
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 (round 3: 51 passed, the fresh-branch case included) · mac - · 5cd34d14bbc6998666998a105eefcef6c56c2215
 - [ ] Shell-test: фрагмент, который не совпал с кодом, — exit 2, в выводе путь, строки и номер шага.
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 · mac - · 90f117b856be601947b872b2631204d0d1f49df2
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 (round 2: 50 passed) · mac - · 742fc55cd50f256695c5ffb48eeae1ea88b833c5
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 (round 3: 51 passed, the fresh-branch case included) · mac - · 5cd34d14bbc6998666998a105eefcef6c56c2215
 - [ ] Shell-test: шаг без поля — exit 2, в выводе шаг и имя поля.
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 · mac - · 90f117b856be601947b872b2631204d0d1f49df2
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 (round 2: 50 passed) · mac - · 742fc55cd50f256695c5ffb48eeae1ea88b833c5
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 (round 3: 51 passed, the fresh-branch case included) · mac - · 5cd34d14bbc6998666998a105eefcef6c56c2215
 - [ ] Shell-test: личные данные в story (подставная home-папка из stand-in-ов `privacy.cjs`) — exit 2, значение в выводе
       замаскировано.
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 · mac - · 90f117b856be601947b872b2631204d0d1f49df2
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 (round 2: 50 passed) · mac - · 742fc55cd50f256695c5ffb48eeae1ea88b833c5
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 (round 3: 51 passed, the fresh-branch case included) · mac - · 5cd34d14bbc6998666998a105eefcef6c56c2215
 - [ ] `story-check` сверяет story только с head-ом PR; на main его не запускают (`TICKETS.md`, раздел «Story anchor»).
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 · mac - · 90f117b856be601947b872b2631204d0d1f49df2
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 (round 2: 50 passed) · mac - · 742fc55cd50f256695c5ffb48eeae1ea88b833c5
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 (round 3: 51 passed, the fresh-branch case included) · mac - · 5cd34d14bbc6998666998a105eefcef6c56c2215
 - [ ] Shell-test на fixture `repo-main-shifted/`: ветка не rebase-нута на main, в main строки над фрагментом сдвинулись.
       `story-check` на head-е ветки — exit 0: он сверяет head, а не main.
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 · mac - · 90f117b856be601947b872b2631204d0d1f49df2
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 (round 2: 50 passed) · mac - · 742fc55cd50f256695c5ffb48eeae1ea88b833c5
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 (round 3: 51 passed, the fresh-branch case included) · mac - · 5cd34d14bbc6998666998a105eefcef6c56c2215
 - [ ] Shell-test: documents PR дописал шаг review (Ticket 06) — `story-check` сверяет файл с head-ом, который влил
       `land`, а не со своей веткой; exit 0.
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 · mac - · 90f117b856be601947b872b2631204d0d1f49df2
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 (round 2: 50 passed) · mac - · 742fc55cd50f256695c5ffb48eeae1ea88b833c5
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 (round 3: 51 passed, the fresh-branch case included) · mac - · 5cd34d14bbc6998666998a105eefcef6c56c2215
 - [ ] Shell-test: story Epic-а с брошенной передачей разбирается и зелёная; передача без поля «сделано ли» — exit 2.
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 · mac - · 90f117b856be601947b872b2631204d0d1f49df2
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 (round 2: 50 passed) · mac - · 742fc55cd50f256695c5ffb48eeae1ea88b833c5
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 (round 3: 51 passed, the fresh-branch case included) · mac - · 5cd34d14bbc6998666998a105eefcef6c56c2215
 - [ ] Shell-test: незакоммиченная story сверяется с рабочим деревом, и вывод это называет.
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 · mac - · 90f117b856be601947b872b2631204d0d1f49df2
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 (round 2: 50 passed) · mac - · 742fc55cd50f256695c5ffb48eeae1ea88b833c5
+  - evidence: test-run pass · `bash harness/bin/tests/story-check.test.sh` exit 0 (round 3: 51 passed, the fresh-branch case included) · mac - · 5cd34d14bbc6998666998a105eefcef6c56c2215
 - [ ] Все `harness/bin/tests/*.test.sh` зелёные, в том числе `plugin-neutral.test.sh`; `node scripts/check-personal.mjs` —
       exit 0.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/harness-scripts-1.test.ts … harness-scripts-4.test.ts` exit 0, `node scripts/check-personal.mjs` exit 0 · mac - · 90f117b856be601947b872b2631204d0d1f49df2
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/harness-scripts-1.test.ts … harness-scripts-4.test.ts` exit 0, `node scripts/check-personal.mjs` exit 0 (round 2) · mac - · 742fc55cd50f256695c5ffb48eeae1ea88b833c5
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/harness-scripts-1.test.ts … harness-scripts-4.test.ts` exit 0, `node scripts/check-personal.mjs` exit 0 (round 3) · mac - · 5cd34d14bbc6998666998a105eefcef6c56c2215
 
 ## Тесты
 
