@@ -533,9 +533,14 @@ function storiesOn(st) {
 // the checkout's working tree: with the tickets in the repository it is the file of the head commit, copied into a
 // temporary folder; with the tickets outside it (Silent mode, a tickets root outside the repository) it is the file in
 // the folder `ticket root` prints. Either way story-check runs with --repo <checkout> --head <head>: line numbers are
-// those of the head. A PR without a ticket is not checked.
+// those of the head. A PR without a ticket is not checked. A story the repository's tickets hold, found green at a head,
+// is not checked again at that head (the second call of ready(), under the main-branch lock): the commit cannot change.
+const storyGreenAt = new Set()
 function storyGreen(st, pr, head) {
     if (!pr.epic || !pr.ticket || !storiesOn(st)) return
+    if (storyGreenAt.has(`${pr.number} ${head}`)) return
+    // story-check reads the code of the head in the checkout, in either mode
+    if (!haveCommit(st, head, pr.number)) throw new Wait(`the head ${short(head)} is not in the checkout: its Code story cannot be checked`)
     const own = (name) => name.startsWith(`${pr.ticket}-`) && name.endsWith(".md")
     const root = ticketsRoot(st)
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "land-story-"))
@@ -543,7 +548,6 @@ function storyGreen(st, pr, head) {
         let dir, found, file
         if (root) {
             dir = `${root}/${pr.epic}/stories`
-            if (!haveCommit(st, head, pr.number)) throw new Wait(`the head ${short(head)} is not in the checkout: its Code story cannot be read`)
             found = git(["-c", "core.quotePath=false", "ls-tree", "-z", "--name-only", head, "--", `${dir}/`], st.repo)
                 .split("\0")
                 .filter((p) => own(path.posix.basename(p)))
@@ -576,7 +580,10 @@ function storyGreen(st, pr, head) {
         const back = (l) => (root && l.startsWith(`${file}:`) ? shown + l.slice(file.length) : l)
         log(`story-check --repo ${st.repo} --head ${head} ${shown} — exit ${sc.code}`)
         for (const l of lines) log(`  ${back(l)}`)
-        if (sc.code === 0) return
+        if (sc.code === 0) {
+            if (root) storyGreenAt.add(`${pr.number} ${head}`)
+            return
+        }
         if (sc.code === 2) {
             const problem = lines.find((l) => /^.+:[^:]+: /.test(l) && !/: \d+ fragments? checked against /.test(l) && !/: \d+ problems?$/.test(l))
             throw new Wait(`story-check is red on ${shown} at ${short(head)}: ${back(problem || lines[lines.length - 1] || "")}`, "red")

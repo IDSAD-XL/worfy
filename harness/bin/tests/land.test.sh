@@ -121,10 +121,15 @@ printf '#!/usr/bin/env bash\nexec node "%s" "$@"\n' "$STUBS/gh.mjs" >"$STUBS/gh"
 # ticket: `done <epic> <NN> --pr <N> --root <root>` writes <root>/<epic>/issues/<NN>.md (with the text of $GHD/ticket-leak
 # appended when it is there) and logs the call and its cwd; with $GHD/ticket-fail it writes nothing and exits 1.
 # `evidence … --root <root>` writes nothing and logs its arguments before --root and the root relative to its cwd.
+# `root` prints the text of $GHD/tickets-root (the tickets root outside the repository, as in Silent mode).
 cat >"$STUBS/ticket.mjs" <<'EOF'
 import fs from "node:fs"
 import path from "node:path"
 const a = process.argv.slice(2), root = a[a.indexOf("--root") + 1], D = process.env.GHD
+if (a[0] === "root") {
+    process.stdout.write(fs.readFileSync(path.join(D, "tickets-root"), "utf8"))
+    process.exit(0)
+}
 if (a[0] === "evidence") {
     fs.appendFileSync(path.join(D, "ticket.log"), `${a.slice(0, a.indexOf("--root")).join(" ")} root=${path.relative(process.cwd(), root).split(path.sep).join("/")}\n`)
     process.exit(0)
@@ -842,6 +847,17 @@ story_world sg-green pr-en.md
     && ok "story guard: on, the story green on the head -> merged (the checkout on main has no src/: the code is read from the head)" || bad "story guard green: exit $rc: $(cat "$W/out") log $(grep -i story "$W/state.log")"
 grep -qx -- "-C $(tn "$W/repo") --field code_stories.pr" "$GHD/profile.log" \
     && ok "story guard: the switch is the profile's code_stories.pr of the checkout" || bad "story guard: profile calls $(cat "$GHD/profile.log")"
+[ "$(grep -c 'story-check --repo' "$W/state.log")" = 1 ] \
+    && ok "story guard: a story green at a head is not checked again under the main-branch lock" || bad "story guard cache: $(grep -c 'story-check --repo' "$W/state.log") story-check runs"
+# Silent mode (tickets_root null): the story is in the folder `ticket root` prints, and the PR's head, never fetched into
+# the checkout (only refs/pull/1/head of the origin has it), is fetched before story-check reads its code.
+story_world sg-silent
+edit 's.tickets_root=null'
+mkdir -p "$W/wf/demo-cart/stories" && cp "$FIX/pr-en.md" "$W/wf/demo-cart/stories/04-cart-total.md" && printf '%s\n' "$(tn "$W/wf")" >"$GHD/tickets-root"
+! git -C "$W/repo" cat-file -e "$(head_of 1)^{commit}" 2>/dev/null && had=no || had=yes
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$had" = no ] && [ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && grep -q "story-check .*04-cart-total.md — exit 0" "$W/state.log" \
+    && ok "story guard, tickets outside the repository: the head not in the checkout is fetched, the story of the folder green -> merged" || bad "story guard silent: had=$had exit $rc: $(cat "$W/out") log $(grep -i story "$W/state.log")"
 story_world sg-none
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 2 ] && [ "$(merged_of 1)" = 0 ] && grep -q "^#1 waits: no Code story of ticket demo-cart 04: .scratch/demo-cart/stories/04-<slug>.md is not in the head $(head_of 1 | cut -c1-8)" "$W/out" && tail -n 1 "$W/out" | grep -qx 'LAND=red' \

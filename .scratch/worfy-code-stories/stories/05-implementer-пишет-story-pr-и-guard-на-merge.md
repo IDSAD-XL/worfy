@@ -12,7 +12,7 @@ Story PR уже имела формат (Ticket 01), script проверки `st
 
 ## 2. Story — часть условия merge в `land`
 
-Code: `harness/bin/land:590-598` · key lines: 596
+Code: `harness/bin/land:597-605` · key lines: 603
 
 ```js
 function ready(st, pr, head, carry) {
@@ -31,12 +31,12 @@ function ready(st, pr, head, carry) {
   Gate бежит на каждом head-е, в том числе до того, как story написана, и краснел бы раньше времени.
 - Без него: PR Ticket-а без story вливается, как раньше; переключатель `code_stories.pr` ничего не значит.
 - Требование: [Что делаем, пункт 6](../issues/05-implementer-пишет-story-pr-и-guard-на-merge.md#что-делаем)
-- Риски и пробелы test-ов: `story-check` идёт дважды на PR (до замка и под ним); на время `land` это заметно мало,
-  отдельного test-а на это нет.
+- Риски и пробелы test-ов: зелёный результат запоминается по head-у, и под замком `story-check` не повторяется (test в `land.test.sh`);
+  в режиме Silent файл в папке может измениться, поэтому там проверка повторяется.
 
 ## 3. Story читается из head-а PR, а не из рабочего дерева
 
-Code: `harness/bin/land:566-574` · key lines: 568, 571, 574
+Code: `harness/bin/land:570-578` · key lines: 572, 575, 578
 
 ```js
         const shown = found[0]
@@ -51,7 +51,7 @@ Code: `harness/bin/land:566-574` · key lines: 568, 571, 574
 ```
 
 - Что делает: достаёт файл story из commit-а head-а PR во временную папку и прогоняет `story-check` с
-  `--repo <checkout> --head <head>`; в режиме Silent берёт файл из папки, которую печатает `ticket root`.
+  `--repo <checkout> --head <head>`; в режиме Silent берёт файл из папки, которую печатает `ticket root`. Head, которого нет в checkout-е, сначала достаётся из origin в обоих режимах.
 - Почему здесь: checkout у `land` — ветка main, его рабочее дерево не то, что вливается; номера строк story — head-а PR.
 - Без него: `land` проверял бы story или код из рабочего дерева checkout-а, и зелёный результат ничего не говорил бы
   о вливаемом head-е.
