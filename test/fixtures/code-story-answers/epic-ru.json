@@ -1,0 +1,185 @@
+{
+  "start": {
+    "text": "Корзина магазина считала деньги дробными числами: итог расходился с чеком на цент, а купоны могли увести его в минус.\nEpic перевёл цены в целые центы, итог корзины и скидку — на них.",
+    "requirement": "[Решение](spec.md#решение)"
+  },
+  "chapters": [
+    {
+      "ready": true,
+      "pr": 211,
+      "ticket": "03",
+      "title": "Цены в целых центах",
+      "head": "2110000000000000000000000000000000000000",
+      "steps": [
+        {
+          "kind": "code",
+          "title": "Цена, набранная человеком, становится целыми центами",
+          "fragment": {
+            "path": "src/money.ts",
+            "startLine": 6,
+            "endLine": 12,
+            "keyLines": [
+              7,
+              11
+            ],
+            "code": "export function toCents(text: string): Cents {\n  const match = /^(\\d+)(?:\\.(\\d{1,2}))?$/.exec(text.trim())\n  if (!match) throw new Error(`not a price: ${text}`)\n  const whole = Number(match[1])\n  const part = Number((match[2] ?? '0').padEnd(2, '0'))\n  return whole * 100 + part\n}"
+          },
+          "whatItDoes": "принимает только цену с не более чем двумя знаками после точки и возвращает целое число центов.",
+          "whyHere": "все суммы магазина начинаются с цены из каталога; дальше дробей нет.",
+          "withoutIt": "0.1 + 0.2 давало бы 0.30000000000000004, и итог расходился бы с чеком.",
+          "requirement": "[Ticket-ы, строка 03](spec.md#ticket-ы)",
+          "risks": "цена с тремя знаками бросает ошибку; что видит человек в этот момент, не проверено."
+        },
+        {
+          "kind": "code",
+          "title": "Доля суммы округляется до целого цента",
+          "fragment": {
+            "path": "src/money.ts",
+            "startLine": 22,
+            "endLine": 24,
+            "keyLines": [
+              23
+            ],
+            "code": "export function percentOf(value: Cents, percent: number): Cents {\n  return Math.round((value * percent) / 100)\n}"
+          },
+          "whatItDoes": "считает процент от суммы и округляет половину цента вверх.",
+          "whyHere": "не записано",
+          "withoutIt": "скидка могла бы оказаться дробной суммой центов.",
+          "requirement": "[Ticket-ы, строка 03](spec.md#ticket-ы)",
+          "risks": "случай ровно половины цента test-ом не проверен."
+        }
+      ],
+      "why": null
+    },
+    {
+      "ready": true,
+      "pr": 212,
+      "ticket": "04",
+      "title": "Итог корзины в центах",
+      "head": "2120000000000000000000000000000000000000",
+      "steps": [
+        {
+          "kind": "code",
+          "title": "Итог — сумма целых центов",
+          "fragment": {
+            "path": "src/cart.ts",
+            "startLine": 10,
+            "endLine": 17,
+            "keyLines": [
+              13,
+              14
+            ],
+            "code": "export function cartTotal(lines: CartLine[]): Cents {\n  let total = 0\n  for (const line of lines) {\n    if (line.quantity <= 0) continue\n    total += toCents(line.price) * line.quantity\n  }\n  return total\n}"
+          },
+          "whatItDoes": "переводит цену каждой строки в центы, умножает на количество и складывает; строки с нулём пропускает.",
+          "whyHere": "итог читают и купон, и чек.",
+          "withoutIt": "не записано",
+          "requirement": "[Ticket-ы, строка 04](spec.md#ticket-ы)",
+          "risks": "отрицательное количество молча пропускается; test-а на него нет."
+        }
+      ],
+      "why": null
+    },
+    {
+      "ready": true,
+      "pr": 213,
+      "ticket": "05",
+      "title": "Скидка по купону",
+      "head": "2130000000000000000000000000000000000000",
+      "steps": [
+        {
+          "kind": "code",
+          "title": "Скидка не больше итога и только у живого купона",
+          "fragment": {
+            "path": "src/coupon.ts",
+            "startLine": 10,
+            "endLine": 15,
+            "keyLines": [
+              11,
+              14
+            ],
+            "code": "export function discountFor(total: Cents, coupon: Coupon, today: string): Cents {\n  if (coupon.expires < today) return 0\n  if (coupon.percent <= 0) return 0\n  const discount = percentOf(total, coupon.percent)\n  return Math.min(discount, total)\n}"
+          },
+          "whatItDoes": "просроченный купон даёт ноль; иначе скидка — процент от итога, не больше самого итога.",
+          "whyHere": "скидку читает только оформление заказа.",
+          "withoutIt": "купон на 120 % увёл бы итог в минус.",
+          "requirement": "[Ticket-ы, строка 05](spec.md#ticket-ы)",
+          "risks": "даты сравниваются как строки."
+        },
+        {
+          "kind": "code",
+          "title": "Код купона приводится к одной форме",
+          "fragment": {
+            "path": "src/coupon.ts",
+            "startLine": 18,
+            "endLine": 20,
+            "keyLines": [
+              19
+            ],
+            "code": "export function normaliseCode(text: string): string {\n  return text.replace(/\\s+/g, '').toUpperCase()\n}"
+          },
+          "whatItDoes": "убирает пробелы и поднимает регистр.",
+          "whyHere": "не записано",
+          "withoutIt": "код, набранный строчными буквами, не находился бы.",
+          "requirement": "[Ticket-ы, строка 05](spec.md#ticket-ы)",
+          "risks": "не записано"
+        }
+      ],
+      "why": null
+    },
+    {
+      "ready": false,
+      "pr": null,
+      "ticket": "06",
+      "title": "Скидка на чеке",
+      "head": null,
+      "steps": [],
+      "why": "PR ещё не открыт; передача от 05 к 04 ждёт этот Ticket."
+    }
+  ],
+  "seams": {
+    "text": "Три Ticket-а передают друг другу суммы в целых центах. Одна передача брошена: скидку купона никто не показывает в\nитоге корзины.",
+    "handoffs": [
+      {
+        "from": "03",
+        "to": "04",
+        "what": "цена строки в целых центах (`toCents`)",
+        "done": true,
+        "why": null
+      },
+      {
+        "from": "03",
+        "to": "05",
+        "what": "доля суммы с округлением до цента (`percentOf`)",
+        "done": true,
+        "why": null
+      },
+      {
+        "from": "05",
+        "to": "04",
+        "what": "скидка купона в итоге корзины",
+        "done": false,
+        "why": "`cartTotal` не вызывает `discountFor`, итог на чеке без скидки"
+      }
+    ]
+  },
+  "summary": "Цены, итог и скидка считаются в целых центах. Скидка посчитана, но в итог корзины не попадает: это брошенная\nпередача от 05 к 04.",
+  "check": "`pnpm test` — exit 0 на каждом из трёх PR; review каждого PR — `VERIFIED`. Итог корзины с купоном на чеке руками не\nпроверяли.",
+  "checkYourself": [
+    {
+      "question": "Почему скидка купона не может увести итог в минус?",
+      "answer": "`discountFor` возвращает меньшее из скидки и самого итога.",
+      "lines": [
+        "src/coupon.ts:14"
+      ]
+    },
+    {
+      "question": "Какая передача между Ticket-ами брошена и как это видно в коде?",
+      "answer": "от 05 к 04 — `cartTotal` не вызывает `discountFor`, поэтому итог корзины считается без скидки.",
+      "lines": [
+        "src/cart.ts:10-17",
+        "src/coupon.ts:10"
+      ]
+    }
+  ]
+}

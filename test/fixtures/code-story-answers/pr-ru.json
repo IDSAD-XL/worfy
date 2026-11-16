@@ -1,0 +1,73 @@
+{
+  "steps": [
+    {
+      "kind": "frame",
+      "frame": "wrong",
+      "text": "Купон со скидкой 100 % и выше делал итог корзины отрицательным, а просроченный купон всё равно давал скидку. Код,\nнабранный с пробелом или строчными буквами, не находился.",
+      "requirement": "[Что происходит](../issues/05-coupons.md#что-происходит)",
+      "fragments": []
+    },
+    {
+      "kind": "code",
+      "title": "Скидка не больше итога и только у живого купона",
+      "fragment": {
+        "path": "src/coupon.ts",
+        "startLine": 10,
+        "endLine": 15,
+        "keyLines": [
+          11,
+          14
+        ],
+        "code": "export function discountFor(total: Cents, coupon: Coupon, today: string): Cents {\n  if (coupon.expires < today) return 0\n  if (coupon.percent <= 0) return 0\n  const discount = percentOf(total, coupon.percent)\n  return Math.min(discount, total)\n}"
+      },
+      "whatItDoes": "просроченный купон и купон без процента дают ноль; иначе скидка считается от итога в целых центах и обрезается итогом.",
+      "whyHere": "скидку читает только оформление заказа, и проверка в одном месте закрывает все пути к ней.",
+      "withoutIt": "итог с купоном на 120 % ушёл бы в минус, и оплата получила бы отрицательную сумму.",
+      "requirement": "[Что делаем, п. 1](../issues/05-coupons.md#что-делаем)",
+      "risks": "даты сравниваются как строки; верно только для формы `YYYY-MM-DD`, test-а на другую форму нет."
+    },
+    {
+      "kind": "code",
+      "title": "Код купона приводится к одной форме",
+      "fragment": {
+        "path": "src/coupon.ts",
+        "startLine": 18,
+        "endLine": 20,
+        "keyLines": [
+          19
+        ],
+        "code": "export function normaliseCode(text: string): string {\n  return text.replace(/\\s+/g, '').toUpperCase()\n}"
+      },
+      "whatItDoes": "убирает пробелы и поднимает регистр, так что «save 10» и «SAVE10» — один код.",
+      "whyHere": "не записано",
+      "withoutIt": "код, набранный строчными буквами, не находился бы.",
+      "requirement": "[Что делаем, п. 2](../issues/05-coupons.md#что-делаем)",
+      "risks": "не записано"
+    },
+    {
+      "kind": "frame",
+      "frame": "checked",
+      "text": "`pnpm test test/unit/coupon.test.ts` — exit 0: купон на 120 % даёт скидку, равную итогу; вчерашний купон даёт ноль.",
+      "requirement": null,
+      "fragments": []
+    },
+    {
+      "kind": "frame",
+      "frame": "review",
+      "text": "Review нашёл сравнение дат строками; оно оставлено, потому что все даты купонов приходят в форме `YYYY-MM-DD`.\n\n\n\nНе проверено: купон, у которого дата без ведущего нуля в месяце.",
+      "requirement": null,
+      "fragments": [
+        {
+          "path": "src/coupon.ts",
+          "startLine": 11,
+          "endLine": 11,
+          "keyLines": [
+            11
+          ],
+          "code": "  if (coupon.expires < today) return 0"
+        }
+      ]
+    }
+  ],
+  "checkYourself": []
+}

@@ -1,6 +1,7 @@
 // Handlers of the `stories` domain (src/shared/ipc/stories.ts, worfy-code-stories ticket 04): the invisible
 // build of a Code story on the Project's Vendor (its settings' `defaultVendor`, Claude Code when none), its
-// progress lines to the window that asked, and its Stop. The builder (src/main/stories/one-shot.ts) writes
+// progress lines to the window that asked, and its Stop. The story reads the Project's root, or the git
+// worktree of it the window names (where the PR's head is checked out); any other folder is refused. The builder (src/main/stories/one-shot.ts) writes
 // nothing; keeping a story is its caller's (tickets 11 and 12).
 //
 // Under WORFY_AGENT=fake the Claude driver's oneShot runs over the fake agent, which plays
@@ -13,10 +14,11 @@ import { app } from 'electron'
 import { storiesActivity, storiesBuild, storiesStop } from '../../shared/ipc/stories'
 import type { VendorId } from '../../shared/vendors/vendor'
 import { fakeQueryFactory } from '../agent/fake-query'
+import { gitWorktrees } from '../claude-home/registry'
 import { readProjectSettings } from '../projects/settings'
 import { projectStore } from '../projects/store'
 import { dataRoot } from '../storage/paths'
-import { StoryBuilder } from '../stories/one-shot'
+import { StoryBuilder, storyFolder } from '../stories/one-shot'
 import { assistDir } from '../terminal-ai/options'
 import { claudeOneShotOver } from '../vendors/claude/one-shot'
 import type { OneShot } from '../vendors/one-shot'
@@ -54,11 +56,14 @@ function toSender(sender: EventTarget & { isDestroyed?: () => boolean }, send: (
 }
 
 const handlers: HandlerModule = [
-  defineHandler(storiesBuild, ({ storyId, projectId, input }, { event }) => {
+  defineHandler(storiesBuild, async ({ storyId, projectId, folder, input }, { event }) => {
     const store = projectStore()
     const project = store.get(projectId)
+    // The worktrees are listed only when a folder other than the root is asked for.
+    const chosen = storyFolder(project.path, folder, folder === undefined ? [] : await gitWorktrees(project.path))
+    if (!chosen.ok) return { status: 'failed' as const, reason: chosen.reason }
     const vendor = readProjectSettings(store.dataDir(project.id)).defaultVendor ?? 'claude'
-    return builder().build({ storyId, folder: project.path, vendor, input }, (text) => toSender(event.sender, (target) => emit(target, storiesActivity, { storyId, text })))
+    return builder().build({ storyId, folder: chosen.folder, vendor, input }, (text) => toSender(event.sender, (target) => emit(target, storiesActivity, { storyId, text })))
   }),
 
   defineHandler(storiesStop, ({ storyId }) => ({ stopped: builder().stop(storyId) })),

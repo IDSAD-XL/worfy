@@ -598,6 +598,14 @@ export type DraftSessionOptionsInput = Omit<SessionOptionsInput, 'settingSources
   outputFormat: ClaudeOutputFormat
   allowedTools: readonly string[]
   disallowedTools: readonly string[]
+  /**
+   * Folders Read, Glob and Grep may read besides the cwd (worfy-code-stories ticket 04: a story runs in
+   * worfy's own folder and reads the Project's checkout), so a user's `blockReadsOutsideWorkingDirectories`
+   * or `denyInsteadOfPrompting` does not cut it off from them. Absent or empty: none.
+   */
+  additionalDirectories?: readonly string[] | undefined
+  /** False: no transcript under ~/.claude/projects (a story's text holds the diff, the PR and its verdicts). */
+  persistSession?: false | undefined
 }
 
 /**
@@ -607,7 +615,11 @@ export type DraftSessionOptionsInput = Omit<SessionOptionsInput, 'settingSources
  * Nor the Project's private skills (ADR-0102): it is a one-off read of a folder, not a person's Session.
  */
 export function draftSessionOptions(input: DraftSessionOptionsInput): Options {
-  return sessionOptions({ ...input, settingSources: ['user'], permissionRulesFromPolicyOnly: true, mcpAllowlist: [], privateSkills: null })
+  const { additionalDirectories, persistSession, ...rest } = input
+  const options = sessionOptions({ ...rest, settingSources: ['user'], permissionRulesFromPolicyOnly: true, mcpAllowlist: [], privateSkills: null })
+  if (additionalDirectories !== undefined && additionalDirectories.length > 0) options.additionalDirectories = [...(options.additionalDirectories ?? []), ...additionalDirectories]
+  if (persistSession === false) options.persistSession = false
+  return options
 }
 
 /** The name worfy registers a server of the Harness plugin under: `plugin_worfy_qmd` for `qmd`. */

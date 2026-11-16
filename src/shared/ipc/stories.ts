@@ -3,7 +3,7 @@
 // Session and no Session Node: the window shows only a progress bar where the pressed button was
 // (src/renderer/stories/StoryProgress.tsx). The buttons that start it come with tickets 11 and 12.
 import { z } from 'zod'
-import { storyHeaderSchema, storySchema } from '../stories/schema'
+import { epicStoryHeaderSchema, prStoryHeaderSchema, storySchema } from '../stories/schema'
 import { eventChannel, invokeChannel } from './channels'
 
 /** A diff, a PR's text or a Ticket larger than this is not sent to a model whole; the caller trims it. */
@@ -11,18 +11,34 @@ export const STORY_INPUT_MAX_CHARS = 1_000_000
 
 const material = z.string().max(STORY_INPUT_MAX_CHARS)
 
-/** What the agent explains: it cannot run git (oneShot has no Bash), so the diff comes in the request. */
-export const storyInputSchema = z.object({
-  header: storyHeaderSchema,
+/** The Ticket of a PR: its file name (the Requirement links point into it) and its text. */
+export const storyTicketSchema = z.object({ file: z.string().min(1).max(300), text: material })
+
+/** What the agent explains for the story of a PR: it cannot run git (oneShot has no Bash), so the diff comes in the request. */
+export const prStoryInputSchema = z.object({
+  kind: z.literal('pr'),
+  header: prStoryHeaderSchema,
   /** The diff of the PR, as `gh pr diff` prints it. */
   diff: material.min(1),
   /** The PR's title and description. */
   prText: material,
-  /** The Ticket's file; null when the PR has none. */
-  ticket: material.nullable(),
+  /** The Ticket; null when the PR has none. */
+  ticket: storyTicketSchema.nullable(),
   /** The review verdicts of the PR, if there are any. */
   verdicts: z.array(material).max(20),
 })
+
+/** What the agent puts together for the story of an Epic: its spec and the story (or the state) of each Ticket's PR. */
+export const epicStoryInputSchema = z.object({
+  kind: z.literal('epic'),
+  header: epicStoryHeaderSchema,
+  spec: material.min(1),
+  /** One text per Ticket: the story of its PR with the PR's number and head, or why its PR is not ready. */
+  chapters: z.array(material).min(1).max(100),
+  verdicts: z.array(material).max(100),
+})
+
+export const storyInputSchema = z.discriminatedUnion('kind', [prStoryInputSchema, epicStoryInputSchema])
 export type StoryInput = z.output<typeof storyInputSchema>
 
 export const storyIdSchema = z.string().min(1).max(100)
@@ -40,8 +56,18 @@ export const storyOutcomeSchema = z.discriminatedUnion('status', [
 ])
 export type StoryOutcome = z.output<typeof storyOutcomeSchema>
 
-/** Builds the story of `input` in Project `projectId` on its Vendor; stories.activity tells each line while it runs. */
-export const storiesBuild = invokeChannel('stories.build', z.object({ storyId: storyIdSchema, projectId: z.string().min(1), input: storyInputSchema }), storyOutcomeSchema, 'project', 'write')
+/**
+ * Builds the story of `input` in Project `projectId` on its Vendor; stories.activity tells each line while it
+ * runs. `folder`: the checkout whose files the agent reads — the Project's root (the default) or one of its git
+ * worktrees, where the PR's head is checked out; any other folder is refused.
+ */
+export const storiesBuild = invokeChannel(
+  'stories.build',
+  z.object({ storyId: storyIdSchema, projectId: z.string().min(1), folder: z.string().min(1).optional(), input: storyInputSchema }),
+  storyOutcomeSchema,
+  'project',
+  'write',
+)
 
 /** Stop of the progress bar: ends the build `storyId`; false when none runs under it. */
 export const storiesStop = invokeChannel('stories.stop', z.object({ storyId: storyIdSchema }), z.object({ stopped: z.boolean() }), 'project', 'write')

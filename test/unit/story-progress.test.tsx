@@ -19,7 +19,8 @@ const { useStoryBuild, STARTING_LINE } = await import('../../src/renderer/storie
 const CODEX_REASON = 'One-off requests (the Project profile draft, Terminal AI, a Code story) run on Claude Code only.'
 
 const INPUT: StoryInput = {
-  header: { kind: 'pr', epic: 'worfy-example', ticket: '07', pr: 4321, language: 'en' },
+  kind: 'pr',
+  header: { title: 'Fix x', epic: null, ticket: null, pr: 4321, language: 'en', commit: 'a'.repeat(40) },
   diff: 'diff --git a/x b/x\n',
   prText: 'Fix x',
   ticket: null,
@@ -36,7 +37,7 @@ function StoryButton({ projectId }: { projectId: string }) {
       </button>
     )
   }
-  if (run.kind === 'done') return <p>{run.story.steps[0]?.title}</p>
+  if (run.kind === 'done') return <p>{run.story.kind === 'pr' && run.story.steps[0]?.kind === 'frame' ? run.story.steps[0].text : ''}</p>
   return <StoryProgress run={run} onStop={stop} onDismiss={reset} />
 }
 
@@ -101,7 +102,7 @@ describe('while the story is built', () => {
   it('a story that came back takes the bar away', async () => {
     press()
     await act(async () => {
-      answer({ ok: true, value: { status: 'story', story: { header: INPUT.header, steps: [{ title: 'The first step', fragment: null, what: 'a', why: 'b', without: 'c', requirement: 'd', risks: 'e' }], handoffs: [] } } })
+      answer({ ok: true, value: { status: 'story', story: { kind: 'pr', header: INPUT.header, steps: [{ kind: 'frame', frame: 'wrong', text: 'The first step', requirement: '[What happens](x.md#a)', fragments: [] }], checkYourself: [] } } })
       await Promise.resolve()
     })
     expect(screen.queryByTestId('story-progress')).toBeNull()
@@ -133,13 +134,13 @@ describe('Stop and failures, in the place of the button', () => {
   it('a failure shows its reason', async () => {
     press()
     await act(async () => {
-      answer({ ok: true, value: { status: 'failed', reason: "The answer does not fit the story's schema: steps.0.risks: Too small" } })
+      answer({ ok: true, value: { status: 'failed', reason: 'The answer does not fit the Code story format: steps.1.risks: Too small' } })
       await Promise.resolve()
     })
     const bar = screen.getByRole('alert')
     expect(bar.dataset.state).toBe('failed')
     expect(within(bar).getByText('Failed')).toBeTruthy()
-    expect(within(bar).getByTestId('story-progress-reason').textContent).toBe("The answer does not fit the story's schema: steps.0.risks: Too small")
+    expect(within(bar).getByTestId('story-progress-reason').textContent).toBe('The answer does not fit the Code story format: steps.1.risks: Too small')
   })
 
   it('a call main refused shows the handler’s reason without the channel’s name', async () => {
