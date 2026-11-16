@@ -200,6 +200,33 @@ describe('the release reader', () => {
     expect(check).toEqual({ state: 'not checked', reason: 'npm view exited 1: npm error network request to https://registry.example/ failed' })
   })
 
+  it('package: npm 11\'s E404 for the package itself (no access, a typo) is not checked, not waiting, with GET … Not Found as the reason', async () => {
+    const app = repoAt(join(dir, 'app'))
+    stubVars.RELEASE_STUB_MISSING = 'package'
+    const check = await new ReleaseReader({ env, intervalMs: 0 }).check(packageLine, { library: null, consumer: app })
+    expect(check).toEqual({ state: 'not checked', reason: 'npm view exited 1: npm error 404 Not Found - GET https://registry.example/@acme/lots - Not found' })
+  })
+
+  it('package: npm\'s debug log path, new on every run, never gets into the reason, so a second failure calls nobody back', async () => {
+    const app = repoAt(join(dir, 'app'))
+    const places: ReleasePlaces = { library: null, consumer: app }
+    for (const failing of [{ RELEASE_STUB_CODE: '1' }, { RELEASE_STUB_MISSING: 'package' }]) {
+      Object.assign(stubVars, { RELEASE_STUB_CODE: '0', RELEASE_STUB_MISSING: '' }, failing)
+      let now = 0
+      const reader = new ReleaseReader({ env, intervalMs: 1000, now: () => now })
+      const first = await reader.check(packageLine, places)
+      expect(first.state).toBe('not checked')
+      expect(first.reason).not.toMatch(/_logs|debug-0\.log|complete log/u)
+      now = 1000
+      let calledBack = 0
+      reader.peek(packageLine, places, () => (calledBack += 1))
+      await reader.idle()
+      expect(calledBack).toBe(0)
+      expect(await reader.check(packageLine, places)).toEqual(first)
+    }
+    expect(npmCalls()).toHaveLength(4)
+  })
+
   it('package: npm 11 answers a version that is not there with E404 and exit 1 — waiting, and a second answer calls nobody back', async () => {
     const app = repoAt(join(dir, 'app'))
     stubVars.RELEASE_STUB_MISSING = 'e404'
