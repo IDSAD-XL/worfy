@@ -25,6 +25,7 @@ import type { ProductTopicChange } from '../../shared/ipc/product'
 import { isProductTopicName } from '../../shared/product/paths'
 import { accepted, DEFAULT_DOC_HEADINGS, escapeRegExp, OLD_DOC_HEADINGS } from '../../shared/workflow/doc-headings'
 import { readTopic, type ProductTopic } from '../product/topic'
+import { refTree, resolveSource, type RefGitRunner, type RepoTree, type SourceLayout } from '../workflow/main-ref'
 import { isInside, leadsToRemote, leavesFolder, UNCHECKED, walkLinks, type LinkFs, type PathRules } from '../remote-links'
 import { namesTheFolder, notThere, watchWithNode } from '../watch-gone'
 
@@ -57,6 +58,28 @@ export interface DocOptions {
   fs?: DocFs
   /** The label of an ADR's status line, `docs.adr_status_label` of the Profile; `Status` by default. */
   adrStatusLabel?: string
+  /**
+   * The files of the Project's main branch under the root (docsTreeOf; ADR-0107): HANDOFF.md and the ADRs are read
+   * from there, not from the disk. Absent: the disk, as in Silent mode.
+   */
+  tree?: RepoTree
+}
+
+/** `path` (relative to the root) as the parts of a document of the main branch; throws when it is no document. */
+function committedDoc(path: string): string {
+  const parts = path.split(/[\\/]+/u).filter((part) => part !== '' && part !== '.')
+  if (nativePath.isAbsolute(path) || parts.includes('..') || !isDocument(parts)) throw new Error(`${path}: only HANDOFF.md and docs/adr/NNNN-*.md of the Project are read`)
+  return parts.join('/')
+}
+
+/**
+ * The files of the main branch under the documents' root `root` (a Full-mode Project root), limited to HANDOFF.md
+ * and docs/adr; null where the documents are read from the disk: Silent mode, a root outside git, a main branch that
+ * does not resolve (main-ref.ts, resolveSource).
+ */
+export async function docsTreeOf(root: string, layout: SourceLayout, git?: RefGitRunner): Promise<RepoTree | null> {
+  const source = await resolveSource(root, layout, { details: false, ...(git === undefined ? {} : { git }) })
+  return source.kind === 'ref' ? refTree(source, source.rootRel, [HANDOFF_FILE, ADR_DIR], git) : null
 }
 
 /** True for HANDOFF.md at the root and for docs/adr/NNNN-*.md; `parts` are the segments of a relative path. */
@@ -103,6 +126,13 @@ export async function resolveDocPath(root: string, path: string, options: DocOpt
 
 /** The text of HANDOFF.md or an ADR; `path` in the answer is the real file relative to the root. */
 export async function readDoc(root: string, path: string, options: DocOptions = {}): Promise<{ path: string; text: string }> {
+  if (options.tree) {
+    // A path of the commit: checked by its text, as no link of the disk is on the way to it.
+    const rel = committedDoc(path)
+    const text = (await options.tree.texts([rel], DOC_SIZE_MAX)).get(rel)
+    if (text === undefined) throw new Error(`${path} does not exist in the main branch, or is larger than ${DOC_SIZE_MAX} bytes`)
+    return { path: rel, text }
+  }
   const fs = options.fs ?? nodeFs
   const { real, rel } = await resolveDocPath(root, path, options)
   const info = await fs.stat(real)
@@ -139,6 +169,7 @@ export function parseAdr(fileName: string, text: string, label: string = DEFAULT
  * ADRs is not listed when the way to it leads there.
  */
 export async function readDocs(root: string, options: DocOptions = {}): Promise<Docs> {
+  if (options.tree) return readCommittedDocs(options.tree, options.adrStatusLabel)
   const paths = options.paths ?? nativePath
   const fs = options.fs ?? nodeFs
   const handoffText = await readDoc(root, HANDOFF_FILE, options).then(
@@ -170,6 +201,23 @@ export async function readDocs(root: string, options: DocOptions = {}): Promise<
   return {
     handoff: handoffText === null ? null : { path: HANDOFF_FILE, version: versionOf(handoffText) },
     adrs: adrs.filter((adr): adr is AdrEntry => adr !== null).sort((a, b) => a.number.localeCompare(b.number) || a.path.localeCompare(b.path)),
+  }
+}
+
+/** HANDOFF.md and the ADRs of a commit of the main branch: the list and the texts in one `git cat-file --batch`. */
+async function readCommittedDocs(tree: RepoTree, label: string | undefined): Promise<Docs> {
+  const names = (await tree.names(ADR_DIR)).filter((name) => ADR_FILE_PATTERN.test(name))
+  const texts = await tree.texts([HANDOFF_FILE, ...names.map((name) => `${ADR_DIR}/${name}`)], DOC_SIZE_MAX)
+  const handoff = texts.get(HANDOFF_FILE)
+  const adrs: AdrEntry[] = []
+  for (const name of names) {
+    const path = `${ADR_DIR}/${name}`
+    const text = texts.get(path)
+    if (text !== undefined) adrs.push({ path, ...parseAdr(name, text, label), version: versionOf(text) })
+  }
+  return {
+    handoff: handoff === undefined ? null : { path: HANDOFF_FILE, version: versionOf(handoff) },
+    adrs: adrs.sort((a, b) => a.number.localeCompare(b.number) || a.path.localeCompare(b.path)),
   }
 }
 
@@ -272,6 +320,18 @@ export interface DocsWatchOptions {
   onTopic?: (name: string, topic: ProductTopic | null) => void
   /** The read of a topic (readProductTopic); replaced in tests. */
   readTopic?: (root: string, dir: readonly string[], name: string) => Promise<ProductTopic | null>
+  /** Where HANDOFF.md and the ADRs are read from (ADR-0107); the disk without it. */
+  source?: DocsTreeSource
+}
+
+/**
+ * The main branch the documents are read from (ADR-0107): `tree` gives the files of its commit now (docsTreeOf), null
+ * when they are read from the disk; `onMoved` calls back when that branch moves (main-ref.ts, onMainRefMoved), and its
+ * answer stops that.
+ */
+export interface DocsTreeSource {
+  tree: () => Promise<RepoTree | null>
+  onMoved: (listener: () => void) => () => void
 }
 
 /** The reads of one Product Session topic: one at a time, in order, after a quiet period. */
@@ -352,12 +412,17 @@ export class DocsWatcher {
     this.label = options.adrStatusLabel
   }
 
+  /** Stops following the moves of the main branch. */
+  private unfollow: () => void = () => undefined
+
   /** Starts watching, then reads; resolves once the first read is done. No `onChange` before that. */
   static async start(options: DocsWatchOptions): Promise<DocsWatcher> {
     const watcher = new DocsWatcher({ ...options, root: resolve(options.root) })
     try {
       watcher.watch()
-      watcher.docs = await readDocs(watcher.options.root, watcher.readOptions())
+      // The main branch moves in .git, which the watch of the root does not follow (ADR-0107).
+      if (options.source) watcher.unfollow = options.source.onMoved(() => watcher.schedule())
+      watcher.docs = await readDocs(watcher.options.root, await watcher.readOptions())
     } catch (error) {
       await watcher.close()
       throw error
@@ -365,8 +430,15 @@ export class DocsWatcher {
     return watcher
   }
 
-  private readOptions(): DocOptions {
-    return this.label === undefined ? {} : { adrStatusLabel: this.label }
+  /**
+   * The options of a read: the label, and the commit of the main branch when the documents are read from it. A source
+   * that fails throws: the read fails and the documents last read stay, never the folder's disk in their place. When
+   * the main branch does not resolve, the source itself says so (null) and the disk is read, as the Epic list does,
+   * whose "As of" line names the reason (main-ref.ts, sourceView).
+   */
+  private async readOptions(): Promise<DocOptions> {
+    const tree = this.options.source ? await this.options.source.tree() : null
+    return { ...(this.label === undefined ? {} : { adrStatusLabel: this.label }), ...(tree === null ? {} : { tree }) }
   }
 
   /**
@@ -387,6 +459,7 @@ export class DocsWatcher {
 
   async close(): Promise<void> {
     this.closed = true
+    this.unfollow()
     if (this.timer) clearTimeout(this.timer)
     this.timer = null
     for (const timer of this.settle) clearTimeout(timer)
@@ -591,13 +664,14 @@ export class DocsWatcher {
     do {
       this.pending = false
       try {
-        const next = await readDocs(this.options.root, this.readOptions())
+        const next = await readDocs(this.options.root, await this.readOptions())
         if (this.closed) return
         if (this.docs === null || sameDocs(this.docs, next)) continue
         this.docs = next
         this.options.onChange(next)
       } catch (error) {
-        // readDocs leaves unreadable files out instead of throwing; a throw is a bug in onChange.
+        // readDocs leaves unreadable files out instead of throwing; a throw is the main branch that could not be read
+        // (the documents last read stay) or a bug in onChange.
         console.error('[docs] read failed', error)
       }
     } while (this.pending && !this.closed)
@@ -623,6 +697,8 @@ export interface DocsRoot {
   root: string
   adrStatusLabel: string | undefined
   productDir: readonly string[] | undefined
+  /** The main branch the documents are read from (ADR-0107); absent: the disk. */
+  source?: DocsTreeSource | undefined
 }
 
 interface OpenProject {
@@ -656,20 +732,29 @@ export class DocsHub {
    * Starts watching the Project at `root` for `subscriber` (once per subscriber) and returns its
    * state. `adrStatusLabel` is that of the Profile: an open with another one than the watcher has
    * reads the documents again with it, for every subscriber. `productDir` is the Project's Product
-   * Session folder under `root` (DocsWatchOptions.productDir), taken by the open that starts the watcher.
+   * Session folder under `root` (DocsWatchOptions.productDir), taken by the open that starts the watcher, and so is
+   * `source`, the main branch the documents are read from (DocsWatchOptions.source).
    */
-  async open(projectId: string, root: string, subscriber: DocsSubscriber, adrStatusLabel?: string, productDir?: readonly string[]): Promise<DocsState> {
+  async open(
+    projectId: string,
+    root: string,
+    subscriber: DocsSubscriber,
+    adrStatusLabel?: string,
+    productDir?: readonly string[],
+    source?: DocsTreeSource,
+  ): Promise<DocsState> {
     let project = this.open_.get(projectId)
     const fresh = !project
     if (!project) {
       const subscribers = new Map<number | string, DocsSubscriber>()
-      let where = { root, productDir }
+      let where = { root, productDir, source }
       const start = (label: string | undefined, at?: DocsRoot): Promise<DocsWatcher> => {
-        if (at !== undefined) where = { root: at.root, productDir: at.productDir }
-        return startAt(label, where.root, where.productDir)
+        if (at !== undefined) where = { root: at.root, productDir: at.productDir, source: at.source }
+        return startAt(label, where.root, where.productDir, where.source)
       }
-      const startAt = (label: string | undefined, root: string, productDir: readonly string[] | undefined): Promise<DocsWatcher> => DocsWatcher.start({
+      const startAt = (label: string | undefined, root: string, productDir: readonly string[] | undefined, source: DocsTreeSource | undefined): Promise<DocsWatcher> => DocsWatcher.start({
         root,
+        ...(source === undefined ? {} : { source }),
         ...(label === undefined ? {} : { adrStatusLabel: label }),
         ...(this.options.debounceMs === undefined ? {} : { debounceMs: this.options.debounceMs }),
         onChange: (docs) => {

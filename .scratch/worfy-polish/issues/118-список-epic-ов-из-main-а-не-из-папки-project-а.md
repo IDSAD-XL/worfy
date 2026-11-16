@@ -1,7 +1,7 @@
 # 118 — Список Epic-ов из main-ветки, а не из рабочей папки Project-а
 
 Type: bug
-Status: open
+Status: claimed 2026-11-16T01:04Z
 Blocked by: none
 Source: владелец 2026-11-16: Epic `worfy-code-stories`, влитый в main (#1888), не появился в worfy, потому что основная
 папка Project-а отстала от `origin/main` на 4 commit-а (detached HEAD, неотслеживаемые файлы мешали fast-forward).
@@ -55,20 +55,33 @@ Source: владелец 2026-11-16: Epic `worfy-code-stories`, влитый в 
 - [ ] Contract test, красный на нынешнем коде: папка Project-а на старом commit-е (detached HEAD, неотслеживаемый файл
       на пути нового Epic-а), `origin/main` впереди с новым Epic-ом — snapshot содержит новый Epic, его spec и текст
       Ticket-ов берутся из `origin/main`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-read-from-main.test.ts` exit 0 · mac - · 15497743985f1485e992de7f6f4292aa820d0f15
 - [ ] Contract test: папка Project-а на ветке с правками Ticket-ов, не влитыми в main, — список показывает main;
       статус ветки `ticket/*` из локального worktree накладывается, как раньше.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-read-from-main.test.ts` exit 0 · mac - · 15497743985f1485e992de7f6f4292aa820d0f15
 - [ ] Contract test: `local-green` — читается `refs/heads/<main>`, не HEAD папки.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-read-from-main.test.ts` exit 0 · mac - · 15497743985f1485e992de7f6f4292aa820d0f15
 - [ ] Contract test: нет origin / ref не разрешается — прежнее чтение рабочего дерева и пометка «по состоянию на».
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-read-from-main.test.ts` exit 0 · mac - · 15497743985f1485e992de7f6f4292aa820d0f15
 - [ ] Contract test: Silent mode и корень вне git — чтение рабочего дерева не изменилось.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-read-from-main.test.ts` exit 0 · mac - · 15497743985f1485e992de7f6f4292aa820d0f15
 - [ ] Contract test: fetch упал (timeout, нет сети) — snapshot прежний, ошибки нет; обновление `refs/remotes/origin/<main>`
       извне вызывает перечитывание.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-read-from-main.test.ts` exit 0 · mac - · 15497743985f1485e992de7f6f4292aa820d0f15
 - [ ] Unit test: частота fetch (старт, 2 минуты, фокус не чаще 30 с) на фальшивых часах.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/workflow-fetch-schedule.test.ts` exit 0 · mac - · 15497743985f1485e992de7f6f4292aa820d0f15
 - [ ] Все прежние test-ы чтения workflow зелёные: `test/contract/workflow-reader.test.ts`, `workflow-profile.test.ts`,
       `workflow-branches-gone.test.ts`, `workflow-branches-handles.test.ts`, `workflow-watch-links.test.ts`,
       `workflow-watch-retry.test.ts`, `test/unit/workflow-branches-gone.test.ts`, `harness/bin/tests/epic-status.test.sh`.
+  - evidence: test-run pass · `pnpm lint`, `pnpm typecheck` exit 0; `gate fast` test step (whole suite) green · mac - · 15497743985f1485e992de7f6f4292aa820d0f15
+  - evidence: test-run pass · `bash harness/bin/tests/epic-status.test.sh` exit 0 (57 passed) · mac - · 15497743985f1485e992de7f6f4292aa820d0f15
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 15497743985f1485e992de7f6f4292aa820d0f15
 - [ ] Пути в `ls-tree`/`cat-file` работают на Windows: Windows job CI зелёный.
+  - evidence: ci-check pass · PR #1898 CI run 43801679513: windows-e2e 1-4/4, windows full-suite 1-3/3, harness-scripts 1-2/2 green · windows - · 0123141ad2cedd7fad9fb15d88a73e54b8b40a84
 - [ ] ADR-0107 записан.
+  - evidence: commit pass · Read the workflow from the Project's main branch, not the folder (worfy-polish 118) · - - · 7b76cbc089b6a9e11c184fb0516c86aff30ea198
 - [ ] Test-ы без сети: fetch идёт в локальный bare repo-фикстуру, никаких настоящих GitHub-запросов.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-read-from-main.test.ts` exit 0 · mac - · 15497743985f1485e992de7f6f4292aa820d0f15
 
 ## Где в коде
 

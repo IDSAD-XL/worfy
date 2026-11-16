@@ -166,6 +166,9 @@ function start(): void {
       inStep('installWebPolicy', () => installWebPolicy(isAppUrl, () => browserProfilePartitions(projectStore().list().map((project) => project.id))))
       // The checks of Browser sleep (worfy-browser ticket 05) start with the first screen a window reports.
       app.on('will-quit', stopLiveBrowsers)
+      // A window that gets the focus fetches the main branch of the watched Projects, at most once in 30 s
+      // (worfy-polish ticket 118, ADR-0107: the workflow is read from that branch).
+      app.on('browser-window-focus', () => workflowHub.focus())
       inStep('installCardRuntime', () => installCardRuntime((host) => cardStore().locate(host)))
       // The copies of sent images (worfy-ui ticket 28) and the images on each Project's Canvas
       // (worfy-canvas ticket 23, src/main/layout/images.ts).

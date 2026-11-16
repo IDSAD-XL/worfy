@@ -714,9 +714,19 @@ export interface ResolvedProfile {
    * fields gives only the trail section, or nothing: the readers take the defaults for the rest.
    */
   headings?: Partial<DocHeadings>
+  /** `workflow.finish`: how a Ticket ends; left out when the Profile names neither form. Says which main branch is read (ADR-0107). */
+  finish?: 'pr-green-ci' | 'local-green'
+  /** `worktree.base` (`origin/main`): the main branch the workflow is read from (ADR-0107); left out when the Profile names none. */
+  mainBranch?: string
 }
 
 const absolute = z.string().refine(isAbsolutePath, 'not an absolute path')
+
+/** `workflow.finish` and `worktree.base` of a `profile --json` answer; a value of another shape reads as none. */
+const mainSchema = z.object({
+  workflow: z.object({ finish: z.enum(['pr-green-ci', 'local-green']).optional().catch(undefined) }).loose().nullish().catch(null),
+  worktree: z.object({ base: z.string().trim().min(1).optional().catch(undefined) }).loose().nullish().catch(null),
+})
 
 /** A name of a document section: a string that is not blank, or nothing; any other value reads as nothing. */
 const sectionName = z.string().trim().min(1).optional().catch(undefined)
@@ -780,9 +790,20 @@ export async function readResolvedProfile(options: ReadProfileOptions): Promise<
   }
   const { mode, workflow_folder, workspace, repos } = parsed.data._resolved
   const headings = headingsOf(json)
+  const main = mainSchema.safeParse(json)
+  const finish = main.success ? main.data.workflow?.finish : undefined
+  const mainBranch = main.success ? main.data.worktree?.base : undefined
   return {
     ok: true,
-    profile: { mode, workflowFolder: workflow_folder, workspace: workspace ?? null, repos: repos.map(({ name, path }) => ({ name, path })), ...(headings ? { headings } : {}) },
+    profile: {
+      mode,
+      workflowFolder: workflow_folder,
+      workspace: workspace ?? null,
+      repos: repos.map(({ name, path }) => ({ name, path })),
+      ...(headings ? { headings } : {}),
+      ...(finish ? { finish } : {}),
+      ...(mainBranch ? { mainBranch } : {}),
+    },
   }
 }
 

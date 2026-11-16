@@ -51,7 +51,7 @@ system's default program. A `screenshot` line whose file lies in `<epic>/evidenc
 opens the image over the window, with "Open in default app". A `video` line's clip (webm or mp4) plays in place, muted,
 with its controls, and "Contact sheet" opens the sheet next to it over the window. A file that does not load says "File
 not found", "File over 8 MB" (worfy serves Evidence files up to 8 MB) or "File cannot be shown" (served, but not a picture
-or a clip the window draws), with "Open in default app"; a missing contact sheet says so next to the clip. A window on a Linked machine shows no preview. The text and the matrix follow edits of the file. "Open in editor" opens the file. A file over 1 MB is not read. When a read
+or a clip the window draws), with "Open in default app"; a missing contact sheet says so next to the clip. A window on a Linked machine shows no preview. The text and the matrix follow the file: in Full mode with the Tickets in git, the file as the main branch has it (see "The list is read from the main branch" below), so an edit in the Project folder shows once it is in main; in Silent mode and outside git, edits of the file. "Open in editor" opens the file in the folder. A file over 1 MB is not read. When a read
 fails, "The Ticket file could not be read" shows with the reason, and the text read earlier stays.
 
 **The Epic frame.** Its header has the Epic's name, the H1 of its `spec.md`, a progress bar of 12 segments, the count
@@ -128,10 +128,25 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
   `tickets.root`), in Silent mode the Workflow folder ([ADR-0042](../adr/0042-profile-on-machine-full-and-silent-modes.md)).
   A folder with no Profile reads as Full mode. A failed call of `profile` is not guessed around: the model carries the
   reason, and the call is repeated after 10 s, 30 s, 60 s and then every 5 minutes.
+- **The list is read from the main branch, not from the Project folder** ([ADR-0107](../adr/0107-workflow-read-from-main-branch.md)).
+  In Full mode with the Tickets in git, the Epics, the Tickets, the specs, the text of a Ticket, `HANDOFF.md` and the
+  ADRs all come from one commit: `origin/HEAD` (else `origin/<main>`) when Tickets end with a PR, the local `<main>`
+  for `local-green`. `<main>` is the branch of the Profile's `worktree.base`, else `main`. In `local-green` a folder on
+  `<main>` or on a Ticket's branch is read as it is, since the Harness writes the status there before it commits it. A folder that lags behind,
+  sits on a detached HEAD or another branch, or holds untracked files does not change the list. While a window shows the
+  Project, worfy runs `git fetch --prune origin <main>` when the window opens it, every 2 minutes, and when a window gets
+  the focus (at most once in 30 s); a Project only Autopilot or the notices follow is not fetched, and a fetch from a
+  terminal is seen too. A fetch asks nothing: no password prompt, no credential window, ssh in batch mode. A failed fetch
+  keeps the list as it was. The status of a
+  Ticket's worktree branch still goes over main's, and so does the folder's own branch when it names a Ticket. Silent
+  mode and a Tickets root outside git read the folder, as before. When the main branch does not resolve (no `origin`),
+  the folder is read and the Epics section shows "As of <commit>" with the reason; the same line, with the time of the
+  last update, shows when fetch has failed for 10 minutes.
 - **The headings are the Profile's.** `tickets.trail_section`, `tickets.done_section` and `tickets.manual_mark` name them.
   Without them the defaults are `## Where in code`, `## Done when` and `manual`, and the older Russian names are read too.
 - **Reads follow changes.** A file event under the Tickets root leads to one full `epic-status` after 300 ms of quiet, and
-  at the latest 1 s after the first event of a series. Reads never overlap. In Full mode the git refs and the worktree list
+  at the latest 1 s after the first event of a series. When the list is read from the main branch, a file event alone
+  reads nothing again: the list is read again when that branch moves (a fetch, a merge). Reads never overlap. In Full mode the git refs and the worktree list
   are watched too, and only branches whose head moved are read again, four at a time. A branch whose read failed keeps
   the status its last good read gave and is read again by itself after 30 s, then 1 min, 2 min and every 5 minutes while
   it keeps failing; a new commit on it starts the waits over. A failed `git worktree list` is such a failed read for

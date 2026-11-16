@@ -11,6 +11,11 @@
 //   read failed is read again by a timer once its wait is over (BRANCH_RETRY_MS: 30 s, 1 min, 2 min,
 //   then every 5 minutes), with no event needed. In Silent mode the status lives in the Workflow
 //   folder only (ADR-0042), so refs are not watched.
+// - the main branch the checkout is read from (ADR-0107, main-ref.ts): `refs/remotes/**` and
+//   `packed-refs` are watched with the branches, and its commit is the key of the checkout's read: a
+//   ref that moved reads the checkout again, a change of the working tree alone does not. The ref is
+//   kept current by a fetch (fetch.ts) while a window shows the Project: at the start, every 2 minutes,
+//   and at a window's focus.
 // Where the workflow lives is read once, when the watch starts. When that read fails (the `profile`
 // call, src/main/workflow/folder.ts: no node, a broken registry, a timeout), nothing is watched:
 // the model carries the reason, and the layout is asked again after 10 s, 30 s, 60 s and then every
@@ -54,6 +59,8 @@ import { closeForGood } from '../chokidar-close'
 import { namesTheFolder } from '../watch-gone'
 import type { LinkFs, PathRules } from '../remote-links'
 import { readProjectLayout, type ProjectLayout } from './folder'
+import { FetchSchedule, type FetchRunner } from './fetch'
+import { FETCH_STALE_AFTER_MS, mainRefMoved, resolveSource, sourceKey, sourceView, type WorkflowSource } from './main-ref'
 import {
   applyBranches,
   epicStatusRunner,
@@ -131,6 +138,23 @@ export interface WatchOptions {
    * as when the system's notification about the root is lost.
    */
   watchTicketsRoot?: (ticketsRoot: string, ignored: ReturnType<typeof ticketsIgnored>) => FSWatcher
+  /**
+   * Whether the main branch is fetched at all: only while a window shows the Project (WorkflowHub, a subscriber with
+   * `window`); false by default. `setFetching` changes it. Projects only Autopilot or the notices follow read what the
+   * last fetch brought, and a terminal's fetch.
+   */
+  fetching?: boolean
+  /**
+   * The fetch of the main branch; none when not given. The app's hub passes the real one (fetch.ts gitFetch,
+   * src/main/ipc/workflow.ts); a test passes one only when it tests the fetch, against a repository on the disk.
+   */
+  fetch?: FetchRunner
+  /** How often the main branch is fetched (FETCH_EVERY_MS by default). */
+  fetchEveryMs?: number
+  /** The least time between two fetches a window's focus asks for (FETCH_FOCUS_MIN_MS by default). */
+  fetchFocusMinMs?: number
+  /** How long fetch may fail before the model says the list may be old (FETCH_STALE_AFTER_MS by default). */
+  fetchStaleAfterMs?: number
 }
 
 /**
@@ -337,6 +361,16 @@ export class WorkflowWatcher {
   private markClosed: () => void = () => undefined
   private dirtyCheckout = false
   private dirtyBranches = false
+  /** Where the checkout held was read from (main-ref.ts): its commit is the key of that read. */
+  private source: WorkflowSource | null = null
+  /** The periodic fetch of the main branch, once a read found one to fetch (fetch.ts). */
+  private fetcher: FetchSchedule | null = null
+  /** The branch `fetcher` fetches. */
+  private fetchBranch: string | null = null
+  /** The branch the last read found to fetch, whether or not it is fetched now (`fetching`). */
+  private wantedFetch: string | null = null
+  /** Whether the main branch is fetched (WatchOptions.fetching, setFetching). */
+  private fetching: boolean
   private running: Promise<void> | null = null
   private pending = false
   private starting = true
@@ -344,6 +378,7 @@ export class WorkflowWatcher {
 
   private constructor(private readonly options: WatchOptions & { root: string; run: EpicStatusRunner }) {
     this.debounce = new Debounce(options.debounceMs ?? 300, options.maxWaitMs ?? 1000, () => this.request())
+    this.fetching = options.fetching ?? false
     this.closing = new Promise((done) => {
       this.markClosed = done
     })
@@ -400,13 +435,62 @@ export class WorkflowWatcher {
     this.branchRetry = null
     if (this.rootLook) clearTimeout(this.rootLook)
     this.rootLook = null
-    await this.unwatch()
+    await Promise.all([this.unwatch(), this.stopFetch()])
     if (this.running) await this.running
+    // A read that ran may have started the fetch after the stop above.
+    await this.stopFetch()
     // A watch of the Tickets root being made anew adds nothing after the close, but its close of
     // the previous one is waited for.
     if (this.rewatching) await this.rewatching
     // A read that got the layout again may have started the watch while it ran.
     await this.unwatch()
+  }
+
+  /**
+   * A window of the app got the focus: the main branch is fetched now, unless a fetch runs or began less than 30 s
+   * ago (fetch.ts). Does nothing while nothing is fetched (Silent mode, a local main branch, outside git).
+   */
+  focus(): void {
+    if (!this.closed) this.fetcher?.focus()
+  }
+
+  /**
+   * Starts or stops the fetch of the main branch: on while a window shows the Project (WorkflowHub). Stopped, the
+   * list keeps the commit last fetched, and a fetch from a terminal still moves it.
+   */
+  setFetching(on: boolean): void {
+    if (this.closed || on === this.fetching) return
+    this.fetching = on
+    this.followFetch(this.wantedFetch)
+  }
+
+  /** Starts the fetch of `branch` while fetching is on, or moves it to another branch; one schedule at a time. */
+  private followFetch(branch: string | null): void {
+    this.wantedFetch = branch
+    const run = this.options.fetch
+    const target = this.fetching && run !== undefined ? branch : null
+    if (this.closed || target === this.fetchBranch) return
+    void this.stopFetch()
+    this.fetchBranch = target
+    if (target === null || run === undefined) return
+    const root = this.options.root
+    const fetcher = new FetchSchedule({
+      fetch: (signal) => run(root, target, signal),
+      // A fetch that worked moved refs/remotes/origin/<main>, which the watch of the refs sees too; a read here also
+      // covers a missed event, and carries a failure that went on too long to the model.
+      onDone: () => this.schedule('branches'),
+      ...(this.options.fetchEveryMs === undefined ? {} : { everyMs: this.options.fetchEveryMs }),
+      ...(this.options.fetchFocusMinMs === undefined ? {} : { focusMinMs: this.options.fetchFocusMinMs }),
+    })
+    this.fetcher = fetcher
+    fetcher.start()
+  }
+
+  private async stopFetch(): Promise<void> {
+    const fetcher = this.fetcher
+    this.fetcher = null
+    this.fetchBranch = null
+    await fetcher?.close()
   }
 
   private async unwatch(): Promise<void> {
@@ -515,7 +599,8 @@ export class WorkflowWatcher {
         const parts = rel.split(sep)
         return parts.length > 2 || (parts.length === 2 && parts[1] !== 'HEAD')
       }
-      const paths = [join(common, 'refs', 'heads'), join(common, 'packed-refs'), worktrees]
+      // refs/remotes: the main branch the workflow is read from (ADR-0107) moves there on a fetch, worfy's or a terminal's.
+      const paths = [join(common, 'refs', 'heads'), join(common, 'refs', 'remotes'), join(common, 'packed-refs'), worktrees]
       // A watch made anew before it was ready passes `done` on to the new one: see watchBranches.
       ready.push(new Promise<void>((done) => this.follow(this.watchBranches(paths, ignored, done), 'branches')))
     }
@@ -730,6 +815,15 @@ export class WorkflowWatcher {
     this.debounce.trigger()
   }
 
+  /** The model with the view of its source, and what the fetches say of it (main-ref.ts, sourceView). */
+  private withSource(model: WorkflowModel): WorkflowModel {
+    if (this.source === null) return model
+    const view = sourceView(this.source, this.fetcher?.status ?? null, Date.now(), this.options.fetchStaleAfterMs ?? FETCH_STALE_AFTER_MS)
+    const rest = { ...model }
+    delete rest.source
+    return view === null ? rest : { ...rest, source: view }
+  }
+
   /** Starts a read, or asks for one more after the read in progress. */
   private request(): void {
     if (this.running) {
@@ -790,23 +884,36 @@ export class WorkflowWatcher {
       let checkout = this.checkout
       if (layout.failed) {
         checkout = this.checkout = failedCheckout(root, layout)
+        this.source = null
         this.retryLayout()
-      } else if (checkoutChanged || !checkout) {
-        checkout = this.checkout = await readCheckout(root, run, layout.ticketsRoot, layout.headings)
-        // A root removed without an event about the root itself (it was lost; only events about
-        // what was in it came) is looked for from here.
-        if (this.chokidarTickets && !(await this.ticketsRootThere(layout.ticketsRoot)) && !this.closed) this.awaitTicketsRoot(layout.ticketsRoot)
-        else if (this.chokidarTickets) await this.checkRootReplaced(layout.ticketsRoot)
+      } else if (checkoutChanged || branchesChanged || !checkout) {
+        // Where the workflow is read from now (ADR-0107): the commit of the main branch is the key of the checkout's
+        // read. Read from a commit, a change in the working tree changes nothing, and a ref that moved — a fetch, a
+        // merge — reads the checkout again. Refs move only where the watch of the refs looks (refs/heads,
+        // refs/remotes, packed-refs), so a change of the Tickets root alone asks git nothing more than before.
+        const source = this.source === null || branchesChanged || !checkout ? await resolveSource(root, layout) : this.source
+        if (this.closed) return
+        const moved = sourceKey(source) !== sourceKey(this.source)
+        if (!checkout || moved || checkout.error !== null || (checkoutChanged && source.kind === 'tree')) {
+          checkout = this.checkout = await readCheckout(root, run, layout.ticketsRoot, layout.headings, source)
+          // A root removed without an event about the root itself (it was lost; only events about
+          // what was in it came) is looked for from here.
+          if (this.chokidarTickets && !(await this.ticketsRootThere(layout.ticketsRoot)) && !this.closed) this.awaitTicketsRoot(layout.ticketsRoot)
+          else if (this.chokidarTickets) await this.checkRootReplaced(layout.ticketsRoot)
+        }
+        if (moved && this.source !== null && source.kind === 'ref') mainRefMoved(root)
+        this.source = source
+        this.followFetch(source.fetchBranch)
       }
       if (checkout.error || layout.mode === 'silent') this.branches = new Map()
       else if (checkoutChanged || branchesChanged) {
         // A failed list keeps what was read and holds the open Tickets (reader.ts, unlistedBranches); retryBranches asks it again.
-        const worktrees = await ticketWorktrees(root, this.options.git).catch(worktreeListError)
+        const worktrees = await ticketWorktrees(root, this.options.git, this.source?.kind === 'ref').catch(worktreeListError)
         this.branches = await readBranches(root, checkout, worktrees, this.branches, run, this.options.branchRetryMs ? { retryMs: this.options.branchRetryMs } : {})
       }
       this.retryBranches()
       const previous = this.model
-      const next = applyBranches(checkout, this.branches)
+      const next = this.withSource(applyBranches(checkout, this.branches))
       this.model = next
       const delta = previous ? diffModels(previous, next) : null
       if (delta && previous && !this.starting && !this.closed) this.options.onChange(delta, onlyTextChanged(previous, next))
@@ -829,6 +936,11 @@ export interface WorkflowSubscriber {
    * would cost it a `profile` run or a fresh read of the whole workflow (worfy-polish ticket 36).
    */
   readonly fieldsOnly?: boolean
+  /**
+   * True for a window that shows the Project (src/main/ipc/workflow.ts): while one does, its main branch is fetched
+   * (ADR-0107). Autopilot and the notices follow every listed Project and fetch nothing.
+   */
+  readonly window?: boolean
   send(delta: WorkflowDelta): void
 }
 
@@ -839,6 +951,12 @@ interface HubProject {
   held: number
   /** While held: the model the subscribers were last sent, which the change after the hold is measured from. */
   sent: WorkflowModel | null
+}
+
+/** Whether a window among the subscribers shows the Project, so its main branch is fetched. */
+function wantsFetch(subscribers: ReadonlyMap<number | string, WorkflowSubscriber>): boolean {
+  for (const subscriber of subscribers.values()) if (subscriber.window === true) return true
+  return false
 }
 
 /** Sends a change to the subscribers; one that reads only the Tickets' fields does not get a change of their text alone. */
@@ -857,7 +975,12 @@ export class WorkflowHub {
 
   /** Starts the watcher of `key` for the subscribers of `project`. */
   private start(key: string, project: Pick<HubProject, 'subscribers'>): Promise<WorkflowWatcher> {
-    return WorkflowWatcher.start({ ...this.options, root: key, onChange: (delta, textOnly) => deliver(project, delta, textOnly) })
+    return WorkflowWatcher.start({
+      ...this.options,
+      root: key,
+      fetching: wantsFetch(project.subscribers),
+      onChange: (delta, textOnly) => deliver(project, delta, textOnly),
+    })
   }
 
   /** A watcher that fails to start takes its Project out of the hub, unless another has taken its place. */
@@ -880,7 +1003,9 @@ export class WorkflowHub {
       project = fresh
     }
     project.subscribers.set(subscriber.id, subscriber)
-    return (await project.watcher).current
+    const watcher = await project.watcher
+    watcher.setFetching(wantsFetch(project.subscribers))
+    return watcher.current
   }
 
   /**
@@ -954,6 +1079,19 @@ export class WorkflowHub {
     return asked.filter(Boolean).length
   }
 
+  /**
+   * A window of the app got the focus: each Project a window shows fetches its main branch, unless it did less than
+   * 30 s ago (WorkflowWatcher.focus). Starts nothing for a Project no window shows, or whose watch has not started.
+   */
+  focus(): void {
+    for (const project of this.projects.values()) {
+      project.watcher.then(
+        (watcher) => watcher.focus(),
+        () => undefined,
+      )
+    }
+  }
+
   /** Stops `subscriber`'s interest in `root`; returns false when it was not subscribed. */
   async close(root: string, subscriberId: number | string): Promise<boolean> {
     const key = resolve(root)
@@ -962,6 +1100,10 @@ export class WorkflowHub {
     if (project.subscribers.size === 0) {
       this.projects.delete(key)
       await (await project.watcher).close()
+    } else {
+      // The last window left: the fetch stops, the others go on reading.
+      const watcher = await project.watcher.catch(() => null)
+      watcher?.setFetching(wantsFetch(project.subscribers))
     }
     return true
   }

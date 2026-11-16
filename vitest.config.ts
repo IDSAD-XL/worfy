@@ -61,9 +61,10 @@ export default defineConfig({
     hookTimeout: ms(10_000),
     // A wait for a condition that names no timeout of its own — expect.poll here, vi.waitFor and
     // vi.waitUntil through test/setup-waits.ts — gives up after vitest's 1 s times the multiplier
-    // (test/scaled-waits.ts). Each project below adds its own setup files to this one.
+    // (test/scaled-waits.ts). test/setup-no-remote-fetch.ts fails a test that ran worfy's git fetch against a remote
+    // not on the disk. Each project below adds its own setup files to these.
     expect: { poll: { timeout: ms(WAIT_DEFAULT_TIMEOUT) } },
-    setupFiles: ['test/setup-waits.ts'],
+    setupFiles: ['test/setup-waits.ts', 'test/setup-no-remote-fetch.ts'],
     projects: [
       {
         extends: true,

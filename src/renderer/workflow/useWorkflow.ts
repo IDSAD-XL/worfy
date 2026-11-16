@@ -51,7 +51,17 @@ export function applyWorkflowDelta(model: WorkflowModel, delta: WorkflowDelta): 
 
   // shortcut: a new `origin` of the root reaches the window with the next workflow.open, not with a delta
   // (diffModels leaves repoUrl out), redo when the Evidence links must follow a remote changed while open.
-  return { root: model.root, epics, tickets, error: delta.error, branchErrors: delta.branchErrors, ...(model.repoUrl === undefined ? {} : { repoUrl: model.repoUrl }) }
+  // The source of the list (ADR-0107) comes with every delta that has one; a delta of an older worfy keeps the model's.
+  const source = delta.source !== undefined ? delta.source : model.source
+  return {
+    root: model.root,
+    epics,
+    tickets,
+    error: delta.error,
+    branchErrors: delta.branchErrors,
+    ...(model.repoUrl === undefined ? {} : { repoUrl: model.repoUrl }),
+    ...(source === undefined ? {} : { source }),
+  }
 }
 
 function setEntry(root: string, entry: WorkflowEntry): void {

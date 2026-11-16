@@ -13,6 +13,12 @@
 // Workflow folder only (ADR-0042): no branch is read. The model also carries the page of the
 // Project's repository, from the `origin` remote of its root (`repoUrl`).
 //
+// Which commit is read (ADR-0107; worfy-polish ticket 118, main-ref.ts): in Full mode with the Tickets in git, the
+// checkout's read is that of the Project's main branch — `epic-status --json --ref <sha>`, and the specs and Tickets
+// of that commit from git objects — never the working tree of the folder, which may lag behind or sit on another
+// branch. The working tree is read in Silent mode, for a Tickets root outside git, and, with a reason the window
+// shows, when the main branch does not resolve.
+//
 // Nothing here writes: processes are run with the Project as cwd, files are only read.
 import { execFile } from 'node:child_process'
 import { readdir, readFile, realpath, stat } from 'node:fs/promises'
@@ -28,6 +34,7 @@ import { harnessHomes, locateHarness, notFoundPaths, scriptEnv, type HarnessLoca
 import type { HarnessScriptEnv, HarnessScriptEnvSource } from '../harness/script-env'
 import { cachedLinks, leadsToRemote, type LinkFs, type PathRules } from '../remote-links'
 import { layoutFailure, readProjectLayout, type ProjectLayout } from './folder'
+import { refTree, resolveSource, sourceView, type RepoTree, type WorkflowSource } from './main-ref'
 import { harnessScriptCommand, HarnessScriptStartError, NODE_NOT_FOUND, type HarnessScriptCommand } from './profile'
 import {
   epicStatusSchema,
@@ -310,7 +317,22 @@ export interface EnrichOptions {
   fs?: TicketFs
   /** The section names the Project's Profile gives (ProjectLayout.headings); the defaults for the rest. */
   headings?: Partial<DocHeadings>
+  /**
+   * The files of the main branch under the Tickets root (main-ref.ts, ADR-0107): the specs and the Tickets are read
+   * from there, not from the disk. Only the time of a spec still comes from the disk, when the file is there; else
+   * the time of the commit.
+   */
+  tree?: RepoTree
 }
+
+/** The files `epic-status` reads under a Tickets root, `/` between the parts: `<epic>/spec.md` and `<epic>/issues/*.md`. */
+const isTicketsFile = (rel: string): boolean => {
+  const parts = rel.split('/')
+  return (parts.length === 2 && parts[1] === 'spec.md') || (parts.length === 3 && parts[1] === 'issues' && parts[2]!.endsWith('.md'))
+}
+
+/** `path` under `ticketsRoot` with `/` between the parts. */
+const relUnder = (ticketsRoot: string, path: string, paths: PathRules): string => paths.relative(ticketsRoot, path).split(paths.sep).join('/')
 
 /**
  * Adds the trail section files, the manual checks, the Epic titles and the times of their specs to a snapshot of the checkout, read from
@@ -341,9 +363,30 @@ export async function enrichSnapshot(
   // The walks of this read share their folders: each path is looked at once, and only in this read.
   const links = cachedLinks(options.links)
   const away = (path: string): Promise<boolean> => leadsToRemote(path, allowed, { paths, links })
-  const read = async (path: string): Promise<string | null> => ((await away(path)) ? null : fs.readText(path))
+  const tree = options.tree
+  // From the main branch: every spec and Ticket file in one `git cat-file --batch`, read before the walk below.
+  const committed =
+    tree === undefined
+      ? null
+      : await (async () => {
+          const files: string[] = []
+          for (const epic of await tree.names('')) {
+            files.push(`${epic}/spec.md`, ...(await tree.names(`${epic}/issues`)).map((name) => `${epic}/issues/${name}`))
+          }
+          return tree.texts(files.filter(isTicketsFile))
+        })()
+  const read = async (path: string): Promise<string | null> => {
+    if (committed !== null) return committed.get(relUnder(scratch, path, paths)) ?? null
+    return (await away(path)) ? null : fs.readText(path)
+  }
+  const list = async (dir: string): Promise<string[]> => {
+    if (tree !== undefined) return tree.names(relUnder(scratch, dir, paths))
+    return (await away(dir)) ? [] : fs.readdir(dir).catch(() => [] as string[])
+  }
   const headings = docHeadings(options.headings)
 
+  // Read from the main branch, a spec's time is when the main branch got it: nothing of the folder's disk is read.
+  const specsAdded = tree === undefined || fs.mtime === undefined ? null : await tree.addedAt('*/spec.md')
   const epics = await Promise.all(
     snapshot.epics.map(async (epic) => {
       const specPath = paths.join(scratch, epic.epic, 'spec.md')
@@ -351,10 +394,14 @@ export async function enrichSnapshot(
       const title = spec === null ? null : firstHeading(spec)
       if (fs.mtime === undefined) return { ...epic, title }
       // The time the spec was added, for an Epic none of whose Tickets has changed status yet (the sidebar's order,
-      // worfy-polish ticket 98). Read only after the spec itself was: a link away from the Project never gets a stat.
-      // shortcut: the mtime, not the spec's first commit — a checkout or an edit of spec.md makes it newer, so such an
-      // Epic shows as recent, never hides; redo when Epics with no status change must keep their age across clones.
-      const at = spec === null ? null : await fs.mtime(specPath)
+      // worfy-polish ticket 98). From the main branch: the commit that added spec.md (one `git log` for all of them),
+      // else the time of the commit read. From the folder, read only after the spec itself was, so a link away from
+      // the Project never gets a stat.
+      // shortcut: from the folder, the mtime, not the spec's first commit — a checkout or an edit of spec.md makes it
+      // newer, so such an Epic shows as recent, never hides; redo when Epics with no status change must keep their age
+      // across clones.
+      const at =
+        spec === null ? null : tree !== undefined ? (specsAdded?.get(`${epic.epic}/spec.md`) ?? tree.committedAt) : (await away(specPath)) ? null : await fs.mtime(specPath)
       return { ...epic, title, specAt: at === null ? null : new Date(at).toISOString() }
     }),
   )
@@ -362,7 +409,7 @@ export async function enrichSnapshot(
   const issueFiles = new Map<string, Map<string, string>>()
   for (const name of new Set(snapshot.tickets.map((ticket) => ticket.epic))) {
     const dir = paths.join(scratch, name, 'issues')
-    const entries = (await away(dir)) ? [] : await fs.readdir(dir).catch(() => [] as string[])
+    const entries = await list(dir)
     const byKey = new Map<string, string>()
     for (const entry of entries) {
       const key = issueKey(entry)
@@ -401,16 +448,30 @@ export function failedCheckout(root: string, layout: ProjectLayout): CheckoutMod
 
 /**
  * Reads the Project's checkout. A missing or broken script gives an empty model with the reason.
- * `headings` are those of the Project's layout; without them the defaults are read.
+ * `headings` are those of the Project's layout; without them the defaults are read. `source` says where from
+ * (main-ref.ts, ADR-0107): the commit of the main branch — `epic-status --json --ref <sha>` and the files of that
+ * commit — or the working tree; the working tree when it is left out. The model carries the source's view
+ * (sourceView) when there is one to show.
  */
-export async function readCheckout(root: string, run: EpicStatusRunner, ticketsRoot?: string, headings?: Partial<DocHeadings>): Promise<CheckoutModel> {
+export async function readCheckout(
+  root: string,
+  run: EpicStatusRunner,
+  ticketsRoot?: string,
+  headings?: Partial<DocHeadings>,
+  source?: WorkflowSource,
+): Promise<CheckoutModel> {
   const isDir = await stat(root).then((s) => s.isDirectory()).catch(() => false)
   if (!isDir) return { root, epics: [], tickets: [], error: { code: 'failed', message: `Project folder not found: ${root}` } }
+  const view = source === undefined ? null : sourceView(source)
+  const shown = view === null ? {} : { source: view }
   try {
-    const [stdout, repoUrl] = await Promise.all([run(root, null), repoUrlOf(root)])
-    return { ...(await enrichSnapshot(root, parseEpicStatus(stdout), ticketsRoot, headings ? { headings } : {})), repoUrl }
+    const ref = source?.kind === 'ref' ? source : null
+    const [stdout, repoUrl] = await Promise.all([run(root, ref === null ? null : ref.sha), repoUrlOf(root)])
+    const tree = ref === null ? undefined : refTree(ref, ref.ticketsRel)
+    const options: EnrichOptions = { ...(headings ? { headings } : {}), ...(tree ? { tree } : {}) }
+    return { ...(await enrichSnapshot(root, parseEpicStatus(stdout), ticketsRoot, options)), repoUrl, ...shown }
   } catch (error) {
-    return { root, epics: [], tickets: [], error: errorOf(error) }
+    return { root, epics: [], tickets: [], error: errorOf(error), ...shown }
   }
 }
 
@@ -449,8 +510,12 @@ function git(cwd: string, args: string[]): Promise<string> {
  * git the list is empty. Rejects when the list fails in a repository (a git error), and on a timeout anywhere:
  * no worktrees is not what git said, and a Ticket claimed in one would read as open
  * (readBranches with a WorktreeListError). `run` runs git; tests replace it.
+ *
+ * `withMain`: the checkout itself is listed too, when its branch names a Ticket. So it is when the workflow is read
+ * from the main branch (ADR-0107): the checkout's read is then main's, not the folder's, and a Ticket claimed on the
+ * folder's own branch (`parallel: single` works there) would otherwise read as open.
  */
-export async function ticketWorktrees(root: string, run: GitRunner = git): Promise<TicketWorktree[]> {
+export async function ticketWorktrees(root: string, run: GitRunner = git, withMain = false): Promise<TicketWorktree[]> {
   let output: string
   try {
     output = await run(root, ['worktree', 'list', '--porcelain'])
@@ -461,7 +526,7 @@ export async function ticketWorktrees(root: string, run: GitRunner = git): Promi
   }
   const result: TicketWorktree[] = []
   const blocks = output.split(/\n\n+/).filter((block) => block.trim())
-  for (const block of blocks.slice(1)) {
+  for (const block of withMain ? blocks : blocks.slice(1)) {
     const field = (name: string) => block.split('\n').find((line) => line.startsWith(`${name} `))?.slice(name.length + 1)
     const path = field('worktree')
     const head = field('HEAD')
@@ -708,12 +773,14 @@ export async function readWorkflow(
     const checkout = failedCheckout(root, layout)
     return { model: { ...checkout, branchErrors: [] }, checkout, branches: new Map() }
   }
-  const checkout = await readCheckout(root, run, layout.ticketsRoot, layout.headings)
+  // The main branch as it is now (ADR-0107); this read fetches nothing, the watcher does (watch.ts).
+  const source = await resolveSource(root, layout)
+  const checkout = await readCheckout(root, run, layout.ticketsRoot, layout.headings, source)
   // Silent mode: no `--ref` (the Harness answers it with exit code 3), no status from branches.
   if (checkout.error || layout.mode === 'silent') return { model: { ...checkout, branchErrors: [] }, checkout, branches: new Map() }
   // A failed list is asked again at once: a read like this one may have no last good value to keep (audit finding 203).
   // Not after a timeout: a hung git would hold the read, and Autopilot's queue behind it, for another TIMEOUT_MS.
-  const list = () => ticketWorktrees(root, options.git)
+  const list = () => ticketWorktrees(root, options.git, source.kind === 'ref')
   const worktrees = await list()
     .catch((error: unknown) => (gitTimedOut(error) ? Promise.reject(error) : list()))
     .catch(worktreeListError)

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type CSSProperties } from 'react'
 import type { ProjectView } from '../../../shared/ipc/projects'
+import type { WorkflowSourceView } from '../../../shared/workflow/types'
 import { epicsOlderAfterOf } from '../../../shared/settings/app-settings'
 import { focusEpic } from '../../canvas/sources/epics'
 import { progressOf } from '../../canvas/epic-layout'
@@ -8,6 +9,7 @@ import { ageText } from '../../pr-inbox/usePrInbox'
 import { readableReason, windowMachine } from '../../ipc'
 import { activeProject, openProject, useProjects } from '../../projects/useProjects'
 import { setAppSettings, useAppSettings } from '../../settings/useAppSettings'
+import { Chip } from '../../theme/Chip'
 import { useWorkflow } from '../../workflow/useWorkflow'
 import { projectsInScope, useSidebarScope } from '../sidebar-scope'
 import { NoProjectSection, SidebarSection } from '../SidebarSection'
@@ -63,6 +65,8 @@ const styles = {
   count: { fontSize: 'var(--text-12)', color: 'var(--text-secondary)' },
   age: { fontSize: 'var(--text-11)', color: 'var(--text-muted)' },
   working: { marginLeft: 'auto', fontSize: 'var(--text-11)', color: 'var(--working-text)' },
+  source: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, margin: '2px 8px 4px' },
+  sourceReason: { margin: 0, flexBasis: '100%', fontSize: 'var(--text-11)', lineHeight: '14px', color: 'var(--text-muted)', overflowWrap: 'anywhere' },
   older: {
     display: 'flex',
     alignItems: 'center',
@@ -170,6 +174,23 @@ function EpicButton({ row, now, onFocus }: { row: EpicRow; now: number; onFocus:
   )
 }
 
+/**
+ * The "As of" line (worfy-polish ticket 118, ADR-0107): the list is read from the Project's main branch, and this
+ * line shows only when that list may be old — the main branch did not resolve and the folder is read, or fetch has
+ * failed for 10 minutes. The commit in a neutral chip, when the list was last brought up to date, and the reason.
+ */
+function SourceLine({ source, now }: { source: WorkflowSourceView; now: number }) {
+  const sha = source.sha === null ? null : source.sha.slice(0, 7)
+  const age = source.updatedAt === null ? null : ageText(source.updatedAt, now)
+  return (
+    <div style={styles.source} data-testid="sidebar-epics-source">
+      <Chip variant="neutral" icon={null} quiet className="w-mono" label={sha === null ? 'As of the Project folder' : `As of ${sha}`} />
+      <span style={styles.age}>{age === null ? 'not updated yet' : age === 'now' ? 'updated just now' : `updated ${age} ago`}</span>
+      <p style={styles.sourceReason}>{source.notice}</p>
+    </div>
+  )
+}
+
 interface ProjectEpicsProps {
   project: ProjectView
   /** The open Project: its messages (reading, an error, no Epics) show; another Project without Epics shows nothing. */
@@ -230,6 +251,7 @@ function ProjectEpics({ project, active, named, onFocus }: ProjectEpicsProps) {
         </div>
       ) : null}
       {active ? <div role="status">{message === null ? null : <p style={styles.message}>{message}</p>}</div> : null}
+      {model?.source?.notice == null ? null : <SourceLine source={model.source} now={now} />}
       {list}
     </div>
   )

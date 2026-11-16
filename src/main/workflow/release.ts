@@ -18,6 +18,7 @@
 import type { ReleaseFact } from '../../shared/workflow/pipeline'
 import type { TicketRelease } from '../../shared/workflow/types'
 import { runTool, type Env, type ToolRun } from '../first-run/tools'
+import { gitEnv } from './main-ref'
 import { isTopLevel } from './reader'
 
 export type ReleaseState = ReleaseFact['state']
@@ -49,9 +50,6 @@ export interface ReleaseReaderOptions {
 export const RELEASE_INTERVAL_MS = 5 * 60_000
 const GIT_TIMEOUT_MS = 20_000
 const NPM_TIMEOUT_MS = 30_000
-
-/** Variables that would point git at another repository than the one `-C` names. */
-const GIT_LOCATION_VARS = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE']
 
 /**
  * A tag worfy passes to git: letters, digits and `._/+-@`, not starting with a sign other than `@`. `@` is for the tags
@@ -210,9 +208,4 @@ export class ReleaseReader {
     const printed = run.stdout.split(/\r?\n/u).map((line) => line.replace(/'/gu, '').trim().split(/\s+/u).at(-1))
     return { state: printed.includes(found.version) ? 'released' : 'waiting', reason: null }
   }
-}
-
-/** The environment for git: no variable that points it at another repository, and no prompt for a password. */
-function gitEnv(env: Env): Env {
-  return { ...Object.fromEntries(Object.entries(env).filter(([name]) => !GIT_LOCATION_VARS.includes(name))), GIT_TERMINAL_PROMPT: '0' }
 }

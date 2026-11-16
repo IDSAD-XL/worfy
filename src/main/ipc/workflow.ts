@@ -5,11 +5,15 @@ import { harnessScriptEnv } from '../harness/script-env'
 import { insideProjects } from '../link/caller'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
+import { gitFetch } from '../workflow/fetch'
 import { WorkflowHub, type WorkflowSubscriber } from '../workflow/watch'
 import { defineHandler, emit, type HandlerModule } from './index'
 
-/** One hub for the app: one watcher per Project, shared by the clients that opened it. */
-export const workflowHub = new WorkflowHub({ claudeHome: claudeHome(), env: harnessScriptEnv })
+/**
+ * One hub for the app: one watcher per Project, shared by the clients that opened it. The main branch of a Project a
+ * window shows is fetched with the scripts' environment (ADR-0107).
+ */
+export const workflowHub = new WorkflowHub({ claudeHome: claudeHome(), env: harnessScriptEnv, fetch: gitFetch(harnessScriptEnv) })
 
 export interface WorkflowHandlersOptions {
   hub: Pick<WorkflowHub, 'open' | 'close' | 'drop'>
@@ -39,6 +43,7 @@ export function workflowHandlers(options: WorkflowHandlersOptions): HandlerModul
     if (!holders.hold(client)) throw new Error('workflow.open: the client is gone')
     return {
       id: client.id,
+      window: true,
       send: (delta) => {
         if (!client.isDestroyed()) emit(client, workflowChanged, { ...delta, root: asSent })
       },
