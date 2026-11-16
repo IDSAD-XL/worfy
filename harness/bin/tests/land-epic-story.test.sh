@@ -54,10 +54,11 @@ out="$("$LAND" "$S" --epic-story 2>&1)"; rc=$?
     && ok "trigger: another ticket with code is open -> not due, the line names it" || bad "trigger not due: exit $rc: $out"
 # The header rule: Who only as a word of its own at the start of the value, outside code blocks, before the first `## `
 # heading after the Status line. Each case: e 02 is the state file's ticket, e 06 has the header below and has code.
-# header_case <name> <line>…: the lines are the ticket e 06 on the main branch; it must count as a ticket with code
+# header_case <slug> <name> <line>…: the lines are the ticket e 06 on the main branch; it must count as a ticket with code.
+# The slug names the world's folder (no colon or space: Windows refuses them in a path), the name the check.
 header_case() {
-    local name="$1"; shift
-    new_world "es-header-$name" 2
+    local slug="$1" name="$2"; shift 2
+    new_world "es-header-$slug" 2
     ticket_on_main 02-code open
     on_main .scratch/e/issues/06-case.md "$@"
     state 2
@@ -65,9 +66,9 @@ header_case() {
     [ "$rc" = 0 ] && [ "$out" = "epic story of e is not due: tickets with code still open: 06" ] \
         && ok "trigger, header rule: $name -> e 06 has code" || bad "trigger, header rule $name: exit $rc: $out"
 }
-header_case "a word that only starts with owner" '# 06' '' 'Status: open' 'Who: owners of the cart' '' '## What happens'
-header_case "Who: owner inside a code block of the header" '# 06' '' 'Status: open' '```text' 'Who: owner' '```' '' '## What happens'
-header_case "Who: owner after the first ## heading" '# 06' '' 'Status: open' '' '## What happens' '' 'Who: owner'
+header_case word "a word that only starts with owner" '# 06' '' 'Status: open' 'Who: owners of the cart' '' '## What happens'
+header_case fence "Who: owner inside a code block of the header" '# 06' '' 'Status: open' '```text' 'Who: owner' '```' '' '## What happens'
+header_case body "Who: owner after the first ## heading" '# 06' '' 'Status: open' '' '## What happens' '' 'Who: owner'
 # two PRs of the epic in one state file: the last in merge order is the last with code
 new_world es-trigger-two 2 3
 ticket_on_main 02-code open
@@ -172,15 +173,19 @@ with_story 1 "$W/story.md"
     && ok "files: a different file on the main branch -> not overwritten, the documents wait red, nothing pushed" || bad "files differs: exit $rc: $(cat "$W/out")"
 # a symbolic link committed at the path (here a broken one, pointing out of the repository): nothing is written through it
 new_world es-link 1
-mkdir -p "$W/seed/.scratch/e" && ln -s "$W/outside/story.md" "$W/seed/.scratch/e/story.md" \
-    && git -C "$W/seed" add -A && git -C "$W/seed" commit -q -m link && git -C "$W/seed" push -q origin main
-state 1
-printf '%s\n' "$EPIC_STORY" >"$W/story.md"
-with_story 1 "$W/story.md"
-mkdir -p "$W/outside"
-"$LAND" "$S" >"$W/out" 2>&1; rc=$?
-[ "$rc" = 2 ] && grep -q '^documents land-docs/.* waits: e/story.md of #1: ' "$W/out" && [ ! -e "$W/outside/story.md" ] && [ -z "$(git -C "$W/origin.git" for-each-ref 'refs/heads/land-docs/*')" ] \
-    && ok "files: a symbolic link at the path -> nothing written through it, the documents wait red" || bad "files link: exit $rc: $(cat "$W/out") outside $(ls "$W/outside")"
+mkdir -p "$W/seed/.scratch/e" && ln -s "$W/outside/story.md" "$W/seed/.scratch/e/story.md" 2>/dev/null
+if [ -L "$W/seed/.scratch/e/story.md" ]; then
+    git -C "$W/seed" add -A && git -C "$W/seed" commit -q -m link && git -C "$W/seed" push -q origin main
+    state 1
+    printf '%s\n' "$EPIC_STORY" >"$W/story.md"
+    with_story 1 "$W/story.md"
+    mkdir -p "$W/outside"
+    "$LAND" "$S" >"$W/out" 2>&1; rc=$?
+    [ "$rc" = 2 ] && grep -q '^documents land-docs/.* waits: e/story.md of #1: ' "$W/out" && [ ! -e "$W/outside/story.md" ] && [ -z "$(git -C "$W/origin.git" for-each-ref 'refs/heads/land-docs/*')" ] \
+        && ok "files: a symbolic link at the path -> nothing written through it, the documents wait red" || bad "files link: exit $rc: $(cat "$W/out") outside $(ls "$W/outside")"
+else
+    ok "files: a symbolic link at the path -> skipped: this system makes no symbolic link to a missing file"
+fi
 # an earlier PR of the same epic waits in this run: the story would tell of a PR that is not merged, so the documents wait;
 # once that PR merges, the next run puts the story with both tickets
 new_world es-order 2 3

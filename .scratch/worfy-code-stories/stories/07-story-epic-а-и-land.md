@@ -184,8 +184,9 @@ Code: `harness/bin/land:937-965` · key lines: 947, 960, 964
   затёрта, а через symbolic link запись ушла бы за пределы корня Ticket-ов.
 - Требование: [Готово, когда](../issues/07-story-epic-а-и-land.md#готово-когда)
 - Риски и пробелы test-ов: прерванный run в Full режиме сюда не доходит с готовым файлом: test убивает `land` до
-  сохранения `d.pr`, и повторный run строит documents PR заново от main, где story ещё нет. На Windows, где symbolic
-  link не создаётся, Silent-случай с папкой-ссылкой пропускается.
+  сохранения `d.pr`, и повторный run строит documents PR заново от main, где story ещё нет. Где система не создаёт
+  symbolic link (Git Bash на Windows копирует цель), оба случая со ссылкой пропускаются: проверку `lstat` там не
+  гоняет ни один test.
 
 ## 7. Silent: файл в папку Workflow, documents PR нет
 
