@@ -85,6 +85,8 @@ interface StandIn {
   /** What happens on halt() (default: at once); each call is counted in `halts`. */
   onHalt: () => Promise<void>
   halts: number
+  /** The limit each halt() was given. */
+  haltLimits: (number | undefined)[]
   /** giveBackNow and setUnattended calls, in order: `give-back`, `unattended true`, `unattended false`. */
   orchestrator: string[]
   /** keep-awake starts and stops. */
@@ -117,6 +119,7 @@ function standIn(overrides: Partial<AutopilotDeps> = {}): StandIn {
     tasks: [],
     onHalt: () => Promise.resolve(),
     halts: 0,
+    haltLimits: [],
     orchestrator: [],
     power: [],
     resumes: [],
@@ -131,8 +134,9 @@ function standIn(overrides: Partial<AutopilotDeps> = {}): StandIn {
     },
     queued: (): QueueSnapshot => ({ items: out.queue.map((item) => ({ ...item })), paused: out.paused }),
     backgroundTasks: () => out.tasks.map((task) => ({ ...task })),
-    halt: () => {
+    halt: (timeoutMs) => {
       out.halts += 1
+      out.haltLimits.push(timeoutMs)
       return out.onHalt()
     },
     removeQueued: (id) => {
@@ -485,6 +489,19 @@ describe('Force stop interrupts the Orchestrator and its background tasks (worfy
     expect(s.power).toEqual(['start', 'stop'])
     expect(s.autopilot.anyRunning()).toBe(false)
     expect(fromStop(s)).toEqual([{ kind: 'run-stopped', reason: 'user-force-stop', tickets: ['01', '02'] }, { kind: 'orchestrator-returned' }])
+  })
+
+  // worfy-polish ticket 119: tests shorten the wait for the interrupted turn through haltTurnMs; the app passes none,
+  // and Session.halt then waits its own HALT_TURN_MS (15 s, test/contract/agent-controls.test.ts).
+  it('waits for the interrupted turn as long as haltTurnMs says, and passes no limit without it', async () => {
+    for (const [overrides, limit] of [[{}, undefined], [{ haltTurnMs: 200 }, 200]] as const) {
+      const s = standIn(overrides)
+      await s.autopilot.start(PROJECT, EPIC)
+      await settle()
+      s.state = 'busy'
+      await s.autopilot.forceStop(PROJECT)
+      expect(s.haltLimits).toEqual([limit])
+    }
   })
 
   it('journals as killed a task that started while the halt waited for the turn', async () => {

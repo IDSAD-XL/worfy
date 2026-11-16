@@ -105,13 +105,18 @@ async function registerIpcModule(path: string, module: unknown): Promise<void> {
 const handoffNodes = () => layoutModule.layoutStore().get(PROJECT_ID).layout.nodes.filter((node) => node.kind === 'handoff')
 
 /**
- * Waits until the reads the watcher makes after its start (SETTLE_READS_MS) are over. An edit made
+ * The reads every watcher of these tests makes after its start, instead of the app's SETTLE_READS_MS (up to 1 s):
+ * no test here checks those reads (test/unit/docs-watch-root-gone.test.ts does).
+ */
+const SETTLE: readonly number[] = [10]
+
+/**
+ * Waits until the reads the watcher makes after its start (SETTLE) are over. An edit made
  * after this reaches the app through the file events only, so a test that edits after it checks
  * the watch itself, and how long its events take.
  */
 async function pastStartReads(): Promise<void> {
-  const { SETTLE_READS_MS } = await import('../../src/main/docs/watch')
-  await new Promise((resolve) => setTimeout(resolve, Math.max(...SETTLE_READS_MS) + 200))
+  await new Promise((resolve) => setTimeout(resolve, Math.max(...SETTLE) + 200))
 }
 
 /** Every file and folder under `dir` with its size and modification time, `.git` included. */
@@ -161,6 +166,10 @@ beforeEach(async () => {
   const { registerIpc, appUrlMatcher } = await import('../../src/main/ipc/index')
   docsModule = await import('../../src/main/ipc/docs')
   layoutModule = await import('../../src/main/layout/store')
+  // The app's hub (src/main/ipc/docs.ts) starts its watchers through DocsWatcher.start of this same module instance.
+  const { DocsWatcher } = await import('../../src/main/docs/watch')
+  const startWatcher = DocsWatcher.start.bind(DocsWatcher)
+  vi.spyOn(DocsWatcher, 'start').mockImplementation((options) => startWatcher({ ...options, settleReadsMs: SETTLE }))
   handlers = new Map()
   await registerIpc(
     { handle: (channel, listener) => handlers.set(channel, listener as Listener) },
@@ -346,7 +355,7 @@ describe('docs.adrs', () => {
     await value('docs.adrs', { projectId: PROJECT_ID })
     writeFileSync(join(repo, 'docs', 'adr', '0003-new.md'), '# Новое\n\nДата: 2026-11-10. Статус: принят.\n')
     // Longer than docs.open takes to report an edit (its test waits a second at most).
-    await new Promise((resolve) => setTimeout(resolve, ms(1500)))
+    await new Promise((resolve) => setTimeout(resolve, 1500))
     expect(sender.sent).toStrictEqual([])
     // Nothing to close either: the window was never subscribed.
     expect(await value('docs.close', { projectId: PROJECT_ID })).toStrictEqual({ closed: false })
