@@ -313,7 +313,13 @@ function ScreenView({ screen, context, narrow }: { screen: Screen; context: Cont
                   {handoff.from} → {handoff.to}
                 </span>{' '}
                 <Markdown text={handoff.what} />
-                <span className={handoff.done ? 'w-story__handoff-done' : 'w-story__handoff-dropped'}>{handoff.done ? 'done' : `dropped — ${handoff.why ?? context.missing}`}</span>
+                {handoff.done ? (
+                  <span className="w-story__handoff-done">done</span>
+                ) : (
+                  <span className="w-story__handoff-dropped">
+                    dropped — <Markdown text={handoff.why ?? context.missing} />
+                  </span>
+                )}
               </li>
             ))}
           </ul>

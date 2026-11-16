@@ -113,6 +113,9 @@ test('the Story view on the fixture Epic: chapters, segments, keys and halves, t
     const narrowText = await view.getByTestId('story-text-column').boundingBox()
     const narrowCode = await view.getByTestId('story-code-column').boundingBox()
     expect(narrowText!.y + narrowText!.height).toBeLessThanOrEqual(narrowCode!.y)
+    // The code follows the text closely: the rows are as tall as their content, not stretched over the screen.
+    const panel = await view.getByTestId('story-field-panel').boundingBox()
+    expect(narrowCode!.y - (panel!.y + panel!.height)).toBeLessThan(60)
     await snapshotThemes(window, 'code-story-narrow')
 
     await window.keyboard.press('Escape')

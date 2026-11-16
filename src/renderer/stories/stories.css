@@ -488,8 +488,15 @@
 }
 
 .w-story__handoff-dropped {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0 4px;
   color: var(--story-dropped);
   font-weight: 600;
+}
+
+.w-story__handoff-dropped .w-md {
+  color: inherit;
 }
 
 /* ---------- a narrow window: one column, the text first ---------- */
@@ -499,6 +506,8 @@
 
 .w-story[data-layout='narrow'] .w-story__screen {
   grid-template-columns: minmax(0, 1fr);
+  /* Rows as tall as their content: a stretched text row would push the code to the bottom. */
+  grid-template-rows: none;
   gap: 14px;
   padding: 14px var(--space-4) 48px;
 }

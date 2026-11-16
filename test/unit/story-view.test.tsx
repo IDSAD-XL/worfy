@@ -292,7 +292,9 @@ describe('the diagram of "Seams between tickets"', () => {
     fireEvent.click(screen.getAllByTestId('story-chapter')[5]!)
     const items = within(shownScreen()).getAllByRole('listitem')
     expect(items.map((item) => item.dataset.done)).toEqual(['yes', 'yes', 'no'])
-    expect(items[2]!.textContent).toContain('dropped — `cartTotal` не вызывает `discountFor`, итог на чеке без скидки')
+    // The reason is Markdown: its code spans are code, not backticks.
+    expect(items[2]!.textContent).toContain('dropped — cartTotal не вызывает discountFor, итог на чеке без скидки')
+    expect(items[2]!.querySelector('.w-story__handoff-dropped code')!.textContent).toBe('cartTotal')
   })
 })
 
