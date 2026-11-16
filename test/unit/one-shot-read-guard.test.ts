@@ -5,11 +5,13 @@
 import { describe, expect, it } from 'vitest'
 import { readScope } from '../../src/main/vendors/claude/read-guard'
 
-/** A file system where every path exists and `links` maps a path to its target. */
+/** A file system where every path exists and `links` maps a folder to its target, for the paths under it too, as realpath does. */
 const linking =
   (links: Record<string, string> = {}) =>
-  (path: string): string =>
-    links[path] ?? path
+  (path: string): string => {
+    const link = Object.keys(links).find((from) => path === from || path.startsWith(`${from}/`))
+    return link === undefined ? path : `${links[link] ?? ''}${path.slice(link.length)}`
+  }
 
 describe('readScope on Windows', () => {
   const scope = readScope('C:\\Data\\worfy\\terminal-ai', ['C:\\Repos\\Shop'], { platform: 'win32', realpath: linking(), home: 'C:\\Profile' })
@@ -59,6 +61,14 @@ describe('readScope on a POSIX system', () => {
     expect(scope.check('Read', { file_path: '/repo-other/a.ts' })).not.toBeNull()
     expect(scope.check('Read', { file_path: '/repo/linked/passwd' })).not.toBeNull()
     expect(scope.check('Read', { file_path: '/repo/../etc/passwd' })).not.toBeNull()
+  })
+
+  it('collapses `..` as text before it follows a link, as Claude Code reads the path', () => {
+    // /repo/deep -> /repo/a/b/c: followed first, /repo/deep/../../../x would be /repo/x; Claude Code reads /x.
+    const deep = readScope('/data/run', ['/repo'], { platform: 'darwin', realpath: linking({ '/repo/deep': '/repo/a/b/c' }), home: '/profile' })
+    expect(deep.check('Grep', { pattern: '.', path: '/repo/deep/../../profile/.ssh' })).not.toBeNull()
+    expect(deep.check('Glob', { pattern: '/repo/deep/../../profile/.ssh/*' })).not.toBeNull()
+    expect(deep.check('Read', { file_path: '/repo/deep/../src/a.ts' })).toBeNull()
   })
 
   it('refuses a path that is not text, and leaves tools it does not guard to the name check', () => {

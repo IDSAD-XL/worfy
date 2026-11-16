@@ -133,15 +133,33 @@ describe('the Code story request reads only its checkout', () => {
     expect((await ask('Read', { file_path: join(root, 'src', 'notes.txt') })).behavior).toBe('deny')
   })
 
-  it('denies `..` that climbs out, through a link as the file system follows it', async () => {
+  it('collapses `..` as text, as Claude Code does before it runs the tool, then follows links', async () => {
+    // A link the PR commits inside the checkout, deep enough that following it before `..` stays inside:
+    // <root>/a -> <root>/x/y/z. Claude Code reads <root>/a/../../home as <base>/home, outside the checkout.
+    mkdirSync(join(root, 'x', 'y', 'z'), { recursive: true })
+    symlinkSync(join(root, 'x', 'y', 'z'), join(root, 'a'), WINDOWS ? 'junction' : 'dir')
     const { ask } = await storyCanUseTool()
-    expect((await ask('Read', { file_path: join(root, 'src', '..', '..', 'outside', 'secret.txt') })).behavior).toBe('deny')
-    // <root>/linked/.. is the parent of `outside`, not the checkout: the link is followed before `..`.
-    expect((await ask('Read', { file_path: `${join(root, 'linked')}/../project/src/cart.ts` })).behavior).toBe('allow')
-    expect((await ask('Read', { file_path: `${join(root, 'linked')}/../outside/secret.txt` })).behavior).toBe('deny')
-    // A relative path resolves against the request's cwd.
-    expect((await ask('Read', { file_path: join('..', '..', 'outside', 'secret.txt') })).behavior).toBe('deny')
-    expect((await ask('Read', { file_path: join('..', '..', 'project', 'src', 'cart.ts') })).behavior).toBe('allow')
+    const ssh = `${root}/a/../../home/.ssh`
+    expect((await ask('Grep', { pattern: '.', path: ssh, output_mode: 'content' })).behavior).toBe('deny')
+    expect((await ask('Glob', { pattern: '*', path: ssh })).behavior).toBe('deny')
+    expect((await ask('Glob', { pattern: `${ssh}/*` })).behavior).toBe('deny')
+    expect((await ask('Read', { file_path: `${ssh}/id_ed25519` })).behavior).toBe('deny')
+    expect((await ask('Read', { file_path: `${root}/a/../../outside/secret.txt` })).behavior).toBe('deny')
+    // A plain climb out, absolute and relative to the request's cwd.
+    expect((await ask('Read', { file_path: `${root}/src/../../outside/secret.txt` })).behavior).toBe('deny')
+    expect((await ask('Read', { file_path: '../../outside/secret.txt' })).behavior).toBe('deny')
+    // `..` that stays inside the checkout is fine, through the link too.
+    expect((await ask('Read', { file_path: `${root}/src/../src/cart.ts` })).behavior).toBe('allow')
+    expect((await ask('Grep', { pattern: 'total', path: `${root}/src/..` })).behavior).toBe('allow')
+    expect((await ask('Glob', { pattern: `${root}/src/../src/*.ts` })).behavior).toBe('allow')
+    expect((await ask('Read', { file_path: `${root}/a/../src/cart.ts` })).behavior).toBe('allow')
+    expect((await ask('Read', { file_path: '../../project/src/cart.ts' })).behavior).toBe('allow')
+  })
+
+  it('wants both the path Claude Code reads and the place it reaches inside: a link from outside into the checkout is refused', async () => {
+    symlinkSync(root, join(outside, 'back'), WINDOWS ? 'junction' : 'dir')
+    const { ask } = await storyCanUseTool()
+    expect((await ask('Read', { file_path: join(outside, 'back', 'src', 'cart.ts') })).behavior).toBe('deny')
   })
 
   it('denies a Grep whose path is outside, allows one inside or without a path', async () => {

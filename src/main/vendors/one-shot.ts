@@ -13,7 +13,9 @@ export interface OneShotOptions {
   readFolders?: readonly string[] | undefined
   /**
    * The request loads worfy's Harness (its skills and hooks) as a Session does: the profile draft, which
-   * runs /worfy:connect-project. Absent or false: it runs without them (a Code story).
+   * runs /worfy:connect-project. Absent or false: every request runs without them — worfy's copy is not
+   * passed and the copy the user installed is turned off for the request (the Claude driver,
+   * src/main/vendors/claude/one-shot.ts) — the Code story and any other caller that does not ask.
    */
   harness?: boolean | undefined
   /**

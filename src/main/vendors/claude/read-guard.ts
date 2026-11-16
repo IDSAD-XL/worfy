@@ -9,10 +9,11 @@
 //
 // A path is allowed when it resolves inside one of the request's folders: its cwd, its readFolders and,
 // for the draft, the Harness plugin's own folder (the skill /worfy:connect-project reads its schema and
-// README there). Resolving follows the file system, one segment at a time: a symlink is replaced by its
-// target before a following `..` is applied, as the OS does, so neither a link inside the folder nor
-// `<link>/..` reaches out. A path that does not exist resolves through its nearest existing parent. A
-// relative path resolves against the cwd, `~` against the home folder. The comparison is on a separator
+// README there). The guard first expands a path as Claude Code does before it runs the tool: `~` is the
+// home folder, a relative path resolves against the cwd, and `..` collapses as text. Both that path and
+// the place the OS reaches through it (links followed; a path that does not exist through its nearest
+// existing parent) must lie inside a folder, so neither a link inside the folder nor `<link>/../..` reaches
+// out, while `<checkout>/src/../README.md` stays allowed. The comparison is on a separator
 // boundary (`/repo` does not hold `/repo-other`); on Windows it ignores case, accepts `/` and the `\\?\`
 // prefix, and refuses a drive-relative path (`C:x`), whose folder depends on a per-drive cwd. A path the
 // guard cannot be sure to read as Claude Code does is refused (`unclear`: whitespace at an end, a control
@@ -41,7 +42,7 @@ const WILDCARD = /[*?[\]{}!()]/
  * - a control character (a NUL, a line break): no real file name the model needs has one;
  * - `~name`: whether it means another user's home or a folder named `~name` depends on the tool.
  * `~` alone and `~/…` are the home folder, as Claude Code expands them. Unicode forms (NFC and NFD of
- * one name) need no rule: each segment is resolved by the file system, which gives its own spelling.
+ * one name) need no rule: realpath gives the file system's own spelling.
  */
 const unclear = (target: string): boolean => /^\s|\s$/u.test(target) || /\p{Cc}/u.test(target) || /^~[^\\/]/.test(target)
 
@@ -73,28 +74,37 @@ export function readScope(cwd: string, folders: readonly string[], env: ReadScop
     if (/^[\\/]{2}\?[\\/]/.test(target)) return target.slice(4)
     return target
   }
-  const real = (target: string): string => {
-    try {
-      return plain(realpath(target))
-    } catch {
-      return target
-    }
-  }
-
-  /** `target` as the file system resolves it from `base`; null when it cannot be resolved here. */
-  const resolveFrom = (base: string, target: string): string | null => {
+  /**
+   * `target` as Claude Code expands it before the tool runs (its expandPath): `~` is the home folder, on
+   * Windows `/c/…` is `C:\…`, and the rest is resolved against `base` with `..` collapsed as text. Null when
+   * the guard cannot be sure of it (`unclear`, a drive-relative `C:x`).
+   */
+  const expand = (base: string, target: string): string | null => {
     if (unclear(target)) return null
     let raw = plain(target)
     if (raw === '~' || raw.startsWith('~/') || (windows && raw.startsWith('~\\'))) raw = home + raw.slice(1)
-    if (windows && /^[a-zA-Z]:(?![\\/])/.test(raw)) return null
-    if (!path.isAbsolute(raw)) raw = `${base}${path.sep}${raw}`
-    const top = path.parse(raw).root
-    let current = real(top)
-    for (const segment of raw.slice(top.length).split(windows ? /[\\/]+/ : /\/+/)) {
-      if (segment === '' || segment === '.') continue
-      current = segment === '..' ? path.dirname(current) : real(path.join(current, segment))
+    if (windows) {
+      const drive = /^\/([a-zA-Z])(?=\/|$)/.exec(raw)
+      if (drive !== null) raw = `${drive[1] ?? ''}:\\${raw.slice(3)}`
+      if (/^[a-zA-Z]:(?![\\/])/.test(raw)) return null
     }
-    return current
+    return path.resolve(base, raw)
+  }
+
+  /** Where the OS reads `lexical`, a path without `..`: the realpath of its nearest existing parent, then the rest of it. */
+  const realOf = (lexical: string): string => {
+    const rest: string[] = []
+    let at = lexical
+    for (;;) {
+      try {
+        return path.join(plain(realpath(at)), ...rest)
+      } catch {
+        const up = path.dirname(at)
+        if (up === at) return lexical
+        rest.unshift(path.basename(at))
+        at = up
+      }
+    }
   }
 
   const key = (target: string): string => {
@@ -102,20 +112,27 @@ export function readScope(cwd: string, folders: readonly string[], env: ReadScop
     const trimmed = normal.length > path.parse(normal).root.length ? normal.replace(/[\\/]+$/, '') : normal
     return windows ? trimmed.toLowerCase() : trimmed
   }
-  const realCwd = resolveFrom(home, cwd) ?? cwd
-  const roots = [cwd, ...folders].map((folder) => key(resolveFrom(realCwd, folder) ?? folder))
+  const lexicalCwd = path.resolve(plain(cwd))
+  // Each folder by its name and by the file system's, so /var/… and /private/var/… on a Mac both count.
+  const roots = [cwd, ...folders].flatMap((folder) => {
+    const lexical = path.resolve(lexicalCwd, plain(folder))
+    return [key(lexical), key(realOf(lexical))]
+  })
   const inside = (target: string): boolean => {
     const at = key(target)
     return roots.some((root) => at === root || at.startsWith(root.endsWith(path.sep) ? root : `${root}${path.sep}`))
   }
+  /**
+   * Whether the tool reads inside the folders: the path Claude Code hands to it (`..` collapsed as text)
+   * and the place the OS then reaches (links followed) both lie inside. Checking only the second let
+   * `<checkout>/<link>/../../..` through: the guard followed the link before the `..`, Claude Code did not
+   * (verdict of PR #1907, round 2).
+   */
+  const reads = (lexical: string | null): boolean => lexical !== null && inside(lexical) && inside(realOf(lexical))
 
   const named = [cwd, ...folders]
   const refuse = (what: string): string => `${what} is outside the folders this request may read: ${named.join(', ')}. Read only files under them.`
-  /** Null when `target` resolves inside a folder; else the refusal. */
-  const checkPath = (target: string, base: string): string | null => {
-    const at = resolveFrom(base, target)
-    return at !== null && inside(at) ? null : refuse(unclear(target) ? JSON.stringify(target) : target)
-  }
+  const shown = (target: string): string => (unclear(target) ? JSON.stringify(target) : target)
 
   return {
     folders: named,
@@ -126,20 +143,23 @@ export function readScope(cwd: string, folders: readonly string[], env: ReadScop
         if (value === undefined || value === null) continue
         if (typeof value !== 'string') return refuse(`The ${field} of ${toolName}`)
         if (value === '') continue
-        const refused = checkPath(value, realCwd)
-        if (refused !== null) return refused
+        if (!reads(expand(lexicalCwd, value))) return refuse(shown(value))
       }
       if (toolName !== 'Glob' || typeof input.pattern !== 'string') return null
-      if (unclear(input.pattern)) return refuse(`The pattern ${JSON.stringify(input.pattern)}`)
-      const pattern = plain(input.pattern)
-      const segments = pattern.split(windows ? /[\\/]+/ : /\/+/)
-      const first = segments.findIndex((segment) => WILDCARD.test(segment))
-      if (first >= 0 && segments.slice(first).includes('..')) return refuse(`The pattern ${input.pattern}`)
-      const literal = first < 0 ? pattern : segments.slice(0, first).join(path.sep)
-      const base = typeof input.path === 'string' && input.path !== '' ? (resolveFrom(realCwd, input.path) ?? realCwd) : realCwd
-      // A pattern that starts with a wildcard looks under its base, which the path check above allowed.
-      if (literal === '' && !path.isAbsolute(pattern)) return null
-      return checkPath(literal === '' ? pattern.slice(0, 1) : literal, base) === null ? null : refuse(`The pattern ${input.pattern}`)
+      const pattern = input.pattern
+      const refused = refuse(`The pattern ${shown(pattern)}`)
+      if (unclear(pattern)) return refused
+      // The literal part: up to the separator before the first wildcard (with it, so `/` stays a root).
+      const wildcard = pattern.search(WILDCARD)
+      const cut = wildcard < 0 ? pattern.length : Math.max(pattern.lastIndexOf('/', wildcard), windows ? pattern.lastIndexOf('\\', wildcard) : -1) + 1
+      const literal = pattern.slice(0, cut)
+      // A `..` after a wildcard cannot be collapsed without matching.
+      if (pattern.slice(cut).split(windows ? /[\\/]+/ : /\/+/).includes('..')) return refused
+      const base = typeof input.path === 'string' && input.path !== '' ? expand(lexicalCwd, input.path) : lexicalCwd
+      if (base === null) return refused
+      // A relative pattern that starts with a wildcard looks under its base, which the path check allowed.
+      if (literal === '') return null
+      return reads(expand(base, literal)) ? null : refused
     },
   }
 }
