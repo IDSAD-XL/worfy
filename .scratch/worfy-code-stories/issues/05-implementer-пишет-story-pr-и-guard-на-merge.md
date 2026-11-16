@@ -53,16 +53,22 @@ test-ам», В (строки 285–289); «Риски»: «Отказ `reasonin
 
 - [ ] `ship-ticket` (и его файлы `implementer-*.md`) содержит шаг story PR с `story-check` и условием `code_stories.pr`;
       skill-text test-ы Harness-а (`skill-blocks.test.sh`, `agents-text.test.sh`, `plugin-neutral.test.sh`) зелёные.
+  - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0, `skill-blocks-gate.test.sh` exit 0, `pnpm test` (plugin-neutral, skill-blocks included) exit 0 · mac - · 9dff302e01f78ee792492b21bf73a216888b470a
 - [ ] В инструкции нет просьбы вести ход рассуждений; test текста skill-а ловит слова «reasoning log» и
       «running log of its reasoning», если их кто-то вернёт.
+  - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 (it fails when a reasoning-log request is added to story-pr.md) · mac - · 9dff302e01f78ee792492b21bf73a216888b470a
 - [ ] Shell-test guard-а: PR Ticket-а без story при включённом `code_stories.pr` — не вливается, причина названа;
       с красным `story-check` — не вливается; с зелёной story — вливается; при выключенном поле — вливается без story;
       PR без Ticket-а — guard его не трогает.
+  - evidence: test-run pass · `bash harness/bin/tests/land.test.sh` exit 0 (the story guard cases) · mac - · 9dff302e01f78ee792492b21bf73a216888b470a
 - [ ] `implementer-report.md` называет путь story в отчёте; `step-8-pr-and-ci.md` — раздел ссылки на story через
       `--body-file`.
+  - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0, `bash harness/bin/tests/skill-blocks-gate.test.sh` exit 0 · mac - · 9dff302e01f78ee792492b21bf73a216888b470a
 - [ ] Режим Silent: shell-test (по образцу `silent-mode.test.sh`) — ветка story не получает, guard ищет её в папке
       Workflow.
+  - evidence: test-run pass · `bash harness/bin/tests/silent-mode.test.sh` exit 0 (section 6) · mac - · 9dff302e01f78ee792492b21bf73a216888b470a
 - [ ] Все `harness/bin/tests/*.test.sh` зелёные; gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0, `pnpm test` exit 0 · mac - · 9dff302e01f78ee792492b21bf73a216888b470a
 
 ## Тесты
 
