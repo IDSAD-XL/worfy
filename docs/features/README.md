@@ -32,6 +32,7 @@ the [ADRs](../adr/) and in Tickets, and a page links to them.
 | [Team reviewer](human-review.md) | Team reviewer: a private review skill of a Project in its team's voice, its offer, build, check and monthly update |
 | [Workflow](workflow.md) | Ticket and Epic on the Canvas, Pipeline, Binding |
 | [Evidence](evidence.md) | Evidence, privacy check, screenshots and clips |
+| [Code stories](code-stories.md) | Code story: the PR story, the Epic story, the story by the button, `story-check` and the merge guard; the Story view, a question about lines, Check yourself, read marks |
 | [Sessions](sessions.md) | Session, Subagent |
 | [MCP servers of a Session](mcp-servers.md) | The chip «MCP n/m» and its popover, Reconnect, Sign in, Turn off for this Session, Allow, taking in a new server, the MCP inventory, the status in Project settings |
 | [Product Session](product-session.md) | Product Session, Mind map, the critic before a spec is accepted, product ideas, the share of accepted advice |

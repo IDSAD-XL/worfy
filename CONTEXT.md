@@ -208,6 +208,22 @@ _Avoid_: папка workflow, папка тикетов, workspace
 Файл в Workflow folder Project-а со снимком текущего состояния работы: что в работе, что дальше, что ждёт владельца.
 _Avoid_: статус-файл, notes
 
+**Code story**:
+Рассказ о готовом изменении для того, кто отвечает за код: по шагам, с ключевыми фрагментами diff-а — что делает код, зачем он здесь, что сломается без него, какому требованию служит и чего не проверяют test-ы. Бывает PR story, Epic story и story по кнопке: её собирает worfy для PR или Epic-а, у которых story нет, и хранит в своих данных. worfy показывает story в виде Story ([Code stories](docs/features/code-stories.md)).
+_Avoid_: история кода, walkthrough, описание PR, рассказ (без уточнения)
+
+**Story step**:
+Часть Code story: фрагмент кода с главными строками и пятью полями (что делает, почему здесь, без него, требование, риски и пробелы test-ов) или текст под постоянным заголовком — «Что было не так», «Стыки между Ticket-ами». Шаг story — не Card: Card — Node Canvas-а.
+_Avoid_: карточка, card, слайд
+
+**PR story**:
+Code story одного PR Ticket-а, в русском тексте — story PR. Её пишет implementer последним шагом перед PR и коммитит в тот же PR: `stories/NN-<slug>.md` в папке Epic-а. Пока в Profile включено поле `code_stories.pr`, `land` не вливает PR Ticket-а без его story или с красным `story-check`.
+_Avoid_: описание PR, отчёт implementer-а
+
+**Epic story**:
+Code story всего Epic-а, в русском тексте — story Epic-а: `story.md` в папке Epic-а, главы по PR с главными шагами из их story PR и шаг «Стыки между Ticket-ами» — что один Ticket передал другому и сделано ли. Её пишет Subagent Orchestrator-а перед merge последнего PR Epic-а с кодом, а `land` кладёт её в documents PR этого merge.
+_Avoid_: итог Epic-а, сводка Epic-а, Wave brief (другой документ)
+
 ## Agents
 
 **Session**:

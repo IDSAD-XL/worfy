@@ -34,6 +34,7 @@ Epic-ам и Ticket-ам.
 | [Team reviewer](human-review.md) | Team reviewer: частный skill ревью Project-а голосом его команды, предложение, сборка, проверка и ежемесячное обновление |
 | [Workflow](workflow.md) | Ticket и Epic на Canvas, Pipeline, Binding |
 | [Evidence](evidence.md) | Evidence, privacy check, снимки и клипы |
+| [Code stories](code-stories.md) | Code story: story PR, story Epic-а, story по кнопке, `story-check` и guard на merge; вид Story, вопрос к строке, Check yourself, отметки «прочитано» |
 | [Sessions](sessions.md) | Session, Subagent |
 | [MCP servers of a Session](mcp-servers.md) | Chip «MCP n/m» и его popover, Reconnect, Sign in, Turn off for this Session, Allow, подхват нового сервера, query инвентаря, статус в Project settings |
 | [Product Session](product-session.md) | Product Session, Mind map, критик перед приёмкой spec-а, продуктовые идеи, доля принятых советов |

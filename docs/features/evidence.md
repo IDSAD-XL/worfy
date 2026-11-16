@@ -4,7 +4,8 @@ Three close Features. **Evidence** is a line under an item of a Ticket's done se
 where it was checked; worfy shows the state of each item on the card and in Focus mode. The **privacy check** keeps
 personal data out of what a branch adds to the Tickets root of a public repository. **Screenshots and clips** are the
 pictures that can stand as Evidence: when an item needs one, and how a test of worfy takes it. Terms are explained in
-[Concepts](concepts.md); the Ticket card and Focus mode are on [Workflow](workflow.md). The plan and the reasons are in the
+[Concepts](concepts.md); the Ticket card and Focus mode are on [Workflow](workflow.md). The Code story of a Ticket's PR lies
+next to its Evidence, in the same Epic folder: [Code stories](code-stories.md). The plan and the reasons are in the
 spec of the Epic, [worfy-evidence](../../.scratch/worfy-evidence/spec.md).
 
 ## Evidence

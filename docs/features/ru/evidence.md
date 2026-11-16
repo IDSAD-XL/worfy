@@ -6,7 +6,8 @@
 показывает состояние каждого пункта на карточке и в Focus mode. **Privacy check** не пускает личные данные в то, что ветка
 добавляет в Tickets root публичного репозитория. **Снимки и клипы** — картинки, которые могут быть Evidence: когда пункту
 нужна картинка и как её снимает test worfy. Термины объяснены в [Concepts](concepts.md); карточка Ticket-а и Focus mode — на
-странице [Workflow](workflow.md). План и причины — в spec Epic-а [worfy-evidence](../../../.scratch/worfy-evidence/spec.md).
+странице [Workflow](workflow.md). Code story PR Ticket-а лежит рядом с его Evidence, в той же папке Epic-а:
+[Code stories](code-stories.md). План и причины — в spec Epic-а [worfy-evidence](../../../.scratch/worfy-evidence/spec.md).
 
 ## Evidence
 
