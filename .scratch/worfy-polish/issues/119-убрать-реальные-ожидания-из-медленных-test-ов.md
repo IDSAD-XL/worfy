@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-16T01:52Z
+PR: #1918
 Blocked by: none
 Source: владелец 2026-11-16, «да на тикеты»: кандидаты 1–9 исследования
 `docs/research/2026-11-16-fake-timers.md` (раздел 4, «Кандидаты по файлам», и правило «когда fake timers НЕ
