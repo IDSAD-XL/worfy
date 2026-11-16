@@ -1,7 +1,8 @@
 # 118 — Список Epic-ов из main-ветки, а не из рабочей папки Project-а
 
 Type: bug
-Status: claimed 2026-11-16T01:04Z
+Status: done 2026-11-16T07:25Z
+PR: #1898
 Blocked by: none
 Source: владелец 2026-11-16: Epic `worfy-code-stories`, влитый в main (#1888), не появился в worfy, потому что основная
 папка Project-а отстала от `origin/main` на 4 commit-а (detached HEAD, неотслеживаемые файлы мешали fast-forward).

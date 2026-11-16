@@ -1,7 +1,8 @@
 # 120 — Разбить harness-scripts-1: критический путь прогона test-ов
 
 Type: task
-Status: claimed 2026-11-16T01:52Z
+Status: done 2026-11-16T07:25Z
+PR: #1901
 Blocked by: none
 Source: владелец 2026-11-16, «да на тикеты»: вывод исследования `docs/research/2026-11-16-fake-timers.md` (раздел 2,
 «Критический путь», и раздел 5) — самый крупный выигрыш по времени не в timer-ах, а в планировании shell test-ов
@@ -76,8 +77,10 @@ Harness-а.
   - evidence: test-run pass · `HOME=$(mktemp -d) node scripts/vitest-electron.mjs test/contract/ci-workflow.test.ts` exit 0 (runs each test file in exactly one Windows job, and each Harness shell test in exactly one) · mac - · 413c30be7
 - [ ] В описании PR: wall time локального полного run-а до и после, время, старт и конец каждой обёртки из JSON
       report-а vitest до и после, одна машина, по два run-а.
+  - evidence: test-run pass · PR #1901 body, section Local: wall time 321/316 s before, 227/246 s after, start and end of each wrapper from the vitest JSON report, one machine (3 runs before, 2 after) · mac - · 703a0a1f1
 - [ ] В описании PR: время job-ов CI до и после из `gh run view` двух push run-ов на main до и двух после
       (`linux-tests` 1–4 и их шаг shell test-ов, `macos-tests`, `windows (harness-scripts 1/2)`, `(2/2)`).
+  - evidence: ci-check pass · before (PR #1901 body, main runs 43782353370, 43781183312): macos-tests 1426/1757 s, windows harness-scripts 1/2 job 320/436 s, 2/2 433/418 s; after (main push runs 43800282492, 43805109006): macos-tests 1714/1565 s, windows harness-scripts 1/2 369/459 s, 2/2 343/350 s, linux-tests shell step 46-115 s: no CI gain, the gain is local · ci ci · 4ceee03a9
 - [ ] После: обёртки локального run-а расходятся по концу не больше, чем на самый долгий shell test; или PR называет
       причину, почему это недостижимо, с числами.
   - evidence: test-run pass · `HOME=$(mktemp -d) node scripts/vitest-electron.mjs --reporter=json` exit 0 twice: harness-scripts files end at 207/210/216/226 s and 223/228/233/245 s, spread 19 and 22 s, longest shell test 97 s · mac - · 413c30be7
@@ -91,7 +94,9 @@ Harness-а.
       `scripts/windows-test-list.mjs`, `scripts/windows-verdict-scope.mjs`, `scripts/affected-tests.table.json`,
       `vitest.config.ts`, `test/global-setup-git-bash.ts`, `test/e2e/first-run.spec.ts`,
       `test/e2e/first-run-sandbox.ts`, `test/acceptance/e3.spec.ts`.
+  - evidence: commit pass · no new wrapper: the four harness-scripts wrappers stay, so no list changes (PR #1901 diff) · - - · 703a0a1f1
 - [ ] CI зелёный на всех ОС, Windows job-ы `harness-scripts` включительно.
+  - evidence: ci-check pass · PR #1901 run 43793359420 `ci-ok` success: linux 1-4, windows 1-3, harness-scripts 1/2 and 2/2, macos-tests, macos-e2e, windows-e2e · ci ci · 703a0a1f1
 
 ## Где в коде
 
