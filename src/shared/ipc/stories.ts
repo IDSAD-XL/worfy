@@ -259,7 +259,9 @@ export type StoryAskOutcome = z.output<typeof storyAskOutcomeSchema>
  * `questionId`, and stories.stop with it ends the question. main adds the PR's diff, its text, its review verdicts and
  * the Ticket's file, and keeps the answer with the story (stories.answers). `folder`: the checkout the agent reads, as
  * for stories.build — the Project's root or one of its git worktrees; without one, the worktree where the story's PR
- * head is checked out, else the root.
+ * head is checked out, else the root. `key`: the key a story made by the button was kept under (`StoryMade.key`,
+ * ticket 11): the answer is kept under it, and for `owner/name#N` main reads the PR in that repository (gh `--repo`)
+ * and the checkout is that repository's — its worktree at the story's head, else its clone.
  */
 export const storiesAsk = invokeChannel(
   'stories.ask',
@@ -271,8 +273,46 @@ export const storiesAsk = invokeChannel(
     about: storyQuestionLinesSchema,
     code: z.string().max(FRAGMENT_MAX_CHARS),
     question: z.string().trim().min(1).max(STORY_QUESTION_MAX_CHARS),
+    key: storyKeySchema.optional(),
   }),
   storyAskOutcomeSchema,
+  'project',
+  'write',
+)
+
+// Ticket 11: a story made by the button. The window names only what the story is of; main reads the material itself
+// (src/main/stories/by-button.ts) — the diff, the PR's text, the Ticket's file and the verdicts for a PR, the spec and
+// the stories of the merged PRs for an Epic before its end — builds it as `stories.build` does, and keeps it
+// (src/main/stories/store.ts) under its key.
+
+/** A repository of the Project: on GitHub, `owner/name`; or its name in the Profile (`_resolved.repos`), as a Ticket's `PR: <repo>#N` line spells it. */
+export const storyRepoSchema = z.string().regex(/^[A-Za-z0-9_.-]+(\/[A-Za-z0-9_.-]+)?$/u, 'owner/name, or the name of a repository in the Profile')
+
+/**
+ * What a story made by the button is of: a PR of the Project (`repo` null — the Project's first repository, as a Ticket's
+ * bare `PR: #N` line names it), or an Epic that has no `story.md` yet.
+ */
+export const storyTargetSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('pr'), repo: storyRepoSchema.nullable(), number: z.number().int().positive() }).strict(),
+  z.object({ kind: z.literal('epic'), epic: z.string().min(1).max(200) }).strict(),
+])
+export type StoryTarget = z.output<typeof storyTargetSchema>
+
+/**
+ * How a story made by the button came: `key`, where it is kept (`owner/name#N`, `epic:<name>`); `reused` — the story
+ * kept before, opened without a request; `outcome` — as `stories.build` answers, the story as it was kept.
+ */
+export const storyMadeSchema = z.object({ key: storyKeySchema, reused: z.boolean(), outcome: storyOutcomeSchema })
+export type StoryMade = z.output<typeof storyMadeSchema>
+
+/**
+ * Makes the story of `target` in Project `projectId` (stories.activity tells each line, stories.stop ends it), or opens
+ * the one kept before; `rebuild` builds it again in place of the kept one. A stopped or failed build keeps nothing.
+ */
+export const storiesMake = invokeChannel(
+  'stories.make',
+  z.object({ storyId: storyIdSchema, projectId: z.string().min(1), target: storyTargetSchema, rebuild: z.boolean().optional() }),
+  storyMadeSchema,
   'project',
   'write',
 )
@@ -280,11 +320,11 @@ export const storiesAsk = invokeChannel(
 /**
  * The answers kept for `story` in Project `projectId`, oldest first — by what the story names: its file, or the PR or
  * Epic of a story made by the button — and the digest of `story` itself, so the view marks an answer asked about an
- * earlier text.
+ * earlier text. `key`: the key a story made by the button was kept under (`StoryMade.key`), as for stories.ask.
  */
 export const storiesAnswers = invokeChannel(
   'stories.answers',
-  z.object({ projectId: z.string().min(1), story: storyFileSchema }),
+  z.object({ projectId: z.string().min(1), story: storyFileSchema, key: storyKeySchema.optional() }),
   z.object({ digest: storyDigestSchema, answers: z.array(storyAnswerSchema) }),
   'project',
   'read',
@@ -322,11 +362,12 @@ export type StorySelfCheck = z.output<typeof storySelfCheckSchema>
 
 /**
  * The screens of `story` read and the answers to its "Check yourself", kept in worfy's data under what the story names
- * (`key`, as its answers about lines: stories.answers); the window names `key` when it adds to them.
+ * (`key`, as its answers about lines: stories.answers); the window names `key` when it adds to them. For a story made by
+ * the button the window names the key it was kept under, as for stories.answers (worfy-code-stories ticket 11).
  */
 export const storiesMarks = invokeChannel(
   'stories.marks',
-  z.object({ projectId: z.string().min(1), story: storyFileSchema }),
+  z.object({ projectId: z.string().min(1), story: storyFileSchema, key: storyKeySchema.optional() }),
   z.object({ key: storyKeySchema, read: z.array(storyReadMarkSchema), checks: z.array(storySelfCheckSchema) }),
   'project',
   'read',
@@ -356,6 +397,7 @@ export const storiesSelfCheck = invokeChannel(
 
 declare module './channels' {
   interface IpcContract {
+    'stories.make': typeof storiesMake
     'stories.build': typeof storiesBuild
     'stories.stop': typeof storiesStop
     'stories.activity': typeof storiesActivity

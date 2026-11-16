@@ -19,7 +19,7 @@ vi.mock('../../src/renderer/ipc', () => ipc)
 
 const { StoryView } = await import('../../src/renderer/stories/StoryView')
 const { LineAnswer } = await import('../../src/renderer/stories/LineQuestion')
-const { storyOwnCode } = await import('../../src/renderer/stories/open')
+const { openMadeStory, storyOwnCode } = await import('../../src/renderer/stories/open')
 const { Markdown } = await import('../../src/renderer/markdown/Markdown')
 
 const FIXTURES = join(import.meta.dirname, '..', 'fixtures', 'code-story-answers')
@@ -93,6 +93,35 @@ function selectLines(code: HTMLElement, from: number, to: number): void {
 
 /** Whether `a` comes before `b` in the document. */
 const before = (a: Element, b: Element): boolean => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+
+describe('a question about a story made by the button (worfy-code-stories ticket 11)', () => {
+  it('names the key main kept the story under: the answers are read and the question is asked by it; a story file names none', async () => {
+    const made = story()
+    openMadeStory('project-1', made, 'shop/api#212')
+    render(<StoryView story={made} codeOf={storyOwnCode} projectId="project-1" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Next screen' }))
+    const madeCode = await screen.findByTestId('md-story-code')
+    await waitFor(() => expect(ipc.invoke.mock.calls.filter(([channel]) => channel === 'stories.answers').map(([, input]) => (input as { key?: string }).key)).toEqual(['shop/api#212']))
+    // Its read marks too (ticket 13): under the same key as its answers.
+    expect(ipc.invoke.mock.calls.filter(([channel]) => channel === 'stories.marks').map(([, input]) => (input as { key?: string }).key)).toEqual(['shop/api#212'])
+    selectLines(madeCode, 11, 11)
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Вопрос о строке 11' }), { target: { value: 'Why?' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Спросить' }))
+    expect(ipc.invoke.mock.calls.find(([channel]) => channel === 'stories.ask')![1]).toMatchObject({ key: 'shop/api#212', question: 'Why?' })
+    cleanup()
+
+    // The same text opened from its file: no key, main names it by what the story names.
+    ipc.invoke.mockClear()
+    const code = await atCodeStep()
+    await waitFor(() => expect(ipc.invoke.mock.calls.some(([channel]) => channel === 'stories.answers')).toBe(true))
+    expect(ipc.invoke.mock.calls.find(([channel]) => channel === 'stories.answers')![1]).not.toHaveProperty('key')
+    expect(ipc.invoke.mock.calls.find(([channel]) => channel === 'stories.marks')![1]).not.toHaveProperty('key')
+    selectLines(code, 11, 11)
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Вопрос о строке 11' }), { target: { value: 'Why?' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Спросить' }))
+    expect(ipc.invoke.mock.calls.find(([channel]) => channel === 'stories.ask')![1]).not.toHaveProperty('key')
+  })
+})
 
 describe('a question about lines of a Code story', () => {
   it('opens the field after the selected lines; the progress bar stands in its place; the answer appears after the same lines', async () => {

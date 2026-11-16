@@ -7,6 +7,7 @@ import { useCallback, useEffect, useSyncExternalStore } from 'react'
 import type { StoryReadMark, StorySelfCheck } from '../../shared/ipc/stories'
 import type { StoryFile } from '../../shared/stories/schema'
 import { invoke } from '../ipc'
+import { madeStoryKey } from './open'
 
 /** What the view shows of the reading of a story: the screens read and the answers to "Check yourself". */
 export interface ShownMarks {
@@ -58,7 +59,8 @@ function readOnce(projectId: string, story: StoryFile): void {
   const entry = keptOf(story)
   if (entry.projectId !== null) return
   entry.projectId = projectId
-  void invoke('stories.marks', { projectId, story }).then((result) => {
+  const made = madeStoryKey(story)
+  void invoke('stories.marks', { projectId, story, ...(made === undefined ? {} : { key: made }) }).then((result) => {
     // A reply of another shape (a stand-in of main) keeps nothing.
     if (!result.ok || !Array.isArray(result.value.read) || !Array.isArray(result.value.checks)) return
     const { key, read, checks } = result.value

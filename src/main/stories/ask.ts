@@ -219,8 +219,14 @@ export interface AskRequest {
   folder: string
   /** The Project's data folder the answer is kept in. */
   dataDir: string
-  /** The key the answer is kept under: what the story names (store.ts, storyAnswersKey). */
+  /** The key the answer is kept under: what the story names (store.ts, storyAnswersKey), or the key a story made by the button was kept under. */
   key: string
+  /**
+   * A story made by the button of a PR (ticket 11): the PR's repository on GitHub, `owner/name` — gh reads the PR with
+   * `--repo` — and the Project's root, where the Ticket and the GitHub account are read (`folder` may be a repository
+   * of a Project over several). Absent for a story read from its file.
+   */
+  made?: { repo: string | null; root: string }
   vendor: VendorId
   story: StoryFile
   about: StoryQuestionLines

@@ -32,6 +32,7 @@ const MIN = 60_000
 const HOUR = 60 * MIN
 const DAY = 24 * HOUR
 const ago = (ms: number): string => new Date(NOW - ms).toISOString()
+const NOW_ISO = new Date(NOW).toISOString()
 
 const WEB = 'example-org/web'
 const API = 'example-org/api'
@@ -506,6 +507,44 @@ describe('the view of a snapshot', () => {
   it('a PR of no Ticket has no chip', async () => {
     await body(snapshotOf('web-00000001'), [])
     expect(screen.queryAllByTestId('pr-inbox-ticket')).toHaveLength(0)
+  })
+
+  it('a PR whose Ticket has no story file — here a colleague\'s PR of no Ticket — has "Code story" that builds it by the button (worfy-code-stories ticket 11)', async () => {
+    preload({ inbox: {}, answers: { 'stories.saved': () => ({ ok: true, value: null }), 'stories.make': () => ({ ok: true, value: { key: `${WEB}#41`, reused: false, outcome: { status: 'stopped' } } }) } })
+    await body(snapshotOf('web-00000001'), [], { selected: `${WEB}#41` })
+    const button = await within(pane()).findByTestId('pr-inbox-code-story')
+    expect(button.textContent).toBe('Code story')
+    // No story kept yet: nothing to build again.
+    await waitFor(() => expect(main.calls.filter((call) => call.channel === 'stories.saved').map((call) => call.input)).toEqual([{ projectId: 'web-00000001', key: `${WEB}#41` }]))
+    expect(within(pane()).queryByTestId('pr-inbox-code-story-rebuild')).toBeNull()
+    fireEvent.click(button)
+    expect(main.calls.filter((call) => call.channel === 'stories.make').map((call) => call.input)).toEqual([expect.objectContaining({ projectId: 'web-00000001', target: { kind: 'pr', repo: WEB, number: 41 } })])
+    // "Code story" opens a kept story: only "Rebuild story" builds it anew.
+    expect((main.calls.find((call) => call.channel === 'stories.make')!.input as { rebuild?: boolean }).rebuild).toBeUndefined()
+    expect(await within(pane()).findByTestId('pr-inbox-code-story-progress')).toBeTruthy()
+  })
+
+  it('a build that failed says "Failed" with the reason; Close puts the button back with the focus on it', async () => {
+    preload({ inbox: {}, answers: { 'stories.saved': () => ({ ok: true, value: null }), 'stories.make': () => ({ ok: true, value: { key: `${WEB}#41`, reused: false, outcome: { status: 'failed', reason: 'PR #41 changes nothing: its diff is empty.' } } }) } })
+    await body(snapshotOf('web-00000001'), [], { selected: `${WEB}#41` })
+    fireEvent.click(await within(pane()).findByTestId('pr-inbox-code-story'))
+    const progress = await within(pane()).findByTestId('story-progress')
+    await waitFor(() => expect(progress.dataset.state).toBe('failed'))
+    expect(progress.textContent).toContain('Failed')
+    expect(progress.textContent).not.toContain('Not available')
+    expect(within(pane()).getByTestId('story-progress-reason').textContent).toBe('PR #41 changes nothing: its diff is empty.')
+    const close = within(progress).getByRole('button', { name: 'Close' })
+    close.focus()
+    fireEvent.click(close)
+    const button = await within(pane()).findByTestId('pr-inbox-code-story')
+    await waitFor(() => expect(document.activeElement).toBe(button))
+  })
+
+  it('a PR with a story kept: "Rebuild story" builds it again in place of the kept one', async () => {
+    preload({ inbox: {}, answers: { 'stories.saved': () => ({ ok: true, value: { savedAt: NOW_ISO, colleague: true, story: {}, answers: [] } }), 'stories.make': () => ({ ok: true, value: { key: `${WEB}#41`, reused: false, outcome: { status: 'stopped' } } }) } })
+    await body(snapshotOf('web-00000001'), [], { selected: `${WEB}#41` })
+    fireEvent.click(await within(pane()).findByTestId('pr-inbox-code-story-rebuild'))
+    expect(main.calls.filter((call) => call.channel === 'stories.make').map((call) => call.input)).toEqual([expect.objectContaining({ target: { kind: 'pr', repo: WEB, number: 41 }, rebuild: true })])
   })
 })
 

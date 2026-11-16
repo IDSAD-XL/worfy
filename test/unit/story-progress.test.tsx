@@ -166,3 +166,64 @@ describe('a Project on Codex', () => {
     expect(within(bar).getByTestId('story-progress-reason').textContent).toBe(CODEX_REASON)
   })
 })
+
+// A build nobody waits for any more is stopped in main, so its paid request does not run to its end (worfy-code-stories
+// ticket 11; audit of PR #1890).
+describe('a build left behind is stopped', () => {
+  const stops = () => ipc.invoke.mock.calls.filter(([channel]) => channel === 'stories.stop').map(([, payload]) => payload as { storyId: string })
+
+  it('the button goes away while it builds: stories.stop of that build', () => {
+    const storyId = press()
+    expect(stops()).toEqual([])
+    cleanup()
+    expect(stops()).toEqual([{ storyId }])
+  })
+
+  it('a reset while it builds stops it', () => {
+    function Holder() {
+      const build = useStoryBuild('p1')
+      return (
+        <>
+          <button type="button" onClick={() => void build.start(INPUT)}>
+            Story
+          </button>
+          <button type="button" onClick={build.reset}>
+            Reset
+          </button>
+        </>
+      )
+    }
+    render(<Holder />)
+    fireEvent.click(screen.getByRole('button', { name: 'Story' }))
+    const call = ipc.invoke.mock.calls.find(([channel]) => channel === 'stories.build') as [string, { storyId: string }]
+    fireEvent.click(screen.getByRole('button', { name: 'Reset' }))
+    expect(stops()).toEqual([{ storyId: call[1].storyId }])
+  })
+
+  it('a second start while the first builds stops the first', () => {
+    function Twice() {
+      const build = useStoryBuild('p1')
+      return (
+        <button type="button" onClick={() => void build.start(INPUT)}>
+          Story
+        </button>
+      )
+    }
+    render(<Twice />)
+    fireEvent.click(screen.getByRole('button', { name: 'Story' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Story' }))
+    const builds = ipc.invoke.mock.calls.filter(([channel]) => channel === 'stories.build').map(([, payload]) => (payload as { storyId: string }).storyId)
+    expect(builds).toHaveLength(2)
+    expect(stops()).toEqual([{ storyId: builds[0] }])
+  })
+
+  it('a build that ended is not stopped when the button goes away', async () => {
+    press()
+    await act(async () => {
+      answer({ ok: true, value: { status: 'failed', reason: 'no' } })
+      await Promise.resolve()
+    })
+    cleanup()
+    expect(stops()).toEqual([])
+  })
+})

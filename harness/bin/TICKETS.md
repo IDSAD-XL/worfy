@@ -248,7 +248,9 @@ Code: `src/cart.ts:10-17` · key lines: 13, 14
   ticket (an ordinary Session's PR, a colleague's PR) has neither. A story file committed with the change — in git
   or in the Workflow folder — has no commit field: see **Story anchor** below. A story kept outside git, in
   worfy's own data (a story made by the button), has `Commit: <full sha of the PR head it was made from>`: nothing
-  commits it into the PR, so it can name the head it describes. The header keys are English in every language.
+  commits it into the PR, so it can name the head it describes. An epic story made by the button before the epic's
+  end has no `Commit:` either: its chapters come from different PRs, each with its own head, so each ready chapter
+  names the head of its own PR instead (**Epic story** below). The header keys are English in every language.
 - **Step** — in a PR story a `## <n>. <title>` heading, numbered from 1 in file order; in an epic story a
   `### <n>. <title>` heading inside a chapter, numbered through the whole story, and the step `## <n>. Seams
   between tickets` after the chapters (below). A step is either a code step or a frame step; the frame steps are
@@ -284,7 +286,10 @@ Code: `src/cart.ts:10-17` · key lines: 13, 14
   <ticket title>`, holding the `###` steps taken from that PR's story; the frame step `## <n>. Seams between
   tickets`, numbered on from the last step of the chapters; `Summary`; `Check` (how the epic as a whole was
   checked). A chapter of a ticket whose PR is not merged yet has `PR -` in its heading and the line `Ready: no —
-  <why>` as its body, and no steps.
+  <why>` as its body, and no steps. An epic story made by the button before the epic's end, kept outside git in
+  worfy's own data, keeps with each ready chapter the full sha of that chapter's PR head — the head worfy read from
+  GitHub, not one the agent wrote — and its `Start` ends with the tickets not ready yet; a committed `story.md` keeps
+  no head, its chapters are read against its anchor (**Story anchor**, item 3).
 - **Seams between tickets** — the frame step of an epic story that says what its tickets hand to each other:
   prose, then one list item per handoff:
   `- <NN> → <NN>: <what is handed over> · done: yes`, or `· done: no — <why>` for a handoff that was dropped. The
@@ -315,7 +320,8 @@ reaches the main branch.
    head of the PR the story describes — the `<head>` that `land` merged — not against its own branch: the appended
    step quotes the lines of that head, which review checked.
 3. The epic's story takes its steps from the stories of its PRs, so the line numbers of a chapter are those of
-   that chapter's PR head, and each chapter is checked against it. The steps and screens outside the chapters
+   that chapter's PR head, and each chapter is checked against it. An epic story made by the button names that head
+   with each ready chapter, and a reader reads the chapter's fragments at it. The steps and screens outside the chapters
    (`Start`, `Seams between tickets`, `Summary`, `Check`) quote no fragment, like every frame step but `What
    review found and what remains` (**Fields** above).
 

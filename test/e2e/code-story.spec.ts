@@ -255,10 +255,10 @@ test('the entries into the Story view: the toast once its story.md comes, the Ep
     const frame = window.locator('[data-testid="epic-frame"][data-epic="demo-cart"]')
     await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: [frame] })
 
-    // No story.md yet: "Code story" on the frame is inactive and says why; no toast for what the Project already had.
+    // No story.md yet: "Code story" on the frame builds the story so far (ticket 11, the test below); no toast for what
+    // the Project already had.
     const epicStory = frame.getByTestId('action-epic-story')
-    await expect(epicStory).toHaveAttribute('aria-disabled', 'true', { timeout: ms(15_000) })
-    await expect(epicStory).toHaveAttribute('title', 'No Code story of demo-cart yet: it is written when the last PR of the Epic is merged')
+    await expect(epicStory).toHaveAttribute('title', 'Build the Code story of demo-cart so far, from the stories of its merged PRs', { timeout: ms(15_000) })
     await expect(window.getByTestId('story-ready-toast')).toHaveCount(0)
 
     // The Epic's story comes: one toast, and "Open" opens it.
@@ -268,7 +268,7 @@ test('the entries into the Story view: the toast once its story.md comes, the Ep
     const toast = window.getByTestId('story-ready-toast')
     await expect(toast).toBeVisible({ timeout: ms(20_000) })
     await expect(toast).toContainText('The Code story of Epic demo-cart is ready')
-    await expect(epicStory).toHaveAttribute('aria-disabled', 'false')
+    await expect(epicStory).toHaveAttribute('title', 'Open the Code story of demo-cart')
     await snapshotThemes(window, 'code-story-entries-toast')
     await toast.getByRole('button', { name: 'Open' }).click()
     await seenThenEsc(window, 'epic')
@@ -496,4 +496,158 @@ test('"Check yourself" and the read marks: the answer hidden until answered, a l
     await launched.close()
   }
   expect(git('status', '--porcelain', '--ignored')).toBe('')
+})
+
+// A Code story made by the button (worfy-code-stories ticket 11) on the Project of the entries: gh also holds PR #300 of
+// an ordinary Session (no Ticket names it) and what `gh pr view` and `gh pr diff` answer for it and for #212
+// (pulls.json of the gh stub). The fake agent plays story-hold for a PR — it waits for the test's release, so the
+// progress bar is seen — and story-epic for the Epic; WORFY_AGENT_LOG counts its requests. The build is invisible:
+// no Session Node comes, as the contract test of the MCP inventory request checks (worfy-mcp-live ticket 14).
+
+/** The entries' Project with PR #300 of an ordinary Session and the single-PR answers of gh; the fake agent's log. */
+function prepareButton(): { env: Record<string, string>; log: string } {
+  const { env, repo } = prepareEntries()
+  const ghDir = env.GH_STUB_DIR!
+  const head = git(repo, 'rev-parse', 'HEAD')
+  const graph = JSON.parse(readFileSync(join(ghDir, 'graphql.json'), 'utf8')) as { pulls: { number: number; updatedAt: string; headRefOid: string; pull: Record<string, unknown> }[] }
+  const first = graph.pulls[0]!
+  graph.pulls.push({ ...first, number: 300, headRefOid: head, pull: { ...first.pull, title: 'Tidy the README', url: `https://github.com/${CART_REPO}/pull/300`, headRefName: 'session/readme' } })
+  writeFileSync(join(ghDir, 'graphql.json'), JSON.stringify(graph))
+  const view = (number: number, title: string, branch: string) => ({ title, body: `The text of PR #${String(number)}.`, author: { login: 'dev-me' }, headRefOid: head, headRefName: branch, comments: [] })
+  writeFileSync(
+    join(ghDir, 'pulls.json'),
+    JSON.stringify({
+      [`${CART_REPO}#300`]: { view: view(300, 'Tidy the README', 'session/readme'), diff: 'diff --git a/README.md b/README.md\n+Tidy the README\n' },
+      [`${CART_REPO}#212`]: { view: view(212, 'Cart total in cents', 'demo-cart/04'), diff: 'diff --git a/src/cart.ts b/src/cart.ts\n+  if (line.quantity <= 0) continue\n' },
+    }),
+  )
+  const log = join(scratch, 'agent.log')
+  writeFileSync(log, '')
+  return { env: { ...env, WORFY_AGENT_LOG: log, WORFY_STORY_SCRIPT: 'story-hold' }, log }
+}
+
+/** The requests the fake agent got: one `start` line each. */
+const requestsIn = (log: string): number => readFileSync(log, 'utf8').split('\n').filter((line) => line.includes('"story":true') && line.includes('"kind":"start"')).length
+
+test('Code story by the button: the Epic so far with its Tickets not ready marked in Start, a Session PR with the progress bar; a kept story opens with no request; no Session Node', async () => {
+  test.setTimeout(ms(150_000))
+  const { env, log } = prepareButton()
+  const launched = await launchApp({ env })
+  try {
+    const { app, window } = launched
+    const frame = window.locator('[data-testid="epic-frame"][data-epic="demo-cart"]')
+    await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: [frame] })
+    const sessionNodes = window.getByTestId('session-node')
+    await expect(sessionNodes).toHaveCount(0)
+
+    // The Epic has no story.md: "Code story" builds its story so far.
+    const epicStory = frame.getByTestId('action-epic-story')
+    await expect(epicStory).toHaveAttribute('aria-disabled', 'false', { timeout: ms(15_000) })
+    await epicStory.click()
+    const view = window.getByTestId('story-view')
+    await expect(view).toBeVisible({ timeout: ms(20_000) })
+    const screen = view.getByTestId('story-screen')
+    await expect(screen).toHaveAttribute('data-kind', 'start')
+    await expect(screen).toContainText('Not ready yet: Tickets 05, 06.')
+    await expect(view.locator('[data-testid="story-chapter"].w-story__chapter-button--not-ready')).toHaveCount(2)
+    expect(requestsIn(log)).toBe(1)
+    await window.keyboard.press('Escape')
+    await expect(view).toBeHidden()
+    await expect(sessionNodes).toHaveCount(0)
+
+    // Again: the story kept opens with no new request.
+    await epicStory.click()
+    await expect(view).toBeVisible()
+    await expect(view.getByTestId('story-screen')).toHaveAttribute('data-kind', 'start')
+    expect(requestsIn(log)).toBe(1)
+    await window.keyboard.press('Escape')
+    await expect(view).toBeHidden()
+
+    // Pull requests: PR #300 of an ordinary Session, no Ticket: "Code story" → the progress bar → the Story view.
+    const views = window.getByRole('group', { name: 'View', exact: true })
+    await views.getByRole('button', { name: 'Pull requests' }).click()
+    const row = window.locator(`[data-testid="pr-inbox-row"][data-repo="${CART_REPO}"][data-number="300"]`)
+    await expect(row).toBeVisible({ timeout: ms(40_000) })
+    await row.getByRole('button').first().click()
+    const pane = window.getByTestId('pr-inbox-pane')
+    await pane.getByTestId('pr-inbox-code-story').click()
+    const progress = pane.getByTestId('pr-inbox-code-story-progress')
+    await expect(progress).toBeVisible()
+    await expect(progress.getByTestId('story-progress-lines')).toContainText('Grep cartTotal', { timeout: ms(20_000) })
+    await app.evaluate(() => (globalThis as unknown as { worfyFakeRelease: (name: string) => void }).worfyFakeRelease('story'))
+    await expect(view).toBeVisible({ timeout: ms(20_000) })
+    await expect(view.getByTestId('story-screen')).toHaveAttribute('data-kind', 'step')
+    await expect(view).toContainText('Tidy the README')
+    expect(requestsIn(log)).toBe(2)
+    await window.keyboard.press('Escape')
+    await expect(view).toBeHidden()
+
+    // Again on that PR: the kept story, no new request; "Rebuild story" is there now.
+    await views.getByRole('button', { name: 'Pull requests' }).click()
+    await row.getByRole('button').first().click()
+    await expect(pane.getByTestId('pr-inbox-code-story-rebuild')).toBeVisible()
+    await pane.getByTestId('pr-inbox-code-story').click()
+    await expect(view).toBeVisible()
+    expect(requestsIn(log)).toBe(2)
+    await window.keyboard.press('Escape')
+    await expect(window.locator('.w-shell__view[data-view="canvas"]')).toBeVisible()
+    // No build left a Session Node.
+    await expect(sessionNodes).toHaveCount(0)
+  } finally {
+    await launched.close()
+  }
+})
+
+// The look of the bar of a story made by the button (worfy-code-stories ticket 11, review round 1): on the Epic frame
+// and on a Ticket card, while it builds and once it failed, in both themes (snapshotThemes: CI keeps the pictures under
+// test-results/e2e/snapshots/code-story-button-{epic,ticket}-{building,failed}/{light,dark}.png). Ticket 05 gets PR #213,
+// whose story file is not there, so its card builds it. The fake agent plays story-hold-fail for both: it holds after
+// its first line until the test lets it go, then answers what does not fit a Code story, so the build fails.
+
+test('the bar of a story by the button on the Epic frame and on a Ticket card: building and failed, drawn over the Canvas, Close gives the focus back', async () => {
+  test.setTimeout(ms(150_000))
+  const { env } = prepareButton()
+  const statusFile = join(env.WORFY_CLAUDE_HOME!, 'epic-status.json')
+  const status = JSON.parse(readFileSync(statusFile, 'utf8')) as { tickets: { num: number; pr?: number }[] }
+  status.tickets = status.tickets.map((one) => (one.num === 5 ? { ...one, pr: 213 } : one))
+  writeFileSync(statusFile, JSON.stringify(status))
+  const pullsFile = join(env.GH_STUB_DIR!, 'pulls.json')
+  const pulls = JSON.parse(readFileSync(pullsFile, 'utf8')) as Record<string, { view: Record<string, unknown>; diff: string }>
+  const of212 = pulls[`${CART_REPO}#212`]!
+  pulls[`${CART_REPO}#213`] = { view: { ...of212.view, title: 'Coupons', headRefName: 'demo-cart/05' }, diff: 'diff --git a/src/coupon.ts b/src/coupon.ts\n+export const coupon = 0\n' }
+  writeFileSync(pullsFile, JSON.stringify(pulls))
+  const launched = await launchApp({ env: { ...env, WORFY_STORY_SCRIPT: 'story-hold-fail', WORFY_STORY_EPIC_SCRIPT: 'story-hold-fail' } })
+  try {
+    const { app, window } = launched
+    const frame = window.locator('[data-testid="epic-frame"][data-epic="demo-cart"]')
+    await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: [frame] })
+    const release = () => app.evaluate(() => (globalThis as unknown as { worfyFakeRelease: (name: string) => void }).worfyFakeRelease('story'))
+
+    const cases = [
+      { name: 'epic', button: frame.getByTestId('action-epic-story'), bar: window.getByTestId('action-epic-story-progress') },
+      { name: 'ticket', button: window.locator('[data-testid="ticket-node"][data-ticket="5"]').getByTestId('action-ticket-story'), bar: window.getByTestId('action-ticket-story-progress') },
+    ]
+    for (const { name, button, bar } of cases) {
+      await expect(button).toHaveAttribute('aria-disabled', 'false', { timeout: ms(15_000) })
+      await button.click()
+      await expect(bar).toBeVisible()
+      await expect(bar.getByTestId('story-progress-lines')).toContainText('Grep cartTotal', { timeout: ms(20_000) })
+      await expect(bar).toContainText('Building story…')
+      await expect(button).toHaveAttribute('aria-disabled', 'true')
+      // Its whole width, over the card (240px) and the frame: nothing cuts it, whatever the Canvas's zoom.
+      expect(Math.round((await bar.boundingBox())!.width)).toBe(320)
+      await snapshotThemes(window, `code-story-button-${name}-building`)
+      await release()
+      await expect(bar.getByTestId('story-progress')).toHaveAttribute('data-state', 'failed', { timeout: ms(20_000) })
+      await expect(bar).toContainText('Failed')
+      await expect(bar.getByTestId('story-progress-reason')).toContainText('does not fit the Code story format')
+      await snapshotThemes(window, `code-story-button-${name}-failed`)
+      await bar.getByRole('button', { name: 'Close' }).click()
+      await expect(bar).toHaveCount(0)
+      await expect(button).toBeFocused()
+    }
+    await expect(window.getByTestId('session-node')).toHaveCount(0)
+  } finally {
+    await launched.close()
+  }
 })

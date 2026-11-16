@@ -11,13 +11,17 @@
 // draft, on the user's click (ADR-0105). Drafts are read for the selected PR only.
 //
 // A PR of a Ticket whose Code story is in the Tickets root (`stories/<NN>-<slug>.md` of its Epic) has "Code story" beside
-// "Open on GitHub": the Story view on it (stories/open.ts; worfy-code-stories ticket 10).
+// "Open on GitHub": the Story view on it (stories/open.ts; worfy-code-stories ticket 10). Any other PR — an ordinary
+// Session's, a colleague's, an old one — has "Code story" that builds its story by the button (ticket 11,
+// StoryBuildButton.tsx): the progress bar in the button's place, then the Story view; a story kept before opens without
+// a request, and "Rebuild story" builds it again. Of a colleague's PR worfy keeps the agent's text only (ADR-0105).
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import { PR_INBOX_GROUP_TITLES, type PrInboxComment, type PrInboxGroup, type PrInboxRow, type PrInboxSnapshot, type PrInboxThread } from '../../shared/ipc/pr-inbox'
 import type { PrReplyItem } from '../../shared/ipc/pr-inbox'
 import type { ProjectView } from '../../shared/ipc/projects'
 import type { Epic, Ticket } from '../../shared/workflow/types'
 import { openStoryFile, ticketStoryPath } from '../stories/open'
+import { StoryBuildButton } from '../stories/StoryBuildButton'
 import { ticketTitle } from '../canvas/epic-layout'
 import { invoke, readableReason } from '../ipc'
 import { useNow } from '../limits/useLimits'
@@ -500,7 +504,20 @@ export function PrPane({ projectId, group, row, ticket, viewer, now, readOnly, s
                   <ExternalLink url={row.url} className="w-pr-inbox-button w-pr-inbox-button--link" testId="pr-inbox-open-github">
                     Open on GitHub
                   </ExternalLink>
-                  {story !== null ? <CodeStoryButton projectId={projectId} path={story} /> : null}
+                  {story !== null ? (
+                    <CodeStoryButton projectId={projectId} path={story} />
+                  ) : (
+                    <StoryBuildButton
+                      key={`${row.repo}#${String(row.number)}`}
+                      projectId={projectId}
+                      target={{ kind: 'pr', repo: row.repo, number: row.number }}
+                      title="Build the Code story of this pull request"
+                      testId="pr-inbox-code-story"
+                      className="w-pr-inbox-button"
+                      savedKey={`${row.repo}#${String(row.number)}`}
+                      readOnly={readOnly}
+                    />
+                  )}
                   <span style={{ flex: 1 }} />
                   {action?.kind === 'draft-replies' ? null : <DraftRepliesButton projectId={projectId} repo={row.repo} number={row.number} readOnly={readOnly} />}
                   <button type="button" className="w-pr-inbox-button" disabled={row.newSinceSeen === 0 || readOnly !== null} title={readOnly ?? undefined} onClick={onMarkSeen}>

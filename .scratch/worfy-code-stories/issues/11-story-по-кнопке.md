@@ -1,7 +1,7 @@
 # 11 — Story по кнопке: PR без story, PR Session, PR коллег, story Epic-а до конца
 
 Type: feature
-Status: open
+Status: claimed 2026-11-16T18:01Z
 Blocked by: 04, 08, 09
 Source: [spec.md](../spec.md), «Ticket-ы», строка 11; «Решения владельца» 6, 9, 13, 18, 19, 25 (строки 97, 101–102,
 109–112, 118–120, 129–131); «Решения по реализации» → worfy: «Невидимый агент», «Progress bar», «Story по кнопке»
@@ -47,12 +47,32 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 11; «Решения 
 - [ ] e2e: story Epic-а до конца — неготовые Ticket-ы помечены в «Начале».
 - [ ] `TICKETS.md` описывает head PR у каждой главы story Epic-а по кнопке. Contract test: в сохранённой story у каждой
       главы свой head, и код главы читается из него.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts` exit 0 · mac - · 51b0ab2ce
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts test/contract/stories-handler.test.ts` exit 0 · mac - · 19cb9902e
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts test/contract/stories-handler.test.ts` exit 0 · mac - · 3d5e3b5ca
+  - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts test/contract/stories-handler.test.ts · mac - · e24072b0a
 - [ ] Contract test: в запросе есть diff, текст PR, файл Ticket-а и вердикты; у PR коллеги в сохранённом файле нет
       текста PR и комментариев.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts` exit 0 · mac - · 51b0ab2ce
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts test/contract/stories-handler.test.ts` exit 0 · mac - · 19cb9902e
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts test/contract/stories-handler.test.ts` exit 0 · mac - · 3d5e3b5ca
+  - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts test/contract/stories-handler.test.ts · mac - · e24072b0a
 - [ ] Contract test: остановка во время сборки — ничего не сохранено; повторное нажатие на PR с сохранённой story
       открывает её без нового запроса.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts` exit 0 · mac - · 51b0ab2ce
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts test/contract/stories-handler.test.ts` exit 0 · mac - · 19cb9902e
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts test/contract/stories-handler.test.ts` exit 0 · mac - · 3d5e3b5ca
+  - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts test/contract/stories-handler.test.ts · mac - · e24072b0a
 - [ ] Unit test: на Project-е с Codex без `oneShot` кнопка показывает причину и не запускает запрос.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/story-entries.test.tsx` exit 0 · mac - · 51b0ab2ce
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/story-entries.test.tsx` exit 0 · mac - · 19cb9902e
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/story-entries.test.tsx` exit 0 · mac - · 3d5e3b5ca
+  - evidence: test-run pass · node scripts/vitest-electron.mjs test/unit/story-entries.test.tsx test/unit/line-question.test.tsx · mac - · e24072b0a
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 51b0ab2ce
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 19cb9902e
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 3d5e3b5ca
+  - evidence: gate pass · gate fast · mac - · e24072b0a
 
 ## Тесты
 
@@ -77,3 +97,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 11; «Решения 
 ## Вне скоупа
 
 - Story правок, которые ещё не стали PR (экран Changes, `worfy-changes-view`).
+
+## Итог
+
+- Цена первых сборок (пункт 8 «Что делаем») не измерена: в работе над Ticket-ом не было ни одного настоящего запроса к модели,
+  только fake agent (`WORFY_AGENT=fake`). Число token-ов первой настоящей сборки story PR и story Epic-а остаётся
+  записать после первого запуска в Stable.

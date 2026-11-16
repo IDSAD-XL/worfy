@@ -180,20 +180,34 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
   goes back to the Canvas. It opens from **Code story** on the Epic frame, beside its archived Sessions, and in the
   frame's **⋯**; from **Code story** on a Ticket card, beside **Open PR**; from **Code story** of a pull request in
   [Pull requests](pr-inbox.md); from the Command palette's **Open code story**, a row per Epic and per Ticket with a
-  story; and from the toast "The Code story of Epic <name> is ready" with **Open**. **Code story** on the frame is inactive
-  until the Epic has its `story.md`, and its tooltip says the story comes when the last PR of the Epic is merged. On a
-  card it is inactive, with the reason, for a Ticket that is done or has a `PR:` line and no story of its PR; a Ticket
-  with neither has no button. The toast comes once per Epic, the first time worfy sees its `story.md`, and never
+  story; and from the toast "The Code story of Epic <name> is ready" with **Open**. On a card **Code story** is inactive,
+  with the reason, for a Ticket that is done and names no PR; a Ticket with neither a PR nor a story has no button. The toast comes once per Epic, the first time worfy sees its `story.md`, and never
   again: the Epics it was shown for are kept in the window's local storage in worfy's data folder. The first time
   worfy reads a Project it only notes the stories that are already there, so a Project with finished Epics brings no
   stack of toasts. A PR story gives no toast. When the story cannot be read, **Open** shows the reason in an error toast.
+- **A Code story can be made by the button.** Where there is no story file — the Epic frame before the Epic's
+  `story.md`, a Ticket card whose `PR:` has no `stories/NN-<slug>.md` (its PR read in the repository a `PR: <repo>#N` line names), and any pull request in [Pull requests](pr-inbox.md)
+  without one (an ordinary Session's, a colleague's, an old one) — **Code story** builds the story. The build is
+  invisible: no Session and no Session Node, only a progress bar with the last lines of what the agent reads and
+  **Stop** — on the Canvas a panel under the button, drawn over the frame and the cards, in Pull requests in the
+  button's place; then the Story view opens on it. **Stop** works from the press on, also while worfy still reads the
+  PR from GitHub. It is one request on the Project's Vendor, with Read, Glob
+  and Grep inside the PR's checkout only and no Harness plugin; a Project on Codex shows the reason in the bar and starts
+  nothing. For a PR worfy reads its diff, its text, the file of its Ticket and the review verdicts of the Project's
+  GitHub account with gh (read only); for an Epic, its spec and the stories of its merged PRs, each with the head of its
+  PR read from GitHub, and the Tickets not ready yet are marked at the end of Start. The story is kept in
+  `stories.json` of the Project's data folder: pressing **Code story** again opens it with no request, and **Rebuild
+  story** in Pull requests builds it again. Of a colleague's PR worfy keeps the agent's text only — not the PR's text,
+  its comments or its title. A stopped or failed build keeps nothing, and leaving the screen while it builds stops it.
 - **A question about lines of a story.** Lines selected in the code of a step, or the whole fragment with "Ask a
   question", open a question field after them. The question goes to a one-off request of the Project's Vendor — no
   Session, no Session Node — with the story, the PR's diff, its text and its review verdicts (the last 20 `VERIFIED` and
   `REJECTED` comments of the Project's own GitHub account, read with `gh`), the Ticket's file, the selected lines and
   the question (at most 2,000 characters); each part is cut to its bound, and what cannot be read is named in the
   request, and the question goes on without it. The request reads only one checkout: the git worktree where the
-  story's PR head is checked out, else the Project's folder. While it runs, a progress bar with the agent's last lines
+  story's PR head is checked out, else the Project's folder. For a story made by the button the renderer names the key
+  it was kept under (`owner/name#N`); then the checkout is that repository's worktree at the head, else its clone, and
+  `gh` reads that repository's PR. While it runs, a progress bar with the agent's last lines
   and Stop stands in the field's place; the answer then shows after the same lines: the agent's text, what it rests
   on (code, story, PR text, review verdict, or "no support" in the story's words) and the lines it quotes, as
   `path:line` at the checkout's HEAD. Answers are kept in
@@ -244,6 +258,7 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
 | The entries into the Story view and the toast of an Epic story | `src/renderer/stories/open.ts`, `src/renderer/canvas/actions/EpicStory.tsx`, `src/renderer/canvas/actions/TicketStory.tsx`, `src/renderer/stories/story-toast.ts`, `src/renderer/stories/use-story-toasts.ts` |
 | A question about lines of a Code story | `src/main/stories/ask.ts`, `src/renderer/stories/LineQuestion.tsx`, `src/renderer/stories/story-answers.ts` |
 | The read marks and "Check yourself" of a Code story | `src/renderer/stories/SelfCheck.tsx`, `src/renderer/stories/story-marks.ts`, `src/main/stories/store.ts` |
+| A Code story made by the button: its material, its build and Stop, the button and its progress bar | `src/main/stories/by-button.ts`, `src/main/stories/one-shot.ts`, `src/renderer/stories/StoryBuildButton.tsx`, `src/renderer/stories/story-build.ts` |
 | The renderer's shared copy | `src/renderer/workflow/useWorkflow.ts` |
 | Frames and cards as Nodes; columns; card height | `src/renderer/canvas/sources/epics.ts`, `src/renderer/canvas/epic-layout.ts`, `src/renderer/canvas/ticket-card.ts` |
 | The views | `src/renderer/canvas/nodes/TicketNode.tsx`, `src/renderer/canvas/nodes/TicketBody.tsx`, `src/renderer/canvas/nodes/ticket-text.ts`, `src/renderer/canvas/nodes/EpicFrameNode.tsx` |
@@ -270,6 +285,9 @@ copy, and `sources/epics.ts` turns the copy into Nodes. The same hub serves the 
 - `test/unit/evidence-matrix.test.tsx`: the Evidence chip, the matrix and where its links lead.
 - `test/unit/story-entries.test.tsx`, `test/unit/story-toast.test.ts`, `test/e2e/code-story.spec.ts`: the entries into the
   Story view, the toast of an Epic story once per Epic, the code of a fragment asked where the story is anchored.
+- `test/contract/story-by-button.test.ts`, `test/unit/story-progress.test.tsx`, `test/e2e/code-story.spec.ts`: a story made by
+  the button — what the request holds, a colleague's PR kept without their words, Stop keeps nothing, a kept story
+  opens with no request, each chapter of an Epic's story at its own PR head, a build left behind is stopped.
 - `test/unit/story-parse.test.ts`, `test/contract/story-code.test.ts`, `test/contract/story-store.test.ts`: the Code story
   format on the shared fixtures of `harness/bin/tests/fixtures/code-story/`, the code of a fragment from git, the store.
 - `test/contract/story-ask.test.ts`, `test/unit/story-ask.test.ts`, `test/unit/line-question.test.tsx`: a question about

@@ -101,6 +101,37 @@ export async function openStoryFile(projectId: string, path: string): Promise<st
   return undefined
 }
 
+/**
+ * The code of each fragment of a story made by the button (worfy-code-stories ticket 11), from main (`stories.code`): at
+ * the PR head its header names, or for an Epic's chapter the head of that chapter's PR. A fragment with no head — none
+ * in such a story — shows the story's own code.
+ */
+export function madeStoryCodeSource(projectId: string): FragmentCodeSource {
+  return async (fragment, head, pr) => {
+    if (head === null) return storyOwnCode(fragment, head, pr)
+    const result = await invoke('stories.code', { projectId, at: { commit: head }, fragment })
+    if (!result.ok) throw new Error(failureReason('stories.code', result.error))
+    return result.value
+  }
+}
+
+/** The key main kept each story made by the button under (`StoryMade.key`), by the story shown. */
+const madeKeys = new WeakMap<StoryFile, string>()
+
+/**
+ * The key a story made by the button was kept under, for stories.ask and stories.answers: main keeps the answers there
+ * and reads the PR in the repository it names (a Project over several repositories). Undefined for a story file.
+ */
+export function madeStoryKey(story: StoryFile): string | undefined {
+  return madeKeys.get(story)
+}
+
+/** Shows a story made by the button, kept under `key`: kept outside the Project, so a Requirement link opens nothing. */
+export function openMadeStory(projectId: string, story: StoryFile, key?: string): void {
+  if (key !== undefined) madeKeys.set(story, key)
+  openStory(projectId, story, { codeOf: madeStoryCodeSource(projectId) })
+}
+
 /** The Epic's own story, `<epic>/story.md`; null while the Epic has none. */
 export function epicStoryPath(epic: Pick<Epic, 'stories'> | undefined): string | null {
   return epic?.stories?.find((entry) => entry.kind === 'epic')?.path ?? null

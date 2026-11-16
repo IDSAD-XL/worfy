@@ -20,7 +20,8 @@
 // off in its flag settings): it uses none of its skills, and the plugin's rules and hooks would only add to
 // its cost. The user's other plugins and settings still load (`settingSources: ['user']`), as for the draft.
 //
-// The checkout is the Project's root, or one of its git worktrees where the PR's head is checked out
+// The checkout is the Project's root, one of its git worktrees where the PR's head is checked out, or in a Project
+// over several repositories one of the repositories its Profile lists (`_resolved.repos`) or their worktrees
 // (storyFolder); any other folder is refused before the request.
 //
 // A Vendor without a oneShot (Codex today: src/main/vendors/codex/one-shot.ts) gets no request: the build
@@ -73,15 +74,16 @@ function realFolder(path: string): string {
 }
 
 /**
- * The checkout a story reads: the Project's root when none is asked for, the folder asked for when it is the
- * root or one of `worktrees` (the Project's git worktrees), else the reason it is refused.
+ * The checkout a story reads: the Project's root when none is asked for, the folder asked for when it is the root or
+ * one of `checkouts` — the Project's git worktrees, and in a Project over several repositories each repository the
+ * Profile lists (`_resolved.repos`) and its worktrees — else the reason it is refused.
  */
-export function storyFolder(root: string, asked: string | undefined, worktrees: readonly string[]): { ok: true; folder: string } | { ok: false; reason: string } {
+export function storyFolder(root: string, asked: string | undefined, checkouts: readonly string[]): { ok: true; folder: string } | { ok: false; reason: string } {
   if (asked === undefined) return { ok: true, folder: root }
   const wanted = realFolder(asked)
-  const allowed = [root, ...worktrees].find((folder) => realFolder(folder) === wanted)
+  const allowed = [root, ...checkouts].find((folder) => realFolder(folder) === wanted)
   if (allowed !== undefined) return { ok: true, folder: allowed }
-  return { ok: false, reason: `${asked} is neither the Project's folder nor one of its git worktrees.` }
+  return { ok: false, reason: `${asked} is neither the Project's folder nor one of its repositories or git worktrees.` }
 }
 
 const section = (title: string, body: string): string => `=== ${title} ===\n${body.trimEnd()}\n=== end of ${title} ===`
@@ -164,18 +166,20 @@ export class StoryBuilder {
   /** Builds one story; `onActivity` hears each line of what the request does while it runs. */
   async build(request: StoryRequest, onActivity: (text: string) => void): Promise<StoryOutcome> {
     if (this.running.has(request.storyId)) return { status: 'failed', reason: `The story ${request.storyId} is already being built.` }
-    let refusal: string | null
-    try {
-      refusal = oneShotRefusal(await this.deps.capabilities(request.vendor))
-    } catch (error) {
-      return { status: 'failed', reason: `What ${request.vendor} can do could not be read: ${messageOf(error)}` }
-    }
-    if (refusal !== null) return { status: 'unavailable', reason: refusal }
-
+    // Taken before the first wait: a second build of the same story, started while this one reads the Vendor's
+    // capabilities, is refused above, and Stop reaches this one from now on (audit of PR #1890).
     const stop = new AbortController()
     this.running.set(request.storyId, stop)
     let structured: unknown
     try {
+      let refusal: string | null
+      try {
+        refusal = oneShotRefusal(await this.deps.capabilities(request.vendor))
+      } catch (error) {
+        return { status: 'failed', reason: `What ${request.vendor} can do could not be read: ${messageOf(error)}` }
+      }
+      if (refusal !== null) return { status: 'unavailable', reason: refusal }
+      if (stop.signal.aborted) return { status: 'stopped' }
       const cwd = this.deps.runDir()
       mkdirSync(cwd, { recursive: true })
       const answer = await this.deps.oneShot(request.vendor)(storyPrompt(request.folder, request.input), {
@@ -195,7 +199,8 @@ export class StoryBuilder {
       if (stop.signal.aborted) return { status: 'stopped' }
       return { status: 'failed', reason: `The story could not be built: ${messageOf(error)}` }
     } finally {
-      this.running.delete(request.storyId)
+      // Only this build's own entry: never one a later build of the same story put there.
+      if (this.running.get(request.storyId) === stop) this.running.delete(request.storyId)
     }
     return storyOf(request.input, structured)
   }

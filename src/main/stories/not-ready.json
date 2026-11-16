@@ -1,0 +1,22 @@
+{
+  "en": {
+    "noPr": "no PR yet",
+    "noStory": "PR #{pr} is not merged yet: its Code story is not in the main branch",
+    "noHead": "the head of PR #{pr} could not be read: {why}",
+    "unreadable": "its Code story cannot be read: {why}",
+    "headNotGiven": "GitHub gives none",
+    "noRepo": "the Project has no GitHub repository",
+    "skipped": "the story has no steps of it: the answer left this Ticket out",
+    "line": "Not ready yet: Tickets {tickets}."
+  },
+  "ru": {
+    "noPr": "PR ещё нет",
+    "noStory": "PR #{pr} ещё не влит: его Code story нет в основной ветке",
+    "noHead": "head PR #{pr} не прочитан: {why}",
+    "unreadable": "его Code story не читается: {why}",
+    "headNotGiven": "GitHub его не даёт",
+    "noRepo": "у Project-а нет репозитория на GitHub",
+    "skipped": "в story нет его шагов: ответ пропустил этот Ticket",
+    "line": "Ещё не готовы: Ticket-ы {tickets}."
+  }
+}
