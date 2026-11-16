@@ -208,6 +208,15 @@ describe('two copies of one field share its draft (focus mode draws a Node in a 
     expect(drafts.readDraft(key)).toBe('typed in focus mode')
   })
 
+  it('after focus mode closes, the Canvas copy still follows what is typed in it', async () => {
+    const { drafts, key, tile, field, type } = await mount()
+    await type('tile', 'typed in focus mode')
+    tile.unmount()
+    await type('canvas', 'typed on the Canvas after the tile closed')
+    expect(field('canvas').value).toBe('typed on the Canvas after the tile closed')
+    expect(drafts.readDraft(key)).toBe('typed on the Canvas after the tile closed')
+  })
+
   it('a message sent from the tile leaves the Canvas copy too, and the next change there does not bring it back', async () => {
     const { drafts, key, field, type, send } = await mount()
     await type('canvas', 'typed on the Canvas')
@@ -274,5 +283,19 @@ describe('the Session view field keeps its draft', () => {
     expect(field().value).toBe('')
     expect(drafts.readDraft(key)).toBe('')
     expect(stored()).toEqual({})
+  })
+
+  it('a send that fails after more was typed keeps the newly typed text, not the message it tried', async () => {
+    let fail: (reason: string) => void = () => undefined
+    const { drafts, key, type, clickSend, field } = await mount(() => new Promise<string | null>((done) => (fail = done)))
+    await type('the message being sent')
+    await clickSend()
+    expect(field().value).toBe('')
+    await type('typed while it was sending')
+    await act(async () => {
+      fail('The Session is not running')
+    })
+    expect(field().value).toBe('typed while it was sending')
+    expect(drafts.readDraft(key)).toBe('typed while it was sending')
   })
 })
