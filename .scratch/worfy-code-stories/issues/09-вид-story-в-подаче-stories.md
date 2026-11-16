@@ -1,7 +1,8 @@
 # 09 — Вид Story в подаче «Stories»: шаг на экран, полоска сегментов, блок кода, схема стыков, Esc
 
 Type: feature
-Status: claimed 2026-11-16T03:36Z
+Status: done 2026-11-16T13:28Z
+PR: #1906
 Branch: worfy-code-stories/09
 Blocked by: 08
 Source: [spec.md](../spec.md), «Ticket-ы», строка 09; «Решения владельца» 20, 26, 27 (строки 121–122, 132–136);
@@ -67,7 +68,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 09; «Решения 
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/story-view.test.tsx test/contract/story-one-shot.test.ts` exit 0; in `gate fast` exit 0 · mac - · eb770856843310dcb4efeb70560bebfc736e5146
   - evidence: test-run pass · `HOME=$(mktemp -d) bash harness/bin/tests/story-check.test.sh` exit 0, story-check refuses a fragment on a frame step (round 2) · mac - · 47ce81220718b397e6d4d3039c49e3e63e2bb29f
 - [ ] e2e `test/e2e/code-story.spec.ts` на fixture-Epic-е: вид открывается, шаги листаются, Esc возвращает на Canvas.
+  - evidence: ci-check pass · PR #1906 run 43826965797 macos-e2e (1/2) and (2/2) success: test/e2e/code-story.spec.ts opens the view, pages with keys and mouse, Esc back to the Canvas; snapshots in both themes (artifact e2e-snapshots-1-1) · ci ci · 2547fef72
 - [ ] `test/e2e/a11y.spec.ts`: axe на виде Story без нарушений (как на основных экранах, worfy-ui-kit 18).
+  - evidence: ci-check pass · PR #1906 run 43826965797 macos-e2e (1/2) and (2/2) success: «the Story view has no serious axe violations» · ci ci · 2547fef72
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0 · mac - · eb770856843310dcb4efeb70560bebfc736e5146
   - evidence: gate pass · `gate fast` exit 0 (after the look fix and a rebase) · mac - · 145f1392d29c78f4d0d6e9a91a2c0f39661b3249

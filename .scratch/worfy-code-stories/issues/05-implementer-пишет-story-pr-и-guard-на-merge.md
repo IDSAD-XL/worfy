@@ -1,7 +1,8 @@
 # 05 — Implementer пишет story PR перед PR (`ship-ticket`), ссылка в тексте PR, guard на merge
 
 Type: feature
-Status: claimed 2026-11-16T07:26Z
+Status: done 2026-11-16T13:28Z
+PR: #1911
 Blocked by: 01, 02, 03
 Source: [spec.md](../spec.md), «Ticket-ы», строка 05; «Решения владельца» 7, 8, 10, 12, 14, 16, 25 (строки 98–116,
 129–131); «Решения по реализации» → Harness: «Implementer», «Guard», «Язык» (строки 210–216, 236–237); «Решения по
