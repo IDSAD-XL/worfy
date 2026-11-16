@@ -407,6 +407,8 @@ describe('the read-or-write mark of `project` channels', () => {
     // A screen of a story read, or an answer to its "Check yourself" (ticket 13): written to stories.json.
     'stories.markRead',
     'stories.selfCheck',
+    // Builds a Code story by the button and keeps it in the Project's data folder (worfy-code-stories ticket 11).
+    'stories.make',
     'stories.stop',
     'terminal.close',
     'terminal.input',

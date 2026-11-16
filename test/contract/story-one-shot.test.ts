@@ -363,7 +363,7 @@ describe('the checkout a story reads', () => {
     // A path that names the worktree another way is the same folder.
     expect(storyFolder(root, join(worktree, '..', 'pr-212'), worktrees)).toEqual({ ok: true, folder: worktree })
     for (const refused of [other, join(root, 'src'), join(root, '.claude', 'worktrees')]) {
-      expect(storyFolder(root, refused, worktrees)).toEqual({ ok: false, reason: `${refused} is neither the Project's folder nor one of its git worktrees.` })
+      expect(storyFolder(root, refused, worktrees)).toEqual({ ok: false, reason: `${refused} is neither the Project's folder nor one of its repositories or git worktrees.` })
     }
   })
 

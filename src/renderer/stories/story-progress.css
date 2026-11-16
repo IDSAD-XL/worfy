@@ -81,3 +81,26 @@
   color: var(--text-secondary);
   overflow-wrap: anywhere;
 }
+
+/*
+ * The bar of a story made by the button (StoryBuildButton.tsx, worfy-code-stories ticket 11). In Pull requests it stands
+ * inline in the button's place; on the Canvas it is the kit's Popover (theme/kit/Popover.tsx), drawn into document.body
+ * under the button, so neither the card nor the frame cuts it. The kit gives the frame; the bar keeps a Node's shadow, as
+ * the Autopilot "⋯" menu does, and one width whatever the lines say.
+ */
+.w-story-build {
+  --story-build-min-width: 220px;
+  --story-build-max-width: 360px;
+
+  display: inline-flex;
+  min-width: var(--story-build-min-width);
+  max-width: var(--story-build-max-width);
+}
+
+.w-story-build-popover {
+  /* Room for the chip, Stop and three lines of what the agent does. */
+  --story-build-width: 320px;
+
+  width: var(--story-build-width);
+  box-shadow: var(--shadow-node);
+}

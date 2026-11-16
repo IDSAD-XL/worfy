@@ -26,6 +26,13 @@
 // Ticket 13: the screens of a story read and the answers to its "Check yourself" (`stories.marks`), kept in stories.json
 // under the same key as its answers; main names the key once, and the window adds to it (`stories.markRead`,
 // `stories.selfCheck`) without the workflow model being read at each screen.
+//
+// Ticket 11: a story made by the button (`stories.make`, src/main/stories/by-button.ts): main reads the material with
+// gh (read-only, the Project's account, `--repo` of the PR) and the workflow reader, builds through the same builder
+// — so `stories.stop` ends it — and keeps it in stories.json. Under WORFY_AGENT=fake an Epic's build plays the script
+// WORFY_STORY_EPIC_SCRIPT ("story-epic" by default), a PR's the build's script. A folder the window names for
+// `stories.build` may be, in a Project over several repositories, one of the repositories its Profile lists or one of
+// their git worktrees.
 import { appendFileSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
@@ -38,6 +45,7 @@ import {
   storiesAsk,
   storiesBuild,
   storiesCode,
+  storiesMake,
   storiesMarkRead,
   storiesMarks,
   storiesRead,
@@ -48,17 +56,18 @@ import {
 } from '../../shared/ipc/stories'
 import { parseStory } from '../../shared/stories/parse'
 import type { VendorId } from '../../shared/vendors/vendor'
-import { fakeQueryFactory } from '../agent/fake-query'
+import { FakeReleases, fakeQueryFactory } from '../agent/fake-query'
 import { harnessScriptEnv } from '../harness/script-env'
 import { gitWorktrees } from '../claude-home/registry'
+import { remoteRepos } from '../github/inbox'
 import { readProjectSettings } from '../projects/settings'
 import { projectStore } from '../projects/store'
 import { claudeHome, dataRoot } from '../storage/paths'
 import { cachedPrCommits, storyFragmentCode, storyPathParts, ticketPrFromModel, type PrCommits } from '../stories/code'
 import type { StoryFile } from '../../shared/stories/schema'
 import type { WorkflowModel } from '../../shared/workflow/types'
-import { remoteRepos } from '../github/inbox'
 import { askFolder, gatherMaterial, StoryAsker, storyHeadOf, type AskSources } from '../stories/ask'
+import { profileLanguage, StoryMaker, type PrRead, type StoryRepo } from '../stories/by-button'
 import { StoryBuilder, storyFolder } from '../stories/one-shot'
 import { addStoryAnswer, addStoryReadMark, keepSelfCheck, readSavedStory, readStoryAnswers, readStoryMarks, storyAnswersKey, storyDigest } from '../stories/store'
 import { assistDir } from '../terminal-ai/options'
@@ -67,25 +76,51 @@ import type { OneShot } from '../vendors/one-shot'
 import { vendorDriver } from '../vendors/registry'
 import { layoutFailure, projectLayouts, type ProjectLayout } from '../workflow/folder'
 import { refTree, resolveSource, runGit, type RefGitRunner } from '../workflow/main-ref'
-import { readGithubAccount } from '../workflow/profile'
+import { profileRunner, readGithubAccount } from '../workflow/profile'
 import { readWorkflow } from '../workflow/reader'
 import { defineHandler, emit, type EventTarget, type HandlerModule } from './index'
 import { resolveProjectFile, workflowPlaces, type ResolveOptions } from './shell'
 import { readTicketFile, TICKET_SIZE_MAX } from './tickets'
 
 /**
+ * The fake agent's releases of every story request (a build, a story by the button, a question): one set, on
+ * globalThis.worfyFakeRelease, made once — the builder and the asker each make a oneShot, and the later one must not
+ * take the release away from the other.
+ */
+let storyReleases: FakeReleases | undefined
+function sharedStoryReleases(): FakeReleases {
+  if (storyReleases === undefined) {
+    const releases = new FakeReleases()
+    ;(globalThis as { worfyFakeRelease?: (name: string) => void }).worfyFakeRelease = (name) => releases.release(name)
+    storyReleases = releases
+  }
+  return storyReleases
+}
+
+/**
  * The oneShot of `vendor`: its driver's, or the fake agent's for Claude Code under WORFY_AGENT=fake, playing `script`
- * (the build's WORFY_STORY_SCRIPT, "story", by default).
+ * (the build's WORFY_STORY_SCRIPT, "story", by default) — and for an Epic story, told apart by the answer's schema,
+ * WORFY_STORY_EPIC_SCRIPT ("story-epic").
  */
 export function storyOneShotFromEnv(env: NodeJS.ProcessEnv = process.env, script: string = env.WORFY_STORY_SCRIPT ?? 'story'): (vendor: VendorId) => OneShot {
   if (env.WORFY_AGENT !== 'fake') return (vendor) => vendorDriver(vendor).oneShot
   const log = env.WORFY_AGENT_LOG
-  const fake = fakeQueryFactory({
-    scriptsDir: env.WORFY_AGENT_SCRIPTS ?? join(app.getAppPath(), 'test', 'fixtures', 'agent-scripts'),
-    script,
-    record: log ? (call) => appendFileSync(log, `${JSON.stringify({ story: true, ...call })}\n`) : undefined,
-  })
-  const claude = claudeOneShotOver((request) => fake(request))
+  const releases = sharedStoryReleases()
+  const playing = (name: string): OneShot => {
+    const fake = fakeQueryFactory({
+      scriptsDir: env.WORFY_AGENT_SCRIPTS ?? join(app.getAppPath(), 'test', 'fixtures', 'agent-scripts'),
+      script: name,
+      releases,
+      record: log ? (call) => appendFileSync(log, `${JSON.stringify({ story: true, ...call })}\n`) : undefined,
+    })
+    return claudeOneShotOver((request) => fake(request))
+  }
+  const pr = playing(script)
+  const epic = playing(env.WORFY_STORY_EPIC_SCRIPT ?? 'story-epic')
+  const claude: OneShot = (prompt, options) => {
+    const properties = (options.outputSchema as { properties?: Record<string, unknown> } | undefined)?.properties
+    return properties !== undefined && 'chapters' in properties ? epic(prompt, options) : pr(prompt, options)
+  }
   return (vendor) => (vendor === 'claude' ? claude : vendorDriver(vendor).oneShot)
 }
 
@@ -97,21 +132,143 @@ const builder = (): StoryBuilder =>
     runDir: () => assistDir(dataRoot()),
   }))
 
+/** The folders of the Project's repositories: those its Profile lists, or its root for a Project of one repository. */
+async function repoFolders(root: string): Promise<{ name: string | null; path: string }[]> {
+  const layout = await projectLayouts().get(root)
+  return layout.repos.length > 0 ? layout.repos.map((repo) => ({ name: repo.name, path: repo.path })) : [{ name: null, path: root }]
+}
+
+/**
+ * The checkouts a story may read besides the Project's root: its git worktrees and, in a Project over several
+ * repositories, each repository its Profile lists (`_resolved.repos`) and their worktrees.
+ */
+async function storyCheckouts(root: string): Promise<string[]> {
+  const layout = await projectLayouts()
+    .get(root)
+    .catch(() => null)
+  const repos = layout?.repos.map((repo) => repo.path) ?? []
+  const worktrees = await Promise.all([root, ...repos].map((folder) => gitWorktrees(folder)))
+  return [...repos, ...worktrees.flat()]
+}
+
 const prViewSchema = z.object({
+  title: z.string(),
+  body: z.string().nullish(),
+  author: z.object({ login: z.string().nullish() }).nullish(),
+  headRefOid: z.string().nullish(),
+  headRefName: z.string().nullish(),
+  comments: z.array(z.object({ author: z.object({ login: z.string().nullish() }).nullish(), body: z.string().nullish() })).nullish(),
+})
+
+/** gh in the clone of `repo` as the Project's account (the PR tracker's gh), read-only, `--repo` named. */
+const repoGh = async (repo: StoryRepo, args: readonly string[]): Promise<string> => {
+  const { sharedPrTracker } = await import('./checks')
+  return sharedPrTracker().gh(repo.folder, [...args, '--repo', repo.slug])
+}
+
+/** The worktree of `folder` where `branch` is checked out (`git worktree list --porcelain`); null when none is. */
+async function worktreeOf(folder: string, branch: string): Promise<string | null> {
+  const listed = await runGit(folder, ['worktree', 'list', '--porcelain']).catch(() => '')
+  for (const block of listed.split(/\n\s*\n/u)) {
+    const path = /^worktree (.+)$/mu.exec(block)?.[1]
+    if (path !== undefined && block.split('\n').includes(`branch refs/heads/${branch}`)) return path
+  }
+  return null
+}
+
+/** The Project's GitHub repositories, its first first: one per clone the Profile lists (the root for one repository). */
+async function projectRepos(root: string): Promise<StoryRepo[]> {
+  const repos: StoryRepo[] = []
+  for (const { name, path } of await repoFolders(root)) {
+    for (const slug of await remoteRepos([path])) if (!repos.some((repo) => repo.slug.toLowerCase() === slug.toLowerCase())) repos.push({ slug, folder: path, name })
+  }
+  return repos
+}
+
+/**
+ * Where a question about a story made by the button goes, by the key it was kept under (`StoryMade.key`): for
+ * `owner/name#N` the repository of the Project it names — the PR must be the story's — and none for `epic:<name>`. A
+ * key of another form, a repository the Project does not have or another PR is refused with its reason.
+ */
+export async function madeStoryRepo(root: string, key: string, story: StoryFile, repos: (root: string) => Promise<StoryRepo[]> = projectRepos): Promise<{ ok: true; repo: StoryRepo | null } | { ok: false; reason: string }> {
+  if (key.startsWith('epic:')) return story.kind === 'epic' ? { ok: true, repo: null } : { ok: false, reason: `The key ${key} names an Epic, the story is of a PR.` }
+  const named = /^([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)#(\d+)$/u.exec(key)
+  if (named === null) return { ok: false, reason: `${key} is not the key of a story made by the button: owner/name#N or epic:<name>.` }
+  const slug = named[1]!
+  const repo = (await repos(root).catch((): StoryRepo[] => [])).find((one) => one.slug.toLowerCase() === slug.toLowerCase())
+  if (repo === undefined) return { ok: false, reason: `${slug} is not a repository of this Project.` }
+  const pr = story.kind === 'pr' ? story.header.pr : null
+  if (pr === null || String(pr) !== named[2]) return { ok: false, reason: `The key ${key} names another PR than the story (#${pr === null ? '-' : String(pr)}).` }
+  return { ok: true, repo }
+}
+
+/** The app's material of a story made by the button. */
+const appMaker = (): StoryMaker =>
+  new StoryMaker({
+    builder: builder(),
+    capabilities: (vendor) => vendorDriver(vendor).capabilities(),
+    project: (projectId) => {
+      const store = projectStore()
+      const project = store.get(projectId)
+      const dataDir = store.dataDir(project.id)
+      return { root: project.path, dataDir, vendor: readProjectSettings(dataDir).defaultVendor ?? 'claude' }
+    },
+    repos: projectRepos,
+    pr: async (repo, number): Promise<PrRead> => {
+      const fields = 'title,body,author,headRefOid,headRefName,comments'
+      const parsed = prViewSchema.parse(JSON.parse(await repoGh(repo, ['pr', 'view', String(number), '--json', fields])))
+      return {
+        title: parsed.title,
+        body: parsed.body ?? '',
+        author: parsed.author?.login ?? null,
+        head: parsed.headRefOid ?? null,
+        branch: parsed.headRefName ?? null,
+        comments: (parsed.comments ?? []).map((comment) => ({ author: comment.author?.login ?? null, body: comment.body ?? '' })),
+      }
+    },
+    diff: (repo, number) => repoGh(repo, ['pr', 'diff', String(number)]),
+    checkout: async (repo, branch) => (branch === null ? null : await worktreeOf(repo.folder, branch)) ?? repo.folder,
+    viewer: async (projectId) => (await import('./pr-inbox')).sharedPrInbox().snapshot(projectId).viewer,
+    account: async (root) => (await readGithubAccount({ root, claudeHome: claudeHome(), env: await harnessScriptEnv(), log: () => undefined })).account,
+    language: async (root) => {
+      const run = await profileRunner(claudeHome(), await harnessScriptEnv())(root, ['-C', root, '--field', 'language'])
+      return run.code === 0 ? profileLanguage(run.stdout) : 'en'
+    },
+    workflow: async (root) => (await readWorkflow({ root, claudeHome: claudeHome(), env: harnessScriptEnv })).model,
+    ticketFile: async (root, ticket) => {
+      const read = await readTicketFile(await projectLayouts().get(root), ticket)
+      return { file: nativePath.basename(read.path), text: read.text }
+    },
+    storyFile: async (root, path) => {
+      const where = storyPathParts(path)
+      if (where === null) throw new Error(`${path} is not a story of an Epic`)
+      return storyText(await projectLayouts().get(root), path, where.parts, {})
+    },
+    spec: async (root, epic) => storyText(await projectLayouts().get(root), `${epic}/spec.md`, [epic, 'spec.md'], {}),
+  })
+
+let sharedMaker: StoryMaker | undefined
+const maker = (): StoryMaker => (sharedMaker ??= appMaker())
+
+const askPrViewSchema = z.object({
   title: z.string(),
   body: z.string().nullish(),
   comments: z.array(z.object({ author: z.object({ login: z.string().nullish() }).nullish(), body: z.string().nullish() })).nullish(),
 })
 
-/** The text and the comments of a PR and its diff, read with gh in the Project's root with its account, as ghPrCommits. Read-only. */
-const ghSources = async (): Promise<Pick<AskSources, 'prView' | 'prDiff'>> => {
+/**
+ * The text and the comments of a PR and its diff, read with gh in the Project's root with its account, as ghPrCommits;
+ * with `repo` (a story made by the button) in that repository, `--repo` named. Read-only.
+ */
+const ghSources = async (repo: string | null = null): Promise<Pick<AskSources, 'prView' | 'prDiff'>> => {
   const { sharedPrTracker } = await import('./checks')
+  const where = repo === null ? [] : ['--repo', repo]
   return {
     prView: async (root, pr) => {
-      const parsed = prViewSchema.parse(JSON.parse(await sharedPrTracker().gh(root, ['pr', 'view', String(pr), '--json', 'title,body,comments'])))
+      const parsed = askPrViewSchema.parse(JSON.parse(await sharedPrTracker().gh(root, ['pr', 'view', String(pr), '--json', 'title,body,comments', ...where])))
       return { title: parsed.title, body: parsed.body ?? '', comments: (parsed.comments ?? []).map((comment) => ({ author: comment.author?.login ?? '', body: comment.body ?? '' })) }
     },
-    prDiff: (root, pr) => sharedPrTracker().gh(root, ['pr', 'diff', String(pr)]),
+    prDiff: (root, pr) => sharedPrTracker().gh(root, ['pr', 'diff', String(pr), ...where]),
   }
 }
 
@@ -130,7 +287,15 @@ const asker = (): StoryAsker =>
     oneShot: storyOneShotFromEnv(process.env, process.env.WORFY_STORY_ASK_SCRIPT ?? 'story-answer'),
     capabilities: (vendor) => vendorDriver(vendor).capabilities(),
     runDir: () => assistDir(dataRoot()),
-    material: async (request) => gatherMaterial(request.folder, request.story, request.about, { ...(await ghSources()), ticketPr, ticketFile: ticketFileOf, account: projectAccount }),
+    material: async (request) => {
+      // A story made by the button: gh in its PR's repository; the Ticket and the account where the Project's root is.
+      const root = request.made?.root
+      const sources: AskSources =
+        root === undefined
+          ? { ...(await ghSources()), ticketPr, ticketFile: ticketFileOf, account: projectAccount }
+          : { ...(await ghSources(request.made?.repo ?? null)), ticketPr: (_folder, epic, num) => ticketPr(root, epic, num), ticketFile: (_folder, epic, ticket) => ticketFileOf(root, epic, ticket), account: () => projectAccount(root) }
+      return gatherMaterial(request.folder, request.story, request.about, sources)
+    },
     commit: headOf,
     save: (dataDir, key, answer) => addStoryAnswer(dataDir, key, answer),
   }))
@@ -249,41 +414,61 @@ const handlers: HandlerModule = [
   defineHandler(storiesBuild, async ({ storyId, projectId, folder, input }, { event }) => {
     const store = projectStore()
     const project = store.get(projectId)
-    // The worktrees are listed only when a folder other than the root is asked for.
-    const chosen = storyFolder(project.path, folder, folder === undefined ? [] : await gitWorktrees(project.path))
+    // The other checkouts are listed only when a folder other than the root is asked for.
+    const chosen = storyFolder(project.path, folder, folder === undefined ? [] : await storyCheckouts(project.path))
     if (!chosen.ok) return { status: 'failed' as const, reason: chosen.reason }
     const vendor = readProjectSettings(store.dataDir(project.id)).defaultVendor ?? 'claude'
     return builder().build({ storyId, folder: chosen.folder, vendor, input }, (text) => toSender(event.sender, (target) => emit(target, storiesActivity, { storyId, text })))
   }),
 
-  defineHandler(storiesStop, ({ storyId }) => ({ stopped: builder().stop(storyId) || asker().stop(storyId) })),
+  // One Stop for every request of the window (stories.build, stories.make, stories.ask): the maker's Stop goes on to the
+  // builder (a build by the button is the maker's from the press on), and the asker holds the questions. The window
+  // makes each id with crypto.randomUUID, and the Stop asks every holder (no short-circuit), so an id held by a build
+  // and a question at once — which the window never makes — would stop both rather than leave one running.
+  defineHandler(storiesStop, ({ storyId }) => {
+    const build = maker().stop(storyId)
+    const question = asker().stop(storyId)
+    return { stopped: build || question }
+  }),
 
-  defineHandler(storiesAsk, async ({ questionId, projectId, folder, story, about, code, question }, { event }) => {
+  defineHandler(storiesMake, ({ storyId, projectId, target, rebuild }, { event }) =>
+    maker().make({ storyId, projectId, target, rebuild: rebuild === true }, (text) => toSender(event.sender, (sendTo) => emit(sendTo, storiesActivity, { storyId, text }))),
+  ),
+
+  defineHandler(storiesAsk, async ({ questionId, projectId, folder, story, about, code, question, key: madeKey }, { event }) => {
     // Made before the first wait: under WORFY_AGENT=fake the asker's fake agent puts its release on globalThis when it
     // is made, and an e2e test releases the answer as soon as the progress bar shows.
     const answering = asker()
     const store = projectStore()
     const project = store.get(projectId)
+    // A story made by the button names the key it was kept under: the repository of its PR (ticket 11), whose clone
+    // and worktrees are the checkouts, and where gh reads the PR. Otherwise the Project's root and its worktrees.
+    const made = madeKey === undefined ? null : await madeStoryRepo(project.path, madeKey, story)
+    if (made !== null && !made.ok) return { status: 'failed' as const, reason: made.reason }
+    const base = made?.repo?.folder ?? project.path
     // The checkout the story's code was read from, as for a build (storyFolder): the PR's worktree when it is checked out.
-    const chosen = await askFolder(project.path, folder, storyHeadOf(story, about), await gitWorktrees(project.path), (one) => headOf(one).catch(() => null))
+    const chosen = await askFolder(base, folder, storyHeadOf(story, about), await gitWorktrees(base), (one) => headOf(one).catch(() => null))
     if (!chosen.ok) return { status: 'failed' as const, reason: chosen.reason }
     const vendor = readProjectSettings(store.dataDir(project.id)).defaultVendor ?? 'claude'
-    const key = await answersKey(project.path, story)
-    return answering.ask({ questionId, folder: chosen.folder, dataDir: store.dataDir(project.id), key, vendor, story, about, code, question }, (text) =>
+    const key = madeKey ?? (await answersKey(project.path, story))
+    const where = made === null ? {} : { made: { repo: made.repo?.slug ?? null, root: project.path } }
+    return answering.ask({ questionId, folder: chosen.folder, dataDir: store.dataDir(project.id), key, vendor, story, about, code, question, ...where }, (text) =>
       toSender(event.sender, (target) => emit(target, storiesActivity, { storyId: questionId, text })),
     )
   }),
 
-  defineHandler(storiesAnswers, async ({ projectId, story }) => {
+  defineHandler(storiesAnswers, async ({ projectId, story, key }) => {
     const store = projectStore()
     const project = store.get(projectId)
-    return { digest: storyDigest(story), answers: readStoryAnswers(store.dataDir(project.id), await answersKey(project.path, story)) }
+    // A story made by the button: the key it was kept under (stories.ask keeps its answers there).
+    return { digest: storyDigest(story), answers: readStoryAnswers(store.dataDir(project.id), key ?? (await answersKey(project.path, story))) }
   }),
 
-  defineHandler(storiesMarks, async ({ projectId, story }) => {
+  defineHandler(storiesMarks, async ({ projectId, story, key: madeKey }) => {
     const store = projectStore()
     const project = store.get(projectId)
-    const key = await answersKey(project.path, story)
+    // A story made by the button: the key it was kept under, the same as its answers'.
+    const key = madeKey ?? (await answersKey(project.path, story))
     return { key, ...readStoryMarks(store.dataDir(project.id), key) }
   }),
 

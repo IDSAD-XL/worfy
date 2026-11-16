@@ -63,11 +63,16 @@
 //     `threads`, with `first` its first comment, the databaseId there) and of a PR's conversation, are answered from
 //     posted.json, with `viewer` the same login.
 //
+//   - pulls.json: single PRs as `gh pr view <N> [--repo <owner>/<repo>] --json …` and `gh pr diff <N> [--repo …]` read
+//     them (worfy-code-stories ticket 11), `{"<owner>/<repo>#<N>": {"view": {<the JSON fields of gh pr view>}, "diff":
+//     "<the diff>"}}`. Without --repo the one PR of that number is taken. `pr view` prints `view` whole, whatever
+//     --json asks; a PR the file does not hold fails as gh does ("no pull requests found").
+//
 // Never a write: a `--method`/`-X` other than GET (`--method=PATCH` and `-XPATCH` too), a GraphQL `mutation`, or, on
 // a REST call, a field or an input (`-f`, `-F`, `--field`, `--raw-field`, `--input`, which make gh send a POST)
 // exits 2 (after its line in the log).
 //
-// Understood (worfy-week ticket 01, worfy-harness ticket 25): `pr list` with --limit (default 30, as
+// Understood (worfy-week ticket 01, worfy-harness ticket 25): `pr view` and `pr diff` from pulls.json; `pr list` with --limit (default 30, as
 // gh), --head <branch> (the exact branch, as gh) and --search "head:<branch>" (by prefix, as
 // GitHub's search: `head:demo/1` also finds demo/18); `auth status --json hosts [--hostname <h>]`;
 // `auth token -u <login> [--hostname <h>]`; `api repos/<owner>/<repo> [--jq .permissions.push]
@@ -126,6 +131,13 @@ if (args.length === 1 && args[0] === '--version') {
   }
   pulls = pulls.slice(0, Number(option('--limit') ?? 30))
   process.stdout.write(JSON.stringify(pulls))
+} else if (command === 'pr view' || command === 'pr diff') {
+  const pulls = read('pulls.json', {})
+  const repo = option('--repo')
+  const key = repo === undefined ? Object.keys(pulls).find((name) => name.endsWith(`#${args[2]}`)) : `${repo}#${args[2]}`
+  const pull = key === undefined ? undefined : pulls[key]
+  if (pull === undefined) fail(`no pull requests found for ${args[2] ?? ''}`)
+  process.stdout.write(command === 'pr view' ? JSON.stringify(pull.view) : pull.diff)
 } else if (command === 'auth status' && option('--json') === 'hosts' && !args.includes('--show-token') && !args.includes('-t')) {
   const status = read('auth-status.json', { hosts: {} })
   const host = option('--hostname')

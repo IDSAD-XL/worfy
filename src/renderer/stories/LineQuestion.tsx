@@ -14,6 +14,7 @@ import { invoke, subscribe } from '../ipc'
 import { Markdown } from '../markdown/Markdown'
 import { Button } from '../theme/Button'
 import { Chip } from '../theme/Chip'
+import { madeStoryKey } from './open'
 import { questionName } from './story-answers'
 import { SHOWN_LINES } from './story-build'
 import './line-question.css'
@@ -60,7 +61,9 @@ export function LineQuestion({ projectId, story, about, code, onAnswer, onClose,
     const questionId = crypto.randomUUID()
     setRun({ kind: 'running', questionId, lines: [], stopping: false })
     onBusy?.(true)
-    const result = await invoke('stories.ask', { questionId, projectId, story, about, code, question: text })
+    // A story made by the button: the key it was kept under, so the answer and the PR's material are its repository's.
+    const key = madeStoryKey(story)
+    const result = await invoke('stories.ask', { questionId, projectId, story, about, code, question: text, ...(key === undefined ? {} : { key }) })
     onBusy?.(false)
     if (!result.ok) {
       setRun({ kind: 'failed', reason: failureReason('stories.ask', result.error) })

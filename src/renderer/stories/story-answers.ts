@@ -6,6 +6,7 @@ import { useCallback, useEffect, useSyncExternalStore } from 'react'
 import type { StoryAnswer } from '../../shared/ipc/stories'
 import type { StoryFile, StoryLabels } from '../../shared/stories/schema'
 import { invoke } from '../ipc'
+import { madeStoryKey } from './open'
 
 /** The answers of a story and the digest of its shown text; null until main has said. */
 export interface ShownAnswers {
@@ -42,7 +43,8 @@ function readOnce(projectId: string, story: StoryFile): void {
   const entry = keptOf(story)
   if (entry.read) return
   entry.read = true
-  void invoke('stories.answers', { projectId, story }).then((result) => {
+  const key = madeStoryKey(story)
+  void invoke('stories.answers', { projectId, story, ...(key === undefined ? {} : { key }) }).then((result) => {
     // A reply of another shape (a stand-in of main) shows none.
     if (!result.ok || !Array.isArray(result.value.answers)) return
     const read = result.value.answers
