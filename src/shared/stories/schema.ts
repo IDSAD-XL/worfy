@@ -5,7 +5,8 @@
 // the one worfy keeps for a story made by the button.
 //
 // - Steps are code steps (one fragment and the five fields) or frame steps (prose under a fixed title; `What
-//   was wrong` carries a Requirement; any frame step may quote fragments).
+//   was wrong` carries a Requirement; of the frame steps only `What review found and what remains` quotes
+//   fragments: the lines of the head review checked).
 // - A story of a PR is its steps; the story of an Epic is Start, one chapter per PR (a chapter not ready yet
 //   has `Ready: no — <why>` and no steps), the numbered step "Seams between tickets" with its handoffs
 //   (`done: no` keeps its reason), Summary and Check. Both may end with "Check yourself".
@@ -95,7 +96,7 @@ export const storyFrameStepSchema = z
     frame: storyFrameSchema.describe('wrong: what was wrong (the first step); notChanged: what was deliberately not changed; checked: how it was checked; review: what review found and what remains.'),
     text: text('The prose of the step.'),
     requirement: z.string().min(1).nullable().describe(`Only for the frame "wrong", required there: ${requirementText}`),
-    fragments: z.array(storyFragmentSchema).describe('Fragments the prose quotes; usually none.'),
+    fragments: z.array(storyFragmentSchema).describe('Fragments the prose quotes: only the frame "review" quotes any (the lines review checked); every other frame step has none.'),
   })
   .strict()
 export type StoryFrameStep = z.output<typeof storyFrameStepSchema>
@@ -208,6 +209,9 @@ export function storyIssues(kind: StoryKind, language: StoryLanguage, answer: Pr
         if (step.requirement === null) issues.push({ path: [...at, index, 'requirement'], message: `the frame "${storyLabels(language).wrong}" carries a Requirement` })
         else requirement(step.requirement, [...at, index, 'requirement'])
       } else if (step.requirement !== null) issues.push({ path: [...at, index, 'requirement'], message: 'only the frame "wrong" carries a Requirement' })
+      if (step.kind === 'frame' && step.frame !== 'review' && step.fragments.length > 0) {
+        issues.push({ path: [...at, index, 'fragments'], message: `only the frame "${storyLabels(language).review}" quotes fragments` })
+      }
     })
   }
   if (kind === 'pr') steps((answer as PrStoryAnswer).steps, ['steps'])

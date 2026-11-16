@@ -1,7 +1,8 @@
 # 09 — Вид Story в подаче «Stories»: шаг на экран, полоска сегментов, блок кода, схема стыков, Esc
 
 Type: feature
-Status: open
+Status: claimed 2026-11-16T03:36Z
+Branch: worfy-code-stories/09
 Blocked by: 08
 Source: [spec.md](../spec.md), «Ticket-ы», строка 09; «Решения владельца» 20, 26, 27 (строки 121–122, 132–136);
 «Решения по реализации» → worfy: «Вид Story» (строки 244–252); «Решения по test-ам», А и Б (строки 279–284); прототип
@@ -40,21 +41,37 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 09; «Решения 
    `Summary`, `Check` не цитируют ни одного. Выбор Ticket-а: frame-шаги фрагментов не цитируют; PR правит формулировку
    `TICKETS.md`.
 
+   **Исключение — шаг «What review found and what remains» (решено без владельца, 2026-11-16, PR #1906).** Он цитирует
+   строки head-а, который проверил review: этого требуют `TICKETS.md`, «Story anchor», п. 2, Ticket 06, п. 3, и общий
+   fixture `pr-ru.md`. Без исключения пришлось бы переписать fixture-ы Ticket-а 01 и отменить п. 3 Ticket-а 06. Правило
+   держат три места одной формулировкой: `TICKETS.md`, схема `src/shared/stories/schema.ts` и `harness/bin/story-check`.
+
 ## Готово, когда
 
 - [ ] Unit test вида: story PR fixture-а — экранов столько, сколько шагов; сегменты отмечаются по мере листания; клик по
       правой половине и стрелка вправо — вперёд, по левой и стрелка влево — назад.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/story-view.test.tsx test/unit/markdown.test.tsx` exit 0; in `gate fast` exit 0 · mac - · eb770856843310dcb4efeb70560bebfc736e5146
 - [ ] Unit test: story Epic-а — главы-PR сверху; экраны «Начало», «Итог», «Проверка» на месте.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/story-view.test.tsx test/unit/markdown.test.tsx` exit 0; in `gate fast` exit 0 · mac - · eb770856843310dcb4efeb70560bebfc736e5146
 - [ ] Unit test: узкая ширина — одна колонка; широкая — код слева, текст справа.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/story-view.test.tsx test/unit/markdown.test.tsx` exit 0; in `gate fast` exit 0 · mac - · eb770856843310dcb4efeb70560bebfc736e5146
 - [ ] Unit test блока кода (`test/unit/markdown.test.tsx`): номера строк от `from`; главные строки подсвечены; блок
       `suggestion` работает как раньше.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/markdown.test.tsx test/unit/markdown-github.test.tsx` exit 0; in `gate fast` exit 0 · mac - · eb770856843310dcb4efeb70560bebfc736e5146
 - [ ] Unit test схемы стыков: по списку передач fixture-а — узлы Ticket-ов и стрелки; брошенная передача — красная
       пунктирная; у схемы нет масштаба и панорамы.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/story-view.test.tsx test/unit/markdown.test.tsx` exit 0; in `gate fast` exit 0 · mac - · eb770856843310dcb4efeb70560bebfc736e5146
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/story-view.test.tsx` exit 0, empty handoff list draws no diagram (round 2) · mac - · 47ce81220718b397e6d4d3039c49e3e63e2bb29f
 - [ ] `TICKETS.md` в разделах «Code story» и «Story anchor» говорит одно: frame-шаги фрагментов не цитируют. Unit test:
       frame-шаг показывается без блока кода.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/story-view.test.tsx test/contract/story-one-shot.test.ts` exit 0; in `gate fast` exit 0 · mac - · eb770856843310dcb4efeb70560bebfc736e5146
+  - evidence: test-run pass · `HOME=$(mktemp -d) bash harness/bin/tests/story-check.test.sh` exit 0, story-check refuses a fragment on a frame step (round 2) · mac - · 47ce81220718b397e6d4d3039c49e3e63e2bb29f
 - [ ] e2e `test/e2e/code-story.spec.ts` на fixture-Epic-е: вид открывается, шаги листаются, Esc возвращает на Canvas.
 - [ ] `test/e2e/a11y.spec.ts`: axe на виде Story без нарушений (как на основных экранах, worfy-ui-kit 18).
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · eb770856843310dcb4efeb70560bebfc736e5146
+  - evidence: gate pass · `gate fast` exit 0 (after the look fix and a rebase) · mac - · 145f1392d29c78f4d0d6e9a91a2c0f39661b3249
+  - evidence: gate pass · `gate fast` exit 0 (round 2) · mac - · 47ce81220718b397e6d4d3039c49e3e63e2bb29f
 
 ## Тесты
 

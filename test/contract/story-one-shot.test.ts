@@ -288,6 +288,17 @@ describe('the format of TICKETS.md, over the shared fixtures', () => {
     expect(readStoryAnswer('pr', 'ru', russian).ok).toBe(true)
   })
 
+  it('of the frame steps only "What review found and what remains" quotes fragments (worfy-code-stories 09)', () => {
+    const ru = answerOf('pr-ru') as { steps: Record<string, unknown>[] }
+    const review = ru.steps[4] as { frame: string; fragments: unknown[] }
+    expect(review.frame).toBe('review')
+    expect(review.fragments).toHaveLength(1)
+    expect(readStoryAnswer('pr', 'ru', ru).ok).toBe(true)
+    const quoting = { ...ru, steps: ru.steps.map((step, index) => (index === 3 ? { ...step, fragments: review.fragments } : step)) }
+    const read = readStoryAnswer('pr', 'ru', quoting)
+    expect(read.ok ? '' : read.reason).toContain('steps.3.fragments: only the frame "Что нашёл review и что осталось" quotes fragments')
+  })
+
   it('the header: Epic and Ticket together, the Ticket in two digits, the language en or ru, the PR head required', () => {
     const story = { kind: 'pr', header: input().header, ...PR_EN }
     expect(storySchema.safeParse(story).success).toBe(true)

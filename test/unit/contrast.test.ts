@@ -59,6 +59,10 @@ const otherPairs = [
   ['--terminal-text', '--terminal-bg'],
   // Colour 8 of the terminal palette (bright black): zsh draws the Terminal AI Suggestion in it.
   ['--terminal-dim', '--terminal-bg'],
+  // The Story view (F-SPEC "Story view"): the reason of a dropped handoff, and the head row of the code card.
+  ['--story-dropped', '--surface'],
+  ['--story-code-path', '--story-code-head'],
+  ['--terminal-dim', '--story-code-head'],
 ] as const
 
 describe('contrast helper', () => {

@@ -367,3 +367,44 @@ describe('Markdown: links in a window on a Linked machine', () => {
     expect(asked.map((each) => each.channel).filter((channel) => channel !== 'link.state')).toEqual([])
   })
 })
+
+describe('Markdown: the code block of a Code story (worfy-code-stories ticket 09)', () => {
+  const FRAGMENT = ['export function cartTotal(lines: CartLine[]): Cents {', '  let total = 0', '  for (const line of lines) {', '    if (line.quantity <= 0) continue', '    total += toCents(line.price) * line.quantity', '  }', '  return total', '}'].join('\n')
+  const lines = (container: HTMLElement) => [...container.querySelectorAll<HTMLElement>('[data-testid="md-story-code"] [data-line]')]
+
+  it('numbers the lines of a ```story block from `from=`, and marks the `key=` lines', () => {
+    const { container } = render(<Markdown text={`\`\`\`story from=10 key=13,14\n${FRAGMENT}\n\`\`\``} story />)
+    const shown = lines(container)
+    expect(shown.map((line) => line.dataset.line)).toEqual(['10', '11', '12', '13', '14', '15', '16', '17'])
+    expect(shown.filter((line) => line.dataset.key === 'true').map((line) => line.dataset.line)).toEqual(['13', '14'])
+    expect(shown.filter((line) => line.classList.contains('w-md__story-line--key'))).toHaveLength(2)
+    // The numbers are not read out with the code, and a line keeps its text as it is.
+    expect(shown[0]!.querySelector('.w-md__story-number')!.getAttribute('aria-hidden')).toBe('true')
+    expect(shown[4]!.querySelector('.w-md__story-text')!.textContent).toBe('    total += toCents(line.price) * line.quantity')
+  })
+
+  it('without `from=` counts from 1, and an empty line keeps its row', () => {
+    const { container } = render(<Markdown text={'```story key=2\nfirst\n\nthird\n```'} story />)
+    expect(lines(container).map((line) => [line.dataset.line, line.dataset.key ?? null])).toEqual([
+      ['1', null],
+      ['2', 'true'],
+      ['3', null],
+    ])
+  })
+
+  it('is an ordinary code block without the prop `story`, and other blocks stay ordinary with it', () => {
+    const plain = render(<Markdown text={'```story from=10 key=13\nconst a = 1\n```'} />)
+    expect(plain.container.querySelector('[data-testid="md-story-code"]')).toBeNull()
+    expect(plain.container.querySelector('pre code')!.textContent).toBe('const a = 1\n')
+    plain.unmount()
+    const other = render(<Markdown text={'```ts\nconst a = 1\n```'} story />)
+    expect(other.container.querySelector('[data-testid="md-story-code"]')).toBeNull()
+    expect(other.container.querySelector('pre code')!.textContent).toBe('const a = 1\n')
+  })
+
+  it('leaves the ```suggestion block of a GitHub comment as it was, with `story` on too', () => {
+    const { container } = render(<Markdown text={'```suggestion\nconst b = 2\n```'} github={{ repo: 'IDSAD-XL/worfy' }} story />)
+    expect(container.querySelector('[data-testid="md-suggestion"]')!.textContent).toBe('Suggested changeconst b = 2')
+    expect(container.querySelector('[data-testid="md-story-code"]')).toBeNull()
+  })
+})
