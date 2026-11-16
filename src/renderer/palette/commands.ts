@@ -47,7 +47,7 @@
 // "Pull requests" (worfy-pr-inbox ticket 03) opens the PR inbox of the active Project (pr-inbox/open.ts).
 // "Open code story" (worfy-code-stories ticket 10) is a row per Epic with its `story.md` and per Ticket with the story of
 // its PR (`stories/<NN>-<slug>.md`), the Epic or the Ticket its detail: it opens that story in the Story view, as the
-// "Story" buttons of the Epic frame and the Ticket card do (stories/open.ts). A read, so a read-only screen keeps it.
+// "Code story" buttons of the Epic frame and the Ticket card do (stories/open.ts). A read, so a read-only screen keeps it.
 import type { AdrEntry } from '../../shared/ipc/docs'
 import type { ProjectView } from '../../shared/ipc/projects'
 import type { HistorySession } from '../../shared/ipc/claude-home'

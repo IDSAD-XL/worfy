@@ -1,4 +1,4 @@
-// The entries into the Story view (worfy-code-stories ticket 10): "Story" on an Epic frame and on a Ticket card
+// The entries into the Story view (worfy-code-stories ticket 10): "Code story" on an Epic frame and on a Ticket card
 // (src/renderer/canvas/actions/EpicStory.tsx, TicketStory.tsx), and the opening of a story file they share
 // (openStoryFile of src/renderer/stories/open.ts): main reads the file (`stories.read`), the view shows it, and the code
 // of each fragment is asked of main (`stories.code`) where the story is anchored. Without a story the button is
@@ -60,7 +60,7 @@ beforeEach(() => {
   vi.resetModules()
   calls = []
   epic = WITH_STORIES
-  tickets = [ticket(4, 'done', { pr: 212 }), ticket(5, 'done', { pr: 213 }), ticket(6, 'open')]
+  tickets = [ticket(4, 'done', { pr: 212 }), ticket(5, 'done', { pr: 213 }), ticket(6, 'open'), ticket(7, 'done')]
   readAnswer = { ok: true, value: { ok: true, story: storyOf('pr-en'), path: 'demo-cart/stories/04-cart-total.md', dir: '.scratch/demo-cart/stories' } }
   const bridge = {
     invoke: (channel: string, input: unknown) => {
@@ -109,11 +109,11 @@ async function ticketButton(num: number): Promise<HTMLElement | null> {
   return screen.queryByTestId('action-ticket-story')
 }
 
-describe('"Story" on an Epic frame', () => {
+describe('"Code story" on an Epic frame', () => {
   it('without story.md is inactive, and its tooltip says the story comes with the last PR of the Epic', async () => {
     epic = WITHOUT_STORIES
     const button = await epicButton()
-    expect(button.textContent).toBe('Story')
+    expect(button.textContent).toBe('Code story')
     expect(button.getAttribute('aria-disabled')).toBe('true')
     expect(button.getAttribute('title')).toBe('No Code story of demo-cart yet: it is written when the last PR of the Epic is merged')
     fireEvent.click(button)
@@ -152,7 +152,7 @@ describe('"Story" on an Epic frame', () => {
   })
 })
 
-describe('"Story" on a Ticket card', () => {
+describe('"Code story" on a Ticket card', () => {
   it('with the story of its PR opens it', async () => {
     const button = await ticketButton(4)
     expect(button?.getAttribute('aria-disabled')).toBe('false')
@@ -169,8 +169,33 @@ describe('"Story" on a Ticket card', () => {
     expect(button?.getAttribute('title')).toBe('No Code story of the PR of demo-cart/05: the implementer writes stories/05-<slug>.md with the PR')
   })
 
+  it('a done Ticket with no PR line and no story is inactive, with the reason', async () => {
+    const button = await ticketButton(7)
+    expect(button?.textContent).toBe('Code story')
+    expect(button?.getAttribute('aria-disabled')).toBe('true')
+    expect(button?.getAttribute('title')).toBe('No Code story of the PR of demo-cart/07: the implementer writes stories/07-<slug>.md with the PR')
+  })
+
   it('a Ticket with no PR and no story has no button', async () => {
     expect(await ticketButton(6)).toBeNull()
+  })
+})
+
+describe('"Open" of the toast of an Epic story', () => {
+  it('a story main cannot read shows its reason in an error toast; one it reads opens the view', async () => {
+    const { openEpicStoryOf } = await import('../../src/renderer/stories/use-story-toasts')
+    const { resetToasts, toasts } = await import('../../src/renderer/toast/toasts')
+    resetToasts()
+    readAnswer = { ok: true, value: { ok: false, reason: 'demo-cart/story.md: no section "Начало"' } }
+    await openEpicStoryOf(PROJECT, 'demo-cart', () => [epic])
+    expect(calls.filter((call) => call.channel === 'stories.read').map((call) => call.input)).toEqual([{ projectId: PROJECT, path: 'demo-cart/story.md' }])
+    expect(toasts.getState().toasts.map((toast) => [toast.kind, toast.text])).toEqual([['error', 'The Code story of Epic demo-cart cannot be opened: demo-cart/story.md: no section "Начало"']])
+    resetToasts()
+    readAnswer = { ok: true, value: { ok: true, story: storyOf('epic-ru'), path: 'demo-cart/story.md', dir: '.scratch/demo-cart' } }
+    await openEpicStoryOf(PROJECT, 'demo-cart', () => [epic])
+    const { useNavigation } = await import('../../src/renderer/session/navigation')
+    expect(useNavigation.getState().view).toBe('story')
+    expect(toasts.getState().toasts).toEqual([])
   })
 })
 

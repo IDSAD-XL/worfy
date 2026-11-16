@@ -977,6 +977,30 @@ describe('the entries into Run history on the Epic frame (worfy-flight-recorder 
     expect(screen.queryByTestId('action-autopilot-more')).toBeNull()
   })
 
+  it('a done Epic with no past Runs but with its story.md keeps "⋯" with "Code story" alone (worfy-code-stories/10)', async () => {
+    tickets = tickets.map((each) => ({ ...each, state: 'done' as const }))
+    const inner = (globalThis as unknown as { worfy: WorfyBridge }).worfy
+    ;(globalThis as { worfy?: WorfyBridge }).worfy = {
+      ...inner,
+      invoke: (channel, input) => {
+        if (channel === 'runs.list') return (calls.push({ channel, input }), Promise.resolve({ ok: true, value: { runs: [] } })) as never
+        if (channel === 'stories.read') return (calls.push({ channel, input }), Promise.resolve({ ok: true, value: { ok: false, reason: 'demo/story.md: no section' } })) as never
+        return inner.invoke(channel, input)
+      },
+    }
+    autopilot = { ...autopilot, epic: 'other', status: 'stopped', wave: 1, reason: 'user-stop', run: RUN, ended: ENDED }
+    const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
+    const epic: Epic = { ...EPIC, stories: [{ kind: 'epic', path: 'demo/story.md', ticket: null, version: 'v1' }] }
+    render(<AutopilotAction subject={{ kind: 'epic', projectId: PROJECT, root: ROOT, epic, tickets }} />)
+    await vi.waitFor(() => expect(calls.filter((call) => call.channel === 'runs.list')).toHaveLength(1))
+    const more = await screen.findByTestId('action-autopilot-more')
+    expect(screen.queryByRole('button', { name: 'Autopilot' })).toBeNull()
+    fireEvent.click(more)
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Code story'])
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Code story' }))
+    await vi.waitFor(() => expect(calls.filter((call) => call.channel === 'stories.read').map((call) => call.input)).toEqual([{ projectId: PROJECT, path: 'demo/story.md' }]))
+  })
+
   it('"Run history" in "⋯" opens the Run history kept to this Epic, before any run and while one goes on', async () => {
     await shown({})
     await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Autopilot' }).getAttribute('aria-disabled')).toBe('false'))

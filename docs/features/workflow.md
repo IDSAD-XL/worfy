@@ -177,16 +177,16 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
   no such commit (a Silent story whose Ticket has no PR yet, a commit this clone does not have), the story's own code
   is shown, marked as the code of the PR's head with the reason.
 - **A Code story opens from where its Epic or Ticket is.** The Story view shows a story over the whole main area; Esc
-  goes back to the Canvas. It opens from **Story** on the Epic frame, beside its archived Sessions, and **Code story**
-  in the frame's **⋯**; from **Story** on a Ticket card, beside **Open PR**; from **Code story** of a pull request in
+  goes back to the Canvas. It opens from **Code story** on the Epic frame, beside its archived Sessions, and in the
+  frame's **⋯**; from **Code story** on a Ticket card, beside **Open PR**; from **Code story** of a pull request in
   [Pull requests](pr-inbox.md); from the Command palette's **Open code story**, a row per Epic and per Ticket with a
-  story; and from the toast "The Code story of Epic <name> is ready" with **Open**. **Story** on the frame is inactive
+  story; and from the toast "The Code story of Epic <name> is ready" with **Open**. **Code story** on the frame is inactive
   until the Epic has its `story.md`, and its tooltip says the story comes when the last PR of the Epic is merged. On a
   card it is inactive, with the reason, for a Ticket that is done or has a `PR:` line and no story of its PR; a Ticket
   with neither has no button. The toast comes once per Epic, the first time worfy sees its `story.md`, and never
   again: the Epics it was shown for are kept in the window's local storage in worfy's data folder. The first time
   worfy reads a Project it only notes the stories that are already there, so a Project with finished Epics brings no
-  stack of toasts. A PR story gives no toast.
+  stack of toasts. A PR story gives no toast. When the story cannot be read, **Open** shows the reason in an error toast.
 - **A branch never undoes the checkout.** This is why a blocked Ticket with an old worktree branch does not look open
   ([ADR-0033](../adr/0033-autopilot-names-wave-tickets.md)).
 - **Frames and cards are computed, not saved.** The Layout keeps only a frame's offset and collapse

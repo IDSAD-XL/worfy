@@ -250,7 +250,7 @@ test('the entries into the Story view: the toast once its story.md comes, the Ep
     const frame = window.locator('[data-testid="epic-frame"][data-epic="demo-cart"]')
     await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: [frame] })
 
-    // No story.md yet: "Story" on the frame is inactive and says why; no toast for what the Project already had.
+    // No story.md yet: "Code story" on the frame is inactive and says why; no toast for what the Project already had.
     const epicStory = frame.getByTestId('action-epic-story')
     await expect(epicStory).toHaveAttribute('aria-disabled', 'true', { timeout: ms(15_000) })
     await expect(epicStory).toHaveAttribute('title', 'No Code story of demo-cart yet: it is written when the last PR of the Epic is merged')

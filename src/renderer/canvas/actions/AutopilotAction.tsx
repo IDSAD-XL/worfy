@@ -147,7 +147,7 @@ import { hasRunWave, useRunWaveState } from './gates'
 // - With no run in the Project, "⋯" has "Run all accepted": the Start Autopilot window over the accepted Epics,
 //   as the Command palette's (worfy-autopilot-queue ticket 16, runAllAccepted).
 // - "Code story" (worfy-code-stories ticket 10), last in "⋯" while the Epic has its `story.md`: the Story view on it, as
-//   "Story" on the frame (EpicStory.tsx). A done Epic with no past Runs keeps "⋯" for it.
+//   "Code story" on the frame (EpicStory.tsx). A done Epic with no past Runs keeps "⋯" for it.
 
 export const order = 30
 

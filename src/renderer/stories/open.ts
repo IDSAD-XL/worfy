@@ -2,7 +2,7 @@
 // history. The view takes a story already read — the data of src/shared/stories/schema.ts — and a function that
 // gives the code of each fragment. It reads no file itself.
 //
-// The entries of ticket 10 — "Story" on the Epic frame and in its "⋯" menu, "Story" on the Ticket card, "Code story" in
+// The entries of ticket 10 — "Code story" on the Epic frame, in its "⋯" menu, on the Ticket card and in
 // Pull requests, the toast of an Epic story and the Command palette's "Open code story" — all go through
 // openStoryFile: main reads the story file (`stories.read`, from the main branch in Full mode, from the Workflow folder
 // in Silent; ticket 08) and the view asks main for the code of each fragment where the story is anchored

@@ -121,9 +121,9 @@ async function launch(): Promise<LaunchedApp> {
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome } })
   await expect(launched.window.getByTestId('canvas')).toHaveAttribute('data-project-id', PROJECT_ID)
   // A known width, not the platform's default: the frame's header, its Collapse button at the right
-  // end included, has room for the drag of the test (issue #1153); 1480 px since the header holds «Story» too
+  // end included, has room for the drag of the test (issue #1153); 1520 px since the header holds «Code story» too
   // (worfy-code-stories ticket 10, HEADER_CHROME_WIDTH of epic-layout.ts).
-  await canvasReady(launched, { size: { width: 1480, height: 900 } })
+  await canvasReady(launched, { size: { width: 1520, height: 900 } })
   return launched
 }
 

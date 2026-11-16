@@ -144,8 +144,11 @@ function Value({ text, context }: { text: string; context: Context }) {
 
 /** Above the story's own code when the anchor commit holds other code there (`stories.code`, reason `changed`). */
 const CHANGED_NOTE = 'The code of the PR head: the main branch no longer holds it in this form.'
-/** Above the story's own code when there is no commit to read it at (reason `no-anchor`). */
-const NO_ANCHOR_NOTE = 'The code as the story quotes it: git has no commit to read it at.'
+/**
+ * Above the story's own code when main answers `no-anchor`: no anchor commit, a commit git cannot read (a shallow clone, a
+ * PR head not fetched), or a path outside the repository.
+ */
+const NO_ANCHOR_NOTE = "The code as the story quotes it: git cannot read the code at this story's commit."
 
 /** The code of one fragment on the dark card: its path and lines over it, the lines from `codeOf`. */
 function FragmentBlock({ fragment, head, pr, context }: { fragment: StoryFragment; head: string | null; pr: number | null; context: Context }) {

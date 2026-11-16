@@ -219,13 +219,13 @@ describe('the code of a fragment', () => {
     expect(asked).toEqual([['2130000000000000000000000000000000000000', 213]])
   })
 
-  it('the story\'s own code with no commit to read it at says so, not that main changed (worfy-code-stories/10)', async () => {
+  it('the story\'s own code that git cannot read at its commit says so, not that main changed (worfy-code-stories/10)', async () => {
     const noAnchor: FragmentCodeSource = (fragment) => Promise.resolve({ code: fragment.code, startLine: fragment.startLine, keyLines: fragment.keyLines, fromHead: true, reason: 'no-anchor' })
     render(<StoryView story={prStory('pr-en', 'en')} codeOf={noAnchor} />)
     press('ArrowRight')
     await screen.findByTestId('md-story-code')
     const text = screen.getByTestId('story-code').textContent ?? ''
-    expect(text).toContain('The code as the story quotes it: git has no commit to read it at.')
+    expect(text).toContain("The code as the story quotes it: git cannot read the code at this story's commit.")
     expect(text).not.toContain('the main branch no longer holds it')
   })
 

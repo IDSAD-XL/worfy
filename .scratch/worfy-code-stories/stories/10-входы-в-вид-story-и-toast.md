@@ -57,17 +57,19 @@ export function storyCodeSource(projectId: string, path: string): FragmentCodeSo
 - Риски и пробелы test-ов: unit test проверяет форму `at` для трёх случаев; что main находит код — contract test-ы
   Ticket-а 08, e2e этого Ticket-а код не сверяет.
 
-## 4. Причина «нет commit-а» — свой текст
+## 4. Причина «git не читает» — свой текст
 
-Code: `src/renderer/stories/StoryView.tsx:148-148` · key lines: 148
+Code: `src/renderer/stories/StoryView.tsx:151-151` · key lines: 151
 
 ```ts
-const NO_ANCHOR_NOTE = 'The code as the story quotes it: git has no commit to read it at.'
+const NO_ANCHOR_NOTE = "The code as the story quotes it: git cannot read the code at this story's commit."
 ```
 
-- Что делает: при `reason: 'no-anchor'` над кодом пишется, что git не из чего читать, а не «main branch изменился».
-- Почему здесь: прежняя заметка вида подходила только к `changed`.
-- Без него: человек решил бы, что код на main ушёл вперёд, хотя commit-а просто нет.
+- Что делает: при `reason: 'no-anchor'` над кодом пишется, что git не может прочитать код в commit-е story, а не «main
+  branch изменился».
+- Почему здесь: прежняя заметка вида подходила только к `changed`. main отвечает `no-anchor` в трёх случаях: commit-а нет,
+  git его не читает (shallow clone, head PR не скачан), путь вне репозитория — текст верен для всех трёх (review, раунд 1).
+- Без него: человек решил бы, что код на main ушёл вперёд.
 - Требование: не записано
 - Риски и пробелы test-ов: правка StoryView — строки типа экрана, `screensOf`, `FragmentBlock`, две константы заметок и
   тип `story` в props; test `story-view.test.tsx` дополнен случаем `no-anchor`.
@@ -114,7 +116,8 @@ Code: `src/renderer/canvas/actions/AutopilotAction.tsx:652-653` · key lines: 65
 - Почему здесь: «меню Epic-а» — это «⋯» Autopilot-а, другого меню у рамки нет, а story появляется как раз у done Epic-а.
 - Без него: вход из меню пропал бы ровно тогда, когда story есть.
 - Требование: [Что делаем, п. 1](../issues/10-входы-в-вид-story-и-toast.md#что-делаем)
-- Риски и пробелы test-ов: AutopilotAction.tsx нет в «Где в коде» Ticket-а; случай done Epic-а без Run-ов не покрыт test-ом.
+- Риски и пробелы test-ов: AutopilotAction.tsx нет в «Где в коде» Ticket-а. Случай done Epic-а без Run-ов покрыт
+  `test/unit/canvas-actions.test.tsx` (review, раунд 1): прежнее условие `hidden && !pastRuns` его роняет.
 
 ## 7. Что сознательно не меняли
 
@@ -127,5 +130,8 @@ Code: `src/renderer/canvas/actions/AutopilotAction.tsx:652-653` · key lines: 65
 `pnpm lint && pnpm typecheck && pnpm test` под временным HOME — exit 0. Unit test-ы `story-entries.test.tsx`,
 `story-toast.test.ts`, `palette-commands.test.tsx`, `story-view.test.tsx` сначала были красными. e2e
 `test/e2e/code-story.spec.ts` (входы, toast, снимки в обеих темах) — только в CI.
-Первый CI PR-а уронил `test/e2e/epic-frame.spec.ts` (длинное имя Epic-а не помещалось в заголовок рамки): кнопка «Story»
-заняла место, и `HEADER_CHROME_WIDTH` в `src/renderer/canvas/epic-layout.ts` вырос с 535 до 595 px.
+Первый CI PR-а уронил `test/e2e/epic-frame.spec.ts` (длинное имя Epic-а не помещалось в заголовок рамки): новая кнопка
+заняла место, и `HEADER_CHROME_WIDTH` в `src/renderer/canvas/epic-layout.ts` вырос с 535 px. После review (раунд 1)
+кнопка называется «Code story», как пункт «⋯» и кнопка в Pull requests, и запас — 625 px; окно
+`test/e2e/epic-frame-undo.spec.ts` — 1520 px. «Open» в toast-е при story, которую main не читает, показывает причину в
+error toast-е (`test/unit/story-entries.test.tsx`).
