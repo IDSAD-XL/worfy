@@ -136,14 +136,20 @@ story_world rs-noverdict pr-en.md
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 0 ] && [ "$(docs_files)" = ".scratch/demo-cart/issues/04.md " ] && [ "$(show_at refs/pull/900/head "$STORY_PATH")" = "$(cat "$FIX/pr-en.md")" ] \
     && ok "review step: a story but no verdict -> the documents PR has the ticket only, the story byte for byte the PR's" || bad "review step no verdict: exit $rc: $(cat "$W/out") files $(docs_files)"
-# personal data in the verdict: evidence-check is red before anything is committed, as with the Evidence lines
+# personal data in the verdict (a token, a home path from a command the verifier ran): the line is not quoted — a note
+# stands in its place, the log names the rule and never the value — and the documents PR is not blocked
 story_world rs-leak pr-en.md
 leak="gh""p_$(printf 'Zq%.0s' $(seq 1 15))"
-verdict_of 'VERIFIED' "ran: with token $leak — exit 0"
+home="/""Users/qzuser"
+verdict_of 'VERIFIED' "ran: with token $leak — exit 0" "ran: cd $home/w && pnpm test — exit 0" 'could not verify: the coupon path'
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
-[ "$rc" = 2 ] && [ "$(merged_of 1)" = 1 ] && ! grep -q '^pr create\|^pr list' "$GHD/log" && [ -z "$(git -C "$W/origin.git" for-each-ref 'refs/heads/land-docs/*')" ] \
-    && grep -q '^documents land-docs/.* waits: evidence-check found 1 findings' "$W/out" && ! grep -qF "$leak" "$W/out" "$S" "$W/state.log" \
-    && ok "review step: personal data in the verdict -> evidence-check red, nothing committed or pushed, the value printed nowhere" || bad "review step leak: exit $rc: $(cat "$W/out")"
+doc="$(show_at refs/pull/900/head "$STORY_PATH" 2>&1)"
+want="$(printf '%s\n' '## 6. What review found and what remains' '' '> VERIFIED' '> [line 2 of the verdict is not quoted: personal data (token)]' \
+    '> [line 3 of the verdict is not quoted: personal data (home-path)]' '> could not verify: the coupon path')"
+[ "$rc" = 0 ] && [[ "$doc" == *"$want" ]] && ! grep -qF "$leak" "$W/out" "$S" "$W/state.log" <<<"$doc" && ! grep -qF "$home" "$W/out" "$S" "$W/state.log" <<<"$doc" \
+    && grep -q 'line 2 of the verdict is not quoted: personal data (token)' "$W/state.log" && grep -q 'line 3 of the verdict is not quoted: personal data (home-path)' "$W/state.log" \
+    && ok "review step: verdict lines with personal data -> a note in their place, the rule in the log, no value anywhere, the documents PR merges" \
+    || bad "review step leak: exit $rc: $(cat "$W/out") story: $(printf '%s' "$doc" | tail -n 8)"
 # an unreadable verdict: the documents wait, nothing pushed
 story_world rs-unread pr-en.md
 edit "s.prs[0].verdict=$(node -p 'JSON.stringify(process.argv[1])' "$(tn "$W/no-such-verdict.md")")"
@@ -192,6 +198,17 @@ doc="$(show_at refs/pull/900/head "$STORY_PATH" 2>&1)"
     && grep -q 'src/ids.ts:1-1 is not quoted: personal data (uuid)' "$W/state.log" && ! grep -qF "$uuid" "$W/out" "$S" "$W/state.log" \
     && ok "review step: a named line with personal data is not quoted, the log says so without the value, the documents PR merges" \
     || bad "review step private: exit $rc: $(cat "$W/out") log $(grep -i 'not quoted' "$W/state.log") story: $(printf '%s' "$doc" | tail -n 12)"
+# a word of the personal deny list (<Harness home>/user/privacy.json): neither a verdict line nor a fragment holding it is quoted
+story_world rs-deny pr-en.md
+mkdir -p "$W/hh/user" && printf '{"deny":["Quokkaville"]}\n' >"$W/hh/user/privacy.json"
+pr_add src/town.ts "export const TOWN = 'Quokkaville'"
+verdict_of 'VERIFIED' 'src/town.ts:1: [low] the town is spelt out' 'ran: a check in Quokkaville — exit 0' 'src/cart.ts:13: [low] a zero quantity is skipped'
+HARNESS_HOME="$(tn "$W/hh")" "$LAND" "$S" >"$W/out" 2>&1; rc=$?
+doc="$(show_at refs/pull/900/head "$STORY_PATH" 2>&1)"
+[ "$rc" = 0 ] && [[ "$doc" == *'Code: `src/cart.ts:13-13`'* ]] && ! grep -q '^Code: `src/town.ts' <<<"$doc" && ! grep -qi 'quokkaville' <<<"$doc" \
+    && grep -q '^> \[line 3 of the verdict is not quoted: personal data (deny)\]$' <<<"$doc" && grep -q 'src/town.ts:1-1 is not quoted: personal data (deny)' "$W/state.log" \
+    && ok "review step: a deny-list word -> neither its verdict line nor its fragment is quoted, the documents PR merges" \
+    || bad "review step deny: exit $rc: $(cat "$W/out") log $(grep -i 'not quoted' "$W/state.log") story: $(printf '%s' "$doc" | tail -n 10)"
 # a story already red at its head (code_stories.pr off, so the guard never read it): no step for it, the documents PR goes on
 story_world rs-redstory bad-fragment.md
 echo off >"$GHD/code-stories"

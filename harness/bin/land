@@ -764,13 +764,12 @@ function linesAt(st, sha, file) {
 // With the verified head gone (a force-push after a merge by hand) nothing is quoted: its lines cannot be told apart.
 // A fragment with personal data (the code of the repository may hold a host name or a UUID) is not quoted either: the
 // privacy check of the documents PR would refuse it, and with it the whole run's documents.
-function reviewFragments(st, p, head, verdict) {
+function reviewFragments(st, p, head, verdict, privacyOptions) {
     if (p.head && p.head !== head && !haveCommit(st, p.head, p.number)) {
         log(`#${p.number}: the head ${short(p.head)} review verified is not in the checkout: no fragment quoted`)
         return []
     }
     const verified = p.head || head
-    const privacyOptions = { hostname: os.hostname(), deny: privacy.personal(harnessHome()).deny }
     const seen = new Set()
     const out = []
     for (const m of verdict.matchAll(/(?<![\w./-])((?:[\w.-]+\/)*[\w.-]+):(\d+)(?:-(\d+))?(?![\w-])/g)) {
@@ -866,8 +865,19 @@ function appendReviewStep(st, p, tree, root) {
         }
     }
     const verdict = found.text.replace(/\s+$/, "")
-    const quote = verdict.split(/\r?\n/).map((l) => (l.trim() ? `> ${l}` : ">"))
-    const fragments = reviewFragments(st, p, head, verdict)
+    // The same privacy check as the fragments, line by line: a verdict line with personal data (a home path in a command
+    // the verifier ran, a token) is not quoted — a note with its number and the rule stands in its place, so the
+    // documents PR is not refused for it. Neither the note nor the log carries any part of the line.
+    const privacyOptions = { hostname: os.hostname(), deny: privacy.personal(harnessHome()).deny }
+    const quote = verdict.split(/\r?\n/).map((l, i) => {
+        if (!l.trim()) return ">"
+        const personal = privacy.findings(l, privacyOptions)
+        if (!personal.length) return `> ${l}`
+        const note = `line ${i + 1} of the verdict is not quoted: personal data (${[...new Set(personal.map((f) => f.rule))].join(", ")})`
+        log(`#${p.number}: ${note}`)
+        return `> [${note}]`
+    })
+    const fragments = reviewFragments(st, p, head, verdict, privacyOptions)
     const step = [`## ${steps + 1}. ${title}`, "", ...quote, ...fragments.flatMap((f) => ["", f])].join("\n")
     fs.writeFileSync(path.join(tree, file), `${story.replace(/\s+$/, "")}\n\n${step}\n`)
     log(`#${p.number}: the review step appended to ${file}: ${quote.length} lines of the verdict, ${fragments.length} fragment${fragments.length === 1 ? "" : "s"} of ${short(head)}`)

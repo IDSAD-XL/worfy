@@ -53,8 +53,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 06; «Решения 
 - [ ] Shell-test `land`: PR без story или без поля вердикта — documents PR такой же, как до Ticket-а, байт в байт.
   - evidence: test-run pass · `bash harness/bin/tests/land-story.test.sh` exit 0 · mac - · fd86c84a68ac00f93f91b0a2486f8047f3270fe9
   - evidence: test-run pass · `bash harness/bin/tests/land-story.test.sh` exit 0 · mac - · ae2927eeb144bfef64f3df4dfb5304edc721fb22
-- [ ] Shell-test `land`: личные данные в вердикте не уходят в documents PR — `evidence-check` красный, ничего не
-      закоммичено (как у Evidence-строк).
+- [ ] Shell-test `land`: личные данные в вердикте не уходят в documents PR — строка вердикта с ними не цитируется, на
+      её месте пометка с номером строки и правилом, log называет правило без значения, documents PR не блокируется
+      (так велел review round 2 PR #1919; до него было: `evidence-check` красный, ничего не закоммичено).
   - evidence: test-run pass · `bash harness/bin/tests/land-story.test.sh` exit 0 · mac - · fd86c84a68ac00f93f91b0a2486f8047f3270fe9
   - evidence: test-run pass · `bash harness/bin/tests/land-story.test.sh` exit 0 · mac - · ae2927eeb144bfef64f3df4dfb5304edc721fb22
 - [ ] Shell-test: после дописывания `story-check` сверяет story с тем же commit-ом, что и до него.

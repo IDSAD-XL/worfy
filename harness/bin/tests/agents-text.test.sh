@@ -859,13 +859,17 @@ else
 fi
 # The review step of a Code story: the orchestrator gives land the saved verdict in prs[].verdict (Full mode), or
 # appends the step itself in the Workflow folder (Silent mode, no documents PR).
-# The saved verdict is the verifier's own answer (it says what could not be verified), the recorded verdict only after
-# a session break lost it — a PR comment in Full mode, the last `gate:` line of the ticket file in Silent mode. The
+# The saved verdict is the posted one with its groups — a PR comment in Full mode, the last `gate:` round of the ticket
+# file in Silent mode, never a `gate: MAX-REVIEW:` line — with the "could not verify" lines of the verifier's answer
+# (section 3 saves it under a fixed name) under it; the answer itself holds this machine's paths and is not quoted. The
 # fragments follow land's rule: the verified head's lines, found in the merged head, never the verdict's numbers there.
-for p in '**The review step of the Code story**' '`prs[].verdict`' '"${CLAUDE_PLUGIN_ROOT}/bin/verdict" "$A" >"<scratchpad>/verdict-<N>.md"; echo "EXIT=$?"' \
-    'Its source is the verifier'"'"'s own answer of that round, the file section 3 saved it to: it holds the findings, what the verifier ran and what it could not verify' \
-    'in Silent mode the last `gate:` line of the ticket file in the Workflow folder with the group lines after it, the prefix `gate: ` dropped' \
-    'A="<the file of the verifier'"'"'s answer of the PR'"'"'s last round>"' \
+for p in '**The review step of the Code story**' '`prs[].verdict`' '"${CLAUDE_PLUGIN_ROOT}/bin/verdict" "$R" >"<scratchpad>/verdict-<N>.md"; echo "EXIT=$?"' \
+    'Save the answer to `<scratchpad>/verify-<N>-answer.md` (`<N>` the PR number; each round overwrites it, and the review step of the Code story reads its "could not verify" lines)' \
+    'Its source is the posted verdict with its groups — in Full mode the PR comment, in Silent mode the last `gate:` line of the ticket file in the Workflow folder with the group lines after it, the prefix `gate: ` dropped' \
+    'and the `gate: MAX-REVIEW:` lines skipped — and under it the "could not verify" lines of the verifier'"'"'s answer `<scratchpad>/verify-<N>-answer.md` (section 3)' \
+    'The answer itself is not quoted: it holds what the verifier ran, with this machine'"'"'s paths.' \
+    'A="<scratchpad>/verify-<N>-answer.md"' \
+    'a line with personal data (the privacy check of the documents PR) replaced by the note `[line <k> of the verdict is not quoted: personal data (<rules>)]`' \
     'the head `land` merged, `prs[].result.head` of the state file' 'a block the merged head does not hold (a rebase changed a line of it) is not quoted' \
     'nor is a block with personal data, nor anything when the verified head cannot be read' \
     'The step changes no anchor of the story: the commit that added the story to the main branch stays its anchor.' \
@@ -878,18 +882,31 @@ for p in '**The review step of the Code story**' '`prs[].verdict`' '"${CLAUDE_PL
 done
 # The Silent-mode source: the awk line of the skill, run on a ticket file with two recorded rounds, gives the last round
 # without its `gate: ` prefix — a text bin/verdict reads as a verdict.
-RECIPE_GATE="$(grep -F "awk 'BEGIN { while ((getline l < ARGV[1]) > 0) { if (l ~ /^gate: /)" "$EWS" | head -n 1 | sed 's/^ *//; s/ "\$f" >"\$A"$//')"
+RECIPE_GATE="$(grep -F "awk 'BEGIN { while ((getline l < ARGV[1]) > 0) { if (l ~ /^gate: " "$EWS" | head -n 1 | sed 's/^ *//; s/ "\$f" >"\$[AR]"$//')"
 if [ -z "$RECIPE_GATE" ]; then bad "epic-wave: no awk line that takes the last gate: verdict of a ticket file"
 else
     printf '%s\n' '# 02 — demo' '' '## Result' '' 'gate: REJECTED: a.ts:3 — the total drifts' 'Consider: b.ts:9 — a name' 'Review depth: medium — argument' \
-        'Review tokens: not measured' '' 'gate: VERIFIED — 2026-11-16' 'Noted: c.ts:4 — kept as it is' 'Review depth: medium — argument' 'Review tokens: 1200' '' 'The result goes on.' >"$T/silent-ticket.md"
+        'Review tokens: not measured' '' 'gate: VERIFIED — 2026-11-16' 'Noted: c.ts:4 — kept as it is' 'Review depth: medium — argument' 'Review tokens: 1200' '' \
+        'gate: MAX-REVIEW: VERIFIED — 2026-11-16' 'Noted: d.ts:1 — the max review kept it' '' 'The result goes on.' >"$T/silent-ticket.md"
     got="$(bash -c "$RECIPE_GATE \"\$1\"" _ "$T/silent-ticket.md" 2>&1)"
     want="$(printf '%s\n' 'VERIFIED — 2026-11-16' 'Noted: c.ts:4 — kept as it is' 'Review depth: medium — argument' 'Review tokens: 1200')"
     printf '%s\n' "$got" >"$T/silent-review.md"
     vd="$(node "$ROOT/bin/verdict" "$T/silent-review.md" 2>&1)"; vd_rc=$?
     [ "$got" = "$want" ] && [ "$vd_rc" = 0 ] && [ "$vd" = "$want" ] \
-        && ok "epic-wave: the Silent-mode awk line gives the last gate: round, prefix dropped, and bin/verdict reads it" \
+        && ok "epic-wave: the Silent-mode awk line gives the last gate: round, prefix dropped, a MAX-REVIEW line skipped, and bin/verdict reads it" \
         || bad "epic-wave: the Silent-mode awk line: [$got] verdict exit $vd_rc [$vd]"
+fi
+# The answer's "could not verify" lines go under the posted verdict; what the verifier ran (this machine's paths) does not.
+RECIPE_CNV="$(grep -F '[ -s "$A" ] && grep ' "$EWS" | head -n 1)"
+if [ -z "$RECIPE_CNV" ]; then bad "epic-wave: no line that adds the answer's could-not-verify lines to the posted verdict"
+else
+    printf '%s\n' 'VERIFIED' 'Noted: c.ts:4 — kept as it is' >"$T/cnv-review.md"
+    printf '%s\n' 'VERIFIED' 'ran: cd /tmp/w && pnpm test — exit 0' 'Could not verify: the coupon path, no fixture' >"$T/cnv-answer.md"
+    bash -c "A=\"\$1\"; R=\"\$2\"; $RECIPE_CNV" _ "$T/cnv-answer.md" "$T/cnv-review.md" >/dev/null 2>&1
+    want="$(printf '%s\n' 'VERIFIED' 'Noted: c.ts:4 — kept as it is' 'Could not verify: the coupon path, no fixture')"
+    [ "$(cat "$T/cnv-review.md")" = "$want" ] \
+        && ok "epic-wave: the recipe adds the answer's could-not-verify line under the posted verdict, not what was run" \
+        || bad "epic-wave: the could-not-verify line: [$(cat "$T/cnv-review.md")]"
 fi
 RECIPE_VD="$(grep -F "node -e 'const fs = require(\"fs\"), path = require(\"path\"), [file, n, verdict]" "$EWS" | head -n 1 | sed 's/^`//; s/`$//')"
 if [ -z "$RECIPE_VD" ]; then bad "epic-wave: no recipe that sets prs[].verdict in the state file"

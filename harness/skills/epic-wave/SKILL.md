@@ -647,8 +647,10 @@ shows. Details — agent `worfy:reviewer`. A UI ticket without screenshots is a 
 finding, not "not verified": a screenshot can be automated, and the exception for manual GUI checks
 does not cover it.
 
-The verifier's answer starts with its verdict, in the form that lens gives it. Save the answer to a
-file in the scratchpad and run `"${CLAUDE_PLUGIN_ROOT}/bin/verdict" <file>`: it prints the answer
+The verifier's answer starts with its verdict, in the form that lens gives it. Save the answer to
+`<scratchpad>/verify-<N>-answer.md` (`<N>` the PR number; each round overwrites it, and the review step
+of the Code story reads its "could not verify" lines) and run
+`"${CLAUDE_PLUGIN_ROOT}/bin/verdict" <scratchpad>/verify-<N>-answer.md`: it prints the answer
 from its verdict line on, a sentence the model wrote above that line dropped. The verifier's verdict
 is the one `bin/verdict` prints; what you record still follows the sort of the findings into groups
 above. Exit code 1 — no line of the answer starts with `VERIFIED` or
@@ -1296,26 +1298,26 @@ Add them to the state file, once per PR, before the first `land` run (each argum
 **The review step of the Code story** (`bin/TICKETS.md`, "Code story"). The step `What review found
 and what remains` of a ticket's story is written after the merge, from the review verdict, without a
 model. Before `land` runs, save the verdict of the PR's last review round through `bin/verdict` and give
-its path to the PR's field `prs[].verdict` of the state file. Its source is the verifier's own answer of
-that round, the file section 3 saved it to: it holds the findings, what the verifier ran and what it
-could not verify — the part of the step that says what remains. After a session break that lost the
-file, the recorded verdict stands in for it: in Full mode the PR comment, in Silent mode the last
-`gate:` line of the ticket file in the Workflow folder with the group lines after it, the prefix
-`gate: ` dropped (`bin/verdict` would find no verdict line behind it):
+its path to the PR's field `prs[].verdict` of the state file. Its source is the posted verdict with its
+groups — in Full mode the PR comment, in Silent mode the last `gate:` line of the ticket file in the
+Workflow folder with the group lines after it, the prefix `gate: ` dropped (`bin/verdict` would find no
+verdict line behind it) and the `gate: MAX-REVIEW:` lines skipped — and under it the "could not verify"
+lines of the verifier's answer `<scratchpad>/verify-<N>-answer.md` (section 3), the part of the step that
+says what remains. The answer itself is not quoted: it holds what the verifier ran, with this machine's
+paths. After a session break that lost the answer, the step has the posted verdict alone:
 
 ```bash
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
-A="<the file of the verifier's answer of the PR's last round>"
-if [ ! -s "$A" ]; then
-  A="<scratchpad>/review-<N>.md"
-  if [ "$(F _resolved.mode)" = silent ]; then
-    f=$(ls "$(cd <repo> && "${CLAUDE_PLUGIN_ROOT}/bin/ticket" root)"/<epic>/issues/<NN>-*.md)
-    awk 'BEGIN { while ((getline l < ARGV[1]) > 0) { if (l ~ /^gate: /) { t = substr(l, 7); on = 1 } else if (on && l == "") on = 0; else if (on) t = t "\n" l }; print t }' "$f" >"$A"
-  else
-    gh pr view <N> --json comments --jq '[.comments[].body | select(test("^(NARROW: )?(VERIFIED|REJECTED)"))] | last // ""' >"$A"
-  fi
+R="<scratchpad>/review-<N>.md"
+if [ "$(F _resolved.mode)" = silent ]; then
+  f=$(ls "$(cd <repo> && "${CLAUDE_PLUGIN_ROOT}/bin/ticket" root)"/<epic>/issues/<NN>-*.md)
+  awk 'BEGIN { while ((getline l < ARGV[1]) > 0) { if (l ~ /^gate: MAX-REVIEW:/) on = 0; else if (l ~ /^gate: /) { t = substr(l, 7); on = 1 } else if (on && l == "") on = 0; else if (on) t = t "\n" l }; print t }' "$f" >"$R"
+else
+  gh pr view <N> --json comments --jq '[.comments[].body | select(test("^(NARROW: )?(VERIFIED|REJECTED)"))] | last // ""' >"$R"
 fi
-"${CLAUDE_PLUGIN_ROOT}/bin/verdict" "$A" >"<scratchpad>/verdict-<N>.md"; echo "EXIT=$?"
+A="<scratchpad>/verify-<N>-answer.md"
+[ -s "$A" ] && grep -iE 'could not verify|not verified' "$A" >>"$R"
+"${CLAUDE_PLUGIN_ROOT}/bin/verdict" "$R" >"<scratchpad>/verdict-<N>.md"; echo "EXIT=$?"
 ```
 
 `EXIT=1` — the PR has no verdict: leave `verdict` out, and the story gets no step. Then:
@@ -1324,7 +1326,9 @@ fi
 
 The field is the absolute path of that file (`land` refuses a relative one, exit 1). In the documents PR
 `land` appends the step last in the story `<tickets root>/<epic>/stories/<NN>-<slug>.md`, in the
-story's language: the verdict quoted line by line, and fragments of the code it names. The rule of a
+story's language: the verdict quoted line by line — a line with personal data (the privacy check of the
+documents PR) replaced by the note `[line <k> of the verdict is not quoted: personal data (<rules>)]` —
+and fragments of the code it names. The rule of a
 fragment: for each `path:<line>` or `path:<from>-<to>` of the verdict, those lines of the head the
 review verified (`<head>`), found as one block in the merged head — the head `land` merged,
 `prs[].result.head` of the state file — nearest to their own numbers, and quoted with the merged head's
@@ -1338,7 +1342,7 @@ before the step get nothing.
 In Silent mode `land` does not append the step and prints `review step of #N is the orchestrator's
 (tickets outside the repository)`. After that run, before `ticket done`, append it yourself to the
 story in the Workflow folder, in the same form: the heading `## <next step number>. <the title in the
-story's language>`, the lines of `verdict-<N>.md` each after `> `, and a fragment
+story's language>`, the lines of `verdict-<N>.md` each after `> ` (a line with personal data as the note above), and a fragment
 (`` Code: `<path>:<from>-<to>` · key lines: <from> `` and the lines in a fenced block) by the rule of
 a fragment above — the numbers of the verdict are those of `<head>`, so read the lines there and give
 them the numbers they have in the merged head `prs[].result.head`, never the verdict's numbers in the
