@@ -61,7 +61,7 @@ Code: `harness/bin/land:570-578` · key lines: 572, 575, 578
 
 ## 4. `story-check` отказывает, если цитируемый код не закоммичен
 
-Code: `harness/bin/story-check:642-646` · key lines: 645
+Code: `harness/bin/story-check:647-651` · key lines: 650
 
 ```js
         const anchor = f.chapterPr ? chapters.get(f.chapterPr) : defaultAnchor()
