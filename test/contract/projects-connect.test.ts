@@ -997,7 +997,8 @@ describe('the draft Session (step 4)', () => {
     const request = run.requests[0]
     // Outside the folder, so no Session of the Project stays behind (test/contract/profile-draft-session.test.ts).
     expect(request?.cwd).toBe(join(scratch, 'worfy-data', 'terminal-ai'))
-    expect(request?.additionalDirectories).toEqual([repo])
+    expect(request?.additionalDirectories).toEqual([repo, HARNESS_PLUGIN])
+    expect(request?.tools).toEqual(['Read', 'Glob', 'Grep', 'StructuredOutput'])
     expect(request?.persistSession).toBe(false)
     expect(request?.outputFormat.type).toBe('json_schema')
     // Read, Glob and Grep ask canUseTool on every call, which checks their paths (read-guard.ts).

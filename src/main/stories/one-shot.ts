@@ -15,8 +15,10 @@
 // diff, the PR and its verdicts), and reads the Project's checkout as an extra folder (`readFolders`), by the
 // absolute paths its text names. The diff and the PR text come from whoever wrote the PR, so the request
 // reads nothing outside the checkout and its cwd: the Claude driver refuses such a Read, Glob or Grep
-// (src/main/vendors/claude/read-guard.ts). It runs without the Harness plugin: it uses none of its skills,
-// and the plugin's rules and hooks would only add to its cost.
+// (src/main/vendors/claude/read-guard.ts), and offers the model no tool but those three and the structured
+// answer. It runs without the Harness plugin, neither worfy's copy nor the one the user installed (turned
+// off in its flag settings): it uses none of its skills, and the plugin's rules and hooks would only add to
+// its cost. The user's other plugins and settings still load (`settingSources: ['user']`), as for the draft.
 //
 // The checkout is the Project's root, or one of its git worktrees where the PR's head is checked out
 // (storyFolder); any other folder is refused before the request.

@@ -8,8 +8,9 @@
 //
 // A request with readFolders reads only inside them, its cwd and the plugin's folder when it has the
 // plugin (read-guard.ts): its canUseTool checks the path of each Read, Glob and Grep, and those three
-// stay out of `allowedTools`, so every call reaches it. A request without readFolders allows its tools
-// by name.
+// stay out of `allowedTools`, so every call reaches it. Such a request is also offered only its own tools
+// and the structured answer (SDK option `tools`), and reads the plugin's folder as an extra one. A request
+// without readFolders allows its tools by name.
 //
 // claudeOneShotQuery is that query, with allowedTools, disallowedTools, outputFormat and canUseTool
 // set; claudeOneShotOver sets them from `readOnlyTools` and `outputSchema` and reads Claude Code's
@@ -37,21 +38,29 @@ export interface ClaudeOneShotRequest extends QueryRequest {
   additionalDirectories?: readonly string[] | undefined
   /** False: Claude Code keeps no transcript of the request (SDK option `persistSession`); absent: it does. */
   persistSession?: false | undefined
-  /** The folder of the Harness plugin the request loads (sessionHarnessPlugin); absent or null: none. */
+  /**
+   * The folder of the Harness plugin the request loads (sessionHarnessPlugin); absent or null: none, and
+   * the copy the user installed (`worfy@worfy-harness`) is turned off for the request too.
+   */
   harnessPlugin?: string | null | undefined
+  /** The only built-in tools Claude Code offers the model (SDK option `tools`); absent: its default set. */
+  tools?: readonly string[] | undefined
 }
 
 /**
  * Claude Code of a single request, through the Agent SDK: the options of the draft Session, with the
  * Harness plugin `request.harnessPlugin` when it names one, so the skills of the Harness
- * (/worfy:connect-project) come with it, as in every Session.
+ * (/worfy:connect-project) come with it, as in every Session. Without it, the plugin the user installed
+ * is turned off too: the request reads the user's settings (`settingSources: ['user']`), which enable
+ * it, and flag settings (`settings`, the `--settings` flag) rank above them.
  */
 export async function claudeOneShotQuery(request: ClaudeOneShotRequest): Promise<QueryHandle> {
-  const [{ query }, { app }, { agentEnv }, { draftSessionOptions }] = await Promise.all([
+  const [{ query }, { app }, { agentEnv }, { draftSessionOptions }, { HARNESS_PLUGIN_ID }] = await Promise.all([
     import('@anthropic-ai/claude-agent-sdk'),
     import('electron'),
     import('../../agent/env'),
     import('./options'),
+    import('../../harness/install'),
   ])
   const options = draftSessionOptions({
     cwd: request.cwd,
@@ -68,6 +77,11 @@ export async function claudeOneShotQuery(request: ClaudeOneShotRequest): Promise
     additionalDirectories: request.additionalDirectories,
     persistSession: request.persistSession,
   })
+  if (request.tools !== undefined) options.tools = [...request.tools]
+  if (request.harnessPlugin == null) {
+    const flag = options.settings !== undefined && typeof options.settings !== 'string' ? options.settings : {}
+    options.settings = { ...flag, enabledPlugins: { ...flag.enabledPlugins, [HARNESS_PLUGIN_ID]: false } }
+  }
   return query({ prompt: request.prompt, options }) as QueryHandle
 }
 
@@ -190,7 +204,9 @@ export const claudeOneShotOver = (start: ClaudeOneShotQuery, harnessFolder: () =
   const allowed = opts.readOnlyTools ?? []
   const harnessPlugin = opts.harness === true ? await harnessFolder() : null
   const folders = opts.readFolders ?? []
-  const scope = folders.length > 0 ? readScope(opts.cwd, harnessPlugin === null ? folders : [...folders, harnessPlugin]) : undefined
+  // The folders besides the cwd a request with readFolders reads: they and the plugin's folder.
+  const readable = harnessPlugin === null ? folders : [...folders, harnessPlugin]
+  const scope = folders.length > 0 ? readScope(opts.cwd, readable) : undefined
   const stderr: string[] = []
   const query = await start({
     prompt: oneMessage(prompt),
@@ -204,7 +220,11 @@ export const claudeOneShotOver = (start: ClaudeOneShotQuery, harnessFolder: () =
     // With a scope, the guarded tools ask canUseTool on every call: an allowed tool would skip it.
     allowedTools: scope === undefined ? allowed : allowed.filter((tool) => !GUARDED_TOOLS.has(tool)),
     disallowedTools: ONE_SHOT_DISALLOWED_TOOLS,
-    ...(folders.length > 0 ? { additionalDirectories: folders } : {}),
+    // With a scope, Claude Code offers only these tools: one added later (Monitor, Workflow) is absent, not
+    // just missing from the deny list. StructuredOutput is the tool of the structured answer.
+    ...(scope === undefined ? {} : { tools: [...allowed, STRUCTURED_OUTPUT_TOOL] }),
+    // The plugin's folder too, so the draft reads its schema and README as it reads the folder.
+    ...(scope === undefined ? {} : { additionalDirectories: readable }),
     ...(opts.ephemeral === true ? { persistSession: false as const } : {}),
     ...(harnessPlugin === null ? {} : { harnessPlugin }),
   })

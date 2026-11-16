@@ -96,6 +96,8 @@ async function storyCanUseTool(): Promise<{ options: Record<string, unknown>; as
 describe('the Code story request reads only its checkout', () => {
   it('runs Read, Glob and Grep through canUseTool: none of them is in allowedTools', async () => {
     const { options } = await storyCanUseTool()
+    // The only tools Claude Code offers: the three and the structured answer; Monitor, Workflow and any later tool are absent.
+    expect(options.tools).toEqual(['Read', 'Glob', 'Grep', 'StructuredOutput'])
     expect(options.allowedTools ?? []).not.toContain('Read')
     expect(options.allowedTools ?? []).not.toContain('Glob')
     expect(options.allowedTools ?? []).not.toContain('Grep')
@@ -162,6 +164,28 @@ describe('the Code story request reads only its checkout', () => {
     expect((await ask('Glob', { pattern: '**/*.ts' })).behavior).toBe('allow')
   })
 
+  it('denies a path or a pattern with whitespace at an end, which Claude Code trims before it runs the tool', async () => {
+    const { ask } = await storyCanUseTool()
+    const ssh = join(mocks.home, '.ssh')
+    for (const padded of [` ${ssh}`, `\t${ssh}`, `${ssh} `, `\n${ssh}`]) {
+      expect((await ask('Grep', { pattern: '.', path: padded, output_mode: 'content' })).behavior, JSON.stringify(padded)).toBe('deny')
+      expect((await ask('Glob', { pattern: '*', path: padded })).behavior, JSON.stringify(padded)).toBe('deny')
+      expect((await ask('Glob', { pattern: `${padded}/*` })).behavior, JSON.stringify(padded)).toBe('deny')
+      expect((await ask('Read', { file_path: `${padded}/id_ed25519` })).behavior, JSON.stringify(padded)).toBe('deny')
+    }
+    // Padding around a path inside the checkout is refused too: the guard does not guess what the tool reads.
+    expect((await ask('Read', { file_path: ` ${join(root, 'src', 'cart.ts')}` })).behavior).toBe('deny')
+    // A space inside a name is a name.
+    mkdirSync(join(root, 'my notes'))
+    expect((await ask('Read', { file_path: join(root, 'my notes', 'a.md') })).behavior).toBe('allow')
+  })
+
+  it('denies a path with a control character or a ~name the guard cannot read as the tool does', async () => {
+    const { ask } = await storyCanUseTool()
+    expect((await ask('Read', { file_path: `${join(root, 'src')}\u0000/../../outside/secret.txt` })).behavior).toBe('deny')
+    expect((await ask('Grep', { pattern: 'x', path: '~root/.ssh' })).behavior).toBe('deny')
+  })
+
   it('still refuses every tool outside its three by name', async () => {
     const { ask } = await storyCanUseTool()
     expect((await ask('Bash', { command: 'cat ~/.ssh/id_ed25519' })).behavior).toBe('deny')
@@ -173,6 +197,8 @@ describe('the Harness plugin of a single request', () => {
   it('the story request runs without the Harness plugin', async () => {
     const { options, ask } = await storyCanUseTool()
     expect(options).not.toHaveProperty('plugins')
+    // The copy the user installed is turned off in the flag settings, which rank above the user's settings.
+    expect((options.settings as { enabledPlugins?: Record<string, unknown> } | undefined)?.enabledPlugins).toEqual({ 'worfy@worfy-harness': false })
     // Without the plugin, its folder is no folder of the request either.
     expect((await ask('Read', { file_path: join(bundledHarnessDir(), 'profiles', 'README.md') })).behavior).toBe('deny')
   })
@@ -182,6 +208,8 @@ describe('the Harness plugin of a single request', () => {
     await vendorDriver('claude').oneShot('/worfy:connect-project', { cwd: runDir, readFolders: [root], harness: true, readOnlyTools: ['Read', 'Glob', 'Grep'], outputSchema: { type: 'object' } })
     const options = mocks.calls[0]!.options
     expect(options.plugins).toEqual([{ type: 'local', path: bundledHarnessDir(), skipMcpDiscovery: true }])
+    expect(options.additionalDirectories).toEqual([root, bundledHarnessDir()])
+    expect((options.settings as { enabledPlugins?: unknown } | undefined)?.enabledPlugins).toBeUndefined()
     const canUseTool = options.canUseTool as CanUseTool
     const signal = new AbortController().signal
     expect((await canUseTool('Read', { file_path: join(bundledHarnessDir(), 'profiles', 'README.md') }, { signal })).behavior).toBe('allow')
@@ -195,6 +223,8 @@ describe('a single request without readFolders', () => {
     await vendorDriver('claude').oneShot('hi', { cwd: root, readOnlyTools: ['Read'], outputSchema: { type: 'object' } })
     const options = mocks.calls[0]!.options
     expect(options.allowedTools).toEqual(['Read'])
+    expect(options).not.toHaveProperty('tools')
+    expect(options).not.toHaveProperty('additionalDirectories')
     expect(options).not.toHaveProperty('plugins')
     const canUseTool = options.canUseTool as CanUseTool
     expect((await canUseTool('Read', { file_path: join(outside, 'secret.txt') }, { signal: new AbortController().signal })).behavior).toBe('allow')

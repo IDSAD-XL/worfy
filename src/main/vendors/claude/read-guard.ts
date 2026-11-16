@@ -14,7 +14,9 @@
 // `<link>/..` reaches out. A path that does not exist resolves through its nearest existing parent. A
 // relative path resolves against the cwd, `~` against the home folder. The comparison is on a separator
 // boundary (`/repo` does not hold `/repo-other`); on Windows it ignores case, accepts `/` and the `\\?\`
-// prefix, and refuses a drive-relative path (`C:x`), whose folder depends on a per-drive cwd.
+// prefix, and refuses a drive-relative path (`C:x`), whose folder depends on a per-drive cwd. A path the
+// guard cannot be sure to read as Claude Code does is refused (`unclear`: whitespace at an end, a control
+// character, `~name`).
 //
 // Glob: its `path` (absent: the cwd) is checked like any path, and its `pattern` is checked from the
 // part before its first wildcard: an absolute pattern from that part alone, a relative one joined to the
@@ -31,6 +33,17 @@ const PATH_FIELDS = ['file_path', 'path', 'notebook_path'] as const
 
 /** A segment of a glob pattern that matches rather than names. */
 const WILDCARD = /[*?[\]{}!()]/
+
+/**
+ * A path the guard cannot be sure to read as Claude Code does, so it refuses it rather than guess:
+ * - whitespace at either end: Claude Code trims a Grep or Glob `path` before it runs the tool, while the
+ *   guard would join ` ~/.ssh` with its space to the cwd and find it inside (verdict of PR #1907, round 1);
+ * - a control character (a NUL, a line break): no real file name the model needs has one;
+ * - `~name`: whether it means another user's home or a folder named `~name` depends on the tool.
+ * `~` alone and `~/…` are the home folder, as Claude Code expands them. Unicode forms (NFC and NFD of
+ * one name) need no rule: each segment is resolved by the file system, which gives its own spelling.
+ */
+const unclear = (target: string): boolean => /^\s|\s$/u.test(target) || /\p{Cc}/u.test(target) || /^~[^\\/]/.test(target)
 
 export interface ReadScopeEnv {
   platform?: NodeJS.Platform | undefined
@@ -70,6 +83,7 @@ export function readScope(cwd: string, folders: readonly string[], env: ReadScop
 
   /** `target` as the file system resolves it from `base`; null when it cannot be resolved here. */
   const resolveFrom = (base: string, target: string): string | null => {
+    if (unclear(target)) return null
     let raw = plain(target)
     if (raw === '~' || raw.startsWith('~/') || (windows && raw.startsWith('~\\'))) raw = home + raw.slice(1)
     if (windows && /^[a-zA-Z]:(?![\\/])/.test(raw)) return null
@@ -100,7 +114,7 @@ export function readScope(cwd: string, folders: readonly string[], env: ReadScop
   /** Null when `target` resolves inside a folder; else the refusal. */
   const checkPath = (target: string, base: string): string | null => {
     const at = resolveFrom(base, target)
-    return at !== null && inside(at) ? null : refuse(target)
+    return at !== null && inside(at) ? null : refuse(unclear(target) ? JSON.stringify(target) : target)
   }
 
   return {
@@ -116,6 +130,7 @@ export function readScope(cwd: string, folders: readonly string[], env: ReadScop
         if (refused !== null) return refused
       }
       if (toolName !== 'Glob' || typeof input.pattern !== 'string') return null
+      if (unclear(input.pattern)) return refuse(`The pattern ${JSON.stringify(input.pattern)}`)
       const pattern = plain(input.pattern)
       const segments = pattern.split(windows ? /[\\/]+/ : /\/+/)
       const first = segments.findIndex((segment) => WILDCARD.test(segment))

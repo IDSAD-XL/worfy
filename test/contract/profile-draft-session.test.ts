@@ -199,7 +199,8 @@ describe('the profile draft leaves no Session behind', () => {
     await appConnector().draft({ draftId: 'd1', root: repo, mode: 'silent', workflowFolder: null }, () => undefined)
     const call = mocks.calls[0]
     expect(call?.options.cwd).toBe(runDir)
-    expect(call?.options.additionalDirectories).toEqual([repo])
+    // The folder, then the Harness plugin's folder, where the skill reads its schema and README.
+    expect(call?.options.additionalDirectories).toEqual([repo, bundledHarnessDir()])
     expect(call?.options.persistSession).toBe(false)
     expect(call?.text.startsWith(`/worfy:connect-project ${repo} silent --draft-only\n`)).toBe(true)
     // Glob and Grep without a path look in the cwd, which is not the folder: the prompt says so.
@@ -212,6 +213,7 @@ describe('the profile draft leaves no Session behind', () => {
     const options = mocks.calls[0]!.options
     expect(options.plugins).toEqual([{ type: 'local', path: bundledHarnessDir(), skipMcpDiscovery: true }])
     expect(options).not.toHaveProperty('allowedTools')
+    expect(options.tools).toEqual(['Read', 'Glob', 'Grep', 'StructuredOutput'])
     const canUseTool = options.canUseTool as (name: string, input: Record<string, unknown>, extra: { signal: AbortSignal }) => Promise<{ behavior: string }>
     const ask = async (name: string, input: Record<string, unknown>): Promise<string> => (await canUseTool(name, input, { signal: new AbortController().signal })).behavior
     expect(await ask('Read', { file_path: join(repo, 'package.json') })).toBe('allow')
