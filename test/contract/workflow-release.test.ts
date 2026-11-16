@@ -77,7 +77,7 @@ beforeEach(() => {
   calls = join(dir, 'npm-calls.log')
   writeFileSync(calls, '')
   writeFileSync(join(dir, 'gitconfig'), '')
-  stubVars = { RELEASE_STUB_PUBLISHED: '', RELEASE_STUB_CODE: '0', RELEASE_STUB_MISSING: '' }
+  stubVars = { RELEASE_STUB_PUBLISHED: '', RELEASE_STUB_CODE: '0', RELEASE_STUB_MISSING: '', RELEASE_STUB_CRASH: '' }
   // The stand-in npm first on the PATH, git from the PATH of the tests. On Windows a `npm.cmd`, as npm leaves one there.
   if (WINDOWS) writeFileSync(join(bin, 'npm.cmd'), `@"${NODE}" "${join(STUBS, 'npm.mjs')}" %*\r\n`)
   else symlinkSync(join(STUBS, 'npm'), join(bin, 'npm'))
@@ -192,6 +192,7 @@ describe('the release reader', () => {
     expect(npmCalls()).toEqual([`npm view ${PACKAGE} version cwd=${app}`, `npm view ${PACKAGE} version cwd=${app}`])
   })
 
+  // npm's summary follows `npm error code <code>` and its syscall and errno, after any warning and before help text.
   it('package: a registry that does not answer is not checked, with npm\'s reason', async () => {
     const app = repoAt(join(dir, 'app'))
     stubVars.RELEASE_STUB_PUBLISHED = PACKAGE
@@ -210,13 +211,18 @@ describe('the release reader', () => {
   it('package: npm\'s debug log path, new on every run, never gets into the reason, so a second failure calls nobody back', async () => {
     const app = repoAt(join(dir, 'app'))
     const places: ReleasePlaces = { library: null, consumer: app }
-    for (const failing of [{ RELEASE_STUB_CODE: '1' }, { RELEASE_STUB_MISSING: 'package' }]) {
-      Object.assign(stubVars, { RELEASE_STUB_CODE: '0', RELEASE_STUB_MISSING: '' }, failing)
+    // An error without a code has no summary line to take: its reason is the last line before the log line.
+    const failures = [
+      { vars: { RELEASE_STUB_CODE: '1' }, reason: 'npm view exited 1: npm error network request to https://registry.example/ failed' },
+      { vars: { RELEASE_STUB_MISSING: 'package' }, reason: 'npm view exited 1: npm error 404 Not Found - GET https://registry.example/@acme/lots - Not found' },
+      { vars: { RELEASE_STUB_CRASH: '1' }, reason: "npm view exited 1: npm error Cannot read properties of undefined (reading 'version')" },
+    ]
+    for (const failing of failures) {
+      Object.assign(stubVars, { RELEASE_STUB_CODE: '0', RELEASE_STUB_MISSING: '', RELEASE_STUB_CRASH: '' }, failing.vars)
       let now = 0
       const reader = new ReleaseReader({ env, intervalMs: 1000, now: () => now })
       const first = await reader.check(packageLine, places)
-      expect(first.state).toBe('not checked')
-      expect(first.reason).not.toMatch(/_logs|debug-0\.log|complete log/u)
+      expect(first).toEqual({ state: 'not checked', reason: failing.reason })
       now = 1000
       let calledBack = 0
       reader.peek(packageLine, places, () => (calledBack += 1))
@@ -224,7 +230,7 @@ describe('the release reader', () => {
       expect(calledBack).toBe(0)
       expect(await reader.check(packageLine, places)).toEqual(first)
     }
-    expect(npmCalls()).toHaveLength(4)
+    expect(npmCalls()).toHaveLength(6)
   })
 
   it('package: npm 11 answers a version that is not there with E404 and exit 1 — waiting, and a second answer calls nobody back', async () => {
