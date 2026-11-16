@@ -13,7 +13,8 @@ const E2E = join(ROOT, 'test', 'e2e')
 /** The static imports and re-exports of `source`: their specifiers and whether they carry an import attribute. */
 function importsOf(source: string): { from: string; attribute: boolean }[] {
   const found: { from: string; attribute: boolean }[] = []
-  for (const match of source.matchAll(/^\s*(?:import|export)\s[^'"`;]*?\bfrom\s+['"]([^'"]+)['"](\s+with\s*\{[^}]*\})?/gmu)) {
+  // `import type` and `export type` are erased before the module loads, so they reach no JSON at run time.
+  for (const match of source.matchAll(/^\s*(?:import|export)\s(?!type\s)[^'"`;]*?\bfrom\s+['"]([^'"]+)['"](\s+with\s*\{[^}]*\})?/gmu)) {
     found.push({ from: match[1]!, attribute: match[2] !== undefined })
   }
   for (const match of source.matchAll(/^\s*import\s+['"]([^'"]+)['"]/gmu)) found.push({ from: match[1]!, attribute: false })
