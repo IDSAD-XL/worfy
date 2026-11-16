@@ -1,8 +1,8 @@
 # 119 — Убрать реальные ожидания из медленных test-ов: опции задержек и fake timers
 
 Type: task
-Status: claimed 2026-11-16T01:52Z
-PR: #1918
+Status: done 2026-11-16T17:07Z
+PR: #1900, #1918
 Blocked by: none
 Source: владелец 2026-11-16, «да на тикеты»: кандидаты 1–9 исследования
 `docs/research/2026-11-16-fake-timers.md` (раздел 4, «Кандидаты по файлам», и правило «когда fake timers НЕ
