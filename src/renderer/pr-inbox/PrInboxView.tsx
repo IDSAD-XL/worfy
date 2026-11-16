@@ -9,11 +9,15 @@
 // The selected PR also has "Draft replies" (a Session with skill pr-reply, `actions.prReply`) and, under each thread,
 // its draft reply (DraftThread.tsx, worfy-pr-inbox ticket 05): the only way to GitHub from this view is Send on a
 // draft, on the user's click (ADR-0105). Drafts are read for the selected PR only.
+//
+// A PR of a Ticket whose Code story is in the Tickets root (`stories/<NN>-<slug>.md` of its Epic) has "Code story" beside
+// "Open on GitHub": the Story view on it (stories/open.ts; worfy-code-stories ticket 10).
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import { PR_INBOX_GROUP_TITLES, type PrInboxComment, type PrInboxGroup, type PrInboxRow, type PrInboxSnapshot, type PrInboxThread } from '../../shared/ipc/pr-inbox'
 import type { PrReplyItem } from '../../shared/ipc/pr-inbox'
 import type { ProjectView } from '../../shared/ipc/projects'
-import type { Ticket } from '../../shared/workflow/types'
+import type { Epic, Ticket } from '../../shared/workflow/types'
+import { openStoryFile, ticketStoryPath } from '../stories/open'
 import { ticketTitle } from '../canvas/epic-layout'
 import { invoke, readableReason } from '../ipc'
 import { useNow } from '../limits/useLimits'
@@ -343,6 +347,25 @@ export interface PrPaneProps {
   /** The list holds this PR alone: no ↑ ↓ hint. */
   single: boolean
   onMarkSeen: () => void
+  /** The Code story of the PR's Ticket under the Tickets root; null or absent — none. */
+  story?: string | null
+}
+
+/** "Code story" of a PR whose Ticket has one: opens it; main's reason, when it cannot be read, in its title. */
+function CodeStoryButton({ projectId, path }: { projectId: string; path: string }) {
+  const [error, setError] = useState<string | null>(null)
+  return (
+    <button
+      type="button"
+      className="w-pr-inbox-button"
+      data-testid="pr-inbox-code-story"
+      data-error={error ?? undefined}
+      title={error ?? 'Open the Code story of this pull request'}
+      onClick={() => void openStoryFile(projectId, path).then((failure) => setError(failure ?? null))}
+    >
+      Code story
+    </button>
+  )
 }
 
 function Fact({ name, children }: { name: string; children: ReactNode }) {
@@ -375,7 +398,7 @@ function Size({ row }: { row: PrInboxRow }) {
 }
 
 /** The selected PR in full: its title and facts, what to do next, the links and buttons, its threads with their drafts. */
-export function PrPane({ projectId, group, row, ticket, viewer, now, readOnly, single, onMarkSeen }: PrPaneProps) {
+export function PrPane({ projectId, group, row, ticket, viewer, now, readOnly, single, onMarkSeen, story = null }: PrPaneProps) {
   const review = reviewText(row.reviewDecision)
   const merge = mergeText(row.mergeStateStatus)
   const fresh = newText(row.newSinceSeen)
@@ -477,6 +500,7 @@ export function PrPane({ projectId, group, row, ticket, viewer, now, readOnly, s
                   <ExternalLink url={row.url} className="w-pr-inbox-button w-pr-inbox-button--link" testId="pr-inbox-open-github">
                     Open on GitHub
                   </ExternalLink>
+                  {story !== null ? <CodeStoryButton projectId={projectId} path={story} /> : null}
                   <span style={{ flex: 1 }} />
                   {action?.kind === 'draft-replies' ? null : <DraftRepliesButton projectId={projectId} repo={row.repo} number={row.number} readOnly={readOnly} />}
                   <button type="button" className="w-pr-inbox-button" disabled={row.newSinceSeen === 0 || readOnly !== null} title={readOnly ?? undefined} onClick={onMarkSeen}>
@@ -512,6 +536,8 @@ export interface PrInboxBodyProps {
   name: string
   snapshot: PrInboxSnapshot
   tickets: readonly Ticket[]
+  /** The Epics of the workflow model: their Code stories (worfy-code-stories ticket 10); absent — none. */
+  epics?: readonly Epic[]
   now: number
   /** The key (`rowKey`) of the PR the user selected; null or a PR the snapshot no longer holds — the view picks one. */
   selected: string | null
@@ -527,13 +553,14 @@ export interface PrInboxBodyProps {
 }
 
 /** The view over one snapshot, without IPC. */
-export function PrInboxBody({ name, snapshot, tickets, now, selected, focusedGroup, missing, failure, readOnly, onSelect, onMarkSeen }: PrInboxBodyProps) {
+export function PrInboxBody({ name, snapshot, tickets, epics = EMPTY_EPICS, now, selected, focusedGroup, missing, failure, readOnly, onSelect, onMarkSeen }: PrInboxBodyProps) {
   const status = statusLines(snapshot, now)
   const groups = listedGroups(snapshot)
   const empty = snapshot.readAt !== null && groups.length === 0
   const shown = shownKey(snapshot, selected)
   const order = listOrder(snapshot)
   const current = shown === null ? undefined : order.find(({ row }) => rowKey(row) === shown)
+  const currentTicket = current === undefined ? undefined : ticketOfRow(current.row, tickets)
   return (
     <div className="w-pr-inbox" data-testid="pr-inbox-view" data-project={snapshot.projectId}>
       <header className="w-pr-inbox__head">
@@ -619,7 +646,8 @@ export function PrInboxBody({ name, snapshot, tickets, now, selected, focusedGro
               projectId={snapshot.projectId}
               group={current.group}
               row={current.row}
-              ticket={ticketOfRow(current.row, tickets)}
+              ticket={currentTicket}
+              story={currentTicket === undefined ? null : ticketStoryPath(epics.find((epic) => epic.epic === currentTicket.epic), currentTicket.num)}
               viewer={snapshot.viewer}
               now={now}
               readOnly={readOnly}
@@ -634,6 +662,7 @@ export function PrInboxBody({ name, snapshot, tickets, now, selected, focusedGro
 }
 
 const EMPTY_TICKETS: readonly Ticket[] = []
+const EMPTY_EPICS: readonly Epic[] = []
 
 export interface PrInboxViewProps {
   /** The active Project; undefined while there is none. */
@@ -768,6 +797,7 @@ function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' 
         name={project.name}
         snapshot={snapshot}
         tickets={model?.tickets ?? EMPTY_TICKETS}
+        epics={model?.epics ?? EMPTY_EPICS}
         now={now}
         selected={selected}
         focusedGroup={focusedGroup}

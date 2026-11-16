@@ -26,6 +26,7 @@ import { StartNowModal, type OrchestratorBusy } from '../../autopilot/StartNowMo
 import { invoke, subscribe } from '../../ipc'
 import { autopilotBudgetOf, autopilotRunOf } from '../../../shared/settings/app-settings'
 import { openRunHistory } from '../../flight-recorder/open'
+import { epicStoryPath, openStoryFile } from '../../stories/open'
 import { useLimits, useNow } from '../../limits/useLimits'
 import { useReadOnly } from '../../projects/useProjects'
 import { useAppSettings } from '../../settings/useAppSettings'
@@ -145,6 +146,8 @@ import { hasRunWave, useRunWaveState } from './gates'
 //   the title of "⋯".
 // - With no run in the Project, "⋯" has "Run all accepted": the Start Autopilot window over the accepted Epics,
 //   as the Command palette's (worfy-autopilot-queue ticket 16, runAllAccepted).
+// - "Code story" (worfy-code-stories ticket 10), last in "⋯" while the Epic has its `story.md`: the Story view on it, as
+//   "Story" on the frame (EpicStory.tsx). A done Epic with no past Runs keeps "⋯" for it.
 
 export const order = 30
 
@@ -645,7 +648,9 @@ function Autopilot({ projectId, root, epic, tickets }: Extract<SlotProps['subjec
   const [askedFor, setAskedFor] = useState<number | null>(null)
   // "Start now" or "Cancel" on its way to main.
   const [acting, setActing] = useState(false)
-  if (hidden && !pastRuns) return null
+  // The Code story of the Epic, an item of "⋯" while it has one (worfy-code-stories ticket 10).
+  const storyPath = epicStoryPath(epic)
+  if (hidden && !pastRuns && storyPath === null) return null
 
   const button =
     pending !== undefined || (mine && stopping) ? (
@@ -689,6 +694,13 @@ function Autopilot({ projectId, root, epic, tickets }: Extract<SlotProps['subjec
       return Promise.resolve(undefined)
     },
   }
+  const storyItem = (path: string): ActionMenuItem => ({
+    label: 'Code story',
+    title: `Open the Code story of ${epic.epic}`,
+    testId: 'action-epic-story-item',
+    disabled: false,
+    run: () => openStoryFile(projectId, path),
+  })
   const forceStop: ActionMenuItem = {
     label: 'Force stop',
     title: readOnly ?? forceStopTitle(epic.epic),
@@ -734,7 +746,7 @@ function Autopilot({ projectId, root, epic, tickets }: Extract<SlotProps['subjec
       title="More Autopilot actions"
       testId="action-autopilot-more"
       menuLabel={`Autopilot over ${epic.epic}`}
-      items={[...(mine && running ? [forceStop] : []), ...queueItems, runHistory]}
+      items={[...(mine && running ? [forceStop] : []), ...queueItems, ...(hidden && !pastRuns ? [] : [runHistory]), ...(storyPath === null ? [] : [storyItem(storyPath)])]}
     />
   )
   if (hidden) return <div className="nodrag" style={{ flex: 'none' }}>{more}</div>

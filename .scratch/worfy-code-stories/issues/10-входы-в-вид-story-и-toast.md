@@ -1,7 +1,7 @@
 # 10 — Входы в вид Story: рамка Epic-а, карточка Ticket-а, Pull requests, toast, Command palette
 
 Type: feature
-Status: open
+Status: claimed 2026-11-16T13:28Z
 Blocked by: 09
 Source: [spec.md](../spec.md), «Ticket-ы», строка 10; «Решения владельца» 2, 7, 20 (строки 92–93, 98–99, 121–122);
 «Решения по реализации» → worfy: «Входы» (строки 253–255); «Решения по test-ам», Б (строки 282–284); истории 3, 4, 22,

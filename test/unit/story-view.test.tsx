@@ -207,16 +207,26 @@ describe('the code of a fragment', () => {
     expect(screen.getByTestId('story-code').textContent).toContain('The code of the PR head: the main branch no longer holds it in this form.')
   })
 
-  it('a chapter of an Epic story reads its fragments against its own PR head', async () => {
-    const asked: (string | null)[] = []
-    const record: FragmentCodeSource = (fragment, head) => {
-      asked.push(head)
-      return storyOwnCode(fragment, head)
+  it('a chapter of an Epic story reads its fragments against its own PR head, with its PR', async () => {
+    const asked: [string | null, number | null][] = []
+    const record: FragmentCodeSource = (fragment, head, pr) => {
+      asked.push([head, pr])
+      return storyOwnCode(fragment, head, pr)
     }
     render(<StoryView story={epicStory()} codeOf={record} />)
     fireEvent.click(screen.getAllByTestId('story-chapter')[3]!)
     await screen.findByTestId('md-story-code')
-    expect(asked).toEqual(['2130000000000000000000000000000000000000'])
+    expect(asked).toEqual([['2130000000000000000000000000000000000000', 213]])
+  })
+
+  it('the story\'s own code with no commit to read it at says so, not that main changed (worfy-code-stories/10)', async () => {
+    const noAnchor: FragmentCodeSource = (fragment) => Promise.resolve({ code: fragment.code, startLine: fragment.startLine, keyLines: fragment.keyLines, fromHead: true, reason: 'no-anchor' })
+    render(<StoryView story={prStory('pr-en', 'en')} codeOf={noAnchor} />)
+    press('ArrowRight')
+    await screen.findByTestId('md-story-code')
+    const text = screen.getByTestId('story-code').textContent ?? ''
+    expect(text).toContain('The code as the story quotes it: git has no commit to read it at.')
+    expect(text).not.toContain('the main branch no longer holds it')
   })
 
   it('a code that cannot be read is the story’s own, with the reason', async () => {

@@ -20,6 +20,7 @@ import { activeProject, followActiveProject, useLinked, useProjects } from './pr
 import { setView, useNavigation } from './session/navigation'
 import { installQuestionToasts } from './session/question-toast'
 import { SessionView } from './session/SessionView'
+import { useStoryToasts } from './stories/use-story-toasts'
 import { HintTooltips } from './theme/kit/Tooltip'
 import { ToastRegion } from './toast/ToastRegion'
 import { installPrInboxDigest } from './pr-inbox/digest'
@@ -62,6 +63,8 @@ export function App() {
   // shows a Linked machine; the list itself is the sidebar's Projects section
   // (shell/sidebar/ProjectsSection.tsx).
   const active = activeProject(useProjects())
+  // The toast of an Epic's Code story, once per Epic (worfy-code-stories ticket 10).
+  useStoryToasts(active)
   const shown = useShownMachine()
   const project = active ? { id: active.id, name: shown ? `${active.name} · ${shown.name}` : active.name, branch: active.branch ?? '—' } : undefined
   // The view is the app's, not the shell's: a double click on a Session's Node switches to the
