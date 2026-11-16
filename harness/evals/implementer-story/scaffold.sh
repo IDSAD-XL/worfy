@@ -11,7 +11,8 @@
 #     (`in-branch:`), the output and `EXIT=<code>`; it also keeps the story as HEAD has it in
 #     .git/story-check/. The graders read those files: no grader type of `claude plugin eval` runs a
 #     command, and the implementer's own story-check run is a claim of its report, not a check. The hook
-#     prints nothing and never fails a commit; a commit without a story leaves both as they were.
+#     prints nothing and never fails a commit; a commit without a story writes nothing before the first
+#     story and a red log (`EXIT=no-story`) after it.
 # The Harness state of the demo project is where demo-project.sh put it: .git/worfy-harness, and the
 # temporary HOME's ~/.claude/worfy-harness when EVAL_HARNESS_HOME is unset.
 set -euo pipefail
@@ -77,15 +78,20 @@ done
 
 hook="$(git rev-parse --git-path hooks)/post-commit"
 mkdir -p "${hook%/*}"
-hook_text="$(cat <<'EOF'
+cat >"$hook" <<'EOF'
 #!/bin/sh
 # The eval case implementer-story (harness/evals/implementer-story/scaffold.sh), not the demo project.
 # After a commit whose HEAD holds a Code story: a copy of each story as HEAD has it in
 # <common .git>/story-check/, and into <common .git>/story-check.log, replaced each time, the stories of
-# HEAD, those the branch added or changed since main, story-check's output and its exit code.
+# HEAD, those the branch added or changed since main, the output of story-check and its exit code. A commit
+# without a story leaves no log where there was none, and turns an existing one red.
 stories=$(git ls-tree -r --name-only HEAD -- .scratch/demo/stories) || exit 0
-[ -n "$stories" ] || exit 0
 common=$(git rev-parse --path-format=absolute --git-common-dir) || exit 0
+# A commit that drops the story after a green log turns the log red: the last word belongs to this commit.
+if [ -z "$stories" ]; then
+    [ ! -f "$common/story-check.log" ] || printf 'stories: none\nEXIT=no-story\n' >"$common/story-check.log"
+    exit 0
+fi
 mkdir -p "$common/story-check" || exit 0
 for story in $stories; do
     git show "HEAD:$story" >"$common/story-check/${story##*/}" || exit 0
@@ -102,6 +108,6 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 } >"$common/story-check.log" 2>&1
 exit 0
 EOF
-)"
+hook_text="$(cat "$hook")"
 printf '%s\n' "${hook_text//@STORY_CHECK@/$story_check}" >"$hook"
 chmod +x "$hook"

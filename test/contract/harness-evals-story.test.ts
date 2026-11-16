@@ -194,10 +194,19 @@ describe('harness/evals: implementer-story', () => {
     expect(targetPath('story-required-parts.md')).toBe(COPY)
     expect(score(work)).toBe(1)
 
-    // A later commit without a change to the story checks it again on the new head.
+    // A later commit without a change to the story (the ticket's result section, say) checks it again on the
+    // new head, and the run still scores 1: the story is in the branch, not only in the last commit.
     put(work, 'src/alpha.mjs', `${CODE}// end\n`)
     commit(work, home, 'demo/01: a later commit')
     expect(log(work).trimEnd().split('\n').at(-1)).toBe('EXIT=0')
+    expect(score(work)).toBe(1)
+
+    // A commit that deletes the story replaces the green log with a red one.
+    expect(git(work, home, 'rm', '-q', STORY).status).toBe(0)
+    commit(work, home, 'demo/01: the story is gone')
+    expect(log(work)).toMatch(/^EXIT=no-story$/m)
+    expect(log(work)).not.toMatch(/^EXIT=0$/m)
+    expect(score(work)).toBeLessThan(THRESHOLD)
   })
 
   it('a red story-check alone fails the case: a wrong fragment logs exit 2, and with every other grader passing the run scores below the threshold', () => {
@@ -263,6 +272,20 @@ describe('harness/evals: implementer-story', () => {
     expect(passes('story-check-green.md', text)).toBe(false)
   })
 
+  it('a green story on a branch other than the ticket branch demo/01 fails the story-check grader', () => {
+    const { work, home, run } = build()
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    expect(git(work, home, 'switch', '-q', '-c', 'percent').status).toBe(0)
+    put(work, 'src/alpha.mjs', CODE)
+    put(work, STORY, GOOD_STORY)
+    commit(work, home, 'percent and its story on another branch')
+    const text = log(work)
+    expect(text).toMatch(/^in-branch: \.scratch\/demo\/stories\/01-alpha\.md$/m)
+    expect(text).toContain('(branch percent)')
+    expect(text.trimEnd().split('\n').at(-1)).toBe('EXIT=0')
+    expect(passes('story-check-green.md', text)).toBe(false)
+  })
+
   it('in a linked worktree the hook checks that worktree: exit 0 on a valid story, the log and the copy in the common .git', () => {
     const { work, home, run } = build()
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
@@ -282,7 +305,7 @@ describe('harness/evals: implementer-story', () => {
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
     expect(git(work, home, 'switch', '-q', '-c', 'demo/01').status).toBe(0)
     put(work, 'src/alpha.mjs', CODE)
-    put(work, STORY, GOOD_STORY.replace('- Почему здесь: не записано', '- Почему здесь: так проще'))
+    put(work, STORY, GOOD_STORY.replaceAll('не записано', 'так проще'))
     expect(git(work, home, 'add', '-A').status).toBe(0)
     // The working file differs from the staged one at the commit itself: the copy is the committed text.
     put(work, STORY, GOOD_STORY)
@@ -294,13 +317,42 @@ describe('harness/evals: implementer-story', () => {
     expect(passes('story-required-parts.md', readFileSync(join(work, COPY), 'utf8'))).toBe(false)
   })
 
-  it('the required-parts grader refuses a story without the first frame step, a field, `not recorded` in the Why-here field, or with the review step', () => {
+  it('the required-parts grader refuses a story without the first frame step, a field, `not recorded` in a field of a code step, or with the review step', () => {
     const file = 'story-required-parts.md'
     expect(field(grader(file), 'type')).toBe('regex')
     expect(passes(file, GOOD_STORY)).toBe(true)
     expect(passes(file, GOOD_STORY.replaceAll('\n', '\r\n'))).toBe(true)
     expect(passes(file, GOOD_STORY.replace('## 1. Что было не так\n', '## 1. Что было не так  \n')), 'a trailing space after the frame title').toBe(true)
     expect(passes(file, GOOD_STORY.replace('- Почему здесь: не записано', '- Почему здесь: место назвал Ticket;\n  причина округления вниз не записано')), 'the value over two lines').toBe(true)
+    // `не записано` may stand in any of the five fields of a code step: an honest story gives the place its
+    // recorded reason (the ticket's «Где в коде» names src/alpha.mjs) and says `не записано` elsewhere.
+    const honest = GOOD_STORY.replace('- Почему здесь: не записано', '- Почему здесь: файл назван в «Где в коде» ticket-а').replace('- Риски и пробелы test-ов: не записано', '- Риски и пробелы test-ов: test-ы есть на оба правила')
+    expect(passes(file, honest), 'Почему здесь with a reason, no не записано at all').toBe(false)
+    for (const label of ['Что делает', 'Без него', 'Риски и пробелы test-ов']) {
+      const story = honest.replace(new RegExp(`- ${label}: .*`), `- ${label}: не записано`)
+      expect(passes(file, story), `не записано in ${label}`).toBe(true)
+    }
+    // Two code steps: `не записано` outside the fields (in the frame step, in a fragment) does not count.
+    const second = [
+      '## 3. Пустой итог',
+      '',
+      'Code: `src/alpha.mjs:3-3` · key lines: 3',
+      '',
+      '```js',
+      '  if (total === 0) return 0',
+      '```',
+      '',
+      '- Что делает: при пустом `total` отдаёт 0.',
+      '- Почему здесь: проверка стоит до деления.',
+      '- Без него: `percent(0, 0)` вернул бы `NaN`.',
+      '- Требование: [Что делаем](../issues/01-alpha.md#что-делаем)',
+      '- Риски и пробелы test-ов: test на `percent(0, 0)` есть.',
+      '',
+    ].join('\n')
+    const twoSteps = honest.replace('## 3. Как проверено', `${second}\n## 4. Как проверено`)
+    expect(passes(file, twoSteps.replace('- Что делает: при пустом `total` отдаёт 0.', '- Что делает: не записано')), 'two code steps, не записано in the second').toBe(true)
+    const outside = twoSteps.replace('вместо целого процента.', 'вместо целого процента; почему так — не записано.')
+    expect(passes(file, outside), 'two code steps, не записано only in the frame step').toBe(false)
     const broken: [string, string][] = [
       ['first step is a code step', GOOD_STORY.replace('## 1. Что было не так', '## 1. Процент').replace('## 2. Целый процент', '## 2. Что было не так')],
       ['no frame step', GOOD_STORY.replace('## 1. Что было не так', '## 1. Начало')],
@@ -312,7 +364,6 @@ describe('harness/evals: implementer-story', () => {
       ['no Требование', GOOD_STORY.replace(/- Требование: .*\n/g, '')],
       ['no Риски', GOOD_STORY.replace('- Риски и пробелы test-ов: не записано\n', '')],
       ['a guess instead of не записано', GOOD_STORY.replaceAll('не записано', 'так проще читать')],
-      ['a guess in Почему здесь only', GOOD_STORY.replace('- Почему здесь: не записано', '- Почему здесь: так проще читать')],
       ['no fragment', GOOD_STORY.replace(/Code: .*\n/, '')],
       ['the review step', `${GOOD_STORY}\n## 4. Что нашёл review и что осталось\n\nНичего.\n`],
       ['another title', GOOD_STORY.replace('# Code story — demo 01:', '# Code story — demo 02:')],
