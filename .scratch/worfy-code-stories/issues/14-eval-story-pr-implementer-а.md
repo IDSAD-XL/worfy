@@ -47,6 +47,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения 
   - evidence: test-run pass · `node scripts/eval-harness-coverage.mjs` exit 0 · mac - · e0b0497bba34ab04f42660b383a37e913505ae5e
   - evidence: test-run pass · `node scripts/eval-harness-coverage.mjs` exit 0 · mac - · 46aeed216d862b4a4b7733018455991317e2bb32
   - evidence: test-run pass · `node scripts/eval-harness-coverage.mjs` exit 0 · mac - · cd5efde2783f2e34ba6cc95e0d8efc779aaf277c
+  - evidence: test-run pass · `node scripts/eval-harness-coverage.mjs` exit 0 · mac - · ab699c3ba626053e81850f9d6a4c33a6e118463a
 - [ ] Четыре grader-а в `graders/`, по одному на проверку п. 1: файл story есть, `story-check` — exit 0, обязательные
       части на месте, отказа `reasoning_extraction` нет. Тип — как у `implementer-report/graders` (`regex` по файлу,
       где его хватает).
@@ -56,6 +57,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения 
   - evidence: test-run pass · `npx vitest run --project contract test/contract/harness-evals-story.test.ts` exit 0 · mac - · e0b0497bba34ab04f42660b383a37e913505ae5e
   - evidence: test-run pass · `npx vitest run --project contract test/contract/harness-evals-story.test.ts` exit 0 · mac - · 46aeed216d862b4a4b7733018455991317e2bb32
   - evidence: test-run pass · `npx vitest run --project contract test/contract/harness-evals-story.test.ts` exit 0 · mac - · cd5efde2783f2e34ba6cc95e0d8efc779aaf277c
+  - evidence: test-run pass · `npx vitest run --project contract test/contract/harness-evals-story.test.ts` exit 0 · mac - · ab699c3ba626053e81850f9d6a4c33a6e118463a
 - [ ] Dry run `pnpm eval:harness -- --case implementer-story --dry-run` — exit 0; план вызовов в «Итог».
   - evidence: test-run pass · `pnpm eval:harness -- --case implementer-story --dry-run` exit 0 · mac - · b1bb184b224bfcecaf69deda07ce4fee2d615f33
   - evidence: test-run pass · `pnpm eval:harness -- --case implementer-story --dry-run` exit 0 · mac - · ca361a7574821b99d3fb9bce1cc833d674ab090e
@@ -63,6 +65,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения 
   - evidence: test-run pass · `pnpm eval:harness -- --case implementer-story --dry-run` exit 0 · mac - · e0b0497bba34ab04f42660b383a37e913505ae5e
   - evidence: test-run pass · `pnpm eval:harness -- --case implementer-story --dry-run` exit 0 · mac - · 46aeed216d862b4a4b7733018455991317e2bb32
   - evidence: test-run pass · `pnpm eval:harness -- --case implementer-story --dry-run` exit 0 · mac - · cd5efde2783f2e34ba6cc95e0d8efc779aaf277c
+  - evidence: test-run pass · `pnpm eval:harness -- --case implementer-story --dry-run` exit 0 · mac - · ab699c3ba626053e81850f9d6a4c33a6e118463a
 - [ ] (manual) Платный run руками с `--max-cost-usd` ниже 100: graders зелёные; цена и число run-ов в «Итог».
 - [ ] Сценарий не входит ни в один workflow CI и ни в gate (grep по `.github/workflows` и `harness/hooks/gate.mjs`
       пустой).
@@ -72,6 +75,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения 
   - evidence: test-run pass · `grep -rn implementer-story .github/workflows harness/hooks/gate.mjs` exit 1 (no match) · mac - · e0b0497bba34ab04f42660b383a37e913505ae5e
   - evidence: test-run pass · `grep -rn implementer-story .github/workflows harness/hooks/gate.mjs` exit 1 (no match) · mac - · 46aeed216d862b4a4b7733018455991317e2bb32
   - evidence: test-run pass · `grep -rn implementer-story .github/workflows harness/hooks/gate.mjs` exit 1 (no match) · mac - · cd5efde2783f2e34ba6cc95e0d8efc779aaf277c
+  - evidence: test-run pass · `grep -rn implementer-story .github/workflows harness/hooks/gate.mjs` exit 1 (no match) · mac - · ab699c3ba626053e81850f9d6a4c33a6e118463a
 
 ## Тесты
 
