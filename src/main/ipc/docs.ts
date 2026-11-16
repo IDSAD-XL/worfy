@@ -52,7 +52,7 @@ export async function docsSource(path: string, layouts: Pick<LayoutCache, 'get'>
  * The main branch the documents of the Full-mode Project at `path` are read from (ADR-0107): asked again at each
  * read, with the layout of that moment; followed by the moves the workflow watcher reports (main-ref.ts).
  */
-function committedDocs(path: string, layouts: Pick<LayoutCache, 'get'>): DocsTreeSource {
+export function committedDocs(path: string, layouts: Pick<LayoutCache, 'get'>): DocsTreeSource {
   const root = resolve(path)
   return {
     tree: async () => docsTreeOf(path, await layouts.get(path)),

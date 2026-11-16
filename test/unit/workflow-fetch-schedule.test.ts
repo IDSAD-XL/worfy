@@ -1,8 +1,7 @@
 // When the main branch is fetched (src/main/workflow/fetch.ts; worfy-polish ticket 118): at the start, every
 // 2 minutes, and at a window's focus no more than once in 30 s; one at a time; nothing after close. Fake clocks.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { FETCH_EVERY_MS, FETCH_FOCUS_MIN_MS, FetchSchedule } from '../../src/main/workflow/fetch'
-import type { FetchStatus } from '../../src/main/workflow/main-ref'
+import { FETCH_CONFIG, FETCH_EVERY_MS, FETCH_FOCUS_MIN_MS, FetchSchedule, fetchEnv, type FetchStatus } from '../../src/main/workflow/fetch'
 import { sourceView, type MainRef } from '../../src/main/workflow/main-ref'
 
 beforeEach(() => {
@@ -113,7 +112,9 @@ describe('the "As of" notice', () => {
 
   it('shows once fetch has failed for 10 minutes, not before', () => {
     const failing: FetchStatus = { lastOk: 500_000, failingSince: 1_000_000, error: 'Could not resolve host: github.com' }
-    expect(sourceView(ref, failing, 1_000_000 + 10 * 60_000 - 1)?.notice).toBeNull()
+    // Before the notice the model carries no time of a fetch: a fetch that worked or failed changes nothing in it.
+    expect(sourceView(ref, failing, 1_000_000 + 10 * 60_000 - 1)).toEqual({ ref: 'refs/remotes/origin/main', sha: 'a'.repeat(40), updatedAt: null, notice: null })
+    expect(sourceView(ref, { lastOk: 1_500_000, failingSince: null, error: null }, 1_600_000)).toEqual(sourceView(ref, { lastOk: 900_000, failingSince: null, error: null }, 1_600_000))
     expect(sourceView(ref, failing, 1_000_000 + 10 * 60_000)).toEqual({
       ref: 'refs/remotes/origin/main',
       sha: 'a'.repeat(40),
@@ -125,5 +126,22 @@ describe('the "As of" notice', () => {
   it('says nothing for the working tree that is the truth, and the reason for one read in place of the main branch', () => {
     expect(sourceView({ kind: 'tree', reason: null, sha: null, fetchBranch: null })).toBeNull()
     expect(sourceView({ kind: 'tree', reason: 'no origin', sha: 'b'.repeat(40), fetchBranch: null })).toEqual({ ref: null, sha: 'b'.repeat(40), updatedAt: null, notice: 'no origin' })
+  })
+})
+
+describe('nothing in a fetch asks the user anything', () => {
+  it('turns off the credential window, the terminal prompt and every ssh question', () => {
+    expect(FETCH_CONFIG).toEqual(expect.arrayContaining(['credential.interactive=false']))
+    const env = fetchEnv({ PATH: '/bin', GIT_DIR: '/elsewhere' }, null)
+    expect(env).toMatchObject({ PATH: '/bin', GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never', GIT_SSH_COMMAND: 'ssh -o BatchMode=yes' })
+    expect(env.GIT_DIR).toBeUndefined()
+  })
+
+  it('keeps the ssh command git would run, in its order: GIT_SSH_COMMAND, core.sshCommand, then ssh', () => {
+    expect(fetchEnv({ GIT_SSH_COMMAND: 'ssh -i ~/.ssh/work' }, 'C:/Windows/System32/OpenSSH/ssh.exe').GIT_SSH_COMMAND).toBe('ssh -i ~/.ssh/work -o BatchMode=yes')
+    expect(fetchEnv({}, 'C:/Windows/System32/OpenSSH/ssh.exe').GIT_SSH_COMMAND).toBe('C:/Windows/System32/OpenSSH/ssh.exe -o BatchMode=yes')
+    // A program in GIT_SSH alone (plink) takes no ssh options: it is left as it is.
+    expect(fetchEnv({ GIT_SSH: 'C:/PuTTY/plink.exe' }, null)).toMatchObject({ GIT_SSH: 'C:/PuTTY/plink.exe', GCM_INTERACTIVE: 'never' })
+    expect(fetchEnv({ GIT_SSH: 'C:/PuTTY/plink.exe' }, null).GIT_SSH_COMMAND).toBeUndefined()
   })
 })

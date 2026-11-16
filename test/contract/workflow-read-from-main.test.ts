@@ -7,11 +7,13 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { docsTreeOf, readDoc, readDocs, versionOf } from '../../src/main/docs/watch'
+import { DocsWatcher, docsTreeOf, readDoc, readDocs, versionOf } from '../../src/main/docs/watch'
+import { committedDocs } from '../../src/main/ipc/docs'
 import { readTicketFile } from '../../src/main/ipc/tickets'
+import { gitFetch, isLocalRemote, setFetchGuard } from '../../src/main/workflow/fetch'
 import { fullLayout, type ProjectLayout } from '../../src/main/workflow/folder'
 import { readWorkflow, type EpicStatusRunner } from '../../src/main/workflow/reader'
-import { WorkflowWatcher, type WatchOptions } from '../../src/main/workflow/watch'
+import { WorkflowHub, WorkflowWatcher, type WatchOptions, type WorkflowSubscriber } from '../../src/main/workflow/watch'
 import type { WorkflowModel } from '../../src/shared/workflow/types'
 import { NODE } from '../harness-node'
 import { removeTestTree } from '../remove'
@@ -72,6 +74,7 @@ function ticket(num: number, status: string, title: string): string {
 const HANDOFF_OLD = '# Handoff\n\nold\n'
 const HANDOFF_NEW = '# Handoff\n\nnew\n'
 const ALPHA_MAIN = ticket(1, 'open', 'Alpha from main')
+const FIRST_DATE = '2026-01-01T00:00:00Z'
 
 /** A bare `origin`, a clone `seed` that pushes to it, and the Project folder `project`, a clone at the first commit. */
 function fixture(): { origin: string; seed: string; project: string; first: string } {
@@ -85,7 +88,8 @@ function fixture(): { origin: string; seed: string; project: string; first: stri
   write(seed, 'HANDOFF.md', HANDOFF_OLD)
   write(seed, 'docs/adr/0001-first.md', '# 1. First\n\nStatus: accepted.\n')
   git(seed, 'add', '-A')
-  git(seed, 'commit', '-qm', 'first')
+  // An older date than the commits after it, so a time read from the wrong commit shows.
+  execFileSync('git', ['commit', '-qm', 'first'], { cwd: seed, env: { ...env, GIT_AUTHOR_DATE: FIRST_DATE, GIT_COMMITTER_DATE: FIRST_DATE } })
   git(seed, 'remote', 'add', 'origin', origin)
   git(seed, 'push', '-q', 'origin', 'main')
   const project = join(dir, 'project')
@@ -144,6 +148,11 @@ describe('the workflow is read from the main branch', () => {
     expect(model.error).toBeNull()
     expect(epicNames(model)).toEqual(['new-epic', 'old'])
     expect(model.epics.find((epic) => epic.epic === 'new-epic')?.title).toBe('New epic from main')
+    // The spec's time is the commit that added it to main, not the mtime of the folder's untracked copy.
+    const added = Number(git(seed, 'log', '-1', '--format=%ct', 'HEAD')) * 1000
+    const firstAt = Date.parse(FIRST_DATE)
+    expect(model.epics.find((epic) => epic.epic === 'new-epic')?.specAt).toBe(new Date(added).toISOString())
+    expect(model.epics.find((epic) => epic.epic === 'old')?.specAt).toBe(new Date(firstAt).toISOString())
     expect(ticketOf(model, 'new-epic', 1)).toMatchObject({ state: 'open', files: ['src/x.ts'], version: versionOf(ALPHA_MAIN) })
     expect(model.source).toEqual({ ref: 'refs/remotes/origin/main', sha, updatedAt: null, notice: null })
 
@@ -175,6 +184,34 @@ describe('the workflow is read from the main branch', () => {
     expect(ticketOf(model, 'old', 2)?.state).toBe('open')
     expect(ticketOf(model, 'old', 1)).toMatchObject({ state: 'work', fromBranch: 'old/01' })
     expect(model.source?.ref).toBe('refs/remotes/origin/main')
+  })
+
+  it('a folder on a Ticket\'s branch under pr-green-ci shows main, with that branch\'s committed status over it', async () => {
+    const { project } = fixture()
+    git(project, 'checkout', '-qb', 'old/02')
+    write(project, '.scratch/old/issues/02-second.md', ticket(2, 'claimed 2026-11-16', 'Second'))
+    git(project, 'commit', '-qam', 'claim 02')
+    // Not committed: a branch is read from its commit, so this edit shows nowhere.
+    write(project, '.scratch/old/issues/01-first.md', ticket(1, 'done 2026-11-16', 'First'))
+
+    const layout = layoutOf(project, 'pr-green-ci')
+    const once = await read(project, layout)
+    // The watcher of an open Project reads the same.
+    const watcher = await WorkflowWatcher.start({
+      root: project,
+      claudeHome: home,
+      env: () => Promise.resolve(env),
+      run: runner(),
+      layout: () => Promise.resolve(layout),
+      onChange: () => undefined,
+    })
+    watchers.push(watcher)
+
+    for (const model of [once, watcher.current]) {
+      expect(model.source?.ref).toBe('refs/remotes/origin/main')
+      expect(ticketOf(model, 'old', 2)).toMatchObject({ state: 'work', fromBranch: 'old/02' })
+      expect(ticketOf(model, 'old', 1)?.state).toBe('open')
+    }
   })
 
   it('local-green reads the local main branch, not the HEAD of the folder', async () => {
@@ -274,6 +311,9 @@ describe('fetch keeps the main branch current', () => {
       debounceMs: 50,
       maxWaitMs: 200,
       onChange: () => undefined,
+      fetching: true,
+      // The real fetch, to the bare repository on the disk (the test setup refuses any other remote).
+      fetch: gitFetch(() => Promise.resolve(env)),
       ...options,
     })
     watchers.push(watcher)
@@ -291,8 +331,7 @@ describe('fetch keeps the main branch current', () => {
     const watcher = await start(project)
     await until(watcher, (model) => expect(epicNames(model)).toEqual(['new-epic', 'old']))
 
-    expect(watcher.current.source).toMatchObject({ ref: 'refs/remotes/origin/main', sha, notice: null })
-    expect(watcher.current.source?.updatedAt).not.toBeNull()
+    expect(watcher.current.source).toEqual({ ref: 'refs/remotes/origin/main', sha, updatedAt: null, notice: null })
     expect(folderState(project)).toBe(before)
     expect(git(project, 'rev-parse', 'refs/remotes/origin/main')).toBe(sha)
   })
@@ -300,10 +339,24 @@ describe('fetch keeps the main branch current', () => {
   it('a fetch that fails keeps the list as it was, with no error; a ref updated from outside reads the new commit', async () => {
     const { origin, seed, project } = fixture()
     const sha = advanceOrigin(seed)
-    // No network: origin points at a folder that is not there.
+    // No network: origin points at a folder that is not there; the real fetch fails on it.
     git(project, 'remote', 'set-url', 'origin', join(dir, 'missing.git'))
-    const watcher = await start(project)
-    await until(watcher, (model) => expect(model.source?.updatedAt).toBeNull())
+    let failed = 0
+    const real = gitFetch(() => Promise.resolve(env))
+    const fetch = vi.fn(async (root: string, branch: string, signal: AbortSignal) => {
+      try {
+        await real(root, branch, signal)
+      } finally {
+        failed += 1
+      }
+    })
+    const watcher = await start(project, { fetch, fetchStaleAfterMs: 0 })
+    await vi.waitFor(() => expect(failed).toBe(1), { timeout: ms(5_000), interval: 20 })
+    await until(watcher, (model) => expect(model.source?.notice).toMatch(/^git fetch origin has failed for 0 min: /))
+    // The read the failed fetch asked for has ended; the next fetch is 2 minutes away, so only the watch of
+    // refs/remotes can see the ref move below.
+    await watcher.idle()
+    expect(watcher.current.source?.updatedAt).toBeNull()
     expect(watcher.current.error).toBeNull()
     expect(epicNames(watcher.current)).toEqual(['old'])
 
@@ -311,6 +364,7 @@ describe('fetch keeps the main branch current', () => {
     git(project, 'fetch', '-q', origin, '+refs/heads/main:refs/remotes/origin/main')
     await until(watcher, (model) => expect(epicNames(model)).toEqual(['new-epic', 'old']))
     expect(watcher.current.source?.sha).toBe(sha)
+    expect(failed).toBe(1)
   })
 
   it('a fetch that times out changes nothing in the list; failing past the limit shows the notice', async () => {
@@ -321,6 +375,66 @@ describe('fetch keeps the main branch current', () => {
     expect(watcher.current.error).toBeNull()
     expect(epicNames(watcher.current)).toEqual(['old'])
     expect(fetch).toHaveBeenCalledWith(project, 'main', expect.anything())
+  })
+
+  it('a fetch that finds main where it was sends no change: the time of the fetch is not in the model', async () => {
+    const { project } = fixture()
+    const changes: unknown[] = []
+    let calls = 0
+    const fetch = vi.fn(() => {
+      calls += 1
+      return Promise.resolve()
+    })
+    const watcher = await start(project, { fetch, fetchEveryMs: 20, onChange: (delta) => changes.push(delta) })
+    await vi.waitFor(() => expect(calls).toBeGreaterThan(5), { timeout: ms(5_000), interval: 20 })
+    // Each fetch asked for a read (fetch.ts onDone); the close waits for the one that runs.
+    await watcher.close()
+    expect(changes).toEqual([])
+    expect(watcher.current.source).toMatchObject({ updatedAt: null, notice: null })
+  })
+
+  it('fetches only while a window shows the Project; Autopilot and the notices alone fetch nothing', async () => {
+    const { project } = fixture()
+    let calls = 0
+    const fetch = vi.fn(() => {
+      calls += 1
+      return Promise.resolve()
+    })
+    const hub = new WorkflowHub({
+      claudeHome: home,
+      env: () => Promise.resolve(env),
+      run: runner(),
+      layout: () => Promise.resolve(layoutOf(project, 'pr-green-ci')),
+      debounceMs: 50,
+      maxWaitMs: 200,
+      fetch,
+      fetchEveryMs: 20,
+      fetchFocusMinMs: 0,
+    })
+    const autopilot: WorkflowSubscriber = { id: 'autopilot', fieldsOnly: true, send: () => undefined }
+    const window: WorkflowSubscriber = { id: 7, window: true, send: () => undefined }
+    const pause = () => new Promise((done) => setTimeout(done, 150))
+    try {
+      expect(epicNames(await hub.open(project, autopilot))).toEqual(['old'])
+      hub.focus()
+      await pause()
+      expect(calls).toBe(0)
+
+      await hub.open(project, window)
+      await vi.waitFor(() => expect(calls).toBeGreaterThan(1), { timeout: ms(5_000), interval: 20 })
+
+      // The window leaves, Autopilot stays: the fetch stops, and focus starts none.
+      await hub.close(project, window.id)
+      await pause()
+      const after = calls
+      hub.focus()
+      await pause()
+      expect(calls).toBe(after)
+    } finally {
+      await hub.drop(window.id)
+      await hub.drop(autopilot.id)
+    }
+    expect(hub.roots).toEqual([])
   })
 
   it('stops fetching when closed: no fetch runs after close', async () => {
@@ -346,5 +460,97 @@ describe('fetch keeps the main branch current', () => {
     expect(running).toBe(0)
     await new Promise((done) => setTimeout(done, 100))
     expect(calls).toBe(after)
+  })
+})
+
+describe('no test fetches from a remote that is not on the disk', () => {
+  it('tells a repository on the disk from one on another machine', () => {
+    for (const url of ['/tmp/origin.git', 'C:\\work\\origin.git', 'C:/work/origin.git', 'file:///tmp/origin.git', '../origin.git', 'origin.git']) expect(isLocalRemote(url), url).toBe(true)
+    for (const url of ['https://github.com/o/r.git', 'git@github.com:o/r.git', 'ssh://host/r.git', 'https://example.invalid/demo.git']) expect(isLocalRemote(url), url).toBe(false)
+  })
+
+  it('the test setup guards every fetch, and a guard refuses the fetch before git talks to the remote', async () => {
+    const { project } = fixture()
+    git(project, 'remote', 'set-url', 'origin', 'https://example.invalid/demo.git')
+    const seen: Array<string | null> = []
+    const installed = setFetchGuard((_root, url) => {
+      seen.push(url)
+      throw new Error('refused by the guard')
+    })
+    try {
+      expect(installed).not.toBeNull()
+      await expect(gitFetch(() => Promise.resolve(env))(project, 'main', new AbortController().signal)).rejects.toThrow('refused by the guard')
+    } finally {
+      setFetchGuard(installed)
+    }
+    expect(seen).toEqual(['https://example.invalid/demo.git'])
+  })
+})
+
+describe('the documents follow the main branch', () => {
+  it('HANDOFF.md and the ADRs are read again when the workflow watcher sees main move, with nothing in the folder changed', async () => {
+    const { seed, project } = fixture()
+    const layout = layoutOf(project, 'pr-green-ci')
+    const workflow = await WorkflowWatcher.start({
+      root: project,
+      claudeHome: home,
+      env: () => Promise.resolve(env),
+      run: runner(),
+      layout: () => Promise.resolve(layout),
+      debounceMs: 50,
+      maxWaitMs: 200,
+      onChange: () => undefined,
+    })
+    watchers.push(workflow)
+    // The source the app gives the documents' watcher (src/main/ipc/docs.ts).
+    const docs = await DocsWatcher.start({ root: project, debounceMs: 20, onChange: () => undefined, source: committedDocs(project, { get: () => Promise.resolve(layout) }) })
+    try {
+      expect(docs.current.adrs.map((adr) => adr.number)).toEqual(['0001'])
+      expect(docs.current.handoff?.version).toBe(versionOf(HANDOFF_OLD))
+      // The reads that follow the start of a watch (SETTLE_READS_MS, up to 1 s) are over: none of them reads the move.
+      await new Promise((done) => setTimeout(done, 1_500))
+
+      // A fetch from a terminal: only .git changes, which the documents' own watch ignores.
+      advanceOrigin(seed)
+      git(project, 'fetch', '-q', 'origin')
+      await vi.waitFor(() => expect(docs.current.adrs.map((adr) => adr.number)).toEqual(['0001', '0002']), { timeout: ms(5_000), interval: 20 })
+      expect(docs.current.handoff?.version).toBe(versionOf(HANDOFF_NEW))
+    } finally {
+      await docs.close()
+    }
+  })
+
+  it('a main branch that cannot be read keeps the documents last read, never the folder\'s disk in their place', async () => {
+    const { project } = fixture()
+    const layout = layoutOf(project, 'pr-green-ci')
+    let failing = false
+    let moved: () => void = () => undefined
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const docs = await DocsWatcher.start({
+      root: project,
+      debounceMs: 20,
+      onChange: () => undefined,
+      source: {
+        tree: () => (failing ? Promise.reject(new Error('git ls-tree failed')) : docsTreeOf(project, layout)),
+        onMoved: (listener) => {
+          moved = listener
+          return () => undefined
+        },
+      },
+    })
+    try {
+      // An edit in the folder, not in main: read from main, it does not show.
+      write(project, 'HANDOFF.md', '# Handoff\n\nonly in the folder\n')
+      await new Promise((done) => setTimeout(done, 1_500))
+      expect(docs.current.handoff?.version).toBe(versionOf(HANDOFF_OLD))
+
+      failing = true
+      moved()
+      await vi.waitFor(() => expect(errors).toHaveBeenCalledWith('[docs] read failed', expect.objectContaining({ message: 'git ls-tree failed' })), { timeout: ms(5_000), interval: 20 })
+      expect(docs.current.handoff?.version).toBe(versionOf(HANDOFF_OLD))
+    } finally {
+      await docs.close()
+      errors.mockRestore()
+    }
   })
 })

@@ -24,12 +24,19 @@ HEAD, неотслеживаемые файлы на пути нового Epic-
 2. **Всё видимое — из одного commit-а.** Список — `epic-status --json --ref <sha>`; spec-и, текст Ticket-ов и раздел
    `## Где в коде` (`enrichSnapshot`), текст Ticket-а в его карточке (`tickets.read`), `HANDOFF.md` и ADR (`docs`) —
    из git objects того же commit-а: один `git ls-tree -r -z` нужных папок и один `git cat-file --batch` на чтение, не
-   `git show` на файл. Смеси «список из ref, текст с диска» нет. Sha commit-а — ключ кэша чтения: событие рабочего
+   `git show` на файл. Смеси «список из ref, текст с диска» нет: время spec-а — commit, который добавил его в main
+   (один `git log --diff-filter=A` на чтение), а не mtime файла в папке; чтение документов, у которого git упал,
+   оставляет документы прошлого чтения, а не читает диск. Sha commit-а — ключ кэша чтения: событие рабочего
    дерева без движения ref-а не перечитывает список; ref сдвинулся — перечитывается, и документы тоже.
-3. **Fetch.** Main process делает `git fetch --prune origin <main>` при старте watch-а Project-а, раз в 2 минуты, пока
-   он открыт, и при фокусе окна, не чаще раза в 30 с (`src/main/workflow/fetch.ts`). Окружение — login shell, то же,
-   что у `epic-status`; `GIT_TERMINAL_PROMPT=0`, timeout 60 с, без `gc`/`maintenance`, без записи `FETCH_HEAD`. Ошибка
-   fetch никогда не ломает чтение: список остаётся на последнем commit-е. Watch ref-ов следит за `refs/remotes/**` и
+3. **Fetch.** Main process делает `git fetch --prune origin <main>` только для Project-ов, которые показывает окно
+   (подписчик `workflow.open`, `src/main/ipc/workflow.ts`): когда окно открывает Project, раз в 2 минуты, пока хоть одно
+   окно его показывает, и при фокусе окна, не чаще раза в 30 с (`src/main/workflow/fetch.ts`). Project, за которым
+   следят только Autopilot и уведомления (`waits-notify`), не fetch-ится: он читает то, что принёс последний fetch, свой
+   или из терминала. Окружение — login shell, то же, что у `epic-status`, и ничего не спрашивает у пользователя:
+   `GIT_TERMINAL_PROMPT=0`, `-c credential.interactive=false`, `GCM_INTERACTIVE=never`, ssh с `-o BatchMode=yes` (к
+   команде, которую выбрал бы git: `GIT_SSH_COMMAND`, иначе `core.sshCommand`, иначе `ssh`); timeout 60 с, без
+   `gc`/`maintenance`, без записи `FETCH_HEAD`. Fetch, которому нужен пароль, падает, и через 10 минут это видно.
+   Ошибка fetch никогда не ломает чтение: список остаётся на последнем commit-е. Watch ref-ов следит за `refs/remotes/**` и
    `packed-refs`, так что fetch из терминала тоже вызывает перечитывание. В режиме `local-green` fetch не нужен и не
    идёт.
 4. **Видно, откуда данные.** Модель несёт `source` (ref, sha, время последнего удачного fetch, причина). Когда main-ветка
@@ -54,7 +61,18 @@ HEAD, неотслеживаемые файлы на пути нового Epic-
   попадёт в main (или в ветку Ticket-а с worktree). Так и задумано: список показывает main.
 - Fetch одновременно с `git fetch` пользователя может получить «cannot lock ref»; это ошибка одного fetch, следующий
   через 2 минуты.
-- Specs без статуса Ticket-ов сортируются по mtime файла на диске, а если его в папке ещё нет — по времени commit-а.
+- **Сеть.** Один fetch одной ветки раз в 2 минуты на каждый открытый в окне Project, плюс фокус окна: когда main не
+  сдвинулся, это рукопожатие TLS или ssh и список одного ref-а, единицы KB; когда сдвинулся — новые objects этой ветки.
+  Успешный fetch, после которого main на месте, не меняет модель и ничего не рассылает подписчикам: время последнего
+  fetch-а попадает в модель только рядом с пометкой о сбое.
+- **Linked machine.** Окно Linked machine, которое показывает Project этой машины, — тоже окно: fetch делает машина, где
+  лежит Project, своим git и своими ключами; фокус окна на Linked machine fetch не запускает, работают 2-минутные.
+  Свои Project-ы Linked machine читает и fetch-ит сама.
+- Specs без статуса Ticket-ов сортируются по времени commit-а, который добавил spec в main; из рабочего дерева (Silent
+  mode, нет `origin`) — по mtime, как раньше.
+- **Test-ы.** Fetch — зависимость `WorkflowHub` (`fetch`), по умолчанию его нет; настоящий `gitFetch` передаёт только
+  hub приложения (`src/main/ipc/workflow.ts`) и test-ы fetch-а, против bare repository на диске. Setup test-ов
+  (`test/setup-no-remote-fetch.ts`) отказывает любому fetch-у к remote не на диске и валит test, который его запустил.
 
 ## Considered Options
 

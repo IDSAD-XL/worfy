@@ -385,6 +385,8 @@ export async function enrichSnapshot(
   }
   const headings = docHeadings(options.headings)
 
+  // Read from the main branch, a spec's time is when the main branch got it: nothing of the folder's disk is read.
+  const specsAdded = tree === undefined || fs.mtime === undefined ? null : await tree.addedAt('*/spec.md')
   const epics = await Promise.all(
     snapshot.epics.map(async (epic) => {
       const specPath = paths.join(scratch, epic.epic, 'spec.md')
@@ -392,12 +394,14 @@ export async function enrichSnapshot(
       const title = spec === null ? null : firstHeading(spec)
       if (fs.mtime === undefined) return { ...epic, title }
       // The time the spec was added, for an Epic none of whose Tickets has changed status yet (the sidebar's order,
-      // worfy-polish ticket 98). Read only after the spec itself was: a link away from the Project never gets a stat.
-      // shortcut: the mtime, not the spec's first commit — a checkout or an edit of spec.md makes it newer, so such an
-      // Epic shows as recent, never hides; redo when Epics with no status change must keep their age across clones.
-      // Read from the main branch, a spec the folder does not have yet takes the time of the commit read.
-      const onDisk = spec === null || (await away(specPath)) ? null : await fs.mtime(specPath)
-      const at = spec === null ? null : (onDisk ?? (tree === undefined ? null : tree.committedAt))
+      // worfy-polish ticket 98). From the main branch: the commit that added spec.md (one `git log` for all of them),
+      // else the time of the commit read. From the folder, read only after the spec itself was, so a link away from
+      // the Project never gets a stat.
+      // shortcut: from the folder, the mtime, not the spec's first commit — a checkout or an edit of spec.md makes it
+      // newer, so such an Epic shows as recent, never hides; redo when Epics with no status change must keep their age
+      // across clones.
+      const at =
+        spec === null ? null : tree !== undefined ? (specsAdded?.get(`${epic.epic}/spec.md`) ?? tree.committedAt) : (await away(specPath)) ? null : await fs.mtime(specPath)
       return { ...epic, title, specAt: at === null ? null : new Date(at).toISOString() }
     }),
   )

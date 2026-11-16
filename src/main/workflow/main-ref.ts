@@ -20,6 +20,7 @@ import { realpath, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
 import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
 import type { WorkflowSourceView } from '../../shared/workflow/types'
+import type { FetchStatus } from './fetch'
 
 /** Runs git in `cwd` with `args` and answers its stdout; rejects when git fails. */
 export type RefGitRunner = (cwd: string, args: string[]) => Promise<string>
@@ -38,8 +39,11 @@ export const runGit: RefGitRunner = (cwd, args) =>
 /** Variables that would make git read another repository than the one in `cwd`. */
 const GIT_LOCATION_VARS = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR', 'GIT_NAMESPACE']
 
-/** `env` without the variables that point git elsewhere, with no password prompt and no optional lock. */
-export function gitEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+/**
+ * `env` without the variables that point git elsewhere, with no password prompt and no optional lock. Every git worfy
+ * runs for the workflow and its releases (release.ts) gets it.
+ */
+export function gitEnv(env: Readonly<Record<string, string | undefined>>): Record<string, string | undefined> {
   const clean = Object.fromEntries(Object.entries(env).filter(([name]) => !GIT_LOCATION_VARS.includes(name.toUpperCase())))
   return { ...clean, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' }
 }
@@ -223,16 +227,6 @@ export function sourceKey(source: WorkflowSource | null): string {
 /** How long fetch may keep failing before the window says the list may be old. */
 export const FETCH_STALE_AFTER_MS = 10 * 60_000
 
-/** What the periodic fetch knows (src/main/workflow/fetch.ts): the last one that worked, and since when it fails. */
-export interface FetchStatus {
-  /** When the last fetch that worked ended, in ms; null before one has. */
-  lastOk: number | null
-  /** When the fetches began to fail, in ms; null while the last one worked or none ended yet. */
-  failingSince: number | null
-  /** The first line of the last failure; null when the last fetch worked. */
-  error: string | null
-}
-
 /**
  * What the window is told about the source of the list (WorkflowModel.source): null where the working tree is the
  * truth. A notice — the "As of" line — when the main branch did not resolve, or when fetch has failed for longer
@@ -240,11 +234,13 @@ export interface FetchStatus {
  */
 export function sourceView(source: WorkflowSource, fetch: FetchStatus | null = null, now: number = Date.now(), staleAfterMs: number = FETCH_STALE_AFTER_MS): WorkflowSourceView | null {
   if (source.kind === 'tree') return source.reason === null ? null : { ref: null, sha: source.sha, updatedAt: null, notice: source.reason }
-  const updatedAt = fetch?.lastOk == null ? null : new Date(fetch.lastOk).toISOString()
   const stale = fetch !== null && fetch.failingSince !== null && now - fetch.failingSince >= staleAfterMs
-  const minutes = stale ? Math.floor((now - fetch.failingSince!) / 60_000) : 0
-  const notice = stale ? `git fetch origin has failed for ${minutes} min: ${fetch.error ?? 'no reason given'}` : null
-  return { ref: source.ref, sha: source.sha, updatedAt, notice }
+  if (!stale) return { ref: source.ref, sha: source.sha, updatedAt: null, notice: null }
+  // The time of the last fetch that worked is in the model only beside the notice that shows it: while fetches work,
+  // each would change the model and send every subscriber a change in which main did not move.
+  const minutes = Math.floor((now - fetch.failingSince!) / 60_000)
+  const updatedAt = fetch.lastOk === null ? null : new Date(fetch.lastOk).toISOString()
+  return { ref: source.ref, sha: source.sha, updatedAt, notice: `git fetch origin has failed for ${minutes} min: ${fetch.error ?? 'no reason given'}` }
 }
 
 // ── the files of a commit ────────────────────────────────────────────────────
@@ -262,6 +258,11 @@ export interface RepoTree {
    * a link, a submodule), or larger than `maxBytes`, is not in the answer.
    */
   texts(files: readonly string[], maxBytes?: number): Promise<Map<string, string>>
+  /**
+   * When each file matching `pattern` (a glob under `base`; `*` stops at `/`) was added, in ms, by path, from one
+   * `git log` of the commit's history; a file whose addition git cannot tell is not in the answer. Empty when git fails.
+   */
+  addedAt(pattern: string): Promise<Map<string, number>>
 }
 
 /** Runs `git cat-file --batch` in `cwd` with `input` on stdin; answers its stdout. Tests replace it. */
@@ -376,6 +377,19 @@ export function refTree(source: Pick<MainRef, 'top' | 'sha' | 'committedAt'>, ba
         const content = contents[index]
         if (content != null && content.length <= maxBytes) result.set(file, content.toString('utf8'))
       })
+      return result
+    },
+    async addedAt(pattern) {
+      // A glob pathspec: the base itself is a name, so its glob characters are escaped.
+      const glob = `:(glob)${prefix.replace(/[*?[\]\\]/gu, '\\$&')}${pattern}`
+      const out = await git(source.top, ['-c', 'core.quotePath=false', 'log', '--diff-filter=A', '--no-renames', '--format=@%ct', '--name-only', source.sha, '--', glob]).catch(() => '')
+      const result = new Map<string, number>()
+      let at: number | null = null
+      for (const line of out.split(/\r?\n/u)) {
+        if (line.startsWith('@')) at = Number(line.slice(1)) * 1000
+        // The newest addition comes first: a file added, removed and added again keeps the last time.
+        else if (line !== '' && line.startsWith(prefix) && at !== null && Number.isFinite(at) && !result.has(line.slice(prefix.length))) result.set(line.slice(prefix.length), at)
+      }
       return result
     },
   }

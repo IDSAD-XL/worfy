@@ -430,9 +430,14 @@ export class DocsWatcher {
     return watcher
   }
 
-  /** The options of a read: the label, and the commit of the main branch when the documents are read from it. */
+  /**
+   * The options of a read: the label, and the commit of the main branch when the documents are read from it. A source
+   * that fails throws: the read fails and the documents last read stay, never the folder's disk in their place. When
+   * the main branch does not resolve, the source itself says so (null) and the disk is read, as the Epic list does,
+   * whose "As of" line names the reason (main-ref.ts, sourceView).
+   */
   private async readOptions(): Promise<DocOptions> {
-    const tree = this.options.source ? await this.options.source.tree().catch(() => null) : null
+    const tree = this.options.source ? await this.options.source.tree() : null
     return { ...(this.label === undefined ? {} : { adrStatusLabel: this.label }), ...(tree === null ? {} : { tree }) }
   }
 
@@ -665,7 +670,8 @@ export class DocsWatcher {
         this.docs = next
         this.options.onChange(next)
       } catch (error) {
-        // readDocs leaves unreadable files out instead of throwing; a throw is a bug in onChange.
+        // readDocs leaves unreadable files out instead of throwing; a throw is the main branch that could not be read
+        // (the documents last read stay) or a bug in onChange.
         console.error('[docs] read failed', error)
       }
     } while (this.pending && !this.closed)
