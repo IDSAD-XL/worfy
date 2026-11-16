@@ -51,28 +51,33 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 11; «Решения 
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts test/contract/stories-handler.test.ts` exit 0 · mac - · 19cb9902e
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts test/contract/stories-handler.test.ts` exit 0 · mac - · 3d5e3b5ca
   - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts test/contract/stories-handler.test.ts · mac - · e24072b0a
+  - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts test/contract/stories-handler.test.ts · mac - · 93e34f51f
 - [ ] Contract test: в запросе есть diff, текст PR, файл Ticket-а и вердикты; у PR коллеги в сохранённом файле нет
       текста PR и комментариев.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts` exit 0 · mac - · 51b0ab2ce
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts test/contract/stories-handler.test.ts` exit 0 · mac - · 19cb9902e
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts test/contract/stories-handler.test.ts` exit 0 · mac - · 3d5e3b5ca
   - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts test/contract/stories-handler.test.ts · mac - · e24072b0a
+  - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts test/contract/stories-handler.test.ts · mac - · 93e34f51f
 - [ ] Contract test: остановка во время сборки — ничего не сохранено; повторное нажатие на PR с сохранённой story
       открывает её без нового запроса.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts` exit 0 · mac - · 51b0ab2ce
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts test/contract/stories-handler.test.ts` exit 0 · mac - · 19cb9902e
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts test/contract/stories-handler.test.ts` exit 0 · mac - · 3d5e3b5ca
   - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts test/contract/stories-handler.test.ts · mac - · e24072b0a
+  - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/story-by-button.test.ts test/contract/stories-handler.test.ts · mac - · 93e34f51f
 - [ ] Unit test: на Project-е с Codex без `oneShot` кнопка показывает причину и не запускает запрос.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/story-entries.test.tsx` exit 0 · mac - · 51b0ab2ce
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/story-entries.test.tsx` exit 0 · mac - · 19cb9902e
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/story-entries.test.tsx` exit 0 · mac - · 3d5e3b5ca
   - evidence: test-run pass · node scripts/vitest-electron.mjs test/unit/story-entries.test.tsx test/unit/line-question.test.tsx · mac - · e24072b0a
+  - evidence: test-run pass · node scripts/vitest-electron.mjs test/unit/story-entries.test.tsx test/unit/line-question.test.tsx · mac - · 93e34f51f
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 51b0ab2ce
   - evidence: gate pass · `gate fast` exit 0 · mac - · 19cb9902e
   - evidence: gate pass · `gate fast` exit 0 · mac - · 3d5e3b5ca
   - evidence: gate pass · gate fast · mac - · e24072b0a
+  - evidence: gate pass · gate fast · mac - · 93e34f51f
 
 ## Тесты
 
