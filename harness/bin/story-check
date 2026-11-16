@@ -1,0 +1,644 @@
+#!/usr/bin/env node
+// story-check — checks a Code story against the code of the PR's head: the format of bin/TICKETS.md,
+// sections **Code story** and **Story anchor**.
+//
+//   story-check [--head <commit>] [--pr-head <N>=<commit>]... [--repo <dir>] <story>...
+//
+// What is checked, in each story file:
+//   - the title (`# Code story — …`) and the header line (`Kind:`, `Epic:`, `Ticket:`, `PR:`, `Language:`):
+//     its form, the fields each kind needs, and no `Commit:` field — a committed story names no commit;
+//   - the steps: numbered in order; a code step has exactly one fragment and the five fields, each with
+//     a value (`not recorded` counts); the frame step `What was wrong` and the epic's `Start` carry a
+//     `Requirement`; a `Requirement` is a Markdown link or `not recorded`;
+//   - an epic story: its sections in order (Start, the chapters, the step `Seams between tickets`,
+//     Summary, Check, an optional Check yourself), a chapter either with steps or with `Ready: no — <why>`,
+//     and every handoff of `Seams between tickets` in the form `- <NN> → <NN>: <what> · done: yes`
+//     or `· done: no — <why>`;
+//   - every fragment (`Code: \`<path>:<from>-<to>\` · key lines: …` and the fenced block after it):
+//     its lines are lines <from> to <to> of <path> in the anchor, compared line by line with a trailing
+//     carriage return dropped;
+//   - personal data anywhere in the story, by the rules of lib/privacy.cjs (the host name of this
+//     machine and the personal deny list of <Harness home>/user/privacy.json included); a finding is
+//     printed masked.
+// The labels follow the story's `Language:`: a language code of `codeStoryLabels` in
+// lib/input-words.json takes its words there, any other language the English labels.
+//
+// The anchor — the code the fragments are read against — is the PR's head, never the main branch:
+//   - --head <commit>: that commit, for every fragment. The documents PR that appends the review step
+//     names the head that `land` merged;
+//   - without --head: the git work tree that holds the story (or --repo <dir>, the work tree of the code
+//     when the story lies elsewhere). A story that is not committed — new, changed, staged — is read
+//     against the files of the working tree; a committed one against HEAD. On the main branch of that
+//     work tree (the branch origin/HEAD names; without it `main` or `master`) the check refuses:
+//     there the code is not the PR's head. `--head HEAD` checks there on purpose;
+//   - --pr-head <N>=<commit>: the chapter `## PR #<N> · …` of an epic story is read against that commit,
+//     its PR's head; the chapters without one take the anchor above.
+// The output names the anchor of every fragment it checked.
+//
+// Output, on stdout: one line per problem, `<story>:<step>: <what is wrong>`, where <step> is the step
+// number, `title`, `header` or the title of a section; then one line per anchor,
+// `<story>: <N> fragments checked against <anchor>`; last `<story>: ok` or `<story>: <N> problems`.
+// <story> is the path from the root of the work tree. Every line goes out through privacy.maskText.
+//
+// Exit codes: 0 — every story is green; 2 — a story is red, with the list; 1 — a story could not be
+// checked (no file, no git, not a git work tree, an unknown commit, the main branch, the word list not
+// read) or a usage error, with the reason on stderr.
+"use strict"
+
+const fs = require("node:fs")
+const os = require("node:os")
+const path = require("node:path")
+const { spawnSync } = require("node:child_process")
+// The git to start and the Harness home, with the variables of an eval run.
+const { git: GIT, harnessHome } = require("../hooks/eval-env.cjs")
+const privacy = require("../lib/privacy.cjs")
+
+const USAGE = `usage: story-check [--head <commit>] [--pr-head <N>=<commit>]... [--repo <dir>] <story>...
+  checks each Code story against the code of the PR's head: the format of bin/TICKETS.md, every
+  fragment line by line, personal data; prints "<story>:<step>: <what is wrong>" per problem
+  --head <commit>       read every fragment against this commit (the PR's head that was merged)
+  --pr-head <N>=<commit> read the chapter of PR #N of an epic story against this commit
+  --repo <dir>          the git work tree of the code (default: the one that holds the story)
+  without --head: an uncommitted story against the working tree, a committed one against HEAD;
+  refused on the main branch
+exit: 0 green, 2 red, 1 cannot check or usage error`
+
+// The English labels; a story in another language uses the words of lib/input-words.json.
+const FIELDS = ["What it does", "Why here", "Without it", "Requirement", "Risks and test gaps"]
+const FRAMES = ["What was wrong", "What was deliberately not changed", "How it was checked", "What review found and what remains"]
+const NOT_RECORDED = "not recorded"
+const TITLE_PREFIX = "Code story — "
+const HEADER_KEYS = ["Kind", "Epic", "Ticket", "PR", "Language", "Commit"]
+
+const CODE_LINE = /^Code: `([^`]*)`(.*)$/
+const RANGE = /^(.+):(\d+)-(\d+)$/
+const KEY_LINES = /^ · key lines: (\d+(?:, *\d+)*)$/
+const FIELD = /^- ([^:]+): ?(.*)$/
+const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/
+const CHAPTER = /^PR (?:#(\d+)|-) · (\d{2}) — (.+)$/
+const STEP = /^(\d+)\. (.+)$/
+const HANDOFF = /^(\d{2}) → (\d{2})$/
+const DONE = / · done: (.*)$/
+
+class CannotCheck extends Error {}
+
+// --- git ---------------------------------------------------------------------------------------------
+
+const run = (cwd, args) =>
+    spawnSync(GIT, ["-C", cwd, ...args], { encoding: "utf8", maxBuffer: 256 * 1024 * 1024, windowsHide: true })
+
+const firstLine = (text) => String(text || "").trim().split("\n")[0]
+
+function gitOut(cwd, args, what) {
+    const r = run(cwd, args)
+    if (r.error) throw new CannotCheck(`git cannot run (${r.error.code || r.error.message})`)
+    if (r.status !== 0) throw new CannotCheck(`${what}: ${firstLine(r.stderr) || `git exit code ${r.status}`}`)
+    return r.stdout.replace(/\r?\n$/, "")
+}
+
+// The full sha of <ref> as a commit of the work tree <top>.
+function commitOf(top, ref) {
+    const r = run(top, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`])
+    if (r.error) throw new CannotCheck(`git cannot run (${r.error.code || r.error.message})`)
+    if (r.status !== 0 || !r.stdout.trim()) throw new CannotCheck(`no commit ${ref} in the repository (fetch it first)`)
+    return r.stdout.trim()
+}
+
+// The names the main branch goes by in <top>: the branch origin/HEAD points to, else main and master.
+function mainBranches(top) {
+    const r = run(top, ["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"])
+    const name = r.status === 0 ? r.stdout.trim().replace(/^[^/]+\//, "") : ""
+    return name ? [name] : ["main", "master"]
+}
+
+// --- the story ---------------------------------------------------------------------------------------
+
+// The words of `language`: English label -> the label the story writes.
+function labelsFor(words, language) {
+    const own = (words && Object.prototype.hasOwnProperty.call(words, language) && words[language]) || {}
+    return (english) => (typeof own[english] === "string" && own[english]) || english
+}
+
+// Problems are collected as { line, where, text }; `line` is 1-based, for the order of the output.
+function parseStory(text) {
+    const lines = text.replace(/^﻿/, "").split("\n").map((l) => l.replace(/\r$/, ""))
+    const problems = []
+    const add = (line, where, what) => problems.push({ line, where, text: what })
+    const whereOf = new Array(lines.length).fill("")
+    const fragments = []
+
+    let i = 0
+    while (i < lines.length && lines[i].trim() === "") i++
+    const titleAt = i
+    const title = i < lines.length ? lines[i] : ""
+    whereOf[titleAt] = "title"
+    if (!title.startsWith("# " + TITLE_PREFIX)) add(titleAt + 1, "title", `the first line is not the title "# ${TITLE_PREFIX}…"`)
+    i++
+    while (i < lines.length && lines[i].trim() === "") i++
+    const headerAt = i
+    whereOf[headerAt] = "header"
+    const header = parseHeader(i < lines.length ? lines[i] : "", headerAt + 1, add)
+    const L = labelsFor(STORY_WORDS, header.Language)
+    checkTitle(title.slice(2), header, titleAt + 1, add)
+
+    // The sections of the body, split at the headings outside fenced blocks.
+    const levels = header.Kind === "epic" ? ["##", "###"] : ["##"]
+    const sections = []
+    let current = { level: "", title: "", at: headerAt + 1, from: headerAt + 1, where: "header" }
+    let fence = null
+    for (let k = headerAt + 1; k < lines.length; k++) {
+        const line = lines[k]
+        if (fence) {
+            if (closesFence(line, fence)) fence = null
+        } else {
+            const f = FENCE.exec(line)
+            const h = /^(#{2,3}) (.+?)\s*$/.exec(line)
+            if (f) fence = f[1]
+            else if (h && levels.includes(h[1])) {
+                current.to = k
+                sections.push(current)
+                current = { level: h[1], title: h[2], at: k + 1, from: k + 1 }
+            }
+        }
+    }
+    current.to = lines.length
+    sections.push(current)
+    const body = sections.map((s) => ({ ...s, ...readContent(lines, s.from, s.to, add) }))
+
+    if (header.Kind === "pr") checkPrSteps(body, L, add)
+    else if (header.Kind === "epic") checkEpic(body, L, add)
+
+    for (const s of body) {
+        for (let k = s.at - 1; k < s.to; k++) if (!whereOf[k]) whereOf[k] = s.where || s.title
+        for (const f of s.fragments) fragments.push({ ...f, where: s.where || s.title, chapterPr: s.chapterPr || null })
+    }
+    return { lines, whereOf, problems, fragments }
+}
+
+function closesFence(line, open) {
+    const m = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(line)
+    return Boolean(m && m[1][0] === open[0] && m[1].length >= open.length)
+}
+
+function parseHeader(line, at, add) {
+    const header = {}
+    if (!line) {
+        add(at, "header", "no header line after the title")
+        return header
+    }
+    for (const part of line.split(" · ")) {
+        const m = /^([A-Za-z]+): (.*)$/.exec(part)
+        if (!m) {
+            add(at, "header", `"${part}" is not a "Key: value" field`)
+            continue
+        }
+        const [, key, value] = m
+        if (!HEADER_KEYS.includes(key)) add(at, "header", `unknown field "${key}"`)
+        else if (Object.prototype.hasOwnProperty.call(header, key)) add(at, "header", `the field "${key}" twice`)
+        else header[key] = value.trim()
+    }
+    if (header.Commit !== undefined)
+        add(at, "header", "a committed story names no commit (Commit:): its anchor is the head of its PR (bin/TICKETS.md, Story anchor)")
+    if (header.Kind !== "pr" && header.Kind !== "epic") add(at, "header", `Kind: must be pr or epic, not "${header.Kind ?? ""}"`)
+    if (header.Language === undefined) add(at, "header", "no Language: field")
+    else if (!/^[a-z]{2,3}(-[A-Za-z0-9]+)*$/.test(header.Language)) add(at, "header", `Language: "${header.Language}" is not a language code`)
+    if (header.Kind === "pr") {
+        if (header.PR === undefined) add(at, "header", "no PR: field (#<N>, or - while the PR is not open)")
+        else if (!/^(#\d+|-)$/.test(header.PR)) add(at, "header", `PR: "${header.PR}" is not #<N> or -`)
+        if (header.Ticket !== undefined && !/^\d{2}$/.test(header.Ticket)) add(at, "header", `Ticket: "${header.Ticket}" is not two digits`)
+        if ((header.Epic === undefined) !== (header.Ticket === undefined))
+            add(at, "header", "Epic: and Ticket: go together: both for the PR of a ticket, neither for another PR")
+    }
+    if (header.Kind === "epic") {
+        if (!header.Epic) add(at, "header", "no Epic: field")
+        if (header.Ticket !== undefined) add(at, "header", "an epic story has no Ticket: field")
+        if (header.PR !== undefined) add(at, "header", "an epic story has no PR: field")
+    }
+    return header
+}
+
+function checkTitle(title, header, at, add) {
+    if (!title.startsWith(TITLE_PREFIX)) return
+    const rest = title.slice(TITLE_PREFIX.length)
+    let want = null
+    if (header.Kind === "epic" && header.Epic) {
+        if (rest !== header.Epic) want = `${TITLE_PREFIX}${header.Epic}`
+    } else if (header.Kind === "pr" && header.Epic && header.Ticket) {
+        const lead = `${header.Epic} ${header.Ticket}: `
+        if (!rest.startsWith(lead) || !rest.slice(lead.length).trim()) want = `${TITLE_PREFIX}${lead}<title>`
+    } else if (header.Kind === "pr" && !/^PR #(\d+|-): \S/.test(rest)) want = `${TITLE_PREFIX}PR #<N>: <title>`
+    if (want) add(at, "title", `the title is not "${want}"`)
+}
+
+// The fragments, list items and `Ready:` line of the lines [from, to) (0-based).
+function readContent(lines, from, to, add) {
+    const fragments = []
+    const items = []
+    let ready = null
+    let k = from
+    while (k < to) {
+        const line = lines[k]
+        const code = CODE_LINE.exec(line)
+        const fence = FENCE.exec(line)
+        if (code) {
+            k = readFragment(lines, k, to, code, fragments, add)
+            continue
+        }
+        if (fence) {
+            k++
+            while (k < to && !closesFence(lines[k], fence[1])) k++
+            k++
+            continue
+        }
+        const item = FIELD.exec(line)
+        if (item) {
+            let value = item[2]
+            let n = k + 1
+            // A value goes on over the indented lines after it.
+            while (n < to && /^\s+\S/.test(lines[n]) && !FENCE.exec(lines[n])) value += " " + lines[n++].trim()
+            items.push({ label: item[1], value: value.trim(), line: k + 1 })
+            k = n
+            continue
+        }
+        if (/^Ready: /.test(line) && ready === null) ready = { value: line.slice("Ready: ".length), line: k + 1 }
+        k++
+    }
+    return { fragments, items, ready }
+}
+
+// One fragment from the `Code:` line at `k`; returns the index after its block.
+function readFragment(lines, k, to, code, fragments, add) {
+    const at = k + 1
+    const fragment = { line: at, problems: [] }
+    const range = RANGE.exec(code[1])
+    const keys = KEY_LINES.exec(code[2])
+    if (!range) fragment.problems.push(`fragment "${code[1]}" is not <path>:<from>-<to>`)
+    else Object.assign(fragment, { path: range[1], from: Number(range[2]), to: Number(range[3]) })
+    if (!keys) fragment.problems.push(`fragment ${code[1]}: the line does not end in " · key lines: <n>, <n>"`)
+    else fragment.keys = keys[1].split(",").map((n) => Number(n.trim()))
+    let n = k + 1
+    while (n < to && lines[n].trim() === "") n++
+    const open = n < to ? /^(`{3,})[^`]*$/.exec(lines[n]) : null
+    if (!open) {
+        fragment.problems.push(`fragment ${code[1]}: no fenced code block after the Code: line`)
+        fragments.push(fragment)
+        return k + 1
+    }
+    const block = []
+    let end = n + 1
+    while (end < to && !closesFence(lines[end], open[1])) block.push(lines[end++])
+    if (end >= to) fragment.problems.push(`fragment ${code[1]}: the code block is not closed`)
+    fragment.code = block
+    fragments.push(fragment)
+    return end + 1
+}
+
+// The fields of a step: label -> value, a field twice is a problem.
+function fieldsOf(section, where, add) {
+    const fields = new Map()
+    for (const item of section.items) {
+        if (fields.has(item.label)) add(item.line, where, `the field "${item.label}" twice`)
+        else fields.set(item.label, item)
+    }
+    return fields
+}
+
+function checkRequirement(fields, L, where, at, add) {
+    const label = L("Requirement")
+    const field = fields.get(label)
+    if (!field) return add(at, where, `no field "${label}"`)
+    if (!field.value) return add(field.line, where, `the field "${label}" is empty`)
+    if (field.value !== L(NOT_RECORDED) && !/^\[[^\]]+\]\([^)\s]+\)/.test(field.value))
+        add(field.line, where, `the field "${label}" is not a Markdown link to a section of the ticket or the spec, nor "${L(NOT_RECORDED)}"`)
+}
+
+// A step: a code step needs one fragment and the five fields; `What was wrong` needs a Requirement.
+function checkStep(section, where, L, add) {
+    const name = STEP.exec(section.title)[2]
+    const fields = fieldsOf(section, where, add)
+    if (name === L("What was wrong")) return checkRequirement(fields, L, where, section.at, add)
+    if (FRAMES.some((f) => L(f) === name)) return
+    if (section.fragments.length !== 1)
+        add(section.at, where, section.fragments.length
+            ? `a code step has ${section.fragments.length} fragments; it has exactly one`
+            : "a code step has no fragment (Code: `<path>:<from>-<to>` · key lines: …)")
+    for (const english of FIELDS) {
+        const label = L(english)
+        const field = fields.get(label)
+        if (!field) add(section.at, where, `no field "${label}"`)
+        else if (!field.value) add(field.line, where, `the field "${label}" is empty`)
+    }
+    if (fields.has(L("Requirement")) && fields.get(L("Requirement")).value) checkRequirement(fields, L, where, section.at, add)
+}
+
+function checkPrSteps(body, L, add) {
+    let n = 0
+    let checkYourself = false
+    for (const s of body) {
+        if (!s.level) continue
+        const step = STEP.exec(s.title)
+        if (step) {
+            n++
+            s.where = step[1]
+            if (Number(step[1]) !== n) add(s.at, s.where, `step numbered ${step[1]}, expected ${n}: steps are numbered from 1 in file order`)
+            checkStep(s, s.where, L, add)
+        } else if (s.title === L("Check yourself")) {
+            if (checkYourself) add(s.at, s.title, "a second Check yourself section")
+            checkYourself = true
+        } else add(s.at, s.title, `not a step ("## <n>. <title>") nor the section "${L("Check yourself")}"`)
+    }
+    if (!n) add(1, "body", "no steps")
+}
+
+// The sections of an epic story: Start, chapters with their steps, Seams between tickets, Summary, Check.
+function checkEpic(body, L, add) {
+    const ORDER = ["Start", "chapter", "seams", "Summary", "Check", "Check yourself"]
+    const seen = new Set()
+    let last = 0
+    let n = 0
+    let chapter = null
+    const closeChapter = () => {
+        if (!chapter) return
+        const { s, steps } = chapter
+        const notReady = s.ready && /^no\b/.test(s.ready.value)
+        if (s.ready && !/^no — \S/.test(s.ready.value)) add(s.ready.line, s.where, 'the line is not "Ready: no — <why>"')
+        if (notReady && steps) add(s.at, s.where, "a chapter that is not ready has no steps")
+        if (!s.ready && !steps) add(s.at, s.where, 'a chapter with no steps needs "Ready: no — <why>"')
+        if (s.chapterPr === null && !notReady) add(s.at, s.where, 'a chapter with "PR -" needs "Ready: no — <why>"')
+        chapter = null
+    }
+    const order = (s, kind) => {
+        const index = ORDER.indexOf(kind)
+        if (index < last) add(s.at, s.where, `out of order: an epic story is ${L("Start")}, the chapters, ${L("Seams between tickets")}, ${L("Summary")}, ${L("Check")}`)
+        last = Math.max(last, index)
+        seen.add(kind)
+    }
+    for (const s of body) {
+        if (!s.level) continue
+        const step = STEP.exec(s.title)
+        if (s.level === "###") {
+            if (!step || !chapter) {
+                s.where = s.title
+                add(s.at, s.where, chapter ? 'a "###" heading of a chapter is a step "### <n>. <title>"' : 'a "###" step stands only inside a chapter "## PR #<N> · <NN> — <title>"')
+                continue
+            }
+            n++
+            s.where = step[1]
+            s.chapterPr = chapter.s.chapterPr
+            chapter.steps++
+            if (Number(step[1]) !== n) add(s.at, s.where, `step numbered ${step[1]}, expected ${n}: steps are numbered through the whole story`)
+            checkStep(s, s.where, L, add)
+            continue
+        }
+        closeChapter()
+        const head = CHAPTER.exec(s.title)
+        if (head) {
+            s.chapterPr = head[1] || null
+            s.where = head[1] ? `PR #${head[1]}` : `PR - · ${head[2]}`
+            order(s, "chapter")
+            chapter = { s, steps: 0 }
+            if (s.fragments.length) add(s.at, s.where, "a fragment stands in a step of the chapter, not under its heading")
+            continue
+        }
+        if (step) {
+            n++
+            s.where = step[1]
+            if (step[2] !== L("Seams between tickets")) {
+                add(s.at, s.where, `a "##" step of an epic story is "${L("Seams between tickets")}"; the other steps are "###" inside a chapter`)
+                continue
+            }
+            order(s, "seams")
+            if (Number(step[1]) !== n) add(s.at, s.where, `step numbered ${step[1]}, expected ${n}: it follows the last step of the chapters`)
+            checkHandoffs(s, add)
+        } else {
+            s.where = s.title
+            const kind = ["Start", "Summary", "Check", "Check yourself"].find((k) => L(k) === s.title)
+            if (!kind) {
+                add(s.at, s.where, "not a section of an epic story")
+                continue
+            }
+            order(s, kind)
+            if (kind === "Start") checkRequirement(fieldsOf(s, s.where, add), L, s.where, s.at, add)
+        }
+        if (s.fragments.length) add(s.at, s.where, "outside the chapters an epic story quotes no fragment")
+    }
+    closeChapter()
+    for (const [kind, title] of [["Start", L("Start")], ["chapter", "## PR #<N> · <NN> — <title>"], ["seams", `## <n>. ${L("Seams between tickets")}`], ["Summary", L("Summary")], ["Check", L("Check")]])
+        if (!seen.has(kind)) add(1, "body", `no section "${title}"`)
+}
+
+function checkHandoffs(s, add) {
+    for (const item of s.items) {
+        const pair = HANDOFF.exec(item.label)
+        if (!pair) {
+            add(item.line, s.where, `"- ${item.label}: …" is not a handoff "- <NN> → <NN>: <what> · done: yes"`)
+            continue
+        }
+        const done = DONE.exec(item.value)
+        if (!done) add(item.line, s.where, `handoff ${item.label} has no "done:" field (· done: yes, or · done: no — <why>)`)
+        else if (done[1] !== "yes" && !/^no — \S/.test(done[1]))
+            add(item.line, s.where, `handoff ${item.label}: "done: ${done[1]}" is not "done: yes" or "done: no — <why>"`)
+        else if (!item.value.slice(0, done.index).trim()) add(item.line, s.where, `handoff ${item.label} says nothing of what is handed over`)
+    }
+}
+
+// --- the anchor and the fragments --------------------------------------------------------------------
+
+function lineCount(lines) {
+    return lines.length && lines[lines.length - 1] === "" ? lines.length - 1 : lines.length
+}
+
+const excerpt = (text) => (text.length > 60 ? text.slice(0, 57) + "..." : text)
+
+// The problem of one fragment against the code of its anchor, or null.
+function compare(fragment, code, anchorName) {
+    if (code === null) return `fragment ${fragment.path}:${fragment.from}-${fragment.to}: no file ${fragment.path} in ${anchorName}`
+    const file = code.split("\n").map((l) => l.replace(/\r$/, ""))
+    const count = lineCount(file)
+    const label = `fragment ${fragment.path}:${fragment.from}-${fragment.to}`
+    if (fragment.to > count) return `${label} does not match the code at ${anchorName}: the file has ${count} lines`
+    const want = file.slice(fragment.from - 1, fragment.to)
+    for (let k = 0; k < Math.max(want.length, fragment.code.length); k++) {
+        if (want[k] === fragment.code[k]) continue
+        if (k >= fragment.code.length) return `${label} does not match the code at ${anchorName}: the block has ${fragment.code.length} lines, the range ${want.length}`
+        if (k >= want.length) return `${label} does not match the code at ${anchorName}: the block has ${fragment.code.length} lines, the range ${want.length}`
+        return `${label} does not match the code at ${anchorName}: line ${fragment.from + k} differs (story "${excerpt(fragment.code[k])}", code "${excerpt(want[k])}")`
+    }
+    return null
+}
+
+function badPath(p) {
+    return path.posix.isAbsolute(p) || /^[A-Za-z]:/.test(p) || p.includes("\\") || p.split("/").includes("..")
+}
+
+// Checks one story; returns { lines, code } where code is 0, 1 or 2.
+function checkStory(arg, opts, privacyOptions) {
+    const out = []
+    const abs = path.resolve(arg)
+    let stat = null
+    try {
+        stat = fs.statSync(abs)
+    } catch {}
+    if (!stat || !stat.isFile()) throw new CannotCheck(`no such story file: ${arg}`)
+    const dir = opts.repo ? path.resolve(opts.repo) : path.dirname(abs)
+    const top = gitOut(dir, ["rev-parse", "--show-toplevel"], `not inside a git work tree (${dir})`)
+    // The story's path from the root of the work tree. Without --repo git gives the folder's own
+    // prefix, so no two spellings of one path are compared (a short 8.3 name of Windows, /private/var
+    // of macOS); with --repo both paths are resolved by the system.
+    let rel
+    if (!opts.repo) rel = gitOut(dir, ["rev-parse", "--show-prefix"], "git rev-parse failed") + path.basename(abs)
+    else rel = path.relative(fs.realpathSync.native(top), fs.realpathSync.native(abs)).split(path.sep).join("/")
+    const inside = Boolean(rel) && !rel.startsWith("../") && rel !== ".." && !path.isAbsolute(rel)
+    const shown = inside ? rel : arg
+    const story = parseStory(fs.readFileSync(abs, "utf8"))
+
+    // Personal data in the story, line by line.
+    story.lines.forEach((line, k) => {
+        for (const f of privacy.findings(line, privacyOptions))
+            story.problems.push({ line: k + 1, where: story.whereOf[k] || "header", text: `line ${k + 1}: personal data (${f.rule}): ${privacy.mask(line.slice(f.index, f.index + f.length))}` })
+    })
+
+    // The anchors: named commits first, the default one only when a fragment needs it.
+    const named = opts.head ? { sha: commitOf(top, opts.head), name: null } : null
+    if (named) named.name = `${named.sha} (--head ${opts.head})`
+    const chapters = new Map()
+    for (const [pr, ref] of opts.prHeads) {
+        const sha = commitOf(top, ref)
+        chapters.set(pr, { sha, name: `${sha} (--pr-head ${pr}${ref === sha ? "" : `=${ref}`}) for the chapter PR #${pr}` })
+    }
+    let fallback = null
+    const defaultAnchor = () => {
+        if (named) return named
+        if (fallback) return fallback
+        const branch = run(top, ["symbolic-ref", "-q", "--short", "HEAD"])
+        const name = branch.status === 0 ? branch.stdout.trim() : ""
+        if (name && mainBranches(top).includes(name))
+            throw new CannotCheck(`the work tree is on the main branch (${name}): a story is checked against the head of its PR, never the main branch; run it in the PR's branch, or name the head with --head <commit>`)
+        const status = inside ? gitOut(top, ["status", "--porcelain", "-z", "--untracked-files=all", "--", rel], "git status failed") : ""
+        if (status) fallback = { sha: null, name: "the working tree (the story is not committed)" }
+        else {
+            const sha = commitOf(top, "HEAD")
+            fallback = { sha, name: `HEAD ${sha} (${name ? `branch ${name}` : "detached"})` }
+        }
+        return fallback
+    }
+
+    const cache = new Map()
+    const read = (anchor, file) => {
+        const key = `${anchor.sha || ""}\0${file}`
+        if (cache.has(key)) return cache.get(key)
+        let text = null
+        if (anchor.sha) {
+            const r = run(top, ["cat-file", "blob", `${anchor.sha}:${file}`])
+            if (r.error) throw new CannotCheck(`git cannot run (${r.error.code || r.error.message})`)
+            text = r.status === 0 ? r.stdout : null
+        } else {
+            try {
+                text = fs.readFileSync(path.join(top, ...file.split("/")), "utf8")
+            } catch (e) {
+                if (e.code !== "ENOENT" && e.code !== "EISDIR" && e.code !== "ENOTDIR") throw new CannotCheck(`cannot read ${file}: ${e.code || e.message}`)
+            }
+        }
+        cache.set(key, text)
+        return text
+    }
+
+    const used = new Map()
+    for (const f of story.fragments) {
+        const add = (text) => story.problems.push({ line: f.line, where: f.where, text })
+        f.problems.forEach(add)
+        if (!f.path || !f.code) continue
+        if (badPath(f.path)) {
+            add(`fragment ${f.path}: the path is relative to the root of the repository, without ..`)
+            continue
+        }
+        if (f.from < 1 || f.to < f.from) {
+            add(`fragment ${f.path}:${f.from}-${f.to}: not a range of lines`)
+            continue
+        }
+        for (const key of f.keys || [])
+            if (key < f.from || key > f.to) add(`fragment ${f.path}:${f.from}-${f.to}: key line ${key} is outside the fragment`)
+        const anchor = (f.chapterPr && chapters.get(f.chapterPr)) || defaultAnchor()
+        used.set(anchor.name, (used.get(anchor.name) || 0) + 1)
+        const problem = compare(f, read(anchor, f.path), anchor.sha ? anchor.sha : "the working tree")
+        if (problem) add(problem)
+    }
+
+    story.problems.sort((a, b) => a.line - b.line)
+    for (const p of story.problems) out.push(`${shown}:${p.where}: ${p.text}`)
+    if (!used.size) out.push(`${shown}: no fragments to check`)
+    for (const [name, count] of used) out.push(`${shown}: ${count} fragment${count === 1 ? "" : "s"} checked against ${name}`)
+    const n = story.problems.length
+    out.push(n ? `${shown}: ${n} problem${n === 1 ? "" : "s"}` : `${shown}: ok`)
+    return { lines: out, code: n ? 2 : 0, shown }
+}
+
+// --- the command -------------------------------------------------------------------------------------
+
+let STORY_WORDS = null
+
+function parseArgs(argv) {
+    const opts = { head: null, prHeads: new Map(), repo: null, stories: [] }
+    for (let k = 0; k < argv.length; k++) {
+        const a = argv[k]
+        const value = () => {
+            if (k + 1 >= argv.length || argv[k + 1] === "") return null
+            return argv[++k]
+        }
+        if (a === "--") {
+            opts.stories.push(...argv.slice(k + 1))
+            break
+        } else if (a === "--head") {
+            if (opts.head !== null) return null
+            opts.head = value()
+            if (opts.head === null) return null
+        } else if (a === "--pr-head") {
+            const m = /^#?(\d+)=(.+)$/.exec(value() || "")
+            if (!m) return null
+            opts.prHeads.set(String(Number(m[1])), m[2])
+        } else if (a === "--repo") {
+            opts.repo = value()
+            if (opts.repo === null) return null
+        } else if (a.startsWith("-") && a !== "-") return null
+        else opts.stories.push(a)
+    }
+    if (!opts.stories.length || opts.stories.includes("")) return null
+    return opts
+}
+
+function main(argv) {
+    if (argv.length === 1 && (argv[0] === "-h" || argv[0] === "--help")) {
+        process.stdout.write(USAGE + "\n")
+        return 0
+    }
+    const opts = parseArgs(argv)
+    if (!opts) {
+        process.stderr.write(USAGE + "\n")
+        return 1
+    }
+    const privacyOptions = { hostname: os.hostname(), deny: privacy.personal(harnessHome()).deny }
+    const mask = (text) => privacy.maskText(text, privacyOptions)
+    try {
+        const words = require("../lib/input-words.json").codeStoryLabels
+        if (!words || typeof words !== "object") throw new Error("no codeStoryLabels")
+        STORY_WORDS = words
+    } catch (e) {
+        process.stderr.write(`story-check: the words of the labels not read (lib/input-words.json): ${firstLine(e.message)}\n`)
+        return 1
+    }
+    let code = 0
+    for (const story of opts.stories) {
+        try {
+            const result = checkStory(story, opts, privacyOptions)
+            process.stdout.write(result.lines.map(mask).join("\n") + "\n")
+            if (result.code > code && code !== 1) code = result.code
+        } catch (e) {
+            if (!(e instanceof CannotCheck)) throw e
+            process.stderr.write(mask(`story-check: ${story}: cannot check: ${e.message}`) + "\n")
+            code = 1
+        }
+    }
+    return code
+}
+
+process.exitCode = main(process.argv.slice(2))
