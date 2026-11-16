@@ -275,7 +275,8 @@ describe('projectPulse.changed', () => {
   it('reaches the windows after a change of a PR inbox, of the Stages and of the Project list; nothing while nothing changed', async () => {
     const window = makeWindow(1)
     await pulse(window)
-    await new Promise((resolve) => setTimeout(resolve, ms(200)))
+    // A pause in which nothing may happen: the run's multiplier is for waits on what must come, it only lengthens this one.
+    await new Promise((resolve) => setTimeout(resolve, 200))
     expect(window.sent).toEqual([])
 
     prNeedYou.set(BETA, 4)
@@ -311,7 +312,7 @@ describe('projectPulse.changed', () => {
     await pulse(window)
     const reads = hub.reads
     // Twelve polls with live Sessions, no file changed, no pid ended: no read, so no start-time check of any process.
-    await new Promise((resolve) => setTimeout(resolve, ms(600)))
+    await new Promise((resolve) => setTimeout(resolve, 600))
     expect(hub.reads).toBe(reads)
     expect(window.sent).toEqual([])
   })
@@ -372,7 +373,7 @@ describe('one hub for every window and every Project', () => {
     blocked = false
     ;(hold as (() => void) | null)?.()
     // The read that was running ends with the numbers of before.
-    await new Promise((resolve) => setTimeout(resolve, ms(100)))
+    await new Promise((resolve) => setTimeout(resolve, 100))
     // Nobody listens now, so no change reaches the hub.
     prNeedYou.set(ALPHA, 7)
     const second = makeWindow(2)
@@ -383,7 +384,7 @@ describe('one hub for every window and every Project', () => {
     const before = snapshot(home)
     const window = makeWindow(1)
     await pulse(window)
-    await new Promise((resolve) => setTimeout(resolve, ms(400)))
+    await new Promise((resolve) => setTimeout(resolve, 400))
     window.destroy()
     expect(snapshot(home)).toStrictEqual(before)
   })

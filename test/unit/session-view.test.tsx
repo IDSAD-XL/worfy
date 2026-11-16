@@ -10,6 +10,7 @@ import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { OrchestratorView } from '../../src/shared/ipc/orchestrator'
 import type { CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
 import { foldTranscript } from '../../src/renderer/session/fold'
+import { ASK_OPEN_REQUESTS_AFTER_MS } from '../../src/renderer/session/open-requests'
 import { promptHistory, stepHistory } from '../../src/renderer/session/history'
 import { agentText, quoteAnchor } from '../../src/renderer/session/quote-comments'
 import { collectRowTypes } from '../../src/renderer/session/rows/index'
@@ -754,13 +755,15 @@ describe('composer: pickers and queue (ticket 19)', () => {
 })
 
 describe('SessionPanel', () => {
-  async function mountPanel(blocks: Record<string, unknown> = {}) {
+  /** `fakeClock`: the test runs on vitest's fake timers, which Testing Library's findBy* never lets run, so the wait is vi.waitFor's. */
+  async function mountPanel(blocks: Record<string, unknown> = {}, { fakeClock = false }: { fakeClock?: boolean } = {}) {
     const guard = renderGuard()
     const { SessionPanel } = await import('../../src/renderer/session/SessionView')
     const { collectRailBlocks: collect } = await import('../../src/renderer/session/rail/index')
     guard()
     render(<SessionPanel projectId="alpha" projectName="alpha" nodeId="orch" blocks={collect(blocks)} />)
-    await screen.findByText('claude-opus-5-5')
+    if (fakeClock) await vi.waitFor(() => screen.getByText('claude-opus-5-5'))
+    else await screen.findByText('claude-opus-5-5')
   }
 
   it('shows the header facts, sends a message as a prompt row, and draws the answer and the cost', async () => {
@@ -830,10 +833,16 @@ describe('SessionPanel', () => {
   })
 
   it('a Session that waits for no answer asks main for no request and shows no such line', async () => {
-    await mountPanel()
-    await act(() => new Promise((resolve) => setTimeout(resolve, 400)))
-    expect(asked.some((each) => each.channel === 'agent.requests')).toBe(false)
-    expect(screen.queryByTestId('session-request-unseen')).toBeNull()
+    // Fake timers from before the mount: an ask would be a timer of ASK_OPEN_REQUESTS_AFTER_MS the panel starts as it mounts.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], now: new Date('2026-11-16T09:00:00Z') })
+    try {
+      await mountPanel({}, { fakeClock: true })
+      await act(() => vi.advanceTimersByTimeAsync(ASK_OPEN_REQUESTS_AFTER_MS * 2))
+      expect(asked.some((each) => each.channel === 'agent.requests')).toBe(false)
+      expect(screen.queryByTestId('session-request-unseen')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('takes the permission mode from a later system/status', async () => {

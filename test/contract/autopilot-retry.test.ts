@@ -14,7 +14,7 @@ import { ActionLauncher } from '../../src/main/actions/launch'
 import { fakeQueryFactory, FakeReleases, type FakeCall } from '../../src/main/agent/fake-query'
 import { LimitsTracker, observeSessionLimits } from '../../src/main/agent/limits'
 import { Orchestrators } from '../../src/main/agent/orchestrator'
-import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
+import { HALT_TURN_MS, SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
 import { SessionSettingsStore } from '../../src/main/agent/session-settings'
 import { openRun, readRun } from '../../src/main/autopilot/journal'
 import { Autopilot } from '../../src/main/autopilot/run'
@@ -36,6 +36,11 @@ vi.mock('electron', () => ({
 const fixtures = join(resolve(dirname(fileURLToPath(import.meta.url)), '..'), 'fixtures', 'agent-scripts')
 const PROJECT = 'demo-000000b4'
 const EPIC = 'demo'
+/**
+ * How long Stop waits for the interrupted turn here (AutopilotDeps.haltTurnMs): the fake agent holds a
+ * turn on wait_release past any limit, and the app's 15 s (HALT_TURN_MS) would be waited out in full.
+ */
+const HALT_MS = 200
 const WAVE_1 = '/epic-wave Ticket-ы 01, 02 эпика demo'
 /** 2026-10-05T06:10:00Z: the run's start; the times of the test go from it. */
 const START_MS = 1791180600 * 1000
@@ -217,6 +222,7 @@ function harness(options: HarnessOptions) {
     keepAwake: () => ({ start: () => undefined, stop: () => undefined }),
     onChange: (state) => states.push(state),
     settleMs: 60_000,
+    haltTurnMs: HALT_MS,
     limits: {
       state: () => tracker.snapshot(),
       observeSession: (isSession, listener) => observeSessionLimits((sink) => registry.observe(sink), isSession, listener),
@@ -691,7 +697,12 @@ describe('Autopilot continues after a temporary API error (worfy-retry ticket 04
     const h = harness({ script: 'autopilot-retry-500', lines })
     await h.autopilot.start(PROJECT, EPIC)
     await until(() => h.sessionState() === 'busy', 'the Wave turn')
+    // The turn does not end on the interrupt: Force stop waits the whole halt limit for it, and no longer.
+    const started = performance.now()
     await h.autopilot.forceStop(PROJECT)
+    const took = performance.now() - started
+    expect(took).toBeGreaterThanOrEqual(HALT_MS - 5)
+    expect(took).toBeLessThan(HALT_TURN_MS / 2)
     h.releases.release('turn')
     await until(() => h.sessionState() === 'idle', 'the turn to end')
     await tick()

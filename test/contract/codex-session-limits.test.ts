@@ -129,7 +129,8 @@ describe('the Limits of a Codex Session', () => {
     await handle.send({ text: 'Go on', attachments: [] })
     await until(events, (event) => event.type === 'result', 'the result')
     // turn/completed came right after the error, while the windows were being read: it waited for the decision.
-    await new Promise((resolve) => setTimeout(resolve, ms(200)))
+    // A pause in which nothing more may come: the run's multiplier only lengthens it.
+    await new Promise((resolve) => setTimeout(resolve, 200))
     expect(limitEvents(events)).toEqual([
       { type: 'limits', vendor: 'codex', windows: windows(30, 52), status: null },
       { type: 'limit_reached', vendor: 'codex', windowId: null, resetsAt: null, reason: 'quota' },

@@ -461,6 +461,16 @@ describe('MindMap look', () => {
 // area changes size, until the owner zooms or pans by hand; a node's text is clamped to the lines its box
 // holds; the card stands beside its node, with the kind as a pill and every step of a Decision's history.
 describe('MindMap fit, text and card', () => {
+  // React Flow's frames (requestAnimationFrame) and the timers run on fake timers here: the map, React Flow
+  // and the ResizeObserver above all run in this process. The pauses below move the fake clock, inside act.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'], now: new Date('2026-11-16T09:00:00Z') })
+  })
+  /** Moves the clock by `by` ms: 60 is past React Flow's next frames, 0 lets the microtasks run. The ELK test waits on real timers. */
+  const pause = async (by: number): Promise<void> => {
+    if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(by)
+    else await new Promise((resolve) => setTimeout(resolve, by))
+  }
   const camera = (): { tx: number; ty: number; scale: number } => {
     const match = /translate\((-?[\d.]+)px, ?(-?[\d.]+)px\) scale\(([\d.]+)\)/.exec(document.querySelector<HTMLElement>('.react-flow__viewport')!.style.transform)!
     return { tx: Number(match[1]), ty: Number(match[2]), scale: Number(match[3]) }
@@ -496,7 +506,7 @@ describe('MindMap fit, text and card', () => {
   /** Past React Flow's next frame, where a fit lands. */
   const nextFrame = async (): Promise<void> => {
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 60))
+      await pause(60)
     })
   }
   /** The pane takes a new size, as a narrower window or a moved divider gives it; React Flow reads it on `resize`. */
@@ -505,17 +515,17 @@ describe('MindMap fit, text and card', () => {
       Object.assign(PANE, { width, height })
       window.dispatchEvent(new Event('resize'))
       // A fit lands on React Flow's next frame: wait past it, so a fit that should not happen would show.
-      await new Promise((resolve) => setTimeout(resolve, 60))
+      await pause(60)
     })
   }
   /** «Fit», and the wait for React Flow's next frame, where it fits: the map as it opens on a topic. */
   const fitted = async (): Promise<void> => {
     // React Flow measures the nodes first (the observer above reports them on a microtask).
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0))
+      await pause(0)
     })
     fireEvent.click(screen.getByRole('button', { name: 'Fit' }))
-    await waitFor(() => expect(allInside(PANE)).toBe(true))
+    await vi.waitFor(() => expect(allInside(PANE)).toBe(true))
   }
   const zoomBy = async (button: 'Zoom in' | 'Zoom out'): Promise<void> => {
     await act(async () => {
@@ -524,6 +534,7 @@ describe('MindMap fit, text and card', () => {
     })
   }
   afterEach(() => {
+    vi.useRealTimers()
     Object.assign(PANE, { width: 800, height: 600 })
   })
 
@@ -533,10 +544,10 @@ describe('MindMap fit, text and card', () => {
     await fitted()
     const wide = Number.parseInt(zoom.textContent!)
     await resizePane(420, 600)
-    await waitFor(() => expect(Number.parseInt(zoom.textContent!)).toBeLessThan(wide))
+    await vi.waitFor(() => expect(Number.parseInt(zoom.textContent!)).toBeLessThan(wide))
     expect(allInside({ width: 420, height: 600 })).toBe(true)
     await resizePane(800, 600)
-    await waitFor(() => expect(Number.parseInt(zoom.textContent!)).toBe(wide))
+    await vi.waitFor(() => expect(Number.parseInt(zoom.textContent!)).toBe(wide))
   })
 
   it('keeps the owner’s zoom when the area changes size after a zoom by hand; «Fit» fits again from then on', async () => {
@@ -551,10 +562,10 @@ describe('MindMap fit, text and card', () => {
     expect(camera()).toEqual(before)
 
     fireEvent.click(screen.getByRole('button', { name: 'Fit' }))
-    await waitFor(() => expect(allInside({ width: 420, height: 600 })).toBe(true))
+    await vi.waitFor(() => expect(allInside({ width: 420, height: 600 })).toBe(true))
     const refitted = Number.parseInt(zoom.textContent!)
     await resizePane(800, 600)
-    await waitFor(() => expect(Number.parseInt(zoom.textContent!)).toBeGreaterThan(refitted))
+    await vi.waitFor(() => expect(Number.parseInt(zoom.textContent!)).toBeGreaterThan(refitted))
   })
 
   it('keeps the owner’s view after a pan with the wheel, a move React Flow reports with its event', async () => {
@@ -563,7 +574,7 @@ describe('MindMap fit, text and card', () => {
     const pane = document.querySelector<HTMLElement>('.react-flow__pane')!
     await act(async () => {
       fireEvent.wheel(pane, { deltaY: -200, clientX: 100, clientY: 100 })
-      await new Promise((resolve) => setTimeout(resolve, 0))
+      await pause(0)
     })
     const before = camera()
     await resizePane(420, 600)
@@ -583,14 +594,14 @@ describe('MindMap fit, text and card', () => {
     expect(allInside(PANE)).toBe(false)
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Fit' }))
-      await new Promise((resolve) => setTimeout(resolve, 60))
+      await pause(60)
     })
     expect(allInside(PANE)).toBe(true)
     const fit = camera()
 
     rerender(<MindMap projectId="p1" topic={topic({ nodes: [...topic().nodes, { id: 'late', kind: 'idea', text: 'Added later', from: 'who-pays' }] })} />)
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 60))
+      await pause(60)
     })
     expect(nodeOf('late')).not.toBeNull()
     expect(camera()).toEqual(fit)
@@ -616,13 +627,15 @@ describe('MindMap fit, text and card', () => {
   })
 
   it('fits the map to ELK’s layout once ELK answers', async () => {
+    // elkjs hands its answer over on real timers.
+    vi.useRealTimers()
     const elk = new ELK()
     setElkEngine({ layout: (input) => elk.layout(input) })
     try {
       render(<MindMap projectId="p1" topic={topic()} />)
       const graph = buildMindMapGraph(topic(), { hideRejected: false })
       const byElk = (await layoutElk(graph, elk)).get('@topic')!
-      await waitFor(() => expect(nodeOf('@topic')!.closest<HTMLElement>('.react-flow__node')!.style.transform).toBe(`translate(${byElk.x}px,${byElk.y}px)`))
+      await vi.waitFor(() => expect(nodeOf('@topic')!.closest<HTMLElement>('.react-flow__node')!.style.transform).toBe(`translate(${byElk.x}px,${byElk.y}px)`))
       await nextFrame()
       expectFitOfDrawnBoxes()
     } finally {

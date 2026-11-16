@@ -169,7 +169,7 @@ const CONNECT_CHIP: Record<ChipTone, { variant: ChipVariant; bordered?: true; ic
 }
 
 /** How long an edit waits for the next one before the Harness checks the draft. */
-const CHECK_DELAY_MS = 350
+export const CHECK_DELAY_MS = 350
 
 export function ConnectProject({ folder, machine, machineName, harnessHome, onClose, onConnected, onPickAnother, onFirstRun }: ConnectProjectProps) {
   const multi = folder.kind === 'multi-repo'

@@ -223,7 +223,8 @@ describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows, on a real pty',
     expect(helper.answers).toEqual(['ended'])
     expect(existsSync(standIn.beat), 'the stand-in ran').toBe(true)
     await rm(standIn.beat, { force: true, maxRetries: 5, retryDelay: 100 })
-    await new Promise((done) => setTimeout(done, ms(500)))
+    // A pause in which nothing may happen: the run's multiplier only lengthens it.
+    await new Promise((done) => setTimeout(done, 500))
     expect(existsSync(standIn.beat), 'the stand-in still runs after the answer').toBe(false)
   }, ms(30_000))
 

@@ -106,6 +106,7 @@ function project() {
 
 beforeEach(() => {
   vi.stubEnv('CLAUDE_GATE_RESOLVE', '')
+  vi.stubEnv('CLAUDE_GATE_RESOLVE_MS', '')
   vi.stubEnv('CLAUDE_PROFILE_BIN', '')
 })
 afterEach(() => vi.unstubAllEnvs())
@@ -460,17 +461,40 @@ describe('Claude Code: the Stop hook stays as it was', () => {
     expect(readdirNames(state).filter((name) => name.startsWith('verdict-'))).toEqual([])
   })
 
-  it('lets the turn go after about 10 s when the registry resolver hangs, as the 10 s limit of the hook did before it became 900 s', () => {
+  // The limit is 10 s, as the hook had before its limit became 900 s. CLAUDE_GATE_RESOLVE_MS shortens it
+  // here to 1 s; the next test shows that without the variable, or with a value it cannot be, the limit
+  // is not shortened, and the source pins the 10 s.
+  it('lets the turn go once the resolver limit is over when the registry resolver hangs', () => {
     const { work, dir } = project()
     const hung = join(dir, 'hung-resolver.mjs')
     writeFileSync(hung, 'setTimeout(() => undefined, 120000)\n')
     vi.stubEnv('CLAUDE_GATE_RESOLVE', hung)
+    vi.stubEnv('CLAUDE_GATE_RESOLVE_MS', '1000')
     const started = Date.now()
     const run = claudeStop(work, { session_id: 'claude-3', transcript_path: join(work, 'claude-3.jsonl'), cwd: work, hook_event_name: 'Stop', stop_hook_active: false })
     expect([run.status, run.stdout]).toEqual([0, ''])
     const took = Date.now() - started
-    expect(took).toBeGreaterThanOrEqual(9_000)
-    expect(took).toBeLessThan(60_000)
+    expect(took).toBeGreaterThanOrEqual(1_000)
+    // Well under the 10 s default: the variable was read.
+    expect(took).toBeLessThan(9_000)
+  }, RUN_MS)
+
+  it('keeps the 10 s resolver limit without CLAUDE_GATE_RESOLVE_MS and with a value that is not a positive whole number', () => {
+    const { work, dir } = project()
+    // A slow resolver: it ends after 1.5 s and leaves a mark, which a limit cut short would not let it write.
+    const slow = join(dir, 'slow-resolver.mjs')
+    writeFileSync(slow, 'import { writeFileSync } from "node:fs"\nsetTimeout(() => writeFileSync(process.env.SLOW_MARK, "done"), 1500)\n')
+    vi.stubEnv('CLAUDE_GATE_RESOLVE', slow)
+    for (const value of [undefined, '0']) {
+      const mark = join(dir, `slow-${value ?? 'unset'}.mark`)
+      vi.stubEnv('SLOW_MARK', mark)
+      vi.stubEnv('CLAUDE_GATE_RESOLVE_MS', value)
+      const run = claudeStop(work, { session_id: 'claude-5', transcript_path: join(work, 'claude-5.jsonl'), cwd: work, hook_event_name: 'Stop', stop_hook_active: false })
+      expect([run.status, run.stdout], String(value)).toEqual([0, ''])
+      expect(existsSync(mark), `CLAUDE_GATE_RESOLVE_MS=${JSON.stringify(value)}`).toBe(true)
+    }
+    // Waiting out the 10 s itself would cost the 10 s this variable saves.
+    expect(readFileSync(join(HARNESS, 'hooks', 'stop.mjs'), 'utf8')).toContain('const RESOLVE_MS = firstByteWait(10_000, "CLAUDE_GATE_RESOLVE_MS")')
   }, RUN_MS)
 
   it('does nothing on a SubagentStop of Claude Code, even with the red marker of a gate run', async () => {

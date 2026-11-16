@@ -1536,7 +1536,7 @@ describe('workflow watcher', () => {
       return real(cwd, ref)
     }
     const deltas: WorkflowDelta[] = []
-    const watcher = await WorkflowWatcher.start({ root: repo, claudeHome: home, env: ownEnv, run, branchRetryMs: [ms(200)], onChange: (delta) => deltas.push(delta) })
+    const watcher = await WorkflowWatcher.start({ root: repo, claudeHome: home, env: ownEnv, run, branchRetryMs: [200], onChange: (delta) => deltas.push(delta) })
     cleanups.push(() => watcher.close())
     expect(watcher.current.branchErrors).toEqual([{ branch: 'demo/02', message: 'epic-status timed out' }])
     expect(ticketOf(watcher.current, 2)).toMatchObject({ state: 'open', unreadBranch: 'demo/02' })
@@ -1545,9 +1545,10 @@ describe('workflow watcher', () => {
     expect(delta.tickets.map((t) => [t.num, t.state, t.fromBranch])).toEqual([[2, 'work', 'demo/02']])
     expect(delta.branchErrors).toEqual([])
 
-    // Once the read worked, no timer is set again: several retry waits pass and the branch is not read.
+    // Once the read worked, no timer is set again: several retry waits pass and the branch is not read. Both
+    // values are bare: the run's multiplier only lengthens a pause in which nothing may happen.
     const afterRecovery = refReads
-    await new Promise((done) => setTimeout(done, ms(1000)))
+    await new Promise((done) => setTimeout(done, 1000))
     expect(refReads).toBe(afterRecovery)
   })
 
