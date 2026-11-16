@@ -227,11 +227,15 @@ describe('every place of the app hands the scripts the source of src/main/harnes
   it('the canvas tools of a Session (src/main/mcp/canvas-server.ts)', async () => {
     mockElectron()
     mockSource()
-    const seen: { runner?: unknown } = {}
+    const seen: { read?: { env: unknown } } = {}
     mockReader(seen)
+    const profile: { env?: unknown } = {}
+    mockProfile(profile)
     const { appDeps } = await import('../../src/main/mcp/canvas-server')
-    await appDeps().workflow(scratch)
-    expect(seen.runner).toBe(SOURCE)
+    expect(await appDeps().workflow(scratch)).toBe(MODEL)
+    // The read of the window's list (ADR-0107), with the scripts' source; its layout from the cache, read with the login shell's environment.
+    expect(seen.read?.env).toBe(SOURCE)
+    expect(profile.env).toBe(LOGIN)
   })
 
   it('the Project store, for a folder outside git (src/main/projects/store.ts)', async () => {

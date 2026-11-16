@@ -293,6 +293,10 @@ function nameOnDisk(folder: string): string {
 /** The time between two looks for a root that is gone. */
 export const ROOT_RETRY_MS = 2000
 
+/** The wait before a failed read of the documents is tried again, doubled after each failure in a row up to the most. */
+export const READ_RETRY_FIRST_MS = 2000
+export const READ_RETRY_MAX_MS = 60_000
+
 export interface DocsWatchOptions {
   root: string
   /** The label of an ADR's status line, as the Project's Profile names it (readDocs). */
@@ -307,7 +311,10 @@ export interface DocsWatchOptions {
   isAbsolute?: (filename: string) => boolean
   /** Whether the root is a folder now; replaced in tests. */
   rootThere?: (root: string) => Promise<boolean>
-  /** The time between two looks for a root that is gone (default ROOT_RETRY_MS). */
+  /**
+   * The time between two looks for a root that is gone (default ROOT_RETRY_MS), and the first wait before a failed read
+   * from the main branch is tried again (default READ_RETRY_FIRST_MS).
+   */
   retryMs?: number
   /** Whether an `error` of the watch means it is dead (default errorEndsWatch of this system). */
   errorEnds?: boolean
@@ -415,19 +422,68 @@ export class DocsWatcher {
   /** Stops following the moves of the main branch. */
   private unfollow: () => void = () => undefined
 
-  /** Starts watching, then reads; resolves once the first read is done. No `onChange` before that. */
+  /** Whether the documents stand at no read yet: the first read failed (see `start`), and none has worked since. */
+  private unread = false
+  /** The next try of a read that failed (retryRead), and how many reads in a row have failed. */
+  private readRetry: ReturnType<typeof setTimeout> | null = null
+  private readFailures = 0
+
+  /**
+   * Starts watching, then reads; resolves once the first read is done. No `onChange` before that.
+   *
+   * A first read from the main branch that fails (git could not read it) does not fail the start: the watcher starts
+   * with no documents (`read` false) and reads again — after a growing wait (retryRead) and at once when the main
+   * branch moves — and the first read that works goes to `onChange`. Otherwise the Project's documents would not be
+   * watched until something opened them anew (src/main/ipc/docs.ts, keepActive: until another Project is active).
+   */
   static async start(options: DocsWatchOptions): Promise<DocsWatcher> {
     const watcher = new DocsWatcher({ ...options, root: resolve(options.root) })
     try {
       watcher.watch()
       // The main branch moves in .git, which the watch of the root does not follow (ADR-0107).
       if (options.source) watcher.unfollow = options.source.onMoved(() => watcher.schedule())
-      watcher.docs = await readDocs(watcher.options.root, await watcher.readOptions())
+      try {
+        watcher.docs = await readDocs(watcher.options.root, await watcher.readOptions())
+      } catch (error) {
+        // A read of the disk leaves unreadable files out instead of throwing: only the main branch fails here.
+        if (!options.source) throw error
+        console.error(`[docs] could not read the documents of ${watcher.options.root} from the main branch; read again later`, error)
+        watcher.docs = { handoff: null, adrs: [] }
+        watcher.unread = true
+        watcher.retryRead()
+      }
     } catch (error) {
       await watcher.close()
       throw error
     }
     return watcher
+  }
+
+  /** Whether `current` is a read of the documents, not the empty stand-in of a first read that failed (see `start`). */
+  get read(): boolean {
+    return !this.unread
+  }
+
+  /**
+   * A read failed: tries again after READ_RETRY_FIRST_MS (the watcher's `retryMs` when given), twice as long after each
+   * failure in a row, never longer than READ_RETRY_MAX_MS. A move of the main branch reads at once meanwhile.
+   */
+  private retryRead(): void {
+    this.readFailures += 1
+    if (this.closed || this.readRetry) return
+    const first = this.options.retryMs ?? READ_RETRY_FIRST_MS
+    const delay = Math.min(first * 2 ** (this.readFailures - 1), READ_RETRY_MAX_MS)
+    this.readRetry = setTimeout(() => {
+      this.readRetry = null
+      this.request()
+    }, delay)
+  }
+
+  /** A read worked: no more tries, and the next failure waits the first time again. */
+  private readWorked(): void {
+    this.readFailures = 0
+    if (this.readRetry) clearTimeout(this.readRetry)
+    this.readRetry = null
   }
 
   /**
@@ -465,6 +521,8 @@ export class DocsWatcher {
     for (const timer of this.settle) clearTimeout(timer)
     if (this.retry) clearTimeout(this.retry)
     this.retry = null
+    if (this.readRetry) clearTimeout(this.readRetry)
+    this.readRetry = null
     for (const reads of this.topics.values()) if (reads.timer) clearTimeout(reads.timer)
     this.watcher?.close()
     this.watcher = null
@@ -663,16 +721,26 @@ export class DocsWatcher {
   private async loop(): Promise<void> {
     do {
       this.pending = false
+      let next: Docs
       try {
-        const next = await readDocs(this.options.root, await this.readOptions())
-        if (this.closed) return
-        if (this.docs === null || sameDocs(this.docs, next)) continue
-        this.docs = next
+        next = await readDocs(this.options.root, await this.readOptions())
+      } catch (error) {
+        // readDocs leaves unreadable files out instead of throwing; a throw is the main branch that could not be read:
+        // the documents last read stay, and the read is tried again (retryRead). Said once per run of failures.
+        if (this.readFailures === 0) console.error('[docs] read failed', error)
+        this.retryRead()
+        continue
+      }
+      this.readWorked()
+      if (this.closed) return
+      // Before the end of `start` its own first read sets the documents; a read that is no read yet is replaced.
+      if (this.docs === null || (!this.unread && sameDocs(this.docs, next))) continue
+      this.docs = next
+      this.unread = false
+      try {
         this.options.onChange(next)
       } catch (error) {
-        // readDocs leaves unreadable files out instead of throwing; a throw is the main branch that could not be read
-        // (the documents last read stay) or a bug in onChange.
-        console.error('[docs] read failed', error)
+        console.error('[docs] could not report the documents read', error)
       }
     } while (this.pending && !this.closed)
   }
@@ -782,10 +850,14 @@ export class DocsHub {
     return { projectId, ...watcher.current }
   }
 
-  /** Reports the first state of a watcher that started; one that did not takes its Project out. */
+  /**
+   * Reports the first state of a watcher that started; one that did not takes its Project out. A watcher whose first
+   * read failed (DocsWatcher.start) reports nothing until a read works, through `onChange`: no read is not "no
+   * HANDOFF.md", and the HANDOFF Node stays as it was (src/main/ipc/docs.ts).
+   */
   private follow(projectId: string, watcher: Promise<DocsWatcher>): void {
     watcher.then(
-      (started) => this.notify({ projectId, ...started.current }),
+      (started) => (started.read ? this.notify({ projectId, ...started.current }) : undefined),
       () => {
         if (this.open_.get(projectId)?.watcher === watcher) this.open_.delete(projectId)
       },

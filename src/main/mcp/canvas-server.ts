@@ -56,7 +56,8 @@ import { layoutStore } from '../layout/store'
 import { realpathOrSelf } from '../projects/real-path'
 import { projectStore, runGit, type StoredProject } from '../projects/store'
 import { claudeHome } from '../storage/paths'
-import { epicStatusRunner, readCheckout } from '../workflow/reader'
+import { projectLayouts } from '../workflow/folder'
+import { readWorkflow, type EpicStatusRunner, type ReaderOptions } from '../workflow/reader'
 import instructionsTemplate from './agent-instructions.md?raw'
 import { leadsToRemoteSync, type LinkFsSync, type PathRules } from '../remote-links'
 import { removeTree } from '../storage/remove'
@@ -482,12 +483,22 @@ export interface CanvasDeps {
 let sharedStarter: AutopilotStarter | null = null
 const appStarter: AutopilotStarter = (request) => (sharedStarter ??= appAutopilotStarter())(request)
 
+/**
+ * The workflow the tools check their targets against: the read of the window's list (readWorkflow), from the
+ * Project's main branch with the statuses of its Ticket worktrees over it, the local-green exception included
+ * (ADR-0107) — not the working tree of the folder. `run` replaces epic-status in tests.
+ */
+export async function canvasWorkflow(options: ReaderOptions, run?: EpicStatusRunner): Promise<CanvasWorkflow> {
+  return (await readWorkflow(options, run)).model
+}
+
 /** The app's dependencies; exported for the wiring test (test/contract/harness-script-wiring.test.ts). */
 export const appDeps = (): CanvasDeps => ({
   projects: () => projectStore().list(),
   dataDir: (projectId) => projectStore().dataDir(projectId),
   layout: layoutStore(),
-  workflow: (root) => readCheckout(root, epicStatusRunner(claudeHome(), harnessScriptEnv)),
+  // The layout from the app's cache, as the documents and the checks take it: no `profile` run per call.
+  workflow: async (root) => canvasWorkflow({ root, claudeHome: claudeHome(), env: harnessScriptEnv, layout: await projectLayouts().get(root) }),
   autopilotStart: appStarter,
 })
 

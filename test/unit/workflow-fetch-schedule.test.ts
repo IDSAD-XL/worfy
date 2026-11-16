@@ -144,4 +144,21 @@ describe('nothing in a fetch asks the user anything', () => {
     expect(fetchEnv({ GIT_SSH: 'C:/PuTTY/plink.exe' }, null)).toMatchObject({ GIT_SSH: 'C:/PuTTY/plink.exe', GCM_INTERACTIVE: 'never' })
     expect(fetchEnv({ GIT_SSH: 'C:/PuTTY/plink.exe' }, null).GIT_SSH_COMMAND).toBeUndefined()
   })
+
+  it('adds BatchMode only when the program is ssh itself, by its file name with or without .exe, in any case', () => {
+    for (const ssh of ['ssh', 'ssh -i ~/.ssh/work', '/usr/bin/ssh', 'C:/Windows/System32/OpenSSH/ssh.exe', 'C:\\Windows\\System32\\OpenSSH\\SSH.EXE', '"C:\\Program Files\\Git\\usr\\bin\\ssh.exe" -v', "'/opt/my tools/ssh' -F cfg"]) {
+      expect(fetchEnv({ GIT_SSH_COMMAND: ssh }, null).GIT_SSH_COMMAND, ssh).toBe(`${ssh} -o BatchMode=yes`)
+      expect(fetchEnv({}, ssh).GIT_SSH_COMMAND, ssh).toBe(`${ssh} -o BatchMode=yes`)
+    }
+  })
+
+  it('leaves plink, TortoiseGitPlink and any other program as it is: they take no ssh options', () => {
+    for (const other of ['plink -batch', 'C:/PuTTY/plink.exe', 'C:\\PuTTY\\PLINK.EXE -batch', '"C:\\Program Files\\TortoiseGit\\bin\\TortoiseGitPlink.exe"', '/usr/local/bin/ssh-wrapper', 'sshpass -p secret ssh', '"/opt/ssh dir/connect"']) {
+      // From GIT_SSH_COMMAND: passed on unchanged.
+      expect(fetchEnv({ GIT_SSH_COMMAND: other }, null).GIT_SSH_COMMAND, other).toBe(other)
+      // From core.sshCommand: not copied into the environment; git runs it from its configuration.
+      expect(fetchEnv({}, other).GIT_SSH_COMMAND, other).toBeUndefined()
+      expect(fetchEnv({}, other).GCM_INTERACTIVE).toBe('never')
+    }
+  })
 })

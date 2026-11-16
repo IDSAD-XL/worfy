@@ -52,35 +52,48 @@ export const FETCH_CONFIG = ['-c', 'gc.auto=0', '-c', 'maintenance.auto=false', 
 /**
  * The environment of a fetch: `gitEnv`, Git Credential Manager told never to ask, and ssh in batch mode — no passphrase,
  * password or host-key question. The ssh command is the one git would run (`GIT_SSH_COMMAND`, else `core.sshCommand`
- * as `sshCommand` gives it, else `ssh`) with `-o BatchMode=yes` added. A program in `GIT_SSH` alone (PuTTY's plink, say)
- * takes no ssh options and is left as it is.
+ * as `sshCommand` gives it, else `ssh`) with `-o BatchMode=yes` added when that command runs ssh itself (isSsh). Any
+ * other program — PuTTY's plink, TortoiseGitPlink, a wrapper — takes no ssh options and is left as it is, in
+ * `GIT_SSH_COMMAND`, `core.sshCommand` or `GIT_SSH` alike.
  */
 export function fetchEnv(env: Readonly<Record<string, string | undefined>>, sshCommand: string | null): Record<string, string | undefined> {
   const base = gitEnv(env)
   const command = nonEmpty(env.GIT_SSH_COMMAND) ?? nonEmpty(sshCommand) ?? (nonEmpty(env.GIT_SSH) === null ? 'ssh' : null)
-  return { ...base, GCM_INTERACTIVE: 'never', ...(command === null ? {} : { GIT_SSH_COMMAND: `${command} -o BatchMode=yes` }) }
+  return { ...base, GCM_INTERACTIVE: 'never', ...(command === null || !isSsh(command) ? {} : { GIT_SSH_COMMAND: `${command} -o BatchMode=yes` }) }
+}
+
+/**
+ * Whether the shell command `command` runs ssh: its program — the first word, or the first quoted string — has the
+ * file name `ssh` or `ssh.exe`, in any case, under any folder.
+ */
+export function isSsh(command: string): boolean {
+  const quoted = /^\s*(["'])(.*?)\1/u.exec(command)
+  const program = quoted ? quoted[2]! : (command.trim().split(/\s+/u)[0] ?? '')
+  const name = program.split(/[\\/]/u).pop() ?? ''
+  return /^ssh(?:\.exe)?$/iu.test(name)
 }
 
 function nonEmpty(value: string | undefined | null): string | null {
   return value === undefined || value === null || value.trim() === '' ? null : value.trim()
 }
 
-/** The URL of `origin` and `core.sshCommand` of the repository at `root`, from one `git config`; null for what is not set. */
-function remoteOf(root: string, env: Record<string, string | undefined>, signal: AbortSignal): Promise<{ url: string | null; sshCommand: string | null }> {
+/** The stdout of `git <args>` in `root`, trimmed; null when git fails or prints nothing. */
+function gitValue(root: string, args: string[], env: Record<string, string | undefined>, signal: AbortSignal): Promise<string | null> {
   return new Promise((resolvePromise) => {
-    execFile(
-      'git',
-      ['config', '--get-regexp', '^(remote\\.origin\\.url|core\\.sshcommand)$'],
-      { cwd: root, env, timeout: 10_000, signal, encoding: 'utf8', windowsHide: true },
-      (error, stdout) => {
-        const value = (key: string): string | null => {
-          const line = error ? undefined : stdout.split(/\r?\n/u).find((each) => each.toLowerCase().startsWith(`${key} `))
-          return line === undefined ? null : nonEmpty(line.slice(key.length + 1))
-        }
-        resolvePromise({ url: value('remote.origin.url'), sshCommand: value('core.sshcommand') })
-      },
+    execFile('git', args, { cwd: root, env, timeout: 10_000, signal, encoding: 'utf8', windowsHide: true }, (error, stdout) =>
+      resolvePromise(error ? null : nonEmpty(stdout.split(/\r?\n/u)[0])),
     )
   })
+}
+
+/**
+ * The URL a fetch of `origin` goes to and `core.sshCommand` of the repository at `root`; null for what is not set. The
+ * URL is git's own, after the `url.<base>.insteadOf` rewrites (`git remote get-url`), not the raw `remote.origin.url`:
+ * a local path rewritten to a URL on another machine is that URL.
+ */
+async function remoteOf(root: string, env: Record<string, string | undefined>, signal: AbortSignal): Promise<{ url: string | null; sshCommand: string | null }> {
+  const [url, sshCommand] = await Promise.all([gitValue(root, ['remote', 'get-url', 'origin'], env, signal), gitValue(root, ['config', '--get', 'core.sshCommand'], env, signal)])
+  return { url, sshCommand }
 }
 
 /** Whether a remote URL names a repository on the disk: a path, absolute or relative, or a `file://` URL. */
