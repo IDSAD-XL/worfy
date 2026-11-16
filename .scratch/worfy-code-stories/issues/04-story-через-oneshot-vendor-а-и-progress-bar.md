@@ -233,7 +233,8 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 04; «Решения 
   отвечает `unavailable` с причиной `capabilities.unsupported.oneShotToolFree`, в текст которой добавлено «a Code
   story»; progress bar показывает её на месте кнопки. **Вопрос владельцу:** для story на Project-е с Codex подключить
   `oneShot` Codex или брать Claude Code (решение 25 говорит «на Vendor-е Project-а»)? До ответа story там недоступна с
-  этой причиной.
+  этой причиной. Подтверждено владельцем 2026-11-17: Codex отказывает в story с этой причиной, `oneShot` Codex не
+  подключаем.
 - **Не проверено живым Claude Code:** что Read, Glob, Grep по абсолютным путям в `additionalDirectories` проходят —
   в test-ах их пропускает `canUseTool` (`readOnlyCanUseTool`), реальный Claude Code не запускался (правило брифа).
 - Последняя строка прогресса Claude `oneShot` — «The draft is ready» (`activityOf`, общая с черновиком профиля); для
