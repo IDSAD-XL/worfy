@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -24,6 +24,11 @@ import { ms } from '../time-scale'
 // story.md is committed while the app runs: the toast comes, and the view opens from it, from the Epic frame, from the
 // Epic's "⋯", from the Ticket card, from the Command palette and from Pull requests; Esc goes back to the Canvas each
 // time. The fake agent (WORFY_AGENT=fake, as every e2e run) is never asked: opening a story reads files only.
+//
+// A question about a line (ticket 12): lines selected in the code of a step open the question field after them; the
+// fake agent (test/fixtures/agent-scripts/story-answer.jsonl) holds the answer until the test lets it go, so the
+// progress bar shows in the field's place; the answer then shows after the same line, with its source and the line it
+// quotes, no Session Node is drawn, and the answer is there again after worfy starts anew.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 const PROJECT = 'demo-cart-0000000c'
@@ -303,6 +308,97 @@ test('the entries into the Story view: the toast once its story.md comes, the Ep
     await seenThenEsc(window, 'pr')
     // No second toast for the Epic after every read of it: "Open" closed the one it had.
     await expect(window.getByTestId('story-ready-toast')).toHaveCount(0)
+  } finally {
+    await launched.close()
+  }
+})
+
+test('a question about a line of a step: the field, the progress bar, the answer after the line; no Session Node; the answer after a restart', async () => {
+  test.setTimeout(ms(180_000))
+  const env = prepare()
+  // The Project is a git repository: the lines an answer quotes are kept as links path:line@<its HEAD>.
+  const projectPath = join(scratch, 'demo-cart')
+  mkdirSync(join(projectPath, 'src'), { recursive: true })
+  writeFileSync(join(projectPath, 'src', 'money.ts'), 'export type Cents = number\n')
+  const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=worfy e2e', '-c', 'user.email=worfy-e2e', '-c', 'commit.gpgsign=false', ...args], { cwd: projectPath, encoding: 'utf8' })
+  git('init', '-q', '-b', 'main')
+  git('add', '.')
+  git('commit', '-q', '-m', 'init')
+  const head = git('rev-parse', 'HEAD').trim()
+  const log = join(scratch, 'agent.log')
+  const launchEnv = { ...env, WORFY_AGENT_LOG: log }
+
+  const toStep = async (window: Page) => {
+    await openStory(window, STORY)
+    const view = window.getByTestId('story-view')
+    await expect(view).toBeVisible()
+    await window.keyboard.press('ArrowRight')
+    await expect(view.getByTestId('story-position')).toHaveText('2 of 11')
+    return view
+  }
+
+  let launched = await launchApp({ env: launchEnv })
+  try {
+    const { app, window } = launched
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1440, 900))
+    await withStoryHook(launched)
+    const view = await toStep(window)
+
+    // Select line 7 with the mouse: the field opens after it.
+    const line = view.locator('[data-line="7"] .w-md__story-text')
+    await line.selectText()
+    await line.dispatchEvent('mouseup')
+    await expect(view.locator('[data-line="7"]')).toHaveAttribute('data-selected', 'true')
+    const field = view.getByRole('textbox', { name: 'Вопрос о строке 7' })
+    await expect(field).toBeFocused()
+    await field.fill('Почему цена с тремя цифрами после точки — ошибка?')
+    await view.getByRole('button', { name: 'Спросить', exact: true }).click()
+
+    // The agent holds its answer: the progress bar stands in the field's place, with its lines.
+    const progress = view.getByTestId('line-question-progress')
+    await expect(progress).toHaveAttribute('data-state', 'running')
+    await expect(progress.getByRole('progressbar')).toBeVisible()
+    await expect(field).toBeHidden()
+    await snapshotThemes(window, 'code-story-line-question-progress')
+    // The request has reached the fake agent before its answer is let through.
+    await expect.poll(() => existsSync(log) && readFileSync(log, 'utf8').includes('Почему цена с тремя цифрами'), { timeout: ms(30_000) }).toBe(true)
+    await app.evaluate(() => (globalThis as unknown as { worfyFakeRelease: (name: string) => void }).worfyFakeRelease('story-answer'))
+
+    const answer = view.getByTestId('line-answer')
+    await expect(answer).toBeVisible()
+    await expect(answer).toHaveAttribute('data-source', 'code')
+    await expect(answer).toContainText('регулярное выражение принимает только такие строки')
+    await expect(answer).toContainText('src/money.ts:7')
+    await expect(progress).toBeHidden()
+    // After line 7, before line 8.
+    const [line7, shown, line8] = await Promise.all([view.locator('[data-line="7"]').boundingBox(), answer.boundingBox(), view.locator('[data-line="8"]').boundingBox()])
+    expect(shown!.y).toBeGreaterThanOrEqual(line7!.y + line7!.height - 1)
+    expect(line8!.y).toBeGreaterThanOrEqual(shown!.y + shown!.height - 1)
+    await snapshotThemes(window, 'code-story-line-answer')
+
+    // The question went to the invisible agent with the selected line and the question.
+    const asked = readFileSync(log, 'utf8')
+    expect(asked).toContain('Почему цена с тремя цифрами после точки')
+    expect(asked).toContain('src/money.ts, line 7, step 1')
+
+    // No Session Node: the Canvas behind the view has none.
+    await window.keyboard.press('Escape')
+    await expect(window.locator('.w-shell__view[data-view="canvas"]')).toBeVisible()
+    await expect(window.getByTestId('session-node')).toHaveCount(0)
+  } finally {
+    await launched.close()
+  }
+
+  // The answer is kept in worfy's data folder, not in the Project, and shows again after a restart.
+  const kept = readFileSync(join(env.WORFY_DATA_DIR ?? '', PROJECT, 'stories.json'), 'utf8')
+  expect(kept).toContain(`src/money.ts:7@${head}`)
+  expect(existsSync(join(projectPath, 'stories.json'))).toBe(false)
+  expect(git('status', '--porcelain')).toBe('')
+  launched = await launchApp({ env: launchEnv })
+  try {
+    await withStoryHook(launched)
+    const view = await toStep(launched.window)
+    await expect(view.getByTestId('line-answer')).toContainText('регулярное выражение принимает только такие строки')
   } finally {
     await launched.close()
   }

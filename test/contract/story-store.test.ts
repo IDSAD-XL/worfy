@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFil
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { addStoryAnswer, readSavedStories, readSavedStory, saveStory, storiesPath, STORIES_FILE } from '../../src/main/stories/store'
+import { addStoryAnswer, readSavedStories, readSavedStory, readStoryAnswers, saveStory, storiesPath, storyAnswersKey, storyDigest, STORIES_FILE } from '../../src/main/stories/store'
 import type { PrStoryAnswer, Story, StoryFile } from '../../src/shared/stories/schema'
 import { removeTestTree } from '../remove'
 
@@ -32,20 +32,21 @@ afterEach(() => {
 })
 
 describe('the store of the stories made by the button', () => {
-  it('keeps a story and its answers in stories.json of the Project data folder, and reads them back after a restart', () => {
+  it('keeps a story in stories.json of the Project data folder and reads it back after a restart; its answers stay through a new build', () => {
     expect(readSavedStory(dir, 'owner/name#77')).toBeNull()
     const saved = saveStory(dir, 'owner/name#77', { story: prStory('Cart total in cents'), colleague: false }, new Date('2026-11-16T10:00:00Z'))
-    expect(saved).toEqual({ savedAt: '2026-11-16T10:00:00.000Z', colleague: false, story: prStory('Cart total in cents'), answers: [] })
+    expect(saved).toEqual({ savedAt: '2026-11-16T10:00:00.000Z', colleague: false, story: prStory('Cart total in cents') })
     // A story kept by the button is a story file too: a view of story files shows it (typecheck holds this line).
     const shown: StoryFile = saved.story
     expect(shown.kind).toBe('pr')
-    const answer = { at: '2026-11-16T10:05:00.000Z', question: 'Why cents?', answer: 'Floats drift.', lines: [`src/cart.ts:14@${HEAD}`] }
+    const answer = { at: '2026-11-16T10:05:00.000Z', question: 'Why cents?', answer: 'Floats drift.', source: 'code' as const, about: { step: 2, path: 'src/cart.ts', from: 13, to: 14 }, lines: [`src/cart.ts:14@${HEAD}`], digest: storyDigest(saved.story) }
     addStoryAnswer(dir, 'owner/name#77', answer)
     expect(storiesPath(dir)).toBe(join(dir, STORIES_FILE))
-    expect(readSavedStory(dir, 'owner/name#77')).toEqual({ ...saved, answers: [answer] })
-    // A new build of the same PR replaces the story; the answers were about the old one.
-    saveStory(dir, 'owner/name#77', { story: prStory('Cart total in cents'), colleague: false })
-    expect(readSavedStory(dir, 'owner/name#77')?.answers).toEqual([])
+    expect(readStoryAnswers(dir, 'owner/name#77')).toEqual([answer])
+    // A new build of the same PR replaces the story; its answers stay, each with the digest of the text it was asked about.
+    saveStory(dir, 'owner/name#77', { story: prStory('Cart total in whole cents'), colleague: false })
+    expect(readStoryAnswers(dir, 'owner/name#77')).toEqual([answer])
+    expect(answer.digest).not.toBe(storyDigest(readSavedStory(dir, 'owner/name#77')!.story))
   })
 
   it('writes atomically: no temporary file is left, and a story outside the schema is refused with the file as it was', () => {
@@ -79,13 +80,13 @@ describe('the store of the stories made by the button', () => {
     const input = { story: prStory(words), colleague: true, prText: words, comments: [words] }
     const saved = saveStory(dir, 'owner/name#77', input as Parameters<typeof saveStory>[2])
     expect(saved.story.header).toMatchObject({ title: 'PR #77', pr: 77, commit: HEAD })
-    addStoryAnswer(dir, 'owner/name#77', { at: '2026-11-16T10:05:00.000Z', question: 'Why?', answer: 'Because.', lines: [`src/cart.ts:10-17@${HEAD}`] })
+    addStoryAnswer(dir, 'owner/name#77', { at: '2026-11-16T10:05:00.000Z', question: 'Why?', answer: 'Because.', source: 'code', about: { step: 2, path: 'src/cart.ts', from: 13, to: 14 }, lines: [`src/cart.ts:10-17@${HEAD}`], digest: storyDigest(saved.story) })
     const text = readFileSync(storiesPath(dir), 'utf8')
     expect(text).not.toContain(words)
     expect(text).not.toContain('prText')
     expect(text).not.toContain('comments')
     // A link that is not path:line@commit is refused.
-    expect(() => addStoryAnswer(dir, 'owner/name#77', { at: '2026-11-16T10:06:00.000Z', question: 'Why?', answer: 'Because.', lines: ['src/cart.ts:10'] })).toThrow(/schema/u)
+    expect(() => addStoryAnswer(dir, 'owner/name#77', { at: '2026-11-16T10:06:00.000Z', question: 'Why?', answer: 'Because.', source: 'code', about: { step: 2, path: 'src/cart.ts', from: 13, to: 14 }, lines: ['src/cart.ts:10'], digest: storyDigest(saved.story) })).toThrow(/schema/u)
   })
 
   it('writes only into the Project data folder it is given', () => {
@@ -95,5 +96,52 @@ describe('the store of the stories made by the button', () => {
     expect(readdirSync(dir)).toEqual(['data'])
     expect(readdirSync(data)).toEqual([STORIES_FILE])
     expect(existsSync(join(data, '..', STORIES_FILE))).toBe(false)
+  })
+})
+
+describe('the answers to questions about lines of a story (ticket 12)', () => {
+  const made = prStory('Cart total in cents')
+  const committed = { ...made, header: { ...(made.header as Extract<StoryFile, { kind: 'pr' }>['header']), commit: null } } as StoryFile
+  const answer = (question: string, story: StoryFile = committed) => ({
+    at: '2026-11-16T11:00:00.000Z',
+    question,
+    answer: 'Floats drift.',
+    source: 'code' as const,
+    about: { step: 2, path: 'src/cart.ts', from: 13, to: 14 },
+    lines: [`src/cart.ts:13@${HEAD}`],
+    digest: storyDigest(story),
+  })
+
+  it('keys them by what the story names: its file for a committed story, owner/name#N for one made by the button, epic:<name> for an Epic before its file', () => {
+    expect(storyAnswersKey(committed, { file: 'demo-cart/stories/04-cart-total.md', repo: 'owner/name' })).toBe('demo-cart/stories/04-cart-total.md')
+    expect(storyAnswersKey(made, { file: 'demo-cart/stories/04-cart-total.md', repo: 'owner/name' })).toBe('owner/name#77')
+    const epic = { kind: 'epic', header: { epic: 'demo-cart', language: 'ru' }, start: { text: 'x', requirement: 'y' }, chapters: [], seams: { text: '', handoffs: [] }, summary: '', check: '', checkYourself: [] } as unknown as StoryFile
+    expect(storyAnswersKey(epic, { file: 'demo-cart/story.md', repo: null })).toBe('demo-cart/story.md')
+    expect(storyAnswersKey(epic, { file: null, repo: null })).toBe('epic:demo-cart')
+    // Nothing named: the digest of the text, so a question is still kept.
+    expect(storyAnswersKey(committed, { file: null, repo: null })).toBe(`story:${storyDigest(committed)}`)
+  })
+
+  it('keeps them under the key, with the digest of the text asked about; an edit of the story keeps them', () => {
+    saveStory(dir, 'owner/name#77', { story: made, colleague: false })
+    expect(readStoryAnswers(dir, 'demo-cart/stories/04-cart-total.md')).toEqual([])
+    addStoryAnswer(dir, 'demo-cart/stories/04-cart-total.md', answer('Why cents?'))
+    addStoryAnswer(dir, 'demo-cart/stories/04-cart-total.md', answer('Why skip zero?'))
+    expect(readStoryAnswers(dir, 'demo-cart/stories/04-cart-total.md').map((one) => one.question)).toEqual(['Why cents?', 'Why skip zero?'])
+    expect(readStoryAnswers(dir, 'owner/name#77')).toEqual([])
+    expect(readSavedStory(dir, 'owner/name#77')?.story).toEqual(made)
+    // The digest does not depend on the order of the keys: the same story read again gives the same one.
+    const again = JSON.parse(JSON.stringify({ ...committed, header: Object.fromEntries(Object.entries(committed.header).reverse()) })) as StoryFile
+    expect(storyDigest(again)).toBe(storyDigest(committed))
+    expect(storyDigest(again)).toMatch(/^[0-9a-f]{64}$/u)
+    expect(storyDigest(made)).not.toBe(storyDigest(committed))
+  })
+
+  it('refuses an answer that does not fit, writing nothing; leaves out a kept one this build cannot read', () => {
+    expect(() => addStoryAnswer(dir, 'k', { ...answer('Why?'), lines: ['src/cart.ts:13'] })).toThrow(/schema/u)
+    expect(() => addStoryAnswer(dir, 'k', { ...answer('Why?'), digest: 'short' })).toThrow(/schema/u)
+    expect(existsSync(storiesPath(dir))).toBe(false)
+    writeFileSync(storiesPath(dir), JSON.stringify({ stories: {}, answers: { k: [{ newer: true }, answer('Kept')] } }))
+    expect(readStoryAnswers(dir, 'k').map((one) => one.question)).toEqual(['Kept'])
   })
 })

@@ -1,0 +1,6 @@
+{"fake":"wait_message"}
+{"type":"system","subtype":"init","cwd":"{{cwd}}","session_id":"{{session}}","tools":["Read","Glob","Grep"],"mcp_servers":[],"model":"claude-sonnet-fake","permissionMode":"default","slash_commands":[],"apiKeySource":"none","claude_code_version":"2.1.289","uuid":"00000000-0000-4000-8000-000000000201"}
+{"type":"assistant","message":{"id":"msg_fake_answer_1","model":"claude-sonnet-fake","type":"message","role":"assistant","content":[{"type":"tool_use","id":"toolu_fake_answer_read","name":"Read","input":{"file_path":"src/money.ts"}}],"stop_reason":null},"parent_tool_use_id":null,"session_id":"{{session}}","uuid":"00000000-0000-4000-8000-000000000301"}
+{"fake":"wait_release","name":"story-answer"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_fake_answer_read","content":"export function toCents(text: string): Cents {","is_error":false}]},"parent_tool_use_id":null,"session_id":"{{session}}","uuid":"00000000-0000-4000-8000-000000000302"}
+{"type":"result","subtype":"success","is_error":false,"result":"","structured_output":{"answer":"Цена без копеек и с одной цифрой после точки становится целыми центами: регулярное выражение принимает только такие строки, всё остальное — ошибка.","source":"code","lines":[{"path":"src/money.ts","from":7,"to":7}]}}

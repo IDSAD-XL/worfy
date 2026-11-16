@@ -157,7 +157,7 @@ folder:
 | `first-run.json` | When the First run screen was closed and which checks failed then | `src/main/ipc/first-run.ts` |
 | `getting-started.json` | The state of Getting started and the record of the Demo project | `src/main/getting-started/state.ts` |
 | `terminal-ai.json` | Terminal AI settings | `src/main/terminal-ai/settings.ts` |
-| `terminal-ai` (folder) | The empty folder where Terminal AI requests, the Limits refresh, the Project profile draft and the Code story request run, so none of them becomes a Session of a Project | `src/main/terminal-ai/options.ts` |
+| `terminal-ai` (folder) | The empty folder where Terminal AI requests, the Limits refresh, the Project profile draft, the Code story request and a question about its lines run, so none of them becomes a Session of a Project | `src/main/terminal-ai/options.ts` |
 | `attachments` (folder) | `images/<sha256>.<ext>`, the copies of sent images, and `<id>/<name>`, copies of files attached outside every Project | `src/main/agent/attachments.ts` |
 | `autopilot` (folder) | `<run>.jsonl`, the journal of each run | `src/main/autopilot/journal.ts` |
 | `link` (folder) | `machine.json`, `linked.json`, `settings.json`, `secrets.json` and `link.log` | `src/main/link/` ([Link](link.md)) |
@@ -172,7 +172,7 @@ The subfolder of a Project:
 |---|---|---|
 | `settings.json` | The action templates, for Windows the shell of the Terminals, and `prInbox: false` when the PR inbox is off | `src/main/projects/settings.ts` |
 | `pr-inbox.json` | What the user has seen of each PR of the PR inbox: the time, the head commit and the id of the newest comment, never a text; and per GitHub account the `Last-Modified` of GitHub's notifications, which the next poll sends as `If-Modified-Since` | `src/main/projects/pr-inbox-state.ts` |
-| `stories.json` | The Code stories made by the button and the answers about them, by PR or Epic; for a colleague's PR only the agent's text and links `path:line@commit`, never the PR's text, comments or title | `src/main/stories/store.ts` |
+| `stories.json` | The Code stories made by the button, by PR or Epic; for a colleague's PR only the agent's text and links `path:line@commit`, never the PR's text, comments or title. The answers to questions about lines of any story shown, by what the story names (its file under the Tickets root, or `owner/name#N` and `epic:<name>` for one made by the button): the question, the agent's text, what it rests on, the lines asked about, links `path:line@commit` and a hash of the story's text it was asked about | `src/main/stories/store.ts` |
 | `layout.json` | The Layout | `src/main/layout/store.ts` |
 | `bindings.json` | Manual Bindings | `src/main/layout/bindings.ts` |
 | `session-settings.json` | Model, effort and permission mode by Session Node | `src/main/agent/session-settings.ts` |

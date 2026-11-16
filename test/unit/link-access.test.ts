@@ -282,6 +282,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'sessions.views',
     // A Code story file, the code of its fragments from git and a story made by the button (worfy-code-stories ticket 08):
     // the Tickets root, git objects and stories.json of the Project data folder are read, as tickets.read.
+    // The answers to questions about lines of a story (ticket 12): stories.json is read.
+    'stories.answers',
     'stories.code',
     'stories.read',
     'stories.saved',
@@ -397,6 +399,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'sessions.resume',
     'sessions.start',
     // Starts and stops the invisible request of a Code story on the Project's Vendor (worfy-code-stories ticket 04), as the draft of a profile.
+    // A question about lines of a story (ticket 12): the same invisible request, and its answer is written to stories.json.
+    'stories.ask',
     'stories.build',
     'stories.stop',
     'terminal.close',
