@@ -16,6 +16,11 @@ const NAME = 'implementer-story'
 const CASE = join(EVALS, NAME)
 const STORY = '.scratch/demo/stories/01-alpha.md'
 const LOG = '.git/story-check.log'
+// The copy of the story at the last commit that holds it, which the post-commit hook keeps for the graders.
+const COPY = '.git/story-check/01-alpha.md'
+const GRADERS = ['implementer-dispatched.md', 'no-refusal.md', 'story-check-green.md', 'story-required-parts.md']
+// The pass mark of a case: `--threshold` of every `claude plugin eval` call that pnpm eval:harness starts.
+const THRESHOLD = Number(/'--threshold', '([\d.]+)'/.exec(readFileSync(join(REPO, 'scripts', 'eval-harness.mjs'), 'utf8'))?.[1] ?? 'NaN')
 
 const frontMatter = (file: string): string => /^---\r?\n([\s\S]*?)\r?\n---/.exec(readFileSync(file, 'utf8'))?.[1] ?? ''
 const field = (yaml: string, key: string): string | undefined =>
@@ -26,6 +31,26 @@ const pattern = (file: string): RegExp => new RegExp(field(grader(file), 'patter
 const targetPath = (file: string): string => /path:\s*([^\s}]+)/.exec(field(grader(file), 'target') ?? '')?.[1] ?? '<none>'
 /** Whether a regex grader passes on `text`: `contains` by default, `not_contains` inverted. */
 const passes = (file: string, text: string): boolean => (field(grader(file), 'match') === 'not_contains') !== pattern(file).test(text)
+
+// A run of the case as the graders see it: the files of `work`, a clean trace and the dispatch to the implementer.
+const CLEAN_TRACE = JSON.stringify({ type: 'assistant', message: { stop_reason: 'end_turn', content: [{ type: 'text', text: 'done' }] } })
+const DISPATCH = JSON.stringify({ description: 'ticket 01', subagent_type: 'worfy:implementer', prompt: 'Ticket 01 of epic demo' })
+/** Each grader of the case and whether it passes on `work`, a `{ source: file }` target that is missing failing it. */
+function graded(work: string): [string, boolean][] {
+  return GRADERS.map((file) => {
+    const yaml = grader(file)
+    if (field(yaml, 'type') === 'tool_used') return [file, new RegExp(field(yaml, 'input_match') ?? '<none>').test(DISPATCH)]
+    if (field(yaml, 'target') === 'trace') return [file, passes(file, CLEAN_TRACE)]
+    const path = join(work, targetPath(file))
+    return [file, existsSync(path) && passes(file, readFileSync(path, 'utf8'))]
+  })
+}
+/** The score of one run: the share of graders passed, every grader with the default weight 1. */
+const score = (work: string): number => {
+  for (const file of GRADERS) expect(field(grader(file), 'weight'), file).toBeUndefined()
+  const results = graded(work)
+  return results.filter(([, ok]) => ok).length / results.length
+}
 
 // The fixed identity and dates of the commits a test makes as the implementer: the fixture's HOME is empty.
 const COMMIT_ENV = {
@@ -146,7 +171,7 @@ describe('harness/evals: implementer-story', () => {
     expect(git(work, home, 'branch', '--show-current').stdout.trim()).toBe('main')
   })
 
-  it('a commit without a story writes no log; the commit of the story on the ticket branch logs it with story-check exit 0, and the graders pass', () => {
+  it('a commit without a story writes no log; the commit of the story on the ticket branch logs it in the branch with story-check exit 0, keeps a HEAD copy, and every grader passes', () => {
     const { work, home, run } = build()
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
     expect(git(work, home, 'switch', '-q', '-c', 'demo/01').status).toBe(0)
@@ -154,20 +179,20 @@ describe('harness/evals: implementer-story', () => {
     put(work, 'test/alpha.test.mjs', TEST)
     commit(work, home, 'demo/01: percent')
     expect(log(work)).toBe('')
+    expect(existsSync(join(work, COPY))).toBe(false)
 
     put(work, STORY, GOOD_STORY)
     commit(work, home, 'demo/01: Code story')
     const text = log(work)
     expect(text).toMatch(/^stories: \.scratch\/demo\/stories\/01-alpha\.md$/m)
+    expect(text).toMatch(/^in-branch: \.scratch\/demo\/stories\/01-alpha\.md$/m)
     expect(text).toContain('.scratch/demo/stories/01-alpha.md: ok')
     expect(text.trimEnd().split('\n').at(-1)).toBe('EXIT=0')
+    expect(readFileSync(join(work, COPY), 'utf8')).toBe(GOOD_STORY)
 
-    expect(targetPath('story-in-branch.md')).toBe(LOG)
     expect(targetPath('story-check-green.md')).toBe(LOG)
-    expect(targetPath('story-required-parts.md')).toBe(STORY)
-    expect(passes('story-in-branch.md', text)).toBe(true)
-    expect(passes('story-check-green.md', text)).toBe(true)
-    expect(passes('story-required-parts.md', readFileSync(join(work, STORY), 'utf8'))).toBe(true)
+    expect(targetPath('story-required-parts.md')).toBe(COPY)
+    expect(score(work)).toBe(1)
 
     // A later commit without a change to the story checks it again on the new head.
     put(work, 'src/alpha.mjs', `${CODE}// end\n`)
@@ -175,7 +200,7 @@ describe('harness/evals: implementer-story', () => {
     expect(log(work).trimEnd().split('\n').at(-1)).toBe('EXIT=0')
   })
 
-  it('a story whose fragment does not match the code logs story-check exit 2, and the story-check grader fails it', () => {
+  it('a red story-check alone fails the case: a wrong fragment logs exit 2, and with every other grader passing the run scores below the threshold', () => {
     const { work, home, run } = build()
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
     expect(git(work, home, 'switch', '-q', '-c', 'demo/01').status).toBe(0)
@@ -183,12 +208,32 @@ describe('harness/evals: implementer-story', () => {
     put(work, STORY, GOOD_STORY.replace('Math.floor((done * 100) / total)', 'Math.round((done * 100) / total)'))
     commit(work, home, 'demo/01: percent and a wrong story')
     const text = log(work)
+    expect(text).toMatch(/^in-branch: \.scratch\/demo\/stories\/01-alpha\.md$/m)
     expect(text.trimEnd().split('\n').at(-1)).toBe('EXIT=2')
-    expect(passes('story-in-branch.md', text)).toBe(true)
+    const results = graded(work)
+    expect(results.filter(([, ok]) => !ok).map(([file]) => file)).toEqual(['story-check-green.md'])
+    expect(score(work)).toBeLessThan(THRESHOLD)
+    // Any one grader failing alone drops the run below the threshold, not only this one.
+    expect((results.length - 1) / results.length).toBeLessThan(THRESHOLD)
+  })
+
+  it('each commit replaces the log: a later commit that breaks the story fails the story-check grader, an earlier green log does not count', () => {
+    const { work, home, run } = build()
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    expect(git(work, home, 'switch', '-q', '-c', 'demo/01').status).toBe(0)
+    put(work, 'src/alpha.mjs', CODE)
+    put(work, STORY, GOOD_STORY)
+    commit(work, home, 'demo/01: percent and its story')
+    expect(passes('story-check-green.md', log(work))).toBe(true)
+    put(work, 'src/alpha.mjs', CODE.replace('Math.floor', 'Math.trunc'))
+    commit(work, home, 'demo/01: the code moves on, the story does not')
+    const text = log(work)
+    expect(text.match(/^EXIT=/gm)).toHaveLength(1)
+    expect(text.trimEnd().split('\n').at(-1)).toBe('EXIT=2')
     expect(passes('story-check-green.md', text)).toBe(false)
   })
 
-  it('a story committed on the main branch logs story-check exit 1: the main branch is not the head of a PR', () => {
+  it('a story committed on the main branch is not in the branch: story-check exits 1 there, and after a branch commit the log has no in-branch line', () => {
     const { work, home, run } = build()
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
     put(work, 'src/alpha.mjs', CODE)
@@ -196,22 +241,78 @@ describe('harness/evals: implementer-story', () => {
     commit(work, home, 'percent and its story on main')
     expect(log(work).trimEnd().split('\n').at(-1)).toBe('EXIT=1')
     expect(passes('story-check-green.md', log(work))).toBe(false)
+    expect(git(work, home, 'switch', '-q', '-c', 'demo/01').status).toBe(0)
+    put(work, 'test/alpha.test.mjs', TEST)
+    commit(work, home, 'demo/01: the test')
+    const text = log(work)
+    expect(text.trimEnd().split('\n').at(-1)).toBe('EXIT=0')
+    expect(text).not.toMatch(/^in-branch:/m)
+    expect(passes('story-check-green.md', text)).toBe(false)
   })
 
-  it('the required-parts grader refuses a story without the first frame step, a field, the Russian `not recorded`, or with the review step', () => {
+  it('a story at another path passes story-check, but the story-check grader wants .scratch/demo/stories/01-alpha.md', () => {
+    const { work, home, run } = build()
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    expect(git(work, home, 'switch', '-q', '-c', 'demo/01').status).toBe(0)
+    put(work, 'src/alpha.mjs', CODE)
+    put(work, '.scratch/demo/stories/01-percent.md', GOOD_STORY)
+    commit(work, home, 'demo/01: percent and a story under another name')
+    const text = log(work)
+    expect(text).toMatch(/^in-branch: \.scratch\/demo\/stories\/01-percent\.md$/m)
+    expect(text.trimEnd().split('\n').at(-1)).toBe('EXIT=0')
+    expect(passes('story-check-green.md', text)).toBe(false)
+  })
+
+  it('in a linked worktree the hook checks that worktree: exit 0 on a valid story, the log and the copy in the common .git', () => {
+    const { work, home, run } = build()
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    const tree = join(dirname(work), 'tree-01')
+    expect(git(work, home, 'worktree', 'add', '-q', '-b', 'demo/01', tree).status).toBe(0)
+    put(tree, 'src/alpha.mjs', CODE)
+    put(tree, STORY, GOOD_STORY)
+    commit(tree, home, 'demo/01: percent and its story, in a worktree')
+    const text = log(work)
+    expect(text).toMatch(/^in-branch: \.scratch\/demo\/stories\/01-alpha\.md$/m)
+    expect(text.trimEnd().split('\n').at(-1), text).toBe('EXIT=0')
+    expect(readFileSync(join(work, COPY), 'utf8')).toBe(GOOD_STORY)
+  })
+
+  it('the required-parts grader reads the copy of the story at the last commit, not the working file', () => {
+    const { work, home, run } = build()
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    expect(git(work, home, 'switch', '-q', '-c', 'demo/01').status).toBe(0)
+    put(work, 'src/alpha.mjs', CODE)
+    put(work, STORY, GOOD_STORY.replace('- Почему здесь: не записано', '- Почему здесь: так проще'))
+    expect(git(work, home, 'add', '-A').status).toBe(0)
+    // The working file differs from the staged one at the commit itself: the copy is the committed text.
+    put(work, STORY, GOOD_STORY)
+    const done = git(work, home, 'commit', '-q', '-m', 'demo/01: percent and a story with a guess')
+    expect(done.status, done.stderr).toBe(0)
+    expect(passes('story-required-parts.md', readFileSync(join(work, STORY), 'utf8'))).toBe(true)
+    expect(passes('story-required-parts.md', readFileSync(join(work, COPY), 'utf8'))).toBe(false)
+    expect(git(work, home, 'switch', '-q', '--discard-changes', 'main').status).toBe(0)
+    expect(passes('story-required-parts.md', readFileSync(join(work, COPY), 'utf8'))).toBe(false)
+  })
+
+  it('the required-parts grader refuses a story without the first frame step, a field, `not recorded` in the Why-here field, or with the review step', () => {
     const file = 'story-required-parts.md'
     expect(field(grader(file), 'type')).toBe('regex')
     expect(passes(file, GOOD_STORY)).toBe(true)
     expect(passes(file, GOOD_STORY.replaceAll('\n', '\r\n'))).toBe(true)
+    expect(passes(file, GOOD_STORY.replace('## 1. Что было не так\n', '## 1. Что было не так  \n')), 'a trailing space after the frame title').toBe(true)
+    expect(passes(file, GOOD_STORY.replace('- Почему здесь: не записано', '- Почему здесь: место назвал Ticket;\n  причина округления вниз не записано')), 'the value over two lines').toBe(true)
     const broken: [string, string][] = [
       ['first step is a code step', GOOD_STORY.replace('## 1. Что было не так', '## 1. Процент').replace('## 2. Целый процент', '## 2. Что было не так')],
       ['no frame step', GOOD_STORY.replace('## 1. Что было не так', '## 1. Начало')],
       ['English labels', GOOD_STORY.replace('Language: ru', 'Language: en')],
+      ['no Kind: pr', GOOD_STORY.replace('Kind: pr · ', '')],
       ['no Почему здесь', GOOD_STORY.replace('- Почему здесь: не записано\n', '')],
       ['no Что делает', GOOD_STORY.replace(/- Что делает: .*\n/, '')],
       ['no Без него', GOOD_STORY.replace(/- Без него: .*\n/, '')],
+      ['no Требование', GOOD_STORY.replace(/- Требование: .*\n/g, '')],
       ['no Риски', GOOD_STORY.replace('- Риски и пробелы test-ов: не записано\n', '')],
       ['a guess instead of не записано', GOOD_STORY.replaceAll('не записано', 'так проще читать')],
+      ['a guess in Почему здесь only', GOOD_STORY.replace('- Почему здесь: не записано', '- Почему здесь: так проще читать')],
       ['no fragment', GOOD_STORY.replace(/Code: .*\n/, '')],
       ['the review step', `${GOOD_STORY}\n## 4. Что нашёл review и что осталось\n\nНичего.\n`],
       ['another title', GOOD_STORY.replace('# Code story — demo 01:', '# Code story — demo 02:')],
@@ -236,8 +337,8 @@ describe('harness/evals: implementer-story', () => {
     for (const trace of refused) expect(passes(file, `${clean}\n${trace}\n${clean}`), trace).toBe(false)
   })
 
-  it('has the four graders of the ticket and the dispatch to worfy:implementer; the case is in no CI workflow and not in the gate', () => {
-    expect(readdirSync(join(CASE, 'graders')).sort()).toEqual(['implementer-dispatched.md', 'no-refusal.md', 'story-check-green.md', 'story-in-branch.md', 'story-required-parts.md'])
+  it('has the three graders of the ticket and the dispatch to worfy:implementer; the case is in no CI workflow and not in the gate', () => {
+    expect(readdirSync(join(CASE, 'graders')).sort()).toEqual(GRADERS)
     const dispatched = grader('implementer-dispatched.md')
     expect(field(dispatched, 'type')).toBe('tool_used')
     expect(field(dispatched, 'tool')).toBe('Agent')
