@@ -1,7 +1,8 @@
 // worfy-code-stories ticket 14: the eval case implementer-story (harness/evals/implementer-story/). A run hands
 // ticket 01 of the demo project to worfy:implementer with workflow.finish pr-green-ci, and the graders read
-// what it left: the Code story of the PR in the branch, story-check green on it, the parts story-pr.md asks for,
-// and no refusal in the trace. The paid run is by hand (pnpm eval:harness); this file is its free part and never
+// what it left: the Code story of the PR in the branch with the parts story-pr.md asks for and story-check green
+// on it, no reason in it that the ticket does not give (an llm grader, judged only in the paid run), and no
+// refusal in the trace. The paid run is by hand (pnpm eval:harness); this file is its free part and never
 // starts claude: it builds the fixture, plays the implementer's commits by hand and runs the graders the way
 // `claude plugin eval` runs a regex grader, new RegExp(pattern, flags) on the text as it is.
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process'
@@ -18,7 +19,9 @@ const STORY = '.scratch/demo/stories/01-alpha.md'
 const LOG = '.git/story-check.log'
 // The copy of the story at HEAD, which the fixture's check (.git/eval-finish.sh) keeps for the graders.
 const COPY = '.git/story-check/01-alpha.md'
-const GRADERS = ['implementer-dispatched.md', 'no-refusal.md', 'story-check-green.md', 'story-required-parts.md']
+const GRADERS = ['implementer-dispatched.md', 'no-invented-reason.md', 'no-refusal.md', 'story-check-green.md']
+// The line of the log between the story of ticket 01 and the output of story-check.
+const SEPARATOR = '--- story-check ---'
 // The pass mark of a case: `--threshold` of every `claude plugin eval` call that pnpm eval:harness starts.
 const THRESHOLD = Number(/'--threshold', '([\d.]+)'/.exec(readFileSync(join(REPO, 'scripts', 'eval-harness.mjs'), 'utf8'))?.[1] ?? 'NaN')
 
@@ -27,19 +30,24 @@ const field = (yaml: string, key: string): string | undefined =>
   new RegExp(`^\\s*${key}:\\s*(.+)$`, 'm').exec(yaml)?.[1]?.trim().replace(/^['"]|['"]$/g, '')
 const grader = (file: string): string => frontMatter(join(CASE, 'graders', file))
 const pattern = (file: string): RegExp => new RegExp(field(grader(file), 'pattern') ?? '<none>', field(grader(file), 'flags') ?? '')
-/** The path a `{ source: file, path }` grader reads, relative to the run's folder. */
-const targetPath = (file: string): string => /path:\s*([^\s}]+)/.exec(field(grader(file), 'target') ?? '')?.[1] ?? '<none>'
+/** The path a `{ source: file, path }` grader reads (`target`, or `focus` of an llm grader), relative to the run's folder. */
+const targetPath = (file: string): string =>
+  /path:\s*([^\s}]+)/.exec(field(grader(file), 'target') ?? field(grader(file), 'focus') ?? '')?.[1] ?? '<none>'
 /** Whether a regex grader passes on `text`: `contains` by default, `not_contains` inverted. */
 const passes = (file: string, text: string): boolean => (field(grader(file), 'match') === 'not_contains') !== pattern(file).test(text)
 
 // A run of the case as the graders see it: the files of `work`, a clean trace and the dispatch to the implementer.
 const CLEAN_TRACE = JSON.stringify({ type: 'assistant', message: { stop_reason: 'end_turn', content: [{ type: 'text', text: 'done' }] } })
 const DISPATCH = JSON.stringify({ description: 'ticket 01', subagent_type: 'worfy:implementer', prompt: 'Ticket 01 of epic demo' })
-/** Each grader of the case and whether it passes on `work`, a `{ source: file }` target that is missing failing it. */
+/**
+ * Each grader of the case and whether it passes on `work`, a `{ source: file }` target that is missing failing it.
+ * No model runs here, so the llm grader counts as passed whenever its file is there: the worst case for the threshold.
+ */
 function graded(work: string): [string, boolean][] {
   return GRADERS.map((file) => {
     const yaml = grader(file)
     if (field(yaml, 'type') === 'tool_used') return [file, new RegExp(field(yaml, 'input_match') ?? '<none>').test(DISPATCH)]
+    if (field(yaml, 'type') === 'llm') return [file, existsSync(join(work, targetPath(file)))]
     if (field(yaml, 'target') === 'trace') return [file, passes(file, CLEAN_TRACE)]
     const path = join(work, targetPath(file))
     return [file, existsSync(path) && passes(file, readFileSync(path, 'utf8'))]
@@ -203,6 +211,7 @@ describe('harness/evals: implementer-story', () => {
     put(work, STORY, GOOD_STORY)
     commit(work, home, 'demo/01: Code story')
     const text = log(work)
+    expect(text.startsWith(`${GOOD_STORY}${SEPARATOR}\n`)).toBe(true)
     expect(text).toMatch(/^stories: \.scratch\/demo\/stories\/01-alpha\.md$/m)
     expect(text).toMatch(/^in-branch: \.scratch\/demo\/stories\/01-alpha\.md$/m)
     expect(text).toContain('.scratch/demo/stories/01-alpha.md: ok')
@@ -210,7 +219,7 @@ describe('harness/evals: implementer-story', () => {
     expect(readFileSync(join(work, COPY), 'utf8')).toBe(GOOD_STORY)
 
     expect(targetPath('story-check-green.md')).toBe(LOG)
-    expect(targetPath('story-required-parts.md')).toBe(COPY)
+    expect(targetPath('no-invented-reason.md')).toBe(COPY)
     expect(score(work)).toBe(1)
 
     // A later commit without a change to the story (the ticket's result section, say) checks it again on the
@@ -319,60 +328,43 @@ describe('harness/evals: implementer-story', () => {
     expect(readFileSync(join(work, COPY), 'utf8')).toBe(GOOD_STORY)
   })
 
-  it('the required-parts grader reads the copy of the story at the last commit, not the working file', () => {
+  it('the log and the copy hold the story at the last commit, not the working file', () => {
     const { work, home, run } = build()
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
     expect(git(work, home, 'switch', '-q', '-c', 'demo/01').status).toBe(0)
     put(work, 'src/alpha.mjs', CODE)
-    put(work, STORY, GOOD_STORY.replaceAll('не записано', 'так проще'))
+    const committed = GOOD_STORY.replaceAll('не записано', 'так проще')
+    put(work, STORY, committed)
     expect(git(work, home, 'add', '-A').status).toBe(0)
-    // The working file differs from the staged one at the commit itself: the copy is the committed text.
+    // The working file differs from the staged one at the commit itself: the log and the copy have the committed text.
     put(work, STORY, GOOD_STORY)
     const done = git(work, home, 'commit', '-q', '-m', 'demo/01: percent and a story with a guess')
     expect(done.status, done.stderr).toBe(0)
     check(work, home)
-    expect(passes('story-required-parts.md', readFileSync(join(work, STORY), 'utf8'))).toBe(true)
-    expect(passes('story-required-parts.md', readFileSync(join(work, COPY), 'utf8'))).toBe(false)
-    expect(git(work, home, 'switch', '-q', '--discard-changes', 'main').status).toBe(0)
-    expect(passes('story-required-parts.md', readFileSync(join(work, COPY), 'utf8'))).toBe(false)
+    expect(log(work).startsWith(`${committed}${SEPARATOR}\n`)).toBe(true)
+    expect(readFileSync(join(work, COPY), 'utf8')).toBe(committed)
   })
 
-  it('the required-parts grader refuses a story without the first frame step, a field, `not recorded` in a field of a code step, or with the review step', () => {
-    const file = 'story-required-parts.md'
+  it('the story-check grader refuses a story without the first frame step, a field or the fragment, with the review step, or with a red or missing story-check', () => {
+    const file = 'story-check-green.md'
     expect(field(grader(file), 'type')).toBe('regex')
-    expect(passes(file, GOOD_STORY)).toBe(true)
-    expect(passes(file, GOOD_STORY.replaceAll('\n', '\r\n'))).toBe(true)
-    expect(passes(file, GOOD_STORY.replace('## 1. Что было не так\n', '## 1. Что было не так  \n')), 'a trailing space after the frame title').toBe(true)
-    expect(passes(file, GOOD_STORY.replace('- Почему здесь: не записано', '- Почему здесь: место назвал Ticket;\n  причина округления вниз не записано')), 'the value over two lines').toBe(true)
-    // The Russian `not recorded` may stand in any of the five fields of a code step: an honest story gives the
-    // place its recorded reason (the ticket's file list names src/alpha.mjs) and says `not recorded` elsewhere.
+    // The real tail of a green log: the story-check output of the fixture on the ticket branch.
+    const { work, home, run } = build()
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    expect(git(work, home, 'switch', '-q', '-c', 'demo/01').status).toBe(0)
+    put(work, 'src/alpha.mjs', CODE)
+    put(work, STORY, GOOD_STORY)
+    commit(work, home, 'demo/01: percent and its story')
+    const tail = log(work).slice(GOOD_STORY.length)
+    expect(tail.startsWith(`${SEPARATOR}\n`)).toBe(true)
+    const logged = (story: string, end = tail): string => `${story}${end}`
+
+    expect(passes(file, logged(GOOD_STORY))).toBe(true)
+    expect(passes(file, logged(GOOD_STORY).replaceAll('\n', '\r\n'))).toBe(true)
+    expect(passes(file, logged(GOOD_STORY.replace('## 1. Что было не так\n', '## 1. Что было не так  \n'))), 'a trailing space after the frame title').toBe(true)
+    // A story that never needs a missing reason passes without `not recorded`: that is for the llm grader.
     const honest = GOOD_STORY.replace('- Почему здесь: не записано', '- Почему здесь: файл назван в «Где в коде» ticket-а').replace('- Риски и пробелы test-ов: не записано', '- Риски и пробелы test-ов: test-ы есть на оба правила')
-    expect(passes(file, honest), 'Почему здесь with a reason, no не записано at all').toBe(false)
-    for (const label of ['Что делает', 'Без него', 'Риски и пробелы test-ов']) {
-      const story = honest.replace(new RegExp(`- ${label}: .*`), `- ${label}: не записано`)
-      expect(passes(file, story), `не записано in ${label}`).toBe(true)
-    }
-    // Two code steps: `not recorded` outside the fields (in the frame step) does not count.
-    const second = [
-      '## 3. Пустой итог',
-      '',
-      'Code: `src/alpha.mjs:3-3` · key lines: 3',
-      '',
-      '```js',
-      '  if (total === 0) return 0',
-      '```',
-      '',
-      '- Что делает: при пустом `total` отдаёт 0.',
-      '- Почему здесь: проверка стоит до деления.',
-      '- Без него: `percent(0, 0)` вернул бы `NaN`.',
-      '- Требование: [Что делаем](../issues/01-alpha.md#что-делаем)',
-      '- Риски и пробелы test-ов: test на `percent(0, 0)` есть.',
-      '',
-    ].join('\n')
-    const twoSteps = honest.replace('## 3. Как проверено', `${second}\n## 4. Как проверено`)
-    expect(passes(file, twoSteps.replace('- Что делает: при пустом `total` отдаёт 0.', '- Что делает: не записано')), 'two code steps, не записано in the second').toBe(true)
-    const outside = twoSteps.replace('вместо целого процента.', 'вместо целого процента; почему так — не записано.')
-    expect(passes(file, outside), 'two code steps, не записано only in the frame step').toBe(false)
+    expect(passes(file, logged(honest)), 'no не записано at all').toBe(true)
     const broken: [string, string][] = [
       ['first step is a code step', GOOD_STORY.replace('## 1. Что было не так', '## 1. Процент').replace('## 2. Целый процент', '## 2. Что было не так')],
       ['no frame step', GOOD_STORY.replace('## 1. Что было не так', '## 1. Начало')],
@@ -383,12 +375,31 @@ describe('harness/evals: implementer-story', () => {
       ['no Без него', GOOD_STORY.replace(/- Без него: .*\n/, '')],
       ['no Требование', GOOD_STORY.replace(/- Требование: .*\n/g, '')],
       ['no Риски', GOOD_STORY.replace('- Риски и пробелы test-ов: не записано\n', '')],
-      ['a guess instead of не записано', GOOD_STORY.replaceAll('не записано', 'так проще читать')],
       ['no fragment', GOOD_STORY.replace(/Code: .*\n/, '')],
       ['the review step', `${GOOD_STORY}\n## 4. Что нашёл review и что осталось\n\nНичего.\n`],
       ['another title', GOOD_STORY.replace('# Code story — demo 01:', '# Code story — demo 02:')],
     ]
-    for (const [what, story] of broken) expect(passes(file, story), what).toBe(false)
+    for (const [what, story] of broken) expect(passes(file, logged(story)), what).toBe(false)
+    expect(passes(file, GOOD_STORY), 'the story without the story-check output').toBe(false)
+    expect(passes(file, logged(GOOD_STORY, tail.replace(/^EXIT=0$/m, 'EXIT=2'))), 'story-check exit 2').toBe(false)
+    expect(passes(file, logged('', tail)), 'the story-check output without the story').toBe(false)
+    expect(passes(file, logged(GOOD_STORY, tail.replace(`${SEPARATOR}\n`, ''))), 'no separator line before the story-check output').toBe(false)
+  })
+
+  it('the invented-reason grader: an llm judge of the HEAD copy of the story with the ticket text and the five fields of a code step', () => {
+    const file = 'no-invented-reason.md'
+    expect(field(grader(file), 'type')).toBe('llm')
+    expect(targetPath(file)).toBe(COPY)
+    const text = readFileSync(join(CASE, 'graders', file), 'utf8').slice(grader(file).length)
+    for (const words of ['`0.6666666666666666`', '`Math.floor`', '`percent(2, 3)`', '`percent(0, 0)`', '`не записано`', 'PASS', 'FAIL'])
+      expect(text, words).toContain(words)
+    for (const label of ['Что делает', 'Почему здесь', 'Без него', 'Требование', 'Риски и пробелы test-ов'])
+      expect(text, label).toContain(`\`${label}\``)
+    // The ticket text the grader quotes is the ticket the fixture writes.
+    const { work, run } = build()
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    const ticket = readFileSync(join(work, '.scratch', 'demo', 'issues', '01-alpha.md'), 'utf8')
+    for (const words of ['0.6666666666666666', 'Math.floor', 'percent(2, 3)', 'percent(0, 0)']) expect(ticket, words).toContain(words)
   })
 
   it('the refusal grader: not_contains over the trace, failed by a refusal of reasoning_extraction or the refusal text of Claude Code', () => {
@@ -408,7 +419,7 @@ describe('harness/evals: implementer-story', () => {
     for (const trace of refused) expect(passes(file, `${clean}\n${trace}\n${clean}`), trace).toBe(false)
   })
 
-  it('has the three graders of the ticket and the dispatch to worfy:implementer; the case is in no CI workflow and not in the gate', () => {
+  it('has the four graders of the case and the dispatch to worfy:implementer; the case is in no CI workflow and not in the gate', () => {
     expect(readdirSync(join(CASE, 'graders')).sort()).toEqual(GRADERS)
     const dispatched = grader('implementer-dispatched.md')
     expect(field(dispatched, 'type')).toBe('tool_used')

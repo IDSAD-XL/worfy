@@ -9,9 +9,9 @@
 #     so that the preflight of pr-green-ci answers GO;
 #   - .git/eval-finish.sh, which the session of the run starts after the implementer's report: it runs
 #     bin/story-check of this copy of the Harness on every Code story HEAD holds and replaces
-#     .git/story-check.log with the stories, those the branch added since main (`in-branch:`), the output
-#     and `EXIT=<code>` (`EXIT=no-story` without a story), and keeps the story as HEAD has it in
-#     .git/story-check/. The graders read those files: no grader type of `claude plugin eval` runs a
+#     .git/story-check.log with the story of ticket 01, the stories, those the branch added since main
+#     (`in-branch:`), the output and `EXIT=<code>` (`EXIT=no-story` without a story), and keeps the story
+#     as HEAD has it in .git/story-check/. The graders read those files: no grader type of `claude plugin eval` runs a
 #     command, and the implementer's own story-check run is a claim of its report, not a check.
 # The Harness state of the demo project is where demo-project.sh put it: .git/worfy-harness, and the
 # temporary HOME's ~/.claude/worfy-harness when EVAL_HARNESS_HOME is unset.
@@ -93,8 +93,9 @@ check="$(git rev-parse --git-common-dir)/eval-finish.sh"
 cat >"$check" <<'EOF'
 #!/bin/sh
 # The eval case implementer-story (harness/evals/implementer-story/scaffold.sh), not the demo project.
-# Replaces <common .git>/story-check.log: the Code stories of HEAD, those the branch added or changed since
-# main (in-branch), the output of story-check and its exit code, or EXIT=no-story when HEAD holds none.
+# Replaces <common .git>/story-check.log: the story of ticket 01 as HEAD has it, then after a line
+# `--- story-check ---` the Code stories of HEAD, those the branch added or changed since main (in-branch),
+# the output of story-check and its exit code; or EXIT=no-story when HEAD holds none.
 # Keeps a copy of each story as HEAD has it in <common .git>/story-check/. Prints nothing, exits 0.
 # Started from the top of the work tree: the session runs it in the run's folder.
 common=$(git rev-parse --path-format=absolute --git-common-dir) || exit 0
@@ -109,6 +110,8 @@ for story in $stories; do
 done
 in_branch=$(git diff --name-only --diff-filter=AM main...HEAD -- .scratch/demo/stories 2>/dev/null)
 {
+    git show HEAD:.scratch/demo/stories/01-alpha.md 2>/dev/null
+    echo '--- story-check ---'
     printf 'stories: %s\n' $stories
     [ -z "$in_branch" ] || printf 'in-branch: %s\n' $in_branch
     node '@STORY_CHECK@' $stories

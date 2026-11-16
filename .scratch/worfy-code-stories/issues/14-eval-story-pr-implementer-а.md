@@ -76,20 +76,38 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения 
 
 - Сценарий `harness/evals/implementer-story/`: ticket 01 учебного Epic-а `demo` (finish `pr-green-ci`) уходит агенту
   `worfy:implementer`. Scaffold переписывает ticket 01 так, что два его правила без причины, явно ставит
-  `code_stories.pr: on` и кладёт post-commit hook. После каждого commit-а со story в HEAD hook запускает
-  `bin/story-check` и заново пишет `.git/story-check.log`: story HEAD, строку `in-branch:` для story, которую ветка
-  добавила с `main`, вывод и `EXIT=<код>`. Копию story из HEAD он кладёт в `.git/story-check/`. У `claude plugin eval`
-  нет grader-а, который запускает команду, поэтому exit code проверки читается из этого файла, а не из слов
-  implementer-а.
-- Graders (четыре, порог 0.8: любой один красный валит сценарий, 3/4 = 0.75): `story-check-green` (story ветки по пути
-  `.scratch/demo/stories/01-alpha.md` и `EXIT=0` в одном regex), `story-required-parts` (по копии из HEAD: первый шаг
-  «Что было не так», фрагмент, пять полей, `не записано` в поле «Почему здесь», нет шага review), `no-refusal` (нет
-  отказа `reasoning_extraction` в trace), `implementer-dispatched` (`tool_used`: его требует contract test каждого
-  сценария). Review круг 1 (PR #1916) нашёл, что при пяти grader-ах красный `story-check` давал 4/5 = 0.8 и сценарий
-  проходил; graders «story в ветке» и «story-check — exit 0» слиты в один.
+  `code_stories.pr: on`, создаёт bare origin в `.git` с `worktree.base` `origin/main` и кладёт
+  `.git/eval-finish.sh`. Сессия запускает этот скрипт последним шагом, после отчёта implementer-а. Скрипт запускает
+  `bin/story-check` и пишет `.git/story-check.log`: story ticket-а 01 из HEAD, строку `--- story-check ---`, строку
+  `in-branch:` для story, которую ветка добавила с `main`, вывод и `EXIT=<код>`; копию story из HEAD он кладёт в
+  `.git/story-check/`. У `claude plugin eval` нет grader-а, который запускает команду, поэтому exit code проверки
+  читается из этого файла, а не из слов implementer-а.
+- Graders (четыре, порог 0.8: любой один красный валит сценарий, 3/4 = 0.75):
+  - `story-check-green` — один regex по log-у: части из `story-pr.md` (заголовок, `Kind: pr`, `Language: ru`, первый
+    шаг «Что было не так», фрагмент, пять полей, нет шага review), story ветки `demo/01` по пути
+    `.scratch/demo/stories/01-alpha.md` и `EXIT=0`. Пункт «Готово, когда» просил отдельные graders «файл есть»,
+    «exit 0» и «части на месте»; при пяти grader-ах один красный давал 4/5 = 0.8, и сценарий проходил (review круг 1),
+    поэтому три проверки — один regex.
+  - `no-invented-reason` — `llm` по копии story: ни одно поле code step-а не называет причину или факт, которых нет в
+    ticket-е и в цитате кода, а где причина нужна — `не записано`. Regex этого не различает.
+  - `no-refusal` — нет отказа `reasoning_extraction` в trace.
+  - `implementer-dispatched` — `tool_used`: его требует contract test каждого сценария.
 - Dry run `pnpm eval:harness -- --case implementer-story --dry-run` — exit 0. План: один вызов `main-implementer-story` —
   `claude plugin eval <plugin-copy> --scaffold --trust-plugin --ablation none --threshold 0.8 --no-publish --model
   claude-sonnet-5 --judge-model claude-haiku-4-5 --max-cost-usd 30 --tag main --case implementer-story --allow-tools Bash
-  Write Edit`; 3 run-а (`runs: 3`), вызов gui пропущен. Цены по вызову dry run не печатает; оценка — 1–1.5 USD за run
-  (`implementer-report` стоил 0.45 USD за run, здесь implementer ещё пишет story и проходит gate), 3–5 USD за вызов.
-- Платный run (пункт 4) — за владельцем: `pnpm eval:harness -- --case implementer-story --max-cost-usd 10`.
+  Write Edit`; 3 run-а (`runs: 3`), вызов gui пропущен. Цены по вызову dry run не печатает.
+- Платные run-ы 2026-11-16, все `claude-sonnet-5`:
+  - head f0e1df8a3, 3 run-а, 2.53 USD — 0.50 в каждом: log-а нет. Preflight ответил BLOCKED «no remote origin, and
+    workflow.finish is pr-green-ci», implementer закончил локально и story не писал. Исправлено: bare origin.
+  - диагностика 1, 1 run, 0.83 USD — story и commit есть, log-а нет.
+  - диагностика 2, 1 run, 1.06 USD — post-commit hook не сработал: Claude Code запускает git с выключенными hook-ами
+    репозитория. Исправлено: скрипт `.git/eval-finish.sh`, который запускает сессия.
+  - proof run head 75424fc1f, 3 run-а, 3.13 USD — 0.75 в каждом: `story-check-green` зелёный везде, прежний regex
+    `story-required-parts` красный везде — он требовал `не записано`, а ни одна story его не написала. Две story из трёх
+    придумали факты, которых нет в ticket-е («percent — единственная функция, которую вызывает отчёт», «в отчёте такие
+    значения не встречаются»). Исправлено: regex заменён на `llm` grader `no-invented-reason`, структура story ушла в
+    `story-check-green`.
+  - Всего 7.55 USD. Proof run исправленного head-а — за владельцем:
+    `pnpm eval:harness -- --case implementer-story --keep-temp --max-cost-usd 10`. По proof run-у он, скорее всего,
+    упадёт на `no-invented-reason` (implementer придумывает причины в 2 из 3 run-ов) — это пробел в поведении
+    implementer-а по `story-pr.md`, не в сценарии.
