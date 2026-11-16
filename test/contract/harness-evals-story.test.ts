@@ -324,15 +324,15 @@ describe('harness/evals: implementer-story', () => {
     expect(passes(file, GOOD_STORY.replaceAll('\n', '\r\n'))).toBe(true)
     expect(passes(file, GOOD_STORY.replace('## 1. Что было не так\n', '## 1. Что было не так  \n')), 'a trailing space after the frame title').toBe(true)
     expect(passes(file, GOOD_STORY.replace('- Почему здесь: не записано', '- Почему здесь: место назвал Ticket;\n  причина округления вниз не записано')), 'the value over two lines').toBe(true)
-    // `не записано` may stand in any of the five fields of a code step: an honest story gives the place its
-    // recorded reason (the ticket's «Где в коде» names src/alpha.mjs) and says `не записано` elsewhere.
+    // The Russian `not recorded` may stand in any of the five fields of a code step: an honest story gives the
+    // place its recorded reason (the ticket's file list names src/alpha.mjs) and says `not recorded` elsewhere.
     const honest = GOOD_STORY.replace('- Почему здесь: не записано', '- Почему здесь: файл назван в «Где в коде» ticket-а').replace('- Риски и пробелы test-ов: не записано', '- Риски и пробелы test-ов: test-ы есть на оба правила')
     expect(passes(file, honest), 'Почему здесь with a reason, no не записано at all').toBe(false)
     for (const label of ['Что делает', 'Без него', 'Риски и пробелы test-ов']) {
       const story = honest.replace(new RegExp(`- ${label}: .*`), `- ${label}: не записано`)
       expect(passes(file, story), `не записано in ${label}`).toBe(true)
     }
-    // Two code steps: `не записано` outside the fields (in the frame step, in a fragment) does not count.
+    // Two code steps: `not recorded` outside the fields (in the frame step) does not count.
     const second = [
       '## 3. Пустой итог',
       '',
