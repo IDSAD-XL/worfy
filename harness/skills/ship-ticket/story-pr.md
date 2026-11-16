@@ -32,6 +32,12 @@ yet, and a reader takes it from the ticket's `PR:` line. `<code>` is `language.r
   `<from>` to `<to>` of that file copied exactly — and every field: `What it does`, `Why here`, `Without it`,
   `Requirement` (a link to a section of the ticket or the spec, relative to the story file), `Risks and test gaps`.
 - A field whose reason nobody wrote down says `not recorded`. Never fill it with a guess.
+- `Why here` holds only what the ticket, the project rules or the code record. When the ticket lists the file in
+  its section of files (`tickets.trail_section`), say just that: the place is named in the ticket
+  (`tickets.trail_section`), and the reason for the rule is `not recorded`. Never infer who calls the code, what
+  else uses it, or a motive.
+  Bad: `Why here: the only place the invoice formats dates; the rest of the code calls formatDate`.
+  Good: `Why here: the ticket names src/date.mjs among its files; why the format is ISO is not recorded`.
 - Size: one to three code steps for a small PR, up to ten for a large one.
 - The words are in the language of `language.reports`; code, names and terms stay as the code spells them.
 - No host name, user name in a path, email or token: `story-check` looks for them.

@@ -83,7 +83,31 @@ rounding is down rather than to the nearest, which code calls `percent`, or whic
 - Требование: [Что делаем, п. 1](../issues/14-eval-story-pr-implementer-а.md#что-делаем)
 - Риски и пробелы test-ов: суждение модели бесплатный test не проверяет, только текст grader-а и путь файла.
 
-## 5. Учебный Ticket не даёт причины двум правилам, и у fixture-а есть origin
+## 5. Правило для «Почему здесь» в шаге story
+
+Code: `harness/skills/ship-ticket/story-pr.md:35-40` · key lines: 35, 37, 38
+
+```md
+- `Why here` holds only what the ticket, the project rules or the code record. When the ticket lists the file in
+  its section of files (`tickets.trail_section`), say just that: the place is named in the ticket
+  (`tickets.trail_section`), and the reason for the rule is `not recorded`. Never infer who calls the code, what
+  else uses it, or a motive.
+  Bad: `Why here: the only place the invoice formats dates; the rest of the code calls formatDate`.
+  Good: `Why here: the ticket names src/date.mjs among its files; why the format is ISO is not recorded`.
+```
+
+- Что делает: разрешает в «Почему здесь» только записанное в Ticket-е, правилах проекта или коде; если Ticket
+  перечисляет файл, поле говорит это, а причину правила — `not recorded`; запрещает выводить, кто вызывает код, что
+  ещё его использует, и мотив. Пример — на нейтральной функции `formatDate`, не на `percent` сценария.
+- Почему здесь: платный run head-а b6020ada0 дал FAIL судьи во всех трёх run-ах; во всех трёх story «Почему здесь»
+  утверждало, что отчёт вызывает `percent` и это единственное место, а кода отчёта в repo нет. Общее правило
+  `not recorded` в `story-pr.md` уже было, но на это поле не действовало.
+- Без него: сценарий оставался бы красным (0.75), а story настоящих PR несли бы придуманные мотивы.
+- Требование: [Что делаем, п. 4](../issues/14-eval-story-pr-implementer-а.md#что-делаем)
+- Риски и пробелы test-ов: `agents-text.test.sh` проверяет только наличие текста правила; действует ли оно на
+  модель, покажет следующий платный run.
+
+## 6. Учебный Ticket не даёт причины двум правилам, и у fixture-а есть origin
 
 Code: `harness/evals/implementer-story/scaffold.sh:64-71` · key lines: 67, 68, 71
 
@@ -106,17 +130,19 @@ git remote set-head origin main
 - Требование: [Что делаем, п. 1](../issues/14-eval-story-pr-implementer-а.md#что-делаем)
 - Риски и пробелы test-ов: `gh pr create` в sandbox-е падает, и PR нет; story оценивается по ветке.
 
-## 6. Что сознательно не меняли
+## 7. Что сознательно не меняли
 
 `harness/evals/lib/demo-project.sh` общий для всех сценариев; Ticket, `code_stories.pr`, origin и скрипт проверки
 добавляет только scaffold этого сценария. `coverage.json` связывает сценарий с `agents/implementer.md`,
 `story-pr.md` и `implementer-finish.md`.
 
-## 7. Как проверено
+## 8. Как проверено
 
 - `npx vitest run --project contract test/contract/harness-evals*.test.ts` — exit 0: скрипт пишет `EXIT=0` на верной
   story, `EXIT=2` на неверном фрагменте и на story, которую обогнал код, `EXIT=1` на `main`, `EXIT=no-story` после
   удаления story; счёт run-а с одним красным `story-check` ниже порога. Mutant-ы скрипта и grader-ов убиты.
 - Платные run-ы: диагностика 1 и 2 нашли BLOCKED без origin и выключенные hook-и; proof run дал 0.75 из-за regex
-  `не записано`, после чего grader заменён на `llm`. Новый proof run — за владельцем.
+  `не записано`, после чего grader заменён на `llm`; run head-а b6020ada0 дал 0.75 из-за придуманного «Почему
+  здесь», после чего добавлено правило в `story-pr.md`. Новый run — за владельцем.
+- `HOME=$(mktemp -d) bash harness/bin/tests/agents-text.test.sh` — exit 0, проверяет текст нового правила.
 - `pnpm lint`, `pnpm typecheck` — exit 0; gate fast — exit 0, `[gate] green (fast)`.

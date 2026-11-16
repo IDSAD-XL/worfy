@@ -73,6 +73,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения 
 
 - `harness/evals/implementer-story/` (новая папка: `case.yaml`, `prompt.md`, `scaffold.sh`, `graders/`)
 - `harness/evals/lib/coverage.json`
+- `harness/skills/ship-ticket/story-pr.md` — правило для поля `Why here` (добавлено по решению координатора после
+  платного run-а 2026-11-16: implementer придумывал, кто вызывает код), и его проверка в
+  `harness/bin/tests/agents-text.test.sh`
 
 Только читать: `harness/evals/implementer-report/`, `scripts/eval-harness.mjs`, `scripts/eval-harness-coverage.mjs`.
 
@@ -120,7 +123,11 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения 
     `/^---\s*\n([\s\S]*?)---\s*\n?/`, на первых трёх дефисах где угодно, а `pattern` содержал `--- story-check ---`.
     Исправлено: разделитель `=== story-check ===`, contract test режет frontmatter каждого `.md` в `harness/evals`
     regex-ом CLI. `llm` grader теперь получает весь Ticket и правила учебного проекта.
-  - Всего 7.55 USD. Proof run исправленного head-а — за владельцем:
-    `pnpm eval:harness -- --case implementer-story --keep-temp --max-cost-usd 10`. По proof run-у он, скорее всего,
-    упадёт на `no-invented-reason` (implementer придумывает причины в 2 из 3 run-ов) — это пробел в поведении
-    implementer-а по `story-pr.md`, не в сценарии.
+  - head b6020ada0, 3 run-а, 3.08 USD (run координатора) — 0.75 в каждом: `story-check-green`,
+    `implementer-dispatched`, `no-refusal` зелёные, `no-invented-reason` — FAIL во всех трёх. Во всех трёх story
+    поле «Почему здесь» придумало, что отчёт вызывает `percent` и это единственное место; кода отчёта в repo нет.
+    Это пробел текста Harness-а, не grader-а: в `story-pr.md` добавлено правило для `Why here` — только то, что
+    записано в ticket-е, правилах или коде; место из списка файлов ticket-а и `not recorded` для причины; не
+    выводить, кто вызывает код, что ещё его использует, и мотив.
+  - Всего 10.63 USD. Proof run исправленного head-а — за владельцем:
+    `pnpm eval:harness -- --case implementer-story --keep-temp --max-cost-usd 10`.
