@@ -1,7 +1,9 @@
 # 01 — Формат Code story: шапка без commit-а, шаги, список передач, общие fixture-файлы
 
 Type: task
-Status: open
+Status: claimed 2026-11-15T23:45Z
+PR: #1889
+Branch: worfy-code-stories/01
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», строка 01; «Решения владельца» 3, 4, 8, 9, 16, 17, 24, 27 (строки 94–135);
 «Решения по реализации» → Harness: «Формат», «Где лежит» (строки 195–206); «Решения по test-ам», А (строки 279–281);
@@ -62,14 +64,26 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 01; «Решения 
 - [ ] В `harness/bin/TICKETS.md` описан формат story: шапка без поля commit-а, поля шага, «не записано», порядок шагов,
       размеры, глава-PR, список передач шага «Стыки между Ticket-ами», раздел «Проверить себя», пути `stories/` и
       `story.md`, режим Silent.
+  - evidence: commit pass · Define the Code story format, its anchor rule and shared fixtures · - - · 626782f8b9566dc6ba1a43e4ae1d3f506139e1d9
+  - evidence: commit pass · Round 2: seams as a numbered frame step, pr story outside a ticket, Commit: only outside git · - - · 489f8e8b281b2cc53ea18c9365c7188a02347bd0
 - [ ] В `TICKETS.md` записано правило привязки: дерево commit-а со story в ветке; в main — commit, который принёс файл, с
       точной командой. Случай, когда documents PR позже дописал шаг review в тот же файл, разобран.
+  - evidence: commit pass · Story anchor in TICKETS.md: git log --first-parent --follow --diff-filter=A -1 <main> -- <path> · - - · 626782f8b9566dc6ba1a43e4ae1d3f506139e1d9
+  - evidence: commit pass · Round 2: line numbers of the PR head, story-check only on the head, reader on main finds code in the anchor commit · - - · 489f8e8b281b2cc53ea18c9365c7188a02347bd0
 - [ ] Fixture-ы в `harness/bin/tests/fixtures/code-story/`: два story PR (ru, en), story Epic-а с брошенной передачей,
       несовпавший фрагмент, шаг без поля, код для временного repo; в README папки — по строке на файл: что он
       проверяет.
+  - evidence: commit pass · harness/bin/tests/fixtures/code-story: pr-en, pr-ru, epic-ru, bad-fragment, missing-field, repo/src, README · - - · 626782f8b9566dc6ba1a43e4ae1d3f506139e1d9
+  - evidence: commit pass · Round 2: Ready chapter in epic-ru.md, repo-main-shifted/src/cart.ts, README rows · - - · 489f8e8b281b2cc53ea18c9365c7188a02347bd0
 - [ ] `harness/bin/tests/plugin-neutral.test.sh` и `agents-text.test.sh` зелёные (английский текст Harness-а; русский
       fixture — данные, как в `fixtures/ticket-title`).
+  - evidence: test-run pass · `bash harness/bin/tests/plugin-neutral.test.sh` exit 0, `bash harness/bin/tests/agents-text.test.sh` exit 0 · mac - · 626782f8b9566dc6ba1a43e4ae1d3f506139e1d9
+  - evidence: test-run pass · `bash harness/bin/tests/plugin-neutral.test.sh` exit 0, `bash harness/bin/tests/agents-text.test.sh` exit 0 · mac - · 489f8e8b281b2cc53ea18c9365c7188a02347bd0
 - [ ] `node scripts/check-personal.mjs` — exit 0; `pnpm lint` (проверки документов) — exit 0.
+  - evidence: test-run pass · `node scripts/check-personal.mjs` exit 0, `pnpm lint` exit 0 · mac - · 626782f8b9566dc6ba1a43e4ae1d3f506139e1d9
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 626782f8b9566dc6ba1a43e4ae1d3f506139e1d9
+  - evidence: test-run pass · `node scripts/check-personal.mjs` exit 0, `pnpm lint` exit 0 · mac - · 489f8e8b281b2cc53ea18c9365c7188a02347bd0
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 489f8e8b281b2cc53ea18c9365c7188a02347bd0
 
 ## Тесты
 
