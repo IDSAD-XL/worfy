@@ -163,6 +163,74 @@ describe('the drafts module', () => {
   })
 })
 
+describe('two copies of one field share its draft (focus mode draws a Node in a tile while the Canvas keeps its copy)', () => {
+  async function mount() {
+    const drafts = await import('../../src/renderer/session/drafts')
+    const key = drafts.draftKey('node', 'p1', 'n1')
+    // A field as a Session Node draws it (canvas/nodes/SessionNode.tsx): sending empties it and clears the draft.
+    function Field({ name }: { name: string }) {
+      const [text, setText] = drafts.useDraft(key)
+      const send = () => {
+        setText('')
+        drafts.clearDraft(key)
+      }
+      return (
+        <>
+          <textarea aria-label={name} value={text} onChange={(event) => setText(event.target.value)} />
+          <button type="button" onClick={send}>
+            {`Send from ${name}`}
+          </button>
+        </>
+      )
+    }
+    const field = (name: string) => screen.getByRole('textbox', { name }) as HTMLTextAreaElement
+    const type = async (name: string, value: string) => {
+      await act(async () => {
+        fireEvent.change(field(name), { target: { value } })
+      })
+    }
+    const send = async (name: string) => {
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: `Send from ${name}` }))
+      })
+    }
+    const canvas = render(<Field name="canvas" />)
+    const tile = render(<Field name="tile" />)
+    return { drafts, key, canvas, tile, field, type, send }
+  }
+
+  it('what is typed in the tile is in the Canvas copy too, and stays when focus mode closes', async () => {
+    const { drafts, key, tile, field, type } = await mount()
+    await type('tile', 'typed in focus mode')
+    expect(field('canvas').value).toBe('typed in focus mode')
+    tile.unmount()
+    expect(field('canvas').value).toBe('typed in focus mode')
+    expect(drafts.readDraft(key)).toBe('typed in focus mode')
+  })
+
+  it('a message sent from the tile leaves the Canvas copy too, and the next change there does not bring it back', async () => {
+    const { drafts, key, field, type, send } = await mount()
+    await type('canvas', 'typed on the Canvas')
+    expect(field('tile').value).toBe('typed on the Canvas')
+    await send('tile')
+    expect(field('canvas').value).toBe('')
+    expect(drafts.readDraft(key)).toBe('')
+    await type('canvas', 'next')
+    expect(field('tile').value).toBe('next')
+    expect(drafts.readDraft(key)).toBe('next')
+  })
+
+  it('a draft dropped with its Node empties the fields that show it', async () => {
+    const { drafts, field, type } = await mount()
+    await type('tile', 'about to go')
+    await act(async () => {
+      drafts.dropGoneDrafts('p1', layout(node('n1')), layout())
+    })
+    expect(field('canvas').value).toBe('')
+    expect(field('tile').value).toBe('')
+  })
+})
+
 describe('the Session view field keeps its draft', () => {
   async function mount(onSend: (message: OutgoingMessage) => Promise<string | null> = () => Promise.resolve(null)) {
     const drafts = await import('../../src/renderer/session/drafts')

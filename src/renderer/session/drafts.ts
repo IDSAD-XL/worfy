@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react'
+import { useCallback, useState, useSyncExternalStore, type Dispatch, type SetStateAction } from 'react'
 import { isArchived, type Layout } from '../../shared/layout/types'
 
 // The draft of a chat input field (worfy-polish ticket 95): the text typed and not sent yet. It stays
@@ -10,6 +10,10 @@ import { isArchived, type Layout } from '../../shared/layout/types'
 //   Node on the Canvas (`node`: canvas/nodes/SessionNode.tsx) each keep their own. The Node, not the
 //   Session, is the key: the Session view's field is made again per Node (SessionView.tsx), and a
 //   Node keeps its field whichever Session runs on it.
+// - The draft in memory is the one copy of the text: every field mounted under a key shows it and
+//   changes it (useDraft). Focus mode draws a Node in a tile while the Canvas keeps its own copy
+//   mounted (focus/FocusMode.tsx); both fields show what either one types, and a send from either
+//   empties both.
 // - Kept like the other choices of a Session's view (transcript-view.ts): in this window's
 //   localStorage, which lives in userData — worfy's data folder (ADR-0005) — so it survives a restart.
 //   The copy in memory changes at once; the storage is written DRAFT_DELAY_MS after the last change,
@@ -43,6 +47,8 @@ export function draftKey(field: DraftField, projectId: string, nodeId: string): 
 let drafts: Map<string, string> | null = null
 /** The keys whose storage is behind their draft in memory. */
 const pending = new Set<string>()
+/** The fields shown now, by key: each is told when its draft changes. */
+const listeners = new Map<string, Set<() => void>>()
 let timer: ReturnType<typeof setTimeout> | null = null
 
 function known(): Map<string, string> {
@@ -60,6 +66,11 @@ function known(): Map<string, string> {
     // An unreadable storage holds no draft.
   }
   return drafts
+}
+
+/** Tells every field shown under `key` that its draft changed. */
+function notify(key: string): void {
+  for (const listener of [...(listeners.get(key) ?? [])]) listener()
 }
 
 /** Writes one key's draft as memory has it now: the text cut to DRAFT_LIMIT, or no entry for an empty one. */
@@ -95,12 +106,14 @@ export function keepDraft(key: string, text: string): void {
   pending.add(key)
   if (timer !== null) clearTimeout(timer)
   timer = setTimeout(flushDrafts, DRAFT_DELAY_MS)
+  notify(key)
 }
 
 /** Forgets a field's draft, in memory and in the storage, now: the message was sent. */
 export function clearDraft(key: string): void {
-  known().delete(key)
+  const had = known().delete(key)
   store(key)
+  if (had) notify(key)
 }
 
 /**
@@ -125,21 +138,32 @@ export function dropGoneDrafts(projectId: string, before: Layout | undefined, af
 
 /**
  * A field's text kept as its draft under `key` (none: a plain state). Opens with the draft there is,
- * and keeps every change. A new key shows its own draft.
+ * and keeps every change. A new key shows its own draft. Every field under one key shows the same
+ * text: the draft in memory, not a copy of it.
  */
 export function useDraft(key: string | undefined): [string, Dispatch<SetStateAction<string>>] {
-  const [state, setState] = useState(() => ({ key, text: key === undefined ? '' : readDraft(key) }))
-  let current = state
-  if (state.key !== key) {
-    current = { key, text: key === undefined ? '' : readDraft(key) }
-    setState(current)
-  }
-  const setText = useCallback((next: SetStateAction<string>) => setState((was) => ({ key: was.key, text: typeof next === 'function' ? next(was.text) : next })), [])
-  const { text } = current
-  useEffect(() => {
-    if (key !== undefined) keepDraft(key, text)
-  }, [key, text])
-  return [text, setText]
+  const [plain, setPlain] = useState('')
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      if (key === undefined) return () => undefined
+      const shown = listeners.get(key) ?? new Set()
+      listeners.set(key, shown.add(listener))
+      return () => {
+        shown.delete(listener)
+        if (shown.size === 0) listeners.delete(key)
+      }
+    },
+    [key],
+  )
+  const kept = useSyncExternalStore(subscribe, () => (key === undefined ? '' : readDraft(key)))
+  const setText = useCallback(
+    (next: SetStateAction<string>) => {
+      if (key === undefined) setPlain(next)
+      else keepDraft(key, typeof next === 'function' ? next(readDraft(key)) : next)
+    },
+    [key],
+  )
+  return [key === undefined ? plain : kept, setText]
 }
 
 // A quit or a reload goes before the timer fires: the drafts are written as the page goes.
