@@ -225,19 +225,25 @@ Code: `src/cart.ts:10-17` · key lines: 13, 14
 - Risks and test gaps: <text>
 ````
 
-- **Title** — the H1: `Code story — <epic> <NN>: <title>` for a PR, `Code story — <epic>` for an epic.
+- **Title** — the H1: `Code story — <epic> <NN>: <title>` for a PR of a ticket, `Code story — PR #<N>: <title>`
+  for a PR outside a ticket, `Code story — <epic>` for an epic.
 - **Header** — the first non-empty line after the H1, the fields split by ` · `, in any order: `Kind:` (`pr` or
   `epic`), `Epic:`, `Ticket:` (two digits, only in `pr`), `PR:` (`#<N>`, only in `pr`; `-` while the PR is not open
   yet — the implementer writes the story before `gh pr create`, and a reader then takes the number from the
-  ticket's own `PR:` line), `Language:` (the code of the profile's `language.reports`, `en` or `ru`). There is no
-  commit field and never will be: see **Story anchor** below. The header keys are English in every language.
+  ticket's own `PR:` line), `Language:` (the code of the profile's `language.reports`, `en` or `ru`). `Epic:` and
+  `Ticket:` are required in an `epic` story and in the story of a ticket's PR; a `pr` story of a PR outside a
+  ticket (an ordinary Session's PR, a colleague's PR) has neither. A story file committed with the change — in git
+  or in the Workflow folder — has no commit field: see **Story anchor** below. A story kept outside git, in
+  worfy's own data (a story made by the button), has `Commit: <full sha of the PR head it was made from>`: nothing
+  commits it into the PR, so it can name the head it describes. The header keys are English in every language.
 - **Step** — in a PR story a `## <n>. <title>` heading, numbered from 1 in file order; in an epic story a
-  `### <n>. <title>` heading inside a chapter, numbered through the whole story. A step is either a code step or a
-  frame step; the frame steps are the ones with the fixed titles `What was wrong`, `What was deliberately not
-  changed`, `How it was checked`, `What review found and what remains`.
+  `### <n>. <title>` heading inside a chapter, numbered through the whole story, and the step `## <n>. Seams
+  between tickets` after the chapters (below). A step is either a code step or a frame step; the frame steps are
+  the ones with the fixed titles `What was wrong`, `What was deliberately not changed`, `How it was checked`, `What
+  review found and what remains` and, in an epic story, `Seams between tickets`.
 - **Fragment** — the line `` Code: `<path>:<from>-<to>` · key lines: <n>, <n> `` and after it, blank lines
   aside, a fenced code block (three or more backticks, an optional language) whose lines are lines `<from>` to
-  `<to>` of `<path>`, exactly; a fragment of one line is `<from>-<from>`. The path is relative to the root of the
+  `<to>` of `<path>` at the PR's head (**Story anchor**), exactly; a fragment of one line is `<from>-<from>`. The path is relative to the root of the
   repository; the key lines lie between `<from>` and `<to>` and are the lines worfy highlights. The code is
   compared line by line, a trailing carriage return dropped; anything else that differs is a mismatch.
 - **Fields** — list items `- <label>: <value>`; a value may go on over indented lines. A code step has exactly
@@ -250,7 +256,8 @@ Code: `src/cart.ts:10-17` · key lines: 13, 14
 - **Labels** — the field labels, the frame titles, the section titles and `not recorded` follow the story's
   `Language:`: a story in `ru` uses the Russian words, any other language the English ones. The pairs are the
   table in the README of `bin/tests/fixtures/code-story`; a reader keeps them in its own word list. The fragment
-  line (`Code:`, `key lines:`) and the handoff field (`done:`) are English in every language.
+  line (`Code:`, `key lines:`), the handoff field (`done:`) and the chapter line (`Ready:`) are English in every
+  language.
 - **Order** — the order of explanation, not of files. The first step says what was wrong (`What was wrong`); then
   the code steps; then, when there is something to say, `What was deliberately not changed` and `How it was
   checked`; last, `What review found and what remains`, which the implementer does not write: the documents PR
@@ -259,10 +266,12 @@ Code: `src/cart.ts:10-17` · key lines: 13, 14
   steps for an epic. A guide for the author: a reader does not refuse a story by its size.
 - **Epic story** — `Kind: epic`, and its body is `##` sections in this order: `Start` (what the epic set out to
   fix, a `Requirement` link to its `spec.md`); one chapter per PR of the epic, the heading `## PR #<N> · <NN> —
-  <ticket title>`, holding the `###` steps taken from that PR's story; `Seams between tickets`; `Summary`;
-  `Check` (how the epic as a whole was checked). A chapter of a ticket whose PR is not merged yet has `PR -` in
-  its heading and the line `Ready: no — <why>` as its body.
-- **Seams between tickets** — what the tickets of the epic hand to each other, one list item per handoff:
+  <ticket title>`, holding the `###` steps taken from that PR's story; the frame step `## <n>. Seams between
+  tickets`, numbered on from the last step of the chapters; `Summary`; `Check` (how the epic as a whole was
+  checked). A chapter of a ticket whose PR is not merged yet has `PR -` in its heading and the line `Ready: no —
+  <why>` as its body, and no steps.
+- **Seams between tickets** — the frame step of an epic story that says what its tickets hand to each other:
+  prose, then one list item per handoff:
   `- <NN> → <NN>: <what is handed over> · done: yes`, or `· done: no — <why>` for a handoff that was dropped. The
   numbers are the giving ticket and the receiving one. worfy draws its small diagram from this list: a ticket per
   number, an arrow per item, a dropped handoff as a red dashed arrow. An item without `done:` is an error.
@@ -272,39 +281,63 @@ Code: `src/cart.ts:10-17` · key lines: 13, 14
   `Lines:` (`path:line` or `path:from-to` in backticks, split by commas). Nothing depends on the answers.
 
 **Story anchor**
-The commit whose tree holds the code a story's fragments quote. A story names no commit: it is committed in the
+The code a story's fragments are read against. The line numbers of a fragment are those of the PR's head — the
+last commit of the PR's branch, the one review checked. A committed story names no commit: it is committed in the
 very PR it describes and cannot know the hash of its own commit; every fix after review makes a new one; and the
 PR is merged by squash (`land` runs `gh pr merge <N> --squash --match-head-commit <head>`), so the PR's head never
-reaches the main branch. The anchor is found from the story file instead, in this order:
+reaches the main branch.
 
-1. The story file is on the main branch: the anchor is the commit that brought the file there,
+`story-check` runs only against the PR's head, before the merge — never on the main branch:
+
+1. In the PR's branch, when the story file is uncommitted — a new untracked file counts, as does a changed one —
+   the working tree: the implementer checks the story before committing it, and the output says it checked the
+   working tree. Otherwise the branch's head, `HEAD`. A fix after review goes into the same branch and updates the
+   story with it, so the head and the story agree.
+2. The documents PR that appends `What review found and what remains` after the merge checks the file against the
+   head of the PR the story describes — the `<head>` that `land` merged — not against its own branch: the appended
+   step quotes the lines of that head, which review checked.
+3. The epic's story takes its steps from the stories of its PRs, so the line numbers of a chapter are those of
+   that chapter's PR head, and each chapter is checked against it. The steps and screens outside the chapters
+   (`Start`, `Seams between tickets`, `Summary`, `Check`) quote no fragment.
+
+On the main branch the code may differ from the head. This repository merges a PR without rebasing it onto a fresh
+main branch, so when the main branch changed a quoted file between the branch point and the merge, the merged file
+is not the head's: lines shift, or the quoted lines themselves changed. A reader on the main branch therefore:
+
+1. finds the anchor commit — the commit that brought the story file to the main branch:
 
    ```text
    git log --first-parent --follow --diff-filter=A --format=%H -1 <main> -- <story path>
    ```
 
    `<main>` is the main branch as seen from where the reader runs: `HEAD` in a checkout of it, `origin/main` (or
-   the remote's default branch) elsewhere. A squash merge is one commit, so this is the commit of the PR's merge,
-   and its tree has the code of the PR's last head. The epic's `story.md` is added by a documents commit after
-   the epic's last PR is merged, so its fragments quote the code as it stood then.
-2. The file is not on the main branch and has uncommitted changes: the working tree (the implementer checks the
-   story before committing it). A reader says it checked the working tree.
-3. Otherwise — the story exists only in the PR's branch: the branch's head, `HEAD`. A fix after review goes into
-   the same branch and updates the story with it, so the head and the story agree.
+   the remote's default branch) elsewhere. For the story of a PR this is the PR's squash commit; for the epic's
+   `story.md` it is the documents commit that added it after the epic's last PR was merged;
+2. finds each fragment by its code in that file of the anchor commit: the fragment's lines as one block, line for
+   line, a trailing carriage return dropped; of several matches, the one nearest the story's line numbers. Found —
+   it shows the anchor's line numbers, the key lines moved by the same offset;
+3. not found — the file changed there, is gone, or a shallow clone lacks the commit — shows the story's own code
+   with the story's line numbers, marked as the code of the PR's head that the main branch no longer holds in this
+   form. The story carries its code, so nothing is lost, and a reader never refuses a story because its numbers
+   differ on the main branch.
+
+The fixture `repo-main-shifted/` of `bin/tests/fixtures/code-story` is this case: the main branch added lines
+above a quoted function, and the same code stands lower. The tests of `story-check` (it checks the head, not the
+main branch) and of worfy's reader (it finds the fragment by its code) use it.
 
 Why `--diff-filter=A` and not `git log -1 -- <story path>`: after the merge the documents PR appends the step
 `What review found and what remains` to the same file. `git log -1` would then return that documents commit, and
-by then the main branch may have moved on and changed the quoted lines. Appending modifies the file, it does not
-add it, so the anchor stays the commit of the PR's merge; the appended step quotes the lines of the PR's last head,
-which that commit holds. The documents PR's own branch finds the file on the main branch and so takes the same
-anchor (case 1). `--follow` keeps the anchor when the file is renamed later; `--first-parent` makes a merge commit
-the anchor when a project merges PRs with one instead of a squash. A project that rebases PRs onto the main branch
-anchors at the commit that added the story, which may precede the last fixes: such a story is checked before the
-merge, in its branch.
+by then the main branch may have moved on further. Appending modifies the file, it does not add it, so the anchor
+stays the commit of the PR's merge, the closest the main branch has to the head. `--follow` keeps the anchor when
+the file is renamed later; deleting the file and adding it again moves the anchor to the commit that adds it
+again. `--first-parent` makes a merge commit the anchor when a project merges PRs with one instead of a squash; a
+project that rebases PRs onto the main branch anchors at the commit that added the story. In both the reader
+finds the code as above.
 
-In Silent mode the story is not in the project's git, so cases 1 and 3 do not apply: the anchor is the PR's head
-before the merge and its merge commit after it (`gh pr view <N> --json headRefOid,mergeCommit`, the number from
-the header).
+In Silent mode the story is not in the project's git, so the commands above do not apply. Before the PR exists
+the anchor is `HEAD` of the ticket branch's worktree; once the PR is open, its head
+(`gh pr view <N> --json headRefOid`, the number from the header or the ticket); after the merge the reader takes
+the PR's merge commit (`gh pr view <N> --json mergeCommit`) as the anchor commit and finds the code in it as above.
 
 A story of a ticket of several repositories is not covered yet: the anchor above is a commit of the repository
 that holds the tickets root, and a fragment of another repository has none.
