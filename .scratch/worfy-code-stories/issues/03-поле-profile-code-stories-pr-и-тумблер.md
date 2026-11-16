@@ -1,7 +1,8 @@
 # 03 — Поле Profile `code_stories.pr` и тумблер в Project settings
 
 Type: feature
-Status: claimed 2026-11-15T23:45Z
+Status: done 2026-11-16T02:52Z
+PR: #1891
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», строка 03; «Решения владельца» 14, 25 (строки 113, 129–131);
 «Решения по реализации» → Harness: «Настройка» (строки 234–235); история 26
