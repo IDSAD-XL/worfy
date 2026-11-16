@@ -1,7 +1,8 @@
 # 06 — Verifier проверяет утверждения story; documents PR дописывает шаг «Что нашёл review и что осталось»
 
 Type: feature
-Status: claimed 2026-11-16T13:39Z
+Status: done 2026-11-16T17:07Z
+PR: #1919
 Blocked by: 05
 Source: [spec.md](../spec.md), «Ticket-ы», строка 06; «Решения владельца» 12, 25 (строки 106–108, 129–131); «Решения по
 реализации» → Harness: «Verifier», «Шаг „Что нашёл review и что осталось“» (строки 217–221); «Риски»: «Автор описывает
