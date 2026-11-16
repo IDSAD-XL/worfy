@@ -101,7 +101,8 @@ story-check [--head <commit>] [--pr-head <N>=<commit>]... [--repo <dir>] <story>
 - **С каким кодом он сверяет.** `--head` называет commit для всех фрагментов. Без него story, ещё не закоммиченная,
   читается против рабочего дерева, а закоммиченная — против `HEAD`. `--pr-head <N>=<commit>` читает главу `## PR #<N>`
   story Epic-а против этого commit-а, по одному на главу.
-- На main branch он отказывается: story проверяется по head своего PR. Ещё он отказывает закоммиченной story, у которой
+- Без `--head` на main branch он отказывается: story проверяется по head своего PR, поэтому на main branch этот head
+  называют через `--head`, как делает `land`. Ещё он отказывает закоммиченной story, у которой
   в цитируемом файле есть незакоммиченные изменения: «commit the code first, then check the story».
 - **Вывод.** По строке на проблему, `<story>:<step>: <what is wrong>`, затем `<story>: <N> fragments checked against
   <anchor>`, затем `<story>: ok` или `<story>: <N> problems`. Exit 0 — зелёно, 2 — красно, с перечнем, 1 — проверить
@@ -206,7 +207,8 @@ Silent mode — из Workflow folder.
 - `harness/bin/tests/land-epic-story.test.sh`: `--epic-story`, `prs[].files` байт в байт, privacy check, чужая story не
   перезаписывается, Silent mode.
 - `harness/bin/tests/profile.test.sh`, `harness/bin/tests/profile-set.test.sh`,
-  `test/contract/code-stories-setting.test.ts`: поле, его значение по умолчанию и тумблер.
+  `test/contract/code-stories-setting.test.ts`, `test/unit/project-settings-shell.test.tsx`: поле, его значение по
+  умолчанию, тумблер и его UI, в том числе только на чтение.
 - `harness/evals/implementer-story/` — запуск руками, не в CI: implementer на учебном Ticket-е пишет story, которая
   проходит `story-check`, не придумывает причин и не получает отказа API; `test/contract/harness-evals-story.test.ts`
   держит его форму.
@@ -347,11 +349,11 @@ yourself» и Stop — запись: при доступе только на ч�
 | Разбор формата, подписи обоих языков, ответ агента | `src/shared/stories/parse.ts`, `src/shared/stories/labels.json`, `src/shared/stories/schema.ts` |
 | Код фрагмента из git | `src/main/stories/code.ts` |
 | `stories.json` | `src/main/stories/store.ts` |
-| Невидимый агент | `src/main/stories/one-shot.ts`, поверх `src/main/vendors/one-shot.ts` |
+| Невидимый агент | `src/main/stories/one-shot.ts`, поверх `src/main/vendors/one-shot.ts` и `src/main/vendors/claude/one-shot.ts` driver-а Claude; причина отказа Codex — в `src/main/vendors/codex/capabilities.ts` |
 | Story по кнопке | `src/main/stories/by-button.ts`, `src/main/stories/not-ready.json` |
 | Вопрос к строкам | `src/main/stories/ask.ts`, `src/renderer/stories/LineQuestion.tsx`, `src/renderer/stories/story-answers.ts` |
 | Каналы | `src/shared/ipc/stories.ts`, `src/main/ipc/stories.ts` |
-| Вид, его экраны и схема Seams | `src/renderer/stories/StoryView.tsx`, `src/renderer/stories/JunctionsDiagram.tsx`, `src/renderer/stories/stories.css`, `src/renderer/stories/open.ts` |
+| Вид, его экраны и схема Seams | `src/renderer/shell/AppShell.tsx` (монтирует вид), `src/renderer/stories/StoryView.tsx`, `src/renderer/stories/JunctionsDiagram.tsx`, `src/renderer/stories/stories.css`, `src/renderer/stories/open.ts` |
 | Блок кода | `src/renderer/markdown/Markdown.tsx`, `src/renderer/markdown/markdown.css` |
 | Входы и toast | `src/renderer/canvas/actions/EpicStory.tsx`, `src/renderer/canvas/actions/TicketStory.tsx`, `src/renderer/canvas/actions/AutopilotAction.tsx`, `src/renderer/pr-inbox/PrInboxView.tsx`, `src/renderer/palette/commands.ts`, `src/renderer/stories/story-toast.ts`, `src/renderer/stories/use-story-toasts.ts` |
 | Кнопка сборки и её progress bar | `src/renderer/stories/StoryBuildButton.tsx`, `src/renderer/stories/StoryProgress.tsx`, `src/renderer/stories/story-build.ts` |

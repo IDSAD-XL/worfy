@@ -217,11 +217,11 @@ _Avoid_: история кода, walkthrough, описание PR, расска
 _Avoid_: карточка, card, слайд
 
 **PR story**:
-Code story одного PR Ticket-а, в русском тексте — story PR. Её пишет implementer последним шагом перед PR и коммитит в тот же PR: `stories/NN-<slug>.md` в папке Epic-а. Пока в Profile включено поле `code_stories.pr`, `land` не вливает PR Ticket-а без его story или с красным `story-check`.
+Code story одного PR Ticket-а, в русском тексте — story PR. Её пишет implementer этого Ticket-а, пока решения у него в контексте, и она приходит вместе с кодом в том же PR.
 _Avoid_: описание PR, отчёт implementer-а
 
 **Epic story**:
-Code story всего Epic-а, в русском тексте — story Epic-а: `story.md` в папке Epic-а, главы по PR с главными шагами из их story PR и шаг «Стыки между Ticket-ами» — что один Ticket передал другому и сделано ли. Её пишет Subagent Orchestrator-а перед merge последнего PR Epic-а с кодом, а `land` кладёт её в documents PR этого merge.
+Code story всего Epic-а, в русском тексте — story Epic-а: главные шаги из story PR его Ticket-ов по главам-PR и шаг «Стыки между Ticket-ами» — что один Ticket передал другому и сделано ли. Её собирает Orchestrator, когда код Epic-а влит.
 _Avoid_: итог Epic-а, сводка Epic-а, Wave brief (другой документ)
 
 ## Agents

@@ -12,7 +12,7 @@ Ticket-ы 01–14 и 16 построили Code stories: формат и `story-
 
 ## 2. Guard на merge описан по веткам кода `land`, с тем, что он не проверяет
 
-Code: `docs/features/code-stories.md:121-131` · key lines: 129, 130, 131
+Code: `docs/features/code-stories.md:122-132` · key lines: 130, 131, 132
 
 ```md
 **The merge guard.** With the switch on, `land` does not merge a PR of its state file that names an Epic and a Ticket
@@ -40,7 +40,7 @@ unless its head holds exactly one story of that Ticket and `story-check --repo <
 
 ## 3. Входы названы так, как их пишет код, а не spec
 
-Code: `docs/features/code-stories.md:226-235` · key lines: 230, 233
+Code: `docs/features/code-stories.md:227-236` · key lines: 231, 234
 
 ```md
 **The entries.**
@@ -66,7 +66,7 @@ Code: `docs/features/code-stories.md:226-235` · key lines: 230, 233
 
 ## 4. На Linked machine запись идёт каналами `write`
 
-Code: `docs/features/code-stories.md:323-329` · key lines: 327, 328
+Code: `docs/features/code-stories.md:324-330` · key lines: 328, 329
 
 ```md
 #### On a Linked machine
@@ -107,7 +107,7 @@ _Avoid_: карточка, card, слайд
 
 ## 6. «Спросить автора» — по итогу замера
 
-Code: `docs/features/code-stories.md:400-403` · key lines: 401
+Code: `docs/features/code-stories.md:401-404` · key lines: 402
 
 ```md
 - **"Ask the author".** There is no button that resumes the implementer to answer a question. A measurement asked five
@@ -140,8 +140,8 @@ Code: `docs/features/code-stories.md:400-403` · key lines: 401
 1. Почему guard на merge стоит в `land`, а не в gate?
    - Ответ: gate идёт на каждом head ветки, и до story тоже; `land` — единственное место merge PR Ticket-а, он знает
      Epic, Ticket и head и сам читает выключатель.
-   - Строки: `docs/features/code-stories.md:174-176`
+   - Строки: `docs/features/code-stories.md:175-177`
 2. Что увидит человек на Linked machine с доступом только на чтение, когда нажмёт сборку story?
    - Ответ: ничего не начнётся: кнопка сборки неактивна с причиной, потому что сборка пишет данные Project-а, а запись
      идёт каналом `write`, который link при таком доступе отвергает.
-   - Строки: `docs/features/code-stories.md:327-329`
+   - Строки: `docs/features/code-stories.md:328-330`

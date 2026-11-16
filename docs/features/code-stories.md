@@ -104,7 +104,8 @@ story-check [--head <commit>] [--pr-head <N>=<commit>]... [--repo <dir>] <story>
 - **The code it compares with.** `--head` names that commit for every fragment. Without it, a story not committed yet
   is read against the working tree, and a committed one against `HEAD`. `--pr-head <N>=<commit>` reads chapter
   `## PR #<N>` of an Epic story against that commit, one per chapter.
-- It refuses to run on the main branch: a story is checked against the head of its PR. It also refuses a committed
+- Without `--head` it refuses to run on the main branch: a story is checked against the head of its PR, so on the main
+  branch that head is named with `--head`, as `land` does. It also refuses a committed
   story whose quoted file has changes that are not committed: "commit the code first, then check the story".
 - **Output.** One line per problem, `<story>:<step>: <what is wrong>`, then `<story>: <N> fragments checked against
   <anchor>`, then `<story>: ok` or `<story>: <N> problems`. Exit 0 is green, 2 red with the list, 1 means it could not
@@ -209,8 +210,8 @@ from the main branch, or from the Workflow folder in Silent mode.
   the review step.
 - `harness/bin/tests/land-epic-story.test.sh`: `--epic-story`, `prs[].files` byte for byte, the privacy check, a
   different story not overwritten, Silent mode.
-- `harness/bin/tests/profile.test.sh`, `harness/bin/tests/profile-set.test.sh`, `test/contract/code-stories-setting.test.ts`:
-  the field, its default and the switch.
+- `harness/bin/tests/profile.test.sh`, `harness/bin/tests/profile-set.test.sh`, `test/contract/code-stories-setting.test.ts`,
+  `test/unit/project-settings-shell.test.tsx`: the field, its default, the switch and its UI, read-only included.
 - `harness/evals/implementer-story/`, run by hand and not in CI: an implementer on a training Ticket writes a story that
   passes `story-check`, invents no reason and is not refused by the API; `test/contract/harness-evals-story.test.ts`
   holds its form.
@@ -354,11 +355,11 @@ are then inactive with the reason, and so is the switch **Code stories for PRs**
 | Parsing the format, the labels of both languages, the agent's answer | `src/shared/stories/parse.ts`, `src/shared/stories/labels.json`, `src/shared/stories/schema.ts` |
 | The code of a fragment from git | `src/main/stories/code.ts` |
 | `stories.json` | `src/main/stories/store.ts` |
-| The invisible agent | `src/main/stories/one-shot.ts`, on `src/main/vendors/one-shot.ts` |
+| The invisible agent | `src/main/stories/one-shot.ts`, on `src/main/vendors/one-shot.ts` and the Claude driver's `src/main/vendors/claude/one-shot.ts`; the Codex refusal reason in `src/main/vendors/codex/capabilities.ts` |
 | The story by the button | `src/main/stories/by-button.ts`, `src/main/stories/not-ready.json` |
 | A question about lines | `src/main/stories/ask.ts`, `src/renderer/stories/LineQuestion.tsx`, `src/renderer/stories/story-answers.ts` |
 | The channels | `src/shared/ipc/stories.ts`, `src/main/ipc/stories.ts` |
-| The view, its screens and the Seams diagram | `src/renderer/stories/StoryView.tsx`, `src/renderer/stories/JunctionsDiagram.tsx`, `src/renderer/stories/stories.css`, `src/renderer/stories/open.ts` |
+| The view, its screens and the Seams diagram | `src/renderer/shell/AppShell.tsx` (mounts the view), `src/renderer/stories/StoryView.tsx`, `src/renderer/stories/JunctionsDiagram.tsx`, `src/renderer/stories/stories.css`, `src/renderer/stories/open.ts` |
 | The code block | `src/renderer/markdown/Markdown.tsx`, `src/renderer/markdown/markdown.css` |
 | The entries and the toast | `src/renderer/canvas/actions/EpicStory.tsx`, `src/renderer/canvas/actions/TicketStory.tsx`, `src/renderer/canvas/actions/AutopilotAction.tsx`, `src/renderer/pr-inbox/PrInboxView.tsx`, `src/renderer/palette/commands.ts`, `src/renderer/stories/story-toast.ts`, `src/renderer/stories/use-story-toasts.ts` |
 | The build button and its progress bar | `src/renderer/stories/StoryBuildButton.tsx`, `src/renderer/stories/StoryProgress.tsx`, `src/renderer/stories/story-build.ts` |
