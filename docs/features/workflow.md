@@ -187,6 +187,22 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
   again: the Epics it was shown for are kept in the window's local storage in worfy's data folder. The first time
   worfy reads a Project it only notes the stories that are already there, so a Project with finished Epics brings no
   stack of toasts. A PR story gives no toast. When the story cannot be read, **Open** shows the reason in an error toast.
+- **A question about lines of a story.** Lines selected in the code of a step, or the whole fragment with "Ask a
+  question", open a question field after them. The question goes to a one-off request of the Project's Vendor — no
+  Session, no Session Node — with the story, the PR's diff, its text and its review verdicts (the last 20 `VERIFIED` and
+  `REJECTED` comments of the Project's own GitHub account, read with `gh`), the Ticket's file, the selected lines and
+  the question (at most 2,000 characters); each part is cut to its bound, and what cannot be read is named in the
+  request, and the question goes on without it. The request reads only one checkout: the git worktree where the
+  story's PR head is checked out, else the Project's folder. While it runs, a progress bar with the agent's last lines
+  and Stop stands in the field's place; the answer then shows after the same lines: the agent's text, what it rests
+  on (code, story, PR text, review verdict, or "no support" in the story's words) and the lines it quotes, as
+  `path:line` at the checkout's HEAD. Answers are kept in
+  `stories.json` of worfy's data by what the story names — its file, or its PR or Epic for one made by the button — and
+  show again when the story is opened, also after an edit: then marked as asked about an earlier text of the story. An
+  answer names the step by its Ticket and its number inside that Ticket's chapter, so a chapter that becomes ready
+  before it moves nothing; one about lines or a file the step no longer shows is listed at the end of its code card or
+  step, marked the same way. The
+  field and the answer speak the story's language. A stopped or failed question keeps nothing.
 - **A branch never undoes the checkout.** This is why a blocked Ticket with an old worktree branch does not look open
   ([ADR-0033](../adr/0033-autopilot-names-wave-tickets.md)).
 - **Frames and cards are computed, not saved.** The Layout keeps only a frame's offset and collapse
@@ -218,6 +234,7 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
 | The IPC of the model and of a Ticket's text | `src/shared/ipc/workflow.ts`, `src/main/ipc/workflow.ts`, `src/shared/ipc/tickets.ts`, `src/main/ipc/tickets.ts` |
 | Code stories: the format, a story file, the code of a fragment, the stories made by the button | `src/shared/stories/parse.ts`, `src/shared/stories/schema.ts`, `src/main/ipc/stories.ts`, `src/main/stories/code.ts`, `src/main/stories/store.ts` |
 | The entries into the Story view and the toast of an Epic story | `src/renderer/stories/open.ts`, `src/renderer/canvas/actions/EpicStory.tsx`, `src/renderer/canvas/actions/TicketStory.tsx`, `src/renderer/stories/story-toast.ts`, `src/renderer/stories/use-story-toasts.ts` |
+| A question about lines of a Code story | `src/main/stories/ask.ts`, `src/renderer/stories/LineQuestion.tsx`, `src/renderer/stories/story-answers.ts` |
 | The renderer's shared copy | `src/renderer/workflow/useWorkflow.ts` |
 | Frames and cards as Nodes; columns; card height | `src/renderer/canvas/sources/epics.ts`, `src/renderer/canvas/epic-layout.ts`, `src/renderer/canvas/ticket-card.ts` |
 | The views | `src/renderer/canvas/nodes/TicketNode.tsx`, `src/renderer/canvas/nodes/TicketBody.tsx`, `src/renderer/canvas/nodes/ticket-text.ts`, `src/renderer/canvas/nodes/EpicFrameNode.tsx` |
@@ -246,6 +263,8 @@ copy, and `sources/epics.ts` turns the copy into Nodes. The same hub serves the 
   Story view, the toast of an Epic story once per Epic, the code of a fragment asked where the story is anchored.
 - `test/unit/story-parse.test.ts`, `test/contract/story-code.test.ts`, `test/contract/story-store.test.ts`: the Code story
   format on the shared fixtures of `harness/bin/tests/fixtures/code-story/`, the code of a fragment from git, the store.
+- `test/contract/story-ask.test.ts`, `test/unit/story-ask.test.ts`, `test/unit/line-question.test.tsx`: a question about
+  lines of a story — what the request holds and reads, the answer's schema, Stop, the field and the answer after the lines.
 - `test/contract/workflow-watch-retry.test.ts`: retries of the layout.
 - `test/contract/workflow-read-from-main.test.ts`, `test/contract/canvas-workflow-from-main.test.ts`,
   `test/contract/docs-first-read-retry.test.ts`, `test/contract/workflow-fetch-guard.test.ts`: the read from the main

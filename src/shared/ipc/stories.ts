@@ -6,6 +6,9 @@
 // Ticket 08 adds the reads: a story file of an Epic (`stories.read`, from the source the workflow is read from,
 // ADR-0107), the code of one of its fragments from git (`stories.code`, TICKETS.md "Story anchor"), and a story made
 // by the button with its answers (`stories.saved`, src/main/stories/store.ts).
+//
+// Ticket 12 adds a question about lines of a story (`stories.ask`): the same invisible agent answers it, with the same
+// progress lines and Stop, and its answers are kept with the story in worfy's data (`stories.answers`).
 import { z } from 'zod'
 import { epicStoryHeaderSchema, prStoryHeaderSchema, storyFileSchema, storyFragmentSchema, storySchema } from '../stories/schema'
 import { eventChannel, invokeChannel } from './channels'
@@ -73,7 +76,7 @@ export const storiesBuild = invokeChannel(
   'write',
 )
 
-/** Stop of the progress bar: ends the build `storyId`; false when none runs under it. */
+/** Stop of the progress bar: ends the build or the question (`questionId` of stories.ask) `storyId`; false when none runs under it. */
 export const storiesStop = invokeChannel('stories.stop', z.object({ storyId: storyIdSchema }), z.object({ stopped: z.boolean() }), 'project', 'write')
 
 /** A line of what the build's agent is doing, sent to the window that asked for the story. */
@@ -163,35 +166,127 @@ export const storyKeySchema = z.string().min(1).max(300)
 /** A line of code an answer points to: `path:line@commit` or `path:from-to@commit`. */
 const CODE_LINK = /^[^\s:@]+:\d+(-\d+)?@[0-9a-f]{40}$/u
 
-/** An answer of the invisible agent to a question about the story (ticket 12): the agent's text and links to code. */
+/** The longest question about lines of a story: a question, not a document (its text goes to a model). */
+export const STORY_QUESTION_MAX_CHARS = 2_000
+
+/**
+ * What an answer rests on (ticket 12): the code of the checkout, the story, the PR's text or a review verdict — or
+ * nothing (`none`), and then the answer says so.
+ */
+export const storyAnswerSourceSchema = z.enum(['code', 'story', 'pr', 'verdict', 'none'])
+export type StoryAnswerSource = z.output<typeof storyAnswerSourceSchema>
+
+/**
+ * The lines a question was asked about, so its answer shows after them: the Ticket of the step — a PR story's own, an
+ * Epic story's chapter's; null for a PR story without one — and the number of the step inside it, so a chapter that
+ * becomes ready before it moves no answer; the fragment's file and its first and last line, numbered as the step shows
+ * them. Numbers and a path, no code.
+ */
+export const storyQuestionLinesSchema = z
+  .object({
+    ticket: z.string().regex(/^\d{2}$/u, 'the Ticket number, two digits').nullable(),
+    step: z.number().int().min(1),
+    path: z.string().min(1).max(500),
+    from: z.number().int().min(1),
+    to: z.number().int().min(1),
+  })
+  .strict()
+  .refine((lines) => lines.to >= lines.from, { message: 'the last line comes after the first', path: ['to'] })
+export type StoryQuestionLines = z.output<typeof storyQuestionLinesSchema>
+
+/** The SHA-256 of a story's canonical JSON, hex (src/main/stories/store.ts, storyDigest). */
+export const storyDigestSchema = z.string().regex(/^[0-9a-f]{64}$/u, 'a SHA-256, hex')
+
+/**
+ * An answer of the invisible agent to a question about lines of the story (ticket 12): the user's question, the agent's
+ * text, what it rests on, the lines it was asked about, the lines of code it quotes as links — never their text; empty
+ * when git named no commit of the checkout — and the digest of the story's text it was asked about: a story edited
+ * since shows the answer marked as asked about an earlier text.
+ */
 export const storyAnswerSchema = z
   .object({
     at: z.iso.datetime(),
     /** The user's question. */
-    question: z.string().min(1),
+    question: z.string().min(1).max(STORY_QUESTION_MAX_CHARS),
     /** The agent's answer. */
     answer: z.string().min(1),
+    source: storyAnswerSourceSchema,
+    about: storyQuestionLinesSchema,
     lines: z.array(z.string().regex(CODE_LINK, 'path:line@commit or path:from-to@commit')),
+    digest: storyDigestSchema,
   })
   .strict()
 export type StoryAnswer = z.output<typeof storyAnswerSchema>
 
 /**
  * A story made by the button, as worfy keeps it on this machine. For a colleague's PR (`colleague`) nothing of the
- * colleague is kept — not the PR's text, its comments or its title (ADR-0105): the header's title is `PR #<N>`.
+ * colleague is kept — not the PR's text, its comments or its title (ADR-0105): the header's title is `PR #<N>`. Its
+ * answers are kept beside it, under the same key, as those of any story (stories.answers).
  */
 export const savedStorySchema = z
   .object({
     savedAt: z.iso.datetime(),
     colleague: z.boolean(),
     story: storySchema,
-    answers: z.array(storyAnswerSchema),
+    // A story kept by ticket 08's first build carries its answers (then always none) inside it: read, and dropped.
+    answers: z.array(z.unknown()).optional(),
   })
   .strict()
+  .transform((saved) => ({ savedAt: saved.savedAt, colleague: saved.colleague, story: saved.story }))
 export type SavedStory = z.output<typeof savedStorySchema>
 
-/** The story made by the button under `key` with its answers; null when there is none. */
+/** The story made by the button under `key`; null when there is none. */
 export const storiesSaved = invokeChannel('stories.saved', z.object({ projectId: z.string().min(1), key: storyKeySchema }), savedStorySchema.nullable(), 'project', 'read')
+
+/**
+ * How a question ended (ticket 12): the answer, kept with the story (`answer`); Stop (`stopped`: nothing kept); the
+ * Project's Vendor without a oneShot (`unavailable`, the reason of its capabilities); or a failure with its reason
+ * (`failed`: an answer that does not fit its schema, the Vendor's error).
+ */
+export const storyAskOutcomeSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('answer'), answer: storyAnswerSchema }),
+  z.object({ status: z.literal('stopped') }),
+  z.object({ status: z.literal('unavailable'), reason: z.string().min(1) }),
+  z.object({ status: z.literal('failed'), reason: z.string().min(1) }),
+])
+export type StoryAskOutcome = z.output<typeof storyAskOutcomeSchema>
+
+/**
+ * Asks the invisible agent of Project `projectId` (its Vendor's oneShot) about lines of `story`: `about` names them,
+ * `code` is their text as the step shows it. stories.activity tells each line of what the agent does under
+ * `questionId`, and stories.stop with it ends the question. main adds the PR's diff, its text, its review verdicts and
+ * the Ticket's file, and keeps the answer with the story (stories.answers). `folder`: the checkout the agent reads, as
+ * for stories.build — the Project's root or one of its git worktrees; without one, the worktree where the story's PR
+ * head is checked out, else the root.
+ */
+export const storiesAsk = invokeChannel(
+  'stories.ask',
+  z.object({
+    questionId: storyIdSchema,
+    projectId: z.string().min(1),
+    folder: z.string().min(1).optional(),
+    story: storyFileSchema,
+    about: storyQuestionLinesSchema,
+    code: z.string().max(FRAGMENT_MAX_CHARS),
+    question: z.string().trim().min(1).max(STORY_QUESTION_MAX_CHARS),
+  }),
+  storyAskOutcomeSchema,
+  'project',
+  'write',
+)
+
+/**
+ * The answers kept for `story` in Project `projectId`, oldest first — by what the story names: its file, or the PR or
+ * Epic of a story made by the button — and the digest of `story` itself, so the view marks an answer asked about an
+ * earlier text.
+ */
+export const storiesAnswers = invokeChannel(
+  'stories.answers',
+  z.object({ projectId: z.string().min(1), story: storyFileSchema }),
+  z.object({ digest: storyDigestSchema, answers: z.array(storyAnswerSchema) }),
+  'project',
+  'read',
+)
 
 declare module './channels' {
   interface IpcContract {
@@ -201,5 +296,7 @@ declare module './channels' {
     'stories.read': typeof storiesRead
     'stories.code': typeof storiesCode
     'stories.saved': typeof storiesSaved
+    'stories.ask': typeof storiesAsk
+    'stories.answers': typeof storiesAnswers
   }
 }

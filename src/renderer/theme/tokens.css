@@ -146,6 +146,9 @@
   --story-code-strong: #ffffff;
   --story-key-edge: #f0e442;
   --story-key-bg: rgba(240, 228, 66, 0.12);
+  /* Lines selected for a question (ticket 12): on the dark code card in both themes, apart from the key line's yellow. */
+  --story-select-edge: #64d2ff;
+  --story-select-bg: rgba(100, 210, 255, 0.16);
 
   /* Light has soft layered shadows; dark has none, only 1 px borders */
   --shadow-node: 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.06);

@@ -9,6 +9,9 @@
 // What a screen shows is the story's own words, in its language: the field labels, the frame titles and "not
 // recorded" come from labels.json, and "not recorded" is shown as it is. The words of the view itself are English.
 // The code of a fragment comes through `codeOf` (open.ts): the view reads no file and no git.
+//
+// Lines selected in the code of a step, or the whole fragment with "Ask a question", open a question field after them
+// (LineQuestion.tsx, ticket 12); the answers show after the lines they were asked about. Only with a Project.
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import {
   notRecorded,
@@ -23,12 +26,16 @@ import {
   type StoryQuestion,
   type StoryStep,
 } from '../../shared/stories/schema'
+import type { StoryAnswer, StoryQuestionLines } from '../../shared/ipc/stories'
 import { Markdown } from '../markdown/Markdown'
 import { setView, useNavigation } from '../session/navigation'
+import { Button } from '../theme/Button'
 import { Chip } from '../theme/Chip'
 import { Tab, TabList, TabPanel, Tabs } from '../theme/kit/Tabs'
 import { layerOf, openLayers } from '../theme/open-layers'
 import { JunctionsDiagram } from './JunctionsDiagram'
+import { LineAnswer, LineQuestion } from './LineQuestion'
+import { addStoryAnswer, useStoryAnswers } from './story-answers'
 import { useStoryView, type FragmentCode, type FragmentCodeSource } from './open'
 import './stories.css'
 
@@ -37,7 +44,7 @@ const NARROW_WIDTH = 760
 
 /** One screen of the story. */
 type Screen =
-  | { kind: 'step'; step: StoryStep; number: number; head: string | null; pr: number | null; chapter: StoryChapter | null }
+  | { kind: 'step'; step: StoryStep; number: number; place: StepPlace; head: string | null; pr: number | null; chapter: StoryChapter | null }
   | { kind: 'start'; text: string; requirement: string }
   | { kind: 'not-ready'; chapter: StoryChapter }
   | { kind: 'seams'; number: number; text: string; handoffs: readonly StoryHandoff[] }
@@ -67,7 +74,9 @@ function screensOf(story: StoryFile): { screens: Screen[]; chapters: Chapter[] }
     chapters.push({ id, ring, label, title, from, to: screens.length - 1, ready })
   }
   if (story.kind === 'pr') {
-    story.steps.forEach((step, index) => screens.push({ kind: 'step', step, number: index + 1, head: story.header.commit, pr: story.header.pr, chapter: null }))
+    story.steps.forEach((step, index) =>
+      screens.push({ kind: 'step', step, number: index + 1, place: { ticket: story.header.ticket, step: index + 1 }, head: story.header.commit, pr: story.header.pr, chapter: null }),
+    )
   } else {
     let number = 0
     chapter('start', '!', labels.start, labels.start, () => screens.push({ kind: 'start', text: story.start.text, requirement: story.start.requirement }))
@@ -80,7 +89,10 @@ function screensOf(story: StoryFile): { screens: Screen[]; chapters: Chapter[] }
         `${each.pr === null ? 'PR -' : `PR #${String(each.pr)}`} · ${each.ticket} — ${each.title}`,
         () => {
           if (!each.ready) screens.push({ kind: 'not-ready', chapter: each })
-          else for (const step of each.steps) screens.push({ kind: 'step', step, number: (number += 1), head: each.head, pr: each.pr, chapter: each })
+          else
+            each.steps.forEach((step, index) =>
+              screens.push({ kind: 'step', step, number: (number += 1), place: { ticket: each.ticket, step: index + 1 }, head: each.head, pr: each.pr, chapter: each }),
+            )
         },
         each.ready,
       )
@@ -128,6 +140,7 @@ function fenced(code: string, head: string): string {
 const storyCodeMarkdown = (shown: FragmentCode): string => fenced(shown.code, `story from=${String(shown.startLine)} key=${shown.keyLines.join(',')}`)
 
 interface Context {
+  story: StoryFile
   language: StoryLanguage
   labels: StoryLabels
   missing: string
@@ -150,9 +163,62 @@ const CHANGED_NOTE = 'The code of the PR head: the main branch no longer holds i
  */
 const NO_ANCHOR_NOTE = "The code as the story quotes it: git cannot read the code at this story's commit."
 
-/** The code of one fragment on the dark card: its path and lines over it, the lines from `codeOf`. */
-function FragmentBlock({ fragment, head, pr, context }: { fragment: StoryFragment; head: string | null; pr: number | null; context: Context }) {
+/** The first and the last line of the selection inside `container`, by their `data-line`; null when it holds none. */
+function selectedLines(container: Element): { from: number; to: number } | null {
+  const selection = globalThis.getSelection?.()
+  if (selection === null || selection === undefined || selection.isCollapsed || selection.anchorNode === null || selection.focusNode === null) return null
+  const lineOf = (node: Node): number | null => {
+    const element = node instanceof Element ? node : node.parentElement
+    const line = element?.closest('[data-line]')
+    return line === null || line === undefined || !container.contains(line) ? null : Number(line.getAttribute('data-line'))
+  }
+  const anchor = lineOf(selection.anchorNode)
+  const focus = lineOf(selection.focusNode)
+  if (anchor === null || focus === null) return null
+  return { from: Math.min(anchor, focus), to: Math.max(anchor, focus) }
+}
+
+/** Where a step is: its Ticket (a PR story's own, an Epic story's chapter's) and its number inside it, as answers name it. */
+type StepPlace = Pick<StoryQuestionLines, 'ticket' | 'step'>
+
+/** The answers about step `place`: those asked about it, whichever chapters were ready then. */
+const answersOfStep = (answers: readonly StoryAnswer[], place: StepPlace): StoryAnswer[] =>
+  answers.filter((answer) => answer.about.ticket === place.ticket && answer.about.step === place.step)
+
+/**
+ * Answers of a step that fit no line it shows — a file or lines the step no longer quotes —, at its end, each marked as
+ * asked about an earlier text of the story.
+ */
+function StrayAnswers({ answers, context, testId }: { answers: readonly StoryAnswer[]; context: Context; testId: string }) {
+  if (answers.length === 0) return null
+  return (
+    <div className="w-story-code__answers" data-testid={testId}>
+      {answers.map((answer) => (
+        <LineAnswer key={`${answer.at}:${answer.question}`} answer={answer} language={context.language} earlier />
+      ))}
+    </div>
+  )
+}
+
+/** The answers of step `place` about none of `paths`, the files its fragments quote: at the end of the step. */
+function StepAnswers({ place, paths, context }: { place: StepPlace; paths: readonly string[]; context: Context }) {
+  const { answers } = useStoryAnswers(context.projectId, context.story)
+  return <StrayAnswers answers={answersOfStep(answers, place).filter((answer) => !paths.includes(answer.about.path))} context={context} testId="story-step-answers" />
+}
+
+/**
+ * The code of one fragment on the dark card: its path and lines over it, the lines from `codeOf`. With a Project, lines
+ * selected in it (or all of them, "Ask a question") open the question field after them, and the answers about them
+ * show after their last line; those about lines it no longer shows, after the code.
+ */
+function FragmentBlock({ fragment, head, pr, place, context }: { fragment: StoryFragment; head: string | null; pr: number | null; place: StepPlace; context: Context }) {
   const [shown, setShown] = useState<{ code: FragmentCode } | { error: string } | null>(null)
+  const [asking, setAsking] = useState<{ from: number; to: number } | null>(null)
+  // While a question is being answered its field stays: a new selection or «Ask a question» waits for the outcome.
+  const [busy, setBusy] = useState(false)
+  const askButton = useRef<HTMLButtonElement>(null)
+  const { answers, digest } = useStoryAnswers(context.projectId, context.story)
+  const { labels } = context
   useEffect(() => {
     let live = true
     context.codeOf(fragment, head, pr).then(
@@ -170,14 +236,76 @@ function FragmentBlock({ fragment, head, pr, context }: { fragment: StoryFragmen
   const slash = fragment.path.lastIndexOf('/')
   const code = shown === null ? null : 'code' in shown ? shown.code : { code: fragment.code, startLine: fragment.startLine, keyLines: fragment.keyLines, fromHead: true }
   const lines = code === null ? `${String(fragment.startLine)}–${String(fragment.endLine)}` : `${String(code.startLine)}–${String(code.startLine + code.code.split('\n').length - 1)}`
+  const projectId = context.projectId
+  const canAsk = projectId !== undefined && code !== null
+  const about = (range: { from: number; to: number }): StoryQuestionLines => ({ ...place, path: fragment.path, ...range })
+  const textOf = (range: { from: number; to: number }): string =>
+    code === null
+      ? ''
+      : code.code
+          .split('\n')
+          .slice(range.from - code.startLine, range.to - code.startLine + 1)
+          .join('\n')
+  const whole = code === null ? null : { from: code.startLine, to: code.startLine + code.code.split('\n').length - 1 }
+  const mine = answersOfStep(answers, place).filter((answer) => answer.about.path === fragment.path)
+  // An answer about lines the code no longer shows stays visible: after the code, marked as asked about an earlier text.
+  const stray = whole === null ? [] : mine.filter((answer) => answer.about.to < whole.from || answer.about.to > whole.to)
+  const aside = (line: number): ReactNode => {
+    const items: ReactNode[] = mine
+      .filter((answer) => answer.about.to === line)
+      .map((answer) => <LineAnswer key={`${answer.at}:${answer.question}`} answer={answer} language={context.language} earlier={digest !== null && answer.digest !== digest} />)
+    if (asking !== null && asking.to === line && projectId !== undefined) {
+      items.push(
+        <LineQuestion
+          key={`question:${String(asking.from)}-${String(asking.to)}`}
+          projectId={projectId}
+          story={context.story}
+          about={about(asking)}
+          code={textOf(asking)}
+          onAnswer={(answer) => {
+            addStoryAnswer(context.story, answer)
+            setAsking(null)
+          }}
+          onClose={() => {
+            setAsking(null)
+            askButton.current?.focus()
+          }}
+          onBusy={setBusy}
+        />,
+      )
+    }
+    return items.length > 0 ? items : null
+  }
+  // A selection made with the mouse: the field opens after its last line, unless one is already being answered.
+  const onMouseUp = (event: MouseEvent<HTMLDivElement>) => {
+    if (!canAsk || busy) return
+    const range = selectedLines(event.currentTarget)
+    if (range !== null) setAsking(range)
+  }
   return (
-    <div className="w-story-code" data-testid="story-code" data-path={fragment.path}>
+    // The keyboard has "Ask a question" in the head row for what a selection with the mouse does.
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
+    <div className="w-story-code" data-testid="story-code" data-path={fragment.path} onMouseUp={onMouseUp}>
       <div className="w-story-code__head">
         <span className="w-story-code__path">
           {fragment.path.slice(0, slash + 1)}
           <b>{fragment.path.slice(slash + 1)}</b>
           <span className="w-story-code__lines">:{lines}</span>
         </span>
+        {canAsk && whole !== null ? (
+          <Button
+            ref={askButton}
+            variant="link"
+            className="w-story-code__ask"
+            title={labels.askHint}
+            aria-disabled={busy ? 'true' : undefined}
+            onClick={() => {
+              if (!busy) setAsking(whole)
+            }}
+          >
+            {labels.askQuestion}
+          </Button>
+        ) : null}
       </div>
       {shown !== null && 'error' in shown ? (
         <p className="w-story-code__note" role="status">
@@ -186,7 +314,8 @@ function FragmentBlock({ fragment, head, pr, context }: { fragment: StoryFragmen
       ) : code?.fromHead === true ? (
         <p className="w-story-code__note">{code.reason === 'no-anchor' ? NO_ANCHOR_NOTE : CHANGED_NOTE}</p>
       ) : null}
-      {code === null ? <p className="w-story-code__note">Reading the code…</p> : <Markdown text={storyCodeMarkdown(code)} story />}
+      {code === null ? <p className="w-story-code__note">Reading the code…</p> : <Markdown text={storyCodeMarkdown(code)} story storySelected={asking} storyAside={aside} />}
+      <StrayAnswers answers={stray} context={context} testId="story-code-answers" />
     </div>
   )
 }
@@ -242,7 +371,7 @@ function ScreenView({ screen, context, narrow }: { screen: Screen; context: Cont
   let kicker: ReactNode
   let title: string
   let text: ReactNode
-  let fragments: { fragments: readonly StoryFragment[]; head: string | null; pr: number | null } | null = null
+  let fragments: { fragments: readonly StoryFragment[]; head: string | null; pr: number | null; place: StepPlace } | null = null
   switch (screen.kind) {
     case 'step': {
       const { step } = screen
@@ -258,7 +387,7 @@ function ScreenView({ screen, context, narrow }: { screen: Screen; context: Cont
             <FieldTabs step={step} context={context} />
           </>
         )
-        fragments = { fragments: [step.fragment], head: screen.head, pr: screen.pr }
+        fragments = { fragments: [step.fragment], head: screen.head, pr: screen.pr, place: screen.place }
       } else {
         kicker = <Kicker label={labels[step.frame]} number={screen.number} chapter={screen.chapter} />
         title = labels[step.frame]
@@ -276,7 +405,7 @@ function ScreenView({ screen, context, narrow }: { screen: Screen; context: Cont
           </>
         )
         // A frame step quotes no fragment; only "What review found and what remains" may (TICKETS.md, "Code story").
-        if (step.frame === 'review' && step.fragments.length > 0) fragments = { fragments: step.fragments, head: screen.head, pr: screen.pr }
+        if (step.frame === 'review' && step.fragments.length > 0) fragments = { fragments: step.fragments, head: screen.head, pr: screen.pr, place: screen.place }
       }
       break
     }
@@ -367,8 +496,9 @@ function ScreenView({ screen, context, narrow }: { screen: Screen; context: Cont
     fragments === null ? null : (
       <div className="w-story__code" data-testid="story-code-column">
         {fragments.fragments.map((fragment, index) => (
-          <FragmentBlock key={`${String(index)}:${fragment.path}:${String(fragment.startLine)}`} fragment={fragment} head={fragments.head} pr={fragments.pr} context={context} />
+          <FragmentBlock key={`${String(index)}:${fragment.path}:${String(fragment.startLine)}`} fragment={fragment} head={fragments.head} pr={fragments.pr} place={fragments.place} context={context} />
         ))}
+        <StepAnswers place={fragments.place} paths={fragments.fragments.map((fragment) => fragment.path)} context={context} />
       </div>
     )
   const prose = (
@@ -429,7 +559,7 @@ export interface StoryViewProps {
 export function StoryView({ story, codeOf, projectId, storyDir, active = true }: StoryViewProps) {
   const labels = storyLabels(story.header.language)
   const [{ screens, chapters }] = useState(() => screensOf(story))
-  const [context] = useState<Context>(() => ({ language: story.header.language, labels, missing: notRecorded(story.header.language), codeOf, projectId, storyDir }))
+  const [context] = useState<Context>(() => ({ story, language: story.header.language, labels, missing: notRecorded(story.header.language), codeOf, projectId, storyDir }))
   const [index, setIndex] = useState(0)
   const [seen, setSeen] = useState<ReadonlySet<number>>(() => new Set([0]))
   const [narrow, setNarrow] = useState(false)

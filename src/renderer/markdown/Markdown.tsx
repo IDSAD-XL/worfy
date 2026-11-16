@@ -31,7 +31,9 @@ import './markdown.css'
 // headings sized for a comment (github.ts, markdown.css `.w-md--github`). Without the prop nothing of that applies.
 //
 // With the opt-in prop `story` a ```story block is the code of a Code story fragment, with line numbers and key
-// lines (StoryCode; the Story view, stories/StoryView.tsx, writes such blocks).
+// lines (StoryCode; the Story view, stories/StoryView.tsx, writes such blocks). The view may mark lines as selected
+// (`storySelected`) and put something after a line (`storyAside`): a question about lines and its answers, worfy-code-stories
+// ticket 12.
 
 export interface MarkdownProps {
   text: string
@@ -45,6 +47,10 @@ export interface MarkdownProps {
   github?: GithubOptions | undefined
   /** Draw a ```story block as the code of a Code story fragment (StoryCode below); off by default. */
   story?: boolean
+  /** The lines of a ```story block marked as selected, by their numbers; none when absent. */
+  storySelected?: { from: number; to: number } | null | undefined
+  /** What a ```story block shows after its line `line` (a question and its answers); nothing when it answers null. */
+  storyAside?: ((line: number) => ReactNode) | undefined
 }
 
 /** remark plugins: autolink-edges runs last, on the links remark-gfm made. */
@@ -162,26 +168,58 @@ function storyMeta(meta: string): { from: number; keys: ReadonlySet<number> } {
  * the left edge, so the mark is not a colour alone. No syntax colouring: worfy has no highlighting library, and the
  * first version does not need one (spec of the Epic).
  */
+/** The selected lines and the asides of the ```story blocks of one Markdown: a context, so the block is not made anew when they change. */
+const StoryLines = createContext<{ selected: { from: number; to: number } | null | undefined; aside: ((line: number) => ReactNode) | undefined }>({ selected: null, aside: undefined })
+
 function StoryCode({ text, meta }: { text: string; meta: string }) {
+  const { selected, aside } = useContext(StoryLines)
   const { from, keys } = storyMeta(meta)
   const lines = text.replace(/\n$/, '').split('\n')
+  // The lines go in runs: a line with something after it ends its run, so the aside stands between two <pre> blocks.
+  const runs: { lines: ReactNode[]; after: ReactNode; last: number }[] = [{ lines: [], after: null, last: from }]
+  lines.forEach((line, at) => {
+    const number = from + at
+    const key = keys.has(number)
+    const chosen = selected !== null && selected !== undefined && number >= selected.from && number <= selected.to
+    runs.at(-1)!.lines.push(
+      <span
+        key={at}
+        className={key ? 'w-md__story-line w-md__story-line--key' : 'w-md__story-line'}
+        data-line={number}
+        data-key={key ? 'true' : undefined}
+        data-selected={chosen ? 'true' : undefined}
+      >
+        <span className="w-md__story-number" aria-hidden="true">
+          {number}
+        </span>
+        <span className="w-md__story-text">{line === '' ? '​' : line}</span>
+      </span>,
+    )
+    const after = aside?.(number) ?? null
+    if (after !== null && after !== false && !(Array.isArray(after) && after.length === 0)) {
+      runs.at(-1)!.after = after
+      runs.at(-1)!.last = number
+      if (at < lines.length - 1) runs.push({ lines: [], after: null, last: number + 1 })
+    }
+  })
+  if (runs.length === 1 && runs[0]!.after === null) {
+    return (
+      <pre className="w-md__story-code" data-testid="md-story-code">
+        <code>{runs[0]!.lines}</code>
+      </pre>
+    )
+  }
   return (
-    <pre className="w-md__story-code" data-testid="md-story-code">
-      <code>
-        {lines.map((line, at) => {
-          const number = from + at
-          const key = keys.has(number)
-          return (
-            <span key={at} className={key ? 'w-md__story-line w-md__story-line--key' : 'w-md__story-line'} data-line={number} data-key={key ? 'true' : undefined}>
-              <span className="w-md__story-number" aria-hidden="true">
-                {number}
-              </span>
-              <span className="w-md__story-text">{line === '' ? '​' : line}</span>
-            </span>
-          )
-        })}
-      </code>
-    </pre>
+    <div className="w-md__story-runs" data-testid="md-story-code">
+      {runs.map((run) => (
+        <div key={run.last} className="w-md__story-run">
+          <pre className="w-md__story-code">
+            <code>{run.lines}</code>
+          </pre>
+          {run.after === null ? null : <div className="w-md__story-aside">{run.after}</div>}
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -210,8 +248,9 @@ function TaskCheckbox({ node, ...rest }: InputHTMLAttributes<HTMLInputElement> &
   return <input {...rest} aria-label={rest.type === 'checkbox' && name !== undefined && name !== '' ? name : rest['aria-label']} />
 }
 
-export function Markdown({ text, projectId, baseDir, breaks = false, github, story = false }: MarkdownProps) {
+export function Markdown({ text, projectId, baseDir, breaks = false, github, story = false, storySelected, storyAside }: MarkdownProps) {
   const githubRepo = github === undefined ? undefined : github.repo
+  const storyLines = useMemo(() => ({ selected: storySelected, aside: storyAside }), [storySelected, storyAside])
   const plugins = useMemo<NonNullable<Options['remarkPlugins']>>(() => {
     const base = breaks ? PLUGINS_WITH_BREAKS : PLUGINS
     return githubRepo === undefined ? base : [...base, [remarkGithub, { repo: githubRepo }]]
@@ -258,9 +297,11 @@ export function Markdown({ text, projectId, baseDir, breaks = false, github, sto
   )
   return (
     <div className={githubRepo === undefined ? 'w-md' : 'w-md w-md--github'}>
-      <ReactMarkdown remarkPlugins={plugins} components={components} urlTransform={keepWindowsPaths}>
-        {text}
-      </ReactMarkdown>
+      <StoryLines.Provider value={storyLines}>
+        <ReactMarkdown remarkPlugins={plugins} components={components} urlTransform={keepWindowsPaths}>
+          {text}
+        </ReactMarkdown>
+      </StoryLines.Provider>
     </div>
   )
 }

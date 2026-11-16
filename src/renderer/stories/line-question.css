@@ -1,0 +1,162 @@
+/*
+ * A question about lines of a Code story (LineQuestion.tsx, worfy-code-stories ticket 12): the selected lines of the
+ * dark code card marked with a light blue bar and tint of their own (--story-select-*, apart from the key line's
+ * yellow, which stays), and after the last of them a light panel on the window's surface — the question field, the
+ * progress bar while the agent answers, or the answer. F-SPEC sizes: 12 px text, 11 px meta, radius 4 px for the field.
+ */
+
+/* The head row of the code card holds "Ask a question" at its right end. */
+.w-story-code__head:has(.w-story-code__ask) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.w-story-code__head .w-story-code__ask {
+  flex: none;
+  color: var(--story-code-path);
+  font-size: var(--text-11);
+}
+
+/* The selected lines: a bar at the left edge and a tint, so the mark is not a colour alone. */
+.w-md__story-line[data-selected='true'] {
+  background: var(--story-select-bg);
+  box-shadow: inset 3px 0 0 var(--story-select-edge);
+}
+
+/* A selected key line keeps its yellow edge; the selection's bar stands right of it. */
+.w-md__story-line--key[data-selected='true'] {
+  box-shadow:
+    inset 3px 0 0 var(--story-key-edge),
+    inset 6px 0 0 var(--story-select-edge);
+}
+
+/*
+ * The code with something after a line: runs of <pre> with the aside between them. The runs are one card — one
+ * scroll across, its padding at the top and the bottom only, each run as wide as the widest — and the aside stays
+ * in view, as wide as the card, while the code scrolls under it.
+ */
+.w-md__story-runs {
+  display: grid;
+  grid-template-columns: minmax(100%, max-content);
+  container-type: inline-size;
+  padding: var(--space-1) 0;
+  background: var(--terminal-bg);
+  overflow-x: auto;
+}
+
+.w-md .w-md__story-runs .w-md__story-code {
+  padding: 0;
+  overflow: visible;
+}
+
+.w-md__story-aside {
+  position: sticky;
+  left: 0;
+  box-sizing: border-box;
+  width: 100cqi;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) 10px;
+  border-top: 1px solid var(--story-code-border);
+  border-bottom: 1px solid var(--story-code-border);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--text-12);
+  white-space: normal;
+}
+
+.w-line-question {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.w-line-question__input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-button);
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+
+.w-line-question__input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.w-line-question__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+
+.w-line-answer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.w-line-answer__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.w-line-answer__question {
+  min-width: 0;
+  color: var(--text-secondary);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.w-line-answer__text .w-md p {
+  margin: 0;
+}
+
+.w-line-answer__lines {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--text-11);
+}
+
+.w-line-answer__lines code {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+/* A note on an answer: asked about an earlier text of the story, or its lines not linked to a commit. */
+.w-line-answer__note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-11);
+}
+
+/*
+ * Answers about lines a step no longer shows (an earlier text of the story): a list at the end of the code card, or
+ * after the cards of the step, on the same light panel as an answer between the lines.
+ */
+.w-story-code__answers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) 10px;
+  border-top: 1px solid var(--story-code-border);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--text-12);
+}
