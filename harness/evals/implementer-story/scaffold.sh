@@ -2,7 +2,8 @@
 # Fixture of the case implementer-story: project demo, finish pr-green-ci, variant none
 # (harness/evals/lib/demo-project.sh), and on top of it:
 #   - ticket 01 asks for percent(done, total) with two rules and no reason for either (round down, 0 for
-#     an empty total): where a story needs the reason, story-pr.md asks for `не записано`, not a guess;
+#     an empty total): where a story needs the reason, story-pr.md asks for `not recorded` (in Russian, the
+#     demo profile's language.reports), not a guess;
 #   - code_stories.pr set to "on" in the profile: the default, written out so that the case keeps its
 #     meaning if the default changes;
 #   - a post-commit hook that runs bin/story-check of this copy of the Harness on every Code story the new
