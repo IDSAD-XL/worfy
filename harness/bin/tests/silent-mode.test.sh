@@ -559,7 +559,8 @@ SWT="$T/story-wt"
 git -C "$R" worktree add -q -b fix/cart-total "$SWT" main 2>/dev/null
 cp -R "$FIXS/repo/src" "$SWT/src" && git -C "$SWT" add -A && git -C "$SWT" commit -q -m "Cart total in cents"
 SHEAD="$(git -C "$SWT" rev-parse HEAD)"
-sroot="$(cd "$SWT" && "$BIN/ticket" root 2>&1)"
+# Windows: ticket root prints backslashes; the test spells every path with forward slashes, as pwd -W does
+sroot="$(cd "$SWT" && "$BIN/ticket" root 2>&1 | tr "\\\\" /)"
 STORY="$sroot/checkout-flow/stories/05-withdraw.md"
 [ "$sroot" = "$WF/.scratch" ] && ok "story: ticket root from the branch's worktree is the Workflow folder's tickets root" || bad "story: ticket root printed $sroot"
 mkdir -p "$(dirname "$STORY")"
@@ -600,7 +601,7 @@ out="$(cd "$R" && LG="$LG" SHEAD="$SHEAD" LAND_GH="$LG/gh.mjs" LAND_SLEEP= "$BIN
     && ok "story guard, Silent: the story only in the branch -> not merged, the reason names the Workflow folder" || bad "story guard Silent, none: exit $rc: ${out:0:400}"
 mv "$T/story.md" "$STORY"
 out="$(cd "$R" && LG="$LG" SHEAD="$SHEAD" LAND_GH="$LG/gh.mjs" LAND_SLEEP= "$BIN/land" "$T/land.json" 2>&1)"; rc=$?
-[ "$rc" -eq 0 ] && grep -q "^pr merge 1 --squash --match-head-commit $SHEAD\$" "$LG/log" && grep -q "story-check .* $STORY — exit 0" "$T/land.log" \
+[ "$rc" -eq 0 ] && grep -q "^pr merge 1 --squash --match-head-commit $SHEAD\$" "$LG/log" && tr "\\\\" / <"$T/land.log" | grep -q "story-check .* $STORY — exit 0" \
     && ok "story guard, Silent: the story in the Workflow folder, green on the head -> merged" || bad "story guard Silent, green: exit $rc: ${out:0:400} log $(grep -i story "$T/land.log")"
 
 # --- the real home -----------------------------------------------------------------------
