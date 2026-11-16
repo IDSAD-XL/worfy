@@ -41,6 +41,11 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 09; «Решения 
    `Summary`, `Check` не цитируют ни одного. Выбор Ticket-а: frame-шаги фрагментов не цитируют; PR правит формулировку
    `TICKETS.md`.
 
+   **Исключение — шаг «What review found and what remains» (решено без владельца, 2026-11-16, PR #1906).** Он цитирует
+   строки head-а, который проверил review: этого требуют `TICKETS.md`, «Story anchor», п. 2, Ticket 06, п. 3, и общий
+   fixture `pr-ru.md`. Без исключения пришлось бы переписать fixture-ы Ticket-а 01 и отменить п. 3 Ticket-а 06. Правило
+   держат три места одной формулировкой: `TICKETS.md`, схема `src/shared/stories/schema.ts` и `harness/bin/story-check`.
+
 ## Готово, когда
 
 - [ ] Unit test вида: story PR fixture-а — экранов столько, сколько шагов; сегменты отмечаются по мере листания; клик по

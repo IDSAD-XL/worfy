@@ -341,12 +341,17 @@ function checkRequirement(fields, L, where, at, add) {
         add(field.line, where, `the field "${label}" is not a Markdown link to a section of the ticket or the spec, nor "${L(NOT_RECORDED)}"`)
 }
 
-// A step: a code step needs one fragment and the five fields; `What was wrong` needs a Requirement.
+// A step: a code step needs one fragment and the five fields; `What was wrong` needs a Requirement. A frame
+// step quotes no fragment, except `What review found and what remains` (bin/TICKETS.md, "Code story", Fields).
 function checkStep(section, where, L, add) {
     const name = STEP.exec(section.title)[2]
     const fields = fieldsOf(section, where, add)
-    if (name === L("What was wrong")) return checkRequirement(fields, L, where, section.at, add)
-    if (FRAMES.some((f) => L(f) === name)) return
+    if (FRAMES.some((f) => L(f) === name)) {
+        if (name !== L("What review found and what remains") && section.fragments.length)
+            add(section.at, where, `a frame step quotes no fragment; only "${L("What review found and what remains")}" does`)
+        if (name === L("What was wrong")) checkRequirement(fields, L, where, section.at, add)
+        return
+    }
     if (section.fragments.length !== 1)
         add(section.at, where, section.fragments.length
             ? `a code step has ${section.fragments.length} fragments; it has exactly one`

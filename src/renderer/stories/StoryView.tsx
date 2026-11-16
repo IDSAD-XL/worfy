@@ -306,23 +306,25 @@ function ScreenView({ screen, context, narrow }: { screen: Screen; context: Cont
           <div className="w-story__lead">
             <Value text={screen.text} context={context} />
           </div>
-          <ul className="w-story__handoffs">
-            {screen.handoffs.map((handoff, index) => (
-              <li key={index} data-done={handoff.done ? 'yes' : 'no'}>
-                <span className="w-story__handoff-route">
-                  {handoff.from} → {handoff.to}
-                </span>{' '}
-                <Markdown text={handoff.what} />
-                {handoff.done ? (
-                  <span className="w-story__handoff-done">done</span>
-                ) : (
-                  <span className="w-story__handoff-dropped">
-                    dropped — <Markdown text={handoff.why ?? context.missing} />
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
+          {screen.handoffs.length > 0 ? (
+            <ul className="w-story__handoffs">
+              {screen.handoffs.map((handoff, index) => (
+                <li key={index} data-done={handoff.done ? 'yes' : 'no'}>
+                  <span className="w-story__handoff-route">
+                    {handoff.from} → {handoff.to}
+                  </span>{' '}
+                  <Markdown text={handoff.what} />
+                  {handoff.done ? (
+                    <span className="w-story__handoff-done">done</span>
+                  ) : (
+                    <span className="w-story__handoff-dropped">
+                      dropped — <Markdown text={handoff.why ?? context.missing} />
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </>
       )
       break

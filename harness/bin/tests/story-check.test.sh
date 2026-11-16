@@ -125,6 +125,16 @@ check "a step without a field: exit code 2, the step and the name of the field" 
     "$([ "$rc" = 2 ] && line_has "$EN:3: " "Why here" && echo 0 || echo 1)"
 g checkout -q -- "$EN"
 
+# A frame step quotes no fragment, except "What review found and what remains" (the Russian story's review
+# step quotes one and is green above): step 5, "How it was checked", gets the fragment of step 3, which
+# matches the code, so the only problem is where it stands.
+awk '/^## 3\./ { s = 1 } s && /^Code: / { f = 1 } f { frag = frag $0 "\n" } f && /^```$/ { f = 0; s = 0 }
+     { print } /^## 5\./ { printf "\n%s", frag }' "$FIX/pr-en.md" >"$R/$EN"
+run "$EN"
+check "a fragment in a frame step other than the review step: exit code 2, the step and the rule" \
+    "$([ "$rc" = 2 ] && line_has "$EN:5: " "a frame step quotes no fragment" "What review found and what remains" && echo 0 || echo 1)"
+g checkout -q -- "$EN"
+
 # The Russian story reads its labels from lib/input-words.json: without its first field of step 3 the
 # problem names the label of that list, not the English one.
 want="$(node -e 'process.stdout.write(require(process.argv[1]).codeStoryLabels.ru["What it does"])' "$(cd "$HARNESS/lib" && { pwd -W 2>/dev/null || pwd -P; })/input-words.json")"

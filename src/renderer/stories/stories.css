@@ -1,11 +1,9 @@
 /*
  * The Story view (stories/StoryView.tsx, worfy-code-stories ticket 09): variant B «Stories» of
- * docs/product/code-stories/prototype-story-ui-variants.html, on the tokens of theme/tokens.css. The code card
- * itself is the ```story block of the Markdown renderer (markdown/markdown.css, `.w-md__story-code`).
- *
- * Two colours of its own, as the prototype has them: the red of a dropped handoff in the diagram of "Seams between
- * tickets", and the pale ground behind the code card's head. The dropped handoff is dashed as well, so the
- * colour is never the only mark.
+ * docs/product/code-stories/prototype-story-ui-variants.html, on the tokens of theme/tokens.css — the view's own
+ * colours are the `--story-*` tokens there (F-SPEC "Story view"). The code card itself is the ```story block of
+ * the Markdown renderer (markdown/markdown.css, `.w-md__story-code`). A dropped handoff is dashed as well as red,
+ * so the colour is never the only mark.
  */
 .w-story-holder {
   position: absolute;
@@ -13,8 +11,6 @@
 }
 
 .w-story {
-  --story-dropped: #c4262e;
-  --story-code-head: #26262a;
   position: absolute;
   inset: 0;
   display: flex;
@@ -23,13 +19,6 @@
   color: var(--text);
   overflow: hidden;
   outline: none;
-}
-
-@media (prefers-color-scheme: dark) {
-  .w-story {
-    --story-dropped: #ff6b70;
-    --story-code-head: #1a1917;
-  }
 }
 
 .w-story__empty {
@@ -371,28 +360,28 @@
 .w-story-code {
   min-width: 0;
   overflow: hidden;
-  border: 1px solid #2c2c2e;
+  border: 1px solid var(--story-code-border);
   border-radius: var(--radius-node);
   background: var(--terminal-bg);
 }
 
 .w-story-code__head {
   padding: 5px 10px;
-  border-bottom: 1px solid #2c2c2e;
+  border-bottom: 1px solid var(--story-code-border);
   background: var(--story-code-head);
   color: var(--terminal-dim);
   font-size: var(--text-11);
 }
 
 .w-story-code__path {
-  color: #c7c7cc;
+  color: var(--story-code-path);
   font-family: var(--font-mono);
   font-size: var(--text-12);
   overflow-wrap: anywhere;
 }
 
 .w-story-code__path b {
-  color: #ffffff;
+  color: var(--story-code-strong);
   font-weight: 600;
 }
 
@@ -404,7 +393,7 @@
 .w-story-code__note {
   margin: 0;
   padding: 5px 10px;
-  border-bottom: 1px solid #2c2c2e;
+  border-bottom: 1px solid var(--story-code-border);
   color: var(--terminal-dim);
   font-size: var(--text-12);
 }

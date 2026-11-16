@@ -24,6 +24,8 @@ function handoffTickets(handoffs: readonly StoryHandoff[]): string[] {
 const handoffWords = (handoff: StoryHandoff): string => `${handoff.from} → ${handoff.to}: ${handoff.what}${handoff.done ? '' : ' (dropped)'}`
 
 export function JunctionsDiagram({ handoffs, language }: { handoffs: readonly StoryHandoff[]; language: StoryLanguage }) {
+  // No handoffs, no picture: the schema allows an empty list, and the step's prose says what there is.
+  if (handoffs.length === 0) return null
   const tickets = handoffTickets(handoffs)
   const rise = (handoff: StoryHandoff) => BASE_RISE + STEP_RISE * (Math.abs(tickets.indexOf(handoff.to) - tickets.indexOf(handoff.from)) - 1)
   const above = Math.max(0, ...handoffs.filter((handoff) => handoff.to > handoff.from).map(rise))

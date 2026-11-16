@@ -296,6 +296,17 @@ describe('the diagram of "Seams between tickets"', () => {
     expect(items[2]!.textContent).toContain('dropped — cartTotal не вызывает discountFor, итог на чеке без скидки')
     expect(items[2]!.querySelector('.w-story__handoff-dropped code')!.textContent).toBe('cartTotal')
   })
+
+  it('draws no diagram and no list when the story has no handoffs, and keeps the text', () => {
+    const story = epicStory()
+    if (story.kind !== 'epic') throw new Error('the fixture is an Epic story')
+    render(<StoryView story={{ ...story, seams: { ...story.seams, handoffs: [] } }} codeOf={storyOwnCode} />)
+    fireEvent.click(screen.getAllByTestId('story-chapter')[5]!)
+    expect(shownScreen().dataset.kind).toBe('seams')
+    expect(screen.queryByTestId('story-seams-diagram')).toBeNull()
+    expect(shownScreen().querySelector('svg[role="img"], ul')).toBeNull()
+    expect(shownScreen().textContent).toContain('Три Ticket-а передают друг другу суммы в целых центах.')
+  })
 })
 
 describe('the view in the shell: openStory, the focus and Esc', () => {
