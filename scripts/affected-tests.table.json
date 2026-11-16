@@ -28,7 +28,8 @@
         "test/flaky-reporter.ts",
         "test/time-scale.ts",
         "test/timings-reporter.ts",
-        "test/stale-leftovers.ts"
+        "test/stale-leftovers.ts",
+        "test/harness-scripts-sequencer.ts"
       ],
       "why": "setup files and what vitest.config.ts loads: they run around every test file"
     },

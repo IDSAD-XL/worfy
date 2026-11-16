@@ -756,6 +756,21 @@ describe('test/harness-shell-tests.ts: the part of the Harness shell tests one W
     }
   })
 
+  it('runs every real shell test exactly once: in the files of a local run, and across the parts of each CI job (linux-tests 1/4…4/4, Windows 1/2…2/2, macOS and a Windows dispatch 1/1)', () => {
+    const shell = shellTests(join(REPO, 'harness'))
+    const count = HARNESS_SCRIPTS_FILES.length
+    for (const [platform, seconds] of Object.entries(MEASURED_SECONDS)) {
+      const local = Array.from({ length: count }, (_, at) => shareOf(shell, at + 1, count, undefined, seconds)).flat()
+      expect([...local].sort(), `${platform}, no part`).toEqual(shell)
+      for (const parts of [4, 2, 1]) {
+        const job = Array.from({ length: parts }, (_, part) =>
+          Array.from({ length: count }, (_, at) => shareOf(shell, at + 1, count, { index: part + 1, count: parts }, seconds)).flat(),
+        ).flat()
+        expect([...job].sort(), `${platform}, ${parts} parts`).toEqual(shell)
+      }
+    }
+  })
+
   it('runs at most five shell tests at once in a run: the files of a local run share them, the one file of a CI part has all five', () => {
     expect(SHELL_TESTS_AT_ONCE).toBe(5)
     const count = HARNESS_SCRIPTS_FILES.length
@@ -780,6 +795,48 @@ describe('test/harness-shell-tests.ts: the part of the Harness shell tests one W
     expect(shareOf(names, 2, 2, undefined, measured)).toEqual(['d', 'c', 'a'])
     expect(shareOf(names, 1, 2, { index: 2, count: 2 }, measured)).toEqual(['b', 'd'])
     expect(shareOf(names, 2, 2, { index: 2, count: 2 }, measured)).toEqual([])
+  })
+})
+
+describe('test/harness-scripts-sequencer.ts: a run starts the harness-scripts files first', () => {
+  const root = REPO.split(sep).join('/')
+  // Test files as vitest's sequencer sees them, all of the project contract, with their sizes in bytes;
+  // the harness-scripts files are the smallest, as they are (three lines).
+  const sizes: Record<string, number> = {
+    'test/contract/a-big.test.ts': 90_000,
+    [HARNESS_SCRIPTS_FILES[2] ?? '']: 80,
+    'test/contract/b-small.test.ts': 2_000,
+    [HARNESS_SCRIPTS_FILES[0] ?? '']: 70,
+    'test/contract/c-mid.test.ts': 30_000,
+    [HARNESS_SCRIPTS_FILES[3] ?? '']: 60,
+    [HARNESS_SCRIPTS_FILES[1] ?? '']: 75,
+  }
+  const contract = { name: 'contract', config: { sequence: { groupOrder: 0 }, isolate: true } }
+  const specs = Object.keys(sizes).map((file) => ({ moduleId: `${root}/${file}`, project: contract }))
+  // A run without a results cache (a fresh worktree, every CI checkout): vitest compares the file sizes.
+  const ctx = { config: { root }, cache: { getFileTestResults: () => undefined, getFileStats: (key: string) => ({ size: sizes[key.slice('contract:'.length)] ?? 0 }) } }
+  const order = (sorted: Array<{ moduleId: string }>): string[] => sorted.map((spec) => spec.moduleId.slice(root.length + 1))
+  const others = ['test/contract/a-big.test.ts', 'test/contract/c-mid.test.ts', 'test/contract/b-small.test.ts']
+
+  it('vitest\'s own order puts them last without a results cache: the larger file first', async () => {
+    const { BaseSequencer } = await import('vitest/node')
+    expect(order(await new BaseSequencer(ctx as never).sort(specs as never))).toEqual([...others, HARNESS_SCRIPTS_FILES[2], HARNESS_SCRIPTS_FILES[1], HARNESS_SCRIPTS_FILES[0], HARNESS_SCRIPTS_FILES[3]])
+  })
+
+  it('moves HARNESS_SCRIPTS_FILES to the front, file 1 first, and keeps vitest\'s order of the others', async () => {
+    const { HarnessScriptsFirst } = await import('../harness-scripts-sequencer')
+    expect(order(await new HarnessScriptsFirst(ctx as never).sort(specs as never))).toEqual([...HARNESS_SCRIPTS_FILES, ...others])
+    // No harness-scripts file in the run: vitest's order as it is.
+    expect(order(await new HarnessScriptsFirst(ctx as never).sort(specs.slice(0, 1) as never))).toEqual(['test/contract/a-big.test.ts'])
+  })
+
+  it('leaves a shuffled run to vitest, which then shuffles and prints the seed; vitest.config.ts sets the sequencer by the argv of the run', async () => {
+    const { HarnessScriptsFirst, sequencerFor } = await import('../harness-scripts-sequencer')
+    expect(sequencerFor(['electron', 'vitest.mjs', 'run'])).toBe(HarnessScriptsFirst)
+    expect(sequencerFor(['electron', 'vitest.mjs', 'run', '--reporter=json', '--outputFile.json=r.json'])).toBe(HarnessScriptsFirst)
+    expect(sequencerFor(['electron', 'vitest.mjs', 'run', '--shard=2/4', '--sequence.shuffle.files'])).toBeUndefined()
+    expect(sequencerFor(['electron', 'vitest.mjs', 'run', '--sequence.shuffle'])).toBeUndefined()
+    expect(readFileSync(join(REPO, 'vitest.config.ts'), 'utf8')).toContain('sequence: { sequencer: sequencerFor(process.argv) },')
   })
 })
 

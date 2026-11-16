@@ -1,7 +1,7 @@
 # 120 — Разбить harness-scripts-1: критический путь прогона test-ов
 
 Type: task
-Status: open
+Status: claimed 2026-11-16T01:52Z
 Blocked by: none
 Source: владелец 2026-11-16, «да на тикеты»: вывод исследования `docs/research/2026-11-16-fake-timers.md` (раздел 2,
 «Критический путь», и раздел 5) — самый крупный выигрыш по времени не в timer-ах, а в планировании shell test-ов

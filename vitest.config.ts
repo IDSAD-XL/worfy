@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react'
 import { searchForWorkspaceRoot } from 'vite'
 import { configDefaults, defineConfig } from 'vitest/config'
 import { CI_RETRIES } from './test/flaky'
+import { sequencerFor } from './test/harness-scripts-sequencer'
 import { WAIT_DEFAULT_TIMEOUT } from './test/scaled-waits'
 import { removeStaleProbes, removeStaleTempFolders } from './test/stale-leftovers'
 import { ms } from './test/time-scale'
@@ -40,6 +41,9 @@ export default defineConfig({
   },
   test: {
     exclude,
+    // The files that run the Harness shell tests start first: vitest's own order put them last of a run
+    // without a results cache (test/harness-scripts-sequencer.ts). A shuffled run keeps vitest's order.
+    sequence: { sequencer: sequencerFor(process.argv) },
     // vitest's own reporters as they were (minimal under an agent, default otherwise, github-actions
     // in GitHub Actions), and test-results/vitest-timings.json with the time of each test file
     // (test/timings-reporter.ts; read by scripts/test-timings.mjs). test-results/ is not in git.
