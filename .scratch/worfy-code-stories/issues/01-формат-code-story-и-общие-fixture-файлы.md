@@ -1,7 +1,8 @@
 # 01 — Формат Code story: шапка без commit-а, шаги, список передач, общие fixture-файлы
 
 Type: task
-Status: open
+Status: claimed 2026-11-15T23:45Z
+Branch: worfy-code-stories/01
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», строка 01; «Решения владельца» 3, 4, 8, 9, 16, 17, 24, 27 (строки 94–135);
 «Решения по реализации» → Harness: «Формат», «Где лежит» (строки 195–206); «Решения по test-ам», А (строки 279–281);
