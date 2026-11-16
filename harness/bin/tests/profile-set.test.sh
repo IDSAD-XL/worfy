@@ -843,7 +843,7 @@ run "$SET" -C "$T/r/demo" --field workflow.e2e_lock --expect "$fp_lock" --set '{
 check "bin/profile rules: e2e_lock under ~/ is written" [ "$(at_of "$PJ" workflow/e2e_lock)" = '"~/locks/e2e"' ]
 check "fields: no lock folder left" [ ! -e "$LOCKDIR" ]
 
-# --- --field code_stories.pr: the switch of the story PR (worfy-code-stories ticket 03) ----------------------
+# --- --field code_stories.pr: the switch of the story PR ----------------------
 # The profile without code_stories, in the form profile-set writes it: the other fields byte for byte.
 without_stories() { node -e 'const p=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); delete p.code_stories; process.stdout.write(JSON.stringify(p,null,2)+"\n")' "$1"; }
 stories_of() { node -e 'const p=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); const c=p.code_stories; process.stdout.write(c===undefined?"absent":JSON.stringify(c))' "$1"; }

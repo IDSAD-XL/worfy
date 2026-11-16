@@ -103,7 +103,7 @@ check "synthetic modules.heavy" 0 '"pkg/a": 2' "$PROFILE" -C "$T/repo" --field m
 check "synthetic tests.globs" 0 '"*_test.go"' "$PROFILE" -C "$T/repo" --field tests.globs
 check "synthetic absent github.account -> 4" 4 "" "$PROFILE" -C "$T/repo" --field github.account
 check "synthetic absent modules.deep -> 4" 4 "" "$PROFILE" -C "$T/repo" --field modules.deep
-# code_stories.pr, the switch of the story PR (worfy-code-stories ticket 03): absent — on; "off" as written;
+# code_stories.pr, the switch of the story PR: absent — on; "off" as written;
 # any other value — one warning on stderr and the default, so a typo never stops the profile from being read.
 check "code_stories.pr absent -> on" 0 "on" "$PROFILE" -C "$T/repo" --field code_stories.pr
 cp "$T/profiles/demo/profile.json" "$T/demo-profile.json"

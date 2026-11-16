@@ -386,7 +386,7 @@ if (pages !== undefined && pages !== null && !(typeof pages === "string" && page
     delete profile.docs.feature_pages
 }
 // code_stories.pr (profiles/README.md): whether the implementer writes a story of each ticket's PR. Absent or
-// null — "on", the owner's default (worfy-code-stories, decision 14). Any other value is one warning and the
+// null — "on": a story is written unless the profile turns it off. Any other value is one warning and the
 // default, as with feature_pages: a typo must not stop the project from being read, and "on" is the stricter side.
 const STORY_SWITCH = ["on", "off"]
 const stories = profile.code_stories
