@@ -198,6 +198,17 @@ check "a new story not yet committed: exit code 0, checked against the working t
     "$([ "$rc" = 0 ] && has "$T/out" "working tree" && echo 0 || echo 1)"
 rm -f "$R/$NEW"
 
+# A fresh branch from main, its HEAD still the tip of main, with a new story not yet committed: the
+# implementer checks it before the commit, against the working tree, and is not refused.
+g checkout -q -b fresh main
+mkdir -p "$R/$S" && cp "$FIX/pr-en.md" "$R/$NEW"
+run "$NEW"
+check "a fresh branch at the tip of main with a new uncommitted story: exit code 0, against the working tree" \
+    "$([ "$rc" = 0 ] && has "$T/out" "working tree" && echo 0 || echo 1)"
+rm -f "$R/$NEW"
+g checkout -q demo-cart/pr
+g branch -q -D fresh
+
 # CRLF: the story's lines and the code's lines both end in CRLF; the carriage return is dropped.
 awk '{ printf "%s\r\n", $0 }' "$FIX/pr-en.md" >"$R/$NEW"
 run "$NEW"

@@ -31,8 +31,9 @@
 //     against the files of the working tree; a committed one against HEAD. The check refuses when
 //     that work tree is on the main branch: its branch is named as a main branch (main, master,
 //     init.defaultBranch, the branch <remote>/HEAD points to for any remote), or its HEAD is the tip
-//     of one, local or of a remote — a detached HEAD on that commit too. There the code is not the
-//     PR's head. `--head HEAD` checks there on purpose;
+//     of one, local or of a remote — a detached HEAD on that commit too — and the story is in HEAD
+//     (a new story on a fresh branch from the main branch is read against the working tree). There
+//     the code is not the PR's head. `--head HEAD` checks there on purpose;
 //   - --pr-head <N>=<commit>: the chapter `## PR #<N> · …` of an epic story is read against that commit,
 //     its PR's head. An epic story needs one for each of its `PR #<N>` chapters, and every one given
 //     must match a chapter; anything else is exit 1. A story of a PR takes none.
@@ -602,7 +603,10 @@ function checkStory(arg, opts, privacyOptions) {
         const main = mainBranches(top)
         const fix = "a story is checked against the head of its PR, never the main branch; run it in the PR's branch, or name the head with --head <commit>"
         if (name && main.names.has(name)) throw new CannotCheck(`the work tree is on the main branch (${name}): ${fix}`)
-        if (main.tips.has(head)) throw new CannotCheck(`HEAD ${head} is the tip of the main branch (${main.tips.get(head)}): ${fix}`)
+        // A story that HEAD does not hold yet is the implementer's, written before its commit on a fresh
+        // branch: its code is the working tree, not the main branch.
+        const inHead = inside && run(top, ["cat-file", "-e", `${head}:${rel}`]).status === 0
+        if (main.tips.has(head) && (inHead || !inside)) throw new CannotCheck(`HEAD ${head} is the tip of the main branch (${main.tips.get(head)}): ${fix}`)
         const status = inside ? gitOut(top, ["status", "--porcelain", "-z", "--untracked-files=all", "--", rel], "git status failed") : ""
         if (status) fallback = { sha: null, name: "the working tree (the story is not committed)" }
         else fallback = { sha: head, name: `HEAD ${head} (${name ? `branch ${name}` : "detached"})` }
