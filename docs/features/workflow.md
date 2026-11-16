@@ -203,6 +203,14 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
   before it moves nothing; one about lines or a file the step no longer shows is listed at the end of its code card or
   step, marked the same way. The
   field and the answer speak the story's language. A stopped or failed question keeps nothing.
+- **A story remembers what was read, and may end with "Check yourself".** Each screen shown is marked read in the bar of
+  segments, and with a Project the mark is kept in `stories.json` of worfy's data under the same name as the story's
+  answers, never in the repository: after a restart the story opens with its read screens marked. A step's mark names
+  its Ticket and its number inside that Ticket's chapter, so a chapter of an Epic story that becomes ready before it
+  moves no mark. A story with questions ends with the screen "Check yourself": each question has a field for an answer
+  in the person's own words, and "I don't know"; the right answer stays hidden until one of them is given, then shows
+  with the lines it rests on, and a line that a step of the story shows opens that step. The answers are kept the same
+  way, one per question. Nothing depends on the marks or the answers. A story without questions has no such screen.
 - **A branch never undoes the checkout.** This is why a blocked Ticket with an old worktree branch does not look open
   ([ADR-0033](../adr/0033-autopilot-names-wave-tickets.md)).
 - **Frames and cards are computed, not saved.** The Layout keeps only a frame's offset and collapse
@@ -235,6 +243,7 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
 | Code stories: the format, a story file, the code of a fragment, the stories made by the button | `src/shared/stories/parse.ts`, `src/shared/stories/schema.ts`, `src/main/ipc/stories.ts`, `src/main/stories/code.ts`, `src/main/stories/store.ts` |
 | The entries into the Story view and the toast of an Epic story | `src/renderer/stories/open.ts`, `src/renderer/canvas/actions/EpicStory.tsx`, `src/renderer/canvas/actions/TicketStory.tsx`, `src/renderer/stories/story-toast.ts`, `src/renderer/stories/use-story-toasts.ts` |
 | A question about lines of a Code story | `src/main/stories/ask.ts`, `src/renderer/stories/LineQuestion.tsx`, `src/renderer/stories/story-answers.ts` |
+| The read marks and "Check yourself" of a Code story | `src/renderer/stories/SelfCheck.tsx`, `src/renderer/stories/story-marks.ts`, `src/main/stories/store.ts` |
 | The renderer's shared copy | `src/renderer/workflow/useWorkflow.ts` |
 | Frames and cards as Nodes; columns; card height | `src/renderer/canvas/sources/epics.ts`, `src/renderer/canvas/epic-layout.ts`, `src/renderer/canvas/ticket-card.ts` |
 | The views | `src/renderer/canvas/nodes/TicketNode.tsx`, `src/renderer/canvas/nodes/TicketBody.tsx`, `src/renderer/canvas/nodes/ticket-text.ts`, `src/renderer/canvas/nodes/EpicFrameNode.tsx` |
@@ -265,6 +274,9 @@ copy, and `sources/epics.ts` turns the copy into Nodes. The same hub serves the 
   format on the shared fixtures of `harness/bin/tests/fixtures/code-story/`, the code of a fragment from git, the store.
 - `test/contract/story-ask.test.ts`, `test/unit/story-ask.test.ts`, `test/unit/line-question.test.tsx`: a question about
   lines of a story — what the request holds and reads, the answer's schema, Stop, the field and the answer after the lines.
+- `test/unit/story-self-check.test.tsx`, `test/contract/story-store.test.ts`, `test/contract/stories-handler.test.ts`,
+  `test/e2e/code-story.spec.ts`: "Check yourself" and the read marks — the answer hidden until answered, its links to the
+  steps, the marks by Ticket and step, and both kept across a restart with the repository untouched.
 - `test/contract/workflow-watch-retry.test.ts`: retries of the layout.
 - `test/contract/workflow-read-from-main.test.ts`, `test/contract/canvas-workflow-from-main.test.ts`,
   `test/contract/docs-first-read-retry.test.ts`, `test/contract/workflow-fetch-guard.test.ts`: the read from the main

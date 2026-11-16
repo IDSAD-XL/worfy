@@ -38,7 +38,15 @@
     "sourcePr": "PR text",
     "sourceVerdict": "Review verdict",
     "earlierText": "Asked about an earlier text of the story",
-    "linesNotLinked": "The quoted lines are not linked: git named no commit of the checkout."
+    "linesNotLinked": "The quoted lines are not linked: git named no commit of the checkout.",
+    "optional": "Optional",
+    "selfCheckIntro": "Nothing depends on the answers.",
+    "yourAnswer": "Your answer",
+    "yourAnswerTo": "Your answer to question {n}",
+    "checkAnswer": "Check",
+    "dontKnow": "I don't know",
+    "openLines": "Open the step with these lines",
+    "noStepForLines": "No step of the story shows these lines"
   },
   "ru": {
     "whatItDoes": "Что делает",
@@ -79,6 +87,14 @@
     "sourcePr": "Текст PR",
     "sourceVerdict": "Вердикт review",
     "earlierText": "Вопрос задан к прежнему тексту story",
-    "linesNotLinked": "Строки не связаны с commit-ом: git не назвал commit checkout-а."
+    "linesNotLinked": "Строки не связаны с commit-ом: git не назвал commit checkout-а.",
+    "optional": "Необязательно",
+    "selfCheckIntro": "От ответов ничего не зависит.",
+    "yourAnswer": "Ваш ответ",
+    "yourAnswerTo": "Ваш ответ на вопрос {n}",
+    "checkAnswer": "Проверить",
+    "dontKnow": "Не знаю",
+    "openLines": "Открыть шаг с этими строками",
+    "noStepForLines": "Ни один шаг story не показывает эти строки"
   }
 }

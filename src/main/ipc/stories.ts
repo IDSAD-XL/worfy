@@ -22,13 +22,30 @@
 // read-only) and the Ticket's file (as tickets.read reads it), and keeps the answer in stories.json under what the
 // story names (`stories.answers`, storyAnswersKey): the story file the workflow model lists for its Epic and Ticket,
 // or `owner/name#N` of the Project's GitHub repository for a story made by the button.
+//
+// Ticket 13: the screens of a story read and the answers to its "Check yourself" (`stories.marks`), kept in stories.json
+// under the same key as its answers; main names the key once, and the window adds to it (`stories.markRead`,
+// `stories.selfCheck`) without the workflow model being read at each screen.
 import { appendFileSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
 import { join } from 'node:path'
 import { app } from 'electron'
 import { z } from 'zod'
-import { storiesActivity, storiesAnswers, storiesAsk, storiesBuild, storiesCode, storiesRead, storiesSaved, storiesStop, type StoryRead } from '../../shared/ipc/stories'
+import {
+  storiesActivity,
+  storiesAnswers,
+  storiesAsk,
+  storiesBuild,
+  storiesCode,
+  storiesMarkRead,
+  storiesMarks,
+  storiesRead,
+  storiesSaved,
+  storiesSelfCheck,
+  storiesStop,
+  type StoryRead,
+} from '../../shared/ipc/stories'
 import { parseStory } from '../../shared/stories/parse'
 import type { VendorId } from '../../shared/vendors/vendor'
 import { fakeQueryFactory } from '../agent/fake-query'
@@ -43,7 +60,7 @@ import type { WorkflowModel } from '../../shared/workflow/types'
 import { remoteRepos } from '../github/inbox'
 import { askFolder, gatherMaterial, StoryAsker, storyHeadOf, type AskSources } from '../stories/ask'
 import { StoryBuilder, storyFolder } from '../stories/one-shot'
-import { addStoryAnswer, readSavedStory, readStoryAnswers, storyAnswersKey, storyDigest } from '../stories/store'
+import { addStoryAnswer, addStoryReadMark, keepSelfCheck, readSavedStory, readStoryAnswers, readStoryMarks, storyAnswersKey, storyDigest } from '../stories/store'
 import { assistDir } from '../terminal-ai/options'
 import { claudeOneShotOver } from '../vendors/claude/one-shot'
 import type { OneShot } from '../vendors/one-shot'
@@ -261,6 +278,25 @@ const handlers: HandlerModule = [
     const store = projectStore()
     const project = store.get(projectId)
     return { digest: storyDigest(story), answers: readStoryAnswers(store.dataDir(project.id), await answersKey(project.path, story)) }
+  }),
+
+  defineHandler(storiesMarks, async ({ projectId, story }) => {
+    const store = projectStore()
+    const project = store.get(projectId)
+    const key = await answersKey(project.path, story)
+    return { key, ...readStoryMarks(store.dataDir(project.id), key) }
+  }),
+
+  defineHandler(storiesMarkRead, ({ projectId, key, mark }) => {
+    const store = projectStore()
+    return { kept: addStoryReadMark(store.dataDir(store.get(projectId).id), key, mark) }
+  }),
+
+  defineHandler(storiesSelfCheck, ({ projectId, key, answer }) => {
+    const store = projectStore()
+    const kept = { at: new Date().toISOString(), ...answer }
+    keepSelfCheck(store.dataDir(store.get(projectId).id), key, kept)
+    return kept
   }),
 
   defineHandler(storiesRead, async ({ projectId, path }) => {

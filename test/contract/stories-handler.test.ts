@@ -144,3 +144,30 @@ describe('the key the answers of a story are kept under (answersKey)', () => {
     expect(await answersKey(mocks.root, prStory('b'.repeat(40)), { model, repo: async (root) => (await remoteRepos([root]))[0] ?? null })).toBe('example-org/demo-cart#212')
   })
 })
+
+describe('the "read" marks and the answers to "Check yourself" through the handlers (ticket 13)', () => {
+  const steps = JSON.parse(readFileSync(join(import.meta.dirname, '..', 'fixtures', 'code-story-answers', 'pr-en.json'), 'utf8')) as object
+  const made = storyFileSchema.parse({ kind: 'pr', header: { title: 'Cart total in cents', epic: 'demo-cart', ticket: '04', pr: 212, language: 'en', commit: 'b'.repeat(40) }, ...steps })
+  const call = async (channel: string, payload: object): Promise<unknown> => {
+    const handler = handlers.find((entry) => entry.channel.name === channel)
+    if (handler === undefined) throw new Error(`no handler of ${channel}`)
+    return handler.handle(payload as never, { event: { sender: { send: () => undefined } } } as never)
+  }
+
+  it("names the key of the story as its answers have it, keeps the marks and the answers in worfy's data under it, and nothing in the Project", async () => {
+    git(mocks.root, 'remote', 'add', 'origin', 'https://github.com/example-org/demo-cart.git')
+    const status = () => execFileSync('git', ['status', '--porcelain', '--ignored'], { cwd: mocks.root, encoding: 'utf8' })
+    const before = status()
+    const first = (await call('stories.marks', { projectId: 'p1', story: made })) as { key: string }
+    expect(first).toEqual({ key: 'example-org/demo-cart#212', read: [], checks: [] })
+    expect(await call('stories.markRead', { projectId: 'p1', key: first.key, mark: { ticket: '04', step: 2 } })).toEqual({ kept: true })
+    expect(await call('stories.markRead', { projectId: 'p1', key: first.key, mark: { ticket: '04', step: 2 } })).toEqual({ kept: false })
+    const kept = (await call('stories.selfCheck', { projectId: 'p1', key: first.key, answer: { question: 'Why cents?', answer: 'Floats drift.' } })) as { at: string }
+    expect(kept).toEqual({ at: expect.stringMatching(/^\d{4}-\d\d-\d\dT/u) as unknown as string, question: 'Why cents?', answer: 'Floats drift.' })
+
+    // As after a restart: main reads them again from stories.json of the Project data folder.
+    expect(await call('stories.marks', { projectId: 'p1', story: made })).toEqual({ key: first.key, read: [{ ticket: '04', step: 2 }], checks: [kept] })
+    expect(JSON.parse(readFileSync(join(mocks.base, 'worfy-data', 'projects', 'p1', 'stories.json'), 'utf8'))).toMatchObject({ read: { [first.key]: [{ ticket: '04', step: 2 }] } })
+    expect(status()).toBe(before)
+  })
+})

@@ -285,6 +285,8 @@ describe('the read-or-write mark of `project` channels', () => {
     // The answers to questions about lines of a story (ticket 12): stories.json is read.
     'stories.answers',
     'stories.code',
+    // The screens of a story read and the answers to its "Check yourself" (ticket 13): stories.json is read.
+    'stories.marks',
     'stories.read',
     'stories.saved',
     'terminal.shells',
@@ -402,6 +404,9 @@ describe('the read-or-write mark of `project` channels', () => {
     // A question about lines of a story (ticket 12): the same invisible request, and its answer is written to stories.json.
     'stories.ask',
     'stories.build',
+    // A screen of a story read, or an answer to its "Check yourself" (ticket 13): written to stories.json.
+    'stories.markRead',
+    'stories.selfCheck',
     'stories.stop',
     'terminal.close',
     'terminal.input',

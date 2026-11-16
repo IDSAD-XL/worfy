@@ -17,10 +17,23 @@
 // it was asked about (storyDigest), and the view marks one asked about an earlier text. An answer is the agent's text,
 // the user's question, what the answer rests on, the lines asked about and links `path:line@commit` — never the code,
 // the PR's text or a verdict it quotes.
+//
+// The screens of a story read and the person's answers to its "Check yourself" (ticket 13) are kept here as well, under
+// the same key as its answers (`read`, `checks`): a step by its Ticket and its number inside it, an answer by the text
+// of its question. Nothing of them goes to the repository, and nothing depends on them (owner decision 15).
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { savedStorySchema, storyAnswerSchema, type SavedStory, type StoryAnswer } from '../../shared/ipc/stories'
+import {
+  savedStorySchema,
+  storyAnswerSchema,
+  storyReadMarkSchema,
+  storySelfCheckSchema,
+  type SavedStory,
+  type StoryAnswer,
+  type StoryReadMark,
+  type StorySelfCheck,
+} from '../../shared/ipc/stories'
 import type { Story, StoryFile } from '../../shared/stories/schema'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 
@@ -28,9 +41,15 @@ export const STORIES_FILE = 'stories.json'
 
 /**
  * The file: the stories made by the button by key, each read against savedStorySchema on its own; the answers to
- * questions by the key of their story (storyAnswersKey), each answer read against storyAnswerSchema on its own.
+ * questions by the key of their story (storyAnswersKey), each answer read against storyAnswerSchema on its own; the
+ * screens read and the answers to "Check yourself" by the same key, each entry read on its own too.
  */
-const storiesFileSchema = z.object({ stories: z.record(z.string(), z.unknown()), answers: z.record(z.string(), z.unknown()).optional() })
+const storiesFileSchema = z.object({
+  stories: z.record(z.string(), z.unknown()),
+  answers: z.record(z.string(), z.unknown()).optional(),
+  read: z.record(z.string(), z.unknown()).optional(),
+  checks: z.record(z.string(), z.unknown()).optional(),
+})
 type StoriesFile = z.output<typeof storiesFileSchema>
 
 export function storiesPath(projectDataDir: string): string {
@@ -141,4 +160,61 @@ export function addStoryAnswer(projectDataDir: string, key: string, answer: Stor
   const answers = file.answers ?? {}
   const before = answers[key]
   writeJsonFile(storiesPath(projectDataDir), storiesFileSchema, { ...file, answers: { ...answers, [key]: [...(Array.isArray(before) ? (before as unknown[]) : []), checked.data] } })
+}
+
+/** The entries kept under `key` in `kept` that `schema` reads; the others are left out, and kept in the file. */
+function entriesOf<S extends z.ZodType>(kept: Record<string, unknown> | undefined, key: string, schema: S): z.output<S>[] {
+  const list = kept?.[key]
+  return (Array.isArray(list) ? (list as unknown[]) : []).flatMap((entry) => {
+    const parsed = schema.safeParse(entry)
+    return parsed.success ? [parsed.data as z.output<S>] : []
+  })
+}
+
+/** What is kept of the reading of a story: the screens read and the answers to its "Check yourself". */
+export interface StoryMarks {
+  read: StoryReadMark[]
+  checks: StorySelfCheck[]
+}
+
+/** The screens read and the answers to "Check yourself" kept under `key`, oldest first. */
+export function readStoryMarks(projectDataDir: string, key: string): StoryMarks {
+  const file = readFile(projectDataDir)
+  return { read: entriesOf(file.read, key, storyReadMarkSchema), checks: entriesOf(file.checks, key, storySelfCheckSchema) }
+}
+
+const sameMark = (a: StoryReadMark, b: StoryReadMark): boolean =>
+  'screen' in a ? 'screen' in b && a.screen === b.screen : !('screen' in b) && a.ticket === b.ticket && a.step === b.step
+
+/**
+ * Keeps screen `mark` of the story under `key` as read; false, writing nothing, when it is kept already. Throws, writing
+ * nothing, when it does not fit.
+ */
+export function addStoryReadMark(projectDataDir: string, key: string, mark: StoryReadMark): boolean {
+  const checked = storyReadMarkSchema.safeParse(mark)
+  if (!checked.success) throw new Error(`refusing to write ${storiesPath(projectDataDir)}: the mark does not match its schema\n${z.prettifyError(checked.error)}`)
+  const file = readFile(projectDataDir)
+  if (entriesOf(file.read, key, storyReadMarkSchema).some((one) => sameMark(one, checked.data))) return false
+  const read = file.read ?? {}
+  const before = read[key]
+  writeJsonFile(storiesPath(projectDataDir), storiesFileSchema, { ...file, read: { ...read, [key]: [...(Array.isArray(before) ? (before as unknown[]) : []), checked.data] } })
+  return true
+}
+
+/**
+ * Keeps the person's answer to a question of "Check yourself" under `key`, in place of an earlier answer to the same
+ * question. Throws, writing nothing, when it does not fit.
+ */
+export function keepSelfCheck(projectDataDir: string, key: string, answer: StorySelfCheck): void {
+  const checked = storySelfCheckSchema.safeParse(answer)
+  if (!checked.success) throw new Error(`refusing to write ${storiesPath(projectDataDir)}: the answer does not match its schema\n${z.prettifyError(checked.error)}`)
+  const file = readFile(projectDataDir)
+  const checks = file.checks ?? {}
+  const before = checks[key]
+  // An earlier answer to the same question goes; an entry this build cannot read stays as it is.
+  const others = (Array.isArray(before) ? (before as unknown[]) : []).filter((entry) => {
+    const parsed = storySelfCheckSchema.safeParse(entry)
+    return !parsed.success || parsed.data.question !== checked.data.question
+  })
+  writeJsonFile(storiesPath(projectDataDir), storiesFileSchema, { ...file, checks: { ...checks, [key]: [...others, checked.data] } })
 }
