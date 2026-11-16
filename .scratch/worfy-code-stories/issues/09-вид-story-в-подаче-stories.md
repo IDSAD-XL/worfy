@@ -1,7 +1,8 @@
 # 09 — Вид Story в подаче «Stories»: шаг на экран, полоска сегментов, блок кода, схема стыков, Esc
 
 Type: feature
-Status: open
+Status: claimed 2026-11-16T03:36Z
+Branch: worfy-code-stories/09
 Blocked by: 08
 Source: [spec.md](../spec.md), «Ticket-ы», строка 09; «Решения владельца» 20, 26, 27 (строки 121–122, 132–136);
 «Решения по реализации» → worfy: «Вид Story» (строки 244–252); «Решения по test-ам», А и Б (строки 279–284); прототип
