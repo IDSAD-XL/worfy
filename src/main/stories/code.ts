@@ -9,8 +9,10 @@
 //   git, HEAD of the folder when that branch does not resolve.
 // - A committed story in Silent mode: it lies in the Workflow folder, no commit of the code. Its anchor is its PR's
 //   (`{ path, pr }`: the PR of the story's header, or of the chapter): the merge commit once the PR is merged, else the
-//   PR's head (`gh pr view <N> --json headRefOid,mergeCommit`, through the `prCommits` the caller gives). A story whose
-//   PR is not open yet (`PR -`) has none here: TICKETS.md's anchor of that case, HEAD of the Ticket branch's worktree,
+//   PR's head (`gh pr view <N> --json headRefOid,mergeCommit`, through the `prCommits` the caller gives, asked once per
+//   PR: cachedPrCommits). A PR story whose header says `PR -` — the implementer writes it before `gh pr create`, and
+//   nothing rewrites it after — takes its Ticket's PR from the workflow model (the Ticket's `PR: #N` line, ticketPr).
+//   With no PR there either, it has no anchor: TICKETS.md's anchor of that case, HEAD of the Ticket branch's worktree,
 //   is not read (the deviation is recorded in the ticket).
 // - A story kept outside git (`{ commit }`): the PR head its header, or its chapter, names.
 //
@@ -78,18 +80,34 @@ export function placeFragment(text: string | null, fragment: StoryFragment, budg
   return { code: want.join('\n'), startLine: best + 1, keyLines: fragment.keyLines.map((line) => line + shift), fromHead: false, reason: null }
 }
 
-/** Keeps at most CACHE_SIZE answers by key, dropping the oldest. A failure is not kept: the next step asks again. */
+/**
+ * Keeps at most CACHE_SIZE answers by key, dropping the oldest. Calls for one key while its answer is pending share it.
+ * An answer is kept for `keepFor(answer)` ms (for good by default); a failure is not kept: the next step asks again.
+ */
 class Recent<T> {
-  private readonly items = new Map<string, Promise<T>>()
+  private readonly items = new Map<string, { made: Promise<T>; until: number }>()
+
+  constructor(
+    private readonly keepFor: (value: T) => number = () => Number.POSITIVE_INFINITY,
+    private readonly now: () => number = Date.now,
+  ) {}
 
   get(key: string, make: () => Promise<T>): Promise<T> {
     const held = this.items.get(key)
-    if (held !== undefined) return held
-    const made = make()
-    this.items.set(key, made)
+    if (held !== undefined && held.until > this.now()) return held.made
+    const item = { made: make(), until: Number.POSITIVE_INFINITY }
+    this.items.delete(key)
+    this.items.set(key, item)
     if (this.items.size > CACHE_SIZE) this.items.delete(this.items.keys().next().value!)
-    made.catch(() => this.items.delete(key))
-    return made
+    item.made.then(
+      (value) => {
+        item.until = this.now() + this.keepFor(value)
+      },
+      () => {
+        if (this.items.get(key) === item) this.items.delete(key)
+      },
+    )
+    return item.made
   }
 }
 
@@ -154,12 +172,61 @@ const insideRepo = (path: string): boolean => !nativePath.posix.isAbsolute(path)
 /** The commits GitHub names for PR `pr` of the Project at `root`: its head and, once merged, its merge commit. */
 export type PrCommits = (root: string, pr: number) => Promise<{ head: string | null; merge: string | null }>
 
+/** How long the head of a PR not merged yet is kept: a push moves it. A merge commit does not move, and is kept for good. */
+export const PR_HEAD_TTL_MS = 60_000
+
+/**
+ * `prCommits` asked once per PR: the steps of one story, and the calls for it while gh answers, share the answer
+ * (gh is a process and a GitHub request on the Project's account, shared with the PR badges and Autopilot). A merged
+ * PR's answer is kept for good, an open one's for PR_HEAD_TTL_MS; a failure is not kept.
+ */
+export function cachedPrCommits(prCommits: PrCommits, now: () => number = Date.now): PrCommits {
+  const recent = new Recent<{ head: string | null; merge: string | null }>((commits) => (commits.merge === null ? PR_HEAD_TTL_MS : Number.POSITIVE_INFINITY), now)
+  return (root, pr) => recent.get(`${root}\0${String(pr)}`, () => prCommits(root, pr))
+}
+
+/** The PR number of Ticket `ticket` of Epic `epic` of the Project at `root`: its `PR: #N` line; null without one. */
+export type TicketPr = (root: string, epic: string, ticket: number) => Promise<number | null>
+
+/** How long a Ticket's PR number is kept: `ticket done --pr` writes it once, and a Ticket without one gets it later. */
+export const TICKET_PR_TTL_MS = 60_000
+
+/**
+ * TicketPr from the workflow model `read` gives (readWorkflow of src/main/workflow/reader.ts, the Ticket's `pr`), asked
+ * once per Project and Ticket for TICKET_PR_TTL_MS; the calls while the model is read share it, a failure is not kept.
+ */
+export function ticketPrFromModel(
+  read: (root: string) => Promise<{ tickets: readonly { epic: string; num: number; pr?: number | null | undefined }[] }>,
+  now: () => number = Date.now,
+): TicketPr {
+  const recent = new Recent<number | null>(() => TICKET_PR_TTL_MS, now)
+  return (root, epic, ticket) =>
+    recent.get(`${root}\0${epic}\0${String(ticket)}`, async () => (await read(root)).tickets.find((one) => one.epic === epic && one.num === ticket)?.pr ?? null)
+}
+
 export interface StoryCodeOptions {
   /** The git runner; main-ref.ts's runGit by default. Tests pass one with their own configuration. */
   git?: RefGitRunner
   cat?: CatFileRunner
   /** The commits of a PR, for the anchor of a Silent Project's story; none — such a story has no anchor. */
   prCommits?: PrCommits
+  /** The PR of a Ticket, for a Silent story of the Ticket's PR whose header says `PR -`; none — such a story has no anchor. */
+  ticketPr?: TicketPr
+}
+
+/** The Ticket a PR story is of, by its file name `NN-<slug>.md`; null for an Epic story and a name without a number. */
+function storyTicketNumber(parts: readonly string[]): number | null {
+  const match = parts.length === 3 ? /^(\d+)-/u.exec(parts[2]!) : null
+  return match === null ? null : Number(match[1])
+}
+
+/** The PR a Silent story's code is read at: the one the call names, else, for `PR -`, its Ticket's (TICKETS.md, "Code story"). */
+async function storyPr(layout: ProjectLayout, at: { path: string; pr?: number | null | undefined }, options: StoryCodeOptions): Promise<number | null> {
+  if (at.pr !== undefined && at.pr !== null) return at.pr
+  const where = storyPathParts(at.path)
+  const ticket = where === null ? null : storyTicketNumber(where.parts)
+  if (where === null || ticket === null || options.ticketPr === undefined) return null
+  return options.ticketPr(layout.root, where.epic, ticket)
 }
 
 /** Where the fragments of the story `at` are read: the repository's top and the commit; null — there is no anchor. */
@@ -171,8 +238,9 @@ async function codeSource(layout: ProjectLayout, at: StoryCodeAt, options: Story
   if (layout.failed) return null
   if (layout.mode === 'silent') {
     // The Workflow folder is no commit of the code: the anchor is the PR's (see the top of the file).
-    if (at.pr === undefined || at.pr === null || options.prCommits === undefined) return null
-    const commits = await options.prCommits(layout.root, at.pr)
+    const pr = options.prCommits === undefined ? null : await storyPr(layout, at, options)
+    if (pr === null) return null
+    const commits = await options.prCommits!(layout.root, pr)
     const commit = commits.merge ?? commits.head
     const place = commit === null || !SHA.test(commit) ? null : await placeInGit(layout.root, git)
     return place === null ? null : { top: place.top, commit: commit! }

@@ -24,11 +24,12 @@ import { storiesActivity, storiesBuild, storiesCode, storiesRead, storiesSaved, 
 import { parseStory } from '../../shared/stories/parse'
 import type { VendorId } from '../../shared/vendors/vendor'
 import { fakeQueryFactory } from '../agent/fake-query'
+import { harnessScriptEnv } from '../harness/script-env'
 import { gitWorktrees } from '../claude-home/registry'
 import { readProjectSettings } from '../projects/settings'
 import { projectStore } from '../projects/store'
-import { dataRoot } from '../storage/paths'
-import { storyFragmentCode, storyPathParts, type PrCommits } from '../stories/code'
+import { claudeHome, dataRoot } from '../storage/paths'
+import { cachedPrCommits, storyFragmentCode, storyPathParts, ticketPrFromModel, type PrCommits } from '../stories/code'
 import { StoryBuilder, storyFolder } from '../stories/one-shot'
 import { readSavedStory } from '../stories/store'
 import { assistDir } from '../terminal-ai/options'
@@ -37,6 +38,7 @@ import type { OneShot } from '../vendors/one-shot'
 import { vendorDriver } from '../vendors/registry'
 import { layoutFailure, projectLayouts, type ProjectLayout } from '../workflow/folder'
 import { refTree, resolveSource, type RefGitRunner } from '../workflow/main-ref'
+import { readWorkflow } from '../workflow/reader'
 import { defineHandler, emit, type EventTarget, type HandlerModule } from './index'
 import { resolveProjectFile, workflowPlaces, type ResolveOptions } from './shell'
 import { TICKET_SIZE_MAX } from './tickets'
@@ -135,6 +137,10 @@ export const ghPrCommits: PrCommits = async (root, pr) => {
   return { head: parsed.headRefOid || null, merge: parsed.mergeCommit?.oid || null }
 }
 
+/** The app's PR commits, asked of gh once per PR (cachedPrCommits), and the Tickets' PRs, from the workflow model. */
+const prCommits = cachedPrCommits(ghPrCommits)
+const ticketPr = ticketPrFromModel(async (root) => (await readWorkflow({ root, claudeHome: claudeHome(), env: harnessScriptEnv })).model)
+
 const handlers: HandlerModule = [
   defineHandler(storiesBuild, async ({ storyId, projectId, folder, input }, { event }) => {
     const store = projectStore()
@@ -155,7 +161,7 @@ const handlers: HandlerModule = [
 
   defineHandler(storiesCode, async ({ projectId, at, fragment }) => {
     const root = projectStore().get(projectId).path
-    return storyFragmentCode(await projectLayouts().get(root), at, fragment, { prCommits: ghPrCommits })
+    return storyFragmentCode(await projectLayouts().get(root), at, fragment, { prCommits, ticketPr })
   }),
 
   defineHandler(storiesSaved, ({ projectId, key }) => {

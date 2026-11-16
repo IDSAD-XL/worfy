@@ -20,7 +20,7 @@ vi.mock('electron', () => ({
   shell: {},
 }))
 
-const { anchorCommit, placeFragment, storyFragmentCode } = await import('../../src/main/stories/code')
+const { anchorCommit, cachedPrCommits, placeFragment, PR_HEAD_TTL_MS, storyFragmentCode, TICKET_PR_TTL_MS, ticketPrFromModel } = await import('../../src/main/stories/code')
 const { FRAGMENT_MAX_CHARS, FRAGMENT_MAX_LINES, storiesCode } = await import('../../src/shared/ipc/stories')
 const { readStoryFile } = await import('../../src/main/ipc/stories')
 
@@ -252,5 +252,94 @@ describe('the story file and its code through the source of the workflow (ADR-01
     expect(await storyFragmentCode(layout, { path: 'demo-cart/story.md', pr: 212 }, cart.fragment, { git: runner, prCommits: merged(null, 'e'.repeat(40)) })).toMatchObject({ fromHead: true, reason: 'no-anchor' })
     expect(await storyFragmentCode(layout, { path: 'demo-cart/story.md', pr: null }, cart.fragment, { git: runner, prCommits: merged(squash, base) })).toMatchObject({ reason: 'no-anchor' })
     expect(asked).toEqual([212, 212, 212])
+  })
+
+  /** A Silent Project over `repo` whose Workflow folder holds the PR story of ticket 04 with `story` for its text. */
+  function silentWithStory(repo: string, story: string): ProjectLayout {
+    const folder = join(dir, 'workflow-folder')
+    const scratch = join(folder, '.scratch')
+    write(scratch, 'demo-cart/stories/04-cart-total.md', story)
+    return { ...fullLayout(repo), mode: 'silent', workflowFolder: folder, ticketsRoot: scratch }
+  }
+
+  it('reads a Silent story whose header says PR - at the PR its Ticket names in the workflow model, and without one marks it no-anchor', async () => {
+    const repo = join(dir, 'silent-repo')
+    const { base, squash } = mainWithSquash(repo)
+    const layout = silentWithStory(repo, fixture('pr-en.md').replace('PR: #212', 'PR: -'))
+    const read = await readStoryFile(layout, 'demo-cart/stories/04-cart-total.md', { git: runner, home: join(dir, 'home') })
+    if (!read.ok || read.story.kind !== 'pr') throw new Error('no PR story')
+    expect(read.story.header.pr).toBeNull()
+    const cart = fragmentsOf('pr-en.md').find((fragment) => fragment.path === 'src/cart.ts' && fragment.startLine === 10)!
+    const models: string[] = []
+    const asked: number[] = []
+    const model = (pr: number | null) =>
+      ticketPrFromModel((root) => {
+        models.push(root)
+        return Promise.resolve({ tickets: [{ epic: 'demo-cart', num: 4, pr }, { epic: 'other', num: 4, pr: 999 }, { epic: 'demo-cart', num: 5, pr: 998 }] })
+      })
+    const prCommits = (root: string, pr: number) => {
+      expect(root).toBe(layout.root)
+      asked.push(pr)
+      return Promise.resolve(pr === 212 ? { merge: squash, head: base } : { merge: null, head: null })
+    }
+    const at = { path: 'demo-cart/stories/04-cart-total.md', pr: null }
+    // Ticket 04 has `PR: #212`, merged: the code is read at its merge commit, three lines lower — not no-anchor.
+    expect(await storyFragmentCode(layout, at, cart, { git: runner, prCommits, ticketPr: model(212) })).toMatchObject({ startLine: 13, fromHead: false, reason: null })
+    expect(await storyFragmentCode(layout, { path: at.path }, cart, { git: runner, prCommits, ticketPr: model(212) })).toMatchObject({ startLine: 13, reason: null })
+    expect(asked).toEqual([212, 212])
+    // The Ticket has no PR line yet: no anchor, and gh is not asked.
+    expect(await storyFragmentCode(layout, at, cart, { git: runner, prCommits, ticketPr: model(null) })).toMatchObject({ fromHead: true, reason: 'no-anchor' })
+    expect(asked).toEqual([212, 212])
+    expect(models).toEqual([repo, repo, repo])
+  })
+
+  it('asks gh once per PR: thirty fragments of a story share one answer, an open PR is asked again after PR_HEAD_TTL_MS, a merged one never, a failure at once', async () => {
+    const repo = join(dir, 'silent-repo')
+    const { base, squash } = mainWithSquash(repo)
+    const layout = silentWithStory(repo, fixture('pr-en.md').replace('PR: #212', 'PR: -'))
+    let clock = 1_000_000
+    const now = () => clock
+    let answer = { merge: null as string | null, head: base }
+    let calls = 0
+    const prCommits = cachedPrCommits(() => {
+      calls += 1
+      return Promise.resolve(answer)
+    }, now)
+    let reads = 0
+    const ticketPr = ticketPrFromModel(() => {
+      reads += 1
+      return Promise.resolve({ tickets: [{ epic: 'demo-cart', num: 4, pr: 212 }] })
+    }, now)
+    const fragments = fragmentsOf('pr-en.md')
+    const nth = (index: number): StoryFragment => fragments[index % fragments.length]!
+    const at = { path: 'demo-cart/stories/04-cart-total.md', pr: null }
+    const thirty = () => Promise.all(Array.from({ length: 30 }, (_, index) => storyFragmentCode(layout, at, nth(index), { git: runner, prCommits, ticketPr })))
+    const cart = fragments.findIndex((fragment) => fragment.path === 'src/cart.ts' && fragment.startLine === 10)
+    expect((await thirty()).every((code) => code.reason === null)).toBe(true)
+    expect([calls, reads]).toEqual([1, 1])
+    clock += Math.min(PR_HEAD_TTL_MS, TICKET_PR_TTL_MS) - 1
+    await thirty()
+    expect([calls, reads]).toEqual([1, 1])
+    // The head of an open PR may move: asked again once its answer is older than PR_HEAD_TTL_MS; the Ticket's PR too.
+    clock += Math.max(PR_HEAD_TTL_MS, TICKET_PR_TTL_MS) + 1
+    await thirty()
+    expect([calls, reads]).toEqual([2, 2])
+    // Merged now: its merge commit is kept for good.
+    answer = { merge: squash, head: base }
+    clock += PR_HEAD_TTL_MS + 1
+    expect((await thirty())[cart]).toMatchObject({ startLine: 13 })
+    clock += 1_000 * PR_HEAD_TTL_MS
+    expect((await thirty())[cart]).toMatchObject({ startLine: 13 })
+    expect(calls).toBe(3)
+    // A failure is not kept: the next step asks again.
+    let failures = 0
+    const failing = cachedPrCommits(() => {
+      failures += 1
+      return Promise.reject(new Error('gh: HTTP 502'))
+    }, now)
+    const numbered = { path: at.path, pr: 212 }
+    expect(await storyFragmentCode(layout, numbered, nth(0), { git: runner, prCommits: failing })).toMatchObject({ reason: 'no-anchor' })
+    expect(await storyFragmentCode(layout, numbered, nth(0), { git: runner, prCommits: failing })).toMatchObject({ reason: 'no-anchor' })
+    expect(failures).toBe(2)
   })
 })

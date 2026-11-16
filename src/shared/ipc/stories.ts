@@ -120,7 +120,9 @@ export type FragmentCode = z.output<typeof fragmentCodeSchema>
  * Where a fragment's code is read: in the anchor commit of a committed story file (`path`, as stories.read takes it),
  * or at the PR head a story kept outside git names (`commit`: its header's, or its chapter's). `pr` is the PR of the
  * story's header, or of the fragment's chapter in an Epic story: a Silent Project's story, outside the code's git, is
- * read at that PR's merge commit or head; null or absent for `PR -`, and in Full mode it is not needed.
+ * read at that PR's merge commit or head. Null or absent for `PR -`: main then takes the PR of the story's Ticket from
+ * the workflow model (its `PR: #N` line; the Ticket of `stories/NN-<slug>.md` is NN), as harness/bin/TICKETS.md says
+ * of `PR -`. In Full mode it is not needed.
  */
 export const storyCodeAtSchema = z.union([
   z.object({ path: storyPathSchema, pr: z.number().int().positive().nullable().optional() }).strict(),

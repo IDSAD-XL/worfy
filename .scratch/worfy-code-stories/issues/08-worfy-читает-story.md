@@ -41,12 +41,14 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 08; «Решения 
    коллег (ADR-0105).
 6. IPC: чтение story Epic-а, story PR и сохранённой story по кнопке.
 
-Решено 2026-11-16 (implementer, review PR #1910, раунд 1): в режиме Silent anchor story — merge commit её PR-а, а до
-merge — head PR-а (`gh pr view <N> --json headRefOid,mergeCommit`; номер — из шапки story или из главы story Epic-а,
-его передаёт вызов `stories.code`). У story с `PR -` anchor по `TICKETS.md` — HEAD worktree ветки Ticket-а — worfy не
-читает: шаг показывает код из story с причиной `no-anchor`. Причина: такую story видит только implementer до
-`gh pr create`, и её фрагменты уже сверяет `story-check`; чтение worktree ветки по Ticket-у — отдельная работа без
-пользы для вида Story.
+Решено 2026-11-16 (implementer, review PR #1910, раунды 1 и 2): в режиме Silent anchor story — merge commit её PR-а,
+а до merge — head PR-а (`gh pr view <N> --json headRefOid,mergeCommit`; номер — из шапки story или из главы story
+Epic-а, его передаёт вызов `stories.code`). gh спрашивается один раз на PR: ответ merged PR-а хранится до перезапуска,
+ответ открытого — 60 с. Если в шапке story `PR -`, main сам берёт номер из строки `PR:` Ticket-а в модели workflow
+(Ticket — по имени файла `stories/NN-<slug>.md`), как велит `TICKETS.md`: ticket 05 пишет story до `gh pr create`, и в
+Silent шапка так и остаётся `PR -`. Если у Ticket-а ещё нет `PR:`, anchor по `TICKETS.md` — HEAD worktree ветки
+Ticket-а — worfy не читает: шаг показывает код из story с причиной `no-anchor`. Причина: до открытия PR story видит
+только implementer, и её фрагменты уже сверяет `story-check`.
 
 ## Готово, когда
 

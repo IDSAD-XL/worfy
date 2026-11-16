@@ -166,9 +166,11 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
   where each is and a hash of its text; the story itself is read when it is opened, and a file that does not fit the
   format of `harness/bin/TICKETS.md` then gives the reason. The code of a step comes from git when the step is shown: the fragment is
   looked for by its code in the commit that added the story to the main branch (in Silent mode, the merge commit of
-  the story's PR, or its head before the merge, read with `gh pr view`), and shown with that commit's line numbers.
-  When that commit no longer holds it in this form, or there is no such commit (a story with `PR -` in Silent mode, a
-  commit this clone does not have), the story's own code is shown, marked as the code of the PR's head with the reason.
+  the story's PR, or its head before the merge, read with `gh pr view` once per PR: a merged PR's answer is kept, an
+  open PR's for a minute), and shown with that commit's line numbers. A Silent story whose header still says `PR -`
+  takes its PR from its Ticket's `PR:` line. When that commit no longer holds the fragment in this form, or there is
+  no such commit (a Silent story whose Ticket has no PR yet, a commit this clone does not have), the story's own code
+  is shown, marked as the code of the PR's head with the reason.
 - **A branch never undoes the checkout.** This is why a blocked Ticket with an old worktree branch does not look open
   ([ADR-0033](../adr/0033-autopilot-names-wave-tickets.md)).
 - **Frames and cards are computed, not saved.** The Layout keeps only a frame's offset and collapse
