@@ -108,6 +108,7 @@ Source: владелец 2026-11-16, «да на тикеты»: кандида�
 - [ ] gate fast зелёный; Windows job CI зелёный (`stop.mjs` — скрипт Harness-а).
   - evidence: gate pass · `gate fast` exit 0, [gate] green (fast): lint, typecheck, pnpm test (807 files passed, 7 skipped) · mac - · d5ec083b4c979f00dbe0141d1caf1133f206db62
   - evidence: ci-check pass · PR #1900 CI: windows (1/3, 2/3, 3/3, harness-scripts 1/2, 2/2) full-suite success, ci-ok success · windows - · 5994c7c958071973469637a781f4478b1e99bdab
+  - evidence: ci-check pass · PR #1918 CI: windows (1/3, 2/3, 3/3, harness-scripts 1/2, 2/2) full-suite pass, windows-e2e 1-4 pass, ci-ok pass · windows - · 784dff18bee6e62f9c44670fadc1aa02c69e990c
 
 ## Где в коде
 
