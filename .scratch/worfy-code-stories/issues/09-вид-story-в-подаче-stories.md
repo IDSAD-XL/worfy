@@ -63,6 +63,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 09; «Решения 
 - [ ] `test/e2e/a11y.spec.ts`: axe на виде Story без нарушений (как на основных экранах, worfy-ui-kit 18).
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0 · mac - · eb770856843310dcb4efeb70560bebfc736e5146
+  - evidence: gate pass · `gate fast` exit 0 (after the look fix and a rebase) · mac - · 145f1392d29c78f4d0d6e9a91a2c0f39661b3249
 
 ## Тесты
 
