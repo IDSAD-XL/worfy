@@ -1,7 +1,7 @@
 # 14 — Eval-сценарий implementer-а: story PR на учебном Ticket-е проходит `story-check`
 
 Type: task
-Status: open
+Status: claimed 2026-11-16T13:28Z
 Blocked by: 05
 Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения владельца» 21 (строки 123–124); «Решения по test-ам», В
 (строки 285–289); «Риски»: «Отказ `reasoning_extraction`», «Codex» (строки 346–356); «Готово, когда» spec-а, пункт eval
@@ -41,13 +41,41 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения 
 
 - [ ] `harness/evals/implementer-story/` с `case.yaml`, `prompt.md`, `scaffold.sh` и graders; `node
       scripts/eval-harness-coverage.mjs` — exit 0.
+  - evidence: test-run pass · `node scripts/eval-harness-coverage.mjs` exit 0 · mac - · b1bb184b224bfcecaf69deda07ce4fee2d615f33
+  - evidence: test-run pass · `node scripts/eval-harness-coverage.mjs` exit 0 · mac - · ca361a7574821b99d3fb9bce1cc833d674ab090e
+  - evidence: test-run pass · `node scripts/eval-harness-coverage.mjs` exit 0 · mac - · 37cb452d6921d4e48004080eef1b174bb697de7b
+  - evidence: test-run pass · `node scripts/eval-harness-coverage.mjs` exit 0 · mac - · e0b0497bba34ab04f42660b383a37e913505ae5e
+  - evidence: test-run pass · `node scripts/eval-harness-coverage.mjs` exit 0 · mac - · 46aeed216d862b4a4b7733018455991317e2bb32
+  - evidence: test-run pass · `node scripts/eval-harness-coverage.mjs` exit 0 · mac - · cd5efde2783f2e34ba6cc95e0d8efc779aaf277c
+  - evidence: test-run pass · `node scripts/eval-harness-coverage.mjs` exit 0 · mac - · ab699c3ba626053e81850f9d6a4c33a6e118463a
 - [ ] Четыре grader-а в `graders/`, по одному на проверку п. 1: файл story есть, `story-check` — exit 0, обязательные
       части на месте, отказа `reasoning_extraction` нет. Тип — как у `implementer-report/graders` (`regex` по файлу,
       где его хватает).
+  - evidence: test-run pass · `npx vitest run --project contract test/contract/harness-evals-story.test.ts` exit 0 · mac - · b1bb184b224bfcecaf69deda07ce4fee2d615f33
+  - evidence: test-run pass · `npx vitest run --project contract test/contract/harness-evals-story.test.ts` exit 0 · mac - · ca361a7574821b99d3fb9bce1cc833d674ab090e
+  - evidence: test-run pass · `npx vitest run --project contract test/contract/harness-evals-story.test.ts` exit 0 · mac - · 37cb452d6921d4e48004080eef1b174bb697de7b
+  - evidence: test-run pass · `npx vitest run --project contract test/contract/harness-evals-story.test.ts` exit 0 · mac - · e0b0497bba34ab04f42660b383a37e913505ae5e
+  - evidence: test-run pass · `npx vitest run --project contract test/contract/harness-evals-story.test.ts` exit 0 · mac - · 46aeed216d862b4a4b7733018455991317e2bb32
+  - evidence: test-run pass · `npx vitest run --project contract test/contract/harness-evals-story.test.ts` exit 0 · mac - · cd5efde2783f2e34ba6cc95e0d8efc779aaf277c
+  - evidence: test-run pass · `npx vitest run --project contract test/contract/harness-evals-story.test.ts` exit 0 · mac - · ab699c3ba626053e81850f9d6a4c33a6e118463a
 - [ ] Dry run `pnpm eval:harness -- --case implementer-story --dry-run` — exit 0; план вызовов в «Итог».
+  - evidence: test-run pass · `pnpm eval:harness -- --case implementer-story --dry-run` exit 0 · mac - · b1bb184b224bfcecaf69deda07ce4fee2d615f33
+  - evidence: test-run pass · `pnpm eval:harness -- --case implementer-story --dry-run` exit 0 · mac - · ca361a7574821b99d3fb9bce1cc833d674ab090e
+  - evidence: test-run pass · `pnpm eval:harness -- --case implementer-story --dry-run` exit 0 · mac - · 37cb452d6921d4e48004080eef1b174bb697de7b
+  - evidence: test-run pass · `pnpm eval:harness -- --case implementer-story --dry-run` exit 0 · mac - · e0b0497bba34ab04f42660b383a37e913505ae5e
+  - evidence: test-run pass · `pnpm eval:harness -- --case implementer-story --dry-run` exit 0 · mac - · 46aeed216d862b4a4b7733018455991317e2bb32
+  - evidence: test-run pass · `pnpm eval:harness -- --case implementer-story --dry-run` exit 0 · mac - · cd5efde2783f2e34ba6cc95e0d8efc779aaf277c
+  - evidence: test-run pass · `pnpm eval:harness -- --case implementer-story --dry-run` exit 0 · mac - · ab699c3ba626053e81850f9d6a4c33a6e118463a
 - [ ] (manual) Платный run руками с `--max-cost-usd` ниже 100: graders зелёные; цена и число run-ов в «Итог».
 - [ ] Сценарий не входит ни в один workflow CI и ни в gate (grep по `.github/workflows` и `harness/hooks/gate.mjs`
       пустой).
+  - evidence: test-run pass · `grep -rn implementer-story .github/workflows harness/hooks/gate.mjs` exit 1 (no match) · mac - · b1bb184b224bfcecaf69deda07ce4fee2d615f33
+  - evidence: test-run pass · `grep -rn implementer-story .github/workflows harness/hooks/gate.mjs` exit 1 (no match) · mac - · ca361a7574821b99d3fb9bce1cc833d674ab090e
+  - evidence: test-run pass · `grep -rn implementer-story .github/workflows harness/hooks/gate.mjs` exit 1 (no match) · mac - · 37cb452d6921d4e48004080eef1b174bb697de7b
+  - evidence: test-run pass · `grep -rn implementer-story .github/workflows harness/hooks/gate.mjs` exit 1 (no match) · mac - · e0b0497bba34ab04f42660b383a37e913505ae5e
+  - evidence: test-run pass · `grep -rn implementer-story .github/workflows harness/hooks/gate.mjs` exit 1 (no match) · mac - · 46aeed216d862b4a4b7733018455991317e2bb32
+  - evidence: test-run pass · `grep -rn implementer-story .github/workflows harness/hooks/gate.mjs` exit 1 (no match) · mac - · cd5efde2783f2e34ba6cc95e0d8efc779aaf277c
+  - evidence: test-run pass · `grep -rn implementer-story .github/workflows harness/hooks/gate.mjs` exit 1 (no match) · mac - · ab699c3ba626053e81850f9d6a4c33a6e118463a
 
 ## Тесты
 
@@ -57,9 +85,72 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения 
 
 - `harness/evals/implementer-story/` (новая папка: `case.yaml`, `prompt.md`, `scaffold.sh`, `graders/`)
 - `harness/evals/lib/coverage.json`
+- `harness/skills/ship-ticket/story-pr.md` — правило для поля `Why here` (добавлено по решению координатора после
+  платного run-а 2026-11-16: implementer придумывал, кто вызывает код), и его проверка в
+  `harness/bin/tests/agents-text.test.sh`
 
 Только читать: `harness/evals/implementer-report/`, `scripts/eval-harness.mjs`, `scripts/eval-harness-coverage.mjs`.
 
 ## Вне скоупа
 
 - Eval агента story Epic-а и story по кнопке: их проверяет приёмка (Ticket 17).
+
+## Итог
+
+- Сценарий `harness/evals/implementer-story/`: ticket 01 учебного Epic-а `demo` (finish `pr-green-ci`) уходит агенту
+  `worfy:implementer`. Scaffold переписывает ticket 01 так, что два его правила без причины, явно ставит
+  `code_stories.pr: on`, создаёт bare origin в `.git` с `worktree.base` `origin/main` и кладёт
+  `.git/eval-finish.sh`. Сессия запускает этот скрипт последним шагом, после отчёта implementer-а. Скрипт запускает
+  `bin/story-check` и пишет `.git/story-check.log`: story ticket-а 01 из HEAD, строку `=== story-check ===`, строку
+  `in-branch:` для story, которую ветка добавила с `main`, вывод и `EXIT=<код>`; копию story из HEAD он кладёт в
+  `.git/story-check/`. У `claude plugin eval` нет grader-а, который запускает команду, поэтому exit code проверки
+  читается из этого файла, а не из слов implementer-а.
+- Graders (четыре, порог 0.8: любой один красный валит сценарий, 3/4 = 0.75):
+  - `story-check-green` — один regex по log-у: части из `story-pr.md` (заголовок, `Kind: pr`, `Language: ru`, первый
+    шаг «Что было не так», фрагмент, пять полей, нет шага review), story ветки `demo/01` по пути
+    `.scratch/demo/stories/01-alpha.md` и `EXIT=0`. Пункт «Готово, когда» просил отдельные graders «файл есть»,
+    «exit 0» и «части на месте»; при пяти grader-ах один красный давал 4/5 = 0.8, и сценарий проходил (review круг 1),
+    поэтому три проверки — один regex.
+  - `no-invented-reason` — `llm` по `.git/story-check/judge-input.md` (ticket, правила учебного проекта, исходные
+    файлы и test-ы из HEAD, story): ни одно поле code step-а не называет факт, которого нет в ticket-е и правилах и
+    который не следует из кода и test-ов; `не записано` — только вместо причины правила, которую ticket не записал.
+    Regex этого не различает.
+  - `no-refusal` — нет отказа `reasoning_extraction` в trace.
+  - `implementer-dispatched` — `tool_used`: его требует contract test каждого сценария.
+- Dry run `pnpm eval:harness -- --case implementer-story --dry-run` — exit 0. План: один вызов `main-implementer-story` —
+  `claude plugin eval <plugin-copy> --scaffold --trust-plugin --ablation none --threshold 0.8 --no-publish --model
+  claude-sonnet-5 --judge-model claude-haiku-4-5 --max-cost-usd 30 --tag main --case implementer-story --allow-tools Bash
+  Write Edit`; 3 run-а (`runs: 3`), вызов gui пропущен. Цены по вызову dry run не печатает.
+- Платные run-ы 2026-11-16, все `claude-sonnet-5`:
+  - head f0e1df8a3, 3 run-а, 2.53 USD — 0.50 в каждом: log-а нет. Preflight ответил BLOCKED «no remote origin, and
+    workflow.finish is pr-green-ci», implementer закончил локально и story не писал. Исправлено: bare origin.
+  - диагностика 1, 1 run, 0.83 USD — story и commit есть, log-а нет.
+  - диагностика 2, 1 run, 1.06 USD — post-commit hook не сработал: Claude Code запускает git с выключенными hook-ами
+    репозитория. Исправлено: скрипт `.git/eval-finish.sh`, который запускает сессия.
+  - proof run head 75424fc1f, 3 run-а, 3.13 USD — 0.75 в каждом: `story-check-green` зелёный везде, прежний regex
+    `story-required-parts` красный везде — он требовал `не записано`, а ни одна story его не написала. Две story из трёх
+    придумали факты, которых нет в ticket-е («percent — единственная функция, которую вызывает отчёт», «в отчёте такие
+    значения не встречаются»). Исправлено: regex заменён на `llm` grader `no-invented-reason`, структура story ушла в
+    `story-check-green`.
+  - run координатора на 619762e1a не стартовал (0 USD): CLI 2.1.323 режет frontmatter regex-ом
+    `/^---\s*\n([\s\S]*?)---\s*\n?/`, на первых трёх дефисах где угодно, а `pattern` содержал `--- story-check ---`.
+    Исправлено: разделитель `=== story-check ===`, contract test режет frontmatter каждого `.md` в `harness/evals`
+    regex-ом CLI. `llm` grader теперь получает весь Ticket и правила учебного проекта.
+  - head b6020ada0, 3 run-а, 3.08 USD (run координатора) — 0.75 в каждом: `story-check-green`,
+    `implementer-dispatched`, `no-refusal` зелёные, `no-invented-reason` — FAIL во всех трёх. Во всех трёх story
+    поле «Почему здесь» придумало, что отчёт вызывает `percent` и это единственное место; кода отчёта в repo нет.
+    Это пробел текста Harness-а, не grader-а: в `story-pr.md` добавлено правило для `Why here` — только то, что
+    записано в ticket-е, правилах или коде; место из списка файлов ticket-а и `not recorded` для причины; не
+    выводить, кто вызывает код, что ещё его использует, и мотив.
+  - head b67409e1d, 3 run-а, 3.19 USD (run координатора) — 0.75: implementer прочитал новое правило, все три story
+    честные («Почему здесь: ticket называет `src/alpha.mjs` в «Где в коде»»), а судья ставил FAIL 9 из 9. Причина —
+    вход и критерий судьи: он видел только story и Ticket, без test-ов, и считал вымыслом «отрицательные `done`
+    test-ом не покрыты» в «Рисках». Исправлено: `.git/eval-finish.sh` пишет `.git/story-check/judge-input.md` (Ticket,
+    правила, `src/*.mjs`, `test/*.mjs` из HEAD и story); критерий валит только придуманный факт, покрытие сверяет с
+    test-ами, `не записано` требует только для причины правила, которой нет в Ticket-е. Судья остаётся haiku.
+  - head 6c3feaeb6, 3 run-а, 2.93 USD (run координатора) — 1.00 в каждом: все четыре grader-а зелёные.
+  - После него только правки текста по финальному review: правило `Why here` в `story-pr.md` берёт список источников
+    из `agents/reviewer.md` (ticket, spec, ADR, diff) и говорит «guess», а не «infer»; критерий судьи валит и
+    придуманный мотив (пример про `Math.floor`).
+  - Всего 16.75 USD. Повторный run после правок текста — за координатором:
+    `pnpm eval:harness -- --case implementer-story --keep-temp --max-cost-usd 10`.

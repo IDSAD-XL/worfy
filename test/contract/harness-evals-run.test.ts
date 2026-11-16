@@ -635,9 +635,9 @@ describe('harness/evals/lib/coverage.json: which case checks which rule file', (
     expect(pick('harness/evals/results/2026-01-01T00-00-00-000Z-main/aggregate-result.json').cases).toEqual([])
     // Several paths: each case once, and what each path chose.
     const many = casesFor(['harness/agents/implementer.md', 'README.md', 'harness/hooks/hooks.json', 'harness/hooks/rules/orchestrator.md'], coverage, CASE_NAMES)
-    expect(many.cases).toEqual(['implementer-report', 'status-block'])
+    expect(many.cases).toEqual(['implementer-report', 'implementer-story', 'status-block'])
     expect(many.files).toEqual([
-      { path: 'harness/agents/implementer.md', cases: ['implementer-report'] },
+      { path: 'harness/agents/implementer.md', cases: ['implementer-report', 'implementer-story'] },
       { path: 'harness/hooks/hooks.json', cases: ['status-block'] },
       { path: 'harness/hooks/rules/orchestrator.md', cases: ['status-block'] },
     ])
@@ -760,7 +760,7 @@ describe('pnpm eval:harness -- --changed <base> (claude replaced by a stub, a te
 
   it('runs only the case of an uncommitted change to a rule file, in the main call, and keeps --changed from claude', () => {
     const { repo } = changedRepo()
-    appendFileSync(join(repo, 'harness', 'agents', 'implementer.md'), '\nOne more rule.\n')
+    appendFileSync(join(repo, 'harness', 'skills', 'ship-ticket', 'implementer-report.md'), '\nOne more rule.\n')
     const { run, calls } = evalIn(repo, ['--', '--changed', 'HEAD'])
     expect(run.status, run.stderr).toBe(0)
     expect(calls).toHaveLength(1)
@@ -768,7 +768,7 @@ describe('pnpm eval:harness -- --changed <base> (claude replaced by a stub, a te
     expect(listAfter(args, '--case')).toEqual(['implementer-report'])
     expect(listAfter(args, '--tag')).toEqual(['main'])
     expect(args.join(' ')).not.toMatch(/--changed/)
-    expect(run.stdout).toContain('harness/agents/implementer.md -> implementer-report')
+    expect(run.stdout).toContain('harness/skills/ship-ticket/implementer-report.md -> implementer-report')
   })
 
   it('takes the commits of the branch since its merge-base with the base, and a file in a new untracked folder', () => {
@@ -792,7 +792,7 @@ describe('pnpm eval:harness -- --changed <base> (claude replaced by a stub, a te
 
   it('takes the --changed=<base> form, and keeps it from claude', () => {
     const { repo } = changedRepo()
-    appendFileSync(join(repo, 'harness', 'agents', 'implementer.md'), '\nOne more rule.\n')
+    appendFileSync(join(repo, 'harness', 'skills', 'ship-ticket', 'implementer-report.md'), '\nOne more rule.\n')
     const { run, calls } = evalIn(repo, ['--', '--changed=HEAD', '--runs', '1'])
     expect(run.status, run.stderr).toBe(0)
     expect(caseArgs(calls)).toEqual([['implementer-report']])
@@ -943,7 +943,7 @@ describe('pnpm eval:harness -- --changed <base> (claude replaced by a stub, a te
   ]
   it.each(refusals)('exits 1 and calls no claude on %s', (_, args, extra, stderr) => {
     const { repo } = changedRepo()
-    appendFileSync(join(repo, 'harness', 'agents', 'implementer.md'), '\nOne more rule.\n')
+    appendFileSync(join(repo, 'harness', 'skills', 'ship-ticket', 'implementer-report.md'), '\nOne more rule.\n')
     const { run, calls } = evalIn(repo, args, extra(repo))
     expect(run.status, run.stdout).toBe(1)
     expect(run.stderr).toMatch(stderr)
@@ -963,7 +963,7 @@ describe('pnpm eval:harness -- --changed <base> (claude replaced by a stub, a te
 describe('pnpm eval:harness: one line per call for the PR description, from aggregate-result.json', () => {
   const implementerChange = (): string => {
     const { repo } = changedRepo()
-    appendFileSync(join(repo, 'harness', 'agents', 'implementer.md'), '\nOne more rule.\n')
+    appendFileSync(join(repo, 'harness', 'skills', 'ship-ticket', 'implementer-report.md'), '\nOne more rule.\n')
     return repo
   }
 
@@ -1038,7 +1038,7 @@ describe('pnpm eval:harness: a `--` anywhere, the cost limit of the user, --dry-
 
   it('ends the line of a call whose report has more cases than the script chose with "cases mismatch", exit not 0', () => {
     const repo = changedRepo().repo
-    appendFileSync(join(repo, 'harness', 'agents', 'implementer.md'), '\nOne more rule.\n')
+    appendFileSync(join(repo, 'harness', 'skills', 'ship-ticket', 'implementer-report.md'), '\nOne more rule.\n')
     const { run } = evalIn(repo, ['--changed', 'HEAD'], { STUB_AGGREGATE: aggregate({ aggregates: { casesTotal: 3, casesPassed: 3, overallScore: 1 } }) })
     expect(run.status).not.toBe(0)
     expect(lines(run.stdout)).toContain(
@@ -1048,7 +1048,7 @@ describe('pnpm eval:harness: a `--` anywhere, the cost limit of the user, --dry-
 
   it('says "cases mismatch" for a report that ran another case than the chosen one', () => {
     const repo = changedRepo().repo
-    appendFileSync(join(repo, 'harness', 'agents', 'implementer.md'), '\nOne more rule.\n')
+    appendFileSync(join(repo, 'harness', 'skills', 'ship-ticket', 'implementer-report.md'), '\nOne more rule.\n')
     const { run } = evalIn(repo, ['--changed', 'HEAD'], { STUB_AGGREGATE: aggregate({ cases: [{ name: 'status-block' }] }) })
     expect(run.status).not.toBe(0)
     expect(run.stdout).toMatch(/cases implementer-report, cases mismatch: report 1, chosen 1\n/)
@@ -1147,7 +1147,7 @@ describe('pnpm eval:harness: a `--` anywhere, the cost limit of the user, --dry-
 
   it('says "cases mismatch" when a chosen case is missing from the report, but not for a partial run', () => {
     const repo = changedRepo().repo
-    appendFileSync(join(repo, 'harness', 'agents', 'implementer.md'), '\nOne more rule.\n')
+    appendFileSync(join(repo, 'harness', 'skills', 'ship-ticket', 'implementer-report.md'), '\nOne more rule.\n')
     const missing = evalIn(repo, ['--changed', 'HEAD'], { STUB_AGGREGATE: aggregate({ cases: [] }) })
     expect(missing.run.status).not.toBe(0)
     expect(missing.run.stdout).toMatch(/cases implementer-report, cases mismatch: report 0, chosen 1\n/)

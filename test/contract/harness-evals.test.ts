@@ -18,15 +18,11 @@ import { productCriticFolder, productFolder } from '../../src/shared/product/pat
 import { MIND_MAP_TOOL_NAMES, mindMapToolShapes } from '../../src/shared/product/tools'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
-import { CASES, childEnv, EVALS, HARNESS, REPO, SCAFFOLD_TIMEOUT_MS, stubSetup, tempDir } from './harness-evals-shared'
+import { CASES, childEnv, cliFrontMatter, EVALS, HARNESS, lineFrontMatter, markdownFiles, REPO, SCAFFOLD_TIMEOUT_MS, stubSetup, tempDir } from './harness-evals-shared'
 import { ms } from '../time-scale'
 
-/**
- * The YAML front matter of a case or grader file, as raw text ('' when there is none). Lines may end
- * in CRLF: git for Windows checks harness/evals/ out with core.autocrlf, and the test reads the file
- * as git gives it on the machine. `field` trims the `\r` off a value.
- */
-const frontMatter = (file: string): string => /^---\r?\n([\s\S]*?)\r?\n---/.exec(readFileSync(file, 'utf8'))?.[1] ?? ''
+/** The YAML front matter of a case or grader file as `claude plugin eval` cuts it ('' when there is none). */
+const frontMatter = (file: string): string => cliFrontMatter(readFileSync(file, 'utf8'))
 const field = (yaml: string, key: string): string | undefined =>
   new RegExp(`^\\s*${key}:\\s*(.+)$`, 'm').exec(yaml)?.[1]?.trim().replace(/^['"]|['"]$/g, '')
 
@@ -205,7 +201,19 @@ afterEach(() => {
 })
 
 describe('harness/evals: the cases', () => {
-  it('holds exactly the twenty-one cases', () => {
+  it('every .md file under harness/evals: the CLI cuts the front matter where its author ends it, so no value holds three dashes', () => {
+    // Three dashes inside a value end the YAML there, as in the CLI: a cut at a line start would not see it.
+    expect(cliFrontMatter("---\np: '--- x'\n---\n")).toBe("p: '")
+    const files = markdownFiles(EVALS)
+    expect(files.length).toBeGreaterThan(50)
+    for (const file of files) {
+      const text = readFileSync(file, 'utf8')
+      if (!/^---\s*\n/.test(text)) continue
+      expect(cliFrontMatter(text).replace(/\r?\n$/, ''), relative(REPO, file)).toBe(lineFrontMatter(text))
+    }
+  })
+
+  it('holds exactly the twenty-two cases', () => {
     const found = existsSync(EVALS)
       ? readdirSync(EVALS, { withFileTypes: true })
           .filter((entry) => entry.isDirectory() && existsSync(join(EVALS, entry.name, 'prompt.md')))

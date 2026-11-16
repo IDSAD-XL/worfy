@@ -4,7 +4,7 @@
 // claude. It is not a test file. The tests were one file of 193 serial tests, 257–261 s on the
 // Windows runner, the longest file of the job `windows (1/3) / full-suite`; in two files vitest can
 // put the halves in different shards.
-import { cpSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdtempSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -23,6 +23,7 @@ export const CASES: [name: string, tag: 'main' | 'gui'][] = [
   ['ship-ticket-local-green', 'main'],
   ['ship-ticket-pr-green-ci', 'main'],
   ['implementer-report', 'main'],
+  ['implementer-story', 'main'],
   ['reviewer-verdict', 'main'],
   ['no-os-screen-capture', 'gui'],
   ['status-block', 'main'],
@@ -40,6 +41,22 @@ export const CASES: [name: string, tag: 'main' | 'gui'][] = [
   ['pr-reply-three-threads', 'main'],
   ['pr-reply-guards', 'main'],
 ]
+/**
+ * The YAML front matter of a case or grader file as `claude plugin eval` cuts it ('' when there is none). The CLI
+ * (2.1.323) takes `/^---\s*\n([\s\S]*?)---\s*\n?/`: it ends at the first three dashes anywhere, not only at a line
+ * start, so three dashes inside a value cut the YAML short. Lines may end in CRLF (git for Windows checks
+ * harness/evals/ out with core.autocrlf); a reader of a field trims the `\r`.
+ */
+export const cliFrontMatter = (text: string): string => /^---\s*\n([\s\S]*?)---\s*\n?/.exec(text)?.[1] ?? ''
+/** The front matter cut at the first line that is three dashes: what the author of the file means. */
+export const lineFrontMatter = (text: string): string => /^---\r?\n([\s\S]*?)\r?\n---\r?(?:\n|$)/.exec(text)?.[1] ?? ''
+/** Every `.md` file under `dir`, results of paid runs (`results/`) left out. */
+export const markdownFiles = (dir: string): string[] =>
+  readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) return entry.name === 'results' ? [] : markdownFiles(path)
+    return entry.name.endsWith('.md') ? [path] : []
+  })
 // A scaffold script has 120 seconds inside `claude plugin eval`; here it takes about a second.
 export const SCAFFOLD_TIMEOUT_MS = ms(60_000)
 
