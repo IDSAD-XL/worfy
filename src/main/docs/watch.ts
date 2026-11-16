@@ -322,6 +322,8 @@ export interface DocsWatchOptions {
    * from the main branch is tried again (default READ_RETRY_FIRST_MS).
    */
   retryMs?: number
+  /** When the reads after each start of the watch run, in ms from that start (default SETTLE_READS_MS). */
+  settleReadsMs?: readonly number[]
   /** Whether an `error` of the watch means it is dead (default errorEndsWatch of this system). */
   errorEnds?: boolean
   /**
@@ -639,7 +641,7 @@ export class DocsWatcher {
     // The event stream starts a moment after watch() returns, and a change in that moment is not
     // reported. A few reads after the start pick such a change up; each one sends nothing unless
     // something changed.
-    for (const delay of SETTLE_READS_MS)
+    for (const delay of this.options.settleReadsMs ?? SETTLE_READS_MS)
       this.settle.push(
         setTimeout(() => {
           this.request()

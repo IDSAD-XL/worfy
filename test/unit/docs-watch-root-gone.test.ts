@@ -7,12 +7,15 @@ import { mkdirSync, mkdtempSync, realpathSync, renameSync, writeFileSync } from 
 import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DocsWatcher, errorEndsWatch, ROOT_RETRY_MS, SETTLE_READS_MS, type Docs, type DocsWatchOptions, type WatchRoot } from '../../src/main/docs/watch'
+import { DocsWatcher, errorEndsWatch, ROOT_RETRY_MS, SETTLE_READS_MS, type Docs, type DocsTreeSource, type DocsWatchOptions, type WatchRoot } from '../../src/main/docs/watch'
+import type { RepoTree } from '../../src/main/workflow/main-ref'
 import { removeTestTree } from '../remove'
 import { ms } from '../time-scale'
 
 /** The time between two looks for the root, in these tests. */
 const RETRY = 10
+/** The reads after the start of a watch, in the tests that wait past them (pastStartReads): none of them checks those reads (the last describe does). */
+const SETTLE: readonly number[] = [10]
 /** The name Windows gives in the events of a watched folder that is gone. */
 const ITSELF = '\\\\?\\C:\\p\\repo'
 
@@ -112,7 +115,7 @@ const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  * relabel reads once more and resolves after that read, which comes after the one in progress.
  */
 const pastStartReads = async (watcher: DocsWatcher): Promise<void> => {
-  await pause(Math.max(...SETTLE_READS_MS))
+  await pause(Math.max(...SETTLE))
   await watcher.relabel('past the start reads')
 }
 /** A wait on the real clock, also while the test has faked it: a look at the folder answers from the thread pool. */
@@ -423,7 +426,7 @@ describe('DocsWatcher and an event named by the root\'s last name', () => {
   it('reads the documents: a root that is gone reads as empty; the watch is kept and nothing is said', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const model = stand()
-    const { watcher, changes } = await start(model)
+    const { watcher, changes } = await start(model, { settleReadsMs: SETTLE })
     expect(watcher.current.handoff).not.toBeNull()
     await pastStartReads(watcher)
     removeTestTree(root)
@@ -436,7 +439,7 @@ describe('DocsWatcher and an event named by the root\'s last name', () => {
 
   it('a root renamed away and back is read at each event, by the same watch', async () => {
     const model = stand()
-    const { watcher, changes } = await start(model)
+    const { watcher, changes } = await start(model, { settleReadsMs: SETTLE })
     await pastStartReads(watcher)
     const moved = join(dir, 'moved')
     renameSync(root, moved)
@@ -453,7 +456,7 @@ describe('DocsWatcher and an event named by the root\'s last name', () => {
 describe('DocsWatcher and names at the top of the root', () => {
   it('another name at the top of the root asks for no read; the root\'s own name and HANDOFF.md do', async () => {
     const model = stand()
-    const { watcher, changes } = await start(model)
+    const { watcher, changes } = await start(model, { settleReadsMs: SETTLE })
     await pastStartReads(watcher)
     writeFileSync(join(root, 'HANDOFF.md'), '# handoff, changed\n')
     for (const name of ['package.json', '.git', 'README.md', 'repository']) model.made[0]!.event(name)
@@ -469,12 +472,63 @@ describe('DocsWatcher and names at the top of the root', () => {
   it('a root that has no real path when its watch starts goes by its name as written', async () => {
     removeTestTree(root)
     const model = stand()
-    const { watcher, changes } = await start(model)
+    const { watcher, changes } = await start(model, { settleReadsMs: SETTLE })
     expect(watcher.current).toEqual({ handoff: null, adrs: [] })
     await pastStartReads(watcher)
     mkdirSync(root)
     writeFileSync(join(root, 'HANDOFF.md'), '# handoff, back\n')
     model.made[0]!.event('repo')
     await until(() => expect(changes.at(-1)?.handoff?.path).toBe('HANDOFF.md'))
+  })
+})
+
+// The reads after the start of a watch (worfy-polish ticket 119): `settleReadsMs` sets when they run, and without it
+// they run at SETTLE_READS_MS. The documents come from a main branch held in memory, so every read stays in this
+// process and the fake clock times them.
+describe('DocsWatcher: the reads after the start of its watch', () => {
+  const START = new Date('2026-11-16T00:00:00Z')
+  const empty: RepoTree = {
+    sha: 'b'.repeat(40),
+    committedAt: 0,
+    names: () => Promise.resolve([]),
+    texts: () => Promise.resolve(new Map()),
+    addedAt: () => Promise.resolve(new Map()),
+  }
+
+  /** Starts a watcher on a stand-in watch; `at` gets the time of every read, in ms from the start. */
+  async function reads(extra: Partial<DocsWatchOptions>): Promise<number[]> {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'], now: START })
+    const at: number[] = []
+    const source: DocsTreeSource = {
+      tree: () => {
+        at.push(Date.now() - START.getTime())
+        return Promise.resolve(empty)
+      },
+      onMoved: () => () => undefined,
+    }
+    const watcher = await DocsWatcher.start({ root, debounceMs: 0, onChange: () => undefined, watch: stand().watch, source, ...extra })
+    watchers.push(watcher)
+    return at
+  }
+
+  it('without the option: at 100, 400 and 1000 ms after the start, and no more', async () => {
+    expect(SETTLE_READS_MS).toEqual([100, 400, 1000])
+    const at = await reads({})
+    await vi.advanceTimersByTimeAsync(999)
+    expect(at).toEqual([0, 100, 400])
+    await vi.advanceTimersByTimeAsync(1)
+    expect(at).toEqual([0, 100, 400, 1000])
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(at).toEqual([0, 100, 400, 1000])
+  })
+
+  it('with settleReadsMs: at those times instead, and no more', async () => {
+    const at = await reads({ settleReadsMs: [10, 30] })
+    await vi.advanceTimersByTimeAsync(29)
+    expect(at).toEqual([0, 10])
+    await vi.advanceTimersByTimeAsync(1)
+    expect(at).toEqual([0, 10, 30])
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(at).toEqual([0, 10, 30])
   })
 })
