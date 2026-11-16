@@ -17,6 +17,22 @@
 /** The exit code of an app that an uncaught exception of main ended in an e2e run. */
 export const UNCAUGHT_EXIT_CODE = 70
 
+/**
+ * The failure of a test whose app an uncaught exception of main ended (exit code
+ * UNCAUGHT_EXIT_CODE), quoting the app's output from worfy's own report of the exception to the
+ * `[e2e]` line exitOnUncaught wrote; null for any other exit. launchApp's close() and its failed
+ * start fail the test with it: Playwright counts an app that exited as closed, so without this
+ * check an exception after the test's last call into main would pass unseen.
+ */
+export function uncaughtExitProblem(exitCode: number | null, output: string): string | null {
+  if (exitCode !== UNCAUGHT_EXIT_CODE) return null
+  const lines = output.split(/\r?\n/)
+  const end = lines.findLastIndex((line) => line.includes('[e2e] uncaught exception in main'))
+  const start = lines.findLastIndex((line, index) => (end === -1 || index < end) && line.includes('[worfy] uncaught exception in main'))
+  const quoted = start === -1 && end === -1 ? "(the app's output has no report of it)" : lines.slice(start === -1 ? end : start, end === -1 ? undefined : end + 1).join('\n')
+  return `an uncaught exception of main ended the app with exit code ${UNCAUGHT_EXIT_CODE}:\n${quoted}`
+}
+
 /** The part of `process` the listener uses; the unit test passes an EventEmitter. */
 export interface UncaughtHost {
   on(event: 'uncaughtException', listener: (error: unknown, origin: string) => void): unknown

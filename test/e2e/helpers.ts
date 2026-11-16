@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync, spawnSync, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -16,7 +16,7 @@ import { PROCESSES_TIMEOUT_MS, processTreeScript, quitDiagnosisText, quitLogLine
 import type { StepResult } from './start-diagnosis'
 import { currentTest, recordOutput, startDiagnostics, startTestClock } from './start-diagnostics-run'
 import { clickMenuItem } from './menu'
-import { exitOnUncaught, UNCAUGHT_EXIT_CODE } from './uncaught-exit'
+import { exitOnUncaught, UNCAUGHT_EXIT_CODE, uncaughtExitProblem } from './uncaught-exit'
 import { ms } from '../time-scale'
 
 export const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -276,6 +276,25 @@ async function diagnoseQuit(pid: number | undefined, output: string): Promise<vo
   }
 }
 
+/** How long the check of an app that exited with UNCAUGHT_EXIT_CODE waits for the rest of its output. */
+const OUTPUT_END_TIMEOUT_MS = ms(2_000)
+
+/**
+ * The failure when an uncaught exception of main ended the app (exit code UNCAUGHT_EXIT_CODE,
+ * uncaught-exit.ts), or null. Inside a test it fails the test softly, so a test that already failed
+ * keeps its own error; outside one the caller throws it. Playwright counts an app that exited as
+ * closed, so without this an exception after the test's last call into main would pass unseen.
+ */
+async function uncaughtExit(child: ChildProcess, output: () => string): Promise<string | null> {
+  if (child.exitCode !== UNCAUGHT_EXIT_CODE) return null
+  // 'exit' may come before the last of stderr has been read; 'close' comes after both streams end.
+  const ended = [child.stdout, child.stderr].every((stream) => stream === null || stream.readableEnded || stream.destroyed)
+  if (!ended) await Promise.race([new Promise((done) => child.once('close', done)), timeout(OUTPUT_END_TIMEOUT_MS)])
+  const problem = uncaughtExitProblem(child.exitCode, output())
+  if (problem !== null && currentTest()) expect.soft(problem, 'an uncaught exception of main ended the app').toBeNull()
+  return problem
+}
+
 /**
  * Starts the app with isolated data and Claude directories and the fake agent: the built out/
  * bundle by default, or the packaged app when `executablePath` is given. Resolves once the first
@@ -372,6 +391,12 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
           await exited(child)
         }, cleanDirs)
         reportKillFailure(killFailure)
+        // Checked before the quit's own result: an app that exited with 70 counts as closed.
+        const uncaught = await uncaughtExit(child, output.text)
+        if (uncaught !== null) {
+          if (currentTest()) return
+          throw new Error(uncaught)
+        }
         if (closed === 'closed' || gone) return
         const problem = `the app did not quit within ${QUIT_TIMEOUT_MS / 1000} s and was killed`
         // Soft inside a test: a test that already failed keeps its own error, which a throw here would replace.
@@ -390,6 +415,10 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
       if (error.stack?.includes(before)) error.stack = error.stack.replace(before, () => error.message)
     }
     reportKillFailure(await killThenClean(kill, cleanDirs), error)
+    // An app that an uncaught exception of main ended: inside a test a soft failure that quotes it,
+    // outside one its text joins the message of the error thrown.
+    const uncaught = await uncaughtExit(child, output.text)
+    if (uncaught !== null && !currentTest() && error instanceof Error) error.message = `${error.message}\n  ${uncaught}`
     throw error
   }
 }
