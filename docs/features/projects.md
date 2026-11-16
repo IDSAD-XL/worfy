@@ -367,7 +367,10 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
   or with a red check of it; off, neither happens. Either way, after the merge `land`'s documents PR appends to a
   ticket's story the step "What review found and what remains": the saved review verdict quoted as it is and the lines
   of the merged head it names, with no model call (`harness/skills/epic-wave/SKILL.md`, "The review step of the Code
-  story").
+  story"). When the state file of `land` holds the Epic's last PR with code (`land --epic-story`; an owner's acceptance
+  ticket does not count), an agent of the Orchestrator puts together the Epic's story, and the documents PR of that
+  merge carries it as `<epic>/story.md` (in Silent mode it goes into the Workflow folder; `harness/skills/epic-wave/SKILL.md`,
+  "The epic story").
 - "Edit profile…" in "Project settings…" opens the Project's Profile in a form over the dialog. It has the fields of the
   Review step of "Add project" and those that step does not show: the title, the commands, the ticket path, spec, files
   section, done section and branch, the finish, `parallel`, the review and ticket lenses, the MCP servers, the skills
