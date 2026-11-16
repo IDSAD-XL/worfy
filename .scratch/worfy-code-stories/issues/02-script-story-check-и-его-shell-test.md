@@ -1,7 +1,8 @@
 # 02 — Script `story-check` и его shell-test
 
 Type: feature
-Status: claimed 2026-11-16T01:10Z
+Status: done 2026-11-16T07:25Z
+PR: #1897
 Branch: worfy-code-stories/02
 Blocked by: 01
 Source: [spec.md](../spec.md), «Ticket-ы», строка 02; «Решения владельца» 12, 24 (строки 106–108, 128);
