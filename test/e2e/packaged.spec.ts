@@ -295,7 +295,15 @@ function harnessClone(dir: string, sha: string, lesson: boolean): string {
     gitIn(clone, 'checkout', '-q', '--detach', sha)
   }
   gitIn(clone, 'update-ref', 'refs/remotes/origin/main', main)
-  const issues = join(clone, '.scratch', HARNESS_EPIC, 'issues')
+  // worfy fetches origin's main while a window shows the Project (ADR-0107), so origin must hold
+  // the same main: a bare repository whose objects are the clone's (alternates, nothing copied).
+  const origin = `${clone}-origin.git`
+  gitIn(dir, 'init', '-q', '--bare', origin)
+  const objects = (repo: string) => join(gitIn(repo, 'rev-parse', '--path-format=absolute', '--git-common-dir'), 'objects')
+  writeFileSync(join(origin, 'objects', 'info', 'alternates'), `${objects(clone)}\n${objects(repoRoot)}\n`)
+  gitIn(origin, 'update-ref', 'refs/heads/main', main)
+  gitIn(clone, 'remote', 'set-url', 'origin', origin)
+  const issues =join(clone, '.scratch', HARNESS_EPIC, 'issues')
   mkdirSync(issues, { recursive: true })
   writeFileSync(join(clone, '.scratch', HARNESS_EPIC, 'spec.md'), '# Demo epic\n')
   writeFileSync(join(issues, '01-ticket-1.md'), ['# 01 — Ticket 1', '', 'Type: task', 'Status: open', 'Blocked by: —', '', '## Где в коде', '', '- `src/f1.ts`', ''].join('\n'))
