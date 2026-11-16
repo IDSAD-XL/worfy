@@ -16,6 +16,7 @@ import { PROCESSES_TIMEOUT_MS, processTreeScript, quitDiagnosisText, quitLogLine
 import type { StepResult } from './start-diagnosis'
 import { currentTest, recordOutput, startDiagnostics, startTestClock } from './start-diagnostics-run'
 import { clickMenuItem } from './menu'
+import { exitOnUncaught, UNCAUGHT_EXIT_CODE } from './uncaught-exit'
 import { ms } from '../time-scale'
 
 export const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -334,6 +335,10 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
   const windowDeadline = Date.now() + FIRST_WINDOW_TIMEOUT_MS
   const windowLeft = (): number => Math.max(1, windowDeadline - Date.now())
   try {
+    // An uncaught exception of main from here on ends the app with exit code 70 and a line on
+    // stderr, instead of Electron's modal error box, which held main's thread and left the test to
+    // its time limit (uncaught-exit.ts).
+    await app.evaluate(exitOnUncaught, { code: UNCAUGHT_EXIT_CODE })
     const window = await app.firstWindow({ timeout: windowLeft() })
     // Returned only once the window is on screen. The app creates it hidden and shows it when the
     // page has painted; macOS then fits it into the display. A size or position a test sets before
