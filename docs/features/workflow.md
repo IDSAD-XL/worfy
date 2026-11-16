@@ -136,8 +136,13 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
   sits on a detached HEAD or another branch, or holds untracked files does not change the list. While a window shows the
   Project, worfy runs `git fetch --prune origin <main>` when the window opens it, every 2 minutes, and when a window gets
   the focus (at most once in 30 s); a Project only Autopilot or the notices follow is not fetched, and a fetch from a
-  terminal is seen too. A fetch asks nothing: no password prompt, no credential window, ssh in batch mode. A failed fetch
-  keeps the list as it was. The status of a
+  terminal is seen too. A fetch asks nothing: no password prompt, no credential window, ssh in batch mode
+  (`-o BatchMode=yes` goes only to a command that runs ssh itself, after any leading `NAME=value` words and `env`; plink, TortoiseGitPlink and other programs are left as
+  they are). A failed fetch keeps the list as it was. When git cannot read the main branch for `HANDOFF.md` and the ADRs,
+  they keep their last read; at the start, with none yet, the HANDOFF Node and the ADR section say they could not be
+  read, with git's error, not that there are none. Either way they are read again after 2 s,
+  then after twice as long each time up to once a minute, and at once when the branch moves. The canvas tools of a
+  Session (`link_card`) and the Browser tools check their Epic and Ticket targets against this same read. The status of a
   Ticket's worktree branch still goes over main's, and so does the folder's own branch when it names a Ticket. Silent
   mode and a Tickets root outside git read the folder, as before. When the main branch does not resolve (no `origin`),
   the folder is read and the Epics section shows "As of <commit>" with the reason; the same line, with the time of the
@@ -228,6 +233,10 @@ copy, and `sources/epics.ts` turns the copy into Nodes. The same hub serves the 
 - `test/unit/story-parse.test.ts`, `test/contract/story-code.test.ts`, `test/contract/story-store.test.ts`: the Code story
   format on the shared fixtures of `harness/bin/tests/fixtures/code-story/`, the code of a fragment from git, the store.
 - `test/contract/workflow-watch-retry.test.ts`: retries of the layout.
+- `test/contract/workflow-read-from-main.test.ts`, `test/contract/canvas-workflow-from-main.test.ts`,
+  `test/contract/docs-first-read-retry.test.ts`, `test/contract/workflow-fetch-guard.test.ts`: the read from the main
+  branch, the canvas tools' read, the documents after a failed first read, and the fetch guard of the tests (the URL
+  after `insteadOf`).
 - Windows: `test/unit/tickets-watch.test.ts`, `test/unit/workflow-remote-links.test.ts`, `test/contract/workflow-watch-links.test.ts`,
   `test/contract/workflow-branches-gone.test.ts`, `test/contract/workflow-branches-handles.test.ts`.
 

@@ -3,6 +3,8 @@
 // start the owner's credential helper (`gh auth git-credential`) and talk to GitHub. The fetch is no-op unless a test
 // passes one (WorkflowHub's `fetch`); this guard covers the rest: a fetch to any other remote is refused before git
 // runs, and the test that ran it fails here, in the hook after it, or at the end of its file when the fetch came later.
+// The URL checked is the one git would fetch from, after the repository's `url.<base>.insteadOf` rewrites
+// (test/contract/workflow-fetch-guard.test.ts): a local path rewritten to an https URL is refused.
 import { afterAll, afterEach } from 'vitest'
 import { isLocalRemote, setFetchGuard } from '../src/main/workflow/fetch'
 

@@ -39,6 +39,12 @@ export const docsStateSchema = z.object({
   handoff: z.object({ path: z.literal(HANDOFF_FILE), version }).nullable(),
   /** By number. */
   adrs: z.array(adrEntrySchema),
+  /**
+   * Why no read of the documents has worked yet: git could not read the Project's main branch (ADR-0107). Present
+   * only then, with `handoff` null and no ADRs — "not read", not "no documents"; main reads again and sends the first
+   * read that works without it (src/main/docs/watch.ts, DocsWatcher.start).
+   */
+  readError: z.string().optional(),
 })
 export type DocsState = z.output<typeof docsStateSchema>
 

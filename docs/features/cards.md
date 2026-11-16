@@ -309,7 +309,8 @@ refused as an unknown Node. If the Layout change of `create_card` fails, the new
 `list_nodes`, the Command palette, Find and the title bar of a focus mode tile show it. The Node's header shows the `<title>` of `index.html` instead, so an agent
 that wants to change the header edits that file.
 
-**Links.** `link_card` checks that the Epic or Ticket exists, unless it is removing a link. Linking twice keeps one link. The
+**Links.** `link_card` checks that the Epic or Ticket exists, unless it is removing a link. It checks against the
+workflow as the window's list reads it: from the Project's main branch ([Workflow](workflow.md)). Linking twice keeps one link. The
 links are kept in the Card Node's data, and only `link_card` reads them today: the Canvas draws nothing for them.
 
 ### How it works

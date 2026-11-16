@@ -29,8 +29,9 @@ const users = new Map<string, number>()
 
 function onChanged(state: DocsState): void {
   // Until `docs.open` has answered, its answer is the newest state: main computes it after any
-  // change it reported before.
-  if (!users.has(state.projectId) || useDocsStore.getState().byProject[state.projectId]?.state === undefined) return
+  // change it reported before. An answer that was an error is replaced by the next state main sends.
+  const entry = useDocsStore.getState().byProject[state.projectId]
+  if (!users.has(state.projectId) || entry === undefined || (entry.state === undefined && entry.error === undefined)) return
   setEntry(state.projectId, { state, error: undefined })
 }
 

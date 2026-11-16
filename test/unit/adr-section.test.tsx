@@ -139,3 +139,19 @@ describe('ADR panel: Open in Editor', () => {
     expect(invoke.mock.calls.map(([channel]) => channel).filter((channel) => channel !== 'docs.adrs')).toEqual([])
   })
 })
+
+describe('ADR section, documents main could not read yet', () => {
+  it('says the ADRs could not be read, with the reason, not that there are none', () => {
+    const before = { adrs: docs.adrs }
+    docs.adrs = []
+    docs.readError = 'git ls-tree failed'
+    try {
+      render(<AdrSection />)
+      expect(screen.getByText('The ADRs could not be read: git ls-tree failed')).toBeTruthy()
+      expect(screen.queryByText(/No ADRs in/)).toBeNull()
+    } finally {
+      docs.adrs = before.adrs
+      delete docs.readError
+    }
+  })
+})
