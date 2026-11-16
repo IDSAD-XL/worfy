@@ -1350,6 +1350,53 @@ merged head. Then
 `"${CLAUDE_PLUGIN_ROOT}/bin/story-check" --repo <repo> --head <merged head> <story>; echo "EXIT=$?"`;
 `EXIT=2` — fix the step, not the code.
 
+**The epic story** (`bin/TICKETS.md`, "Code story" and "Ticket with code"). The story of the epic is put
+together once the epic's last PR with code is merged, and it rides in the documents PR that marks that
+PR's ticket done. `land` merges, opens the documents PR and merges it in one run, so the orchestrator
+learns it holds that PR before `land` runs. Once the state file is written, before the first `land` run:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/bin/land" <state file> --epic-story; echo "EXIT=$?"
+```
+
+It merges nothing and writes nothing. One line per epic of the state file: `epic story of <epic> is due:
+#<N> (<epic> <NN>) is its last PR with code` — every other ticket with code of the epic is `done` on the
+main branch and PR `#<N>`, `VERIFIED` like every PR of the state file, is the last of the epic's open ones
+in merge order; a ticket whose header says `Who: owner` (the owner's acceptance) does not count, open or
+not. `is not due` — nothing to do. `EXIT=3` — the tickets could not be read: say so in the report and run
+`land` without the story. When it is due, before `land`, start an agent with the `Agent` tool — a
+Subagent of the orchestrator, seen on the Canvas like any other:
+
+- its input: the stories of the epic's PRs, `<tickets root>/<epic>/stories/*.md` (the last PR's story on
+  its head `<head>`), the epic's `spec.md`, the saved verdicts `<scratchpad>/verdict-<N>.md`, and the
+  epic's PRs with their heads (`epic-status --json` gives each done ticket's `pr`, `gh pr view <N> --json
+  headRefOid` its head; the head must be in the checkout: `git -C <repo> fetch origin pull/<N>/head`);
+- its output: `<scratchpad>/epic-story-<epic>.md`, an epic story by `bin/TICKETS.md` (`Kind: epic`,
+  `Language:` `F language.reports`): `Start`, one chapter per PR with five to ten main steps over the
+  whole story, the step `Seams between tickets` with one item per handoff (from which ticket, to which,
+  what was handed over, `done: yes` or `done: no — <why>`), `Summary`, `Check`, and `Check yourself` with
+  two or three questions. A PR without a story (merged before its epic wrote stories) — the agent reads
+  its diff and says in `Start` which chapters come from a diff;
+- its check before handing the file over: `"${CLAUDE_PLUGIN_ROOT}/bin/story-check" --repo <repo>
+  --pr-head <N>=<head>… <story>; echo "EXIT=$?"`, one `--pr-head` per chapter. `EXIT=2` — the agent fixes
+  the story; without a green check the state file gets no `files`.
+
+Then give the ready file to that PR in the field `prs[].files` of the state file:
+
+`node -e 'const fs = require("fs"), path = require("path"), [file, n, epic, story] = process.argv.slice(1); const st = JSON.parse(fs.readFileSync(file, "utf8")); const pr = st.prs.find((p) => p.number === Number(n)); if (!pr) { console.error("no PR #" + n + " in " + file); process.exit(1) } pr.files = [{ path: epic + "/story.md", from: path.resolve(story) }]; fs.writeFileSync(file, JSON.stringify(st, null, 2) + "\n")' <state file> <N> <epic> "<scratchpad>/epic-story-<epic>.md"; echo "EXIT=$?"`
+
+`path` is relative to the tickets root, `from` the absolute path of the ready file (`land` refuses
+anything else, exit 1). `land` copies it to `<tickets root>/<epic>/story.md` in the same documents PR as
+that ticket's `Status: done`, before the privacy check `evidence-check`: red — the documents PR waits
+red and nothing is committed or pushed, as with the Evidence lines; fix the story and run `land` again on
+the same file. The story waits while another PR of the epic in the state file is not merged: the
+documents PR waits with it (`the files of #N wait for #M of epic <epic>, not merged yet`), and the next
+`land` run after that PR merges puts it. The same bytes already on the main branch are left as they are;
+a different `story.md` there, or a symbolic link on the path, is never overwritten: the documents PR waits
+red — change that story by a PR of its own, or drop the entry from `files`. In Silent mode there is no documents PR: `land` copies the file into the
+Workflow folder, `<epic>/story.md` there, by the same rules, and prints `<epic>/story.md of #N written
+into the tickets outside the repository`, or `files of #N wait: <reason>`.
+
 In Silent mode `land` opens no documents PR (`ticket done` is the orchestrator's, in the Workflow
 folder), and the Evidence lines are the orchestrator's too: after the verdict and the CI, before
 `ticket done`, `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" evidence <epic> <NN> <item> review pass --ref "PR #<N>" --sha <head>`

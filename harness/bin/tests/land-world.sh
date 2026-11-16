@@ -27,7 +27,7 @@ STUBS="$T/stubs"; mkdir -p "$STUBS"
 # them fails; pulls-<sha> — the JSON list of the PRs of a commit; merge-fail-<N> — `pr merge` refused; kill-after-merge-<N> — after the merge of N it
 # kills its parent (land) with SIGKILL. `pr merge` squash-merges refs/pull/<N>/head into main of $GH_ORIGIN and
 # logs whether $LAND_TEST_LOCK was held. `pr create` gives numbers from 900 and points refs/pull/<n>/head at the
-# pushed branch.
+# pushed branch; kill-before-create — it kills its parent (land) with SIGKILL first and creates nothing.
 cat >"$STUBS/gh.mjs" <<'EOF'
 import fs from "node:fs"
 import path from "node:path"
@@ -95,6 +95,7 @@ if (cmd === "pr view") {
     const br = a[a.indexOf("--head") + 1], made = JSON.parse(read("created.json", "{}"))
     out(made[br] && prJson(made[br]).state === "OPEN" ? [{ number: made[br] }] : [])
 } else if (cmd === "pr create") {
+    if (has("kill-before-create")) { process.kill(process.ppid, "SIGKILL"); process.exit(1) }
     const br = a[a.indexOf("--head") + 1], made = JSON.parse(read("created.json", "{}"))
     const n = 900 + Object.keys(made).length
     made[br] = n

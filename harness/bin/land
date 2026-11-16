@@ -4,6 +4,7 @@
 // model calls per merge (skill epic-wave, section 4).
 //
 //   land <state.json> [--watch]
+//   land <state.json> --epic-story
 //
 // The merge condition, on the PR's head commit (profile workflow.ci "pr": CI runs on every PR):
 //   - no run of the CI workflow (ci_workflow) on the head is queued or in progress — a newer run is coming,
@@ -66,7 +67,10 @@
 // (prs[].result.head) where it holds the lines of the head review verified (prs[].head) — no model call; a fragment with
 // personal data is not quoted, nor is any when the verified head cannot be read (the log says which). A PR without a
 // story or without prs[].verdict, a story that has the step already, and a story already red at the merged head by
-// story-check get nothing (the last two with a log line). Then
+// story-check get nothing (the last two with a log line). Then each extra file of prs[].files (the story of the epic,
+// bin/TICKETS.md, "Code story") is copied to <tree>/<tickets root>/<path> — once every PR of its epic in the state file
+// is merged (until then the documents wait); the same bytes there already are left as they are (log line), other bytes
+// or a symbolic link on the path make the documents wait red: a story is never overwritten. Then
 // docs_check, `git add -A`, the privacy check `evidence-check --changed --root <tree>/<tickets root> --base
 // refs/remotes/<remote>/<branch>` (exit 1 — the findings, masked, go to the log; the documents wait red, nothing
 // is committed or pushed), `story-check --head <merged head> <story>` on each story with an appended step (red — the
@@ -76,7 +80,18 @@
 // entry gets a new branch and a new PR. With tickets_root null there is no documents PR: prs[].evidence is not
 // written, and land prints `evidence of #N is the orchestrator's (tickets outside the repository)`; the review step is
 // not appended either, and for a PR with prs[].verdict land prints `review step of #N is the orchestrator's (tickets
-// outside the repository)`.
+// outside the repository)`. The extra files of a merged PR (prs[].files) go into the folder `ticket root` prints, by the
+// same rules, with the line `<path> of #N written into the tickets outside the repository`, or `files of #N wait: <reason>`.
+//
+// --epic-story: merges nothing, asks gh nothing and writes nothing (the state file and its log included). For each
+// epic of the state file's PRs it reads the epic's tickets on <remote>/<branch> after a fetch (tickets_root null:
+// in the folder `ticket root` prints) — their Status through bin/epic-status --json, the rest of the header here —
+// and prints one line: `epic story of <epic> is due: #N (<epic> NN) is its last PR with code` when every ticket with
+// code of the epic that is not done (bin/TICKETS.md, "Ticket with code": a ticket whose Who line names the owner does
+// not count) has a PR in the state file, N the last of them in merge order; otherwise `epic story of <epic> is not due:
+// tickets with code still open: NN, NN` (or `: no PR of the state file is an open ticket with code`). The orchestrator
+// runs it before land (skill epic-wave, "The epic story"). Exit 0 — answered, 1 — the input, 3 — the tickets could
+// not be read.
 //
 // The state file is the input and the record; every finished step is written to it at once, so a run
 // broken off (the session ended, a kill) goes on from there when it is run again on the same file: a PR
@@ -106,7 +121,10 @@
 //                 "ci" for ci-check, otherwise the one `ticket` takes, copy — "-"; main_fix — optional, true for the
 //                 fix of a red main branch or the revert of its culprit: it merges while the branch is red; verdict —
 //                 optional, null or the absolute path of the saved review verdict of the PR (the output of
-//                 bin/verdict): the documents PR appends from it the review step of the PR's Code story
+//                 bin/verdict): the documents PR appends from it the review step of the PR's Code story; files —
+//                 optional, [{path, from}]: the extra files of the documents PR that closes this PR's ticket — path
+//                 relative to the tickets root, inside it (`<epic>/story.md` for the story of the epic), from the
+//                 absolute path of the ready file; the orchestrator gives them to the epic's last PR with code
 // land adds: prs[].result {status: merged|waits, sha, head | reason, kind, at} (head — the head that was merged),
 // docs [{branch, prs, pr, closed, result}], runs [{started, ended, land}].
 //
@@ -140,6 +158,8 @@ const { NO_MACHINE } = require("../lib/evidence.cjs")
 const { findVerdict } = require("../lib/verdict.cjs")
 // The personal-data rules evidence-check and story-check apply: a quoted fragment must pass them.
 const privacy = require("../lib/privacy.cjs")
+// The code blocks of a ticket file: the rule bin/ticket and bin/epic-status read a header by.
+const { codeLines: codeFence } = require("../lib/code-fence.cjs")
 
 const SHA = /^[0-9a-f]{40}$/
 const MERGEABLE_RETRIES = 6
@@ -260,6 +280,14 @@ function load(file) {
             fail(`${file}: PR #${pr.number}: "checks" must be a list of Check names ([] for none)`)
         if (pr.verdict !== undefined && pr.verdict !== null && (typeof pr.verdict !== "string" || !path.isAbsolute(pr.verdict)))
             fail(`${file}: PR #${pr.number}: "verdict" must be the absolute path of the saved verdict (the output of bin/verdict) or null`)
+        if (pr.files !== undefined && pr.files !== null) {
+            // a path that stays inside the tickets root on every system: relative, forward slashes, already normalized
+            const inside = (p) => typeof p === "string" && p !== "" && !p.includes("\\") && !path.posix.isAbsolute(p) && !path.win32.isAbsolute(p) && path.posix.normalize(p) === p && !p.split("/").includes("..") && p !== "."
+            const entry = (f) => f && typeof f === "object" && inside(f.path) && typeof f.from === "string" && path.isAbsolute(f.from)
+            if (!Array.isArray(pr.files) || !pr.files.every(entry))
+                fail(`${file}: PR #${pr.number}: "files" must be a list of {path, from}: path relative to the tickets root and inside it, from the absolute path of the ready file`)
+            if (pr.files.length && (!pr.epic || !pr.ticket)) fail(`${file}: PR #${pr.number}: "files" needs the PR's "epic" and "ticket"`)
+        }
         if (pr.evidence !== undefined && pr.evidence !== null) {
             const word = (e, key) => typeof e[key] === "string" && e[key] !== ""
             const maybe = (e, key) => e[key] === undefined || e[key] === null || word(e, key)
@@ -555,6 +583,12 @@ function storiesOn(st) {
 // those of the head. A PR without a ticket is not checked. A story the repository's tickets hold, found green at a head,
 // is not checked again at that head (the second call of ready(), under the main-branch lock): the commit cannot change.
 const storyGreenAt = new Set()
+// The tickets folder outside the repository (tickets_root null): the one `ticket root` prints.
+function ticketsFolder(st) {
+    const r = run(program(process.env.LAND_TICKET, [process.execPath, [path.join(__dirname, "ticket")]]), ["root"], st.repo)
+    if (r.code !== 0) throw new Wait(`the tickets root could not be read: bin/ticket root exit ${r.code}: ${firstLine(r.err || r.out)}`)
+    return r.out.trim()
+}
 // The first problem line of a red story-check (`<story>:<step>: <what>`), not its count or anchor lines; else its last line.
 const storyProblem = (lines) =>
     lines.find((l) => /^.+:[^:]+: /.test(l) && !/: \d+ fragments? checked against /.test(l) && !/: \d+ problems?$/.test(l)) || lines[lines.length - 1] || ""
@@ -574,9 +608,7 @@ function storyGreen(st, pr, head) {
                 .split("\0")
                 .filter((p) => own(path.posix.basename(p)))
         } else {
-            const r = run(program(process.env.LAND_TICKET, [process.execPath, [path.join(__dirname, "ticket")]]), ["root"], st.repo)
-            if (r.code !== 0) throw new Wait(`the tickets root could not be read: bin/ticket root exit ${r.code}: ${firstLine(r.err || r.out)}`)
-            dir = path.join(r.out.trim(), pr.epic, "stories")
+            dir = path.join(ticketsFolder(st), pr.epic, "stories")
             let names = []
             try {
                 names = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isFile() && own(e.name)).map((e) => e.name)
@@ -883,6 +915,147 @@ function appendReviewStep(st, p, tree, root) {
     log(`#${p.number}: the review step appended to ${file}: ${quote.length} lines of the verdict, ${fragments.length} fragment${fragments.length === 1 ? "" : "s"} of ${short(head)}`)
     return { file, head }
 }
+
+// --- the extra files of a PR (prs[].files): the story of the epic -------------------------------------------------------
+// Copies each extra file of PR p to <base>/<prefix>/<path> — prefix the tickets root inside the documents worktree, or ""
+// in the tickets folder outside the repository — and returns the paths it wrote. Nothing is written:
+//   - while another PR of p's epic in the state file is not merged (a PR that waits does not hold the next one back): the
+//     story of the epic would tell of a PR the main branch does not have, and once that PR merged, the path would be
+//     there already. The files wait — the documents PR with them in Full mode;
+//   - through a symbolic link: the path itself or a folder on it — red;
+//   - over a file that is there already: the same bytes — an earlier documents PR or run put it, nothing to do; other
+//     bytes — red, never overwritten: the anchor of a story is the commit that added it (bin/TICKETS.md, "Story anchor").
+// `where` names the place in the log and the reasons.
+function putFiles(st, p, base, prefix, where) {
+    if (!Array.isArray(p.files) || !p.files.length) return []
+    const behind = st.prs.filter((x) => x !== p && x.epic === p.epic && !(x.result && x.result.status === "merged")).map((x) => `#${x.number}`)
+    if (behind.length) throw new Wait(`the files of #${p.number} wait for ${behind.join(", ")} of epic ${p.epic}, not merged yet`)
+    const written = []
+    for (const f of p.files) {
+        const parts = [...(prefix ? prefix.split("/") : []), ...f.path.split("/")]
+        const target = path.join(base, ...parts)
+        let at = base
+        for (const part of parts) {
+            at = path.join(at, part)
+            let info
+            try {
+                info = fs.lstatSync(at)
+            } catch (e) {
+                if (e.code === "ENOENT") break
+                throw new Wait(`${f.path} of #${p.number}: ${parts.slice(0, parts.indexOf(part) + 1).join("/")} cannot be read (${e.code || e.message})`)
+            }
+            if (info.isSymbolicLink()) throw new Wait(`${f.path} of #${p.number}: ${path.relative(base, at).split(path.sep).join("/")} is a symbolic link, nothing is written through it`, "red")
+        }
+        let bytes
+        try {
+            bytes = fs.readFileSync(f.from)
+        } catch (e) {
+            throw new Wait(`the file ${f.path} of #${p.number} cannot be read: ${f.from} (${e.code || e.message})`)
+        }
+        if (fs.existsSync(target)) {
+            let there = null
+            try {
+                there = fs.readFileSync(target)
+            } catch {}
+            if (there && there.equals(bytes)) {
+                log(`${f.path} of #${p.number} is in ${where} already, the same bytes: not written again`)
+                continue
+            }
+            throw new Wait(`${f.path} of #${p.number} differs from the one in ${where}: not overwritten (change it there by a PR of its own, or drop the entry from "files")`, "red")
+        }
+        fs.mkdirSync(path.dirname(target), { recursive: true })
+        fs.writeFileSync(target, bytes)
+        written.push(f.path)
+    }
+    return written
+}
+// tickets_root null: the extra files of every merged PR go into the tickets folder outside the repository. Returns the
+// output lines and the kind of the worst wait (null when every file is put; the run is then not green).
+function filesOutside(st) {
+    const lines = []
+    let kind = null
+    for (const p of st.prs.filter((x) => st.tickets_root === null && x.result && x.result.status === "merged" && Array.isArray(x.files) && x.files.length))
+        try {
+            for (const f of putFiles(st, p, ticketsFolder(st), "", "the tickets folder")) lines.push(`${f} of #${p.number} written into the tickets outside the repository`)
+        } catch (e) {
+            if (!(e instanceof Wait)) throw e
+            kind = kind === "red" ? kind : e.kind
+            lines.push(`files of #${p.number} wait: ${e.message}`)
+        }
+    return { lines, kind }
+}
+
+// --- --epic-story: is the state file's PR the epic's last PR with code (bin/TICKETS.md, "Ticket with code") -----------
+const INPUT = require("../lib/input-words.json")
+const WHO_KEYS = ["Who", ...(INPUT.ticketWho || [])]
+const OWNER_WORDS = ["owner", "Owner", ...(INPUT.ticketWhoOwner || [])]
+// Whether a ticket's header names the owner as the one who does it (`Who: owner, with the orchestrator`): the first Who
+// line of the header — up to the first `## ` heading after the Status line, code blocks skipped (lib/code-fence.cjs, the
+// rule bin/ticket and bin/epic-status read the header by) — whose value starts with the word.
+function ownerTicket(text) {
+    const isCode = codeFence()
+    let status = false
+    for (const line of text.split("\n").map((l) => l.replace(/\r$/, ""))) {
+        if (isCode(line)) continue
+        if (status && line.startsWith("## ")) break
+        if (/^Status:/.test(line)) status = true
+        const m = /^([^\s:]+):[ \t]*(.*)$/.exec(line)
+        if (m && WHO_KEYS.includes(m[1])) return OWNER_WORDS.some((w) => m[2].startsWith(w) && !/[\p{L}\p{N}]/u.test(m[2].charAt(w.length)))
+    }
+    return false
+}
+// The numbers of the tickets with code of <epic> that are not done: on <remote>/<branch> (fetched by the caller), or in
+// the tickets folder outside the repository. Their Status is epic-status's (the one reader of the status lines).
+function openCodeTickets(st, epic) {
+    const root = ticketsRoot(st)
+    const ref = `refs/remotes/${st.remote || "origin"}/${st.branch}`
+    const folder = root ? path.join(st.repo, root) : ticketsFolder(st)
+    const args = ["--json", ...(root ? ["--ref", ref] : []), "--root", folder]
+    const r = run([process.execPath, [path.join(__dirname, "epic-status")]], args, st.repo)
+    if (r.code !== 0) throw new Wait(`epic-status ${args.join(" ")} exited ${r.code}: ${firstLine(r.err || r.out)}`)
+    let tickets
+    try {
+        tickets = JSON.parse(r.out).tickets.filter((t) => t.epic === epic && t.state !== "done")
+    } catch (e) {
+        throw new Wait(`epic-status ${args.join(" ")} printed no ticket list: ${e.message}`)
+    }
+    const issues = root ? `${root}/${epic}/issues` : path.join(folder, epic, "issues")
+    let names = []
+    if (root) names = git(["-c", "core.quotePath=false", "ls-tree", "-z", "--name-only", ref, "--", `${issues}/`], st.repo).split("\0").filter(Boolean).map((p) => path.posix.basename(p))
+    else
+        try {
+            names = fs.readdirSync(issues)
+        } catch {}
+    const open = []
+    for (const t of tickets) {
+        const name = names.find((x) => {
+            const m = /^(\d+)-(.*)\.md$/.exec(x)
+            return m && Number(m[1]) === t.num && m[2] === t.slug
+        })
+        if (!name) throw new Wait(`ticket ${epic} ${t.num} (${t.slug}) is not in ${root ? ref : issues}`)
+        const text = root ? git(["show", `${ref}:${issues}/${name}`], st.repo) : fs.readFileSync(path.join(issues, name), "utf8")
+        if (!ownerTicket(text)) open.push(t.num)
+    }
+    return open
+}
+function epicStory(st) {
+    if (ticketsRoot(st)) git(["fetch", "-q", st.remote || "origin", `+refs/heads/${st.branch}:refs/remotes/${st.remote || "origin"}/${st.branch}`], st.repo)
+    const two = (n) => String(n).padStart(2, "0")
+    const withTicket = st.prs.filter((p) => p.epic && p.ticket)
+    if (!withTicket.length) return ["epic story: no PR of the state file has a ticket"]
+    const lines = []
+    for (const epic of [...new Set(withTicket.map((p) => p.epic))]) {
+        const open = openCodeTickets(st, epic)
+        const ours = withTicket.filter((p) => p.epic === epic)
+        const others = open.filter((n) => !ours.some((p) => Number(p.ticket) === n))
+        const last = ours.filter((p) => open.includes(Number(p.ticket))).pop()
+        if (others.length) lines.push(`epic story of ${epic} is not due: tickets with code still open: ${others.map(two).join(", ")}`)
+        else if (!last) lines.push(`epic story of ${epic} is not due: no PR of the state file is an open ticket with code`)
+        else lines.push(`epic story of ${epic} is due: #${last.number} (${epic} ${last.ticket}) is its last PR with code`)
+    }
+    return lines
+}
+
 function openDocsPr(file, st, d) {
     const remote = st.remote || "origin"
     const tree = `${file}.docs`
@@ -909,6 +1082,7 @@ function openDocsPr(file, st, d) {
             if (r.code !== 0) throw new Wait(`ticket done ${p.epic} ${p.ticket} failed (exit ${r.code}): ${firstLine(r.err)}`)
             const step = appendReviewStep(st, p, tree, root)
             if (step) appended.push(step)
+            for (const f of putFiles(st, p, tree, root, st.branch)) log(`${f} of #${n} written into the documents`)
         }
         if (st.docs_check) {
             const r = sh(st.docs_check, tree)
@@ -996,10 +1170,21 @@ const waitingForCi = (st) => [...st.prs, ...st.docs].some((x) => x.result && x.r
 async function main() {
     const argv = process.argv.slice(2)
     const watch = argv.includes("--watch")
-    const files = argv.filter((a) => a !== "--watch")
-    if (files.length !== 1 || files[0].startsWith("-")) fail("usage: land <state.json> [--watch]")
+    const story = argv.includes("--epic-story")
+    const files = argv.filter((a) => a !== "--watch" && a !== "--epic-story")
+    if (files.length !== 1 || files[0].startsWith("-") || (watch && story)) fail("usage: land <state.json> [--watch] | land <state.json> --epic-story")
     const file = path.resolve(files[0])
     const st = load(file)
+    if (story) {
+        try {
+            for (const l of epicStory(st)) process.stdout.write(l + "\n")
+            return 0
+        } catch (e) {
+            if (!(e instanceof Wait)) throw e
+            process.stderr.write(`land --epic-story: the tickets could not be read: ${e.message}\n`)
+            return 3
+        }
+    }
     logFile = file.replace(/\.json$/, "") + ".log"
     const started = now()
     log(`land ${file}${watch ? " --watch" : ""}`)
@@ -1034,9 +1219,13 @@ async function main() {
         const name = d.pr ? `#${d.pr}` : `documents ${d.branch}`
         lines.push(d.result.status === "merged" ? `${name} merged ${d.result.sha}` : `${name} waits: ${d.result.reason}`)
     }
+    // no documents PR: the extra files go into the tickets folder outside the repository
+    const outside = filesOutside(st)
+    lines.push(...outside.lines)
     // while the main branch is red: one line with the culprit and the deadline of the fix forward
     if (mainRed) lines.push(mainRed)
     const all = [...st.prs.map((p) => p.result), ...st.docs.map((d) => d.result).filter((r) => r && r.status !== "empty")]
+    if (outside.kind) all.push({ status: "waits", kind: outside.kind })
     const verdict = all.every((r) => r.status === "merged") ? "green" : all.some((r) => r.kind === "red") ? "red" : "unverified"
     st.runs.push({ started, ended: now(), land: verdict })
     save(file, st)

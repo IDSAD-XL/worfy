@@ -880,6 +880,35 @@ for p in '**The review step of the Code story**' '`prs[].verdict`' '"${CLAUDE_PL
     '"${CLAUDE_PLUGIN_ROOT}/bin/story-check" --repo <repo> --head <merged head> <story>; echo "EXIT=$?"'; do
     ev "$EWS" "epic-wave, the review step" "$p"
 done
+# The epic story: before land, land --epic-story tells whether the state file holds the epic's last PR with code; then
+# an agent writes the story (its input, its output by bin/TICKETS.md, a green story-check) and prs[].files hands the
+# ready file to land, which puts it into the documents PR (Silent mode: the Workflow folder).
+for p in '**The epic story**' '"${CLAUDE_PLUGIN_ROOT}/bin/land" <state file> --epic-story; echo "EXIT=$?"' \
+    'epic story of <epic> is due: #<N> (<epic> <NN>) is its last PR with code' \
+    'a ticket whose header says `Who: owner` (the owner'"'"'s acceptance) does not count, open or not' \
+    'start an agent with the `Agent` tool — a Subagent of the orchestrator, seen on the Canvas like any other' \
+    'the epic'"'"'s `spec.md`, the saved verdicts `<scratchpad>/verdict-<N>.md`' \
+    'one chapter per PR with five to ten main steps over the whole story, the step `Seams between tickets` with one item per handoff' \
+    'and `Check yourself` with two or three questions' 'the agent reads its diff and says in `Start` which chapters come from a diff' \
+    '--pr-head <N>=<head>… <story>; echo "EXIT=$?"`, one `--pr-head` per chapter' '`prs[].files`' \
+    'before the privacy check `evidence-check`: red — the documents PR waits red and nothing is committed or pushed' \
+    'The story waits while another PR of the epic in the state file is not merged: the documents PR waits with it' \
+    'a different `story.md` there, or a symbolic link on the path, is never overwritten: the documents PR waits red' \
+    'In Silent mode there is no documents PR: `land` copies the file into the Workflow folder'; do
+    ev "$EWS" "epic-wave, the epic story" "$p"
+done
+# The recipe that adds prs[].files: its line of the skill, run on a fixture state file, gives the PR the entry land reads.
+RECIPE_FILES="$(grep -F "node -e 'const fs = require(\"fs\"), path = require(\"path\"), [file, n, epic, story]" "$EWS" | head -n 1 | sed 's/^`//; s/`$//')"
+if [ -z "$RECIPE_FILES" ]; then bad "epic-wave: no recipe that adds prs[].files to the state file"
+else
+    printf '%s\n' '{"tickets_root": ".scratch", "prs": [{"number": 7, "epic": "demo", "ticket": "02", "head": "abc1234", "checks": []}]}' >"$T/land-files.json"
+    run_files="${RECIPE_FILES//<state file>/$T/land-files.json}"; run_files="${run_files//<N>/7}"; run_files="${run_files//<epic>/demo}"; run_files="${run_files//<scratchpad>/$T}"
+    out="$(bash -c "$run_files" 2>&1)"
+    got="$(node -e 'const s = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); const f = s.prs[0].files; process.stdout.write(JSON.stringify([f.length, f[0].path, require("path").isAbsolute(f[0].from), require("path").basename(f[0].from)]))' "$T/land-files.json" 2>&1)"
+    [ "$out" = "EXIT=0" ] && [ "$got" = '[1,"demo/story.md",true,"epic-story-demo.md"]' ] \
+        && ok "epic-wave: the prs[].files recipe gives the PR <epic>/story.md from the absolute path of the ready file" \
+        || bad "epic-wave: the prs[].files recipe: [$out] [$got]"
+fi
 # The Silent-mode source: the awk line of the skill, run on a ticket file with two recorded rounds, gives the last round
 # without its `gate: ` prefix — a text bin/verdict reads as a verdict.
 RECIPE_GATE="$(grep -F "awk 'BEGIN { while ((getline l < ARGV[1]) > 0) { if (l ~ /^gate: " "$EWS" | head -n 1 | sed 's/^ *//; s/ "\$f" >"\$[AR]"$//')"

@@ -43,12 +43,25 @@ Source: …
   the PR is open.
 - `Branch:`, `Repo:`, `Type:`, `Blocked by:`, `Source:` — as before. `ticket claim … --branch B --repo R` writes
   `Branch:` and `Repo:`; the name of a repository comes from `_resolved.repos` of the profile.
+- `Who: <who does it>` — optional: `agent`, or `owner` for a ticket the owner does himself (an acceptance), the
+  value may go on after the word (`Who: owner, with the orchestrator.`). A ticket written in another language uses
+  its words for the key and for `owner` (lib/input-words.json, `ticketWho` and `ticketWhoOwner`). Only `owner` is
+  read, by **Ticket with code** below.
 - `Roles: <role>, <role>` — optional: the roles whose Browser checks the ticket needs (for example
   `Roles: admin, user`); a role is the name of a Browser profile. No script reads it: skill
   `epic-wave` copies it into the brief's `Browser roles` line, and without it the brief says
   `Default`.
 `Blocked reason:`, `Waits:`, `PR:`, `Release:` and `Repo:` are read only in the header: up to the first `## `
 heading after the Status line. A `PR: <url>` line of a result section is not the ticket's PR.
+
+**Ticket with code**
+A ticket whose PR brings code, by its header: every ticket of the epic but one whose first `Who:` line in the header
+starts with the word `owner` (or that word of another language, lib/input-words.json) — the owner's
+acceptance, which merges nothing. A ticket without a `Who:` line has code. The status does not decide it: an open
+ticket has no `PR:` line, so that line cannot tell a ticket with code still to do from an acceptance. The **last PR
+of the epic with code** is the PR of the one ticket with code that is not done yet, all others done; `land
+<state file> --epic-story` names it before its merge (skill `epic-wave`, "The epic story"), and once it is merged
+the story of the epic is put together (**Code story**).
 
 **Ticket of several repositories**
 A ticket of a project of several repositories that changes more than one of them: a library and its

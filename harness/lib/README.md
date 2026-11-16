@@ -49,6 +49,9 @@ the plugin, where `lib/` lies next to `bin/` and `hooks/`.
   - `blockedByAnd` — the word "and" between two ticket numbers in a `Blocked by` line (`bin/epic-status`);
   - `ticketWord` — the word "ticket", followed by any ending of the word and a number, that
     `bin/silent-check` finds as a ticket number in a Silent project;
+  - `ticketWho`, `ticketWhoOwner` — the key `Who` of a ticket header and the word `owner` at the start of its
+    value: a ticket the owner does (an acceptance) is not a ticket with code (`bin/TICKETS.md`, **Ticket with
+    code**; `bin/land --epic-story`);
   - `codeStoryLabels` — not a list but a map: for each language code, the English label of a Code story
     (a field, a frame title, a section title, `not recorded`; `bin/TICKETS.md`, section **Code story**)
     and the word a story in that language writes instead. `bin/story-check` reads a story whose
