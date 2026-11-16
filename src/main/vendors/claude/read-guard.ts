@@ -32,8 +32,12 @@ export const GUARDED_TOOLS: ReadonlySet<string> = new Set(['Read', 'Glob', 'Grep
 /** The fields of a tool's input that name a file or a folder. */
 const PATH_FIELDS = ['file_path', 'path', 'notebook_path'] as const
 
-/** A segment of a glob pattern that matches rather than names. */
-const WILDCARD = /[*?[\]{}!()]/
+/**
+ * Where a Glob pattern starts to match rather than name: the characters Claude Code cuts it at, the part
+ * before being the folder it lists. Exactly its set: a wider one (`!`, `(`, `]`…) would cut earlier and
+ * check a parent while Claude Code lists through a link named `!h` (verdict of PR #1907, round 3).
+ */
+const WILDCARD = /[*?[{]/
 
 /**
  * A path the guard cannot be sure to read as Claude Code does, so it refuses it rather than guess:
@@ -42,7 +46,8 @@ const WILDCARD = /[*?[\]{}!()]/
  * - a control character (a NUL, a line break): no real file name the model needs has one;
  * - `~name`: whether it means another user's home or a folder named `~name` depends on the tool.
  * `~` alone and `~/…` are the home folder, as Claude Code expands them. Unicode forms (NFC and NFD of
- * one name) need no rule: realpath gives the file system's own spelling.
+ * one name) and aliases such as /var and /private/var get no rule of their own: the path as written must
+ * lie under a folder's given name or its real name, so a path that spells the folder another way is refused.
  */
 const unclear = (target: string): boolean => /^\s|\s$/u.test(target) || /\p{Cc}/u.test(target) || /^~[^\\/]/.test(target)
 

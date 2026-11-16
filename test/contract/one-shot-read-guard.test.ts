@@ -156,6 +156,18 @@ describe('the Code story request reads only its checkout', () => {
     expect((await ask('Read', { file_path: '../../project/src/cart.ts' })).behavior).toBe('allow')
   })
 
+  it('cuts a Glob pattern where Claude Code does, so a link named with !, (, ), ] or } is followed and refused', async () => {
+    const names = ['!h', '(h)', 'h]', 'h}', 'h)']
+    for (const name of names) symlinkSync(mocks.home, join(root, name), WINDOWS ? 'junction' : 'dir')
+    const { ask } = await storyCanUseTool()
+    for (const name of names) {
+      expect((await ask('Glob', { pattern: `${root}/${name}/.ssh/*` })).behavior, name).toBe('deny')
+      expect((await ask('Glob', { pattern: `${name}/.ssh/*`, path: root })).behavior, name).toBe('deny')
+    }
+    // A wildcard still cuts: what follows it is matched, not checked.
+    expect((await ask('Glob', { pattern: `${root}/src/*.{ts,tsx}` })).behavior).toBe('allow')
+  })
+
   it('wants both the path Claude Code reads and the place it reaches inside: a link from outside into the checkout is refused', async () => {
     symlinkSync(root, join(outside, 'back'), WINDOWS ? 'junction' : 'dir')
     const { ask } = await storyCanUseTool()
