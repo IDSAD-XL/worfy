@@ -77,6 +77,7 @@ Source: владелец 2026-11-16: Epic `worfy-code-stories`, влитый в 
   - evidence: test-run pass · `bash harness/bin/tests/epic-status.test.sh` exit 0 (57 passed) · mac - · 15497743985f1485e992de7f6f4292aa820d0f15
   - evidence: gate pass · `gate fast` exit 0 · mac - · 15497743985f1485e992de7f6f4292aa820d0f15
 - [ ] Пути в `ls-tree`/`cat-file` работают на Windows: Windows job CI зелёный.
+  - evidence: ci-check pass · PR #1898 CI run 43801679513: windows-e2e 1-4/4, windows full-suite 1-3/3, harness-scripts 1-2/2 green · windows - · 0123141ad2cedd7fad9fb15d88a73e54b8b40a84
 - [ ] ADR-0107 записан.
   - evidence: commit pass · Read the workflow from the Project's main branch, not the folder (worfy-polish 118) · - - · 7b76cbc089b6a9e11c184fb0516c86aff30ea198
 - [ ] Test-ы без сети: fetch идёт в локальный bare repo-фикстуру, никаких настоящих GitHub-запросов.
