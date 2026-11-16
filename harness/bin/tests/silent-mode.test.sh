@@ -551,6 +551,58 @@ git -C "$FR" reset -q code2.ts
 [[ "$out" == *"TREE=$FR"* && "$out" == *"TEMPORARY=no"* && "$out" == *"EXIT=0"* ]] && git -C "$FR" show main:.scratch/ep/issues/02-t.md | grep -q '^Status: blocked' \
     && ok "wave documents, main checked out in the main checkout: the commit is made there" || bad "wave documents (main checkout): ${out:0:400}"
 
+# --- 6. The Code story in Silent mode: in the Workflow folder, never in the branch; land's guard reads it there ----
+# The real profile (code_stories.pr absent: on), ticket root and story-check; gh is a stub (no network). The story is
+# the shared fixture of the format, its header moved to this project's ticket.
+FIXS="$(cd "$(dirname "$0")/fixtures/code-story" && pwd)"
+SWT="$T/story-wt"
+git -C "$R" worktree add -q -b fix/cart-total "$SWT" main 2>/dev/null
+cp -R "$FIXS/repo/src" "$SWT/src" && git -C "$SWT" add -A && git -C "$SWT" commit -q -m "Cart total in cents"
+SHEAD="$(git -C "$SWT" rev-parse HEAD)"
+sroot="$(cd "$SWT" && "$BIN/ticket" root 2>&1)"
+STORY="$sroot/checkout-flow/stories/05-withdraw.md"
+[ "$sroot" = "$WF/.scratch" ] && ok "story: ticket root from the branch's worktree is the Workflow folder's tickets root" || bad "story: ticket root printed $sroot"
+mkdir -p "$(dirname "$STORY")"
+sed -e "s/^# Code story — demo-cart 04:/# Code story — checkout-flow 05:/" -e "s/Epic: demo-cart · Ticket: 04 · PR: #212/Epic: checkout-flow · Ticket: 05 · PR: -/" "$FIXS/pr-en.md" >"$STORY"
+out="$("$BIN/story-check" --repo "$SWT" "$STORY" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [[ "$out" == *"HEAD $SHEAD (branch fix/cart-total)"* ]] && [ -z "$(git -C "$SWT" status --porcelain)" ] && [ ! -e "$SWT/.scratch" ] \
+    && ok "story: the story in the Workflow folder is green against HEAD of the branch, and the branch gets nothing" || bad "story: story-check exit $rc: ${out:0:400}"
+# The code not committed yet: the anchor is HEAD, so the check refuses rather than compare the story with old code.
+printf '// changed\n' >>"$SWT/src/cart.ts"
+out="$("$BIN/story-check" --repo "$SWT" "$STORY" 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && [[ "$out" == *"src/cart.ts is not committed"* ]] && ok "story: code changed and not committed -> story-check refuses (exit 1), commit the code first" || bad "story: uncommitted code: exit $rc: ${out:0:400}"
+git -C "$SWT" checkout -q -- src/cart.ts
+# A story put into the branch is a workflow trace silent-check names.
+mkdir -p "$SWT/.scratch/checkout-flow/stories" && cp "$STORY" "$SWT/.scratch/checkout-flow/stories/05-withdraw.md" && git -C "$SWT" add -f .scratch
+out="$("$BIN/silent-check" -C "$SWT" --cached 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && [[ "$out" == *".scratch/checkout-flow/stories/05-withdraw.md"* ]] && ok "story: a story in the branch's index is a trace silent-check names" || bad "story: silent-check exit $rc: ${out:0:300}"
+# land: the PR of the branch, its story in the Workflow folder. The branch carries a copy of the story, the folder
+# nothing — the guard looks in the folder only, so the PR waits; then the folder's story -> merged.
+git -C "$SWT" commit -q -m "story in the branch" && SHEAD="$(git -C "$SWT" rev-parse HEAD)"
+mv "$STORY" "$T/story.md"
+LG="$T/land-gh"; mkdir -p "$LG"
+cat >"$LG/gh.mjs" <<'EOF'
+import fs from "node:fs"
+import path from "node:path"
+const D = process.env.LG, a = process.argv.slice(2), out = (v) => process.stdout.write(JSON.stringify(v) + "\n")
+fs.appendFileSync(path.join(D, "log"), a.join(" ") + "\n")
+const merged = fs.existsSync(path.join(D, "merged"))
+if (a[0] === "pr" && a[1] === "view") out({ number: 1, state: merged ? "MERGED" : "OPEN", headRefOid: process.env.SHEAD, mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", mergeCommit: merged ? { oid: "f".repeat(40) } : null })
+else if (a[0] === "pr" && a[1] === "merge") fs.writeFileSync(path.join(D, "merged"), "")
+else if (a[0] === "run" && a[1] === "list") out([])
+else if (a[0] === "api" && a[1].endsWith("/check-runs?per_page=100")) out({ check_runs: [{ id: 1, name: "ci-ok", status: "completed", conclusion: "success", started_at: "2026-11-16T10:00:00Z" }] })
+else if (a[0] === "api" && a[1].includes("/status")) out({ statuses: [{ context: "review", state: "success" }] })
+else { process.stderr.write(`stub gh: unexpected ${a.join(" ")}\n`); process.exit(1) }
+EOF
+printf '{"repo":"%s","branch":"main","ci":"pr","ci_check":"ci-ok","ci_workflow":"ci.yml","docs_check":null,"tickets_root":null,"prs":[{"number":1,"epic":"checkout-flow","ticket":"05","checks":[]}]}\n' "$R" >"$T/land.json"
+out="$(cd "$R" && LG="$LG" SHEAD="$SHEAD" LAND_GH="$LG/gh.mjs" LAND_SLEEP= "$BIN/land" "$T/land.json" 2>&1)"; rc=$?
+[ "$rc" -eq 2 ] && [[ "$out" == *"#1 waits: no Code story of ticket checkout-flow 05: $WF/.scratch/checkout-flow/stories/05-<slug>.md is not in the tickets folder"* ]] && ! grep -q '^pr merge' "$LG/log" \
+    && ok "story guard, Silent: the story only in the branch -> not merged, the reason names the Workflow folder" || bad "story guard Silent, none: exit $rc: ${out:0:400}"
+mv "$T/story.md" "$STORY"
+out="$(cd "$R" && LG="$LG" SHEAD="$SHEAD" LAND_GH="$LG/gh.mjs" LAND_SLEEP= "$BIN/land" "$T/land.json" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && grep -q "^pr merge 1 --squash --match-head-commit $SHEAD\$" "$LG/log" && grep -q "story-check .* $STORY — exit 0" "$T/land.log" \
+    && ok "story guard, Silent: the story in the Workflow folder, green on the head -> merged" || bad "story guard Silent, green: exit $rc: ${out:0:400} log $(grep -i story "$T/land.log")"
+
 # --- the real home -----------------------------------------------------------------------
 after="$(real_home_snapshot "$REAL_HOME" "$T")"
 [ "$before" = "$after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" \

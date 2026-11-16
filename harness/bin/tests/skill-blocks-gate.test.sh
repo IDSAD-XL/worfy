@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The shell blocks of the cross-machine gate, cut out of the skills and run under bash and zsh with a stub gh: the
-# label and the checks section of skills/ship-ticket step 8, the serve pass of skills/gate-queue (the list, the
+# label and the checks section of skills/ship-ticket step 8 and the link to the Code story there, the serve pass of skills/gate-queue (the list, the
 # rebase against a bare origin, the conflict follow-up, the report and the merge under the main-branch lock), and the
 # request blocks of skills/epic-wave section 1 (the fresh base, the report lookup, the open PRs of other epics).
 # The world, the block cutters and the Silent project are in skill-blocks-world.sh; the other blocks are in
@@ -37,6 +37,8 @@ done
 [ -n "${GH_BODY_RAW:-}" ] && [[ " $* " == *" --json body "* ]] && { cat "$GH_BODY_RAW"; exit 0; }
 [ -n "${GH_LOCK:-}" ] && [[ " $* " == *" pr merge "* ]] && { [ -d "$GH_LOCK" ] && echo held || echo free; } >>"$GH_LOCK_LOG"
 [ -n "${GH_TERM_ON:-}" ] && [[ " $* " == *" $GH_TERM_ON "* ]] && { kill -TERM "$PPID"; exit 1; }   # the call is stopped
+# gh browse <path> --branch <b> --no-browser: the URL of the file on that branch
+[ "$1" = browse ] && { echo "https://github.com/o/r/blob/$4/$2"; exit 0; }
 if [ -n "$f" ]; then set -o pipefail; jq -r "$f" "$GH_JSON" | tr -d '\r'; exit $?; fi
 exit 0
 EOF
@@ -114,6 +116,45 @@ for sh in "${SHELLS[@]}"; do
     [ "$got" = $'label\nEXIT=0' ] && [ "$(tr -d '\r' <"$T/ghx-body.md" | grep -c '^## Mac checks$')" = 1 ] \
         && ok "$sh: label block, a CRLF description that has the section gets no second one" || bad "$sh: label block, CRLF description: [$got] body [$(cat "$T/ghx-body.md" 2>&1)]"
 done
+
+# The link to the Code story of skills/ship-ticket, step 8: with code_stories.pr on (cm has no code_stories: on), the
+# section `## Code story` with the story's path and its URL on the branch, through --body-file, once.
+BST="$(SKILL="$SHIP" blockf 'story section skipped')"
+[ -n "$BST" ] || bad "story section block not found in $SHIP"
+STP=".scratch/cart/stories/04-total.md"
+story_block() { local b; b="$(sub "${BST//<repo>/$1}")"; b="${b//<N>/7}"; b="${b//<scratchpad>/$T}"; b="${b//<story path>/$STP}"; printf '%s' "${b//<branch>/cart/04}"; }
+for sh in "${SHELLS[@]}"; do
+    jq -n '{body: "Old description."}' >"$T/ghx.json"
+    : >"$T/ghx.log"; rm -f "$T/ghx-body.md"
+    got="$("${SENV[@]}" "${XENV[@]}" $sh -c "$(story_block "$CR")" 2>&1)"
+    [ "$got" = EXIT=0 ] && grep -qxF "browse $STP --branch cart/04 --no-browser" "$T/ghx.log" && grep -qxF "pr edit 7 --body-file $T/pr-7-story-body.md" "$T/ghx.log" \
+        && grep -qxF 'Old description.' "$T/ghx-body.md" && [ "$(grep -c '^## Code story$' "$T/ghx-body.md")" = 1 ] \
+        && grep -qF "[\`$STP\`](https://github.com/o/r/blob/cart/04/$STP)" "$T/ghx-body.md" \
+        && ok "$sh: story block, on -> ## Code story with the path and its URL on the branch, through --body-file" || bad "$sh: story block, on: [$got] gh [$(cat "$T/ghx.log")] body [$(cat "$T/ghx-body.md" 2>&1)]"
+    jq -n --arg body $'Old description.\r\n\r\n## Code story\r\n\r\nx' '{body: $body}' >"$T/ghx.json"
+    : >"$T/ghx.log"
+    got="$("${SENV[@]}" "${XENV[@]}" $sh -c "$(story_block "$CR")" 2>&1)"
+    [ "$got" = "story section: already there" ] && ! grep -q '^pr edit' "$T/ghx.log" && ok "$sh: story block, the section already there (CRLF) -> no second one" || bad "$sh: story block, again: [$got]"
+    : >"$T/ghx.log"
+    got="$("${SENV[@]}" "${XENV[@]}" GH_FAIL_ON=browse $sh -c "$(story_block "$CR")" 2>&1)"
+    grep -q "^ERROR: gh browse failed" <<<"$got" && ! grep -q '^pr edit' "$T/ghx.log" && ok "$sh: story block, gh fails -> ERROR, no edit" || bad "$sh: story block, gh fails: [$got]"
+    : >"$T/ghx.log"
+    got="$("${SENV[@]}" "${XENV[@]}" $sh -c "$(story_block "$SR")" 2>&1)"
+    [ "$got" = "story section skipped: Silent mode, the story stays in the Workflow folder" ] && [ ! -s "$T/ghx.log" ] \
+        && ok "$sh: story block, Silent mode -> skipped, gh not called" || bad "$sh: story block, Silent: [$got] gh [$(cat "$T/ghx.log")]"
+done
+jq '.code_stories = {pr: "off"}' <<<"$CMP" >"$SHH/projects/cm/profile.json"
+for sh in "${SHELLS[@]}"; do
+    : >"$T/ghx.log"
+    got="$("${SENV[@]}" "${XENV[@]}" $sh -c "$(story_block "$CR")" 2>&1)"
+    [ "$got" = "story section skipped: code_stories.pr is off" ] && [ ! -s "$T/ghx.log" ] && ok "$sh: story block, off -> skipped, gh not called" || bad "$sh: story block, off: [$got]"
+done
+jq '.cross_machine_gate.role = "merge"' <<<"$CMP" >"$SHH/projects/cm/profile.json"
+for sh in "${SHELLS[@]}"; do
+    got="$("${SENV[@]}" "${XENV[@]}" $sh -c "$(story_block "$CR")" 2>&1)"
+    [[ "$got" == "ERROR: bin/profile exit"* ]] && ok "$sh: story block, a broken profile -> ERROR" || bad "$sh: story block, broken profile: [$got]"
+done
+printf '%s\n' "$CMP" >"$SHH/projects/cm/profile.json"
 
 # The checks section block of skills/gate-queue, step 3: the section's lines up to the next heading. The pass is written
 # only there: skills/epic-wave section 1 runs skills/gate-queue and has no copy of the block.

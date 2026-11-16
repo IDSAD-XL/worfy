@@ -15,7 +15,10 @@ one the brief names — named by the change, not by the ticket; `ticket claim <e
 <branch>` records it in the ticket. Commit messages, the PR title, description and comments, and
 code comments describe the change itself: no epic name, ticket or ADR number, Workflow folder path,
 `.scratch` or `HANDOFF`. The guard refuses commits, branch names and PR texts that carry them;
-`${CLAUDE_PLUGIN_ROOT}/bin/silent-check -C <tree> <text>` shows them first. In a project of
+`${CLAUDE_PLUGIN_ROOT}/bin/silent-check -C <tree> <text>` shows them first. The Code story of the PR
+(`story-pr.md`) is a workflow file too: it lies in the Workflow folder, the branch never gets it, and the PR
+description gets no link to it; commit the code before you write it, since `story-check` reads it against `HEAD`
+of the branch. In a project of
 several repositories you work in the repository of the ticket's `Repo:` line only; a ticket with
 several `Repo:` lines works in each of them, by the paragraph below.
 

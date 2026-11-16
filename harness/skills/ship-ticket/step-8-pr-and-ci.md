@@ -10,9 +10,39 @@ In Silent mode the PR title and description tell what the change does and why, t
 would write them: no ticket, epic, ADR or Workflow folder; the story of the ticket goes into its
 result section in the Workflow folder. With `F attribution` `off` there is no attribution line.
 
+**The Code story of the PR comes first.** With `F code_stories.pr` `on` the PR of a ticket carries its Code story,
+committed on the branch before `gh pr create` (in Silent mode it stays in the Workflow folder): `land` does not merge
+the PR without it or with a red `story-check`. An implementer writes it at its step 6 (`implementer-finish.md`); a
+session that opens the PR itself writes it now.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/story-pr.md` before `gh pr create` when `F code_stories.pr` prints `on` and the story is not on the branch yet: where it lies, what it says, how `story-check` checks it.
+
 ```bash
 gh pr create --fill
 gh pr view <N> --json mergeStateStatus
+```
+
+**The link to the story** — right after `gh pr create`, with `F code_stories.pr` `on`: the PR description gets the
+section `## Code story` with the story's path and a link to it on the branch, through `--body-file`, as the
+cross-machine checks section below. `<story path>` is the story's path from the root of the repository. In Silent
+mode the story is in the Workflow folder and the description gets nothing. A description that already has the
+section keeps it as it is; `ERROR:` — `gh` or the profile failed: run the block again, never take it for a skip:
+
+```bash
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
+stories=$(F code_stories.pr); rc=$?
+if [ "$rc" != 0 ]; then echo "ERROR: bin/profile exit $rc: the profile or the registry is broken — run it without 2>/dev/null"
+elif [ "$stories" != on ]; then echo "story section skipped: code_stories.pr is $stories"
+elif [ "$(F _resolved.mode)" = silent ]; then echo "story section skipped: Silent mode, the story stays in the Workflow folder"
+elif ! url=$(gh browse "<story path>" --branch "<branch>" --no-browser); then echo "ERROR: gh browse failed: run the block again"
+else
+  B=<scratchpad>/pr-<N>-story-body.md
+  if ! gh pr view <N> --json body --jq .body >"$B"; then echo "ERROR: gh pr view <N> --json body failed: run the block again"
+  elif tr -d '\r' <"$B" | grep -qxF "## Code story"; then echo "story section: already there"
+  else
+    printf '\n## Code story\n\n[`%s`](%s) on the branch; after the merge the same path on the main branch.\n' "<story path>" "$url" >>"$B"
+    gh pr edit <N> --body-file "$B"; echo "EXIT=$?"
+  fi
+fi
 ```
 
 **The cross-machine label** (`F cross_machine_gate`; exit code 4 or `null` — the

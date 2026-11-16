@@ -1219,6 +1219,10 @@ of `land`. For each PR, in the order of the state file, `land`:
   `pending` review on the head is a reviewer's verdict and is never overwritten;
 - needs each Check mark the state file lists for the PR (`check/<name>`) `success` or `skipped` on the
   head. These marks are never carried: a new head needs its own;
+- with `F code_stories.pr` `on`, needs the Code story of a ticket's PR, `<tickets root>/<epic>/stories/<NN>-<slug>.md`,
+  in the head (in Silent mode, in the Workflow folder) and `story-check` green on it against the head. No story or
+  a red one — the PR waits red, the reason naming the path or the first problem: the implementer adds or fixes the
+  story on the branch (skill `/worfy:ship-ticket`, step 8). A PR without a ticket is not checked;
 - needs the main branch not red: the latest push run of the CI workflow on it with a verdict is not red
   ("A red push run on the main branch" below). A run still queued or in progress is passed over, so no
   merge waits the length of a push run, and so is the run of a commit with documents only (it may check

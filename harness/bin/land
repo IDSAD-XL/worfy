@@ -20,6 +20,13 @@
 //   - every commit status of prs[].checks (`check/<name>`; the orchestrator lists the Checks of the Pipeline
 //     the project's rules require for this PR) is success on the head — a `skipped` mark is a success status
 //     too. These marks are never carried;
+//   - with the profile's code_stories.pr on (bin/profile -C <repo>; a project with no profile needs none), a PR with
+//     epic and ticket has its Code story <tickets root>/<epic>/stories/<NN>-<slug>.md (bin/TICKETS.md, "Code story")
+//     and story-check is green on it with --repo <repo> --head <head>. The story is read from the head
+//     (`git show <head>:<path>` into a temporary file), never from the checkout's working tree; with tickets_root null
+//     (Silent mode, a tickets root outside the repository) from the folder `ticket root` prints. No story, two
+//     stories or a red story-check — the PR waits red, the reason naming the path or the first problem; the profile
+//     or story-check unable to answer — it waits. A PR without a ticket is not checked;
 //   - the main branch is not red (a PR with main_fix true, the fix of a red main branch or the revert of its culprit,
 //     skips this): the push runs of ci_workflow on the branch check the merged PRs together, so the latest one with a
 //     verdict must not be red. A run still queued or in progress is passed over (no merge waits the length of a push
@@ -101,14 +108,15 @@
 // check not finished, mergeable UNKNOWN), at most WATCH_S seconds in all. Without it — one pass.
 //
 // Environment (tests set them; the defaults are the project's): LAND_GH, LAND_TICKET, LAND_EVIDENCE_CHECK,
-// LAND_SLEEP — an executable used instead of `gh`, of bin/ticket and bin/evidence-check next to this script and
-// of the wait between tries (it gets the seconds); a `.mjs` file runs with this node. LAND_POLL_S (300),
+// LAND_PROFILE, LAND_SLEEP — an executable used instead of `gh`, of bin/ticket, bin/evidence-check and bin/profile
+// next to this script and of the wait between tries (it gets the seconds); a `.mjs` file runs with this node. LAND_POLL_S (300),
 // LAND_WATCH_S (6600), LAND_RETRY_S (10), LAND_LOCK_POLL_S (30), LAND_LOCK_STALE_S (5400: the 90 minutes after
 // which the skills call the lock stuck).
 // shortcut: two runs of land on one state file are not kept apart, redo with a pid file like wave-gate's once a second
 // run is ever started (each merge is still guarded by the lock and --match-head-commit; the file is not).
 "use strict"
 const fs = require("fs")
+const os = require("os")
 const path = require("path")
 const { spawnSync } = require("child_process")
 // The git to start, with the variable of an eval run (EVAL_GIT).
@@ -503,6 +511,81 @@ function mainAllows(st, pr, head) {
         log(`#${pr.number}: documents only, merged while ${st.branch} is red`)
     }
 }
+// --- the Code story of a ticket's PR (bin/TICKETS.md, "Code story" and "Story anchor") --------------------------------
+// The profile's code_stories.pr of the checkout, read once per run: true for "on". A project with no profile (bin/profile
+// exit 3) has no switch and needs no story; any other failure of the profile is a wait, never a merge.
+let storySwitch = null
+function storiesOn(st) {
+    if (storySwitch !== null) return storySwitch
+    const r = run(program(process.env.LAND_PROFILE, [process.execPath, [path.join(__dirname, "profile")]]), ["-C", st.repo, "--field", "code_stories.pr"], st.repo)
+    const value = r.out.trim()
+    if (r.code === 3) {
+        log(`the checkout has no profile (bin/profile exit 3): no Code story is required`)
+        storySwitch = false
+    } else if (r.code === 0 && (value === "on" || value === "off")) {
+        log(`code_stories.pr is ${value}`)
+        storySwitch = value === "on"
+    } else throw new Wait(`code_stories.pr could not be read: bin/profile exit ${r.code}: ${firstLine(r.err || r.out)}`)
+    return storySwitch
+}
+// With code_stories.pr on, the PR of a ticket (prs[].epic and ticket) merges only with its story
+// <tickets root>/<epic>/stories/<NN>-<slug>.md, green by story-check against the PR's head. The story is never read from
+// the checkout's working tree: with the tickets in the repository it is the file of the head commit, copied into a
+// temporary folder; with the tickets outside it (Silent mode, a tickets root outside the repository) it is the file in
+// the folder `ticket root` prints. Either way story-check runs with --repo <checkout> --head <head>: line numbers are
+// those of the head. A PR without a ticket is not checked.
+function storyGreen(st, pr, head) {
+    if (!pr.epic || !pr.ticket || !storiesOn(st)) return
+    const own = (name) => name.startsWith(`${pr.ticket}-`) && name.endsWith(".md")
+    const root = ticketsRoot(st)
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "land-story-"))
+    try {
+        let dir, found, file
+        if (root) {
+            dir = `${root}/${pr.epic}/stories`
+            if (!haveCommit(st, head, pr.number)) throw new Wait(`the head ${short(head)} is not in the checkout: its Code story cannot be read`)
+            found = git(["-c", "core.quotePath=false", "ls-tree", "-z", "--name-only", head, "--", `${dir}/`], st.repo)
+                .split("\0")
+                .filter((p) => own(path.posix.basename(p)))
+        } else {
+            const r = run(program(process.env.LAND_TICKET, [process.execPath, [path.join(__dirname, "ticket")]]), ["root"], st.repo)
+            if (r.code !== 0) throw new Wait(`the tickets root could not be read: bin/ticket root exit ${r.code}: ${firstLine(r.err || r.out)}`)
+            dir = path.join(r.out.trim(), pr.epic, "stories")
+            let names = []
+            try {
+                names = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isFile() && own(e.name)).map((e) => e.name)
+            } catch {}
+            found = names.map((n) => path.join(dir, n))
+        }
+        if (!found.length)
+            throw new Wait(
+                `no Code story of ticket ${pr.epic} ${pr.ticket}: ${root ? dir : dir.split(path.sep).join("/")}/${pr.ticket}-<slug>.md is not in ${root ? `the head ${short(head)}` : "the tickets folder"} (code_stories.pr is on)`,
+                "red",
+            )
+        if (found.length > 1) throw new Wait(`ticket ${pr.epic} ${pr.ticket} has ${found.length} Code stories: ${found.join(", ")}`, "red")
+        const shown = found[0]
+        if (root) {
+            const r = run([GIT, []], ["show", `${head}:${shown}`], st.repo)
+            if (r.code !== 0) throw new Wait(`git show ${short(head)}:${shown} (exit ${r.code}): ${firstLine(r.err)}`)
+            file = path.posix.basename(shown)
+            fs.writeFileSync(path.join(tmp, file), r.out)
+        } else file = shown
+        // run in the temporary folder: a copy is named by its bare file name, which the output then puts back as its path
+        const sc = run([process.execPath, [path.join(__dirname, "story-check")]], ["--repo", st.repo, "--head", head, file], tmp)
+        const lines = `${sc.out}\n${sc.err}`.split("\n").filter((l) => l.trim())
+        const back = (l) => (root && l.startsWith(`${file}:`) ? shown + l.slice(file.length) : l)
+        log(`story-check --repo ${st.repo} --head ${head} ${shown} — exit ${sc.code}`)
+        for (const l of lines) log(`  ${back(l)}`)
+        if (sc.code === 0) return
+        if (sc.code === 2) {
+            const problem = lines.find((l) => /^.+:[^:]+: /.test(l) && !/: \d+ fragments? checked against /.test(l) && !/: \d+ problems?$/.test(l))
+            throw new Wait(`story-check is red on ${shown} at ${short(head)}: ${back(problem || lines[lines.length - 1] || "")}`, "red")
+        }
+        throw new Wait(`story-check could not check ${shown} (exit ${sc.code}): ${firstLine(sc.err || sc.out)}`)
+    } finally {
+        fs.rmSync(tmp, { recursive: true, force: true })
+    }
+}
 // The whole merge condition of a code PR on head; carry — whether a missing review may be carried.
 function ready(st, pr, head, carry) {
     ciGreen(st, head)
@@ -510,6 +593,7 @@ function ready(st, pr, head, carry) {
     const marks = statuses(st, head)
     reviewed(st, pr, head, marks, carry)
     checked(pr, head, marks)
+    storyGreen(st, pr, head)
     mainAllows(st, pr, head)
 }
 

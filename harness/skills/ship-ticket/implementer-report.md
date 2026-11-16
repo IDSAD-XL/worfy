@@ -9,6 +9,9 @@ the brief, if there was one. Things noticed outside the ticket do not go there �
 profile in exactly one of the two forms of `implementer-browser-checks.md`; `[]` when every
 check ran or the ticket has none. The orchestrator copies each entry into the wave report.
 Which tests now cover the change — separate claims in `claims`, with the path to the test.
+The Code story of the PR (`story-pr.md`), when you wrote one — a claim with `item` `null`, the text
+`Code story: <story path>` and the evidence `story-check <story> exit 0`; the path is the one in the branch, or in
+the Workflow folder in Silent mode.
 `item` — the number of the item of `tickets.done_section` the claim proves, as `ticket evidence`
 prints it, the item you wrote its Evidence line under (step 6); `null` for a claim that proves no item.
 Every claim in `claims` will be re-checked by a separate agent: a claim without evidence is

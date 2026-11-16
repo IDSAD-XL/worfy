@@ -294,7 +294,10 @@ reaches the main branch.
 1. In the PR's branch, when the story file is uncommitted — a new untracked file counts, as does a changed one —
    the working tree: the implementer checks the story before committing it, and the output says it checked the
    working tree. Otherwise the branch's head, `HEAD`. A fix after review goes into the same branch and updates the
-   story with it, so the head and the story agree.
+   story with it, so the head and the story agree. A story outside the work tree — in the Workflow folder of Silent
+   mode, checked with `--repo <worktree>` — is read against `HEAD` too, before the PR exists: the implementer commits
+   the code first and writes the story after. Read against `HEAD`, a quoted file with changes `HEAD` does not hold is
+   refused (exit 1), not compared with the old code.
 2. The documents PR that appends `What review found and what remains` after the merge checks the file against the
    head of the PR the story describes — the `<head>` that `land` merged — not against its own branch: the appended
    step quotes the lines of that head, which review checked.
