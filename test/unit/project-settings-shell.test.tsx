@@ -442,6 +442,107 @@ describe('the folders a Product Session may also write in, in Project settings',
   })
 })
 
+// "Code stories for PRs" of Project settings (worfy-code-stories ticket 03): the Profile field
+// `code_stories.pr`, read and written through main (codeStoriesSetting.*, which runs bin/profile-set with
+// --expect). A click writes at once, not with Save; a refusal stays on screen; read-only, the switch is off.
+describe('Code stories for PRs in Project settings', () => {
+  const ROOT = '/repo/demo'
+  const WITH_PATH = { ...PROJECT, path: ROOT }
+  const READ = `sha256:${'a'.repeat(64)}`
+  const AFTER = `sha256:${'b'.repeat(64)}`
+  const section = (): HTMLElement => screen.getByTestId('project-settings-code-stories')
+  const storySwitch = (): HTMLButtonElement => within(section()).getByRole('switch', { name: 'Code stories for PRs' })
+  const sets = (): unknown[] => main.calls.filter((call) => call.channel === 'codeStoriesSetting.set').map((call) => call.input)
+  async function openWithPath(props: { machine?: string | null } = {}) {
+    const onClose = vi.fn()
+    render(<ProjectSettings project={WITH_PATH} onClose={onClose} {...props} />)
+    await act(async () => {})
+    return { onClose }
+  }
+  const click = async (): Promise<void> => {
+    await act(async () => {
+      fireEvent.click(storySwitch())
+    })
+  }
+
+  beforeEach(() => {
+    main.answers['codeStoriesSetting.read'] = { ok: true, value: { available: true, on: true, fingerprint: READ } }
+    main.answers['codeStoriesSetting.set'] = { ok: true, value: { status: 'saved', on: false, fingerprint: AFTER, warning: null } }
+  })
+
+  it('shows the value of the Profile: on, or off', async () => {
+    await openWithPath()
+    expect(main.calls.find((call) => call.channel === 'codeStoriesSetting.read')?.input).toEqual({ root: ROOT })
+    expect(storySwitch().getAttribute('aria-checked')).toBe('true')
+    expect(storySwitch().disabled).toBe(false)
+    cleanup()
+    main.answers['codeStoriesSetting.read'] = { ok: true, value: { available: true, on: false, fingerprint: READ } }
+    await openWithPath()
+    expect(storySwitch().getAttribute('aria-checked')).toBe('false')
+  })
+
+  it('a click sends off with the fingerprint read, at once and without Save, and shows the value written', async () => {
+    const { onClose } = await openWithPath()
+    await click()
+    expect(sets()).toEqual([{ root: ROOT, on: false, expected: READ }])
+    expect(storySwitch().getAttribute('aria-checked')).toBe('false')
+    expect(main.calls.some((call) => call.channel === 'projects.settings.set')).toBe(false)
+    expect(onClose).not.toHaveBeenCalled()
+    // The next click goes with the fingerprint of the write.
+    main.answers['codeStoriesSetting.set'] = { ok: true, value: { status: 'saved', on: true, fingerprint: READ, warning: null } }
+    await click()
+    expect(sets()).toEqual([
+      { root: ROOT, on: false, expected: READ },
+      { root: ROOT, on: true, expected: AFTER },
+    ])
+    expect(storySwitch().getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('a refusal of profile-set is shown in the window, and the switch shows the Profile as it is', async () => {
+    main.answers['codeStoriesSetting.set'] = { ok: true, value: { status: 'invalid', reason: 'code_stories.pr: must be one of on, off' } }
+    await openWithPath()
+    await click()
+    expect(within(section()).getByRole('alert').textContent).toBe('Code stories were not turned off: code_stories.pr: must be one of on, off')
+    expect(storySwitch().getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('a failed call is shown too; a Profile changed outside worfy is read again and said so', async () => {
+    main.answers['codeStoriesSetting.set'] = { ok: false, error: 'bin/profile-set --set failed (exit 9): boom' }
+    await openWithPath()
+    await click()
+    expect(within(section()).getByRole('alert').textContent).toBe('Code stories were not turned off: bin/profile-set --set failed (exit 9): boom')
+    main.answers['codeStoriesSetting.set'] = { ok: true, value: { status: 'conflict' } }
+    main.answers['codeStoriesSetting.read'] = { ok: true, value: { available: true, on: false, fingerprint: AFTER } }
+    await click()
+    expect(within(section()).getByRole('alert').textContent).toBe('The Profile changed outside worfy: the switch shows what it says now. Nothing was written.')
+    expect(storySwitch().getAttribute('aria-checked')).toBe('false')
+  })
+
+  it('a Profile that cannot be read says why, and the switch is off-limits', async () => {
+    main.answers['codeStoriesSetting.read'] = { ok: true, value: { available: false, reason: 'this Harness has no bin/profile-set --field' } }
+    await openWithPath()
+    expect(storySwitch().disabled).toBe(true)
+    expect(section().textContent).toContain('Not available: this Harness has no bin/profile-set --field')
+  })
+
+  it('asks the Machine of the Project; on a Linked machine shared read-only the switch shows the value and is disabled', async () => {
+    main.readOnly = { 'mini-machine': 'Mini gives this Machine read-only access' }
+    await openWithPath({ machine: 'mini-machine' })
+    expect(main.calls.find((call) => call.channel === 'codeStoriesSetting.read')?.machine).toBe('mini-machine')
+    expect(storySwitch().getAttribute('aria-checked')).toBe('true')
+    expect(storySwitch().disabled).toBe(true)
+    expect(storySwitch().title).toBe('Mini gives this Machine read-only access')
+    fireEvent.click(storySwitch())
+    expect(sets()).toEqual([])
+  })
+
+  it('a Project without its path shows no switch and reads nothing', async () => {
+    await open()
+    expect(screen.queryByTestId('project-settings-code-stories')).toBeNull()
+    expect(main.calls.some((call) => call.channel === 'codeStoriesSetting.read')).toBe(false)
+  })
+})
+
 // The window on the kit's Dialog (worfy-ui-kit ticket 05): the trap of the focus, the focus back on
 // what opened it, the dialog layer of the scale.
 describe('Project settings is a window of the kit', () => {

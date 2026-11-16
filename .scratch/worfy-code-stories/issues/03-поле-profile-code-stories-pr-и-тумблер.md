@@ -1,7 +1,7 @@
 # 03 — Поле Profile `code_stories.pr` и тумблер в Project settings
 
 Type: feature
-Status: open
+Status: claimed 2026-11-15T23:45Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», строка 03; «Решения владельца» 14, 25 (строки 113, 129–131);
 «Решения по реализации» → Harness: «Настройка» (строки 234–235); история 26
@@ -33,13 +33,19 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 03; «Решения 
 
 - [ ] `harness/bin/tests/profile.test.sh`: без поля `--field code_stories.pr` печатает включённое значение; с
       выключенным — выключенное.
+  - evidence: test-run pass · `bash harness/bin/tests/profile.test.sh` exit 0 · mac - · 7379d8753c424df7e9effbba52dc8cae60b466f8
 - [ ] `harness/bin/tests/profile-set.test.sh`: `--field code_stories.pr` пишет поле, остальные поля Profile те же
       байт в байт; неверное значение — отказ с exit code не 0.
+  - evidence: test-run pass · `bash harness/bin/tests/profile-set.test.sh` exit 0 · mac - · 7379d8753c424df7e9effbba52dc8cae60b466f8
 - [ ] Contract test канала (по образцу `test/contract/eco-mode.test.ts`): запись идёт через `profile-set` с
       `--expect`; Profile, изменённый между чтением и записью, не пишется.
+  - evidence: test-run pass · `pnpm test test/contract/code-stories-setting.test.ts` exit 0 · mac - · 7379d8753c424df7e9effbba52dc8cae60b466f8
 - [ ] Unit test `test/unit/project-settings-shell.test.tsx`: тумблер показывает значение Profile; клик шлёт
       выключение; ошибка `profile-set` видна; на Linked machine только для чтения тумблер неактивен.
+  - evidence: test-run pass · `pnpm test test/unit/project-settings-shell.test.tsx` exit 0 · mac - · 7379d8753c424df7e9effbba52dc8cae60b466f8
 - [ ] lint, typecheck, test-ы модуля, все `harness/bin/tests/*.test.sh` и gate fast — exit 0.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 7379d8753c424df7e9effbba52dc8cae60b466f8
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 7379d8753c424df7e9effbba52dc8cae60b466f8
 
 ## Тесты
 

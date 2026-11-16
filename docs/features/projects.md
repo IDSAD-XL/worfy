@@ -349,6 +349,13 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
   Orchestrator, "New session", "Ship ticket" and a Product Session. Each start reads the Profile folder and adds the private
   folder as an extra directory after the Cards folder. `skills.allowed` does not remove it. An Autopilot Session, the draft
   Session of "Add project" and a Codex Session never get it (ADR-0102). The whole Feature: [Team reviewer](human-review.md).
+- "Code stories for PRs" in "Project settings…" is the switch of the Profile field `code_stories.pr`: on, the
+  implementer is to write a Code story (a short step-by-step account of the change) of each ticket's PR. The field is
+  the Profile's, because the Harness reads only the Profile. A Profile without it reads as on. A click writes `"on"` or
+  `"off"` at once, not with Save, through `harness/bin/profile-set --field code_stories.pr`, and only while the Profile
+  still has the value the switch read. If it changed in between, nothing is written: the dialog says so and shows the
+  Profile as it is now. Any other refusal shows under the switch. A read-only Linked machine sees the value with the
+  switch turned off. The step that writes the story and the merge check that reads the field are not built yet.
 - "Edit profile…" in "Project settings…" opens the Project's Profile in a form over the dialog. It has the fields of the
   Review step of "Add project" and those that step does not show: the title, the commands, the ticket path, spec, files
   section, done section and branch, the finish, `parallel`, the review and ticket lenses, the MCP servers, the skills

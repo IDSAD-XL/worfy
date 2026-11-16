@@ -9,6 +9,7 @@ import {
   type ActionTemplates,
   type TerminalShellSetting,
 } from '../../shared/projects/action-templates'
+import type { CodeStoriesSettingState } from '../../shared/ipc/code-stories-setting'
 import type { TeamReviewerState } from '../../shared/ipc/projects'
 import { UNNAMED_VENDOR, VENDOR_IDS, vendorLabel, type VendorId } from '../../shared/vendors/vendor'
 import { invoke, invokeOn, windowMachine } from '../ipc'
@@ -106,6 +107,9 @@ const VENDOR_OPTIONS: readonly { value: VendorChoice; label: string }[] = [
  *
  * "Read pull requests from GitHub" (worfy-pr-inbox ticket 03, spec decision Q10): the `prInbox` field, on by
  * default. Off, main runs no gh for the Project's PR inbox; it is sent with Save, and only when changed here.
+ *
+ * "Code stories for PRs" (worfy-code-stories ticket 03): the Profile field `code_stories.pr`, shown and written at
+ * once on a click, not with Save; see CodeStoriesSection.
  *
  * "Edit profile…" (worfy-polish ticket 78) opens the fields of the Project's Profile over this window
  * (EditProfile.tsx): they are the Harness's, written by its `bin/profile-set` on their own Save, not with
@@ -330,6 +334,8 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
         </section>
       ) : null}
 
+      {project.path === undefined ? null : <CodeStoriesSection root={project.path} machine={machine} readOnly={readOnly} />}
+
       {project.path === undefined ? null : (
         <section style={styles.field} aria-label="Profile" data-testid="project-settings-profile">
           <span style={styles.label}>Profile</span>
@@ -430,6 +436,123 @@ function teamReviewerText(state: TeamReviewerState): string {
     case 'unavailable':
       return `Not available: ${state.reason}`
   }
+}
+
+interface CodeStoriesSectionProps {
+  /** The Project's repository root, as the Project list of its Machine names it. */
+  root: string
+  /** As ProjectSettingsProps.machine: the calls go to the Project's Machine. */
+  machine: string | null | undefined
+  /** Why the Project of a Linked machine is shared read-only; null with full access. */
+  readOnly: string | null
+}
+
+/** The line of a conflict: the Profile changed since the switch read it, and nothing was written. */
+const CODE_STORIES_CHANGED = 'The Profile changed outside worfy: the switch shows what it says now. Nothing was written.'
+
+/**
+ * "Code stories for PRs" of Project settings (worfy-code-stories ticket 03): the Profile field `code_stories.pr`,
+ * whether the implementer writes a Code story of each ticket's PR. It is the Profile's, not a setting of this
+ * window, because the Harness reads only the Profile; absent reads as on. A click writes it at once through main
+ * (codeStoriesSetting.set runs `bin/profile-set` with `--expect` and the fingerprint read), as the Eco mode switch
+ * does (session/modes/eco-mode.ts), and a refusal stays on screen. Shared read-only, the switch shows the value
+ * and is off.
+ */
+function CodeStoriesSection({ root, machine, readOnly }: CodeStoriesSectionProps) {
+  const call: typeof invoke = machine === undefined ? invoke : (channel, ...args) => invokeOn(machine, channel, ...args)
+  // undefined while the Profile is being read.
+  const [state, setState] = useState<CodeStoriesSettingState>()
+  // The value being written; null while no write runs.
+  const [writing, setWriting] = useState<boolean | null>(null)
+  const [failure, setFailure] = useState<string>()
+  const [warning, setWarning] = useState<string>()
+  // Counts the reads: a write that did not go through asks for one more.
+  const [generation, setGeneration] = useState(0)
+
+  useEffect(() => {
+    let active = true
+    const input = { root }
+    void (machine === undefined ? invoke('codeStoriesSetting.read', input) : invokeOn(machine, 'codeStoriesSetting.read', input)).then((result) => {
+      if (active) setState(result.ok ? result.value : { available: false, reason: `could not read the Project's Profile: ${result.error}` })
+    })
+    return () => {
+      active = false
+    }
+  }, [root, machine, generation])
+
+  // The write may have gone through on the Machine of the Project with its answer lost: no guess until read again.
+  const readAgain = (): void => {
+    setState(undefined)
+    setGeneration((count) => count + 1)
+  }
+
+  const write = async (next: boolean): Promise<void> => {
+    if (state?.available !== true || writing !== null || readOnly !== null) return
+    const what = `Code stories were not turned ${next ? 'on' : 'off'}`
+    setFailure(undefined)
+    setWarning(undefined)
+    setWriting(next)
+    const result = await call('codeStoriesSetting.set', { root, on: next, expected: state.fingerprint })
+    setWriting(null)
+    if (!result.ok) {
+      setFailure(`${what}: ${result.error}`)
+      readAgain()
+      return
+    }
+    const done = result.value
+    switch (done.status) {
+      case 'saved':
+        setState({ available: true, on: done.on, fingerprint: done.fingerprint })
+        if (done.warning !== null) setWarning(`Saved. The change was not committed in the Harness home: ${done.warning}`)
+        return
+      case 'conflict':
+        setFailure(CODE_STORIES_CHANGED)
+        readAgain()
+        return
+      case 'busy':
+        setFailure(`${what}: another write of the Profile is in progress — try again.`)
+        return
+      case 'invalid':
+        setFailure(`${what}: ${done.reason}`)
+        return
+      case 'too-old':
+        setFailure(`${what}: the Harness is too old. Update it from the Harness item of the toolbar.`)
+        return
+    }
+  }
+
+  const unavailable = state !== undefined && !state.available ? `Not available: ${state.reason}` : null
+  const on = writing ?? (state?.available === true ? state.on : true)
+  return (
+    <section style={styles.field} aria-label="Code stories" data-testid="project-settings-code-stories">
+      <div style={styles.toggle}>
+        <span style={styles.label}>Code stories for PRs</span>
+        <SettingSwitch
+          label="Code stories for PRs"
+          checked={on}
+          onChange={(next) => void write(next)}
+          disabled={readOnly !== null || state?.available !== true || writing !== null}
+          title={readOnly ?? unavailable ?? undefined}
+          testId="project-settings-code-stories-switch"
+        />
+      </div>
+      <span style={styles.hint}>
+        {state === undefined
+          ? "Reading the Project's Profile…"
+          : (unavailable ?? "The implementer writes a short step-by-step story of each ticket's PR. Saved in the Project's Profile at once; applies to the next ticket.")}
+      </span>
+      {warning === undefined ? null : (
+        <span role="status" style={styles.hint}>
+          {warning}
+        </span>
+      )}
+      {failure === undefined ? null : (
+        <span role="alert" style={styles.error}>
+          {failure}
+        </span>
+      )}
+    </section>
+  )
 }
 
 interface TeamReviewerSectionProps {

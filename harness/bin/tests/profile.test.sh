@@ -103,6 +103,25 @@ check "synthetic modules.heavy" 0 '"pkg/a": 2' "$PROFILE" -C "$T/repo" --field m
 check "synthetic tests.globs" 0 '"*_test.go"' "$PROFILE" -C "$T/repo" --field tests.globs
 check "synthetic absent github.account -> 4" 4 "" "$PROFILE" -C "$T/repo" --field github.account
 check "synthetic absent modules.deep -> 4" 4 "" "$PROFILE" -C "$T/repo" --field modules.deep
+# code_stories.pr, the switch of the story PR: absent — on; "off" as written;
+# any other value — one warning on stderr and the default, so a typo never stops the profile from being read.
+check "code_stories.pr absent -> on" 0 "on" "$PROFILE" -C "$T/repo" --field code_stories.pr
+cp "$T/profiles/demo/profile.json" "$T/demo-profile.json"
+with_stories() { node -e 'const p=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); p.code_stories=JSON.parse(process.argv[2]); process.stdout.write(JSON.stringify(p))' "$T/demo-profile.json" "$1" >"$T/profiles/demo/profile.json"; }
+with_stories '{"pr":"off"}'
+check "code_stories.pr off -> off" 0 "off" "$PROFILE" -C "$T/repo" --field code_stories.pr
+with_stories '{"pr":"on"}'
+check "code_stories.pr on -> on" 0 "on" "$PROFILE" -C "$T/repo" --field code_stories.pr
+with_stories '{"pr":null}'
+check "code_stories.pr null -> on" 0 "on" "$PROFILE" -C "$T/repo" --field code_stories.pr
+with_stories '{}'
+check "code_stories without pr -> on" 0 "on" "$PROFILE" -C "$T/repo" --field code_stories.pr
+with_stories '{"pr":false}'
+check "code_stories.pr false -> on, exit 0" 0 "on" "$PROFILE" -C "$T/repo" --field code_stories.pr
+check "code_stories.pr false -> a warning naming the field" 0 "code_stories.pr" bash -c "'$PROFILE' -C '$T/repo' --field code_stories.pr 2>&1 >/dev/null"
+with_stories '"off"'
+check "code_stories a string -> on, exit 0" 0 "on" "$PROFILE" -C "$T/repo" --field code_stories.pr
+cp "$T/demo-profile.json" "$T/profiles/demo/profile.json"
 check "worktree outside match prefix" 0 "demo" "$PROFILE" -C "$T/elsewhere-wt" --name
 check "worktree flagged" 0 "true" "$PROFILE" -C "$T/elsewhere-wt" --field _resolved.in_worktree
 check "root not flagged" 0 "false" "$PROFILE" -C "$T/repo" --field _resolved.in_worktree

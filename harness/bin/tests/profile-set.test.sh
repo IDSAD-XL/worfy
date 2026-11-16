@@ -843,6 +843,47 @@ run "$SET" -C "$T/r/demo" --field workflow.e2e_lock --expect "$fp_lock" --set '{
 check "bin/profile rules: e2e_lock under ~/ is written" [ "$(at_of "$PJ" workflow/e2e_lock)" = '"~/locks/e2e"' ]
 check "fields: no lock folder left" [ ! -e "$LOCKDIR" ]
 
+# --- --field code_stories.pr: the switch of the story PR ----------------------
+# The profile without code_stories, in the form profile-set writes it: the other fields byte for byte.
+without_stories() { node -e 'const p=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); delete p.code_stories; process.stdout.write(JSON.stringify(p,null,2)+"\n")' "$1"; }
+stories_of() { node -e 'const p=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); const c=p.code_stories; process.stdout.write(c===undefined?"absent":JSON.stringify(c))' "$1"; }
+cp "$PJ" "$T/pj-before-stories"
+check "code_stories.pr: the fixture is in the form profile-set writes" [ "$(without_stories "$PJ")" = "$(cat "$PJ")" ]
+before_commits="$(commits)"
+out="$(run "$SET" -C "$T/r/demo" --field code_stories.pr --read)"
+check "code_stories.pr --read without the field: null" [ "$(json_get fields <<<"$out")" = '{"code_stories.pr":null}' ]
+sfp="$(json_get fingerprint <<<"$out")"
+check "code_stories.pr absent: bin/profile reads on" [ "$(run "$PROFILE" -C "$T/r/demo" --field code_stories.pr)" = on ]
+for bad in '"no"' 'false' 'true' '1' '""' '{"on":true}'; do
+    for how in --set --check; do
+        if [ "$how" = --set ]; then run "$SET" -C "$T/r/demo" --field code_stories.pr --expect "$sfp" --set "{\"code_stories.pr\":$bad}" >/dev/null 2>"$T/err"; else run "$SET" -C "$T/r/demo" --field code_stories.pr --check "{\"code_stories.pr\":$bad}" >/dev/null 2>"$T/err"; fi
+        rc=$?
+        check "code_stories.pr $how refuses $bad: exit 1" [ "$rc" -eq 1 ]
+        check "code_stories.pr $how refuses $bad: stderr names the field" grep -qF -- "code_stories.pr: must be one of" "$T/err"
+    done
+done
+check "code_stories.pr refused: profile.json is unchanged" cmp -s "$PJ" "$T/pj-before-stories"
+check "code_stories.pr refused: no commit" [ "$(commits)" -eq "$before_commits" ]
+out="$(run "$SET" -C "$T/r/demo" --field code_stories.pr --expect "$sfp" --set '{"code_stories.pr":"off"}' 2>"$T/err")"
+rc=$?
+check "code_stories.pr off: exit 0" [ "$rc" -eq 0 ]
+[ "$rc" -eq 0 ] || echo "     stderr: $(head -c 400 "$T/err")"
+check "code_stories.pr off: written" [ "$(stories_of "$PJ")" = '{"pr":"off"}' ]
+check "code_stories.pr off: the other fields byte for byte" [ "$(without_stories "$PJ")" = "$(cat "$T/pj-before-stories")" ]
+check "code_stories.pr off: one commit more" [ "$(commits)" -eq $((before_commits + 1)) ]
+check "code_stories.pr off: bin/profile reads off" [ "$(run "$PROFILE" -C "$T/r/demo" --field code_stories.pr)" = off ]
+sfp="$(json_get fingerprint <<<"$out")"
+run "$SET" -C "$T/r/demo" --field code_stories.pr --expect "$sfp" --set '{"code_stories.pr":"on"}' >/dev/null 2>"$T/err"
+check "code_stories.pr on: exit 0" [ $? -eq 0 ]
+check "code_stories.pr on: written" [ "$(stories_of "$PJ")" = '{"pr":"on"}' ]
+check "code_stories.pr on: bin/profile reads on" [ "$(run "$PROFILE" -C "$T/r/demo" --field code_stories.pr)" = on ]
+check "code_stories.pr on: the other fields byte for byte" [ "$(without_stories "$PJ")" = "$(cat "$T/pj-before-stories")" ]
+run "$SET" -C "$T/r/demo" --field code_stories.pr --expect "$sfp" --set '{"code_stories.pr":"off"}' >/dev/null 2>"$T/err"
+check "code_stories.pr with the fingerprint of before the last write: exit 5" [ $? -eq 5 ]
+check "code_stories.pr with that fingerprint: still on" [ "$(stories_of "$PJ")" = '{"pr":"on"}' ]
+cp "$T/pj-before-stories" "$PJ"
+git -C "$HH" -c user.name=t -c user.email=t@t commit -q -am "test: profile before code_stories" >/dev/null 2>&1
+
 # --- a Harness home inside another git repository gets no commit -----------------------------------------
 OUTER="$T/outer"
 HH3="$OUTER/hh3"
