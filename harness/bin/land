@@ -982,7 +982,7 @@ function openCodeTickets(st, epic) {
     const ref = `refs/remotes/${st.remote || "origin"}/${st.branch}`
     const folder = root ? path.join(st.repo, root) : ticketsFolder(st)
     const args = ["--json", ...(root ? ["--ref", ref] : []), "--root", folder]
-    const r = run(program(process.env.LAND_EPIC_STATUS, [process.execPath, [path.join(__dirname, "epic-status")]]), args, st.repo)
+    const r = run([process.execPath, [path.join(__dirname, "epic-status")]], args, st.repo)
     if (r.code !== 0) throw new Wait(`epic-status ${args.join(" ")} exited ${r.code}: ${firstLine(r.err || r.out)}`)
     let tickets
     try {
