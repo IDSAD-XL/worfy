@@ -468,8 +468,10 @@ describe('Add project is a window of the kit', () => {
     const later = await openFromButton()
     fireEvent.click(screen.getByRole('button', { name: 'Write draft' }))
     await screen.findByLabelText('Name')
-    // Real timers here (flush waits on them): the check's debounce runs out by itself.
-    await waitFor(() => expect(later.window.textContent).not.toContain('Checking the draft'), { timeout: ms(2000) })
+    // Real timers here (flush waits on them). The account step's answer starts a check: wait until it was
+    // sent past its debounce and came back, so no check timer outlives the test.
+    await waitFor(() => expect(checkedDrafts()).not.toHaveLength(0), { timeout: ms(2000) })
+    await waitFor(() => expect(later.window.textContent).not.toContain('Checking the draft'))
     fireEvent.mouseDown(later.window.parentElement!)
     await flush()
     expect(later.onClose).not.toHaveBeenCalled()
