@@ -1502,13 +1502,13 @@ function writeStories(scratch: string): void {
 }
 
 const storiesExpected = (scratch: string) => [
-  { kind: 'epic', path: 'demo/story.md', ticket: null, version: versionOf(storyFixture('epic-ru.md')), error: null },
-  { kind: 'pr', path: 'demo/stories/04-cart-total.md', ticket: '04', version: versionOf(readFileSync(join(scratch, 'demo', 'stories', '04-cart-total.md'), 'utf8')), error: null },
-  { kind: 'pr', path: 'demo/stories/05-broken.md', ticket: '05', version: versionOf(storyFixture('missing-field.md')), error: expect.stringContaining('"Why here"') as unknown },
+  { kind: 'epic', path: 'demo/story.md', ticket: null, version: versionOf(storyFixture('epic-ru.md')) },
+  { kind: 'pr', path: 'demo/stories/04-cart-total.md', ticket: '04', version: versionOf(readFileSync(join(scratch, 'demo', 'stories', '04-cart-total.md'), 'utf8')) },
+  { kind: 'pr', path: 'demo/stories/05-broken.md', ticket: '05', version: versionOf(storyFixture('missing-field.md')) },
 ]
 
 describe('workflow reader and the Code stories of an Epic (worfy-code-stories 08)', () => {
-  it('gives the Epic its story and the stories of its Tickets\' PRs, with the reason of one that does not parse; nothing deeper, nothing but .md', async () => {
+  it('gives the Epic its story and the stories of its Tickets\' PRs, one that does not parse too (stories.read gives its reason); nothing deeper, nothing but .md', async () => {
     const repo = makeRepo(dir)
     const scratch = join(repo, '.scratch')
     writeStories(scratch)

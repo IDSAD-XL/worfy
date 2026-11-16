@@ -4,8 +4,8 @@
 // (src/main/harness/locate.ts: the plugin's bin/ or `<claude home>/bin`). worfy adds the
 // things that script does not carry: the files listed under each Ticket's trail section, the
 // Ticket's manual checks and Evidence items of its "done" section (shared/workflow/manual-checks.ts,
-// shared/workflow/evidence.ts), the Code stories of each Epic (`story.md`, `stories/*.md`: where each is and whether it
-// parses, shared/stories/parse.ts; worfy-code-stories ticket 08) — all under the
+// shared/workflow/evidence.ts), the Code stories of each Epic (`story.md`, `stories/*.md`: where each is and the
+// version of its text; worfy-code-stories ticket 08) — all under the
 // headings the Project's Profile names (shared/workflow/doc-headings.ts) — and the Epic's title (the H1 of spec.md), all read from the Tickets root the Harness
 // names (src/main/workflow/folder.ts: `<root>/.scratch` in Full mode, the Workflow folder in Silent
 // mode). In Full mode a Ticket claimed in a worktree branch is shown with the branch's status:
@@ -28,7 +28,6 @@ import { join, resolve } from 'node:path'
 import { accepted, DEFAULT_DOC_HEADINGS, docHeadings, OLD_DOC_HEADINGS, sectionHeadings, type DocHeadings } from '../../shared/workflow/doc-headings'
 import { evidenceItems } from '../../shared/workflow/evidence'
 import { manualChecks } from '../../shared/workflow/manual-checks'
-import { parseStory } from '../../shared/stories/parse'
 import { repoPageUrl } from '../github/remote'
 import { versionOf } from '../docs/watch'
 import { branchNamesTicket, parseTicketBranch } from '../../shared/workflow/ticket-ref'
@@ -350,11 +349,12 @@ export function storyTicket(file: string): string | null {
   return match ? match[1]!.padStart(2, '0') : null
 }
 
-/** What the model says of a story file: where it is, its version and whether it parses (src/shared/stories/parse.ts). */
-function storyEntry(kind: StoryEntry['kind'], path: string, ticket: string | null, markdown: string): StoryEntry {
-  const parsed = parseStory(markdown)
-  return { kind, path, ticket, version: versionOf(markdown), error: parsed.ok ? null : parsed.reason }
-}
+/**
+ * What the model says of a story file: where it is and its version. The story is parsed when it is opened
+ * (stories.read, src/main/ipc/stories.ts), not here: the parser's labels come from a JSON module, and this file is loaded
+ * by test/e2e/epic-frame.spec.ts under Playwright, whose loader refuses a JSON import without an import attribute.
+ */
+const storyEntry = (kind: StoryEntry['kind'], path: string, ticket: string | null, markdown: string): StoryEntry => ({ kind, path, ticket, version: versionOf(markdown) })
 
 /** `path` under `ticketsRoot` with `/` between the parts. */
 const relUnder = (ticketsRoot: string, path: string, paths: PathRules): string => paths.relative(ticketsRoot, path).split(paths.sep).join('/')

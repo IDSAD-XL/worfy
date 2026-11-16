@@ -5,7 +5,7 @@
 //
 // - The title is the first line, `# Code story — …`; the header the first non-empty line after it, `Key: value` fields
 //   split by ` · `. A committed story names no commit; `Commit: <full sha>` is the header of a story kept outside git
-//   (TICKETS.md, "Story anchor"), and both shapes are read.
+//   (TICKETS.md, "Story anchor"). Both shapes are read; with `committed` a `Commit:` field is an error.
 // - The body is split at the `##` headings (and `###` in an Epic story) outside fenced code blocks.
 // - A field is a list item `- <label>: <value>`; its value goes on over the indented lines after it, joined by a space.
 //   The labels, the frame titles and "not recorded" follow `Language:` (labels.json): `ru` the Russian words, any other
@@ -290,7 +290,7 @@ function header(line: string | undefined): Map<string, string> {
   return fields
 }
 
-function prStory(title: string, fields: Map<string, string>, body: Section[], language: StoryLanguage, labels: StoryLabels): StoryFile {
+function prStory(title: string, fields: Map<string, string>, body: Section[], language: StoryLanguage, labels: StoryLabels, committed: boolean): StoryFile {
   const pr = fields.get('PR') ?? fail('header', 'no PR: field (#<N>, or - while the PR is not open)')
   if (!/^(#\d+|-)$/u.test(pr)) fail('header', `PR: "${pr}" is not #<N> or -`)
   const epic = fields.get('Epic') ?? null
@@ -298,6 +298,7 @@ function prStory(title: string, fields: Map<string, string>, body: Section[], la
   if (ticket !== null && !/^\d{2}$/u.test(ticket)) fail('header', `Ticket: "${ticket}" is not two digits`)
   if ((epic === null) !== (ticket === null)) fail('header', 'Epic: and Ticket: go together: both for the PR of a ticket, neither for another PR')
   const commit = fields.get('Commit') ?? null
+  if (commit !== null && committed) fail('header', 'a committed story names no commit (Commit:): its anchor is the commit that added it (TICKETS.md, Story anchor)')
   if (commit !== null && !/^[0-9a-f]{40}$/u.test(commit)) fail('header', `Commit: "${commit}" is not a full commit sha`)
   // The title after `<epic> <NN>: ` or `PR #<N>: `; the whole rest when it has neither.
   const lead = epic !== null && ticket !== null ? `${epic} ${ticket}: ` : null
@@ -381,8 +382,16 @@ function epicStory(fields: Map<string, string>, body: Section[], language: Story
   }
 }
 
+export interface ParseOptions {
+  /**
+   * The file is committed with its change — in git or in the Workflow folder — so a `Commit:` field is an error, as
+   * story-check says (TICKETS.md, "Header"). Without it both header shapes are read.
+   */
+  committed?: boolean
+}
+
 /** The story the Markdown `markdown` holds, or the reason it does not fit the format. */
-export function parseStory(markdown: string): StoryParse {
+export function parseStory(markdown: string, options: ParseOptions = {}): StoryParse {
   try {
     const lines = markdown
       .replace(/^\uFEFF/u, '')
@@ -403,7 +412,7 @@ export function parseStory(markdown: string): StoryParse {
     const labels = storyLabels(language)
     const { lead, sections: body } = sections(lines.slice(k + 1), kind === 'epic' ? [2, 3] : [2])
     if (lead.some((line) => line.trim() !== '')) fail('header', 'text between the header and the first section')
-    const story = kind === 'pr' ? prStory(title.slice(2 + TITLE_PREFIX.length), fields, body, language, labels) : epicStory(fields, body, language, labels)
+    const story = kind === 'pr' ? prStory(title.slice(2 + TITLE_PREFIX.length), fields, body, language, labels, options.committed === true) : epicStory(fields, body, language, labels)
     // The rules a line scan does not see — a key line outside its fragment, a Requirement that is no link.
     const checked = storyFileSchema.safeParse(story)
     if (!checked.success) {

@@ -96,6 +96,9 @@ describe('parseStory: the two header shapes and the reasons of a file that does 
     const sha = 'a'.repeat(40)
     const withCommit = parseStory(prEn.replace('· Language: en', `· Language: en · Commit: ${sha}`))
     expect(withCommit.ok && withCommit.story.kind === 'pr' ? withCommit.story.header.commit : null).toBe(sha)
+    // A committed story — a file of the Tickets root — names no commit, as story-check says.
+    expect(parseStory(prEn.replace('· Language: en', `· Language: en · Commit: ${sha}`), { committed: true })).toMatchObject({ ok: false, reason: expect.stringContaining('Commit') as unknown })
+    expect(parseStory(prEn, { committed: true }).ok).toBe(true)
     const short = parseStory(prEn.replace('· Language: en', '· Language: en · Commit: abc123'))
     expect(short).toMatchObject({ ok: false, reason: expect.stringContaining('Commit') as unknown })
   })

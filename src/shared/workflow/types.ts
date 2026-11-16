@@ -122,9 +122,9 @@ export type EpicStatusSnapshot = z.infer<typeof epicStatusSchema>
 
 /**
  * A Code story file of an Epic (worfy-code-stories ticket 08; harness/bin/TICKETS.md, "Code story"): the Epic's
- * `story.md` or the story of a Ticket's PR, `stories/NN-<slug>.md`. The model carries where it is and whether it
- * parses, not the story itself: the story is read when it is opened (`stories.read`), so a large one is not sent with
- * every change of the Project.
+ * `story.md` or the story of a Ticket's PR, `stories/NN-<slug>.md`. The model carries where it is, not the story: the
+ * story is read and parsed when it is opened (`stories.read`, which gives the reason of a file that does not fit the
+ * format), so a large one is not sent with every change of the Project.
  */
 export const storyEntrySchema = z.object({
   /** `epic` for story.md, `pr` for a file of stories/. */
@@ -135,8 +135,6 @@ export const storyEntrySchema = z.object({
   ticket: z.string().nullable(),
   /** A hash of the file's text: an edit of the story is a change of its Epic, and an open view reads it again. */
   version: z.string(),
-  /** Why the file does not fit the format (src/shared/stories/parse.ts); null when it does. */
-  error: z.string().nullable(),
 })
 export type StoryEntry = z.infer<typeof storyEntrySchema>
 

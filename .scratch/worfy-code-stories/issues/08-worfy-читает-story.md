@@ -41,6 +41,13 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 08; «Решения 
    коллег (ADR-0105).
 6. IPC: чтение story Epic-а, story PR и сохранённой story по кнопке.
 
+Решено 2026-11-16 (implementer, review PR #1910, раунд 1): в режиме Silent anchor story — merge commit её PR-а, а до
+merge — head PR-а (`gh pr view <N> --json headRefOid,mergeCommit`; номер — из шапки story или из главы story Epic-а,
+его передаёт вызов `stories.code`). У story с `PR -` anchor по `TICKETS.md` — HEAD worktree ветки Ticket-а — worfy не
+читает: шаг показывает код из story с причиной `no-anchor`. Причина: такую story видит только implementer до
+`gh pr create`, и её фрагменты уже сверяет `story-check`; чтение worktree ветки по Ticket-у — отдельная работа без
+пользы для вида Story.
+
 ## Готово, когда
 
 - [ ] Unit test `test/unit/tickets-watch.test.ts`: `story.md` и `stories/NN-*.md` в папке Epic-а не пропускаются;

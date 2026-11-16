@@ -2,22 +2,28 @@
 // ticket 08; harness/bin/TICKETS.md, "Story anchor"). A fragment's line numbers are those of the PR's head, and a
 // PR is merged by squash, so its head never reaches the main branch, and the main branch may have moved the code.
 //
-// - A committed story (`{ path }`, the file under the Tickets root): its anchor is the commit that brought the story
+// Where a fragment is read — its anchor commit:
+// - A committed story in Full mode (`{ path }`, the file under the Tickets root): the commit that brought the story
 //   file to the main branch, `git log --first-parent --follow --diff-filter=A --format=%H -1 <main> -- <story path>`.
-//   `<main>` is the commit the workflow is read from (main-ref.ts, ADR-0107): origin's main branch in Full mode with the
-//   Tickets in git, HEAD of the folder when that branch does not resolve. A Silent Project's story lies in its Workflow
-//   folder, no commit of the code: it has no anchor.
+//   `<main>` is the commit the workflow is read from (main-ref.ts, ADR-0107): origin's main branch with the Tickets in
+//   git, HEAD of the folder when that branch does not resolve.
+// - A committed story in Silent mode: it lies in the Workflow folder, no commit of the code. Its anchor is its PR's
+//   (`{ path, pr }`: the PR of the story's header, or of the chapter): the merge commit once the PR is merged, else the
+//   PR's head (`gh pr view <N> --json headRefOid,mergeCommit`, through the `prCommits` the caller gives). A story whose
+//   PR is not open yet (`PR -`) has none here: TICKETS.md's anchor of that case, HEAD of the Ticket branch's worktree,
+//   is not read (the deviation is recorded in the ticket).
 // - A story kept outside git (`{ commit }`): the PR head its header, or its chapter, names.
 //
 // The fragment is looked for by its code in that commit's file: its lines as one block, a trailing carriage return
 // dropped; of several matches, the one nearest the story's line numbers. Found — the commit's line numbers, the key
-// lines moved by the same amount. Not found — the file changed there, is gone, the commit is missing (a shallow clone,
-// a colleague's head never fetched) or there is no anchor — the story's own code with its own numbers, marked
-// `fromHead`: the story carries its code, so nothing is lost and no story is refused for it.
+// lines moved by the same amount. Otherwise the story's own code with its own numbers, marked `fromHead`, with the
+// reason: `changed` — the anchor holds other code there, or no such file; `no-anchor` — there is no anchor, or git
+// cannot read it (a shallow clone, a colleague's head never fetched). The story carries its code, so nothing is lost
+// and no story is refused for it.
 //
 // Nothing here writes: git only reads objects (main-ref.ts: one `ls-tree` and one `cat-file --batch` per file read).
 import * as nativePath from 'node:path'
-import type { FragmentCode, StoryCodeAt } from '../../shared/ipc/stories'
+import { fragmentTooLarge, type FragmentCode, type StoryCodeAt } from '../../shared/ipc/stories'
 import type { StoryFragment } from '../../shared/stories/schema'
 import type { ProjectLayout } from '../workflow/folder'
 import { refTree, resolveSource, runGit, type CatFileRunner, type RefGitRunner } from '../workflow/main-ref'
@@ -27,28 +33,52 @@ const FILE_MAX_BYTES = 8 * 1024 * 1024
 /** How many anchors and file texts are kept between two steps of one story; the oldest goes first. */
 const CACHE_SIZE = 64
 
+/**
+ * How many lines the search may compare beyond the first line of each place: a file of many like lines (empty ones) and
+ * a long fragment of them would otherwise take its lines times the fragment's. Spent, the search keeps the nearest
+ * match found so far, or shows the story's own code.
+ */
+export const SEARCH_BUDGET = 1_000_000
+
+const SHA = /^[0-9a-f]{40,64}$/u
+
 const lines = (text: string): string[] => text.split('\n').map((line) => line.replace(/\r$/u, ''))
 
+/** The story's own code with its own numbers, and why it is shown. */
+const ownCode = (fragment: StoryFragment, reason: NonNullable<FragmentCode['reason']>): FragmentCode => ({
+  code: fragment.code,
+  startLine: fragment.startLine,
+  keyLines: [...fragment.keyLines],
+  fromHead: true,
+  reason,
+})
+
 /**
- * Where `fragment` stands in `text` (a file of the commit read; null when there is none): the block nearest the story's
- * line numbers, or the story's own code, marked, when the file does not hold it.
+ * Where `fragment` stands in `text` (its file in the anchor commit; null when the commit has no such file): the block
+ * nearest the story's line numbers, or the story's own code, marked `changed`, when the file does not hold it. Only the
+ * places whose first line is the fragment's are compared further, and those comparisons are bounded by `budget`.
  */
-export function placeFragment(text: string | null, fragment: StoryFragment): FragmentCode {
-  const own: FragmentCode = { code: fragment.code, startLine: fragment.startLine, keyLines: [...fragment.keyLines], fromHead: true }
-  if (text === null) return own
+export function placeFragment(text: string | null, fragment: StoryFragment, budget: number = SEARCH_BUDGET): FragmentCode {
+  if (text === null) return ownCode(fragment, 'changed')
   const want = lines(fragment.code)
   const file = lines(text)
+  let left = budget
   let best: number | null = null
-  for (let at = 0; at + want.length <= file.length; at += 1) {
-    if (!want.every((line, index) => file[at + index] === line)) continue
+  search: for (let at = 0; at + want.length <= file.length; at += 1) {
+    if (file[at] !== want[0]) continue
+    for (let index = 1; index < want.length; index += 1) {
+      left -= 1
+      if (left < 0) break search
+      if (file[at + index] !== want[index]) continue search
+    }
     if (best === null || Math.abs(at + 1 - fragment.startLine) < Math.abs(best + 1 - fragment.startLine)) best = at
   }
-  if (best === null) return own
+  if (best === null) return ownCode(fragment, 'changed')
   const shift = best + 1 - fragment.startLine
-  return { code: want.join('\n'), startLine: best + 1, keyLines: fragment.keyLines.map((line) => line + shift), fromHead: false }
+  return { code: want.join('\n'), startLine: best + 1, keyLines: fragment.keyLines.map((line) => line + shift), fromHead: false, reason: null }
 }
 
-/** Keeps at most CACHE_SIZE answers by key, dropping the oldest. */
+/** Keeps at most CACHE_SIZE answers by key, dropping the oldest. A failure is not kept: the next step asks again. */
 class Recent<T> {
   private readonly items = new Map<string, Promise<T>>()
 
@@ -58,7 +88,6 @@ class Recent<T> {
     const made = make()
     this.items.set(key, made)
     if (this.items.size > CACHE_SIZE) this.items.delete(this.items.keys().next().value!)
-    // A failure is not kept: the next step asks again.
     made.catch(() => this.items.delete(key))
     return made
   }
@@ -69,23 +98,28 @@ const texts = new Recent<string | null>()
 
 /**
  * The anchor commit of the committed story at `storyPath` (relative to the repository's top, `/` between the parts)
- * on `main`: the commit that added the file, followed along the first parents; null when there is none.
+ * on `main`: the commit that added the file, followed along the first parents; null when there is none. Rejects when
+ * git fails: that is no answer, and nothing is kept of it.
  */
 export async function anchorCommit(top: string, main: string, storyPath: string, git: RefGitRunner = runGit): Promise<string | null> {
   const ask = async (): Promise<string | null> => {
-    const out = await git(top, ['log', '--first-parent', '--follow', '--diff-filter=A', '--format=%H', '-1', main, '--', storyPath]).catch(() => '')
+    // Literal pathspecs: an Epic named with `*` or `?` is a name, not a pattern (as refTree of main-ref.ts).
+    const out = await git(top, ['--literal-pathspecs', 'log', '--first-parent', '--follow', '--diff-filter=A', '--format=%H', '-1', main, '--', storyPath])
     const sha = out.trim()
-    return /^[0-9a-f]{40,64}$/u.test(sha) ? sha : null
+    return SHA.test(sha) ? sha : null
   }
   // A full sha does not move; a name such as HEAD does, and is asked each time.
-  return /^[0-9a-f]{40,64}$/u.test(main) && git === runGit ? anchors.get(`${top}\0${main}\0${storyPath}`, ask) : ask()
+  return SHA.test(main) && git === runGit ? anchors.get(`${top}\0${main}\0${storyPath}`, ask) : ask()
 }
 
-/** The text of `file` (relative to the repository's top) in `commit`; null when the commit or the file is not there. */
+/**
+ * The text of `file` (relative to the repository's top) in `commit`; null when the commit has no such file. Rejects
+ * when git cannot read the commit (it is not in the repository, or git failed): that is kept by no cache.
+ */
 async function fileAt(top: string, commit: string, file: string, git: RefGitRunner, cat?: CatFileRunner): Promise<string | null> {
   const read = async (): Promise<string | null> => {
     const tree = refTree({ top, sha: commit, committedAt: 0 }, '', [file], git, cat)
-    return (await tree.texts([file], FILE_MAX_BYTES).catch(() => new Map<string, string>())).get(file) ?? null
+    return (await tree.texts([file], FILE_MAX_BYTES)).get(file) ?? null
   }
   return git === runGit && cat === undefined ? texts.get(`${top}\0${commit}\0${file}`, read) : read()
 }
@@ -117,20 +151,32 @@ export function storyPathParts(path: string): { epic: string; parts: string[] } 
 /** A fragment path of a story: relative to the repository's root, never out of it. */
 const insideRepo = (path: string): boolean => !nativePath.posix.isAbsolute(path) && !/^[A-Za-z]:/u.test(path) && !path.split(/[\\/]/u).includes('..')
 
+/** The commits GitHub names for PR `pr` of the Project at `root`: its head and, once merged, its merge commit. */
+export type PrCommits = (root: string, pr: number) => Promise<{ head: string | null; merge: string | null }>
+
 export interface StoryCodeOptions {
   /** The git runner; main-ref.ts's runGit by default. Tests pass one with their own configuration. */
   git?: RefGitRunner
   cat?: CatFileRunner
+  /** The commits of a PR, for the anchor of a Silent Project's story; none — such a story has no anchor. */
+  prCommits?: PrCommits
 }
 
-/** Where the fragments of the story `at` are read: the repository's top and the commit; null — nowhere, its own code. */
-async function codeSource(layout: ProjectLayout, at: StoryCodeAt, git: RefGitRunner): Promise<{ top: string; commit: string } | null> {
+/** Where the fragments of the story `at` are read: the repository's top and the commit; null — there is no anchor. */
+async function codeSource(layout: ProjectLayout, at: StoryCodeAt, options: StoryCodeOptions, git: RefGitRunner): Promise<{ top: string; commit: string } | null> {
   if ('commit' in at) {
     const place = await placeInGit(layout.root, git)
     return place === null ? null : { top: place.top, commit: at.commit }
   }
-  // The Workflow folder of a Silent Project is no commit of the code.
-  if (layout.mode === 'silent' || layout.failed) return null
+  if (layout.failed) return null
+  if (layout.mode === 'silent') {
+    // The Workflow folder is no commit of the code: the anchor is the PR's (see the top of the file).
+    if (at.pr === undefined || at.pr === null || options.prCommits === undefined) return null
+    const commits = await options.prCommits(layout.root, at.pr)
+    const commit = commits.merge ?? commits.head
+    const place = commit === null || !SHA.test(commit) ? null : await placeInGit(layout.root, git)
+    return place === null ? null : { top: place.top, commit: commit! }
+  }
   const source = await resolveSource(layout.root, layout, { details: false, git })
   if (source.kind === 'ref') {
     const story = source.ticketsRel === '' ? at.path : `${source.ticketsRel}/${at.path}`
@@ -144,11 +190,23 @@ async function codeSource(layout: ProjectLayout, at: StoryCodeAt, git: RefGitRun
   return anchor === null ? null : { top: place.top, commit: anchor }
 }
 
-/** The code the step shows for `fragment` of the story `at` of the Project laid out as `layout`. */
+/**
+ * The code the step shows for `fragment` of the story `at` of the Project laid out as `layout`. A fragment larger than
+ * FRAGMENT_MAX_LINES or FRAGMENT_MAX_CHARS is refused (throws) before git is read.
+ */
 export async function storyFragmentCode(layout: ProjectLayout, at: StoryCodeAt, fragment: StoryFragment, options: StoryCodeOptions = {}): Promise<FragmentCode> {
+  const large = fragmentTooLarge(fragment)
+  if (large !== null) throw new Error(large)
   const git = options.git ?? runGit
-  if (!insideRepo(fragment.path) || ('path' in at && storyPathParts(at.path) === null)) return placeFragment(null, fragment)
-  const source = await codeSource(layout, at, git)
-  if (source === null) return placeFragment(null, fragment)
-  return placeFragment(await fileAt(source.top, source.commit, fragment.path, git, options.cat), fragment)
+  if (!insideRepo(fragment.path) || ('path' in at && storyPathParts(at.path) === null)) return ownCode(fragment, 'no-anchor')
+  let text: string | null
+  try {
+    const source = await codeSource(layout, at, options, git)
+    if (source === null) return ownCode(fragment, 'no-anchor')
+    text = await fileAt(source.top, source.commit, fragment.path, git, options.cat)
+  } catch {
+    // git could not answer, or the anchor commit is not in the repository: shown as having none, and asked again next time.
+    return ownCode(fragment, 'no-anchor')
+  }
+  return placeFragment(text, fragment)
 }

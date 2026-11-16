@@ -19,6 +19,7 @@ import { readFile, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
 import { join } from 'node:path'
 import { app } from 'electron'
+import { z } from 'zod'
 import { storiesActivity, storiesBuild, storiesCode, storiesRead, storiesSaved, storiesStop, type StoryRead } from '../../shared/ipc/stories'
 import { parseStory } from '../../shared/stories/parse'
 import type { VendorId } from '../../shared/vendors/vendor'
@@ -27,7 +28,7 @@ import { gitWorktrees } from '../claude-home/registry'
 import { readProjectSettings } from '../projects/settings'
 import { projectStore } from '../projects/store'
 import { dataRoot } from '../storage/paths'
-import { storyFragmentCode, storyPathParts } from '../stories/code'
+import { storyFragmentCode, storyPathParts, type PrCommits } from '../stories/code'
 import { StoryBuilder, storyFolder } from '../stories/one-shot'
 import { readSavedStory } from '../stories/store'
 import { assistDir } from '../terminal-ai/options'
@@ -113,11 +114,25 @@ export async function readStoryFile(layout: ProjectLayout, rel: string, options:
   } catch (error) {
     return { ok: false, reason: errorText(error) }
   }
-  const parsed = parseStory(text)
+  const parsed = parseStory(text, { committed: true })
   if (!parsed.ok) return { ok: false, reason: `${rel}: ${parsed.reason}` }
   const paths = options.paths ?? nativePath
   const dir = paths.relative(layout.root, paths.join(layout.ticketsRoot, ...where.parts.slice(0, -1))).split(paths.sep).join('/')
   return { ok: true, story: parsed.story, path: rel, dir }
+}
+
+const prCommitsSchema = z.object({ headRefOid: z.string().nullish(), mergeCommit: z.object({ oid: z.string() }).nullish() })
+
+/**
+ * The head and the merge commit of PR `pr`, read with gh in the Project's root with its GitHub account (the PR tracker's
+ * gh, src/main/ipc/checks.ts): the anchor of a Silent Project's story (src/main/stories/code.ts). Read-only.
+ */
+export const ghPrCommits: PrCommits = async (root, pr) => {
+  // Loaded when first asked: the module of the checks makes its handlers, and the app's PR tracker, when it is loaded.
+  const { sharedPrTracker } = await import('./checks')
+  const out = await sharedPrTracker().gh(root, ['pr', 'view', String(pr), '--json', 'headRefOid,mergeCommit'])
+  const parsed = prCommitsSchema.parse(JSON.parse(out))
+  return { head: parsed.headRefOid || null, merge: parsed.mergeCommit?.oid || null }
 }
 
 const handlers: HandlerModule = [
@@ -140,7 +155,7 @@ const handlers: HandlerModule = [
 
   defineHandler(storiesCode, async ({ projectId, at, fragment }) => {
     const root = projectStore().get(projectId).path
-    return storyFragmentCode(await projectLayouts().get(root), at, fragment)
+    return storyFragmentCode(await projectLayouts().get(root), at, fragment, { prCommits: ghPrCommits })
   }),
 
   defineHandler(storiesSaved, ({ projectId, key }) => {

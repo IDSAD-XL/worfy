@@ -21,6 +21,7 @@ vi.mock('electron', () => ({
 }))
 
 const { anchorCommit, placeFragment, storyFragmentCode } = await import('../../src/main/stories/code')
+const { FRAGMENT_MAX_CHARS, FRAGMENT_MAX_LINES, storiesCode } = await import('../../src/shared/ipc/stories')
 const { readStoryFile } = await import('../../src/main/ipc/stories')
 
 const SHARED = join(import.meta.dirname, '..', '..', 'harness', 'bin', 'tests', 'fixtures', 'code-story')
@@ -99,25 +100,26 @@ describe('the code of a fragment: found by its code in the anchor commit', () =>
     const [total, checkout] = fragmentsOf('pr-en.md')
     const layout = fullLayout(repo)
     const shown = await storyFragmentCode(layout, { path: 'demo-cart/stories/04-cart-total.md' }, total!, { git: runner })
-    expect(shown).toEqual({ code: total!.code, startLine: 13, keyLines: [16, 17], fromHead: false })
+    expect(shown).toEqual({ code: total!.code, startLine: 13, keyLines: [16, 17], fromHead: false, reason: null })
     expect(await storyFragmentCode(layout, { path: 'demo-cart/stories/04-cart-total.md' }, checkout!, { git: runner })).toEqual({
       code: checkout!.code,
       startLine: 23,
       keyLines: [24],
       fromHead: false,
+      reason: null,
     })
   })
 
-  it('shows the story\'s own code, marked, when the anchor holds other code, when the file is gone, and when there is no anchor', async () => {
+  it('shows the story\'s own code, marked with the reason: changed when the anchor holds other code or no such file, no-anchor when there is no anchor', async () => {
     const repo = join(dir, 'project')
     mainWithSquash(repo, fixture('bad-fragment.md'))
     const layout = fullLayout(repo)
     const changed = fragmentsOf('bad-fragment.md')[0]!
-    const own = { code: changed.code, startLine: changed.startLine, keyLines: changed.keyLines, fromHead: true }
+    const own = { code: changed.code, startLine: changed.startLine, keyLines: changed.keyLines, fromHead: true, reason: 'changed' }
     expect(await storyFragmentCode(layout, { path: 'demo-cart/stories/04-cart-total.md' }, changed, { git: runner })).toEqual(own)
     const gone = { ...changed, path: 'src/removed.ts' }
-    expect(await storyFragmentCode(layout, { path: 'demo-cart/stories/04-cart-total.md' }, gone, { git: runner })).toMatchObject({ fromHead: true, startLine: changed.startLine })
-    expect(await storyFragmentCode(layout, { path: 'demo-cart/stories/05-none.md' }, fragmentsOf('pr-en.md')[0]!, { git: runner })).toMatchObject({ fromHead: true, startLine: 10 })
+    expect(await storyFragmentCode(layout, { path: 'demo-cart/stories/04-cart-total.md' }, gone, { git: runner })).toMatchObject({ fromHead: true, reason: 'changed', startLine: changed.startLine })
+    expect(await storyFragmentCode(layout, { path: 'demo-cart/stories/05-none.md' }, fragmentsOf('pr-en.md')[0]!, { git: runner })).toMatchObject({ fromHead: true, reason: 'no-anchor', startLine: 10 })
   })
 
   it('reads a story kept outside git at the head it names, and shows its own code, marked, when that commit is not in the repository', async () => {
@@ -125,16 +127,54 @@ describe('the code of a fragment: found by its code in the anchor commit', () =>
     const { base } = mainWithSquash(repo)
     const [total] = fragmentsOf('pr-en.md')
     const layout = fullLayout(repo)
-    expect(await storyFragmentCode(layout, { commit: base }, total!, { git: runner })).toEqual({ code: total!.code, startLine: 10, keyLines: [13, 14], fromHead: false })
+    expect(await storyFragmentCode(layout, { commit: base }, total!, { git: runner })).toEqual({ code: total!.code, startLine: 10, keyLines: [13, 14], fromHead: false, reason: null })
     // A shallow clone, or a colleague's head never fetched.
-    expect(await storyFragmentCode(layout, { commit: 'f'.repeat(40) }, total!, { git: runner })).toEqual({ code: total!.code, startLine: 10, keyLines: [13, 14], fromHead: true })
+    expect(await storyFragmentCode(layout, { commit: 'f'.repeat(40) }, total!, { git: runner })).toEqual({ code: total!.code, startLine: 10, keyLines: [13, 14], fromHead: true, reason: 'no-anchor' })
   })
 
   it('takes, of several places that hold the same code, the one nearest the story\'s line numbers; carriage returns do not count', () => {
     const fragment: StoryFragment = { path: 'a.ts', startLine: 9, endLine: 10, keyLines: [10], code: 'x()\ny()' }
     const file = ['x()', 'y()', '', '', '', '', '', '', '', 'x()', 'y()', '', 'x()', 'y()'].join('\r\n')
-    expect(placeFragment(file, fragment)).toEqual({ code: 'x()\ny()', startLine: 10, keyLines: [11], fromHead: false })
-    expect(placeFragment(null, fragment)).toEqual({ code: 'x()\ny()', startLine: 9, keyLines: [10], fromHead: true })
+    expect(placeFragment(file, fragment)).toEqual({ code: 'x()\ny()', startLine: 10, keyLines: [11], fromHead: false, reason: null })
+    expect(placeFragment(null, fragment)).toEqual({ code: 'x()\ny()', startLine: 9, keyLines: [10], fromHead: true, reason: 'changed' })
+  })
+
+  it('bounds the search: a file of like lines and a long fragment of them take at most the budget of comparisons', () => {
+    const fragment: StoryFragment = { path: 'a.ts', startLine: 150_000, endLine: 150_399, keyLines: [150_000], code: Array.from({ length: 400 }, () => '').join('\n') }
+    const file = '\n'.repeat(200_000)
+    const started = performance.now()
+    // Every place matches: the first ones are found before the budget is spent, and the nearest of them is shown.
+    expect(placeFragment(file, fragment)).toMatchObject({ fromHead: false, startLine: expect.any(Number) as unknown })
+    expect(performance.now() - started).toBeLessThan(5_000)
+    // No place found within the budget: the story's own code.
+    const late = { ...fragment, code: `${fragment.code}\nx` }
+    expect(placeFragment(`${file}x`, late, 1_000)).toMatchObject({ fromHead: true, reason: 'changed' })
+  })
+
+  it('refuses a fragment over FRAGMENT_MAX_LINES or FRAGMENT_MAX_CHARS before git is read, and the channel refuses it too', async () => {
+    const asked: string[][] = []
+    const spy = (cwd: string, args: string[]) => {
+      asked.push(args)
+      return runner(cwd, args)
+    }
+    const many: StoryFragment = { path: 'a.ts', startLine: 1, endLine: FRAGMENT_MAX_LINES + 1, keyLines: [1], code: Array.from({ length: FRAGMENT_MAX_LINES + 1 }, () => 'x').join('\n') }
+    const long: StoryFragment = { path: 'a.ts', startLine: 1, endLine: 1, keyLines: [1], code: 'x'.repeat(FRAGMENT_MAX_CHARS + 1) }
+    for (const fragment of [many, long]) {
+      await expect(storyFragmentCode(fullLayout(dir), { commit: 'a'.repeat(40) }, fragment, { git: spy })).rejects.toThrow(/not looked for in git/u)
+      expect(storiesCode.input.safeParse({ projectId: 'p', at: { commit: 'a'.repeat(40) }, fragment }).success).toBe(false)
+    }
+    expect(asked).toEqual([])
+  })
+
+  it('reads the anchor with literal pathspecs, and a git that fails is no answer: it rejects, it is not "no anchor"', async () => {
+    const asked: string[][] = []
+    const spy = (cwd: string, args: string[]) => {
+      asked.push(args)
+      return Promise.resolve('')
+    }
+    expect(await anchorCommit(dir, 'HEAD', '.scratch/*/story.md', spy)).toBeNull()
+    expect(asked[0]?.[0]).toBe('--literal-pathspecs')
+    await expect(anchorCommit(dir, 'HEAD', STORY, () => Promise.reject(new Error('git died')))).rejects.toThrow('git died')
   })
 })
 
@@ -182,9 +222,9 @@ describe('the story file and its code through the source of the workflow (ADR-01
     }
   })
 
-  it('reads a Silent Project\'s story from its Workflow folder, and shows its code marked: the folder is no commit of the code', async () => {
+  it('reads a Silent Project\'s story from its Workflow folder; its code is read at its PR\'s merge commit, else the head, and marked no-anchor without a PR', async () => {
     const repo = join(dir, 'silent-repo')
-    mainWithSquash(repo)
+    const { base, squash } = mainWithSquash(repo)
     const folder = join(dir, 'workflow-folder')
     const scratch = join(folder, '.scratch')
     write(scratch, 'demo-cart/story.md', fixture('epic-ru.md'))
@@ -194,6 +234,23 @@ describe('the story file and its code through the source of the workflow (ADR-01
     if (!read.ok || read.story.kind !== 'epic') throw new Error('no Epic story')
     const step = read.story.chapters[0]!.steps[0]!
     if (step.kind !== 'code') throw new Error('no code step')
-    expect(await storyFragmentCode(layout, { path: 'demo-cart/story.md' }, step.fragment, { git: runner })).toMatchObject({ startLine: step.fragment.startLine, fromHead: true })
+    // `PR -`, or no source of the PR's commits: no anchor.
+    expect(await storyFragmentCode(layout, { path: 'demo-cart/story.md' }, step.fragment, { git: runner })).toMatchObject({ startLine: step.fragment.startLine, fromHead: true, reason: 'no-anchor' })
+    const asked: number[] = []
+    const merged = (merge: string | null, head: string | null) => (root: string, pr: number) => {
+      expect(root).toBe(layout.root)
+      asked.push(pr)
+      return Promise.resolve({ merge, head })
+    }
+    // The fragment cart.ts:10-17 of chapter PR #212: merged, its merge commit holds it three lines lower.
+    const cart = read.story.chapters[1]!.steps[0]!
+    if (cart.kind !== 'code') throw new Error('no code step')
+    expect(await storyFragmentCode(layout, { path: 'demo-cart/story.md', pr: 212 }, cart.fragment, { git: runner, prCommits: merged(squash, base) })).toMatchObject({ startLine: 13, fromHead: false, reason: null })
+    // Open, not merged: its head holds it where the story says.
+    expect(await storyFragmentCode(layout, { path: 'demo-cart/story.md', pr: 212 }, cart.fragment, { git: runner, prCommits: merged(null, base) })).toMatchObject({ startLine: 10, fromHead: false, reason: null })
+    // A head this clone never fetched.
+    expect(await storyFragmentCode(layout, { path: 'demo-cart/story.md', pr: 212 }, cart.fragment, { git: runner, prCommits: merged(null, 'e'.repeat(40)) })).toMatchObject({ fromHead: true, reason: 'no-anchor' })
+    expect(await storyFragmentCode(layout, { path: 'demo-cart/story.md', pr: null }, cart.fragment, { git: runner, prCommits: merged(squash, base) })).toMatchObject({ reason: 'no-anchor' })
+    expect(asked).toEqual([212, 212, 212])
   })
 })

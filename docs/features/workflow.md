@@ -163,11 +163,12 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
   and the Code stories worfy reads itself, an Epic's `story.md` and `stories/*.md`.
 - **An Epic lists its Code stories.** The Epic's `story.md` and the stories of its Tickets' PRs, `stories/NN-<slug>.md`, are
   read from the same place as its spec and Tickets: the main branch, or the folder in Silent mode. The model carries
-  where each is, a hash of its text and, for a file that does not fit the format of `harness/bin/TICKETS.md`, the reason;
-  the story itself is read when it is opened. The code of a step comes from git when the step is shown: the fragment is
-  looked for by its code in the commit that added the story to the main branch, and shown with that commit's line
-  numbers. When that commit no longer holds it in this form, or there is no such commit (Silent mode), the story's own
-  code is shown, marked as the code of the PR's head.
+  where each is and a hash of its text; the story itself is read when it is opened, and a file that does not fit the
+  format of `harness/bin/TICKETS.md` then gives the reason. The code of a step comes from git when the step is shown: the fragment is
+  looked for by its code in the commit that added the story to the main branch (in Silent mode, the merge commit of
+  the story's PR, or its head before the merge, read with `gh pr view`), and shown with that commit's line numbers.
+  When that commit no longer holds it in this form, or there is no such commit (a story with `PR -` in Silent mode, a
+  commit this clone does not have), the story's own code is shown, marked as the code of the PR's head with the reason.
 - **A branch never undoes the checkout.** This is why a blocked Ticket with an old worktree branch does not look open
   ([ADR-0033](../adr/0033-autopilot-names-wave-tickets.md)).
 - **Frames and cards are computed, not saved.** The Layout keeps only a frame's offset and collapse

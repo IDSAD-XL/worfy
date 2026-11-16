@@ -103,27 +103,53 @@ const fullSha = z.string().regex(/^[0-9a-f]{40}$/u, 'a full commit sha')
 
 /**
  * The code a step shows for a fragment: its lines, the number of the first one and the key lines. `fromHead` is true when
- * it is the story's own code — the code of the PR head — because git no longer holds it in this form there.
+ * it is the story's own code — the code of the PR head — and `reason` says why: `changed`, the anchor commit holds other
+ * code there or no such file (the main branch no longer holds it in this form); `no-anchor`, there is no anchor commit
+ * to read, or git cannot read it. Null when the code was found.
  */
 export const fragmentCodeSchema = z.object({
   code: z.string(),
   startLine: z.number().int().min(1),
   keyLines: z.array(z.number().int().min(1)),
   fromHead: z.boolean(),
+  reason: z.enum(['changed', 'no-anchor']).nullable(),
 })
 export type FragmentCode = z.output<typeof fragmentCodeSchema>
 
 /**
  * Where a fragment's code is read: in the anchor commit of a committed story file (`path`, as stories.read takes it),
- * or at the PR head a story kept outside git names (`commit`: its header's, or its chapter's).
+ * or at the PR head a story kept outside git names (`commit`: its header's, or its chapter's). `pr` is the PR of the
+ * story's header, or of the fragment's chapter in an Epic story: a Silent Project's story, outside the code's git, is
+ * read at that PR's merge commit or head; null or absent for `PR -`, and in Full mode it is not needed.
  */
-export const storyCodeAtSchema = z.union([z.object({ path: storyPathSchema }).strict(), z.object({ commit: fullSha }).strict()])
+export const storyCodeAtSchema = z.union([
+  z.object({ path: storyPathSchema, pr: z.number().int().positive().nullable().optional() }).strict(),
+  z.object({ commit: fullSha }).strict(),
+])
 export type StoryCodeAt = z.output<typeof storyCodeAtSchema>
+
+/**
+ * The most lines and characters of a fragment whose code is looked for in git: a story's fragment is a few lines, and
+ * the search is bounded by them (src/main/stories/code.ts). A larger one is refused before git is read.
+ */
+export const FRAGMENT_MAX_LINES = 500
+export const FRAGMENT_MAX_CHARS = 64 * 1024
+
+/** Why the code of `fragment` is not looked for; null when it is small enough. */
+export function fragmentTooLarge(fragment: { code: string }): string | null {
+  if (fragment.code.length > FRAGMENT_MAX_CHARS) return `a fragment longer than ${String(FRAGMENT_MAX_CHARS)} characters is not looked for in git`
+  if (fragment.code.split('\n').length > FRAGMENT_MAX_LINES) return `a fragment of more than ${String(FRAGMENT_MAX_LINES)} lines is not looked for in git`
+  return null
+}
 
 /** The code of `fragment` of a story of Project `projectId`, read from git when a step shows it. */
 export const storiesCode = invokeChannel(
   'stories.code',
-  z.object({ projectId: z.string().min(1), at: storyCodeAtSchema, fragment: storyFragmentSchema }),
+  z.object({
+    projectId: z.string().min(1),
+    at: storyCodeAtSchema,
+    fragment: storyFragmentSchema.refine((fragment) => fragmentTooLarge(fragment) === null, { message: `a fragment of at most ${String(FRAGMENT_MAX_LINES)} lines and ${String(FRAGMENT_MAX_CHARS)} characters` }),
+  }),
   fragmentCodeSchema,
   'project',
   'read',
