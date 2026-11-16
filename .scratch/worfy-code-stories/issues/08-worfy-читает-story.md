@@ -53,21 +53,27 @@ merge — head PR-а (`gh pr view <N> --json headRefOid,mergeCommit`; номер
 - [ ] Unit test `test/unit/tickets-watch.test.ts`: `story.md` и `stories/NN-*.md` в папке Epic-а не пропускаются;
       `stories/deeper/x.md` и другие файлы — по-прежнему пропускаются.
   - evidence: test-run pass · `pnpm test test/unit/tickets-watch.test.ts` exit 0 · mac - · 684049112
+  - evidence: test-run pass · `pnpm test test/unit/tickets-watch.test.ts` exit 0 · mac - · facc67e27
 - [ ] Unit test разбора на fixture-ах `harness/bin/tests/fixtures/code-story/`: story PR ru и en, story Epic-а со списком
       передач (брошенная передача отмечена), шаг без поля — ошибка с именем поля.
   - evidence: test-run pass · `pnpm test test/unit/story-parse.test.ts` exit 0 · mac - · 684049112
+  - evidence: test-run pass · `pnpm test test/unit/story-parse.test.ts` exit 0 · mac - · facc67e27
 - [ ] Contract test `test/contract/workflow-reader.test.ts`: reader отдаёт story Epic-а и story PR Ticket-ов; в режиме
       Silent — из папки Workflow.
   - evidence: test-run pass · `pnpm test test/contract/workflow-reader.test.ts` exit 0 · mac - · 684049112
+  - evidence: test-run pass · `pnpm test test/contract/workflow-reader.test.ts` exit 0 · mac - · facc67e27
 - [ ] Contract test на fixture `repo-main-shifted/` (временный repo со squash merge-ем): фрагмент найден по коду в anchor
       commit-е, номера строк — anchor-а, главные строки сдвинуты на ту же величину; код изменён или недоступен — код из
       story с видимой пометкой.
   - evidence: test-run pass · `pnpm test test/contract/story-code.test.ts` exit 0 · mac - · 684049112
+  - evidence: test-run pass · `pnpm test test/contract/story-code.test.ts` exit 0 · mac - · facc67e27
 - [ ] Contract test хранилища: запись атомарная; файл, который не проходит схему, не роняет чтение; у PR коллеги в
       файле нет текста PR и комментариев — только текст агента и ссылки.
   - evidence: test-run pass · `pnpm test test/contract/story-store.test.ts` exit 0 · mac - · 684049112
+  - evidence: test-run pass · `pnpm test test/contract/story-store.test.ts` exit 0 · mac - · facc67e27
 - [ ] lint, typecheck, test-ы модуля `src/main/workflow/` и gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 684049112
+  - evidence: gate pass · `gate fast` exit 0 · mac - · facc67e27
 
 ## Тесты
 
