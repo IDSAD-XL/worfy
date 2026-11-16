@@ -63,14 +63,20 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 01; «Решения 
 - [ ] В `harness/bin/TICKETS.md` описан формат story: шапка без поля commit-а, поля шага, «не записано», порядок шагов,
       размеры, глава-PR, список передач шага «Стыки между Ticket-ами», раздел «Проверить себя», пути `stories/` и
       `story.md`, режим Silent.
+  - evidence: commit pass · Define the Code story format, its anchor rule and shared fixtures · - - · 626782f8b9566dc6ba1a43e4ae1d3f506139e1d9
 - [ ] В `TICKETS.md` записано правило привязки: дерево commit-а со story в ветке; в main — commit, который принёс файл, с
       точной командой. Случай, когда documents PR позже дописал шаг review в тот же файл, разобран.
+  - evidence: commit pass · Story anchor in TICKETS.md: git log --first-parent --follow --diff-filter=A -1 <main> -- <path> · - - · 626782f8b9566dc6ba1a43e4ae1d3f506139e1d9
 - [ ] Fixture-ы в `harness/bin/tests/fixtures/code-story/`: два story PR (ru, en), story Epic-а с брошенной передачей,
       несовпавший фрагмент, шаг без поля, код для временного repo; в README папки — по строке на файл: что он
       проверяет.
+  - evidence: commit pass · harness/bin/tests/fixtures/code-story: pr-en, pr-ru, epic-ru, bad-fragment, missing-field, repo/src, README · - - · 626782f8b9566dc6ba1a43e4ae1d3f506139e1d9
 - [ ] `harness/bin/tests/plugin-neutral.test.sh` и `agents-text.test.sh` зелёные (английский текст Harness-а; русский
       fixture — данные, как в `fixtures/ticket-title`).
+  - evidence: test-run pass · `bash harness/bin/tests/plugin-neutral.test.sh` exit 0, `bash harness/bin/tests/agents-text.test.sh` exit 0 · mac - · 626782f8b9566dc6ba1a43e4ae1d3f506139e1d9
 - [ ] `node scripts/check-personal.mjs` — exit 0; `pnpm lint` (проверки документов) — exit 0.
+  - evidence: test-run pass · `node scripts/check-personal.mjs` exit 0, `pnpm lint` exit 0 · mac - · 626782f8b9566dc6ba1a43e4ae1d3f506139e1d9
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 626782f8b9566dc6ba1a43e4ae1d3f506139e1d9
 
 ## Тесты
 
