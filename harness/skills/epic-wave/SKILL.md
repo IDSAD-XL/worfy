@@ -1295,35 +1295,54 @@ Add them to the state file, once per PR, before the first `land` run (each argum
 
 **The review step of the Code story** (`bin/TICKETS.md`, "Code story"). The step `What review found
 and what remains` of a ticket's story is written after the merge, from the review verdict, without a
-model. Before `land` runs, save the PR's last recorded verdict — the PR comment with its group lines
-and its two report lines — through `bin/verdict`, and give its path to the PR's field
-`prs[].verdict` of the state file:
+model. Before `land` runs, save the verdict of the PR's last review round through `bin/verdict` and give
+its path to the PR's field `prs[].verdict` of the state file. Its source is the verifier's own answer of
+that round, the file section 3 saved it to: it holds the findings, what the verifier ran and what it
+could not verify — the part of the step that says what remains. After a session break that lost the
+file, the recorded verdict stands in for it: in Full mode the PR comment, in Silent mode the last
+`gate:` line of the ticket file in the Workflow folder with the group lines after it, the prefix
+`gate: ` dropped (`bin/verdict` would find no verdict line behind it):
 
 ```bash
-gh pr view <N> --json comments --jq '[.comments[].body | select(test("^(NARROW: )?(VERIFIED|REJECTED)"))] | last // ""' >"<scratchpad>/review-<N>.md"
-"${CLAUDE_PLUGIN_ROOT}/bin/verdict" "<scratchpad>/review-<N>.md" >"<scratchpad>/verdict-<N>.md"; echo "EXIT=$?"
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
+A="<the file of the verifier's answer of the PR's last round>"
+if [ ! -s "$A" ]; then
+  A="<scratchpad>/review-<N>.md"
+  if [ "$(F _resolved.mode)" = silent ]; then
+    f=$(ls "$(cd <repo> && "${CLAUDE_PLUGIN_ROOT}/bin/ticket" root)"/<epic>/issues/<NN>-*.md)
+    awk '/^gate: /{t = substr($0, 7); on = 1; next} on && /^$/{on = 0} on{t = t "\n" $0} END{print t}' "$f" >"$A"
+  else
+    gh pr view <N> --json comments --jq '[.comments[].body | select(test("^(NARROW: )?(VERIFIED|REJECTED)"))] | last // ""' >"$A"
+  fi
+fi
+"${CLAUDE_PLUGIN_ROOT}/bin/verdict" "$A" >"<scratchpad>/verdict-<N>.md"; echo "EXIT=$?"
 ```
 
-`EXIT=1` — the PR has no recorded verdict: leave `verdict` out, and the story gets no step. Then:
+`EXIT=1` — the PR has no verdict: leave `verdict` out, and the story gets no step. Then:
 
 `node -e 'const fs = require("fs"), path = require("path"), [file, n, verdict] = process.argv.slice(1); const st = JSON.parse(fs.readFileSync(file, "utf8")); const pr = st.prs.find((p) => p.number === Number(n)); if (!pr) { console.error("no PR #" + n + " in " + file); process.exit(1) } pr.verdict = path.resolve(verdict); fs.writeFileSync(file, JSON.stringify(st, null, 2) + "\n")' <state file> <N> "<scratchpad>/verdict-<N>.md"; echo "EXIT=$?"`
 
 The field is the absolute path of that file (`land` refuses a relative one, exit 1). In the documents PR
 `land` appends the step last in the story `<tickets root>/<epic>/stories/<NN>-<slug>.md`, in the
-story's language: the verdict quoted line by line, and for each `path:<line>` or `path:<from>-<to>`
-the verdict names, those lines of the merged head — the head `land` merged, `prs[].result.head` of the
-state file — where that head holds the lines of the head the review verified (`<head>`); a line a
-rebase changed is not quoted. Then `story-check --head <merged head>` on the story: red — the
-documents PR waits red, nothing committed. The step changes no anchor of the story: the commit that
-added the story to the main branch stays its anchor. A PR without a story or without `verdict`, and a
-story that has the step already, get nothing.
+story's language: the verdict quoted line by line, and fragments of the code it names. The rule of a
+fragment: for each `path:<line>` or `path:<from>-<to>` of the verdict, those lines of the head the
+review verified (`<head>`), found as one block in the merged head — the head `land` merged,
+`prs[].result.head` of the state file — nearest to their own numbers, and quoted with the merged head's
+numbers; a block the merged head does not hold (a rebase changed a line of it) is not quoted, nor is
+a block with personal data, nor anything when the verified head cannot be read. Then `story-check --head
+<merged head>` on the story: red — the documents PR waits red, nothing committed. The step changes no
+anchor of the story: the commit that added the story to the main branch stays its anchor. A PR without
+a story or without `verdict`, a story that has the step already, and a story red at the merged head
+before the step get nothing.
 
 In Silent mode `land` does not append the step and prints `review step of #N is the orchestrator's
 (tickets outside the repository)`. After that run, before `ticket done`, append it yourself to the
 story in the Workflow folder, in the same form: the heading `## <next step number>. <the title in the
 story's language>`, the lines of `verdict-<N>.md` each after `> `, and a fragment
-(`` Code: `<path>:<from>-<to>` · key lines: <from> `` and the lines in a fenced block) for each
-`path:<line>` of the verdict, copied from the merged head `prs[].result.head`. Then
+(`` Code: `<path>:<from>-<to>` · key lines: <from> `` and the lines in a fenced block) by the rule of
+a fragment above — the numbers of the verdict are those of `<head>`, so read the lines there and give
+them the numbers they have in the merged head `prs[].result.head`, never the verdict's numbers in the
+merged head. Then
 `"${CLAUDE_PLUGIN_ROOT}/bin/story-check" --repo <repo> --head <merged head> <story>; echo "EXIT=$?"`;
 `EXIT=2` — fix the step, not the code.
 

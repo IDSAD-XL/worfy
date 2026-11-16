@@ -63,8 +63,10 @@
 // prs[].verdict whose Code story <tickets root>/<epic>/stories/<NN>-<slug>.md is in the main branch, the story's step
 // `What review found and what remains` (bin/TICKETS.md, "Code story"; in the story's language), appended last: the
 // verdict quoted as it is, and for each `path:<line>` or `path:<from>-<to>` of it, those lines of the merged head
-// (prs[].result.head) where it holds the lines of the head review verified (prs[].head) — no model call. A PR without a
-// story or without prs[].verdict, and a story that has the step already, get nothing. Then
+// (prs[].result.head) where it holds the lines of the head review verified (prs[].head) — no model call; a fragment with
+// personal data is not quoted, nor is any when the verified head cannot be read (the log says which). A PR without a
+// story or without prs[].verdict, a story that has the step already, and a story already red at the merged head by
+// story-check get nothing (the last two with a log line). Then
 // docs_check, `git add -A`, the privacy check `evidence-check --changed --root <tree>/<tickets root> --base
 // refs/remotes/<remote>/<branch>` (exit 1 — the findings, masked, go to the log; the documents wait red, nothing
 // is committed or pushed), `story-check --head <merged head> <story>` on each story with an appended step (red — the
@@ -131,11 +133,13 @@ const os = require("os")
 const path = require("path")
 const { spawnSync } = require("child_process")
 // The git to start, with the variable of an eval run (EVAL_GIT).
-const { git: GIT } = require("../hooks/eval-env.cjs")
+const { git: GIT, harnessHome } = require("../hooks/eval-env.cjs")
 // The Evidence kinds that name no machine: their platform is "-".
 const { NO_MACHINE } = require("../lib/evidence.cjs")
 // The one rule by which a saved review answer is read (bin/verdict).
 const { findVerdict } = require("../lib/verdict.cjs")
+// The personal-data rules evidence-check and story-check apply: a quoted fragment must pass them.
+const privacy = require("../lib/privacy.cjs")
 
 const SHA = /^[0-9a-f]{40}$/
 const MERGEABLE_RETRIES = 6
@@ -757,8 +761,16 @@ function linesAt(st, sha, file) {
 // The fragments of the step: each `path:<line>[-<to>]` of the verdict, read in the head review verified (prs[].head) and
 // found, as one block, in the merged head — nearest to its own line numbers, as a reader finds a fragment after a merge
 // (bin/TICKETS.md, "Story anchor"). Lines the merged head no longer holds are not quoted: review never saw them there.
+// With the verified head gone (a force-push after a merge by hand) nothing is quoted: its lines cannot be told apart.
+// A fragment with personal data (the code of the repository may hold a host name or a UUID) is not quoted either: the
+// privacy check of the documents PR would refuse it, and with it the whole run's documents.
 function reviewFragments(st, p, head, verdict) {
-    const verified = p.head && p.head !== head && haveCommit(st, p.head, p.number) ? p.head : head
+    if (p.head && p.head !== head && !haveCommit(st, p.head, p.number)) {
+        log(`#${p.number}: the head ${short(p.head)} review verified is not in the checkout: no fragment quoted`)
+        return []
+    }
+    const verified = p.head || head
+    const privacyOptions = { hostname: os.hostname(), deny: privacy.personal(harnessHome()).deny }
     const seen = new Set()
     const out = []
     for (const m of verdict.matchAll(/(?<![\w./-])((?:[\w.-]+\/)*[\w.-]+):(\d+)(?:-(\d+))?(?![\w-])/g)) {
@@ -779,9 +791,24 @@ function reviewFragments(st, p, head, verdict) {
         // a fence longer than any fence line of the code, so the code cannot close it
         const fence = "`".repeat(Math.max(3, ...block.map((l) => (FENCE_LINE.exec(l) || [, ""])[1].length + 1)))
         const ext = path.posix.extname(file).slice(1)
-        out.push([`Code: \`${file}:${at}-${at + block.length - 1}\` · key lines: ${at}`, "", fence + (/^[\w+-]+$/.test(ext) ? ext : ""), ...block, fence].join("\n"))
+        const range = `${file}:${at}-${at + block.length - 1}`
+        const fragment = [`Code: \`${range}\` · key lines: ${at}`, "", fence + (/^[\w+-]+$/.test(ext) ? ext : ""), ...block, fence].join("\n")
+        const personal = privacy.findings(fragment, privacyOptions)
+        if (personal.length) {
+            log(`#${p.number}: ${privacy.maskText(range, privacyOptions)} is not quoted: personal data (${[...new Set(personal.map((f) => f.rule))].join(", ")})`)
+            continue
+        }
+        out.push(fragment)
     }
     return out
+}
+// story-check --head <head> <file> in the documents worktree, logged: {code, lines, err}.
+function storyCheck(tree, head, file) {
+    const sc = run([process.execPath, [path.join(__dirname, "story-check")]], ["--head", head, file], tree)
+    const lines = `${sc.out}\n${sc.err}`.split("\n").filter((l) => l.trim())
+    log(`story-check --head ${head} ${file} — exit ${sc.code}`)
+    for (const l of lines) log(`  ${l}`)
+    return { code: sc.code, lines, err: sc.err || sc.out }
 }
 // Appends the review step to the Code story of PR p in the documents worktree; returns {file, head} — the story's path
 // in the worktree and the head story-check reads it against — or null when there is nothing to append: no verdict in the
@@ -807,6 +834,14 @@ function appendReviewStep(st, p, tree, root) {
     }
     const found = findVerdict(answer)
     if (!found) throw new Wait(`the verdict of #${p.number} (${p.verdict}) has no line that starts with VERIFIED or REJECTED`)
+    // a story red at its head already (code_stories.pr off, or a PR merged by hand: no guard read it) gets no step — the
+    // check after the step would refuse it, and the documents of the whole run with it
+    const before = storyCheck(tree, head, file)
+    if (before.code === 2) {
+        log(`#${p.number}: ${file} is red at ${short(head)} already, no review step appended: ${storyProblem(before.lines)}`)
+        return null
+    }
+    if (before.code !== 0) throw new Wait(`story-check could not check ${file} before the review step (exit ${before.code}): ${firstLine(before.err)}`)
     const story = fs.readFileSync(path.join(tree, file), "utf8")
     // the story's words: its Language, the header line after the title; the steps, numbered on, outside fenced blocks
     const lines = codeLines(story)
@@ -889,12 +924,9 @@ function openDocsPr(file, st, d) {
         if (ec.code !== 0) throw new Wait(`evidence-check could not run (exit ${ec.code}): ${firstLine(ec.err || ec.out)}`)
         // each story with an appended review step, read against the head that was merged (bin/TICKETS.md, "Story anchor", item 2)
         for (const { file: story, head } of appended) {
-            const sc = run([process.execPath, [path.join(__dirname, "story-check")]], ["--head", head, story], tree)
-            const lines = `${sc.out}\n${sc.err}`.split("\n").filter((l) => l.trim())
-            log(`story-check --head ${head} ${story} — exit ${sc.code}`)
-            for (const l of lines) log(`  ${l}`)
-            if (sc.code === 2) throw new Wait(`story-check is red on ${story} after the review step: ${storyProblem(lines)}`, "red")
-            if (sc.code !== 0) throw new Wait(`story-check could not check ${story} after the review step (exit ${sc.code}): ${firstLine(sc.err || sc.out)}`)
+            const sc = storyCheck(tree, head, story)
+            if (sc.code === 2) throw new Wait(`story-check is red on ${story} after the review step: ${storyProblem(sc.lines)}`, "red")
+            if (sc.code !== 0) throw new Wait(`story-check could not check ${story} after the review step (exit ${sc.code}): ${firstLine(sc.err)}`)
         }
         const list = d.prs.map((n) => "#" + n).join(", ")
         git(["commit", "-q", "-m", `docs: mark the tickets of ${list} done`], tree)

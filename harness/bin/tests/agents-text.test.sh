@@ -859,15 +859,38 @@ else
 fi
 # The review step of a Code story: the orchestrator gives land the saved verdict in prs[].verdict (Full mode), or
 # appends the step itself in the Workflow folder (Silent mode, no documents PR).
-for p in '**The review step of the Code story**' '`prs[].verdict`' '"${CLAUDE_PLUGIN_ROOT}/bin/verdict" "<scratchpad>/review-<N>.md" >"<scratchpad>/verdict-<N>.md"; echo "EXIT=$?"' \
-    'the head `land` merged, `prs[].result.head` of the state file' 'a line a rebase changed is not quoted' \
+# The saved verdict is the verifier's own answer (it says what could not be verified), the recorded verdict only after
+# a session break lost it — a PR comment in Full mode, the last `gate:` line of the ticket file in Silent mode. The
+# fragments follow land's rule: the verified head's lines, found in the merged head, never the verdict's numbers there.
+for p in '**The review step of the Code story**' '`prs[].verdict`' '"${CLAUDE_PLUGIN_ROOT}/bin/verdict" "$A" >"<scratchpad>/verdict-<N>.md"; echo "EXIT=$?"' \
+    'Its source is the verifier'"'"'s own answer of that round, the file section 3 saved it to: it holds the findings, what the verifier ran and what it could not verify' \
+    'in Silent mode the last `gate:` line of the ticket file in the Workflow folder with the group lines after it, the prefix `gate: ` dropped' \
+    'A="<the file of the verifier'"'"'s answer of the PR'"'"'s last round>"' \
+    'the head `land` merged, `prs[].result.head` of the state file' 'a block the merged head does not hold (a rebase changed a line of it) is not quoted' \
+    'nor is a block with personal data, nor anything when the verified head cannot be read' \
     'The step changes no anchor of the story: the commit that added the story to the main branch stays its anchor.' \
-    'A PR without a story or without `verdict`, and a story that has the step already, get nothing.' \
+    'A PR without a story or without `verdict`, a story that has the step already, and a story red at the merged head before the step get nothing.' \
+    'by the rule of a fragment above — the numbers of the verdict are those of `<head>`, so read the lines there and give them the numbers they have in the merged head `prs[].result.head`, never the verdict'"'"'s numbers in the merged head.' \
     'In Silent mode `land` does not append the step and prints `review step of #N is the orchestrator'"'"'s (tickets outside the repository)`.' \
     'After that run, before `ticket done`, append it yourself to the story in the Workflow folder' \
     '"${CLAUDE_PLUGIN_ROOT}/bin/story-check" --repo <repo> --head <merged head> <story>; echo "EXIT=$?"'; do
     ev "$EWS" "epic-wave, the review step" "$p"
 done
+# The Silent-mode source: the awk line of the skill, run on a ticket file with two recorded rounds, gives the last round
+# without its `gate: ` prefix — a text bin/verdict reads as a verdict.
+RECIPE_GATE="$(grep -F "awk '/^gate: /" "$EWS" | head -n 1 | sed 's/^ *//; s/ "\$f" >"\$A"$//')"
+if [ -z "$RECIPE_GATE" ]; then bad "epic-wave: no awk line that takes the last gate: verdict of a ticket file"
+else
+    printf '%s\n' '# 02 — demo' '' '## Result' '' 'gate: REJECTED: a.ts:3 — the total drifts' 'Consider: b.ts:9 — a name' 'Review depth: medium — argument' \
+        'Review tokens: not measured' '' 'gate: VERIFIED — 2026-11-16' 'Noted: c.ts:4 — kept as it is' 'Review depth: medium — argument' 'Review tokens: 1200' '' 'The result goes on.' >"$T/silent-ticket.md"
+    got="$(bash -c "$RECIPE_GATE \"\$1\"" _ "$T/silent-ticket.md" 2>&1)"
+    want="$(printf '%s\n' 'VERIFIED — 2026-11-16' 'Noted: c.ts:4 — kept as it is' 'Review depth: medium — argument' 'Review tokens: 1200')"
+    printf '%s\n' "$got" >"$T/silent-review.md"
+    vd="$(node "$ROOT/bin/verdict" "$T/silent-review.md" 2>&1)"; vd_rc=$?
+    [ "$got" = "$want" ] && [ "$vd_rc" = 0 ] && [ "$vd" = "$want" ] \
+        && ok "epic-wave: the Silent-mode awk line gives the last gate: round, prefix dropped, and bin/verdict reads it" \
+        || bad "epic-wave: the Silent-mode awk line: [$got] verdict exit $vd_rc [$vd]"
+fi
 RECIPE_VD="$(grep -F "node -e 'const fs = require(\"fs\"), path = require(\"path\"), [file, n, verdict]" "$EWS" | head -n 1 | sed 's/^`//; s/`$//')"
 if [ -z "$RECIPE_VD" ]; then bad "epic-wave: no recipe that sets prs[].verdict in the state file"
 else

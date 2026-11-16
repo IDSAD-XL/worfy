@@ -89,12 +89,14 @@ show_at() { node -e 'process.stdout.write(require("child_process").execFileSync(
 # verdict_of <line>…: the lines become the saved verdict $W/verdict.md, and the state file names it for PR 1
 verdict_of() { printf '%s\n' "$@" >"$W/verdict.md"; edit "s.prs[0].verdict=$(node -p 'JSON.stringify(process.argv[1])' "$(tn "$W/verdict.md")")"; }
 docs_files() { git -C "$W/origin.git" show --name-only --format= refs/pull/900/head | sort | tr '\n' ' '; }
+# The verdict below has the shape of what epic-wave saves: the verifier's answer of the last round through bin/verdict —
+# the verdict line, the findings, what it ran and what it could not verify (agents/reviewer.md, the answer format).
 story_world rs-step pr-en.md
 h1="$(head_of 1)"
 verdict_of 'VERIFIED' \
     'src/cart.ts:13: [low] a line with a zero quantity is skipped silently — kept: the ticket allows it' \
     'ran: pnpm test test/unit/cart.test.ts — exit 0' \
-    'not verified: a price with three decimals (`src/money.ts:9-11`), `src/gone.ts:3`, base.txt:99'
+    'could not verify: a price with three decimals (`src/money.ts:9-11`), `src/gone.ts:3`, base.txt:99'
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 doc="$(show_at refs/pull/900/head "$STORY_PATH" 2>&1)"
 step="$(printf '%s\n' \
@@ -102,7 +104,7 @@ step="$(printf '%s\n' \
     '> VERIFIED' \
     '> src/cart.ts:13: [low] a line with a zero quantity is skipped silently — kept: the ticket allows it' \
     '> ran: pnpm test test/unit/cart.test.ts — exit 0' \
-    '> not verified: a price with three decimals (`src/money.ts:9-11`), `src/gone.ts:3`, base.txt:99' '' \
+    '> could not verify: a price with three decimals (`src/money.ts:9-11`), `src/gone.ts:3`, base.txt:99' '' \
     'Code: `src/cart.ts:13-13` · key lines: 13' '' '```ts' '    if (line.quantity <= 0) continue' '```' '' \
     'Code: `src/money.ts:9-11` · key lines: 9' '' '```ts' '  const whole = Number(match[1])' \
     "  const part = Number((match[2] ?? '0').padEnd(2, '0'))" '  return whole * 100 + part' '```')"
@@ -115,11 +117,12 @@ STORY_CHECK="$HERE/../story-check"
 sc="$(node "$STORY_CHECK" --repo "$W/repo" --head "$h1" "$W/story-after.md" 2>&1)"; sc_rc=$?
 [ "$sc_rc" = 0 ] && grep -q "4 fragments checked against $h1" <<<"$sc" && grep -q "story-check --head $h1 $STORY_PATH — exit 0" "$W/state.log" \
     && ok "review step: story-check is green on the appended story against the merged head, in land and again here" || bad "review step: story-check exit $sc_rc: $sc log $(grep -i story-check "$W/state.log")"
-# the anchor stays the commit that added the story to the main branch, and story-check reads the same head as the guard did
+# the anchor stays the commit that added the story to the main branch, and story-check reads the same head three times:
+# in the guard, on the story before the step and on the story after it
 squash="$(q "$S" 's.prs[0].result.sha')"
 added_by() { git -C "$W/origin.git" log --first-parent --follow --diff-filter=A --format=%H -1 "$1" -- "$STORY_PATH"; }
 [ "$(added_by "$squash")" = "$squash" ] && [ "$(added_by refs/heads/main)" = "$squash" ] && [ "$(q "$S" 's.prs[0].result.head')" = "$h1" ] \
-    && [ "$(grep -c "fragments checked against $h1 (--head $h1)" "$W/state.log")" = 2 ] \
+    && [ "$(grep -c "fragments checked against $h1 (--head $h1)" "$W/state.log")" = 3 ] \
     && ok "review step: after the append the story's anchor is the same squash commit, and story-check reads the same head before and after" \
     || bad "review step: anchor before $squash, after $(added_by refs/heads/main), head $(q "$S" 's.prs[0].result.head'), log $(grep 'checked against' "$W/state.log")"
 # no story, or no verdict in the state file: the documents PR is what it was before the review step, byte for byte
@@ -170,6 +173,80 @@ want="$(printf '%s\n' 'Code: `base.txt:7-8` · key lines: 7' '' '```txt' 5 6 '``
     && grep -q "story-check --head $h2 $STORY_PATH — exit 0" "$W/state.log" \
     && ok "review step: after a rebase the reviewed lines are quoted where the merged head has them, a changed line not at all" \
     || bad "review step rebase: exit $rc h1 $h1 h2 $h2: $(cat "$W/out") story: $(printf '%s' "$doc" | tail -n 12)"
+# pr_add <path> <text>: one more commit on PR 1's head, with <path> holding <text>
+pr_add() {
+    git -C "$W/seed" fetch -q origin refs/pull/1/head && git -C "$W/seed" checkout -q --detach FETCH_HEAD
+    mkdir -p "$(dirname "$W/seed/$1")" && printf '%s\n' "$2" >"$W/seed/$1"
+    git -C "$W/seed" add -A && git -C "$W/seed" commit -q -m "pr 1 more" && git -C "$W/seed" push -q -f origin HEAD:refs/pull/1/head
+    git -C "$W/seed" checkout -q main
+}
+# a line the verdict names that trips the privacy check (a UUID, made here so no file of the repository holds one) is
+# not quoted, and the documents PR goes on: the repository's own code may hold such lines
+story_world rs-private pr-en.md
+uuid="$(node -p 'require("crypto").randomUUID()')"
+pr_add src/ids.ts "export const SESSION = '$uuid'"
+verdict_of 'VERIFIED' 'src/ids.ts:1: [low] a session id in the code' 'src/cart.ts:13: [low] a zero quantity is skipped'
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+doc="$(show_at refs/pull/900/head "$STORY_PATH" 2>&1)"
+[ "$rc" = 0 ] && [[ "$doc" == *'Code: `src/cart.ts:13-13`'* ]] && ! grep -q '^Code: `src/ids.ts' <<<"$doc" && ! grep -qF "$uuid" <<<"$doc" \
+    && grep -q 'src/ids.ts:1-1 is not quoted: personal data (uuid)' "$W/state.log" && ! grep -qF "$uuid" "$W/out" "$S" "$W/state.log" \
+    && ok "review step: a named line with personal data is not quoted, the log says so without the value, the documents PR merges" \
+    || bad "review step private: exit $rc: $(cat "$W/out") log $(grep -i 'not quoted' "$W/state.log") story: $(printf '%s' "$doc" | tail -n 12)"
+# a story already red at its head (code_stories.pr off, so the guard never read it): no step for it, the documents PR goes on
+story_world rs-redstory bad-fragment.md
+echo off >"$GHD/code-stories"
+verdict_of 'VERIFIED' 'src/cart.ts:13: [low] a zero quantity is skipped'
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && tail -n 1 "$W/out" | grep -qx 'LAND=green' && [ "$(docs_files)" = ".scratch/demo-cart/issues/04.md " ] \
+    && [ "$(show_at refs/pull/900/head "$STORY_PATH")" = "$(cat "$FIX/bad-fragment.md")" ] && grep -q "is red at $(head_of 1 | cut -c1-8) already, no review step appended" "$W/state.log" \
+    && ok "review step: a story red at its head before the step -> nothing appended, the log says why, the documents PR merges" \
+    || bad "review step red story: exit $rc: $(cat "$W/out") files $(docs_files) log $(grep -i 'review step\|red at' "$W/state.log")"
+# the head review verified is gone (a force-push after a merge by hand): the step quotes the verdict but no code
+story_world rs-gone pr-en.md
+verdict_of 'VERIFIED' 'src/cart.ts:13: [low] a zero quantity is skipped'
+echo 1 >"$GHD/docs-check-rc"
+"$LAND" "$S" >/dev/null 2>&1
+rm -f "$GHD/docs-check-rc"
+edit "s.prs[0].head='$(printf 'ab%.0s' $(seq 1 20))'"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+doc="$(show_at refs/pull/900/head "$STORY_PATH" 2>&1)"
+after="$(awk '/^## 6\. What review found and what remains$/{s=1} s' <<<"$doc")"
+[ "$rc" = 0 ] && [ -n "$after" ] && grep -q '^> src/cart.ts:13: ' <<<"$after" && ! grep -q '^Code: ' <<<"$after" \
+    && grep -q "the head abababab review verified is not in the checkout: no fragment quoted" "$W/state.log" \
+    && ok "review step: the reviewed head cannot be read -> the verdict quoted, no fragment of another head" \
+    || bad "review step gone head: exit $rc: $(cat "$W/out") step: $after"
+# a saved verdict with no verdict line: the documents wait, nothing pushed
+story_world rs-noline pr-en.md
+verdict_of 'Checked the diff, nothing to add.'
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ -z "$(git -C "$W/origin.git" for-each-ref 'refs/heads/land-docs/*')" ] && grep -q '^documents land-docs/.* waits: the verdict of #1 (.*) has no line that starts with VERIFIED or REJECTED' "$W/out" \
+    && ok "review step: a verdict file without a verdict line -> the documents wait, nothing pushed" || bad "review step no line: exit $rc: $(cat "$W/out")"
+# a story in Russian: its own title of the step; a story that has the step already gets no second one
+RU_PATH=".scratch/demo-cart/stories/05-coupons.md"
+# ru_world <name> <story file>: story_world for the Russian fixture's ticket demo-cart 05, the story at RU_PATH
+ru_world() {
+    new_world "$1" 1
+    git -C "$W/seed" fetch -q origin refs/pull/1/head && git -C "$W/seed" checkout -q --detach FETCH_HEAD
+    cp -R "$FIX/repo/src" "$W/seed/src" && mkdir -p "$W/seed/.scratch/demo-cart/stories" && cp "$2" "$W/seed/$RU_PATH"
+    git -C "$W/seed" add -A && git -C "$W/seed" commit -q -m "pr 1 code" && git -C "$W/seed" push -q -f origin HEAD:refs/pull/1/head
+    git -C "$W/seed" checkout -q main
+    state 1
+    edit 's.prs[0].epic="demo-cart";s.prs[0].ticket="05"'
+    echo on >"$GHD/code-stories"
+}
+ru_world rs-ru-has "$FIX/pr-ru.md"
+verdict_of 'Read the diff and the story.' '**VERIFIED**' 'ran: pnpm test — exit 0'
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(docs_files)" = ".scratch/demo-cart/issues/05.md " ] && grep -q "$RU_PATH has the step \"Что нашёл review и что осталось\" already, nothing appended" "$W/state.log" \
+    && ok "review step: a Russian story that has its step already -> nothing appended" || bad "review step ru has: exit $rc: $(cat "$W/out") files $(docs_files)"
+sed '/^## 5\. Что нашёл review/,$d' "$FIX/pr-ru.md" >"$T/ru-no-step.md"
+ru_world rs-ru-add "$T/ru-no-step.md"
+verdict_of 'Read the diff and the story.' '**VERIFIED**' 'ran: pnpm test — exit 0'
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+doc="$(show_at refs/pull/900/head "$RU_PATH" 2>&1)"
+[ "$rc" = 0 ] && [ "$doc" = "$(cat "$T/ru-no-step.md")"$'\n\n'"$(printf '%s\n' '## 5. Что нашёл review и что осталось' '' '> VERIFIED' '> ran: pnpm test — exit 0')" ] \
+    && ok "review step: a Russian story gets the Russian title; the verdict quoted from its line on, the lead-in and the markup dropped" \
+    || bad "review step ru add: exit $rc: $(cat "$W/out") story: $(printf '%s' "$doc" | tail -n 6)"
 # Silent mode: no documents PR, so the step is the orchestrator's; land says so
 new_world rs-silent 1
 state 1
