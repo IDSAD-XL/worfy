@@ -280,6 +280,11 @@ describe('the read-or-write mark of `project` channels', () => {
     // The Vendor picker of "New session" (worfy-multi-vendor ticket 24): the settings and each Vendor's sign-in are read.
     'sessions.vendors',
     'sessions.views',
+    // A Code story file, the code of its fragments from git and a story made by the button (worfy-code-stories ticket 08):
+    // the Tickets root, git objects and stories.json of the Project data folder are read, as tickets.read.
+    'stories.code',
+    'stories.read',
+    'stories.saved',
     'terminal.shells',
     'terminalAi.fix.state',
     'terminalAi.request.state',

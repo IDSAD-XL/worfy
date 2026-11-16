@@ -165,4 +165,14 @@ describe('ticketsIgnored with the path rules given', () => {
     const unix = ticketsIgnored('/p/repo/.scratch', posix)
     expect(['/p/repo/.scratch/demo/issues/01-a.md', '/p/repo/.scratch/demo/logs', '/p/repo'].map((path) => unix(path))).toEqual([false, true, false])
   })
+
+  it('keeps the Code stories of an Epic — story.md and stories/*.md — and skips what lies deeper or is no story (worfy-code-stories 08)', () => {
+    const unix = ticketsIgnored('/p/repo/.scratch', posix)
+    const kept = ['/p/repo/.scratch/demo/story.md', '/p/repo/.scratch/demo/stories', '/p/repo/.scratch/demo/stories/04-cart-total.md', '/p/repo/.scratch/demo/Stories/05-coupons.md']
+    expect(kept.map((path) => unix(path))).toEqual([false, false, false, false])
+    const skipped = ['/p/repo/.scratch/demo/stories/deeper/x.md', '/p/repo/.scratch/demo/stories/notes.txt', '/p/repo/.scratch/demo/story.txt', '/p/repo/.scratch/demo/storyboard.md', '/p/repo/.scratch/demo/evidence/story.md']
+    expect(skipped.map((path) => unix(path))).toEqual([true, true, true, true, true])
+    const windows = ticketsIgnored(ROOT, win32)
+    expect([`${ROOT}\\demo\\story.md`, `${ROOT}\\demo\\stories\\04-a.md`, `${ROOT}\\demo\\stories\\deeper\\x.md`].map((path) => windows(path))).toEqual([false, false, true])
+  })
 })

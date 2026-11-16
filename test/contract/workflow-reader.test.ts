@@ -11,6 +11,7 @@ import { join, win32 } from 'node:path'
 import { watch as chokidarWatch, type FSWatcher } from 'chokidar'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { versionOf } from '../../src/main/docs/watch'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import {
   applyBranches,
@@ -1482,6 +1483,60 @@ describe('workflow reader in Silent mode', () => {
 })
 
 // ── watcher ──────────────────────────────────────────────────────────────────
+
+// ── Code stories ─────────────────────────────────────────────────────────────
+
+/** The shared cases of the Code story format (harness/bin/tests/fixtures/code-story/), read as they are. */
+const STORY_FIXTURES = join(__dirname, '..', '..', 'harness', 'bin', 'tests', 'fixtures', 'code-story')
+const storyFixture = (name: string): string => readFileSync(join(STORY_FIXTURES, name), 'utf8')
+
+/** Puts the stories of Epic `demo` under `scratch`: the Epic's, two PR stories (one broken), and files that are no story. */
+function writeStories(scratch: string): void {
+  const epic = join(scratch, 'demo')
+  mkdirSync(join(epic, 'stories', 'deeper'), { recursive: true })
+  writeFileSync(join(epic, 'story.md'), storyFixture('epic-ru.md'))
+  writeFileSync(join(epic, 'stories', '04-cart-total.md'), storyFixture('pr-en.md'))
+  writeFileSync(join(epic, 'stories', '05-broken.md'), storyFixture('missing-field.md'))
+  writeFileSync(join(epic, 'stories', 'deeper', '06-x.md'), storyFixture('pr-ru.md'))
+  writeFileSync(join(epic, 'stories', 'notes.txt'), 'not a story\n')
+}
+
+const storiesExpected = (scratch: string) => [
+  { kind: 'epic', path: 'demo/story.md', ticket: null, version: versionOf(storyFixture('epic-ru.md')), error: null },
+  { kind: 'pr', path: 'demo/stories/04-cart-total.md', ticket: '04', version: versionOf(readFileSync(join(scratch, 'demo', 'stories', '04-cart-total.md'), 'utf8')), error: null },
+  { kind: 'pr', path: 'demo/stories/05-broken.md', ticket: '05', version: versionOf(storyFixture('missing-field.md')), error: expect.stringContaining('"Why here"') as unknown },
+]
+
+describe('workflow reader and the Code stories of an Epic (worfy-code-stories 08)', () => {
+  it('gives the Epic its story and the stories of its Tickets\' PRs, with the reason of one that does not parse; nothing deeper, nothing but .md', async () => {
+    const repo = makeRepo(dir)
+    const scratch = join(repo, '.scratch')
+    writeStories(scratch)
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-qm', 'stories')
+    const { home } = makeClaudeHome(dir)
+    const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
+    expect(model.error).toBeNull()
+    expect(model.epics[0]?.stories).toEqual(storiesExpected(scratch))
+  })
+
+  it('Silent Project: the stories come from the Workflow folder, and a story written there comes as a change of its Epic through the watcher', async () => {
+    const { repo, folder, scratch } = makeSilent(dir)
+    const { home } = makeClaudeHome(dir)
+    stubHarness(home, { code: 0, json: silentProfile(repo, folder) }, scratch)
+    process.env.STUB_SCRATCH = scratch
+    const deltas: WorkflowDelta[] = []
+    const watcher = await startWatcher(repo, home, deltas)
+    expect(watcher.current.epics[0]?.stories).toBeUndefined()
+
+    writeStories(scratch)
+    const { delta } = await nextDelta(deltas, (d) => d.epics.some((epic) => (epic.stories?.length ?? 0) === 3))
+    expect(delta.epics[0]?.stories).toEqual(storiesExpected(scratch))
+    expect(delta.tickets).toEqual([])
+    const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
+    expect(model.epics[0]?.stories).toEqual(storiesExpected(scratch))
+  })
+})
 
 describe('workflow watcher', () => {
   it('sends only the changed Ticket ≤ 1.5 s after a Ticket file is saved', async () => {

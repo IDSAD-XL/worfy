@@ -1,7 +1,7 @@
 # 08 — worfy читает story: watcher, reader, разбор формата, хранилище story по кнопке
 
 Type: feature
-Status: open
+Status: claimed 2026-11-16T07:26Z
 Blocked by: 01
 Source: [spec.md](../spec.md), «Ticket-ы», строка 08; «Решения владельца» 4, 9, 24 (строки 95, 101–102, 128);
 «Решения по реализации» → Harness: «Где лежит» (строки 204–206); worfy: «Чтение», «Story по кнопке» (строки 241–243,

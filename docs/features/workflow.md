@@ -159,7 +159,15 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
   Orchestrator it stops the run with `workflow-error`. The read that sends "Run wave" holds the open Tickets instead. A
   list that fails right then sends only the interrupted Tickets that the first Wave of a run takes back after a Force
   stop or a `session-error`; with nothing to send, the run stops with `send-failed` ("No ready wave"). On macOS a Tickets root that is not a
-  folder is looked for every 2 s. Only the files `epic-status` reads are watched: Epic folders, `spec.md`, `map.md` and `issues/*.md`.
+  folder is looked for every 2 s. Only the files `epic-status` reads are watched: Epic folders, `spec.md`, `map.md` and `issues/*.md`;
+  and the Code stories worfy reads itself, an Epic's `story.md` and `stories/*.md`.
+- **An Epic lists its Code stories.** The Epic's `story.md` and the stories of its Tickets' PRs, `stories/NN-<slug>.md`, are
+  read from the same place as its spec and Tickets: the main branch, or the folder in Silent mode. The model carries
+  where each is, a hash of its text and, for a file that does not fit the format of `harness/bin/TICKETS.md`, the reason;
+  the story itself is read when it is opened. The code of a step comes from git when the step is shown: the fragment is
+  looked for by its code in the commit that added the story to the main branch, and shown with that commit's line
+  numbers. When that commit no longer holds it in this form, or there is no such commit (Silent mode), the story's own
+  code is shown, marked as the code of the PR's head.
 - **A branch never undoes the checkout.** This is why a blocked Ticket with an old worktree branch does not look open
   ([ADR-0033](../adr/0033-autopilot-names-wave-tickets.md)).
 - **Frames and cards are computed, not saved.** The Layout keeps only a frame's offset and collapse
@@ -189,6 +197,7 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
 | Levels, the ready Wave, Wave numbers | `src/shared/workflow/waves.ts` |
 | Headings, manual checks | `src/shared/workflow/doc-headings.ts`, `src/shared/workflow/manual-checks.ts` |
 | The IPC of the model and of a Ticket's text | `src/shared/ipc/workflow.ts`, `src/main/ipc/workflow.ts`, `src/shared/ipc/tickets.ts`, `src/main/ipc/tickets.ts` |
+| Code stories: the format, a story file, the code of a fragment, the stories made by the button | `src/shared/stories/parse.ts`, `src/shared/stories/schema.ts`, `src/main/ipc/stories.ts`, `src/main/stories/code.ts`, `src/main/stories/store.ts` |
 | The renderer's shared copy | `src/renderer/workflow/useWorkflow.ts` |
 | Frames and cards as Nodes; columns; card height | `src/renderer/canvas/sources/epics.ts`, `src/renderer/canvas/epic-layout.ts`, `src/renderer/canvas/ticket-card.ts` |
 | The views | `src/renderer/canvas/nodes/TicketNode.tsx`, `src/renderer/canvas/nodes/TicketBody.tsx`, `src/renderer/canvas/nodes/ticket-text.ts`, `src/renderer/canvas/nodes/EpicFrameNode.tsx` |
@@ -213,6 +222,8 @@ copy, and `sources/epics.ts` turns the copy into Nodes. The same hub serves the 
 - `test/unit/waves.test.ts`, `test/unit/epic-layout.test.ts`, `test/unit/ticket-card.test.tsx`,
   `test/unit/render-template.test.ts`, `test/unit/launch.test.ts`: the pure rules; the last also runs `ActionLauncher` over fakes.
 - `test/unit/evidence-matrix.test.tsx`: the Evidence chip, the matrix and where its links lead.
+- `test/unit/story-parse.test.ts`, `test/contract/story-code.test.ts`, `test/contract/story-store.test.ts`: the Code story
+  format on the shared fixtures of `harness/bin/tests/fixtures/code-story/`, the code of a fragment from git, the store.
 - `test/contract/workflow-watch-retry.test.ts`: retries of the layout.
 - Windows: `test/unit/tickets-watch.test.ts`, `test/unit/workflow-remote-links.test.ts`, `test/contract/workflow-watch-links.test.ts`,
   `test/contract/workflow-branches-gone.test.ts`, `test/contract/workflow-branches-handles.test.ts`.

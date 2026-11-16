@@ -120,6 +120,26 @@ export const epicStatusSchema = z.object({
 })
 export type EpicStatusSnapshot = z.infer<typeof epicStatusSchema>
 
+/**
+ * A Code story file of an Epic (worfy-code-stories ticket 08; harness/bin/TICKETS.md, "Code story"): the Epic's
+ * `story.md` or the story of a Ticket's PR, `stories/NN-<slug>.md`. The model carries where it is and whether it
+ * parses, not the story itself: the story is read when it is opened (`stories.read`), so a large one is not sent with
+ * every change of the Project.
+ */
+export const storyEntrySchema = z.object({
+  /** `epic` for story.md, `pr` for a file of stories/. */
+  kind: z.enum(['pr', 'epic']),
+  /** The file under the Tickets root, `/` between the parts: `<epic>/story.md`, `<epic>/stories/04-cart-total.md`. */
+  path: z.string(),
+  /** The Ticket of a PR story, two digits from its file name; null for the Epic's story and a name without a number. */
+  ticket: z.string().nullable(),
+  /** A hash of the file's text: an edit of the story is a change of its Epic, and an open view reads it again. */
+  version: z.string(),
+  /** Why the file does not fit the format (src/shared/stories/parse.ts); null when it does. */
+  error: z.string().nullable(),
+})
+export type StoryEntry = z.infer<typeof storyEntrySchema>
+
 export const epicSchema = epicStatusEpicSchema.extend({
   /** The H1 of the Epic's spec.md, without the leading `#`; null when there is no spec or no H1. */
   title: z.string().nullable(),
@@ -129,6 +149,11 @@ export const epicSchema = epicStatusEpicSchema.extend({
    * times (a stand-in in tests) and from a Linked machine's older worfy.
    */
   specAt: z.string().nullable().optional(),
+  /**
+   * The Code stories of the Epic, the Epic's own first, then the PR stories by file name. Absent when it has none, and
+   * from a Linked machine's older worfy.
+   */
+  stories: z.array(storyEntrySchema).optional(),
 })
 export type Epic = z.infer<typeof epicSchema>
 

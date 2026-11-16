@@ -4,7 +4,8 @@
 // (src/main/harness/locate.ts: the plugin's bin/ or `<claude home>/bin`). worfy adds the
 // things that script does not carry: the files listed under each Ticket's trail section, the
 // Ticket's manual checks and Evidence items of its "done" section (shared/workflow/manual-checks.ts,
-// shared/workflow/evidence.ts) — all under the
+// shared/workflow/evidence.ts), the Code stories of each Epic (`story.md`, `stories/*.md`: where each is and whether it
+// parses, shared/stories/parse.ts; worfy-code-stories ticket 08) — all under the
 // headings the Project's Profile names (shared/workflow/doc-headings.ts) — and the Epic's title (the H1 of spec.md), all read from the Tickets root the Harness
 // names (src/main/workflow/folder.ts: `<root>/.scratch` in Full mode, the Workflow folder in Silent
 // mode). In Full mode a Ticket claimed in a worktree branch is shown with the branch's status:
@@ -27,6 +28,7 @@ import { join, resolve } from 'node:path'
 import { accepted, DEFAULT_DOC_HEADINGS, docHeadings, OLD_DOC_HEADINGS, sectionHeadings, type DocHeadings } from '../../shared/workflow/doc-headings'
 import { evidenceItems } from '../../shared/workflow/evidence'
 import { manualChecks } from '../../shared/workflow/manual-checks'
+import { parseStory } from '../../shared/stories/parse'
 import { repoPageUrl } from '../github/remote'
 import { versionOf } from '../docs/watch'
 import { branchNamesTicket, parseTicketBranch } from '../../shared/workflow/ticket-ref'
@@ -42,6 +44,7 @@ import {
   ticketKey,
   type BranchError,
   type EpicStatusSnapshot,
+  type StoryEntry,
   type Ticket,
   type WorkflowError,
   type WorkflowModel,
@@ -331,12 +334,34 @@ const isTicketsFile = (rel: string): boolean => {
   return (parts.length === 2 && parts[1] === 'spec.md') || (parts.length === 3 && parts[1] === 'issues' && parts[2]!.endsWith('.md'))
 }
 
+/** The Epic's own story and the folder of its PR stories (harness/bin/TICKETS.md, "Code story"). */
+export const EPIC_STORY_FILE = 'story.md'
+export const STORIES_DIR = 'stories'
+
+/** A Code story of an Epic under a Tickets root, `/` between the parts: `<epic>/story.md` and `<epic>/stories/*.md`. */
+const isStoryFile = (rel: string): boolean => {
+  const parts = rel.split('/')
+  return (parts.length === 2 && parts[1] === EPIC_STORY_FILE) || (parts.length === 3 && parts[1] === STORIES_DIR && parts[2]!.endsWith('.md'))
+}
+
+/** The Ticket a PR story is of, by its file name `NN-<slug>.md`: the two digits; null for a name without a number. */
+export function storyTicket(file: string): string | null {
+  const match = /^(\d+)-.*\.md$/u.exec(file)
+  return match ? match[1]!.padStart(2, '0') : null
+}
+
+/** What the model says of a story file: where it is, its version and whether it parses (src/shared/stories/parse.ts). */
+function storyEntry(kind: StoryEntry['kind'], path: string, ticket: string | null, markdown: string): StoryEntry {
+  const parsed = parseStory(markdown)
+  return { kind, path, ticket, version: versionOf(markdown), error: parsed.ok ? null : parsed.reason }
+}
+
 /** `path` under `ticketsRoot` with `/` between the parts. */
 const relUnder = (ticketsRoot: string, path: string, paths: PathRules): string => paths.relative(ticketsRoot, path).split(paths.sep).join('/')
 
 /**
- * Adds the trail section files, the manual checks, the Epic titles and the times of their specs to a snapshot of the checkout, read from
- * `ticketsRoot` (the folder with `<epic>/spec.md` and `<epic>/issues/`).
+ * Adds the trail section files, the manual checks, the Epic titles, the times of their specs and their Code stories to a snapshot of the
+ * checkout, read from `ticketsRoot` (the folder with `<epic>/spec.md`, `<epic>/issues/`, `<epic>/story.md` and `<epic>/stories/`).
  *
  * On Windows readFile and readdir through a link to `\\host\share\…` make the system contact
  * that host with the user's credentials, and a checked-out repository can carry such a link. So
@@ -372,8 +397,9 @@ export async function enrichSnapshot(
           const files: string[] = []
           for (const epic of await tree.names('')) {
             files.push(`${epic}/spec.md`, ...(await tree.names(`${epic}/issues`)).map((name) => `${epic}/issues/${name}`))
+            files.push(`${epic}/${EPIC_STORY_FILE}`, ...(await tree.names(`${epic}/${STORIES_DIR}`)).map((name) => `${epic}/${STORIES_DIR}/${name}`))
           }
-          return tree.texts(files.filter(isTicketsFile))
+          return tree.texts(files.filter((file) => isTicketsFile(file) || isStoryFile(file)))
         })()
   const read = async (path: string): Promise<string | null> => {
     if (committed !== null) return committed.get(relUnder(scratch, path, paths)) ?? null
@@ -385,6 +411,20 @@ export async function enrichSnapshot(
   }
   const headings = docHeadings(options.headings)
 
+  // The Code stories of an Epic (worfy-code-stories ticket 08): epic-status does not read them, worfy does, from the same
+  // place as the specs and Tickets — the main branch, or the folder.
+  const storiesOf = async (epic: string): Promise<StoryEntry[]> => {
+    const entries: StoryEntry[] = []
+    const own = await read(paths.join(scratch, epic, EPIC_STORY_FILE))
+    if (own !== null) entries.push(storyEntry('epic', `${epic}/${EPIC_STORY_FILE}`, null, own))
+    const files = (await list(paths.join(scratch, epic, STORIES_DIR))).filter((name) => name.endsWith('.md')).sort()
+    for (const file of files) {
+      const markdown = await read(paths.join(scratch, epic, STORIES_DIR, file))
+      if (markdown !== null) entries.push(storyEntry('pr', `${epic}/${STORIES_DIR}/${file}`, storyTicket(file), markdown))
+    }
+    return entries
+  }
+
   // Read from the main branch, a spec's time is when the main branch got it: nothing of the folder's disk is read.
   const specsAdded = tree === undefined || fs.mtime === undefined ? null : await tree.addedAt('*/spec.md')
   const epics = await Promise.all(
@@ -392,7 +432,9 @@ export async function enrichSnapshot(
       const specPath = paths.join(scratch, epic.epic, 'spec.md')
       const spec = epic.hasSpec ? await read(specPath) : null
       const title = spec === null ? null : firstHeading(spec)
-      if (fs.mtime === undefined) return { ...epic, title }
+      const found = await storiesOf(epic.epic)
+      const stories = found.length === 0 ? {} : { stories: found }
+      if (fs.mtime === undefined) return { ...epic, title, ...stories }
       // The time the spec was added, for an Epic none of whose Tickets has changed status yet (the sidebar's order,
       // worfy-polish ticket 98). From the main branch: the commit that added spec.md (one `git log` for all of them),
       // else the time of the commit read. From the folder, read only after the spec itself was, so a link away from
@@ -402,7 +444,7 @@ export async function enrichSnapshot(
       // across clones.
       const at =
         spec === null ? null : tree !== undefined ? (specsAdded?.get(`${epic.epic}/spec.md`) ?? tree.committedAt) : (await away(specPath)) ? null : await fs.mtime(specPath)
-      return { ...epic, title, specAt: at === null ? null : new Date(at).toISOString() }
+      return { ...epic, title, specAt: at === null ? null : new Date(at).toISOString(), ...stories }
     }),
   )
 
