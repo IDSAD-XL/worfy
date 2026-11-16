@@ -274,7 +274,7 @@ export default function AdrSection() {
   }
 
   let body
-  if (error !== undefined) body = <p style={styles.message}>The ADRs could not be read: {error}</p>
+  if (error !== undefined || state?.readError !== undefined) body = <p style={styles.message}>The ADRs could not be read: {error ?? state?.readError}</p>
   else if (state === undefined) body = null
   else if (!adrs.length) body = <p style={styles.message}>No ADRs in {ADR_DIR}/</p>
   else

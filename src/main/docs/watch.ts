@@ -264,6 +264,12 @@ export const SETTLE_READS_MS: readonly number[] = [100, 400, 1000]
 
 const sameDocs = (a: Docs, b: Docs): boolean => JSON.stringify(a) === JSON.stringify(b)
 
+/** The first line of an error's message, for `readError`. */
+function firstLine(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.split(/\r?\n/u).find((line) => line.trim() !== '')?.trim() ?? 'unknown error'
+}
+
 /** A watch of the root with everything below it; `close` ends it. */
 export type WatchRoot = (root: string, onEvent: (filename: string | null) => void, onError: (error: unknown) => void) => { close: () => void }
 
@@ -448,7 +454,7 @@ export class DocsWatcher {
         // A read of the disk leaves unreadable files out instead of throwing: only the main branch fails here.
         if (!options.source) throw error
         console.error(`[docs] could not read the documents of ${watcher.options.root} from the main branch; read again later`, error)
-        watcher.docs = { handoff: null, adrs: [] }
+        watcher.docs = { handoff: null, adrs: [], readError: firstLine(error) }
         watcher.unread = true
         watcher.retryRead()
       }
@@ -459,7 +465,10 @@ export class DocsWatcher {
     return watcher
   }
 
-  /** Whether `current` is a read of the documents, not the empty stand-in of a first read that failed (see `start`). */
+  /**
+   * Whether `current` is a read of the documents, not the stand-in of a first read that failed (see `start`): no
+   * documents, and the reason in `readError`.
+   */
   get read(): boolean {
     return !this.unread
   }

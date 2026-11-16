@@ -70,7 +70,8 @@ describe('a first read of the documents that fails on git', () => {
     const watcher = await DocsWatcher.start({ root: '/project', debounceMs: 5, retryMs: 20, watch: noWatch, source, onChange: (docs) => changes.push(docs) })
     cleanups.push(() => watcher.close())
 
-    expect(watcher.current).toEqual({ handoff: null, adrs: [] })
+    // No documents, and why: "not read", not "none".
+    expect(watcher.current).toEqual({ handoff: null, adrs: [], readError: 'git ls-tree failed' })
     expect(watcher.read).toBe(false)
     expect(errors).toHaveBeenCalledWith(expect.stringContaining('[docs]'), expect.objectContaining({ message: 'git ls-tree failed' }))
     // The reads that follow the start of a watch (SETTLE_READS_MS, up to 1 s) are over: the start and they asked 4 times.
@@ -83,6 +84,7 @@ describe('a first read of the documents that fails on git', () => {
     await vi.waitFor(() => expect(watcher.read).toBe(true), { timeout: ms(5_000), interval: 10 })
     expect(watcher.current.handoff?.version).toBe(versionOf(HANDOFF))
     expect(watcher.current.adrs.map((adr) => adr.number)).toEqual(['0001'])
+    expect(watcher.current.readError).toBeUndefined()
     expect(changes).toHaveLength(1)
 
     // Read once: no more reads come by themselves.
@@ -119,7 +121,7 @@ describe('a first read of the documents that fails on git', () => {
 
     const opened = await hub.open('p1', root, { id: 'main', send: (state) => sent.push(state) }, undefined, undefined, source)
 
-    expect(opened).toEqual({ projectId: 'p1', handoff: null, adrs: [] })
+    expect(opened).toEqual({ projectId: 'p1', handoff: null, adrs: [], readError: 'git ls-tree failed' })
     expect(hub.projects).toEqual(['p1'])
     await new Promise((done) => setTimeout(done, 150))
     // No state that is no read: the HANDOFF Node (src/main/ipc/docs.ts, syncHandoffNode) is not hidden for a git error.
@@ -128,6 +130,7 @@ describe('a first read of the documents that fails on git', () => {
     source.failing = false
     source.move()
     await vi.waitFor(() => expect(sent.at(-1)?.handoff?.version).toBe(versionOf(HANDOFF)), { timeout: ms(5_000), interval: 10 })
+    expect(sent.at(-1)?.readError).toBeUndefined()
     expect(states.at(-1)?.handoff?.version).toBe(versionOf(HANDOFF))
   })
 

@@ -72,7 +72,9 @@ export default function HandoffNode({ id, selected }: CanvasNodeProps) {
 
   let body
   if (text !== undefined) body = <Markdown text={text} projectId={projectId} />
-  else if (error !== undefined || openError !== undefined) body = <p style={styles.message}>HANDOFF.md could not be read: {error ?? openError}</p>
+  // `readError`: main could not read the Project's main branch yet, and reads again (src/main/docs/watch.ts).
+  else if (error !== undefined || openError !== undefined || state?.readError !== undefined)
+    body = <p style={styles.message}>HANDOFF.md could not be read: {error ?? openError ?? state?.readError}</p>
   else if (state !== undefined && handoff === null) body = <p style={styles.message}>The Project has no HANDOFF.md</p>
   else body = null
 

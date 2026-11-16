@@ -139,7 +139,8 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
   terminal is seen too. A fetch asks nothing: no password prompt, no credential window, ssh in batch mode
   (`-o BatchMode=yes` goes only to a command that runs ssh itself, after any leading `NAME=value` words and `env`; plink, TortoiseGitPlink and other programs are left as
   they are). A failed fetch keeps the list as it was. When git cannot read the main branch for `HANDOFF.md` and the ADRs,
-  they keep their last read; at the start, with none yet, they show empty. Either way they are read again after 2 s,
+  they keep their last read; at the start, with none yet, the HANDOFF Node and the ADR section say they could not be
+  read, with git's error, not that there are none. Either way they are read again after 2 s,
   then after twice as long each time up to once a minute, and at once when the branch moves. The canvas tools of a
   Session (`link_card`) and the Browser tools check their Epic and Ticket targets against this same read. The status of a
   Ticket's worktree branch still goes over main's, and so does the folder's own branch when it names a Ticket. Silent
