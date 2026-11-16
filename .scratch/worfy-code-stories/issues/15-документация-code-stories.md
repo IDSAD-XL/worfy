@@ -33,9 +33,14 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 15; «Волны», W
 ## Готово, когда
 
 - [ ] Страницы en и ru есть и совпадают по смыслу; имена UI — латиницей; строки индекса в обоих README.
+  - evidence: commit pass · Feature page Code stories (en, ru) and four Code story terms in CONTEXT.md · - - · 740fecf7c
 - [ ] Каждое утверждение сверено с кодом в два раунда; расхождения — в «Итог».
+  - evidence: commit pass · two rounds of claim checks against the code; differences in the result section · - - · 8adc8b630
 - [ ] `CONTEXT.md` содержит четыре термина и правило «шаг — не Card».
+  - evidence: commit pass · Feature page Code stories (en, ru) and four Code story terms in CONTEXT.md · - - · 740fecf7c
 - [ ] `pnpm lint` (в том числе `scripts/check-feature-docs.mjs`) — exit 0; `node scripts/check-personal.mjs` — exit 0.
+  - evidence: test-run pass · `pnpm lint` exit 0 · mac - · 8adc8b630
+  - evidence: test-run pass · `node scripts/check-personal.mjs` exit 0 · mac - · 8adc8b630
 
 ## Тесты
 
