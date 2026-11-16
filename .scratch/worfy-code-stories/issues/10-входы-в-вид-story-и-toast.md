@@ -39,10 +39,15 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 10; «Решения 
       карточки Ticket-а, из Pull requests, из toast-а и из Command palette; Esc каждый раз возвращает на Canvas.
 - [ ] Unit test toast-а (чистые функции, как `stop-toast.ts`): первое появление `story.md` даёт один toast; второе чтение
       того же Epic-а и перезапуск worfy — ни одного; новый `stories/*.md` — ни одного.
+  - evidence: test-run pass · `pnpm test test/unit/story-toast.test.ts` exit 0 · mac - · 774f251ea9ed6f6011f3b1bb666f65b701865ea7
 - [ ] Unit test кнопок: «Story» на карточке Ticket-а без story PR неактивна с подсказкой; на рамке Epic-а без
       `story.md` — неактивна до Ticket-а 11.
+  - evidence: test-run pass · `pnpm test test/unit/story-entries.test.tsx` exit 0 · mac - · 774f251ea9ed6f6011f3b1bb666f65b701865ea7
 - [ ] `test/unit/palette-commands.test.tsx`: команда есть для Epic-а и Ticket-а со story и нет без неё.
+  - evidence: test-run pass · `pnpm test test/unit/palette-commands.test.tsx` exit 0 · mac - · 774f251ea9ed6f6011f3b1bb666f65b701865ea7
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 774f251ea9ed6f6011f3b1bb666f65b701865ea7
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 774f251ea9ed6f6011f3b1bb666f65b701865ea7
 
 ## Тесты
 
