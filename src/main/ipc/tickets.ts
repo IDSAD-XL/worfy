@@ -5,6 +5,7 @@ import { DOC_SIZE_MAX } from '../docs/watch'
 import { projectStore } from '../projects/store'
 import { isInside, type PathRules } from '../remote-links'
 import { layoutFailure, projectLayouts, type ProjectLayout } from '../workflow/folder'
+import { refTree, resolveSource, type MainRef, type RefGitRunner } from '../workflow/main-ref'
 import { issueKey } from '../workflow/reader'
 import { defineHandler, type HandlerModule } from './index'
 import { resolveProjectFile, workflowPlaces, type ResolveOptions } from './shell'
@@ -31,6 +32,8 @@ export interface TicketReadOptions extends ResolveOptions {
   home?: string
   /** The names in a folder; replaced in tests. */
   readdir?: (dir: string) => Promise<string[]>
+  /** Runs git for the main branch (main-ref.ts); replaced in tests. */
+  git?: RefGitRunner
 }
 
 /**
@@ -51,6 +54,9 @@ export async function readTicketFile(layout: ProjectLayout, ref: TicketRef, opti
   // Where the Tickets live is unknown: the reason, not a guess (src/main/workflow/folder.ts).
   if (layout.failed) throw new Error(layoutFailure(layout))
   const paths: PathRules = options.paths ?? nativePath
+  // The text of the commit the list was read from (ADR-0107): the main branch, not the folder's working tree.
+  const source = await resolveSource(layout.root, layout, { details: false, ...(options.git === undefined ? {} : { git: options.git }) })
+  if (source.kind === 'ref') return readCommittedTicket(layout, source, ref, paths, options)
   const places = await workflowPlaces(layout, { paths, home: options.home, real: options.real })
   const name = `${String(ref.num).padStart(2, '0')}-${ref.slug}.md`
   const dir = await resolveProjectFile(layout.root, paths.join(layout.ticketsRoot, ref.epic, 'issues'), places, options).catch((error: unknown) => {
@@ -65,6 +71,30 @@ export async function readTicketFile(layout: ProjectLayout, ref: TicketRef, opti
   if (!info.isFile()) throw new Error(`${ref.epic}/issues/${entry} is not a file`)
   if (info.size > TICKET_SIZE_MAX) throw new Error(`${ref.epic}/issues/${entry} is larger than ${TICKET_SIZE_MAX} bytes`)
   return { path: file, relative: await relativeToRoot(layout.root, file, paths, options), text: await readFile(file, 'utf8') }
+}
+
+/**
+ * The Ticket's file in the commit of the main branch. The Epic is a name, never a path: `..` or a separator in it is
+ * refused, so the read stays inside the Tickets root. `path` is where the file lies in the folder, whether or not the
+ * folder has it yet.
+ */
+async function readCommittedTicket(
+  layout: ProjectLayout,
+  source: MainRef,
+  ref: TicketRef,
+  paths: PathRules,
+  options: TicketReadOptions,
+): Promise<{ path: string; relative: string | null; text: string }> {
+  if (ref.epic === '' || ref.epic === '.' || ref.epic === '..' || /[\\/\0]/u.test(ref.epic)) throw new Error(`not an Epic name: ${JSON.stringify(ref.epic)}`)
+  const name = `${String(ref.num).padStart(2, '0')}-${ref.slug}.md`
+  const tree = refTree(source, source.ticketsRel, [`${ref.epic}/issues`], options.git)
+  const key = `${ref.num}:${ref.slug}`
+  const entry = (await tree.names(`${ref.epic}/issues`)).find((candidate) => issueKey(candidate) === key)
+  if (entry === undefined) throw new Error(`${ref.epic}/issues/${name} does not exist in the main branch`)
+  const text = (await tree.texts([`${ref.epic}/issues/${entry}`], TICKET_SIZE_MAX)).get(`${ref.epic}/issues/${entry}`)
+  if (text === undefined) throw new Error(`${ref.epic}/issues/${entry} is not a file, or is larger than ${TICKET_SIZE_MAX} bytes`)
+  const file = paths.join(layout.ticketsRoot, ref.epic, 'issues', entry)
+  return { path: file, relative: await relativeToRoot(layout.root, file, paths, options), text }
 }
 
 export default [

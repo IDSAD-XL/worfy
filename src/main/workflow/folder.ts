@@ -56,6 +56,10 @@ export interface ProjectLayout {
   environmentFailure?: boolean
   /** The names of the document sections the Profile gives; absent when it gives none (readers take the defaults). */
   headings?: Partial<DocHeadings>
+  /** `workflow.finish` of the Profile; absent when it names none. Picks the main branch the workflow is read from (main-ref.ts). */
+  finish?: 'pr-green-ci' | 'local-green'
+  /** `worktree.base` of the Profile; absent when it names none (main-ref.ts takes `main`). */
+  mainBranch?: string
 }
 
 /** Full mode as worfy read every Project before Silent mode existed. */
@@ -136,13 +140,25 @@ export async function readProjectLayout(options: ReadLayoutOptions): Promise<Pro
     log(`[workflow] ${root}: Full mode, the workflow files in the Project root, because ${read.reason}`)
     return fullLayout(root, read.reason)
   }
-  const { mode, workspace, repos, headings } = read.profile
+  const { mode, workspace, repos, headings, finish, mainBranch } = read.profile
   // Full mode: the workflow files are in the root worfy shows, whatever spelling of it the Harness printed.
   const workflowFolder = mode === 'silent' ? read.profile.workflowFolder : root
   const tickets = await ticketsRootOf(root, options.runTicket ?? harnessScriptRunner(options.claudeHome, env, 'ticket'))
   if ('reason' in tickets) log(`[workflow] ${root}: the Tickets are read from ${join(workflowFolder, '.scratch')}, because ${tickets.reason}`)
   const ticketsRoot = 'path' in tickets ? tickets.path : join(workflowFolder, '.scratch')
-  return { root, mode, workflowFolder, ticketsRoot, repos, workspace, reason: null, failed: false, ...(headings ? { headings } : {}) }
+  return {
+    root,
+    mode,
+    workflowFolder,
+    ticketsRoot,
+    repos,
+    workspace,
+    reason: null,
+    failed: false,
+    ...(headings ? { headings } : {}),
+    ...(finish ? { finish } : {}),
+    ...(mainBranch ? { mainBranch } : {}),
+  }
 }
 
 export interface LayoutCacheOptions {

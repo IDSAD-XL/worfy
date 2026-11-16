@@ -237,6 +237,23 @@ export type WorkflowError = z.infer<typeof workflowErrorSchema>
 export const branchErrorSchema = z.object({ branch: z.string(), message: z.string() })
 export type BranchError = z.infer<typeof branchErrorSchema>
 
+/**
+ * Where the list of a Project was read from (ADR-0107): the main branch of its repository, or the working tree of its
+ * folder when that branch does not resolve. Absent where the working tree is the truth (Silent mode, Tickets outside
+ * git) and from an older worfy (a Linked machine).
+ */
+export const workflowSourceSchema = z.object({
+  /** The full name of the ref read (`refs/remotes/origin/main`); null: the working tree of the Project folder. */
+  ref: z.string().nullable(),
+  /** The commit read; for the working tree, its HEAD when it has one. */
+  sha: z.string().nullable(),
+  /** When the ref was last brought up to date by a fetch that worked (ISO); null before one has, and for the working tree. */
+  updatedAt: z.string().nullable(),
+  /** Why the window shows the "As of" line: the main branch did not resolve, or fetch has failed for a while; null otherwise. */
+  notice: z.string().nullable(),
+})
+export type WorkflowSourceView = z.infer<typeof workflowSourceSchema>
+
 export const workflowModelSchema = z.object({
   /** Absolute path of the Project root: its repository, or the folder above its repositories (ADR-0045). */
   root: z.string(),
@@ -251,6 +268,8 @@ export const workflowModelSchema = z.object({
    * model whose read failed and from an older worfy (a Linked machine).
    */
   repoUrl: z.string().nullable().optional(),
+  /** Where the list was read from; see workflowSourceSchema. */
+  source: workflowSourceSchema.nullable().optional(),
 })
 export type WorkflowModel = z.infer<typeof workflowModelSchema>
 
@@ -263,6 +282,8 @@ export const workflowDeltaSchema = z.object({
   removedTickets: z.array(z.object({ epic: z.string(), num: z.number().int().nonnegative() })),
   error: workflowErrorSchema.nullable(),
   branchErrors: z.array(branchErrorSchema),
+  /** The model's `source` when it or the one before has one; absent otherwise and from an older worfy. */
+  source: workflowSourceSchema.nullable().optional(),
 })
 export type WorkflowDelta = z.infer<typeof workflowDeltaSchema>
 
@@ -297,8 +318,19 @@ export function diffModels(previous: WorkflowModel | null, next: WorkflowModel):
     .map(([, ticket]) => ({ epic: ticket.epic, num: ticket.num }))
   const errorChanged = !same(previous?.error ?? null, next.error)
   const branchErrorsChanged = !same(previous?.branchErrors ?? [], next.branchErrors)
+  const sourced = next.source !== undefined || (previous?.source ?? undefined) !== undefined
+  const sourceChanged = sourced && !same(previous?.source ?? null, next.source ?? null)
 
   const nothing = !epics.length && !tickets.length && !removedEpics.length && !removedTickets.length
-  if (nothing && !errorChanged && !branchErrorsChanged && previous !== null) return null
-  return { root: next.root, epics, tickets, removedEpics, removedTickets, error: next.error, branchErrors: next.branchErrors }
+  if (nothing && !errorChanged && !branchErrorsChanged && !sourceChanged && previous !== null) return null
+  return {
+    root: next.root,
+    epics,
+    tickets,
+    removedEpics,
+    removedTickets,
+    error: next.error,
+    branchErrors: next.branchErrors,
+    ...(sourced ? { source: next.source ?? null } : {}),
+  }
 }

@@ -1,16 +1,17 @@
 import { app } from 'electron'
-import { isAbsolute, relative, sep } from 'node:path'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { docsAdrs, docsChanged, docsClose, docsOpen, docsRead, HANDOFF_HEIGHT, HANDOFF_KIND, HANDOFF_WIDTH } from '../../shared/ipc/docs'
 import { productChanged } from '../../shared/ipc/product'
 import type { LayoutNode } from '../../shared/layout/types'
 import { productFolder } from '../../shared/product/paths'
 import { ClientHolders, clientOf, type Client } from '../clients'
-import { DocsHub, readDoc, readDocs, type DocsRoot, type DocsSubscriber } from '../docs/watch'
+import { DocsHub, docsTreeOf, readDoc, readDocs, type DocOptions, type DocsRoot, type DocsSubscriber, type DocsTreeSource } from '../docs/watch'
 import { placeNewNode } from '../layout/place'
 import { layoutStore } from '../layout/store'
 import { projectHolds } from '../projects/holds'
 import { projectStore } from '../projects/store'
 import { projectLayouts, type LayoutCache } from '../workflow/folder'
+import { onMainRefMoved } from '../workflow/main-ref'
 import { defineHandler, emit, type HandlerModule } from './index'
 
 // The `docs` channels (src/shared/ipc/docs.ts) and the HANDOFF Node.
@@ -39,7 +40,31 @@ export async function docsSource(path: string, layouts: Pick<LayoutCache, 'get'>
   const root = layout.mode === 'silent' ? layout.workflowFolder : path
   const product = relative(root, productFolder({ mode: layout.mode, root: path, workflowFolder: layout.workflowFolder }))
   const inside = product !== '' && !isAbsolute(product) && product.split(sep)[0] !== '..'
-  return { root, adrStatusLabel: layout.headings?.adrStatusLabel, productDir: inside ? product.split(sep) : undefined }
+  return {
+    root,
+    adrStatusLabel: layout.headings?.adrStatusLabel,
+    productDir: inside ? product.split(sep) : undefined,
+    ...(layout.mode === 'silent' ? {} : { source: committedDocs(path, layouts) }),
+  }
+}
+
+/**
+ * The main branch the documents of the Full-mode Project at `path` are read from (ADR-0107): asked again at each
+ * read, with the layout of that moment; followed by the moves the workflow watcher reports (main-ref.ts).
+ */
+function committedDocs(path: string, layouts: Pick<LayoutCache, 'get'>): DocsTreeSource {
+  const root = resolve(path)
+  return {
+    tree: async () => docsTreeOf(path, await layouts.get(path)),
+    onMoved: (listener) => onMainRefMoved((moved) => (resolve(moved) === root ? listener() : undefined)),
+  }
+}
+
+/** The read options of the documents of the Project at `path`, the commit of its main branch included. */
+async function docsReadOptions(path: string): Promise<DocOptions & { root: string }> {
+  const { root, adrStatusLabel, source } = await docsSource(path)
+  const tree = source === undefined ? null : await source.tree()
+  return { root, ...(adrStatusLabel === undefined ? {} : { adrStatusLabel }), ...(tree === null ? {} : { tree }) }
 }
 
 /** Where a new HANDOFF Node goes: the same rule as the Orchestrator Node (src/main/layout/place.ts). */
@@ -120,7 +145,7 @@ function keepActive(): void {
   kept = next
   if (active) {
     docsSource(active.path)
-      .then(({ root, adrStatusLabel, productDir }) => (kept === active.id ? docsHub.open(active.id, root, mainSubscriber, adrStatusLabel, productDir) : undefined))
+      .then(({ root, adrStatusLabel, productDir, source }) => (kept === active.id ? docsHub.open(active.id, root, mainSubscriber, adrStatusLabel, productDir, source) : undefined))
       .catch((error: unknown) => {
         console.error(`[docs] could not watch the documents of ${active.id}`, error)
         if (kept === active.id) kept = null
@@ -153,7 +178,7 @@ export function keepHeld(): void {
     }
     keptHeld.add(projectId)
     docsSource(path)
-      .then(({ root, adrStatusLabel, productDir }) => (keptHeld.has(projectId) ? docsHub.open(projectId, root, heldSubscriber, adrStatusLabel, productDir) : undefined))
+      .then(({ root, adrStatusLabel, productDir, source }) => (keptHeld.has(projectId) ? docsHub.open(projectId, root, heldSubscriber, adrStatusLabel, productDir, source) : undefined))
       .catch((error: unknown) => {
         console.error(`[docs] could not watch the documents of ${projectId}`, error)
         keptHeld.delete(projectId)
@@ -170,8 +195,8 @@ app.on('will-quit', () => void docsHub.closeAll())
 export default [
   defineHandler(docsOpen, async ({ projectId }, { event }) => {
     const subscriber = subscriberOf(clientOf(event))
-    const { root, adrStatusLabel, productDir } = await docsSource(projectStore().get(projectId).path)
-    return docsHub.open(projectId, root, subscriber, adrStatusLabel, productDir)
+    const { root, adrStatusLabel, productDir, source } = await docsSource(projectStore().get(projectId).path)
+    return docsHub.open(projectId, root, subscriber, adrStatusLabel, productDir, source)
   }),
   defineHandler(docsClose, async ({ projectId }, { event }) => {
     const client = clientOf(event)
@@ -179,8 +204,11 @@ export default [
   }),
   // Read once, no watcher (worfy-polish ticket 99): the ADRs of a Project the window has not open.
   defineHandler(docsAdrs, async ({ projectId }) => {
-    const { root, adrStatusLabel } = await docsSource(projectStore().get(projectId).path)
-    return { adrs: (await readDocs(root, adrStatusLabel === undefined ? {} : { adrStatusLabel })).adrs }
+    const { root, ...options } = await docsReadOptions(projectStore().get(projectId).path)
+    return { adrs: (await readDocs(root, options)).adrs }
   }),
-  defineHandler(docsRead, async ({ projectId, path }) => readDoc(await docsRoot(projectStore().get(projectId).path), path)),
+  defineHandler(docsRead, async ({ projectId, path: doc }) => {
+    const { root, tree } = await docsReadOptions(projectStore().get(projectId).path)
+    return readDoc(root, doc, tree === undefined ? {} : { tree })
+  }),
 ] satisfies HandlerModule

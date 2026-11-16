@@ -128,6 +128,18 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
   `tickets.root`), in Silent mode the Workflow folder ([ADR-0042](../adr/0042-profile-on-machine-full-and-silent-modes.md)).
   A folder with no Profile reads as Full mode. A failed call of `profile` is not guessed around: the model carries the
   reason, and the call is repeated after 10 s, 30 s, 60 s and then every 5 minutes.
+- **The list is read from the main branch, not from the Project folder** ([ADR-0107](../adr/0107-workflow-read-from-main-branch.md)).
+  In Full mode with the Tickets in git, the Epics, the Tickets, the specs, the text of a Ticket, `HANDOFF.md` and the
+  ADRs all come from one commit: `origin/HEAD` (else `origin/<main>`) when Tickets end with a PR, the local `<main>`
+  for `local-green`. `<main>` is the branch of the Profile's `worktree.base`, else `main`. In `local-green` a folder on
+  `<main>` or on a Ticket's branch is read as it is, since the Harness writes the status there before it commits it. A folder that lags behind,
+  sits on a detached HEAD or another branch, or holds untracked files does not change the list. worfy runs
+  `git fetch --prune origin <main>` when the Project is opened, every 2 minutes, and when a window gets the focus (at
+  most once in 30 s); a fetch from a terminal is seen too. A failed fetch keeps the list as it was. The status of a
+  Ticket's worktree branch still goes over main's, and so does the folder's own branch when it names a Ticket. Silent
+  mode and a Tickets root outside git read the folder, as before. When the main branch does not resolve (no `origin`),
+  the folder is read and the Epics section shows "As of <commit>" with the reason; the same line, with the time of the
+  last update, shows when fetch has failed for 10 minutes.
 - **The headings are the Profile's.** `tickets.trail_section`, `tickets.done_section` and `tickets.manual_mark` name them.
   Without them the defaults are `## Where in code`, `## Done when` and `manual`, and the older Russian names are read too.
 - **Reads follow changes.** A file event under the Tickets root leads to one full `epic-status` after 300 ms of quiet, and
