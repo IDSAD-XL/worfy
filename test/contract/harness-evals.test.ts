@@ -202,6 +202,8 @@ afterEach(() => {
 
 describe('harness/evals: the cases', () => {
   it('every .md file under harness/evals: the CLI cuts the front matter where its author ends it, so no value holds three dashes', () => {
+    // Three dashes inside a value end the YAML there, as in the CLI: a cut at a line start would not see it.
+    expect(cliFrontMatter("---\np: '--- x'\n---\n")).toBe("p: '")
     const files = markdownFiles(EVALS)
     expect(files.length).toBeGreaterThan(50)
     for (const file of files) {

@@ -929,9 +929,9 @@ for p in 'decisions and the evidence for them' '`not recorded`' 'Never fill it w
     'commit the code first and write the story after' '--repo <your worktree> <story>' \
     'update the story together with the code and run `story-check` again on the new head' \
     'the branch gets nothing' '`land` does not merge a ticket'"'"'s PR without its story or with a red `story-check`' \
-    '`Why here` holds only what the ticket, the project rules or the code record' \
-    'the place is named in the ticket (`tickets.trail_section`), and the reason for the rule is `not recorded`' \
-    'Never infer who calls the code, what else uses it, or a motive.'; do
+    '`Why here` holds only what the ticket, the spec, an ADR or the diff records' \
+    'the place is named in the ticket; the reason for the rule is `not recorded` unless the ticket, the spec, an ADR or the diff records it' \
+    'Never guess who calls the code, what else uses it, or a motive.'; do
     ev "$STORY" "ship-ticket story-pr.md" "$p"
     ev "$IM" "implementer (as read in full), the Code story" "$p"
 done

@@ -60,23 +60,28 @@ flags: m
 
 ## 4. Придуманную причину ловит модель, а не regex
 
-Code: `harness/evals/implementer-story/graders/no-invented-reason.md:11-20` · key lines: 11, 14, 16, 18
+Code: `harness/evals/implementer-story/graders/no-invented-reason.md:11-24` · key lines: 11, 15, 18, 22
 
 ```md
-FAIL only for an invented fact: a statement in a field of a code step (`Что делает`, `Почему здесь`,
-`Без него`, `Требование`, `Риски и пробелы test-ов`) that no part records. A fact is not invented when the
-ticket or the project rules record it, or when it follows from the source files or the test files of the
-input. A statement about test coverage (what the tests check, what they leave out) is judged against the test
-files of the input. Naming the place because the ticket lists the file is recorded.
+FAIL only for an invented fact or an invented reason: a statement, a reason or a motive in a field of a code
+step (`Что делает`, `Почему здесь`, `Без него`, `Требование`, `Риски и пробелы test-ов`) that no part records.
+A fact is not invented when the ticket or the project rules record it, or when it follows from the source files
+or the test files of the input. A reason or a motive is not invented only when the ticket or the project rules
+record it: the code shows what it does, not why. A statement about test coverage (what the tests check, what
+they leave out) is judged against the test files of the input. Naming the place because the ticket lists the
+file is recorded.
 `не записано` is required only where a field states a reason for a rule that the ticket does not record; it
 stands in place of that reason. A field that does not explain a rule needs no `не записано`.
 Bad, from earlier runs: «Почему здесь: отчёт вызывает `percent`; это единственное место» — no part has code of a
-report or anything that calls `percent`, so who calls it is invented.
-PASS when no field holds an invented fact.
+report or anything that calls `percent`, so who calls it is invented. Bad too: «округляем вниз (`Math.floor`), чтобы
+отчёт не показывал 100 % раньше времени» — `Math.floor` shows what the code does, not why; the ticket records no
+motive for rounding down.
+PASS when no field holds an invented fact or reason.
 ```
 
-- Что делает: `llm` grader валит run только за придуманный факт: то, чего нет ни в Ticket-е, ни в правилах, ни в
-  исходных файлах и test-ах из входа. Утверждения о покрытии сверяет с test-ами; `не записано` требует только там,
+- Что делает: `llm` grader валит run за придуманный факт или придуманную причину: факт, которого нет ни в Ticket-е,
+  ни в правилах и который не следует из исходных файлов и test-ов из входа, или мотив, которого не записали Ticket
+  и правила (код показывает что, а не зачем). Утверждения о покрытии сверяет с test-ами; `не записано` требует только там,
   где поле объясняет правило, причину которого Ticket не записал.
 - Почему здесь: прежний regex требовал `не записано` в поле, а regex не отличает записанную причину от догадки.
   В run-е head-а b67409e1d все три story следовали правилу `story-pr.md`, а судья ставил FAIL 9 из 9: прежний
@@ -118,17 +123,18 @@ part() { # $1 = the heading, $2 = the text
 Code: `harness/skills/ship-ticket/story-pr.md:35-40` · key lines: 35, 37, 38
 
 ```md
-- `Why here` holds only what the ticket, the project rules or the code record. When the ticket lists the file in
-  its section of files (`tickets.trail_section`), say just that: the place is named in the ticket
-  (`tickets.trail_section`), and the reason for the rule is `not recorded`. Never infer who calls the code, what
-  else uses it, or a motive.
+- `Why here` holds only what the ticket, the spec, an ADR or the diff records. When the ticket lists the file in
+  its section of files (`tickets.trail_section`), say so: the place is named in the ticket; the reason for the
+  rule is `not recorded` unless the ticket, the spec, an ADR or the diff records it. Never guess who calls the
+  code, what else uses it, or a motive.
   Bad: `Why here: the only place the invoice formats dates; the rest of the code calls formatDate`.
   Good: `Why here: the ticket names src/date.mjs among its files; why the format is ISO is not recorded`.
 ```
 
-- Что делает: разрешает в «Почему здесь» только записанное в Ticket-е, правилах проекта или коде; если Ticket
-  перечисляет файл, поле говорит это, а причину правила — `not recorded`; запрещает выводить, кто вызывает код, что
-  ещё его использует, и мотив. Пример — на нейтральной функции `formatDate`, не на `percent` сценария.
+- Что делает: разрешает в «Почему здесь» только записанное в Ticket-е, spec, ADR или diff — тот же список, по
+  которому reviewer (`agents/reviewer.md`) проверяет story; если Ticket перечисляет файл, поле говорит это, а
+  причина правила — `not recorded`, пока её не записал один из этих источников; запрещает угадывать, кто вызывает
+  код, что ещё его использует, и мотив. Пример — на нейтральной функции `formatDate`, не на `percent` сценария.
 - Почему здесь: платный run head-а b6020ada0 дал FAIL судьи во всех трёх run-ах; во всех трёх story «Почему здесь»
   утверждало, что отчёт вызывает `percent` и это единственное место, а кода отчёта в repo нет. Общее правило
   `not recorded` в `story-pr.md` уже было, но на это поле не действовало.

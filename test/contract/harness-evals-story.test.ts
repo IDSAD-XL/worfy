@@ -393,10 +393,13 @@ describe('harness/evals: implementer-story', () => {
     const file = 'no-invented-reason.md'
     expect(field(grader(file), 'type')).toBe('llm')
     expect(targetPath(file)).toBe(JUDGE)
-    const text = readFileSync(join(CASE, 'graders', file), 'utf8')
-    for (const words of ['the ticket of\ndemo 01', 'the project rules', '`src/*.mjs`', '`test/*.mjs`', 'the Code story of the ticket',
-      'FAIL only for an invented fact', 'A statement about test coverage', 'judged against the test\nfiles of the input', '`не записано` is required only where',
-      'A field that does not explain a rule needs no `не записано`.', '«Почему здесь: отчёт вызывает `percent`; это единственное место»', 'PASS'])
+    // The criterion as one line: the line breaks of the file are not part of what it says.
+    const text = readFileSync(join(CASE, 'graders', file), 'utf8').replace(/\s+/g, ' ')
+    for (const words of ['the ticket of demo 01', 'the project rules', '`src/*.mjs`', '`test/*.mjs`', 'the Code story of the ticket',
+      'FAIL only for an invented fact or an invented reason', 'A reason or a motive is not invented only when the ticket or the project rules record it',
+      '`Math.floor` shows what the code does, not why', 'A statement about test coverage', 'is judged against the test files of the input',
+      '`не записано` is required only where', 'A field that does not explain a rule needs no `не записано`.',
+      '«Почему здесь: отчёт вызывает `percent`; это единственное место»', 'PASS'])
       expect(text, words).toContain(words)
     for (const label of ['Что делает', 'Почему здесь', 'Без него', 'Требование', 'Риски и пробелы test-ов'])
       expect(text, label).toContain(`\`${label}\``)
@@ -409,10 +412,12 @@ describe('harness/evals: implementer-story', () => {
     put(work, 'test/alpha.test.mjs', TEST)
     put(work, STORY, GOOD_STORY)
     commit(work, home, 'demo/01: percent, its test and its story')
+    const head = (path: string): string => git(work, home, 'show', `HEAD:${path}`).stdout
     // A later change of the working files is not in the input: it reads HEAD.
     put(work, 'src/alpha.mjs', `${CODE}// not committed\n`)
+    put(work, 'src/extra.mjs', 'export const extra = 1 // not committed\n')
+    put(work, '.scratch/demo/issues/01-alpha.md', `${head('.scratch/demo/issues/01-alpha.md')}\nnot committed\n`)
     check(work, home)
-    const head = (path: string): string => git(work, home, 'show', `HEAD:${path}`).stdout
     const part = (heading: string, body: string): string => `# ${heading}\n\n\`\`\`\`\n${body.replace(/\n+$/, '')}\n\`\`\`\`\n\n`
     const rules = readFileSync(join(home, '.claude', 'worfy-harness', 'projects', 'demo', 'rules.md'), 'utf8')
     const files = ['src/alpha.mjs', 'src/sum.mjs', 'test/alpha.test.mjs', 'test/sum.test.mjs']
@@ -425,7 +430,8 @@ describe('harness/evals: implementer-story', () => {
         part('The Code story .scratch/demo/stories/01-alpha.md as HEAD has it', GOOD_STORY),
       ].join(''),
     )
-    expect(readFileSync(join(work, JUDGE), 'utf8')).not.toContain('// not committed')
+    expect(readFileSync(join(work, JUDGE), 'utf8')).not.toContain('not committed')
+    expect(readFileSync(join(work, JUDGE), 'utf8')).not.toContain('src/extra.mjs')
     expect(rules).toContain('`node --test`')
   })
 

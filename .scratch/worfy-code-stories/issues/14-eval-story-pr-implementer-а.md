@@ -144,5 +144,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения 
     test-ом не покрыты» в «Рисках». Исправлено: `.git/eval-finish.sh` пишет `.git/story-check/judge-input.md` (Ticket,
     правила, `src/*.mjs`, `test/*.mjs` из HEAD и story); критерий валит только придуманный факт, покрытие сверяет с
     test-ами, `не записано` требует только для причины правила, которой нет в Ticket-е. Судья остаётся haiku.
-  - Всего 13.82 USD. Proof run исправленного head-а — за владельцем:
+  - head 6c3feaeb6, 3 run-а, 2.93 USD (run координатора) — 1.00 в каждом: все четыре grader-а зелёные.
+  - После него только правки текста по финальному review: правило `Why here` в `story-pr.md` берёт список источников
+    из `agents/reviewer.md` (ticket, spec, ADR, diff) и говорит «guess», а не «infer»; критерий судьи валит и
+    придуманный мотив (пример про `Math.floor`).
+  - Всего 16.75 USD. Повторный run после правок текста — за координатором:
     `pnpm eval:harness -- --case implementer-story --keep-temp --max-cost-usd 10`.
