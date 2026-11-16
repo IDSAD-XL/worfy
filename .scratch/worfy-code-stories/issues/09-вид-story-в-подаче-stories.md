@@ -45,17 +45,24 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 09; «Решения 
 
 - [ ] Unit test вида: story PR fixture-а — экранов столько, сколько шагов; сегменты отмечаются по мере листания; клик по
       правой половине и стрелка вправо — вперёд, по левой и стрелка влево — назад.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/story-view.test.tsx test/unit/markdown.test.tsx` exit 0; in `gate fast` exit 0 · mac - · eb770856843310dcb4efeb70560bebfc736e5146
 - [ ] Unit test: story Epic-а — главы-PR сверху; экраны «Начало», «Итог», «Проверка» на месте.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/story-view.test.tsx test/unit/markdown.test.tsx` exit 0; in `gate fast` exit 0 · mac - · eb770856843310dcb4efeb70560bebfc736e5146
 - [ ] Unit test: узкая ширина — одна колонка; широкая — код слева, текст справа.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/story-view.test.tsx test/unit/markdown.test.tsx` exit 0; in `gate fast` exit 0 · mac - · eb770856843310dcb4efeb70560bebfc736e5146
 - [ ] Unit test блока кода (`test/unit/markdown.test.tsx`): номера строк от `from`; главные строки подсвечены; блок
       `suggestion` работает как раньше.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/markdown.test.tsx test/unit/markdown-github.test.tsx` exit 0; in `gate fast` exit 0 · mac - · eb770856843310dcb4efeb70560bebfc736e5146
 - [ ] Unit test схемы стыков: по списку передач fixture-а — узлы Ticket-ов и стрелки; брошенная передача — красная
       пунктирная; у схемы нет масштаба и панорамы.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/story-view.test.tsx test/unit/markdown.test.tsx` exit 0; in `gate fast` exit 0 · mac - · eb770856843310dcb4efeb70560bebfc736e5146
 - [ ] `TICKETS.md` в разделах «Code story» и «Story anchor» говорит одно: frame-шаги фрагментов не цитируют. Unit test:
       frame-шаг показывается без блока кода.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/story-view.test.tsx test/contract/story-one-shot.test.ts` exit 0; in `gate fast` exit 0 · mac - · eb770856843310dcb4efeb70560bebfc736e5146
 - [ ] e2e `test/e2e/code-story.spec.ts` на fixture-Epic-е: вид открывается, шаги листаются, Esc возвращает на Canvas.
 - [ ] `test/e2e/a11y.spec.ts`: axe на виде Story без нарушений (как на основных экранах, worfy-ui-kit 18).
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · eb770856843310dcb4efeb70560bebfc736e5146
 
 ## Тесты
 
