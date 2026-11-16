@@ -13,7 +13,7 @@ documents PR и сам его вливает, поэтому `Status: done` по
 
 ## 2. Приёмка владельца — по строке `Who:` шапки
 
-Code: `harness/bin/land:966-977` · key lines: 973, 974
+Code: `harness/bin/land:995-1006` · key lines: 1002, 1003
 
 ```js
 function ownerTicket(text) {
@@ -44,7 +44,7 @@ function ownerTicket(text) {
 
 ## 3. Триггер: `land --epic-story` до merge
 
-Code: `harness/bin/land:1012-1028` · key lines: 1019, 1021, 1022, 1025
+Code: `harness/bin/land:1041-1057` · key lines: 1048, 1050, 1051, 1054
 
 ```js
 function epicStory(st) {
@@ -80,12 +80,12 @@ function epicStory(st) {
 
 ## 4. Лишний файл ложится в documents PR до `evidence-check`
 
-Code: `harness/bin/land:1054-1072` · key lines: 1056, 1070
+Code: `harness/bin/land:1083-1101` · key lines: 1085, 1099
 
 ```js
             const step = appendReviewStep(st, p, tree, root)
             if (step) appended.push(step)
-            for (const f of putFiles(p, path.join(tree, root), st.branch)) log(`${f} of #${n} written into the documents`)
+            for (const f of putFiles(st, p, tree, root, st.branch)) log(`${f} of #${n} written into the documents`)
         }
         if (st.docs_check) {
             const r = sh(st.docs_check, tree)
@@ -117,18 +117,44 @@ Code: `harness/bin/land:1054-1072` · key lines: 1056, 1070
   на самой story Epic-а `land` не запускает: ему нужен `--pr-head` каждой главы, а их знает агент; это шаг агента в
   skill `epic-wave`.
 
-## 5. Второй раз файл не кладётся
+## 5. Story ждёт остальные PR своего Epic-а
 
-Code: `harness/bin/land:923-942` · key lines: 927, 928, 935
+Code: `harness/bin/land:929-933` · key lines: 931, 932
 
 ```js
-function putFiles(p, dir, where) {
+function putFiles(st, p, base, prefix, where) {
+    if (!Array.isArray(p.files) || !p.files.length) return []
+    const behind = st.prs.filter((x) => x !== p && x.epic === p.epic && !(x.result && x.result.status === "merged")).map((x) => `#${x.number}`)
+    if (behind.length) throw new Wait(`the files of #${p.number} wait for ${behind.join(", ")} of epic ${p.epic}, not merged yet`)
     const written = []
-    for (const f of p.files || []) {
-        const target = path.join(dir, ...f.path.split("/"))
-        if (fs.existsSync(target)) {
-            log(`${f.path} of #${p.number} is in ${where} already, not written again`)
-            continue
+```
+
+- Что делает: пока другой PR того же Epic-а в state-файле не влит, файлы PR ждут: в Full режиме вместе с documents PR,
+  в Silent — строкой `files of #N wait`. Следующий run `land` после merge того PR кладёт story вместе с обоими
+  Ticket-ами.
+- Почему здесь: ждущий PR не держит следующий (правило merge в комментарии `land`), поэтому без проверки story Epic-а
+  легла бы на main раньше PR, о котором она рассказывает (находка 1 review, раунд 1).
+- Без него: story описывала бы как влитой PR, которого на main нет, а после его merge путь был бы уже занят.
+- Требование: [Что делаем, пункт 4](../issues/07-story-epic-а-и-land.md#что-делаем)
+- Риски и пробелы test-ов: PR, который не вольётся никогда, держит documents PR своего Epic-а; тогда Orchestrator
+  убирает запись из `files`. Test-ы — «an earlier PR waits» в Full и Silent режимах.
+
+## 6. Story не перезаписывается и не пишется через symbolic link
+
+Code: `harness/bin/land:937-965` · key lines: 947, 960, 964
+
+```js
+        let at = base
+        for (const part of parts) {
+            at = path.join(at, part)
+            let info
+            try {
+                info = fs.lstatSync(at)
+            } catch (e) {
+                if (e.code === "ENOENT") break
+                throw new Wait(`${f.path} of #${p.number}: ${parts.slice(0, parts.indexOf(part) + 1).join("/")} cannot be read (${e.code || e.message})`)
+            }
+            if (info.isSymbolicLink()) throw new Wait(`${f.path} of #${p.number}: ${path.relative(base, at).split(path.sep).join("/")} is a symbolic link, nothing is written through it`, "red")
         }
         let bytes
         try {
@@ -136,63 +162,72 @@ function putFiles(p, dir, where) {
         } catch (e) {
             throw new Wait(`the file ${f.path} of #${p.number} cannot be read: ${f.from} (${e.code || e.message})`)
         }
-        fs.mkdirSync(path.dirname(target), { recursive: true })
-        fs.writeFileSync(target, bytes)
-        written.push(f.path)
-    }
-    return written
-}
+        if (fs.existsSync(target)) {
+            let there = null
+            try {
+                there = fs.readFileSync(target)
+            } catch {}
+            if (there && there.equals(bytes)) {
+                log(`${f.path} of #${p.number} is in ${where} already, the same bytes: not written again`)
+                continue
+            }
+            throw new Wait(`${f.path} of #${p.number} differs from the one in ${where}: not overwritten (change it there by a PR of its own, or drop the entry from "files")`, "red")
+        }
 ```
 
-- Что делает: копирует каждый файл; путь, который уже есть (на main или в папке Workflow), не пишет и говорит об этом
-  в log. Нечитаемый готовый файл — `Wait`: documents PR ждёт, ничего не отправлено.
-- Почему здесь: прерванный run, запущенный снова на том же state-файле, не должен класть `story.md` второй раз (пункт
-  «Готово, когда»); якорь story Epic-а — commit, который её добавил (`bin/TICKETS.md`, «Story anchor»).
-- Без него: повторный run затирал бы story, уже влитую в main, а в Silent режиме — правку в папке Workflow.
+- Что делает: путь цели и каждая папка на нём проверяются через `lstat`: symbolic link — красный `Wait`, ничего не
+  записано. Файл уже на месте: те же байты — пропуск со строкой в log, другие байты — красный `Wait`, файл не
+  перезаписан.
+- Почему здесь: файл мог положить прошлый documents PR (Full) или его правили в папке Workflow (Silent); якорь story —
+  commit, который её добавил (`bin/TICKETS.md`, «Story anchor»).
+- Без него: другая `story.md` на main молча осталась бы старой при зелёном `LAND`, правка в папке Workflow была бы
+  затёрта, а через symbolic link запись ушла бы за пределы корня Ticket-ов.
 - Требование: [Готово, когда](../issues/07-story-epic-а-и-land.md#готово-когда)
-- Риски и пробелы test-ов: test прерывает run сразу после merge documents PR и запускает снова — один documents PR,
-  один commit, добавивший `story.md`. Новую версию story поверх старой этот путь не кладёт: такую правку нужно
-  делать отдельным PR.
+- Риски и пробелы test-ов: прерванный run в Full режиме сюда не доходит с готовым файлом: test убивает `land` до
+  сохранения `d.pr`, и повторный run строит documents PR заново от main, где story ещё нет. На Windows, где symbolic
+  link не создаётся, Silent-случай с папкой-ссылкой пропускается.
 
-## 6. Silent: файл в папку Workflow, documents PR нет
+## 7. Silent: файл в папку Workflow, documents PR нет
 
-Code: `harness/bin/land:945-957` · key lines: 948, 950
+Code: `harness/bin/land:974-986` · key lines: 977, 979, 982
 
 ```js
 function filesOutside(st) {
     const lines = []
-    let waits = false
+    let kind = null
     for (const p of st.prs.filter((x) => st.tickets_root === null && x.result && x.result.status === "merged" && Array.isArray(x.files) && x.files.length))
         try {
-            for (const f of putFiles(p, ticketsFolder(st), "the tickets folder")) lines.push(`${f} of #${p.number} written into the tickets outside the repository`)
+            for (const f of putFiles(st, p, ticketsFolder(st), "", "the tickets folder")) lines.push(`${f} of #${p.number} written into the tickets outside the repository`)
         } catch (e) {
             if (!(e instanceof Wait)) throw e
-            waits = true
+            kind = kind === "red" ? kind : e.kind
             lines.push(`files of #${p.number} wait: ${e.message}`)
         }
-    return { lines, waits }
+    return { lines, kind }
 }
 ```
 
-- Что делает: при `tickets_root` null для каждого влитого PR с `files` кладёт их в папку, которую печатает `ticket
-  root`, и печатает строку `<path> of #N written into the tickets outside the repository`; ошибка — строка `files of
-  #N wait` и run не зелёный.
+- Что делает: при `tickets_root` null для каждого влитого PR с `files` кладёт их по тем же правилам в папку, которую
+  печатает `ticket root`, и печатает строку `<path> of #N written into the tickets outside the repository`. Если файл
+  ждёт — строка `files of #N wait: <причина>`, и run не зелёный, а при красной причине красный.
 - Почему здесь: в Silent режиме documents PR нет, `story.md` ложится в папку Workflow (пункт 5 «Что делаем»).
 - Без него: в Silent режиме `files` молча терялся бы.
 - Требование: [Что делаем, пункт 5](../issues/07-story-epic-а-и-land.md#что-делаем)
 - Риски и пробелы test-ов: не записано
 
-## 7. Что сознательно не меняли
+## 8. Что сознательно не меняли
 
 - `epic-status` и его `--json` не тронуты: поле «кто делает» в JSON поменяло бы байты вывода для всех читателей,
   поэтому строку `Who:` читает `land`.
 - Без нового поля documents PR тот же, байт в байт: test сверяет файл Ticket-а, сообщение commit-а, заголовок и текст PR.
 - Toast «Story Epic-а готова» — Ticket 10; story по кнопке — Ticket 11.
 
-## 8. Как проверено
+## 9. Как проверено
 
-- `bash harness/bin/tests/land-epic-story.test.sh` (HOME — временная папка) — exit 0, 20 проверок; три мутанта
-  (правило `Who`, проверка «уже есть», вызов в documents PR) роняют 4, 2 и 6 проверок.
+- `bash harness/bin/tests/land-epic-story.test.sh` (HOME — временная папка) — exit 0, 32 проверки; восемь мутантов
+  в отдельной копии `harness/` (слово `owner`, блоки кода, первый `## `, Silent-ожидание, ждущий PR, symbolic link,
+  сравнение байтов, проверка «уже есть») — каждый роняет от 1 до 4 проверок.
 - `land.test.sh`, `land-story.test.sh`, `story-check.test.sh`, `epic-status.test.sh`, `silent-mode.test.sh`,
-  `epic-wave-ship-ticket.test.sh`, `agents-text.test.sh`, `plugin-neutral.test.sh` — exit 0.
-- `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast — exit 0, `[gate] green (fast)`.
+  `epic-wave-ship-ticket.test.sh`, `agents-text.test.sh`, `plugin-neutral.test.sh` — exit 0 (в раунде 2 — `land`,
+  `land-story`, `story-check`, `agents-text`, `plugin-neutral` снова).
+- `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast — exit 0, `[gate] green (fast)`, в обоих раундах.
