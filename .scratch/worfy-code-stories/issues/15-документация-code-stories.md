@@ -1,7 +1,8 @@
 # 15 — Документация: `docs/features/code-stories.md` (en и ru), термины в `CONTEXT.md`
 
 Type: task
-Status: claimed 2026-11-16T22:08Z
+Status: done 2026-11-16T22:44Z
+PR: #1932
 Blocked by: 05, 06, 07, 08, 09, 10, 11, 12, 13
 Source: [spec.md](../spec.md), «Ticket-ы», строка 15; «Волны», Wave 6; «Решения владельца» 3, 10, 20 (строки 94, 103,
 121–122); «Заметки» — термины для `CONTEXT.md` (строки 396–397); правила страниц Feature (`docs/features/README.md`)
