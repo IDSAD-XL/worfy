@@ -12,6 +12,11 @@
 //
 // Lines selected in the code of a step, or the whole fragment with "Ask a question", open a question field after them
 // (LineQuestion.tsx, ticket 12); the answers show after the lines they were asked about. Only with a Project.
+//
+// The screens read stay marked after a restart (ticket 13): with a Project, main keeps each screen shown in worfy's data
+// (story-marks.ts) — a step by its Ticket and its number inside it, so a mark stays on its step when an earlier chapter
+// of an Epic becomes ready. The last screen, "Check yourself", takes an answer to each question before it shows the
+// right one, with links to the steps that show its lines (SelfCheck.tsx).
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import {
   notRecorded,
@@ -26,7 +31,7 @@ import {
   type StoryQuestion,
   type StoryStep,
 } from '../../shared/stories/schema'
-import type { StoryAnswer, StoryQuestionLines } from '../../shared/ipc/stories'
+import type { StoryAnswer, StoryQuestionLines, StoryReadMark } from '../../shared/ipc/stories'
 import { Markdown } from '../markdown/Markdown'
 import { setView, useNavigation } from '../session/navigation'
 import { Button } from '../theme/Button'
@@ -36,6 +41,8 @@ import { layerOf, openLayers } from '../theme/open-layers'
 import { JunctionsDiagram } from './JunctionsDiagram'
 import { LineAnswer, LineQuestion } from './LineQuestion'
 import { addStoryAnswer, useStoryAnswers } from './story-answers'
+import { markRead, sameMark, useStoryMarks } from './story-marks'
+import { SelfCheck, type LinesStep } from './SelfCheck'
 import { useStoryView, type FragmentCode, type FragmentCodeSource } from './open'
 import './stories.css'
 
@@ -109,6 +116,36 @@ function screensOf(story: StoryFile): { screens: Screen[]; chapters: Chapter[] }
   return { screens, chapters }
 }
 
+/** The mark of a screen read: a step by its Ticket and number, another screen by its kind; none for a chapter not ready. */
+function markOf(screen: Screen): StoryReadMark | null {
+  switch (screen.kind) {
+    case 'step':
+      return { ticket: screen.place.ticket, step: screen.place.step }
+    case 'not-ready':
+      return null
+    default:
+      return { screen: screen.kind }
+  }
+}
+
+/** The fragments a step screen shows: a code step's one, the lines review checked; none for another screen. */
+function fragmentsOf(screen: Screen): readonly StoryFragment[] {
+  if (screen.kind !== 'step') return []
+  if (screen.step.kind === 'code') return [screen.step.fragment]
+  return screen.step.frame === 'review' ? screen.step.fragments : []
+}
+
+/** The first step among `screens` that shows `lines` (`path:line` or `path:from-to`) of an answer; null when none does. */
+function stepWithLines(screens: readonly Screen[], lines: string, labels: StoryLabels): LinesStep | null {
+  const match = /^(.+):(\d+)(?:-(\d+))?$/u.exec(lines)
+  if (match === null) return null
+  const [, path, first, last] = match
+  const from = Number(first)
+  const to = last === undefined ? from : Number(last)
+  const index = screens.findIndex((screen) => fragmentsOf(screen).some((fragment) => fragment.path === path && fragment.startLine <= to && fragment.endLine >= from))
+  return index < 0 ? null : { index, name: screenName(screens[index]!, labels) }
+}
+
 /** What a segment and the meta line call a screen. */
 function screenName(screen: Screen, labels: StoryLabels): string {
   switch (screen.kind) {
@@ -147,6 +184,9 @@ interface Context {
   codeOf: FragmentCodeSource
   projectId: string | undefined
   storyDir: string | undefined
+  /** The step that shows lines of an answer of "Check yourself", and the opening of a screen. */
+  stepOf: (lines: string) => LinesStep | null
+  open: (index: number) => void
 }
 
 /** A field of the story: "not recorded" as it is, anything else as Markdown. */
@@ -476,20 +516,9 @@ function ScreenView({ screen, context, narrow }: { screen: Screen; context: Cont
       )
       break
     case 'check-yourself':
-      kicker = <Kicker label="Optional" />
+      kicker = <Kicker label={labels.optional} />
       title = labels.checkYourself
-      text = (
-        <>
-          <p className="w-story__intro">Nothing depends on the answers.</p>
-          <ol className="w-story__questions">
-            {screen.questions.map((question, index) => (
-              <li key={index}>
-                <Markdown text={question.question} />
-              </li>
-            ))}
-          </ol>
-        </>
-      )
+      text = <SelfCheck story={context.story} questions={screen.questions} projectId={context.projectId} stepOf={context.stepOf} onOpen={context.open} />
       break
   }
   const code =
@@ -545,7 +574,7 @@ function takenElsewhere(event: KeyboardEvent): boolean {
 }
 
 /** Whether a click landed on something with a click of its own, or on the code or the diagram: it does not turn the screen. */
-const CLICK_OWNERS = 'a, button, input, textarea, select, label, [role="tab"], [role="tabpanel"], .w-story-code, .w-story-seams'
+const CLICK_OWNERS = 'a, button, input, textarea, select, label, [role="tab"], [role="tabpanel"], .w-story-code, .w-story-seams, .w-self-check'
 
 export interface StoryViewProps {
   story: StoryFile
@@ -559,11 +588,12 @@ export interface StoryViewProps {
 export function StoryView({ story, codeOf, projectId, storyDir, active = true }: StoryViewProps) {
   const labels = storyLabels(story.header.language)
   const [{ screens, chapters }] = useState(() => screensOf(story))
-  const [context] = useState<Context>(() => ({ story, language: story.header.language, labels, missing: notRecorded(story.header.language), codeOf, projectId, storyDir }))
   const [index, setIndex] = useState(0)
   const [seen, setSeen] = useState<ReadonlySet<number>>(() => new Set([0]))
   const [narrow, setNarrow] = useState(false)
   const root = useRef<HTMLDivElement>(null)
+  // The screens read before, kept by main: read first, so the first screen's mark waits for the key main names.
+  const { read } = useStoryMarks(projectId, story)
 
   const go = (next: number) => {
     if (next < 0 || next >= screens.length) return
@@ -574,6 +604,29 @@ export function StoryView({ story, codeOf, projectId, storyDir, active = true }:
   useLayoutEffect(() => {
     latestGo.current = go
   })
+  const [context] = useState<Context>(() => ({
+    story,
+    language: story.header.language,
+    labels,
+    missing: notRecorded(story.header.language),
+    codeOf,
+    projectId,
+    storyDir,
+    stepOf: (lines) => stepWithLines(screens, lines, labels),
+    open: (at) => latestGo.current(at),
+  }))
+
+  // Each screen shown is read; main keeps it when the view has a Project.
+  useEffect(() => {
+    const mark = markOf(screens[index]!)
+    if (mark !== null) markRead(story, mark)
+  }, [index, screens, story])
+  /** Whether screen `at` was read: in this opening, or before, as main keeps it. */
+  const wasRead = (at: number): boolean => {
+    if (seen.has(at)) return true
+    const mark = markOf(screens[at]!)
+    return mark !== null && read.some((one) => sameMark(one, mark))
+  }
 
   // One column under NARROW_WIDTH. A hidden view measures 0 wide: that is no width, and changes nothing.
   useLayoutEffect(() => {
@@ -619,7 +672,7 @@ export function StoryView({ story, codeOf, projectId, storyDir, active = true }:
   const kind = story.kind === 'epic' ? `Epic ${story.header.epic}` : story.header.pr === null ? 'Code story' : `PR #${String(story.header.pr)}`
   const name = story.kind === 'epic' ? story.header.epic : story.header.title
   const segment = (at: number) => {
-    const state = at === index ? 'current' : seen.has(at) ? 'read' : 'unread'
+    const state = at === index ? 'current' : wasRead(at) ? 'read' : 'unread'
     return (
       <button
         key={at}
@@ -643,9 +696,9 @@ export function StoryView({ story, codeOf, projectId, storyDir, active = true }:
           <nav className="w-story__chapters" aria-label="Chapters">
             {chapters.map((chapter) => {
               const current = index >= chapter.from && index <= chapter.to
-              let read = 0
-              for (let at = chapter.from; at <= chapter.to; at += 1) if (seen.has(at) && at !== index) read += 1
-              const share = Math.round((100 * (current ? read + 1 : read)) / (chapter.to - chapter.from + 1))
+              let done = 0
+              for (let at = chapter.from; at <= chapter.to; at += 1) if (wasRead(at) && at !== index) done += 1
+              const share = Math.round((100 * (current ? done + 1 : done)) / (chapter.to - chapter.from + 1))
               return (
                 <button
                   key={chapter.id}

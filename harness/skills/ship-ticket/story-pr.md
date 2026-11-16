@@ -39,6 +39,10 @@ yet, and a reader takes it from the ticket's `PR:` line. `<code>` is `language.r
   Bad: `Why here: the only place the invoice formats dates; the rest of the code calls formatDate`.
   Good: `Why here: the ticket names src/date.mjs among its files; why the format is ISO is not recorded`.
 - Size: one to three code steps for a small PR, up to ten for a large one.
+- End with `## Check yourself`: two or three questions that only someone who understood the change can answer — a
+  decision and its reason, a failure it prevents, the path of the data, where the change stops. Never trivia a
+  search answers (a file name, a count, an argument list). Each `Answer:` is short and holds by the lines its
+  `Lines:` names; the reader sees it only after answering.
 - The words are in the language of `language.reports`; code, names and terms stay as the code spells them.
 - No host name, user name in a path, email or token: `story-check` looks for them.
 

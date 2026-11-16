@@ -9,6 +9,8 @@
 //
 // Ticket 12 adds a question about lines of a story (`stories.ask`): the same invisible agent answers it, with the same
 // progress lines and Stop, and its answers are kept with the story in worfy's data (`stories.answers`).
+//
+// Ticket 13 adds the screens read and the answers to "Check yourself", kept beside those answers (`stories.marks`).
 import { z } from 'zod'
 import { epicStoryHeaderSchema, prStoryHeaderSchema, storyFileSchema, storyFragmentSchema, storySchema } from '../stories/schema'
 import { eventChannel, invokeChannel } from './channels'
@@ -288,6 +290,70 @@ export const storiesAnswers = invokeChannel(
   'read',
 )
 
+/**
+ * A screen of a story read (ticket 13): a step by its Ticket — a PR story's own, an Epic story's chapter's; null for a
+ * PR story without one — and its number inside it, as the answers about lines name it (storyQuestionLinesSchema), so a
+ * chapter that becomes ready before it moves no mark; any other screen of an Epic story, and "Check yourself", by name.
+ */
+export const storyReadMarkSchema = z.union([
+  z
+    .object({ ticket: z.string().regex(/^\d{2}$/u, 'the Ticket number, two digits').nullable(), step: z.number().int().min(1) })
+    .strict(),
+  z.object({ screen: z.enum(['start', 'seams', 'summary', 'check', 'check-yourself']) }).strict(),
+])
+export type StoryReadMark = z.output<typeof storyReadMarkSchema>
+
+/** The longest answer a person gives to a question of "Check yourself", and the longest question kept with it. */
+export const SELF_CHECK_MAX_CHARS = 4_000
+
+/**
+ * The person's answer to a question of "Check yourself" (ticket 13): the question as the story asks it — the answer is
+ * matched to it by its text, so a story asked anew keeps the answers to the same questions — and their own words, or
+ * null for "I don't know". Nothing depends on it (owner decision 15).
+ */
+export const storySelfCheckSchema = z
+  .object({
+    at: z.iso.datetime(),
+    question: z.string().min(1).max(SELF_CHECK_MAX_CHARS),
+    answer: z.string().min(1).max(SELF_CHECK_MAX_CHARS).nullable(),
+  })
+  .strict()
+export type StorySelfCheck = z.output<typeof storySelfCheckSchema>
+
+/**
+ * The screens of `story` read and the answers to its "Check yourself", kept in worfy's data under what the story names
+ * (`key`, as its answers about lines: stories.answers); the window names `key` when it adds to them.
+ */
+export const storiesMarks = invokeChannel(
+  'stories.marks',
+  z.object({ projectId: z.string().min(1), story: storyFileSchema }),
+  z.object({ key: storyKeySchema, read: z.array(storyReadMarkSchema), checks: z.array(storySelfCheckSchema) }),
+  'project',
+  'read',
+)
+
+/** Keeps a screen of the story under `key` as read; `kept` is false when it was kept already. */
+export const storiesMarkRead = invokeChannel(
+  'stories.markRead',
+  z.object({ projectId: z.string().min(1), key: storyKeySchema, mark: storyReadMarkSchema }),
+  z.object({ kept: z.boolean() }),
+  'project',
+  'write',
+)
+
+/** Keeps the person's answer to a question of "Check yourself" under `key`, in place of an earlier one to it. */
+export const storiesSelfCheck = invokeChannel(
+  'stories.selfCheck',
+  z.object({
+    projectId: z.string().min(1),
+    key: storyKeySchema,
+    answer: z.object({ question: z.string().min(1).max(SELF_CHECK_MAX_CHARS), answer: z.string().trim().min(1).max(SELF_CHECK_MAX_CHARS).nullable() }).strict(),
+  }),
+  storySelfCheckSchema,
+  'project',
+  'write',
+)
+
 declare module './channels' {
   interface IpcContract {
     'stories.build': typeof storiesBuild
@@ -298,5 +364,8 @@ declare module './channels' {
     'stories.saved': typeof storiesSaved
     'stories.ask': typeof storiesAsk
     'stories.answers': typeof storiesAnswers
+    'stories.marks': typeof storiesMarks
+    'stories.markRead': typeof storiesMarkRead
+    'stories.selfCheck': typeof storiesSelfCheck
   }
 }

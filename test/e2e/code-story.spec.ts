@@ -403,3 +403,97 @@ test('a question about a line of a step: the field, the progress bar, the answer
     await launched.close()
   }
 })
+
+test('"Check yourself" and the read marks: the answer hidden until answered, a link to its step; marks and answers after a restart, the repository unchanged', async () => {
+  test.setTimeout(ms(180_000))
+  const env = prepare()
+  // The Project is a git repository: nothing of the reading may change it.
+  const projectPath = join(scratch, 'demo-cart')
+  writeFileSync(join(projectPath, 'README.md'), 'demo-cart\n')
+  const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=worfy e2e', '-c', 'user.email=worfy-e2e', '-c', 'commit.gpgsign=false', ...args], { cwd: projectPath, encoding: 'utf8' })
+  git('init', '-q', '-b', 'main')
+  git('add', '.')
+  git('commit', '-q', '-m', 'init')
+  const kept = join(env.WORFY_DATA_DIR ?? '', PROJECT, 'stories.json')
+  const keptText = () => (existsSync(kept) ? readFileSync(kept, 'utf8') : '')
+  /** The read marks kept for any story, as `<ticket>/<step>` or the screen's name. */
+  const keptMarks = (): string[] => {
+    const read = (JSON.parse(keptText() || '{}') as { read?: Record<string, { ticket?: string | null; step?: number; screen?: string }[]> }).read ?? {}
+    return Object.values(read)
+      .flat()
+      .map((mark) => mark.screen ?? `${String(mark.ticket)}/${String(mark.step)}`)
+  }
+  const open = async (window: Page) => {
+    await openStory(window, STORY)
+    const view = window.getByTestId('story-view')
+    await expect(view).toBeVisible()
+    return view
+  }
+
+  let launched = await launchApp({ env })
+  try {
+    const { app, window } = launched
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1440, 900))
+    await withStoryHook(launched)
+    const view = await open(window)
+    // Start and the two steps of Ticket 03 are read.
+    await window.keyboard.press('ArrowRight')
+    await window.keyboard.press('ArrowRight')
+    await expect(view.getByTestId('story-position')).toHaveText('3 of 11')
+
+    // The last screen: the questions, no right answer yet.
+    await view.getByTestId('story-segment').nth(10).click()
+    await expect(view.getByTestId('story-screen')).toHaveAttribute('data-kind', 'check-yourself')
+    const first = view.getByTestId('self-check-question').first()
+    await expect(view.getByTestId('self-check-question')).toHaveCount(2)
+    await expect(view.getByTestId('self-check-answer')).toHaveCount(0)
+    await expect(view).not.toContainText('возвращает меньшее из скидки')
+    await snapshotThemes(window, 'code-story-self-check')
+
+    // An answer in the person's words: the right one shows, with its lines.
+    const field = first.getByRole('textbox', { name: 'Ваш ответ на вопрос 1' })
+    await field.click()
+    await expect(field).toBeFocused()
+    await field.fill('Скидка не больше итога.')
+    await first.getByRole('button', { name: 'Проверить', exact: true }).click()
+    const answer = first.getByTestId('self-check-answer')
+    await expect(answer).toBeVisible()
+    await expect(answer).toContainText('возвращает меньшее из скидки')
+    await expect(answer).toBeFocused()
+    await expect(first.getByTestId('self-check-mine')).toContainText('Скидка не больше итога.')
+    await snapshotThemes(window, 'code-story-self-check-answer')
+    await expect.poll(keptText, { timeout: ms(10_000) }).toContain('Скидка не больше итога.')
+
+    // A line of the answer opens the step that shows it: the first step of Ticket 05.
+    await answer.getByRole('button', { name: 'src/coupon.ts:14' }).click()
+    await expect(view.getByTestId('story-position')).toHaveText('5 of 11')
+    await expect(view.getByTestId('story-code').first()).toHaveAttribute('data-path', 'src/coupon.ts')
+    await expect.poll(keptMarks, { timeout: ms(10_000) }).toContain('05/1')
+  } finally {
+    await launched.close()
+  }
+
+  // Kept in worfy's data folder, never in the Project.
+  expect(keptMarks().sort()).toEqual(['03/1', '03/2', '05/1', 'check-yourself', 'start'])
+  expect(existsSync(join(projectPath, 'stories.json'))).toBe(false)
+  expect(git('status', '--porcelain', '--ignored')).toBe('')
+
+  launched = await launchApp({ env })
+  try {
+    await withStoryHook(launched)
+    const view = await open(launched.window)
+    const segments = view.getByTestId('story-segment')
+    // Read before the restart: Start, both steps of 03, the first step of 05 and "Check yourself"; not the step of 04.
+    for (const at of [1, 2, 4, 10]) await expect(segments.nth(at)).toHaveAttribute('data-state', 'read')
+    for (const at of [3, 5, 6]) await expect(segments.nth(at)).toHaveAttribute('data-state', 'unread')
+    await segments.nth(10).click()
+    const [first, second] = [view.getByTestId('self-check-question').first(), view.getByTestId('self-check-question').nth(1)]
+    await expect(first.getByTestId('self-check-answer')).toContainText('возвращает меньшее из скидки')
+    await expect(first.getByTestId('self-check-mine')).toContainText('Скидка не больше итога.')
+    await expect(second.getByTestId('self-check-answer')).toHaveCount(0)
+    await expect(second.getByRole('textbox', { name: 'Ваш ответ на вопрос 2' })).toBeVisible()
+  } finally {
+    await launched.close()
+  }
+  expect(git('status', '--porcelain', '--ignored')).toBe('')
+})

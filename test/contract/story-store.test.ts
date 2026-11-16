@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFil
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { addStoryAnswer, readSavedStories, readSavedStory, readStoryAnswers, saveStory, storiesPath, storyAnswersKey, storyDigest, STORIES_FILE } from '../../src/main/stories/store'
+import { addStoryAnswer, addStoryReadMark, keepSelfCheck, readSavedStories, readSavedStory, readStoryAnswers, readStoryMarks, saveStory, storiesPath, storyAnswersKey, storyDigest, STORIES_FILE } from '../../src/main/stories/store'
 import type { PrStoryAnswer, Story, StoryFile } from '../../src/shared/stories/schema'
 import { removeTestTree } from '../remove'
 
@@ -153,5 +153,57 @@ describe('the answers to questions about lines of a story (ticket 12)', () => {
     expect(existsSync(storiesPath(dir))).toBe(false)
     writeFileSync(storiesPath(dir), JSON.stringify({ stories: {}, answers: { k: [{ newer: true }, answer('Kept')] } }))
     expect(readStoryAnswers(dir, 'k').map((one) => one.question)).toEqual(['Kept'])
+  })
+})
+
+describe('the "read" marks and the answers to "Check yourself" (ticket 13)', () => {
+  const KEY = 'demo-cart/stories/04-cart-total.md'
+  const check = (question: string, answer: string | null, at = '2026-11-16T12:00:00.000Z') => ({ at, question, answer })
+
+  it('keeps them under the key of the story, beside its answers, in the one stories.json; a mark kept once is kept once', () => {
+    expect(readStoryMarks(dir, KEY)).toEqual({ read: [], checks: [] })
+    saveStory(dir, 'owner/name#77', { story: prStory('Cart total in cents'), colleague: false })
+    addStoryAnswer(dir, KEY, {
+      at: '2026-11-16T11:00:00.000Z',
+      question: 'Why cents?',
+      answer: 'Floats drift.',
+      source: 'code',
+      about: { ticket: '04', step: 2, path: 'src/cart.ts', from: 13, to: 14 },
+      lines: [],
+      digest: 'c'.repeat(64),
+    })
+    expect(addStoryReadMark(dir, KEY, { ticket: '04', step: 2 })).toBe(true)
+    expect(addStoryReadMark(dir, KEY, { screen: 'check-yourself' })).toBe(true)
+    expect(addStoryReadMark(dir, KEY, { ticket: '04', step: 2 })).toBe(false)
+    keepSelfCheck(dir, KEY, check('Why cents?', 'Floats drift.'))
+    keepSelfCheck(dir, KEY, check('What of a zero quantity?', null))
+    // The same question answered again: the newer answer stands in place of the older one.
+    keepSelfCheck(dir, KEY, check('Why cents?', 'Whole numbers add exactly.', '2026-11-16T13:00:00.000Z'))
+
+    // As after a restart: read from the file again.
+    expect(readStoryMarks(dir, KEY)).toEqual({
+      read: [{ ticket: '04', step: 2 }, { screen: 'check-yourself' }],
+      checks: [check('What of a zero quantity?', null), check('Why cents?', 'Whole numbers add exactly.', '2026-11-16T13:00:00.000Z')],
+    })
+    expect(readStoryMarks(dir, 'owner/name#77')).toEqual({ read: [], checks: [] })
+    // One file: the story made by the button and the line answers stay as they were.
+    expect(readdirSync(dir)).toEqual([STORIES_FILE])
+    expect(readSavedStory(dir, 'owner/name#77')?.story).toEqual(prStory('Cart total in cents'))
+    expect(readStoryAnswers(dir, KEY).map((one) => one.question)).toEqual(['Why cents?'])
+    // A new line answer keeps the marks.
+    addStoryAnswer(dir, KEY, { ...readStoryAnswers(dir, KEY)[0]!, question: 'And zero?' })
+    expect(readStoryMarks(dir, KEY).read).toHaveLength(2)
+  })
+
+  it('refuses a mark or an answer that does not fit, writing nothing; leaves out a kept one this build cannot read', () => {
+    expect(() => addStoryReadMark(dir, KEY, { ticket: '4', step: 1 } as never)).toThrow(/schema/u)
+    expect(() => addStoryReadMark(dir, KEY, { screen: 'elsewhere' } as never)).toThrow(/schema/u)
+    expect(() => keepSelfCheck(dir, KEY, check('', 'x'))).toThrow(/schema/u)
+    expect(existsSync(storiesPath(dir))).toBe(false)
+    writeFileSync(storiesPath(dir), JSON.stringify({ stories: {}, read: { [KEY]: [{ newer: true }, { ticket: null, step: 1 }] }, checks: { [KEY]: [{ newer: true }, check('Kept?', 'yes')] } }))
+    expect(readStoryMarks(dir, KEY)).toEqual({ read: [{ ticket: null, step: 1 }], checks: [check('Kept?', 'yes')] })
+    // What this build cannot read stays in the file when it writes.
+    addStoryReadMark(dir, KEY, { ticket: null, step: 2 })
+    expect(JSON.parse(readFileSync(storiesPath(dir), 'utf8')).read[KEY]).toEqual([{ newer: true }, { ticket: null, step: 1 }, { ticket: null, step: 2 }])
   })
 })
