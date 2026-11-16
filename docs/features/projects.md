@@ -222,8 +222,10 @@ Project joins the list there without changing that Machine's active Project, and
   ([ADR-0042](../adr/0042-profile-on-machine-full-and-silent-modes.md)). `HANDOFF.md` and `docs/adr/` have the same places in
   it, so one reader serves both modes.
 - **The draft Session can change nothing.** It has only Read, Glob and Grep, and everything that writes, reaches the network
-  or starts agents is taken away and refused. It has no shell, so what only a command could tell (remotes, branches) is read
-  first by a Harness script and handed to it as data. worfy then sets over the answer the values it owns: the mode, the
+  or starts agents is taken away and refused. It reads only inside the picked folder, its own working folder and the
+  Harness plugin's folder: a Read, Glob or Grep of a path elsewhere, a link out of the folder included, is refused. It
+  has no shell, so what only a command could tell (remotes, branches) is read first by a Harness script and handed to it
+  as data. worfy then sets over the answer the values it owns: the mode, the
   Workflow folder, the worktree root, the language of reports, no GitHub account and the Profile name in each Gate entry.
 - **The draft leaves no Session behind.** Its request runs in worfy's own folder `<WORFY_DATA_DIR>/terminal-ai`, reads the
   picked folder as an extra folder by absolute paths, and Claude Code keeps no transcript of it. So once the folder is a

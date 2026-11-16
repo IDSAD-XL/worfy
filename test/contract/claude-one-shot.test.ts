@@ -90,6 +90,7 @@ const draftRequest = (): ClaudeOneShotRequest => ({
   outputFormat: { type: 'json_schema', schema: SCHEMA },
   allowedTools: DRAFT_TOOLS,
   disallowedTools: ONE_SHOT_DISALLOWED_TOOLS,
+  harnessPlugin: sessionHarnessPlugin(currentHarness().kind),
 })
 
 const result = { type: 'result', subtype: 'success', result: 'done', structured_output: { profile: { name: 'shop' } } }
@@ -122,7 +123,7 @@ describe('the draft through the oneShot part of the Claude driver', () => {
 
   it('claudeOneShot with the draft\'s read-only tools and schema gives query() the same options', async () => {
     mocks.messages = [result]
-    await claudeOneShot('draft it', { cwd: FOLDER, readOnlyTools: DRAFT_TOOLS, outputSchema: SCHEMA })
+    await claudeOneShot('draft it', { cwd: FOLDER, harness: true, readOnlyTools: DRAFT_TOOLS, outputSchema: SCHEMA })
     const sent = mocks.calls[0]!
     expect(snapshot(sent.options)).toEqual(snapshot(await before(draftRequest())))
     // Its own canUseTool lets through the same tools and refuses the same ones.

@@ -157,7 +157,7 @@ folder:
 | `first-run.json` | When the First run screen was closed and which checks failed then | `src/main/ipc/first-run.ts` |
 | `getting-started.json` | The state of Getting started and the record of the Demo project | `src/main/getting-started/state.ts` |
 | `terminal-ai.json` | Terminal AI settings | `src/main/terminal-ai/settings.ts` |
-| `terminal-ai` (folder) | The empty folder where Terminal AI requests and the Limits refresh run | `src/main/terminal-ai/options.ts` |
+| `terminal-ai` (folder) | The empty folder where Terminal AI requests, the Limits refresh, the Project profile draft and the Code story request run, so none of them becomes a Session of a Project | `src/main/terminal-ai/options.ts` |
 | `attachments` (folder) | `images/<sha256>.<ext>`, the copies of sent images, and `<id>/<name>`, copies of files attached outside every Project | `src/main/agent/attachments.ts` |
 | `autopilot` (folder) | `<run>.jsonl`, the journal of each run | `src/main/autopilot/journal.ts` |
 | `link` (folder) | `machine.json`, `linked.json`, `settings.json`, `secrets.json` and `link.log` | `src/main/link/` ([Link](link.md)) |
