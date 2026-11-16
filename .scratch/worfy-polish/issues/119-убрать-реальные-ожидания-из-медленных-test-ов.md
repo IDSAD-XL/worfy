@@ -1,7 +1,7 @@
 # 119 — Убрать реальные ожидания из медленных test-ов: опции задержек и fake timers
 
 Type: task
-Status: open
+Status: claimed 2026-11-16T01:52Z
 Blocked by: none
 Source: владелец 2026-11-16, «да на тикеты»: кандидаты 1–9 исследования
 `docs/research/2026-11-16-fake-timers.md` (раздел 4, «Кандидаты по файлам», и правило «когда fake timers НЕ
@@ -89,8 +89,10 @@ Source: владелец 2026-11-16, «да на тикеты»: кандида�
 - [ ] До и после — время каждого тронутого файла из JSON report-а vitest
       (`node scripts/vitest-electron.mjs --reporter=json --outputFile.json=<файл> <файлы>`), одна машина, таблица в
       описании PR. Ожидание исследования — около 75–90 s суммарного времени test-ов.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs --reporter=json --outputFile.json=<file> <14 touched files>` before (origin/main edd313cad) and after, twice each, same Mac, exit 0 except one after-run (exit 1 on the flaky workflow hub test, untouched); table in the PR · mac - · a1a44e9d89ae3c72d0ae14f980f1268e24226ce2
 - [ ] Урок в `docs/lessons/testing.md` по формату `docs/lessons/README.md`; `node scripts/check-lessons.mjs` —
       exit 0.
+  - evidence: test-run pass · `node scripts/check-lessons.mjs` exit 0 · mac - · a1a44e9d89ae3c72d0ae14f980f1268e24226ce2
 - [ ] Все unit- и contract-test-ы тронутых модулей зелёные: каждый файл `test/`, который импортирует
       `src/main/agent/session` или `session/process` (78 файлов на `ea21c0bbb`; список — `grep` в описании PR);
       `test/contract/harness-codex-hooks.test.ts`, `harness/hooks/tests/stop-gate-cycle.test.sh`,
@@ -98,6 +100,7 @@ Source: владелец 2026-11-16, «да на тикеты»: кандида�
       (`test/contract/docs.test.ts`, `docs-watch-root.test.ts`, `docs-hub-hold.test.ts`, `product-watch.test.ts`,
       `profile-move.test.ts`, `projects-remove.test.ts`, `test/unit/docs-watch-root-gone.test.ts`); семь unit-файлов
       п. 4; девять файлов п. 5.
+  - evidence: gate pass · `gate fast` exit 0 (pnpm test: 788 files passed, 7 skipped) · mac - · a1a44e9d89ae3c72d0ae14f980f1268e24226ce2
 - [ ] gate fast зелёный; Windows job CI зелёный (`stop.mjs` — скрипт Harness-а).
 
 ## Где в коде
