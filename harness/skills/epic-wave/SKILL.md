@@ -1310,7 +1310,7 @@ if [ ! -s "$A" ]; then
   A="<scratchpad>/review-<N>.md"
   if [ "$(F _resolved.mode)" = silent ]; then
     f=$(ls "$(cd <repo> && "${CLAUDE_PLUGIN_ROOT}/bin/ticket" root)"/<epic>/issues/<NN>-*.md)
-    awk '/^gate: /{t = substr($0, 7); on = 1; next} on && /^$/{on = 0} on{t = t "\n" $0} END{print t}' "$f" >"$A"
+    awk 'BEGIN { while ((getline l < ARGV[1]) > 0) { if (l ~ /^gate: /) { t = substr(l, 7); on = 1 } else if (on && l == "") on = 0; else if (on) t = t "\n" l }; print t }' "$f" >"$A"
   else
     gh pr view <N> --json comments --jq '[.comments[].body | select(test("^(NARROW: )?(VERIFIED|REJECTED)"))] | last // ""' >"$A"
   fi

@@ -878,7 +878,7 @@ for p in '**The review step of the Code story**' '`prs[].verdict`' '"${CLAUDE_PL
 done
 # The Silent-mode source: the awk line of the skill, run on a ticket file with two recorded rounds, gives the last round
 # without its `gate: ` prefix — a text bin/verdict reads as a verdict.
-RECIPE_GATE="$(grep -F "awk '/^gate: /" "$EWS" | head -n 1 | sed 's/^ *//; s/ "\$f" >"\$A"$//')"
+RECIPE_GATE="$(grep -F "awk 'BEGIN { while ((getline l < ARGV[1]) > 0) { if (l ~ /^gate: /)" "$EWS" | head -n 1 | sed 's/^ *//; s/ "\$f" >"\$A"$//')"
 if [ -z "$RECIPE_GATE" ]; then bad "epic-wave: no awk line that takes the last gate: verdict of a ticket file"
 else
     printf '%s\n' '# 02 — demo' '' '## Result' '' 'gate: REJECTED: a.ts:3 — the total drifts' 'Consider: b.ts:9 — a name' 'Review depth: medium — argument' \
