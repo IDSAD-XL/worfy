@@ -47,15 +47,24 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 07; «Волны», W
 
 - [ ] `TICKETS.md` описывает правило «Ticket с кодом» по шапке; shell-test на Epic-е с приёмкой владельца: последний PR
       с кодом найден, хотя Ticket приёмки открыт.
+  - evidence: test-run pass · `bash harness/bin/tests/land-epic-story.test.sh` exit 0 · mac - · 2885fcfca26eb3287f6da98442f7321f8138cd59
 - [ ] Shell-test `land`: state-файл с полем лишнего файла → documents PR несёт `<epic>/story.md` рядом с
       `Status: done` последнего Ticket-а; оба в одном documents PR.
+  - evidence: test-run pass · `bash harness/bin/tests/land-epic-story.test.sh` exit 0 · mac - · 2885fcfca26eb3287f6da98442f7321f8138cd59
 - [ ] Shell-test `land`: `story.md` с личными данными — `evidence-check` красный, documents PR ждёт, ничего не
       закоммичено и не отправлено.
+  - evidence: test-run pass · `bash harness/bin/tests/land-epic-story.test.sh` exit 0 · mac - · 2885fcfca26eb3287f6da98442f7321f8138cd59
 - [ ] Shell-test `land`: state-файл без нового поля — documents PR такой же, как до Ticket-а, байт в байт.
+  - evidence: test-run pass · `bash harness/bin/tests/land-epic-story.test.sh` exit 0 · mac - · 2885fcfca26eb3287f6da98442f7321f8138cd59
 - [ ] Shell-test `land`: прерванный run, запущенный снова на том же state-файле, не кладёт `story.md` второй раз.
+  - evidence: test-run pass · `bash harness/bin/tests/land-epic-story.test.sh` exit 0 · mac - · 2885fcfca26eb3287f6da98442f7321f8138cd59
 - [ ] Shell-test Silent: `tickets_root` null — `story.md` в папке Workflow, documents PR нет.
+  - evidence: test-run pass · `bash harness/bin/tests/land-epic-story.test.sh` exit 0 · mac - · 2885fcfca26eb3287f6da98442f7321f8138cd59
 - [ ] Skill `epic-wave` описывает триггер, вход и выход агента story Epic-а и новое поле; skill-text test-ы зелёные.
+  - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 · mac - · 2885fcfca26eb3287f6da98442f7321f8138cd59
 - [ ] Все `harness/bin/tests/*.test.sh` зелёные; gate fast — exit 0.
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · 2885fcfca26eb3287f6da98442f7321f8138cd59
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 2885fcfca26eb3287f6da98442f7321f8138cd59
 
 ## Тесты
 
