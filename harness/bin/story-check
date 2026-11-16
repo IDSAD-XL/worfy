@@ -28,11 +28,16 @@
 //     names the head that `land` merged;
 //   - without --head: the git work tree that holds the story (or --repo <dir>, the work tree of the code
 //     when the story lies elsewhere). A story that is not committed — new, changed, staged — is read
-//     against the files of the working tree; a committed one against HEAD. On the main branch of that
-//     work tree (the branch origin/HEAD names; without it `main` or `master`) the check refuses:
-//     there the code is not the PR's head. `--head HEAD` checks there on purpose;
+//     against the files of the working tree; a committed one against HEAD. The check refuses when
+//     that work tree is on the main branch: its branch is named as a main branch (main, master,
+//     init.defaultBranch, the branch <remote>/HEAD points to for any remote), or its HEAD is the tip
+//     of one, local or of a remote — a detached HEAD on that commit too. There the code is not the
+//     PR's head. `--head HEAD` checks there on purpose;
 //   - --pr-head <N>=<commit>: the chapter `## PR #<N> · …` of an epic story is read against that commit,
-//     its PR's head; the chapters without one take the anchor above.
+//     its PR's head. An epic story needs one for each of its `PR #<N>` chapters, and every one given
+//     must match a chapter; anything else is exit 1. A story of a PR takes none.
+// A fragment's file must be a file: a symbolic link — in the working tree, the file or a folder on its
+// path; in a commit, an entry of mode 120000 — is a problem, and the link is not followed.
 // The output names the anchor of every fragment it checked.
 //
 // Output, on stdout: one line per problem, `<story>:<step>: <what is wrong>`, where <step> is the step
@@ -57,10 +62,11 @@ const USAGE = `usage: story-check [--head <commit>] [--pr-head <N>=<commit>]... 
   checks each Code story against the code of the PR's head: the format of bin/TICKETS.md, every
   fragment line by line, personal data; prints "<story>:<step>: <what is wrong>" per problem
   --head <commit>       read every fragment against this commit (the PR's head that was merged)
-  --pr-head <N>=<commit> read the chapter of PR #N of an epic story against this commit
+  --pr-head <N>=<commit> read the chapter of PR #N of an epic story against this commit;
+                        an epic story needs one for each of its PR chapters
   --repo <dir>          the git work tree of the code (default: the one that holds the story)
   without --head: an uncommitted story against the working tree, a committed one against HEAD;
-  refused on the main branch
+  refused on the main branch (its name, or HEAD at the tip of a main branch)
 exit: 0 green, 2 red, 1 cannot check or usage error`
 
 // The English labels; a story in another language uses the words of lib/input-words.json.
@@ -104,11 +110,32 @@ function commitOf(top, ref) {
     return r.stdout.trim()
 }
 
-// The names the main branch goes by in <top>: the branch origin/HEAD points to, else main and master.
+// The main branch of <top>: the names it goes by — main, master, init.defaultBranch and, for every
+// remote, the branch <remote>/HEAD points to — and the tips of those branches, local and of every
+// remote, as sha -> ref name.
 function mainBranches(top) {
-    const r = run(top, ["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"])
-    const name = r.status === 0 ? r.stdout.trim().replace(/^[^/]+\//, "") : ""
-    return name ? [name] : ["main", "master"]
+    const names = new Set(["main", "master"])
+    const configured = run(top, ["config", "--get", "init.defaultBranch"])
+    if (configured.status === 0 && configured.stdout.trim()) names.add(configured.stdout.trim())
+    const listed = run(top, ["remote"])
+    const remotes = listed.status === 0 ? listed.stdout.split("\n").map((r) => r.trim()).filter(Boolean) : []
+    const refs = []
+    for (const remote of remotes) {
+        const head = run(top, ["symbolic-ref", "-q", `refs/remotes/${remote}/HEAD`])
+        const target = head.status === 0 ? head.stdout.trim() : ""
+        if (!target.startsWith(`refs/remotes/${remote}/`)) continue
+        names.add(target.slice(`refs/remotes/${remote}/`.length))
+        refs.push(target)
+    }
+    for (const name of names) refs.push(`refs/heads/${name}`, ...remotes.map((remote) => `refs/remotes/${remote}/${name}`))
+    const tips = new Map()
+    const r = run(top, ["for-each-ref", "--format=%(objectname) %(refname)", ...refs])
+    if (r.status === 0)
+        for (const line of r.stdout.split("\n")) {
+            const [sha, ref] = line.trim().split(" ")
+            if (sha && ref && refs.includes(ref) && !tips.has(sha)) tips.set(sha, ref.replace(/^refs\/(heads|remotes)\//, ""))
+        }
+    return { names, tips }
 }
 
 // --- the story ---------------------------------------------------------------------------------------
@@ -172,7 +199,8 @@ function parseStory(text) {
         for (let k = s.at - 1; k < s.to; k++) if (!whereOf[k]) whereOf[k] = s.where || s.title
         for (const f of s.fragments) fragments.push({ ...f, where: s.where || s.title, chapterPr: s.chapterPr || null })
     }
-    return { lines, whereOf, problems, fragments }
+    const chapters = [...new Set(body.filter((s) => s.level === "##" && s.chapterPr).map((s) => s.chapterPr))]
+    return { kind: header.Kind, lines, whereOf, problems, fragments, chapters }
 }
 
 function closesFence(line, open) {
@@ -393,7 +421,7 @@ function checkEpic(body, L, add) {
         closeChapter()
         const head = CHAPTER.exec(s.title)
         if (head) {
-            s.chapterPr = head[1] || null
+            s.chapterPr = head[1] ? String(Number(head[1])) : null
             s.where = head[1] ? `PR #${head[1]}` : `PR - · ${head[2]}`
             order(s, "chapter")
             chapter = { s, steps: 0 }
@@ -448,11 +476,20 @@ function lineCount(lines) {
     return lines.length && lines[lines.length - 1] === "" ? lines.length - 1 : lines.length
 }
 
-const excerpt = (text) => (text.length > 60 ? text.slice(0, 57) + "..." : text)
+// A line of code for the output: masked first, then cut, so a personal value that the cut would split
+// is never printed in part.
+const excerpt = (text, mask) => {
+    const masked = mask(text)
+    return masked.length > 60 ? masked.slice(0, 57) + "..." : masked
+}
 
-// The problem of one fragment against the code of its anchor, or null.
-function compare(fragment, code, anchorName) {
-    if (code === null) return `fragment ${fragment.path}:${fragment.from}-${fragment.to}: no file ${fragment.path} in ${anchorName}`
+// The problem of one fragment against the file of its anchor ({ missing }, { link } or { text }), or null.
+function compare(fragment, found, anchorName, mask) {
+    const range = `${fragment.path}:${fragment.from}-${fragment.to}`
+    if (found.missing) return `fragment ${range}: no file ${fragment.path} in ${anchorName}`
+    if (found.link)
+        return `fragment ${range}: ${found.link} is a symbolic link in ${anchorName}; a fragment quotes a file of the repository, and the link is not followed`
+    const code = found.text
     const file = code.split("\n").map((l) => l.replace(/\r$/, ""))
     const count = lineCount(file)
     const label = `fragment ${fragment.path}:${fragment.from}-${fragment.to}`
@@ -462,7 +499,7 @@ function compare(fragment, code, anchorName) {
         if (want[k] === fragment.code[k]) continue
         if (k >= fragment.code.length) return `${label} does not match the code at ${anchorName}: the block has ${fragment.code.length} lines, the range ${want.length}`
         if (k >= want.length) return `${label} does not match the code at ${anchorName}: the block has ${fragment.code.length} lines, the range ${want.length}`
-        return `${label} does not match the code at ${anchorName}: line ${fragment.from + k} differs (story "${excerpt(fragment.code[k])}", code "${excerpt(want[k])}")`
+        return `${label} does not match the code at ${anchorName}: line ${fragment.from + k} differs (story "${excerpt(fragment.code[k], mask)}", code "${excerpt(want[k], mask)}")`
     }
     return null
 }
@@ -471,8 +508,44 @@ function badPath(p) {
     return path.posix.isAbsolute(p) || /^[A-Za-z]:/.test(p) || p.includes("\\") || p.split("/").includes("..")
 }
 
+// The file <file> of the commit <sha>: { text }, { link } for an entry of mode 120000, or { missing }
+// (no such path, a folder, or a path through a link: git keeps no folder under a link).
+function readCommit(top, sha, file) {
+    const entry = run(top, ["ls-tree", "-z", sha, "--", file])
+    if (entry.error) throw new CannotCheck(`git cannot run (${entry.error.code || entry.error.message})`)
+    const m = entry.status === 0 ? /^(\d+) (\w+) ([0-9a-f]+)\t/.exec(entry.stdout) : null
+    if (!m || m[2] !== "blob") return { missing: true }
+    if (m[1] === "120000") return { link: file }
+    const blob = run(top, ["cat-file", "blob", m[3]])
+    if (blob.error || blob.status !== 0) throw new CannotCheck(`git cannot read ${file} of ${sha}: ${firstLine(blob.stderr) || blob.error?.message}`)
+    return { text: blob.stdout }
+}
+
+// The file <file> of the working tree under <top>, its folders and itself looked at with lstat: a
+// symbolic link anywhere on the path is { link: <the part that is one> }, never followed.
+function readWorkingTree(top, file) {
+    const parts = file.split("/")
+    for (let k = 1; k <= parts.length; k++) {
+        let stat
+        try {
+            stat = fs.lstatSync(path.join(top, ...parts.slice(0, k)))
+        } catch (e) {
+            if (e.code === "ENOENT" || e.code === "ENOTDIR") return { missing: true }
+            throw new CannotCheck(`cannot read ${file}: ${e.code || e.message}`)
+        }
+        if (stat.isSymbolicLink()) return { link: parts.slice(0, k).join("/") }
+        if (k === parts.length && !stat.isFile()) return { missing: true }
+    }
+    try {
+        return { text: fs.readFileSync(path.join(top, ...parts), "utf8") }
+    } catch (e) {
+        throw new CannotCheck(`cannot read ${file}: ${e.code || e.message}`)
+    }
+}
+
 // Checks one story; returns { lines, code } where code is 0, 1 or 2.
 function checkStory(arg, opts, privacyOptions) {
+    const mask = (text) => privacy.maskText(text, privacyOptions)
     const out = []
     const abs = path.resolve(arg)
     let stat = null
@@ -498,6 +571,19 @@ function checkStory(arg, opts, privacyOptions) {
             story.problems.push({ line: k + 1, where: story.whereOf[k] || "header", text: `line ${k + 1}: personal data (${f.rule}): ${privacy.mask(line.slice(f.index, f.index + f.length))}` })
     })
 
+    // An epic story names the head of each PR chapter; a --pr-head that matches no chapter is a slip
+    // of the caller, not a choice.
+    const chapterList = (prs) => prs.map((pr) => `PR #${pr}`).join(", ")
+    if (story.kind === "epic") {
+        const missing = story.chapters.filter((pr) => !opts.prHeads.has(pr))
+        if (missing.length)
+            throw new CannotCheck(`the chapters ${chapterList(missing)} have no head: name the head of each chapter's PR with --pr-head <N>=<commit>`)
+        const unused = [...opts.prHeads.keys()].filter((pr) => !story.chapters.includes(pr))
+        if (unused.length)
+            throw new CannotCheck(`--pr-head ${unused.join(", ")} matches no chapter of the story (its chapters: ${chapterList(story.chapters) || "none"})`)
+    } else if (opts.prHeads.size)
+        throw new CannotCheck(`--pr-head ${[...opts.prHeads.keys()].join(", ")} matches no chapter: only an epic story has chapters`)
+
     // The anchors: named commits first, the default one only when a fragment needs it.
     const named = opts.head ? { sha: commitOf(top, opts.head), name: null } : null
     if (named) named.name = `${named.sha} (--head ${opts.head})`
@@ -512,14 +598,14 @@ function checkStory(arg, opts, privacyOptions) {
         if (fallback) return fallback
         const branch = run(top, ["symbolic-ref", "-q", "--short", "HEAD"])
         const name = branch.status === 0 ? branch.stdout.trim() : ""
-        if (name && mainBranches(top).includes(name))
-            throw new CannotCheck(`the work tree is on the main branch (${name}): a story is checked against the head of its PR, never the main branch; run it in the PR's branch, or name the head with --head <commit>`)
+        const head = commitOf(top, "HEAD")
+        const main = mainBranches(top)
+        const fix = "a story is checked against the head of its PR, never the main branch; run it in the PR's branch, or name the head with --head <commit>"
+        if (name && main.names.has(name)) throw new CannotCheck(`the work tree is on the main branch (${name}): ${fix}`)
+        if (main.tips.has(head)) throw new CannotCheck(`HEAD ${head} is the tip of the main branch (${main.tips.get(head)}): ${fix}`)
         const status = inside ? gitOut(top, ["status", "--porcelain", "-z", "--untracked-files=all", "--", rel], "git status failed") : ""
         if (status) fallback = { sha: null, name: "the working tree (the story is not committed)" }
-        else {
-            const sha = commitOf(top, "HEAD")
-            fallback = { sha, name: `HEAD ${sha} (${name ? `branch ${name}` : "detached"})` }
-        }
+        else fallback = { sha: head, name: `HEAD ${head} (${name ? `branch ${name}` : "detached"})` }
         return fallback
     }
 
@@ -527,20 +613,9 @@ function checkStory(arg, opts, privacyOptions) {
     const read = (anchor, file) => {
         const key = `${anchor.sha || ""}\0${file}`
         if (cache.has(key)) return cache.get(key)
-        let text = null
-        if (anchor.sha) {
-            const r = run(top, ["cat-file", "blob", `${anchor.sha}:${file}`])
-            if (r.error) throw new CannotCheck(`git cannot run (${r.error.code || r.error.message})`)
-            text = r.status === 0 ? r.stdout : null
-        } else {
-            try {
-                text = fs.readFileSync(path.join(top, ...file.split("/")), "utf8")
-            } catch (e) {
-                if (e.code !== "ENOENT" && e.code !== "EISDIR" && e.code !== "ENOTDIR") throw new CannotCheck(`cannot read ${file}: ${e.code || e.message}`)
-            }
-        }
-        cache.set(key, text)
-        return text
+        const found = anchor.sha ? readCommit(top, anchor.sha, file) : readWorkingTree(top, file)
+        cache.set(key, found)
+        return found
     }
 
     const used = new Map()
@@ -558,9 +633,9 @@ function checkStory(arg, opts, privacyOptions) {
         }
         for (const key of f.keys || [])
             if (key < f.from || key > f.to) add(`fragment ${f.path}:${f.from}-${f.to}: key line ${key} is outside the fragment`)
-        const anchor = (f.chapterPr && chapters.get(f.chapterPr)) || defaultAnchor()
+        const anchor = f.chapterPr ? chapters.get(f.chapterPr) : defaultAnchor()
         used.set(anchor.name, (used.get(anchor.name) || 0) + 1)
-        const problem = compare(f, read(anchor, f.path), anchor.sha ? anchor.sha : "the working tree")
+        const problem = compare(f, read(anchor, f.path), anchor.sha ? anchor.sha : "the working tree", mask)
         if (problem) add(problem)
     }
 

@@ -11,7 +11,11 @@
 #     a commit is named; a branch merged without a rebase while the main branch shifted the quoted lines
 #     is green on the branch's head; the documents PR that appends the review step checks against the
 #     head that was merged (--head), not its own branch; the chapters of an epic story against the head
-#     of each chapter's PR (--pr-head);
+#     of each chapter's PR (--pr-head), every chapter named and every --pr-head used; the main branch is
+#     found by its name (origin/HEAD included) and by its tip (a detached HEAD, a remote's main);
+#   - a line ends in CRLF in the story or in the code; a fragment path with `..` is not read; a symbolic
+#     link, in the working tree or in a commit, is a problem and is not followed; a personal value in a
+#     line of code is masked before the line is cut for the output;
 #   - what cannot be checked (no file, no git work tree, an unknown commit, a usage error) is exit code 1
 #     with the reason.
 # Run: bash harness/bin/tests/story-check.test.sh; exit code 0 means everything passed.
@@ -98,7 +102,8 @@ check "story of a PR in English: exit code 0, checked against HEAD of the branch
 run "$RU"
 check "story of a PR in Russian, the review step appended: exit code 0" \
     "$([ "$rc" = 0 ] && has "$T/out" "HEAD $PRHEAD" && echo 0 || echo 1)"
-run "$EPIC"
+EPIC_HEADS=(--pr-head 211="$PRHEAD" --pr-head 212="$PRHEAD" --pr-head 213="$PRHEAD")
+run "${EPIC_HEADS[@]}" "$EPIC"
 check "story of an epic with a dropped handoff and a chapter not ready: exit code 0" \
     "$([ "$rc" = 0 ] && line_has "$EPIC: ok" && echo 0 || echo 1)"
 run "$EN" "$RU"
@@ -146,10 +151,44 @@ g checkout -q -- "$EN"
 
 # A handoff without `done:` in the step "Seams between tickets" (step 6 of the epic fixture).
 awk '!d && sub(/ · done: yes$/, "") { d = 1 } { print }' "$FIX/epic-ru.md" >"$R/$EPIC"
-run "$EPIC"
+run "${EPIC_HEADS[@]}" "$EPIC"
 check "a handoff without done: exit code 2, the step and the handoff named" \
     "$([ "$rc" = 2 ] && line_has "$EPIC:6: " "03 → 04" "done:" && echo 0 || echo 1)"
 g checkout -q -- "$EPIC"
+# The value of `done:` is yes, or no with the reason after a dash; nothing else.
+awk '!d && sub(/ · done: yes$/, " · done: maybe") { d = 1 } { print }' "$FIX/epic-ru.md" >"$R/$EPIC"
+run "${EPIC_HEADS[@]}" "$EPIC"
+check "a handoff with done: maybe: exit code 2, the value named" \
+    "$([ "$rc" = 2 ] && line_has "$EPIC:6: " "03 → 04" "done: maybe" && echo 0 || echo 1)"
+awk '!d && sub(/ · done: yes$/, " · done: no") { d = 1 } { print }' "$FIX/epic-ru.md" >"$R/$EPIC"
+run "${EPIC_HEADS[@]}" "$EPIC"
+check "a handoff with done: no and no reason: exit code 2" \
+    "$([ "$rc" = 2 ] && line_has "$EPIC:6: " "03 → 04" "done: no" && echo 0 || echo 1)"
+g checkout -q -- "$EPIC"
+
+# An epic story names the head of every PR chapter, and every --pr-head matches a chapter.
+run "$EPIC"
+check "an epic story without --pr-head: exit code 1, the chapters named" \
+    "$([ "$rc" = 1 ] && has "$T/err" "PR #211, PR #212, PR #213" && echo 0 || echo 1)"
+run --pr-head 211="$PRHEAD" --pr-head 213="$PRHEAD" "$EPIC"
+check "an epic story with a chapter left out: exit code 1, that chapter named" \
+    "$([ "$rc" = 1 ] && has "$T/err" "PR #212" && ! has "$T/err" "PR #211," && echo 0 || echo 1)"
+run "${EPIC_HEADS[@]}" --pr-head 299="$PRHEAD" "$EPIC"
+check "a --pr-head that matches no chapter: exit code 1, the number named" \
+    "$([ "$rc" = 1 ] && has "$T/err" "--pr-head 299" && echo 0 || echo 1)"
+run --pr-head 212="$PRHEAD" "$EN"
+check "a --pr-head given for the story of a PR: exit code 1" "$([ "$rc" = 1 ] && has "$T/err" "--pr-head 212" && echo 0 || echo 1)"
+
+# A personal value in a line of code that differs: the line is masked before it is cut for the output,
+# so a deny-list word that the cut at 57 characters would split is not printed in part.
+DENY="Quorb""laxian"
+printf '{"deny":["%s"]}\n' "$DENY" >"$HARNESS_HOME/user/privacy.json"
+awk -v w="$DENY" 'NR == 21 { $0 = $0 " // " w } { print }' "$FIX/pr-en.md" >"$R/$EN"
+run "$EN"
+check "a deny-list word across the cut of a code line: exit code 2, never printed even in part" \
+    "$([ "$rc" = 2 ] && line_has "$EN:2: " "line 14 differs" && line_has "$EN:2: " "personal data (deny)" && ! grep -qi "${DENY:0:4}" "$T/out" "$T/err" && echo 0 || echo 1)"
+rm -f "$HARNESS_HOME/user/privacy.json"
+g checkout -q -- "$EN"
 
 # --- 4. An uncommitted story is checked against the working tree ------------------------------------
 NEW="$S/07-new-story.md"
@@ -157,6 +196,40 @@ cp "$FIX/pr-en.md" "$R/$NEW"
 run "$NEW"
 check "a new story not yet committed: exit code 0, checked against the working tree" \
     "$([ "$rc" = 0 ] && has "$T/out" "working tree" && echo 0 || echo 1)"
+rm -f "$R/$NEW"
+
+# CRLF: the story's lines and the code's lines both end in CRLF; the carriage return is dropped.
+awk '{ printf "%s\r\n", $0 }' "$FIX/pr-en.md" >"$R/$NEW"
+run "$NEW"
+check "a story with CRLF line ends: exit code 0" "$([ "$rc" = 0 ] && line_has "$NEW: ok" && echo 0 || echo 1)"
+cp "$FIX/pr-en.md" "$R/$NEW"
+awk '{ printf "%s\r\n", $0 }' "$FIX/repo/src/cart.ts" >"$R/src/cart.ts"
+run "$NEW"
+check "code with CRLF line ends in the working tree: exit code 0" "$([ "$rc" = 0 ] && line_has "$NEW: ok" && echo 0 || echo 1)"
+g checkout -q -- src/cart.ts
+
+# A path out of the repository is not read, even when the file there would match.
+sed -n 20,22p "$FIX/repo/src/cart.ts" >"$T/outside.ts"
+sed 's|^Code: `src/cart.ts:20-22`|Code: `../outside.ts:1-3`|' "$FIX/pr-en.md" >"$R/$NEW"
+run "$NEW"
+check "a fragment path with .. in the working tree: exit code 2, not read" \
+    "$([ "$rc" = 2 ] && line_has "$NEW:3: " "../outside.ts" "relative to the root" && echo 0 || echo 1)"
+
+# A symbolic link is not followed: in the working tree, and as an entry of mode 120000 in a commit.
+sed 's|^Code: `src/cart.ts:10-17`|Code: `src/link.ts:10-17`|' "$FIX/pr-en.md" >"$R/$NEW"
+ln -s "$R/src/cart.ts" "$R/src/link.ts" 2>/dev/null
+if [ -L "$R/src/link.ts" ]; then
+    run "$NEW"
+    check "a fragment of a symbolic link in the working tree: exit code 2, the link named" \
+        "$([ "$rc" = 2 ] && line_has "$NEW:2: " "src/link.ts" "symbolic link" && echo 0 || echo 1)"
+else echo "skip the symbolic link of the working tree: this system made no link"; fi
+rm -f "$R/src/link.ts"
+LINKBLOB="$(printf 'cart.ts' | git -C "$R" hash-object -w --stdin)"
+LINKTREE="$(GIT_INDEX_FILE="$T/link.index" sh -c 'git -C "$1" read-tree "$2" && git -C "$1" update-index --add --cacheinfo "120000,$3,src/link.ts" && git -C "$1" write-tree' - "$R" "$PRHEAD" "$LINKBLOB")"
+LINKHEAD="$(git -C "$R" commit-tree -p "$PRHEAD" -m "a link" "$LINKTREE")"
+run --head "$LINKHEAD" "$NEW"
+check "a fragment of a symbolic link in a commit: exit code 2, the link named" \
+    "$([ "$rc" = 2 ] && line_has "$NEW:2: " "src/link.ts" "symbolic link" && echo 0 || echo 1)"
 rm -f "$R/$NEW"
 
 # --- 5. The main branch moved the quoted lines; the branch was not rebased ---------------------------
@@ -197,14 +270,17 @@ g checkout -q -b docs/review main
     printf '```\n'
 } >>"$R/$EN"
 run "$EN"
-check "documents PR, its own branch as the anchor: exit code 2 (its code is the main branch's)" \
-    "$([ "$rc" = 2 ] && line_has "$EN:6: " "src/cart.ts:14-14" && echo 0 || echo 1)"
+check "documents PR before its commit, no head named: exit code 1, its HEAD is the tip of the main branch" \
+    "$([ "$rc" = 1 ] && has "$T/err" "tip of the main branch (main)" && echo 0 || echo 1)"
 run --head "$PRHEAD" "$EN"
 check "documents PR, the review step appended, against the head land merged: exit code 0, that head named" \
     "$([ "$rc" = 0 ] && has "$T/out" "$PRHEAD" && ! has "$T/out" "working tree" && echo 0 || echo 1)"
 g commit -qam "documents: review step"
+run "$EN"
+check "documents PR committed, its own branch as the anchor: exit code 2 (its code is the main branch's)" \
+    "$([ "$rc" = 2 ] && line_has "$EN:6: " "src/cart.ts:14-14" && echo 0 || echo 1)"
 run --head "$PRHEAD" "$EN"
-check "documents PR committed: still checked against the merged head, exit code 0" \
+check "documents PR committed: checked against the merged head, exit code 0" \
     "$([ "$rc" = 0 ] && has "$T/out" "$PRHEAD" && echo 0 || echo 1)"
 
 # --- 7. The chapters of an epic story, each against its PR's head ------------------------------------
@@ -216,10 +292,35 @@ run --pr-head 211="$PRHEAD" --pr-head 212="$SHIFTED" --pr-head 213="$PRHEAD" "$E
 check "epic story, a chapter against a head where its code moved: exit code 2, its step named" \
     "$([ "$rc" = 2 ] && line_has "$EPIC:3: " "src/cart.ts:10-17" && echo 0 || echo 1)"
 run "$EPIC"
-check "epic story on the main branch with no head named: exit code 1" "$([ "$rc" = 1 ] && has "$T/err" "main branch" && echo 0 || echo 1)"
+check "epic story on the main branch with no head named: exit code 1, the chapters named" "$([ "$rc" = 1 ] && has "$T/err" "PR #211" && echo 0 || echo 1)"
 
-# --- 8. What cannot be checked ----------------------------------------------------------------------
+# --- 8. The main branch by its tip and by the name origin/HEAD gives --------------------------------
+g checkout -q --detach main
+run "$EN"
+check "a HEAD detached on the tip of main: exit code 1, refused" \
+    "$([ "$rc" = 1 ] && has "$T/err" "tip of the main branch (main)" && echo 0 || echo 1)"
+g checkout -q --detach "$PRHEAD"
+run "$EN"
+check "a HEAD detached on the PR's head: exit code 0" "$([ "$rc" = 0 ] && has "$T/out" "HEAD $PRHEAD (detached)" && echo 0 || echo 1)"
+# origin/HEAD names the main branch trunk; a local trunk on a commit that is no tip of a main branch.
+g remote add origin https://example.invalid/demo.git
+g update-ref refs/remotes/origin/trunk "$BASE"
+g symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/trunk
+g checkout -q -b trunk "$PRHEAD"
+run "$EN"
+check "on the branch origin/HEAD names (trunk): exit code 1, refused" \
+    "$([ "$rc" = 1 ] && has "$T/err" "on the main branch (trunk)" && echo 0 || echo 1)"
+# Another remote's main branch at the PR's head: the tip counts whichever remote holds it.
 g checkout -q demo-cart/pr
+g branch -q -D trunk
+g remote add upstream https://example.invalid/upstream.git
+g update-ref refs/remotes/upstream/main "$PRHEAD"
+run "$EN"
+check "HEAD at the tip of upstream/main: exit code 1, refused" \
+    "$([ "$rc" = 1 ] && has "$T/err" "tip of the main branch (upstream/main)" && echo 0 || echo 1)"
+g remote remove upstream
+
+# --- 9. What cannot be checked ----------------------------------------------------------------------
 run "$S/99-missing.md"
 check "no such story file: exit code 1 and the reason" "$([ "$rc" = 1 ] && has "$T/err" "99-missing.md" && echo 0 || echo 1)"
 run --head 0000000000000000000000000000000000000bad "$EN"
@@ -237,7 +338,7 @@ check "--pr-head without =<commit>: exit code 1 and the usage" "$([ "$rc" = 1 ] 
 run --help
 check "--help: exit code 0 and the usage on stdout" "$([ "$rc" = 0 ] && has "$T/out" "usage: story-check" && echo 0 || echo 1)"
 
-# --- 9. The real ~/.claude is untouched ------------------------------------------------------------
+# --- 10. The real ~/.claude is untouched ------------------------------------------------------------
 after="$(real_home_snapshot "$REAL_HOME" "$T")"
 [ "$before" = "$after" ] && ok "the real ~/.claude did not change" || bad "the real ~/.claude changed during the test"
 
