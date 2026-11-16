@@ -158,8 +158,10 @@ export interface WatchOptions {
 }
 
 /**
- * What the watch of a Tickets root skips: everything `epic-status` does not read. It reads the Epic
- * folders right under the root, their `spec.md` and `map.md`, and `issues/*.md`. The rest of a
+ * What the watch of a Tickets root skips: everything `epic-status` does not read, and the Code stories
+ * worfy reads itself (worfy-code-stories ticket 08). `epic-status` reads the Epic folders right under
+ * the root, their `spec.md` and `map.md`, and `issues/*.md`; the stories are the Epic's `story.md`
+ * and `stories/*.md` (harness/bin/TICKETS.md, "Code story"). The rest of a
  * Tickets root can be anything — evidence, logs, a Python `.venv`, `node_modules` or links to one —
  * and chokidar holds one open file per file it watches: an Arbor `.scratch` with links to
  * `node_modules` reached 30 000 of them, and worfy hung at start on EMFILE.
@@ -182,8 +184,8 @@ export interface WatchOptions {
  * the root itself while it is not a folder, and by making the watch anew once the root is removed
  * (WorkflowWatcher, `awaitTicketsRoot`).
  *
- * `spec.md`, `map.md` and `issues` are compared without regard to case: on a disk that ignores case
- * (the default on macOS and Windows) `epic-status` finds `Issues/` or `Spec.md` as well. On a disk
+ * `spec.md`, `map.md`, `issues`, `story.md` and `stories` are compared without regard to case: on a disk that ignores
+ * case (the default on macOS and Windows) `epic-status` finds `Issues/` or `Spec.md` as well. On a disk
  * that keeps case apart this watches a few files more than needed; a save of one costs a read that
  * changes nothing. The `.md` ending of a Ticket is compared as written, as the glob of `epic-status`
  * compares it: it does not read `01-a.MD` on any disk.
@@ -202,8 +204,8 @@ export function ticketsIgnored(
     const [, inEpic, inIssues, ...deeper] = rel.split(paths.sep)
     if (inEpic === undefined) return typeof stats?.isFile === 'function' && stats.isFile()
     const name = inEpic.toLowerCase()
-    if (inIssues === undefined) return name !== 'spec.md' && name !== 'map.md' && name !== 'issues'
-    return name !== 'issues' || !inIssues.endsWith('.md') || deeper.length > 0
+    if (inIssues === undefined) return name !== 'spec.md' && name !== 'map.md' && name !== 'story.md' && name !== 'issues' && name !== 'stories'
+    return (name !== 'issues' && name !== 'stories') || !inIssues.endsWith('.md') || deeper.length > 0
   }
 }
 
@@ -223,7 +225,7 @@ export interface TicketsWatchOptions {
 /**
  * The watch of a Tickets root that reads every link before anything follows it (link-safe-watch.ts).
  * It cares about what `ticketsIgnored` does not skip: links are looked for in the root, in the
- * Epic folders and in their `issues`, and a change is reported for the same paths.
+ * Epic folders and in their `issues` and `stories`, and a change is reported for the same paths.
  */
 export function ticketsWatch(options: TicketsWatchOptions): LinkSafeWatch {
   const paths = options.paths ?? nativePath

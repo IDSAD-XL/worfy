@@ -1,7 +1,7 @@
 # 08 — worfy читает story: watcher, reader, разбор формата, хранилище story по кнопке
 
 Type: feature
-Status: open
+Status: claimed 2026-11-16T07:26Z
 Blocked by: 01
 Source: [spec.md](../spec.md), «Ticket-ы», строка 08; «Решения владельца» 4, 9, 24 (строки 95, 101–102, 128);
 «Решения по реализации» → Harness: «Где лежит» (строки 204–206); worfy: «Чтение», «Story по кнопке» (строки 241–243,
@@ -41,20 +41,43 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 08; «Решения 
    коллег (ADR-0105).
 6. IPC: чтение story Epic-а, story PR и сохранённой story по кнопке.
 
+Решено 2026-11-16 (implementer, review PR #1910, раунды 1 и 2): в режиме Silent anchor story — merge commit её PR-а,
+а до merge — head PR-а (`gh pr view <N> --json headRefOid,mergeCommit`; номер — из шапки story или из главы story
+Epic-а, его передаёт вызов `stories.code`). gh спрашивается один раз на PR: ответ merged PR-а хранится до перезапуска,
+ответ открытого — 60 с. Если в шапке story `PR -`, main сам берёт номер из строки `PR:` Ticket-а в модели workflow
+(Ticket — по имени файла `stories/NN-<slug>.md`), как велит `TICKETS.md`: ticket 05 пишет story до `gh pr create`, и в
+Silent шапка так и остаётся `PR -`. Если у Ticket-а ещё нет `PR:`, anchor по `TICKETS.md` — HEAD worktree ветки
+Ticket-а — worfy не читает: шаг показывает код из story с причиной `no-anchor`. Причина: до открытия PR story видит
+только implementer, и её фрагменты уже сверяет `story-check`.
+
 ## Готово, когда
 
 - [ ] Unit test `test/unit/tickets-watch.test.ts`: `story.md` и `stories/NN-*.md` в папке Epic-а не пропускаются;
       `stories/deeper/x.md` и другие файлы — по-прежнему пропускаются.
+  - evidence: test-run pass · `pnpm test test/unit/tickets-watch.test.ts` exit 0 · mac - · 684049112
+  - evidence: test-run pass · `pnpm test test/unit/tickets-watch.test.ts` exit 0 · mac - · facc67e27
 - [ ] Unit test разбора на fixture-ах `harness/bin/tests/fixtures/code-story/`: story PR ru и en, story Epic-а со списком
       передач (брошенная передача отмечена), шаг без поля — ошибка с именем поля.
+  - evidence: test-run pass · `pnpm test test/unit/story-parse.test.ts` exit 0 · mac - · 684049112
+  - evidence: test-run pass · `pnpm test test/unit/story-parse.test.ts` exit 0 · mac - · facc67e27
 - [ ] Contract test `test/contract/workflow-reader.test.ts`: reader отдаёт story Epic-а и story PR Ticket-ов; в режиме
       Silent — из папки Workflow.
+  - evidence: test-run pass · `pnpm test test/contract/workflow-reader.test.ts` exit 0 · mac - · 684049112
+  - evidence: test-run pass · `pnpm test test/contract/workflow-reader.test.ts` exit 0 · mac - · facc67e27
 - [ ] Contract test на fixture `repo-main-shifted/` (временный repo со squash merge-ем): фрагмент найден по коду в anchor
       commit-е, номера строк — anchor-а, главные строки сдвинуты на ту же величину; код изменён или недоступен — код из
       story с видимой пометкой.
+  - evidence: test-run pass · `pnpm test test/contract/story-code.test.ts` exit 0 · mac - · 684049112
+  - evidence: test-run pass · `pnpm test test/contract/story-code.test.ts` exit 0 · mac - · facc67e27
+  - evidence: test-run pass · `pnpm test test/contract/story-code.test.ts` exit 0 · mac - · 37f481a9b
 - [ ] Contract test хранилища: запись атомарная; файл, который не проходит схему, не роняет чтение; у PR коллеги в
       файле нет текста PR и комментариев — только текст агента и ссылки.
+  - evidence: test-run pass · `pnpm test test/contract/story-store.test.ts` exit 0 · mac - · 684049112
+  - evidence: test-run pass · `pnpm test test/contract/story-store.test.ts` exit 0 · mac - · facc67e27
 - [ ] lint, typecheck, test-ы модуля `src/main/workflow/` и gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 684049112
+  - evidence: gate pass · `gate fast` exit 0 · mac - · facc67e27
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 37f481a9b
 
 ## Тесты
 

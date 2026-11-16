@@ -16,6 +16,8 @@
 // - The header is worfy's, not the agent's: worfy knows the Epic, the Ticket, the PR and the language before
 //   it asks. A story made by the button is kept outside git, so its header names the PR head it was made
 //   from (`commit`, "Story anchor"); an Epic story names the head of each chapter instead.
+// - A story read from its Markdown file (storyFileSchema, ticket 08) is committed with its change and names
+//   neither: its fragments are read against the commit that added the file.
 import { z } from 'zod'
 import labelTable from './labels.json'
 
@@ -172,21 +174,22 @@ export const epicStoryAnswerSchema = z
   .strict()
 export type EpicStoryAnswer = z.output<typeof epicStoryAnswerSchema>
 
+const prStoryHeaderShape = {
+  title: z.string().min(1),
+  epic: z.string().min(1).nullable(),
+  ticket: ticketNumberSchema.nullable(),
+  pr: z.number().int().positive().nullable(),
+  language: storyLanguageSchema,
+  /** The PR head the story was made from: it is kept outside git ("Story anchor"). */
+  commit: shaSchema,
+}
+
+const epicGoesWithTicket = (header: { epic: string | null; ticket: string | null }, context: z.core.$RefinementCtx): void => {
+  if ((header.epic === null) !== (header.ticket === null)) context.addIssue({ code: 'custom', path: ['ticket'], message: 'Epic and Ticket go together, or neither does' })
+}
+
 /** The header of a PR story: the title of the H1, Epic and Ticket together or neither, the PR, the language, the head. */
-export const prStoryHeaderSchema = z
-  .object({
-    title: z.string().min(1),
-    epic: z.string().min(1).nullable(),
-    ticket: ticketNumberSchema.nullable(),
-    pr: z.number().int().positive().nullable(),
-    language: storyLanguageSchema,
-    /** The PR head the story was made from: it is kept outside git ("Story anchor"). */
-    commit: shaSchema,
-  })
-  .strict()
-  .superRefine((header, context) => {
-    if ((header.epic === null) !== (header.ticket === null)) context.addIssue({ code: 'custom', path: ['ticket'], message: 'Epic and Ticket go together, or neither does' })
-  })
+export const prStoryHeaderSchema = z.object(prStoryHeaderShape).strict().superRefine(epicGoesWithTicket)
 export type PrStoryHeader = z.output<typeof prStoryHeaderSchema>
 
 /** The header of an Epic story; each chapter names its own PR head. */
@@ -196,7 +199,7 @@ export type EpicStoryHeader = z.output<typeof epicStoryHeaderSchema>
 type Issue = { path: (string | number)[]; message: string }
 
 /** The rules of the format a JSON Schema cannot say, for the answer of `kind` in `language`. */
-export function storyIssues(kind: StoryKind, language: StoryLanguage, answer: PrStoryAnswer | EpicStoryAnswer): Issue[] {
+export function storyIssues(kind: StoryKind, language: StoryLanguage, answer: PrStoryAnswer | EpicStoryAnswer, options: { committed?: boolean } = {}): Issue[] {
   const issues: Issue[] = []
   const missing = notRecorded(language)
   const requirement = (value: string, path: (string | number)[]): void => {
@@ -222,7 +225,8 @@ export function storyIssues(kind: StoryKind, language: StoryLanguage, answer: Pr
       const at = ['chapters', index]
       if (chapter.ready) {
         if (chapter.pr === null) issues.push({ path: [...at, 'pr'], message: 'a ready chapter names its PR' })
-        if (chapter.head === null) issues.push({ path: [...at, 'head'], message: 'a ready chapter names its PR head' })
+        // A committed Epic story names no head: its chapters are read against its anchor commit ("Story anchor").
+        if (chapter.head === null && options.committed !== true) issues.push({ path: [...at, 'head'], message: 'a ready chapter names its PR head' })
         if (chapter.steps.length === 0) issues.push({ path: [...at, 'steps'], message: 'a ready chapter has steps' })
         if (chapter.why !== null) issues.push({ path: [...at, 'why'], message: 'a ready chapter has no "Ready: no" reason' })
         steps(chapter.steps, [...at, 'steps'])
@@ -241,9 +245,9 @@ export function storyIssues(kind: StoryKind, language: StoryLanguage, answer: Pr
 }
 
 const withLanguageRules =
-  (kind: StoryKind) =>
+  (kind: StoryKind, committed = false) =>
   (story: { header: { language: StoryLanguage } } & (PrStoryAnswer | EpicStoryAnswer), context: z.core.$RefinementCtx): void => {
-    for (const issue of storyIssues(kind, story.header.language, story)) context.addIssue({ code: 'custom', path: issue.path, message: issue.message })
+    for (const issue of storyIssues(kind, story.header.language, story, { committed })) context.addIssue({ code: 'custom', path: issue.path, message: issue.message })
   }
 
 const prStorySchema = prStoryAnswerSchema.extend({ kind: z.literal('pr'), header: prStoryHeaderSchema }).strict().superRefine(withLanguageRules('pr'))
@@ -252,6 +256,28 @@ const epicStorySchema = epicStoryAnswerSchema.extend({ kind: z.literal('epic'), 
 /** A story as worfy keeps it: its kind, worfy's header and the agent's answer. */
 export const storySchema = z.discriminatedUnion('kind', [prStorySchema, epicStorySchema])
 export type Story = z.output<typeof storySchema>
+
+/**
+ * The header of a PR story read from its file (src/shared/stories/parse.ts): a story committed with its change — in
+ * git or in the Workflow folder — names no commit (`commit` null), its anchor is the commit that added the file; a
+ * story kept outside git names the PR head it was made from (`Commit:`). See TICKETS.md, "Story anchor".
+ */
+export const prStoryFileHeaderSchema = z
+  .object({ ...prStoryHeaderShape, commit: shaSchema.nullable() })
+  .strict()
+  .superRefine(epicGoesWithTicket)
+export type PrStoryFileHeader = z.output<typeof prStoryFileHeaderSchema>
+
+const prStoryFileSchema = prStoryAnswerSchema.extend({ kind: z.literal('pr'), header: prStoryFileHeaderSchema }).strict().superRefine(withLanguageRules('pr', true))
+const epicStoryFileSchema = epicStoryAnswerSchema.extend({ kind: z.literal('epic'), header: epicStoryHeaderSchema }).strict().superRefine(withLanguageRules('epic', true))
+
+/**
+ * A story as its Markdown file holds it (worfy-code-stories ticket 08): as `storySchema`, except that a PR story may
+ * name no commit and a ready chapter of an Epic story no head — both are read against the story's anchor commit. Every
+ * `Story` is a `StoryFile`, so a view that takes a `StoryFile` shows both kinds.
+ */
+export const storyFileSchema = z.discriminatedUnion('kind', [prStoryFileSchema, epicStoryFileSchema])
+export type StoryFile = z.output<typeof storyFileSchema>
 
 /** The number of the step "Seams between tickets": on from the last step of the chapters. */
 export const seamsStepNumber = (answer: EpicStoryAnswer): number => answer.chapters.reduce((count, chapter) => count + chapter.steps.length, 0) + 1

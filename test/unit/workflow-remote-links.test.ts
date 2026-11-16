@@ -271,10 +271,15 @@ describe.runIf(process.platform === 'win32')('the Tickets of a Project with real
     mkdirSync(join(tickets, 'beta'), { recursive: true })
     writeFileSync(join(tickets, 'alpha', 'issues', '02-second.md'), ticketText('src/b.ts'))
     writeFileSync(join(tickets, 'beta', 'spec.md'), '# Beta epic\n')
+    // The Code stories (worfy-code-stories ticket 08): a story of the folder is read, a link to the share is not.
+    mkdirSync(join(tickets, 'beta', 'stories'), { recursive: true })
+    writeFileSync(join(tickets, 'beta', 'stories', '04-four.md'), '# Code story — beta 04: Four\n')
     try {
       symlinkSync('\\\\worfy-no-such-host\\share\\spec.md', join(tickets, 'alpha', 'spec.md'), 'file')
       symlinkSync('\\\\worfy-no-such-host\\share\\01-first.md', join(tickets, 'alpha', 'issues', '01-first.md'), 'file')
       symlinkSync('\\\\worfy-no-such-host\\share\\issues', join(tickets, 'beta', 'issues'), 'dir')
+      symlinkSync('\\\\worfy-no-such-host\\share\\stories', join(tickets, 'alpha', 'stories'), 'dir')
+      symlinkSync('\\\\worfy-no-such-host\\share\\story.md', join(tickets, 'beta', 'story.md'), 'file')
     } catch (error) {
       // A user without Developer Mode may not create symlinks.
       context.skip('this user cannot create a symlink: ' + (error instanceof Error ? error.message : String(error)))
@@ -288,7 +293,11 @@ describe.runIf(process.platform === 'win32')('the Tickets of a Project with real
       [['src/b.ts'], true],
       [[], false],
     ])
-    expect(asked.readdir).toEqual([join(tickets, 'alpha', 'issues')])
-    expect(new Set(asked.readFile)).toEqual(new Set([join(tickets, 'beta', 'spec.md'), join(tickets, 'alpha', 'issues', '02-second.md')]))
+    expect(model.epics.map((epic) => (epic.stories ?? []).map((story) => story.path))).toEqual([[], ['beta/stories/04-four.md']])
+    // alpha/story.md is no link and not there: Node is asked for it, and answers it is not.
+    expect(new Set(asked.readdir)).toEqual(new Set([join(tickets, 'alpha', 'issues'), join(tickets, 'beta', 'stories')]))
+    expect(new Set(asked.readFile)).toEqual(
+      new Set([join(tickets, 'beta', 'spec.md'), join(tickets, 'alpha', 'issues', '02-second.md'), join(tickets, 'alpha', 'story.md'), join(tickets, 'beta', 'stories', '04-four.md')]),
+    )
   })
 })
