@@ -1,0 +1,40 @@
+{
+  "en": {
+    "whatItDoes": "What it does",
+    "whyHere": "Why here",
+    "withoutIt": "Without it",
+    "requirement": "Requirement",
+    "risks": "Risks and test gaps",
+    "notRecorded": "not recorded",
+    "wrong": "What was wrong",
+    "notChanged": "What was deliberately not changed",
+    "checked": "How it was checked",
+    "review": "What review found and what remains",
+    "start": "Start",
+    "seams": "Seams between tickets",
+    "summary": "Summary",
+    "check": "Check",
+    "checkYourself": "Check yourself",
+    "answer": "Answer",
+    "lines": "Lines"
+  },
+  "ru": {
+    "whatItDoes": "Что делает",
+    "whyHere": "Почему здесь",
+    "withoutIt": "Без него",
+    "requirement": "Требование",
+    "risks": "Риски и пробелы test-ов",
+    "notRecorded": "не записано",
+    "wrong": "Что было не так",
+    "notChanged": "Что сознательно не меняли",
+    "checked": "Как проверено",
+    "review": "Что нашёл review и что осталось",
+    "start": "Начало",
+    "seams": "Стыки между Ticket-ами",
+    "summary": "Итог",
+    "check": "Проверка",
+    "checkYourself": "Проверить себя",
+    "answer": "Ответ",
+    "lines": "Строки"
+  }
+}

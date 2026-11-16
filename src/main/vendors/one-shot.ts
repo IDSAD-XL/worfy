@@ -5,6 +5,16 @@
 export interface OneShotOptions {
   /** The folder the request runs in. */
   cwd: string
+  /**
+   * Folders the read-only tools may read besides `cwd` (a Code story: the Project's checkout, while the
+   * request itself runs outside every Project); none when absent.
+   */
+  readFolders?: readonly string[] | undefined
+  /**
+   * The Vendor keeps no transcript of the request: for a request whose text (a diff, a PR, review verdicts)
+   * must not stay on disk after the answer. False or absent: as the Vendor does by default.
+   */
+  ephemeral?: boolean | undefined
   /** The tools the request may use, all of them read-only; none when absent. */
   readOnlyTools?: readonly string[] | undefined
   /** The JSON Schema of a structured answer; a text answer when absent. */

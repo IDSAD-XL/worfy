@@ -26,6 +26,10 @@ export interface ClaudeOneShotRequest extends QueryRequest {
   allowedTools: readonly string[]
   /** The tools Claude Code runs without. */
   disallowedTools: readonly string[]
+  /** Folders the tools may read besides the cwd (SDK option `additionalDirectories`); none when absent. */
+  additionalDirectories?: readonly string[] | undefined
+  /** False: Claude Code keeps no transcript of the request (SDK option `persistSession`); absent: it does. */
+  persistSession?: false | undefined
 }
 
 /**
@@ -53,6 +57,8 @@ export async function claudeOneShotQuery(request: ClaudeOneShotRequest): Promise
     outputFormat: request.outputFormat,
     allowedTools: request.allowedTools,
     disallowedTools: request.disallowedTools,
+    additionalDirectories: request.additionalDirectories,
+    persistSession: request.persistSession,
   })
   return query({ prompt: request.prompt, options }) as QueryHandle
 }
@@ -170,6 +176,8 @@ export const claudeOneShotOver = (start: ClaudeOneShotQuery): OneShot => async (
     outputFormat: { type: 'json_schema', schema: { ...opts.outputSchema } },
     allowedTools: allowed,
     disallowedTools: ONE_SHOT_DISALLOWED_TOOLS,
+    ...(opts.readFolders !== undefined && opts.readFolders.length > 0 ? { additionalDirectories: opts.readFolders } : {}),
+    ...(opts.ephemeral === true ? { persistSession: false as const } : {}),
   })
   // Stopped while Claude Code was starting: the listener below would never hear it.
   if (isAborted(opts.signal)) {

@@ -1,0 +1,83 @@
+/*
+ * The progress bar of a Code story (StoryProgress.tsx): in the place of the pressed button, F-SPEC sizes —
+ * 12 px chips and meta, monospace for the agent's lines, a hairline track, radius 4 px.
+ */
+.w-story-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.w-story-progress__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* A bar without a percentage: the agent's work has no count to show, so a part of the track moves. */
+.w-story-progress__track {
+  position: relative;
+  display: block;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--border);
+}
+
+.w-story-progress__fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 30%;
+  border-radius: 2px;
+  background: var(--working-dot);
+  animation: w-story-progress-move 1.4s ease-in-out infinite;
+}
+
+@keyframes w-story-progress-move {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w-story-progress__fill {
+    width: 100%;
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
+.w-story-progress__lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.w-story-progress__line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.w-story-progress__line--last {
+  color: var(--text-secondary);
+}
+
+.w-story-progress__reason {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}

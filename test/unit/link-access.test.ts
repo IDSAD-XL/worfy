@@ -391,6 +391,9 @@ describe('the read-or-write mark of `project` channels', () => {
     'sessions.new',
     'sessions.resume',
     'sessions.start',
+    // Starts and stops the invisible request of a Code story on the Project's Vendor (worfy-code-stories ticket 04), as the draft of a profile.
+    'stories.build',
+    'stories.stop',
     'terminal.close',
     'terminal.input',
     // Starts the shell when it does not run.

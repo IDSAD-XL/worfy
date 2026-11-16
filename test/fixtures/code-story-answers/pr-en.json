@@ -1,0 +1,80 @@
+{
+  "steps": [
+    {
+      "kind": "frame",
+      "frame": "wrong",
+      "text": "The cart added prices as floating-point numbers, so three items at 0.10 came to 0.30000000000000004 and the\nreceipt showed 0.29 after rounding down. Lines with a quantity of zero were still counted.",
+      "requirement": "[What happens](../issues/04-cart-total.md#what-happens)",
+      "fragments": []
+    },
+    {
+      "kind": "code",
+      "title": "The total is a sum of whole cents",
+      "fragment": {
+        "path": "src/cart.ts",
+        "startLine": 10,
+        "endLine": 17,
+        "keyLines": [
+          13,
+          14
+        ],
+        "code": "export function cartTotal(lines: CartLine[]): Cents {\n  let total = 0\n  for (const line of lines) {\n    if (line.quantity <= 0) continue\n    total += toCents(line.price) * line.quantity\n  }\n  return total\n}"
+      },
+      "whatItDoes": "turns each price into whole cents first and only then multiplies and adds, so no fraction of a cent is ever stored; a line with a zero or negative quantity is skipped.",
+      "whyHere": "the total is the one place every later sum starts from — the coupon and the receipt read it.",
+      "withoutIt": "not recorded",
+      "requirement": "[What we do, item 1](../issues/04-cart-total.md#what-we-do)",
+      "risks": "a price with three decimals (\"0.105\") throws in `toCents`; no test feeds one."
+    },
+    {
+      "kind": "code",
+      "title": "Checkout needs a positive quantity",
+      "fragment": {
+        "path": "src/cart.ts",
+        "startLine": 20,
+        "endLine": 22,
+        "keyLines": [
+          21
+        ],
+        "code": "export function canCheckout(lines: CartLine[]): boolean {\n  return lines.some((line) => line.quantity > 0)\n}"
+      },
+      "whatItDoes": "lets the cart go to checkout only when at least one line would be charged.",
+      "whyHere": "the same rule as the skip in `cartTotal`; keeping both in one file keeps them in step.",
+      "withoutIt": "a cart of zero-quantity lines would reach checkout with a total of 0.",
+      "requirement": "[What we do, item 2](../issues/04-cart-total.md#what-we-do)",
+      "risks": "none known."
+    },
+    {
+      "kind": "frame",
+      "frame": "notChanged",
+      "text": "The receipt still formats the total with `formatCents`; its rounding was right and the ticket did not ask to touch\nit.",
+      "requirement": null,
+      "fragments": []
+    },
+    {
+      "kind": "frame",
+      "frame": "checked",
+      "text": "`pnpm test test/unit/cart.test.ts` exit 0: three items at 0.10 make 30 cents; a zero-quantity line adds nothing.",
+      "requirement": null,
+      "fragments": []
+    }
+  ],
+  "checkYourself": [
+    {
+      "question": "Why does the total multiply whole cents and not the typed price?",
+      "answer": "a typed price is a decimal fraction that a floating-point number cannot hold exactly; cents are whole numbers, and whole numbers add without drift.",
+      "lines": [
+        "src/cart.ts:14",
+        "src/money.ts:11"
+      ]
+    },
+    {
+      "question": "What does the cart do with a line whose quantity is 0?",
+      "answer": "skips it in the total and does not let a cart of such lines reach checkout.",
+      "lines": [
+        "src/cart.ts:13",
+        "src/cart.ts:21"
+      ]
+    }
+  ]
+}
