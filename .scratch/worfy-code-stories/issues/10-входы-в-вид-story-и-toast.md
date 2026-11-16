@@ -1,7 +1,8 @@
 # 10 — Входы в вид Story: рамка Epic-а, карточка Ticket-а, Pull requests, toast, Command palette
 
 Type: feature
-Status: claimed 2026-11-16T13:28Z
+Status: done 2026-11-16T18:15Z
+PR: #1915
 Blocked by: 09
 Source: [spec.md](../spec.md), «Ticket-ы», строка 10; «Решения владельца» 2, 7, 20 (строки 92–93, 98–99, 121–122);
 «Решения по реализации» → worfy: «Входы» (строки 253–255); «Решения по test-ам», Б (строки 282–284); истории 3, 4, 22,
@@ -37,6 +38,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 10; «Решения 
 
 - [ ] e2e (`test/e2e/code-story.spec.ts`, `WORFY_AGENT=fake`): вид Story открывается с рамки Epic-а, из меню Epic-а, с
       карточки Ticket-а, из Pull requests, из toast-а и из Command palette; Esc каждый раз возвращает на Canvas.
+  - evidence: ci-check pass · macos-e2e test/e2e/code-story.spec.ts green in PR #1915 CI · ci - · 135fa933d
 - [ ] Unit test toast-а (чистые функции, как `stop-toast.ts`): первое появление `story.md` даёт один toast; второе чтение
       того же Epic-а и перезапуск worfy — ни одного; новый `stories/*.md` — ни одного.
   - evidence: test-run pass · `pnpm test test/unit/story-toast.test.ts` exit 0 · mac - · 774f251ea9ed6f6011f3b1bb666f65b701865ea7
