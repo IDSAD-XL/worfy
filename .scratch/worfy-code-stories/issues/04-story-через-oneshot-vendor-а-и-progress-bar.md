@@ -1,7 +1,8 @@
 # 04 — Story через `oneShot` Vendor-а Project-а: схема story, progress bar, contract test «нет Session Node»
 
 Type: feature
-Status: claimed 2026-11-15T23:45Z
+Status: done 2026-11-16T02:52Z
+PR: #1890
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», строка 04; «Решения владельца» 13, 19, 23, 25 (строки 109–112, 119–120, 127,
 129–131); «Решения по реализации» → worfy: «Невидимый агент», «Progress bar» (строки 256–262); «Риски»: «`oneShot` в

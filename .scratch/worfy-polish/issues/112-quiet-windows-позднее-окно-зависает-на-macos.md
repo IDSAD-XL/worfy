@@ -1,7 +1,8 @@
 # 112 — quiet-windows: e2e test позднего окна зависает на macOS runner-е
 
 Type: bug
-Status: claimed 2026-11-16T00:28Z
+Status: done 2026-11-16T02:52Z
+PR: #1893
 Blocked by: none
 Source: бриф Orchestrator-а 2026-11-12, красный macos-e2e в CI run-е PR #1811.
 
