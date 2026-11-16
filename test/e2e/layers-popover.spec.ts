@@ -411,7 +411,8 @@ test('in the composer: Queued messages and Effort, at the bottom edge of the win
   const chipBox = await box(chip)
   expect(page.height - (chipBox.y + chipBox.height)).toBeLessThan((await box(queue)).height)
   await expect(queue).toHaveAttribute('data-side', 'top')
-  expect((await box(queue)).y + (await box(queue)).height).toBeLessThanOrEqual(chipBox.y + 1)
+  // The positioner settles a frame after data-side is set (worfy-polish 115): poll the place, not one read.
+  await expect.poll(async () => { const b = await box(queue); return b.y + b.height }).toBeLessThanOrEqual(chipBox.y + 1)
   await expect.poll(() => insideWindow(window, queue)).toBe(true)
   await expect.poll(() => onTop(queue)).toBe(true)
   await window.keyboard.press('Escape')
@@ -425,7 +426,7 @@ test('in the composer: Queued messages and Effort, at the bottom edge of the win
   const effortBox = await box(effort)
   expect(page.height - (effortBox.y + effortBox.height)).toBeLessThan((await box(popover)).height)
   await expect(popover).toHaveAttribute('data-side', 'top')
-  expect((await box(popover)).y + (await box(popover)).height).toBeLessThanOrEqual(effortBox.y + 1)
+  await expect.poll(async () => { const b = await box(popover); return b.y + b.height }).toBeLessThanOrEqual(effortBox.y + 1)
   await expect.poll(() => insideWindow(window, popover)).toBe(true)
   await expect.poll(() => onTop(popover)).toBe(true)
   await window.keyboard.press('Escape')
