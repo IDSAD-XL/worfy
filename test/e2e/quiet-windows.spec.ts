@@ -11,7 +11,6 @@
 import { expect, test } from '@playwright/test'
 import { SHOW_POLL_MS, waitForFirstWindowShown } from './first-window-shown'
 import { launchApp, type LaunchedApp } from './helpers'
-import { quarantined } from './quarantine'
 import { ms } from '../time-scale'
 
 const QUIET = { WORFY_QUIET_WINDOWS: '1' }
@@ -86,68 +85,65 @@ async function bounded<T>(what: string, limitMs: number, step: Promise<T>): Prom
   }
 }
 
-quarantined('quiet-windows-later-window-quiet')('a window worfy opens later is quiet too: shown inactive, transparent, and the mouse goes through it', async () => {
+test('a window worfy opens later is quiet too: shown inactive, transparent, and the mouse goes through it', async () => {
   const launched = await launchApp({ env: QUIET })
   try {
-    // Two calls into main, each bounded, so a hang names its step. In one call that destroyed the
-    // first window and waited for the next, main twice gave no answer for a minute on the macOS runner,
-    // and the quit in the worker's teardown hung after it (worfy-throughput 55).
-    const destroyed = await bounded('wrapping the window methods and destroying the first window', ms(20_000), launched.app.evaluate(async ({ app, BrowserWindow }, closedMs) => {
+    // The first window stays open. This test used to destroy it and let a second start open the next
+    // one, and on the macOS runner main then hung (worfy-polish 112): destroy() of a shown window can
+    // emit 'hide' on the destroyed window, Electron's own visibility listener on it
+    // (lib/browser/api/browser-window.ts, visibilityChanged) calls isVisible() and throws "Object has
+    // been destroyed", and Electron answers that uncaught exception of main with a modal error box
+    // that holds main's thread. Instead, main's list of windows reads empty for the moment of a
+    // second start, so worfy's own second-instance handler (src/main/index.ts) opens the next window
+    // through createMainWindow, as it does after the last window has closed.
+    const opened = await bounded('the second start and the wait for its window', ms(45_000), launched.app.evaluate(async ({ app, BrowserWindow }, { waitSource, intervalMs, timeoutMs }) => {
       const calls: string[] = []
-      // Read by the second call below.
-      const kept = globalThis as { quietWindowCalls?: string[] }
-      kept.quietWindowCalls = calls
       const proto = BrowserWindow.prototype as unknown as Record<string, (...args: unknown[]) => unknown>
+      const unwrap: Array<() => void> = []
       for (const name of ['show', 'showInactive', 'focus', 'setIgnoreMouseEvents', 'setOpacity']) {
         const original = proto[name] as (...args: unknown[]) => unknown
+        // Most of these live on BaseWindow's prototype: the wrapper on BrowserWindow's is removed, not replaced.
+        const own = Object.getOwnPropertyDescriptor(proto, name)
+        unwrap.push(() => (own === undefined ? delete proto[name] : Object.defineProperty(proto, name, own)))
         proto[name] = function (this: unknown, ...args: unknown[]) {
           calls.push(`${name}(${args.map((arg) => JSON.stringify(arg)).join(',')})`)
           return original.apply(this, args)
         }
       }
-      // Closing the last window quits worfy on Windows and Linux; this test keeps it running so the
-      // second start below opens a new window there too, as it does on macOS.
-      app.removeAllListeners('window-all-closed')
-      app.on('window-all-closed', () => undefined)
-      const [first] = BrowserWindow.getAllWindows()
-      if (first === undefined) throw new Error('no window')
-      // destroy(), not close(): close() asks the page first and waits for its answer, and a page that
-      // did not answer left 'closed' waiting past the test's timeout on the macOS runner. This test
-      // checks the window opened after; how the first one goes is not its subject.
-      return new Promise<string>((done) => {
-        const timer = setTimeout(() => done(`no 'closed' within ${closedMs} ms; windows left: ${BrowserWindow.getAllWindows().length}`), closedMs)
-        first.once('closed', () => {
-          clearTimeout(timer)
-          done('closed')
-        })
-        first.destroy()
-      })
-    }, ms(10_000)))
-    expect(destroyed).toBe('closed')
-
-    const reopened = await bounded('the second start and the wait for its window', ms(45_000), launched.app.evaluate(async ({ app, BrowserWindow }, { waitSource, intervalMs, timeoutMs }) => {
-      // A second start with no window open: worfy opens one (src/main/index.ts, second-instance).
-      app.emit('second-instance', {}, [], process.cwd(), {})
-      const [next] = BrowserWindow.getAllWindows()
-      if (next === undefined) throw new Error('no window after the second start')
-      // Polled, not on 'show' alone: on macOS 'show' comes only with an occlusion change and can
-      // fail to come (first-window-shown.ts). The helper arrives as source text, as app.evaluate
-      // sends any function to main.
-      const wait = new Function(`return (${waitSource})`)() as typeof waitForFirstWindowShown
-      const shown = await wait({ BrowserWindow }, { intervalMs, timeoutMs })
-      const calls = (globalThis as { quietWindowCalls?: string[] }).quietWindowCalls ?? []
-      return { shown: shown.how, calls, visible: next.isVisible(), focused: next.isFocused(), opacity: next.getOpacity() }
+      try {
+        const [first] = BrowserWindow.getAllWindows()
+        if (first === undefined) throw new Error('no window')
+        const getAllWindows = BrowserWindow.getAllWindows
+        BrowserWindow.getAllWindows = () => []
+        try {
+          app.emit('second-instance', {}, [], process.cwd(), {})
+        } finally {
+          BrowserWindow.getAllWindows = getAllWindows
+        }
+        const next = BrowserWindow.getAllWindows().find((each) => each !== first && !each.isDestroyed())
+        if (next === undefined) throw new Error('no new window after the second start')
+        // Polled, not on 'show' alone: on macOS 'show' comes only with an occlusion change and can
+        // fail to come (first-window-shown.ts). The helper watches the first live window of the list
+        // it is given, so it is given the new window alone. It arrives as source text, as
+        // app.evaluate sends any function to main.
+        const wait = new Function(`return (${waitSource})`)() as typeof waitForFirstWindowShown
+        const shown = await wait({ BrowserWindow: { getAllWindows: () => [next] } }, { intervalMs, timeoutMs })
+        return { shown: shown.how, calls: [...calls], visible: next.isVisible(), focused: next.isFocused(), anyFocused: BrowserWindow.getFocusedWindow() !== null, opacity: next.getOpacity() }
+      } finally {
+        // The wrappers go: the quit at the end of the test closes both windows through the real methods.
+        for (const undo of unwrap) undo()
+      }
     }, { waitSource: String(waitForFirstWindowShown), intervalMs: SHOW_POLL_MS, timeoutMs: ms(30_000) }))
-    expect(reopened.visible, `the wait for the window ended: ${reopened.shown}`).toBe(true)
-    expect(reopened.focused).toBe(false)
-    if (process.platform !== 'linux') expect(reopened.opacity).toBe(0)
-    expect(reopened.calls).toContain('setIgnoreMouseEvents(true)')
-    expect(reopened.calls).toContain('showInactive()')
-    expect(reopened.calls).not.toContain('show()')
-    expect(reopened.calls).not.toContain('focus()')
+    expect(opened.visible, `the wait for the window ended: ${opened.shown}`).toBe(true)
+    expect(opened.focused).toBe(false)
+    expect(opened.anyFocused).toBe(false)
+    if (process.platform !== 'linux') expect(opened.opacity).toBe(0)
+    expect(opened.calls).toContain('setIgnoreMouseEvents(true)')
+    expect(opened.calls).toContain('showInactive()')
+    expect(opened.calls).not.toContain('show()')
+    expect(opened.calls).not.toContain('focus()')
   } finally {
-    // The first window is gone: no screenshot of it, and a quit that hangs is ended with a kill.
-    await launched.close({ windowGone: true })
+    await launched.close()
   }
 })
 
