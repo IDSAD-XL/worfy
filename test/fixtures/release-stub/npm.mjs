@@ -11,9 +11,10 @@ const fail = (lines, exitCode) => {
   process.stderr.write(`${[...lines, `A complete log of this run can be found in: /npm/_logs/${process.pid}-debug-0.log`].map((line) => `npm error ${line}`.trimEnd()).join('\n')}\n`)
   process.exitCode = exitCode
 }
+const warn = () => process.stderr.write('npm warn Unknown user config "always-auth". This will stop working in the next major version of npm.\n')
 const resource = `The requested resource '${args[1]}' could not be found or you do not have permission to access it.`
 if (code !== 0) {
-  process.stderr.write('npm warn Unknown user config "always-auth". This will stop working in the next major version of npm.\n')
+  warn()
   fail(
     [
       'code ENOTFOUND',
@@ -29,6 +30,7 @@ if (code !== 0) {
     code,
   )
 } else if (process.env.RELEASE_STUB_CRASH === '1') {
+  warn()
   fail(["Cannot read properties of undefined (reading 'version')"], 1)
 } else if (` ${process.env.RELEASE_STUB_PUBLISHED ?? ''} `.includes(` ${args[1]} `)) {
   process.stdout.write(`${args[1].slice(args[1].lastIndexOf('@') + 1)}\n`)
