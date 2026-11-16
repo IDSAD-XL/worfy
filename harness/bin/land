@@ -68,8 +68,9 @@
 // personal data is not quoted, nor is any when the verified head cannot be read (the log says which). A PR without a
 // story or without prs[].verdict, a story that has the step already, and a story already red at the merged head by
 // story-check get nothing (the last two with a log line). Then each extra file of prs[].files (the story of the epic,
-// bin/TICKETS.md, "Code story") is copied to <tree>/<tickets root>/<path>, unless the main branch has that path already
-// (the log says so: the file was put by an earlier documents PR, and its anchor is the commit that added it). Then
+// bin/TICKETS.md, "Code story") is copied to <tree>/<tickets root>/<path> — once every PR of its epic in the state file
+// is merged (until then the documents wait); the same bytes there already are left as they are (log line), other bytes
+// or a symbolic link on the path make the documents wait red: a story is never overwritten. Then
 // docs_check, `git add -A`, the privacy check `evidence-check --changed --root <tree>/<tickets root> --base
 // refs/remotes/<remote>/<branch>` (exit 1 — the findings, masked, go to the log; the documents wait red, nothing
 // is committed or pushed), `story-check --head <merged head> <story>` on each story with an appended step (red — the
@@ -79,8 +80,8 @@
 // entry gets a new branch and a new PR. With tickets_root null there is no documents PR: prs[].evidence is not
 // written, and land prints `evidence of #N is the orchestrator's (tickets outside the repository)`; the review step is
 // not appended either, and for a PR with prs[].verdict land prints `review step of #N is the orchestrator's (tickets
-// outside the repository)`. The extra files of a merged PR (prs[].files) go into the folder `ticket root` prints, each
-// unless it is there already, with the line `<path> of #N written into the tickets outside the repository`.
+// outside the repository)`. The extra files of a merged PR (prs[].files) go into the folder `ticket root` prints, by the
+// same rules, with the line `<path> of #N written into the tickets outside the repository`, or `files of #N wait: <reason>`.
 //
 // --epic-story: merges nothing, asks gh nothing and writes nothing (the state file and its log included). For each
 // epic of the state file's PRs it reads the epic's tickets on <remote>/<branch> after a fetch (tickets_root null:
@@ -916,23 +917,51 @@ function appendReviewStep(st, p, tree, root) {
 }
 
 // --- the extra files of a PR (prs[].files): the story of the epic -------------------------------------------------------
-// Copies each extra file of PR p under <dir> — the tickets root of the documents worktree, or the tickets folder outside
-// the repository — and returns the paths it wrote. A path <dir> holds already is not written again (`where` names
-// <dir> in the log): an interrupted run, run again, or an earlier documents PR put it, and a story's anchor is the
-// commit that added it (bin/TICKETS.md, "Story anchor").
-function putFiles(p, dir, where) {
+// Copies each extra file of PR p to <base>/<prefix>/<path> — prefix the tickets root inside the documents worktree, or ""
+// in the tickets folder outside the repository — and returns the paths it wrote. Nothing is written:
+//   - while another PR of p's epic in the state file is not merged (a PR that waits does not hold the next one back): the
+//     story of the epic would tell of a PR the main branch does not have, and once that PR merged, the path would be
+//     there already. The files wait — the documents PR with them in Full mode;
+//   - through a symbolic link: the path itself or a folder on it — red;
+//   - over a file that is there already: the same bytes — an earlier documents PR or run put it, nothing to do; other
+//     bytes — red, never overwritten: the anchor of a story is the commit that added it (bin/TICKETS.md, "Story anchor").
+// `where` names the place in the log and the reasons.
+function putFiles(st, p, base, prefix, where) {
+    if (!Array.isArray(p.files) || !p.files.length) return []
+    const behind = st.prs.filter((x) => x !== p && x.epic === p.epic && !(x.result && x.result.status === "merged")).map((x) => `#${x.number}`)
+    if (behind.length) throw new Wait(`the files of #${p.number} wait for ${behind.join(", ")} of epic ${p.epic}, not merged yet`)
     const written = []
-    for (const f of p.files || []) {
-        const target = path.join(dir, ...f.path.split("/"))
-        if (fs.existsSync(target)) {
-            log(`${f.path} of #${p.number} is in ${where} already, not written again`)
-            continue
+    for (const f of p.files) {
+        const parts = [...(prefix ? prefix.split("/") : []), ...f.path.split("/")]
+        const target = path.join(base, ...parts)
+        let at = base
+        for (const part of parts) {
+            at = path.join(at, part)
+            let info
+            try {
+                info = fs.lstatSync(at)
+            } catch (e) {
+                if (e.code === "ENOENT") break
+                throw new Wait(`${f.path} of #${p.number}: ${parts.slice(0, parts.indexOf(part) + 1).join("/")} cannot be read (${e.code || e.message})`)
+            }
+            if (info.isSymbolicLink()) throw new Wait(`${f.path} of #${p.number}: ${path.relative(base, at).split(path.sep).join("/")} is a symbolic link, nothing is written through it`, "red")
         }
         let bytes
         try {
             bytes = fs.readFileSync(f.from)
         } catch (e) {
             throw new Wait(`the file ${f.path} of #${p.number} cannot be read: ${f.from} (${e.code || e.message})`)
+        }
+        if (fs.existsSync(target)) {
+            let there = null
+            try {
+                there = fs.readFileSync(target)
+            } catch {}
+            if (there && there.equals(bytes)) {
+                log(`${f.path} of #${p.number} is in ${where} already, the same bytes: not written again`)
+                continue
+            }
+            throw new Wait(`${f.path} of #${p.number} differs from the one in ${where}: not overwritten (change it there by a PR of its own, or drop the entry from "files")`, "red")
         }
         fs.mkdirSync(path.dirname(target), { recursive: true })
         fs.writeFileSync(target, bytes)
@@ -941,19 +970,19 @@ function putFiles(p, dir, where) {
     return written
 }
 // tickets_root null: the extra files of every merged PR go into the tickets folder outside the repository. Returns the
-// output lines and whether a file could not be put (the run is then not green).
+// output lines and the kind of the worst wait (null when every file is put; the run is then not green).
 function filesOutside(st) {
     const lines = []
-    let waits = false
+    let kind = null
     for (const p of st.prs.filter((x) => st.tickets_root === null && x.result && x.result.status === "merged" && Array.isArray(x.files) && x.files.length))
         try {
-            for (const f of putFiles(p, ticketsFolder(st), "the tickets folder")) lines.push(`${f} of #${p.number} written into the tickets outside the repository`)
+            for (const f of putFiles(st, p, ticketsFolder(st), "", "the tickets folder")) lines.push(`${f} of #${p.number} written into the tickets outside the repository`)
         } catch (e) {
             if (!(e instanceof Wait)) throw e
-            waits = true
+            kind = kind === "red" ? kind : e.kind
             lines.push(`files of #${p.number} wait: ${e.message}`)
         }
-    return { lines, waits }
+    return { lines, kind }
 }
 
 // --- --epic-story: is the state file's PR the epic's last PR with code (bin/TICKETS.md, "Ticket with code") -----------
@@ -1053,7 +1082,7 @@ function openDocsPr(file, st, d) {
             if (r.code !== 0) throw new Wait(`ticket done ${p.epic} ${p.ticket} failed (exit ${r.code}): ${firstLine(r.err)}`)
             const step = appendReviewStep(st, p, tree, root)
             if (step) appended.push(step)
-            for (const f of putFiles(p, path.join(tree, root), st.branch)) log(`${f} of #${n} written into the documents`)
+            for (const f of putFiles(st, p, tree, root, st.branch)) log(`${f} of #${n} written into the documents`)
         }
         if (st.docs_check) {
             const r = sh(st.docs_check, tree)
@@ -1196,7 +1225,7 @@ async function main() {
     // while the main branch is red: one line with the culprit and the deadline of the fix forward
     if (mainRed) lines.push(mainRed)
     const all = [...st.prs.map((p) => p.result), ...st.docs.map((d) => d.result).filter((r) => r && r.status !== "empty")]
-    if (outside.waits) all.push({ status: "waits", kind: "waits" })
+    if (outside.kind) all.push({ status: "waits", kind: outside.kind })
     const verdict = all.every((r) => r.status === "merged") ? "green" : all.some((r) => r.kind === "red") ? "red" : "unverified"
     st.runs.push({ started, ended: now(), land: verdict })
     save(file, st)

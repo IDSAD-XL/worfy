@@ -892,7 +892,8 @@ for p in '**The epic story**' '"${CLAUDE_PLUGIN_ROOT}/bin/land" <state file> --e
     'and `Check yourself` with two or three questions' 'the agent reads its diff and says in `Start` which chapters come from a diff' \
     '--pr-head <N>=<head>… <story>; echo "EXIT=$?"`, one `--pr-head` per chapter' '`prs[].files`' \
     'before the privacy check `evidence-check`: red — the documents PR waits red and nothing is committed or pushed' \
-    'A path the main branch has already is not written again, so a run broken off and run again puts the story once.' \
+    'The story waits while another PR of the epic in the state file is not merged: the documents PR waits with it' \
+    'a different `story.md` there, or a symbolic link on the path, is never overwritten: the documents PR waits red' \
     'In Silent mode there is no documents PR: `land` copies the file into the Workflow folder'; do
     ev "$EWS" "epic-wave, the epic story" "$p"
 done

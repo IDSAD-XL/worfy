@@ -1389,10 +1389,13 @@ Then give the ready file to that PR in the field `prs[].files` of the state file
 anything else, exit 1). `land` copies it to `<tickets root>/<epic>/story.md` in the same documents PR as
 that ticket's `Status: done`, before the privacy check `evidence-check`: red — the documents PR waits
 red and nothing is committed or pushed, as with the Evidence lines; fix the story and run `land` again on
-the same file. A path the main branch has already is not written again, so a run broken off and run
-again puts the story once. In Silent mode there is no documents PR: `land` copies the file into the
-Workflow folder, `<epic>/story.md` there, and prints `<epic>/story.md of #N written into the tickets
-outside the repository`.
+the same file. The story waits while another PR of the epic in the state file is not merged: the
+documents PR waits with it (`the files of #N wait for #M of epic <epic>, not merged yet`), and the next
+`land` run after that PR merges puts it. The same bytes already on the main branch are left as they are;
+a different `story.md` there, or a symbolic link on the path, is never overwritten: the documents PR waits
+red — change that story by a PR of its own, or drop the entry from `files`. In Silent mode there is no documents PR: `land` copies the file into the
+Workflow folder, `<epic>/story.md` there, by the same rules, and prints `<epic>/story.md of #N written
+into the tickets outside the repository`, or `files of #N wait: <reason>`.
 
 In Silent mode `land` opens no documents PR (`ticket done` is the orchestrator's, in the Workflow
 folder), and the Evidence lines are the orchestrator's too: after the verdict and the CI, before

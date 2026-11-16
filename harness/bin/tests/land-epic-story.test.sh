@@ -52,6 +52,22 @@ ticket_on_main 05-more open
 out="$("$LAND" "$S" --epic-story 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$out" = "epic story of e is not due: tickets with code still open: 05" ] \
     && ok "trigger: another ticket with code is open -> not due, the line names it" || bad "trigger not due: exit $rc: $out"
+# The header rule: Who only as a word of its own at the start of the value, outside code blocks, before the first `## `
+# heading after the Status line. Each case: ticket 02 is the state file's, ticket 06 has the header below; 06 has code.
+# header_case <name> <line>…: the lines are ticket 06 on the main branch; 06 must count as a ticket with code
+header_case() {
+    local name="$1"; shift
+    new_world "es-header-$name" 2
+    ticket_on_main 02-code open
+    on_main .scratch/e/issues/06-case.md "$@"
+    state 2
+    out="$("$LAND" "$S" --epic-story 2>&1)"; rc=$?
+    [ "$rc" = 0 ] && [ "$out" = "epic story of e is not due: tickets with code still open: 06" ] \
+        && ok "trigger, header rule: $name -> ticket 06 has code" || bad "trigger, header rule $name: exit $rc: $out"
+}
+header_case "a word that only starts with owner" '# 06' '' 'Status: open' 'Who: owners of the cart' '' '## What happens'
+header_case "Who: owner inside a code block of the header" '# 06' '' 'Status: open' '```text' 'Who: owner' '```' '' '## What happens'
+header_case "Who: owner after the first ## heading" '# 06' '' 'Status: open' '' '## What happens' '' 'Who: owner'
 # two PRs of the epic in one state file: the last in merge order is the last with code
 new_world es-trigger-two 2 3
 ticket_on_main 02-code open
@@ -116,31 +132,70 @@ state 1
     && ! grep -q "written into" "$W/state.log" \
     && ok "files: no field -> the documents PR has the ticket's file alone, the same message, title and body" \
     || bad "files none: exit $rc: $(cat "$W/out") diff $(git -C "$W/origin.git" diff --name-status refs/pull/900/head^ refs/pull/900/head) gh $(grep 'pr create' "$GHD/log")"
-# a run broken off right after the documents PR merged, run again on the same state file: the story is put once
+# a run broken off before the documents PR is recorded (killed at `gh pr create`, so d.pr is not saved), run again on the
+# same state file: the documents branch is made again from the main branch, and the story is put once
 new_world es-rerun 1
 state 1
 printf '%s\n' "$EPIC_STORY" >"$W/story.md"
 with_story 1 "$W/story.md"
-touch "$GHD/kill-after-merge-900"
+touch "$GHD/kill-before-create"
 "$LAND" "$S" >"$W/out1" 2>&1; rc1=$?
-rm -f "$GHD/kill-after-merge-900"
+rm -f "$GHD/kill-before-create"
+saved="$(q "$S" 's.docs[0].pr')"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 adds="$(git -C "$W/origin.git" log --format=%H --diff-filter=A main -- .scratch/e/story.md | wc -l | tr -d ' ')"
 touches="$(git -C "$W/origin.git" log --format=%H main -- .scratch/e/story.md | wc -l | tr -d ' ')"
-[ "$rc1" != 0 ] && [ "$rc" = 0 ] && tail -n 1 "$W/out" | grep -qx 'LAND=green' && [ "$adds" = 1 ] && [ "$touches" = 1 ] \
-    && [ "$(grep -c '^pr create' "$GHD/log")" = 1 ] && [ "$(show_at main .scratch/e/story.md)" = "$EPIC_STORY" ] \
-    && ok "files: a run killed after the documents merge, run again -> one documents PR, story.md added once" \
-    || bad "files rerun: exit $rc1/$rc adds $adds touches $touches creates $(grep -c '^pr create' "$GHD/log"): $(cat "$W/out")"
-# a story the main branch has already (an earlier documents PR) is not written again: the documents PR has the ticket alone
+[ "$rc1" != 0 ] && [ "$saved" = null ] && [ "$rc" = 0 ] && tail -n 1 "$W/out" | grep -qx 'LAND=green' && [ "$adds" = 1 ] && [ "$touches" = 1 ] \
+    && [ "$(grep -c '^pr create' "$GHD/log")" = 2 ] && [ "$(grep -c '^pr merge 900 ' "$GHD/log")" = 1 ] && [ "$(show_at main .scratch/e/story.md)" = "$EPIC_STORY" ] \
+    && ok "files: a run killed before the documents PR was saved, run again -> one documents PR merged, story.md added once" \
+    || bad "files rerun: exit $rc1/$rc pr $saved adds $adds touches $touches creates $(grep -c '^pr create' "$GHD/log"): $(cat "$W/out")"
+# the main branch has the same story already (an earlier documents PR put it): nothing to write, the documents PR has the
+# ticket alone
 new_world es-exists 1
+on_main .scratch/e/story.md "$EPIC_STORY"
+state 1
+printf '%s\n' "$EPIC_STORY" >"$W/story.md"
+with_story 1 "$W/story.md"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(docs_files)" = ".scratch/e/issues/01.md " ] && grep -q "e/story.md of #1 is in main already, the same bytes: not written again" "$W/state.log" \
+    && ok "files: the main branch has the same file -> not written again, the log says so" || bad "files exists: exit $rc: $(cat "$W/out") files $(docs_files)"
+# a different story on the main branch (a ticket with code added to the epic after its story): never overwritten, the
+# documents wait red, nothing pushed
+new_world es-differs 1
 on_main .scratch/e/story.md "$EPIC_STORY"
 state 1
 printf '%s\n' "$EPIC_STORY" "A second version." >"$W/story.md"
 with_story 1 "$W/story.md"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
-[ "$rc" = 0 ] && [ "$(docs_files)" = ".scratch/e/issues/01.md " ] && [ "$(show_at main .scratch/e/story.md)" = "$EPIC_STORY" ] \
-    && grep -q "e/story.md of #1 is in main already, not written again" "$W/state.log" \
-    && ok "files: the main branch has the file already -> not written again, the log says so" || bad "files exists: exit $rc: $(cat "$W/out") files $(docs_files)"
+[ "$rc" = 2 ] && tail -n 1 "$W/out" | grep -qx 'LAND=red' && grep -q '^documents land-docs/.* waits: e/story.md of #1 differs from the one in main' "$W/out" \
+    && [ -z "$(git -C "$W/origin.git" for-each-ref 'refs/heads/land-docs/*')" ] && [ "$(show_at main .scratch/e/story.md)" = "$EPIC_STORY" ] \
+    && ok "files: a different file on the main branch -> not overwritten, the documents wait red, nothing pushed" || bad "files differs: exit $rc: $(cat "$W/out")"
+# a symbolic link committed at the path (here a broken one, pointing out of the repository): nothing is written through it
+new_world es-link 1
+mkdir -p "$W/seed/.scratch/e" && ln -s "$W/outside/story.md" "$W/seed/.scratch/e/story.md" \
+    && git -C "$W/seed" add -A && git -C "$W/seed" commit -q -m link && git -C "$W/seed" push -q origin main
+state 1
+printf '%s\n' "$EPIC_STORY" >"$W/story.md"
+with_story 1 "$W/story.md"
+mkdir -p "$W/outside"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 2 ] && grep -q '^documents land-docs/.* waits: e/story.md of #1: ' "$W/out" && [ ! -e "$W/outside/story.md" ] && [ -z "$(git -C "$W/origin.git" for-each-ref 'refs/heads/land-docs/*')" ] \
+    && ok "files: a symbolic link at the path -> nothing written through it, the documents wait red" || bad "files link: exit $rc: $(cat "$W/out") outside $(ls "$W/outside")"
+# an earlier PR of the same epic waits in this run: the story would tell of a PR that is not merged, so the documents wait;
+# once that PR merges, the next run puts the story with both tickets
+new_world es-order 2 3
+state 3 2
+printf '%s\n' "$EPIC_STORY" >"$W/story.md"
+with_story 2 "$W/story.md"
+running "$(head_of 3)"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && grep -q '^#3 waits: ' "$W/out" && grep -q '^#2 merged ' "$W/out" && grep -q "^documents land-docs/.* waits: the files of #2 wait for #3 of epic e, not merged yet" "$W/out" \
+    && [ -z "$(git -C "$W/origin.git" for-each-ref 'refs/heads/land-docs/*')" ] && grep -q 'the files of #2 wait for #3' "$W/state.log" \
+    && ok "files: an earlier PR of the epic waits -> the documents wait, nothing pushed, the reason in the log" || bad "files order: exit $rc: $(cat "$W/out")"
+rm -f "$GHD/runs-$(head_of 3)"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(docs_files)" = ".scratch/e/issues/02.md .scratch/e/issues/03.md .scratch/e/story.md " ] \
+    && ok "files: run again once that PR merged -> one documents PR with both tickets and the story" || bad "files order, again: exit $rc: $(cat "$W/out") files $(docs_files)"
 # the ready file cannot be read: the documents wait, nothing pushed
 new_world es-unread 1
 state 1
@@ -159,20 +214,63 @@ for bad_files in "[{\"path\":\"../e/story.md\",\"from\":\"$(tn "$W/story.md")\"}
 done
 
 # --- Silent mode: no documents PR, the story goes into the tickets folder outside the repository --------------------------
-new_world es-silent 1
+# silent_world <name> <N>…: a world with tickets_root null and the tickets folder $W/wf
+silent_world() {
+    new_world "$@"
+    mkdir -p "$W/wf/e/issues" && printf '%s\n' "$(tn "$W/wf")" >"$GHD/tickets-root"
+}
+silent_world es-silent 1
 state 1
 edit 's.tickets_root=null'
-mkdir -p "$W/wf/e/issues" && printf '%s\n' "$(tn "$W/wf")" >"$GHD/tickets-root"
 printf '%s\n' "$EPIC_STORY" >"$W/story.md"
 with_story 1 "$W/story.md"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 0 ] && [ "$(cat "$W/wf/e/story.md")" = "$EPIC_STORY" ] && ! grep -q '^pr create' "$GHD/log" && [ -z "$(git -C "$W/origin.git" for-each-ref 'refs/heads/land-docs/*')" ] \
     && grep -qx "e/story.md of #1 written into the tickets outside the repository" "$W/out" \
     && ok "silent: tickets_root null -> story.md in the tickets folder, no documents PR" || bad "silent: exit $rc: $(cat "$W/out")"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && tail -n 1 "$W/out" | grep -qx 'LAND=green' && [ "$(cat "$W/wf/e/story.md")" = "$EPIC_STORY" ] && ! grep -q "written into" "$W/out" \
+    && ok "silent: run again -> the same file is not written a second time, green" || bad "silent rerun: exit $rc: $(cat "$W/out")"
+# the story in the Workflow folder edited by hand since: never overwritten, red
 printf 'changed by hand\n' >"$W/wf/e/story.md"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
-[ "$rc" = 0 ] && [ "$(cat "$W/wf/e/story.md")" = "changed by hand" ] && ! grep -q "written into" "$W/out" \
-    && ok "silent: run again -> the file in the tickets folder is not written a second time" || bad "silent rerun: exit $rc: $(cat "$W/out") file $(cat "$W/wf/e/story.md")"
+[ "$rc" = 2 ] && tail -n 1 "$W/out" | grep -qx 'LAND=red' && [ "$(cat "$W/wf/e/story.md")" = "changed by hand" ] && grep -q '^files of #1 wait: e/story.md of #1 differs from the one in the tickets folder' "$W/out" \
+    && ok "silent: a different file in the tickets folder -> not overwritten, LAND=red, the line says why" || bad "silent differs: exit $rc: $(cat "$W/out") file $(cat "$W/wf/e/story.md")"
+# the ready file cannot be read: the run is not green
+silent_world es-silent-unread 1
+state 1
+edit 's.tickets_root=null'
+with_story 1 "$W/no-such-story.md"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && tail -n 1 "$W/out" | grep -qx 'LAND=unverified' && grep -q '^files of #1 wait: the file e/story.md of #1 cannot be read' "$W/out" && [ ! -e "$W/wf/e/story.md" ] \
+    && ok "silent: the ready file cannot be read -> LAND=unverified, the line says why" || bad "silent unread: exit $rc: $(cat "$W/out")"
+# an earlier PR of the epic waits: the story waits with it
+silent_world es-silent-order 2 3
+state 3 2
+edit 's.tickets_root=null'
+printf '%s\n' "$EPIC_STORY" >"$W/story.md"
+with_story 2 "$W/story.md"
+running "$(head_of 3)"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ ! -e "$W/wf/e/story.md" ] && grep -q '^files of #2 wait: the files of #2 wait for #3 of epic e, not merged yet' "$W/out" \
+    && ok "silent: an earlier PR of the epic waits -> the story is not put, the line says why" || bad "silent order: exit $rc: $(cat "$W/out")"
+rm -f "$GHD/runs-$(head_of 3)"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$W/wf/e/story.md")" = "$EPIC_STORY" ] && ok "silent: run again once that PR merged -> the story is put" || bad "silent order, again: exit $rc: $(cat "$W/out")"
+# a folder on the path that is a symbolic link (the epic's folder points elsewhere): nothing is written through it
+silent_world es-silent-link 1
+state 1
+edit 's.tickets_root=null'
+mkdir -p "$W/elsewhere" && rm -rf "$W/wf/e" && ln -s "$W/elsewhere" "$W/wf/e"
+printf '%s\n' "$EPIC_STORY" >"$W/story.md"
+with_story 1 "$W/story.md"
+if [ -L "$W/wf/e" ]; then
+    "$LAND" "$S" >"$W/out" 2>&1; rc=$?
+    [ "$rc" = 2 ] && [ ! -e "$W/elsewhere/story.md" ] && grep -q '^files of #1 wait: e/story.md of #1: .* is a symbolic link' "$W/out" \
+        && ok "silent: a folder on the path is a symbolic link -> nothing written through it, LAND=red" || bad "silent link: exit $rc: $(cat "$W/out") elsewhere $(ls "$W/elsewhere")"
+else
+    ok "silent: a folder on the path is a symbolic link -> skipped: this system made a copy, not a link"
+fi
 
 home_after="$(real_home_snapshot "$HOME" "$T")"
 [ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" || { bad "the real home changed"; real_home_diff "$home_before" "$home_after"; }
