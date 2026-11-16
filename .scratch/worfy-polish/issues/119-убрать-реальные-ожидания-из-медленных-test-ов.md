@@ -84,8 +84,11 @@ Source: владелец 2026-11-16, «да на тикеты»: кандида�
 - [ ] Каждый изменённый test сохраняет смысл: мутант задержки продукта, которую он проверяет (задержка убрана,
       timer не ставится или ставится с другим значением), делает его красным. Мутант и красный вывод — в описании PR,
       по одному на п. 1–4.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs <touched file>` exit 1 under each mutant of items 1, 2 and 4 (11 mutants, each alone); table in PR #1900 · mac - · 5994c7c958071973469637a781f4478b1e99bdab
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs <touched file>` exit 1 under each mutant of item 3 (option ignored, default changed, delay 0, file events dropped) and of the haltTurnMs pass-through; table in the part 2 PR · mac - · d5ec083b4c979f00dbe0141d1caf1133f206db62
 - [ ] Test на каждую новую опцию (`haltTurnMs`, `settleReadsMs`, переменная окружения hook-а): без неё продукт берёт
       прежнее значение по умолчанию; негодное значение переменной окружения — тоже прежнее.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/docs-watch-root-gone.test.ts test/unit/autopilot-run.test.ts test/contract/agent-controls.test.ts test/contract/harness-codex-hooks.test.ts test/contract/harness-hook-stdin.test.ts` exit 0 (282 passed) · mac - · d5ec083b4c979f00dbe0141d1caf1133f206db62
 - [ ] До и после — время каждого тронутого файла из JSON report-а vitest
       (`node scripts/vitest-electron.mjs --reporter=json --outputFile.json=<файл> <файлы>`), одна машина, таблица в
       описании PR. Ожидание исследования — около 75–90 s суммарного времени test-ов.
@@ -102,6 +105,8 @@ Source: владелец 2026-11-16, «да на тикеты»: кандида�
       п. 4; девять файлов п. 5.
   - evidence: gate pass · `gate fast` exit 0 (pnpm test: 788 files passed, 7 skipped) · mac - · a1a44e9d89ae3c72d0ae14f980f1268e24226ce2
 - [ ] gate fast зелёный; Windows job CI зелёный (`stop.mjs` — скрипт Harness-а).
+  - evidence: gate pass · `gate fast` exit 0, [gate] green (fast): lint, typecheck, pnpm test (807 files passed, 7 skipped) · mac - · d5ec083b4c979f00dbe0141d1caf1133f206db62
+  - evidence: ci-check pass · PR #1900 CI: windows (1/3, 2/3, 3/3, harness-scripts 1/2, 2/2) full-suite success, ci-ok success · windows - · 5994c7c958071973469637a781f4478b1e99bdab
 
 ## Где в коде
 
