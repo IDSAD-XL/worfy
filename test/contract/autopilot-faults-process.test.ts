@@ -140,7 +140,9 @@ describe('Autopilot faults of the processes (worfy-faults ticket 03)', () => {
     h.releases.release('completed')
     await until(() => lastTasks(h).length === 0, 'the last implementer to end')
     const lastTaskEnded = Date.parse(h.journal(1).findLast((event) => event.kind === 'background-tasks')!.at)
-    await until(() => h.journal(1).filter((event) => event.kind === 'wave-started').length === 2, 'the continuation of 01')
+    // wave-started is journaled once the Session took the Wave's text; Claude Code reads it from its stdin
+    // later, so the test waits for the command it got too before the Force stop closes the Session.
+    await until(() => h.journal(1).filter((event) => event.kind === 'wave-started').length === 2 && waveCommands(h).length >= 2, 'the continuation of 01')
 
     const first = h.journal(1)
     const continued = first.find((event) => event.kind === 'ticket-continued')

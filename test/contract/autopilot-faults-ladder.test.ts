@@ -91,7 +91,13 @@ describe('the continuation ladder of a Run (worfy-stuck-agents ticket 05)', () =
   it('scenario 2: still claimed after two continuations → set-aside → the Orchestrator blocks it, Waits: owner → the Run goes to the next Epic', async () => {
     const h = faultRun({ scripts: [SCRIPT, SCRIPT, SCRIPT, 'autopilot-fault-held'], marks: 'claimed', settleMs: SETTLE_MS, setAside: 'block', secondEpic: true })
     await stuckOn01(h, 'none', [EPIC, EPIC_B])
-    await until(() => ofKind(h.journal(1), 'epic-started').length === 1 && ofKind(h.journal(1), 'wave-started').length === 4, 'the Wave of the second Epic', 10_000)
+    // wave-started is journaled once the Session took the Wave's text; Claude Code reads it from its stdin
+    // later, so the test waits for the command it got too before the Force stop closes the Session.
+    await until(
+      () => ofKind(h.journal(1), 'epic-started').length === 1 && ofKind(h.journal(1), 'wave-started').length === 4 && waveCommands(h).length >= 4,
+      'the Wave of the second Epic',
+      10_000,
+    )
 
     const first = h.journal(1)
     expect(ofKind(first, 'ticket-continued')).toMatchObject([
