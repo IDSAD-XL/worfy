@@ -15,6 +15,8 @@ export const JOURNAL_KINDS = [
   'wave-started',
   'ticket-status',
   'narrow-round',
+  'ticket-continued',
+  'ticket-set-aside',
   'wave-finished',
   'queue-changed',
   'epic-finished',
