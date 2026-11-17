@@ -23,7 +23,12 @@
 // - The repository of a PR: `owner/name`, or the name the Profile gives it (`_resolved.repos`), as a Ticket's
 //   `PR: <repo>#N` line spells it; none — the Project's first.
 // - A Vendor without a oneShot (Codex today) answers its reason before anything is read.
-import { STORY_INPUT_MAX_CHARS, type StoryInput, type StoryMade, type StoryOutcome, type StoryTarget } from '../../shared/ipc/stories'
+// - A build runs to its end whatever view of the window is open (worfy-polish 122, the owner's expectation over the rule
+//   of the audit of PR #1890): only Stop ends it. Main keeps the builds under way by Project and key, so a button that
+//   comes back to its PR or Epic — after a switch, or a reload of the window — finds its build (`runningOf`), and a second
+//   press of a key under way joins that build rather than start a second paid request. The story is kept under the key
+//   of the build itself, never under what the window shows.
+import { RUNNING_LINES_KEPT, STORY_INPUT_MAX_CHARS, type StoryInput, type StoryMade, type StoryOutcome, type StoryTarget } from '../../shared/ipc/stories'
 import type { Story, StoryChapter, StoryLanguage } from '../../shared/stories/schema'
 import type { Capabilities } from '../../shared/vendors/capabilities'
 import type { VendorId } from '../../shared/vendors/vendor'
@@ -179,14 +184,38 @@ function ticketNamesPr(ticket: Ticket, repo: StoryRepo, repos: readonly StoryRep
   return repoFactsOf(ticket).prs.some((pr) => pr.number === number && (pr.repo === null ? repo === repos[0] : repo.name !== null && pr.repo.toLowerCase() === repo.name.toLowerCase()))
 }
 
+/** Where a press's story is kept: its key, and for a PR its repository and the Project's; or how it failed before. */
+type Place = { ok: true; key: string; repo: StoryRepo | null; repos: StoryRepo[] } | { ok: false; made: StoryMade }
+
+/** A build by the button under way, by Project and key (worfy-polish 122): the press that started it, its last lines, and the presses that hear them. */
+interface KeyedBuild {
+  storyId: string
+  key: string
+  lines: string[]
+  listeners: Set<(text: string) => void>
+  done: Promise<StoryMade>
+}
+
+/** The registry's key of a build: the Project and the story's key. */
+const keyedId = (projectId: string, key: string): string => `${projectId}\n${key}`
+
 export class StoryMaker {
   /** The builds under way, by storyId, from the press until the story is kept: Stop aborts the signal. */
   private readonly running = new Map<string, AbortController>()
+  /**
+   * The builds under way by Project and key (worfy-polish 122): a build runs to its end whatever view is open, so a
+   * button that comes back finds it (`runningOf`), and a second press of the key joins it instead of a second request.
+   */
+  private readonly byKey = new Map<string, KeyedBuild>()
+  /** A press that joined a build under way → the storyId of that build: its Stop is that build's. */
+  private readonly joined = new Map<string, string>()
 
   constructor(private readonly deps: StoryMakerDeps) {}
 
   /** Stop: ends the build `storyId` wherever it is — reading the material, or in the request; false when none runs. */
   stop(storyId: string): boolean {
+    const build = this.joined.get(storyId)
+    if (build !== undefined) return this.stop(build)
     const run = this.running.get(storyId)
     const inBuilder = this.deps.builder.stop(storyId)
     if (run === undefined) return inBuilder
@@ -194,38 +223,92 @@ export class StoryMaker {
     return true
   }
 
-  /** Makes the story of `request.target`, or opens the one kept before; `onActivity` hears the build's lines. */
-  async make(request: MakeRequest, onActivity: (text: string) => void): Promise<StoryMade> {
+  /** The build by the button of `target` under way in Project `projectId`: its storyId, key and last lines; null when none. */
+  async runningOf(projectId: string, target: StoryTarget): Promise<{ storyId: string; key: string; lines: string[] } | null> {
+    // Every button asks on mount and when the Canvas shows again: with no build of the Project under way, no git is read.
+    const prefix = keyedId(projectId, '')
+    if (![...this.byKey.keys()].some((id) => id.startsWith(prefix))) return null
+    const place = await this.placeOf(this.deps.project(projectId).root, target)
+    if (!place.ok) return null
+    const build = this.byKey.get(keyedId(projectId, place.key))
+    return build === undefined ? null : { storyId: build.storyId, key: build.key, lines: [...build.lines] }
+  }
+
+  /**
+   * Makes the story of `request.target`, or opens the one kept before; `onActivity` hears the build's lines. A key being
+   * built already starts no second request: the press hears that build and answers its story. `onEnd` hears the answer
+   * of a press that did not join another's build, once that build is no longer under way.
+   */
+  async make(request: MakeRequest, onActivity: (text: string) => void, onEnd: (made: StoryMade) => void = () => undefined): Promise<StoryMade> {
     const asked = request.target.kind === 'pr' ? request.target.repo : null
-    if (this.running.has(request.storyId)) return failed(storyKeyOf(request.target, asked), `The story ${request.storyId} is already being built.`)
+    if (this.running.has(request.storyId) || this.joined.has(request.storyId)) return failed(storyKeyOf(request.target, asked), `The story ${request.storyId} is already being built.`)
     // Taken before the first wait, so Stop reaches the build from the press on.
     const stop = new AbortController()
     this.running.set(request.storyId, stop)
+    let made: StoryMade
     try {
-      return await this.makeWith(request, stop.signal, onActivity)
+      const project = this.deps.project(request.projectId)
+      const place = await this.placeOf(project.root, request.target)
+      if (!place.ok) made = place.made
+      else if (stop.signal.aborted) made = { key: place.key, reused: false, outcome: { status: 'stopped' } }
+      else {
+        const id = keyedId(request.projectId, place.key)
+        const under = this.byKey.get(id)
+        if (under !== undefined) return await this.join(under, request.storyId, onActivity)
+        // No wait between the look-up above and this entry: two presses of one key never both start a request.
+        const build: KeyedBuild = { storyId: request.storyId, key: place.key, lines: [], listeners: new Set([onActivity]), done: Promise.resolve(failed(place.key, 'not started')) }
+        const hear = (text: string): void => {
+          build.lines = [...build.lines, text].slice(-RUNNING_LINES_KEPT)
+          for (const listener of build.listeners) listener(text)
+        }
+        build.done = this.makeWith(request, project, place, stop.signal, hear)
+        this.byKey.set(id, build)
+        try {
+          made = await build.done
+        } finally {
+          if (this.byKey.get(id) === build) this.byKey.delete(id)
+        }
+      }
     } finally {
       if (this.running.get(request.storyId) === stop) this.running.delete(request.storyId)
     }
+    onEnd(made)
+    return made
   }
 
-  private async makeWith(request: MakeRequest, signal: AbortSignal, onActivity: (text: string) => void): Promise<StoryMade> {
-    const project = this.deps.project(request.projectId)
-    let repos: StoryRepo[] = []
-    let repo: StoryRepo | null = null
-    if (request.target.kind === 'pr') {
-      const asked = request.target.repo
-      try {
-        repos = await this.deps.repos(project.root)
-      } catch (error) {
-        return failed(storyKeyOf(request.target, asked), `The repositories of the Project could not be read: ${messageOf(error)}`)
-      }
-      repo = repoNamed(repos, asked)
-      if (repo === null) {
-        const reason = asked === null ? 'The Project has no GitHub repository.' : `${asked} is not a repository of this Project.`
-        return failed(storyKeyOf(request.target, asked), reason)
-      }
+  /** A press of a key under way: it hears that build's lines and answers its story; its Stop is that build's. */
+  private async join(build: KeyedBuild, storyId: string, onActivity: (text: string) => void): Promise<StoryMade> {
+    this.running.delete(storyId)
+    this.joined.set(storyId, build.storyId)
+    build.listeners.add(onActivity)
+    try {
+      return await build.done
+    } finally {
+      build.listeners.delete(onActivity)
+      this.joined.delete(storyId)
     }
-    const key = storyKeyOf(request.target, repo?.slug ?? null)
+  }
+
+  /** The key `target` is kept under, with the repositories a PR is read in; the failure when they cannot be read. */
+  private async placeOf(root: string, target: StoryTarget): Promise<Place> {
+    if (target.kind !== 'pr') return { ok: true, key: storyKeyOf(target, null), repo: null, repos: [] }
+    const asked = target.repo
+    let repos: StoryRepo[]
+    try {
+      repos = await this.deps.repos(root)
+    } catch (error) {
+      return { ok: false, made: failed(storyKeyOf(target, asked), `The repositories of the Project could not be read: ${messageOf(error)}`) }
+    }
+    const repo = repoNamed(repos, asked)
+    if (repo === null) {
+      const reason = asked === null ? 'The Project has no GitHub repository.' : `${asked} is not a repository of this Project.`
+      return { ok: false, made: failed(storyKeyOf(target, asked), reason) }
+    }
+    return { ok: true, key: storyKeyOf(target, repo.slug), repo, repos }
+  }
+
+  private async makeWith(request: MakeRequest, project: { root: string; dataDir: string; vendor: VendorId }, place: Extract<Place, { ok: true }>, signal: AbortSignal, onActivity: (text: string) => void): Promise<StoryMade> {
+    const { key, repo, repos } = place
     const stopped: StoryMade = { key, reused: false, outcome: { status: 'stopped' } }
     if (signal.aborted) return stopped
     if (request.rebuild !== true) {

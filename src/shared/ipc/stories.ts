@@ -308,6 +308,9 @@ export type StoryMade = z.output<typeof storyMadeSchema>
 /**
  * Makes the story of `target` in Project `projectId` (stories.activity tells each line, stories.stop ends it), or opens
  * the one kept before; `rebuild` builds it again in place of the kept one. A stopped or failed build keeps nothing.
+ * A build runs to its end whatever view is open: only Stop ends it (worfy-polish 122). A press on a key that is being
+ * built already starts no second request: it hears that build's lines under its own storyId and answers that build's
+ * story; its storyId stops that build.
  */
 export const storiesMake = invokeChannel(
   'stories.make',
@@ -316,6 +319,29 @@ export const storiesMake = invokeChannel(
   'project',
   'write',
 )
+
+/** How many of the last lines of a build under way main keeps, for a button that comes back to it: as many as the bar shows. */
+export const RUNNING_LINES_KEPT = 3
+
+/**
+ * The build by the button of `target` under way in Project `projectId` (worfy-polish 122), for a button that comes back
+ * to it — after a switch of the PR or the view, or a reload of the window: its storyId (stories.activity, stories.stop,
+ * stories.made), the key its story will be kept under and its last lines. Null when none runs.
+ */
+export const storiesRunning = invokeChannel(
+  'stories.running',
+  z.object({ projectId: z.string().min(1), target: storyTargetSchema }),
+  z.object({ storyId: storyIdSchema, key: storyKeySchema, lines: z.array(z.string()) }).nullable(),
+  'project',
+  'read',
+)
+
+/**
+ * The end of a build by the button (worfy-polish 122), sent to the window that pressed: how stories.make answered it.
+ * A button that came back to the build ends its bar with it; when no button follows it, the window shows a toast for a
+ * story made. A press that joined a build under way gets no event of its own.
+ */
+export const storiesMadeEvent = eventChannel('stories.made', z.object({ storyId: z.string(), projectId: z.string(), made: storyMadeSchema }), 'project', 'read')
 
 /**
  * The answers kept for `story` in Project `projectId`, oldest first — by what the story names: its file, or the PR or
@@ -398,6 +424,8 @@ export const storiesSelfCheck = invokeChannel(
 declare module './channels' {
   interface IpcContract {
     'stories.make': typeof storiesMake
+    'stories.running': typeof storiesRunning
+    'stories.made': typeof storiesMadeEvent
     'stories.build': typeof storiesBuild
     'stories.stop': typeof storiesStop
     'stories.activity': typeof storiesActivity

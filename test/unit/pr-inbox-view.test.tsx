@@ -192,6 +192,9 @@ function preload(options: { inbox: Record<string, PrInboxSnapshot>; models?: Rec
         fake.inbox[projectId] = { ...snapshot, groups: snapshot.groups.map((group) => ({ ...group, rows: group.rows.map((each) => (each.repo === repo && each.number === number ? { ...each, newSinceSeen: 0 } : each)) })) }
         return { ok: true, value: fake.inbox[projectId] }
       }
+      // No build by the button under way (worfy-polish 122): "Code story" asks on mount.
+      case 'stories.running':
+        return { ok: true, value: null }
       default:
         return { ok: true, value: { closed: true } }
     }

@@ -45,18 +45,22 @@ import {
   storiesAsk,
   storiesBuild,
   storiesCode,
+  storiesMadeEvent,
   storiesMake,
   storiesMarkRead,
   storiesMarks,
   storiesRead,
+  storiesRunning,
   storiesSaved,
   storiesSelfCheck,
   storiesStop,
+  type StoryMade,
   type StoryRead,
 } from '../../shared/ipc/stories'
 import { parseStory } from '../../shared/stories/parse'
 import type { VendorId } from '../../shared/vendors/vendor'
 import { FakeReleases, fakeQueryFactory } from '../agent/fake-query'
+import { toEveryWindow } from '../broadcast'
 import { harnessScriptEnv } from '../harness/script-env'
 import { gitWorktrees } from '../claude-home/registry'
 import { remoteRepos } from '../github/inbox'
@@ -410,6 +414,18 @@ export const ghPrCommits: PrCommits = async (root, pr) => {
 const prCommits = cachedPrCommits(ghPrCommits)
 const ticketPr = ticketPrFromModel(async (root) => (await readWorkflow({ root, claudeHome: claudeHome(), env: harnessScriptEnv })).model)
 
+/**
+ * Where the lines and the end of build `storyId` by the button go: to every client of the app (src/main/broadcast.ts),
+ * not only the window that pressed — a build outlives its window (worfy-polish 122). Each client's hook takes only the
+ * storyId it holds; both events are `read` for a Linked machine.
+ */
+export function buttonBuildEvents(storyId: string, projectId: string): { activity: (text: string) => void; end: (made: StoryMade) => void } {
+  return {
+    activity: (text) => toEveryWindow((client) => emit(client, storiesActivity, { storyId, text })),
+    end: (made) => toEveryWindow((client) => emit(client, storiesMadeEvent, { storyId, projectId, made })),
+  }
+}
+
 const handlers: HandlerModule = [
   defineHandler(storiesBuild, async ({ storyId, projectId, folder, input }, { event }) => {
     const store = projectStore()
@@ -431,9 +447,17 @@ const handlers: HandlerModule = [
     return { stopped: build || question }
   }),
 
-  defineHandler(storiesMake, ({ storyId, projectId, target, rebuild }, { event }) =>
-    maker().make({ storyId, projectId, target, rebuild: rebuild === true }, (text) => toSender(event.sender, (sendTo) => emit(sendTo, storiesActivity, { storyId, text }))),
-  ),
+  // A build runs to its end whatever view is open (worfy-polish 122): its lines and its end go to every client, so a button
+  // that took it up in another window (one opened anew from the Dock) or on a Linked machine hears them too, and the end
+  // reaches the window's toast when no button followed it.
+  defineHandler(storiesMake, ({ storyId, projectId, target, rebuild }) => {
+    const events = buttonBuildEvents(storyId, projectId)
+    return maker().make({ storyId, projectId, target, rebuild: rebuild === true }, events.activity, events.end)
+  }),
+
+  // Every "Code story" button asks on mount: with no maker yet no build runs, and none is made here — making it makes the
+  // fake agent's story releases, which would take globalThis.worfyFakeRelease from the Sessions' fake agent in e2e runs.
+  defineHandler(storiesRunning, ({ projectId, target }) => (sharedMaker === undefined ? null : sharedMaker.runningOf(projectId, target))),
 
   defineHandler(storiesAsk, async ({ questionId, projectId, folder, story, about, code, question, key: madeKey }, { event }) => {
     // Made before the first wait: under WORFY_AGENT=fake the asker's fake agent puts its release on globalThis when it

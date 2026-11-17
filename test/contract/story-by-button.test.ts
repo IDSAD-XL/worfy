@@ -31,7 +31,7 @@ vi.mock('electron', () => ({ app: { isPackaged: false, getAppPath: () => '/nowhe
 
 const { StoryMaker, notReadyLine, settleChapters } = await import('../../src/main/stories/by-button')
 const { StoryBuilder } = await import('../../src/main/stories/one-shot')
-const { storiesPath } = await import('../../src/main/stories/store')
+const { readSavedStory, storiesPath } = await import('../../src/main/stories/store')
 const { storyFragmentCode } = await import('../../src/main/stories/code')
 const { CODEX_CAPABILITIES } = await import('../../src/main/vendors/codex/capabilities')
 
@@ -417,5 +417,102 @@ describe('the builder (audit of PR #1890)', () => {
     answerCapabilities(CLAUDE)
     expect(await building).toEqual({ status: 'stopped' })
     expect(requests).toEqual([])
+  })
+})
+
+// worfy-polish 122 (owner's bug report 2026-11-17): a build by the button runs to its end whatever view is open, so main
+// keeps the builds under way by Project and key. A button that comes back finds its build (`running`), a second press
+// of a key under way starts no second request, the story is kept under its own key, and Stop ends only its own build.
+describe('the builds by the button under way, by key (worfy-polish 122)', () => {
+  const PR_B: StoryTarget = { kind: 'pr', repo: 'shop/demo-cart', number: 213 }
+
+  /** A maker whose requests each hold until the test lets them go, in the order they came; Stop ends one. */
+  function heldMaker(): { maker: InstanceType<typeof StoryMaker>; letGo: (index: number) => void } {
+    const answers: (() => void)[] = []
+    const held = (prompt: string, opts: OneShotOptions) => {
+      requests.push({ prompt, opts })
+      opts.onActivity?.(`Read the diff of request ${String(requests.length)}`)
+      return new Promise<{ text: string; structured: unknown }>((resolve, reject) => {
+        answers.push(() => resolve({ text: '', structured: answer('pr-en') }))
+        opts.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+      })
+    }
+    const builder = new StoryBuilder({ oneShot: () => held, capabilities: () => Promise.resolve(CLAUDE), runDir: () => join(base, 'run') })
+    return { maker: new StoryMaker(deps({ author: 'dev-me', viewer: 'dev-me', heads: {} }, { builder })), letGo: (index) => answers[index]!() }
+  }
+
+  const keptPr = (key: string): number | null => {
+    const saved = readSavedStory(dataDir, key)
+    return saved !== null && saved.story.kind === 'pr' ? saved.story.header.pr : null
+  }
+
+  it('two keys build side by side; each story is kept under its own key, whichever ends first', async () => {
+    const { maker, letGo } = heldMaker()
+    const a = make(maker, PR, 'build-a')
+    const b = make(maker, PR_B, 'build-b')
+    await vi.waitFor(() => expect(requests).toHaveLength(2))
+    expect(await maker.runningOf('p1', PR)).toEqual({ storyId: 'build-a', key: 'shop/demo-cart#212', lines: ['Read the diff of request 1'] })
+    // A Ticket card names no repository: the Project's own, the same key.
+    expect(await maker.runningOf('p1', { kind: 'pr', repo: null, number: 213 })).toEqual({ storyId: 'build-b', key: 'shop/demo-cart#213', lines: ['Read the diff of request 2'] })
+    expect(await maker.runningOf('p2', PR)).toBeNull()
+    // B ends while A still builds: its story goes under its own key, and A's key has none yet.
+    letGo(1)
+    expect(await b).toMatchObject({ key: 'shop/demo-cart#213', outcome: { status: 'story' } })
+    expect(keptPr('shop/demo-cart#213')).toBe(213)
+    expect(keptPr('shop/demo-cart#212')).toBeNull()
+    expect(await maker.runningOf('p1', PR_B)).toBeNull()
+    expect(await maker.runningOf('p1', PR)).toMatchObject({ storyId: 'build-a' })
+    letGo(0)
+    expect(await a).toMatchObject({ key: 'shop/demo-cart#212', outcome: { status: 'story' } })
+    expect(keptPr('shop/demo-cart#212')).toBe(212)
+    expect(await maker.runningOf('p1', PR)).toBeNull()
+  })
+
+  it('a second make of a key under way starts no second request: it hears that build and answers its story; Rebuild too', async () => {
+    const { maker, letGo } = heldMaker()
+    const first = make(maker, PR, 'first')
+    await vi.waitFor(() => expect(requests).toHaveLength(1))
+    const heard: string[] = []
+    const again = maker.make({ storyId: 'again', projectId: 'p1', target: { kind: 'pr', repo: null, number: 212 } }, (text) => heard.push(text))
+    const rebuild = make(maker, PR, 'rebuild', true)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    letGo(0)
+    const made = await first
+    expect(made.outcome.status).toBe('story')
+    expect(await again).toEqual(made)
+    expect(await rebuild).toEqual(made)
+    expect(requests).toHaveLength(1)
+    expect(await maker.runningOf('p1', PR)).toBeNull()
+  })
+
+  it('Stop ends only its own build; Stop under a press that joined a build ends that build', async () => {
+    const { maker } = heldMaker()
+    const a = make(maker, PR, 'build-a')
+    const b = make(maker, PR_B, 'build-b')
+    await vi.waitFor(() => expect(requests).toHaveLength(2))
+    expect(maker.stop('build-a')).toBe(true)
+    expect(await a).toEqual({ key: 'shop/demo-cart#212', reused: false, outcome: { status: 'stopped' } })
+    expect(await maker.runningOf('p1', PR_B)).toMatchObject({ storyId: 'build-b' })
+    const joined = make(maker, PR_B, 'joined')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(maker.stop('joined')).toBe(true)
+    expect(await b).toMatchObject({ key: 'shop/demo-cart#213', outcome: { status: 'stopped' } })
+    expect(await joined).toMatchObject({ outcome: { status: 'stopped' } })
+    expect(requests).toHaveLength(2)
+    expect(existsSync(storiesPath(dataDir))).toBe(false)
+  })
+
+  it('the end of a build is told once, to the press that started it, not to one that joined it', async () => {
+    const { maker, letGo } = heldMaker()
+    const ends: string[] = []
+    const first = maker.make({ storyId: 'first', projectId: 'p1', target: PR }, () => undefined, (made) => ends.push(`first ${made.outcome.status}`))
+    await vi.waitFor(() => expect(requests).toHaveLength(1))
+    const again = maker.make({ storyId: 'again', projectId: 'p1', target: PR }, () => undefined, (made) => ends.push(`again ${made.outcome.status}`))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    letGo(0)
+    await Promise.all([first, again])
+    expect(ends).toEqual(['first story'])
+    // When it is told, the build is no longer under way: a button that asks then finds none.
+    expect(await maker.runningOf('p1', PR)).toBeNull()
   })
 })
