@@ -315,7 +315,9 @@ Session sends at most one notification in 10 seconds. A click opens that Session
   in its data folder ([ADR-0002](../adr/0002-worfy-is-a-view-over-the-workflow.md),
   [ADR-0005](../adr/0005-worfy-own-state-inventory.md)).
 - **An id arrives late.** A new Session passes its own uuid to Claude Code. A resumed one keeps a temporary `pending-` id until
-  `system/init`, and then a `renamed` event moves everything to the real id. Channels accept both.
+  `system/init`, and then a `renamed` event moves everything to the real id. Channels accept both. When the real id
+  already has live events — a Session started again with `resume`, such as the Orchestrator Autopilot gives back — those
+  stay first, and what came under the `pending-` id follows them.
 - **The Orchestrator's Node keeps only the Session id, its Vendor and the cost.** Everything else comes from the transcript
   and the live events ([ADR-0010](../adr/0010-orchestrator-state-session-id-and-cost-only.md)). A Node without the Vendor
   is a Claude Code session.
