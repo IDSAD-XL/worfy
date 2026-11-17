@@ -455,7 +455,9 @@ const handlers: HandlerModule = [
     return maker().make({ storyId, projectId, target, rebuild: rebuild === true }, events.activity, events.end)
   }),
 
-  defineHandler(storiesRunning, ({ projectId, target }) => maker().runningOf(projectId, target)),
+  // Every "Code story" button asks on mount: with no maker yet no build runs, and none is made here — making it makes the
+  // fake agent's story releases, which would take globalThis.worfyFakeRelease from the Sessions' fake agent in e2e runs.
+  defineHandler(storiesRunning, ({ projectId, target }) => (sharedMaker === undefined ? null : sharedMaker.runningOf(projectId, target))),
 
   defineHandler(storiesAsk, async ({ questionId, projectId, folder, story, about, code, question, key: madeKey }, { event }) => {
     // Made before the first wait: under WORFY_AGENT=fake the asker's fake agent puts its release on globalThis when it

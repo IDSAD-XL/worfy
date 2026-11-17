@@ -255,6 +255,32 @@ describe('the fake agent of the e2e runs (WORFY_AGENT=fake)', () => {
   })
 })
 
+// worfy-polish 122, CI of PR #1940: every "Code story" button asks stories.running on mount. Asking made the app's
+// story maker, and with it the story releases of the fake agent, which took globalThis.worfyFakeRelease from the fake
+// agent of the Sessions: the Autopilot e2e runs never released their turns and stayed "stopping".
+describe('stories.running makes no story maker', () => {
+  it('asked before any build, it answers none and leaves globalThis.worfyFakeRelease to the Sessions\' fake agent', async () => {
+    vi.resetModules()
+    const before = process.env.WORFY_AGENT
+    process.env.WORFY_AGENT = 'fake'
+    const sessions = (): void => undefined
+    const holder = globalThis as { worfyFakeRelease?: (name: string) => void }
+    const kept = holder.worfyFakeRelease
+    holder.worfyFakeRelease = sessions
+    try {
+      const { default: fresh } = await import('../../src/main/ipc/stories')
+      const running = fresh.find((entry) => entry.channel.name === 'stories.running')!
+      const answer = await running.handle({ projectId: 'p1', target: { kind: 'pr', repo: null, number: 212 } } as never, { event: { sender: { send: () => undefined, isDestroyed: () => false } } } as never)
+      expect(answer).toBeNull()
+      expect(holder.worfyFakeRelease).toBe(sessions)
+    } finally {
+      holder.worfyFakeRelease = kept
+      if (before === undefined) delete process.env.WORFY_AGENT
+      else process.env.WORFY_AGENT = before
+    }
+  })
+})
+
 describe('the fake agent releases of every story request are one set', () => {
   it('a build made before the asker is still released by globalThis.worfyFakeRelease once the asker is made', async () => {
     const { storyOneShotFromEnv } = await import('../../src/main/ipc/stories')
