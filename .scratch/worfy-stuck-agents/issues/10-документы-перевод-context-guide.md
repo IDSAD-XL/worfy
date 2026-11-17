@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 02, 04, 05, 06, 07, 08, 09
+Blocked by: 02, 04, 05, 06, 07, 09
 Source: [spec.md](../spec.md), «Ticket-ы», 10; «Готово, когда», пункт о документах;
 [critic](../../../docs/product/critic/worfy-stuck-agents-2026-11-14.md), возражение 3; «Решено без владельца», 1 и 11
 
@@ -13,7 +13,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 10; «Готово, когда», 
 ## Что происходит
 
 - Английские страницы Feature правят Ticket-ы своего поведения (правило `ship-ticket` и ADR-0088): `gate-and-github.md`
-  (02), `sessions.md` (04, 06), `autopilot.md` и `autopilot-faults.md` (05, 08, 09), `skills-agents-and-hooks.md` (07).
+  (02), `sessions.md` (04, 06), `autopilot.md` и `autopilot-faults.md` (05, 09), `skills-agents-and-hooks.md` (07).
   Перевод в PR с поведением не считается (`profile --rules`, раздел «Язык»), поэтому `docs/features/ru/` отстаёт.
 - В CONTEXT.md нет слов для продолжения застрявшего Ticket-а, отложенного Ticket-а и хода без признаков жизни. Рядом
   стоят Auto-continue (повтор после ошибки API и Limits — другое) и Silent mode (режим Project-а — другое).
@@ -32,7 +32,8 @@ Source: [spec.md](../spec.md), «Ticket-ы», 10; «Готово, когда», 
    - **Quiet turn** — ход Session без признаков жизни дольше порога; _Avoid_: silent (Silent mode — режим Project-а),
      hung (так зовётся только причина остановки `turn-hung`).
    Строка в Relationships: Run продолжает Ticket не больше двух раз, потом откладывает.
-3. Guide: строка 104 `en.json` и `ru.json` — лестница вместо немедленной остановки; `main-red` и `turn-hung`.
+3. Guide: строка 104 `en.json` и `ru.json` — лестница вместо немедленной остановки для `wave-unfinished`; `main-red` и
+   `turn-hung`; `background-stalled` — остановка, как раньше.
 
 ## Готово, когда
 
@@ -54,8 +55,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 10; «Готово, когда», 
 - `src/renderer/guide/topics/autopilot/en.json`
 - `src/renderer/guide/topics/autopilot/ru.json`
 
-Только читать: английские страницы `docs/features/` и `docs/adr/0024-…`, `docs/adr/0029-…` с Amendment-ами Ticket-ов 05
-и 08.
+Только читать: английские страницы `docs/features/` и `docs/adr/0024-…` с Amendment-ом Ticket-а 05.
 
 ## Вне скоупа
 

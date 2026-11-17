@@ -1,8 +1,11 @@
 # worfy-stuck-agents: застрявший Ticket не останавливает Run, замолчавший ход виден (часть 1)
 
-Status: черновик 2026-11-17 (часть 1 после Split critic-а), ждёт приёмки владельца
-Critic: [docs/product/critic/worfy-stuck-agents-2026-11-14.md](../../docs/product/critic/worfy-stuck-agents-2026-11-14.md) — Split.
-Как Split учтён: в Epic-е остались Run ladder (лестница Run-а: продолжить, отложить, остановить) и watchdog тишины хода —
+Status: принят владельцем 2026-11-17 (вопросы 1–3 — ответы (а); Split critic-а 2026-11-17 принят)
+Critic: [docs/product/critic/worfy-stuck-agents-2026-11-17.md](../../docs/product/critic/worfy-stuck-agents-2026-11-17.md) — Split;
+принят владельцем 2026-11-17 («да на все»): Ticket 08 (продолжение при `background-stalled`) ушёл из Epic-а, маркер
+`main-red` держится, пока идёт повтор красного push run-а, замер `loop-log` — отдельный Ticket 12. Ранний review —
+[docs/product/critic/worfy-stuck-agents-2026-11-14.md](../../docs/product/critic/worfy-stuck-agents-2026-11-14.md), Split.
+Как Split 2026-11-14 учтён: в Epic-е остались Run ladder (лестница Run-а: продолжить, отложить, остановить) и watchdog тишины хода —
 они опираются на наблюдённые сбои; детектор зацикливания Harness остался только в форме записи (call log и счёт
 `would-deny`, без подсказки и отказа), а отказ, `blocked: loop`, Stop hook по отпечатку, Codex-паритет детектора и
 эскалация модели ушли в раздел «Вне Epic-а» с причинами critic-а; английскую страницу Feature правит Ticket своего
@@ -19,7 +22,8 @@ worfy-faults (Fault scenarios и инварианты И1–И8, closed 8/8), wo
 closed 14/14), worfy-flight-recorder (Run history, closed 28/28), worfy-mcp-live (Restart с тем же разговором, 13/14,
 осталась приёмка), worfy-throughput 64 (`land` видит красный `main`, done), worfy-multi-vendor (Codex как второй Vendor,
 47/48, осталась приёмка).
-Ticket-ы: Epic `worfy-stuck-agents`, 11 Ticket-ов, `issues/01`–`issues/11`, нумерация с `01`. Шапка — `Type:` /
+Ticket-ы: Epic `worfy-stuck-agents`, 11 Ticket-ов: `issues/01`–`issues/12` без `08` (он ушёл из Epic-а по critic-у
+2026-11-17; номера остальных не менялись). Шапка — `Type:` /
 `Status:` / `Blocked by:` / `Source:`, как у worfy-code-stories. Порядок — раздел «Волны». Это первый Epic, который
 целиком идёт с Code stories (`code_stories.pr` в Profile-е включён, менять ничего не нужно): у каждого Ticket-а с кодом
 пункты «Готово, когда» называют поведение и test, на которые опирается story PR.
@@ -80,9 +84,10 @@ Ticket-ы: Epic `worfy-stuck-agents`, 11 Ticket-ов, `issues/01`–`issues/11`,
 - Слова модели не возвращаются к ней как указания (`src/shared/agent/continue-plan.ts:28`).
 
 1. **Run ladder: застрявший Ticket откладывается, Run идёт дальше** (Autopilot). Вместо остановки по
-   `wave-unfinished`, `no-progress` и `background-stalled` — три ступени с потолком на каждый Ticket:
-   - *Продолжение.* Run шлёт Orchestrator-у продолжение из фактов worfy: номера Ticket-ов, статусы, номер попытки, имена
-     background tasks и минуты без признаков жизни. Не больше двух продолжений на Ticket за Run.
+   `wave-unfinished` и `no-progress` — три ступени с потолком на каждый Ticket (`background-stalled` остаётся остановкой,
+   как сегодня — раздел «Вне Epic-а»):
+   - *Продолжение.* Run шлёт Orchestrator-у продолжение из фактов worfy: номера Ticket-ов, статусы, номер попытки и
+     минуты. Не больше двух продолжений на Ticket за Run.
    - *Отложить.* После потолка Run просит Orchestrator выполнить `ticket block <epic> <NN> "stuck: …" --waits owner`.
      Ticket с `Waits: owner` ждёт владельца, как и Ticket-ы, заблокированные только им (`epic-queue.ts:37–58`); когда
      готовых Ticket-ов больше нет, Epic кончается `waits-owner`, и очередь идёт к следующему Epic-у
@@ -159,8 +164,8 @@ flowchart TD
   B -- нет --> S2[Стоп Run-а: wave-unfinished, как сегодня]
 ```
 
-`no-progress` идёт той же лестницей: та же Wave шлётся снова, пока у её Ticket-ов есть попытки. `background-stalled` —
-тоже, но продолжение — сообщение в ту же Session: её background tasks живут в её процессе.
+`no-progress` идёт той же лестницей: та же Wave шлётся снова, пока у её Ticket-ов есть попытки. `background-stalled`
+лестницей не идёт: он не называет Ticket-а, и это по-прежнему остановка (раздел «Вне Epic-а»).
 
 ### Экран
 
@@ -231,10 +236,10 @@ Subagent Node (260×84)                    Run history утром
     потолком → `set-aside`;
   - `sameSet` в `evaluate()` (`cycle.ts:275`): та же Wave шлётся снова, пока у её Ticket-ов есть попытки; иначе
     `set-aside`;
-  - `tasks-timeout` с живыми background tasks (`cycle.ts:322–324`): `continue-tickets` с причиной `background-stalled`.
-  После `set-aside` и одного хода Orchestrator-а прежние причины остаются концом: Ticket всё ещё в работе →
-  `wave-unfinished`, та же Wave → `no-progress`, background tasks молчат → `background-stalled`. Счётчик живёт в Run-е;
-  новый Run начинает с нуля.
+  `tasks-timeout` с живыми background tasks (`cycle.ts:322–324`) не меняется: он решает только по числу задач и Ticket-а
+  не называет, так что считать попытки не на чем — остаётся `background-stalled`. После `set-aside` и одного хода
+  Orchestrator-а прежние причины остаются концом: Ticket всё ещё в работе → `wave-unfinished`, та же Wave →
+  `no-progress`. Счётчик живёт в Run-е; новый Run начинает с нуля.
 - **Потолок — параметр цикла.** Ticket цикла (01) вводит его со значением 0 — поведение Run-а не меняется, пока Run не
   умеет слать продолжение. Ticket Run-а (05) ставит 2. Так main ни на одном commit-е не шлёт эффект, который Run не
   исполняет.
@@ -242,8 +247,7 @@ Subagent Node (260×84)                    Run history утром
   как `failed` (`src/shared/flight-recorder/from-journal.ts:148`), в таблице «Why a run stops»
   (`docs/features/autopilot-faults.md:132`). Обе останавливают весь Run: `epicOutcome` пропускает к следующему Epic-у
   только концы Epic-а (`epic-queue.ts:73`).
-- **Journal.** Новые строки `ticket-continued` (`ticket`, `attempt`, `of`, `cause`: `wave-unfinished` | `no-progress` |
-  `background-stalled`) и `ticket-set-aside` (`ticket`, `cause`, `attempts`) — в `JOURNAL_EVENT_KINDS` и схемах
+- **Journal.** Новые строки `ticket-continued` (`ticket`, `attempt`, `of`, `cause`: `wave-unfinished` | `no-progress`) и `ticket-set-aside` (`ticket`, `cause`, `attempts`) — в `JOURNAL_EVENT_KINDS` и схемах
   `src/shared/autopilot/journal.ts:401–432`, `:566–571`. Продолжение через Wave — обычная `wave-started` с полем
   `continuation`, так что инвариант И1 «одна команда `/epic-wave` на `wave-started`» держится
   (`docs/features/autopilot-faults.md:225`).
@@ -253,11 +257,6 @@ Subagent Node (260×84)                    Run history утром
   командой — одна строка worfy, например `Continuation 1 of 2 for tickets 05, 07: still claimed 10 min after the turn
   ended.` Wave после первой и так идёт в новую SDK session (worfy-throughput 52, `run.ts:14–22`), где `wave-brief` даёт
   свежий контекст.
-- **`background-stalled` — сообщение в ту же Session.** Её background tasks живут в её процессе, и после
-  `tasks-timeout` Wave и сегодня идёт в текущую Session (`run.ts:19–22`). Текст:
-  `Continuation 1 of 2: background tasks impl-05 (61 min), gate fast (61 min) gave no sign of life. Check them. Let a
-  task go on, or stop it and resume its ticket, or block the ticket.` Остановить background task может только
-  Orchestrator — worfy их не трогает (ADR-0029, ADR-0050).
 - **Тексты.** Новый чистый модуль `src/shared/autopilot/continuation.ts` собирает продолжение и `set-aside` из фактов
   worfy. `lastText` — последние слова модели, которые Run кладёт в `run-stopped` (`run.ts:2902`), — туда не попадают.
 - **Отложить — руками Orchestrator-а.** Сообщение `set-aside` называет точную команду
@@ -267,7 +266,8 @@ Subagent Node (260×84)                    Run history утром
 - **Красный main — маркер `land`.** `land` уже читает push run-ы CI на main и держит строку `mainRed`
   (`harness/bin/land:450–451`, `mainGreen` — `:475–520`, печать — `:1226`). Он начинает писать файл
   `main-red-<key>.json` (sha, PR-виновник, время, URL run-а) в папку состояния gate-а и удалять его, когда main не
-  красный. worfy читает его там же, где маркеры `red-<key>-<tag>` (`src/main/gate/state.ts:1–25`, `:135`). Когда цикл
+  красный. Пока идёт повтор красного push run-а (`attempt > 1`, run не завершён — `land:485–487`, там `mainRed`
+  обнуляется), маркер остаётся: main всё ещё красный, PR-ы с кодом ждут (critic 2026-11-17, возражение 2). worfy читает его там же, где маркеры `red-<key>-<tag>` (`src/main/gate/state.ts:1–25`, `:135`). Когда цикл
   просит продолжение или `set-aside`, Run сначала читает маркер; есть — стоп `main-red`. Своё чтение `gh run list`
   отклонено: имя CI workflow знает только brief `land` (`harness/skills/epic-wave/SKILL.md:1252–1270`), правило
   пропуска run-ов документов пришлось бы повторить, а инвариант И2 разрешает Run-у только `pr list`, `auth status`,
@@ -279,9 +279,10 @@ Subagent Node (260×84)                    Run history утром
   `src/renderer/flight-recorder/span-words.ts`. Продолжение — новый Span того же вида с номером попытки (`#2`;
   CONTEXT.md, Span; `docs/features/flight-recorder.md:122`), отложенный Ticket — красный `!` с `Blocked reason` и
   `Waits` (`flight-recorder.md:123`): новой разметки не нужно.
-- **Amendment-ы ADR** пишет Ticket своего поведения, датой своего PR: ADR-0024 (пункт 3 и `wave-unfinished`) — Ticket 05,
-  ADR-0029 (сообщение Orchestrator-у при `background-stalled`) — Ticket 08 (правило владельца 2026-11-12 Q5: implementer
-  дописывает Amendment к ADR, который называет его Ticket).
+- **Amendment ADR** пишет Ticket своего поведения, датой своего PR: ADR-0024 (пункт 3 и `wave-unfinished`) — Ticket 05
+  (правило владельца 2026-11-12 Q5: implementer дописывает Amendment к ADR, который называет его Ticket). Amendment к
+  ADR-0029, который нёс Ticket 08, снят вместе с ним: ни один оставшийся Ticket не меняет поведения при живых background
+  tasks.
 
 ### Признаки жизни Session и тишина
 
@@ -315,7 +316,7 @@ Subagent Node (260×84)                    Run history утром
   `turn-quiet` от Run-а, и цикл отвечает `stop(state, 'turn-hung')`. Run отдаёт Orchestrator человеку по правилу «After
   any other stop» (`docs/features/autopilot-faults.md:111–120`): ход не прерывается, процесс не перезапускается,
   background tasks живут (вопрос 3). Тишина background implementer-а — не `turn-hung`: она ведёт к
-  `background-stalled` и его продолжению.
+  `background-stalled`, как сегодня.
 
 ### Call log Harness — только запись
 
@@ -359,10 +360,10 @@ Subagent Node (260×84)                    Run history утром
   3. `set-aside` без ответа → `wave-unfinished`, как сегодня (Ticket 05);
   4. маркер `main-red` → стоп `main-red`, ни одного продолжения (Ticket 05);
   5. `no-progress` той же лестницей (Ticket 05);
-  6. `background-stalled` → сообщение в ту же Session, без новой SDK session и без убитых background tasks (Ticket 08);
+  6. (снят вместе с Ticket-ом 08);
   7. ход без признаков жизни 30 минут (часы двигает test) → `turn-hung`, Session у человека, Interrupt не вызывался
      (Ticket 09).
-  Сценарии 2, 6 и 7 повторяются на Codex (`test/contract/autopilot-faults-codex.test.ts`, fake app-server
+  Сценарии 2 и 7 повторяются на Codex (`test/contract/autopilot-faults-codex.test.ts`, fake app-server
   `test/fixtures/codex-app-server/fake-app-server.mjs`). Инварианты И1–И8 (`test/autopilot-invariants.ts:7–19`) держатся
   во всех; новый И9 (Ticket 05): у Ticket-а за Run не больше двух `ticket-continued`, а после `ticket-set-aside` он
   `blocked`, или Run кончился прежней причиной.
@@ -391,6 +392,11 @@ Subagent Node (260×84)                    Run history утром
 - **Эскалация модели в Eco mode** (прежний Ticket 13). Причина critic-а: Eco mode для worfy выключен, замер Eco против
   full ждёт владельца (`.scratch/worfy-throughput/issues/43-замер-эффекта-eco-против-full.md:4–6`); вернуться после
   его итога. Вместе с ней ушёл вопрос 5 черновика.
+- **Продолжение при `background-stalled`** (Ticket 08 этого Epic-а, снят 2026-11-17). Причина critic-а 2026-11-17: в 42
+  Run-ах на Mac (2026-10-06 — 2026-11-05) реальных остановок `background-stalled` — 0; единственный случай на ПК
+  2026-11-06 был ложной остановкой на живом gate full, её починил worfy-polish 61 (#1531); `tasks-timeout` не называет
+  Ticket-а, так что потолок на Ticket считать не на чем. `background-stalled` остаётся остановкой, как сегодня. Вернуть
+  лестницу, когда Journal-ы Run-ов покажут настоящую такую остановку. Вместе с Ticket-ом снят Amendment к ADR-0029.
 - **Spike PostToolUse** (прежний Ticket 01) отдельным Ticket-ом не нужен: на вопросы о `agent_id` и поле `error`
   отвечают типы SDK, а записи не нужна точность exit code. Как выглядят настоящие payload-ы, видно на приёмке по
   `loop-log`.
@@ -399,7 +405,7 @@ Subagent Node (260×84)                    Run history утром
 
 - worfy сам не пишет статус Ticket-а (ADR-0002). Если вопрос 1 решится вариантом (б) — отдельный ADR.
 - worfy не убивает и не останавливает background tasks (ADR-0029, ADR-0050); остановить зависший background task может
-  только Orchestrator по сообщению продолжения.
+  только Orchestrator или человек.
 - Автоматический Interrupt замолчавшего хода в Autopilot — только при варианте (б) вопроса 3.
 - Пометка тишины у Subagent-ов Codex: у них нет файла, статусы читаются из Codex (`sessions.md:397–398`).
 - «Memento» — свежий агент с записью прошлых попыток: ответ «нет» принят 2026-10-16
@@ -418,9 +424,10 @@ Subagent Node (260×84)                    Run history утром
 
 ## Ticket-ы
 
-1. **Цикл: лестница продолжений** — счётчик на Ticket, эффекты `continue-tickets` и `set-aside`, причина `main-red`,
+1. **Цикл: лестница продолжений** (`wave-unfinished`, `no-progress`) — счётчик на Ticket, эффекты `continue-tickets` и `set-aside`, причина `main-red`,
    строки Journal `ticket-continued` и `ticket-set-aside`, `STOP_OUTCOMES`; потолок 0 по умолчанию.
-2. **Маркер красного main** — `land` пишет и снимает `main-red-<key>.json`, `src/main/gate/state.ts` его читает.
+2. **Маркер красного main** — `land` пишет и снимает `main-red-<key>.json` (держит его, пока идёт повтор красного
+   run-а), `src/main/gate/state.ts` его читает.
    Платформенный PR (скрипт Harness).
 3. **Признаки жизни Session** — время последнего признака жизни в `session.ts`, скрытые признаки от hook-ов и thinking у
    обоих driver-ов, исключения, поле тишины в IPC.
@@ -430,13 +437,15 @@ Subagent Node (260×84)                    Run history утром
 6. **UI тишины хода** — chip `busy · quiet N min`, пункт hint line с Interrupt и Restart, e2e.
 7. **Call log Harness — только запись** — hook `calls.mjs`, модуль шаблонов, `loops.jsonl`, `loop-log`. Платформенный PR
    (hook-и Harness).
-8. **Run: `background-stalled` продолжением** — сообщение в ту же Session, Fault scenario 6 на Claude Code и Codex,
-   Amendment ADR-0029.
+8. *(нет: снят из Epic-а 2026-11-17, раздел «Вне Epic-а»).*
 9. **`turn-hung` в Autopilot** — таймер тишины в фазе `turn`, остановка без Interrupt, Fault scenario 7 на Claude Code и
    Codex.
 10. **Документы** — переводы `docs/features/ru/` страниц, которые изменили Ticket-ы 02–09, термины CONTEXT.md, тексты
     Guide.
-11. **Приёмка владельцем** (manual) — ночной Run над очередью и story Epic-а из toast-а.
+11. **Приёмка владельцем** (manual) — ночной Run над очередью, пометка тишины и story Epic-а из toast-а; закрывается
+    по проверкам владельца.
+12. **Замер `loop-log` через две недели после 07** — Orchestrator, без кода: не раньше 14 дней после merge Ticket-а 07,
+    на Mac и на ПК, число случаев против условия «три и больше».
 
 ## Волны
 
@@ -444,14 +453,14 @@ Subagent Node (260×84)                    Run history утром
 |---|---|---|
 | 1 | 01, 02, 03, 07 | Общих файлов нет: цикл — `src/shared/autopilot/` и `from-journal.ts`; маркер — `harness/bin/land`, `src/main/gate/state.ts` и `gate-and-github.md`; признаки жизни — `src/main/agent/`, `src/shared/agent/` и driver-ы, без страницы Feature; call log — `harness/hooks/`, `harness/bin/loop-log` и `skills-agents-and-hooks.md`. Никто не ждёт другого |
 | 2 | 04, 05 | Subagent берёт порог тишины из модуля 03; Run опирается на цикл (01) и маркер (02) |
-| 3 | 06, 08 | UI хода — на признаки жизни (03) и после 04, который тоже правит `sessions.md`; `background-stalled` правит те же `run.ts`, `continuation.ts` и Fault scenarios, что 05 |
-| 4 | 09 | `turn-hung` — на признаки жизни (03) и на `run.ts` после 08 |
-| 5 | 10 | Переводы, CONTEXT.md и Guide по сделанному |
-| 6 | 11 | Приёмка |
+| 3 | 06, 09 | UI хода — на признаки жизни (03) и после 04, который тоже правит `sessions.md`; `turn-hung` — на признаки жизни (03) и на `run.ts` после 05 |
+| 4 | 10 | Переводы, CONTEXT.md и Guide по сделанному |
+| 5 | 11 | Приёмка владельцем |
+| — | 12 | Не Wave: замер `loop-log` не раньше 14 дней после merge 07, вне Autopilot |
 
 Wave — Ticket-ы, которые можно брать параллельно: блокеры закрыты, общих файлов нет. Wave, которую берут в работу,
 вычисляется заново в момент запуска (CONTEXT.md, Wave). Run ladder доходит до владельца после Wave 2, пометка тишины —
-после Wave 3, `turn-hung` — после Wave 4. Платформенные PR (нужен вердикт Windows до merge, ADR-0056, пункт 2; ADR-0071) — 02 и 07: оба правят скрипты
+и `turn-hung` — после Wave 3. Платформенные PR (нужен вердикт Windows до merge, ADR-0056, пункт 2; ADR-0071) — 02 и 07: оба правят скрипты
 Harness; job-ы `windows (harness-scripts …) / full-suite` в составе `ci-ok` на head PR.
 
 ## Риски
@@ -469,6 +478,9 @@ Harness; job-ы `windows (harness-scripts …) / full-suite` в составе `
   (б) вопроса 1 это снимает ценой ADR-0002.
 - **Отложенных Ticket-ов станет много.** Утром владелец видит несколько `Waits: owner`. Они в тосте (`M blocked`), в Run
   history с причиной и в `epic-status` как blocked.
+- **Маркер снят раньше времени.** Пока Orchestrator повторяет упавшие job-ы красного push run-а, `land` обнуляет
+  `mainRed`; если бы маркер ушёл вместе с ним, Run отложил бы невиновные Ticket-ы. Ответ: маркер держится, пока идёт
+  повтор (Ticket 02, shell test).
 - **Устаревший маркер `main-red`.** `land` снимает его только когда запускается сам. Маркер читается только там, где Run
   сегодня и так остановился бы, поэтому лишней остановки он не даёт — меняет только её причину.
 - **Hook на каждый вызов.** PostToolUse запускает node на каждом вызове tool-а. `calls.mjs` — один файл без тяжёлых
@@ -479,24 +491,28 @@ Harness; job-ы `windows (harness-scripts …) / full-suite` в составе `
 
 ## Вопросы владельцу
 
-Ticket-ы написаны по рекомендованным ответам (а). Другой ответ меняет Ticket-ы, названные в вопросе.
+Ответ владельца 2026-11-17 («да на все»): на все три вопроса — (а). Ticket-ы написаны по этим ответам.
 
 1. **Кто пишет `blocked` отложенному Ticket-у.** (а) Orchestrator по сообщению worfy (`ticket block … --waits owner`):
    ADR-0002 и инвариант И7 «worfy ничего не пишет в Project» без изменений; если Orchestrator не выполнит, Run
    остановится, как сегодня — **рекомендую**. (б) worfy сам вызывает `ticket block`: надёжнее, но worfy становится
    писателем статуса — новый ADR вместо ADR-0002. Ticket-ы: 05.
+   **Ответ владельца 2026-11-17: (а).**
 2. **Сколько продолжений до того, как Ticket откладывается.** (а) 2 на Ticket за Run — **рекомендую** (Gas Town — 3
    перезапуска, Codex app — 3 хода, Cursor — `loop_limit` 5); (б) 1 — дешевле, но первая же неудача implementer-а
    откладывает Ticket; (в) 3. Любой вариант меняет пункт 3 ADR-0024 («второй раз то же самое не шлётся»). Ticket-ы: 05
    (одна константа).
+   **Ответ владельца 2026-11-17: (а), 2 продолжения.**
 3. **Замолчавший ход в Autopilot.** (а) стоп `turn-hung` через 30 минут, Session — человеку, ничего не прерывается;
    ADR-0050 без изменений — **рекомендую**. (б) один автоматический Interrupt и сообщение `previous turn went quiet`,
    новый процесс — только после выхода старого (ADR-0064); `turn-hung` — на второй тишине. Ночь не теряется, но worfy
    начинает прерывать ход по своей причине — Amendment к ADR-0050. Ticket-ы: 09.
+   **Ответ владельца 2026-11-17: (а), стоп `turn-hung` через 30 минут, ничего не прерывается.**
 
 ## Решено без владельца
 
-Каждый пункт — вопрос, на который можно ответить «да».
+Каждый пункт — вопрос, на который можно было ответить «да». Пункты 1–12 подтверждены владельцем 2026-11-17 («да на
+все»).
 
 1. **Слово `quiet` вместо `silent`** в UI (`busy · quiet N min`), в событиях (`turn-quiet`) и в термине CONTEXT.md? Причина:
    `Silent mode` — уже термин (CONTEXT.md, Silent mode), и «silent 14 min» на chip-е читался бы как режим Project-а.
@@ -521,25 +537,29 @@ Ticket-ы написаны по рекомендованным ответам (�
    её можно мерить (`sessions.md:397–398`).
 10. **Fault scenarios — в Ticket-ах своего поведения, а не отдельным Ticket-ом** (прежний 12)? Причина: test пишется до
     кода в том же PR, и story PR опирается на него; отдельный Ticket test-ов после кода этого не даёт.
-11. **Amendment-ы ADR-0024 и ADR-0029 — в Ticket-ах 05 и 08, а не в Ticket-е документов?** Причина: так ADR и код не
+11. **Amendment ADR-0024 — в Ticket-е 05, а не в Ticket-е документов?** (Amendment к ADR-0029 снят вместе с Ticket-ом 08.)
+    Причина: так ADR и код не
     расходятся ни на одном commit-е main; правило владельца 2026-11-12 Q5 это разрешает, когда Ticket называет ADR.
 12. **Ticket 03 не правит страницу Feature** — `sessions.md` правят 04 и 06? Причина: 03 добавляет поле в IPC без видимого
     поведения; человеку его показывают 04 и 06, они и описывают.
+
+Все двенадцать — подтверждено владельцем 2026-11-17.
 
 ## Как поймём, что работает
 
 - Первые ночные Run-ы после Epic-а: Run с застрявшим Ticket-ом доходит до следующего Epic-а очереди, а не стоит до утра.
   Аналитики нет: мерило — Run history и слова владельца на приёмке.
-- `loop-log` через две недели после Epic-а: число случаев решает, нужен ли второй Epic (условие — три и больше).
+- `loop-log` через две недели после Ticket-а 07 (Ticket 12): число случаев решает, нужен ли второй Epic (условие — три и
+  больше).
 
 ## Готово, когда
 
 - [ ] Run над очередью из двух Epic-ов, где Ticket первого остаётся `claimed`: два продолжения (`#2` и `#3` в Run
       history), затем `blocked` с `Waits: owner` и `Blocked reason: stuck: …`, и Run доходит до второго Epic-а. Fault
       scenario на Claude Code и на Codex.
-- [ ] `no-progress` и `background-stalled` идут той же лестницей; `background-stalled` не открывает новую SDK session и
-      ничего не убивает.
-- [ ] При маркере `main-red` Run останавливается с `main-red`, без продолжений и без отложенных Ticket-ов.
+- [ ] `no-progress` идёт той же лестницей; `background-stalled` остаётся остановкой, как до Epic-а.
+- [ ] При маркере `main-red` Run останавливается с `main-red`, без продолжений и без отложенных Ticket-ов; маркер
+      держится, пока идёт повтор красного push run-а.
 - [ ] Chip `busy · quiet N min`, Interrupt и Restart на hint line появляются на тишине и не появляются при открытом
       запросе разрешения, идущем hook-е, растущем выводе gate-а и занятом e2e lock. Restart не запускает второй
       процесс на тот же транскрипт.
@@ -548,6 +568,7 @@ Ticket-ы написаны по рекомендованным ответам (�
 - [ ] Третий и четвёртый одинаковый неуспешный вызов дают строки `would-hint` и `would-deny` в `loops.jsonl`; агент
       ничего не получает; `loop-log` их считает. То же на Codex.
 - [ ] Инварианты И1–И9 держатся во всех Fault scenarios; `ci-ok` зелёный на каждом PR.
-- [ ] Страницы Feature en (в PR своего поведения) и ru, CONTEXT.md, Guide и Amendment-ы к ADR-0024 и ADR-0029 описывают
+- [ ] Страницы Feature en (в PR своего поведения) и ru, CONTEXT.md, Guide и Amendment к ADR-0024 описывают
       сделанное.
 - [ ] Владелец принял Epic по Ticket-у 11.
+- [ ] Число случаев `loop-log` через две недели после Ticket-а 07 записано (Ticket 12).

@@ -2,10 +2,10 @@
 
 Type: task
 Status: open
-Blocked by: 03, 08
+Blocked by: 03, 05
 Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решение», 2; «Путь пользователя», B, шаг 3; «Решения по реализации» →
 «Признаки жизни Session и тишина», пункты «Пороги» и «`turn-hung` в Autopilot»; «Решения по test-ам», Fault scenario 7;
-«Вопросы владельцу», 3 (ответ (а)); «Решено без владельца», 7
+«Вопросы владельцу», 3 (ответ владельца 2026-11-17 — (а)); «Решено без владельца», 7
 
 Кто: агент.
 
@@ -19,6 +19,8 @@ Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решение», 2; «Пут
 - После Ticket-а 03 Session знает `quietSince` — с какого момента ход без признаков жизни (`src/shared/agent/quiet.ts`).
 - Остановка по любой причине, кроме Stop человека, отдаёт Session человеку: ход не прерван, background tasks живут
   (`docs/features/autopilot-faults.md:111–120`, «After any other stop»; ADR-0050).
+- После Ticket-а 05 `run.ts` исполняет лестницу продолжений, а Fault scenarios лестницы лежат в
+  `test/contract/autopilot-faults-ladder.test.ts`.
 - Run двигает таймеры test-ов через deps, как `settleMs` и `backgroundStallMs` (`src/main/autopilot/run.ts:402–403`,
   `:439–440`).
 
@@ -30,7 +32,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решение», 2; «Пут
 2. Run: порог `QUIET_HUNG_MS` = 30 минут рядом с `SETTLE_MS` (`cycle.ts:78`), dep `quietHungMs`; пока цикл в фазе `turn`,
    Run следит за `quietSince` Session Orchestrator-а и при тишине дольше порога шлёт циклу `turn-quiet`.
 3. Остановка `turn-hung` идёт по правилу «After any other stop»: ход не прерывается, процесс не перезапускается,
-   background tasks живут. Тишина background implementer-а — не `turn-hung` (это `background-stalled`, Ticket 08).
+   background tasks живут. Тишина background implementer-а — не `turn-hung` (это `background-stalled`, как сегодня).
 4. Слова Run history для `turn-hung` — `src/renderer/flight-recorder/span-words.ts`.
 5. `docs/features/autopilot-faults.md`: строка `turn-hung` таблицы «Why a run stops».
 

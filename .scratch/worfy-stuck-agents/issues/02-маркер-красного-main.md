@@ -4,7 +4,8 @@ Type: task
 Status: open
 Blocked by: none
 Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реализации» → «Цикл и Run: продолжение, отложить, `main-red`»,
-пункт «Красный main — маркер `land`»; «Риски» → «Устаревший маркер `main-red`»
+пункт «Красный main — маркер `land`»; «Риски» → «Маркер снят раньше времени» и «Устаревший маркер `main-red`»;
+[critic 2026-11-17](../../../docs/product/critic/worfy-stuck-agents-2026-11-17.md), возражение 2
 
 Кто: агент.
 
@@ -16,6 +17,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реал�
 - `land` уже читает push run-ы CI на main (`mainGreen`, `harness/bin/land:475–520`, worfy-throughput 64) и держит
   строку красного main в памяти (`mainRed`, `land:450–451`, печать — `:1226`). Файла, который мог бы прочитать worfy,
   нет.
+- Пока повторяется красный push run (`attempt > 1`, run не завершён), `land` обнуляет `mainRed` и ждёт вердикта
+  (`harness/bin/land:485–487`). main в это время всё ещё красный: повтор упавших job-ов — первый шаг при каждом красном
+  main (`harness/skills/epic-wave/SKILL.md:1554`).
 - worfy читает маркеры gate-а `red-<key>-<tag>` и `unverified-<key>-<tag>` в папке состояния gate-а
   (`src/main/gate/state.ts:1–25`, `markerOutcome` — `:135`). `key` — запись `<gate>/config.json`, чей `match` —
   самый длинный префикс корня репозитория (`harness/hooks/gate-resolve.mjs --which`).
@@ -27,6 +31,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реал�
 1. `land` после каждого чтения push run-ов main:
    - main красный → пишет `<gate>/state/main-red-<key>.json`: `sha`, `pr` (виновник или `null`), `since`, `url` run-а,
      `line` (строка `mainRed`), `at` (время записи);
+   - повтор красного push run-а идёт (`attempt > 1`, не завершён) → файл не трогает: main всё ещё красный;
    - main не красный → удаляет файл, если он есть;
    - чтение не удалось (gh недоступен) → файл не трогает.
    Запись атомарная (временный файл и rename), как у других файлов состояния gate-а.
@@ -41,6 +46,8 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реал�
       `main-red-<key>.json` с sha, PR-виновником и URL run-а.
 - [ ] Shell test: следующий запуск `land` видит зелёный main — файл удалён.
 - [ ] Shell test: gh не ответил — файл, который был, остался.
+- [ ] Shell test: маркер есть, новейший push run main не завершён и идёт с `attempt: 2` — файл остался; после зелёного
+      вердикта этого run-а — удалён.
 - [ ] Unit test `test/unit/gate-state.test.ts`: маркер есть — поля прочитаны; нет файла или битый JSON — `null`; чтение
       ничего не пишет в папку состояния.
 - [ ] `docs/features/gate-and-github.md` называет маркер `main-red-<key>.json`, его писателя и читателя и когда он

@@ -5,7 +5,7 @@ Status: open
 Blocked by: 01, 02
 Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение», 1; «Путь пользователя», A; «Лестница Run-а»; «Решения по
 реализации» → «Цикл и Run: продолжение, отложить, `main-red`»; «Решения по test-ам», Fault scenarios 1–5 и И9; «Вопросы
-владельцу», 1 и 2 (ответ (а)); «Решено без владельца», 3, 10 и 11
+владельцу», 1 и 2 (ответ владельца 2026-11-17 — (а)); «Решено без владельца», 3, 10 и 11
 
 Кто: агент.
 
@@ -27,7 +27,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение», 1; «Пут
 
 ## Что делаем
 
-1. Потолок продолжений в Run-е — 2 (`maxContinuations` цикла; ответ (а) на вопрос 2 spec-а).
+1. Потолок продолжений в Run-е — 2 (`maxContinuations` цикла; ответ владельца на вопрос 2 spec-а).
 2. Новый чистый модуль `src/shared/autopilot/continuation.ts`:
    - строка над Wave command: `Continuation 1 of 2 for tickets 05, 07: still claimed 10 min after the turn ended.` (для
      `no-progress` — `… came back as the same wave.`);
@@ -102,6 +102,6 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение», 1; «Пут
 
 ## Вне скоупа
 
-- `background-stalled` продолжением — Ticket 08; `turn-hung` — Ticket 09.
+- `background-stalled` — остановка, как сегодня (снято из Epic-а, spec «Вне Epic-а»); `turn-hung` — Ticket 09.
 - worfy сам не пишет `blocked` (ADR-0002; вопрос 1 spec-а, ответ (а)).
 - Переводы `docs/features/ru/` и Guide — Ticket 10.
