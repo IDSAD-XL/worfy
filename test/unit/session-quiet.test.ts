@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { gateOutputAt, lockHeld, outsideSignsReader, taskOutputAt } from '../../src/main/agent/session/quiet-signs'
 import { gateTag } from '../../src/main/gate/state'
 import { QUIET_MARK_MS, quietFor, quietSince, type QuietFacts } from '../../src/shared/agent/quiet'
+import { removeTestTree } from '../remove'
 
 const MIN = 60_000
 const NOW = 1_790_000_000_000
@@ -79,9 +80,7 @@ describe('the signs of life outside the agent’s events (src/main/agent/session
   beforeEach(() => {
     root = mkdtempSync(join(realpathSync(tmpdir()), 'worfy-quiet-'))
   })
-  afterEach(() => {
-    rmSync(root, { recursive: true, force: true })
-  })
+  afterEach(() => removeTestTree(root))
 
   it('the latest change of the output files of the live background tasks; null when none can be read', () => {
     const one = join(root, 'a.output')
