@@ -1,7 +1,7 @@
 # 07 — Call log Harness, только запись: повторы упавших вызовов считаются, агент ничего не видит
 
 Type: task
-Status: open
+Status: claimed 2026-11-17T03:56Z
 Blocked by: none
 Source: [spec.md](../spec.md), «Ticket-ы», 7; «Решение», 3; «Путь пользователя», C; «Решения по реализации» → «Call log
 Harness — только запись»; «Вне Epic-а» → «Отложено»; «Решено без владельца», 4, 5 и 6;
@@ -57,19 +57,36 @@ Harness — только запись»; «Вне Epic-а» → «Отложен
 
 - [ ] Shell test `harness/hooks/tests/calls.test.sh`: три одинаковых неуспешных вызова — строка `would-hint` в
       `loops.jsonl`; четвёртый — `would-deny`; stdout hook-а пустой, exit 0 на каждом вызове.
+  - evidence: test-run pass · `bash harness/hooks/tests/calls.test.sh` exit 0 · mac - · 4a934a63fb6e21968922553e9252b7a9674157b1
+  - evidence: test-run pass · `bash harness/hooks/tests/calls.test.sh` exit 0 · mac - · af86654709b1329d9f9dc4925473b94b05d05633
 - [ ] Shell test: тот же вызов с новым исходом — строки нет; `gh pr checks` четыре раза с ненулевым exit code — строки
       нет.
+  - evidence: test-run pass · `bash harness/hooks/tests/calls.test.sh` exit 0 · mac - · 4a934a63fb6e21968922553e9252b7a9674157b1
+  - evidence: test-run pass · `bash harness/hooks/tests/calls.test.sh` exit 0 · mac - · af86654709b1329d9f9dc4925473b94b05d05633
 - [ ] Shell test: A-B-A-B три раза — `would-hint`; правка туда и обратно дважды — `would-hint`.
+  - evidence: test-run pass · `bash harness/hooks/tests/calls.test.sh` exit 0 · mac - · 4a934a63fb6e21968922553e9252b7a9674157b1
+  - evidence: test-run pass · `bash harness/hooks/tests/calls.test.sh` exit 0 · mac - · af86654709b1329d9f9dc4925473b94b05d05633
 - [ ] Shell test: битый JSON на stdin и папка состояния без права записи — exit 0, stdout пустой.
+  - evidence: test-run pass · `bash harness/hooks/tests/calls.test.sh` exit 0 · mac - · 4a934a63fb6e21968922553e9252b7a9674157b1
+  - evidence: test-run pass · `bash harness/hooks/tests/calls.test.sh` exit 0 · mac - · af86654709b1329d9f9dc4925473b94b05d05633
 - [ ] Shell test: два Subagent-а одной Session (разные `agent_id`) ведут разные `calls/<owner>.jsonl`; в call log не
       больше 20 строк.
+  - evidence: test-run pass · `bash harness/hooks/tests/calls.test.sh` exit 0 · mac - · 4a934a63fb6e21968922553e9252b7a9674157b1
+  - evidence: test-run pass · `bash harness/hooks/tests/calls.test.sh` exit 0 · mac - · af86654709b1329d9f9dc4925473b94b05d05633
 - [ ] Shell test `harness/bin/tests/loop-log.test.sh`: `loop-log` печатает случаи `would-deny` и `cases: N (revisit at
       3)`; `--since` отбрасывает старые; без файла — `cases: 0`.
+  - evidence: test-run pass · `bash harness/bin/tests/loop-log.test.sh` exit 0 · mac - · 4a934a63fb6e21968922553e9252b7a9674157b1
+  - evidence: test-run pass · `bash harness/bin/tests/loop-log.test.sh` exit 0 · mac - · af86654709b1329d9f9dc4925473b94b05d05633
 - [ ] Unit test `loop-patterns.mjs` (в `harness/hooks/tests/` или `test/unit/`): три шаблона, «новый исход — не цикл»,
       команды ожидания.
+  - evidence: test-run pass · `pnpm test test/unit/loop-patterns.test.ts` exit 0 · mac - · 4a934a63fb6e21968922553e9252b7a9674157b1
+  - evidence: test-run pass · `pnpm test test/unit/loop-patterns.test.ts` exit 0 · mac - · af86654709b1329d9f9dc4925473b94b05d05633
 - [ ] Contract test `test/contract/harness-codex-hooks.test.ts`: строки `PostToolUse.jsonl` Codex (Bash и `apply_patch`)
       дают записи call log с исходом по exit code или хэшу вывода; Codex-input Subagent-а — свой `owner`.
+  - evidence: test-run pass · `pnpm test test/contract/harness-codex-hooks.test.ts` exit 0 · mac - · 4a934a63fb6e21968922553e9252b7a9674157b1
+  - evidence: test-run pass · `pnpm test test/contract/harness-codex-hooks.test.ts` exit 0 · mac - · af86654709b1329d9f9dc4925473b94b05d05633
 - [ ] `docs/features/skills-agents-and-hooks.md` называет новый hook и `loop-log`.
+  - evidence: commit pass · Harness call log, write only: count repeats of failed calls; loop-log reads them (worfy-stuck-agents 07) · - - · 4a934a63fb6e21968922553e9252b7a9674157b1
 - [ ] Платформенный PR (ADR-0056, пункт 2; ADR-0071): вердикт Windows до merge.
 - [ ] Все `harness/bin/tests/*.test.sh` и `harness/hooks/tests/*.test.sh` зелёные, в том числе `plugin-neutral.test.sh`;
       `node scripts/check-personal.mjs` — exit 0; `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на
@@ -101,3 +118,31 @@ Harness — только запись»; «Вне Epic-а» → «Отложен
 - Подсказка агенту (`additionalContext`), отказ в `guard.mjs`, поле `blocked` в отчёте implementer-а, правило
   `epic-wave`, Stop hook по отпечатку failure record — отдельный Epic после `cases: 3` (spec, «Вне Epic-а»).
 - Показ call log в UI worfy.
+
+## Итог
+
+- Hook `harness/hooks/calls.mjs` на `PostToolUse` и `PostToolUseFailure` (все tools, timeout 5 с) пишет call log в
+  `<gate state>/calls/<owner>.jsonl` и случаи в `calls/loops.jsonl`; шаблоны — чистый модуль
+  `harness/hooks/loop-patterns.mjs`; `harness/bin/loop-log [--since <YYYY-MM-DD>]` печатает случаи `would-deny` и
+  `cases: N (revisit at 3)`.
+- **Время одного вызова `calls.mjs` на fixture** (`test/fixtures/codex-messages/hooks/PostToolUse.jsonl`, 20 запусков на
+  Mac, node v24.19.0): медиана 56.8 ms, минимум 40.6, максимум 92.9; пустой `node -e ''` на той же Machine — медиана
+  36.7 ms, то есть сам hook добавляет к старту node около 20 ms.
+- Решено без владельца:
+  - Исход без exit code (shell-вызов Codex: в его `tool_response` только вывод) неуспехом не считается — ни в «том же
+    неуспехе», ни в A-B-A-B (раунд 2 ревью; в первом раунде считался). Успехом тоже: правка с таким исходом в «туда и
+    обратно» не идёт. Цена: на Codex повторы shell-команды не дают случаев вовсе — три одинаковых `cat` подряд больше не
+    дают ложного `would-hint`, но и настоящий цикл shell-команды на Codex `loop-log` не покажет; `apply_patch` Codex-а
+    несёт exit code и считается.
+  - A-B-A-B считается, только если хотя бы один вызов пары неуспешен: два успешных вызова по очереди (например,
+    `sleep` и `gh pr view`) — работа, а не цикл.
+  - Правка, которая упала, содержимого не меняет и в «туда и обратно» не идёт.
+  - Прерывание человеком (`is_interrupt`) в call log не пишется.
+  - Файлы старше 7 дней удаляются, когда пишется call log нового `owner`-а (первый вызов Session или Subagent-а), а не
+    на каждом вызове: так hook не читает папку `calls/` при каждом tool-е.
+  - Команды ожидания CI: `gh pr checks`, `gh run watch`, `gh run view`; в call log они не пишутся вовсе.
+  - Ввод hook читает через `harness/hooks/hook-stdin.mjs` (раунд 2 ревью): закрытый stdin заканчивает ожидание сразу,
+    открытый молчащий pipe — через 2 с без первого байта. После первого байта ввод читается до конца, без своего
+    предела в 2 с; общий предел — 5 с `hooks.json`.
+  - `loop-log` печатает и Vendor (`claude`, `codex`, `-` у строки без него), а управляющие символы в полях — как `?`:
+    команда — текст агента, и escape-последовательность из неё не должна дойти до terminal-а.
