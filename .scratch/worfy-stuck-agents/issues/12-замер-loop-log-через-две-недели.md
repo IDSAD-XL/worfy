@@ -1,7 +1,9 @@
 # 12 — Замер `loop-log` через две недели после Ticket-а 07
 
 Type: task
-Status: open
+Status: blocked 2026-11-17T14:33Z
+Blocked reason: датирован: замер loop-log не раньше 2026-12-01 (14 дней после merge #1947 Ticket-а 07); тогда ticket open и замер на Mac и ПК
+Waits: owner
 Blocked by: 07
 Source: [spec.md](../spec.md), «Ticket-ы», 12; «Как поймём, что работает»; «Вне Epic-а» → «Отложено»;
 [critic 2026-11-17](../../../docs/product/critic/worfy-stuck-agents-2026-11-17.md), возражение 3 и «Alternative»; условие
