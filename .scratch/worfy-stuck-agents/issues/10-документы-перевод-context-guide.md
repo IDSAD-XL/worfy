@@ -1,7 +1,7 @@
 # 10 — Документы: переводы страниц Feature, термины CONTEXT.md, тексты Guide
 
 Type: task
-Status: claimed 2026-11-17T12:51Z
+Status: done 2026-11-17T14:16Z
 PR: #1961
 Blocked by: 02, 04, 05, 06, 07, 09
 Source: [spec.md](../spec.md), «Ticket-ы», 10; «Готово, когда», пункт о документах;
@@ -41,12 +41,17 @@ Source: [spec.md](../spec.md), «Ticket-ы», 10; «Готово, когда», 
 - [ ] Пять страниц `docs/features/ru/` описывают то же, что их английские пары после Ticket-ов 02–09;
       `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · f25b279376e99f3addf93055f4b2f9c2ddb24685
+  - evidence: review pass · PR #1961 · - - · 85ffed8b01951d41d650d582ae25ea9042ee4090
 - [ ] CONTEXT.md: термины Ticket continuation, Set-aside Ticket и Quiet turn с _Avoid_, строка в Relationships.
   - evidence: commit pass · Translate the stuck-agents Feature page changes, add the CONTEXT terms, fix the Guide stop line (worfy-stuck-agents 10) · - - · f25b279376e99f3addf93055f4b2f9c2ddb24685
+  - evidence: review pass · PR #1961 · - - · 85ffed8b01951d41d650d582ae25ea9042ee4090
 - [ ] Unit test Guide (существующий test текстов Guide, если он сверяет ключи en и ru): тексты `en.json` и `ru.json`
       называют лестницу, `main-red` и `turn-hung`; ключи совпадают.
   - evidence: test-run pass · `pnpm exec vitest run test/unit/guide-autopilot.test.tsx test/unit/guide-content.test.tsx` exit 0 · mac - · f25b279376e99f3addf93055f4b2f9c2ddb24685
+  - evidence: review pass · PR #1961 · - - · 85ffed8b01951d41d650d582ae25ea9042ee4090
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44093358530 · ci - · 85ffed8b01951d41d650d582ae25ea9042ee4090
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44093358530 · ci - · 85ffed8b01951d41d650d582ae25ea9042ee4090
 
 ## Где в коде
 
