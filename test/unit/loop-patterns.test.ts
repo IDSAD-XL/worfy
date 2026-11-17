@@ -60,9 +60,9 @@ describe('the same call with the same failed outcome', () => {
     expect(lp.repeats([zero, zero, zero, zero])).toEqual([])
   })
 
-  it('counts an outcome of unknown success (a Codex shell call without an exit code) as a failure', () => {
+  it('does not count an outcome of unknown success (a Codex shell call without an exit code) as a failure', () => {
     const unknown = bash('a', 'out:h', null)
-    expect(pattern([unknown, unknown, unknown], 'same-failure')).toBe(3)
+    expect(lp.repeats([unknown, unknown, unknown, unknown])).toEqual([])
   })
 
   it('is about the newest call: older repeats of another call do not count for it', () => {
@@ -89,6 +89,12 @@ describe('an edit back and forth', () => {
     expect(pattern([edit('f', 'A'), edit('f', 'A'), edit('f', 'A')], 'edit-back-and-forth')).toBe(0)
     expect(pattern([edit('f', 'B'), edit('f', 'A'), edit('f', 'A', true), edit('f', 'B'), edit('f', 'A')], 'edit-back-and-forth')).toBe(3)
   })
+
+  it('does not count an edit of unknown outcome (an apply_patch without an exit code) as a successful one', () => {
+    const unknown = (content: string): Call => ({ ...edit('f', content), out: 'out:h', fail: null })
+    expect(pattern([edit('f', 'B'), unknown('A'), edit('f', 'B'), unknown('A')], 'edit-back-and-forth')).toBe(0)
+    expect(pattern([edit('f', 'B'), unknown('A'), edit('f', 'B'), edit('f', 'A'), edit('f', 'B'), edit('f', 'A')], 'edit-back-and-forth')).toBe(3)
+  })
 })
 
 describe('A-B-A-B', () => {
@@ -107,6 +113,13 @@ describe('A-B-A-B', () => {
     expect(pattern([a, a, a, a, a, a], 'abab')).toBe(0)
     const ok = bash('git status', 'ok', false)
     expect(pattern([ok, b, ok, b, ok, b, ok, b], 'abab')).toBe(0)
+  })
+
+  it('is no loop for calls of unknown outcome with a success, and counts them in a pair with a failure', () => {
+    const unknown = bash('cat notes', 'out:h', null)
+    expect(pattern([unknown, b, unknown, b, unknown, b], 'abab')).toBe(0)
+    expect(pattern([unknown, bash('ls', 'out:g', null), unknown, bash('ls', 'out:g', null), unknown, bash('ls', 'out:g', null)], 'abab')).toBe(0)
+    expect(pattern([unknown, a, unknown, a, unknown, a], 'abab')).toBe(3)
   })
 })
 

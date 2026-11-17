@@ -174,7 +174,8 @@ bash_call s8 agent-b "pnpm test" "Exit code 1"
 bash_call s8 agent-a "pnpm test" "Exit code 1"
 [ "$(loops s8 agent-a same-failure would-hint)" = 1 ] && ok "the 3rd failure of one Subagent: would-hint with its agent_id" || bad "agent-a: $(cat "$L")"
 hook "{\"session_id\":\"../s9\",\"cwd\":$(js "$W"),\"agent_id\":\"a/../../b\",\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"x\"},\"tool_response\":{},\"tool_use_id\":\"t\"}"
-outside="$(find "$T" -name '*s9*' ! -path "$C/*")"
+# -mindepth 1: the temporary folder's own name may hold "s9".
+outside="$(find "$T" -mindepth 1 -name '*s9*' ! -path "$C/*")"
 [ -z "$outside" ] && ls "$C" | grep -q '^___s9\.a_*b\.jsonl$' && ok "an owner name keeps to letters, digits, _ and -: no path out of calls/" || bad "owner name: $(ls "$C")"
 for i in $(seq 1 25); do bash_call s10 "" "echo $i" ""; done
 [ "$(lines "$C/s10.jsonl")" = 20 ] && ok "the call log keeps the last 20 calls" || bad "s10 has $(lines "$C/s10.jsonl") lines"
@@ -186,8 +187,18 @@ printf '{"t":"2020-01-01T00:00:00.000Z","tool":"Bash","in":"x","out":"ok","fail"
 touch -t 202001010000 "$old" "$L"
 fresh="$C/fresh-session.jsonl"
 printf '{"t":"2020-01-01T00:00:00.000Z","tool":"Bash","in":"x","out":"ok","fail":false}\n' >"$fresh"
+# Ages around the 7 days: a log of 8 days goes, one of 6 days stays; a leftover temporary file of an old write
+# goes; a file of another kind stays, however old.
+for name in eight-days.jsonl six-days.jsonl old-write.jsonl.123.tmp x.txt; do printf '{}\n' >"$C/$name"; done
+age() { node -e 'const t = (Date.now() - Number(process.argv[2]) * 86400000) / 1000; require("fs").utimesSync(process.argv[1], t, t)' -- "$1" "$2"; }
+age "$C/eight-days.jsonl" 8
+age "$C/six-days.jsonl" 6
+age "$C/old-write.jsonl.123.tmp" 8
+age "$C/x.txt" 30
 bash_call s11 "" "ls" ""
 [ ! -e "$old" ] && [ -e "$fresh" ] && [ -e "$L" ] && ok "a new log removes logs older than 7 days, keeps a newer one and loops.jsonl" || bad "clean-up: $(ls "$C")"
+[ ! -e "$C/eight-days.jsonl" ] && [ -e "$C/six-days.jsonl" ] && ok "the limit is 7 days: a log of 8 days goes, one of 6 days stays" || bad "7 days: $(ls "$C")"
+[ ! -e "$C/old-write.jsonl.123.tmp" ] && [ -e "$C/x.txt" ] && ok "an old temporary file of a write goes; an old file of another kind stays" || bad "kinds: $(ls "$C")"
 node -e '
     const lines = []
     for (let i = 0; i < 2005; i++) lines.push(JSON.stringify({ t: "2020-01-01T00:00:00.000Z", session: "filler", agent_id: null, pattern: "same-failure", level: "would-hint", tool: "Bash", command: String(i), vendor: "claude" }))
@@ -196,6 +207,29 @@ node -e '
 for i in 1 2 3; do bash_call s12 "" "pnpm e2e" "Exit code 1"; done
 last="$(tail -n 1 "$L" | node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => console.log(JSON.parse(s).session))')"
 [ "$(lines "$L")" = 2000 ] && [ "$last" = s12 ] && ok "loops.jsonl keeps the last 2000 lines, the new one last" || bad "loops.jsonl: $(lines "$L") lines, last $last"
+
+# --- 7. The wait for the input: a closed stdin ends it at once, a silent open pipe after 2 s -----------------
+# The hook runs on every tool call: a closed stdin must not cost the 2 s a silent pipe gets. A pipe that stays
+# open and sends nothing must end the hook by itself, well inside the 5 s of hooks.json. $1: "closed" (stdin is
+# the null device, at its end at once) or "open" (a pipe never written to nor closed). Prints "exit ms stdout".
+timed() {
+    node -e '
+        const { spawn } = require("child_process")
+        const [hook, mode] = process.argv.slice(1)
+        const started = Date.now()
+        const child = spawn(process.execPath, [hook], { stdio: [mode === "closed" ? "ignore" : "pipe", "pipe", "ignore"] })
+        let out = ""
+        child.stdout.setEncoding("utf8").on("data", (d) => (out += d))
+        child.on("close", (code) => {
+            console.log(`${code} ${Date.now() - started} ${JSON.stringify(out)}`)
+            child.stdin?.destroy()
+        })
+    ' -- "$CALLS" "$1"
+}
+read -r rc ms out <<<"$(cd "$W" && timed closed)"
+[ "$rc" = 0 ] && [ "$ms" -lt 1500 ] && [ "$out" = '""' ] && ok "a closed stdin: exit 0, empty stdout, done in ${ms} ms (under 1.5 s, not the 2 s wait)" || bad "closed stdin: exit $rc in $ms ms, stdout $out"
+read -r rc ms out <<<"$(cd "$W" && timed open)"
+[ "$rc" = 0 ] && [ "$ms" -ge 1900 ] && [ "$ms" -lt 4500 ] && [ "$out" = '""' ] && ok "an open pipe that sends nothing: the hook ends by itself after its 2 s wait (${ms} ms), exit 0, empty stdout" || bad "silent pipe: exit $rc in $ms ms, stdout $out"
 
 echo
 echo "passed: $pass, failed: $fail"

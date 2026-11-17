@@ -31,12 +31,13 @@ import fs from "node:fs"
 import path from "node:path"
 import { isCodexInput } from "./codex-input.mjs"
 import { gateStateDir } from "./gate-paths.mjs"
+import { readStdin } from "./hook-stdin.mjs"
 import { isCiWait, levelOf, MAX_CALLS, repeats } from "./loop-patterns.mjs"
 
 const KEEP_MS = 7 * 24 * 60 * 60 * 1000
 const MAX_LOOPS = 2000
 const HEAD = 200
-/** The longest the hook waits for its input: well inside the 5 s hooks.json gives it. */
+/** The longest the hook waits for the first byte of its input: well inside the 5 s hooks.json gives it. */
 const INPUT_MS = 2000
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"])
 const LOOPS = "loops.jsonl"
@@ -214,12 +215,9 @@ function main(input) {
     else fs.appendFileSync(loops, `${fresh.join("\n")}\n`)
 }
 
-// A pipe that stays open and sends nothing must not hold the hook until hooks.json's limit kills it.
-setTimeout(() => process.exit(0), INPUT_MS).unref()
+// A pipe that stays open and sends nothing gives "" after INPUT_MS (hook-stdin.mjs): the hook does not hold
+// the tool call until hooks.json's limit kills it. A closed stdin ends the wait at once.
 try {
-    let raw = ""
-    process.stdin.setEncoding("utf8")
-    for await (const chunk of process.stdin) raw += chunk
-    main(raw)
+    main(await readStdin(INPUT_MS))
 } catch {}
 process.exitCode = 0

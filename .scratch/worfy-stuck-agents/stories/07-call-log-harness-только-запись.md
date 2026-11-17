@@ -37,7 +37,7 @@ Code: `harness/hooks/hooks.json:167-178` · key lines: 167, 172, 173
 
 ## 3. Запись вызова: owner, нормализованный ввод и исход по Vendor-ам
 
-Code: `harness/hooks/calls.mjs:95-127` · key lines: 100, 103, 108, 109, 117, 121
+Code: `harness/hooks/calls.mjs:96-128` · key lines: 101, 104, 109, 110, 118, 122
 
 ```js
 function recordOf(payload) {
@@ -79,13 +79,18 @@ function recordOf(payload) {
 - Почему здесь: Ticket называет файл и состав записи ([Что делаем, п. 2](../issues/07-call-log-harness-только-запись.md#что-делаем)); почему у правки берётся содержимое после неё, а не сам ввод, не записано.
 - Без него: у Codex-вызова не было бы исхода — PostToolUseFailure там нет, и неуспех виден только по `Exit code:` в выводе.
 - Требование: [Что делаем, п. 2](../issues/07-call-log-harness-только-запись.md#что-делаем)
-- Риски и пробелы test-ов: у shell-вызова Codex exit code нет, такой исход считается неуспешным (решение записано в «Итог» Ticket-а); живой payload `PostToolUseFailure` Claude Code не записан — test-ы строят его по типу SDK.
+- Риски и пробелы test-ов: у shell-вызова Codex exit code нет, такой исход (`fail: null`) шаблоны не считают ни неуспехом, ни успехом (решение записано в «Итог» Ticket-а); живой payload `PostToolUseFailure` Claude Code не записан — test-ы строят его по типу SDK.
 
 ## 4. Шаблоны: тот же неуспех, туда и обратно, A-B-A-B
 
-Code: `harness/hooks/loop-patterns.mjs:42-82` · key lines: 44, 64, 67, 79
+Code: `harness/hooks/loop-patterns.mjs:39-85` · key lines: 39, 40, 46, 56, 66, 82
 
 ```js
+const failed = (call) => call.fail === true
+const succeeded = (call) => call.fail === false
+const key = (call) => `${call.tool}\u0000${call.in}\u0000${call.out}`
+
+// The same call with the same failed outcome: how many of `calls` repeat the newest one.
 function sameFailure(calls) {
     const last = calls[calls.length - 1]
     if (!failed(last)) return 0
@@ -98,12 +103,12 @@ function sameFailure(calls) {
 // B) are the 3rd repeat: the count is the returns plus one.
 function editBackAndForth(calls) {
     const last = calls[calls.length - 1]
-    if (failed(last) || !Array.isArray(last.files)) return 0
+    if (!succeeded(last) || !Array.isArray(last.files)) return 0
     let most = 0
     for (const [file] of last.files) {
         const contents = []
         for (const call of calls) {
-            if (failed(call) || !Array.isArray(call.files)) continue
+            if (!succeeded(call) || !Array.isArray(call.files)) continue
             for (const [f, content] of call.files) if (f === file) contents.push(content)
         }
         let returns = 0
@@ -117,7 +122,8 @@ function editBackAndForth(calls) {
 }
 
 // A-B-A-B: how many times the pair of the two newest calls repeats in a row at the end, each call with the
-// same outcome. Two different calls, one of them failed: two successes in turn are work, not a loop.
+// same outcome. Two different calls, one of them failed: two successes in turn are work, not a loop, and so
+// are two calls of unknown outcome.
 function abab(calls) {
     const n = calls.length
     if (n < 2) return 0
@@ -133,11 +139,11 @@ function abab(calls) {
 - Почему здесь: Ticket требует чистый модуль `harness/hooks/loop-patterns.mjs` ([Что делаем, п. 3](../issues/07-call-log-harness-только-запись.md#что-делаем)).
 - Без него: hook писал бы вызовы, но ни один случай не попал бы в `loops.jsonl`.
 - Требование: [Что делаем, п. 3](../issues/07-call-log-harness-только-запись.md#что-делаем)
-- Риски и пробелы test-ов: A-B-A-B без единого неуспеха не считается — это решение без владельца, в «Итог» Ticket-а. Один зацикленный вызов может дать два случая сразу (тот же неуспех и A-B-A-B), `loop-log` посчитает оба.
+- Риски и пробелы test-ов: A-B-A-B без единого неуспеха не считается — это решение без владельца, в «Итог» Ticket-а. Исход без exit code (`fail: null`, shell-вызов Codex) не неуспех для «того же неуспеха» и A-B-A-B (`failed`) и не успех для «туда и обратно» (`succeeded`): повтор shell-команды на Codex случая не даёт. Один зацикленный вызов может дать два случая сразу (тот же неуспех и A-B-A-B), `loop-log` посчитает оба.
 
 ## 5. Строка случая: один раз на шаблон и owner, хвост в 2000 строк
 
-Code: `harness/hooks/calls.mjs:199-214` · key lines: 203, 209, 213
+Code: `harness/hooks/calls.mjs:200-215` · key lines: 204, 210, 214
 
 ```js
     const seen = new Set()
@@ -166,24 +172,22 @@ Code: `harness/hooks/calls.mjs:199-214` · key lines: 203, 209, 213
 
 ## 6. Агент ничего не видит: exit 0, пустой stdout, предел на ввод
 
-Code: `harness/hooks/calls.mjs:218-225` · key lines: 218, 224
+Code: `harness/hooks/calls.mjs:218-223` · key lines: 218, 221
 
 ```js
-setTimeout(() => process.exit(0), INPUT_MS).unref()
+// A pipe that stays open and sends nothing gives "" after INPUT_MS (hook-stdin.mjs): the hook does not hold
+// the tool call until hooks.json's limit kills it. A closed stdin ends the wait at once.
 try {
-    let raw = ""
-    process.stdin.setEncoding("utf8")
-    for await (const chunk of process.stdin) raw += chunk
-    main(raw)
+    main(await readStdin(INPUT_MS))
 } catch {}
 process.exitCode = 0
 ```
 
-- Что делает: читает stdin до конца и вызывает `main`; любая ошибка проглатывается, код выхода 0, в stdout ничего. Если pipe открыт и молчит, через 2 с процесс выходит сам.
+- Что делает: читает stdin через `readStdin` из `hook-stdin.mjs` и вызывает `main`; любая ошибка проглатывается, код выхода 0, в stdout ничего. Закрытый stdin заканчивает ожидание сразу; если pipe открыт и молчит, через 2 с без первого байта ввод пустой, и процесс выходит сам; после первого байта ввод читается до конца.
 - Почему здесь: Ticket требует «ничего не пишет в stdout, всегда exit 0, ошибку чтения или записи глотает» ([Что делаем, п. 2](../issues/07-call-log-harness-только-запись.md#что-делаем)).
 - Без него: hook на каждом вызове мог бы показать агенту ошибку или задержать вызов до своего предела в 5 с.
 - Требование: [Готово, когда](../issues/07-call-log-harness-только-запись.md#готово-когда)
-- Риски и пробелы test-ов: случай «pipe открыт и молчит» test-ом не покрыт; битый JSON, пустой ввод и папка без права записи — покрыты в `calls.test.sh`.
+- Риски и пробелы test-ов: `calls.test.sh`, раздел 7, проверяет оба края: закрытый stdin — выход меньше чем за 1.5 с, молчащий открытый pipe — выход сам около 2 с (не раньше 1.9 с, не позже 4.5 с), exit 0 и пустой stdout в обоих; битый JSON, пустой ввод и папка без права записи — там же. Ввод, у которого первый байт пришёл, а конец нет, обрывает только предел 5 с `hooks.json` — test-а на это нет.
 
 ## 7. Что сознательно не меняли
 
@@ -193,18 +197,21 @@ fake не проигрывает PostToolUse в ходе; Codex-входы call 
 
 ## 8. Как проверено
 
-`bash harness/hooks/tests/calls.test.sh` — exit 0 (31 проверка); `bash harness/bin/tests/loop-log.test.sh` — exit 0
-(13 проверок); `vitest run test/unit/loop-patterns.test.ts` — exit 0; `vitest run test/contract/harness-codex-hooks.test.ts`
-— exit 0 (четыре новых test-а красные без hook-а в `hooks.json`).
+`bash harness/hooks/tests/calls.test.sh` — exit 0 (35 проверок); `bash harness/bin/tests/loop-log.test.sh` — exit 0
+(16 проверок); `pnpm test test/unit/loop-patterns.test.ts test/contract/harness-codex-hooks.test.ts` — exit 0 (четыре
+новых test-а contract-а красные без hook-а в `hooks.json`). Раунд 2 ревью: каждая новая проверка красная на своём mutant-е —
+предел 7 дней как 30 дней или 60 с, без фильтра расширений, без `.tmp`; таймер без `unref` (закрытый stdin ждёт 2 с) и
+ожидание 30 с; исход `fail: null` как неуспех или как успех правки; `loop-log` без замены управляющих символов, без C1, без
+Vendor.
 
 ## Проверить себя
 
 1. Почему повтор `gh pr checks` с ненулевым exit code не даёт строки в `loops.jsonl`, и где это решается?
    - Ответ: его ненулевой exit code значит «CI ещё идёт»; `recordOf` отбрасывает такую команду через `isCiWait` ещё до записи в call log.
-   - Строки: `harness/hooks/calls.mjs:103-103`
+   - Строки: `harness/hooks/calls.mjs:104-104`
 2. Как на Codex отличается неуспешный `apply_patch` от успешного, если события PostToolUseFailure там нет?
    - Ответ: по началу `tool_response` — `Exit code: N`; код не 0 — неуспех, а строка `Wall time` вырезается, чтобы одинаковый вывод давал одинаковый хэш.
-   - Строки: `harness/hooks/calls.mjs:85-91`
+   - Строки: `harness/hooks/calls.mjs:86-92`
 3. Сколько правок `Write` с содержимым B, A, B, A нужно, чтобы появилась строка `edit-back-and-forth`, и почему?
    - Ответ: четыре: третья и четвёртая правки — два возврата к содержимому двух правок назад, а два возврата считаются третьим повтором, на котором пишется `would-hint`.
-   - Строки: `harness/hooks/loop-patterns.mjs:62-67`
+   - Строки: `harness/hooks/loop-patterns.mjs:64-69`

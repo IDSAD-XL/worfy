@@ -10,8 +10,9 @@
 //   - out  — the outcome: "ok", "fail:<hash of the error>" (Claude Code), "exit:<code>:<hash of the output>"
 //            or "out:<hash of the output>" (Codex, with and without an exit code);
 //   - fail — true for a failure, false for a success, null when the outcome does not say (a Codex shell
-//            call: its hook input carries the output only). An unknown outcome counts as a failure here:
-//            the same command with the same output again is no progress either;
+//            call: its hook input carries the output only). An unknown outcome is no failure here: a shell
+//            call that succeeds the same way again (a `cat`, an `ls`) would look like a loop. It is no
+//            success either: an edit of unknown outcome is not counted as one;
 //   - files — for an edit, [[hash of the path, hash of the content after the edit], …].
 
 /** How many calls of an agent the log keeps, and the patterns look at. */
@@ -35,7 +36,8 @@ export function isCiWait(command) {
     return typeof command === "string" && CI_WAIT.test(command)
 }
 
-const failed = (call) => call.fail !== false
+const failed = (call) => call.fail === true
+const succeeded = (call) => call.fail === false
 const key = (call) => `${call.tool}\u0000${call.in}\u0000${call.out}`
 
 // The same call with the same failed outcome: how many of `calls` repeat the newest one.
@@ -51,12 +53,12 @@ function sameFailure(calls) {
 // B) are the 3rd repeat: the count is the returns plus one.
 function editBackAndForth(calls) {
     const last = calls[calls.length - 1]
-    if (failed(last) || !Array.isArray(last.files)) return 0
+    if (!succeeded(last) || !Array.isArray(last.files)) return 0
     let most = 0
     for (const [file] of last.files) {
         const contents = []
         for (const call of calls) {
-            if (failed(call) || !Array.isArray(call.files)) continue
+            if (!succeeded(call) || !Array.isArray(call.files)) continue
             for (const [f, content] of call.files) if (f === file) contents.push(content)
         }
         let returns = 0
@@ -70,7 +72,8 @@ function editBackAndForth(calls) {
 }
 
 // A-B-A-B: how many times the pair of the two newest calls repeats in a row at the end, each call with the
-// same outcome. Two different calls, one of them failed: two successes in turn are work, not a loop.
+// same outcome. Two different calls, one of them failed: two successes in turn are work, not a loop, and so
+// are two calls of unknown outcome.
 function abab(calls) {
     const n = calls.length
     if (n < 2) return 0

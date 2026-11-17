@@ -5,7 +5,8 @@
 //
 // Reads <gate state>/calls/loops.jsonl, which the hook hooks/calls.mjs writes, and prints each would-deny
 // line — an agent that repeated a call a 4th time — as its time, Session (with /<agent_id> for a Subagent),
-// pattern and the start of its command, then the last line `cases: N (revisit at 3)`. --since leaves out
+// pattern, Vendor (claude or codex, "-" for a line without one) and the start of its command, each on one line
+// with its control characters as "?", then the last line `cases: N (revisit at 3)`. --since leaves out
 // the cases before that day (UTC). Three cases or more are the condition to come back to the loop detector
 // with a hint to the agent and a refusal; until then the hook only writes, and nothing reaches the agent.
 //
@@ -46,7 +47,13 @@ try {
     text = fs.readFileSync(path.join(gateStateDir(), "calls", "loops.jsonl"), "utf8")
 } catch {}
 
-const oneLine = (value) => String(value ?? "").replace(/\s+/g, " ").trim()
+// A field on one line, with each control character left as "?": a command from the log is the agent's text, and
+// an escape sequence in it must not reach the terminal that prints it.
+const oneLine = (value) =>
+    String(value ?? "")
+        .replace(/\s+/g, " ")
+        .replace(/[\x00-\x1f\x7f-\x9f]/g, "?")
+        .trim()
 let cases = 0
 for (const line of text.split("\n")) {
     let entry
@@ -59,6 +66,6 @@ for (const line of text.split("\n")) {
     if (parsed.since && entry.t.slice(0, 10) < parsed.since) continue
     cases++
     const who = entry.agent_id ? `${entry.session}/${entry.agent_id}` : entry.session
-    process.stdout.write(`${entry.t}  ${oneLine(who)}  ${oneLine(entry.pattern)}  ${oneLine(entry.command)}\n`)
+    process.stdout.write(`${oneLine(entry.t)}  ${oneLine(who)}  ${oneLine(entry.pattern)}  ${oneLine(entry.vendor || "-")}  ${oneLine(entry.command)}\n`)
 }
 process.stdout.write(`cases: ${cases} (revisit at ${REVISIT_AT})\n`)

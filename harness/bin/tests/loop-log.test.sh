@@ -29,11 +29,11 @@ run
 # --- Cases ---------------------------------------------------------------------------------------------
 mkdir -p "$T/state/calls"
 cat >"$T/state/calls/loops.jsonl" <<'EOF'
-{"t":"2026-11-10T08:00:00.000Z","session":"ses-old","agent_id":null,"pattern":"same-failure","level":"would-deny","tool":"Bash","command":"pnpm test","vendor":"claude"}
+{"t":"2026-11-10T08:00:00.000Z","session":"ses-old","agent_id":null,"pattern":"same-failure","level":"would-deny","tool":"Bash","command":"pnpm test"}
 {"t":"2026-11-18T09:00:00.000Z","session":"ses-1","agent_id":"agent-7","pattern":"same-failure","level":"would-hint","tool":"Bash","command":"pnpm lint","vendor":"claude"}
 {"t":"2026-11-18T09:01:00.000Z","session":"ses-1","agent_id":"agent-7","pattern":"same-failure","level":"would-deny","tool":"Bash","command":"pnpm lint\nsecond line","vendor":"claude"}
 not json
-{"t":"2026-11-19T10:00:00.000Z","session":"ses-2","agent_id":null,"pattern":"edit-back-and-forth","level":"would-deny","tool":"Edit","command":"/work/src/a.ts","vendor":"claude"}
+{"t":"2026-11-19T10:00:00.000Z","session":"ses-2","agent_id":null,"pattern":"edit-back-and-forth","level":"would-deny","tool":"apply_patch","command":"\u001b[31m/work/src/a.ts\u0007 \u009b2J\u007f","vendor":"codex"}
 
 EOF
 run
@@ -44,10 +44,15 @@ out="$(cat "$T/out")"
 printf '%s\n' "$out" | grep -q 'pnpm lint' && ! printf '%s\n' "$out" | grep -q 'would-hint' && ok "a would-hint is not a case" || bad "hint: $out"
 case1="$(printf '%s\n' "$out" | grep 'ses-1')"
 case "$case1" in
-*2026-11-18T09:01:00*ses-1/agent-7*same-failure*"pnpm lint second line"*) ok "a case: time, Session with agent_id, pattern, the command on one line" ;;
+*2026-11-18T09:01:00*ses-1/agent-7*same-failure*"  claude  pnpm lint second line") ok "a case: time, Session with agent_id, pattern, Vendor, the command on one line" ;;
 *) bad "case line: $case1" ;;
 esac
 printf '%s\n' "$out" | grep 'ses-2' | grep -q 'edit-back-and-forth.*/work/src/a.ts' && ok "a Session without agent_id, an edit's file" || bad "ses-2: $out"
+# The command is the agent's text: an escape sequence (ESC, BEL, the C1 CSI, DEL) in it reaches the terminal as "?".
+case2="$(printf '%s\n' "$out" | grep 'ses-2')"
+[ "$case2" = "2026-11-19T10:00:00.000Z  ses-2  edit-back-and-forth  codex  ?[31m/work/src/a.ts? ?2J?" ] && ok "control characters of a command print as ?; a Codex case names its Vendor" || bad "ses-2 line: $(printf '%s' "$case2" | od -c | head -5)"
+node -e 'process.exit(/[\x00-\x09\x0b-\x1f\x7f-\x9f]/.test(require("fs").readFileSync(process.argv[1], "utf8")) ? 1 : 0)' -- "$T/out" && ok "no control character in the whole output" || bad "a control character printed"
+printf '%s\n' "$out" | grep 'ses-old' | grep -q '  same-failure  -  pnpm test$' && ok "a line without a Vendor prints -" || bad "ses-old: $out"
 
 # --- --since -------------------------------------------------------------------------------------------
 run --since 2026-11-18

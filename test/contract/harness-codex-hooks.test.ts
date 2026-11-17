@@ -677,4 +677,12 @@ describe('the call log on Codex: PostToolUse runs calls.mjs, which only writes',
     expect(loopLines(state)[0]).toMatchObject({ session: recordedPatch.session_id, agent_id: null })
     expect(callLog(state, owner(recordedPatch)).map((record) => record.fail)).toEqual([true, true, true, true])
   }, RUN_MS)
+
+  it('writes no loop line for a shell call repeated with the same output: without an exit code its outcome is no failure', async () => {
+    const { work, state } = project()
+    const recordedBash = recorded('PostToolUse').find((input) => input.tool_name === 'Bash' && input.agent_id === undefined)!
+    for (let i = 0; i < 4; i++) await after(work, recordedBash)
+    expect(callLog(state, owner(recordedBash)).map((record) => record.fail)).toEqual([null, null, null, null])
+    expect(loopLines(state)).toEqual([])
+  }, RUN_MS)
 })
