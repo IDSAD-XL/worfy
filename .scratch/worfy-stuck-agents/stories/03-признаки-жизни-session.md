@@ -210,3 +210,31 @@ output file или взгляд получает output file не живой tas
 3. Почему молчащий hook не даёт тишину, хотя событий нет?
    - Ответ: его начало добавило id run-а в открытые hook-и, и `quietFor` возвращает ноль, пока не придёт его конец.
    - Строки: `src/main/agent/session.ts:1247`, `src/shared/agent/quiet.ts:43`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED; debt: `session.ts:1227` clears the open hooks when a turn starts from `idle` or `starting`; a hook that started just before that turn's `init` and is still running drops out of the count, so a silent hook longer than the mark can give one false `quiet` (the next sign of life lifts it). This is the price of the stray-hook fix (`quiet-stray-hook.jsonl`).
+>
+> Round 2 (rework diff 4c70741f1..c2541c122, depth high, verifier only on the rework diff).
+>
+> - Round-1 item fixed: `test/contract/agent-session.test.ts:484` (`quiet-hook.jsonl`) now goes through the Session: hook open + clock past the mark → no `quiet` and no outside read; hook ended → `quiet` at start+11min. Mutant "openHooks.add removed" → :484 red; mutant "openHooks.clear() at turn start removed" → :516 red.
+> - Clearing at turn start: `deliver()` sets `busy` synchronously after `handle.send`, so the hooks of a send-started turn arrive after the clear. `needs_permission` → `busy` keeps its hooks (guard `!inTurn(was)`); read from code, no test.
+> - Re-reading a failed Profile: at most one `bin/profile` spawn per minute per quiet Session (`lookBusy`, `lookMs`, spawn timeout in `src/main/workflow/profile.ts:262`); no spawn storm.
+> - No new defect found in the rework.
+>
+> Checks: the 7 module test files exit 0 (22 files, 821 passed, 8 skipped); gate fast EXIT=0 `[gate] green (fast)`; story-check on the head exit 0.
+> Could not verify: whether real Claude Code sends `hook_started` before or after `init` for a self-started turn.
+>
+> Review tokens: round 1 325221, round 2 59225.
+
+Code: `test/contract/agent-session.test.ts:484-484` · key lines: 484
+
+```ts
+    it('a hook that started and has not ended holds off the mark, as Claude Code sends nothing while a silent hook runs; once it ends the mark counts again', async () => {
+```
+
+Code: `src/main/workflow/profile.ts:262-262` · key lines: 262
+
+```ts
+      execFile(command.file, command.args, { cwd, env: runEnv, maxBuffer: MAX_OUTPUT, timeout: timeoutMs, encoding: 'utf8' }, (error, stdout, stderr) => {
+```

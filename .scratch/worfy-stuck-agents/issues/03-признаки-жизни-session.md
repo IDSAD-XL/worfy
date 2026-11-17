@@ -1,7 +1,8 @@
 # 03 — Признаки жизни Session: время последнего признака и тишина хода
 
 Type: task
-Status: claimed 2026-11-17T03:56Z
+Status: done 2026-11-17T07:49Z
+PR: #1948
 Blocked by: none
 Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решения по реализации» → «Признаки жизни Session и тишина», пункты
 «Время последнего признака жизни», «Что не тишина», «Пороги»; «Решено без владельца», 1, 7 и 12
@@ -63,6 +64,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решения по реал�
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · a1d1c61599c9b34a6836dcb240d8f05b41254758
   - evidence: gate pass · `gate fast` exit 0 · mac - · b70dce1896e53978b3031970b91e2f2b3f0a61b8
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44036963313/job/133895449993 · ci - · c2541c1223dd7506aef1bfa09debbe0d20c3e51f
 
 ## Тесты
 
