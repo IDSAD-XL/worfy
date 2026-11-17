@@ -161,3 +161,12 @@ Code: `src/renderer/session/rail/SubagentsRail.tsx:162-170` · key lines: 163, 1
    - Ответ: ответ старой сборки Linked machine не несёт поля, и обязательное поле отвергло бы весь ответ; без поля
      пометки просто нет.
    - Строки: `src/shared/transcript/subagents.ts:108-108`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED; debt: [low] the rail name span `impl-0 · implementer` is cut to `impl-0 …` and the Node's `implementer · …` line is cut by Transcript and Hide — old width limits, not added by the rework.
+> Noted: both first-round items fixed — the quiet mark is its own element at the start of the Node's last line (SubagentNode.tsx:144-149) and its own line under the name in the rail (SubagentsRail.tsx:66-67, 162-170); both withQuiet copies removed; the running time still reads `running 52m 00s` (Consider of round 1, kept).
+> Review depth: low — default: the profile has no review.depth.wave (Wave under Autopilot keeps one verifier, rules-review-depth.md)
+> Review tokens: 67718
+>
+> Could not verify
