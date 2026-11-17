@@ -135,7 +135,7 @@ Chip, hint line и Restart — Ticket 06; тишина Subagent-а — Ticket 04
 `pnpm lint`, `pnpm typecheck` — exit 0. Новые и изменённые test-ы: `test/unit/session-quiet.test.ts`,
 `test/unit/claude-events.test.ts`, `test/unit/codex-items.test.ts`, `test/contract/agent-session.test.ts`,
 `test/contract/codex-session.test.ts` — exit 0; оба contract test-а краснеют, если Session не шлёт `quiet` или не
-сбрасывает его на событии агента.
+сбрасывает его на событии агента. `gate fast` — exit 0, `[gate] green (fast)`.
 
 ## Проверить себя
 
