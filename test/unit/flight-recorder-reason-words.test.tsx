@@ -50,6 +50,11 @@ describe('the words of the continuation ladder', () => {
     expect(reasonText(wait('main-red', 'run'))).toBe('main-red: main was red, so the stuck Ticket was not continued')
   })
 
+  it('names the turn-hung stop of a Run (worfy-stuck-agents ticket 09)', () => {
+    expect(stopReasonText('turn-hung')).toBe("turn-hung: the Orchestrator's turn gave no sign of life for 30 min")
+    expect(reasonText(wait('turn-hung', 'run'))).toBe("turn-hung: the Orchestrator's turn gave no sign of life for 30 min")
+  })
+
   it('writes the reason of the attempt a continuation caused in words, for both causes', () => {
     expect(reasonText(wait('ticket-continued: wave-unfinished, 1 of 2', 'agent'))).toBe('continuation 1 of 2: still in work after the turn')
     expect(reasonText(wait('ticket-continued: no-progress, 2 of 2', 'agent'))).toBe('continuation 2 of 2: the same Wave came back')

@@ -3,7 +3,7 @@
 // one is sent, and every reason a run stops.
 import { describe, expect, it } from 'vitest'
 import { MAX_CONTINUATIONS } from '../../src/shared/autopilot/continuation'
-import { AUTOPILOT_STOP_REASONS, initialCycle, SETTLE_MS, step, type CycleEvent, type CycleState } from '../../src/shared/autopilot/cycle'
+import { AUTOPILOT_STOP_REASONS, initialCycle, QUIET_HUNG_MS, SETTLE_MS, step, type CycleEvent, type CycleState } from '../../src/shared/autopilot/cycle'
 import { runWaveState } from '../../src/shared/actions/render-template'
 import type { Ticket } from '../../src/shared/workflow/types'
 import { readyWave } from '../../src/shared/workflow/waves'
@@ -685,5 +685,36 @@ describe('the continuation ladder', () => {
     expect(continued.asked?.kind).toBe('set-aside')
     const aside = run([{ type: 'graceful-stop', tickets: STUCK2 }, { type: 'main-red' }], continued)
     expect(aside.effects).toEqual([{ kind: 'stopping', wave: 2, tickets: [2], inWork: [2] }, { kind: 'stopped', reason: 'user-stop' }])
+  })
+})
+
+// A quiet turn in Autopilot (worfy-stuck-agents ticket 09): the Run tells the cycle `turn-quiet` once the
+// Orchestrator's turn has gone QUIET_HUNG_MS without a sign of life; the cycle stops with `turn-hung` only while
+// that turn runs (phase `turn`). The stop interrupts nothing: run.ts gives the Session back as it runs (ADR-0050).
+describe('turn-hung: a quiet turn of the Orchestrator', () => {
+  it('turn-quiet in phase turn stops the run with turn-hung', () => {
+    const { state, effects } = run([{ type: 'turn-quiet' }], inWave1())
+    expect(effects).toEqual([{ kind: 'stopped', reason: 'turn-hung' }])
+    expect(state).toMatchObject({ phase: 'stopped', reason: 'turn-hung', wave: 1 })
+    expect(AUTOPILOT_STOP_REASONS).toContain('turn-hung')
+    expect(QUIET_HUNG_MS).toBe(30 * 60_000)
+  })
+
+  it('turn-quiet in phases settling and tasks changes nothing', () => {
+    const settling = run([ok([t(1, 'done'), t(2, 'work'), t(3, 'open', [1, 2])])], inWave1()).state
+    expect(settling.phase).toBe('settling')
+    expect(run([{ type: 'turn-quiet' }], settling)).toEqual({ state: settling, effects: [] })
+    const tasks = run([ok(OPEN, 2)], inWave1()).state
+    expect(tasks.phase).toBe('tasks')
+    expect(run([{ type: 'turn-quiet' }], tasks)).toEqual({ state: tasks, effects: [] })
+  })
+
+  it('turn-quiet before the Wave is sent and after the run stopped changes nothing', () => {
+    const starting = initialCycle(EPIC)
+    expect(run([{ type: 'turn-quiet' }], starting)).toEqual({ state: starting, effects: [] })
+    const sending = run([{ type: 'start', tickets: OPEN }]).state
+    expect(run([{ type: 'turn-quiet' }], sending)).toEqual({ state: sending, effects: [] })
+    const stopped = run([{ type: 'turn-quiet' }], inWave1()).state
+    expect(run([{ type: 'turn-quiet' }], stopped)).toEqual({ state: stopped, effects: [] })
   })
 })

@@ -47,6 +47,10 @@
 // per run. While a continuation or a set-aside is asked and not yet under way, the run reads whether main
 // is red; `main-red` stops it (with `user-stop` after a graceful Stop). `background-stalled` names no Ticket and stays a stop. With the ceiling 0
 // (the default) the run stops at both places as it always did.
+//
+// A quiet turn (worfy-stuck-agents ticket 09): the Orchestrator's turn that goes QUIET_HUNG_MS without a sign of
+// life gets `turn-quiet` from run.ts, and in phase `turn` the run stops with `turn-hung`; in every other phase the
+// event changes nothing.
 import { resumedTickets } from '../actions/render-template'
 import type { Ticket } from '../workflow/types'
 import { doneOnlyInBranch, inWork, readyWave } from '../workflow/waves'
@@ -58,7 +62,8 @@ import { doneOnlyInBranch, inWork, readyWave } from '../workflow/waves'
  * `waits-owner` is never a cycle's own: a Run over a queue of Epics stops with it when the rule of the
  * queue (epic-queue.ts, epicOutcome) finds the last Epic waiting only for the owner (ticket 21); a Run
  * of one Epic stops with `blocked-tickets` then, as before. `main-red`: main was red when the cycle asked a
- * continuation or a set-aside and no graceful Stop had come (worfy-stuck-agents ticket 01).
+ * continuation or a set-aside and no graceful Stop had come (worfy-stuck-agents ticket 01). `turn-hung`: the
+ * Orchestrator's turn went QUIET_HUNG_MS without a sign of life (worfy-stuck-agents ticket 09).
  */
 export const AUTOPILOT_STOP_REASONS = [
   'no-ready-wave',
@@ -83,6 +88,7 @@ export const AUTOPILOT_STOP_REASONS = [
   'start-refused',
   'waits-owner',
   'main-red',
+  'turn-hung',
 ] as const
 export type AutopilotStopReason = (typeof AUTOPILOT_STOP_REASONS)[number]
 
@@ -99,6 +105,14 @@ export interface Continuation {
 
 /** How long a run waits after the Orchestrator's turn for the Tickets of the Wave to leave work. */
 export const SETTLE_MS = 10 * 60_000
+
+/**
+ * How long the Orchestrator's turn may go without a sign of life (quietSince of the Session,
+ * src/shared/agent/quiet.ts) before the run stops with `turn-hung` (worfy-stuck-agents ticket 09; decided
+ * without the owner, item 7 of the Epic's spec). The stop interrupts nothing: the Session goes back to a
+ * person as it runs (ADR-0050, "After any other stop").
+ */
+export const QUIET_HUNG_MS = 30 * 60_000
 
 /**
  * How long a run waits for its background tasks without any event of theirs before it stops with
@@ -179,6 +193,8 @@ export type CycleEvent =
   | { type: 'workflow'; tickets: readonly CycleTicket[] }
   /** SETTLE_MS passed since the run started settling. */
   | { type: 'settle-timeout' }
+  /** The Orchestrator's turn has gone QUIET_HUNG_MS without a sign of life (worfy-stuck-agents ticket 09). */
+  | { type: 'turn-quiet' }
   /** The workflow model could not be read after the Orchestrator's turn. */
   | { type: 'workflow-error'; message: string }
   /** Main is red (the `land` marker), read when the cycle asked a continuation or a set-aside. */
@@ -425,6 +441,9 @@ export function step(state: CycleState, event: CycleEvent): CycleStep {
       return state.phase === 'settling' ? evaluate(state, event.tickets) : stay(state)
     case 'settle-timeout':
       return state.phase === 'settling' ? ladder(state, state.holding ?? [], 'wave-unfinished', []) : stay(state)
+    case 'turn-quiet':
+      // Only the Orchestrator's own turn: the silence of its background tasks is `background-stalled` (phase `tasks`).
+      return state.phase === 'turn' ? stop(state, 'turn-hung') : stay(state)
     case 'main-red':
       // Read only for an asked continuation or set-aside: then the stuck Ticket waits for a green main, and so does the run.
       // After a graceful Stop the run ends as the user asked, with nothing more sent.

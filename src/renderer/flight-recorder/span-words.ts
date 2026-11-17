@@ -2,7 +2,8 @@
 // name, the token of its colour, its duration, its outcome and its lost source, shared by the timeline
 // (Timeline.tsx) and the detail panel (DetailPanel.tsx). The continuation ladder (worfy-stuck-agents ticket
 // 05) has its words here too: the stop `main-red`, the reason of the attempt a `ticket-continued` caused,
-// and the mark of a `ticket-set-aside` on the Run's row.
+// and the mark of a `ticket-set-aside` on the Run's row. So has the stop `turn-hung` (ticket 09).
+import { QUIET_HUNG_MS } from '../../shared/autopilot/cycle'
 import type { OrchestratorMarkFact } from '../../shared/flight-recorder/facts'
 import { LOST_SOURCE_LABELS, type Span, type WaitCause } from '../../shared/flight-recorder/spans'
 import { formatLocal } from './store'
@@ -38,6 +39,7 @@ const STOP_WORDS: Readonly<Record<string, string>> = {
   'start-refused': 'start-refused: refused once the Orchestrator was free',
   'waits-owner': 'waits-owner: the last Epic of the queue waits for the owner',
   'main-red': 'main-red: main was red, so the stuck Ticket was not continued',
+  'turn-hung': `turn-hung: the Orchestrator's turn gave no sign of life for ${QUIET_HUNG_MS / 60_000} min`,
 }
 
 /** What the Run saw of a stuck Ticket, by the cause of its continuation or set-aside (CONTINUATION_CAUSES). */

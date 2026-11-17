@@ -36,6 +36,10 @@
 //   live, or while a turn runs (it may start some), leaves the Orchestrator unattended, and keeps
 //   keep-awake, until the turn and the tasks have ended (orchestrator.ts);
 //   then the journal says `orchestrator-returned`, or, if the app quits first, `tasks-killed`.
+// - A quiet turn (worfy-stuck-agents ticket 09): while the Wave's turn runs, the run follows the
+//   Session's quietSince (src/shared/agent/quiet.ts) and, once the turn has been quiet for
+//   QUIET_HUNG_MS, stops with `turn-hung`. Nothing is interrupted: the Session goes back to a person
+//   as it runs, as after any stop of the run's own (ADR-0050).
 // - Stop by the user is graceful (`user-stop`, worfy-week ticket 18, ADR-0051): no new Ticket, the
 //   ones in work finish. During the Wave's turn or its tasks the run goes `stopping`: it journals
 //   `run-stopping` and sends the Orchestrator STOP_TEXT through its Session (queued behind a running
@@ -214,6 +218,7 @@ import { waveDurationP90 } from '../../shared/autopilot/wave-duration'
 import {
   BACKGROUND_STALL_MS,
   initialCycle,
+  QUIET_HUNG_MS,
   SETTLE_MS,
   step,
   TASKS_GRACE_MS,
@@ -273,6 +278,11 @@ export interface RunSession {
   parkedRequests?(): number
   /** A notice of worfy's own in the Session's view (Session.notice): the Auto-approval line at the end of a run. */
   notice?(text: string): void
+  /**
+   * What the input field shows of the Session (Session.controls): `quietSince`, when the quiet of its running turn
+   * began once it was marked (worfy-stuck-agents ticket 03), null otherwise. Absent: the turn is never read as quiet.
+   */
+  controls?(): { quietSince: number | null }
 }
 
 /**
@@ -457,7 +467,13 @@ export interface AutopilotDeps {
   backgroundStallMs?: number
   /** How long a run waits for the task-notification turn after the last task ended (default TASKS_GRACE_MS). */
   tasksGraceMs?: number
-  /** The clock of those two waits (default: the real timers). */
+  /**
+   * How long the Orchestrator's turn may stay quiet before the run stops with `turn-hung` (default QUIET_HUNG_MS;
+   * worfy-stuck-agents ticket 09). Counted from the Session's quietSince by the clock of the waits before a Wave
+   * (`limits.now`, else the wall clock), its timer on `tasksClock`.
+   */
+  quietHungMs?: number
+  /** The clock of those three waits (default: the real timers). */
   tasksClock?: TasksClock
   /** How long Stop waits for the interrupted turn before the Orchestrator's process is closed (default HALT_TURN_MS of session.ts). */
   haltTurnMs?: number
@@ -821,6 +837,8 @@ class Run {
   settleTimer: ReturnType<typeof setTimeout> | null = null
   /** The wait for background tasks (phase `tasks`): their limit, or the grace time after the last one. */
   tasksTimer: unknown = null
+  /** The limit of a quiet turn (phase `turn`, worfy-stuck-agents ticket 09): set while the Session's turn is quiet. */
+  hungTimer: unknown = null
   /** The output files of the Session's tasks, by task id, as the tool results that started them name them (task-output.ts). */
   readonly taskOutputs = new Map<string, string>()
   /** Turns of the Orchestrator's Session the run has seen start: one per `prompt` event. */
@@ -1946,6 +1964,10 @@ export class Autopilot {
       case 'refused_dialog':
         void run.enqueue(() => this.write(run, refusedDialogLine(event, run.session?.id ?? null)))
         return
+      case 'quiet':
+        // The Session marked its turn quiet, or a sign of life ended the quiet: the limit of a hung turn follows it.
+        this.hungTimer(run)
+        return
       case 'auto_approval':
         // A decision is a sign of life of whoever asked: the limit of the tasks starts over at once, so a park
         // that just ended is not overtaken by that limit (worfy-auto-approve ticket 07).
@@ -2018,6 +2040,7 @@ export class Autopilot {
     run.cycle = state
     this.settleTimer(run, before)
     this.tasksTimer(run, false)
+    this.hungTimer(run)
     for (const effect of effects) {
       switch (effect.kind) {
         case 'send-wave':
@@ -2976,6 +2999,44 @@ export class Autopilot {
     run.tasksTimer = timer
   }
 
+  /**
+   * In phase `turn`, the limit of a quiet turn (worfy-stuck-agents ticket 09): while the Session says its turn is
+   * quiet (quietSince), `turn-quiet` goes to the cycle once the quiet has lasted `quietHungMs`. Set again on every
+   * `quiet` event of the Session and every cycle step; cleared when the turn is no longer quiet and in every other
+   * phase. Only the Orchestrator's own turn counts: a quiet background task is `background-stalled` (tasksTimer).
+   * The quiet is the Session's own judgement (src/shared/agent/quiet.ts): an open permission request, a hook that
+   * runs, a growing output file of a live task or of the gate, and a held e2e lock are no quiet.
+   */
+  private hungTimer(run: Run): void {
+    const clock = this.deps.tasksClock ?? realClock
+    if (run.hungTimer !== null) clock.clearTimeout(run.hungTimer)
+    run.hungTimer = null
+    const since = run.cycle.phase === 'turn' ? this.quietSince(run) : null
+    if (since === null) return
+    const hung = (): Promise<void> => (run.cycle.phase === 'turn' && this.quietSince(run) === since ? this.feed(run, { type: 'turn-quiet' }) : Promise.resolve())
+    const left = since + (this.deps.quietHungMs ?? QUIET_HUNG_MS) - this.now()
+    if (left <= 0) {
+      void run.enqueue(hung)
+      return
+    }
+    const timer = clock.setTimeout(() => {
+      if (run.hungTimer !== timer) return
+      run.hungTimer = null
+      void run.enqueue(hung)
+    }, left)
+    run.hungTimer = timer
+  }
+
+  /** Since when the turn of the run's Session has been quiet (Session.controls); null when it is not, or cannot tell. */
+  private quietSince(run: Run): number | null {
+    try {
+      return run.session?.controls?.().quietSince ?? null
+    } catch (error) {
+      console.warn(`[autopilot] ${run.projectId}: could not read whether the Session's turn is quiet`, error)
+      return null
+    }
+  }
+
   /** The live background tasks of the run's Session; none when it cannot tell. */
   private liveTasks(run: Run): BackgroundTask[] {
     try {
@@ -3479,7 +3540,7 @@ export class Autopilot {
     }
   }
 
-  /** Clears the settle, tasks, PR and Limits timers of the run. */
+  /** Clears the settle, tasks, quiet-turn, PR and Limits timers of the run. */
   private stopTimers(run: Run): void {
     if (run.prsTimer !== null) (this.deps.prsClock ?? realClock).clearTimeout(run.prsTimer)
     run.prsTimer = null
@@ -3487,6 +3548,8 @@ export class Autopilot {
     run.settleTimer = null
     if (run.tasksTimer !== null) (this.deps.tasksClock ?? realClock).clearTimeout(run.tasksTimer)
     run.tasksTimer = null
+    if (run.hungTimer !== null) (this.deps.tasksClock ?? realClock).clearTimeout(run.hungTimer)
+    run.hungTimer = null
     run.limits?.cancel()
     run.retry?.cancel()
     this.cancelBoundary(run)

@@ -1,7 +1,8 @@
 # 09 — `turn-hung` в Autopilot: замолчавший ход останавливает Run, ничего не прерывая
 
 Type: task
-Status: open
+Status: claimed 2026-11-17T10:24Z
+PR: #1957
 Blocked by: 03, 05
 Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решение», 2; «Путь пользователя», B, шаг 3; «Решения по реализации» →
 «Признаки жизни Session и тишина», пункты «Пороги» и «`turn-hung` в Autopilot»; «Решения по test-ам», Fault scenario 7;
@@ -40,14 +41,22 @@ Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решение», 2; «Пут
 
 - [ ] Unit test `test/unit/autopilot-cycle.test.ts`: `turn-quiet` в фазе `turn` — `stop` `turn-hung`; в фазах `settling`
       и `tasks` — без изменений.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/autopilot-cycle.test.ts` exit 0 · mac - · 35a82c71a
 - [ ] Unit test `test/unit/flight-recorder-journal.test.ts`: `turn-hung` даёт исход `failed`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/flight-recorder-journal.test.ts` exit 0 · mac - · 35a82c71a
 - [ ] Fault scenario 7 (contract): ход fake agent без признаков жизни дольше порога test-а → `run-stopped` `turn-hung`;
       Interrupt не вызывался, процесс Session тот же, background task жива, Session снова attended.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-faults-ladder.test.ts` exit 0 · mac - · 35a82c71a
 - [ ] Fault scenario 7 на Codex (`test/contract/autopilot-faults-codex.test.ts`).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-faults-codex.test.ts` exit 0 · mac - · 35a82c71a
 - [ ] Fault scenario: ход с открытым запросом разрешения или идущим hook-ом дольше порога — `turn-hung` нет.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-faults-ladder.test.ts` exit 0 (hook running past the limit) · mac - · 35a82c71a
 - [ ] И1–И9 держатся (`test/autopilot-invariants.ts`).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-faults-ladder.test.ts test/contract/autopilot-faults-codex.test.ts` exit 0 (checkRecovery) · mac - · 35a82c71a
 - [ ] Unit test `span-words`: слова для `turn-hung`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/flight-recorder-reason-words.test.tsx` exit 0 · mac - · 35a82c71a
 - [ ] `docs/features/autopilot-faults.md` описывает `turn-hung`.
+  - evidence: commit pass · Autopilot Run stops with turn-hung after 30 min of a quiet Orchestrator turn, interrupting nothing (worfy-stuck-agents 09) · - - · 35a82c71a
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Тесты

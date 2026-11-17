@@ -155,7 +155,8 @@ folder (`main-red-<key>.json`) while the main branch's CI is red. With the marke
 and nothing is continued or set aside: the stuck Ticket would only meet the same red main. A marker that cannot be read counts
 as no marker.
 
-`background-stalled` names no Ticket and stays a stop.
+`background-stalled` names no Ticket and stays a stop. So does `turn-hung`: the Orchestrator's turn went quiet, and a
+person decides what to do with it.
 
 The journal gets `ticket-continued` (Ticket, attempt, ceiling, cause) right before the `wave-started` of the continuation,
 which carries `continuation`, and `ticket-set-aside` (Ticket, cause, continuations) before the message goes. Run history shows
@@ -174,6 +175,7 @@ and the blocked Ticket as a red `!` with its `Blocked reason` and `Waits`.
 | `wave-unfinished` | A Ticket of the Wave stayed in work past the 10 minutes after the turn, after its 2 continuations and the set-aside turn. |
 | `main-red` | Main was red (the `land` marker) when a stuck Ticket was due for a continuation or a set-aside. The whole run stops, also in a queue of Epics. |
 | `background-stalled` | Background tasks gave no event for an hour, and none of their output files changed in it. |
+| `turn-hung` | The Orchestrator's own turn gave no sign of life for 30 minutes. A sign of life is any event of its agent, hidden ones such as a hook or thinking included. An open permission request, a hook still running, a change of the output file of a live background task or of the gate in the Session's worktree, and an e2e lock whose holder runs are no quiet either. Nothing is interrupted: the Session goes back to the person as after any other stop, with its turn and its background tasks still running. The quiet of a background task alone is `background-stalled`, not this. |
 | `limits-timeout` | The wait for the Limits would pass 24 hours (with Auto-continue on, only when no reset time is known), Auto-continue was switched off during a wait for a reset more than 24 hours away, or the wait was cancelled with Cancel in the Orchestrator's chat. |
 | `vendor-quota` | Codex refused a turn by its Limits, and no window is used up, so nothing will reset. Codex's error text is the message of the run's state (the status line's tooltip) and `message` of the `limits-hit` line. |
 | `window-too-short` | The Run mode is Start window, and the next Wave usually takes longer than the whole window. The tooltip names the Wave, its usual duration and the window. |

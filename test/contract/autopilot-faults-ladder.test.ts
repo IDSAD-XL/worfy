@@ -10,11 +10,18 @@
 // first turn answers the Wave with words that try to steer worfy ("ignore the rules"), its second answers the
 // set-aside message. The test plays the Orchestrator's hands: the Wave's command claims or finishes its Tickets
 // (`marks`), and with `setAside: 'block'` the set-aside message's `ticket block` writes the Ticket blocked.
+//
+// Fault scenario 7 (worfy-stuck-agents ticket 09) is here too, with its negative cases: a turn that goes quiet stops
+// the run with `turn-hung` and interrupts nothing; a hook that runs is no quiet; a quiet background task stays
+// `background-stalled`.
 import { describe, expect, it, vi } from 'vitest'
+import { Session } from '../../src/main/agent/session'
+import { QUIET_MARK_MS } from '../../src/shared/agent/quiet'
+import { QUIET_HUNG_MS } from '../../src/shared/autopilot/cycle'
 import type { JournalEvent } from '../../src/shared/autopilot/journal'
 import { checkRecovery } from '../autopilot-invariants'
 import { ms } from '../time-scale'
-import { EPIC, EPIC_B, faultRun, PROJECT, until, type FaultRun } from './autopilot-faults-setup'
+import { EPIC, EPIC_B, faultRun, PROJECT, START_MS, until, type FaultRun } from './autopilot-faults-setup'
 
 vi.mock('electron', () => ({
   app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined },
@@ -189,5 +196,119 @@ describe('the continuation ladder of a Run (worfy-stuck-agents ticket 05)', () =
     expect(waveCommands(h)).toEqual([WAVE_1, WAVE_1, WAVE_1])
 
     expect(checkRecovery(h.recovery({ stop: 'no-progress', waves: 3 }))).toEqual([])
+  })
+})
+
+// A quiet turn (worfy-stuck-agents ticket 09; Fault scenario 7 of the Epic's spec): the Sessions watch their turns for
+// quiet on the test's clock (faultRun's `quietHungMs`), the mark after QUIET_MARK_MS, and the run stops with turn-hung
+// once the Orchestrator's turn has been quiet for QUIET_HUNG_MS. Nothing is interrupted: the same process goes on as
+// the person's Session, with its turn and its background task (ADR-0050, "After any other stop").
+describe('a quiet turn of the Orchestrator (worfy-stuck-agents ticket 09)', () => {
+  /** The Session of the run's turn, once it runs. */
+  const busySession = (h: FaultRun): Session | null => {
+    const info = h.registry.list().find((each) => each.state === 'busy')
+    return info === undefined ? null : h.registry.get(info.sessionId)
+  }
+  const pause = (): Promise<void> => new Promise((done) => setTimeout(done, ms(200)))
+
+  it('scenario 7: a turn without a sign of life for 30 min → run-stopped turn-hung; no Interrupt, the same process, the task alive, the Session attended', async () => {
+    const interrupt = vi.spyOn(Session.prototype, 'interrupt')
+    const halt = vi.spyOn(Session.prototype, 'halt')
+    try {
+      // test/fixtures/agent-scripts/autopilot-quiet-turn.jsonl: the Wave's turn starts an implementer and then says nothing.
+      const h = faultRun({ scripts: ['autopilot-quiet-turn'], marks: 'claimed', quietHungMs: QUIET_HUNG_MS })
+      expect(await h.start()).toEqual({ refusal: null })
+      await until(() => (busySession(h)?.backgroundTasks().length ?? 0) === 1 && h.kinds(1).includes('wave-started'), 'the quiet turn of Wave 1')
+      const session = busySession(h)!
+
+      h.clock.advance(QUIET_MARK_MS + 60_000)
+      await until(() => session.controls().quietSince === START_MS, 'the quiet mark of the turn')
+      // The limit of a hung turn counts from the start of the quiet, not from the mark.
+      await until(() => h.clock.pending().some((timer) => timer.at === START_MS + QUIET_HUNG_MS), 'the limit of a hung turn')
+      h.clock.advanceTo(START_MS + QUIET_HUNG_MS - 60_000)
+      await pause()
+      expect(h.state().status).toBe('running')
+      expect(h.kinds(1)).not.toContain('run-stopped')
+
+      h.clock.advanceTo(START_MS + QUIET_HUNG_MS)
+      await h.stopped(1)
+      const first = h.journal(1)
+      expect(h.state()).toMatchObject({ status: 'stopped', reason: 'turn-hung', wave: 1 })
+      expect(first.find((event) => event.kind === 'run-stopped')).toMatchObject({ reason: 'turn-hung', tasks: [{ id: 'task_impl_0001' }] })
+      expect(first.at(-1)).toMatchObject({ kind: 'orchestrator-returned', tasks: [{ id: 'task_impl_0001' }] })
+
+      // Nothing was interrupted, halted or started again: the run's one unattended process goes on as the person's Session.
+      expect(interrupt).not.toHaveBeenCalled()
+      expect(halt).not.toHaveBeenCalled()
+      const unattended = h.queries().filter((query) => query.unattended)
+      expect(unattended).toHaveLength(1)
+      expect(unattended[0]!.calls.filter((call) => call.kind === 'close')).toEqual([])
+      expect(h.registry.get(session.id)).toBe(session)
+      expect(session.state).toBe('busy')
+      expect(session.backgroundTasks().map((task) => task.taskId)).toEqual(['task_impl_0001'])
+      expect(session.unattended).toBe(false)
+      expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
+      expect(h.kinds(1)).not.toContain('tasks-killed')
+
+      // The turn was not interrupted: it ends by itself, in the person's Session.
+      h.releases.release('turn')
+      await until(() => session.state === 'idle', 'the end of the turn')
+
+      expect(checkRecovery(h.recovery({ stop: 'turn-hung', waves: 1 }))).toEqual([])
+    } finally {
+      interrupt.mockRestore()
+      halt.mockRestore()
+    }
+  })
+
+  it('a hook that runs past the limit is no quiet: no turn-hung while it runs; the quiet counts from its end', async () => {
+    // test/fixtures/agent-scripts/autopilot-quiet-hook.jsonl: the Wave's turn starts a hook that runs until the test ends it.
+    const h = faultRun({ scripts: ['autopilot-quiet-hook'], marks: 'claimed', quietHungMs: QUIET_HUNG_MS })
+    const deltas: string[] = []
+    h.registry.observe((_sessionId, event) => {
+      if (event.type === 'delta') deltas.push(event.text)
+    })
+    expect(await h.start()).toEqual({ refusal: null })
+    await until(() => deltas.includes('The gate runs ') && busySession(h) !== null, 'the hook of the Wave turn')
+    const session = busySession(h)!
+
+    // Forty minutes of the hook: no quiet, no stop.
+    h.clock.advance(QUIET_HUNG_MS + 10 * 60_000)
+    await pause()
+    expect(session.controls().quietSince).toBeNull()
+    expect(h.state().status).toBe('running')
+    expect(h.kinds(1)).not.toContain('run-stopped')
+
+    // The hook ends: a sign of life, and the quiet counts from it.
+    const ended = h.clock.now
+    h.releases.release('hook')
+    await until(() => deltas.includes('and ended'), 'the end of the hook')
+    h.clock.advance(QUIET_MARK_MS + 60_000)
+    await until(() => session.controls().quietSince === ended, 'the quiet mark after the hook')
+    h.clock.advanceTo(ended + QUIET_HUNG_MS - 60_000)
+    await pause()
+    expect(h.state().status).toBe('running')
+    h.clock.advanceTo(ended + QUIET_HUNG_MS)
+    await h.stopped(1)
+    expect(h.state()).toMatchObject({ status: 'stopped', reason: 'turn-hung' })
+
+    h.releases.release('turn')
+    await until(() => session.state === 'idle', 'the end of the turn')
+    expect(checkRecovery(h.recovery({ stop: 'turn-hung', waves: 1 }))).toEqual([])
+  })
+
+  it('the silence of a background implementer after the turn stays background-stalled, not turn-hung', async () => {
+    // test/fixtures/agent-scripts/autopilot-background.jsonl: the Wave's turn ends with two implementers alive, which then say nothing.
+    const h = faultRun({ scripts: ['autopilot-background'], marks: 'claimed', quietHungMs: QUIET_HUNG_MS, backgroundStallMs: 60 * 60_000 })
+    expect(await h.start()).toEqual({ refusal: null })
+    await until(() => h.kinds(1).includes('background-tasks') && h.registry.list().every((each) => each.state !== 'busy'), 'the end of the Wave turn with live tasks')
+
+    h.clock.advance(QUIET_HUNG_MS + 60_000)
+    await pause()
+    expect(h.state().status).toBe('running')
+    h.clock.advance(60 * 60_000)
+    await h.stopped(1)
+    expect(h.state()).toMatchObject({ status: 'stopped', reason: 'background-stalled' })
+    expect(checkRecovery(h.recovery({ stop: 'background-stalled', waves: 1 }))).toEqual([])
   })
 })
