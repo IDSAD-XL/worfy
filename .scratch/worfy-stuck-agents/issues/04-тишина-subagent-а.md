@@ -41,8 +41,10 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решения по реал�
 - [ ] Component test `test/unit/subagent-nodes.test.tsx`: Node молчащего Subagent-а показывает `running 52 min · quiet
       21 min`; Node Subagent-а Codex — без `quiet`.
   - evidence: test-run pass · `pnpm test test/unit/subagent-nodes.test.tsx` exit 0 · mac - · b7e0e6d5f
+  - evidence: test-run pass · `pnpm test test/unit/subagent-nodes.test.tsx` exit 0 (round 2: the mark in its own element on the last line) · mac - · 8f96f51704a8a368f1b6c1232ef9dd82748bfa8b
 - [ ] Component test rail-а: та же пометка у молчащего Subagent-а.
   - evidence: test-run pass · `pnpm test test/unit/subagent-nodes.test.tsx` exit 0 (SubagentsList, a quiet Subagent) · mac - · b7e0e6d5f
+  - evidence: test-run pass · `pnpm test test/unit/subagent-nodes.test.tsx` exit 0 (round 2: the mark on its own line under the name) · mac - · 8f96f51704a8a368f1b6c1232ef9dd82748bfa8b
 - [ ] Unit test `test/unit/subagents.test.ts`: чтение отдаёт время последнего изменения файла и ничего не пишет в
       Claude home (ADR-0005).
   - evidence: test-run pass · `pnpm test test/unit/subagents.test.ts` exit 0 (SubagentReader, snapshot of the Claude home) · mac - · b7e0e6d5f
