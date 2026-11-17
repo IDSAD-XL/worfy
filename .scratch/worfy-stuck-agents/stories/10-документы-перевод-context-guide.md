@@ -103,3 +103,11 @@ watcher-а (`test/contract/workflow-reader.test.ts`), который отдел�
 3. Какая остановка по-прежнему наступает без лестницы?
    - Ответ: `background-stalled` (Ticket не назван) и `turn-hung`; а `main-red` останавливает Run вместо продолжения.
    - Строки: `src/renderer/guide/topics/autopilot/en.json:104-104`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED
+> Noted: docs/features/ru/sessions.md and ru/skills-agents-and-hooks.md still lag their English pages by 29 and 17 commits from outside this Epic (markers 9e80b208 and 3f662f1c kept on purpose); src/renderer/guide/topics/autopilot/topic.json source sha still cb75f5a9 (guide-lag will flag the topic); the gate fast in the verifier run was red (exit 2) on test/contract/cards-watch-edits.test.ts, a watcher test that passes alone, and the diff touches no watcher code.
+> Review depth: low — the ticket sets it (rules-review-depth; the profile has no review.depth.wave)
+> Review tokens: 125108
+> Could not verify:
