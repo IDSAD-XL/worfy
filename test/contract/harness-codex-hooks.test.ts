@@ -9,7 +9,11 @@
 //     worfy-implementer and the main agent edit; a reviewer's shell command goes through the same rules
 //     as under Claude Code; an agent of the Harness opens no interactive shell (write_stdin passes no hook);
 //   - SessionEnd runs only the lock release, ends inside Codex's 3 s, and writes no retrospective log for
-//     a profile that still carries session.retro_reminder_after (worfy-skills 02 removed session-end.mjs).
+//     a profile that still carries session.retro_reminder_after (worfy-skills 02 removed session-end.mjs);
+//   - PostToolUse runs the call log calls.mjs on every tool (worfy-stuck-agents ticket 07): the recorded
+//     inputs give call records with the outcome by the exit code or the hash of the output, a Subagent's go
+//     to a log of its own, and the agent gets nothing. The fake does not play PostToolUse in a turn
+//     (hook-runner.mjs, PLAYED_EVENTS): its handler is loaded with `all` and run here by runHooks.
 // And under Claude Code nothing changes: its Stop input runs no gate, its SubagentStop does nothing.
 // Only the hooks of stop.mjs, guard.mjs and the lock release are run, and any hook of SessionEnd: the others
 // (qmd-refresh, the SessionStart ones) read the machine's own setup and are none of these guarantees.
@@ -35,6 +39,8 @@ const RUN_MS = ms(60_000)
 let root: string
 let plugin: string
 let handlers: HookHandler[]
+/** The handlers of the call log, calls.mjs, as Codex loads them from the Harness's hooks.json. */
+let callHandlers: HookHandler[]
 /** isCodexInput of harness/hooks/codex-input.mjs, a script of the Harness without types. */
 let isCodexInput: (input: unknown) => boolean
 
@@ -56,6 +62,7 @@ beforeAll(async () => {
   const loaded = loadHooks(codexHome)
   expect(loaded.warnings).toEqual([])
   handlers = loaded.handlers.filter((handler) => handler.event === 'SessionEnd' || /hooks\/(stop|guard)\.mjs|worktree-lock" release/.test(handler.declared.command ?? ''))
+  callHandlers = loadHooks(codexHome, { all: true }).handlers.filter((handler) => /hooks\/calls\.mjs"/.test(handler.declared.command ?? ''))
 })
 
 afterAll(() => removeTestTree(root))
@@ -588,3 +595,86 @@ describe('the end of a Session on Codex', () => {
 function readdirNames(dir: string): string[] {
   return existsSync(dir) ? readdirSync(dir) : []
 }
+
+describe('the call log on Codex: PostToolUse runs calls.mjs, which only writes', () => {
+  interface CallRecord {
+    tool: string
+    in: string
+    out: string
+    fail: boolean | null
+    files?: [string, string][]
+  }
+  /** The call log of `owner` in the gate state `state`. */
+  const callLog = (state: string, owner: string): CallRecord[] =>
+    readFileSync(join(state, 'calls', `${owner}.jsonl`), 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as CallRecord)
+  const loopLines = (state: string): Record<string, unknown>[] => {
+    const file = join(state, 'calls', 'loops.jsonl')
+    return existsSync(file)
+      ? readFileSync(file, 'utf8')
+          .trim()
+          .split('\n')
+          .map((line) => JSON.parse(line) as Record<string, unknown>)
+      : []
+  }
+  /** Runs the call log hook of Codex on `input` in `cwd`, as Codex would after the tool: the cwd of the input is `cwd`. */
+  const after = (cwd: string, input: Record<string, unknown>) =>
+    runHooks(callHandlers, 'PostToolUse', { input: { ...input, cwd }, matchValue: String(input.tool_name), cwd })
+  const owner = (input: Record<string, unknown>) => (input.agent_id === undefined ? String(input.session_id) : `${String(input.session_id)}.${String(input.agent_id)}`)
+
+  it('is declared on PostToolUse for every tool with a limit of 5 s; PostToolUseFailure, an event Codex does not know, is not loaded', () => {
+    expect(callHandlers.map((handler) => [handler.event, handler.matcher, handler.declared.timeout])).toEqual([['PostToolUse', null, 5]])
+    expect(callHandlers[0]!.match(['mcp__capture__echo'])).toBe(true)
+  })
+
+  it('logs each recorded call of Bash and apply_patch with its outcome: the exit code where there is one, else the hash of the output', async () => {
+    const { work, state } = project()
+    const inputs = recorded('PostToolUse')
+    for (const input of inputs) {
+      const run = await after(work, input)
+      // The agent gets nothing: no block, no context, an empty output.
+      expect(run.runs.map((each) => [each.status, each.entries]), String(input.tool_name)).toEqual([['completed', []]])
+      expect(run.block).toBeUndefined()
+      expect(run.contexts).toEqual([])
+    }
+    const main = inputs.find((input) => input.tool_name === 'apply_patch' && input.agent_id === undefined)!
+    const records = callLog(state, owner(main))
+    const bash = records.filter((record) => record.tool === 'Bash')
+    expect(bash.length).toBeGreaterThan(0)
+    for (const record of bash) expect(record).toMatchObject({ out: expect.stringMatching(/^out:[0-9a-f]{16}$/), fail: null })
+    const patches = records.filter((record) => record.tool === 'apply_patch')
+    expect(patches.length).toBeGreaterThan(0)
+    for (const record of patches) {
+      expect(record).toMatchObject({ out: expect.stringMatching(/^exit:0:[0-9a-f]{16}$/), fail: false })
+      expect(record.files).toHaveLength(1)
+    }
+    // An MCP tool's response is an object: logged by its hash too.
+    expect(records.find((record) => record.tool === 'mcp__capture__echo')).toMatchObject({ out: expect.stringMatching(/^out:/), fail: null })
+  }, RUN_MS)
+
+  it("keeps a Subagent's calls in a log of its own: the recorded calls with agent_id do not go to the Session's", async () => {
+    const { work, state } = project()
+    const inputs = recorded('PostToolUse')
+    const inSubagent = inputs.filter((input) => input.agent_id !== undefined)
+    expect(inSubagent.map((input) => input.tool_name).sort()).toEqual(['Bash', 'apply_patch'])
+    for (const input of inputs) await after(work, input)
+    const sub = inSubagent[0]!
+    expect(callLog(state, owner(sub)).map((record) => record.tool).sort()).toEqual(['Bash', 'apply_patch'])
+    const parent = inputs.filter((input) => input.session_id === sub.session_id && input.agent_id === undefined)
+    expect(callLog(state, String(sub.session_id))).toHaveLength(parent.length)
+  }, RUN_MS)
+
+  it('writes would-hint and would-deny for an apply_patch that fails the same way a 3rd and a 4th time, whatever its wall time', async () => {
+    const { work, state } = project()
+    const recordedPatch = recorded('PostToolUse').find((input) => input.tool_name === 'apply_patch' && input.agent_id === undefined)!
+    const failing = (seconds: number) => ({ ...recordedPatch, tool_response: `Exit code: 1\nWall time: ${seconds} seconds\nOutput:\napply_patch verification failed: Failed to find expected lines\n` })
+    for (const seconds of [0, 1, 2]) await after(work, failing(seconds))
+    expect(loopLines(state).map((line) => [line.pattern, line.level, line.vendor, line.tool])).toEqual([['same-failure', 'would-hint', 'codex', 'apply_patch']])
+    await after(work, failing(3))
+    expect(loopLines(state).map((line) => line.level)).toEqual(['would-hint', 'would-deny'])
+    expect(loopLines(state)[0]).toMatchObject({ session: recordedPatch.session_id, agent_id: null })
+    expect(callLog(state, owner(recordedPatch)).map((record) => record.fail)).toEqual([true, true, true, true])
+  }, RUN_MS)
+})

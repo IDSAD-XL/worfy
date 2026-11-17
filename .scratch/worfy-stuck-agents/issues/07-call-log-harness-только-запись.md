@@ -1,7 +1,7 @@
 # 07 — Call log Harness, только запись: повторы упавших вызовов считаются, агент ничего не видит
 
 Type: task
-Status: open
+Status: claimed 2026-11-17T03:56Z
 Blocked by: none
 Source: [spec.md](../spec.md), «Ticket-ы», 7; «Решение», 3; «Путь пользователя», C; «Решения по реализации» → «Call log
 Harness — только запись»; «Вне Epic-а» → «Отложено»; «Решено без владельца», 4, 5 и 6;
@@ -101,3 +101,24 @@ Harness — только запись»; «Вне Epic-а» → «Отложен
 - Подсказка агенту (`additionalContext`), отказ в `guard.mjs`, поле `blocked` в отчёте implementer-а, правило
   `epic-wave`, Stop hook по отпечатку failure record — отдельный Epic после `cases: 3` (spec, «Вне Epic-а»).
 - Показ call log в UI worfy.
+
+## Итог
+
+- Hook `harness/hooks/calls.mjs` на `PostToolUse` и `PostToolUseFailure` (все tools, timeout 5 с) пишет call log в
+  `<gate state>/calls/<owner>.jsonl` и случаи в `calls/loops.jsonl`; шаблоны — чистый модуль
+  `harness/hooks/loop-patterns.mjs`; `harness/bin/loop-log [--since <YYYY-MM-DD>]` печатает случаи `would-deny` и
+  `cases: N (revisit at 3)`.
+- **Время одного вызова `calls.mjs` на fixture** (`test/fixtures/codex-messages/hooks/PostToolUse.jsonl`, 20 запусков на
+  Mac, node v24.19.0): медиана 56.8 ms, минимум 40.6, максимум 92.9; пустой `node -e ''` на той же Machine — медиана
+  36.7 ms, то есть сам hook добавляет к старту node около 20 ms.
+- Решено без владельца:
+  - Исход без exit code (shell-вызов Codex: в его `tool_response` только вывод) считается неуспешным: тот же вызов с тем же
+    выводом три раза — тоже «нет продвижения». Цена: на Codex три одинаковых `cat` подряд дают `would-hint`; владелец
+    видит команду в `loop-log` и отличает такой случай.
+  - A-B-A-B считается, только если хотя бы один вызов пары неуспешен: два успешных вызова по очереди (например,
+    `sleep` и `gh pr view`) — работа, а не цикл.
+  - Правка, которая упала, содержимого не меняет и в «туда и обратно» не идёт.
+  - Прерывание человеком (`is_interrupt`) в call log не пишется.
+  - Файлы старше 7 дней удаляются, когда пишется call log нового `owner`-а (первый вызов Session или Subagent-а), а не
+    на каждом вызове: так hook не читает папку `calls/` при каждом tool-е.
+  - Команды ожидания CI: `gh pr checks`, `gh run watch`, `gh run view`; в call log они не пишутся вовсе.
