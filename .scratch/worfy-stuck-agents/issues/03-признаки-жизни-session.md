@@ -1,7 +1,7 @@
 # 03 — Признаки жизни Session: время последнего признака и тишина хода
 
 Type: task
-Status: open
+Status: claimed 2026-11-17T03:56Z
 Blocked by: none
 Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решения по реализации» → «Признаки жизни Session и тишина», пункты
 «Время последнего признака жизни», «Что не тишина», «Пороги»; «Решено без владельца», 1, 7 и 12
@@ -45,13 +45,24 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решения по реал�
 - [ ] Unit test `quietFor`: `busy` без признаков 11 минут — тишина 11 минут; `idle` — ноль; `needs_permission` — ноль;
       начатый и не кончившийся hook — ноль; выросший output file background task-и — ноль; выросший `.run-*.out` gate-а —
       ноль; e2e lock с живым holder-ом — ноль, с мёртвым — не ноль.
+  - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx vitest run test/unit/session-quiet.test.ts` exit 0 · mac - · a1d1c61599c9b34a6836dcb240d8f05b41254758
+  - evidence: test-run pass · `pnpm test` (gate fast) exit 0 · mac - · b70dce1896e53978b3031970b91e2f2b3f0a61b8
 - [ ] Unit test `test/unit/claude-events.test.ts`: `hook_started`, `hook_progress`, `thinking_tokens` дают признак
       жизни и не дают строки транскрипта.
+  - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx vitest run test/unit/claude-events.test.ts` exit 0 · mac - · a1d1c61599c9b34a6836dcb240d8f05b41254758
+  - evidence: test-run pass · `pnpm test` (gate fast) exit 0 · mac - · b70dce1896e53978b3031970b91e2f2b3f0a61b8
 - [ ] Unit test `test/unit/codex-items.test.ts`: hook run не-Stop hook-а даёт признак жизни.
+  - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx vitest run test/unit/codex-items.test.ts` exit 0 · mac - · a1d1c61599c9b34a6836dcb240d8f05b41254758
 - [ ] Contract test `test/contract/agent-session.test.ts`: Session на fake agent, ход молчит дольше порога test-а —
       `quietSince` приходит в renderer-канал; событие агента его сбрасывает в `null`.
+  - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx vitest run test/contract/agent-session.test.ts` exit 0 · mac - · a1d1c61599c9b34a6836dcb240d8f05b41254758
+  - evidence: test-run pass · `pnpm test` (gate fast) exit 0 · mac - · b70dce1896e53978b3031970b91e2f2b3f0a61b8
 - [ ] Contract test `test/contract/codex-session.test.ts`: то же на fake app-server Codex.
+  - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx vitest run test/contract/codex-session.test.ts` exit 0 · mac - · a1d1c61599c9b34a6836dcb240d8f05b41254758
+  - evidence: test-run pass · `pnpm test` (gate fast) exit 0 · mac - · b70dce1896e53978b3031970b91e2f2b3f0a61b8
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · a1d1c61599c9b34a6836dcb240d8f05b41254758
+  - evidence: gate pass · `gate fast` exit 0 · mac - · b70dce1896e53978b3031970b91e2f2b3f0a61b8
 
 ## Тесты
 
@@ -81,3 +92,11 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решения по реал�
 - Chip, hint line, Restart — Ticket 06. Страницу `docs/features/sessions.md` правит Ticket 06: до него поле не видно
   человеку.
 - Тишина Subagent-а — Ticket 04; `turn-hung` в Autopilot — Ticket 09.
+
+## Итог
+
+- shortcut: на Windows gate запускает команды через `cmd.exe` (`throughCmd`, `harness/hooks/gate.mjs`) и их вывод
+  читает из pipe-а; файл `.run-<tag>-<pid>.out` пишет только `captured()` для команд без `cmd.exe` (`.exe`, `.com`).
+  `pnpm` — это `.cmd`, поэтому на Windows признак «вырос вывод gate-а» почти никогда не срабатывает: ход с долгим
+  gate-ом без событий агента там может получить `quiet`. Комментарий `shortcut:` — у `gateOutputAt` в
+  `src/main/agent/session/quiet-signs.ts`.

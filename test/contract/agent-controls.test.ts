@@ -640,7 +640,7 @@ describe('the queue over IPC', () => {
   it('agent.controls answers the settings and the queue; queueRemove and queueSend act on it', async () => {
     const h = await harness('interrupt')
     const id = await h.start()
-    expect(await h.ok('agent.controls', { sessionId: id })).toStrictEqual({ settings: DEFAULT_SETTINGS, queue: { items: [], paused: false } })
+    expect(await h.ok('agent.controls', { sessionId: id })).toStrictEqual({ settings: DEFAULT_SETTINGS, queue: { items: [], paused: false }, quietSince: null })
     await h.ok('agent.send', { sessionId: id, text: 'count' })
     await h.ok('agent.send', { sessionId: id, text: 'keep' })
     await h.ok('agent.send', { sessionId: id, text: 'drop' })
@@ -678,8 +678,9 @@ describe('the queue over IPC', () => {
     vi.spyOn(session, 'controls').mockReturnValue({
       settings: { ...DEFAULT_SETTINGS, secret: 'x' },
       queue: { items: [{ id: 'q', text: 't', at: 1 }], paused: false, extra: 1 },
+      quietSince: null,
     } as never)
-    expect(await h.ok('agent.controls', { sessionId: id })).toStrictEqual({ settings: DEFAULT_SETTINGS, queue: { items: [{ id: 'q', text: 't' }], paused: false } })
+    expect(await h.ok('agent.controls', { sessionId: id })).toStrictEqual({ settings: DEFAULT_SETTINGS, queue: { items: [{ id: 'q', text: 't' }], paused: false }, quietSince: null })
   })
 })
 

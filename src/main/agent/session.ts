@@ -91,11 +91,20 @@
 // model. `null` — "Default" in the pickers — is the Vendor's default model and effort: the Session's
 // settings keep `null`, so its header shows "no pick", and the driver says what it means (Claude:
 // the user's own from settings.json, sonnet for a haiku).
+//
+// A Session knows when its turn last showed a sign of life (worfy-stuck-agents ticket 03): any event of
+// its agent, the hidden `alive` ones too (hook runs, thinking tokens), or the start of the turn. While a
+// turn runs it looks once a minute (QuietWatch, session/quiet-signs.ts); once the turn has gone the mark
+// (QUIET_MARK_MS) without one, and quietFor (src/shared/agent/quiet.ts) finds no other sign — an open
+// permission request, a hook still running, a background task's output file or the gate's output that
+// grew, a live e2e lock — it sends `quiet` with the time of the last sign. The next event of the agent,
+// or the end of the turn, sends `quiet` null. The Session only reports it: nothing is interrupted.
 import { randomUUID } from 'node:crypto'
 import type { Attachment } from '../../shared/agent/attachments'
 import { emptyTaskFold, foldTaskEvent, isTaskEvent, liveTasks, sameTasks, type BackgroundTask, type TaskFold } from '../../shared/agent/background-tasks'
 import type { SlashCommand } from '../../shared/agent/commands'
 import { sameContextUsage, type AgentEvent, type ContextUsage, type OpenRequestEvent, type QueueSnapshot, type SessionState } from '../../shared/agent/events'
+import { quietSince } from '../../shared/agent/quiet'
 import type { QuestionPick } from '../../shared/agent/questions'
 import {
   DEFAULT_SETTINGS,
@@ -112,11 +121,13 @@ import type { AgentProcess, RefusalDetails, SessionHandle, SessionPart, SessionS
 import { isWorfyOwnServer, sameMcpRows, type McpServerAction, type McpServerRow } from '../../shared/agent/mcp-status'
 import { claudeMcp } from '../vendors/claude/mcp'
 import { McpActionRefused } from '../vendors/mcp'
+import { rememberTaskOutputs } from '../autopilot/task-output'
 import { shownAttachments } from './attachments'
 import { PermissionGate } from './permissions'
 import { MessageQueue, type QueueEntry } from './queue'
 import { mergeSettings } from './session/models'
 import { EXIT_WAIT_MS, exitOf, HALT_TURN_MS, hasExited, KILL_EXIT_MS, stopWaiting, waitForExit, within } from './session/process'
+import { defaultQuietWatch, type QuietWatch } from './session/quiet-signs'
 import { pushSettings, STDERR_KEEP, type Run } from './session/run'
 import type { EventSink, SessionControls, SessionInfo } from './session/types'
 import { ATTENDED, launchSettings, settingsChangeRefusal, type SessionLaunch } from './session-settings'
@@ -260,6 +271,21 @@ export class Session {
   )
   /** The handle of the agent's latest process, kept after it died: the slash menu still lists what it said. */
   private lastHandle: SessionHandle | null = null
+  /** When the running turn last showed a sign of life: an event of the agent, or the turn's start. */
+  private lastSignAt = 0
+  /** Signs of life so far: a look that read files meanwhile takes no decision from them. */
+  private signs = 0
+  /** The hook runs of the turn that started and have not ended, by the run's id. */
+  private readonly openHooks = new Set<string>()
+  /** The output file of each background task a tool result named, by task id (src/main/autopilot/task-output.ts). */
+  private readonly taskOutputFiles = new Map<string, string>()
+  /** When the quiet of the running turn began, once it was marked; null otherwise. */
+  private quietSinceValue: number | null = null
+  /** The look for quiet while a turn runs; null outside a turn. */
+  private looking: ReturnType<typeof setInterval> | null = null
+  /** Set while a look reads the files: the next one does not start beside it. */
+  private lookBusy = false
+  private readonly quietWatch: QuietWatch
 
   constructor(
     readonly cwd: string,
@@ -272,7 +298,10 @@ export class Session {
     private launch: SessionLaunch = ATTENDED,
     /** The Vendor's capabilities and slash menu (SessionVendorParts). */
     private readonly parts: SessionVendorParts = STATIC_CLAUDE_PARTS,
+    /** How the Session watches its turns for quiet: the app's (defaultQuietWatch), with what a test gives. */
+    quiet: Partial<QuietWatch> = {},
   ) {
+    this.quietWatch = { ...defaultQuietWatch(), ...quiet }
     // A new Session's id is the Vendor session id it asks the driver for (begin()).
     this.current = resume === undefined ? randomUUID() : `pending-${randomUUID()}`
     this.sdkSessionId = resume ?? null
@@ -338,7 +367,7 @@ export class Session {
   }
 
   controls(): SessionControls {
-    return { settings: this.settings, queue: this.queue.snapshot() }
+    return { settings: this.settings, queue: this.queue.snapshot(), quietSince: this.quietSinceValue }
   }
 
   /** The permission and question requests still open, as their events went out (agent.requests, worfy-product-session ticket 30). */
@@ -1090,9 +1119,18 @@ export class Session {
     else if (pending === 0 && this.stateValue === 'needs_permission') this.setState('busy')
   }
 
-  /** One event of the agent: the Session's state follows it, and its subscribers get it. */
+  /** One event of the agent: a sign of life; the Session's state follows it, and its subscribers get it. */
   private onEvent(event: AgentEvent): void {
+    this.signOfLife(event)
     switch (event.type) {
+      case 'alive':
+        // Taken in by signOfLife; shown nowhere.
+        return
+      case 'tool_result':
+        // A background task's output file, named by the tool result that started it, is a sign of life of its own.
+        rememberTaskOutputs(this.taskOutputFiles, event.content)
+        this.emit(event)
+        return
       case 'account':
         this.emit(event)
         // The agent answered its start check: the Session takes messages.
@@ -1166,13 +1204,89 @@ export class Session {
 
   private resetTasks(): void {
     this.trackTasks(emptyTaskFold())
+    this.taskOutputFiles.clear()
   }
 
   private setState(state: SessionState, error: string | null = null): void {
     if (this.stateValue === state && error === null) return
+    const was = this.stateValue
     this.stateValue = state
     if (!inTurn(state)) for (const done of this.turnEndWaiters.splice(0)) done()
     this.emit({ type: 'state', state, error })
+    this.turnWatch(was, state)
+  }
+
+  /**
+   * The watch for a quiet turn follows the state: a turn that starts, or goes on after a person answered,
+   * counts its quiet from now, and is looked at once a minute; a turn that ends forgets its hooks and its quiet.
+   * A turn that starts forgets the hooks too: one that started outside a turn and never ended (between turns no
+   * state change clears them) would hold off every quiet mark of the turns after it.
+   */
+  private turnWatch(was: SessionState, state: SessionState): void {
+    if (state === 'busy' && was !== 'busy') this.lastSignAt = this.quietWatch.now()
+    if (state === 'busy' && !inTurn(was)) this.openHooks.clear()
+    if (state !== 'busy') this.unquiet()
+    if (inTurn(state)) {
+      if (this.looking === null) {
+        this.looking = setInterval(() => void this.look(), this.quietWatch.lookMs)
+        // The look never keeps the app (or a test) running.
+        this.looking.unref?.()
+      }
+      return
+    }
+    this.openHooks.clear()
+    if (this.looking !== null) clearInterval(this.looking)
+    this.looking = null
+  }
+
+  /** An event of the agent: the turn is not quiet; a hook run that starts or ends is counted. */
+  private signOfLife(event: AgentEvent): void {
+    this.lastSignAt = this.quietWatch.now()
+    this.signs += 1
+    if (event.type === 'alive' && event.hook !== null) {
+      if (event.hook.phase === 'running') this.openHooks.add(event.hook.id)
+      else this.openHooks.delete(event.hook.id)
+    }
+    this.unquiet()
+  }
+
+  /** The turn is no longer quiet: sends `quiet` null when it was. */
+  private unquiet(): void {
+    if (this.quietSinceValue === null) return
+    this.quietSinceValue = null
+    this.emit({ type: 'quiet', quietSince: null })
+  }
+
+  /**
+   * Whether the running turn went quiet (quietFor, src/shared/agent/quiet.ts): first by the agent's events
+   * alone, and only when they say so by the files outside them too. Sends `quiet` when the mark is reached,
+   * and `quiet` null when a file shows the turn at work again.
+   */
+  private async look(): Promise<void> {
+    if (this.lookBusy || this.stateValue !== 'busy') return
+    const facts = { state: this.stateValue, lastSignAt: this.lastSignAt, openHooks: this.openHooks.size, taskOutputAt: null, gateOutputAt: null, e2eLockHeld: false }
+    if (quietSince(this.quietWatch.now(), facts, this.quietWatch.markMs) === null) return
+    const signs = this.signs
+    const live = new Set(this.liveTaskList.map((task) => task.taskId))
+    const taskOutputs = new Map([...this.taskOutputFiles].filter(([taskId]) => live.has(taskId)))
+    this.lookBusy = true
+    try {
+      const outside = await this.quietWatch.outside({ cwd: this.cwd, taskOutputs })
+      // A sign of life or another state meanwhile has decided already.
+      if (this.signs !== signs || this.stateValue !== 'busy' || this.closing) return
+      const since = quietSince(this.quietWatch.now(), { ...facts, ...outside }, this.quietWatch.markMs)
+      if (since === null) {
+        this.unquiet()
+        return
+      }
+      if (since === this.quietSinceValue) return
+      this.quietSinceValue = since
+      this.emit({ type: 'quiet', quietSince: since })
+    } catch (error) {
+      console.warn(`[agent] could not tell whether ${this.current} went quiet`, error)
+    } finally {
+      this.lookBusy = false
+    }
   }
 
   private emit(event: AgentEvent): void {

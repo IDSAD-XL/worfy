@@ -8,6 +8,7 @@ import { claudeSessions, type UserDefaults } from '../../vendors/claude/session'
 import type { SessionPart } from '../../vendors/session'
 import { Session, STATIC_CLAUDE_PARTS, type SessionVendorParts } from '../session'
 import type { SessionLaunch } from '../session-settings'
+import type { QuietWatch } from './quiet-signs'
 import type { EventSink, InputListener, QueryFactory, SessionInfo } from './types'
 
 /**
@@ -37,9 +38,15 @@ export class SessionRegistry {
    * only, and a Session of another Vendor is refused: a QueryFactory is Claude Code's, started
    * through the Claude driver, as the tests of the Session start the fake agent; `userModel` and
    * `userEffort` then read the user's own model and effort (user-model.ts), and tests give them
-   * fixed answers.
+   * fixed answers. `quiet`: how every Session watches its turns for quiet (worfy-stuck-agents ticket 03);
+   * the app's own watch when absent, a test's threshold, clock and signs otherwise.
    */
-  constructor(sessions: VendorSessions | SessionPart | QueryFactory, userModel?: UserModelReader, userEffort?: UserEffortReader) {
+  constructor(
+    sessions: VendorSessions | SessionPart | QueryFactory,
+    userModel?: UserModelReader,
+    userEffort?: UserEffortReader,
+    private readonly quiet: Partial<QuietWatch> = {},
+  ) {
     if (typeof sessions !== 'function' && 'sessionsOf' in sessions) {
       this.starters = sessions
       return
@@ -125,6 +132,7 @@ export class SessionRegistry {
       settings,
       launch,
       this.starters.partsOf?.(vendor) ?? STATIC_CLAUDE_PARTS,
+      this.quiet,
     )
     this.sessions.set(session.id, session)
     session.start(after)

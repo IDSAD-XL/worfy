@@ -342,19 +342,24 @@ export class CodexItems {
     }
   }
 
-  /** A Stop hook that starts is shown while it runs: the turn waits for it after the answer. */
+  /**
+   * A hook run that starts is a sign of life of the turn (`alive`, worfy-stuck-agents ticket 03), whichever
+   * hook it is. A Stop hook is also shown while it runs: the turn waits for it after the answer.
+   */
   private hookStarted(run: HookRunSummary): AgentEvent[] {
-    if (run.eventName !== 'stop') return []
+    const alive: AgentEvent = { type: 'alive', hook: { id: run.id, phase: 'running' } }
+    if (run.eventName !== 'stop') return [alive]
     this.runningHooks.add(run.id)
-    return [hookEvent(run, 'running')]
+    return [alive, hookEvent(run, 'running')]
   }
 
-  /** A hook run that ended: shown when it said something, or to close the row of a running Stop hook. */
+  /** A hook run that ended: a sign of life; shown when it said something, or to close the row of a running Stop hook. */
   private hookCompleted(run: HookRunSummary): AgentEvent[] {
+    const alive: AgentEvent = { type: 'alive', hook: { id: run.id, phase: 'ended' } }
     const shown = this.runningHooks.delete(run.id)
     const output = (run.entries ?? []).some((entry) => entry.text.trim() !== '')
-    if (run.status === 'completed' && !output && !shown) return []
-    return [hookEvent(run, run.status)]
+    if (run.status === 'completed' && !output && !shown) return [alive]
+    return [alive, hookEvent(run, run.status)]
   }
 
   private result(turnId: string, end: { subtype: string; error: string | null; terminalReason: string; interrupted: boolean; durationMs: number }): Result {
