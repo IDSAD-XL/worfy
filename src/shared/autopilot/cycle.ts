@@ -45,7 +45,7 @@
 // none the Orchestrator is asked to set it aside (`set-aside`) for one turn; only a Ticket set aside that
 // still holds the Wave after that turn stops the run, with the old reason. The count is per Ticket and
 // per run. While a continuation or a set-aside is asked and not yet under way, the run reads whether main
-// is red; `main-red` stops it. `background-stalled` names no Ticket and stays a stop. With the ceiling 0
+// is red; `main-red` stops it (with `user-stop` after a graceful Stop). `background-stalled` names no Ticket and stays a stop. With the ceiling 0
 // (the default) the run stops at both places as it always did.
 import { resumedTickets } from '../actions/render-template'
 import type { Ticket } from '../workflow/types'
@@ -58,7 +58,7 @@ import { doneOnlyInBranch, inWork, readyWave } from '../workflow/waves'
  * `waits-owner` is never a cycle's own: a Run over a queue of Epics stops with it when the rule of the
  * queue (epic-queue.ts, epicOutcome) finds the last Epic waiting only for the owner (ticket 21); a Run
  * of one Epic stops with `blocked-tickets` then, as before. `main-red`: main was red when the cycle asked a
- * continuation or a set-aside (worfy-stuck-agents ticket 01).
+ * continuation or a set-aside and no graceful Stop had come (worfy-stuck-agents ticket 01).
  */
 export const AUTOPILOT_STOP_REASONS = [
   'no-ready-wave',
@@ -212,7 +212,8 @@ export type CycleEffect =
   | { kind: 'continue-tickets'; tickets: Array<{ num: number; attempt: number }>; of: number; cause: ContinuationCause }
   /**
    * Ask the Orchestrator to set these Tickets aside, each after `attempts` continuations: read whether main
-   * is red (answer `main-red`), else send the ask; the turn it starts ends as any turn of the Wave.
+   * is red (answer `main-red`), else send the ask; the turn it starts ends as any turn of the Wave. A send
+   * that fails is answered with `session-error` or `session-closed`: phase `turn` ignores `send-failed`.
    */
   | { kind: 'set-aside'; tickets: number[]; attempts: number; cause: ContinuationCause }
   | { kind: 'wave-finished'; wave: number; tickets: number[] }
@@ -426,7 +427,8 @@ export function step(state: CycleState, event: CycleEvent): CycleStep {
       return state.phase === 'settling' ? ladder(state, state.holding ?? [], 'wave-unfinished', []) : stay(state)
     case 'main-red':
       // Read only for an asked continuation or set-aside: then the stuck Ticket waits for a green main, and so does the run.
-      return state.asked === undefined ? stay(state) : stop(state, 'main-red')
+      // After a graceful Stop the run ends as the user asked, with nothing more sent.
+      return state.asked === undefined ? stay(state) : stop(state, state.stopping ? 'user-stop' : 'main-red')
     case 'workflow-error':
       return stop(state, 'workflow-error')
   }

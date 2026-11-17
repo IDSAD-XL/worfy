@@ -612,4 +612,61 @@ describe('the continuation ladder', () => {
     const fourth = run([ok(tickets('blocked', 'work')), { type: 'settle-timeout' }], third.state)
     expect(fourth.effects).toEqual([{ kind: 'continue-tickets', tickets: [{ num: 7, attempt: 2 }], of: 2, cause: 'wave-unfinished' }])
   })
+
+  it('a Ticket continued, then out of the stuck list for one Wave, keeps its count when it holds the Wave again', () => {
+    const tickets = (s5: Ticket['state'], s7: Ticket['state']) => [t(5, s5), t(7, s7)]
+    const sent = run([{ type: 'start', tickets: tickets('open', 'open') }, { type: 'wave-sent', tickets: [5, 7] }], ladder(1)).state
+    const first = run([ok(tickets('work', 'open')), { type: 'settle-timeout' }], sent)
+    expect(first.effects).toEqual([{ kind: 'continue-tickets', tickets: [{ num: 5, attempt: 1 }], of: 1, cause: 'wave-unfinished' }])
+    // Now only 07 holds the Wave: it gets its own continuation, and 05's count stays.
+    const second = run([{ type: 'wave-sent', tickets: [5, 7] }, ok(tickets('open', 'work')), { type: 'settle-timeout' }], first.state)
+    expect(second.effects.at(-1)).toEqual({ kind: 'continue-tickets', tickets: [{ num: 7, attempt: 1 }], of: 1, cause: 'wave-unfinished' })
+    expect(second.state.continued).toEqual({ 5: 1, 7: 1 })
+    // 05 holds the Wave again: its one continuation is spent, so it is set aside, not continued past the ceiling.
+    const third = run([{ type: 'wave-sent', tickets: [5, 7] }, ok(tickets('work', 'done')), { type: 'settle-timeout' }], second.state)
+    expect(third.effects.at(-1)).toEqual({ kind: 'set-aside', tickets: [5], attempts: 1, cause: 'wave-unfinished' })
+  })
+
+  it('a set-aside the Orchestrator ignored stops the run with no-progress once its Ticket is stuck again, alongside one that never was', () => {
+    // 07 waits for 06, which another session has in work; 05 alone is ready.
+    const tickets = (s6: Ticket['state']) => [t(5, 'open'), t(6, s6), t(7, 'open', [6])]
+    const sent = run([{ type: 'start', tickets: tickets('work') }, { type: 'wave-sent', tickets: [5] }], ladder(1)).state
+    const continued = run([ok(tickets('work')), { type: 'wave-sent', tickets: [5] }], sent)
+    expect(continued.effects).toContainEqual({ kind: 'continue-tickets', tickets: [{ num: 5, attempt: 1 }], of: 1, cause: 'no-progress' })
+    const setAside = run([ok(tickets('work'))], continued.state)
+    expect(setAside.effects).toEqual([{ kind: 'set-aside', tickets: [5], attempts: 1, cause: 'no-progress' }])
+    // The set-aside turn leaves 05 open, and 06 is done meanwhile: 07 is ready, so the Wave 05, 07 is a new one.
+    const wider = run([ok(tickets('done'))], setAside.state)
+    expect(wider.effects).toEqual([{ kind: 'wave-finished', wave: 2, tickets: [5] }, { kind: 'send-wave' }])
+    // That Wave comes back unchanged: 05 was set aside already, so the run stops; 07's unused continuation does not hold it.
+    const again = run([{ type: 'wave-sent', tickets: [5, 7] }, ok(tickets('done'))], wider.state)
+    expect(again.effects).toEqual([
+      { kind: 'wave-started', wave: 3, tickets: [5, 7] },
+      { kind: 'wave-finished', wave: 3, tickets: [5, 7] },
+      { kind: 'stopped', reason: 'no-progress' },
+    ])
+  })
+
+  it('a busy Session while a continuation is on its way does not end the read of main: main-red still stops the run', () => {
+    const asked = run([ok(STUCK2), { type: 'settle-timeout' }], ladderWave1()).state
+    expect(asked.asked?.kind).toBe('continue')
+    const busy = run([{ type: 'busy' }], asked).state
+    expect(busy.asked?.kind).toBe('continue')
+    expect(run([{ type: 'main-red' }], busy).effects).toEqual([{ kind: 'stopped', reason: 'main-red' }])
+  })
+
+  it('main-red after a graceful Stop ends the run with user-stop: the user asked for that end', () => {
+    // A continuation asked, then Stop while it is on its way.
+    const asked = run([ok(STUCK2), { type: 'settle-timeout' }], ladderWave1()).state
+    const stopping = run([{ type: 'graceful-stop', tickets: STUCK2 }], asked)
+    expect(stopping.effects).toEqual([])
+    const red = run([{ type: 'main-red' }], stopping.state)
+    expect(red.effects).toEqual([{ kind: 'stopped', reason: 'user-stop' }])
+    expect(red.state).toMatchObject({ phase: 'stopped', reason: 'user-stop' })
+    // A set-aside asked, then Stop before its turn begins.
+    const continued = run([ok(STUCK2), { type: 'settle-timeout' }, { type: 'wave-sent', tickets: [2] }, ok(STUCK2), { type: 'settle-timeout' }], ladderWave1(1)).state
+    expect(continued.asked?.kind).toBe('set-aside')
+    const aside = run([{ type: 'graceful-stop', tickets: STUCK2 }, { type: 'main-red' }], continued)
+    expect(aside.effects).toEqual([{ kind: 'stopping', wave: 2, tickets: [2], inWork: [2] }, { kind: 'stopped', reason: 'user-stop' }])
+  })
 })
