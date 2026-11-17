@@ -2,6 +2,7 @@
 
 Type: bug
 Status: claimed 2026-11-17T20:31Z
+PR: #1968
 Blocked by: none
 Source: баг-репорт владельца 2026-11-17 (скриншот Session view Orchestrator-а: после «Turn finished · 5 m 17 s»
 сразу «Thinking» и ответ, вопроса пользователя нет).
