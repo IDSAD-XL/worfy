@@ -42,9 +42,9 @@ Code: `src/cart.ts:12-19` · key lines: 15, 16
 
 - **The title** is `Code story — <epic> <NN>: <title>` for a Ticket's PR, `Code story — PR #<N>: <title>` for a PR
   outside a Ticket, and `Code story — <epic>` for an Epic.
-- **The header** has the fields `Kind:` (`pr` or `epic`), `Epic:`, `Ticket:` (two digits), `PR:` (`#<N>`, or `-`
-  while the PR is not open) and `Language:`, the code of the Profile's `language.reports`. A story committed to a
-  branch names no commit. A PR story made by the button has `Commit:`, the head of its PR; an Epic story made by the
+- **The header** has the fields `Kind:` (`pr` or `epic`), `Epic:`, `Ticket:` (two digits at least), `PR:`
+  (`#<N>`, or `-` while the PR is not open) and `Language:`, the code of the Profile's `language.reports`. A story
+  committed to a branch names no commit. A PR story made by the button has `Commit:`, the head of its PR; an Epic story made by the
   button names the head of each chapter's PR instead.
 - **A code step** has one fragment, the line `` Code: `<path>:<from>-<to>` · key lines: <n> `` and those lines of the
   file copied exactly, and five fields, each a list item `- <label>: <text>`: **What it does**, **Why here**, **Without it**, **Requirement** (a link to a

@@ -84,9 +84,9 @@ const RANGE = /^(.+):(\d+)-(\d+)$/
 const KEY_LINES = /^ · key lines: (\d+(?:, *\d+)*)$/
 const FIELD = /^- ([^:]+): ?(.*)$/
 const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/
-const CHAPTER = /^PR (?:#(\d+)|-) · (\d{2}) — (.+)$/
+const CHAPTER = /^PR (?:#(\d+)|-) · (\d{2,}) — (.+)$/
 const STEP = /^(\d+)\. (.+)$/
-const HANDOFF = /^(\d{2}) → (\d{2})$/
+const HANDOFF = /^(\d{2,}) → (\d{2,})$/
 const DONE = / · done: (.*)$/
 
 class CannotCheck extends Error {}
@@ -236,7 +236,7 @@ function parseHeader(line, at, add) {
     if (header.Kind === "pr") {
         if (header.PR === undefined) add(at, "header", "no PR: field (#<N>, or - while the PR is not open)")
         else if (!/^(#\d+|-)$/.test(header.PR)) add(at, "header", `PR: "${header.PR}" is not #<N> or -`)
-        if (header.Ticket !== undefined && !/^\d{2}$/.test(header.Ticket)) add(at, "header", `Ticket: "${header.Ticket}" is not two digits`)
+        if (header.Ticket !== undefined && !/^\d{2,}$/.test(header.Ticket)) add(at, "header", `Ticket: "${header.Ticket}" is not a number of two digits at least`)
         if ((header.Epic === undefined) !== (header.Ticket === undefined))
             add(at, "header", "Epic: and Ticket: go together: both for the PR of a ticket, neither for another PR")
     }

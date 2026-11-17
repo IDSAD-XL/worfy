@@ -186,7 +186,7 @@ export type StoryAnswerSource = z.output<typeof storyAnswerSourceSchema>
  */
 export const storyQuestionLinesSchema = z
   .object({
-    ticket: z.string().regex(/^\d{2}$/u, 'the Ticket number, two digits').nullable(),
+    ticket: z.string().regex(/^\d{2,}$/u, 'the Ticket number, two digits at least').nullable(),
     step: z.number().int().min(1),
     path: z.string().min(1).max(500),
     from: z.number().int().min(1),
@@ -337,7 +337,7 @@ export const storiesAnswers = invokeChannel(
  */
 export const storyReadMarkSchema = z.union([
   z
-    .object({ ticket: z.string().regex(/^\d{2}$/u, 'the Ticket number, two digits').nullable(), step: z.number().int().min(1) })
+    .object({ ticket: z.string().regex(/^\d{2,}$/u, 'the Ticket number, two digits at least').nullable(), step: z.number().int().min(1) })
     .strict(),
   z.object({ screen: z.enum(['start', 'seams', 'summary', 'check', 'check-yourself']) }).strict(),
 ])

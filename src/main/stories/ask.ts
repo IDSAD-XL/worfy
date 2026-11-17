@@ -108,7 +108,7 @@ export interface AskSources {
   prView(root: string, pr: number): Promise<{ title: string; body: string; comments: readonly { author: string; body: string }[] }>
   /** The PR's diff, as `gh pr diff` prints it. */
   prDiff(root: string, pr: number): Promise<string>
-  /** The file of Ticket `ticket` (two digits) of Epic `epic`; null when there is none. */
+  /** The file of Ticket `ticket` (two digits at least) of Epic `epic`; null when there is none. */
   ticketFile(root: string, epic: string, ticket: string): Promise<{ file: string; text: string } | null>
   /** The Project's GitHub account (its profile's github.account), whose comments are the verdicts; null when none. */
   account(root: string): Promise<string | null>

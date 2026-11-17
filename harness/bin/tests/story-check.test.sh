@@ -200,6 +200,30 @@ check "a deny-list word across the cut of a code line: exit code 2, never printe
 rm -f "$HARNESS_HOME/user/privacy.json"
 g checkout -q -- "$EN"
 
+# A ticket number has two digits at least (bin/TICKETS.md): ticket 121 in the header of a PR story, in a chapter
+# heading and in a handoff of an epic story is green; one digit or a letter is still red.
+sed -e 's/^# Code story — demo-cart 04: /# Code story — demo-cart 121: /' -e 's/ · Ticket: 04 · / · Ticket: 121 · /' "$FIX/pr-en.md" >"$R/$EN"
+run "$EN"
+check "a PR story of ticket 121 (three digits): exit code 0" "$([ "$rc" = 0 ] && line_has "$EN: ok" && echo 0 || echo 1)"
+sed 's/ · Ticket: 04 · / · Ticket: 4 · /' "$FIX/pr-en.md" >"$R/$EN"
+run "$EN"
+check "a PR story with Ticket: 4 (one digit): exit code 2, the header named" \
+    "$([ "$rc" = 2 ] && line_has "$EN:header: " 'Ticket: "4"' && echo 0 || echo 1)"
+sed 's/ · Ticket: 04 · / · Ticket: 0a · /' "$FIX/pr-en.md" >"$R/$EN"
+run "$EN"
+check "a PR story with Ticket: 0a (a letter): exit code 2, the header named" \
+    "$([ "$rc" = 2 ] && line_has "$EN:header: " 'Ticket: "0a"' && echo 0 || echo 1)"
+g checkout -q -- "$EN"
+sed -e 's/^## PR #212 · 04 — /## PR #212 · 104 — /' -e 's/^- 03 → 04: /- 103 → 104: /' "$FIX/epic-ru.md" >"$R/$EPIC"
+run "${EPIC_HEADS[@]}" "$EPIC"
+check "an epic story with a chapter of ticket 104 and the handoff 103 → 104: exit code 0" \
+    "$([ "$rc" = 0 ] && line_has "$EPIC: ok" && echo 0 || echo 1)"
+sed 's/^- 03 → 04: /- 3 → 04: /' "$FIX/epic-ru.md" >"$R/$EPIC"
+run "${EPIC_HEADS[@]}" "$EPIC"
+check "an epic story with the handoff 3 → 04 (one digit): exit code 2, the handoff named" \
+    "$([ "$rc" = 2 ] && line_has "$EPIC:6: " "3 → 04" "not a handoff" && echo 0 || echo 1)"
+g checkout -q -- "$EPIC"
+
 # --- 4. An uncommitted story is checked against the working tree ------------------------------------
 NEW="$S/07-new-story.md"
 cp "$FIX/pr-en.md" "$R/$NEW"

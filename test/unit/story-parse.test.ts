@@ -110,6 +110,22 @@ describe('parseStory: the two header shapes and the reasons of a file that does 
     expect(notOpen.ok && notOpen.story.kind === 'pr' ? notOpen.story.header.pr : 'failed').toBeNull()
   })
 
+  it('reads a Ticket number of two digits at least — 121 in the header, a chapter and a handoff — and refuses one digit or a letter', () => {
+    const pr = parseStory(prEn.replace('# Code story — demo-cart 04: ', '# Code story — demo-cart 121: ').replace('· Ticket: 04 ·', '· Ticket: 121 ·'))
+    expect(pr.ok && pr.story.kind === 'pr' ? pr.story.header.ticket : 'failed').toBe('121')
+    expect(storyFileSchema.safeParse(pr.ok ? pr.story : null).success).toBe(true)
+    expect(parseStory(prEn.replace('· Ticket: 04 ·', '· Ticket: 4 ·'))).toMatchObject({ ok: false, reason: expect.stringContaining('Ticket: "4"') as unknown })
+    expect(parseStory(prEn.replace('· Ticket: 04 ·', '· Ticket: 0a ·'))).toMatchObject({ ok: false, reason: expect.stringContaining('Ticket: "0a"') as unknown })
+    const epic = parseStory(story('epic-ru.md').replace('## PR #212 · 04 — ', '## PR #212 · 104 — ').replace('- 03 → 04: ', '- 103 → 104: '))
+    if (!epic.ok || epic.story.kind !== 'epic') throw new Error(`the Epic story did not parse: ${epic.ok ? epic.story.kind : epic.reason}`)
+    expect(epic.story.chapters.map((chapter) => chapter.ticket)).toEqual(['03', '104', '05', '06'])
+    expect(epic.story.seams.handoffs[0]).toMatchObject({ from: '103', to: '104', done: true })
+    expect(storyFileSchema.safeParse(epic.story).success).toBe(true)
+    // A list item of one digit is no handoff: the reader keeps it as the step's prose (story-check refuses it).
+    const oneDigit = parseStory(story('epic-ru.md').replace('- 03 → 04: ', '- 3 → 04: '))
+    expect(oneDigit.ok && oneDigit.story.kind === 'epic' ? oneDigit.story.seams.handoffs.map((handoff) => `${handoff.from} → ${handoff.to}`) : 'failed').toEqual(['03 → 05', '05 → 04'])
+  })
+
   it('reads the English labels for a language other than ru', () => {
     const other = parseStory(prEn.replace('Language: en', 'Language: de'))
     expect(other.ok && other.story.header.language).toBe('en')

@@ -42,7 +42,7 @@ export const notRecorded = (language: StoryLanguage): string => storyLabels(lang
 const text = (description: string) => z.string().min(1).describe(description)
 const lineNumber = z.number().int().min(1)
 const shaSchema = z.string().regex(/^[0-9a-f]{40}$/, 'a full commit sha')
-const ticketNumberSchema = z.string().regex(/^\d{2}$/, 'two digits')
+const ticketNumberSchema = z.string().regex(/^\d{2,}$/, 'two digits at least')
 
 /** A Markdown link, `[text](target)`: what a Requirement holds when it is not "not recorded". */
 const MARKDOWN_LINK = /^\[[^\]\n]+\]\([^)\s]+\)$/
@@ -130,8 +130,8 @@ export type PrStoryAnswer = z.output<typeof prStoryAnswerSchema>
 /** A handoff between two Tickets of an Epic: `<from> → <to>: <what> · done: yes`, or `done: no — <why>`. */
 export const storyHandoffSchema = z
   .object({
-    from: ticketNumberSchema.describe('The Ticket that hands over, two digits.'),
-    to: ticketNumberSchema.describe('The Ticket that takes it, two digits.'),
+    from: ticketNumberSchema.describe('The Ticket that hands over, two digits at least.'),
+    to: ticketNumberSchema.describe('The Ticket that takes it, two digits at least.'),
     what: text('What is handed over.'),
     done: z.boolean().describe('Whether the receiving Ticket did take it.'),
     why: z.string().min(1).nullable().describe('Why it was dropped: required when done is false, null when it is true.'),

@@ -38,9 +38,9 @@ const RANGE = /^(.+):(\d+)-(\d+)$/u
 const KEY_LINES = /^ · key lines: (\d+(?:, *\d+)*)$/u
 const FIELD = /^- ([^:]+): ?(.*)$/u
 const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/u
-const CHAPTER = /^PR (?:#(\d+)|-) · (\d{2}) — (.+)$/u
+const CHAPTER = /^PR (?:#(\d+)|-) · (\d{2,}) — (.+)$/u
 const STEP = /^(\d+)\. (.+)$/u
-const HANDOFF = /^(\d{2}) (?:→|->) (\d{2})$/u
+const HANDOFF = /^(\d{2,}) (?:→|->) (\d{2,})$/u
 const DONE = / · done: (.*)$/u
 const QUESTION = /^(\d+)\. (.*)$/u
 const SUB_FIELD = /^\s+- ([^:]+): ?(.*)$/u
@@ -295,7 +295,7 @@ function prStory(title: string, fields: Map<string, string>, body: Section[], la
   if (!/^(#\d+|-)$/u.test(pr)) fail('header', `PR: "${pr}" is not #<N> or -`)
   const epic = fields.get('Epic') ?? null
   const ticket = fields.get('Ticket') ?? null
-  if (ticket !== null && !/^\d{2}$/u.test(ticket)) fail('header', `Ticket: "${ticket}" is not two digits`)
+  if (ticket !== null && !/^\d{2,}$/u.test(ticket)) fail('header', `Ticket: "${ticket}" is not a number of two digits at least`)
   if ((epic === null) !== (ticket === null)) fail('header', 'Epic: and Ticket: go together: both for the PR of a ticket, neither for another PR')
   const commit = fields.get('Commit') ?? null
   if (commit !== null && committed) fail('header', 'a committed story names no commit (Commit:): its anchor is the commit that added it (TICKETS.md, Story anchor)')

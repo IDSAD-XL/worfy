@@ -343,7 +343,7 @@ const isStoryFile = (rel: string): boolean => {
   return (parts.length === 2 && parts[1] === EPIC_STORY_FILE) || (parts.length === 3 && parts[1] === STORIES_DIR && parts[2]!.endsWith('.md'))
 }
 
-/** The Ticket a PR story is of, by its file name `NN-<slug>.md`: the two digits; null for a name without a number. */
+/** The Ticket a PR story is of, by its file name `NN-<slug>.md`: the number, two digits at least; null for a name without a number. */
 export function storyTicket(file: string): string | null {
   const match = /^(\d+)-.*\.md$/u.exec(file)
   return match ? match[1]!.padStart(2, '0') : null

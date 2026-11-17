@@ -241,11 +241,11 @@ Code: `src/cart.ts:10-17` · key lines: 13, 14
 - **Title** — the H1: `Code story — <epic> <NN>: <title>` for a PR of a ticket, `Code story — PR #<N>: <title>`
   for a PR outside a ticket, `Code story — <epic>` for an epic.
 - **Header** — the first non-empty line after the H1, the fields split by ` · `, in any order: `Kind:` (`pr` or
-  `epic`), `Epic:`, `Ticket:` (two digits, only in `pr`), `PR:` (`#<N>`, only in `pr`; `-` while the PR is not open
-  yet — the implementer writes the story before `gh pr create`, and a reader then takes the number from the
-  ticket's own `PR:` line), `Language:` (the code of the profile's `language.reports`, `en` or `ru`). `Epic:` and
-  `Ticket:` are required in an `epic` story and in the story of a ticket's PR; a `pr` story of a PR outside a
-  ticket (an ordinary Session's PR, a colleague's PR) has neither. A story file committed with the change — in git
+  `epic`), `Epic:`, `Ticket:` (the ticket number, two digits at least — `04`, `121` — only in `pr`), `PR:` (`#<N>`,
+  only in `pr`; `-` while the PR is not open yet — the implementer writes the story before `gh pr create`, and a
+  reader then takes the number from the ticket's own `PR:` line), `Language:` (the code of the profile's
+  `language.reports`, `en` or `ru`). `Epic:` and `Ticket:` are required in an `epic` story and in the story of a
+  ticket's PR; a `pr` story of a PR outside a ticket (an ordinary Session's PR, a colleague's PR) has neither. A story file committed with the change — in git
   or in the Workflow folder — has no commit field: see **Story anchor** below. A story kept outside git, in
   worfy's own data (a story made by the button), has `Commit: <full sha of the PR head it was made from>`: nothing
   commits it into the PR, so it can name the head it describes. An epic story made by the button before the epic's
