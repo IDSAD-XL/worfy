@@ -1219,9 +1219,12 @@ export class Session {
   /**
    * The watch for a quiet turn follows the state: a turn that starts, or goes on after a person answered,
    * counts its quiet from now, and is looked at once a minute; a turn that ends forgets its hooks and its quiet.
+   * A turn that starts forgets the hooks too: one that started outside a turn and never ended (between turns no
+   * state change clears them) would hold off every quiet mark of the turns after it.
    */
   private turnWatch(was: SessionState, state: SessionState): void {
     if (state === 'busy' && was !== 'busy') this.lastSignAt = this.quietWatch.now()
+    if (state === 'busy' && !inTurn(was)) this.openHooks.clear()
     if (state !== 'busy') this.unquiet()
     if (inTurn(state)) {
       if (this.looking === null) {

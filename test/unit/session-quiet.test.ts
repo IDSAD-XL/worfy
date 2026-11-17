@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, utimesSync, writeFileSync
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { gateOutputAt, lockHeld, outsideSignsReader, taskOutputAt } from '../../src/main/agent/session/quiet-signs'
+import { gateOutputAt, lockHeld, outsideSignsReader, profileLockFolder, taskOutputAt } from '../../src/main/agent/session/quiet-signs'
 import { gateTag } from '../../src/main/gate/state'
 import { QUIET_MARK_MS, quietFor, quietSince, type QuietFacts } from '../../src/shared/agent/quiet'
 import { removeTestTree } from '../remove'
@@ -138,5 +138,34 @@ describe('the signs of life outside the agent’s events (src/main/agent/session
     rmSync(join(root, 'holder.json'))
     expect(await read(place)).toEqual({ taskOutputAt: null, gateOutputAt: null, e2eLockHeld: false })
     expect(asked).toBe(1)
+  })
+
+  it('asks the Profile again after a read that failed, and keeps the first answer, a lock or none', async () => {
+    writeFileSync(join(root, 'holder.json'), JSON.stringify({ prs: [1], pid: process.pid, host: hostname() }))
+    const answers: (() => Promise<string | null>)[] = [() => Promise.reject(new Error('the profile script could not be run')), () => Promise.resolve(root)]
+    let asked = 0
+    const read = outsideSignsReader(() => answers[asked++]!(), () => join(root, 'gate'))
+    const place = { cwd: root, taskOutputs: new Map<string, string>() }
+    expect(await read(place)).toEqual({ taskOutputAt: null, gateOutputAt: null, e2eLockHeld: false })
+    expect(await read(place)).toEqual({ taskOutputAt: null, gateOutputAt: null, e2eLockHeld: true })
+    expect(await read(place)).toEqual({ taskOutputAt: null, gateOutputAt: null, e2eLockHeld: true })
+    expect(asked).toBe(2)
+
+    let none = 0
+    const noLock = outsideSignsReader(() => {
+      none += 1
+      return Promise.resolve(null)
+    }, () => join(root, 'gate'))
+    await noLock(place)
+    await noLock(place)
+    expect(none).toBe(1)
+  })
+
+  it('the Profile’s lock: its e2e_lock, null for a folder in no Project, and a rejection for a read that failed', async () => {
+    const profile = { name: 'p', mode: 'full', finish: null, pipeline: [], pipelineReason: null, repos: [] } as const
+    expect(await profileLockFolder(root, () => Promise.resolve({ ok: true, profile: { ...profile, e2eLock: '/tmp/lock' } }))).toBe('/tmp/lock')
+    expect(await profileLockFolder(root, () => Promise.resolve({ ok: true, profile: { ...profile, e2eLock: null } }))).toBeNull()
+    expect(await profileLockFolder(root, () => Promise.resolve({ ok: false, reason: 'in no registered project', miss: 'none' }))).toBeNull()
+    await expect(profileLockFolder(root, () => Promise.resolve({ ok: false, reason: 'exit code 1', miss: 'failed', environment: false }))).rejects.toThrow('exit code 1')
   })
 })

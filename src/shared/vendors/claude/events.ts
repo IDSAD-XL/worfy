@@ -167,12 +167,18 @@ const QUIET_SYSTEM = new Set(['session_state_changed'])
 /** The run a hook message names, as the `hook` of an `alive` event. */
 const sdkHookRun = z.object({ hook_id: str })
 
+/** A hook run that started or goes on; a message that names no run gives nothing: its end could never be matched. */
+function hookRunning(message: unknown): AgentEvent[] {
+  const run = sdkHookRun.safeParse(message)
+  return run.success ? [{ type: 'alive', hook: { id: run.data.hook_id, phase: 'running' } }] : []
+}
+
 function mapSystem(subtype: string, message: unknown): AgentEvent[] {
   if (QUIET_SYSTEM.has(subtype)) return []
   switch (subtype) {
     case 'hook_started':
     case 'hook_progress':
-      return [{ type: 'alive', hook: { id: read(sdkHookRun, message).hook_id, phase: 'running' } }]
+      return hookRunning(message)
     case 'thinking_tokens':
       return [{ type: 'alive', hook: null }]
     case 'init': {

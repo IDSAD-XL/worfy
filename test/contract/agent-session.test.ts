@@ -9,7 +9,7 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
-import { NO_OUTSIDE_SIGNS, QUIET_LOOK_MS, type QuietWatch } from '../../src/main/agent/session/quiet-signs'
+import { NO_OUTSIDE_SIGNS, QUIET_LOOK_MS, type QuietPlace, type QuietWatch } from '../../src/main/agent/session/quiet-signs'
 import { agentHandlers, everyClientSink } from '../../src/main/ipc/agent'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import type { AgentEvent, AgentEventEnvelope } from '../../src/shared/agent/events'
@@ -472,6 +472,95 @@ describe('agent channels on the fake agent', () => {
     expect(await h.ok('agent.controls', { sessionId: id })).toMatchObject({ quietSince: null })
     // The hidden signs of life never reach a window.
     expect(types).not.toContain('alive')
+  })
+
+  describe('what holds off the quiet mark, through the Session (worfy-stuck-agents ticket 03)', () => {
+    const MIN = 60_000
+    const start = 1_790_000_000_000
+    const release = (name: string) => (globalThis as { worfyFakeRelease?: (name: string) => void }).worfyFakeRelease?.(name)
+    /** Several looks (every 20 ms) at the clock as it is now. */
+    const looks = () => new Promise((resolve) => setTimeout(resolve, 150))
+
+    it('a hook that started and has not ended holds off the mark, as Claude Code sends nothing while a silent hook runs; once it ends the mark counts again', async () => {
+      let now = start
+      const places: QuietPlace[] = []
+      const outside = (place: QuietPlace) => {
+        places.push(place)
+        return Promise.resolve(NO_OUTSIDE_SIGNS)
+      }
+      // test/fixtures/agent-scripts/quiet-hook.jsonl: hook_started, a delta, then the hook runs until the test releases it.
+      const h = await harness('quiet-hook', undefined, undefined, { markMs: 10 * MIN, lookMs: 20, now: () => now, outside })
+      const id = await h.start()
+      await vi.waitFor(() => expect(h.states([id])).toEqual(['starting', 'idle']))
+      await h.ok('agent.send', { sessionId: id, text: 'hello' })
+      await vi.waitFor(() => expect(ofType(h.eventsOf([id]), 'delta').map((e) => e.text)).toEqual(['A hook runs ']))
+
+      now = start + 11 * MIN
+      await looks()
+      expect(ofType(h.eventsOf([id]), 'quiet')).toEqual([])
+      // The open hook decided by the events alone: no file was read.
+      expect(places).toEqual([])
+
+      release('hook')
+      await vi.waitFor(() => expect(ofType(h.eventsOf([id]), 'delta').map((e) => e.text)).toEqual(['A hook runs ', 'and ended']))
+      now = start + 20 * MIN
+      await looks()
+      expect(ofType(h.eventsOf([id]), 'quiet')).toEqual([])
+      now = start + 22 * MIN
+      await vi.waitFor(() => expect(ofType(h.eventsOf([id]), 'quiet')).toEqual([{ type: 'quiet', quietSince: start + 11 * MIN }]))
+
+      release('turn')
+      await vi.waitFor(() => expect(h.states([id]).at(-1)).toBe('idle'))
+    })
+
+    it('a hook that started after a turn ended and never ended does not hold off the quiet of the next turn', async () => {
+      let now = start
+      // test/fixtures/agent-scripts/quiet-stray-hook.jsonl: after each turn's result a hook starts and never ends,
+      // and another hook says something (a `hook` event the test can wait for).
+      const h = await harness('quiet-stray-hook', undefined, undefined, { markMs: 10 * MIN, lookMs: 20, now: () => now, outside: () => Promise.resolve(NO_OUTSIDE_SIGNS) })
+      const id = await h.start()
+      await vi.waitFor(() => expect(h.states([id])).toEqual(['starting', 'idle']))
+      release('turn')
+      await h.ok('agent.send', { sessionId: id, text: 'first' })
+      await vi.waitFor(() => expect(ofType(h.eventsOf([id]), 'hook')).toHaveLength(1))
+      expect(h.states([id]).at(-1)).toBe('idle')
+
+      now = start + MIN
+      await h.ok('agent.send', { sessionId: id, text: 'second' })
+      await vi.waitFor(() => expect(ofType(h.eventsOf([id]), 'delta')).toHaveLength(2))
+      now = start + 12 * MIN
+      await vi.waitFor(() => expect(ofType(h.eventsOf([id]), 'quiet')).toEqual([{ type: 'quiet', quietSince: start + MIN }]))
+
+      release('turn')
+      await vi.waitFor(() => expect(ofType(h.eventsOf([id]), 'hook')).toHaveLength(2))
+    })
+
+    it('the files are read only past the mark, and of the background tasks only the live ones named by a tool result', async () => {
+      let now = start
+      const places: QuietPlace[] = []
+      const outside = (place: QuietPlace) => {
+        places.push(place)
+        return Promise.resolve(NO_OUTSIDE_SIGNS)
+      }
+      // test/fixtures/agent-scripts/quiet-tasks.jsonl: task_live runs; a tool result names its output file and that of task_done.
+      const h = await harness('quiet-tasks', undefined, undefined, { markMs: 10 * MIN, lookMs: 20, now: () => now, outside })
+      const id = await h.start()
+      await vi.waitFor(() => expect(h.states([id])).toEqual(['starting', 'idle']))
+      await h.ok('agent.send', { sessionId: id, text: 'hello' })
+      await vi.waitFor(() => expect(ofType(h.eventsOf([id]), 'delta').map((e) => e.text)).toEqual(['Two tasks run ']))
+      expect(ofType(h.eventsOf([id]), 'background_tasks_changed').at(-1)?.tasks.map((task) => task.taskId)).toEqual(['task_live'])
+
+      now = start + 9 * MIN
+      await looks()
+      expect(places).toEqual([])
+
+      now = start + 11 * MIN
+      await vi.waitFor(() => expect(places.length).toBeGreaterThan(0))
+      expect(places[0]).toEqual({ cwd, taskOutputs: new Map([['task_live', join(cwd, 'tasks', 'task_live.output')]]) })
+
+      release('turn')
+      await vi.waitFor(() => expect(h.states([id]).at(-1)).toBe('idle'))
+    })
   })
 
   it('an unknown SDK message becomes an unknown event and the turn goes on', async () => {

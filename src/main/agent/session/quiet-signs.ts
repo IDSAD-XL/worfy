@@ -53,8 +53,10 @@ export function defaultQuietWatch(): QuietWatch {
 }
 
 /**
- * Reads the signs of life of a place; the e2e lock's folder is asked of the Profile once per reader (a Session's
- * folder does not change). `gateDir`: the Gate's folder of the Harness on the machine now, looked for at each read.
+ * Reads the signs of life of a place; the e2e lock's folder is asked of the Profile until one read answers, then
+ * kept (a Session's folder does not change). A read that fails (`lockFolderOf` rejects) counts as no lock this time
+ * and is asked again at the next read. `gateDir`: the Gate's folder of the Harness on the machine now, looked for
+ * at each read.
  */
 export function outsideSignsReader(
   lockFolderOf: (cwd: string) => Promise<string | null> = profileLockFolder,
@@ -62,8 +64,13 @@ export function outsideSignsReader(
 ): (place: QuietPlace) => Promise<OutsideSigns> {
   let folder: Promise<string | null> | null = null
   return async (place) => {
-    folder ??= lockFolderOf(place.cwd).catch(() => null)
-    const [gateAt, lock] = await Promise.all([gateOutputAt(place.cwd, gateDir), folder])
+    const asked = (folder ??= Promise.resolve().then(() => lockFolderOf(place.cwd)))
+    const lockFolder = asked.catch(() => {
+      // Only this read's failure is forgotten: a read started after it is kept.
+      if (folder === asked) folder = null
+      return null
+    })
+    const [gateAt, lock] = await Promise.all([gateOutputAt(place.cwd, gateDir), lockFolder])
     return { taskOutputAt: taskOutputAt(place.taskOutputs), gateOutputAt: gateAt, e2eLockHeld: lock !== null && (await lockHeld(lock)) }
   }
 }
@@ -76,7 +83,12 @@ export function taskOutputAt(files: ReadonlyMap<string, string>): number | null 
   return latest([...marks.values()].flatMap((mark) => (mark === null ? [] : [mark.mtimeMs])))
 }
 
-/** The latest change of an output file of a gate running in the worktree `cwd`; null when there is none. */
+/**
+ * The latest change of an output file of a gate running in the worktree `cwd`; null when there is none.
+ * shortcut: on Windows the gate runs its commands through cmd.exe and reads their output from a pipe (throughCmd of
+ * harness/hooks/gate.mjs); only one started without cmd.exe (an .exe or .com) writes a `.run-*.out`. pnpm is a .cmd,
+ * so there this sign almost never fires.
+ */
 export async function gateOutputAt(cwd: string, gateDir: () => string = () => currentHarness().gateDir): Promise<number | null> {
   try {
     const state = join(gateDir(), 'state')
@@ -119,8 +131,18 @@ export async function lockHeld(folder: string): Promise<boolean> {
   }
 }
 
-/** The e2e lock of the Profile of `cwd` (`workflow.e2e_lock`); null without a Profile or a lock. */
-async function profileLockFolder(cwd: string): Promise<string | null> {
-  const read = await readPipelineProfile({ root: cwd, claudeHome: claudeHome(), env: await harnessScriptEnv() })
-  return read.ok ? read.profile.e2eLock : null
+/**
+ * The e2e lock of the Profile of `cwd` (`workflow.e2e_lock`); null when the Profile names none or the folder is in
+ * no Project (`miss: 'none'`). A read that failed (`miss: 'failed'`: the script did not run or answered wrong)
+ * rejects, so that the reader asks again.
+ */
+export async function profileLockFolder(
+  cwd: string,
+  read: (cwd: string) => Promise<Awaited<ReturnType<typeof readPipelineProfile>>> = async (root) =>
+    readPipelineProfile({ root, claudeHome: claudeHome(), env: await harnessScriptEnv() }),
+): Promise<string | null> {
+  const answer = await read(cwd)
+  if (answer.ok) return answer.profile.e2eLock
+  if (answer.miss === 'none') return null
+  throw new Error(`could not read the Profile of ${cwd}: ${answer.reason}`)
 }

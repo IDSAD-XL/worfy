@@ -52,6 +52,11 @@ describe('the Claude translation of SDK messages', () => {
       }
     })
 
+    it.each(['hook_started', 'hook_progress'])('a %s that names no hook run gives nothing, not an unknown event', (subtype) => {
+      const unnamed = { hook_name: hook.hook_name, hook_event: hook.hook_event }
+      expect(sdkMessageToEvents(system(subtype, unnamed), AT)).toEqual([])
+    })
+
     it('a hook_response ends the hook run: a silent one gives only that, one that said something its hook event too', () => {
       const response = (fields: Record<string, unknown>) => system('hook_response', { ...hook, output: '', stdout: '', stderr: '', exit_code: 0, outcome: 'success', ...fields })
       expect(sdkMessageToEvents(response({}), AT)).toEqual([{ type: 'alive', hook: { id: 'hook-1', phase: 'ended' } }])
