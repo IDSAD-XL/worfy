@@ -1,6 +1,7 @@
 import { memo, type CSSProperties } from 'react'
 import { Handle, Position } from '@xyflow/react'
 import { subagentTypeLabel } from '../../../shared/agent/subagent-type'
+import { subagentQuietLabel } from '../../../shared/transcript/subagents'
 import { hideSubagents, INTERRUPTED_TOOLTIP, statusLabel, useTick } from '../../claude-home/subagents'
 import { useReadOnly } from '../../projects/useProjects'
 import { openSession } from '../../session/navigation'
@@ -13,7 +14,9 @@ import type { CanvasNodeProps } from './index'
 
 // A Subagent of a Session on the Canvas (ticket 15; CONTEXT.md, «Subagent»): its name, type and
 // model, its status with the time it has run, and the first line of its final answer — a
-// reviewer's VERIFIED or REJECTED as a chip. The Nodes come from sources/subagents.ts, to the right
+// reviewer's VERIFIED or REJECTED as a chip. A running Subagent whose file has not changed for 10
+// minutes starts its last line with `quiet N min` (worfy-stuck-agents ticket 04): in the header next to
+// the time it would leave the name no room in a Node this narrow. The Nodes come from sources/subagents.ts, to the right
 // of their Session's Node; the same kind draws the "N done" row that folds a parent's done and
 // interrupted Subagents (a click opens it) and the invisible anchor the tree's lines start from. A
 // click on "Transcript" opens the Subagent's own transcript, read-only, in the Session view.
@@ -37,6 +40,8 @@ const styles = {
   body: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 2, padding: '0 var(--space-3) var(--space-2)' },
   line: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', minWidth: 0, fontSize: 'var(--text-12)', color: 'var(--text-secondary)' },
   clip: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  // The colour of the running chip, as the quiet mark of a Session's chip (`busy · quiet N min`).
+  quiet: { flex: 'none', fontWeight: 600, color: 'var(--working-text)', whiteSpace: 'nowrap' },
   open: {
     flex: 'none',
     padding: '0 6px',
@@ -75,6 +80,7 @@ function AgentNode({ id, data, agent }: { id: string; data: SubagentNodeData; ag
   const type = subagentTypeLabel(agent.subagentType)
   const title = agent.name ?? type ?? 'Subagent'
   const kindLine = [type, agent.model].filter((part) => part !== null).join(' · ')
+  const quiet = subagentQuietLabel(agent, now)
   const canOpen = agent.agentId !== null && agent.transcript
   // The verdict has its chip; the line shows the rest of the answer's first line, or what the Subagent was asked.
   const summaryText = agent.summary === null ? (agent.description ?? '') : agent.summary === agent.verdict ? '' : agent.summary
@@ -136,6 +142,11 @@ function AgentNode({ id, data, agent }: { id: string; data: SubagentNodeData; ag
           ) : null}
         </div>
         <div style={styles.line} data-testid="subagent-summary">
+          {quiet !== null ? (
+            <span style={styles.quiet} data-testid="subagent-quiet">
+              {quiet}
+            </span>
+          ) : null}
           {agent.verdict !== null ? (
             <span data-testid="subagent-verdict">
               <StatusChip status={agent.verdict === 'VERIFIED' ? 'done' : 'blocked'} label={agent.verdict} />

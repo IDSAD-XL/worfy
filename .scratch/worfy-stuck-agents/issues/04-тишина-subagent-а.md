@@ -1,7 +1,7 @@
 # 04 — Тишина Subagent-а: `quiet N min` на Subagent Node и в rail-е
 
 Type: task
-Status: open
+Status: claimed 2026-11-17T07:57Z
 Blocked by: 03
 Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решения по реализации» → «Признаки жизни Session и тишина», пункт
 «Subagent Node»; «Истории пользователя», 7; «Решено без владельца», 1 и 9
@@ -37,12 +37,19 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решения по реал�
 
 - [ ] Unit test: `running` Subagent, файл не менялся 21 минуту — тишина 21 минута; 9 минут — пометки нет; `done` —
       пометки нет.
+  - evidence: test-run pass · `pnpm test test/unit/subagents.test.ts` exit 0 · mac - · b7e0e6d5f
 - [ ] Component test `test/unit/subagent-nodes.test.tsx`: Node молчащего Subagent-а показывает `running 52 min · quiet
       21 min`; Node Subagent-а Codex — без `quiet`.
+  - evidence: test-run pass · `pnpm test test/unit/subagent-nodes.test.tsx` exit 0 · mac - · b7e0e6d5f
+  - evidence: test-run pass · `pnpm test test/unit/subagent-nodes.test.tsx` exit 0 (round 2: the mark in its own element on the last line) · mac - · 8f96f51704a8a368f1b6c1232ef9dd82748bfa8b
 - [ ] Component test rail-а: та же пометка у молчащего Subagent-а.
+  - evidence: test-run pass · `pnpm test test/unit/subagent-nodes.test.tsx` exit 0 (SubagentsList, a quiet Subagent) · mac - · b7e0e6d5f
+  - evidence: test-run pass · `pnpm test test/unit/subagent-nodes.test.tsx` exit 0 (round 2: the mark on its own line under the name) · mac - · 8f96f51704a8a368f1b6c1232ef9dd82748bfa8b
 - [ ] Unit test `test/unit/subagents.test.ts`: чтение отдаёт время последнего изменения файла и ничего не пишет в
       Claude home (ADR-0005).
+  - evidence: test-run pass · `pnpm test test/unit/subagents.test.ts` exit 0 (SubagentReader, snapshot of the Claude home) · mac - · b7e0e6d5f
 - [ ] `docs/features/sessions.md` описывает пометку `quiet N min` у Subagent-а и что у Codex её нет.
+  - evidence: commit pass · Subagent Node and rail mark a quiet Subagent: quiet N min (worfy-stuck-agents 04) · - - · b7e0e6d5f
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Тесты

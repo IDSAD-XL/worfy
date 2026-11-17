@@ -304,9 +304,21 @@ export class SubagentReader {
     if (known === undefined || read.reset) known = { cursor: undefined, file: emptySubagentFile(agentId, meta, true) }
     known.cursor = read.cursor
     // The meta file may appear or change after the transcript: the latest one is used.
-    known.file = extendSubagentFile({ ...known.file, meta: emptySubagentFile(agentId, meta).meta }, read.lines)
+    const file = extendSubagentFile({ ...known.file, meta: emptySubagentFile(agentId, meta).meta }, read.lines)
+    // When it last changed — the later of its mtime and its last record's time — tells a quiet Subagent (worfy-stuck-agents ticket 04).
+    const changedAt = Math.max(await modifiedAt(path), file.lastAt ?? Number.NEGATIVE_INFINITY)
+    known.file = Number.isFinite(changedAt) ? { ...file, changedAt } : file
     this.agents.set(path, known)
     return known.file
+  }
+}
+
+/** The mtime of the file at `path` in whole ms; -Infinity when it cannot be read (removed since it was read). */
+async function modifiedAt(path: string): Promise<number> {
+  try {
+    return Math.floor((await stat(path)).mtimeMs)
+  } catch {
+    return Number.NEGATIVE_INFINITY
   }
 }
 
