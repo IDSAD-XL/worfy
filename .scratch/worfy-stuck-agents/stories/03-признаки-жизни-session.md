@@ -38,18 +38,27 @@ export function quietFor(now: number, facts: QuietFacts, thresholdMs: number = Q
 
 ## 3. Скрытые признаки жизни у обоих driver-ов
 
-Code: `src/shared/vendors/claude/events.ts:173-177` · key lines: 175, 177
+Code: `src/shared/vendors/claude/events.ts:171-183` · key lines: 173, 182, 183
 
 ```ts
+function hookRunning(message: unknown): AgentEvent[] {
+  const run = sdkHookRun.safeParse(message)
+  return run.success ? [{ type: 'alive', hook: { id: run.data.hook_id, phase: 'running' } }] : []
+}
+
+function mapSystem(subtype: string, message: unknown): AgentEvent[] {
+  if (QUIET_SYSTEM.has(subtype)) return []
+  switch (subtype) {
     case 'hook_started':
     case 'hook_progress':
-      return [{ type: 'alive', hook: { id: read(sdkHookRun, message).hook_id, phase: 'running' } }]
+      return hookRunning(message)
     case 'thinking_tokens':
       return [{ type: 'alive', hook: null }]
 ```
 
 - Что делает: сообщения Claude Code, которые раньше отбрасывались, дают событие `alive`; у hook-а — с id его run-а,
-  чтобы Session знала, какой hook ещё идёт. `hook_response` теперь всегда даёт `alive` с `ended`, а строку `hook` —
+  чтобы Session знала, какой hook ещё идёт. Сообщение hook-а без `hook_id` не даёт ничего (ни `alive`, ни `unknown`):
+  его конец нельзя было бы сопоставить с началом. `hook_response` теперь всегда даёт `alive` с `ended`, а строку `hook` —
   как раньше, только если hook что-то сказал. Codex (`src/main/vendors/codex/items.ts`, `hookStarted` и
   `hookCompleted`) даёт такие же события на начало и конец любого hook run-а, не только Stop.
 - Почему здесь: Ticket называет оба файла driver-ов и места, где события отбрасывались.
@@ -60,7 +69,7 @@ Code: `src/shared/vendors/claude/events.ts:173-177` · key lines: 175, 177
 
 ## 4. Session помнит последний признак и раз в минуту смотрит на ход
 
-Code: `src/main/agent/session.ts:1240-1287` · key lines: 1241, 1247, 1264, 1271, 1281
+Code: `src/main/agent/session.ts:1243-1290` · key lines: 1244, 1250, 1267, 1274, 1284
 
 ```ts
   private signOfLife(event: AgentEvent): void {
@@ -123,29 +132,81 @@ Code: `src/main/agent/session.ts:1240-1287` · key lines: 1241, 1247, 1264, 1271
 - Требование: [Что делаем, п. 1 и 5](../issues/03-признаки-жизни-session.md#что-делаем)
 - Риски и пробелы test-ов: чтение файлов в приложении (`src/main/agent/session/quiet-signs.ts`) проверено unit
   test-ами на временных файлах; путь к e2e lock-у берётся из Profile-а через `bin/profile` и в test-ах подменён.
-  `quietSince` отдаёт и `agent.controls`, чтобы окно, открытое позже, знало о пометке.
+  `quietSince` отдаёт и `agent.controls`, чтобы окно, открытое позже, знало о пометке. Contract test-ы через Session
+  на fake agent проверяют: открытый hook не даёт пометки, после его конца пометка приходит; файлы не читаются до
+  порога; взгляд получает output file-ы только живых background task-ов, названных tool result-ом.
 
-## 5. Что сознательно не меняли
+## 5. Начало хода забывает открытые hook-и
+
+Code: `src/main/agent/session.ts:1225-1227` · key lines: 1227
+
+```ts
+  private turnWatch(was: SessionState, state: SessionState): void {
+    if (state === 'busy' && was !== 'busy') this.lastSignAt = this.quietWatch.now()
+    if (state === 'busy' && !inTurn(was)) this.openHooks.clear()
+```
+
+- Что делает: когда ход начинается (Session переходит в `busy` не из `needs_permission`), счётчик открытых hook-ов
+  обнуляется. Hook, начатый между ходами (после `result`) и не кончившийся, больше не держит пометку всех следующих
+  ходов. Ответ человека на запрос разрешения (`needs_permission` → `busy`) счётчик не трогает: это тот же ход.
+- Почему здесь: здесь же ход начинает отсчёт `lastSignAt`; выход из хода уже очищал счётчик в этой функции. Находку
+  записал verifier PR-а; сам Ticket этот случай не называет.
+- Без него: один потерянный `hook_response` вне хода навсегда отключал бы пометку тишины этой Session.
+- Требование: [Что делаем, п. 3](../issues/03-признаки-жизни-session.md#что-делаем)
+- Риски и пробелы test-ов: contract test на fake agent (`test/fixtures/agent-scripts/quiet-stray-hook.jsonl`)
+  краснеет без этой строки. Hook, начатый до ответа на запрос разрешения и не кончившийся, по-прежнему держит
+  пометку до конца хода; test-а на этот случай нет.
+
+## 6. Неудачное чтение Profile-а не запоминается
+
+Code: `src/main/agent/session/quiet-signs.ts:67-72` · key lines: 67, 70
+
+```ts
+    const asked = (folder ??= Promise.resolve().then(() => lockFolderOf(place.cwd)))
+    const lockFolder = asked.catch(() => {
+      // Only this read's failure is forgotten: a read started after it is kept.
+      if (folder === asked) folder = null
+      return null
+    })
+```
+
+- Что делает: путь к e2e lock-у из Profile-а читается один раз на Session, но запоминается только ответ: путь или «lock-а
+  нет» (в том числе папка вне Project-а). Если `bin/profile` не запустился или ответил не то (`profileLockFolder`
+  отклоняет такой ответ), этот взгляд считает lock свободным, а следующий спросит Profile снова.
+- Почему здесь: кэш чтения Profile-а живёт в этом reader-е; находку записал verifier PR-а, причина в Ticket-е не
+  записана.
+- Без него: один сбой `bin/profile` при первом взгляде отключал бы признак «e2e lock занят» до конца жизни Session.
+- Требование: [Что делаем, п. 3](../issues/03-признаки-жизни-session.md#что-делаем)
+- Риски и пробелы test-ов: unit test-ы краснеют, если сбой запоминается или `profileLockFolder` превращает сбой в
+  `null`. Пока Profile не читается, `bin/profile` запускается на каждом взгляде, который дошёл до файлов (не чаще раза
+  в минуту).
+
+## 7. Что сознательно не меняли
 
 Chip, hint line и Restart — Ticket 06; тишина Subagent-а — Ticket 04; `turn-hung` в Autopilot — Ticket 09. Страница
-`docs/features/sessions.md` не правится: поле пока не видно человеку (решено без владельца, пункт 12).
+`docs/features/sessions.md` не правится: поле пока не видно человеку (решено без владельца, пункт 12). На Windows gate
+не пишет `.run-*.out` для команд через `cmd.exe`, поэтому признак «вырос вывод gate-а» там почти не срабатывает
+(`shortcut:` в Ticket-е и у `gateOutputAt`).
 
-## 6. Как проверено
+## 8. Как проверено
 
 `pnpm lint`, `pnpm typecheck` — exit 0. Новые и изменённые test-ы: `test/unit/session-quiet.test.ts`,
 `test/unit/claude-events.test.ts`, `test/unit/codex-items.test.ts`, `test/contract/agent-session.test.ts`,
 `test/contract/codex-session.test.ts` — exit 0; оба contract test-а краснеют, если Session не шлёт `quiet` или не
-сбрасывает его на событии агента. `gate fast` — exit 0, `[gate] green (fast)`.
+сбрасывает его на событии агента. Каждое изменение второго круга проверено mutant-ом: test краснеет, если открытый
+hook не считается, если начало хода не очищает hook-и, если файлы читаются до порога, если tool result не запоминает
+output file или взгляд получает output file не живой task-и, если сбой Profile-а запоминается или становится `null`, если
+сообщение hook-а без `hook_id` даёт событие. `gate fast` — exit 0, `[gate] green (fast)`.
 
 ## Проверить себя
 
 1. Почему Session читает файлы только когда по событиям ход уже молчит дольше порога?
    - Ответ: чтение файлов и Profile-а дороже взгляда на счётчики; пока события идут, ход точно жив, и файлы ничего не
      добавят.
-   - Строки: `src/main/agent/session.ts:1264`, `src/main/agent/session.ts:1271`
+   - Строки: `src/main/agent/session.ts:1268`, `src/main/agent/session.ts:1274`
 2. Что будет с пометкой, если пока Session читает файлы, пришло событие агента?
    - Ответ: счётчик признаков изменился, и взгляд выходит без решения: пометку не ставит устаревшее чтение.
-   - Строки: `src/main/agent/session.ts:1242`, `src/main/agent/session.ts:1273`
+   - Строки: `src/main/agent/session.ts:1245`, `src/main/agent/session.ts:1276`
 3. Почему молчащий hook не даёт тишину, хотя событий нет?
    - Ответ: его начало добавило id run-а в открытые hook-и, и `quietFor` возвращает ноль, пока не придёт его конец.
-   - Строки: `src/main/agent/session.ts:1244`, `src/shared/agent/quiet.ts:43`
+   - Строки: `src/main/agent/session.ts:1247`, `src/shared/agent/quiet.ts:43`
