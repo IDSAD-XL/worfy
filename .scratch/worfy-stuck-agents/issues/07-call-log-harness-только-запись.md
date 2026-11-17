@@ -58,25 +58,33 @@ Harness — только запись»; «Вне Epic-а» → «Отложен
 - [ ] Shell test `harness/hooks/tests/calls.test.sh`: три одинаковых неуспешных вызова — строка `would-hint` в
       `loops.jsonl`; четвёртый — `would-deny`; stdout hook-а пустой, exit 0 на каждом вызове.
   - evidence: test-run pass · `bash harness/hooks/tests/calls.test.sh` exit 0 · mac - · 4a934a63fb6e21968922553e9252b7a9674157b1
+  - evidence: test-run pass · `bash harness/hooks/tests/calls.test.sh` exit 0 · mac - · af86654709b1329d9f9dc4925473b94b05d05633
 - [ ] Shell test: тот же вызов с новым исходом — строки нет; `gh pr checks` четыре раза с ненулевым exit code — строки
       нет.
   - evidence: test-run pass · `bash harness/hooks/tests/calls.test.sh` exit 0 · mac - · 4a934a63fb6e21968922553e9252b7a9674157b1
+  - evidence: test-run pass · `bash harness/hooks/tests/calls.test.sh` exit 0 · mac - · af86654709b1329d9f9dc4925473b94b05d05633
 - [ ] Shell test: A-B-A-B три раза — `would-hint`; правка туда и обратно дважды — `would-hint`.
   - evidence: test-run pass · `bash harness/hooks/tests/calls.test.sh` exit 0 · mac - · 4a934a63fb6e21968922553e9252b7a9674157b1
+  - evidence: test-run pass · `bash harness/hooks/tests/calls.test.sh` exit 0 · mac - · af86654709b1329d9f9dc4925473b94b05d05633
 - [ ] Shell test: битый JSON на stdin и папка состояния без права записи — exit 0, stdout пустой.
   - evidence: test-run pass · `bash harness/hooks/tests/calls.test.sh` exit 0 · mac - · 4a934a63fb6e21968922553e9252b7a9674157b1
+  - evidence: test-run pass · `bash harness/hooks/tests/calls.test.sh` exit 0 · mac - · af86654709b1329d9f9dc4925473b94b05d05633
 - [ ] Shell test: два Subagent-а одной Session (разные `agent_id`) ведут разные `calls/<owner>.jsonl`; в call log не
       больше 20 строк.
   - evidence: test-run pass · `bash harness/hooks/tests/calls.test.sh` exit 0 · mac - · 4a934a63fb6e21968922553e9252b7a9674157b1
+  - evidence: test-run pass · `bash harness/hooks/tests/calls.test.sh` exit 0 · mac - · af86654709b1329d9f9dc4925473b94b05d05633
 - [ ] Shell test `harness/bin/tests/loop-log.test.sh`: `loop-log` печатает случаи `would-deny` и `cases: N (revisit at
       3)`; `--since` отбрасывает старые; без файла — `cases: 0`.
   - evidence: test-run pass · `bash harness/bin/tests/loop-log.test.sh` exit 0 · mac - · 4a934a63fb6e21968922553e9252b7a9674157b1
+  - evidence: test-run pass · `bash harness/bin/tests/loop-log.test.sh` exit 0 · mac - · af86654709b1329d9f9dc4925473b94b05d05633
 - [ ] Unit test `loop-patterns.mjs` (в `harness/hooks/tests/` или `test/unit/`): три шаблона, «новый исход — не цикл»,
       команды ожидания.
   - evidence: test-run pass · `pnpm test test/unit/loop-patterns.test.ts` exit 0 · mac - · 4a934a63fb6e21968922553e9252b7a9674157b1
+  - evidence: test-run pass · `pnpm test test/unit/loop-patterns.test.ts` exit 0 · mac - · af86654709b1329d9f9dc4925473b94b05d05633
 - [ ] Contract test `test/contract/harness-codex-hooks.test.ts`: строки `PostToolUse.jsonl` Codex (Bash и `apply_patch`)
       дают записи call log с исходом по exit code или хэшу вывода; Codex-input Subagent-а — свой `owner`.
   - evidence: test-run pass · `pnpm test test/contract/harness-codex-hooks.test.ts` exit 0 · mac - · 4a934a63fb6e21968922553e9252b7a9674157b1
+  - evidence: test-run pass · `pnpm test test/contract/harness-codex-hooks.test.ts` exit 0 · mac - · af86654709b1329d9f9dc4925473b94b05d05633
 - [ ] `docs/features/skills-agents-and-hooks.md` называет новый hook и `loop-log`.
   - evidence: commit pass · Harness call log, write only: count repeats of failed calls; loop-log reads them (worfy-stuck-agents 07) · - - · 4a934a63fb6e21968922553e9252b7a9674157b1
 - [ ] Платформенный PR (ADR-0056, пункт 2; ADR-0071): вердикт Windows до merge.
