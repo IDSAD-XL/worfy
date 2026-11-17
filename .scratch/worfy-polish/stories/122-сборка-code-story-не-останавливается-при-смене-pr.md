@@ -195,3 +195,58 @@ export function buttonBuildEvents(storyId: string, projectId: string): { activit
 3. Что останавливает сборку кнопкой теперь?
    - Строки: `src/renderer/stories/story-build.ts:84`
    - Ответ: только явный Stop в баре (и выход из приложения); уход кнопки зовёт `stories.stop` лишь для сборки `start`.
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED
+> PR #1940 (worfy-polish 122), round 3, head aa6f1fbdeaea10713e5dccf81d7735fadead73db.
+> - Range-diff 98f84a846..8fd2adf49 vs 094aa4429..aa6f1fbde: commits 1-5 identical (=); only new commits are db6265d7b (src/main/ipc/stories.ts:458-460 guard + test/contract/stories-handler.test.ts:258-282) and aa6f1fbde (4 lines in the ticket result).
+> - Production: sharedMaker is created only by stories.make / stories.stop (src/main/ipc/stories.ts:445,455); runningOf reads only the maker's byKey map, so with no maker no button build exists and null is the true answer. stories.saved/answers/marks/markRead never call maker(), builder() or asker().
+> - globalThis.worfyFakeRelease is set only in sharedStoryReleases(), reached only past the WORFY_AGENT !== 'fake' return (stories.ts:110): test-only concern.
+> - Mutant (temp copy, removed): running handler back to maker().runningOf -> regression test red (expected [Function] to be [Function sessions]), EXIT=1.
+> - Ran: pnpm test stories/story contract+unit 14 files 186 tests EXIT=0; pnpm typecheck EXIT=0; story-check --head aa6f1fbde EXIT=0 (5 fragments ok); gh pr checks 1940: all pass incl. ci-ok, macos-e2e 1/2 and 2/2, windows-e2e 1-4.
+> - Findings: none.
+
+Code: `src/main/ipc/stories.ts:458-460` · key lines: 458
+
+```ts
+  // Every "Code story" button asks on mount: with no maker yet no build runs, and none is made here — making it makes the
+  // fake agent's story releases, which would take globalThis.worfyFakeRelease from the Sessions' fake agent in e2e runs.
+  defineHandler(storiesRunning, ({ projectId, target }) => (sharedMaker === undefined ? null : sharedMaker.runningOf(projectId, target))),
+```
+
+Code: `test/contract/stories-handler.test.ts:258-282` · key lines: 258
+
+```ts
+// worfy-polish 122, CI of PR #1940: every "Code story" button asks stories.running on mount. Asking made the app's
+// story maker, and with it the story releases of the fake agent, which took globalThis.worfyFakeRelease from the fake
+// agent of the Sessions: the Autopilot e2e runs never released their turns and stayed "stopping".
+describe('stories.running makes no story maker', () => {
+  it('asked before any build, it answers none and leaves globalThis.worfyFakeRelease to the Sessions\' fake agent', async () => {
+    vi.resetModules()
+    const before = process.env.WORFY_AGENT
+    process.env.WORFY_AGENT = 'fake'
+    const sessions = (): void => undefined
+    const holder = globalThis as { worfyFakeRelease?: (name: string) => void }
+    const kept = holder.worfyFakeRelease
+    holder.worfyFakeRelease = sessions
+    try {
+      const { default: fresh } = await import('../../src/main/ipc/stories')
+      const running = fresh.find((entry) => entry.channel.name === 'stories.running')!
+      const answer = await running.handle({ projectId: 'p1', target: { kind: 'pr', repo: null, number: 212 } } as never, { event: { sender: { send: () => undefined, isDestroyed: () => false } } } as never)
+      expect(answer).toBeNull()
+      expect(holder.worfyFakeRelease).toBe(sessions)
+    } finally {
+      holder.worfyFakeRelease = kept
+      if (before === undefined) delete process.env.WORFY_AGENT
+      else process.env.WORFY_AGENT = before
+    }
+  })
+})
+```
+
+Code: `src/main/ipc/stories.ts:445-445` · key lines: 445
+
+```ts
+    const build = maker().stop(storyId)
+```

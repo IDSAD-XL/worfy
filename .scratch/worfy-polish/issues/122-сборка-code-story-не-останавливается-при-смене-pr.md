@@ -1,7 +1,7 @@
 # 122 — Сборка Code story кнопкой не останавливается при смене PR или view, и её статус виден по возвращении
 
 Type: bug
-Status: claimed 2026-11-17T00:38Z
+Status: done 2026-11-17T03:47Z
 PR: #1940
 Blocked by: none
 Source: баг-репорт владельца 2026-11-17 (Pull requests, кнопка «Code story» из `worfy-code-stories` 11).
@@ -72,6 +72,7 @@ Source: баг-репорт владельца 2026-11-17 (Pull requests, кно
 - [ ] Все unit- и contract-test-ы модуля stories, `pnpm lint`, `pnpm typecheck`, gate fast — exit 0; `ci-ok` на PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · a64866be4d71a7d5c6b5b4689c6f36f5a673dcf1
   - evidence: gate pass · `gate fast` exit 0 · mac - · 930bf9a80d2d65eadaa936d553a6e99a7a634127
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44004855517/job/133795843818 · ci - · aa6f1fbdeaea10713e5dccf81d7735fadead73db
 - [ ] `docs/features/code-stories.md` описывает новое поведение.
   - evidence: commit pass · Keep a Code story build by the button running when its PR or view is left (worfy-polish 122) · - - · a64866be4d71a7d5c6b5b4689c6f36f5a673dcf1
 
