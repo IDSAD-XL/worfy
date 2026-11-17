@@ -299,13 +299,15 @@ describe('the format of TICKETS.md, over the shared fixtures', () => {
     expect(read.ok ? '' : read.reason).toContain('steps.3.fragments: only the frame "Что нашёл review и что осталось" quotes fragments')
   })
 
-  it('the header: Epic and Ticket together, the Ticket in two digits, the language en or ru, the PR head required', () => {
+  it('the header: Epic and Ticket together, the Ticket in two digits at least, the language en or ru, the PR head required', () => {
     const story = { kind: 'pr', header: input().header, ...PR_EN }
     expect(storySchema.safeParse(story).success).toBe(true)
     const broken = (header: Record<string, unknown>) => storySchema.safeParse({ ...story, header: { ...input().header, ...header } }).success
     expect(broken({ ticket: null })).toBe(false)
     expect(broken({ epic: null, ticket: null })).toBe(true)
+    expect(broken({ ticket: '121' })).toBe(true)
     expect(broken({ ticket: '4' })).toBe(false)
+    expect(broken({ ticket: '0a' })).toBe(false)
     expect(broken({ language: 'de' })).toBe(false)
     expect(broken({ commit: undefined })).toBe(false)
     expect(broken({ commit: 'abc' })).toBe(false)

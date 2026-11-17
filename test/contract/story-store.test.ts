@@ -147,7 +147,15 @@ describe('the answers to questions about lines of a story (ticket 12)', () => {
     expect(storyDigest(made)).not.toBe(storyDigest(committed))
   })
 
+  it('keeps an answer about a step of Ticket 121: a Ticket number has two digits at least', () => {
+    const about = { ticket: '121', step: 2, path: 'src/cart.ts', from: 13, to: 14 }
+    addStoryAnswer(dir, 'k', { ...answer('Why cents?'), about })
+    expect(readStoryAnswers(dir, 'k').map((one) => one.about)).toEqual([about])
+  })
+
   it('refuses an answer that does not fit, writing nothing; leaves out a kept one this build cannot read', () => {
+    expect(() => addStoryAnswer(dir, 'k', { ...answer('Why?'), about: { ...answer('Why?').about, ticket: '4' } } as never)).toThrow(/schema/u)
+    expect(() => addStoryAnswer(dir, 'k', { ...answer('Why?'), about: { ...answer('Why?').about, ticket: '0a' } } as never)).toThrow(/schema/u)
     expect(() => addStoryAnswer(dir, 'k', { ...answer('Why?'), lines: ['src/cart.ts:13'] })).toThrow(/schema/u)
     expect(() => addStoryAnswer(dir, 'k', { ...answer('Why?'), digest: 'short' })).toThrow(/schema/u)
     expect(existsSync(storiesPath(dir))).toBe(false)
@@ -195,8 +203,14 @@ describe('the "read" marks and the answers to "Check yourself" (ticket 13)', () 
     expect(readStoryMarks(dir, KEY).read).toHaveLength(2)
   })
 
+  it('keeps a mark of a step of Ticket 121: a Ticket number has two digits at least', () => {
+    expect(addStoryReadMark(dir, KEY, { ticket: '121', step: 1 })).toBe(true)
+    expect(readStoryMarks(dir, KEY).read).toEqual([{ ticket: '121', step: 1 }])
+  })
+
   it('refuses a mark or an answer that does not fit, writing nothing; leaves out a kept one this build cannot read', () => {
     expect(() => addStoryReadMark(dir, KEY, { ticket: '4', step: 1 } as never)).toThrow(/schema/u)
+    expect(() => addStoryReadMark(dir, KEY, { ticket: '0a', step: 1 } as never)).toThrow(/schema/u)
     expect(() => addStoryReadMark(dir, KEY, { screen: 'elsewhere' } as never)).toThrow(/schema/u)
     expect(() => keepSelfCheck(dir, KEY, check('', 'x'))).toThrow(/schema/u)
     expect(existsSync(storiesPath(dir))).toBe(false)

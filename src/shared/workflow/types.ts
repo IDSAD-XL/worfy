@@ -131,7 +131,7 @@ export const storyEntrySchema = z.object({
   kind: z.enum(['pr', 'epic']),
   /** The file under the Tickets root, `/` between the parts: `<epic>/story.md`, `<epic>/stories/04-cart-total.md`. */
   path: z.string(),
-  /** The Ticket of a PR story, two digits from its file name; null for the Epic's story and a name without a number. */
+  /** The Ticket of a PR story, the number from its file name (two digits at least); null for the Epic's story and a name without a number. */
   ticket: z.string().nullable(),
   /** A hash of the file's text: an edit of the story is a change of its Epic, and an open view reads it again. */
   version: z.string(),

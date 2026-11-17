@@ -15,9 +15,18 @@ const MARGIN = 12
 const BASE_RISE = 26
 const STEP_RISE = 16
 
+/** Ticket numbers compared as numbers, not as strings: a number has two digits at least, so 100 comes after 99. */
+const byNumber = (a: string, b: string): number => Number(a) - Number(b)
+
+/** Whether a handoff goes to a later Ticket, by number. */
+const isForward = (handoff: StoryHandoff): boolean => byNumber(handoff.to, handoff.from) > 0
+
+/** Whether a handoff goes back to an earlier Ticket, by number. */
+const isBackward = (handoff: StoryHandoff): boolean => byNumber(handoff.to, handoff.from) < 0
+
 /** The Tickets the handoffs name, by number. */
 function handoffTickets(handoffs: readonly StoryHandoff[]): string[] {
-  return [...new Set(handoffs.flatMap((handoff) => [handoff.from, handoff.to]))].sort()
+  return [...new Set(handoffs.flatMap((handoff) => [handoff.from, handoff.to]))].sort(byNumber)
 }
 
 /** A handoff in words, for its tooltip and the name of the picture: the UI word "dropped" is English, `what` the story's. */
@@ -28,15 +37,15 @@ export function JunctionsDiagram({ handoffs, language }: { handoffs: readonly St
   if (handoffs.length === 0) return null
   const tickets = handoffTickets(handoffs)
   const rise = (handoff: StoryHandoff) => BASE_RISE + STEP_RISE * (Math.abs(tickets.indexOf(handoff.to) - tickets.indexOf(handoff.from)) - 1)
-  const above = Math.max(0, ...handoffs.filter((handoff) => handoff.to > handoff.from).map(rise))
-  const below = Math.max(0, ...handoffs.filter((handoff) => handoff.to < handoff.from).map(rise))
+  const above = Math.max(0, ...handoffs.filter(isForward).map(rise))
+  const below = Math.max(0, ...handoffs.filter(isBackward).map(rise))
   const top = MARGIN + above
   const width = MARGIN * 2 + tickets.length * BOX_WIDTH + (tickets.length - 1) * GAP
   const height = top + BOX_HEIGHT + below + MARGIN
   const centre = (ticket: string) => MARGIN + tickets.indexOf(ticket) * (BOX_WIDTH + GAP) + BOX_WIDTH / 2
 
   const path = (handoff: StoryHandoff): string => {
-    const forward = handoff.to > handoff.from
+    const forward = isForward(handoff)
     // Leave and enter a little off the middle of the box, so an arrow out and an arrow in do not meet in one point.
     const from = centre(handoff.from) + (forward ? 10 : -10)
     const to = centre(handoff.to) + (forward ? -10 : 10)
