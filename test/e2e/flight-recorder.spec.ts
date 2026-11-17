@@ -162,6 +162,10 @@ function prepareNight() {
     WORFY_DATA_DIR: dataDir,
     WORFY_CLAUDE_HOME: claudeHome,
     WORFY_HARNESS_HOME: harnessHome,
+    // main's clock in this run (src/main/clock.ts): a day the gate still kept the night Run's logs, so the Run
+    // history draws the same rows on every day the test runs. The gate keeps them 31 days (gate-logs.ts): on
+    // the machine's clock the Run gets rows «gate logs deleted» from 2026-11-18 on (worfy-polish ticket 121).
+    WORFY_NOW: '2026-11-10T12:00:00.000Z',
     WORFY_GH: STAND_IN,
     FR_GH_DIR: join(NIGHT, 'gh'),
     FR_GH_LOG: log,
@@ -330,9 +334,9 @@ test('openRunHistory shows a Run over the whole main area: header, zoom, rows, l
     expect(await expectLabelsClear(window)).toBeGreaterThan(0)
     await snapshots(window, 'retry')
     await window.getByRole('button', { name: 'Fit', exact: true }).click()
-    // No check of the hatched «gate logs deleted» rows here: the app reads them on its own clock, and the
-    // gate keeps a record 31 days (gate-logs.ts), so the night Run shows them only from 2026-11-18 on. The
-    // screen test draws them from night-run-view.json, computed past that day (flight-recorder-view.test.tsx).
+    // No hatched «gate logs deleted» rows here: main's clock is WORFY_NOW of prepareNight, a day the gate still
+    // kept the night Run's logs. The screen test draws those rows from night-run-view.json, computed past the
+    // 31 days (flight-recorder-view.test.tsx).
     await window.getByRole('button', { name: 'Collapse', exact: true }).click()
     await expect(window.locator('[data-testid="run-history-row"][data-kind="stage"]')).toHaveCount(0)
     await expect(window.locator('[data-testid="run-history-row"][data-kind="ticket"]').first().locator('.w-fr-bar--thin').first()).toBeVisible()

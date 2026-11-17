@@ -19,6 +19,14 @@ const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, for
 const PROJECT = 'alpha-0000000a'
 const SAVED = 'f0000000-0000-4000-8000-0000000000f5'
 
+/**
+ * The moment main runs at (WORFY_NOW, src/main/clock.ts), and the one the saved transcript's times are counted
+ * from (worfy-polish ticket 121). The automatic archive (ADR-0076, src/main/layout/archive.ts) reads main's
+ * clock: the transcript ended a minute before NOW, so the archive never takes its finished Session off the
+ * Canvas at start, whatever day the test runs on. The window's clock decides nothing this test checks.
+ */
+const NOW = Date.parse('2026-06-15T09:00:00.000Z')
+
 type Bridge = { invoke(channel: string, input?: unknown): Promise<{ ok: boolean; value?: unknown; error?: string }> }
 type SavedNode = { id: string; kind: string; data: { origin?: string; kind?: string; vendor?: string } }
 
@@ -92,9 +100,9 @@ test('New Product Session from the palette opens its Session view, and its Node 
 
 test('a Product Session saved before a restart opens with Resume in its Session view and resumes as a Product Session', async () => {
   // What Claude Code keeps of the Session: its transcript, in the folder of the cwd it ran in (registry.ts, projectDirName).
-  // Its records are a minute old, not a fixed date: the automatic archive takes a finished Session idle
-  // past 24 h off the Canvas at start (ADR-0076, src/main/layout/archive.ts), and a fixed date ages into it.
-  const at = new Date(Date.now() - 60_000).toISOString()
+  // Its records are a minute older than NOW, main's clock in this run: the automatic archive takes a finished
+  // Session idle past 24 h off the Canvas at start, and a fixed date on the machine's clock ages into it.
+  const at = new Date(NOW - 60_000).toISOString()
   const record = (extra: Record<string, unknown>) =>
     JSON.stringify({ isSidechain: false, timestamp: at, cwd: projectPath, sessionId: SAVED, entrypoint: 'sdk-ts', gitBranch: 'main', ...extra })
   const transcripts = join(claudeHome, 'projects', projectPath.normalize('NFC').replace(/[^a-zA-Z0-9]/g, '-'))
@@ -107,7 +115,7 @@ test('a Product Session saved before a restart opens with Resume in its Session 
   const node = { id: 'product-1', kind: 'session', x: 0, y: 0, w: 340, h: 220, data: { origin: 'worfy', vendor: 'claude', kind: 'product', sessionId: SAVED } }
   writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes: [node], viewport: { x: 20, y: 40, zoom: 0.6 } }))
 
-  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome } })
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_NOW: new Date(NOW).toISOString() } })
   try {
     const { window } = launched
     const onCanvas = window.locator(`[data-testid="session-node"][data-node-id="${node.id}"]`)

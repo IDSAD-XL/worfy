@@ -14,6 +14,7 @@ import { stopLiveBrowsers } from './browser/live'
 import { browserProfilePartitions } from './browser/profiles'
 import { installCardRuntime } from './cards/protocol'
 import { cardStore } from './cards/store'
+import { mainClock, setAppClock } from './clock'
 import { ignoreStdioErrors } from './diagnostics/closed-stdio'
 import { installProcessGone } from './diagnostics/process-gone'
 import { reportUncaughtToStderr } from './diagnostics/uncaught-stderr'
@@ -62,6 +63,10 @@ ignoreStdioErrors()
 // A dev run keeps its state in a folder of its own, apart from the stable copy of worfy.app that
 // runs Autopilot over worfy itself. Set before the first dataRoot() call.
 setBuildKind(app.isPackaged ? 'packaged' : 'dev')
+
+// main's clock for the archive, the Limits and the Run history: the machine's, or WORFY_NOW in a dev run,
+// which the e2e tests set to pin the date (src/main/clock.ts). Set before anything reads it.
+setAppClock(mainClock({ packaged: app.isPackaged, env: process.env }))
 
 // First of all, the data folder: when WORFY_DATA_DIR names a file, the single-instance lock below
 // cannot be taken in it, and the start would end as "another worfy already runs" with exit code 0.
@@ -297,7 +302,6 @@ function installAutoArchive(): () => void {
         vendorSignals: (root, sessionId) => codexBinding.session(root, sessionId),
       }),
     settings: () => archiveSettings(sessionArchiveOf(appSettingsStore().get())),
-    now: Date.now,
     batchId: randomUUID,
     worktreeFailures: () => registry.worktreeFailures(),
   })
