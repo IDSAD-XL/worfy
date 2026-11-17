@@ -10,6 +10,7 @@ import { app } from 'electron'
 import { exposeBrowserToolsToFakeAgent } from '../mcp/browser-server'
 import { vendorDriver } from '../vendors/registry'
 import { SessionRegistry } from './session'
+import { QUIET_LOOK_MS, type QuietWatch } from './session/quiet-signs'
 
 /** Whether the Session `sessionId` of `registry` runs unattended now, as its launch says; false for a Session it does not hold. */
 export function unattendedIn(registry: Pick<SessionRegistry, 'get'>, sessionId: string): boolean {
@@ -33,6 +34,18 @@ export function exposeBrowserToolsForFakeAgent(
   if (env.WORFY_AGENT === 'fake') expose((sessionId) => unattendedIn(registry, sessionId))
 }
 
+/**
+ * The e2e tests' seam (worfy-stuck-agents ticket 06): with WORFY_QUIET_MARK_MS a whole number of ms above zero, in a
+ * build that is not packaged, a turn is marked quiet after that long without a sign of life, looked at as often —
+ * seconds, not the 10 minutes of QUIET_MARK_MS. The app's own watch without it.
+ */
+export function quietMarkSeam(env: NodeJS.ProcessEnv, packaged: boolean): Partial<QuietWatch> {
+  const given = env.WORFY_QUIET_MARK_MS
+  if (packaged || given === undefined || !/^[1-9]\d*$/u.test(given)) return {}
+  const markMs = Number(given)
+  return { markMs, lookMs: Math.min(markMs, QUIET_LOOK_MS) }
+}
+
 let appRegistry: SessionRegistry | null = null
 
 /**
@@ -45,7 +58,12 @@ export function sharedRegistry(): SessionRegistry {
     // Each Session on the session part of its Vendor's driver, made when the first Session of that
     // Vendor starts; the driver's capabilities and commands answer its pickers and slash menu. Claude's: queryFactoryFromEnv, with every Session's rate_limit_event feeding the
     // Limits (ticket 22), the fake agent's too.
-    const registry = new SessionRegistry({ sessionsOf: (vendor) => vendorDriver(vendor).session, partsOf: (vendor) => vendorDriver(vendor) })
+    const registry = new SessionRegistry(
+      { sessionsOf: (vendor) => vendorDriver(vendor).session, partsOf: (vendor) => vendorDriver(vendor) },
+      undefined,
+      undefined,
+      quietMarkSeam(process.env, app.isPackaged),
+    )
     app.on('will-quit', () => registry.closeAll())
     exposeBrowserToolsForFakeAgent(registry)
     appRegistry = registry

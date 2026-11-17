@@ -14,6 +14,21 @@ export const STATE_CHIPS: Record<SessionState, { status: Status; label: string }
 }
 
 /**
+ * The chip of a Session: its state's, and `busy · quiet N min` while main reports its turn quiet for N whole
+ * minutes (`quietMinutes`; null: not quiet). Main sends the quiet only past its mark (QUIET_MARK_MS,
+ * src/shared/agent/quiet.ts; worfy-stuck-agents ticket 06), so the chip takes it as it comes.
+ */
+export function stateChip(state: SessionState, quietMinutes: number | null): { status: Status; label: string } {
+  const chip = STATE_CHIPS[state]
+  return state === 'busy' && quietMinutes !== null ? { ...chip, label: `${chip.label} · quiet ${quietMinutes} min` } : chip
+}
+
+/** The whole minutes since `quietSince` at `now`, never below zero. */
+export function quietMinutes(quietSince: number, now: number): number {
+  return Math.max(0, Math.floor((now - quietSince) / 60_000))
+}
+
+/**
  * The cost as src/renderer/theme/AnimatedNumber.tsx draws it: dollars with cents, or with four decimals
  * below a dollar, where a turn costs fractions of a cent (`$0.00`, `$0.0125`, `$12.50`). The value is
  * rounded by toFixed first, as the text was before the digits rolled: Intl rounds the shortest decimal

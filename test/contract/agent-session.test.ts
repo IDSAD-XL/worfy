@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
-import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
+import { restartWouldEndTasks, SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
 import { NO_OUTSIDE_SIGNS, QUIET_LOOK_MS, type QuietPlace, type QuietWatch } from '../../src/main/agent/session/quiet-signs'
 import { agentHandlers, everyClientSink } from '../../src/main/ipc/agent'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
@@ -562,6 +562,83 @@ describe('agent channels on the fake agent', () => {
 
       release('turn')
       await vi.waitFor(() => expect(h.states([id]).at(-1)).toBe('idle'))
+    })
+  })
+
+  // Restart of the hint line of a quiet turn (worfy-stuck-agents ticket 06): the MCP actions' Restart with the same
+  // conversation (restartProcess, worfy-mcp-live 03 and 13), asked by a person for the Session itself. The order of
+  // real processes under it (spawn 1, exit 1, spawn 2) is checked in test/contract/claude-mcp-turn-off.test.ts.
+  describe('agent.restart (worfy-stuck-agents ticket 06)', () => {
+    const release = (name: string) => (globalThis as { worfyFakeRelease?: (name: string) => void }).worfyFakeRelease?.(name)
+    /** What the fake agent's processes were started to resume, in start order (`new`: nothing). */
+    const starts = (calls: readonly FakeCall[]) => calls.flatMap((call) => (call.kind === 'start' ? [call.resume ?? 'new'] : []))
+
+    it('without background tasks: the turn is interrupted, the old process closed, then one new process resumes the same conversation in the same Session', async () => {
+      const calls: FakeCall[] = []
+      const record = vi.fn((call: FakeCall) => calls.push(call))
+      // test/fixtures/agent-scripts/interrupt.jsonl: the turn says «1 2 » and stands, silent, until it is interrupted.
+      const h = await harness('interrupt', undefined, record)
+      const id = await h.start()
+      await vi.waitFor(() => expect(h.states([id])).toEqual(['starting', 'idle']))
+      await h.ok('agent.send', { sessionId: id, text: 'count' })
+      await vi.waitFor(() => expect(ofType(h.eventsOf([id]), 'delta')).toHaveLength(1))
+
+      expect(await h.ok('agent.restart', { sessionId: id })).toEqual({ restarted: true, reason: null })
+      await vi.waitFor(() => expect(h.states([id]).at(-1)).toBe('idle'))
+      // The turn ended as an Interrupt ends it; the old process was closed before the new one started.
+      expect(ofType(h.eventsOf([id]), 'result').at(-1)?.interrupted).toBe(true)
+      expect(starts(calls)).toEqual(['new', id])
+      expect(h.closes[0]).toHaveBeenCalledTimes(1)
+      const secondStart = record.mock.invocationCallOrder[record.mock.calls.findLastIndex(([call]) => call.kind === 'start')]
+      expect(h.closes[0]?.mock.invocationCallOrder[0]).toBeLessThan(secondStart ?? 0)
+      expect(h.requests.map((request) => request.resume)).toEqual([undefined, id])
+      // The same Session, under the same id: one live Session, not a second one on the conversation.
+      expect(await h.ok<{ sessionId: string }[]>('agent.list')).toEqual([expect.objectContaining({ sessionId: id, state: 'idle' })])
+      // The new process takes the next message.
+      await h.ok('agent.send', { sessionId: id, text: 'again' })
+      await vi.waitFor(() => expect(messagesPerProcess(calls)).toEqual([['count'], ['again']]))
+    })
+
+    it('with a live background task: the answer is the reason, the process and the turn stay', async () => {
+      const calls: FakeCall[] = []
+      // test/fixtures/agent-scripts/quiet-tasks.jsonl: task_live runs while the turn stands until the test releases it.
+      const h = await harness('quiet-tasks', undefined, (call) => calls.push(call))
+      const id = await h.start()
+      await vi.waitFor(() => expect(h.states([id])).toEqual(['starting', 'idle']))
+      await h.ok('agent.send', { sessionId: id, text: 'hello' })
+      await vi.waitFor(() => expect(ofType(h.eventsOf([id]), 'delta').map((e) => e.text)).toEqual(['Two tasks run ']))
+
+      expect(await h.ok('agent.restart', { sessionId: id })).toEqual({ restarted: false, reason: restartWouldEndTasks(1) })
+      expect(starts(calls)).toEqual(['new'])
+      expect(h.closes[0]).not.toHaveBeenCalled()
+      expect(h.states([id]).at(-1)).toBe('busy')
+
+      release('turn')
+      await vi.waitFor(() => expect(h.states([id]).at(-1)).toBe('idle'))
+      expect(ofType(h.eventsOf([id]), 'result').at(-1)?.interrupted).toBe(false)
+    })
+
+    it('an unattended Session is refused, and nothing restarts', async () => {
+      const calls: FakeCall[] = []
+      const h = await harness('interrupt', undefined, (call) => calls.push(call))
+      const session = h.registry.start(cwd, undefined, everyClientSink((send) => send(h.sender)), undefined, { unattended: true })
+      await vi.waitFor(() => expect(session.state).toBe('idle'))
+
+      const result = await h.call('agent.restart', { sessionId: session.id })
+      expect(result.ok).toBe(false)
+      expect(!result.ok && result.error).toMatch(/unattended/u)
+      expect(starts(calls)).toEqual(['new'])
+      expect(h.closes[0]).not.toHaveBeenCalled()
+    })
+
+    it('a closed Session is refused', async () => {
+      const h = await harness('interrupt')
+      const id = await h.start()
+      await vi.waitFor(() => expect(h.states([id]).at(-1)).toBe('idle'))
+      const session = h.registry.get(id)
+      session.close()
+      await expect(session.restart()).rejects.toThrow(/closed/u)
+      expect(h.requests).toHaveLength(1)
     })
   })
 

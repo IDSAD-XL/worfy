@@ -56,6 +56,7 @@ import {
   agentQueueRemove,
   agentQueueSend,
   agentRequests,
+  agentRestart,
   agentSend,
   agentStart,
   type ChatCommandAnswer,
@@ -335,6 +336,12 @@ export function agentHandlers(
       const session = registry().get(sessionId)
       registry().noteInput(sessionId, 'interrupted the turn')
       return { interrupted: await session.interrupt() }
+    }),
+    // Restart of the hint line of a quiet turn (worfy-stuck-agents ticket 06); the Session refuses what it must.
+    defineHandler(agentRestart, ({ sessionId }) => {
+      const session = registry().get(sessionId)
+      registry().noteInput(sessionId, 'restarted the Session')
+      return session.restart()
     }),
     defineHandler(agentClose, ({ sessionId }) => {
       const session = registry().get(sessionId)

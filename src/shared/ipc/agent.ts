@@ -31,6 +31,7 @@
 // worfy-stuck-agents ticket 03: a turn that has gone QUIET_MARK_MS without a sign of life
 // (src/shared/agent/quiet.ts) brings a `quiet` event with `quietSince`, the time of its last sign; the
 // next sign or the end of the turn brings it null. Main looks once a minute; `agent.controls` answers it too.
+// worfy-stuck-agents ticket 06: `agent.restart`, the Restart of the hint line of a quiet turn.
 import { z } from 'zod'
 import { attachmentSchema, attachmentSourceSchema, attachResultSchema, MAX_ATTACHMENTS } from '../agent/attachments'
 import { slashCommandSchema } from '../agent/commands'
@@ -104,6 +105,14 @@ export const agentAttachPick = invokeChannel('agent.attachPick', z.object({ sess
 export const agentCommands = invokeChannel('agent.commands', z.object({ sessionId }), z.object({ commands: z.array(slashCommandSchema) }), 'project', 'read')
 
 export const agentInterrupt = invokeChannel('agent.interrupt', z.object({ sessionId }), z.object({ interrupted: z.boolean() }), 'project', 'write')
+
+/**
+ * Restart of the hint line of a quiet turn (worfy-stuck-agents ticket 06): the turn is interrupted, the old
+ * process exits, and a new one resumes the same conversation in the same Session (ADR-0064). Refused with an
+ * error for an unattended or stopped Session. While background tasks of the Session live nothing restarts:
+ * `restarted` false, and `reason` says why.
+ */
+export const agentRestart = invokeChannel('agent.restart', z.object({ sessionId }), z.object({ restarted: z.boolean(), reason: z.string().nullable() }), 'project', 'write')
 
 export const agentClose = invokeChannel('agent.close', z.object({ sessionId }), z.void(), 'project', 'write')
 
@@ -221,6 +230,7 @@ declare module './channels' {
     'agent.attachPick': typeof agentAttachPick
     'agent.commands': typeof agentCommands
     'agent.interrupt': typeof agentInterrupt
+    'agent.restart': typeof agentRestart
     'agent.close': typeof agentClose
     'agent.list': typeof agentList
     'agent.controls': typeof agentControls
