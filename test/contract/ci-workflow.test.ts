@@ -21,10 +21,12 @@ const REPO = join(__dirname, '..', '..')
 const WORKFLOW = join(REPO, '.github', 'workflows', 'ci.yml')
 const SCOPE = join(REPO, 'scripts', 'ci-scope.mjs')
 const OK = join(REPO, 'scripts', 'ci-ok.mjs')
-const { workflowParts, E2E_SHARDS, MACOS_PATHS, MACOS_TESTS_CHECKED_OTHERWISE, MACOS_NAME, globRegExp, isAppPath, isMacosPath } = (await import(pathToFileURL(SCOPE).href)) as {
+const { workflowParts, E2E_SHARDS, MACOS_PATHS, MACOS_TESTS_CHECKED_OTHERWISE, MACOS_NAME, PACKAGED_PATHS, globRegExp, isAppPath, isMacosPath, isPackagedPath } = (await import(pathToFileURL(SCOPE).href)) as {
   workflowParts: (text: string) => { parts: Map<string, string[]>; anchored: boolean }
   E2E_SHARDS: Record<'macos-e2e' | 'windows-e2e', number>
   MACOS_PATHS: Array<{ paths: string[]; why: string }>
+  PACKAGED_PATHS: Array<{ paths: string[]; why: string }>
+  isPackagedPath: (path: string) => boolean
   MACOS_TESTS_CHECKED_OTHERWISE: Record<string, string>
   MACOS_NAME: RegExp
   globRegExp: (glob: string) => RegExp
@@ -1039,13 +1041,16 @@ describe('scripts/ci-scope.mjs', () => {
     ['look-alikes of build inputs', ['src/build/x.ts', 'buildx/a.ts', 'test/package.json', 'scripts/statusline-bridge.test.mjs']],
     // Words that only start like mac: no path named for macOS.
     ['look-alikes of names for macOS', ['src/main/machine.ts', 'src/renderer/macro/a.ts', 'src/main/stomach-darwinia.ts']],
-  ])('a pull request that changes the app but no build input and no macOS path (%s) runs every job but macos-package and macos-tests', (_name, files) => {
+    // Next to the paths of PACKAGED_PATHS, or named like them, but not them: the packaged tests do
+    // not run their code where no other job does.
+    ['look-alikes of packaged paths', ['src/main/workflows.ts', 'src/renderer/workflow/useWorkflow.ts', 'src/main/ipc/tickets.ts', 'src/renderer/canvas/actions/AutopilotActions.tsx', 'harness/claude-plugin/plugin.json', 'src/main/storage/paths-old.ts']],
+  ])('a pull request that changes the app but no build input, no packaged path and no macOS path (%s) runs every job but macos-package and macos-tests', (_name, files) => {
     commitOnBase(files)
     const result = scope({ EVENT: 'pull_request', BASE: base })
     expect(result.status, result.stderr).toBe(0)
     expect(result.expect).toEqual(APP_ONLY)
     expect(result.files).toEqual([])
-    expect(result.stdout).toContain('no build input, so no macos-package; no macOS path, so no macos-tests\n')
+    expect(result.stdout).toContain('no build input and no packaged path, so no macos-package; no macOS path, so no macos-tests\n')
     // The same change pushed to main runs every job, macos-tests with every file.
     const push = scope({ EVENT: 'push', BASE: base })
     expect(push.expect).toEqual(ALL)
@@ -1058,7 +1063,7 @@ describe('scripts/ci-scope.mjs', () => {
     expect(result.status, result.stderr).toBe(0)
     expect(result.expect).toEqual(NO_PACKAGE)
     expect(result.files).toEqual(DARWIN_FILES)
-    expect(result.stdout).toContain('no build input, so no macos-package; scripts/ci-scope.mjs is a macOS path, so macos-tests runs the 2 macOS-only test files\n')
+    expect(result.stdout).toContain('no build input and no packaged path, so no macos-package; scripts/ci-scope.mjs is a macOS path, so macos-tests runs the 2 macOS-only test files\n')
   })
 
   // Each build input with whether it is a macOS path too: the dependencies and the packaging of the
@@ -1089,6 +1094,106 @@ describe('scripts/ci-scope.mjs', () => {
     expect(result.status, result.stderr).toBe(0)
     expect(result.expect).toEqual({ ...ALL, 'macos-tests': macos })
     expect(result.files).toEqual(macos ? DARWIN_FILES : [])
+  })
+
+  // PR #1898 (worfy-polish 118) changed no build input, so it ran without macos-package, and the
+  // @packaged test of the Harness chip failed on main (worfy-throughput 67): its fetch of the
+  // Project's origin while a window shows it rewrote the refs that test sets.
+  it('a pull request with the files of PR #1898, which reads the workflow from main, packages the app (src/main/workflow/ is a packaged path)', () => {
+    commitOnBase([
+      'src/main/docs/watch.ts',
+      'src/main/index.ts',
+      'src/main/ipc/docs.ts',
+      'src/main/ipc/tickets.ts',
+      'src/main/ipc/workflow.ts',
+      'src/main/workflow/fetch.ts',
+      'src/main/workflow/folder.ts',
+      'src/main/workflow/main-ref.ts',
+      'src/main/workflow/profile.ts',
+      'src/main/workflow/reader.ts',
+      'src/main/workflow/release.ts',
+      'src/main/workflow/watch.ts',
+      'src/renderer/shell/sidebar/EpicsSection.tsx',
+      'src/renderer/workflow/useWorkflow.ts',
+      'src/shared/workflow/types.ts',
+      'test/contract/workflow-read-from-main.test.ts',
+      'test/setup-no-remote-fetch.ts',
+      'test/unit/workflow-fetch-schedule.test.ts',
+      'test/unit/workflow-source-line.test.tsx',
+      'vitest.config.ts',
+    ])
+    const result = scope({ EVENT: 'pull_request', BASE: base })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.expect?.['macos-package']).toBe(true)
+    // The first packaged path of the diff, in git's order: the file that wires the fetch into the hub.
+    expect(result.stdout).toContain('src/main/ipc/workflow.ts is a packaged path, so macos-package runs')
+    // One file of the table alone is enough.
+    commitOnBase(['src/main/workflow/fetch.ts'])
+    const fetchOnly = scope({ EVENT: 'pull_request', BASE: base })
+    expect(fetchOnly.expect?.['macos-package']).toBe(true)
+    expect(fetchOnly.stdout).toContain('src/main/workflow/fetch.ts is a packaged path, so macos-package runs')
+  })
+
+  // Every path of PACKAGED_PATHS, written by hand: a row or a path dropped from the table, or one
+  // added without a look here, fails the first case; a path that stops matching fails the second.
+  const PACKAGED_EXPECTED = [
+    'src/main/workflow/**',
+    'src/main/ipc/workflow.ts',
+    'src/main/autopilot/harness-drift.ts',
+    'src/main/ipc/autopilot.ts',
+    'src/renderer/canvas/actions/AutopilotAction.tsx',
+    'src/main/harness/bundled.ts',
+    'src/main/harness/install.ts',
+    'src/main/ipc/harness.ts',
+    'src/main/storage/paths.ts',
+    'src/main/window.ts',
+    'src/main/terminal/pty.ts',
+    'src/main/terminal/cursor-answers.ts',
+    'harness/.claude-plugin/**',
+  ]
+  it('PACKAGED_PATHS holds exactly the paths written here by hand', () => {
+    expect(PACKAGED_PATHS.flatMap((row) => row.paths).sort()).toEqual([...PACKAGED_EXPECTED].sort())
+  })
+  it.each(PACKAGED_EXPECTED.map((glob) => glob.replace('**', 'x.ts')))('%s is a packaged path', (path) => {
+    expect(isPackagedPath(path)).toBe(true)
+  })
+
+  // A path written by hand for each glob of PACKAGED_PATHS, a file of this repository: a typo in the
+  // glob makes its case red.
+  const PACKAGED_GLOB_EXAMPLES: Record<string, string> = {
+    'src/main/workflow/**': 'src/main/workflow/fetch.ts',
+    'harness/.claude-plugin/**': 'harness/.claude-plugin/plugin.json',
+  }
+  const packagedPaths = PACKAGED_PATHS.flatMap((row) => row.paths.map((glob) => [glob.includes('*') ? (PACKAGED_GLOB_EXAMPLES[glob] ?? `no example for ${glob}`) : glob, row.why] as const))
+  it.each(packagedPaths)('a pull request that changes the packaged path %s (%s) packages the app; the same path is no build input', (file) => {
+    expect(isPackagedPath(file), file).toBe(true)
+    commitOnBase([file])
+    const result = scope({ EVENT: 'pull_request', BASE: base })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.expect?.['macos-package'], file).toBe(true)
+    expect(result.stdout).toContain(`${file} is a packaged path, so macos-package runs`)
+  })
+
+  it('PACKAGED_PATHS: every row has a reason, every path without a glob is a file of this repository, every glob matches one and has its example', () => {
+    expect(PACKAGED_PATHS.length).toBeGreaterThan(0)
+    const tracked = execFileSync('git', ['ls-files'], { cwd: REPO, encoding: 'utf8' }).split('\n').filter((path) => path !== '')
+    for (const row of PACKAGED_PATHS) {
+      expect(row.why.length, row.paths.join(' ')).toBeGreaterThan(10)
+      expect(row.paths.length, row.why).toBeGreaterThan(0)
+      for (const path of row.paths) {
+        if (!path.includes('*')) {
+          expect(existsSync(join(REPO, path)), path).toBe(true)
+          continue
+        }
+        expect(tracked.filter((file) => globRegExp(path).test(file)), `files of ${path}`).not.toEqual([])
+      }
+    }
+    const globs = PACKAGED_PATHS.flatMap((row) => row.paths.filter((path) => path.includes('*')))
+    expect(Object.keys(PACKAGED_GLOB_EXAMPLES).sort()).toEqual(globs.sort())
+    for (const [glob, example] of Object.entries(PACKAGED_GLOB_EXAMPLES)) {
+      expect(globRegExp(glob).test(example), `${example} is not matched by ${glob}`).toBe(true)
+      expect(existsSync(join(REPO, example)), example).toBe(true)
+    }
   })
 
   // ci.yml is a build input only where it runs the package and the e2e tests: the job changes, which
@@ -1237,7 +1342,7 @@ describe('scripts/ci-scope.mjs', () => {
     const result = scope({ EVENT: 'pull_request', BASE: base })
     expect(result.status, result.stderr).toBe(0)
     expect(result.expect).toEqual(NO_MACOS)
-    expect(result.stdout).toContain('no build input, so no macos-package')
+    expect(result.stdout).toContain('no build input and no packaged path, so no macos-package')
   })
 
   it.each([
@@ -1280,7 +1385,7 @@ describe('scripts/ci-scope.mjs', () => {
     const pr = scope({ EVENT: 'pull_request', BASE: base })
     expect(pr.status, pr.stderr).toBe(0)
     expect(pr.expect).toEqual(APP_ONLY)
-    expect(pr.stdout).toContain('code changed: src/main/уведомления.ts; no build input, so no macos-package; no macOS path, so no macos-tests')
+    expect(pr.stdout).toContain('code changed: src/main/уведомления.ts; no build input and no packaged path, so no macos-package; no macOS path, so no macos-tests')
   })
 
   it.each([

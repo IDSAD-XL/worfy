@@ -16,7 +16,8 @@
 //   every job, the whole suite in each. A pull request runs the Linux and Windows jobs and only the
 //   macOS jobs its diff asks for: the free plan runs 5 macOS jobs at a time, and pull requests
 //   waited 26 to 67 minutes in that queue. macos-package runs when it changes a build input
-//   (isBuildInput), macos-e2e when it changes the app (isAppPath, the Harness the app carries too),
+//   (isBuildInput) or a path whose packaged branch only the @packaged tests run (isPackagedPath,
+//   PACKAGED_PATHS), macos-e2e when it changes the app (isAppPath, the Harness the app carries too),
 //   macos-tests only when it touches a macOS path (isMacosPath: a macOS-only test file, a path named
 //   for macOS, a path of MACOS_PATHS), and then with the macOS-only test files alone (darwinTestFiles,
 //   the second output `macos-tests-files`; empty means every file). A diff that cannot be read, a
@@ -76,8 +77,10 @@ function isDocument(path) {
 //   the packaged app, scripts/install-stable.mjs, which they install, the fuse helper
 //   (test/e2e/fuses.ts) and scripts/check-fuses.mjs, which `pnpm test:package` runs last, and the
 //   Playwright config.
-// A change of src/main, harness/ or anything else that matters only in the packaged app is not on
-// this list: the push to main packages the app whatever it changed, and catches it there.
+// A change of the app's code packages it too when the path is in PACKAGED_PATHS below: code whose
+// packaged branch only the @packaged tests check. Any other change of src/main, harness/ or
+// anything else is not checked by packaging on a pull request: the push to main packages the app
+// whatever it changed, and catches it there.
 const BUILD_FILES = new Set([
   'package.json',
   'pnpm-lock.yaml',
@@ -102,6 +105,49 @@ const BUILD_FOLDERS = ['build/']
 
 /** A path whose change a pull request checks by packaging the app. */
 const isBuildInput = (path) => BUILD_FILES.has(path) || BUILD_FOLDERS.some((folder) => path.startsWith(folder))
+
+// The paths of the app whose code the @packaged tests run (test/e2e/packaged.spec.ts and the one
+// in test/e2e/terminal.spec.ts) where no other job of a pull request does: the branch a packaged
+// build takes (app.isPackaged, process.resourcesPath, app.asar.unpacked), or code that only a
+// packaged build reaches. macos-e2e runs the unpacked out/ build, a dev build, and never that
+// branch. PR #1898 changed src/main/workflow/, ran without macos-package, and the test of the
+// Harness chip failed on main (worfy-throughput 67). Globs as in SPEC_TABLE, each row with the
+// reason it is here; a glob matches a file of this repository, a path without `*` is one
+// (test/contract/ci-workflow.test.ts checks both). A row is added only for code a @packaged test
+// runs; when in doubt, leave the path out: the push to main still packages the app.
+export const PACKAGED_PATHS = [
+  {
+    paths: ['src/main/workflow/**', 'src/main/ipc/workflow.ts'],
+    why: "reads the Project's main branch and fetches its origin while a window shows the Project (ADR-0107; ipc/workflow.ts wires that fetch into the hub): the @packaged test of the Harness chip opens two clones of worfy and checks that their refs stay as it set them and nothing is fetched; PR #1898 changed this folder and that test failed on main",
+  },
+  {
+    paths: ['src/main/autopilot/harness-drift.ts', 'src/main/ipc/autopilot.ts', 'src/renderer/canvas/actions/AutopilotAction.tsx'],
+    why: 'the chip "Harness in main is newer than the Stable copy" on the Autopilot action: only a packaged build compares its Harness with origin/main (harnessDriftWatch with packaged true, wired in ipc/autopilot.ts), so only the @packaged test renders the chip and checks that it stays inside the header and covers none of its buttons',
+  },
+  {
+    paths: ['src/main/harness/bundled.ts', 'src/main/harness/install.ts', 'src/main/ipc/harness.ts'],
+    why: 'the Harness copy of a packaged build in Resources/harness, its version, and the Install a packaged build alone offers (installOffered): the @packaged test of the Harness copy reads "Harness not installed" and Install',
+  },
+  {
+    paths: ['src/main/storage/paths.ts'],
+    why: 'the data folder of a packaged build, worfy, apart from worfy-dev of a dev run: the @packaged test of the data folder',
+  },
+  {
+    paths: ['src/main/window.ts'],
+    why: 'a packaged build loads out/renderer/index.html from app.asar and ignores ELECTRON_RENDERER_URL: the @packaged test of that variable',
+  },
+  {
+    paths: ['src/main/terminal/pty.ts', 'src/main/terminal/cursor-answers.ts'],
+    why: 'node-pty and @xterm/headless out of app.asar.unpacked in a packaged build: the @packaged test of the Terminal in terminal.spec.ts',
+  },
+  {
+    paths: ['harness/.claude-plugin/**'],
+    why: 'plugin.json named worfy and marketplace.json named worfy-harness, which the @packaged test of the Harness copy reads from the packaged build',
+  },
+]
+
+/** A path of the app whose code only the @packaged tests run on a pull request (PACKAGED_PATHS). */
+export const isPackagedPath = (path) => PACKAGED_PATHS.some((row) => row.paths.some((glob) => globRegExp(glob).test(path)))
 
 // The files a pull request runs the e2e tests for (the job macos-e2e, `pnpm test:e2e`): the build
 // inputs above, the app (all of src/, card-runtime too: src/main serves it), the e2e tests, the files
@@ -563,8 +609,13 @@ function pullRequest(all, ci, base) {
   const code = ci === null || ci.packaging ? all : all.filter((path) => path !== CI_WORKFLOW)
   if (ci !== null) notes.push(ci.note)
   if (!code.some(isBuildInput)) {
-    expect['macos-package'] = false
-    notes.push('no build input, so no macos-package')
+    const packaged = code.find(isPackagedPath)
+    if (packaged === undefined) {
+      expect['macos-package'] = false
+      notes.push('no build input and no packaged path, so no macos-package')
+    } else {
+      notes.push(`${packaged} is a packaged path, so macos-package runs`)
+    }
   }
   let e2e = FULL_E2E
   if (!code.some(isAppPath)) {
