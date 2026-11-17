@@ -472,7 +472,7 @@ function documentsCommit(st, sha) {
     return docs
 }
 // --- the marker of a red main branch: <gate state>/main-red-<key>.json -------------------------------------------
-// worfy reads it (src/main/gate/state.ts) instead of asking gh itself: {sha, pr, since, url, line, at} — the commit of
+// worfy reads it (by the same key as the gate markers) instead of asking gh itself: {sha, pr, since, url, line, at} — the commit of
 // the first red push run after the last green one, its PR's number (null: no PR, or older than the runs read), when that
 // run finished, its URL, the line for the orchestrator (mainRed) and when the file was written. mainGreen writes it on
 // every reading that finds the branch red and removes it on every reading that finds it not red; a rerun of the red run
