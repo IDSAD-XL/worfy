@@ -37,6 +37,23 @@ Session, которую ведёт worfy, принадлежит приложе�
 
 Текст chip-а — имя состояния: `needs_permission` читается как «needs permission». Исключение — Live Session Node, чья Session не запущена: он пишет «finished», а до первого запуска «new».
 
+**Тихий turn.** Turn, который 10 минут идёт без признаков жизни, — тихий. Chip в шапке вида Session тогда пишет
+`busy · quiet N min`, где N — целые минуты с последнего признака, и счёт идёт по часам. Признак жизни — любое событие агента,
+включая скрытые: hook, который стартует, идёт или кончается, и токены thinking. Тишиной не считаются и вещи, которые событий не
+шлют: открытый запрос разрешения (Session тогда `needs_permission`), hook, который стартовал и не кончился, output file живого
+background task-а, изменившийся за последние 10 минут, вывод gate, идущего в папке Session, и занятый e2e lock, держатель
+которого работает. main смотрит раз в минуту, поэтому отметка появляется с опозданием до минуты. Следующий признак жизни, конец
+turn-а или запрос разрешения снимают отметку.
+
+Пока отметка видна, строка над полем ввода говорит `No sign of life for N min: no events, no hook, no output.`, и у неё
+две кнопки. **Interrupt** — то же, что собственный Interrupt Session. **Restart** прерывает turn, ждёт выхода старого
+процесса и запускает новый, который продолжает тот же разговор в той же Session, под тем же id. Новый процесс сам сообщения
+не берёт, а придержанная очередь остаётся придержанной. Пока живы background task-и Session, Restart ничего не делает, потому
+что закрытие процесса их бы завершило; вместо своего текста строка показывает причину: `1 background task of this Session is
+still running, and a Restart would end it. Try again once it finishes.` Restart отклоняется для Session без человека (о ней
+решает run Autopilot) и для Session, которую остановил Stop в Autopilot. Ничто не перезапускает и не прерывает тихий turn
+само. На экране только для чтения обе кнопки видны и ничего не делают.
+
 **Отправка.** Return отправляет, Shift+Return начинает новую строку. ↑ и ↓ в пустом поле ходят по истории отправленных сообщений. Поле
 растёт до 200 пикселей. Пустое сообщение без вложений отклоняется. Неудачная отправка возвращает в поле текст и chip-ы вложений. «/»
 в начале поля, после пробела или перевода строки открывает меню slash-команд и skills, о которых Claude Code сообщает для этой
@@ -190,7 +207,9 @@ worfy. Session из терминала или Claude desktop уведомляе�
   [ADR-0049](../../adr/0049-worfy-sessions-without-inline-plugin-on-legacy-harness.md)).
 - **Процесс дожидаются.** Два процесса не должны продолжать один разговор, поэтому перезапуск начинается только после выхода старого процесса
   ([ADR-0064](../../adr/0064-orchestrator-relaunch-waits-for-old-process-exit.md)). worfy ждёт 7.5 секунды после закрытия, шлёт SIGKILL и ждёт ещё
-  2 секунды. Прерванному turn даётся 15 секунд, прежде чем Stop в Autopilot закроет процесс.
+  2 секунды. Прерванному turn даётся 15 секунд, прежде чем Stop в Autopilot закроет процесс, и столько же, прежде чем его
+  закроет Restart тихого turn-а. Это тот же Restart, которым пользуются действия MCP
+  ([MCP servers of a Session](mcp-servers.md)), только без изменения серверов.
 - **Session без человека некого спросить.** Отсюда принудительный режим и отклонённые диалоги
   ([ADR-0022](../../adr/0022-unattended-session-refuses-permission-mode-change.md)). Перевод в режим без человека отклоняется во время turn, при живых
   фоновых задачах и при сообщениях в очереди, потому что перезапуск их потеряет ([ADR-0024](../../adr/0024-autopilot-wave-end-and-keep-awake.md),
@@ -211,6 +230,7 @@ worfy. Session из терминала или Claude desktop уведомляе�
 | Что | Где |
 | --- | --- |
 | Одна Session: состояния, отправка, Interrupt, crash | `src/main/agent/session.ts`, `src/main/agent/session/` |
+| Тихий turn: правило, признаки, которые читает main, chip и строка с Interrupt и Restart | `src/shared/agent/quiet.ts`, `src/main/agent/session/quiet-signs.ts`, `src/renderer/session/SessionStateChip.tsx`, `src/renderer/session/composer/QuietTurn.tsx` |
 | Registry живых Session, test-агент | `src/main/agent/session/registry.ts`, `src/main/agent/app-registry.ts`, `src/main/agent/fake-query.ts` |
 | Опции query, списки MCP и skills, autocompact | `src/main/agent/options.ts` |
 | Окружение процесса | `src/main/agent/env.ts` |
@@ -271,7 +291,12 @@ Subagent — агент, которого Session запустила tool-ом A
 | `error` | Неудачный конец или вызов, остановка пользователем или обрыв, когда закончился процесс Session или её workflow run |
 | `interrupted` | Конец неизвестен, и работающий процесс Session стартовал после его последней записи |
 
-Пока его Session работает, Subagent без конца остаётся `running`, как бы долго его файл ни стоял без изменений. Tooltip у `interrupted` говорит, что процесс
+Пока его Session работает, Subagent без конца остаётся `running`, как бы долго его файл ни стоял без изменений. Когда его
+`agent-<agentId>.jsonl` не меняется 10 минут, он получает отметку `quiet 21 min` рядом с `running 52m 00s`: на его Node отметка
+начинает последнюю строку, перед тем, о чём Subagent-а попросили; в rail она занимает свою строку под именем. Chip статуса
+оставляет только статус и время, так что имя остаётся читаемым. Время тишины считается от более позднего из времени изменения
+файла и времени его последней записи, а отметка пропадает, когда файл меняется или Subagent кончается. У Subagent-а Session
+Codex файла нет, и отметки он не получает, как и Subagent, известный только по своему вызову. Tooltip у `interrupted` говорит, что процесс
 перезапустился после последней записи агента: «it was stopped from outside, not by a failure». Время работы выглядит как `45s`, `6m 05s`, `1h 02m`.
 
 **Workflow-скрипты.** Run workflow-скрипта — запись типа `workflow`, названная по скрипту, с его агентами внутри. Run, продолженный под тем же id,
@@ -296,12 +321,15 @@ Subagents (N)» возвращает записи Session. Rail пишет «Eve
 - **`interrupted` отличает перезапуск от сбоя.** Время старта работающего процесса сравнивается с последней записью Subagent-а
   ([ADR-0085](../../adr/0085-interrupted-subagents.md)). Когда нельзя сказать, работает ли процесс, Session закрытой не считается.
 - **Агенты workflow** берут подпись и конец из `journal.jsonl` своего run ([ADR-0035](../../adr/0035-workflow-script-subagents-in-tree.md)).
+- **Тишина — отметка, а не статус.** Файл, который стоит на месте, ничего точного о Subagent-е не говорит, поэтому он остаётся
+  `running` и только получает `quiet N min`. Порог — те же 10 минут, после которых turn Session считается тихим
+  (`QUIET_MARK_MS` в `src/shared/agent/quiet.ts`).
 
 ### Implementation
 
 | Что | Где |
 | --- | --- |
-| Сигналы и дерево (чистый код) | `src/shared/transcript/subagents.ts` |
+| Сигналы, дерево и отметка тишины (чистый код) | `src/shared/transcript/subagents.ts` |
 | Чтение файлов, инкрементально | `src/main/claude-home/subagents.ts` |
 | Скрытые записи, `hidden-subagents.json` в папке данных Project | `src/main/claude-home/hidden-subagents.ts` |
 | Ответ для Linked machine | `src/main/ipc/claude-home.ts` |
@@ -310,7 +338,8 @@ Subagents (N)» возвращает записи Session. Rail пишет «Eve
 | Canvas | `src/renderer/canvas/sources/subagents.ts`, `src/renderer/canvas/nodes/SubagentNode.tsx` |
 
 **Поток данных.** Renderer спрашивает `claudeHome.subagents` каждые 2 секунды, пока работает Subagent. `SubagentReader` читает только то, что добавилось в
-каждый файл с прошлого вызова, добавляет `session-closed`, когда процесса Session нет, а `buildSubagentTree` строит дерево.
+каждый файл с прошлого вызова, отмечает, когда каждый файл Subagent-а менялся в последний раз, добавляет `session-closed`,
+когда процесса Session нет, а `buildSubagentTree` строит дерево.
 
 **Главные test-ы.** `test/unit/subagents.test.ts`, `test/contract/claude-home-subagents.test.ts`, `test/contract/claude-home-subagents-link.test.ts`,
 `test/unit/subagent-trees.test.tsx`, `test/unit/subagent-nodes.test.tsx`, `test/e2e/subagent-tree.spec.ts`.

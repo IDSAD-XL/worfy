@@ -2,6 +2,7 @@
 // the same colour group in both, so the reader sees one Orchestrator, not two.
 import { describe, expect, it } from 'vitest'
 import en from '../../src/renderer/guide/topics/autopilot/en.json'
+import ru from '../../src/renderer/guide/topics/autopilot/ru.json'
 import { AUTOPILOT_FLOW, AUTOPILOT_SCENE } from '../../src/renderer/guide/topics/autopilot/spec'
 import type { SceneSpec } from '../../src/renderer/guide/scene/model'
 
@@ -24,5 +25,22 @@ describe('the diagrams of the Topic Autopilot', () => {
     expect(scene.get('Orchestrator')).toBe('harness')
     const code = ['run', 'cycle', 'launcher'].map((id) => AUTOPILOT_FLOW.blocks.find((block) => block.id === id)?.group)
     expect(code).toEqual(['workflow', 'workflow', 'workflow'])
+  })
+})
+
+// worfy-stuck-agents ticket 10: a Ticket still in work no longer stops the run at once. The limit of
+// the Under the hood section names the ladder (two continuations, a set-aside), main-red and turn-hung
+// in both languages, and background-stalled stays a stop.
+describe('the limit of a stuck run in the Topic Autopilot', () => {
+  const line = (limits: readonly string[]): string => limits.find((limit) => limit.includes('wave-unfinished')) ?? ''
+
+  it.each([
+    ['en', en.underTheHood.limits, /continu/, /aside/],
+    ['ru', ru.underTheHood.limits, /продолж/, /отлож/],
+  ])('%s names the ladder, main-red, turn-hung and background-stalled', (_language, limits, continuation, setAside) => {
+    const text = line(limits)
+    expect(text).toMatch(continuation)
+    expect(text).toMatch(setAside)
+    for (const reason of ['wave-unfinished', 'main-red', 'turn-hung', 'background-stalled']) expect(text).toContain(reason)
   })
 })

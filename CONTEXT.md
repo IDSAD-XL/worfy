@@ -132,6 +132,18 @@ _Avoid_: простой, пауза, idle
 Вид одного Run-а Autopilot-а: шкала его Wave-ов, Ticket-ов, агентов, CI и gate, ожиданий и блокировок; считается при открытии из источников. Половина вкладки Runs рядом с Work track.
 _Avoid_: журнал (как имя вида), trace
 
+**Ticket continuation**:
+Wave, которой Run продолжает Ticket, оставшийся в работе после хода Wave (`wave-unfinished`) или вернувшийся той же Wave (`no-progress`): Ticket идёт в неё как возобновлённый, а команда Wave несёт строку worfy вида `Continuation 1 of 2 for ticket 05: …`. Не больше двух на Ticket за Run; новый Run считает с нуля.
+_Avoid_: Auto-continue (это повтор хода после временной ошибки API или отказа Limits), retry, повтор
+
+**Set-aside Ticket**:
+Ticket, который Orchestrator по просьбе Run-а перевёл в `blocked` с `Waits: owner` после двух Ticket continuation-ов. Ждёт владельца, поэтому остальные Ticket-ы Epic-а идут дальше, а очередь Epic-ов переходит к следующему. Статус пишет Orchestrator командой `ticket block`, worfy его не пишет.
+_Avoid_: пропущенный Ticket, skipped, отложенный (без `Waits: owner`)
+
+**Quiet turn**:
+Ход Session, от агента которой дольше порога нет признаков жизни — ни одного события, в том числе скрытого (hook, thinking); открытый запрос разрешения, идущий hook и меняющийся файл вывода живой background task тишиной не считаются. Порог — 10 минут для чипа `busy · quiet N min` и строки с Interrupt и Restart; ход Orchestrator-а в Run-е, тихий 30 минут, останавливает Run с причиной `turn-hung`. Тишина — пометка, а не статус: Session остаётся `busy`.
+_Avoid_: silent (Silent mode — режим Project-а), hung (так зовётся только причина остановки `turn-hung`), idle
+
 **PR inbox**:
 Вид «Pull requests» Project-а: открытые PR пользователя и запросы ревью у него по репозиториям Project-а, сгруппированные по тому, чей ход (Needs my review, Needs my answer, Needs a fix, Ready, Waiting on others), нити ревью и черновики ответов. Читает GitHub из main и ничего не публикует без щелчка Send ([ADR-0105](docs/adr/0105-pr-reply-only-on-the-users-click.md)). Подпись в UI — «Pull requests».
 _Avoid_: inbox (без PR), входящие, dashboard
@@ -392,5 +404,6 @@ _Avoid_: «гарантия», health check
 - **Browser** работает на **Machine** своего **Project**, как Terminal и Session; **Linked machine** только показывает его и передаёт ввод. Поэтому **Browser profile** один, с какого бы экрана ни шла работа.
 - Вход в аккаунт и создание **Browser profile** делает только пользователь; **Session** может открыть **Browser** под существующим **Browser profile** и вести его, пока пользователь не перехватит управление.
 - **Autopilot** над самим worfy идёт только из **Stable copy**; агенты **Wave** в это время собирают и проверяют dev-сборку worfy в своих worktree.
+- **Run** продолжает застрявший **Ticket** не больше двух раз (**Ticket continuation**), потом просит **Orchestrator** отложить его (**Set-aside Ticket**); красный main вместо этого останавливает Run с `main-red`.
 - **Terminal AI** работает в **Terminal**-е и не делает его агентским: команды в **Terminal**-е по-прежнему запускает только пользователь, а **Terminal AI** лишь предлагает текст строки ввода. Это не **Session**: на **Canvas** у него нет Node-а.
 - **SSH session** идёт внутри **Terminal**-а, у неё ровно один **Remote host**. **Terminal AI** работает в ней, только если на этом **Remote host**-е он включён. **Remote host** — не **Machine** и не **Linked machine**.

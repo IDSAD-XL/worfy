@@ -1,11 +1,12 @@
 # Gate и GitHub
 
-> Перевод [английской версии](../gate-and-github.md), commit `same-pr`.
+> Перевод [английской версии](../gate-and-github.md), commit `153211a2`.
 
-Четыре Feature. **Gate** — проверка, готовы ли изменения в worktree. **Gate full** — полная форма этой проверки и случаи,
+Пять Feature. **Gate** — проверка, готовы ли изменения в worktree. **Gate full** — полная форма этой проверки и случаи,
 когда она нужна. **Failure records** — то, что red run Gate оставляет о каждом упавшем test-е или шаге, и команда, которая это
-читает. **PR и CI badges** — chip-ы на Ticket-е и Session, которые показывают, что говорят Gate и GitHub. Термины
-объяснены в [Concepts](concepts.md).
+читает. **PR и CI badges** — chip-ы на Ticket-е и Session, которые показывают, что говорят Gate и GitHub. **PR inbox
+notifications** — уведомления GitHub, по которым PR inbox сразу перечитывает изменившийся PR. Термины объяснены в
+[Concepts](concepts.md).
 
 ## Gate
 
@@ -17,7 +18,9 @@ hook-и, а worfy читает результат.
 
 **Кто запускает.** Hook-и `TaskCompleted` и `TeammateIdle` плагина Harness запускают профиль `fast` с пределом 900 секунд.
 В Codex нет ни того, ни другого события: в Session Codex профиль `fast` в зарегистрированном Project-е запускают hook-и
-`Stop` и `SubagentStop`, с тем же пределом. Skills и агент implementer запускают её вручную с закрытым stdin. Без профиля аргумент — `fast`. Профиль — это `fast`, `full`
+`Stop` и `SubagentStop`, с тем же пределом. Исключение одно — `Stop` в главном checkout-е Project-а, а не в связанном
+worktree: там работает главная Session (например, Orchestrator), а не implementer, поэтому её `Stop` Gate не запускает, и
+её turn кончается ответом, а не ожиданием до 900 секунд. `SubagentStop` там Gate по-прежнему запускает. Skills и агент implementer запускают её вручную с закрытым stdin. Без профиля аргумент — `fast`. Профиль — это `fast`, `full`
 или любой другой ключ, который есть у записи registry в `root` или `workspace`. Скрипты за каждым профилем задаются для
 Project-а (см. Gate full). `--help` и `-h` печатают usage и завершаются с кодом 0.
 
@@ -84,7 +87,7 @@ worktree и профиле получает ответ из кэша, и нич�
   влияет, и попадание в кэш печатает его снова.
 
 **Удержание хода.** Под Claude Code hook `Stop` проверок не запускает; в Codex он сначала запускает профиль `fast`, как
-сказано выше, а `SubagentStop` так же удерживает Subagent, со своим счётчиком. Пока последний run в worktree red, он
+сказано выше (кроме главного checkout-а), а `SubagentStop` так же удерживает Subagent, со своим счётчиком. Пока последний run в worktree red, он
 удерживает конец хода и говорит модели запустить Gate и исправить то, на что тот указывает; `worfy-reviewer` или
 `worfy-scout` в Codex вместо этого слышит, что надо сообщить о red Gate, потому что он не правит файлы. Он делает это не больше 2 раз на Session и worktree, и green run
 сбрасывает счётчик. После этого он даёт ходу закончиться и один раз говорит, что Gate всё ещё red. Состояние unverified и код 3
@@ -122,7 +125,15 @@ worktree и профиле получает ответ из кэша, и нич�
 поля которого не зависят от формулировок строк вердикта: исход, профиль, worktree, ключ, head, exit code, время, причина (одна строка
 по-английски для `unverified` и `none`), замеры времени. Run, который дошёл
 до того, что знает свой worktree, заменяет файл целиком или удаляет его. Поэтому файл старого run-а остаётся, только когда его
-держит открытым другой процесс на Windows или когда run закончился раньше этой точки.
+держит открытым другой процесс на Windows или когда run закончился раньше этой точки. Ещё одна метка относится к основной
+ветке репозитория, а не к worktree: `main-red-<key>.json`. Gate её не пишет. Её пишет скрипт Harness `land` каждый раз,
+когда читает CI run-ы push основной ветки и находит ветку красной: commit, PR, который её сломал (или `null`), с какого
+времени, URL run-а, строку, которую он печатает для Orchestrator-а, и когда файл записан. worfy может прочитать её по корню
+Project-а (`readMainRed` в `src/main/gate/state.ts`) под тем же ключом, что и собственные метки gate; ни один экран и ни
+один шаг Autopilot пока по ней не действует.
+`land` удаляет её, когда в следующий раз находит ветку не красной. Пока красный run перезапускается или когда `gh` не может
+прочитать run-ы, файл остаётся как есть: до вердикта ветка считается красной. Удаляет её только `land`, поэтому она может
+быть старше состояния ветки.
 
 **Launcher.** Команда hook-а, которая называет `node`, упала бы с кодом 127 там, где node нет в PATH, и вердикт прежнего run-а остался
 бы. Поэтому hook-и вызывают `gate.sh`, который ищет в PATH, затем в `/opt/homebrew/bin` и `/usr/local/bin`, затем в версиях nvm,
@@ -456,6 +467,8 @@ Chip-ы на Node-ах workflow. Ticket показывает их как под�
 | `VERIFIED`, `REJECTED` | Ticket | Вердикт ревьюера на head-коммите. Если его нет, chip-а нет. |
 | `gh unavailable` | Ticket | gh не ответил. В tooltip причина. |
 | `in %TEMP%` | Ticket, Session | Worktree лежит во временной папке Windows. В tooltip предупреждение и путь. |
+| `3 open threads`, `1 open thread` | Ticket | Нити review в PR Ticket-а, которые ждут ответа пользователя, из [PR inbox](pr-inbox.md). |
+| `changes requested` | Ticket | У PR Ticket-а решение review `CHANGES_REQUESTED`, из PR inbox. |
 
 Tooltip chip-а Gate добавляет путь к worktree, а tooltip строки Ticket-а сводит все её chip-ы. У Ticket-а с PR есть ещё действие **Open PR**,
 которое открывает адрес в браузере. Адрес, который не является страницей на `https://github.com/`, делает кнопку неактивной, и её
@@ -518,6 +531,21 @@ Ticket, не называющий ни одного из них, не имеет
 Аккаунт, для которого в gh нет входа, даёт `gh unavailable` с tooltip-ом, называющим его и `gh auth login`, и никогда не откатывается на
 другой аккаунт. Изменённый Profile действует со следующего чтения, запускающего gh.
 
+**Нити review.** Chip-ы `N open threads` и `changes requested` берутся из снимка PR inbox Project-а, а не из
+`checks.get`, и badge не запускает своего gh. Нить считается по правилу группы Needs my answer: она не решена, её
+последний комментарий не от пользователя, от имени которого читает inbox, а в чужом PR пользователь в ней писал. До
+первого поиска, пока пользователь неизвестен, ни одна нить не считается. PR принадлежит Ticket-у по строкам `PR:` Ticket-а
+(репозиторий и номер), иначе по ветке (строка `Branch:` или `<epic>/<NN>`) — то же правило, по которому строка вида Pull
+requests получает chip Ticket-а. Ticket над несколькими репозиториями суммирует нити всех своих PR
+([ADR-0104](../../adr/0104-one-ticket-several-repositories.md), пункт 3), а tooltip перечисляет каждый ждущий PR. У
+Ticket-а, PR которого нет в снимке, и у Project-а с выключенным PR inbox chip-а нет. Каждый chip занимает свою строку под
+chip-ами проверок, и карточка становится выше на строку на каждый chip, так что её высота меняется вместе со снимком.
+Click открывает вид Pull requests на первом ждущем PR, с раскрытой строкой.
+
+**Waits: N answers на доске Pipeline.** У карточки на Human review, в PR которой есть такие нити, под `Waits: team` есть
+строка `Waits: 2 answers` (`Waits: 1 answer`), сумма по PR Ticket-а над несколькими репозиториями. На любом другом Stage и
+без ждущих нитей такой строки у карточки нет.
+
 **Ничего не пишется.** Badges только читают. Для них worfy не запускает никаких команд gh, кроме `gh pr list` и
 `gh auth token -u <account>`, и ничего не меняет на GitHub, в Project-е и в состоянии Gate.
 
@@ -564,6 +592,8 @@ Ticket, не называющий ни одного из них, не имеет
 | Чтение gh: runner, аккаунт, tracker, CI и вердикт | `src/main/github/prs.ts` |
 | GitHub-аккаунт Project-а из его Profile-а | `src/main/workflow/profile.ts` |
 | Chip-ы | `src/renderer/canvas/badges/ChecksBadges.tsx`, `src/renderer/canvas/badges/checks-badges.css` |
+| Нити review и место на карточке | `src/renderer/canvas/badges/ReviewThreads.tsx`, `src/renderer/canvas/badges/review-threads.css`, `src/renderer/canvas/ticket-card.ts` |
+| `Waits: N answers` на доске Pipeline | `src/renderer/pipeline/board.ts`, `src/renderer/pipeline/PipelineBoard.tsx` |
 | Копия в renderer-е, опрос, ветки в работе | `src/renderer/canvas/badges/use-checks.ts` |
 | Open PR | `src/renderer/canvas/actions/OpenPr.tsx` |
 | Временная папка Windows | `src/main/projects/temp-folder.ts`, `src/shared/temp-folder.ts` |
@@ -580,8 +610,65 @@ worktree и PR Ticket-а из снимка и рисует chip-ы. Систем
 
 - `test/e2e/checks-badges.spec.ts`: весь Feature в приложении над stub-ом gh, ничего не записано, и случай без gh.
 - `test/unit/checks-badges.test.tsx`: что показывает каждый субъект, опрос, несколько репозиториев, одна папка от двух Project-ов.
+- `test/unit/review-threads-badge.test.tsx`: какие нити считаются, несколько репозиториев, click, место на карточке.
+- `test/unit/pipeline-board.test.tsx`: `Waits: N answers` только на Human review.
 - `test/unit/gate-state.test.ts`, `test/unit/gate-key-spelling.test.ts`, `test/contract/gate-key-agreement.test.ts`: чтение Gate и
   согласие ключа registry с resolver-ом Gate.
 - `test/contract/github-prs.test.ts`: CI, вердикт, интервалы и поиски tracker-а, аккаунт и токен, что отклоняет `checks.get`.
 - `test/contract/link-access.test.ts`: `checks.get` от Linked machine.
 - `test/unit/read-checks.test.ts`: отметка `in %TEMP%`.
+
+## PR inbox notifications
+
+### Behaviour
+
+PR inbox читает открытые PR пользователя в репозиториях Project-а одним поиском раз в 5 минут. Собственные уведомления
+GitHub пользователя ускоряют это: когда уведомление называет PR Project-а, подробности этого PR читаются сразу, а не при
+следующем поиске. Inbox работает и без них.
+
+- **Что читается.** `GET /notifications?participating=true` через `gh api -i`, с GitHub-аккаунтом Project-а, один раз на
+  аккаунт. Когда окно worfy в фокусе, темп — `X-Poll-Interval` от GitHub (60 с, если его нет); без фокуса — раз в 5 минут.
+  Осталось меньше 10 % REST rate limit — вызовов нет до сброса лимита.
+- **304 значит «ничего не изменилось».** Каждый вызов после первого шлёт `If-Modified-Since` с последним `Last-Modified`. На
+  такой ответ gh выходит с кодом 1 и печатает `gh: HTTP 304`; worfy читает это как ответ, а не как сбой: ошибки в снимке
+  inbox нет, подробности не читаются, темп не меняется, а удвоенный после сбоя интервал возвращается к обычному. GitHub не
+  засчитывает 304 в rate limit.
+- **200.** Считаются только нити типа `PullRequest` в репозиториях Project-а, обновлённые после предыдущего
+  `Last-Modified`. Каждый такой PR перечитывается один раз. Issues, releases и другие репозитории не учитываются.
+- **403 и 404.** Fine-grained token, GitHub App или токен без scope `notifications` или `repo` могут не читать
+  уведомления. Trigger останавливается для этого аккаунта до перезапуска worfy, а поле `notice` снимка inbox
+  (`prInbox.get`) несёт «GitHub notifications unavailable for this token — checking every 5 minutes»; каждый Project этого
+  аккаунта сразу получает `prInbox.changed`. Поиск идёт как раньше.
+- **Rate limits.** 403 или 429 с `Retry-After` ставят trigger на паузу на столько секунд. 403, когда осталось меньше 10 %
+  rate limit, ставит его на паузу до `X-Ratelimit-Reset`. 403, сообщение которого называет rate limit (secondary rate limit
+  GitHub, «You have exceeded a secondary rate limit»), и любой 429 без этих заголовков ставят его на паузу на минуту. Ни
+  один из них не выключает trigger и не удваивает его интервал.
+- **Любой другой сбой** — другой статус, 200 с телом не в JSON, gh, который не запускается, — удваивает интервал trigger-а,
+  до 30 минут. Поиск не затрагивается.
+- **Никогда не «прочитано».** worfy только читает. Он никогда не помечает уведомление прочитанным: это собственный inbox
+  пользователя на github.com.
+
+### How it works
+
+- **Exit code gh — не ответ.** gh выходит с кодом 1 на каждый статус выше 299, включая 304. Trigger запускает gh в режиме
+  вывода runner-а `all`, так что и ненулевой выход приносит то, что напечатал `-i`: строку статуса и заголовки. Статус,
+  `Last-Modified`, `X-Poll-Interval` и заголовки rate limit читаются оттуда.
+- **Курсор.** Последний `Last-Modified` хранится на аккаунт в `pr-inbox.json` каждого Project-а этого аккаунта, так что
+  перезапуск продолжает с него. Без курсора ни одно уведомление не считается: первый поиск всё равно читает каждый PR. Курсор,
+  который не удалось сохранить, пишется в log и остаётся в памяти; PR из этого ответа всё равно читаются.
+- **Только чтение.** У вызова нет `--method` и полей. После каждого test-а log stub-а gh проверяется на другой метод в
+  любом написании, поле или input, `PATCH` или вызов на нити, и сам stub их отклоняет
+  ([ADR-0105](../../adr/0105-pr-reply-only-on-the-users-click.md)).
+
+### Implementation
+
+| Что | Где |
+|---|---|
+| Trigger: вызов, ответ, темп, какие PR перечитываются | `src/main/github/inbox-notifications.ts` |
+| Reader, который он вызывает (`refresh`), `notice` снимка | `src/main/github/inbox.ts` |
+| Курсор на аккаунт | `src/main/projects/pr-inbox-state.ts` |
+| Фокус окна | `src/main/ipc/pr-inbox.ts` |
+
+**Главные test-ы.** `test/contract/pr-inbox-notifications.test.ts`: 304, 200, `If-Modified-Since` и темп, 403, 404, 429,
+`Retry-After`, secondary rate limit, 500, тело не в JSON, выключенный Project, курсор и log stub-а, против
+`test/fixtures/gh/gh-stub.mjs`.

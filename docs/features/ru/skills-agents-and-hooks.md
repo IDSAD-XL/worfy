@@ -178,6 +178,7 @@ Claude Code запускает эти команды на свои событи�
 | `SessionStart` | `worktree-lock claim` | 10 | Регистрируется в дереве и говорит, кто там уже есть |
 | `SubagentStart` | `inject-rules.mjs common` | 10 | Общие правила и правила пользователя |
 | `PreToolUse` на Bash | `guard.mjs` | 30 | Bash guard |
+| `PostToolUse`, `PostToolUseFailure` | `calls.mjs` | 5 | Log вызовов, только запись: агент ничего не видит, и его вызов не задерживается. Хранит последние 20 вызовов каждого агента (tool, hash входа, исход) в `<gate state>/calls/<owner>.jsonl`, где owner — Session или Session и `agent_id` Subagent-а. Когда агент повторяет тот же упавший вызов, правит файл туда и обратно или повторяет пару вызовов, он на 3-м повторе дописывает `would-hint`, а на 4-м `would-deny` в `calls/loops.jsonl` с началом команды; ожидания CI (`gh pr checks`, `gh run watch`, `gh run view`) не считаются. `bin/loop-log [--since <YYYY-MM-DD>]` печатает случаи `would-deny` с их Vendor и `cases: N (revisit at 3)`. Log-и старше 7 дней удаляются; `loops.jsonl` хранит свои последние 2000 строк. В Codex его тоже запускает `PostToolUse` (исход shell-вызова там — его вывод, без exit code, и сбоем он не считается, поэтому повтор shell-вызова там случая не даёт; `apply_patch` несёт exit code и считается); `PostToolUseFailure` есть только у Claude Code |
 | `TaskCompleted`, `TeammateIdle` | `gate.sh fast` | 900 | [Gate](gate-and-github.md) |
 | `Stop` | `stop.mjs` | 10 | Держит ход, пока Gate красный, см. [Gate](gate-and-github.md) |
 | `Stop` | `worktree-lock beat` | 5 | Отмечает Session живой |
@@ -186,7 +187,7 @@ Claude Code запускает эти команды на свои событи�
 | `SessionEnd` | `worktree-lock release` | 5 | Снимает регистрацию |
 
 **Сломанный hook не ломает Session.** Сбой внутри `inject-rules.mjs`, `session-start.mjs`, `session-end.mjs`, `gh-token-env.mjs` или
-`stop.mjs` это одна строка в stderr и код 0, а worktree lock падает молча. Gate даёт вердикт через exit code, а `stop.mjs` держит ход с
+`stop.mjs` это одна строка в stderr и код 0, а worktree lock и log вызовов `calls.mjs` падают молча. Gate даёт вердикт через exit code, а `stop.mjs` держит ход с
 кодом 2. Guard выходит с кодом 0 и отказывает через свой ответ.
 
 **Правила.** `orchestrator` доходит до главной Session, а `common` до главной Session и каждого Subagent-а. В `orchestrator` основной цикл,
