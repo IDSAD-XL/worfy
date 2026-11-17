@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-17T10:24Z
+PR: #1957
 Blocked by: 03, 05
 Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решение», 2; «Путь пользователя», B, шаг 3; «Решения по реализации» →
 «Признаки жизни Session и тишина», пункты «Пороги» и «`turn-hung` в Autopilot»; «Решения по test-ам», Fault scenario 7;
