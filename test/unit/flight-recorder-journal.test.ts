@@ -505,6 +505,21 @@ describe('from-journal: retries', () => {
     const timeline = buildTimeline(runFacts(journal, { work: [agent('a1', 'impl-01', 'e/01', '10:02', '10:20'), agent('a2', 'impl-01-restart', 'e/01', '10:26', '11:20')] }))
     expect(timeline.spans.find((item) => item.id === 'agent:a2')).toMatchObject({ attempt: 2, retryOf: 'agent:a1', reason: 'session-error: The Session failed' })
   })
+
+  it('makes a ticket-continued the cause of the next attempt, #2, and a ticket-set-aside a mark on the Run’s row (worfy-stuck-agents ticket 05)', () => {
+    const journal = read(
+      started(),
+      wave('10:01', 1, ['01']),
+      line('10:20', 'ticket-continued', { ticket: '01', attempt: 1, of: 2, cause: 'wave-unfinished' }),
+      wave('10:20', 2, ['01'], { session: 's2', continuation: { attempt: 1, of: 2, cause: 'wave-unfinished' } }),
+      line('11:00', 'ticket-set-aside', { ticket: '01', cause: 'wave-unfinished', attempts: 2 }),
+      stopped('11:30'),
+    )
+    expect(journal.retryCauses).toEqual([{ ticket: 'e/01', kind: 'agent', at: T('10:20'), reason: 'ticket-continued: wave-unfinished, 1 of 2', source: 'journal' }])
+    expect(journal.orchestratorMarks).toEqual([{ kind: 'ticket-set-aside', at: T('11:00'), text: 'ticket-set-aside: e/01, wave-unfinished, 2' }])
+    const timeline = buildTimeline(runFacts(journal, { work: [agent('a1', 'impl-01', 'e/01', '10:02', '10:15'), agent('a2', 'impl-01', 'e/01', '10:21', '10:50')] }))
+    expect(timeline.spans.find((item) => item.id === 'agent:a2')).toMatchObject({ attempt: 2, retryOf: 'agent:a1', reason: 'ticket-continued: wave-unfinished, 1 of 2' })
+  })
 })
 
 describe('from-journal: the marks of the Orchestrator', () => {

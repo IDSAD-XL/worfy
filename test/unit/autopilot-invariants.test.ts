@@ -286,3 +286,39 @@ describe('checkRecovery with Auto-continue (worfy-retry ticket 09)', () => {
     expect(checkRecovery(withRetry(retried(1, 0, false), 0, { stop: null }))).toEqual([])
   })
 })
+
+// ── The continuation ladder (worfy-stuck-agents ticket 05) ───────────────────
+//
+// I9 over run 1 rewritten with the ladder's lines: `continued` ticket-continued lines of 01, then (with `aside`) its
+// ticket-set-aside, an optional ticket-status `blocked`, and run-stopped `stop`. I1 is not the rule here: the
+// messages and the expected Waves stay the good Run's.
+describe('checkRecovery: the continuation ladder, I9', () => {
+  function ladder(continued: number, aside: { blocked: boolean } | null, stop: string): RecoveryInput {
+    const input = load()
+    const head = lines(input.journals[0]!).slice(0, 4)
+    const tail = [
+      ...Array.from({ length: continued }, (_, index) => at(index, { kind: 'ticket-continued', ticket: '01', attempt: Math.min(index + 1, 2), of: 2, cause: 'wave-unfinished' })),
+      ...(aside === null ? [] : [at(10, { kind: 'ticket-set-aside', ticket: '01', cause: 'wave-unfinished', attempts: 2 })]),
+      ...(aside?.blocked === true ? [at(11, { kind: 'ticket-status', ticket: '01', state: 'blocked', reason: 'stuck: claimed after 2 continuations', waits: 'owner' })] : []),
+      at(20, { kind: 'run-stopped', reason: stop }),
+    ]
+    return { ...input, journals: [[...head, ...tail].join('\n') + '\n', ...input.journals.slice(1)], statusWrites: [], expect: { ...input.expect, stop } }
+  }
+  const i9 = (input: RecoveryInput): string[] => checkRecovery(input).filter((line) => line.startsWith('I9'))
+
+  it('lets two continuations, then a set-aside the Orchestrator carried out (blocked), through', () => {
+    expect(i9(ladder(2, { blocked: true }, 'blocked-tickets'))).toEqual([])
+  })
+
+  it('lets a set-aside the Orchestrator did not carry out through when the run stopped with its cause, the old stop', () => {
+    expect(i9(ladder(2, { blocked: false }, 'wave-unfinished'))).toEqual([])
+  })
+
+  it('sees a third continuation of the same Ticket', () => {
+    expect(i9(ladder(3, null, 'wave-unfinished'))).toEqual(['I9: ticket demo/01 in run 1: 3 ticket-continued, at most 2'])
+  })
+
+  it('sees a set-aside Ticket left in work while the run stopped for another reason', () => {
+    expect(i9(ladder(2, { blocked: false }, 'blocked-tickets'))).toEqual(['I9: ticket demo/01 in run 1: set aside, not blocked after it, and the run stopped with blocked-tickets, not wave-unfinished'])
+  })
+})

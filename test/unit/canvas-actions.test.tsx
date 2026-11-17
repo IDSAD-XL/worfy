@@ -1030,6 +1030,8 @@ describe('Autopilot status line hint (ticket 32, ADR-0034)', () => {
   it.each<[string, Partial<AutopilotState>, string]>([
     ['running', { status: 'running', wave: 3 }, 'Wave 3 · running'],
     ['running with background tasks', { status: 'running', wave: 1, backgroundTasks: 2 }, 'Wave 1 · 2 background tasks'],
+    // A Wave that continues a stuck Ticket (worfy-stuck-agents ticket 05).
+    ['continuing a stuck Ticket', { status: 'running', wave: 4, continuing: { tickets: [5], attempt: 1, of: 2 } }, 'Wave 4 · continuing 05 (1 of 2)'],
     ['waiting with no reset time', { status: 'waiting', wave: 2 }, 'waiting for limits'],
   ])('%s: the line is unchanged, its hint adds that the display stays on', async (_name, state, text) => {
     const status = await statusLine(state)

@@ -22,6 +22,7 @@
 // takes the Orchestrator at once (Orchestrators.takeNow). A start may name a queue of Epics, and
 // `autopilot.queue` changes the queue of a run between Waves (worfy-autopilot-queue ticket 14, ADR-0100).
 import { execFile } from 'node:child_process'
+import { join } from 'node:path'
 import { app } from 'electron'
 import type { LimitsState } from '../../shared/agent/limits'
 import { budgetFromSettings } from '../../shared/autopilot/budget'
@@ -52,6 +53,7 @@ import { KeepAwake } from '../autopilot/power'
 import { readOriginKey } from '../autopilot/origin'
 import { Autopilot, NO_RUN_MESSAGE, RunningElsewhere, selfProjectRefusal, type AutopilotDeps } from '../autopilot/run'
 import { toEveryWindow } from '../broadcast'
+import { readMainRed } from '../gate/state'
 import { bundledHarnessVersion } from '../harness/bundled'
 import { currentHarness } from '../harness/locate'
 import { harnessScriptEnv } from '../harness/script-env'
@@ -207,13 +209,17 @@ export function sharedAutopilot(): Autopilot {
       observeInput: (listener) => sharedRegistry().observeInput(listener),
     },
     waves: {
-      autopilotWave: (projectId, epic, resume, brief, named) => sharedLauncher().autopilotWave(projectId, epic, resume, brief, named),
+      autopilotWave: (projectId, epic, resume, brief, named, continuation) => sharedLauncher().autopilotWave(projectId, epic, resume, brief, named, continuation),
       autopilotRefusal: (projectId) => sharedLauncher().autopilotRefusal(projectId),
       autopilotGateQueue: (projectId) => sharedLauncher().autopilotGateQueue(projectId),
     },
     journal: (start) => openRun(start),
     harness: () => currentHarness().kind,
     keepAwake: () => new KeepAwake(),
+    // The continuation ladder (worfy-stuck-agents ticket 05): land's main-red marker in the gate folder of the
+    // Harness on the machine now, and the Harness's `ticket` the set-aside message names.
+    mainRed: (root) => readMainRed(currentHarness().gateDir, root),
+    ticketTool: () => join(currentHarness().binDir, 'ticket'),
     harnessDrift: harnessDriftWatch({ packaged: app.isPackaged, harnessVersion: () => bundledHarnessVersion() }),
     prs: sharedPrTracker(),
     origin: (root) => readOriginKey(root),

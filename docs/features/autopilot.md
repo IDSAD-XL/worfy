@@ -109,6 +109,7 @@ The line above the button shows the state of the run:
 | `waiting for the Orchestrator · 4 min` | The run has begun and waits for the Orchestrator's turn, queue and background tasks to end. No minutes in the first minute. **Start now** and **Cancel** stand beside it. |
 | `Wave 2 · running` | The run has sent its second Wave. Waves are counted per run from 1, and again from 1 for each Epic of a queue; this is not the Wave number of the Epic's plan. |
 | `Wave 2 · 4 background tasks` | The same, with four live background tasks of the Orchestrator. |
+| `Wave 4 · continuing 05 (1 of 2)` | The Wave continues Ticket 05, which stayed in work after an earlier Wave: its first continuation of two ([a Ticket that stays in work](autopilot-faults.md#a-ticket-that-stays-in-work)). |
 | `waiting for limits · resumes 14:20` | The Limits refused a turn. The run continues at this time. |
 | `API error · retry 2/5 · 14:20` | A turn ended with a temporary API error and Auto-continue is on: the second retry of five goes at this time. |
 | `today's share used · resumes 00:00` | The budget stopped the next Wave. |
@@ -124,7 +125,9 @@ The line above the button shows the state of the run:
 a queue of one Epic. When an Epic has no Wave left (`no-ready-wave`, `blocked-tickets`, `tickets-done`), a fresh read
 decides. Every Ticket done in the checkout: the next Epic begins. Only Tickets for the owner left (`blocked` with
 `Waits: owner`, no status, or blocked only by such Tickets): the Epic is passed with `waits-owner`, and the next one
-begins. Any other stop, or other Tickets left, stops the whole run. When the run reaches the next Epic it asks the
+begins. A Ticket the run had the Orchestrator set aside after its continuations is such a Ticket: it is `blocked` with
+`Waits: owner`, so the queue goes on past it ([a Ticket that stays in work](autopilot-faults.md#a-ticket-that-stays-in-work)).
+Any other stop, or other Tickets left, stops the whole run. When the run reaches the next Epic it asks the
 Linked machines again; an Epic running elsewhere is passed. With no Epic left the run stops with the reason of the last
 one, the gate queue's turn first ([Why a run stops](autopilot-faults.md#why-a-run-stops)). The one exception is a last
 Epic with only Tickets for the owner left: it gets `epic-finished` `waits-owner` as a passed one does, and the run stops
@@ -201,11 +204,15 @@ A Wave is over when all of this is true:
 3. In a fresh read of the workflow no Ticket of the Wave is in work: `claimed`, or open with a worktree branch whose read
    failed, which may still hold a claim.
 
-The run then computes the ready Wave again. If it is the same set of Tickets as the Wave just finished, the run stops
-with `no-progress`. A Ticket of the Wave that is still open after the turn, with its branch read, does not hold the Wave.
+The run then computes the ready Wave again. If it is the same set of Tickets as the Wave just finished, the run sends it
+again as a continuation, up to twice per Ticket, then asks the Orchestrator to set those Tickets aside, and stops with
+`no-progress` only if the same Wave is ready after that. A Ticket of the Wave that is still open after the turn, with its
+branch read, does not hold the Wave.
 
 A Ticket still in work after the turn makes the run wait up to 10 minutes. Each change of the workflow checks again, and a
-new turn of the Orchestrator waits for its own result. After that the run stops with `wave-unfinished`.
+new turn of the Orchestrator waits for its own result. After that the run continues the Ticket in the next Wave, the same
+ladder: two continuations, a set-aside, then the stop with `wave-unfinished`. A red main stops the run with `main-red`
+instead ([a Ticket that stays in work](autopilot-faults.md#a-ticket-that-stays-in-work)).
 
 Live background tasks make the run wait up to one hour without any event from them. Each event of a task starts this time
 over. So does a change of a live task's output file — the file Claude Code writes a background command's output to, named
@@ -413,6 +420,8 @@ it cannot read.
 | `wave-started`, `wave-finished` | A Wave went or ended. `wave-started` has the text sent, the skipped Tickets and `session`, the id of the Orchestrator's SDK session the Wave went to (its transcript's name). Both may have `limits`: `{five_hour, seven_day}` in a run on Claude Code, `{windows}` with the Codex windows in a run on Codex. |
 | `ticket-status` | The `Status:` of a Ticket of the run's Epic changed during the run, seen on a change the workflow watch reports or in a last read right before `run-stopped` (not on a Force stop). A Ticket whose file appeared during the run gets the status it was first seen with. Has `state` (`claimed`, `blocked`, `done`, `open`), and `statusAt`, `reason` and `waits` when the Ticket has those lines ([ADR-0092](../adr/0092-run-history.md)). |
 | `narrow-round` | A state of the narrow fix round on a Wave Ticket's PR, once per Ticket and outcome. |
+| `ticket-continued` | A Ticket that held the Wave is continued in the next Wave: `ticket`, `attempt` (from 1), `of` (the ceiling, 2) and `cause` (`wave-unfinished` or `no-progress`). Right before the `wave-started` of the continuation, which has `continuation` (`attempt`, `of`, `cause`). |
+| `ticket-set-aside` | The run asked the Orchestrator to set a Ticket aside after its continuations: `ticket`, `cause`, `attempts`. |
 | `start-window` | The Start window held the next Wave back: `reason` is `outside` or `wave-too-long`. `waiting-until` follows. |
 | `budget-stop` | The budget stopped the next Wave. `waiting-until` follows. |
 | `limits-hit` | The Limits refused a turn. A Codex refusal with no window used up has `reason: "quota"` and `message`, and `run-stopped` with `vendor-quota` follows. |

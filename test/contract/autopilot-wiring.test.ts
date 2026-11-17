@@ -92,10 +92,13 @@ describe('the deps of the app\'s Autopilot (worfy-throughput ticket 52)', () => 
     await expect(deps().waves.autopilotWave('demo-00000052', 'demo', [1], true)).resolves.toMatchObject({ text: 'with brief' })
     await expect(deps().waves.autopilotWave('demo-00000052', 'demo', [], false)).resolves.toMatchObject({ text: 'without' })
     await deps().waves.autopilotWave('demo-00000052', 'demo', [], false, [5, 6])
+    // The continuation line of a Wave that continues stuck Tickets goes along (worfy-stuck-agents ticket 05).
+    await deps().waves.autopilotWave('demo-00000052', 'demo', [3], true, undefined, 'Continuation 1 of 2 for ticket 03: x.')
     expect(stand.launcher.autopilotWave.mock.calls).toEqual([
-      ['demo-00000052', 'demo', [1], true, undefined],
-      ['demo-00000052', 'demo', [], false, undefined],
-      ['demo-00000052', 'demo', [], false, [5, 6]],
+      ['demo-00000052', 'demo', [1], true, undefined, undefined],
+      ['demo-00000052', 'demo', [], false, undefined, undefined],
+      ['demo-00000052', 'demo', [], false, [5, 6], undefined],
+      ['demo-00000052', 'demo', [3], true, undefined, 'Continuation 1 of 2 for ticket 03: x.'],
     ])
   })
 

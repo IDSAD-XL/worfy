@@ -17,9 +17,13 @@
 //   I6  a new start after the stop goes through: a new journal that begins with run-started
 //   I7  worfy writes nothing into the Project
 //   I8  every line of the journal reads (a killed app may leave one torn last line)
+//   I9  the continuation ladder is bounded (worfy-stuck-agents ticket 05): a Ticket has at most
+//       MAX_CONTINUATIONS ticket-continued lines in a run, and after its ticket-set-aside it is blocked
+//       (a ticket-status `blocked` of it later in that run) or the run stopped with the set-aside's cause
 //
 // A violation is one English line that starts with the rule's number: "I1: /epic-wave for wave 1
 // sent 2 times".
+import { MAX_CONTINUATIONS } from '../src/shared/autopilot/continuation'
 import { parseJournal, type JournalEvent, type TicketStatusState } from '../src/shared/autopilot/journal'
 
 /** A change of a Ticket's `Status:` line the test made for the Orchestrator. */
@@ -277,6 +281,29 @@ export const journalReads: Rule = (input, runs) =>
     return [`I8: journal of run ${run.number}: unreadable line ${list(unreadable.map(String))}`]
   })
 
+/**
+ * I9: per run, each Ticket's `ticket-continued` lines are at most MAX_CONTINUATIONS; after a `ticket-set-aside`
+ * the Ticket is `blocked` by a later `ticket-status` of the run, or the run stopped with the set-aside's cause
+ * (`wave-unfinished`, `no-progress`: the old stop). A run with no run-stopped (a killed app) is let off the second half.
+ */
+export const ladderBounded: Rule = (_input, runs) =>
+  runs.flatMap((run) => {
+    const out: string[] = []
+    const continued = new Map<string, number>()
+    // A Run over a queue may meet the same number in two Epics: a Ticket is its Epic and number.
+    for (const event of run.events) if (event.kind === 'ticket-continued') continued.set(`${event.epic}/${event.ticket}`, (continued.get(`${event.epic}/${event.ticket}`) ?? 0) + 1)
+    for (const [ticket, count] of [...continued].sort(([a], [b]) => a.localeCompare(b)))
+      if (count > MAX_CONTINUATIONS) out.push(`I9: ticket ${ticket} in run ${run.number}: ${count} ticket-continued, at most ${MAX_CONTINUATIONS}`)
+    const stopped = stoppedOf(run)
+    run.events.forEach((event, index) => {
+      if (event.kind !== 'ticket-set-aside') return
+      const blocked = run.events.slice(index + 1).some((later) => later.kind === 'ticket-status' && later.epic === event.epic && later.ticket === event.ticket && later.state === 'blocked')
+      if (blocked || stopped === undefined || stopped.reason === event.cause) return
+      out.push(`I9: ticket ${event.epic}/${event.ticket} in run ${run.number}: set aside, not blocked after it, and the run stopped with ${stopped.reason}, not ${event.cause}`)
+    })
+    return out
+  })
+
 /** The rules in order, by number. */
 export const RECOVERY_RULES: Readonly<Record<string, Rule>> = {
   I1: waveCommandOnce,
@@ -287,9 +314,10 @@ export const RECOVERY_RULES: Readonly<Record<string, Rule>> = {
   I6: startsAgain,
   I7: projectUntouched,
   I8: journalReads,
+  I9: ladderBounded,
 }
 
-/** Every violation of I1–I8 by the Run `input` describes, in rule order; empty when all hold. */
+/** Every violation of I1–I9 by the Run `input` describes, in rule order; empty when all hold. */
 export function checkRecovery(input: RecoveryInput): string[] {
   const runs = input.journals.map((text, index): Run => ({ number: index + 1, text, events: parseJournal(text).events }))
   return Object.values(RECOVERY_RULES).flatMap((rule) => rule(input, runs))

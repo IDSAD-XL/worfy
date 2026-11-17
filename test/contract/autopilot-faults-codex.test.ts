@@ -15,11 +15,17 @@
 // - A dead app-server (autopilot-fault-exit.jsonl): the fake exits with code 1 in the middle of the
 //   Wave's turn (its `exit` step). Expected as the death of the Claude Code of the Orchestrator:
 //   session-error, run-stopped, and a new Run starts in a new Session.
+// - The continuation ladder (worfy-stuck-agents ticket 05, Fault scenario 2 on Codex): Ticket 01 stays claimed after
+//   Wave 1 (autopilot-ladder-wave.jsonl) and after two continuations, each a new thread of its own
+//   (autopilot-ladder-continue.jsonl, autopilot-ladder-set-aside.jsonl); the set-aside message goes as a second
+//   turn of the last thread, the test plays the Orchestrator's `ticket block … --waits owner`, and the Run goes on
+//   to the queue's second Epic, done already, where it ends.
 import type { ChildProcess } from 'node:child_process'
 import { describe, expect, it, vi } from 'vitest'
 import { hasExited } from '../../src/main/agent/session/process'
 import { checkRecovery } from '../autopilot-invariants'
-import { EPIC, faultRun, PROJECT, until, type FaultRun } from './autopilot-faults-setup'
+import { ms } from '../time-scale'
+import { EPIC, EPIC_B, faultRun, PROJECT, until, type FaultRun } from './autopilot-faults-setup'
 
 vi.mock('electron', () => ({
   app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined },
@@ -99,5 +105,51 @@ describe('Autopilot faults on a Codex Orchestrator (worfy-faults ticket 06)', ()
     await codexFault('autopilot-fault-exit', 'session-error', /^Codex app-server exited with code 1\b/u)
     // The Run's process ended by itself, with the code of the script's exit step, before anything closed it.
     expect(fakes[1]?.exitCode).toBe(1)
+  })
+})
+
+describe('the continuation ladder on a Codex Orchestrator (worfy-stuck-agents ticket 05)', () => {
+  it('scenario 2: still claimed after two continuations → set-aside → blocked with Waits: owner → the Run goes to the next Epic', async () => {
+    fakes.splice(0)
+    const h = faultRun({
+      vendor: 'codex',
+      marks: 'claimed',
+      settleMs: ms(150),
+      setAside: 'block',
+      secondEpic: 'done',
+      codexScripts: ['turn', 'autopilot-ladder-wave', 'autopilot-ladder-continue', 'autopilot-ladder-set-aside', 'resume'],
+    })
+    expect(await h.start([EPIC, EPIC_B])).toEqual({ refusal: null })
+    const claims = (ticket: string): number => h.journal(1).filter((event) => event.kind === 'ticket-status' && event.ticket === ticket).length
+    await until(() => claims('01') === 1 && claims('02') === 1, 'the claims of Wave 1', 10_000)
+    h.setMarks('none')
+    h.setStatus(2, 'done — 2026-11-05')
+    await h.stopped(1)
+
+    const first = h.journal(1)
+    expect(first[0]).toMatchObject({ kind: 'run-started', vendor: 'codex', epics: [EPIC, EPIC_B] })
+    expect(first.filter((event) => event.kind === 'ticket-continued')).toMatchObject([
+      { ticket: '01', attempt: 1, of: 2, cause: 'wave-unfinished' },
+      { ticket: '01', attempt: 2, of: 2, cause: 'wave-unfinished' },
+    ])
+    const waves = first.filter((event) => event.kind === 'wave-started')
+    expect(waves).toMatchObject([
+      { wave: 1, tickets: ['01', '02'] },
+      { wave: 2, tickets: ['01'], continuation: { attempt: 1, of: 2, cause: 'wave-unfinished' } },
+      { wave: 3, tickets: ['01'], continuation: { attempt: 2, of: 2, cause: 'wave-unfinished' } },
+    ])
+    // Each continuation went to a new Session of the Orchestrator, as every Wave after the first does.
+    expect(new Set(waves.map((event) => (event.kind === 'wave-started' ? event.session : undefined))).size).toBe(3)
+    expect(first.filter((event) => event.kind === 'ticket-set-aside')).toMatchObject([{ ticket: '01', cause: 'wave-unfinished', attempts: 2 }])
+    expect(h.messages()).toContain('Ticket 01 stayed claimed after 2 continuations. Run: ticket block demo 01 "stuck: claimed after 2 continuations" --waits owner. Then end the turn.')
+    expect(h.messages().join('\n')).not.toContain('ignore the rules')
+    expect(first.filter((event) => event.kind === 'epic-finished')).toMatchObject([{ epic: EPIC, outcome: 'waits-owner', tickets: ['01', '03'] }])
+    expect(first.filter((event) => event.kind === 'epic-started')).toMatchObject([{ epic: EPIC_B, index: 2, of: 2 }])
+    expect(first.find((event) => event.kind === 'run-stopped')).toMatchObject({ reason: 'no-ready-wave' })
+    expect(waveCommands(h)).toEqual([WAVE_1, '/epic-wave Ticket-ы 01 эпика demo', '/epic-wave Ticket-ы 01 эпика demo'])
+
+    expect(checkRecovery(h.recovery({ stop: 'no-ready-wave', waves: 3 }))).toEqual([])
+    await h.registry.closeAll()
+    await until(() => fakes.every((child) => hasExited(child)), 'every fake app-server to exit')
   })
 })

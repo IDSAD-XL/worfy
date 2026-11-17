@@ -129,6 +129,39 @@ A new run may start during that wait, from the Autopilot button or from `autopil
 It takes the same unattended Orchestrator over as it is. The Orchestrator is not started again, so its background tasks
 keep running. They become the new run's tasks, and the old run's journal gets no more lines.
 
+#### A Ticket that stays in work
+
+One stuck Ticket does not stop the whole run. Two stops are about one Ticket: a Ticket of the Wave still in work 10 minutes
+after the turn (`wave-unfinished`), and the next ready Wave being the same set of Tickets as the one just finished
+(`no-progress`). Before either stop the run climbs a ladder, with a limit per Ticket and per run:
+
+1. **Continuation.** The run sends the next Wave with the Ticket in it, the same way as after a Force stop: Tickets still in
+   work join the Wave as resumed ones. The Wave command gets one more line of worfy's own, after the command line, so the skill
+   still expands: `Continuation 1 of 2 for ticket 05: still claimed 10 min after the turn ended.` For `no-progress` it says
+   `… came back as the same wave.` The line carries only worfy's facts: Ticket numbers, the attempt, the cause and the minutes.
+   The Orchestrator's last words never go back to it. The Wave goes to a new SDK session, as every Wave after the first does.
+   While it runs, the status line says `Wave 4 · continuing 05 (1 of 2)`. A Ticket gets at most 2 continuations in one run; a
+   new run counts from 0.
+2. **Set aside.** After its 2 continuations, the run asks the Orchestrator to set the Ticket aside:
+   `Ticket 05 stayed claimed after 2 continuations. Run: ticket block epic-a 05 "stuck: claimed after 2 continuations" --waits owner. Then end the turn.`
+   The command names the Harness's `ticket` by its path. worfy writes no `Status:` itself: only the Orchestrator runs the
+   command. A Ticket with `Waits: owner` waits for the owner, so the other Tickets of the Epic go on in the next Waves, and once
+   nothing is ready the Epic ends with `waits-owner` and a run over a queue goes on to the next Epic.
+3. **Stop.** If the Ticket is still in work after that turn, the run stops with the old reason, `wave-unfinished` or
+   `no-progress`.
+
+Before a continuation or a set-aside goes, the run reads whether main is red: the marker that `land` keeps in the gate's state
+folder (`main-red-<key>.json`) while the main branch's CI is red. With the marker there, the whole run stops with `main-red`,
+and nothing is continued or set aside: the stuck Ticket would only meet the same red main. A marker that cannot be read counts
+as no marker.
+
+`background-stalled` names no Ticket and stays a stop.
+
+The journal gets `ticket-continued` (Ticket, attempt, ceiling, cause) right before the `wave-started` of the continuation,
+which carries `continuation`, and `ticket-set-aside` (Ticket, cause, continuations) before the message goes. Run history shows
+the continuation as the next attempt of the Ticket's work, `#2`, its reason in words, the set-aside as a mark on the run's row,
+and the blocked Ticket as a red `!` with its `Blocked reason` and `Waits`.
+
 #### Why a run stops
 
 | Reason | Meaning |
@@ -137,8 +170,9 @@ keep running. They become the new run's tasks, and the old run's journal gets no
 | `tickets-done` | A run over named Tickets ended: every one of them is done in the checkout. Such a run takes only the ready Tickets of its list into each Wave. The button always runs the whole Epic, so a run it starts never ends this way. |
 | `blocked-tickets` | Nothing open is ready, and some `blocked` or status-less Tickets have all their blockers done. In a run over named Tickets, only Tickets of the list count. |
 | `waits-owner` | A run over a queue of Epics reached its last Epic, and only Tickets for the owner are left in it (`blocked` with `Waits: owner`, no status, or blocked only by such Tickets). The line says `stopped: waits for owner`; `tickets` names them. A run of one Epic stops with `blocked-tickets` then. |
-| `no-progress` | The next ready Wave is the same set of Tickets as the one just finished. |
-| `wave-unfinished` | A Ticket of the Wave stayed in work past the 10 minutes after the turn. |
+| `no-progress` | The next ready Wave is the same set of Tickets as the one just finished, after its Tickets had 2 continuations each and the Orchestrator was asked to set them aside ([a Ticket that stays in work](#a-ticket-that-stays-in-work)). |
+| `wave-unfinished` | A Ticket of the Wave stayed in work past the 10 minutes after the turn, after its 2 continuations and the set-aside turn. |
+| `main-red` | Main was red (the `land` marker) when a stuck Ticket was due for a continuation or a set-aside. The whole run stops, also in a queue of Epics. |
 | `background-stalled` | Background tasks gave no event for an hour, and none of their output files changed in it. |
 | `limits-timeout` | The wait for the Limits would pass 24 hours (with Auto-continue on, only when no reset time is known), Auto-continue was switched off during a wait for a reset more than 24 hours away, or the wait was cancelled with Cancel in the Orchestrator's chat. |
 | `vendor-quota` | Codex refused a turn by its Limits, and no window is used up, so nothing will reset. Codex's error text is the message of the run's state (the status line's tooltip) and `message` of the `limits-hit` line. |
@@ -192,6 +226,8 @@ does not turn a later error of another kind into a refusal.
 | `src/main/autopilot/limits-wait.ts` | The wait for the Limits, the wall-clock timer, the continuation text. |
 | `src/main/autopilot/turn-retry.ts` | The retry after a temporary API error: the count, the timer, the continuation. The pauses, the refusals and the text are `src/shared/agent/continue-plan.ts`, which error is temporary `src/shared/agent/turn-failure.ts`. |
 | `src/shared/autopilot/resume-at.ts` | When a run continues after a refusal. Pure. |
+| `src/shared/autopilot/continuation.ts` | The texts of the ladder: the continuation line, the set-aside message, the status line words; the ceiling `MAX_CONTINUATIONS`. Pure. |
+| `src/shared/autopilot/cycle.ts` | When a stuck Ticket is continued, set aside or stops the run, and `main-red`. Pure; `src/main/autopilot/run.ts` carries the effects out. |
 
 #### Tests
 
@@ -210,10 +246,12 @@ agent, which plays the scripts in `test/fixtures/agent-scripts/`.
 | `test/contract/codex-auto-continue.test.ts` | Auto-continue on a Codex Orchestrator on the fake app-server, in a run and in a manual turn: `serverOverloaded` and one continuation, an error Codex retries by itself, `vendor-quota`, a Subagent call without its result (`in-flight`), and the windows read again at the reset of a manual Limits wait. |
 | `test/unit/autopilot-invariants.test.ts` | The recovery rules over the journals of `test/fixtures/autopilot-faults/`: a good run breaks none, and each rule catches a broken copy made for it. |
 | `test/contract/autopilot-faults-api.test.ts` | Fault scenarios of the model API: an API 500, a 529 in the middle of a streamed answer (not taken for the Limits) and a dropped connection stop the run with `turn-error`, and a new start sends its Wave command once; Limits that refuse the turn of Wave 2 make the run wait and resume after the reset with one continuation, and Wave 1 does not go again. |
-| `test/contract/autopilot-faults-retry.test.ts` | The same Fault scenarios of the model API with Auto-continue on: an API 500, a 529 in the middle of a streamed answer and a dropped connection give `turn-retry`, one continuation and `resumed`, and the run goes on; five 529 in a row end with `retry-refused` `cap`, and a `git push` without its result with `retry-refused` `in-flight`, both then `turn-error`; Limits that refuse the turn of Wave 2 by the 7-day window, with no 5-hour one, make the run wait for that reset. The rules I1–I8 below hold in each. |
-| `test/contract/autopilot-faults-process.test.ts` | Fault scenarios of the processes: Claude Code of the Orchestrator dies while both implementers work (`session-error`, and a new start goes to a new Session, its first Wave naming the Ticket still `claimed` by the dead implementer along with the ready one); an implementer fails and its Ticket stays `claimed` (`wave-unfinished`) or goes back to `open` (the next Wave holds only that Ticket). |
+| `test/contract/autopilot-faults-retry.test.ts` | The same Fault scenarios of the model API with Auto-continue on: an API 500, a 529 in the middle of a streamed answer and a dropped connection give `turn-retry`, one continuation and `resumed`, and the run goes on; five 529 in a row end with `retry-refused` `cap`, and a `git push` without its result with `retry-refused` `in-flight`, both then `turn-error`; Limits that refuse the turn of Wave 2 by the 7-day window, with no 5-hour one, make the run wait for that reset. The rules I1–I9 below hold in each. |
+| `test/contract/autopilot-faults-process.test.ts` | Fault scenarios of the processes: Claude Code of the Orchestrator dies while both implementers work (`session-error`, and a new start goes to a new Session, its first Wave naming the Ticket still `claimed` by the dead implementer along with the ready one); an implementer fails and its Ticket stays `claimed` (the run waits the settle time, then continues it in the next Wave) or goes back to `open` (the next Wave holds only that Ticket). |
+| `test/contract/autopilot-faults-ladder.test.ts` | Fault scenarios of the continuation ladder: a Ticket left `claimed` is continued and brought to `done`; one still `claimed` after 2 continuations is set aside, the Orchestrator blocks it with `Waits: owner`, and the run goes on to the next Epic of its queue; a set-aside the Orchestrator does not carry out ends with `wave-unfinished`; a red main stops the run with `main-red` and no continuation; `no-progress` goes the same ladder. |
 | `test/contract/autopilot-faults-github.test.ts` | Fault scenarios on the GitHub side: the gh stub's `hang` mode; gh hangs for the whole run (the Waves go on, and the stop waits no longer than the limit of the last read); gh answers 502 (the next read comes after the doubled interval); a merge conflict (the run stops with `blocked-tickets`, and a new run does not take the blocked Ticket). |
-| `test/contract/autopilot-faults-codex.test.ts` | Fault scenarios on a Codex Orchestrator: a failed turn stops the run with `turn-error`; an app-server that exits in the middle of a Wave gives `session-error`, and a new run starts in a new Session. |
+| `test/contract/autopilot-faults-codex.test.ts` | Fault scenarios on a Codex Orchestrator: a failed turn stops the run with `turn-error`; an app-server that exits in the middle of a Wave gives `session-error`, and a new run starts in a new Session; a Ticket still `claimed` after 2 continuations is set aside and the run goes on to the next Epic. |
+| `test/unit/autopilot-continuation.test.ts` | The ladder's texts, word for word, and that the model's last words never reach them. |
 | `test/e2e/autopilot-faults.spec.ts` | Fault scenarios in the built app: the app killed with SIGKILL in the middle of a Wave and started again (nothing goes to the Orchestrator at the start, Run history shows the old run cut off, the button starts a new run that sends its Wave once); GitHub out of reach for the whole run (both Waves go through, and `gh` was only read). |
 
 **Fault scenarios.** A fault scenario is a test that injects one fault into a run on the fake agent over a temporary Project — a
@@ -233,6 +271,8 @@ returns one line per violation, and every scenario expects none. The rules:
 - **I6.** The new start after the stop is not refused and begins a journal of its own with `run-started`.
 - **I7.** worfy writes nothing into the Project: every file that differs afterwards is one the test wrote.
 - **I8.** Every line of every journal reads. A killed app may leave one torn last line.
+- **I9.** A Ticket has at most 2 `ticket-continued` lines in a run. After its `ticket-set-aside` it is `blocked`, or the run stopped
+  with the cause of the set-aside.
 
 The contract scenarios build their run with `faultRun()` of `test/contract/autopilot-faults-setup.ts`: the real Session registry,
 Orchestrators, launcher, journal, `LimitsTracker`, `PrTracker` and `Autopilot`, a clock that moves only when the test moves it, and the gh

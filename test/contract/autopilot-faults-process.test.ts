@@ -124,12 +124,14 @@ describe('Autopilot faults of the processes (worfy-faults ticket 03)', () => {
     expect(checkRecovery(h.recovery({ stop: 'session-error', errorText: /^Claude Code process exited with code 1\b/u, waves: 2 }))).toEqual([])
   })
 
-  it('an implementer fails and its Ticket stays claimed: the run settles and stops with wave-unfinished after settleMs, the Wave goes once', async () => {
-    const h = faultRun({ scripts: ['autopilot-fault-implementer-failed'], marks: 'claimed', processes: 'exit-at-once', settleMs: SETTLE_MS })
+  it('an implementer fails and its Ticket stays claimed: the run settles settleMs, then continues the Ticket in the next Wave (worfy-stuck-agents ticket 05)', async () => {
+    // The continuation goes to a new Orchestrator Session, which holds its turn until the Force stop.
+    const h = faultRun({ scripts: ['autopilot-fault-implementer-failed', 'autopilot-fault-held'], marks: 'claimed', processes: 'exit-at-once', settleMs: SETTLE_MS })
     runs.push(h)
     expect(await h.start()).toEqual({ refusal: null })
-    // The Wave's command claimed 01 and 02; both implementers run.
+    // The Wave's command claimed 01 and 02; both implementers run. Later Waves claim nothing more.
     await until(() => lastTasks(h).length === 2 && statusLines(h.journal(1), '02').length === 1, 'both implementers and both claims')
+    h.setMarks('none')
     h.releases.release('failed')
     await until(() => lastTasks(h).length === 1, 'the failed implementer to end')
     // The second implementer's Ticket is merged; 01 stays claimed.
@@ -138,20 +140,27 @@ describe('Autopilot faults of the processes (worfy-faults ticket 03)', () => {
     h.releases.release('completed')
     await until(() => lastTasks(h).length === 0, 'the last implementer to end')
     const lastTaskEnded = Date.parse(h.journal(1).findLast((event) => event.kind === 'background-tasks')!.at)
-    await h.stopped(1)
+    await until(() => h.journal(1).filter((event) => event.kind === 'wave-started').length === 2, 'the continuation of 01')
 
     const first = h.journal(1)
-    const stopped = first.find((event) => event.kind === 'run-stopped')
-    expect(stopped).toMatchObject({ reason: 'wave-unfinished' })
+    const continued = first.find((event) => event.kind === 'ticket-continued')
+    expect(continued).toMatchObject({ ticket: '01', attempt: 1, of: 2, cause: 'wave-unfinished' })
     // It settled first: the settle starts after the last turn, which comes after the last task ended,
-    // so a stop at once (no settling) lands well inside settleMs of that line.
-    expect(Date.parse(stopped!.at) - lastTaskEnded).toBeGreaterThanOrEqual(SETTLE_MS)
+    // so a continuation at once (no settling) lands well inside settleMs of that line.
+    expect(Date.parse(continued!.at) - lastTaskEnded).toBeGreaterThanOrEqual(SETTLE_MS)
+    expect(first.filter((event) => event.kind === 'wave-started')).toMatchObject([
+      { wave: 1, tickets: ['01', '02'] },
+      { wave: 2, tickets: ['01'], continuation: { attempt: 1, of: 2, cause: 'wave-unfinished' } },
+    ])
+    // Wave 1 is not finished: its Ticket goes on in the continuation.
     expect(first.map((event) => event.kind)).not.toContain('wave-finished')
-    expect(waveCommands(h)).toEqual([WAVE_1])
+    await h.autopilot.forceStop(PROJECT)
+    expect(h.journal(1).find((event) => event.kind === 'run-stopped')).toMatchObject({ reason: 'user-force-stop' })
+    expect(waveCommands(h)).toEqual([WAVE_1, WAVE_OF_01])
     expect(statusLines(first, '01')).toEqual(['claimed'])
     expect(statusLines(first, '02')).toEqual(['claimed', 'done'])
 
-    expect(checkRecovery(h.recovery({ stop: 'wave-unfinished', waves: 1 }))).toEqual([])
+    expect(checkRecovery(h.recovery({ stop: 'user-force-stop', waves: 2 }))).toEqual([])
   })
 
   it('an implementer fails and the Orchestrator gives its Ticket back to open: the next Wave holds only that Ticket, not no-progress', async () => {

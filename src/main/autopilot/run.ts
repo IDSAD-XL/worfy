@@ -218,9 +218,12 @@ import {
   step,
   TASKS_GRACE_MS,
   type AutopilotStopReason,
+  type ContinuationCause,
+  type CycleEffect,
   type CycleEvent,
   type CycleState,
 } from '../../shared/autopilot/cycle'
+import { continuationLine, MAX_CONTINUATIONS, setAsideText } from '../../shared/autopilot/continuation'
 import type { AutopilotQueueEdit, AutopilotState, HarnessBehind, QueueEpicStatus } from '../../shared/ipc/autopilot'
 import type { HarnessKind } from '../../shared/projects/action-templates'
 import type { PullRequest } from '../../shared/ipc/checks'
@@ -372,14 +375,15 @@ export interface AutopilotDeps {
   }
   /**
    * Sends "Run wave" to the Orchestrator (ActionLauncher.autopilotWave), with the Tickets of an
-   * interrupted Wave to take along when still in work (`resume`); `autopilotRefusal` says why the
+   * interrupted Wave to take along when still in work (`resume`) and worfy's line over a Wave that continues
+   * stuck Tickets (`continuation`, worfy-stuck-agents ticket 05); `autopilotRefusal` says why the
    * Project's template cannot drive a run, before it starts (ADR-0033), or null.
    * `autopilotGateQueue` (ActionLauncher.autopilotGateQueue) gives the text of "Process gate queue"
    * on the machine with the role `serve` of the cross-machine gate, else null: the run sends it once
    * before it stops for want of a Wave (worfy-windows ticket 17).
    */
   waves: {
-    autopilotWave(projectId: string, epic: string, resume: readonly number[], brief: boolean, named?: readonly number[]): Promise<AutopilotWaveResult>
+    autopilotWave(projectId: string, epic: string, resume: readonly number[], brief: boolean, named?: readonly number[], continuation?: string): Promise<AutopilotWaveResult>
     autopilotRefusal(projectId: string): string | null
     autopilotGateQueue?(projectId: string): Promise<string | null>
   }
@@ -401,6 +405,19 @@ export interface AutopilotDeps {
   onChange?(state: AutopilotState): void
   /** How long a run settles before `wave-unfinished` (default SETTLE_MS). */
   settleMs?: number
+  /**
+   * How many continuations a stuck Ticket gets in a run before the Orchestrator is asked to set it aside
+   * (worfy-stuck-agents ticket 05; default MAX_CONTINUATIONS). 0: none, a stuck Ticket stops the run as before.
+   */
+  maxContinuations?: number
+  /**
+   * The main-red marker `land` keeps for the Project's repository (src/main/gate/state.ts, GateReader.mainRed),
+   * or null when main is not red; read when the cycle asks a continuation or a set-aside. Without it main is
+   * never read as red. A read that throws counts as not red.
+   */
+  mainRed?(root: string): Promise<unknown>
+  /** The path of the Harness's `ticket` for the set-aside message (src/main/harness/locate.ts, binDir); `ticket` without it. */
+  ticketTool?(): string
   /**
    * The Limits and the wait for them (limits-wait.ts); without it a refused turn ends the run as
    * `turn-error`, and no Wave's line has `limits`.
@@ -829,6 +846,12 @@ class Run {
   lastText: string | null = null
   /** The Tickets of an interrupted Wave the next "Run wave" takes along; emptied once it is sent. */
   resume: readonly number[] = []
+  /**
+   * The continuation of stuck Tickets the cycle asked (worfy-stuck-agents ticket 05): from `continue-tickets`
+   * until the Wave that carries it is sent, then while that Wave runs (the status line says `continuing 05 (1
+   * of 2)`); null once a Wave without one is sent. `attempt`: of the Ticket nearest the ceiling `of`.
+   */
+  continuation: { tickets: number[]; attempt: number; of: number; cause: ContinuationCause } | null = null
   /** The Tickets the run was given at its start to take along (`resume` before any Wave): resumable again if no Wave goes. */
   given: readonly number[] = []
   /** Set at the click on Stop (Autopilot.stop, through requestStop), before its step runs: no new Wave goes from then on. */
@@ -1132,6 +1155,7 @@ export class Autopilot {
       if (this.quitting) throw new Error(QUITTING_MESSAGE)
 
       const run = new Run(projectId, epic, root, options.tickets, options.by, queue)
+      run.cycle = initialCycle(epic, options.tickets, { maxContinuations: this.ceiling() })
       run.mode = options.mode ?? this.defaultMode()
       run.origin = starting.origin
       run.unasked = check.unasked
@@ -1579,7 +1603,8 @@ export class Autopilot {
       run.given = []
       run.epic = next.epic
       run.index = next.index
-      run.cycle = initialCycle(next.epic)
+      run.cycle = initialCycle(next.epic, undefined, { maxContinuations: this.ceiling() })
+      run.continuation = null
       await this.write(run, { kind: 'epic-started', index: next.index + 1, of: run.queue.length })
       // The Epic's first read of the statuses: a status from before the run reached it is not a change.
       statusChanges(run, model.tickets)
@@ -2000,10 +2025,18 @@ export class Autopilot {
           if (run.gateQueue !== null) await this.endGateQueue(run, null)
           else await this.sendWave(run)
           break
+        case 'continue-tickets':
+          await this.continueTickets(run, effect)
+          break
+        case 'set-aside':
+          await this.setAside(run, effect)
+          break
         case 'wave-started': {
           const sent = run.sent
           await this.journalHarness(run)
           const tickets = effect.tickets.map(ticketNumber)
+          // A Wave without a continuation ends the last one: the status line stops saying `continuing`.
+          if (effect.continuation === undefined) run.continuation = null
           // Their worktrees are the policy's roots from now on (worfy-auto-approve ticket 04).
           run.approval?.setWave(tickets, run.epic)
           run.waveStart = this.waveLine(run, { kind: 'wave-started', wave: effect.wave, tickets, ...(run.sentLimits === undefined ? {} : { limits: run.sentLimits }) })
@@ -2014,6 +2047,7 @@ export class Autopilot {
             ...(sent === null ? {} : { text: sent.text, skipped: sent.skipped.map((each) => ({ num: ticketNumber(each.num), state: each.state })) }),
             ...(run.sentLimits === undefined ? {} : { limits: run.sentLimits }),
             ...(run.session === null ? {} : { session: run.session.sdkId ?? run.session.id }),
+            ...(effect.continuation === undefined ? {} : { continuation: effect.continuation }),
           })
           for (const num of effect.tickets) run.waveTickets.add(num)
           this.pollPrs(run)
@@ -2022,6 +2056,8 @@ export class Autopilot {
         case 'wave-finished': {
           // The end of the gate queue's turn is not a Wave's.
           if (run.gateQueue !== null) break
+          // A continuation ends with its Wave: the status line stops saying `continuing`.
+          run.continuation = null
           this.noteDuration(run, null)
           const limits = await this.freshLimits(run)
           const fields = { kind: effect.kind, wave: effect.wave, tickets: effect.tickets.map(ticketNumber), ...(limits === undefined ? {} : { limits }) }
@@ -2127,6 +2163,73 @@ export class Autopilot {
     await this.end(run, reason, tickets)
   }
 
+  /** How many continuations a stuck Ticket gets in a run (AutopilotDeps.maxContinuations, MAX_CONTINUATIONS by default). */
+  private ceiling(): number {
+    return this.deps.maxContinuations ?? MAX_CONTINUATIONS
+  }
+
+  /**
+   * Whether main is red now: `land`'s marker for the Project's repository (AutopilotDeps.mainRed). A read that
+   * fails counts as not red: no marker is the usual answer, and the stuck Ticket then goes up the ladder.
+   */
+  private async mainIsRed(run: Run): Promise<boolean> {
+    const read = this.deps.mainRed
+    if (read === undefined) return false
+    try {
+      return (await read.call(this.deps, run.root)) != null
+    } catch (error) {
+      console.warn(`[autopilot] ${run.projectId}: could not read whether main is red`, error)
+      return false
+    }
+  }
+
+  /**
+   * The cycle continues stuck Tickets (worfy-stuck-agents ticket 05): on a red main the run stops with `main-red`
+   * and continues nothing. Otherwise each Ticket gets its `ticket-continued` line, and the next Wave goes as
+   * "Run wave" does after a Force stop: the stuck Tickets still in work join it as resumable (runWaveState), and
+   * worfy's continuation line goes with its text. Its `wave-started` carries `continuation` (the cycle's).
+   */
+  private async continueTickets(run: Run, effect: Extract<CycleEffect, { kind: 'continue-tickets' }>): Promise<void> {
+    if (await this.mainIsRed(run)) {
+      await this.feed(run, { type: 'main-red' })
+      return
+    }
+    for (const each of effect.tickets) await this.write(run, { kind: 'ticket-continued', ticket: ticketNumber(each.num), attempt: each.attempt, of: effect.of, cause: effect.cause })
+    const nums = effect.tickets.map((each) => each.num)
+    run.continuation = { tickets: nums, attempt: Math.max(...effect.tickets.map((each) => each.attempt)), of: effect.of, cause: effect.cause }
+    run.resume = [...new Set([...run.resume, ...nums])]
+    await this.sendWave(run)
+  }
+
+  /**
+   * The cycle asks to set stuck Tickets aside (worfy-stuck-agents ticket 05): on a red main the run stops with
+   * `main-red`. Otherwise each Ticket gets its `ticket-set-aside` line and the Orchestrator the message that
+   * names the `ticket block … --waits owner` to run (setAsideText); worfy writes no status itself (ADR-0002).
+   * The turn it starts ends as any turn of the Wave, with a fresh read of the workflow. A send that fails ends
+   * the run as the Session's failure does.
+   */
+  private async setAside(run: Run, effect: Extract<CycleEffect, { kind: 'set-aside' }>): Promise<void> {
+    if (await this.mainIsRed(run)) {
+      await this.feed(run, { type: 'main-red' })
+      return
+    }
+    for (const num of effect.tickets) await this.write(run, { kind: 'ticket-set-aside', ticket: ticketNumber(num), cause: effect.cause, attempts: effect.attempts })
+    const tool = this.deps.ticketTool?.()
+    const text = setAsideText({ epic: run.epic, tickets: effect.tickets, attempts: effect.attempts, cause: effect.cause, ...(tool === undefined ? {} : { ticketTool: tool }) })
+    const session = run.session
+    if (session === null || session.state === 'closed') {
+      await this.feed(run, { type: 'session-closed' })
+      return
+    }
+    try {
+      session.send(text)
+    } catch (error) {
+      console.warn(`[autopilot] ${run.projectId}: could not ask the Orchestrator to set Tickets aside`, error)
+      run.message = `Could not ask the Orchestrator to set Tickets aside: ${messageOf(error)}`
+      await this.feed(run, { type: 'session-error', message: run.message })
+    }
+  }
+
   private async sendWave(run: Run): Promise<void> {
     let sent: AutopilotWaveResult
     // First: a Stop clicked while the usage is asked ends that wait at once and is seen below, and
@@ -2182,11 +2285,14 @@ export class Autopilot {
     this.noteDuration(run, boundary?.kind === 'go' && boundary.unknownDuration ? unknownDurationText(run.cycle.wave + 1) : null)
     run.sending = true
     run.promptsWhileSending.clear()
-    // Only the run's first Wave takes the interrupted Tickets along.
+    // Only the run's first Wave takes the interrupted Tickets along, and a continuation its stuck Tickets.
     const resume = run.resume
     run.resume = []
+    // The continuation the cycle asked goes as this Wave, with worfy's line about it (worfy-stuck-agents ticket 05).
+    const continuation = run.cycle.asked?.kind === 'continue' ? run.continuation : null
+    const lead = continuation === null ? undefined : continuationLine({ ...continuation, settleMinutes: (this.deps.settleMs ?? SETTLE_MS) / 60_000 })
     try {
-      sent = await this.deps.waves.autopilotWave(run.projectId, run.epic, resume, fresh === 'fresh', run.cycle.named)
+      sent = await this.deps.waves.autopilotWave(run.projectId, run.epic, resume, fresh === 'fresh', run.cycle.named, lead)
       run.wavesSent += 1
     } catch (error) {
       run.message = messageOf(error)
@@ -3427,6 +3533,9 @@ export class Autopilot {
       reason: run.done ? run.cycle.reason : null,
       message: run.message,
       resumable: run.done ? resumableOf(run) : [],
+      ...(run.running && run.continuation !== null && run.cycle.asked === undefined
+        ? { continuing: { tickets: [...run.continuation.tickets], attempt: run.continuation.attempt, of: run.continuation.of } }
+        : {}),
       stopping,
       ticketsInWork: stopping ? run.cycle.inWork.length : 0,
       harnessBehind: this.harness.get(run.projectId) ?? null,

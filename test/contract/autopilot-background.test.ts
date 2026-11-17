@@ -184,7 +184,7 @@ const HALT_MS = 100
 /** What the unattended fake agent answers setPermissionMode with under `refuseModeChange`. */
 const MODE_REFUSED = 'the agent refused the change of the permission mode'
 
-function harness(options: { script?: string; attendedScript?: string; returnGraceMs?: number; processes?: StubKind; exitWaitMs?: number; approval?: boolean; refuseModeChange?: boolean | (() => Promise<void>) } = {}) {
+function harness(options: { script?: string; attendedScript?: string; returnGraceMs?: number; processes?: StubKind; exitWaitMs?: number; approval?: boolean; refuseModeChange?: boolean | (() => Promise<void>); maxContinuations?: number } = {}) {
   const env = { WORFY_DATA_DIR: join(scratch, 'data-root') }
   const calls: (FakeCall & { unattended: boolean })[] = []
   const requests: QueryRequest[] = []
@@ -270,6 +270,7 @@ function harness(options: { script?: string; attendedScript?: string; returnGrac
     keepAwake: () => ({ start: () => power.push('start'), stop: () => power.push('stop') }),
     onChange: (state) => states.push(state),
     settleMs: 60_000,
+    ...(options.maxContinuations === undefined ? {} : { maxContinuations: options.maxContinuations }),
     tasksClock: clock,
     haltTurnMs: HALT_MS,
     ...(options.approval === true ? { approval: { mode: () => 'on' as const, open: () => Promise.resolve(fakeApproval(approvals)) } } : {}),
@@ -432,7 +433,8 @@ describe('Autopilot waits for the background tasks of its Orchestrator', () => {
       if (line.subtype === 'task_started') return { ...line, ambient: true }
       return line
     })
-    const h = harness({ script })
+    // Judged at once, the Wave stops the run with no-progress: no continuation ladder before it (worfy-stuck-agents ticket 05).
+    const h = harness({ script, maxContinuations: 0 })
     await h.autopilot.start(PROJECT, EPIC)
     // The turn ends with only ambient tasks: the Wave is judged at once, and its Tickets are open.
     await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')

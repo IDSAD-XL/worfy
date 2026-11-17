@@ -51,6 +51,7 @@
 // worfy sees the change through its watch on `.scratch` (ticket 10).
 import { emptyTemplateHint, prReplyState, runWaveState, shipTicketState, ticketNumber } from '../../shared/actions/render-template'
 import type { SkippedTicket } from '../../shared/workflow/waves'
+import { waveWithContinuation } from '../../shared/autopilot/continuation'
 import type { BindingTarget } from '../../shared/binding/resolve'
 import type { LaunchesSnapshot } from '../../shared/ipc/actions'
 import type { BindingAgent } from '../../shared/ipc/bindings'
@@ -308,9 +309,11 @@ export class ActionLauncher {
    * `resume`: the Tickets of the Wave a Stop interrupted; those still in work join the Wave.
    * `brief`: the Orchestrator's Session is a new SDK session, so the text goes as waveBriefText.
    * `named`: a run over named Tickets (worfy-flight-recorder ticket 21): the Wave takes only those.
+   * `continuation`: worfy's line over a Wave that continues stuck Tickets (worfy-stuck-agents ticket 05), put on
+   * the text by waveWithContinuation before the brief.
    */
-  autopilotWave(projectId: string, epic: string, resume: readonly number[] = [], brief = false, named?: readonly number[]): Promise<AutopilotWaveResult> {
-    return this.sendWave(projectId, epic, true, resume, brief, named)
+  autopilotWave(projectId: string, epic: string, resume: readonly number[] = [], brief = false, named?: readonly number[], continuation?: string): Promise<AutopilotWaveResult> {
+    return this.sendWave(projectId, epic, true, resume, brief, named, continuation)
   }
 
   /**
@@ -323,7 +326,7 @@ export class ActionLauncher {
     return namesWaveTickets(template) ? null : AUTOPILOT_TEMPLATE_HINT
   }
 
-  private async sendWave(projectId: string, epic: string, autopilot: boolean, resumable: readonly number[] = [], brief = false, named?: readonly number[]): Promise<AutopilotWaveResult> {
+  private async sendWave(projectId: string, epic: string, autopilot: boolean, resumable: readonly number[] = [], brief = false, named?: readonly number[], continuation?: string): Promise<AutopilotWaveResult> {
     const root = this.deps.projectRoot(projectId)
     const [model, branch] = await Promise.all([this.model(root), this.deps.branch(root)])
     if (!model.epics.some((each) => each.epic === epic) && !model.tickets.some((each) => each.epic === epic)) throw new Error(`The Project has no Epic ${epic}`)
@@ -333,7 +336,8 @@ export class ActionLauncher {
     const view = await this.deps.orchestrators.open(projectId)
     if (view.sessionId === null) throw new Error('The Orchestrator has no Session')
     const session = this.deps.registry.get(view.sessionId)
-    const text = brief ? waveBriefText(epic, state.text) : state.text
+    const wave = continuation === undefined ? state.text : waveWithContinuation(state.text, continuation)
+    const text = brief ? waveBriefText(epic, wave) : wave
     const delivery = session.send(text)
     this.bindWhenKnown(projectId, session, { kind: 'epic', epic })
     return { sessionId: view.sessionId, text, delivery, tickets: state.tickets, skipped: state.skipped }
