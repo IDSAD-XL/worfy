@@ -184,3 +184,16 @@ scope `pc` ждёт ПК, scope решает скрипт); ADR-0081, пункт
   — `test/e2e/new-product-session.spec.ts` (fixture с фиксированной датой попал под автоархив, 134 min паузы merge) и
   `test/e2e/limits-vendors.spec.ts` (ширина секции зависела от дня недели, 1 417 min), — и revert виноватого по
   правилу PR ничего бы не изменил: test упал бы на любом commit-е.
+- **Amendment 2026-11-17, `macos-package` на PR — ещё и по путям, код которых гоняют только `@packaged` test-ы**
+  (`worfy-throughput` 67, решение владельца 2026-11-17). Amendment 2026-10-28 («macOS job-ы PR — по путям diff»)
+  оставлял `macos-package` на PR «как раньше, по входам сборки». Теперь PR просит его и тогда, когда diff трогает путь
+  таблицы `PACKAGED_PATHS` в `scripts/ci-scope.mjs`: код приложения, ветку упакованной сборки которого (`app.isPackaged`,
+  `process.resourcesPath`, `app.asar.unpacked`) проходят только `@packaged` test-ы, — `src/main/workflow/`, чип
+  Harness-а на действии Autopilot, копия Harness-а в `.app`, папка данных, окно, node-pty из `app.asar.unpacked`,
+  `harness/.claude-plugin/`. У каждой строки — причина (`why`); contract test в `test/contract/ci-workflow.test.ts`
+  держит список путей таблицы, существование каждого пути и решение `macos-package` для каждого. Push в `main` по-прежнему
+  гоняет все job-ы. Причина: PR #1898 менял `src/main/workflow/` без входа сборки и шёл без `macos-package`; после merge
+  `@packaged` test чипа Harness-а упал на push-run-е `main`, merge-и стояли 70 min до исправления #1912. Цена (окно
+  2026-11-09…16, 167 PR с кодом): `macos-package` шёл бы на 26 PR вместо 11 (16 % вместо 7 %), +15 run-ов по ~5 min
+  (медиана 22 push-run-ов) — около 75 macOS-минут за 8 дней, ~9 min в день, считая один run на PR. Runner-ы
+  бесплатные (репозиторий публичный); цена — место в очереди из 5 одновременных macOS job-ов.

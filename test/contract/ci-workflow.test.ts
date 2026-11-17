@@ -1043,7 +1043,7 @@ describe('scripts/ci-scope.mjs', () => {
     ['look-alikes of names for macOS', ['src/main/machine.ts', 'src/renderer/macro/a.ts', 'src/main/stomach-darwinia.ts']],
     // Next to the paths of PACKAGED_PATHS, or named like them, but not them: the packaged tests do
     // not run their code where no other job does.
-    ['look-alikes of packaged paths', ['src/main/workflows.ts', 'src/renderer/workflow/useWorkflow.ts', 'src/main/ipc/workflow.ts', 'harness/claude-plugin/plugin.json', 'src/main/storage/paths-old.ts']],
+    ['look-alikes of packaged paths', ['src/main/workflows.ts', 'src/renderer/workflow/useWorkflow.ts', 'src/main/ipc/tickets.ts', 'src/renderer/canvas/actions/AutopilotActions.tsx', 'harness/claude-plugin/plugin.json', 'src/main/storage/paths-old.ts']],
   ])('a pull request that changes the app but no build input, no packaged path and no macOS path (%s) runs every job but macos-package and macos-tests', (_name, files) => {
     commitOnBase(files)
     const result = scope({ EVENT: 'pull_request', BASE: base })
@@ -1125,10 +1125,37 @@ describe('scripts/ci-scope.mjs', () => {
     const result = scope({ EVENT: 'pull_request', BASE: base })
     expect(result.status, result.stderr).toBe(0)
     expect(result.expect?.['macos-package']).toBe(true)
-    expect(result.stdout).toContain('src/main/workflow/fetch.ts is a packaged path, so macos-package runs')
+    // The first packaged path of the diff, in git's order: the file that wires the fetch into the hub.
+    expect(result.stdout).toContain('src/main/ipc/workflow.ts is a packaged path, so macos-package runs')
     // One file of the table alone is enough.
     commitOnBase(['src/main/workflow/fetch.ts'])
-    expect(scope({ EVENT: 'pull_request', BASE: base }).expect?.['macos-package']).toBe(true)
+    const fetchOnly = scope({ EVENT: 'pull_request', BASE: base })
+    expect(fetchOnly.expect?.['macos-package']).toBe(true)
+    expect(fetchOnly.stdout).toContain('src/main/workflow/fetch.ts is a packaged path, so macos-package runs')
+  })
+
+  // Every path of PACKAGED_PATHS, written by hand: a row or a path dropped from the table, or one
+  // added without a look here, fails the first case; a path that stops matching fails the second.
+  const PACKAGED_EXPECTED = [
+    'src/main/workflow/**',
+    'src/main/ipc/workflow.ts',
+    'src/main/autopilot/harness-drift.ts',
+    'src/main/ipc/autopilot.ts',
+    'src/renderer/canvas/actions/AutopilotAction.tsx',
+    'src/main/harness/bundled.ts',
+    'src/main/harness/install.ts',
+    'src/main/ipc/harness.ts',
+    'src/main/storage/paths.ts',
+    'src/main/window.ts',
+    'src/main/terminal/pty.ts',
+    'src/main/terminal/cursor-answers.ts',
+    'harness/.claude-plugin/**',
+  ]
+  it('PACKAGED_PATHS holds exactly the paths written here by hand', () => {
+    expect(PACKAGED_PATHS.flatMap((row) => row.paths).sort()).toEqual([...PACKAGED_EXPECTED].sort())
+  })
+  it.each(PACKAGED_EXPECTED.map((glob) => glob.replace('**', 'x.ts')))('%s is a packaged path', (path) => {
+    expect(isPackagedPath(path)).toBe(true)
   })
 
   // A path written by hand for each glob of PACKAGED_PATHS, a file of this repository: a typo in the

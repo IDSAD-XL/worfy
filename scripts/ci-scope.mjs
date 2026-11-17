@@ -117,12 +117,12 @@ const isBuildInput = (path) => BUILD_FILES.has(path) || BUILD_FOLDERS.some((fold
 // runs; when in doubt, leave the path out: the push to main still packages the app.
 export const PACKAGED_PATHS = [
   {
-    paths: ['src/main/workflow/**'],
-    why: "reads the Project's main branch and fetches its origin while a window shows the Project (ADR-0107): the @packaged test of the Harness chip opens two clones of worfy and checks that their refs stay as it set them and nothing is fetched; PR #1898 changed this folder and that test failed on main",
+    paths: ['src/main/workflow/**', 'src/main/ipc/workflow.ts'],
+    why: "reads the Project's main branch and fetches its origin while a window shows the Project (ADR-0107; ipc/workflow.ts wires that fetch into the hub): the @packaged test of the Harness chip opens two clones of worfy and checks that their refs stay as it set them and nothing is fetched; PR #1898 changed this folder and that test failed on main",
   },
   {
-    paths: ['src/main/autopilot/harness-drift.ts', 'src/main/ipc/autopilot.ts'],
-    why: 'the chip "Harness in main is newer than the Stable copy" on the Autopilot action: only a packaged build compares its Harness with origin/main (harnessDriftWatch with packaged true, wired in ipc/autopilot.ts)',
+    paths: ['src/main/autopilot/harness-drift.ts', 'src/main/ipc/autopilot.ts', 'src/renderer/canvas/actions/AutopilotAction.tsx'],
+    why: 'the chip "Harness in main is newer than the Stable copy" on the Autopilot action: only a packaged build compares its Harness with origin/main (harnessDriftWatch with packaged true, wired in ipc/autopilot.ts), so only the @packaged test renders the chip and checks that it stays inside the header and covers none of its buttons',
   },
   {
     paths: ['src/main/harness/bundled.ts', 'src/main/harness/install.ts', 'src/main/ipc/harness.ts'],
