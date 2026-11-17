@@ -10,9 +10,8 @@ import { invoke } from '../ipc'
 import { writeAction } from '../projects/read-only'
 import { useProjects, useReadOnly } from '../projects/useProjects'
 import { AnimatedNumber } from '../theme/AnimatedNumber'
-import { StatusChip } from '../theme/primitives'
 import { showToast } from '../toast/toasts'
-import { costNumber, permissionLabel, STATE_CHIPS } from './format'
+import { costNumber, permissionLabel } from './format'
 import { codexDefaultEffort, headerEffort, headerModel, useCodexModels } from './header-facts'
 import { promptHistory } from './history'
 import { ExternalSessionPanel } from './ExternalSessionPanel'
@@ -27,6 +26,7 @@ import { useQuoteComments } from './QuoteComments'
 import { SentQuotesContext } from './sent-quotes'
 import { quoteKey } from './quote-store'
 import { SessionPicker } from './SessionPicker'
+import { SessionStateChip } from './SessionStateChip'
 import { useSessionNodeView } from './node-sessions'
 import { railBlocks, type RailBlock, type RailBlockProps } from './rail/index'
 import { useShowSession } from './shown-session'
@@ -187,7 +187,6 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   const history = useMemo(() => promptHistory(live), [live])
   const facts = useMemo(() => sessionFacts(live), [live])
   const state = view?.state ?? 'starting'
-  const chip = STATE_CHIPS[state]
   // A window that opened or reloaded after a request went out asks main for the open ones, so their cards
   // stand in the transcript, a Product Session's chat too (worfy-product-session ticket 30).
   const { unseen } = useWaitingRequests(sessionId, view === undefined ? null : state)
@@ -367,7 +366,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
         {/* Once main's view of a Session Node is here: no Vendor flashes in the Orchestrator's header before its view. */}
         {orchestrator === undefined && nodeSession !== undefined ? <VendorBadge vendor={nodeSession.vendor} testId="session-vendor" /> : null}
         <span data-testid="session-state" title={view?.error ?? undefined}>
-          <StatusChip status={chip.status} label={chip.label} />
+          <SessionStateChip sessionId={sessionId} state={state} />
         </span>
         <SessionPicker projectId={projectId} shown={{ nodeId, projectId }} shownTitle={heading} />
         {/* A Product Session's header has no Model, Effort, Permissions, Cost or Hide tools (ticket 19, Q3), and no

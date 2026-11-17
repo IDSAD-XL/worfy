@@ -323,6 +323,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'agent.permission',
     'agent.queueRemove',
     'agent.queueSend',
+    // Restart of the hint line of a quiet turn (worfy-stuck-agents ticket 06): ends the agent's process and starts another.
+    'agent.restart',
     'agent.send',
     'agent.start',
     // The Orchestrator modes (worfy-retry ticket 13): only full access changes them, on the Machine of the Project.

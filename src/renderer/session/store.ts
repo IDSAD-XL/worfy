@@ -23,18 +23,23 @@
 //   of the turn (`result`) drops them;
 // - an `mcp` event (the Session's MCP servers, worfy-mcp-live ticket 04) is not part of the transcript
 //   either: the store keeps the latest rows, for the chip of the Session header (McpChip.tsx), and asks
-//   main for them (`agent.mcp`) when a view needs them before any arrived.
+//   main for them (`agent.mcp`) when a view needs them before any arrived;
+// - a `quiet` event (since when the running turn has gone without a sign of life, worfy-stuck-agents
+//   ticket 03) is not part of the transcript either: the store keeps the latest `quietSince`, for the chip
+//   and the hint line of a quiet turn (ticket 06), and takes main's from `agent.controls` when none came.
+//   A state other than `busy` ends the quiet, as main ends it.
 //
 // Nothing here is saved: the transcript file is the record of the Session (ADR 0002, ADR 0005).
 // A view of a Session that has a transcript — a resumed one, the Orchestrator after a restart —
 // shows the transcript's events first and these after them (joinPastAndLive, worfy-daily ticket 22).
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { create } from 'zustand'
 import { typedText } from '../../shared/agent/attachments'
 import type { AgentEvent, AgentEventEnvelope, ContextUsage, QueueSnapshot } from '../../shared/agent/events'
 import type { McpServerRow } from '../../shared/agent/mcp-status'
 import type { SessionSettings } from '../../shared/agent/settings'
 import { invoke, subscribe } from '../ipc'
+import { quietMinutes } from './format'
 import { toolsHiddenRenamed } from './transcript-view'
 
 /** Events kept per Session; older ones are dropped first. */
@@ -68,6 +73,8 @@ export interface SessionLog {
    * (Date.now()); null in `servers`: main has no data. Absent: nothing came yet.
    */
   mcp?: SessionMcp
+  /** Since when the running turn has been quiet, by the last `quiet` event or `agent.controls`; null: it is not. Absent: nothing came yet. */
+  quietSince?: number | null
 }
 
 /** The MCP servers of a Session as the store keeps them (SessionLog.mcp). */
@@ -140,6 +147,7 @@ export function acceptAgentEvent({ sessionId, event: received }: AgentEventEnvel
             context: after?.context ?? before.context,
             narration: after?.narration ?? before.narration ?? NO_NARRATION,
             ...((after?.mcp ?? before.mcp) === undefined ? {} : { mcp: after?.mcp ?? before.mcp }),
+            ...(after?.quietSince !== undefined ? { quietSince: after.quietSince } : before.quietSince !== undefined ? { quietSince: before.quietSince } : {}),
           },
         },
       }
@@ -156,6 +164,8 @@ export function acceptAgentEvent({ sessionId, event: received }: AgentEventEnvel
         return { ...log, narration: { lines: event.lines, first: event.first } }
       case 'mcp':
         return { ...log, mcp: { servers: event.servers, at: event.at ?? Date.now() } }
+      case 'quiet':
+        return { ...log, quietSince: event.quietSince }
       case 'settings': {
         const picked = log.settings !== null && event.settings.model !== log.settings.model
         return { ...log, settings: event.settings, modelPick: picked ? { model: event.settings.model } : log.modelPick }
@@ -175,6 +185,7 @@ export function acceptAgentEvent({ sessionId, event: received }: AgentEventEnvel
           echo: event.type === 'result' ? null : log.echo,
           modelPick: event.type === 'init' ? null : log.modelPick,
           ...(event.type === 'result' ? { narration: NO_NARRATION } : {}),
+          ...(event.type === 'state' && event.state !== 'busy' ? { quietSince: null } : {}),
         }
     }
   })
@@ -190,7 +201,7 @@ export async function loadControls(sessionId: string): Promise<void> {
     console.error(`agent.controls ${sessionId} failed:`, result.error)
     return
   }
-  update(sessionId, (log) => ({ ...log, queue: log.queue ?? result.value.queue, settings: log.settings ?? result.value.settings }))
+  update(sessionId, (log) => ({ ...log, queue: log.queue ?? result.value.queue, settings: log.settings ?? result.value.settings, quietSince: log.quietSince !== undefined ? log.quietSince : result.value.quietSince }))
 }
 
 /** Takes the MCP servers main answered for a Session (an action's answer): newer than any event before it. */
@@ -383,6 +394,29 @@ export function useSessionControls(sessionId: string | null): Pick<SessionLog, '
 export function useSessionContext(sessionId: string | null): ContextUsage | null {
   useEffect(ensureAgentEvents, [])
   return useSessionLogs((store) => (sessionId === null ? null : (store.logs[sessionId]?.context ?? null)))
+}
+
+/**
+ * For how many whole minutes the running turn of a Session has been quiet, by its last `quiet` event (worfy-stuck-agents
+ * ticket 06); the minutes go on by the second while it lasts. null: the turn is not quiet, or nothing says so.
+ */
+export function useQuietMinutes(sessionId: string | null): number | null {
+  useEffect(ensureAgentEvents, [])
+  const since = useSessionLogs((store) => (sessionId === null ? null : (store.logs[sessionId]?.quietSince ?? null)))
+  const [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    if (since === null) return
+    const tick = () => setNow(Date.now())
+    // At once too: the clock may have stood since the last quiet.
+    const first = setTimeout(tick, 0)
+    const timer = setInterval(tick, 1000)
+    return () => {
+      clearTimeout(first)
+      clearInterval(timer)
+    }
+  }, [since])
+  // The clock read before this quiet came says nothing of it.
+  return since === null ? null : quietMinutes(since, Math.max(now, since))
 }
 
 /** A Session's MCP servers, by its last `mcp` event; asks main once when none came yet. Null: no data. */

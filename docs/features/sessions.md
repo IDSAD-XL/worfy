@@ -65,6 +65,23 @@ save". While Autopilot runs the Orchestrator, nothing is sent and `product_save`
 
 The chip's text is the state's name: `needs_permission` reads "needs permission". The exception is a Live Session Node whose Session is not running: it reads "finished", or "new" before the first start.
 
+**A quiet turn.** A turn that has gone 10 minutes without a sign of life is quiet. The chip of the Session view's header
+then reads `busy · quiet N min`, where N is the whole minutes since the last sign, and it goes on by the clock. A sign of life
+is any event of the agent, including the hidden ones: a hook that starts, runs or ends, and thinking tokens. These do not
+count as quiet either, though they send no event: an open permission request (the Session is `needs_permission` then), a hook
+that started and has not ended, an output file of a live background task that changed in the last 10 minutes, the output
+of a gate running in the Session's folder, and a held e2e lock whose holder runs. main looks once a minute, so the mark comes
+up to a minute late. The next sign of life, the end of the turn or a permission request clears the mark.
+
+While the mark is shown, a line over the input field says `No sign of life for N min: no events, no hook, no output.` with
+two buttons. **Interrupt** is the same as the Session's own Interrupt. **Restart** interrupts the turn, waits for the old
+process to exit and starts a new one that continues the same conversation in the same Session, under the same id. The new
+process takes no message by itself, and a held queue stays held. While background tasks of the Session live, Restart does
+nothing, because closing the process would end them; the line shows the reason instead of its text: `1 background task of
+this Session is still running, and a Restart would end it. Try again once it finishes.` Restart is refused for an
+unattended Session (an Autopilot run decides about it) and for one that Autopilot's Stop halted. Nothing restarts or
+interrupts a quiet turn by itself. On a read-only screen both buttons show and do nothing.
+
 **Sending.** Return sends, Shift+Return starts a new line. ↑ and ↓ in an empty field walk the history of sent messages.
 The field grows to 200 pixels. An empty message without attachments is refused. A send that fails puts the text and the
 attachment chips back into the field. "/" at the start of the field or after a space or a line break opens the menu of
@@ -314,7 +331,8 @@ Session sends at most one notification in 10 seconds. A click opens that Session
 - **A process is waited for.** Two processes must not continue one conversation, so a relaunch starts only after the old
   process exits ([ADR-0064](../adr/0064-orchestrator-relaunch-waits-for-old-process-exit.md)). worfy waits 7.5 seconds after
   closing, sends SIGKILL, and waits 2 more seconds. An interrupted turn gets 15 seconds before an Autopilot Stop closes the
-  process.
+  process, and before the Restart of a quiet turn closes it. That Restart is the one the MCP actions use
+  ([MCP servers of a Session](mcp-servers.md)), with no server changed.
 - **An unattended Session has no one to ask.** Hence the forced mode and the refused dialogs
   ([ADR-0022](../adr/0022-unattended-session-refuses-permission-mode-change.md)). Going unattended is refused during a turn,
   with live background tasks or with queued messages, because a restart would lose them
@@ -337,6 +355,7 @@ for a process also asks the system.
 | What | Where |
 | ---- | ----- |
 | One Session: states, send, Interrupt, crash | `src/main/agent/session.ts`, `src/main/agent/session/` |
+| A quiet turn: the rule, the signs main reads, the chip and the line with Interrupt and Restart | `src/shared/agent/quiet.ts`, `src/main/agent/session/quiet-signs.ts`, `src/renderer/session/SessionStateChip.tsx`, `src/renderer/session/composer/QuietTurn.tsx` |
 | The registry of live Sessions, the test agent | `src/main/agent/session/registry.ts`, `src/main/agent/app-registry.ts`, `src/main/agent/fake-query.ts` |
 | Query options, MCP and skills lists, autocompact | `src/main/vendors/claude/options.ts`, `src/main/vendors/claude/query.ts` |
 | Codex slash menu: skills, `/compact`, `/review` | `src/main/vendors/codex/commands.ts`, `src/main/vendors/codex/session.ts` |

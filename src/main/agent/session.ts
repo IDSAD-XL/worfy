@@ -44,7 +44,9 @@
 // (`mcpOff`): every process of the Session starts without it (SessionStart.mcpOff), and its row stays,
 // `disabled`, offering Turn on; neither the Profile nor the Vendor's config changes, and a new Session
 // gets every server again. An unattended Session (Autopilot) refuses all three: its set of servers is
-// fixed for the Wave.
+// fixed for the Wave. The same Restart, with no server changed, is the Restart of the hint line of a quiet
+// turn (restart(), worfy-stuck-agents ticket 06): refused for an unattended or halted Session, answered with
+// the reason while background tasks live.
 //
 // Allow (worfy-mcp-live ticket 05) of a server whose row offers it: the caller's writer puts its name on the
 // Profile's list (`McpActionDeps.allow`: agent.mcpAction writes through bin/profile-set), then the Session
@@ -201,6 +203,12 @@ const NOT_IN_SESSION: ReadonlySet<McpServerRow['status']> = new Set(['not-allowe
 export interface McpActionAnswer {
   servers: McpServerRow[] | null
   error: string | null
+}
+
+/** What a Restart of the Session answers (Session.restart): whether it restarted, and why not when it did not. */
+export interface RestartAnswer {
+  restarted: boolean
+  reason: string | null
 }
 
 /** Why `change` is not one the Vendor of `capabilities` offers, or null when it is. */
@@ -848,6 +856,23 @@ export class Session {
     if (was === undefined) this.mcpOff.delete(name)
     else this.mcpOff.set(name, was)
     return this.keptForTasks()
+  }
+
+  /**
+   * Restart of the hint line of a quiet turn (worfy-stuck-agents ticket 06): the Session's process restarted with
+   * the same conversation (restartProcess), asked by a person. Throws — nothing changes — for a closed, unattended
+   * or halted Session (an unattended one is the run's, as restartFor refuses it) and one whose agent is not running.
+   * Answers the reason, nothing restarted and the turn running on, while background tasks of the Session live
+   * (the words of keptForTasks, ADR-0029).
+   */
+  async restart(): Promise<RestartAnswer> {
+    this.assertOpen()
+    if (this.launch.unattended) throw new Error('An unattended Session is not restarted by hand: its run decides')
+    if (this.halted) throw new Error('This Session was stopped: a Restart would start a second process on its conversation')
+    if (this.liveTaskList.length > 0) return { restarted: false, reason: restartWouldEndTasks(this.liveTaskList.length) }
+    if (await this.restartProcess()) return { restarted: true, reason: null }
+    // A task started while the turn was ending kept the process: the turn stays interrupted, as after an Interrupt.
+    return { restarted: false, reason: restartWouldEndTasks(this.liveTaskList.length) }
   }
 
   /**
