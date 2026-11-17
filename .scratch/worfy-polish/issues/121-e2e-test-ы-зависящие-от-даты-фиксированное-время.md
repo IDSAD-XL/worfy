@@ -1,7 +1,7 @@
 # 121 — e2e test-ы, зависящие от даты: фиксированное время для `new-product-session` и `limits-vendors`, обход `test/e2e`
 
 Type: task
-Status: claimed 2026-11-16T23:59Z
+Status: done 2026-11-17T02:26Z
 PR: #1939
 Blocked by: none
 Source: решение владельца 2026-11-17; `worfy-throughput` 66, «Итог», часть 5, эпизоды 3 и 7: два e2e test-а,
@@ -114,6 +114,7 @@ Source: решение владельца 2026-11-17; `worfy-throughput` 66, «�
       в «Итог», почему.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/43986230457 (clock-shift-121, macOS, runner clock moved to 2026-11-27 10:00 UTC and 2026-12-01 10:00 UTC, 16 passed each) · ci dev · 87c46a09a
 - [ ] CI e2e (`macos-e2e`, `windows-e2e`) зелёный на PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/43987987519/job/133730778008 · ci - · 3930e29c5fb7151320d567989836b8c623c0bdf1
 - [ ] В `test/e2e` не осталось e2e, зависящих от даты с риском «real» из обхода выше, или каждый назван в «Итог» с
       причиной.
   - evidence: commit pass · Pin the date of date-dependent e2e tests: main's clock from WORFY_NOW (worfy-polish 121) · - - · 00b7ab38f
