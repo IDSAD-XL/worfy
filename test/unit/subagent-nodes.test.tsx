@@ -727,14 +727,21 @@ describe('a quiet Subagent', () => {
     children: [],
   }
 
-  it('the Node of a quiet Subagent shows `quiet N min` after its time, and the mark goes on with the clock', () => {
+  // The mark has an element of its own on the Node's last line, not in the header's status chip: the header of a Node
+  // 260 px wide cut the name to one letter next to `running 52m 00s · quiet 21 min` (rework of PR #1953).
+  it('the Node of a quiet Subagent shows `quiet N min` on its last line, outside the header, and the mark goes on with the clock', () => {
     vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
     vi.setSystemTime(NOW)
     renderNode(dataOf('AGENT1XXXXXXXXXXXXXX', quiet7()))
     expect(screen.getByTestId('subagent-node').dataset.status).toBe('running')
-    expect(screen.getByTestId('subagent-status').textContent).toBe('running 52m 00s · quiet 21 min')
+    expect(screen.getByTestId('subagent-status').textContent).toBe('running 52m 00s')
+    const mark = screen.getByTestId('subagent-quiet')
+    expect(mark.textContent).toBe('quiet 21 min')
+    expect(mark.parentElement).toBe(screen.getByTestId('subagent-summary'))
+    expect(mark.parentElement?.contains(screen.getByTestId('subagent-name'))).toBe(false)
     act(() => vi.advanceTimersByTime(60_000))
-    expect(screen.getByTestId('subagent-status').textContent).toBe('running 53m 00s · quiet 22 min')
+    expect(screen.getByTestId('subagent-status').textContent).toBe('running 53m 00s')
+    expect(screen.getByTestId('subagent-quiet').textContent).toBe('quiet 22 min')
   })
 
   it('the Node of a Subagent quiet for 9 minutes, and of a Codex Subagent, shows no mark', () => {
@@ -742,18 +749,36 @@ describe('a quiet Subagent', () => {
     vi.setSystemTime(NOW)
     renderNode(dataOf('AGENT2XXXXXXXXXXXXXX', quiet7()), 'scout')
     expect(screen.getByTestId('subagent-status').textContent).toBe('running 51m 45s')
+    expect(screen.queryByTestId('subagent-quiet')).toBeNull()
     cleanup()
     renderNode(dataOf('thr-ada', [codex]), 'codex')
     expect(screen.getByTestId('subagent-status').textContent).toBe('running 52m 00s')
+    expect(screen.queryByTestId('subagent-quiet')).toBeNull()
   })
 
-  it('the rail shows the same mark on the quiet Subagent only', () => {
-    render(<SubagentsList tree={[...quiet7(), codex]} now={NOW} onOpen={() => undefined} sessionKey="list-quiet" />)
+  // In the rail the mark takes a line of its own under the name: next to the time it pushed the name out of a row and the
+  // chip against Hide (rework of PR #1953). jsdom lays nothing out, so the test holds the styles that make the second line.
+  it('the rail shows the same mark on the quiet Subagent only, on a line of its own under the name', () => {
+    render(<SubagentsList tree={[...quiet7(), codex]} now={NOW} onOpen={() => undefined} sessionKey="list-quiet" onHide={() => undefined} />)
     const rows = screen.getAllByTestId('subagents-rail-row')
-    expect(rows.map((row) => [row.dataset.subagentId, within(row).getByTestId('subagents-rail-status').textContent])).toEqual([
-      ['a3000000000000286', 'running 52m 00s · quiet 21 min'],
-      ['a4000000000000286', 'running 51m 45s'],
-      ['thr-ada', 'running 52m 00s'],
+    expect(
+      rows.map((row) => [row.dataset.subagentId, within(row).getByTestId('subagents-rail-status').textContent, within(row).queryByTestId('subagents-rail-quiet')?.textContent ?? null]),
+    ).toEqual([
+      ['a3000000000000286', 'running 52m 00s', 'quiet 21 min'],
+      ['a4000000000000286', 'running 51m 45s', null],
+      ['thr-ada', 'running 52m 00s', null],
     ])
+    const [quietRow, calmRow] = rows as [HTMLElement, HTMLElement]
+    const mark = within(quietRow).getByTestId('subagents-rail-quiet-line')
+    expect(mark.contains(within(quietRow).getByTestId('subagents-rail-quiet'))).toBe(true)
+    // The row wraps and the mark's line is as wide as the row: it starts a line of its own after the name and the chips.
+    expect(quietRow.style.flexWrap).toBe('wrap')
+    expect(mark.style.flexBasis).toBe('100%')
+    expect(calmRow.style.flexWrap).toBe('')
+    // The name and the status chip come first, and Hide stays outside the row.
+    const order = Array.from(quietRow.children)
+    expect(order.indexOf(within(quietRow).getByTestId('subagents-rail-name'))).toBeLessThan(order.indexOf(mark))
+    expect(order.indexOf(within(quietRow).getByTestId('subagents-rail-status'))).toBeLessThan(order.indexOf(mark))
+    expect(quietRow.contains(within(quietRow.parentElement as HTMLElement).getByTestId('subagents-rail-hide'))).toBe(false)
   })
 })

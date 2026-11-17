@@ -15,7 +15,8 @@ import type { CanvasNodeProps } from './index'
 // A Subagent of a Session on the Canvas (ticket 15; CONTEXT.md, «Subagent»): its name, type and
 // model, its status with the time it has run, and the first line of its final answer — a
 // reviewer's VERIFIED or REJECTED as a chip. A running Subagent whose file has not changed for 10
-// minutes says `· quiet N min` after its time (worfy-stuck-agents ticket 04). The Nodes come from sources/subagents.ts, to the right
+// minutes starts its last line with `quiet N min` (worfy-stuck-agents ticket 04): in the header next to
+// the time it would leave the name no room in a Node this narrow. The Nodes come from sources/subagents.ts, to the right
 // of their Session's Node; the same kind draws the "N done" row that folds a parent's done and
 // interrupted Subagents (a click opens it) and the invisible anchor the tree's lines start from. A
 // click on "Transcript" opens the Subagent's own transcript, read-only, in the Session view.
@@ -39,6 +40,8 @@ const styles = {
   body: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 2, padding: '0 var(--space-3) var(--space-2)' },
   line: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', minWidth: 0, fontSize: 'var(--text-12)', color: 'var(--text-secondary)' },
   clip: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  // The colour of the running chip, as the quiet mark of a Session's chip (`busy · quiet N min`).
+  quiet: { flex: 'none', fontWeight: 600, color: 'var(--working-text)', whiteSpace: 'nowrap' },
   open: {
     flex: 'none',
     padding: '0 6px',
@@ -71,18 +74,13 @@ const styles = {
 
 const CHIP: Record<SubagentSummary['status'], Status> = { running: 'working', done: 'done', error: 'blocked', interrupted: 'stopped' }
 
-/** The status with its time, and `· quiet N min` while its file has not changed for 10 minutes (worfy-stuck-agents ticket 04). */
-const withQuiet = (agent: SubagentSummary, now: number): string => {
-  const quiet = subagentQuietLabel(agent, now)
-  return quiet === null ? statusLabel(agent, now) : `${statusLabel(agent, now)} · ${quiet}`
-}
-
 function AgentNode({ id, data, agent }: { id: string; data: SubagentNodeData; agent: SubagentSummary }) {
   const now = useTick(agent.status === 'running')
   const readOnly = useReadOnly()
   const type = subagentTypeLabel(agent.subagentType)
   const title = agent.name ?? type ?? 'Subagent'
   const kindLine = [type, agent.model].filter((part) => part !== null).join(' · ')
+  const quiet = subagentQuietLabel(agent, now)
   const canOpen = agent.agentId !== null && agent.transcript
   // The verdict has its chip; the line shows the rest of the answer's first line, or what the Subagent was asked.
   const summaryText = agent.summary === null ? (agent.description ?? '') : agent.summary === agent.verdict ? '' : agent.summary
@@ -110,7 +108,7 @@ function AgentNode({ id, data, agent }: { id: string; data: SubagentNodeData; ag
           {title}
         </span>
         <span data-testid="subagent-status" title={agent.status === 'interrupted' ? INTERRUPTED_TOOLTIP : undefined}>
-          <StatusChip status={CHIP[agent.status]} label={withQuiet(agent, now)} />
+          <StatusChip status={CHIP[agent.status]} label={statusLabel(agent, now)} />
         </span>
       </div>
       <div style={styles.body}>
@@ -144,6 +142,11 @@ function AgentNode({ id, data, agent }: { id: string; data: SubagentNodeData; ag
           ) : null}
         </div>
         <div style={styles.line} data-testid="subagent-summary">
+          {quiet !== null ? (
+            <span style={styles.quiet} data-testid="subagent-quiet">
+              {quiet}
+            </span>
+          ) : null}
           {agent.verdict !== null ? (
             <span data-testid="subagent-verdict">
               <StatusChip status={agent.verdict === 'VERIFIED' ? 'done' : 'blocked'} label={agent.verdict} />

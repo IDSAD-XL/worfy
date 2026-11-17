@@ -22,7 +22,8 @@ import type { RailBlockProps } from './index'
 // The Subagent tree in the Session rail (ticket 15): the same tree as the Subagent Nodes on the
 // Canvas (canvas/sources/subagents.ts), as a list — each Subagent indented under the one that
 // started it, with its status, how long it has run and a reviewer's verdict; a running one whose file
-// has not changed for 10 minutes adds `· quiet N min` (worfy-stuck-agents ticket 04). A click on a row
+// has not changed for 10 minutes gets `quiet N min` on a line of its own under its name
+// (worfy-stuck-agents ticket 04): next to the time it would leave the name no room. A click on a row
 // opens the Subagent's transcript, read-only.
 //
 // The rail orders the list itself, newest first on every level (the shared tree is oldest first,
@@ -40,12 +41,6 @@ import type { RailBlockProps } from './index'
 export const order = 20
 
 const CHIP: Record<SubagentInfo['status'], Status> = { running: 'working', done: 'done', error: 'blocked', interrupted: 'stopped' }
-
-/** The status with its time, and `· quiet N min` as on the Subagent Node (nodes/SubagentNode.tsx; worfy-stuck-agents ticket 04). */
-const withQuiet = (info: SubagentInfo, now: number): string => {
-  const quiet = subagentQuietLabel(info, now)
-  return quiet === null ? statusLabel(info, now) : `${statusLabel(info, now)} · ${quiet}`
-}
 
 const styles = {
   heading: { margin: 0, fontSize: 'var(--text-11)', lineHeight: '14px', fontWeight: 600, color: 'var(--text-muted)' },
@@ -67,6 +62,9 @@ const styles = {
     textAlign: 'left',
   },
   branch: { flex: 'none', color: 'var(--text-muted)' },
+  // A quiet row wraps: the mark takes a whole second line, under the name (worfy-stuck-agents ticket 04).
+  wrap: { flexWrap: 'wrap', rowGap: 0 },
+  quiet: { flexBasis: '100%', display: 'flex', gap: 6, fontSize: 'var(--text-11)', lineHeight: '14px', fontWeight: 600, color: 'var(--working-text)' },
   name: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   group: { color: 'var(--text-muted)' },
   chevron: { flex: 'none' },
@@ -136,11 +134,13 @@ export function SubagentsList({ tree, now, onOpen, sessionKey, onHide, hiddenCou
   const interrupted = done.filter((info) => info.status === 'interrupted').length
   const row = (info: SubagentInfo) => {
     const canOpen = info.agentId !== null && info.transcript
+    const quiet = subagentQuietLabel(info, now)
+    const branch = info.depth > 1 ? '└' : '•'
     return (
       <li key={info.id} style={styles.line}>
         <button
           type="button"
-          style={{ ...styles.row, flex: 1, minWidth: 0, paddingLeft: 10 + (info.depth - 1) * 14 }}
+          style={{ ...styles.row, ...(quiet === null ? {} : styles.wrap), flex: 1, minWidth: 0, paddingLeft: 10 + (info.depth - 1) * 14 }}
           disabled={!canOpen}
           title={info.summary ?? info.description ?? undefined}
           data-testid="subagents-rail-row"
@@ -149,7 +149,7 @@ export function SubagentsList({ tree, now, onOpen, sessionKey, onHide, hiddenCou
           onClick={() => onOpen(info)}
         >
           <span className="w-mono" style={styles.branch} aria-hidden="true">
-            {info.depth > 1 ? '└' : '•'}
+            {branch}
           </span>
           <span className="w-mono" style={styles.name} title={info.subagentType ?? undefined} data-testid="subagents-rail-name">
             {info.name ?? subagentTypeLabel(info.subagentType) ?? 'Subagent'}
@@ -157,8 +157,17 @@ export function SubagentsList({ tree, now, onOpen, sessionKey, onHide, hiddenCou
           </span>
           {info.verdict !== null ? <StatusChip status={info.verdict === 'VERIFIED' ? 'done' : 'blocked'} label={info.verdict} /> : null}
           <span title={info.status === 'interrupted' ? INTERRUPTED_TOOLTIP : undefined} data-testid="subagents-rail-status">
-            <StatusChip status={CHIP[info.status]} label={withQuiet(info, now)} />
+            <StatusChip status={CHIP[info.status]} label={statusLabel(info, now)} />
           </span>
+          {quiet !== null ? (
+            <span style={styles.quiet} data-testid="subagents-rail-quiet-line">
+              {/* An invisible branch mark lines the mark up under the name. */}
+              <span className="w-mono" style={{ ...styles.branch, visibility: 'hidden' }} aria-hidden="true">
+                {branch}
+              </span>
+              <span data-testid="subagents-rail-quiet">{quiet}</span>
+            </span>
+          ) : null}
         </button>
         {onHide ? (
           <button type="button" style={styles.hide} title="Hide this Subagent from the rail and the Canvas" data-testid="subagents-rail-hide" onClick={() => onHide([info.id])}>

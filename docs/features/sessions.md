@@ -421,8 +421,9 @@ Subagent's transcript, read-only.
 | `interrupted` | No end is known, and the Session's running process started after its last record |
 
 A Subagent without an end stays `running` however long its file has not changed, while its Session runs. Once its
-`agent-<agentId>.jsonl` has not changed for 10 minutes, its Node and its rail row add a mark after the time:
-`running 52m 00s · quiet 21 min`. The quiet time counts from the later of the file's modification time and its last record's
+`agent-<agentId>.jsonl` has not changed for 10 minutes, it gets the mark `quiet 21 min` next to `running 52m 00s`: on its
+Node the mark starts the last line, before what the Subagent was asked; in the rail it takes a line of its own under the
+name. The status chip keeps only the status and the time, so the name stays readable. The quiet time counts from the later of the file's modification time and its last record's
 time, and the mark goes when the file changes or the Subagent ends. A Subagent of a Codex Session has no file and gets no
 mark, nor does one known only by its call. The tooltip of
 `interrupted` says that the process restarted after the agent's last record: "it was stopped from outside, not by a failure".

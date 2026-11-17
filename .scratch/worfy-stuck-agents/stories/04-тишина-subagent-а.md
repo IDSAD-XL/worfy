@@ -81,41 +81,71 @@ export function subagentQuietLabel(info: Pick<SubagentInfo, 'status' | 'changedA
 - Риски и пробелы test-ов: Subagent Codex и Subagent, известный только по вызову, без файла — пометки нет, это проверено.
   Статус не меняется: тишина — пометка, `running` остаётся.
 
-## 5. Node и rail: пометка после времени
+## 5. Node: пометка на последней строке, не в заголовке
 
-Code: `src/renderer/canvas/nodes/SubagentNode.tsx:74-78` · key lines: 76, 77
+Code: `src/renderer/canvas/nodes/SubagentNode.tsx:144-149` · key lines: 145, 146
 
 ```tsx
-/** The status with its time, and `· quiet N min` while its file has not changed for 10 minutes (worfy-stuck-agents ticket 04). */
-const withQuiet = (agent: SubagentSummary, now: number): string => {
-  const quiet = subagentQuietLabel(agent, now)
-  return quiet === null ? statusLabel(agent, now) : `${statusLabel(agent, now)} · ${quiet}`
-}
+        <div style={styles.line} data-testid="subagent-summary">
+          {quiet !== null ? (
+            <span style={styles.quiet} data-testid="subagent-quiet">
+              {quiet}
+            </span>
+          ) : null}
 ```
 
-- Что делает: chip статуса Node показывает `running 52m 00s · quiet 21 min`; rail
-  (`src/renderer/session/rail/SubagentsRail.tsx`) — то же своей копией этой функции. Время идёт от того же `useTick`,
-  что и время работы, поэтому пометка растёт каждую секунду без нового чтения файлов.
-- Почему здесь: Ticket называет оба файла ([Что делаем, п. 3](../issues/04-тишина-subagent-а.md#что-делаем)).
-  `statusLabel` лежит в `src/renderer/claude-home/subagents.ts`, которого нет в списке файлов Ticket-а, поэтому пометка
-  дописывается в двух местах, а не там.
-- Без него: тишина считалась бы, но не была бы видна.
+- Что делает: chip статуса в заголовке Node показывает только `running 52m 00s`; `quiet 21 min` — отдельный элемент в
+  начале последней строки, перед тем, что Subagent-у поручили, цветом chip-а `running`. Время идёт от того же `useTick`,
+  что и время работы, поэтому пометка растёт без нового чтения файлов.
+- Почему здесь: в первом раунде пометка стояла в chip-е после времени, и в заголовке Node шириной 260 px от имени
+  `impl-0` оставалась одна буква (замечание ревью PR #1953, снимки собранного приложения). Последняя строка есть у Node
+  всегда, высота 84 px не меняется; так же пометка стоит отдельной строкой в макете spec-а.
+- Без него: тишина считалась бы, но не была бы видна — или была бы видна ценой имени Subagent-а.
 - Требование: [Что делаем, п. 3 и 4](../issues/04-тишина-subagent-а.md#что-делаем)
-- Риски и пробелы test-ов: макет spec-а пишет `running 52 min`, а время работы выводится как раньше — `52m 00s`; формат
-  времени Ticket не меняет. Две копии `withQuiet` могут разойтись — их держат одни и те же ожидаемые строки в
-  `test/unit/subagent-nodes.test.tsx`.
+- Риски и пробелы test-ов: jsdom не раскладывает элементы, поэтому test проверяет, что пометка — свой элемент на строке
+  `subagent-summary`, а не в chip-е; что имя видно целиком, показали снимки Playwright собранного приложения (светлая и
+  тёмная темы), не test. Ticket пишет `running 52 min · quiet 21 min` одной строкой, а время работы выводится как раньше —
+  `52m 00s`: формат времени общий для всех Subagent-ов, и Ticket его не меняет.
 
-## 6. Что сознательно не меняли
+## 6. Rail: пометка своей строкой под именем
+
+Code: `src/renderer/session/rail/SubagentsRail.tsx:162-170` · key lines: 163, 165, 168
+
+```tsx
+          {quiet !== null ? (
+            <span style={styles.quiet} data-testid="subagents-rail-quiet-line">
+              {/* An invisible branch mark lines the mark up under the name. */}
+              <span className="w-mono" style={{ ...styles.branch, visibility: 'hidden' }} aria-hidden="true">
+                {branch}
+              </span>
+              <span data-testid="subagents-rail-quiet">{quiet}</span>
+            </span>
+          ) : null}
+```
+
+- Что делает: строка молчащего Subagent-а получает `flexWrap: 'wrap'`, а пометка — `flexBasis: '100%'`, поэтому она
+  уходит на вторую строку внутри той же кнопки, под имя; невидимый значок ветки выравнивает её по имени. Chip статуса
+  остаётся коротким и не упирается в `Hide`.
+- Почему здесь: в первом раунде длинный chip `running 52m 00s · quiet 21 min` вытеснял имя из строки целиком и касался
+  `Hide`. Имя строки — `flex: 1` с нулевой основой, поэтому перенос не уносит chip статуса на вторую строку.
+- Без него: в rail-е молчащий Subagent был бы без имени.
+- Требование: [Что делаем, п. 3](../issues/04-тишина-subagent-а.md#что-делаем)
+- Риски и пробелы test-ов: test держит стили переноса (`flexWrap`, `flexBasis`) и порядок элементов; что перенос
+  действительно даёт вторую строку, видно только на снимках собранного приложения. Пометка больше не дублирует
+  `statusLabel` двумя копиями функции — `withQuiet` первого раунда удалён из обоих файлов.
+
+## 7. Что сознательно не меняли
 
 Статус `running` не меняется: тишина файла ничего не говорит наверняка, это пометка. Subagent-ы Codex
 (`src/main/vendors/codex/subagents.ts`) и схема дерева Codex в `src/shared/ipc/claude-home.ts` не тронуты: у них нет файла.
 Тишина хода Session (chip, hint line) — Ticket 06. Перевод `docs/features/ru/sessions.md` — Ticket 10.
 
-## 7. Как проверено
+## 8. Как проверено
 
 `pnpm lint && pnpm typecheck && pnpm test` — exit 0. Новые test-ы были красными до кода: `test/unit/subagents.test.ts`
 (правило 21 / 9 минут / `done`, чтение `changedAt` из временной Claude home и снимок, что она не изменилась),
-`test/unit/subagent-nodes.test.tsx` (Node и rail), `test/unit/subagent-trees.test.tsx` (поле доходит до дерева в renderer-е).
+`test/unit/subagent-nodes.test.tsx` (Node и rail; во втором раунде — пометка вне chip-а статуса и своей строкой в rail-е,
+каждое из пяти изменений проверено мутантом), `test/unit/subagent-trees.test.tsx` (поле доходит до дерева в renderer-е).
 
 ## Проверить себя
 
