@@ -127,5 +127,9 @@ Source: баг-репорт владельца 2026-11-17 (Pull requests, кно
   - сборка, которая кончилась «Failed» или «Not available», пока её кнопки нет на экране, даёт error toast с причиной;
   - hook слушает `stories.made` с монтирования, а не с отрисовки бара: конец сразу после ответа `stories.running` не
     теряется.
+- CI второго раунда (e2e Autopilot, Run оставался «stopping»): `stories.running` создавал maker story, а с ним
+  release-ы fake agent-а для story, которые забирали `globalThis.worfyFakeRelease` у fake agent-а Session-ов. Теперь
+  без maker-а `stories.running` отвечает null и maker не создаёт; regression — contract test в
+  `test/contract/stories-handler.test.ts`.
 - Оставлено как есть (low): удаление Project-а больше не останавливает его сборку кнопкой — платный запрос идёт до
   конца, папка данных Project-а при удалении остаётся (`src/main/projects/store.ts`), так что story просто сохраняется.
