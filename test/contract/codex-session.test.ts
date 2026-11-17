@@ -22,6 +22,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import { DEFAULT_SETTINGS, type SessionSettings } from '../../src/shared/agent/settings'
 import { PermissionGate } from '../../src/main/agent/permissions'
+import { Session, type SessionVendorParts } from '../../src/main/agent/session'
+import { NO_OUTSIDE_SIGNS } from '../../src/main/agent/session/quiet-signs'
+import { ATTENDED } from '../../src/main/agent/session-settings'
 import { hasExited, within } from '../../src/main/agent/session/process'
 import type { AgentProcess, PermissionAsk, PermissionAsker, RefusalDetails, SessionHandle, SessionPart, SessionStart } from '../../src/main/vendors/session'
 import { OUTPUT_AFTER_EXIT_MS } from '../../src/main/vendors/codex/app-server'
@@ -1009,5 +1012,47 @@ describe('a Codex Session: the slash menu (worfy-multi-vendor ticket 22)', () =>
     // The turn script answers no skills/list: the message goes as typed all the same.
     await session.until(isResult, 'the result')
     expect(at.requests('turn/start').map((request) => request.params)).toEqual([{ threadId: 'thr_fake_1', input: [text('/model gpt-5')] }])
+  })
+})
+
+describe('a Codex Session: a quiet turn (worfy-stuck-agents ticket 03)', () => {
+  it('a turn quiet past the mark brings quietSince to the Session’s sink; the next event of the agent brings null', async () => {
+    const at = fake('interrupt')
+    const start = 1_790_000_000_000
+    let now = start
+    const events: AgentEvent[] = []
+    const parts: SessionVendorParts = { capabilities: () => Promise.resolve(CODEX_CAPABILITIES), commands: { list: () => Promise.resolve([]) } }
+    const quiet = { markMs: 10 * 60_000, lookMs: 20, now: () => now, outside: () => Promise.resolve(NO_OUTSIDE_SIGNS) }
+    const session = new Session(at.root, at.part, (_id, event) => events.push(event), () => undefined, undefined, DEFAULT_SETTINGS, ATTENDED, parts, quiet)
+    const ofType = <T extends AgentEvent['type']>(type: T) => events.filter((event): event is Extract<AgentEvent, { type: T }> => event.type === type)
+    try {
+      session.start()
+      await eventually(() => session.state === 'idle', 'the Session is idle')
+      session.send('Do a long task')
+      // test/fixtures/codex-scripts/interrupt.jsonl: the turn says one thing and stands until worfy interrupts it.
+      await eventually(() => events.some(deltaOf('Starting a long task')), 'the delta')
+      now = start + 9 * 60_000
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      expect(ofType('quiet')).toEqual([])
+
+      now = start + 11 * 60_000
+      await eventually(() => ofType('quiet').length > 0, 'the quiet')
+      expect(ofType('quiet')).toEqual([{ type: 'quiet', quietSince: start }])
+      expect(session.controls().quietSince).toBe(start)
+
+      expect(await session.interrupt()).toBe(true)
+      await eventually(() => session.state === 'idle', 'the turn ended')
+      // The agent's next event — the end of the interrupted turn — ended the quiet before it went out.
+      expect(ofType('quiet')).toEqual([
+        { type: 'quiet', quietSince: start },
+        { type: 'quiet', quietSince: null },
+      ])
+      const types = events.map((event) => event.type)
+      expect(types.lastIndexOf('quiet')).toBeLessThan(types.indexOf('result'))
+      expect(session.controls().quietSince).toBeNull()
+    } finally {
+      session.close()
+      await session.exited()
+    }
   })
 })

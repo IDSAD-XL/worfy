@@ -92,10 +92,11 @@ describe('SDK messages → agent events', () => {
     expect(events.map((e) => e.type === 'hook' && e.exitCode)).toEqual([2, 2, 0])
     expect(events[0]).toMatchObject({ type: 'hook', hookEvent: 'Stop', outcome: 'error', stderr: expect.stringContaining('The quality gate is red') as string })
     expect(events[2]).toMatchObject({ type: 'hook', stdout: expect.stringContaining('additionalContext') as string })
-    // The quiet SessionStart and Stop hooks that printed nothing.
+    // The quiet SessionStart and Stop hooks that printed nothing: only the end of their run, a sign of life
+    // that no window shows (worfy-stuck-agents ticket 03).
     const silent = responses.filter((m) => m.exit_code === 0 && m.stdout === '' && m.stderr === '')
     expect(silent.length).toBeGreaterThan(0)
-    for (const message of silent) expect(sdkMessageToEvents(message)).toEqual([])
+    for (const message of silent) expect(sdkMessageToEvents(message)).toEqual([{ type: 'alive', hook: { id: message.hook_id, phase: 'ended' } }])
   })
 
   it('shows the Stop hook feedback Claude Code feeds back to the model as a synthetic notice', () => {

@@ -294,6 +294,19 @@ export const agentEvent = z.discriminatedUnion('type', [
    */
   timed({ type: z.literal('task_activity'), taskId: z.string(), backgrounded: z.boolean() }),
   /**
+   * The agent works where worfy shows nothing (worfy-stuck-agents ticket 03, src/shared/agent/quiet.ts): a
+   * hook run started or runs (`running`) or ended (`ended`) — `hook.id` names the run — or, with `hook`
+   * null, Claude Code counts thinking tokens. A sign of life of the turn, never a line of the transcript:
+   * the Session takes it in, and it is main-process only (isMainOnlyEvent).
+   */
+  timed({ type: z.literal('alive'), hook: z.object({ id: z.string(), phase: z.enum(['running', 'ended']) }).nullable() }),
+  /**
+   * The Session's turn went quiet (worfy-stuck-agents ticket 03): `quietSince` is when its last sign of life
+   * was, once the turn has gone QUIET_MARK_MS without one (src/shared/agent/quiet.ts); null again at the next
+   * sign of life or when the turn ends. Main looks once a minute, so it goes out at most that often.
+   */
+  timed({ type: z.literal('quiet'), quietSince: z.number().nullable() }),
+  /**
    * worfy's own count of the Session's live background tasks, ambient ones left out
    * (src/shared/agent/background-tasks.ts): sent by the Session whenever it changes, also when a
    * new Claude Code process empties it. Never made from an SDK message or a transcript record.
@@ -369,10 +382,10 @@ export type AgentEvent = z.infer<typeof agentEvent>
  * Whether an event stays in the main process: the Session's observers get it (Autopilot), its
  * sink — the windows — does not. `task_activity` comes with every tool use of every background
  * task and is shown nowhere; in a window it would only push the Session's earlier events out of
- * the renderer's bounded event list.
+ * the renderer's bounded event list. `alive` comes as often, with every hook and thinking frame.
  */
 export function isMainOnlyEvent(event: AgentEvent): boolean {
-  return event.type === 'task_activity'
+  return event.type === 'task_activity' || event.type === 'alive'
 }
 
 /** What travels on `agent.event`: one event of one Session. */

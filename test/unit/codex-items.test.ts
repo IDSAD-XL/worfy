@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { agentEvent, type AgentEvent } from '../../src/shared/agent/events'
+import { agentEvent, isMainOnlyEvent, type AgentEvent } from '../../src/shared/agent/events'
 import { approvalAsk, CODEX_APPROVAL_OPTIONS, decisionOf, isApprovalRequest, type CodexApprovalRequest } from '../../src/main/vendors/codex/approvals'
 import { boundedText, CodexItems, contextUsageOf, ERROR_TEXT_LIMIT, toolResult, toolUse, type CodexTurnContext } from '../../src/main/vendors/codex/items'
 import type { ServerNotification } from '../../src/main/vendors/codex/protocol/ts/ServerNotification'
@@ -256,7 +256,7 @@ describe('the events of a turn: what the scripts do not play', () => {
     expect(items.lastEnded).toBe('turn_10')
   })
 
-  it('a Stop hook is a hook event while it runs; a run that ends silent closes it, one that said something is shown; other silent runs give nothing', () => {
+  it('a Stop hook is a hook event while it runs; a run that ends silent closes it, one that said something is shown; other silent runs show nothing; every run is a sign of life', () => {
     const run = (fields: Record<string, unknown>) => ({
       id: 'stop:0:/codex/plugins/worfy/hooks/hooks.json',
       eventName: 'stop',
@@ -277,6 +277,8 @@ describe('the events of a turn: what the scripts do not play', () => {
     const hook = (method: 'hook/started' | 'hook/completed', fields: Record<string, unknown> = {}): ServerNotification =>
       ({ method, params: { threadId: 'thr_fake_1', turnId: 'turn_1', run: run(fields) } }) as unknown as ServerNotification
     const shown = (outcome: string, stdout = '', stderr = '', hookEvent = 'Stop', hookName = 'stop:0:/codex/plugins/worfy/hooks/hooks.json'): AgentEvent => ({ type: 'hook', hookEvent, hookName, exitCode: null, outcome, stdout, stderr })
+    // The sign of life of a run (worfy-stuck-agents ticket 03): its start and its end, whichever hook it is.
+    const alive = (phase: 'running' | 'ended', id = 'stop:0:/codex/plugins/worfy/hooks/hooks.json'): AgentEvent => ({ type: 'alive', hook: { id, phase } })
     expect(
       play([
         hook('hook/started'),
@@ -288,14 +290,47 @@ describe('the events of a turn: what the scripts do not play', () => {
         hook('hook/completed', { id: 'pre:2', eventName: 'preToolUse', status: 'failed' }),
       ]),
     ).toEqual([
-      ['hook/started', [shown('running')]],
-      ['hook/completed', [shown('completed')]],
-      ['hook/started', [shown('running')]],
-      ['hook/completed', [shown('blocked', 'Fix the lint first.', '[gate] red (fast): lint')]],
-      ['hook/started', []],
-      ['hook/completed', []],
-      ['hook/completed', [shown('failed', '', '', 'PreToolUse', 'pre:2')]],
+      ['hook/started', [alive('running'), shown('running')]],
+      ['hook/completed', [alive('ended'), shown('completed')]],
+      ['hook/started', [alive('running'), shown('running')]],
+      ['hook/completed', [alive('ended'), shown('blocked', 'Fix the lint first.', '[gate] red (fast): lint')]],
+      ['hook/started', [alive('running', 'pre:1')]],
+      ['hook/completed', [alive('ended', 'pre:1')]],
+      ['hook/completed', [alive('ended', 'pre:2'), shown('failed', '', '', 'PreToolUse', 'pre:2')]],
     ])
+  })
+
+  it('the run of a hook other than Stop is a sign of life that stays in main (worfy-stuck-agents ticket 03)', () => {
+    const notification = (method: 'hook/started' | 'hook/completed', status: string): ServerNotification =>
+      ({
+        method,
+        params: {
+          threadId: 'thr_fake_1',
+          turnId: 'turn_1',
+          run: {
+            id: 'post:3',
+            eventName: 'postToolUse',
+            handlerType: 'command',
+            executionMode: 'sync',
+            scope: 'turn',
+            sourcePath: '/codex/plugins/worfy/hooks/hooks.json',
+            source: 'plugin',
+            displayOrder: 3,
+            status,
+            statusMessage: null,
+            startedAt: 1793000000,
+            completedAt: null,
+            durationMs: null,
+            entries: [],
+          },
+        },
+      }) as unknown as ServerNotification
+    const events = play([notification('hook/started', 'running'), notification('hook/completed', 'completed')]).flatMap(([, each]) => each)
+    expect(events).toEqual([
+      { type: 'alive', hook: { id: 'post:3', phase: 'running' } },
+      { type: 'alive', hook: { id: 'post:3', phase: 'ended' } },
+    ])
+    for (const event of events) expect(isMainOnlyEvent(event)).toBe(true)
   })
 
   it('a reasoning item without a summary gives nothing; empty parts of a summary are left out', () => {

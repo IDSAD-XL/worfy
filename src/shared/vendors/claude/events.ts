@@ -54,6 +54,8 @@ const sdkUser = z.object({
 })
 
 const sdkHookResponse = z.object({
+  /** Claude Code names the run; a message without the id still shows its hook, and gives no `alive`. */
+  hook_id: optStr,
   hook_name: str,
   hook_event: str,
   stdout: str.catch(''),
@@ -158,12 +160,21 @@ export function toolResultText(content: unknown): string {
 
 // Messages whose content worfy does not show: they produce no event (and are not `unknown`).
 // session_state_changed comes only with an env flag worfy does not set; its `idle` arrives while
-// background tasks still run, so worfy does not use it (ADR-0029).
-const QUIET_SYSTEM = new Set(['hook_started', 'hook_progress', 'thinking_tokens', 'session_state_changed'])
+// background tasks still run, so worfy does not use it (ADR-0029). hook_started, hook_progress and
+// thinking_tokens are not shown either, but are signs of life of the turn (`alive`, worfy-stuck-agents ticket 03).
+const QUIET_SYSTEM = new Set(['session_state_changed'])
+
+/** The run a hook message names, as the `hook` of an `alive` event. */
+const sdkHookRun = z.object({ hook_id: str })
 
 function mapSystem(subtype: string, message: unknown): AgentEvent[] {
   if (QUIET_SYSTEM.has(subtype)) return []
   switch (subtype) {
+    case 'hook_started':
+    case 'hook_progress':
+      return [{ type: 'alive', hook: { id: read(sdkHookRun, message).hook_id, phase: 'running' } }]
+    case 'thinking_tokens':
+      return [{ type: 'alive', hook: null }]
     case 'init': {
       const m = read(sdkInit, message)
       return [
@@ -182,8 +193,11 @@ function mapSystem(subtype: string, message: unknown): AgentEvent[] {
     case 'hook_response': {
       const m = read(sdkHookResponse, message)
       const exitCode = orNull(m.exit_code)
-      if (!hookSaidSomething({ exitCode, outcome: m.outcome, stdout: m.stdout, stderr: m.stderr })) return []
-      return [{ type: 'hook', hookEvent: m.hook_event, hookName: m.hook_name, exitCode, outcome: m.outcome, stdout: m.stdout, stderr: m.stderr }]
+      // The end of the run, whatever it said: the Session counts the hooks still running.
+      const id = orNull(m.hook_id)
+      const ended: AgentEvent[] = id === null ? [] : [{ type: 'alive', hook: { id, phase: 'ended' } }]
+      if (!hookSaidSomething({ exitCode, outcome: m.outcome, stdout: m.stdout, stderr: m.stderr })) return ended
+      return [...ended, { type: 'hook', hookEvent: m.hook_event, hookName: m.hook_name, exitCode, outcome: m.outcome, stdout: m.stdout, stderr: m.stderr }]
     }
     case 'status': {
       const m = read(sdkStatus, message)

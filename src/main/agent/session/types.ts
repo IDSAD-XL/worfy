@@ -211,8 +211,10 @@ export interface SessionInfo {
   state: SessionState
 }
 
-/** What the input field shows of a Session besides its events: its settings and its queue. */
+/** What the input field shows of a Session besides its events: its settings, its queue, and since when its turn has been quiet. */
 export interface SessionControls {
   settings: SessionSettings
   queue: QueueSnapshot
+  /** When the quiet of the running turn began, once it was marked (worfy-stuck-agents ticket 03); null otherwise. */
+  quietSince: number | null
 }

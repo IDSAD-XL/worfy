@@ -27,6 +27,10 @@
 //
 // worfy-mcp-live ticket 02: `agent.mcp` reads the MCP servers of the Session, the `mcp` event brings
 // their changes, and `agent.mcpAction` does what a server's row offers (Reconnect).
+//
+// worfy-stuck-agents ticket 03: a turn that has gone QUIET_MARK_MS without a sign of life
+// (src/shared/agent/quiet.ts) brings a `quiet` event with `quietSince`, the time of its last sign; the
+// next sign or the end of the turn brings it null. Main looks once a minute; `agent.controls` answers it too.
 import { z } from 'zod'
 import { attachmentSchema, attachmentSourceSchema, attachResultSchema, MAX_ATTACHMENTS } from '../agent/attachments'
 import { slashCommandSchema } from '../agent/commands'
@@ -105,8 +109,17 @@ export const agentClose = invokeChannel('agent.close', z.object({ sessionId }), 
 
 export const agentList = invokeChannel('agent.list', z.void(), z.array(z.object({ sessionId, cwd: z.string(), state: sessionState })), 'project', 'read')
 
-/** The Session's settings and queue as they are now. */
-export const agentControls = invokeChannel('agent.controls', z.object({ sessionId }), z.object({ settings: sessionSettingsSchema, queue: queueSnapshotSchema }), 'project', 'read')
+/**
+ * The Session's settings and queue as they are now, and since when its running turn has been quiet (null:
+ * it is not; worfy-stuck-agents ticket 03) — what the `settings`, `queue` and `quiet` events last said.
+ */
+export const agentControls = invokeChannel(
+  'agent.controls',
+  z.object({ sessionId }),
+  z.object({ settings: sessionSettingsSchema, queue: queueSnapshotSchema, quietSince: z.number().nullable() }),
+  'project',
+  'read',
+)
 
 /**
  * The permission and question requests of the Session still open, as their `permission_request` and

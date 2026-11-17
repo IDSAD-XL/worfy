@@ -35,6 +35,33 @@ describe('the Claude translation of SDK messages', () => {
     for (const events of Object.values(BEFORE)) for (const each of events.flat()) expect(model.agentEvent.safeParse(each).success).toBe(true)
   })
 
+  describe('work worfy does not show is a sign of life, not a line of the transcript (worfy-stuck-agents ticket 03)', () => {
+    const system = (subtype: string, fields: Record<string, unknown> = {}) => ({ type: 'system', subtype, uuid: 'u-1', session_id: 's-1', ...fields })
+    const hook = { hook_id: 'hook-1', hook_name: 'PreToolUse:Bash', hook_event: 'PreToolUse' }
+
+    it.each([
+      ['hook_started', system('hook_started', hook), { id: 'hook-1', phase: 'running' }],
+      ['hook_progress', system('hook_progress', { ...hook, stdout: '', stderr: '', output: '' }), { id: 'hook-1', phase: 'running' }],
+      ['thinking_tokens', system('thinking_tokens', { estimated_tokens: 120, estimated_tokens_delta: 20 }), null],
+    ])('%s gives an alive event, which stays in main', (_name, message, signed) => {
+      const events = sdkMessageToEvents(message, AT)
+      expect(events).toEqual([{ type: 'alive', hook: signed }])
+      for (const event of events) {
+        expect(model.agentEvent.safeParse(event).success).toBe(true)
+        expect(model.isMainOnlyEvent(event)).toBe(true)
+      }
+    })
+
+    it('a hook_response ends the hook run: a silent one gives only that, one that said something its hook event too', () => {
+      const response = (fields: Record<string, unknown>) => system('hook_response', { ...hook, output: '', stdout: '', stderr: '', exit_code: 0, outcome: 'success', ...fields })
+      expect(sdkMessageToEvents(response({}), AT)).toEqual([{ type: 'alive', hook: { id: 'hook-1', phase: 'ended' } }])
+      expect(sdkMessageToEvents(response({ exit_code: 2, stderr: 'no', outcome: 'error' }), AT)).toEqual([
+        { type: 'alive', hook: { id: 'hook-1', phase: 'ended' } },
+        { type: 'hook', hookEvent: 'PreToolUse', hookName: 'PreToolUse:Bash', exitCode: 2, outcome: 'error', stdout: '', stderr: 'no' },
+      ])
+    })
+  })
+
   it('leaves only the model in src/shared/agent/events.ts', () => {
     expect(Object.keys(model)).not.toContain('sdkMessageToEvents')
     expect(Object.keys(model)).not.toContain('toolResultText')
