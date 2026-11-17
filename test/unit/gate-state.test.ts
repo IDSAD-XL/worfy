@@ -13,7 +13,9 @@ import {
   gateTag,
   lastGateOutcome,
   listWorktrees,
+  mainRedFileName,
   markerOutcome,
+  readMainRed,
   readVerdictFile,
   TranscriptGateScanner,
   verdictFileName,
@@ -947,5 +949,85 @@ describe('listWorktrees', () => {
   it('is just the root outside git', async () => {
     const dir = await tempDir()
     expect(await listWorktrees(dir)).toEqual([{ path: dir, branch: null }])
+  })
+})
+
+// worfy-stuck-agents ticket 02: `land` (harness/bin/land, markMain) keeps <gate>/state/main-red-<key>.json while the
+// main branch of the repository is red; worfy reads it by the Project's root and the same key as the gate's markers.
+describe('the main-red marker', () => {
+  const marker = {
+    sha: '2'.repeat(40),
+    pr: 41,
+    since: '2026-11-09T10:30:00Z',
+    url: 'https://github.com/o/r/actions/runs/2',
+    line: 'main red since 22222222 (#41, 2026-11-09T10:30:00Z) — code PRs wait; fix forward until 2026-11-09T11:30:00Z, then revert #41',
+    at: '2026-11-09T10:31:00Z',
+  }
+
+  /** A Harness home with the plugin, a registry entry `demo` for `root`, and an empty gate state folder. */
+  async function harness(): Promise<{ home: string; harnessHome: string; gateDir: string; root: string; state: string }> {
+    const base = await tempDir()
+    const root = join(base, 'project')
+    const harnessHome = join(base, 'harness')
+    const plugin = join(harnessHome, 'plugin')
+    await mkdir(join(plugin, '.claude-plugin'), { recursive: true })
+    await mkdir(join(plugin, 'bin'), { recursive: true })
+    await writeFile(join(plugin, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'worfy', version: '0.2.0+abc' }))
+    await writeFile(join(plugin, 'bin', 'epic-status'), '#!/bin/sh\n')
+    await mkdir(root, { recursive: true })
+    const gateDir = join(harnessHome, 'gate')
+    await mkdir(join(gateDir, 'state'), { recursive: true })
+    await writeFile(join(gateDir, 'config.json'), JSON.stringify({ repos: [{ key: 'demo', match: root, profile: 'worfy', pm: 'pnpm' }] }))
+    return { home: join(base, 'claude'), harnessHome, gateDir, root, state: join(gateDir, 'state') }
+  }
+
+  it('is named main-red-<key>.json', () => {
+    expect(mainRedFileName('demo')).toBe('main-red-demo.json')
+  })
+
+  it('reads the fields land wrote, by the Project root and its gate key; a PR of null too', async () => {
+    const { gateDir, root, state, home, harnessHome } = await harness()
+    await writeFile(join(state, 'main-red-demo.json'), `${JSON.stringify(marker)}\n`)
+    expect(await readMainRed(gateDir, root)).toEqual(marker)
+    expect(await new GateReader({ home, harnessHome }).mainRed(root)).toEqual(marker)
+    await writeFile(join(state, 'main-red-demo.json'), JSON.stringify({ ...marker, pr: null, url: null }))
+    expect(await readMainRed(gateDir, root)).toEqual({ ...marker, pr: null, url: null })
+  })
+
+  it('is null with no file, with a file that is not JSON or not the marker, and for a root the registry does not know', async () => {
+    const { gateDir, root, state } = await harness()
+    expect(await readMainRed(gateDir, root)).toBeNull()
+    await writeFile(join(state, 'main-red-demo.json'), '{"sha": "2222')
+    expect(await readMainRed(gateDir, root)).toBeNull()
+    await writeFile(join(state, 'main-red-demo.json'), JSON.stringify({ sha: 7 }))
+    expect(await readMainRed(gateDir, root)).toBeNull()
+    await writeFile(join(state, 'main-red-demo.json'), JSON.stringify(marker))
+    await writeFile(join(state, 'main-red-other.json'), JSON.stringify(marker))
+    expect(await readMainRed(gateDir, join(root, '..', 'elsewhere'))).toBeNull()
+    await rm(join(gateDir, 'config.json'))
+    expect(await readMainRed(gateDir, root)).toBeNull()
+  })
+
+  it('writes nothing into the gate state folder or anywhere in the Harness home', async () => {
+    const { gateDir, root, state, home, harnessHome } = await harness()
+    await writeFile(join(state, 'main-red-demo.json'), JSON.stringify(marker))
+    const listing = async (dir: string): Promise<string[]> => {
+      const out: string[] = []
+      for (const entry of await readdir(dir, { recursive: true, withFileTypes: true })) {
+        const path = join(entry.parentPath, entry.name)
+        const info = await stat(path)
+        out.push(`${path} ${info.size} ${info.mtimeMs}`)
+      }
+      return out.sort()
+    }
+    const before = [await listing(harnessHome), await listing(root)]
+    await readMainRed(gateDir, root)
+    await new GateReader({ home, harnessHome }).mainRed(root)
+    expect([await listing(harnessHome), await listing(root)]).toEqual(before)
+    // With no marker the read creates none either.
+    await rm(join(state, 'main-red-demo.json'))
+    const without = [await listing(harnessHome), await listing(root)]
+    expect(await readMainRed(gateDir, root)).toBeNull()
+    expect([await listing(harnessHome), await listing(root)]).toEqual(without)
   })
 })

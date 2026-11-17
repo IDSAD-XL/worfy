@@ -1,7 +1,7 @@
 # 02 — Маркер красного main: `land` пишет `main-red-<key>.json`, worfy его читает
 
 Type: task
-Status: open
+Status: claimed 2026-11-17T03:56Z
 Blocked by: none
 Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реализации» → «Цикл и Run: продолжение, отложить, `main-red`»,
 пункт «Красный main — маркер `land`»; «Риски» → «Маркер снят раньше времени» и «Устаревший маркер `main-red`»;

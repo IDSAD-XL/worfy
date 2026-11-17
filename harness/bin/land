@@ -40,7 +40,9 @@
 //     when that run finished; with no green run among the newest 50, the culprit is older and the reason says to find
 //     it by hand. A PR with documents only still merges: docs_only, the project's rule, gets the PR's changed paths
 //     and exits 0. The newest run being rerun holds code PRs until its verdict. gh unable to read the
-//     runs — the PR waits (unverified), never merges;
+//     runs — the PR waits (unverified), never merges. Each reading of the runs keeps the file
+//     <gate state>/main-red-<key>.json for worfy (see markMain): written while the branch is red, removed once it is not,
+//     left as it is while the red run is rerun or when gh cannot read the runs;
 //   - then, under the main-branch lock (mkdir of main_lock, by default <git common dir>/main.lock — the lock
 //     the skills share): `mergeable` UNKNOWN is asked again up to MERGEABLE_RETRIES times, RETRY_S apart;
 //     CONFLICTING or DIRTY — the PR waits with "conflict: rebase" (land rebases nothing); the head must still
@@ -469,6 +471,54 @@ function documentsCommit(st, sha) {
     docCommits.set(sha, docs)
     return docs
 }
+// --- the marker of a red main branch: <gate state>/main-red-<key>.json -------------------------------------------
+// worfy reads it (src/main/gate/state.ts) instead of asking gh itself: {sha, pr, since, url, line, at} — the commit of
+// the first red push run after the last green one, its PR's number (null: no PR, or older than the runs read), when that
+// run finished, its URL, the line for the orchestrator (mainRed) and when the file was written. mainGreen writes it on
+// every reading that finds the branch red and removes it on every reading that finds it not red; a rerun of the red run
+// in progress and a reading that failed leave it as it is. key is the gate registry's entry for the checkout
+// (hooks/gate-resolve.mjs --which, the key of the gate's own markers red-<key>-<tag>), the folder the gate's state folder
+// (CLAUDE_GATE_STATE, else <HARNESS_HOME>/gate/state, as hooks/gate-paths.mjs has it). A checkout the registry does not
+// know gets no marker; a marker that cannot be written or removed is logged and never stops a merge decision.
+let markerFile
+function mainMarkerFile(st) {
+    if (markerFile !== undefined) return markerFile
+    const r = run([process.execPath, [path.join(__dirname, "..", "hooks", "gate-resolve.mjs")]], ["--which", st.repo], st.repo)
+    const key = r.code === 0 ? r.out.split(/\r?\n/)[0].split("\t")[0] : ""
+    if (!key || /[\\/]|^\.\.?$/.test(key)) {
+        log(`main-red marker: no gate key for ${st.repo} (gate-resolve.mjs --which exit ${r.code}${key ? `, key ${JSON.stringify(key)}` : ""}${r.err ? `: ${firstLine(r.err)}` : ""}) — no marker`)
+        markerFile = null
+    } else {
+        markerFile = path.join(process.env.CLAUDE_GATE_STATE || path.join(harnessHome(st.repo), "gate", "state"), `main-red-${key}.json`)
+    }
+    return markerFile
+}
+// red: the marker's fields, or null — the branch is not red.
+function markMain(st, red) {
+    const file = mainMarkerFile(st)
+    if (!file) return
+    if (!red) {
+        try {
+            fs.unlinkSync(file)
+            log(`main-red marker: main is not red, removed ${file}`)
+        } catch (e) {
+            if (e.code !== "ENOENT") log(`main-red marker: ${file} cannot be removed: ${e.message}`)
+        }
+        return
+    }
+    const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}`)
+    try {
+        fs.mkdirSync(path.dirname(file), { recursive: true })
+        fs.writeFileSync(tmp, `${JSON.stringify({ ...red, at: now() })}\n`)
+        fs.renameSync(tmp, file)
+        log(`main-red marker: wrote ${file}`)
+    } catch (e) {
+        log(`main-red marker: ${file} cannot be written: ${e.message}`)
+        try {
+            fs.unlinkSync(tmp)
+        } catch {}
+    }
+}
 // The state of the main branch: throws Wait when a PR with code may not merge now. The culprit is the first red push
 // run after the last green one. With no green one among the newest MAIN_RUNS, the culprit is older than they are, unless
 // they are the whole history of the branch.
@@ -483,6 +533,7 @@ function mainGreen(st) {
     for (const r of newest) {
         if (r.status !== "completed") {
             if (!first && Number(r.attempt) > 1) {
+                // the main-red marker stays: a red run is what gets rerun, the branch is red until its verdict
                 mainRed = null
                 throw mainWait(`the push run ${r.url || r.databaseId} on ${st.branch} (${short(r.headSha)}) is being rerun (attempt ${r.attempt}): code PRs wait for its verdict`, "ci")
             }
@@ -503,11 +554,14 @@ function mainGreen(st) {
     }
     if (!first) {
         mainRed = null
+        markMain(st, null)
         return
     }
+    const url = first.url || null
     if (!green && runs.length >= MAIN_RUNS) {
         const since = first.updatedAt || first.createdAt
         mainRed = `${st.branch} red since before ${short(first.headSha)} (no green push run among the newest ${MAIN_RUNS}, the oldest red one ${since}) — code PRs wait; the culprit is older than these runs: find it by hand`
+        markMain(st, { sha: first.headSha, pr: null, since, url, line: mainRed })
         throw mainWait(`${mainRed.replace(" — ", `, run ${first.url || first.databaseId} — `)}`, running ? "ci" : "waits")
     }
     const pr = culpritPr(st, first.headSha)
@@ -515,6 +569,7 @@ function mainGreen(st) {
     const head = `${st.branch} red since ${short(first.headSha)} (${pr || "no PR"}, ${since})`
     const tail = `code PRs wait; fix forward until ${plusHour(since)}, then revert ${pr || short(first.headSha)}`
     mainRed = `${head} — ${tail}`
+    markMain(st, { sha: first.headSha, pr: pr ? Number(pr.slice(1)) : null, since, url, line: mainRed })
     // a newer run in progress may bring the green verdict: a later pass may merge (--watch keeps asking)
     throw mainWait(`${head}, run ${first.url || first.databaseId} — ${tail}`, running ? "ci" : "waits")
 }

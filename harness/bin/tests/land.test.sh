@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Tests of harness/bin/land: the merge condition (the CI check of the head, no CI run in progress, a main branch whose push
-# runs are not red — the culprit named, documents and a main fix merged, a rerun that passed is green —, the review
+# runs are not red — the culprit named, documents and a main fix merged, a rerun that passed is green —, the marker of a
+# red main branch for worfy (main-red-<key>.json: written, kept, removed), the review
 # mark and its carry over a rebase, the Check marks a PR lists, the head the orchestrator verified), mergeable UNKNOWN asked again, BEHIND merged without a rebase and a conflict waiting, the
 # main-branch lock, one documents PR per run with `ticket done` for every merged PR, the Evidence lines of
 # prs[].evidence written by `ticket evidence` and the privacy check (evidence-check) before its push, a run broken
@@ -14,6 +15,12 @@
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/land-world.sh"
+# The gate registry and state folder land's marker of a red main branch goes by (main-red-<key>.json): a registry whose
+# one entry, key land-test, matches every world under $T; gate_state <name> gives a world a state folder of its own.
+printf '{"repos":[{"key":"land-test","match":%s}]}\n' "$(node -p 'JSON.stringify(require("fs").realpathSync.native(process.argv[1]))' "$TN")" >"$T/gate-config.json"
+export CLAUDE_GATE_CONFIG="$TN/gate-config.json"
+gate_state() { GATE_STATE="$T/gate-$1"; mkdir -p "$GATE_STATE"; export CLAUDE_GATE_STATE="$(tn "$GATE_STATE")"; MR="$GATE_STATE/main-red-land-test.json"; }
+gate_state default
 
 # --- two green PRs: both merged, one documents PR with both tickets, no batch CI ----------------------------
 new_world green 1 2
@@ -447,6 +454,48 @@ grep -q '^run list --workflow ci.yml --branch main --event push ' "$GHD/log" && 
     && ok "red main: the push runs of main come from gh run list, the culprit PR from the commit's PRs" || bad "red main gh: $(cat "$GHD/log")"
 ! grep -q '^run rerun\|revert\|^workflow run' "$GHD/log" && [ "$(git -C "$W/origin.git" rev-list --count main)" = 1 ] \
     && ok "red main: land reruns nothing and reverts nothing" || bad "red main: gh $(cat "$GHD/log")"
+# the marker of a red main branch, <gate state>/main-red-<key>.json: written while main is red, kept while gh cannot read
+# the push runs and while the red run is being rerun, removed once main is not red. The key is the gate registry's entry
+# for the checkout (gate-resolve.mjs --which): a test registry whose entry matches every world of this file.
+new_world mainmarker 1
+gate_state mainmarker
+state 1
+red_main
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ -f "$MR" ] && [ "$(q "$MR" 's.sha')" = "$C2" ] && [ "$(q "$MR" 's.pr')" = 41 ] && [ "$(q "$MR" 's.url')" = https://github.com/o/r/actions/runs/2 ] \
+    && [ "$(q "$MR" 's.since')" = 2026-11-09T10:30:00Z ] && [ "$(q "$MR" 's.line')" = "$RED_LINE" ] && [ "$(q "$MR" '/^\d{4}-\d\d-\d\dT[\d:]+Z$/.test(s.at)')" = true ] \
+    && ok "main-red marker: the latest completed push run red -> land writes main-red-<key>.json with the sha, the culprit PR and the run's URL" || bad "main-red marker written: exit $rc: $(cat "$MR" 2>&1) $(cat "$W/out")"
+[ "$(ls -A "$GATE_STATE")" = main-red-land-test.json ] && ok "main-red marker: written by rename, no temporary file left" || bad "main-red marker leftovers: $(ls -A "$GATE_STATE")"
+before="$(cat "$MR")"
+: >"$GHD/main-runs-fail"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(cat "$MR" 2>&1)" = "$before" ] && ok "main-red marker: gh cannot read the push runs -> the marker is kept as it was" || bad "main-red marker gh fail: exit $rc: $(cat "$MR" 2>&1)"
+rm -f "$GHD/main-runs-fail"
+NEWER="$(mrun 5 "$C4" in_progress "" 2 2026-11-09T11:00:00Z)" red_main
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -q '^#1 waits: the push run .* is being rerun (attempt 2)' "$W/out" && [ "$(cat "$MR" 2>&1)" = "$before" ] \
+    && ok "main-red marker: the newest push run is being rerun (attempt 2, not completed) -> the marker is kept, main is still red" || bad "main-red marker rerun: exit $rc: $(cat "$MR" 2>&1) $(cat "$W/out")"
+NEWER="$(mrun 5 "$C4" completed success 2 2026-11-09T11:00:00Z 2026-11-09T11:20:00Z)" red_main
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && [ ! -e "$MR" ] \
+    && ok "main-red marker: the rerun's green verdict -> the next run of land sees main green and removes the marker" || bad "main-red marker removed: exit $rc: $(ls -A "$GATE_STATE") $(cat "$W/out")"
+# a marker left by an earlier run, and the latest completed push run green: removed, no other file written
+new_world mainmarker-green 1
+gate_state mainmarker-green
+state 1
+echo '{"sha":"x"}' >"$MR"
+main_runs "$(mrun 2 "$C2" completed success 1 2026-11-09T10:00:00Z)"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ -z "$(ls -A "$GATE_STATE")" ] && grep -q 'main-red marker: main is not red, removed' "$W/state.log" \
+    && ok "main-red marker: land finds main green -> the marker of an earlier run is removed, logged" || bad "main-red marker green: exit $rc: $(ls -A "$GATE_STATE")"
+# no entry of the gate registry for the checkout: no key, no marker, the PR still waits on the red main
+new_world mainmarker-nokey 1
+gate_state mainmarker-nokey
+state 1
+red_main
+CLAUDE_GATE_CONFIG="$(tn "$T/no-registry.json")" "$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && grep -qxF "$RED_REASON" "$W/out" && [ -z "$(ls -A "$GATE_STATE")" ] && grep -q 'main-red marker: no gate key' "$W/state.log" \
+    && ok "main-red marker: the gate registry cannot name the checkout's key -> no marker, logged, the PR waits as before" || bad "main-red marker no key: exit $rc: $(ls -A "$GATE_STATE") $(cat "$W/out")"
 # the culprit's commit has no PR (a direct push): the commit is what to revert
 new_world mainred-nopr 1
 state 1
