@@ -54,11 +54,13 @@ import {
   storiesSaved,
   storiesSelfCheck,
   storiesStop,
+  type StoryMade,
   type StoryRead,
 } from '../../shared/ipc/stories'
 import { parseStory } from '../../shared/stories/parse'
 import type { VendorId } from '../../shared/vendors/vendor'
 import { FakeReleases, fakeQueryFactory } from '../agent/fake-query'
+import { toEveryWindow } from '../broadcast'
 import { harnessScriptEnv } from '../harness/script-env'
 import { gitWorktrees } from '../claude-home/registry'
 import { remoteRepos } from '../github/inbox'
@@ -412,6 +414,18 @@ export const ghPrCommits: PrCommits = async (root, pr) => {
 const prCommits = cachedPrCommits(ghPrCommits)
 const ticketPr = ticketPrFromModel(async (root) => (await readWorkflow({ root, claudeHome: claudeHome(), env: harnessScriptEnv })).model)
 
+/**
+ * Where the lines and the end of build `storyId` by the button go: to every client of the app (src/main/broadcast.ts),
+ * not only the window that pressed — a build outlives its window (worfy-polish 122). Each client's hook takes only the
+ * storyId it holds; both events are `read` for a Linked machine.
+ */
+export function buttonBuildEvents(storyId: string, projectId: string): { activity: (text: string) => void; end: (made: StoryMade) => void } {
+  return {
+    activity: (text) => toEveryWindow((client) => emit(client, storiesActivity, { storyId, text })),
+    end: (made) => toEveryWindow((client) => emit(client, storiesMadeEvent, { storyId, projectId, made })),
+  }
+}
+
 const handlers: HandlerModule = [
   defineHandler(storiesBuild, async ({ storyId, projectId, folder, input }, { event }) => {
     const store = projectStore()
@@ -433,15 +447,13 @@ const handlers: HandlerModule = [
     return { stopped: build || question }
   }),
 
-  // A build runs to its end whatever view is open (worfy-polish 122): its end goes to the window as stories.made too, so a
-  // button that came back to it — or the window's toast, when none did — hears it after the press's own answer is lost.
-  defineHandler(storiesMake, ({ storyId, projectId, target, rebuild }, { event }) =>
-    maker().make(
-      { storyId, projectId, target, rebuild: rebuild === true },
-      (text) => toSender(event.sender, (sendTo) => emit(sendTo, storiesActivity, { storyId, text })),
-      (made) => toSender(event.sender, (sendTo) => emit(sendTo, storiesMadeEvent, { storyId, projectId, made })),
-    ),
-  ),
+  // A build runs to its end whatever view is open (worfy-polish 122): its lines and its end go to every client, so a button
+  // that took it up in another window (one opened anew from the Dock) or on a Linked machine hears them too, and the end
+  // reaches the window's toast when no button followed it.
+  defineHandler(storiesMake, ({ storyId, projectId, target, rebuild }) => {
+    const events = buttonBuildEvents(storyId, projectId)
+    return maker().make({ storyId, projectId, target, rebuild: rebuild === true }, events.activity, events.end)
+  }),
 
   defineHandler(storiesRunning, ({ projectId, target }) => maker().runningOf(projectId, target)),
 

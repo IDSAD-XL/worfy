@@ -284,7 +284,9 @@ tickets, Summary, Check и Check yourself, если в story есть вопро
   останавливают: вернувшись к её PR или Epic-у, видно её полоску с последними строками, а story хранится под тем PR
   или Epic-ом, что бы ни было открыто к её концу. На Canvas Esc и смена view закрывают полоску; она возвращается
   вместе с Canvas или по нажатию **Code story**. Story, которая пришла, пока её кнопки не видно, даёт toast «The Code
-  story of PR owner/name#N is ready» (или «of Epic <name>») с **Open**. **Code story** у PR или Epic-а, который уже
+  story of PR owner/name#N is ready» (или «of Epic <name>») с **Open**; сборка, которая упала или недоступна, пока её
+  кнопки не видно, даёт error toast с причиной. Полоска и toast следуют за сборкой в каждом окне, и в том, что открыто
+  заново из Dock. **Code story** у PR или Epic-а, который уже
   собирается, второго запроса не начинает: показывает ту сборку.
 - **Хранится.** Story хранится в `stories.json` папки данных Project-а под ключом `owner/name#N` для PR и
   `epic:<name>` для Epic-а. Повторное нажатие **Code story** открывает её без запроса. Остановленная или упавшая сборка

@@ -30,6 +30,8 @@ const mocks = vi.hoisted(() => ({
   gh: [] as string[][],
   /** The gh calls in flight, with their arguments: each answers when the test calls it. */
   waiting: [] as { args: string[]; answer: (out: string) => void }[],
+  /** The events every client of the app got (src/main/broadcast.ts stood in): two windows, by their id. */
+  clients: [] as { id: number; got: { channel: string; payload: unknown }[] }[],
 }))
 
 vi.mock('electron', () => ({ app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined } }))
@@ -54,6 +56,12 @@ vi.mock('../../src/main/vendors/registry', () => ({
   }),
 }))
 
+vi.mock('../../src/main/broadcast', () => ({
+  toEveryWindow: (send: (client: unknown) => void) => {
+    for (const client of mocks.clients) send({ id: client.id, send: (channel: string, payload: unknown) => client.got.push({ channel, payload }), isDestroyed: () => false })
+  },
+}))
+
 vi.mock('../../src/main/ipc/checks', () => ({
   sharedPrTracker: () => ({
     gh: (_folder: string, args: string[]) => {
@@ -63,7 +71,7 @@ vi.mock('../../src/main/ipc/checks', () => ({
   }),
 }))
 
-const { default: handlers, answersKey } = await import('../../src/main/ipc/stories')
+const { default: handlers, answersKey, buttonBuildEvents } = await import('../../src/main/ipc/stories')
 const { gitWorktrees } = await import('../../src/main/claude-home/registry')
 const { storyFolder } = await import('../../src/main/stories/one-shot')
 
@@ -98,6 +106,7 @@ beforeEach(async () => {
   mocks.requests = []
   mocks.repos = []
   mocks.gh = []
+  mocks.clients = []
   mocks.structured = undefined
   mocks.waiting = []
   mkdirSync(mocks.root, { recursive: true })
@@ -281,23 +290,43 @@ describe('stories.stop and a story made by the button (stories.make)', () => {
 
   // worfy-polish 122: a button that comes back to its PR asks stories.running; the end of the build reaches the window
   // that pressed as stories.made, after the build has left the registry.
-  it('stories.running names the build under way of a PR, under its key; its end goes to the window as stories.made', async () => {
+  // worfy-polish 122: a button that comes back to its PR asks stories.running; the lines and the end of the build go to
+  // every client — a window opened anew from the Dock, or a Linked machine, that took the build up hears them too.
+  it('stories.running names the build under way of a PR, under its key; its end goes to every window as stories.made', async () => {
     git(mocks.root, 'remote', 'add', 'origin', 'https://github.com/shop/demo-cart.git')
-    const sent: { channel: string; payload: unknown }[] = []
-    const sender = { send: (channel: string, payload: unknown) => sent.push({ channel, payload }), isDestroyed: () => false }
+    // The window that pressed (1) is closed; window 2 took the build up after it.
+    mocks.clients = [{ id: 2, got: [] }]
     const handler = (channel: string) => handlers.find((entry) => entry.channel.name === channel)!
-    const making = handler('stories.make').handle({ storyId: 'by-button', projectId: 'p1', target: { kind: 'pr', repo: 'shop/demo-cart', number: 212 } } as never, { event: { sender } } as never)
+    const pressed = { send: () => undefined, isDestroyed: () => true }
+    const making = handler('stories.make').handle({ storyId: 'by-button', projectId: 'p1', target: { kind: 'pr', repo: 'shop/demo-cart', number: 212 } } as never, { event: { sender: pressed } } as never)
     await vi.waitFor(() => expect(mocks.gh).toHaveLength(1))
     // A Ticket card names no repository: the Project's own, the same build.
     expect(await handle('stories.running', { projectId: 'p1', target: { kind: 'pr', repo: null, number: 212 } })).toEqual({ storyId: 'by-button', key: 'shop/demo-cart#212', lines: [] })
     expect(await handle('stories.running', { projectId: 'p1', target: { kind: 'pr', repo: null, number: 213 } })).toBeNull()
-    expect(sent).toEqual([])
+    expect(mocks.clients[0]!.got).toEqual([])
     expect(await handle('stories.stop', { storyId: 'by-button' })).toEqual({ stopped: true })
     for (const call of mocks.waiting.splice(0)) call.answer(JSON.stringify({ title: 'Cart total in cents', body: '', author: { login: 'dev-me' }, headRefOid: 'a'.repeat(40), headRefName: 'demo-cart/04', comments: [] }))
     const made = { key: 'shop/demo-cart#212', reused: false, outcome: { status: 'stopped' } }
     expect(await making).toEqual(made)
-    expect(sent).toEqual([{ channel: 'worfy:stories.made', payload: { storyId: 'by-button', projectId: 'p1', made } }])
+    expect(mocks.clients[0]!.got).toEqual([{ channel: 'worfy:stories.made', payload: { storyId: 'by-button', projectId: 'p1', made } }])
     expect(await handle('stories.running', { projectId: 'p1', target: { kind: 'pr', repo: null, number: 212 } })).toBeNull()
+  })
+
+  it('the lines and the end of a build by the button reach every client, not only the window that pressed', () => {
+    mocks.clients = [
+      { id: 1, got: [] },
+      { id: 2, got: [] },
+    ]
+    const events = buttonBuildEvents('by-button', 'p1')
+    events.activity('Grep cartTotal')
+    const made = { key: 'shop/demo-cart#212', reused: false, outcome: { status: 'failed' as const, reason: 'no' } }
+    events.end(made)
+    for (const client of mocks.clients) {
+      expect(client.got).toEqual([
+        { channel: 'worfy:stories.activity', payload: { storyId: 'by-button', text: 'Grep cartTotal' } },
+        { channel: 'worfy:stories.made', payload: { storyId: 'by-button', projectId: 'p1', made } },
+      ])
+    }
   })
 })
 

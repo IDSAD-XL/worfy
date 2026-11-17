@@ -6,7 +6,8 @@
 // window reloaded — gives the toast "The Code story of <PR owner/name#N | Epic name> is ready" with "Open", which opens
 // the story main kept (stories/open.ts, openMadeStory). The toast of ticket 10 (story-toast.ts) is for an Epic's
 // story.md the workflow model brings, kept once per Epic in localStorage: it does not fit a story main keeps, so this
-// one is an `action` toast of its own, one per key, shown for each build that ends.
+// one is an `action` toast of its own, one per key, shown for each build that ends. A build that ends "Failed" or "Not
+// available" with no button following it gives an error toast with its reason (stopped: none — Stop was pressed).
 import { useEffect } from 'react'
 import type { Story } from '../../shared/stories/schema'
 import type { Epic } from '../../shared/workflow/types'
@@ -22,6 +23,15 @@ export const MADE_STORY_TOAST_TEST_ID = 'story-made-toast'
 
 /** What a story made by the button is of, by the key main kept it under: `Epic <name>` or `PR owner/name#N`. */
 export const madeStoryName = (key: string): string => (key.startsWith('epic:') ? `Epic ${key.slice('epic:'.length)}` : `PR ${key}`)
+
+/** `data-testid` of the toast of a build by the button that failed with no button following it. */
+export const MADE_STORY_FAILED_TEST_ID = 'story-made-failed-toast'
+
+/** The error toast of a build by the button that ended without a story and with no button on screen: its reason. */
+export function showMadeStoryFailure(projectId: string, key: string, status: 'failed' | 'unavailable', reason: string): void {
+  const what = status === 'failed' ? 'failed' : 'is not available'
+  showToast({ kind: 'error', projectId, testId: MADE_STORY_FAILED_TEST_ID, text: `The Code story of ${madeStoryName(key)} ${what}: ${reason}` })
+}
 
 /** The toast "The Code story of … is ready" of a story made by the button, kept by main under `key`; "Open" opens it. */
 export function showMadeStoryToast(projectId: string, key: string, story: Story): void {
@@ -57,8 +67,11 @@ export function useStoryToasts(project: { id: string; path: string } | undefined
     if (!hasPreloadBridge()) return
     return subscribe('stories.made', ({ storyId, projectId, made }) => {
       setTimeout(() => {
-        if (takeEndedInView(storyId) || made.reused || made.outcome.status !== 'story') return
-        showMadeStoryToast(projectId, made.key, made.outcome.story)
+        if (takeEndedInView(storyId) || made.reused) return
+        const outcome = made.outcome
+        if (outcome.status === 'story') showMadeStoryToast(projectId, made.key, outcome.story)
+        // A build that failed with nobody looking: its reason, or it would be lost — the button shows no bar for it any more.
+        else if (outcome.status === 'failed' || outcome.status === 'unavailable') showMadeStoryFailure(projectId, made.key, outcome.status, outcome.reason)
       }, 0)
     })
   }, [])

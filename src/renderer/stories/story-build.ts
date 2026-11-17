@@ -13,7 +13,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { failureReason, type IpcResult } from '../../shared/ipc/channels'
 import { RUNNING_LINES_KEPT, type StoryInput, type StoryMade, type StoryOutcome, type StoryTarget } from '../../shared/ipc/stories'
 import type { Story } from '../../shared/stories/schema'
-import { invoke, subscribe } from '../ipc'
+import { hasPreloadBridge, invoke, subscribe } from '../ipc'
 
 /** How many lines of the agent's activity the bar shows; the oldest go first. */
 export const SHOWN_LINES = RUNNING_LINES_KEPT
@@ -121,20 +121,23 @@ export function useStoryBuild(projectId: string): StoryBuild {
 
   useEffect(() => {
     if (running === null) return
-    const lines = subscribe('stories.activity', ({ storyId, text }) => {
+    return subscribe('stories.activity', ({ storyId, text }) => {
       setRun((now) => (now.kind === 'running' && now.storyId === storyId ? { ...now, lines: [...now.lines, text].slice(-SHOWN_LINES) } : now))
     })
-    // The end of a build by the button, for a hook that took it up after the press's own answer was lost.
-    const made = subscribe('stories.made', ({ storyId, made: answer }) => {
+  }, [running])
+
+  // The end of a build by the button, for a hook that took it up after the press's own answer was lost. Heard from the
+  // mount on, not from the render that shows the bar: follow() takes the build in the same task main's answer comes in,
+  // so an end that comes right after that answer is not missed while the bar waits to be drawn.
+  useEffect(() => {
+    // A screen without the preload (a view rendered in jsdom) hears no event.
+    if (!hasPreloadBridge()) return
+    return subscribe('stories.made', ({ storyId, made: answer }) => {
       if (current.current?.storyId !== storyId) return
       endedInView.add(storyId)
       settle(storyId, madeAnswer(answer))
     })
-    return () => {
-      lines()
-      made()
-    }
-  }, [running, settle])
+  }, [settle])
 
   const begin = useCallback(
     async (ask: (storyId: string) => Promise<Answer>, stopOnLeave: boolean): Promise<void> => {

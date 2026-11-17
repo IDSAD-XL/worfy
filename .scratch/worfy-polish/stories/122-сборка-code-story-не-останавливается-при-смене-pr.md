@@ -60,7 +60,7 @@ Code: `src/main/stories/by-button.ts:250-276` · key lines: 256, 257, 265, 269, 
 
 ## 3. Кнопка больше не останавливает сборку при уходе, а при появлении подхватывает её
 
-Code: `src/renderer/stories/story-build.ts:162-173` · key lines: 165, 170
+Code: `src/renderer/stories/story-build.ts:165-176` · key lines: 168, 173
 
 ```ts
   const follow = useCallback(
@@ -78,15 +78,16 @@ Code: `src/renderer/stories/story-build.ts:162-173` · key lines: 165, 170
 ```
 
 - Что делает: `follow` спрашивает main (`stories.running`) об идущей сборке своего target и, если она есть, берёт её
-  storyId и последние строки в бар; дальше строки идут через `stories.activity`, конец — через `stories.made`. Рядом
+  storyId и последние строки в бар; дальше строки идут через `stories.activity`, конец — через `stories.made`, на который
+  hook подписан с монтирования, так что конец сразу после ответа main не теряется до отрисовки бара. Рядом
   `abandon` зовёт `stories.stop` только для сборки `start` (`stories.build`), у которой нет ключа в main; сборка кнопкой
   при уходе просто отпускается.
 - Почему здесь: Ticket называет `story-build.ts` и его комментарий `:6` — решение владельца 2026-11-17 записано там же,
   где стояло правило #1890.
 - Без него: после смены PR, view или reload окна бар не вернулся бы, хотя сборка в main идёт.
 - Требование: [Что делаем, пункт 2](../issues/122-сборка-code-story-не-останавливается-при-смене-pr.md#что-делаем)
-- Риски и пробелы test-ов: unit test-ы идут на подставном IPC; связку с настоящим main после reload окна проверяет e2e
-  в CI, локально e2e не запускался.
+- Риски и пробелы test-ов: unit test-ы идут на подставном IPC, включая конец сборки до отрисовки бара; связку с
+  настоящим main после reload окна проверяет e2e в CI, локально e2e не запускался.
 
 ## 4. На Canvas Esc и смена view закрывают бар, но не сборку
 
@@ -108,13 +109,13 @@ Code: `src/renderer/stories/StoryBuildButton.tsx:60-64` · key lines: 61, 63
   на Canvas сама должна вернуть бар.
 - Без него: на Canvas сборка шла бы, но бара не было бы видно до нажатия; до правки смена view её останавливала.
 - Требование: [Что делаем, пункт 2](../issues/122-сборка-code-story-не-останавливается-при-смене-pr.md#что-делаем)
-- Риски и пробелы test-ов: Esc раньше означал Stop, теперь только закрывает бар — это решение в «Итог» Ticket-а;
-  поведение кнопки, которую никто не нажимал на Canvas, после старта сборки в Pull requests проверено только unit
-  test-ом на подставном IPC.
+- Риски и пробелы test-ов: Esc раньше означал Stop, теперь только закрывает бар — это решение в «Итог» Ticket-а.
+  Кнопку Epic-а на Canvas, которую никто не нажимал, при идущей сборке её Epic-а проверяет unit test на подставном IPC;
+  e2e этого пути нет. Сборка, упавшая при баре, закрытом Esc, видна только по нажатию кнопки или со сменой view.
 
 ## 5. Story, которую никто не ждёт на экране, приходит toast-ом
 
-Code: `src/renderer/stories/use-story-toasts.ts:55-64` · key lines: 60, 61
+Code: `src/renderer/stories/use-story-toasts.ts:65-77` · key lines: 70, 72, 74
 
 ```ts
   useEffect(() => {
@@ -122,31 +123,59 @@ Code: `src/renderer/stories/use-story-toasts.ts:55-64` · key lines: 60, 61
     if (!hasPreloadBridge()) return
     return subscribe('stories.made', ({ storyId, projectId, made }) => {
       setTimeout(() => {
-        if (takeEndedInView(storyId) || made.reused || made.outcome.status !== 'story') return
-        showMadeStoryToast(projectId, made.key, made.outcome.story)
+        if (takeEndedInView(storyId) || made.reused) return
+        const outcome = made.outcome
+        if (outcome.status === 'story') showMadeStoryToast(projectId, made.key, outcome.story)
+        // A build that failed with nobody looking: its reason, or it would be lost — the button shows no bar for it any more.
+        else if (outcome.status === 'failed' || outcome.status === 'unavailable') showMadeStoryFailure(projectId, made.key, outcome.status, outcome.reason)
       }, 0)
     })
   }, [])
 ```
 
 - Что делает: слушает `stories.made` всего окна; если ни одна смонтированная кнопка не довела эту сборку до конца
-  (`takeEndedInView`), а пришла новая story, показывает toast «The Code story of PR owner/name#N is ready» с «Open».
-  Решение откладывается `setTimeout`, чтобы порядок слушателей события не влиял на ответ.
+  (`takeEndedInView`), а пришла новая story, показывает toast «The Code story of PR owner/name#N is ready» с «Open»;
+  сборка «Failed» или «Not available» даёт error toast с причиной, Stop — ничего. Решение откладывается `setTimeout`,
+  чтобы порядок слушателей события не влиял на ответ.
 - Почему здесь: Ticket предлагает переиспользовать toast Ticket-а 10; тот хранит показанные Epic-и в localStorage и
   живёт на `story.md` модели workflow — для story, которую держит main, он не подходит, поэтому здесь общий
   `showToast` того же вида.
-- Без него: story, собранная, пока владелец смотрел другой PR, молча легла бы в `stories.json`.
+- Без него: story, собранная, пока владелец смотрел другой PR, молча легла бы в `stories.json`, а упавшая сборка
+  пропала бы без следа: вернувшаяся кнопка не находит её в main и показывает просто «Code story».
 - Требование: [Что делаем, пункт 3](../issues/122-сборка-code-story-не-останавливается-при-смене-pr.md#что-делаем)
 - Риски и пробелы test-ов: после reload окна toast зависит от того, что main шлёт событие тому же `webContents`; e2e
   проверяет reload с открытым PR, toast после reload без кнопки — только unit test.
 
-## 6. Что сознательно не меняли
+## 6. Строки и конец сборки идут всем окнам, а не окну, которое нажало
+
+Code: `src/main/ipc/stories.ts:422-427` · key lines: 424, 425
+
+```ts
+export function buttonBuildEvents(storyId: string, projectId: string): { activity: (text: string) => void; end: (made: StoryMade) => void } {
+  return {
+    activity: (text) => toEveryWindow((client) => emit(client, storiesActivity, { storyId, text })),
+    end: (made) => toEveryWindow((client) => emit(client, storiesMadeEvent, { storyId, projectId, made })),
+  }
+}
+```
+
+- Что делает: отдаёт `stories.make` два обработчика сборки, которые шлют `stories.activity` и `stories.made` каждому
+  клиенту приложения через `toEveryWindow`; hook каждого клиента берёт только тот storyId, что держит.
+- Почему здесь: Ticket называет `src/main/ipc/stories.ts` (handler-ы `stories.running`, событие `stories.made`). Сборка
+  переживает своё окно: на macOS окно закрывается Cmd+W, а новое из Dock — другой `webContents`.
+- Без него: окно, открытое заново, или Linked machine, подхватившие сборку через `stories.running`, видели бы бар
+  «running» навсегда, Stop — «stopping», и toast не пришёл бы.
+- Требование: [Что делаем, пункт 4](../issues/122-сборка-code-story-не-останавливается-при-смене-pr.md#что-делаем)
+- Риски и пробелы test-ов: contract test подменяет `toEveryWindow` двумя окнами; что Linked machine получает события
+  `project`/`read`, проверяет общий механизм link, не этот PR.
+
+## 7. Что сознательно не меняли
 
 - `stories.build` (`start`): main не держит её ключа, правило #1890 для неё остаётся — unmount, reset и новая сборка её
   останавливают.
 - Вид бара и кнопки — по F-SPEC и kit, без изменений.
 
-## 7. Как проверено
+## 8. Как проверено
 
 - `pnpm test test/unit/story-*.test.ts* test/contract/stories-*.test.ts test/contract/story-*.test.ts test/unit/link-access.test.ts test/unit/pr-inbox-view.test.tsx test/unit/line-question.test.tsx` — exit 0.
 - `pnpm lint`, `pnpm typecheck` — exit 0; gate fast — exit 0, `[gate] green (fast)`.
@@ -160,7 +189,7 @@ Code: `src/renderer/stories/use-story-toasts.ts:55-64` · key lines: 60, 61
    - Ответ: ключ считается после чтения репозиториев Project-а, так что `repo: null` и `owner/name` дают один ключ;
      идущая запись в `byKey` под ним ведёт в `join`, а не в новую сборку.
 2. Почему кнопка, которая подхватила сборку, не получает toast вдобавок к открытой story?
-   - Строки: `src/renderer/stories/use-story-toasts.ts:59-61`
+   - Строки: `src/renderer/stories/use-story-toasts.ts:69-70`
    - Ответ: её подписка на `stories.made` отмечает storyId в `endedInView`, а слушатель окна, отложенный `setTimeout`,
      забирает эту отметку и toast не показывает.
 3. Что останавливает сборку кнопкой теперь?

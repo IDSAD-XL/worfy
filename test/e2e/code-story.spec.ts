@@ -599,13 +599,18 @@ test('Code story by the button: the Epic so far with its Tickets not ready marke
 })
 
 // worfy-polish 122 (the owner's bug report of 2026-11-17): a build by the button runs to its end whatever PR is open.
-// The story of PR #300 (A) builds — the fake agent holds it after its first lines — while PR #212 (B, the PR of Ticket 04,
-// whose story file is committed) is open: B shows its own "Code story", no bar. Back on A the bar is there with the
-// lines main kept; after a reload of the window too. The release ends the one build: the story opens on A, and A has a
-// story kept ("Rebuild story"). The fake agent was asked once.
+// The story of PR #300 (A) builds — the fake agent holds it after its first lines — while PR #301 (B, another Session PR
+// with no story, added to the gh stub here) is open: B shows its own "Code story" button, idle, no bar. Back on A the bar
+// is there with the lines main kept; after a reload of the window too. The release ends the one build: the story opens
+// on A, and A has a story kept ("Rebuild story"). The fake agent was asked once.
 test('a story by the button builds on while another PR is open and after a reload; it ends on its own PR with one request', async () => {
   test.setTimeout(ms(150_000))
   const { env, log } = prepareButton()
+  const graphFile = join(env.GH_STUB_DIR!, 'graphql.json')
+  const graph = JSON.parse(readFileSync(graphFile, 'utf8')) as { pulls: { number: number; pull: Record<string, unknown> }[] }
+  const a = graph.pulls.find((one) => one.number === 300)!
+  graph.pulls.push({ ...a, number: 301, pull: { ...a.pull, title: 'Fix the footer', url: `https://github.com/${CART_REPO}/pull/301`, headRefName: 'session/footer' } })
+  writeFileSync(graphFile, JSON.stringify(graph))
   const launched = await launchApp({ env })
   try {
     const { app, window } = launched
@@ -624,9 +629,9 @@ test('a story by the button builds on while another PR is open and after a reloa
     await pane.getByTestId('pr-inbox-code-story').click()
     await expect(progress.getByTestId('story-progress-lines')).toContainText('Grep cartTotal', { timeout: ms(20_000) })
 
-    // B: its own state — the "Code story" of its committed story file, no bar.
-    await openPr(212)
-    await expect(pane.getByTestId('pr-inbox-code-story')).toBeVisible()
+    // B: its own state — its build button, idle, and no bar.
+    await openPr(301)
+    await expect(pane.getByTestId('pr-inbox-code-story')).toHaveAttribute('aria-disabled', 'false')
     await expect(progress).toHaveCount(0)
 
     // Back on A: the bar of the build under way, with the lines main kept.

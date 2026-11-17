@@ -291,7 +291,9 @@ zoom. Under it the hand-offs are listed, each ending in "done" or "dropped — <
   reloading the window leaves it running: coming back to its PR or Epic shows its bar again with the last lines, and
   the story is kept under that PR or Epic, whatever is open when it ends. On the Canvas Esc and a switch of the view
   close the bar; it comes back with the Canvas or on a press of **Code story**. A story that comes while its button is
-  out of sight gives the toast "The Code story of PR owner/name#N is ready" (or "of Epic <name>") with **Open**.
+  out of sight gives the toast "The Code story of PR owner/name#N is ready" (or "of Epic <name>") with **Open**; a
+  build that fails or is not available with no button showing it gives an error toast with the reason. The bar and
+  the toast follow the build in every window, including one opened again from the Dock.
   Pressing **Code story** of a PR or Epic that is being built starts no second request: it shows that build.
 - **Kept.** The story is kept in `stories.json` of the Project's data folder, by `owner/name#N` for a PR and
   `epic:<name>` for an Epic. Pressing **Code story** again opens it with no request. A stopped or failed build keeps
@@ -391,7 +393,8 @@ kept in `stories.json`.
   the material of a PR and an Epic, a colleague's PR, a kept story and a rebuild, Stop, the folders a build may read,
   `stories.json`, the builds under way by key (two keys at once, a second press joins, Stop ends only its own).
 - `test/unit/story-build-button.test.tsx`: a button that goes away does not stop its build, one that comes back shows
-  the bar of its own build only, the Canvas bar closes without Stop, the toast of a story nobody follows.
+  the bar of its own build only (also on the Canvas, unpressed), an end right after main named the build, the Canvas
+  bar closes without Stop, the toasts of a story or a failure nobody follows.
 - `test/contract/story-ask.test.ts`, `test/unit/story-ask.test.ts`, `test/unit/line-question.test.tsx`: a question
   about lines.
 - `test/unit/story-view.test.tsx`, `test/unit/story-entries.test.tsx`, `test/unit/story-toast.test.ts`,
