@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { buildNumber } from '../../scripts/build-version'
-import { animatedText, launchApp, repoRoot, smallestWindow, type LaunchedApp } from './helpers'
+import { animatedText, launchApp, repoRoot, smallestWindow, wednesdayReset, type LaunchedApp } from './helpers'
 import { profileJsonScript } from '../harness-node'
 
 /**
@@ -39,10 +39,13 @@ function makeRepo(parent: string, name: string): string {
   return realpathSync.native(dir)
 }
 
-/** limits.json with both windows received two days ago. */
+/**
+ * limits.json with both windows received two days ago. They reset on a Wednesday at least 3 days ahead: the
+ * widest weekday name, so the toolbar's width does not change with the day of the run (wednesdayReset).
+ */
 function staleLimits(dataDir: string): void {
   const receivedAt = Date.now() - 2 * 24 * 60 * 60 * 1000
-  const resetsAt = Math.floor(Date.now() / 1000) + 3 * 24 * 3600
+  const resetsAt = wednesdayReset(Date.now(), 72)
   const window = (utilization: number) => ({ utilization, resetsAt, status: null, receivedAt, source: 'sdk' })
   writeFileSync(join(dataDir, 'limits.json'), JSON.stringify({ windows: { five_hour: window(0.62), seven_day: window(0.38) } }))
 }
@@ -187,9 +190,9 @@ test('a Project name of 80 characters is cut with an ellipsis and the rest of th
 // line ends with an ellipsis, and the step of an Update build is cut the same way. The order and the
 // set of items stay. At 1600 px everything is spelled out again.
 
-/** limits.json with both windows received now: each bar has its reset line. */
+/** limits.json with both windows received now: each bar has its reset line, on a Wednesday as in staleLimits. */
 function freshLimits(dataDir: string): void {
-  const resetsAt = Math.floor(Date.now() / 1000) + 3 * 24 * 3600
+  const resetsAt = wednesdayReset(Date.now(), 72)
   const window = (utilization: number) => ({ utilization, resetsAt, status: 'allowed', receivedAt: Date.now(), source: 'sdk' })
   writeFileSync(join(dataDir, 'limits.json'), JSON.stringify({ windows: { five_hour: window(0.62), seven_day: window(0.38) } }))
 }

@@ -42,6 +42,7 @@ import { summarize } from '../../shared/flight-recorder/summary'
 import type { RunAutoApproval, RunGithub, RunListItem, RunView } from '../../shared/ipc/runs'
 import type { PipelineStage } from '../../shared/workflow/pipeline'
 import { journalDir, listRuns, type RunSummary } from '../autopilot/journal'
+import { appNow } from '../clock'
 import type { ClientId } from '../clients'
 import { readNewLines, type TailCursor } from '../claude-home/tail'
 import { marksInFile, gitRunner, type GitRunner } from '../workflow/stages'
@@ -94,7 +95,7 @@ export interface FlightRecorderOptions {
   /** The branch of each Ticket of the Epic by number (the Ticket's `Branch:` line, else `<epic>/<NN>`). */
   branches?: (root: string, epic: string) => Promise<ReadonlyMap<number, string>>
   git?: GitRunner
-  /** The clock, in ms; Date.now by default. */
+  /** The clock, in ms; main's (appNow, src/main/clock.ts) by default. */
   now?: () => number
   /** Starts the live timer: `tick` every `ms`; answers the stop. setInterval by default. */
   schedule?: (tick: () => Promise<void>, ms: number) => () => void
@@ -265,7 +266,7 @@ export class FlightRecorder {
 
   constructor(private readonly options: FlightRecorderOptions) {
     this.env = options.env ?? process.env
-    this.now = options.now ?? Date.now
+    this.now = options.now ?? appNow
     this.git = options.git ?? gitRunner
     this.github = new GithubReader({ gh: options.gh, now: this.now })
   }

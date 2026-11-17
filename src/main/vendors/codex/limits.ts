@@ -10,6 +10,7 @@
 import { existsSync } from 'node:fs'
 import type { AgentEvent } from '../../../shared/agent/events'
 import type { LimitWindow } from '../../../shared/agent/limits'
+import { appNow } from '../../clock'
 import type { LimitsPart } from '../limits'
 import { appCodexStarter, CODEX_ASK_TIMEOUT_MS, codexHomeOf, readCodexAccount, withCodex, type CodexAsk, type StartCodex } from './account'
 import type { AccountRateLimitsUpdatedNotification } from './protocol/ts/v2/AccountRateLimitsUpdatedNotification'
@@ -166,14 +167,14 @@ export interface CodexLimitsOptions {
   start?: StartCodex
   /** The folder Codex keeps its sign-in in; codexHomeOf() by default. */
   codexHome?: () => string
-  /** Clock in milliseconds; tests pass a fixed one. */
+  /** Clock in milliseconds: main's (appNow, src/main/clock.ts) by default; tests pass a fixed one. */
   now?: () => number
 }
 
 export function codexLimitsPart(options: CodexLimitsOptions = {}): CodexLimitsPart {
   const start = options.start ?? appCodexStarter
   const codexHome = options.codexHome ?? (() => codexHomeOf())
-  const now = options.now ?? Date.now
+  const now = options.now ?? appNow
   return {
     // The windows now, on an app-server of its own; rejects when not signed in (Codex refuses the read).
     read: () => withCodex(start, undefined, async (ask) => (await readCodexRateLimits(ask, false, now)).windows),

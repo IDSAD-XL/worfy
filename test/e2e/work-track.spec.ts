@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { formatJournalLine, makeRunId, type JournalEvent } from '../../src/shared/autopilot/journal'
-import { launchApp } from './helpers'
+import { launchApp, pinWindowClock } from './helpers'
 
 // The Work track view (worfy-work-track ticket 09) in the built app: the Runs tab of the toolbar shows Run
 // history, the switch shows Work track — the Week by default — a day of its axis opens the Day, the Month
@@ -68,10 +68,12 @@ function prepare(run?: RealRun): Record<string, string> {
 /**
  * Replaces main's handler of `workTrack.read` with made-up work for the period asked, the same for the same
  * day whenever it is asked, and the Run `run` with its Wave as the service names them; `holes` adds a stretch
- * of yesterday where GitHub and git did not answer. Runs in main: everything it needs is inside the function.
+ * of yesterday where GitHub and git did not answer. `pinned`: the stub's now starts at that moment, as the
+ * window's clock does (pinWindowClock); the machine's clock otherwise. Runs in main: everything it needs is
+ * inside the function.
  */
-function stubWorkTrack(app: ElectronApplication, run: RealRun | null = null, holes = false): Promise<void> {
-  return app.evaluate(({ ipcMain }, { real, holes }) => {
+function stubWorkTrack(app: ElectronApplication, run: RealRun | null = null, holes = false, pinned: number | null = null): Promise<void> {
+  return app.evaluate(({ ipcMain }, { real, holes, pinned }) => {
     const MIN = 60_000
     const HOUR = 60 * MIN
     const DAY_MS = 24 * HOUR
@@ -111,8 +113,9 @@ function stubWorkTrack(app: ElectronApplication, run: RealRun | null = null, hol
     ]
 
     ipcMain.removeHandler('worfy:workTrack.read')
+    const since = Date.now()
     ipcMain.handle('worfy:workTrack.read', (_event, input: { projectId: string; period: { kind: 'day' | 'week' | 'month'; start: string } }) => {
-      const now = Date.now()
+      const now = pinned === null ? Date.now() : pinned + Date.now() - since
       // The transcripts of more than 30 days ago are deleted: no turns there, «no data» instead.
       const kept = new Date(new Date(now).getFullYear(), new Date(now).getMonth(), new Date(now).getDate() - 30).getTime()
       const start = Date.parse(input.period.start)
@@ -215,7 +218,7 @@ function stubWorkTrack(app: ElectronApplication, run: RealRun | null = null, hol
       }
       return { ok: true, value }
     })
-  }, { real: run, holes })
+  }, { real: run, holes, pinned })
 }
 
 /** The Runs view in both themes, kept with the test's output as `<ticket>-<name>-<theme>.png`. */
@@ -229,13 +232,23 @@ async function snapshots(window: Page, name: string, ticket = '09'): Promise<voi
 
 const pressed = (window: Page, group: string) => window.locator(`[role="group"][aria-label="${group}"] [aria-pressed="true"]`)
 
+/**
+ * The moment the first test runs at, in the window and in the stub: noon of the 17th of a month by the local
+ * clock (worfy-polish ticket 121). The Month then has the Orchestrator's day cells, and the Month before starts
+ * more than 30 days back, so it has its «no data» stretch. On the machine's clock both failed on some days: the
+ * Month before starts less than 30 days back on the 1st of May, July, October and December and on the 1st to
+ * the 3rd of March, and the Month has no worked day yet on the 1st before the stub's first turn.
+ */
+const PINNED = new Date(2026, 5, 17, 12).getTime()
+
 test('Runs → Work track: the Week, a day of it, the Month and a day of it; Run history still opens', async () => {
   const launched = await launchApp({ env: prepare() })
   try {
     const { window, app } = launched
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1600, 1000))
-    await stubWorkTrack(app)
+    await stubWorkTrack(app, null, false, PINNED)
     await expect(window.getByTestId('app-shell')).toBeVisible()
+    await pinWindowClock(window, PINNED)
 
     // The Runs tab shows Run history first, with the switch above it.
     await window.locator('.w-toolbar [role="group"][aria-label="View"]').getByRole('button', { name: 'Runs' }).click()

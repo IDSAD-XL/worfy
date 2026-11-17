@@ -25,6 +25,7 @@ import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { z } from 'zod'
 import { emptyLimits, limitStatusOf, limitUpdatesFromSdk, limitUpdatesFromStatusline, limitWindowStateSchema, limitsStateSchema, mergeLimits, type LimitUpdate, type LimitWindow, type LimitsState, type LimitsView } from '../../shared/agent/limits'
+import { appNow } from '../clock'
 import { observeMessages } from '../mcp/canvas-server'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 import { dataRoot } from '../storage/paths'
@@ -61,7 +62,7 @@ const watchFolderWithNode: WatchFolder = (dir, onEvent, onError) => watchWithNod
 export interface LimitsTrackerOptions {
   /** WORFY_DATA_DIR. */
   dataDir: string
-  /** Clock in milliseconds; tests pass a fixed one. */
+  /** Clock in milliseconds: main's (appNow, src/main/clock.ts) by default; tests pass a fixed one. */
   now?: () => number
   /**
    * The watch of the system; replaced in tests. null: no watch, the slow poll alone — the app's
@@ -97,7 +98,7 @@ export class LimitsTracker {
   constructor(private readonly options: LimitsTrackerOptions) {
     this.file = join(options.dataDir, LIMITS_FILE)
     this.statuslineFile = join(options.dataDir, STATUSLINE_FILE)
-    this.now = options.now ?? Date.now
+    this.now = options.now ?? appNow
     // An unreadable limits.json is set aside by readJsonFile; the Limits then start empty.
     this.state = readJsonFile(this.file, limitsFileSchema) ?? emptyLimits()
   }

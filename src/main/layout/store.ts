@@ -58,6 +58,7 @@ import { ORCHESTRATOR_KIND } from '../../shared/ipc/orchestrator'
 import { SESSION_NODE_KIND } from '../../shared/ipc/sessions'
 import { shownOnCanvas } from '../../shared/layout/derived'
 import { EMPTY_LAYOUT, isArchived, layoutOpSchema, layoutSchema, type Layout, type LayoutNode, type LayoutOp, type LayoutOpInput, type LayoutState } from '../../shared/layout/types'
+import { appNow } from '../clock'
 import { projectStore } from '../projects/store'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 import { upgradeLayout, upgradeMessages } from './upgrade'
@@ -90,7 +91,7 @@ export interface LayoutStoreOptions {
   write?: (file: string, layout: Layout) => void
   delayMs?: number
   maxDelayMs?: number
-  /** The clock of `touchedAt` and of an archive's `at`; tests pass their own. */
+  /** The clock of `touchedAt` and of an archive's `at`: main's (appNow, src/main/clock.ts) by default; tests pass their own. */
   now?: () => number
 }
 
@@ -367,7 +368,7 @@ export class LayoutStore {
     this.write = options.write ?? writeLayoutFile
     this.delayMs = options.delayMs ?? LAYOUT_SAVE_DELAY_MS
     this.maxDelayMs = options.maxDelayMs ?? LAYOUT_SAVE_MAX_DELAY_MS
-    this.now = options.now ?? Date.now
+    this.now = options.now ?? appNow
   }
 
   file(projectId: string): string {

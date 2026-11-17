@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { codexHooksCommand } from '../../src/shared/ipc/harness'
 import { approvePluginHooks } from '../fixtures/codex-app-server/hook-runner.mjs'
-import { animatedText, launchApp, repoRoot, type LaunchedApp } from './helpers'
+import { animatedText, launchApp, repoRoot, wednesdayReset, type LaunchedApp } from './helpers'
 
 // worfy-multi-vendor ticket 39: after Install installs the Harness into Codex as well, the toolbar shows
 // the step "Approve the Harness hooks in Codex": what to open (/hooks in Codex) and "Check again". The
@@ -180,7 +180,8 @@ test('"Codex: approve hooks" is the third line of the Harness column, inside the
     JSON.stringify({
       windows: {
         five_hour: { utilization: 1.01, resetsAt: inHours(2), status: 'allowed', receivedAt, source: 'sdk' },
-        seven_day: { utilization: 0.26, resetsAt: inHours(72), status: 'allowed', receivedAt, source: 'sdk' },
+        // On a Wednesday, the widest weekday name: the toolbar's width does not change with the day of the run.
+        seven_day: { utilization: 0.26, resetsAt: wednesdayReset(Date.now(), 72), status: 'allowed', receivedAt, source: 'sdk' },
       },
     }),
   )

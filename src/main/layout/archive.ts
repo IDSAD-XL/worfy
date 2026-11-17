@@ -45,6 +45,7 @@ import { stillInBatch } from '../../shared/layout/derived'
 import { isArchived, type LayoutNode, type LayoutOp, type LayoutState } from '../../shared/layout/types'
 import type { SessionArchive, SessionArchiveAfter } from '../../shared/settings/app-settings'
 import { ClaudeHomeRegistry, listGitWorktrees, processState, type RegistryOptions } from '../claude-home/registry'
+import { appNow } from '../clock'
 import { samePath } from '../harness/status-line'
 import type { LayoutStore } from './store'
 
@@ -266,7 +267,8 @@ export interface AutoArchiveDeps {
   /** The Binding target of each of these Sessions; asked only while the ticket-done rule is on. */
   bindings(project: ArchiveProject, sessionIds: readonly string[], workflow: BindingWorkflow | undefined): Promise<ReadonlyMap<string, BindingTarget | null>>
   settings(projectId: string): ArchiveSettings
-  now(): number
+  /** The clock, in ms; main's (appNow, src/main/clock.ts) by default. */
+  now?: () => number
   /** A new batch id. */
   batchId(): string
   /**
@@ -297,7 +299,11 @@ export class AutoArchiver {
   /** How many times each Project's live Sessions were seen: tells a read that a watcher reported while it went on. */
   private readonly seen = new Map<string, number>()
 
-  constructor(private readonly deps: AutoArchiveDeps) {}
+  private readonly now: () => number
+
+  constructor(private readonly deps: AutoArchiveDeps) {
+    this.now = deps.now ?? appNow
+  }
 
   /** Runs every Project of this Machine, one after another; a Project that fails is logged and the rest go on. */
   async runAll(): Promise<void> {
@@ -347,7 +353,7 @@ export class AutoArchiver {
     if (found.length > 0) {
       const batch = this.deps.batchId()
       this.deps.store.apply(project.id, { op: 'archive', batch, nodes: found.map(({ id, rule }) => ({ id, rule })) }, null)
-      announceBatch({ projectId: project.id, batch, count: found.length }, this.deps.now())
+      announceBatch({ projectId: project.id, batch, count: found.length }, this.now())
     }
     // shortcut: one `touch` (and one layout.changed) per Node, only on the first run after an old Layout
     // is read; redo as one operation if a Layout with hundreds of such Nodes makes that run slow.
@@ -405,7 +411,7 @@ export class AutoArchiver {
     // fresh read below, which has to stay last so nothing waits between it and the write. A Session
     // that died since was live then: its Binding is not read, and the ticket-done rule takes it on a
     // later run. A Session that came back to life is read for nothing: the rule leaves it anyway.
-    const needed = bindingsNeeded(this.deps.store.get(project.id).layout.nodes, this.liveOf(project.id), history, this.deps.now(), settings)
+    const needed = bindingsNeeded(this.deps.store.get(project.id).layout.nodes, this.liveOf(project.id), history, this.now(), settings)
     if (needed.length > 0) {
       workflow = await this.deps.workflow(project)
       bindings = await this.deps.bindings(project, needed, workflow)
@@ -420,7 +426,7 @@ export class AutoArchiver {
    */
   private candidatesOf(projectId: string, { history, workflow, bindings, worktreesListed }: RuleReads, settings: ArchiveSettings): ArchiveCandidate[] {
     if (!worktreesListed) return []
-    return archiveCandidates(this.deps.store.get(projectId).layout.nodes, this.liveOf(projectId), history, workflow, bindings, this.deps.now(), settings)
+    return archiveCandidates(this.deps.store.get(projectId).layout.nodes, this.liveOf(projectId), history, workflow, bindings, this.now(), settings)
   }
 
   /** What a registry watcher read (liveSessionListeners): the root names a Project of this Machine, or nothing happens. */

@@ -80,6 +80,10 @@ function prepareNight() {
     WORFY_DATA_DIR: dataDir,
     WORFY_CLAUDE_HOME: join(scratch, 'claude'),
     WORFY_HARNESS_HOME: join(scratch, 'harness'),
+    // main's clock in this run (src/main/clock.ts): a day the gate still kept the night Run's logs, so the Run
+    // history draws the same rows on every day the test runs. The gate keeps them 31 days (gate-logs.ts): on
+    // the machine's clock the Run gets rows «gate logs deleted» from 2026-11-18 on (worfy-polish ticket 121).
+    WORFY_NOW: '2026-11-10T12:00:00.000Z',
     WORFY_GH: STAND_IN,
     FR_GH_DIR: join(NIGHT, 'gh'),
     FR_GH_LOG: log,

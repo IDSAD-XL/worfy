@@ -1,7 +1,8 @@
 # 121 — e2e test-ы, зависящие от даты: фиксированное время для `new-product-session` и `limits-vendors`, обход `test/e2e`
 
 Type: task
-Status: open
+Status: claimed 2026-11-16T23:59Z
+PR: #1939
 Blocked by: none
 Source: решение владельца 2026-11-17; `worfy-throughput` 66, «Итог», часть 5, эпизоды 3 и 7: два e2e test-а,
 зависящих от даты, сделали `main` красным без изменения кода и остановили merge PR с кодом на 1 551 min в окне
@@ -102,18 +103,24 @@ Source: решение владельца 2026-11-17; `worfy-throughput` 66, «�
 
 - [ ] Оба test-а берут время из фиксированной даты, а не из часов машины: в `new-product-session.spec.ts` и
       `limits-vendors.spec.ts` нет `Date.now()` и `new Date()` без аргументов для данных fixture-а.
+  - evidence: commit pass · Pin the date of date-dependent e2e tests: main's clock from WORFY_NOW (worfy-polish 121) · - - · 00b7ab38f
 - [ ] Unit- или contract-test источника «сейчас» main процесса: заданное значение доходит до автоархива и до Limits;
       без него — часы машины. Сначала красный.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/main-clock.test.ts test/unit/codex-limits.test.ts` exit 0 (main-clock red first: no module, then this.deps.now is not a function) · mac - · 00b7ab38f
 - [ ] Оба test-а зелёные при часах машины, сдвинутых вперёд, — без локального e2e (локальный e2e запрещён): CI run с
       шагом, который сдвигает часы runner-а вперёд (например, на 8 дней и на пятницу UTC) перед
       `pnpm test:e2e test/e2e/new-product-session.spec.ts test/e2e/limits-vendors.spec.ts`; run — в Evidence.
       Если сдвинуть часы runner-а нельзя — unit-test из пункта выше с датой «через 8 дней» и обычный CI e2e, и строка
       в «Итог», почему.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/43986230457 (clock-shift-121, macOS, runner clock moved to 2026-11-27 10:00 UTC and 2026-12-01 10:00 UTC, 16 passed each) · ci dev · 87c46a09a
 - [ ] CI e2e (`macos-e2e`, `windows-e2e`) зелёный на PR.
 - [ ] В `test/e2e` не осталось e2e, зависящих от даты с риском «real» из обхода выше, или каждый назван в «Итог» с
       причиной.
+  - evidence: commit pass · Pin the date of date-dependent e2e tests: main's clock from WORFY_NOW (worfy-polish 121) · - - · 00b7ab38f
 - [ ] Все unit- и contract-test-ы затронутых модулей зелёные (`test/contract/ci-workflow.test.ts`, test-ы
       `src/main/layout/archive.ts` и `src/main/agent/limits.ts`); gate fast — exit 0; `ci-ok` на PR зелёный.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · c4c116e16
+  - evidence: gate pass · `gate fast` exit 0 · mac - · c4c116e16
 
 ## Где в коде
 
@@ -133,3 +140,47 @@ Source: решение владельца 2026-11-17; `worfy-throughput` 66, «�
 - Порог автоархива, правила Limits и вид секции — правила продукта не меняются.
 - Quarantine для этих test-ов: исключение из правила красного `main` (ADR-0083, Amendment 2026-11-17) — для будущих
   эпизодов, не замена этого Ticket-а.
+
+## Итог
+
+- **Источник «сейчас» main — `src/main/clock.ts`.** `appNow()` — часы машины; в dev-запуске (распакованная сборка
+  `out/`, которую запускают e2e; `app.isPackaged` ложно) с переменной `WORFY_NOW` (ISO-дата) — часы, которые
+  стартуют с этого момента и идут дальше вместе с часами машины. Упакованный worfy.app переменную не читает (то же
+  правило, что у `ELECTRON_RENDERER_URL`, `src/main/window.ts`); неверная дата останавливает старт с сообщением.
+  `src/main/index.ts` ставит часы один раз сразу после `setBuildKind`. Без своих часов `appNow` берут: автоархив
+  (`AutoArchiver`, `now` в `index.ts` убран), `LayoutStore` (`touchedAt` и `at` архива — второе время того же правила),
+  `LimitsTracker`, `LimitsRefresher`, Codex poll (`codexLimitsPart`) и `FlightRecorder` (Run history). Остальной main
+  (timer-ы, timeout-ы, время в UI) остаётся на `Date.now`: в e2e с `WORFY_NOW` эти два времени расходятся, это
+  записано в комментарии модуля.
+- **Окно** — Playwright clock: `pinWindowClock` в `test/e2e/helpers.ts` (`window.clock.install` и перезагрузка окна,
+  как в `session-view.spec.ts`), чтобы первый кадр renderer-а уже читал эти часы.
+- **`new-product-session`** — main на `WORFY_NOW` 2026-06-15 09:00Z, transcript на минуту старше. Окно не
+  закреплено: ничего, что test проверяет, от часов окна не зависит.
+- **`limits-vendors`** — main и окно на 2026-06-15 09:00Z, `limits.json` от того же момента, сброс 7-дневного окна —
+  ближайшая среда (`wednesdayReset`, самое широкое имя дня). Codex-окна приходят из script-а fake с фиксированными
+  сбросами, время их записи — `appNow`.
+- **Обход, починено тем же механизмом:**
+  - `work-track.spec.ts`, первый test (`:281–284` и `:276–277` обхода) — окно и stub `workTrack.read` на полудне
+    17 июня 2026 по местному времени: у Month есть дни Orchestrator-а, у Month before — «no data».
+  - `flight-recorder.spec.ts` (оба test-а ночного Run-а) и `flight-recorder-detail.spec.ts` — main на `WORFY_NOW`
+    2026-11-10 12:00Z: gate ещё хранит логи ночного Run-а, строк «gate logs deleted» нет в любой день. test живого
+    Run-а (`prepareLive`) не закреплён: его Journal пишется по часам машины.
+  - `toolbar.spec.ts` (`staleLimits`, `freshLimits`) и `codex-hooks-step.spec.ts` — сброс 7-дневного окна в
+    ближайшую среду не раньше чем через 72 h: ширина toolbar не меняется с днём недели. Цифры времени табличные
+    (`LimitBar.tsx`), имя дня — единственное, что меняло ширину; момент данных остался от часов машины, поэтому
+    `Date.now` в этих двух файлах остаётся.
+- **Обход, оставлено, с причиной:**
+  - `work-track.spec.ts`, второй и третий test-ы — «вчера» от часов машины и в stub-е, и в окне; Month третий test
+    проверяет только отсутствие меток. Риск — только переход часов и полночь, ниже.
+  - Переход на летнее/зимнее время (`autopilot.spec.ts:762`, `:791`; `epic-columns.spec.ts:180`;
+    `pr-inbox-digest.spec.ts:166–169`) — runner-ы GitHub работают в UTC, где перехода нет (в log-е временного run-а —
+    `date` с поясом); локально риск — один час в две ночи года. Исправление (часы main и окна в этих длинных
+    test-ах) дороже риска.
+  - Около полуночи (`epic-columns.spec.ts:189`, `:208`, `:251`, `zoom-whole-nodes.spec.ts:129`,
+    `done-shelf.spec.ts:94`, `autopilot.spec.ts:677–678`) — риск низкий: секунды между записью fixture-а и проверкой
+    должны пересечь полночь.
+  - Без риска — как в обходе (`sessionArchive: never`, пороги «Older» в sidebar, `session-view.spec.ts:404`).
+- **Проверка со сдвинутыми часами runner-а** — временный workflow `.github/workflows/clock-shift-121.yml` (отдельный
+  файл, а не job в `ci.yml`: job в `ci.yml` обязан стоять в `needs` у `ci-ok` по `test/contract/ci-workflow.test.ts`;
+  запуск по push в ветку, до PR) на macOS: `sudo date` на 2026-11-27 10:00 UTC (пятница, +10 дней) и на 2026-12-01
+  10:00 UTC (1 декабря — красный день Month), затем семь spec-ов выше. Файл удалён из ветки до PR; run — в Evidence.

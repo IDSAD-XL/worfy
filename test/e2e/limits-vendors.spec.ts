@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { animatedText, launchApp, repoRoot, type LaunchedApp } from './helpers'
+import { animatedText, launchApp, pinWindowClock, repoRoot, wednesdayReset, type LaunchedApp } from './helpers'
 import { profileJsonScript } from '../harness-node'
 
 // The Limits panel by Vendor (worfy-multi-vendor ticket 26) against the built app: Claude's section from
@@ -26,6 +26,14 @@ import { profileJsonScript } from '../harness-node'
  */
 const PROJECT = 'caution'
 const WIDTH = 1280
+
+/**
+ * The moment the test runs at, for main (WORFY_NOW) and the window (pinWindowClock), and the one the times of
+ * limits.json are counted from: the same screen on every day the test runs (worfy-polish ticket 121). The
+ * Codex windows come from the fake's script, with fixed reset times.
+ */
+const NOW = Date.parse('2026-06-15T09:00:00.000Z')
+const CLOCK = { WORFY_NOW: new Date(NOW).toISOString() }
 
 /**
  * A `bin/profile` stub that knows every folder, so "Add project" puts the repository into the list at
@@ -57,16 +65,14 @@ test.beforeEach(() => {
   codexHome = join(scratch, 'codex-home')
   mkdirSync(dataDir)
   mkdirSync(codexHome)
-  // Claude's windows as a Session left them a minute ago: fresh, so the bars are not dimmed.
-  const receivedAt = Date.now() - 60_000
-  const inHours = (hours: number): number => Math.floor(Date.now() / 1000) + hours * 3600
-  // The 7-day window resets on the next Wednesday, 1 to 7 days ahead, whatever day the run is on. Its reset
-  // line names the weekday (`Wed 01:16`), and the weekday is what makes a section's width change from day to
-  // day: `Fri` is 12.4 px at 10 px in the macOS UI font, `Wed` 21.4 px, the widest of the seven. A reset
-  // 72 hours ahead made the width depend on the date of the run (a run on a Friday in UTC got `Mon`, and
-  // the section 112.34 px), so the test now measures the widest case on every run.
-  let sevenDayReset = inHours(24)
-  while (new Date(sevenDayReset * 1000).getDay() !== 3) sevenDayReset += 24 * 3600
+  // Claude's windows as a Session left them a minute before NOW: fresh, so the bars are not dimmed.
+  const receivedAt = NOW - 60_000
+  const inHours = (hours: number): number => Math.floor(NOW / 1000) + hours * 3600
+  // The 7-day window resets on a Wednesday. Its reset line names the weekday (`Wed 01:16`), and the weekday is
+  // what makes a section's width change from day to day: `Wed` is the widest of the seven (wednesdayReset). A
+  // reset 72 hours ahead of the machine's clock made the width depend on the date of the run (a run on a
+  // Friday in UTC got `Mon`, and the section 112.34 px).
+  const sevenDayReset = wednesdayReset(NOW, 24)
   writeFileSync(
     join(dataDir, 'limits.json'),
     JSON.stringify({
@@ -150,10 +156,11 @@ async function expectStacked(section: Locator, ids: readonly string[]): Promise<
 const SECTION_MAX = 115
 
 test('signed in to Codex: a Codex section with the windows of its plan next to Claude\'s, inside the toolbar', async () => {
-  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, CODEX_HOME: codexHome, WORFY_CODEX_SCRIPT: 'account-plus', WORFY_CODEX_SCRIPTS: join(repoRoot, 'test', 'fixtures', 'codex-scripts') } })
+  const launched = await launchApp({ env: { ...CLOCK, WORFY_DATA_DIR: dataDir, CODEX_HOME: codexHome, WORFY_CODEX_SCRIPT: 'account-plus', WORFY_CODEX_SCRIPTS: join(repoRoot, 'test', 'fixtures', 'codex-scripts') } })
   try {
     const { app, window } = launched
     await expect(window.getByTestId('app-shell')).toBeVisible()
+    await pinWindowClock(window, NOW)
     await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible() ?? false)).toBe(true)
     await sizeWindow(launched, WIDTH)
     const repo = makeRepo(scratch, PROJECT)
@@ -266,7 +273,7 @@ test('signed in to Codex with no windows and Claude without data: each section i
   if (empty === plus) throw new Error('the account-plus fixture no longer has its two windows')
   writeFileSync(join(scripts, 'account-empty.jsonl'), empty)
   rmSync(join(dataDir, 'limits.json'))
-  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, CODEX_HOME: codexHome, WORFY_CODEX_SCRIPT: 'account-empty', WORFY_CODEX_SCRIPTS: scripts } })
+  const launched = await launchApp({ env: { ...CLOCK, WORFY_DATA_DIR: dataDir, CODEX_HOME: codexHome, WORFY_CODEX_SCRIPT: 'account-empty', WORFY_CODEX_SCRIPTS: scripts } })
   try {
     const { window } = launched
     await expect(window.getByTestId('app-shell')).toBeVisible()
@@ -288,10 +295,11 @@ test('signed in to Codex with no windows and Claude without data: each section i
 
 test('Claude Code alone, at 1280 px and 1600 px: its two windows one above the other under the "Limits" heading', async () => {
   // No CODEX_HOME: no Codex poll, so Claude's section is the only one.
-  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
+  const launched = await launchApp({ env: { ...CLOCK, WORFY_DATA_DIR: dataDir } })
   try {
     const { app, window } = launched
     await expect(window.getByTestId('app-shell')).toBeVisible()
+    await pinWindowClock(window, NOW)
     await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible() ?? false)).toBe(true)
     const toolbar = window.getByRole('banner')
     const meter = window.getByTestId('limits-meter')

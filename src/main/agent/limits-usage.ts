@@ -15,6 +15,7 @@
 // Vendor's windows. Every poll is stopped by stop() through the same signal as Claude's ask, so the
 // app quits without a Codex process or a request left waiting. Claude's ask is not changed by it.
 import { LIMIT_WINDOWS, limitUpdatesFromUsage, type LimitUpdate, type LimitWindow, type LimitsState } from '../../shared/agent/limits'
+import { appNow } from '../clock'
 
 /** The Vendor whose Limits are the usage ask's; refreshIfOlder polls any other one. */
 const CLAUDE_VENDOR = 'claude'
@@ -53,7 +54,7 @@ export interface LimitsRefresherOptions {
   read?: UsageReader
   /** The other Vendors to poll at the start and every interval; none by default. */
   vendors?: readonly VendorLimitsPoll[]
-  /** Clock in milliseconds; tests pass a fake one. */
+  /** Clock in milliseconds: main's (appNow, src/main/clock.ts) by default; tests pass a fake one. */
   now?: () => number
   intervalMs?: number
   /** Where the one line about an ask with no result goes; console.debug by default. */
@@ -82,7 +83,7 @@ export class LimitsRefresher {
   private readonly vendorFailed = new Set<string>()
 
   constructor(private readonly options: LimitsRefresherOptions) {
-    this.now = options.now ?? Date.now
+    this.now = options.now ?? appNow
     this.intervalMs = options.intervalMs ?? USAGE_REFRESH_MS
     this.log = options.log ?? ((message, error) => console.debug(message, ...(error === undefined ? [] : [error])))
   }

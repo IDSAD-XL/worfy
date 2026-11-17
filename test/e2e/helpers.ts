@@ -1265,3 +1265,27 @@ export async function roomToEdges(window: Page, locator: Locator): Promise<numbe
  * reads shadow roots too, so `value` reads as `62%01234567890123456789%`.
  */
 export const animatedText = (value: Locator): Locator => value.locator('.w-animated-number__text')
+
+/**
+ * The window's clock from `at` on (Playwright's clock: time still flows by itself from there), and the window
+ * reloaded on it, so the renderer's first draw already reads it (as test/e2e/session-view.spec.ts does). main's
+ * clock is pinned apart, by WORFY_NOW at launch (src/main/clock.ts). worfy-polish ticket 121: a test whose
+ * fixture's times are counted from a fixed date sees the same screen on every day it runs.
+ */
+export async function pinWindowClock(window: Page, at: number): Promise<void> {
+  await window.clock.install({ time: at })
+  await window.reload()
+  await expect(window.getByTestId('app-shell')).toBeVisible()
+}
+
+/**
+ * A reset time, in seconds, at least `hours` after `from` and on a Wednesday by the local clock. A 7-day window's
+ * reset line names its weekday, and `Wed` is the widest of the seven names in the UI font (21.4 px at 10 px on
+ * macOS, `Fri` 12.4 px), so a test of the toolbar's width that resets on it measures the widest case on any day
+ * it runs (worfy-polish ticket 121). The digits of the time are tabular (src/renderer/limits/LimitBar.tsx).
+ */
+export function wednesdayReset(from: number, hours: number): number {
+  let at = Math.floor(from / 1000) + hours * 3600
+  while (new Date(at * 1000).getDay() !== 3) at += 24 * 3600
+  return at
+}

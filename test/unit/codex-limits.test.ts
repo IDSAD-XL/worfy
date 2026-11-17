@@ -8,6 +8,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { clockFrom, setAppClock } from '../../src/main/clock'
 import { appCodexStarter, codexAccount, codexHomeOf, useCodex, withCodex, type CodexAsk } from '../../src/main/vendors/codex/account'
 import { codexDriver } from '../../src/main/vendors/codex/index'
 import {
@@ -328,6 +329,16 @@ describe('the poll and the read of the limits part, on a stand-in app-server', (
     quit.abort(new Error('the app quits'))
     await expect(codexLimitsPart({ start, codexHome: () => home }).poll(quit.signal)).rejects.toThrow('the app quits')
     expect(start).not.toHaveBeenCalled()
+  })
+
+  it('given no clock, the part reads main\'s (appNow, worfy-polish ticket 121)', async () => {
+    const ask = standIn({ 'account/rateLimits/read': () => RATE_LIMITS })
+    setAppClock(() => NOW + 7)
+    try {
+      await expect(codexLimitsPart({ start: () => Promise.resolve(ask) }).read()).resolves.toEqual(codexLimitWindows(RATE_LIMITS.rateLimits, NOW + 7, 'read'))
+    } finally {
+      setAppClock(clockFrom(undefined))
+    }
   })
 
   it('read() asks the windows with their details and the clock\'s time', async () => {
