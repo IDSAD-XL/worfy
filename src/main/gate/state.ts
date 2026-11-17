@@ -21,6 +21,9 @@
 //   own tests, `tail` of an old log, the Gate after `cd` to another repository) and a line the user
 //   or the model wrote (a prompt, a brief, a reply) do not count.
 //
+// Besides the worktrees: `main-red-<key>.json` in the same folder, which `land` keeps while the main branch
+// of the repository is red (readMainRed, worfy-stuck-agents ticket 02).
+//
 // "Nothing ran" (`none` in the file) is "no data", never green. Nothing here writes: the
 // state folder and the transcripts are only listed and read, git only lists worktrees.
 //
@@ -492,6 +495,44 @@ export async function listWorktrees(root: string): Promise<Worktree[]> {
   }
 }
 
+// ── the marker of a red main branch ──────────────────────────────────────────
+
+/**
+ * `main-red-<key>.json` as `land` writes it (harness/bin/land, markMain): the commit of the first red push run of the
+ * main branch after the last green one, the number of its PR (null: a direct push, or the culprit is older than the
+ * runs land read), when that run finished, its URL, the line land prints for the Orchestrator and when the file was
+ * written. land removes it when it finds the branch not red; it keeps it while the red run is rerun.
+ */
+const mainRedSchema = z
+  .object({
+    sha: z.string().min(1),
+    pr: z.number().int().nullable(),
+    since: z.string(),
+    url: z.string().nullable(),
+    line: z.string(),
+    at: z.string(),
+  })
+  .loose()
+export type MainRedMarker = z.infer<typeof mainRedSchema>
+
+/** The name of the main-red marker of the repository with this gate key in the gate state folder. */
+export const mainRedFileName = (key: string): string => `main-red-${key}.json`
+
+/**
+ * The main-red marker of the repository whose root is `root`, in the gate folder `gateDir`: its fields, or null with
+ * no registry entry for the root, no file, or a file that is not JSON or not the marker's format. Only reads.
+ */
+export async function readMainRed(gateDir: string, root: string, platform: NodeJS.Platform = process.platform): Promise<MainRedMarker | null> {
+  const key = await gateKey(await readGateConfig(gateDir), root, platform)
+  if (key === null) return null
+  try {
+    const parsed = mainRedSchema.safeParse(JSON.parse(await readFile(join(gateDir, 'state', mainRedFileName(key)), 'utf8')))
+    return parsed.success ? parsed.data : null
+  } catch {
+    return null
+  }
+}
+
 // ── all together ─────────────────────────────────────────────────────────────
 
 export interface GateReaderOptions {
@@ -541,6 +582,11 @@ export class GateReader {
       warn(`[gate] the verdict file ${file} is not taken for ${worktree}: it ${read.problem}`)
     }
     return null
+  }
+
+  /** The main-red marker of the Project whose repository root is `root` (readMainRed), from the gate folder of the Harness on the machine now. */
+  mainRed(root: string): Promise<MainRedMarker | null> {
+    return readMainRed(this.gateDir(), root)
   }
 
   async read(root: string, worktrees: readonly Worktree[]): Promise<(Worktree & { gate: GateState })[]> {

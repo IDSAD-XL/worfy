@@ -124,7 +124,13 @@ lies. The entry with the longest `match` prefix wins. Each worktree has a tag, t
 and by worfy, and `nokey-<kind>-<tag>-<session>`, read by the hook. The verdict file `verdict-<tag>.json` is the outcome of the last
 run, a machine contract for worfy whose fields do not depend on the wording of the verdict lines: outcome, profile, worktree, key,
 head, exit code, time, reason (one line in English for `unverified` and `none`), timings. A run that gets as far as knowing its worktree replaces the file whole or removes it. So a file from an older run
-stays only when another process holds it open on Windows, or when a run ended before that point.
+stays only when another process holds it open on Windows, or when a run ended before that point. One more marker is about the
+main branch of a repository, not a worktree: `main-red-<key>.json`. The gate does not write it. The Harness script `land` writes it
+each time it reads the CI push runs of the main branch and finds the branch red: the commit, the PR that broke it (or `null`), since
+when, the run's URL, the line it prints for the Orchestrator, and when the file was written. worfy can read it by the Project's root (`readMainRed` in `src/main/gate/state.ts`), under
+the same key as the gate's own markers; no screen or Autopilot step acts on it yet.
+`land` removes it the next time it finds the branch not red. While the red run is rerun, or when `gh` cannot read the runs, the
+file stays as it is: until a verdict the branch counts as red. Only `land` removes it, so it can be older than the branch's state.
 
 **The launcher.** A hook command that named `node` would fail with 127 where node is not on the PATH, and the verdict of an earlier
 run would stay. So the hooks call `gate.sh`, which looks on the PATH, then in `/opt/homebrew/bin` and `/usr/local/bin`, then in
