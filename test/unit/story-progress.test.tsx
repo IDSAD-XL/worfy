@@ -167,9 +167,10 @@ describe('a Project on Codex', () => {
   })
 })
 
-// A build nobody waits for any more is stopped in main, so its paid request does not run to its end (worfy-code-stories
-// ticket 11; audit of PR #1890).
-describe('a build left behind is stopped', () => {
+// A build by `start` (stories.build) nobody waits for any more is stopped in main, so its paid request does not run to
+// its end (worfy-code-stories ticket 11; audit of PR #1890). A build by the button (stories.make) runs on instead
+// (worfy-polish 122): test/unit/story-build-button.test.tsx.
+describe('a build by start left behind is stopped', () => {
   const stops = () => ipc.invoke.mock.calls.filter(([channel]) => channel === 'stories.stop').map(([, payload]) => payload as { storyId: string })
 
   it('the button goes away while it builds: stories.stop of that build', () => {

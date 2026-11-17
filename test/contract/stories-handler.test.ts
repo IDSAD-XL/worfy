@@ -278,6 +278,27 @@ describe('stories.stop and a story made by the button (stories.make)', () => {
     expect(mocks.gh).toHaveLength(1)
     expect(mocks.requests).toEqual([])
   })
+
+  // worfy-polish 122: a button that comes back to its PR asks stories.running; the end of the build reaches the window
+  // that pressed as stories.made, after the build has left the registry.
+  it('stories.running names the build under way of a PR, under its key; its end goes to the window as stories.made', async () => {
+    git(mocks.root, 'remote', 'add', 'origin', 'https://github.com/shop/demo-cart.git')
+    const sent: { channel: string; payload: unknown }[] = []
+    const sender = { send: (channel: string, payload: unknown) => sent.push({ channel, payload }), isDestroyed: () => false }
+    const handler = (channel: string) => handlers.find((entry) => entry.channel.name === channel)!
+    const making = handler('stories.make').handle({ storyId: 'by-button', projectId: 'p1', target: { kind: 'pr', repo: 'shop/demo-cart', number: 212 } } as never, { event: { sender } } as never)
+    await vi.waitFor(() => expect(mocks.gh).toHaveLength(1))
+    // A Ticket card names no repository: the Project's own, the same build.
+    expect(await handle('stories.running', { projectId: 'p1', target: { kind: 'pr', repo: null, number: 212 } })).toEqual({ storyId: 'by-button', key: 'shop/demo-cart#212', lines: [] })
+    expect(await handle('stories.running', { projectId: 'p1', target: { kind: 'pr', repo: null, number: 213 } })).toBeNull()
+    expect(sent).toEqual([])
+    expect(await handle('stories.stop', { storyId: 'by-button' })).toEqual({ stopped: true })
+    for (const call of mocks.waiting.splice(0)) call.answer(JSON.stringify({ title: 'Cart total in cents', body: '', author: { login: 'dev-me' }, headRefOid: 'a'.repeat(40), headRefName: 'demo-cart/04', comments: [] }))
+    const made = { key: 'shop/demo-cart#212', reused: false, outcome: { status: 'stopped' } }
+    expect(await making).toEqual(made)
+    expect(sent).toEqual([{ channel: 'worfy:stories.made', payload: { storyId: 'by-button', projectId: 'p1', made } }])
+    expect(await handle('stories.running', { projectId: 'p1', target: { kind: 'pr', repo: null, number: 212 } })).toBeNull()
+  })
 })
 
 describe('stories.stop reaches a question (stories.ask) as well as a build: the two ids are told apart', () => {

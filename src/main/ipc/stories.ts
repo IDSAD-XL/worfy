@@ -45,10 +45,12 @@ import {
   storiesAsk,
   storiesBuild,
   storiesCode,
+  storiesMadeEvent,
   storiesMake,
   storiesMarkRead,
   storiesMarks,
   storiesRead,
+  storiesRunning,
   storiesSaved,
   storiesSelfCheck,
   storiesStop,
@@ -431,9 +433,17 @@ const handlers: HandlerModule = [
     return { stopped: build || question }
   }),
 
+  // A build runs to its end whatever view is open (worfy-polish 122): its end goes to the window as stories.made too, so a
+  // button that came back to it — or the window's toast, when none did — hears it after the press's own answer is lost.
   defineHandler(storiesMake, ({ storyId, projectId, target, rebuild }, { event }) =>
-    maker().make({ storyId, projectId, target, rebuild: rebuild === true }, (text) => toSender(event.sender, (sendTo) => emit(sendTo, storiesActivity, { storyId, text }))),
+    maker().make(
+      { storyId, projectId, target, rebuild: rebuild === true },
+      (text) => toSender(event.sender, (sendTo) => emit(sendTo, storiesActivity, { storyId, text })),
+      (made) => toSender(event.sender, (sendTo) => emit(sendTo, storiesMadeEvent, { storyId, projectId, made })),
+    ),
   ),
+
+  defineHandler(storiesRunning, ({ projectId, target }) => maker().runningOf(projectId, target)),
 
   defineHandler(storiesAsk, async ({ questionId, projectId, folder, story, about, code, question, key: madeKey }, { event }) => {
     // Made before the first wait: under WORFY_AGENT=fake the asker's fake agent puts its release on globalThis when it

@@ -288,6 +288,8 @@ describe('the read-or-write mark of `project` channels', () => {
     // The screens of a story read and the answers to its "Check yourself" (ticket 13): stories.json is read.
     'stories.marks',
     'stories.read',
+    // The build by the button under way of a PR or an Epic (worfy-polish 122): main's registry is read, nothing written.
+    'stories.running',
     'stories.saved',
     'terminal.shells',
     'terminalAi.fix.state',

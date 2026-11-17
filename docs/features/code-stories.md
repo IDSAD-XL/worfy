@@ -285,8 +285,14 @@ zoom. Under it the hand-offs are listed, each ending in "done" or "dropped — <
 - **The progress bar.** On the Canvas it is a panel under the button, over the frame and the cards; in Pull requests it
   takes the button's place. It shows "Building story…", the last three lines of what the agent reads ("Starting…"
   before the first) and **Stop**. A build ends as "Stopped" ("No story was written."), "Not available" with the
-  Vendor's reason, or "Failed" with the reason; **Close** clears the bar. On the Canvas Esc stops a build in
-  progress; leaving the screen stops it anywhere. When it is done the Story view opens on the story.
+  Vendor's reason, or "Failed" with the reason; **Close** clears the bar. When it is done the Story view opens on the
+  story.
+- **It runs to its end.** Only **Stop** (or quitting worfy) ends a build. Picking another PR, switching the view or
+  reloading the window leaves it running: coming back to its PR or Epic shows its bar again with the last lines, and
+  the story is kept under that PR or Epic, whatever is open when it ends. On the Canvas Esc and a switch of the view
+  close the bar; it comes back with the Canvas or on a press of **Code story**. A story that comes while its button is
+  out of sight gives the toast "The Code story of PR owner/name#N is ready" (or "of Epic <name>") with **Open**.
+  Pressing **Code story** of a PR or Epic that is being built starts no second request: it shows that build.
 - **Kept.** The story is kept in `stories.json` of the Project's data folder, by `owner/name#N` for a PR and
   `epic:<name>` for an Epic. Pressing **Code story** again opens it with no request. A stopped or failed build keeps
   nothing.
@@ -383,7 +389,9 @@ kept in `stories.json`.
   tools, Codex unavailable.
 - `test/contract/story-by-button.test.ts`, `test/contract/stories-handler.test.ts`, `test/contract/story-store.test.ts`:
   the material of a PR and an Epic, a colleague's PR, a kept story and a rebuild, Stop, the folders a build may read,
-  `stories.json`.
+  `stories.json`, the builds under way by key (two keys at once, a second press joins, Stop ends only its own).
+- `test/unit/story-build-button.test.tsx`: a button that goes away does not stop its build, one that comes back shows
+  the bar of its own build only, the Canvas bar closes without Stop, the toast of a story nobody follows.
 - `test/contract/story-ask.test.ts`, `test/unit/story-ask.test.ts`, `test/unit/line-question.test.tsx`: a question
   about lines.
 - `test/unit/story-view.test.tsx`, `test/unit/story-entries.test.tsx`, `test/unit/story-toast.test.ts`,
@@ -392,7 +400,8 @@ kept in `stories.json`.
   read marks, the code block, the palette rows.
 - `test/unit/link-access.test.ts`: which channels a Linked machine reaches with read-only access.
 - `test/e2e/code-story.spec.ts` with a fake agent, and `test/e2e/a11y.spec.ts`: the view on a fixture Epic, every
-  entry, a question about a line and the marks after a restart, a story by the button with no new Session Node.
+  entry, a question about a line and the marks after a restart, a story by the button with no new Session Node, and
+  one that builds on while another PR is open and after a reload.
 
 ## What is not there
 
