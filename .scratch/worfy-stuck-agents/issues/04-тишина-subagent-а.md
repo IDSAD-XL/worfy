@@ -1,7 +1,7 @@
 # 04 — Тишина Subagent-а: `quiet N min` на Subagent Node и в rail-е
 
 Type: task
-Status: open
+Status: claimed 2026-11-17T07:57Z
 Blocked by: 03
 Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решения по реализации» → «Признаки жизни Session и тишина», пункт
 «Subagent Node»; «Истории пользователя», 7; «Решено без владельца», 1 и 9

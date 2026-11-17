@@ -21,6 +21,7 @@
 // `workflow`, with its agents under it; the run's `journal.jsonl` says how each agent ended.
 import { z } from 'zod'
 import type { AgentEvent } from '../agent/events'
+import { QUIET_MARK_MS } from '../agent/quiet'
 import { lastPathSegment } from '../paths'
 import { findVerdict } from '../workflow/verdict.mjs'
 import { parseTranscriptRecord, type TranscriptEntry } from './parse'
@@ -99,6 +100,12 @@ export const subagentFileSchema = z.object({
   /** Times of the first and the last record that has one. */
   firstAt: time,
   lastAt: time,
+  /**
+   * When its transcript last changed, ms since the epoch: the later of the file's mtime and its last record's time
+   * (src/main/claude-home/subagents.ts; worfy-stuck-agents ticket 04). Left out when main did not read the file, and
+   * by a build before that ticket (a Linked machine's answer).
+   */
+  changedAt: time.optional(),
   /** The model of its last answer. */
   model: short,
   /** Text of its last answer. */
@@ -156,6 +163,11 @@ export interface SubagentInfo {
   depth: number
   /** Its transcript file exists. */
   transcript: boolean
+  /**
+   * When its transcript file last changed (SubagentFile.changedAt), ms since the epoch; left out when no file says — a
+   * Codex Subagent has none (worfy-stuck-agents ticket 04).
+   */
+  changedAt?: number
   children: SubagentInfo[]
 }
 
@@ -608,6 +620,7 @@ function describe(record: Gathered, state: SessionState): Omit<SubagentInfo, 'pa
     summary,
     verdict: found?.verdict ?? null,
     transcript: file?.transcript === true,
+    ...(typeof file?.changedAt === 'number' ? { changedAt: file.changedAt } : {}),
   }
 }
 
@@ -778,6 +791,25 @@ export function buildSubagentTree({
   }
   settle(roots, 1)
   return roots
+}
+
+// ── a quiet Subagent ────────────────────────────────────────────────────────
+
+/**
+ * How long, in ms, a running Subagent's transcript has not changed at `now`, once that is at least `thresholdMs`
+ * (QUIET_MARK_MS, 10 minutes, as for a quiet turn of a Session: src/shared/agent/quiet.ts); null before, for one that has
+ * ended, and for one whose file change is not known — a Codex Subagent has no file (worfy-stuck-agents ticket 04).
+ */
+export function subagentQuietFor(info: Pick<SubagentInfo, 'status' | 'changedAt'>, now: number, thresholdMs: number = QUIET_MARK_MS): number | null {
+  if (info.status !== 'running' || info.changedAt === undefined) return null
+  const quiet = now - info.changedAt
+  return quiet >= thresholdMs ? quiet : null
+}
+
+/** The mark of a quiet Subagent, `quiet 21 min` (whole minutes, rounded down); null when it is not quiet. */
+export function subagentQuietLabel(info: Pick<SubagentInfo, 'status' | 'changedAt'>, now: number): string | null {
+  const quiet = subagentQuietFor(info, now)
+  return quiet === null ? null : `quiet ${Math.floor(quiet / 60_000)} min`
 }
 
 /** Every Subagent of a tree, parents before their children. */

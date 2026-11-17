@@ -420,7 +420,11 @@ Subagent's transcript, read-only.
 | `error` | A failed end or call, stopped by the user, or cut off when the Session's process or its workflow run ended |
 | `interrupted` | No end is known, and the Session's running process started after its last record |
 
-A Subagent without an end stays `running` however long its file has not changed, while its Session runs. The tooltip of
+A Subagent without an end stays `running` however long its file has not changed, while its Session runs. Once its
+`agent-<agentId>.jsonl` has not changed for 10 minutes, its Node and its rail row add a mark after the time:
+`running 52m 00s · quiet 21 min`. The quiet time counts from the later of the file's modification time and its last record's
+time, and the mark goes when the file changes or the Subagent ends. A Subagent of a Codex Session has no file and gets no
+mark, nor does one known only by its call. The tooltip of
 `interrupted` says that the process restarted after the agent's last record: "it was stopped from outside, not by a failure".
 Elapsed time reads `45s`, `6m 05s`, `1h 02m`.
 
@@ -448,12 +452,15 @@ then to 200, then to the summary line, and the answer says that it was truncated
   count as closed.
 - **Workflow agents** take their label and their end from the run's `journal.jsonl`
   ([ADR-0035](../adr/0035-workflow-script-subagents-in-tree.md)).
+- **Quiet is a mark, not a status.** A file that stands still says nothing certain about the Subagent, so it stays `running`
+  and only gets `quiet N min`. The threshold is the 10 minutes after which a Session's turn counts as quiet
+  (`QUIET_MARK_MS` in `src/shared/agent/quiet.ts`).
 
 ### Implementation
 
 | What | Where |
 | ---- | ----- |
-| Signals and the tree (pure) | `src/shared/transcript/subagents.ts` |
+| Signals, the tree and the quiet mark (pure) | `src/shared/transcript/subagents.ts` |
 | Reading files, incrementally | `src/main/claude-home/subagents.ts` |
 | Hidden entries, `hidden-subagents.json` in the Project's data folder | `src/main/claude-home/hidden-subagents.ts` |
 | The answer for a Linked machine | `src/main/ipc/claude-home.ts` |
@@ -462,8 +469,8 @@ then to 200, then to the summary line, and the answer says that it was truncated
 | Canvas | `src/renderer/canvas/sources/subagents.ts`, `src/renderer/canvas/nodes/SubagentNode.tsx` |
 
 **Data flow.** The renderer asks `claudeHome.subagents` every 2 seconds while a Subagent runs. `SubagentReader` reads only what
-was appended to each file since the last call, adds `session-closed` when the Session's process is gone, and
-`buildSubagentTree` makes the tree.
+was appended to each file since the last call, notes when each Subagent file last changed, adds `session-closed` when the
+Session's process is gone, and `buildSubagentTree` makes the tree.
 
 **Main tests.** `test/unit/subagents.test.ts`, `test/contract/claude-home-subagents.test.ts`,
 `test/contract/claude-home-subagents-link.test.ts`, `test/unit/subagent-trees.test.tsx`, `test/unit/subagent-nodes.test.tsx`,

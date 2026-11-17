@@ -1,16 +1,21 @@
 // The Subagent tree of a Session (ticket 15, src/shared/transcript/subagents.ts) built from the
 // synthetic Claude home of ticket 09 (test/fixtures/claude-home/README.md): the Session's own
 // transcript, and the `subagents/agent-<id>.jsonl` and `.meta.json` files next to it.
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { SubagentReader } from '../../src/main/claude-home/subagents'
 import type { AgentEvent } from '../../src/shared/agent/events'
+import { QUIET_MARK_MS } from '../../src/shared/agent/quiet'
 import {
   buildSubagentTree,
   flattenSubagents,
   readSubagentMeta,
   readWorkflowJournal,
   subagentFile,
+  subagentQuietFor,
+  subagentQuietLabel,
   subagentSignals,
   subagentSignalsOfLines,
   summaryLine,
@@ -18,6 +23,7 @@ import {
   type SubagentFile,
   type SubagentInfo,
 } from '../../src/shared/transcript/subagents'
+import { removeTestTree } from '../remove'
 
 const HOME = join(__dirname, '../fixtures/claude-home/projects')
 const DEMO = join(HOME, '-Users-test-projects-demo')
@@ -668,5 +674,106 @@ describe('Subagents of a workflow script', () => {
     ])
     expect(signals).toEqual([])
     expect(buildSubagentTree({ signals, files: [] })).toEqual([])
+  })
+})
+
+// worfy-stuck-agents ticket 04: a running Subagent of Claude Code whose transcript has not changed for
+// QUIET_MARK_MS (src/shared/agent/quiet.ts) is marked `quiet N min`. Codex Subagents have no file and no mark.
+describe('a quiet Subagent', () => {
+  const NOW = Date.parse('2026-06-01T11:00:00.000Z')
+  const MIN = 60_000
+  const call = (id: string, at: number) =>
+    ({ kind: 'call', toolUseId: id, at, parentToolUseId: null, subagentType: 'implementer', description: null, name: null, model: null, background: true }) as const
+  /** One background Subagent of Claude Code whose transcript last changed at `changedAt`; ended, or not. */
+  function agentAt(changedAt: number | undefined, ended = false): SubagentInfo {
+    const file = { ...subagentFile('a9000000000000004', { toolUseId: 'toolu_q' }, []), changedAt }
+    const signals = [call('toolu_q', NOW - 52 * MIN), ...(ended ? [{ kind: 'finished', agentId: 'a9000000000000004', toolUseId: 'toolu_q', at: NOW - MIN, status: 'completed', summary: null, result: null } as const] : [])]
+    return buildSubagentTree({ signals, files: [file] })[0]!
+  }
+
+  it('carries when its transcript last changed into the tree, and leaves it out when no file says', () => {
+    expect(agentAt(NOW - 21 * MIN).changedAt).toBe(NOW - 21 * MIN)
+    expect(agentAt(undefined)).not.toHaveProperty('changedAt')
+  })
+
+  it('is quiet 21 minutes when its file has not changed for 21 minutes; 9 minutes is no mark; an ended one has none', () => {
+    const quiet = agentAt(NOW - 21 * MIN)
+    expect(quiet.status).toBe('running')
+    expect(subagentQuietFor(quiet, NOW)).toBe(21 * MIN)
+    expect(subagentQuietLabel(quiet, NOW)).toBe('quiet 21 min')
+    expect(subagentQuietFor(agentAt(NOW - 9 * MIN), NOW)).toBeNull()
+    expect(subagentQuietLabel(agentAt(NOW - 9 * MIN), NOW)).toBeNull()
+    // The mark starts at QUIET_MARK_MS exactly.
+    expect(subagentQuietFor(agentAt(NOW - QUIET_MARK_MS), NOW)).toBe(QUIET_MARK_MS)
+    const done = agentAt(NOW - 21 * MIN, true)
+    expect(done.status).toBe('done')
+    expect(subagentQuietFor(done, NOW)).toBeNull()
+    expect(subagentQuietLabel(done, NOW)).toBeNull()
+  })
+
+  it('marks no Subagent without a known change of its file: a Codex one, or one known only by its call', () => {
+    const codex: Pick<SubagentInfo, 'status' | 'changedAt'> = { status: 'running' }
+    expect(subagentQuietFor(codex, NOW)).toBeNull()
+    const byCall = buildSubagentTree({ signals: [call('toolu_only', NOW - 52 * MIN)], files: [] })[0]!
+    expect(byCall.status).toBe('running')
+    expect(subagentQuietFor(byCall, NOW)).toBeNull()
+  })
+})
+
+describe('SubagentReader: when a Subagent transcript last changed', () => {
+  const SESSION = 'abababab-0000-4000-8000-000000000004'
+  const T = Date.parse('2026-06-01T10:00:00.000Z')
+  const record = (iso: string) => JSON.stringify({ type: 'assistant', timestamp: iso, message: { role: 'assistant', model: 'claude-sonnet-5', content: [{ type: 'text', text: 'working' }] } })
+  /** Every file and folder under `root` with its mtime and contents: what reading must leave as it was (ADR-0005). */
+  function snapshot(root: string): Record<string, string> {
+    const out: Record<string, string> = {}
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name)
+        const stats = statSync(path)
+        if (entry.isDirectory()) {
+          out[path] = `dir ${stats.mtimeMs}`
+          walk(path)
+        } else out[path] = `file ${stats.mtimeMs} ${readFileSync(path, 'utf8')}`
+      }
+    }
+    walk(root)
+    return out
+  }
+
+  let home: string
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'worfy-quiet-subagent-'))
+  })
+  afterEach(() => removeTestTree(home))
+
+  it('gives the later of the file mtime and its last record time, and writes nothing to the Claude home', async () => {
+    const folder = join(home, 'projects', '-Users-test-projects-quiet', SESSION, 'subagents')
+    mkdirSync(folder, { recursive: true })
+    writeFileSync(join(home, 'projects', '-Users-test-projects-quiet', `${SESSION}.jsonl`), '')
+    // Written to after its last timed record: the mtime is later.
+    const touched = join(folder, 'agent-a1.jsonl')
+    writeFileSync(touched, `${record('2026-06-01T10:00:00.000Z')}\n`)
+    utimesSync(touched, new Date(T + 5 * 60_000), new Date(T + 5 * 60_000))
+    // A record stamped after the file's mtime (a clock between machines): the record is later.
+    const stamped = join(folder, 'agent-a2.jsonl')
+    writeFileSync(stamped, `${record('2026-06-01T10:07:00.000Z')}\n`)
+    utimesSync(stamped, new Date(T), new Date(T))
+    const before = snapshot(home)
+
+    const reader = new SubagentReader({ processState: async () => 'alive' })
+    const files = await reader.files(folder)
+    expect(files.map(({ agentId, lastAt, changedAt }) => ({ agentId, lastAt, changedAt }))).toEqual([
+      { agentId: 'a1', lastAt: T, changedAt: T + 5 * 60_000 },
+      { agentId: 'a2', lastAt: T + 7 * 60_000, changedAt: T + 7 * 60_000 },
+    ])
+    expect(snapshot(home)).toEqual(before)
+
+    // An append moves it on; asked again, the reader reads only the new line.
+    appendFileSync(touched, `${record('2026-06-01T10:20:00.000Z')}\n`)
+    utimesSync(touched, new Date(T + 21 * 60_000), new Date(T + 21 * 60_000))
+    const after = snapshot(home)
+    expect((await reader.files(folder)).find((file) => file.agentId === 'a1')?.changedAt).toBe(T + 21 * 60_000)
+    expect(snapshot(home)).toEqual(after)
   })
 })

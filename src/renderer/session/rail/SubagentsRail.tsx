@@ -1,6 +1,6 @@
 import { useId, useMemo, useSyncExternalStore, type CSSProperties } from 'react'
 import { subagentTypeLabel } from '../../../shared/agent/subagent-type'
-import { flattenSubagents, type SubagentInfo } from '../../../shared/transcript/subagents'
+import { flattenSubagents, subagentQuietLabel, type SubagentInfo } from '../../../shared/transcript/subagents'
 import {
   finishedIds,
   folds,
@@ -21,8 +21,9 @@ import type { RailBlockProps } from './index'
 
 // The Subagent tree in the Session rail (ticket 15): the same tree as the Subagent Nodes on the
 // Canvas (canvas/sources/subagents.ts), as a list — each Subagent indented under the one that
-// started it, with its status, how long it has run and a reviewer's verdict. A click on a row opens
-// the Subagent's transcript, read-only.
+// started it, with its status, how long it has run and a reviewer's verdict; a running one whose file
+// has not changed for 10 minutes adds `· quiet N min` (worfy-stuck-agents ticket 04). A click on a row
+// opens the Subagent's transcript, read-only.
 //
 // The rail orders the list itself, newest first on every level (the shared tree is oldest first,
 // and the Canvas places its Nodes by that order). A Subagent of the Session that is done or
@@ -39,6 +40,12 @@ import type { RailBlockProps } from './index'
 export const order = 20
 
 const CHIP: Record<SubagentInfo['status'], Status> = { running: 'working', done: 'done', error: 'blocked', interrupted: 'stopped' }
+
+/** The status with its time, and `· quiet N min` as on the Subagent Node (nodes/SubagentNode.tsx; worfy-stuck-agents ticket 04). */
+const withQuiet = (info: SubagentInfo, now: number): string => {
+  const quiet = subagentQuietLabel(info, now)
+  return quiet === null ? statusLabel(info, now) : `${statusLabel(info, now)} · ${quiet}`
+}
 
 const styles = {
   heading: { margin: 0, fontSize: 'var(--text-11)', lineHeight: '14px', fontWeight: 600, color: 'var(--text-muted)' },
@@ -150,7 +157,7 @@ export function SubagentsList({ tree, now, onOpen, sessionKey, onHide, hiddenCou
           </span>
           {info.verdict !== null ? <StatusChip status={info.verdict === 'VERIFIED' ? 'done' : 'blocked'} label={info.verdict} /> : null}
           <span title={info.status === 'interrupted' ? INTERRUPTED_TOOLTIP : undefined} data-testid="subagents-rail-status">
-            <StatusChip status={CHIP[info.status]} label={statusLabel(info, now)} />
+            <StatusChip status={CHIP[info.status]} label={withQuiet(info, now)} />
           </span>
         </button>
         {onHide ? (

@@ -54,15 +54,20 @@ const lines = (path: string, until?: string): string[] =>
     .filter((line) => line.trim() !== '')
     .filter((line) => until === undefined || ((JSON.parse(line) as { timestamp?: string }).timestamp ?? '') <= until)
 
-/** The tree of Session 7777 as it was at `until`; with `processStartedAt`, as a running process of the Session that started then sees it (ADR-0085). */
-function tree7(until?: string, processStartedAt?: number): SubagentInfo[] {
+/**
+ * The tree of Session 7777 as it was at `until`; with `processStartedAt`, as a running process of the Session that started
+ * then sees it (ADR-0085); with `changedAt`, the files of those agentIds last changed then (worfy-stuck-agents ticket 04).
+ */
+function tree7(until?: string, processStartedAt?: number, changedAt: Record<string, number> = {}): SubagentInfo[] {
   const files: SubagentFile[] = []
   for (const path of Object.keys(FILES).sort()) {
     const agentId = new RegExp(`^${S7}/subagents/agent-(.+)\\.jsonl$`).exec(path)?.[1]
     if (!agentId) continue
     const meta = FILES[`${S7}/subagents/agent-${agentId}.meta.json`]
     const transcript = lines(path, until)
-    if (transcript.length > 0) files.push(subagentFile(agentId, meta === undefined ? null : JSON.parse(meta), transcript))
+    if (transcript.length === 0) continue
+    const file = subagentFile(agentId, meta === undefined ? null : JSON.parse(meta), transcript)
+    files.push(changedAt[agentId] === undefined ? file : { ...file, changedAt: changedAt[agentId] })
   }
   const signals = subagentSignals(parseTranscriptLines(lines(`${S7}.jsonl`, until)))
   return buildSubagentTree({ signals, files, processStartedAt })
@@ -690,6 +695,65 @@ describe('the Subagent row of a transcript', () => {
     expect(screen.getAllByTestId('transcript-subagent-type').map((type) => [type.textContent, type.title])).toEqual([
       ['implementer', 'worfy:implementer'],
       ['scout', 'scout'],
+    ])
+  })
+})
+
+// worfy-stuck-agents ticket 04: a running Subagent of Claude Code whose file has not changed for 10 minutes or more says
+// so on its Node and in the rail; a Codex Subagent has no file and no mark.
+describe('a quiet Subagent', () => {
+  const START = Date.parse('2026-06-01T10:00:05.000Z')
+  const NOW = START + 52 * 60_000
+  /** Session 7777 at RUNNING_AT, impl-08's file last changed 21 minutes before NOW, the scout's 9 minutes before. */
+  const quiet7 = () => tree7(RUNNING_AT, undefined, { a3000000000000286: NOW - 21 * 60_000, a4000000000000286: NOW - 9 * 60_000 })
+  /** A running Subagent of a Codex Session, as main builds it from Codex's threads: no file, so no change time. */
+  const codex: SubagentInfo = {
+    id: 'agent:thr-ada',
+    agentId: 'thr-ada',
+    toolUseId: null,
+    parentAgentId: null,
+    name: 'Ada',
+    subagentType: 'explorer',
+    model: null,
+    description: null,
+    status: 'running',
+    background: true,
+    startedAt: START,
+    durationMs: null,
+    summary: null,
+    verdict: null,
+    depth: 1,
+    transcript: false,
+    children: [],
+  }
+
+  it('the Node of a quiet Subagent shows `quiet N min` after its time, and the mark goes on with the clock', () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(NOW)
+    renderNode(dataOf('AGENT1XXXXXXXXXXXXXX', quiet7()))
+    expect(screen.getByTestId('subagent-node').dataset.status).toBe('running')
+    expect(screen.getByTestId('subagent-status').textContent).toBe('running 52m 00s · quiet 21 min')
+    act(() => vi.advanceTimersByTime(60_000))
+    expect(screen.getByTestId('subagent-status').textContent).toBe('running 53m 00s · quiet 22 min')
+  })
+
+  it('the Node of a Subagent quiet for 9 minutes, and of a Codex Subagent, shows no mark', () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(NOW)
+    renderNode(dataOf('AGENT2XXXXXXXXXXXXXX', quiet7()), 'scout')
+    expect(screen.getByTestId('subagent-status').textContent).toBe('running 51m 45s')
+    cleanup()
+    renderNode(dataOf('thr-ada', [codex]), 'codex')
+    expect(screen.getByTestId('subagent-status').textContent).toBe('running 52m 00s')
+  })
+
+  it('the rail shows the same mark on the quiet Subagent only', () => {
+    render(<SubagentsList tree={[...quiet7(), codex]} now={NOW} onOpen={() => undefined} sessionKey="list-quiet" />)
+    const rows = screen.getAllByTestId('subagents-rail-row')
+    expect(rows.map((row) => [row.dataset.subagentId, within(row).getByTestId('subagents-rail-status').textContent])).toEqual([
+      ['a3000000000000286', 'running 52m 00s · quiet 21 min'],
+      ['a4000000000000286', 'running 51m 45s'],
+      ['thr-ada', 'running 52m 00s'],
     ])
   })
 })

@@ -1,6 +1,7 @@
 import { memo, type CSSProperties } from 'react'
 import { Handle, Position } from '@xyflow/react'
 import { subagentTypeLabel } from '../../../shared/agent/subagent-type'
+import { subagentQuietLabel } from '../../../shared/transcript/subagents'
 import { hideSubagents, INTERRUPTED_TOOLTIP, statusLabel, useTick } from '../../claude-home/subagents'
 import { useReadOnly } from '../../projects/useProjects'
 import { openSession } from '../../session/navigation'
@@ -13,7 +14,8 @@ import type { CanvasNodeProps } from './index'
 
 // A Subagent of a Session on the Canvas (ticket 15; CONTEXT.md, «Subagent»): its name, type and
 // model, its status with the time it has run, and the first line of its final answer — a
-// reviewer's VERIFIED or REJECTED as a chip. The Nodes come from sources/subagents.ts, to the right
+// reviewer's VERIFIED or REJECTED as a chip. A running Subagent whose file has not changed for 10
+// minutes says `· quiet N min` after its time (worfy-stuck-agents ticket 04). The Nodes come from sources/subagents.ts, to the right
 // of their Session's Node; the same kind draws the "N done" row that folds a parent's done and
 // interrupted Subagents (a click opens it) and the invisible anchor the tree's lines start from. A
 // click on "Transcript" opens the Subagent's own transcript, read-only, in the Session view.
@@ -69,6 +71,12 @@ const styles = {
 
 const CHIP: Record<SubagentSummary['status'], Status> = { running: 'working', done: 'done', error: 'blocked', interrupted: 'stopped' }
 
+/** The status with its time, and `· quiet N min` while its file has not changed for 10 minutes (worfy-stuck-agents ticket 04). */
+const withQuiet = (agent: SubagentSummary, now: number): string => {
+  const quiet = subagentQuietLabel(agent, now)
+  return quiet === null ? statusLabel(agent, now) : `${statusLabel(agent, now)} · ${quiet}`
+}
+
 function AgentNode({ id, data, agent }: { id: string; data: SubagentNodeData; agent: SubagentSummary }) {
   const now = useTick(agent.status === 'running')
   const readOnly = useReadOnly()
@@ -102,7 +110,7 @@ function AgentNode({ id, data, agent }: { id: string; data: SubagentNodeData; ag
           {title}
         </span>
         <span data-testid="subagent-status" title={agent.status === 'interrupted' ? INTERRUPTED_TOOLTIP : undefined}>
-          <StatusChip status={CHIP[agent.status]} label={statusLabel(agent, now)} />
+          <StatusChip status={CHIP[agent.status]} label={withQuiet(agent, now)} />
         </span>
       </div>
       <div style={styles.body}>

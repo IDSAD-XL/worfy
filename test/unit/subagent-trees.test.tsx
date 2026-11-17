@@ -6,7 +6,7 @@ import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
-import type { SubagentInfo, SubagentSignal } from '../../src/shared/transcript/subagents'
+import type { SubagentFile, SubagentInfo, SubagentSignal } from '../../src/shared/transcript/subagents'
 
 const ROOT = '/Users/test/projects/demo'
 const A = 'aaaaaaaa-0000-4000-8000-00000000000a'
@@ -20,7 +20,7 @@ const running = (sessionId: string): SubagentSignal[] => [
 let asked: Array<{ channel: string; input: unknown }>
 let changed: ((payload: unknown) => void) | undefined
 /** What main answers for a Session's files; by default, a running Subagent. */
-let filesOf: (sessionId: string) => { signals: SubagentSignal[]; files: []; found: boolean; processStartedAt?: number; tree?: SubagentInfo[] }
+let filesOf: (sessionId: string) => { signals: SubagentSignal[]; files: SubagentFile[]; found: boolean; processStartedAt?: number; tree?: SubagentInfo[] }
 /** The Project's history main answers; with `codex`, the window asks for it every CODEX_SESSIONS_POLL_MS. */
 let history: { sessionId: string; modifiedAt: number }[]
 let codexList: boolean
@@ -285,5 +285,15 @@ describe('useSubagentTrees: a tree main builds (a Codex Session)', () => {
     await act(async () => vi.advanceTimersByTime(CODEX_SESSIONS_POLL_MS))
     await vi.waitFor(() => expect(asked.filter(({ channel }) => channel === 'claudeHome.sessions').length).toBeGreaterThan(1))
     expect(readsOf(A)).toBe(1)
+  })
+})
+
+describe('useSubagentTrees: when a Subagent file last changed (worfy-stuck-agents ticket 04)', () => {
+  it('keeps the change time main read for a Subagent file in the tree, for the mark `quiet N min`', async () => {
+    const { subagentFile } = await import('../../src/shared/transcript/subagents')
+    const file = { ...subagentFile('a1', { toolUseId: `toolu_${A.slice(0, 4)}` }, []), changedAt: 4000 }
+    filesOf = (sessionId) => ({ signals: running(sessionId), files: [file], found: true })
+    const { hook } = await mount([A])
+    await vi.waitFor(() => expect(hook.result.current.get(A)?.[0]).toMatchObject({ agentId: 'a1', status: 'running', changedAt: 4000 }))
   })
 })
