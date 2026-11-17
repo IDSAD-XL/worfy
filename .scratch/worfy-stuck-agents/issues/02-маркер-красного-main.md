@@ -1,7 +1,8 @@
 # 02 — Маркер красного main: `land` пишет `main-red-<key>.json`, worfy его читает
 
 Type: task
-Status: claimed 2026-11-17T03:56Z
+Status: done 2026-11-17T06:01Z
+PR: #1946
 Blocked by: none
 Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реализации» → «Цикл и Run: продолжение, отложить, `main-red`»,
 пункт «Красный main — маркер `land`»; «Риски» → «Маркер снят раньше времени» и «Устаревший маркер `main-red`»;
@@ -61,6 +62,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реал�
 - [ ] Платформенный PR (ADR-0056, пункт 2; ADR-0071): вердикт Windows до merge.
 - [ ] Все `harness/bin/tests/*.test.sh` зелёные; `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на
       head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44020809563/job/133840304340 · ci - · ec619916b26c565d726436e6ca0cdb86641965d2
 
 ## Тесты
 

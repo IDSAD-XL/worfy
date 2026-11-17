@@ -199,3 +199,68 @@ export async function readMainRed(gateDir: string, root: string, platform: NodeJ
 3. Что случится с маркером, если `gh run list` упал?
    - Ответ: `ghJson` бросает `Wait` до разбора run-ов, `markMain` не вызывается, маркер остаётся как был.
    - Строки: `harness/bin/land:527`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED
+> Consider: harness/bin/land:535-539 — when the red run is rerun before land ever saw it red, no marker is written for the whole rerun (the rerun branch only keeps an existing marker); the Run of ticket 05 would then not stop — write the marker from the rerun's run when none exists.
+> Noted: harness/bin/land:564 — the "no green push run among the newest 50" branch writes the marker with `pr: null`, untested (a mutant removing the write survives). harness/bin/land:484-490 — a failed key lookup is cached for the whole `--watch` run (up to 110 min). harness/bin/land:556-572 — two concurrent lands can leave a red marker over a green main until the next land (the spec allows staleness). Windows: rename over a marker worfy holds open may fail with EPERM; only logged, no retry, untested. src/main/gate/state.ts:82 — with the registry only in the old ~/.claude/gate place, land writes the marker and worfy does not find it (same as the existing red-<key>-<tag> markers). test/unit/gate-state.test.ts is over 1000 lines.
+> Dismissed: none
+> Review depth: medium — ticket header
+> Review tokens: 81223 + 99159 = 180382
+
+Code: `harness/bin/land:535-539` · key lines: 535
+
+```
+            if (!first && Number(r.attempt) > 1) {
+                // the main-red marker stays: a red run is what gets rerun, the branch is red until its verdict
+                mainRed = null
+                throw mainWait(`the push run ${r.url || r.databaseId} on ${st.branch} (${short(r.headSha)}) is being rerun (attempt ${r.attempt}): code PRs wait for its verdict`, "ci")
+            }
+```
+
+Code: `harness/bin/land:564-564` · key lines: 564
+
+```
+        markMain(st, { sha: first.headSha, pr: null, since, url, line: mainRed })
+```
+
+Code: `harness/bin/land:484-490` · key lines: 484
+
+```
+function mainMarkerFile(st) {
+    if (markerFile !== undefined) return markerFile
+    const r = run([process.execPath, [path.join(__dirname, "..", "hooks", "gate-resolve.mjs")]], ["--which", st.repo], st.repo)
+    const key = r.code === 0 ? r.out.split(/\r?\n/)[0].split("\t")[0] : ""
+    if (!key || /[\\/]|^\.\.?$/.test(key)) {
+        log(`main-red marker: no gate key for ${st.repo} (gate-resolve.mjs --which exit ${r.code}${key ? `, key ${JSON.stringify(key)}` : ""}${r.err ? `: ${firstLine(r.err)}` : ""}) — no marker`)
+        markerFile = null
+```
+
+Code: `harness/bin/land:556-572` · key lines: 556
+
+```
+        mainRed = null
+        markMain(st, null)
+        return
+    }
+    const url = first.url || null
+    if (!green && runs.length >= MAIN_RUNS) {
+        const since = first.updatedAt || first.createdAt
+        mainRed = `${st.branch} red since before ${short(first.headSha)} (no green push run among the newest ${MAIN_RUNS}, the oldest red one ${since}) — code PRs wait; the culprit is older than these runs: find it by hand`
+        markMain(st, { sha: first.headSha, pr: null, since, url, line: mainRed })
+        throw mainWait(`${mainRed.replace(" — ", `, run ${first.url || first.databaseId} — `)}`, running ? "ci" : "waits")
+    }
+    const pr = culpritPr(st, first.headSha)
+    const since = first.updatedAt || first.createdAt
+    const head = `${st.branch} red since ${short(first.headSha)} (${pr || "no PR"}, ${since})`
+    const tail = `code PRs wait; fix forward until ${plusHour(since)}, then revert ${pr || short(first.headSha)}`
+    mainRed = `${head} — ${tail}`
+    markMain(st, { sha: first.headSha, pr: pr ? Number(pr.slice(1)) : null, since, url, line: mainRed })
+```
+
+Code: `src/main/gate/state.ts:82-82` · key lines: 82
+
+```ts
+export async function readGateConfig(gateDir: string): Promise<GateConfig | null> {
+```
