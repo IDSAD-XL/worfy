@@ -25,6 +25,13 @@
 //   its approval of the Harness's hooks is not checked here (codex-orchestrator.test.ts checks it).
 // - Auto-continue (`autoContinue`, worfy-retry ticket 09): off unless asked; on, the pause before a
 //   continuation after a temporary API error is a timer on the test's clock, as the Limits wait is.
+// - The continuation ladder (worfy-stuck-agents ticket 05): `setAside: 'block'` makes the fake Orchestrator
+//   carry out a set-aside message — each `ticket block demo NN "<reason>" --waits owner` it names writes the
+//   Ticket `blocked` with `Blocked reason:` and `Waits:`, as harness/bin/ticket does, while the message's turn
+//   runs. `mainRed` puts land's marker `main-red-demo.json` in a gate folder of the test, which the run reads
+//   through readMainRed (src/main/gate/state.ts). `secondEpic` adds Epic `demo-b` (one open Ticket 01), so a
+//   run over the queue `demo`, `demo-b` (start with `epics`) can go on to it (`done`: it is done already, and the
+//   run ends there); the fake writes no status there.
 //
 // A test file that imports this module mocks `electron` as autopilot-faults-api.test.ts does. The
 // module's afterEach stops every run, closes every Session, kills every stub and fake process and
@@ -40,6 +47,7 @@ import { LimitsTracker, observeSessionLimits } from '../../src/main/agent/limits
 import { Orchestrators } from '../../src/main/agent/orchestrator'
 import { SessionRegistry, STATIC_CLAUDE_PARTS, type QueryRequest } from '../../src/main/agent/session'
 import { hasExited } from '../../src/main/agent/session/process'
+import { mainRedFileName, readMainRed } from '../../src/main/gate/state'
 import { SessionSettingsStore } from '../../src/main/agent/session-settings'
 import { openRun } from '../../src/main/autopilot/journal'
 import { Autopilot, type TasksClock } from '../../src/main/autopilot/run'
@@ -72,6 +80,8 @@ const RUNTIME: CodexRuntime = { packaged: false, resourcesPath: '/Resources', pl
 
 export const PROJECT = 'demo-000000f2'
 export const EPIC = 'demo'
+/** The second Epic of `secondEpic`: one open Ticket 01. */
+export const EPIC_B = 'demo-b'
 
 /** The reset of the refused 5-hour window in autopilot-limits.jsonl: 2026-10-05T07:10:00Z. */
 export const LIMITS_RESET_MS = 1791184200 * 1000
@@ -130,6 +140,12 @@ export interface FaultRunOptions {
   autoContinue?: boolean
   /** Gets each view the Orchestrators publish (the app gives it to Auto-continue of a manual turn, worfy-retry ticket 08). */
   publish?: (view: OrchestratorView) => void
+  /** The fake Orchestrator carries out the set-aside message (worfy-stuck-agents ticket 05); default: it does not. */
+  setAside?: 'block' | 'ignore'
+  /** land's main-red marker for the Project's repository exists in the gate folder the run reads; default none. */
+  mainRed?: boolean
+  /** A second Epic, EPIC_B, with one Ticket 01, open (`true`) or already done (`done`); default none. */
+  secondEpic?: boolean | 'done'
   /**
    * The Profile's list of MCP servers of every Claude Session (worfy-mcp-live ticket 05): the fake agent leaves
    * out what it does not name, and the Claude driver runs the MCP inventory over the first unattended script.
@@ -224,22 +240,39 @@ function stateOf(status: string): TicketStatusState {
   return 'open'
 }
 
-/** `epic-status --json` over the Epic's Tickets, as the real script reads them. */
+/** `epic-status --json` over every Epic's Tickets, as the real script reads them. */
 const runner: EpicStatusRunner = (cwd) => {
-  const dir = join(cwd, '.scratch', EPIC, 'issues')
-  const tickets = readdirSync(dir)
-    .sort()
-    .map((name) => {
-      const text = readFileSync(join(dir, name), 'utf8')
-      const field = (key: string) => new RegExp(`^${key}:\\s*(.*)$`, 'm').exec(text)?.[1] ?? null
-      const status = field('Status')
-      const blocked = field('Blocked by')
-      const state = { done: 'done', claimed: 'work', blocked: 'blocked', open: 'open' }[stateOf(status ?? '')]
-      const nums = blocked && blocked !== '—' ? blocked.split(',').map((each) => Number(each.trim())) : []
-      const match = /^(\d+)-(.*)\.md$/.exec(name)!
-      return { epic: EPIC, num: Number(match[1]), slug: match[2], title: text.split('\n')[0]!.replace(/^#\s*/, ''), statusRaw: status, state, blockedRaw: blocked, blockedNums: nums, blockedParsed: true }
-    })
-  return Promise.resolve(JSON.stringify({ ref: 'main', epics: [{ epic: EPIC, hasSpec: true, hasMap: false }], tickets }))
+  const epics = readdirSync(join(cwd, '.scratch')).sort()
+  const tickets = epics.flatMap((epic) => {
+    const dir = join(cwd, '.scratch', epic, 'issues')
+    return readdirSync(dir)
+      .sort()
+      .map((name) => {
+        const text = readFileSync(join(dir, name), 'utf8')
+        const field = (key: string) => new RegExp(`^${key}:\\s*(.*)$`, 'm').exec(text)?.[1] ?? null
+        const status = field('Status')
+        const blocked = field('Blocked by')
+        const state = { done: 'done', claimed: 'work', blocked: 'blocked', open: 'open' }[stateOf(status ?? '')]
+        const nums = blocked && blocked !== '—' ? blocked.split(',').map((each) => Number(each.trim())) : []
+        const match = /^(\d+)-(.*)\.md$/.exec(name)!
+        const reason = field('Blocked reason')
+        const waits = field('Waits')
+        return {
+          epic,
+          num: Number(match[1]),
+          slug: match[2],
+          title: text.split('\n')[0]!.replace(/^#\s*/, ''),
+          statusRaw: status,
+          state,
+          blockedRaw: blocked,
+          blockedNums: nums,
+          blockedParsed: true,
+          ...(reason === null ? {} : { blockedReason: reason }),
+          ...(waits === null ? {} : { waits }),
+        }
+      })
+  })
+  return Promise.resolve(JSON.stringify({ ref: 'main', epics: epics.map((epic) => ({ epic, hasSpec: true, hasMap: false })), tickets }))
 }
 
 function git(cwd: string, ...args: string[]): void {
@@ -300,11 +333,18 @@ export function faultRun(options: FaultRunOptions = {}) {
   mkdirSync(dataRoot, { recursive: true })
   writeFileSync(join(repo, '.scratch', EPIC, 'spec.md'), '# demo\n')
   const ticketFile = (num: number): string => join('.scratch', EPIC, 'issues', `${nn(num)}-ticket-${num}.md`)
-  const ticketText = (num: number, status: string): string => {
-    const { blocked } = TICKETS.find((each) => each.num === num)!
-    return [`# ${nn(num)} — Ticket ${num}`, '', 'Type: task', `Status: ${status}`, `Blocked by: ${blocked}`, '', '## Где в коде', '', `- \`src/f${num}.ts\``, ''].join('\n')
+  /** A Ticket's file; `blocked`: the `Blocked reason:` and `Waits:` lines `ticket block` writes. */
+  const ticketText = (num: number, status: string, blocked?: { reason: string; waits: string }): string => {
+    const by = TICKETS.find((each) => each.num === num)!.blocked
+    const lines = blocked === undefined ? [] : [`Blocked reason: ${blocked.reason}`, `Waits: ${blocked.waits}`]
+    return [`# ${nn(num)} — Ticket ${num}`, '', 'Type: task', `Status: ${status}`, ...lines, `Blocked by: ${by}`, '', '## Где в коде', '', `- \`src/f${num}.ts\``, ''].join('\n')
   }
   for (const { num } of TICKETS) writeFileSync(join(repo, ticketFile(num)), ticketText(num, 'open'))
+  if (options.secondEpic !== undefined && options.secondEpic !== false) {
+    mkdirSync(join(repo, '.scratch', EPIC_B, 'issues'), { recursive: true })
+    writeFileSync(join(repo, '.scratch', EPIC_B, 'spec.md'), '# demo-b\n')
+    writeFileSync(join(repo, '.scratch', EPIC_B, 'issues', '01-ticket-1.md'), ['# 01 — Ticket 1', '', 'Type: task', `Status: ${options.secondEpic === 'done' ? 'done — 2026-11-05' : 'open'}`, 'Blocked by: —', '', '## Где в коде', '', '- `src/b1.ts`', ''].join('\n'))
+  }
   git(repo, 'init', '-q', '-b', 'main')
   git(repo, 'add', '-A')
   git(repo, 'commit', '-q', '-m', 'demo')
@@ -396,8 +436,8 @@ export function faultRun(options: FaultRunOptions = {}) {
   // The Tickets: what the agent writes, each write a StatusWrite and a change the watch reports.
   const statusWrites: StatusWrite[] = []
   const watchers = new Set<() => void>()
-  const setStatus = (num: number, status: string): void => {
-    writeFileSync(join(repo, ticketFile(num)), ticketText(num, status))
+  const setStatus = (num: number, status: string, blocked?: { reason: string; waits: string }): void => {
+    writeFileSync(join(repo, ticketFile(num)), ticketText(num, status, blocked))
     statusWrites.push({ at: new Date().toISOString(), file: ticketFile(num), ticket: nn(num), state: stateOf(status) })
     for (const watcher of watchers) watcher()
   }
@@ -405,6 +445,14 @@ export function faultRun(options: FaultRunOptions = {}) {
   const setMarks = (value: FaultMarks): void => {
     marks = value
   }
+  // The fake Orchestrator carries out a set-aside message (`setAside: 'block'`): the `ticket block` it names.
+  registry.observe((_sessionId, event) => {
+    if (event.type !== 'prompt' || options.setAside !== 'block') return
+    for (const match of event.text.matchAll(/\bticket block (\S+) (\d+) "([^"]*)" --waits (\w+)/gu)) {
+      if (match[1] !== EPIC) continue
+      setStatus(Number(match[2]), 'blocked 2026-11-05T10:00Z', { reason: match[3]!, waits: match[4]! })
+    }
+  })
   registry.observe((_sessionId, event) => {
     if (event.type !== 'prompt' || marks === 'none') return
     const status = marks === 'done' ? 'done — 2026-11-05' : 'claimed — 2026-11-05'
@@ -477,6 +525,17 @@ export function faultRun(options: FaultRunOptions = {}) {
     }
   }
 
+  // land's gate folder: the registry names the repository `demo`; with `mainRed` its marker is there.
+  const gateDir = join(scratch, 'gate')
+  mkdirSync(join(gateDir, 'state'), { recursive: true })
+  writeFileSync(join(gateDir, 'config.json'), JSON.stringify({ repos: [{ key: 'demo', match: repo }] }))
+  if (options.mainRed === true) {
+    writeFileSync(
+      join(gateDir, 'state', mainRedFileName('demo')),
+      JSON.stringify({ sha: 'abc1234', pr: 41, since: '2026-11-05T09:00:00Z', url: 'https://github.com/o/r/actions/runs/1', line: 'main red since PR #41', at: '2026-11-05T09:01:00Z' }),
+    )
+  }
+
   const states: AutopilotState[] = []
   const autopilot = new Autopilot({
     projectRoot: () => repo,
@@ -496,6 +555,8 @@ export function faultRun(options: FaultRunOptions = {}) {
     keepAwake: () => ({ start: () => undefined, stop: () => undefined }),
     onChange: (state) => states.push(state),
     settleMs: options.settleMs ?? 60_000,
+    mainRed: (root) => readMainRed(gateDir, root),
+    ticketTool: () => 'ticket',
     limits: {
       state: () => tracker.snapshot(),
       observeSession: (isSession, listener) => observeSessionLimits((sink) => registry.observe(sink), isSession, listener),
@@ -567,10 +628,10 @@ export function faultRun(options: FaultRunOptions = {}) {
     return out
   }
   const state = (): AutopilotState => autopilot.state(PROJECT)
-  /** Starts the run; a refused start answers its reason instead of throwing. */
-  const start = async (): Promise<{ refusal: string | null }> => {
+  /** Starts the run, over the queue `epics` when given; a refused start answers its reason instead of throwing. */
+  const start = async (epics?: readonly string[]): Promise<{ refusal: string | null }> => {
     try {
-      await autopilot.start(PROJECT, EPIC)
+      await autopilot.start(PROJECT, EPIC, epics === undefined ? {} : { epics: [...epics] })
       return { refusal: null }
     } catch (error) {
       return { refusal: error instanceof Error ? error.message : String(error) }

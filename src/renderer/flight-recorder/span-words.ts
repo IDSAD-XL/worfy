@@ -1,6 +1,9 @@
 // The words and colours a span goes by on the Run history screen (worfy-flight-recorder tickets 18, 19): its
 // name, the token of its colour, its duration, its outcome and its lost source, shared by the timeline
-// (Timeline.tsx) and the detail panel (DetailPanel.tsx).
+// (Timeline.tsx) and the detail panel (DetailPanel.tsx). The continuation ladder (worfy-stuck-agents ticket
+// 05) has its words here too: the stop `main-red`, the reason of the attempt a `ticket-continued` caused,
+// and the mark of a `ticket-set-aside` on the Run's row.
+import type { OrchestratorMarkFact } from '../../shared/flight-recorder/facts'
 import { LOST_SOURCE_LABELS, type Span, type WaitCause } from '../../shared/flight-recorder/spans'
 import { formatLocal } from './store'
 
@@ -34,6 +37,39 @@ const STOP_WORDS: Readonly<Record<string, string>> = {
   'start-cancelled': 'start-cancelled: cancelled while it waited for the Orchestrator',
   'start-refused': 'start-refused: refused once the Orchestrator was free',
   'waits-owner': 'waits-owner: the last Epic of the queue waits for the owner',
+  'main-red': 'main-red: main was red, so the stuck Ticket was not continued',
+}
+
+/** What the Run saw of a stuck Ticket, by the cause of its continuation or set-aside (CONTINUATION_CAUSES). */
+const STUCK_WORDS: Readonly<Record<string, string>> = {
+  'wave-unfinished': 'still in work after the turn',
+  'no-progress': 'the same Wave came back',
+}
+
+/** `ticket-continued: <cause>, <attempt> of <of>` as from-journal.ts makes it. */
+const CONTINUED = /^ticket-continued: ([a-z-]+), (\d+) of (\d+)$/u
+/** `ticket-set-aside: <ticket>, <cause>, <attempts>` as from-journal.ts makes it. */
+const SET_ASIDE = /^ticket-set-aside: (\S+), ([a-z-]+), (\d+)$/u
+
+/** The reason of an attempt a continuation caused: `continuation 1 of 2: still in work after the turn`. */
+function continuedText(reason: string): string | null {
+  const match = CONTINUED.exec(reason)
+  if (match === null) return null
+  const [, cause, attempt, of] = match
+  return `continuation ${attempt} of ${of}: ${STUCK_WORDS[cause!] ?? cause}`
+}
+
+/**
+ * A mark of the Run as the timeline writes it. A Ticket set aside: `Ticket 05 set aside after 2 continuations:
+ * still in work after the turn` (its Epic named in a Run over a queue, as displayName does); the others as the
+ * Journal reader wrote them.
+ */
+export function markText(mark: Pick<OrchestratorMarkFact, 'kind' | 'text'>, epics: readonly string[] = []): string {
+  const match = mark.kind === 'ticket-set-aside' ? SET_ASIDE.exec(mark.text) : null
+  if (match === null) return mark.text
+  const [, ticket, cause, attempts] = match
+  const name = epics.length > 1 ? ticket! : (ticket!.split('/').at(-1) ?? ticket!)
+  return `Ticket ${name} set aside after ${attempts} ${attempts === '1' ? 'continuation' : 'continuations'}: ${STUCK_WORDS[cause!] ?? cause}`
 }
 
 /** A stop reason of `run-stopped` as the header and the detail panel write it. */
@@ -72,11 +108,12 @@ const UNTIL_ISO = /until (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]
  * The reason of a span as the screen writes it. A Wait's `until` is in local time, as Start and End are
  * (formatLocal; worfy-resource-planner ticket 11): the Journal keeps it as an ISO moment in UTC, and the
  * screen says «Times are local». A moment that does not parse stays as it is. A Run's stop reason goes by
- * stopReasonText.
+ * stopReasonText, the reason of an attempt a continuation caused by its words (`continuation 1 of 2: …`).
  */
 export function reasonText(span: Span): string | null {
   if (span.reason !== null && span.kind === 'run') return stopReasonText(span.reason)
-  if (span.reason === null || span.kind !== 'wait') return span.reason
+  if (span.reason !== null && span.kind !== 'wait') return continuedText(span.reason) ?? span.reason
+  if (span.reason === null) return null
   return span.reason.replace(UNTIL_ISO, (whole, iso: string) => {
     const at = Date.parse(iso)
     return Number.isNaN(at) ? whole : `until ${formatLocal(at)}`

@@ -2,6 +2,7 @@
 // event to the next state and what the run does next. When a Wave counts as finished, when the next
 // one is sent, and every reason a run stops.
 import { describe, expect, it } from 'vitest'
+import { MAX_CONTINUATIONS } from '../../src/shared/autopilot/continuation'
 import { AUTOPILOT_STOP_REASONS, initialCycle, SETTLE_MS, step, type CycleEvent, type CycleState } from '../../src/shared/autopilot/cycle'
 import { runWaveState } from '../../src/shared/actions/render-template'
 import type { Ticket } from '../../src/shared/workflow/types'
@@ -544,6 +545,22 @@ describe('the continuation ladder', () => {
     expect(third.state.phase).toBe('turn')
     const after = run([ok(OPEN)], third.state)
     expect(after.effects).toEqual([{ kind: 'wave-finished', wave: 3, tickets: [1, 2] }, { kind: 'stopped', reason: 'no-progress' }])
+  })
+
+  it("the Run's ceiling (MAX_CONTINUATIONS, worfy-stuck-agents ticket 05): two continuations of a Ticket, then its set-aside", () => {
+    expect(MAX_CONTINUATIONS).toBe(2)
+    let state = run([{ type: 'start', tickets: OPEN }, { type: 'wave-sent', tickets: [1, 2] }], ladder(MAX_CONTINUATIONS)).state
+    const asked: unknown[] = []
+    for (let wave = 2; wave <= 4; wave += 1) {
+      const next = run([ok(STUCK2), { type: 'settle-timeout' }], state)
+      asked.push(...next.effects)
+      state = next.effects.some((effect) => (effect as { kind: string }).kind === 'set-aside') ? next.state : run([{ type: 'wave-sent', tickets: [2] }], next.state).state
+    }
+    expect(asked).toEqual([
+      { kind: 'continue-tickets', tickets: [{ num: 2, attempt: 1 }], of: 2, cause: 'wave-unfinished' },
+      { kind: 'continue-tickets', tickets: [{ num: 2, attempt: 2 }], of: 2, cause: 'wave-unfinished' },
+      { kind: 'set-aside', tickets: [2], attempts: 2, cause: 'wave-unfinished' },
+    ])
   })
 
   it('tasks-timeout with live tasks still stops with background-stalled: it names no Ticket to continue', () => {

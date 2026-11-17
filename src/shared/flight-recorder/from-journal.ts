@@ -46,8 +46,11 @@
 //   at the first wave-started that names it. A later Journal claims nothing there: a Ticket with no
 //   ticket-status kept its status through the Run (one a resumed Run took over in work counts as
 //   claimed by its first other event, in the model).
-// - Retry causes: narrow-round `started` (the narrow fix round of a Ticket) and session-error (no
-//   Ticket); the model puts each on the first agent work at or after it.
+// - Retry causes: narrow-round `started` (the narrow fix round of a Ticket), session-error (no
+//   Ticket) and ticket-continued (a stuck Ticket continued in the next Wave, worfy-stuck-agents ticket 05:
+//   `ticket-continued: <cause>, <attempt> of <of>`, put in words by the screen); the model puts each on the
+//   first agent work at or after it. A ticket-set-aside (the Orchestrator asked to set a Ticket aside) is a
+//   mark on the Run's row, `ticket-set-aside: <ticket>, <cause>, <attempts>`, in words on the screen too.
 // - refused-dialog and human-input are marks on the Orchestrator's lane, not Waits.
 // - The Run mode (`run-started.mode`), the Epic forecast (the first `forecast` line) and the actual
 //   share (`run-stopped.actual`) of worfy-resource-planner tickets 05 and 07, for the head of the Run.
@@ -473,6 +476,12 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
           const said = text(event.text)
           retryCauses.push({ ticket: key(event.ticket as string, event.epic), kind: 'agent', at: iso(at), reason: said === undefined ? 'narrow round' : `narrow round: ${said}`, source: 'journal' })
         }
+        break
+      case 'ticket-continued':
+        retryCauses.push({ ticket: key(event.ticket as string, event.epic), kind: 'agent', at: iso(at), reason: `ticket-continued: ${event.cause}, ${event.attempt} of ${event.of}`, source: 'journal' })
+        break
+      case 'ticket-set-aside':
+        orchestratorMarks.push({ kind: 'ticket-set-aside', at: iso(at), text: `ticket-set-aside: ${key(event.ticket as string, event.epic)}, ${event.cause}, ${event.attempts}` })
         break
       case 'session-error': {
         const message = text(event.message)

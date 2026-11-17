@@ -2,6 +2,8 @@
 // start, stop, and the state of the run, sent to every window whenever it changes. Run by
 // src/main/autopilot/run.ts, handled in src/main/ipc/autopilot.ts (ADR-0006).
 import { z } from 'zod'
+import { ticketNumber } from '../actions/render-template'
+import { continuingText } from '../autopilot/continuation'
 import { AUTOPILOT_STOP_REASONS } from '../autopilot/cycle'
 import { MAX_QUEUE_EPICS } from '../autopilot/epic-queue'
 import { ESTIMATE_WAVES } from '../autopilot/limits-estimate'
@@ -112,6 +114,12 @@ export const autopilotStateSchema = z.object({
    * given. Empty while running and after any other stop, the graceful Stop (`user-stop`) included.
    */
   resumable: z.array(ticketNumSchema),
+  /**
+   * While a Wave that continues stuck Tickets runs (worfy-stuck-agents ticket 05): their numbers, and the attempt
+   * of the one nearest the ceiling `of`; the status line says `continuing 05 (1 of 2)`. Absent otherwise, and in
+   * states of builds before the ticket.
+   */
+  continuing: z.object({ tickets: z.array(ticketNumSchema), attempt: z.number().int().positive(), of: z.number().int().positive() }).optional(),
   /**
    * A graceful Stop came (worfy-week ticket 18): the run takes no new Ticket and ends once the
    * Orchestrator's turn and background tasks are over. A flag over `running` and `waiting`; false
@@ -292,7 +300,8 @@ export interface StatusLineOptions {
  * ticket 18), `waiting for limits · resumes 14:20`, `today's share used · resumes 00:00` and
  * `5-hour limits full · resumes 02:12` (the budget, worfy-throughput ticket 41), `outside start
  * window · resumes 23:00` and `wave too long for window · resumes 23:00` (the Start window,
- * worfy-resource-planner ticket 05), `API error · retry 2/5 · 14:20` (the continuation after a
+ * worfy-resource-planner ticket 05), `Wave 4 · continuing 05 (1 of 2)` (a Wave that continues a stuck Ticket,
+ * worfy-stuck-agents ticket 05), `API error · retry 2/5 · 14:20` (the continuation after a
  * temporary API error, worfy-retry ticket 04), `waiting for the Orchestrator · 4 min` (a run accepted
  * while its Orchestrator was busy, in whole minutes since `waitingSince`, none in the first one;
  * worfy-autopilot-queue ticket 07), `stopped: no ready wave`, `stopped: user force stop`, `stopped: waits for owner` (the last
@@ -303,7 +312,7 @@ export interface StatusLineOptions {
  */
 export function autopilotStatusLine(
   state: Pick<AutopilotState, 'status' | 'wave' | 'reason'> &
-    Partial<Pick<AutopilotState, 'resumesAt' | 'waitingFor' | 'waitingSince' | 'retry' | 'windowReason' | 'backgroundTasks' | 'stopping' | 'ticketsInWork' | 'epic' | 'queue' | 'index'>>,
+    Partial<Pick<AutopilotState, 'resumesAt' | 'waitingFor' | 'waitingSince' | 'retry' | 'windowReason' | 'backgroundTasks' | 'stopping' | 'ticketsInWork' | 'continuing' | 'epic' | 'queue' | 'index'>>,
   options: StatusLineOptions = {},
 ): string | null {
   const line = runLine(state, options)
@@ -314,7 +323,7 @@ export function autopilotStatusLine(
 
 /** The status line without the place in the queue. */
 function runLine(
-  state: Pick<AutopilotState, 'status' | 'wave' | 'reason'> & Partial<Pick<AutopilotState, 'resumesAt' | 'waitingFor' | 'waitingSince' | 'retry' | 'windowReason' | 'backgroundTasks' | 'stopping' | 'ticketsInWork'>>,
+  state: Pick<AutopilotState, 'status' | 'wave' | 'reason'> & Partial<Pick<AutopilotState, 'resumesAt' | 'waitingFor' | 'waitingSince' | 'retry' | 'windowReason' | 'backgroundTasks' | 'stopping' | 'ticketsInWork' | 'continuing'>>,
   options: StatusLineOptions,
 ): string | null {
   if (state.status === 'running') {
@@ -325,6 +334,8 @@ function runLine(
     if (state.wave === 0) return 'starting'
     const tasks = state.backgroundTasks ?? 0
     if (tasks > 0) return `Wave ${state.wave} · ${tasks} background ${tasks === 1 ? 'task' : 'tasks'}`
+    const continuing = state.continuing
+    if (continuing !== undefined) return `Wave ${state.wave} · ${continuingText({ ...continuing, tickets: continuing.tickets.map(ticketNumber) })}`
     return `Wave ${state.wave} · running`
   }
   if (state.status === 'waiting') {

@@ -148,6 +148,8 @@ interface HarnessOptions {
   agentMarksDone?: boolean
   selfRefusal?: AutopilotDeps['selfRefusal']
   settleMs?: number
+  /** The ceiling of continuations of a stuck Ticket (AutopilotDeps.maxContinuations; default the run's own, 2). */
+  maxContinuations?: number
   /** Each journal line is written this much later, as on a slow disk. */
   slowJournalMs?: number
   /** Worktree branches laid over the checkout as the reader does (applyBranches); default: the reader's own. */
@@ -242,6 +244,7 @@ function harness(options: HarnessOptions = {}) {
       options.onState?.(state, autopilot)
     },
     settleMs: options.settleMs ?? 60_000,
+    ...(options.maxContinuations === undefined ? {} : { maxContinuations: options.maxContinuations }),
   })
   autopilots.push(autopilot)
   launcher.attachAutopilot(autopilot)
@@ -867,7 +870,8 @@ describe('an Autopilot run on the fake agent', () => {
 
   it('repeats the run of 2026-10-06 15:24Z: a Ticket blocked in the checkout and open in its branch stays out; the journal shows what went, the answer and the skipped Ticket', async () => {
     writeTicket(2, 'blocked — rejected by review')
-    const h = harness({ script: 'autopilot-blocked', agentMarksDone: false, branches: untouchedBranch() })
+    // The old stop, without the continuation ladder (worfy-stuck-agents ticket 05; autopilot-faults-ladder.test.ts has it).
+    const h = harness({ script: 'autopilot-blocked', agentMarksDone: false, branches: untouchedBranch(), maxContinuations: 0 })
     await h.autopilot.start(PROJECT, EPIC)
     await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
 

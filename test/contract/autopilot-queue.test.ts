@@ -149,6 +149,8 @@ const runner: EpicStatusRunner = (cwd) => {
 const waveText = (epic: string, nums: number[]): string => `/epic-wave Ticket-ы ${nums.map(nn).join(', ')} эпика ${epic}`
 
 interface HarnessOptions {
+  /** The ceiling of continuations of a stuck Ticket (AutopilotDeps.maxContinuations; default the run's own, 2). */
+  maxContinuations?: number
   /** What the agent does with a Wave of each Epic: marks its Tickets done (the default), or nothing. */
   agent?: Record<string, 'done' | 'nothing'>
   /** The script of every unattended Session, by its number from 1; WAVE_SCRIPT when absent. */
@@ -224,6 +226,7 @@ function harness(options: HarnessOptions = {}) {
     keepAwake: () => ({ start: () => power.push('start'), stop: () => power.push('stop') }),
     onChange: (state) => states.push(state),
     settleMs: 60_000,
+    ...(options.maxContinuations === undefined ? {} : { maxContinuations: options.maxContinuations }),
     ...(options.linkedRuns === undefined ? {} : { origin: () => Promise.resolve(ORIGIN), linkedRuns: options.linkedRuns }),
     ...(options.limits !== true
       ? {}
@@ -451,7 +454,8 @@ describe('a Run over a queue of Epics on the fake agent', () => {
   it('no-progress in the first Epic stops the whole Run: no epic-finished, the second Epic is not begun', async () => {
     writeEpic('alpha')
     writeEpic('beta')
-    const h = harness({ agent: { alpha: 'nothing' } })
+    // The stop itself, without the continuation ladder before it (worfy-stuck-agents ticket 05).
+    const h = harness({ agent: { alpha: 'nothing' }, maxContinuations: 0 })
     await h.autopilot.start(PROJECT, 'alpha', { epics: ['alpha', 'beta'] })
     await h.stopped()
     expect(await h.story()).toEqual([

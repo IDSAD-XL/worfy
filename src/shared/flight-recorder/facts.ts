@@ -62,10 +62,10 @@ export type LostSource = keyof typeof LOST_SOURCE_LABELS
 // | `work` `ci`          | GitHub (15)                                                            |
 // | `work` `gate`, `script` | gate logs (16): a gate run by `sha`/`worktree` (a canonical path), its steps with `parentWork` |
 // | `waits`              | Journal (13): `limits`, `limits-budget`, `start-window` (worfy-resource-planner 08), `background-tasks`, `gate-queue`, `orchestrator-busy` (worfy-autopilot-queue 18); GitHub (15): `other-machine` |
-// | `retryCauses`        | Journal (13): `narrow-round`, `session-error`                         |
+// | `retryCauses`        | Journal (13): `narrow-round`, `session-error`, `ticket-continued` (worfy-stuck-agents 05) |
 // | `turns`              | the Orchestrator's transcript (14)                                     |
 // | `lost`               | the reader of the source that is gone: 14 transcripts, 15 GitHub, 16 gate logs and branches |
-// | `orchestratorMarks`  | Journal (13): `refused-dialog`, `human-input`, `tasks-killed` `start-now`; `epic-started`, `epic-finished` (worfy-autopilot-queue 18) |
+// | `orchestratorMarks`  | Journal (13): `refused-dialog`, `human-input`, `tasks-killed` `start-now`; `epic-started`, `epic-finished` (worfy-autopilot-queue 18); `ticket-set-aside` (worfy-stuck-agents 05) |
 //
 // Beside RunFacts the Journal gives the Run's Auto-approval decisions (AutoApprovalDecisionFact,
 // worfy-auto-approve ticket 08): the service puts them in the view, the span model does not read them.
@@ -270,11 +270,11 @@ export interface LostFact {
  * A mark of the Run as a whole. On the Orchestrator's lane: a dialog Autopilot refused, input of a person
  * (Start now too, which ended the Orchestrator's tasks). On the Run's row (worfy-autopilot-queue ticket
  * 18): the start of the next Epic of a queue, an Epic the Run passed over (waits for the owner, runs
- * elsewhere).
+ * elsewhere), a stuck Ticket the Run asked the Orchestrator to set aside (worfy-stuck-agents ticket 05).
  */
-export const ORCHESTRATOR_MARK_KINDS = ['refused-dialog', 'human-input', 'epic-started', 'epic-finished'] as const
+export const ORCHESTRATOR_MARK_KINDS = ['refused-dialog', 'human-input', 'epic-started', 'epic-finished', 'ticket-set-aside'] as const
 /** The marks drawn on the Run's row, not on the Orchestrator's lane. */
-export const RUN_MARK_KINDS: ReadonlySet<OrchestratorMarkFact['kind']> = new Set(['epic-started', 'epic-finished'])
+export const RUN_MARK_KINDS: ReadonlySet<OrchestratorMarkFact['kind']> = new Set(['epic-started', 'epic-finished', 'ticket-set-aside'])
 export interface OrchestratorMarkFact {
   kind: (typeof ORCHESTRATOR_MARK_KINDS)[number]
   at: Iso

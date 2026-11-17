@@ -12,7 +12,7 @@ import type { BlockMark, OrchestratorMark, Span } from '../../shared/flight-reco
 import type { RunView } from '../../shared/ipc/runs'
 import { filterSpans, highlightsOf, NO_FILTER, rowsAbove, type Highlights, type SpanFilter } from './filter'
 import { layoutLabels, type LabelItem, type LabelPlace } from './label-layout'
-import { displayName, lostWord, outcomeWord, reasonText, spanDuration, tokenOf } from './span-words'
+import { displayName, lostWord, markText, outcomeWord, reasonText, spanDuration, tokenOf } from './span-words'
 import {
   buildRows,
   collapseAll,
@@ -257,7 +257,7 @@ function drawRow(row: Row, view: RunView, x: (at: number) => number, width: numb
   const ofRun = row.span?.kind === 'run'
   if (row.lane === 'orchestrator' || ofRun) {
     view.timeline.orchestratorMarks.forEach((mark: OrchestratorMark, index) => {
-      if (RUN_MARK_KINDS.has(mark.kind) === ofRun) marks.push({ key: `info-${index}`, kind: 'info', at: mark.at, label: mark.text })
+      if (RUN_MARK_KINDS.has(mark.kind) === ofRun) marks.push({ key: `info-${index}`, kind: 'info', at: mark.at, label: markText(mark, view.epics) })
     })
   }
 

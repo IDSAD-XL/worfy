@@ -65,3 +65,20 @@ Mac уснуть на время прогона.
 - **Запрет сна при закрытой крышке (`pmset`, `caffeinate -s`).** Отвергнуто: `pmset` меняет
   системную настройку и требует root, `caffeinate -s` работает только от сети и тоже не держит
   крышку без внешнего экрана.
+
+## Amendments
+
+- **2026-11-17 — лестница продолжений вместо остановки по одному Ticket-у; `main-red`** (worfy-stuck-agents, Ticket 05;
+  решение владельца 2026-11-17 по вопросам 1 и 2 spec-а Epic-а, ответ (а)). Пункт 2 (`wave-unfinished`) и пункт 3
+  («второй раз то же самое не шлётся», `no-progress`) больше не останавливают прогон сразу. Ticket, который держит Wave,
+  сначала получает продолжение: следующую Wave с ним как `resumable` и строкой worfy над командой
+  (`Continuation 1 of 2 for ticket 05: …`), не больше двух на Ticket за прогон; новый прогон считает с нуля. После двух
+  продолжений прогон просит Orchestrator отложить Ticket: `ticket block <epic> <NN> "stuck: …" --waits owner`, затем
+  конец хода. Статус пишет Orchestrator, не worfy (ADR-0002 без изменений). Ticket с `Waits: owner` ждёт владельца, и
+  очередь Epic-ов идёт дальше. Только если и после этого хода Ticket в работе (или та же Wave снова готова), прогон
+  останавливается с прежней причиной — `wave-unfinished` или `no-progress`. Перед продолжением и перед просьбой отложить
+  прогон читает маркер красного main, который пишет `land` (`main-red-<key>.json` в папке состояния gate-а); маркер
+  есть — весь прогон останавливается с новой причиной `main-red`, без продолжений. Слова модели в продолжение и в
+  просьбу не попадают. `background-stalled` Ticket-а не называет и остаётся остановкой. Код:
+  `src/shared/autopilot/cycle.ts` (Ticket 01), `src/shared/autopilot/continuation.ts`, `src/main/autopilot/run.ts`;
+  страница `docs/features/autopilot-faults.md`, «A Ticket that stays in work».
