@@ -1,7 +1,8 @@
 # 67 — `macos-package` на PR по путям, код которых гоняют `@packaged` test-ы: ошибка упаковки #1898 дошла до `main`
 
 Type: task
-Status: claimed 2026-11-16T23:59Z
+Status: done 2026-11-17T01:18Z
+PR: #1938
 Blocked by: none
 Source: решение владельца 2026-11-17; «Итог» Ticket-а [66](66-повторный-замер-через-неделю-после-63.md), часть 5,
 эпизод 8, и заметка после части 6: «Ошибки одного PR доходили до `main`, когда job, который их ловит, на PR не шёл по
@@ -83,6 +84,7 @@ scope (`macos-package` у #1898)».
   - evidence: test-run pass · `pnpm test test/contract/ci-workflow.test.ts test/contract/ci-scope-e2e.test.ts test/unit/affected-tests.test.ts test/contract/auto-approve-shell-sh.test.ts test/contract/cards-watch-edits.test.ts` exit 0 · mac - · b9a18aae18ee6bfca99d6723cb5063f32f0f66bc
   - evidence: gate pass · `gate fast` exit 0 · mac - · b9a18aae18ee6bfca99d6723cb5063f32f0f66bc
   - evidence: gate pass · `gate fast` exit 0 (review round 1) · mac - · 107e82c81f7b255aadff9548fae49801902f8d98
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/43991815819/job/133737051471 · ci - · 8e3222206484aceea26f749ffab0ec60277feb40
 - [ ] В описании PR: сколько PR окна Ticket-а 66 (2026-11-09…16, PR с кодом) попросили бы `macos-package` по новой
       таблице — оценка цены в macOS-минутах.
 
