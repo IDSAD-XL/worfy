@@ -1,7 +1,10 @@
 # worfy-continuity: «Работа переживает перезапуск worfy и compaction: Run и Session продолжаются с того же места»
 
-Status: черновик 2026-11-13 из исследования конкурентов, владельцем не принят
-Critic: [docs/product/critic/worfy-continuity-2026-11-14.md](../../docs/product/critic/worfy-continuity-2026-11-14.md) — Reorder.
+Status: принят владельцем 2026-11-17 («сразу новый эпик тоже запускай»)
+Critic: [docs/product/critic/worfy-continuity-2026-11-14.md](../../docs/product/critic/worfy-continuity-2026-11-14.md) — Reorder;
+применён: возражения 1 и 2; возражение 3 — один Epic (решено без владельца, подтвердить). Возражение 1: чистое
+распознавание внешних вызовов без результата — новый Ticket 16 в Wave 2, Ticket-ы 05 и 06 ждут его, а 07 оставляет
+себе метку, toast, «Checked, include» и строку Journal-а. Возражение 2: 05 и 06 ждут spike 01.
 Source: исследование конкурентов 2026-11-13, папка
 [docs/research/2026-11-13-competitors](../../docs/research/2026-11-13-competitors/); две проверенные идеи из него:
 reliability-cost-16 (Session-ы и Run переживают перезапуск, Update, падение и перезагрузку) и memory-context-1
@@ -15,8 +18,8 @@ reliability-cost-16 (Session-ы и Run переживают перезапуск
 [OpenAI Symphony](../../docs/research/2026-11-13-competitors/openai-symphony.md).
 Зависит от: Epic-и worfy-update (16/16 Ticket-ов `done`), worfy-autopilot-queue (21/21), worfy-retry (14/14) и
 worfy-flight-recorder (28/28) — все четыре закрыты.
-Ticket-ы: Epic `worfy-continuity`, 15 Ticket-ов, нумерация с `01`. Issue-файлов пока нет: список — в разделе
-«Ticket-ы».
+Ticket-ы: Epic `worfy-continuity`, 16 Ticket-ов: `issues/01`–`issues/16`. Ticket 16 добавлен по возражению 1
+critic-а; номера 01–15 не менялись.
 
 ## Проблема
 
@@ -251,7 +254,10 @@ Run history, дорожка Wait-ов
      останавливается, а приостанавливается.
 - `externalActions` берёт только вызовы верхнего уровня: вызов с `parentToolUseId` он пропускает
   (`continue-plan.ts:336`). Вызовы Subagent-ов координатор читает из их транскриптов — там же, где worfy берёт статус
-  Subagent-а (`src/shared/transcript/subagents.ts`).
+  Subagent-а (`src/shared/transcript/subagents.ts`). Их распознаёт чистая функция Ticket-а 16; Ticket 04 идёт с ней в
+  одной Wave, поэтому ожидание вызовов Subagent-ов при выходе подключает Ticket 07 (решено без владельца, подтвердить).
+  До него выход ждёт только вызовов верхнего уровня, а вызов Subagent-а без результата ловит проверка при старте
+  (Ticket 16 в 05 и 06).
 - Окно «Quitting worfy» — на Dialog kit-а (`src/renderer/theme/kit/Dialog.tsx`), как окна Machine, Autopilot и First
   run (worfy-ui-kit 06). Quit now переходит сразу к шагу 3.
 - Выключение системы: новые обработчики `powerMonitor` `shutdown` (macOS, Linux) и `session-end` окна (Windows) пишут
@@ -317,6 +323,9 @@ Run history, дорожка Wait-ов
 - Session, которой владеет Run, этот модуль пропускает: её продолжает Run. Так же Auto-continue молчит, пока Run
   владеет Session (`orchestrator-continue.ts`, шапка файла).
 - Возраст считается от последней записи о Session до старта. Cap — 2 автоматических продолжения на Session за час.
+- Session, у которой функция Ticket-а 16 нашла внешний вызов без результата (у неё самой или у её Interrupted
+  Subagent-а), сама не продолжается: строка `notice` «worfy: not continued: … may or may not have run» и chip с кнопкой
+  Continue. Без этой проверки автоматическое продолжение не выходит (возражение 1 critic-а).
 - Перед продолжением worfy проверяет, что прежний процесс Claude Code этой Session не жив: после падения worfy он мог
   остаться без родителя и ещё писать в транскрипт. Registry такой процесс не знает: его отказ «Session … is already
   live» (`src/main/agent/session/registry.ts:101`) — только о процессах этого запуска worfy. Как найти чужой процесс
@@ -332,6 +341,9 @@ Run history, дорожка Wait-ов
   работе идут в ней как продолженные (`resumedTickets`, `src/shared/actions/render-template.ts:97`) — путь Force stop
   из ADR-0050. Implementer Ticket-а без PR продолжает `/worfy:ship-ticket` в своём worktree
   (`harness/skills/epic-wave/SKILL.md:1890–1892`).
+- Ticket, у implementer-а которого функция Ticket-а 16 нашла внешний вызов без результата, в продолженную Wave не
+  идёт и сам не продолжается: он остаётся в `work`, а ready Wave такие Ticket-ы пропускает. Метку, toast и «Checked,
+  include» добавляет Ticket 07; до него Ticket ждёт человека без метки.
 - Занятый Orchestrator — как при любом старте: Wait `orchestrator-busy`.
 - На Codex продолжение отказывает так же, как старт, пока hook-и Harness не одобрены в Codex (`CODEX_HOOKS_REFUSAL`,
   `src/main/vendors/codex/harness-hooks.ts:45`).
@@ -341,20 +353,25 @@ Run history, дорожка Wait-ов
 - Linked machine: Resume и Discard — только с Full access, как Start Autopilot (ADR-0066); с Read only строка видна,
   кнопок нет.
 
-### Unknown side effects (Ticket 07)
+### Unknown side effects: распознавание (Ticket 16)
 
-- После старта, до продолжения, worfy для каждой оборванной Session и каждого её Interrupted Subagent-а считает
-  внешние вызовы без результата: `externalActions` над событиями Session (`continue-plan.ts:330`) и над транскриптом
-  Subagent-а.
-- Ticket такого implementer-а (по его Binding-у, `src/shared/binding/resolve.ts`) не идёт в продолженную Wave и сам не
-  продолжается. На нём метка «unknown side effects» с tooltip-ом о вызове; приходит toast «Unknown side effects:
-  `gh pr merge 1234` may or may not have run» с кнопкой «Checked, include»; в Journal — строка
-  `unknown-side-effects {ticket, actions}`.
-- «Checked, include» возвращает Ticket в `resumable`: его берёт следующая Wave или следующий Run.
-- Session с таким вызовом сама не продолжается: строка `notice` «worfy: not continued: … may or may not have run» и
-  chip с кнопкой Continue.
+- Чистая функция (предложение: `src/shared/agent/unknown-side-effects.ts`): для оборванной Session и каждого её
+  Interrupted Subagent-а — внешние вызовы без результата. `externalActions` над событиями Session
+  (`continue-plan.ts:330`) и над транскриптом Subagent-а (`src/shared/transcript/subagents.ts`).
+- Ticket такого implementer-а — по его Binding-у (`src/shared/binding/resolve.ts`). Функция возвращает и Session, и
+  Ticket-ы с их вызовами; решения она не принимает.
 - Правило то же, что отказ `in-flight` у Auto-continue (`retryDecision`, `src/shared/agent/continue-plan.ts:992`;
-  `docs/features/autopilot-faults.md:37–47`).
+  `docs/features/autopilot-faults.md`, абзац о `in-flight`).
+- Ей нужна только запись Ticket-а 03, поэтому она идёт в Wave 2, а 05 и 06 ждут её: автоматическое продолжение не
+  выходит раньше проверки (возражение 1 critic-а).
+
+### Unknown side effects: метка и «Checked, include» (Ticket 07)
+
+- Ticket, который 06 не взял в продолженную Wave, получает метку «unknown side effects» с tooltip-ом о вызове;
+  приходит toast «Unknown side effects: `gh pr merge 1234` may or may not have run» с кнопкой «Checked, include»; в
+  Journal — строка `unknown-side-effects {ticket, actions}`.
+- «Checked, include» возвращает Ticket в `resumable`: его берёт следующая Wave или следующий Run.
+- Координатор выхода (Ticket 04) ждёт и вызовов Subagent-ов без результата — через функцию Ticket-а 16.
 
 ### Update во время работы (Ticket 08)
 
@@ -390,7 +407,8 @@ Run history, дорожка Wait-ов
      Ticket-ам 05 и 06.
 
   Типы SDK — `SessionStartHookInput`, `PreCompactHookInput`, `PostCompactHookInput`, `SDKCompactBoundaryMessage` в
-  `sdk.d.ts`. Spike идёт на версии, которую закрепляет `package.json:29` (0.3.322).
+  `sdk.d.ts`. Spike идёт на версии, которую закрепляет `package.json:29` (0.3.322). Spike ведёт агент; запуск стоит
+  денег, поэтому brief называет цену и велит брать самую дешёвую модель, которая отвечает на вопрос.
 - **Инструкции summary (10).** Новый кусок правил `harness/hooks/rules/compaction.md`, по-английски, как весь Harness
   (ADR-0074): в `orchestrator.md` места нет. Разделы summary — Intent, Essential facts, Completed work, Files touched,
   Errors, Pending work, Next action: разделы Swarm плюс Files touched по оценке Factory. По ролям: Orchestrator —
@@ -487,11 +505,13 @@ Run history, дорожка Wait-ов
 4. Grace при выходе и при Update: координатор выхода, остановка отправки, ожидание внешних команд до 60 с, окно
    «Quitting worfy» с Quit now, `run-suspended` вместо `app-quit`, выключение системы.
 5. Продолжение Session: чтение записей при старте, `restartText`, правило часа и cap, очередь назад, `notice`, chip
-   «Interrupted by restart» и Continue, Codex через `thread/resume`, проверка прежнего процесса.
+   «Interrupted by restart» и Continue, Codex через `thread/resume`, проверка прежнего процесса; Session с внешним
+   вызовом без результата (Ticket 16) сама не продолжается.
 6. Продолжение Run-а: тот же id, восстановленный Wait, Wave в новой Session с `wave-brief` и продолженными Ticket-ами,
-   строка `cut off by restart` с Resume и Discard, toast, Full access на Linked machine.
-7. Unknown side effects: внешние вызовы без результата у Session-ов и Interrupted Subagent-ов, метка Ticket-а, toast
-   с «Checked, include», строка Journal-а.
+   строка `cut off by restart` с Resume и Discard, toast, Full access на Linked machine; Ticket с внешним вызовом без
+   результата (Ticket 16) в Wave не идёт.
+7. Unknown side effects: метка Ticket-а, toast с «Checked, include», строка Journal-а; выход ждёт и вызовов
+   Subagent-ов.
 8. Update во время работы: "Restart now" рядом с "Restart when idle" (по Q1), Run в Wait не держит "Restart when
    idle", причина перезапуска в `restart.json`.
 9. Run history и Work track: Wait `restart` с причиной; продолженный Run — один Run.
@@ -507,17 +527,20 @@ Run history, дорожка Wait-ов
     к ADR-0050, новый ADR о продолжении после перезапуска, термины CONTEXT.md (причина Wait `restart`, «unknown side
     effects»).
 15. Приёмка владельцем: Mac Stable (Update посреди Run-а, выход посреди Wave с `git push`, kill worfy) и Windows.
+16. Unknown side effects, распознавание: чистая функция — внешние вызовы без результата у оборванной Session и её
+    Interrupted Subagent-ов (события и транскрипты), Ticket-ы по Binding-у; без UI и без решений (возражение 1
+    critic-а).
 
 ## Волны
 
 | Wave | Ticket-ы | Blocked by | Почему так |
 |---|---|---|---|
 | 1 | 01, 02, 03 | — | spike и две записи состояния; файлы не пересекаются: `scripts/spikes/`, `src/shared/autopilot/` с `run.ts`, `src/main/agent/live-sessions.ts` |
-| 2 | 04, 09, 10 | 04 — 02, 03; 09 — 02; 10 — 01 | выход пишет то, что ввели 02 и 03; Run history читает новые события; правила — по итогу spike |
-| 3 | 05, 06, 11 | 05 — 03, 04; 06 — 02, 04; 11 — 01, 10 | Session (`src/main/agent/`), Run (`src/main/autopilot/`) и Harness (`harness/hooks/`): общих файлов нет |
-| 4 | 07, 08, 12 | 07 — 05, 06; 08 — 04, 06; 12 — 11 | метке нужны оба продолжения; Update — Run в Wait; worfy-часть compaction — после hook-а |
-| 5 | 13, 14 | 13 — 10, 11, 12; 14 — 02–12 | eval меряет готовый hook; документация — по сделанному |
-| 6 | 15 | 01–14 | приёмка |
+| 2 | 04, 09, 10, 16 | 04 — 02, 03; 09 — 02; 10 — 01; 16 — 03 | выход пишет то, что ввели 02 и 03; Run history читает новые события; правила — по итогу spike; распознавание — чистая функция над записью 03 |
+| 3 | 05, 06, 11 | 05 — 01, 03, 04, 16; 06 — 01, 02, 04, 16; 11 — 01, 10 | Session (`src/main/agent/`), Run (`src/main/autopilot/`) и Harness (`harness/hooks/`): общих файлов нет; оба продолжения — после spike-а и проверки 16 |
+| 4 | 07, 08, 12 | 07 — 05, 06, 16; 08 — 04, 06; 12 — 11 | метка над отказом 05 и 06; Update — Run в Wait; worfy-часть compaction — после hook-а |
+| 5 | 13, 14 | 13 — 10, 11, 12; 14 — 02–12, 16 | eval меряет готовый hook; документация — по сделанному |
+| 6 | 15 | 01–14, 16 | приёмка |
 
 Wave, которую берут в работу, вычисляется заново в момент запуска (CONTEXT.md, термин Wave); таблица — прогноз.
 
@@ -562,23 +585,52 @@ Wave, которую берут в работу, вычисляется зано
 
 ## Вопросы владельцу
 
+Владелец 2026-11-17 велел запускать Epic сразу («сразу новый эпик тоже запускай») и на вопросы не отвечал. Каждый
+вопрос решён рекомендованным вариантом (а) — решено без владельца по указанию «сразу запускай» 2026-11-17,
+подтвердить. Ticket-ы написаны по этим ответам.
+
 1. **Q1. Update во время работы.** (а) "Restart now" и во время работы, рядом с "Restart when idle": работа
    приостанавливается и продолжается после перезапуска; (б) как сейчас — во время работы только "Restart when idle".
    (а) меняет решение 7 в worfy-update (`.scratch/worfy-update/spec.md:138–140`). **Рекомендую (а):** решение 7
    принято, когда работа после перезапуска терялась, а ночной Run сейчас держит Update до утра.
+   **Решено: (а)** — решено без владельца по указанию «сразу запускай» 2026-11-17, подтвердить. Ticket-ы: 04, 08.
 2. **Q2. Выход во время работы.** (а) ждать до 60 с, пока внешние команды получат результат, с окном и кнопкой Quit
    now; (б) выходить сразу, как сейчас. **Рекомендую (а):** обрыв посреди `git push` или `gh pr merge` — ровно то,
    что потом проверяют руками; Codex ждёт те же 60 с.
+   **Решено: (а)** — решено без владельца по указанию «сразу запускай» 2026-11-17, подтвердить. Ticket-ы: 04, 07.
 3. **Q3. Само или по кнопке.** (а) работа, оборванная меньше часа назад, продолжается сама, не больше 2 раз за час, а
    более старая ждёт кнопки; (б) всегда кнопки; (в) всегда сама. **Рекомендую (а):** Update и выход — это минуты, а
    не часы; правило часа взято у Agent View, cap защищает от цикла падений.
+   **Решено: (а)** — решено без владельца по указанию «сразу запускай» 2026-11-17, подтвердить. Ticket-ы: 05, 06.
 4. **Q4. Unknown side effects.** (а) такой Ticket всегда ждёт человека, как при отказе `in-flight` в worfy-retry;
    (б) продолженная Wave сама сверяет git и GitHub (push, PR, merge) и включает Ticket, если всё сходится.
    **Рекомендую (а) в первой версии:** (б) — ещё одна проверка, которая может ошибиться в обе стороны; её стоит
    делать, когда станет видно, как часто метка встаёт.
+   **Решено: (а)** — решено без владельца по указанию «сразу запускай» 2026-11-17, подтвердить. Ticket-ы: 16, 05, 06,
+   07.
 5. **Q5. Шаг 2 — daemon.** (а) решать после замеров этого Epic-а: сколько работы ещё теряется на перезапуске; (б)
    spike daemon-а сейчас. **Рекомендую (а):** у Orca и Agent View daemon — главный источник жалоб, а если продолжение
    закроет большую часть потерь, он не нужен.
+   **Решено: (а)** — решено без владельца по указанию «сразу запускай» 2026-11-17, подтвердить. Daemon — вне Epic-а.
+
+## Решено без владельца
+
+Каждый пункт — решение, которое владелец может отменить. Все — 2026-11-17, по указанию «сразу запускай»; подтвердить.
+
+1. **Один Epic, а не два (возражение 3 critic-а).** Compaction (10–13 и вопросы 1–5 spike-а 01) остаётся в этом
+   Epic-е. Причина: порядок Wave-ов от этого не меняется (critic сам это пишет), а второй Epic — ещё один spec, critic
+   и приёмка. Половина compaction считается сделанной, когда влиты 10–12 и eval 13 записал числа; приёмка 15 её
+   только сверяет и не ждёт для неё Windows.
+2. **Ticket 16 вместо переноса отказа в 05 и 06** (возражение 1 critic-а, вариант «Alternative»). Распознавание —
+   отдельный Ticket в Wave 2, 05 и 06 ждут его и сами отказывают в продолжении; 07 оставляет себе метку, toast,
+   «Checked, include» и строку Journal-а. Номера 01–15 не менялись: на них ссылаются spec и critic.
+3. **Ожидание вызовов Subagent-ов при выходе — в Ticket-е 07, а не 04.** 04 и 16 идут в одной Wave, и функции 16 у 04
+   ещё нет. До 07 выход ждёт только вызовов верхнего уровня; вызов Subagent-а без результата ловит проверка при
+   старте (16 в 05 и 06), так что повтора `gh pr merge` нет и в этом промежутке.
+4. **Spike 01 ведёт агент, а не человек.** Запуск стоит денег: brief называет цену и велит брать самую дешёвую
+   модель, которая отвечает на вопрос (по умолчанию haiku), и запускать по одному вопросу за раз.
+5. **Страницы Feature.** Английскую страницу правит Ticket своего поведения (ADR-0088); Ticket 14 держит перевод в
+   `docs/features/ru/`, Amendment к ADR-0050, новый ADR и CONTEXT.md — как в worfy-stuck-agents.
 
 ## Готово, когда
 
