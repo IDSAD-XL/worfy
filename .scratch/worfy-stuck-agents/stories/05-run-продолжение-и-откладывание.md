@@ -244,3 +244,28 @@ Code: `src/shared/ipc/autopilot.ts:337-338` · key lines: 338
    - Строки: `src/shared/autopilot/continuation.ts:46-48`
    - Ответ: сообщение просит Orchestrator выполнить `ticket block … --waits owner`; свежее чтение после хода видит
      Ticket с `Waits: owner`, и Epic кончается `waits-owner`.
+
+## 11. Что нашёл review и что осталось
+
+> VERIFIED
+> Consider: [med, agreed by the verifier] src/main/ipc/autopilot.ts:219-222 — the real wiring of mainRed and ticketTool has no test (a wrong gateDir would keep every test green); follow-up: a wiring test with a marker in a temp gate folder. [low] src/main/autopilot/run.ts:222 — ticket-set-aside is journaled before the send, so a failed send shows a set-aside that never went out; the setAside error branches (session-closed, session-error) have no tests.
+> Noted: the continued wave-unfinished Wave has no wave-finished in Run history (no test); the continuation line goes after the slash-command line, not first as the ticket says (a text before the command would stop the skill expansion).
+> Review depth: low — default: the profile has no review.depth.wave (Wave under Autopilot keeps one verifier, rules-review-depth.md)
+> Review tokens: 136855
+>
+> Could not verify
+
+Code: `src/main/ipc/autopilot.ts:219-222` · key lines: 219
+
+```ts
+    // The continuation ladder (worfy-stuck-agents ticket 05): land's main-red marker in the gate folder of the
+    // Harness on the machine now, and the Harness's `ticket` the set-aside message names.
+    mainRed: (root) => readMainRed(currentHarness().gateDir, root),
+    ticketTool: () => join(currentHarness().binDir, 'ticket'),
+```
+
+Code: `src/main/autopilot/run.ts:222-222` · key lines: 222
+
+```ts
+  type CycleEffect,
+```
