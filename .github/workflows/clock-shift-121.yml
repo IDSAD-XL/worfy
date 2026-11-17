@@ -1,0 +1,55 @@
+# TEMPORARY, removed before merge (worfy-polish ticket 121): the date-pinned e2e tests on a macOS runner whose
+# clock is moved forward — to a Friday in UTC 10 days on, and to the 1st of December, a day the Month test of
+# work-track.spec.ts failed on before. Not a job of ci.yml, so ci-ok and its contract test stay as they are.
+name: clock-shift-121
+
+on:
+  push:
+    branches: [worfy-polish/121]
+
+permissions:
+  contents: read
+
+jobs:
+  clock-shift-e2e:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # date -u's [mm]dd]HH]MM[cc]yy
+        at: ['112710002026', '120110002026']
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Download the Electron binary
+        run: node scripts/download-electron.mjs
+      - name: Build the app and fetch Playwright's ffmpeg before the clock moves
+        run: pnpm exec playwright install ffmpeg && pnpm exec electron-vite build
+      - name: Move the clock of the runner forward
+        env:
+          AT: ${{ matrix.at }}
+        run: |
+          date
+          sudo systemsetup -setusingnetworktime off || true
+          sudo date -u "$AT"
+          date -u
+      - name: Run the date-pinned e2e tests
+        run: pnpm exec playwright test test/e2e/new-product-session.spec.ts test/e2e/limits-vendors.spec.ts test/e2e/work-track.spec.ts test/e2e/flight-recorder.spec.ts test/e2e/flight-recorder-detail.spec.ts test/e2e/toolbar.spec.ts test/e2e/codex-hooks-step.spec.ts
+      - name: The clock after the tests
+        if: always()
+        run: date -u
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: clock-shift-results-${{ strategy.job-index }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 14
