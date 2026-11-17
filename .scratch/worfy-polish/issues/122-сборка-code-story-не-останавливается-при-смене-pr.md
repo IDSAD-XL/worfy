@@ -2,6 +2,7 @@
 
 Type: bug
 Status: claimed 2026-11-17T00:38Z
+PR: #1940
 Blocked by: none
 Source: баг-репорт владельца 2026-11-17 (Pull requests, кнопка «Code story» из `worfy-code-stories` 11).
 
