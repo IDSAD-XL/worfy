@@ -70,6 +70,8 @@ const appended: JournalEventFields[] = [
   { kind: 'wave-started', wave: 1, tickets: ['01', '02'] },
   { kind: 'ticket-status', ticket: '01', state: 'claimed', statusAt: '2026-10-06T01:02Z' },
   { kind: 'narrow-round', ticket: '02', outcome: 'rejected', text: 'NARROW: REJECTED: src/a.ts:1 still open' },
+  { kind: 'ticket-continued', ticket: '01', attempt: 1, of: 2, cause: 'wave-unfinished' },
+  { kind: 'ticket-set-aside', ticket: '02', cause: 'no-progress', attempts: 2 },
   { kind: 'wave-finished', wave: 1, tickets: ['01', '02'] },
   { kind: 'queue-changed', added: ['worfy-retry'] },
   { kind: 'epic-finished', outcome: 'done' },

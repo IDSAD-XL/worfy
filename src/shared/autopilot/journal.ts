@@ -124,7 +124,12 @@
 //                                    session the Wave went to, the name of its transcript
 //                                    (`<session>.jsonl`), a new one for each Wave after the first
 //                                    when the Harness gives one (worfy-flight-recorder ticket 11,
-//                                    ADR-0092; lines written before it have none)
+//                                    ADR-0092; lines written before it have none);
+//                  continuation?     continuation: the Wave continues stuck Tickets
+//                                    (worfy-stuck-agents ticket 01), {"attempt": 1, "of": 2,
+//                                    "cause": "wave-unfinished"}: the attempt of its Ticket nearest
+//                                    the ceiling `of`, cause `wave-unfinished` or `no-progress`;
+//                                    one outside that shape is dropped, the line is read without it
 //   ticket-status  ticket, state,    the `Status:` line of a Ticket of the run's Epic changed while
 //                  statusAt?,        the run went on (worfy-flight-recorder ticket 11, ADR-0092):
 //                  reason?, waits?   worfy reads the workflow on each change of the Tickets' files,
@@ -167,6 +172,16 @@
 //                                    quit; gh answers at most once a minute. So a comment made less
 //                                    than a minute before the end, or one gh is slow to give then,
 //                                    may be missing. Journals written before ticket 20 have none
+//   ticket-        ticket, attempt,  a Ticket of the Wave held it — still in work SETTLE_MS after
+//   continued      of, cause         the turn (cause `wave-unfinished`) or the same Wave ready again
+//                                    (`no-progress`) — and the run continues it in the next Wave
+//                                    (worfy-stuck-agents ticket 01): ticket, its number as in
+//                                    wave-started; attempt, its continuation in this run from 1, at
+//                                    most of, the run's ceiling. One line per Ticket, before the
+//                                    wave-started that carries them
+//   ticket-        ticket, cause,    a Ticket that held the Wave with no continuation left: the run
+//   set-aside      attempts          asked the Orchestrator to set it aside (ticket 01); cause as
+//                                    in ticket-continued; attempts, the continuations it had, from 1
 //   wave-finished  wave, tickets,    wave and tickets as in wave-started
 //                  limits?
 //   queue-changed  added?, removed?  the queue of a run was changed between Waves (worfy-autopilot-
@@ -394,6 +409,7 @@ import { z } from 'zod'
 import { AUTO_APPROVAL_LINE_MODES, AUTO_APPROVAL_OUTCOMES } from '../agent/auto-approval'
 import { limitStateSchema, type LimitWindow, type LimitWindowId, type LimitsState } from '../agent/limits'
 import { vendorIdSchema } from '../vendors/vendor'
+import { CONTINUATION_CAUSES } from './cycle'
 import type { EpicFinish } from './epic-queue'
 import { RUN_MODES, WINDOW_WAIT_REASONS } from './run-mode'
 
@@ -407,6 +423,8 @@ export const JOURNAL_EVENT_KINDS = [
   'wave-started',
   'ticket-status',
   'narrow-round',
+  'ticket-continued',
+  'ticket-set-aside',
   'wave-finished',
   'queue-changed',
   'epic-finished',
@@ -495,6 +513,9 @@ export const COMMAND_MAX = 200
 /** How much of the turn's error text `turn-retry` keeps. */
 export const RETRY_MESSAGE_MAX = 300
 const skipped = z.array(z.object({ num: text, state: z.enum(['blocked', 'none']) }))
+const continuation = z
+  .object({ attempt: z.number().int().positive(), of: z.number().int().positive(), cause: z.enum(CONTINUATION_CAUSES) })
+  .refine((value) => value.attempt <= value.of)
 const session = z.string().min(1).nullable()
 const tasks = z.array(z.object({ id: text, type: z.string().nullable(), description: z.string().nullable() }))
 const limitsWindow = z.object({ utilization: z.number().nonnegative().nullable(), receivedAt: isoTime, resetsAt: isoTime.nullable() }).nullable()
@@ -563,9 +584,11 @@ export const journalEventSchema = z.discriminatedUnion('kind', [
     durationSamples: count,
     window: z.object({ from: hour, to: hour }).optional().catch(undefined),
   }),
-  event('wave-started', { ...wave, text: z.string().optional(), skipped: skipped.optional(), limits, session: text.optional() }),
+  event('wave-started', { ...wave, text: z.string().optional(), skipped: skipped.optional(), limits, session: text.optional(), continuation: continuation.optional().catch(undefined) }),
   event('ticket-status', { ticket: text, state: z.enum(TICKET_STATUS_STATES), statusAt: text.optional(), reason: text.optional(), waits: text.optional() }),
   event('narrow-round', { ticket: text, outcome: z.enum(NARROW_OUTCOMES), text: text.max(LAST_TEXT_MAX) }),
+  event('ticket-continued', { ticket: text, attempt: z.number().int().positive(), of: z.number().int().positive(), cause: z.enum(CONTINUATION_CAUSES) }).refine((line) => line.attempt <= line.of),
+  event('ticket-set-aside', { ticket: text, cause: z.enum(CONTINUATION_CAUSES), attempts: z.number().int().positive() }),
   event('wave-finished', { ...wave, limits }),
   event('queue-changed', { added: z.array(text).min(1).optional(), removed: z.array(text).min(1).optional() }).refine((line) => line.added !== undefined || line.removed !== undefined),
   event('epic-finished', { outcome: z.enum(EPIC_FINISHES), tickets: z.array(text).optional() }),

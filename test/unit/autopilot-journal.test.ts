@@ -60,6 +60,8 @@ const everyKind: JournalEvent[] = [
   waveStarted,
   { ...base, at: at(1), kind: 'ticket-status', ticket: '01', state: 'claimed', statusAt: '2026-10-06T01:01Z' },
   { ...base, at: at(2), kind: 'narrow-round', ticket: '02', outcome: 'started', text: 'NARROW: [med] src/a.ts:1 — x' },
+  { ...base, at: at(2), kind: 'ticket-continued', ticket: '01', attempt: 1, of: 2, cause: 'wave-unfinished' },
+  { ...base, at: at(2), kind: 'ticket-set-aside', ticket: '02', cause: 'no-progress', attempts: 2 },
   { ...base, at: at(2), kind: 'wave-finished', wave: 1, tickets: ['01', '02'] },
   { ...base, at: at(2), kind: 'queue-changed', added: ['worfy-retry'], removed: ['worfy-link'] },
   { ...base, at: at(2), kind: 'epic-finished', outcome: 'waits-owner', tickets: ['03'] },
@@ -102,6 +104,37 @@ describe('parseJournal', () => {
     expect(parseJournal(line({ ...retry, message: 'x'.repeat(RETRY_MESSAGE_MAX) })).skipped).toBe(0)
     // The shared Journal walk knows both kinds too.
     expect(walkParse(line(started) + line(retry) + line(refused) + line(stopped)).unknownKind).toBe(0)
+  })
+
+  it('reads ticket-continued, ticket-set-aside and the continuation of a wave-started (worfy-stuck-agents ticket 01); skips each outside the format', () => {
+    const continued: JournalEvent = { ...base, at: at(20), kind: 'ticket-continued', ticket: '05', attempt: 1, of: 2, cause: 'wave-unfinished' }
+    const again: JournalEvent = { ...base, at: at(21), kind: 'wave-started', wave: 2, tickets: ['05'], continuation: { attempt: 1, of: 2, cause: 'wave-unfinished' } }
+    const setAside: JournalEvent = { ...base, at: at(40), kind: 'ticket-set-aside', ticket: '07', cause: 'no-progress', attempts: 2 }
+    expect(parseJournal(line(started) + line(continued) + line(again) + line(setAside) + line(stopped))).toEqual({ events: [started, continued, again, setAside, stopped], skipped: 0 })
+    const without = (value: JournalEvent, key: string): Record<string, unknown> => Object.fromEntries(Object.entries(value).filter(([name]) => name !== key))
+    const bad: Record<string, unknown>[] = [
+      ...['ticket', 'attempt', 'of', 'cause'].map((key) => without(continued, key)),
+      { ...continued, ticket: '' },
+      { ...continued, attempt: 0 },
+      { ...continued, attempt: 3, of: 2 },
+      { ...continued, of: 1.5 },
+      // background-stalled names no Ticket: it is never a continuation's cause.
+      { ...continued, cause: 'background-stalled' },
+      ...['ticket', 'cause', 'attempts'].map((key) => without(setAside, key)),
+      { ...setAside, attempts: 0 },
+      { ...setAside, attempts: '2' },
+      { ...setAside, cause: 'tired' },
+    ]
+    for (const fields of bad) expect(parseJournal(line(started) + line(fields) + line(stopped)), JSON.stringify(fields)).toEqual({ events: [started, stopped], skipped: 1 })
+    // A key the format does not declare is dropped, as from every line; the line itself is read.
+    const extra = parseJournal(line({ ...continued, text: 'the whole prompt' }) + line({ ...setAside, lastText: 'x' }))
+    expect(extra).toEqual({ events: [continued, setAside], skipped: 0 })
+    // A continuation outside its shape is dropped; the Wave's start is still read.
+    for (const continuation of [{ attempt: 0, of: 2, cause: 'no-progress' }, { attempt: 1, of: 2, cause: 'background-stalled' }, { attempt: 3, of: 2, cause: 'no-progress' }, 'yes']) {
+      expect(parseJournal(line({ ...again, continuation })), JSON.stringify(continuation)).toEqual({ events: [{ ...again, continuation: undefined }], skipped: 0 })
+    }
+    // The shared Journal walk knows both kinds too.
+    expect(walkParse(line(started) + line(continued) + line(setAside) + line(stopped)).unknownKind).toBe(0)
   })
 
   it("reads orchestrator-returned with the tasks that live on in the person's Session, and without them (worfy-autopilot-queue ticket 08)", () => {

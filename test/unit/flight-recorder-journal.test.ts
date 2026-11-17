@@ -803,8 +803,11 @@ describe('from-journal: the frame of the Run', () => {
       'start-cancelled': 'stopped',
       'start-refused': 'failed',
       'waits-owner': 'blocked',
+      'main-red': 'failed',
     })
     expect(read(started(), stopped('10:01', 'tickets-done')).run.outcome).toBe('ok')
+    // A red main stops a run that would continue a stuck Ticket (worfy-stuck-agents ticket 01): the Run did not do its work.
+    expect(read(started(), stopped('10:01', 'main-red')).run).toMatchObject({ reason: 'main-red', outcome: 'failed' })
     expect(read(started(), stopped('10:01', 'waits-owner')).run).toMatchObject({ reason: 'waits-owner', outcome: 'blocked' })
     // The Start window too short for any Wave (worfy-resource-planner ticket 05): the Run did not do its work.
     expect(read(started(), stopped('10:01', 'window-too-short')).run.outcome).toBe('failed')
