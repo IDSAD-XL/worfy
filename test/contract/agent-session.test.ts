@@ -556,7 +556,9 @@ describe('agent channels on the fake agent', () => {
 
       now = start + 11 * MIN
       await vi.waitFor(() => expect(places.length).toBeGreaterThan(0))
-      expect(places[0]).toEqual({ cwd, taskOutputs: new Map([['task_live', join(cwd, 'tasks', 'task_live.output')]]) })
+      // The path as the tool result names it (the fixture writes `{{cwd}}/tasks/…`), not joined with this platform's
+      // separator: on Windows that is `\`, and the Session keeps the path the agent gave.
+      expect(places[0]).toEqual({ cwd, taskOutputs: new Map([['task_live', `${cwd}/tasks/task_live.output`]]) })
 
       release('turn')
       await vi.waitFor(() => expect(h.states([id]).at(-1)).toBe('idle'))
