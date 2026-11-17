@@ -72,16 +72,23 @@ Source: баг-репорт владельца 2026-11-17 (скриншот Sess
 ## Готово, когда
 
 - [ ] Причина найдена и записана в «Итог» (какое событие и где терялось).
+  - evidence: commit pass · worfy-polish/123: keep a message sent after a resume below the turns before it · - - · a751a3b310af6e19a0f1747fd2e45d8bbbf3528d
 - [ ] Сообщение, отправленное после простоя Session-а, видно в её Session view ровно один раз, и до ответа агента, и после
       перечитывания transcript-а.
+  - evidence: test-run pass · `pnpm test test/unit/session-prompt-after-restart.test.tsx test/unit/session-resume-event-order.test.ts` exit 0 · mac - · a751a3b310af6e19a0f1747fd2e45d8bbbf3528d
 - [ ] Unit test на этот сценарий: красный на коде до исправления, зелёный после.
+  - evidence: test-run pass · `pnpm test test/unit/session-prompt-after-restart.test.tsx test/unit/session-resume-event-order.test.ts` exit 0 · mac - · a751a3b310af6e19a0f1747fd2e45d8bbbf3528d
 - [ ] Ровно один раз видно и сообщение из очереди, и сообщение после перезапуска процесса агента, и то же сообщение
       после перечитывания transcript-а: по test-у на каждый путь.
+  - evidence: test-run pass · `pnpm test test/unit/session-prompt-after-restart.test.tsx test/unit/session-resume-event-order.test.ts` exit 0 · mac - · a751a3b310af6e19a0f1747fd2e45d8bbbf3528d
 - [ ] Test-ы гонок: `prompt` раньше подписки Session view, echo SDK раньше своей строки, `renamed` раньше `prompt`;
       каждый краснеет на мутанте исправления.
+  - evidence: test-run pass · `pnpm test test/unit/session-prompt-after-restart.test.tsx test/unit/session-resume-event-order.test.ts` exit 0 · mac - · a751a3b310af6e19a0f1747fd2e45d8bbbf3528d
 - [ ] Страховки из transcript-а нет (решение 4).
+  - evidence: commit pass · worfy-polish/123: keep a message sent after a resume below the turns before it · - - · a751a3b310af6e19a0f1747fd2e45d8bbbf3528d
 - [ ] Повтор prompt-а с тем же текстом во втором ходе не задваивается и не пропадает (существующие test-ы
       `test/unit/session-queued-message.test.tsx` и `test/unit/session-log-resume.test.tsx` зелёные).
+  - evidence: test-run pass · `pnpm test test/unit/session-queued-message.test.tsx test/unit/session-log-resume.test.tsx` exit 0 · mac - · a751a3b310af6e19a0f1747fd2e45d8bbbf3528d
 
 ## Где в коде
 
