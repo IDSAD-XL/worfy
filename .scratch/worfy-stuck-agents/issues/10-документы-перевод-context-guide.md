@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-17T12:51Z
+PR: #1961
 Blocked by: 02, 04, 05, 06, 07, 09
 Source: [spec.md](../spec.md), «Ticket-ы», 10; «Готово, когда», пункт о документах;
 [critic](../../../docs/product/critic/worfy-stuck-agents-2026-11-14.md), возражение 3; «Решено без владельца», 1 и 11
