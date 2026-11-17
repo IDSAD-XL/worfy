@@ -18,15 +18,16 @@ Code: `scripts/ci-scope.mjs:118-123` · key lines: 120, 121
 ```js
 export const PACKAGED_PATHS = [
   {
-    paths: ['src/main/workflow/**'],
-    why: "reads the Project's main branch and fetches its origin while a window shows the Project (ADR-0107): the @packaged test of the Harness chip opens two clones of worfy and checks that their refs stay as it set them and nothing is fetched; PR #1898 changed this folder and that test failed on main",
+    paths: ['src/main/workflow/**', 'src/main/ipc/workflow.ts'],
+    why: "reads the Project's main branch and fetches its origin while a window shows the Project (ADR-0107; ipc/workflow.ts wires that fetch into the hub): the @packaged test of the Harness chip opens two clones of worfy and checks that their refs stay as it set them and nothing is fetched; PR #1898 changed this folder and that test failed on main",
   },
   {
 ```
 
 - Что делает: открывает таблицу `PACKAGED_PATHS` — строки `{paths, why}` в форме `MACOS_PATHS`; первая строка —
-  папка `src/main/workflow/`, которую менял #1898. Остальные строки: чип Harness-а (`harness-drift.ts`,
-  `ipc/autopilot.ts`), копия Harness-а в `Resources/harness` и предложение Install (`harness/bundled.ts`,
+  папка `src/main/workflow/`, которую менял #1898, и `src/main/ipc/workflow.ts`, который подключает её fetch к hub-у.
+  Остальные строки: чип Harness-а (`harness-drift.ts`, `ipc/autopilot.ts`, `AutopilotAction.tsx` — положение чипа в
+  заголовке проверяет только `@packaged` test), копия Harness-а в `Resources/harness` и предложение Install (`harness/bundled.ts`,
   `harness/install.ts`, `ipc/harness.ts`), папка данных `worfy` (`storage/paths.ts`), загрузка renderer-а из
   `app.asar` (`window.ts`), node-pty и `@xterm/headless` из `app.asar.unpacked` (`terminal/pty.ts`,
   `terminal/cursor-answers.ts`), имена в `harness/.claude-plugin/**`.
@@ -66,26 +67,31 @@ Code: `scripts/ci-scope.mjs:611-619` · key lines: 612, 613, 617
 
 ## 4. Test на файлы #1898, красный до правки
 
-Code: `test/contract/ci-workflow.test.ts:1125-1132` · key lines: 1127, 1128, 1130, 1131
+Code: `test/contract/ci-workflow.test.ts:1125-1135` · key lines: 1127, 1129, 1133, 1134
 
 ```ts
     const result = scope({ EVENT: 'pull_request', BASE: base })
     expect(result.status, result.stderr).toBe(0)
     expect(result.expect?.['macos-package']).toBe(true)
-    expect(result.stdout).toContain('src/main/workflow/fetch.ts is a packaged path, so macos-package runs')
+    // The first packaged path of the diff, in git's order: the file that wires the fetch into the hub.
+    expect(result.stdout).toContain('src/main/ipc/workflow.ts is a packaged path, so macos-package runs')
     // One file of the table alone is enough.
     commitOnBase(['src/main/workflow/fetch.ts'])
-    expect(scope({ EVENT: 'pull_request', BASE: base }).expect?.['macos-package']).toBe(true)
+    const fetchOnly = scope({ EVENT: 'pull_request', BASE: base })
+    expect(fetchOnly.expect?.['macos-package']).toBe(true)
+    expect(fetchOnly.stdout).toContain('src/main/workflow/fetch.ts is a packaged path, so macos-package runs')
   })
 ```
 
 - Что делает: коммитит в тестовый репозиторий все файлы с кодом из #1898 и проверяет, что `ci-scope.mjs` просит
-  `macos-package`; затем то же для одного `src/main/workflow/fetch.ts`.
+  `macos-package` (первым в порядке git-а его просит `src/main/ipc/workflow.ts`); затем то же для одного
+  `src/main/workflow/fetch.ts`.
 - Почему здесь: Ticket требует такой test в `test/contract/ci-workflow.test.ts` и его красный run на старой таблице.
 - Без него: таблицу можно было бы сузить так, что #1898 снова прошёл бы без упаковки.
 - Требование: [Готово, когда, п. 1](../issues/67-macos-package-на-pr-по-путям-которые-гоняют-packaged-test-ы.md#готово-когда)
 - Риски и пробелы test-ов: рядом добавлены test каждой строки таблицы (путь существует, `why` есть, glob находит файл
-  репозитория) и случай «похожие на пути таблицы, но не они» — без `macos-package`.
+  репозитория), список путей таблицы, записанный в test-е вручную (удалённая строка или путь краснит test), и случай
+  «похожие на пути таблицы, но не они» — без `macos-package`.
 
 ## 5. PR без пути таблицы по-прежнему без `macos-package`
 
@@ -95,7 +101,7 @@ Code: `test/contract/ci-workflow.test.ts:1043-1047` · key lines: 1046
     ['look-alikes of names for macOS', ['src/main/machine.ts', 'src/renderer/macro/a.ts', 'src/main/stomach-darwinia.ts']],
     // Next to the paths of PACKAGED_PATHS, or named like them, but not them: the packaged tests do
     // not run their code where no other job does.
-    ['look-alikes of packaged paths', ['src/main/workflows.ts', 'src/renderer/workflow/useWorkflow.ts', 'src/main/ipc/workflow.ts', 'harness/claude-plugin/plugin.json', 'src/main/storage/paths-old.ts']],
+    ['look-alikes of packaged paths', ['src/main/workflows.ts', 'src/renderer/workflow/useWorkflow.ts', 'src/main/ipc/tickets.ts', 'src/renderer/canvas/actions/AutopilotActions.tsx', 'harness/claude-plugin/plugin.json', 'src/main/storage/paths-old.ts']],
   ])('a pull request that changes the app but no build input, no packaged path and no macOS path (%s) runs every job but macos-package and macos-tests', (_name, files) => {
 ```
 
@@ -108,8 +114,10 @@ Code: `test/contract/ci-workflow.test.ts:1043-1047` · key lines: 1046
 
 ## 6. Что сознательно не меняли
 
-`src/main/index.ts` в таблицу не вошёл: его ветки упакованной сборки (`setBuildKind`, второй запуск) проходят и dev
-run-ы `macos-e2e`, а сама папка данных — в `storage/paths.ts`, который в таблице. `src/main/vendors/claude/options.ts`
+`src/main/index.ts` в таблицу не вошёл: `setBuildKind` в нём только передаёт `app.isPackaged`, а сама папка данных
+упакованной сборки считается в `storage/paths.ts`, который в таблице (dev run-ы `macos-e2e` берут значение `'dev'`, не
+ветку упакованной сборки); второй запуск поверх той же папки данных проходят и dev run-ы `macos-e2e`.
+`src/main/vendors/claude/options.ts`
 тоже не вошёл: `@packaged` test бинаря Claude Code строит путь сам и не вызывает `options.ts`. Перенос `@packaged`
 test-ов в `macos-e2e` и упаковка на каждом PR — вне скоупа Ticket-а.
 
@@ -120,6 +128,8 @@ test-ов в `macos-e2e` и упаковка на каждом PR — вне с�
 - `pnpm test test/contract/ci-workflow.test.ts test/contract/ci-scope-e2e.test.ts test/unit/affected-tests.test.ts
   test/contract/auto-approve-shell-sh.test.ts test/contract/cards-watch-edits.test.ts` — exit 0.
 - `pnpm lint` — exit 0, `pnpm typecheck` — exit 0, gate fast — exit 0.
+- Мутанты в своём worktree (удалить строку `storage/paths.ts`, убрать `ipc/workflow.ts` или `AutopilotAction.tsx`,
+  опечатка в `window.ts`) — все краснят test.
 
 ## Проверить себя
 

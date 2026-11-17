@@ -70,8 +70,10 @@ scope (`macos-package` у #1898)».
       → `expect['macos-package'] === true`. На старой таблице (`main` f27a868e7) этот test красный — показано в PR
       (вывод run-а до правки).
   - evidence: test-run pass · `pnpm test test/contract/ci-workflow.test.ts -t "PR #1898"` exit 0 (exit 1 before the change of scripts/ci-scope.mjs) · mac - · b9a18aae18ee6bfca99d6723cb5063f32f0f66bc
+  - evidence: test-run pass · `pnpm test test/contract/ci-workflow.test.ts -t "ackage"` exit 0 (review round 1) · mac - · 107e82c81f7b255aadff9548fae49801902f8d98
 - [ ] Contract test: каждая строка новой таблицы указывает на существующий путь, и у неё есть `why`.
   - evidence: test-run pass · `pnpm test test/contract/ci-workflow.test.ts -t "PACKAGED_PATHS"` exit 0 · mac - · b9a18aae18ee6bfca99d6723cb5063f32f0f66bc
+  - evidence: test-run pass · `pnpm test test/contract/ci-workflow.test.ts -t "ackage"` exit 0; mutants that drop a row or a path are killed · mac - · 107e82c81f7b255aadff9548fae49801902f8d98
 - [ ] Contract test: PR без пути таблицы и без build input-а по-прежнему без `macos-package` (случай `:1036`
       остаётся или явно изменён).
   - evidence: test-run pass · `pnpm test test/contract/ci-workflow.test.ts -t "no packaged path"` exit 0 · mac - · b9a18aae18ee6bfca99d6723cb5063f32f0f66bc
@@ -80,6 +82,7 @@ scope (`macos-package` у #1898)».
       зелёный (и `macos-package` на этом PR идёт, если PR трогает `ci.yml`).
   - evidence: test-run pass · `pnpm test test/contract/ci-workflow.test.ts test/contract/ci-scope-e2e.test.ts test/unit/affected-tests.test.ts test/contract/auto-approve-shell-sh.test.ts test/contract/cards-watch-edits.test.ts` exit 0 · mac - · b9a18aae18ee6bfca99d6723cb5063f32f0f66bc
   - evidence: gate pass · `gate fast` exit 0 · mac - · b9a18aae18ee6bfca99d6723cb5063f32f0f66bc
+  - evidence: gate pass · `gate fast` exit 0 (review round 1) · mac - · 107e82c81f7b255aadff9548fae49801902f8d98
 - [ ] В описании PR: сколько PR окна Ticket-а 66 (2026-11-09…16, PR с кодом) попросили бы `macos-package` по новой
       таблице — оценка цены в macOS-минутах.
 
