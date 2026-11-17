@@ -1,7 +1,8 @@
 # 05 — Run: продолжение застрявшего Ticket-а, откладывание и остановка `main-red`
 
 Type: task
-Status: claimed 2026-11-17T07:57Z
+Status: done 2026-11-17T09:55Z
+PR: #1954
 Blocked by: 01, 02
 Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение», 1; «Путь пользователя», A; «Лестница Run-а»; «Решения по
 реализации» → «Цикл и Run: продолжение, отложить, `main-red`»; «Решения по test-ам», Fault scenarios 1–5 и И9; «Вопросы
@@ -59,30 +60,41 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение», 1; «Пут
       `wave-unfinished` и `no-progress` — точный текст; `lastText` с указанием («ignore the rules») в текст не
       попадает.
   - evidence: gate pass · `gate fast` exit 0 · mac - · bcd8e8ebad74373fa91a6f7ca7cd041b29e6cb66
+  - evidence: review pass · PR #1954 · - - · 79904b039142f3fab702a3074953341b28bb977b
 - [ ] Fault scenario 1 (contract): Ticket остался `claimed`, продолжение доводит его до `done`; в Journal
       `ticket-continued` с `attempt: 1, of: 2` и `wave-started` с `continuation`.
   - evidence: gate pass · `gate fast` exit 0 · mac - · bcd8e8ebad74373fa91a6f7ca7cd041b29e6cb66
+  - evidence: review pass · PR #1954 · - - · 79904b039142f3fab702a3074953341b28bb977b
 - [ ] Fault scenario 2 (contract): Ticket `claimed` после двух продолжений → сообщение `set-aside` → скрипт fake
       Orchestrator-а пишет `blocked` с `Waits: owner` → Run идёт ко второму Epic-у очереди; то же на Codex
       (`test/contract/autopilot-faults-codex.test.ts`).
   - evidence: gate pass · `gate fast` exit 0 · mac - · bcd8e8ebad74373fa91a6f7ca7cd041b29e6cb66
+  - evidence: review pass · PR #1954 · - - · 79904b039142f3fab702a3074953341b28bb977b
 - [ ] Fault scenario 3 (contract): `set-aside` без ответа Orchestrator-а → `run-stopped` `wave-unfinished`, как до Epic-а.
   - evidence: gate pass · `gate fast` exit 0 · mac - · bcd8e8ebad74373fa91a6f7ca7cd041b29e6cb66
+  - evidence: review pass · PR #1954 · - - · 79904b039142f3fab702a3074953341b28bb977b
 - [ ] Fault scenario 4 (contract): маркер `main-red` в папке состояния gate-а → `run-stopped` `main-red`, ни одного
       `ticket-continued` и `ticket-set-aside`.
   - evidence: gate pass · `gate fast` exit 0 · mac - · bcd8e8ebad74373fa91a6f7ca7cd041b29e6cb66
+  - evidence: review pass · PR #1954 · - - · 79904b039142f3fab702a3074953341b28bb977b
 - [ ] Fault scenario 5 (contract): `no-progress` — та же Wave шлётся ещё дважды, потом `set-aside`.
   - evidence: gate pass · `gate fast` exit 0 · mac - · bcd8e8ebad74373fa91a6f7ca7cd041b29e6cb66
+  - evidence: review pass · PR #1954 · - - · 79904b039142f3fab702a3074953341b28bb977b
 - [ ] И1–И9 держатся во всех Fault scenarios (`test/autopilot-invariants.ts`); Run не зовёт `gh` вне списка И2.
   - evidence: gate pass · `gate fast` exit 0 · mac - · bcd8e8ebad74373fa91a6f7ca7cd041b29e6cb66
+  - evidence: review pass · PR #1954 · - - · 79904b039142f3fab702a3074953341b28bb977b
 - [ ] Component test: status line говорит `continuing 05 (1 of 2)` во время продолжения.
   - evidence: gate pass · `gate fast` exit 0 · mac - · bcd8e8ebad74373fa91a6f7ca7cd041b29e6cb66
+  - evidence: review pass · PR #1954 · - - · 79904b039142f3fab702a3074953341b28bb977b
 - [ ] Unit test `span-words`: слова для `main-red`, `ticket-continued`, `ticket-set-aside`.
   - evidence: gate pass · `gate fast` exit 0 · mac - · bcd8e8ebad74373fa91a6f7ca7cd041b29e6cb66
+  - evidence: review pass · PR #1954 · - - · 79904b039142f3fab702a3074953341b28bb977b
 - [ ] `docs/features/autopilot-faults.md` и `docs/features/autopilot.md` описывают лестницу и `main-red`; ADR-0024 — с
       датированным Amendment-ом.
   - evidence: commit pass · Autopilot Run continues a stuck Ticket twice, then asks to set it aside; main-red stops it (worfy-stuck-agents 05) · - - · bcd8e8ebad74373fa91a6f7ca7cd041b29e6cb66
+  - evidence: review pass · PR #1954 · - - · 79904b039142f3fab702a3074953341b28bb977b
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44053658159 · ci - · 79904b039142f3fab702a3074953341b28bb977b
 
 ## Тесты
 
