@@ -297,6 +297,34 @@ describe('the diagram of "Seams between tickets"', () => {
     expect(shownScreen().dataset.kind).toBe('seams')
   })
 
+  it('orders Tickets of two and three digits by number, and arcs a handoff to a later one above the boxes (99 → 100)', () => {
+    const story = epicStory()
+    if (story.kind !== 'epic') throw new Error('the fixture is an Epic story')
+    const handoffs = [
+      { from: '99', to: '100', what: 'forward', done: true, why: null },
+      { from: '100', to: '98', what: 'back', done: true, why: null },
+      { from: '98', to: '99', what: 'forward', done: true, why: null },
+    ]
+    render(<StoryView story={{ ...story, seams: { ...story.seams, handoffs } }} codeOf={storyOwnCode} />)
+    fireEvent.click(screen.getAllByTestId('story-chapter')[5]!)
+    const diagram = screen.getByTestId('story-seams-diagram')
+    expect(within(diagram).getAllByTestId('story-seams-ticket').map((ticket) => ticket.dataset.ticket)).toEqual(['98', '99', '100'])
+    const boxTop = Number(within(diagram).getAllByTestId('story-seams-ticket')[0]!.querySelector('rect')!.getAttribute('y'))
+    // `M <from x> <y> Q <mid x> <peak y> <to x> <y>`: a forward arrow runs left to right with its peak above the boxes,
+    // a backward one right to left with its peak below them.
+    const shape = (arrow: HTMLElement) => {
+      const [fromX, y, , peak, toX] = (arrow.getAttribute('d')!.match(/-?\d+(?:\.\d+)?/gu) ?? []).map(Number)
+      return { rightward: toX! > fromX!, above: peak! < y!, onTop: y === boxTop }
+    }
+    const arrows = within(diagram).getAllByTestId('story-seams-arrow')
+    expect(arrows.map((arrow) => `${arrow.dataset.from}→${arrow.dataset.to}`)).toEqual(['99→100', '100→98', '98→99'])
+    expect(arrows.map(shape)).toEqual([
+      { rightward: true, above: true, onTop: true },
+      { rightward: false, above: false, onTop: false },
+      { rightward: true, above: true, onTop: true },
+    ])
+  })
+
   it('lists each handoff in words: done, or dropped with its reason', () => {
     render(<StoryView story={epicStory()} codeOf={storyOwnCode} />)
     fireEvent.click(screen.getAllByTestId('story-chapter')[5]!)
