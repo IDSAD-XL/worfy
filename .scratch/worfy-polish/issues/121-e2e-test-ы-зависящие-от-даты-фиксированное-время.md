@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-16T23:59Z
+PR: #1939
 Blocked by: none
 Source: решение владельца 2026-11-17; `worfy-throughput` 66, «Итог», часть 5, эпизоды 3 и 7: два e2e test-а,
 зависящих от даты, сделали `main` красным без изменения кода и остановили merge PR с кодом на 1 551 min в окне
