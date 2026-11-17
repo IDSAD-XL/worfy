@@ -1,6 +1,6 @@
 # Autopilot
 
-> Перевод [английской версии](../autopilot.md), commit `same-pr`.
+> Перевод [английской версии](../autopilot.md), commit `1364f2e7`.
 
 Autopilot ведёт Wave-ы одного Epic-а одну за другой, без человека у Orchestrator-а. Он отправляет Wave, ждёт её конца,
 отправляет следующую готовую Wave и останавливается, когда готовой Wave нет или что-то пошло не так. Один такой проход
@@ -107,6 +107,7 @@ toast ошибки с причиной.
 | `waiting for the Orchestrator · 4 min` | Run начался и ждёт, пока у Orchestrator-а кончатся turn, очередь и background task-и. В первую минуту — без минут. Рядом — **Start now** и **Cancel**. |
 | `Wave 2 · running` | Run отправил вторую Wave. Wave считаются внутри run-а с 1 и снова с 1 для каждого Epic-а очереди; это не номер Wave в плане Epic-а. |
 | `Wave 2 · 4 background tasks` | То же, и у Orchestrator-а четыре живых background task-а. |
+| `Wave 4 · continuing 05 (1 of 2)` | Wave продолжает Ticket 05, который остался в работе после прошлой Wave: это его первое продолжение из двух ([Ticket, который остаётся в работе](autopilot-faults.md#ticket-который-остаётся-в-работе)). |
 | `waiting for limits · resumes 14:20` | Limits отказали turn-у. Run продолжит в это время. |
 | `API error · retry 2/5 · 14:20` | Turn закончился временной ошибкой API, и Auto-continue включён: второй повтор из пяти уходит в это время. |
 | `today's share used · resumes 00:00` | Бюджет остановил следующую Wave. |
@@ -122,7 +123,10 @@ toast ошибки с причиной.
 бывают только у очереди из одного Epic-а. Когда у Epic-а не осталось Wave (`no-ready-wave`, `blocked-tickets`,
 `tickets-done`), решает свежее чтение. Все Ticket-ы в checkout-е выполнены: начинается следующий Epic. Остались только
 Ticket-ы для владельца (`blocked` с `Waits: owner`, без статуса или заблокированные только такими Ticket-ами): Epic
-пропускается с `waits-owner`, и начинается следующий. Любая другая остановка или другие оставшиеся Ticket-ы
+пропускается с `waits-owner`, и начинается следующий. Ticket, который run после его продолжений попросил Orchestrator
+отложить, — как раз такой Ticket: он `blocked` с `Waits: owner`, так что очередь идёт дальше мимо него
+([Ticket, который остаётся в работе](autopilot-faults.md#ticket-который-остаётся-в-работе)).
+Любая другая остановка или другие оставшиеся Ticket-ы
 останавливают весь run. Дойдя до следующего Epic-а, run снова спрашивает Linked machines; Epic, который идёт в другом
 месте, пропускается. Когда Epic-ов не осталось, run останавливается с причиной последнего, но сначала отдаёт ход gate
 queue ([Почему run останавливается](autopilot-faults.md#почему-run-останавливается)). Исключение одно: в последнем
@@ -201,13 +205,18 @@ Wave окончена, когда верно всё это:
 
 1. Turn Wave закончился без ошибки и без прерывания.
 2. Session простаивает, и у неё нет живых background task-ов.
-3. В свежем чтении workflow ни один Ticket Wave не в работе (`claimed`).
+3. В свежем чтении workflow ни один Ticket Wave не в работе: `claimed` или открыт с веткой worktree, которую не удалось
+   прочитать и которая ещё может держать claim.
 
 Затем run заново вычисляет готовую Wave. Если это тот же набор Ticket-ов, что и у только что оконченной Wave, run
-останавливается с `no-progress`. Ticket Wave, который после turn-а остался открытым, Wave не держит.
+отправляет её снова как продолжение, не больше двух раз на Ticket, потом просит Orchestrator отложить эти Ticket-ы и
+останавливается с `no-progress`, только если и после этого готова та же Wave. Ticket Wave, который после turn-а остался
+открытым и ветку которого удалось прочитать, Wave не держит.
 
 Если после turn-а Ticket ещё в работе, run ждёт до 10 минут. Каждое изменение workflow проверяет заново, а новый turn
-Orchestrator-а ждёт своего результата. После этого run останавливается с `wave-unfinished`.
+Orchestrator-а ждёт своего результата. После этого run продолжает Ticket в следующей Wave по той же лестнице: два
+продолжения, просьба отложить, затем остановка с `wave-unfinished`. Красный main вместо этого останавливает run с
+`main-red` ([Ticket, который остаётся в работе](autopilot-faults.md#ticket-который-остаётся-в-работе)).
 
 Живые background task-и заставляют run ждать до одного часа без единого их события. Каждое событие task-а начинает этот
 срок заново. Так же действует изменение output file живого task-а — файла, куда Claude Code пишет вывод фоновой команды и
@@ -417,6 +426,8 @@ run-а — время старта в UTC и шесть шестнадцатер
 | `wave-started`, `wave-finished` | Wave ушла или окончена. В `wave-started` есть отправленный текст, пропущенные Ticket-ы и `session` — id SDK session Orchestrator-а, в которую ушла Wave (имя её transcript-а). В обеих может быть `limits`: `{five_hour, seven_day}` в run-е на Claude Code, `{windows}` с окнами Codex в run-е на Codex. |
 | `ticket-status` | `Status:` Ticket-а Epic-а этого run-а изменился во время run-а: это видно по изменению, о котором сообщил watch workflow, или при последнем чтении прямо перед `run-stopped` (не при Force stop). Ticket, чей файл появился во время run-а, получает статус, с которым его увидели впервые. Есть `state` (`claimed`, `blocked`, `done`, `open`), а также `statusAt`, `reason` и `waits`, когда у Ticket-а есть такие строки ([ADR-0092](../../adr/0092-run-history.md)). |
 | `narrow-round` | Состояние узкого круга исправления в PR Ticket-а Wave, один раз на Ticket и исход. |
+| `ticket-continued` | Ticket, который держал Wave, продолжается в следующей Wave: `ticket`, `attempt` (с 1), `of` (потолок, 2) и `cause` (`wave-unfinished` или `no-progress`). Идёт прямо перед `wave-started` продолжения, у которого есть `continuation` (`attempt`, `of`, `cause`). |
+| `ticket-set-aside` | Run попросил Orchestrator отложить Ticket после его продолжений: `ticket`, `cause`, `attempts`. |
 | `start-window` | Start window задержал следующую Wave: `reason` — `outside` или `wave-too-long`. Дальше идёт `waiting-until`. |
 | `budget-stop` | Бюджет остановил следующую Wave. Дальше идёт `waiting-until`. |
 | `limits-hit` | Limits отказали turn-у. Отказ Codex-а, при котором ни одно окно не израсходовано, имеет `reason: "quota"` и `message`, и дальше идёт `run-stopped` с `vendor-quota`. |

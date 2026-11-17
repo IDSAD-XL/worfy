@@ -101,7 +101,7 @@
     "limits": [
       "One run per Project at a time, over a queue of at most 10 Epics. The same Epic of the same repository running on a Linked machine refuses the start; Start anyway is the only way past, for the whole run.",
       "A development build refuses a run on worfy's own repository, its worktrees included.",
-      "A Ticket of the Wave still in work after the turn: the run waits up to 10 minutes, then stops with wave-unfinished. Background tasks with no event and no change of their output files for an hour: background-stalled.",
+      "A Ticket of the Wave still in work 10 minutes after the turn, or the same Wave ready again: the run continues the Ticket in the next Wave, at most twice, then asks the Orchestrator to set it aside with Waits: owner, and stops with wave-unfinished or no-progress only if that fails too. A red main stops the run with main-red instead. The Orchestrator's own turn quiet for 30 minutes: turn-hung. Background tasks with no event and no change of their output files for an hour: background-stalled.",
       "A refusal by the Limits: the run waits until the reset plus 2 minutes, or tries every 30 minutes when no reset time is known; past 24 hours it stops with limits-timeout, unless Auto-continue is on and the reset time is known.",
       "In the Run mode Start window, a Wave that usually takes longer than the whole window stops the run at once with window-too-short.",
       "The Start Autopilot window of autopilot_start waits 10 minutes; an unattended Session gets a refusal with no window."

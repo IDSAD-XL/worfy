@@ -1,6 +1,6 @@
 # Autopilot faults and recovery
 
-> Перевод [английской версии](../autopilot-faults.md), commit `same-pr`.
+> Перевод [английской версии](../autopilot-faults.md), commit `bd6162bf`.
 
 Как run [Autopilot](autopilot.md) ждёт Limits и повторяет turn после ошибки API, как он останавливается, что бывает
 после остановки, и Fault scenario-и, которые проверяют восстановление. Если термины незнакомы, начните с
@@ -100,7 +100,8 @@ Auto-continue: с `turn-error` во время ожидания повтора, 
 Сообщение, которое человек поставил в очередь, остаётся и удерживается в очереди новой Session. Wave и сообщение об
 остановке из очереди уходят.
 
-Следующий run того же Epic-а берёт Ticket-ы, прерванные Force stop, в свою первую Wave, если они ещё в работе, даже когда
+Следующий run того же Epic-а берёт Ticket-ы, прерванные Force stop, в свою первую Wave, если они ещё в работе
+(`claimed` или открыты с веткой worktree, которую не удалось прочитать и которая может держать claim), даже когда
 больше ничего не готово. Так же он делает после run-а, который остановился с `session-error` во время Wave: implementer-ы
 умерли вместе с процессом Orchestrator-а, и Ticket, который один из них взял, остаётся в `claimed`. Первая команда Wave
 следующего run-а называет его вместе с готовыми Ticket-ами, и Orchestrator продолжает его как возобновлённую Wave (skill
@@ -134,6 +135,40 @@ Orchestrator остаётся unattended, экран остаётся включ
 идёт. Он забирает тот же unattended Orchestrator как есть. Orchestrator не перезапускается, поэтому его background task-и
 продолжают работу. Они становятся task-ами нового run-а, а journal старого run-а больше не получает строк.
 
+#### Ticket, который остаётся в работе
+
+Один застрявший Ticket не останавливает весь run. Две остановки касаются одного Ticket-а: Ticket Wave всё ещё в работе
+через 10 минут после turn-а (`wave-unfinished`) и следующая готовая Wave — тот же набор Ticket-ов, что и только что
+оконченная (`no-progress`). Перед любой из них run проходит лестницу, с пределом на Ticket и на run:
+
+1. **Продолжение.** Run отправляет следующую Wave с этим Ticket-ом так же, как после Force stop: Ticket-ы, которые ещё в
+   работе, входят в Wave как возобновлённые. Команда Wave получает ещё одну строку от самого worfy, после строки команды, так
+   что skill по-прежнему раскрывается: `Continuation 1 of 2 for ticket 05: still claimed 10 min after the turn ended.` Для
+   `no-progress` в ней `… came back as the same wave.` В строке только факты worfy: номера Ticket-ов, попытка, причина и
+   минуты. Последние слова Orchestrator-а в неё никогда не возвращаются. Wave идёт в новую SDK session, как и каждая Wave
+   после первой. Пока она идёт, строка состояния показывает `Wave 4 · continuing 05 (1 of 2)`. У Ticket-а не больше 2
+   продолжений за один run; новый run считает с 0.
+2. **Отложить.** После 2 продолжений run просит Orchestrator отложить Ticket:
+   `Ticket 05 stayed claimed after 2 continuations. Run: ticket block epic-a 05 "stuck: claimed after 2 continuations" --waits owner. Then end the turn.`
+   Команда называет `ticket` из Harness по его пути. worfy сам `Status:` не пишет: команду выполняет только Orchestrator.
+   Ticket с `Waits: owner` ждёт владельца, поэтому остальные Ticket-ы Epic-а идут в следующих Wave-ах, а когда больше ничего
+   не готово, Epic заканчивается с `waits-owner`, и run над очередью переходит к следующему Epic-у.
+3. **Остановка.** Если после этого turn-а Ticket всё ещё в работе, run останавливается с прежней причиной, `wave-unfinished`
+   или `no-progress`.
+
+Перед продолжением или просьбой отложить run читает, красный ли main: метку, которую `land` держит в папке состояния gate
+(`main-red-<key>.json`), пока CI основной ветки красный. Если метка есть, весь run останавливается с `main-red`, и ничего не
+продолжается и не откладывается: застрявший Ticket встретил бы тот же красный main. Метка, которую не удалось прочитать,
+считается отсутствующей.
+
+`background-stalled` не называет Ticket и остаётся остановкой. Так же `turn-hung`: turn Orchestrator-а затих, и что с ним
+делать, решает человек.
+
+Journal получает `ticket-continued` (Ticket, попытка, потолок, причина) прямо перед `wave-started` продолжения, у которого
+есть `continuation`, и `ticket-set-aside` (Ticket, причина, продолжения) до отправки сообщения. Run history показывает
+продолжение как следующую попытку работы над Ticket-ом, `#2`, с причиной словами, просьбу отложить — как отметку в строке
+run-а, а заблокированный Ticket — как красный `!` с его `Blocked reason` и `Waits`.
+
 #### Почему run останавливается
 
 | Причина | Значение |
@@ -142,9 +177,11 @@ Orchestrator остаётся unattended, экран остаётся включ
 | `tickets-done` | Run по названным Ticket-ам окончен: каждый из них в `done` в checkout. Такой run берёт в каждую Wave только готовые Ticket-ы своего списка. Кнопка всегда запускает весь Epic, поэтому запущенный ею run так никогда не заканчивается. |
 | `blocked-tickets` | Ничего открытого не готово, а у Ticket-ов в `blocked` или без статуса все блокеры закрыты. В run-е по названным Ticket-ам считаются только Ticket-ы списка. |
 | `waits-owner` | Run над очередью Epic-ов дошёл до последнего Epic-а, и в нём остались только Ticket-ы для владельца (`blocked` с `Waits: owner`, без статуса или заблокированные только такими Ticket-ами). Строка говорит `stopped: waits for owner`; `tickets` их называет. Run по одному Epic-у в этом случае останавливается с `blocked-tickets`. |
-| `no-progress` | Следующая готовая Wave — тот же набор Ticket-ов, что и только что оконченная. |
-| `wave-unfinished` | Ticket Wave остался в работе дольше 10 минут после turn-а. |
+| `no-progress` | Следующая готовая Wave — тот же набор Ticket-ов, что и только что оконченная, после того как у её Ticket-ов было по 2 продолжения и Orchestrator-а попросили их отложить ([Ticket, который остаётся в работе](#ticket-который-остаётся-в-работе)). |
+| `wave-unfinished` | Ticket Wave остался в работе дольше 10 минут после turn-а, после его 2 продолжений и turn-а с просьбой отложить. |
+| `main-red` | Main был красным (метка `land`), когда застрявшему Ticket-у полагалось продолжение или просьба отложить. Останавливается весь run, в том числе в очереди Epic-ов. |
 | `background-stalled` | Background task-и не дали ни одного события за час, и ни один их output file за это время не изменился. |
+| `turn-hung` | Собственный turn Orchestrator-а 30 минут не подавал признаков жизни. Признак жизни — любое событие его агента, включая скрытые, такие как hook или thinking. Открытый запрос разрешения, ещё идущий hook, изменение output file живого background task-а или gate в worktree Session и e2e lock, держатель которого работает, тишиной тоже не считаются. Ничего не прерывается: Session возвращается человеку, как после любой другой остановки, а её turn и background task-и продолжают идти. Тишина одного background task-а — это `background-stalled`, а не эта причина. |
 | `limits-timeout` | Ожидание Limits превысило бы 24 часа (с включённым Auto-continue — только без времени сброса), Auto-continue выключили во время ожидания сброса дальше 24 часов, или ожидание отменили кнопкой Cancel в чате Orchestrator-а. |
 | `vendor-quota` | Codex отказал turn-у по своим Limits, и ни одно окно не исчерпано, так что сбрасываться нечему. Текст ошибки Codex — это сообщение состояния run-а (tooltip строки состояния) и `message` строки `limits-hit`. |
 | `window-too-short` | Run mode — Start window, и следующая Wave обычно идёт дольше, чем всё окно. Tooltip называет Wave, её обычную длительность и окно. |
@@ -153,7 +190,7 @@ Orchestrator остаётся unattended, экран остаётся включ
 | `session-error` | Session Orchestrator-а упала, или перед следующей Wave или turn-ом очереди gate Codex больше не запускает hook-и Harness. |
 | `session-closed` | Session Orchestrator-а закрылась. |
 | `send-failed` | «Run wave» не удалось отправить. |
-| `workflow-error` | Workflow не прочитался, когда run должен был оценить Wave. |
+| `workflow-error` | Workflow не прочитался, когда run должен был оценить Wave, в том числе когда `git worktree list` упал дважды подряд или не уложился во время. |
 | `user-stop` | Stop autopilot. |
 | `user-force-stop` | Force stop. |
 | `start-cancelled` | Cancel, Stop или Force stop, пока run ждал Orchestrator. |
@@ -198,6 +235,8 @@ Orchestrator-у шаблон «Process gate queue», один раз за run. �
 | `src/main/autopilot/limits-wait.ts` | Ожидание Limits, таймер по wall clock, текст продолжения. |
 | `src/main/autopilot/turn-retry.ts` | Повтор после временной ошибки API: счёт, таймер, продолжение. Паузы, отказы и текст — `src/shared/agent/continue-plan.ts`, какая ошибка временная — `src/shared/agent/turn-failure.ts`. |
 | `src/shared/autopilot/resume-at.ts` | Когда run продолжает после отказа. Чистые функции. |
+| `src/shared/autopilot/continuation.ts` | Тексты лестницы: строка продолжения, сообщение с просьбой отложить, слова строки состояния; потолок `MAX_CONTINUATIONS`. Чистые функции. |
+| `src/shared/autopilot/cycle.ts` | Когда застрявший Ticket продолжается, откладывается или останавливает run, и `main-red`. Чистые функции; действия выполняет `src/main/autopilot/run.ts`. |
 
 #### Test-ы
 
@@ -216,10 +255,12 @@ Orchestrator-у шаблон «Process gate queue», один раз за run. �
 | `test/contract/codex-auto-continue.test.ts` | Auto-continue на Orchestrator-е Codex поверх fake app-server, в run-е и в ручном turn-е: `serverOverloaded` и одно продолжение, ошибка, которую Codex повторяет сам, `vendor-quota`, вызов Subagent-а без результата (`in-flight`) и окна, прочитанные заново при сбросе ручного ожидания Limits. |
 | `test/unit/autopilot-invariants.test.ts` | Правила восстановления на journal-ах из `test/fixtures/autopilot-faults/`: хороший run не нарушает ни одного, а каждое правило ловит испорченную для него копию. |
 | `test/contract/autopilot-faults-api.test.ts` | Fault scenario-и API модели: API 500, 529 посреди потокового ответа (не принимается за Limits) и обрыв связи останавливают run с `turn-error`, и новый старт шлёт свою команду Wave один раз; Limits, отказавшие turn-у Wave 2, — run ждёт и продолжает после сброса одним продолжением, Wave 1 второй раз не идёт. |
-| `test/contract/autopilot-faults-retry.test.ts` | Те же Fault scenario-и API модели с включённым Auto-continue: API 500, 529 посреди потокового ответа и обрыв связи дают `turn-retry`, одно продолжение и `resumed`, и run идёт дальше; пять 529 подряд кончаются `retry-refused` `cap`, а `git push` без результата — `retry-refused` `in-flight`, оба потом `turn-error`; Limits, которые отказывают turn-у Wave 2 по недельному окну без 5-часового, заставляют run ждать этого сброса. Правила I1–I8 ниже выполняются в каждом. |
-| `test/contract/autopilot-faults-process.test.ts` | Fault scenario-и процессов: Claude Code Orchestrator-а умирает, пока работают оба implementer-а (`session-error`, и новый старт идёт в новую Session, а его первая Wave называет Ticket, который всё ещё `claimed` умершим implementer-ом, вместе с готовым); implementer падает, и его Ticket остаётся `claimed` (`wave-unfinished`) или возвращается в `open` (следующая Wave — только с этим Ticket-ом). |
+| `test/contract/autopilot-faults-retry.test.ts` | Те же Fault scenario-и API модели с включённым Auto-continue: API 500, 529 посреди потокового ответа и обрыв связи дают `turn-retry`, одно продолжение и `resumed`, и run идёт дальше; пять 529 подряд кончаются `retry-refused` `cap`, а `git push` без результата — `retry-refused` `in-flight`, оба потом `turn-error`; Limits, которые отказывают turn-у Wave 2 по недельному окну без 5-часового, заставляют run ждать этого сброса. Правила I1–I9 ниже выполняются в каждом. |
+| `test/contract/autopilot-faults-process.test.ts` | Fault scenario-и процессов: Claude Code Orchestrator-а умирает, пока работают оба implementer-а (`session-error`, и новый старт идёт в новую Session, а его первая Wave называет Ticket, который всё ещё `claimed` умершим implementer-ом, вместе с готовым); implementer падает, и его Ticket остаётся `claimed` (run ждёт время успокоения, затем продолжает его в следующей Wave) или возвращается в `open` (следующая Wave — только с этим Ticket-ом). |
+| `test/contract/autopilot-faults-ladder.test.ts` | Fault scenario-и лестницы продолжений: Ticket, оставленный `claimed`, продолжается и доходит до `done`; Ticket, всё ещё `claimed` после 2 продолжений, откладывается, Orchestrator блокирует его с `Waits: owner`, и run переходит к следующему Epic-у очереди; просьба отложить, которую Orchestrator не выполнил, кончается `wave-unfinished`; красный main останавливает run с `main-red` без продолжения; `no-progress` проходит ту же лестницу. |
 | `test/contract/autopilot-faults-github.test.ts` | Fault scenario-и на стороне GitHub: режим `hang` у gh stub; gh висит весь run (Wave-ы идут, остановка ждёт не дольше предела последнего чтения); gh отвечает 502 (следующее чтение — через удвоенный интервал); конфликт merge (run останавливается с `blocked-tickets`, новый run не берёт заблокированный Ticket). |
-| `test/contract/autopilot-faults-codex.test.ts` | Fault scenario-и на Orchestrator-е Codex: упавший turn останавливает run с `turn-error`; app-server, вышедший посреди Wave, даёт `session-error`, и новый run стартует в новой Session. |
+| `test/contract/autopilot-faults-codex.test.ts` | Fault scenario-и на Orchestrator-е Codex: упавший turn останавливает run с `turn-error`; app-server, вышедший посреди Wave, даёт `session-error`, и новый run стартует в новой Session; Ticket, всё ещё `claimed` после 2 продолжений, откладывается, и run переходит к следующему Epic-у. |
+| `test/unit/autopilot-continuation.test.ts` | Тексты лестницы слово в слово и то, что последние слова модели в них никогда не попадают. |
 | `test/e2e/autopilot-faults.spec.ts` | Fault scenario-и в собранном приложении: приложение убито SIGKILL посреди Wave и запущено снова (при старте Orchestrator-у ничего не уходит, Run history показывает прошлый run оборванным, кнопка стартует новый run, и тот шлёт свою Wave один раз); GitHub недоступен весь run (обе Wave-ы проходят, `gh` только читали). |
 
 **Fault scenario-и.** Fault scenario — test, который вносит один сбой в run на fake agent над временным Project-ом — ошибку API
@@ -238,6 +279,8 @@ Orchestrator, вызовы `gh`, изменения `Status:`, которые te
 - **I6.** Новый старт после остановки не получает отказа и начинает свой journal с `run-started`.
 - **I7.** worfy ничего не пишет в Project: каждый файл, который изменился, записал test.
 - **I8.** Каждая строка каждого journal читается. Убитое приложение может оставить одну оборванную последнюю строку.
+- **I9.** У Ticket-а не больше 2 строк `ticket-continued` за run. После его `ticket-set-aside` он `blocked`, или run
+  остановился с причиной просьбы отложить.
 
 Contract-сценарии собирают run через `faultRun()` из `test/contract/autopilot-faults-setup.ts`: настоящие Session registry,
 Orchestrators, launcher, journal, `LimitsTracker`, `PrTracker` и `Autopilot`, часы, которые двигаются, только когда их двигает test, и
