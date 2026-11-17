@@ -819,8 +819,11 @@ describe('from-journal: the frame of the Run', () => {
       'start-refused': 'failed',
       'waits-owner': 'blocked',
       'main-red': 'failed',
+      'turn-hung': 'failed',
     })
     expect(read(started(), stopped('10:01', 'tickets-done')).run.outcome).toBe('ok')
+    // The Orchestrator's turn went quiet for QUIET_HUNG_MS (worfy-stuck-agents ticket 09): the Run did not do its work.
+    expect(read(started(), stopped('10:01', 'turn-hung')).run).toMatchObject({ reason: 'turn-hung', outcome: 'failed' })
     // A red main stops a run that would continue a stuck Ticket (worfy-stuck-agents ticket 01): the Run did not do its work.
     expect(read(started(), stopped('10:01', 'main-red')).run).toMatchObject({ reason: 'main-red', outcome: 'failed' })
     expect(read(started(), stopped('10:01', 'waits-owner')).run).toMatchObject({ reason: 'waits-owner', outcome: 'blocked' })

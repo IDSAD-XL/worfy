@@ -20,12 +20,18 @@
 //   (autopilot-ladder-continue.jsonl, autopilot-ladder-set-aside.jsonl); the set-aside message goes as a second
 //   turn of the last thread, the test plays the Orchestrator's `ticket block … --waits owner`, and the Run goes on
 //   to the queue's second Epic, done already, where it ends.
+// - A quiet turn (worfy-stuck-agents ticket 09, Fault scenario 7 on Codex): the Wave's turn
+//   (autopilot-quiet-turn.jsonl) says one thing and then nothing; on the test's clock the run stops with turn-hung
+//   after QUIET_HUNG_MS of quiet, sends no turn/interrupt and gives the same app-server back to a person.
 import type { ChildProcess } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 import { hasExited } from '../../src/main/agent/session/process'
+import { QUIET_MARK_MS } from '../../src/shared/agent/quiet'
+import { QUIET_HUNG_MS } from '../../src/shared/autopilot/cycle'
 import { checkRecovery } from '../autopilot-invariants'
 import { ms } from '../time-scale'
-import { EPIC, EPIC_B, faultRun, PROJECT, until, type FaultRun } from './autopilot-faults-setup'
+import { EPIC, EPIC_B, faultRun, PROJECT, START_MS, until, type FaultRun } from './autopilot-faults-setup'
 
 vi.mock('electron', () => ({
   app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined },
@@ -149,6 +155,50 @@ describe('the continuation ladder on a Codex Orchestrator (worfy-stuck-agents ti
     expect(waveCommands(h)).toEqual([WAVE_1, '/epic-wave Ticket-ы 01 эпика demo', '/epic-wave Ticket-ы 01 эпика demo'])
 
     expect(checkRecovery(h.recovery({ stop: 'no-ready-wave', waves: 3 }))).toEqual([])
+    await h.registry.closeAll()
+    await until(() => fakes.every((child) => hasExited(child)), 'every fake app-server to exit')
+  })
+})
+
+describe('a quiet turn on a Codex Orchestrator (worfy-stuck-agents ticket 09)', () => {
+  it('scenario 7: a turn without a sign of life for 30 min → run-stopped turn-hung; no turn/interrupt, the same app-server, the Session attended', async () => {
+    fakes.splice(0)
+    // test/fixtures/codex-scripts/autopilot-quiet-turn.jsonl: the Wave's turn says one thing and then nothing, until interrupted.
+    const h = faultRun({ vendor: 'codex', marks: 'claimed', quietHungMs: QUIET_HUNG_MS, codexScripts: ['turn', 'autopilot-quiet-turn', 'resume'] })
+    const deltas: string[] = []
+    h.registry.observe((_sessionId, event) => {
+      if (event.type === 'delta') deltas.push(event.text)
+    })
+    expect(await h.start()).toEqual({ refusal: null })
+    const busy = (): string | undefined => h.registry.list().find((each) => each.state === 'busy')?.sessionId
+    await until(() => deltas.join('').includes('Checking the Tickets of the wave') && busy() !== undefined, 'the quiet turn of Wave 1', 10_000)
+    const session = h.registry.get(busy()!)
+
+    h.clock.advance(QUIET_MARK_MS + 60_000)
+    await until(() => session.controls().quietSince === START_MS, 'the quiet mark of the turn')
+    await until(() => h.clock.pending().some((timer) => timer.at === START_MS + QUIET_HUNG_MS), 'the limit of a hung turn')
+    h.clock.advanceTo(START_MS + QUIET_HUNG_MS - 60_000)
+    await new Promise((done) => setTimeout(done, ms(200)))
+    expect(h.state().status).toBe('running')
+    h.clock.advanceTo(START_MS + QUIET_HUNG_MS)
+    await h.stopped(1)
+    expect(h.state()).toMatchObject({ status: 'stopped', reason: 'turn-hung', wave: 1 })
+    expect(h.journal(1).find((event) => event.kind === 'run-stopped')).toMatchObject({ reason: 'turn-hung' })
+
+    // Nothing was interrupted or started again: the run's app-server goes on as the person's Session, its turn running.
+    const methods = readFileSync(h.codexLogs[1]!, 'utf8')
+      .split('\n')
+      .filter((line) => line.trim() !== '')
+      .map((line) => (JSON.parse(line) as { method?: string }).method)
+    expect(methods).not.toContain('turn/interrupt')
+    expect(h.codexLogs).toHaveLength(2)
+    expect(fakes[1] !== undefined && !hasExited(fakes[1])).toBe(true)
+    expect(h.registry.get(session.id)).toBe(session)
+    expect(session.state).toBe('busy')
+    expect(session.unattended).toBe(false)
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
+
+    expect(checkRecovery(h.recovery({ stop: 'turn-hung', waves: 1 }))).toEqual([])
     await h.registry.closeAll()
     await until(() => fakes.every((child) => hasExited(child)), 'every fake app-server to exit')
   })

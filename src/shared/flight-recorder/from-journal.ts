@@ -144,7 +144,8 @@ export interface JournalFacts {
  * a person's or the app's stop `stopped` (`interrupted`: the Orchestrator's turn was interrupted, which
  * only the Interrupt button of a Session does, through agent.interrupt), the rest — an error, a stall,
  * a Wave that made no progress, a Start window too short for any Wave (`window-too-short`), a red main where a
- * stuck Ticket would have been continued (`main-red`, worfy-stuck-agents ticket 01) — `failed`.
+ * stuck Ticket would have been continued (`main-red`, worfy-stuck-agents ticket 01), an Orchestrator's turn
+ * that went quiet (`turn-hung`, worfy-stuck-agents ticket 09) — `failed`.
  * A Run that waited for its Orchestrator and was cancelled (`start-cancelled`) is `stopped`; one whose
  * checks refused it once the Orchestrator was free (`start-refused`) is `failed`. `session-closed` is `failed`: the Session closes under the
  * Run when a person closes it, and also when a new Session for the next Wave does not come up.
@@ -172,6 +173,7 @@ export const STOP_OUTCOMES: Readonly<Record<AutopilotStopReason, SpanOutcome>> =
   'start-refused': 'failed',
   'waits-owner': 'blocked',
   'main-red': 'failed',
+  'turn-hung': 'failed',
 }
 
 const iso = (ms: number): Iso => new Date(ms).toISOString()

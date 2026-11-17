@@ -32,6 +32,8 @@
 //   through readMainRed (src/main/gate/state.ts). `secondEpic` adds Epic `demo-b` (one open Ticket 01), so a
 //   run over the queue `demo`, `demo-b` (start with `epics`) can go on to it (`done`: it is done already, and the
 //   run ends there); the fake writes no status there.
+// - A quiet turn (worfy-stuck-agents ticket 09): `quietHungMs` puts the Sessions' watch for a quiet turn on the
+//   test's clock and gives the run that limit, so moving the clock makes a turn quiet and then hung.
 //
 // A test file that imports this module mocks `electron` as autopilot-faults-api.test.ts does. The
 // module's afterEach stops every run, closes every Session, kills every stub and fake process and
@@ -47,6 +49,7 @@ import { LimitsTracker, observeSessionLimits } from '../../src/main/agent/limits
 import { Orchestrators } from '../../src/main/agent/orchestrator'
 import { SessionRegistry, STATIC_CLAUDE_PARTS, type QueryRequest } from '../../src/main/agent/session'
 import { hasExited } from '../../src/main/agent/session/process'
+import { NO_OUTSIDE_SIGNS } from '../../src/main/agent/session/quiet-signs'
 import { mainRedFileName, readMainRed } from '../../src/main/gate/state'
 import { SessionSettingsStore } from '../../src/main/agent/session-settings'
 import { openRun } from '../../src/main/autopilot/journal'
@@ -60,6 +63,7 @@ import { CODEX_CAPABILITIES, codexCapabilities } from '../../src/main/vendors/co
 import { codexCommands } from '../../src/main/vendors/codex/commands'
 import { codexSessions } from '../../src/main/vendors/codex/session'
 import { readWorkflow, type EpicStatusRunner } from '../../src/main/workflow/reader'
+import { QUIET_MARK_MS } from '../../src/shared/agent/quiet'
 import { DEFAULT_SETTINGS, type SessionSettings } from '../../src/shared/agent/settings'
 import { parseJournal, type JournalEvent, type TicketStatusState } from '../../src/shared/autopilot/journal'
 import type { AutopilotState } from '../../src/shared/ipc/autopilot'
@@ -130,6 +134,13 @@ export interface FaultRunOptions {
   /** The background-task limits on the test's clock (AutopilotDeps.backgroundStallMs, tasksGraceMs). */
   backgroundStallMs?: number
   tasksGraceMs?: number
+  /**
+   * A quiet turn (worfy-stuck-agents ticket 09): the limit of a quiet Orchestrator turn on the test's clock
+   * (AutopilotDeps.quietHungMs). Given, every Session watches its turns for quiet on the test's clock too: the mark
+   * after QUIET_MARK_MS, a look every 20 ms of real time, and no sign of life outside the agent's events. Absent: the
+   * Sessions keep the app's own watch, on the wall clock, and the run its default limit.
+   */
+  quietHungMs?: number
   /** How long a Stop waits for the interrupted turn before the process is closed (default 100 ms). */
   haltTurnMs?: number
   /**
@@ -427,10 +438,16 @@ export function faultRun(options: FaultRunOptions = {}) {
   const inventoryScript = unattendedScripts[0]!
   const inventory = options.mcpAllowlist === undefined ? null : new McpInventory(fakeInventoryStarter({ scriptsDir: inventoryScript.dir, script: inventoryScript.name }))
   const claude = claudeSessions(claudeFactory, {}, inventory)
-  const registry = new SessionRegistry({
-    sessionsOf: (each) => (each === 'codex' ? codex : claude),
-    partsOf: (each) => (each === 'codex' ? { capabilities: codexCapabilities, commands: codexCommands } : STATIC_CLAUDE_PARTS),
-  })
+  const quiet = options.quietHungMs === undefined ? {} : { markMs: QUIET_MARK_MS, lookMs: 20, now: () => clock.now, outside: () => Promise.resolve(NO_OUTSIDE_SIGNS) }
+  const registry = new SessionRegistry(
+    {
+      sessionsOf: (each) => (each === 'codex' ? codex : claude),
+      partsOf: (each) => (each === 'codex' ? { capabilities: codexCapabilities, commands: codexCommands } : STATIC_CLAUDE_PARTS),
+    },
+    undefined,
+    undefined,
+    quiet,
+  )
   cleanups.push(() => registry.closeAll())
 
   // The Tickets: what the agent writes, each write a StatusWrite and a change the watch reports.
@@ -583,6 +600,7 @@ export function faultRun(options: FaultRunOptions = {}) {
       : {}),
     ...(options.backgroundStallMs === undefined ? {} : { backgroundStallMs: options.backgroundStallMs }),
     ...(options.tasksGraceMs === undefined ? {} : { tasksGraceMs: options.tasksGraceMs }),
+    ...(options.quietHungMs === undefined ? {} : { quietHungMs: options.quietHungMs }),
     ...(prReader === null || prOptions === null
       ? {}
       : {
