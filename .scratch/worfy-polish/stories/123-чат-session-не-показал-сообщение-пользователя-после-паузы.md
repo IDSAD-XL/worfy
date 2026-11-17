@@ -116,3 +116,18 @@ Code: `src/renderer/session/store.ts:147-168` · key lines: 149, 150, 151, 152, 
 3. Почему `opened`, а не время `at` события?
    - Строки: `src/renderer/session/store.ts:131`
    - Ответ: `at` — миллисекунды прихода, у событий одного мгновения он совпадает; номер log-а из счётчика однозначен.
+
+## 6. Что нашёл review и что осталось
+
+> VERIFIED
+> Consider: src/renderer/session/store.ts:152 [low] — `capped(..., before.first)` keeps `before.first` as the drop base when the new id's log is the older one; matters only past KEEP_EVENTS (5000 events).
+> Noted: the race «SDK echo before its own prompt» has no test of its own; impossible from main (session-resume-event-order.test.ts:82-94).
+> Review depth: low — default: the profile has no review.depth.wave
+> Review tokens: 38142
+> Could not verify: evidence-check, check-personal, gate fast and the session-queued-message/session-log-resume tests were not rerun in round 2 (CI green on the head; the gate is red on this Mac on file-watch tests outside the diff).
+
+Code: `src/renderer/session/store.ts:152-152` · key lines: 152
+
+```ts
+      const merged = after ? capped([...older.events, ...newer.events], before.first) : before
+```
