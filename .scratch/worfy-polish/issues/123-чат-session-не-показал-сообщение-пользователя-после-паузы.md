@@ -1,7 +1,8 @@
 # 123 — Session view не показал сообщение пользователя, отправленное после двух часов простоя
 
 Type: bug
-Status: open
+Status: claimed 2026-11-17T20:31Z
+PR: #1968
 Blocked by: none
 Source: баг-репорт владельца 2026-11-17 (скриншот Session view Orchestrator-а: после «Turn finished · 5 m 17 s»
 сразу «Thinking» и ответ, вопроса пользователя нет).
@@ -72,16 +73,23 @@ Source: баг-репорт владельца 2026-11-17 (скриншот Sess
 ## Готово, когда
 
 - [ ] Причина найдена и записана в «Итог» (какое событие и где терялось).
+  - evidence: commit pass · worfy-polish/123: keep a message sent after a resume below the turns before it · - - · 22ab3c93d0da5ec299252dc5529d82fe1a979c61
 - [ ] Сообщение, отправленное после простоя Session-а, видно в её Session view ровно один раз, и до ответа агента, и после
       перечитывания transcript-а.
+  - evidence: test-run pass · `pnpm test test/unit/session-prompt-after-restart.test.tsx test/unit/session-resume-event-order.test.ts` exit 0 · mac - · 22ab3c93d0da5ec299252dc5529d82fe1a979c61
 - [ ] Unit test на этот сценарий: красный на коде до исправления, зелёный после.
+  - evidence: test-run pass · `pnpm test test/unit/session-prompt-after-restart.test.tsx test/unit/session-resume-event-order.test.ts` exit 0 · mac - · 22ab3c93d0da5ec299252dc5529d82fe1a979c61
 - [ ] Ровно один раз видно и сообщение из очереди, и сообщение после перезапуска процесса агента, и то же сообщение
       после перечитывания transcript-а: по test-у на каждый путь.
+  - evidence: test-run pass · `pnpm test test/unit/session-prompt-after-restart.test.tsx test/unit/session-resume-event-order.test.ts` exit 0 · mac - · 22ab3c93d0da5ec299252dc5529d82fe1a979c61
 - [ ] Test-ы гонок: `prompt` раньше подписки Session view, echo SDK раньше своей строки, `renamed` раньше `prompt`;
       каждый краснеет на мутанте исправления.
+  - evidence: test-run pass · `pnpm test test/unit/session-prompt-after-restart.test.tsx test/unit/session-resume-event-order.test.ts` exit 0 · mac - · 22ab3c93d0da5ec299252dc5529d82fe1a979c61
 - [ ] Страховки из transcript-а нет (решение 4).
+  - evidence: commit pass · worfy-polish/123: keep a message sent after a resume below the turns before it · - - · 22ab3c93d0da5ec299252dc5529d82fe1a979c61
 - [ ] Повтор prompt-а с тем же текстом во втором ходе не задваивается и не пропадает (существующие test-ы
       `test/unit/session-queued-message.test.tsx` и `test/unit/session-log-resume.test.tsx` зелёные).
+  - evidence: test-run pass · `pnpm test test/unit/session-queued-message.test.tsx test/unit/session-log-resume.test.tsx` exit 0 · mac - · 22ab3c93d0da5ec299252dc5529d82fe1a979c61
 
 ## Где в коде
 
@@ -89,3 +97,35 @@ Source: баг-репорт владельца 2026-11-17 (скриншот Sess
 - `src/main/agent/session.ts`
 - `test/unit/session-queued-message.test.tsx`
 - `test/unit/session-log-resume.test.tsx`
+
+## Итог
+
+- **Причина найдена.** Сообщение не терялось, а стояло не там: выше хода, который был до паузы, вне экрана. Между ходами
+  Autopilot отдал Orchestrator обратно (`Orchestrators.relaunch`, attended): старая Session закрылась (в transcript-е —
+  запись `cost-state` после хода 14:37), новая запустилась с `resume` и до первого `system/init` своего процесса жила под
+  временным id `pending-…` (`src/main/agent/session.ts`, конструктор). Событие `prompt` ушло под этим id, затем `renamed`
+  вернул Session к id SDK-сессии — а под ним store renderer-а уже держал ходы старой Session. Ветка `renamed` в
+  `acceptAgentEvent` (`src/renderer/session/store.ts`) склеивала `[...события временного id, ...события нового id]`, то
+  есть считала log нового id более новым. Строка вопроса встала перед первым ходом Session; после «Turn finished» шли
+  сразу Thinking и ответ.
+- Порядок событий, записанный на настоящей Session с fake agent (`test/unit/session-resume-event-order.test.ts`):
+  `<sdk>:prompt, <sdk>:init, <sdk>:result` (ход до перезапуска), затем `pending-…:prompt` (агент получает сообщение),
+  `<sdk>:renamed, <sdk>:init, <sdk>:result`. На этом порядке store до исправления ставил строку вопроса первой, над ходом
+  до перезапуска: все test-ы `test/unit/session-prompt-after-restart.test.tsx` на коде до исправления красные.
+- **Исправление** (`store.ts`): у каждого log-а store есть `opened` — порядковый номер, когда store его завёл. `renamed`
+  ставит первым log, заведённый раньше: обычно временного id, а у Session, запущенной заново с `resume`, — log нового id.
+  Тем же правилом `echo`, очередь, settings, context, narration, MCP и `quietSince` берутся из более нового log-а (раньше
+  — всегда из log-а нового id: после возврата Orchestrator-а header мог показать `bypassPermissions` запуска Autopilot-а).
+  Страховки из transcript-а нет (решение 4).
+- Test-ы путей (решение 2), `test/unit/session-prompt-after-restart.test.tsx`: сообщение после перезапуска процесса
+  агента, сообщение из очереди новой Session, тот же текст во втором ходе, перечитывание transcript-а (файл с новым ходом
+  и без него). Порядок событий main для перезапуска и очереди — `test/unit/session-resume-event-order.test.ts`.
+- Test-ы гонок (решение 5), там же: `prompt` раньше подписки Session view (view
+  открылся после; view ещё показывал временный id), echo SDK после `renamed` при незакрытом echo прошлого хода,
+  `renamed` раньше `prompt`, settings новой Session. Мутанты исправления (log нового id всегда новее; echo и settings из
+  log-а нового id; без счётчика `opened`) — каждый test краснеет хотя бы на одном.
+- Echo SDK раньше строки `prompt` из main не приходит: `deliver()` шлёт `prompt` до того, как отдаёт сообщение агенту, а
+  `renamed` — первое событие под новым id (это проверяет `test/unit/session-resume-event-order.test.ts`).
+- `src/main/agent/session.ts` не менялся: временный id при `resume` нужен (Claude Code может назвать сессию иначе), ошибка
+  была в предположении store-а.
+- Страница `docs/features/sessions.md` («An id arrives late») дополнена этим правилом.

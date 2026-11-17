@@ -2,7 +2,12 @@
 // `agent.event` (src/shared/ipc/agent.ts) serves every Session view. The store keeps worfy's own
 // events (src/shared/agent/events.ts) as they came, with these adjustments:
 //
-// - a `renamed` event moves what was kept under the Session's temporary id to its new id;
+// - a `renamed` event moves what was kept under the Session's temporary id to its new id. The new id
+//   may already have a log: a Session started again with `resume` (the Orchestrator given back by
+//   Autopilot, a resumed Session Node) is `pending-…` until its first system/init, then goes back
+//   to the id of its SDK session, whose earlier turns the store kept. The log the store opened first
+//   holds the older events and goes first, so a message sent under the temporary id stands after
+//   those turns, not above them (worfy-polish ticket 123);
 // - consecutive `delta` events of one block are joined into one, so a long answer is not
 //   thousands of events;
 // - the user's own message is not an event of Claude Code: main reports it with a `prompt` event
@@ -75,6 +80,11 @@ export interface SessionLog {
   mcp?: SessionMcp
   /** Since when the running turn has been quiet, by the last `quiet` event or `agent.controls`; null: it is not. Absent: nothing came yet. */
   quietSince?: number | null
+  /**
+   * When the store opened this log, counted over every log it opened: which of two logs `renamed` joins is
+   * older. Absent: 0, the oldest — so is a log `renamed` joined, which holds the older of the two.
+   */
+  opened?: number
 }
 
 /** The MCP servers of a Session as the store keeps them (SessionLog.mcp). */
@@ -114,8 +124,11 @@ function append(log: SessionLog, event: AgentEvent): Pick<SessionLog, 'events' |
   return capped([...events, event], first)
 }
 
+/** How many Session logs the store has opened (SessionLog.opened). */
+let openedLogs = 0
+
 function update(sessionId: string, change: (log: SessionLog) => SessionLog): void {
-  useSessionLogs.setState(({ logs }) => ({ logs: { ...logs, [sessionId]: change(logs[sessionId] ?? EMPTY_LOG) } }))
+  useSessionLogs.setState(({ logs }) => ({ logs: { ...logs, [sessionId]: change(logs[sessionId] ?? { ...EMPTY_LOG, opened: (openedLogs += 1) }) } }))
 }
 
 /** Takes one event of one Session, as `agent.event` delivers it. */
@@ -131,23 +144,28 @@ export function acceptAgentEvent({ sessionId, event: received }: AgentEventEnvel
       const after = logs[sessionId]
       const rest = { ...logs }
       delete rest[event.from]
-      const merged = after ? capped([...before.events, ...after.events], before.first) : before
-      // An `init` under the new id came after any pick made under the old one.
-      const modelPick = after !== undefined && (after.modelPick !== null || after.events.some((each) => each.type === 'init')) ? after.modelPick : before.modelPick
+      // The log opened first holds the older events: the temporary id's as a rule, the new id's when an
+      // earlier Session ran under it (a Session started again with `resume`, worfy-polish ticket 123).
+      const afterIsOlder = after !== undefined && (after.opened ?? 0) < (before.opened ?? 0)
+      const older = afterIsOlder ? after : before
+      const newer = after === undefined ? before : afterIsOlder ? before : after
+      const merged = after ? capped([...older.events, ...newer.events], before.first) : before
+      // An `init` in the newer log came after any pick made in the older one.
+      const modelPick = newer !== older && (newer.modelPick !== null || newer.events.some((each) => each.type === 'init')) ? newer.modelPick : older.modelPick
       return {
         logs: {
           ...rest,
           [sessionId]: {
             events: merged.events,
             first: merged.first,
-            echo: after?.echo ?? before.echo,
-            queue: after?.queue ?? before.queue,
-            settings: after?.settings ?? before.settings,
+            echo: newer.echo ?? older.echo,
+            queue: newer.queue ?? older.queue,
+            settings: newer.settings ?? older.settings,
             modelPick,
-            context: after?.context ?? before.context,
-            narration: after?.narration ?? before.narration ?? NO_NARRATION,
-            ...((after?.mcp ?? before.mcp) === undefined ? {} : { mcp: after?.mcp ?? before.mcp }),
-            ...(after?.quietSince !== undefined ? { quietSince: after.quietSince } : before.quietSince !== undefined ? { quietSince: before.quietSince } : {}),
+            context: newer.context ?? older.context,
+            narration: newer.narration ?? older.narration ?? NO_NARRATION,
+            ...((newer.mcp ?? older.mcp) === undefined ? {} : { mcp: newer.mcp ?? older.mcp }),
+            ...(newer.quietSince !== undefined ? { quietSince: newer.quietSince } : older.quietSince !== undefined ? { quietSince: older.quietSince } : {}),
           },
         },
       }
