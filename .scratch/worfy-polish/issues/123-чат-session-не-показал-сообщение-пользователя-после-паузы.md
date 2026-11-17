@@ -1,7 +1,7 @@
 # 123 — Session view не показал сообщение пользователя, отправленное после двух часов простоя
 
 Type: bug
-Status: claimed 2026-11-17T20:31Z
+Status: done 2026-11-17T23:24Z
 PR: #1968
 Blocked by: none
 Source: баг-репорт владельца 2026-11-17 (скриншот Session view Orchestrator-а: после «Turn finished · 5 m 17 s»
@@ -74,22 +74,34 @@ Source: баг-репорт владельца 2026-11-17 (скриншот Sess
 
 - [ ] Причина найдена и записана в «Итог» (какое событие и где терялось).
   - evidence: commit pass · worfy-polish/123: keep a message sent after a resume below the turns before it · - - · 22ab3c93d0da5ec299252dc5529d82fe1a979c61
+  - evidence: review pass · PR #1968 · - - · 4afe532cd5f5f2081b25a7a1c45220bb548c944b
 - [ ] Сообщение, отправленное после простоя Session-а, видно в её Session view ровно один раз, и до ответа агента, и после
       перечитывания transcript-а.
   - evidence: test-run pass · `pnpm test test/unit/session-prompt-after-restart.test.tsx test/unit/session-resume-event-order.test.ts` exit 0 · mac - · 22ab3c93d0da5ec299252dc5529d82fe1a979c61
+  - evidence: review pass · PR #1968 · - - · 4afe532cd5f5f2081b25a7a1c45220bb548c944b
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44192423985/job/134443201097 · ci - · 4afe532cd5f5f2081b25a7a1c45220bb548c944b
 - [ ] Unit test на этот сценарий: красный на коде до исправления, зелёный после.
   - evidence: test-run pass · `pnpm test test/unit/session-prompt-after-restart.test.tsx test/unit/session-resume-event-order.test.ts` exit 0 · mac - · 22ab3c93d0da5ec299252dc5529d82fe1a979c61
+  - evidence: review pass · PR #1968 · - - · 4afe532cd5f5f2081b25a7a1c45220bb548c944b
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44192423985/job/134443201097 · ci - · 4afe532cd5f5f2081b25a7a1c45220bb548c944b
 - [ ] Ровно один раз видно и сообщение из очереди, и сообщение после перезапуска процесса агента, и то же сообщение
       после перечитывания transcript-а: по test-у на каждый путь.
   - evidence: test-run pass · `pnpm test test/unit/session-prompt-after-restart.test.tsx test/unit/session-resume-event-order.test.ts` exit 0 · mac - · 22ab3c93d0da5ec299252dc5529d82fe1a979c61
+  - evidence: review pass · PR #1968 · - - · 4afe532cd5f5f2081b25a7a1c45220bb548c944b
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44192423985/job/134443201097 · ci - · 4afe532cd5f5f2081b25a7a1c45220bb548c944b
 - [ ] Test-ы гонок: `prompt` раньше подписки Session view, echo SDK раньше своей строки, `renamed` раньше `prompt`;
       каждый краснеет на мутанте исправления.
   - evidence: test-run pass · `pnpm test test/unit/session-prompt-after-restart.test.tsx test/unit/session-resume-event-order.test.ts` exit 0 · mac - · 22ab3c93d0da5ec299252dc5529d82fe1a979c61
+  - evidence: review pass · PR #1968 · - - · 4afe532cd5f5f2081b25a7a1c45220bb548c944b
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44192423985/job/134443201097 · ci - · 4afe532cd5f5f2081b25a7a1c45220bb548c944b
 - [ ] Страховки из transcript-а нет (решение 4).
   - evidence: commit pass · worfy-polish/123: keep a message sent after a resume below the turns before it · - - · 22ab3c93d0da5ec299252dc5529d82fe1a979c61
+  - evidence: review pass · PR #1968 · - - · 4afe532cd5f5f2081b25a7a1c45220bb548c944b
 - [ ] Повтор prompt-а с тем же текстом во втором ходе не задваивается и не пропадает (существующие test-ы
       `test/unit/session-queued-message.test.tsx` и `test/unit/session-log-resume.test.tsx` зелёные).
   - evidence: test-run pass · `pnpm test test/unit/session-queued-message.test.tsx test/unit/session-log-resume.test.tsx` exit 0 · mac - · 22ab3c93d0da5ec299252dc5529d82fe1a979c61
+  - evidence: review pass · PR #1968 · - - · 4afe532cd5f5f2081b25a7a1c45220bb548c944b
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44192423985/job/134443201097 · ci - · 4afe532cd5f5f2081b25a7a1c45220bb548c944b
 
 ## Где в коде
 
