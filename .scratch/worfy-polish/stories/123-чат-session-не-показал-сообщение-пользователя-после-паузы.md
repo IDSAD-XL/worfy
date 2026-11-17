@@ -96,7 +96,12 @@ Code: `src/renderer/session/store.ts:147-168` · key lines: 149, 150, 151, 152, 
   на `store.ts` до исправления 9 test-ов из 11 красные (два оставшихся — запись порядка событий main).
 - Мутанты исправления (log нового id всегда новее; echo и settings из log-а нового id; без счётчика `opened`) — на каждом
   краснеет хотя бы один test.
-- `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast — exit 0.
+- `pnpm lint`, `pnpm typecheck` — exit 0. Все unit и contract test-ы, которые импортируют `src/renderer/session/` или
+  `src/main/agent/session` (155 файлов), — зелёные, кроме одного timeout-а под нагрузкой в
+  `test/contract/getting-started-state.test.ts`, который отдельно — exit 0.
+- Полный `pnpm test` и gate fast на Mac красные только на test-ах слежения за файлами (`docs.test.ts`,
+  `workflow-reader.test.ts`, `product-watch.test.ts` и др., 19 штук): `fseventsd` держит 3,5 GB, уведомления приходят
+  с задержкой до 600 ms. Эти test-ы изменения не касаются; вердикт — CI.
 
 ## Проверить себя
 
