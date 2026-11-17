@@ -59,13 +59,17 @@ Source: баг-репорт владельца 2026-11-17 (Pull requests, кно
 - [ ] Contract test реестра main (сначала красный): два ключа собираются параллельно; второй `make` того же ключа не
       начинает второго агента; результат сохранён под своим ключом при другой открытой сборке; Stop останавливает только
       свою сборку.
+  - evidence: test-run pass · `pnpm test test/contract/story-by-button.test.ts test/contract/stories-handler.test.ts` exit 0 · mac - · a64866be4d71a7d5c6b5b4689c6f36f5a673dcf1
 - [ ] Unit test-ы кнопки (сначала красные): размонтирование не зовёт `stories.stop`; монтирование при идущей сборке
       своего ключа показывает бар; идущая сборка другого ключа не показывается.
+  - evidence: test-run pass · `pnpm test test/unit/story-build-button.test.tsx` exit 0 · mac - · a64866be4d71a7d5c6b5b4689c6f36f5a673dcf1
 - [ ] e2e в `test/e2e/code-story.spec.ts` (fake agent; локальный e2e запрещён, CI его прогоняет): сборка на PR A,
       переход на B (B без бара), обратно на A (бар на месте), конец → story открыта и сохранена у A; reload — если
       выполнимо.
 - [ ] Все unit- и contract-test-ы модуля stories, `pnpm lint`, `pnpm typecheck`, gate fast — exit 0; `ci-ok` на PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · a64866be4d71a7d5c6b5b4689c6f36f5a673dcf1
 - [ ] `docs/features/code-stories.md` описывает новое поведение.
+  - evidence: commit pass · Keep a Code story build by the button running when its PR or view is left (worfy-polish 122) · - - · a64866be4d71a7d5c6b5b4689c6f36f5a673dcf1
 
 ## Где в коде
 
@@ -86,3 +90,29 @@ Source: баг-репорт владельца 2026-11-17 (Pull requests, кно
 - `stories.build` (сборка по готовому материалу, `start`) — её держит только renderer, ключа и реестра у неё нет:
   правило #1890 для неё остаётся.
 - Вид бара и кнопки — по F-SPEC и kit, не меняется.
+
+## Итог
+
+- **Решение владельца (2026-11-17), записано здесь и в комментарии `src/renderer/stories/story-build.ts:6`:** сборка,
+  начатая кнопкой «Code story», идёт до конца, какой бы view ни был открыт; останавливает её только явный Stop (и выход
+  из приложения). Для этих сборок оно отменяет правило аудита PR #1890 («сборку, которую никто не ждёт, останавливают»).
+- **main** (`src/main/stories/by-button.ts`): реестр `byKey` идущих сборок по Project и ключу story. `stories.running`
+  (канал чтения, `project`/`read`) называет сборку target-а; `stories.make` того же ключа присоединяется к идущей
+  сборке — её строки, её ответ, Stop под его storyId останавливает её, второго запроса нет. Конец своей сборки main
+  шлёт окну событием `stories.made` (`project`/`read`), когда записи в реестре уже нет. Story сохраняется под ключом
+  самой сборки — от открытого view не зависит.
+- **renderer**: размонтирование кнопки больше не зовёт `stories.stop` для сборки кнопкой; на монтировании (и для кнопки
+  на Canvas — когда Canvas снова показан) кнопка спрашивает `stories.running` и показывает бар той сборки. Reload окна
+  идёт тем же путём: main шлёт события тому же `webContents`.
+- **Toast**: «The Code story of PR owner/name#N is ready» / «of Epic <name>» с «Open», когда сборка кончилась, а её
+  кнопка не на экране. Toast Ticket-а 10 (`story-toast.ts`) — для `story.md` Epic-а из модели workflow, раз на Epic в
+  localStorage, — не подошёл: это свой `action` toast через общий `showToast`.
+- Решено без владельца, подтвердить:
+  1. **Esc в баре на Canvas** раньше останавливал сборку (так было и в `docs/features/code-stories.md`). Теперь Esc, как
+     и смена view, только закрывает бар; бар возвращается с Canvas или по нажатию кнопки. Причина: «только явный Stop».
+  2. **`stories.build` (`start`)** — сборка по готовому материалу без ключа в main; правило #1890 для неё остаётся. В
+     приложении её зовут только test-ы.
+  3. **Code story этого PR** (`.scratch/worfy-polish/stories/122-…md`): `story-check` отвергает заголовок
+     `Ticket: 122` — формат (`harness/bin/TICKETS.md`, `src/shared/stories/schema.ts`) знает только двузначные номера
+     Ticket-ов. Всё остальное в story зелёное (4 фрагмента сходятся с кодом). Чинить формат — вне этого Ticket-а.
+  4. Перевод `docs/features/ru/code-stories.md` тоже поправлен: он прямо говорил, что Esc и уход останавливают сборку.
