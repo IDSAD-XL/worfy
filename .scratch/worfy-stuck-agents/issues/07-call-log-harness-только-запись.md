@@ -1,7 +1,8 @@
 # 07 — Call log Harness, только запись: повторы упавших вызовов считаются, агент ничего не видит
 
 Type: task
-Status: claimed 2026-11-17T03:56Z
+Status: done 2026-11-17T07:18Z
+PR: #1947
 Blocked by: none
 Source: [spec.md](../spec.md), «Ticket-ы», 7; «Решение», 3; «Путь пользователя», C; «Решения по реализации» → «Call log
 Harness — только запись»; «Вне Epic-а» → «Отложено»; «Решено без владельца», 4, 5 и 6;
@@ -91,6 +92,7 @@ Harness — только запись»; «Вне Epic-а» → «Отложен
 - [ ] Все `harness/bin/tests/*.test.sh` и `harness/hooks/tests/*.test.sh` зелёные, в том числе `plugin-neutral.test.sh`;
       `node scripts/check-personal.mjs` — exit 0; `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на
       head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44034549684/job/133877292113 · ci - · bd79dad0d98246ec957db72ae84ba7e5325f0c10
 
 ## Тесты
 

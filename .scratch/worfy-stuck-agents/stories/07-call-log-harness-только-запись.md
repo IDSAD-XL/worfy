@@ -215,3 +215,17 @@ Vendor.
 3. Сколько правок `Write` с содержимым B, A, B, A нужно, чтобы появилась строка `edit-back-and-forth`, и почему?
    - Ответ: четыре: третья и четвёртая правки — два возврата к содержимому двух правок назад, а два возврата считаются третьим повтором, на котором пишется `would-hint`.
    - Строки: `harness/hooks/loop-patterns.mjs:64-69`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED; debt: after the first stdin byte, harness/hooks/calls.mjs is bounded only by the 5 s hooks.json timeout (the old timer capped the whole run at 2 s); Claude Code writes the whole payload and closes the pipe, and every other readStdin hook has the same property.
+> Consider: a real shell-command loop on Codex is no longer counted (only apply_patch has an exit code) — recorded in the ticket's «Итог». calls.mjs keeps its own INPUT_MS instead of a FIRST_BYTE_MS entry (test/contract/harness-hook-stdin.test.ts:385 pins that map).
+> Noted: calls.mjs:182-190 — concurrent hooks of one owner lose records (no lock). calls.mjs:176-179 — a session_id `loops` writes into calls/loops.jsonl. calls.mjs:76-78 — contentHash reads the edited file synchronously (a FIFO hangs it until the 5 s timeout). Low mutants of round 1 still survive (command not in the Bash key, no event filter, no trim, dedupe without agent_id, cwd resolve, apply_patch Delete/Move, notebook_path, MCP object outcome, isCiWait negatives, multi-file apply_patch, loop-log without `t`). The hook's time on Windows is not measured; calls.test.sh section 7 limits (1.5 s, 4.5 s) are checked on the Windows runner by ci-ok only.
+> Review depth: high — ticket header (round 2: the verifier alone on the rework diff, decided without the owner)
+> Review tokens: 68868
+
+Code: `test/contract/harness-hook-stdin.test.ts:385-385` · key lines: 385
+
+```ts
+    expect(Object.keys(FIRST_BYTE_MS).sort()).toEqual(['gh-token-env.mjs', 'session-start.mjs', 'stage-lines.mjs', 'stop.mjs'])
+```
