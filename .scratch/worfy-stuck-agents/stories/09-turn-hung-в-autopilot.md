@@ -155,3 +155,26 @@ Code: `test/contract/autopilot-faults-setup.ts:441-450` · key lines: 441, 449
    - Строки: `src/shared/autopilot/cycle.ts:446-446`
    - Ответ: после конца хода цикл в фазе `tasks`, а `turn-quiet` действует только в `turn`; к тому же Session без хода
      не `busy`, и её `quietSince` null. Там остаётся `background-stalled`.
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED
+> Consider: [low] src/shared/autopilot/cycle.ts:444-446 — a turn-quiet during a graceful Stop ends the run as turn-hung, while main-red (cycle.ts:450) ends as user-stop then; undocumented, no test. Follow-up: one sentence in docs/features/autopilot-faults.md and a cycle unit test, or map to user-stop when stopping.
+> Noted: [low] acceptance item 5 — evidence covers the running hook only; the open permission request half rests on quietFor (src/shared/agent/quiet.ts:41) tested in ticket 03, and the story says so.
+> Review depth: low — default: the profile has no review.depth.wave
+> Review tokens: 72896
+> Could not verify:
+
+Code: `src/shared/autopilot/cycle.ts:444-446` · key lines: 444
+
+```ts
+    case 'turn-quiet':
+      // Only the Orchestrator's own turn: the silence of its background tasks is `background-stalled` (phase `tasks`).
+      return state.phase === 'turn' ? stop(state, 'turn-hung') : stay(state)
+```
+
+Code: `src/shared/agent/quiet.ts:41-41` · key lines: 41
+
+```ts
+ */
+```
