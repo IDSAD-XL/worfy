@@ -81,6 +81,9 @@
 //     so a test can tell that worfy never shows what gh printed.
 //   - offline: when it exists, every `api` call fails as gh does without a network ("error connecting to
 //     api.github.com", exit 1); the local commands (`auth status`, `auth token`) still answer.
+//   - hang-leak: when it exists, every `api` call prints to stderr one line with GH_TOKEN and the proxy URL that
+//     hang-leak names (its text, a password in it) and never exits, so the caller's time limit ends it with what
+//     that first line said (ghRunner rejects with it): a test can tell that worfy redacts it.
 //
 // Never a write: a `--method`/`-X` other than GET (`--method=PATCH` and `-XPATCH` too), a GraphQL `mutation`, or, on
 // a REST call, a field or an input (`-f`, `-F`, `--field`, `--raw-field`, `--input`, which make gh send a POST)
@@ -168,6 +171,10 @@ if (args.length === 1 && args[0] === '--version') {
   const token = elsewhere ? undefined : read('tokens.json', {})[login]
   if (token === undefined) fail(`no oauth token found for ${host} account ${login}`)
   process.stdout.write(`${token}\n`)
+} else if (args[0] === 'api' && dir && existsSync(join(dir, 'hang-leak'))) {
+  const proxy = readFileSync(join(dir, 'hang-leak'), 'utf8').trim()
+  process.stderr.write(`Get "https://api.github.com/${args.at(-1) ?? ''}": proxyconnect tcp: dial ${proxy} (Authorization: token ${process.env.GH_TOKEN ?? ''})\n`)
+  setInterval(() => undefined, 60_000)
 } else if (args[0] === 'api' && dir && existsSync(join(dir, 'offline'))) {
   fail('error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com')
 } else if (replyPost() !== null) {

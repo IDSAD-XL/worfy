@@ -13,7 +13,7 @@ import { githubAccessRow, githubAccessRows, githubAccessUnknown, runChecks, runT
 import { HealthReports } from '../../src/main/first-run/health-reports'
 import { ghRunner } from '../../src/main/github/prs'
 import type { ProfileRun } from '../../src/main/workflow/profile'
-import { checkState, type Check, type FirstRunReport } from '../../src/shared/ipc/first-run'
+import { checkState, firstRunReportSchema, type Check, type FirstRunReport } from '../../src/shared/ipc/first-run'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 import { ghWorld, STUB_COMMAND, type StubAccount, type StubRepos } from './gh-world'
@@ -27,7 +27,9 @@ const ALICE: StubAccount = { login: 'alice', active: true, token: shaped('o', 'a
 const BOB: StubAccount = { login: 'bob', token: shaped('o', 'bobLEAK') }
 /** A token of the environment that GitHub never issued: 401. */
 const BAD = shaped('p', 'badLEAK')
-const SECRETS = [ALICE.token, BOB.token, BAD]
+/** The password of a proxy URL in gh's line of a call that never ended: not token-shaped, only redactSecrets hides it. */
+const PROXY_PASSWORD = 'proxyLEAK0000'
+const SECRETS = [ALICE.token, BOB.token, BAD, PROXY_PASSWORD]
 
 let root: string
 let project: GithubProject
@@ -54,19 +56,28 @@ interface Setup {
   /** GH_TOKEN of gh's environment. */
   token?: string
   offline?: boolean
+  /** Every `api` call prints GH_TOKEN and a proxy URL with a password to stderr and never ends: gh's time limit ends it. */
+  hang?: boolean
+  /** The origin of each folder of the Project, by its name; acme/app for any other. */
+  origins?: Readonly<Record<string, string>>
 }
 
 /** The deps of the row on a stand-in world: gh, its environment, the account of the Profile and git with an origin on github.com. */
 function world(setup: Setup): { deps: GithubAccessDeps; dir: string; profile: { account: string | null } } {
   const stub = ghWorld(join(root, `world-${Math.random().toString(36).slice(2)}`), { accounts: setup.accounts, repos: setup.repos ?? {} })
   if (setup.offline === true) writeFileSync(join(stub.dir, 'offline'), '')
+  if (setup.hang === true) writeFileSync(join(stub.dir, 'hang-leak'), `http://worfy:${PROXY_PASSWORD}@proxy.invalid:3128`)
   const env = { ...process.env, GH_TOKEN: setup.token, GITHUB_TOKEN: undefined, GH_ENTERPRISE_TOKEN: undefined, GITHUB_ENTERPRISE_TOKEN: undefined, ...stub.env }
   const profile = { account: setup.account ?? null }
   const deps: GithubAccessDeps = {
-    gh: ghRunner({ command: STUB_COMMAND, env: () => Promise.resolve(env), timeoutMs: 15_000 }),
+    gh: ghRunner({ command: STUB_COMMAND, env: () => Promise.resolve(env), timeoutMs: setup.hang === true ? 1_500 : 15_000 }),
     ghEnv: () => Promise.resolve(env),
     account: () => Promise.resolve({ account: profile.account, reason: profile.account === null ? (setup.reason ?? 'the Profile has no github.account field (profile exit code 4)') : null }),
-    git: (args) => Promise.resolve(args.includes('get-url') ? 'https://github.com/acme/app.git' : ''),
+    git: (args) => {
+      if (!args.includes('get-url')) return Promise.resolve('')
+      const folder = Object.keys(setup.origins ?? {}).find((name) => args.some((arg) => arg.endsWith(`/${name}`)))
+      return Promise.resolve(`https://github.com/${folder === undefined ? 'acme/app' : setup.origins?.[folder]}.git`)
+    },
     platform: 'darwin',
   }
   return { deps, dir: stub.dir, profile }
@@ -93,6 +104,24 @@ describe('GitHub access of a Project', () => {
     expect(checkState(checked)).toBe('needs-user')
   })
 
+  it('the one login with push is an Enterprise Managed User (name_shortcode): no "Use <login>", and the report stays valid', async () => {
+    const managed: StubAccount = { login: 'octocat_acme', active: true, token: shaped('o', 'emuLEAK') }
+    const checked = await rowOf({ accounts: [managed], repos: { 'acme/app': { octocat_acme: true } } })
+    expect(checked).toMatchObject({ status: 'warn', severity: 'non-critical', actions: [] })
+    expect(firstRunReportSchema.safeParse({ checkedAt: new Date(0).toISOString(), checks: [checked] }).success).toBe(true)
+  })
+
+  it('a Project of two repositories: "Use <login>" only for a login that may push to both', async () => {
+    const second = join(root, 'web')
+    mkdirSync(second)
+    project = { ...project, folders: [project.root, second], repos: ['acme/app', 'acme/web'] }
+    const origins = { web: 'acme/web' }
+    const pushToFirst = await rowOf({ accounts: [ALICE], repos: { 'acme/app': { alice: true }, 'acme/web': { alice: false } }, origins })
+    expect(pushToFirst).toMatchObject({ status: 'warn', actions: [] })
+    const pushToBoth = await rowOf({ accounts: [ALICE], repos: { 'acme/app': { alice: true }, 'acme/web': { alice: true } }, origins })
+    expect(pushToBoth.actions).toEqual([{ id: 'use-login', label: 'Use alice', safe: true, login: 'alice' }])
+  })
+
   it('an account gh has no login for: critical, Sign in… with gh auth login', async () => {
     const checked = await rowOf({ accounts: [ALICE], repos: { 'acme/app': { alice: true } }, account: 'carol' })
     expect(checked).toMatchObject({ status: 'fail', severity: 'critical', command: 'gh auth login', actions: [{ id: 'gh-login', label: 'Sign in…' }] })
@@ -112,6 +141,15 @@ describe('GitHub access of a Project', () => {
     expect(checked.detail).toBe('GH_TOKEN from the environment does not work (HTTP 401)')
     expect(checked.hint).toContain('GH_TOKEN comes from your environment')
     expect(checked.actions).toEqual([{ id: 'use-login', label: 'Use alice', safe: true, login: 'alice' }])
+  })
+
+  it('the account\'s own token does not work (401) with GH_TOKEN set: the command signs in without the variable, no Sign in…', async () => {
+    const stale: StubAccount = { login: 'alice', active: true, token: shaped('o', 'staleLEAK') }
+    const { deps } = world({ accounts: [stale], account: 'alice', token: BAD })
+    // gh's keyring gives the account a token GitHub no longer takes.
+    const checked = await githubAccessRow(project, { ...deps, gh: (args, cwd, extra, output) => deps.gh(args, cwd, args[0] === 'api' ? { ...extra, GH_TOKEN: BAD } : extra, output) })
+    expect(checked).toMatchObject({ status: 'fail', severity: 'critical', actions: [], command: 'env -u GH_TOKEN -u GITHUB_TOKEN gh auth login' })
+    expect(checked?.detail).toBe("the token of alice from gh's keyring does not work (HTTP 401)")
   })
 
   it('404: critical, no access to the repository as the account', async () => {
@@ -262,6 +300,13 @@ describe('"Use <login>"', () => {
     const conflict = actionsFor(deps, profile, [], changed)
     expect(await conflict.run('use-login', { projectId: project.id, login: 'alice' })).toMatchObject({ outcome: 'failed', message: 'the Profile changed while it was written: check again' })
   })
+
+  it('a --set that fails for another reason is a failure with its exit code, never "is now"', async () => {
+    const { deps, profile } = world({ accounts: [ALICE], repos: { 'acme/app': { alice: true } } })
+    const broken = (args: readonly string[]): Promise<ProfileRun> =>
+      Promise.resolve(args.includes('--read') ? { code: 0, stdout: '{"fingerprint":"f-1"}', stderr: '' } : { code: 1, stdout: '', stderr: 'profile-set: cannot commit' })
+    expect(await actionsFor(deps, profile, [], broken).run('use-login', { projectId: project.id, login: 'alice' })).toMatchObject({ outcome: 'failed', message: 'bin/profile-set --set failed (exit 1): profile-set: cannot commit' })
+  })
 })
 
 /** The stand-in's script itself: the checks run a `.mjs` under worfy's own Node, with no node on the PATH needed. */
@@ -328,6 +373,9 @@ describe('no token reaches a row, a log line or an error', () => {
       { accounts: [ALICE], repos: { 'acme/app': { alice: 503 } }, account: 'alice' },
       { accounts: [ALICE], account: 'carol', token: BAD },
       { accounts: [ALICE], account: 'alice', offline: true },
+      // gh that never ends: its time limit rejects with the first line of its stderr (ghRunner), GH_TOKEN and a proxy password in it.
+      { accounts: [ALICE], account: 'alice', hang: true },
+      { accounts: [ALICE], repos: { 'acme/app': { alice: true } }, hang: true },
     ]
     const seen: unknown[] = []
     for (const setup of cases) {
@@ -351,6 +399,17 @@ describe('no token reaches a row, a log line or an error', () => {
     const body = await deps.gh(['api', '-i', 'repos/acme/app'], project.root, {}, 'all').catch((error: unknown) => (error as { output?: string }).output ?? '')
     expect(body).toContain(ALICE.token)
     expect(body).toContain(BAD)
-    for (const secret of SECRETS) expect(everything).not.toContain(secret)
+    const hung = world({ accounts: [ALICE], account: 'alice', hang: true }).deps
+    const refusal = await hung.gh(['api', '-i', 'repos/acme/app'], project.root, { GH_TOKEN: ALICE.token }, 'all').then(
+      () => '',
+      (error: unknown) => String(error),
+    )
+    expect(refusal).toContain(ALICE.token)
+    expect(refusal).toContain(PROXY_PASSWORD)
+    // The row of that refusal itself, before a feature's failure replaces it in the report.
+    const hungRow = await githubAccessRow(project, hung)
+    expect(hungRow).toMatchObject({ status: 'unknown', severity: 'non-critical' })
+    expect(hungRow?.detail).toContain('proxyconnect tcp')
+    for (const secret of SECRETS) expect(JSON.stringify([everything, hungRow])).not.toContain(secret)
   })
 })

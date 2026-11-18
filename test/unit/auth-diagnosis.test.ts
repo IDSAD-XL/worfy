@@ -90,6 +90,17 @@ describe('what GitHub answered to gh api -i repos/<owner>/<repo>', () => {
     expect(repoAccess({ output: `HTTP/2.0 ${status} Server Error\r\n\r\n{"message":"Server Error"}\ngh: Server Error (HTTP ${status})` })).toEqual({ kind: 'unknown', reason: `GitHub answered HTTP ${status}` })
   })
 
+  it('a 403 of the rate limit, as the PR inbox reads it: unknown, never a failure', () => {
+    const limited = { kind: 'unknown', reason: "GitHub's rate limit (HTTP 403)" }
+    expect(repoAccess({ output: 'HTTP/2.0 403 Forbidden\r\nRetry-After: 60\r\n\r\n{"message":"Forbidden"}' })).toEqual(limited)
+    expect(repoAccess({ output: 'HTTP/2.0 403 Forbidden\r\nX-Ratelimit-Limit: 5000\r\nX-Ratelimit-Remaining: 0\r\nX-Ratelimit-Reset: 1700000000\r\n\r\n{}' })).toEqual(limited)
+    expect(repoAccess({ output: 'HTTP/2.0 403 Forbidden\r\n\r\n{"message":"You have exceeded a secondary rate limit."}\ngh: You have exceeded a secondary rate limit. (HTTP 403)' })).toEqual(limited)
+    // Plenty of the limit left and no word of it: a refusal of this repository.
+    expect(repoAccess({ output: 'HTTP/2.0 403 Forbidden\r\nX-Ratelimit-Limit: 5000\r\nX-Ratelimit-Remaining: 4999\r\n\r\n{"message":"Forbidden"}' })).toEqual({ kind: 'refused', status: 403 })
+    // A body after the blank line is not read as a header.
+    expect(repoAccess({ output: 'HTTP/2.0 403 Forbidden\r\n\r\nRetry-After: 60' })).toEqual({ kind: 'refused', status: 403 })
+  })
+
   it('another 4xx: refused with its status (a 403 of SSO is ticket 06)', () => {
     expect(repoAccess({ output: 'HTTP/2.0 403 Forbidden\r\n\r\n{}' })).toEqual({ kind: 'refused', status: 403 })
   })

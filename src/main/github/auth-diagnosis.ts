@@ -16,7 +16,8 @@
 // What GitHub answered, from `gh api -i repos/<owner>/<repo>` (status line, headers, blank line, body):
 // 2xx — access; 401 — the token does not work; 404 — no access (GitHub answers 404, not 403, for a
 // private repository the token cannot see); no status line with gh's "gh auth login" text (exit 4) —
-// gh has no token at all; no network, a timeout, 5xx, 429 — unknown, never a failure. The body is
+// gh has no token at all; no network, a timeout, 5xx, 429 and a 403 of the rate limit — unknown, never a
+// failure (the PR inbox reads a 403 the same way, src/main/github/inbox-notifications.ts). The body is
 // never quoted: a reason names the status and nothing gh printed beyond its last line when no
 // status came.
 import { environmentTokens, type EnvironmentToken } from './auth-text'
@@ -84,12 +85,39 @@ export type RepoAccess =
   | { kind: 'no-access' }
   /** gh has no token at all (exit 4, "gh auth login"). */
   | { kind: 'no-token' }
-  /** Another 4xx; a 403 of SSO is read by ticket 06. */
+  /** Another 4xx, a 403 that is not the rate limit's; a 403 of SSO is read by ticket 06. */
   | { kind: 'refused'; status: number }
-  /** It could not be checked: no network, a timeout, GitHub 5xx or its rate limit. */
+  /** It could not be checked: no network, a timeout, GitHub 5xx or its rate limit (429, or a 403 of it). */
   | { kind: 'unknown'; reason: string }
 
 const STATUS_LINE = /^HTTP\/[\d.]+ (\d{3})\b/mu
+/** gh's words, or GitHub's message, of a refusal by the primary or the secondary rate limit (as the PR inbox reads them). */
+const RATE_LIMITED = /\brate limit\b/iu
+/** Below this share of the rate limit left, a 403 is the rate limit's (NOTIFICATIONS_RATE_FLOOR of the PR inbox). */
+const RATE_FLOOR = 0.1
+
+/** The headers of a `gh api -i` answer, the names in lower case: the lines after the status line up to the blank one. */
+function headersOf(output: string, from: number): Map<string, string> {
+  const headers = new Map<string, string>()
+  for (const line of output.slice(from).split(/\r?\n/u).slice(1)) {
+    if (line.trim() === '') break
+    const colon = line.indexOf(':')
+    if (colon > 0) headers.set(line.slice(0, colon).trim().toLowerCase(), line.slice(colon + 1).trim())
+  }
+  return headers
+}
+
+/**
+ * Whether a 403 is GitHub's rate limit, by the rule of the PR inbox: a `Retry-After`, less than RATE_FLOOR of
+ * `X-Ratelimit-Limit` left, or a message that names a rate limit ("You have exceeded a secondary rate limit").
+ */
+function rateLimited(output: string, headers: ReadonlyMap<string, string>): boolean {
+  if (headers.has('retry-after')) return true
+  const limit = Number(headers.get('x-ratelimit-limit'))
+  const remaining = Number(headers.get('x-ratelimit-remaining'))
+  if (headers.has('x-ratelimit-remaining') && Number.isFinite(limit) && limit > 0 && Number.isFinite(remaining) && remaining < limit * RATE_FLOOR) return true
+  return RATE_LIMITED.test(output)
+}
 /** gh's text when it has no token at all (fixture api-no-auth of ticket 01). */
 const NO_TOKEN = /\bgh auth login\b/u
 /** The longest reason taken from gh's own words. */
@@ -124,6 +152,7 @@ export function repoAccess(answer: { output: string } | { failure: string }): Re
   if (code === 401) return { kind: 'bad-token' }
   if (code === 404) return { kind: 'no-access' }
   if (code >= 500 || code === 429) return { kind: 'unknown', reason: `GitHub answered HTTP ${code}` }
+  if (code === 403 && rateLimited(answer.output, headersOf(answer.output, status.index))) return { kind: 'unknown', reason: "GitHub's rate limit (HTTP 403)" }
   return { kind: 'refused', status: code }
 }
 

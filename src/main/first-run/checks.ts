@@ -81,7 +81,7 @@ import type { GithubAccount } from '../workflow/profile'
 import { redactSecrets } from '../../shared/terminal-ai/redact'
 import type { HarnessStatus } from '../../shared/ipc/harness'
 import { severityOf } from '../../shared/health/severity'
-import type { Check, CheckGroup, CheckId, CheckProject, FirstRunAction, FirstRunReport } from '../../shared/ipc/first-run'
+import { githubLoginSchema, type Check, type CheckGroup, type CheckId, type CheckProject, type FirstRunAction, type FirstRunReport } from '../../shared/ipc/first-run'
 import type { UpdateSnapshot } from '../../shared/ipc/update'
 import { numberedVersion } from '../../shared/version-number'
 import { installCommand, runTool, WINGET_IDS, type Env, type ToolRun } from './tools'
@@ -608,10 +608,11 @@ async function askRepo(gh: GhRunner, slug: string, cwd: string, extra: GhEnv): P
 }
 
 /**
- * The one login gh has on github.com that may push to every repository of the Project, or null with none
- * or several (the account step of Add project, readGithubAccounts). Asked with GH_TOKEN and GITHUB_TOKEN
- * empty — gh reads an empty one as unset — so a variable of the environment does not hide the stored
- * accounts; each account's push is asked with its own token.
+ * The one login gh has on github.com that may push to every repository of the Project (the account step of
+ * Add project, readGithubAccounts), or null with none or several, or when that login is not one
+ * `github.account` takes (githubLoginSchema). Asked with GH_TOKEN and GITHUB_TOKEN empty — gh reads an empty
+ * one as unset — so a variable of the environment does not hide the stored accounts; each account's push is
+ * asked with its own token.
  */
 export async function useLoginCandidate(project: GithubProject, deps: GithubAccessDeps): Promise<string | null> {
   const gh: GhRunner = (args, cwd, extra, output) => deps.gh(args, cwd, { GH_TOKEN: '', GITHUB_TOKEN: '', ...extra }, output)
@@ -621,7 +622,9 @@ export async function useLoginCandidate(project: GithubProject, deps: GithubAcce
   )
   if (step.status !== 'accounts') return null
   const withPush = step.accounts.filter((account) => account.push && account.host === 'github.com')
-  return withPush.length === 1 ? (withPush[0]?.login ?? null) : null
+  const only = withPush.length === 1 ? (withPush[0]?.login ?? null) : null
+  // A login the button cannot send (an Enterprise Managed User's `name_shortcode`): no button, and the report stays valid.
+  return only !== null && githubLoginSchema.safeParse(only).success ? only : null
 }
 
 /** The account the Profile names has no gh login: sign in as it; with a token variable set, gh refuses that until it is gone. */
@@ -669,6 +672,7 @@ async function githubAccess(project: GithubProject, deps: GithubAccessDeps, plat
       return result(row('fail', detail, `${source.variable} comes from your environment and gh uses it over your stored accounts: ${options.join(', ')}`, removeVariableCommand(source.variable, platform), useLogin(found)))
     }
     const who = source.kind === 'account' ? source.login : "gh's active account"
+    if (variable !== null) return result(row('fail', detail, `Sign in again as ${who}: gh auth login refuses while ${variable} is set, so run it without the variable`, signInWithoutVariables(platform)))
     return result(row('fail', detail, `Sign in again with gh auth login as ${who}`, 'gh auth login', [action('gh-login', 'Sign in…')]))
   }
   const denied = answers.filter((each) => each.access.kind === 'no-access' || each.access.kind === 'refused')

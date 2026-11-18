@@ -715,17 +715,18 @@ than five minutes. It reads the Profile's `github.account`, takes that account's
 | The account reaches every repository | ok: the login, the source of its token, the repositories | critical | — |
 | `github.account` is empty, gh works with its own token | warn: `github.account is not set` and the source | non-critical | `Use <login>` when exactly one login gh has on github.com may push to every repository |
 | gh has no login for the account | fail: `no gh login for <login>` | critical | `Sign in…`; with `GH_TOKEN` set, a command that runs `gh auth login` without it, as gh refuses to sign in while the variable is set |
-| The token does not work (HTTP 401) | fail: whose token it is | critical | With `GH_TOKEN` of the environment: the command that removes it, and `Use <login>` when it applies |
-| No access (HTTP 404, another 4xx) | fail: `no access to <repo> as <login>` | critical | `Use <login>` when another login may push |
-| No network, a timeout, GitHub 5xx or its rate limit | unknown: `Couldn't check: <reason>` | non-critical | — |
+| The token does not work (HTTP 401) | fail: whose token it is | critical | With `GH_TOKEN` of the environment: the command that removes it, and `Use <login>` when it applies; the account's own token with `GH_TOKEN` set: a command that runs `gh auth login` without it |
+| No access (HTTP 404, another 4xx but a 403 of the rate limit) | fail: `no access to <repo> as <login>` | critical | `Use <login>` when another login may push |
+| No network, a timeout, GitHub 5xx or its rate limit (429, or a 403 with `Retry-After`, under 10 % of the limit left, or a message that names a rate limit, as the PR inbox reads it) | unknown: `Couldn't check: <reason>` | non-critical | — |
 
-A Profile that cannot be read is said in the row, and gh then goes as without an account. A row of a Project never opens First
+A Profile that cannot be read leaves gh going as without an account; when gh works so, the warn row says the Profile could not be read, and offers no `Use <login>`. A row of a Project never opens First
 run at the start; the Health check icon tells about it.
 
 **Use \<login\>.** A click writes the Project's `github.account` — one field, through the Harness's
 `bin/profile-set --field github.account`, which commits the change in the Harness home — and checks the GitHub access rows again.
 There is no dialog: the button names the login. It writes only while that login is still the one that may push; otherwise it
 writes nothing and says to check again. worfy never switches to an account of the keyring by itself.
+A login `github.account` does not take — an Enterprise Managed User's `name_shortcode` — gets no button: set it by hand.
 
 ### How it works
 
