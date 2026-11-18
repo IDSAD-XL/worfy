@@ -57,8 +57,8 @@ describe('the status line of a Run a restart cut off', () => {
 
 describe('heldTickets: the Tickets of the cut-off Wave whose implementer has an external call without a result', () => {
   const SESSION = 'b2c3d4e5-0000-4000-8000-000000000001'
-  const FILE = `/home/projects/demo/${SESSION}.jsonl`
-  const SUBAGENTS = `/home/projects/demo/${SESSION}/subagents`
+  const FILE = `/data/claude/projects/demo/${SESSION}.jsonl`
+  const SUBAGENTS = `/data/claude/projects/demo/${SESSION}/subagents`
   const cut: CutOffWave = {
     root: '/work/demo',
     run: '2026-11-18T14-00-00-000Z-a1b2c3',
