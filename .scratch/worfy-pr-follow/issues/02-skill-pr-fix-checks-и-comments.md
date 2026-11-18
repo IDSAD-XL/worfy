@@ -1,7 +1,7 @@
 # 02 — Skill `/worfy:pr-fix`: режимы `checks` и `comments`, push только ответом «Push», evals
 
 Type: task
-Status: open
+Status: claimed 2026-11-18T13:28Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реализации», 2; «Решения по test-ам», Harness; «Вопросы
 владельцу», Q3 (решено без владельца, подтвердить); «Риски», «Push без спроса», «Следы workflow в Silent mode»
@@ -63,9 +63,12 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реал�
 - [ ] Числа обоих evals (pass и цена) — в «Итог» Ticket-а.
 - [ ] `harness/evals/lib/coverage.json` называет `skills/pr-fix/SKILL.md`; contract test-ы evals
       (`test/contract/harness-evals-run.test.ts`) зелёные.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs harness-evals` exit 0, `node scripts/eval-harness-coverage.mjs` exit 0 · mac - · d72f6897fda8013ab32b7b043444b51b25f066ea
 - [ ] Английские страницы `docs/features/skills-agents-and-hooks.md` и `docs/features/harness.md` называют skill и
       evals.
+  - evidence: commit pass · worfy-pr-follow/02: skill pr-fix, modes checks and comments, with evals · - - · d72f6897fda8013ab32b7b043444b51b25f066ea
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · d72f6897fda8013ab32b7b043444b51b25f066ea
 
 ## Где в коде
 
