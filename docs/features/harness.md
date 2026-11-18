@@ -298,7 +298,7 @@ in `/worfy:epic-wave` and `worfy:implementer`.
 | Part | What it holds |
 |---|---|
 | Agents | The three roles, see [Agents](skills-agents-and-hooks.md#agents) |
-| Skills | Nine procedures of worfy and twenty skills copied from Matt Pocock's, see [Skills](skills-agents-and-hooks.md#skills) |
+| Skills | Thirteen procedures of worfy and twenty skills copied from Matt Pocock's, see [Skills](skills-agents-and-hooks.md#skills) |
 | Hooks | The commands Claude Code runs on its events and the rule texts, see [Hooks](skills-agents-and-hooks.md#hooks) |
 | Scripts | The 20 programs below |
 | Profile contract | The description of a Profile and the schema of its draft |
@@ -446,7 +446,7 @@ the manifest and keeps out of `harness/` what is not the Harness. Also `test/con
 `test/contract/harness-script-env.test.ts`, `test/contract/harness-script-command.test.ts` and
 `test/unit/agent-options.test.ts`.
 
-The evals make paid model calls, and CI and the Gate do not run them. `harness/evals/` holds twenty-three `claude plugin
+The evals make paid model calls, and CI and the Gate do not run them. `harness/evals/` holds twenty-five `claude plugin
 eval` cases that check by behaviour that Claude follows the rules (`pnpm eval:harness`), and `harness/evals-outcome/` holds
 the tasks of `pnpm eval:outcome`. `test/contract/harness-evals.test.ts` checks for free that every case is complete.
 The case `compaction-state` carries the tag `alone` and runs only by `pnpm eval:harness -- --case compaction-state`:
