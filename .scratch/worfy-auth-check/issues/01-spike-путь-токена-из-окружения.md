@@ -1,7 +1,8 @@
 # 01 — Spike: как `GH_TOKEN` из окружения системы доходит до gh в worfy на Mac и ПК
 
 Type: spike
-Status: claimed 2026-11-18T19:20Z
+Status: done 2026-11-18T20:09Z
+PR: #2017
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 1; «Проблема», пункт «Чей токен у gh»; «Решения по test-ам», fixtures;
 «Волны», Wave 1; [critic 2026-11-18](../../../docs/product/critic/worfy-auth-check-2026-11-18.md), возражение 1 и
@@ -61,6 +62,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 1; «Проблема», пунк�
 - [ ] Тестовые токены отозваны, переменные сняты (строка в «Итог»).
   - evidence: commit pass · worfy-auth-check/01: spike on how GH_TOKEN from the system environment reaches gh · - - · cc68975bf7ee8a5be0c42f80703c929ee2cc4ac4
 - [ ] `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44386949306/job/135096341028 · ci - · f53958cb163f92c95ea7e01b41f52cee7b0214e7
 
 ## Где в коде
 
