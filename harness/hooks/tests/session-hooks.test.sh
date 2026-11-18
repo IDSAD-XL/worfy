@@ -289,7 +289,8 @@ fi
 # A project with tickets: epic ep1 (ep1/01 claimed in this tree, ep1/02 open), epic ep2 (ep2/01 open). The
 # main checkout is the Orchestrator's place; a linked worktree on a ticket branch is an implementer's. The real
 # bin/profile, epic-status, ticket, stage-lines.mjs and wave-brief run on the synthetic registry; gh is a stand-in
-# that lists no PR.
+# that lists no PR. The ticket files carry the done section under its Russian heading, as this project's tickets
+# do (Russian input on purpose); FAKE_FILL below is a two-byte character for the byte limit of Codex.
 AFTER="$HOOKS/after-compact.mjs"
 CP="$T/cmp/repo"
 mkdir -p "$CP/.scratch/ep1/issues" "$CP/.scratch/ep2/issues" "$T/sp/cmp" "$T/cmp/stubs"

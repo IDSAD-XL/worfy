@@ -29,7 +29,8 @@
 // 3), a program running past its time (then it is killed) — is one line on stderr and exit 0. Writes nothing.
 //
 // For tests: CLAUDE_HOOK_STDIN_WAIT_MS shortens the wait for the input (hook-stdin.mjs); CLAUDE_PROFILE_BIN
-// replaces bin/profile, CLAUDE_EPIC_STATUS_BIN bin/epic-status, CLAUDE_WAVE_BRIEF_BIN bin/wave-brief. Tests:
+// replaces bin/profile, CLAUDE_EPIC_STATUS_BIN bin/epic-status, CLAUDE_TICKET_BIN bin/ticket, CLAUDE_WAVE_BRIEF_BIN
+// bin/wave-brief. Tests:
 // hooks/tests/session-hooks.test.sh.
 
 import { spawn } from "node:child_process"
@@ -164,7 +165,7 @@ function ordered(brief) {
 async function firstInPlay(cwd) {
     const r = await node(path.join(here, "stage-lines.mjs"), [], cwd, { ms: STAGE_MS, input: JSON.stringify({ hook_event_name: "UserPromptSubmit", cwd }) })
     if (r.code !== 0) return ""
-    let context = ""
+    let context
     try {
         context = JSON.parse(r.out)?.hookSpecificOutput?.additionalContext ?? ""
     } catch {
