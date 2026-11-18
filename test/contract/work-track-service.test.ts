@@ -19,6 +19,7 @@ import { TranscriptCache, type CanvasSession } from '../../src/main/work-track/t
 import { formatJournalLine, makeRunId, type JournalEvent } from '../../src/shared/autopilot/journal'
 import { workTrackViewSchema, type WorkTrackView } from '../../src/shared/ipc/work-track'
 import type { Period } from '../../src/shared/work-track/facts'
+import { lanesBySession } from '../../src/shared/work-track/lanes'
 import { removeTestTree } from '../remove'
 
 const PROJECT = 'demo-0a1b2c3d'
@@ -198,6 +199,35 @@ describe('the Work track of a Project', () => {
     expect(view.summary.prsMerged).toBe(1)
     expect(view.summary.runs).toBe(1)
     expect(view.summary.byEpic[0]).toEqual({ epic: 'e', ms: expect.any(Number) })
+  })
+
+  // worfy-continuity ticket 09: a Run continued after a restart is one Run, the restart a Wait on the Run's lane.
+  it('gives the Wait `restart` of a continued Run as a fact of that Run, and the lanes put it on the lane of Runs', async () => {
+    const run = makeRunId(new Date('2026-03-05T14:00:00.000Z'), 'bbbbbb')
+    const head = { run, project: PROJECT, epic: 'e' }
+    const events = [
+      { ...head, at: '2026-03-05T14:00:00.000Z', kind: 'run-started' },
+      { ...head, at: '2026-03-05T14:00:01.000Z', kind: 'wave-started', wave: 1, tickets: ['07'] },
+      { ...head, at: '2026-03-05T14:30:00.000Z', kind: 'run-suspended', cause: 'update', wave: 1, tickets: ['07'], wait: null },
+      { ...head, at: '2026-03-05T14:33:00.000Z', kind: 'run-continued', after: 'update' },
+      { ...head, at: '2026-03-05T15:00:00.000Z', kind: 'wave-finished', wave: 1, tickets: ['07'] },
+      { ...head, at: '2026-03-05T15:00:01.000Z', kind: 'run-stopped', reason: 'tickets-done' },
+    ]
+    await writeFile(join(data, 'autopilot', `${run}.jsonl`), events.map((event) => formatJournalLine(event as JournalEvent)).join(''))
+    const view = await service().read(PROJECT, WEEK, { wait: true })
+    expect(() => workTrackViewSchema.parse(view)).not.toThrow()
+    const runId = `run:${run}`
+    const byStart = (a: unknown[], b: unknown[]): number => String(a[3]).localeCompare(String(b[3]))
+    expect(brief(view).filter((fact) => fact[0] === 'run' || fact[0] === 'wait').sort(byStart)).toEqual([
+      ['run', 'journal', 'Run · e', '2026-03-04T08:00:00.000Z', '2026-03-04T10:05:00.000Z', null, 'e', null],
+      ['run', 'journal', 'Run · e', '2026-03-05T14:00:00.000Z', '2026-03-05T15:00:01.000Z', null, 'e', null],
+      ['wait', 'journal', 'restart (update)', '2026-03-05T14:30:00.000Z', '2026-03-05T14:33:00.000Z', null, 'e', runId],
+    ])
+    const runs = lanesBySession(view)[0]!
+    expect(runs.kind).toBe('runs')
+    expect(runs.spans.filter((span) => span.kind === 'wait').map((span) => [span.title, span.end - span.start])).toEqual([['restart (update)', 3 * 60_000]])
+    // A Wait is no work: the hours and the count of Runs stay as they were.
+    expect(view.summary.runs).toBe(2)
   })
 
   it('changes no file in the Claude home, the Harness home or the repository (ADR-0005)', async () => {

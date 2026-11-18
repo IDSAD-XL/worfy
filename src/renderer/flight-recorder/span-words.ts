@@ -2,7 +2,8 @@
 // name, the token of its colour, its duration, its outcome and its lost source, shared by the timeline
 // (Timeline.tsx) and the detail panel (DetailPanel.tsx). The continuation ladder (worfy-stuck-agents ticket
 // 05) has its words here too: the stop `main-red`, the reason of the attempt a `ticket-continued` caused,
-// and the mark of a `ticket-set-aside` on the Run's row. So has the stop `turn-hung` (ticket 09).
+// and the mark of a `ticket-set-aside` on the Run's row. So has the stop `turn-hung` (ticket 09). A Wait
+// `restart` names what the Run went on after: `restart (update)` (worfy-continuity ticket 09).
 import { QUIET_HUNG_MS } from '../../shared/autopilot/cycle'
 import type { OrchestratorMarkFact } from '../../shared/flight-recorder/facts'
 import { LOST_SOURCE_LABELS, type Span, type WaitCause } from '../../shared/flight-recorder/spans'
@@ -30,7 +31,11 @@ const WAIT_WORDS: Readonly<Record<WaitCause, string>> = {
   'other-machine': 'Other Machine',
   'api-retry': 'Retry after an API error',
   'orchestrator-busy': 'Orchestrator busy',
+  restart: 'restart',
 }
+
+/** `restart: <after>` as spans.ts makes the reason of a Wait `restart` from its detail (from-journal.ts). */
+const RESTART_AFTER = /^restart: ([a-z]+)$/u
 
 // The stops of a Run that waited for its Orchestrator (worfy-autopilot-queue tickets 07, 18), and of a queue whose
 // last Epic waits for the owner (ticket 21), in words; the other stop reasons are shown as the Journal writes them.
@@ -94,8 +99,11 @@ export function displayName(span: Span, epics: readonly string[] = []): string {
       return `Run ${span.name.slice(-6)}`
     case 'ticket':
       return `Ticket ${epics.length > 1 ? span.name : (span.name.split('/').at(-1) ?? span.name)}`
-    case 'wait':
-      return span.waitCause === null ? span.name : WAIT_WORDS[span.waitCause]
+    case 'wait': {
+      if (span.waitCause === null) return span.name
+      const after = span.waitCause === 'restart' && span.reason !== null ? RESTART_AFTER.exec(span.reason) : null
+      return after === null ? WAIT_WORDS[span.waitCause] : `${WAIT_WORDS.restart} (${after[1]})`
+    }
     case 'orchestrator-turn':
       return 'Orchestrator turn'
     default:

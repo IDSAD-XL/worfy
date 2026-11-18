@@ -78,7 +78,9 @@ A mark's tooltip is that of a bar; a click on it opens the Span panel. The two r
 **by Session**, top to bottom:
 
 1. **Autopilot Runs**: each run as a framed bar, with its Waves as framed bars on it. A Wave sent by hand, outside
-   any run, is here too.
+   any run, is here too. A run continued after a restart is one bar, and its `restart` wait is a hatched bar on it,
+   named by its cause, `restart (update)`, with its time in the tooltip: the same wait Run history shows. A wait is
+   not work: it counts in no hours and is on no Epic lane.
 2. A lane per Session, in the order of its first work in the period: its turns. A Session with Subagents has `▸` and
    the number of its Subagents, and draws them as a thin strip under its turns. `▸` unfolds them: a lane per Subagent
    name, and a Subagent that started Subagents has their lanes under its own.
@@ -170,7 +172,7 @@ of the app; the answer of GitHub for a minute.
 
 | Source | Gives | Kept |
 |---|---|---|
-| The Autopilot journals | Runs and their Waves. | Never cleaned by worfy. |
+| The Autopilot journals | Runs and their Waves; the `restart` wait of a run continued after a restart. | Never cleaned by worfy. |
 | The Wave markers of the Harness | Waves sent by hand: the first row `wave-started` with the Ticket numbers, the last `wave-finished`. | worfy does not clean them. |
 | Claude Code transcripts | The turns of every Session of the Project and their Subagents. | `cleanupPeriodDays` of Claude Code's settings, 30 days by default. The Month in progress reaches at most 31 days back, so 35 or more keeps it whole; an earlier Month reaches further back (October seen on 7 November starts 37 days before). |
 | The Codex history | The turns of Sessions on Codex. | As long as Codex keeps the thread; archived threads are not listed. |

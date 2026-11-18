@@ -265,6 +265,29 @@ describe('a block, another Run and a live timeline', () => {
     expect(screen.getByTestId('run-history-detail-reason').querySelector('td')?.textContent).toBe(local.slice('Reason: '.length))
   })
 
+  // worfy-continuity ticket 09: a Run continued after a restart is one Run, the restart a Wait with its cause and length.
+  it('names a Wait `restart` by its cause on its bar, «restart (update) · 3m 00s», and in the Waits by cause; the continued Run reads as stopped, not cut off', async () => {
+    const waits = [{ id: 'restart:1', cause: 'restart' as const, start: T('10:40'), end: T('10:43'), detail: 'update', startSource: 'journal' as const, endSource: 'journal' as const }]
+    const view = viewOf(smallFacts({ waits }))
+    await show('p-1', [smallItem()], { [SMALL_RUN]: view })
+    const bar = document.querySelector<HTMLElement>('[data-span-id="wait:restart:1"]')
+    expect(bar?.title.split('\n')[0]).toBe('restart (update)')
+    expect(bar?.title.split('\n')).toContain('Reason: restart: update')
+    const label = rowOf('wait:restart:1').querySelector<HTMLElement>(`[data-label-for="${CSS.escape('wait:restart:1@0')}"]`)
+    expect(label?.textContent).toBe(`restart (update) · ${formatDuration(3 * 60_000)}`)
+    expect(label?.textContent).toBe('restart (update) · 3m 00s')
+    const row = screen.getByTestId('run-history-waits').querySelector<HTMLElement>('[data-cause="restart"]')
+    expect(row?.querySelector('.w-fr-total__name')?.textContent).toBe('restart')
+    expect(view.timeline.spans.filter((span) => span.kind === 'run')).toHaveLength(1)
+    expect(screen.getByTestId('run-history-header').textContent).not.toContain('no stop in the Journal')
+  })
+
+  it('a Run cut off by a restart and never continued still says «no stop in the Journal»', async () => {
+    const cut = smallFacts({ run: { id: SMALL_RUN, startedAt: T('10:00'), stoppedAt: null, lastSeenAt: T('11:00'), live: false }, waits: [] })
+    await show('p-1', [smallItem({ stoppedAt: null, reason: null })], { [SMALL_RUN]: viewOf(cut) })
+    expect(screen.getByTestId('run-history-header').textContent).toContain('no stop in the Journal')
+  })
+
   it('chooses another Run of the list: the first is let go, the second opened', async () => {
     const other = '2026-10-21T10-00-00-000Z-bbbbbb'
     const main = await show('p-1', [smallItem({ run: other, startedAt: '2026-10-21T10:00:00.000Z' }), smallItem()], { [SMALL_RUN]: viewOf(smallFacts()), [other]: viewOf(smallFacts({ run: { ...smallFacts().run, id: other } }), other) })

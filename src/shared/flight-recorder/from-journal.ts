@@ -28,6 +28,13 @@
 //   Ticket is `<epic>/<NN>` of the Epic its line names; each Epic counts its Waves from 1, so the Waves are
 //   numbered through the Run and named «Wave <n> · <epic>»; epic-started, and an epic-finished of an Epic
 //   passed over (`waits-owner`, `elsewhere`), are marks on the Run's row.
+// - A Run continued after a restart (worfy-continuity tickets 02, 09) is one Run with a Wait `restart` inside: from
+//   its run-suspended (after a crash, which left none, from the last line before) to run-continued, the detail
+//   what that line went on after (`quit`, `update`, `shutdown`, `crash`). The Wave in work is last seen where the
+//   restart began, and the restart ends the Waits of live processes there (background tasks, a busy
+//   Orchestrator, a gate queue's turn); the Limits, Start window, budget and retry Waits go on with their own
+//   end. A run-suspended never continued gives no Wait: that Run ends there, cut off by the model, as before.
+//   A Journal of before ticket 04 says run-stopped `app-quit` instead, a stopped Run.
 // - The `background-tasks` Wait is the Journal's word, not the Run standing idle: the tasks are the
 //   Orchestrator's agents, gate runs and scripts, so the Wait covers their own work (on the night Run,
 //   most of the Run). The Journal cannot tell whether the Orchestrator's turn still went on meanwhile
@@ -280,6 +287,9 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
     if (outcome !== undefined) run.outcome = outcome
   }
 
+  // Where each restart of the Run began: the line before its run-continued (its run-suspended, or after a crash the last one).
+  const restarts = inRun.flatMap((event, index) => (event.kind === 'run-continued' && index > 0 ? [index - 1] : []))
+
   // The Waves: walkRun gives one per wave-started, in file order. A Run over a queue counts the Waves of each
   // Epic from 1 again: its Waves are numbered through the Run (the key of their spans) and named by their Epic.
   const starts = events.flatMap((event, index) => (event.kind === 'wave-started' ? [index] : []))
@@ -294,9 +304,10 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
       tickets: wave.tickets.map((num) => key(num, wave.epic)),
     }
     if (wave.end === null) {
-      // Its last line: before the next wave-started, else up to run-stopped or the end of the file.
+      // Its last line: before the next wave-started, else up to run-stopped or the end of the file; a restart cuts it off where it began.
       const next = starts[n + 1]
-      const through = Math.min(next === undefined ? events.length - 1 : next - 1, stopIndex === -1 ? events.length - 1 : stopIndex)
+      const restart = restarts.find((cut) => cut >= index)
+      const through = Math.min(next === undefined ? events.length - 1 : next - 1, stopIndex === -1 ? events.length - 1 : stopIndex, restart ?? Infinity)
       // A wave-started after run-stopped (no writer does that) is last seen at its own line.
       fact.lastSeenAt = iso(through < index ? wave.start : Math.max(...events.slice(index, through + 1).map((event) => event.at)))
     }
@@ -373,10 +384,22 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
   const retryCauses: RetryCauseFact[] = []
   const orchestratorMarks: OrchestratorMarkFact[] = []
 
-  for (const event of inRun) {
+  for (const [index, event] of inRun.entries()) {
     const { at } = event
     for (const wait of [limits, tasks, gate, retry, busy]) if (wait !== null) wait.lastSeen = at
     switch (event.kind) {
+      case 'run-continued': {
+        // The restart began at the line before (run-suspended, or the last one before a crash) and ended the
+        // Orchestrator's turn and tasks there; the Limits, Start window, budget and retry Waits go on.
+        const from = inRun[index - 1]?.at ?? at
+        for (const wait of [tasks, gate, busy]) if (wait !== null) close(wait, from)
+        tasks = null
+        gate = null
+        busy = null
+        const after = text(event.after)
+        close(open('restart', from, after === undefined ? [] : [after]), at)
+        break
+      }
       case 'orchestrator-busy': {
         busy ??= { ...open('orchestrator-busy', at), turn: false, queued: 0, names: [] }
         if (event.turn === true) busy.turn = true

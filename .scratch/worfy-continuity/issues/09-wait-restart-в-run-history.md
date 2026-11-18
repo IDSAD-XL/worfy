@@ -1,7 +1,7 @@
 # 09 — Run history и Work track: Wait `restart` с причиной, продолженный Run — один Run
 
 Type: task
-Status: open
+Status: claimed 2026-11-18T03:26Z
 Blocked by: 02
 Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решения по реализации» → «Run history и Work track»; «Истории
 пользователя», 6

@@ -1,6 +1,7 @@
 // The lanes of Work track (worfy-work-track ticket 09; spec «What the owner sees», 4–6): a column of names on
 // the left — ▸ unfolds the Subagents of a Session, the chips `hidden`, `archived` and the Vendor — and the
-// track of each lane on the right: Runs and Waves as framed bars, the turns of a Session in its colour, the
+// track of each lane on the right: Runs and Waves as framed bars, a Wait `restart` of a continued Run hatched on
+// the lane of Runs with its cause (worfy-continuity ticket 09), the turns of a Session in its colour, the
 // Subagents by their kind, an outcome `failed` or `rejected` underlined in the problem colour, the folded
 // Subagents of a Session as a strip, «no data» hatched with its source and why in the tooltip, and the «now»
 // line. Above them the axis: the hours of a Day, the days of a Week (a click opens the Day), the merged PRs
@@ -34,6 +35,7 @@ function colourOf(span: Pick<WorkSpan, 'kind' | 'title'>): string {
     case 'wave':
     case 'turn':
     case 'gate':
+    case 'wait':
       return span.kind
     case 'subagent': {
       const kind = agentSubkind(span.title)
@@ -149,7 +151,7 @@ function Bars({ lane, scale, width, facts, comfortable, lines }: BarsProps) {
       {lane.spans.map((span) => {
         const box = stretch(span.start, span.end, scale)
         const pixels = ((percent(span.end, scale) - percent(span.start, scale)) / 100) * width
-        const label = (comfortable || span.kind === 'wave') && span.kind !== 'run' && pixels > span.title.length * 6 + 10 ? span.title : null
+        const label = (comfortable || span.kind === 'wave' || span.kind === 'wait') && span.kind !== 'run' && pixels > span.title.length * 6 + 10 ? span.title : null
         const line = lines?.lines.get(span.id)
         const style: CSSProperties = line === undefined || lines === null ? box : { ...box, top: `calc(var(--w-wt-pad) + ${line} * var(--w-wt-bar))`, height: 'calc(var(--w-wt-bar) - 1px)', bottom: 'auto' }
         const problem = span.outcome === 'failed' || span.outcome === 'rejected'

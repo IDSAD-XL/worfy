@@ -10,7 +10,7 @@ type Iso = string
 // ── the vocabulary ───────────────────────────────────────────────────────────
 
 /** The kinds of fact, a fixed set (the spec's Model section). */
-export const WORK_FACT_KINDS = ['run', 'wave', 'turn', 'subagent', 'pr', 'ci', 'gate', 'ticket-status'] as const
+export const WORK_FACT_KINDS = ['run', 'wave', 'turn', 'subagent', 'pr', 'ci', 'gate', 'ticket-status', 'wait'] as const
 export type WorkFactKind = (typeof WORK_FACT_KINDS)[number]
 
 /**
@@ -48,6 +48,7 @@ export type PeriodKind = (typeof PERIOD_KINDS)[number]
 // | `ci`            | GitHub (06)                                 | a CI run                              |
 // | `gate`          | gate logs (08)                              | a gate run                            |
 // | `ticket-status` | git log of the Ticket files (07)            | the change, `start` = `end`           |
+// | `wait`          | Run journals (worfy-continuity 09)          | a Wait `restart` of a continued Run   |
 //
 // Only names reach the facts (owner decision 7): the name of a Session, the name and description of a
 // Subagent, the Epic, the Ticket, the PR number; never the text of a turn.

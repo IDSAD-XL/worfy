@@ -545,8 +545,98 @@ describe('from-journal: the marks of the Orchestrator', () => {
   })
 })
 
+describe('from-journal: a Run continued after a restart (worfy-continuity ticket 09)', () => {
+  // The Journals of worfy-continuity ticket 02 (test/fixtures/autopilot-faults), and what a continuation appends to them.
+  const FAULT_RUN = '2026-11-03T10-00-00-000Z-a1b2c3'
+  const at = (hhmmss: string): string => `2026-11-03T${hhmmss}.000Z`
+  const fixture = (variant: string): string[] =>
+    readFileSync(join(import.meta.dirname, '..', 'fixtures', 'autopilot-faults', variant, 'run-1.jsonl'), 'utf8')
+      .split('\n')
+      .filter((each) => each.trim() !== '')
+  const after = (hhmmss: string, kind: string, fields: Record<string, unknown> = {}): string =>
+    JSON.stringify({ at: at(hhmmss), run: FAULT_RUN, project: 'demo-000000a4', epic: 'demo', kind, ...fields })
+  const readRun = (lines: string[]): JournalFacts => {
+    const facts = journalFacts({ run: FAULT_RUN, lines })
+    if (facts === null) throw new Error('no facts')
+    return facts
+  }
+
+  it('makes run-suspended {cause: update} … run-continued one Run with a Wait `restart` inside, its cause and length; the Limits Wait goes on across it', () => {
+    const facts = readRun([
+      ...fixture('suspended-limits-wait'),
+      after('10:03:30', 'run-continued', { after: 'update' }),
+      after('12:00:00', 'resumed'),
+      after('12:10:00', 'wave-finished', { wave: 1, tickets: ['01', '02'] }),
+      after('12:10:01', 'run-stopped', { reason: 'no-ready-wave' }),
+    ])
+    expect(facts.skipped).toBe(0)
+    expect(facts.run).toMatchObject({ id: FAULT_RUN, startedAt: at('10:00:00'), stoppedAt: at('12:10:01'), outcome: 'ok' })
+    expect(facts.waits.map(({ id, cause, start, end, detail }) => ({ id, cause, start, end, detail }))).toEqual([
+      { id: 'limits:1', cause: 'limits', start: at('10:00:10'), end: at('12:00:00'), detail: `five_hour, until ${at('12:00:00')}` },
+      { id: 'restart:1', cause: 'restart', start: at('10:00:30'), end: at('10:03:30'), detail: 'update' },
+    ])
+    const timeline = buildTimeline(runFacts(facts))
+    expect(timeline.spans.filter((span) => span.kind === 'run')).toHaveLength(1)
+    const restart = timeline.spans.find((span) => span.waitCause === 'restart')
+    expect(restart).toMatchObject({ kind: 'wait', lane: 'wait', start: Date.parse(at('10:00:30')), end: Date.parse(at('10:03:30')), outcome: 'ok', reason: 'restart: update', links: { tickets: ['demo/01', 'demo/02'] } })
+    expect(restart!.until - restart!.start).toBe(3 * 60_000)
+    expect(timeline.spans.find((span) => span.kind === 'run')?.outcome).toBe('ok')
+  })
+
+  it('starts the Wait `restart` after a crash (no run-suspended, run-continued {after: crash}) at the last line before run-continued', () => {
+    const facts = readRun([...fixture('killed-no-end'), after('10:05:06', 'run-continued', { after: 'crash' }), after('10:20:00', 'run-stopped', { reason: 'user-stop' })])
+    expect(facts.waits).toEqual([{ id: 'restart:1', cause: 'restart', start: at('10:00:06'), end: at('10:05:06'), detail: 'crash', startSource: 'journal', endSource: 'journal' }])
+    expect(facts.run).toMatchObject({ stoppedAt: at('10:20:00'), outcome: 'stopped' })
+  })
+
+  it('cuts the Wave in work off where the restart began, and closes the waits the restart ended (background tasks, a busy Orchestrator, a gate queue); the Limits stay open', () => {
+    const facts = readRun([
+      ...fixture('suspended-limits-wait').slice(0, -1),
+      after('10:00:20', 'background-tasks', { tasks: [{ id: 't0', type: 'local_agent', description: 'impl-01' }] }),
+      after('10:00:30', 'run-suspended', { cause: 'quit', wave: 1, tickets: ['01', '02'], wait: { kind: 'limits', until: at('12:00:00') } }),
+      after('10:10:00', 'run-continued', { after: 'quit' }),
+      after('10:10:05', 'background-tasks', { tasks: [] }),
+      after('12:00:00', 'resumed'),
+      after('12:00:01', 'wave-started', { wave: 2, tickets: ['01', '02'] }),
+    ])
+    expect(facts.waves.map(({ number, finishedAt, lastSeenAt }) => ({ number, finishedAt, lastSeenAt }))).toEqual([
+      { number: 1, finishedAt: null, lastSeenAt: at('10:00:30') },
+      { number: 2, finishedAt: null, lastSeenAt: at('12:00:01') },
+    ])
+    expect(facts.waits.map(({ cause, start, end }) => ({ cause, start, end }))).toEqual([
+      { cause: 'limits', start: at('10:00:10'), end: at('12:00:00') },
+      { cause: 'background-tasks', start: at('10:00:20'), end: at('10:00:30') },
+      { cause: 'restart', start: at('10:00:30'), end: at('10:10:00') },
+    ])
+  })
+
+  it('numbers the Waits `restart` of a Run that was continued twice', () => {
+    const facts = readRun([...fixture('suspended-mid-wave'), after('10:01:00', 'run-continued', { after: 'quit' }), after('10:02:00', 'gate-queue', { text: 'g' }), after('10:04:00', 'run-continued', { after: 'crash' })])
+    expect(facts.waits.map(({ id, cause, start, end, detail }) => ({ id, cause, start, end, detail }))).toEqual([
+      { id: 'restart:1', cause: 'restart', start: at('10:00:20'), end: at('10:01:00'), detail: 'quit' },
+      { id: 'gate-queue:1', cause: 'gate-queue', start: at('10:02:00'), end: at('10:02:00'), detail: undefined },
+      { id: 'restart:2', cause: 'restart', start: at('10:02:00'), end: at('10:04:00'), detail: 'crash' },
+    ])
+  })
+
+  it('leaves a run-suspended never continued as it was: no Wait `restart`, the Run cut off with no stop in the Journal', () => {
+    const facts = readRun(fixture('suspended-mid-wave'))
+    expect(facts.waits).toEqual([])
+    expect(facts.run).toMatchObject({ stoppedAt: null, lastSeenAt: at('10:00:20') })
+    expect(facts.run.outcome).toBeUndefined()
+    const timeline = buildTimeline(runFacts(facts, { now: at('11:00:00') }))
+    expect(timeline.spans.find((span) => span.kind === 'run')).toMatchObject({ outcome: 'cut-off', end: Date.parse(at('10:00:20')) })
+  })
+
+  it('reads an old Journal whose quit wrote run-stopped `app-quit`: a stopped Run, no Wait `restart`', () => {
+    const facts = readRun([...fixture('suspended-mid-wave').slice(0, -1), after('10:00:20', 'run-stopped', { reason: 'app-quit' })])
+    expect(facts.waits).toEqual([])
+    expect(facts.run).toMatchObject({ stoppedAt: at('10:00:20'), reason: 'app-quit', outcome: 'stopped' })
+  })
+})
+
 describe('from-journal: a Run that waits for its Orchestrator (worfy-autopilot-queue ticket 18)', () => {
-  const busy = (hhmm: string, turn: boolean, queued: number, ...descriptions: string[]) =>
+  const busy =(hhmm: string, turn: boolean, queued: number, ...descriptions: string[]) =>
     line(hhmm, 'orchestrator-busy', { turn, queued, tasks: descriptions.map((description, index) => ({ id: `t${index}`, type: 'local_bash', description })) })
 
   it('turns orchestrator-busy … orchestrator-free into a Wait `orchestrator-busy` with all the lines said: the turn, the most messages queued, the tasks', () => {
