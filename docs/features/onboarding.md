@@ -31,16 +31,28 @@ New and existing are defined under [Getting started](#getting-started).
 **Other ways in.** The Command palette's "First-run checks" opens the checks at any time, with or without a Project.
 "Open checks" of step 1 of Getting started does the same. So do the buttons "First-run checks…" of the "Add project" dialog,
 when the Harness stops the connection or gh is missing. Settings → Health shows the same rows, actions and "Check again".
-Opening that section runs the checks, and closing Settings does not count as closing First run.
+Opening that section runs the checks, and closing Settings does not count as closing First run. Settings → Health is
+Health check: the Health check button on the sidebar rail and the palette's "Health check" open it
+([app-shell.md](app-shell.md#sidebar)).
 
 **The page "Welcome to worfy".** It explains three concepts in short texts: Project + Harness, Orchestrator and Canvas. Under
 them, the link "worfy Guide" opens the [worfy Guide](app-shell.md#worfy-guide) over First run, which stays on this page. The
 checks already run behind it. "Next" goes to them. "Close" closes the dialog like any other close, so the page does not come
 again by itself. Opened in any other way, First run starts on the checks.
 
-**The checks.** Each row has a chip (OK, Warning, Failed, or Running… while its action runs), what was found, a line of what
-to do, and sometimes a command with "Copy" or an action button. A chip at the top sums up: "Checking…", "Everything is ready"
-or "2 failed · 1 warning".
+**The checks.** Each row has a chip (OK, Warning, Failed, Unknown, or Running… while its action runs), what was found, a line
+of what to do, and sometimes a command with "Copy" or an action button. A row not in OK names its level beside its name:
+"Critical" or "Non-critical". A row that could not be checked says "Couldn't check: <reason>" in place of what was found,
+and its chip is grey, not the colour of a failure. A chip at the top sums up: "Checking…", "Everything is ready" or
+"2 failed · 1 warning · 1 not checked".
+
+**The order.** The rows that matter most come first, in First run and in Settings → Health alike: critical rows not in OK,
+then the other rows not in OK, then the rows in OK. Rows stay in their group; inside a group they go in that order, and the
+groups go by their first row. Groups whose rows weigh the same keep the order of the table below. The rows of a Project are
+a group of their own per Project, "Projects · <name>"; the Codex sign-in and the Linked machines have their groups too.
+
+**Fix.** A row that a safe button repairs (it only does what can be undone and touches nobody else's data) shows that button
+as "Fix", in the primary colour; its tooltip says what it does ("Use alice"). The other buttons of the row keep their names.
 
 | Group | Row | What it asks | When it is not OK |
 |---|---|---|---|
@@ -79,6 +91,7 @@ attempt failed: …", until the next attempt or until the check itself passes.
   closes. The user answers gh's questions there and checks again. Without a Project the row has no button and shows the command
   to copy.
 - "Move…" opens the move form of the old Harness, which asks on its own.
+- "Fix" runs the safe button of its row. The rows that offer one come with the Tickets of their checks.
 
 **"Check again"** first reads the login shell environment again, so a tool added by an rc file since the start shows up. A
 Project of the sidebar whose Layout failed to read then tries again at once. It answers when the rows checked over the
@@ -153,11 +166,11 @@ action counts only while its check does not pass, so a cause fixed outside worfy
   channels are in `src/shared/ipc/first-run.ts`, all with the access mark `local`; `firstRun.reportChanged` carries each
   change of the report.
 - `src/renderer/shell/FirstRun.tsx` is the dialog. `src/renderer/shell/FirstRunConcepts.tsx` is the welcome page.
-  `src/renderer/shell/FirstRunChecks.tsx` draws the rows and runs the actions for the dialog and for
-  `src/renderer/settings/HealthSection.tsx`. `src/renderer/shell/first-run-store.ts` keeps the state outside React.
+  `src/renderer/shell/FirstRunChecks.tsx` draws the rows in their order (`checkBlocks`, `rowRank`) with their level and
+  Fix, and runs the actions for the dialog and for `src/renderer/settings/HealthSection.tsx`. `src/renderer/shell/first-run-store.ts` keeps the state outside React.
 - `WORFY_FIRST_RUN_AUTO=0` keeps the dialog from opening by itself, for e2e runs other than its own.
 - Main tests: `test/contract/first-run-checks.test.ts`, `test/contract/health-reports.test.ts`,
-  `test/unit/health-severity.test.ts`, `test/unit/first-run-windows.test.ts`,
+  `test/unit/health-severity.test.ts`, `test/unit/settings-health.test.tsx`, `test/unit/first-run-windows.test.ts`,
   `test/unit/first-run-concepts.test.tsx` and `test/e2e/first-run.spec.ts`, which uses the stand-in tools of
   `test/fixtures/first-run-tools/`.
 

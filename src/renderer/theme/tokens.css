@@ -81,6 +81,10 @@
   --blocked-ring: #ff9f0a;
   --done-text: #636366;
   --done-bg: #f2f2f5;
+  /* The dot of the Health check button (worfy-auth-check ticket 04, Q3): red — a critical row fails,
+   * yellow — only non-critical ones do; each ≥ 3:1 against the sidebar. Always with the words of its tooltip. */
+  --health-critical: #d70015;
+  --health-warning: #a87f00;
   --terminal-bg: #1d1d1f;
   --terminal-text: #e5e5ea;
   /* Colour 8 of the terminal palette (bright black): dimmed output and the Terminal AI Suggestion */
@@ -195,6 +199,8 @@
     --blocked-ring: #ffae5c;
     --done-text: #9c968d;
     --done-bg: #1b1a18;
+    --health-critical: #ff6b5e;
+    --health-warning: #ffd60a;
     --terminal-bg: #0b0a09;
     --terminal-text: #ece8e1;
     --terminal-dim: #9c968d;

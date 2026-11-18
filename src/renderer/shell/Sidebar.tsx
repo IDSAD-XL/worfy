@@ -1,9 +1,13 @@
-import { useId, useRef, type KeyboardEvent, type ReactElement } from 'react'
-import { useFocusState } from '../focus/focus-state'
-import { openSettings } from '../settings/settings-window'
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
+import { worstLevel, type HealthLevel } from '../../shared/health/severity'
+import type { Check, FirstRunReport } from '../../shared/ipc/first-run'
 import { SHORTCUTS } from '../../shared/shortcuts'
+import { useFocusState } from '../focus/focus-state'
+import { hasPreloadBridge, invoke, showSubscribeError, subscribe } from '../ipc'
+import { openHealthCheck, openSettings } from '../settings/settings-window'
 import { label } from '../shortcuts/match'
 import { Tooltip } from '../theme/kit/Tooltip'
+import { useFirstRun } from './first-run-store'
 import { ProjectSwitcher } from './ProjectSwitcher'
 import { collectExtensions, type ShellExtension } from './registry'
 import { pickSection, showSidebarSection, useRailBadge, useSidebarScope } from './sidebar-scope'
@@ -91,6 +95,110 @@ function RailTab({ section, selected, first, tabId, panelId, onSelect, onKeyDown
   )
 }
 
+/**
+ * The Health check report as main keeps it (worfy-auth-check ticket 03): the last one at mount
+ * (`firstRun.health`, which checks nothing), then every change main sends. A report heard from the
+ * event is newer than the answer to the first call, so that answer is dropped then. Without the
+ * preload bridge (a unit test that sets none) there is no report.
+ */
+function useHealthReport(): FirstRunReport | null {
+  const [report, setReport] = useState<FirstRunReport | null>(null)
+  useEffect(() => {
+    if (!hasPreloadBridge()) return undefined
+    let live = true
+    let heard = false
+    let stop = (): void => undefined
+    try {
+      stop = subscribe('firstRun.reportChanged', (next) => {
+        heard = true
+        setReport(next)
+      })
+    } catch (error) {
+      showSubscribeError('firstRun.reportChanged', error)
+    }
+    void invoke('firstRun.health').then((result) => {
+      if (live && !heard && result.ok) setReport(result.value)
+    })
+    return () => {
+      live = false
+      stop()
+    }
+  }, [])
+  return report
+}
+
+/** A row's name in the tooltip: with its Project, for a row of the Projects group. */
+const rowName = (check: Check): string => (check.project === undefined ? check.title : `${check.title} (${check.project.name})`)
+
+/** At most three names, then how many more. */
+function names(rows: readonly Check[]): string {
+  const shown = rows.slice(0, 3).map(rowName).join(', ')
+  return rows.length > 3 ? `${shown} and ${rows.length - 3} more` : shown
+}
+
+/**
+ * Why the dot of the Health check button is what it is (spec, the icon's colour): the critical rows
+ * that are not `ok`, the other rows that are not, and each row that could not be checked as
+ * "Couldn't check: <reason>" — such a row never counts as critical (Q2).
+ */
+function healthReason(report: FirstRunReport | null, level: HealthLevel): string {
+  if (level === 'pending') return report === null ? 'not checked yet' : 'checking…'
+  if (level === 'ok' || report === null) return 'everything works'
+  const open = report.checks.filter((check) => check.status !== 'ok' && check.status !== 'unknown')
+  const critical = open.filter((check) => check.severity === 'critical')
+  const other = open.filter((check) => check.severity !== 'critical')
+  const unknown = report.checks.filter((check) => check.status === 'unknown')
+  return [
+    critical.length > 0 ? `critical: ${names(critical)}` : null,
+    other.length > 0 ? `non-critical: ${names(other)}` : null,
+    ...unknown.map((check) => `Couldn't check: ${check.detail === '' ? 'no answer' : check.detail} (${rowName(check)})`),
+  ]
+    .filter((part) => part !== null)
+    .join(' · ')
+}
+
+/** The dot of each level, in the look of a rail badge (RailBadgeMark): red, yellow, none, a grey ring. */
+const HEALTH_TONE: Record<HealthLevel, string | null> = { critical: 'critical', 'non-critical': 'warning', ok: null, pending: 'pending' }
+
+const healthIcon = (
+  <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {/* A heart with a pulse line through it: the health of the Machine, not a section of the sidebar. */}
+    <path d="M8 13.5C4.5 11.2 2 8.9 2 6.1A3 3 0 0 1 8 4.6A3 3 0 0 1 14 6.1C14 8.9 11.5 11.2 8 13.5Z" />
+    <path d="M3.2 8.2H6L7 6.6L8.6 9.6L9.6 8.2H12.8" />
+  </svg>
+)
+
+/**
+ * The Health check button of the rail (worfy-auth-check ticket 04; spec, the solution, point 3): above
+ * the sections of the foot, always there. Not a tab — it shows nothing in the sidebar and opens
+ * Settings → Health. Its dot is the worst level of the report of this Machine and every open Project
+ * (Q3, Q4): red — a critical row is not `ok`; yellow — only non-critical rows are not; none — every row
+ * is; a grey ring — no report yet, or "Check again" runs. It runs no check itself and shows no toast (Q9).
+ */
+export function HealthRailButton() {
+  const report = useHealthReport()
+  const checking = useFirstRun((state) => state.checking)
+  const level = worstLevel(report, checking)
+  const reason = healthReason(report, level)
+  const tone = HEALTH_TONE[level]
+  return (
+    <Tooltip label={`Health check — ${reason}`} side="right">
+      {/* eslint-disable-next-line jsx-a11y/role-supports-aria-props -- aria-description is ARIA 1.3, which Chromium reads; the plugin's list stops at 1.2. */}
+      <button
+        type="button"
+        className="w-sidebar__rail-button w-sidebar__health"
+        aria-label="Health check"
+        aria-description={reason}
+        data-health={level}
+        onClick={openHealthCheck}
+      >
+        {healthIcon}
+        {tone === null ? null : <span className="w-sidebar__rail-dot" data-tone={tone} data-testid="health-rail-dot" aria-hidden="true" />}
+      </button>
+    </Tooltip>
+  )
+}
+
 const gearIcon = (
   <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     {/* A gear with eight teeth: the earlier rays read as a sun, that is, a theme switch (owner, 2026-11-15). */}
@@ -153,10 +261,13 @@ export function SidebarView({ sections, onToggle }: SidebarViewProps) {
       </div>
       <div className="w-sidebar__body">
         <div className="w-sidebar__rail">
-          {/* Only the tabs are in the tablist: Settings opens a dialog, not a section. */}
+          {/* Only the tabs are in the tablist: Settings and Health check open a dialog, not a section. The
+              tablist lays out no box of its own (shell.css), so Health check, after it here, is drawn
+              above the sections of the foot, and the rail stays one tablist with one Tab stop. */}
           <div ref={rail} role="tablist" aria-label="Sidebar sections" aria-orientation="vertical" className="w-sidebar__tabs">
             {ordered.map(tab)}
           </div>
+          <HealthRailButton />
           <Tooltip label={`Settings (${label(SHORTCUTS.settings)})`} side="right">
             <button type="button" className="w-sidebar__rail-button" aria-label="Settings" onClick={() => openSettings()}>
               {gearIcon}

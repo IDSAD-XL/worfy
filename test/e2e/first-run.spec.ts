@@ -191,7 +191,8 @@ test.describe('first-run screen', () => {
     let launched = await launch({ WORFY_HARNESS_BUNDLE: fixtureHarness() })
     try {
       const dialog = await screen(launched.window, 'concepts')
-      expect(await dialog.locator('[data-check]').evaluateAll((rows) => rows.map((each) => each.getAttribute('data-check')))).toEqual(CHECK_IDS)
+      // Every check, the ones to look at first (worfy-auth-check ticket 04): the order itself is test/unit/settings-health.test.tsx's.
+      expect((await dialog.locator('[data-check]').evaluateAll((rows) => rows.map((each) => each.getAttribute('data-check')))).sort()).toEqual([...CHECK_IDS].sort())
       // The status chips and the summary chip have a 1 px border: their text stays inside it.
       await expectBorderedChipsFit(dialog, 'the first-run screen')
       for (const id of ['claude-login', 'claude-version', 'git', 'git-identity', 'gh', 'node', 'jq', 'gh-auth', 'legacy-harness', 'qmd', 'qmd-collections']) {

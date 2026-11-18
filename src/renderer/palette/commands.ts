@@ -83,7 +83,7 @@ import { openPrInboxOf } from '../pr-inbox/open'
 import { openProject } from '../projects/useProjects'
 import { epicStoryPath, openStoryFile, ticketStoryPath } from '../stories/open'
 import { openOrchestrator, openSession, setView } from '../session/navigation'
-import { openSettings } from '../settings/settings-window'
+import { openHealthCheck, openSettings } from '../settings/settings-window'
 import { openFirstRun } from '../shell/first-run-store'
 import type { ShellView } from '../shell/Toolbar'
 import { label } from '../shortcuts/match'
@@ -392,6 +392,19 @@ function viewCommands({ view, project, projects, layoutNodes, tagFilter }: Comma
     keys: ['first run', 'setup', 'checks'],
     run: () => {
       openFirstRun()
+      return undefined
+    },
+  })
+  // Health check (worfy-auth-check ticket 04, owner's decision Q1): Settings → Health, the state of
+  // this Machine and its open Projects; "First-run checks" above stays the First run window's.
+  commands.push({
+    id: 'health-check',
+    group: 'View',
+    title: 'Health check',
+    detail: 'Settings → Health: sign-ins, tools, GitHub access',
+    keys: ['health check', 'health', 'sign-in', 'auth'],
+    run: () => {
+      openHealthCheck()
       return undefined
     },
   })

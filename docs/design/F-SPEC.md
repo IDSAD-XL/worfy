@@ -35,6 +35,7 @@ The user picked a merge of A (Graphite) and E (Native). Rules of the merge:
 | working (claimed, running, CI running, busy) | text #0062CC on #E6F0FC, dot #0071E3 | text #5E9BFF on #1A2233, dot #5E9BFF |
 | blocked | text #A84B00 on #FFF0DE, ring #FF9F0A | text #FFAE5C on #2E2216, ring #FFAE5C |
 | done | text #636366 + check icon, surface #F2F2F5 | text #9C968D + check icon, surface #1B1A18 |
+| health-critical, health-warning (the dot of the Health check button on the rail: a critical row fails / only non-critical ones do) | critical #D70015, warning #A87F00 | critical #FF6B5E, warning #FFD60A |
 | terminal node | bg #1D1D1F text #E5E5EA, colour 8 (dimmed output, Terminal AI Suggestion) #8E8E93 | bg #0B0A09 text #ECE8E1, colour 8 #9C968D |
 | kind-orchestrator (Orchestrator, purple) | band #A0527F, tint #F6EAF1 | band #CC79A7, tint #2D2028 |
 | kind-session (Session, sky blue) | band #2B8BC6, tint #E6F2FA | band #56B4E9, tint #1B2730 |
