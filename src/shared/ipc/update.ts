@@ -144,7 +144,8 @@ export const updateShowLog = invokeChannel('update.showLog', z.void(), z.void(),
 /**
  * What a restart button answers (ticket 04): worfy quits now (`quitting`), "Restart when idle" waits
  * (`waiting`), the wish or the roll back was cancelled, or a refusal with its reason. `busy`: refused
- * because a Session works or Autopilot runs.
+ * because a Session works or an Autopilot Wave is under way (the wish of "Restart when idle" and a
+ * roll back; "Restart now" is not refused for it, worfy-continuity ticket 08).
  */
 export const restartAnswerSchema = z.discriminatedUnion('outcome', [
   z.object({ outcome: z.literal('quitting') }),
@@ -155,9 +156,10 @@ export const restartAnswerSchema = z.discriminatedUnion('outcome', [
 export type RestartAnswer = z.infer<typeof restartAnswerSchema>
 
 /**
- * "Restart now" (`now`, only when nothing works and an Update is built), "Restart when idle" (`idle`:
- * now when nothing works, else once nothing works) and the cancel of that wish (`cancel`). A press
- * of "Restart now" drops the wish too. The press is the consent to the Harness of the new copy
+ * "Restart now" (`now`, when an Update is built; during work too, worfy-continuity ticket 08: the press
+ * is the consent to the quit's grace and the suspension of the Autopilot Runs), "Restart when idle"
+ * (`idle`: now when nothing works, else once nothing works) and the cancel of that wish (`cancel`). A
+ * press of "Restart now" drops the wish too. The press is the consent to the Harness of the new copy
  * (spec R5).
  */
 export const updateRestart = invokeChannel('update.restart', z.object({ when: z.enum(['now', 'idle', 'cancel']) }), restartAnswerSchema, 'local')

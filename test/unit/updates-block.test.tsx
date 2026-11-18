@@ -129,18 +129,36 @@ describe('Settings → General → Updates (worfy-update ticket 09)', () => {
     expect(disabled(within(row()).getByRole('button', { name: 'Update worfy' }))).toBe(true)
   })
 
-  it('built and something still works: "Restart when idle" calls update.restart with idle', async () => {
+  it('built and something still works: "Restart when idle" calls update.restart with idle, and "Restart now" stays next to it', async () => {
     give(snapshot({ available, idle: false, build: { phase: 'ready', sha: available.sha, version: available.version } }))
     handlers['update.restart'] = () => ({ ok: true, value: { outcome: 'waiting' } })
     render(<UpdatesBlock />)
     expect(screen.getByTestId('settings-updates-status').textContent).toContain('worfy 1.5.0+bbbbbbb is ready.')
-    expect(within(row()).queryByRole('button', { name: 'Restart now' })).toBeNull()
+    expect(within(row()).getByRole('button', { name: 'Restart now' })).toBeTruthy()
     expect(within(row()).queryByRole('button', { name: 'Update worfy' })).toBeNull()
     fireEvent.click(within(row()).getByRole('button', { name: 'Restart when idle' }))
     await waitFor(() => expect(callsOf('update.restart')).toEqual([{ when: 'idle' }]))
-    // The wish waits: the line says when worfy restarts.
+    // The wish waits: the line says when worfy restarts, "Restart when idle" is inactive and "Restart now" is not.
     give(snapshot({ available, idle: false, restartWhenIdle: true, build: { phase: 'ready', sha: available.sha, version: available.version } }))
-    expect(row().textContent).toContain('worfy restarts when no Session is working and Autopilot has stopped')
+    expect(row().textContent).toContain('worfy restarts when no Session is working and no Autopilot Wave is under way')
+    expect(disabled(within(row()).getByRole('button', { name: 'Restart when idle' }))).toBe(true)
+    expect(disabled(within(row()).getByRole('button', { name: 'Restart now' }))).toBe(false)
+  })
+
+  it('built and something still works: "Restart now" calls update.restart with now (worfy-continuity ticket 08)', async () => {
+    give(snapshot({ available, idle: false, build: { phase: 'ready', sha: available.sha, version: available.version } }))
+    handlers['update.restart'] = () => ({ ok: true, value: { outcome: 'quitting' } })
+    render(<UpdatesBlock />)
+    // "Restart when idle" first, as the primary action; "Restart now" next to it, under its own test id.
+    const restartButtons = within(row())
+      .getAllByRole('button')
+      .filter((button) => button.textContent?.startsWith('Restart'))
+    expect(restartButtons.map((button) => [button.textContent, button.dataset.testid])).toEqual([
+      ['Restart when idle', 'settings-updates-restart'],
+      ['Restart now', 'settings-updates-restart-now'],
+    ])
+    fireEvent.click(screen.getByTestId('settings-updates-restart-now'))
+    await waitFor(() => expect(callsOf('update.restart')).toEqual([{ when: 'now' }]))
   })
 
   it('built and nothing works: "Restart now" calls update.restart with now; a refusal shows its reason', async () => {

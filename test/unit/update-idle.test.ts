@@ -3,7 +3,8 @@
 // No process is started, no app quits.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentEvent, SessionState } from '../../src/shared/agent/events'
-import { idle, IdleWatch, IDLE_POLL_MS, type IdleSession } from '../../src/main/update/idle'
+import type { AutopilotState } from '../../src/shared/ipc/autopilot'
+import { autopilotRuns, idle, IdleWatch, IDLE_POLL_MS, type IdleRun, type IdleSession } from '../../src/main/update/idle'
 import { RestartIntent } from '../../src/main/update/restart'
 
 /** A registry of Sessions the test sets, and the observers it tells of each event. */
@@ -14,7 +15,7 @@ function fakeWorld() {
   return {
     sources: {
       sessions: () => [...sessions.values()],
-      autopilotRunning: () => autopilot,
+      autopilot: (): IdleRun[] => (autopilot ? [WAVE] : []),
     },
     observe: (listener: (sessionId: string, event: AgentEvent) => void) => {
       observers.add(listener)
@@ -38,8 +39,12 @@ function fakeWorld() {
   }
 }
 
+/** A run with a Wave in work, and runs in each Wait (worfy-continuity ticket 08). */
+const WAVE: IdleRun = { status: 'running', stopping: false }
+const waiting = (waitingFor: NonNullable<IdleRun['waitingFor']>): IdleRun => ({ status: 'waiting', waitingFor, stopping: false })
+
 describe('idle (spec R6)', () => {
-  const quiet = { sessions: () => [], autopilotRunning: () => false }
+  const quiet = { sessions: () => [], autopilot: () => [] }
 
   it('is false while a Session is busy or asks for a permission', () => {
     expect(idle({ ...quiet, sessions: () => [{ state: 'busy', backgroundTasks: 0 }] })).toBe(false)
@@ -50,14 +55,64 @@ describe('idle (spec R6)', () => {
     expect(idle({ ...quiet, sessions: () => [{ state: 'idle', backgroundTasks: 1 }] })).toBe(false)
   })
 
-  it('is false while Autopilot runs', () => {
-    expect(idle({ ...quiet, autopilotRunning: () => true })).toBe(false)
+  it('is false while an Autopilot run has a Wave in work', () => {
+    expect(idle({ ...quiet, autopilot: () => [WAVE] })).toBe(false)
+  })
+
+  it('is true while every Autopilot run waits for the Limits, the budget or the Start window (worfy-continuity ticket 08)', () => {
+    for (const wait of ['limits', 'daily-share', 'five-hour', 'start-window'] as const) expect(idle({ ...quiet, autopilot: () => [waiting(wait)] })).toBe(true)
+    expect(idle({ ...quiet, autopilot: () => [waiting('limits'), waiting('start-window')] })).toBe(true)
+  })
+
+  it('is false while a run in a Wait has a Session at work, or another run has a Wave in work', () => {
+    expect(idle({ sessions: () => [{ state: 'idle', backgroundTasks: 1 }], autopilot: () => [waiting('limits')] })).toBe(false)
+    expect(idle({ ...quiet, autopilot: () => [waiting('limits'), WAVE] })).toBe(false)
+  })
+
+  it('is false while a run waits to retry after an API error, waits for its Orchestrator, or stops', () => {
+    expect(idle({ ...quiet, autopilot: () => [waiting('retry')] })).toBe(false)
+    expect(idle({ ...quiet, autopilot: () => [waiting('orchestrator')] })).toBe(false)
+    expect(idle({ ...quiet, autopilot: () => [{ ...waiting('limits'), stopping: true }] })).toBe(false)
   })
 
   it('is true when all is quiet: idle, starting, closed and errored Sessions do not count', () => {
     const states: SessionState[] = ['idle', 'starting', 'closed', 'error']
     expect(idle({ ...quiet, sessions: () => states.map((state) => ({ state, backgroundTasks: 0 })) })).toBe(true)
     expect(idle(quiet)).toBe(true)
+  })
+})
+
+describe('autopilotRuns (worfy-continuity ticket 08)', () => {
+  /** An Autopilot whose runs the test sets by Project: its state, and whether it goes on. */
+  function fakeAutopilot(runs: Record<string, IdleRun | 'starting'>, any = Object.keys(runs).length > 0) {
+    const stopped = { status: 'stopped', stopping: false } as AutopilotState
+    return {
+      anyRunning: () => any,
+      running: (projectId: string) => projectId in runs,
+      state: (projectId: string) => {
+        const run = runs[projectId]
+        return (run === undefined || run === 'starting' ? stopped : run) as AutopilotState
+      },
+    }
+  }
+
+  it('reads none while Autopilot has stopped', () => {
+    expect(autopilotRuns(fakeAutopilot({}), ['p1'])).toEqual([])
+  })
+
+  it('reads the state of each Project whose run goes on', () => {
+    const runs = autopilotRuns(fakeAutopilot({ p1: waiting('limits'), p2: WAVE }), ['p1', 'p2', 'p3'])
+    expect(runs).toEqual([waiting('limits'), WAVE])
+    expect(idle({ sessions: () => [], autopilot: () => runs })).toBe(false)
+    expect(idle({ sessions: () => [], autopilot: () => autopilotRuns(fakeAutopilot({ p1: waiting('limits') }), ['p1']) })).toBe(true)
+  })
+
+  it('a start under way is at work', () => {
+    expect(idle({ sessions: () => [], autopilot: () => autopilotRuns(fakeAutopilot({ p1: 'starting' }), ['p1']) })).toBe(false)
+  })
+
+  it('a run going on outside the Projects (a stopped run still waiting for its tasks) is at work', () => {
+    expect(idle({ sessions: () => [], autopilot: () => autopilotRuns(fakeAutopilot({}, true), ['p1']) })).toBe(false)
   })
 })
 
@@ -91,9 +146,9 @@ describe('IdleWatch', () => {
 
   it('sees Autopilot at the next look, every 2 s, and not more often', () => {
     const world = fakeWorld()
-    const looks = vi.fn(world.sources.autopilotRunning)
+    const looks = vi.fn(world.sources.autopilot)
     const changes: boolean[] = []
-    const watch = new IdleWatch({ sources: { ...world.sources, autopilotRunning: looks }, observe: world.observe })
+    const watch = new IdleWatch({ sources: { ...world.sources, autopilot: looks }, observe: world.observe })
     const stop = watch.start()
     watch.subscribe((now) => changes.push(now))
     expect(IDLE_POLL_MS).toBe(2000)

@@ -1,13 +1,16 @@
 // "Nothing works" for "Restart when idle" (worfy-update ticket 04, spec R6, ADR-0089 point 5): no
 // Session in a turn (`busy` or `needs_permission`), no Session with a background task, and no
-// Autopilot run (Autopilot.anyRunning(), which counts a stopped run that still waits for the
-// background tasks of its Orchestrator). Terminals do not count: worfy closes their processes on
-// quit anyway.
+// Autopilot run at work. A run that waits for the Limits, the budget or the Start window is not at
+// work (worfy-continuity ticket 08): the restart suspends it, and it goes on with its Wait after the
+// start (ticket 06). A run with a Wave in work, one that waits to retry after an API error or for
+// its Orchestrator, one that stops, and a stopped run that still waits for the background tasks of
+// its Orchestrator are. Terminals do not count: worfy closes their processes on quit anyway.
 //
 // The watch looks again on each `state` and `background_tasks` event of a Session (the registry's
 // observe). Autopilot tells no subscriber of its own, so it is looked at every 2 s
 // (IDLE_POLL_MS); the look is a few reads in memory.
 import type { AgentEvent, SessionState } from '../../shared/agent/events'
+import type { AutopilotState } from '../../shared/ipc/autopilot'
 
 /** How often the watch looks at Autopilot, which sends no event it could follow. */
 export const IDLE_POLL_MS = 2000
@@ -19,17 +22,47 @@ export interface IdleSession {
   backgroundTasks: number
 }
 
+/** What the rule needs of an Autopilot run that goes on (AutopilotState); a start under way, or a stopped run still waiting for its tasks, is `running`. */
+export type IdleRun = Pick<AutopilotState, 'status' | 'waitingFor' | 'stopping'>
+
 export interface IdleSources {
   sessions: () => readonly IdleSession[]
-  autopilotRunning: () => boolean
+  /** Every Autopilot run that goes on; none when Autopilot has stopped. */
+  autopilot: () => readonly IdleRun[]
 }
 
 const inTurn = (state: SessionState): boolean => state === 'busy' || state === 'needs_permission'
 
+/** The Waits that do not hold a restart (worfy-continuity ticket 08): the Limits, the budget's two, the Start window. */
+const QUIET_WAITS: ReadonlySet<IdleRun['waitingFor']> = new Set(['limits', 'daily-share', 'five-hour', 'start-window'])
+
+/** The run sits in a Wait the restart may cut: it is suspended with it and goes on with it after the start. */
+const inQuietWait = (run: IdleRun): boolean => run.status === 'waiting' && !run.stopping && QUIET_WAITS.has(run.waitingFor)
+
 /** Nothing works: spec R6. */
-export function idle({ sessions, autopilotRunning }: IdleSources): boolean {
+export function idle({ sessions, autopilot }: IdleSources): boolean {
   if (sessions().some((session) => inTurn(session.state) || session.backgroundTasks > 0)) return false
-  return !autopilotRunning()
+  return autopilot().every(inQuietWait)
+}
+
+/** What the rule asks of Autopilot (src/main/autopilot/run.ts). */
+export interface IdleAutopilot {
+  anyRunning(): boolean
+  running(projectId: string): boolean
+  state(projectId: string): AutopilotState
+}
+
+/** A run at work that is not one of the Projects' runs: a start under way, or a stopped run still waiting for its tasks. */
+const AT_WORK: IdleRun = { status: 'running', stopping: false }
+
+/** The runs of `projectIds` that go on, as the rule reads them; none when Autopilot has stopped. */
+export function autopilotRuns(autopilot: IdleAutopilot, projectIds: readonly string[]): IdleRun[] {
+  if (!autopilot.anyRunning()) return []
+  const runs: IdleRun[] = projectIds.filter((projectId) => autopilot.running(projectId)).map((projectId) => autopilot.state(projectId))
+  // shortcut: while a Project's run goes on, a stopped run that still waits for its Orchestrator's tasks is seen
+  // only through those tasks of its Session (IdleSession.backgroundTasks), not by itself; redo when Autopilot names
+  // such runs.
+  return runs.length > 0 ? runs : [AT_WORK]
 }
 
 /** Something that says whether nothing works now, and tells its subscribers when that changes. */

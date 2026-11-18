@@ -17,7 +17,9 @@ import { ms } from '../time-scale'
 // real Stable copy or its data: the Stable copy is a path in the temporary folder.
 //
 // 1. A build ready at the start: the toast "worfy <version> ready" and no "available"; once nothing
-//    works, its button is "Restart now". "Later" closes it. Nothing restarts.
+//    works, its button is "Restart now" alone. While something works (a snapshot sent as main's
+//    `update.changed` would send it), "Restart when idle" and "Restart now" are both there
+//    (worfy-continuity ticket 08). "Later" closes it. Nothing restarts.
 // 2. "Update automatically" off and an Available update: the toast "New worfy <version> available".
 //    Its "Update" builds the Update in worfy's clone; the stand-in build exits 1, and the toast
 //    "Update failed" with "Show log" comes. "Show log" is not pressed: it opens a program of the system.
@@ -115,7 +117,12 @@ test.afterEach(async () => {
   if (scratch) await removeDir(scratch)
 })
 
-test('a build ready at the start shows "worfy <version> ready", not "available"; once nothing works its button is "Restart now"; "Later" closes it', async () => {
+/** The page's globals this file uses: the e2e typecheck has no DOM library. */
+interface PageGlobals {
+  worfy: { invoke(channel: string): Promise<{ ok: boolean; value?: Record<string, unknown> }> }
+}
+
+test('a build ready at the start shows "worfy <version> ready", not "available"; once nothing works its button is "Restart now"; during work "Restart when idle" and "Restart now"; "Later" closes it', async () => {
   const sha = 'c'.repeat(40)
   const version = `0.9.0+${sha.slice(0, 7)}`
   makeData({
@@ -125,16 +132,26 @@ test('a build ready at the start shows "worfy <version> ready", not "available";
   stub = await startUpdateStub({ head: sha, version: '0.9.0' }, { stable: join(scratch, 'stable') })
   const launched = await launch({})
   try {
-    const { window } = launched
+    const { app, window } = launched
     await canvasReady(launched, { size: { width: 1400, height: 900 }, timeout: ms(20_000) })
     const toast = window.getByTestId('update-ready')
     await expect(toast).toBeVisible({ timeout: ms(20_000) })
     await expect(toast).toContainText(`worfy ${version} ready`)
     // No Session and no Autopilot run: the watch finds it quiet, and the button changes in place.
-    await expect(toast.getByRole('button', { name: 'Restart now' })).toBeVisible({ timeout: ms(20_000) })
+    await expect(toast.getByRole('button', { name: 'Restart when idle' })).toHaveCount(0, { timeout: ms(20_000) })
+    await expect(toast.getByRole('button', { name: 'Restart now' })).toBeVisible()
     await expect(toast.getByRole('button', { name: 'Later' })).toBeVisible()
     await expect(window.getByTestId('update-available')).toHaveCount(0)
     await snapshotThemes(window, '07-update-ready')
+
+    // Something works: main's snapshot with `idle: false`, which this app with no Session cannot reach by itself.
+    const state = await window.evaluate(async () => (await (globalThis as unknown as PageGlobals).worfy.invoke('update.state')).value)
+    await app.evaluate(({ BrowserWindow }, payload) => {
+      for (const each of BrowserWindow.getAllWindows()) each.webContents.send('worfy:update.changed', payload)
+    }, { ...state, idle: false })
+    await expect(toast.getByRole('button', { name: 'Restart when idle' })).toBeVisible()
+    await expect(toast.getByRole('button', { name: 'Restart now' })).toBeVisible()
+    await snapshotThemes(window, '08-update-ready-busy')
 
     await toast.getByRole('button', { name: 'Later' }).click()
     await expect(toast).toHaveCount(0)

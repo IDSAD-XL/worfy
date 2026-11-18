@@ -1,7 +1,7 @@
 # 08 — Update во время работы: "Restart now" рядом с "Restart when idle", Run в Wait не держит Update
 
 Type: task
-Status: open
+Status: claimed 2026-11-18T09:06Z
 Blocked by: 04, 06
 Source: [spec.md](../spec.md), «Ticket-ы», 8; «Решения по реализации» → «Update во время работы»; «Вопросы владельцу», Q1
 ((а), решено без владельца, подтвердить; меняет решение 7 worfy-update); «Решения по test-ам», Contract и e2e; «Риски», 5
@@ -37,14 +37,25 @@ Source: [spec.md](../spec.md), «Ticket-ы», 8; «Решения по реал�
 
 - [ ] Contract test (рядом с `test/contract/update-restart.test.ts`): "Restart now" во время turn-а — не отказ, выход
       через координатор с причиной `update`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/update-restart.test.ts test/contract/update-restart-continuity.test.ts test/unit/update-idle.test.ts` exit 0 · mac - · 43a481af00596439170a331f1d1bbe90f9a2a33c
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/update-wiring.test.ts test/contract/update-restart.test.ts test/contract/update-restart-continuity.test.ts test/unit/update-idle.test.ts test/unit/update-quit.test.ts` exit 0 · mac - · 2c0304b931b7ab54cdf2d243a89b761b2edbbba1
 - [ ] Contract test: Run в Wait Limits не держит "Restart when idle" — перезапуск начинается.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/update-restart.test.ts test/contract/update-restart-continuity.test.ts test/unit/update-idle.test.ts` exit 0 · mac - · 43a481af00596439170a331f1d1bbe90f9a2a33c
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/update-wiring.test.ts test/contract/update-restart.test.ts test/contract/update-restart-continuity.test.ts test/unit/update-idle.test.ts test/unit/update-quit.test.ts` exit 0 · mac - · 2c0304b931b7ab54cdf2d243a89b761b2edbbba1
 - [ ] Unit test `idle()`: Run в Wait — простаивает; Run с Wave в работе — нет.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/update-restart.test.ts test/contract/update-restart-continuity.test.ts test/unit/update-idle.test.ts` exit 0 · mac - · 43a481af00596439170a331f1d1bbe90f9a2a33c
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/update-wiring.test.ts test/contract/update-restart.test.ts test/contract/update-restart-continuity.test.ts test/unit/update-idle.test.ts test/unit/update-quit.test.ts` exit 0 · mac - · 2c0304b931b7ab54cdf2d243a89b761b2edbbba1
 - [ ] Contract test: `restart.json` несёт причину; после старта `run-continued {after: update}`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/update-restart.test.ts test/contract/update-restart-continuity.test.ts test/unit/update-idle.test.ts` exit 0 · mac - · 43a481af00596439170a331f1d1bbe90f9a2a33c
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/update-wiring.test.ts test/contract/update-restart.test.ts test/contract/update-restart-continuity.test.ts test/unit/update-idle.test.ts test/unit/update-quit.test.ts` exit 0 · mac - · 2c0304b931b7ab54cdf2d243a89b761b2edbbba1
 - [ ] e2e test (рядом с `test/e2e/update-toasts.spec.ts`, `update-toolbar.spec.ts`, `update-settings.spec.ts`): во
       время работы видны обе кнопки.
 - [ ] Английская страница `docs/features/updates.md` описывает "Restart now" во время работы.
+  - evidence: commit pass · worfy-continuity/08: Restart now during work, a Run in a Wait does not hold Update · - - · 43a481af00596439170a331f1d1bbe90f9a2a33c
 - [ ] Платформенный PR (ADR-0056, пункт 2; ADR-0071): job Windows в составе `ci-ok` зелёный на head PR до merge.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 43a481af00596439170a331f1d1bbe90f9a2a33c
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 2c0304b931b7ab54cdf2d243a89b761b2edbbba1
 
 ## Тесты
 

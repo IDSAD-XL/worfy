@@ -3,7 +3,8 @@
 // Harness status (`harness.state`, `harness.changed`) through the toast store (toast/toasts.ts):
 //
 // - a built Update: "worfy <version> ready" with "Restart now" while nothing works, else "Restart
-//   when idle", and "Later"; the button changes in place (the same key) when `idle` changes;
+//   when idle" and "Restart now" (worfy-continuity ticket 08), and "Later"; the buttons change in
+//   place (the same key) when `idle` changes;
 // - otherwise, without "Update automatically", an Available update that is not quiet: "New worfy
 //   <version> available" · "Update" · "Later" (R11: with it on, the build runs in the background
 //   and only "ready" comes);
@@ -31,7 +32,7 @@ import { autoUpdateOf, type AppSettings } from '../../shared/settings/app-settin
 import { invoke, subscribe } from '../ipc'
 import { openSettings } from '../settings/settings-window'
 import { dismissToast, isToastShown, showToast } from '../toast/toasts'
-import { followUpdate, installUpdate, tellInstallRefusal, updateVersionLabel, useUpdateStore } from './store'
+import { followUpdate, installUpdate, RESTART_LABEL, tellInstallRefusal, updateVersionLabel, useUpdateStore, WAITING_TEXT } from './store'
 
 export const AVAILABLE_KEY = 'update-available'
 export const READY_KEY = 'update-ready'
@@ -48,7 +49,6 @@ export const RESTART_SHOWN_ITEM = 'worfy.update.lastRestartShown'
 /** The version of the failed build last told, in localStorage (worfy-polish ticket 48). */
 export const FAILED_SHOWN_ITEM = 'worfy.update.failedShown'
 
-export const WAITING_TEXT = 'worfy restarts when no Session is working and Autopilot has stopped'
 
 /** The calls the toasts make; installUpdateToasts gives the app's, a test its fakes. */
 export interface UpdateToastActions {
@@ -150,8 +150,9 @@ export function createUpdateToasts(actions: UpdateToastActions): UpdateToasts {
 
   function showReady(version: string, idle: boolean): void {
     readyButton = idle ? 'now' : 'idle'
-    const button = idle ? { label: 'Restart now', run: () => restart('now') } : { label: 'Restart when idle', run: () => restart('idle') }
-    showToast({ kind: 'action', key: READY_KEY, testId: READY_KEY, text: `worfy ${version} ready`, actions: [button, later] })
+    const button = (when: 'now' | 'idle') => ({ label: RESTART_LABEL[when], run: () => restart(when) })
+    const actions = idle ? ([button('now'), later] as const) : ([button('idle'), button('now'), later] as const)
+    showToast({ kind: 'action', key: READY_KEY, testId: READY_KEY, text: `worfy ${version} ready`, actions })
   }
 
   /** Draws "ready"; answers whether a build is ready, "Restart when idle" waiting or not. */

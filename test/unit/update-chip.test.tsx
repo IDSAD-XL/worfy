@@ -167,12 +167,23 @@ describe('UpdateChip', () => {
     const calls = fakeBridge()
     render(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot({ available: available(), idle: false, build: { phase: 'ready', sha: SHA, version: NEW } })} />)
     fireEvent.click(chip())
-    expect(items()).toEqual(['Restart when idle', "What's new", 'Later'])
+    expect(items()).toEqual(['Restart when idle', 'Restart now', "What's new", 'Later'])
     await act(async () => {
       fireEvent.click(screen.getByRole('menuitem', { name: 'Restart when idle' }))
       await Promise.resolve()
     })
     expect(calls).toEqual([{ channel: 'update.restart', input: { when: 'idle' } }])
+  })
+
+  it('built while a Session works: "Restart now" next to it calls update.restart { when: now } (worfy-continuity ticket 08)', async () => {
+    const calls = fakeBridge()
+    render(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot({ available: available(), idle: false, build: { phase: 'ready', sha: SHA, version: NEW } })} />)
+    fireEvent.click(chip())
+    await act(async () => {
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Restart now' }))
+      await Promise.resolve()
+    })
+    expect(calls).toEqual([{ channel: 'update.restart', input: { when: 'now' } }])
   })
 
   it('a failed build: the dot, the failure tooltip, and "Update worfy" builds again', async () => {

@@ -13,9 +13,11 @@
 // what the restart does and from which copy, read at the next start (settleLastRestart below; ticket
 // 05 installs the Harness by it). Then worfy quits.
 //
-// A restart happens only when nothing works (spec R6, src/main/update/idle.ts); otherwise it is
-// refused with the reason. "Restart when idle" keeps the wish (RestartIntent) and restarts once
-// nothing works; "Restart now" pressed again, or a cancel, drops it, and so does a quit of worfy.
+// "Restart now" restarts during work too (worfy-continuity ticket 08, its spec's Q1 (a)): the press is
+// the consent to the quit's grace and to the suspension of the Runs (src/main/quit-grace.ts, cause
+// `update`). "Restart when idle" keeps the wish (RestartIntent) and restarts once nothing works
+// (spec R6, src/main/update/idle.ts); "Restart now", or a cancel, drops it, and so does a quit of
+// worfy. A roll back is still refused while something works.
 import { spawn as nodeSpawn } from 'node:child_process'
 import { closeSync, existsSync, openSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { join, posix, win32 } from 'node:path'
@@ -44,7 +46,7 @@ const QUITTING: RestartAnswer = { outcome: 'refused', reason: 'worfy is quitting
  * the start after the restart has used that consent (src/main/update/harness-after-update.ts); the
  * record stays, so the previous copy keeps the name it gives it (previousCopy). `from.number`: the
  * build number of the copy that ran (worfy-update ticket 14), so the roll back can name it by number;
- * a record of a build without one, or written before the ticket, has none.
+ * a record of a build without one, or written before the ticket, has none. `cause`: see below.
  */
 export const restartRecordSchema = z.object({
   action: z.enum(['install', 'rollback']),
@@ -53,6 +55,13 @@ export const restartRecordSchema = z.object({
   from: z.object({ sha: z.string(), version: z.string(), number: z.number().int().positive().optional() }),
   harness: z.literal(true),
   harnessTaken: z.literal(true).optional(),
+  /**
+   * Why worfy quits (worfy-continuity ticket 08): `update`, the cause the quit's coordinator also writes into the
+   * Runs' `run-suspended`. The start after takes a Run's cause from that line (src/shared/autopilot/checkpoint.ts)
+   * and a Session's from `at` (src/main/agent/continuity.ts); the record says it too, for whatever reads it after a
+   * quit that wrote no line. Records written before the ticket have none.
+   */
+  cause: z.literal('update').optional(),
   at: z.iso.datetime(),
 })
 export type RestartRecord = z.infer<typeof restartRecordSchema>
@@ -249,19 +258,32 @@ interface Plan {
 }
 
 /**
+ * A restart asked for. `untilIdle`: it waits for nothing to work — a roll back, or the wish of "Restart when idle" —
+ * and is refused when something does; a press of "Restart now" while the wish's restart is asked for clears it.
+ */
+interface Flight {
+  kind: 'install' | 'rollback'
+  answer: Promise<RestartAnswer>
+  untilIdle: boolean
+}
+
+/** Whether a plan looks at the work: as last seen, afresh, or not at all ("Restart now"). */
+type IdleLook = 'last' | 'fresh' | 'none'
+
+/**
  * The restarts of the app: one at a time, and none once worfy quits. A press while a restart is
  * asked for already gets that one's answer.
  */
 export class Restarts {
   readonly intent: RestartIntent
-  private inFlight: { kind: 'install' | 'rollback'; answer: Promise<RestartAnswer> } | null = null
+  private inFlight: Flight | null = null
   /** worfy quits: the helper started, or the user quit. */
   private quittingNow = false
   /** Raised by each cancel: an install asked for before it does not start the helper. */
   private generation = 0
 
   constructor(private readonly options: RestartsOptions) {
-    this.intent = new RestartIntent({ idle: options.idle, restartNow: () => this.now(), ...(options.onChange === undefined ? {} : { onChange: options.onChange }) })
+    this.intent = new RestartIntent({ idle: options.idle, restartNow: () => this.now(true), ...(options.onChange === undefined ? {} : { onChange: options.onChange }) })
   }
 
   /** "Restart when idle" waits. */
@@ -289,8 +311,8 @@ export class Restarts {
     // Always through the wish: a Session that begins a turn while the restart is asked for keeps it waiting.
     if (when === 'idle') return this.quittingNow ? Promise.resolve(QUITTING) : this.intent.arm()
     // A new press of "Restart now" drops the wish of "Restart when idle", whatever it answers.
-    if (when === 'now') this.intent.cancel()
-    return this.now()
+    this.intent.cancel()
+    return this.now(false)
   }
 
   /** The roll back to the previous copy, after `confirm` (the native dialog of spec R8) said yes. */
@@ -298,7 +320,7 @@ export class Restarts {
     if (this.quittingNow) return Promise.resolve(QUITTING)
     if (this.inFlight !== null) return Promise.resolve({ outcome: 'refused', reason: 'a restart is under way' })
     const answer = this.rollbackAfter(confirm).finally(() => (this.inFlight = null))
-    this.inFlight = { kind: 'rollback', answer }
+    this.inFlight = { kind: 'rollback', answer, untilIdle: true }
     return answer
   }
 
@@ -308,25 +330,32 @@ export class Restarts {
     this.intent.quitting()
   }
 
-  private now(): Promise<RestartAnswer> {
+  /** An install; `untilIdle`: only while nothing works (the wish of "Restart when idle"). */
+  private now(untilIdle: boolean): Promise<RestartAnswer> {
     if (this.quittingNow) return Promise.resolve(QUITTING)
-    if (this.inFlight?.kind === 'install') return this.inFlight.answer
+    if (this.inFlight?.kind === 'install') {
+      if (!untilIdle) this.inFlight.untilIdle = false
+      return this.inFlight.answer
+    }
     if (this.inFlight !== null) return Promise.resolve({ outcome: 'refused', reason: 'a roll back is under way' })
-    const answer = this.installNow().finally(() => (this.inFlight = null))
-    this.inFlight = { kind: 'install', answer }
-    return answer
+    const flight: Flight = { kind: 'install', answer: Promise.resolve(QUITTING), untilIdle }
+    this.inFlight = flight
+    flight.answer = this.installNow(flight).finally(() => {
+      if (this.inFlight === flight) this.inFlight = null
+    })
+    return flight.answer
   }
 
-  private async installNow(): Promise<RestartAnswer> {
+  private async installNow(flight: Flight): Promise<RestartAnswer> {
     const generation = this.generation
-    const first = this.plan('install')
+    const first = this.plan('install', flight.untilIdle ? 'last' : 'none')
     if ('outcome' in first) return first
     const env = await this.options.env()
     if (generation !== this.generation) return { outcome: 'cancelled' }
     const ahead = await this.aheadOfRunning(first.record)
     if (ahead !== null) return ahead
     if (generation !== this.generation) return { outcome: 'cancelled' }
-    return this.launch(env, 'install', first.record.sha)
+    return this.launch(env, flight, first.record.sha)
   }
 
   /**
@@ -374,20 +403,22 @@ export class Restarts {
   }
 
   private async rollbackAfter(confirm: (version: string) => Promise<boolean>): Promise<RestartAnswer> {
-    const first = this.plan('rollback')
+    const first = this.plan('rollback', 'last')
     if ('outcome' in first) return first
     if (!(await confirm(numberedVersion(first.record.version, first.number)))) return { outcome: 'cancelled' }
     const env = await this.options.env()
-    return this.launch(env, 'rollback')
+    return this.launch(env, { kind: 'rollback', untilIdle: true })
   }
 
   /**
    * Starts the helper and quits, all in one synchronous run: whatever changed while the caller
-   * waited (a Session began a turn, the build went, worfy began to quit) is looked at again first.
+   * waited (the build went, worfy began to quit, and for a restart that waits for nothing to work, a
+   * Session began a turn) is looked at again first.
    */
-  private launch(env: Env, action: 'install' | 'rollback' = 'install', checked?: string): RestartAnswer {
+  private launch(env: Env, flight: Pick<Flight, 'kind' | 'untilIdle'>, checked?: string): RestartAnswer {
     if (this.quittingNow) return QUITTING
-    const plan = this.plan(action, true)
+    const action = flight.kind
+    const plan = this.plan(action, flight.untilIdle ? 'fresh' : 'none')
     if ('outcome' in plan) return plan
     // Another build became ready while the one checked was compared: that one was not checked.
     if (checked !== undefined && plan.record.sha !== checked) return { outcome: 'refused', reason: 'another Update became ready while this one was checked: press Restart now again' }
@@ -414,7 +445,7 @@ export class Restarts {
     try {
       removeFile(resultFile(dir))
       before = existsSync(restartFile(dir)) ? readFileSync(restartFile(dir), 'utf8') : null
-      writeJsonFile(restartFile(dir), restartRecordSchema, { ...plan.record, at: (this.options.now ?? (() => new Date()))().toISOString() })
+      writeJsonFile(restartFile(dir), restartRecordSchema, { ...plan.record, cause: 'update', at: (this.options.now ?? (() => new Date()))().toISOString() })
     } catch (error) {
       return { outcome: 'refused', reason: `${restartFile(dir)} could not be written (${message(error)})` }
     }
@@ -458,11 +489,12 @@ export class Restarts {
   }
 
   /**
-   * What `action` would do now, or the refusal. `fresh`: the Sessions and Autopilot are looked at
-   * now, not as last seen (Autopilot is looked at only every 2 s).
+   * What `action` would do now, or the refusal. `look`: whether something at work refuses it — as last
+   * seen, or `fresh`: the Sessions and Autopilot looked at now (Autopilot is looked at only every 2 s);
+   * `none` for "Restart now", which the quit's grace lets the work end for.
    */
-  private plan(action: 'install' | 'rollback', fresh = false): Plan | RestartAnswer {
-    if (!(fresh ? this.options.idle.recheck() : this.options.idle.idle)) return BUSY
+  private plan(action: 'install' | 'rollback', look: IdleLook): Plan | RestartAnswer {
+    if (look !== 'none' && !(look === 'fresh' ? this.options.idle.recheck() : this.options.idle.idle)) return BUSY
     const { dir } = this.options
     if (!existsSync(helperScript(dir))) return { outcome: 'refused', reason: `the clone of Update has no ${helperScript(dir)}` }
     const state = readUpdateState(this.options.stateFile())

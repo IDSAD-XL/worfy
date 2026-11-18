@@ -173,6 +173,11 @@ test('"Check now" shows the Available update; with "Update automatically" off no
         await expect(settings.getByTestId('settings-updates-show-log')).toBeVisible()
         await expect(settings.getByTestId('settings-updates-install')).toBeDisabled()
       }
+      if (name === 'ready-busy') {
+        // worfy-continuity ticket 08: during work "Restart now" stands next to "Restart when idle".
+        await expect(settings.getByRole('button', { name: 'Restart when idle' })).toBeVisible()
+        await expect(settings.getByRole('button', { name: 'Restart now' })).toBeEnabled()
+      }
       await snapshotThemes(window, `${name === 'building-step' ? '16' : '09'}-updates-${name}`)
     }
     await sendSnapshot(app, { ...base, idle: false, build: { phase: 'ready', sha: NEWER, version: `9.9.9+${NEWER.slice(0, 7)}` } })
@@ -180,7 +185,8 @@ test('"Check now" shows the Available update; with "Update automatically" off no
     await settings.getByRole('button', { name: 'Close' }).click()
     await window.keyboard.press('ControlOrMeta+k')
     await window.getByTestId('palette-input').fill('update')
-    await expect(palette.locator('[data-testid="palette-option"][data-command="update-worfy"]')).toContainText('ready — restart')
+    await expect(palette.locator('[data-testid="palette-option"][data-command="update-worfy"]')).toContainText('ready — restart when idle')
+    await expect(palette.locator('[data-testid="palette-option"][data-command="update-restart-now"]')).toContainText('Restart now')
     await snapshotThemes(window, '09-updates-palette-ready')
   } finally {
     await launched.close()
