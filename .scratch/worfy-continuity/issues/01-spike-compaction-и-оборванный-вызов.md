@@ -52,9 +52,12 @@ Source: [spec.md](../spec.md), «Ticket-ы», 1; «Решения по реал�
 
 - [ ] Скрипт spike-а в `scripts/spikes/compaction/` влит; в CI он не запускается.
 - [x] «Итог» отвечает на все шесть вопросов, у каждого ответа — команда и вывод запуска.
+  - evidence: commit pass · worfy-continuity/01: spike on compaction hooks and resuming a cut-off tool call · - - · a049e6135719008c8896d3652138132a5b259919
 - [ ] «Итог» называет модель и цену каждого запуска; общая цена — не выше предела из brief-а.
 - [x] «Итог» называет решение для Ticket-ов 05, 06 (вопрос 6), 10 (вопрос 2) и 12 (вопросы 4 и 5).
+  - evidence: commit pass · worfy-continuity/01: spike on compaction hooks and resuming a cut-off tool call · - - · a049e6135719008c8896d3652138132a5b259919
 - [ ] `pnpm lint`, `pnpm typecheck` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck` exit 0 · mac - · a049e6135719008c8896d3652138132a5b259919
 
 ## Где в коде
 
