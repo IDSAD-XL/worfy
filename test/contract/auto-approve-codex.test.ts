@@ -22,7 +22,7 @@ import { openRunApproval, type RunApproval } from '../../src/main/agent/auto-app
 import { hasExited } from '../../src/main/agent/session/process'
 import type { CodexRuntime } from '../../src/main/vendors/codex/binary'
 import { codexScript, UNATTENDED_DECLINED_MESSAGE } from '../../src/main/vendors/codex/approvals'
-import { codexSessions } from '../../src/main/vendors/codex/session'
+import { CODEX_COMPACT_PROMPT, codexSessions } from '../../src/main/vendors/codex/session'
 import type { ApprovalDecided, ApprovalWhere, PermissionAsk, RefusalDetails, SessionApproval, SessionHandle } from '../../src/main/vendors/session'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
@@ -365,7 +365,7 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
     expect(off.spawnedEnv[0]?.['GIT_CONFIG_PARAMETERS']).toBe(before.spawnedEnv[0]?.['GIT_CONFIG_PARAMETERS'])
     // The same thread: no variable pinned in Codex's shell environment.
     expect(off.threadStart()).toEqual(before.threadStart())
-    expect(off.threadStart()?.['config']).toBeUndefined()
+    expect(off.threadStart()?.['config']).toEqual({ compact_prompt: CODEX_COMPACT_PROMPT })
   })
 
   it('Shadow: every approval is declined as at Off, and each decision is recorded with what the policy would have done', async () => {
@@ -459,7 +459,10 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
     const home = Object.fromEntries(['HOME', 'USERPROFILE'].flatMap((name) => (spawned?.[name] === undefined ? [] : [[name, spawned[name]]])))
     expect(Object.keys(home).length).toBeGreaterThan(0)
     const pinned = { ...home, ...on.run.environment }
-    expect(on.threadStart()?.['config']).toEqual(Object.fromEntries(Object.entries(pinned).map(([name, value]) => [`shell_environment_policy.set.${name}`, value])))
+    expect(on.threadStart()?.['config']).toEqual({
+      ...Object.fromEntries(Object.entries(pinned).map(([name, value]) => [`shell_environment_policy.set.${name}`, value])),
+      compact_prompt: CODEX_COMPACT_PROMPT,
+    })
     expect(on.wheres).toHaveLength(COUNT)
     for (const where of on.wheres) {
       expect(where.env).toEqual(spawned)

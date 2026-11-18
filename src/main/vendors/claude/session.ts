@@ -650,6 +650,7 @@ export function claudeSessions(factory: QueryFactory, given: Partial<UserDefault
       ...(opts.kind === undefined ? {} : { kind: opts.kind }),
       ...(opts.kind === 'product' ? { askProductWrite: claudeProductWriteAsker(opts) } : {}),
       ...(opts.environment === undefined ? {} : { environment: opts.environment }),
+      ...(opts.epic === undefined ? {} : { epic: opts.epic }),
       ...(folders === undefined ? {} : { toolUse: folders.record, processEnv: folders.started }),
     })
     return handle

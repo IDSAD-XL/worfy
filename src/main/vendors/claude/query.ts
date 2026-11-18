@@ -374,6 +374,8 @@ export function sdkQueryFactory(
       autoCompactWindow: autoCompactWindow(request.orchestrator === true),
       // The Run's TMPDIR and git environment, and where the shell stands for each tool call (worfy-auto-approve ticket 04).
       environment: request.environment,
+      // The Epic of an Orchestrator Autopilot started (worfy-continuity ticket 12): WORFY_EPIC and a line of the system prompt.
+      epic: request.epic,
       toolUse: request.toolUse,
       // A Product Session's limits (worfy-product-session ticket 02): the PreToolUse guard and its kind in the environment.
       // A write outside its folder is asked about (worfy-polish ticket 82): the Project's list, the closed folders, the person.

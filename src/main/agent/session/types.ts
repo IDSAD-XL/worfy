@@ -162,6 +162,11 @@ export interface QueryRequest {
    */
   kind?: SessionKind | undefined
   /**
+   * The Epic whose Waves the Session runs (SessionStart.epic, worfy-continuity ticket 12): `WORFY_EPIC` in
+   * Claude Code's environment and a line of the system prompt (options.ts, waveInstructions). Absent: neither.
+   */
+  epic?: string | undefined
+  /**
    * Variables Claude Code gets over the agent environment: the Run's TMPDIR and git environment
    * (worfy-auto-approve ticket 04). Absent: none.
    */

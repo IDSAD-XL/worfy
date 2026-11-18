@@ -344,6 +344,10 @@ compact "$CP" compact
 c="$(actx)"
 [[ "$c" == *"# Wave brief: ep2"* ]] && ok "after-compact: without WORFY_EPIC, the Epic of the checkout's branch comes first" \
     || bad "after-compact: Epic from the branch: err=[$(cat "$T/aerr")] ctx=[${c:0:300}]"
+compact "$CP" compact WORFY_EPIC=ep1
+c="$(actx)"
+[[ "$c" == *"# Wave brief: ep1"* && "$c" != *"Wave brief: ep2"* ]] && ok "after-compact: WORFY_EPIC comes before the Epic of the checkout's branch" \
+    || bad "after-compact: WORFY_EPIC over the branch: err=[$(cat "$T/aerr")] ctx=[${c:0:300}]"
 git -C "$CP" checkout -q main >/dev/null 2>&1
 
 compact "$T/cmp/wt-02" compact WORFY_EPIC=ep2

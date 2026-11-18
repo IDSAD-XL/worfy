@@ -1,7 +1,7 @@
 # 12 — worfy: `WORFY_EPIC`, дописка к system prompt, Codex `compact_prompt`, строка «Context compacted»
 
 Type: task
-Status: open
+Status: claimed 2026-11-18T08:11Z
 Blocked by: 11
 Source: [spec.md](../spec.md), «Ticket-ы», 12; «Решения по реализации» → «Compaction», пункт «worfy (12)»; «Истории
 пользователя», 10; «Риски», 13
@@ -66,3 +66,40 @@ Source: [spec.md](../spec.md), «Ticket-ы», 12; «Решения по реал
 ## Вне скоупа
 
 - Своё сжатие контекста («якорные» summary) — вне Epic-а.
+
+## Итог
+
+Сделано 2026-11-18, ветка `worfy-continuity/12`.
+
+- **Пункт 1 — `WORFY_EPIC`.** Посылка тикета, что Session Orchestrator-а для Wave запускает `src/main/actions/launch.ts`,
+  не подтвердилась: `sendWave` только отправляет текст в Session, которую уже запустил `src/main/agent/orchestrator.ts`,
+  а окружение процесса фиксируется при его старте. Поэтому Epic берёт сам Orchestrators при каждом старте unattended
+  Session (`waveEpic` → `Autopilot.runningEpic`): при старте Run-а и для новой SDK session перед каждой следующей Wave,
+  в том числе при переходе на следующий Epic очереди. `launch.ts` и `run.ts` не тронуты. Связь с Autopilot — через
+  динамический `import('../ipc/autopilot')` в `app-orchestrators.ts`, как в `browser-server.ts`: статический импорт дал
+  бы цикл.
+- **Ограничение.** «Run wave» руками в уже запущенный attended Orchestrator `WORFY_EPIC` не даёт: окружение процесса
+  задано при старте, а перезапускать Orchestrator ради переменной worfy не станет. Там hook `after-compact` берёт Epic
+  ветки checkout-а, иначе первый из Epics in play (Ticket 11). Attended Orchestrator — открытый человеком или отданный
+  после Run-а — Epic-а не несёт.
+- **Пункт 2 — дописка к system prompt.** Добавлена: «Итог» Ticket-а 01, вопрос 4, — дописка переживает compaction главной
+  Session (`system_prompt_append_after: True` и при `/compact`, и при auto-compaction). Строка называет только Epic и
+  просит запустить `wave-brief <epic>`; Ticket-ов Wave в ней нет: Session стартует до того, как Run прочитал Ticket-ы
+  Wave (`newSession` идёт перед `autopilotWave`), и одна Session может вести несколько Wave.
+- **Пункт 3 — Codex.** `compact_prompt` в `config` и `thread/start`, и `thread/resume` — полный prompt: строка с задачей
+  и `harness/hooks/rules/compaction.md` целиком (по «Итогу» 01, вопрос 5, это замена prompt-а Codex, не дописка). Он же
+  перекрывает `compact_prompt` из config.toml пользователя для thread-ов, которые запускает worfy. Элемент
+  `contextCompaction` приходит (записанный трафик Codex 0.166.0, `test/fixtures/codex-messages/compact.jsonl`) — на него
+  та же строка, но без trigger и чисел: в элементе их нет. Codex Orchestrator тоже получает `WORFY_EPIC` в окружении
+  app-server.
+- **Пункт 4 — строка.** `compact_boundary` → notice «Context compacted (auto) · 812K → 41K»; без `post_tokens` — без
+  второго числа. Числа пишутся как в Context meter. После повторного открытия Session из транскрипта строки нет:
+  разбор транскрипта (`src/shared/transcript/parse.ts`) вне следа тикета.
+- **Долг Ticket-а 11 закрыт:** `harness/hooks/tests/session-hooks.test.sh` проверяет, что `WORFY_EPIC` идёт раньше Epic-а
+  ветки; без этого правила в `after-compact.mjs` проверка красная (прогон на копии harness).
+- **Снимок экрана строки** не сделан: Electron и e2e на этом Mac агентам запускать нельзя (правило владельца
+  2026-11-11); снимок — в приёмку владельцем (Ticket 15).
+- **Файлы вне списка** (согласованы с Orchestrator-ом): `src/main/agent/orchestrator.ts`,
+  `src/main/agent/app-orchestrators.ts`, `src/main/agent/session-settings.ts`, `src/main/agent/session.ts`,
+  `src/main/agent/session/types.ts`, `src/main/vendors/claude/query.ts`, `src/main/vendors/session.ts`,
+  `harness/hooks/tests/session-hooks.test.sh`.

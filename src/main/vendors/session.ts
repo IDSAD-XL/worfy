@@ -11,6 +11,9 @@ import type { SessionKind } from '../../shared/ipc/sessions'
 import type { AutoApprovalMode } from '../../shared/settings/app-settings'
 import type { ApprovalRequest, Decision } from '../agent/auto-approve/policy'
 
+/** The variable that names the Epic of a Session that runs a Wave (SessionStart.epic; read by harness/hooks/after-compact.mjs). */
+export const EPIC_VARIABLE = 'WORFY_EPIC'
+
 /** A message of the user, in worfy's types rather than the Vendor's. */
 export interface SessionMessage {
   text: string
@@ -130,6 +133,11 @@ export interface SessionStart {
    * worfy-auto-approve ticket 04), read when the process starts; absent: none.
    */
   environment?: Readonly<Record<string, string>> | undefined
+  /**
+   * The Epic whose Waves the Session runs (SessionLaunch.epic, worfy-continuity ticket 12): the agent's
+   * process gets `WORFY_EPIC` (Claude: also a line of the system prompt). Absent: a Session of no Wave.
+   */
+  epic?: string | undefined
   /**
    * The MCP servers turned off for this Session (Turn off for this Session, worfy-mcp-live ticket 03):
    * a driver whose mcp part `restarts` starts its agent without them. Absent or empty: none.

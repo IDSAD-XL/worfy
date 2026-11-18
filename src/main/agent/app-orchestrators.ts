@@ -17,6 +17,9 @@
 //
 // Once the first window has loaded, the Sessions a restart of worfy cut off are continued
 // (continueAfterRestart, continuity.ts; worfy-continuity ticket 05).
+//
+// An unattended Orchestrator starts with the Epic of the Autopilot run that holds it (waveEpic,
+// Autopilot.runningEpic; worfy-continuity ticket 12): WORFY_EPIC for the Harness's after-compact hook.
 import { execFile } from 'node:child_process'
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -72,12 +75,31 @@ class AppOrchestrators extends Orchestrators {
 
 let shared: Orchestrators | null = null
 
+/**
+ * The app's Autopilot module, for the Epic of a run (Orchestrators' waveEpic, worfy-continuity ticket 12). Loaded
+ * by a dynamic import when the Orchestrators are made, not by a static one: ipc/autopilot.ts imports this module
+ * itself (as src/main/mcp/browser-server.ts reaches it). A run exists only once that module has loaded, so an
+ * unattended Session never starts before the lookup can answer.
+ */
+let autopilotModule: Pick<typeof import('../ipc/autopilot'), 'existingAutopilot'> | null = null
+
+/** The Epic of the Project's run that goes on or is starting; null with no Autopilot made yet, or no run. */
+function runningEpic(projectId: string): string | null {
+  return autopilotModule?.existingAutopilot()?.runningEpic(projectId) ?? null
+}
+
 /** What a Node shows before its Session says anything, when the transcript is not read. */
 const NO_FACTS: TranscriptFacts = { model: null, statusBlock: null }
 
 /** The app's Orchestrators, made on first use. */
 export function sharedOrchestrators(): Orchestrators {
   if (shared === null) {
+    void import('../ipc/autopilot').then(
+      (module) => {
+        autopilotModule = module
+      },
+      (error: unknown) => console.warn('[orchestrator] could not load Autopilot: no Session gets the Epic of a run', error),
+    )
     const claude = new ClaudeHomeRegistry({ home: claudeHome() })
     /** Each Vendor's reader of what a saved session's transcript tells the Node (TranscriptFacts). */
     const transcripts: Record<VendorId, (projectRoot: string, sessionId: string) => Promise<TranscriptFacts | null>> = {
@@ -103,6 +125,7 @@ export function sharedOrchestrators(): Orchestrators {
       transcript: (projectRoot, sdkSessionId, vendor) => transcripts[vendor](projectRoot, sdkSessionId),
       capabilities: (vendor) => vendorDriver(vendor).capabilities(),
       harnessHooks: (vendor) => vendorDriver(vendor).harnessHooks,
+      waveEpic: runningEpic,
       broadcast: (sessionId, event) => toEveryWindow((target) => emit(target, agentEvent, { sessionId, event })),
       publish: (view) => {
         try {

@@ -25,7 +25,7 @@ import { canvasBindingForSession } from '../../src/main/mcp/canvas-server'
 import { startMcpHttpEndpoint, type McpHttpEndpoint } from '../../src/main/mcp/http-server'
 import type { CodexRuntime } from '../../src/main/vendors/codex/binary'
 import { codexMcpSessions, type CodexMcpResolver } from '../../src/main/vendors/codex/mcp'
-import { codexSessions } from '../../src/main/vendors/codex/session'
+import { CODEX_COMPACT_PROMPT, codexSessions } from '../../src/main/vendors/codex/session'
 import type { SessionHandle, SessionPart, SessionStart } from '../../src/main/vendors/session'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
@@ -216,7 +216,11 @@ interface Server {
 
 /** The servers thread/start (or thread/resume) named, by name. */
 const serversOf = (request: Logged | undefined): Record<string, Server> =>
-  Object.fromEntries(Object.entries((request?.params?.config ?? {}) as Record<string, Server>).map(([key, value]) => [key.replace(/^mcp_servers\./, ''), value]))
+  Object.fromEntries(
+    Object.entries((request?.params?.config ?? {}) as Record<string, Server>)
+      .filter(([key]) => key.startsWith('mcp_servers.'))
+      .map(([key, value]) => [key.replace(/^mcp_servers\./, ''), value]),
+  )
 
 interface Called {
   status: number
@@ -244,7 +248,7 @@ describe('a Codex Session: worfy\'s MCP servers', () => {
     await session.until(isAccount, 'account')
     const [start] = withMcp.requests('thread/start')
     expect(start?.params).toMatchObject({ cwd: withMcp.root, approvalPolicy: 'never', sandbox: 'danger-full-access' })
-    expect(Object.keys(start?.params?.config as object).sort()).toEqual(['mcp_servers.worfy-browser', 'mcp_servers.worfy-canvas'])
+    expect(Object.keys(start?.params?.config as object).sort()).toEqual(['compact_prompt', 'mcp_servers.worfy-browser', 'mcp_servers.worfy-canvas'])
     const servers = serversOf(start)
     for (const [name, server] of Object.entries(servers)) {
       expect(server).toEqual({ url: expect.stringMatching(new RegExp(`^http://127\\.0\\.0\\.1:\\d+/mcp/${name}$`)), bearer_token_env_var: 'WORFY_MCP_TOKEN' })
@@ -382,7 +386,9 @@ describe('a Codex Session: worfy\'s MCP servers', () => {
     const withMcp = fake('turn', { env: { NO_PROXY: 'corp.example' } })
     withMcp.mcp = (await mcpFor(withMcp.root, ['qmd'])).resolver
     await (await live(withMcp)).until(isAccount, 'account')
-    expect(withMcp.requests('thread/start').map((request) => request.params)).toEqual([{ cwd: withMcp.root, approvalPolicy: 'never', sandbox: 'danger-full-access' }])
+    expect(withMcp.requests('thread/start').map((request) => request.params)).toEqual([
+      { cwd: withMcp.root, approvalPolicy: 'never', sandbox: 'danger-full-access', config: { compact_prompt: CODEX_COMPACT_PROMPT } },
+    ])
     expect(withMcp.launches[0]?.env.WORFY_MCP_TOKEN).toBeUndefined()
     expect(withMcp.launches[0]?.env.NO_PROXY).toBe('corp.example')
     expect(withMcp.launches[0]?.env.no_proxy).toBeUndefined()
@@ -391,7 +397,9 @@ describe('a Codex Session: worfy\'s MCP servers', () => {
     // The Project is a folder inside the Session's cwd, so the cwd is in no Project.
     noProject.mcp = (await mcpFor(join(noProject.root, 'another-project'))).resolver
     await (await live(noProject)).until(isAccount, 'account')
-    expect(noProject.requests('thread/start').map((request) => request.params)).toEqual([{ cwd: noProject.root, approvalPolicy: 'never', sandbox: 'danger-full-access' }])
+    expect(noProject.requests('thread/start').map((request) => request.params)).toEqual([
+      { cwd: noProject.root, approvalPolicy: 'never', sandbox: 'danger-full-access', config: { compact_prompt: CODEX_COMPACT_PROMPT } },
+    ])
     expect(noProject.launches[0]?.env.WORFY_MCP_TOKEN).toBeUndefined()
   })
 

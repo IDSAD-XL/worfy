@@ -15,6 +15,7 @@ import {
   TOOL_USE_HOOK_TIMEOUT_S,
   toolUseHooks,
   userExtensions,
+  waveInstructions,
   withBrowserServer,
   type BrowserAttachment,
   type CanvasAttachment,
@@ -760,6 +761,24 @@ describe('sessionOptions of a Product Session', () => {
   it('appends the instructions it is given after the servers\' ones', () => {
     const options = sessionOptions(productInput({ instructions: 'PRODUCT RULES' }))
     expect(options.systemPrompt).toEqual({ type: 'preset', preset: 'claude_code', append: 'PRODUCT RULES' })
+  })
+})
+
+describe('sessionOptions of a Session that runs a Wave (worfy-continuity ticket 12)', () => {
+  it('carries WORFY_EPIC in its environment, over the Run variables; a Session without a Wave has none', () => {
+    expect(sessionOptions(input({ epic: 'worfy-continuity' })).env).toEqual({ ...env, WORFY_EPIC: 'worfy-continuity' })
+    expect(sessionOptions(input({ epic: 'worfy-continuity', environment: { TMPDIR: '/t', WORFY_EPIC: 'other' } })).env).toEqual({ ...env, TMPDIR: '/t', WORFY_EPIC: 'worfy-continuity' })
+    expect(sessionOptions(input({})).env).toBe(env)
+    expect(sessionOptions(input({ environment: { TMPDIR: '/t' } })).env).not.toHaveProperty('WORFY_EPIC')
+    expect(sessionOptions(input({ epic: '' })).env).toBe(env)
+  })
+
+  it('names the Epic in a line appended to the system prompt, after the servers\' instructions; without a Wave there is no such line', () => {
+    const options = sessionOptions(input({ epic: 'worfy-continuity', canvas }))
+    expect(options.systemPrompt).toEqual({ type: 'preset', preset: 'claude_code', append: `${canvas.instructions}\n${waveInstructions('worfy-continuity')}` })
+    expect(waveInstructions('worfy-continuity')).toContain('Epic worfy-continuity')
+    expect(waveInstructions('worfy-continuity')).toContain('wave-brief worfy-continuity')
+    expect(sessionOptions(input({})).systemPrompt).toEqual({ type: 'preset', preset: 'claude_code' })
   })
 })
 

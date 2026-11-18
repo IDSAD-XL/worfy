@@ -32,7 +32,7 @@ import { UNATTENDED_DECLINED_MESSAGE } from '../../src/main/vendors/codex/approv
 import type { CodexRuntime } from '../../src/main/vendors/codex/binary'
 import { codexDriver } from '../../src/main/vendors/codex'
 import { CODEX_CAPABILITIES, codexCapabilities } from '../../src/main/vendors/codex/capabilities'
-import { codexSessions } from '../../src/main/vendors/codex/session'
+import { CODEX_COMPACT_PROMPT, codexSessions } from '../../src/main/vendors/codex/session'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 import { ms } from '../time-scale'
@@ -193,6 +193,8 @@ interface Fake {
   root: string
   log: string
   spawnedChildren: ChildProcess[]
+  /** The environment each process the stand-in started got, in the order of `spawnedChildren`. */
+  spawnedEnvs: NodeJS.ProcessEnv[]
   /** With `holdClose`, the 'close' of each process the stand-in started, in the order of `spawnedChildren`. */
   holds: CloseHold[]
   /** What worfy sent the fake so far. */
@@ -209,8 +211,10 @@ function fake(script: string, env: Record<string, string> = {}, options: { holdC
   const preload = join(root, 'preload.mjs')
   writeFileSync(preload, PRELOAD)
   const spawnedChildren: ChildProcess[] = []
+  const spawnedEnvs: NodeJS.ProcessEnv[] = []
   const holds: CloseHold[] = []
   const spawnProcess = (_file: string, args: readonly string[], spawnOptions: SpawnOptions): ChildProcess => {
+    spawnedEnvs.push(spawnOptions.env ?? {})
     const child = spawn(scriptNode(), ['--import', pathToFileURL(preload).href, ...args], spawnOptions)
     children.push(child)
     spawnedChildren.push(child)
@@ -239,6 +243,7 @@ function fake(script: string, env: Record<string, string> = {}, options: { holdC
     root,
     log,
     spawnedChildren,
+    spawnedEnvs,
     holds,
     logged,
     requests: (method) => logged().filter((message) => message.method === method),
@@ -265,6 +270,8 @@ interface Options {
   resume?: string
   /** The gate the Session answers approvals with; one that records every request by default. */
   permissions?: PermissionAsker
+  /** The Epic of the Wave the Session runs (SessionStart.epic). */
+  epic?: string
 }
 
 /** What a Session gives its driver, with every call recorded in `into`. */
@@ -274,6 +281,7 @@ function startOptions(at: Fake, into: Pick<Live, 'asks' | 'refused' | 'stderr' |
     settings: options.settings ?? DEFAULT_SETTINGS,
     unattended: options.unattended ?? false,
     orchestrator: false,
+    ...(options.epic === undefined ? {} : { epic: options.epic }),
     permissions: options.permissions ?? {
       ask: (request) =>
         new Promise<string | null>((resolve, reject) => {
@@ -342,7 +350,9 @@ describe('a Codex Session: start and turns', () => {
       },
     ])
     // DEFAULT_SETTINGS run in bypassPermissions: Codex's "Full access".
-    expect(at.requests('thread/start').map((request) => request.params)).toEqual([{ cwd: at.root, approvalPolicy: 'never', sandbox: 'danger-full-access' }])
+    expect(at.requests('thread/start').map((request) => request.params)).toEqual([
+      { cwd: at.root, approvalPolicy: 'never', sandbox: 'danger-full-access', config: { compact_prompt: CODEX_COMPACT_PROMPT } },
+    ])
     expect(at.requests('turn/start').map((request) => request.params)).toEqual([{ threadId: 'thr_fake_1', input: [text('Say hello')] }])
     expect(session.spawned).toEqual(at.spawnedChildren)
   })
@@ -353,7 +363,9 @@ describe('a Codex Session: start and turns', () => {
     await session.handle.send(message('Say hello'))
     const init = await session.until((event) => event.type === 'init', 'init')
     expect(init).toMatchObject({ model: 'gpt-5.5-codex', permissionMode: 'read-only' })
-    expect(at.requests('thread/start').map((request) => request.params)).toEqual([{ cwd: at.root, approvalPolicy: 'on-request', sandbox: 'read-only', model: 'gpt-5.4' }])
+    expect(at.requests('thread/start').map((request) => request.params)).toEqual([
+      { cwd: at.root, approvalPolicy: 'on-request', sandbox: 'read-only', model: 'gpt-5.4', config: { compact_prompt: CODEX_COMPACT_PROMPT } },
+    ])
     expect(at.requests('turn/start').map((request) => request.params)).toEqual([{ threadId: 'thr_fake_1', input: [text('Say hello')], effort: 'low' }])
   })
 
@@ -456,8 +468,35 @@ describe('a Codex Session: start and turns', () => {
     const result = await session.until(isResult, 'the result')
     expect(result).toMatchObject({ isError: false, text: 'Hello again.' })
     expect(session.events.find((event) => event.type === 'init')).toMatchObject({ sdkSessionId: 'thr_fake_1' })
-    expect(at.requests('thread/resume').map((request) => request.params)).toEqual([{ threadId: 'thr_fake_1', cwd: at.root, approvalPolicy: 'never', sandbox: 'danger-full-access' }])
+    expect(at.requests('thread/resume').map((request) => request.params)).toEqual([
+      { threadId: 'thr_fake_1', cwd: at.root, approvalPolicy: 'never', sandbox: 'danger-full-access', config: { compact_prompt: CODEX_COMPACT_PROMPT } },
+    ])
     expect(at.requests('thread/start')).toEqual([])
+  })
+
+  it('gives the thread the compaction rules of the Harness as compact_prompt in its config (worfy-continuity ticket 12)', async () => {
+    const rules = readFileSync(join(REPO, 'harness', 'hooks', 'rules', 'compaction.md'), 'utf8')
+    const at = fake('turn')
+    const session = await live(at)
+    await session.until((event) => event.type === 'account', 'account')
+    const [start] = at.requests('thread/start')
+    const config = start?.params?.config as Record<string, unknown> | undefined
+    expect(config?.compact_prompt).toBe(CODEX_COMPACT_PROMPT)
+    // A whole prompt, since compact_prompt replaces Codex's own (the spike of ticket 01, question 5): a task, then the rules.
+    expect(CODEX_COMPACT_PROMPT).toMatch(/^Compact the conversation so far/)
+    expect(CODEX_COMPACT_PROMPT).toContain(rules.trim())
+  })
+
+  it('a Session that runs a Wave starts the app-server with WORFY_EPIC, which its shells and hooks inherit; one of no Wave gets the environment as it is (worfy-continuity ticket 12)', async () => {
+    const wave = fake('turn')
+    await (await live(wave, { epic: 'ep-a' })).until((event) => event.type === 'account', 'account')
+    expect(wave.spawnedEnvs[0]?.WORFY_EPIC).toBe('ep-a')
+    // Not pinned in the shell environment policy: the variable rides the process's own environment.
+    expect(wave.requests('thread/start')[0]?.params?.config).toEqual({ compact_prompt: CODEX_COMPACT_PROMPT })
+
+    const plain = fake('turn')
+    await (await live(plain)).until((event) => event.type === 'account', 'account')
+    expect(plain.spawnedEnvs[0]?.WORFY_EPIC).toBe(process.env.WORFY_EPIC)
   })
 })
 
@@ -949,6 +988,11 @@ describe('a Codex Session: the slash menu (worfy-multi-vendor ticket 22)', () =>
     await eventually(() => session.events.filter(isResult).length === 2, 'the result of the second compaction')
     expect(session.events.filter(isResult).map((event) => event.type === 'result' && event.isError)).toEqual([false, false])
     expect(at.requests('thread/compact/start').map((request) => request.params)).toEqual([{ threadId: 'thr_fake_1' }, { threadId: 'thr_fake_1' }])
+    // Each contextCompaction item is the Session view's line (worfy-continuity ticket 12); Codex tells no tokens in it.
+    expect(session.events.filter((event) => event.type === 'notice' || event.type === 'unknown')).toEqual([
+      { type: 'notice', kind: 'notification', text: 'Context compacted' },
+      { type: 'notice', kind: 'notification', text: 'Context compacted' },
+    ])
 
     // A refusal (here the fake's, its script has ended) is a result that names it.
     await session.handle.send(message('/compact'))
