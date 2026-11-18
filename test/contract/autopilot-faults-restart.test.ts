@@ -49,10 +49,17 @@ function quitRun(options: FaultRunOptions) {
   return { h, grace }
 }
 
-/** Starts the Run and waits until Wave 1's command reached the Orchestrator and both its Tickets are claimed in the journal. */
+/**
+ * Starts the Run and waits until Wave 1's command reached the Orchestrator and both its Tickets are claimed in the journal.
+ * Both are waited for: the claims follow the Session's `prompt` event (the marks of faultRun), while the fake agent
+ * records the message only when its query reads it, later; a quit in between would halt the query before it did.
+ */
 async function inWave1(h: FaultRun): Promise<void> {
   expect(await h.start()).toEqual({ refusal: null })
-  await until(() => h.journal(1).filter((event) => event.kind === 'ticket-status' && event.state === 'claimed').length === 2, 'Wave 1 to claim its Tickets')
+  await until(
+    () => waveCommands(h).length === 1 && h.journal(1).filter((event) => event.kind === 'ticket-status' && event.state === 'claimed').length === 2,
+    'Wave 1 to reach the Orchestrator and claim its Tickets',
+  )
 }
 
 const runOf = (h: FaultRun): string => h.journal(1)[0]!.run
