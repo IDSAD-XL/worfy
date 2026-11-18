@@ -46,9 +46,11 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Пот
 - [ ] Unit test (`test/unit/canvas-actions.test.tsx`): Ticket с PR в `DIRTY` и красным CI — кнопка Resolve conflicts и в
       меню Fix checks; PR без причин — кнопки нет; PR inbox выключен — кнопки нет.
   - evidence: test-run pass · `pnpm test test/unit/canvas-actions.test.tsx test/unit/pr-follow-choices.test.tsx` exit 0 · mac - · 208de743da7ac3ac4e1385230cb8090e40c6cbb6
+  - evidence: test-run pass · `pnpm test test/unit/canvas-actions.test.tsx test/unit/pr-follow-choices.test.tsx` exit 0 · mac - · 5bd4948c6f615c9794b01a3417e4b0719daf2c83
 - [ ] Unit test (`test/unit/palette-commands.test.tsx`): строки palette совпадают с кнопкой — те же действия и те же
       причины отказа.
   - evidence: test-run pass · `pnpm test test/unit/palette-commands.test.tsx` exit 0 · mac - · 208de743da7ac3ac4e1385230cb8090e40c6cbb6
+  - evidence: test-run pass · `pnpm test test/unit/palette-commands.test.tsx` exit 0 · mac - · 5bd4948c6f615c9794b01a3417e4b0719daf2c83
 - [ ] e2e test рядом с `test/e2e/ship-ticket.spec.ts` (gh stub): у Ticket-а нет Session с Binding-ом; щелчок Resolve
       conflicts на Ticket Node создаёт новую Session Node у Ticket-а, её первое сообщение —
       `/worfy:pr-fix conflicts <repo>#<N> <sha>` с head из stub-а. Путь в Session с Binding-ом проверяет contract test
