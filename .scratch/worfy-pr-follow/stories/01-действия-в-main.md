@@ -295,3 +295,19 @@ export function usePrFollowState(projectId: string, row: PrInboxRow, action: PrF
    - Строки: `src/shared/actions/render-template.ts:33-46`
    - Ответ: head приходит не от renderer-а, а из GitHub через свежее чтение main, и render — последнее место перед
      Session с `bypassPermissions`.
+
+## 10. Что нашёл review и что осталось
+
+> VERIFIED
+> Noted: round 3 (ba5232fe2..cfb385368, read by the orchestrator): the wait of a PR action ends on `error` or `closed` (ENDED, src/main/actions/launch.ts), Ship ticket and Run wave keep waiting through `error` (CLOSED) so a Session that restarts on the user's next send still gets its Binding; the refusal reads "… is already starting for repo#N: wait for its Session, or close its Node to start again" (prFollowStartingHint); test/contract/actions.test.ts:755 runs error and closed, each with and without a Ticket naming the PR, and the 5 mutants of the end-state check fail it.
+> Consider: a PR-action Session in `error` that the user revives by a message gets no Ticket Binding (the wait ended), so a later click on the PR starts a second Session (low).
+> Noted: rounds 1–2 — 36 mutants of round 1 (26 killed, the 10 survivors fixed in round 2), 2 more on the lock release; the lock holds until the new Session's Binding is written, a click into the Ticket's own Session holds none; isCrossRepository parsed (test/contract/pr-inbox.test.ts); prInboxPull refreshes and matches by repository and number.
+> Checks: implementer on cfb385368 — lint EXIT=0, typecheck EXIT=0, 7 touched unit+contract files (217 tests) EXIT=0, story-check EXIT=0, gate fast [gate] green EXIT=0; verifier round 2 (own copy) — 52 files, 1583 tests EXIT=0.
+> Review depth: medium — round 3, delta read by the orchestrator (3 files, 74 lines)
+> Review tokens: 0
+
+Code: `test/contract/actions.test.ts:755-755` · key lines: 755
+
+```ts
+    ] as const)('a new Session that ends in %s before its id frees the lock (a PR %s): the next click starts a new one', async (state, whose) => {
+```
