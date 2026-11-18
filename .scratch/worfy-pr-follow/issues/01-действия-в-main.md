@@ -81,22 +81,31 @@ Source: [spec.md](../spec.md), «Ticket-ы», 1; «Решение» → «Куд
 
 - [ ] Unit test (`test/unit/action-templates.test.ts`): три действия, подписи, шаблоны плагина, пустые шаблоны старого
       Harness; settings без новых полей читаются с шаблонами по умолчанию.
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · a57442e1608790945c69189a61f46005395933bd
 - [ ] Unit test (`test/unit/render-template.test.ts`): `{sha}` из 40 hex рендерится; короче, длиннее, с пробелом или
       переводом строки — отказ; `prFollowState` с пустым шаблоном — отказ с подсказкой.
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · a57442e1608790945c69189a61f46005395933bd
 - [ ] Unit test (новый `test/unit/pr-follow.test.ts`): причины и порядок — `DIRTY` первым, затем `failing`, затем
       замечания; чужой PR, PR из fork, закрытый PR — отказ с причиной.
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · a57442e1608790945c69189a61f46005395933bd
 - [ ] Unit test (`test/unit/project-settings-shell.test.tsx`): в Project settings — три новых поля.
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · a57442e1608790945c69189a61f46005395933bd
 - [ ] Unit test hook-а `usePrFollowState`: пустой шаблон, read-only и причина отказа функции — кнопка неактивна с
       причиной; test-ы `test/unit/review-threads-badge.test.tsx` и `test/unit/pr-inbox-view.test.tsx` зелёные после
       переноса функций в `src/shared`.
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · a57442e1608790945c69189a61f46005395933bd
 - [ ] Contract test (`test/contract/actions.test.ts`): Session Node с Binding-ом launch на Ticket и `lastAt` 23 ч —
       текст уходит в неё (`sent`; во время хода — `queued`; без процесса — после продолжения через
       `NodeSessions.started`), есть notice-строка; `lastAt` 25 ч или Session на Codex — новая Session Node (`new`) с
       Binding-ом launch.
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · a57442e1608790945c69189a61f46005395933bd
 - [ ] Contract test: отказ при Autopilot, при `busy` Orchestrator-е Epic-а Ticket-а, для PR из fork и чужого PR;
       `{sha}` в тексте — head свежего чтения, а не head прошлого snapshot-а.
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · a57442e1608790945c69189a61f46005395933bd
 - [ ] Contract test: Linked machine с доступом read-only получает отказ (`write`).
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · a57442e1608790945c69189a61f46005395933bd
 - [ ] Английская страница `docs/features/projects.md` описывает три действия, `{sha}` и маршрут.
+  - evidence: commit pass · worfy-pr-follow/01: Fix checks, Resolve conflicts and Address comments in main · - - · a57442e1608790945c69189a61f46005395933bd
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Где в коде
