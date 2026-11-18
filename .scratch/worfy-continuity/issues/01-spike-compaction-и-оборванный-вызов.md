@@ -1,7 +1,8 @@
 # 01 — Spike: compaction в Claude Code и Codex, продолжение транскрипта, оборванного посреди вызова
 
 Type: spike
-Status: claimed 2026-11-17T23:32Z
+Status: done 2026-11-18T00:54Z
+PR: #1972
 Blocked by: none
 Source: [spec.md](../spec.md), «Ticket-ы», 1; «Решения по реализации» → «Compaction», пункт «Spike сначала (01)»;
 «Риски», 8 и 13; [critic 2026-11-14](../../../docs/product/critic/worfy-continuity-2026-11-14.md), возражение 2;
@@ -53,11 +54,15 @@ Source: [spec.md](../spec.md), «Ticket-ы», 1; «Решения по реал�
 - [ ] Скрипт spike-а в `scripts/spikes/compaction/` влит; в CI он не запускается.
 - [x] «Итог» отвечает на все шесть вопросов, у каждого ответа — команда и вывод запуска.
   - evidence: commit pass · worfy-continuity/01: spike on compaction hooks and resuming a cut-off tool call · - - · a049e6135719008c8896d3652138132a5b259919
+  - evidence: review pass · PR #1972 · - - · 03a780a269275cf95b729161124ce3c47aaa3f09
 - [ ] «Итог» называет модель и цену каждого запуска; общая цена — не выше предела из brief-а.
+  - evidence: review pass · PR #1972 · - - · 03a780a269275cf95b729161124ce3c47aaa3f09
 - [x] «Итог» называет решение для Ticket-ов 05, 06 (вопрос 6), 10 (вопрос 2) и 12 (вопросы 4 и 5).
   - evidence: commit pass · worfy-continuity/01: spike on compaction hooks and resuming a cut-off tool call · - - · a049e6135719008c8896d3652138132a5b259919
+  - evidence: review pass · PR #1972 · - - · 03a780a269275cf95b729161124ce3c47aaa3f09
 - [ ] `pnpm lint`, `pnpm typecheck` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck` exit 0 · mac - · a049e6135719008c8896d3652138132a5b259919
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44209523373/job/134489741359 · ci - · 03a780a269275cf95b729161124ce3c47aaa3f09
 
 ## Где в коде
 

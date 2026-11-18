@@ -148,3 +148,17 @@ async function runCutoff(): Promise<Facts> {
 2. Почему вопрос 4 решается по записи запроса, а не по ответу модели?
    - Ответ: метка дописки стоит и в summary, поэтому ответ модели не показывает, пережила ли дописка compaction.
    - Строки: `scripts/spikes/compaction/probe.ts:349-350`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED
+> Noted: scripts/spikes/compaction/probe.ts:508 [low] — the Q6 claim «the model does not repeat the call itself» is confounded: the resume prompt forbids tools, so the data supports «the model proposes a rerun»; the 05/06 decision does not rest on it. probe.ts:497 [low] — `pgrep -f 'sleep 20'` matches any process with that string, so «command still running» is weak evidence (the story says so, the result section does not). Ticket item 2 [low] — Q5 (Codex) has no run output, by the brief's ban on the real binary; it is marked as documentation-only.
+> Review depth: low — default: the profile has no review.depth.wave
+> Review tokens: 84749
+> Could not verify: the probe outputs of the real-model runs, the SIGKILL/SIGTERM behaviour, the 1.45 USD actually spent and the Codex documentation — a real run was forbidden in the review.
+
+Code: `scripts/spikes/compaction/probe.ts:508-508` · key lines: 508
+
+```ts
+      'worfy restarted while your last turn was running. Do not run any tool in this reply.',
+```
