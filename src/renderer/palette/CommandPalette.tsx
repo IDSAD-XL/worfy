@@ -23,7 +23,7 @@ import { TRANSCRIPT_SEARCH, type TranscriptHit } from '../../shared/ipc/claude-h
 import type { ProjectView } from '../../shared/ipc/projects'
 import { SHORTCUTS } from '../../shared/shortcuts'
 import { UNNAMED_VENDOR } from '../../shared/vendors/vendor'
-import { useRunWaveState, useShipTicketState } from '../canvas/actions/gates'
+import { usePrFollowState, useRunWaveState, useShipTicketState } from '../canvas/actions/gates'
 import { useLayout } from '../canvas/useLayout'
 import { sessionNodeId } from '../claude-home/session-nodes'
 import { useClaudeHome } from '../claude-home/useClaudeHome'
@@ -31,6 +31,7 @@ import { useDocs } from '../docs/useDocs'
 import { useCanvasRequests } from '../find/canvas-requests'
 import { rankItems } from '../find/search-index'
 import { invoke, readableReason, windowMachine } from '../ipc'
+import { usePrInbox } from '../pr-inbox/usePrInbox'
 import { useGateQueue } from '../projects/useGateQueue'
 import { activeProject, useProjects, useReadOnly } from '../projects/useProjects'
 import { openSession, useNavigation } from '../session/navigation'
@@ -256,11 +257,16 @@ function RunWaveRow({ gate, ...props }: RowProps & { gate: Extract<CommandGate, 
   return <RowButton {...props} state={useRunWaveState(gate.projectId, gate.epic, gate.tickets)} />
 }
 
+function PrFollowRow({ gate, ...props }: RowProps & { gate: Extract<CommandGate, { kind: 'pr-follow' }> }) {
+  return <RowButton {...props} state={usePrFollowState(gate.projectId, gate.row, gate.action)} />
+}
+
 function CommandRow(props: RowProps) {
   const { gate, readOnly } = props.command
   // Before the gate: on a read-only screen the action cannot run whatever its own state is.
   if (readOnly !== undefined) return <RowButton {...props} state={{ enabled: false, reason: readOnly }} />
   if (gate === undefined) return <RowButton {...props} state={null} />
+  if (gate.kind === 'pr-follow') return <PrFollowRow {...props} gate={gate} />
   return gate.kind === 'ship-ticket' ? <ShipTicketRow {...props} gate={gate} /> : <RunWaveRow {...props} gate={gate} />
 }
 
@@ -378,6 +384,8 @@ function ProjectPalette({ project, projects, onClose }: PanelProps) {
   const readOnly = useReadOnly()
   // Read when the palette opens, on the window's Machine (worfy-windows ticket 17).
   const gateQueue = useGateQueue(windowMachine(), project.id)
+  // The PR inbox the Ticket Nodes' "Fix checks" and the like read (worfy-pr-follow ticket 05): the same rows here.
+  const { snapshot: prInbox } = usePrInbox(project.id)
   // main's Update snapshot (worfy-update ticket 09): "Update worfy" follows it while the palette is open.
   const update = useUpdate()
   const commands = useMemo(
@@ -394,9 +402,10 @@ function ProjectPalette({ project, projects, onClose }: PanelProps) {
         createItems,
         readOnly,
         gateQueue,
+        prInbox,
         update,
       }),
-    [project, projects, view, model, layout, history, docs, tagFilter, createItems, readOnly, gateQueue, update],
+    [project, projects, view, model, layout, history, docs, tagFilter, createItems, readOnly, gateQueue, prInbox, update],
   )
   const transcripts = useMemo(() => ({ projectId: project.id, projectRoot: project.path }), [project.id, project.path])
   return <PaletteBody commands={commands} empty="Nothing matches" onClose={onClose} transcripts={transcripts} />

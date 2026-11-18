@@ -9,6 +9,9 @@
 // stand for. "Ship ticket" and "Run wave" are the actions of ticket 23 (`actions.shipTicket`,
 // `actions.runWave`); when they exist and whether they are active is decided by the same code the
 // buttons use (canvas/actions/gates.ts), and main checks again.
+// "Fix checks owner/web#118", "Resolve conflicts …" and "Address comments …" (worfy-pr-follow ticket 05,
+// `actions.prFollow`) are a row per action a Ticket's PR in the PR inbox has a reason for: the same list the
+// button on the Ticket Node draws (canvas/actions/PrFollow.tsx), and the same state (usePrFollowState).
 // The unchecked manual checks (the profile's manual mark) of every Ticket (shared/workflow/manual-checks.ts) are rows of
 // their own group, found by typing only; picking one goes to its Ticket. They are read, never ticked.
 // Nothing here writes a Ticket's status or anything in the Project (ADR-0002, ADR-0005).
@@ -21,7 +24,7 @@
 // "Archive finished sessions now" (worfy-canvas ticket 08, ADR-0076, point 9) takes the finished
 // Sessions off the Canvas by the archive's rule at once, as one step of ⌘Z (canvas/archive-now.ts).
 // On the read-only screen of a Linked machine (worfy-link ticket 26, ADR-0066) the commands that
-// would change the Project — New …, Tidy up, Arrange by Epic, Re-pack, Archive finished sessions now, Run wave, Ship ticket, Process gate queue — carry the read-only hint and
+// would change the Project — New …, Tidy up, Arrange by Epic, Re-pack, Archive finished sessions now, Run wave, Ship ticket, Process gate queue, Fix checks, Resolve conflicts, Address comments — carry the read-only hint and
 // their rows are inactive with it; moving the Canvas, the views and switching Projects stay active.
 // "Reconnect machine…" and "Remove machine…" (worfy-link ticket 37) are a row per Linked machine,
 // its name the detail: the row is the choice of the Machine. They do what the buttons of its row in
@@ -52,6 +55,8 @@ import type { AdrEntry } from '../../shared/ipc/docs'
 import type { ProjectView } from '../../shared/ipc/projects'
 import type { HistorySession } from '../../shared/ipc/claude-home'
 import type { GateQueueView } from '../../shared/ipc/gate-queue'
+import type { PrInboxRow, PrInboxSnapshot } from '../../shared/ipc/pr-inbox'
+import type { PrFollowAction } from '../../shared/projects/action-templates'
 import type { LinkedMachineView } from '../../shared/ipc/link'
 import type { UpdateSnapshot } from '../../shared/ipc/update'
 import { failureReason } from '../../shared/ipc/channels'
@@ -61,6 +66,7 @@ import { SHORTCUTS } from '../../shared/shortcuts'
 import type { Ticket, WorkflowModel } from '../../shared/workflow/types'
 import { runAllAccepted } from '../autopilot/start-modal'
 import { hasRunWave, hasShipTicket } from '../canvas/actions/gates'
+import { prFollowChoices, prFollowTitle } from '../canvas/actions/pr-follow-choices'
 import { archiveFinishedNow } from '../canvas/archive-now'
 import { requestRepack } from '../canvas/sources/epics'
 import { showNode } from '../canvas/show-node'
@@ -87,10 +93,11 @@ import { setRunsTab } from '../work-track/store'
 
 export type CommandGroup = 'Action' | 'Go to' | 'View' | 'Project' | 'Manual check'
 
-/** An action of ticket 23 whose state the palette row works out, like the button on the Canvas. */
+/** An action of ticket 23, or of worfy-pr-follow ticket 05, whose state the palette row works out, like the button on the Canvas. */
 export type CommandGate =
   | { kind: 'ship-ticket'; projectId: string; ticket: Ticket; tickets: readonly Ticket[] }
   | { kind: 'run-wave'; projectId: string; epic: string; tickets: readonly Ticket[] }
+  | { kind: 'pr-follow'; projectId: string; row: PrInboxRow; action: PrFollowAction }
 
 export interface PaletteCommand extends Rankable {
   id: string
@@ -122,6 +129,8 @@ export interface CommandContext {
   createItems: readonly PaletteCreateItem[]
   /** The read-only hint of the window's screen (useReadOnly); null or absent — the Project can be changed. */
   readOnly?: string | null | undefined
+  /** The Project's PR inbox (usePrInbox); absent, off or without the Tickets' PRs — no "Fix checks" and the like. */
+  prInbox?: PrInboxSnapshot | undefined
   /** The Project's cross-machine gate queue (useGateQueue); absent — not read (yet), no command. */
   gateQueue?: GateQueueView | undefined
   /** Now, in milliseconds, for the age of the oldest wait; Date.now() when absent. */
@@ -289,7 +298,7 @@ function actionCommands({ project, createItems, readOnly, gateQueue, now }: Comm
   return commands
 }
 
-function workflowActionCommands({ project, model, readOnly }: CommandContext): PaletteCommand[] {
+function workflowActionCommands({ project, model, readOnly, prInbox }: CommandContext): PaletteCommand[] {
   if (!project || !model || model.error !== null) return []
   const projectId = project.id
   const hint = readOnly ?? undefined
@@ -338,6 +347,27 @@ function workflowActionCommands({ project, model, readOnly }: CommandContext): P
         return result.ok ? undefined : failureReason('actions.shipTicket', result.error)
       },
     })
+  }
+  for (const ticket of model.tickets) {
+    // Only what the Ticket's button and its «▾» offer (canvas/actions/PrFollow.tsx).
+    const ref = `${ticket.epic}/${nn(ticket.num)}`
+    for (const choice of prFollowChoices(prInbox, ticket, model.tickets)) {
+      const { row, action } = choice
+      const title = prFollowTitle(choice)
+      commands.push({
+        id: `pr-follow:${action}:${row.repo}#${row.number}`,
+        group: 'Action',
+        title,
+        detail: `${ref} — ${ticket.title}`,
+        keys: [title.toLowerCase(), `${title.toLowerCase()} ${ref}`],
+        gate: { kind: 'pr-follow', projectId, row, action },
+        readOnly: hint,
+        run: async () => {
+          const result = await invoke('actions.prFollow', { projectId, repo: row.repo, pr: row.number, action })
+          return result.ok ? undefined : failureReason('actions.prFollow', result.error)
+        },
+      })
+    }
   }
   return commands
 }
