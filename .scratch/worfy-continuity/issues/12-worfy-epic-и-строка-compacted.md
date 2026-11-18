@@ -38,17 +38,22 @@ Source: [spec.md](../spec.md), «Ticket-ы», 12; «Решения по реал
 
 - [ ] Unit test `sessionEnv`: Session Wave-а несёт `WORFY_EPIC`; обычная Session — нет.
   - evidence: test-run pass · `pnpm test test/unit/agent-options.test.ts test/contract/orchestrator-wave-epic.test.ts` exit 0 · mac - · 6fc7043ee2491118cb80f50c7f2255c7ecc49698
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/agent-options.test.ts test/contract/orchestrator-wave-epic.test.ts test/contract/app-orchestrators.test.ts test/contract/codex-session.test.ts` exit 0 · mac - · e4823794515716704c68a32beb97a969cb00b378
 - [ ] Unit test: `compact_boundary` с `compact_metadata` даёт строку «Context compacted (auto) · 812K → 41K»; без
       `post_tokens` — без второго числа.
   - evidence: test-run pass · `pnpm test test/unit/claude-compact-line.test.ts` exit 0 · mac - · 6fc7043ee2491118cb80f50c7f2255c7ecc49698
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/claude-compact-line.test.ts test/contract/agent-compacted-line.test.ts` exit 0 · mac - · e4823794515716704c68a32beb97a969cb00b378
 - [ ] Contract test на fake agent (`WORFY_AGENT=fake`): сценарий с `compact_boundary` — строка в событиях Session view.
   - evidence: test-run pass · `pnpm test test/contract/agent-compacted-line.test.ts` exit 0 · mac - · 6fc7043ee2491118cb80f50c7f2255c7ecc49698
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/claude-compact-line.test.ts test/contract/agent-compacted-line.test.ts` exit 0 · mac - · e4823794515716704c68a32beb97a969cb00b378
 - [ ] Contract test на fake app-server Codex: `compact_prompt` в `config` `thread/start`.
   - evidence: test-run pass · `pnpm test test/contract/codex-session.test.ts` exit 0 · mac - · 6fc7043ee2491118cb80f50c7f2255c7ecc49698
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/agent-options.test.ts test/contract/orchestrator-wave-epic.test.ts test/contract/app-orchestrators.test.ts test/contract/codex-session.test.ts` exit 0 · mac - · e4823794515716704c68a32beb97a969cb00b378
 - [ ] Английская страница `sessions.md` описывает строку «Context compacted».
   - evidence: commit pass · worfy-continuity/12: WORFY_EPIC of a Wave, Codex compact_prompt, the "Context compacted" line · - - · 6fc7043ee2491118cb80f50c7f2255c7ecc49698
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 6fc7043ee2491118cb80f50c7f2255c7ecc49698
+  - evidence: gate pass · `gate fast` exit 0 · mac - · e4823794515716704c68a32beb97a969cb00b378
 
 ## Тесты
 
