@@ -373,4 +373,6 @@ the home folder shown as `~` is `USERPROFILE`. The Gate's launcher is on the [Ga
 Main tests, all shell tests: `harness/hooks/tests/rules-hooks.test.sh`, `harness/hooks/tests/session-hooks.test.sh`,
 `harness/hooks/tests/gh-token-env.test.sh`, `harness/hooks/tests/guard-silent.test.sh` and
 `harness/bin/tests/harness-home.test.sh`. The eval `harness/evals/status-block/` checks by behaviour that a main Session
-follows the rules.
+follows the rules. The eval `harness/evals/compaction-state/` asks an implementer six questions after a compaction —
+its goal, Ticket, done items, files, decisions and next step — with `compaction.md` and `after-compact.mjs` and, in a
+copy of the Harness that `baseline.mjs` makes, without them.

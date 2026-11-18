@@ -40,6 +40,7 @@ export const CASES: [name: string, tag: 'main' | 'gui'][] = [
   ['human-review-setup-full', 'main'],
   ['pr-reply-three-threads', 'main'],
   ['pr-reply-guards', 'main'],
+  ['compaction-state', 'main'],
 ]
 /**
  * The YAML front matter of a case or grader file as `claude plugin eval` cuts it ('' when there is none). The CLI
