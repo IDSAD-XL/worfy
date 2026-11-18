@@ -45,9 +45,13 @@ Source: три CI run-а, красный job `windows (2/3) / full-suite` (об�
 
 - [ ] Test «gh hangs the whole Run» зелёный с задержкой старта второго вызова stand-in-а 1,7 с и 4 с и с задержкой
       чтения Ticket-ов 1,6 с и 2,5 с (временная правка, не в PR), где до исправления он красный.
+  - evidence: test-run pass · `pnpm test test/contract/autopilot-faults-github.test.ts -t "gh hangs the whole Run"` exit 0 with EXP_STUB_SLOW=1700/4000 and EXP_SLOW=1600/2500 (temporary delay edits, reverted); exit 1 before the fix · mac - · b11ac4e27cb3ab05b55168751a558e0a3ac03b0e
 - [ ] Все test-ы `test/contract/autopilot-faults-*.test.ts` зелёные; `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
+  - evidence: test-run pass · `pnpm test test/contract/autopilot-faults-*.test.ts test/contract/test-timeout-scale.test.ts` exit 0 · mac - · b11ac4e27cb3ab05b55168751a558e0a3ac03b0e
+  - evidence: gate pass · `gate fast` exit 0 · mac - · b11ac4e27cb3ab05b55168751a558e0a3ac03b0e
 - [ ] Job `windows (2/3) / full-suite` PR-а зелёный.
 - [ ] Записи карантина для этого test-а нет.
+  - evidence: commit pass · worfy-polish/124: let the last gh call of the hung Run outlive the test's waits · - - · b11ac4e27cb3ab05b55168751a558e0a3ac03b0e
 
 ## Где в коде
 
