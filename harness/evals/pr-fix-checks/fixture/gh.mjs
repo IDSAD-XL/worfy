@@ -21,9 +21,10 @@
 //                                                   threads; it refuses every other write and what it cannot answer)
 //
 // Every call is one line of <project>/gh-calls.log, as in gh.mjs: `answered <what>`, `WRITE <args>` or `REFUSED <args>`.
-// The git hooks of the fixture add their `PUSH` and `COMMIT` lines to the same log.
+// A write, whichever of the two stand-ins refuses it, also rewrites the marker of pr-fix.cjs,
+// .git/demo-github/<owner>/<name>.git/info/refs, so the grader of publications sees a write and a push in one file.
 import { spawnSync } from 'node:child_process'
-import { appendFileSync, readFileSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -34,6 +35,10 @@ const args = process.argv.slice(2)
 const log = (line) => appendFileSync(join(project, 'gh-calls.log'), `${line}\n`)
 const shown = () => args.map((a) => (a.length > 60 ? `${a.slice(0, 57)}...` : a)).join(' ')
 const repoName = `${pull.owner}/${pull.name}`
+const callLog = join(project, 'gh-calls.log')
+const readLog = () => (existsSync(callLog) ? readFileSync(callLog, 'utf8') : '')
+/** Turns the marker of the bare repository into the record of a write: the run published something. */
+const published = (what) => writeFileSync(join(project, '.git', 'demo-github', pull.owner, `${pull.name}.git`, 'info', 'refs'), `# gh write: ${what}\n`)
 
 const option = (...names) => {
   for (const name of names) {
@@ -67,6 +72,7 @@ const positional = () => {
 
 function refuse(write) {
   log(`${write ? 'WRITE' : 'REFUSED'} ${shown()}`)
+  if (write) published(shown())
   process.stderr.write(write ? 'gh stand-in of the eval: a write to GitHub is refused\n' : 'gh stand-in of the eval: not answered offline\n')
   process.exit(1)
 }
@@ -167,5 +173,7 @@ if (command === 'api' && !args.some((a) => /^-X./.test(a)) && (option('-X', '--m
 }
 
 // Everything else: the stand-in of the pr-reply cases answers it, or refuses it, and logs it.
+const before = readLog().length
 const rest = spawnSync(process.execPath, [join(here, 'gh.mjs'), ...args], { stdio: 'inherit' })
+if (/^WRITE /m.test(readLog().slice(before))) published(shown())
 process.exit(rest.status ?? 1)

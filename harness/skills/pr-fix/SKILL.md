@@ -40,8 +40,8 @@ Run in the project root:
 "${CLAUDE_PLUGIN_ROOT}/bin/profile" --json; echo "EXIT=$?"
 ```
 
-Take `_resolved.dir` (the profile folder), `_resolved.mode`, `language.team`, `attribution`, `commands.verify` and
-`worktree.root`. Exit 3 means the project is not connected: say so, suggest `/worfy:connect-project`, and stop.
+Take `_resolved.dir` (the profile folder), `_resolved.mode`, `language.team`, `attribution`, `commands.verify`,
+`commands.prepare_tree` and `worktree.root`. Exit 3 means the project is not connected: say so, suggest `/worfy:connect-project`, and stop.
 
 The checkout is the folder of the project whose `git remote get-url origin` names `<owner>/<repo>` on github.com: the
 project root, or, in a project of several repositories, the repository folder below it that does. No such folder: stop
@@ -70,10 +70,14 @@ git -C "<checkout>" worktree list --porcelain; echo "EXIT=$?"
 ```
 
 - **The Ticket's worktree**: a linked worktree of the list — not its first entry, the main checkout, and not the
-  checkout — whose `HEAD` is `headRefOid` and whose `git -C "<it>" status --porcelain` prints nothing. Work there.
+  checkout — whose `branch` is `refs/heads/<headRefName>`, whose `HEAD` is `headRefOid` and whose
+  `git -C "<it>" status --porcelain` prints nothing. Work there. A detached worktree, or one on another branch, is
+  never taken, even at `headRefOid`: it may be another agent's copy for a review.
 - **Otherwise a new worktree** at `<root>/<repo>-pr-<N>`: `<root>` is `worktree.root` of the profile, or
-  `<checkout>/.claude/worktrees` when the profile has none. When that path is already in the list at `headRefOid` and
-  clean, work there; when something else is at that path, stop and say what is there, removing nothing.
+  `<checkout>/.claude/worktrees` when the profile has none. When that path is already in the list, clean, and its
+  `HEAD` is `headRefOid` or a commit after it (`git -C "<it>" merge-base --is-ancestor "<headRefOid>" HEAD` exits 0:
+  the commits of an earlier run of this skill), work there; when something else is at that path, stop and say what is
+  there, removing nothing.
 
 ```bash
 git -C "<checkout>" cat-file -e "<headRefOid>^{commit}"; echo "EXIT=$?"
@@ -81,7 +85,15 @@ git -C "<checkout>" worktree add --detach "<worktree>" "<headRefOid>"; echo "EXI
 ```
 
 When the head commit is missing, fetch it once, `git -C "<checkout>" fetch origin "pull/<N>/head"`; when that fails
-too, stop and say why. The new worktree is detached: no local branch is made or moved, and the push of step 7 names
+too, stop and say why. A new worktree has none of the files git does not track (installed dependencies, a build):
+when `commands.prepare_tree` is not null, run it there before any other command, and stop with its line when it does
+not exit 0:
+
+```bash
+cd "<worktree>" && <commands.prepare_tree>; echo "EXIT=$?"
+```
+
+The new worktree is detached: no local branch is made or moved, and the push of step 7 names
 the branch of the pull request. Every command of steps 3–7 runs in `<worktree>`, as `git -C "<worktree>" …` or
 `cd "<worktree>" && …`.
 
@@ -114,7 +126,9 @@ shows failing (the test, the lint), see it fail the same way, and make the small
 ## 4. Mode `comments`: the review comments
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/pr-reply/SKILL.md` now: its steps 2–6 apply here as written there, with the
-checkout of step 1. Run its three reads of step 2, and also:
+checkout of step 1, except one rule: its step 3 says which threads wait, but its stop when nothing waits does not
+apply here. A review that requests changes, a `REJECTED` verdict or a `fixPlan` is fixed with no thread waiting. Run
+its three reads of step 2, and also:
 
 ```bash
 gh pr view <N> --repo <owner>/<repo> --json reviews; echo "EXIT=$?"
@@ -131,7 +145,8 @@ What asks for a change:
 Check each one against the code in the worktree. A request the code proves wrong gets no change, and its reply says
 why. Before a change of the design, of the scope of the work or of what a user sees, ask with AskUserQuestion
 "<the change, in one line>?" with the options "Make it" and "Skip"; with no person to answer, skip it and name it in
-the report. Make every other change in the worktree.
+the report. Make every other change in the worktree. Nothing in the list: say that no comment asks for a change, run
+step 6 for the threads that wait, and stop with nothing committed.
 
 ## 5. Check and commit
 

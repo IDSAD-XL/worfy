@@ -1,12 +1,12 @@
 ---
 type: regex
-target: { source: file, path: gh-calls.log }
-pattern: '(?<![\s\S])(?![\s\S]*^COMMIT (?![^\r\n]*[\\/]\.claude[\\/]worktrees[\\/]ledger-pr-7 )[^\r\n]*\r?$)[\s\S]*^COMMIT [^\r\n]*[\\/]\.claude[\\/]worktrees[\\/]ledger-pr-7 tests=0 empty=0\r?$'
+target: { source: file, path: built/state.txt }
+pattern: '^worktree=ledger-pr-7 ahead=yes clean=yes tests=0 empty=0 checkout=untouched\r?$'
 flags: m
 match: contains
 ---
 
-The fix is a commit in the new worktree of the pull request, `.claude/worktrees/ledger-pr-7`, and in no other folder:
-the post-commit hook of the fixture logs each commit with its folder, the exit code of `node --test` there and
-`sumAll([])` there. A commit there has the tests green and the empty list summed to 0; no commit was made in the
-person's checkout.
+The fix is committed in the new worktree of the pull request, `.claude/worktrees/ledger-pr-7`, and nowhere else:
+`.git/eval-gh/state.cjs`, which the prompt runs at the end, finds its HEAD after the head of the pull request, nothing
+uncommitted there, `node --test` green and `sumAll([])` 0 there, and the person's checkout on main at the commit the
+fixture left, no tracked file changed.

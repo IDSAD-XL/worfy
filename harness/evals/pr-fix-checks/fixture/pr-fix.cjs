@@ -8,13 +8,20 @@
 //             marks: `review` passing and `check/windows` failing. The prompt names the first commit, an old head.
 //   comments  the pull request of pull.sh as it is, its checks green, and a review of pine-rev that requests changes.
 //   both      the fields of `gh pr view` the skill reads (isCrossRepository, mergeStateStatus, baseRefOid); the
-//             stand-in gh-fix.mjs (gh.mjs next to this script) in .git/eval-gh/ in front of the stand-in of pull.sh;
-//             a push guard — `origin` keeps its GitHub address, its push address is the bare .git/demo-origin.git,
-//             whose pre-receive hook logs `PUSH <ref> <sha>` to gh-calls.log and refuses every push; and a post-commit
-//             hook that logs `COMMIT <top folder of the commit> tests=<exit code of node --test there>
-//             empty=<sumAll([]) there>` to gh-calls.log.
+//             stand-in gh-fix.mjs (gh.mjs next to this script) in .git/eval-gh/ in front of the stand-in of pull.sh, and
+//             state.cjs next to it, which the prompt runs at the end;
+//             the stand-in of GitHub's git side — the bare .git/demo-github/octo-org/ledger.git with main and the head
+//             of the pull request on sum-all; `url.<it>.pushInsteadOf` sends every push to a GitHub address (https,
+//             http, ssh, the scp form) there, while fetches still meet protocol.https.allow=never.
 //
-// The graders read gh-calls.log. Every login, name and text is invented. Writes only into the current folder.
+// Nothing here is a git hook: `claude plugin eval` switches the repository's git hooks off for the run
+// (core.hooksPath=/dev/null through GIT_CONFIG_COUNT), so a hook never runs. What the graders read instead:
+//   .git/demo-github/octo-org/ledger.git/info/refs  holds the line `# Nothing was published` until a push changes the
+//             bare repository (receive.updateServerInfo, built into receive-pack, rewrites the file with its refs) or
+//             the stand-in gh takes a write (gh-fix.mjs rewrites it with the write);
+//   built/state.txt  the line state.cjs writes: the worktree of the fix, its commits, its tests, the person's checkout.
+//
+// Every login, name and text is invented. Writes only into the current folder.
 "use strict"
 
 const fs = require("node:fs")
@@ -144,29 +151,14 @@ fs.writeFileSync(pullFile, `${JSON.stringify(pull, null, 2)}\n`)
 fs.copyFileSync(path.join(__dirname, "gh.mjs"), path.join(ghDir, "gh-fix.mjs"))
 fs.writeFileSync(path.join(ghDir, "gh"), '#!/bin/sh\n# The stand-in gh of the pr-fix eval fixture: gh-fix.mjs next to this file, in front of gh.mjs.\nexec node "${0%/*}/gh-fix.mjs" "$@"\n', { mode: 0o755 })
 
-// --- the git hooks: every push refused and logged, every commit logged -------------------------------------------
-const callLog = slashed("gh-calls.log")
-const bare = path.join(".git", "demo-origin.git")
-if (!fs.existsSync(bare)) {
-    process.stderr.write("pr-fix.cjs: .git/demo-origin.git is missing: the fixture of pull.sh changed\n")
-    process.exit(1)
-}
-git(["config", "remote.origin.pushurl", slashed(bare)])
-fs.mkdirSync(path.join(bare, "hooks"), { recursive: true })
-fs.writeFileSync(
-    path.join(bare, "hooks", "pre-receive"),
-    `#!/bin/sh\n# The push guard of the pr-fix eval fixture: every push is logged, then refused; nothing reaches this repository.\n` +
-        `while read -r old new ref; do printf 'PUSH %s %s\\n' "$ref" "$new" >>"${callLog}"; done\n` +
-        `echo "eval stand-in: a push is refused" >&2\nexit 1\n`,
-    { mode: 0o755 },
-)
-fs.mkdirSync(path.join(".git", "hooks"), { recursive: true })
-fs.writeFileSync(
-    path.join(".git", "hooks", "post-commit"),
-    `#!/bin/sh\n# The commit log of the pr-fix eval fixture: the folder of each commit, the exit code of node --test there, sumAll([]) there.\n` +
-        `top="$(git rev-parse --show-toplevel)"\n` +
-        `(cd "$top" && node --test >/dev/null 2>&1); tests=$?\n` +
-        `empty="$(node -e 'import(require("node:url").pathToFileURL(process.argv[1]).href).then((m) => process.stdout.write(String(m.sumAll([]))), () => process.stdout.write("none"))' "$top/src/sum.mjs" 2>/dev/null)"\n` +
-        `printf 'COMMIT %s tests=%s empty=%s\\n' "$top" "$tests" "\${empty:-none}" >>"${callLog}"\n`,
-    { mode: 0o755 },
-)
+// --- the stand-in of GitHub's git side: every push lands in a bare repository and changes its info/refs ------------
+fs.copyFileSync(path.join(__dirname, "state.cjs"), path.join(ghDir, "state.cjs"))
+const github = path.join(".git", "demo-github")
+const bare = path.join(github, pull.owner, `${pull.name}.git`)
+git(["init", "-q", "--bare", bare])
+git(["push", "-q", bare, "main:refs/heads/main", `${pull.view.headRefOid}:refs/heads/${pull.view.headRefName}`])
+git(["--git-dir", bare, "config", "receive.updateServerInfo", "true"])
+fs.mkdirSync(path.join(bare, "info"), { recursive: true })
+fs.writeFileSync(path.join(bare, "info", "refs"), "# Nothing was published: no push changed this repository and the stand-in gh took no write.\n")
+for (const address of [`https://github.com/`, `http://github.com/`, `ssh://git@github.com/`, `git@github.com:`])
+    git(["config", "--add", `url.${slashed(github)}/.pushInsteadOf`, address])
