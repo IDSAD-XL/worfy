@@ -122,3 +122,34 @@ typecheck && pnpm test` — exit 0. Gate fast — exit 0, но `nothing ran`: д
 2. Почему в Silent mode конфликт решается merge commit-ом, а не rebase?
    - Ответ: ветку командного репозитория мог взять коллега; rebase с force-push переписал бы его историю.
    - Строки: `harness/skills/pr-fix/SKILL.md:180-181`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED
+> [line 2 of the verdict is not quoted: personal data (home-path)]
+> Checks (implementer, on 86f7a49de): check-personal, check-feature-docs, feature-docs-lag, check-handoff, story-check — exit 0.
+
+Code: `harness/agents/scout.md:15-22` · key lines: 15
+
+```md
+Exit code of `profile`:
+- `0` — profile found: work by it.
+- `3` — the project is not registered or has no profile; `1` — the registry, the resolver or
+  `profile.json` is broken; `2` — invocation error (for example, the path from the brief does not
+  exist). In these three cases write the code and the message from stderr as the first line of your
+  answer and work without a profile: do not guess commands and paths — take them only from
+  `CLAUDE.md` / `AGENTS.md` of the repository and from what you see in the tree. Still ask `qmd`
+  first (step 2), just without the hint about collections.
+```
+
+Code: `CONTEXT.md:153-153` · key lines: 153
+
+```md
+_Avoid_: inbox (без PR), входящие, dashboard; для действий правки — голое Fix (так зовутся действие Terminal AI и кнопка строки Health check), autofix
+```
+
+Code: `CONTEXT.md:329-329` · key lines: 329
+
+```md
+Проверка того, что на этой Machine и в её открытых Project-ах всё работает и правильно настроено: входы (Claude Code, gh, Codex, Browser profile), инструменты (git, node, Harness, qmd) и доступ каждого Project-а к его GitHub. Каждая строка — critical (без неё агенты или GitHub не работают: git, вход в gh, доступ Project-а) или non-critical (работа идёт хуже: qmd, git identity, Codex); строку, которую не удалось проверить, Health check показывает как «не проверено», а не как поломку. Строка говорит, что сделать человеку, и, где починка обратима, даёт кнопку Fix. Health check видна иконкой на rail над Machines: красная точка — есть сломанная critical-строка, жёлтая — только non-critical. Это не First run: First run — окно первой настройки Machine, Health check — постоянное состояние после неё.
+```
