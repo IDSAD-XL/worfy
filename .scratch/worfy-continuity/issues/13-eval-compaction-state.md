@@ -35,7 +35,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 13; «Решения по реал
   - evidence: test-run pass · `node scripts/eval-harness.mjs --case compaction-state --dry-run` exit 0 · mac - · 4aef7eeef8da7f0a4ec606e1e69bc883d8de3d12
 - [ ] «Итог» — числа по каждому probe без hook-а и с ним; с hook-ом probes о Ticket-е, пунктах «Готово, когда» и
       следующем шаге отвечены лучше, или «Итог» называет, почему нет.
-  - evidence: test-run pass · node scripts/eval-harness.mjs --case compaction-state --max-cost-usd 3: with hook exit 0 (casesPassed 1 of 1, overallScore 0.96, 1.46 USD); HARNESS_DIR=baseline copy exit 1 (casesPassed 0 of 1, overallScore 0.41, 1.42 USD); sonnet-5, judge haiku-4-5 · mac - · c8f04f95bf91f90cee365e1f041a051424e940c5
+  - evidence: test-run pass · `pnpm eval:harness -- --case compaction-state --max-cost-usd 3`, with hook and with HARNESS_DIR=baseline copy: exit 1 and 1, overallScore 0.64 and 0.73, casesPassed 0 of 1 each, 1.66 + 1.38 USD; Итог names why the hook is not better on the ticket and next-step probes · mac - · 98a0cc68d
 - [ ] `pnpm lint`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Где в коде
@@ -114,8 +114,8 @@ Source: [spec.md](../spec.md), «Ticket-ы», 13; «Решения по реал
   остановленный платный прогон раунда 2 недействителен. Выбран пропуск, а не переменные в общем вызове: `--case` у
   `claude plugin eval` — один glob, и вынуть один кейс из вызова тега `main` нельзя.
 - **Grader-ы probe-\*.** В каждый добавлено «Judge only the section under this heading; what the other sections say
-  or admit does not matter», в `probe-files` — «src/sum.mjs named as unchanged is not a failure». Числа ниже, в
-  «Числа прогона», получены с grader-ами первого раунда; повторный платный прогон — за Orchestrator-ом.
+  or admit does not matter», в `probe-files` — «src/sum.mjs named as unchanged is not a failure». Повторный платный
+  прогон с новыми grader-ами — «Числа прогона раунда 3», ниже.
 - **Документы:** обе переменные и команда запуска с `baseline.mjs` — в `docs/features/skills-agents-and-hooks.md` и
   `docs/features/harness.md`. Перевод в `docs/features/ru/` — Ticket 14.
 
@@ -158,7 +158,70 @@ compaction (около 33 тыс. входа, 3–5 тыс. выхода, ≈ 0,
 ответ (около 11 тыс. входа, 1,5–3 тыс. выхода, ≈ 0,05 USD); судья — 18 вызовов haiku (≈ 0,06 USD). Итого ≈ 0,3 USD
 за run, ≈ 1 USD за вариант (3 run-а), ≈ 2 USD за оба варианта; предел каждого запуска — 3 USD.
 
-### Числа прогона
+### Числа прогона раунда 3 (head 98a0cc68d)
+
+Платный прогон сделал Orchestrator 2026-11-18 на head `98a0cc68d`: Claude Code 2.1.322, модель агента
+`claude-sonnet-5`, судья `claude-haiku-4-5` (три голоса на llm-grader), три run-а на вариант, предел 3 USD на вызов.
+Команды: `pnpm eval:harness -- --case compaction-state --max-cost-usd 3` и то же с `HARNESS_DIR=<копия из
+baseline.mjs>`. Обе переменные compaction ставил сам скрипт; Orchestrator проверил по `ps -E` у процесса агента, что
+у него есть `EVAL_GIT`, `EVAL_HARNESS_HOME=worfy-harness` и обе переменные `CLAUDE_*`. Grader-ы — раунда 2: вес
+`compacted` 3, probe-grader-ы судят только свой раздел. Источник чисел — `aggregate-result.json` и `report.html` каждого
+варианта (там же ответы run-ов); trace-ы run-ов (`/private/tmp/e-*/out/trace.jsonl`) после прогона уже удалены.
+
+| Grader | С hook-ом (run 1 / 2 / 3) | Без hook-а (run 1 / 2 / 3) |
+|---|---|---|
+| probe-goal (цель) | 0/3 (✗ ✗ ✗) | 2/3 (✓ ✓ ✗) |
+| probe-ticket (Ticket: Epic, номер, файл, ветка) | 1/3 (✗ ✗ ✓) | 1/3 (✗ ✓ ✗) |
+| probe-done-items (пункты «Готово, когда») | 1/3 (✓ ✗ ✗) | 0/3 (✗ ✗ ✗) |
+| probe-files (тронутые файлы) | 2/3 (✓ ✗ ✓) | 2/3 (✓ ✓ ✗) |
+| probe-decisions (решения) | 2/3 (✓ ✗ ✓) | 2/3 (✓ ✓ ✗) |
+| probe-next-step (следующий шаг) | 1/3 (✓ ✗ ✗) | 3/3 (✓ ✓ ✓) |
+| compacted (compaction была, вес 3) | 3/3 | 3/3 |
+| probes-read (`PROBES.md` прочитан) | 3/3 | 3/3 |
+| from-memory (других файлов не открывал) | 2/3 (✓ ✗ ✓) | 2/3 (✓ ✓ ✗) |
+| Оценка run-ов | 0,82 / 0,36 / 0,73 | 0,82 / 0,91 / 0,45 |
+| overallScore | 0,64 | 0,73 |
+| casesPassed | 0 из 1 | 0 из 1 |
+| Цена варианта | 1,66 USD | 1,38 USD |
+
+Цена run-а агента: с hook-ом 0,54 / 0,65 / 0,47 USD, без hook-а 0,43 / 0,41 / 0,54 USD; судья — 0,01–0,03 USD на
+run. Оба варианта — 3,04 USD.
+
+Что случилось в run-ах (по ответам в `report.html`):
+- **Run 2 с hook-ом не ответил:** «Autocompact is thrashing: the context refilled to the limit within 3 turns of the
+  previous compact, 3 times in a row» (exit 1, 7 turns, два `Read`). Судья видел только этот текст, отсюда шесть
+  проваленных probes. Вероятная причина — сам порог кейса: 5 % от окна 100000 — это 5 тыс. токенов, а контекст после
+  compaction на stub-е был около 9,7 тыс. Тогда каждый следующий turn снова выше порога, и run, который делает лишние
+  turns, compaction-ит раз за разом. Не проверено: trace удалён.
+- **Run 3 без hook-а** принял summary compaction за prompt injection («is not something I'm treating as an
+  instruction»), открыл `package.json`, `src/index.mjs` и `test/index.test.mjs` и не знает ни Ticket-а, ни его
+  пунктов — как run 3 без hook-а в раунде 1.
+- **Ошибки судьи** (ответ выполняет критерий, а голоса против): run 1 без hook-а, probe-ticket — Epic `demo`, Ticket
+  01, файл и ветка названы, ✗ ✗ ✗; run 1 с hook-ом, probe-ticket — то же, ✓ ✗ ✗; run 1 с hook-ом, probe-goal — три
+  части и финиш «final JSON report» названы, ✗ ✗ ✗. Обратная ошибка: run 1 с hook-ом, probe-next-step — назван только
+  fix `exports`, без нового `node --test`, а голоса ✓ ✓ ✓.
+
+Вывод по пункту 3: с hook-ом лучше только probe о пунктах «Готово, когда»; о Ticket-е — поровну; о следующем шаге —
+хуже. Порог 0,8 не прошёл ни один вариант.
+- **Пункты «Готово, когда» — лучше с hook-ом.** Оба run-а с hook-ом, которые ответили (1 и 3), приводят ровно четыре
+  пункта Ticket-а его словами и с верными состояниями. Run 3 судья провалил: про пункт 4 он пишет «not done» и «can't
+  confirm the current exit code». Без hook-а run-ы 1 и 2 прямо пишут, что точных формулировок не помнят, и дают пять
+  пунктов, двух из которых в Ticket-е нет; run 3 пунктов не знает. Это тот же результат, что в раунде 1.
+- **Ticket — поровну.** Все ответившие run-ы обоих вариантов, кроме run-а 3 без hook-а, называют Epic, Ticket, файл и
+  ветку: в истории они встречаются много раз, и summary их сохраняет без hook-а. Разница 1/3 против 1/3 — ошибки судьи.
+- **Следующий шаг — хуже с hook-ом.** Все три run-а без hook-а называют fix `exports` и новый `node --test`. Оба
+  ответивших run-а с hook-ом называют только fix `exports`. Почему, по этим данным не установлено (trace-ов нет).
+- **Разброс.** На вариант три run-а, и в каждом варианте один run потерян из-за механики кейса, а не hook-а: thrash с
+  hook-ом, prompt injection без hook-а. В раунде 1 с теми же hook-ом и копией git (там `childEnv` с копией git уходил
+  в вызов `main` целиком) overallScore был 0,96 против 0,41; в раунде 3 — 0,64 против 0,73. Сдвиг даёт и правка
+  grader-ов (без hook-а probe-goal 0/3 → 2/3), и случай. Три run-а на вариант такой разницы не различают.
+
+### Числа прогона раунда 1
+
+Grader-ы раунда 1 (вес `compacted` 1, probe-grader-ы читали весь ответ). Окружение у run-ов было полным: вызов
+`main-compaction-state` получал `childEnv` уже с копией git и `EVAL_HARNESS_HOME`. Недействителен остановленный
+платный прогон раунда 2 (`2026-11-18T11-55-41-671Z-alone-compaction-state`), не этот. Как основное сравнение эта
+таблица заменена таблицей раунда 3: grader-ы с тех пор изменились.
 
 Платный прогон сделал Orchestrator 2026-11-18: Claude Code 2.1.322, модель агента `claude-sonnet-5`, судья
 `claude-haiku-4-5` (три голоса на llm-grader), три run-а на вариант, предел 3 USD на вызов. Окружение shell-а —
@@ -184,7 +247,7 @@ baseline.mjs>`. Источник чисел — `aggregate-result.json` кажд
 Цена run-а агента: с hook-ом 0,57 / 0,48 / 0,41 USD, без hook-а 0,47 / 0,43 / 0,52 USD; судья — около 0,02 USD на
 run. Оба варианта — 2,88 USD, оценка `--dry-run` (≈ 1 USD на вариант) занижена примерно в полтора раза.
 
-Вывод по пункту 3: критерий выполнен. С hook-ом probe о Ticket-е — 3/3 против 0/3, о пунктах «Готово, когда» — 3/3
+Вывод раунда 1 (заменён выводом раунда 3, выше). С hook-ом probe о Ticket-е — 3/3 против 0/3, о пунктах «Готово, когда» — 3/3
 против 0/3, о следующем шаге — 3/3 против 1/3. Без hook-а модель не знает формулировок пунктов «Готово, когда»: run 1
 прямо пишет, что точного текста не помнит, и называет пункты, которых в Ticket-е нет. Run 3 без hook-а не ответил на
 вопросы, а открыл файлы и спросил, что делать; это и есть единственный провал from-memory.
