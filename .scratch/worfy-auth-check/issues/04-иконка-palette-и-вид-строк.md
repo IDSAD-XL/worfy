@@ -1,7 +1,8 @@
 # 04 — Иконка Health check на rail над Machines, строка palette, порядок строк и кнопка Fix
 
 Type: task
-Status: claimed 2026-11-18T20:55Z
+Status: done 2026-11-18T23:14Z
+PR: #2021
 Blocked by: 03
 Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решение», пункты 3 и 6; «Уровни: проверка → уровень», цвет иконки;
 «Решения по реализации», 2; «Решения по test-ам», e2e; «Решения владельца», Q1, Q3, Q4, Q9; «Волны», Wave 2 и
@@ -74,6 +75,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решение», пункт�
 - [ ] Английские страницы `app-shell.md` и `onboarding.md` описывают иконку, уровни и строку palette.
   - evidence: commit pass · worfy-auth-check/04: Health check button on the rail, row order, level and Fix, palette row · - - · b2ac640c4
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44413765400/job/135206191921 · ci - · fa8f87248e1723d0e1a8a714c4da9af94ff5801b
 
 ## Где в коде
 
