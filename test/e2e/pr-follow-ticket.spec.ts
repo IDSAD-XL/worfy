@@ -191,8 +191,10 @@ test('Resolve conflicts on a Ticket with no bound Session: the button for the fi
     const sessions = window.locator('[data-testid="session-node"]')
     await expect(sessions).toHaveCount(1)
     await expect.poll(() => messages(log)).toEqual([`/worfy:pr-fix conflicts ${SLUG}#31 ${HEAD}`])
-    const bindings = await bridgeCall(window, 'bindings.get', { projectId: PROJECT })
-    expect((bindings.value as { bindings: { target: unknown; source?: string }[] }).bindings).toEqual([expect.objectContaining({ target: { kind: 'ticket', epic: EPIC, num: 8 }, source: 'launch' })])
+    // main writes the launch Binding once the new Session has its id from the agent (bindWhenKnown), after the first
+    // message went out: wait for it rather than read once.
+    const bindings = async () => ((await bridgeCall(window, 'bindings.get', { projectId: PROJECT })).value as { bindings: { target: unknown; source?: string }[] }).bindings
+    await expect.poll(bindings, { timeout: ms(15_000) }).toEqual([expect.objectContaining({ target: { kind: 'ticket', epic: EPIC, num: 8 }, source: 'launch' })])
     const layout = await bridgeCall(window, 'layout.get', { projectId: PROJECT })
     const session = (layout.value as { layout: { nodes: (Rect & { kind: string })[] } }).layout.nodes.find((node) => node.kind === 'session')
     expect(session, 'the new Session Node in the Layout').toBeDefined()
