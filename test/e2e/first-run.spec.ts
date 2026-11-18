@@ -285,7 +285,8 @@ test.describe('first-run screen', () => {
       // another one in place of these two: they are read by name, not only counted.
       await expect(dialog.getByTestId('first-run-summary')).toHaveText(process.platform === 'win32' ? '2 warnings' : 'Everything is ready')
       const warnings = await dialog.locator('[data-check][data-status="warn"]').evaluateAll((rows) => rows.map((each) => each.getAttribute('data-check')))
-      expect(warnings).toEqual(process.platform === 'win32' ? ['limits', 'powershell'] : [])
+      // Read as a set: the rows go by their level (worfy-auth-check ticket 04), PowerShell, a critical row, before Limits.
+      expect(warnings.sort()).toEqual(process.platform === 'win32' ? ['limits', 'powershell'] : [])
       if (process.platform === 'win32') {
         await expect(row(dialog, 'limits')).toContainText('A development build has no bridge of its own')
         await expect(row(dialog, 'powershell')).toContainText('Terminal uses Windows PowerShell')

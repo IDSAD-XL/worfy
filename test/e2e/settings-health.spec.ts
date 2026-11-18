@@ -261,9 +261,11 @@ test('the Health check button stands on the rail right above Machines, its dot f
     await expect(settings.getByRole('heading', { level: 2 })).toHaveText('Health')
     const health = settings.getByTestId('settings-health')
     await checksOf(health)
-    await expect(button).toHaveAttribute('data-health', 'critical')
-    await expect(button.getByTestId('health-rail-dot')).toHaveAttribute('data-tone', 'critical')
-    await expect(button).toHaveAttribute('aria-description', /^critical: .*Harness plugin/)
+    // The modal Settings window hides the rest of the app from the accessibility tree, the sidebar too: a role
+    // locator finds the button only once the window is closed, so under the window it is read by its class.
+    const underSettings = window.locator('.w-sidebar__health')
+    await expect(underSettings).toHaveAttribute('data-health', 'critical')
+    await expect(underSettings).toHaveAttribute('aria-label', 'Health check')
 
     // The rows: a critical one not in ok first, then the other ones not in ok, then ok — in every group and from group to group.
     const weights = await health.locator('section[aria-label]').evaluateAll((sections) =>
@@ -279,6 +281,10 @@ test('the Health check button stands on the rail right above Machines, its dot f
     await snapshotThemes(window, 'settings-health-levels')
     await settings.getByRole('button', { name: 'Close' }).click()
     await expect(settings).toHaveCount(0)
+    // Its name stays "Health check" whatever the dot: the state is its description.
+    await expect(button).toHaveAttribute('data-health', 'critical')
+    await expect(button.getByTestId('health-rail-dot')).toHaveAttribute('data-tone', 'critical')
+    await expect(button).toHaveAttribute('aria-description', /^critical: .*Harness plugin/)
     // The rail with its red dot, for the review (a CI artifact, not committed).
     await snapshotThemes(window, 'health-rail-dot')
 
