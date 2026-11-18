@@ -50,13 +50,19 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реал�
 - [ ] Unit test `checkpoint.ts` на fixture-Journal-ах в `test/fixtures/autopilot-faults/`: Run, приостановленный
       посреди Wave; в Wait Limits; в Wait Start window; Run без конца после падения; с рваной последней строкой; после
       Discard. Каждый — ожидаемое состояние и признак «оборван».
+  - evidence: test-run pass · `pnpm test test/unit/autopilot-checkpoint.test.ts test/unit/autopilot-run.test.ts test/unit/autopilot-invariants.test.ts test/unit/autopilot-journal.test.ts test/contract/autopilot-checkpoint.test.ts` exit 0 · mac - · e7938d1e561bb9e2e4e2a7d21b1b76af74f20390
 - [ ] Unit test: `resumable` после Force stop одинаков из памяти и из checkpoint (тот же fixture).
+  - evidence: test-run pass · `pnpm test test/unit/autopilot-checkpoint.test.ts test/unit/autopilot-run.test.ts test/unit/autopilot-invariants.test.ts test/unit/autopilot-journal.test.ts test/contract/autopilot-checkpoint.test.ts` exit 0 · mac - · e7938d1e561bb9e2e4e2a7d21b1b76af74f20390
 - [ ] Unit test: `parseJournal` пропускает строку незнакомого вида и считает её.
+  - evidence: test-run pass · `pnpm test test/unit/autopilot-checkpoint.test.ts test/unit/autopilot-run.test.ts test/unit/autopilot-invariants.test.ts test/unit/autopilot-journal.test.ts test/contract/autopilot-checkpoint.test.ts` exit 0 · mac - · e7938d1e561bb9e2e4e2a7d21b1b76af74f20390
 - [ ] Contract test (`faultRun()`, `test/contract/autopilot-faults-setup.ts`): Run после Force stop, затем новый
       `Autopilot` над тем же Journal-ом — следующий Run Epic-а берёт `resumable` из checkpoint.
+  - evidence: test-run pass · `pnpm test test/unit/autopilot-checkpoint.test.ts test/unit/autopilot-run.test.ts test/unit/autopilot-invariants.test.ts test/unit/autopilot-journal.test.ts test/contract/autopilot-checkpoint.test.ts` exit 0 · mac - · e7938d1e561bb9e2e4e2a7d21b1b76af74f20390
 - [ ] Recovery invariants (`test/autopilot-invariants.ts`, `checkRecovery`) зелёные на новых fixture-ах.
+  - evidence: test-run pass · `pnpm test test/unit/autopilot-checkpoint.test.ts test/unit/autopilot-run.test.ts test/unit/autopilot-invariants.test.ts test/unit/autopilot-journal.test.ts test/contract/autopilot-checkpoint.test.ts` exit 0 · mac - · e7938d1e561bb9e2e4e2a7d21b1b76af74f20390
 - [ ] Английская страница `docs/features/autopilot-faults.md` называет `discarded`, `run-suspended` и
       `run-continued`.
+  - evidence: commit pass · worfy-continuity/02: the run's journal as its checkpoint · - - · e7938d1e561bb9e2e4e2a7d21b1b76af74f20390
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Тесты
