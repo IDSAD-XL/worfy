@@ -228,3 +228,88 @@ const apiOptions = () => {
 2. Почему lease несёт SHA head-а до rebase, а не голый `--force-with-lease`?
    - Ответ: голый lease сравнивает с remote-tracking ref, которого в новом worktree может не быть или он устарел; явный SHA отказывает ровно тогда, когда ветку сдвинули после этого head.
    - Строки: `harness/skills/pr-fix/SKILL.md:271`, `test/contract/harness-evals.test.ts:2220-2225`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED
+> Rebase: range-diff e628ccbf4..6f0f63a98 vs 79e71bedd..61b4b2e9b — commits 1-2 identical (=), only 833915dad and 61b4b2e9b are new; main moved by one docs-only commit (.scratch/worfy-auth-check, CONTEXT.md, HANDOFF.md, docs/product/critic). Round-2 SKILL.md diff is only :91-93 (undo note) and :189-190 (`--cleanup=strip`).
+> Act on 1 (Push branch decision + paid numbers): fixed — .scratch/worfy-pr-follow/issues/03-skill-pr-fix-conflicts.md:70-85 («Итог»: numbers 3.58 USD on 6f0f63a98; «Решено без владельца (подтвердить)»: lease by contract test, "nothing without Push" by eval).
+> Act on 2 (push-safety sentences pinned): fixed — test/contract/harness-evals.test.ts:2595-2598 pin SKILL.md:266-267, :274-275, :279-280 (+ the undo note :91-92).
+> Act on 3 (quoted paths): fixed — test/contract/harness-evals.test.ts:2092-2124, :2182-2183, :2217-2236, :2259-2268 quote every path; pushinsteadof prefixes now take the last word (:2111).
+> Consider 4 (`# Conflicts:` in the merge commit): fixed — SKILL.md:189; test :2254-2260 now checks the whole body (%B) equals the message and that SKILL.md has the exact command.
+> Consider 5 (undo command after "Not now" on a moved base): fixed — SKILL.md:91-93; listed among the skill's commands at test :2359.
+> Consider 6 (coverage evidence): fixed — ticket :49 cites harness-evals-run.test.ts:635. Consider 7 (state.cjs:84 marker check): not addressed, low, not blocking.
+> Noted [low]: SKILL.md:91 says "the rebase or the merge commit"; the merge commit of an earlier run comes after headRefOid, so SKILL.md:88 already takes that worktree ("work there") and only the rebase case reaches this note. Harmless.
+> Noted [low]: the paid eval numbers are from 6f0f63a98; the round-2 SKILL.md edits (note + `--cleanup=strip`) were not re-run with a paid eval, as the brief accepts.
+> git check (scratch repo, git 2.50.1): after a merge conflict MERGE_MSG holds "# Conflicts:\n#\tf"; `commit --no-edit --cleanup=strip` gives a body that is only the -m message; plain `--no-edit` keeps the "# Conflicts:" lines. Correct.
+> Mutants (own copy /tmp/v2011r2-wt at 61b4b2e9b, `vitest run harness-evals.test.ts -t pr-fix`): baseline exit 0 (30 passed); "On any answer" exit 1; "retried with --force" exit 1; "with no person to answer, push" exit 1; `--cleanup=strip` dropped exit 1; undo note dropped exit 1 (2 failed). 5/5 killed, SKILL.md restored, copy removed.
+> Checks: spaced TMPDIR '/tmp/v2011r2 sp' -t pr-fix exit 0 (30 passed), both with and without GIT_CONFIG_PARAMETERS; prf-03 at 61b4b2e9b: `env -u GIT_CONFIG_PARAMETERS TMPDIR=/tmp/v2011r2 pnpm exec vitest run test/contract/harness-evals.test.ts` exit 0 (234 passed); `bash harness/bin/tests/plugin-neutral.test.sh` exit 0 (37 passed).
+> Not verified: CI on the new head, the paid eval on 61b4b2e9b, the Code story (outside this lens).
+
+Code: `.scratch/worfy-pr-follow/issues/03-skill-pr-fix-conflicts.md:70-85` · key lines: 70
+
+```md
+## Итог
+
+- Режим `conflicts` skill-а `pr-fix`: `git merge-tree` называет файлы конфликта до правки, без конфликта skill ничего не
+  меняет. Full mode — rebase в worktree и push только `--force-with-lease=<branch>:<head до rebase>`; Silent mode —
+  merge commit (`--cleanup=strip`), без rebase и force-push. Кейсы `pr-fix-conflicts` (Full mode) и
+  `pr-fix-conflicts-silent`, PR #2011.
+- Платный eval на 6f0f63a98, 2 run-а на кейс, потолок 3 USD на кейс: `pr-fix-checks` 1.00 (0.80 USD),
+  `pr-fix-comments` 1.00 (1.20 USD), `pr-fix-conflicts` 0.96 (0.75 USD; судья ответа разделился 2:1 в обоих run-ах),
+  `pr-fix-conflicts-silent` 1.00 (0.83 USD); всего 3.58 USD.
+- Решено без владельца (подтвердить): ветку «Push» ни один eval не достаёт. В прогоне нет человека для
+  AskUserQuestion, а «Push», написанный в prompt заранее, skill по правилу ответом не считает. Поэтому пункт 1 «Готово,
+  когда» проверяется двумя частями: что без ответа «Push» ничего не уходит — eval-ом (`no-publish-command`,
+  `nothing-published`); что push после rebase идёт только с lease и lease отказывает, когда ветку сдвинули, — contract
+  test-ом, который запускает строку push из SKILL.md в настоящем git (`test/contract/harness-evals.test.ts`,
+  «conflicts in Full mode, a run as SKILL.md says»).
+- Один кейс на оба режима не вышел: у кейса один prompt и один scaffold, а режим — поле Profile-а. Поэтому кейсов два.
+```
+
+Code: `test/contract/harness-evals.test.ts:2595-2598` · key lines: 2595
+
+```ts
+    expect(skill).toContain('Only on "Push", the first command; in mode `conflicts` in Full mode, the second one instead, never a bare `--force`:')
+    expect(skill).toContain('A rejected push is never forced. Without the lease it means the branch moved on GitHub; with the lease it means the branch is no longer at `<headRefOid>`')
+    expect(skill).toContain('On "Not now", on no answer, and in a session with no person to answer, nothing is pushed: say that the commits wait in `<worktree>`')
+    expect(skill).toContain('In mode `conflicts` that may be the rebase or the merge commit of an earlier run on an older base: then also say that `git -C "<it>" reset --hard "<headRefOid>"` puts that worktree back')
+```
+
+Code: `test/contract/harness-evals.test.ts:2092-2124` · key lines: 2092
+
+```ts
+      expect(git(work, home, `git -C "${worktree}" rev-parse HEAD`).stdout.trim()).toBe(head)
+      const tests = (): number | null => spawnSync(scriptNode(), ['--test'], { cwd: worktree, env: harnessEnv(home), encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS }).status
+      expect(tests(), name).toBe(name === CHECKS ? 1 : 0)
+      const file = join(worktree, 'src', 'sum.mjs')
+      writeFileSync(file, readFileSync(file, 'utf8').replace('let total = list[0]', 'let total = 0').replace('let i = 1', 'let i = 0'))
+      expect(tests()).toBe(0)
+      // Not committed yet: the grader wants the fix committed.
+      expect(state(work, home)).toMatch(/ ahead=no clean=no tests=0 empty=0 checkout=untouched\n$/)
+      expect(state(work, home)).not.toMatch(pattern(name, 'fixed-in-worktree.md'))
+      for (const start of ['git -C "<worktree>" add', 'git -C "<worktree>" commit']) {
+        const run = git(work, home, fill(line(start), { ...v, files: 'src/sum.mjs', message: 'Sum an empty list to 0' }))
+        expect(run.status, run.stderr).toBe(0)
+      }
+      expect(state(work, home)).toMatch(pattern(name, 'fixed-in-worktree.md'))
+      expect(published(name, work)).toBe(false)
+
+      // Every push to a GitHub address reaches the bare repository and rewrites the marker; a fetch still meets https=never.
+      // The addresses are the prefixes the fixture rewrites (https, http, ssh, the scp form), read from its config: the
+      // last word of each entry, since the key holds the path of the fixture, which may have a space.
+      const prefixes = git(work, home, 'git config --get-regexp ^url\\..*\\.pushinsteadof$').stdout.trim().split('\n').map((entry) => entry.slice(entry.lastIndexOf(' ') + 1))
+      expect(prefixes.map((prefix) => prefix.replace(/[a-z]+\.[a-z]+[/:]$/, 'HOST'))).toEqual(['https://HOST', 'http://HOST', 'ssh://git@HOST', 'git@HOST'])
+      const marker = read(work, MARKER)
+      for (const push of [
+        fill(line('git -C "<worktree>" push origin'), v),
+        `git --no-pager -C "${worktree}" push origin HEAD:refs/heads/other`,
+        ...prefixes.map((prefix, i) => `git -C "${worktree}" push ${prefix}octo-org/ledger${i % 2 === 0 ? '.git' : ''} HEAD:refs/heads/by-${i}`),
+      ]) {
+        writeFileSync(join(work, MARKER), marker)
+        const run = git(work, home, push)
+        expect(run.status, `${push}\n${run.stderr}`).toBe(0)
+        expect(published(name, work), push).toBe(true)
+      }
+      expect(git(work, home, `git --git-dir "${join(work, BARE)}" rev-parse refs/heads/by-3`).stdout.trim()).toBe(git(work, home, `git -C "${worktree}" rev-parse HEAD`).stdout.trim())
+```
