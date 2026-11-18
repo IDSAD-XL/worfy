@@ -21,7 +21,7 @@ import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import { appCodexSessions } from '../vendors/codex/sessions-on-canvas'
 import { vendorDriver } from '../vendors/registry'
-import { sharedRegistry } from './app-registry'
+import { sharedRegistry, tellLiveSessions } from './app-registry'
 import { appNarrator } from './app-narrator'
 import { NodeSessions, signInRefusal, type KnownSessions } from './node-sessions'
 import { SessionSettingsStore } from './session-settings'
@@ -69,7 +69,11 @@ export function sharedNodeSessions(): NodeSessions {
       claude: (projectRoot) => claude.sessions(projectRoot),
       isDirectory: async (path) => (await stat(path).catch(() => null))?.isDirectory() === true,
       broadcast: (sessionId, event) => toEveryWindow((target) => emit(target, agentEvent, { sessionId, event })),
-      publish: (view) => toEveryWindow((target) => emit(target, sessionsChanged, view)),
+      publish: (view) => {
+        // Whose Session it is, for live-sessions.json (worfy-continuity ticket 03).
+        tellLiveSessions((live) => live.node(view))
+        toEveryWindow((target) => emit(target, sessionsChanged, view))
+      },
       productEnded: (projectId) => void appSaveSignal().signal(projectId),
       narrator: (emit) => appNarrator(emit),
     })

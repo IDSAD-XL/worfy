@@ -6,9 +6,14 @@
 // The driver never imports this module (test/contract/vendor-imports.test.ts): what the fake agent
 // needs from the registry — whether a Session runs unattended — is wired here, where the registry
 // is made.
+//
+// The registry's watcher of live-sessions.json (live-sessions.ts, worfy-continuity ticket 03) is made with it and
+// stops before it closes the Sessions at quit, so the file keeps the Sessions the quit cut off.
 import { app } from 'electron'
 import { exposeBrowserToolsToFakeAgent } from '../mcp/browser-server'
+import { projectStore } from '../projects/store'
 import { vendorDriver } from '../vendors/registry'
+import { LiveSessions } from './live-sessions'
 import { SessionRegistry } from './session'
 import { QUIET_LOOK_MS, type QuietWatch } from './session/quiet-signs'
 
@@ -47,6 +52,23 @@ export function quietMarkSeam(env: NodeJS.ProcessEnv, packaged: boolean): Partia
 }
 
 let appRegistry: SessionRegistry | null = null
+let appLiveSessions: LiveSessions | null = null
+
+/** The watcher that writes live-sessions.json of `registry`, over the Projects' data folders. */
+export function liveSessionsOf(registry: SessionRegistry, dirOf: (projectId: string) => string): LiveSessions {
+  return new LiveSessions({
+    observe: (sink) => registry.observe(sink),
+    observeInput: (listener) => registry.observeInput(listener),
+    session: (sessionId) => {
+      try {
+        return registry.get(sessionId)
+      } catch {
+        return null
+      }
+    },
+    dirOf,
+  })
+}
 
 /**
  * The app's registry, made on first use; its Sessions close when the app quits. The Sessions of
@@ -64,9 +86,37 @@ export function sharedRegistry(): SessionRegistry {
       undefined,
       quietMarkSeam(process.env, app.isPackaged),
     )
-    app.on('will-quit', () => registry.closeAll())
+    const live = liveSessionsOf(registry, (projectId) => {
+      // Asked every time, so a Project removed from the list is refused and its folder is not made again.
+      const projects = projectStore()
+      return projects.dataDir(projects.get(projectId).id)
+    })
+    app.on('will-quit', () => {
+      live.stop()
+      registry.closeAll()
+    })
     exposeBrowserToolsForFakeAgent(registry)
     appRegistry = registry
+    appLiveSessions = live
   }
   return appRegistry
+}
+
+/**
+ * The watcher of the app's registry (live-sessions.ts), made with it: the Orchestrators, the Session Nodes and
+ * Autopilot tell it whose each Session is.
+ */
+export function sharedLiveSessions(): LiveSessions {
+  sharedRegistry()
+  if (appLiveSessions === null) throw new Error('The registry was made without its watcher of live Sessions')
+  return appLiveSessions
+}
+
+/** Tells the app's watcher of live Sessions something; a failure is logged, never thrown at the teller. */
+export function tellLiveSessions(tell: (live: LiveSessions) => void): void {
+  try {
+    tell(sharedLiveSessions())
+  } catch (error) {
+    console.warn('[agent] the watcher of live Sessions could not take a change', error)
+  }
 }

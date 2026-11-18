@@ -175,6 +175,7 @@ The subfolder of a Project:
 | `stories.json` | The Code stories made by the button, by PR or Epic; for a colleague's PR only the agent's text and links `path:line@commit`, never the PR's text, comments or title. The answers to questions about lines of any story shown, by what the story names (its file under the Tickets root, or `owner/name#N` and `epic:<name>` for one made by the button): the question, the agent's text, what it rests on, the lines asked about, links `path:line@commit` and a hash of the story's text it was asked about. Under the same name, the screens of a story read (a step by its Ticket and its number inside it) and the person's answers to its "Check yourself" (the question and their words, or "I don't know") | `src/main/stories/store.ts` |
 | `layout.json` | The Layout | `src/main/layout/store.ts` |
 | `bindings.json` | Manual Bindings | `src/main/layout/bindings.ts` |
+| `live-sessions.json` | The Sessions of the Project that have a turn running or messages in their queue, one record per Node (the Orchestrator's or a Session Node's): the Vendor and its session or thread id, the state, the queued texts with the paths of attached files and the names of attached images, whether the queue is held, the Autopilot Run that owns the Session, the time of the last event and the automatic continuations of the last hour; the file carries a `version`, and a build that does not know it reads nothing. main rewrites it atomically on each change; a Session idle with an empty queue, or closed, has no record. The file is written only once a Session of the running app has a record, and a quit stops the writes before the Sessions close, so after a quit, an Update or a crash it still names the Sessions that were cut off. No Binding is kept there: Bindings are read again from the transcripts | `src/main/agent/live-sessions.ts`, format and reader `src/shared/agent/live-sessions.ts` |
 | `session-settings.json` | Model, effort and permission mode by Session Node | `src/main/agent/session-settings.ts` |
 | `hidden-subagents.json` | The Subagent entries the user hid, by Session | `src/main/claude-home/hidden-subagents.ts` |
 | `browser-profiles.json` | The Browser profiles; their sign-ins are in the `persist:` partitions | `src/main/browser/profiles.ts` |
@@ -190,6 +191,10 @@ The subfolder of a Project:
 - `test/unit/json-file.test.ts`: the set-aside and the atomic write.
 - `test/unit/remove-tree.test.ts`, `test/unit/remove-tree-walk.test.ts`, `test/unit/remove-tree-mounted.test.ts` and
   `test/unit/move-when-free.test.ts`: the removal and the move, with links, busy files and mounted volumes.
+- `test/unit/live-sessions.test.ts`: the reader of `live-sessions.json` (an unknown version, broken JSON, an empty
+  file), a write that crashes halfway, changes made during a write, a rename of a resumed Session.
+- `test/contract/live-sessions.test.ts`: on the fake agent, a Session Node in a turn with a queue, Interrupt, a turn
+  that ends with an empty queue, an Orchestrator under a Run, the temporary file and the rename, the quit.
 - `test/contract/projects.test.ts`: the name of a Project's subfolder, which stays after a removal from the list.
 - `test/contract/claude-home-isolation.test.ts`: a contract test file gets a data folder of its own.
 - `test/contract/startup-failure.test.ts`: the check of the folder, before the lock.
