@@ -30,7 +30,7 @@ import { appSettingsStore, autoContinueOn } from '../settings/store'
 import { claudeHome } from '../storage/paths'
 import { wallTimer } from '../autopilot/limits-wait'
 import { vendorDriver } from '../vendors/registry'
-import { sharedRegistry } from './app-registry'
+import { sharedRegistry, tellLiveSessions } from './app-registry'
 import { appLimits } from './limits'
 import { refreshAppUsage } from './limits-usage'
 import { Orchestrators } from './orchestrator'
@@ -96,6 +96,8 @@ export function sharedOrchestrators(): Orchestrators {
         } catch (error) {
           console.warn('[orchestrator] Auto-continue could not take a view of the Orchestrator', error)
         }
+        // Whose Session it is, for live-sessions.json (worfy-continuity ticket 03).
+        tellLiveSessions((live) => live.orchestrator(view))
         toEveryWindow((target) => emit(target, orchestratorChanged, view))
       },
     })

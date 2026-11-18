@@ -41,7 +41,7 @@ import {
 } from '../../shared/ipc/autopilot'
 import { autopilotRunOf } from '../../shared/settings/app-settings'
 import { sharedOrchestrators } from '../agent/app-orchestrators'
-import { sharedRegistry } from '../agent/app-registry'
+import { sharedRegistry, tellLiveSessions } from '../agent/app-registry'
 import { openRunApproval, sweepRunTemps } from '../agent/auto-approve/run-approval'
 import { agentEnv } from '../agent/env'
 import { appLimits, observeSessionLimits } from '../agent/limits'
@@ -229,7 +229,11 @@ export function sharedAutopilot(): Autopilot {
       const service = appLinkService()
       return service !== undefined && service.linkedMachines().length > 0 ? service.machine : null
     },
-    onChange: (state: AutopilotState) => toEveryWindow((target) => emit(target, autopilotChanged, state)),
+    onChange: (state: AutopilotState) => {
+      // Which Run owns the Project's Orchestrator, for live-sessions.json (worfy-continuity ticket 03).
+      tellLiveSessions((live) => live.autopilot(state))
+      toEveryWindow((target) => emit(target, autopilotChanged, state))
+    },
     // Auto-approval (worfy-auto-approve ticket 04): the mode of app-settings.json, Off while a debugging
     // port or the inspector is open (autoApprovalMode); the policy's side of each run, with the shell
     // environment the Session's agent gets, in which the run's git reads run too.

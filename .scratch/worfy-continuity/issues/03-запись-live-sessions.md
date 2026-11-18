@@ -1,7 +1,7 @@
 # 03 — `live-sessions.json`: запись Session-ов с turn-ом или очередью
 
 Type: task
-Status: open
+Status: claimed 2026-11-17T23:32Z
 Blocked by: none
 Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решения по реализации» → «Запись о работающих Session-ах»;
 «Решения по test-ам», Unit; «Риски», 7 и 14
