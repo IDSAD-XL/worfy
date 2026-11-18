@@ -32,12 +32,17 @@ Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решения по реал�
 
 - [ ] Unit test `from-journal.ts`: Journal с `run-suspended {cause: update}` и `run-continued` — один Run, Span `restart`
       с причиной `update` и длительностью.
+  - evidence: test-run pass · `pnpm test test/unit/flight-recorder-journal.test.ts` exit 0 · mac - · cc7daa4476f5fbf5d5e2f40bf5a66e19003e1a2e
 - [ ] Unit test: Journal после падения (без `run-suspended`, с `run-continued {after: crash}`) — Span от последнего
       события до `run-continued`.
+  - evidence: test-run pass · `pnpm test test/unit/flight-recorder-journal.test.ts` exit 0 · mac - · cc7daa4476f5fbf5d5e2f40bf5a66e19003e1a2e
 - [ ] Unit test: `run-suspended` без `run-continued` — исход `cut-off`, как сейчас.
+  - evidence: test-run pass · `pnpm test test/unit/flight-recorder-journal.test.ts` exit 0 · mac - · cc7daa4476f5fbf5d5e2f40bf5a66e19003e1a2e
 - [ ] Unit test подписи: «restart (update) · 3 min».
 - [ ] Английские страницы `flight-recorder.md` и `work-track.md` называют Wait `restart`.
+  - evidence: commit pass · worfy-continuity/09: a restart Wait in Run history and Work track · - - · cc7daa4476f5fbf5d5e2f40bf5a66e19003e1a2e
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · cc7daa4476f5fbf5d5e2f40bf5a66e19003e1a2e
 
 ## Тесты
 
