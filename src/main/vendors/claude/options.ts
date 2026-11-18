@@ -106,6 +106,7 @@ import { productToolDecision, type ProductToolDecision, type ProductWriteAsker, 
 import type { ToolUseFacts } from '../../agent/session/types'
 import { bundledHarnessDir } from '../../harness/bundled'
 import { HARNESS_PLUGIN_NAME } from '../../harness/locate'
+import { EPIC_VARIABLE } from '../session'
 import { sdkServerConfig, type ClaudeMcpServer } from './mcp'
 import { allowedMcpEntries, type McpAddresses } from './mcp-addresses'
 
@@ -394,10 +395,25 @@ export interface SessionOptionsInput {
    * rules themselves come with ticket 10). Absent: nothing.
    */
   instructions?: string | undefined
+  /**
+   * The Epic whose Waves the Session runs (worfy-continuity ticket 12): an Orchestrator Autopilot started.
+   * Its Claude Code, hooks and shell commands see `WORFY_EPIC` (the Harness's after-compact hook gives that
+   * Epic's wave-brief), and a line of the system prompt names it (waveInstructions), which outlives a
+   * compaction of the main Session (the spike of ticket 01, question 4). Absent or empty: neither.
+   */
+  epic?: string | undefined
 }
 
 /** The variable a Product Session's Claude Code, its hooks and its shell commands see (read by the rules hook, ticket 10). */
 export const SESSION_KIND_VARIABLE = 'WORFY_SESSION_KIND'
+
+/**
+ * The line appended to the system prompt of a Session that runs a Wave of `epic`. It names the Epic only:
+ * the Session starts before the run reads the Wave's Tickets, and one Session may run several Waves.
+ */
+export function waveInstructions(epic: string): string {
+  return `This Session runs the Waves of Epic ${epic} for worfy Autopilot. After a context compaction, run \`wave-brief ${epic}\` before anything else (skill epic-wave, "How to resume a wave"): it names the Wave's Tickets and where each stands.`
+}
 
 /** The tool call a guard decides on, besides its tool, input and folder: its id, and the signal Claude Code aborts when it gives up on the call. */
 export interface ToolUseCall {
@@ -741,10 +757,13 @@ export function inventoryOptions(input: {
   return options
 }
 
-/** The environment of a Session's Claude Code: `env`, the Run's variables over it, and the kind of a Product Session. */
+/** The environment of a Session's Claude Code: `env`, the Run's variables over it, the kind of a Product Session and the Epic of a Wave. */
 function sessionEnv(input: SessionOptionsInput): Env {
-  const kind: Env = input.kind === 'product' ? { [SESSION_KIND_VARIABLE]: 'product' } : {}
-  return input.environment === undefined && input.kind !== 'product' ? input.env : { ...input.env, ...input.environment, ...kind }
+  const own: Env = {
+    ...(input.kind === 'product' ? { [SESSION_KIND_VARIABLE]: 'product' } : {}),
+    ...(input.epic !== undefined && input.epic !== '' ? { [EPIC_VARIABLE]: input.epic } : {}),
+  }
+  return input.environment === undefined && Object.keys(own).length === 0 ? input.env : { ...input.env, ...input.environment, ...own }
 }
 
 export function sessionOptions(input: SessionOptionsInput): Options {
@@ -822,6 +841,7 @@ export function sessionOptions(input: SessionOptionsInput): Options {
     appended.push(input.mindMap.instructions)
   }
   if (input.instructions !== undefined && input.instructions !== '') appended.push(input.instructions)
+  if (input.epic !== undefined && input.epic !== '') appended.push(waveInstructions(input.epic))
   if (appended.length > 0) options.systemPrompt = { type: 'preset', preset: 'claude_code', append: appended.join('\n') }
   if (input.harnessPlugin != null) {
     options.plugins = [{ type: 'local', path: input.harnessPlugin, skipMcpDiscovery: true }]

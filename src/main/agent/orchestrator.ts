@@ -30,6 +30,11 @@
 // at once instead (giveBackNow): its halted Session's process closes, and with it every background
 // task and the turn the interrupt did not end.
 //
+// Each unattended Session starts with the Epic of the run that holds the Orchestrator (deps.waveEpic,
+// worfy-continuity ticket 12): WORFY_EPIC in its agent's environment and a line of its system prompt, which the
+// Harness's after-compact hook reads. An attended Session gets none; nor does "Run wave" by hand reach the
+// environment of an Orchestrator already running, since the environment is fixed when its process starts.
+//
 // Every relaunch (worfy-week ticket 20, ADR-0064) starts the new Claude Code process only once the
 // old one has exited (Session.exited: SIGKILL past the limit), so two processes never continue one
 // SDK session. The new Session is live at once, `starting`, and holds what is sent to it meanwhile;
@@ -172,6 +177,13 @@ export interface OrchestratorDeps {
    * SIGKILL (default EXIT_WAIT_MS, Session.exited).
    */
   exitWaitMs?: number
+  /**
+   * The Epic of the Autopilot run that holds the Project's Orchestrator, or is starting to (Autopilot.runningEpic);
+   * null when none does. Asked when an unattended Session starts — at the run's start and for the new SDK session
+   * of each later Wave — for its WORFY_EPIC and its line of the system prompt (worfy-continuity ticket 12): the
+   * environment of a process is fixed when it starts. Absent: no Session gets an Epic.
+   */
+  waveEpic?(projectId: string): string | null
 }
 
 /** After the last background task of a Session waiting to be given back ended: the wait for its task-notification turn. */
@@ -735,8 +747,10 @@ export class Orchestrators {
       statusBlock: facts.statusBlock,
     })
     try {
-      // Marked as the Orchestrator for its autocompact window; the launch kept in the entry stays as it is.
-      const launch = { ...entry.launch, orchestrator: true }
+      // Marked as the Orchestrator for its autocompact window, and an unattended one with the Epic of its run;
+      // the launch kept in the entry stays as it is.
+      const epic = entry.launch.unattended ? this.waveEpic(entry.projectId) : null
+      const launch: SessionLaunch = { ...entry.launch, orchestrator: true, ...(epic === null ? {} : { epic }) }
       run.session = this.deps.registry.start(entry.path, resume, (sessionId, event) => this.onEvent(entry, run, sessionId, event), entry.settings, launch, after, entry.vendor)
     } catch (error) {
       // E.g. the session is already live in another Session; the next open tries again.
@@ -943,6 +957,18 @@ export class Orchestrators {
     const vendor = entry.vendor === entry.savedVendor ? {} : { vendor: entry.vendor }
     entry.savedVendor = entry.vendor
     this.patch(entry, { sessionId: null, costUsd: 0, ...vendor })
+  }
+
+  /** The Epic of the run that holds the Project's Orchestrator (deps.waveEpic); null without one, or when the ask fails. */
+  private waveEpic(projectId: string): string | null {
+    try {
+      const epic = this.deps.waveEpic?.(projectId) ?? null
+      return epic === '' ? null : epic
+    } catch (error) {
+      // The Session starts all the same, only without the Epic: its hooks fall back to the checkout's branch.
+      console.warn(`[orchestrator] could not tell the Epic of the run of ${projectId}`, error)
+      return null
+    }
   }
 
   private current(entry: Entry): Omit<OrchestratorView, 'version'> {

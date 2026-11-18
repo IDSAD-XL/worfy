@@ -21,6 +21,8 @@
 //   The `result`'s `terminalReason` is the error's `codexErrorInfo` key, with its HTTP status when Codex
 //   gives one (`responseTooManyFailedAttempts:429`): turnFailureKind reads both (worfy-retry ticket 08);
 // - `thread/tokenUsage/updated` → `context`;
+// - a completed `contextCompaction` (Codex compacted the thread) → `notice` "Context compacted"
+//   (worfy-continuity ticket 12);
 // - a notification or an item of a kind worfy does not know → `unknown`, named by its method or
 //   `item/<type>`. Those that only repeat what the events above already say give nothing.
 //
@@ -34,6 +36,9 @@ import type { ThreadItem } from './protocol/ts/v2/ThreadItem'
 import type { ThreadTokenUsage } from './protocol/ts/v2/ThreadTokenUsage'
 import type { Turn } from './protocol/ts/v2/Turn'
 import type { TurnError } from './protocol/ts/v2/TurnError'
+
+/** The Session view's line for a `contextCompaction` item: the Claude driver's line without the trigger and the tokens. */
+export const CODEX_COMPACTED_TEXT = 'Context compacted'
 
 /** How many characters of a Codex error a `result` or a `notice` keeps. */
 export const ERROR_TEXT_LIMIT = 2_000
@@ -120,7 +125,7 @@ export function contextUsageOf(usage: ThreadTokenUsage): ContextUsage | null {
   const window = usage.modelContextWindow
   if (typeof window !== 'number' || window <= 0) return null
   const totalTokens = usage.last.totalTokens
-  // Codex does not say over the protocol when it compacts.
+  // Codex tells no autocompact threshold over the protocol; a compaction comes as a contextCompaction item.
   return { percentage: Math.round((totalTokens / window) * 100), totalTokens, windowTokens: window, autoCompactThreshold: null, autoCompactEnabled: false }
 }
 
@@ -305,6 +310,10 @@ export class CodexItems {
       case 'userMessage':
         // The Session gave the message itself (`prompt`).
         return []
+      case 'contextCompaction':
+        // Codex compacted the thread, by /compact or by itself (worfy-continuity ticket 12): the Session view's line.
+        // The item tells neither the trigger nor the tokens, so the line has neither.
+        return [{ type: 'notice', kind: 'notification', text: CODEX_COMPACTED_TEXT }]
       default: {
         const result = toolResult(item)
         if (result === null) return [{ type: 'unknown', sdkType: `item/${item.type}` }]

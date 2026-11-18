@@ -4,6 +4,8 @@
 //
 // - start: `thread/start {cwd, approvalPolicy, sandbox, model}`; resume: `thread/resume {threadId, …}`.
 //   A Session in a Project adds worfy's MCP servers to both (`config`, `developerInstructions`; mcp.ts).
+//   Every thread gets the Harness's compaction rules as `compact_prompt` in `config` (CODEX_COMPACT_PROMPT,
+//   worfy-continuity ticket 12).
 //   The start check of a Codex Session is that thread answering: the handle then gives `account`, and the
 //   Session takes messages. Whether the user is signed in to Codex is the account part's question
 //   (ticket 21); a turn of a signed-out Codex fails with Codex's own error.
@@ -67,10 +69,11 @@ import type { AutoApprovalMode } from '../../../shared/settings/app-settings'
 import { approvalMode, reportedOutcome } from '../../agent/auto-approve/mode'
 import { createParker, type ParkEnd } from '../../agent/auto-approve/park'
 import type { Decision } from '../../agent/auto-approve/policy'
-import type { ApprovalDecided, PermissionAsk, SessionApproval, SessionHandle, SessionMessage, SessionPart, SessionStart } from '../session'
+import { EPIC_VARIABLE, type ApprovalDecided, type PermissionAsk, type SessionApproval, type SessionHandle, type SessionMessage, type SessionPart, type SessionStart } from '../session'
 import type { CodexAppServer } from './app-server'
 import { approvalAsk, codexPinConfig, codexPinned, decisionOf, isApprovalRequest, parkedCard, policyRequestOf, UNATTENDED_DECLINED_MESSAGE, withGrantRoot, type CodexApprovalRequest, type CodexDecision } from './approvals'
 import type { CodexRuntime } from './binary'
+import compactionRules from '../../../../harness/hooks/rules/compaction.md?raw'
 import { codexModelOptions, codexPermissionPreset, codexPresetFor, codexSandboxPolicy, codexSettings, type CodexModelSource } from './capabilities'
 import { codexCommandOf, codexSlashCommands, CODEX_BUILT_IN_COMMANDS, slashName, type CodexCommand, type CodexSkillSource } from './commands'
 import { boundedText, CodexItems } from './items'
@@ -134,6 +137,16 @@ export function withGhToken(env: NodeJS.ProcessEnv, token: string | null): NodeJ
   out.GH_TOKEN = token
   return out
 }
+
+/**
+ * The prompt Codex writes a thread's summary with when it compacts (`compact_prompt` of the thread's config,
+ * worfy-continuity ticket 12): the Harness's compaction rules (harness/hooks/rules/compaction.md, ticket 10),
+ * the text the build's own Harness copy carries. Codex reads no stdout of a PreCompact hook, so this is the
+ * one way the rules reach its summary; and it replaces Codex's own prompt whole (the spike of ticket 01,
+ * question 5), so it starts with the task itself. It also overrides a `compact_prompt` of the user's
+ * config.toml for the threads worfy starts.
+ */
+export const CODEX_COMPACT_PROMPT = `Compact the conversation so far: write the summary that replaces it, by the rules below.\n\n${compactionRules.trim()}\n`
 
 /** The JSON-RPC error a server→client request worfy does not answer gets (rpc.ts's METHOD_NOT_FOUND). */
 const METHOD_NOT_FOUND = -32601
@@ -925,10 +938,12 @@ async function open(options: CodexServerOptions, opts: SessionStart, resume: str
   const tokenEnv = withGhToken(options.env ?? process.env, token)
   // The run's TMPDIR and git environment of an unattended Session at Shadow or On (worfy-auto-approve tickets 04, 05);
   // without them, in Off, the environment as before.
-  const env = opts.environment === undefined ? tokenEnv : { ...tokenEnv, ...opts.environment }
+  const runEnv = opts.environment === undefined ? tokenEnv : { ...tokenEnv, ...opts.environment }
+  // The Epic of a Session that runs a Wave (worfy-continuity ticket 12): the Harness's after-compact hook reads it.
+  const env = opts.epic === undefined || opts.epic === '' ? runEnv : { ...runEnv, [EPIC_VARIABLE]: opts.epic }
   // The same variables pinned in every command's shell, where the owner's include_only does not drop them (codexPinned); none in Off.
   const pinned = opts.environment === undefined ? null : codexPinned(env, opts.environment)
-  const config = { ...mcp?.config, ...(pinned === null ? {} : codexPinConfig(pinned)) }
+  const config = { ...mcp?.config, ...(pinned === null ? {} : codexPinConfig(pinned)), compact_prompt: CODEX_COMPACT_PROMPT }
   /** What the process was spawned with: the approval policy judges each request in it. */
   let processEnv: NodeJS.ProcessEnv | null = null
   let server: CodexAppServer
@@ -963,7 +978,7 @@ async function open(options: CodexServerOptions, opts: SessionStart, resume: str
       approvalPolicy: preset.approvalPolicy,
       sandbox: preset.sandbox,
       ...(opts.settings.model === null ? {} : { model: opts.settings.model }),
-      ...(Object.keys(config).length === 0 ? {} : { config }),
+      config,
       ...(mcp === null ? {} : { developerInstructions: mcp.developerInstructions }),
     }
     const response =

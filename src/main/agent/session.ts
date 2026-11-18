@@ -1033,6 +1033,7 @@ export class Session {
       },
       orchestrator: this.launch.orchestrator === true,
       ...(this.launch.kind === undefined ? {} : { kind: this.launch.kind }),
+      ...(this.launch.epic === undefined ? {} : { epic: this.launch.epic }),
       permissions: this.permissions,
       refused: (subject, message, details) => this.refuseDialog('permission_request', subject, message, details),
       ...this.approvalStart(),

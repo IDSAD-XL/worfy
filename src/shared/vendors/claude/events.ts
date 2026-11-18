@@ -173,9 +173,37 @@ function hookRunning(message: unknown): AgentEvent[] {
   return run.success ? [{ type: 'alive', hook: { id: run.data.hook_id, phase: 'running' } }] : []
 }
 
+/** 950, 84.3K, 812K, 1.2M: as the context meter writes tokens (ContextMeter.tsx). */
+function shortTokens(count: number): string {
+  const short = (value: number, unit: string) => `${Number(value.toFixed(1))}${unit}`
+  if (count >= 1_000_000) return short(count / 1_000_000, 'M')
+  if (count >= 1_000) return short(count / 1_000, 'K')
+  return String(Math.round(count))
+}
+
+/**
+ * The Session view's line for system/compact_boundary (worfy-continuity ticket 12): "Context compacted
+ * (auto) · 812K → 41K" from compact_metadata. A part Claude Code did not tell (post_tokens is optional)
+ * or that does not read is left out; the line itself always shows.
+ */
+export function compactedText(message: unknown): string {
+  const raw = message !== null && typeof message === 'object' ? (message as { compact_metadata?: unknown }).compact_metadata : undefined
+  const metadata = raw !== null && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+  const count = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null)
+  const trigger = typeof metadata.trigger === 'string' && metadata.trigger !== '' ? metadata.trigger : null
+  const before = count(metadata.pre_tokens)
+  const after = count(metadata.post_tokens)
+  let text = 'Context compacted'
+  if (trigger !== null) text += ` (${trigger})`
+  if (before !== null) text += ` · ${shortTokens(before)}${after === null ? '' : ` → ${shortTokens(after)}`}`
+  return text
+}
+
 function mapSystem(subtype: string, message: unknown): AgentEvent[] {
   if (QUIET_SYSTEM.has(subtype)) return []
   switch (subtype) {
+    case 'compact_boundary':
+      return [{ type: 'notice', kind: 'notification', text: compactedText(message) }]
     case 'hook_started':
     case 'hook_progress':
       return hookRunning(message)

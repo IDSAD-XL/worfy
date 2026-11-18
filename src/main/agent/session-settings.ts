@@ -49,6 +49,12 @@ export interface SessionLaunch {
    * Absent: every permission request is refused, as before the ticket.
    */
   approval?: LaunchApproval
+  /**
+   * The Epic whose Waves an Orchestrator started by Autopilot runs (worfy-continuity ticket 12): its agent
+   * starts with `WORFY_EPIC` and a line of the system prompt that names it. Set by the Orchestrators at
+   * each start of an unattended Session (Orchestrators.waveEpic). Absent: neither.
+   */
+  epic?: string
 }
 
 /** A Session the user started, or one they can answer: the default. */

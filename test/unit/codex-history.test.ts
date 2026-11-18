@@ -155,7 +155,7 @@ describe('a thread of thread/read as transcript entries', () => {
       { uuid: 'c1', timestamp: at, sidechain: false, event: { type: 'tool_use', id: 'c1', name: 'commandExecution', input: { command: 'pnpm lint', cwd: '/p' }, parentToolUseId: null } },
       { uuid: 'c1', timestamp: at, sidechain: false, event: { type: 'tool_result', toolUseId: 'c1', content: '1 problem\n', isError: true, parentToolUseId: null } },
       { uuid: 'm1', timestamp: at, sidechain: false, event: { type: 'text', text: 'The build is fixed.', messageId: 'm1', parentToolUseId: null, synthetic: false } },
-      { uuid: 'cc1', timestamp: at, sidechain: false, event: { type: 'unknown', sdkType: 'item/contextCompaction' } },
+      { uuid: 'cc1', timestamp: at, sidechain: false, event: { type: 'notice', kind: 'notification', text: 'Context compacted' } },
       { uuid: 'u2', sidechain: false, event: { type: 'notice', kind: 'user', text: '$triage' } },
     ])
   })

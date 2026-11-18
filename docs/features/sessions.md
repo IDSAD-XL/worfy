@@ -293,6 +293,14 @@ a Product Session's live summary ([Product Session](product-session.md)). Each i
 window the user has not chosen gives way to `autoCompactWindow` in `settings.json`. `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in the
 login shell overrides both rows, and the section says so. A running Session keeps its window until it starts again.
 
+**Context compacted.** When the agent compacts its context, the transcript shows a line in its place among the turn's
+events: `Context compacted (auto) · 812K → 41K`. The word in brackets is the trigger, `auto` or `manual` (`/compact`); the
+numbers are the tokens before and after, written as the Context meter writes them. Claude Code does not always say the
+tokens after, and then the line ends with the first number. A Codex Session shows only `Context compacted`: Codex names
+neither the trigger nor the tokens. What the summary keeps is the Harness's affair: its compaction rules go to Claude Code
+through a hook, and to Codex as the thread's `compact_prompt`, which replaces a `compact_prompt` of the user's own Codex
+config for the threads worfy starts.
+
 **Orchestrator.** The Project's main Session. The Node shows its state, model, summed cost and the last status block of its
 answers.
 
@@ -316,6 +324,16 @@ answers.
   approved in Codex's `/hooks`; see [Autopilot, During a run](autopilot.md#during-a-run). While it does, the permission
   mode is forced to Bypass permissions (Full access on Codex) and not saved, a mode change is refused, and permission
   requests and questions are refused at once.
+- An Orchestrator Autopilot starts — at the run's start and for the new session before each later Wave — gets the run's
+  Epic: `WORFY_EPIC` in its agent's environment, and on Claude Code a line of the system prompt that names the Epic and
+  says to run `wave-brief <epic>` after a compaction. After a compaction the Harness gives that Epic's state back. The line
+  names the Epic only: the Session starts before the run reads the Wave's Tickets. An Orchestrator a person opened, or a
+  "Run wave" sent into it by hand, has no Epic of its own: a process's environment is fixed when it starts, and worfy does
+  not restart a running Orchestrator for it. There the Harness takes the Epic of the checkout's branch.
+  Known limitation: in a queue of Epics, the first Wave of the next Epic can go to the Session that ran the previous Epic,
+  when the Orchestrator is not free for a new session (a turn, a background task or a queued message). That Session keeps
+  `WORFY_EPIC` and the system prompt line of the previous Epic, so after a compaction the Harness gives back the previous
+  Epic's state, until the run starts a new session for a later Wave.
 
 **Notifications.** A system notification goes out when a Session finishes a turn, asks a permission or asks a question while
 no worfy window has focus. A Session from a terminal or Claude desktop notifies when its status goes from busy to idle. One
@@ -395,6 +413,7 @@ for a process also asks the system.
 | The registry of live Sessions, the test agent | `src/main/agent/session/registry.ts`, `src/main/agent/app-registry.ts`, `src/main/agent/fake-query.ts` |
 | Query options, MCP and skills lists, autocompact | `src/main/vendors/claude/options.ts`, `src/main/vendors/claude/query.ts` |
 | Codex slash menu: skills, `/compact`, `/review` | `src/main/vendors/codex/commands.ts`, `src/main/vendors/codex/session.ts` |
+| The "Context compacted" line; the Epic of a Wave (`WORFY_EPIC`), Codex `compact_prompt` | `src/shared/vendors/claude/events.ts`, `src/main/vendors/codex/items.ts`, `src/main/agent/orchestrator.ts`, `src/main/vendors/codex/session.ts` |
 | Codex Sessions of the Project in the history and on the Canvas | `src/main/vendors/codex/sessions-on-canvas.ts`, `src/main/ipc/claude-home.ts`, `src/renderer/claude-home/session-nodes.ts` |
 | Process environment | `src/main/agent/env.ts` |
 | Queue, permissions, saved settings | `src/main/agent/queue.ts`, `src/main/agent/permissions.ts`, `src/main/agent/session-settings.ts` |
