@@ -1,6 +1,6 @@
 # Projects
 
-> Перевод [английской версии](../projects.md), commit `a8f1faef`.
+> Перевод [английской версии](../projects.md), commit `same-pr`.
 
 Три Feature, которые относятся к Project-у целиком. **Full mode и Silent mode** решают, где лежат файлы workflow. **Project
 switcher** — это список Project-ов и выбор того, который показывает окно. **ADR и HANDOFF** — view только для чтения над двумя
@@ -327,11 +327,12 @@ Project Machine этого окна. Строка секции Pipeline или n
   Если аккаунт ждёт свой rate limit GitHub или чтение не удалось (сеть, ошибка GitHub), строка и её head остаются последними
   прочитанными; skill сам проверяет head. Клик отклоняется с причиной, когда шаблон пуст, в Project-е работает Autopilot,
   Orchestrator Project-а занят Binding-ом к Epic-у Ticket-а этого pull request-а (его Wave сама чинит свои pull request-ы),
-  pull request не пользователя, пришёл из fork-а или закрыт, его причины больше нет (`CI is no longer failing on 3f2a9c1`)
-  или экран только для чтения. Текст уходит в Session Node, привязанный (manual или launch) к Ticket-у pull request-а (по его
+  PR inbox ещё не прочитал GitHub login пользователя, pull request не пользователя, пришёл из fork-а, закрыт или больше не
+  в PR inbox, его причины больше нет (`CI is no longer failing on 3f2a9c1`) или экран только для чтения. Текст уходит в Session Node, привязанный (manual или launch) к Ticket-у pull request-а (по его
   строке `PR:` или по ветке), на Claude Code, не в архиве, у которого последняя запись transcript-а моложе 24 часов: worfy
   продолжает эту Session, если у неё нет процесса, отправляет текст или ставит его в очередь, пока идёт ход, и добавляет
-  строку `worfy: Fix checks for owner/web#118 sent to this Session`, которую модель не видит. Иначе запускается новый Session
+  строку `worfy: Fix checks for owner/web#118 sent to this Session` (`… queued in this Session`, пока идёт ход), которую
+  модель не видит. Иначе запускается новый Session
   Node на Claude Code с текстом как первым сообщением, привязанный через launch к Ticket-у, если он есть. Порядок причин на
   кнопке: конфликт (`DIRTY`), затем красный CI, затем запрошенные изменения или thread-ы, которые ждут ответа пользователя.
   «Reset to default» ставит значения по умолчанию из Harness, который сейчас найден на Machine. На Windows в диалоге есть ещё

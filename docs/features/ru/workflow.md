@@ -1,6 +1,6 @@
 # Workflow
 
-> Перевод [английской версии](../workflow.md), commit `0819cc9b`.
+> Перевод [английской версии](../workflow.md), commit `same-pr`.
 
 Три близких Feature. **Ticket и Epic на Canvas** показывают работу Project-а так, как её записывают файлы Ticket-ов.
 **Pipeline** говорит, на каком Stage стоит каждый Ticket. **Binding** связывает каждого агента с Ticket-ом или Epic-ом, над
@@ -110,7 +110,7 @@ Ticket без раздела со следом может быть в Wave: он
 | Ship ticket | На Ticket-е, который `open`, `blocked` или без статуса | Он `open`, каждый blocker завершён в checkout, запущенная этой кнопкой Session этого Ticket-а не жива, шаблон задан и заполняется | Новый Session Node с текстом как первым сообщением, справа от полосы frame-ов на высоте Ticket-а. Если их нет на Canvas — там, куда попадает любой новый Node. Из Command palette место не передаётся: Node попадает туда, куда и любой новый Node |
 | Run wave | На frame, если не все его Ticket-ы завершены | Ready Wave не пуста, шаблон задан и заполняется | Текст уходит Orchestrator-у, в очередь, пока идёт turn. Отказ, пока в Project-е работает Autopilot |
 | Open PR | На Ticket-е с PR | Адрес на `https://github.com/` | Открывает PR в браузере и ничего не пишет в GitHub |
-| Resolve conflicts, Fix checks, Address comments | На Ticket-е, PR которого есть в PR inbox Project-а и требует одного из них: одна кнопка для первой причины в порядке Resolve conflicts (у PR конфликт), Fix checks (его CI падает), Address comments (запрошены изменения или thread ждёт ответа пользователя), а рядом «▾» с остальными причинами. Ticket с PR в нескольких репозиториях получает пункт на каждую пару PR и причины, и каждый называет свой PR. Project с `"prInbox": false` не показывает ни одного | PR принадлежит самому пользователю и не из fork, причина ещё есть, шаблон задан и заполняется | Передаёт PR Session с шаблоном, заполненным значениями `{repo}`, `{pr}` и `{sha}`: Session Claude Code, связанной с Ticket-ом, когда в её transcript писали за последние 24 часа, иначе новому Session Node справа от полосы frame-ов на высоте Ticket-а; из Command palette место не передаётся, и Node попадает туда, куда и любой новый Node. Сначала main заново читает PR; его отказ становится tooltip кнопки или «▾» |
+| Resolve conflicts, Fix checks, Address comments | На Ticket-е, PR которого есть в PR inbox Project-а и требует одного из них: одна кнопка для первой причины в порядке Resolve conflicts (у PR конфликт), Fix checks (его CI падает), Address comments (запрошены изменения или thread ждёт ответа пользователя), а рядом «▾» с остальными причинами. Ticket с PR в нескольких репозиториях получает пункт на каждую пару PR и причины, и каждый называет свой PR. Project с `"prInbox": false` не показывает ни одного | PR принадлежит самому пользователю и не из fork, причина ещё есть, шаблон задан и заполняется. Ещё main отказывает, пока в Project-е работает Autopilot и пока Orchestrator занят Wave Epic-а этого Ticket-а (эта Wave сама чинит свои pull request-ы) | Передаёт PR Session с шаблоном, заполненным значениями `{repo}`, `{pr}` и `{sha}`: Session Claude Code, связанной с Ticket-ом, когда в её transcript писали за последние 24 часа, иначе новому Session Node справа от полосы frame-ов на высоте Ticket-а; из Command palette место не передаётся, и Node попадает туда, куда и любой новый Node. Сначала main заново читает PR; его отказ становится tooltip кнопки или «▾» |
 
 Шаблон с неизвестной подстановкой или с подстановкой без значения не заполняется, и ошибка становится причиной на кнопке. При
 клике на Ship ticket или Run wave worfy читает workflow заново и принимает то же решение ещё раз, поэтому Ticket, который тем
@@ -123,7 +123,7 @@ Ticket без раздела со следом может быть в Wave: он
 #### On a Linked machine
 
 Epic-и и Ticket-ы читаются на Machine Project-а, только для Project-ов из её списка. На экране только для чтения Ship ticket, Run
-wave, сворачивание frame и «Plan your first epic» неактивны и объясняют почему. С правом записи действия выполняются на Machine
+wave, Resolve conflicts, Fix checks, Address comments, сворачивание frame и «Plan your first epic» неактивны и объясняют почему. С правом записи действия выполняются на Machine
 Project-а. Focus mode тоже читает файл там, а «Open in editor» показывает toast «File is on <Machine>».
 
 ### How it works
@@ -274,7 +274,7 @@ Project-а. Focus mode тоже читает файл там, а «Open in edito
 | Evidence: состояния пунктов, chip, матрица, её снимки и клипы | `src/shared/workflow/evidence.ts`, `src/renderer/canvas/badges/Evidence.tsx`, `src/renderer/canvas/nodes/EvidenceMatrix.tsx`, `src/renderer/canvas/nodes/EvidencePreview.tsx`, `src/main/images/stores.ts`, `src/renderer/canvas/badges/evidence.css` |
 | Стрелки | `src/renderer/canvas/edges/blocking.ts` |
 | Sidebar, Command palette, надпись первого Epic-а | `src/renderer/shell/sidebar/EpicsSection.tsx`, `src/renderer/shell/sidebar/epics-order.ts`, `src/renderer/palette/commands.ts`, `src/renderer/canvas/overlays/FirstEpic.tsx` |
-| Кнопки | `src/renderer/canvas/actions/TicketActions.tsx`, `src/renderer/canvas/actions/EpicActions.tsx`, `src/renderer/canvas/actions/OpenPr.tsx`, `src/renderer/canvas/actions/gates.ts` |
+| Кнопки | `src/renderer/canvas/actions/TicketActions.tsx`, `src/renderer/canvas/actions/EpicActions.tsx`, `src/renderer/canvas/actions/OpenPr.tsx`, `src/renderer/canvas/actions/PrFollow.tsx`, `src/renderer/canvas/actions/pr-follow-choices.ts`, `src/renderer/canvas/actions/gates.ts` |
 | Может ли действие выполниться; шаблоны | `src/shared/actions/render-template.ts`, `src/shared/projects/action-templates.ts` |
 | Запуск работы | `src/main/actions/launch.ts`, `src/main/ipc/actions.ts`, `src/shared/ipc/actions.ts` |
 

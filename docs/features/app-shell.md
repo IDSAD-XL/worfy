@@ -1,7 +1,7 @@
 # App shell
 
 What surrounds the Canvas in every window, on every Project. Seven Features: the **Sidebar**, the **Command palette**,
-**Shortcuts**, the **Menu**, **Settings**, the **worfy Guide** and the **Theme**. [Notifications](notifications.md), the sixth, has a page of its own. Terms are
+**Shortcuts**, the **Menu**, **Settings**, the **worfy Guide** and the **Theme**. [Notifications](notifications.md), the eighth, has a page of its own. Terms are
 explained in [Concepts](concepts.md).
 
 The View switch of the toolbar picks what the main area shows: **Canvas**, **Session**, **Pipeline** (see
@@ -187,7 +187,7 @@ Inside a Terminal, Ctrl+K belongs to the shell and the palette does not open. Se
 
 On a read-only screen, the rows that would change the Project are inactive with the hint "… gives this Machine read-only
 access". These are New session, New Product Session, New …, Tidy up, Arrange by Epic, Re-pack, Archive finished sessions now, Process gate queue,
-Run wave and Ship ticket, and a Go to row of an archived or hidden Node. The views, moving the Canvas and switching Projects
+Run wave, Ship ticket, Fix checks, Resolve conflicts and Address comments, and a Go to row of an archived or hidden Node. The views, moving the Canvas and switching Projects
 stay active. The Orchestrator row only shows the Orchestrator and does not start it.
 
 The machine rows stay active: they concern this Machine's link and not the Project. The transcript search runs on the

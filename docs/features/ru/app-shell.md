@@ -1,9 +1,9 @@
 # App shell
 
-> Перевод [английской версии](../app-shell.md), commit `0819cc9b`.
+> Перевод [английской версии](../app-shell.md), commit `same-pr`.
 
 То, что окружает Canvas в каждом окне и на каждом Project-е. Семь Feature: **Sidebar**, **Command palette**, **Shortcuts**,
-**Menu**, **Settings**, **worfy Guide** и **Theme**. У шестого, [Notifications](notifications.md), своя страница. Термины
+**Menu**, **Settings**, **worfy Guide** и **Theme**. У восьмой, [Notifications](notifications.md), своя страница. Термины
 объяснены в [Concepts](concepts.md).
 
 Переключатель View в toolbar выбирает, что показывает основная область: **Canvas**, **Session**, **Pipeline** (см.
@@ -188,7 +188,7 @@ transcripts: …». Эти строки идут сверх 50 строк ком
 
 На экране только для чтения строки, которые изменили бы Project, неактивны с подсказкой «… gives this Machine read-only access». Это
 New session, New Product Session, New …, Tidy up, Arrange by Epic, Re-pack, Archive finished sessions now, Process gate queue, Run
-wave и Ship ticket, а также строка Go to архивного или скрытого Node-а. Виды, перемещение Canvas и переключение Project-ов остаются
+wave, Ship ticket, Fix checks, Resolve conflicts и Address comments, а также строка Go to архивного или скрытого Node-а. Виды, перемещение Canvas и переключение Project-ов остаются
 активными. Строка Orchestrator только показывает Orchestrator и не запускает его.
 
 Строки машин остаются активными: они касаются связи этой Machine, а не Project-а. Поиск по транскриптам идёт на Machine Project-а.
@@ -389,7 +389,7 @@ Tab идёт по кругу по элементам окна. Пока оно �
 | Terminal AI | Переключатели и модели Terminal AI: см. [Terminal](terminal.md) |
 | Sessions | Окно autocompact для Session-ов |
 | Canvas | Автоматический архив завершённых Session-ов |
-| Pull requests | Уведомления и утренний дайджест PR inbox, оба по умолчанию включены: см. [Notifications](notifications.md#the-morning-digest) |
+| Pull requests | Уведомления и утренний дайджест PR inbox, оба по умолчанию включены: см. [Notifications](notifications.md#утренний-дайджест) |
 | Browser | Когда Live Browser засыпает |
 | Autopilot | Run mode по умолчанию, Start window и дневной бюджет Limits: см. [Run planning](run-planning.md#settings--autopilot) |
 | Plan | План, под которым вошёл Claude Code, и для Pro готовый набор с кнопкой Apply |

@@ -98,9 +98,15 @@ Code: `docs/features/harness.md:355-364` · key lines: 358, 359, 363, 364
 
 ## 6. Что сознательно не меняли
 
-Остальные английские страницы не тронуты; расхождения, которые нашли переводчики (неназванные отказы и случай Linked
-machine в `workflow.md`, `projects.md`, `app-shell.md`), — пропуски, а не ошибки, и они в отчёте, а не в diff-е.
-Метка `ru/harness.md` — `same-pr`: английская страница меняется в этом же PR.
+Остальные английские страницы не тронуты, кроме пропусков, которые нашли переводчики: их Orchestrator велел закрыть в
+этом PR. `app-shell.md` — Notifications восьмая Feature, а не шестая; на Linked machine только для чтения неактивны и
+Fix checks, Resolve conflicts, Address comments (`src/renderer/palette/commands.ts:364`). `workflow.md` — отказы при
+Autopilot и при занятом Wave-ой Orchestrator-е (`src/main/actions/launch.ts:359`, `:384`), Linked machine,
+`PrFollow.tsx` и `pr-follow-choices.ts` в Implementation. `projects.md` — `… queued in this Session`
+(`src/main/actions/launch.ts:178`) и отказы `src/shared/actions/pr-follow.ts:41-42`. Метки этих трёх ru-страниц и
+`ru/harness.md` — `same-pr`. В `ru/notifications.md` переведён только раздел «Утренний дайджест», на который ссылается
+`ru/app-shell.md`; метка — `41f4e01b`, английская версия до раздела, поэтому `feature-docs-lag.mjs` по-прежнему
+показывает отставание остальной страницы.
 
 ## 7. Как проверено
 
