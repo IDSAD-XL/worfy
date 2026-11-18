@@ -329,3 +329,66 @@ function onWindow(_event?: unknown, window?: BrowserWindow): void {
    - Строки: `src/main/agent/node-sessions.ts:365-375`
    - Ответ: Resume, затем строку «worfy: not continued: …», то же сообщение `restartText`, очередь и строку
      «restarted at …».
+
+## 11. Что нашёл review и что осталось
+
+> VERIFIED
+> Round 2 (delta 63da6ef8..82094242) closes both round-1 points: a Node without a saved session id resumes record.vendorSessionId (src/main/agent/node-sessions.ts:300-309), a mismatch of ids gives the chip and sends nothing (src/main/agent/continuity.ts:349-360), and the mark goes after delivery and after Resume from History (node-sessions.ts:369, :392); 7 mutants each turn a contract test red.
+> Consider: node-sessions.ts:383,389-392 — Resume from History finds the Node by data.sessionId; a Node that never saved its id keeps its mark, so its Continue may later repeat the stale message (needs a crash before the layout write and a History resume; low).
+> Consider: continuity.ts:358 — on an id mismatch the cut-off queue moves, held and paused, into the Node's own Session (described in docs/features/sessions.md:39-40; low).
+> Noted: item 10 of the ticket (releasing the worktree and e2e locks) is not done: the worktree lock is keyed by the resumed session_id and lives under ~/.claude, which worfy does not write (ADR-0005); its 60-min rule and the e2e lock's 30-min rule cover them. spec.md:561-565 promised the release — owner to confirm once.
+> Noted: test/e2e/session-restart.spec.ts now waits for layout.json to name the Session before the kill; the layout debounce (src/main/layout/store.ts:67-73) is unchanged by this PR.
+> Checks: round 1 — vitest 6+17 files 697+376 passed, EXIT=0; typecheck EXIT=0; round 2 — vitest 11 files 257 passed, EXIT=0; typecheck EXIT=0; story-check EXIT=0.
+> Review depth: low — default: the profile has no review.depth.wave
+> Review tokens: 163886
+
+Code: `src/main/agent/node-sessions.ts:300-309` · key lines: 300
+
+```ts
+   * keeps no session id of its own, as a crash may come before layout.json is written; the mark keeps it for Continue.
+   */
+  async start(projectId: string, nodeId: string, cutOff?: string): Promise<SessionNodeView> {
+    const running = this.running(nodeId)
+    if (running) return running
+    const root = this.deps.projectPath(projectId)
+    const node = this.deps.layout.get(projectId).layout.nodes.find((each) => each.id === nodeId)
+    if (!node || !isWorfyNode(node)) throw new Error(`${nodeId} is not a Session Node of worfy`)
+    const { vendor, kind } = launchOf(node)
+    const saved = keptSession(node) ?? cutOff ?? this.marks.get(nodeId)?.sessionId ?? null
+```
+
+Code: `src/main/agent/continuity.ts:349-360` · key lines: 349
+
+```ts
+    const sessionId = record.vendorSessionId
+    const queue = queueEntries(record.queue)
+    // A Node that names another session than the one cut off: resuming either could send the message to the wrong
+    // session. The Node keeps the chip; Continue resumes its own session and sends nothing, its queue held.
+    const kept = record.kind === 'session-node' ? this.deps.keptSession(project.id, record.nodeId) : null
+    if (kept !== null && kept !== sessionId) {
+      const reason = `its Node names the session ${kept}, not ${sessionId} that the restart cut off`
+      this.log(`worfy: the Session of ${record.nodeId} (${project.id}) was not continued: ${reason}`)
+      const delivery: RestartDelivery = { text: null, queue: { ...queue, paused: true }, before: [`worfy: not continued: ${reason}`], after: [] }
+      this.deps.interrupted(project.id, record.nodeId, { at: startedAt, reason, sessionId, delivery })
+      return done('interrupted', reason)
+    }
+```
+
+Code: `docs/features/sessions.md:39-40` · key lines: 39
+
+```md
+- its previous Claude Code process still runs under another program;
+- its Session Node names another session than the one the restart cut off. Continue then resumes the Node's own
+```
+
+Code: `src/main/layout/store.ts:67-73` · key lines: 67
+
+```ts
+export const LAYOUT_SAVE_DELAY_MS = 250
+
+/**
+ * The longest an unsaved change waits for its write while operations keep coming less than
+ * LAYOUT_SAVE_DELAY_MS apart (an agent's Session, the canvas tools): what a crash can lose.
+ */
+export const LAYOUT_SAVE_MAX_DELAY_MS = 1000
+```

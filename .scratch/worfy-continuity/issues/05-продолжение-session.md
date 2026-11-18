@@ -1,7 +1,8 @@
 # 05 — Продолжение Session после перезапуска: сообщение-продолжение, очередь на месте, chip и Continue
 
 Type: task
-Status: claimed 2026-11-18T05:06Z
+Status: done 2026-11-18T08:04Z
+PR: #1987
 Blocked by: 01, 03, 04, 16
 Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решения по реализации» → «Продолжение Session»; «Вопросы владельцу», Q3 и Q4
 (оба — (а), решено без владельца, подтвердить); [critic 2026-11-14](../../../docs/product/critic/worfy-continuity-2026-11-14.md),
@@ -79,6 +80,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решения по реал�
   - evidence: commit pass · worfy-continuity/05: continue a Session after worfy restarts · - - · fa787ed8eff1b95aa3d6b57a01578625d9b56292
 - [ ] Платформенный PR (ADR-0056, пункт 2; ADR-0071): job Windows в составе `ci-ok` зелёный на head PR до merge.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44259603264/job/134663330049 · ci - · 82094242eb43dafb5d45403323544c0ddb0a7238
 
 ## Тесты
 
