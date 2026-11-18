@@ -105,8 +105,11 @@ export interface FaultPrs {
   accounts?: readonly StubAccount[]
   /** prs.json of the stand-in: the repository's PRs, newest first; none by default. */
   pulls?: readonly Record<string, unknown>[]
-  /** How long one gh call may take (ghRunner's timeoutMs; default 15 s times the run's multiplier). */
-  timeoutMs?: number
+  /**
+   * How long one gh call may take (ghRunner's timeoutMs; default 15 s times the run's multiplier). A
+   * function is asked at each call, so a test can let the later calls of a hung gh outlive its own waits.
+   */
+  timeoutMs?: number | (() => number)
   /** The tracker's intervals (PrTracker's baseIntervalMs and maxIntervalMs; default its own). */
   baseIntervalMs?: number
   maxIntervalMs?: number
@@ -526,8 +529,9 @@ export function faultRun(options: FaultRunOptions = {}) {
     if (prOptions.pulls !== undefined) writeFileSync(join(world.dir, 'prs.json'), JSON.stringify(prOptions.pulls))
     // The developer's own gh tokens stay out, as in gh-world.ts.
     const ghEnv = { ...process.env, GH_TOKEN: undefined, GITHUB_TOKEN: undefined, GH_ENTERPRISE_TOKEN: undefined, GITHUB_ENTERPRISE_TOKEN: undefined, ...world.env }
+    const timeoutMs = prOptions.timeoutMs ?? ms(15_000)
     const tracker = new PrTracker({
-      run: ghRunner({ command: STUB_COMMAND, env: () => Promise.resolve(ghEnv), timeoutMs: prOptions.timeoutMs ?? ms(15_000) }),
+      run: (args, cwd, extra, output) => ghRunner({ command: STUB_COMMAND, env: () => Promise.resolve(ghEnv), timeoutMs: typeof timeoutMs === 'number' ? timeoutMs : timeoutMs() })(args, cwd, extra, output),
       now: () => clock.now,
       ...(prOptions.baseIntervalMs === undefined ? {} : { baseIntervalMs: prOptions.baseIntervalMs }),
       ...(prOptions.maxIntervalMs === undefined ? {} : { maxIntervalMs: prOptions.maxIntervalMs }),

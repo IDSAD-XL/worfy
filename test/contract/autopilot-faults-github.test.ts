@@ -30,6 +30,11 @@ const STUB = join(import.meta.dirname, '..', 'fixtures', 'gh', 'gh-stub.mjs')
 
 /** How long one gh call of the run may take (ghRunner's timeoutMs). */
 const GH_TIMEOUT_MS = ms(500)
+/**
+ * How long a gh call may take in the hung Run once its first call has ended: longer than the stand-in's
+ * own hang (60 s), so no runner timeout ends the last read's call while the test waits for it.
+ */
+const LATER_GH_TIMEOUT_MS = ms(120_000)
 /** The limit of the run's last read of the PRs before run-stopped, on the test's clock. */
 const END_READ_MS = 5_000
 /** How often the run reads the PRs, on the test's clock: longer than END_READ_MS, so moving the clock by it fires no read. */
@@ -155,7 +160,12 @@ describe('the gh stand-in in the hang mode (worfy-faults ticket 04)', () => {
 describe('Autopilot faults on the GitHub side (worfy-faults ticket 04)', () => {
   it('gh hangs the whole Run: the Waves go on, no narrow-round, the stop waits END_READ_MS at most, and no hung gh is left', async () => {
     // Wave 2's turn waits for the test, so the run's last read of the PRs starts after the first gh call has died.
-    const h = faultRun({ scripts: ['autopilot-waves', held('autopilot-waves')], prs: { pulls: PULLS, timeoutMs: GH_TIMEOUT_MS, baseIntervalMs: BASE_MS, everyMs: EVERY_MS, endReadMs: END_READ_MS } })
+    // That first call ends by ghRunner's timeout. The later ones get LATER_GH_TIMEOUT_MS: the last read's gh
+    // must still hang when the test moves the clock past the read's limit, however long it took to start
+    // and the Tickets' read took to answer. With GH_TIMEOUT_MS for it too, that was a race against 1.5 s of
+    // real time, which Windows CI lost: the runner killed the stand-in before it wrote its pid (worfy-polish ticket 124).
+    let ghTimeoutMs = GH_TIMEOUT_MS
+    const h = faultRun({ scripts: ['autopilot-waves', held('autopilot-waves')], prs: { pulls: PULLS, timeoutMs: () => ghTimeoutMs, baseIntervalMs: BASE_MS, everyMs: EVERY_MS, endReadMs: END_READ_MS } })
     hang(h)
     expect(await h.start()).toEqual({ refusal: null })
 
@@ -168,7 +178,9 @@ describe('Autopilot faults on the GitHub side (worfy-faults ticket 04)', () => {
 
     // The doubled interval passes on the test's clock (no other timer is due by then), Wave 2's turn
     // ends, nothing is ready, and the run's last read of the PRs hangs on a new call. Its limit is then
-    // the only timer of END_READ_MS: the read of the Tickets set the other one in the same step and has answered.
+    // the only timer of END_READ_MS: the read of the Tickets set the other one in the same step and has
+    // answered, and the hung call, which no timeout ends now, keeps this one pending.
+    ghTimeoutMs = LATER_GH_TIMEOUT_MS
     h.clock.advance(2 * BASE_MS)
     h.releases.release('turn')
     await until(() => h.clock.pending().filter((timer) => timer.ms === END_READ_MS).length === 1 && hungPids(h.gh!.dir).length === 2, 'the last read of the PRs')
@@ -177,12 +189,14 @@ describe('Autopilot faults on the GitHub side (worfy-faults ticket 04)', () => {
     h.clock.advance(END_READ_MS)
     await h.stopped(1)
     // The run stopped at END_READ_MS on its clock while that gh call still hung: it waited no longer.
-    // (The call lives GH_TIMEOUT_MS of real time, many times what the stop takes after the move.)
     expect(alive(last)).toBe(true)
     expect(h.state()).toMatchObject({ status: 'stopped', reason: 'no-ready-wave', wave: 2 })
     expect(h.kinds(1)).not.toContain('narrow-round')
 
-    await until(() => hungPids(h.gh!.dir).every((pid) => !alive(pid)), 'the last hung gh call to end by the timeout')
+    // The test ends the last call in place of its long timeout (the first call showed ghRunner's timeout
+    // ending a hung gh); the run's read settles on the stand-in's close, and no stand-in is left.
+    process.kill(last, 'SIGKILL')
+    await until(() => hungPids(h.gh!.dir).every((pid) => !alive(pid)), 'the last hung gh call to end')
     // I2: the log holds only `pr list`.
     expect(h.gh!.calls().every((args) => args[0] === 'pr' && args[1] === 'list')).toBe(true)
     expect(checkRecovery(h.recovery({ stop: 'no-ready-wave', waves: 2 }))).toEqual([])
