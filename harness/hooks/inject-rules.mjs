@@ -7,8 +7,8 @@
 //   {"hookSpecificOutput":{"hookEventName":"<event>","additionalContext":"<text of the part>"}}
 // On PreCompact it prints the text of the part itself, not JSON: Claude Code adds the plain stdout of a
 // PreCompact hook to the instructions of the model that writes the compaction summary, on /compact and
-// on auto-compaction, in a main Session and in a Subagent, and cuts it after 10,000 characters
-// (worfy-continuity ticket 01, the spike). That is how the part "compaction" arrives. Codex runs the same
+// on auto-compaction, in a main Session and in a Subagent, and cuts it after 10,000 characters (a spike
+// against Claude Code 2.1.322 showed it). That is how the part "compaction" arrives. Codex runs the same
 // hooks.json but does not read that stdout (its summary instructions go through compact_prompt), so on a
 // Codex input PreCompact prints nothing.
 // Claude Code does not expand ${CLAUDE_PLUGIN_ROOT} inside additionalContext, so this script does:

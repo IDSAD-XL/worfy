@@ -764,7 +764,7 @@ got="$(session_parts '')"
 # Claude Code runs PreCompact just before the model writes the summary that replaces the conversation:
 # on /compact and on auto-compaction, in a main Session and in a Subagent. The plain-text stdout of its
 # hooks joins the summary request as custom instructions and is cut after 10,000 characters
-# (worfy-continuity ticket 01, the spike, question 2). Its input does not say whether a Subagent compacts
+# (a spike against Claude Code 2.1.322 showed it). Its input does not say whether a Subagent compacts
 # (no agent_id), so the one part compaction carries the instructions of every role.
 COMPACTION="$RULES/compaction.md"
 PC_LABEL="# worfy Harness — compaction rules"
@@ -779,8 +779,8 @@ for kind in '' product; do
     [ "$rc" -eq 0 ] && [ "$(head -n 1 "$T/out")" = "$PC_LABEL" ] && [ "$n" -le "$LIMIT" ] \
         && ok "PreCompact auto, kind '$kind': the part, $n characters <= $LIMIT" || bad "PreCompact auto, kind '$kind': rc=$rc, $n characters, '$(head -n 1 "$T/out")'"
 done
-# Codex does not read the stdout of PreCompact (it takes the summary instructions from compact_prompt,
-# worfy-continuity ticket 12) and runs the same hooks.json: its input carries turn_id, and the hook is silent.
+# Codex does not read the stdout of PreCompact (it takes the summary instructions from compact_prompt)
+# and runs the same hooks.json: its input carries turn_id, and the hook is silent.
 run_inject compaction '{"hook_event_name":"PreCompact","turn_id":"turn-1","trigger":"auto","cwd":"/tmp"}' CLAUDE_PLUGIN_ROOT=/opt/worfy-plugin
 expect_silent "PreCompact on Codex: compaction"
 

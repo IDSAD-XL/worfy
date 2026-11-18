@@ -34,7 +34,7 @@
     "agents/scout.md": "No case yet.",
     "hooks/rules/common.md": "No case yet: status-block loads these rules with the orchestrator rules but grades only the latter.",
     "hooks/rules/product.md": "No case yet: a Product Session needs the worfy-mind-map server, which the eval runner does not start.",
-    "hooks/rules/compaction.md": "No case yet: the case compaction-state (worfy-continuity ticket 13) measures it after a compaction.",
+    "hooks/rules/compaction.md": "No case yet: a case needs a long Session and a compaction, which the eval runner does not drive yet.",
     "skills/ship-ticket/step-9-merge.md": "No case yet: the pr-green-ci case cannot open a PR, so no run reaches the merge.",
     "skills/ship-ticket/step-10-production.md": "No case yet: the demo profile has no deploy.",
     "skills/ship-ticket/review-of-another-pr.md": "No case yet.",
