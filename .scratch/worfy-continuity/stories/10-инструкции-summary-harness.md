@@ -145,3 +145,22 @@ Code: `harness/hooks/rules/common.md:75-77` · key lines: 75, 76
    - Строки: `harness/hooks/inject-rules.mjs:97-98`
    - Ответ: строку JSON с экранированным текстом: Claude Code берёт stdout `PreCompact` как простой текст и
      склеивает его с текстом `/compact`.
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED
+> Noted: harness/hooks/hooks.json:2 — missing space in "compaction,the Stage lines" (low); harness/README.md:14 — the rules row does not mention compaction.md or the PreCompact hook (low, file outside the ticket's trail); ticket 10 acceptance item 1 wording "together with the role rules" cannot hold literally (orchestrator.md alone is 9644 bytes) — met as "every hook chunk ≤ 10 000", which rules-hooks.test.sh section 7b proves; the verifier judged the separate PreCompact chunk the right reading (low).
+> Review depth: low — default: the profile has no review.depth.wave
+> Review tokens: 86377
+
+Code: `harness/hooks/hooks.json:2-2` · key lines: 2
+
+```json
+  "description": "worfy Harness hooks: rules for sessions and subagents, the summary instructions for compaction,the Stage lines of epic-status with each prompt, the quality gate, worktree locks, the project's context at session start, GH_TOKEN of the project's GitHub account, the Bash guard, the call log (written only, the agent sees nothing) and the qmd index refresh; on Codex the same file, where stop.mjs runs the gate on Stop and SubagentStop and guard.mjs also sees apply_patch",
+```
+
+Code: `harness/README.md:14-14` · key lines: 14
+
+```md
+| `hooks/rules/orchestrator.md`, `hooks/rules/common.md` | Global rules: the main session gets both parts, a subagent gets `common.md`; `hooks/inject-rules.mjs` hands them over, `hooks/hooks.json` wires every hook | `CLAUDE.md` |
+```

@@ -1,7 +1,8 @@
 # 10 — Harness: инструкции summary по ролям в `compaction.md` и запасная строка в `common.md`
 
 Type: task
-Status: claimed 2026-11-18T01:33Z
+Status: done 2026-11-18T02:44Z
+PR: #1976
 Branch: worfy-continuity/10
 Blocked by: 01
 Source: [spec.md](../spec.md), «Ticket-ы», 10; «Решения по реализации» → «Compaction», пункт «Инструкции summary (10)»;
@@ -44,6 +45,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 10; «Решения по реал
   - evidence: commit pass · worfy-continuity/10: summary instructions for compaction through PreCompact · - - · b7e5f01bf97d5f4b5909c5e93554704ce089a6b1
 - [ ] Платформенный PR (ADR-0056, пункт 2; ADR-0071): job Windows в составе `ci-ok` зелёный на head PR до merge.
 - [ ] `pnpm lint`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44221265677/job/134527446960 · ci - · 7e817a6dc8709c9572b2cb144263863c87f84bd4
 
 ## Тесты
 
