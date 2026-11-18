@@ -1,7 +1,8 @@
 # 07 — Unknown side effects: метка Ticket-а, toast с «Checked, include», строка Journal-а
 
 Type: task
-Status: claimed 2026-11-18T09:05Z
+Status: done 2026-11-18T12:02Z
+PR: #1994
 Blocked by: 05, 06, 16
 Source: [spec.md](../spec.md), «Ticket-ы», 7; «Решения по реализации» → «Unknown side effects: метка и «Checked, include»»;
 [critic 2026-11-14](../../../docs/product/critic/worfy-continuity-2026-11-14.md), возражение 1; «Вопросы владельцу», Q2 и Q4
@@ -54,6 +55,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 7; «Решения по реал�
   - evidence: commit pass · worfy-continuity/07: mark Tickets with unknown side effects, toast with "Checked, include" · - - · e89b0af45c6d411e2f70c6f5c76bedf78078736a
   - evidence: commit pass · worfy-continuity/07: I10 on the feature page, Code story steps for Discard and the marks after a restart · - - · 1d92b3ae1516f67d186b593bda6ffb81a3579f51
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44294158989/job/134785912709 · ci - · 8d92616cd7e88be9af86c6d8259f1d8640c9272c
 
 ## Тесты
 

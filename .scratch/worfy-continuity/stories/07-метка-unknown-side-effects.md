@@ -219,3 +219,45 @@ checkpoint-а, цикла, held-tickets, quit-grace, карточки Ticket-а 
 3. Quit now нажат, пока координатор ещё читает транскрипты Subagent-ов. Что не даёт выходу зависнуть?
    - Ответ: после чтения grace проверяет `quitAsked` и выходит, не начав ожидания.
    - Строки: `src/main/quit-grace.ts:328`
+
+## 13. Что нашёл review и что осталось
+
+> VERIFIED
+> Round 2 (delta 562cc02d..8d92616c, tests, fixtures and docs only — no product code changed) closes every Act on of round 1: the Wave 3 race (test/contract/autopilot-faults-restart.test.ts:345) and a like race in autopilot-faults-quit.test.ts:129 now wait for the fake agent's record; both files 10× from a subprocess (half shuffled) and 12× under parallel load, EXIT=0. The guard branches are now pinned, each mutant turning its test red: Discard (run.ts:2069-2108: no resumable subtraction, no unknown-side-effects line, no held-call read) by the Discard test at :354; a Subagent with no Ticket holds the whole Wave (held-tickets.ts, same as on main) by test/unit/autopilot-restart.test.ts:133; rememberMarks (run.ts:2310) by :391; the next Run and a second cut keep the mark (run.ts:1346, :2191) by :418; freshMarks skips an included Ticket by :443; the `autopilot.include` handler by the Discard test. New invariant I10 (test/autopilot-invariants.ts:373): a Ticket with `unknown-side-effects` enters no `wave-started` before `side-effects-checked`, with a broken fixture; no false hits on the existing fixtures. test/unit/quit-grace.test.ts:536,567 builds the paths with node:path and covers path.win32.
+> Consider: quit-grace.ts:266,328 — «Quit now» during the first Subagent transcript read is not pinned by a test; quit-grace.ts:324-326 — that first read runs on every quit, outside the 60 s timer (low).
+> Consider: «Checked, include» on a mark of an Epic the Run is not on writes side-effects-checked and drops the mark without bringing the Ticket back (run.ts:2343-2347; decision 8, no repeat; low).
+> Noted: by reading, no path sends a marked Ticket into a Wave without «Checked, include» (Resume, Discard, next Run, app restart, Force stop).
+> Noted: the screenshot of the mark and the toast goes to the owner's acceptance (no local Electron); the new e2e at test/e2e/autopilot-faults.spec.ts:159 is checked by CI and on the PC after the Wave.
+> Checks: round 1 — vitest 26/27 files 857/876 passed, typecheck EXIT=0, eslint EXIT=0, 56 mutants; round 2 — implementer: lint+typecheck+test EXIT=0 (19234 tests), gate fast green, 11 mutants killed; verifier: 5 files 109 passed, 10 old survivors + 4 I10 mutants killed, typecheck EXIT=0, eslint EXIT=0.
+> Review depth: medium — the ticket header asks for medium
+> Review tokens: 418503
+
+Code: `test/contract/autopilot-faults-restart.test.ts:345-345` · key lines: 345
+
+```ts
+    await until(() => waveCommands(h).length === 3 && h.journal(1).filter((event) => event.kind === 'wave-started').length === 3, 'Wave 3 of the continued Run')
+```
+
+Code: `test/unit/autopilot-restart.test.ts:133-133` · key lines: 133
+
+```ts
+  it('a call of a Subagent bound to no Ticket holds every Ticket of the Wave, after the own calls of each', async () => {
+```
+
+Code: `test/autopilot-invariants.ts:373-373` · key lines: 373
+
+```ts
+export const markedStaysOut: Rule = (_input, runs) => {
+```
+
+Code: `test/unit/quit-grace.test.ts:536-536` · key lines: 536
+
+```ts
+  function openCallsOver(open: typeof subagentOpenCalls, paths: typeof path.posix, projects: string, root: string): Promise<OpenCall[]> {
+```
+
+Code: `test/e2e/autopilot-faults.spec.ts:159-159` · key lines: 159
+
+```ts
+test('the app killed while the implementer of 01 merges its PR: the continued Run leaves 01 out with the mark «unknown side effects», its tooltip and toast name the call, and «Checked, include» takes it back', async () => {
+```
