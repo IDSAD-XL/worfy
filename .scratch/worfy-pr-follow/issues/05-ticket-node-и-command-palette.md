@@ -32,9 +32,13 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Пот
    comments) и меню ▾ с остальными. PR нет в snapshot или PR inbox выключен (`"prInbox": false`) — кнопки нет.
 2. Ticket с PR в нескольких репозиториях (ADR-0104): пункт меню на каждый PR, как у «Open PR».
 3. Щелчок — `actions.prFollow` с `near` справа от колонки рамок на высоте Ticket-а, как у Ship ticket.
-4. Command palette: строки «Fix checks owner/web#118», «Resolve conflicts …», «Address comments …» — из той же функции;
-   неактивная строка — серая, с причиной, как у Ship ticket.
-5. Английские страницы: строка действия в таблице `docs/features/workflow.md` и строки palette в
+4. Состояние кнопки и строки — hook `usePrFollowState` Ticket-а 01 (`src/renderer/canvas/actions/gates.ts`); своей
+   копии нет.
+5. Command palette: строки «Fix checks owner/web#118», «Resolve conflicts …», «Address comments …». Новый вид
+   `CommandGate` `pr-follow` (`src/renderer/palette/commands.ts:91-93`); `buildCommands` (`:727`) получает snapshot
+   PR inbox; строку рисует `src/renderer/palette/CommandPalette.tsx:251-264`, где сейчас две ветки — Ship ticket и
+   Run wave. Неактивная строка — серая, с причиной, как у Ship ticket.
+6. Английские страницы: строка действия в таблице `docs/features/workflow.md` и строки palette в
    `docs/features/app-shell.md`. Перевод — Ticket 06.
 
 ## Готово, когда
@@ -43,8 +47,10 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Пот
       меню Fix checks; PR без причин — кнопки нет; PR inbox выключен — кнопки нет.
 - [ ] Unit test (`test/unit/palette-commands.test.tsx`): строки palette совпадают с кнопкой — те же действия и те же
       причины отказа.
-- [ ] e2e test рядом с `test/e2e/ship-ticket.spec.ts` (gh stub): щелчок на Ticket Node создаёт Session Node у Ticket-а с
-      текстом `/worfy:pr-fix …`, или текст уходит в Session с Binding-ом launch на этот Ticket.
+- [ ] e2e test рядом с `test/e2e/ship-ticket.spec.ts` (gh stub): у Ticket-а нет Session с Binding-ом; щелчок Resolve
+      conflicts на Ticket Node создаёт новую Session Node у Ticket-а, её первое сообщение —
+      `/worfy:pr-fix conflicts <repo>#<N> <sha>` с head из stub-а. Путь в Session с Binding-ом проверяет contract test
+      Ticket-а 01.
 - [ ] Снимок экрана Ticket Node с меню — в «Итог» (снимок ревью — в scratchpad).
 - [ ] Английские страницы `docs/features/workflow.md` и `docs/features/app-shell.md` описывают действие.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
@@ -52,7 +58,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Пот
 ## Где в коде
 
 - `src/renderer/canvas/actions/PrFollow.tsx` (новый)
-- `src/renderer/palette/commands.ts`
+- `src/renderer/palette/commands.ts`, `src/renderer/palette/CommandPalette.tsx`
 - `test/unit/canvas-actions.test.tsx`, `test/unit/palette-commands.test.tsx`
 - `test/e2e/` (новый test рядом с `ship-ticket.spec.ts`)
 - `docs/features/workflow.md`, `docs/features/app-shell.md`

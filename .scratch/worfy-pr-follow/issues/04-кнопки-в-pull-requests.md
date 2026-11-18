@@ -33,7 +33,8 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решение» → «Пот
 3. Needs my answer у своего PR: Address comments рядом с Draft replies.
 4. Щелчок — `actions.prFollow` с `projectId`, `repo`, `pr`, `action`; ответ `delivery` — короткий toast «Sent to
    <Session>», «Queued for <Session>» или «Started a Session»; отказ — его причина в toast-е.
-5. Кнопка неактивна с tooltip-ом: пустой шаблон («Set the template in Project settings…»), экран read-only, причина
+5. Состояние кнопки — hook `usePrFollowState` Ticket-а 01 (`src/renderer/canvas/actions/gates.ts`); своей копии
+   нет. Кнопка неактивна с tooltip-ом: пустой шаблон («Set the template in Project settings…»), экран read-only, причина
    отказа функции 01.
 6. Английская страница `docs/features/pr-inbox.md`: кнопки, порядок причин, маршрут щелчка (кратко, ссылкой на
    `projects.md`). Перевод — Ticket 06.
@@ -58,7 +59,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решение» → «Пот
 - `test/unit/pr-inbox-view.test.tsx`, `test/e2e/pr-inbox.spec.ts`
 - `docs/features/pr-inbox.md`
 
-Только читать: `src/shared/actions/pr-follow.ts` (Ticket 01), `src/shared/ipc/actions.ts`,
+Только читать: `src/shared/actions/pr-follow.ts` и `src/renderer/canvas/actions/gates.ts` (Ticket 01), `src/shared/ipc/actions.ts`,
 `src/renderer/pr-inbox/DraftThread.tsx`.
 
 ## Вне скоупа

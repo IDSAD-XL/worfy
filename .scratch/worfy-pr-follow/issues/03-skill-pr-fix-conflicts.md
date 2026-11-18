@@ -34,8 +34,8 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решения по реал�
    5. «Not now» — rebase или merge остаётся в worktree; отчёт говорит, где, и как отменить (`git reset` в этом
       worktree, не в checkout человека).
 2. Eval `harness/evals/pr-fix-conflicts` (Full и Silent на scaffold-репозитории с конфликтом), запись в
-   `harness/evals/lib/coverage.json`. Запуск руками: `scripts/eval-harness.mjs --dry-run`, затем с `--max-cost-usd`;
-   цена — в «Итог».
+   `harness/evals/lib/coverage.json`. Запуск руками: сначала `scripts/eval-harness.mjs --dry-run`, затем с
+   `--max-cost-usd 3` на вызов; цена — в «Итог».
 3. Английские страницы: строка `pr-fix` в `docs/features/skills-agents-and-hooks.md` — режим `conflicts` и политика по
    режиму; число eval-кейсов в `docs/features/harness.md:449`. Перевод — Ticket 06.
 

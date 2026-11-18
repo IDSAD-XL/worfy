@@ -49,8 +49,8 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реал�
    спросить. Ответы — черновиками через `harness/bin/pr-reply-draft`; публикует их пользователь кнопкой Send
    (ADR-0105).
 5. Evals `harness/evals/pr-fix-checks` и `harness/evals/pr-fix-comments` по образцу `pr-reply-guards`; записи в
-   `harness/evals/lib/coverage.json`. Запуск руками, вне CI: `scripts/eval-harness.mjs --dry-run`, затем с
-   `--max-cost-usd`; цена каждого запуска — в «Итог».
+   `harness/evals/lib/coverage.json`. Запуск руками, вне CI: сначала `scripts/eval-harness.mjs --dry-run`, затем с
+   `--max-cost-usd 3` на вызов (платные evals до 100 USD владелец разрешил заранее); цена каждого запуска — в «Итог».
 6. Английские страницы: строка `pr-fix` в `docs/features/skills-agents-and-hooks.md` рядом с `pr-reply`; число
    skill-ов и eval-кейсов в `docs/features/harness.md:301`, `:449`. Перевод — Ticket 06.
 

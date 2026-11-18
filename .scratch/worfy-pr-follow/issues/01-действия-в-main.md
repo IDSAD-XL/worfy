@@ -43,19 +43,28 @@ Source: [spec.md](../spec.md), «Ticket-ы», 1; «Решение» → «Куд
    `src/shared/actions/render-template.ts:7-15` и `prFollowState` рядом с `prReplyState` (`:148-157`).
 3. Новый `src/shared/actions/pr-follow.ts` — чистая функция причин и порядка: `DIRTY` → `resolveConflicts`,
    `ci: 'failing'` → `fixChecks`, `CHANGES_REQUESTED` или нити, ждущие ответа (`waitingThreads`,
-   `src/renderer/canvas/badges/review-threads.ts:16`; перенести в `src/shared`, если renderer-модуль main не может
-   импортировать), → `addressComments`. Отказ с причиной: PR не пользователя, из fork, закрыт; шаблон пуст (tooltip
+   `src/renderer/canvas/badges/review-threads.ts:16`), → `addressComments`. Отказ с причиной: PR не пользователя, из fork, закрыт; шаблон пуст (tooltip
    говорит, где его задать — «Project settings…»); экран read-only. Её читают Ticket-ы 04 и 05 и main.
-4. `isCrossRepository` в `PULL_FIELDS`, разборе и строке PR inbox (`src/main/github/inbox.ts:69-77`, `:137`, `:172`;
+4. Перенос в `src/shared` (обязательно): `waitingThreads` (`src/renderer/canvas/badges/review-threads.ts:16`) и
+   `ticketOfRow` (`src/renderer/pr-inbox/usePrInbox.ts:180`) — в новый модуль `src/shared` (например
+   `src/shared/pr-inbox/rows.ts`). `src/shared` не импортирует `src/renderer` (`eslint.config.js:24`), а main не может
+   взять `usePrInbox.ts`: он тянет react, zustand и ipc renderer-а, и `tsconfig.node.json` не включает `src/renderer`.
+   Оба renderer-файла импортируют функции из нового модуля; поведение Ticket Node и Pull requests не меняется.
+5. Hook состояния кнопки `usePrFollowState(projectId, row, action)` в `src/renderer/canvas/actions/gates.ts` рядом с
+   `useShipTicketState` (`:43-48`): шаблон из `useActionTemplates`, строка PR, экран read-only → `ActionState`.
+   Ticket-ы 04 и 05 берут его и своей копии не пишут.
+6. `isCrossRepository` в `PULL_FIELDS`, разборе и строке PR inbox (`src/main/github/inbox.ts:69-77`, `:137`, `:172`;
    `src/shared/ipc/pr-inbox.ts:55-89`); старый snapshot без поля читается как `false`.
-5. Канал `actions.prFollow` в `src/shared/ipc/actions.ts` рядом с `actionsPrReply` (`:86-103`):
+7. Канал `actions.prFollow` в `src/shared/ipc/actions.ts` рядом с `actionsPrReply` (`:86-103`):
    `{ projectId, repo, pr, action, near? }` → `{ nodeId, sessionId, text, delivery: 'sent' | 'queued' | 'new' }`,
    `project`, `write`. Обработчик — `src/main/ipc/actions.ts:22-29`; зависимости launcher-а (PrInbox, NodeSessions,
    Binding-и) — в `LaunchDeps` (`src/main/actions/launch.ts:68`) и `sharedLauncher` (`src/main/ipc/actions.ts:41-55`).
-6. `prFollow()` в `src/main/actions/launch.ts`:
+8. `prFollow()` в `src/main/actions/launch.ts`:
    - свежее чтение: `PrInbox.refresh`, затем строка из `snapshot`; причина из функции 3 по свежей строке; её нет —
-     отказ «CI is no longer failing on <sha>» и так далее; `{sha}` — текущий `headRefOid`;
-   - отказы: пустой шаблон; идёт Autopilot (`AUTOPILOT_RUNNING_HINT`, как `runWave` — `:263`); Orchestrator с
+     отказ «CI is no longer failing on <sha>» и так далее; `{sha}` — текущий `headRefOid`. `refresh` пропускает аккаунт на паузе rate limit
+     (`src/main/github/inbox.ts:368`, `:373-374`): строка тогда старая, и это принято — skill сам сверяет head (Ticket
+     02, шаг 1);
+   - отказы: пустой шаблон; идёт Autopilot (`AUTOPILOT_RUNNING_HINT`, как `runWave` — `:264`); Orchestrator с
      Binding-ом на Epic этого Ticket-а `busy` (его Wave сама чинит свои PR, `harness/skills/epic-wave/SKILL.md:520`);
      PR не пользователя, из fork или закрыт;
    - маршрут, шаг 1: Session Node Project-а с Binding-ом manual или launch на Ticket этого PR (Ticket — по строкам
@@ -65,7 +74,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 1; «Решение» → «Куд
    - маршрут, шаг 2: иначе новая Session Node на Claude Code (`PR_REPLY_VENDOR`,
      `src/shared/projects/action-templates.ts:156`) с `near`, текст — первое сообщение, Binding launch на Ticket PR-а,
      если он есть (`bindWhenKnown`); `delivery: 'new'`.
-7. Английская страница `docs/features/projects.md` (шаблоны и плейсхолдеры, `:334-338`): три шаблона, `{sha}`,
+9. Английская страница `docs/features/projects.md` (шаблоны и плейсхолдеры, `:334-338`): три шаблона, `{sha}`,
    маршрут и отказы. Перевод — Ticket 06.
 
 ## Готово, когда
@@ -77,6 +86,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», 1; «Решение» → «Куд
 - [ ] Unit test (новый `test/unit/pr-follow.test.ts`): причины и порядок — `DIRTY` первым, затем `failing`, затем
       замечания; чужой PR, PR из fork, закрытый PR — отказ с причиной.
 - [ ] Unit test (`test/unit/project-settings-shell.test.tsx`): в Project settings — три новых поля.
+- [ ] Unit test hook-а `usePrFollowState`: пустой шаблон, read-only и причина отказа функции — кнопка неактивна с
+      причиной; test-ы `test/unit/review-threads-badge.test.tsx` и `test/unit/pr-inbox-view.test.tsx` зелёные после
+      переноса функций в `src/shared`.
 - [ ] Contract test (`test/contract/actions.test.ts`): Session Node с Binding-ом launch на Ticket и `lastAt` 23 ч —
       текст уходит в неё (`sent`; во время хода — `queued`; без процесса — после продолжения через
       `NodeSessions.started`), есть notice-строка; `lastAt` 25 ч или Session на Codex — новая Session Node (`new`) с
@@ -91,7 +103,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», 1; «Решение» → «Куд
 
 - `src/shared/projects/action-templates.ts`
 - `src/shared/actions/render-template.ts`
-- `src/shared/actions/pr-follow.ts` (новый)
+- `src/shared/actions/pr-follow.ts` (новый), `src/shared/pr-inbox/rows.ts` (новый, имя — предложение)
+- `src/renderer/canvas/badges/review-threads.ts`, `src/renderer/pr-inbox/usePrInbox.ts` (импорт из `src/shared`)
+- `src/renderer/canvas/actions/gates.ts` (`usePrFollowState`)
 - `src/shared/ipc/actions.ts`, `src/shared/ipc/pr-inbox.ts`
 - `src/main/actions/launch.ts`
 - `src/main/ipc/actions.ts`

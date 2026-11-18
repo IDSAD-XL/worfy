@@ -53,7 +53,7 @@ PR inbox показывает, что PR нужна правка — красн�
   такого PR даёт одну кнопку — Open checks, ссылку на страницу checks на GitHub
   (`src/renderer/pr-inbox/usePrInbox.ts:354-363`). На Ticket Node те же сигналы: badge открытых нитей и «changes
   requested» (`src/renderer/canvas/badges/ReviewThreads.tsx:11-15`), флаг rework (`src/renderer/pipeline/Stepper.tsx:182-186`),
-  Stage CI с подсостоянием `failing` (`src/shared/workflow/pipeline.ts:404`). Щелчок по badge открывает вид Pull
+  Stage CI с подсостоянием `failing` (`src/shared/workflow/pipeline.ts:405`). Щелчок по badge открывает вид Pull
   requests, и только.
 - **Draft replies код не правит.** Skill `pr-reply` пишет черновики ответов; commit, push и checkout в checkout человека
   ему запрещены (`harness/skills/pr-reply/SKILL.md:12-19`). Его `fixPlan` — план правки для человека, он никуда не
@@ -284,7 +284,11 @@ sequenceDiagram
   Ticket Node и Command palette — так `src/renderer/canvas/actions/gates.ts:1-3` считает Ship ticket и Run wave,
   чтобы кнопка и строка palette не расходились. Вход — строка PR inbox (`src/shared/ipc/pr-inbox.ts:55-89`): `DIRTY` →
   Resolve conflicts, `ci: 'failing'` → Fix checks, `CHANGES_REQUESTED` или нити, ждущие ответа (`waitingThreads`,
-  `src/renderer/canvas/badges/review-threads.ts:16`), → Address comments; порядок — этот. Отказ с причиной: PR не
+  `src/renderer/canvas/badges/review-threads.ts:16`), → Address comments; порядок — этот. `waitingThreads` и
+  `ticketOfRow` (`src/renderer/pr-inbox/usePrInbox.ts:180`) переезжают в `src/shared`: `src/shared` не импортирует
+  `src/renderer` (`eslint.config.js:24`), а main не может взять `usePrInbox.ts` — он тянет react, zustand и ipc
+  renderer-а. Hook состояния кнопки (шаблон + строка PR + read-only) — в `src/renderer/canvas/actions/gates.ts`
+  рядом с `useShipTicketState` (`:43-48`); его берут Ticket-ы 04 и 05. Отказ с причиной: PR не
   пользователя, из fork, закрыт, шаблон пуст, экран read-only.
 - Новое поле `isCrossRepository` в `PULL_FIELDS` (`src/main/github/inbox.ts:69-77`) и в строке PR inbox: PR из fork
   действия не получают — push в чужой fork skill не сделает.
@@ -295,11 +299,12 @@ sequenceDiagram
   - свежее чтение PR перед запуском, как Ship ticket берёт вердикт снова по свежему чтению
     (`src/main/actions/launch.ts:6-8`): `PrInbox.refresh(repo, pr)` (`src/main/github/inbox.ts:355`) и строка из
     `snapshot` (`:386`). Причина ещё есть — CI красный на текущем head, `DIRTY`, запрос изменений или открытые нити;
-    `{sha}` — текущий `headRefOid`;
+    `{sha}` — текущий `headRefOid`. `refresh` пропускает аккаунт на паузе rate limit (`src/main/github/inbox.ts:368`,
+    `:373-374`): тогда строка старая, и это принято — skill сам сверяет head (шаг 1);
   - маршрут — раздел «Куда идёт щелчок по действию». Binding-и — `sessionBindings` (`src/main/layout/archive.ts:605`)
     и `resolveBinding` (`src/shared/binding/resolve.ts:242`); Ticket PR-а — по строкам `PR:` или ветке, как
     `ticketOfRow` (`src/renderer/pr-inbox/usePrInbox.ts:180`);
-  - отказ с причиной: пустой шаблон; идёт Autopilot (`src/main/actions/launch.ts:263` — так отказывает Run wave);
+  - отказ с причиной: пустой шаблон; идёт Autopilot (`src/main/actions/launch.ts:264` — так отказывает Run wave);
     Orchestrator с Binding-ом на Epic этого Ticket-а `busy` — его Wave сама чинит свои PR
     (`harness/skills/epic-wave/SKILL.md:520`); PR не пользователя, из fork или закрыт; причины больше нет.
 - Английская страница `docs/features/projects.md` (шаблоны и плейсхолдеры, `:334-338`).
@@ -352,7 +357,8 @@ sequenceDiagram
   (`src/shared/projects/action-templates.ts:213`) кнопки не получает: main не читает его GitHub. Новая Session Node
   встаёт у Ticket-а, как у Ship ticket (`near`, `src/shared/ipc/actions.ts:23-27`).
 - **Command palette (05).** Строки «Fix checks owner/web#118» и так далее — из той же функции, что и кнопки, по
-  образцу строки Ship ticket (`src/renderer/palette/commands.ts:325-341`). Английские страницы —
+  образцу строки Ship ticket (`src/renderer/palette/commands.ts:325-341`); новый вид `CommandGate` (`:91-93`) рисует
+  `src/renderer/palette/CommandPalette.tsx:251-264`. Английские страницы —
   `docs/features/workflow.md` (таблица действий, `:103-104`) и `docs/features/app-shell.md` (`:129`, `:140`).
 
 ### 4. Linked machine, Vendor, Autopilot
