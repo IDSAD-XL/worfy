@@ -586,6 +586,17 @@ export class Orchestrators {
     return this.views.get(nodeId) ?? null
   }
 
+  /**
+   * The Project's Orchestrator opened (open(): its saved session resumed) and its live Session, for the continuation
+   * after a restart of worfy (continuity.ts, worfy-continuity ticket 05). Rejects when no Session started.
+   */
+  async openSession(projectId: string): Promise<Session> {
+    await this.open(projectId)
+    const session = this.entries.get(projectId)?.run?.session
+    if (session === null || session === undefined) throw new Error(`the Orchestrator of ${projectId} did not start a Session`)
+    return session
+  }
+
   /** Stops the Orchestrators of Projects that are no longer in the list. */
   retain(projectIds: ReadonlySet<string>): void {
     for (const [projectId, entry] of [...this.entries]) {

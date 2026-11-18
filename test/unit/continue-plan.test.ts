@@ -12,6 +12,7 @@ import {
   externalActions,
   retryDecision,
   retryDelay,
+  restartText,
   retryText,
   type ExternalAction,
 } from '../../src/shared/agent/continue-plan'
@@ -880,5 +881,46 @@ describe('retryText', () => {
     ['stream', 'the response stream broke off'],
   ])('names the error %s', (error, words) => {
     expect(retryText({ attempt: 1, of: 5, error, actions: [] })).toContain(`temporary API error (${words})`)
+  })
+})
+
+describe('restartText (worfy-continuity ticket 05)', () => {
+  const RESUME = 'Continue from where you stopped. A Ticket that was in work goes on as the skill epic-wave says in its section "How to resume a wave".'
+  const CUT =
+    'A call that was running when the turn was cut off has no result, or a result that says it was interrupted: its outcome is unknown, it may have finished after all.'
+
+  it('names the restart, the Update, the Interrupted Subagents with their Tickets, and asks to check every command before repeating it', () => {
+    const text = restartText({
+      at: '14:05',
+      cause: 'update',
+      subagents: [
+        { agentId: 'a1b2c3', ticket: { epic: 'worfy-continuity', num: 5 } },
+        { agentId: 'd4e5f6', ticket: null },
+      ],
+    })
+    expect(text).toBe(
+      [
+        'worfy was updated and restarted at 14:05, which cut off your previous turn before it finished. From now on this Session runs under the Harness of the new copy of worfy.',
+        'These Subagents of yours became Interrupted with it:',
+        '- `a1b2c3` (Ticket worfy-continuity/05)',
+        '- `d4e5f6` (no Ticket)',
+        RESUME,
+        CUT,
+        CHECK,
+      ].join('\n'),
+    )
+  })
+
+  it('without an Update says worfy quit or crashed, and without Subagents names none', () => {
+    expect(restartText({ at: '2026-11-17 23:50', cause: null, subagents: [] })).toBe(
+      ['worfy restarted at 2026-11-17 23:50 (it quit or crashed), which cut off your previous turn before it finished.', RESUME, CUT, CHECK].join('\n'),
+    )
+  })
+
+  it('never carries a message of the turn and never says nothing reached outside', () => {
+    const text = restartText({ at: '14:05', cause: null, subagents: [{ agentId: 'a1', ticket: { epic: 'worfy-retry', num: 12 } }] })
+    expect(text).not.toContain('/epic-wave')
+    expect(text).not.toMatch(NO_ACTION)
+    expect(text).toContain(CHECK)
   })
 })

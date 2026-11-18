@@ -53,7 +53,10 @@ import type { CanvasNodeProps } from './index'
 //   made by "New session" or by Resume. It shows main's view of the Session (session/node-sessions.ts),
 //   the Vendor whose agent runs it before its folder (session/VendorBadge.tsx, worfy-multi-vendor
 //   ticket 24), its last answer and an input field. A Node whose Session is not running offers Resume, under
-//   the rule of src/main/agent/resume.ts; a message sent to it resumes it first. Until the live
+//   the rule of src/main/agent/resume.ts; a message sent to it resumes it first. A Session a restart of
+//   worfy cut off that worfy did not continue by itself (its view's `restart`, worfy-continuity ticket 05)
+//   shows «Interrupted by restart», the reason in its tooltip, and Continue: Resume, then the continuation
+//   message main kept for it (src/main/agent/continuity.ts). Until the live
 //   Session answers, a resumed Node shows the last answer of its transcript (worfy-daily ticket 22).
 //   A file or an image dropped on the Node goes with the next message, as one dropped on the input
 //   field of the Session view does (session/attach-files.ts): main checks it, it shows as a chip
@@ -299,7 +302,16 @@ function LiveSessionNode({ id, selected, info, project, keep }: Pick<CanvasNodeP
   const title = product && saved === undefined ? NEW_PRODUCT_SESSION : worfySessionTitle(saved, history)
   // Not running (no view, or a closed one) after it has run: finished.
   const finished = !running && saved !== undefined
-  const chip: { status: Status; label: string } = running ? STATE_CHIPS[view.state] : finished ? { status: 'done', label: 'finished' } : { status: 'ready', label: 'new' }
+  // A restart of worfy cut it off and worfy did not continue it by itself (worfy-continuity ticket 05): Continue.
+  const restartMark = view?.restart ?? null
+  const cutOff = running ? null : restartMark
+  const chip: { status: Status; label: string } = running
+    ? STATE_CHIPS[view.state]
+    : cutOff !== null
+      ? { status: 'blocked', label: 'Interrupted by restart' }
+      : finished
+        ? { status: 'done', label: 'finished' }
+        : { status: 'ready', label: 'new' }
   const cwd = (running ? view.cwd : undefined) ?? recorded?.cwd ?? project.path
   const busy = running && view.state === 'busy'
   const subject: SlotSubject | null = saved === undefined ? null : { kind: 'session', projectId: project.id, root: project.path, sessionId: saved }
@@ -436,7 +448,7 @@ function LiveSessionNode({ id, selected, info, project, keep }: Pick<CanvasNodeP
         <span style={styles.title} data-testid="session-node-title" title={title}>
           {title}
         </span>
-        <span data-testid="session-node-status" title={running ? (view.error ?? undefined) : undefined}>
+        <span data-testid="session-node-status" title={running ? (view.error ?? undefined) : cutOff !== null ? `Not continued: ${cutOff.reason}` : undefined}>
           <StatusChip status={chip.status} label={chip.label} />
         </span>
         <span className="nodrag" style={styles.tools}>
@@ -454,6 +466,15 @@ function LiveSessionNode({ id, selected, info, project, keep }: Pick<CanvasNodeP
               {...writeAction(readOnly, () => act(() => invoke('sessions.close', { nodeId: id })), busy ? 'Interrupt the turn before closing the Session' : 'Close the Session; the Node stays')}
             >
               Close
+            </button>
+          ) : cutOff !== null ? (
+            <button
+              type="button"
+              style={styles.tool}
+              data-testid="session-node-continue"
+              {...writeAction(readOnly, () => act(() => invoke('sessions.start', { projectId: project.id, nodeId: id })), 'Continue the Session where the restart of worfy cut it off')}
+            >
+              Continue
             </button>
           ) : saved !== undefined ? (
             <button

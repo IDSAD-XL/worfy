@@ -22,6 +22,31 @@ it, and it stops when worfy quits. The quit first lets the Sessions' external ca
 **Quit now**, and a message sent to a Session waits in its queue. Then each turn is interrupted, and a process that does not
 exit within 7.5 seconds is killed. Restart now of an Update quits the same way; a shutdown of the system does not wait.
 
+**After a restart.** worfy records, as it works, which Sessions are in a turn or have queued messages (`live-sessions.json`
+in the Project's data folder). When worfy starts again after a quit, an Update, a shutdown or a crash, each such Session
+goes on by itself: the Orchestrator and Session Nodes alike, on Claude Code or Codex. It gets one message that worfy
+restarted and cut off its turn, which Subagents became Interrupted and their Tickets, and a request to check what each
+command already did before repeating it. The original message is not sent again. The queue comes back as it was, and a
+held queue stays held. The Session view shows the line `worfy: restarted at 14:05 (update), sent "continue"`; "(update)"
+appears only after Restart now of an Update. A Session that an Autopilot run owns is left to the run.
+
+A Session does not go on by itself in these cases:
+
+- its cut-off turn, or one of its Interrupted Subagents, has a call that may have acted outside and has no result, such
+  as a `git push` or `gh pr merge`;
+- it was cut off more than an hour before the start;
+- worfy already continued it twice within the hour;
+- its previous Claude Code process still runs under another program;
+- its Session Node names another session than the one the restart cut off. Continue then resumes the Node's own
+  session, sends no message, and brings the queue back held.
+
+A previous Claude Code process that the dead worfy left behind is waited for, then killed, before the Session goes on. A
+Session Node that does not go on shows the chip **Interrupted by restart**, with the reason in its tooltip, and
+**Continue**. Continue resumes the Session and sends the same message; the Session view then shows
+`worfy: not continued: …` with the reason, then the line above. Resuming the Session from History instead drops that
+message and queue. A Node that worfy had not saved yet when it stopped resumes the cut-off session, never a new one.
+An Orchestrator that does not go on is only logged.
+
 **Vendor.** Each Session runs on one Vendor's agent: Claude Code or Codex. A live Node keeps its Vendor next to its Session
 id, and a Node saved before Vendors existed is Claude Code's. "New session" uses the Vendor it is given, else the Project's
 default Vendor (`defaultVendor` in the Project's `settings.json`), else Claude Code. Start and Resume use the Node's
@@ -104,8 +129,9 @@ size there; the open window keeps it whole.
 **Queue.** A message sent during a turn waits in a queue in main. The hint beside the send button says "Return to queue"
 then. Messages go one per turn, each after the `result` of the previous turn. The chip "N queued" opens the list, where ×
 removes a message; Esc or a click elsewhere closes the list. An Interrupt or a crash holds the queue: the list title changes to "Held after Interrupt", and nothing
-goes until "Send queued". An empty queue is never held. A queue does not outlive its Session. The exception is the
-Orchestrator, whose queue moves to the new process when Autopilot gives it back.
+goes until "Send queued". An empty queue is never held. A queue does not outlive its Session, with two exceptions. The
+Orchestrator's queue moves to the new process when Autopilot gives it back. A queue cut off by a restart of worfy comes
+back with its Session (see "After a restart" above): its texts and files, but not the images, which a notice line counts.
 
 **Interrupt.** The Session view's button, or Esc in its input field, works in `busy` and `needs_permission`. An Esc that
 closes a popup of the field, such as the slash menu, the "N queued" list or the Effort slider, only closes the popup and
@@ -345,6 +371,11 @@ Session sends at most one notification in 10 seconds. A click opens that Session
   [ADR-0029](../adr/0029-autopilot-waits-for-background-tasks.md)). Giving the Session back waits for the turn and the tasks,
   plus 30 seconds after the last task for its notification turn. Autopilot's Stop does not wait
   ([ADR-0050](../adr/0050-autopilot-user-stop-interrupts-orchestrator.md)).
+- **The continuation after a restart reads before it resumes.** Only the cut-off turn is checked for calls without a
+  result: the turn from the person's last message on. The transcript is read before the resume, because Claude Code's
+  resume writes an "interrupted" result for such a call itself. A previous process counts as left behind when its parent is
+  gone: macOS gives it to launchd, and on Windows its parent's pid is gone or belongs to a later process. The Claude home
+  names the process of a session; worfy only reads it. The cap of two continuations an hour stops a loop of crashes.
 - **The packaged binary** is named explicitly, because nothing can be spawned from inside `app.asar`
   ([ADR-0008](../adr/0008-claude-code-native-binary-path.md)).
 
@@ -369,6 +400,7 @@ for a process also asks the system.
 | Queue, permissions, saved settings | `src/main/agent/queue.ts`, `src/main/agent/permissions.ts`, `src/main/agent/session-settings.ts` |
 | Rules of Resume and closing | `src/main/agent/resume.ts` |
 | Live Session Nodes, Orchestrator | `src/main/agent/node-sessions.ts`, `src/main/agent/orchestrator.ts` |
+| Continuation after a restart: the record, the rules, the message, the chip | `src/main/agent/live-sessions.ts`, `src/main/agent/continuity.ts`, `src/shared/agent/continue-plan.ts` (`restartText`), `src/renderer/canvas/nodes/SessionNode.tsx` |
 | Mind map tools and the save signal of a Product Session | `src/shared/product/tools.ts`, `src/main/mcp/mind-map-server.ts`, `src/main/product/save-signal.ts` |
 | The share of accepted advice | `src/shared/product/share.ts`, `src/main/ipc/product.ts`, `src/renderer/session/ProductSessionPanel.tsx` |
 | Attachments | `src/main/agent/attachments.ts`, `src/shared/agent/attachments.ts` |

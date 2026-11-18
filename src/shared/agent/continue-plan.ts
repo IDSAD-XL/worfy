@@ -1039,3 +1039,51 @@ export function retryText({ attempt, of, error, actions }: RetryTextInput): stri
   lines.push(CHECK_SENTENCE)
   return lines.join('\n')
 }
+
+/**
+ * Why worfy restarted, as far as its start can tell (worfy-continuity ticket 05): `update` after "Restart now" of an
+ * Update; null for a quit, a crash or a shutdown of the system, which the start does not tell apart.
+ */
+export type RestartCause = 'update' | null
+
+/** A Subagent of the Session that became Interrupted with the restart, and the Ticket of its Binding. */
+export interface RestartSubagent {
+  agentId: string
+  ticket: { epic: string; num: number } | null
+}
+
+export interface RestartTextInput {
+  /** When worfy started again, as the person reads it (`14:05`, or with its date on another day). */
+  at: string
+  cause: RestartCause
+  subagents: readonly RestartSubagent[]
+}
+
+// Spike 01 of worfy-continuity (question 6): after a crash Claude Code's resume writes a result of its own for a call
+// that had none, «Tool call interrupted … its outcome is unknown», and the command itself may have run on to its end.
+const CUT_SENTENCE =
+  'A call that was running when the turn was cut off has no result, or a result that says it was interrupted: its outcome is unknown, it may have finished after all.'
+
+/**
+ * The one message a Session cut off by a restart of worfy gets when it is continued (worfy-continuity ticket 05;
+ * src/main/agent/continuity.ts). Like retryText it never carries the turn's original message or the model's words:
+ * the Session keeps its history, and the model continues from it. It always asks to check every command before
+ * repeating it, as a script (`node <file>`) reads as local here though it may push or merge (spec, risk 9).
+ */
+export function restartText({ at, cause, subagents }: RestartTextInput): string {
+  const lines = [
+    cause === 'update'
+      ? `worfy was updated and restarted at ${at}, which cut off your previous turn before it finished. From now on this Session runs under the Harness of the new copy of worfy.`
+      : `worfy restarted at ${at} (it quit or crashed), which cut off your previous turn before it finished.`,
+  ]
+  // An id is named only when it is one short word (SAFE_WORD): it comes from a file name, never from the model's text.
+  const named = subagents.filter((subagent) => SAFE_WORD.test(subagent.agentId))
+  if (named.length > 0) {
+    const ticket = (subagent: RestartSubagent): string =>
+      subagent.ticket === null ? 'no Ticket' : `Ticket ${subagent.ticket.epic}/${String(subagent.ticket.num).padStart(2, '0')}`
+    lines.push(`These Subagents of yours became Interrupted with it:\n${named.map((subagent) => `- \`${subagent.agentId}\` (${ticket(subagent)})`).join('\n')}`)
+  }
+  lines.push('Continue from where you stopped. A Ticket that was in work goes on as the skill epic-wave says in its section "How to resume a wave".')
+  lines.push(CUT_SENTENCE, CHECK_SENTENCE)
+  return lines.join('\n')
+}

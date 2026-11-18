@@ -31,6 +31,10 @@
 //
 // Like the Orchestrator, these Sessions belong to the app, not to a window: their events go to
 // every window, and they stop when the app quits (app-registry.ts).
+//
+// After a restart of worfy (worfy-continuity ticket 05, continuity.ts) a Session cut off in a turn is started
+// again through start() and given one continuation message; one worfy does not continue by itself keeps a
+// closed view with `restart` — the chip «Interrupted by restart» and Continue — and its next start delivers it.
 import type { AgentEvent } from '../../shared/agent/events'
 import { DEFAULT_SETTINGS, sameSettings, type SessionSettings } from '../../shared/agent/settings'
 import type { LiveSession } from '../../shared/ipc/claude-home'
@@ -53,6 +57,7 @@ import type { LayoutChange } from '../layout/store'
 import type { RegistryRoot } from '../claude-home/registry'
 import { placeDownFrom, placeNewNode } from '../layout/place'
 import type { AccountPart } from '../vendors/account'
+import { deliverRestart, type RestartMark } from './continuity'
 import { closeRefusal, resumeVerdict } from './resume'
 import type { EventSink, Session, SessionRegistry } from './session'
 import { ATTENDED, type SessionLaunch } from './session-settings'
@@ -160,6 +165,12 @@ function knownKind(name: string): SessionKind {
   return parsed.data
 }
 
+/** The session id a Node keeps in its data; null when it keeps none (yet). */
+function keptSession(node: LayoutNode): string | null {
+  const saved: unknown = node.data.sessionId
+  return typeof saved === 'string' && saved !== '' ? saved : null
+}
+
 /**
  * The Vendor and the kind of the Session on `node`. Throws, naming the Node, for a Vendor or a kind this
  * build does not run (a later worfy's) and for a kind its Vendor cannot run.
@@ -218,6 +229,8 @@ export class NodeSessions {
    * starting a second Session that the registry would refuse.
    */
   private readonly inFlight = new Map<string, Promise<SessionNodeView>>()
+  /** What each Node a restart cut off, and worfy did not continue, gets when its Session starts (interrupted()). */
+  private readonly marks = new Map<string, RestartMark>()
   private version = 0
 
   constructor(private readonly deps: NodeSessionsDeps) {
@@ -279,17 +292,86 @@ export class NodeSessions {
     return this.launch(projectId, created.id, root, undefined, vendor, kind)
   }
 
-  /** Starts the Session behind a worfy Node that runs none: its saved session resumed, or a new one. */
-  async start(projectId: string, nodeId: string): Promise<SessionNodeView> {
+  /**
+   * Starts the Session behind a worfy Node that runs none: its saved session resumed, or a new one. A Node a restart
+   * of worfy cut off and worfy did not continue (interrupted()) gets, once its Session starts, the message, the queue
+   * and the notice lines continuity.ts kept for it: Continue is Resume plus restartText (worfy-continuity ticket 05).
+   * `cutOff` is the session a restart cut off on the Node (its record in live-sessions.json): resumed when the Node
+   * keeps no session id of its own, as a crash may come before layout.json is written; the mark keeps it for Continue.
+   */
+  async start(projectId: string, nodeId: string, cutOff?: string): Promise<SessionNodeView> {
     const running = this.running(nodeId)
     if (running) return running
     const root = this.deps.projectPath(projectId)
     const node = this.deps.layout.get(projectId).layout.nodes.find((each) => each.id === nodeId)
     if (!node || !isWorfyNode(node)) throw new Error(`${nodeId} is not a Session Node of worfy`)
     const { vendor, kind } = launchOf(node)
-    const saved = node.data.sessionId
-    if (typeof saved !== 'string' || saved === '') return this.launch(projectId, nodeId, root, undefined, vendor, kind)
-    return this.once([`node:${nodeId}`, `session:${saved}`], () => this.resumeOn(projectId, root, node, saved, vendor, kind))
+    const saved = keptSession(node) ?? cutOff ?? this.marks.get(nodeId)?.sessionId ?? null
+    const view =
+      saved === null
+        ? this.launch(projectId, nodeId, root, undefined, vendor, kind)
+        : await this.once([`node:${nodeId}`, `session:${saved}`], () => this.resumeOn(projectId, root, node, saved, vendor, kind))
+    this.deliverMark(nodeId)
+    return view
+  }
+
+  /**
+   * Starts the Node's Session as start() does and answers the live Session (continuity.ts sends its message into
+   * it). Rejects when the Session did not start.
+   */
+  async started(projectId: string, nodeId: string, cutOff?: string): Promise<Session> {
+    await this.start(projectId, nodeId, cutOff)
+    const session = this.runs.get(nodeId)?.session
+    if (session === null || session === undefined) throw new Error(`The Session of ${nodeId} did not start`)
+    return session
+  }
+
+  /**
+   * A restart of worfy cut off the Session of the Node and worfy did not continue it by itself (continuity.ts): its
+   * view, closed, carries `restart` — the Node shows «Interrupted by restart» and Continue — until it starts again.
+   * A Node whose Session runs already is left as it is.
+   */
+  interrupted(projectId: string, nodeId: string, mark: RestartMark): void {
+    if (this.runs.has(nodeId)) return
+    const node = this.deps.layout.get(projectId).layout.nodes.find((each) => each.id === nodeId)
+    if (!node || !isWorfyNode(node)) throw new Error(`${nodeId} is not a Session Node of worfy`)
+    const saved = keptSession(node) ?? mark.sessionId
+    const vendor = node.data.vendor === undefined ? UNNAMED_VENDOR : knownVendor(String(node.data.vendor))
+    const kind = typeof node.data.kind === 'string' ? knownKind(node.data.kind) : undefined
+    this.marks.set(nodeId, mark)
+    this.setView({
+      projectId,
+      nodeId,
+      vendor,
+      ...(kind === undefined ? {} : { kind }),
+      sessionId: saved,
+      sdkSessionId: saved,
+      state: 'closed',
+      error: null,
+      cwd: this.deps.projectPath(projectId),
+      model: null,
+      restart: { at: mark.at, reason: mark.reason },
+    })
+  }
+
+  /** The session id the Session Node keeps in layout.json; null when it keeps none yet. Throws for another Node. */
+  keptSessionOf(projectId: string, nodeId: string): string | null {
+    const node = this.deps.layout.get(projectId).layout.nodes.find((each) => each.id === nodeId)
+    if (!node || !isWorfyNode(node)) throw new Error(`${nodeId} is not a Session Node of worfy`)
+    return keptSession(node)
+  }
+
+  /** Gives the Session that just started on the Node what continuity.ts kept for it after the restart, once. */
+  private deliverMark(nodeId: string): void {
+    const mark = this.marks.get(nodeId)
+    const session = this.runs.get(nodeId)?.session
+    if (mark === undefined || session === null || session === undefined) return
+    this.marks.delete(nodeId)
+    try {
+      deliverRestart(session, mark.delivery)
+    } catch (error) {
+      console.warn(`[sessions] could not give ${nodeId} its message after the restart`, error)
+    }
   }
 
   /**
@@ -304,7 +386,11 @@ export class NodeSessions {
       if (running) return running
     }
     const { vendor, kind } = node ? launchOf(node) : { vendor: UNNAMED_VENDOR, kind: undefined }
-    return this.once([`session:${sessionId}`, ...(node ? [`node:${node.id}`] : [])], () => this.resumeOn(projectId, root, node, sessionId, vendor, kind))
+    const view = await this.once([`session:${sessionId}`, ...(node ? [`node:${node.id}`] : [])], () => this.resumeOn(projectId, root, node, sessionId, vendor, kind))
+    // Resumed from History, not by Continue: the restart's message and queue are stale now, and a later start must
+    // not deliver them.
+    this.marks.delete(view.nodeId)
+    return view
   }
 
   /**

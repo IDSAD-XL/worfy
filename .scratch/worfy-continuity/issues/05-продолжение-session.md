@@ -1,7 +1,7 @@
 # 05 — Продолжение Session после перезапуска: сообщение-продолжение, очередь на месте, chip и Continue
 
 Type: task
-Status: open
+Status: claimed 2026-11-18T05:06Z
 Blocked by: 01, 03, 04, 16
 Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решения по реализации» → «Продолжение Session»; «Вопросы владельцу», Q3 и Q4
 (оба — (а), решено без владельца, подтвердить); [critic 2026-11-14](../../../docs/product/critic/worfy-continuity-2026-11-14.md),
@@ -57,17 +57,26 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решения по реал�
 
 - [ ] Unit test `restartText`: причина перезапуска, Subagent-ы с Ticket-ами, просьба проверить команды; исходного
       сообщения в тексте нет.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · fa787ed8eff1b95aa3d6b57a01578625d9b56292
+  - evidence: gate pass · `gate fast` exit 0 · mac - · fa787ed8eff1b95aa3d6b57a01578625d9b56292
 - [ ] Unit test правила часа и cap: 59 мин — продолжается; 61 мин — нет; третье продолжение за час — нет.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · fa787ed8eff1b95aa3d6b57a01578625d9b56292
 - [ ] Contract test (рядом с `test/contract/node-sessions.test.ts`): Session Node в turn-е, выход, старт → одно
       сообщение-продолжение, очередь held на месте.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · fa787ed8eff1b95aa3d6b57a01578625d9b56292
 - [ ] Contract test: Session с `git push` без результата (у неё или у Subagent-а) → продолжения нет, строка `notice`
       «not continued», chip и Continue.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · fa787ed8eff1b95aa3d6b57a01578625d9b56292
 - [ ] Contract test: Session, которой владеет Run, этот модуль не трогает.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · fa787ed8eff1b95aa3d6b57a01578625d9b56292
 - [ ] Contract test: прежний процесс Session жив → продолжение ждёт его выхода.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · fa787ed8eff1b95aa3d6b57a01578625d9b56292
 - [ ] Contract test на fake app-server Codex: продолжение через `thread/resume` и одно сообщение.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · fa787ed8eff1b95aa3d6b57a01578625d9b56292
 - [ ] e2e test (рядом с `test/e2e/session-resume.spec.ts`): Session Node после SIGKILL worfy продолжается; старше часа
       (часы test-а) — chip «Interrupted by restart», Continue продолжает.
 - [ ] Английская страница `docs/features/sessions.md` описывает продолжение после перезапуска.
+  - evidence: commit pass · worfy-continuity/05: continue a Session after worfy restarts · - - · fa787ed8eff1b95aa3d6b57a01578625d9b56292
 - [ ] Платформенный PR (ADR-0056, пункт 2; ADR-0071): job Windows в составе `ci-ok` зелёный на head PR до merge.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
