@@ -97,3 +97,14 @@ merge. Человек, который нажал Stop, ждёт обратног
   `session-closed` — как раньше.
   Отвергнутый вариант «Возобновлять любой Ticket в `work`» остаётся отвергнутым: Ticket-ы берутся только из последней
   Wave Run-а. `resumable` по-прежнему только в памяти main.
+- **2026-11-18 — `resumable` и Ticket-ы Wave в работе читаются из journal-а** (worfy-continuity 02, PR #1971; документы —
+  worfy-continuity 14, ADR-0108). Отложенный вариант «Хранить `resumable` в журнале и читать при старте приложения»
+  выбран: старт Run-а берёт `resumable` из checkpoint-а — reader-а journal-ов Run-ов Project-а
+  (`src/shared/autopilot/checkpoint.ts`), а не из памяти main, поэтому список переживает перезапуск приложения. Из тех же
+  строк (`wave-started`, `ticket-status`) читаются номер Wave и её Ticket-ы в работе; ими пользуется продолжение
+  оборванного Run-а (ADR-0108). Последствие «`resumable` живёт в памяти main» больше не действует. Оборванный Run
+  (последняя строка — `run-suspended` или `run-stopped` нет вовсе) не оставляет ничего `resumable`, пока его не
+  продолжили или не отбросили; Discard пишет `run-stopped` с причиной `discarded`, и Ticket-ы его Wave в работе
+  становятся `resumable`, как после Force stop. Ticket с меткой `unknown-side-effects` не `resumable` до своего
+  `side-effects-checked`. Выход больше не ждёт 3 s, пока Run запишет `app-quit`: Run приостанавливается с
+  `run-suspended` (ADR-0108). Остальное решение в силе.

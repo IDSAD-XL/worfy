@@ -125,7 +125,7 @@ _Avoid_: estimate (как имя прогноза на весь Epic: так в 
 _Avoid_: этап, шаг (как имя), event
 
 **Wait**:
-Span, в котором работа стоит по внешней причине с ожидаемым концом: Limits, Start window (окно запуска), сон Machine, другая Machine, человек, занятый Orchestrator (`orchestrator-busy`), повтор turn-а после временной ошибки API, очередь, background tasks. Wait всегда несёт свою причину. Блокировка Ticket-а — не Wait, а пометка на нём.
+Span, в котором работа стоит по внешней причине с ожидаемым концом: Limits, Start window (окно запуска), сон Machine, другая Machine, человек, занятый Orchestrator (`orchestrator-busy`), повтор turn-а после временной ошибки API, очередь, background tasks, перезапуск worfy (`restart`: от `run-suspended` или, после падения, от последней строки Journal-а до `run-continued` Run-а, который продолжили после перезапуска; его причина — `quit`, `update`, `shutdown` или `crash`). Wait всегда несёт свою причину. Блокировка Ticket-а — не Wait, а пометка на нём.
 _Avoid_: простой, пауза, idle
 
 **Run history**:
@@ -135,6 +135,10 @@ _Avoid_: журнал (как имя вида), trace
 **Ticket continuation**:
 Wave, которой Run продолжает Ticket, оставшийся в работе после хода Wave (`wave-unfinished`) или вернувшийся той же Wave (`no-progress`): Ticket идёт в неё как возобновлённый, а команда Wave несёт строку worfy вида `Continuation 1 of 2 for ticket 05: …`. Не больше двух на Ticket за Run; новый Run считает с нуля.
 _Avoid_: Auto-continue (это повтор хода после временной ошибки API или отказа Limits), retry, повтор
+
+**Unknown side effects**:
+Метка Ticket-а, у implementer-а которого после перезапуска worfy остался внешний вызов без результата (`git push`, `gh pr merge`, вызов MCP server-а, Subagent): он мог выполниться, а мог и нет. Такой Ticket в продолженную Wave не идёт и остаётся в `claimed` для человека; метку и toast снимает только его «Checked, include». Метка — строка Journal-а `unknown-side-effects`, снятие — `side-effects-checked`; открытая метка переходит к следующему Run-у того же Epic-а ([ADR-0108](docs/adr/0108-work-continues-after-a-restart-of-worfy.md)).
+_Avoid_: неизвестные побочные эффекты, side effects без «unknown», in-flight (это отказ повтора Auto-continue), dirty
 
 **Set-aside Ticket**:
 Ticket, который Orchestrator по просьбе Run-а перевёл в `blocked` с `Waits: owner` после двух Ticket continuation-ов. Ждёт владельца, поэтому остальные Ticket-ы Epic-а идут дальше, а очередь Epic-ов переходит к следующему. Статус пишет Orchestrator командой `ticket block`, worfy его не пишет.
@@ -275,6 +279,10 @@ _Avoid_: субагент, воркер, teammate
 Subagent, процесс Session которого кончился раньше, чем он закончил; это не сбой. Признак: у Subagent-а нет записи о конце, а текущий процесс его Session запущен позже последней записи в его транскрипте (ADR-0085). На Canvas и в rail-е — серый статус «Interrupted».
 _Avoid_: оборванный, упавший, stale, error
 
+**Interrupted by restart**:
+Chip Session Node-а, которую перезапуск worfy оборвал и которая сама не продолжилась: обрыв был больше часа назад, worfy уже дважды продолжал её за час, у её turn-а есть внешний вызов без результата, прежний процесс Claude Code ещё жив или Node называет другую session. Причина — в tooltip-е, рядом — Continue. Не путать с Interrupted: тот — о Subagent-е.
+_Avoid_: Interrupted (без «by restart»), оборванная Session, crashed
+
 **Background task**:
 Работа, которую Session запустила и не ждёт в своём ходе: Subagent или Bash с `run_in_background`, workflow-скрипт (ADR-0029). Живёт, пока жив процесс Claude Code этой Session; о своём конце сообщает task-notification, которая начинает новый ход Session. Это не Ticket: в строке Autopilot «2 background tasks» и в журнале прогона считаются только такие задачи.
 _Avoid_: job; «task» и «задача» без «background»
@@ -388,7 +396,7 @@ Test, который вносит один сбой (ошибка API, убит�
 _Avoid_: chaos test, fault lab
 
 **Recovery invariant**:
-Правило, которое держится после любого Fault scenario (И1–И8): команда Wave одна, статус Ticket-а один раз, Journal называет причину, Run снова стартует.
+Правило, которое держится после любого Fault scenario (И1–И10): команда Wave одна, статус Ticket-а один раз, Journal называет причину, Run снова стартует.
 _Avoid_: «гарантия», health check
 
 ## Relationships

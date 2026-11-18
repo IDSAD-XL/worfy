@@ -33,3 +33,9 @@ Layout с `patchData` (MCP-инструменты Ticket-а 24) может пе�
 ## Amendments
 
 - **2026-11-04, ADR-0095** (`worfy-multi-vendor` 37). `data` Node-а `orchestrator` может нести необязательное `vendor` — Vendor Session, чей id лежит в `sessionId`; остальное решение в силе.
+- **2026-11-18, ADR-0108** (`worfy-continuity` 03, PR #1970; сверка — `worfy-continuity` 14). Фраза «Состояние Session
+  живёт только в памяти» больше не верна. Состояние живых Session-ов — идёт ли turn, очередь сообщений, удержана ли
+  она, Run-владелец, время последнего события и продолжения за час — main пишет в `live-sessions.json` в подпапке
+  Project-а (папка данных worfy, ADR-0005), чтобы после перезапуска worfy продолжить оборванные Session-ы. Это не Layout:
+  `data` Node-а `orchestrator` в `layout.json` по-прежнему несёт только `sessionId`, `costUsd` и `vendor`, а модель и
+  блок состояния по-прежнему читаются из транскрипта. Остальное решение в силе.
