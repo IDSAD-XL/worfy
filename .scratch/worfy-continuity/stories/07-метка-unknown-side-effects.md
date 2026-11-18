@@ -66,9 +66,51 @@ Code: `src/main/autopilot/run.ts:2189-2195` · key lines: 2190, 2191, 2195
 - Почему здесь: файл назван в Ticket-е; Ticket 06 уже решал здесь, что продолжать.
 - Без него: удержанный Ticket не попал бы в Wave, но и метки с вызовом у него бы не было: человек не знал бы, что проверять.
 - Требование: [Что делаем, п. 1](../issues/07-метка-unknown-side-effects.md#что-делаем)
-- Риски и пробелы test-ов: contract test «git push held without a result» (item 1). Сами строки `unknown-side-effects` пишутся после `run-continued` (строка 2237 того же файла).
+- Риски и пробелы test-ов: contract test «git push held without a result» (item 1); второй обрыв продолженного Run-а держит старую метку и не пишет второй строки — contract test «a second quit of a continued Run keeps the mark of the first»; Ticket, возвращённый «Checked, include» до нового обрыва, не помечается снова за тот же вызов — contract test «a Ticket given back by Checked, include before its Run was cut off again». Сами строки `unknown-side-effects` пишутся после `run-continued` (строка 2237 того же файла).
 
-## 5. «Checked, include» в идущем Run-е
+## 5. Discard тоже ставит метку, до `run-stopped`
+
+Code: `src/main/autopilot/run.ts:2072-2083` · key lines: 2077, 2083
+
+```ts
+    // A Ticket of the cut-off Wave with an external call without a result is no more resumable after a Discard than
+    // after a continuation (worfy-continuity ticket 07): it is marked first.
+    let added: SideEffectsMark[] = []
+    try {
+      const root = this.deps.projectRoot(projectId)
+      added = await this.freshMarks(projectId, root, cut, await this.deps.workflow(root))
+    } catch (error) {
+      console.warn(`[autopilot] ${projectId}: could not read the workflow for the external calls of the discarded Run; no Ticket is held`, error)
+    }
+    try {
+      const journal = await this.reopen(checkpoint.run)
+      for (const mark of added) await journal.append({ kind: 'unknown-side-effects', ticket: ticketNumber(mark.ticket), actions: [...mark.actions] }, mark.epic)
+```
+
+- Что делает: Discard оборванного Run-а читает те же удержанные вызовы, что и продолжение, и пишет строки `unknown-side-effects` перед `run-stopped` `discarded`; помеченный Ticket вычитается из `resumable` состояния.
+- Почему здесь: not recorded.
+- Без него: Discard обходил бы защиту: следующий Run взял бы Ticket с полупрошедшим `gh pr merge` и запустил бы его снова.
+- Требование: [Что делаем, п. 1](../issues/07-метка-unknown-side-effects.md#что-делаем)
+- Риски и пробелы test-ов: contract test «Discard of a Run whose implementer held gh pr merge without a result» (`test/contract/autopilot-faults-restart.test.ts`) проверяет строку, `resumable: [2]`, Wave следующего Run-а без 01, метку в его состоянии и «Checked, include» через канал `autopilot.include`. Ошибка чтения workflow при Discard не держит ни одного Ticket-а (как в Ticket-е 06) и test-ом не покрыта.
+
+## 6. Метка переживает перезапуск приложения
+
+Code: `src/main/autopilot/run.ts:2038-2041` · key lines: 2041
+
+```ts
+    const [newest, ...older] = runs
+    const checkpoint = newest === undefined ? null : runCheckpoint(newest, { before: resumableAfter([...older].reverse()) })
+    if (newest === undefined || checkpoint === null) return this.state(projectId)
+    if (checkpoint.cutOff === null) return this.rememberMarks(projectId, checkpoint)
+```
+
+- Что делает: При старте приложения не оборванный последний Run (он остановлен) отдаёт свои открытые метки в состояние Project-а: метка на Ticket-е, toast и «Checked, include» снова есть.
+- Почему здесь: not recorded.
+- Без него: после перезапуска метка оставалась бы только в Journal-е: Ticket не resumable, но человек не видит, почему, и не может вернуть его кнопкой.
+- Требование: [Что делаем, п. 4](../issues/07-метка-unknown-side-effects.md#что-делаем)
+- Риски и пробелы test-ов: contract test «after a restart of the app the stopped Run keeps its mark». Переход метки в следующий Run того же Epic-а (`leftOver` и `run.marks`) — contract test про Discard; инвариант I10 в `test/autopilot-invariants.ts` проверяет каждый сценарий: помеченный Ticket не входит ни в одну `wave-started` до своего `side-effects-checked`.
+
+## 7. «Checked, include» в идущем Run-е
 
 Code: `src/main/autopilot/run.ts:2340-2357` · key lines: 2346, 2352, 2353, 2354
 
@@ -99,7 +141,7 @@ Code: `src/main/autopilot/run.ts:2340-2357` · key lines: 2346, 2352, 2353, 2354
 - Требование: [Что делаем, п. 4](../issues/07-метка-unknown-side-effects.md#что-делаем)
 - Риски и пробелы test-ов: contract test «Checked, include while the continued Run goes on» (item 2). Ветка с ошибкой записи Journal-а покрыта только unit test-ом renderer-а (тост ошибки), не contract test-ом.
 
-## 6. Цикл: включённый Ticket идёт как продолженный
+## 8. Цикл: включённый Ticket идёт как продолженный
 
 Code: `src/shared/autopilot/cycle.ts:466-469` · key lines: 466
 
@@ -116,7 +158,7 @@ Code: `src/shared/autopilot/cycle.ts:466-469` · key lines: 466
 - Требование: [Что делаем, п. 4](../issues/07-метка-unknown-side-effects.md#что-делаем)
 - Риски и пробелы test-ов: unit test-ы `test/unit/autopilot-cycle.test.ts`, describe «Checked, include …»; без include — `no-ready-wave`, как раньше.
 
-## 7. Выход ждёт вызовы Subagent-ов
+## 9. Выход ждёт вызовы Subagent-ов
 
 Code: `src/main/quit-grace.ts:324-328` · key lines: 326, 328
 
@@ -132,9 +174,9 @@ Code: `src/main/quit-grace.ts:324-328` · key lines: 326, 328
 - Почему здесь: Ticket называет `src/main/quit-grace.ts` и функцию Ticket-а 16 (п. 5 «Что делаем»).
 - Без него: выход обрывал бы implementer-а посреди `gh pr merge`, и после перезапуска Ticket получал бы метку там, где вызов мог успеть закончиться.
 - Требование: [Что делаем, п. 5](../issues/07-метка-unknown-side-effects.md#что-делаем)
-- Риски и пробелы test-ов: contract test `test/contract/autopilot-faults-quit.test.ts` (item 3), не дольше 60 с часов test-а. Читаются только файлы Subagent-ов с mtime не раньше старта приложения; транскрипт Session-а с cwd в worktree вне папки Project-а не находится.
+- Риски и пробелы test-ов: contract test `test/contract/autopilot-faults-quit.test.ts` (item 3), не дольше 60 с часов test-а. Читаются только файлы Subagent-ов с mtime не раньше старта приложения. Пути файлов строит `node:path`: unit test `subagentOpenCalls on Windows` проверяет их и с разделителем Windows (`path.win32`).
 
-## 8. Toast — один раз на метку
+## 10. Toast — один раз на метку
 
 Code: `src/renderer/autopilot/unknown-side-effects.ts:87-93` · key lines: 89, 90, 91
 
@@ -154,17 +196,17 @@ export function toastNewMarks(projectId: string, marks: readonly SideEffectsMark
 - Требование: [Что делаем, п. 2](../issues/07-метка-unknown-side-effects.md#что-делаем)
 - Риски и пробелы test-ов: unit test `test/unit/autopilot-unknown-side-effects.test.tsx`; e2e в `test/e2e/autopilot-faults.spec.ts` локально не запускался (правило владельца 2026-11-11), его прогонит CI.
 
-## 9. Что сознательно не меняли
+## 11. Что сознательно не меняли
 
 `src/renderer/canvas/nodes/EpicFrameNode.tsx` не менялся: метка стоит на карточке Ticket-а внутри рамки Epic-а
 (`TicketNode.tsx`), рамка сама ничего не рисует. Перевод страницы и термин CONTEXT.md — Ticket 14. Снимок экрана
 метки и toast-а не делался: он уходит в приёмку владельцем (Ticket 15).
 
-## 10. Как проверено
+## 12. Как проверено
 
 `pnpm lint && pnpm typecheck && pnpm test` — exit 0, `gate fast` — exit 0. Contract test-ы
 `test/contract/autopilot-faults-restart.test.ts` и `test/contract/autopilot-faults-quit.test.ts`, unit test-ы
-checkpoint-а, цикла, held-tickets, quit-grace, карточки Ticket-а и store-а меток. Каждый новый test сначала был красным.
+checkpoint-а, цикла, held-tickets, quit-grace, карточки Ticket-а и store-а меток. Каждый новый test сначала был красным. Во втором раунде каждый новый test краснел на своём мутанте (Discard без вычитания, без строки, без чтения вызовов; `rememberMarks` без действия; новый Run без меток; продолжение без меток Journal-а; повторная метка возвращённого Ticket-а; Subagent без Ticket-а ничего не держит; канал `autopilot.include` без `includeChecked`; I10 без проверки), contract-файлы restart и quit прошли 10 раз подряд.
 
 ## Проверить себя
 
