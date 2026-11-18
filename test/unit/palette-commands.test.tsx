@@ -345,12 +345,13 @@ describe('palette commands', () => {
     })
   })
 
-  it('without a Project keeps only the views, the first-run checks, Settings, Keyboard shortcuts and the Projects', () => {
+  it('without a Project keeps only the views, the first-run checks, Health check, Settings, Keyboard shortcuts and the Projects', () => {
     expect(shownTopics(null)[0]?.id).toBe('map-of-worfy')
     expect(ids(context({ project: undefined, model: undefined, layoutNodes: [], adrs: [], createItems: [] }))).toEqual([
       'view:canvas',
       'view:session',
       'first-run',
+      'health-check',
       'getting-started',
       'settings',
       'shortcuts',
@@ -471,6 +472,26 @@ describe('palette commands', () => {
       expect(rankItems(buildCommands(context({ project })), 'first run')[0]?.id).toBe('first-run')
       expect(await command!.run()).toBeUndefined()
       expect(useFirstRun.getState().open).toBe(true)
+    }
+  })
+
+  it('has Health check in the View group, with or without a Project: it opens Settings → Health, and First-run checks still opens First run (worfy-auth-check/04, Q1)', async () => {
+    for (const project of [context().project, undefined]) {
+      useSettingsWindow.setState({ open: false, section: null })
+      useFirstRun.setState({ open: false, report: { checks: [], checkedAt: '2026-11-18T00:00:00.000Z' } })
+      const commands = buildCommands(context({ project }))
+      const health = commands.find((each) => each.id === 'health-check')
+      expect(health).toMatchObject({ group: 'View', title: 'Health check' })
+      expect(rankItems(commands, 'health check')[0]?.id).toBe('health-check')
+      expect(await health!.run()).toBeUndefined()
+      expect(useSettingsWindow.getState()).toMatchObject({ open: true, section: 'HealthSection' })
+      expect(useFirstRun.getState().open).toBe(false)
+      // The First run window keeps its own row and its own name.
+      expect(commands.filter((each) => each.title === 'First-run checks').map((each) => each.id)).toEqual(['first-run'])
+      useSettingsWindow.setState({ open: false, section: null })
+      expect(await commands.find((each) => each.id === 'first-run')!.run()).toBeUndefined()
+      expect(useFirstRun.getState().open).toBe(true)
+      expect(useSettingsWindow.getState().open).toBe(false)
     }
   })
 

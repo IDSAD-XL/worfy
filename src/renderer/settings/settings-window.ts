@@ -34,6 +34,15 @@ export function openSettings(sectionId?: string): void {
   useSettingsWindow.setState({ open: true, section: sectionId ?? (open ? section : null) })
 }
 
+/**
+ * Opens Health check: the Settings window on its Health section (worfy-auth-check ticket 04). The
+ * button on the sidebar rail, the Command palette's "Health check" and the "Open Health check" links
+ * of the features all come here.
+ */
+export function openHealthCheck(): void {
+  openSettings('HealthSection')
+}
+
 export function closeSettings(): void {
   useSettingsWindow.setState({ open: false })
 }

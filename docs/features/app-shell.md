@@ -21,7 +21,7 @@ The column on the left of the window, 264 pixels wide. From the top:
 - **The Project switcher**, a row of its own under the strip, as wide as the sidebar: the name of what the sidebar shows
   and a chevron at its right end. A long Project name has the whole row.
 - **The rail**, a column of icons, one per section: Projects, Sessions, Pull requests, Pipeline, Epics, ADR, and at its
-  foot Machines and Settings. The chosen section has an accent bar. A section's icon carries a badge that shows while
+  foot Health check, Machines and Settings. The chosen section has an accent bar. A section's icon carries a badge that shows while
   another section is open: the number of busy Sessions of the Projects the switcher shows, in the colour of work, the
   number of pull requests that need you (review, answer or fix), a dot while a Ticket in work is blocked or waits for
   someone, and the dot of the Linked machines.
@@ -30,6 +30,23 @@ The column on the left of the window, 264 pixels wide. From the top:
 
 The rail is one Tab stop. ↑ and ↓ walk it and wrap round, Home and End go to its ends, and the section under the focus
 opens at once. The section that is open is remembered for the window.
+
+**Health check** is a button of the rail right above Machines, always there. It is not a section: it shows nothing in the
+panel, and a click opens Settings → Health ([First run](onboarding.md#first-run) describes the rows). Like Settings, it is
+not one of the tabs that ↑ and ↓ walk; Tab reaches it after them. Its dot is the worst level of the Health check report of
+this Machine and every Project open on it:
+
+| Dot | When |
+|---|---|
+| Red | A critical row is not OK: git, the Claude Code sign-in, the Harness, gh while a Project is on GitHub |
+| Yellow | Only non-critical rows are not OK, such as the qmd models or git identity, or a row could not be checked |
+| None | Every row is OK |
+| Grey ring | There is no report yet at this start, or "Check again" runs |
+
+A row that could not be checked (no network, a timeout) never makes the dot red. The tooltip says "Health check" and why
+the dot is there: "critical: Harness plugin", "non-critical: qmd models", "Couldn't check: <reason>", "everything works".
+The button reads the report main already keeps and runs no check itself. There is no toast and no system notification
+about a new red row: only the dot.
 
 **The Project switcher** answers "All Projects" or one Project of the window's Machine:
 
@@ -93,6 +110,7 @@ watcher. Only the open Project's documents are watched.
 | What | Where |
 |---|---|
 | Strip, rail and panel | `src/renderer/shell/Sidebar.tsx`, `src/renderer/shell/shell.css` |
+| Health check button and its dot | `HealthRailButton` in `src/renderer/shell/Sidebar.tsx`, `openHealthCheck` in `src/renderer/settings/settings-window.ts`, the worst level in `src/shared/health/severity.ts`, the tokens `--health-critical` and `--health-warning` in `src/renderer/theme/tokens.css` |
 | Frame of a section | `src/renderer/shell/SidebarSection.tsx`, `src/renderer/shell/sidebar-section.css` |
 | Project switcher | `src/renderer/shell/ProjectSwitcher.tsx` |
 | Answer, open section, badges | `src/renderer/shell/sidebar-scope.ts` |
@@ -101,7 +119,7 @@ watcher. Only the open Project's documents are watched.
 | Sections | `src/renderer/shell/sidebar/` |
 | Rail entries of the sections | `src/renderer/shell/registry.ts` |
 
-Main tests: `test/unit/sidebar-scope.test.tsx`, `test/unit/sidebar-section.test.tsx`, `test/e2e/sidebar-rail.spec.ts`,
+Main tests: `test/unit/sidebar-scope.test.tsx`, `test/unit/sidebar-section.test.tsx`, `test/unit/health-rail-button.test.tsx`, `test/e2e/sidebar-rail.spec.ts`,
 `test/e2e/sidebar-sections.spec.ts`.
 
 ## Command palette
@@ -127,11 +145,14 @@ next typing or pick. While a command runs, another pick does nothing.
 | Group | Rows |
 |---|---|
 | Action | New session; New Product Session; a "New …" for each item of the Canvas menu; Tidy up; Arrange by Epic; Re-pack; Archive finished sessions now; Process gate queue; Run wave `<epic>`; Ship ticket `<epic>/<NN>`; Resolve conflicts, Fix checks and Address comments `<owner>/<repo>#<N>`; Reconnect machine…; Remove machine…; Update worfy |
-| View | Switch to Canvas; Switch to Session; Pull requests, with a Project; First-run checks; Getting started; Settings…; Keyboard shortcuts; worfy Guide; Guide: `<Topic>`, for each Topic; Show only tag `<tag>`; Show all Nodes |
+| View | Switch to Canvas; Switch to Session; Pull requests, with a Project; First-run checks; Health check; Getting started; Settings…; Keyboard shortcuts; worfy Guide; Guide: `<Topic>`, for each Topic; Show only tag `<tag>`; Show all Nodes |
 | Project | Switch to project `<name>`, for each other Project |
 | Go to | Orchestrator; each Epic, Ticket and ADR; each Node of the Layout, except those worfy draws from the workflow and binding anchors |
 | Manual check | Each unchecked manual check of a Ticket. These rows appear only after typing |
 | In transcripts | The Project's Sessions whose conversation contains the query |
+
+"Health check" opens Settings → Health, as the Health check button of the rail does. "First-run checks" opens the First run
+dialog, the window of the first setup of the Machine; the two names are not interchangeable.
 
 Some rows exist only in some states:
 

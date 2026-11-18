@@ -176,7 +176,8 @@ test('Settings → Health shows the checks of the First run dialog; closing Sett
 
     const { settings, health } = await openHealth(launched)
     const inHealth = await checksOf(health)
-    expect(inHealth.map((each) => each.id)).toEqual(CHECK_IDS)
+    // Every check, the ones to look at first (worfy-auth-check ticket 04; the order is the next test's).
+    expect(inHealth.map((each) => each.id).sort()).toEqual([...CHECK_IDS].sort())
     expect(checkRuns()).toBe(1)
     // What First run shows on a first start: one failed (the Harness plugin), two warnings (its
     // scripts, checked once it is installed; the qmd models). Its dependencies are OK, `none`: the
@@ -228,6 +229,73 @@ test('Settings → Health shows the checks of the First run dialog; closing Sett
     await expect(dialog).toBeHidden()
     await expect.poll(() => existsSync(mark())).toBe(true)
     expect(JSON.parse(readFileSync(mark(), 'utf8'))).toMatchObject({ failing: ['harness'] })
+  } finally {
+    await launched.close()
+  }
+})
+
+test('the Health check button stands on the rail right above Machines, its dot follows the checks, a click opens Settings → Health; the palette\'s "Health check" does the same (worfy-auth-check ticket 04)', async () => {
+  const launched = await launch()
+  try {
+    const { window } = launched
+    await expect(window.getByTestId('app-shell')).toBeVisible()
+    const nav = window.getByRole('navigation', { name: 'Sidebar' })
+    const button = nav.getByRole('button', { name: 'Health check', exact: true })
+    const machines = nav.getByRole('tablist', { name: 'Sidebar sections' }).getByRole('tab', { name: 'Machines', exact: true })
+    await expect(button).toBeVisible()
+    // Not a tab: the tablist holds the sections alone, and the button is outside it.
+    await expect(nav.getByRole('tablist', { name: 'Sidebar sections' }).getByRole('button', { name: 'Health check' })).toHaveCount(0)
+    const [own, below] = [await button.boundingBox(), await machines.boundingBox()]
+    if (own === null || below === null) throw new Error('the Health check button or the Machines tab is not drawn')
+    expect(own.y + own.height).toBeLessThanOrEqual(below.y)
+    expect(below.y - (own.y + own.height)).toBeLessThan(12)
+    expect(Math.abs(own.x - below.x)).toBeLessThan(1)
+    // No check has run at this start: a grey ring, and the button checks nothing by itself.
+    await expect(button).toHaveAttribute('data-health', 'pending')
+    await expect(button.getByTestId('health-rail-dot')).toHaveAttribute('data-tone', 'pending')
+    expect(checkRuns()).toBe(0)
+
+    // A click opens Settings on Health, which checks: the Harness plugin fails, a critical row — the dot turns red.
+    await button.click()
+    const settings = window.getByRole('dialog', { name: 'Settings' })
+    await expect(settings.getByRole('heading', { level: 2 })).toHaveText('Health')
+    const health = settings.getByTestId('settings-health')
+    await checksOf(health)
+    // The modal Settings window hides the rest of the app from the accessibility tree, the sidebar too: a role
+    // locator finds the button only once the window is closed, so under the window it is read by its class.
+    const underSettings = window.locator('.w-sidebar__health')
+    await expect(underSettings).toHaveAttribute('data-health', 'critical')
+    await expect(underSettings).toHaveAttribute('aria-label', 'Health check')
+
+    // The rows: a critical one not in ok first, then the other ones not in ok, then ok — in every group and from group to group.
+    const weights = await health.locator('section[aria-label]').evaluateAll((sections) =>
+      sections.map((section) =>
+        [...section.querySelectorAll('[data-check]')].map((each) => (each.getAttribute('data-status') === 'ok' ? 2 : each.getAttribute('data-severity') === 'critical' && each.getAttribute('data-status') !== 'unknown' ? 0 : 1)),
+      ),
+    )
+    expect(weights[0]?.[0]).toBe(0)
+    for (const rows of weights) expect(rows).toEqual([...rows].sort())
+    expect(weights.map((rows) => rows[0])).toEqual(weights.map((rows) => rows[0]).sort())
+    await expect(health.locator('[data-check="harness"] [data-testid="check-level"]')).toHaveText('Critical')
+    await expect(health.locator('[data-check="qmd-models"] [data-testid="check-level"]')).toHaveText('Non-critical')
+    await snapshotThemes(window, 'settings-health-levels')
+    await settings.getByRole('button', { name: 'Close' }).click()
+    await expect(settings).toHaveCount(0)
+    // Its name stays "Health check" whatever the dot: the state is its description.
+    await expect(button).toHaveAttribute('data-health', 'critical')
+    await expect(button.getByTestId('health-rail-dot')).toHaveAttribute('data-tone', 'critical')
+    await expect(button).toHaveAttribute('aria-description', /^critical: .*Harness plugin/)
+    // The rail with its red dot, for the review (a CI artifact, not committed).
+    await snapshotThemes(window, 'health-rail-dot')
+
+    // The palette's "Health check" opens the same section; "First-run checks" stays a row of its own.
+    await window.keyboard.press('ControlOrMeta+k')
+    const input = window.getByTestId('palette-input')
+    await input.fill('Health check')
+    await expect(window.getByTestId('palette-option').first()).toHaveAttribute('data-command', 'health-check')
+    await input.press('Enter')
+    await expect(settings.getByRole('heading', { level: 2 })).toHaveText('Health')
+    await expect(window.getByTestId('first-run')).toHaveCount(0)
   } finally {
     await launched.close()
   }

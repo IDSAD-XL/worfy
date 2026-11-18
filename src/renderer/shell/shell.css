@@ -90,16 +90,26 @@
 .w-sidebar__rail::-webkit-scrollbar {
   width: 0;
 }
-/* The tabs of the sections (the tablist), above Settings: the sections of the foot sit at its end. */
+/*
+ * The tabs of the sections (the tablist) lay out no box of their own: each tab is a flex item of the
+ * rail, so the Health check button, outside the tablist after it, stands between the tabs of the top
+ * and those of the foot (worfy-auth-check ticket 04). The order: the top tabs, Health check pushed
+ * down by the room above it, the foot tabs (the first one, `data-rail-foot`, and the tabs after it),
+ * Settings.
+ */
 .w-sidebar__tabs {
-  flex: 1 0 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-1);
+  display: contents;
 }
-.w-sidebar__rail-button[data-rail-foot] {
+.w-sidebar__health {
+  order: 1;
   margin-top: auto;
+}
+.w-sidebar__rail-button[data-rail-foot],
+.w-sidebar__rail-button[data-rail-foot] ~ .w-sidebar__rail-button {
+  order: 2;
+}
+.w-sidebar__tabs ~ .w-sidebar__rail-button:not(.w-sidebar__health) {
+  order: 3;
 }
 .w-sidebar__rail-button {
   position: relative;
@@ -182,6 +192,18 @@
 }
 .w-sidebar__rail-dot[data-tone='ready'] {
   background: var(--ready-dot);
+}
+/* The dot of Health check (worfy-auth-check ticket 04, Q3): red, yellow, or a grey ring before the first report. */
+.w-sidebar__rail-dot[data-tone='critical'] {
+  background: var(--health-critical);
+}
+.w-sidebar__rail-dot[data-tone='warning'] {
+  background: var(--health-warning);
+}
+.w-sidebar__rail-dot[data-tone='pending'] {
+  box-sizing: border-box;
+  background: var(--sidebar);
+  border: 1.5px solid var(--text-muted);
 }
 /* The panel: the one section shown (sidebar-section.css). */
 .w-sidebar__sections {

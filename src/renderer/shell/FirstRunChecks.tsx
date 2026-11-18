@@ -15,7 +15,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { create } from 'zustand'
 import '../canvas/actions/actions.css'
 import { failureReason } from '../../shared/ipc/channels'
-import type { Check, CheckGroup, CheckId, CheckStatus, FirstRunAction } from '../../shared/ipc/first-run'
+import { checkState, type Check, type CheckGroup, type CheckId, type CheckStatus, type FirstRunAction } from '../../shared/ipc/first-run'
 import { applyLayoutOp } from '../canvas/useLayout'
 import { focusCanvasNode } from '../find/canvas-requests'
 import MigrationForm from '../harness/MigrationForm'
@@ -30,8 +30,56 @@ import './shell.css'
 
 /** The size of the Terminal Node the GitHub sign-in opens: the default of the Terminal Node type. */
 const TERMINAL_SIZE = { w: 560, h: 340 }
-// Windows has rows only on Windows (worfy-windows ticket 13); a group without rows is not shown.
-const GROUPS: readonly CheckGroup[] = ['Claude Code', 'Windows', 'Command-line tools', 'GitHub', 'worfy', 'Harness', 'qmd']
+// Windows has rows only on Windows (worfy-windows ticket 13); a group without rows is not shown. The
+// last three are worfy-auth-check's (ticket 03): the rows of each Project, the Codex sign-in, a Linked machine.
+const GROUPS: readonly CheckGroup[] = ['Claude Code', 'Windows', 'Command-line tools', 'GitHub', 'worfy', 'Harness', 'qmd', 'Projects', 'Codex', 'Linked machines']
+
+/**
+ * Where a row stands (worfy-auth-check ticket 04; spec, the solution, point 2): 0 — a critical row
+ * that is not `ok`, 1 — any other row that is not `ok`, 2 — `ok`. A row that could not be checked
+ * (`unknown`) is never critical (Q2), whatever its `severity` says.
+ */
+function rowRank(check: Pick<Check, 'status' | 'severity'>): 0 | 1 | 2 {
+  if (check.status === 'ok') return 2
+  return check.status !== 'unknown' && check.severity === 'critical' ? 0 : 1
+}
+
+/** A block of rows under one heading: a group, or for the Projects group one block per Project (Q4). */
+interface CheckBlock {
+  key: string
+  title: string
+  rows: Check[]
+}
+
+/**
+ * The rows in the order Health check shows them: the critical rows that are not `ok` first, then the
+ * other rows that are not, then the `ok` ones. Rows keep their group, so the groups go by the first
+ * row each holds; groups and rows of one rank keep the order of GROUPS and of the report.
+ */
+function checkBlocks(checks: readonly Check[]): CheckBlock[] {
+  const blocks: CheckBlock[] = []
+  for (const group of GROUPS) {
+    const rows = checks.filter((each) => each.group === group)
+    if (group !== 'Projects') {
+      if (rows.length > 0) blocks.push({ key: group, title: group, rows })
+      continue
+    }
+    const projects = new Map<string, CheckBlock>()
+    for (const row of rows) {
+      const key = `Projects:${row.project?.id ?? ''}`
+      const block = projects.get(key) ?? { key, title: row.project === undefined ? 'Projects' : `Projects · ${row.project.name}`, rows: [] }
+      block.rows.push(row)
+      projects.set(key, block)
+    }
+    blocks.push(...projects.values())
+  }
+  const first = (block: CheckBlock): number => Math.min(...block.rows.map(rowRank))
+  for (const block of blocks) block.rows.sort((a, b) => rowRank(a) - rowRank(b))
+  return blocks.sort((a, b) => first(a) - first(b))
+}
+
+/** The level a row not in `ok` says by its name (CONTEXT.md, Health check). */
+const LEVEL_LABEL = { critical: 'Critical', 'non-critical': 'Non-critical' } as const
 
 type ChipState = CheckStatus | 'running' | 'checking'
 
@@ -97,6 +145,8 @@ const styles = {
   row: { padding: '4px 0', borderBottom: '1px solid var(--border)' },
   line: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', minHeight: 'var(--row-height)' },
   name: { flex: 'none', width: 190, fontSize: 'var(--text-13)' },
+  level: { flex: 'none', width: 78, fontSize: 'var(--text-11)', color: 'var(--text-muted)' },
+  critical: { flex: 'none', width: 78, fontSize: 'var(--text-11)', fontWeight: 600, color: 'var(--blocked-text)' },
   detail: {
     flex: 1,
     minWidth: 0,
@@ -125,8 +175,8 @@ const FIRST_RUN_CHIP: Record<ChipState, { variant: Status; label: string; border
   ok: { variant: 'ready', label: 'OK', bordered: true },
   warn: { variant: 'blocked', label: 'Warning', quiet: true },
   fail: { variant: 'blocked', label: 'Failed', bordered: true },
-  // No row says `unknown` before worfy-auth-check ticket 05; ticket 04 gives it its look.
-  unknown: { variant: 'blocked', label: 'Unknown', quiet: true },
+  // Could not be checked (worfy-auth-check, Q2): not a failure, so not the blocked look of one.
+  unknown: { variant: 'done', label: 'Unknown', quiet: true },
   running: { variant: 'working', label: 'Running…', bordered: true },
   checking: { variant: 'working', label: 'Checking…', bordered: true },
 }
@@ -195,31 +245,50 @@ function CheckRow({ check, busy, since, checking, locked, projectName, onAction 
   const hint = noCanvas ? `${check.hint}. No Project is connected yet, so run it in a terminal` : check.hint
   const pressed = actions.find((action) => action.id === busy)
   const progress = pressed === undefined ? undefined : progressText(pressed)
+  // A row a `safe` button repairs (spec: the repair) offers it as "Fix"; the tooltip names what it does.
+  const fixable = checkState(check) === 'fixable'
+  const rank = rowRank(check)
+  // What could not be checked says why (Q2), in place of what was found.
+  const detail = check.status === 'unknown' ? `Couldn't check: ${check.detail === '' ? 'no answer' : check.detail}` : check.detail
   return (
-    <li style={styles.row} data-check={check.id} data-status={check.status} aria-label={check.title} aria-busy={busy !== null || checking ? 'true' : undefined}>
+    <li
+      style={styles.row}
+      data-check={check.id}
+      data-status={check.status}
+      data-severity={check.severity}
+      aria-label={check.project === undefined ? check.title : `${check.title}, ${check.project.name}`}
+      aria-busy={busy !== null || checking ? 'true' : undefined}
+    >
       <div style={styles.line}>
         <StatusChip state={busy !== null ? 'running' : checking ? 'checking' : check.status} />
         <span style={styles.name}>{check.title}</span>
-        <span style={styles.detail} title={check.detail}>
-          {check.detail}
+        {/* The level of a row not in `ok`; an `ok` row keeps the room empty, so the columns stay in line. */}
+        <span style={rank === 0 ? styles.critical : styles.level} data-testid="check-level">
+          {rank === 2 ? '' : LEVEL_LABEL[rank === 0 ? 'critical' : 'non-critical']}
+        </span>
+        <span style={styles.detail} title={detail}>
+          {detail}
         </span>
         <span style={styles.buttons}>
           {actions.map((action) => {
             const working = action.id === busy
             const off = locked || working
-            const title = locked && !working ? BUSY_REASON : action.id === 'gh-login' && projectName !== undefined ? `Opens a Terminal on the Canvas of ${projectName}` : undefined
+            const fix = fixable && action.safe === true
+            const title = locked && !working ? BUSY_REASON : action.id === 'gh-login' && projectName !== undefined ? `Opens a Terminal on the Canvas of ${projectName}` : fix ? action.label : undefined
             return (
               <button
                 key={action.id}
                 type="button"
-                className="w-action"
+                className={fix ? 'w-action w-action--primary' : 'w-action'}
                 aria-disabled={off ? 'true' : undefined}
+                aria-label={fix && !working ? `Fix: ${action.label}` : undefined}
+                data-fix={fix ? '' : undefined}
                 title={title}
                 onClick={() => {
                   if (!off) onAction(action.id)
                 }}
               >
-                {working ? <BusyLabel text={busyLabel(action)} /> : action.label}
+                {working ? <BusyLabel text={busyLabel(action)} /> : fix ? 'Fix' : action.label}
               </button>
             )
           })}
@@ -420,7 +489,9 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, children
   const checks = report?.checks ?? []
   const failed = checks.filter((each) => each.status === 'fail').length
   const warned = checks.filter((each) => each.status === 'warn').length
-  const summary = checking ? 'Checking…' : report === null ? '' : failed + warned === 0 ? 'Everything is ready' : [failed > 0 ? `${failed} failed` : null, warned > 0 ? `${warned} ${warned === 1 ? 'warning' : 'warnings'}` : null].filter(Boolean).join(' · ')
+  const unchecked = checks.filter((each) => each.status === 'unknown').length
+  const counts = [failed > 0 ? `${failed} failed` : null, warned > 0 ? `${warned} ${warned === 1 ? 'warning' : 'warnings'}` : null, unchecked > 0 ? `${unchecked} not checked` : null]
+  const summary = checking ? 'Checking…' : report === null ? '' : failed + warned + unchecked === 0 ? 'Everything is ready' : counts.filter(Boolean).join(' · ')
   const locked = running !== null || checking
   const isError = message?.error || failure !== null
 
@@ -439,18 +510,16 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, children
       {children({
         summary:
           summary !== '' ? (
-            <Chip {...FIRST_RUN_CHIP[checking ? 'running' : failed > 0 ? 'fail' : warned > 0 ? 'warn' : 'ok']} icon={null} data-testid="first-run-summary" label={summary} />
+            <Chip {...FIRST_RUN_CHIP[checking ? 'running' : failed > 0 ? 'fail' : warned > 0 ? 'warn' : unchecked > 0 ? 'unknown' : 'ok']} icon={null} data-testid="first-run-summary" label={summary} />
           ) : null,
-        list: GROUPS.map((group) => {
-          const rows = checks.filter((each) => each.group === group)
-          if (rows.length === 0) return null
+        list: checkBlocks(checks).map(({ key, title, rows }) => {
           return (
-            <section key={group} style={styles.group} aria-label={group}>
-              <h3 style={styles.groupTitle}>{group}</h3>
+            <section key={key} style={styles.group} aria-label={title}>
+              <h3 style={styles.groupTitle}>{title}</h3>
               <ul style={styles.list}>
                 {rows.map((each) => (
                   <CheckRow
-                    key={each.id}
+                    key={`${each.id}:${each.project?.id ?? ''}`}
                     check={each}
                     busy={rowAction(each)}
                     since={since}

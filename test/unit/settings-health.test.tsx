@@ -89,8 +89,17 @@ const readRow = (each: HTMLElement) => ({
   chip: each.querySelector('.w-chip')?.textContent,
   detail: each.querySelector('[title]')?.getAttribute('title') ?? null,
 })
+/** The groups in the order of First run (shell/FirstRunChecks.tsx) when their rows weigh the same. */
+const GROUP_ORDER: readonly Check['group'][] = ['Claude Code', 'Windows', 'Command-line tools', 'GitHub', 'worfy', 'Harness', 'qmd', 'Projects', 'Codex', 'Linked machines']
+/** worfy-auth-check ticket 04: a critical row not in `ok`, then another row not in `ok`, then an `ok` row; `unknown` is never critical. */
+const weight = (each: Check): number => (each.status === 'ok' ? 2 : each.status !== 'unknown' && each.severity === 'critical' ? 0 : 1)
+/** The rows as the screen shows them: each group goes by its weightiest row, and inside a group the rows go by weight too. */
+const inOrder = (from: FirstRunReport): Check[] => {
+  const groups = GROUP_ORDER.map((group) => from.checks.filter((each) => each.group === group).sort((a, b) => weight(a) - weight(b))).filter((rows) => rows.length > 0)
+  return groups.sort((a, b) => weight(a[0]!) - weight(b[0]!)).flat()
+}
 const expected = (from: FirstRunReport) =>
-  from.checks.map((each) => ({ id: each.id, name: each.title, status: each.status, chip: { ok: 'OK', warn: 'Warning', fail: 'Failed', unknown: 'Unknown' }[each.status], detail: each.detail }))
+  inOrder(from).map((each) => ({ id: each.id, name: each.title, status: each.status, chip: { ok: 'OK', warn: 'Warning', fail: 'Failed', unknown: 'Unknown' }[each.status], detail: each.detail }))
 const summaryOf = (place: HTMLElement): string | null => within(place).queryByTestId('first-run-summary')?.textContent ?? null
 const isInactive = (button: HTMLElement): boolean => button.getAttribute('aria-disabled') === 'true'
 
@@ -152,7 +161,8 @@ describe('Settings → Health: the section', () => {
     const health = await openHealth()
     expect(callsOf('firstRun.checks')).toHaveLength(1)
     expect(rowsOf(health).map(readRow)).toEqual(expected(report()))
-    expect([...health.querySelectorAll('section[aria-label] h3')].map((each) => each.textContent)).toEqual(['Claude Code', 'Command-line tools', 'GitHub', 'Harness', 'qmd'])
+    // The groups of First run; Claude Code, all `ok`, after those with a row to look at (worfy-auth-check ticket 04).
+    expect([...health.querySelectorAll('section[aria-label] h3')].map((each) => each.textContent)).toEqual(['Command-line tools', 'GitHub', 'Harness', 'qmd', 'Claude Code'])
     expect(summaryOf(health)).toBe('3 failed · 2 warnings')
     // What to do, and the command to copy.
     expect(rowOf(health, 'jq').textContent).toContain('Install it')
@@ -241,6 +251,92 @@ describe('Settings → Health: the section', () => {
     expect(rowOf(health, 'harness').dataset.status).toBe('ok')
     expect(summaryOf(health)).toBe('2 failed · 2 warnings')
     expect([again, ...actions()].map(isInactive)).toEqual([false, false, false, false])
+  })
+})
+
+describe('Settings → Health: the order, the level and Fix (worfy-auth-check ticket 04)', () => {
+  const alpha = { id: 'alpha-0000000a', name: 'alpha' }
+  const beta = { id: 'beta-0000000b', name: 'beta' }
+  const mixed = (): FirstRunReport => ({
+    checkedAt: '2026-11-18T00:00:00.000Z',
+    checks: [
+      // An `ok` row with a safe button: nothing to fix, so no Fix.
+      check('claude-login', 'Claude Code', 'Sign-in', { severity: 'critical', detail: 'me@example.com', actions: [{ id: 'use-login', label: 'Use bob', safe: true }] }),
+      check('jq', 'Command-line tools', 'jq', { status: 'warn', detail: 'not found' }),
+      check('harness', 'Harness', 'Harness plugin', { status: 'fail', severity: 'critical', detail: 'not installed', actions: [{ id: 'harness-install', label: 'Install' }] }),
+      check('harness-scripts', 'Harness', 'Harness scripts', { severity: 'critical', detail: 'run' }),
+      check('qmd-models', 'qmd', 'qmd models', { status: 'warn', detail: 'not downloaded', actions: [{ id: 'qmd-models-download', label: 'Download…' }] }),
+      check('github-access', 'Projects', 'GitHub access', {
+        project: alpha,
+        status: 'fail',
+        severity: 'critical',
+        detail: 'GH_TOKEN from your environment has no access to acme/app',
+        actions: [
+          { id: 'open-link', label: 'Open link' },
+          { id: 'use-login', label: 'Use alice', safe: true },
+        ],
+      }),
+      // Marked critical by mistake: a row that could not be checked still never counts as critical.
+      check('github-access', 'Projects', 'GitHub access', { project: beta, status: 'unknown', severity: 'critical', detail: 'no network' }),
+      check('codex-login', 'Codex', 'Codex sign-in', { status: 'warn', detail: 'signed out' }),
+      check('linked-machine', 'Linked machines', 'Linked machine', { status: 'fail', detail: 'the certificate changed' }),
+    ],
+  })
+  const level = (each: HTMLElement): string | null => each.querySelector('[data-testid="check-level"]')?.textContent ?? null
+
+  beforeEach(() => {
+    handlers['firstRun.checks'] = () => ({ ok: true, value: mixed() })
+  })
+
+  it('shows critical rows not in ok first, then the other rows not in ok, then ok ones; each group, the Codex and Linked machines ones too, by its weightiest row; Projects one by one', async () => {
+    renderApp()
+    const health = await openHealth()
+    expect([...health.querySelectorAll('section[aria-label] h3')].map((each) => each.textContent)).toEqual([
+      'Harness',
+      'Projects · alpha',
+      'Command-line tools',
+      'qmd',
+      'Projects · beta',
+      'Codex',
+      'Linked machines',
+      'Claude Code',
+    ])
+    expect(rowsOf(health).map((each) => [each.getAttribute('aria-label'), each.dataset.status])).toEqual([
+      ['Harness plugin', 'fail'],
+      ['Harness scripts', 'ok'],
+      ['GitHub access, alpha', 'fail'],
+      ['jq', 'warn'],
+      ['qmd models', 'warn'],
+      ['GitHub access, beta', 'unknown'],
+      ['Codex sign-in', 'warn'],
+      ['Linked machine', 'fail'],
+      ['Sign-in', 'ok'],
+    ])
+    // The first row of every group, in order: critical, critical, then the rest, then ok.
+    expect([...health.querySelectorAll('section[aria-label]')].map((section) => section.querySelector<HTMLElement>('[data-check]')?.dataset.status)).toEqual(['fail', 'fail', 'warn', 'warn', 'unknown', 'warn', 'fail', 'ok'])
+    expect(summaryOf(health)).toBe('3 failed · 3 warnings · 1 not checked')
+  })
+
+  it('a row not in ok says its level by name, a row in ok says none; a row that could not be checked says why and is not critical', async () => {
+    renderApp()
+    const health = await openHealth()
+    expect(rowsOf(health).map(level)).toEqual(['Critical', '', 'Critical', 'Non-critical', 'Non-critical', 'Non-critical', 'Non-critical', 'Non-critical', ''])
+    const unknown = rowsOf(health)[5]!
+    expect(unknown.textContent).toContain("Couldn't check: no network")
+    expect(unknown.querySelector('.w-chip')?.classList.contains('w-chip--blocked')).toBe(false)
+  })
+
+  it('Fix is the button of a fixable row only: its safe button, named by what it does; the other buttons keep their labels', async () => {
+    renderApp()
+    const health = await openHealth()
+    const fixes = [...health.querySelectorAll<HTMLElement>('[data-fix]')]
+    expect(fixes.map((each) => [each.closest<HTMLElement>('[data-check]')?.getAttribute('aria-label'), each.textContent, each.getAttribute('aria-label'), each.title])).toEqual([
+      ['GitHub access, alpha', 'Fix', 'Fix: Use alice', 'Use alice'],
+    ])
+    expect(within(rowsOf(health)[2]!).getByRole('button', { name: 'Open link' }).hasAttribute('data-fix')).toBe(false)
+    expect(within(rowOf(health, 'harness')).getByRole('button', { name: 'Install' }).hasAttribute('data-fix')).toBe(false)
+    expect(within(health).queryAllByRole('button', { name: /^Fix/ })).toHaveLength(1)
+    expect(within(rowOf(health, 'claude-login')).getByRole('button', { name: 'Use bob' }).hasAttribute('data-fix')).toBe(false)
   })
 })
 
