@@ -71,8 +71,9 @@ function restartsOptions(): RestartsOptions {
   return seen.restarts[0] as RestartsOptions
 }
 
-describe('appUpdate() wires Restarts', () => {
-  // In this order: the first look is taken in the same turn as the first appUpdate(), before the modules load.
+// Not shuffled: the first look must be taken in the same turn as the file's first appUpdate(), before the modules
+// load, and the modules load once per file.
+describe('appUpdate() wires Restarts', { shuffle: false }, () => {
   it('takes Autopilot as at work until its module is loaded, though nothing runs', async () => {
     const { idle } = restartsOptions()
     expect(idle.recheck()).toBe(false)
@@ -80,8 +81,10 @@ describe('appUpdate() wires Restarts', () => {
     await vi.waitFor(() => expect(idle.recheck()).toBe(true))
   })
 
-  it('a run in the Wait for the Limits of one Project does not hold the restart; a run with a Wave in work does', () => {
+  it('a run in the Wait for the Limits of one Project does not hold the restart; a run with a Wave in work does', async () => {
     const { idle } = restartsOptions()
+    // The modules are loaded: the quiet world reads as quiet, also when this test runs alone.
+    await vi.waitFor(() => expect(idle.recheck()).toBe(true))
     seen.runs.set('beta', LIMITS)
     expect(idle.recheck()).toBe(true)
     seen.runs.set('alpha', WAVE)
