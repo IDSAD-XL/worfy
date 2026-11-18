@@ -134,3 +134,12 @@ Code: `docs/features/ru/autopilot-faults.md:418-419` · key lines: 418
 3. Почему метка `ru/harness.md` не стала `b82c4d25`?
    - Ответ: страница переведена не целиком; новая метка спрятала бы её отставание от `feature-docs-lag.mjs`.
    - Строки: `docs/features/ru/harness.md:3-3`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED
+> Noted: round 2 delta (a13ce12ef..7706e9007, 17 lines in docs): ru/updates.md:127 now says the cut-off Sessions and the runs go on, both naming the Update — as updates.md:124-125; :129 and :164 «отклоняется»; ru/autopilot-faults.md:193 «run-у отказывают»; ru/skills-agents-and-hooks.md:30 «review threads», :264 and :352 both «Готово, когда»; CONTEXT.md Interrupted by restart gains "the transcript could not be read"; ADR-0108 item 7 says a call of the Orchestrator or of a Subagent tied to no Ticket holds every Ticket of the Wave.
+> Noted: merge order — #1999 lands after #1996 (ru/harness.md describes compaction-state of #1996).
+> Checks: implementer on 7706e9007 — check-personal EXIT=0, check-feature-docs EXIT=0, story-check EXIT=0; orchestrator read the whole delta.
+> Review depth: low — round 2, delta read by the orchestrator (docs only, 17 lines)
+> Review tokens: 0

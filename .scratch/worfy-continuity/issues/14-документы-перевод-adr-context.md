@@ -1,7 +1,8 @@
 # 14 — Документы: переводы страниц Feature, Amendment к ADR-0050, новый ADR, термины CONTEXT.md
 
 Type: task
-Status: claimed 2026-11-18T12:08Z
+Status: done 2026-11-18T13:00Z
+PR: #1999
 Blocked by: 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 16
 Source: [spec.md](../spec.md), «Ticket-ы», 14; «Готово, когда», пункт о документах; «Решено без владельца», 5;
 [critic 2026-11-14](../../../docs/product/critic/worfy-continuity-2026-11-14.md), «What the critic cannot know» (ADR-0010)
@@ -44,6 +45,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 14; «Готово, когда», 
   - evidence: commit pass · worfy-continuity/14: Russian Feature pages, ADR-0108, ADR-0050/0010 amendments, CONTEXT terms · - - · efe0448851b833de7ab8933e3a0580d39547f095
 - [ ] `node scripts/check-personal.mjs` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `node scripts/check-personal.mjs` exit 0 · mac - · deb9d782af184b237a9fa6c381a691904d9b0578
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44304990854/job/134805990333 · ci - · 7706e900726027326719249f16fd678831c1fa4a
 
 ## Где в коде
 
