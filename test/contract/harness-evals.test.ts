@@ -2089,7 +2089,7 @@ describe('harness/evals: pr-fix', () => {
       const added = git(work, home, fill(line('git -C "<checkout>" worktree add'), v))
       expect(added.status, added.stderr).toBe(0)
       const worktree = join(work, WORKTREE)
-      expect(git(work, home, `git -C ${worktree} rev-parse HEAD`).stdout.trim()).toBe(head)
+      expect(git(work, home, `git -C "${worktree}" rev-parse HEAD`).stdout.trim()).toBe(head)
       const tests = (): number | null => spawnSync(scriptNode(), ['--test'], { cwd: worktree, env: harnessEnv(home), encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS }).status
       expect(tests(), name).toBe(name === CHECKS ? 1 : 0)
       const file = join(worktree, 'src', 'sum.mjs')
@@ -2106,21 +2106,22 @@ describe('harness/evals: pr-fix', () => {
       expect(published(name, work)).toBe(false)
 
       // Every push to a GitHub address reaches the bare repository and rewrites the marker; a fetch still meets https=never.
-      // The addresses are the prefixes the fixture rewrites (https, http, ssh, the scp form), read from its config.
-      const prefixes = git(work, home, 'git config --get-regexp ^url\\..*\\.pushinsteadof$').stdout.trim().split('\n').map((entry) => entry.split(' ')[1] ?? '')
+      // The addresses are the prefixes the fixture rewrites (https, http, ssh, the scp form), read from its config: the
+      // last word of each entry, since the key holds the path of the fixture, which may have a space.
+      const prefixes = git(work, home, 'git config --get-regexp ^url\\..*\\.pushinsteadof$').stdout.trim().split('\n').map((entry) => entry.slice(entry.lastIndexOf(' ') + 1))
       expect(prefixes.map((prefix) => prefix.replace(/[a-z]+\.[a-z]+[/:]$/, 'HOST'))).toEqual(['https://HOST', 'http://HOST', 'ssh://git@HOST', 'git@HOST'])
       const marker = read(work, MARKER)
       for (const push of [
         fill(line('git -C "<worktree>" push origin'), v),
-        `git --no-pager -C ${worktree} push origin HEAD:refs/heads/other`,
-        ...prefixes.map((prefix, i) => `git -C ${worktree} push ${prefix}octo-org/ledger${i % 2 === 0 ? '.git' : ''} HEAD:refs/heads/by-${i}`),
+        `git --no-pager -C "${worktree}" push origin HEAD:refs/heads/other`,
+        ...prefixes.map((prefix, i) => `git -C "${worktree}" push ${prefix}octo-org/ledger${i % 2 === 0 ? '.git' : ''} HEAD:refs/heads/by-${i}`),
       ]) {
         writeFileSync(join(work, MARKER), marker)
         const run = git(work, home, push)
         expect(run.status, `${push}\n${run.stderr}`).toBe(0)
         expect(published(name, work), push).toBe(true)
       }
-      expect(git(work, home, `git --git-dir ${join(work, BARE)} rev-parse refs/heads/by-3`).stdout.trim()).toBe(git(work, home, `git -C ${worktree} rev-parse HEAD`).stdout.trim())
+      expect(git(work, home, `git --git-dir "${join(work, BARE)}" rev-parse refs/heads/by-3`).stdout.trim()).toBe(git(work, home, `git -C "${worktree}" rev-parse HEAD`).stdout.trim())
       expect(git(work, home, 'git fetch origin').status).not.toBe(0)
       expect(git(work, home, 'git remote get-url origin').stdout.trim()).toMatch(/^https:\/\/github\.com\/octo-org\/ledger\.git$/)
 
@@ -2178,8 +2179,8 @@ describe('harness/evals: pr-fix', () => {
       expect(tree.status, tree.stderr).toBe(1)
       expect(tree.stdout.split('\n').slice(1, 3)).toEqual(['src/sum.mjs', ''])
       // merge-tree wrote no file and moved nothing.
-      expect(git(work, home, `git -C ${join(work, WORKTREE)} status --porcelain`).stdout).toBe('')
-      expect(git(work, home, `git -C ${join(work, WORKTREE)} rev-parse HEAD`).stdout.trim()).toBe(head)
+      expect(git(work, home, `git -C "${join(work, WORKTREE)}" status --porcelain`).stdout).toBe('')
+      expect(git(work, home, `git -C "${join(work, WORKTREE)}" rev-parse HEAD`).stdout.trim()).toBe(head)
       expect(state(work, home)).toMatch(/^worktree=ledger-pr-7 onto=no head=yes commits=\d+ merges=0 clean=yes tests=0 both=no checkout=untouched\n$/)
     }
     const { work, home } = caseFixtureToChange(CHECKS)
@@ -2213,26 +2214,26 @@ describe('harness/evals: pr-fix', () => {
     const marker = read(work, MARKER)
     const lease = fill(line('git -C "<worktree>" push --force-with-lease'), v)
     expect(words(lease)).toContain(`--force-with-lease=sum-all:${head}`)
-    const atBare = (): string => git(work, home, `git --git-dir ${bare} rev-parse refs/heads/sum-all`).stdout.trim()
+    const atBare = (): string => git(work, home, `git --git-dir "${bare}" rev-parse refs/heads/sum-all`).stdout.trim()
     // A colleague pushed a commit to the branch after the head this run started from.
-    const tree = git(work, home, `git --git-dir ${bare} rev-parse ${head}^{tree}`).stdout.trim()
-    const theirs = git(work, home, `git --git-dir ${bare} commit-tree ${tree} -p ${head} -m colleague`).stdout.trim()
-    expect(git(work, home, `git --git-dir ${bare} update-ref refs/heads/sum-all ${theirs} ${head}`).status).toBe(0)
+    const tree = git(work, home, `git --git-dir "${bare}" rev-parse ${head}^{tree}`).stdout.trim()
+    const theirs = git(work, home, `git --git-dir "${bare}" commit-tree ${tree} -p ${head} -m colleague`).stdout.trim()
+    expect(git(work, home, `git --git-dir "${bare}" update-ref refs/heads/sum-all ${theirs} ${head}`).status).toBe(0)
     const refused = git(work, home, lease)
     expect(refused.status, refused.stderr).not.toBe(0)
     expect(refused.stderr).toMatch(/stale info|rejected/)
     expect(atBare()).toBe(theirs)
     expect(published(CONFLICTS, work)).toBe(false)
     // A bare --force would have dropped it: the lease is what refuses.
-    const forced = git(work, home, `git -C ${worktree} push --force origin HEAD:refs/heads/sum-all`)
+    const forced = git(work, home, `git -C "${worktree}" push --force origin HEAD:refs/heads/sum-all`)
     expect(forced.status, forced.stderr).toBe(0)
-    expect(git(work, home, `git --git-dir ${bare} merge-base --is-ancestor ${theirs} refs/heads/sum-all`).status).toBe(1)
+    expect(git(work, home, `git --git-dir "${bare}" merge-base --is-ancestor ${theirs} refs/heads/sum-all`).status).toBe(1)
     // The branch still at the old head: the lease push lands, and the marker records it.
-    expect(git(work, home, `git --git-dir ${bare} update-ref refs/heads/sum-all ${head}`).status).toBe(0)
+    expect(git(work, home, `git --git-dir "${bare}" update-ref refs/heads/sum-all ${head}`).status).toBe(0)
     writeFileSync(join(work, MARKER), marker)
     const landed = git(work, home, lease)
     expect(landed.status, landed.stderr).toBe(0)
-    expect(atBare()).toBe(git(work, home, `git -C ${worktree} rev-parse HEAD`).stdout.trim())
+    expect(atBare()).toBe(git(work, home, `git -C "${worktree}" rev-parse HEAD`).stdout.trim())
     expect(published(CONFLICTS, work)).toBe(true)
   })
 
@@ -2250,19 +2251,21 @@ describe('harness/evals: pr-fix', () => {
     const merge = git(work, home, fill(line('git -C "<worktree>" merge -m'), v))
     expect(merge.status).not.toBe(0)
     settle(join(worktree, 'src', 'sum.mjs'))
-    for (const text of ['git -C "<worktree>" add <files>', 'git -C "<worktree>" commit --no-edit']) {
+    for (const text of ['git -C "<worktree>" add <files>', 'git -C "<worktree>" commit --no-edit --cleanup=strip']) {
+      expect(readFileSync(SKILL, 'utf8').replace(/\s+/g, ' '), text).toContain(`\`${text}\``)
       const run = git(work, home, fill(text, v))
       expect(run.status, `${text}\n${run.stderr}`).toBe(0)
     }
-    expect(git(work, home, `git -C ${worktree} log --format=%s -1`).stdout.trim()).toBe(message)
+    // The whole message is the subject: the `# Conflicts:` lines git adds after a conflict do not reach the team.
+    expect(git(work, home, `git -C "${worktree}" log --format=%B -1`).stdout.trim()).toBe(message)
     const merged = state(work, home)
     expect(merged).toMatch(pattern(SILENT, 'merged-in-worktree.md'))
     expect(merged).not.toMatch(pattern(CONFLICTS, 'rebased-in-worktree.md'))
     expect(published(SILENT, work)).toBe(false)
     const push = git(work, home, fill(line('git -C "<worktree>" push origin'), v))
     expect(push.status, push.stderr).toBe(0)
-    expect(git(work, home, `git --git-dir ${bare} rev-parse refs/heads/sum-all`).stdout.trim()).toBe(git(work, home, `git -C ${worktree} rev-parse HEAD`).stdout.trim())
-    expect(git(work, home, `git --git-dir ${bare} merge-base --is-ancestor ${head} refs/heads/sum-all`).status).toBe(0)
+    expect(git(work, home, `git --git-dir "${bare}" rev-parse refs/heads/sum-all`).stdout.trim()).toBe(git(work, home, `git -C "${worktree}" rev-parse HEAD`).stdout.trim())
+    expect(git(work, home, `git --git-dir "${bare}" merge-base --is-ancestor ${head} refs/heads/sum-all`).status).toBe(0)
     expect(published(SILENT, work)).toBe(true)
   })
 
@@ -2353,6 +2356,7 @@ describe('harness/evals: pr-fix', () => {
       'git -C "<worktree>" push --force-with-lease="<headRefName>:<headRefOid>" origin "HEAD:refs/heads/<headRefName>"',
       'gh run rerun <run> --repo <owner>/<repo> --failed',
       'git -C "<worktree>" reset --hard "<headRefOid>"',
+      'git -C "<it>" reset --hard "<headRefOid>"',
     ]
     const rebasesOfSkill = ['git -C "<worktree>" rebase "<baseRefOid>"', 'git -C "<worktree>" -c core.editor=true rebase --continue', 'git -C "<worktree>" rebase --abort']
     for (const text of [...writesOfSkill, ...rebasesOfSkill]) expect(commands, text).toContain(text)
@@ -2586,6 +2590,12 @@ describe('harness/evals: pr-fix', () => {
     expect(skill).toContain('**No push rewrites the branch, but one.** No `git push --force`, `-f`, `+<refspec>`, `--force-with-lease` without its expected commit')
     expect(skill).toContain('"Force-push (with lease) <n> commit(s) to <headRefName>?", with the same options')
     expect(skill).toContain('Push nothing else — no second lease on the new head, no `--force` — say so, and stop')
+    // The three sentences that keep a push safe, as they stand: a push only on "Push", a rejected push never forced,
+    // nothing pushed on "Not now", with no answer or with no person (review of #2011, round 1).
+    expect(skill).toContain('Only on "Push", the first command; in mode `conflicts` in Full mode, the second one instead, never a bare `--force`:')
+    expect(skill).toContain('A rejected push is never forced. Without the lease it means the branch moved on GitHub; with the lease it means the branch is no longer at `<headRefOid>`')
+    expect(skill).toContain('On "Not now", on no answer, and in a session with no person to answer, nothing is pushed: say that the commits wait in `<worktree>`')
+    expect(skill).toContain('In mode `conflicts` that may be the rebase or the merge commit of an earlier run on an older base: then also say that `git -C "<it>" reset --hard "<headRefOid>"` puts that worktree back')
     // Mode conflicts: merge-tree names the files before any change; no conflict, no rebase; a decision is asked.
     const conflicts = skill.slice(skill.indexOf('## 4. Mode `conflicts`'), skill.indexOf('## 5. Mode `comments`'))
     expect(conflicts.indexOf('merge-tree --write-tree --name-only')).toBeGreaterThan(0)

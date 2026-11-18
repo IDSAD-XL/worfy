@@ -88,7 +88,9 @@ git -C "<checkout>" worktree list --porcelain; echo "EXIT=$?"
   `HEAD` is `headRefOid` or a commit after it (`git -C "<it>" merge-base --is-ancestor "<headRefOid>" HEAD` exits 0:
   the commits of an earlier run of this skill) — in mode `conflicts` also a commit after `baseRefOid`, the rebase of
   an earlier run — work there; when something else is at that path, stop and say what is
-  there, removing nothing.
+  there, removing nothing. In mode `conflicts` that may be the rebase or the merge commit of an earlier run on an older
+  base: then also say that `git -C "<it>" reset --hard "<headRefOid>"` puts that worktree back at the head of the pull
+  request, so the next run starts over there — a command for the person; this skill does not run it.
 
 ```bash
 git -C "<checkout>" cat-file -e "<headRefOid>^{commit}"; echo "EXIT=$?"
@@ -184,7 +186,8 @@ Then settle it by `_resolved.mode`:
   ```
 
   The merge stops with the conflict. Settle each file as above, add them with `git -C "<worktree>" add <files>`, and
-  `git -C "<worktree>" commit --no-edit` makes the merge commit with that message.
+  `git -C "<worktree>" commit --no-edit --cleanup=strip` makes the merge commit with that message: `--cleanup=strip`
+  drops the `# Conflicts:` lines git adds to it, which would otherwise reach the team's repository.
 
 The rebase or the merge commit is the commit of this mode: go on with step 6, which checks it.
 
