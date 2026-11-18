@@ -1,7 +1,8 @@
 # 08 — Update во время работы: "Restart now" рядом с "Restart when idle", Run в Wait не держит Update
 
 Type: task
-Status: claimed 2026-11-18T09:06Z
+Status: done 2026-11-18T11:07Z
+PR: #1993
 Blocked by: 04, 06
 Source: [spec.md](../spec.md), «Ticket-ы», 8; «Решения по реализации» → «Update во время работы»; «Вопросы владельцу», Q1
 ((а), решено без владельца, подтвердить; меняет решение 7 worfy-update); «Решения по test-ам», Contract и e2e; «Риски», 5
@@ -56,6 +57,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 8; «Решения по реал�
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 43a481af00596439170a331f1d1bbe90f9a2a33c
   - evidence: gate pass · `gate fast` exit 0 · mac - · 2c0304b931b7ab54cdf2d243a89b761b2edbbba1
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44285064242/job/134757834275 · ci - · 140689882a1462d05c750fc64315fbf9b0384ed5
 
 ## Тесты
 
