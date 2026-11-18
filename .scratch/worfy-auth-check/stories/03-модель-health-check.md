@@ -155,3 +155,37 @@ Code: `src/main/ipc/first-run.ts:258-268` · key lines: 263, 265, 266
 3. Почему сетевая строка в `fail` без пометки `opensFirstRun` не откроет First run при старте?
    Ответ: решение о старте берёт только `local.checks`, а сетевые строки запускаются после ответа.
    Lines: `src/main/ipc/first-run.ts:258-268`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED
+> Round 1 findings: lint red from check-personal (personal-data check) — fixed: field renamed to `checked` (src/main/first-run/health-reports.ts:63), test tokens built by join (test/contract/health-reports.test.ts:324-325). Rechecked rows dropped by checkNetwork() — fixed: health-reports.ts:157, tests health-reports.test.ts:270-302. Redaction test blind to redacted logs — fixed: health-reports.test.ts:340-343 asserts reasonmarker/stepmarker in no console output and output.length > 0. Focus started duplicate rechecks (low) — fixed: health-reports.ts:183-184,193, test :241-258.
+> Rebase: range-diff shows commits 1-2 identical (`=`), three new commits touch only health-reports.ts, its test, ticket 03 and its Code story; nothing else came in.
+> Point 2 (the "unless a source answers for that row now" rule) holds. A source answering `ok` replaces the stored fail row: line 154 writes it and line 157 skips it (mutant M4 killed). A recheck row that no source covers is not stuck: focus() rechecks every non-ok row older than 5 min (health-reports.ts:165-170), and a null answer deletes it (:198-200).
+> Point 4 rated low, no merge block: health-reports has no timeout of its own, so a Recheck promise that never settles keeps its key in inFlight until restart. Ticket 05's re-check goes through gh, whose runner times out at 30 s by default (src/main/github/prs.ts:133), and ticket 05 maps a timeout to `unknown`. Not a hang today; it becomes one only if a later ticket registers a re-check without a timeout.
+> Consider: health-reports.ts:34 — the `Recheck` type does not say it must settle; state it in the doc comment, or put a timeout around `recheck(project)` at :188 (low).
+> Consider: health-reports.ts:103-104 — a failure message that arrives while the same row's re-check is running still spends that Project's one-minute budget, and starts nothing. The in-flight answer is older than the message, so it does not clear it (:212). The row can wait up to a minute for its next re-check (low).
+> Consider: health-reports.ts:157 — a kept recheck row is not dropped when local checks now carry the same key; rows() (:223) would then list it twice. No local check produces github-access, codex-login, browser-profile or linked-machine today, so this cannot happen yet (low).
+> Mutants (own worktree /tmp/v2018r2-wt at 084af085d; baseline 17/17, exit 0; worktree removed, no processes left): M1 kept rows dropped (:157) exit 1 killed; M2 console.warn of redacted reason+step in reportFailure exit 1 killed; M3 inFlight guard removed (:183) exit 1 killed; M4 recheck row kept over a source answer exit 1 killed; M5 `from` always 'recheck' (:204) exit 1 killed; M6 inFlight never cleared (:193) exit 1 killed. 6/6 killed.
+> Checks (PR worktree auth-03, head 084af085d): node scripts/check-personal.mjs exit 0 ("no findings in 7229 files"); env -u GIT_CONFIG_PARAMETERS TMPDIR=/tmp/v2018r2 pnpm typecheck exit 0; pnpm lint exit 0; pnpm test (health-reports, health-severity, first-run-checks) exit 0, 142/142.
+> CI on 084af085d (gh pr checks 2018): lint-typecheck pass, changes pass, linux-tests 3/4 and 4/4 pass; linux-tests 1/4 and 2/4, macOS e2e and Windows jobs still pending, ci-ok not final yet.
+> Could not verify: the final ci-ok, still pending at review time; no Electron/e2e run (brief).
+
+Code: `src/main/first-run/health-reports.ts:63-63` · key lines: 63
+
+```ts
+  private checked: Stored[] | null = null
+```
+
+Code: `test/contract/health-reports.test.ts:324-325` · key lines: 324
+
+```ts
+    const TOKEN = ['ghp', '0123456789abcdefABCDEF0123456789abcd'].join('_')
+    const PAT = ['github', 'pat', '11ABCDEFG0123456789', 'abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUV'].join('_')
+```
+
+Code: `src/main/github/prs.ts:133-133` · key lines: 133
+
+```ts
+        { cwd, env: { ...env, ...extra, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', NO_COLOR: '1', ...start.env }, encoding: 'utf8', timeout: options.timeoutMs ?? 30_000, maxBuffer: 32 * 1024 * 1024 },
+```
