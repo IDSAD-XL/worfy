@@ -35,6 +35,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 13; «Решения по реал
   - evidence: test-run pass · `node scripts/eval-harness.mjs --case compaction-state --dry-run` exit 0 · mac - · 4aef7eeef8da7f0a4ec606e1e69bc883d8de3d12
 - [ ] «Итог» — числа по каждому probe без hook-а и с ним; с hook-ом probes о Ticket-е, пунктах «Готово, когда» и
       следующем шаге отвечены лучше, или «Итог» называет, почему нет.
+  - evidence: test-run pass · node scripts/eval-harness.mjs --case compaction-state --max-cost-usd 3: with hook exit 0 (casesPassed 1 of 1, overallScore 0.96, 1.46 USD); HARNESS_DIR=baseline copy exit 1 (casesPassed 0 of 1, overallScore 0.41, 1.42 USD); sonnet-5, judge haiku-4-5 · mac - · c8f04f95bf91f90cee365e1f041a051424e940c5
 - [ ] `pnpm lint`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Где в коде
