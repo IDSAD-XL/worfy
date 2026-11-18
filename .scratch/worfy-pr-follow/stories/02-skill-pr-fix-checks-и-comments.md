@@ -125,3 +125,14 @@ for (const address of [`https://github.com/`, `http://github.com/`, `ssh://git@g
 2. Почему fixture ловит push через `receive.updateServerInfo`, а не через hook `pre-receive`?
    - Ответ: `claude plugin eval` выключает hook-и репозитория; `update-server-info` встроен в receive-pack и работает.
    - Строки: `harness/evals/pr-fix-checks/fixture/pr-fix.cjs:160`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED
+> Noted: three-round cap reached (owner rule: at most three rounds unless a high finding remains). Round 3 (fe2c22b9b..dbd7199ae) turned both gh guards into an allow-list of reads — gh pr update-branch, revert, lock, repo sync now count as writes — and the test resets the marker per command (17 writes, 11 reads); 10 mutants red; no false match on the gh reads of pr-fix and pr-reply; the stand-in pr-reply gets reads only.
+> Carried to ticket 03 (same skill and evals, Wave 2): (1) `gh api … -fbody=x` / `-Fbody=x` and, in the stand-in, `--field=` / `--raw-field=` / `--input=` pass as reads (gh.mjs:114, :127) (medium); (2) graders/no-publish-command.md:5 counts gh only at the start of a command: `time gh pr merge 7`, `bash -c 'gh …'`, `xargs gh …`, `env gh …` pass the regex; through PATH the stand-in still catches them, an absolute path to the real gh passes both (medium); (3) grader reply judges only the last message, which comes after `node .git/eval-gh/state.cjs`, so the person's full report is not shown to the judge (failed 3/3 in both runs of dbd7199ae).
+> Noted: the skill text holds — no path to a push without the person's "Push"; worktree on the PR branch only; comments mode past pr-reply step 3; prepare_tree in a new worktree; ADR-0067 said before the question.
+> Noted: paid run on dbd7199ae — pr-fix-checks 0.93 / 0.93 (0.75 USD), pr-fix-comments 1.00 / 1.00 (1.20 USD), casesPassed 1 of 1 each, exit 0 and 0; on fe2c22b9b 1.00 in all runs (1.76 USD). 3fafff581 adds these numbers to «Итог» (docs only).
+> Checks: verifier round 3 (own copy) — targeted tests 17 passed EXIT=0, 10 mutants red; implementer on 3fafff581 — story-check EXIT=0, check-personal EXIT=0; on dbd7199ae — harness-evals + harness-migrate 273 passed EXIT=0, eval-harness-coverage EXIT=0, both --dry-run EXIT=0, lint EXIT=0, typecheck EXIT=0, plugin-neutral EXIT=0.
+> Review depth: medium — round 3, one verifier on the delta
+> Review tokens: 87834

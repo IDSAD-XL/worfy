@@ -1,7 +1,8 @@
 # 02 — Skill `/worfy:pr-fix`: режимы `checks` и `comments`, push только ответом «Push», evals
 
 Type: task
-Status: claimed 2026-11-18T13:28Z
+Status: done 2026-11-18T16:28Z
+PR: #2004
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реализации», 2; «Решения по test-ам», Harness; «Вопросы
 владельцу», Q3 (решено без владельца, подтвердить); «Риски», «Push без спроса», «Следы workflow в Silent mode»
@@ -72,6 +73,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реал�
   - evidence: commit pass · worfy-pr-follow/02: skill pr-fix, modes checks and comments, with evals · - - · d72f6897fda8013ab32b7b043444b51b25f066ea
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · d72f6897fda8013ab32b7b043444b51b25f066ea
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44336373252/job/134921159346 · ci - · 3fafff5813dc8eaed56cb53e0b8901bda5c7d823
 
 ## Где в коде
 
