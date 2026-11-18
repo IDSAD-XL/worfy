@@ -322,8 +322,12 @@ _Avoid_: автоповтор, replay, retry loop
 ## App
 
 **Settings**:
-Настройки самого worfy на этой Machine — масштаб интерфейса, доступ Linked machine-ов, Terminal AI и другие функции worfy — и окно Settings (Cmd/Ctrl+, или «Settings…» в меню), где они меняются; там же для справки — проверки Health и список сочетаний клавиш. Это собственное состояние worfy на Machine ([ADR-0005](docs/adr/0005-worfy-own-state-inventory.md)): в репозиторий Project-а и в Profile Settings не попадают и действуют во всех Project-ах этой Machine. Это не Profile — описание Project-а для Harness, — и не «Project settings…» — окно одного Project-а в worfy с его шаблонами действий.
+Настройки самого worfy на этой Machine — масштаб интерфейса, доступ Linked machine-ов, Terminal AI и другие функции worfy — и окно Settings (Cmd/Ctrl+, или «Settings…» в меню), где они меняются; там же для справки — Health check и список сочетаний клавиш. Это собственное состояние worfy на Machine ([ADR-0005](docs/adr/0005-worfy-own-state-inventory.md)): в репозиторий Project-а и в Profile Settings не попадают и действуют во всех Project-ах этой Machine. Это не Profile — описание Project-а для Harness, — и не «Project settings…» — окно одного Project-а в worfy с его шаблонами действий.
 _Avoid_: настройки (без уточнения чьи), preferences, конфиг, Profile или Project settings (как синоним)
+
+**Health check**:
+Проверка того, что на этой Machine и в её открытых Project-ах всё работает и правильно настроено: входы (Claude Code, gh, Codex, Browser profile), инструменты (git, node, Harness, qmd) и доступ каждого Project-а к его GitHub. Каждая строка — critical (без неё агенты или GitHub не работают: git, вход в gh, доступ Project-а) или non-critical (работа идёт хуже: qmd, git identity, Codex); строку, которую не удалось проверить, Health check показывает как «не проверено», а не как поломку. Строка говорит, что сделать человеку, и, где починка обратима, даёт кнопку Fix. Health check видна иконкой на rail над Machines: красная точка — есть сломанная critical-строка, жёлтая — только non-critical. Это не First run: First run — окно первой настройки Machine, Health check — постоянное состояние после неё.
+_Avoid_: Health (без check), First-run checks (как имя всего экрана), статус, диагностика, Setup check
 
 **Getting started**:
 Список из шести шагов для нового пользователя: от проверок First run до Ticket-а Demo project, доведённого через ревью и доработку до merge. Список живёт в плавающей панели в правом верхнем углу окна; свёрнутая, она остаётся pill с числом сделанных шагов. Шаги отмечаются сами, когда сделаны; элемент, который нажать следующим, подсвечен. Список можно пропустить, и он ничего не блокирует.
