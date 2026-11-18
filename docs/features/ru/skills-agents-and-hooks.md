@@ -1,6 +1,8 @@
 # Skills, agents and hooks
 
-> Перевод [английской версии](../skills-agents-and-hooks.md), commit `b82c4d25` и PR #1996.
+> Перевод [английской версии](../skills-agents-and-hooks.md), commit `b82c4d25`.
+>
+> Последний абзац раздела Implementation уже переводит текст PR #1996 (Ticket 13 Epic-а `worfy-continuity`), которого ещё нет в `main`.
 
 Три Feature plugin-а [Harness](harness.md). **Skills** это процедуры, которым следуют агенты, **Agents** это четыре роли, которые они
 запускают, а **Hooks** это то, что само работает вокруг Session. Термины объяснены в [Concepts](concepts.md).
