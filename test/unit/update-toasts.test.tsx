@@ -69,12 +69,12 @@ afterEach(() => {
 })
 
 describe('ready', () => {
-  it('a ready build at the start: one toast "ready" and no "available"; while not idle "Restart when idle", then "Restart now" in place', () => {
+  it('a ready build at the start: one toast "ready" and no "available"; while something works "Restart when idle" and "Restart now", then "Restart now" alone in place', () => {
     const update = make()
     update.update(ready(false))
     expect(all().map((each) => each.id)).toEqual([READY_KEY])
     expect(toast(READY_KEY)).toMatchObject({ kind: 'action', text: `worfy ${VERSION} ready` })
-    expect(labels(READY_KEY)).toEqual(['Restart when idle', 'Later'])
+    expect(labels(READY_KEY)).toEqual(['Restart when idle', 'Restart now', 'Later'])
 
     update.update(ready(true))
     expect(all().map((each) => each.id)).toEqual([READY_KEY])
@@ -96,6 +96,15 @@ describe('ready', () => {
     expect(all()).toEqual([])
   })
 
+  it('"Restart now" while something works asks main to restart now (worfy-continuity ticket 08)', async () => {
+    answers['update.restart'] = { ok: true, value: { outcome: 'quitting' } }
+    const update = make()
+    update.update(ready(false))
+    press(READY_KEY, 'Restart now')
+    await settle()
+    expect(calls).toEqual([{ channel: 'update.restart', input: { when: 'now' } }])
+  })
+
   it('"Restart when idle" asks main to wait, and an info toast says so', async () => {
     answers['update.restart'] = { ok: true, value: { outcome: 'waiting' } }
     const update = make()
@@ -103,7 +112,7 @@ describe('ready', () => {
     press(READY_KEY, 'Restart when idle')
     await settle()
     expect(calls).toEqual([{ channel: 'update.restart', input: { when: 'idle' } }])
-    expect(toast(WAITING_KEY)).toMatchObject({ kind: 'info', text: 'worfy restarts when no Session is working and Autopilot has stopped' })
+    expect(toast(WAITING_KEY)).toMatchObject({ kind: 'info', text: 'worfy restarts when no Session is working and no Autopilot Wave is under way' })
   })
 
   it('a refused restart shows its reason', async () => {

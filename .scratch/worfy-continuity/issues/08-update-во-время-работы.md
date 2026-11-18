@@ -1,7 +1,7 @@
 # 08 — Update во время работы: "Restart now" рядом с "Restart when idle", Run в Wait не держит Update
 
 Type: task
-Status: open
+Status: claimed 2026-11-18T09:06Z
 Blocked by: 04, 06
 Source: [spec.md](../spec.md), «Ticket-ы», 8; «Решения по реализации» → «Update во время работы»; «Вопросы владельцу», Q1
 ((а), решено без владельца, подтвердить; меняет решение 7 worfy-update); «Решения по test-ам», Contract и e2e; «Риски», 5

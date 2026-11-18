@@ -9,9 +9,11 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UpdateSnapshot } from '../../src/shared/ipc/update'
-import { UpdateService } from '../../src/main/ipc/update'
+import { quitForUpdate, UpdateService } from '../../src/main/ipc/update'
+import { QuitGrace, setAppQuitGrace } from '../../src/main/quit-grace'
+import type { SuspendCause } from '../../src/shared/autopilot/journal'
 import type { UpdateGitHub } from '../../src/main/update/check'
-import { IdleWatch, type IdleSignal } from '../../src/main/update/idle'
+import { IdleWatch, type IdleRun, type IdleSignal } from '../../src/main/update/idle'
 import { helperScript, helperStart, NODE_MISSING, NODE_NOT_EXE, previousPaths, restartFile, Restarts, resultFile, settleLastRestart, type SpawnDetached } from '../../src/main/update/restart'
 import { changeUpdateState, readUpdateState } from '../../src/main/update/state'
 import { removeTestTree } from '../remove'
@@ -168,6 +170,7 @@ describe('Restart now', () => {
       sha: BUILT_SHA,
       from: { sha: RUNNING_SHA, version: '0.5.0+aaaaaaa' },
       harness: true,
+      cause: 'update',
       at: '2026-10-31T10:00:00.000Z',
     })
   })
@@ -185,13 +188,28 @@ describe('Restart now', () => {
     expect(existsSync(restartFile(dir))).toBe(false)
   })
 
-  it('is refused while something works: nothing started, no quit', async () => {
+  it('during a turn is no refusal: the press is the consent to the grace, and worfy quits through the coordinator with the cause update (worfy-continuity ticket 08)', async () => {
     readyBuild()
-    const { restarts: subject, quit } = restarts(new FakeIdle(false))
-    expect(await subject.restart('now')).toEqual({ outcome: 'refused', reason: 'a Session is working or Autopilot runs', busy: true })
-    expect(spawned).toEqual([])
-    expect(quit).not.toHaveBeenCalled()
-    expect(existsSync(restartFile(dir))).toBe(false)
+    const causes: SuspendCause[] = []
+    const released = vi.fn(() => calls.push('released'))
+    const grace = new QuitGrace({
+      depart: () => void calls.push('depart'),
+      halt: () => Promise.resolve(void calls.push('halt')),
+      record: (cause) => Promise.resolve(void causes.push(cause)),
+      calls: { open: () => [], observe: () => () => undefined },
+      show: () => undefined,
+      quit: released,
+    })
+    // The app's coordinator, as src/main/index.ts sets it; no other test of this file quits through it.
+    setAppQuitGrace(grace)
+    const { restarts: subject } = restarts(new FakeIdle(false), { quit: () => quitForUpdate() })
+    expect(await subject.restart('now')).toEqual({ outcome: 'quitting' })
+    // The quit under way: a second leave answers its end, with its own cause.
+    await grace.leave('quit')
+    expect(spawned).toHaveLength(1)
+    expect(calls).toEqual(['spawn', 'depart', 'halt', 'released'])
+    expect(causes).toEqual(['update'])
+    expect(JSON.parse(readFileSync(restartFile(dir), 'utf8'))).toMatchObject({ action: 'install', cause: 'update' })
   })
 
   it('is refused when the clone has no helper', async () => {
@@ -212,22 +230,37 @@ describe('Restart now', () => {
     expect(existsSync(restartFile(dir))).toBe(false)
   })
 
-  it('looks at Autopilot afresh right before the helper starts, not as the last look every 2 s saw it', async () => {
+  it('of "Restart when idle" looks at Autopilot afresh right before the helper starts, not as the last look every 2 s saw it', async () => {
     readyBuild()
-    let autopilot = false
-    const watch = new IdleWatch({ sources: { sessions: () => [], autopilotRunning: () => autopilot }, observe: () => () => undefined })
+    let autopilot: IdleRun[] = []
+    const watch = new IdleWatch({ sources: { sessions: () => [], autopilot: () => autopilot }, observe: () => () => undefined })
     const stopWatch = watch.start()
     try {
       const env = deferred<Record<string, string>>()
       const { restarts: subject, quit } = restarts(watch, { env: () => env.promise })
-      const answer = subject.restart('now')
-      // An Autopilot run starts; the next look of the watch would be up to 2 s later.
-      autopilot = true
+      const answer = subject.restart('idle')
+      // An Autopilot run starts a Wave; the next look of the watch would be up to 2 s later.
+      autopilot = [{ status: 'running', stopping: false }]
       env.resolve(shellEnv())
-      expect(await answer).toEqual({ outcome: 'refused', reason: 'a Session is working or Autopilot runs', busy: true })
+      expect(await answer).toEqual({ outcome: 'waiting' })
       expect(spawned).toEqual([])
       expect(quit).not.toHaveBeenCalled()
       expect(watch.idle).toBe(false)
+      subject.restart('cancel')
+    } finally {
+      stopWatch()
+    }
+  })
+
+  it('"Restart when idle" does not wait for a run in the Wait for the Limits: the restart begins (worfy-continuity ticket 08)', async () => {
+    readyBuild()
+    const watch = new IdleWatch({ sources: { sessions: () => [], autopilot: () => [{ status: 'waiting', waitingFor: 'limits', stopping: false }] }, observe: () => () => undefined })
+    const stopWatch = watch.start()
+    try {
+      const { restarts: subject, quit } = restarts(watch)
+      expect(await subject.restart('idle')).toEqual({ outcome: 'quitting' })
+      expect(spawned).toHaveLength(1)
+      expect(quit).toHaveBeenCalledTimes(1)
     } finally {
       stopWatch()
     }
@@ -318,7 +351,7 @@ describe('Restart now', () => {
     expect(spawned).toHaveLength(1)
   })
 
-  it('a Session that begins a turn while the restart is asked for stops it', async () => {
+  it('a Session that begins a turn while the restart is asked for does not stop it', async () => {
     readyBuild()
     const idle = new FakeIdle(true)
     const env = deferred<Record<string, string>>()
@@ -326,10 +359,24 @@ describe('Restart now', () => {
     const answer = subject.restart('now')
     idle.set(false)
     env.resolve(shellEnv())
-    expect(await answer).toEqual({ outcome: 'refused', reason: 'a Session is working or Autopilot runs', busy: true })
-    expect(spawned).toEqual([])
-    expect(quit).not.toHaveBeenCalled()
-    expect(existsSync(restartFile(dir))).toBe(false)
+    expect(await answer).toEqual({ outcome: 'quitting' })
+    expect(spawned).toHaveLength(1)
+    expect(quit).toHaveBeenCalledTimes(1)
+  })
+
+  it('pressed while "Restart when idle" asks for its restart, goes ahead though a turn begins meanwhile', async () => {
+    readyBuild()
+    const idle = new FakeIdle(true)
+    const env = deferred<Record<string, string>>()
+    const { restarts: subject, quit } = restarts(idle, { env: () => env.promise })
+    const waiting = subject.restart('idle')
+    const now = subject.restart('now')
+    idle.set(false)
+    env.resolve(shellEnv())
+    expect(await now).toEqual({ outcome: 'quitting' })
+    expect(await waiting).toEqual({ outcome: 'quitting' })
+    expect(spawned).toHaveLength(1)
+    expect(quit).toHaveBeenCalledTimes(1)
   })
 
   it('a cancel while the restart is asked for stops it', async () => {
@@ -382,7 +429,7 @@ describe('Restart when idle', () => {
     expect(subject.pending).toBe(false)
   })
 
-  it('waits while something works, restarts once all is quiet, and a press of Restart now drops the wish', async () => {
+  it('waits while something works, restarts once all is quiet, and a cancel drops the wish', async () => {
     readyBuild()
     const idle = new FakeIdle(false)
     const changes = vi.fn()
@@ -393,8 +440,8 @@ describe('Restart when idle', () => {
     expect(changes).toHaveBeenCalledTimes(1)
     expect(spawned).toEqual([])
 
-    // "Restart now" pressed while something works: refused, and the wish is gone.
-    expect(await subject.restart('now')).toMatchObject({ outcome: 'refused', busy: true })
+    // A cancel drops the wish: the quiet restarts nothing.
+    expect(await subject.restart('cancel')).toEqual({ outcome: 'cancelled' })
     expect(subject.pending).toBe(false)
     idle.set(true)
     await vi.waitFor(() => expect(subject.pending).toBe(false))
@@ -407,6 +454,17 @@ describe('Restart when idle', () => {
     await vi.waitFor(() => expect(quit).toHaveBeenCalledTimes(1))
     expect(spawned).toHaveLength(1)
     expect(subject.pending).toBe(false)
+  })
+
+  it('"Restart now" pressed while the wish waits for work to end: the wish goes, and worfy restarts at once', async () => {
+    readyBuild()
+    const idle = new FakeIdle(false)
+    const { restarts: subject, quit } = restarts(idle)
+    expect(await subject.restart('idle')).toEqual({ outcome: 'waiting' })
+    expect(await subject.restart('now')).toEqual({ outcome: 'quitting' })
+    expect(subject.pending).toBe(false)
+    expect(spawned).toHaveLength(1)
+    expect(quit).toHaveBeenCalledTimes(1)
   })
 
   it('restarts at once when all is quiet already', async () => {
@@ -743,7 +801,7 @@ describe('The service', () => {
     let busy = true
     const listeners = new Set<() => void>()
     const watch = new IdleWatch({
-      sources: { sessions: () => (busy ? [{ state: 'busy', backgroundTasks: 0 }] : []), autopilotRunning: () => false },
+      sources: { sessions: () => (busy ? [{ state: 'busy', backgroundTasks: 0 }] : []), autopilot: () => [] },
       observe: (listener) => {
         const each = (): void => listener('s1', { type: 'state', state: busy ? 'busy' : 'idle', error: null })
         listeners.add(each)

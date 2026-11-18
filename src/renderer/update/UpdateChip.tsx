@@ -3,7 +3,7 @@ import type { UpdateSnapshot } from '../../shared/ipc/update'
 import { buildVersionTooltip, numberedVersion } from '../../shared/version-number'
 import { invoke } from '../ipc'
 import { Menu, MenuItem } from '../theme/kit/Menu'
-import { buildStepText, elapsedText, installUpdateTelling, updateVersionLabel, useTicking, useUpdateStore } from './store'
+import { buildStepText, elapsedText, installUpdateTelling, RESTART_LABEL, updateVersionLabel, useTicking, useUpdateStore } from './store'
 import WhatsNew, { type WhatsNewAction } from './WhatsNew'
 
 // The version chip of the toolbar (worfy-update ticket 06; spec items 5 and 6, R11, R12): the app
@@ -11,7 +11,8 @@ import WhatsNew, { type WhatsNewAction } from './WhatsNew'
 // the same small line as before. With an Update to install it becomes a button: an accent dot while
 // there is something to do (an Available update that is not quiet, a build that runs, is ready or
 // failed), a tooltip that says what, and a menu — "Update worfy" (`update.install`), once built
-// "Restart now" or "Restart when idle" (`update.restart`), while it builds an inactive "Building worfy
+// "Restart now", or while something works "Restart when idle" and "Restart now" next to it
+// (`update.restart`, worfy-continuity ticket 08), while it builds an inactive "Building worfy
 // <version>…" —, "What's new" (ticket 10: a popover under the chip with the PRs merged since the copy
 // that runs, src/renderer/update/WhatsNew.tsx) and "Later", which only closes the menu: the dot stays
 // until the Update is installed.
@@ -87,7 +88,7 @@ function restart(when: 'now' | 'idle'): void {
 function primaryOf(signal: Signal, update: UpdateSnapshot | null, label: (version: string) => string): WhatsNewAction {
   const idle = update?.idle ?? false
   if (signal.phase === 'building') return { label: TOOLTIP.building(label(signal.version)) }
-  if (signal.phase === 'ready') return idle ? { label: 'Restart now', run: () => restart('now') } : { label: 'Restart when idle', run: () => restart('idle') }
+  if (signal.phase === 'ready') return idle ? { label: RESTART_LABEL.now, run: () => restart('now') } : { label: RESTART_LABEL.idle, run: () => restart('idle') }
   return { label: 'Update worfy', run: () => install(update) }
 }
 
@@ -198,6 +199,11 @@ export default function UpdateChip({ version, number, update, now = Date.now }: 
             {primary.label}
           </MenuItem>
         )}
+        {signal.phase === 'ready' && update?.idle !== true ? (
+          <MenuItem className="w-row" onClick={() => restart('now')}>
+            {RESTART_LABEL.now}
+          </MenuItem>
+        ) : null}
         <MenuItem className="w-row" onClick={() => setView('whatsNew')}>
           What's new
         </MenuItem>

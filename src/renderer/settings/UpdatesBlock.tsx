@@ -1,6 +1,6 @@
 // Settings → General → Updates (worfy-update ticket 09): the state of the Update of this copy, with
-// "Check now" and "Update worfy" (once built: "Restart now", or "Restart when idle" while a Session
-// works or Autopilot runs), the switch "Update automatically" and "Roll back to previous version".
+// "Check now" and "Update worfy" (once built: "Restart now", or while a Session works or an Autopilot
+// Wave is under way "Restart when idle" and "Restart now" next to it, worfy-continuity ticket 08), the switch "Update automatically" and "Roll back to previous version".
 // The texts are the spec's (.scratch/worfy-update/spec.md, "Settings → General → Updates").
 //
 // Main owns the state (src/main/ipc/update.ts) and asks the native dialog of the roll back itself
@@ -20,13 +20,16 @@ import {
   checkForUpdateNow,
   elapsedText,
   installUpdate,
+  RESTART_LABEL,
   restartIntoUpdate,
+  restartWhens,
   rollBackUpdate,
   updateStep,
   updateVersionLabel,
   useTicking,
   useUpdate,
   useUpdateStore,
+  WAITING_TEXT,
 } from '../update/store'
 import { SettingRow, SettingSwitch } from './controls'
 import { setAppSettings, useAppSettings } from './useAppSettings'
@@ -100,7 +103,7 @@ function UpdatesRow({ snapshot, version, now }: { snapshot: UpdateSnapshot; vers
     notes.push({ text: `worfy is back to ${updateVersionLabel(snapshot, snapshot.running.version)}. Automatic updates wait for the next commit on main.`, testId: 'settings-updates-rolled-back' })
   }
   if (step.kind === 'restart' && snapshot.restartWhenIdle) {
-    notes.push({ text: 'worfy restarts when no Session is working and Autopilot has stopped', testId: 'settings-updates-waiting' })
+    notes.push({ text: WAITING_TEXT, testId: 'settings-updates-waiting' })
   }
   if (missing.length > 0) {
     notes.push({ text: `Updates need git, node and pnpm: ${missing.join(', ')} not found. See Settings → Health.`, testId: 'settings-updates-missing' })
@@ -143,18 +146,25 @@ function UpdatesRow({ snapshot, version, now }: { snapshot: UpdateSnapshot; vers
             {starting ? 'Starting update…' : 'Update worfy'}
           </button>
         ) : null}
-        {step.kind === 'restart' ? (
-          <button
-            type="button"
-            className="w-action w-action--primary"
-            disabled={snapshot.restartWhenIdle && step.when === 'idle'}
-            aria-disabled={snapshot.restartWhenIdle && step.when === 'idle' ? 'true' : undefined}
-            onClick={() => press(() => restartIntoUpdate(step.when))}
-            data-testid="settings-updates-restart"
-          >
-            {step.when === 'now' ? 'Restart now' : 'Restart when idle'}
-          </button>
-        ) : null}
+        {step.kind === 'restart'
+          ? restartWhens(step.when).map((when) => {
+              // The wish of "Restart when idle" waits: its button is inactive, "Restart now" is not.
+              const waiting = when === 'idle' && snapshot.restartWhenIdle
+              return (
+                <button
+                  key={when}
+                  type="button"
+                  className={when === step.when ? 'w-action w-action--primary' : 'w-action'}
+                  disabled={waiting}
+                  aria-disabled={waiting ? 'true' : undefined}
+                  onClick={() => press(() => restartIntoUpdate(when))}
+                  data-testid={when === step.when ? 'settings-updates-restart' : 'settings-updates-restart-now'}
+                >
+                  {RESTART_LABEL[when]}
+                </button>
+              )
+            })
+          : null}
       </span>
     </SettingRow>
   )

@@ -44,7 +44,7 @@ import { autoBuildFor, installTarget } from '../update/auto'
 import { UpdateBuilder, updateBuildOverride, updateRepo, type UpdateBuilds } from '../update/build'
 import { checkForUpdate, UpdateChecks } from '../update/check'
 import { updateGitHub, type UpdateGitHub } from '../update/github'
-import { IdleWatch, type IdleSession } from '../update/idle'
+import { autopilotRuns, IdleWatch, type IdleRun, type IdleSession } from '../update/idle'
 import { Restarts } from '../update/restart'
 import { readStableMetadata, runningOf, runsFromStableCopy, stableCopyPath, updateEnabled } from '../update/stable-copy'
 import { changeUpdateState, emptyUpdateState, readUpdateState, updateDir, updateStateFile } from '../update/state'
@@ -269,7 +269,7 @@ function appRunning(): UpdateRunning {
 }
 
 /** The live Sessions as the rule of spec R6 reads them. */
-function sessionsOf(registry: SessionRegistryView): IdleSession[] {
+export function sessionsOf(registry: SessionRegistryView): IdleSession[] {
   return registry.list().map((info) => {
     let backgroundTasks = 0
     try {
@@ -283,6 +283,9 @@ function sessionsOf(registry: SessionRegistryView): IdleSession[] {
 
 type SessionRegistryView = Pick<import('../agent/session/registry').SessionRegistry, 'list' | 'get' | 'observe'>
 
+/** Autopilot before its module is loaded: taken as a run at work. */
+const NOT_LOADED: IdleRun = { status: 'running', stopping: false }
+
 /**
  * The watch over the app's Sessions and Autopilot. Their modules are loaded when the watch starts,
  * not with this one (the tests of the check load this module alone); until then Autopilot counts as
@@ -290,16 +293,20 @@ type SessionRegistryView = Pick<import('../agent/session/registry').SessionRegis
  */
 function appIdleWatch(): IdleWatch {
   let registry: SessionRegistryView | undefined
-  let autopilotRunning: (() => boolean) | undefined
-  const loaded = Promise.all([import('../agent/app-registry'), import('./autopilot')]).then(([sessions, autopilot]) => {
+  let runs: (() => IdleRun[]) | undefined
+  const loaded = Promise.all([import('../agent/app-registry'), import('./autopilot'), import('../projects/store')]).then(([sessions, autopilot, projects]) => {
     registry = sessions.sharedRegistry()
-    autopilotRunning = () => autopilot.sharedAutopilot().anyRunning()
+    runs = () =>
+      autopilotRuns(
+        autopilot.sharedAutopilot(),
+        projects.projectStore().list().map((project) => project.id),
+      )
   })
   loaded.catch((error: unknown) => console.error('[update] the Sessions and Autopilot could not be followed', error))
   return new IdleWatch({
     sources: {
       sessions: () => (registry === undefined ? [] : sessionsOf(registry)),
-      autopilotRunning: () => autopilotRunning?.() ?? true,
+      autopilot: () => runs?.() ?? [NOT_LOADED],
     },
     observe: (listener: (sessionId: string, event: AgentEvent) => void) => {
       let stopped = false

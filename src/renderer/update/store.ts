@@ -81,7 +81,8 @@ export type UpdateStep = { kind: 'check' } | { kind: 'install'; version: string;
 /**
  * The step "Update worfy" stands for in this snapshot: restart into a built Update, build the
  * Available update, or check. The commit rolled back from (`quiet`) is no Available update until
- * the next one (spec R8).
+ * the next one (spec R8). A restart's `when` is "Restart now" while nothing works and "Restart when
+ * idle" while something does; "Restart now" is offered next to it then (restartWhens).
  */
 export function updateStep(snapshot: UpdateSnapshot): UpdateStep {
   const { build, available } = snapshot
@@ -89,6 +90,21 @@ export function updateStep(snapshot: UpdateSnapshot): UpdateStep {
   if (available !== null && !available.quiet) return { kind: 'install', version: available.version, building: build.phase === 'building' }
   return { kind: 'check' }
 }
+
+/** The words of each restart button. */
+export const RESTART_LABEL = { now: 'Restart now', idle: 'Restart when idle' } as const
+
+/**
+ * The restart buttons of a built Update, in their order (worfy-continuity ticket 08): "Restart now"
+ * alone while nothing works; while something does, "Restart when idle" and next to it "Restart now",
+ * whose press is the consent to the quit's grace and the suspension of the Autopilot Runs.
+ */
+export function restartWhens(when: 'now' | 'idle'): readonly ('now' | 'idle')[] {
+  return when === 'idle' ? ['idle', 'now'] : ['now']
+}
+
+/** What "Restart when idle" waits for, as the toast and Settings say it. */
+export const WAITING_TEXT = 'worfy restarts when no Session is working and no Autopilot Wave is under way'
 
 /**
  * Builds the Available update (`update.install`) and takes the snapshot with the build begun; the

@@ -82,7 +82,7 @@ import { openFirstRun } from '../shell/first-run-store'
 import type { ShellView } from '../shell/Toolbar'
 import { label } from '../shortcuts/match'
 import { openShortcuts } from '../shortcuts/shortcuts-window'
-import { checkForUpdateNow, installUpdateTelling, restartIntoUpdate, updateStep, updateVersionLabel, useUpdateStore } from '../update/store'
+import { checkForUpdateNow, installUpdateTelling, RESTART_LABEL, restartIntoUpdate, updateStep, updateVersionLabel, useUpdateStore } from '../update/store'
 import { setRunsTab } from '../work-track/store'
 
 export type CommandGroup = 'Action' | 'Go to' | 'View' | 'Project' | 'Manual check'
@@ -641,22 +641,42 @@ function machineCommands({ linked }: CommandContext): PaletteCommand[] {
 
 /**
  * "Update worfy" while Update is on: restart, build or check, as the state allows. A refused build is
- * a toast, as from the chip, and the palette closes (worfy-update ticket 16).
+ * a toast, as from the chip, and the palette closes (worfy-update ticket 16). While something works
+ * a built Update's "Update worfy" waits for the quiet, and "Restart now" is next to it.
  */
 function updateCommands({ update }: CommandContext): PaletteCommand[] {
   const snapshot = update === undefined ? useUpdateStore.getState().snapshot : update
   if (snapshot === null || !snapshot.enabled) return []
   const step = updateStep(snapshot)
-  return [
+  const commands: PaletteCommand[] = [
     {
       id: 'update-worfy',
       group: 'Action',
       title: 'Update worfy',
-      detail: step.kind === 'restart' ? 'ready — restart' : step.kind === 'install' ? `worfy ${updateVersionLabel(snapshot, step.version)} available` : 'check for a new version',
+      detail:
+        step.kind === 'restart'
+          ? step.when === 'now'
+            ? 'ready — restart'
+            : 'ready — restart when idle'
+          : step.kind === 'install'
+            ? `worfy ${updateVersionLabel(snapshot, step.version)} available`
+            : 'check for a new version',
       keys: ['update', 'upgrade', 'new version', 'check now'],
       run: () => (step.kind === 'restart' ? restartIntoUpdate(step.when) : step.kind === 'install' ? installUpdateTelling(snapshot) : checkForUpdateNow()),
     },
   ]
+  // While something works "Update worfy" waits for the quiet; "Restart now" next to it does not (worfy-continuity ticket 08).
+  if (step.kind === 'restart' && step.when === 'idle') {
+    commands.push({
+      id: 'update-restart-now',
+      group: 'Action',
+      title: RESTART_LABEL.now,
+      detail: `restart into worfy ${updateVersionLabel(snapshot, step.version)}`,
+      keys: ['update', 'restart', 'new version'],
+      run: () => restartIntoUpdate('now'),
+    })
+  }
+  return commands
 }
 
 /** "Open code story" for each Epic with its story and each Ticket with the story of its PR (worfy-code-stories ticket 10). */

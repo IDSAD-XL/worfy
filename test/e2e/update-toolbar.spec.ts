@@ -355,4 +355,16 @@ test('an Available update puts a dot on the version chip; "Update worfy" builds 
   await snapshots(window, toolbar, 'update-ready-menu')
   await menu.getByRole('menuitem', { name: 'Later' }).click()
   expect(await heights()).toEqual(before)
+
+  // worfy-continuity ticket 08: while something works (main's snapshot with `idle: false`, sent as its
+  // `update.changed` would send it: no Session works in this app) "Restart now" stands next to "Restart when idle".
+  const state = await bridgeCall(window, 'update.state')
+  expect(state.ok).toBe(true)
+  await launched.app.evaluate(({ BrowserWindow }, payload) => {
+    for (const each of BrowserWindow.getAllWindows()) each.webContents.send('worfy:update.changed', payload)
+  }, { ...(state.value as Record<string, unknown>), idle: false })
+  await chip.click()
+  await expect(menu.getByRole('menuitem')).toHaveText(['Restart when idle', 'Restart now', "What's new", 'Later'])
+  await snapshots(window, toolbar, 'update-ready-busy-menu')
+  await menu.getByRole('menuitem', { name: 'Later' }).click()
 })

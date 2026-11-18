@@ -37,19 +37,19 @@ Without sign-in GitHub allows 60 requests an hour from one address, and a check 
 
 | Place | What |
 |---|---|
-| Version chip | The app version on the second line of the toolbar's Harness item turns into a button with an accent dot. Its tooltip says "worfy <version> is available", "Building worfy <version>…", "worfy <version> is ready — restart to update" or "The update to <version> failed — see Settings → Health"; when the line shows a number, a second line of the tooltip is the build version of this copy with its commit. Its menu: "Update worfy" (once built, "Restart now" or "Restart when idle"; during a build, an inactive "Building worfy <version>…"), "What's new", and "Later", which only closes the menu. While an Update is under way the chip says so without a hover (see "While it builds") |
+| Version chip | The app version on the second line of the toolbar's Harness item turns into a button with an accent dot. Its tooltip says "worfy <version> is available", "Building worfy <version>…", "worfy <version> is ready — restart to update" or "The update to <version> failed — see Settings → Health"; when the line shows a number, a second line of the tooltip is the build version of this copy with its commit. Its menu: "Update worfy" (once built, "Restart now", or while something works "Restart when idle" and "Restart now"; during a build, an inactive "Building worfy <version>…"), "What's new", and "Later", which only closes the menu. While an Update is under way the chip says so without a hover (see "While it builds") |
 | Toasts | See the next table |
 | Settings → General | The block of three rows "Updates", "Update automatically" and "Roll back to previous version" |
 | Settings → Health | The row "worfy version" of the group "worfy": "<version>, up to date", "<version> available", "update failed" with "Show log", or "<tool> not found". Its failures do not open First run by themselves |
-| Command palette | "Update worfy" in the group Action, with the detail "worfy <version> available", "ready — restart" or "check for a new version" |
+| Command palette | "Update worfy" in the group Action, with the detail "worfy <version> available", "ready — restart", "ready — restart when idle" (while something works) or "check for a new version". While something works, "Restart now" with the detail "restart into worfy <version>" stands next to it |
 
 The dot and the Health row stay until the Update is installed. The toasts:
 
 | Text | Buttons | When |
 |---|---|---|
 | "New worfy <version> available" | Update, Later | An Available update while "Update automatically" is off |
-| "worfy <version> ready" | Restart now or Restart when idle, Later | A build is ready. The first button changes in place when work starts or ends |
-| "worfy restarts when no Session is working and Autopilot has stopped" | None | After the button "Restart when idle" of the toast "ready", when worfy starts to wait |
+| "worfy <version> ready" | Restart now, Later; while something works Restart when idle, Restart now, Later | A build is ready. The buttons change in place when work starts or ends |
+| "worfy restarts when no Session is working and no Autopilot Wave is under way" | None | After the button "Restart when idle" of the toast "ready", when worfy starts to wait |
 | "Update failed" | Show log | A build failed; when git, node or pnpm is missing: "Update failed: git, node and pnpm are needed, and <tool> was not found". Once per failed build: a restart that finds the same failed build tells nothing |
 | "The update did not start: <reason>" | Show log, when a build left a log | "Update worfy" was refused: there is no new version to build, or this update is being built already |
 | "Harness out of date: <from> → <to>" | Update, Later | The installed Harness is behind this copy's |
@@ -64,11 +64,11 @@ The result of a restart is told once, not at every start.
 
 **Settings → General → Updates.** The row "Updates" says "worfy <version>. Last checked <time>.", "worfy <version> is
 available.", "Building worfy <version>…" or "worfy <version> is ready.". Its buttons are "Check now" and "Update worfy",
-or, for a built Update, "Restart now" or "Restart when idle". While it builds, the line adds the step and the time since
+or, for a built Update, "Restart now", and while something works "Restart when idle" next to it. While it builds, the line adds the step and the time since
 the build began, for example "Building worfy <version>… 2/3 Installing dependencies · 3:12", and "Show log" opens the log
 of the build so far. A check that "Check now" ran and that was skipped shows
 its reason under the line. While "Restart when idle" waits, the row shows "worfy restarts when no Session is working and
-Autopilot has stopped" under its line, and its button "Restart when idle" is inactive. The row "Update automatically"
+no Autopilot Wave is under way" under its line, and its button "Restart when idle" is inactive; "Restart now" stays active. The row "Update automatically"
 holds the switch, and "Roll back to previous version" the button "Roll back" (see below). Where Update is off, the block
 is not there.
 
@@ -112,11 +112,19 @@ failed build like any other, with its log: there is no check of free space befor
 again by itself: the next new commit of `main` is built as usual, and "Update worfy" builds the same one again.
 
 **The restart.** A built Update is installed only by a press of "Restart now" or "Restart when idle", in the toast, the
-chip menu, Settings or the Command palette. "Restart now" is offered while nothing works, "Restart when idle" while
-something does. Nothing works when no Session is in a turn (busy or waiting for a permission), no Session has a
-background task, and no Autopilot run is going, a stopped run that still waits for the background tasks of its
-Orchestrator included. Terminals do not count: worfy closes their processes on quit anyway. "Restart when idle" restarts
-by itself once all is quiet. A turn that starts meanwhile makes it wait longer, and quitting worfy drops it.
+chip menu, Settings or the Command palette. "Restart now" is always offered; while something works, "Restart when idle"
+stands next to it. Nothing works when no Session is in a turn (busy or waiting for a permission), no Session has a
+background task, and no Autopilot run is at work. A run that waits for the Limits, the budget or the Start window is not
+at work: the restart suspends it, and after the start it goes on with the same wait. A run with a Wave in work, one that
+waits to retry after an API error or for its Orchestrator, one that stops, and a stopped run that still waits for the
+background tasks of its Orchestrator are at work. Terminals do not count: worfy closes their processes on quit anyway.
+"Restart when idle" restarts by itself once all is quiet. A turn that starts meanwhile makes it wait longer, and
+quitting worfy drops it. "Restart now" pressed while something works restarts all the same: the press is the consent to
+the quit's grace, in which worfy waits up to 60 seconds for the calls of the Sessions that may act outside the machine
+(the window **Quitting worfy**), and to the suspension of the Autopilot runs. After the start the Sessions cut off and
+the runs go on, and both name the Update as the cause (see [Sessions](sessions.md) and [Autopilot
+faults](autopilot-faults.md)). A press of "Restart now" drops a waiting "Restart when idle". The roll
+back is still refused while something works.
 
 Right before the restart worfy asks GitHub's comparison again whether the build is ahead of the commit that runs now: the
 copy that runs may have changed since the build began. A build that is that commit, behind it, diverged from it or
@@ -124,7 +132,8 @@ unknown to GitHub is not installed. It is set aside (the toast "ready" goes, and
 `discarded`), and the press answers "<version> was not installed: <reason>". When the comparison cannot be made (no
 network), the press is refused and the build stays ready.
 
-Then worfy quits, and a separate process does the swap. It waits for worfy to quit, two minutes at most, then up to two
+Then worfy writes `update/restart.json` (what the restart does, from which copy, and its cause, `update`) and quits,
+and a separate process does the swap. It waits for worfy to quit, two minutes at most, then up to two
 minutes more for every other process of the copy, such as the Claude Code of a Session that is still quitting. It moves
 the copy that ran aside as `worfy-stable.previous`, puts the build in its place and starts it. The press is the consent
 to the Harness of the new copy too (see below). When the swap is refused, for example because a process of the old copy
@@ -273,7 +282,7 @@ GitHub API address, `WORFY_UPDATE_REPO` the repository of the clone, `WORFY_UPDA
 
 Tests: the GitHub stub `test/update-stub.ts`; `test/unit/update-check.test.ts`, `test/contract/update-github.test.ts`,
 `test/contract/update-state.test.ts`, `test/contract/update-build.test.ts`, `test/unit/update-idle.test.ts`,
-`test/contract/update-restart.test.ts`, `test/contract/update-harness.test.ts`, `test/unit/update-harness-lag.test.ts`,
+`test/contract/update-restart.test.ts`, `test/contract/update-restart-continuity.test.ts`, `test/contract/update-harness.test.ts`, `test/unit/update-harness-lag.test.ts`,
 `test/unit/update-whats-new.test.ts`, `test/unit/install-stable-update.test.ts`; the interface in
 `test/unit/update-chip.test.tsx`, `test/unit/update-toasts.test.tsx`, `test/unit/updates-block.test.tsx`,
 `test/unit/whats-new-view.test.tsx`, and the e2e tests `test/e2e/update-toolbar.spec.ts`,

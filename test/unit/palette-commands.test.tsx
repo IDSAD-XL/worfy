@@ -851,7 +851,8 @@ describe('Update worfy', () => {
       expect(rankItems(buildCommands(context({ project, update: update() })), 'update')[0]?.id).toBe('update-worfy')
     }
     expect(row(context({ update: update({ available }) }))?.detail).toBe('worfy 1.5.0+bbbbbbb available')
-    expect(row(context({ update: ready(false) }))?.detail).toBe('ready — restart')
+    expect(row(context({ update: ready(true) }))?.detail).toBe('ready — restart')
+    expect(row(context({ update: ready(false) }))?.detail).toBe('ready — restart when idle')
     // The commit rolled back from is quiet (spec R8): no Available update until the next one.
     expect(row(context({ update: update({ available: { ...available, quiet: true }, rolledBackFrom: available.sha }) }))?.detail).toBe('check for a new version')
   })
@@ -886,6 +887,16 @@ describe('Update worfy', () => {
     asked = preload(() => ({ ok: true, value: { outcome: 'refused', reason: 'a Session started a turn', busy: true } }))
     expect(await row(context({ update: ready(false) }))!.run()).toBe('a Session started a turn')
     expect(asked).toEqual([{ channel: 'update.restart', input: { when: 'idle' } }])
+  })
+
+  it('built while something works: "Restart now" next to "Update worfy" calls update.restart with now (worfy-continuity ticket 08)', async () => {
+    const now = (ctx: CommandContext) => buildCommands(ctx).find((command) => command.id === 'update-restart-now')
+    expect(now(context({ update: ready(true) }))).toBeUndefined()
+    expect(now(context({ update: update({ available }) }))).toBeUndefined()
+    expect(now(context({ update: ready(false) }))).toMatchObject({ group: 'Action', title: 'Restart now', detail: 'restart into worfy 1.5.0+bbbbbbb' })
+    const asked = preload(() => ({ ok: true, value: { outcome: 'quitting' } }))
+    expect(await now(context({ update: ready(false) }))!.run()).toBeUndefined()
+    expect(asked).toEqual([{ channel: 'update.restart', input: { when: 'now' } }])
   })
 
   it('the open palette has "Update worfy" from the window\'s snapshot and follows its changes while open', async () => {
