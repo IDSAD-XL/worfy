@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-18T04:15Z
+PR: #1982
 Blocked by: 01, 10
 Source: [spec.md](../spec.md), «Ticket-ы», 11; «Решения по реализации» → «Compaction», пункт «Hook ветки `compact` (11)»;
 «Решения по test-ам», Harness; «Риски», 11, 12, 13
