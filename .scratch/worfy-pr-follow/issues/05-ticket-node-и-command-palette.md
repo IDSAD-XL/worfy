@@ -1,7 +1,8 @@
 # 05 — Ticket Node и Command palette: кнопка по первой причине PR с меню ▾ и строки palette
 
 Type: task
-Status: claimed 2026-11-18T16:35Z
+Status: done 2026-11-18T18:39Z
+PR: #2009
 Blocked by: 01
 Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Поток пользователя», B; «Как это выглядит»; «Решения по
 реализации», 3; «Решено без владельца», 5
@@ -59,6 +60,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Пот
 - [ ] Английские страницы `docs/features/workflow.md` и `docs/features/app-shell.md` описывают действие.
   - evidence: commit pass · worfy-pr-follow/05: pull request actions on the Ticket Node and in the Command palette · - - · 208de743da7ac3ac4e1385230cb8090e40c6cbb6
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44365821923/job/135040635296 · ci - · 21caee9f33b91d696e035d75637aef06bfb0758e
 
 ## Где в коде
 

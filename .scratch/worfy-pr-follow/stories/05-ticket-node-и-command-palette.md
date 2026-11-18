@@ -235,3 +235,32 @@ function CommandRow(props: RowProps) {
 3. Project с `"prInbox": false` — что видит palette?
    - Строки: `src/renderer/canvas/actions/pr-follow-choices.ts:28-35`
    - Ответ: ничего: `reviewsOfTicket` пуст при выключенном PR inbox, значит нет ни кнопки, ни строк.
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED
+> Round 3, delta f16a06471..21caee9f3: one e2e file, test/e2e/pr-follow-ticket.spec.ts:194-197. The red macos-e2e (run 44359083752, failed on try and retry) read `bindings.get` once right after the first message; main writes the launch Binding only when the new Session reports its id (src/main/actions/launch.ts:588-596, bindWhenKnown), which the stand-in agent sends after that message. The test now polls `bindings.get` up to 15 s for the same expected Binding; the assertion is unchanged, no product code changed. Round 2 verdict (2009-r2.md) stands for the rest.
+> Noted: the e2e is checked by CI on this head only (no local e2e by the owner's rule).
+
+Code: `test/e2e/pr-follow-ticket.spec.ts:194-197` · key lines: 194
+
+```ts
+    // main writes the launch Binding once the new Session has its id from the agent (bindWhenKnown), after the first
+    // message went out: wait for it rather than read once.
+    const bindings = async () => ((await bridgeCall(window, 'bindings.get', { projectId: PROJECT })).value as { bindings: { target: unknown; source?: string }[] }).bindings
+    await expect.poll(bindings, { timeout: ms(15_000) }).toEqual([expect.objectContaining({ target: { kind: 'ticket', epic: EPIC, num: 8 }, source: 'launch' })])
+```
+
+Code: `src/main/actions/launch.ts:588-596` · key lines: 588
+
+```ts
+  private bindWhenKnown(projectId: string, session: LaunchedSession, target: BindingTarget, ends: Ends = CLOSED): Promise<void> {
+    const task = (async () => {
+      await this.untilKnown(session, ends)
+      const sdkId = session.sdkId
+      if (sdkId === null) {
+        console.warn(`[actions] no session id came for the launch Binding to ${JSON.stringify(target)}`)
+        return
+      }
+      this.deps.bindings.setLaunch(projectId, { sessionId: sdkId, agentId: null }, target)
+```
