@@ -208,6 +208,42 @@ describe('"Use <login>"', () => {
     expect(await githubAccessRow(project, deps)).toMatchObject({ status: 'ok', severity: 'critical' })
   })
 
+  it('two Projects with rows: the button of the second writes the Profile of the second only', async () => {
+    const second = join(root, 'web')
+    mkdirSync(second)
+    const web: GithubProject = { id: 'p-beta', name: 'beta', root: second, folders: [second], repos: ['acme/web'] }
+    const { deps } = world({ accounts: [ALICE, BOB], repos: { 'acme/app': { alice: true, bob: false }, 'acme/web': { alice: false, bob: true } } })
+    const both = { ...deps, git: (args: readonly string[]) => Promise.resolve(args.includes(second) ? 'https://github.com/acme/web.git' : 'https://github.com/acme/app.git') }
+    const rows = await githubAccessRows([project, web], both)
+    expect(rows.map((each) => [each.project?.id, each.actions.map((button) => button.login)])).toEqual([
+      ['p-alpha', ['alice']],
+      ['p-beta', ['bob']],
+    ])
+    const calls: string[][] = []
+    const profiles: Record<string, { account: string | null }> = { [project.root]: { account: null }, [second]: { account: null } }
+    const set = (args: readonly string[]): Promise<ProfileRun> => profileSet(profiles[args[1] ?? ''] ?? { account: null }, calls)(args)
+    const byId = { [project.id]: project, [web.id]: web }
+    const actions = new FirstRunActions({
+      checks: () => Promise.resolve({ checks: [], checkedAt: new Date(0).toISOString() }),
+      confirm: () => Promise.reject(new Error('Use <login> asks no dialog')),
+      env: () => Promise.resolve({}),
+      homes: { harnessHome: join(root, 'harness'), claudeHome: join(root, 'claude') },
+      installHarness: () => Promise.reject(new Error('not here')),
+      projects: () => Promise.resolve([]),
+      binDir: join(root, 'bin'),
+      githubAccount: {
+        candidate: async (projectId) => {
+          const found = byId[projectId]
+          return found === undefined ? null : { root: found.root, name: found.name, login: await useLoginCandidate(found, both) }
+        },
+        profileSet: set,
+      },
+    })
+    expect(await actions.run('use-login', { projectId: 'p-beta', login: 'bob' })).toMatchObject({ outcome: 'done', message: 'github.account of beta is now bob' })
+    expect(calls.map((each) => each[1])).toEqual([second, second])
+    expect(profiles).toEqual({ [project.root]: { account: null }, [second]: { account: 'bob' } })
+  })
+
   it('writes nothing for a login that is no longer the one with push, or for another Project', async () => {
     const { deps, profile } = world({ accounts: [ALICE, BOB], repos: { 'acme/app': { alice: true, bob: true } } })
     const calls: string[][] = []
