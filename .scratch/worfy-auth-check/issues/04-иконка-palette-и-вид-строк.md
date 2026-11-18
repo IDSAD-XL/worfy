@@ -1,7 +1,7 @@
 # 04 — Иконка Health check на rail над Machines, строка palette, порядок строк и кнопка Fix
 
 Type: task
-Status: open
+Status: claimed 2026-11-18T20:55Z
 Blocked by: 03
 Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решение», пункты 3 и 6; «Уровни: проверка → уровень», цвет иконки;
 «Решения по реализации», 2; «Решения по test-ам», e2e; «Решения владельца», Q1, Q3, Q4, Q9; «Волны», Wave 2 и
@@ -56,18 +56,23 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решение», пункт�
 - [ ] Unit test (новый `test/unit/health-rail-button.test.tsx`): точка красная при critical не в `ok`, жёлтая при
       non-critical, нет точки при всех `ok`, серое кольцо до первого отчёта; `unknown` не красный, tooltip «Couldn't
       check: …»; щелчок зовёт `openHealthCheck()`.
+  - evidence: test-run pass · `pnpm test` test/unit/health-rail-button.test.tsx exit 0 · mac - · b2ac640c4
 - [ ] Unit test (`test/unit/settings-health.test.tsx`): порядок строк — critical, non-critical, `ok`; метка уровня;
       кнопка Fix только у `fixable`.
+  - evidence: test-run pass · `pnpm test` test/unit/settings-health.test.tsx exit 0 · mac - · b2ac640c4
 - [ ] Unit test (`test/unit/palette-commands.test.tsx`): строка «Health check» открывает Settings → Health; «First-run
       checks» по-прежнему открывает First run.
+  - evidence: test-run pass · `pnpm test` test/unit/palette-commands.test.tsx exit 0 · mac - · b2ac640c4
 - [ ] e2e test (`test/e2e/sidebar-rail.spec.ts` или `test/e2e/settings-health.spec.ts`): иконка над Machines, щелчок
       открывает Settings → Health; palette «Health check» — то же. Без реальной сети.
 - [ ] Все unit и contract test-ы модуля зелёные: `test/unit/settings-health.test.tsx`, `test/unit/first-run-dialog.test.tsx`,
       `test/unit/first-run-concepts.test.tsx`, `test/unit/palette-commands.test.tsx`, `test/unit/sidebar-scope.test.tsx`,
       `test/unit/sidebar-section.test.tsx`, `test/unit/machines-section.test.tsx`.
+  - evidence: test-run pass · `pnpm test` the unit and contract files of the module exit 0 · mac - · b2ac640c4
 - [ ] Снимок экрана rail с точкой и Settings → Health — в «Итог» (снимок ревью — в scratchpad, в репозиторий не
       кладётся).
 - [ ] Английские страницы `app-shell.md` и `onboarding.md` описывают иконку, уровни и строку palette.
+  - evidence: commit pass · worfy-auth-check/04: Health check button on the rail, row order, level and Fix, palette row · - - · b2ac640c4
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Где в коде
