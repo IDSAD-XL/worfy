@@ -174,7 +174,7 @@ if (args.length === 1 && args[0] === '--version') {
 } else if (args[0] === 'api' && dir && existsSync(join(dir, 'hang-leak'))) {
   const proxy = readFileSync(join(dir, 'hang-leak'), 'utf8').trim()
   process.stderr.write(`Get "https://api.github.com/${args.at(-1) ?? ''}": proxyconnect tcp: dial ${proxy} (Authorization: token ${process.env.GH_TOKEN ?? ''})\n`)
-  setInterval(() => undefined, 60_000)
+  await sleep(600_000)
 } else if (args[0] === 'api' && dir && existsSync(join(dir, 'offline'))) {
   fail('error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com')
 } else if (replyPost() !== null) {
