@@ -1,7 +1,7 @@
 # 06 — Документы: переводы страниц Feature, Amendment к ADR-0105, имена действий в CONTEXT.md
 
 Type: task
-Status: open
+Status: claimed 2026-11-18T19:19Z
 Blocked by: 01, 02, 03, 04, 05
 Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решения по реализации», 5; «Решено без владельца», 3 и 7; «Готово,
 когда», пункт о документах
@@ -39,8 +39,11 @@ Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решения по реал�
 
 - [ ] Шесть страниц `docs/features/ru/` совпадают по смыслу с английскими на `main` (review по каждой).
 - [ ] Amendment к ADR-0105 влит, текст ADR выше него не изменён.
+  - evidence: commit pass · worfy-pr-follow/06: Russian Feature pages, ADR-0105 amendment, PR fix actions in CONTEXT · - - · 2f293e4e779db865318128bb6eaefa7179f29fdd
 - [ ] CONTEXT.md называет три действия в статье PR inbox.
+  - evidence: commit pass · worfy-pr-follow/06: Russian Feature pages, ADR-0105 amendment, PR fix actions in CONTEXT · - - · 2f293e4e779db865318128bb6eaefa7179f29fdd
 - [ ] `node scripts/check-personal.mjs` и `node scripts/check-feature-docs.mjs` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: test-run pass · `node scripts/check-personal.mjs` exit 0, `node scripts/check-feature-docs.mjs` exit 0 · mac - · 2f293e4e779db865318128bb6eaefa7179f29fdd
 
 ## Где в коде
 
@@ -52,3 +55,37 @@ Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решения по реал�
 ## Вне скоупа
 
 - Английские страницы — в Ticket-ах поведения. Термин PR watch, страница `pr-watch.md` и Amendment к ADR-0108 — часть 2.
+
+## Итог
+
+- Переводы шести страниц `docs/features/ru/` сверены с английскими на `main` (7aadf9f75) целиком, не только по diff-у
+  Epic-а: `ru/pr-inbox.md` и `ru/harness.md` отставали и до Epic-а. Метки перевода — последний commit английского файла.
+  У `ru/skills-agents-and-hooks.md` снята пометка о PR #1996: он в `main`.
+- Amendment к ADR-0105 от 2026-11-18: действия правки, push только по «Push» (Q3), конфликт по режиму Profile-а (Q4).
+- CONTEXT.md: три действия правки в статье PR inbox, `_Avoid_` — голое Fix (действие Terminal AI и кнопка Health check), autofix.
+- Вне списка файлов, по указанию Orchestrator-а: `harness.md` — 28 скриптов и пять недостающих строк; пропуски
+  `app-shell.md`, `workflow.md` и `projects.md` о действиях правки; в `ru/notifications.md` — раздел «Утренний
+  дайджест» (метка `41f4e01b`, остальная страница отстаёт по-прежнему).
+
+Решено без владельца в Epic-е части 1 — подтвердить на приёмке (Ticket 07). В «Итог» Ticket-ов 01, 02, 04 и 05 таких
+пунктов нет; список собран из spec-а («Вопросы владельцу», «Решено без владельца») и «Итог» Ticket-а 03:
+
+1. Q3 — push только после ответа «Push» в карточке вопроса, и в Full mode тоже (spec; Ticket-ы 02, 03; Amendment к
+   ADR-0105).
+2. Q4 — конфликт по режиму Profile-а: Full mode — rebase и `--force-with-lease`, Silent mode — merge commit (spec;
+   Ticket 03; Amendment к ADR-0105).
+3. Q7 — Session Ticket-а продолжается, если последняя запись её транскрипта моложе 24 часов, иначе новая Session
+   (spec; Ticket 01; `src/main/actions/launch.ts:164`).
+4. Split Epic-а на часть 1 и часть 2 (spec, пункт 1).
+5. Без своего ADR о сообщении main в Session: путь записан в ADR-0108, пункт 5; решения о push и конфликте — Amendment
+   к ADR-0105 (spec, пункт 3).
+6. Возражение 2 critic-а (id review и `authorAssociation` в snapshot PR inbox) — в часть 2 (spec, пункт 4).
+7. Ticket Node берёт причины кнопок из PR inbox, а не из Pipeline; Project с `"prInbox": false` кнопок не получает
+   (spec, пункт 5).
+8. Skill — два Ticket-а, режим `conflicts` отдельно (spec, пункт 6).
+9. Ветку «Push» ни один eval не достаёт: «без ответа ничего не уходит» проверяет eval, push с lease и отказ lease —
+   contract test (`test/contract/harness-evals.test.ts`) (Ticket 03).
+10. Страницы Feature: английскую страницу правит Ticket своего поведения (ADR-0088), а Ticket 06 держит переводы в
+    `docs/features/ru/`, Amendment к ADR-0105 и CONTEXT.md (spec, пункт 7).
+11. Строка Status spec-а записана в единой форме «принят владельцем YYYY-MM-DD …», хотя указание звучит «принят по
+    указанию владельца» (spec, пункт 8).

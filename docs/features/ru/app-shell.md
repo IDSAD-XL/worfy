@@ -2,9 +2,107 @@
 
 > Перевод [английской версии](../app-shell.md), commit `same-pr`.
 
-То, что окружает Canvas в каждом окне и на каждом Project-е. Пять Feature: **Command palette**, **Shortcuts**, **Menu**,
-**Settings** и **Theme**. У шестого, [Notifications](notifications.md), своя страница. Термины объяснены в
-[Concepts](concepts.md).
+То, что окружает Canvas в каждом окне и на каждом Project-е. Семь Feature: **Sidebar**, **Command palette**, **Shortcuts**,
+**Menu**, **Settings**, **worfy Guide** и **Theme**. У восьмой, [Notifications](notifications.md), своя страница. Термины
+объяснены в [Concepts](concepts.md).
+
+Переключатель View в toolbar выбирает, что показывает основная область: **Canvas**, **Session**, **Pipeline** (см.
+[Workflow](workflow.md)), **Runs** (см. [Flight Recorder](flight-recorder.md) и [Work track](work-track.md)) и **Pull
+requests** (см. [Pull requests](pr-inbox.md)). В узком окне вкладки показывают только иконки, а название стоит в tooltip.
+Runs и Pull requests неактивны без Project-а. Каждый вид остаётся смонтированным, пока показан другой, поэтому при возврате
+он такой же, каким был.
+
+## Sidebar
+
+### Behaviour
+
+Колонка слева в окне, шириной 264 пикселя. Сверху вниз:
+
+- **Полоса** высотой с toolbar. На macOS слева на ней стоят кнопки окна. Дальше идёт надпись «worfy», а у правого края —
+  кнопка, которая скрывает sidebar (⌘B, Ctrl+B на Windows). Перетаскивание полосы двигает окно.
+- **Project switcher** — отдельная строка под полосой, шириной с sidebar: название того, что показывает sidebar, и шеврон на
+  её правом конце. Длинному имени Project-а отдана вся строка.
+- **Rail** — колонка иконок, по одной на секцию: Projects, Sessions, Pull requests, Pipeline, Epics, ADR, а внизу Machines и
+  Settings. У выбранной секции акцентная полоса. На иконке секции есть badge, который виден, пока открыта другая секция:
+  число занятых Session-ов в Project-ах, которые показывает switcher, цветом работы; число pull request-ов, которым нужны вы
+  (review, ответ или исправление); точка, пока Ticket в работе заблокирован или кого-то ждёт; и точка Linked machine-ов.
+- **Панель** рядом с rail. Она показывает одну секцию: её название, какие Project-ы она показывает, её собственные кнопки и её
+  список, который прокручивается сам по себе.
+
+Rail — одна позиция в порядке Tab. ↑ и ↓ ходят по нему и заворачивают по кругу, Home и End ведут к его концам, а секция под
+фокусом открывается сразу. Открытая секция запоминается для окна.
+
+**Project switcher** отвечает «All Projects» или одним Project-ом Machine окна:
+
+- **All Projects** смешивает Project-ы в Sessions, Pull requests, Pipeline, Epics и ADR. Каждая из Sessions, Epics и ADR
+  сначала показывает список открытого Project-а, затем список каждого другого Project-а, у которого он есть, каждый под его
+  именем. Клик по Epic-у другого Project-а открывает этот Project и центрирует Epic на его Canvas. Клик по Session другого
+  Project-а открывает этот Project, а затем Session так же, как клик в её собственном списке, когда её Node появится на Canvas
+  (в пределах 15 секунд). Клик по ADR другого Project-а открывает этот Project, а затем ADR.
+- **Один Project** открывает этот Project, как его строка в секции Projects, и секции показывают только его, когда он открыт.
+  Когда Project нельзя открыть, switcher говорит почему и сохраняет свой ответ. Пока switcher стоит на одном Project-е, он
+  следует за открытым: открытие другого Project-а показывает его.
+- Projects и Machines не фильтруются: в Projects Project-ы открывают, добавляют и удаляют.
+
+**Секция Projects** показывает каждый Project Machine окна карточкой в две строки: имя и ветка, затем его живое состояние,
+«N busy · N PR need you · N waits», или «quiet». Длинная ветка остаётся на одной строке, занимает не больше её половины и
+обрезается многоточием, так что имени остаётся остальное; в её tooltip вся ветка. Меню switcher-а так же даёт ветке не больше
+половины пункта. Busy — цветом работы, две другие части — цветом блокировки. Часть, равная нулю или неизвестная, не
+показывается. «PR need you» считает pull request-ы, которым нужны ваш review, ответ или исправление; эта часть неизвестна,
+пока PR inbox Project-а выключен. «Waits» считает Ticket-ы в работе, которые заблокированы или ждут человека, а не агента.
+Она известна, только пока какое-то окно показывает Pipeline Project-а, а «All Projects» его показывает. Ни одна часть живой
+строки не обрезается: часть, которая не помещается, целиком переходит на следующую строку, без « · » перед ней, и карточка
+растёт вместе с ней. У каждой части есть tooltip, который говорит, что она считает: busy — Session-ы, у которых идёт turn;
+PR need you — pull request-ы, которым нужны ваш review, ответ или исправление; waits — Ticket-ы, которые заблокированы или
+ждут человека, а не агента. Project Linked machine сохраняет одну строку.
+
+В группе другого Project-а Session показывает имя, которое ей даёт Claude Code, иначе «Session <id>», и «terminal» или
+«desktop». Canvas того Project-а не читается, поэтому его Session-ы worfy там не помечены «worfy». «New session», «Product
+Session» и History работают с открытым Project-ом.
+
+Ответ запоминается для окна, как и открытая секция. Новое окно и перезапуск начинают с последнего выбора, сделанного в любом
+окне. Когда switcher стоит на одном Project-е, а Project не открыт, секции показывают все Project-ы. Без открытого Project-а
+Epics, Sessions и ADR сохраняют заголовок и пишут «Open a Project to see its …».
+
+Пока sidebar скрыт, кнопка, которая показывает его снова, стоит слева в toolbar. В focus mode эта кнопка есть в панели focus
+mode, а в полосе sidebar её нет. Фокус клавиатуры следует за кнопкой: после скрытия из полосы фокус на кнопке toolbar, после
+показа из toolbar — на кнопке в полосе. Заголовок toolbar называет только открытый Project, пока sidebar показывает надпись
+worfy («No Project open», если Project не открыт), и «worfy — <Project>», пока sidebar скрыт.
+
+### How it works
+
+Каждая секция — файл `src/renderer/shell/sidebar/<Name>Section.tsx` со своим порядком и своей записью в rail: заголовок, иконка
+и стоит ли она внизу. Каждая секция остаётся смонтированной, пока показана другая, поэтому сохраняет прочитанное, и её badge
+остаётся актуальным; остальные только скрыты. Ответ switcher-а и открытая секция хранятся в local storage окна, в папке данных
+worfy. Никакая настройка приложения их не хранит.
+
+Другие Project-ы не стоят ни одного watcher-а на Project в каждом окне. Их Session-ы, число занятых, pull request-ы, которым
+нужны вы, и ожидания приходят одним ответом от main, `projectPulse.get`, и одним событием, `projectPulse.changed`. Main держит
+одно чтение на все окна. Оно перечисляет папку живых Session-ов в Claude home каждую секунду, пока какое-то окно подписано, и
+читает её снова, когда она изменилась. Процесс, который умер, не удалив свой файл, не меняет ни одного файла, поэтому, пока
+Session жива, каждый опрос ещё спрашивает систему, работает ли её процесс, и при этом не запускает другого процесса. Вся
+папка, с проверкой времени старта, которая отличает повторно использованный номер процесса, читается заново раз в минуту.
+Session Project-а внутри открытого перечисляется и считается один раз, под своим Project-ом. Linked machine не получает
+Project, который хранится только на этой Machine. Pull request-ы main берёт из PR inbox в том виде, в каком он прочитан
+последним, поэтому сам не делает запросов к GitHub. Ожидания он берёт из Stage-ей, которые уже вычисляет для окон. Окно
+подписывается один раз и остаётся подписанным, пока не закроется. ADR других Project-ов читаются один раз через `docs.adrs`,
+каждый раз, когда секция ADR появляется в панели, без watcher-а. Следят только за документами открытого Project-а.
+
+### Implementation
+
+| Что | Где |
+|---|---|
+| Полоса, rail и панель | `src/renderer/shell/Sidebar.tsx`, `src/renderer/shell/shell.css` |
+| Рамка секции | `src/renderer/shell/SidebarSection.tsx`, `src/renderer/shell/sidebar-section.css` |
+| Project switcher | `src/renderer/shell/ProjectSwitcher.tsx` |
+| Ответ, открытая секция, badge-и | `src/renderer/shell/sidebar-scope.ts` |
+| Живое состояние каждого Project-а | `src/shared/ipc/project-pulse.ts`, `src/main/claude-home/pulse.ts`, `src/main/ipc/project-pulse.ts`, `src/renderer/projects/useProjectPulse.ts` |
+| Session другого Project-а, открытая после её Project-а | `src/renderer/shell/session-request.ts` |
+| Секции | `src/renderer/shell/sidebar/` |
+| Записи секций в rail | `src/renderer/shell/registry.ts` |
+
+Главные test-ы: `test/unit/sidebar-scope.test.tsx`, `test/unit/sidebar-section.test.tsx`, `test/e2e/sidebar-rail.spec.ts`,
+`test/e2e/sidebar-sections.spec.ts`.
 
 ## Command palette
 
@@ -17,6 +115,11 @@ Windows). В окне до 1100 px в ширину поле показывает
 Ввод ранжирует строки. ↑ и ↓ ходят по всем строкам через группы и заворачивают по кругу, а указатель над строкой выбирает её.
 Enter или клик запускает выбранную строку. Esc или нажатие вне панели закрывает Command palette.
 
+Command palette модальная. Tab и Shift+Tab остаются внутри неё. Пока она открыта, собственные shortcut-ы окна с ⌘ (⌘F, ⌘↩)
+ничего не делают; пункты меню приложения по-прежнему работают. При закрытии фокус возвращается туда, где был до открытия
+Command palette. Settings, открытые поверх неё по ⌘,, лежат над ней и забирают клавиши; когда Settings закрываются, фокус
+возвращается в поле Command palette, и запрос сохраняется.
+
 Команда, которая сработала, закрывает Command palette. Команда, которая не сработала, оставляет её открытой с причиной внизу, до
 следующего ввода или выбора. Пока команда выполняется, другой выбор ничего не делает.
 
@@ -24,8 +127,8 @@ Enter или клик запускает выбранную строку. Esc и
 
 | Группа | Строки |
 |---|---|
-| Action | New session; «New …» на каждый пункт меню Canvas; Tidy up; Arrange by Epic; Re-pack; Archive finished sessions now; Process gate queue; Run wave `<epic>`; Ship ticket `<epic>/<NN>`; Reconnect machine…; Remove machine…; Update worfy |
-| View | Switch to Canvas; Switch to Session; First-run checks; Getting started; Settings…; Keyboard shortcuts; Show only tag `<tag>`; Show all Nodes |
+| Action | New session; New Product Session; «New …» на каждый пункт меню Canvas; Tidy up; Arrange by Epic; Re-pack; Archive finished sessions now; Process gate queue; Run wave `<epic>`; Ship ticket `<epic>/<NN>`; Resolve conflicts, Fix checks и Address comments `<owner>/<repo>#<N>`; Reconnect machine…; Remove machine…; Update worfy |
+| View | Switch to Canvas; Switch to Session; Pull requests, при открытом Project-е; First-run checks; Getting started; Settings…; Keyboard shortcuts; worfy Guide; Guide: `<Topic>` на каждый Topic; Show only tag `<tag>`; Show all Nodes |
 | Project | Switch to project `<name>` на каждый другой Project |
 | Go to | Orchestrator; каждый Epic, Ticket и ADR; каждый Node из Layout, кроме тех, что worfy рисует из workflow, и binding anchor-ов |
 | Manual check | Каждая неотмеченная ручная проверка Ticket-а. Эти строки появляются только после ввода |
@@ -36,16 +139,21 @@ Enter или клик запускает выбранную строку. Esc и
 - Process gate queue: только на Machine, которой Profile даёт роль `serve` в cross-machine gate. В её подробностях число
   ждущих PR и возраст самого старого.
 - Run wave и Ship ticket: только там, где у Epic frame или Ticket-а есть эта кнопка.
+- Resolve conflicts, Fix checks и Address comments `<owner>/<repo>#<N>`: по строке на каждое действие, которое предлагают
+  кнопка Ticket-а и её «▾», с Ticket-ом в подробностях. Неактивная строка называет ту же причину, что и кнопка. Если действие
+  выбрано из Command palette, новый Session Node встаёт туда, куда встаёт любой новый Node.
 - Reconnect machine…: только для Linked machine, которая не online или у которой сменился сертификат. Remove machine…: для
   каждой Linked machine. Имя Machine стоит в подробностях строки.
 - Show all Nodes: только пока включён фильтр по тегу.
+- Guide: `<Topic>`: только после ввода. Открывает [worfy Guide](#worfy-guide) на этом Topic-е.
 - Update worfy: только там, где Update включён, с Project-ом и без. Перезапускает в собранный Update, собирает Available
   update или проверяет, есть ли он; подробности строки говорят, что именно: см. [Updates](updates.md).
 
 Строка «Go to» показывает Canvas и центрирует его на Node-е. Архивный или скрытый Node сначала возвращается. Ticket в свёрнутом
-frame центрирует этот frame. Строка ADR открывает этот ADR только для чтения и не двигает Canvas. При скрытом sidebar ADR откроется, когда sidebar покажут. Строка Orchestrator открывает
-Session view и запускает Orchestrator, если он не работает. Строка Manual check ведёт к своему Ticket-у и ничего не отмечает.
-Выбор строки «In transcripts» открывает эту Session в Session view.
+frame центрирует этот frame. Строка ADR открывает этот ADR только для чтения и не двигает Canvas. При скрытом sidebar ADR
+откроется, когда sidebar покажут. Строка Orchestrator открывает Session view и запускает Orchestrator, если он не работает.
+Строка Manual check ведёт к своему Ticket-у и ничего не отмечает. Выбор строки «In transcripts» открывает эту Session в Session
+view.
 
 **Ранжирование.** Точный ключ бьёт любой заголовок, например номер Ticket-а (`07`, `7`, `worfy-mvp/07`) или номер ADR. Дальше по
 порядку: начало заголовка, начало слова в заголовке, любое место заголовка, подробности, все слова запроса и символы запроса по
@@ -60,12 +168,15 @@ Session view и запускает Orchestrator, если он не работа
 
 **In transcripts.** Поиск начинается через 250 мс после последней клавиши, для запроса от 3 до 200 символов. Регистр не важен. Он
 охватывает каждую Session, которую Claude Code записал для Project-а, где бы она ни была начата: в worfy, в терминале или в Claude
-Desktop. Читаются сообщения пользователя и ответы Claude, но не вызовы инструментов, их вывод, thinking, hook-и и записи
-Subagent-ов.
+Desktop. Ещё он охватывает Codex Session-ы Project-а, те, что нашёл последний их список (см. [Sessions](sessions.md)). Читаются
+сообщения пользователя и ответы агента, но не вызовы инструментов, их вывод, thinking, hook-и и записи Subagent-ов.
 
-Приходит не больше 20 Session-ов, сначала новые, у каждой фрагмент до 120 символов вокруг совпадения. Один поиск читает не больше
-200 транскриптов и 64 МиБ. Когда предел оставляет часть непрочитанной, группа пишет «Older transcripts were not searched». Ещё она
-пишет «Searching…» и «Could not search the transcripts: …». Эти строки идут сверх 50 строк команд, под ними.
+Приходит не больше 20 Session-ов, сначала новые, Claude Code и Codex вместе, у каждой фрагмент до 120 символов вокруг совпадения.
+Каждая строка заканчивается логотипом Vendor-а, чей агент вёл Session; её tooltip называет Vendor. Один поиск читает не больше
+200 транскриптов и 64 МиБ; thread Codex считается одним транскриптом, а его сообщения входят в 64 МиБ. Когда предел оставляет
+часть непрочитанной, группа пишет «Older transcripts were not searched». То же она пишет, когда Codex не может прочитать thread:
+до конца этого поиска у Codex не запрашивается ни один другой thread. Ещё она пишет «Searching…» и «Could not search the
+transcripts: …». Эти строки идут сверх 50 строк команд, под ними.
 
 **Без Project-а** в Command palette есть строки View, Project и строки машин, а поиска по транскриптам нет.
 
@@ -76,9 +187,9 @@ Subagent-ов.
 #### On a Linked machine
 
 На экране только для чтения строки, которые изменили бы Project, неактивны с подсказкой «… gives this Machine read-only access». Это
-New session, New …, Tidy up, Arrange by Epic, Re-pack, Archive finished sessions now, Process gate queue, Run wave и Ship ticket, а
-также строка Go to архивного или скрытого Node-а. Виды, перемещение Canvas и переключение Project-ов остаются активными. Строка
-Orchestrator только показывает Orchestrator и не запускает его.
+New session, New Product Session, New …, Tidy up, Arrange by Epic, Re-pack, Archive finished sessions now, Process gate queue, Run
+wave, Ship ticket, Fix checks, Resolve conflicts и Address comments, а также строка Go to архивного или скрытого Node-а. Виды, перемещение Canvas и переключение Project-ов остаются
+активными. Строка Orchestrator только показывает Orchestrator и не запускает его.
 
 Строки машин остаются активными: они касаются связи этой Machine, а не Project-а. Поиск по транскриптам идёт на Machine Project-а.
 
@@ -91,7 +202,8 @@ Orchestrator только показывает Orchestrator и не запуск
   Run wave и Ship ticket, решает код этих кнопок, и main проверяет снова, прежде чем что-то запустить. Здесь ничто не пишет статус
   Ticket-а или файл Project-а ([ADR-0002](../../adr/0002-worfy-is-a-view-over-the-workflow.md)).
 - **Команды ранжируются в renderer, транскрипты ищутся в main.** Ранжирование — чистая функция, которая работает при каждом нажатии.
-  Поиск по транскриптам идёт в main и держит текст транскрипта в памяти по размеру и времени изменения файла. Ответ на старый запрос
+  Поиск по транскриптам идёт в main и держит текст транскрипта в памяти по размеру и времени изменения файла. Текст thread-а Codex
+  он держит так же, по времени thread-а; thread, у которого время изменилось, читается снова. Ответ на старый запрос
   отбрасывается, когда приходит.
 
 ### Implementation
@@ -99,16 +211,18 @@ Orchestrator только показывает Orchestrator и не запуск
 | Что | Где |
 |---|---|
 | Поле, панель, клавиши, поиск по транскриптам | `src/renderer/palette/CommandPalette.tsx` |
+| Модальное окно под панелью: фокус, Esc, слой | `src/renderer/theme/kit/Dialog.tsx`, `src/renderer/theme/layers.ts` |
 | Построение команд из состояния окна | `src/renderer/palette/commands.ts` |
 | Группировка ранжированных строк | `src/renderer/palette/groups.ts` |
 | Ранжирование (`rankItems`), общее с поиском по Canvas | `src/renderer/find/search-index.ts` |
 | Что делает Run wave и Ship ticket активными | `src/renderer/canvas/actions/gates.ts`, `src/shared/actions/render-template.ts` |
 | Что запускают Run wave, Ship ticket и Process gate queue | `src/main/actions/launch.ts`, `src/main/ipc/actions.ts` |
 | Поиск по транскриптам и его пределы | `src/main/claude-home/search.ts`, `src/shared/ipc/claude-home.ts` |
+| Thread-ы Codex, которые читает поиск | `src/main/ipc/claude-home.ts`, `src/main/vendors/codex/sessions-on-canvas.ts` |
 
-Главные test-ы: `test/unit/palette-commands.test.tsx`, `test/unit/palette-groups.test.tsx`, `test/unit/palette-transcripts.test.tsx`,
-`test/unit/palette-manual-check-row.test.tsx`, `test/contract/claude-home-search.test.ts`, `test/e2e/palette-find.spec.ts`,
-`test/e2e/palette-groups.spec.ts`.
+Главные test-ы: `test/unit/palette-commands.test.tsx`, `test/unit/palette-groups.test.tsx`, `test/unit/palette-dialog.test.tsx`,
+`test/unit/palette-transcripts.test.tsx`, `test/unit/palette-manual-check-row.test.tsx`, `test/contract/claude-home-search.test.ts`,
+`test/e2e/palette-find.spec.ts`, `test/e2e/palette-groups.spec.ts`.
 
 ## Shortcuts
 
@@ -144,10 +258,10 @@ Orchestrator только показывает Orchestrator и не запуск
 Клавиши zoom отзываются ещё на `+` и `_`.
 
 **Окно Keyboard shortcuts** показывает эти записи в группах выше, с клавишами так, как их пишет эта система. Оно открывается из
-Help ▸ Keyboard Shortcuts, по ⌘/, по `?` вне текстового поля и вне Terminal, и из Command palette. Esc, Close или нажатие на фон закрывает
-его, и фокус возвращается туда, где был. Пока оно открыто, ни одна клавиша не доходит до приложения за ним, кроме accelerator-ов
-меню приложения. Settings → Shortcuts показывает тот же список. При открытых Settings запрос открыть shortcuts показывает этот
-раздел, а открытие Settings поверх окна закрывает окно.
+Help ▸ Keyboard Shortcuts, по ⌘/, по `?` вне текстового поля и вне Terminal, и из Command palette. Esc, Close или нажатие на фон
+закрывает его, и фокус возвращается туда, где был. Пока оно открыто, ни одна клавиша не доходит до приложения за ним, кроме
+accelerator-ов меню приложения. Settings → Shortcuts показывает тот же список. При открытых Settings запрос открыть shortcuts
+показывает этот раздел, а открытие Settings поверх окна закрывает окно.
 
 **Раскладки клавиатуры.** Латинская буква читается с колпачка клавиши, поэтому shortcut следует за буквой на QWERTZ, AZERTY, Dvorak и
 BÉPO. В раскладке другого алфавита буква берётся по месту клавиши: кириллическая буква на клавише K — это K. `[` у Back тоже читается
@@ -161,7 +275,8 @@ Windows на Windows.
   по-прежнему меняют масштаб, и только Ctrl+\_ остаётся у shell-а. См. [Terminal](terminal.md).
 - AltGr вводит символ и никогда не shortcut, хотя приходит как Ctrl+Alt. Ctrl+Alt, нажатые двумя клавишами, — это сочетание.
 - Меню показывает Ctrl+/, но не забирает его. Его ловит страница, вне Terminal, где он остаётся у shell-а. При открытых Settings
-  клавиша ничего не делает. Ctrl+B остаётся у shell-а сам по себе: xterm.js его отменяет, а меню получает только нажатия, которые страница не отменила.
+  клавиша ничего не делает. Ctrl+B остаётся у shell-а сам по себе: xterm.js его отменяет, а меню получает только нажатия, которые
+  страница не отменила.
 - У ⌘I здесь нет записи, потому что Ctrl+I — это Tab shell-а.
 
 ### How it works
@@ -186,7 +301,8 @@ Windows на Windows.
 | Сопоставление нажатия, подпись, текстовые поля и Terminal Node | `src/renderer/shortcuts/match.ts` |
 | Система, основная клавиша, клавиша нажатия, запись сочетания | `src/renderer/platform.ts` |
 | Окно и список | `src/renderer/shortcuts/ShortcutsOverlay.tsx`, `src/renderer/settings/ShortcutsSection.tsx` |
-| Его состояние и модальный guard на `window` | `src/renderer/shortcuts/shortcuts-window.ts` |
+| Его состояние | `src/renderer/shortcuts/shortcuts-window.ts` |
+| Модальное окно, в котором оно нарисовано, и клавиши приложения, пока оно открыто | `src/renderer/theme/kit/Dialog.tsx` |
 
 Главные test-ы: `test/unit/shortcuts.test.tsx`, `test/unit/shortcuts-overlay.test.tsx`, `test/unit/platform-shortcuts.test.tsx`,
 `test/unit/platform-keys.test.ts`, `test/e2e/shortcuts.spec.ts`.
@@ -204,16 +320,17 @@ Windows на Windows.
 | Edit | По умолчанию Electron |
 | View | Reload; Force Reload; Toggle Developer Tools; Actual size; Bigger; Smaller; Toggle Full Screen; Toggle Sidebar; Show Minimap |
 | Window | По умолчанию Electron |
-| Help | Keyboard Shortcuts; на macOS ещё системное поле поиска |
+| Help | worfy Guide; Keyboard Shortcuts; на macOS ещё системное поле поиска |
 
 - **Settings…** (⌘,) открывает окно [Settings](#settings) того окна, для которого выбран пункт.
 - **Bigger и Smaller** меняют масштаб интерфейса Machine на десятую, от 80 % до 150 %, а **Actual size** ставит 100 %, во всех окнах.
-  Они стоят там, где пункты zoom у Electron, и не меняют масштаб одного окна. Их клавиши содержат ⌥ (Alt), потому что ⌘= и ⌘- меняют масштаб Canvas.
-  Bigger отключён на 150 %, Smaller на 80 %, также когда масштаб изменён в Settings.
+  Они стоят там, где пункты zoom у Electron, и не меняют масштаб одного окна. Их клавиши содержат ⌥ (Alt), потому что ⌘= и ⌘- меняют
+  масштаб Canvas. Bigger отключён на 150 %, Smaller на 80 %, также когда масштаб изменён в Settings.
 - **Toggle Sidebar** (⌘B) скрывает или показывает sidebar, где бы ни был фокус. Единственное исключение — внутри Terminal на Windows,
   см. ниже. У обычного вида и focus mode отдельные ответы, и переключатель меняет ответ того, что сейчас показывает окно, для которого
   выбран пункт. Оба ответа — настройки Machine: все окна в этом режиме следуют за ними, и ответы переживают перезапуск. Кнопка в toolbar
   и в панели focus mode делает то же.
+- **worfy Guide** открывает [worfy Guide](#worfy-guide). Клавиши у него нет.
 - **Show Minimap** — это флажок, сначала включён. Он действует на все окна и живёт, пока worfy не выйдет.
 - Команда, выбранная сразу после появления окна, выполняется, а не теряется. Она ждёт страницу до 10 секунд, и ждать могут до 8 команд
   на окно. Перезагрузка страницы отбрасывает то, что ждало.
@@ -257,19 +374,22 @@ machine, открывает Settings своей Machine.
 
 ### Behaviour
 
-Settings — это настройки самого worfy на этой Machine. Окно открывается из «Settings…» меню приложения (⌘,) и из Command palette. Оно модальное,
-с разделами в колонке слева. Esc или Close закрывает его, и фокус возвращается туда, где был. ↑ и ↓ ходят по разделам, а Tab идёт по
-кругу по элементам окна. Пока оно открыто, ⌘K, ⌘F и ⌘↩ ничего не делают.
+Settings — это настройки самого worfy на этой Machine. Окно открывается из «Settings…» меню приложения (⌘,) и из Command palette. Оно
+модальное, с разделами в колонке слева. Esc или Close закрывает его, и фокус возвращается туда, где был. ↑ и ↓ ходят по разделам, а
+Tab идёт по кругу по элементам окна. Пока оно открыто, ⌘K, ⌘F и ⌘↩ ничего не делают. Нажатие рядом с окном оставляет его открытым,
+как и нажатие на toast. Settings, Keyboard shortcuts и Guide — одно модальное окно из собственного набора компонентов приложения:
+приложение за ним скрыто от screen reader-а, toast-ы — нет, и они остаются над окном.
 
 | Раздел | Что в нём |
 |---|---|
 | General | Interface scale; Memory in the toolbar; Fold Epics without work after (группа «Older» секции Epics, см. [Workflow](workflow.md)); Version; Updates там, где Update включён: см. [Updates](updates.md) |
-| Health | Проверки First run с их действиями и «Check again». Открытие раздела запускает проверку |
+| Health | Проверки First run с их действиями и «Check again». Открытие раздела запускает проверку. Нажатая кнопка показывает свою работу спиннером и своими словами («Checking…», «Installing…», «Downloading…»), а её строка пишет «Running…» (пока идёт «Check again», каждая строка пишет «Checking…»); остальные кнопки выключены, и их tooltip говорит, что идёт другая проверка. Долгое действие (npm, модели qmd, коллекции qmd, Harness) называет свой шаг и прошедшее время под своей строкой |
 | Shortcuts | Список окна Keyboard shortcuts |
 | Machines | Переключатели связи и уровень доступа каждой Linked machine: см. [Link](link.md) |
 | Terminal AI | Переключатели и модели Terminal AI: см. [Terminal](terminal.md) |
 | Sessions | Окно autocompact для Session-ов |
 | Canvas | Автоматический архив завершённых Session-ов |
+| Pull requests | Уведомления и утренний дайджест PR inbox, оба по умолчанию включены: см. [Notifications](notifications.md#утренний-дайджест) |
 | Browser | Когда Live Browser засыпает |
 | Autopilot | Run mode по умолчанию, Start window и дневной бюджет Limits: см. [Run planning](run-planning.md#settings--autopilot) |
 | Plan | План, под которым вошёл Claude Code, и для Pro готовый набор с кнопкой Apply |
@@ -288,10 +408,15 @@ Settings — это настройки самого worfy на этой Machine.
 | Sessions: Other Sessions | 100K–1M токенов с шагом 10K, или Claude Code default | 500K |
 | Archive finished sessions after | Never, 6 h, 24 h, 3 days, 7 days | 24 h |
 | …and when their Ticket is done | вкл., выкл. | вкл. |
+| Notify about new review requests and replies | вкл., выкл. | вкл. |
+| Morning digest | вкл., выкл. | вкл. |
 | Live browsers at once | 1, 2, 3, 4, 5, 6, 8, 10 | 3 |
 | Sleep when off screen after | 10 с, 30 с, 1, 2, 5, 10 мин | 30 с |
 | Sleep when unused after | 1, 2, 5, 10, 15, 30 мин, 1 ч | 5 мин |
 | Readable from zoom | 25, 30, 40, 50, 60, 75 % | 40 % |
+| Default run mode | Fastest, Budget-aware, Start window | Budget-aware при включённом бюджете, Fastest при выключенном |
+| Start window from | 00:00–23:00 по целым часам | 23:00 |
+| Start window to | 00:00–23:00 по целым часам | 07:00 |
 | Daily budget of the Limits | вкл., выкл. | выкл. |
 | Reserve for your own work | 0, 5, 10, 15, 20, 25, 30, 40, 50 % недели | 15 % |
 
@@ -299,18 +424,25 @@ Settings — это настройки самого worfy на этой Machine.
   ним. Масштаб применяется, когда ползунок отпущен или клавиша сделала шаг. View ▸ Bigger, Smaller и Actual size меняют ту же настройку.
 - **Memory in the toolbar** показывает, сколько памяти занимают собственные процессы worfy. Сессии Terminal не считаются. Main замеряет
   память, только пока настройка включена.
+- **Version** — номер сборки, `<major>.<minor>.<N>`, как его показывает toolbar: N считает commit-ы от начала истории до commit-а, из
+  которого собран worfy (`git rev-list --count HEAD`), поэтому у более новой сборки `main` номер больше, а один commit даёт один номер
+  на каждой Machine. Рядом, в скобках, стоит версия сборки `<semver>+<short SHA>`, которая называет commit. Сборка с незакоммиченными
+  изменениями заканчивается на `.dirty`: она не совпадает со своим commit-ом. У сборки из shallow clone или из папки вне git номера
+  нет, и она показывает только версию сборки.
 - **Sessions.** Поле принимает тысячи токенов, а введённое значение приводится к диапазону и шагу. Строка под каждой ролью называет,
   откуда окно: Custom, Claude Code default, файл настроек Claude Code или worfy default. Окно применяется после перезапуска Session, и
   worfy сам ни одну не перезапускает. Когда login shell задаёт `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, раздел говорит, что она важнее обеих
   настроек.
 - **Canvas.** Завершённая Session уходит с Canvas через это время после последнего сообщения, и ничего не удаляется. Session завершённого
   Ticket-а уходит через час после последнего сообщения, пока включён второй переключатель.
-- **Autopilot.** Резерв отключён, пока выключен бюджет.
+- **Autopilot.** Пока run mode не выбран, значение по умолчанию следует за переключателем бюджета. Start window задаётся в местном
+  времени и может переходить через полночь. Два его часа отключены, если run mode по умолчанию не Start window, а час, равный другой
+  границе, не сохраняется. Резерв отключён, пока выключен бюджет, если только run mode по умолчанию не Budget-aware.
 - **Plan.** Max и планы, которых worfy не знает, предложения не получают. Без клика по Apply ничего не пишется.
 - Значение, заданное вручную вне предложенного списка, но в пределах, показывается как есть. Это касается значений Browser и резерва.
 
-У sidebar есть ещё две настройки того же рода и нет строки в этом окне: какие разделы свёрнуты и показан ли sidebar (отдельно для
-обычного вида и focus mode).
+У sidebar есть ещё две настройки того же рода и нет строки в этом окне: свёрнуты ли Epic-и «Older» у Project-а и показан ли
+sidebar (отдельно для обычного вида и focus mode).
 
 Настроек Project-а, например его Terminal shell, здесь нет. Они в «Project settings…»: см. [Projects](projects.md).
 
@@ -351,7 +483,8 @@ Pipeline показывает Pipeline той Machine только для чте
 | Каналы `appSettings`, все `local` | `src/shared/ipc/app-settings.ts`, `src/main/ipc/app-settings.ts` |
 | Масштаб как zoom каждого окна | `src/main/settings/interface-scale.ts` |
 | Копия настроек в renderer | `src/renderer/settings/useAppSettings.ts` |
-| Окно и его модальный guard | `src/renderer/settings/SettingsDialog.tsx`, `src/renderer/settings/settings-window.ts` |
+| Окно и его состояние | `src/renderer/settings/SettingsDialog.tsx`, `src/renderer/settings/settings-window.ts` |
+| Модальное окно, его фокус и клавиши приложения, пока оно открыто | `src/renderer/theme/kit/Dialog.tsx`, `src/renderer/theme/kit/layer.ts` |
 | Список разделов | `src/renderer/settings/sections.ts` |
 | Масштаб на `<html>` | `src/renderer/settings/interface-scale.ts` |
 
@@ -362,6 +495,69 @@ Pipeline показывает Pipeline той Machine только для чте
 Главные test-ы: `test/contract/app-settings.test.ts`, `test/unit/use-app-settings.test.tsx`, `test/unit/settings-dialog.test.tsx`,
 `test/unit/interface-scale.test.tsx`, `test/e2e/settings.spec.ts`, `test/e2e/interface-scale.spec.ts`. У каждого раздела свой test, например
 `test/unit/settings-sessions.test.tsx`.
+
+## worfy Guide
+
+### Behaviour
+
+worfy Guide — короткая наглядная справка внутри приложения. Это окно поверх окна приложения: список Topic-ов слева, Topic справа.
+Topic — один экран: диаграмма, короткий текст, свёрнутый под ним **Under the hood** (ещё текст, таблица главных файлов, пределы) и
+**Full page**.
+
+- **Открытие.** Help ▸ worfy Guide и строка «worfy Guide» в Command palette открывают его там, где он был. У каждого Topic-а есть и
+  своя строка в Command palette, «Guide: `<Topic>`», которая открывает Guide на этом Topic-е. Ссылка «worfy Guide» внизу панели
+  [Getting started](onboarding.md#getting-started) и под концепциями экрана «Welcome to worfy» в First run тоже открывает его;
+  панель и First run остаются за ним такими, какими были. Сам по себе он не открывается.
+- **Закрытие.** Esc, Close или клик вне окна закрывает его, и фокус возвращается туда, где был. Пока оно открыто, ни одна клавиша не
+  доходит до shortcut-а приложения.
+- **Одно модальное окно.** Открытие Guide закрывает Settings и Keyboard shortcuts, а любое из них закрывает Guide.
+- **Язык.** EN / RU в заголовке переключает Guide между английским и русским. Остальной worfy остаётся на английском. Пока выбор не
+  сделан, Guide на русском, если первый язык системы русский, и на английском в остальных случаях. Выбор — настройка Machine, и он
+  переживает перезапуск.
+- **Ссылки.** Full page и файлы Under the hood открывают GitHub в браузере системы, на commit-е этой сборки. Сборка, которая не знает
+  свой commit, ведёт на `main`.
+- **Диаграммы.** По стрелкам диаграммы Topic-а бегут точки. Указатель или фокус клавиатуры на блоке подсвечивает блок, его соседей и
+  его связи, показывает подписи этих связей и приглушает остальное. Блок, который называет другой Topic, открывает его по клику или
+  Enter. Под диаграммой Play проходит по её шагам, по одному каждые 4 секунды, и останавливается на последнем; кнопка шага показывает
+  один шаг и говорит, что в нём происходит, а повторное нажатие показывает всю диаграмму. Точки движутся, только пока Guide открыт и
+  диаграмма видна. С Reduce motion в настройках системы они стоят на месте, а подсветка меняется сразу. Screen reader читает описание
+  диаграммы и каждую её связь.
+- **Ни Project, ни сеть** не нужны.
+- Тестовый Topic «How the Guide works» показывается, только когда worfy запущен из неупакованной сборки (`pnpm dev`, e2e test-ы).
+  Пока не появились первые настоящие Topic-и, Guide упакованного приложения пишет «No Topics yet.»
+
+### How it works
+
+Окно Guide, его тексты и диаграммы — отдельный chunk. Приложение загружает его, когда Guide открывается в первый раз, поэтому старт
+worfy его не загружает. В первом chunk-е лежит только registry Topic-ов: по строке на Topic с его id и английским заголовком,
+которые нужны Command palette.
+
+Диаграмма — SVG, который рисует собственный набор компонентов сцены Guide (`src/renderer/guide/scene/`), без библиотеки анимации.
+Точки идут по пути, который рисует их линию, кадр за кадром (`requestAnimationFrame`); кадры останавливаются, пока страница скрыта или
+диаграмма вне видимости, и заканчиваются, когда Guide закрывается. Цвета блоков следуют группе блока: три группы берут цвета видов
+Node-ов, а у Machine, Project и Tools собственные цвета Guide, отделённые от цветов статуса.
+
+Каждый Topic — папка с `topic.json` (страницы `docs/features/`, с которыми он сверен, каждая с commit-ом, и его главные файлы),
+`en.json` и `ru.json` (каждый текст, одни и те же ключи в обоих) и его диаграммой. Test падает, когда у строки есть только одна из
+двух версий или когда страницы или файла, которые называет Topic, нет в репозитории. `scripts/guide-lag.mjs` сообщает о Topic-ах, у
+страницы которых есть commit-ы после того, на котором их сверяли, и о русских текстах старше английских. Он не входит в `pnpm lint`:
+отставание не валит PR. Решения записаны в ADR-0090.
+
+### Implementation
+
+| Что | Где |
+|---|---|
+| Registry Topic-ов, который читает Command palette | `src/renderer/guide/registry.ts` |
+| Открыт, закрыт, Topic на экране | `src/renderer/guide/store.ts` |
+| Модальное окно, в котором он нарисован | `src/renderer/theme/kit/Dialog.tsx` |
+| Загрузка окна при первом открытии | `src/renderer/guide/GuideHost.tsx` |
+| Окно | `src/renderer/guide/GuideWindow.tsx`, `src/renderer/guide/guide.css` |
+| Тексты и Topic-и | `src/renderer/guide/content.ts`, `src/renderer/guide/strings/en.json`, `src/renderer/guide/topics/skeleton/topic.json` |
+| Язык и ссылки | `src/renderer/guide/language.ts`, `src/renderer/guide/links.ts` |
+| Отчёт об отстающих Topic-ах | `scripts/guide-lag.mjs` |
+
+Главные test-ы: `test/unit/guide.test.tsx`, `test/unit/guide-content.test.tsx`, `test/unit/guide-window.test.tsx`,
+`test/unit/guide-lag.test.ts`, `test/e2e/guide.spec.ts`.
 
 ## Theme
 
@@ -380,7 +576,8 @@ Pipeline показывает Pipeline той Machine только для чте
 
 #### macOS
 
-Заголовка окна нет. Кнопки окна стоят внутри toolbar, а sidebar полупрозрачный, сквозь него видна vibrancy системы.
+Заголовка окна нет. Кнопки окна стоят в верхней полосе sidebar, на высоте toolbar, перед надписью worfy, а пока sidebar скрыт — поверх
+toolbar. Sidebar полупрозрачный, сквозь него видна vibrancy системы.
 
 #### Windows
 

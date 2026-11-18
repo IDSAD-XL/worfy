@@ -72,3 +72,24 @@ never comments, merges or edits a label; the skill /worfy:gate-queue does that i
   одинаковых комментария.
 - **Хранить тексты нитей на диске** (`state/pr-inbox/`). Не выбрано: память main достаточна, после рестарта тексты
   читаются снова, и слова коллег не ложатся на диск без нужды.
+
+## Amendments
+
+- **2026-11-18 — действия правки PR и skill `pr-fix`: push только по ответу «Push», конфликт — по режиму Profile-а**
+  (worfy-pr-follow 06, по Ticket-ам 01–05; Q3 и Q4 spec-а `.scratch/worfy-pr-follow/spec.md` — решено без владельца
+  2026-11-18, подтвердить). Действия Fix checks, Resolve conflicts и Address comments на PR пользователя (Pull
+  requests, Ticket Node, Command palette) из main на GitHub не пишут: main заново читает PR и отдаёт шаблон действия
+  (по умолчанию `/worfy:pr-fix <checks|conflicts|comments> {repo}#{pr} {sha}`) Session-и Project-а на Claude Code —
+  Session Ticket-а этого PR, если последняя запись её транскрипта моложе 24 часов, иначе новой Session
+  (`src/shared/ipc/actions.ts:107-122`, `src/shared/projects/action-templates.ts:95-97`,
+  `src/main/actions/launch.ts:164`). Правку и commit делает Session со skill-ом `pr-fix` в worktree ветки PR, не в
+  checkout пользователя. Push делает только Session и только после ответа «Push» в карточке вопроса — и в Silent
+  mode, и в Full mode, где ship-ticket пушит сам (Q3); «Push», написанный в просьбе заранее, ответом не считается, а
+  без человека ничего не уходит (`harness/skills/pr-fix/SKILL.md:14-18`, `:264-282`). Конфликт с базовой веткой — по
+  режиму Profile-а (Q4): в Full mode rebase на базу в worktree и push только с
+  `--force-with-lease=<ветка>:<head до rebase>`, который назван в вопросе «Force-push (with lease) …», никогда голым
+  `--force`; если ветку на GitHub сдвинули, lease отказывает, и skill больше ничего не пушит. В Silent mode — merge
+  commit базы, без rebase и force-push (`harness/skills/pr-fix/SKILL.md:170-186`, `:264-276`). Пункт 4 в силе: main
+  делает только две записи из него, ничего больше в PR не пишет и не пушит. Ответы на нити ревью режима `comments`
+  skill отдаёт черновиками в `pr-reply-draft`, публикует их, как раньше, щелчок Send (пункты 2–3). Сообщение main в
+  Session записано в ADR-0108, пункт 5; своего ADR о нём нет.
