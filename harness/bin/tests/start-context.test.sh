@@ -74,7 +74,7 @@ else bad "git records bin/start-context as $mode, not 100755"; fi
 H="$T/h"
 mkdir -p "$H/bin" "$H/hooks/rules" "$H/agents" "$H/skills/ship-ticket" "$H/skills/other"
 cp "$SC" "$H/bin/start-context"
-cp "$HARNESS/hooks/inject-rules.mjs" "$HARNESS/hooks/eval-env.cjs" "$H/hooks/"
+cp "$HARNESS/hooks/inject-rules.mjs" "$HARNESS/hooks/eval-env.cjs" "$HARNESS/hooks/codex-input.mjs" "$H/hooks/"
 printf '%s\n' '# Common rules' '' 'Say what the thing is: `${CLAUDE_PLUGIN_ROOT}/bin/profile`.' '' >"$H/hooks/rules/common.md"
 printf '%s\n' 'Write short sentences.' >"$HARNESS_HOME/user/rules.md"
 # agent <name> <body file> — a definition with a frontmatter in front of the body

@@ -1,10 +1,16 @@
 #!/usr/bin/env node
-// Hook SessionStart / SubagentStart: hands one part of the Harness rules to the session as
-// additionalContext. Usage in hooks.json: node "${CLAUDE_PLUGIN_ROOT}/hooks/inject-rules.mjs" <part>,
-// where <part> names rules/<part>.md next to this script.
+// Hook SessionStart / SubagentStart / PreCompact: hands one part of the Harness rules to the session.
+// Usage in hooks.json: node "${CLAUDE_PLUGIN_ROOT}/hooks/inject-rules.mjs" <part>, where <part> names
+// rules/<part>.md next to this script.
 //
 // Reads the hook event JSON on stdin and prints
 //   {"hookSpecificOutput":{"hookEventName":"<event>","additionalContext":"<text of the part>"}}
+// On PreCompact it prints the text of the part itself, not JSON: Claude Code adds the plain stdout of a
+// PreCompact hook to the instructions of the model that writes the compaction summary, on /compact and
+// on auto-compaction, in a main Session and in a Subagent, and cuts it after 10,000 characters (a spike
+// against Claude Code 2.1.322 showed it). That is how the part "compaction" arrives. Codex runs the same
+// hooks.json but does not read that stdout (its summary instructions go through compact_prompt), so on a
+// Codex input PreCompact prints nothing.
 // Claude Code does not expand ${CLAUDE_PLUGIN_ROOT} inside additionalContext, so this script does:
 // with the value from the environment, or, without it, with the plugin folder (the one above hooks/;
 // on Windows spelled C:/…, as Claude Code spells CLAUDE_PLUGIN_ROOT there).
@@ -23,11 +29,15 @@
 import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { isCodexInput } from "./codex-input.mjs"
 import { harnessHome } from "./eval-env.cjs"
 
 const TOKEN = "${CLAUDE_PLUGIN_ROOT}"
-// Claude Code cuts one additionalContext string to a preview above this many characters.
+// Claude Code cuts one additionalContext string to a preview above this many characters, and the stdout
+// of a PreCompact hook after as many.
 const LIMIT = 10000
+// The event whose hook output is plain text that joins the instructions of the compaction summary.
+const PRE_COMPACT = "PreCompact"
 // The variable and its one value that make a Session a Product Session (SessionKind of worfy).
 const KIND_VARIABLE = "WORFY_SESSION_KIND"
 const PRODUCT = "product"
@@ -84,6 +94,10 @@ function main() {
 
     // split/join replaces the placeholder literally: no regex, no replacement patterns ($&) in the path.
     let additionalContext = text.replace(/\n+$/, "").split(TOKEN).join(root)
+    if (event.name === PRE_COMPACT) {
+        if (!isCodexInput(hook)) process.stdout.write(additionalContext + "\n")
+        return
+    }
     if (part === "common") additionalContext = withUserRules(additionalContext, event.cwd)
     process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: event.name, additionalContext } }) + "\n")
 }

@@ -72,6 +72,9 @@ from the user's rules file.
 - Editing a file outside the `Edit` tool prints its whole contents back into context. Point edits
   go through `Edit`; a sweep across many files is an agent's job.
 - After each phase, compress: keep conclusions, drop the trail.
+- After a compaction (the conversation replaced by its summary), re-read your ticket (an orchestrator:
+  `${CLAUDE_PLUGIN_ROOT}/bin/epic-status` of its epic) and run `git status` before the next step. The
+  summary may have dropped or bent a fact; the files have not.
 - Unbounded output — logs, curl responses, DB dumps — gets filtered before it lands; delegate the
   run only when no filter does the job.
 - Report to the user only what changed and what they need to decide.
