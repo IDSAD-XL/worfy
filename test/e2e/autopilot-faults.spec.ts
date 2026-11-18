@@ -64,13 +64,19 @@ async function killedInWave1(world: ReturnType<typeof prepareWorld>, writes: Sta
 }
 
 /**
- * Stop autopilot while the Wave's turn holds, then the turn ends: the Run stops with user-stop. While it stops, the line
- * counts the Wave's Tickets still in work: 01, which the Orchestrator claimed (02 stayed open).
+ * Stop autopilot while the Wave's turn holds: the Run stops with user-stop after two turns. While it stops, the line
+ * counts the Wave's Tickets still in work: 01, which the Orchestrator claimed (02 stayed open). The Stop sends the
+ * Orchestrator STOP_TEXT (run.ts, beginStopping), which waits in the Session's queue; when the Wave's turn ends, that
+ * message starts the next turn at once, so the Session is not idle and the run stays stopping (cycle.ts, turn-ended:
+ * only a turn end with the Session idle and no task stops a stopping run). SCRIPT holds every turn until it is
+ * released, the turn of the stop message too: the test releases both. A release made before its turn waits is kept
+ * for it (FakeReleases).
  */
 async function stopRun(frame: Locator, app: ElectronApplication): Promise<void> {
   const status = frame.getByTestId('autopilot-status')
   await frame.getByTestId('action-stop-autopilot').click()
   await expect(status).toHaveText('stopping · 1 ticket in work')
+  await releaseTurn(app)
   await releaseTurn(app)
   await expect(status).toHaveText('stopped: user stop')
 }
