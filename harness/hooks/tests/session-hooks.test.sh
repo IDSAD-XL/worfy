@@ -290,7 +290,7 @@ fi
 # main checkout is the Orchestrator's place; a linked worktree on a ticket branch is an implementer's. The real
 # bin/profile, epic-status, ticket, stage-lines.mjs and wave-brief run on the synthetic registry; gh is a stand-in
 # that lists no PR. The ticket files carry the done section under its Russian heading, as this project's tickets
-# do (Russian input on purpose); FAKE_FILL below is a two-byte character for the byte limit of Codex.
+# do (Russian input on purpose); FAKE_FILL below is a two-byte character (é) for the byte limit of Codex.
 AFTER="$HOOKS/after-compact.mjs"
 CP="$T/cmp/repo"
 mkdir -p "$CP/.scratch/ep1/issues" "$CP/.scratch/ep2/issues" "$T/sp/cmp" "$T/cmp/stubs"
@@ -400,7 +400,7 @@ n="$(printf '%s' "$c" | node -e 'process.stdout.write(String([...require("fs").r
     && ok "after-compact: a brief over the limit is cut to $n characters; the Stage line, Waiting and Open PRs come first" \
     || bad "after-compact: long brief: $n characters, ctx head [${c:0:300}] tail [$(printf '%s' "$c" | tail -n 2)]"
 # Codex spills a context over about 10,000 bytes (2,500 tokens): with multi-byte text the cut there is by bytes too.
-TRANSCRIPT="/codex-home/sessions/2026/11/18/rollout-2026-11-18T00-00-00-t1.jsonl" compact "$CP" compact WORFY_EPIC=ep1 CLAUDE_WAVE_BRIEF_BIN="$T/cmp/stubs/wave-brief.js" FAKE_FILL=ж
+TRANSCRIPT="/codex-home/sessions/2026/11/18/rollout-2026-11-18T00-00-00-t1.jsonl" compact "$CP" compact WORFY_EPIC=ep1 CLAUDE_WAVE_BRIEF_BIN="$T/cmp/stubs/wave-brief.js" FAKE_FILL=é
 b="$(actx | head -c 20000 | wc -c | tr -d ' ')"
 [ "$b" -le 10001 ] && [ "$b" -ge 8000 ] && [[ "$(actx)" == *"OPEN-PR-LINE"* ]] && ok "after-compact: on Codex a multi-byte brief is cut within 10,000 bytes ($b)" \
     || bad "after-compact: Codex bytes: $b"

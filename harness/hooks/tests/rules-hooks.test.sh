@@ -654,6 +654,7 @@ if [ "$(hj valid)" = ok ]; then ok "hooks.json is valid JSON with .hooks"; else 
 # `node "${CLAUDE_PLUGIN_ROOT}/…"`: Windows starts no
 # script by its #! line. One exception: the gate hooks call the launcher gate.sh, because without
 # node only the launcher can say so.
+# after-compact.mjs runs on SessionStart only after a compaction (matcher compact), on Claude Code and Codex alike.
 # One line per hook: event|matcher|command|timeout.
 R='"${CLAUDE_PLUGIN_ROOT}'
 N='node "${CLAUDE_PLUGIN_ROOT}'
@@ -661,6 +662,7 @@ N='node "${CLAUDE_PLUGIN_ROOT}'
 # inside a command substitution.
 IFS= read -r -d '' hooks_expected <<EOF
 SessionStart||$N/hooks/session-start.mjs"|15
+SessionStart|compact|$N/hooks/after-compact.mjs"|30
 SessionStart||$N/bin/worktree-lock" claim|10
 SessionStart||$N/hooks/inject-rules.mjs" orchestrator|10
 SessionStart||$N/hooks/inject-rules.mjs" common|10
