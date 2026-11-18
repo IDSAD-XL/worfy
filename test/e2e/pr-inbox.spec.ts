@@ -640,9 +640,10 @@ test('a long repository name at 1280 px: the list never scrolls sideways, only t
     }
     await expect(failing.locator('.w-pr-inbox-item__number')).toHaveText('#1207')
     await expect(failing.locator('.w-pr-inbox-ci-text')).toHaveText('CI failing')
-    // Needs fix with failing CI: the strip opens the checks.
+    // Needs fix with failing CI: the strip's main button is Fix checks, and Open checks stays a link (worfy-pr-follow ticket 04).
     await failing.getByRole('button').click()
-    await expect(pane(window).getByTestId('pr-inbox-next-step-action')).toHaveText('Open checks')
+    await expect(pane(window).getByTestId('pr-inbox-next-step').getByTestId('pr-inbox-follow')).toHaveText(['Fix checks'])
+    await expect(pane(window).getByTestId('pr-inbox-next-step-link')).toHaveText('Open checks')
     mkdirSync(SCREENS, { recursive: true })
     const shots = await snapshotThemes(window, 'pr-inbox-long-name-1280')
     for (const scheme of ['light', 'dark'] as const) copyFileSync(shots[scheme], join(SCREENS, `long-name-1280-${scheme}.png`))
