@@ -1,8 +1,9 @@
 // The continuation of an Autopilot Run after a restart of worfy (worfy-continuity ticket 06), its pure parts: the hour
 // rule and its cap (restartDecision), the first state of a continued Run (initialCycle with `from`), the status line
 // `cut off by restart · 14:05`, and the Tickets of the cut-off Wave left to a person (heldTickets over a transcript
-// read through fake files). The Run itself is checked in test/contract/autopilot-faults-restart.test.ts.
-import { describe, expect, it } from 'vitest'
+// read through fake files, with the paths of this system and of Windows). The Run itself is checked in test/contract/autopilot-faults-restart.test.ts.
+import path from 'node:path'
+import { describe, expect, it, vi } from 'vitest'
 import { heldTickets, type CutOffWave } from '../../src/main/autopilot/held-tickets'
 import { MAX_RESTART_CONTINUATIONS, RESTART_HOUR_MS, initialCycle, restartDecision } from '../../src/shared/autopilot/cycle'
 import { autopilotStateSchema, autopilotStatusLine } from '../../src/shared/ipc/autopilot'
@@ -57,8 +58,6 @@ describe('the status line of a Run a restart cut off', () => {
 
 describe('heldTickets: the Tickets of the cut-off Wave whose implementer has an external call without a result', () => {
   const SESSION = 'b2c3d4e5-0000-4000-8000-000000000001'
-  const FILE = `/data/claude/projects/demo/${SESSION}.jsonl`
-  const SUBAGENTS = `/data/claude/projects/demo/${SESSION}/subagents`
   const cut: CutOffWave = {
     root: '/work/demo',
     run: '2026-11-18T14-00-00-000Z-a1b2c3',
@@ -80,23 +79,42 @@ describe('heldTickets: the Tickets of the cut-off Wave whose implementer has an 
     { type: 'user', isSidechain: true, agentId, sessionId: SESSION, timestamp: '2026-11-18T14:01:00.000Z', message: { role: 'user', content: `Implement the ticket .scratch/demo/issues/0${num}-ticket-${num}.md` } },
     call(`t-${agentId}`, command, agentId),
   ]
-  /** The fake files: the session's transcript and its Subagents' ones. */
-  function files(main: object[], subagents: Record<string, object[]>) {
+  /**
+   * The fake files: the session's transcript and its Subagents' ones, in the projects folder `projects` and with the
+   * paths of `paths` — this system's (node:path), or Windows' (path.win32), whose separator is a backslash.
+   */
+  function files(main: object[], subagents: Record<string, object[]>, paths: typeof path.posix = path, projects = '/data/claude/projects/demo') {
+    const transcript = paths.join(projects, `${SESSION}.jsonl`)
+    const folder = paths.join(projects, SESSION, 'subagents')
     const text = (lines: object[]) => lines.map((line) => JSON.stringify(line))
     return {
-      transcriptPath: () => Promise.resolve(FILE),
-      readLines: (path: string) => {
-        if (path === FILE) return Promise.resolve(text(main))
-        const name = path.slice(SUBAGENTS.length + 1)
-        const own = Object.entries(subagents).find(([agentId]) => name === `agent-${agentId}.jsonl`)
+      transcriptPath: () => Promise.resolve(transcript),
+      readLines: (file: string) => {
+        if (file === transcript) return Promise.resolve(text(main))
+        if (paths.dirname(file) !== folder) return Promise.resolve(null)
+        const own = Object.entries(subagents).find(([agentId]) => paths.basename(file) === `agent-${agentId}.jsonl`)
         return Promise.resolve(own === undefined ? null : text(own[1]))
       },
-      listFiles: (dir: string) => Promise.resolve(dir === SUBAGENTS ? Object.keys(subagents).map((agentId) => `agent-${agentId}.jsonl`) : []),
+      listFiles: (dir: string) => Promise.resolve(dir === folder ? Object.keys(subagents).map((agentId) => `agent-${agentId}.jsonl`) : []),
     }
   }
 
   it('an implementer of 01 cut in gh pr merge holds 01 only', async () => {
     expect(await heldTickets(files([prompt], { impl01: implementer('impl01', 1, 'gh pr merge 41 --squash') }), cut)).toEqual([1])
+  })
+
+  it('on Windows: the Subagents\' folder is found beside a transcript path with backslashes', async () => {
+    // held-tickets.ts joins its paths with node:path; here that is Windows' path, as it is on a Windows machine.
+    vi.resetModules()
+    vi.doMock('node:path', () => ({ ...path.win32, default: path.win32 }))
+    try {
+      const { heldTickets: onWindows } = await import('../../src/main/autopilot/held-tickets')
+      const deps = files([prompt], { impl01: implementer('impl01', 1, 'gh pr merge 41 --squash') }, path.win32, 'D:\\data\\claude\\projects\\demo')
+      expect(await onWindows(deps, { ...cut, root: 'D:\\work\\demo' })).toEqual([1])
+    } finally {
+      vi.doUnmock('node:path')
+      vi.resetModules()
+    }
   })
 
   it('an implementer of a Ticket outside the Wave holds nothing', async () => {

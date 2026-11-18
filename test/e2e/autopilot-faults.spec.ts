@@ -63,16 +63,19 @@ async function killedInWave1(world: ReturnType<typeof prepareWorld>, writes: Sta
   return (JSON.parse(killedRun!.split('\n')[0]!) as { run: string }).run
 }
 
-/** Stop autopilot while the Wave's turn holds, then the turn ends: the Run stops with user-stop. */
+/**
+ * Stop autopilot while the Wave's turn holds, then the turn ends: the Run stops with user-stop. While it stops, the line
+ * counts the Wave's Tickets still in work: 01, which the Orchestrator claimed (02 stayed open).
+ */
 async function stopRun(frame: Locator, app: ElectronApplication): Promise<void> {
   const status = frame.getByTestId('autopilot-status')
   await frame.getByTestId('action-stop-autopilot').click()
-  await expect(status).toHaveText('stopping')
+  await expect(status).toHaveText('stopping · 1 ticket in work')
   await releaseTurn(app)
   await expect(status).toHaveText('stopped: user stop')
 }
 
-test('the app killed with SIGKILL in the middle of a Wave and started again: the same Run goes on in its own journal, with run-continued after crash and one new Wave command — 01 continued and 02 — to a new session of the Orchestrator', async () => {
+test('the app killed with SIGKILL in the middle of a Wave and started again: the same Run goes on in its own journal, with run-continued after crash and one new Wave command — 01 continued and 02', async () => {
   const world = prepareWorld(scratch)
   const writes: StatusWrite[] = []
   const run = await killedInWave1(world, writes)
@@ -88,10 +91,10 @@ test('the app killed with SIGKILL in the middle of a Wave and started again: the
     const lines = journals(world.dataDir)[0]!.split('\n').filter(Boolean).map((line) => JSON.parse(line) as { kind: string; run: string; after?: string; tickets?: string[] })
     expect(lines.find((event) => event.kind === 'run-continued')).toMatchObject({ run, after: 'crash' })
     expect(lines.at(-1)).toMatchObject({ kind: 'wave-started', run, tickets: ['01', '02'] })
-    // Exactly one new Wave command: 01 continued and 02, in a new session that reads the Wave's brief first.
-    await expect.poll(() => waveCommands(world.log)).toEqual([WAVE_1, WAVE_1])
-    expect(messages(world.log)).toHaveLength(2)
-    expect(messages(world.log).at(-1)).toContain(`wave-brief ${EPIC}`)
+    // Exactly one new Wave command: 01 continued and 02. The world's Harness is the old one (an epic-status in
+    // WORFY_CLAUDE_HOME/bin, autopilot-world.ts), which has no wave-brief: the Wave goes to the Orchestrator's Session as
+    // it is, without the line of a new session (run.ts, a new session per Wave only with a Harness that has wave-brief).
+    await expect.poll(() => messages(world.log)).toEqual([WAVE_1, WAVE_1])
     await stopRun(frame, app)
   } finally {
     await second.close()

@@ -160,8 +160,9 @@ When worfy starts, the newest cut-off run of each Project goes on by itself, und
    continuations of stuck Tickets.
 2. A wait that was open at the cut (the Limits, the Start window, the budget or a retry) goes on to its own end time. No
    Wave goes before that; then the run goes on with `resumed`, as after any wait.
-3. Otherwise the next Wave goes at once, to a new session of the Orchestrator that first reads the Wave's brief
-   (`wave-brief`), as every Wave after the first does. The command of the cut-off Wave is not sent again. Its Tickets
+3. Otherwise the next Wave goes at once, the way every Wave after a run's first goes: to a new session of the
+   Orchestrator that first reads the Wave's brief (`wave-brief`), with a Harness that has it and an Orchestrator that is
+   free; with the old Harness, to the Orchestrator's Session as it is. The command of the cut-off Wave is not sent again. Its Tickets
    still in work go in the new Wave as resumed Tickets, together with the ready ones. The new Wave's number follows the
    cut-off one (Wave 2 after Wave 1), so no number repeats in one journal.
 4. Before that Wave, the run reads the transcript of the Orchestrator's session of the cut-off Wave for external calls

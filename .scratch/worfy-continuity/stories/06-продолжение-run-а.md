@@ -62,8 +62,9 @@ Code: `src/main/autopilot/run.ts:2153-2173` · key lines: 2156, 2157, 2170, 2173
 ```
 
 - Что делает: продолженный Run получает цикл с номером оборванной Wave, её Ticket-ами в работе (кроме удержанных),
-  лестницей продолжений; Wait из checkpoint-а; `wavesSent = 1`, чтобы следующая Wave ушла в новую Session
-  Orchestrator-а с `wave-brief`. Следующая Wave получает номер оборванной + 1.
+  лестницей продолжений; Wait из checkpoint-а; `wavesSent = 1`, чтобы следующая Wave шла как любая Wave после первой:
+  в новую Session Orchestrator-а с `wave-brief`, если Harness его знает и Orchestrator свободен; со старым Harness-ом —
+  в текущую Session, как есть (так идёт e2e на fake agent). Следующая Wave получает номер оборванной + 1.
 - Почему здесь: Ticket называет `continueRun(checkpoint)` в `src/main/autopilot/run.ts` и тот же цикл
   `src/shared/autopilot/cycle.ts`. Номер +1 выбран, чтобы в одном Journal-е номер Wave не повторялся: Run history
   строит отрезок Wave по ключу `wave:<n>`, и повтор номера склеил бы две Wave в одну.
