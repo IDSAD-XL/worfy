@@ -1,7 +1,8 @@
 # 03 — `live-sessions.json`: запись Session-ов с turn-ом или очередью
 
 Type: task
-Status: claimed 2026-11-17T23:32Z
+Status: done 2026-11-18T01:09Z
+PR: #1970
 Blocked by: none
 Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решения по реализации» → «Запись о работающих Session-ах»;
 «Решения по test-ам», Unit; «Риски», 7 и 14
@@ -41,16 +42,26 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решения по реал�
 - [ ] Unit test reader-а: правильный файл; незнакомая `version`; битый JSON; пустой файл — в двух последних случаях
       записей нет и одна строка в log.
   - evidence: test-run pass · `pnpm test test/unit/live-sessions.test.ts` exit 0 · mac - · ae2d9832d
+  - evidence: review pass · PR #1970 · - - · 84eb55f967f4f607447c7548a15136ce1c1cc1c3
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44208942520/job/134496483005 · ci - · 84eb55f967f4f607447c7548a15136ce1c1cc1c3
 - [ ] Contract test на fake agent (`WORFY_AGENT=fake`): Session Node в turn-е с двумя сообщениями в очереди — запись
       в файле; Interrupt делает очередь held — запись говорит held; turn кончился и очередь пуста — записи нет.
   - evidence: test-run pass · `pnpm test test/contract/live-sessions.test.ts` exit 0 · mac - · ae2d9832d
+  - evidence: review pass · PR #1970 · - - · 84eb55f967f4f607447c7548a15136ce1c1cc1c3
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44208942520/job/134496483005 · ci - · 84eb55f967f4f607447c7548a15136ce1c1cc1c3
 - [ ] Contract test: Orchestrator под Run-ом — в записи id Run-а.
   - evidence: test-run pass · `pnpm test test/contract/live-sessions.test.ts` exit 0 · mac - · ae2d9832d
+  - evidence: review pass · PR #1970 · - - · 84eb55f967f4f607447c7548a15136ce1c1cc1c3
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44208942520/job/134496483005 · ci - · 84eb55f967f4f607447c7548a15136ce1c1cc1c3
 - [ ] Contract test: файл пишется через временный файл и rename — после записи в папке нет временного файла.
   - evidence: test-run pass · `pnpm test test/contract/live-sessions.test.ts` exit 0 · mac - · ae2d9832d
+  - evidence: review pass · PR #1970 · - - · 84eb55f967f4f607447c7548a15136ce1c1cc1c3
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44208942520/job/134496483005 · ci - · 84eb55f967f4f607447c7548a15136ce1c1cc1c3
 - [ ] Английская страница `docs/features/storage-and-diagnostics.md` называет `live-sessions.json`.
   - evidence: commit pass · worfy-continuity/03: record Sessions with a turn or a queue in live-sessions.json · - - · ae2d9832d
+  - evidence: review pass · PR #1970 · - - · 84eb55f967f4f607447c7548a15136ce1c1cc1c3
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44208942520/job/134496483005 · ci - · 84eb55f967f4f607447c7548a15136ce1c1cc1c3
 
 ## Тесты
 
