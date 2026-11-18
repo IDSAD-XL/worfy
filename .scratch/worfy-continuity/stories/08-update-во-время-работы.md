@@ -177,3 +177,32 @@ Code: `src/renderer/update/toasts.ts:151-156` · key lines: 153, 154
 3. Почему Run в Wait retry держит "Restart when idle", а Run в Wait Limits — нет?
    - Строки: `src/main/update/idle.ts:37`
    - Ответ: тихие Wait-ы — только Limits, budget и Start window, их называет Ticket; retry в этот набор не входит, и Run в нём считается работой.
+
+## 10. Что нашёл review и что осталось
+
+> VERIFIED
+> Round 1 (two verifiers, depth medium) found one merge blocker by the owner's rule — the production wiring of "Restart now" (src/main/ipc/update.ts:367, restartBegan(() => quitForUpdate())) had no test, and "Restart now" now interrupts turns. Round 2 closed it: test/contract/update-wiring.test.ts:93 builds the real appUpdate() and turns red on `restartBegan(() => app.quit())` and on `quit: () => app.quit()`; :76 and :83 pin appIdleWatch (Autopilot counts as work until loaded; a Limits Wait does not hold, a Wave in work does); update-restart.test.ts:470 pins that a refused "Restart now" still drops the wish; updates-block.test.tsx:148 pins the Settings order and test ids. The orchestrator then made the wiring tests run in file order and let the Limits test wait for the modules itself (shuffled 6/6 green).
+> Consider: src/main/update/idle.ts:62 — a stopped Run that still waits for its tasks is seen only through its Orchestrator Session's tasks while another Project sits in a quiet Wait; a narrow race for "Restart when idle" only (low).
+> Noted: every "Restart now" entry (toast, chip menu, Settings, Command palette) goes through update.restart → Restarts.restart('now') → quitForUpdate → QuitGrace.leave('update'); Roll back still answers BUSY during work, as the spec asks only for "Restart now".
+> Noted: the toast screenshot goes to the owner's acceptance; the Windows swap helper with "Restart now" during work is checked on the PC after the Wave.
+> Checks: round 1 — vitest 7 files 203 passed, typecheck EXIT=0, mutants 30+ (survivors closed in round 2 but I8, equivalent); round 2 — 9 files 209 passed, lint+typecheck+test EXIT=0, gate fast green, 8 mutants killed; orchestrator fix — update-wiring shuffled ×6 EXIT=0, lint EXIT=0, tsc EXIT=0, story-check EXIT=0.
+> Review depth: medium — the ticket header asks for medium
+> Review tokens: 281566
+
+Code: `src/main/ipc/update.ts:367-367` · key lines: 367
+
+```ts
+        quit: () => appUpdate().restartBegan(() => quitForUpdate()),
+```
+
+Code: `test/contract/update-wiring.test.ts:93-93` · key lines: 93
+
+```ts
+    expect(idle.recheck()).toBe(true)
+```
+
+Code: `src/main/update/idle.ts:62-62` · key lines: 62
+
+```ts
+  // shortcut: while a Project's run goes on, a stopped run that still waits for its Orchestrator's tasks is seen
+```
