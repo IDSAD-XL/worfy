@@ -1,7 +1,7 @@
 # 16 — Unknown side effects: распознавание внешних вызовов без результата
 
 Type: task
-Status: open
+Status: claimed 2026-11-18T01:24Z
 Blocked by: 03
 Source: [spec.md](../spec.md), «Ticket-ы», 16; «Решения по реализации» → «Unknown side effects: распознавание»;
 [critic 2026-11-14](../../../docs/product/critic/worfy-continuity-2026-11-14.md), возражение 1 и «Alternative»;
@@ -37,11 +37,15 @@ Source: [spec.md](../spec.md), «Ticket-ы», 16; «Решения по реал
 
 - [ ] Unit test: Session с `git push` без `tool_result` — вызов найден; с результатом — нет; чтение файла без
       результата — не внешний вызов.
+  - evidence: test-run pass · `pnpm test test/unit/unknown-side-effects.test.ts test/unit/continue-plan.test.ts` exit 0 · mac - · a7222c62f
 - [ ] Unit test: Subagent с `gh pr merge 1234` без результата в своём транскрипте — найден и привязан к Ticket-у его
       Binding-а; Subagent без Binding-а — вызов найден, Ticket `null`.
+  - evidence: test-run pass · `pnpm test test/unit/unknown-side-effects.test.ts test/unit/continue-plan.test.ts` exit 0 · mac - · a7222c62f
 - [ ] Unit test: рваная последняя строка транскрипта не роняет функцию; вызов из неё не теряется, если `tool_use`
       прочитан.
+  - evidence: test-run pass · `pnpm test test/unit/unknown-side-effects.test.ts test/unit/continue-plan.test.ts` exit 0 · mac - · a7222c62f
 - [ ] Unit test: классификация совпадает с `externalActions` на fixture-ах `test/unit/continue-plan.test.ts`.
+  - evidence: test-run pass · `pnpm test test/unit/unknown-side-effects.test.ts test/unit/continue-plan.test.ts` exit 0 · mac - · a7222c62f
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Тесты
