@@ -340,6 +340,39 @@ describe('Settings → Health: the order, the level and Fix (worfy-auth-check ti
   })
 })
 
+describe('Settings → Health: "Use <login>" of a Project row (worfy-auth-check ticket 05)', () => {
+  const alpha = { id: 'alpha-0000000a', name: 'alpha' }
+  const beta = { id: 'beta-0000000b', name: 'beta' }
+  const access = (project: { id: string; name: string }, login: string): Check =>
+    check('github-access', 'Projects', 'GitHub access', { project, status: 'warn', detail: 'github.account is not set', actions: [{ id: 'use-login', label: `Use ${login}`, safe: true, login }] })
+  const rowNamed = (place: HTMLElement, name: string): HTMLElement => {
+    const found = rowsOf(place).find((each) => each.getAttribute('aria-label') === name)
+    if (found === undefined) throw new Error(`no row ${name}`)
+    return found
+  }
+
+  it('the button of the second Project sends that Project and its login only, and only its row runs', async () => {
+    handlers['firstRun.checks'] = () => ({ ok: true, value: { checkedAt: '2026-11-18T00:00:00.000Z', checks: [access(alpha, 'alice'), access(beta, 'bob')] } })
+    renderApp()
+    const health = await openHealth()
+    const pending = later()
+    handlers['firstRun.run'] = () => pending.answer
+    const answer = { ok: true as const, value: { outcome: 'done', message: 'github.account of beta is now bob', report: { checkedAt: '2026-11-18T00:00:01.000Z', checks: [access(alpha, 'alice'), { ...access(beta, 'bob'), status: 'ok', actions: [] }] } } }
+    try {
+      fireEvent.click(within(rowNamed(health, 'GitHub access, beta')).getByRole('button', { name: 'Fix: Use bob' }))
+      expect(callsOf('firstRun.run')).toEqual([{ action: 'use-login', projectName: undefined, projectId: 'beta-0000000b', login: 'bob' }])
+      expect(rowNamed(health, 'GitHub access, beta').querySelector('.w-chip')?.textContent).toBe('Running…')
+      expect(rowNamed(health, 'GitHub access, alpha').querySelector('.w-chip')?.textContent).toBe('Warning')
+    } finally {
+      // The action ends either way: a running one would lock the tests after this one.
+      await pending.give(answer)
+    }
+    expect(rowNamed(health, 'GitHub access, beta').dataset.status).toBe('ok')
+    expect(rowNamed(health, 'GitHub access, alpha').dataset.status).toBe('warn')
+    expect(health.textContent).toContain('github.account of beta is now bob')
+  })
+})
+
 describe('Settings → Health: actions', () => {
   it('an action goes to main as firstRun.run, which asks before it runs; its row says "Running…" and the answer replaces the checks', async () => {
     renderApp()
