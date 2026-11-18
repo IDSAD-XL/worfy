@@ -77,6 +77,18 @@ function records(): LiveRecord[] {
   }
 }
 
+/** The session ids the Session Nodes of the Project's layout.json keep. */
+function savedSessionIds(): string[] {
+  const file = join(dataDir, PROJECT, 'layout.json')
+  if (!existsSync(file)) return []
+  try {
+    const { nodes } = JSON.parse(readFileSync(file, 'utf8')) as { nodes: { kind: string; data?: { sessionId?: unknown } }[] }
+    return nodes.flatMap((node) => (node.kind === 'session' && typeof node.data?.sessionId === 'string' ? [node.data.sessionId] : []))
+  } catch {
+    return []
+  }
+}
+
 /** The transcript Claude Code would have written of the cut-off turn: the person's message and the start of an answer. */
 function writeTranscript(sessionId: string): void {
   const dir = join(claudeHome, 'projects', projectPath.normalize('NFC').replace(/[^a-zA-Z0-9]/g, '-'))
@@ -108,6 +120,10 @@ async function killedInATurn(): Promise<{ nodeId: string; sdk: string }> {
     await expect.poll(() => messages(), { timeout: ms(10_000) }).toEqual([FIRST])
     // The record of ticket 03 names the Session in its turn: what the start after the kill reads.
     await expect.poll(() => records().map(({ state, vendorSessionId }) => ({ state, named: vendorSessionId !== null })), { timeout: ms(10_000) }).toEqual([{ state: 'busy', named: true }])
+    // The Layout is written up to LAYOUT_SAVE_MAX_DELAY_MS after a change: a kill before it loses the Node and its
+    // session id, and the start after it has no Node to continue. Kill once layout.json names the Session.
+    const named = records()[0]?.vendorSessionId ?? ''
+    await expect.poll(() => savedSessionIds(), { timeout: ms(10_000) }).toContain(named)
     await endApp(child, await first.app.evaluate(() => process.pid))
     killed = true
   } finally {
