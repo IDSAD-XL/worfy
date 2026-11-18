@@ -225,3 +225,25 @@ Code: `test/contract/harness-evals.test.ts:283-285` · key lines: 283, 285
    - Строки: `scripts/eval-harness.mjs:342-351`
    - Ответ: с переменными compaction случилась бы в каждом кейсе вызова; поэтому кейс идёт только своим вызовом по
      точному `--case`, и только этот вызов получает переменные.
+
+## 10. Что нашёл review и что осталось
+
+> VERIFIED
+> Noted: round 3 (c366f582c..98a0cc68d): the alone call keeps only `vars` and gets { ...childEnv, ...call.vars } when it starts (scripts/eval-harness.mjs:351, :435), after gitForRuns; the dry run prints the vars (:365); test/contract/harness-evals-run.test.ts:456 compares evalGit, evalHarnessHome and the PATH head of the alone call with the main call; the mutant "copy at build time" turns it red.
+> Noted: live paid run on 98a0cc68d — the agent process had EVAL_GIT, EVAL_HARNESS_HOME=worfy-harness, CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000, CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=5 (ps -E). Results: with hook 0.82 / 0.36 / 0.73, overall 0.64, 1.66 USD (run 2 ended on "Autocompact is thrashing"); baseline 0.82 / 0.91 / 0.45, overall 0.73, 1.38 USD; casesPassed 0 of 1 in both.
+> Noted: bc6da0105 puts these numbers per probe into «Итог» and closes done item 3 by its second branch ("Итог names why not"): only the done-items probe is better with the hook, the Ticket probe is even, the next-step probe is worse. A repeat with a higher compaction percentage and 5–6 runs per variant is left to the wave report, not this PR.
+> Checks: verifier — vitest harness-evals 444 passed EXIT=0, both --dry-run EXIT=0, mutant EXIT=1, story-check EXIT=0; implementer on bc6da0105 — story-check EXIT=0, pnpm lint EXIT=0, harness-evals EXIT=0.
+> Review depth: medium — round 3, one verifier on the delta
+> Review tokens: 60025
+
+Code: `scripts/eval-harness.mjs:351-351` · key lines: 351
+
+```mjs
+    for (const name of cases) calls.push({ tag, name: `${tag}-${name}`, args: ['--case', name], cases: [name], vars: { ...ALONE[name] } })
+```
+
+Code: `test/contract/harness-evals-run.test.ts:456-456` · key lines: 456
+
+```ts
+  it('runs it alone, with main grants, the git and state folder of the runs and its two variables over those of the shell, when --case names it', () => {
+```
