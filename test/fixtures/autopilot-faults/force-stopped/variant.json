@@ -1,0 +1,8 @@
+{
+  "about": "Force stop in the middle of Wave 1: run-stopped user-force-stop with the Tickets of the Wave, the Orchestrator given back. Nothing is broken.",
+  "rule": null,
+  "expect": {
+    "stop": "user-force-stop",
+    "errorText": null
+  }
+}

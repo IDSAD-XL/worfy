@@ -803,6 +803,7 @@ describe('from-journal: the frame of the Run', () => {
       'user-stop': 'stopped',
       'user-force-stop': 'stopped',
       'app-quit': 'stopped',
+      discarded: 'stopped',
       interrupted: 'stopped',
       'no-progress': 'failed',
       'wave-unfinished': 'failed',

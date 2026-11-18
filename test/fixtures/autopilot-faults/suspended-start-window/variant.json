@@ -1,0 +1,34 @@
+{
+  "about": "A run in Run mode Start window finished Wave 1 and waits for the window to open; the system shuts down during the wait: run-suspended (shutdown) between Waves, no Ticket in work. Nothing is broken.",
+  "rule": null,
+  "statusWrites": [
+    {
+      "at": "2026-11-03T10:00:04.000Z",
+      "file": ".scratch/demo/issues/01-ticket-1.md",
+      "ticket": "01",
+      "state": "claimed"
+    },
+    {
+      "at": "2026-11-03T10:00:04.500Z",
+      "file": ".scratch/demo/issues/02-ticket-2.md",
+      "ticket": "02",
+      "state": "claimed"
+    },
+    {
+      "at": "2026-11-03T10:00:07.000Z",
+      "file": ".scratch/demo/issues/01-ticket-1.md",
+      "ticket": "01",
+      "state": "done"
+    },
+    {
+      "at": "2026-11-03T10:00:07.500Z",
+      "file": ".scratch/demo/issues/02-ticket-2.md",
+      "ticket": "02",
+      "state": "done"
+    }
+  ],
+  "expect": {
+    "stop": null,
+    "errorText": null
+  }
+}

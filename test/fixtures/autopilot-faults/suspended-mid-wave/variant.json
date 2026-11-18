@@ -1,0 +1,8 @@
+{
+  "about": "The app quit in the middle of Wave 1: run-suspended (quit) with both Tickets in work is the last line, no run-stopped. Nothing is broken.",
+  "rule": null,
+  "expect": {
+    "stop": null,
+    "errorText": null
+  }
+}

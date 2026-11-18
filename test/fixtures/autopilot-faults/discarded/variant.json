@@ -1,0 +1,8 @@
+{
+  "about": "The app quit in the middle of Wave 1 (run-suspended), and after the start a person discarded the run: run-stopped discarded with the Tickets of the Wave in work. Nothing is broken.",
+  "rule": null,
+  "expect": {
+    "stop": "discarded",
+    "errorText": null
+  }
+}

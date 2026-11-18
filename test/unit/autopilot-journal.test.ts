@@ -84,6 +84,8 @@ const everyKind: JournalEvent[] = [
   stopped,
   { ...base, at: at(40), kind: 'orchestrator-returned' },
   { ...base, at: at(41), kind: 'tasks-killed', reason: 'app-quit', tasks: [{ id: 'task-2', type: null, description: null }] },
+  { ...base, at: at(42), kind: 'run-suspended', cause: 'update', wave: 1, tickets: ['01'], wait: { kind: 'limits', until: at(43) } },
+  { ...base, at: at(44), kind: 'run-continued', after: 'update' },
 ]
 
 describe('parseJournal', () => {

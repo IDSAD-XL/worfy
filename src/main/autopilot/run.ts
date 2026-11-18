@@ -56,8 +56,10 @@
 //   the interrupted Wave, `tasks-killed` when tasks lived, and `orchestrator-returned`; forceStop()
 //   answers after that. The next run of the Epic
 //   takes those Tickets, if still in work, into its first Wave (`resumable`); after a graceful Stop
-//   it takes none. A Session in error during a Wave (`session-error`, worfy-retry ticket 14) leaves
-//   them `resumable` too, unless a graceful Stop came first: its implementers died with the
+//   it takes none. The start reads them from the journals of the Project's runs (deps.pastRuns,
+//   src/shared/autopilot/checkpoint.ts, worfy-continuity ticket 02), so a restart of the app keeps
+//   them; a run cut off by the restart leaves none until it is continued or discarded. A Session in
+//   error during a Wave (`session-error`, worfy-retry ticket 14) leaves them `resumable` too, unless a graceful Stop came first: its implementers died with the
 //   Orchestrator, and a Ticket one of them claimed would otherwise wait for a person (ADR-0050,
 //   Amendments).
 // - A run started while the Orchestrator is busy is accepted and waits for it (worfy-autopilot-queue
@@ -203,6 +205,7 @@ import { isTaskEvent, type BackgroundTask } from '../../shared/agent/background-
 import { MAX_RETRIES } from '../../shared/agent/continue-plan'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../shared/agent/events'
 import { turnFailureKind, type TurnFailure } from '../../shared/agent/turn-failure'
+import { resumableAfter } from '../../shared/autopilot/checkpoint'
 import { budgetWindows, listsWindows, STORED_LIMITS_VENDOR, type VendorLimits } from '../../shared/autopilot/budget-window'
 import { autoApprovalChatLine, type Judged } from '../../shared/autopilot/auto-approval-summary'
 import { clipLastText, clipRetryMessage, journalCommand, journalLimits, journalReason, journalTarget, journalVendorLimits, type JournalEventFields, type JournalLimits, type RunStartedBy, type TicketStatusState } from '../../shared/autopilot/journal'
@@ -456,6 +459,12 @@ export interface AutopilotDeps {
     settings(): AutopilotBudget
     runs(projectId: string): Promise<readonly (readonly JournalEvent[])[]>
   }
+  /**
+   * The events of the Project's recent runs, newest first (readRecentRuns): a start reads what the last one left
+   * resumable from them (checkpoint.ts, worfy-continuity ticket 02), so it outlives a restart of the app. Without it,
+   * or when they cannot be read, the start takes it from the last stopped state in memory, as before the ticket.
+   */
+  pastRuns?(projectId: string): Promise<readonly (readonly JournalEvent[])[]>
   /**
    * The Run settings in force (worfy-resource-planner ticket 05, Settings → Autopilot): the default
    * Run mode, read at a start that names none, and the Start window, read before each Wave of a run
@@ -1132,6 +1141,24 @@ export class Autopilot {
     await this.write(run, { kind: 'harness-behind', harness: behind.harness, main: behind.main, commits: behind.commits })
   }
 
+  /**
+   * What the Project's last run left for the next one: the Epic it stopped on and its resumable Tickets. Read from the
+   * journals (deps.pastRuns, resumableAfter of checkpoint.ts: a cut-off run leaves none); from the last stopped state
+   * in memory without them, or when they cannot be read.
+   */
+  private async leftOver(projectId: string): Promise<{ epic: string | null; resumable: readonly number[] } | undefined> {
+    const remembered = this.last.get(projectId)
+    if (this.deps.pastRuns === undefined) return remembered
+    try {
+      // Newest first as read; resumableAfter wants them in the order they ran.
+      const left = resumableAfter([...(await this.deps.pastRuns(projectId))].reverse())
+      return left === null ? undefined : { epic: left.epic, resumable: left.resumable.map(Number) }
+    } catch (error) {
+      console.warn(`[autopilot] ${projectId}: could not read the journals for the resumable Tickets`, error)
+      return remembered
+    }
+  }
+
   /** Whether a run of the Project goes on (or is starting). */
   running(projectId: string): boolean {
     return this.starting.has(projectId) || this.runs.get(projectId)?.running === true
@@ -1181,7 +1208,8 @@ export class Autopilot {
       run.onLateRefusal = options.onLateRefusal ?? null
       // The Wave the last Force stop of this Epic interrupted goes along with the first Wave (worfy-week tickets 17, 18).
       // A run over named Tickets takes only those of its list, and keeps the rest resumable (ADR-0091).
-      const last = this.last.get(projectId)
+      const last = await this.leftOver(projectId)
+      if (this.quitting) throw new Error(QUITTING_MESSAGE)
       run.resume = last?.epic === epic ? [...last.resumable] : []
       run.given = run.resume
       const named = options.tickets

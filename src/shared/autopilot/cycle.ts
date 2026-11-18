@@ -63,7 +63,10 @@ import { doneOnlyInBranch, inWork, readyWave } from '../workflow/waves'
  * queue (epic-queue.ts, epicOutcome) finds the last Epic waiting only for the owner (ticket 21); a Run
  * of one Epic stops with `blocked-tickets` then, as before. `main-red`: main was red when the cycle asked a
  * continuation or a set-aside and no graceful Stop had come (worfy-stuck-agents ticket 01). `turn-hung`: the
- * Orchestrator's turn went QUIET_HUNG_MS without a sign of life (worfy-stuck-agents ticket 09).
+ * Orchestrator's turn went QUIET_HUNG_MS without a sign of life (worfy-stuck-agents ticket 09). `discarded` is
+ * never a cycle's own either: a person discarded a run a restart of the app cut off, and its `run-stopped` goes to
+ * that run's journal with the Tickets of its Wave in work, which stay resumable as after a Force stop
+ * (worfy-continuity ticket 02, src/shared/autopilot/checkpoint.ts). `app-quit` stays for the journals before it.
  */
 export const AUTOPILOT_STOP_REASONS = [
   'no-ready-wave',
@@ -89,6 +92,7 @@ export const AUTOPILOT_STOP_REASONS = [
   'waits-owner',
   'main-red',
   'turn-hung',
+  'discarded',
 ] as const
 export type AutopilotStopReason = (typeof AUTOPILOT_STOP_REASONS)[number]
 

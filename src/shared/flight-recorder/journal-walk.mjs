@@ -39,6 +39,8 @@ export const JOURNAL_KINDS = [
   'run-stopped',
   'orchestrator-returned',
   'tasks-killed',
+  'run-suspended',
+  'run-continued',
 ]
 
 /** The time of an ISO text in ms, or null. */

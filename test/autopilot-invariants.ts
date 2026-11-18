@@ -7,7 +7,8 @@
 //   I1  the command of a Wave reaches the Orchestrator once per Wave
 //   I2  worfy changes nothing on GitHub: every gh call is a read
 //   I3  one ticket-status line per change of a Ticket's Status:, none lost, none repeated
-//   I4  the journal names the expected reason and ends (no run-stopped only for a killed app);
+//   I4  the journal names the expected reason and ends (no run-stopped only for a killed app, or for
+//       a run a quit suspended: run-suspended last, worfy-continuity ticket 02);
 //       with Auto-continue on (worfy-retry ticket 09) each turn-retry gets its resumed, and a
 //       retry-refused is the give-up right before run-stopped turn-error
 //
@@ -135,8 +136,11 @@ function ghReads(args: readonly string[]): boolean {
 export const ghOnlyReads: Rule = (input) =>
   (input.gh ?? []).flatMap((args, index) => (ghReads(args) ? [] : [`I2: gh log line ${index + 1}: gh ${args.join(' ')} is not a read`]))
 
-/** Runs that end without the last read of the Tickets: a Force stop, a quit, a killed app. */
-const NO_LAST_READ = new Set(['user-force-stop', 'app-quit'])
+/**
+ * Runs that end without the last read of the Tickets: a Force stop, a quit, a killed app, and a Discard of a run a
+ * restart cut off (worfy-continuity ticket 02): its run-stopped comes after the restart, with no read before it.
+ */
+const NO_LAST_READ = new Set(['user-force-stop', 'app-quit', 'discarded'])
 
 /** I3: per Ticket, the run's `ticket-status` states are its Status changes during the run, in order. */
 export const statusOnce: Rule = (input, runs) => {
@@ -201,8 +205,8 @@ export const namesItsEnd: Rule = (input, runs) => {
   return [...out, ...retriesEnd(run, input.expect)]
 }
 
-/** Stops of a person: a wait to retry may end with them, without its `resumed`. */
-const PERSON_STOPS = new Set(['user-stop', 'user-force-stop', 'app-quit'])
+/** Stops of a person: a wait to retry may end with them, without its `resumed`; a Discard ends one a restart cut off. */
+const PERSON_STOPS = new Set(['user-stop', 'user-force-stop', 'app-quit', 'discarded'])
 /** The events that end a wait to retry or follow a give-up: the next one after `turn-retry` or `retry-refused`. */
 const RETRY_NEXT = new Set<JournalEvent['kind']>(['resumed', 'turn-retry', 'retry-refused', 'wave-started', 'wave-finished', 'run-stopped'])
 
