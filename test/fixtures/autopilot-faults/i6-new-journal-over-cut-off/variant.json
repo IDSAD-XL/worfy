@@ -1,0 +1,8 @@
+{
+  "about": "The app was killed during Wave 1, and after the start a new journal began beside the Run instead of continuing it (worfy-continuity ticket 06): the killed Run has no run-stopped.",
+  "rule": "I6",
+  "expect": {
+    "stop": null,
+    "errorText": null
+  }
+}

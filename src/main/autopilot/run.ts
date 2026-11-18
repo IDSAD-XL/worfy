@@ -205,7 +205,7 @@ import { isTaskEvent, type BackgroundTask } from '../../shared/agent/background-
 import { MAX_RETRIES } from '../../shared/agent/continue-plan'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../shared/agent/events'
 import { turnFailureKind, type TurnFailure } from '../../shared/agent/turn-failure'
-import { resumableAfter } from '../../shared/autopilot/checkpoint'
+import { resumableAfter, runCheckpoint, type RunCheckpoint } from '../../shared/autopilot/checkpoint'
 import { budgetWindows, listsWindows, STORED_LIMITS_VENDOR, type VendorLimits } from '../../shared/autopilot/budget-window'
 import { autoApprovalChatLine, type Judged } from '../../shared/autopilot/auto-approval-summary'
 import {
@@ -216,6 +216,7 @@ import {
   journalReason,
   journalTarget,
   journalVendorLimits,
+  type ContinuedAfter,
   type JournalEventFields,
   type JournalLimits,
   type RunStartedBy,
@@ -236,6 +237,7 @@ import {
   BACKGROUND_STALL_MS,
   initialCycle,
   QUIET_HUNG_MS,
+  restartDecision,
   SETTLE_MS,
   step,
   TASKS_GRACE_MS,
@@ -257,6 +259,7 @@ import type { VendorId } from '../../shared/vendors/vendor'
 import { PARK_STOPPED_HINT } from '../agent/auto-approve/park'
 import { HINTS, type Decision } from '../agent/auto-approve/policy'
 import type { LaunchApproval, RunApproval } from '../agent/auto-approve/run-approval'
+import { bindingWorkflowOf } from '../../shared/binding/resolve'
 import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
 import { readyWave } from '../../shared/workflow/waves'
 import type { WorkflowModel } from '../../shared/workflow/types'
@@ -264,6 +267,7 @@ import { BASE_INTERVAL_MS } from '../github/prs'
 import type { RunStart } from './journal'
 import { LimitsWait, wallTimer, type LimitsWaitDeps } from './limits-wait'
 import { outputChanged, outputMarks, rememberTaskOutputs, type OutputMarks } from './task-output'
+import type { CutOffWave } from './held-tickets'
 import { TurnRetry, type RetryAction, type TurnRetryDeps } from './turn-retry'
 
 /** The run's Orchestrator Session, as far as the run needs it. */
@@ -480,6 +484,17 @@ export interface AutopilotDeps {
    */
   pastRuns?(projectId: string): Promise<readonly (readonly JournalEvent[])[]>
   /**
+   * Opens the journal of an earlier run to append to it, under its id (journal.ts, reopenRun; worfy-continuity ticket
+   * 06): a Run a restart cut off goes on there. Without it no cut-off Run is continued (continueCutOff does nothing).
+   */
+  reopenJournal?(run: string): Promise<RunJournalLike>
+  /**
+   * The Tickets of a cut-off Wave whose implementer has an external call without a result (held-tickets.ts, over
+   * unknownSideEffects of worfy-continuity ticket 16), read before the Run goes on: they are not continued and wait
+   * for a person. Without it, or when it throws, none is held.
+   */
+  heldTickets?(cut: CutOffWave): Promise<number[]>
+  /**
    * The Run settings in force (worfy-resource-planner ticket 05, Settings → Autopilot): the default
    * Run mode, read at a start that names none, and the Start window, read before each Wave of a run
    * in `start-window`. Without it a start that names no mode goes Budget-aware while the budget is
@@ -635,8 +650,17 @@ export interface AutopilotStartOptions {
   onLateRefusal?: (message: string) => void
 }
 
-/** What a wait before a Wave is for: the budget's causes, or the Start window. */
-type BoundaryCause = BudgetCause | 'start-window'
+/**
+ * What a wait before a Wave is for: the budget's causes, or the Start window; `limits` and `retry` only for the wait a
+ * continued Run goes on with (worfy-continuity ticket 06): the Limits' or a retry's, cut off by the restart.
+ */
+type BoundaryCause = BudgetCause | 'start-window' | 'limits' | 'retry'
+
+/** A wait before a Wave as `run-suspended` names it (RunWaitKind). */
+const boundaryKind = (cause: BoundaryCause): RunWaitKind => (cause === 'start-window' || cause === 'limits' || cause === 'retry' ? cause : 'budget')
+
+/** A wait cut off by a restart as a wait before a Wave names it: the budget's by its daily share, whose cause the journal does not keep. */
+const restoredCause = (kind: RunWaitKind): BoundaryCause => (kind === 'budget' ? 'daily-share' : kind)
 
 /** What the boundary of a Wave says (Autopilot.boundaryCheck): the Wave goes, or the budget or the window holds it back. */
 type Boundary =
@@ -815,8 +839,9 @@ function waveTicketCounts(run: Run): { done: number; blocked: number } {
  */
 function resumableOf(run: Run): number[] {
   // A run that sent no Wave took none of the Tickets it was given: they stay resumable, whatever
-  // ended it (a Stop during the wait for the Start window, worfy-resource-planner ticket 05).
-  const given = run.cycle.wave === 0 ? run.given : []
+  // ended it (a Stop during the wait for the Start window, worfy-resource-planner ticket 05). A continued Run counts
+  // its Waves on from the cut-off one's (worfy-continuity ticket 06).
+  const given = run.cycle.wave === run.firstWave ? run.given : []
   return [...new Set([...given, ...run.interrupted, ...run.carried])].sort((a, b) => a - b)
 }
 
@@ -827,6 +852,42 @@ function resumableOf(run: Run): number[] {
 function queueWaves(run: Run, tickets: WorkflowModel['tickets']): RemainingWaves {
   const parts = run.queue.map((epic) => remainingWaves(tickets, epic, run.cycle.named))
   return { waves: parts.flatMap((part) => part.waves), uncounted: parts.flatMap((part) => part.uncounted) }
+}
+
+/** A Run a restart of the app cut off (worfy-continuity ticket 06): its checkpoint and its journal's events. */
+interface CutOffRun {
+  checkpoint: RunCheckpoint
+  events: readonly JournalEvent[]
+  /** Why its continuation did not go (a refusal of the checks, a journal that cannot be opened), in words; null otherwise. */
+  message: string | null
+}
+
+/** Why a start is refused while a Run a restart cut off waits for Resume or Discard (worfy-continuity ticket 06). */
+export const cutOffWaits = (epic: string): string => `A Run of Epic ${epic} cut off by the restart of worfy waits: Resume or Discard it first`
+
+/** The words of the wait a continued Run goes on with (Autopilot.waitRestored). */
+function restoredWaitText(until: number): string {
+  const time = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(until)
+  return `The wait the restart cut off goes on: Autopilot continues at ${time}`
+}
+
+/**
+ * The first read of the statuses of a continued Run (worfy-continuity ticket 06): the last `ticket-status` of each
+ * Ticket in its journal stands as the last read, the other Tickets are read as they are now (as at a start), and the
+ * lines for what changed since the journal's — while the app was away — are answered, to be written.
+ */
+function continuedStatuses(run: Run, events: readonly JournalEvent[], tickets: WorkflowModel['tickets']): JournalEventFields[] {
+  statusChanges(run, tickets)
+  for (const event of events) {
+    if (event.kind !== 'ticket-status' || event.epic !== run.epic) continue
+    const fields = {
+      ...(event.statusAt ? { statusAt: event.statusAt } : {}),
+      ...(event.reason ? { reason: event.reason } : {}),
+      ...(event.waits ? { waits: event.waits } : {}),
+    }
+    run.statuses.set(Number(event.ticket), JSON.stringify([event.state, fields]))
+  }
+  return statusChanges(run, tickets)
 }
 
 /** One run of one Project. */
@@ -936,8 +997,21 @@ class Run {
   readonly narrowJournaled = new Set<string>()
   /** The next read of the PRs; null before the first Wave and once the run stops. */
   prsTimer: unknown = null
-  /** When the run started (ms), the click: narrow-round comments made before it are not this run's. */
-  readonly startedAt = Date.now()
+  /**
+   * When the run started (ms), the click: narrow-round comments made before it are not this run's. A continued Run
+   * keeps the time of its run-started (worfy-continuity ticket 06).
+   */
+  startedAt = Date.now()
+  /** The count of Waves the run began with: 0, or the cut-off Wave's for a continued Run (worfy-continuity ticket 06). */
+  firstWave = 0
+  /**
+   * A Run a restart cut off that goes on in its journal (worfy-continuity ticket 06): what it goes on after, the
+   * events of its journal before the continuation (its ticket-status lines are the last read of the statuses), and
+   * the wait it was in, which goes on to its until; null for a run the click started.
+   */
+  continuedFrom: { after: ContinuedAfter; events: readonly JournalEvent[] } | null = null
+  /** The wait of a continued Run still to set up when it takes its Orchestrator (Autopilot.go); null otherwise. */
+  restoredWait: { kind: RunWaitKind; until: string | null } | null = null
   /**
    * The wait for the Orchestrator before the run takes it (worfy-autopilot-queue ticket 07): what keeps
    * it busy as last journaled, since when (ms), the unsubscribe of the Sessions' events, and the grace
@@ -963,7 +1037,7 @@ class Run {
    * again, why (`reason`: the window's), the reason in words and the cancel of its timer; null
    * otherwise.
    */
-  boundary: { id: number; until: number; cause: BoundaryCause; reason?: WindowWaitReason; text: string; cancel: () => void } | null = null
+  boundary: { id: number; until: number; cause: BoundaryCause; reason?: WindowWaitReason; text: string; cancel: () => void; restored?: true } | null = null
   /** The id of the last wait before a Wave: a timer of an earlier one sends no Wave. */
   boundaryIds = 0
   /** The Run mode (worfy-resource-planner ticket 05): set at the start, the same for every Wave. */
@@ -1078,6 +1152,10 @@ export class Autopilot {
   private readonly last = new Map<string, AutopilotState>()
   /** The last answer of deps.harnessDrift for each Project (AutopilotState.harnessBehind). */
   private readonly harness = new Map<string, HarnessBehind | null>()
+  /** The Runs a restart of the app cut off that wait for Resume or Discard, by Project (worfy-continuity ticket 06). */
+  private readonly cutOffs = new Map<string, CutOffRun>()
+  /** The Projects whose journals continueCutOff has read: each once per launch of the app. */
+  private readonly looked = new Set<string>()
   private revision = 0
 
   /** The policy each Project's unattended Session is launched with: one per Project, it asks the Project's run of the moment. */
@@ -1094,6 +1172,8 @@ export class Autopilot {
     const run = this.runs.get(projectId)
     if (run === undefined) {
       const harnessBehind = this.harness.get(projectId) ?? null
+      const cut = this.cutOffs.get(projectId)
+      if (cut !== undefined) return this.cutOffState(projectId, cut, harnessBehind)
       const last = this.last.get(projectId)
       if (last !== undefined) return { ...last, harnessBehind }
       return {
@@ -1205,6 +1285,9 @@ export class Autopilot {
     // Taken before the first await: two starts that arrive together do not both pass.
     const live = this.runs.get(projectId)
     if (this.starting.has(projectId) || live?.running === true) throw new Error(alreadyRunning(live?.epic ?? epic))
+    // A Run a restart cut off goes on in its own journal, or ends with Discard, before a new one begins (I6).
+    const cut = this.cutOffs.get(projectId)
+    if (cut !== undefined) throw new Error(cutOffWaits(cut.checkpoint.epic))
     const queue = startQueue(epic, options.epics, options.tickets)
     const starting = { epic, origin: null as string | null }
     this.starting.set(projectId, starting)
@@ -1280,7 +1363,7 @@ export class Autopilot {
       this.runs.set(projectId, run)
       this.starting.delete(projectId)
       this.publish(projectId)
-      void run.enqueue(() => this.feed(run, { type: 'start', tickets: model.tickets, resume: run.resume }))
+      void run.enqueue(() => this.go(run, model.tickets))
       return this.snapshot(run)
     } finally {
       this.starting.delete(projectId)
@@ -1305,7 +1388,8 @@ export class Autopilot {
     run.vendor = view.vendor ?? STORED_LIMITS_VENDOR
     if (run.journal === null && facts !== null) run.journal = await this.openJournal(run, facts, view.vendor)
     await this.journalHarness(run)
-    await this.journalForecast(run, model.tickets)
+    // The forecast is the start's: a continued Run has its own in its journal (worfy-continuity ticket 06).
+    if (run.continuedFrom === null) await this.journalForecast(run, model.tickets)
     run.awake = this.deps.keepAwake()
     run.awake.start()
     this.subscribe(run)
@@ -1356,7 +1440,8 @@ export class Autopilot {
    */
   private async waitForOrchestrator(run: Run, busy: OrchestratorBusy, facts: RunFacts): Promise<void> {
     try {
-      run.journal = await this.openJournal(run, facts, this.deps.orchestrators.runsOn?.(run.projectId))
+      // A continued Run (worfy-continuity ticket 06) has its journal open already.
+      run.journal ??= await this.openJournal(run, facts, this.deps.orchestrators.runsOn?.(run.projectId))
     } catch (error) {
       await this.closeApproval(run)
       throw error
@@ -1473,8 +1558,10 @@ export class Autopilot {
     }
     run.taken = true
     this.leaveWait(run)
-    // The statuses read now are the run's first: a change during the wait is not the run's.
-    statusChanges(run, model.tickets)
+    // The statuses read now are the run's first: a change during the wait is not the run's. A continued Run's last
+    // read is its journal's, so a change during the wait is its own (worfy-continuity ticket 06).
+    const changes = statusChanges(run, model.tickets)
+    if (run.continuedFrom !== null) for (const fields of changes) await this.write(run, fields)
     try {
       if (!(await this.take(run, model, view, null))) return
     } catch (error) {
@@ -1482,7 +1569,7 @@ export class Autopilot {
       return
     }
     this.publish(run.projectId)
-    void run.enqueue(() => this.feed(run, { type: 'start', tickets: model.tickets, resume: run.resume }))
+    void run.enqueue(() => this.go(run, model.tickets))
   }
 
   /**
@@ -1710,6 +1797,8 @@ export class Autopilot {
   async startCheck(projectId: string, epic: string, options: AutopilotStartOptions = {}): Promise<string | null> {
     const running = this.runningEpic(projectId)
     if (running !== null) return alreadyRunning(running)
+    const cut = this.cutOffs.get(projectId)
+    if (cut !== undefined) return cutOffWaits(cut.checkpoint.epic)
     try {
       const queue = startQueue(epic, options.epics, options.tickets)
       const { root } = await this.ownChecks(projectId, queue, options.tickets)
@@ -1900,6 +1989,306 @@ export class Autopilot {
   }
 
   /**
+   * At the start of the app (worfy-continuity ticket 06): the Project's last Run, when a restart cut it off, goes on —
+   * the same id, the same journal, `run-continued` (continueRun) — or, cut off more than RESTART_HOUR_MS ago or after
+   * MAX_RESTART_CONTINUATIONS continuations within that hour (restartDecision), waits for a person: the state says
+   * `cutOff`, and Resume (resumeCutOff) or Discard (discardCutOff) decides. Reads the journals once per Project and launch; nothing without
+   * deps.pastRuns and deps.reopenJournal, with a run going on, or once the app quits. Answers the state.
+   */
+  async continueCutOff(projectId: string): Promise<AutopilotState> {
+    if (this.looked.has(projectId) || this.deps.pastRuns === undefined || this.deps.reopenJournal === undefined) return this.state(projectId)
+    this.looked.add(projectId)
+    if (this.running(projectId) || this.quitting) return this.state(projectId)
+    let runs: readonly (readonly JournalEvent[])[]
+    try {
+      runs = await this.deps.pastRuns(projectId)
+    } catch (error) {
+      console.warn(`[autopilot] ${projectId}: could not read the journals for a Run cut off by the restart`, error)
+      return this.state(projectId)
+    }
+    // Newest first as read: the newest is the Run that may be cut off, the older ones say what it was given.
+    const [newest, ...older] = runs
+    const checkpoint = newest === undefined ? null : runCheckpoint(newest, { before: resumableAfter([...older].reverse()) })
+    if (newest === undefined || checkpoint === null || checkpoint.cutOff === null) return this.state(projectId)
+    // A start or a run may have come while the journals were read.
+    if (this.running(projectId) || this.quitting) return this.state(projectId)
+    const cut: CutOffRun = { checkpoint, events: newest, message: null }
+    const continued = newest.flatMap((event) => (event.kind === 'run-continued' ? [Date.parse(event.at)] : []))
+    // The journal's times are the wall clock's, so the hour is too.
+    if (restartDecision({ cutAt: Date.parse(checkpoint.cutOff.at), continued, now: Date.now() }) === 'cut-off') {
+      this.cutOffs.set(projectId, cut)
+      this.publish(projectId)
+      return this.state(projectId)
+    }
+    return this.continueRun(projectId, cut)
+  }
+
+  /** Resume (worfy-continuity ticket 06): the Project's Run a restart cut off goes on (continueRun); answers the state. */
+  async resumeCutOff(projectId: string): Promise<AutopilotState> {
+    const cut = this.cutOffs.get(projectId)
+    if (cut === undefined) return this.state(projectId)
+    return this.continueRun(projectId, cut)
+  }
+
+  /**
+   * Discard (worfy-continuity ticket 06): the Project's Run a restart cut off ends — `run-stopped` with `discarded` and
+   * the Tickets of its cut-off Wave in work, which the next Run of the Epic takes along as after a Force stop
+   * (checkpoint.ts). Nothing is sent; the Orchestrator is left as it is. Answers the stopped state; a journal that
+   * cannot be written leaves the Run cut off, with the error in `message`.
+   */
+  async discardCutOff(projectId: string): Promise<AutopilotState> {
+    const cut = this.cutOffs.get(projectId)
+    if (cut === undefined) return this.state(projectId)
+    const checkpoint = cut.checkpoint
+    try {
+      const journal = await this.reopen(checkpoint)
+      await journal.append({ kind: 'run-stopped', reason: 'discarded', tickets: [...checkpoint.inWork] }, checkpoint.epic)
+    } catch (error) {
+      cut.message = `Could not discard the Run: ${messageOf(error)}`
+      this.publish(projectId)
+      return this.state(projectId)
+    }
+    if (this.cutOffs.get(projectId) !== cut) return this.state(projectId)
+    this.cutOffs.delete(projectId)
+    this.revision += 1
+    this.last.set(projectId, {
+      projectId,
+      epic: checkpoint.epic,
+      status: 'stopped',
+      wave: checkpoint.wave,
+      backgroundTasks: 0,
+      resumesAt: null,
+      reason: 'discarded',
+      message: null,
+      resumable: checkpoint.inWork.map(Number).sort((a, b) => a - b),
+      stopping: false,
+      ticketsInWork: 0,
+      harnessBehind: this.harness.get(projectId) ?? null,
+      run: checkpoint.run,
+      revision: this.revision,
+    })
+    this.publish(projectId)
+    return this.state(projectId)
+  }
+
+  /** The journal of a cut-off Run, open to append (deps.reopenJournal). */
+  private reopen(checkpoint: RunCheckpoint): Promise<RunJournalLike> {
+    const reopen = this.deps.reopenJournal
+    if (reopen === undefined) return Promise.reject(new Error('This build cannot continue a Run'))
+    return reopen(checkpoint.run)
+  }
+
+  /** The state of a Project whose last Run a restart cut off and that waits for Resume or Discard. */
+  private cutOffState(projectId: string, cut: CutOffRun, harnessBehind: HarnessBehind | null): AutopilotState {
+    const checkpoint = cut.checkpoint
+    const at = Date.parse(checkpoint.cutOff?.at ?? '')
+    return {
+      projectId,
+      epic: checkpoint.epic,
+      status: 'stopped',
+      wave: checkpoint.wave,
+      backgroundTasks: 0,
+      resumesAt: null,
+      reason: null,
+      message: cut.message,
+      resumable: [],
+      stopping: false,
+      ticketsInWork: 0,
+      harnessBehind,
+      run: checkpoint.run,
+      cutOff: { at: Number.isFinite(at) ? at : 0, after: checkpoint.cutOff?.after ?? 'crash' },
+      revision: this.revision,
+    }
+  }
+
+  /** A continuation that did not go: the Run stays cut off, with why in its state, for Resume or Discard. */
+  private leaveCutOff(projectId: string, cut: CutOffRun, message: string): AutopilotState {
+    console.warn(`[autopilot] ${projectId}: the Run ${cut.checkpoint.run} cut off by the restart was not continued: ${message}`)
+    cut.message = message
+    this.cutOffs.set(projectId, cut)
+    this.publish(projectId)
+    return this.state(projectId)
+  }
+
+  /**
+   * A Run a restart cut off goes on (worfy-continuity ticket 06), by itself at the start of the app or by Resume: the
+   * same id and journal (deps.reopenJournal), `run-continued` with what it goes on after, the same Epic, queue, named
+   * Tickets, Run mode and continuation ladder (checkpoint.ts). The checks of a start come first (ownChecks: on Codex
+   * the refusal while the Harness's hooks are not approved), and the external calls of the cut-off Wave are read before
+   * the Orchestrator is touched (deps.heldTickets): a Ticket whose implementer has one without a result stays in work and
+   * is not continued. Then as a start: a busy Orchestrator is waited for (`orchestrator-busy`), and the run takes it.
+   * The wait it was in (the Limits, the Start window, the budget, a retry) goes on to its until; otherwise the cycle
+   * starts at once, and its next Wave goes to a new session of the Orchestrator with `wave-brief` (waveBriefText), the
+   * Tickets of the cut-off Wave still in work in it as resumed. The Waves are counted on from the cut-off one's. A
+   * refusal leaves the Run cut off, its reason in the state.
+   */
+  private async continueRun(projectId: string, cut: CutOffRun): Promise<AutopilotState> {
+    const live = this.runs.get(projectId)
+    const checkpoint = cut.checkpoint
+    if (this.starting.has(projectId) || live?.running === true) throw new Error(alreadyRunning(live?.epic ?? checkpoint.epic))
+    const after = checkpoint.cutOff?.after ?? 'crash'
+    const named = checkpoint.tickets === null ? undefined : checkpoint.tickets.map(Number)
+    const removed = new Set(checkpoint.finished.flatMap((each) => (each.outcome === 'removed' ? [each.epic] : [])))
+    const queue = checkpoint.epics.filter((epic) => !removed.has(epic))
+    const index = Math.max(0, queue.indexOf(checkpoint.epic))
+    this.starting.set(projectId, { epic: checkpoint.epic, origin: null })
+    try {
+      let checked: { root: string; model: WorkflowModel }
+      try {
+        // The Epics the Run has not left yet must still be there.
+        checked = await this.ownChecks(projectId, queue.slice(index), named)
+      } catch (error) {
+        return this.leaveCutOff(projectId, cut, messageOf(error))
+      }
+      if (this.quitting) return this.leaveCutOff(projectId, cut, QUITTING_MESSAGE)
+      const { root, model } = checked
+      const inWork = checkpoint.inWork.map(Number)
+      const held = await this.heldOf(projectId, root, cut, model)
+      const resume = inWork.filter((num) => !held.includes(num))
+      const startedLine = cut.events.find((event): event is Extract<JournalEvent, { kind: 'run-started' }> => event.kind === 'run-started')
+      const run = new Run(projectId, checkpoint.epic, root, named, startedLine?.by ?? 'button', queue)
+      run.index = index
+      for (const each of checkpoint.finished) if (each.outcome !== 'removed') run.outcomes.set(each.epic, each.outcome)
+      const ladder = checkpoint.ladder.filter((rung) => rung.epic === checkpoint.epic)
+      run.cycle = initialCycle(checkpoint.epic, named, {
+        maxContinuations: this.ceiling(),
+        from: {
+          wave: checkpoint.wave,
+          tickets: resume,
+          continued: Object.fromEntries(ladder.filter((rung) => rung.continued > 0).map((rung) => [Number(rung.ticket), rung.continued])),
+          setAside: ladder.filter((rung) => rung.setAside).map((rung) => Number(rung.ticket)),
+        },
+      })
+      run.firstWave = checkpoint.wave
+      run.mode = checkpoint.mode ?? this.defaultMode()
+      run.origin = await this.originOf(projectId, root)
+      const startedAt = Date.parse(startedLine?.at ?? '')
+      if (Number.isFinite(startedAt)) run.startedAt = startedAt
+      run.resume = resume
+      run.given = resume
+      run.continuedFrom = { after, events: cut.events }
+      run.restoredWait = checkpoint.waiting
+      // The Orchestrator's session of the cut-off Wave is gone with the app: the next Wave starts a new one, with
+      // wave-brief, as every Wave after a run's first does (worfy-throughput ticket 52).
+      run.wavesSent = 1
+      if (this.deps.limits !== undefined) run.limits = new LimitsWait(this.deps.limits)
+      if (this.deps.retry !== undefined) run.retry = new TurnRetry(this.deps.retry, projectId)
+      // The policy opens anew: its folder for temporary files is named by a new id, the journal keeps the Run's.
+      const autoApproval = await this.openApproval(run)
+      try {
+        run.journal = await this.reopen(checkpoint)
+      } catch (error) {
+        await this.closeApproval(run)
+        return this.leaveCutOff(projectId, cut, `Cannot open the Run's journal: ${messageOf(error)}`)
+      }
+      this.cutOffs.delete(projectId)
+      await this.write(run, { kind: 'run-continued', after })
+      // Its last read of the statuses is its journal's: what changed while the app was away is the Run's.
+      for (const fields of continuedStatuses(run, cut.events, model.tickets)) await this.write(run, fields)
+      return await this.takeOrWait(run, model, { override: false, autoApproval })
+    } finally {
+      this.starting.delete(projectId)
+    }
+  }
+
+  /**
+   * The Orchestrator for a continued Run, as start() takes it: waited for while busy, else made unattended at once and
+   * the run begins (take, go). Answers the run's state; a failure ends the run with `start-refused` and its reason.
+   */
+  private async takeOrWait(run: Run, model: WorkflowModel, facts: RunFacts): Promise<AutopilotState> {
+    const projectId = run.projectId
+    const busy = this.deps.orchestrators.busy?.(projectId) ?? null
+    if (busy !== null) {
+      await this.waitForOrchestrator(run, busy, facts)
+      return this.snapshot(run)
+    }
+    this.runs.set(projectId, run)
+    const deactivate = this.activateApproval(run)
+    let view: OrchestratorView | null
+    try {
+      view = await this.deps.orchestrators.setUnattended(projectId, true, this.runLaunchApproval(projectId))
+    } catch (error) {
+      const late = this.deps.orchestrators.busy?.(projectId) ?? null
+      if (late !== null && !this.quitting) {
+        deactivate()
+        await this.waitForOrchestrator(run, late, facts)
+        return this.snapshot(run)
+      }
+      await this.refuse(run, error)
+      return this.state(projectId)
+    }
+    run.taken = true
+    try {
+      if (!(await this.take(run, model, view, null))) {
+        await run.ended
+        return this.state(projectId)
+      }
+    } catch (error) {
+      await this.refuse(run, error)
+      return this.state(projectId)
+    }
+    this.starting.delete(projectId)
+    this.publish(projectId)
+    void run.enqueue(() => this.go(run, model.tickets))
+    return this.snapshot(run)
+  }
+
+  /** deps.heldTickets over the cut-off Wave of `cut`; none without it, without a Wave in work, or when it throws. */
+  private async heldOf(projectId: string, root: string, cut: CutOffRun, model: WorkflowModel): Promise<number[]> {
+    const read = this.deps.heldTickets
+    const checkpoint = cut.checkpoint
+    if (read === undefined || checkpoint.inWork.length === 0) return []
+    // The SDK session the cut-off Wave went to: `session` of its `wave-started` in the Epic the Run is on.
+    const waveLine = cut.events.findLast(
+      (event): event is Extract<JournalEvent, { kind: 'wave-started' }> => event.kind === 'wave-started' && event.epic === checkpoint.epic && event.wave === checkpoint.wave,
+    )?.session
+    try {
+      return await read({
+        root,
+        run: checkpoint.run,
+        epic: checkpoint.epic,
+        vendor: checkpoint.vendor,
+        session: waveLine ?? null,
+        tickets: checkpoint.inWork.map(Number),
+        workflow: bindingWorkflowOf(model),
+      })
+    } catch (error) {
+      console.warn(`[autopilot] ${projectId}: could not read the external calls of the cut-off Wave; no Ticket is held`, error)
+      return []
+    }
+  }
+
+  /**
+   * The run begins its cycle once it has its Orchestrator: a continued Run's wait cut off by the restart goes on to its
+   * until first (worfy-continuity ticket 06) — a wait before the Wave, which a Stop ends at once; any other run, and one
+   * whose wait is over or has no until, gets `start`.
+   */
+  private async go(run: Run, tickets: WorkflowModel['tickets']): Promise<void> {
+    const wait = run.restoredWait
+    run.restoredWait = null
+    const until = wait === null || wait.until === null ? Number.NaN : Date.parse(wait.until)
+    if (wait !== null && Number.isFinite(until) && until > this.now()) {
+      this.waitRestored(run, restoredCause(wait.kind), until)
+      return
+    }
+    await this.feed(run, { type: 'start', tickets, resume: run.resume })
+  }
+
+  /** The wait a continued Run goes on with (go): the cycle stays `starting`, and at `until` it starts (boundaryResume). */
+  private waitRestored(run: Run, cause: BoundaryCause, until: number): void {
+    this.cancelBoundary(run)
+    run.boundaryIds += 1
+    const id = run.boundaryIds
+    const limits = this.deps.limits
+    const schedule = limits?.schedule ?? wallTimer(limits?.now ?? Date.now)
+    const cancel = schedule(until, () => void run.enqueue(() => this.boundaryResume(run, id)))
+    const text = restoredWaitText(until)
+    run.boundary = { id, until, cause, text, cancel, restored: true }
+    run.message = text
+    this.publish(run.projectId)
+  }
+
+  /**
    * Stops every run with `app-quit`; settles once they have all stopped. Stopped runs still waiting
    * for their Orchestrator's background tasks journal them as killed and release keep-awake. The app's quit no
    * longer stops runs (worfy-continuity ticket 04): it suspends them (suspendAll, recordQuit); tests end their
@@ -1946,7 +2335,7 @@ export class Autopilot {
     const retry = run.retry?.until ?? null
     if (retry !== null) return { kind: 'retry', until: iso(retry) }
     const boundary = run.boundary
-    if (boundary !== null) return { kind: boundary.cause === 'start-window' ? 'start-window' : 'budget', until: iso(boundary.until) }
+    if (boundary !== null) return { kind: boundaryKind(boundary.cause), until: iso(boundary.until) }
     return null
   }
 
@@ -2710,10 +3099,14 @@ export class Autopilot {
     // Every way out of phase `sending` is a stop, and every stop cancels the wait (stopTimers) in the
     // step that ends the run, ahead of this one: a wait still current is one in `sending`.
     if (run.boundary === null || run.boundary.id !== id) return
+    const restored = run.boundary.restored === true
     this.cancelBoundary(run)
     await this.write(run, { kind: 'resumed' })
     this.publish(run.projectId)
-    await this.sendWave(run)
+    // The wait a continued Run went on with ends as the start of a run: the cycle decides on a fresh read
+    // (worfy-continuity ticket 06).
+    if (restored) await this.readAndFeed(run, 'stop', (tickets) => ({ type: 'start', tickets, resume: run.resume }))
+    else await this.sendWave(run)
   }
 
   /** Cancels the timer of the wait before a Wave, and its words in `message`. */

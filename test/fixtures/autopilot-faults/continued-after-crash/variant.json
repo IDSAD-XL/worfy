@@ -1,0 +1,10 @@
+{
+  "about": "The app was killed during Wave 1; after the start the same Run went on in its own journal (worfy-continuity ticket 06): run-continued after crash, Wave 2 to a new session of the Orchestrator with 01 and 02 continued, then a person stopped it and a new start ran. Nothing is broken.",
+  "rule": null,
+  "expect": {
+    "stop": "user-stop",
+    "errorText": null,
+    "continued": "crash",
+    "waves": 2
+  }
+}

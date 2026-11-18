@@ -336,6 +336,9 @@ describe('the read-or-write mark of `project` channels', () => {
     'autopilot.forceStop',
     // Adding an Epic to a Run's queue or taking one out (worfy-autopilot-queue ticket 14) changes what the Run does.
     'autopilot.queue',
+    // Resume and Discard of a Run a restart cut off (worfy-continuity ticket 06): only full access, as Start Autopilot.
+    'autopilot.resume',
+    'autopilot.discard',
     'autopilot.start',
     'autopilot.startNow',
     'autopilot.stop',

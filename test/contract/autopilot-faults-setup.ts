@@ -36,12 +36,16 @@
 //   test's clock and gives the run that limit, so moving the clock makes a turn quiet and then hung.
 // - A restart of the app (worfy-continuity ticket 02): restartApp() puts a new Autopilot over the same deps, so the
 //   next start knows only what the journals say (AutopilotDeps.pastRuns reads them), nothing of the old one's memory.
+//   Its continueCutOff() continues a Run the restart cut off in the same journal (AutopilotDeps.reopenJournal,
+//   worfy-continuity ticket 06), after reading the external calls of its cut-off Wave (held-tickets.ts) from
+//   `transcripts`: a folder of the test that stands for the Claude home's folder of the Project, empty unless the test
+//   writes `<session>.jsonl` and `<session>/subagents/agent-<id>.jsonl` there.
 //
 // A test file that imports this module mocks `electron` as autopilot-faults-api.test.ts does. The
 // module's afterEach stops every run, closes every Session, kills every stub and fake process and
 // removes the temporary folders, whether the test passed or not.
 import { execFileSync, spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { afterEach } from 'vitest'
@@ -54,7 +58,8 @@ import { hasExited } from '../../src/main/agent/session/process'
 import { NO_OUTSIDE_SIGNS } from '../../src/main/agent/session/quiet-signs'
 import { mainRedFileName, readMainRed } from '../../src/main/gate/state'
 import { SessionSettingsStore } from '../../src/main/agent/session-settings'
-import { openRun, readRecentRuns } from '../../src/main/autopilot/journal'
+import { heldTickets } from '../../src/main/autopilot/held-tickets'
+import { openRun, readRecentRuns, reopenRun } from '../../src/main/autopilot/journal'
 import { Autopilot, type AutopilotDeps, type TasksClock } from '../../src/main/autopilot/run'
 import { ghRunner, PrTracker } from '../../src/main/github/prs'
 import { LayoutStore } from '../../src/main/layout/store'
@@ -559,6 +564,10 @@ export function faultRun(options: FaultRunOptions = {}) {
     )
   }
 
+  // The Claude home's folder of the Project for the external calls of a cut-off Wave (worfy-continuity ticket 06).
+  const transcripts = join(scratch, 'transcripts')
+  mkdirSync(transcripts, { recursive: true })
+
   const states: AutopilotState[] = []
   const deps: AutopilotDeps = {
     projectRoot: () => repo,
@@ -576,6 +585,17 @@ export function faultRun(options: FaultRunOptions = {}) {
     journal: (start) => openRun(start, { env }),
     // The checkpoint of the Project's last Run (worfy-continuity ticket 02): resumable from its journals.
     pastRuns: (projectId) => readRecentRuns(projectId, { env }),
+    reopenJournal: (run) => reopenRun(run, { env }),
+    heldTickets: (cut) =>
+      heldTickets(
+        {
+          transcriptPath: (_root, sessionId) => {
+            const path = join(transcripts, `${sessionId}.jsonl`)
+            return Promise.resolve(existsSync(path) ? path : null)
+          },
+        },
+        cut,
+      ),
     harness: () => 'plugin',
     keepAwake: () => ({ start: () => undefined, stop: () => undefined }),
     onChange: (state) => states.push(state),
@@ -723,6 +743,9 @@ export function faultRun(options: FaultRunOptions = {}) {
     vendor,
     repo,
     scratch,
+    /** The folder that stands for the Claude home's folder of the Project: the transcripts heldTickets reads. */
+    transcripts,
+    dataRoot,
     codexHome,
     codexLogs,
     states,

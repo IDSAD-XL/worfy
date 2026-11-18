@@ -1,0 +1,5 @@
+{"kind":"start","resume":null,"orchestrator":true}
+{"kind":"message","text":"/epic-wave Ticket-ы 01, 02 эпика demo","content":[{"type":"text","text":"/epic-wave Ticket-ы 01, 02 эпика demo"}]}
+{"kind":"start","resume":null,"orchestrator":true}
+{"kind":"message","text":"/epic-wave Ticket-ы 01, 02 эпика demo\n\nThis is a new session for the next Wave: before anything else, run `wave-brief demo` (skill epic-wave, \"How to resume a wave\").","content":[{"type":"text","text":"/epic-wave Ticket-ы 01, 02 эпика demo\n\nThis is a new session for the next Wave: before anything else, run `wave-brief demo` (skill epic-wave, \"How to resume a wave\")."}]}
+{"kind":"start","resume":null,"orchestrator":true}

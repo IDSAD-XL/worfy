@@ -21,6 +21,9 @@
 // (worfy-autopilot-queue ticket 07): Stop on such a run cancels it, Start now (`autopilot.startNow`)
 // takes the Orchestrator at once (Orchestrators.takeNow). A start may name a queue of Epics, and
 // `autopilot.queue` changes the queue of a run between Waves (worfy-autopilot-queue ticket 14, ADR-0100).
+// At the start of the app the last Run of each Project, when a restart cut it off, goes on in its journal or waits for
+// Resume (`autopilot.resume`) or Discard (`autopilot.discard`) (worfy-continuity ticket 06, continueCutOffRuns); the
+// external calls of its cut-off Wave are read from the Orchestrator's transcript first (held-tickets.ts).
 import { execFile } from 'node:child_process'
 import { join } from 'node:path'
 import { app } from 'electron'
@@ -30,9 +33,11 @@ import { vendorLimitsOf, type VendorLimits } from '../../shared/autopilot/budget
 import { estimateAnswer } from '../../shared/autopilot/limits-estimate'
 import {
   autopilotChanged,
+  autopilotDiscard,
   autopilotEstimate,
   autopilotForceStop,
   autopilotQueue,
+  autopilotResume,
   autopilotStart,
   autopilotStartNow,
   autopilotState,
@@ -48,11 +53,13 @@ import { appLimits, observeSessionLimits } from '../agent/limits'
 import { refreshAppUsage } from '../agent/limits-usage'
 import { ChatStarts } from '../autopilot/chat-start'
 import { harnessDriftWatch } from '../autopilot/harness-drift'
-import { openRun, readRecentRuns } from '../autopilot/journal'
+import { heldTickets } from '../autopilot/held-tickets'
+import { openRun, readRecentRuns, reopenRun } from '../autopilot/journal'
 import { KeepAwake } from '../autopilot/power'
 import { readOriginKey } from '../autopilot/origin'
 import { Autopilot, NO_RUN_MESSAGE, RunningElsewhere, selfProjectRefusal, type AutopilotDeps } from '../autopilot/run'
 import { toEveryWindow } from '../broadcast'
+import { ClaudeHomeRegistry } from '../claude-home/registry'
 import { readMainRed } from '../gate/state'
 import { bundledHarnessVersion } from '../harness/bundled'
 import { currentHarness } from '../harness/locate'
@@ -94,7 +101,7 @@ const appEstimateSources: EstimateSources = { runs: (projectId) => readRecentRun
 
 /** The handlers over an Autopilot; tests pass their own. */
 export function autopilotHandlers(
-  autopilot: () => Pick<Autopilot, 'start' | 'stop' | 'forceStop' | 'state'> & Partial<Pick<Autopilot, 'refreshHarness' | 'startNow' | 'editQueue'>>,
+  autopilot: () => Pick<Autopilot, 'start' | 'stop' | 'forceStop' | 'state'> & Partial<Pick<Autopilot, 'refreshHarness' | 'startNow' | 'editQueue' | 'resumeCutOff' | 'discardCutOff'>>,
   sources: EstimateSources = appEstimateSources,
 ): HandlerModule {
   return [
@@ -121,6 +128,15 @@ export function autopilotHandlers(
     defineHandler(autopilotStartNow, ({ projectId }) => {
       const current = autopilot()
       return current.startNow?.(projectId) ?? current.state(projectId)
+    }),
+    // Resume and Discard of a Run a restart cut off (worfy-continuity ticket 06).
+    defineHandler(autopilotResume, ({ projectId }) => {
+      const current = autopilot()
+      return current.resumeCutOff?.(projectId) ?? current.state(projectId)
+    }),
+    defineHandler(autopilotDiscard, ({ projectId }) => {
+      const current = autopilot()
+      return current.discardCutOff?.(projectId) ?? current.state(projectId)
     }),
     defineHandler(autopilotState, ({ projectId }) => {
       const current = autopilot()
@@ -213,6 +229,10 @@ export function sharedAutopilot(): Autopilot {
     journal: (start) => openRun(start),
     // What the last run left resumable, read from the journals so that a restart keeps it (worfy-continuity ticket 02).
     pastRuns: (projectId) => readRecentRuns(projectId),
+    // A Run a restart cut off goes on in its own journal (worfy-continuity ticket 06), its cut-off Wave's external
+    // calls read first from the transcripts of the Claude home.
+    reopenJournal: (run) => reopenRun(run),
+    heldTickets: (cut) => heldTickets({ transcriptPath: (root, sessionId) => new ClaudeHomeRegistry({ home: claudeHome() }).transcriptPath({ path: root, local: true }, sessionId) }, cut),
     harness: () => currentHarness().kind,
     keepAwake: () => new KeepAwake(),
     // The continuation ladder (worfy-stuck-agents ticket 05): land's main-red marker in the gate folder of the
@@ -277,6 +297,22 @@ export function sharedAutopilot(): Autopilot {
   sharedLauncher().attachAutopilot(autopilot)
   shared = autopilot
   return autopilot
+}
+
+/**
+ * At the start of the app (src/main/index.ts, once the first window is made): the last Run of each Project of this
+ * Machine, when a restart cut it off, goes on or waits for Resume or Discard (Autopilot.continueCutOff, worfy-continuity
+ * ticket 06). One Project after another; a failure is logged and the next one goes.
+ */
+export async function continueCutOffRuns(): Promise<void> {
+  const autopilot = sharedAutopilot()
+  for (const project of projectStore().list()) {
+    try {
+      await autopilot.continueCutOff(project.id)
+    } catch (error) {
+      console.error(`[autopilot] ${project.id}: could not continue the Run cut off by the restart`, error)
+    }
+  }
 }
 
 /** The app's Autopilot if it was made; undefined otherwise — the quit (quit-grace.ts) makes none just to suspend nothing. */

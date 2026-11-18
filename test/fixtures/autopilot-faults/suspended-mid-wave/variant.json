@@ -1,6 +1,10 @@
 {
-  "about": "The app quit in the middle of Wave 1: run-suspended (quit) with both Tickets in work is the last line, no run-stopped. Nothing is broken.",
+  "about": "The app quit in the middle of Wave 1: run-suspended (quit) with both Tickets in work is the last line, no run-stopped. Nothing is broken. The journal as the app left it, before the start that continues the Run in it (worfy-continuity ticket 06): no new journal follows.",
   "rule": null,
+  "journals": [
+    "run-1.jsonl"
+  ],
+  "restart": null,
   "expect": {
     "stop": null,
     "errorText": null

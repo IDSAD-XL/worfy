@@ -1,6 +1,10 @@
 {
-  "about": "The same killed Run, but the torn line is in the middle of the journal.",
+  "about": "The same killed Run, but the torn line is in the middle of the journal. The journal as the app left it, before the start that continues the Run in it (worfy-continuity ticket 06): no new journal follows.",
   "rule": "I8",
+  "journals": [
+    "run-1.jsonl"
+  ],
+  "restart": null,
   "expect": {
     "stop": null,
     "errorText": null,

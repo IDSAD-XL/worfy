@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { ticketNumber } from '../actions/render-template'
 import { continuingText } from '../autopilot/continuation'
 import { AUTOPILOT_STOP_REASONS } from '../autopilot/cycle'
+import { CONTINUED_AFTER } from '../autopilot/journal'
 import { MAX_QUEUE_EPICS } from '../autopilot/epic-queue'
 import { ESTIMATE_WAVES } from '../autopilot/limits-estimate'
 import { RUN_MODES, WINDOW_WAIT_REASONS } from '../autopilot/run-mode'
@@ -164,6 +165,15 @@ export const autopilotStateSchema = z.object({
       blocked: z.number().int().nonnegative(),
     })
     .optional(),
+  /**
+   * The Project's last Run was cut off by a restart of the app and waits for a person (worfy-continuity ticket 06): it
+   * was cut off more than an hour before the start, or it had been continued by itself twice in that hour. `at` is when
+   * it was cut off (its last journal line), in milliseconds since the epoch; `after` what cut it off — a quit, an Update,
+   * a shutdown, or `crash` when no line says. The state is `stopped` with the Run's `epic` and `run`; the status line
+   * says `cut off by restart · 14:05`, and Resume (`autopilot.resume`) continues the Run, Discard (`autopilot.discard`)
+   * ends it. Absent otherwise.
+   */
+  cutOff: z.object({ at: z.number().int().nonnegative(), after: z.enum(CONTINUED_AFTER) }).optional(),
   revision: z.number().int().nonnegative(),
 })
 export type AutopilotState = z.infer<typeof autopilotStateSchema>
@@ -245,6 +255,20 @@ export const autopilotStartNow = invokeChannel('autopilot.startNow', z.object({ 
  */
 export const autopilotForceStop = invokeChannel('autopilot.forceStop', z.object({ projectId }), autopilotStateSchema, 'project', 'write')
 
+/**
+ * Resume (worfy-continuity ticket 06): the Run a restart cut off (AutopilotState.cutOff) goes on in its own journal,
+ * under its id — `run-continued`, then its wait or its next Wave, as a continuation at the start does. Answers the state;
+ * the state as it is when the Project has no such Run.
+ */
+export const autopilotResume = invokeChannel('autopilot.resume', z.object({ projectId }), autopilotStateSchema, 'project', 'write')
+
+/**
+ * Discard (worfy-continuity ticket 06): the Run a restart cut off ends — `run-stopped` with `discarded` in its journal,
+ * the Tickets of its cut-off Wave left resumable for the next Run of the Epic, as after a Force stop. Answers the state;
+ * the state as it is when the Project has no such Run.
+ */
+export const autopilotDiscard = invokeChannel('autopilot.discard', z.object({ projectId }), autopilotStateSchema, 'project', 'write')
+
 /** What `autopilot.queue` changes: an Epic to add at the end of the queue, one to remove from it, or both. */
 export const autopilotQueueEditSchema = z.object({ add: epicNameSchema.optional(), remove: epicNameSchema.optional() })
 export type AutopilotQueueEdit = z.infer<typeof autopilotQueueEditSchema>
@@ -306,13 +330,14 @@ export interface StatusLineOptions {
  * while its Orchestrator was busy, in whole minutes since `waitingSince`, none in the first one;
  * worfy-autopilot-queue ticket 07), `stopped: no ready wave`, `stopped: user force stop`, `stopped: waits for owner` (the last
  * Epic of a queue waits only for the owner, worfy-autopilot-queue ticket 21), `stopped: turn error · 3 background
- * tasks still run` (the tasks that live on in the Session a stopped run gave back to a person, worfy-autopilot-queue ticket 08).
+ * tasks still run` (the tasks that live on in the Session a stopped run gave back to a person, worfy-autopilot-queue ticket 08),
+ * `cut off by restart · 14:05` (a Run a restart of the app cut off that waits for Resume or Discard, worfy-continuity ticket 06).
  * A run over a queue of more than one Epic puts the place of its Epic first: `Epic 2/3: checkout · Wave 1 · running`
  * (worfy-autopilot-queue ticket 17), also while it waits and after it stopped.
  */
 export function autopilotStatusLine(
   state: Pick<AutopilotState, 'status' | 'wave' | 'reason'> &
-    Partial<Pick<AutopilotState, 'resumesAt' | 'waitingFor' | 'waitingSince' | 'retry' | 'windowReason' | 'backgroundTasks' | 'stopping' | 'ticketsInWork' | 'continuing' | 'epic' | 'queue' | 'index'>>,
+    Partial<Pick<AutopilotState, 'resumesAt' | 'waitingFor' | 'waitingSince' | 'retry' | 'windowReason' | 'backgroundTasks' | 'stopping' | 'ticketsInWork' | 'continuing' | 'epic' | 'queue' | 'index' | 'cutOff'>>,
   options: StatusLineOptions = {},
 ): string | null {
   const line = runLine(state, options)
@@ -323,9 +348,12 @@ export function autopilotStatusLine(
 
 /** The status line without the place in the queue. */
 function runLine(
-  state: Pick<AutopilotState, 'status' | 'wave' | 'reason'> & Partial<Pick<AutopilotState, 'resumesAt' | 'waitingFor' | 'waitingSince' | 'retry' | 'windowReason' | 'backgroundTasks' | 'stopping' | 'ticketsInWork' | 'continuing'>>,
+  state: Pick<AutopilotState, 'status' | 'wave' | 'reason'> &
+    Partial<Pick<AutopilotState, 'resumesAt' | 'waitingFor' | 'waitingSince' | 'retry' | 'windowReason' | 'backgroundTasks' | 'stopping' | 'ticketsInWork' | 'continuing' | 'cutOff'>>,
   options: StatusLineOptions,
 ): string | null {
+  const at = (ms: number): string => new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: options.timeZone }).format(ms)
+  if (state.status === 'stopped' && state.cutOff !== undefined) return `cut off by restart · ${at(state.cutOff.at)}`
   if (state.status === 'running') {
     if (state.stopping === true) {
       const inWork = state.ticketsInWork ?? 0
@@ -339,7 +367,6 @@ function runLine(
     return `Wave ${state.wave} · running`
   }
   if (state.status === 'waiting') {
-    const at = (resumesAt: number): string => new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: options.timeZone }).format(resumesAt)
     if (state.waitingFor === 'orchestrator') {
       const minutes = state.waitingSince === undefined ? 0 : Math.floor(((options.now ?? Date.now()) - state.waitingSince) / 60_000)
       return minutes > 0 ? `waiting for the Orchestrator · ${minutes} min` : 'waiting for the Orchestrator'
@@ -478,6 +505,8 @@ declare module './channels' {
     'autopilot.stop': typeof autopilotStop
     'autopilot.startNow': typeof autopilotStartNow
     'autopilot.forceStop': typeof autopilotForceStop
+    'autopilot.resume': typeof autopilotResume
+    'autopilot.discard': typeof autopilotDiscard
     'autopilot.queue': typeof autopilotQueue
     'autopilot.state': typeof autopilotState
     'autopilot.estimate': typeof autopilotEstimate
