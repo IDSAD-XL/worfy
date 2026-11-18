@@ -743,3 +743,53 @@ describe('turn-hung: a quiet turn of the Orchestrator', () => {
     expect(run([{ type: 'turn-quiet' }], stopped)).toEqual({ state: stopped, effects: [] })
   })
 })
+
+describe('Checked, include: a Ticket left to a person given back to the run (worfy-continuity ticket 07)', () => {
+  // A continued Run: Wave 1 (01, 02) was cut off, 01 left to a person; Wave 2 carries 02 alone.
+  const LEFT = [t(1, 'work'), t(2, 'work'), t(3, 'open', [1, 2])]
+  const WAVE2_DONE = [t(1, 'work'), t(2, 'done'), t(3, 'open', [1, 2])]
+  const inWave2 = (events: CycleEvent[] = []) =>
+    run([{ type: 'start', tickets: LEFT, resume: [2] }, { type: 'wave-sent', tickets: [2] }, ...events], initialCycle(EPIC, undefined, { from: { wave: 1, tickets: [2] } }))
+
+  it('without include the Ticket stays out: the end of Wave 2 finds no ready Wave, as before', () => {
+    const { state, effects } = inWave2([ok(WAVE2_DONE)])
+    expect(state.reason).toBe('no-ready-wave')
+    expect(effects).toContainEqual({ kind: 'stopped', reason: 'no-ready-wave' })
+  })
+
+  it('included during Wave 2: its end sends the next Wave, which carries the Ticket, and the run no longer waits for one', () => {
+    const included = inWave2([{ type: 'include', ticket: 1 }])
+    expect(included.state.included).toEqual([1])
+    expect(included.effects).toEqual([{ kind: 'send-wave' }, { kind: 'wave-started', wave: 2, tickets: [2] }])
+    const ended = run([ok(WAVE2_DONE)], included.state)
+    expect(ended.effects).toEqual([{ kind: 'wave-finished', wave: 2, tickets: [2] }, { kind: 'send-wave' }])
+    const sent = run([{ type: 'wave-sent', tickets: [1] }], ended.state)
+    expect(sent.effects).toEqual([{ kind: 'wave-started', wave: 3, tickets: [1] }])
+    expect(sent.state.included).toBeUndefined()
+  })
+
+  it('an included Ticket no longer in work is not a Wave; one included twice counts once', () => {
+    const twice = inWave2([{ type: 'include', ticket: 1 }, { type: 'include', ticket: 1 }])
+    expect(twice.state.included).toEqual([1])
+    const { state } = run([ok([t(1, 'done'), t(2, 'done'), t(3, 'done', [1, 2])])], twice.state)
+    expect(state.reason).toBe('no-ready-wave')
+  })
+
+  it('included before the first Wave of the run: the start takes it along as resumed', () => {
+    const { state, effects } = run([{ type: 'include', ticket: 1 }, { type: 'start', tickets: [t(1, 'work'), t(2, 'done'), t(3, 'open', [1, 2])] }])
+    expect(effects).toEqual([{ kind: 'send-wave' }])
+    expect(state.included).toEqual([1])
+  })
+
+  it('a run over named Tickets takes an included Ticket only from its list; a stopped run takes none', () => {
+    const named = run(
+      [{ type: 'start', tickets: LEFT, resume: [2] }, { type: 'wave-sent', tickets: [2] }, { type: 'include', ticket: 1 }, ok(WAVE2_DONE)],
+      initialCycle(EPIC, [2], { from: { wave: 1, tickets: [2] } }),
+    )
+    // 02, the one named, is done: the run ends with it, and 01 is no Wave of it.
+    expect(named.state.reason).toBe('tickets-done')
+    expect(named.effects.filter((effect) => (effect as { kind: string }).kind === 'send-wave')).toHaveLength(1)
+    const stopped = run([{ type: 'stop', reason: 'user-force-stop' }, { type: 'include', ticket: 1 }])
+    expect(stopped.state.included).toBeUndefined()
+  })
+})

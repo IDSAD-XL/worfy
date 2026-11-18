@@ -56,7 +56,7 @@ describe('the status line of a Run a restart cut off', () => {
   })
 })
 
-describe('heldTickets: the Tickets of the cut-off Wave whose implementer has an external call without a result', () => {
+describe('heldTickets: the Tickets of the cut-off Wave whose implementer has an external call without a result, each with those calls', () => {
   const SESSION = 'b2c3d4e5-0000-4000-8000-000000000001'
   const cut: CutOffWave = {
     root: '/work/demo',
@@ -67,6 +67,8 @@ describe('heldTickets: the Tickets of the cut-off Wave whose implementer has an 
     tickets: [1, 2],
     workflow: { epics: ['demo'], tickets: [1, 2, 3].map((num) => ({ epic: 'demo', num, state: 'work' })) },
   }
+  /** worfy's summary of `gh pr merge 41 --squash` (externalActions of continue-plan.ts). */
+  const MERGE = 'gh pr merge 41'
   const prompt = { type: 'user', sessionId: SESSION, timestamp: '2026-11-18T14:00:00.000Z', message: { role: 'user', content: '/epic-wave Ticket-ы 01, 02 эпика demo' } }
   const call = (id: string, command: string, agentId?: string) => ({
     type: 'assistant',
@@ -100,7 +102,7 @@ describe('heldTickets: the Tickets of the cut-off Wave whose implementer has an 
   }
 
   it('an implementer of 01 cut in gh pr merge holds 01 only', async () => {
-    expect(await heldTickets(files([prompt], { impl01: implementer('impl01', 1, 'gh pr merge 41 --squash') }), cut)).toEqual([1])
+    expect(await heldTickets(files([prompt], { impl01: implementer('impl01', 1, 'gh pr merge 41 --squash') }), cut)).toEqual([{ ticket: 1, actions: [MERGE] }])
   })
 
   it('on Windows: the Subagents\' folder is found beside a transcript path with backslashes', async () => {
@@ -110,7 +112,7 @@ describe('heldTickets: the Tickets of the cut-off Wave whose implementer has an 
     try {
       const { heldTickets: onWindows } = await import('../../src/main/autopilot/held-tickets')
       const deps = files([prompt], { impl01: implementer('impl01', 1, 'gh pr merge 41 --squash') }, path.win32, 'D:\\data\\claude\\projects\\demo')
-      expect(await onWindows(deps, { ...cut, root: 'D:\\work\\demo' })).toEqual([1])
+      expect(await onWindows(deps, { ...cut, root: 'D:\\work\\demo' })).toEqual([{ ticket: 1, actions: [MERGE] }])
     } finally {
       vi.doUnmock('node:path')
       vi.resetModules()
@@ -122,7 +124,10 @@ describe('heldTickets: the Tickets of the cut-off Wave whose implementer has an 
   })
 
   it('a call of the Orchestrator itself holds every Ticket of the Wave', async () => {
-    expect(await heldTickets(files([prompt, call('t-own', 'gh pr merge 41 --squash')], {}), cut)).toEqual([1, 2])
+    expect(await heldTickets(files([prompt, call('t-own', 'gh pr merge 41 --squash')], {}), cut)).toEqual([
+      { ticket: 1, actions: [MERGE] },
+      { ticket: 2, actions: [MERGE] },
+    ])
   })
 
   it('reads nothing for another Vendor, without a session or a transcript', async () => {
@@ -131,5 +136,44 @@ describe('heldTickets: the Tickets of the cut-off Wave whose implementer has an 
     expect(await heldTickets(deps, { ...cut, session: null })).toEqual([])
     expect(await heldTickets({ ...deps, transcriptPath: () => Promise.resolve(null) }, cut)).toEqual([])
     expect(await heldTickets({ ...deps, readLines: () => Promise.resolve(null) }, cut)).toEqual([])
+  })
+})
+
+describe('heldTickets with several calls (worfy-continuity ticket 07)', () => {
+  const SESSION = 'b2c3d4e5-0000-4000-8000-000000000002'
+  const cut: CutOffWave = {
+    root: '/work/demo',
+    run: '2026-11-18T14-00-00-000Z-a1b2c3',
+    epic: 'demo',
+    vendor: 'claude',
+    session: SESSION,
+    tickets: [1, 2],
+    workflow: { epics: ['demo'], tickets: [1, 2].map((num) => ({ epic: 'demo', num, state: 'work' })) },
+  }
+  const line = (agentId: string | null, content: object[], role: 'user' | 'assistant' = 'assistant') => ({
+    type: role,
+    ...(agentId === null ? {} : { isSidechain: true, agentId }),
+    sessionId: SESSION,
+    timestamp: '2026-11-18T14:10:00.000Z',
+    message: { id: 'm', role, content },
+  })
+  const bash = (id: string, command: string) => ({ type: 'tool_use', id, name: 'Bash', input: { command } })
+
+  it('a Ticket held by its implementer and by the Orchestrator names every call, its implementer\'s first, each once', async () => {
+    const transcript = '/p/main.jsonl'
+    const main = [line(null, [{ type: 'text', text: '/epic-wave Ticket-ы 01, 02 эпика demo' }], 'user'), line(null, [bash('t-o', 'git push origin main')])]
+    const impl = [line('i1', [{ type: 'text', text: 'Implement the ticket .scratch/demo/issues/01-a.md' }], 'user'), line('i1', [bash('t-1', 'gh pr merge 41'), bash('t-2', 'gh pr merge 41')])]
+    const held = await heldTickets(
+      {
+        transcriptPath: () => Promise.resolve(transcript),
+        readLines: (file: string) => Promise.resolve((file === transcript ? main : file.endsWith('agent-i1.jsonl') ? impl : []).map((each) => JSON.stringify(each))),
+        listFiles: () => Promise.resolve(['agent-i1.jsonl']),
+      },
+      cut,
+    )
+    expect(held).toEqual([
+      { ticket: 1, actions: ['gh pr merge 41', 'git push origin main'] },
+      { ticket: 2, actions: ['git push origin main'] },
+    ])
   })
 })

@@ -41,6 +41,8 @@ export const JOURNAL_KINDS = [
   'tasks-killed',
   'run-suspended',
   'run-continued',
+  'unknown-side-effects',
+  'side-effects-checked',
 ]
 
 /** The time of an ISO text in ms, or null. */

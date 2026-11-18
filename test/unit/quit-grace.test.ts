@@ -6,7 +6,7 @@ import { EventEmitter } from 'node:events'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EXIT_WAIT_MS, KILL_EXIT_MS } from '../../src/main/agent/session/process'
 import { SessionRegistry } from '../../src/main/agent/session/registry'
-import { followShutdown, GRACE_MS, OpenCalls, QuitGrace, quitSteps, type QuitClock, type QuitGraceDeps } from '../../src/main/quit-grace'
+import { followShutdown, GRACE_MS, OpenCalls, QuitGrace, quitSteps, SUBAGENT_LOOK_MS, subagentOpenCalls, type OpenCall, type QuitClock, type QuitGraceDeps } from '../../src/main/quit-grace'
 import type { SessionHandle, SessionPart } from '../../src/main/vendors/session'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { SuspendCause } from '../../src/shared/autopilot/journal'
@@ -56,7 +56,7 @@ const flush = async (): Promise<void> => {
 }
 
 /** A coordinator over steps that log what they do, the open calls of `calls`, and the test's clock. */
-function coordinator(options: { halt?: () => Promise<void> } = {}) {
+function coordinator(options: { halt?: () => Promise<void>; subagentCalls?: () => Promise<OpenCall[]> } = {}) {
   const clock = new TestClock()
   const calls = new OpenCalls()
   const log: string[] = []
@@ -73,6 +73,7 @@ function coordinator(options: { halt?: () => Promise<void> } = {}) {
     show: (view) => void views.push(view),
     quit: () => void log.push('quit'),
     clock,
+    ...(options.subagentCalls === undefined ? {} : { subagentCalls: options.subagentCalls }),
   }
   const grace = new QuitGrace(deps)
   return { grace, clock, calls, log, views }
@@ -485,5 +486,70 @@ describe('the halt of the registry (ADR-0064)', () => {
     await vi.advanceTimersByTimeAsync(KILL_EXIT_MS)
     await left
     expect(log).toEqual(['record quit', 'quit'])
+  })
+})
+
+describe('the calls of the Subagents (worfy-continuity ticket 07)', () => {
+  const MERGE: OpenCall = { sessionId: 's1', toolUseId: 't-merge', description: 'gh pr merge 41' }
+
+  it('the grace waits for a Subagent call, reads the transcripts again every SUBAGENT_LOOK_MS, and goes on once the call has its result', async () => {
+    let open = [MERGE]
+    const reads = vi.fn(() => Promise.resolve(open))
+    const { grace, clock, log, views } = coordinator({ subagentCalls: reads })
+    const left = grace.leave('quit')
+    await flush()
+    expect(log).toEqual(['depart'])
+    expect(views.at(-1)).toEqual({ stage: 'waiting', calls: [{ id: 't-merge', description: 'gh pr merge 41' }], total: 1, leftMs: GRACE_MS })
+    clock.advance(SUBAGENT_LOOK_MS)
+    await flush()
+    expect(reads).toHaveBeenCalledTimes(2)
+    expect(log).toEqual(['depart'])
+    open = []
+    clock.advance(SUBAGENT_LOOK_MS)
+    await left
+    expect(log).toEqual(['depart', 'halt', 'halted', 'record quit', 'quit'])
+    expect(views.at(-1)).toBeNull()
+  })
+
+  it('a Subagent call that never gets its result is waited for GRACE_MS at most; a read that fails counts as none', async () => {
+    const { grace, clock, log } = coordinator({ subagentCalls: () => Promise.resolve([MERGE]) })
+    const left = grace.leave('quit')
+    await flush()
+    clock.advance(GRACE_MS - 1)
+    await flush()
+    expect(log).toEqual(['depart'])
+    clock.advance(1)
+    await left
+    expect(log.at(-1)).toBe('quit')
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const failing = coordinator({ subagentCalls: () => Promise.reject(new Error('no folder')) })
+    await failing.grace.leave('quit')
+    expect(failing.views).toEqual([])
+  })
+
+  it('subagentOpenCalls: the calls without a result of each Session\'s Subagents written since the start; an older file, a finished call and a Session without a transcript give none', async () => {
+    const line = (agentId: string, content: object[], role = 'assistant') => JSON.stringify({ type: role, isSidechain: true, agentId, sessionId: 'sdk-1', timestamp: '2026-11-18T10:00:00.000Z', message: { id: `m-${agentId}`, role, content } })
+    const files: Record<string, { lines: string[]; at: number }> = {
+      '/p/sdk-1/subagents/agent-a.jsonl': { lines: [line('a', [{ type: 'tool_use', id: 't-a', name: 'Bash', input: { command: 'gh pr merge 41 --squash' } }])], at: 2_000 },
+      '/p/sdk-1/subagents/agent-b.jsonl': {
+        lines: [line('b', [{ type: 'tool_use', id: 't-b', name: 'Bash', input: { command: 'git push origin main' } }]), line('b', [{ type: 'tool_result', tool_use_id: 't-b', content: 'ok' }], 'user')],
+        at: 2_000,
+      },
+      // Cut off by an earlier process of worfy: it never gets a result now.
+      '/p/sdk-1/subagents/agent-old.jsonl': { lines: [line('old', [{ type: 'tool_use', id: 't-old', name: 'Bash', input: { command: 'git push origin old' } }])], at: 500 },
+    }
+    const calls = await subagentOpenCalls({
+      sessions: () => [
+        { sessionId: 's1', sdkSessionId: 'sdk-1', cwd: '/work/demo' },
+        { sessionId: 's2', sdkSessionId: null, cwd: '/work/demo' },
+        { sessionId: 's3', sdkSessionId: 'sdk-gone', cwd: '/work/demo' },
+      ],
+      transcriptPath: (_root, id) => Promise.resolve(id === 'sdk-1' ? '/p/sdk-1.jsonl' : null),
+      since: 1_000,
+      listFiles: (dir) => Promise.resolve(dir === '/p/sdk-1/subagents' ? ['agent-a.jsonl', 'agent-b.jsonl', 'agent-old.jsonl', 'notes.txt'] : []),
+      readLines: (file) => Promise.resolve(files[file]?.lines ?? null),
+      modifiedAt: (file) => Promise.resolve(files[file]?.at ?? null),
+    })
+    expect(calls).toEqual([{ sessionId: 's1', toolUseId: 't-a', description: 'gh pr merge 41' }])
   })
 })

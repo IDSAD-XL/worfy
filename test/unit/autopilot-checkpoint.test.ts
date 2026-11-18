@@ -44,6 +44,8 @@ describe('runCheckpoint over the fixtures', () => {
       waiting: null,
       stopped: null,
       cutOff: { after: 'quit', at: '2026-11-03T10:00:20.000Z' },
+      unknownSideEffects: [],
+      included: [],
       resumable: [],
       skipped: 0,
     })
@@ -174,6 +176,8 @@ describe('runCheckpoint, line by line', () => {
       stopped: null,
       // Continued after the update, and killed since: no end, and no run-suspended after the run-continued.
       cutOff: { after: 'crash', at: '2026-11-04T08:00:20.000Z' },
+      unknownSideEffects: [],
+      included: [],
       resumable: [],
       skipped: 0,
     })
@@ -258,5 +262,69 @@ describe('resumableAfter: what a Project’s journals leave, oldest first', () =
 
   it('a session-error during a Wave leaves its Wave, numbers in number order', () => {
     expect(resumableAfter([runOf('demo', 'session-error', { wave: ['10', '02'], tickets: ['10', '02'] })])).toEqual({ epic: 'demo', resumable: ['02', '10'] })
+  })
+})
+
+describe('runCheckpoint and Unknown side effects (worfy-continuity ticket 07)', () => {
+  const MERGE = ['gh pr merge 41']
+  const mark = (ticket: string) => line('demo', { kind: 'unknown-side-effects', ticket, actions: MERGE })
+  const checked = (ticket: string) => line('demo', { kind: 'side-effects-checked', ticket })
+  /** A Run of Wave 1 (01, 02) cut off, continued with 01 left to a person, and its Wave 2 (02). */
+  const continued = (): string[] => {
+    second = 0
+    return [
+      line('demo', { kind: 'run-started' }),
+      line('demo', { kind: 'wave-started', wave: 1, tickets: ['01', '02'] }),
+      line('demo', { kind: 'run-suspended', cause: 'quit', wave: 1, tickets: ['01', '02'], wait: null }),
+      line('demo', { kind: 'run-continued', after: 'quit' }),
+      mark('01'),
+      line('demo', { kind: 'wave-started', wave: 2, tickets: ['02'] }),
+    ]
+  }
+
+  it('a marked Ticket is not resumable, even when a run-stopped names it, until Checked, include', () => {
+    const forced = [...continued(), line('demo', { kind: 'run-stopped', reason: 'user-force-stop', tickets: ['01', '02'] })]
+    expect(runCheckpoint(events(forced.join('')))).toMatchObject({
+      unknownSideEffects: [{ epic: 'demo', ticket: '01', actions: MERGE }],
+      included: [],
+      resumable: ['02'],
+    })
+    const included = runCheckpoint(events([...forced, checked('01')].join('')))
+    expect(included).toMatchObject({ unknownSideEffects: [], included: [{ epic: 'demo', ticket: '01' }], resumable: ['01', '02'], cutOff: null })
+  })
+
+  it('Checked, include while the Run goes on: the next Wave that carries the Ticket takes it, and nothing is left after', () => {
+    const lines = [...continued(), checked('01')]
+    expect(runCheckpoint(events(lines.join('')))).toMatchObject({ unknownSideEffects: [], included: [{ epic: 'demo', ticket: '01' }], resumable: [] })
+    const taken = [...lines, line('demo', { kind: 'wave-finished', wave: 2, tickets: ['02'] }), line('demo', { kind: 'wave-started', wave: 3, tickets: ['01'] }), line('demo', { kind: 'run-stopped', reason: 'no-ready-wave' })]
+    expect(runCheckpoint(events(taken.join('')))).toMatchObject({ unknownSideEffects: [], included: [], resumable: [] })
+  })
+
+  it('a Run cut off again keeps its marks and its included Tickets for the continuation, and leaves nothing resumable', () => {
+    const lines = [...continued(), checked('02'), mark('02'), line('demo', { kind: 'run-suspended', cause: 'update', wave: 2, tickets: ['02'], wait: null })]
+    expect(runCheckpoint(events(lines.join('')))).toMatchObject({
+      unknownSideEffects: [
+        { epic: 'demo', ticket: '01', actions: MERGE },
+        { epic: 'demo', ticket: '02', actions: MERGE },
+      ],
+      included: [],
+      cutOff: { after: 'update' },
+      resumable: [],
+    })
+    const pending = [...continued(), checked('01'), line('demo', { kind: 'run-suspended', cause: 'update', wave: 2, tickets: ['02'], wait: null })]
+    expect(runCheckpoint(events(pending.join('')))).toMatchObject({ unknownSideEffects: [], included: [{ epic: 'demo', ticket: '01' }], resumable: [] })
+  })
+
+  it('an open mark goes to the next Run of the Epic, which may include it', () => {
+    const first = events([...continued(), line('demo', { kind: 'run-stopped', reason: 'no-ready-wave' })].join(''))
+    expect(resumableAfter([first])).toEqual({ epic: 'demo', resumable: [], marks: [{ ticket: '01', actions: MERGE }] })
+    second = 100
+    const next = events([line('demo', { kind: 'run-started' }), checked('01'), line('demo', { kind: 'run-stopped', reason: 'start-cancelled' })].join(''))
+    expect(runCheckpoint(next, { before: resumableAfter([first]) })).toMatchObject({ unknownSideEffects: [], included: [{ epic: 'demo', ticket: '01' }], resumable: ['01'] })
+    expect(resumableAfter([first, next])).toEqual({ epic: 'demo', resumable: ['01'] })
+    // A Run of another Epic was given no mark.
+    second = 200
+    const other = events([line('other', { kind: 'run-started' }), line('other', { kind: 'run-stopped', reason: 'start-cancelled' })].join(''))
+    expect(runCheckpoint(other, { before: resumableAfter([first]) })).toMatchObject({ unknownSideEffects: [] })
   })
 })

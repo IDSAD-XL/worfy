@@ -32,6 +32,11 @@ const UNTIL_INTERRUPT: FaultScript = [{ fake: 'wait_message' }, init, { fake: 'w
 
 const WAVE_1 = `/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`
 
+const answer = { type: 'assistant', message: { id: 'msg_restart_answer', model: 'claude-opus-5-5', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Wave done.' }], stop_reason: null }, parent_tool_use_id: null, session_id: '{{session}}', uuid: '00000000-0000-4000-8000-000000000c04' }
+const success = { type: 'result', subtype: 'success', is_error: false, result: 'Wave done.', total_cost_usd: 0, duration_ms: 1, duration_api_ms: 1, num_turns: 1, usage, modelUsage: {}, permission_denials: [], terminal_reason: 'completed', session_id: '{{session}}', uuid: '00000000-0000-4000-8000-000000000c05' }
+/** The Wave's turn ends when the test releases `wave`; a later turn runs until it is interrupted. */
+const UNTIL_RELEASE: FaultScript = [{ fake: 'wait_message' }, init, { fake: 'wait_release', name: 'wave' }, answer, success, { fake: 'wait_message' }, init, { fake: 'wait_interrupt' }, interrupted, cut]
+
 /** The lines of the Wave's command in what the Orchestrator got. */
 const waveCommands = (h: FaultRun): string[] => h.messages().flatMap((text) => text.split('\n').filter((line) => /^\s*\/(?:worfy:)?epic-wave\b/u.test(line)))
 
@@ -71,6 +76,28 @@ function asIfKilled(h: FaultRun): void {
   const kept = lines.filter((line) => (JSON.parse(line) as JournalEvent).kind !== 'run-suspended')
   expect(kept).toHaveLength(lines.length - 1)
   writeFileSync(journalFile(h), kept.join('\n') + '\n')
+}
+
+/**
+ * The transcript of the Orchestrator's session of Wave 1 as the restart finds it: the implementer of 01 called `command`
+ * and got no result (worfy-continuity tickets 06, 07).
+ */
+function implementerHolds(h: FaultRun, command: string): void {
+  const session = (h.journal(1).find((event) => event.kind === 'wave-started') as Extract<JournalEvent, { kind: 'wave-started' }>).session!
+  writeFileSync(join(h.transcripts, `${session}.jsonl`), `${JSON.stringify({ type: 'user', sessionId: session, timestamp: '2026-11-18T09:59:00.000Z', message: { role: 'user', content: WAVE_1 } })}\n`)
+  mkdirSync(join(h.transcripts, session, 'subagents'), { recursive: true })
+  const implementer = [
+    { type: 'user', isSidechain: true, agentId: 'impl01', sessionId: session, timestamp: '2026-11-18T10:00:00.000Z', message: { role: 'user', content: `Implement the ticket .scratch/${EPIC}/issues/01-ticket-1.md` } },
+    {
+      type: 'assistant',
+      isSidechain: true,
+      agentId: 'impl01',
+      sessionId: session,
+      timestamp: '2026-11-18T10:20:00.000Z',
+      message: { id: 'm-1', role: 'assistant', content: [{ type: 'tool_use', id: 't-held', name: 'Bash', input: { command, description: 'Hold the Ticket' } }] },
+    },
+  ]
+  appendFileSync(join(h.transcripts, session, 'subagents', 'agent-impl01.jsonl'), implementer.map((line) => JSON.stringify(line)).join('\n') + '\n')
 }
 
 /** Two continuations by itself within the hour already: run-continued and run-suspended twice after the quit's line. */
@@ -260,5 +287,65 @@ describe('a Run continued after a restart of the app (worfy-continuity ticket 06
 
     await autopilot.forceStop(PROJECT)
     expect(checkRecovery(h.recovery({ stop: 'user-force-stop', suspended: 'quit', continued: 'quit', waves: 2 }))).toEqual([])
+  })
+
+  it('an implementer held git push without a result: its Ticket is not in the Wave, the journal says unknown-side-effects with the Ticket and the command, and the state marks it (worfy-continuity ticket 07)', async () => {
+    const { h, grace } = quitRun({ scripts: [UNTIL_INTERRUPT], marks: 'claimed', processes: 'exit-at-once' })
+    await inWave1(h)
+    await grace.leave('quit')
+    implementerHolds(h, 'git push origin demo/01')
+
+    const autopilot = h.restartApp()
+    h.setMarks('none')
+    await autopilot.continueCutOff(PROJECT)
+    await until(() => waveCommands(h).length === 2 && h.kinds(1).at(-1) === 'wave-started', 'the Wave of the continued Run')
+    expect(h.journal(1).at(-1)).toMatchObject({ kind: 'wave-started', wave: 2, tickets: ['02'] })
+    const marks = h.journal(1).filter((event) => event.kind === 'unknown-side-effects')
+    expect(marks).toMatchObject([{ epic: EPIC, ticket: '01', actions: ['git push origin demo/01'] }])
+    // Written once the Run went on, before its next Wave.
+    expect(h.kinds(1).indexOf('unknown-side-effects')).toBeGreaterThan(h.kinds(1).indexOf('run-continued'))
+    expect(autopilot.state(PROJECT).unknownSideEffects).toEqual([{ epic: EPIC, ticket: 1, actions: ['git push origin demo/01'] }])
+
+    // A Force stop names its Wave (02) only: the marked Ticket is not resumable until Checked, include.
+    const stopped = await autopilot.forceStop(PROJECT)
+    expect(stopped).toMatchObject({ status: 'stopped', resumable: [2], unknownSideEffects: [{ epic: EPIC, ticket: 1 }] })
+    const included = await autopilot.includeChecked(PROJECT, EPIC, 1)
+    expect(included.resumable).toEqual([1, 2])
+    expect(included.unknownSideEffects).toBeUndefined()
+    expect(h.journal(1).filter((event) => event.kind === 'side-effects-checked')).toMatchObject([{ epic: EPIC, ticket: '01' }])
+    expect(checkRecovery(h.recovery({ stop: 'user-force-stop', suspended: 'quit', continued: 'quit', waves: 2 }))).toEqual([])
+  })
+
+  it('Checked, include while the continued Run goes on: the next Wave takes the Ticket along as resumed (worfy-continuity ticket 07)', async () => {
+    const { h, grace } = quitRun({
+      // Wave 1's session; the Orchestrator taken again after the restart, which gets no message; Wave 2's new session,
+      // whose turn ends on the release; Wave 3's.
+      scripts: [UNTIL_INTERRUPT, UNTIL_INTERRUPT, UNTIL_RELEASE, UNTIL_INTERRUPT],
+      marks: 'claimed',
+      processes: 'exit-at-once',
+    })
+    await inWave1(h)
+    await grace.leave('quit')
+    implementerHolds(h, 'gh pr merge 41 --squash')
+
+    const autopilot = h.restartApp()
+    // From the restart on the Orchestrator does each Wave it gets: its Tickets are done.
+    h.setMarks('done')
+    await autopilot.continueCutOff(PROJECT)
+    await until(() => waveCommands(h).length === 2 && h.kinds(1).includes('wave-started') && h.journal(1).filter((event) => event.kind === 'wave-started').length === 2, 'Wave 2 of the continued Run')
+    expect(autopilot.state(PROJECT).unknownSideEffects).toEqual([{ epic: EPIC, ticket: 1, actions: ['gh pr merge 41'] }])
+
+    const included = await autopilot.includeChecked(PROJECT, EPIC, 1)
+    expect(included.unknownSideEffects).toBeUndefined()
+    expect(h.journal(1).filter((event) => event.kind === 'side-effects-checked')).toMatchObject([{ epic: EPIC, ticket: '01' }])
+    // Wave 2 ends: 02 is done, 03 still waits for 01, and 01 goes along in the next Wave.
+    h.releases.release('wave')
+    await until(() => h.journal(1).filter((event) => event.kind === 'wave-started').length === 3, 'Wave 3 of the continued Run')
+    expect(h.journal(1).filter((event) => event.kind === 'wave-started').at(-1)).toMatchObject({ wave: 3, tickets: ['01'] })
+    expect(waveCommands(h).at(-1)).toMatch(/\b01\b/u)
+    expect(waveCommands(h).at(-1)).not.toMatch(/\b0[23]\b/u)
+
+    await autopilot.forceStop(PROJECT)
+    expect(checkRecovery(h.recovery({ stop: 'user-force-stop', suspended: 'quit', continued: 'quit', waves: 3 }))).toEqual([])
   })
 })

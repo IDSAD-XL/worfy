@@ -96,6 +96,8 @@ const appended: JournalEventFields[] = [
   { kind: 'tasks-killed', reason: 'app-quit', tasks: [{ id: 'task-2', type: 'local_bash', description: null }] },
   { kind: 'run-suspended', cause: 'quit', wave: 1, tickets: ['01'], wait: null },
   { kind: 'run-continued', after: 'crash' },
+  { kind: 'unknown-side-effects', ticket: '01', actions: ['gh pr merge 41'] },
+  { kind: 'side-effects-checked', ticket: '01' },
 ]
 
 describe('openRun and append', () => {

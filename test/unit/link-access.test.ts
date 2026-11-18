@@ -339,6 +339,8 @@ describe('the read-or-write mark of `project` channels', () => {
     // Resume and Discard of a Run a restart cut off (worfy-continuity ticket 06): only full access, as Start Autopilot.
     'autopilot.resume',
     'autopilot.discard',
+    // Checked, include of a Ticket left for Unknown side effects (worfy-continuity ticket 07): it gives the Ticket back to the Run.
+    'autopilot.include',
     'autopilot.start',
     'autopilot.startNow',
     'autopilot.stop',
