@@ -213,7 +213,8 @@ describe('a Run continued after a restart of the app (worfy-continuity ticket 06
 
     // A new Run now begins a journal of its own, and takes the discarded Wave's Tickets along.
     expect(await h.startAgain()).toEqual({ refusal: null })
-    await until(() => waveCommands(h).length === 2, 'the Wave of the next Run')
+    // The command goes before its wave-started line is written: wait for both.
+    await until(() => waveCommands(h).length === 2 && h.journals().length === 2 && h.kinds(2).includes('wave-started'), 'the Wave of the next Run')
     expect(h.journal(2).filter((event) => event.kind === 'wave-started')).toMatchObject([{ wave: 1, tickets: ['01', '02'] }])
     await h.autopilot.forceStop(PROJECT)
     expect(checkRecovery(h.recovery({ stop: 'discarded', waves: 2 }))).toEqual([])
