@@ -13,7 +13,7 @@ Kind: pr · Epic: worfy-auth-check · Ticket: 05 · PR: - · Language: ru
 
 ## 2. Разбор ответа `gh api -i`
 
-Code: `src/main/github/auth-diagnosis.ts:115-130` · key lines: 116, 117, 122, 123, 125, 126, 127
+Code: `src/main/github/auth-diagnosis.ts:143-157` · key lines: 144, 145, 150, 151, 152, 153, 154, 155, 156
 
 ```ts
 export function repoAccess(answer: { output: string } | { failure: string }): RepoAccess {
@@ -28,13 +28,12 @@ export function repoAccess(answer: { output: string } | { failure: string }): Re
   if (code === 401) return { kind: 'bad-token' }
   if (code === 404) return { kind: 'no-access' }
   if (code >= 500 || code === 429) return { kind: 'unknown', reason: `GitHub answered HTTP ${code}` }
+  if (code === 403 && rateLimited(answer.output, headersOf(answer.output, status.index))) return { kind: 'unknown', reason: "GitHub's rate limit (HTTP 403)" }
   return { kind: 'refused', status: code }
 }
-
-/**
 ```
 
-- Что делает: читает статус из строки `HTTP/2.0 <code>`, которую печатает `-i`: 2xx — доступ, 401 — токен не работает, 404 — нет доступа, текст gh про `gh auth login` без статуса (exit 4) — токена нет вовсе; нет сети, timeout, 5xx и 429 — `unknown`. Тело ответа в причину не попадает никогда.
+- Что делает: читает статус из строки `HTTP/2.0 <code>`, которую печатает `-i`: 2xx — доступ, 401 — токен не работает, 404 — нет доступа, текст gh про `gh auth login` без статуса (exit 4) — токена нет вовсе; нет сети, timeout, 5xx, 429 и 403 rate limit (`Retry-After`, меньше 10 % лимита, текст про rate limit — как читает PR inbox) — `unknown`. Тело ответа в причину не попадает никогда.
 - Почему здесь: Ticket называет новый файл `src/main/github/auth-diagnosis.ts`; статус из `-i`, а не из сообщения gh, взят из spike-а Ticket-а 01 (fixtures `api-401`, `api-404`, `api-no-auth`).
 - Без него: строка не отличила бы 401 от 404 и сбой сети от отказа, а `unknown` (решение владельца Q2) стал бы `fail`.
 - Требование: [Что делаем, п. 1]({T}#что-делаем)
@@ -75,7 +74,7 @@ async function ghAuth(deps: CheckDeps, machine: Machine, timeoutMs: number): Pro
 
 ## 4. Строка GitHub access Project-а: аккаунт, токен, repo
 
-Code: `src/main/first-run/checks.ts:638-655` · key lines: 641, 643, 645, 649, 654, 655
+Code: `src/main/first-run/checks.ts:641-658` · key lines: 644, 646, 648, 652, 657, 658
 
 ```ts
 async function githubAccess(project: GithubProject, deps: GithubAccessDeps, platform: NodeJS.Platform): Promise<{ found: Row; environmentTokenOnly: boolean }> {
@@ -106,7 +105,7 @@ async function githubAccess(project: GithubProject, deps: GithubAccessDeps, plat
 
 ## 5. Один login с push
 
-Code: `src/main/first-run/checks.ts:616-625` · key lines: 618, 619, 624, 625
+Code: `src/main/first-run/checks.ts:617-628` · key lines: 619, 620, 625, 626, 627, 628
 
 ```ts
 export async function useLoginCandidate(project: GithubProject, deps: GithubAccessDeps): Promise<string | null> {
@@ -117,13 +116,15 @@ export async function useLoginCandidate(project: GithubProject, deps: GithubAcce
   )
   if (step.status !== 'accounts') return null
   const withPush = step.accounts.filter((account) => account.push && account.host === 'github.com')
-  return withPush.length === 1 ? (withPush[0]?.login ?? null) : null
+  const only = withPush.length === 1 ? (withPush[0]?.login ?? null) : null
+  // A login the button cannot send (an Enterprise Managed User's `name_shortcode`): no button, and the report stays valid.
+  return only !== null && githubLoginSchema.safeParse(only).success ? only : null
 }
 ```
 
-- Что делает: ищет логины gh на github.com с push во все repo Project-а тем же шагом, что диалог Add project (`readGithubAccounts`), с пустыми `GH_TOKEN` и `GITHUB_TOKEN` (gh читает пустую как незаданную); кнопка «Use <login>» есть, только когда такой login ровно один.
+- Что делает: ищет логины gh на github.com с push во все repo Project-а тем же шагом, что диалог Add project (`readGithubAccounts`), с пустыми `GH_TOKEN` и `GITHUB_TOKEN` (gh читает пустую как незаданную); кнопка «Use <login>» есть, только когда такой login ровно один и его принимает `githubLoginSchema` (login Enterprise Managed User вида `name_shortcode` кнопки не получает).
 - Почему здесь: spec, «Починка»: push-доступ уже считает `accounts.ts:155-210`; почему пустые переменные — чтобы переменная окружения не прятала сохранённые аккаунты, это записано в комментарии к функции.
-- Без него: при двух логинах с push кнопка выбирала бы за человека, а с `GH_TOKEN` в окружении поиск мог бы идти не теми токенами.
+- Без него: при двух логинах с push кнопка выбирала бы за человека, а с `GH_TOKEN` в окружении поиск мог бы идти не теми токенами; login с `_` ломал бы проверку отчёта Health check схемой IPC.
 - Требование: [Что делаем, п. 4]({T}#что-делаем)
 - Риски и пробелы test-ов: Падает ли настоящий `gh auth status --json` с неверным `GH_TOKEN` — не проверено (живой gh в этом Ticket-е не запускали); пустые переменные — защита на этот случай, test проверяет, что они переданы.
 
@@ -221,18 +222,20 @@ health.registerRecheck('github-access', async (project) => {
 - Mutant-ы: 401 как 404, 404 как ok, 5xx не `unknown`, timeout как «нет доступа», порядок `GH_TOKEN`/`GITHUB_TOKEN`, пустая
   переменная как заданная, аккаунт не побеждает, «Use <login>» при двух логинах и без проверки push, поиск с `GH_TOKEN`
   окружения, запись не того login-а, `gh-auth` ok при нерабочем `GH_TOKEN`, кнопка с текущим Project-ом вместо Project-а строки,
-  занятость по одному id строки — все 14 убиты.
+  занятость по одному id строки — все 14 убиты. После ревью, раунд 1: login EMU с кнопкой, 403 rate limit не `unknown`, push только
+  первой папки, `messageOf` без redaction (timeout gh), `--set` с exit 1 как успех, «Sign in…» при `GH_TOKEN`, текущий Project в
+  renderer, заголовки после пустой строки — все 8 убиты.
 
 ## Проверить себя
 
 1. Почему строка GitHub access с заданным `github.account` не страдает от неверного `GH_TOKEN` в окружении, а `gh-auth` страдает?
    Ответ: строка берёт токен аккаунта через `accountAuth` и передаёт его gh поверх окружения; `gh auth status` строки
    `gh-auth` идёт без аккаунта, и gh берёт переменную.
-   Lines: `src/main/first-run/checks.ts:638-655`
+   Lines: `src/main/first-run/checks.ts:641-658`
 2. Что делает строка, когда `gh api` не дошёл до GitHub, и почему это не `fail`?
    Ответ: без строки статуса и без текста про `gh auth login` ответ — `unknown` с последней строкой gh; решение
    владельца Q2: нет сети или timeout никогда не critical.
-   Lines: `src/main/github/auth-diagnosis.ts:115-130`
+   Lines: `src/main/github/auth-diagnosis.ts:143-157`
 3. Почему кнопка «Use <login>» шлёт в main и login, и id Project-а?
    Ответ: main пишет Profile именно этого Project-а и только login, который был показан, и отказывает, если единственный
    login с push уже другой.
