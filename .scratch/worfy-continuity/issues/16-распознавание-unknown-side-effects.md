@@ -1,7 +1,8 @@
 # 16 — Unknown side effects: распознавание внешних вызовов без результата
 
 Type: task
-Status: claimed 2026-11-18T01:24Z
+Status: done 2026-11-18T02:50Z
+PR: #1977
 Blocked by: 03
 Source: [spec.md](../spec.md), «Ticket-ы», 16; «Решения по реализации» → «Unknown side effects: распознавание»;
 [critic 2026-11-14](../../../docs/product/critic/worfy-continuity-2026-11-14.md), возражение 1 и «Alternative»;
@@ -47,6 +48,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 16; «Решения по реал
 - [ ] Unit test: классификация совпадает с `externalActions` на fixture-ах `test/unit/continue-plan.test.ts`.
   - evidence: test-run pass · `pnpm test test/unit/unknown-side-effects.test.ts test/unit/continue-plan.test.ts` exit 0 · mac - · a7222c62f
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44222183289/job/134538143947 · ci - · 92292b416a8da116e4084bb1a314eec1af9f6b35
 
 ## Тесты
 
