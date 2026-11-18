@@ -1,7 +1,7 @@
 # 06 — Документы: переводы страниц Feature, Amendment к ADR-0105, имена действий в CONTEXT.md
 
 Type: task
-Status: open
+Status: claimed 2026-11-18T19:19Z
 Blocked by: 01, 02, 03, 04, 05
 Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решения по реализации», 5; «Решено без владельца», 3 и 7; «Готово,
 когда», пункт о документах
@@ -52,3 +52,31 @@ Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решения по реал�
 ## Вне скоупа
 
 - Английские страницы — в Ticket-ах поведения. Термин PR watch, страница `pr-watch.md` и Amendment к ADR-0108 — часть 2.
+
+## Итог
+
+- Переводы шести страниц `docs/features/ru/` сверены с английскими на `main` (7aadf9f75) целиком, не только по diff-у
+  Epic-а: `ru/pr-inbox.md` и `ru/harness.md` отставали и до Epic-а. Метки перевода — последний commit английского файла.
+  У `ru/skills-agents-and-hooks.md` снята пометка о PR #1996: он в `main`.
+- Amendment к ADR-0105 от 2026-11-18: действия правки, push только по «Push» (Q3), конфликт по режиму Profile-а (Q4).
+- CONTEXT.md: три действия правки в статье PR inbox, `_Avoid_` — Fix (действие Terminal AI), autofix.
+
+Решено без владельца в Epic-е части 1 — подтвердить на приёмке (Ticket 07). В «Итог» Ticket-ов 01, 02, 04 и 05 таких
+пунктов нет; список собран из spec-а («Вопросы владельцу», «Решено без владельца») и «Итог» Ticket-а 03:
+
+1. Q3 — push только после ответа «Push» в карточке вопроса, и в Full mode тоже (spec; Ticket-ы 02, 03; Amendment к
+   ADR-0105).
+2. Q4 — конфликт по режиму Profile-а: Full mode — rebase и `--force-with-lease`, Silent mode — merge commit (spec;
+   Ticket 03; Amendment к ADR-0105).
+3. Q7 — Session Ticket-а продолжается, если последняя запись её транскрипта моложе 24 часов, иначе новая Session
+   (spec; Ticket 01; `src/main/actions/launch.ts:164`).
+4. Split Epic-а на часть 1 и часть 2 (spec, пункт 1).
+5. Без своего ADR о сообщении main в Session: путь записан в ADR-0108, пункт 5; решения о push и конфликте — Amendment
+   к ADR-0105 (spec, пункт 3).
+6. Возражение 2 critic-а (id review и `authorAssociation` в snapshot PR inbox) — в часть 2 (spec, пункт 4).
+7. Ticket Node берёт причины кнопок из PR inbox, а не из Pipeline; Project с `"prInbox": false` кнопок не получает
+   (spec, пункт 5).
+8. Skill — два Ticket-а, режим `conflicts` отдельно (spec, пункт 6).
+9. Ветку «Push» ни один eval не достаёт: «без ответа ничего не уходит» проверяет eval, push с lease и отказ lease —
+   contract test (`test/contract/harness-evals.test.ts`) (Ticket 03).
+10. Два eval-кейса на два режима: у кейса один prompt и один scaffold, а режим — поле Profile-а (Ticket 03).

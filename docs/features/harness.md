@@ -300,7 +300,7 @@ in `/worfy:epic-wave` and `worfy:implementer`.
 | Agents | The three roles, see [Agents](skills-agents-and-hooks.md#agents) |
 | Skills | Thirteen procedures of worfy and twenty skills copied from Matt Pocock's, see [Skills](skills-agents-and-hooks.md#skills) |
 | Hooks | The commands Claude Code runs on its events and the rule texts, see [Hooks](skills-agents-and-hooks.md#hooks) |
-| Scripts | The 20 programs below |
+| Scripts | The 28 programs below |
 | Profile contract | The description of a Profile and the schema of its draft |
 | MCP server | `qmd`, the search over documents |
 
@@ -352,11 +352,16 @@ Session and Subagent (see [Hooks](skills-agents-and-hooks.md#hooks)).
 | `silent-check` | Looks for traces of the workflow in a text or a diff, see [Full mode and Silent mode](projects.md) |
 | `review-draft-lint` | Checks a review draft before a person sees it: the length of each comment by its tier, traces of the workflow in any mode, AI authorship lines, personal data and the project's forbidden words. With `--skill`, checks that every rule of a generated review skill points at a section of its `research.md`. With `--reply`, checks the draft of replies of skill `pr-reply`: the same rules for each reply still in draft, named `items[<i>]`, an empty reply, one length limit for every reply (the largest tier of `--rules`, else of the template's `lint.json`), and exit 2 for a file of the wrong shape; `--reply -` reads the draft from stdin |
 | `pr-reply-draft` | The only writer of the draft of replies of skill `pr-reply`. Takes the replies of a run on stdin, checks them with `review-draft-lint --reply` (with the team reviewer's limits when it is built) and writes nothing on a finding. Otherwise merges them into `<Profile folder>/state/pr-inbox/drafts/<owner>-<name>-<N>.json`: sent and discarded replies stay, a reply the person edited (`edited: true`) stays while its thread waits, the drafts of threads that no longer wait become discarded, the rest are replaced. A Session cannot write the Profile folder without a permission prompt; the script can |
+| `review-history` | Reads the review history of a Project's pull requests on GitHub through `gh api graphql`, keeps the words of the team's reviewers in `<Profile folder>/state/human-review/` and says how much there is, with a token estimate: the input of the team reviewer skill. No model runs in it |
 | `shortcut-ledger` | Lists the `shortcut:` comments of a work tree, one row each |
 | `verdict` | Prints a reviewer's answer from its verdict line on: the first line that starts with `VERIFIED` or `REJECTED` (also after `NARROW:`, bold, a heading mark or a backtick; never inside a fenced code block), a sentence above it and the markup dropped. Exit 1 when no line carries a verdict; nothing is guessed. Skill `epic-wave` records a verifier's verdict through it, and the app reads verdicts by the same rule |
+| `story-check` | Checks a Code story against the code of the PR's head, never the main branch: the title, the header line, the steps and their fields, every quoted fragment line by line, and personal data |
+| `evidence-check` | The privacy check of what a branch adds to the Tickets root before it reaches the repository: text line by line, and the metadata of images and clips (not their pixels or frames) |
 | `code-map` | The code map of a repository, kept next to the Profile, with a commit for each folder |
 | `worktree-lock` | The advisory lock on a working tree, see [Hooks](skills-agents-and-hooks.md#hooks) |
 | `start-context` | Estimates each agent's starting context in tokens, see [Agents](skills-agents-and-hooks.md#agents) |
+| `gate-failures` | The failure records of the Gate: which tests failed in which runs, on which computer. Each subcommand is a module of its own |
+| `loop-log` | The loops the call log saw: each case of an agent that repeated a call a fourth time, and the count of cases |
 | `qmd-mcp` | Starts the MCP server |
 | `qmd-refresh` | Updates the index when a main branch has moved or a memory or lessons file is newer than the last update |
 | `qmd-sync-main` | Pulls the copy of a Project's main branch that the index reads |

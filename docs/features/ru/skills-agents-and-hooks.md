@@ -1,8 +1,6 @@
 # Skills, agents and hooks
 
-> Перевод [английской версии](../skills-agents-and-hooks.md), commit `b82c4d25`.
->
-> Последний абзац раздела Implementation уже переводит текст PR #1996 (Ticket 13 Epic-а `worfy-continuity`), которого ещё нет в `main`.
+> Перевод [английской версии](../skills-agents-and-hooks.md), commit `4227ebcb`.
 
 Три Feature plugin-а [Harness](harness.md). **Skills** это процедуры, которым следуют агенты, **Agents** это четыре роли, которые они
 запускают, а **Hooks** это то, что само работает вокруг Session. Термины объяснены в [Concepts](concepts.md).
@@ -12,7 +10,7 @@
 ### Behaviour
 
 Skill это процедура в Markdown, которой следует агент. Действия worfy, Autopilot и пользователь запускают их как `/worfy:<name>`, а
-модель может выбрать по описанию любой skill, кроме отмеченных ниже как «только вручную». Plugin несёт одиннадцать собственных skill-ов
+модель может выбрать по описанию любой skill, кроме отмеченных ниже как «только вручную». Plugin несёт тринадцать собственных skill-ов
 worfy и двадцать, скопированных из skill-ов Matt Pocock.
 
 | Skill | Когда | Что делает |
@@ -28,6 +26,7 @@ worfy и двадцать, скопированных из skill-ов Matt Pococ
 | `tickets-to-tasks` | После того как `/worfy:to-tickets` или `/worfy:wayfinder` записали Ticket-ы, или когда список задач пуст | Импортирует Ticket-ы в Tasks Claude Code и сохраняет их блокировки |
 | `human-review-setup` | `/worfy:human-review-setup`, или "Build" в предложении reviewer-а команды ([Projects](projects.md)), только вручную | Читает историю review команды на GitHub, показывает, сколько прочтёт модель, и её оценку в токенах, а после согласия человека пишет приватный skill review голосом команды |
 | `pr-reply` | `/worfy:pr-reply <owner>/<repo>#<N>`, или действие `actions.prReply` ("Draft replies"), которое запускает Session на Claude Code по шаблону из Project settings | Читает pull request, его diff и его review threads, сверяет каждый комментарий с кодом на head commit-е, не переключая ветку, и передаёт черновик ответа на каждый review thread, который ждёт ответа, в `pr-reply-draft`; тот проверяет их через `review-draft-lint --reply` и хранит в `<Profile folder>/state/pr-inbox/drafts/`. Ничего не публикует |
+| `pr-fix` | `/worfy:pr-fix <checks\|conflicts\|comments> <owner>/<repo>#<N> [<sha>]`, или действия "Fix checks", "Resolve conflicts" и "Address comments" | Берёт собственный pull request человека на его текущем head (и говорит об этом, если head ушёл от `<sha>`), делает правку в worktree Ticket-а, когда тот стоит на ветке PR и чист на head (detached tree другого агента не в счёт), иначе в новом detached worktree `<worktree.root or .claude/worktrees>/<repo>-pr-<N>`, подготовленном через `commands.prepare_tree`, гоняет `commands.verify` или gate fast с exit code и делает там commit; checkout человека не трогает. `checks` читает упавшие checks и их логи без отметок агентов и лишь называет check, который красный и на базовой ветке. `comments` берёт ждущие review threads, review с `CHANGES_REQUESTED` и вердикты `REJECTED` (и когда ни один thread не ждёт) и `fixPlan` черновиков, спрашивает перед изменением дизайна, scope или UX и передаёт ответы в `pr-reply-draft`. `conflicts` сначала называет файлы в конфликте через `git merge-tree` против head базы; без конфликта он ничего не меняет: ушедшая вперёд база — не повод для rebase. Конфликт, которому нужно решение о дизайне или scope, задаётся вопросом, а без человека ничего не меняется. Иначе политика следует режиму Profile-а: в Full mode — rebase на базу в worktree, в Silent mode — merge commit базы и никогда rebase или force-push. Push он делает только на ответ "Push" на свой вопрос "Push N commit(s) to <branch>?", или, после rebase в Full mode, "Force-push (with lease) N commit(s) to <branch>?", сказав перед этим, что после push отметки агентов остаются на старом commit-е. Rebase уходит только с `--force-with-lease=<branch>:<head before the rebase>`, никогда голым `--force`; если ветка на GitHub ушла вперёд, lease отказывает, и skill больше ничего не пушит. "Not now" или отсутствие человека оставляют commit-ы в worktree, а в режиме `conflicts` отчёт говорит, что их отменяет `git reset --hard <head>` в этом worktree. Он ничего не вливает, не публикует, не resolve-ит и не ставит label-ов. Eval-случаи `pr-fix-checks`, `pr-fix-comments`, `pr-fix-conflicts` (Full mode) и `pr-fix-conflicts-silent` проверяют, что работа попадает в worktree, что конфликт решается rebase-ом или merge commit-ом, как велит режим, и что без этого ответа ничего не пушится и не пишется в GitHub |
 | `product-ideas` | Модель, когда Product owner просит идей или спрашивает «что дальше» | Читает roadmap, spec-и, открытые Ticket-ы и тему и отвечает тремя–пятью идеями: для кого, почему сейчас, цена в Ticket-ах и как понять, что сработало; хотя бы одна из них против названного пункта roadmap. Каждая идея становится узлом Mind map с `advice: true`; без tool-ов Mind map идеи остаются в ответе. Черновик Epic-а он не пишет, пока владелец не скажет «да» какой-то идее |
 
 **Skill-ы Matt Pocock.** Двадцать skill-ов это копия skill-ов Matt Pocock, версия 1.3.1 plugin-а `mattpocock-skills`, под лицензией MIT.

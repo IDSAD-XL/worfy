@@ -1,6 +1,6 @@
 # Projects
 
-> Перевод [английской версии](../projects.md), commit `59164fed`.
+> Перевод [английской версии](../projects.md), commit `a8f1faef`.
 
 Три Feature, которые относятся к Project-у целиком. **Full mode и Silent mode** решают, где лежат файлы workflow. **Project
 switcher** — это список Project-ов и выбор того, который показывает окно. **ADR и HANDOFF** — view только для чтения над двумя
@@ -117,10 +117,25 @@ Watch-и worfy на Project закрываются на время перено�
 6. **Connect.** Harness записывает Profile, папка входит в список и становится активной. Это может занять до 30 минут, потому что
    запись может индексировать Project для qmd. Пропущенный шаг qmd возвращается как notice, а Project всё равно подключён.
 
-**Предложение собрать Team reviewer.** После добавления новой папки, через Connect или как папки, которую Harness уже знает,
-worfy в фоне спрашивает `review-history probe`, есть ли у команды голос: 30 содержательных комментариев ревьюеров за 12 месяцев.
-Если есть, у Project-а появляется `action` toast «Build a reviewer in your team's style?» с кнопками «Build» и «Later». Что это
-за ревьюер, как он собирается и проверяется и кто его получает — на странице [Team reviewer](human-review.md).
+**Предложение собрать Team reviewer.** После добавления папки, которой ещё нет в списке, через Connect или как папки, которую
+Harness уже знает, worfy в фоне запускает `review-history probe` из Harness с аккаунтом GitHub Profile-а и лимитом 2 минуты. Если
+ревьюеры команды оставили 30 содержательных комментариев за последние 12 месяцев (`voice: yes`), у Project-а появляется `action`
+toast «Build a reviewer in your team's style?» с кнопками «Build» и «Later». «Build» открывает новую [Session](sessions.md) в
+корне Project-а на Claude Code, первое сообщение которой — `/worfy:human-review-setup`. «Later» или закрытие toast сохраняет
+`humanReview.offer: "later"` в настройках Project-а, и предложение больше не появляется — ни после перезапуска, ни после нового
+добавления. `voice: no`, отсутствие `origin` на GitHub, отсутствие gh, сбой или лимит времени ничего не показывают; в log
+уходит одна строка. Project, у которого ревьюер уже собран, предложения не получает. Что это за ревьюер, как он собирается и
+проверяется и кто его получает — на странице [Team reviewer](human-review.md).
+
+**Напоминание обновить Team reviewer.** Каждый раз, когда окно делает Project активным, оно спрашивает main, пора ли напомнить.
+Пора, когда ревьюер собран, его дата (как её показывает «Team reviewer» ниже) старше 30 дней и за последние 30 дней напоминания
+не было. Напоминание, которому пора, сначала сохраняется как `humanReview.remindedAt` в настройках Project-а в папке данных
+worfy, поэтому оно приходит один раз: в одном окне и снова не раньше чем через 30 дней. Затем у Project-а появляется `action`
+toast «Update your team reviewer?» с кнопками «Update» и «Later». «Update» открывает новую Session в корне Project-а на Claude
+Code, первое сообщение которой — `/worfy:human-review-setup --refresh`: skill читает только pull request-ы после своего
+последнего анализа, показывает правила, которые добавляет, меняет и удаляет, и ничего не заменяет, пока человек не согласится.
+«Later» и закрытие toast только закрывают его. Напоминание читает приватную папку и ничего больше: ни скрипта Harness, ни
+GitHub, ни модели. Экран Linked machine только для чтения не спрашивает.
 
 Esc и Cancel закрывают диалог и останавливают идущий черновик, но не во время записи Connect. Клик вне диалога закрывает его
 только на шаге Mode.
@@ -130,7 +145,11 @@ Esc и Cancel закрывают диалог и останавливают ид
 Profile: `github.account` и `workflow.finish`, который равен `pr-green-ci` при праве на запись во все такие репозитории и
 `local-green` в остальных случаях. «No account» значит отсутствие аккаунта и `local-green`, и то же самое значит папка без
 `origin` на хосте GitHub или Machine без gh. «Sign in with gh» запускает `gh auth login` в терминале внутри диалога, и когда gh
-завершается, аккаунты читаются заново.
+завершается, аккаунты читаются заново. У gh старше 2.81 нет JSON-вывода для `gh auth status`: тогда аккаунты читаются из его
+текстового вывода, а аккаунт, вход которого не удался или истёк по времени, — вместе со своим состоянием. У gh старше 2.40 нет
+`gh auth token -u`, поэтому шаг завершается ошибкой с его версией и командой, которая его обновляет (`brew upgrade gh`, на Windows
+`winget upgrade GitHub.cli`); так же — текст, в котором нет ни одного аккаунта, когда gh завершился с 0: тогда шаг просит gh 2.81
+или новее. Совсем без gh шаг называет `brew install gh`, на Windows `winget install GitHub.cli`.
 
 **С чего начинается форма.** Язык отчётов — язык системы: `ru`, иначе `en`. В Silent mode attribution начинается с `off`, что бы
 ни предложила Session, а то, что пользователь выберет в форме, записывается как выбрано. В Full mode остаётся то, что предложила
@@ -193,9 +212,15 @@ Project входит в список там, не меняя активный Pr
   ([ADR-0042](../../adr/0042-profile-on-machine-full-and-silent-modes.md)). `HANDOFF.md` и `docs/adr/` занимают в ней одни и те же
   места, поэтому один reader обслуживает оба режима.
 - **Session черновика ничего не может изменить.** У неё есть только Read, Glob и Grep, а всё, что пишет, выходит в сеть или
-  запускает агентов, убрано и запрещено. Shell у неё нет, поэтому то, что можно узнать только командой (remotes, ветки), сначала
-  читает скрипт Harness и передаёт ей как данные. Затем worfy поверх ответа ставит значения, которыми владеет сам: режим,
-  Workflow folder, корень worktree, язык отчётов, отсутствие аккаунта GitHub и имя Profile в каждой записи Gate.
+  запускает агентов, убрано и запрещено. Она читает только внутри выбранной папки, своей рабочей папки и папки плагина
+  Harness: Read, Glob или Grep пути в другом месте, в том числе по ссылке, которая ведёт из папки, отклоняется. Shell у неё нет,
+  поэтому то, что можно узнать только командой (remotes, ветки), сначала читает скрипт Harness и передаёт ей как данные. Затем
+  worfy поверх ответа ставит значения, которыми владеет сам: режим, Workflow folder, корень worktree, язык отчётов, отсутствие
+  аккаунта GitHub и имя Profile в каждой записи Gate.
+- **Черновик не оставляет после себя Session.** Его запрос выполняется в собственной папке worfy
+  `<WORFY_DATA_DIR>/terminal-ai`, читает выбранную папку как дополнительную по абсолютным путям, и Claude Code не хранит его
+  transcript. Поэтому, когда папка становится Project-ом, в её списке Session нет Session, которую человек не запускал, а факты
+  черновика нигде не остаются на диске.
 - **Что записывает Connect**, всё через `harness/bin/project-connect`: `profile.json` и `rules.md`, записи Gate registry, папку
   Workflow folder по умолчанию с `git init` и один коммит в Harness home. Сбой на полпути всё откатывает. В Silent mode
   репозитории получают одно: строку `.claude/worktrees/` в `.git/info/exclude`. Ничего не попадает в рабочее дерево или
@@ -221,7 +246,8 @@ Project входит в список там, не меняя активный Pr
   `harnessBlocker` — шаг 3, `applyChoices` ставит то, чем владеет worfy. `src/main/harness/attribution.ts`: attribution по умолчанию.
 - `src/main/ipc/projects.ts`, `src/shared/ipc/projects.ts`: каналы `projects.connect.*`.
 - `src/renderer/projects/ConnectProject.tsx`: диалог. `src/renderer/projects/GithubAccount.tsx`, `src/main/github/accounts.ts`:
-  шаг аккаунта. `src/renderer/projects/FolderBrowser.tsx`, `src/main/projects/browse.ts`: папки Linked machine.
+  шаг аккаунта; `src/main/github/auth-text.ts` читает текстовый вывод `gh auth status` для этого шага и для Health check.
+  `src/renderer/projects/FolderBrowser.tsx`, `src/main/projects/browse.ts`: папки Linked machine.
   `src/main/projects/temp-folder.ts`: правило `%TEMP%`.
 - `src/main/workflow/reader.ts`, `src/main/workflow/watch.ts`: чтение и наблюдение по раскладке; неудавшаяся раскладка
   запрашивается снова по `LAYOUT_RETRY_MS`. `src/main/workflow/marks.ts`, `src/main/workflow/stages.ts`: отметки обоих хранилищ.
@@ -240,7 +266,9 @@ Project входит в список там, не меняя активный Pr
 
 1. `projects.connect.inspect` отвечает `added`, `new` или `rejected`. Для `added` он уже вызвал `ProjectStore.add`.
 2. `projects.connect.draft` проверяет папку и Harness, запускает `project-connect --facts`, стартует Session со схемой черновика
-   как structured output и шлёт `projects.connect.activity`. Ответ проходит `--schema-only`, затем `applyChoices`, затем `--check`.
+   как structured output и шлёт `projects.connect.activity`. Session — это один запрос через часть oneShot драйвера Claude Code
+   (`vendorDriver('claude').oneShot`); её сбой выглядит как «The draft Session failed: » и причина. Ответ проходит
+   `--schema-only`, затем `applyChoices`, затем `--check`.
 3. `projects.connect.check` запускает `--check` на каждую правку, более старый ответ отбрасывается.
 4. `projects.connect.write` запускает `project-connect` без аргументов. Затем папку должен знать `bin/profile -C`, и только после
    этого она добавляется в список. На факты и проверки у скрипта 120 секунд, на запись 30 минут, и при выходе из приложения он
@@ -250,6 +278,8 @@ Project входит в список там, не меняя активный Pr
 
 - `test/contract/projects-connect.test.ts`: шаги с заменителями и с настоящими скриптами, инструменты Session черновика, лимиты
   времени, attribution в сверке с `bin/profile`.
+- `test/contract/profile-draft-session.test.ts`: после черновика и Connect у Project-а нет ни живой Session, ни Session в
+  истории, и transcript черновика не существует.
 - `test/e2e/projects-connect.spec.ts`: Silent по умолчанию, черновик, форма, Connect, неустановленный Harness, аккаунт.
 - `test/e2e/silent-project.spec.ts`: Silent Project и Project над двумя репозиториями в собранном приложении, ничего не записано
   в Workflow folder или репозитории.
@@ -257,7 +287,8 @@ Project входит в список там, не меняя активный Pr
   закрытый PR и флаги, которые не обрезаются. `test/unit/checks-badges.test.tsx` проверяет строки badge-ей, а
   `test/unit/canvas-actions.test.tsx` проверяет «Open PR». `test/unit/ticket-card.test.tsx` и `test/unit/epic-card-repos.test.tsx`
   проверяют chip и место на карточке. `test/contract/github-prs.test.ts` проверяет ветку, принятую в каждом репозитории.
-- `test/contract/github-accounts.test.ts`: аккаунты. `test/unit/temp-folder.test.ts`: правило `%TEMP%`.
+- `test/contract/github-accounts.test.ts`: аккаунты, в том числе от gh без `--json`. `test/unit/gh-auth-text.test.ts`:
+  текстовый вывод `gh auth status`. `test/unit/temp-folder.test.ts`: правило `%TEMP%`.
 - `test/unit/add-project-machine.test.tsx`, `test/unit/folder-browser.test.tsx`, `test/e2e/linked-add-project.spec.ts`:
   «Add project» на Linked machine.
 
@@ -265,8 +296,8 @@ Project входит в список там, не меняя активный Pr
 
 ### Behaviour
 
-**Список.** «Projects» — первая секция sidebar, после Getting started, пока та показана. Строка показывает значок папки, имя папки и справа ветку в checkout-е: `HEAD`,
-когда HEAD detached, `—`, когда git не может её прочитать. Tooltip — полный путь. Project, который показывает окно, подсвечен, и
+**Список.** «Projects» — первая секция rail-а sidebar. Project switcher sidebar её не фильтрует. Строка показывает значок
+папки, имя папки и справа ветку в checkout-е: `HEAD`, когда HEAD detached, `—`, когда git не может её прочитать. Tooltip — полный путь. Project, который показывает окно, подсвечен, и
 toolbar повторяет его как `<name> · <branch>`. Ветка читается заново, когда окно получает фокус, и при каждом изменении списка.
 
 Без Project-ов секция говорит «No projects yet», toolbar — «No project», а Canvas — «Add a project to see its canvas.»
@@ -284,13 +315,60 @@ Project Machine этого окна. Строка секции Pipeline или n
 
 **Контекстное меню строки.**
 
-- «Project settings…» содержит шаблоны сообщений «Ship ticket», «Run wave» и «Process gate queue» с подстановками `{epic}`,
-  `{NN}`, `{wave}`, `{slug}`, `{branch}` и `{tickets}`. Неизвестная подстановка показывает ошибку под полем и выключает Save.
+- «Project settings…» содержит шаблоны сообщений «Ship ticket», «Run wave», «Process gate queue», «Draft replies», «Fix
+  checks», «Resolve conflicts» и «Address comments» с подстановками `{epic}`, `{NN}`, `{wave}`, `{slug}`, `{branch}`,
+  `{tickets}`, `{repo}`, `{pr}` и `{sha}`. Неизвестная подстановка показывает ошибку под полем и выключает Save. «Draft
+  replies» (`/worfy:pr-reply {repo}#{pr}` с плагином, пустой со старым Harness) — первое сообщение новой Session на Claude Code
+  для одного pull request-а: `{repo}` — его `owner/name`, `{pr}` — его номер; подстановка, для которой нет значения, или пустой
+  шаблон дают отказ. «Fix checks», «Resolve conflicts» и «Address comments» передают один pull request пользователя Session
+  skill-а pr-fix: `/worfy:pr-fix checks {repo}#{pr} {sha}`, `/worfy:pr-fix conflicts {repo}#{pr} {sha}` и
+  `/worfy:pr-fix comments {repo}#{pr} {sha}` с плагином, пустые со старым Harness. `{sha}` — head commit pull request-а, ровно
+  40 hex-символов; всё остальное даёт отказ действию. По клику worfy заново читает pull request и берёт head из этого чтения.
+  Если аккаунт ждёт свой rate limit GitHub или чтение не удалось (сеть, ошибка GitHub), строка и её head остаются последними
+  прочитанными; skill сам проверяет head. Клик отклоняется с причиной, когда шаблон пуст, в Project-е работает Autopilot,
+  Orchestrator Project-а занят Binding-ом к Epic-у Ticket-а этого pull request-а (его Wave сама чинит свои pull request-ы),
+  pull request не пользователя, пришёл из fork-а или закрыт, его причины больше нет (`CI is no longer failing on 3f2a9c1`)
+  или экран только для чтения. Текст уходит в Session Node, привязанный (manual или launch) к Ticket-у pull request-а (по его
+  строке `PR:` или по ветке), на Claude Code, не в архиве, у которого последняя запись transcript-а моложе 24 часов: worfy
+  продолжает эту Session, если у неё нет процесса, отправляет текст или ставит его в очередь, пока идёт ход, и добавляет
+  строку `worfy: Fix checks for owner/web#118 sent to this Session`, которую модель не видит. Иначе запускается новый Session
+  Node на Claude Code с текстом как первым сообщением, привязанный через launch к Ticket-у, если он есть. Порядок причин на
+  кнопке: конфликт (`DIRTY`), затем красный CI, затем запрошенные изменения или thread-ы, которые ждут ответа пользователя.
   «Reset to default» ставит значения по умолчанию из Harness, который сейчас найден на Machine. На Windows в диалоге есть ещё
-  [Terminal shell](terminal.md).
-- Раздел «Team reviewer» в «Project settings…» показывает состояние ревьюера голосом команды Project-а (`Not built`,
-  `Built <date>, <N> PRs` или `Too little history: <N> of 30`) с кнопками «Build» (у собранного — «Update») и «Delete».
-  Подробно — [Team reviewer](human-review.md).
+  [Terminal shell](terminal.md). «Default vendor» (`defaultVendor` в настройках) — Vendor, который «New session» показывает
+  первым и на котором работает [Session](sessions.md), запущенная без выбора: None (Claude Code), Claude Code или Codex.
+  «None» стирает сохранённый, и тогда по умолчанию Claude Code. Значение, которого эта сборка не знает, читается как
+  отсутствующее. [Orchestrator](sessions.md) Project-а работает на нём со следующего запуска: «New Orchestrator Session» или
+  следующий запуск worfy. «Ship ticket» работает на Claude Code, что бы ни было выбрано. Linked machine на сборке без этого поля
+  сохраняет без него, и сохранённое значение остаётся.
+- «Team reviewer» в «Project settings…» показывает ревьюера Project-а голосом его команды: `Not built`,
+  `Built <date>, <N> PRs` или `Too little history: <N> of 30`. Его файлы лежат в приватной папке Profile-а,
+  `<папка Profile-а>/state/human-review/`. Ревьюер собран, когда там есть его skill, `.claude/skills/human-review/SKILL.md`.
+  Дата — `kept_at` из `meta.json`, который пишется, когда человек оставляет результат генератора, иначе `fetched_at`,
+  последнее чтение истории, и только без обоих — время записи файла skill-а. `<N> PRs` и короткая история берутся из
+  `meta.json` от `review-history`. После обновления, которое человек принял, дата — дата обновления, а к `<N>` добавляются
+  прочитанные им pull request-ы (`analysed_pull_requests`), пока полная сборка снова не прочтёт историю. «Build» запускает ту же
+  Session, что и предложение, и закрывает диалог. У собранного ревьюера на его месте «Update», которая запускает Session
+  напоминания, с `--refresh`. «Delete» сначала спрашивает, затем стирает эту папку и больше ничего. Linked machine только для
+  чтения видит состояние без кнопок. Собранный ревьюер доступен как `/human-review` в каждой Session Claude Code Project-а, за
+  которой сидит человек: в Orchestrator-е, «New session», «Ship ticket» и Product Session. Каждый запуск читает папку Profile-а
+  и добавляет приватную папку как дополнительную после папки Card-ов. `skills.allowed` её не убирает. Session Autopilot-а,
+  Session черновика «Add project» и Session Codex его никогда не получают (ADR-0102). Вся Feature — [Team
+  reviewer](human-review.md).
+- «Code stories for PRs» в «Project settings…» — переключатель поля Profile-а `code_stories.pr`: если он включён, implementer
+  должен написать Code story (короткий пошаговый рассказ об изменении) к PR каждого тикета. Поле принадлежит Profile-у, потому
+  что Harness читает только Profile. Profile без него читается как включённый. Клик сразу, без Save, пишет `"on"` или `"off"`
+  через `harness/bin/profile-set --field code_stories.pr`, и только пока у Profile-а то значение, которое прочёл переключатель.
+  Если оно изменилось, ничего не записывается: диалог говорит об этом и показывает Profile, каким он стал. Любой другой отказ
+  виден под переключателем. Linked machine только для чтения видит значение с неактивным переключателем. Когда он включён,
+  implementer пишет story до PR и проверяет её через `harness/bin/story-check` (`harness/skills/ship-ticket/story-pr.md`), а
+  `harness/bin/land` не вливает PR тикета без его story или с красной её проверкой; когда выключен, ни того, ни другого нет. В
+  обоих случаях после merge PR документов от `land` добавляет к story тикета шаг «What review found and what remains»:
+  сохранённый verdict ревью, процитированный как есть, и строки влитого head-а, которые он называет, без вызова модели
+  (`harness/skills/epic-wave/SKILL.md`, «The review step of the Code story»). Когда файл состояния `land` содержит последний PR
+  Epic-а с кодом (`land --epic-story`; тикет приёмки владельцем не считается), агент Orchestrator-а собирает story Epic-а, и PR
+  документов этого merge несёт её как `<epic>/story.md` (в Silent mode она идёт в Workflow folder;
+  `harness/skills/epic-wave/SKILL.md`, «The epic story»).
 - «Edit profile…» в «Project settings…» открывает Profile Project-а формой поверх диалога. В ней поля шага Review из «Add
   project» и те, которых там нет: title, команды, путь тикета, spec, раздел файлов, раздел «готово», ветка, finish,
   `parallel`, линзы ревью и тикета, MCP servers, разрешённые skills, GitHub account, папка ADR, метка статуса ADR, feature
@@ -313,7 +391,35 @@ Project Machine этого окна. Строка секции Pipeline или n
   Orchestrator-у Project-а.
 - «Remove from list» действует сразу, без вопроса. Project уходит из списка. Если он был активным, активным становится первый из
   оставшихся или никакой. Его папка данных остаётся, поэтому снова добавленный Project найдёт там свои настройки. Его Orchestrator
-  закрывается, как и shell-ы его [Terminal](terminal.md)-ов. Репозиторий и Profile Harness не затрагиваются.
+  закрывается, как и shell-ы его [Terminal](terminal.md)-ов. Репозиторий и Profile Harness не затрагиваются, поэтому пути
+  Project-а остаются в gate registry: повторное подключение той же папки, отдельно или как одного репозитория папки над
+  несколькими, отклоняется с «already in the gate registry».
+- «Remove project…» есть только в строках этой Machine. Он ещё и убирает Project из Harness этой Machine, чтобы его папки можно
+  было подключить снова. Сначала спрашивает диалог. Он перечисляет, что уходит: Profile и его папка, записи gate registry с их
+  путями, отметки агентов в `runs/<profile>/`, коллекции qmd, которые называет Profile (коллекция, которую называет другой
+  Profile, остаётся), и пустая Workflow folder по умолчанию. Он перечисляет, что остаётся: репозитории и все файлы в них,
+  тикеты, spec, ADR и файл состояния в репозитории Full mode, Workflow folder, которую выбрал человек, и настройки Project-а в
+  worfy. «Remove project» закрывает Orchestrator Project-а и его Session, останавливает watch worfy на его тикеты и документы,
+  запускает `project-connect --remove <profile>`, затем убирает Project из списка и снова включает watch, каким бы ни был ответ.
+  Watch останавливается, потому что Workflow folder Silent mode лежит в папке Profile-а, а Windows не даёт переименовать папку,
+  пока watch держит папку внутри неё. «Remove from list» в том же диалоге делает то же, что одноимённый пункт меню. Сам worfy
+  ничего не удаляет, а Harness никогда не трогает репозиторий.
+- «Remove project…» в строке [Demo project](onboarding.md) из Getting started такого диалога не открывает: он запускает
+  собственное удаление демо — то же, что у «Remove the demo project», которое спрашивает системным диалогом, удаляет ещё и папку
+  демо и даёт Getting started забыть демо. Секция говорит «The demo project was removed.» или причину, по которой он не удалён.
+- «Remove project…» отказывает до того, как что-либо закроется, и ничего не удаляет, когда Workflow folder по умолчанию у
+  Profile-а Silent mode содержит файлы или commit-ы (тикеты проекта): диалог говорит об этом и предлагает «Show in Finder» для
+  этой папки, чтобы человек сначала вынес всю папку из папки Profile-а. Он также отказывает для папки, у которой в Harness нет
+  Profile-а; для Profile-а в старой папке Harness `~/.claude/profiles/`, куда `project-connect --remove` не смотрит (сначала нужен
+  перенос старого Harness в плагин); для Profile-а с «no registry entry of this Profile», у которого нет пути, чтобы его
+  освободить; и для репозитория, отдельно стоящего в списке, чей Profile покрывает и другие репозитории: удаление этого
+  Profile-а забрало бы и их. Отказ или сбой `project-connect` оставляет Project в списке, и диалог показывает слова скрипта.
+  Когда Windows не дала переименовать папку Profile-а (EPERM или EBUSY), диалог добавляет, что папка внутри неё держится
+  открытой и что Terminal-ы или программы, которые в ней работают, нужно закрыть перед новой попыткой. Его «no profile»
+  считается выполненным, только когда не осталось ни одной записи registry этого Profile-а. Другой Project из списка внутри
+  папки удаляемого делит с ним Profile: его Orchestrator держится закрытым на время удаления, а сам он остаётся в списке без
+  Profile-а, о чём говорят диалог и notice после удаления. Коллекции qmd, которые остаются (qmd не установлен или их называет
+  другой Profile), названы в этом notice. Перенос Project-а между Full mode и Silent mode в это не входит.
 
 **Сломанный список.** `projects.json` с битым JSON или неверной формы откладывается в сторону, и приложение стартует с пустым списком.
 Сохранённый активный Project, которого нет в списке, читается как отсутствие активного Project-а.
@@ -367,14 +473,31 @@ Project, отмеченный как локальный для своей Machin
 - `src/main/projects/store.ts`: `ProjectStore`, список в `<data root>/projects.json`, ветка через `git` и `onChange`, событие
   «активный Project переключился». `states()` даёт список для окон этой Machine и для Linked machine.
 - `src/main/projects/settings.ts`, `src/shared/projects/action-templates.ts`: настройки Project-а.
+  `src/main/projects/review-offer.ts`: предложение Team reviewer после добавления, напоминание обновить его (`refreshDue`) и
+  состояние и «Delete» в «Team reviewer»; `src/renderer/projects/review-offer.ts`: их toast-ы и напоминание, которое
+  запрашивается при каждой активации через `followActiveProject` (`src/renderer/projects/useProjects.ts`).
+  `ActionLauncher.buildTeamReviewer` (`src/main/actions/launch.ts`) запускает Session генератора. `privateSkillsFolder`
+  (`src/main/vendors/claude/query.ts`) даёт Session папку ревьюера, прочитанную через `readProfileFolder`
+  (`src/main/workflow/profile.ts`).
   `src/main/projects/holds.ts`: `ProjectHolds`. `src/main/ipc/linked.ts`: `linked.open` превращает выбор окна в удержание.
 - `src/main/ipc/projects.ts`, `src/shared/ipc/projects.ts`: каналы и их доступ. `projects.select` — `local`,
   `projects.pickFolder` — `desktop`, а `projects.list`, `projects.remove`, `projects.add` и `projects.hold` — `project`.
+  `projects.removal.preview`, `projects.removeProject` и `projects.removal.reveal` («Remove project…») — `local`: Linked
+  machine никогда не удаляет Project из Harness этой Machine.
+- `src/main/projects/remove.ts`: «Remove project…», его предпросмотр, проверки перед ним и порядок его шагов;
+  `src/renderer/projects/RemoveProject.tsx`: его диалог.
 - `src/main/agent/app-orchestrators.ts`: следует за `onChange` и удержаниями и закрывает Orchestrator удалённого Project-а.
 - `src/renderer/projects/useProjects.ts`: копия renderer-а, `openProject` как единственный способ открыть Project, `groupProjects`
   для Machine и `useReadOnly`.
 - `src/renderer/shell/sidebar/ProjectsSection.tsx`: секция и меню. `src/renderer/shell/ProjectSettings.tsx`: диалог настроек.
   `src/renderer/projects/read-only.ts`: как выглядит неактивное действие записи.
+- `src/renderer/projects/EditProfile.tsx`: «Edit profile». `src/renderer/projects/ProfileFields.tsx` и
+  `src/renderer/projects/profile-fields.ts`: поля, общие с шагом Review из «Add project».
+  `src/main/ipc/profile-edit.ts`, `src/shared/ipc/profile-edit.ts`: `profileEdit.read`, `profileEdit.check` и
+  `profileEdit.write` поверх `bin/profile-set --field`: чтение и проверка — каналы чтения `project`, запись — `local`, как
+  `pipeline.write`, поэтому Linked machine читает Profile и никогда его не пишет. `profileEdit.move`, тоже `local`, проверяет
+  работающие Session и запускает `bin/profile-set --move`; `src/renderer/projects/MoveWorkflow.tsx` — его кнопка и
+  подтверждение. `harness/lib/workflow-move.cjs`: план, проверки, копирование, commit-ы и откат переноса.
 - `src/renderer/palette/commands.ts`: «Switch to project». `src/renderer/pipeline/open.ts`,
   `src/renderer/canvas/overlays/NotificationTarget.tsx`: другие пути к `openProject`.
 
@@ -385,10 +508,22 @@ Project, отмеченный как локальный для своей Machin
 **Основные тесты.**
 
 - `test/contract/projects.test.ts`: добавление, выбор, удаление, сохранение, настройки, нетронутый репозиторий, `projects.browse`,
-  вызовы с Linked machine и Project-ы, локальные для Machine.
-- `test/e2e/projects.spec.ts`: добавление, переключение, настройки, перезапуск и удаление в собранном приложении и сломанный
-  `projects.json`.
+  вызовы с Linked machine, Project-ы, локальные для Machine, и Team reviewer: предложение по ответу probe, `humanReview.offer`,
+  состояние и «Delete», а также напоминание обновить его раз в 30 дней с «Update».
+- `test/e2e/projects.spec.ts`: добавление, переключение, настройки, перезапуск и удаление в собранном приложении, сломанный
+  `projects.json` и предложение Team reviewer с «Later» и «Build».
 - `test/unit/use-projects.test.tsx`: revision, группы по Machine, окна на Linked machine.
+- `test/unit/edit-profile.test.tsx`: значения формы, отказ под своим полем, отклонённый fingerprint, шаг аккаунта.
+  `test/contract/profile-edit.test.ts`: каналы поверх настоящего `bin/profile-set` и поверх его заменителя.
+  `test/e2e/edit-profile.spec.ts`: форма в собранном приложении. `harness/bin/tests/profile-set.test.sh`: `--field` любого поля.
+  `test/contract/profile-move.test.ts`: `profileEdit.move` поверх настоящего `bin/profile-set --move` в обе стороны, работающая
+  Session, отказы и откат. `harness/bin/tests/profile-set-move.test.sh`: сам `--move`, с каждым отказом и сбоем на каждом шаге.
+- `test/contract/projects-remove.test.ts`: «Remove project…» поверх настоящих `bin/profile` и `bin/project-connect` во временном
+  Harness home: что уходит, что остаётся, отказы и повторное подключение тех же папок; с настоящими hub-ами Ticket-ов и
+  документов — удаление Silent Project-а под watch-ем при Harness, который отказывает, как Windows, пока watch держит Workflow
+  folder. `test/unit/remove-project.test.tsx`: его диалог. `test/e2e/projects-connect.spec.ts`: подключение, удаление и повторное
+  подключение в собранном приложении. `harness/bin/tests/project-connect.test.sh`: `--remove`, затем повторное подключение тех же
+  путей.
 - `test/contract/projects-hold.test.ts`, `test/unit/project-holds.test.ts`: удержания. `test/contract/link-access.test.ts`,
   `test/unit/link-access.test.ts`: что может вызывать Linked machine.
 
@@ -416,9 +551,9 @@ Project, отмеченный как локальный для своей Machin
 
 Текст можно выделять. Колесо двигает Canvas, пока по Node-у не кликнули, а потом прокручивает текст. Find ищет по тексту HANDOFF.
 
-**Секция ADR.** Она в sidebar после Epic-ов, с числом ADR в заголовке. Строка показывает номер, заголовок и статус, сортировка по
-номеру. Заголовок — первый заголовок `# `, а без него имя файла. Статус — то, что идёт после метки статуса, без точки в конце, и
-ищется он в первых 20 строках. Метка — `docs.adr_status_label` из Profile, а без неё `Status`; старая `Статус` тоже читается. У файла
+**Секция ADR.** Она в rail-е sidebar после Epic-ов, с числом ADR в заголовке. Она показывает ADR активного Project-а, что бы
+ни говорил Project switcher sidebar. Строка показывает номер, заголовок и статус, сортировка по номеру. Заголовок — первый
+заголовок `# `, а без него имя файла. Статус — то, что идёт после метки статуса, без точки в конце, и ищется он в первых 20 строках. Метка — `docs.adr_status_label` из Profile, а без неё `Status`; старая `Статус` тоже читается. У файла
 без такой строки статуса нет.
 
 Без ADR секция говорит «No ADRs in docs/adr/». Добавленный или удалённый файл меняет список без перезагрузки.
@@ -431,11 +566,18 @@ Project, отмеченный как локальный для своей Machin
 **«Open in Editor»** передаёт файл приложению, которое система назначила для него. Идёт по пути относительно корня Project-а.
 
 **Текст обоих.** Один markdown renderer с таблицами, списками задач и зачёркиванием. Сырой HTML показывается как текст и никогда не
-выполняется. Изображения не загружаются: показывается alt-текст. Ссылки `https://` открываются в браузере по умолчанию, а
-относительная ссылка открывает файл Project-а в редакторе по умолчанию. Абсолютный путь открывается так же, когда лежит внутри
-Project-а, одного из его worktree, Workflow folder или корня Ticket-ов; в другом месте он ничего не открывает.
-Ссылка на файл, который не является документом, сначала
-спрашивает: открыть его, показать в файловом менеджере или отменить. Любая другая ссылка — просто текст.
+выполняется. Изображения не загружаются: показывается alt-текст. Ссылки `http://` и `https://` открываются в браузере по
+умолчанию, никогда не в окне, а относительная ссылка открывает файл Project-а в редакторе по умолчанию. Абсолютный путь
+открывается так же, когда лежит внутри Project-а, одного из его worktree, Workflow folder или корня Ticket-ов; в другом месте он
+ничего не открывает. Ссылка на файл, который не является документом, сначала спрашивает: открыть его, показать в файловом
+менеджере или отменить. Любая другая ссылка (`javascript:`, `file:`, `data:`, `mailto:`) — просто текст и ничего не открывает.
+
+**Ссылки в тексте.** Голый адрес `http://`, `https://` или `www.` тоже ссылка; знаки препинания и закрывающая кавычка или
+ёлочка после него (`).`, `»`, `”`, `…`) остаются вне ссылки, а адрес внутри code span или блока кода ссылкой не становится.
+Ссылка выделяется в тексте: цвет ссылки / акцента (`#0062CC` в светлой теме, `#C8F25A` в тёмной), средняя насыщенность шрифта,
+тонкое подчёркивание в 45 % этого цвета, которое становится сплошным под указателем и при фокусе с клавиатуры, и общее
+акцентное кольцо фокуса. Тот же renderer рисует ответы Claude в Session view и на Canvas, поэтому их ссылки выглядят и
+открываются так же.
 
 **Лимиты.** Файл больше 1 MiB отвергается и читается как отсутствующий: ADR уходит из списка, а `HANDOFF.md` такого размера скрывает
 Node. Файл, который не читается, исключается так же. Символическая ссылка считается, только если ведёт к HANDOFF или ADR того же
@@ -460,8 +602,8 @@ Workflow folder по умолчанию это не затрагивает, по
 #### On a Linked machine
 
 Каналы `docs.*` — `read`, поэтому Linked machine с доступом только для чтения тоже видит документы. Watch работает на Machine
-Project-а. «Open in Editor» и ссылки на файлы показывают `File is on <Machine>` вместо открытия, а ссылка `https://` открывается на
-той Machine, где по ней кликнули.
+Project-а. «Open in Editor» и ссылки на файлы показывают `File is on <Machine>` вместо открытия, а ссылка `http://` или
+`https://` открывается на той Machine, где по ней кликнули.
 
 ### How it works
 
@@ -473,6 +615,13 @@ Project-а. «Open in Editor» и ссылки на файлы показыва�
   последний. События по другим путям отбрасываются по имени до всякого чтения. Чтение идёт через 50 мс после последнего события, и
   состояние отправляется, только когда что-то изменилось. Поток событий начинается чуть позже создания watch, поэтому чтения на 100,
   400 и 1000 мс подбирают то, что изменилось в этот момент.
+- **Тот же watch следит за темами Product Session** ([ADR-0101](../../adr/0101-product-session-folder-and-mind-map.md)):
+  `docs/product/<topic>/` в Full mode, `<Workflow folder>/product/<topic>/` в Silent mode. Изменение файлов темы читает эту
+  тему через 50 мс после её последнего события и шлёт `product.changed` с темой, какой она читается сейчас, или `null`, если её
+  папки нет, тем окнам, у которых открыты документы Project-а. HANDOFF и ADR ради этого заново не читаются, и `docs.changed` не
+  уходит. Чтения одной темы идут по одному, поэтому последнее событие несёт последнее содержимое. `product.topic` читает тему по
+  запросу в той же очереди. Изменение самой папки Product Session или корня заново читает уже известные темы; `critic/` и имена,
+  которые не являются именами тем, отбрасываются.
 - **Версия на файл.** Состояние несёт хеш каждого файла, а не его текст. View читает текст через `docs.read`, когда хеш меняется, и
   держит старый текст на экране, пока не придёт новый.
 - **main сам держит документы активного Project-а открытыми,** поэтому HANDOFF Node следует за файлом и при скрытом sidebar. То же он
@@ -491,9 +640,14 @@ Project-а. «Open in Editor» и ссылки на файлы показыва�
 - `src/shared/ipc/docs.ts`: каналы и имена и размеры файлов и Node-а. `src/shared/workflow/doc-headings.ts`: метка статуса.
   `src/main/layout/place.ts`: место нового Node-а.
 - `src/renderer/docs/useDocs.ts`: `useDocs`, одна общая копия на Project, и `useDocText`.
+- `src/shared/ipc/product.ts`, `src/main/ipc/product.ts`: `product.topic`, `product.changed` и `product.share` (доля принятых
+  советов, [sessions](sessions.md)). `src/renderer/product/useMindMap.ts`: одна тема в актуальном виде; он держит документы
+  Project-а открытыми через `useDocs`.
 - `src/renderer/canvas/nodes/HandoffNode.tsx`: Node. `src/renderer/shell/sidebar/AdrSection.tsx`: секция и панель.
-- `src/renderer/markdown/Markdown.tsx`, `src/renderer/markdown/links.ts`: renderer и то, куда ведёт ссылка.
-- `src/main/ipc/shell.ts`: `shell.openInEditor`. `src/renderer/machines/useFileElsewhere.ts`: `File is on <Machine>`.
+- `src/renderer/markdown/Markdown.tsx`, `src/renderer/markdown/links.ts`, `src/renderer/markdown/autolink-edges.ts`,
+  `src/renderer/markdown/markdown.css`: renderer, то, куда ведёт ссылка, где кончается голый адрес и как выглядит ссылка.
+- `src/main/ipc/shell.ts`: `shell.openInEditor` и `shell.openExternal` (только `http:` и `https:`).
+  `src/renderer/machines/useFileElsewhere.ts`: `File is on <Machine>`.
 - `src/renderer/palette/commands.ts`: «Go to» ADR. `src/renderer/find/search-index.ts`: Find по HANDOFF.
 
 **Поток данных.** Первый потребитель в renderer-е вызывает `docs.open`. `docsSource` спрашивает у раскладки корень, а `DocsHub.open`
@@ -507,4 +661,6 @@ Project-а. «Open in Editor» и ссылки на файлы показыва�
 - `test/e2e/handoff.spec.ts`: Node, правка в течение секунды, список и панель ADR в собранном приложении, нетронутый репозиторий.
 - `test/unit/adr-section.test.tsx`: запросы palette, «Open in Editor» и окно на Linked machine.
 - `test/contract/docs-watch-root.test.ts`, `test/unit/docs-watch-root-gone.test.ts`: корень, который удалён и вернулся.
+- `test/contract/product-watch.test.ts`: темы Product Session в обоих режимах, две быстрые записи, папка Product Session,
+  удалённая целиком.
 - `test/unit/docs-remote-links.test.ts`: правила для сетевых папок, под путями Windows на любой системе.
