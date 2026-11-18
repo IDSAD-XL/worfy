@@ -1,0 +1,5 @@
+{
+  "name": "worfy-compaction-spike",
+  "version": "0.1.0",
+  "description": "Spike plugin of ticket worfy-continuity/01: hooks that log SessionStart, SubagentStart, PreCompact, PostCompact and PreToolUse and leave a different mark from each instruction source. Not the real Harness."
+}
