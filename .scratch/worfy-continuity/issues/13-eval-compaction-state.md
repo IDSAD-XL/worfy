@@ -32,6 +32,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 13; «Решения по реал
 
 - [ ] Кейс `harness/evals/compaction-state` влит; в CI он не запускается.
 - [ ] `--dry-run` прошёл, его вывод и оценка цены — в «Итог».
+  - evidence: test-run pass · `node scripts/eval-harness.mjs --case compaction-state --dry-run` exit 0 · mac - · 4aef7eeef8da7f0a4ec606e1e69bc883d8de3d12
 - [ ] «Итог» — числа по каждому probe без hook-а и с ним; с hook-ом probes о Ticket-е, пунктах «Готово, когда» и
       следующем шаге отвечены лучше, или «Итог» называет, почему нет.
 - [ ] `pnpm lint`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
