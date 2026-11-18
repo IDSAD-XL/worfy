@@ -57,6 +57,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решения по реал�
 - [ ] Contract test (`faultRun()`): выход посреди Wave → в Journal-е `run-suspended` с Ticket-ами Wave, `run-stopped`
       нет.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-faults-quit.test.ts` exit 0 · mac - · 513bfa31b55a135135435074b41bb925c4e8ca60
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-faults-quit.test.ts test/contract/autopilot-background.test.ts` exit 0 · mac - · e3609ccdf0b6fd1ac944724fcb5694d30797ef49
 - [ ] Contract test: fake agent держит `git push` без результата → выход ждёт его, но не дольше 60 с по часам test-а;
       результат пришёл раньше — выход сразу после него; Quit now — выход сразу.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-faults-quit.test.ts` exit 0 · mac - · 513bfa31b55a135135435074b41bb925c4e8ca60
@@ -66,11 +67,13 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решения по реал�
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-faults-quit.test.ts test/unit/quit-grace.test.ts` exit 0 · mac - · 513bfa31b55a135135435074b41bb925c4e8ca60
 - [ ] Unit test шагов координатора (часы test-а): порядок «уходим» → ожидание → `halt` → записи.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/quit-grace.test.ts` exit 0 · mac - · 513bfa31b55a135135435074b41bb925c4e8ca60
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/quit-grace.test.ts test/unit/update-quit.test.ts test/unit/autopilot-invariants.test.ts test/contract/autopilot-background.test.ts test/contract/autopilot-faults-quit.test.ts` exit 0 · mac - · e3609ccdf0b6fd1ac944724fcb5694d30797ef49
 - [ ] Recovery invariants (И4) обновлены и зелёные во всех Fault scenario-ах.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/autopilot-invariants.test.ts test/contract/autopilot-faults-*.test.ts` exit 0 · mac - · 513bfa31b55a135135435074b41bb925c4e8ca60
 - [ ] e2e test: окно «Quitting worfy» с командой fake agent-а и Quit now (рядом с `test/e2e/autopilot-faults.spec.ts`).
 - [ ] Английские страницы `autopilot-faults.md` и `sessions.md` описывают grace, окно и `run-suspended`.
   - evidence: commit pass · worfy-continuity/04: one quit coordinator with a grace for external calls, «Quitting worfy», run-suspended · - - · 513bfa31b55a135135435074b41bb925c4e8ca60
+  - evidence: commit pass · worfy-continuity/04: tasks-killed before the halt, tests for hold, halt wait and Update's quit, e2e shots via snapshotThemes · - - · e3609ccdf0b6fd1ac944724fcb5694d30797ef49
 - [ ] Платформенный PR (ADR-0056, пункт 2; ADR-0071): job Windows в составе `ci-ok` зелёный на head PR до merge.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
