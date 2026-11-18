@@ -30,6 +30,7 @@
 - `worfy-multi-repo-ticket` ([spec](.scratch/worfy-multi-repo-ticket/spec.md), ADR-0104): 6/8; 01–05, 07 влиты (04 — #1752, 05 — #1758); дальше 06, 08.
 - `worfy-pr-inbox` ([spec](.scratch/worfy-pr-inbox/spec.md)): 3/8; 01, 02, 08 влиты в ночь на 11-10 (#1754, #1755, #1761); дальше 03–07.
 - `worfy-continuity` ([spec](.scratch/worfy-continuity/spec.md), ADR-0108): 15/16, осталась приёмка 15. Дальше `worfy-pr-follow` часть 1, затем `worfy-changes-view`.
+- `worfy-auth-check` ([spec](.scratch/worfy-auth-check/spec.md)): 0/10; Wave 1: 01, 02, 03; 02 ждёт тестера.
 
 ## Ждёт владельца
 
