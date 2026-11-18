@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests of hooks/session-start.mjs, and of the SessionEnd hooks of hooks.json for a profile that still
+# Tests of hooks/session-start.mjs and hooks/after-compact.mjs (SessionStart of the branch compact), and of the SessionEnd hooks of hooks.json for a profile that still
 # carries session.retro_reminder_after, a removed field: no hook writes a retrospective log.
 # Run: bash harness/hooks/tests/session-hooks.test.sh; exit code 0 means everything passed.
 #
@@ -284,6 +284,125 @@ if [ "$WIN" -eq 1 ] && [ -z "${BIN_DIR:-}" ]; then
 else
     echo "skip windows paths: not Git Bash on Windows, or BIN_DIR names another bin/profile"
 fi
+
+# --- after-compact.mjs: SessionStart of the branch `compact` ------------------------------------------
+# A project with tickets: epic ep1 (ep1/01 claimed in this tree, ep1/02 open), epic ep2 (ep2/01 open). The
+# main checkout is the Orchestrator's place; a linked worktree on a ticket branch is an implementer's. The real
+# bin/profile, epic-status, ticket, stage-lines.mjs and wave-brief run on the synthetic registry; gh is a stand-in
+# that lists no PR.
+AFTER="$HOOKS/after-compact.mjs"
+CP="$T/cmp/repo"
+mkdir -p "$CP/.scratch/ep1/issues" "$CP/.scratch/ep2/issues" "$T/sp/cmp" "$T/cmp/stubs"
+printf '# 01 — first of ep1\n\nStatus: claimed 2026-01-01T00:00Z\n\n## Готово, когда\n\n- [ ] EP1-ONE-DONE\n' >"$CP/.scratch/ep1/issues/01-first.md"
+printf '# 02 — second of ep1\n\nStatus: open\n\n## Готово, когда\n\n- [ ] EP1-TWO-DONE\n' >"$CP/.scratch/ep1/issues/02-second.md"
+printf '# 01 — first of ep2\n\nStatus: open\n' >"$CP/.scratch/ep2/issues/01-x.md"
+echo base >"$CP/file.txt"
+gq() { git -c user.email=t@example.invalid -c user.name=t -c init.defaultBranch=main -c core.autocrlf=false "$@"; }
+(cd "$CP" && gq init -q && gq add -A && gq commit -q -m base) >/dev/null 2>&1
+echo '{"schema":2,"name":"cmp","mode":"full","attribution":"on","tickets":{"root":".scratch/","path":".scratch/<epic>/issues/NN-*.md","branch":"<epic>/<NN>"},"workflow":{"finish":"pr-green-ci"}}' >"$T/sp/cmp/profile.json"
+printf '{"repos":[{"key":"c","match":"%s","profile":"cmp"}]}\n' "$T/cmp" >"$T/cmp.json"
+printf 'process.stdout.write("[]\\n")\n' >"$T/cmp/stubs/gh.mjs"
+# A wave-brief stand-in for the limit: a head, a long Land section first, then Waiting and Open PRs.
+cat >"$T/cmp/stubs/wave-brief.js" <<'EOF'
+const epic = process.argv[2]
+const fill = process.env.FAKE_FILL || "x"
+const land = Array.from({ length: 200 }, (_, i) => `land line ${i} ` + fill.repeat(60))
+process.stdout.write([`# Wave brief: ${epic} · now`, `Stage: /implement · ${epic} 1/3 · STAGE-OF-${epic}`, "Checkout: main", "",
+    "## Land", ...land, "", "## Waiting", "02 in work: WAITING-LINE", "", "## Open PRs", "#7 OPEN-PR-LINE", "", "## Next wave", "NEXT-LINE", ""].join("\n"))
+EOF
+git -C "$CP" worktree add -q -b ep1/02 "$T/cmp/wt-02" >/dev/null 2>&1
+echo changed >"$T/cmp/wt-02/file.txt"; echo new >"$T/cmp/wt-02/new.txt"
+git -C "$CP" worktree add -q --detach "$T/cmp/review" >/dev/null 2>&1
+# $1 directory (cwd of the input), $2 source; the rest are variables for the hook. Output in $T/aout, stderr in $T/aerr.
+compact() {
+    local dir="$1" src="$2"; shift 2
+    printf '{"session_id":"t-1","transcript_path":"%s","cwd":"%s","hook_event_name":"SessionStart","source":"%s"}' \
+        "${TRANSCRIPT:-$T/t-1.jsonl}" "$dir" "$src" \
+        | env CLAUDE_GATE_CONFIG="$T/cmp.json" CLAUDE_PROFILES_DIR="$T/sp" WAVE_BRIEF_GH="$T/cmp/stubs/gh.mjs" CLAUDE_PLUGIN_ROOT="$(dirname "$HOOKS")" "$@" \
+            node "$AFTER" >"$T/aout" 2>"$T/aerr"
+    arc=$?
+}
+actx() { ctx <"$T/aout"; }
+
+compact "$CP" compact WORFY_EPIC=ep2
+c="$(actx)"
+[ "$arc" -eq 0 ] && [[ "$c" == *"# Wave brief: ep2"* && "$c" == *"Stage: "*"ep2 0/1"* && "$c" != *"Wave brief: ep1"* ]] \
+    && [ "$(field hookEventName <"$T/aout")" = SessionStart ] \
+    && ok "after-compact: the Orchestrator (main checkout) gets wave-brief of WORFY_EPIC" \
+    || bad "after-compact: Orchestrator with WORFY_EPIC: rc=$arc err=[$(cat "$T/aerr")] ctx=[${c:0:300}]"
+compact "$CP" compact
+c="$(actx)"
+[[ "$c" == *"# Wave brief: ep1"* ]] && ok "after-compact: without WORFY_EPIC, the first Epic in play (a claimed ticket)" \
+    || bad "after-compact: first Epic in play: err=[$(cat "$T/aerr")] ctx=[${c:0:300}]"
+compact "$CP" compact WORFY_EPIC=nosuch
+c="$(actx)"
+[[ "$c" == *"# Wave brief: ep1"* ]] && ok "after-compact: a WORFY_EPIC no ticket has falls back to the Epics in play" \
+    || bad "after-compact: unknown WORFY_EPIC: err=[$(cat "$T/aerr")] ctx=[${c:0:300}]"
+git -C "$CP" checkout -q -b ep2/01 >/dev/null 2>&1
+compact "$CP" compact
+c="$(actx)"
+[[ "$c" == *"# Wave brief: ep2"* ]] && ok "after-compact: without WORFY_EPIC, the Epic of the checkout's branch comes first" \
+    || bad "after-compact: Epic from the branch: err=[$(cat "$T/aerr")] ctx=[${c:0:300}]"
+git -C "$CP" checkout -q main >/dev/null 2>&1
+
+compact "$T/cmp/wt-02" compact WORFY_EPIC=ep2
+c="$(actx)"
+[ "$arc" -eq 0 ] && [[ "$c" == *"ep1/02"* && "$c" == *"# 02 — second of ep1"* && "$c" == *"EP1-TWO-DONE"* ]] \
+    && [[ "$c" == *" M file.txt"* && "$c" == *"?? new.txt"* && "$c" != *"Wave brief"* ]] \
+    && ok "after-compact: an implementer (worktree on its ticket's branch) gets its ticket file and git status --short" \
+    || bad "after-compact: implementer: rc=$arc err=[$(cat "$T/aerr")] ctx=[${c:0:400}]"
+claude_impl="$c"
+TRANSCRIPT="/codex-home/sessions/2026/11/18/rollout-2026-11-18T00-00-00-t1.jsonl" compact "$T/cmp/wt-02" compact WORFY_EPIC=ep2
+c="$(actx)"
+[ -n "$c" ] && [ "$c" = "$claude_impl" ] && ok "after-compact: Codex sessionStart (compact) gives the implementer the same context" \
+    || bad "after-compact: Codex implementer differs: [${c:0:300}]"
+TRANSCRIPT="/codex-home/sessions/2026/11/18/rollout-2026-11-18T00-00-00-t1.jsonl" compact "$CP" compact WORFY_EPIC=ep2
+c="$(actx | sed 1d | grep -v '^# Wave brief: ')"
+compact "$CP" compact WORFY_EPIC=ep2
+[ -n "$c" ] && [ "$c" = "$(actx | sed 1d | grep -v '^# Wave brief: ')" ] \
+    && ok "after-compact: Codex sessionStart (compact) gives the Orchestrator the same wave-brief (its time aside)" \
+    || bad "after-compact: Codex Orchestrator differs"
+
+compact "$T/cmp/review" compact
+[ "$arc" -eq 0 ] && [ ! -s "$T/aout" ] && [ ! -s "$T/aerr" ] && ok "after-compact: a worktree with no ticket of its own (a reviewer's) — silent" \
+    || bad "after-compact: reviewer worktree: rc=$arc out=[$(head -c 200 "$T/aout")] err=[$(cat "$T/aerr")]"
+compact "$T/plain" compact WORFY_EPIC=ep1
+[ "$arc" -eq 0 ] && [ ! -s "$T/aout" ] && [ ! -s "$T/aerr" ] && ok "after-compact: outside a registered project — silent" \
+    || bad "after-compact: unregistered: rc=$arc out=[$(head -c 200 "$T/aout")] err=[$(cat "$T/aerr")]"
+compact "$T/no-such-dir" compact WORFY_EPIC=ep1
+[ "$arc" -eq 0 ] && [ ! -s "$T/aout" ] && [ "$(grep -c '' "$T/aerr")" -eq 1 ] && grep -q '^after-compact: cwd .* is not a directory$' "$T/aerr" \
+    && ok "after-compact: a cwd that is no directory — nothing, one line on stderr, exit 0" \
+    || bad "after-compact: bad cwd: rc=$arc out=[$(head -c 200 "$T/aout")] err=[$(cat "$T/aerr")]"
+compact "$CP" compact WORFY_SESSION_KIND=product
+[ "$arc" -eq 0 ] && [ ! -s "$T/aout" ] && ok "after-compact: a Product Session — silent" || bad "after-compact: Product Session: [$(head -c 200 "$T/aout")]"
+loud=""
+for src in startup resume clear; do
+    compact "$CP" "$src" WORFY_EPIC=ep1
+    [ "$arc" -eq 0 ] && [ ! -s "$T/aout" ] && [ ! -s "$T/aerr" ] || loud="$loud $src: rc=$arc [$(head -c 200 "$T/aout")] [$(head -c 200 "$T/aerr")]"
+done
+[ -z "$loud" ] && ok "after-compact: source startup, resume, clear — silent" || bad "after-compact: other sources printed:$loud"
+# hooks.json: the hook runs only on the branch compact; every other SessionStart group keeps no matcher, so the
+# start of a Session (source startup) gets what it got before.
+got="$(node -e '
+const groups = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).hooks.SessionStart
+const mine = groups.filter((g) => g.hooks.some((h) => h.command.includes("/hooks/after-compact.mjs")))
+const others = groups.filter((g) => !mine.includes(g))
+console.log([mine.length, mine.map((g) => g.matcher).join(","), mine[0] && mine[0].hooks.length, others.filter((g) => g.matcher !== undefined).length].join(" "))' "$HOOKS/hooks.json")"
+[ "$got" = "1 compact 1 0" ] && ok "hooks.json: after-compact.mjs on SessionStart with matcher compact; the other SessionStart groups unchanged" \
+    || bad "hooks.json SessionStart groups: '$got'"
+
+compact "$CP" compact WORFY_EPIC=ep1 CLAUDE_WAVE_BRIEF_BIN="$T/cmp/stubs/wave-brief.js"
+c="$(actx)"
+n="$(printf '%s' "$c" | node -e 'process.stdout.write(String([...require("fs").readFileSync(0, "utf8")].length))')"
+[ "$n" -le 10000 ] && [ "$n" -ge 9000 ] && [[ "$c" == *"STAGE-OF-ep1"* && "$c" == *"WAITING-LINE"* && "$c" == *"OPEN-PR-LINE"* && "$c" == *"land line 0 "* && "$c" != *"land line 199 "* ]] \
+    && [[ "${c%%WAITING-LINE*}" != *"land line"* && "${c%%OPEN-PR-LINE*}" != *"land line"* ]] && [[ "$(printf '%s' "$c" | tail -n 1)" == *"wave-brief ep1"* ]] \
+    && ok "after-compact: a brief over the limit is cut to $n characters; the Stage line, Waiting and Open PRs come first" \
+    || bad "after-compact: long brief: $n characters, ctx head [${c:0:300}] tail [$(printf '%s' "$c" | tail -n 2)]"
+# Codex spills a context over about 10,000 bytes (2,500 tokens): with multi-byte text the cut there is by bytes too.
+TRANSCRIPT="/codex-home/sessions/2026/11/18/rollout-2026-11-18T00-00-00-t1.jsonl" compact "$CP" compact WORFY_EPIC=ep1 CLAUDE_WAVE_BRIEF_BIN="$T/cmp/stubs/wave-brief.js" FAKE_FILL=ж
+b="$(actx | head -c 20000 | wc -c | tr -d ' ')"
+[ "$b" -le 10001 ] && [ "$b" -ge 8000 ] && [[ "$(actx)" == *"OPEN-PR-LINE"* ]] && ok "after-compact: on Codex a multi-byte brief is cut within 10,000 bytes ($b)" \
+    || bad "after-compact: Codex bytes: $b"
 
 home_after="$(real_home_snapshot "$REAL_HOME" "$T")"
 [ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" \

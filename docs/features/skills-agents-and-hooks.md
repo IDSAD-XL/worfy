@@ -244,6 +244,7 @@ Claude Code runs these commands on its events. The limit is in seconds.
 | `SessionStart` | `inject-rules.mjs common` | 10 | The common rules and the user's rules |
 | `SessionStart` | `inject-rules.mjs product` | 10 | The rules of a Product Session; nothing in any other Session |
 | `SessionStart` | `session-start.mjs` | 15 | The context of the Project |
+| `SessionStart` on `compact` | `after-compact.mjs` | 30 | After a compaction, the state of the work from the files: `wave-brief` of the Epic in the main checkout, the Ticket file and `git status --short` in an implementer's worktree. Nothing at the start of a Session, outside a Project that keeps Tickets, or without a Ticket or an Epic |
 | `SessionStart` | `gh-token-env.mjs` | 10 | `GH_TOKEN` of the Project's account |
 | `SessionStart` | `worktree-lock claim` | 10 | Registers in the tree, and says who is already there; once a day removes the registry files of deleted trees |
 | `SubagentStart` | `inject-rules.mjs common` | 10 | The common rules and the user's rules |
@@ -259,7 +260,7 @@ Claude Code runs these commands on its events. The limit is in seconds.
 | `SessionEnd` | `worktree-lock release` | 5 | Unregisters |
 
 **A broken hook does not break a Session.** A failure inside `inject-rules.mjs`, `session-start.mjs`,
-`stage-lines.mjs`, `gh-token-env.mjs` or `stop.mjs` is one line on stderr and code 0, and the worktree lock and the call log `calls.mjs` fail silently. The Gate gives
+`stage-lines.mjs`, `after-compact.mjs`, `gh-token-env.mjs` or `stop.mjs` is one line on stderr and code 0, and the worktree lock and the call log `calls.mjs` fail silently. The Gate gives
 its verdict by exit code, and `stop.mjs` holds a turn with code 2. The guard exits 0 and refuses through its answer.
 
 **Rules.** `orchestrator` reaches a main Session, and `common` reaches a main Session and every Subagent. `orchestrator`
@@ -278,6 +279,22 @@ decisions taken without the owner. An implementer keeps its Ticket, each item of
 mark, the worktree and the branch. The hook cannot tell a Subagent from a main Session, so one text holds every role,
 and the summary model picks by the conversation. It is plain text, not `additionalContext`, and Claude Code cuts it
 after 10,000 characters. Codex does not read this output.
+
+**The state after a compaction.** Claude Code and Codex start a Session's `SessionStart` hooks again after a
+compaction, with the source `compact`, and `after-compact.mjs` runs only then. It hands the agent its state from the
+files, whatever the summary kept. The hook's input does not say whether a Subagent was compacted, so the folder of the
+work decides:
+
+| Where | What comes |
+|---|---|
+| A linked worktree whose branch is a Ticket's (the Profile's branch form, or the Ticket's `Branch:` line in Silent mode) | The Ticket, the worktree and the branch, `git status --short` of the worktree (50 lines at most), then the Ticket file |
+| The main checkout | `wave-brief <epic>`: its head with the Stage line, then the Tickets in work (`Waiting`) and the open PRs, then the rest. The Epic is `WORFY_EPIC` when a Ticket of that Epic exists, otherwise the Epic of the checkout's branch, otherwise the first of the Epics in play, as `stage-lines.mjs` orders them |
+
+The text stays within 10,000 characters, and on Codex within 10,000 bytes too, since Codex moves a longer context to a
+file. A longer text is cut after a whole line, and its last line names the command or the file with the whole text.
+When `wave-brief` fails, the Orchestrator gets one line that asks it to run `wave-brief` itself. The hook says nothing in
+a Product Session, in a folder of no Project that keeps Tickets, in a worktree with no Ticket of its own (a reviewer's),
+or in a main checkout with no Epic.
 
 **The context of the Project.** It stays empty for a folder outside a registered Project and for a Project that asks for
 nothing:
@@ -341,6 +358,10 @@ the home folder shown as `~` is `USERPROFILE`. The Gate's launcher is on the [Ga
 - `harness/hooks/stage-lines.mjs`, which asks `bin/profile` whether the Project keeps Tickets and how its branches are
   named, lists the local branches with git, and runs `bin/epic-status` side by side for the lines, the Ticket states and
   the line of the current branch's Epic.
+- `harness/hooks/after-compact.mjs`, which asks `bin/profile` whether the Project keeps Tickets, git for the worktree
+  and its branch, and `bin/epic-status` for the Tickets and the Epics. In a main checkout without `WORFY_EPIC` or a
+  Ticket branch, it runs `harness/hooks/stage-lines.mjs` for the Epics in play. It then runs `bin/ticket root` or
+  `bin/wave-brief`.
 - `harness/hooks/gh-token-env.mjs`, `harness/hooks/guard.mjs` (with `harness/bin/silent-check`) and
   `harness/bin/worktree-lock`, whose registry is `worktree-sessions/` in the Harness home. A file there goes when
   it has no entries or when none of the tree folders its entries name exists; `worktree-lock prune` removes them at once.
