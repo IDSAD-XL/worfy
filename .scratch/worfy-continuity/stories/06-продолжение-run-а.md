@@ -207,3 +207,45 @@ export const startsAgain: Rule = (input, runs) => {
 3. Что видит человек с Read only на Linked machine у Run-а, оборванного третий раз за час?
    - Ответ: строку `cut off by restart · HH:MM` без кнопок Resume и Discard.
    - Строки: `src/renderer/canvas/actions/AutopilotAction.tsx:863`
+
+## 10. Что нашёл review и что осталось
+
+> VERIFIED
+> Consider: src/renderer/canvas/actions/AutopilotAction.tsx:699, src/main/autopilot/run.ts:1288 — Resume and Discard show only in the frame of the cut-off Run's Epic, while every start in the Project is refused until the choice; with that Epic folded on the done shelf the way to the choice is the shelf chip (low).
+> Consider: docs/features/autopilot-faults.md:186 — the locks are not released (as in ticket 05): the worktree lock lives under ~/.claude (ADR-0005); the e2e lock lives in /tmp and frees itself after 30 min (low).
+> Consider: src/main/autopilot/held-tickets.ts:60 — Codex transcripts are not read, so a Codex Orchestrator holds no Ticket; documented in autopilot-faults.md (low).
+> Noted: wave-brief to a new Session for a continued Run is pinned by test/contract/autopilot-faults-restart.test.ts:107 (a mutant `wavesSent = 0` turns it red); the busy-Orchestrator branch for a continued Run shares sendWave with ordinary Runs (autopilot-run.test.ts:1728).
+> Noted: the e2e fixes (stopRun releases the Wave turn and the STOP_TEXT turn; inWave1 waits for the fake agent's record of the Wave command) hide no product defect: a stopping Run ends at the first turn end with an idle Session (src/shared/autopilot/cycle.ts:435, :490).
+> Checks: vitest autopilot unit+contract, link-access, autopilot-cut-off-line — 45 files, 1107 tests, EXIT=0; pnpm typecheck EXIT=0; story-check EXIT=0; mutants (wavesSent, held filter, cap) each turn tests red.
+> Review depth: low — default: the profile has no review.depth.wave
+> Review tokens: 127798
+
+Code: `src/renderer/canvas/actions/AutopilotAction.tsx:699-699` · key lines: 699
+
+```tsx
+  // A Run of this Epic a restart cut off, waiting for Resume or Discard (worfy-continuity ticket 06): one toast per Run.
+```
+
+Code: `src/main/autopilot/run.ts:1288-1288` · key lines: 1288
+
+```ts
+    // A Run a restart cut off goes on in its own journal, or ends with Discard, before a new one begins (I6).
+```
+
+Code: `docs/features/autopilot-faults.md:186-186` · key lines: 186
+
+```md
+**Locks.** worfy releases no lock of the cut-off Wave. The lock on a worktree (`worktree-lock` of the Harness) is
+```
+
+Code: `src/main/autopilot/held-tickets.ts:60-60` · key lines: 60
+
+```ts
+  } catch {
+```
+
+Code: `test/contract/autopilot-faults-restart.test.ts:107-107` · key lines: 107
+
+```ts
+    expect(h.messages().at(-1)).toContain(`wave-brief ${EPIC}`)
+```

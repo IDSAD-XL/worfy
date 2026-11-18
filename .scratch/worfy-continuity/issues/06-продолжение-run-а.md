@@ -1,7 +1,8 @@
 # 06 — Продолжение Run-а после перезапуска: тот же id, Wait дальше, Resume и Discard
 
 Type: task
-Status: open
+Status: done 2026-11-18T08:59Z
+PR: #1988
 Blocked by: 01, 02, 04, 16
 Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решения по реализации» → «Продолжение Run-а»; «Вопросы владельцу», Q3 и Q4
 (оба — (а), решено без владельца, подтвердить); [critic 2026-11-14](../../../docs/product/critic/worfy-continuity-2026-11-14.md),
@@ -75,6 +76,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решения по реал�
 - [ ] Английские страницы `autopilot.md` и `autopilot-faults.md` описывают продолжение Run-а.
   - evidence: commit pass · worfy-continuity/06: continue an Autopilot Run after a restart of worfy · - - · f3d1184508c0a837cf969601f0adaae9d8dc4f5c
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44266944495/job/134689393925 · ci - · b0f3f8d1bdd9de46e5a9f0e34b082074a0a29fde
 
 ## Тесты
 
