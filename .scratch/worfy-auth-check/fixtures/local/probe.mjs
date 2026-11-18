@@ -156,3 +156,4 @@ if (!windows) {
   } else line('W8 Git Bash', 'not found')
 }
 line('out', `scrubbed gh output in ${out}`)
+/* global process, console */
