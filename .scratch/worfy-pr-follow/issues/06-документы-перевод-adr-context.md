@@ -62,7 +62,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решения по реал�
   Epic-а: `ru/pr-inbox.md` и `ru/harness.md` отставали и до Epic-а. Метки перевода — последний commit английского файла.
   У `ru/skills-agents-and-hooks.md` снята пометка о PR #1996: он в `main`.
 - Amendment к ADR-0105 от 2026-11-18: действия правки, push только по «Push» (Q3), конфликт по режиму Profile-а (Q4).
-- CONTEXT.md: три действия правки в статье PR inbox, `_Avoid_` — Fix (действие Terminal AI), autofix.
+- CONTEXT.md: три действия правки в статье PR inbox, `_Avoid_` — голое Fix (действие Terminal AI и кнопка Health check), autofix.
 - Вне списка файлов, по указанию Orchestrator-а: `harness.md` — 28 скриптов и пять недостающих строк; пропуски
   `app-shell.md`, `workflow.md` и `projects.md` о действиях правки; в `ru/notifications.md` — раздел «Утренний
   дайджест» (метка `41f4e01b`, остальная страница отстаёт по-прежнему).
@@ -85,4 +85,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решения по реал�
 8. Skill — два Ticket-а, режим `conflicts` отдельно (spec, пункт 6).
 9. Ветку «Push» ни один eval не достаёт: «без ответа ничего не уходит» проверяет eval, push с lease и отказ lease —
    contract test (`test/contract/harness-evals.test.ts`) (Ticket 03).
-10. Два eval-кейса на два режима: у кейса один prompt и один scaffold, а режим — поле Profile-а (Ticket 03).
+10. Страницы Feature: английскую страницу правит Ticket своего поведения (ADR-0088), а Ticket 06 держит переводы в
+    `docs/features/ru/`, Amendment к ADR-0105 и CONTEXT.md (spec, пункт 7).
+11. Строка Status spec-а записана в единой форме «принят владельцем YYYY-MM-DD …», хотя указание звучит «принят по
+    указанию владельца» (spec, пункт 8).

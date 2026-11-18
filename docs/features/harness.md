@@ -297,7 +297,7 @@ in `/worfy:epic-wave` and `worfy:implementer`.
 
 | Part | What it holds |
 |---|---|
-| Agents | The three roles, see [Agents](skills-agents-and-hooks.md#agents) |
+| Agents | The four roles, see [Agents](skills-agents-and-hooks.md#agents) |
 | Skills | Thirteen procedures of worfy and twenty skills copied from Matt Pocock's, see [Skills](skills-agents-and-hooks.md#skills) |
 | Hooks | The commands Claude Code runs on its events and the rule texts, see [Hooks](skills-agents-and-hooks.md#hooks) |
 | Scripts | The 28 programs below |
@@ -325,7 +325,7 @@ code decides what the agent does:
 | Code | Meaning | Agent |
 |---|---|---|
 | 0 | Profile found | Works by it |
-| 1 | The registry, the resolver or the Profile file is broken | Does not guess commands. The implementer stops and reports it. The scout and the reviewer write the code first and go on without a Profile |
+| 1 | The registry, the resolver or the Profile file is broken | Does not guess commands. The implementer stops and reports it. The scout and the reviewer write the exit code and the message of stderr as the first line of their answer and go on without a Profile |
 | 2 | Invocation error, such as a path that does not exist | The same |
 | 3 | The Project is not registered or has no Profile | The same |
 | 4 | With `--field`, the field is missing | Skips the step that depends on it |

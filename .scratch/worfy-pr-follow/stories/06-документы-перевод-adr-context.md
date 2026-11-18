@@ -50,11 +50,11 @@ Code: `CONTEXT.md:151-153` · key lines: 152, 153
 ```markdown
 **PR inbox**:
 Вид «Pull requests» Project-а: открытые PR пользователя и запросы ревью у него по репозиториям Project-а, сгруппированные по тому, чей ход (Needs my review, Needs my answer, Needs a fix, Ready, Waiting on others), нити ревью и черновики ответов. Читает GitHub из main и ничего не публикует без щелчка Send ([ADR-0105](docs/adr/0105-pr-reply-only-on-the-users-click.md)). Подпись в UI — «Pull requests». Три действия правки PR пользователя — Fix checks (упавшие checks), Resolve conflicts (конфликт с базовой веткой) и Address comments (замечания ревью) — передают PR Session-и Project-а, а push в ветку PR бывает только после ответа пользователя «Push».
-_Avoid_: inbox (без PR), входящие, dashboard; для действий правки — Fix (так зовётся действие Terminal AI), autofix
+_Avoid_: inbox (без PR), входящие, dashboard; для действий правки — голое Fix (так зовутся действие Terminal AI и кнопка строки Health check), autofix
 ```
 
-- Что делает: называет Fix checks, Resolve conflicts и Address comments одной фразой и добавляет в `_Avoid_` слова Fix и autofix.
-- Почему здесь: Ticket велит так ([Что делаем, п. 3](../issues/06-документы-перевод-adr-context.md#что-делаем)); слово «Fix» уже занято действием Terminal AI (статья **Fix** в CONTEXT.md).
+- Что делает: называет Fix checks, Resolve conflicts и Address comments одной фразой и добавляет в `_Avoid_` голое Fix и autofix.
+- Почему здесь: Ticket велит так ([Что делаем, п. 3](../issues/06-документы-перевод-adr-context.md#что-делаем)); слово «Fix» уже занято действием Terminal AI (статья **Fix** в CONTEXT.md) и кнопкой строки Health check.
 - Без него: «Fix» в тексте о PR путали бы с действием Terminal AI.
 - Требование: [Готово, когда](../issues/06-документы-перевод-adr-context.md#готово-когда)
 - Риски и пробелы test-ов: не записано.
