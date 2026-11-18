@@ -50,12 +50,16 @@ Source: [spec.md](../spec.md), «Ticket-ы», 1; «Проблема», пунк�
 ## Готово, когда
 
 - [ ] `spike.md`, раздел «Локальный путь токена»: как `GH_TOKEN` доходит до gh worfy на macOS, с выводом запусков.
+  - evidence: test-run pass · `node .scratch/worfy-auth-check/fixtures/local/probe.mjs <bundle> <fixtures>` exit 0, lines M1-M10 in spike.md · mac - · cc68975bf7ee8a5be0c42f80703c929ee2cc4ac4
 - [ ] Тот же раздел, часть Windows: как доходит `setx GH_TOKEN`, с выводом запусков на ПК.
 - [ ] Таблица вызовов `ghRunner` и `runGh`: окружение каждого и видна ли переменная системы.
+  - evidence: commit pass · worfy-auth-check/01: spike on how GH_TOKEN from the system environment reaches gh · - - · cc68975bf7ee8a5be0c42f80703c929ee2cc4ac4
 - [ ] Ответ: `gh auth token -u` берёт keyring при заданном `GH_TOKEN` — да или нет, на обеих Machine.
 - [ ] Fixtures 401, 404 и `gh auth status` с `(GH_TOKEN)` лежат в `fixtures/local/`; `node scripts/check-personal.mjs` —
       exit 0 на них.
+  - evidence: test-run pass · `node scripts/check-personal.mjs` exit 0 · mac - · cc68975bf7ee8a5be0c42f80703c929ee2cc4ac4
 - [ ] Тестовые токены отозваны, переменные сняты (строка в «Итог»).
+  - evidence: commit pass · worfy-auth-check/01: spike on how GH_TOKEN from the system environment reaches gh · - - · cc68975bf7ee8a5be0c42f80703c929ee2cc4ac4
 - [ ] `ci-ok` зелёный на head PR.
 
 ## Где в коде
