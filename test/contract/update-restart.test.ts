@@ -467,6 +467,21 @@ describe('Restart when idle', () => {
     expect(quit).toHaveBeenCalledTimes(1)
   })
 
+  it('"Restart now" that is refused still drops the wish of "Restart when idle": the quiet after it restarts nothing', async () => {
+    readyBuild()
+    const idle = new FakeIdle(false)
+    const { restarts: subject, quit } = restarts(idle)
+    expect(await subject.restart('idle')).toEqual({ outcome: 'waiting' })
+    // The clone has no helper: the press is refused.
+    removeTestTree(join(dir, 'repo', 'scripts'))
+    expect(await subject.restart('now')).toMatchObject({ outcome: 'refused' })
+    expect(subject.pending).toBe(false)
+    idle.set(true)
+    await vi.waitFor(() => expect(subject.pending).toBe(false))
+    expect(spawned).toEqual([])
+    expect(quit).not.toHaveBeenCalled()
+  })
+
   it('restarts at once when all is quiet already', async () => {
     readyBuild()
     const { restarts: subject, quit } = restarts(new FakeIdle(true))

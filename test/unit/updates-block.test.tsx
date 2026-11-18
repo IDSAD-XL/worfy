@@ -149,7 +149,15 @@ describe('Settings → General → Updates (worfy-update ticket 09)', () => {
     give(snapshot({ available, idle: false, build: { phase: 'ready', sha: available.sha, version: available.version } }))
     handlers['update.restart'] = () => ({ ok: true, value: { outcome: 'quitting' } })
     render(<UpdatesBlock />)
-    fireEvent.click(within(row()).getByRole('button', { name: 'Restart now' }))
+    // "Restart when idle" first, as the primary action; "Restart now" next to it, under its own test id.
+    const restartButtons = within(row())
+      .getAllByRole('button')
+      .filter((button) => button.textContent?.startsWith('Restart'))
+    expect(restartButtons.map((button) => [button.textContent, button.dataset.testid])).toEqual([
+      ['Restart when idle', 'settings-updates-restart'],
+      ['Restart now', 'settings-updates-restart-now'],
+    ])
+    fireEvent.click(screen.getByTestId('settings-updates-restart-now'))
     await waitFor(() => expect(callsOf('update.restart')).toEqual([{ when: 'now' }]))
   })
 
