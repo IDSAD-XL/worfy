@@ -69,18 +69,22 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решение», пункт�
       запроса в сеть; `reportOk` снимает строку; повторная проверка — не чаще раза в минуту на Project; при фокусе
       проверяются только строки не в `ok` и старше 5 минут.
   - evidence: test-run pass · `pnpm test test/contract/health-reports.test.ts` exit 0 · mac - · cccc3c6f2322f41b6767a3dfd7699c1ea8b46a5f
+  - evidence: test-run pass · `pnpm test test/contract/health-reports.test.ts` exit 0 · mac - · 72cb9b123d1c48b0d8164ec1d52bb48efee7989f
 - [ ] Contract test (`test/contract/first-run-checks.test.ts`): строка Project-а и строка из сообщения в `fail` не
       открывают First run при старте; сетевая строка не входит в отчёт решения о старте.
   - evidence: test-run pass · `pnpm test test/contract/first-run-checks.test.ts` exit 0 · mac - · cccc3c6f2322f41b6767a3dfd7699c1ea8b46a5f
 - [ ] Test, что значение токена не попадает в отчёт и log: сообщение с известным токеном в `reason` — test ищет его во
       всём выводе (`reason` и `step` фичи не должны его нести; модуль не печатает их в log).
   - evidence: test-run pass · `pnpm test test/contract/health-reports.test.ts` exit 0 · mac - · cccc3c6f2322f41b6767a3dfd7699c1ea8b46a5f
+  - evidence: test-run pass · `pnpm test test/contract/health-reports.test.ts` exit 0 · mac - · 72cb9b123d1c48b0d8164ec1d52bb48efee7989f
 - [ ] Все unit и contract test-ы модуля зелёные: `test/contract/first-run-checks.test.ts`,
       `test/unit/first-run-dialog.test.tsx`, `test/unit/first-run-concepts.test.tsx`, `test/unit/first-run-windows.test.ts`,
       `test/unit/settings-health.test.tsx`.
   - evidence: test-run pass · `pnpm test test/contract/first-run-checks.test.ts test/unit/first-run-dialog.test.tsx test/unit/first-run-concepts.test.tsx test/unit/first-run-windows.test.ts test/unit/settings-health.test.tsx` exit 0 · mac - · cccc3c6f2322f41b6767a3dfd7699c1ea8b46a5f
+  - evidence: test-run pass · `pnpm test test/contract/first-run-checks.test.ts test/unit/first-run-dialog.test.tsx test/unit/first-run-concepts.test.tsx test/unit/first-run-windows.test.ts test/unit/settings-health.test.tsx` exit 0 · mac - · 72cb9b123d1c48b0d8164ec1d52bb48efee7989f
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · cccc3c6f2322f41b6767a3dfd7699c1ea8b46a5f
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 72cb9b123d1c48b0d8164ec1d52bb48efee7989f
 
 ## Где в коде
 
