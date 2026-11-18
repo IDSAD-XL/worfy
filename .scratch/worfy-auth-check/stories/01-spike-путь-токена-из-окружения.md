@@ -109,3 +109,18 @@ const gh = (args, extra) => spawnSync('gh', args, { env: childEnv(extra), encodi
    - Ответ: `ghAccounts` считает `ok` по любому аккаунту в `success`, а аккаунты keyring остаются в отчёте. Запись
      `(GH_TOKEN)` без login пропускается, exit 1 никто не читает.
    - Строки: `.scratch/worfy-auth-check/spike.md:208-210`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED
+> Act on (round 1, all fixed):
+> - fixed: spike.md:85-92, :133-136, :140-157, :216-229, :270-273 limit "account overrides env" to accountAuth callers and name Health check (checks.ts:502-506), Add project (projects.ts:139-149) and the Codex no-login fallback (session.ts:931-938: catch, log, token=null, withGhToken(process.env, null)). Each read in code and holds. The grep of src/main (ghRunner/runGh/appGh) finds no ghRunner/runGh caller missing from the table.
+> - fixed: spike.md:281-288 lists done items 2 and 4 and probe lines W4, G2, G3, G6, W7, W8. Ticket 10 item 6 (10-приёмка-владельцем.md:53-55) has `needs: windows`; `ticket evidence worfy-auth-check 10` parses it, EXIT=0.
+> - fixed: the WORFY_GH sentence (spike.md:140-142) holds. ghOverride passes process.env as deps.gh.env (checks.ts:352-355). runGh drops the keys the shell also has (:365) and merges `{ ...own, ...deps.env, ...start.env }` at :366, so the login-shell values win. The cite is :365, but the merge is on :366 [low].
+> - Stale Evidence SHA: all 4 lines of ticket 01 (issues/01-…md:53, :56, :60, :62) pin cc68975bf. The object still exists, but `git merge-base --is-ancestor cc68975bf f53958cb1` exits 1. No check reads it. `ticket evidence` checks only the SHA format (EXIT=0). evidence-check is a privacy scan (EXIT=0). land neither checks ancestry nor reads Evidence SHAs. It merges with --squash (land:765), so no branch SHA reaches main anyway. Neither a check nor the land breaks [low]. Item 3's line pins the pre-rework table, which f53958cb1 rewrote; repinning to f53958cb1 fixes both.
+> Consider (new, [low] debt):
+> - spike.md:153, :226 say Add project runs gh "without accountAuth" and env wins. Its account step does call accountAuth, once per keyring login, for the push check (accounts.ts:185-199, projects/connect.ts:489). Per G2 that check takes the keyring token, not GH_TOKEN. Only `gh auth status --json hosts` runs with env. The Profile account is still not taken, so the conclusion stands.
+> - The table leaves out two gh paths, neither through ghRunner nor runGh. "Sign in with gh" starts `gh auth login` in a pseudo-terminal with agentEnv (projects.ts:311, accounts.ts:267-281). PR reply Send uses accountAuth and sends nothing without an account (pr-reply-send.ts:251, pr-inbox.ts:107-113), but the PR inbox row says "без github.account: env" (spike.md:147).
+> Noted: range-diff 7aadf9f75..c1d62eea9 vs origin/main..f53958cb1: commits 1-3 are identical (=), and only f53958cb1 is new (ticket 10, spike.md, story). The rebase brought nothing else; the diff stat has only .scratch/worfy-auth-check files.
+> Checks: node scripts/check-personal.mjs EXIT=0 (7257 files); evidence-check --changed EXIT=0 (35 files); story-check --head f53958cb1 EXIT=0 (4 fragments); ticket evidence 01 and 10 EXIT=0.
+> Not verified: Windows probe lines (no PC); gh source lines (not on disk).
