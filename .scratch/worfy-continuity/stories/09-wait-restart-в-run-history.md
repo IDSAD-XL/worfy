@@ -155,3 +155,45 @@ Run и Span `restart` с причиной и длительностью, пад�
    - Ответ: Wait `restart` строится только на `run-continued`; без неё у Run-а нет `run-stopped`, и модель обрезает его
      как `cut-off`.
    - Строки: `src/shared/flight-recorder/from-journal.ts:391`, `src/shared/flight-recorder/from-journal.ts:400`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED
+> Consider: .scratch/worfy-continuity/issues/09-wait-restart-в-run-history.md — evidence lines of items 1, 2, 3, 5, 6 cite cc7daa4476f5, the pre-rebase commit (not an ancestor of the head; range-diff shows the same patch as 8e5165bd9); `evidence-check` in lint still passes (medium).
+> Consider: the item «Unit test of the label» has no evidence line (`ticket evidence`: 5 of 6 verified); the test exists at test/unit/flight-recorder-view.test.tsx:269-283 (low).
+> Consider: the ticket says «restart (update) · 3 min», the label is «restart (update) · 3m 00s» from the shared formatDuration — same meaning; the ticket text may follow the label (low).
+> Noted: src/shared/flight-recorder/from-journal.ts:307-310 — the Wave in work now ends where the restart begins (spec.md:114-116: the next Wave goes to a new Session); a Limits Wait across a restart goes on.
+> Noted: from-journal.ts:391-402 — the restart ends background-task, gate-queue and busy-Orchestrator Waits and keeps Limits/retry; only Limits has a continuation test.
+> Noted: the Run history screenshot the ticket asks for was not taken (no local Electron by the owner's rule); it goes to the owner's acceptance.
+> Checks: vitest flight-recorder + work-track unit/contract 592 passed, 2 skipped, EXIT=0; pnpm typecheck EXIT=0; pnpm lint EXIT=0; story-check EXIT=0.
+> Review depth: low — default: the profile has no review.depth.wave
+> Review tokens: 79491
+
+Code: `test/unit/flight-recorder-view.test.tsx:269-283` · key lines: 269
+
+```tsx
+  it('names a Wait `restart` by its cause on its bar, «restart (update) · 3m 00s», and in the Waits by cause; the continued Run reads as stopped, not cut off', async () => {
+    const waits = [{ id: 'restart:1', cause: 'restart' as const, start: T('10:40'), end: T('10:43'), detail: 'update', startSource: 'journal' as const, endSource: 'journal' as const }]
+    const view = viewOf(smallFacts({ waits }))
+    await show('p-1', [smallItem()], { [SMALL_RUN]: view })
+    const bar = document.querySelector<HTMLElement>('[data-span-id="wait:restart:1"]')
+    expect(bar?.title.split('\n')[0]).toBe('restart (update)')
+    expect(bar?.title.split('\n')).toContain('Reason: restart: update')
+    const label = rowOf('wait:restart:1').querySelector<HTMLElement>(`[data-label-for="${CSS.escape('wait:restart:1@0')}"]`)
+    expect(label?.textContent).toBe(`restart (update) · ${formatDuration(3 * 60_000)}`)
+    expect(label?.textContent).toBe('restart (update) · 3m 00s')
+    const row = screen.getByTestId('run-history-waits').querySelector<HTMLElement>('[data-cause="restart"]')
+    expect(row?.querySelector('.w-fr-total__name')?.textContent).toBe('restart')
+    expect(view.timeline.spans.filter((span) => span.kind === 'run')).toHaveLength(1)
+    expect(screen.getByTestId('run-history-header').textContent).not.toContain('no stop in the Journal')
+  })
+```
+
+Code: `src/shared/flight-recorder/from-journal.ts:307-310` · key lines: 307
+
+```ts
+      // Its last line: before the next wave-started, else up to run-stopped or the end of the file; a restart cuts it off where it began.
+      const next = starts[n + 1]
+      const restart = restarts.find((cut) => cut >= index)
+      const through = Math.min(next === undefined ? events.length - 1 : next - 1, stopIndex === -1 ? events.length - 1 : stopIndex, restart ?? Infinity)
+```
