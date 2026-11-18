@@ -56,9 +56,10 @@ export const restartRecordSchema = z.object({
   harness: z.literal(true),
   harnessTaken: z.literal(true).optional(),
   /**
-   * Why worfy quits (worfy-continuity ticket 08): `update`, the cause the quit's coordinator writes into the Runs'
-   * `run-suspended`, so the start after names the restart an Update's, not a crash. Records written before the
-   * ticket have none.
+   * Why worfy quits (worfy-continuity ticket 08): `update`, the cause the quit's coordinator also writes into the
+   * Runs' `run-suspended`. The start after takes a Run's cause from that line (src/shared/autopilot/checkpoint.ts)
+   * and a Session's from `at` (src/main/agent/continuity.ts); the record says it too, for whatever reads it after a
+   * quit that wrote no line. Records written before the ticket have none.
    */
   cause: z.literal('update').optional(),
   at: z.iso.datetime(),
