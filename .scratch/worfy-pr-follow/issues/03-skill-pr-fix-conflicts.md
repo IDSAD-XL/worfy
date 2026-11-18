@@ -1,7 +1,7 @@
 # 03 — Skill `/worfy:pr-fix`: режим `conflicts` — rebase и `--force-with-lease` в Full mode, merge commit в Silent mode
 
 Type: task
-Status: open
+Status: claimed 2026-11-18T16:35Z
 Blocked by: 02
 Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решения по реализации», 2; «Вопросы владельцу», Q3 и Q4 (решено без
 владельца, подтвердить); «Решено без владельца», 6; «Риски», «Force-push»
@@ -46,8 +46,11 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решения по реал�
 - [ ] Eval `pr-fix-conflicts`, Silent mode: merge commit, ни одного rebase и force-push; checkout человека не тронут.
 - [ ] Числа eval-а (pass и цена) — в «Итог» Ticket-а.
 - [ ] `harness/evals/lib/coverage.json` называет кейс; contract test-ы evals зелёные.
+  - evidence: test-run pass · `vitest run test/contract/harness-evals*.test.ts test/contract/harness-migrate.test.ts` exit 0; `node scripts/eval-harness-coverage.mjs` exit 0 · mac - · 11a91f39da6a3d75341ea526079c0c9165aa06eb
 - [ ] Английские страницы `docs/features/skills-agents-and-hooks.md` и `docs/features/harness.md` описывают режим.
+  - evidence: commit pass · worfy-pr-follow/03: pr-fix mode conflicts, rebase with lease in Full mode, merge commit in Silent mode, evals · - - · 11a91f39da6a3d75341ea526079c0c9165aa06eb
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 11a91f39da6a3d75341ea526079c0c9165aa06eb
 
 ## Где в коде
 
