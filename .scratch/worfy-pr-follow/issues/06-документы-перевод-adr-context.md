@@ -39,8 +39,11 @@ Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решения по реал�
 
 - [ ] Шесть страниц `docs/features/ru/` совпадают по смыслу с английскими на `main` (review по каждой).
 - [ ] Amendment к ADR-0105 влит, текст ADR выше него не изменён.
+  - evidence: commit pass · worfy-pr-follow/06: Russian Feature pages, ADR-0105 amendment, PR fix actions in CONTEXT · - - · 2f293e4e779db865318128bb6eaefa7179f29fdd
 - [ ] CONTEXT.md называет три действия в статье PR inbox.
+  - evidence: commit pass · worfy-pr-follow/06: Russian Feature pages, ADR-0105 amendment, PR fix actions in CONTEXT · - - · 2f293e4e779db865318128bb6eaefa7179f29fdd
 - [ ] `node scripts/check-personal.mjs` и `node scripts/check-feature-docs.mjs` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: test-run pass · `node scripts/check-personal.mjs` exit 0, `node scripts/check-feature-docs.mjs` exit 0 · mac - · 2f293e4e779db865318128bb6eaefa7179f29fdd
 
 ## Где в коде
 
