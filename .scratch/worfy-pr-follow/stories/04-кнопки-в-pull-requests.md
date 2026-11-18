@@ -189,3 +189,16 @@ Code: `src/renderer/pr-inbox/pr-inbox.css:660-676` · key lines: 661, 666, 671, 
 3. Почему у неактивной кнопки `aria-disabled`, а не `disabled`?
    - Строки: `src/renderer/pr-inbox/PrFollowButton.tsx:63-64`
    - Ответ: disabled-кнопка не получает hover и focus, и tooltip ui-kit с причиной не показался бы.
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED
+> Round 3, delta d2f2ddd4b..db344cac2: one e2e file, test/e2e/pr-inbox.spec.ts:645-646. The red macos-e2e (2/2) and windows-e2e (3/4) of run 44360648617 were the same old test (:587, a long repository name) still expecting the strip's main button to read "Open checks"; this PR made the main button the reason button (Fix checks) and Open checks a secondary link. The test now expects `pr-inbox-follow` = "Fix checks" and `pr-inbox-next-step-link` = "Open checks". The other `pr-inbox-next-step-action` expectations belong to Start review, Open to merge and Send all, whose main button did not change; the three replaced strip texts appear in no test. No product code changed. Round 2 verdict (2010-r2.md) stands for the rest.
+> Noted: the new e2e of the ticket (:766) already passed on both OSes in that run; the fixed test is checked by CI on this head only.
+
+Code: `test/e2e/pr-inbox.spec.ts:645-646` · key lines: 645
+
+```ts
+    await expect(pane(window).getByTestId('pr-inbox-next-step').getByTestId('pr-inbox-follow')).toHaveText(['Fix checks'])
+    await expect(pane(window).getByTestId('pr-inbox-next-step-link')).toHaveText('Open checks')
+```

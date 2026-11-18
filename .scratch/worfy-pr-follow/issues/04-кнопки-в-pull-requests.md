@@ -1,7 +1,8 @@
 # 04 — Pull requests: кнопки Fix checks, Resolve conflicts, Address comments по причинам PR
 
 Type: task
-Status: claimed 2026-11-18T16:35Z
+Status: done 2026-11-18T19:13Z
+PR: #2010
 Blocked by: 01
 Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решение» → «Поток пользователя», A и C; «Как это выглядит»;
 «Решения по реализации», 3 и 4; «Готово, когда», пункт о Pull requests
@@ -53,6 +54,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решение» → «Пот
 - [ ] Английская страница `docs/features/pr-inbox.md` описывает кнопки.
   - evidence: commit pass · worfy-pr-follow/04: Resolve conflicts, Fix checks and Address comments in Pull requests · - - · bb7549a9a330fb9fb30fe01f178f4141a1583946
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44367113149/job/135061041916 · ci - · db344cac2282b839c07091d287da991f9bf8fa09
 
 ## Где в коде
 
