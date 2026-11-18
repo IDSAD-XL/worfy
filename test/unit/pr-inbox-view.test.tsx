@@ -1038,7 +1038,7 @@ describe('selecting a PR', () => {
   it('the switch of Project settings turned off: the view says so without waiting for a search', async () => {
     await view()
     main.inbox['web-00000001'] = snapshotOf('web-00000001', { enabled: false, groups: [], nextSearchAt: null })
-    await act(async () => main.emit('projects.settings.changed', { id: 'web-00000001', settings: { actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '' }, prInbox: false } }))
+    await act(async () => main.emit('projects.settings.changed', { id: 'web-00000001', settings: { actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' }, prInbox: false } }))
     await waitFor(() => expect(screen.getByTestId('pr-inbox-off')).toBeTruthy())
     expect(screen.queryAllByTestId('pr-inbox-row')).toHaveLength(0)
     expect(screen.queryByTestId('pr-inbox-pane')).toBeNull()
@@ -1182,7 +1182,7 @@ describe('on a read-only screen of a Linked machine', () => {
     preload({
       inbox: {},
       answers: {
-        'projects.settings.get': () => ({ ok: true, value: { actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '', gateQueue: '', prReply: '' } } }),
+        'projects.settings.get': () => ({ ok: true, value: { actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' } } }),
         'terminal.shells': () => ({ ok: true, value: [] }),
       },
     })
@@ -1289,7 +1289,7 @@ describe('the entries of the view', () => {
 })
 
 describe('"Read pull requests from GitHub" in Project settings', () => {
-  const TEMPLATES = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '', gateQueue: '', prReply: '' }
+  const TEMPLATES = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' }
 
   async function settings(saved: Record<string, unknown>) {
     const sets: unknown[] = []

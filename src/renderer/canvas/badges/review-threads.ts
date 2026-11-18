@@ -1,27 +1,13 @@
 // What the review threads badge (ReviewThreads.tsx, worfy-pr-inbox ticket 06) and the Pipeline board's «Waits: N answers»
 // count, from the Project's PR inbox snapshot: pure, so the badge, the card's height (ticket-card.ts through
 // sources/epics.ts) and the board count alike.
-import type { PrInboxRow, PrInboxSnapshot } from '../../../shared/ipc/pr-inbox'
+import type { PrInboxSnapshot } from '../../../shared/ipc/pr-inbox'
+import { ticketOfRow, waitingThreads } from '../../../shared/pr-inbox/rows'
 import type { Ticket } from '../../../shared/workflow/types'
-import { orderedGroups, threadsText, ticketOfRow, type PullRef } from '../../pr-inbox/usePrInbox'
+import { orderedGroups, threadsText, type PullRef } from '../../pr-inbox/usePrInbox'
 
-/** The same GitHub login, without regard to case, as main compares them (src/main/github/inbox-groups.ts, `same`). */
-const same = (login: string | null, viewer: string): boolean => login !== null && login.toLowerCase() === viewer.toLowerCase()
-
-/**
- * The threads of a PR that wait for the user's answer, by main's rule for "Needs my answer" (src/main/github/inbox-groups.ts,
- * `owesAnswer`): unresolved, with a last comment that is not the user's, and on someone else's PR only a thread the user
- * wrote in. Without a viewer — before the first search — none: main then knows no user who could owe an answer.
- */
-export function waitingThreads(row: Pick<PrInboxRow, 'threads' | 'author'>, viewer: string | null): number {
-  if (viewer === null) return 0
-  const mine = same(row.author, viewer)
-  return row.threads.filter((thread) => {
-    const last = thread.comments.at(-1)
-    if (thread.isResolved || last === undefined || same(last.author, viewer)) return false
-    return mine || thread.comments.some((comment) => same(comment.author, viewer))
-  }).length
-}
+// Moved to src/shared, where main reads it too (worfy-pr-follow ticket 01); the badge and its tests still take it from here.
+export { waitingThreads }
 
 /** One PR of a Ticket and what it waits for from the user. */
 export interface TicketPull extends PullRef {

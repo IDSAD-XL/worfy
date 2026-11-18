@@ -67,7 +67,7 @@ export const SEARCH_QUERY = `query($review: String!, $involves: String!) { viewe
 
 const COMMENT = 'id databaseId author { login } body createdAt url'
 export const PULL_FIELDS = [
-  'number title url state isDraft createdAt updatedAt headRefName headRefOid reviewDecision mergeable mergeStateStatus additions deletions',
+  'number title url state isDraft isCrossRepository createdAt updatedAt headRefName headRefOid reviewDecision mergeable mergeStateStatus additions deletions',
   'author { login }',
   'commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }',
   'reviewRequests(first: 10) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug } } } }',
@@ -131,6 +131,7 @@ const pullSchema = z.object({
   url: z.string(),
   state: z.enum(['OPEN', 'CLOSED', 'MERGED']),
   isDraft: z.boolean().catch(false),
+  isCrossRepository: z.boolean().catch(false),
   createdAt: z.string(),
   updatedAt: z.string(),
   headRefName: z.string().catch(''),
@@ -158,7 +159,13 @@ const pullSchema = z.object({
   comments: nodes(commentSchema),
 })
 
-function toPull(repo: string, raw: z.output<typeof pullSchema>): InboxPull {
+/**
+ * A PR as the reader keeps it: InboxPull, and whether it comes from a fork (worfy-pr-follow ticket 01), which only the
+ * row of the snapshot carries on; the groups do not read it.
+ */
+type ReadPull = InboxPull & { isCrossRepository?: boolean }
+
+function toPull(repo: string, raw: z.output<typeof pullSchema>): ReadPull {
   const rollup = raw.commits.at(-1)?.commit.statusCheckRollup?.state
   return {
     repo,
@@ -167,6 +174,7 @@ function toPull(repo: string, raw: z.output<typeof pullSchema>): InboxPull {
     url: raw.url,
     state: raw.state,
     isDraft: raw.isDraft,
+    isCrossRepository: raw.isCrossRepository,
     author: raw.author,
     headRefName: raw.headRefName,
     headRefOid: raw.headRefOid ?? null,
@@ -652,7 +660,7 @@ function refOf(key: string, repo: string): PullRef {
   return { owner, name, number: Number(key.slice(key.lastIndexOf('#') + 1)) }
 }
 
-function rowOf(pull: InboxPull, viaTeam: boolean, viewer: string | null, seenAt: string | null): PrInboxRow {
+function rowOf(pull: ReadPull, viaTeam: boolean, viewer: string | null, seenAt: string | null): PrInboxRow {
   const since = timeOf(seenAt)
   const fresh = commentsOf(pull).filter((comment) => (viewer === null || !same(comment.author, viewer)) && (Number.isNaN(since) || timeOf(comment.createdAt) > since))
   return {
@@ -661,6 +669,7 @@ function rowOf(pull: InboxPull, viaTeam: boolean, viewer: string | null, seenAt:
     title: pull.title,
     url: pull.url,
     isDraft: pull.isDraft,
+    isCrossRepository: pull.isCrossRepository ?? false,
     author: pull.author,
     headRefName: pull.headRefName,
     headRefOid: pull.headRefOid,

@@ -33,7 +33,7 @@ vi.mock('../../src/renderer/projects/useProjects', () => ({
   useReadOnly: (machine: string | null) => main.readOnly[machine ?? ''] ?? null,
 }))
 
-const TEMPLATES = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '', gateQueue: '', prReply: '' }
+const TEMPLATES = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' }
 const WINDOWS_SHELLS = [
   { id: 'powershell', label: 'PowerShell (pwsh)', found: true },
   { id: 'git-bash', label: 'Git Bash', found: true },
@@ -83,6 +83,31 @@ beforeEach(() => {
     'terminal.shells': { ok: true, value: WINDOWS_SHELLS },
     'projects.reviewer.get': { ok: true, value: { status: 'none' } },
   }
+})
+
+describe('the templates of Fix checks, Resolve conflicts and Address comments in Project settings (worfy-pr-follow ticket 01)', () => {
+  const FOLLOW = { fixChecks: '/worfy:pr-fix checks {repo}#{pr} {sha}', resolveConflicts: '/worfy:pr-fix conflicts {repo}#{pr} {sha}', addressComments: '/worfy:pr-fix comments {repo}#{pr} {sha}' }
+
+  it('shows the three fields with the saved templates, names {sha} among the placeholders, and saves an edit of one', async () => {
+    main.answers['terminal.shells'] = { ok: true, value: [] }
+    main.answers['projects.settings.get'] = { ok: true, value: { actionTemplates: { ...TEMPLATES, ...FOLLOW } } }
+    await open()
+    expect((screen.getByLabelText('Fix checks') as HTMLInputElement).value).toBe(FOLLOW.fixChecks)
+    expect((screen.getByLabelText('Resolve conflicts') as HTMLInputElement).value).toBe(FOLLOW.resolveConflicts)
+    expect((screen.getByLabelText('Address comments') as HTMLInputElement).value).toBe(FOLLOW.addressComments)
+    expect(screen.getByText('{sha}')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Fix checks'), { target: { value: '/worfy:pr-fix checks {repo}#{pr}' } })
+    await save()
+    expect(saved()).toEqual({ id: PROJECT.id, settings: { actionTemplates: { ...TEMPLATES, ...FOLLOW, fixChecks: '/worfy:pr-fix checks {repo}#{pr}' } } })
+  })
+
+  it('refuses to save a template of theirs with an unknown placeholder', async () => {
+    main.answers['terminal.shells'] = { ok: true, value: [] }
+    await open()
+    fireEvent.change(screen.getByLabelText('Address comments'), { target: { value: '/worfy:pr-fix comments {head}' } })
+    await save()
+    expect(saved()).toBeUndefined()
+  })
 })
 
 describe('the shell of the Terminals in Project settings', () => {
@@ -174,7 +199,7 @@ describe('the shell of the Terminals in Project settings', () => {
   })
 
   it('Reset to default puts the default templates back and leaves the chosen shell as it is', async () => {
-    main.answers['projects.settings.get'] = { ok: true, value: { actionTemplates: { shipTicket: 'my own {epic}', runWave: 'mine', gateQueue: '', prReply: '' }, terminalShell: 'git-bash' } }
+    main.answers['projects.settings.get'] = { ok: true, value: { actionTemplates: { ...TEMPLATES, shipTicket: 'my own {epic}', runWave: 'mine' }, terminalShell: 'git-bash' } }
     main.answers['projects.settings.defaults'] = { ok: true, value: { actionTemplates: TEMPLATES } }
     await open()
     await act(async () => {

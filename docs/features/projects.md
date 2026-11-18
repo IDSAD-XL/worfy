@@ -331,11 +331,28 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
 
 **The context menu of a row.**
 
-- "Project settings…" holds the message templates of "Ship ticket", "Run wave", "Process gate queue" and "Draft replies",
-  with the placeholders `{epic}`, `{NN}`, `{wave}`, `{slug}`, `{branch}`, `{tickets}`, `{repo}` and `{pr}`. An unknown
+- "Project settings…" holds the message templates of "Ship ticket", "Run wave", "Process gate queue", "Draft replies",
+  "Fix checks", "Resolve conflicts" and "Address comments", with the placeholders `{epic}`, `{NN}`, `{wave}`, `{slug}`,
+  `{branch}`, `{tickets}`, `{repo}`, `{pr}` and `{sha}`. An unknown
   placeholder shows an error under the field and turns off Save. "Draft replies" (`/worfy:pr-reply {repo}#{pr}` with the
   plugin, empty with the old Harness) is the first message of a new Session on Claude Code for one pull request,
-  `{repo}` its `owner/name` and `{pr}` its number; a placeholder it has no value for, or an empty template, refuses it. "Reset to default" puts in the defaults of the Harness found on the Machine now. On Windows
+  `{repo}` its `owner/name` and `{pr}` its number; a placeholder it has no value for, or an empty template, refuses it.
+  "Fix checks", "Resolve conflicts" and "Address comments" hand one pull request of the user to a Session of the skill
+  pr-fix: `/worfy:pr-fix checks {repo}#{pr} {sha}`, `/worfy:pr-fix conflicts {repo}#{pr} {sha}` and
+  `/worfy:pr-fix comments {repo}#{pr} {sha}` with the plugin, empty with the old Harness. `{sha}` is the head commit of
+  the pull request, exactly 40 hex characters; anything else refuses the action. On a click worfy reads the pull request
+  again and takes its head from that read. If the account waits for its GitHub rate limit, or the read fails (the network,
+  an error of GitHub), the row and its head are the last ones read; the skill checks the head itself. The click is refused, with the reason, when the template
+  is empty, Autopilot runs in the Project, the Project's Orchestrator is busy with a Binding to the Epic of the pull
+  request's Ticket (its Wave fixes its own pull requests), the pull request is not the user's, comes from a fork or is
+  closed, its reason is gone (`CI is no longer failing on 3f2a9c1`), or the screen is read-only. The text goes to the
+  Session Node bound, manual or launch, to the Ticket of the pull request (by its `PR:` line or its branch), on Claude
+  Code, not archived, whose transcript's last record is younger than 24 hours: worfy continues that Session when it
+  runs no process, sends the text or queues it while a turn runs, and adds the line
+  `worfy: Fix checks for owner/web#118 sent to this Session`, which the model does not see. Otherwise a new Session Node
+  on Claude Code starts with the text as its first message, bound by launch to the Ticket when there is one. The order
+  of the reasons on a button is a conflict (`DIRTY`), then failing CI, then changes requested or threads that wait for
+  the user's answer. "Reset to default" puts in the defaults of the Harness found on the Machine now. On Windows
   the dialog also has the [Terminal shell](terminal.md). "Default vendor" (`defaultVendor` in the settings) is the Vendor
   "New session" lists first and a [Session](sessions.md) started without a pick runs on: None (Claude Code), Claude Code or
   Codex. "None" clears a saved one, and Claude Code is then the default. A value this build does not know reads as absent.

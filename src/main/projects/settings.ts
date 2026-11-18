@@ -9,6 +9,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   defaultProjectSettings,
+  LATER_ACTIONS,
   migrateProjectSettings,
   projectSettingsSchema,
   savedProjectSettingsSchema,
@@ -36,9 +37,10 @@ export function readProjectSettings(projectDataDir: string, harness: HarnessKind
 
 /**
  * Saves the settings; a template with an unknown placeholder throws and nothing is written. Settings
- * without `gateQueue` (a Linked machine on a build from before "Process gate queue") or without `prReply`
- * (one from before "Draft replies", worfy-pr-inbox ticket 04) keep the saved template, or the default
- * when none is saved. Settings without `defaultVendor` keep the saved one (a
+ * without `gateQueue` (a Linked machine on a build from before "Process gate queue"), without `prReply`
+ * (one from before "Draft replies", worfy-pr-inbox ticket 04) or without `fixChecks`, `resolveConflicts` and
+ * `addressComments` (one from before worfy-pr-follow ticket 01) — LATER_ACTIONS — keep the saved template, or the
+ * default when none is saved. Settings without `defaultVendor` keep the saved one (a
  * Linked machine on a build from before the field), and `defaultVendor: null` clears it: "Default
  * vendor" set back to none in Project settings (worfy-multi-vendor ticket 24). Settings without
  * `humanReview` keep the saved one: "Save" of Project settings does not send it. Settings without
@@ -50,8 +52,7 @@ export function readProjectSettings(projectDataDir: string, harness: HarnessKind
 export function writeProjectSettings(projectDataDir: string, settings: ProjectSettingsInput, harness: HarnessKind = currentHarness().kind): ProjectSettings {
   let saved: ProjectSettings | undefined
   const read = (): ProjectSettings => (saved ??= readProjectSettings(projectDataDir, harness))
-  const gateQueue = settings.actionTemplates.gateQueue ?? read().actionTemplates.gateQueue
-  const prReply = settings.actionTemplates.prReply ?? read().actionTemplates.prReply
+  const later = Object.fromEntries(LATER_ACTIONS.map((action) => [action, settings.actionTemplates[action] ?? read().actionTemplates[action]])) as Record<(typeof LATER_ACTIONS)[number], string>
   const { defaultVendor: asked, humanReview: review, prInbox: askedInbox, ...rest } = settings
   const defaultVendor = asked === null ? undefined : (asked ?? read().defaultVendor)
   const humanReview = review ?? read().humanReview
@@ -64,7 +65,7 @@ export function writeProjectSettings(projectDataDir: string, settings: ProjectSe
     ...(humanReview === undefined ? {} : { humanReview }),
     ...(productWriteFolders === undefined ? {} : { productWriteFolders }),
     ...(prInbox === undefined ? {} : { prInbox }),
-    actionTemplates: { ...settings.actionTemplates, gateQueue, prReply },
+    actionTemplates: { ...settings.actionTemplates, ...later },
   })
   return readProjectSettings(projectDataDir, harness)
 }
