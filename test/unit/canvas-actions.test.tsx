@@ -10,7 +10,8 @@ import type { LaunchesSnapshot } from '../../src/shared/ipc/actions'
 import { autopilotStatusLine, type AutopilotState } from '../../src/shared/ipc/autopilot'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import type { ChecksSnapshot, ProjectRepos } from '../../src/shared/ipc/checks'
-import { AUTOPILOT_TEMPLATE_HINT, DEFAULT_ACTION_TEMPLATES, LEGACY_RUN_WAVE_TEMPLATE, type ActionTemplates } from '../../src/shared/projects/action-templates'
+import type { PrInboxRow, PrInboxSnapshot } from '../../src/shared/ipc/pr-inbox'
+import { AUTOPILOT_TEMPLATE_HINT, DEFAULT_ACTION_TEMPLATES, LEGACY_RUN_WAVE_TEMPLATE, PLUGIN_HARNESS_TEMPLATES, type ActionTemplates } from '../../src/shared/projects/action-templates'
 import { defaultAppSettings, type AppSettings } from '../../src/shared/settings/app-settings'
 import type { Epic, Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 
@@ -55,6 +56,10 @@ let forceStopAnswer: Promise<IpcResult<unknown>> | null
 let estimateAnswer: unknown
 /** What appSettings.get answers; null answers the bridge's default, which the renderer does not take. */
 let appSettings: AppSettings | null
+/** What prInbox.get answers (worfy-pr-follow ticket 05); null answers the bridge's default, which the renderer does not take. */
+let prInbox: PrInboxSnapshot | null
+/** What actions.prFollow answers. */
+let prFollowAnswer: IpcResult<unknown>
 /** Claude's part of what limits.open answers: the live Limits of the toolbar (useLimits). */
 let limitsState: LimitsState
 /** The other Vendors' part of what limits.open answers (worfy-multi-vendor ticket 38). */
@@ -69,6 +74,8 @@ beforeEach(() => {
   forceStopAnswer = null
   estimateAnswer = null
   appSettings = null
+  prInbox = null
+  prFollowAnswer = { ok: true, value: { nodeId: 'n2', sessionId: 'pending-2', text: '/worfy:pr-fix conflicts', delivery: 'new' } }
   limitsState = { windows: {} }
   vendorsState = {}
   listeners = new Map()
@@ -117,6 +124,11 @@ beforeEach(() => {
         case 'appSettings.get':
           if (appSettings !== null) return Promise.resolve({ ok: true, value: appSettings })
           return Promise.resolve({ ok: true, value: { closed: true } })
+        case 'prInbox.get':
+          if (prInbox !== null) return Promise.resolve({ ok: true, value: prInbox })
+          return Promise.resolve({ ok: true, value: { closed: true } })
+        case 'actions.prFollow':
+          return Promise.resolve(prFollowAnswer)
         case 'shell.openExternal':
           return Promise.resolve({ ok: true, value: { url: (input as { url: string }).url } })
         default:
@@ -1237,5 +1249,174 @@ describe('on the screen of a Linked machine that shares its Projects read-only (
     expect(button.getAttribute('title')).toBe('/ship-ticket demo 08')
     fireEvent.click(button)
     await vi.waitFor(() => expect(calls.filter((call) => call.channel === 'actions.shipTicket')).toHaveLength(1))
+  })
+})
+
+// ── worfy-pr-follow ticket 05: "Resolve conflicts", "Fix checks" and "Address comments" on a Ticket ──────────────────
+
+describe('the pull request actions on a Ticket (worfy-pr-follow ticket 05)', () => {
+  const SHA = '3f2a9c1d4e5b6a7980123456789abcdef0123456'
+  const OTHER = 'abcdef0123456789abcdef0123456789abcdef01'
+
+  /** A PR of Ticket 11 by its branch, demo/11, the user's own. */
+  const pull = (over: Partial<PrInboxRow> = {}): PrInboxRow => ({
+    repo: 'example-org/demo',
+    number: 31,
+    title: 'Export the report',
+    url: 'https://github.com/example-org/demo/pull/31',
+    isDraft: false,
+    isCrossRepository: false,
+    author: 'dev-me',
+    headRefName: 'demo/11',
+    headRefOid: SHA,
+    createdAt: '2026-11-17T10:00:00Z',
+    updatedAt: '2026-11-18T10:00:00Z',
+    ci: 'passing',
+    reviewDecision: null,
+    mergeStateStatus: 'CLEAN',
+    additions: null,
+    deletions: null,
+    viaTeam: false,
+    unresolvedThreads: 0,
+    newSinceSeen: 0,
+    lastActivityAt: '2026-11-18T10:00:00Z',
+    threads: [],
+    comments: [],
+    ...over,
+  })
+  const inbox = (rows: PrInboxRow[], enabled = true): PrInboxSnapshot => ({
+    projectId: PROJECT,
+    enabled,
+    viewer: 'dev-me',
+    groups: [{ group: 'needs-fix', rows }],
+    readAt: '2026-11-18T10:00:00Z',
+    nextSearchAt: null,
+    error: null,
+    notice: null,
+  })
+
+  beforeEach(() => {
+    templates = { ...templates, fixChecks: PLUGIN_HARNESS_TEMPLATES.fixChecks, resolveConflicts: PLUGIN_HARNESS_TEMPLATES.resolveConflicts, addressComments: PLUGIN_HARNESS_TEMPLATES.addressComments }
+  })
+
+  async function mount(num = 11): Promise<void> {
+    const { default: PrFollow } = await import('../../src/renderer/canvas/actions/PrFollow')
+    render(<PrFollow subject={ticketSubject(num)} />)
+    // The PR inbox and the workflow model have answered: whatever the slot draws, it draws now.
+    await vi.waitFor(() => expect(calls.map((call) => call.channel)).toEqual(expect.arrayContaining(['prInbox.get', 'workflow.open'])))
+    await act(async () => undefined)
+  }
+
+  /** Opens «▾», reads its items as [label, title, inactive], and closes it again. */
+  function moreItems(): [string, string | null, boolean][] {
+    fireEvent.click(screen.getByTestId('action-pr-follow-more'))
+    const items = screen.getAllByRole('menuitem').map((item): [string, string | null, boolean] => [item.textContent ?? '', item.getAttribute('title'), item.getAttribute('aria-disabled') === 'true'])
+    fireEvent.click(screen.getByTestId('action-pr-follow-more'))
+    return items
+  }
+
+  it('a PR in conflict with red CI: Resolve conflicts on the button, Fix checks in «▾»; each click asks main for its action', async () => {
+    prInbox = inbox([pull({ mergeStateStatus: 'DIRTY', ci: 'failing' })])
+    await mount()
+    const button = await screen.findByRole('button', { name: 'Resolve conflicts' })
+    await vi.waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('false'))
+    expect(button.getAttribute('title')).toBe(`/worfy:pr-fix conflicts example-org/demo#31 ${SHA}`)
+    expect(moreItems()).toEqual([['Fix checks', `/worfy:pr-fix checks example-org/demo#31 ${SHA}`, false]])
+
+    fireEvent.click(button)
+    await vi.waitFor(() =>
+      expect(calls.filter((call) => call.channel === 'actions.prFollow')).toEqual([{ channel: 'actions.prFollow', input: { projectId: PROJECT, repo: 'example-org/demo', pr: 31, action: 'resolveConflicts' } }]),
+    )
+    fireEvent.click(screen.getByTestId('action-pr-follow-more'))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Fix checks' }))
+    await vi.waitFor(() => expect(calls.filter((call) => call.channel === 'actions.prFollow').map((call) => (call.input as { action: string }).action)).toEqual(['resolveConflicts', 'fixChecks']))
+  })
+
+  it('a PR with nothing to fix has no button, nor a Ticket whose PR the inbox does not hold', async () => {
+    prInbox = inbox([pull(), pull({ number: 32, headRefName: 'demo/09', ci: 'failing' })])
+    await mount(11)
+    expect(screen.queryByTestId('action-pr-follow')).toBeNull()
+    cleanup()
+    await mount(8)
+    expect(screen.queryByTestId('action-pr-follow')).toBeNull()
+  })
+
+  it('a Project with the PR inbox off ("prInbox": false) has no button, whatever its PRs need', async () => {
+    prInbox = inbox([pull({ mergeStateStatus: 'DIRTY', ci: 'failing' })], false)
+    await mount()
+    expect(screen.queryByTestId('action-pr-follow')).toBeNull()
+    expect(screen.queryByTestId('action-pr-follow-more')).toBeNull()
+  })
+
+  it('one reason: the button alone, no «▾»', async () => {
+    prInbox = inbox([pull({ reviewDecision: 'CHANGES_REQUESTED' })])
+    await mount()
+    const button = await screen.findByRole('button', { name: 'Address comments' })
+    await vi.waitFor(() => expect(button.getAttribute('title')).toBe(`/worfy:pr-fix comments example-org/demo#31 ${SHA}`))
+    expect(screen.queryByTestId('action-pr-follow-more')).toBeNull()
+  })
+
+  it('inactive with the reason of usePrFollowState: someone else\'s PR, an empty template', async () => {
+    templates = { ...templates, fixChecks: '' }
+    prInbox = inbox([pull({ mergeStateStatus: 'DIRTY', ci: 'failing', author: 'dev-peer' })])
+    await mount()
+    const button = await screen.findByRole('button', { name: 'Resolve conflicts' })
+    await vi.waitFor(() => expect(button.getAttribute('title')).toBe('example-org/demo#31 is not your pull request'))
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(button)
+    expect(calls.some((call) => call.channel === 'actions.prFollow')).toBe(false)
+    cleanup()
+    prInbox = inbox([pull({ mergeStateStatus: 'DIRTY', ci: 'failing' })])
+    await mount()
+    await vi.waitFor(() => expect(moreItems()).toEqual([['Fix checks', 'Set the Fix checks template in Project settings', true]]))
+  })
+
+  it('main\'s refusal shows in the tooltip: on the button, and on «▾» for an item', async () => {
+    const refusal = 'Resolve conflicts is already starting for example-org/demo#31: wait for its Session, or close its Node to start again'
+    prFollowAnswer = { ok: false, error: `actions.prFollow failed: ${refusal}` }
+    prInbox = inbox([pull({ mergeStateStatus: 'DIRTY', ci: 'failing' })])
+    await mount()
+    const button = await screen.findByRole('button', { name: 'Resolve conflicts' })
+    await vi.waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('false'))
+    fireEvent.click(button)
+    await vi.waitFor(() => expect(button.getAttribute('title')).toBe(refusal))
+    expect(button.getAttribute('data-error')).toBe(refusal)
+    fireEvent.click(screen.getByTestId('action-pr-follow-more'))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Fix checks' }))
+    await vi.waitFor(() => expect(screen.getByTestId('action-pr-follow-more').getAttribute('title')).toBe(refusal))
+  })
+
+  it('a Ticket with a PR in two repositories (ADR-0104): the first PR\'s first reason on the button, an item per PR and reason naming its PR', async () => {
+    prInbox = inbox([pull({ ci: 'failing' }), pull({ repo: 'example-org/api', number: 7, headRefOid: OTHER, mergeStateStatus: 'DIRTY', reviewDecision: 'CHANGES_REQUESTED' })])
+    await mount()
+    const button = await screen.findByRole('button', { name: 'Fix checks' })
+    await vi.waitFor(() => expect(button.getAttribute('title')).toBe(`/worfy:pr-fix checks example-org/demo#31 ${SHA}`))
+    expect(moreItems()).toEqual([
+      ['Resolve conflicts example-org/api#7', `/worfy:pr-fix conflicts example-org/api#7 ${OTHER}`, false],
+      ['Address comments example-org/api#7', `/worfy:pr-fix comments example-org/api#7 ${OTHER}`, false],
+    ])
+  })
+
+  it('asks for the new Session right of the strip of Epic frames, at its Ticket\'s height, as Ship ticket does', async () => {
+    prInbox = inbox([pull({ ci: 'failing' })])
+    const { ReactFlowProvider } = await import('@xyflow/react')
+    const { default: PrFollow } = await import('../../src/renderer/canvas/actions/PrFollow')
+    const initialNodes = [
+      { id: 'epic:demo', type: 'epic-frame', position: { x: 0, y: 0 }, width: 600, height: 500, data: { node: { data: { epic: { epic: 'demo' }, auto: { x: 0, y: 0 } } } } },
+      { id: 'ticket:demo/11', type: 'ticket', position: { x: 40, y: 240.4 }, width: 220, height: 80, data: { node: { data: { ticket: { epic: 'demo', num: 11 } } } } },
+    ]
+    render(
+      <ReactFlowProvider initialNodes={initialNodes}>
+        <PrFollow subject={ticketSubject(11)} />
+      </ReactFlowProvider>,
+    )
+    const button = await screen.findByRole('button', { name: 'Fix checks' })
+    await vi.waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('false'))
+    fireEvent.click(button)
+    await vi.waitFor(() =>
+      expect(calls.filter((call) => call.channel === 'actions.prFollow')).toEqual([
+        { channel: 'actions.prFollow', input: { projectId: PROJECT, repo: 'example-org/demo', pr: 31, action: 'fixChecks', near: { x: 600 + 48, y: 240 } } },
+      ]),
+    )
   })
 })

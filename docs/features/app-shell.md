@@ -126,7 +126,7 @@ next typing or pick. While a command runs, another pick does nothing.
 
 | Group | Rows |
 |---|---|
-| Action | New session; New Product Session; a "New …" for each item of the Canvas menu; Tidy up; Arrange by Epic; Re-pack; Archive finished sessions now; Process gate queue; Run wave `<epic>`; Ship ticket `<epic>/<NN>`; Reconnect machine…; Remove machine…; Update worfy |
+| Action | New session; New Product Session; a "New …" for each item of the Canvas menu; Tidy up; Arrange by Epic; Re-pack; Archive finished sessions now; Process gate queue; Run wave `<epic>`; Ship ticket `<epic>/<NN>`; Resolve conflicts, Fix checks and Address comments `<owner>/<repo>#<N>`; Reconnect machine…; Remove machine…; Update worfy |
 | View | Switch to Canvas; Switch to Session; Pull requests, with a Project; First-run checks; Getting started; Settings…; Keyboard shortcuts; worfy Guide; Guide: `<Topic>`, for each Topic; Show only tag `<tag>`; Show all Nodes |
 | Project | Switch to project `<name>`, for each other Project |
 | Go to | Orchestrator; each Epic, Ticket and ADR; each Node of the Layout, except those worfy draws from the workflow and binding anchors |
@@ -138,6 +138,9 @@ Some rows exist only in some states:
 - Process gate queue: only on the Machine whose Profile gives it the role `serve` of the cross-machine gate. Its detail
   counts the waiting PRs and the age of the oldest.
 - Run wave and Ship ticket: only where the Epic frame or the Ticket has that button.
+- Resolve conflicts, Fix checks and Address comments `<owner>/<repo>#<N>`: a row for each action the button of a
+  Ticket and its «▾» offer, the Ticket in the detail. An inactive row gives the same reason as the button. Picked from
+  the palette, a new Session Node goes where any new Node goes.
 - Reconnect machine…: only for a Linked machine that is not online, or whose certificate changed. Remove machine…: for
   each Linked machine. The name of the Machine is in the detail of the row.
 - Show all Nodes: only while a tag filter is on.

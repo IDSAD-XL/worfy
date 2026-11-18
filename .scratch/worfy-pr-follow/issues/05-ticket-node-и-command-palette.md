@@ -1,7 +1,7 @@
 # 05 — Ticket Node и Command palette: кнопка по первой причине PR с меню ▾ и строки palette
 
 Type: task
-Status: open
+Status: claimed 2026-11-18T16:35Z
 Blocked by: 01
 Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Поток пользователя», B; «Как это выглядит»; «Решения по
 реализации», 3; «Решено без владельца», 5

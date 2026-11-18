@@ -2,6 +2,8 @@ import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@te
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { GateQueueView } from '../../src/shared/ipc/gate-queue'
+import type { PrInboxRow, PrInboxSnapshot } from '../../src/shared/ipc/pr-inbox'
+import { defaultActionTemplates } from '../../src/shared/projects/action-templates'
 import type { LayoutNode, LayoutOpInput } from '../../src/shared/layout/types'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import { CommandPalette, PaletteBody } from '../../src/renderer/palette/CommandPalette'
@@ -86,7 +88,7 @@ describe('palette commands', () => {
     expect(ship.map((command) => command.id)).toEqual(['ship-ticket:e/07', 'ship-ticket:e/08'])
     const gate = ship[1]!.gate
     expect(gate?.kind === 'ship-ticket' && gate.ticket.num).toBe(8)
-    expect(gate?.tickets).toHaveLength(5)
+    expect(gate?.kind === 'ship-ticket' && gate.tickets).toHaveLength(5)
     expect(gate?.projectId).toBe('p1')
   })
 
@@ -923,5 +925,135 @@ describe('Update worfy', () => {
     useUpdateStore.setState({ snapshot: update({ available }) })
     onTestFinished(() => useUpdateStore.setState({ snapshot: null }))
     expect(row(context())?.detail).toBe('worfy 1.5.0+bbbbbbb available')
+  })
+})
+
+// ── worfy-pr-follow ticket 05: "Fix checks owner/web#118" and the like ────────────────────────────────────────────────
+
+describe('the pull request actions of the Tickets (worfy-pr-follow ticket 05)', () => {
+  const SHA = '3f2a9c1d4e5b6a7980123456789abcdef0123456'
+  // A Project of its own: the templates and the PR inbox the rows read are kept per Project for the whole file.
+  const mine = { id: 'p-pr-follow', name: 'pr', path: '/repo/pr', branch: 'main' }
+
+  /** A PR of Ticket e/09 by its branch, the user's own. */
+  const pull = (over: Partial<PrInboxRow> = {}): PrInboxRow => ({
+    repo: 'owner/web',
+    number: 118,
+    title: 'Retry on 429',
+    url: 'https://github.com/owner/web/pull/118',
+    isDraft: false,
+    isCrossRepository: false,
+    author: 'dev-me',
+    headRefName: 'e/09',
+    headRefOid: SHA,
+    createdAt: '2026-11-17T10:00:00Z',
+    updatedAt: '2026-11-18T10:00:00Z',
+    ci: 'failing',
+    reviewDecision: null,
+    mergeStateStatus: 'DIRTY',
+    additions: null,
+    deletions: null,
+    viaTeam: false,
+    unresolvedThreads: 0,
+    newSinceSeen: 0,
+    lastActivityAt: '2026-11-18T10:00:00Z',
+    threads: [],
+    comments: [],
+    ...over,
+  })
+  const inbox = (rows: PrInboxRow[], enabled = true): PrInboxSnapshot => ({
+    projectId: mine.id,
+    enabled,
+    viewer: 'dev-me',
+    groups: [{ group: 'needs-fix', rows }],
+    readAt: null,
+    nextSearchAt: null,
+    error: null,
+    notice: null,
+  })
+  const followRows = (ctx: CommandContext) => buildCommands(ctx).filter((command) => command.gate?.kind === 'pr-follow')
+
+  it('a row per action the Ticket\'s PR has a reason for, in the button\'s order; none without the inbox, with it off, or with nothing to fix', () => {
+    const rows = followRows(context({ prInbox: inbox([pull()]) }))
+    expect(rows.map((command) => [command.id, command.title, command.detail])).toEqual([
+      ['pr-follow:resolveConflicts:owner/web#118', 'Resolve conflicts owner/web#118', 'e/09 — 09 — Ticket 9'],
+      ['pr-follow:fixChecks:owner/web#118', 'Fix checks owner/web#118', 'e/09 — 09 — Ticket 9'],
+    ])
+    const gate = rows[0]!.gate
+    expect(gate?.kind === 'pr-follow' && [gate.projectId, gate.row.number, gate.action]).toEqual(['p1', 118, 'resolveConflicts'])
+    expect(rankItems(buildCommands(context({ prInbox: inbox([pull()]) })), 'fix checks owner/web#118')[0]?.id).toBe('pr-follow:fixChecks:owner/web#118')
+    expect(followRows(context())).toEqual([])
+    expect(followRows(context({ prInbox: inbox([pull()], false) }))).toEqual([])
+    expect(followRows(context({ prInbox: inbox([pull({ ci: 'passing', mergeStateStatus: 'CLEAN' })]) }))).toEqual([])
+    // A PR no Ticket owns is the Pull requests view's (ticket 04), not a row here.
+    expect(followRows(context({ prInbox: inbox([pull({ headRefName: 'fix/retry-429' })]) }))).toEqual([])
+    // On a read-only screen the rows carry the hint, as Ship ticket's do.
+    expect(followRows(context({ prInbox: inbox([pull()]), readOnly: 'Read-only' })).map((command) => command.readOnly)).toEqual(['Read-only', 'Read-only'])
+  })
+
+  it('picking a row asks main for that action on that PR, and says main\'s refusal', async () => {
+    const asked: { channel: string; input: unknown }[] = []
+    const globals = globalThis as { worfy?: WorfyBridge }
+    globals.worfy = {
+      invoke: (channel: string, input: unknown) => {
+        asked.push({ channel, input })
+        return Promise.resolve({ ok: false, error: 'actions.prFollow failed: Fix checks is already starting for owner/web#118: wait for its Session, or close its Node to start again' })
+      },
+      on: () => 1,
+      off: () => undefined,
+    } as unknown as WorfyBridge
+    onTestFinished(() => {
+      delete globals.worfy
+    })
+    const fix = followRows(context({ prInbox: inbox([pull()]) }))[1]!
+    expect(await fix.run()).toBe('Fix checks is already starting for owner/web#118: wait for its Session, or close its Node to start again')
+    expect(asked).toEqual([{ channel: 'actions.prFollow', input: { projectId: 'p1', repo: 'owner/web', pr: 118, action: 'fixChecks' } }])
+  })
+
+  it('the rows say what the Ticket\'s button and its «▾» say: the same text when active, the same reason when not', async () => {
+    const snapshot = inbox([pull()])
+    const templates = { ...defaultActionTemplates('plugin'), fixChecks: '' }
+    const model = context().model!
+    const globals = globalThis as { worfy?: WorfyBridge }
+    globals.worfy = {
+      invoke: (channel: string) => {
+        if (channel === 'projects.settings.get') return Promise.resolve({ ok: true, value: { actionTemplates: templates } })
+        if (channel === 'prInbox.get') return Promise.resolve({ ok: true, value: snapshot })
+        if (channel === 'workflow.open') return Promise.resolve({ ok: true, value: { ...model, root: mine.path } })
+        return Promise.resolve({ ok: false, error: `${channel}: not in this test` })
+      },
+      on: () => 1,
+      off: () => undefined,
+    } as unknown as WorfyBridge
+    Element.prototype.scrollIntoView = () => undefined
+    onTestFinished(() => {
+      delete globals.worfy
+      delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView
+    })
+    const { default: PrFollow } = await import('../../src/renderer/canvas/actions/PrFollow')
+    const ticket9 = model.tickets.find((each) => each.num === 9)!
+    const commands = followRows(context({ project: mine, prInbox: snapshot }))
+    const { unmount } = render(
+      <>
+        <PrFollow subject={{ kind: 'ticket', projectId: mine.id, root: mine.path, ticket: ticket9 }} />
+        <PaletteBody commands={commands} empty="Nothing matches" onClose={() => undefined} />
+      </>,
+    )
+    onTestFinished(unmount)
+    const option = (id: string) => document.querySelector<HTMLElement>(`[data-testid="palette-option"][data-command="${id}"]`)
+    // By test id, not by role: the palette is a modal window, and what lies outside it is hidden from the role queries.
+    const button = await screen.findByTestId('action-pr-follow')
+    expect(button.textContent).toBe('Resolve conflicts')
+    await waitFor(() => expect(button.getAttribute('title')).toBe(`/worfy:pr-fix conflicts owner/web#118 ${SHA}`))
+    const resolve = option('pr-follow:resolveConflicts:owner/web#118')!
+    expect([resolve.getAttribute('title'), resolve.getAttribute('aria-disabled')]).toEqual([button.getAttribute('title'), button.getAttribute('aria-disabled')])
+
+    fireEvent.click(screen.getByTestId('action-pr-follow-more'))
+    const item = await screen.findByTestId('action-pr-follow-item-fixChecks-owner/web#118')
+    expect(item.textContent).toBe('Fix checks')
+    const fix = option('pr-follow:fixChecks:owner/web#118')!
+    expect(item.getAttribute('title')).toBe('Set the Fix checks template in Project settings')
+    expect([fix.getAttribute('title'), fix.getAttribute('aria-disabled')]).toEqual([item.getAttribute('title'), item.getAttribute('aria-disabled')])
+    expect(within(fix).getByTestId('palette-option-note').textContent).toBe('Set the Fix checks template in Project settings')
   })
 })
