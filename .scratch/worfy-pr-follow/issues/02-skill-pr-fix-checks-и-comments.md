@@ -58,9 +58,12 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реал�
 
 - [ ] Eval `pr-fix-checks`: упавший check починен в worktree, checkout человека не тронут; на «Not now» нет ни одного
       `git push`; check, красный и на базе, не тронут; ни одной записи в GitHub.
+  - evidence: test-run pass · eval pr-fix-checks 1.00 / 1.00, casesPassed 1 of 1, exit 0, 0.66 USD · mac - · fe2c22b9b3a904f93690814a5d62fd3f0fa5734f
 - [ ] Eval `pr-fix-comments`: правка по замечанию, ответы только через `pr-reply-draft`; нет `gh pr comment`,
       `gh pr review`, записей `gh api`; push только после «Push».
+  - evidence: test-run pass · eval pr-fix-comments 1.00 / 1.00, casesPassed 1 of 1, exit 0, 1.10 USD · mac - · fe2c22b9b3a904f93690814a5d62fd3f0fa5734f
 - [ ] Числа обоих evals (pass и цена) — в «Итог» Ticket-а.
+  - evidence: commit pass · Итог: pr-fix-checks 1.00 / 1.00, 0.66 USD; pr-fix-comments 1.00 / 1.00, 1.10 USD · - - · fe2c22b9b3a904f93690814a5d62fd3f0fa5734f
 - [ ] `harness/evals/lib/coverage.json` называет `skills/pr-fix/SKILL.md`; contract test-ы evals
       (`test/contract/harness-evals-run.test.ts`) зелёные.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs harness-evals` exit 0, `node scripts/eval-harness-coverage.mjs` exit 0 · mac - · d72f6897fda8013ab32b7b043444b51b25f066ea
@@ -84,3 +87,17 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реал�
 ## Вне скоупа
 
 - Режим `conflicts` — Ticket 03. Вызов `pr_watch` в конце — часть 2.
+
+## Итог
+
+Ветка `worfy-pr-follow/02`, PR #2004. Платные evals на head fe2c22b9b (раунд 2, `--max-cost-usd 3` на вызов):
+
+| Eval | Score по run-ам | Кейс | Цена |
+|---|---|---|---|
+| `pr-fix-checks` | 1.00 / 1.00 | casesPassed 1 из 1, exit 0 | 0.66 USD |
+| `pr-fix-comments` | 1.00 / 1.00 | casesPassed 1 из 1, exit 0 | 1.10 USD |
+
+Раньше, на be05d9bdf (раунд 1), `fixed-in-worktree` падал в 4 из 4 run-ов: `claude plugin eval` выключает git hook-и
+репозитория (`core.hooksPath=/dev/null`), а fixture писал состояние hook-ами. Раунд 2 смотрит состояние без hook-ов.
+Раунд 3 перевёл оба guard-а gh (stand-in и grader `no-publish-command`) на список известных чтений: любой другой вызов
+gh считается записью. Платный eval на head раунда 3 не запускался.

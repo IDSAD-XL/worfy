@@ -34,7 +34,7 @@ unattended run): nothing is pushed.
 
 ## 3. Перед вопросом — что push делает с отметками агентов
 
-Code: `harness/skills/pr-fix/SKILL.md:185-191` · key lines: 187, 188, 190
+Code: `harness/skills/pr-fix/SKILL.md:187-193` · key lines: 188, 189, 191
 
 ```md
 First tell the person, also when the answer is already known or no one can answer: each commit (its short sha and
@@ -56,7 +56,7 @@ with the options "Push" and "Not now". Only on "Push":
 
 ## 4. Чужое дерево на том же head не годится
 
-Code: `harness/skills/pr-fix/SKILL.md:72-75` · key lines: 73, 74, 75
+Code: `harness/skills/pr-fix/SKILL.md:74-77` · key lines: 74, 75, 76
 
 ```md
 - **The Ticket's worktree**: a linked worktree of the list — not its first entry, the main checkout, and not the
@@ -110,6 +110,12 @@ for (const address of [`https://github.com/`, `http://github.com/`, `ssh://git@g
 - `pnpm lint` — exit 0; gate fast — exit 0. Mutant-ы правил раунда 2 (regex, веса, число run-ов, ssh, `gh api -f`,
   `clean`, запись stand-in) — все красные.
 - Платный прогон на be05d9bdf: `fixed-in-worktree` упал в 4 из 4 run-ов, причина — выключенные hook-и (шаг 5).
+- Платный прогон на fe2c22b9b: `pr-fix-checks` 1.00 / 1.00 (0.66 USD), `pr-fix-comments` 1.00 / 1.00 (1.10 USD).
+- Раунд 3: оба guard-а gh считают записью всё, кроме известных чтений (`pr view|list|checks|diff|status`,
+  `run view|list`, `auth status`, `repo view`, `--version`, `gh api` без записи). `gh pr update-branch`, `gh pr revert`,
+  `gh pr lock`, `gh repo sync` теперь записи. Test stand-in-а ставит свежий marker перед каждой командой. Mutant-ы
+  раунда 3 (список запретов вместо списка чтений, запись без marker, любой `pr` в stand-in pr-reply, `repo sync` как
+  чтение, GraphQL из файла как чтение, regex со списком запретов, regex по описанию вызова, голый `-c`) — все красные.
 
 ## Проверить себя
 

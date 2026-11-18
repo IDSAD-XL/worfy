@@ -17,7 +17,9 @@ unattended run): nothing is pushed.
 
 **Nothing else is written to GitHub**, in any session:
 
-- no `gh pr merge`, `gh pr comment`, `gh pr review`, `gh pr edit`, `gh pr close`, `gh pr ready`, `gh issue comment`;
+- no `gh pr merge`, `gh pr comment`, `gh pr review`, `gh pr edit`, `gh pr close`, `gh pr ready`, `gh pr update-branch`,
+  `gh pr revert`, `gh pr lock`, `gh repo sync`, `gh issue comment`, and no `gh` command but the reads of the steps
+  below and the rerun of step 3;
 - no `gh api` call with a write method (`-X`/`--method` `POST`, `PATCH`, `PUT`, `DELETE`), with `-f`, `-F`, `--field`,
   `--raw-field` or `--input` on a REST path, and no GraphQL `mutation`;
 - no resolving of a thread, no request of a review, no reaction, no label;
