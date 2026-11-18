@@ -60,8 +60,8 @@ writeFileSync(commonFile, common.replace(FALLBACK, ''))
   matcher-ом `compact` и пункт «After a compaction» в `common.md`. Если какой-то части нет на месте, скрипт выходит с
   кодом 1 и удаляет копию.
 - Почему здесь: `--ablation with-without` у `claude plugin eval` убрал бы весь plugin, и при `history_file` он
-  запускает только вариант «with». В `scripts/eval-harness.mjs` уже есть `HARNESS_DIR` для другой копии Harness, и
-  скрипт не правится.
+  запускает только вариант «with». В `scripts/eval-harness.mjs` уже есть `HARNESS_DIR` для другой копии Harness: для
+  второго варианта скрипт не правится.
 - Без него: второго варианта нет, и сравнивать не с чем.
 - Требование: [Что делаем, пункт 2](../issues/13-eval-compaction-state.md#что-делаем)
 - Риски и пробелы test-ов: test-а на сам скрипт нет. Проверен руками (`diff -r` копии с `harness/` показывает только
@@ -70,30 +70,78 @@ writeFileSync(commonFile, common.replace(FALLBACK, ''))
 
 ## 4. Grader: compaction была
 
-Code: `harness/evals/compaction-state/graders/compacted.md:1-10` · key lines: 3, 4
+Code: `harness/evals/compaction-state/graders/compacted.md:1-13` · key lines: 3, 5
 
 ```md
 ---
 type: regex
+weight: 3
 target: trace
 pattern: '"subtype"\s*:\s*"compact_boundary"'
 ---
 
 The session was compacted before the answer: the trace has a compact_boundary. The case compacts only when
-the shell that starts the run sets CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000 and
-CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=5 (a case may set only EVAL_* variables); without them the agent answers from
-the whole history, and the other graders measure nothing.
+the environment of the run has CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000 and CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=5 (a
+case may set only EVAL_* variables; `pnpm eval:harness -- --case compaction-state` sets them); without them the
+agent answers from the whole history, and the other graders measure nothing. Weight 3 against 1 for each of the
+other eight graders: a run without a compaction scores at most 8 / 11 = 0.73, below the threshold of 0.8, while
+one other grader that fails leaves 10 / 11 = 0.91 and two leave 9 / 11 = 0.82.
 ```
 
-- Что делает: проваливает run, в trace которого нет границы compaction.
+- Что делает: проваливает run, в trace которого нет границы compaction, и с весом 3 валит этим весь кейс.
 - Почему здесь: `claude plugin eval` отказывает кейсу с `env`, кроме `EVAL_*` («only EVAL_* keys can be set from
   case.yaml»), поэтому низкий порог auto-compaction задаёт shell запуска. Если shell его не задал, история в 32 тыс.
   токенов не сжимается, и агент отвечает по полной истории.
-- Без него: забытые переменные дали бы высокие оценки, которые ничего не мерят.
+- Без него: забытые переменные дали бы высокие оценки, которые ничего не мерят. С весом 1 из 9 run без compaction
+  получал 8 / 9 = 0,89 и кейс проходил порог 0,8 (ревью PR #1996). Вес больше 2 даёт 8 / (8 + w) < 0,8; 3 — наименьший
+  целый, и он оставляет probes почти прежний вес: при весе 8 кейс прошёл бы и с тремя проваленными probes в run-е.
 - Требование: [Что делаем, пункт 3](../issues/13-eval-compaction-state.md#что-делаем)
-- Риски и пробелы test-ов: проверен против stub-а с переменными (совпал) и без них (не совпал).
+- Риски и пробелы test-ов: проверен против stub-а с переменными (совпал) и без них (не совпал). Вес проверен только
+  арифметикой: «A run's score is the weighted fraction of its graders that passed» (справка `claude plugin eval`);
+  платного run-а без переменных не было.
 
-## 5. Ответ по памяти
+## 5. Переменные compaction — только в вызове этого кейса
+
+Code: `scripts/eval-harness.mjs:333-351` · key lines: 341, 348, 349
+
+```js
+// A call of the tag `alone` has its own `env`; the others run with childEnv.
+const calls = []
+const named = optionValues(passThrough, '--case')
+for (const tag of ['main', 'gui', 'alone']) {
+  const all = selected(tag, [])
+  const filtered = selected(tag, passThrough)
+  let cases = chosen ? filtered.filter((name) => chosen.includes(name)) : filtered
+  if (tag === 'alone') {
+    for (const name of cases.filter((one) => !named.includes(one))) {
+      const variables = Object.entries(ALONE[name] ?? {}).map(([key, value]) => `${key}=${value}`).join(' ')
+      process.stdout.write(
+        `eval:harness: ${name} is skipped: it runs only alone, in a call of its own that sets ${variables || 'its variables'}; ` +
+          `run it with pnpm eval:harness -- --case ${name}\n`,
+      )
+    }
+    cases = cases.filter((one) => named.includes(one))
+    for (const name of cases) calls.push({ tag, name: `${tag}-${name}`, args: ['--case', name], cases: [name], env: { ...childEnv, ...ALONE[name] } })
+    continue
+  }
+```
+
+- Что делает: кейс с тегом `alone` (у кейса теперь он, а не `main`) идёт только когда `--case` называет его точно, в
+  своём вызове, и только этот вызов получает `CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000` и
+  `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=5`. Общий запуск, glob в `--case` и `--changed` его пропускают и печатают строку, как
+  его запустить. Из окружения всех остальных вызовов эти переменные убраны, даже если их задал shell.
+- Почему здесь: ревью PR #1996: общий `pnpm eval:harness` и `--changed` брали кейс без переменных (compaction нет,
+  ≈ 1,4 USD впустую), а с переменными compaction случилась бы в каждом кейсе тега `main`. Из двух вариантов брифа
+  выбран пропуск без явного `--case` и переменные в вызове кейса: исключить один кейс из вызова тега нельзя
+  (`--case` у `claude plugin eval` — один glob), поэтому без своего тега его не вынуть из вызова `main`.
+- Без него: кейс тратит деньги без compaction или ломает остальные кейсы тега.
+- Требование: [Что делаем, пункт 3](../issues/13-eval-compaction-state.md#что-делаем)
+- Риски и пробелы test-ов: пять test-ов в `test/contract/harness-evals-run.test.ts` (describe «the case of the tag
+  alone»), stub записывает обе переменные каждого вызова; три мутанта (не убирать переменные shell-а, не пропускать
+  кейс, не передавать `env` вызова) валят 1, 3 и 1 из них. Что настоящий `claude plugin eval` передаёт `env` процессу
+  агента, проверено только платным прогоном первого раунда, где переменные задавал shell.
+
+## 6. Ответ по памяти
 
 Code: `harness/evals/compaction-state/graders/from-memory.md:1-10` · key lines: 4, 5, 6
 
@@ -118,7 +166,7 @@ the work. A run that read the ticket or the code measured the files, not the sum
 - Риски и пробелы test-ов: `min: 0` обязателен: без него `claude plugin eval` берёт `min` 1, и grader не проходит
   никогда («expected 1..0»; найдено на stub-е).
 
-## 6. Папка состояния Harness в test-е fixture-а
+## 7. Папка состояния Harness в test-е fixture-а
 
 Code: `test/contract/harness-evals.test.ts:283-285` · key lines: 283, 285
 
@@ -137,15 +185,16 @@ Code: `test/contract/harness-evals.test.ts:283-285` · key lines: 283, 285
 - Риски и пробелы test-ов: мутант (`demo-project.sh` удаляет `gate/config.json` из `.git/worfy-harness`) валит эту
   строку у всех 23 кейсов, то есть для обычного checkout-а проверка осталась прежней.
 
-## 7. Что сознательно не меняли
+## 8. Что сознательно не меняли
 
-- `scripts/eval-harness.mjs` — второй вариант идёт через `HARNESS_DIR`.
+- Второй вариант идёт через `HARNESS_DIR`: `scripts/eval-harness.mjs` для него не правится.
 - `/compact`: у кейса один prompt за run, и после `/compact` вопросов не задать. Compaction — auto, а spike 01 показал,
   что `PreCompact` и `SessionStart` с `source: compact` в обоих случаях одни и те же.
-- `coverage.json` связывает кейс только с `compaction.md` и `common.md`. `hooks.json` и `inject-rules.mjs` остались
-  за `status-block`, иначе пришлось бы менять ожидания `test/contract/harness-evals-run.test.ts`.
+- `coverage.json` связывает кейс с `compaction.md`, `common.md`, `hooks.json` (записи `PreCompact` и `SessionStart`
+  `compact`) и `inject-rules.mjs` (его вызывает `PreCompact`). `hooks/after-compact.mjs` в карту не вошёл:
+  `scripts/eval-harness-coverage.mjs` не считает его файлом правил и отвергает такую запись.
 
-## 8. Как проверено
+## 9. Как проверено
 
 - `node scripts/eval-harness.mjs --case compaction-state --dry-run` — exit 0, и с `HARNESS_DIR` копии `baseline.mjs` —
   exit 0.
@@ -161,6 +210,11 @@ Code: `test/contract/harness-evals.test.ts:283-285` · key lines: 283, 285
    - Строки: `harness/evals/compaction-state/scaffold.sh:95-96`
    - Ответ: hook `after-compact.mjs` отдаёт Ticket и `git status` только в linked worktree на ветке Ticket-а; в main
      checkout он отдал бы `wave-brief` Orchestrator-а.
-2. Что покажут числа, если запустить кейс без `CLAUDE_CODE_AUTO_COMPACT_WINDOW` и `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`?
-   - Строки: `harness/evals/compaction-state/graders/compacted.md:3-4`
-   - Ответ: compaction не будет, агент ответит по полной истории, а grader `compacted` провалит каждый run.
+2. Что будет с кейсом, если compaction не случилась, и почему вес grader-а `compacted` — 3, а не 1?
+   - Строки: `harness/evals/compaction-state/graders/compacted.md:3-13`
+   - Ответ: агент ответит по полной истории, остальные восемь grader-ов могут пройти; с весом 1 run набрал бы 8 / 9 и
+     кейс прошёл бы порог 0,8, с весом 3 — не больше 8 / 11, и кейс провален.
+3. Почему общий `pnpm eval:harness` не запускает `compaction-state`, а не просто ставит переменные всем вызовам?
+   - Строки: `scripts/eval-harness.mjs:340-349`
+   - Ответ: с переменными compaction случилась бы в каждом кейсе вызова; поэтому кейс идёт только своим вызовом по
+     точному `--case`, и только этот вызов получает переменные.

@@ -69,8 +69,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», 13; «Решения по реал
   implementer-а и отдаёт файл Ticket-а и `git status --short`.
 - **Compaction** — auto, до первого ответа: окно 100000 токенов и порог 5 % (`CLAUDE_CODE_AUTO_COMPACT_WINDOW`,
   `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`, как в spike-е 01). Эти переменные кейс задать не может: `claude plugin eval`
-  разрешает в `env` кейса только `EVAL_*` («execution.env key … is not allowed — only EVAL_* keys»). Их ставит shell,
-  который запускает `pnpm eval:harness`; без них compaction нет, и это ловит grader `compacted`.
+  разрешает в `env` кейса только `EVAL_*` («execution.env key … is not allowed — only EVAL_* keys»). Их ставит
+  `scripts/eval-harness.mjs` только в вызове этого кейса (раунд 2, ниже); без них compaction нет, и grader `compacted`
+  с весом 3 валит кейс.
 - **Probes** — шесть вопросов в `PROBES.md` (из `probes.md` кейса): цель, Ticket, пункты «Готово, когда» с состоянием,
   затронутые файлы, решения, следующий шаг. Prompt только называет файл, поэтому модель, которая пишет summary, вопросов
   не видит (в запросе на summary нет ни prompt-а, ни `PROBES.md` — проверено на stub-е, ниже). Ответ — по памяти: из
@@ -78,11 +79,12 @@ Source: [spec.md](../spec.md), «Ticket-ы», 13; «Решения по реал
   Ещё три grader-а: `probes-read` (прочитан `PROBES.md`), `from-memory` (не открыт ни один файл работы), `compacted`.
 - **Два варианта.** С hook-ом и инструкциями — `harness/` как есть. Без них — копия, которую делает
   `node harness/evals/compaction-state/baseline.mjs` во временной папке: в `hooks.json` нет `PreCompact` и `SessionStart`
-  с matcher-ом `compact`, в `common.md` нет пункта «After a compaction…». Прогон — через существующий `HARNESS_DIR`.
-  `scripts/eval-harness.mjs` не менялся.
+  с matcher-ом `compact`, в `common.md` нет пункта «After a compaction…». Прогон — через существующий `HARNESS_DIR`:
+  `HARNESS_DIR="$(node harness/evals/compaction-state/baseline.mjs)" pnpm eval:harness -- --case compaction-state`.
 - **Вне CI:** `pnpm eval:harness` не запускает ни CI, ни gate; `test/contract/harness-evals.test.ts` бесплатно проверяет
-  только, что кейс полон и fixture строится. `harness/evals/lib/coverage.json` связывает кейс с `hooks/rules/compaction.md`
-  и `hooks/rules/common.md`, так что платный `--changed` выберет его только при правке этих двух файлов.
+  только, что кейс полон и fixture строится. `harness/evals/lib/coverage.json` связывает кейс с `hooks/rules/compaction.md`,
+  `hooks/rules/common.md`, `hooks/hooks.json` и `hooks/inject-rules.mjs`; `--changed` такой правки кейс не запускает,
+  а печатает строку, как его запустить (тег `alone`, раунд 2).
 
 ### Отступления от Ticket-а
 
@@ -92,8 +94,28 @@ Source: [spec.md](../spec.md), «Ticket-ы», 13; «Решения по реал
 - **Файлы вне «Где в коде»** (согласованы с Orchestrator-ом): `harness/evals/lib/coverage.json` (запись кейса;
   `compaction.md` и `common.md` убраны из `uncovered`), `test/contract/harness-evals-shared.ts` (кейс в `CASES`),
   `test/contract/harness-evals.test.ts` (двадцать три кейса; папку состояния Harness оба test-а fixture-а берут через
-  `git rev-parse --git-common-dir`, как `hooks/eval-env.cjs`), `docs/features/skills-agents-and-hooks.md` (одна фраза о
-  кейсе).
+  `git rev-parse --git-common-dir`, как `hooks/eval-env.cjs`), `docs/features/skills-agents-and-hooks.md` (кейс и его
+  переменные). В раунде 2, по брифу Orchestrator-а: `scripts/eval-harness.mjs` (тег `alone`),
+  `test/contract/harness-evals-run.test.ts` и `test/fixtures/eval-stub/claude.cjs` (test-ы тега `alone`; stub пишет обе
+  переменные каждого вызова), `docs/features/harness.md`.
+
+### Раунд 2: ревью PR #1996
+
+- **Grader `compacted` — вес 3.** С весом 1 из 9 run без compaction набирал 8 / 9 = 0,89 и проходил порог 0,8. Чтобы
+  один провал `compacted` валил run, нужен вес w с 8 / (8 + w) < 0,8, то есть больше 2. Взят 3: без compaction run
+  набирает не больше 8 / 11 = 0,73. Вес 8 из примера брифа тоже годится, но с ним кейс прошёл бы и с тремя
+  проваленными probes в run-е (13 / 16 = 0,81); с весом 3 — с двумя (9 / 11 = 0,82), как с весом 1 — с одним.
+- **Тег `alone`.** Кейс теперь с тегом `alone`, а не `main`. `scripts/eval-harness.mjs` запускает его только по точному
+  `--case compaction-state`, отдельным вызовом с `CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000` и
+  `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=5`. Общий запуск, glob в `--case` и `--changed` его пропускают со строкой
+  «compaction-state is skipped: … run it with pnpm eval:harness -- --case compaction-state». Из окружения остальных
+  вызовов обе переменные убраны, даже если их задал shell. Выбран пропуск, а не переменные в общем вызове: `--case` у
+  `claude plugin eval` — один glob, и вынуть один кейс из вызова тега `main` нельзя.
+- **Grader-ы probe-\*.** В каждый добавлено «Judge only the section under this heading; what the other sections say
+  or admit does not matter», в `probe-files` — «src/sum.mjs named as unchanged is not a failure». Числа ниже, в
+  «Числа прогона», получены с grader-ами первого раунда; повторный платный прогон — за Orchestrator-ом.
+- **Документы:** обе переменные и команда запуска с `baseline.mjs` — в `docs/features/skills-agents-and-hooks.md` и
+  `docs/features/harness.md`. Перевод в `docs/features/ru/` — Ticket 14.
 
 ### Проверка без затрат: stub вместо API
 
@@ -117,10 +139,11 @@ git без шаблонов (нет `.git/info/`, `scaffold.sh` теперь с�
 
 ```
 $ node scripts/eval-harness.mjs --case compaction-state --dry-run
+eval:harness: no main case selected, the main call is skipped
 eval:harness: no gui case selected, the gui call is skipped
 eval:harness: budget 30 USD (BUDGET_USD)
 eval:harness: dry run, nothing is started: claude (<repo>/node_modules/.pnpm/@anthropic-ai+claude-agent-sdk-darwin-arm64@0.3.322/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude) is not called; <plugin-copy> stands for the temporary copy of <repo>/harness
-eval:harness: main-compaction-state — claude plugin eval <plugin-copy> --scaffold --trust-plugin --ablation none --threshold 0.8 --no-publish --model claude-sonnet-5 --judge-model claude-haiku-4-5 --max-cost-usd 30 --output-dir <repo>/harness/evals/results/<time>-main-compaction-state --tag main --case compaction-state --allow-tools Bash Write Edit
+eval:harness: alone-compaction-state — CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=5 claude plugin eval <plugin-copy> --scaffold --trust-plugin --ablation none --threshold 0.8 --no-publish --model claude-sonnet-5 --judge-model claude-haiku-4-5 --max-cost-usd 30 --output-dir <repo>/harness/evals/results/<time>-alone-compaction-state --tag alone --case compaction-state --allow-tools Bash Write Edit
 EXIT=0
 ```
 

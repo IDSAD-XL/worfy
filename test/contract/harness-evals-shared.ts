@@ -17,7 +17,7 @@ export const HARNESS = join(REPO, 'harness')
 export const EVALS = join(HARNESS, 'evals')
 
 // The ticket's table of cases; the tag decides which `claude plugin eval` call runs a case.
-export const CASES: [name: string, tag: 'main' | 'gui'][] = [
+export const CASES: [name: string, tag: 'main' | 'gui' | 'alone'][] = [
   ['epic-wave-tickets', 'main'],
   ['epic-wave-old-form', 'main'],
   ['ship-ticket-local-green', 'main'],
@@ -40,7 +40,7 @@ export const CASES: [name: string, tag: 'main' | 'gui'][] = [
   ['human-review-setup-full', 'main'],
   ['pr-reply-three-threads', 'main'],
   ['pr-reply-guards', 'main'],
-  ['compaction-state', 'main'],
+  ['compaction-state', 'alone'],
 ]
 /**
  * The YAML front matter of a case or grader file as `claude plugin eval` cuts it ('' when there is none). The CLI
@@ -100,7 +100,7 @@ export const childEnv = (home: string, vars: NodeJS.ProcessEnv = {}): NodeJS.Pro
 
 // A stand-in for claude: prints STUB_VERSION for --version; for every other call appends to
 // STUB_LOG its arguments, what the target plugin folder holds (manifest, eval folder), PATH, the
-// EVAL_* variables, the answers of "$EVAL_GIT" --version and --exec-path with PATH=/usr/bin:/bin,
+// EVAL_* variables, CLAUDE_CODE_AUTO_COMPACT_WINDOW and CLAUDE_AUTOCOMPACT_PCT_OVERRIDE, the answers of "$EVAL_GIT" --version and --exec-path with PATH=/usr/bin:/bin,
 // the exit code of "$EVAL_GIT" config --get worfy.probe with STUB_SYSTEM_CONFIG as the system
 // gitconfig, and the files of the copy of git; it exits with the next code from STUB_CODES
 // (comma-separated, one per call). STUB_LOCK: the first call makes the plugin copy read-only.

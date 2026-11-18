@@ -2,7 +2,7 @@
 type: llm
 ---
 
-Probe 5, the decisions. Under the heading for the decisions the reply names these decisions of the task:
+Probe 5, the decisions. Judge only the section under this heading; what the other sections say or admit does not matter. Under the heading for the decisions the reply names these decisions of the task:
 (a) the orchestrator's correction: NaN and Infinity are numbers, `double(NaN)` returns NaN and
     `double(Infinity)` returns Infinity, only a value whose type is not number throws TypeError (the
     check is `typeof n !== 'number'`); it replaced the agent's first plan to reject NaN with

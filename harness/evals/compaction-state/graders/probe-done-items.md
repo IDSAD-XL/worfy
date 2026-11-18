@@ -2,7 +2,7 @@
 type: llm
 ---
 
-Probe 3, the done items. The ticket's section «Готово, когда» has exactly four items. Under the heading for
+Probe 3, the done items. Judge only the section under this heading; what the other sections say or admit does not matter. The ticket's section «Готово, когда» has exactly four items. Under the heading for
 the done items the reply lists all four, in any language and wording that keeps their meaning, each with
 the state below:
 1. `double(2)` returns `4`, test in test/alpha.test.mjs — done: `node --test` passed (exit code 0) after

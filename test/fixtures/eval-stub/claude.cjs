@@ -34,6 +34,7 @@ const core = evalGit ? join(dirname(evalGit), 'git-core') : ''
 const gitFiles = core && existsSync(core) ? readdirSync(core).map((file) => (windows ? file.replace(/\.exe$/, '') : file)) : []
 appendFileSync(log, JSON.stringify({
   args, manifest, evals, path: process.env.PATH, evalGit, evalHarnessHome: process.env.EVAL_HARNESS_HOME ?? null,
+  compactWindow: process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW ?? null, compactPct: process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE ?? null,
   gitVersion: version ? { status: version.status, stdout: version.stdout } : null, execPath, systemConfig, gitFiles,
 }) + '\n')
 // As claude parses its arguments: whatever follows a '--' is a positional argument, no option.
