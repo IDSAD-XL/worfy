@@ -1,5 +1,5 @@
 ---
-description: 'After a compaction, an implementer still knows its goal, its ticket, the state of each done item, the files it touched, the decisions taken and its next step: the summary instructions (hooks/rules/compaction.md, PreCompact) and the state the hook of the compact branch hands back (hooks/after-compact.mjs). The history (history.jsonl) is resumed; the low auto-compaction threshold of env compacts it before the first answer. The variant without the hook and the instructions is the copy of the Harness that baseline.mjs makes (HARNESS_DIR).'
+description: 'After a compaction, an implementer still knows its goal, its ticket, the state of each done item, the files it touched, the decisions taken and its next step: the summary instructions (hooks/rules/compaction.md, PreCompact) and the state the hook of the compact branch hands back (hooks/after-compact.mjs). The history (history.jsonl) is resumed and compacted before the first answer by a low auto-compaction threshold that the shell of the run sets, CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000 and CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=5 (a case may set only EVAL_* variables; the grader compacted fails without them). The variant without the hook and the instructions is the copy of the Harness that baseline.mjs makes (HARNESS_DIR).'
 tags: [main]
 runs: 3
 max_turns: 6

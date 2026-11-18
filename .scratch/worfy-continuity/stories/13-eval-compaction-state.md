@@ -1,0 +1,166 @@
+# Code story — worfy-continuity 13: Eval-кейс `compaction-state`: probes о состоянии после compaction, с hook-ом и без
+
+Kind: pr · Epic: worfy-continuity · Ticket: 13 · PR: - · Language: ru
+
+## 1. Что было не так
+
+Что агент помнит после compaction, никто не мерил. Инструкции summary Ticket-а 10 (`compaction.md` через `PreCompact`)
+и hook Ticket-а 11 (`after-compact.mjs`) влиты, но не сравнены с тем, что было без них. По решению без владельца 1
+половина compaction этого Epic-а считается сделанной, только когда eval записал числа.
+
+- Требование: [Что происходит](../issues/13-eval-compaction-state.md#что-происходит)
+
+## 2. Папка run-а — worktree implementer-а
+
+Code: `harness/evals/compaction-state/scaffold.sh:94-99` · key lines: 95, 96, 98
+
+```bash
+# --- the worktree: made in .wt/01, then moved here (git refuses a folder that is not empty) ------
+git -C .demo worktree add -q --no-checkout -b demo/01 "$work/.wt/01" origin/main
+mv .wt/01/.git .git
+rmdir .wt/01 .wt
+git -C .demo worktree repair "$work" 2>/dev/null
+git reset -q --hard
+```
+
+- Что делает: делает папку, в которой стартует run, linked worktree проекта demo на ветке `demo/01`. Main checkout
+  лежит в `.demo/` внутри неё. Дальше сценарий кладёт на диск ту картину, на которой обрывается история: Ticket взят,
+  `double` закоммичен, точка входа и `package.json` не закоммичены, `node --test` красный.
+- Почему здесь: `after-compact.mjs` отдаёт Ticket и `git status --short` только в linked worktree на ветке Ticket-а; в
+  main checkout он отдаёт `wave-brief` Orchestrator-а. `claude plugin eval` запускает run в папке сценария, а сценарий
+  пишет только в неё и в `$HOME`, поэтому main checkout — внутри.
+- Без него: hook видел бы Orchestrator-а, и вариант «с hook-ом» мерил бы не тот контекст.
+- Требование: [Что делаем, пункт 1](../issues/13-eval-compaction-state.md#что-делаем)
+- Риски и пробелы test-ов: `git worktree add` не пускает в непустую папку, отсюда перенос `.git` и `repair`. Contract
+  test строит fixture на Linux, macOS и Windows, но вывод hook-а на нём проверен только руками на Mac и прогоном
+  против stub-а.
+
+## 3. Вариант без hook-а и инструкций
+
+Code: `harness/evals/compaction-state/baseline.mjs:36-49` · key lines: 39, 41, 49
+
+```js
+const hooksFile = join(copy, 'hooks', 'hooks.json')
+const hooks = JSON.parse(readFileSync(hooksFile, 'utf8'))
+if (!Array.isArray(hooks.hooks?.PreCompact)) fail(`${relative(copy, hooksFile)} has no PreCompact hook`)
+delete hooks.hooks.PreCompact
+const starts = hooks.hooks.SessionStart ?? []
+const kept = starts.filter((entry) => entry?.matcher !== 'compact')
+if (kept.length !== starts.length - 1) fail(`${relative(copy, hooksFile)} has ${starts.length - kept.length} SessionStart hooks with the matcher compact, not one`)
+hooks.hooks.SessionStart = kept
+writeFileSync(hooksFile, `${JSON.stringify(hooks, null, 2)}\n`)
+
+const commonFile = join(copy, 'hooks', 'rules', 'common.md')
+const common = readFileSync(commonFile, 'utf8')
+if (!FALLBACK.test(common)) fail(`${relative(copy, commonFile)} has no item "After a compaction"`)
+writeFileSync(commonFile, common.replace(FALLBACK, ''))
+```
+
+- Что делает: во временной копии `harness/` убирает три части compaction: hook `PreCompact`, hook `SessionStart` с
+  matcher-ом `compact` и пункт «After a compaction» в `common.md`. Если какой-то части нет на месте, скрипт выходит с
+  кодом 1 и удаляет копию.
+- Почему здесь: `--ablation with-without` у `claude plugin eval` убрал бы весь plugin, и при `history_file` он
+  запускает только вариант «with». В `scripts/eval-harness.mjs` уже есть `HARNESS_DIR` для другой копии Harness, и
+  скрипт не правится.
+- Без него: второго варианта нет, и сравнивать не с чем.
+- Требование: [Что делаем, пункт 2](../issues/13-eval-compaction-state.md#что-делаем)
+- Риски и пробелы test-ов: test-а на сам скрипт нет. Проверен руками (`diff -r` копии с `harness/` показывает только
+  эти три правки) и прогоном против stub-а: в варианте без hook-а нет ни `compaction.md` в запросе на summary, ни
+  контекста `after-compact.mjs` после compaction.
+
+## 4. Grader: compaction была
+
+Code: `harness/evals/compaction-state/graders/compacted.md:1-10` · key lines: 3, 4
+
+```md
+---
+type: regex
+target: trace
+pattern: '"subtype"\s*:\s*"compact_boundary"'
+---
+
+The session was compacted before the answer: the trace has a compact_boundary. The case compacts only when
+the shell that starts the run sets CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000 and
+CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=5 (a case may set only EVAL_* variables); without them the agent answers from
+the whole history, and the other graders measure nothing.
+```
+
+- Что делает: проваливает run, в trace которого нет границы compaction.
+- Почему здесь: `claude plugin eval` отказывает кейсу с `env`, кроме `EVAL_*` («only EVAL_* keys can be set from
+  case.yaml»), поэтому низкий порог auto-compaction задаёт shell запуска. Если shell его не задал, история в 32 тыс.
+  токенов не сжимается, и агент отвечает по полной истории.
+- Без него: забытые переменные дали бы высокие оценки, которые ничего не мерят.
+- Требование: [Что делаем, пункт 3](../issues/13-eval-compaction-state.md#что-делаем)
+- Риски и пробелы test-ов: проверен против stub-а с переменными (совпал) и без них (не совпал).
+
+## 5. Ответ по памяти
+
+Code: `harness/evals/compaction-state/graders/from-memory.md:1-10` · key lines: 4, 5, 6
+
+```md
+---
+type: tool_used
+tool: Read
+input_match: '01-alpha|conventions|package\.json|src/|test/|\.demo'
+min: 0
+max: 0
+---
+
+The answers come from what the agent knows after the compaction, not from the files: it opened no file of
+the work. A run that read the ticket or the code measured the files, not the summary and the hook.
+```
+
+- Что делает: проваливает run, в котором агент открыл файл работы, а не только `PROBES.md`.
+- Почему здесь: из инструментов кейса оставлен только `Read`, чтобы прочитать вопросы. Пункт `common.md` велит после
+  compaction перечитать Ticket, и с ним агент может это сделать. Тогда run мерит файлы, а не summary и hook.
+- Без него: такой run засчитывался бы наравне с остальными.
+- Требование: [Готово, когда, пункт 3](../issues/13-eval-compaction-state.md#готово-когда)
+- Риски и пробелы test-ов: `min: 0` обязателен: без него `claude plugin eval` берёт `min` 1, и grader не проходит
+  никогда («expected 1..0»; найдено на stub-е).
+
+## 6. Папка состояния Harness в test-е fixture-а
+
+Code: `test/contract/harness-evals.test.ts:283-285` · key lines: 283, 285
+
+```ts
+      const common = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: work, env: harnessEnv(home), encoding: 'utf8' })
+      expect(common.status, common.stderr).toBe(0)
+      expect(existsSync(join(common.stdout.trim(), 'worfy-harness', 'gate', 'config.json'))).toBe(true)
+```
+
+- Что делает: ищет реестр gate fixture-а в общей папке git (git common directory), как `hooks/eval-env.cjs`. У
+  обычного checkout-а это `<fixture>/.git`, как и раньше. У `compaction-state` это `.git` main checkout-а.
+- Почему здесь: у linked worktree `.git` — файл, и старый путь `<fixture>/.git/worfy-harness` у него не существует.
+  Правка согласована с Orchestrator-ом; то же сделано в test-е «with EVAL_HARNESS_HOME».
+- Без него: test красный на новом кейсе, хотя скрипты run-а находят состояние.
+- Требование: [Готово, когда, пункт 4](../issues/13-eval-compaction-state.md#готово-когда)
+- Риски и пробелы test-ов: мутант (`demo-project.sh` удаляет `gate/config.json` из `.git/worfy-harness`) валит эту
+  строку у всех 23 кейсов, то есть для обычного checkout-а проверка осталась прежней.
+
+## 7. Что сознательно не меняли
+
+- `scripts/eval-harness.mjs` — второй вариант идёт через `HARNESS_DIR`.
+- `/compact`: у кейса один prompt за run, и после `/compact` вопросов не задать. Compaction — auto, а spike 01 показал,
+  что `PreCompact` и `SessionStart` с `source: compact` в обоих случаях одни и те же.
+- `coverage.json` связывает кейс только с `compaction.md` и `common.md`. `hooks.json` и `inject-rules.mjs` остались
+  за `status-block`, иначе пришлось бы менять ожидания `test/contract/harness-evals-run.test.ts`.
+
+## 8. Как проверено
+
+- `node scripts/eval-harness.mjs --case compaction-state --dry-run` — exit 0, и с `HARNESS_DIR` копии `baseline.mjs` —
+  exit 0.
+- `claude plugin eval` и `scripts/eval-harness.mjs` против местного stub-а Messages API, оба варианта, ни одного
+  платного вызова. Auto-compaction 32,5 → 9,7 тыс. токенов, вопросы не попали в запрос на summary, hook и инструкции
+  есть только в варианте «с hook-ом».
+- `harness-evals.test.ts` и `harness-evals-run.test.ts` — exit 0; `pnpm lint && pnpm typecheck && pnpm test` и gate
+  fast — коды выхода в отчёте implementer-а.
+
+## Проверить себя
+
+1. Почему папка run-а сделана linked worktree, а не обычным checkout-ом проекта demo?
+   - Строки: `harness/evals/compaction-state/scaffold.sh:95-96`
+   - Ответ: hook `after-compact.mjs` отдаёт Ticket и `git status` только в linked worktree на ветке Ticket-а; в main
+     checkout он отдал бы `wave-brief` Orchestrator-а.
+2. Что покажут числа, если запустить кейс без `CLAUDE_CODE_AUTO_COMPACT_WINDOW` и `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`?
+   - Строки: `harness/evals/compaction-state/graders/compacted.md:3-4`
+   - Ответ: compaction не будет, агент ответит по полной истории, а grader `compacted` провалит каждый run.

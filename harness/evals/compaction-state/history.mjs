@@ -7,7 +7,7 @@
 // the conventions and the other tickets read, a red test, a first plan that the orchestrator corrects
 // (NaN and Infinity are numbers), the commit of double, the entry point, and a red `node --test` because
 // `exports` names ./src/index.js. The history ends there; the prompt of the case asks the questions of
-// probes.md after the auto-compaction that the low threshold of prompt.md (env) starts.
+// probes.md after an auto-compaction: the shell of the run sets a low threshold (prompt.md, description).
 //
 // The facts the probes ask about are spread over the history on purpose and some of them change on the
 // way (the plan for NaN): a summary that keeps only the last messages loses them.
