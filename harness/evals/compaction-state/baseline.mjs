@@ -7,7 +7,7 @@
 // Everything else stays as it is: the rules of every session, the skills, the agents, the case itself.
 // Prints the path of the copy; the run of the variant is
 //   CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=5 HARNESS_DIR=<that path> \
-//     node scripts/eval-harness.mjs --case compaction-state …
+//     pnpm eval:harness -- --case compaction-state …
 // and its results go to <that path>/evals/results/. The copy is not removed: remove it after the run.
 //
 // Exit 1, with the reason on stderr and the copy removed, when one of the three parts is not where this

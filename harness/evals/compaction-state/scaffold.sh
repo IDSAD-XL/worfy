@@ -87,7 +87,7 @@ git -C .demo add -A
 git -C .demo commit -q -m "demo: ticket 01 grows an entry point; conventions"
 git -C .demo push -q origin main
 git -C .demo fetch -q origin
-# The git of an eval run is a copy without its templates (scripts/eval-run-env.mjs): `git init` made no info/.
+# The git of an eval run is a copy without its templates: `git init` made no info/.
 mkdir -p .demo/.git/info
 printf '/.demo/\n/.wt/\n/PROBES.md\n' >>.demo/.git/info/exclude
 
