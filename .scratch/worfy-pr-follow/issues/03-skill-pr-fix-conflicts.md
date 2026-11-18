@@ -1,7 +1,8 @@
 # 03 — Skill `/worfy:pr-fix`: режим `conflicts` — rebase и `--force-with-lease` в Full mode, merge commit в Silent mode
 
 Type: task
-Status: claimed 2026-11-18T16:35Z
+Status: done 2026-11-18T18:11Z
+PR: #2011
 Blocked by: 02
 Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решения по реализации», 2; «Вопросы владельцу», Q3 и Q4 (решено без
 владельца, подтвердить); «Решено без владельца», 6; «Риски», «Force-push»
@@ -51,6 +52,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решения по реал�
   - evidence: commit pass · worfy-pr-follow/03: pr-fix mode conflicts, rebase with lease in Full mode, merge commit in Silent mode, evals · - - · b8eddf74b
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 833915dadd659d33ec322bedd53ffdb23b389232
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44364743832/job/135021912874 · ci - · 61b4b2e9b01e8f12a3efce06f7a63341bedda275
 
 ## Где в коде
 
