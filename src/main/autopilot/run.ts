@@ -1951,11 +1951,23 @@ export class Autopilot {
   }
 
   /**
+   * Step 3 of the app's quit, before the halt (src/main/quit-grace.ts): each stopped run still waiting for its
+   * Orchestrator's background tasks journals the tasks alive now as killed (`tasks-killed`, ADR-0029) and lets
+   * keep-awake go. It has to come first: the halt closes the Session, and a close the run sees on its own reads as
+   * `orchestrator-returned`. Settles once every line is written.
+   */
+  async recordKilled(): Promise<void> {
+    this.quitting = true
+    await Promise.all([...this.lingering].map((quit) => quit()))
+  }
+
+  /**
    * Step 4 of the app's quit (src/main/quit-grace.ts): each run suspended by suspendAll writes `run-suspended` with
    * `cause` — the Wave in work and its Tickets still in work, the wait it was in — as the last line of its journal,
    * lets keep-awake and the run's policy go and is over in this app, the Orchestrator left as it is (closed with
-   * every Session). A stopped run still waiting for its Orchestrator's background tasks journals them as killed
-   * (`tasks-killed`, ADR-0029). Settles once every line is written.
+   * every Session). A stopped run still waiting for its Orchestrator's background tasks — after a shutdown of the
+   * system, which skips the halt and so recordKilled — journals them as killed (`tasks-killed`, ADR-0029). Settles
+   * once every line is written.
    */
   async recordQuit(cause: SuspendCause): Promise<void> {
     this.quitting = true
@@ -2007,7 +2019,7 @@ export class Autopilot {
 
   /**
    * Whether any run goes on, or a stopped one still waits for its Orchestrator's background tasks:
-   * the app's quit journals those tasks as killed (recordQuit), so "Restart when idle" waits for them.
+   * the app's quit journals those tasks as killed (recordKilled), so "Restart when idle" waits for them.
    */
   anyRunning(): boolean {
     return this.starting.size > 0 || this.lingering.size > 0 || [...this.runs.values()].some((run) => run.running)

@@ -12,7 +12,7 @@ Kind: pr · Epic: worfy-continuity · Ticket: 04 · PR: - · Language: ru
 
 ## 2. Один координатор ведёт выход по шагам
 
-Code: `src/main/quit-grace.ts:207-233` · key lines: 210, 214, 219, 226, 232
+Code: `src/main/quit-grace.ts:210-236` · key lines: 213, 217, 222, 229, 235
 
 ```ts
   private async steps(): Promise<void> {
@@ -52,7 +52,7 @@ Code: `src/main/quit-grace.ts:207-233` · key lines: 210, 214, 219, 226, 232
 
 ## 3. Ожидание внешних вызовов: 60 с по часам, Quit now, окно
 
-Code: `src/main/quit-grace.ts:234-264` · key lines: 237, 239, 260, 261
+Code: `src/main/quit-grace.ts:237-267` · key lines: 240, 242, 263, 264
 
 ```ts
 
@@ -129,11 +129,11 @@ Code: `src/main/agent/session/registry.ts:165-188` · key lines: 167, 180, 186, 
 - Почему здесь: Ticket, пункт 1.1: «registry не шлёт новых сообщений, очереди держатся». Пауза очереди (`pause`) не подошла: она попала бы в `live-sessions.json` (Ticket 03) как `held`, а после выхода очередь должна продолжиться как была. Поэтому `hold()` — новый метод `src/main/agent/session.ts`, хотя бриф называл этот файл только для чтения.
 - Без него: сообщение, отправленное во время ожидания, ушло бы в turn, который через секунды будет прерван; без `await exited()` записи и `app.quit()` шли бы раньше, чем упрямый процесс получил SIGKILL.
 - Требование: [Что делаем, пункты 1.1 и 1.3](../issues/04-grace-при-выходе-и-update.md#что-делаем)
-- Риски и пробелы test-ов: мутанты проверены: `haltAll` без `await exited()` и `hold()` без действия — красные test-ы в `quit-grace.test.ts`. Halt в приложении ждёт turn 2 с (`QUIT_HALT_TURN_MS`), а не 15 с Stop-а; почему именно 2 с — не записано в Ticket-е, это выбор реализации (короткий выход e2e и Update).
+- Риски и пробелы test-ов: мутанты проверены: `haltAll` без `await exited()`, `hold()` без действия, `next()` без проверки `holding` (конец turn-а после `depart` отправил бы сообщение из очереди) и `session.halt(0)` вместо `haltTurnMs` (Session закрылась бы, не дождавшись прерванного turn-а) — красные test-ы в `quit-grace.test.ts`; два последних — на fake timers, с управляемым handle агента. Halt в приложении ждёт turn 2 с (`QUIT_HALT_TURN_MS`), а не 15 с Stop-а; почему именно 2 с — не записано в Ticket-е, это выбор реализации (короткий выход e2e и Update).
 
 ## 5. Run пишет `run-suspended` вместо `run-stopped`
 
-Code: `src/main/autopilot/run.ts:1960-1983` · key lines: 1962, 1969, 1970, 1973
+Code: `src/main/autopilot/run.ts:1972-1995` · key lines: 1974, 1981, 1982, 1985
 
 ```ts
   async recordQuit(cause: SuspendCause): Promise<void> {
@@ -162,15 +162,43 @@ Code: `src/main/autopilot/run.ts:1960-1983` · key lines: 1962, 1969, 1970, 1973
   /**
 ```
 
-- Что делает: каждый работающий Run пишет последней строкой Journal-а `run-suspended` с причиной, своей Wave, её Ticket-ами в работе и ожиданием (`limits`, `retry`, `budget` или `start-window` с `until`), затем запечатывается (`sealed`: больше ни одной строки) и уходит из приложения без возврата Ticket-ов. Run, который уже остановлен и ждёт фоновые задачи, пишет `tasks-killed`, как раньше.
+- Что делает: каждый работающий Run пишет последней строкой Journal-а `run-suspended` с причиной, своей Wave, её Ticket-ами в работе и ожиданием (`limits`, `retry`, `budget` или `start-window` с `until`), затем запечатывается (`sealed`: больше ни одной строки) и уходит из приложения без возврата Ticket-ов. Run, который уже остановлен и ждёт фоновые задачи, пишет здесь `tasks-killed` только после выключения системы: обычный выход пишет его раньше, до halt (следующий шаг).
 - Почему здесь: Ticket, пункты 1.4 и 2: Run не останавливается, а приостанавливается, и новый выход `app-quit` не пишет. `tasks-killed` для таких Run-ов — решение брифа (ADR-0029 без поправки).
 - Без него: Run после выхода выглядит законченным (`run-stopped`), и Ticket 06 не сможет продолжить его с той же Wave.
 - Требование: [Что делаем, пункты 1.4 и 2](../issues/04-grace-при-выходе-и-update.md#что-делаем)
 - Риски и пробелы test-ов: `stopAll` с `app-quit` остался для test-ов; приложение его больше не зовёт. Recovery invariant И4 теперь считает `run-stopped` `app-quit` нарушением, поэтому test, который вызовет `stopAll` и затем `checkRecovery`, покраснеет.
 
-## 6. Выключение системы: по платформе
+## 6. Фоновые задачи остановленного Run-а пишутся убитыми до halt
 
-Code: `src/main/quit-grace.ts:328-340` · key lines: 329, 331, 335, 336
+Code: `src/main/quit-grace.ts:300-314` · key lines: 305, 313
+
+```ts
+    halt: async () => {
+      const { registry, live, autopilot, haltTurnMs } = parts()
+      // Before any Session closes: a stopped Run would read its Session's close as given back, not killed. A failure
+      // here does not keep the Sessions from being halted.
+      try {
+        await autopilot?.recordKilled()
+      } catch (error) {
+        console.error('[quit] could not journal the background tasks as killed', error)
+      }
+      if (live !== null && live !== undefined) {
+        live.stop()
+        await live.settled()
+      }
+      await registry?.haltAll(haltTurnMs)
+    },
+```
+
+- Что делает: перед тем как закрыть Session-ы, шаг halt просит Autopilot записать `tasks-killed` (`app-quit`) для каждого уже остановленного Run-а, который ещё ждёт фоновые задачи своего Orchestrator-а, с задачами, живыми в этот момент, и отпустить keep-awake (`Autopilot.recordKilled`). Ошибка записи не мешает halt.
+- Почему здесь: Run, который ждёт фоновые задачи, сам следит за своей Session и закрытие Session-и читает как возврат Orchestrator-а: в первом раунде настоящий порядок выхода (`suspendAll` → `haltAll` → `recordQuit`) писал `orchestrator-returned`, а `tasks-killed` из ADR-0029 не писался никогда, хотя `docs/features/autopilot-faults.md` это обещает (находка ревью). Запись в шаге halt, а не в `depart`: за 60 с ожидания задача может закончиться сама, и Journal не должен назвать её убитой.
+- Без него: в Journal-е выход выглядит так, будто Orchestrator вернули человеку с живыми задачами, хотя приложение их убило; keep-awake отпускается тем же путём, но запись неверна.
+- Требование: [Что делаем, пункт 1.4](../issues/04-grace-при-выходе-и-update.md#что-делаем)
+- Риски и пробелы test-ов: два contract test-а в `test/contract/autopilot-background.test.ts` идут настоящей цепочкой `quitSteps` (depart → halt → record) над настоящими registry и Autopilot: остановленный Run с живыми задачами и Session, отданная человеку с задачами. Мутант без вызова `recordKilled` — оба красные. После выключения системы halt нет, и задачи пишет `recordQuit`, как раньше.
+
+## 7. Выключение системы: по платформе
+
+Code: `src/main/quit-grace.ts:338-350` · key lines: 339, 341, 345, 346
 
 ```ts
 export function followShutdown(sources: ShutdownSources, shutdown: () => void): void {
@@ -194,12 +222,12 @@ export function followShutdown(sources: ShutdownSources, shutdown: () => void): 
 - Требование: [Что делаем, пункт 4](../issues/04-grace-при-выходе-и-update.md#что-делаем)
 - Риски и пробелы test-ов: реальное выключение системы не проверялось; `session-end` проверит только job Windows в CI на head PR.
 
-## 7. "Restart now" у Update идёт через тот же координатор
+## 8. "Restart now" у Update идёт через тот же координатор
 
 Code: `src/main/ipc/update.ts:369-373` · key lines: 371, 372
 
 ```ts
-function quitForUpdate(): void {
+export function quitForUpdate(): void {
   const grace = appQuitGrace()
   if (grace === null) app.quit()
   else void grace.leave('update')
@@ -210,15 +238,15 @@ function quitForUpdate(): void {
 - Почему здесь: Ticket, пункт 5. `src/main/update/restart.ts` не менялся: он уже принимает функцию выхода.
 - Без него: Run, прерванный Update-ом, записался бы с причиной `quit`, и Ticket 08 не отличил бы его от выхода человека.
 - Требование: [Что делаем, пункт 5](../issues/04-grace-при-выходе-и-update.md#что-делаем)
-- Риски и пробелы test-ов: swap-helper ждёт выхода worfy две минуты; 60 с ожидания плюс halt в них укладываются, но test-а на это нет.
+- Риски и пробелы test-ов: `test/unit/update-quit.test.ts` проверяет, что выход идёт в координатор с `update` и не зовёт `app.quit()` (мутанты `leave('quit')` и `app.quit()` — красные). Что `Restarts` получает именно `quitForUpdate` (строка `quit:` в `appUpdate()`), test не проверяет. swap-helper ждёт выхода worfy две минуты; 60 с ожидания плюс halt в них укладываются, но test-а на это нет.
 
-## 8. Что сознательно не меняли
+## 9. Что сознательно не меняли
 
 - `src/shared/agent/continue-plan.ts` и вызовы Subagent-ов — Ticket-ы 16 и 07.
 - ADR-0029 и тип `app-quit`: тип остался для старых Journal-ов.
 - `docs/features/updates.md`: «Then worfy quits» по-прежнему верно. Русский перевод страниц — Ticket 14.
 
-## 9. Как проверено
+## 10. Как проверено
 
 - `node scripts/vitest-electron.mjs test/unit/quit-grace.test.ts` — exit 0 (15 test-ов), `test/unit/quitting-dialog.test.tsx` — exit 0 (4).
 - `test/contract/autopilot-faults-quit.test.ts` и invariants — exit 0.
@@ -229,18 +257,20 @@ function quitForUpdate(): void {
 - `pnpm lint`, `pnpm typecheck` — exit 0. `pnpm test` и `gate fast` на этом Mac красные (exit 1 и 2) на test-ах, которых
   изменение не касается: file watcher-ы (fseventsd под нагрузкой), TMPDIR с пробелом, `safe.bareRepository` из окружения
   сессии. Те же файлы красные и на базе `cfb28389a`.
-- e2e `test/e2e/autopilot-quit.spec.ts` локально не запускался: правило владельца, его прогонит gate full.
+- Второй раунд: мутанты `next()` без `holding`, `session.halt(0)`, halt без `recordKilled`, `leave('quit')` и `app.quit()` в `quitForUpdate`, `OpenCalls` без state `error` — на каждом краснеет хотя бы один test.
+- e2e `test/e2e/autopilot-quit.spec.ts` локально не запускался: правило владельца, его прогонит gate full. Снимки окна в светлой и тёмной теме он сохраняет helper-ом `snapshotThemes` в `test-results/e2e/snapshots/04-quitting-worfy/`, который CI выкладывает как `e2e-snapshots-*`.
 
 ## Проверить себя
 
 1. Почему выключение системы не ждёт внешних вызовов?
-   - Строки: `src/main/quit-grace.ts:214`
+   - Строки: `src/main/quit-grace.ts:217`
    - Ответ: Ticket (пункт 4) велит при выключении записать и выйти без grace: `shutdownNow` пропускает и ожидание, и halt,
      сразу пишутся записи с причиной `shutdown`, а Session-ы закрываются вместе с приложением.
 2. Почему очереди держатся через `hold()`, а не через паузу очереди?
    - Строки: `src/main/agent/session/registry.ts:167`
    - Ответ: пауза попала бы в `live-sessions.json` как `held`, и продолжение после выхода получило бы очередь на паузе,
      которую поставил не человек.
-3. Что изменится в Journal-е, если человек нажмёт Quit now?
-   - Строки: `src/main/quit-grace.ts:214`, `src/main/autopilot/run.ts:1969`
-   - Ответ: ничего, кроме времени: ожидание кончается сразу, дальше те же halt и та же строка `run-suspended` с причиной `quit`.
+3. Почему `tasks-killed` пишется в начале шага halt, а не в `depart` и не вместе с `run-suspended`?
+   - Строки: `src/main/quit-grace.ts:305`, `src/main/quit-grace.ts:313`
+   - Ответ: после `haltAll` Session закрыта, и Run, ждущий задачи, прочёл бы закрытие как возврат Orchestrator-а; а в
+     `depart` рано — за время ожидания задача может закончиться сама и не должна попасть в убитые.

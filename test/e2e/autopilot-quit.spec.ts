@@ -7,6 +7,7 @@ import { checkRecovery } from '../autopilot-invariants'
 import { EPIC, files, ghCalls, journals, kindsOf, messages, prepareWorld } from './autopilot-world'
 import { launchApp } from './helpers'
 import { startAutopilot } from './autopilot-start'
+import { snapshotThemes } from './snapshots'
 
 // The quit of worfy during an Autopilot Run in the built app (worfy-continuity ticket 04): the Wave's turn of the fake
 // Orchestrator calls `git push` and holds it without a result (autopilot-quit-push.jsonl), and the app is asked to
@@ -50,10 +51,8 @@ test('quitting while the Wave runs git push: «Quitting worfy» names the comman
     await expect(dialog.getByRole('heading', { name: 'Quitting worfy' })).toBeVisible()
     await expect(dialog.getByTestId('quitting-worfy-calls')).toHaveText(PUSH)
     await expect(dialog.getByTestId('quitting-worfy-left')).toContainText(/worfy quits in (1:00|0:[0-5]\d) at the latest/u)
-    await window.emulateMedia({ colorScheme: 'light' })
-    await dialog.screenshot({ path: test.info().outputPath('04-quitting-worfy-light.png') })
-    await window.emulateMedia({ colorScheme: 'dark' })
-    await dialog.screenshot({ path: test.info().outputPath('04-quitting-worfy-dark.png') })
+    // Light and dark shots for review: test-results/e2e/snapshots/04-quitting-worfy/, uploaded by CI (e2e-snapshots-*).
+    await snapshotThemes(window, '04-quitting-worfy')
     // Nothing is suspended while the quit waits.
     expect(journals(world.dataDir).map(kindsOf).flat().filter((kind) => kind.startsWith('run-suspended'))).toEqual([])
 

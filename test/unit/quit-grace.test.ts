@@ -202,6 +202,19 @@ describe('the open calls of the Sessions', () => {
     // Told of each change that may end the wait: the calls, the results, the ends.
     expect(changes).toHaveBeenCalledTimes(6)
   })
+
+  it('a Session whose process is gone in the middle of a call (state error) drops it: no result comes any more, so the quit does not wait for it', () => {
+    const calls = new OpenCalls()
+    const changes = vi.fn()
+    calls.observe(changes)
+    calls.sink('s1', use('t1', 'git push'))
+    calls.sink('s1', { type: 'state', state: 'busy', error: null })
+    expect(calls.open()).toHaveLength(1)
+    calls.sink('s1', { type: 'state', state: 'error', error: 'The agent exited' })
+    expect(calls.open()).toEqual([])
+    // The change ends a grace that waits for it.
+    expect(changes).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe('the shutdown of the system', () => {
@@ -238,14 +251,30 @@ describe('the steps over the app', () => {
     const steps = quitSteps(() => ({
       registry: { depart: () => void log.push('registry depart'), haltAll: async (ms) => void log.push(`haltAll ${ms}`) },
       live: { stop: () => void log.push('live stop'), settled: async () => void log.push('live settled') },
-      autopilot: { suspendAll: () => void log.push('suspendAll'), recordQuit: async (cause) => void log.push(`recordQuit ${cause}`) },
+      autopilot: {
+        suspendAll: () => void log.push('suspendAll'),
+        recordKilled: async () => void log.push('recordKilled'),
+        recordQuit: async (cause) => void log.push(`recordQuit ${cause}`),
+      },
       continuer: { stop: () => void log.push('continue stop') },
       haltTurnMs: 50,
     }))
     steps.depart()
     await steps.halt()
     await steps.record('update')
-    expect(log).toEqual(['registry depart', 'suspendAll', 'continue stop', 'live stop', 'live settled', 'haltAll 50', 'recordQuit update'])
+    // The background tasks of a stopped Run are journaled as killed before any Session is halted and closed.
+    expect(log).toEqual(['registry depart', 'suspendAll', 'continue stop', 'recordKilled', 'live stop', 'live settled', 'haltAll 50', 'recordQuit update'])
+  })
+
+  it('a failure to journal the killed tasks does not keep the Sessions from being halted', async () => {
+    const log: string[] = []
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const steps = quitSteps(() => ({
+      registry: { depart: () => undefined, haltAll: async () => void log.push('haltAll') },
+      autopilot: { suspendAll: () => undefined, recordKilled: () => Promise.reject(new Error('disk full')), recordQuit: async () => undefined },
+    }))
+    await steps.halt()
+    expect(log).toEqual(['haltAll'])
   })
 
   it('a quit before anything was made acts on nothing', async () => {
@@ -299,7 +328,75 @@ function partOf(child: ReturnType<typeof stubbornChild>): SessionPart {
   return { start, resume: (_id, opts) => start(opts) }
 }
 
+/**
+ * A Vendor's session part whose events the test sends (`emit`), which records what goes into the process (`sent`),
+ * each interrupt asked and whether it was closed. No process: nothing to wait for at the close.
+ */
+function controlledPart() {
+  const sent: string[] = []
+  let interrupts = 0
+  let closed = false
+  const queued: AgentEvent[] = []
+  let waiter: ((next: IteratorResult<AgentEvent>) => void) | null = null
+  const emit = (event: AgentEvent): void => {
+    if (waiter === null) return void queued.push(event)
+    const take = waiter
+    waiter = null
+    take({ value: event, done: false })
+  }
+  const handle: SessionHandle = {
+    send: (message) => {
+      sent.push(message.text)
+      return Promise.resolve()
+    },
+    interrupt: () => {
+      interrupts += 1
+      return Promise.resolve()
+    },
+    close: () => {
+      closed = true
+    },
+    setModel: () => Promise.resolve(),
+    setEffort: () => Promise.resolve(),
+    setPermissionPreset: () => Promise.resolve(),
+    models: () => Promise.resolve([]),
+    commands: () => Promise.resolve([]),
+    events: {
+      [Symbol.asyncIterator]: () => ({
+        next: () => {
+          const event = queued.shift()
+          return event !== undefined ? Promise.resolve({ value: event, done: false }) : new Promise<IteratorResult<AgentEvent>>((take) => (waiter = take))
+        },
+      }),
+    },
+  }
+  const part: SessionPart = { start: () => Promise.resolve(handle), resume: () => Promise.resolve(handle) }
+  return { part, sent, emit, interrupts: () => interrupts, closed: () => closed }
+}
+
 describe('the registry while worfy quits', () => {
+  it('a turn that ends after depart — its git push result came — sends nothing of the queue: the message stays queued, not held', async () => {
+    const agent = controlledPart()
+    const registry = new SessionRegistry(agent.part)
+    const session = registry.start('/tmp', undefined, () => undefined)
+    await flush()
+    expect(session.send('push the branch')).toBe('sent')
+    expect(session.state).toBe('busy')
+    // A message of a person's while the turn runs waits in the queue, as always.
+    expect(session.send('then open the PR')).toBe('queued')
+    registry.depart()
+    // The turn's git push gets its result and the turn ends.
+    agent.emit(use('t1', 'git push'))
+    agent.emit(done('t1'))
+    agent.emit(result())
+    await flush()
+    expect(session.state).toBe('idle')
+    // Nothing more went into the process: the queued message stays for the start after the quit.
+    expect(agent.sent).toEqual(['push the branch'])
+    expect(session.queued()).toMatchObject({ items: [{ text: 'then open the PR' }], paused: false })
+    registry.closeAll()
+  })
+
   it('after depart a message waits in the queue, which is not held; a Session started later is held too', async () => {
     const registry = new SessionRegistry(partOf(stubbornChild()))
     const before = registry.start('/tmp', undefined, () => undefined)
@@ -317,6 +414,44 @@ describe('the registry while worfy quits', () => {
 })
 
 describe('the halt of the registry (ADR-0064)', () => {
+  it('interrupts a running turn and waits for its end, haltTurnMs at most, before the Session is closed', async () => {
+    vi.useFakeTimers()
+    const agent = controlledPart()
+    const registry = new SessionRegistry(agent.part)
+    const session = registry.start('/tmp', undefined, () => undefined)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(session.send('push the branch')).toBe('sent')
+    let halted = false
+    const halt = registry.haltAll(500).then(() => void (halted = true))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(agent.interrupts()).toBe(1)
+    // The interrupted turn has not ended: up to the last millisecond of haltTurnMs the Session stays open.
+    await vi.advanceTimersByTimeAsync(499)
+    expect(agent.closed()).toBe(false)
+    expect(session.state).toBe('busy')
+    expect(halted).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    await halt
+    expect(agent.closed()).toBe(true)
+    expect(session.state).toBe('closed')
+  })
+
+  it("the interrupted turn's end closes the Session at once, before haltTurnMs", async () => {
+    vi.useFakeTimers()
+    const agent = controlledPart()
+    const registry = new SessionRegistry(agent.part)
+    const session = registry.start('/tmp', undefined, () => undefined)
+    await vi.advanceTimersByTimeAsync(0)
+    session.send('push the branch')
+    const halt = registry.haltAll(500)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(agent.closed()).toBe(false)
+    agent.emit(result())
+    await vi.advanceTimersByTimeAsync(0)
+    await halt
+    expect(agent.closed()).toBe(true)
+  })
+
   it('closes every Session and kills a process that outlives EXIT_WAIT_MS with SIGKILL before the records are written', async () => {
     vi.useFakeTimers()
     // The system runs the process until it is killed (waitForExit asks process.kill(pid, 0)).
@@ -332,7 +467,7 @@ describe('the halt of the registry (ADR-0064)', () => {
     const clock = new TestClock()
     const log: string[] = []
     const grace = new QuitGrace({
-      ...quitSteps(() => ({ registry, autopilot: { suspendAll: () => undefined, recordQuit: async (cause) => void log.push(`record ${cause}`) } })),
+      ...quitSteps(() => ({ registry, autopilot: { suspendAll: () => undefined, recordKilled: async () => undefined, recordQuit: async (cause) => void log.push(`record ${cause}`) } })),
       calls: new OpenCalls(),
       show: () => undefined,
       quit: () => void log.push('quit'),

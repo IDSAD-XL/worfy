@@ -10,12 +10,14 @@
 //    outside the machine and has no result yet (externalActions of continue-plan.ts with `done: false`), the quit
 //    waits for its result, GRACE_MS at most. Every window shows «Quitting worfy» meanwhile: the calls, the time
 //    left and Quit now, which ends the wait at once. Without such a call the quit goes on at once, with no window.
-// 3. The halt: the record of live Sessions stops (live-sessions.ts keeps what was under way for the start after),
-//    every Session's turn is interrupted (its end waited for QUIT_HALT_TURN_MS at most in the app) and the Session
+// 3. The halt: each stopped Run that still waited for its background tasks journals them as killed — before its
+//    Session closes, which it would read as given back (Autopilot.recordKilled) — the record of live Sessions stops
+//    (live-sessions.ts keeps what was under way for the start after), every Session's turn is interrupted (its end waited for QUIT_HALT_TURN_MS at most in the app) and the Session
 //    closed, and its processes are waited for: EXIT_WAIT_MS, then SIGKILL and KILL_EXIT_MS more
 //    (SessionRegistry.haltAll, ADR-0064).
-// 4. The records: each Run writes `run-suspended` with the cause — `quit`, `update` or `shutdown` — and a stopped
-//    Run that still waited for its background tasks journals them as killed (Autopilot.recordQuit). Then the
+// 4. The records: each Run writes `run-suspended` with the cause — `quit`, `update` or `shutdown` — and, after a
+//    shutdown, which skips the halt, a stopped Run that still waited for its background tasks journals them as
+//    killed (Autopilot.recordQuit). Then the
 //    coordinator lets the quit go: the app quits again, and every `before-quit` and `will-quit` handler runs.
 //
 // A shutdown of the system (followShutdown: powerMonitor's `shutdown` on macOS and Linux, a window's `session-end`
@@ -61,7 +63,8 @@ export interface OpenCall {
 /**
  * The calls of every Session's current turn, followed from the registry's events (SessionRegistry.observe), and
  * which of them may act outside the machine and have no result yet. A turn's calls go at its end (`result`), at
- * the next turn's `prompt` and when the Session closes; a Session renamed takes its calls along.
+ * the next turn's `prompt`, when the Session closes and when its process is gone (state `error`: no result comes
+ * any more); a Session renamed takes its calls along.
  */
 export class OpenCalls {
   private readonly turns = new Map<string, AgentEvent[]>()
@@ -89,7 +92,7 @@ export class OpenCalls {
         if (!this.turns.delete(sessionId)) return
         break
       case 'state':
-        if (event.state !== 'closed' || !this.turns.delete(sessionId)) return
+        if ((event.state !== 'closed' && event.state !== 'error') || !this.turns.delete(sessionId)) return
         break
       default:
         return
@@ -278,7 +281,7 @@ export interface QuitParts {
   registry?: { depart(): void; haltAll(haltTurnMs?: number): Promise<void> } | null | undefined
   /** The record of live Sessions (live-sessions.ts): stopped before the halt, so that it keeps what was under way. */
   live?: { stop(): void; settled(): Promise<void> } | null | undefined
-  autopilot?: { suspendAll(): void; recordQuit(cause: SuspendCause): Promise<void> } | null | undefined
+  autopilot?: { suspendAll(): void; recordKilled(): Promise<void>; recordQuit(cause: SuspendCause): Promise<void> } | null | undefined
   /** Auto-continue of the Orchestrators' own turns. */
   continuer?: { stop(): void } | null | undefined
   /** How long a turn's interrupt is waited for (Session.halt's HALT_TURN_MS unless given). */
@@ -295,7 +298,14 @@ export function quitSteps(parts: () => QuitParts): QuitSteps {
       continuer?.stop()
     },
     halt: async () => {
-      const { registry, live, haltTurnMs } = parts()
+      const { registry, live, autopilot, haltTurnMs } = parts()
+      // Before any Session closes: a stopped Run would read its Session's close as given back, not killed. A failure
+      // here does not keep the Sessions from being halted.
+      try {
+        await autopilot?.recordKilled()
+      } catch (error) {
+        console.error('[quit] could not journal the background tasks as killed', error)
+      }
       if (live !== null && live !== undefined) {
         live.stop()
         await live.settled()

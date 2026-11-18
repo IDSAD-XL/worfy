@@ -366,7 +366,7 @@ export function appUpdate(): UpdateService {
 }
 
 /** Quits for the restart helper through the quit's coordinator, with the cause `update`; app.quit() without one (tests). */
-function quitForUpdate(): void {
+export function quitForUpdate(): void {
   const grace = appQuitGrace()
   if (grace === null) app.quit()
   else void grace.leave('update')
