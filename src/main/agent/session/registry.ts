@@ -1,5 +1,7 @@
 // Every live Session of the app (session.ts): starts them, finds them by id, and passes their
-// events and a person's actions on to observers.
+// events and a person's actions on to observers. When worfy quits (src/main/quit-grace.ts, worfy-continuity
+// ticket 04) it holds every Session (depart) and then interrupts their turns and closes them, waiting for their
+// processes to exit (haltAll, ADR-0064).
 import { isMainOnlyEvent } from '../../../shared/agent/events'
 import type { SessionSettings } from '../../../shared/agent/settings'
 import type { VendorId } from '../../../shared/vendors/vendor'
@@ -29,6 +31,8 @@ export class SessionRegistry {
   private readonly sessions = new Map<string, Session>()
   private readonly observers = new Set<EventSink>()
   private readonly inputObservers = new Set<InputListener>()
+  /** Set by depart(): every Session, also one started later, sends nothing more (Session.hold). */
+  private departing = false
   /** What starts the agent of each Session, by its Vendor. */
   private readonly starters: VendorSessions
 
@@ -135,6 +139,7 @@ export class SessionRegistry {
       this.quiet,
     )
     this.sessions.set(session.id, session)
+    if (this.departing) session.hold()
     session.start(after)
     return session
   }
@@ -151,6 +156,35 @@ export class SessionRegistry {
 
   closeAll(): void {
     for (const session of this.live()) session.close()
+  }
+
+  /**
+   * worfy quits (step 1 of quit-grace.ts): no Session sends anything more — a message sent waits in its queue,
+   * and the end of a turn sends nothing from it — while the turns under way run on. Queues stay as they are.
+   */
+  depart(): void {
+    this.departing = true
+    for (const session of this.live()) session.hold()
+  }
+
+  /**
+   * worfy quits (step 3 of quit-grace.ts): every Session's turn is interrupted (Session.halt, `haltTurnMs` at most),
+   * then every Session is closed and its processes waited for — EXIT_WAIT_MS, then SIGKILL and KILL_EXIT_MS more
+   * (Session.exited, ADR-0064). Settles once they have exited, or were given up on; never rejects.
+   */
+  async haltAll(haltTurnMs?: number): Promise<void> {
+    const sessions = this.live()
+    await Promise.all(
+      sessions.map(async (session) => {
+        try {
+          await session.halt(haltTurnMs)
+        } catch (error) {
+          console.warn(`[agent] could not halt ${session.id} on quit`, error)
+        }
+      }),
+    )
+    for (const session of sessions) session.close()
+    await Promise.all(sessions.map((session) => session.exited()))
   }
 
   private live(): Session[] {

@@ -15,6 +15,7 @@ import { RunsView } from './flight-recorder/RunsView'
 import { installStopToasts } from './flight-recorder/stop-toast'
 import { markPlatform } from './platform'
 import { PipelineBoard } from './pipeline/PipelineBoard'
+import { QuittingDialog } from './shell/QuittingDialog'
 import { installReviewOffers } from './projects/review-offer'
 import { activeProject, followActiveProject, useLinked, useProjects } from './projects/useProjects'
 import { setView, useNavigation } from './session/navigation'
@@ -101,6 +102,8 @@ export function App() {
         history={<RunsView activeProjectId={active?.id} />}
       />
       <ToastRegion projectId={active?.id} />
+      {/* «Quitting worfy» while the quit waits for the agents' external commands (shell/QuittingDialog.tsx). */}
+      <QuittingDialog />
       {/* The tooltips of the inactive write actions on a read-only Linked machine (projects/read-only.ts). */}
       <HintTooltips />
     </>

@@ -208,7 +208,21 @@ import { turnFailureKind, type TurnFailure } from '../../shared/agent/turn-failu
 import { resumableAfter } from '../../shared/autopilot/checkpoint'
 import { budgetWindows, listsWindows, STORED_LIMITS_VENDOR, type VendorLimits } from '../../shared/autopilot/budget-window'
 import { autoApprovalChatLine, type Judged } from '../../shared/autopilot/auto-approval-summary'
-import { clipLastText, clipRetryMessage, journalCommand, journalLimits, journalReason, journalTarget, journalVendorLimits, type JournalEventFields, type JournalLimits, type RunStartedBy, type TicketStatusState } from '../../shared/autopilot/journal'
+import {
+  clipLastText,
+  clipRetryMessage,
+  journalCommand,
+  journalLimits,
+  journalReason,
+  journalTarget,
+  journalVendorLimits,
+  type JournalEventFields,
+  type JournalLimits,
+  type RunStartedBy,
+  type RunWaitKind,
+  type SuspendCause,
+  type TicketStatusState,
+} from '../../shared/autopilot/journal'
 import { BUDGET_FRESH_MS, budgetDecision, budgetStopText, type AutopilotBudget, type BudgetCause, type BudgetDecision } from '../../shared/autopilot/budget'
 import { epicOutcome, MAX_QUEUE_EPICS, nextEpic, type EpicFinish } from '../../shared/autopilot/epic-queue'
 import { epicForecast, remainingWaves, type RemainingWaves } from '../../shared/autopilot/forecast'
@@ -825,6 +839,13 @@ class Run {
   asleep = false
   /** The run's wait for the Limits; null when the app gave no Limits (AutopilotDeps.limits). */
   limits: LimitsWait | null = null
+  /**
+   * The wait the run was in when the app's quit suspended it (Autopilot.suspendAll, worfy-continuity ticket 04),
+   * for its `run-suspended`: read before the wait's timer was cancelled. Null: none, or not suspended.
+   */
+  suspendedWait: { kind: RunWaitKind; until: string | null } | null = null
+  /** Set once `run-suspended` is written: no line of the run follows it in this app (Autopilot.write). */
+  sealed = false
   /** The run's retries after a temporary API error; null when the app gave no Auto-continue (AutopilotDeps.retry). */
   retry: TurnRetry | null = null
   /** The id of the retry wait last begun (TurnRetry.wait): Retry now sends its continuation (worfy-retry ticket 07). */
@@ -1880,7 +1901,9 @@ export class Autopilot {
 
   /**
    * Stops every run with `app-quit`; settles once they have all stopped. Stopped runs still waiting
-   * for their Orchestrator's background tasks journal them as killed and release keep-awake.
+   * for their Orchestrator's background tasks journal them as killed and release keep-awake. The app's quit no
+   * longer stops runs (worfy-continuity ticket 04): it suspends them (suspendAll, recordQuit); tests end their
+   * runs with this.
    */
   async stopAll(): Promise<void> {
     this.quitting = true
@@ -1894,6 +1917,86 @@ export class Autopilot {
     ])
   }
 
+  /**
+   * Step 1 of the app's quit (src/main/quit-grace.ts, worfy-continuity ticket 04): every running run is
+   * suspended where it is — its cycle gets `suspend`, so no Wave and no continuation goes from now on — and its
+   * timers stop: the Limits, a retry, the wait before a Wave, the settle, the tasks' and the hung turn's limits.
+   * The wait it was in is kept for its `run-suspended`. A start not yet under way is refused (QUITTING_MESSAGE).
+   * The run's Session is not touched: the coordinator lets its external calls end, then halts every Session.
+   */
+  suspendAll(): void {
+    this.quitting = true
+    for (const run of this.runs.values()) if (run.running) this.suspend(run)
+  }
+
+  private suspend(run: Run): void {
+    if (run.cycle.suspended === true || run.cycle.phase === 'stopped') return
+    // The end of the run goes on without gh (lastPrs) from now on.
+    run.rush()
+    run.suspendedWait = this.waitNow(run)
+    run.cycle = step(run.cycle, { type: 'suspend' }).state
+    this.stopTimers(run)
+  }
+
+  /** The wait the run is in now, as `run-suspended` names it: the Limits, a retry, the budget or the Start window; null when none. */
+  private waitNow(run: Run): { kind: RunWaitKind; until: string | null } | null {
+    const iso = (at: number): string => new Date(at).toISOString()
+    const limits = run.limits?.until ?? null
+    if (limits !== null) return { kind: 'limits', until: iso(limits) }
+    const retry = run.retry?.until ?? null
+    if (retry !== null) return { kind: 'retry', until: iso(retry) }
+    const boundary = run.boundary
+    if (boundary !== null) return { kind: boundary.cause === 'start-window' ? 'start-window' : 'budget', until: iso(boundary.until) }
+    return null
+  }
+
+  /**
+   * Step 4 of the app's quit (src/main/quit-grace.ts): each run suspended by suspendAll writes `run-suspended` with
+   * `cause` — the Wave in work and its Tickets still in work, the wait it was in — as the last line of its journal,
+   * lets keep-awake and the run's policy go and is over in this app, the Orchestrator left as it is (closed with
+   * every Session). A stopped run still waiting for its Orchestrator's background tasks journals them as killed
+   * (`tasks-killed`, ADR-0029). Settles once every line is written.
+   */
+  async recordQuit(cause: SuspendCause): Promise<void> {
+    this.quitting = true
+    await Promise.all([...[...this.runs.values()].filter((run) => run.running).map((run) => this.suspendEnd(run, cause)), ...[...this.lingering].map((quit) => quit())])
+  }
+
+  private async suspendEnd(run: Run, cause: SuspendCause): Promise<void> {
+    if (run.sealed) return
+    this.suspend(run)
+    const { wave, tickets } = this.waveInWork(run)
+    await this.write(run, { kind: 'run-suspended', cause, wave, tickets, wait: run.suspendedWait })
+    run.sealed = true
+    this.leaveWait(run)
+    // No give-back: the Orchestrator closed with every Session, and a start after the quit continues the run.
+    await this.release(run, false)
+    this.noteDuration(run, null)
+    run.stoppedAt = Date.now()
+    run.done = true
+    if (this.runs.get(run.projectId) === run) this.runs.delete(run.projectId)
+    this.last.set(run.projectId, this.snapshot(run))
+    this.publish(run.projectId)
+    run.finish()
+  }
+
+  /**
+   * The Wave in work in the run's Epic, for `run-suspended`: its number (0 before the first) and its Tickets not
+   * `done` or `blocked` by the last read of their statuses; no Tickets between Waves.
+   */
+  private waveInWork(run: Run): { wave: number; tickets: string[] } {
+    const cycle = run.cycle
+    const inWave = cycle.phase === 'turn' || cycle.phase === 'tasks' || cycle.phase === 'settling'
+    if (!inWave || cycle.wave === 0 || run.gateQueue !== null) return { wave: cycle.wave, tickets: [] }
+    const held = cycle.phase === 'settling' ? (cycle.holding ?? cycle.tickets) : cycle.tickets
+    const left = held.filter((num) => {
+      const key = run.statuses.get(num)
+      const state = key === undefined ? null : (JSON.parse(key) as [TicketStatusState | null])[0]
+      return state !== 'done' && state !== 'blocked'
+    })
+    return { wave: cycle.wave, tickets: left.map(ticketNumber) }
+  }
+
   private async unwatch(run: Run, unwatch: () => Promise<void> | void): Promise<void> {
     try {
       await unwatch()
@@ -1904,7 +2007,7 @@ export class Autopilot {
 
   /**
    * Whether any run goes on, or a stopped one still waits for its Orchestrator's background tasks:
-   * the app's quit waits for stopAll() then, so those tasks are journaled as killed.
+   * the app's quit journals those tasks as killed (recordQuit), so "Restart when idle" waits for them.
    */
   anyRunning(): boolean {
     return this.starting.size > 0 || this.lingering.size > 0 || [...this.runs.values()].some((run) => run.running)
@@ -2030,7 +2133,8 @@ export class Autopilot {
    * of the watch, which journals the Tickets' changes of status first (ticket-status).
    */
   private async readAndFeed(run: Run, onError: 'stop' | 'ignore', make: (tickets: WorkflowModel['tickets']) => CycleEvent, statuses = false): Promise<void> {
-    if (run.cycle.phase === 'stopped') return
+    // A suspended run reads nothing more: the quit halts its turn, and its cycle takes no event.
+    if (run.cycle.phase === 'stopped' || run.cycle.suspended === true) return
     let model: WorkflowModel
     try {
       model = await this.deps.workflow(run.root)
@@ -3000,11 +3104,13 @@ export class Autopilot {
    */
   private tasksTimer(run: Run, restart: boolean): void {
     const clock = this.deps.tasksClock ?? realClock
-    if (run.cycle.phase !== 'tasks' || restart) {
+    // A suspended run waits for nothing more (suspendAll).
+    const tasks = run.cycle.phase === 'tasks' && run.cycle.suspended !== true
+    if (!tasks || restart) {
       if (run.tasksTimer !== null) clock.clearTimeout(run.tasksTimer)
       run.tasksTimer = null
     }
-    if (run.cycle.phase !== 'tasks' || run.tasksTimer !== null) return
+    if (!tasks || run.tasksTimer !== null) return
     const live = this.liveTasks(run)
     const ms = live.length > 0 ? (this.deps.backgroundStallMs ?? BACKGROUND_STALL_MS) : (this.deps.tasksGraceMs ?? TASKS_GRACE_MS)
     // The output files of the live tasks as the limit starts; none in the grace time, when no task lives.
@@ -3039,7 +3145,7 @@ export class Autopilot {
     const clock = this.deps.tasksClock ?? realClock
     if (run.hungTimer !== null) clock.clearTimeout(run.hungTimer)
     run.hungTimer = null
-    const since = run.cycle.phase === 'turn' ? this.quietSince(run) : null
+    const since = run.cycle.phase === 'turn' && run.cycle.suspended !== true ? this.quietSince(run) : null
     if (since === null) return
     const hung = (): Promise<void> => (run.cycle.phase === 'turn' && this.quietSince(run) === since ? this.feed(run, { type: 'turn-quiet' }) : Promise.resolve())
     const left = since + (this.deps.quietHungMs ?? QUIET_HUNG_MS) - this.now()
@@ -3498,7 +3604,7 @@ export class Autopilot {
    * own interval, however often it is asked.
    */
   private pollPrs(run: Run): void {
-    if (this.deps.prs === undefined || run.done || run.cycle.phase === 'stopped') return
+    if (this.deps.prs === undefined || run.done || run.cycle.phase === 'stopped' || run.cycle.suspended === true) return
     const clock = this.deps.prsClock ?? realClock
     if (run.prsTimer !== null) clock.clearTimeout(run.prsTimer)
     const timer = clock.setTimeout(() => {
@@ -3585,7 +3691,8 @@ export class Autopilot {
 
   /** One line of the run's journal; `epic`: the Epic it is about, the one the run is on when absent. */
   private async write(run: Run, fields: JournalEventFields, epic = run.epic): Promise<void> {
-    if (run.journal === null) return
+    // After run-suspended nothing more: it is the run's last line until a start continues it.
+    if (run.journal === null || run.sealed) return
     try {
       await run.journal.append(fields, epic)
     } catch (error) {

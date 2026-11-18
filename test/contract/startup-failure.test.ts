@@ -86,6 +86,8 @@ vi.mock('electron', () => {
     ipcMain: { handle: vi.fn() },
     protocol: { registerSchemesAsPrivileged: vi.fn(), handle: vi.fn() },
     dialog: { showErrorBox: electron.showErrorBox },
+    // The quit's coordinator follows a shutdown of the system (src/main/quit-grace.ts, worfy-continuity ticket 04).
+    powerMonitor: { on: vi.fn() },
     BrowserWindow: FakeWindow,
     // The frame of the window follows the theme outside macOS (src/main/window-frame.ts).
     nativeTheme: { shouldUseDarkColors: false },

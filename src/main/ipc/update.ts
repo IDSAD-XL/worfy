@@ -38,6 +38,7 @@ import { agentEnv, recaptureAgentEnv } from '../agent/env'
 import { toEveryWindow } from '../broadcast'
 import { appBuildNumber } from '../build-number'
 import { bundledHarnessVersion } from '../harness/bundled'
+import { appQuitGrace } from '../quit-grace'
 import { appSettingsStore } from '../settings/store'
 import { autoBuildFor, installTarget } from '../update/auto'
 import { UpdateBuilder, updateBuildOverride, updateRepo, type UpdateBuilds } from '../update/build'
@@ -354,12 +355,21 @@ export function appUpdate(): UpdateService {
         running: () => (running ??= appRunning()),
         idle,
         client,
-        quit: () => appUpdate().restartBegan(() => app.quit()),
+        // Through the quit's coordinator, as an Update (worfy-continuity ticket 04): the Runs are suspended with
+        // `update`, after the grace for the external calls; the restart helper waits for worfy's exit meanwhile.
+        quit: () => appUpdate().restartBegan(() => quitForUpdate()),
         onChange: () => broadcast(appUpdate().snapshot()),
       }),
     })
   }
   return shared
+}
+
+/** Quits for the restart helper through the quit's coordinator, with the cause `update`; app.quit() without one (tests). */
+function quitForUpdate(): void {
+  const grace = appQuitGrace()
+  if (grace === null) app.quit()
+  else void grace.leave('update')
 }
 
 /** Sends the snapshot to every window. */

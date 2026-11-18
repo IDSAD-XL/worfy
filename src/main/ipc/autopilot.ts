@@ -3,8 +3,8 @@
 // journal, keep-awake and the Limits (the wait after a refusal, worfy-daily ticket 05). Stop is
 // graceful (worfy-week ticket 18); Force stop gives the Orchestrator back at once
 // (Orchestrators.giveBackNow, worfy-week ticket 17). A run's
-// changes go to every window. When the app quits during a run, the quit waits (a few seconds at
-// most) until the run has written `run-stopped` with `app-quit`; that also cancels a Limits wait.
+// changes go to every window. When the app quits during a run, the run is suspended, not stopped: the quit's
+// coordinator (src/main/quit-grace.ts, worfy-continuity ticket 04) has it write `run-suspended` (existingAutopilot).
 // Asking a Project's state also asks again, at most once a minute, whether the Harness in its main
 // is newer than this build's (worfy-harness ticket 21, packaged builds only); a changed answer comes
 // as `autopilot.changed`. The run reads the PRs of its Wave Tickets for the narrow fix round
@@ -13,7 +13,7 @@
 // through the link (src/main/link/autopilot-runs.ts), and this Machine answers their questions from
 // the moment its link starts, whether or not its Autopilot has been used. A start refused for a run
 // elsewhere answers `runningElsewhere`, not an error. The question goes after the quit's wait
-// (before-quit) has begun no more: the link stops in will-quit, after it (service.ts). Before each
+// (before-quit, quit-grace.ts) has begun no more: the link stops in will-quit, after it (service.ts). Before each
 // Wave the run weighs the budget of the Limits (worfy-throughput ticket 41) with the settings of
 // Settings → Autopilot and the journals of the Project's recent runs; a run goes in its Run mode,
 // the default one of Settings when the start names none, and reads the Start window there before each
@@ -138,9 +138,6 @@ export function gitCommonDir(dir: string): Promise<string | null> {
     execFile('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: dir, encoding: 'utf8' }, (error, stdout) => done(error ? null : stdout.trim() || null))
   })
 }
-
-/** How long a quit waits for the runs to write their end. */
-const QUIT_WAIT_MS = 3000
 
 /** Subscribers of the workflow watch get ids of their own, apart from the windows' webContents ids. */
 let watchIds = 0
@@ -278,18 +275,13 @@ export function sharedAutopilot(): Autopilot {
     },
   })
   sharedLauncher().attachAutopilot(autopilot)
-  let quitting = false
-  app.on('before-quit', (event) => {
-    if (quitting || !autopilot.anyRunning()) return
-    quitting = true
-    event.preventDefault()
-    const waited = new Promise((done) => setTimeout(done, QUIT_WAIT_MS))
-    void Promise.race([autopilot.stopAll(), waited])
-      .catch((error: unknown) => console.error('[autopilot] could not stop the runs on quit', error))
-      .finally(() => app.quit())
-  })
   shared = autopilot
   return autopilot
+}
+
+/** The app's Autopilot if it was made; undefined otherwise — the quit (quit-grace.ts) makes none just to suspend nothing. */
+export function existingAutopilot(): Autopilot | undefined {
+  return shared
 }
 
 let sharedStarts: ChatStarts | undefined

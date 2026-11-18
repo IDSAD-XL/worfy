@@ -103,6 +103,14 @@ export function sharedRegistry(): SessionRegistry {
 }
 
 /**
+ * The app's registry and its watcher of live Sessions, if made; null otherwise. The quit (src/main/quit-grace.ts,
+ * worfy-continuity ticket 04) acts on them only if they exist: a quit before the first Session makes none.
+ */
+export function madeRegistry(): { registry: SessionRegistry; live: LiveSessions } | null {
+  return appRegistry === null || appLiveSessions === null ? null : { registry: appRegistry, live: appLiveSessions }
+}
+
+/**
  * The watcher of the app's registry (live-sessions.ts), made with it: the Orchestrators, the Session Nodes and
  * Autopilot tell it whose each Session is.
  */

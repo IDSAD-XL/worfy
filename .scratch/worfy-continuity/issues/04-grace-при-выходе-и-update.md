@@ -1,7 +1,7 @@
 # 04 — Grace при выходе и при Update: координатор выхода, окно «Quitting worfy», `run-suspended`
 
 Type: task
-Status: open
+Status: claimed 2026-11-18T01:26Z
 Blocked by: 02, 03
 Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решения по реализации» → «Grace при выходе и при Update»;
 «Вопросы владельцу», Q1 и Q2 (оба — (а), решено без владельца, подтвердить); «Решено без владельца», 3;

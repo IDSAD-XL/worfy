@@ -163,6 +163,12 @@ export interface CycleState {
   /** While settling: the Tickets of the Wave in work by the last read. */
   holding?: number[]
   /**
+   * The app quits, updates or the system shuts down (`suspend`, worfy-continuity ticket 04): the run is
+   * suspended, not stopped. The phase and the Wave stay as they were for its `run-suspended`, and every
+   * later event is ignored, so no Wave and no continuation goes. Absent: not suspended.
+   */
+  suspended?: true
+  /**
    * A continuation (sent as the next Wave, which carries it) or a set-aside the cycle asked and the run has
    * not yet put under way: `main-red` stops the run meanwhile.
    */
@@ -219,6 +225,11 @@ export type CycleEvent =
    * (worfy-autopilot-queue ticket 07).
    */
   | { type: 'stop'; reason: 'user-stop' | 'user-force-stop' | 'app-quit' | 'limits-timeout' | 'vendor-quota' | 'window-too-short' | 'start-cancelled' | 'start-refused' }
+  /**
+   * The app quits, updates or the system shuts down (src/main/quit-grace.ts, worfy-continuity ticket 04): the run
+   * is suspended where it is, to be continued from its journal after the start (`run-suspended`). No effect.
+   */
+  | { type: 'suspend' }
 
 export type CycleEffect =
   /** Send "Run wave" to the Orchestrator; answer with `wave-sent` or `send-failed`. */
@@ -390,8 +401,10 @@ function evaluate(state: CycleState, tickets: readonly CycleTicket[]): CycleStep
 
 /** The next state of a run after one event, and what the run does about it. */
 export function step(state: CycleState, event: CycleEvent): CycleStep {
-  if (state.phase === 'stopped') return stay(state)
+  if (state.phase === 'stopped' || state.suspended === true) return stay(state)
   switch (event.type) {
+    case 'suspend':
+      return stay({ ...state, suspended: true })
     case 'stop':
       return event.reason === 'user-force-stop' ? stop(state, event.reason, [], waveOf(state)) : stop(state, event.reason)
     case 'graceful-stop':

@@ -8,7 +8,9 @@
 //   I2  worfy changes nothing on GitHub: every gh call is a read
 //   I3  one ticket-status line per change of a Ticket's Status:, none lost, none repeated
 //   I4  the journal names the expected reason and ends (no run-stopped only for a killed app, or for
-//       a run a quit suspended: run-suspended last, worfy-continuity ticket 02);
+//       a run a quit suspended: run-suspended last, worfy-continuity ticket 02); a quit, an Update or a
+//       shutdown suspends a Run — run-suspended with its cause last — and never stops one with app-quit
+//       (worfy-continuity ticket 04);
 //       with Auto-continue on (worfy-retry ticket 09) each turn-retry gets its resumed, and a
 //       retry-refused is the give-up right before run-stopped turn-error
 //
@@ -25,7 +27,7 @@
 // A violation is one English line that starts with the rule's number: "I1: /epic-wave for wave 1
 // sent 2 times".
 import { MAX_CONTINUATIONS } from '../src/shared/autopilot/continuation'
-import { parseJournal, type JournalEvent, type TicketStatusState } from '../src/shared/autopilot/journal'
+import { parseJournal, type JournalEvent, type SuspendCause, type TicketStatusState } from '../src/shared/autopilot/journal'
 
 /** A change of a Ticket's `Status:` line the test made for the Orchestrator. */
 export interface StatusWrite {
@@ -40,8 +42,10 @@ export interface StatusWrite {
 
 /** What the scenario expects of its Run — the first journal. */
 export interface RecoveryExpect {
-  /** `run-stopped.reason` of the Run; null: no run-stopped at all (the app was killed). */
+  /** `run-stopped.reason` of the Run; null: no run-stopped at all (the app was killed, or a quit suspended it). */
   stop: string | null
+  /** A quit, an Update or a shutdown suspended the Run (worfy-continuity ticket 04): its last line is run-suspended with this cause. */
+  suspended?: SuspendCause
   /** The error text of the scenario: a `session-error` of the Run before its stop matches it. */
   errorText?: RegExp
   /** How many `wave-started` lines all the journals hold together. */
@@ -180,8 +184,16 @@ const CAUSE_EVENT: Readonly<Record<string, JournalEvent['kind']>> = {
 export const namesItsEnd: Rule = (input, runs) => {
   const run = runs[0]
   if (run === undefined) return ['I4: no journal']
-  const { stop, errorText, resumed } = input.expect
+  const { stop, errorText, resumed, suspended } = input.expect
   const out: string[] = []
+  // The app's quit suspends a Run; app-quit is only for the journals before worfy-continuity ticket 04.
+  for (const each of runs)
+    for (const event of each.events) if (event.kind === 'run-stopped' && event.reason === 'app-quit') out.push(`I4: run ${each.number} stopped with app-quit, a quit suspends a run`)
+  if (suspended !== undefined) {
+    const last = run.events.at(-1)
+    if (last?.kind !== 'run-suspended') out.push(`I4: the Run ends with ${last?.kind ?? 'nothing'}, the scenario expects run-suspended ${suspended}`)
+    else if (last.cause !== suspended) out.push(`I4: run-suspended ${last.cause}, the scenario expects ${suspended}`)
+  }
   const stops = run.events.filter((event): event is RunStopped => event.kind === 'run-stopped')
   const end = stops[0]
   const before = end === undefined ? run.events : run.events.slice(0, run.events.indexOf(end))

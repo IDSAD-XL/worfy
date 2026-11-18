@@ -17,7 +17,10 @@ worfy runs Sessions itself and shows the ones started elsewhere. Each Session ha
 | Read-only Session Node, 300 by 120 pixels | A Session started in a terminal or Claude desktop | Read its transcript, Resume it once it has finished |
 
 A Session worfy runs belongs to the app, not to a window. Its events go to every window, closing a window does not stop
-it, and it stops when worfy quits.
+it, and it stops when worfy quits. The quit first lets the Sessions' external calls without a result finish, such as a
+`git push` or `gh pr merge`, for 60 seconds at most. Meanwhile every window shows **Quitting worfy** with those calls and
+**Quit now**, and a message sent to a Session waits in its queue. Then each turn is interrupted, and a process that does not
+exit within 7.5 seconds is killed. Restart now of an Update quits the same way; a shutdown of the system does not wait.
 
 **Vendor.** Each Session runs on one Vendor's agent: Claude Code or Codex. A live Node keeps its Vendor next to its Session
 id, and a Node saved before Vendors existed is Claude Code's. "New session" uses the Vendor it is given, else the Project's
