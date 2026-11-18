@@ -124,9 +124,9 @@ background tasks своего Orchestrator-а. Terminal-ы не считаютс
 «Restart when idle» перезапускает сам, как только всё стихло. Ход, начатый за это время, заставляет ждать дальше, а
 выход из worfy снимает ожидание. «Restart now», нажатый, пока что-то работает, всё равно перезапускает: нажатие — это
 согласие на отсрочку выхода, в которую worfy ждёт до 60 секунд вызовы Session-ов, которые могут действовать за
-пределами машины (окно **Quitting worfy**), и на приостановку run-ов Autopilot. После старта Session-ы прерваны, а run-ы
-продолжаются, и те и другие называют причиной Update (см. [Sessions](sessions.md) и [Autopilot
-faults](autopilot-faults.md)). Нажатие «Restart now» снимает ждущий «Restart when idle». Откат по-прежнему отказывается,
+пределами машины (окно **Quitting worfy**), и на приостановку run-ов Autopilot. После старта оборванные Session-ы и run-ы
+идут дальше, и те и другие называют причиной Update (см. [Sessions](sessions.md) и [Autopilot
+faults](autopilot-faults.md)). Нажатие «Restart now» снимает ждущий «Restart when idle». Откат по-прежнему отклоняется,
 пока что-то работает.
 
 Прямо перед перезапуском worfy снова спрашивает сравнение GitHub, впереди ли сборка commit-а, который запущен сейчас:
@@ -161,7 +161,7 @@ toast приходит только там, где Update включён. Для
 **Откат.** Settings → General → Updates, строка «Roll back to previous version», кнопка «Roll back». Строка называет
 копию: «Return to worfy <version>. Automatic updates wait for the next commit on main.» Сначала спрашивает нативный
 диалог: «Roll back to worfy <version>?», «worfy quits, puts the previous copy back and starts it. Its Harness is
-installed too, unless the one installed is newer.», с «Roll back» и «Cancel». Как и перезапуск, откат отказывается,
+installed too, unless the one installed is newer.», с «Roll back» и «Cancel». Как и перезапуск, откат отклоняется,
 пока что-то работает, и замену делает тот же процесс.
 
 Хранится только одна прежняя копия. Копия, с которой откатились, удаляется, так что строка затем говорит «No previous

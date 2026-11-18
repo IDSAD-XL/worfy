@@ -280,7 +280,7 @@ Subagent, процесс Session которого кончился раньше,
 _Avoid_: оборванный, упавший, stale, error
 
 **Interrupted by restart**:
-Chip Session Node-а, которую перезапуск worfy оборвал и которая сама не продолжилась: обрыв был больше часа назад, worfy уже дважды продолжал её за час, у её turn-а есть внешний вызов без результата, прежний процесс Claude Code ещё жив или Node называет другую session. Причина — в tooltip-е, рядом — Continue. Не путать с Interrupted: тот — о Subagent-е.
+Chip Session Node-а, которую перезапуск worfy оборвал и которая сама не продолжилась: обрыв был больше часа назад, worfy уже дважды продолжал её за час, у её turn-а есть внешний вызов без результата, её транскрипт не прочитан и последние команды неизвестны, прежний процесс Claude Code ещё жив или Node называет другую session. Причина — в tooltip-е, рядом — Continue. Не путать с Interrupted: тот — о Subagent-е.
 _Avoid_: Interrupted (без «by restart»), оборванная Session, crashed
 
 **Background task**:

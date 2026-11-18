@@ -14,20 +14,22 @@ Update во время работы и compaction, но правили толь�
 
 ## 2. Новый ADR-0108: unknown side effects ждут человека
 
-Code: `docs/adr/0108-work-continues-after-a-restart-of-worfy.md:47-54` · key lines: 47, 52, 53
+Code: `docs/adr/0108-work-continues-after-a-restart-of-worfy.md:47-56` · key lines: 47, 51, 54
 
 ```markdown
 7. **Unknown side effects ждут человека (Q4 (а); Ticket-ы 16 и 07).** Ticket, у implementer-а которого внешний вызов
    без результата, в продолженную Wave не идёт: он остаётся в `claimed`, получает метку **unknown side effects** с
    tooltip-ом о вызове и toast с **Checked, include**. Метка — строка journal-а `unknown-side-effects {ticket, actions}`,
    снимает её `side-effects-checked`. Метки живут в journal-е, поэтому переживают перезапуск и переходят к следующему
-   Run-у того же Epic-а. Discard сначала читает вызовы оборванной Wave и помечает удержанные Ticket-ы до `run-stopped`.
+   Run-у того же Epic-а. Вызов без результата у самого Orchestrator-а или у Subagent-а, не привязанного ни к одному
+   Ticket-у, удерживает все Ticket-ы Wave. Discard сначала читает вызовы оборванной Wave и помечает удержанные
+   Ticket-ы до `run-stopped`.
    worfy не сверяет git и GitHub сам: включить Ticket — всегда решение человека. Читаются только транскрипты Claude
    Code: на Orchestrator-е Codex ни один Ticket не удерживается. Новый Recovery invariant I10: Ticket, помеченный
    `unknown-side-effects`, не входит ни в одну более позднюю `wave-started` до своего `side-effects-checked`.
 ```
 
-- Что делает: записывает решение Q4 (а): Ticket с внешним вызовом без результата ждёт человека, метка живёт в journal-е и переходит к следующему Run-у, Discard помечает удержанные Ticket-ы, Codex Orchestrator Ticket-ов не держит, и называет новый Recovery invariant I10.
+- Что делает: записывает решение Q4 (а): Ticket с внешним вызовом без результата ждёт человека, метка живёт в journal-е и переходит к следующему Run-у, Discard помечает удержанные Ticket-ы, Codex Orchestrator Ticket-ов не держит, вызов Orchestrator-а или Subagent-а без Ticket-а держит все Ticket-ы Wave, и называет новый Recovery invariant I10.
 - Почему здесь: Ticket просит новый ADR о продолжении после перезапуска ([Что делаем, п. 3](../issues/14-документы-перевод-adr-context.md#что-делаем)); номер 0108 дал preflight.
 - Без него: решение «включить Ticket — всегда решение человека» было бы только в spec-е с пометкой «подтвердить» и в коде.
 - Требование: [Что делаем, п. 3](../issues/14-документы-перевод-adr-context.md#что-делаем)
@@ -128,7 +130,7 @@ Code: `docs/features/ru/autopilot-faults.md:418-419` · key lines: 418
    - Строки: `docs/adr/0010-orchestrator-state-session-id-and-cost-only.md:36-41`
 2. Почему Ticket с unknown side effects не включается сам, даже если push на самом деле прошёл?
    - Ответ: по Q4 (а) worfy не сверяет git и GitHub сам — такая проверка может ошибиться в обе стороны; включает только «Checked, include» человека.
-   - Строки: `docs/adr/0108-work-continues-after-a-restart-of-worfy.md:47-54`
+   - Строки: `docs/adr/0108-work-continues-after-a-restart-of-worfy.md:47-56`
 3. Почему метка `ru/harness.md` не стала `b82c4d25`?
    - Ответ: страница переведена не целиком; новая метка спрятала бы её отставание от `feature-docs-lag.mjs`.
    - Строки: `docs/features/ru/harness.md:3-3`

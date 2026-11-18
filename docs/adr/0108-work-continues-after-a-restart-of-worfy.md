@@ -48,7 +48,9 @@
    без результата, в продолженную Wave не идёт: он остаётся в `claimed`, получает метку **unknown side effects** с
    tooltip-ом о вызове и toast с **Checked, include**. Метка — строка journal-а `unknown-side-effects {ticket, actions}`,
    снимает её `side-effects-checked`. Метки живут в journal-е, поэтому переживают перезапуск и переходят к следующему
-   Run-у того же Epic-а. Discard сначала читает вызовы оборванной Wave и помечает удержанные Ticket-ы до `run-stopped`.
+   Run-у того же Epic-а. Вызов без результата у самого Orchestrator-а или у Subagent-а, не привязанного ни к одному
+   Ticket-у, удерживает все Ticket-ы Wave. Discard сначала читает вызовы оборванной Wave и помечает удержанные
+   Ticket-ы до `run-stopped`.
    worfy не сверяет git и GitHub сам: включить Ticket — всегда решение человека. Читаются только транскрипты Claude
    Code: на Orchestrator-е Codex ни один Ticket не удерживается. Новый Recovery invariant I10: Ticket, помеченный
    `unknown-side-effects`, не входит ни в одну более позднюю `wave-started` до своего `side-effects-checked`.

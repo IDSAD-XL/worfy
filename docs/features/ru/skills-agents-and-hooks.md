@@ -27,7 +27,7 @@ worfy и двадцать, скопированных из skill-ов Matt Pococ
 | `overnight-fix-loop` | `/worfy:overnight-fix-loop <modules>`, только вручную | По worktree и implementer-у на модуль, с merge в ночную ветку. Ночью в главную ветку ничего не идёт |
 | `tickets-to-tasks` | После того как `/worfy:to-tickets` или `/worfy:wayfinder` записали Ticket-ы, или когда список задач пуст | Импортирует Ticket-ы в Tasks Claude Code и сохраняет их блокировки |
 | `human-review-setup` | `/worfy:human-review-setup`, или "Build" в предложении reviewer-а команды ([Projects](projects.md)), только вручную | Читает историю review команды на GitHub, показывает, сколько прочтёт модель, и её оценку в токенах, а после согласия человека пишет приватный skill review голосом команды |
-| `pr-reply` | `/worfy:pr-reply <owner>/<repo>#<N>`, или действие `actions.prReply` ("Draft replies"), которое запускает Session на Claude Code по шаблону из Project settings | Читает pull request, его diff и его ветки review, сверяет каждый комментарий с кодом на head commit-е, не переключая ветку, и передаёт черновик ответа на каждую ветку, которая ждёт ответа, в `pr-reply-draft`; тот проверяет их через `review-draft-lint --reply` и хранит в `<Profile folder>/state/pr-inbox/drafts/`. Ничего не публикует |
+| `pr-reply` | `/worfy:pr-reply <owner>/<repo>#<N>`, или действие `actions.prReply` ("Draft replies"), которое запускает Session на Claude Code по шаблону из Project settings | Читает pull request, его diff и его review threads, сверяет каждый комментарий с кодом на head commit-е, не переключая ветку, и передаёт черновик ответа на каждый review thread, который ждёт ответа, в `pr-reply-draft`; тот проверяет их через `review-draft-lint --reply` и хранит в `<Profile folder>/state/pr-inbox/drafts/`. Ничего не публикует |
 | `product-ideas` | Модель, когда Product owner просит идей или спрашивает «что дальше» | Читает roadmap, spec-и, открытые Ticket-ы и тему и отвечает тремя–пятью идеями: для кого, почему сейчас, цена в Ticket-ах и как понять, что сработало; хотя бы одна из них против названного пункта roadmap. Каждая идея становится узлом Mind map с `advice: true`; без tool-ов Mind map идеи остаются в ответе. Черновик Epic-а он не пишет, пока владелец не скажет «да» какой-то идее |
 
 **Skill-ы Matt Pocock.** Двадцать skill-ов это копия skill-ов Matt Pocock, версия 1.3.1 plugin-а `mattpocock-skills`, под лицензией MIT.
@@ -262,7 +262,7 @@ Claude Code запускает эти команды на свои событи�
 Subagent-е, часть `compaction` (`harness/hooks/rules/compaction.md`) добавляется к инструкциям модели, которая пишет итог. Она просит семь
 разделов: Intent, Essential facts, Completed work, Files touched, Errors, Pending work и Next action. Она называет, что сохраняет каждая
 роль. Orchestrator сохраняет Epic, номер Wave, PR в работе и решения, принятые без владельца. Implementer сохраняет свой Ticket, каждый
-пункт раздела done Ticket-а с его отметкой, worktree и ветку. Hook не может отличить Subagent от главной Session, поэтому один текст
+пункт раздела «Готово, когда» Ticket-а с его отметкой, worktree и ветку. Hook не может отличить Subagent от главной Session, поэтому один текст
 держит все роли, а модель итога выбирает по разговору. Это простой текст, а не `additionalContext`, и Claude Code обрезает его после
 10 000 символов. Codex этот вывод не читает.
 
