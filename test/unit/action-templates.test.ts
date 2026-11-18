@@ -12,14 +12,19 @@ import {
   LEGACY_RUN_WAVE_TEMPLATE,
   migrateProjectSettings,
   namesWaveTickets,
+  PR_FOLLOW_ACTIONS,
+  projectSettingsAnswerSchema,
+  projectSettingsInputSchema,
   projectSettingsSchema,
   savedProjectSettingsSchema,
   templateError,
   unknownPlaceholders,
 } from '../../src/shared/projects/action-templates'
 
-const LEGACY = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '', prReply: '' }
-const PLUGIN = { shipTicket: '/worfy:ship-ticket {epic} {NN}', runWave: '/worfy:epic-wave tickets {tickets} of epic {epic}', gateQueue: '/worfy:gate-queue', prReply: '/worfy:pr-reply {repo}#{pr}' }
+const NO_FOLLOW = { fixChecks: '', resolveConflicts: '', addressComments: '' }
+const FOLLOW = { fixChecks: '/worfy:pr-fix checks {repo}#{pr} {sha}', resolveConflicts: '/worfy:pr-fix conflicts {repo}#{pr} {sha}', addressComments: '/worfy:pr-fix comments {repo}#{pr} {sha}' }
+const LEGACY = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '', prReply: '', ...NO_FOLLOW }
+const PLUGIN = { shipTicket: '/worfy:ship-ticket {epic} {NN}', runWave: '/worfy:epic-wave tickets {tickets} of epic {epic}', gateQueue: '/worfy:gate-queue', prReply: '/worfy:pr-reply {repo}#{pr}', ...FOLLOW }
 
 describe('action templates', () => {
   it('gives a new Project the default templates of the Harness found: the bare skill names with the old Harness', () => {
@@ -49,7 +54,7 @@ describe('action templates', () => {
   it('reads a saved Run wave template equal to the old default as the new default, and leaves every other template alone (ticket 30)', () => {
     expect(LEGACY_RUN_WAVE_TEMPLATE).toBe('/epic-wave волна {wave} эпика {epic}')
     const old = { actionTemplates: { shipTicket: 'my ship {NN}', runWave: LEGACY_RUN_WAVE_TEMPLATE, gateQueue: '' } }
-    expect(migrateProjectSettings(old, 'legacy')).toStrictEqual({ actionTemplates: { shipTicket: 'my ship {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '', prReply: '' } })
+    expect(migrateProjectSettings(old, 'legacy')).toStrictEqual({ actionTemplates: { shipTicket: 'my ship {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '', prReply: '', ...NO_FOLLOW } })
     // The argument is not changed in place.
     expect(old.actionTemplates.runWave).toBe(LEGACY_RUN_WAVE_TEMPLATE)
     for (const own of ['/epic-wave волна {wave} эпика {epic} ', '/epic-wave wave {wave} of {epic}', '', '/epic-wave Ticket-ы {tickets} эпика {epic}']) {
@@ -66,10 +71,14 @@ describe('action templates', () => {
       runWave: [LEGACY.runWave, LEGACY_RUN_WAVE_TEMPLATE, PLUGIN.runWave],
       gateQueue: [PLUGIN.gateQueue],
       prReply: [PLUGIN.prReply],
+      fixChecks: [PLUGIN.fixChecks],
+      resolveConflicts: [PLUGIN.resolveConflicts],
+      addressComments: [PLUGIN.addressComments],
     }
+    const mine = { shipTicket: 'my ship {NN}', runWave: '', gateQueue: 'my queue', prReply: 'my replies {repo}#{pr}', fixChecks: 'my checks {sha}', resolveConflicts: 'my conflicts {sha}', addressComments: 'my comments {sha}' }
     for (const action of ACTIONS) {
       for (const saved of earlier[action]) {
-        const settings = { actionTemplates: { shipTicket: 'my ship {NN}', runWave: '', gateQueue: 'my queue', prReply: 'my replies {repo}#{pr}', [action]: saved } }
+        const settings = { actionTemplates: { ...mine, [action]: saved } }
         const read = migrateProjectSettings(settings, harness)
         expect(read.actionTemplates[action]).toBe(defaults[action])
         // The other actions keep the owner's own templates.
@@ -78,7 +87,7 @@ describe('action templates', () => {
         expect(settings.actionTemplates[action]).toBe(saved)
       }
     }
-    const own = { actionTemplates: { shipTicket: 'my ship {NN}', runWave: '', gateQueue: '', prReply: '' } }
+    const own = { actionTemplates: { shipTicket: 'my ship {NN}', runWave: '', gateQueue: '', prReply: '', ...NO_FOLLOW } }
     expect(migrateProjectSettings(own, harness)).toBe(own)
     const current = defaultProjectSettings(harness)
     expect(migrateProjectSettings(current, harness)).toBe(current)
@@ -113,7 +122,7 @@ describe('action templates', () => {
   it.each(HARNESS_KINDS)('reads saved settings without gateQueue with the default of the Harness found (%s), and keeps the rest', (harness) => {
     const saved = savedProjectSettingsSchema.parse({ actionTemplates: { shipTicket: 'my ship {NN}', runWave: 'my wave {tickets}' }, terminalShell: 'git-bash' })
     expect(migrateProjectSettings(saved, harness)).toStrictEqual({
-      actionTemplates: { shipTicket: 'my ship {NN}', runWave: 'my wave {tickets}', gateQueue: defaultActionTemplates(harness).gateQueue, prReply: defaultActionTemplates(harness).prReply },
+      actionTemplates: { ...defaultActionTemplates(harness), shipTicket: 'my ship {NN}', runWave: 'my wave {tickets}' },
       terminalShell: 'git-bash',
     })
     // What is saved has the field: settings without it are refused.
@@ -138,7 +147,7 @@ describe('action templates', () => {
   })
 
   it('accepts every known placeholder', () => {
-    const template = '{epic} {NN} {wave} {slug} {branch} {tickets} {repo} {pr}'
+    const template = '{epic} {NN} {wave} {slug} {branch} {tickets} {repo} {pr} {sha}'
     expect(unknownPlaceholders(template)).toEqual([])
     expect(actionTemplateSchema.safeParse(template).success).toBe(true)
   })
@@ -166,10 +175,10 @@ describe('action templates', () => {
   })
 
   it('refuses settings with a bad template and drops undeclared keys from good ones', () => {
-    expect(projectSettingsSchema.safeParse({ actionTemplates: { shipTicket: '{foo}', runWave: '', gateQueue: '', prReply: '' } }).success).toBe(false)
+    expect(projectSettingsSchema.safeParse({ actionTemplates: { shipTicket: '{foo}', runWave: '', gateQueue: '', prReply: '', ...NO_FOLLOW } }).success).toBe(false)
     expect(projectSettingsSchema.safeParse({ actionTemplates: { shipTicket: '' } }).success).toBe(false)
-    const parsed = projectSettingsSchema.parse({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '', extra: 'x' }, other: 1 })
-    expect(parsed).toStrictEqual({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '' } })
+    const parsed = projectSettingsSchema.parse({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '', ...NO_FOLLOW, extra: 'x' }, other: 1 })
+    expect(parsed).toStrictEqual({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '', ...NO_FOLLOW } })
   })
 
   it('has Draft replies among the actions: /worfy:pr-reply {repo}#{pr} with the plugin and with no Harness, empty with the old Harness (worfy-pr-inbox ticket 04)', () => {
@@ -188,5 +197,41 @@ describe('action templates', () => {
     // An empty template and a near miss of the default are the owner's own.
     for (const own of ['', '/worfy:pr-reply {repo}#{pr} ', '/pr-reply {repo}#{pr}'])
       expect(migrateProjectSettings({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: own } }, 'plugin').actionTemplates.prReply).toBe(own)
+  })
+
+  it('has Fix checks, Resolve conflicts and Address comments among the actions: /worfy:pr-fix in its three modes with {sha} with the plugin and with no Harness, empty with the old Harness (worfy-pr-follow ticket 01)', () => {
+    expect(PR_FOLLOW_ACTIONS).toEqual(['resolveConflicts', 'fixChecks', 'addressComments'])
+    for (const action of PR_FOLLOW_ACTIONS) expect(ACTIONS).toContain(action)
+    expect([ACTION_LABELS.fixChecks, ACTION_LABELS.resolveConflicts, ACTION_LABELS.addressComments]).toEqual(['Fix checks', 'Resolve conflicts', 'Address comments'])
+    for (const harness of ['plugin', 'none'] as const) {
+      const defaults = defaultActionTemplates(harness)
+      expect({ fixChecks: defaults.fixChecks, resolveConflicts: defaults.resolveConflicts, addressComments: defaults.addressComments }).toStrictEqual(FOLLOW)
+    }
+    const legacy = defaultActionTemplates('legacy')
+    expect({ fixChecks: legacy.fixChecks, resolveConflicts: legacy.resolveConflicts, addressComments: legacy.addressComments }).toStrictEqual(NO_FOLLOW)
+    for (const action of PR_FOLLOW_ACTIONS) {
+      expect(unknownPlaceholders(PLUGIN[action])).toEqual([])
+      expect(isActionConfigured(legacy[action])).toBe(false)
+    }
+    expect(emptyTemplateHint('fixChecks')).toBe('Set the Fix checks template in Project settings')
+  })
+
+  it.each(HARNESS_KINDS)('reads settings saved before worfy-pr-follow ticket 01, without the three templates, with the defaults of the Harness found (%s)', (harness) => {
+    const saved = savedProjectSettingsSchema.parse({ actionTemplates: { shipTicket: 'my ship {NN}', runWave: 'my wave {tickets}', gateQueue: '', prReply: 'my replies {repo}#{pr}' } })
+    const read = migrateProjectSettings(saved, harness)
+    const defaults = defaultActionTemplates(harness)
+    expect(read.actionTemplates).toStrictEqual({ shipTicket: 'my ship {NN}', runWave: 'my wave {tickets}', gateQueue: '', prReply: 'my replies {repo}#{pr}', fixChecks: defaults.fixChecks, resolveConflicts: defaults.resolveConflicts, addressComments: defaults.addressComments })
+    // What is saved has the fields: settings without them are refused.
+    expect(projectSettingsSchema.safeParse({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '' } }).success).toBe(false)
+    // An empty template and a near miss of the default stay the owner's own.
+    for (const own of ['', '/worfy:pr-fix checks {repo}#{pr} {sha} ', '/pr-fix checks {repo}#{pr}'])
+      expect(migrateProjectSettings({ actionTemplates: { ...LEGACY, fixChecks: own } }, harness).actionTemplates.fixChecks).toBe(own)
+  })
+
+  it('reads the answer of a Linked machine of an earlier build without the three templates as empty ones (no button), and lets its save leave them out', () => {
+    const answer = projectSettingsAnswerSchema.parse({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '/worfy:gate-queue', prReply: '/worfy:pr-reply {repo}#{pr}' } })
+    expect(answer.actionTemplates).toStrictEqual({ shipTicket: '', runWave: '', gateQueue: '/worfy:gate-queue', prReply: '/worfy:pr-reply {repo}#{pr}', ...NO_FOLLOW })
+    expect(projectSettingsInputSchema.safeParse({ actionTemplates: { shipTicket: '', runWave: '' } }).success).toBe(true)
+    expect(projectSettingsInputSchema.safeParse({ actionTemplates: { shipTicket: '', runWave: '', fixChecks: '{foo}' } }).success).toBe(false)
   })
 })

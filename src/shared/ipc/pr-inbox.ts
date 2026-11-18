@@ -75,6 +75,12 @@ export const prInboxRowSchema = z.object({
    */
   additions: z.number().int().nonnegative().nullable().default(null),
   deletions: z.number().int().nonnegative().nullable().default(null),
+  /**
+   * The PR comes from a fork (GitHub's `isCrossRepository`): "Fix checks", "Resolve conflicts" and "Address comments"
+   * refuse it, as the skill cannot push to someone else's fork (worfy-pr-follow ticket 01). Absent in a snapshot of a
+   * Project machine that does not read it yet, which reads as false, the value GitHub gives a PR of the repository itself.
+   */
+  isCrossRepository: z.boolean().optional(),
   /** The review is asked of the user only through a team: the row says "via team". */
   viaTeam: z.boolean(),
   unresolvedThreads: z.number().int().nonnegative(),

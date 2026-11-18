@@ -271,7 +271,7 @@ describe('events of a Linked machine', () => {
     const connection = a.service.connectionTo(bId)
     if (connection === undefined) throw new Error('not connected')
     const older = { actionTemplates: { shipTicket: '/worfy:ship-ticket {epic} {NN}', runWave: '' } }
-    const read = { actionTemplates: { ...older.actionTemplates, gateQueue: '', prReply: '' } }
+    const read = { actionTemplates: { ...older.actionTemplates, gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' } }
     connection.call = () => Promise.resolve({ ok: true, value: older })
     expect(await calls.call(bId, projectsSettingsGet.name, { id: 'p1' })).toEqual({ ok: true, value: read })
     const heard: RemoteEvent[] = []

@@ -1,9 +1,13 @@
-// When "Run wave" and "Ship ticket" (ticket 23) are shown and whether they can run now. The buttons
-// on the Canvas (EpicActions.tsx, TicketActions.tsx) and the rows of the command palette (ticket 31)
-// both ask here, so the two never disagree; main checks the same conditions again on a click.
-import { runWaveState, shipTicketState, type ActionState, type WaveState } from '../../../shared/actions/render-template'
+// When "Run wave" and "Ship ticket" (ticket 23) are shown and whether they can run now, and whether "Fix checks",
+// "Resolve conflicts" and "Address comments" (worfy-pr-follow ticket 01) can run on a pull request. The buttons
+// on the Canvas (EpicActions.tsx, TicketActions.tsx), in Pull requests and the rows of the command palette (ticket 31)
+// all ask here, so they never disagree; main checks the same conditions again on a click.
+import { prFollowState, runWaveState, shipTicketState, type ActionState, type WaveState } from '../../../shared/actions/render-template'
+import type { PrInboxRow } from '../../../shared/ipc/pr-inbox'
+import type { PrFollowAction } from '../../../shared/projects/action-templates'
 import type { Ticket } from '../../../shared/workflow/types'
-import { useProjects } from '../../projects/useProjects'
+import { usePrInbox } from '../../pr-inbox/usePrInbox'
+import { useProjects, useReadOnly } from '../../projects/useProjects'
 import { useLaunched } from './launches'
 import { useActionTemplates } from './templates'
 
@@ -46,4 +50,21 @@ export function useShipTicketState(projectId: string, ticket: Ticket, tickets: r
   const launched = useLaunched(projectId, ticket.epic, ticket.num)
   if (templates === undefined) return READING
   return shipTicketState({ ticket, tickets, template: templates.shipTicket, branch, launched })
+}
+
+/**
+ * Whether `action` — "Fix checks", "Resolve conflicts" or "Address comments" — can run on the pull request of `row`, a
+ * row of the Project's PR inbox, and the text main would send, or why not: a read-only screen (a Linked machine with
+ * read-only access, worfy-link ticket 25) first, then the verdict of prFollowState over the row, the login the inbox
+ * reads as and the Project's template — the PR is not the user's, comes from a fork, has no reason for the action, the
+ * template is empty or does not render. The button of Pull requests (worfy-pr-follow ticket 04), of the Ticket Node
+ * and the row of the Command palette (ticket 05) take it, and pass `action` to `actions.prFollow` on a click.
+ */
+export function usePrFollowState(projectId: string, row: PrInboxRow, action: PrFollowAction): ActionState {
+  const templates = useActionTemplates(projectId)
+  const viewer = usePrInbox(projectId).snapshot?.viewer ?? null
+  const readOnly = useReadOnly()
+  if (readOnly !== null) return { enabled: false, reason: readOnly }
+  if (templates === undefined) return READING
+  return prFollowState({ action, template: templates[action], repo: row.repo, pr: row.number, row, viewer })
 }

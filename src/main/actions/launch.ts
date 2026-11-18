@@ -43,22 +43,48 @@
 //   autopilotRefusal, autopilotGateQueue) do not include this one; a run of Autopilot in the Project does not stop
 //   it. The skill writes drafts into files on this machine and posts nothing; worfy posts a reply only on the user's
 //   click (ticket 05 of that Epic).
+// - Fix checks, Resolve conflicts, Address comments (worfy-pr-follow ticket 01): the Project's template of the action
+//   filled in with one pull request and its head ({repo}, {pr}, {sha}), on Claude Code. Before anything starts the PR
+//   is read again (PrInbox.refresh) and the verdict of the button (src/shared/actions/pr-follow.ts) is taken over that
+//   row, so {sha} is the head now and a reason gone meanwhile refuses the click. A refresh skipped for an account
+//   waiting for its rate limit leaves the row as last read; that is accepted, as the skill checks the head itself.
+//   Refused while Autopilot runs in the Project, and while its Orchestrator is busy with a Binding to the Epic of the
+//   PR's Ticket: that Wave fixes its own PRs (harness/skills/epic-wave/SKILL.md). The text goes to the Session Node
+//   bound (manual or launch) to the PR's Ticket — on Claude Code, not archived, its transcript's last record younger
+//   than FOLLOW_SESSION_MS (spec Q7) — the way worfy-continuity continues a Session (ADR-0108, point 5):
+//   NodeSessions.started resumes it when no process runs, Session.send sends or queues, Session.notice tells the user
+//   where the text came from. Else a new Session Node, its first message the text, bound by launch to the PR's Ticket.
 //
 // The agent is then bound to what it was launched for, with source `launch` (resolve.ts): once
 // Claude Code has reported the session id that names its transcript, the Binding goes into
 // `<Project data folder>/bindings.json` (src/main/layout/bindings.ts), so it outlives a restart.
 // The Ticket's status is changed by the agent and the `ticket` script inside the skill, never here;
 // worfy sees the change through its watch on `.scratch` (ticket 10).
-import { emptyTemplateHint, prReplyState, runWaveState, shipTicketState, ticketNumber } from '../../shared/actions/render-template'
+import { emptyTemplateHint, prFollowState, prReplyState, runWaveState, shipTicketState, ticketNumber } from '../../shared/actions/render-template'
 import type { SkippedTicket } from '../../shared/workflow/waves'
 import { waveWithContinuation } from '../../shared/autopilot/continuation'
 import type { BindingTarget } from '../../shared/binding/resolve'
 import type { LaunchesSnapshot } from '../../shared/ipc/actions'
-import type { BindingAgent } from '../../shared/ipc/bindings'
+import { isLaunchBinding, type BindingAgent, type ManualBinding } from '../../shared/ipc/bindings'
 import type { OrchestratorView } from '../../shared/ipc/orchestrator'
-import type { SessionNodeView } from '../../shared/ipc/sessions'
-import { AUTOPILOT_TEMPLATE_HINT, isActionConfigured, namesWaveTickets, PR_REPLY_VENDOR, SHIP_TICKET_VENDOR, TEAM_REVIEWER_COMMAND, TEAM_REVIEWER_REFRESH_COMMAND, TEAM_REVIEWER_VENDOR, type ProjectSettings } from '../../shared/projects/action-templates'
-import type { VendorId } from '../../shared/vendors/vendor'
+import type { PrInboxRow } from '../../shared/ipc/pr-inbox'
+import { SESSION_NODE_KIND, type SessionNodeView } from '../../shared/ipc/sessions'
+import { isArchived, type LayoutNode } from '../../shared/layout/types'
+import { ticketOfRow } from '../../shared/pr-inbox/rows'
+import {
+  ACTION_LABELS,
+  AUTOPILOT_TEMPLATE_HINT,
+  isActionConfigured,
+  namesWaveTickets,
+  PR_REPLY_VENDOR,
+  SHIP_TICKET_VENDOR,
+  TEAM_REVIEWER_COMMAND,
+  TEAM_REVIEWER_REFRESH_COMMAND,
+  TEAM_REVIEWER_VENDOR,
+  type PrFollowAction,
+  type ProjectSettings,
+} from '../../shared/projects/action-templates'
+import { UNNAMED_VENDOR, type VendorId } from '../../shared/vendors/vendor'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import type { Session } from '../agent/session'
 
@@ -99,6 +125,60 @@ export interface LaunchDeps {
    */
   pollMs?: number
   waitMs?: number
+  /** What "Fix checks", "Resolve conflicts" and "Address comments" read and start; without it they are refused. */
+  prFollow?: PrFollowDeps
+  /** The clock, in ms: the age of a transcript's last record. Date.now by default. */
+  now?(): number
+}
+
+/** A Session "Fix checks", "Resolve conflicts" or "Address comments" sends its text to, as far as they need it. */
+export type FollowSession = Pick<Session, 'id' | 'send' | 'notice'>
+
+/** The parts of the app the actions on a pull request read (worfy-pr-follow ticket 01). */
+export interface PrFollowDeps {
+  /**
+   * A fresh read of the PR (PrInbox.refresh), then its row in the Project's snapshot — undefined when the snapshot
+   * holds none: closed, merged, or not the Project's — and the login the PR inbox reads as.
+   */
+  pull(projectId: string, repo: string, pr: number): Promise<{ row: PrInboxRow | undefined; viewer: string | null }>
+  /** The Project's Layout Nodes; the Session Nodes of worfy among them may take the text. */
+  nodes(projectId: string): readonly LayoutNode[]
+  /** The time of the last record of each of these Sessions' transcripts, in ms; a Session without one is absent. */
+  lastAt(projectId: string, sessionIds: readonly string[]): Promise<ReadonlyMap<string, number>>
+  /** The Project's stored Bindings (bindings.json): manual ones and launch ones. */
+  stored(projectId: string): readonly ManualBinding[]
+  /** The Project's Orchestrator while it is busy (Orchestrators.busy), with the session id its Bindings are stored under; null when it is not. */
+  busyOrchestrator(projectId: string): Promise<{ sessionId: string | null } | null>
+  /** The Node's Session started — resumed by its transcript when no process runs (NodeSessions.started) — and live. */
+  started(projectId: string, nodeId: string): Promise<FollowSession>
+}
+
+export interface PrFollowResult {
+  nodeId: string
+  sessionId: string
+  text: string
+  delivery: 'sent' | 'queued' | 'new'
+}
+
+/** A Ticket's Session whose transcript's last record is older than this gets no text: a new Session starts (spec Q7, as the automatic archive's 24 h, ADR-0076). */
+export const FOLLOW_SESSION_MS = 24 * 60 * 60_000
+
+/** Why an action on a pull request is refused while Autopilot runs in the Project. */
+export const PR_FOLLOW_AUTOPILOT_HINT = 'Autopilot is running in this Project: stop it to follow a pull request by hand'
+
+/** Why an action on a pull request of `epic` is refused while the Orchestrator bound to that Epic is busy. */
+export const prFollowWaveHint = (epic: string): string => `The Orchestrator is busy with a Wave of ${epic}: the Wave fixes its own pull requests`
+
+/** The notice line a Ticket's Session gets with the text: only the user sees it, the model does not. */
+export function prFollowNotice(action: PrFollowAction, repo: string, pr: number, delivery: 'sent' | 'queued'): string {
+  return `worfy: ${ACTION_LABELS[action]} for ${repo}#${pr} ${delivery === 'sent' ? 'sent to' : 'queued in'} this Session`
+}
+
+/** The target of each stored Binding of a Session (not of a Subagent): the manual one, else the launch one, as resolveBinding ranks them. */
+function storedTargets(stored: readonly ManualBinding[]): Map<string, BindingTarget> {
+  const sessions = stored.filter((binding) => (binding.agentId ?? null) === null)
+  // The manual ones last, so each overwrites a launch one of its Session.
+  return new Map([...sessions.filter(isLaunchBinding), ...sessions.filter((binding) => !isLaunchBinding(binding))].map((binding) => [binding.sessionId, binding.target]))
 }
 
 /** A spot on the Canvas, in canvas units. */
@@ -184,6 +264,8 @@ export class ActionLauncher {
   private readonly launches = new Map<string, TicketLaunch>()
   /** Launches between the click and the new Session: their fresh read of the workflow is in flight. */
   private readonly starting = new Set<string>()
+  /** Actions on a pull request between the click and the Session that takes the text, by Project and PR. */
+  private readonly following = new Set<string>()
   private revision = 0
   private watching = false
   /** Whether Autopilot runs in a Project now; "Run wave" by hand is refused meanwhile. */
@@ -251,6 +333,84 @@ export class ActionLauncher {
     const view = this.deps.sessions.create(projectId, undefined, PR_REPLY_VENDOR)
     this.deps.registry.get(view.sessionId).send(state.text)
     return { nodeId: view.nodeId, sessionId: view.sessionId, text: state.text }
+  }
+
+  /**
+   * "Fix checks", "Resolve conflicts" or "Address comments" on the pull request `repo`#`pr` (worfy-pr-follow ticket
+   * 01): the PR read again, the verdict taken over that read, then the text to the Ticket's Session or to a new Session
+   * Node (`near`: where the renderer wants it, as for "Ship ticket"). Throws, with the reason, and starts nothing, for
+   * every refusal of actions.prFollow.
+   */
+  async prFollow(projectId: string, repo: string, pr: number, action: PrFollowAction, near?: CanvasSpot): Promise<PrFollowResult> {
+    if (this.autopilot?.running(projectId) === true) throw new Error(PR_FOLLOW_AUTOPILOT_HINT)
+    const follow = this.deps.prFollow
+    if (follow === undefined) throw new Error('This build cannot follow pull requests')
+    const key = JSON.stringify([projectId, repo.toLowerCase(), pr])
+    // Taken before the first await: two clicks that arrive together do not start two Sessions.
+    if (this.following.has(key)) throw new Error(`${ACTION_LABELS[action]} is already starting for ${repo}#${pr}`)
+    this.following.add(key)
+    try {
+      const root = this.deps.projectRoot(projectId)
+      const template = this.deps.settings(projectId).actionTemplates[action]
+      if (!isActionConfigured(template)) throw new Error(emptyTemplateHint(action))
+      const [{ row, viewer }, model] = await Promise.all([follow.pull(projectId, repo, pr), this.deps.workflow(root)])
+      const state = prFollowState({ action, template, repo, pr, row, viewer })
+      if (!state.enabled) throw new Error(state.reason)
+      // A PR outside the workflow (no Ticket names it, or the workflow cannot be read) still gets its Session, unbound.
+      const ticket = row === undefined || model.error !== null ? undefined : ticketOfRow(row, model.tickets)
+      const target: BindingTarget | null = ticket === undefined ? null : { kind: 'ticket', epic: ticket.epic, num: ticket.num }
+      const stored = storedTargets(follow.stored(projectId))
+      if (target !== null) {
+        // shortcut: only a stored Binding (Run wave's launch one, or a manual one) ties the Orchestrator to the Epic; a Wave typed into it by hand binds by its transcript's signals, which this does not read. Read them (sessionBindings) when such a Wave gets a second Session on its PR.
+        const orchestrator = await follow.busyOrchestrator(projectId)
+        const bound = orchestrator?.sessionId == null ? undefined : stored.get(orchestrator.sessionId)
+        if (bound?.kind === 'epic' && bound.epic === target.epic) throw new Error(prFollowWaveHint(target.epic))
+      }
+      const node = target === null ? null : await this.ticketSession(projectId, target, stored)
+      if (node !== null) {
+        try {
+          const session = await follow.started(projectId, node)
+          const delivery = session.send(state.text)
+          session.notice(prFollowNotice(action, repo, pr, delivery))
+          return { nodeId: node, sessionId: session.id, text: state.text, delivery }
+        } catch (error) {
+          console.warn(`[actions] ${projectId}: the Session of ${node} did not take ${ACTION_LABELS[action]}; a new one starts`, error)
+        }
+      }
+      const view = this.deps.sessions.create(projectId, near, PR_REPLY_VENDOR)
+      const session = this.deps.registry.get(view.sessionId)
+      session.send(state.text)
+      if (target !== null) this.bindWhenKnown(projectId, session, target)
+      return { nodeId: view.nodeId, sessionId: view.sessionId, text: state.text, delivery: 'new' }
+    } finally {
+      this.following.delete(key)
+    }
+  }
+
+  /**
+   * The Session Node that takes the text of an action on a PR of the Ticket `target`: a Node of worfy bound to it,
+   * manual or launch, on Claude Code, not archived, whose transcript's last record is younger than FOLLOW_SESSION_MS;
+   * of several, the one with the newest record. Null when none is.
+   */
+  private async ticketSession(projectId: string, target: Extract<BindingTarget, { kind: 'ticket' }>, stored: ReadonlyMap<string, BindingTarget>): Promise<string | null> {
+    const bound = this.deps.prFollow!.nodes(projectId).flatMap((node) => {
+      if (node.kind !== SESSION_NODE_KIND || node.data.origin !== 'worfy' || isArchived(node)) return []
+      const vendor = node.data.vendor ?? UNNAMED_VENDOR
+      const sessionId = node.data.sessionId
+      if (vendor !== PR_REPLY_VENDOR || typeof sessionId !== 'string' || sessionId === '') return []
+      const bindingTarget = stored.get(sessionId)
+      if (bindingTarget?.kind !== 'ticket' || bindingTarget.epic !== target.epic || bindingTarget.num !== target.num) return []
+      return [{ nodeId: node.id, sessionId }]
+    })
+    if (bound.length === 0) return null
+    const lastAt = await this.deps.prFollow!.lastAt(projectId, bound.map((each) => each.sessionId))
+    const now = this.deps.now?.() ?? Date.now()
+    const young = bound.flatMap((each) => {
+      const at = lastAt.get(each.sessionId)
+      return at !== undefined && now - at < FOLLOW_SESSION_MS ? [{ ...each, at }] : []
+    })
+    young.sort((a, b) => b.at - a.at)
+    return young[0]?.nodeId ?? null
   }
 
   /** The Project's Tickets that have a live Session launched by "Ship ticket". */

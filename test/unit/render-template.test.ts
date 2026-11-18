@@ -2,7 +2,9 @@
 // the five placeholders, a template without any, one placeholder twice, and a placeholder the
 // action has no value for — a failed render, never an empty string.
 import { describe, expect, it } from 'vitest'
-import { readyWaveNumber, renderTemplate, ticketNumber, ticketValues, waveTickets, waveValues } from '../../src/shared/actions/render-template'
+import { prFollowState, readyWaveNumber, renderTemplate, ticketNumber, ticketValues, waveTickets, waveValues } from '../../src/shared/actions/render-template'
+import type { PrFollowRow } from '../../src/shared/actions/pr-follow'
+import { defaultActionTemplates } from '../../src/shared/projects/action-templates'
 import type { Ticket } from '../../src/shared/workflow/types'
 
 const ticket = { epic: 'worfy-mvp', num: 7, slug: 'движок-сессий' }
@@ -89,5 +91,55 @@ describe('readyWaveNumber', () => {
   it('is null when nothing is ready', () => {
     expect(readyWaveNumber([t(1, 'work'), t(2, 'open', [1])], 'e')).toBeNull()
     expect(readyWaveNumber([t(1, 'done')], 'e')).toBeNull()
+  })
+})
+
+const SHA = '3f2a9c1d4e5b6a7980123456789abcdef0123456'
+
+describe('{sha} (worfy-pr-follow ticket 01)', () => {
+  it('fills in a head of 40 hex characters', () => {
+    expect(renderTemplate('/worfy:pr-fix checks {repo}#{pr} {sha}', { repo: 'owner/web', pr: '118', sha: SHA }, 'fixChecks')).toEqual({ ok: true, text: `/worfy:pr-fix checks owner/web#118 ${SHA}` })
+  })
+
+  it.each([
+    ['shorter', SHA.slice(0, 39)],
+    ['longer', `${SHA}0`],
+    ['with a space', `${SHA.slice(0, 20)} ${SHA.slice(21)}`],
+    ['with a line break', `${SHA.slice(0, 39)}\n`],
+    ['a line break and a command after it', `${SHA}\n/worfy:ship-ticket e 07`],
+    ['not hex', `${SHA.slice(0, 39)}g`],
+    ['empty', ''],
+  ])('refuses a head %s', (_what, sha) => {
+    expect(renderTemplate('/worfy:pr-fix checks {repo}#{pr} {sha}', { repo: 'owner/web', pr: '118', sha }, 'fixChecks')).toEqual({ ok: false, error: '{sha} is not a commit hash of 40 hex characters' })
+  })
+
+  it('has no value without a head', () => {
+    expect(renderTemplate('{sha}', { repo: 'owner/web', pr: '118' }, 'fixChecks')).toEqual({ ok: false, error: '{sha} has no value in Fix checks' })
+  })
+})
+
+describe('prFollowState (worfy-pr-follow ticket 01)', () => {
+  const row = (over: Partial<PrFollowRow> = {}): PrFollowRow => ({ author: 'dev-me', headRefOid: SHA, ci: 'failing', reviewDecision: null, mergeStateStatus: 'CLEAN', threads: [], isCrossRepository: false, ...over })
+  const state = (template: string, over: Partial<PrFollowRow> = {}) => prFollowState({ action: 'fixChecks', template, repo: 'owner/web', pr: 118, row: row(over), viewer: 'dev-me' })
+
+  it('fills the Project\'s template with the PR and its head, trimmed', () => {
+    expect(state(defaultActionTemplates('plugin').fixChecks)).toEqual({ enabled: true, text: `/worfy:pr-fix checks owner/web#118 ${SHA}` })
+    expect(state('  Fix {repo}#{pr} at {sha}  ')).toEqual({ enabled: true, text: `Fix owner/web#118 at ${SHA}` })
+  })
+
+  it('refuses an empty template with the hint where to set it', () => {
+    expect(state('')).toEqual({ enabled: false, reason: 'Set the Fix checks template in Project settings' })
+    expect(state('   ')).toEqual({ enabled: false, reason: 'Set the Fix checks template in Project settings' })
+    expect(state(defaultActionTemplates('legacy').fixChecks)).toEqual({ enabled: false, reason: 'Set the Fix checks template in Project settings' })
+  })
+
+  it('refuses a template with a placeholder the action has no value for, and a head that is not a commit hash', () => {
+    expect(state('/worfy:pr-fix {epic}')).toEqual({ enabled: false, reason: '{epic} has no value in Fix checks' })
+    expect(state('{sha}', { headRefOid: 'abc' })).toEqual({ enabled: false, reason: '{sha} is not a commit hash of 40 hex characters' })
+    expect(state('{sha}', { headRefOid: null })).toEqual({ enabled: false, reason: '{sha} has no value in Fix checks' })
+  })
+
+  it('takes the verdict of the PR before the template: a reason gone is said even with an empty template', () => {
+    expect(state('', { ci: 'passing' })).toEqual({ enabled: false, reason: 'CI is no longer failing on 3f2a9c1' })
   })
 })

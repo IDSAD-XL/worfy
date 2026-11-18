@@ -12,11 +12,14 @@
 //   {branch}  the branch checked out in the Project's root
 //   {tickets} the Tickets of the ready Wave, two digits at least, by number: `11, 23, 25, 27`
 //   {repo}    the repository of the pull request of "Draft replies", `owner/name` (worfy-pr-inbox ticket 04)
-//   {pr}      the number of that pull request
+//   {pr}      the number of that pull request (of "Fix checks", "Resolve conflicts" and "Address comments" too)
+//   {sha}     the head commit of the pull request of those three as worfy read it, 40 hex characters and nothing
+//             else (worfy-pr-follow ticket 01): the text goes to a Session in bypassPermissions, as {repo} does
 //
 // A placeholder the action has no value for (`{NN}` in "Run wave") fails the render rather than
 // turning into an empty string: the agent would get a command with a hole in it.
-import { ACTION_LABELS, AUTOPILOT_TEMPLATE_HINT, isActionConfigured, namesWaveTickets, PLACEHOLDERS, unknownPlaceholders, type Action, type Placeholder } from '../projects/action-templates'
+import { ACTION_LABELS, AUTOPILOT_TEMPLATE_HINT, isActionConfigured, namesWaveTickets, PLACEHOLDERS, unknownPlaceholders, type Action, type Placeholder, type PrFollowAction } from '../projects/action-templates'
+import { prFollowBlock, type PrFollowRow } from './pr-follow'
 import type { Ticket } from '../workflow/types'
 import { doneOnlyInBranch, inWork, readyWave, waveNumbers, type SkippedTicket } from '../workflow/waves'
 
@@ -27,6 +30,9 @@ export type RenderResult = { ok: true; text: string } | { ok: false; error: stri
 
 const KNOWN = new Set<string>(PLACEHOLDERS)
 
+/** A commit hash as `{sha}` takes it: 40 hex characters, no space, no line break, nothing around them. */
+const SHA = /^[0-9a-fA-F]{40}$/
+
 /** Fills every `{name}` of the template; any unknown name or name without a value fails the render. */
 export function renderTemplate(template: string, values: TemplateValues, action?: Action): RenderResult {
   const unknown = unknownPlaceholders(template)
@@ -36,6 +42,7 @@ export function renderTemplate(template: string, values: TemplateValues, action?
     const where = action === undefined ? '' : ` in ${ACTION_LABELS[action]}`
     return { ok: false, error: `${missing.map((name) => `{${name}}`).join(', ')} has no value${where}` }
   }
+  if (values.sha !== undefined && !SHA.test(values.sha)) return { ok: false, error: '{sha} is not a commit hash of 40 hex characters' }
   return { ok: true, text: template.replace(/\{([^{}]*)\}/g, (_match, name: string) => values[name as Placeholder]!) }
 }
 
@@ -153,6 +160,23 @@ export function prReplyState(input: { template: string; repo: string; pr: number
   const { template, repo, pr } = input
   if (!isActionConfigured(template)) return { enabled: false, reason: emptyTemplateHint('prReply') }
   const rendered = renderTemplate(template, { repo, pr: String(pr) }, 'prReply')
+  return rendered.ok ? { enabled: true, text: rendered.text.trim() } : { enabled: false, reason: rendered.error }
+}
+
+/**
+ * "Fix checks", "Resolve conflicts" or "Address comments" on one pull request (worfy-pr-follow ticket 01): the
+ * Project's template with {repo}, {pr} and {sha} — the head of `row` — trimmed. Refused, with the reason, when the
+ * PR may not be followed or the action's reason is gone (prFollowBlock: `row` undefined is a PR that is closed or
+ * no longer in the PR inbox), when the template is empty, or when it does not render (a head that is not a commit
+ * hash among them). `viewer`: the login the PR inbox reads as.
+ */
+export function prFollowState(input: { action: PrFollowAction; template: string; repo: string; pr: number; row: PrFollowRow | undefined; viewer: string | null }): ActionState {
+  const { action, template, repo, pr, row, viewer } = input
+  const blocked = prFollowBlock(action, { repo, pr }, row, viewer)
+  if (blocked !== null) return { enabled: false, reason: blocked }
+  if (!isActionConfigured(template)) return { enabled: false, reason: emptyTemplateHint(action) }
+  const sha = row?.headRefOid ?? undefined
+  const rendered = renderTemplate(template, { repo, pr: String(pr), ...(sha === undefined ? {} : { sha }) }, action)
   return rendered.ok ? { enabled: true, text: rendered.text.trim() } : { enabled: false, reason: rendered.error }
 }
 

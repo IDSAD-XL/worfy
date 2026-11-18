@@ -306,6 +306,8 @@ describe('the read-or-write mark of `project` channels', () => {
   const WRITE_CALLS = [
     // Sends the "Process gate queue" template into the Orchestrator, as Run wave (worfy-windows ticket 17).
     'actions.gateQueue',
+    // Sends the Fix checks, Resolve conflicts or Address comments template to a Session, as Draft replies (worfy-pr-follow ticket 01).
+    'actions.prFollow',
     'actions.prReply',
     'actions.runWave',
     'actions.shipTicket',

@@ -1,6 +1,7 @@
 // The `actions` domain (ticket 23): "Ship ticket" and "Run wave" from the Canvas, "Process gate
-// queue" from the palette and the Project menu (worfy-windows ticket 17), and "Draft replies" on a pull
-// request (worfy-pr-inbox ticket 04). worfy starts the
+// queue" from the palette and the Project menu (worfy-windows ticket 17), "Draft replies" on a pull
+// request (worfy-pr-inbox ticket 04), and "Fix checks", "Resolve conflicts" and "Address comments" on a pull
+// request (worfy-pr-follow ticket 01). worfy starts the
 // work with the same skills the terminal does and never writes a Ticket's status itself (ADR 0002):
 // main reads the Project's action template, fills it in (src/shared/actions/render-template.ts)
 // and sends the text — to a new Session in the Project's root, or to the Project's Orchestrator.
@@ -8,6 +9,7 @@
 // no channel of its own: it is `shell.openExternal`.
 import { z } from 'zod'
 import { epicNameSchema, ticketNumSchema } from '../binding/resolve'
+import { PR_FOLLOW_ACTIONS } from '../projects/action-templates'
 import { eventChannel, invokeChannel } from './channels'
 
 const projectId = z.string().min(1)
@@ -103,6 +105,37 @@ export const actionsPrReply = invokeChannel(
 )
 
 /**
+ * "Fix checks", "Resolve conflicts" and "Address comments" (worfy-pr-follow ticket 01): the Project's template of
+ * `action` filled in with the pull request and its head (`/worfy:pr-fix checks {repo}#{pr} {sha}` by default) goes to
+ * a Session of the Project on Claude Code. Main reads the PR again first (PrInbox.refresh), so `{sha}` is the head of
+ * that read and a reason gone meanwhile refuses the click. The Session is, in this order:
+ *
+ * 1. the Session Node bound (manual or launch) to the PR's Ticket, on Claude Code, not archived, whose transcript's
+ *    last record is younger than 24 hours: continued when no process runs (NodeSessions.started), the text sent to it
+ *    — `sent`, or `queued` while a turn runs — with a notice line only the user sees;
+ * 2. else a new Session Node (`new`), at `near` as "Ship ticket" puts one, bound by launch to the PR's Ticket when
+ *    it has one.
+ *
+ * Refused, with the reason, when the template is empty, Autopilot runs in the Project, the Project's Orchestrator is
+ * busy with a Binding to the Epic of the PR's Ticket (its Wave fixes its own PRs), the PR is not the user's, comes
+ * from a fork or is closed, or the action's reason is gone. `write`: a Linked machine with read-only access is refused.
+ */
+export const actionsPrFollow = invokeChannel(
+  'actions.prFollow',
+  z.object({ projectId, repo: githubRepoSchema, pr: z.number().int().positive(), action: z.enum(PR_FOLLOW_ACTIONS), near: canvasSpot.optional() }),
+  z.object({
+    /** The Session Node the text went to. */
+    nodeId: z.string().min(1),
+    sessionId: z.string().min(1),
+    text: z.string().min(1),
+    /** `sent` and `queued`: to the Ticket's Session, at once or into its queue; `new`: a new Session Node's first message. */
+    delivery: z.enum(['sent', 'queued', 'new']),
+  }),
+  'project',
+  'write',
+)
+
+/**
  * The Tickets of a Project that "Ship ticket" has a live Session for. Main keeps them from the
  * launch until that Session closes: the Ticket stays open until the launched agent runs
  * `ticket claim`, and a second launch meanwhile would put two agents on one Ticket. `revision`
@@ -126,6 +159,7 @@ declare module './channels' {
     'actions.runWave': typeof actionsRunWave
     'actions.gateQueue': typeof actionsGateQueue
     'actions.prReply': typeof actionsPrReply
+    'actions.prFollow': typeof actionsPrFollow
     'actions.launches': typeof actionsLaunches
     'actions.launches.changed': typeof actionsLaunchesChanged
   }

@@ -98,7 +98,7 @@ beforeEach(() => {
   main.readOnly = null
   main.projects = { projects: [{ id: PROJECT.id, path: PROJECT.path }], activeId: PROJECT.id }
   main.answers = {
-    'projects.settings.get': { ok: true, value: { actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '' } } },
+    'projects.settings.get': { ok: true, value: { actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' } } },
     'terminal.shells': { ok: true, value: [] },
     'projects.reviewer.get': { ok: true, value: { status: 'none' } },
     'profileEdit.read': { ok: true, value: READ },

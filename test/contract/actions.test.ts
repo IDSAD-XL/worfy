@@ -4,13 +4,17 @@
 // gets only the contract's keys back.
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, describe, expect, expectTypeOf, it } from 'vitest'
-import { ActionLauncher, GATE_QUEUE_AUTOPILOT_HINT, gateQueueRoleHint, type LaunchDeps } from '../../src/main/actions/launch'
+import { ActionLauncher, FOLLOW_SESSION_MS, GATE_QUEUE_AUTOPILOT_HINT, gateQueueRoleHint, PR_FOLLOW_AUTOPILOT_HINT, prFollowWaveHint, type FollowSession, type LaunchDeps } from '../../src/main/actions/launch'
 import type { AutopilotDeps } from '../../src/main/autopilot/run'
 import { actionsHandlers } from '../../src/main/ipc/actions'
 import { appUrlMatcher, emit, registerIpc } from '../../src/main/ipc/index'
 import { createLinkIpc, LinkPeer, readOnlyRefusal } from '../../src/main/link/ipc-adapter'
 import { actionsLaunchesChanged } from '../../src/shared/ipc/actions'
+import type { ManualBinding } from '../../src/shared/ipc/bindings'
 import type { AccessLevel } from '../../src/shared/ipc/link'
+import type { PrInboxRow } from '../../src/shared/ipc/pr-inbox'
+import type { LayoutNode } from '../../src/shared/layout/types'
+import type { Ticket } from '../../src/shared/workflow/types'
 import { defaultActionTemplates, type HarnessKind } from '../../src/shared/projects/action-templates'
 import { failureReason, handlerFailure, IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL, INDEX_HTML } from '../app-url'
@@ -37,6 +41,10 @@ async function register(options: { devServerUrl?: string } = {}) {
     prReply: (...args: [string, string, number]) => {
       calls.push(['prReply', ...args])
       return { nodeId: 'n2', sessionId: 'pending-2', text: '/worfy:pr-reply example-org/app#118', cwd: '/secret' }
+    },
+    prFollow: async (...args: [string, string, number, string, { x: number; y: number }?]) => {
+      calls.push(['prFollow', ...args])
+      return { nodeId: 'n3', sessionId: 'live-3', text: '/worfy:pr-fix checks example-org/app#118 ' + 'a'.repeat(40), delivery: 'new' as const, cwd: '/secret' }
     },
     launched: (projectId: string) => {
       calls.push(['launched', projectId])
@@ -367,6 +375,7 @@ describe('actions.prReply (worfy-pr-inbox ticket 04)', () => {
         runWave: async () => { throw new Error('not here') },
         gateQueue: async () => { throw new Error('not here') },
         launched: () => { throw new Error('not here') },
+        prFollow: async () => { throw new Error('not here') },
         prReply: (...args: [string, string, number]) => {
           calls.push(args)
           return { nodeId: 'n2', sessionId: 'pending-2', text: '/worfy:pr-reply example-org/app#118' }
@@ -392,6 +401,352 @@ describe('actions.prReply (worfy-pr-inbox ticket 04)', () => {
       const result = await call({ projectId: 'p', repo: 'example-org/app', pr: 118 })
       expect(result).toStrictEqual({ ok: true, value: { nodeId: 'n2', sessionId: 'pending-2', text: '/worfy:pr-reply example-org/app#118' } })
       expect(calls).toStrictEqual([['p', 'example-org/app', 118]])
+    })
+  })
+})
+
+describe('actions.prFollow (worfy-pr-follow ticket 01)', () => {
+  const SHA = 'a'.repeat(40)
+
+  it('passes only the Project, the PR, the action and the spot, and answers only the contract keys', async () => {
+    const { invoke, calls } = await register()
+    const result = await invoke('actions.prFollow', { projectId: 'p', repo: 'example-org/app', pr: 118, action: 'fixChecks', text: '/rm -rf', sha: 'x' })
+    expect(result).toStrictEqual({ ok: true, value: { nodeId: 'n3', sessionId: 'live-3', text: `/worfy:pr-fix checks example-org/app#118 ${SHA}`, delivery: 'new' } })
+    expect(calls).toStrictEqual([['prFollow', 'p', 'example-org/app', 118, 'fixChecks']])
+    await invoke('actions.prFollow', { projectId: 'p', repo: 'example-org/app', pr: 118, action: 'resolveConflicts', near: { x: 10, y: 20 } })
+    expect(calls[1]).toStrictEqual(['prFollow', 'p', 'example-org/app', 118, 'resolveConflicts', { x: 10, y: 20 }])
+  })
+
+  it.each([
+    { projectId: 'p', repo: 'example-org/app', pr: 118, action: 'prReply' },
+    { projectId: 'p', repo: 'example-org/app', pr: 118, action: 'shipTicket' },
+    { projectId: 'p', repo: 'example-org/app', pr: 118 },
+    { projectId: 'p', repo: 'example-org/app\n/worfy:ship-ticket', pr: 118, action: 'fixChecks' },
+    { projectId: 'p', repo: 'example-org/app', pr: 0, action: 'fixChecks' },
+    { projectId: 'p', repo: 'example-org/app', pr: 118, action: 'fixChecks', near: { x: 'a', y: 1 } },
+    { repo: 'example-org/app', pr: 118, action: 'fixChecks' },
+  ])('refuses %j before the launcher runs', async (input) => {
+    const { invoke, calls } = await register()
+    const result = await invoke('actions.prFollow', input)
+    expect(!result.ok && result.error).toMatch(/actions\.prFollow: invalid input/)
+    expect(calls).toEqual([])
+  })
+
+  // The real launcher behind the channel, over a fake PR inbox, Layout, Claude home, Orchestrator and Sessions.
+  const NOW = Date.parse('2026-11-18T12:00:00Z')
+  const HOUR = 60 * 60_000
+  const ME = 'dev-me'
+  const REPO = 'example-org/web'
+  const OLD_HEAD = 'b'.repeat(40)
+  const NEW_HEAD = '3f2a9c1d4e5b6a7980123456789abcdef0123456'
+  const TICKET_SDK = 'sdk-ticket-7'
+
+  const ticket = (num: number, pr: number | null): Ticket => ({
+    epic: 'shop',
+    num,
+    slug: `t${num}`,
+    title: `Ticket ${num}`,
+    statusRaw: 'work',
+    state: 'work',
+    blockedRaw: null,
+    blockedNums: [],
+    blockedParsed: true,
+    files: [],
+    filesListed: true,
+    fromBranch: null,
+    pr,
+  })
+
+  const rowOf = (over: Partial<PrInboxRow> = {}): PrInboxRow => ({
+    repo: REPO,
+    number: 118,
+    title: 'Retry on 429',
+    url: `https://github.com/${REPO}/pull/118`,
+    isDraft: false,
+    isCrossRepository: false,
+    author: ME,
+    headRefName: 'fix/retry-429',
+    headRefOid: NEW_HEAD,
+    createdAt: '2026-11-17T10:00:00Z',
+    updatedAt: '2026-11-18T10:00:00Z',
+    ci: 'failing',
+    reviewDecision: null,
+    mergeStateStatus: 'CLEAN',
+    additions: 42,
+    deletions: 7,
+    viaTeam: false,
+    unresolvedThreads: 0,
+    newSinceSeen: 0,
+    lastActivityAt: '2026-11-18T10:00:00Z',
+    threads: [],
+    comments: [],
+    ...over,
+  })
+
+  const sessionNode = (id: string, data: Record<string, unknown>, archived = false): LayoutNode => ({
+    id,
+    kind: 'session',
+    x: 0,
+    y: 0,
+    w: 340,
+    h: 220,
+    hidden: false,
+    locked: false,
+    pinned: false,
+    tags: [],
+    data: { origin: 'worfy', ...data },
+    ...(archived ? { archived: { at: NOW - HOUR, rule: 'idle' as const, batch: 'b1' } } : {}),
+  })
+
+  interface World {
+    /** The row as the fresh read finds it; undefined — the PR is closed. */
+    row?: PrInboxRow | undefined
+    /** The row the snapshot held before the click; the fresh read replaces it. */
+    before?: PrInboxRow
+    template?: string
+    nodes?: LayoutNode[]
+    lastAt?: Record<string, number>
+    stored?: ManualBinding[]
+    tickets?: Ticket[]
+    autopilot?: boolean
+    busyOrchestrator?: { sessionId: string | null } | null
+    /** What the Ticket's Session answers to send: `sent`, or `queued` while a turn runs. */
+    turn?: boolean
+    /** The Ticket's Session runs no process: started() resumes it first. */
+    noProcess?: boolean
+  }
+
+  const launchBinding = (sessionId: string, num = 7): ManualBinding => ({ sessionId, agentId: null, target: { kind: 'ticket', epic: 'shop', num }, source: 'launch' })
+
+  async function withLauncher(world: World = {}) {
+    const log: string[] = []
+    const created: unknown[][] = []
+    const launches: unknown[][] = []
+    const notices: string[] = []
+    let snapshotRow = 'before' in world ? world.before : rowOf({ headRefOid: OLD_HEAD })
+    const fresh = 'row' in world ? world.row : rowOf()
+    const ticketSession = (nodeId: string): FollowSession => ({
+      id: `live-${nodeId}`,
+      send: (text: string) => {
+        log.push(`send ${nodeId}: ${text}`)
+        return world.turn === true ? 'queued' : 'sent'
+      },
+      notice: (text: string) => {
+        notices.push(text)
+      },
+    })
+    const deps: LaunchDeps = {
+      projectRoot: (projectId) => {
+        if (projectId !== 'p') throw new Error(`no Project ${projectId}`)
+        return '/repo'
+      },
+      settings: () => ({ actionTemplates: { ...defaultActionTemplates('plugin'), ...(world.template === undefined ? {} : { fixChecks: world.template }) } }),
+      branch: async () => 'main',
+      workflow: async (root) => ({ root, epics: [], tickets: world.tickets ?? [ticket(7, 118), ticket(8, null)], error: null, branchErrors: [] }),
+      sessions: {
+        create: (projectId, near, vendor) => {
+          created.push([projectId, near, vendor])
+          return { projectId, nodeId: 'node-new', vendor, sessionId: 'starting-node-new', sdkSessionId: null, state: 'starting', error: null, cwd: '/repo', model: null, version: 1 }
+        },
+      },
+      orchestrators: { open: async () => { throw new Error('the Orchestrator is not for pull request actions') } },
+      registry: {
+        get: (sessionId) => ({
+          send: (text: string) => (log.push(`send ${sessionId}: ${text}`), 'sent' as const),
+          sdkId: 'sdk-new',
+          state: 'idle' as const,
+        }),
+      },
+      bindings: { setLaunch: (projectId, agent, target) => launches.push([projectId, agent, target]) },
+      now: () => NOW,
+      pollMs: 1,
+      prFollow: {
+        pull: async (projectId, repo, pr) => {
+          log.push(`pull ${projectId} ${repo}#${pr}`)
+          // PrInbox.refresh, then the row in the snapshot: the fresh read replaces what the last search held.
+          snapshotRow = fresh
+          return { row: snapshotRow, viewer: ME }
+        },
+        nodes: () => world.nodes ?? [sessionNode('node-7', { vendor: 'claude', sessionId: TICKET_SDK })],
+        lastAt: async (_projectId, sessionIds) => {
+          const times = world.lastAt ?? { [TICKET_SDK]: NOW - 23 * HOUR }
+          return new Map(sessionIds.flatMap((id) => (times[id] === undefined ? [] : [[id, times[id]] as const])))
+        },
+        stored: () => world.stored ?? [launchBinding(TICKET_SDK)],
+        busyOrchestrator: async () => world.busyOrchestrator ?? null,
+        started: async (_projectId, nodeId) => {
+          // NodeSessions.started: a Node with no process is resumed by its transcript before its live Session answers.
+          if (world.noProcess === true) {
+            await new Promise((done) => setTimeout(done, 5))
+            log.push(`resumed ${nodeId}`)
+          }
+          log.push(`started ${nodeId}`)
+          return ticketSession(nodeId)
+        },
+      },
+    }
+    const launcher = new ActionLauncher(deps)
+    if (world.autopilot === true) launcher.attachAutopilot({ running: () => true })
+    const handlers = new Map<string, Listener>()
+    await registerIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener as Listener) },
+      { modules: { './actions.ts': async () => actionsHandlers(() => launcher) }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) },
+    )
+    const listener = handlers.get(`${IPC_CHANNEL_PREFIX}actions.prFollow`)!
+    const call = async (input: Record<string, unknown> = {}) =>
+      (await listener({ senderFrame: { url: APP_URL }, sender: {} } as unknown as IpcMainInvokeEvent, { projectId: 'p', repo: REPO, pr: 118, action: 'fixChecks', ...input })) as IpcResult<unknown>
+    const reason = (result: IpcResult<unknown>): string => (result.ok ? 'not refused' : failureReason('actions.prFollow', result.error))
+    return { call, reason, log, created, launches, notices, launcher }
+  }
+
+  const TEXT = `/worfy:pr-fix checks ${REPO}#118 ${NEW_HEAD}`
+
+  describe('the Session Node bound to the PR\'s Ticket, its transcript younger than 24 hours', () => {
+    it('takes the text at once (`sent`), with a notice line, and no Session Node is created', async () => {
+      const { call, log, created, notices } = await withLauncher()
+      const result = await call()
+      expect(result).toStrictEqual({ ok: true, value: { nodeId: 'node-7', sessionId: 'live-node-7', text: TEXT, delivery: 'sent' } })
+      expect(log).toEqual([`pull p ${REPO}#118`, 'started node-7', `send node-7: ${TEXT}`])
+      expect(notices).toEqual([`worfy: Fix checks for ${REPO}#118 sent to this Session`])
+      expect(created).toEqual([])
+    })
+
+    it('takes it into its queue while a turn runs (`queued`)', async () => {
+      const { call, notices } = await withLauncher({ turn: true })
+      const result = await call()
+      expect(result).toMatchObject({ ok: true, value: { nodeId: 'node-7', delivery: 'queued' } })
+      expect(notices).toEqual([`worfy: Fix checks for ${REPO}#118 queued in this Session`])
+    })
+
+    it('without a process is continued by NodeSessions.started first, then gets the text', async () => {
+      const { call, log, created } = await withLauncher({ noProcess: true })
+      const result = await call()
+      expect(result).toMatchObject({ ok: true, value: { nodeId: 'node-7', delivery: 'sent' } })
+      expect(log).toEqual([`pull p ${REPO}#118`, 'resumed node-7', 'started node-7', `send node-7: ${TEXT}`])
+      expect(created).toEqual([])
+    })
+
+    it('is found by a manual Binding too, and a manual Binding to another Ticket wins over a launch one', async () => {
+      const manual: ManualBinding = { sessionId: TICKET_SDK, agentId: null, target: { kind: 'ticket', epic: 'shop', num: 7 } }
+      expect(await (await withLauncher({ stored: [manual] })).call()).toMatchObject({ ok: true, value: { nodeId: 'node-7', delivery: 'sent' } })
+      const elsewhere: ManualBinding = { sessionId: TICKET_SDK, agentId: null, target: { kind: 'ticket', epic: 'shop', num: 8 } }
+      expect(await (await withLauncher({ stored: [elsewhere, launchBinding(TICKET_SDK)] })).call()).toMatchObject({ ok: true, value: { delivery: 'new' } })
+    })
+
+    it('of several, the one with the newest transcript record', async () => {
+      const nodes = [sessionNode('node-a', { vendor: 'claude', sessionId: 'sdk-a' }), sessionNode('node-b', { sessionId: 'sdk-b' })]
+      const { call } = await withLauncher({ nodes, stored: [launchBinding('sdk-a'), launchBinding('sdk-b')], lastAt: { 'sdk-a': NOW - 5 * HOUR, 'sdk-b': NOW - HOUR } })
+      // A Node saved before Vendors were kept is Claude Code's.
+      expect(await call()).toMatchObject({ ok: true, value: { nodeId: 'node-b' } })
+    })
+  })
+
+  describe('a new Session Node on Claude Code, bound by launch to the PR\'s Ticket', () => {
+    it.each([
+      ['the Ticket\'s Session is older than 24 hours', { lastAt: { [TICKET_SDK]: NOW - 25 * HOUR } }],
+      ['exactly 24 hours old', { lastAt: { [TICKET_SDK]: NOW - FOLLOW_SESSION_MS } }],
+      ['its transcript tells no time', { lastAt: {} }],
+      ['it runs on Codex', { nodes: [sessionNode('node-7', { vendor: 'codex', sessionId: TICKET_SDK })] }],
+      ['it is archived', { nodes: [sessionNode('node-7', { vendor: 'claude', sessionId: TICKET_SDK }, true)] }],
+      ['it has not reported its session yet', { nodes: [sessionNode('node-7', { vendor: 'claude' })] }],
+      ['no Session is bound to the Ticket', { stored: [] }],
+    ])('when %s', async (_what, world) => {
+      const { call, log, created, launches, notices, launcher } = await withLauncher(world)
+      const result = await call({ near: { x: 100, y: 40 } })
+      expect(result).toStrictEqual({ ok: true, value: { nodeId: 'node-new', sessionId: 'starting-node-new', text: TEXT, delivery: 'new' } })
+      expect(created).toStrictEqual([['p', { x: 100, y: 40 }, 'claude']])
+      expect(log).toContain(`send starting-node-new: ${TEXT}`)
+      expect(log.some((line) => line.startsWith('started'))).toBe(false)
+      expect(notices).toEqual([])
+      await launcher.idle()
+      expect(launches).toStrictEqual([['p', { sessionId: 'sdk-new', agentId: null }, { kind: 'ticket', epic: 'shop', num: 7 }]])
+    })
+
+    it('unbound when no Ticket names the PR', async () => {
+      const { call, launches, launcher } = await withLauncher({ tickets: [ticket(8, null)] })
+      expect(await call()).toMatchObject({ ok: true, value: { delivery: 'new' } })
+      await launcher.idle()
+      expect(launches).toEqual([])
+    })
+
+    it('finds the Ticket by the PR\'s branch when its header has no PR line', async () => {
+      const { call, launches, launcher } = await withLauncher({ tickets: [{ ...ticket(9, null), branch: 'fix/retry-429' }], stored: [] })
+      expect(await call()).toMatchObject({ ok: true, value: { delivery: 'new' } })
+      await launcher.idle()
+      expect(launches).toStrictEqual([['p', { sessionId: 'sdk-new', agentId: null }, { kind: 'ticket', epic: 'shop', num: 9 }]])
+    })
+  })
+
+  it('fills {sha} with the head of the fresh read, not the head of the last snapshot', async () => {
+    const { call, log } = await withLauncher({ before: rowOf({ headRefOid: OLD_HEAD }), row: rowOf({ headRefOid: NEW_HEAD }) })
+    const result = await call()
+    expect(result).toMatchObject({ ok: true, value: { text: TEXT } })
+    expect(log.join('\n')).not.toContain(OLD_HEAD)
+  })
+
+  describe('refused with the reason, nothing sent and no Session created', () => {
+    it.each<[string, World, string]>([
+      ['while Autopilot runs in the Project', { autopilot: true }, PR_FOLLOW_AUTOPILOT_HINT],
+      ['while the Orchestrator bound to the Epic of the PR\'s Ticket is busy', { busyOrchestrator: { sessionId: 'sdk-orch' }, stored: [launchBinding(TICKET_SDK), { sessionId: 'sdk-orch', agentId: null, target: { kind: 'epic', epic: 'shop' }, source: 'launch' }] }, prFollowWaveHint('shop')],
+      ['for a PR from a fork', { row: rowOf({ isCrossRepository: true }) }, `${REPO}#118 comes from a fork: a Session cannot push to it`],
+      ['for a PR that is not the user\'s', { row: rowOf({ author: 'dev-peer' }) }, `${REPO}#118 is not your pull request`],
+      ['for a PR closed meanwhile', { row: undefined }, `${REPO}#118 is closed or no longer in the PR inbox`],
+      ['when CI is no longer failing on the fresh head', { row: rowOf({ ci: 'passing' }) }, 'CI is no longer failing on 3f2a9c1'],
+      ['for an empty template', { template: '' }, 'Set the Fix checks template in Project settings'],
+    ])('%s', async (_what, world, expected) => {
+      const { call, reason, log, created, notices } = await withLauncher(world)
+      expect(reason(await call())).toBe(expected)
+      expect(log.filter((line) => line.startsWith('send') || line.startsWith('started'))).toEqual([])
+      expect(created).toEqual([])
+      expect(notices).toEqual([])
+    })
+
+    it('but not while the busy Orchestrator is bound to another Epic, or the Orchestrator is idle', async () => {
+      const other: ManualBinding = { sessionId: 'sdk-orch', agentId: null, target: { kind: 'epic', epic: 'other' }, source: 'launch' }
+      expect(await (await withLauncher({ busyOrchestrator: { sessionId: 'sdk-orch' }, stored: [launchBinding(TICKET_SDK), other] })).call()).toMatchObject({ ok: true, value: { delivery: 'sent' } })
+      expect(await (await withLauncher({ busyOrchestrator: null })).call()).toMatchObject({ ok: true, value: { delivery: 'sent' } })
+    })
+  })
+
+  describe('from a Linked machine', () => {
+    const peers: LinkPeer[] = []
+    afterEach(() => {
+      for (const peer of peers.splice(0)) peer.close()
+    })
+
+    async function linked(level: AccessLevel) {
+      const calls: unknown[][] = []
+      const launcher = {
+        shipTicket: async () => { throw new Error('not here') },
+        runWave: async () => { throw new Error('not here') },
+        gateQueue: async () => { throw new Error('not here') },
+        launched: () => { throw new Error('not here') },
+        prReply: () => { throw new Error('not here') },
+        prFollow: async (...args: [string, string, number, string]) => {
+          calls.push(args)
+          return { nodeId: 'n3', sessionId: 'live-3', text: TEXT, delivery: 'new' as const }
+        },
+      }
+      const adapter = await createLinkIpc({ modules: { './actions.ts': async () => actionsHandlers(() => launcher) }, isLinked: () => true })
+      const peer = new LinkPeer({ machineId: 'mac', describe: () => 'mac', push: () => undefined, local: () => ({ id: 'here', name: 'Studio', protocol: 1, build: 'test' }), warn: () => undefined })
+      peer.setAccess(level)
+      peers.push(peer)
+      return { calls, call: (input: unknown) => adapter.call(peer, 'actions.prFollow', input, 'Studio') }
+    }
+
+    it('with read-only access is refused before the launcher runs', async () => {
+      const { call, calls } = await linked('read')
+      const result = await call({ projectId: 'p', repo: REPO, pr: 118, action: 'fixChecks' })
+      expect(result.ok).toBe(false)
+      expect(!result.ok && result.error).toContain(readOnlyRefusal('Studio'))
+      expect(calls).toEqual([])
+    })
+
+    it('with full access runs it, as a window of this machine does', async () => {
+      const { call, calls } = await linked('all')
+      const result = await call({ projectId: 'p', repo: REPO, pr: 118, action: 'fixChecks' })
+      expect(result).toStrictEqual({ ok: true, value: { nodeId: 'n3', sessionId: 'live-3', text: TEXT, delivery: 'new' } })
+      expect(calls).toStrictEqual([['p', REPO, 118, 'fixChecks']])
     })
   })
 })
