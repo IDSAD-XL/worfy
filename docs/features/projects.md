@@ -341,8 +341,8 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
   pr-fix: `/worfy:pr-fix checks {repo}#{pr} {sha}`, `/worfy:pr-fix conflicts {repo}#{pr} {sha}` and
   `/worfy:pr-fix comments {repo}#{pr} {sha}` with the plugin, empty with the old Harness. `{sha}` is the head commit of
   the pull request, exactly 40 hex characters; anything else refuses the action. On a click worfy reads the pull request
-  again and takes its head from that read. If the account waits for its GitHub rate limit, the read is skipped and the
-  head is the last one read; the skill checks the head itself. The click is refused, with the reason, when the template
+  again and takes its head from that read. If the account waits for its GitHub rate limit, or the read fails (the network,
+  an error of GitHub), the row and its head are the last ones read; the skill checks the head itself. The click is refused, with the reason, when the template
   is empty, Autopilot runs in the Project, the Project's Orchestrator is busy with a Binding to the Epic of the pull
   request's Ticket (its Wave fixes its own pull requests), the pull request is not the user's, comes from a fork or is
   closed, its reason is gone (`CI is no longer failing on 3f2a9c1`), or the screen is read-only. The text goes to the

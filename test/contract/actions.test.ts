@@ -6,13 +6,13 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, describe, expect, expectTypeOf, it } from 'vitest'
 import { ActionLauncher, FOLLOW_SESSION_MS, GATE_QUEUE_AUTOPILOT_HINT, gateQueueRoleHint, PR_FOLLOW_AUTOPILOT_HINT, prFollowWaveHint, type FollowSession, type LaunchDeps } from '../../src/main/actions/launch'
 import type { AutopilotDeps } from '../../src/main/autopilot/run'
-import { actionsHandlers } from '../../src/main/ipc/actions'
+import { actionsHandlers, prInboxPull } from '../../src/main/ipc/actions'
 import { appUrlMatcher, emit, registerIpc } from '../../src/main/ipc/index'
 import { createLinkIpc, LinkPeer, readOnlyRefusal } from '../../src/main/link/ipc-adapter'
 import { actionsLaunchesChanged } from '../../src/shared/ipc/actions'
 import type { ManualBinding } from '../../src/shared/ipc/bindings'
 import type { AccessLevel } from '../../src/shared/ipc/link'
-import type { PrInboxRow } from '../../src/shared/ipc/pr-inbox'
+import type { PrInboxRow, PrInboxSnapshot } from '../../src/shared/ipc/pr-inbox'
 import type { LayoutNode } from '../../src/shared/layout/types'
 import type { Ticket } from '../../src/shared/workflow/types'
 import { defaultActionTemplates, type HarnessKind } from '../../src/shared/projects/action-templates'
@@ -514,6 +514,10 @@ describe('actions.prFollow (worfy-pr-follow ticket 01)', () => {
     turn?: boolean
     /** The Ticket's Session runs no process: started() resumes it first. */
     noProcess?: boolean
+    /** started() rejects: the Ticket's Session did not start again. */
+    startedFails?: boolean
+    /** The new Session reports its session id only when the test says so (`report()`). */
+    sdkLater?: boolean
   }
 
   const launchBinding = (sessionId: string, num = 7): ManualBinding => ({ sessionId, agentId: null, target: { kind: 'ticket', epic: 'shop', num }, source: 'launch' })
@@ -535,6 +539,15 @@ describe('actions.prFollow (worfy-pr-follow ticket 01)', () => {
         notices.push(text)
       },
     })
+    // The live Session of the new Session Node: its id comes at once, or when the test calls report().
+    const fresh_session = {
+      send: (text: string) => (log.push(`send starting-node-new: ${text}`), 'sent' as const),
+      sdkId: world.sdkLater === true ? null : 'sdk-new',
+      state: 'idle' as const,
+    } as { send(text: string): 'sent'; sdkId: string | null; state: 'idle' }
+    const report = () => {
+      fresh_session.sdkId = 'sdk-new'
+    }
     const deps: LaunchDeps = {
       projectRoot: (projectId) => {
         if (projectId !== 'p') throw new Error(`no Project ${projectId}`)
@@ -550,13 +563,7 @@ describe('actions.prFollow (worfy-pr-follow ticket 01)', () => {
         },
       },
       orchestrators: { open: async () => { throw new Error('the Orchestrator is not for pull request actions') } },
-      registry: {
-        get: (sessionId) => ({
-          send: (text: string) => (log.push(`send ${sessionId}: ${text}`), 'sent' as const),
-          sdkId: 'sdk-new',
-          state: 'idle' as const,
-        }),
-      },
+      registry: { get: () => fresh_session },
       bindings: { setLaunch: (projectId, agent, target) => launches.push([projectId, agent, target]) },
       now: () => NOW,
       pollMs: 1,
@@ -575,6 +582,10 @@ describe('actions.prFollow (worfy-pr-follow ticket 01)', () => {
         stored: () => world.stored ?? [launchBinding(TICKET_SDK)],
         busyOrchestrator: async () => world.busyOrchestrator ?? null,
         started: async (_projectId, nodeId) => {
+          if (world.startedFails === true) {
+            log.push(`not started ${nodeId}`)
+            throw new Error(`The Session of ${nodeId} did not start`)
+          }
           // NodeSessions.started: a Node with no process is resumed by its transcript before its live Session answers.
           if (world.noProcess === true) {
             await new Promise((done) => setTimeout(done, 5))
@@ -596,7 +607,7 @@ describe('actions.prFollow (worfy-pr-follow ticket 01)', () => {
     const call = async (input: Record<string, unknown> = {}) =>
       (await listener({ senderFrame: { url: APP_URL }, sender: {} } as unknown as IpcMainInvokeEvent, { projectId: 'p', repo: REPO, pr: 118, action: 'fixChecks', ...input })) as IpcResult<unknown>
     const reason = (result: IpcResult<unknown>): string => (result.ok ? 'not refused' : failureReason('actions.prFollow', result.error))
-    return { call, reason, log, created, launches, notices, launcher }
+    return { call, reason, log, created, launches, notices, launcher, report }
   }
 
   const TEXT = `/worfy:pr-fix checks ${REPO}#118 ${NEW_HEAD}`
@@ -677,6 +688,65 @@ describe('actions.prFollow (worfy-pr-follow ticket 01)', () => {
     })
   })
 
+  it('starts a new Session Node when the Ticket\'s Session does not start again, with no notice', async () => {
+    const { call, log, created, launches, notices, launcher } = await withLauncher({ startedFails: true })
+    const result = await call()
+    expect(result).toStrictEqual({ ok: true, value: { nodeId: 'node-new', sessionId: 'starting-node-new', text: TEXT, delivery: 'new' } })
+    expect(log).toEqual([`pull p ${REPO}#118`, 'not started node-7', `send starting-node-new: ${TEXT}`])
+    expect(created).toStrictEqual([['p', undefined, 'claude']])
+    expect(notices).toEqual([])
+    await launcher.idle()
+    expect(launches).toStrictEqual([['p', { sessionId: 'sdk-new', agentId: null }, { kind: 'ticket', epic: 'shop', num: 7 }]])
+  })
+
+  it('reads no Binding of a Subagent as the Binding of its Session', async () => {
+    const subagent: ManualBinding = { sessionId: TICKET_SDK, agentId: 'a1', target: { kind: 'ticket', epic: 'shop', num: 8 } }
+    const { call } = await withLauncher({ stored: [launchBinding(TICKET_SDK), subagent] })
+    expect(await call()).toMatchObject({ ok: true, value: { nodeId: 'node-7', delivery: 'sent' } })
+  })
+
+  describe('two clicks on one PR', () => {
+    const ALREADY = `Fix checks is already starting for ${REPO}#118`
+
+    it('at once: one Session Node, the second click refused', async () => {
+      const { call, reason, created } = await withLauncher({ stored: [] })
+      const [first, second] = await Promise.all([call(), call()])
+      expect(first).toMatchObject({ ok: true, value: { delivery: 'new' } })
+      expect(reason(second)).toBe(ALREADY)
+      expect(created).toHaveLength(1)
+    })
+
+    it('while the new Session has not reported its id, so its Binding is not written: refused, another action too; once it is written, the next click passes the lock', async () => {
+      const { call, reason, created, launches, launcher, report } = await withLauncher({ stored: [], sdkLater: true })
+      expect(await call()).toMatchObject({ ok: true, value: { delivery: 'new' } })
+      expect(reason(await call())).toBe(ALREADY)
+      expect(reason(await call({ action: 'addressComments' }))).toBe(`Address comments is already starting for ${REPO}#118`)
+      expect(created).toHaveLength(1)
+      expect(launches).toEqual([])
+      report()
+      await launcher.idle()
+      expect(launches).toStrictEqual([['p', { sessionId: 'sdk-new', agentId: null }, { kind: 'ticket', epic: 'shop', num: 7 }]])
+      // The lock is off with the Binding written: the next click passes it.
+      expect(await call()).toMatchObject({ ok: true })
+    })
+
+    it('of a PR no Ticket names: the lock holds until the new Session has reported its id', async () => {
+      const { call, reason, created, report } = await withLauncher({ tickets: [], sdkLater: true })
+      expect(await call()).toMatchObject({ ok: true, value: { delivery: 'new' } })
+      expect(reason(await call())).toBe(ALREADY)
+      report()
+      await new Promise((done) => setTimeout(done, 20))
+      expect(await call()).toMatchObject({ ok: true, value: { delivery: 'new' } })
+      expect(created).toHaveLength(2)
+    })
+
+    it('a click the Ticket\'s Session takes holds no lock: the next one goes to the same Session', async () => {
+      const { call } = await withLauncher()
+      expect(await call()).toMatchObject({ ok: true, value: { nodeId: 'node-7', delivery: 'sent' } })
+      expect(await call()).toMatchObject({ ok: true, value: { nodeId: 'node-7', delivery: 'sent' } })
+    })
+  })
+
   it('fills {sha} with the head of the fresh read, not the head of the last snapshot', async () => {
     const { call, log } = await withLauncher({ before: rowOf({ headRefOid: OLD_HEAD }), row: rowOf({ headRefOid: NEW_HEAD }) })
     const result = await call()
@@ -747,6 +817,55 @@ describe('actions.prFollow (worfy-pr-follow ticket 01)', () => {
       const result = await call({ projectId: 'p', repo: REPO, pr: 118, action: 'fixChecks' })
       expect(result).toStrictEqual({ ok: true, value: { nodeId: 'n3', sessionId: 'live-3', text: TEXT, delivery: 'new' } })
       expect(calls).toStrictEqual([['p', REPO, 118, 'fixChecks']])
+    })
+  })
+
+  describe('the fresh read of the app (prInboxPull)', () => {
+    const snapshotWith = (rows: PrInboxRow[], viewer: string | null = ME): PrInboxSnapshot => ({
+      projectId: 'p',
+      enabled: true,
+      viewer,
+      groups: [{ group: 'needs-fix', rows }],
+      readAt: null,
+      nextSearchAt: null,
+      error: null,
+      notice: null,
+    })
+
+    function inboxOf(before: PrInboxRow[], after: PrInboxRow[]) {
+      const calls: string[] = []
+      let rows = before
+      const inbox = {
+        ensureRead: async (projectId: string) => {
+          calls.push(`ensureRead ${projectId}`)
+        },
+        refresh: async (repo: string, pr: number) => {
+          calls.push(`refresh ${repo}#${pr}`)
+          rows = after
+        },
+        snapshot: (projectId: string) => {
+          calls.push(`snapshot ${projectId}`)
+          return snapshotWith(rows)
+        },
+      }
+      return { calls, pull: prInboxPull(inbox) }
+    }
+
+    it('reads the PR again before it takes its row, so the head is the fresh one', async () => {
+      const { calls, pull } = inboxOf([rowOf({ headRefOid: OLD_HEAD })], [rowOf({ headRefOid: NEW_HEAD })])
+      const { row, viewer } = await pull('p', REPO, 118)
+      expect(calls).toEqual(['ensureRead p', `refresh ${REPO}#118`, 'snapshot p'])
+      expect(row?.headRefOid).toBe(NEW_HEAD)
+      expect(viewer).toBe(ME)
+    })
+
+    it('finds the row by repository, in any case, and number: a PR of another repository with the same number is not it', async () => {
+      const other = rowOf({ repo: 'example-org/api', author: 'dev-peer', isCrossRepository: true })
+      const { pull } = inboxOf([], [other, rowOf()])
+      expect((await pull('p', REPO.toUpperCase(), 118)).row).toMatchObject({ repo: REPO, number: 118, author: ME, isCrossRepository: false })
+      expect((await pull('p', REPO, 119)).row).toBeUndefined()
+      const { pull: onlyOther } = inboxOf([], [other])
+      expect((await onlyOther('p', REPO, 118)).row).toBeUndefined()
     })
   })
 })

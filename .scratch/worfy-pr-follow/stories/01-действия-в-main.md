@@ -98,7 +98,7 @@ export function renderTemplate(template: string, values: TemplateValues, action?
 
 ## 4. Маршрут щелчка в main
 
-Code: `src/main/actions/launch.ts:344-388` · key lines: 345, 356, 357, 367, 369, 372, 373, 374, 380, 383
+Code: `src/main/actions/launch.ts:344-392` · key lines: 345, 352, 359, 360, 370, 372, 375, 376, 377, 383, 386, 390
 
 ```ts
   async prFollow(projectId: string, repo: string, pr: number, action: PrFollowAction, near?: CanvasSpot): Promise<PrFollowResult> {
@@ -106,9 +106,12 @@ Code: `src/main/actions/launch.ts:344-388` · key lines: 345, 356, 357, 367, 369
     const follow = this.deps.prFollow
     if (follow === undefined) throw new Error('This build cannot follow pull requests')
     const key = JSON.stringify([projectId, repo.toLowerCase(), pr])
-    // Taken before the first await: two clicks that arrive together do not start two Sessions.
+    // Taken before the first await: two clicks that arrive together do not start two Sessions. A new Session keeps it
+    // until its Binding is written (or given up): before that the route cannot find it, and a second click on the same
+    // PR would start a second Session on the same Ticket and branch.
     if (this.following.has(key)) throw new Error(`${ACTION_LABELS[action]} is already starting for ${repo}#${pr}`)
     this.following.add(key)
+    let held: Promise<void> | null = null
     try {
       const root = this.deps.projectRoot(projectId)
       const template = this.deps.settings(projectId).actionTemplates[action]
@@ -140,10 +143,11 @@ Code: `src/main/actions/launch.ts:344-388` · key lines: 345, 356, 357, 367, 369
       const view = this.deps.sessions.create(projectId, near, PR_REPLY_VENDOR)
       const session = this.deps.registry.get(view.sessionId)
       session.send(state.text)
-      if (target !== null) this.bindWhenKnown(projectId, session, target)
+      held = target === null ? this.untilKnown(session) : this.bindWhenKnown(projectId, session, target)
       return { nodeId: view.nodeId, sessionId: view.sessionId, text: state.text, delivery: 'new' }
     } finally {
-      this.following.delete(key)
+      if (held === null) this.following.delete(key)
+      else void held.finally(() => this.following.delete(key))
     }
   }
 ```
@@ -151,19 +155,21 @@ Code: `src/main/actions/launch.ts:344-388` · key lines: 345, 356, 357, 367, 369
 - Что делает: сначала отказы, где чтение не нужно: Autopilot, пустой шаблон. Затем свежее чтение PR и вердикт
   `prFollowState` по нему, так что `{sha}` — head этого чтения. Затем отказ, если занят Orchestrator с Binding-ом на
   Epic Ticket-а этого PR-а. Дальше текст получает Session Ticket-а через `started`, `send` и `notice`, иначе новая
-  Session Node на Claude Code с Binding-ом launch на Ticket.
+  Session Node на Claude Code с Binding-ом launch на Ticket. Lock щелчка по PR (строка 352) держится, пока новая
+  Session не назвала свой id и её Binding не записан (строки 386 и 390). Иначе второй щелчок по тому же PR не нашёл бы
+  её по маршруту и запустил бы вторую Session на тот же Ticket и ту же ветку.
 - Почему здесь: Ticket называет `prFollow()` в `src/main/actions/launch.ts`. Путь `started` / `send` / `notice` —
   тот, что влил worfy-continuity (ADR-0108, пункт 5). Свой путь продолжения Ticket писать запрещает.
 - Без него: щелчок по устаревшей кнопке отдал бы Session старый head. Wave и кнопка чинили бы один PR вдвоём.
 - Требование: [Что делаем, пункт 8](../issues/01-действия-в-main.md#что-делаем)
-- Риски и пробелы test-ов: Orchestrator привязан к Epic-у только сохранённым Binding-ом (`shortcut:` в строке 364).
+- Риски и пробелы test-ов: Orchestrator привязан к Epic-у только сохранённым Binding-ом (`shortcut:` в строке 367).
   Wave, набранная руками, привязана сигналами транскрипта, которые здесь не читаются. Если `started` падает, щелчок
-  уходит в новую Session (строка 377). Связка `PrInbox.refresh` → `snapshot` проверена только по типам: contract test
-  идёт через fake.
+  уходит в новую Session (строка 380); это покрывает test «does not start again». Пока Claude Code не назвал id,
+  lock держится не дольше `WAIT_MS` (10 мин), и всё это время щелчок по PR получает «is already starting».
 
 ## 5. Какая Session Ticket-а моложе 24 часов
 
-Code: `src/main/actions/launch.ts:395-414` · key lines: 397, 400, 402, 410, 412
+Code: `src/main/actions/launch.ts:399-418` · key lines: 401, 404, 406, 414, 416
 
 ```ts
   private async ticketSession(projectId: string, target: Extract<BindingTarget, { kind: 'ticket' }>, stored: ReadonlyMap<string, BindingTarget>): Promise<string | null> {
@@ -197,7 +203,36 @@ Code: `src/main/actions/launch.ts:395-414` · key lines: 397, 400, 402, 410, 412
 - Требование: [Вопросы владельцу, Q7](../spec.md#вопросы-владельцу)
 - Риски и пробелы test-ов: Session без session id (Claude Code его ещё не назвал) пропускается, и запускается новая.
 
-## 6. Hook кнопки для Ticket-ов 04 и 05
+## 6. Свежее чтение PR в приложении
+
+Code: `src/main/ipc/actions.ts:47-59` · key lines: 53, 54, 56
+
+```ts
+/**
+ * The fresh read of one PR over a PR inbox: the Project read once when it never was, the PR's details read again
+ * (PrInbox.refresh), then its row in the Project's snapshot, by repository (in any case) and number.
+ */
+export function prInboxPull(inbox: Pick<PrInbox, 'ensureRead' | 'refresh' | 'snapshot'>): PrFollowDeps['pull'] {
+  return async (projectId, repo, pr) => {
+    await inbox.ensureRead(projectId)
+    await inbox.refresh(repo, pr)
+    const snapshot = inbox.snapshot(projectId)
+    const row = snapshot.groups.flatMap((group) => group.rows).find((each) => each.repo.toLowerCase() === repo.toLowerCase() && each.number === pr)
+    return { row, viewer: snapshot.viewer }
+  }
+}
+```
+
+- Что делает: приложение читает Project, если он ещё не прочитан, затем перечитывает PR (`PrInbox.refresh`) и только
+  после этого берёт его строку из snapshot-а по repository (без учёта регистра) и номеру.
+- Почему здесь: Ticket называет `src/main/ipc/actions.ts` для зависимостей launcher-а; функция вынесена, чтобы test
+  проверил её без fake `pull`.
+- Без него: `{sha}` пришёл бы из старого snapshot-а, а отказы считались бы по PR другого repository с тем же номером.
+- Требование: [Что делаем, пункт 8](../issues/01-действия-в-main.md#что-делаем)
+- Риски и пробелы test-ов: если свежее чтение упало (сеть, ошибка GitHub) или аккаунт ждёт rate limit, строка остаётся
+  прежней. Это записано на странице `docs/features/projects.md`, и skill сам сверяет head.
+
+## 7. Hook кнопки для Ticket-ов 04 и 05
 
 Code: `src/renderer/canvas/actions/gates.ts:63-70` · key lines: 66, 67, 68, 69
 
@@ -221,7 +256,7 @@ export function usePrFollowState(projectId: string, row: PrInboxRow, action: PrF
 - Риски и пробелы test-ов: пока PR inbox не ответил, viewer — null, и hook коротко показывает «The PR inbox has not
   read your GitHub login yet».
 
-## 7. Что сознательно не меняли
+## 8. Что сознательно не меняли
 
 - `src/main/github/inbox-groups.ts`: тип `InboxPull` не тронут. Признак fork-а несёт `ReadPull` в
   `src/main/github/inbox.ts`, потому что файла групп нет в списке Ticket-а.
@@ -231,23 +266,28 @@ export function usePrFollowState(projectId: string, row: PrInboxRow, action: PrF
   test-ы не менялись.
 - Кнопок в UI нет: это Ticket-ы 04 и 05. E2e нет: ticket его не требует.
 
-## 8. Как проверено
+## 9. Как проверено
 
-- `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (847 файлов test-ов, 19347 test-ов).
+- `pnpm lint && pnpm typecheck && pnpm test` — exit 0.
+- Раунд 2 review: 10 mutant-ов, каждый краснеет. Это снятый dedupe, lock, отпущенный до Binding-а, `throw` вместо новой
+  Session, read-only после «reading», без `inbox.refresh`, строка по одному номеру, Binding Subagent-а, поле
+  `isCrossRepository` вне запроса и `false` в `toPull` или `rowOf`.
+- gate fast — см. отчёт PR.
 - gate fast с тем же окружением test-ов (`env -u GIT_CONFIG_PARAMETERS TMPDIR=…`) — exit 0, `[gate] green (fast)`. Без него
   первый запуск дал exit 2: 125 test-ов других модулей (terminal-ai, install-stable-update) упали на `TMPDIR` и
   `GIT_CONFIG_PARAMETERS` окружения.
-- Вне списка Ticket-а с согласия Orchestrator-а: `test/unit/link-access.test.ts` (канал `actions.prFollow` — `write`) и
+- Вне списка Ticket-а с согласия Orchestrator-а: `test/contract/pr-inbox.test.ts` (разбор `isCrossRepository`),
+  `test/unit/link-access.test.ts` (канал `actions.prFollow` — `write`) и
   fixture-ы шаблонов в `test/contract/projects.test.ts`, `test/contract/remote-calls.test.ts`,
   `test/unit/edit-profile.test.tsx`, `test/unit/terminal-shell.test.ts`, `test/unit/vendor-badge.test.tsx`.
 
 ## Проверить себя
 
 1. Кнопка Fix checks была активна, а за минуту до щелчка CI на новом head позеленел. Что получит пользователь?
-   - Строки: `src/main/actions/launch.ts:356-358`
+   - Строки: `src/main/actions/launch.ts:359-361`
    - Ответ: отказ «CI is no longer failing on <head>»: вердикт берётся по строке свежего чтения, а не по прежней.
 2. Session Ticket-а запущена Ship ticket 25 часов назад, но процесс её ещё жив. Куда уйдёт текст?
-   - Строки: `src/main/actions/launch.ts:408-413`
+   - Строки: `src/main/actions/launch.ts:412-417`
    - Ответ: в новую Session Node: решает возраст последней записи транскрипта, а не живой процесс.
 3. Почему `{sha}` проверяется в render, а не только в канале IPC?
    - Строки: `src/shared/actions/render-template.ts:33-46`

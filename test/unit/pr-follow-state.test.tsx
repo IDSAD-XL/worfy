@@ -97,6 +97,13 @@ describe('usePrFollowState', () => {
     await waitFor(() => expect(result.current).toEqual({ enabled: false, reason: 'Mini gives this Machine read-only access' }))
   })
 
+  it('says read-only before it waits for the Project settings: a read-only screen never shows "reading"', async () => {
+    main.templates = undefined
+    main.readOnly = 'Mini gives this Machine read-only access'
+    const { result } = await state(row())
+    expect(result.current).toEqual({ enabled: false, reason: 'Mini gives this Machine read-only access' })
+  })
+
   it('is inactive with the reason of the verdict: someone else\'s PR, a fork, no reason for the action', async () => {
     const peer = await state(row({ author: 'dev-peer' }))
     await waitFor(() => expect(peer.result.current).toEqual({ enabled: false, reason: 'owner/web#118 is not your pull request' }))

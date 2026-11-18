@@ -346,9 +346,12 @@ export class ActionLauncher {
     const follow = this.deps.prFollow
     if (follow === undefined) throw new Error('This build cannot follow pull requests')
     const key = JSON.stringify([projectId, repo.toLowerCase(), pr])
-    // Taken before the first await: two clicks that arrive together do not start two Sessions.
+    // Taken before the first await: two clicks that arrive together do not start two Sessions. A new Session keeps it
+    // until its Binding is written (or given up): before that the route cannot find it, and a second click on the same
+    // PR would start a second Session on the same Ticket and branch.
     if (this.following.has(key)) throw new Error(`${ACTION_LABELS[action]} is already starting for ${repo}#${pr}`)
     this.following.add(key)
+    let held: Promise<void> | null = null
     try {
       const root = this.deps.projectRoot(projectId)
       const template = this.deps.settings(projectId).actionTemplates[action]
@@ -380,10 +383,11 @@ export class ActionLauncher {
       const view = this.deps.sessions.create(projectId, near, PR_REPLY_VENDOR)
       const session = this.deps.registry.get(view.sessionId)
       session.send(state.text)
-      if (target !== null) this.bindWhenKnown(projectId, session, target)
+      held = target === null ? this.untilKnown(session) : this.bindWhenKnown(projectId, session, target)
       return { nodeId: view.nodeId, sessionId: view.sessionId, text: state.text, delivery: 'new' }
     } finally {
-      this.following.delete(key)
+      if (held === null) this.following.delete(key)
+      else void held.finally(() => this.following.delete(key))
     }
   }
 
@@ -567,12 +571,9 @@ export class ActionLauncher {
    * Writes the launch Binding under the session id that names the transcript. A new Session has
    * none until Claude Code reports it (system/init of its first turn); a resumed one has it at once.
    */
-  private bindWhenKnown(projectId: string, session: LaunchedSession, target: BindingTarget): void {
-    const pollMs = this.deps.pollMs ?? POLL_MS
-    const waitMs = this.deps.waitMs ?? WAIT_MS
+  private bindWhenKnown(projectId: string, session: LaunchedSession, target: BindingTarget): Promise<void> {
     const task = (async () => {
-      const until = Date.now() + waitMs
-      while (session.sdkId === null && session.state !== 'closed' && Date.now() < until) await delay(pollMs)
+      await this.untilKnown(session)
       const sdkId = session.sdkId
       if (sdkId === null) {
         console.warn(`[actions] no session id came for the launch Binding to ${JSON.stringify(target)}`)
@@ -583,5 +584,13 @@ export class ActionLauncher {
       .catch((error: unknown) => console.error('[actions] could not write the launch Binding', error))
       .finally(() => this.pending.delete(task))
     this.pending.add(task)
+    return task
+  }
+
+  /** Settles once Claude Code has reported the Session's id, the Session has closed, or the wait is over. */
+  private async untilKnown(session: LaunchedSession): Promise<void> {
+    const pollMs = this.deps.pollMs ?? POLL_MS
+    const until = Date.now() + (this.deps.waitMs ?? WAIT_MS)
+    while (session.sdkId === null && session.state !== 'closed' && Date.now() < until) await delay(pollMs)
   }
 }

@@ -436,6 +436,19 @@ describe('the search of a Project', () => {
   })
 })
 
+describe('a PR from a fork (worfy-pr-follow ticket 01)', () => {
+  it('asks GitHub for isCrossRepository and carries it into the row; an answer without it reads as false', async () => {
+    const gh = world([quietPull(API, 1, { isCrossRepository: true }), quietPull(API, 2, { isCrossRepository: false }), quietPull(API, 3)])
+    const inbox = reader(gh, [project('p1', [API])])
+    await inbox.tick()
+    const details = graphqlCalls(gh).filter((args) => !isSearch(args))
+    expect(details.length).toBeGreaterThan(0)
+    for (const args of details) expect(varsOf(args).query).toMatch(/\bisCrossRepository\b/u)
+    const forks = Object.fromEntries(inbox.snapshot('p1').groups.flatMap((group) => group.rows.map((row) => [row.number, row.isCrossRepository])))
+    expect(forks).toEqual({ 1: true, 2: false, 3: false })
+  })
+})
+
 describe('the list of Projects', () => {
   it('a Project dropped from the list between two ticks: no search for it, and its PRs leave the cache', async () => {
     const gh = world([stubPull(API, 1), stubPull(WEB, 2)])

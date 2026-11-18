@@ -11,6 +11,7 @@ import { sharedOrchestrators } from '../agent/app-orchestrators'
 import { sharedRegistry } from '../agent/app-registry'
 import { toEveryWindow } from '../broadcast'
 import { ClaudeHomeRegistry } from '../claude-home/registry'
+import type { PrInbox } from '../github/inbox'
 import { appNow } from '../clock'
 import { harnessScriptEnv } from '../harness/script-env'
 import { bindingStore } from '../layout/bindings'
@@ -43,17 +44,24 @@ function broadcast(snapshot: LaunchesSnapshot): void {
 let shared: ActionLauncher | undefined
 let claude: ClaudeHomeRegistry | undefined
 
-/** What "Fix checks", "Resolve conflicts" and "Address comments" read and start, over the app's parts. */
-const appPrFollow: PrFollowDeps = {
-  pull: async (projectId, repo, pr) => {
-    // Loaded at the call, as src/main/ipc/stories.ts takes it: the PR inbox stays out of this module's imports.
-    const inbox = (await import('./pr-inbox')).sharedPrInbox()
+/**
+ * The fresh read of one PR over a PR inbox: the Project read once when it never was, the PR's details read again
+ * (PrInbox.refresh), then its row in the Project's snapshot, by repository (in any case) and number.
+ */
+export function prInboxPull(inbox: Pick<PrInbox, 'ensureRead' | 'refresh' | 'snapshot'>): PrFollowDeps['pull'] {
+  return async (projectId, repo, pr) => {
     await inbox.ensureRead(projectId)
     await inbox.refresh(repo, pr)
     const snapshot = inbox.snapshot(projectId)
     const row = snapshot.groups.flatMap((group) => group.rows).find((each) => each.repo.toLowerCase() === repo.toLowerCase() && each.number === pr)
     return { row, viewer: snapshot.viewer }
-  },
+  }
+}
+
+/** What "Fix checks", "Resolve conflicts" and "Address comments" read and start, over the app's parts. */
+const appPrFollow: PrFollowDeps = {
+  // Loaded at the call, as src/main/ipc/stories.ts takes it: the PR inbox stays out of this module's imports.
+  pull: async (projectId, repo, pr) => prInboxPull((await import('./pr-inbox')).sharedPrInbox())(projectId, repo, pr),
   nodes: (projectId) => layoutStore().get(projectId).layout.nodes,
   lastAt: async (projectId, sessionIds) => {
     const wanted = new Set(sessionIds)
