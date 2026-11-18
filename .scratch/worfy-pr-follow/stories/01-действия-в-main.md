@@ -234,7 +234,9 @@ export function usePrFollowState(projectId: string, row: PrInboxRow, action: PrF
 ## 8. Как проверено
 
 - `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (847 файлов test-ов, 19347 test-ов).
-- gate fast — см. отчёт PR.
+- gate fast с тем же окружением test-ов (`env -u GIT_CONFIG_PARAMETERS TMPDIR=…`) — exit 0, `[gate] green (fast)`. Без него
+  первый запуск дал exit 2: 125 test-ов других модулей (terminal-ai, install-stable-update) упали на `TMPDIR` и
+  `GIT_CONFIG_PARAMETERS` окружения.
 - Вне списка Ticket-а с согласия Orchestrator-а: `test/unit/link-access.test.ts` (канал `actions.prFollow` — `write`) и
   fixture-ы шаблонов в `test/contract/projects.test.ts`, `test/contract/remote-calls.test.ts`,
   `test/unit/edit-profile.test.tsx`, `test/unit/terminal-shell.test.ts`, `test/unit/vendor-badge.test.tsx`.
