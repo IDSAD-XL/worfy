@@ -21,7 +21,7 @@ Depends on: [worfy-pr-inbox](../worfy-pr-inbox/spec.md) (closed: чтение Gi
 [0078](../../docs/adr/0078-browser-node.md), [0089](../../docs/adr/0089-update-builds-main-in-own-clone.md),
 [0094](../../docs/adr/0094-vendor-seam.md), [0105](../../docs/adr/0105-pr-reply-only-on-the-users-click.md);
 [CONTEXT.md](../../CONTEXT.md) — термины Settings, Machine, Linked machine, Project, Profile, Session, Vendor, PR inbox.
-Ticket-ы: Epic `worfy-auth-check`, 8 Ticket-ов — заводятся после приёмки spec-а.
+Ticket-ы: Epic `worfy-auth-check`, 10 Ticket-ов в [issues/](issues/).
 
 ## Проблема
 
@@ -289,7 +289,7 @@ CONTEXT.md.
 8. **Codex, Browser, Link** — строка входа Codex в своём модуле, `notice` Session Codex, сообщения Browser и Link;
    `vendors.md`, `browser.md`, `link.md`, `storage-and-diagnostics.md`. Blocked by: 04 (`openHealthCheck`), 05 (строка
    подключения в `checks.ts`).
-9. **Документы** — ru-переводы, ADR, Amendment к ADR-0042. Blocked by: 01, 03–08; SSO-часть дописывается после 06.
+9. **Документы** — ru-переводы, ADR, Amendment к ADR-0042. Blocked by: 01, 03, 04, 05, 07, 08; SSO-часть дописывается после 06.
 10. **Приёмка владельцем** — на Mac и PC: токен окружения, нет `github.account`, нет моделей qmd, Codex без входа;
     цвет иконки, шаги и Fix; SSO — если 06 готов, иначе отдельной приёмкой после него. Blocked by: 01, 03–05, 07–09.
 
@@ -300,7 +300,7 @@ CONTEXT.md.
 | 1 | 01, 02, 03 | — | spike-и пишут только в `.scratch/worfy-auth-check/` (разные разделы `spike.md`: 02 пишет в свой файл `spike-saml.md`); модель — `src/shared/ipc/first-run.ts`, `src/shared/health/`, `src/main/first-run/health-reports.ts`, `src/main/ipc/first-run.ts` |
 | 2 | 04, 05 | 04 — 03; 05 — 01, 03 | renderer (`Sidebar.tsx`, `FirstRunChecks.tsx`, `settings-window.ts`, `commands.ts`) и main GitHub (`auth-diagnosis.ts`, `checks.ts`, `auth-text.ts`, `profile-set`): общих файлов нет. После Wave 2 случай тестера закрыт |
 | 3 | 07, 08 | 07 — 04, 05; 08 — 04, 05 | 07 — `inbox.ts`, `ipc/checks.ts`, `gate-queue.ts`, Flight recorder, `PrInboxView.tsx`, `ChecksBadges.tsx`; 08 — `vendors/codex/`, `vendor-checks.ts`, `browser-server.ts`, `link/`: общих файлов нет |
-| 4 | 09 | 01, 03–08 | документы по сделанному |
+| 4 | 09 | 01, 03, 04, 05, 07, 08 | документы по сделанному |
 | 5 | 10 | 01, 03–05, 07–09 | приёмка |
 | когда придёт ответ | 06 | 02, 05 | SSO; правит `auth-diagnosis.ts` и `checks.ts` — не в одной Wave с 05 |
 
