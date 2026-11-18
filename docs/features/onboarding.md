@@ -22,7 +22,9 @@ this Machine, in any way.
 | Closed once, and no check fails that did not fail at the last close | Nothing |
 
 "worfy version" and the Harness plugin row of a Harness behind this build never count here: they fail, but their signal
-at the start is a toast, not this dialog.
+at the start is a toast, not this dialog. Nor do a row of a Project, a row a feature's failure made, or a row checked over
+the network: First run is for setting the Machine up. The rows checked over the network are not even in the report the
+start decides by; they are added after it, and the start does not wait for the network.
 
 New and existing are defined under [Getting started](#getting-started).
 
@@ -79,7 +81,17 @@ attempt failed: …", until the next attempt or until the check itself passes.
 - "Move…" opens the move form of the old Harness, which asks on its own.
 
 **"Check again"** first reads the login shell environment again, so a tool added by an rc file since the start shows up. A
-Project of the sidebar whose Layout failed to read then tries again at once.
+Project of the sidebar whose Layout failed to read then tries again at once. It answers when the rows checked over the
+network have answered too.
+
+**The report between checks.** The rows always come with their level: `critical` when the main work does not go without
+the row, `non-critical` when a feature only degrades. `gh` and GitHub accounts are critical only while a Project of this
+Machine has its `origin` on GitHub. A row that could not be checked (no network, a timeout) is `unknown`, and that is never
+critical. A feature that fails on a row says so to the report, and the row is out of `ok` at once, with no request to the
+network. One check of that row follows, at most once a minute per Project. The same feature working again takes the row
+back to `ok` without a check. When a worfy window gets the focus, the rows not in `ok` whose last check is over 5 minutes
+old are checked again. Only a row with a check of its own is checked this way; the Machine's rows wait for "Check again"
+or Settings → Health. There is no timer. Every change of the report goes to the windows.
 
 **"Start Getting started"** stands beside "Close" for a new user until step 6 of Getting started is marked. It closes First run
 like "Close" and shows the Getting started panel, expanded and with the focus on its heading.
@@ -134,13 +146,18 @@ action counts only while its check does not pass, so a cause fixed outside worfy
 - `src/main/first-run/actions.ts` holds `FirstRunActions`: the dialogs, one action at a time, and the failures kept per row. The
   work itself is in `src/main/harness/install.ts`, `src/main/harness/qmd.ts` and, for Limits from terminal,
   `src/main/harness/migrate/apply.ts`.
+- `src/main/first-run/health-reports.ts` holds the report between checks: the rows of the last checks, the rows checked over
+  the network, the features' messages (`reportFailure`, `reportOk`) and the checks of one row. The level of each row is
+  `src/shared/health/severity.ts`, with the worst level of a report.
 - `src/main/ipc/first-run.ts` wires them to the app, writes and reads the mark, and tells Getting started about each report. The
-  channels are in `src/shared/ipc/first-run.ts`, all with the access mark `local`.
+  channels are in `src/shared/ipc/first-run.ts`, all with the access mark `local`; `firstRun.reportChanged` carries each
+  change of the report.
 - `src/renderer/shell/FirstRun.tsx` is the dialog. `src/renderer/shell/FirstRunConcepts.tsx` is the welcome page.
   `src/renderer/shell/FirstRunChecks.tsx` draws the rows and runs the actions for the dialog and for
   `src/renderer/settings/HealthSection.tsx`. `src/renderer/shell/first-run-store.ts` keeps the state outside React.
 - `WORFY_FIRST_RUN_AUTO=0` keeps the dialog from opening by itself, for e2e runs other than its own.
-- Main tests: `test/contract/first-run-checks.test.ts`, `test/unit/first-run-windows.test.ts`,
+- Main tests: `test/contract/first-run-checks.test.ts`, `test/contract/health-reports.test.ts`,
+  `test/unit/health-severity.test.ts`, `test/unit/first-run-windows.test.ts`,
   `test/unit/first-run-concepts.test.tsx` and `test/e2e/first-run.spec.ts`, which uses the stand-in tools of
   `test/fixtures/first-run-tools/`.
 

@@ -50,6 +50,11 @@ const BUSY_LABEL: Record<FirstRunAction, string> = {
   'gh-login': 'Signing in…',
   'limits-bridge': 'Setting up…',
   'update-log': 'Opening…',
+  'use-login': 'Saving…',
+  'open-link': 'Opening…',
+  'codex-sign-in': 'Signing in…',
+  'open-browser': 'Opening…',
+  'link-machine': 'Opening…',
 }
 const busyLabel = (action: Check['actions'][number]): string => (action.id === 'harness-install' && action.label === 'Update' ? 'Updating…' : BUSY_LABEL[action.id])
 
@@ -120,6 +125,8 @@ const FIRST_RUN_CHIP: Record<ChipState, { variant: Status; label: string; border
   ok: { variant: 'ready', label: 'OK', bordered: true },
   warn: { variant: 'blocked', label: 'Warning', quiet: true },
   fail: { variant: 'blocked', label: 'Failed', bordered: true },
+  // No row says `unknown` before worfy-auth-check ticket 05; ticket 04 gives it its look.
+  unknown: { variant: 'blocked', label: 'Unknown', quiet: true },
   running: { variant: 'working', label: 'Running…', bordered: true },
   checking: { variant: 'working', label: 'Checking…', bordered: true },
 }
@@ -376,6 +383,8 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, children
       return
     }
     if (useAction.getState().running !== null) return
+    // The buttons of worfy-auth-check run nothing yet: the Tickets of their rows wire them (ticket 03).
+    if (action === 'use-login' || action === 'open-link' || action === 'codex-sign-in' || action === 'open-browser' || action === 'link-machine') return
     startAction(action, row)
     // "Show log" of a failed Update build (worfy-update ticket 08): main opens build.log, no dialog.
     if (action === 'update-log') {

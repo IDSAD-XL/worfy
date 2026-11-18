@@ -30,7 +30,7 @@ import {
 import { writeStatusLine } from '../harness/migrate/apply'
 import { limitsBridgeState } from '../harness/status-line'
 import type { HarnessStatus } from '../../shared/ipc/harness'
-import type { CheckId, FirstRunAction, FirstRunReport } from '../../shared/ipc/first-run'
+import type { CheckId, FirstRunReport, RunnableAction } from '../../shared/ipc/first-run'
 import { formatBytes, type Env, type ProjectProfile } from './checks'
 import { runTool } from './tools'
 
@@ -40,8 +40,8 @@ export interface Confirmation {
   detail: string
 }
 
-/** The screen handles `migration-form` (the move form) and `update-log` (`update.showLog`) itself. */
-export type RunnableAction = Exclude<FirstRunAction, 'migration-form' | 'update-log'>
+/** The screen handles `migration-form` (the move form) and `update-log` (`update.showLog`) itself; the buttons of worfy-auth-check come with their rows. */
+export type { RunnableAction }
 
 export interface ActionDeps {
   /** Runs every check (runChecks with the app's dependencies). */

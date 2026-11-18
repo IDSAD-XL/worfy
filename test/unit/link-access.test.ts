@@ -102,6 +102,8 @@ describe('the initial marks', () => {
     for (const name of channels.map((channel) => channel.name).filter((name) => /^(harness|harnessMigration|firstRun)\./.test(name))) {
       expect(local, name).toContain(name)
     }
+    // The Health check report of this Machine and its changes (worfy-auth-check ticket 03).
+    expect(local).toEqual(expect.arrayContaining(['firstRun.health', 'firstRun.reportChanged']))
   })
 
   // worfy-link ticket 11: "Add project" on a Linked machine runs every step of the connection on

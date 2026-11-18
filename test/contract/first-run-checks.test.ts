@@ -187,6 +187,26 @@ describe('first-run checks', () => {
     expect(checkOf(report, 'gh-auth').detail).toContain('alice')
   })
 
+  // worfy-auth-check ticket 03: every row carries its level from src/shared/health/severity.ts.
+  it('every row has its level; gh and gh-auth are critical only with a Project on GitHub', async () => {
+    tools(...ALL_TOOLS)
+    const levels = (report: FirstRunReport) => Object.fromEntries(report.checks.map((check) => [check.id, check.severity]))
+    const without = levels(await runChecks(deps(loginEnv())))
+    expect(without).toMatchObject({ 'claude-login': 'critical', git: 'critical', node: 'critical', harness: 'critical', 'harness-scripts': 'critical', gh: 'non-critical', 'gh-auth': 'non-critical', jq: 'non-critical', 'git-identity': 'non-critical', qmd: 'non-critical' })
+    const onGithub = levels(await runChecks(deps(loginEnv(), { projects: () => Promise.resolve([{ name: 'alpha', profile: 'alpha', collections: ['alpha-docs'], github: true }]) })))
+    expect(onGithub).toEqual({ ...without, gh: 'critical', 'gh-auth': 'critical' })
+    // A list that cannot be read keeps gh critical.
+    const unread = levels(await runChecks(deps(loginEnv(), { projects: () => Promise.reject(new Error('no profile')) })))
+    expect([unread.gh, unread['gh-auth']]).toEqual(['critical', 'critical'])
+  })
+
+  it('reads the Projects once for the qmd collections and the levels', async () => {
+    tools(...ALL_TOOLS)
+    let reads = 0
+    await runChecks(deps(loginEnv(), { projects: () => (reads++, Promise.resolve([{ name: 'alpha', profile: null, collections: [] }])) }))
+    expect(reads).toBe(1)
+  })
+
   it('without jq: jq fails with `brew install jq`, nothing else changes', async () => {
     const before = await baseline()
     tools('claude', 'gh', 'node', 'git', 'npm')
@@ -747,7 +767,7 @@ describe('the worfy version row and the Harness behind this build (worfy-update 
 
   it('without an Update: "worfy version" is OK with the running version, in the group "worfy" before the Harness', async () => {
     const report = await runChecks(withUpdate())
-    expect(checkOf(report, 'worfy-update')).toEqual({ id: 'worfy-update', group: 'worfy', title: 'worfy version', status: 'ok', detail: `${VERSION}, up to date`, hint: '', command: null, actions: [], opensFirstRun: false })
+    expect(checkOf(report, 'worfy-update')).toEqual({ id: 'worfy-update', group: 'worfy', title: 'worfy version', status: 'ok', severity: 'non-critical', detail: `${VERSION}, up to date`, hint: '', command: null, actions: [], opensFirstRun: false })
     const ids = report.checks.map((check) => check.id)
     expect(ids.indexOf('worfy-update')).toBe(ids.indexOf('harness') - 1)
   })
@@ -1212,7 +1232,7 @@ describe('first-run actions', () => {
   })
 
   it('an action that fails while its check already passes still answers with its error; the row stays as the check found it', async () => {
-    const harness: Check = { id: 'harness', group: 'Harness', title: 'Harness', status: 'ok', detail: BUNDLED_HARNESS, hint: '', command: null, actions: [] }
+    const harness: Check = { id: 'harness', group: 'Harness', title: 'Harness', status: 'ok', severity: 'critical', detail: BUNDLED_HARNESS, hint: '', command: null, actions: [] }
     const runner = new FirstRunActions({
       checks: () => Promise.resolve({ checks: [harness], checkedAt: new Date(0).toISOString() }),
       confirm: () => Promise.resolve(true),
@@ -1273,7 +1293,7 @@ describe('the first-run screen at start (src/main/ipc/first-run.ts)', () => {
       ...(await original<object>()),
       runChecks: (): Promise<FirstRunReport> =>
         Promise.resolve({
-          checks: others?.() ?? [{ id: 'harness', group: 'Harness', title: 'Harness', status: harness(), detail: '', hint: '', command: null, actions: [] }],
+          checks: others?.() ?? [{ id: 'harness', group: 'Harness', title: 'Harness', status: harness(), severity: 'critical', detail: '', hint: '', command: null, actions: [] }],
           checkedAt: new Date(0).toISOString(),
         }),
     }))
@@ -1340,8 +1360,61 @@ describe('the first-run screen at start (src/main/ipc/first-run.ts)', () => {
     const app = await handlers(() => 'ok', () => rows)
     expect(await app.startup()).toMatchObject({ show: false })
 
-    rows = [update, behind, { id: 'git', group: 'Command-line tools', title: 'git', status: 'fail', detail: 'not found', hint: '', command: null, actions: [] }]
+    rows = [update, behind, { id: 'git', group: 'Command-line tools', title: 'git', status: 'fail', severity: 'critical', detail: 'not found', hint: '', command: null, actions: [] }]
     expect(await app.startup()).toMatchObject({ show: true })
+  })
+
+  // worfy-auth-check ticket 03, Q7: First run is for setting the Machine up; a later break of a
+  // Project or one a feature reports is told by the Health check icon.
+  it('a row of a Project and a row of a feature\'s message in fail do not open the screen at start; a new fail of git does', async () => {
+    writeFileSync(join(data, 'first-run.json'), `${JSON.stringify({ closedAt: new Date(0).toISOString(), failing: [] })}\n`)
+    const access: Check = { id: 'github-access', group: 'Projects', title: 'GitHub access', status: 'fail', severity: 'critical', project: { id: 'alpha-0000000a', name: 'alpha' }, detail: 'no access', hint: '', command: null, actions: [] }
+    const git: Check = { id: 'git', group: 'Command-line tools', title: 'git', status: 'fail', severity: 'critical', detail: 'not found', hint: '', command: null, actions: [] }
+    let rows: Check[] = [access]
+    const app = await handlers(() => 'ok', () => rows)
+    const { healthReports } = await import('../../src/main/first-run/health-reports')
+    healthReports().reportFailure('linked-machine', undefined, 'The certificate of "studio" changed', 'Link it again by its code')
+    const started = (await app.startup()) as { show: boolean; report: FirstRunReport }
+    expect(started.show).toBe(false)
+    expect(started.report.checks.map((check) => [check.id, check.status, check.opensFirstRun])).toEqual([
+      ['github-access', 'fail', false],
+      ['linked-machine', 'fail', false],
+    ])
+    // Closing writes neither of them into the mark.
+    await app.close()
+    expect(JSON.parse(readFileSync(join(data, 'first-run.json'), 'utf8'))).toMatchObject({ failing: [] })
+
+    rows = [access, git]
+    expect(await app.startup()).toMatchObject({ show: true })
+  })
+
+  it('a row checked over the network is not in the report the start decides by: it comes after, in the event', async () => {
+    writeFileSync(join(data, 'first-run.json'), `${JSON.stringify({ closedAt: new Date(0).toISOString(), failing: [] })}\n`)
+    const app = await handlers(() => 'ok')
+    const { healthReports } = await import('../../src/main/first-run/health-reports')
+    let answer: (rows: Check[]) => void = () => undefined
+    let asked = 0
+    healthReports().registerNetworkRows(
+      () =>
+        new Promise<Check[]>((resolve) => {
+          asked += 1
+          answer = resolve
+        }),
+    )
+    const events: FirstRunReport[] = []
+    healthReports().subscribe((report) => events.push(report))
+
+    const started = (await app.startup()) as { show: boolean; report: FirstRunReport }
+    // The start answered while the network row was still being checked.
+    expect(asked).toBe(1)
+    expect(started).toMatchObject({ show: false })
+    expect(started.report.checks.map((check) => check.id)).toEqual(['harness'])
+
+    // A fail the network brings, even one not marked, comes after and opens nothing.
+    answer([{ id: 'gh-auth', group: 'GitHub', title: 'GitHub accounts', status: 'fail', severity: 'critical', detail: 'the token does not work', hint: '', command: null, actions: [] }])
+    await vi.waitFor(() => expect(events.at(-1)?.checks.map((check) => [check.id, check.opensFirstRun])).toEqual([['harness', undefined], ['gh-auth', false]]))
+    await app.close()
+    expect(JSON.parse(readFileSync(join(data, 'first-run.json'), 'utf8'))).toMatchObject({ failing: [] })
   })
 
   // Review of PR #1129: the mark keeps only the fails that open the screen, so a lagging Harness
@@ -1357,7 +1430,7 @@ describe('the first-run screen at start (src/main/ipc/first-run.ts)', () => {
       )
       return [checkOf(real, 'worfy-update'), checkOf(real, 'harness')]
     }
-    const git: Check = { id: 'git', group: 'Command-line tools', title: 'git', status: 'fail', detail: 'not found', hint: '', command: null, actions: [] }
+    const git: Check = { id: 'git', group: 'Command-line tools', title: 'git', status: 'fail', severity: 'critical', detail: 'not found', hint: '', command: null, actions: [] }
     writeFileSync(join(data, 'first-run.json'), `${JSON.stringify({ closedAt: new Date(0).toISOString(), failing: [] })}\n`)
     let rows: Check[] = [...(await rowsWith({ kind: 'outdated', from: '1.1.0+0000000', to: BUNDLED_HARNESS, sameVersion: false })), git]
     const app = await handlers(() => 'ok', () => rows)
