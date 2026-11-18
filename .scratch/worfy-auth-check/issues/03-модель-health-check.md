@@ -1,7 +1,8 @@
 # 03 — Модель Health check: статус `unknown`, уровень строки, строки Project-а, сообщения фич о сбоях
 
 Type: task
-Status: claimed 2026-11-18T19:20Z
+Status: done 2026-11-18T20:49Z
+PR: #2018
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решение», пункты 1, 2 и 4; «Уровни: проверка → уровень»; «Когда
 проверять»; «Решения по реализации», 1; «Решения по test-ам»; «Решения владельца», Q2, Q4, Q7, Q8;
@@ -85,6 +86,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решение», пункт�
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · cccc3c6f2322f41b6767a3dfd7699c1ea8b46a5f
   - evidence: gate pass · `gate fast` exit 0 · mac - · 72cb9b123d1c48b0d8164ec1d52bb48efee7989f
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44388883061/job/135120503709 · ci - · 084af085d10f2d26c807e7eda52621ddc68af6f3
 
 ## Где в коде
 
