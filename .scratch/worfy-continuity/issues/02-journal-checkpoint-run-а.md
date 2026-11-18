@@ -1,7 +1,8 @@
 # 02 — Journal как checkpoint Run-а: `run-suspended`, `run-continued`, `resumable` из Journal-а
 
 Type: task
-Status: claimed 2026-11-17T23:32Z
+Status: done 2026-11-18T01:15Z
+PR: #1971
 Blocked by: none
 Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реализации» → «Journal Run-а — его checkpoint»;
 «Решения по test-ам», Unit и Recovery invariants; «Риски», 7
@@ -51,19 +52,31 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реал�
       посреди Wave; в Wait Limits; в Wait Start window; Run без конца после падения; с рваной последней строкой; после
       Discard. Каждый — ожидаемое состояние и признак «оборван».
   - evidence: test-run pass · `pnpm test test/unit/autopilot-checkpoint.test.ts test/unit/autopilot-run.test.ts test/unit/autopilot-invariants.test.ts test/unit/autopilot-journal.test.ts test/contract/autopilot-checkpoint.test.ts` exit 0 · mac - · e7938d1e561bb9e2e4e2a7d21b1b76af74f20390
+  - evidence: review pass · PR #1971 · - - · edd6555b16e73baf5933c540b8d87a1d1b39243e
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44209292462/job/134498786549 · ci - · edd6555b16e73baf5933c540b8d87a1d1b39243e
 - [ ] Unit test: `resumable` после Force stop одинаков из памяти и из checkpoint (тот же fixture).
   - evidence: test-run pass · `pnpm test test/unit/autopilot-checkpoint.test.ts test/unit/autopilot-run.test.ts test/unit/autopilot-invariants.test.ts test/unit/autopilot-journal.test.ts test/contract/autopilot-checkpoint.test.ts` exit 0 · mac - · e7938d1e561bb9e2e4e2a7d21b1b76af74f20390
+  - evidence: review pass · PR #1971 · - - · edd6555b16e73baf5933c540b8d87a1d1b39243e
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44209292462/job/134498786549 · ci - · edd6555b16e73baf5933c540b8d87a1d1b39243e
 - [ ] Unit test: `parseJournal` пропускает строку незнакомого вида и считает её.
   - evidence: test-run pass · `pnpm test test/unit/autopilot-checkpoint.test.ts test/unit/autopilot-run.test.ts test/unit/autopilot-invariants.test.ts test/unit/autopilot-journal.test.ts test/contract/autopilot-checkpoint.test.ts` exit 0 · mac - · e7938d1e561bb9e2e4e2a7d21b1b76af74f20390
+  - evidence: review pass · PR #1971 · - - · edd6555b16e73baf5933c540b8d87a1d1b39243e
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44209292462/job/134498786549 · ci - · edd6555b16e73baf5933c540b8d87a1d1b39243e
 - [ ] Contract test (`faultRun()`, `test/contract/autopilot-faults-setup.ts`): Run после Force stop, затем новый
       `Autopilot` над тем же Journal-ом — следующий Run Epic-а берёт `resumable` из checkpoint.
   - evidence: test-run pass · `pnpm test test/unit/autopilot-checkpoint.test.ts test/unit/autopilot-run.test.ts test/unit/autopilot-invariants.test.ts test/unit/autopilot-journal.test.ts test/contract/autopilot-checkpoint.test.ts` exit 0 · mac - · e7938d1e561bb9e2e4e2a7d21b1b76af74f20390
+  - evidence: review pass · PR #1971 · - - · edd6555b16e73baf5933c540b8d87a1d1b39243e
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44209292462/job/134498786549 · ci - · edd6555b16e73baf5933c540b8d87a1d1b39243e
 - [ ] Recovery invariants (`test/autopilot-invariants.ts`, `checkRecovery`) зелёные на новых fixture-ах.
   - evidence: test-run pass · `pnpm test test/unit/autopilot-checkpoint.test.ts test/unit/autopilot-run.test.ts test/unit/autopilot-invariants.test.ts test/unit/autopilot-journal.test.ts test/contract/autopilot-checkpoint.test.ts` exit 0 · mac - · e7938d1e561bb9e2e4e2a7d21b1b76af74f20390
+  - evidence: review pass · PR #1971 · - - · edd6555b16e73baf5933c540b8d87a1d1b39243e
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44209292462/job/134498786549 · ci - · edd6555b16e73baf5933c540b8d87a1d1b39243e
 - [ ] Английская страница `docs/features/autopilot-faults.md` называет `discarded`, `run-suspended` и
       `run-continued`.
   - evidence: commit pass · worfy-continuity/02: the run's journal as its checkpoint · - - · e7938d1e561bb9e2e4e2a7d21b1b76af74f20390
+  - evidence: review pass · PR #1971 · - - · edd6555b16e73baf5933c540b8d87a1d1b39243e
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44209292462/job/134498786549 · ci - · edd6555b16e73baf5933c540b8d87a1d1b39243e
 
 ## Тесты
 
