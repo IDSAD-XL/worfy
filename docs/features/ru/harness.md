@@ -1,6 +1,6 @@
 # Harness
 
-> Перевод [английской версии](../harness.md), commit `4227ebcb`.
+> Перевод [английской версии](../harness.md), commit `same-pr`.
 
 Два Feature. **Installing from the app** ставит Harness на Machine. **Plugin** это то, что ставится: скрипты, Profile для
 каждого Project-а и поиск по документам. Части plugin-а, которые действуют, описаны на отдельной странице,
