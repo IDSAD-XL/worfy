@@ -1,6 +1,6 @@
 # Updates
 
-> Перевод [английской версии](../updates.md), commit `same-pr`.
+> Перевод [английской версии](../updates.md), commit `b82c4d25`.
 
 Одна Feature. **Update** заменяет Stable copy новой сборкой `main` вместе с её Harness. **Available update** — commit
 `main`, который новее запущенной Stable copy, с зелёным CI и меняет приложение или Harness. Термины объяснены в
@@ -26,34 +26,39 @@ Dev-сборка, копия установщика и упакованная с
 - commit-ы между ними меняют хотя бы один путь вне `docs/`, `.scratch/`, `test/`, `.github/` и Markdown-файлов корня
   репозитория. Список из 300 файлов, на котором GitHub его обрезает, считается изменением.
 
-Тексты называют новую версию как `<version из package.json на этом commit-е>+<short SHA>` — в том же виде, что build
-version приложения. Кандидат — только голова `main`: каналов обновлений и Update на другой commit нет. Нет сети, отказ
-или сбой GitHub, запрос дольше 15 секунд — проверка пропускается: одна строка в log main process. Плановая проверка на
-экране ничего не показывает; проверка, которую запустил «Check now», показывает свою причину в Settings. Без входа
-GitHub даёт 60 запросов в час с одного адреса, проверка тратит от одного до четырёх.
+Тексты называют версию по номеру сборки, как toolbar: `<major>.<minor>.<N>`, где N — число commit-ов от начала истории
+до этого commit-а ([Settings → General → Version](app-shell.md#settings)). Номер новой версии — номер запущенной копии
+плюс `ahead_by` из сравнения GitHub. Прежняя копия при откате сохраняет номер той копии, которая была запущена, когда
+перезапуск её заменил (`restart.json`). Где номер неизвестен (у запущенной копии его нет, GitHub не даёт `ahead_by`,
+прежняя копия сохранена ещё до появления номеров), текст называет `<version из package.json на этом commit-е>+<short
+SHA>` — в том же виде, что build version приложения. Кандидат — только голова `main`: каналов обновлений и Update на
+другой commit нет. Нет сети, отказ или сбой GitHub, запрос дольше 15 секунд — проверка пропускается: одна строка в log
+main process. Плановая проверка на экране ничего не показывает; проверка, которую запустил «Check now», показывает свою
+причину в Settings. Без входа GitHub даёт 60 запросов в час с одного адреса, проверка тратит от одного до четырёх.
 
 **Где это видно.**
 
 | Место | Что |
 |---|---|
-| Version chip | Версия приложения во второй строке пункта Harness в toolbar становится кнопкой с акцентной точкой. Tooltip: «worfy <version> is available», «Building worfy <version>…», «worfy <version> is ready — restart to update» или «The update to <version> failed — see Settings → Health». Меню: «Update worfy» (после сборки — «Restart now» или «Restart when idle»; во время сборки — неактивный «Building worfy <version>…»), «What's new» и «Later», который только закрывает меню. Во время сборки chip пишет шаг («Updating · 2/3 Installing dependencies»), не шире строки Harness над ним, с многоточием; весь шаг — первая строка tooltip-а |
+| Version chip | Версия приложения во второй строке пункта Harness в toolbar становится кнопкой с акцентной точкой. Tooltip: «worfy <version> is available», «Building worfy <version>…», «worfy <version> is ready — restart to update» или «The update to <version> failed — see Settings → Health»; когда строка показывает номер, вторая строка tooltip-а — build version этой копии с её commit-ом. Меню: «Update worfy» (после сборки — «Restart now», а пока что-то работает — «Restart when idle» и «Restart now»; во время сборки — неактивный «Building worfy <version>…»), «What's new» и «Later», который только закрывает меню. Пока Update идёт, chip говорит об этом без наведения (см. «Пока идёт сборка») |
 | Toast-ы | См. следующую таблицу |
 | Settings → General | Блок из трёх строк: «Updates», «Update automatically» и «Roll back to previous version» |
 | Settings → Health | Строка «worfy version» группы «worfy»: «<version>, up to date», «<version> available», «update failed» с «Show log» или «<tool> not found». Её сбои сами First run не открывают |
-| Command palette | «Update worfy» в группе Action, с подробностью «worfy <version> available», «ready — restart» или «check for a new version» |
+| Command palette | «Update worfy» в группе Action, с подробностью «worfy <version> available», «ready — restart», «ready — restart when idle» (пока что-то работает) или «check for a new version». Пока что-то работает, рядом стоит «Restart now» с подробностью «restart into worfy <version>» |
 
 Точка и строка Health остаются, пока Update не поставлен. Toast-ы:
 
 | Текст | Кнопки | Когда |
 |---|---|---|
 | «New worfy <version> available» | Update, Later | Available update, пока «Update automatically» выключен |
-| «worfy <version> ready» | Restart now или Restart when idle, Later | Сборка готова. Первая кнопка меняется на месте, когда работа начинается или кончается |
-| «worfy restarts when no Session is working and Autopilot has stopped» | Нет | После кнопки «Restart when idle» в toast-е «ready», когда worfy начинает ждать |
-| «Update failed» | Show log | Сборка упала. Один раз на упавшую сборку: перезапуск, который застаёт ту же упавшую сборку, ничего не показывает |
+| «worfy <version> ready» | Restart now, Later; пока что-то работает — Restart when idle, Restart now, Later | Сборка готова. Кнопки меняются на месте, когда работа начинается или кончается |
+| «worfy restarts when no Session is working and no Autopilot Wave is under way» | Нет | После кнопки «Restart when idle» в toast-е «ready», когда worfy начинает ждать |
+| «Update failed» | Show log | Сборка упала; если нет git, node или pnpm: «Update failed: git, node and pnpm are needed, and <tool> was not found». Один раз на упавшую сборку: перезапуск, который застаёт ту же упавшую сборку, ничего не показывает |
+| «The update did not start: <reason>» | Show log, если сборка оставила log | «Update worfy» получил отказ: новой версии для сборки нет, или этот Update уже собирается |
 | «Harness out of date: <from> → <to>» | Update, Later | Установленный Harness отстаёт от Harness этой копии |
 | «worfy updated to <version>. The new Harness applies from the next Session.» | Нет | Первый старт после перезапуска в Update |
 | «worfy is back to <version>. Automatic updates wait for the next commit on main.» | Нет | Первый старт после отката |
-| «worfy was not updated to <version>: <reason>» или «rolled back» вместо «updated» | Нет | Перезапуск или откат не случился, или после него запущена не новая копия |
+| «worfy was not updated to <version>: <reason>» или «rolled back» вместо «updated» | Нет | Перезапуск или откат не случился, или после него не запускается новая копия |
 | «The Harness was not updated» | Open Health | Harness новой копии не встал |
 
 «Later» или любой другой способ закрыть toast держит его закрытым до следующего старта; toast «available» приходит один
@@ -62,10 +67,13 @@ GitHub даёт 60 запросов в час с одного адреса, пр
 
 **Settings → General → Updates.** Строка «Updates» говорит «worfy <version>. Last checked <time>.», «worfy <version> is
 available.», «Building worfy <version>…» или «worfy <version> is ready.». Её кнопки — «Check now» и «Update worfy», а
-для собранного Update — «Restart now» или «Restart when idle». Если проверка, которую запустил «Check now», была
-пропущена, под строкой видна причина. Пока «Restart when idle» ждёт, под строкой видно «worfy restarts when no Session
-is working and Autopilot has stopped», а её кнопка «Restart when idle» неактивна. В строке «Update automatically»
-переключатель, в «Roll back to previous version» — кнопка «Roll back» (см. ниже). Где Update выключен, блока нет.
+для собранного Update — «Restart now», и пока что-то работает, рядом с ней «Restart when idle». Во время сборки строка
+добавляет шаг и время с начала сборки, например «Building worfy <version>… 2/3 Installing dependencies · 3:12», а «Show
+log» открывает log сборки на этот момент. Если проверка, которую запустил «Check now», была пропущена, под строкой видна
+причина. Пока «Restart when idle» ждёт, под строкой видно «worfy restarts when no Session is working and no Autopilot
+Wave is under way», а её кнопка «Restart when idle» неактивна; «Restart now» остаётся активной. В строке «Update
+automatically» переключатель, в «Roll back to previous version» — кнопка «Roll back» (см. ниже). Где Update выключен,
+блока нет.
 
 **Update automatically.** Переключатель по умолчанию включён: «Build new versions of worfy in the background. worfy
 restarts only when you say so.» Включён — worfy сам собирает Available update сразу после проверки, которая его нашла.
@@ -76,32 +84,68 @@ toast-е. В обоих случаях сборка никогда не пере
 **Сборка.** worfy собирает в своём clone в папке данных (см. [Storage and diagnostics](storage-and-diagnostics.md)):
 `~/Library/Application Support/worfy/update/repo` на macOS, `%APPDATA%\worfy\update\repo` на Windows. Clone делается
 один раз `git clone`, потом в него делается fetch. Сборка — та же, что у `pnpm install:stable`: `pnpm install
---frozen-lockfile`, потом `pnpm package`. Checkout пользователя и папки Project-ов не трогаются никогда. Вывод идёт в
-`build.log` рядом с clone, новый на каждую сборку. Сборка идёт одна за раз. При включённом «Update automatically» более
-новый commit, найденный во время сборки, собирается после неё; при выключенном более новый commit ждёт «Update worfy».
-Выход из worfy во время сборки её останавливает, и commit считается не собранным, а не упавшим.
+--frozen-lockfile`, потом `pnpm package`. Между ними worfy проверяет, что Electron, который пакует `pnpm package`, лежит
+в `node_modules/electron/dist`. Если его загрузка после прошлой установки не закончилась, `pnpm install` её заново не
+запускает, поэтому сборка запускает `node node_modules/electron/install.js` отдельным шагом и проверяет снова. Electron
+так и нет или нет вообще `node_modules/electron` — сборка падает до `pnpm package`. Checkout пользователя и папки
+Project-ов не трогаются никогда. Вывод идёт в `build.log` рядом с clone, новый на каждую сборку. Сборка идёт одна за
+раз. При включённом «Update automatically» более новый commit, найденный во время сборки, собирается после неё; при
+выключенном более новый commit ждёт «Update worfy». Выход из worfy во время сборки её останавливает, и commit считается
+не собранным, а не упавшим.
+
+**Пока идёт сборка.** Main записывает в своё состояние шаг сборки перед каждым процессом, который запускает, и каждое
+окно слышит каждое изменение; log для этого main никогда не читает. Шаги: «Fetching source» (`git clone` или `git
+fetch`, потом checkout), «Installing dependencies» (`pnpm install`), «Downloading Electron» (только если его загрузка не
+закончилась) и «Building app» (`pnpm package`). Сборка считает 3 шага или 4, когда появился «Downloading Electron».
+Version chip показывает вращающееся кольцо вместо точки и «Updating · 2/3 Installing dependencies»; кольцо стоит на
+месте, когда система просит уменьшить движение. Шаг не шире строки Harness над ним и кончается многоточием, так что
+сборка не расширяет toolbar. Tooltip — весь шаг, потом «Building worfy <version>… 3:12», время с начала сборки; оно
+считает каждую секунду, пока указатель или фокус на chip-е. Нажатие «Update worfy» в chip-е, Settings, Command palette
+или toast-е сразу отвечает «Starting update…», пока сборка не дошла до первого шага. Когда main отказывает нажатию в
+chip-е, Command palette или toast-е, toast говорит почему (см. toast-ы выше); в Settings причина видна под строкой.
+Toast-а во время сборки нет: знак сборки — chip. Когда перезапуск в Update (или откат) начался, chip говорит
+«Restarting…», пока окно не закроется.
 
 **Упавшая сборка** оставляет запущенную Stable copy как есть. Tooltip chip-а называет сбой, toast «Update failed»
 предлагает «Show log», который открывает `build.log` программой системы для такого файла, а строка Health говорит «update
-failed» с последней строкой журнала. Если git, node или pnpm нет в PATH, ничего не запускается: Settings говорит «Updates
+failed» с последней строкой log-а. Если git, node или pnpm нет в PATH, ничего не запускается: Settings говорит «Updates
 need git, node and pnpm: <missing> not found. See Settings → Health.», а Health называет инструмент с командой, которая
-его ставит. Шаг git дольше 30 минут останавливается, и сборка падает. Полный диск — такая же упавшая сборка с журналом:
+его ставит. Шаг git дольше 30 минут останавливается, и сборка падает. Полный диск — такая же упавшая сборка с log-ом:
 проверки свободного места заранее нет. Упавший commit worfy сам заново не собирает: следующий новый commit `main`
 собирается как обычно, а «Update worfy» собирает тот же ещё раз.
 
 **Перезапуск.** Собранный Update ставится только нажатием «Restart now» или «Restart when idle» — в toast-е, меню chip-а,
-Settings или Command palette. «Restart now» предлагается, пока ничего не работает, «Restart when idle» — пока что-то
-работает. Ничего не работает, когда ни одна Session не в ходе (busy или ждёт разрешения), ни у одной Session нет
-background task и не идёт ни один run Autopilot, включая остановленный run, который ещё ждёт background tasks своего
-Orchestrator-а. Terminal-ы не считаются: их процессы worfy и так закрывает при выходе. «Restart when idle» перезапускает
-сам, как только всё стихло. Ход, начатый за это время, заставляет ждать дальше, а выход из worfy снимает ожидание.
+Settings или Command palette. «Restart now» предлагается всегда; пока что-то работает, рядом стоит «Restart when idle».
+Ничего не работает, когда ни одна Session не в ходе (busy или ждёт разрешения), ни у одной Session нет background task
+и ни один run Autopilot не в работе. Run, который ждёт Limits, бюджет или Start window, не в работе: перезапуск
+приостанавливает его, а после старта он продолжает то же ожидание. В работе: run с Wave-ом в работе, run, который ждёт
+повтора после ошибки API или своего Orchestrator-а, run, который останавливается, и остановленный run, который ещё ждёт
+background tasks своего Orchestrator-а. Terminal-ы не считаются: их процессы worfy и так закрывает при выходе.
+«Restart when idle» перезапускает сам, как только всё стихло. Ход, начатый за это время, заставляет ждать дальше, а
+выход из worfy снимает ожидание. «Restart now», нажатый, пока что-то работает, всё равно перезапускает: нажатие — это
+согласие на отсрочку выхода, в которую worfy ждёт до 60 секунд вызовы Session-ов, которые могут действовать за
+пределами машины (окно **Quitting worfy**), и на приостановку run-ов Autopilot. После старта оборванные Session-ы и run-ы
+идут дальше, и те и другие называют причиной Update (см. [Sessions](sessions.md) и [Autopilot
+faults](autopilot-faults.md)). Нажатие «Restart now» снимает ждущий «Restart when idle». Откат по-прежнему отклоняется,
+пока что-то работает.
 
-Затем worfy выходит, и замену делает отдельный процесс. Он ждёт выхода worfy, не больше двух минут, отодвигает
-работавшую копию в `worfy-stable.previous`, ставит сборку на её место и запускает её. Нажатие — это и согласие на
-Harness новой копии (см. ниже). Если в замене отказано, например потому что процесс старой копии после ожидания ещё
-работает на её месте, ничего не меняется: старая копия запускается снова и показывает «worfy was not updated to
-<version>: <reason>». Перезапуску нужен системный `node`; без него на нажатие приходит отказ с «node was not found: a
-restart into an Update needs it (Settings → Health)».
+Прямо перед перезапуском worfy снова спрашивает сравнение GitHub, впереди ли сборка commit-а, который запущен сейчас:
+запущенная копия могла смениться с начала сборки. Сборка, которая совпадает с этим commit-ом, отстаёт от него, разошлась
+с ним или неизвестна GitHub, не ставится. Её откладывают (toast «ready» уходит, а `state.json` хранит причину как
+`discarded`), и нажатие отвечает «<version> was not installed: <reason>». Если сравнение сделать нельзя (нет сети),
+нажатие получает отказ, а сборка остаётся готовой.
+
+Затем worfy пишет `update/restart.json` (что делает перезапуск, из какой копии и его причину, `update`) и выходит, а
+замену делает отдельный процесс. Он ждёт выхода worfy, не больше двух минут, потом ещё до двух минут каждый другой
+процесс копии, например Claude Code той Session, которая ещё завершается. Он отодвигает работавшую копию в
+`worfy-stable.previous`, ставит сборку на её место и запускает её. Нажатие — это и согласие на Harness новой копии (см.
+ниже). Если в замене отказано, например потому что процесс старой копии после ожидания ещё работает на её месте, ничего
+не меняется: старая копия запускается снова и показывает «worfy was not updated to <version>: <reason>». Для процесса,
+который не вышел, причина начинается с того, что делать («quit it, then try again»), и называет его pid и программу.
+Процесс копии, который запустил не worfy, например встроенный Codex, запущенный в terminal-е, не ждут: в замене сразу
+отказано с «Codex is open in a terminal (pid N): close it, then press Restart now again». Свои процессы worfy узнаёт по
+их родителям. Перезапуску нужен системный `node`; без него на нажатие приходит отказ с «node was not found: a restart
+into an Update needs it (Settings → Health)».
 
 **Harness после Update.** При первом старте новой копии worfy ставит её Harness, если установленный устарел или его нет,
 без второго диалога и только один раз. Claude Code берёт его со следующей Session. Сбой показывает «The Harness was not
@@ -117,7 +161,7 @@ toast приходит только там, где Update включён. Для
 **Откат.** Settings → General → Updates, строка «Roll back to previous version», кнопка «Roll back». Строка называет
 копию: «Return to worfy <version>. Automatic updates wait for the next commit on main.» Сначала спрашивает нативный
 диалог: «Roll back to worfy <version>?», «worfy quits, puts the previous copy back and starts it. Its Harness is
-installed too, unless the one installed is newer.», с «Roll back» и «Cancel». Как и перезапуск, откат отказывается,
+installed too, unless the one installed is newer.», с «Roll back» и «Cancel». Как и перезапуск, откат отклоняется,
 пока что-то работает, и замену делает тот же процесс.
 
 Хранится только одна прежняя копия. Копия, с которой откатились, удаляется, так что строка затем говорит «No previous
@@ -148,12 +192,12 @@ new copy did not start, or was rolled back by hand», и commit, с которо
 
 **What's new.** «What's new» в меню chip-а открывает popover под chip-ом: «What's new in worfy <version>», строку «<PR
 title> #<number>» на каждый PR, влитый между запущенной копией и новой версией, новые сверху, и первый пункт меню chip-а
-как кнопку. Новая версия — сборка, которая идёт или готова, иначе Available update. Строки берутся из одного сравнения на
-GitHub: первая строка каждого commit-а, который кончается на `(#<number>)`, как пишет squash merge. Commit, запушенный в
-`main` без PR, в список не попадает. Сравнение отдаёт не больше 250 commit-ов; при 250 последняя строка — «…and more on
-GitHub», ссылка на страницу сравнения. Номера и эта ссылка открываются в браузере системы. Пока список читается, popover
-говорит «Reading the pull requests on GitHub…», без PR — «No pull requests between this copy and the new version.», при
-сбое показывает причину. Файла changelog нет.
+как кнопку. Новая версия — сборка, которая запущена или готова, иначе Available update. Строки берутся из одного
+сравнения на GitHub: первая строка каждого commit-а, который кончается на `(#<number>)`, как пишет squash merge. Commit,
+запушенный в `main` без PR, в список не попадает. Сравнение отдаёт не больше 250 commit-ов; при 250 последняя строка —
+«…and more on GitHub», ссылка на страницу сравнения. Номера и эта ссылка открываются в браузере системы. Пока список
+читается, popover говорит «Reading the pull requests on GitHub…», без PR — «No pull requests between this copy and the
+new version.», при сбое показывает причину. Файла changelog нет.
 
 #### On Windows
 
@@ -219,12 +263,13 @@ Update принадлежит Machine, на которой запущен. Вс�
 | Harness при первом старте после перезапуска | `src/main/update/harness-after-update.ts` |
 | Harness out of date | `src/main/update/harness-lag.ts` |
 | What's new | `src/main/update/whats-new.ts` |
+| Номер сборки и версия в том виде, как её называет экран | `scripts/build-version.ts`, `src/main/build-number.ts`, `src/shared/version-number.ts` |
 | Замена, `--keep-previous`, `--rollback`, `--wait-pid`, `--relaunch`, `--result` | `scripts/install-stable.mjs` |
 | Каналы `update` и сервис за ними; нативный диалог отката | `src/shared/ipc/update.ts`, `src/main/ipc/update.ts` |
 | Старт и выход в приложении | `src/main/index.ts` |
 | Настройка `autoUpdate` в `app-settings.json` | `src/shared/settings/app-settings.ts` |
 | Строка Health «worfy version» и строка Harness | `src/main/first-run/checks.ts` |
-| Снимок в renderer | `src/renderer/update/store.ts` |
+| Снимок в renderer; тексты шагов, прошедшее время, «Starting update…» и toast отказа | `src/renderer/update/store.ts` |
 | Version chip и What's new | `src/renderer/update/UpdateChip.tsx`, `src/renderer/update/WhatsNew.tsx` |
 | Toast-ы | `src/renderer/update/toasts.ts` |
 | Settings → General → Updates | `src/renderer/settings/UpdatesBlock.tsx` |
@@ -239,8 +284,8 @@ Stable copy.
 
 Test-ы: stub GitHub `test/update-stub.ts`; `test/unit/update-check.test.ts`, `test/contract/update-github.test.ts`,
 `test/contract/update-state.test.ts`, `test/contract/update-build.test.ts`, `test/unit/update-idle.test.ts`,
-`test/contract/update-restart.test.ts`, `test/contract/update-harness.test.ts`, `test/unit/update-harness-lag.test.ts`,
-`test/unit/update-whats-new.test.ts`, `test/unit/install-stable-update.test.ts`; интерфейс — в
-`test/unit/update-chip.test.tsx`, `test/unit/update-toasts.test.tsx`, `test/unit/updates-block.test.tsx`,
-`test/unit/whats-new-view.test.tsx`, и e2e test-ы `test/e2e/update-toolbar.spec.ts`, `test/e2e/update-toasts.spec.ts` и
-`test/e2e/update-settings.spec.ts`.
+`test/contract/update-restart.test.ts`, `test/contract/update-restart-continuity.test.ts`,
+`test/contract/update-harness.test.ts`, `test/unit/update-harness-lag.test.ts`, `test/unit/update-whats-new.test.ts`,
+`test/unit/install-stable-update.test.ts`; интерфейс — в `test/unit/update-chip.test.tsx`,
+`test/unit/update-toasts.test.tsx`, `test/unit/updates-block.test.tsx`, `test/unit/whats-new-view.test.tsx`, и e2e
+test-ы `test/e2e/update-toolbar.spec.ts`, `test/e2e/update-toasts.spec.ts` и `test/e2e/update-settings.spec.ts`.

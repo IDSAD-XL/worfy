@@ -1,6 +1,6 @@
 # Autopilot
 
-> Перевод [английской версии](../autopilot.md), commit `1364f2e7`.
+> Перевод [английской версии](../autopilot.md), commit `b82c4d25`.
 
 Autopilot ведёт Wave-ы одного Epic-а одну за другой, без человека у Orchestrator-а. Он отправляет Wave, ждёт её конца,
 отправляет следующую готовую Wave и останавливается, когда готовой Wave нет или что-то пошло не так. Один такой проход
@@ -105,7 +105,7 @@ toast ошибки с причиной.
 |---|---|
 | `starting` | Run начался, Wave ещё не ушла. |
 | `waiting for the Orchestrator · 4 min` | Run начался и ждёт, пока у Orchestrator-а кончатся turn, очередь и background task-и. В первую минуту — без минут. Рядом — **Start now** и **Cancel**. |
-| `Wave 2 · running` | Run отправил вторую Wave. Wave считаются внутри run-а с 1 и снова с 1 для каждого Epic-а очереди; это не номер Wave в плане Epic-а. |
+| `Wave 2 · running` | Run отправил вторую Wave. Wave считаются внутри run-а с 1 и снова с 1 для каждого Epic-а очереди; это не номер Wave в плане Epic-а. Run, который пошёл дальше после перезапуска приложения, считает дальше от своей оборванной Wave. |
 | `Wave 2 · 4 background tasks` | То же, и у Orchestrator-а четыре живых background task-а. |
 | `Wave 4 · continuing 05 (1 of 2)` | Wave продолжает Ticket 05, который остался в работе после прошлой Wave: это его первое продолжение из двух ([Ticket, который остаётся в работе](autopilot-faults.md#ticket-который-остаётся-в-работе)). |
 | `waiting for limits · resumes 14:20` | Limits отказали turn-у. Run продолжит в это время. |
@@ -116,6 +116,7 @@ toast ошибки с причиной.
 | `wave too long for window · resumes 23:00` | Run mode — Start window: следующая Wave обычно идёт дольше, чем осталось от окна. |
 | `stopping · 2 tickets in work` | Пришёл Stop. Два Ticket-а текущей Wave в работе. Если таких нет, строка говорит `stopping`. |
 | `stopped: no ready wave` | Run окончен, с причиной (см. [Почему run останавливается](autopilot-faults.md#почему-run-останавливается)). |
+| `cut off by restart · 14:05` | Перезапуск приложения оборвал run в 14:05, и тот сам не пошёл дальше: обрыв был больше часа назад, или run уже дважды продолжался за этот час. Рядом стоят **Resume** и **Discard**, и кнопка Autopilot ждёт их ([после перезапуска приложения](autopilot-faults.md#после-перезапуска-приложения)). |
 | `stopped: turn error · 2 background tasks still run` | Run окончен и сразу отдал Orchestrator человеку; две его фоновые задачи ещё идут там. |
 | `Epic 2/3: checkout · Wave 1 · running` | Run над очередью из трёх Epic-ов идёт по второму, `checkout`. Любая строка выше получает такое начало, когда в очереди больше одного Epic-а, и после остановки тоже. |
 
@@ -360,7 +361,7 @@ Ticket-а ([ADR-0046](../../adr/0046-autopilot-narrow-round-without-owner.md)). 
 | `src/main/autopilot/harness-drift.ts` | Новее ли Harness в `main`, чем в этой сборке. Только чтение, без `git fetch`. Только packaged-сборки. |
 | `src/main/mcp/browser-server.ts` | Что Session в Autopilot может делать с Browser. |
 | `src/main/ipc/card-api.ts` | Отказ `session.ask` от Card для unattended Session. |
-| `src/renderer/canvas/actions/AutopilotAction.tsx` | Кнопка, меню «⋯», строка состояния и chip-ы; Start now и Cancel ожидающего run-а. |
+| `src/renderer/canvas/actions/AutopilotAction.tsx` | Кнопка, меню «⋯», строка состояния и chip-ы; Start now и Cancel ожидающего run-а; Resume и Discard run-а, оборванного перезапуском. |
 | `src/renderer/autopilot/StartAutopilotModal.tsx`, `src/renderer/autopilot/start-modal.ts` | Окно Start Autopilot и его одна открытая просьба: от кнопки, от Run all accepted или от агента; старт очереди, toast её отказа и Start anyway, когда её Epic идёт в другом месте. |
 | `src/shared/ipc/autopilot-prepare.ts`, `src/main/ipc/autopilot-prepare.ts`, `src/main/autopilot/prepare.ts` | `autopilot.prepare`: факты окна, только чтение, из источников просьбы `autopilot_start`; Wave-ы и прогноз очереди, один Epic за другим. |
 | `src/shared/autopilot/epic-queue.ts` | Правило очереди: следующий Epic, Epic, пропущенный ради владельца, или остановка run-а; не больше 10 Epic-ов. Чистые функции. |

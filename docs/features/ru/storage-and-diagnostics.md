@@ -1,6 +1,6 @@
 # Storage и диагностика
 
-> Перевод [английской версии](../storage-and-diagnostics.md), commit `same-pr`.
+> Перевод [английской версии](../storage-and-diagnostics.md), commit `b82c4d25`.
 
 Два Feature. **Папка данных** — место, где worfy хранит своё состояние на Machine. **Диагностика** — то, что worfy
 записывает и показывает о себе, когда что-то идёт не так: окно ошибки неудачного старта, запись о завершившемся процессе,
@@ -85,8 +85,8 @@ machine хранит камеру этого Canvas в своей папке, и
   откладывается. Его правила могут сужать то, что говорят знакомые поля, поэтому старая сборка оставляет доступ
   выключенным, берёт остальные значения по умолчанию и этот файл не пишет. Изменение в Settings → Machines она отклоняет
   там же текстом «Link settings were written by a newer worfy build (file version N); update worfy to change them».
-  Связать Machine и разорвать связь по-прежнему можно. Новая сборка находит свой файл таким, каким его оставила. Файл, который не разбирается как JSON, по-прежнему
-  откладывается. Остальные файлы состояния незнакомые ключи отбрасывают.
+  Связать Machine и разорвать связь по-прежнему можно. Новая сборка находит свой файл таким, каким его оставила. Файл,
+  который не разбирается как JSON, по-прежнему откладывается. Остальные файлы состояния незнакомые ключи отбрасывают.
 - **Вызовы синхронные.** Файлы маленькие, положение окна надо успеть сохранить внутри обработчика `close`, а два синхронных
   цикла чтения и записи не могут перемежаться в одном процессе.
 - **Layout и камера ждут тишины.** Они пишутся через 250 мс после последнего изменения, Layout — не позже чем через 1 секунду
@@ -155,7 +155,7 @@ Windows дерево удаляется собственным обходом wo
 | `first-run.json` | Когда закрыли экран First run и какие проверки тогда падали | `src/main/ipc/first-run.ts` |
 | `getting-started.json` | Состояние Getting started и запись о Demo project | `src/main/getting-started/state.ts` |
 | `terminal-ai.json` | Настройки Terminal AI | `src/main/terminal-ai/settings.ts` |
-| `terminal-ai` (папка) | Пустая папка, где идут запросы Terminal AI и обновление Limits | `src/main/terminal-ai/options.ts` |
+| `terminal-ai` (папка) | Пустая папка, где идут запросы Terminal AI, обновление Limits, черновик Project profile, запрос Code story и вопрос о её строках, чтобы ни один из них не стал Session-ом Project-а | `src/main/terminal-ai/options.ts` |
 | `attachments` (папка) | `images/<sha256>.<ext>`, копии отправленных изображений, и `<id>/<name>`, копии файлов, приложенных вне любого Project-а | `src/main/agent/attachments.ts` |
 | `autopilot` (папка) | `<run>.jsonl`, journal каждого запуска | `src/main/autopilot/journal.ts` |
 | `link` (папка) | `machine.json`, `linked.json`, `settings.json`, `secrets.json` и `link.log` | `src/main/link/` ([Link](link.md)) |
@@ -168,9 +168,12 @@ Windows дерево удаляется собственным обходом wo
 
 | Имя | Что хранит | Модуль |
 |---|---|---|
-| `settings.json` | Шаблоны действий и, для Windows, shell Terminal-ов | `src/main/projects/settings.ts` |
+| `settings.json` | Шаблоны действий, для Windows shell Terminal-ов, и `prInbox: false`, когда PR inbox выключен | `src/main/projects/settings.ts` |
+| `pr-inbox.json` | Что пользователь видел из каждого PR в PR inbox: время, head commit и id самого нового комментария, но никогда не текст; и на каждый аккаунт GitHub — `Last-Modified` уведомлений GitHub, который следующий poll шлёт как `If-Modified-Since` | `src/main/projects/pr-inbox-state.ts` |
+| `stories.json` | Code story, сделанные кнопкой, по PR или Epic-у; для PR коллеги — только текст агента и ссылки `path:line@commit`, но никогда текст PR, его комментарии или заголовок. Ответы на вопросы о строках любой показанной story, по тому, что story называет (её файл под Tickets root, или `owner/name#N` и `epic:<name>` для сделанной кнопкой): вопрос, текст агента, на что он опирается, строки, о которых спросили, ссылки `path:line@commit` и hash текста story, о котором спросили. Под тем же именем — прочитанные экраны story (шаг по его Ticket-у и номеру внутри него) и ответы человека на её «Check yourself» (вопрос и его слова или «I don't know») | `src/main/stories/store.ts` |
 | `layout.json` | Layout | `src/main/layout/store.ts` |
 | `bindings.json` | Ручные Binding-и | `src/main/layout/bindings.ts` |
+| `live-sessions.json` | Session-ы Project-а, у которых идёт ход или есть сообщения в очереди, по записи на Node (Orchestrator-а или Session Node): Vendor и id его session или thread, состояние, тексты в очереди с путями приложенных файлов и именами приложенных изображений, придержана ли очередь, Run Autopilot, которому принадлежит Session, время последнего события и автоматические продолжения за последний час; в файле есть `version`, и сборка, которая её не знает, не читает ничего. main атомарно переписывает его при каждом изменении; у Session без хода и с пустой очередью или закрытой записи нет. Файл пишется только после того, как у Session работающего приложения появилась запись, а выход останавливает запись до закрытия Session-ов, поэтому после выхода, Update или сбоя он всё ещё называет прерванные Session-ы. Binding-и там не хранятся: Binding-и заново читаются из транскриптов | `src/main/agent/live-sessions.ts`, формат и чтение `src/shared/agent/live-sessions.ts` |
 | `session-settings.json` | Модель, effort и permission mode по Session Node | `src/main/agent/session-settings.ts` |
 | `hidden-subagents.json` | Записи Subagent, которые пользователь скрыл, по Session | `src/main/claude-home/hidden-subagents.ts` |
 | `browser-profiles.json` | Browser profile-ы; их входы лежат в `persist:`-partition | `src/main/browser/profiles.ts` |
@@ -186,6 +189,10 @@ Windows дерево удаляется собственным обходом wo
 - `test/unit/json-file.test.ts`: откладывание и атомарная запись.
 - `test/unit/remove-tree.test.ts`, `test/unit/remove-tree-walk.test.ts`, `test/unit/remove-tree-mounted.test.ts` и
   `test/unit/move-when-free.test.ts`: удаление и перемещение со ссылками, занятыми файлами и смонтированными томами.
+- `test/unit/live-sessions.test.ts`: чтение `live-sessions.json` (незнакомая версия, сломанный JSON, пустой файл), запись,
+  которая падает на полпути, изменения во время записи, rename возобновлённой Session.
+- `test/contract/live-sessions.test.ts`: на поддельном агенте — Session Node в ходе с очередью, Interrupt, ход, который
+  заканчивается с пустой очередью, Orchestrator под Run-ом, временный файл и rename, выход.
 - `test/contract/projects.test.ts`: имя подпапки Project-а, которая остаётся после удаления из списка.
 - `test/contract/claude-home-isolation.test.ts`: contract test-файл получает свою папку данных.
 - `test/contract/startup-failure.test.ts`: проверка папки до lock-а.
@@ -279,6 +286,9 @@ Exit code равен 0, когда каждый `sample` вернул 0, ина�
 
 Файлы — `hang-<time>-<pid>.txt` в папке `logs` внутри папки данных packaged-сборки. Скрипт читает `WORFY_DATA_DIR` из своего
 окружения, а не из процесса, который снимает.
+
+Когда файл главного процесса содержит `NSPersistentUIRestorer`, а под ним `NSAlert runModal`, macOS спрашивает, восстановить
+ли окна, и ждёт ответа ([lessons](../../lessons/agents.md)).
 
 #### Цифра памяти
 

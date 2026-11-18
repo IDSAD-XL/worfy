@@ -1,6 +1,6 @@
 # Flight Recorder
 
-> Перевод [английской версии](../flight-recorder.md), commit `same-pr`.
+> Перевод [английской версии](../flight-recorder.md), commit `b82c4d25`.
 
 Flight Recorder показывает на одной оси времени, что происходило за один run Autopilot-а: его Wave-ы, Ticket-ы, Stage-ы,
 агентов, CI run-ы, gate run-ы, повторы, ожидания и блокировки, а над ними — на что ушло больше всего времени. Экран
@@ -53,7 +53,10 @@ run-а, который ещё идёт. Run по очереди Epic-ов наз
 
 - Epic (`Epics` и очередь для run-а по нескольким Epic-ам, все они — в tooltip), старт и конец (`now`, пока run идёт)
   по местному времени и длительность;
-- как он остановился: `running`, `stopped: <reason>` или `no stop in the Journal`, когда journal просто обрывается.
+- как он остановился: `running`, `stopped: <reason>` или `no stop in the Journal`, когда journal просто обрывается:
+  приложение ушло (выход, Update, выключение, падение), и run так и не продолжили. Run, который продолжили после такого
+  перезапуска, — это один run, в том же journal-е под тем же id, с ожиданием `restart` внутри (дорожка **Waits**, ниже),
+  и он говорит, как остановился, в своём настоящем конце.
   Остановка из-за блокировки или сбоя показана цветом проблемы. Run, который ждал своего Orchestrator-а, говорит это
   словами: `start-cancelled: cancelled while it waited for the Orchestrator`, `start-refused: refused once the
   Orchestrator was free`; так же и очередь, последний Epic которой ждёт владельца: `waits-owner: the last Epic of the
@@ -98,7 +101,13 @@ run-а, который ещё идёт. Run по очереди Epic-ов наз
    `Background tasks`, `Gate queue`, `Other Machine`, `Retry after an API error` (от `turn-retry` до `resumed` или до
    `limits-hit`, который его сменяет) или `Orchestrator busy` (run, принятый, пока Orchestrator был занят, от
    `orchestrator-busy` до `orchestrator-free` или до остановки run-а, отменённого во время ожидания; его причина —
-   `turn`, `N queued` и task-и Orchestrator-а по имени). Tooltip полосы `Start window` называет её причину:
+   `turn`, `N queued` и task-и Orchestrator-а по имени) или `restart (<cause>)`: worfy ушёл из-под run-а, который потом
+   продолжили, от `run-suspended` (после падения, которое его не пишет, — от последней строки journal-а перед ним) до
+   `run-continued`, а причина — то, после чего пошёл дальше `run-continued`: `quit`, `update`, `shutdown` или `crash`; её
+   подпись — `restart (update) · 3m 00s`. Wave в работе обрезается там, где начался перезапуск; ожидания background
+   task-ов, занятого Orchestrator-а и gate queue тоже кончаются там, а ожидание Limits, Start window, budget или повтора
+   идёт сквозь него. В Waits by cause это `restart`. Journal, записанный до того, как перезапуск стали продолжать (выход
+   писал `run-stopped` `app-quit`), читается как остановленный run без ожидания `restart`. Tooltip полосы `Start window` называет её причину:
    `outside, until <time>` или `wave-too-long, until <time>`, когда следующая Wave не закончилась бы внутри окна.
    Время `until` у ожидания — местное, как и остальное время на экране, в tooltip и в панели деталей.
 2. Дорожка **Orchestrator**: turn-ы Orchestrator-а. Turn связан с Ticket-ами, которых он касался, и не вложен в них.
@@ -226,7 +235,7 @@ commit-ы находятся по ветке Ticket-а и по sha; в них н
 
 | Источник | Даёт |
 |---|---|
-| Journal Autopilot-а | Run и его Wave-ы, ожидания Limits, budget, background task-ов и gate queue, повтора после ошибки API и занятого Orchestrator-а, Epic-и очереди и их старты, статусы Ticket-ов (`ticket-status`), узкий круг исправления, ошибки Session, отклонённые диалоги, действия человека, остановку. |
+| Journal Autopilot-а | Run и его Wave-ы, ожидания Limits, budget, background task-ов и gate queue, повтора после ошибки API, занятого Orchestrator-а и перезапуска (`run-suspended`, `run-continued`), Epic-и очереди и их старты, статусы Ticket-ов (`ticket-status`), узкий круг исправления, ошибки Session, отклонённые диалоги, действия человека, остановку. |
 | Transcript Orchestrator-а | Его turn-ы, вызовы `Agent` и вызовы `SendMessage`, которые возобновляют агента, task-notification-ы. На Codex: запуски агентов, `send_message` и `followup_task`, а также концы Subagent-ов. |
 | Transcript-ы Subagent-ов | Старт, конец и исход каждого агента. |
 | GitHub | Открытие PR и его новые head-ы, CI run-ы и их повторы, комментарии с вердиктами, отметки агентов на head, merge и label cross-machine gate (ожидание `Other Machine`). |

@@ -1,6 +1,6 @@
 # Harness
 
-> Перевод [английской версии](../harness.md), commit `same-pr`.
+> Перевод [английской версии](../harness.md), commit `229013fd`.
 
 Два Feature. **Installing from the app** ставит Harness на Machine. **Plugin** это то, что ставится: скрипты, Profile для
 каждого Project-а и поиск по документам. Части plugin-а, которые действуют, описаны на отдельной странице,
@@ -239,6 +239,7 @@ Plugin `worfy` приходит из marketplace `worfy-harness`, а его skil
 | `decision-log` | Добавляет одно решение в журнал Wave, которая идёт без человека |
 | `silent-check` | Ищет следы workflow в тексте или diff, см. [Full mode and Silent mode](projects.md) |
 | `shortcut-ledger` | Перечисляет комментарии `shortcut:` рабочего дерева, по строке на каждый |
+| `verdict` | Печатает ответ reviewer-а начиная с его строки вердикта: первой строки, которая начинается с `VERIFIED` или `REJECTED` (в том числе после `NARROW:`, жирного шрифта, знака заголовка или обратной кавычки; никогда внутри fenced-блока кода), без предложения над ней и без разметки. Exit 1, когда ни одна строка не несёт вердикта; ничего не угадывается. Skill `epic-wave` записывает через него вердикт verifier-а, и приложение читает вердикты по тому же правилу |
 | `code-map` | Карта кода репозитория, рядом с Profile, с commit-ом на каждую папку |
 | `worktree-lock` | Рекомендательная блокировка рабочего дерева, см. [Hooks](skills-agents-and-hooks.md#hooks) |
 | `start-context` | Оценивает начальный контекст каждого агента в токенах, см. [Agents](skills-agents-and-hooks.md#agents) |
@@ -301,6 +302,13 @@ test текста, о котором сказано выше. `test/contract/har
 относится к Harness. Также `test/contract/harness-qmd.test.ts`, `test/contract/harness-script-env.test.ts`,
 `test/contract/harness-script-command.test.ts` и `test/unit/agent-options.test.ts`.
 
-Eval-ы делают платные вызовы модели, и CI с Gate их не запускают. `harness/evals/` держит десять случаев `claude plugin eval`, которые по
+Eval-ы делают платные вызовы модели, и CI с Gate их не запускают. `harness/evals/` держит двадцать три случая `claude plugin eval`, которые по
 поведению проверяют, что Claude следует правилам (`pnpm eval:harness`), а `harness/evals-outcome/` держит задачи для
 `pnpm eval:outcome`. `test/contract/harness-evals.test.ts` бесплатно проверяет, что каждый случай полон.
+Случай `compaction-state` несёт тег `alone` и запускается только командой `pnpm eval:harness -- --case compaction-state`:
+только его вызов получает `CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000` и `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=5` — переменные,
+с которыми Claude Code сжимает историю (compaction) до первого ответа, а каждый другой вызов идёт без них, даже когда их
+задаёт shell. Общий запуск и `--changed` пропускают этот случай и печатают, как его запустить. Его запуск без hook-а
+compaction и без инструкций —
+`HARNESS_DIR="$(node harness/evals/compaction-state/baseline.mjs)" pnpm eval:harness -- --case compaction-state`
+([Skills, agents and hooks](skills-agents-and-hooks.md)).

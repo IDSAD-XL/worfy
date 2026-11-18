@@ -1,7 +1,7 @@
 # 14 — Документы: переводы страниц Feature, Amendment к ADR-0050, новый ADR, термины CONTEXT.md
 
 Type: task
-Status: open
+Status: claimed 2026-11-18T12:08Z
 Blocked by: 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 16
 Source: [spec.md](../spec.md), «Ticket-ы», 14; «Готово, когда», пункт о документах; «Решено без владельца», 5;
 [critic 2026-11-14](../../../docs/product/critic/worfy-continuity-2026-11-14.md), «What the critic cannot know» (ADR-0010)
@@ -37,9 +37,13 @@ Source: [spec.md](../spec.md), «Ticket-ы», 14; «Готово, когда», 
 ## Готово, когда
 
 - [ ] Восемь страниц `docs/features/ru/` совпадают по смыслу с английскими на `main` (review по каждой).
+  - evidence: commit pass · worfy-continuity/14: Russian Feature pages, ADR-0108, ADR-0050/0010 amendments, CONTEXT terms · - - · efe0448851b833de7ab8933e3a0580d39547f095
 - [ ] Amendment к ADR-0050 и новый ADR влиты; ADR-0010 сверен, итог — в ADR.
+  - evidence: commit pass · worfy-continuity/14: Russian Feature pages, ADR-0108, ADR-0050/0010 amendments, CONTEXT terms · - - · efe0448851b833de7ab8933e3a0580d39547f095
 - [ ] CONTEXT.md называет причину Wait-а `restart` и «unknown side effects».
+  - evidence: commit pass · worfy-continuity/14: Russian Feature pages, ADR-0108, ADR-0050/0010 amendments, CONTEXT terms · - - · efe0448851b833de7ab8933e3a0580d39547f095
 - [ ] `node scripts/check-personal.mjs` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: test-run pass · `node scripts/check-personal.mjs` exit 0 · mac - · deb9d782af184b237a9fa6c381a691904d9b0578
 
 ## Где в коде
 
@@ -54,3 +58,22 @@ Source: [spec.md](../spec.md), «Ticket-ы», 14; «Готово, когда», 
 ## Вне скоупа
 
 - Английские страницы — в Ticket-ах поведения.
+
+## Итог
+
+Сделано 2026-11-18, ветка `worfy-continuity/14`.
+
+- **Переводы.** Восемь страниц `docs/features/ru/` сверены с английскими на `main` (`b82c4d25`) целиком, а не только по
+  diff-у Ticket-ов 02–12 и 16: `sessions.md`, `skills-agents-and-hooks.md`, `updates.md` и `storage-and-diagnostics.md`
+  отставали и раньше (Vendor, Codex, Product Session, skill-ы Matt Pocock, `critic`, сборка Update, PR inbox, Code
+  stories), они дополнены до полной сверки. Строка «Перевод … commit» на всех восьми — `b82c4d25`.
+- **Ticket 13 (PR #1996, не влит).** Абзац об eval-кейсе `compaction-state` переведён в конец
+  `docs/features/ru/skills-agents-and-hooks.md` и в `docs/features/ru/harness.md` (там же «двадцать три» кейса и строка
+  `verdict` в таблице скриптов). Остальное отставание `ru/harness.md` (раздел On Codex и др.) — вне этого Ticket-а.
+- **ADR.** Новый [ADR-0108](../../../docs/adr/0108-work-continues-after-a-restart-of-worfy.md); Amendment к ADR-0050
+  (`resumable` из journal-а); ADR-0010 сверен — фраза «состояние Session только в памяти» расходится с
+  `live-sessions.json`, поэтому Amendment, а не строка в ADR-0108.
+- **CONTEXT.md.** Причина Wait-а `restart`, термины Unknown side effects и Interrupted by restart, И1–И10 в Recovery
+  invariant.
+- Английская страница не говорит, что строка Resume/Discard стоит только в рамке своего Epic-а; это записано в ADR-0108
+  по коду (`src/renderer/canvas/actions/AutopilotAction.tsx`), перевод следует английской странице.
