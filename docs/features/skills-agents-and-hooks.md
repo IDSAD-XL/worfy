@@ -247,6 +247,7 @@ Claude Code runs these commands on its events. The limit is in seconds.
 | `SessionStart` | `gh-token-env.mjs` | 10 | `GH_TOKEN` of the Project's account |
 | `SessionStart` | `worktree-lock claim` | 10 | Registers in the tree, and says who is already there; once a day removes the registry files of deleted trees |
 | `SubagentStart` | `inject-rules.mjs common` | 10 | The common rules and the user's rules |
+| `PreCompact` | `inject-rules.mjs compaction` | 10 | The instructions for the compaction summary, as plain text, in a main Session and in a Subagent; nothing on Codex |
 | `UserPromptSubmit` | `stage-lines.mjs` | 10 | In a Project that keeps Tickets, the `epic-status` lines of the Epics in play, for the Stage line of the status block: the Epic of the current branch (its line names the branch), then Epics with a claimed Ticket, then Epics of local Ticket branches, newest first, whose Ticket is not done; three lines at most. With none of these, the Epics that are not closed, those whose next Ticket is blocked last. Nothing in a Product Session or for a Subagent. When `bin/profile` or `epic-status` fails or takes over 2.5 s, nothing and one line on stderr; the slow one is killed |
 | `PreToolUse` on `Bash\|apply_patch` | `guard.mjs` | 30 | The Bash guard. `apply_patch` is Codex's file edit, which Claude Code does not have: on Codex the guard refuses it to `worfy-reviewer` and `worfy-scout` |
 | `PostToolUse`, `PostToolUseFailure` | `calls.mjs` | 5 | The call log, written only: the agent sees nothing and its call is not held. It keeps the last 20 calls of each agent (tool, a hash of the input, the outcome) in `<gate state>/calls/<owner>.jsonl`, where the owner is the Session, or the Session and the `agent_id` of a Subagent. When an agent repeats the same failed call, edits a file back and forth or repeats a pair of calls, it appends `would-hint` on the 3rd repeat and `would-deny` on the 4th to `calls/loops.jsonl` with the start of the command; CI waits (`gh pr checks`, `gh run watch`, `gh run view`) do not count. `bin/loop-log [--since <YYYY-MM-DD>]` prints the `would-deny` cases with their Vendor and `cases: N (revisit at 3)`. Logs older than 7 days are removed; `loops.jsonl` keeps its last 2000 lines. On Codex `PostToolUse` runs it too (a shell call's outcome there is its output, with no exit code, and does not count as a failure, so a repeated shell call there gives no case; `apply_patch` carries an exit code and counts); `PostToolUseFailure` is Claude Code's |
@@ -266,6 +267,17 @@ holds the default loop, delegation and the report. `common` holds plain language
 hygiene and the shell commands that need a person's confirmation. Claude Code cuts one such text above 10,000 characters
 to a preview, so `common` with the user's rules stays within that limit: a longer rules file is cut after a whole line,
 and a closing line names the file. A file that cannot be read costs one line on stderr, and the part arrives without it.
+`common` also says what to do after a compaction: re-read the Ticket (an Orchestrator runs `epic-status` of its Epic)
+and `git status` before the next step.
+
+**Compaction.** When Claude Code compacts the context, on `/compact` and on auto-compaction, in a main Session and in a
+Subagent, the part `compaction` (`harness/hooks/rules/compaction.md`) joins the instructions of the model that writes
+the summary. It asks for seven sections: Intent, Essential facts, Completed work, Files touched, Errors, Pending work and
+Next action. It names what each role keeps. An Orchestrator keeps the Epic, the Wave number, the PRs in work and the
+decisions taken without the owner. An implementer keeps its Ticket, each item of the Ticket's done section with its
+mark, the worktree and the branch. The hook cannot tell a Subagent from a main Session, so one text holds every role,
+and the summary model picks by the conversation. It is plain text, not `additionalContext`, and Claude Code cuts it
+after 10,000 characters. Codex does not read this output.
 
 **The context of the Project.** It stays empty for a folder outside a registered Project and for a Project that asks for
 nothing:
@@ -320,8 +332,9 @@ the home folder shown as `~` is `USERPROFILE`. The Gate's launcher is on the [Ga
 ### Implementation
 
 - `harness/hooks/hooks.json` wires every hook, through the plugin root.
-- `harness/hooks/inject-rules.mjs` with `harness/hooks/rules/orchestrator.md`, `harness/hooks/rules/common.md` and
-  `harness/hooks/rules/product.md`. A Product Session is the one whose environment has `WORFY_SESSION_KIND=product`,
+- `harness/hooks/inject-rules.mjs` with `harness/hooks/rules/orchestrator.md`, `harness/hooks/rules/common.md`,
+  `harness/hooks/rules/product.md` and `harness/hooks/rules/compaction.md`. On `PreCompact` it prints the part as
+  plain text, and nothing when the input comes from Codex. A Product Session is the one whose environment has `WORFY_SESSION_KIND=product`,
   which worfy sets when it starts one.
 - `harness/hooks/session-start.mjs`, which asks `bin/profile` for the Project. A Profile may still carry the removed field
   `session.retro_reminder_after`: it is ignored, and a `state/pending-retro.log` left from then is not read.

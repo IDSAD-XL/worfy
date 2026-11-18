@@ -646,7 +646,7 @@ for (const l of out) process.stdout.write(l + "\n")' "$HJ" "$1" 2>/dev/null
 }
 if [ "$(hj valid)" = ok ]; then ok "hooks.json is valid JSON with .hooks"; else bad "hooks.json missing or invalid"; fi
 
-# The hooks of ~/.claude/settings.json:5-109, plus the four inject-rules entries; qmd-refresh came
+# The hooks of ~/.claude/settings.json:5-109, plus the five inject-rules entries; qmd-refresh came
 # with the qmd server of the plugin. Codex runs the same file (README.md, "On Codex"): SubagentStop,
 # the 900 s of stop.mjs (it runs the gate on Codex) and apply_patch in the guard's matcher are for it;
 # under Claude Code stop.mjs does nothing on SubagentStop and no tool is called apply_patch. No WorktreeCreate: hooks/worktree-create.sh stays unregistered until
@@ -667,6 +667,7 @@ SessionStart||$N/hooks/inject-rules.mjs" common|10
 SessionStart||$N/hooks/inject-rules.mjs" product|10
 SessionStart||$N/hooks/gh-token-env.mjs"|10
 SubagentStart||$N/hooks/inject-rules.mjs" common|10
+PreCompact||$N/hooks/inject-rules.mjs" compaction|10
 UserPromptSubmit||$N/hooks/stage-lines.mjs"|10
 TaskCompleted||$R/hooks/gate.sh" fast|900
 TeammateIdle||$R/hooks/gate.sh" fast|900
@@ -735,10 +736,11 @@ while IFS='|' read -r ev cmd; do
     part="${cmd##* }"
     kind=""; [ "$part" = product ] && kind=product
     printf '{"hook_event_name":"%s"}' "$ev" | CLAUDE_PLUGIN_ROOT="$HARNESS_N" WORFY_SESSION_KIND="$kind" sh -c "$cmd" >"$T/out" 2>/dev/null
-    first="$(ctx | head -n 1)"
+    # PreCompact takes plain text on stdout (section 7b); the other events take JSON.
+    if [ "$ev" = PreCompact ]; then first="$(head -n 1 "$T/out")"; else first="$(ctx | head -n 1)"; fi
     [ "$first" = "# worfy Harness — $part rules" ] && ok "hooks.json $ev runs $part" || bad "hooks.json $ev '$cmd': got '$first'"
 done < <(hj inject)
-[ "$n" -eq 4 ] && ok "hooks.json: four inject-rules.mjs commands run" || bad "hooks.json: $n inject-rules.mjs commands, not 4"
+[ "$n" -eq 5 ] && ok "hooks.json: five inject-rules.mjs commands run" || bad "hooks.json: $n inject-rules.mjs commands, not 5"
 
 # Every inject-rules command of SessionStart together, as Claude Code runs them at the start of a Session:
 # a Product Session gets common + product, without orchestrator; any other, as before, orchestrator +
@@ -757,6 +759,78 @@ got="$(session_parts product)"
 [ "$got" = "common product" ] && ok "hooks.json SessionStart, WORFY_SESSION_KIND=product: common + product" || bad "hooks.json SessionStart, Product Session: '$got'"
 got="$(session_parts '')"
 [ "$got" = "common orchestrator" ] && ok "hooks.json SessionStart, no kind: orchestrator + common" || bad "hooks.json SessionStart, no kind: '$got'"
+
+# --- 7b. Compaction: the summary instructions and the line for after it --------------------------
+# Claude Code runs PreCompact just before the model writes the summary that replaces the conversation:
+# on /compact and on auto-compaction, in a main Session and in a Subagent. The plain-text stdout of its
+# hooks joins the summary request as custom instructions and is cut after 10,000 characters
+# (worfy-continuity ticket 01, the spike, question 2). Its input does not say whether a Subagent compacts
+# (no agent_id), so the one part compaction carries the instructions of every role.
+COMPACTION="$RULES/compaction.md"
+PC_LABEL="# worfy Harness — compaction rules"
+run_inject compaction '{"session_id":"t-1","transcript_path":"/tmp/t.jsonl","cwd":"/tmp","hook_event_name":"PreCompact","trigger":"manual","custom_instructions":"keep the deploy target"}' CLAUDE_PLUGIN_ROOT=/opt/worfy-plugin
+[ "$rc" -eq 0 ] && [ -s "$COMPACTION" ] && [ "$(cat "$T/out")" = "$(part_with_root compaction)" ] && [ ! -s "$T/err" ] \
+    && ok "PreCompact/compaction: the part as plain text on stdout, not JSON, nothing on stderr" \
+    || bad "PreCompact/compaction: rc=$rc, stdout starts '$(head -c 80 "$T/out")', stderr '$(head -c 120 "$T/err")'"
+# Auto-compaction, in a Product Session too, with a long plugin root: the same part, within the limit.
+for kind in '' product; do
+    run_inject compaction '{"hook_event_name":"PreCompact","trigger":"auto","custom_instructions":null}' CLAUDE_PLUGIN_ROOT="$LONG_ROOT" WORFY_SESSION_KIND="$kind"
+    n="$(chars "$T/out")"
+    [ "$rc" -eq 0 ] && [ "$(head -n 1 "$T/out")" = "$PC_LABEL" ] && [ "$n" -le "$LIMIT" ] \
+        && ok "PreCompact auto, kind '$kind': the part, $n characters <= $LIMIT" || bad "PreCompact auto, kind '$kind': rc=$rc, $n characters, '$(head -n 1 "$T/out")'"
+done
+# Codex does not read the stdout of PreCompact (it takes the summary instructions from compact_prompt,
+# worfy-continuity ticket 12) and runs the same hooks.json: its input carries turn_id, and the hook is silent.
+run_inject compaction '{"hook_event_name":"PreCompact","turn_id":"turn-1","trigger":"auto","cwd":"/tmp"}' CLAUDE_PLUGIN_ROOT=/opt/worfy-plugin
+expect_silent "PreCompact on Codex: compaction"
+
+# What the summary keeps: the seven sections, in this order, then the facts of each role.
+prev=0 order=""
+for s in 'Intent' 'Essential facts' 'Completed work' 'Files touched' 'Errors' 'Pending work' 'Next action'; do
+    at="$(grep -nF -- "**$s**" "$COMPACTION" 2>/dev/null | head -n 1 | cut -d: -f1)"
+    if [ -n "$at" ] && [ "$at" -gt "$prev" ]; then prev="$at"; else order="$order [$s]"; fi
+done
+[ -z "$order" ] && ok "compaction.md: the seven summary sections, in order" || bad "compaction.md: sections missing or out of order:$order"
+pcflat="$(tr '\n' ' ' <"$COMPACTION" 2>/dev/null | tr -s ' ')"
+for p in '**Orchestrator**' 'the epic' 'the wave number' 'every PR in work' 'without the owner' '`decisions.tsv`' '`worfy:epic-wave`' \
+    '**Implementer**' '`worfy:implementer`' 'the ticket file' '`tickets.done_section`' 'with its mark' 'the worktree path' 'the branch' \
+    '**Any other agent**' 'every file edited'; do
+    [[ "$pcflat" == *"$p"* ]] && ok "compaction.md names $p" || bad "compaction.md does not name $p"
+done
+
+# Each role, through the commands of hooks.json: every text a hook hands it fits the limit, the
+# compaction part among them, and the common part carries the line for after a compaction. The user's
+# rules fill their slot, so common is as long as it gets.
+# The line, in two pieces around the plugin root it names.
+FALLBACK_1='After a compaction (the conversation replaced by its summary), re-read your ticket (an orchestrator: '
+FALLBACK_2='of its epic) and run `git status` before the next step. The summary may have dropped or bent a fact; the files have not.'
+cflat="$(tr '\n' ' ' <"$RULES/common.md" 2>/dev/null | tr -s ' ')"
+[[ "$cflat" == *"$FALLBACK_1"'`${CLAUDE_PLUGIN_ROOT}/bin/epic-status` '"$FALLBACK_2"* ]] \
+    && ok "common.md: the line for after a compaction" || bad "common.md: no line for after a compaction"
+node -e 'for (let i = 1; i <= 600; i++) process.stdout.write(`Rule ${i}: keep the Klingon words as they are in every report.\n`)' >"$USER_RULES"
+# $1 role, $2 WORFY_SESSION_KIND, $3 the start event: the PreCompact hooks of hooks.json run with it.
+role_chunks() {
+    local role="$1" kind="$2" start="$3" ev cmd n text over="" parts="" flat=""
+    while IFS='|' read -r ev cmd; do
+        [ "$ev" = "$start" ] || [ "$ev" = PreCompact ] || continue
+        printf '{"hook_event_name":"%s","trigger":"auto"}' "$ev" | CLAUDE_PLUGIN_ROOT="$HARNESS_N" WORFY_SESSION_KIND="$kind" sh -c "$cmd" >"$T/out" 2>"$T/err"
+        [ -s "$T/out" ] || continue
+        if [ "$ev" = PreCompact ]; then text="$(cat "$T/out")"; else text="$(ctx)"; fi
+        n="$(printf '%s' "$text" | chars)"
+        [ "$n" -le "$LIMIT" ] || over="$over ${cmd##* }:$n"
+        parts="$parts ${cmd##* }"
+        [ "${cmd##* }" = common ] && flat="$(printf '%s' "$text" | tr '\n' ' ' | tr -s ' ')"
+    done < <(hj inject)
+    [ -z "$over" ] && [[ "$parts" == *" compaction"* ]] \
+        && ok "$role: every hook text within $LIMIT characters, compaction among them ($parts )" \
+        || bad "$role: over $LIMIT:${over:- none}; parts:$parts"
+    [[ "$flat" == *"$FALLBACK_1\`$HARNESS_N/bin/epic-status\` $FALLBACK_2"* ]] \
+        && ok "$role: the common part carries the line for after a compaction" || bad "$role: no line for after a compaction in common"
+}
+role_chunks "main Session (orchestrator)" '' SessionStart
+role_chunks "Product Session" product SessionStart
+role_chunks "Subagent (implementer, reviewer, scout)" '' SubagentStart
+rm -f "$USER_RULES"
 
 # --- 9. The Stage lines with each prompt (hooks/stage-lines.mjs) --------------------------------------
 # UserPromptSubmit runs hooks/stage-lines.mjs: in a project that keeps tickets it hands the session the
