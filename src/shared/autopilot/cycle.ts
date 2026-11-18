@@ -48,6 +48,11 @@
 // is red; `main-red` stops it (with `user-stop` after a graceful Stop). `background-stalled` names no Ticket and stays a stop. With the ceiling 0
 // (the default) the run stops at both places as it always did.
 //
+// Checked, include (worfy-continuity ticket 07): a Ticket a continued Run left to a person — an external call of its
+// implementer without a result — is given back to the run (`include`). Until a Wave carries it, it counts as ready
+// while it is still in work, as the Tickets a start takes along do, so the next Wave takes it as resumed; the Wave
+// that carries it ends that. A run over named Tickets takes only those of its list.
+//
 // A quiet turn (worfy-stuck-agents ticket 09): the Orchestrator's turn that goes QUIET_HUNG_MS without a sign of
 // life gets `turn-quiet` from run.ts, and in phase `turn` the run stops with `turn-hung`; in every other phase the
 // event changes nothing.
@@ -169,6 +174,11 @@ export interface CycleState {
    */
   suspended?: true
   /**
+   * The Tickets given back by Checked, include (worfy-continuity ticket 07) that no Wave has carried yet; absent: none.
+   * Those still in work count as ready for the next Wave.
+   */
+  included?: number[]
+  /**
    * A continuation (sent as the next Wave, which carries it) or a set-aside the cycle asked and the run has
    * not yet put under way: `main-red` stops the run meanwhile.
    */
@@ -230,6 +240,8 @@ export type CycleEvent =
    * is suspended where it is, to be continued from its journal after the start (`run-suspended`). No effect.
    */
   | { type: 'suspend' }
+  /** Checked, include (worfy-continuity ticket 07): the person gives a Ticket left to them back to the run. No effect. */
+  | { type: 'include'; ticket: number }
 
 export type CycleEffect =
   /** Send "Run wave" to the Orchestrator; answer with `wave-sent` or `send-failed`. */
@@ -367,6 +379,16 @@ function unask(state: CycleState): CycleState {
   return next
 }
 
+/** The state once a Wave of `tickets` has gone: the included Tickets it carries are no longer waiting for one. */
+function carried(state: CycleState, tickets: readonly number[]): CycleState {
+  const left = state.included?.filter((num) => !tickets.includes(num))
+  if (left === undefined || left.length === state.included?.length) return state
+  const next = { ...state }
+  if (left.length === 0) delete next.included
+  else next.included = left
+  return next
+}
+
 /** The Tickets of the run's last Wave, for a stop that interrupts it; undefined before the first Wave is sent. */
 const waveOf = (state: CycleState): number[] | undefined => (state.tickets.length > 0 ? [...state.tickets] : undefined)
 
@@ -441,7 +463,7 @@ function evaluate(state: CycleState, tickets: readonly CycleTicket[]): CycleStep
     return stay({ ...state, phase: 'settling', holding })
   }
   const finished: CycleEffect = { kind: 'wave-finished', wave: state.wave, tickets: state.tickets }
-  const next = readyNums(state, tickets)
+  const next = [...new Set([...readyNums(state, tickets), ...resumedTickets(tickets, state.epic, resumeOf(state, state.included ?? []))])].sort((a, b) => a - b)
   if (next.length === 0) return nothingReady(state, tickets, [finished])
   if (sameSet(next, state.tickets)) return ladder(state, state.tickets, 'no-progress', [finished])
   return { state: { ...state, phase: 'sending' }, effects: [finished, { kind: 'send-wave' }] }
@@ -453,6 +475,8 @@ export function step(state: CycleState, event: CycleEvent): CycleStep {
   switch (event.type) {
     case 'suspend':
       return stay({ ...state, suspended: true })
+    case 'include':
+      return state.included?.includes(event.ticket) === true ? stay(state) : stay({ ...state, included: [...(state.included ?? []), event.ticket] })
     case 'stop':
       return event.reason === 'user-force-stop' ? stop(state, event.reason, [], waveOf(state)) : stop(state, event.reason)
     case 'graceful-stop':
@@ -465,7 +489,7 @@ export function step(state: CycleState, event: CycleEvent): CycleStep {
       return stop(state, 'session-closed')
     case 'start':
       if (state.phase !== 'starting') return stay(state)
-      if (resumedTickets(event.tickets, state.epic, resumeOf(state, event.resume ?? [])).length === 0 && readyNums(state, event.tickets).length === 0) return nothingReady(state, event.tickets)
+      if (resumedTickets(event.tickets, state.epic, resumeOf(state, [...(event.resume ?? []), ...(state.included ?? [])])).length === 0 && readyNums(state, event.tickets).length === 0) return nothingReady(state, event.tickets)
       return { state: { ...state, phase: 'sending' }, effects: [{ kind: 'send-wave' }] }
     case 'wave-sent': {
       if (state.phase !== 'sending') return stay(state)
@@ -474,7 +498,7 @@ export function step(state: CycleState, event: CycleEvent): CycleStep {
       // A continuation has gone as this Wave: its start says so, and main is no longer read for it.
       const continuation = state.asked?.kind === 'continue' ? state.asked.continuation : undefined
       const started: CycleEffect = continuation === undefined ? { kind: 'wave-started', wave, tickets } : { kind: 'wave-started', wave, tickets, continuation }
-      const sent = unask(state)
+      const sent = carried(unask(state), tickets)
       if (!state.stopping) return { state: { ...sent, phase: 'turn', wave, tickets }, effects: [started] }
       // Stopped while "Run wave" was on its way: the Wave has gone, so the run says Stop now.
       const inWork = state.inWork.filter((num) => tickets.includes(num))

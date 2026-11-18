@@ -3,8 +3,10 @@
 // coordinator (src/main/quit-grace.ts) over its registry and Autopilot, on the test's clock: the Run is suspended,
 // not stopped — run-suspended with its Wave and its wait is the journal's last line — and the quit waits for the
 // external calls of the Orchestrator without a result, GRACE_MS of the test's clock at most, or until Quit now.
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { GRACE_MS, OpenCalls, QuitGrace, quitSteps } from '../../src/main/quit-grace'
+import { GRACE_MS, OpenCalls, QuitGrace, quitSteps, subagentOpenCalls } from '../../src/main/quit-grace'
 import type { JournalEvent, SuspendCause } from '../../src/shared/autopilot/journal'
 import type { QuitGraceView } from '../../src/shared/ipc/quit-grace'
 import { checkRecovery } from '../autopilot-invariants'
@@ -42,9 +44,14 @@ const PUSH_UNTIL_INTERRUPT: FaultScript = [{ fake: 'wait_message' }, init, pushC
 /** The Wave's turn calls `git push`, whose result comes when the test releases `push`; the turn then ends. */
 const PUSH_UNTIL_RELEASE: FaultScript = [{ fake: 'wait_message' }, init, pushCall, { fake: 'wait_release', name: 'push' }, pushResult, answer, success]
 
-/** A Run with the quit's coordinator over its registry and Autopilot, on the test's clock. */
+/**
+ * A Run with the quit's coordinator over its registry and Autopilot, on the test's clock. The Subagents' calls come from
+ * the transcripts of the test's folder `h.transcripts` (subagentOpenCalls, worfy-continuity ticket 07), counted from the
+ * start of the test.
+ */
 function quitRun(options: FaultRunOptions) {
   const h = faultRun(options)
+  const since = Date.now()
   // From the start, as the app follows them from its registry's first Session (src/main/index.ts).
   const calls = new OpenCalls()
   h.registry.observe(calls.sink)
@@ -54,6 +61,15 @@ function quitRun(options: FaultRunOptions) {
     // The Stop's limit of faultRun for the interrupt of a turn.
     ...quitSteps(() => ({ registry: h.registry, autopilot: h.autopilot, haltTurnMs: 100 })),
     calls,
+    subagentCalls: () =>
+      subagentOpenCalls({
+        sessions: () => h.registry.list(),
+        transcriptPath: (_root, id) => {
+          const path = join(h.transcripts, `${id}.jsonl`)
+          return Promise.resolve(existsSync(path) ? path : null)
+        },
+        since,
+      }),
     show: (view) => void views.push(view),
     quit: () => void (quits += 1),
     clock: { now: () => h.clock.now, setTimeout: h.clock.setTimeout, clearTimeout: h.clock.clearTimeout },
@@ -95,6 +111,40 @@ describe('a quit during an Autopilot Run (worfy-continuity ticket 04)', () => {
     // Up to the last millisecond of the grace nothing is halted and nothing written.
     h.clock.advance(GRACE_MS - 1)
     // The steps after the grace would run on the next ticks: give them those ticks.
+    for (let tick = 0; tick < 5; tick++) await new Promise((done) => setImmediate(done))
+    expect(quits()).toBe(0)
+    expect(suspendedOf(h)).toBeUndefined()
+    h.clock.advance(1)
+    await left
+    expect(quits()).toBe(1)
+    expect(views.at(-1)).toBeNull()
+    expect(h.journal(1).at(-1)).toMatchObject({ kind: 'run-suspended', cause: 'quit', wave: 1 })
+    expect(checkRecovery(h.recovery({ stop: null, suspended: 'quit', waves: 1 }))).toEqual([])
+  })
+
+  it('a Subagent holds gh pr merge without a result: the quit waits for it no longer than GRACE_MS by the test clock, and the window names it (worfy-continuity ticket 07)', async () => {
+    const { h, grace, views, quits } = quitRun({ scripts: [WAVE_UNTIL_INTERRUPT], marks: 'claimed' })
+    await inWave1(h)
+    // The claims follow the Session's prompt; its SDK session id comes later, with the fake agent's init: wait for it.
+    await until(() => h.registry.list().some((info) => info.sdkSessionId !== null), 'the SDK session of the Orchestrator')
+    // The Orchestrator's own turn has no call outside the machine; its implementer of 01, a background Subagent, has one.
+    const session = h.registry.list().find((info) => info.sdkSessionId !== null)!.sdkSessionId!
+    writeFileSync(join(h.transcripts, `${session}.jsonl`), `${JSON.stringify({ type: 'user', sessionId: session, timestamp: '2026-11-18T09:59:00.000Z', message: { role: 'user', content: 'go' } })}\n`)
+    mkdirSync(join(h.transcripts, session, 'subagents'), { recursive: true })
+    const merge = {
+      type: 'assistant',
+      isSidechain: true,
+      agentId: 'impl01',
+      sessionId: session,
+      timestamp: '2026-11-18T10:20:00.000Z',
+      message: { id: 'm-merge', role: 'assistant', content: [{ type: 'tool_use', id: 't-merge', name: 'Bash', input: { command: 'gh pr merge 41 --squash', description: 'Merge the PR' } }] },
+    }
+    appendFileSync(join(h.transcripts, session, 'subagents', 'agent-impl01.jsonl'), `${JSON.stringify(merge)}\n`)
+
+    const left = grace.leave('quit')
+    await until(() => grace.view !== null, 'the window «Quitting worfy»')
+    expect(grace.view).toEqual({ stage: 'waiting', calls: [{ id: 't-merge', description: 'gh pr merge 41' }], total: 1, leftMs: GRACE_MS })
+    h.clock.advance(GRACE_MS - 1)
     for (let tick = 0; tick < 5; tick++) await new Promise((done) => setImmediate(done))
     expect(quits()).toBe(0)
     expect(suspendedOf(h)).toBeUndefined()

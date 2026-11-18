@@ -1,0 +1,9 @@
+{
+  "about": "The app quit in the middle of Wave 1, the implementer of 01 held gh pr merge without a result, and after the start a person discarded the run: unknown-side-effects marks 01 before run-stopped discarded. The next Run sends 01 in its first Wave without a side-effects-checked of it.",
+  "rule": "I10",
+  "expect": {
+    "stop": "discarded",
+    "errorText": null,
+    "waves": 2
+  }
+}

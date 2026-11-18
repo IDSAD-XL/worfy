@@ -41,7 +41,7 @@ import { bindingStore } from './layout/bindings'
 import { layoutStore } from './layout/store'
 import { appWaitsSources, electronNotifyDeps, followAppLinkPauses, installGateQueueNotifications, installNotifications, installPrInboxNotifications } from './notify'
 import { projectStore } from './projects/store'
-import { followShutdown, OpenCalls, QUIT_HALT_TURN_MS, QuitGrace, quitSteps, setAppQuitGrace } from './quit-grace'
+import { appSubagentCalls, followShutdown, OpenCalls, QUIT_HALT_TURN_MS, QuitGrace, quitSteps, setAppQuitGrace } from './quit-grace'
 import { quietWindows } from './quiet-windows'
 import { registerAppSchemes } from './schemes'
 import { appSettingsStore } from './settings/store'
@@ -303,6 +303,8 @@ function installQuitGrace(calls: OpenCalls): QuitGrace {
       }
     }),
     calls,
+    // The calls of the Sessions' Subagents, from their transcripts (worfy-continuity ticket 07).
+    subagentCalls: appSubagentCalls(() => madeRegistry()?.registry.list() ?? []),
     show: (view) => toEveryWindow((target) => emit(target, quitGraceChanged, view)),
     quit: () => app.quit(),
   })

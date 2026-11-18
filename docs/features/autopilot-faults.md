@@ -112,8 +112,10 @@ the system. The quit goes in four steps:
 1. Every run is suspended: no Wave, continuation or retry goes any more, its timers stop, and no Session takes a new
    turn: a message sent from now on waits in the Session's queue.
 2. The quit waits for the external calls that have no result yet: a top-level `git push`, `gh pr merge`, a call of an
-   MCP server or a Subagent of a Session's turn (the same calls a retry counts as in flight, see `in-flight` above). It
-   waits 60 seconds at most. Meanwhile every window shows **Quitting worfy** with those calls and the time left, and
+   MCP server or a Subagent of a Session's turn (the same calls a retry counts as in flight, see `in-flight` above), and
+   the same calls of the Sessions' Subagents. A Subagent's calls are read from its own transcript
+   (`<session>/subagents/agent-<id>.jsonl`), once a second during the wait; a Subagent file not written since worfy
+   started belongs to an earlier process and holds nothing. It waits 60 seconds at most. Meanwhile every window shows **Quitting worfy** with those calls and the time left, and
    **Quit now** ends the wait at once. Without such calls there is no wait and no window.
 3. The turns are halted: each Session gets an interrupt, then its process gets 7.5 seconds to exit, then SIGKILL and 2
    seconds more (ADR-0064, how a Session ends). The record of live Sessions stops first, so it keeps the Sessions the quit cut off.
@@ -149,7 +151,14 @@ the app](#after-a-restart-of-the-app)). A build older than the one
 that introduced these lines skips them and counts them as unreadable, as it does with any line of a kind it does not know.
 
 **Discard** writes `run-stopped` with the reason `discarded` into the cut-off run's journal, with the Tickets of its Wave in work.
-Those Tickets become `resumable`, as after a Force stop.
+Those Tickets become `resumable`, as after a Force stop, except a Ticket held for unknown side effects: Discard reads the
+cut-off Wave's calls first, as a continuation does, and marks such a Ticket before `run-stopped`.
+
+Two more lines carry the marks of unknown side effects. `unknown-side-effects` (`ticket`, `actions`) names a Ticket the
+run left to a person and worfy's summary of each call without a result (`gh pr merge 41`, secrets hidden as in
+`retry-refused`). `side-effects-checked` (`ticket`) is the person's **Checked, include**. A marked Ticket is never
+`resumable` until its `side-effects-checked`, whatever `run-stopped` names. A mark still open when the run ends goes on to
+the next run of the same Epic, and a `side-effects-checked` there clears it.
 
 #### After a restart of the app
 
@@ -168,8 +177,9 @@ When worfy starts, the newest cut-off run of each Project goes on by itself, und
 4. Before that Wave, the run reads the transcript of the Orchestrator's session of the cut-off Wave for external calls
    without a result: a `git push`, a `gh pr merge`, a call of an MCP server or a Subagent that may or may not have
    run. A Ticket whose implementer has such a call is held: it is not in the Wave, the run does not continue it, and it
-   stays `claimed` for a person. A call of the Orchestrator itself, or of a Subagent bound to no Ticket, holds every
-   Ticket of the Wave. Only Claude Code transcripts are read: on a Codex Orchestrator no Ticket is held.
+   stays `claimed` for a person, with the mark of [unknown side effects](#unknown-side-effects). A call of the
+   Orchestrator itself, or of a Subagent bound to no Ticket, holds every Ticket of the Wave. Only Claude Code transcripts
+   are read: on a Codex Orchestrator no Ticket is held.
 5. The checks of a start come first. A busy Orchestrator is waited for (`orchestrator-busy`) as at any start. On Codex
    with the Harness's hooks not approved, the run is refused as a start is, and stays cut off with that reason.
 
@@ -188,6 +198,23 @@ advisory: it never blocks, it only tells a new session that another one marked i
 minutes. Its registry lives under `~/.claude`, which worfy does not write (ADR-0005). The e2e lock of an implementer cut
 off in the middle of an e2e run is taken over by the next run once it is older than 30 minutes. The implementers of the
 continued Wave find their Tickets' worktrees as the cut-off Wave left them.
+
+#### Unknown side effects
+
+A Ticket the run left to a person, because a call of its implementer that may act outside the machine has no result,
+gets the mark **unknown side effects** on its card in the Epic frame, on a line under the title. Its tooltip names the
+calls: "gh pr merge 41 may or may not have run". The frame shows a toast once per mark: "Unknown side effects: `gh pr
+merge 41` may or may not have run (Ticket 01 of demo)", with **Checked, include**. A click on the mark shows the toast
+again. The card draws the mark only while the Ticket is in work.
+
+The person checks what the call did (whether the branch was pushed, whether the PR was merged) and chooses **Checked,
+include**. The run writes `side-effects-checked` and the mark goes. A run that goes on takes the Ticket in its next Wave
+as a resumed Ticket, even when no other Ticket is ready. A run that has stopped leaves the Ticket `resumable`, and the
+next run of the Epic takes it along. worfy does not check git or GitHub by itself to include a Ticket: it is always the
+person's call (Q4 (a) of the continuity spec). The marks are in the journal, so they outlive a restart of the app: after
+the restart the last run's state carries them again. While a cut-off run waits for Resume or Discard it shows no mark.
+
+On a Linked machine, Checked, include needs full access: `autopilot.include` is a write call.
 
 #### After any other stop
 
@@ -315,7 +342,8 @@ does not turn a later error of another kind into a refusal.
 | `src/shared/autopilot/checkpoint.ts` | The run's state read back from its journal: the queue, the Wave and its Tickets in work, the wait, the retries, the ladder, whether the run is cut off, and what a Project's journals leave `resumable`. Pure. |
 | `src/main/autopilot/run.ts` | `continueCutOff` at the start of the app, `resumeCutOff` and `discardCutOff`: the continued run with its id, journal, wait and Wave numbering, and the run left cut off by the hour rule. The hour rule itself is `restartDecision` in `src/shared/autopilot/cycle.ts`. |
 | `src/main/autopilot/held-tickets.ts` | The Tickets of the cut-off Wave held for a person: the external calls without a result in the transcript of the Orchestrator's session and of its Subagents, by `unknownSideEffects` of `src/shared/agent/unknown-side-effects.ts`. |
-| `src/main/quit-grace.ts` | The quit's coordinator: suspends the runs, waits for the external calls without a result, has stopped runs journal their background tasks as killed, halts the Sessions and has the runs write `run-suspended`; follows a shutdown of the system (`powerMonitor` on macOS and Linux, a window's `session-end` on Windows). The window is `src/renderer/shell/QuittingDialog.tsx`. |
+| `src/renderer/autopilot/unknown-side-effects.ts` | The marks of unknown side effects of the Autopilot state per Project, the texts of the mark's tooltip and of the toast, and Checked, include (`autopilot.include`). The mark is drawn by `src/renderer/canvas/nodes/TicketNode.tsx`; `src/renderer/canvas/ticket-card.ts` gives it its line. |
+| `src/main/quit-grace.ts` | The quit's coordinator: suspends the runs, waits for the external calls without a result, also those of the Sessions' Subagents read from their transcripts, has stopped runs journal their background tasks as killed, halts the Sessions and has the runs write `run-suspended`; follows a shutdown of the system (`powerMonitor` on macOS and Linux, a window's `session-end` on Windows). The window is `src/renderer/shell/QuittingDialog.tsx`. |
 
 #### Tests
 
@@ -333,24 +361,25 @@ agent, which plays the scripts in `test/fixtures/agent-scripts/`.
 | `test/contract/autopilot-retry.test.ts` | The retry after an API error with Auto-continue off and on: a 500 and one continuation, 529 until `cap` with the pauses of the plan, a 400, a push without its result and the secrets of its command, the Limits (also during the wait), a background task's turn, Stop (also a second one while stopping), Force stop, the quit and the switch turned off during the wait; the countdown's Retry now (one continuation, also after a double click and the timer) and Cancel (`turn-error`, `limits-timeout`, nothing sent; a Cancel queued behind the continuation finds nothing and the run goes on). |
 | `test/contract/codex-auto-continue.test.ts` | Auto-continue on a Codex Orchestrator on the fake app-server, in a run and in a manual turn: `serverOverloaded` and one continuation, an error Codex retries by itself, `vendor-quota`, a Subagent call without its result (`in-flight`), and the windows read again at the reset of a manual Limits wait. |
 | `test/unit/autopilot-invariants.test.ts` | The recovery rules over the journals of `test/fixtures/autopilot-faults/`: a good run breaks none, and each rule catches a broken copy made for it. A run suspended in the middle of a Wave, in the wait for the Limits or for the Start window, a run killed without an end, a discarded run and a Force stop break none either. |
-| `test/unit/autopilot-checkpoint.test.ts` | The checkpoint over those fixtures, each with its state and whether it is cut off; a run over a queue with every line the checkpoint reads; what a Project's journals leave resumable, run after run; a line of a kind a later build writes is skipped and counted. |
+| `test/unit/autopilot-checkpoint.test.ts` | The checkpoint over those fixtures, each with its state and whether it is cut off; a run over a queue with every line the checkpoint reads; what a Project's journals leave resumable, run after run; a line of a kind a later build writes is skipped and counted; a marked Ticket that is not resumable until `side-effects-checked`, the included Tickets until a Wave carries them, and a mark that goes on to the next run of the Epic. |
 | `test/contract/autopilot-checkpoint.test.ts` | A Force stop in the middle of Wave 1, then a restart of the app (a new `Autopilot` over the same journals): the next run of the Epic takes the interrupted Tickets from the journal. A run cut off by a crash leaves none. |
 | `test/contract/autopilot-faults-api.test.ts` | Fault scenarios of the model API: an API 500, a 529 in the middle of a streamed answer (not taken for the Limits) and a dropped connection stop the run with `turn-error`, and a new start sends its Wave command once; Limits that refuse the turn of Wave 2 make the run wait and resume after the reset with one continuation, and Wave 1 does not go again. |
-| `test/contract/autopilot-faults-retry.test.ts` | The same Fault scenarios of the model API with Auto-continue on: an API 500, a 529 in the middle of a streamed answer and a dropped connection give `turn-retry`, one continuation and `resumed`, and the run goes on; five 529 in a row end with `retry-refused` `cap`, and a `git push` without its result with `retry-refused` `in-flight`, both then `turn-error`; Limits that refuse the turn of Wave 2 by the 7-day window, with no 5-hour one, make the run wait for that reset. The rules I1–I9 below hold in each. |
+| `test/contract/autopilot-faults-retry.test.ts` | The same Fault scenarios of the model API with Auto-continue on: an API 500, a 529 in the middle of a streamed answer and a dropped connection give `turn-retry`, one continuation and `resumed`, and the run goes on; five 529 in a row end with `retry-refused` `cap`, and a `git push` without its result with `retry-refused` `in-flight`, both then `turn-error`; Limits that refuse the turn of Wave 2 by the 7-day window, with no 5-hour one, make the run wait for that reset. The rules I1–I10 below hold in each. |
 | `test/contract/autopilot-faults-process.test.ts` | Fault scenarios of the processes: Claude Code of the Orchestrator dies while both implementers work (`session-error`, and a new start goes to a new Session, its first Wave naming the Ticket still `claimed` by the dead implementer along with the ready one); an implementer fails and its Ticket stays `claimed` (the run waits the settle time, then continues it in the next Wave) or goes back to `open` (the next Wave holds only that Ticket). |
 | `test/contract/autopilot-faults-ladder.test.ts` | Fault scenarios of the continuation ladder: a Ticket left `claimed` is continued and brought to `done`; one still `claimed` after 2 continuations is set aside, the Orchestrator blocks it with `Waits: owner`, and the run goes on to the next Epic of its queue; a set-aside the Orchestrator does not carry out ends with `wave-unfinished`; a red main stops the run with `main-red` and no continuation; `no-progress` goes the same ladder. |
 | `test/contract/autopilot-faults-github.test.ts` | Fault scenarios on the GitHub side: the gh stub's `hang` mode; gh hangs for the whole run (the Waves go on, and the stop waits no longer than the limit of the last read); gh answers 502 (the next read comes after the doubled interval); a merge conflict (the run stops with `blocked-tickets`, and a new run does not take the blocked Ticket). |
 | `test/contract/autopilot-faults-codex.test.ts` | Fault scenarios on a Codex Orchestrator: a failed turn stops the run with `turn-error`; an app-server that exits in the middle of a Wave gives `session-error`, and a new run starts in a new Session; a Ticket still `claimed` after 2 continuations is set aside and the run goes on to the next Epic. |
 | `test/unit/autopilot-continuation.test.ts` | The ladder's texts, word for word, and that the model's last words never reach them. |
-| `test/unit/quit-grace.test.ts` | The quit's coordinator on a test clock: the order of its steps, no wait without external calls, the 60-second limit, Quit now, a second quit, a shutdown before and during the wait, which calls count as open, and that a Session whose process is gone drops its calls; Sessions hold their queues from the first step on, also a Session started later, and the end of a turn after that sends nothing from the queue; the background tasks of a stopped run are journaled as killed before the halt; the halt waits for an interrupted turn up to its limit before it closes the Session, and sends SIGKILL to a process that ignores the interrupt only after 7.5 seconds, and nothing is written before that. |
-| `test/contract/autopilot-faults-quit.test.ts` | Fault scenarios of a quit: in the middle of a Wave (`run-suspended` with the Wave and its Tickets, no `run-stopped`); a `git push` without its result, waited for up to the last millisecond of the 60 seconds on the test clock; its result before the limit; Quit now; the wait for the Limits (`run-suspended` carries the wait and its end time, and nothing is continued after); a shutdown of the system, without the wait. |
+| `test/unit/quit-grace.test.ts` | The quit's coordinator on a test clock: the order of its steps, no wait without external calls, the 60-second limit, Quit now, a second quit, a shutdown before and during the wait, which calls count as open, and that a Session whose process is gone drops its calls; Sessions hold their queues from the first step on, also a Session started later, and the end of a turn after that sends nothing from the queue; the background tasks of a stopped run are journaled as killed before the halt; the halt waits for an interrupted turn up to its limit before it closes the Session, and sends SIGKILL to a process that ignores the interrupt only after 7.5 seconds, and nothing is written before that; the calls of the Subagents, read again every second until they have their result, and which Subagent files count. |
+| `test/unit/autopilot-unknown-side-effects.test.tsx` | The toast of unknown side effects: one per mark, with the calls and the Ticket; Checked, include asks main for the Ticket and the mark leaves the store, a refusal is an error toast; the store follows main's newest state. |
+| `test/contract/autopilot-faults-quit.test.ts` | Fault scenarios of a quit: in the middle of a Wave (`run-suspended` with the Wave and its Tickets, no `run-stopped`); a `git push` without its result, waited for up to the last millisecond of the 60 seconds on the test clock; its result before the limit; Quit now; the wait for the Limits (`run-suspended` carries the wait and its end time, and nothing is continued after); a shutdown of the system, without the wait; a Subagent's `gh pr merge` without its result, read from its transcript and waited for up to the last millisecond of the 60 seconds. |
 | `test/contract/autopilot-background.test.ts` | Among the background-task scenarios: the quit in its real order (suspend, halt, records) journals the tasks of a stopped run that still waits for them, and of a Session it gave back, as `tasks-killed`, never `orchestrator-returned`, and lets keep-awake go. |
 | `test/unit/update-quit.test.ts` | Restart now of an Update quits through the coordinator with the cause `update`, not with Electron's own quit. |
 | `test/e2e/autopilot-quit.spec.ts` | A quit in the built app while the Wave's `git push` has no result: the window Quitting worfy names the command with the time left, Quit now quits at once, and the journal ends with `run-suspended`. It saves the window in the light and the dark theme to `test-results/e2e/snapshots/04-quitting-worfy/`. |
-| `test/contract/autopilot-faults-restart.test.ts` | A run continued after a restart of the app: a quit in the middle of a Wave and a crash (the same id and journal, `run-continued`, one new Wave with the cut-off Tickets resumed, the cut-off Wave not sent again); a quit during the wait for the Limits (the wait goes on to its end time, nothing goes before it); the third start within the hour (`cut off by restart`, the start refused, Resume); Discard (`run-stopped` `discarded`, and the next run takes the Tickets along); an implementer cut in `gh pr merge` (its Ticket is held out of the Wave). |
-| `test/unit/autopilot-restart.test.ts` | The hour rule and its cap, the first state of a continued run, the line `cut off by restart · 14:05`, and which Tickets a transcript holds. |
+| `test/contract/autopilot-faults-restart.test.ts` | A run continued after a restart of the app: a quit in the middle of a Wave and a crash (the same id and journal, `run-continued`, one new Wave with the cut-off Tickets resumed, the cut-off Wave not sent again); a quit during the wait for the Limits (the wait goes on to its end time, nothing goes before it); the third start within the hour (`cut off by restart`, the start refused, Resume); Discard (`run-stopped` `discarded`, and the next run takes the Tickets along); an implementer cut in `gh pr merge` (its Ticket is held out of the Wave); an implementer cut in `git push` (`unknown-side-effects` with the Ticket and the command, the mark in the state, a Force stop that leaves it out of `resumable` and Checked, include that puts it back); Checked, include while the continued run goes on (the next Wave takes the Ticket as resumed). |
+| `test/unit/autopilot-restart.test.ts` | The hour rule and its cap, the first state of a continued run, the line `cut off by restart · 14:05`, and which Tickets a transcript holds, each with the calls that hold it. |
 | `test/unit/autopilot-cut-off-line.test.tsx` | The line of a run cut off by the hour rule: Resume and Discard, the toast, the inactive Autopilot button, and no buttons with read-only access on a Linked machine. |
-| `test/e2e/autopilot-faults.spec.ts` | Fault scenarios in the built app: the app killed with SIGKILL in the middle of a Wave and started again (the same run goes on with `run-continued` after `crash` and one new Wave command, 01 resumed and 02); a run cut off for the third time within the hour (the line with Resume and Discard, nothing sent, Resume continues it; it saves the line in the light and the dark theme to `test-results/e2e/snapshots/autopilot-cut-off-by-restart/`); GitHub out of reach for the whole run (both Waves go through, and `gh` was only read). |
+| `test/e2e/autopilot-faults.spec.ts` | Fault scenarios in the built app: the app killed with SIGKILL in the middle of a Wave and started again (the same run goes on with `run-continued` after `crash` and one new Wave command, 01 resumed and 02); the same kill while the implementer of 01 runs `gh pr merge 41 --squash` without a result (the run goes on with 02 only, the journal has `unknown-side-effects`, 01 shows the mark with the call in its tooltip and the toast, and «Checked, include» writes `side-effects-checked` and takes the mark away); a run cut off for the third time within the hour (the line with Resume and Discard, nothing sent, Resume continues it; it saves the line in the light and the dark theme to `test-results/e2e/snapshots/autopilot-cut-off-by-restart/`); GitHub out of reach for the whole run (both Waves go through, and `gh` was only read). |
 
 **Fault scenarios.** A fault scenario is a test that injects one fault into a run on the fake agent over a temporary Project — a
 model API error, a dead process, a `gh` that hangs or fails, a merge conflict, an app killed in the middle of a Wave — and then checks the
@@ -377,6 +406,8 @@ returns one line per violation, and every scenario expects none. The rules:
   one right before its `run-continued`.
 - **I9.** A Ticket has at most 2 `ticket-continued` lines in a run. After its `ticket-set-aside` it is `blocked`, or the run stopped
   with the cause of the set-aside.
+- **I10.** A Ticket an `unknown-side-effects` line marked is in no later `wave-started` — of its run or of a later one — until a
+  `side-effects-checked` of it.
 
 The contract scenarios build their run with `faultRun()` of `test/contract/autopilot-faults-setup.ts`: the real Session registry,
 Orchestrators, launcher, journal, `LimitsTracker`, `PrTracker` and `Autopilot`, a clock that moves only when the test moves it, and the gh

@@ -23,6 +23,7 @@ import {
 import { failureReason } from '../../../shared/ipc/channels'
 import { askStart, runAllAccepted } from '../../autopilot/start-modal'
 import { StartNowModal, type OrchestratorBusy } from '../../autopilot/StartNowModal'
+import { takeMarks, toastNewMarks, useSideEffectsMarks, type SideEffectsMark } from '../../autopilot/unknown-side-effects'
 import { invoke, subscribe } from '../../ipc'
 import { autopilotBudgetOf, autopilotRunOf } from '../../../shared/settings/app-settings'
 import { openRunHistory } from '../../flight-recorder/open'
@@ -99,6 +100,15 @@ import { hasRunWave, useRunWaveState } from './gates'
 // Tickets in work along) beside it, and an info toast says so once per Run. On a read-only screen the line shows
 // without the two buttons. Until one of them is clicked the "Autopilot" button is off: a new Run would begin a second
 // journal beside the cut-off one.
+//
+// Unknown side effects (worfy-continuity ticket 07, `unknownSideEffects` of the state): a Ticket the Run left to a person
+// because a call of its implementer that may act outside the machine has no result. Its card in the Epic frame has the
+// mark «unknown side effects» (TicketNode.tsx, useUnknownSideEffects) whose tooltip names the calls ("gh pr merge 41
+// may or may not have run"), and the frame of its Epic shows an action toast once per mark: "Unknown side effects:
+// `gh pr merge 41` may or may not have run", with "Checked, include" (`autopilot.include`: the Ticket is resumable
+// again, and the next Wave or the next Run takes it along). A click on the mark shows the toast again. A mark goes once
+// main's state no longer names it; a card whose Ticket is no longer in work draws none. The marks, their texts and the
+// toast live in autopilot/unknown-side-effects.ts, which every state taken here feeds (takeMarks).
 //
 // A run keeps the display on from its start to its end (ticket 32, ADR-0034): the hints of the
 // "Autopilot" button and of the status line while running or waiting say so. The visible line does
@@ -269,6 +279,7 @@ function take(state: AutopilotState): void {
   const known = useAutopilotStore.getState().byProject[state.projectId]
   if (known !== undefined && known.revision >= state.revision) return
   useAutopilotStore.setState(({ byProject }) => ({ byProject: { ...byProject, [state.projectId]: state } }))
+  takeMarks(state)
   settleEdits(state)
 }
 
@@ -699,6 +710,13 @@ function Autopilot({ projectId, root, epic, tickets }: Extract<SlotProps['subjec
   // A Run of this Epic a restart cut off, waiting for Resume or Discard (worfy-continuity ticket 06): one toast per Run.
   const cutOffAt = mine && state?.status === 'stopped' ? (state.cutOff?.at ?? null) : null
   const cutOff = cutOffAt !== null
+  // The marks of Unknown side effects of this Epic's Tickets still in work (worfy-continuity ticket 07): a toast for each, once.
+  const marks = useSideEffectsMarks(projectId)
+  const inWork = tickets.filter((ticket) => ticket.state === 'work').map((ticket) => ticket.num)
+  const toastKey = JSON.stringify(marks.filter((mark) => mark.epic === epic.epic && inWork.includes(mark.ticket)))
+  useEffect(() => {
+    toastNewMarks(projectId, JSON.parse(toastKey) as SideEffectsMark[])
+  }, [projectId, toastKey])
   useEffect(() => {
     if (cutOffAt === null) return
     const time = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(cutOffAt)

@@ -174,6 +174,16 @@ export const autopilotStateSchema = z.object({
    * ends it. Absent otherwise.
    */
   cutOff: z.object({ at: z.number().int().nonnegative(), after: z.enum(CONTINUED_AFTER) }).optional(),
+  /**
+   * Unknown side effects (worfy-continuity ticket 07): the Tickets the Run left to a person because a call of their
+   * implementer that may act outside the machine has no result — it may or may not have run. Each with its Epic, its
+   * number and worfy's summary of each such call (`gh pr merge 41`, secrets hidden). The Ticket gets the mark «unknown
+   * side effects» in its Epic frame and a toast with "Checked, include" (`autopilot.include`), which makes it
+   * resumable again. Absent when there is none, and while the Run waits for Resume or Discard (`cutOff`).
+   */
+  unknownSideEffects: z
+    .array(z.object({ epic: z.string().min(1), ticket: z.number().int().positive(), actions: z.array(z.string().min(1)).min(1) }))
+    .optional(),
   revision: z.number().int().nonnegative(),
 })
 export type AutopilotState = z.infer<typeof autopilotStateSchema>
@@ -268,6 +278,20 @@ export const autopilotResume = invokeChannel('autopilot.resume', z.object({ proj
  * the state as it is when the Project has no such Run.
  */
 export const autopilotDiscard = invokeChannel('autopilot.discard', z.object({ projectId }), autopilotStateSchema, 'project', 'write')
+
+/**
+ * Checked, include (worfy-continuity ticket 07): the person has checked what the calls of a Ticket left to them did,
+ * and gives it back — `side-effects-checked` in the journal of the Run that holds its mark; the next Wave of a Run that
+ * goes on, or the next Run of the Epic, takes it along as resumed. Answers the state; the state as it is when no mark
+ * names that Ticket.
+ */
+export const autopilotInclude = invokeChannel(
+  'autopilot.include',
+  z.object({ projectId, epic: z.string().min(1), ticket: z.number().int().positive() }),
+  autopilotStateSchema,
+  'project',
+  'write',
+)
 
 /** What `autopilot.queue` changes: an Epic to add at the end of the queue, one to remove from it, or both. */
 export const autopilotQueueEditSchema = z.object({ add: epicNameSchema.optional(), remove: epicNameSchema.optional() })
@@ -507,6 +531,7 @@ declare module './channels' {
     'autopilot.forceStop': typeof autopilotForceStop
     'autopilot.resume': typeof autopilotResume
     'autopilot.discard': typeof autopilotDiscard
+    'autopilot.include': typeof autopilotInclude
     'autopilot.queue': typeof autopilotQueue
     'autopilot.state': typeof autopilotState
     'autopilot.estimate': typeof autopilotEstimate

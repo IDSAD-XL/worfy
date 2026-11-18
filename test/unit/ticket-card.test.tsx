@@ -14,7 +14,8 @@ import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import TicketNode, { defaultHeight, defaultWidth } from '../../src/renderer/canvas/nodes/TicketNode'
 import type { CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
 import { buildEpicNodes } from '../../src/renderer/canvas/sources/epics'
-import { cardHeight, charEm, checkRowsHeight, CONTENT_WIDTH, textLines, TICKET_MIN_HEIGHT, TICKET_WIDTH, type CardInput } from '../../src/renderer/canvas/ticket-card'
+import { cardHeight, charEm, checkRowsHeight, CONTENT_WIDTH, SIDE_EFFECTS_LINE, textLines, TICKET_MIN_HEIGHT, TICKET_WIDTH, type CardInput } from '../../src/renderer/canvas/ticket-card'
+import { takeMarks } from '../../src/renderer/autopilot/unknown-side-effects'
 
 // The badges and actions are their own tests' business: none here.
 vi.mock('../../src/renderer/canvas/badges', () => ({ actions: [], badges: [] }))
@@ -300,5 +301,41 @@ describe('the card is as tall as what it shows', () => {
 
   it('CONTENT_WIDTH is the card less its 1 px border and 10 px padding on each side', () => {
     expect(CONTENT_WIDTH).toBe(TICKET_WIDTH - 22)
+  })
+})
+
+describe('the mark of Unknown side effects (worfy-continuity ticket 07)', () => {
+  it('a card in work that the Autopilot state marks draws «unknown side effects» with the calls in its tooltip, and has the room for it', () => {
+    snapshot = { root: ROOT, pipeline: PIPELINE, tickets: [], error: null }
+    repoNames = ['repo']
+    bridge()
+    const projectId = `p-card-${(project += 1)}`
+    takeMarks({ projectId, unknownSideEffects: [{ epic: 'demo', ticket: 1, actions: ['gh pr merge 41'] }, { epic: 'demo', ticket: 2, actions: ['git push origin demo/02'] }] })
+    const model: WorkflowModel = {
+      root: ROOT,
+      epics: [{ epic: 'demo', hasSpec: true, hasMap: false, title: 'Demo' }],
+      // 02 is done by now: a mark of a Ticket no longer in work draws nothing.
+      tickets: [ticket(1, { state: 'work', statusRaw: 'claimed' }), ticket(2, { state: 'done', statusRaw: 'done' }), ticket(3, { state: 'work', statusRaw: 'claimed' })],
+      error: null,
+      branchErrors: [],
+    }
+    const nodes = buildEpicNodes(projectId, ROOT, model, { nodes: [], viewport: { x: 0, y: 0, zoom: 1 } }, {}, [], {}, { sideEffects: { 'demo/1': true, 'demo/2': true } })
+    const cards = nodes.filter((node) => node.type === 'ticket')
+    render(
+      <ReactFlowProvider>
+        {cards.map((node) => (
+          <TicketNode key={node.id} {...({ id: node.id, data: node.data, selected: false } as unknown as CanvasNodeProps)} />
+        ))}
+      </ReactFlowProvider>,
+    )
+    const marks = screen.getAllByTestId('ticket-unknown-side-effects')
+    expect(marks).toHaveLength(1)
+    expect(card(1).contains(marks[0]!)).toBe(true)
+    expect(marks[0]!.textContent).toBe('unknown side effects')
+    expect(marks[0]!.getAttribute('title')).toBe('gh pr merge 41 may or may not have run. Check it, then choose Checked, include')
+    const height = (num: number) => cards.find((node) => (node.data as unknown as { node: { data: { ticket: Ticket } } }).node.data.ticket.num === num)!.height!
+    expect(height(1) - height(3)).toBe(SIDE_EFFECTS_LINE)
+    expect(cardHeight({ ...base, state: 'work', sideEffects: true }) - cardHeight({ ...base, state: 'work' })).toBe(SIDE_EFFECTS_LINE)
+    expect(cardHeight({ ...base, state: 'done', sideEffects: true })).toBe(cardHeight({ ...base, state: 'done' }))
   })
 })

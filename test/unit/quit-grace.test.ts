@@ -3,10 +3,11 @@
 // of the registry — every Session interrupted, closed, and its process killed with SIGKILL after EXIT_WAIT_MS
 // (ADR-0064) before the records are written.
 import { EventEmitter } from 'node:events'
+import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EXIT_WAIT_MS, KILL_EXIT_MS } from '../../src/main/agent/session/process'
 import { SessionRegistry } from '../../src/main/agent/session/registry'
-import { followShutdown, GRACE_MS, OpenCalls, QuitGrace, quitSteps, type QuitClock, type QuitGraceDeps } from '../../src/main/quit-grace'
+import { followShutdown, GRACE_MS, OpenCalls, QuitGrace, quitSteps, SUBAGENT_LOOK_MS, subagentOpenCalls, type OpenCall, type QuitClock, type QuitGraceDeps } from '../../src/main/quit-grace'
 import type { SessionHandle, SessionPart } from '../../src/main/vendors/session'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { SuspendCause } from '../../src/shared/autopilot/journal'
@@ -56,7 +57,7 @@ const flush = async (): Promise<void> => {
 }
 
 /** A coordinator over steps that log what they do, the open calls of `calls`, and the test's clock. */
-function coordinator(options: { halt?: () => Promise<void> } = {}) {
+function coordinator(options: { halt?: () => Promise<void>; subagentCalls?: () => Promise<OpenCall[]> } = {}) {
   const clock = new TestClock()
   const calls = new OpenCalls()
   const log: string[] = []
@@ -73,6 +74,7 @@ function coordinator(options: { halt?: () => Promise<void> } = {}) {
     show: (view) => void views.push(view),
     quit: () => void log.push('quit'),
     clock,
+    ...(options.subagentCalls === undefined ? {} : { subagentCalls: options.subagentCalls }),
   }
   const grace = new QuitGrace(deps)
   return { grace, clock, calls, log, views }
@@ -485,5 +487,92 @@ describe('the halt of the registry (ADR-0064)', () => {
     await vi.advanceTimersByTimeAsync(KILL_EXIT_MS)
     await left
     expect(log).toEqual(['record quit', 'quit'])
+  })
+})
+
+describe('the calls of the Subagents (worfy-continuity ticket 07)', () => {
+  const MERGE: OpenCall = { sessionId: 's1', toolUseId: 't-merge', description: 'gh pr merge 41' }
+
+  it('the grace waits for a Subagent call, reads the transcripts again every SUBAGENT_LOOK_MS, and goes on once the call has its result', async () => {
+    let open = [MERGE]
+    const reads = vi.fn(() => Promise.resolve(open))
+    const { grace, clock, log, views } = coordinator({ subagentCalls: reads })
+    const left = grace.leave('quit')
+    await flush()
+    expect(log).toEqual(['depart'])
+    expect(views.at(-1)).toEqual({ stage: 'waiting', calls: [{ id: 't-merge', description: 'gh pr merge 41' }], total: 1, leftMs: GRACE_MS })
+    clock.advance(SUBAGENT_LOOK_MS)
+    await flush()
+    expect(reads).toHaveBeenCalledTimes(2)
+    expect(log).toEqual(['depart'])
+    open = []
+    clock.advance(SUBAGENT_LOOK_MS)
+    await left
+    expect(log).toEqual(['depart', 'halt', 'halted', 'record quit', 'quit'])
+    expect(views.at(-1)).toBeNull()
+  })
+
+  it('a Subagent call that never gets its result is waited for GRACE_MS at most; a read that fails counts as none', async () => {
+    const { grace, clock, log } = coordinator({ subagentCalls: () => Promise.resolve([MERGE]) })
+    const left = grace.leave('quit')
+    await flush()
+    clock.advance(GRACE_MS - 1)
+    await flush()
+    expect(log).toEqual(['depart'])
+    clock.advance(1)
+    await left
+    expect(log.at(-1)).toBe('quit')
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const failing = coordinator({ subagentCalls: () => Promise.reject(new Error('no folder')) })
+    await failing.grace.leave('quit')
+    expect(failing.views).toEqual([])
+  })
+
+  /**
+   * subagentOpenCalls over fake files in the projects folder `projects`, with the paths of `paths` — this system's
+   * (node:path), or Windows' (path.win32), whose separator is a backslash: quit-grace.ts and held-tickets.ts join theirs
+   * with node:path, so the test builds its own with the same module.
+   */
+  function openCallsOver(open: typeof subagentOpenCalls, paths: typeof path.posix, projects: string, root: string): Promise<OpenCall[]> {
+    const line = (agentId: string, content: object[], role = 'assistant') => JSON.stringify({ type: role, isSidechain: true, agentId, sessionId: 'sdk-1', timestamp: '2026-11-18T10:00:00.000Z', message: { id: `m-${agentId}`, role, content } })
+    const folder = paths.join(projects, 'sdk-1', 'subagents')
+    const files: Record<string, { lines: string[]; at: number }> = {
+      [paths.join(folder, 'agent-a.jsonl')]: { lines: [line('a', [{ type: 'tool_use', id: 't-a', name: 'Bash', input: { command: 'gh pr merge 41 --squash' } }])], at: 2_000 },
+      [paths.join(folder, 'agent-b.jsonl')]: {
+        lines: [line('b', [{ type: 'tool_use', id: 't-b', name: 'Bash', input: { command: 'git push origin main' } }]), line('b', [{ type: 'tool_result', tool_use_id: 't-b', content: 'ok' }], 'user')],
+        at: 2_000,
+      },
+      // Cut off by an earlier process of worfy: it never gets a result now.
+      [paths.join(folder, 'agent-old.jsonl')]: { lines: [line('old', [{ type: 'tool_use', id: 't-old', name: 'Bash', input: { command: 'git push origin old' } }])], at: 500 },
+    }
+    return open({
+      sessions: () => [
+        { sessionId: 's1', sdkSessionId: 'sdk-1', cwd: root },
+        { sessionId: 's2', sdkSessionId: null, cwd: root },
+        { sessionId: 's3', sdkSessionId: 'sdk-gone', cwd: root },
+      ],
+      transcriptPath: (_root, id) => Promise.resolve(id === 'sdk-1' ? paths.join(projects, 'sdk-1.jsonl') : null),
+      since: 1_000,
+      listFiles: (dir) => Promise.resolve(dir === folder ? ['agent-a.jsonl', 'agent-b.jsonl', 'agent-old.jsonl', 'notes.txt'] : []),
+      readLines: (file) => Promise.resolve(files[file]?.lines ?? null),
+      modifiedAt: (file) => Promise.resolve(files[file]?.at ?? null),
+    })
+  }
+  const OPEN_MERGE: OpenCall[] = [{ sessionId: 's1', toolUseId: 't-a', description: 'gh pr merge 41' }]
+
+  it('subagentOpenCalls: the calls without a result of each Session\'s Subagents written since the start; an older file, a finished call and a Session without a transcript give none', async () => {
+    expect(await openCallsOver(subagentOpenCalls, path, path.join(path.sep, 'p'), path.join(path.sep, 'work', 'demo'))).toEqual(OPEN_MERGE)
+  })
+
+  it('subagentOpenCalls on Windows: the Subagents\' folder is found beside a transcript path with backslashes', async () => {
+    vi.resetModules()
+    vi.doMock('node:path', () => ({ ...path.win32, default: path.win32 }))
+    try {
+      const { subagentOpenCalls: onWindows } = await import('../../src/main/quit-grace')
+      expect(await openCallsOver(onWindows, path.win32, 'D:\\data\\claude\\projects\\demo', 'D:\\work\\demo')).toEqual(OPEN_MERGE)
+    } finally {
+      vi.doUnmock('node:path')
+      vi.resetModules()
+    }
   })
 })

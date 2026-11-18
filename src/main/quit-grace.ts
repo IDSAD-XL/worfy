@@ -6,10 +6,14 @@
 //    Run gets the cycle's `suspend`: it starts no Wave, and its waits (the Limits, a retry, the budget, the Start
 //    window) stop without sending anything (Autopilot.suspendAll). Auto-continue of the Orchestrators' own turns
 //    stops (OrchestratorContinue.stop).
-// 2. The grace: while a Session has a call of its own (not a Subagent's: worfy-continuity ticket 07) that may act
-//    outside the machine and has no result yet (externalActions of continue-plan.ts with `done: false`), the quit
-//    waits for its result, GRACE_MS at most. Every window shows «Quitting worfy» meanwhile: the calls, the time
-//    left and Quit now, which ends the wait at once. Without such a call the quit goes on at once, with no window.
+// 2. The grace: while a Session has a call that may act outside the machine and has no result yet (externalActions of
+//    continue-plan.ts with `done: false`), the quit waits for its result, GRACE_MS at most. A call of the Session's own
+//    comes from the registry's events (OpenCalls); a call of one of its Subagents — whose events a background
+//    Subagent never sends there — from the Subagent's own transcript (worfy-continuity ticket 07: unknownSideEffects
+//    of ticket 16 over `<session>/subagents/agent-<id>.jsonl`, read again every SUBAGENT_LOOK_MS; only the files
+//    written since the app started, so a Subagent an earlier process left cut off holds nothing). Every window shows
+//    «Quitting worfy» meanwhile: the calls, the time left and Quit now, which ends the wait at once. Without such a
+//    call the quit goes on at once, with no window.
 // 3. The halt: each stopped Run that still waited for its background tasks journals them as killed — before its
 //    Session closes, which it would read as given back (Autopilot.recordKilled) — the record of live Sessions stops
 //    (live-sessions.ts keeps what was under way for the start after), every Session's turn is interrupted (its end waited for QUIT_HALT_TURN_MS at most in the app) and the Session
@@ -24,10 +28,17 @@
 // on Windows) does not wait: the system will not. It departs and writes the records, with no grace and no halt;
 // a shutdown during the grace ends it the same way. The coordinator is registered first in `before-quit`
 // (src/main/index.ts) and holds every quit until step 4 is done.
+import { stat } from 'node:fs/promises'
 import { externalActions } from '../shared/agent/continue-plan'
 import type { AgentEvent } from '../shared/agent/events'
+import type { LiveSession } from '../shared/agent/live-sessions'
+import { unknownSideEffects } from '../shared/agent/unknown-side-effects'
 import type { SuspendCause } from '../shared/autopilot/journal'
 import { QUIT_GRACE_CALLS_MAX, type QuitGraceView } from '../shared/ipc/quit-grace'
+import type { SessionInfo } from './agent/session/types'
+import { subagentsBeside, type HeldTicketsDeps } from './autopilot/held-tickets'
+import { ClaudeHomeRegistry } from './claude-home/registry'
+import { claudeHome } from './storage/paths'
 
 /** How long the quit waits for the external calls without a result (spec Q2 (a), the 60 s of Codex's daemon). */
 export const GRACE_MS = 60_000
@@ -38,6 +49,9 @@ export const GRACE_MS = 60_000
  * and the swap helper of an Update waits two minutes for worfy in all (docs/features/updates.md).
  */
 export const QUIT_HALT_TURN_MS = 2_000
+
+/** How often the grace reads the Subagents' transcripts again: a file tells no event. */
+export const SUBAGENT_LOOK_MS = 1_000
 
 /** The clock of the grace: the wall clock in the app, the test's in tests. */
 export interface QuitClock {
@@ -122,6 +136,59 @@ export class OpenCalls {
   }
 }
 
+/** What subagentOpenCalls reads: the live Sessions and the transcripts of their Subagents. */
+export interface SubagentCallsDeps extends Pick<HeldTicketsDeps, 'readLines' | 'listFiles'> {
+  /** The Sessions of the registry (SessionRegistry.list). */
+  sessions(): readonly Pick<SessionInfo, 'sessionId' | 'sdkSessionId' | 'cwd'>[]
+  /** The path of a Claude Code session's transcript among the folders of `root`, or null (ClaudeHomeRegistry.transcriptPath). */
+  transcriptPath(root: string, sdkSessionId: string): Promise<string | null>
+  /** When the app started, in ms: a Subagent's file written before then is of an earlier process. */
+  since: number
+  /** A file's modification time in ms, or null when it cannot be read; tests pass their own. */
+  modifiedAt?(file: string): Promise<number | null>
+}
+
+const modifiedAtOf = async (file: string): Promise<number | null> => {
+  try {
+    return (await stat(file)).mtimeMs
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The calls of the Sessions' Subagents that may act outside the machine and have no result (worfy-continuity ticket
+ * 07): unknownSideEffects of ticket 16 over each Subagent's own transcript written since `since`, Session by Session.
+ * A Session of another Vendor, or one whose transcript is not found, has none here.
+ */
+export async function subagentOpenCalls(deps: SubagentCallsDeps): Promise<OpenCall[]> {
+  const modifiedAt = deps.modifiedAt ?? modifiedAtOf
+  const out: OpenCall[] = []
+  for (const info of deps.sessions()) {
+    if (info.sdkSessionId === null) continue
+    const path = await deps.transcriptPath(info.cwd, info.sdkSessionId)
+    if (path === null) continue
+    const subagents = await subagentsBeside(deps, path, info.sdkSessionId, async (file) => ((await modifiedAt(file)) ?? 0) >= deps.since)
+    if (subagents.length === 0) continue
+    // unknownSideEffects reads only the Node of the record; the Session's own calls are OpenCalls'.
+    const session: LiveSession = { nodeId: info.sessionId, kind: 'session-node', vendor: 'claude', vendorSessionId: info.sdkSessionId, state: 'busy', queue: { items: [], held: false }, runId: null, lastEventAt: 0, continuedAt: [] }
+    const found = unknownSideEffects({ session, events: [], subagents, workflow: undefined })
+    for (const subagent of found.subagents) for (const call of subagent.calls) out.push({ sessionId: info.sessionId, toolUseId: call.toolUseId, description: call.description })
+  }
+  return out
+}
+
+/** subagentOpenCalls over the app's Sessions (`sessions`) and Claude home, counting the files written from now on. */
+export function appSubagentCalls(sessions: SubagentCallsDeps['sessions']): () => Promise<OpenCall[]> {
+  const since = Date.now()
+  let registry: ClaudeHomeRegistry | null = null
+  return () => {
+    registry ??= new ClaudeHomeRegistry({ home: claudeHome() })
+    const home = registry
+    return subagentOpenCalls({ sessions, since, transcriptPath: (root, id) => home.transcriptPath({ path: root, local: true }, id) })
+  }
+}
+
 /** Steps 1, 3 and 4 of the quit, as the app does them (quitSteps) or a test fakes them. */
 export interface QuitSteps {
   /** Step 1: nothing more is sent, no Run starts a Wave, nothing is continued. Synchronous. */
@@ -135,6 +202,8 @@ export interface QuitSteps {
 export interface QuitGraceDeps extends QuitSteps {
   /** The calls of the Sessions (OpenCalls). */
   calls: Pick<OpenCalls, 'open' | 'observe'>
+  /** The calls of their Subagents without a result (subagentOpenCalls); none unless given. */
+  subagentCalls?(): Promise<OpenCall[]>
   /** Shows the window «Quitting worfy» in every window; null closes it. */
   show(view: QuitGraceView): void
   /** The coordinator lets the quit go: the app quits again (app.quit()), and beforeQuit no longer holds it. */
@@ -153,6 +222,8 @@ export class QuitGrace {
   private cause: SuspendCause = 'quit'
   /** A shutdown came: no grace and no halt from now on. */
   private shutdownNow = false
+  /** Quit now came during the grace, maybe before its wait began. */
+  private quitAsked = false
   /** Ends the grace's wait at once; null while none runs. */
   private endWait: (() => void) | null = null
   private viewValue: QuitGraceView = null
@@ -190,8 +261,9 @@ export class QuitGrace {
     return this.released
   }
 
-  /** Quit now: the grace ends at once; nothing happens outside it. */
+  /** Quit now: the grace ends at once — also while it still reads the Subagents' calls; nothing happens outside it. */
   quitNow(): void {
+    if (this.stage === 'grace') this.quitAsked = true
     this.endWait?.()
   }
 
@@ -235,22 +307,51 @@ export class QuitGrace {
     this.deps.quit()
   }
 
-  /** Step 2: waits while calls without a result are left, graceMs at most or until Quit now; the window meanwhile. */
-  private grace(): Promise<void> {
-    if (this.deps.calls.open().length === 0) return Promise.resolve()
-    return new Promise((done) => {
+  /** The Subagents' calls without a result; none when they cannot be read. */
+  private async subagentCalls(): Promise<OpenCall[]> {
+    try {
+      return (await this.deps.subagentCalls?.()) ?? []
+    } catch (error) {
+      console.warn('[quit] could not read the calls of the Subagents', error)
+      return []
+    }
+  }
+
+  /**
+   * Step 2: waits while calls without a result are left — the Sessions' own and their Subagents', the latter read again
+   * every SUBAGENT_LOOK_MS — graceMs at most or until Quit now; the window meanwhile.
+   */
+  private async grace(): Promise<void> {
+    // Without a reader of the Subagents nothing is awaited: Quit now right after the quit still finds the wait.
+    let subagents = this.deps.subagentCalls === undefined ? [] : await this.subagentCalls()
+    // A shutdown or Quit now that came during the read ends the grace before its wait began.
+    if (this.shutdownNow || this.quitAsked || (this.deps.calls.open().length === 0 && subagents.length === 0)) return
+    await new Promise<void>((done) => {
       const until = this.clock.now() + (this.deps.graceMs ?? GRACE_MS)
       let unobserve: () => void = () => undefined
+      let poll: unknown = null
       const finish = (): void => {
         if (this.endWait !== finish) return
         this.endWait = null
         unobserve()
         this.clock.clearTimeout(timer)
+        if (poll !== null) this.clock.clearTimeout(poll)
         done()
+      }
+      const lookAgain = (): void => {
+        poll = this.clock.setTimeout(() => {
+          poll = null
+          void this.subagentCalls().then((found) => {
+            if (this.endWait !== finish) return
+            subagents = found
+            look()
+            if (this.endWait === finish) lookAgain()
+          })
+        }, SUBAGENT_LOOK_MS)
       }
       const look = (): void => {
         if (this.endWait !== finish) return
-        const calls = this.deps.calls.open()
+        const calls = [...this.deps.calls.open(), ...subagents]
         if (calls.length === 0) return finish()
         this.setView({
           stage: 'waiting',
@@ -263,6 +364,7 @@ export class QuitGrace {
       const timer = this.clock.setTimeout(finish, Math.max(0, until - this.clock.now()))
       unobserve = this.deps.calls.observe(look)
       look()
+      if (this.deps.subagentCalls !== undefined && this.endWait === finish) lookAgain()
     })
   }
 

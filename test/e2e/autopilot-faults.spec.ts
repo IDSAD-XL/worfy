@@ -1,8 +1,9 @@
-import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
+import { projectDirName } from '../../src/main/claude-home/registry'
 import { checkRecovery, type StatusWrite } from '../autopilot-invariants'
 import { EPIC, files, ghCalls, journals, kindsOf, messages, prepareWorld, releaseTurn, setStatus } from './autopilot-world'
 import { endApp } from './end-app'
@@ -13,7 +14,8 @@ import { snapshotThemes } from './snapshots'
 // Fault scenarios of an Autopilot Run in the built app (worfy-faults ticket 05; the scenarios table of
 // .scratch/worfy-faults/spec.md): the app killed with SIGKILL in the middle of a Wave and started
 // again on the same data folder — the same Run then goes on in its own journal (worfy-continuity ticket 06), by
-// itself or, cut off for the third time within the hour, after Resume — and GitHub out of reach for the whole Run. Each test injects one
+// itself or, cut off for the third time within the hour, after Resume; without a Ticket whose implementer's merge has
+// no result, marked «unknown side effects» until «Checked, include» (ticket 07) — and GitHub out of reach for the whole Run. Each test injects one
 // fault into a Run on the fake agent (autopilot-fault-held: each Wave's turn holds until the test
 // releases it) and ends with checkRecovery, the Recovery invariants I1–I8 (test/autopilot-invariants.ts).
 // Every wait is for a sign the app shows or writes (a journal line, the status line), never a pause.
@@ -102,6 +104,100 @@ test('the app killed with SIGKILL in the middle of a Wave and started again: the
     // it is, without the line of a new session (run.ts, a new session per Wave only with a Harness that has wave-brief).
     await expect.poll(() => messages(world.log)).toEqual([WAVE_1, WAVE_1])
     await stopRun(frame, app)
+  } finally {
+    await second.close()
+  }
+
+  expect(
+    checkRecovery({
+      journals: journals(world.dataDir),
+      messages: messages(world.log),
+      gh: ghCalls(world),
+      statusWrites: writes,
+      projectBefore: world.projectBefore,
+      projectAfter: files(world.repo),
+      restart: null,
+      expect: { stop: 'user-stop', continued: 'crash', waves: 2, tornLastLine: true },
+    }),
+  ).toEqual([])
+})
+
+/** The journal's readable lines: a killed app may leave its last line torn. */
+const linesOf = (text: string): { kind: string; [field: string]: unknown }[] =>
+  text.split('\n').flatMap((line) => {
+    try {
+      return line === '' ? [] : [JSON.parse(line) as { kind: string }]
+    } catch {
+      return []
+    }
+  })
+
+/**
+ * The transcript of the killed Wave as Claude Code leaves it (worfy-continuity ticket 07): the Orchestrator's session the
+ * Wave went to (`session` of its `wave-started`), among the Project's transcript folders of the world's Claude home, and
+ * the implementer of 01 in it, bound to the Ticket by its file, whose `gh pr merge 41 --squash` has no result.
+ */
+function implementerHolds(world: ReturnType<typeof prepareWorld>): void {
+  const session = linesOf(journals(world.dataDir)[0]!).find((event) => event.kind === 'wave-started')?.session
+  expect(typeof session, 'the session of the killed Wave').toBe('string')
+  const dir = join(world.claudeHome, 'projects', projectDirName(world.repo))
+  const line = (fields: Record<string, unknown>): string => `${JSON.stringify({ cwd: world.repo, sessionId: session, timestamp: new Date().toISOString(), ...fields })}\n`
+  mkdirSync(join(dir, String(session), 'subagents'), { recursive: true })
+  writeFileSync(join(dir, `${String(session)}.jsonl`), line({ type: 'user', message: { role: 'user', content: WAVE_1 } }))
+  const implementer = [
+    line({ type: 'user', isSidechain: true, agentId: 'impl01', message: { role: 'user', content: `Implement the ticket .scratch/${EPIC}/issues/01-ticket-1.md` } }),
+    line({
+      type: 'assistant',
+      isSidechain: true,
+      agentId: 'impl01',
+      message: { id: 'm-1', role: 'assistant', content: [{ type: 'tool_use', id: 't-held', name: 'Bash', input: { command: 'gh pr merge 41 --squash', description: 'Merge the PR' } }] },
+    }),
+  ]
+  writeFileSync(join(dir, String(session), 'subagents', 'agent-impl01.jsonl'), implementer.join(''))
+}
+
+test('the app killed while the implementer of 01 merges its PR: the continued Run leaves 01 out with the mark «unknown side effects», its tooltip and toast name the call, and «Checked, include» takes it back', async () => {
+  const world = prepareWorld(scratch)
+  const writes: StatusWrite[] = []
+  await killedInWave1(world, writes)
+  implementerHolds(world)
+
+  const second = await launchApp({ env: world.env(SCRIPT) })
+  try {
+    const { window, app } = second
+    const frame = frameOf(window)
+    const status = frame.getByTestId('autopilot-status')
+    await expect(status).toHaveText('Wave 2 · running')
+    // The Run went on without 01: its mark in the journal, written before Wave 2, which has 02 only.
+    await expect.poll(() => linesOf(journals(world.dataDir)[0]!).filter((event) => event.kind === 'unknown-side-effects' || event.kind === 'wave-started')).toMatchObject([
+      { kind: 'wave-started', wave: 1 },
+      { kind: 'unknown-side-effects', ticket: '01', actions: ['gh pr merge 41'] },
+      { kind: 'wave-started', wave: 2, tickets: ['02'] },
+    ])
+
+    // The mark on 01 in the Epic frame, its tooltip naming the call, and the toast with «Checked, include».
+    const mark = window.locator(`[data-testid="ticket-node"][data-epic="${EPIC}"][data-ticket="1"]`).getByTestId('ticket-unknown-side-effects')
+    await expect(mark).toHaveText('unknown side effects')
+    await expect(mark).toHaveAttribute('title', 'gh pr merge 41 may or may not have run. Check it, then choose Checked, include')
+    await expect(window.locator(`[data-testid="ticket-node"][data-ticket="2"] [data-testid="ticket-unknown-side-effects"]`)).toHaveCount(0)
+    const toast = window.getByTestId('autopilot-unknown-side-effects')
+    await expect(toast).toHaveCount(1)
+    await expect(toast.locator('.w-toast__text')).toHaveText('Unknown side effects: `gh pr merge 41` may or may not have run (Ticket 01 of demo)')
+
+    // «Checked, include»: the journal says so, the mark and the toast go.
+    await toast.getByRole('button', { name: 'Checked, include' }).click()
+    await expect.poll(() => linesOf(journals(world.dataDir)[0]!).filter((event) => event.kind === 'side-effects-checked')).toMatchObject([{ ticket: '01' }])
+    await expect(mark).toHaveCount(0)
+    await expect(toast).toHaveCount(0)
+    // The mark does not come back on its own: the Run's state no longer names it.
+    await expect(window.getByTestId('ticket-unknown-side-effects')).toHaveCount(0)
+
+    // Stopped while Wave 2's turn holds: its turn and the stop message's are released (stopRun).
+    await frame.getByTestId('action-stop-autopilot').click()
+    await expect(status).toHaveText(/^stopping/u)
+    await releaseTurn(app)
+    await releaseTurn(app)
+    await expect(status).toHaveText('stopped: user stop')
   } finally {
     await second.close()
   }

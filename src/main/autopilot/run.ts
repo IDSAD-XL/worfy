@@ -62,6 +62,13 @@
 //   error during a Wave (`session-error`, worfy-retry ticket 14) leaves them `resumable` too, unless a graceful Stop came first: its implementers died with the
 //   Orchestrator, and a Ticket one of them claimed would otherwise wait for a person (ADR-0050,
 //   Amendments).
+// - Unknown side effects (worfy-continuity ticket 07): a Ticket of a cut-off Wave whose implementer has an external
+//   call without a result (deps.heldTickets) is not continued — nor made resumable by Discard. The Run marks it: an
+//   `unknown-side-effects` line with worfy's summary of those calls, and AutopilotState.unknownSideEffects, whose
+//   Ticket gets the mark and the toast in the renderer. The mark lives in the journal, so it outlives a restart and
+//   goes on to the next Run of the Epic (checkpoint.ts). "Checked, include" (includeChecked) writes
+//   `side-effects-checked` to the Run that holds the mark: a Run that goes on takes the Ticket in its next Wave (the
+//   cycle's `include`), a stopped one leaves it resumable for the next Run.
 // - A run started while the Orchestrator is busy is accepted and waits for it (worfy-autopilot-queue
 //   ticket 07, ADR-0099): a turn runs, messages wait in its queue or its background tasks live
 //   (Orchestrators.busy, the conditions that refuse setUnattended). The checks that need no
@@ -267,7 +274,7 @@ import { BASE_INTERVAL_MS } from '../github/prs'
 import type { RunStart } from './journal'
 import { LimitsWait, wallTimer, type LimitsWaitDeps } from './limits-wait'
 import { outputChanged, outputMarks, rememberTaskOutputs, type OutputMarks } from './task-output'
-import type { CutOffWave } from './held-tickets'
+import type { CutOffWave, HeldTicket } from './held-tickets'
 import { TurnRetry, type RetryAction, type TurnRetryDeps } from './turn-retry'
 
 /** The run's Orchestrator Session, as far as the run needs it. */
@@ -491,9 +498,9 @@ export interface AutopilotDeps {
   /**
    * The Tickets of a cut-off Wave whose implementer has an external call without a result (held-tickets.ts, over
    * unknownSideEffects of worfy-continuity ticket 16), read before the Run goes on: they are not continued and wait
-   * for a person. Without it, or when it throws, none is held.
+   * for a person, each with its calls (worfy-continuity ticket 07). Without it, or when it throws, none is held.
    */
-  heldTickets?(cut: CutOffWave): Promise<number[]>
+  heldTickets?(cut: CutOffWave): Promise<HeldTicket[]>
   /**
    * The Run settings in force (worfy-resource-planner ticket 05, Settings → Autopilot): the default
    * Run mode, read at a start that names none, and the Start window, read before each Wave of a run
@@ -842,8 +849,21 @@ function resumableOf(run: Run): number[] {
   // ended it (a Stop during the wait for the Start window, worfy-resource-planner ticket 05). A continued Run counts
   // its Waves on from the cut-off one's (worfy-continuity ticket 06).
   const given = run.cycle.wave === run.firstWave ? run.given : []
-  return [...new Set([...given, ...run.interrupted, ...run.carried])].sort((a, b) => a - b)
+  // A Ticket given back by Checked, include that no Wave carried is resumable; a marked one never (worfy-continuity ticket 07).
+  const marked = new Set(run.marks.filter((mark) => mark.epic === run.epic).map((mark) => mark.ticket))
+  return [...new Set([...given, ...run.interrupted, ...run.carried, ...(run.cycle.included ?? []), ...run.givenBack])].filter((num) => !marked.has(num)).sort((a, b) => a - b)
 }
+
+/** A mark of Unknown side effects (worfy-continuity ticket 07): AutopilotState.unknownSideEffects. */
+type SideEffectsMark = NonNullable<AutopilotState['unknownSideEffects']>[number]
+
+/** The marks still open in a checkpoint, as the state names them. */
+const marksOf = (checkpoint: RunCheckpoint): SideEffectsMark[] =>
+  checkpoint.unknownSideEffects.map((mark) => ({ epic: mark.epic, ticket: Number(mark.ticket), actions: [...mark.actions] }))
+
+/** The state's field of the marks: absent without one. */
+const marksField = (marks: readonly SideEffectsMark[]): Pick<AutopilotState, 'unknownSideEffects'> =>
+  marks.length === 0 ? {} : { unknownSideEffects: marks.map((mark) => ({ ...mark, actions: [...mark.actions] })) }
 
 /**
  * The Waves left in every Epic of the run's queue (worfy-autopilot-queue ticket 14), for the forecast at its start:
@@ -972,6 +992,10 @@ class Run {
   stopSent = false
   /** After a Force stop or a Session in error: the Tickets of the Wave it interrupted (AutopilotState.resumable). */
   interrupted: number[] = []
+  /** The marks of Unknown side effects still open (worfy-continuity ticket 07): AutopilotState.unknownSideEffects. */
+  marks: SideEffectsMark[] = []
+  /** The Tickets given back by Checked, include once the run had stopped: resumable for the next Run. */
+  givenBack: number[] = []
   /** The status of each Ticket of the Epic at the last read of the watch (statusChanges); the start's read is the first. */
   statuses = new Map<number, string>()
   /**
@@ -1247,13 +1271,15 @@ export class Autopilot {
    * journals (deps.pastRuns, resumableAfter of checkpoint.ts: a cut-off run leaves none); from the last stopped state
    * in memory without them, or when they cannot be read.
    */
-  private async leftOver(projectId: string): Promise<{ epic: string | null; resumable: readonly number[] } | undefined> {
+  private async leftOver(projectId: string): Promise<{ epic: string | null; resumable: readonly number[]; unknownSideEffects?: readonly SideEffectsMark[] | undefined } | undefined> {
     const remembered = this.last.get(projectId)
     if (this.deps.pastRuns === undefined) return remembered
     try {
       // Newest first as read; resumableAfter wants them in the order they ran.
       const left = resumableAfter([...(await this.deps.pastRuns(projectId))].reverse())
-      return left === null ? undefined : { epic: left.epic, resumable: left.resumable.map(Number) }
+      if (left === null) return undefined
+      const marks = (left.marks ?? []).map((mark) => ({ epic: left.epic, ticket: Number(mark.ticket), actions: [...mark.actions] }))
+      return { epic: left.epic, resumable: left.resumable.map(Number), ...marksField(marks) }
     } catch (error) {
       console.warn(`[autopilot] ${projectId}: could not read the journals for the resumable Tickets`, error)
       return remembered
@@ -1316,6 +1342,8 @@ export class Autopilot {
       if (this.quitting) throw new Error(QUITTING_MESSAGE)
       run.resume = last?.epic === epic ? [...last.resumable] : []
       run.given = run.resume
+      // The marks the Run before left open on this Epic stay, until Checked, include (worfy-continuity ticket 07).
+      run.marks = last?.epic === epic ? (last.unknownSideEffects ?? []).filter((mark) => mark.epic === epic).map((mark) => ({ ...mark, actions: [...mark.actions] })) : []
       const named = options.tickets
       if (named !== undefined) run.carried = run.resume.filter((num) => !named.includes(num))
       // The first read of the statuses: a status from before the run is not a change of it.
@@ -2009,7 +2037,8 @@ export class Autopilot {
     // Newest first as read: the newest is the Run that may be cut off, the older ones say what it was given.
     const [newest, ...older] = runs
     const checkpoint = newest === undefined ? null : runCheckpoint(newest, { before: resumableAfter([...older].reverse()) })
-    if (newest === undefined || checkpoint === null || checkpoint.cutOff === null) return this.state(projectId)
+    if (newest === undefined || checkpoint === null) return this.state(projectId)
+    if (checkpoint.cutOff === null) return this.rememberMarks(projectId, checkpoint)
     // A start or a run may have come while the journals were read.
     if (this.running(projectId) || this.quitting) return this.state(projectId)
     const cut: CutOffRun = { checkpoint, events: newest, message: null }
@@ -2040,8 +2069,18 @@ export class Autopilot {
     const cut = this.cutOffs.get(projectId)
     if (cut === undefined) return this.state(projectId)
     const checkpoint = cut.checkpoint
+    // A Ticket of the cut-off Wave with an external call without a result is no more resumable after a Discard than
+    // after a continuation (worfy-continuity ticket 07): it is marked first.
+    let added: SideEffectsMark[] = []
     try {
-      const journal = await this.reopen(checkpoint)
+      const root = this.deps.projectRoot(projectId)
+      added = await this.freshMarks(projectId, root, cut, await this.deps.workflow(root))
+    } catch (error) {
+      console.warn(`[autopilot] ${projectId}: could not read the workflow for the external calls of the discarded Run; no Ticket is held`, error)
+    }
+    try {
+      const journal = await this.reopen(checkpoint.run)
+      for (const mark of added) await journal.append({ kind: 'unknown-side-effects', ticket: ticketNumber(mark.ticket), actions: [...mark.actions] }, mark.epic)
       await journal.append({ kind: 'run-stopped', reason: 'discarded', tickets: [...checkpoint.inWork] }, checkpoint.epic)
     } catch (error) {
       cut.message = `Could not discard the Run: ${messageOf(error)}`
@@ -2051,6 +2090,9 @@ export class Autopilot {
     if (this.cutOffs.get(projectId) !== cut) return this.state(projectId)
     this.cutOffs.delete(projectId)
     this.revision += 1
+    const marks = [...marksOf(checkpoint), ...added]
+    const marked = new Set(marks.filter((mark) => mark.epic === checkpoint.epic).map((mark) => mark.ticket))
+    const included = checkpoint.included.filter((each) => each.epic === checkpoint.epic).map((each) => Number(each.ticket))
     this.last.set(projectId, {
       projectId,
       epic: checkpoint.epic,
@@ -2060,7 +2102,8 @@ export class Autopilot {
       resumesAt: null,
       reason: 'discarded',
       message: null,
-      resumable: checkpoint.inWork.map(Number).sort((a, b) => a - b),
+      resumable: [...new Set([...checkpoint.inWork.map(Number), ...included])].filter((num) => !marked.has(num)).sort((a, b) => a - b),
+      ...marksField(marks),
       stopping: false,
       ticketsInWork: 0,
       harnessBehind: this.harness.get(projectId) ?? null,
@@ -2071,11 +2114,11 @@ export class Autopilot {
     return this.state(projectId)
   }
 
-  /** The journal of a cut-off Run, open to append (deps.reopenJournal). */
-  private reopen(checkpoint: RunCheckpoint): Promise<RunJournalLike> {
+  /** The journal of an earlier Run, open to append (deps.reopenJournal): a cut-off one, or one that holds a mark. */
+  private reopen(run: string): Promise<RunJournalLike> {
     const reopen = this.deps.reopenJournal
     if (reopen === undefined) return Promise.reject(new Error('This build cannot continue a Run'))
-    return reopen(checkpoint.run)
+    return reopen(run)
   }
 
   /** The state of a Project whose last Run a restart cut off and that waits for Resume or Discard. */
@@ -2143,8 +2186,13 @@ export class Autopilot {
       if (this.quitting) return this.leaveCutOff(projectId, cut, QUITTING_MESSAGE)
       const { root, model } = checked
       const inWork = checkpoint.inWork.map(Number)
-      const held = await this.heldOf(projectId, root, cut, model)
-      const resume = inWork.filter((num) => !held.includes(num))
+      // The marks the journal holds stay; a Ticket the cut-off Wave holds now gets its own (worfy-continuity ticket 07).
+      const added = await this.freshMarks(projectId, root, cut, model)
+      const marks = [...marksOf(checkpoint), ...added]
+      const marked = new Set(marks.filter((mark) => mark.epic === checkpoint.epic).map((mark) => mark.ticket))
+      // A Ticket given back by Checked, include that no Wave carried yet goes along as the cut-off Wave's do.
+      const included = checkpoint.included.filter((each) => each.epic === checkpoint.epic).map((each) => Number(each.ticket))
+      const resume = [...new Set([...inWork.filter((num) => !marked.has(num)), ...included])]
       const startedLine = cut.events.find((event): event is Extract<JournalEvent, { kind: 'run-started' }> => event.kind === 'run-started')
       const run = new Run(projectId, checkpoint.epic, root, named, startedLine?.by ?? 'button', queue)
       run.index = index
@@ -2166,6 +2214,7 @@ export class Autopilot {
       if (Number.isFinite(startedAt)) run.startedAt = startedAt
       run.resume = resume
       run.given = resume
+      run.marks = marks
       run.continuedFrom = { after, events: cut.events }
       run.restoredWait = checkpoint.waiting
       // The Orchestrator's session of the cut-off Wave is gone with the app: the next Wave starts a new one, with
@@ -2176,7 +2225,7 @@ export class Autopilot {
       // The policy opens anew: its folder for temporary files is named by a new id, the journal keeps the Run's.
       const autoApproval = await this.openApproval(run)
       try {
-        run.journal = await this.reopen(checkpoint)
+        run.journal = await this.reopen(checkpoint.run)
       } catch (error) {
         await this.closeApproval(run)
         return this.leaveCutOff(projectId, cut, `Cannot open the Run's journal: ${messageOf(error)}`)
@@ -2185,6 +2234,7 @@ export class Autopilot {
       await this.write(run, { kind: 'run-continued', after })
       // Its last read of the statuses is its journal's: what changed while the app was away is the Run's.
       for (const fields of continuedStatuses(run, cut.events, model.tickets)) await this.write(run, fields)
+      for (const mark of added) await this.write(run, { kind: 'unknown-side-effects', ticket: ticketNumber(mark.ticket), actions: [...mark.actions] }, mark.epic)
       return await this.takeOrWait(run, model, { override: false, autoApproval })
     } finally {
       this.starting.delete(projectId)
@@ -2233,8 +2283,100 @@ export class Autopilot {
     return this.snapshot(run)
   }
 
+  /**
+   * The marks a cut-off Run gets now (worfy-continuity ticket 07): the Tickets its cut-off Wave holds (heldOf) that
+   * have no open mark yet and were not given back by Checked, include since — that is the person's word, and the
+   * calls read are the same — each with its calls as the journal keeps a command (journalCommand: secrets hidden).
+   */
+  private async freshMarks(projectId: string, root: string, cut: CutOffRun, model: WorkflowModel): Promise<SideEffectsMark[]> {
+    const checkpoint = cut.checkpoint
+    const skip = new Set([
+      ...checkpoint.unknownSideEffects.filter((mark) => mark.epic === checkpoint.epic).map((mark) => Number(mark.ticket)),
+      ...checkpoint.included.filter((each) => each.epic === checkpoint.epic).map((each) => Number(each.ticket)),
+    ])
+    const home = homedir()
+    return (await this.heldOf(projectId, root, cut, model))
+      .filter((held) => !skip.has(held.ticket))
+      .map((held) => ({ epic: checkpoint.epic, ticket: held.ticket, actions: held.actions.map((action) => journalCommand(action, home)) }))
+  }
+
+  /**
+   * At the start of the app (worfy-continuity ticket 07): the marks of Unknown side effects the Project's last Run left
+   * open, when it is not cut off, go into its stopped state, so the Tickets keep their mark and toast after a restart.
+   * Nothing when there is none, or when the Project already has a state of this launch.
+   */
+  private rememberMarks(projectId: string, checkpoint: RunCheckpoint): AutopilotState {
+    const marks = marksOf(checkpoint)
+    if (marks.length === 0 || this.runs.has(projectId) || this.last.has(projectId)) return this.state(projectId)
+    this.revision += 1
+    this.last.set(projectId, {
+      projectId,
+      epic: checkpoint.epic,
+      status: 'stopped',
+      wave: checkpoint.wave,
+      backgroundTasks: 0,
+      resumesAt: null,
+      reason: null,
+      message: null,
+      resumable: checkpoint.resumable.map(Number),
+      stopping: false,
+      ticketsInWork: 0,
+      harnessBehind: this.harness.get(projectId) ?? null,
+      run: checkpoint.run,
+      ...marksField(marks),
+      revision: this.revision,
+    })
+    this.publish(projectId)
+    return this.state(projectId)
+  }
+
+  /**
+   * Checked, include (worfy-continuity ticket 07): the person gives back a Ticket left to them for Unknown side
+   * effects. `side-effects-checked` goes to the journal of the Run that holds the mark, and the mark goes. A Run that
+   * goes on takes the Ticket in its next Wave (the cycle's `include`); a stopped one, or the last Run's state after a
+   * restart, leaves it resumable for the next Run of the Epic. Nothing when no mark names the Ticket; a journal that
+   * cannot be written keeps the mark, with the error in `message`. Answers the state.
+   */
+  async includeChecked(projectId: string, epic: string, ticket: number): Promise<AutopilotState> {
+    const named = (mark: SideEffectsMark): boolean => mark.epic === epic && mark.ticket === ticket
+    const run = this.runs.get(projectId)
+    if (run !== undefined) {
+      if (!run.marks.some(named) || run.journal === null) return this.state(projectId)
+      try {
+        await run.journal.append({ kind: 'side-effects-checked', ticket: ticketNumber(ticket) }, epic)
+      } catch (error) {
+        run.message = `Could not include Ticket ${ticketNumber(ticket)}: ${messageOf(error)}`
+        this.publish(projectId)
+        return this.state(projectId)
+      }
+      run.marks = run.marks.filter((mark) => !named(mark))
+      if (epic === run.epic) {
+        if (run.running) await run.enqueue(() => this.feed(run, { type: 'include', ticket }))
+        else run.givenBack = [...new Set([...run.givenBack, ticket])]
+      }
+      this.publish(projectId)
+      return this.state(projectId)
+    }
+    const last = this.last.get(projectId)
+    if (last === undefined || last.run === undefined || !(last.unknownSideEffects ?? []).some(named)) return this.state(projectId)
+    try {
+      const journal = await this.reopen(last.run)
+      await journal.append({ kind: 'side-effects-checked', ticket: ticketNumber(ticket) }, epic)
+    } catch (error) {
+      this.last.set(projectId, { ...last, message: `Could not include Ticket ${ticketNumber(ticket)}: ${messageOf(error)}` })
+      this.publish(projectId)
+      return this.state(projectId)
+    }
+    const marks = (last.unknownSideEffects ?? []).filter((mark) => !named(mark))
+    const rest: AutopilotState = { ...last, resumable: epic === last.epic ? [...new Set([...last.resumable, ticket])].sort((a, b) => a - b) : last.resumable }
+    delete rest.unknownSideEffects
+    this.last.set(projectId, { ...rest, ...marksField(marks) })
+    this.publish(projectId)
+    return this.state(projectId)
+  }
+
   /** deps.heldTickets over the cut-off Wave of `cut`; none without it, without a Wave in work, or when it throws. */
-  private async heldOf(projectId: string, root: string, cut: CutOffRun, model: WorkflowModel): Promise<number[]> {
+  private async heldOf(projectId: string, root: string, cut: CutOffRun, model: WorkflowModel): Promise<HeldTicket[]> {
     const read = this.deps.heldTickets
     const checkpoint = cut.checkpoint
     if (read === undefined || checkpoint.inWork.length === 0) return []
@@ -2841,8 +2983,9 @@ export class Autopilot {
     this.noteDuration(run, boundary?.kind === 'go' && boundary.unknownDuration ? unknownDurationText(run.cycle.wave + 1) : null)
     run.sending = true
     run.promptsWhileSending.clear()
-    // Only the run's first Wave takes the interrupted Tickets along, and a continuation its stuck Tickets.
-    const resume = run.resume
+    // Only the run's first Wave takes the interrupted Tickets along, and a continuation its stuck Tickets; a Ticket given
+    // back by Checked, include goes with the next Wave the cycle sends (worfy-continuity ticket 07).
+    const resume = [...new Set([...run.resume, ...(run.cycle.included ?? [])])]
     run.resume = []
     // The continuation the cycle asked goes as this Wave, with worfy's line about it (worfy-stuck-agents ticket 05).
     const continuation = run.cycle.asked?.kind === 'continue' ? run.continuation : null
@@ -4136,6 +4279,7 @@ export class Autopilot {
       reason: run.done ? run.cycle.reason : null,
       message: run.message,
       resumable: run.done ? resumableOf(run) : [],
+      ...marksField(run.marks),
       ...(run.running && run.continuation !== null && run.cycle.asked === undefined
         ? { continuing: { tickets: [...run.continuation.tickets], attempt: run.continuation.attempt, of: run.continuation.of } }
         : {}),

@@ -68,6 +68,12 @@ export const EVIDENCE_LINE = 16 + 2
  * come from the PR inbox snapshot, not from the Ticket, so only a card the snapshot names gets the room (`reviewChips`).
  */
 export const REVIEW_LINE = 16 + 2
+/**
+ * A Ticket in work that an Autopilot Run left to a person for Unknown side effects (worfy-continuity ticket 07) draws the
+ * chip «unknown side effects» on a line of its own under the title (TicketNode.tsx): the 18 px chip (theme/chip.css)
+ * and the card's 4 px gap. It comes from main's Autopilot state, so only a card that state marks gets the room.
+ */
+export const SIDE_EFFECTS_LINE = 18 + 4
 
 export interface Font {
   size: number
@@ -311,6 +317,8 @@ export interface CardInput {
   evidence?: boolean | undefined
   /** How many chips the review threads badge draws (0–2; `reviewChipsOf` of badges/ReviewThreads.tsx): a line each. */
   reviewChips?: number | undefined
+  /** The card draws the mark «unknown side effects» (worfy-continuity ticket 07): its line. */
+  sideEffects?: boolean | undefined
 }
 
 /** The chips of one row of checks badges: two lines (16 px each, 2 px apart), as SLOTS_HEIGHT allows for. */
@@ -334,14 +342,14 @@ export function checkRowsHeight(repos: readonly string[]): number {
 /** The room the checks rows take past the one row of chips SLOTS_HEIGHT gives every card. */
 const extraCheckRows = (card: CardInput): number => checkRowsHeight(card.checkRepos ?? []) - CHIP_LINES
 
-/** The card's height for `card`: border, padding, the top row, the title, the reason or blockers line, the slots (with the review and Evidence lines). */
+/** The card's height for `card`: border, padding, the top row, the title, the mark of Unknown side effects, the reason or blockers line, the slots (with the review and Evidence lines). */
 export function cardHeight(card: CardInput): number {
   const title = TITLE_LINE * lines(card.title, { size: 13, weight: 600 }, CONTENT_WIDTH)
   const line =
     card.reason !== null
       ? 2 * REASON_PAD_Y + REASON_LINE * Math.max(1, lines(card.reason, { size: 12 }, CONTENT_WIDTH - 2 * REASON_PAD_X))
       : META_LINE * Math.max(1, textLines(metaRuns(card.meta), CONTENT_WIDTH))
-  return 2 * BORDER + 2 * PADDING_Y + topHeight(card) + CARD_GAP + title + CARD_GAP + line + CARD_GAP + SLOTS_HEIGHT + extraCheckRows(card) + REVIEW_LINE * (card.reviewChips ?? 0) + (card.evidence ? EVIDENCE_LINE : 0)
+  return 2 * BORDER + 2 * PADDING_Y + topHeight(card) + CARD_GAP + title + CARD_GAP + line + CARD_GAP + SLOTS_HEIGHT + extraCheckRows(card) + REVIEW_LINE * (card.reviewChips ?? 0) + (card.evidence ? EVIDENCE_LINE : 0) + (card.sideEffects === true && card.state === 'work' ? SIDE_EFFECTS_LINE : 0)
 }
 
 // ── the blockers line ────────────────────────────────────────────────────────

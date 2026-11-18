@@ -10,6 +10,10 @@
 // Orchestrator itself, or of a Subagent bound to no Ticket, cannot be put on one Ticket: it holds every Ticket of the
 // Wave.
 //
+// Each held Ticket comes with worfy's summary of the calls that hold it (ExternalAction.description: `gh pr merge
+// 41`), its own Subagents' first, then the Orchestrator's, each once: the mark, the toast and the journal's
+// `unknown-side-effects` line name them (worfy-continuity ticket 07).
+//
 // What is not read holds nothing: a Vendor other than Claude Code (Codex keeps its history in its own threads, not read
 // here), a Wave line without a session, a transcript that is gone. Reads only; writes nothing.
 import { readdir, readFile } from 'node:fs/promises'
@@ -19,6 +23,12 @@ import type { LiveSession } from '../../shared/agent/live-sessions'
 import { unknownSideEffects, type InterruptedSubagent } from '../../shared/agent/unknown-side-effects'
 import type { BindingWorkflow } from '../../shared/binding/resolve'
 import { mainThreadEvents, parseTranscriptLines } from '../../shared/transcript/parse'
+
+/** A Ticket of the cut-off Wave left to a person, and worfy's summary of each call without a result that holds it. */
+export interface HeldTicket {
+  ticket: number
+  actions: string[]
+}
 
 /** The cut-off Wave of a Run, as its journal tells it (checkpoint.ts). */
 export interface CutOffWave {
@@ -71,23 +81,41 @@ function lastTurn(events: readonly AgentEvent[]): AgentEvent[] {
   return start === -1 ? [...events] : events.slice(start)
 }
 
-/** The Tickets of `cut` that wait for a person, in number order; none when nothing could be read. */
-export async function heldTickets(deps: HeldTicketsDeps, cut: CutOffWave): Promise<number[]> {
-  if (cut.tickets.length === 0 || cut.session === null || cut.vendor !== 'claude') return []
+/**
+ * The Interrupted Subagents of a Claude Code session whose transcript is `path`: each `agent-<id>.jsonl` in
+ * `<session>/subagents/` beside it, in name order, with its lines; one whose file cannot be read, or that `keep`
+ * leaves out, is not among them. Also the quit's coordinator reads the live ones (src/main/quit-grace.ts).
+ */
+export async function subagentsBeside(
+  deps: Pick<HeldTicketsDeps, 'readLines' | 'listFiles'>,
+  path: string,
+  sessionId: string,
+  keep: (file: string) => Promise<boolean> = () => Promise.resolve(true),
+): Promise<InterruptedSubagent[]> {
   const readLines = deps.readLines ?? readLinesOf
   const listFiles = deps.listFiles ?? listFilesOf
-  const path = await deps.transcriptPath(cut.root, cut.session)
-  if (path === null) return []
-  const lines = await readLines(path)
-  if (lines === null) return []
-  const folder = join(dirname(path), cut.session, 'subagents')
+  const folder = join(dirname(path), sessionId, 'subagents')
   const subagents: InterruptedSubagent[] = []
   for (const name of (await listFiles(folder)).sort()) {
     const agentId = SUBAGENT_FILE.exec(name)?.[1]
     if (agentId === undefined) continue
-    const own = await readLines(join(folder, name))
+    const file = join(folder, name)
+    if (!(await keep(file))) continue
+    const own = await readLines(file)
     if (own !== null) subagents.push({ agentId, lines: own })
   }
+  return subagents
+}
+
+/** The Tickets of `cut` that wait for a person, in number order, each with its calls; none when nothing could be read. */
+export async function heldTickets(deps: HeldTicketsDeps, cut: CutOffWave): Promise<HeldTicket[]> {
+  if (cut.tickets.length === 0 || cut.session === null || cut.vendor !== 'claude') return []
+  const readLines = deps.readLines ?? readLinesOf
+  const path = await deps.transcriptPath(cut.root, cut.session)
+  if (path === null) return []
+  const lines = await readLines(path)
+  if (lines === null) return []
+  const subagents = await subagentsBeside(deps, path, cut.session)
   // The record unknownSideEffects reads only for its Node; the Run's Orchestrator is the one here.
   const session: LiveSession = {
     nodeId: 'orchestrator',
@@ -102,14 +130,18 @@ export async function heldTickets(deps: HeldTicketsDeps, cut: CutOffWave): Promi
   }
   const found = unknownSideEffects({ session, events: lastTurn(mainThreadEvents(parseTranscriptLines(lines))), subagents, workflow: cut.workflow })
   const wave = new Set(cut.tickets)
-  const all = (): number[] => [...wave].sort((a, b) => a - b)
-  if (found.session.length > 0) return all()
-  const held = new Set<number>()
+  const own = new Map<number, string[]>()
+  // The calls that hold every Ticket of the Wave: the Orchestrator's own, and those of a Subagent bound to no Ticket.
+  const every = found.session.map((call) => call.description)
   for (const subagent of found.subagents) {
     const ticket = subagent.ticket
-    if (ticket === null) return all()
+    const descriptions = subagent.calls.map((call) => call.description)
+    if (ticket === null) every.push(...descriptions)
     // A Subagent of another Ticket is no implementer of this Wave (the session may be older than the Wave).
-    if (ticket.epic === cut.epic && wave.has(ticket.num)) held.add(ticket.num)
+    else if (ticket.epic === cut.epic && wave.has(ticket.num)) own.set(ticket.num, [...(own.get(ticket.num) ?? []), ...descriptions])
   }
-  return [...held].sort((a, b) => a - b)
+  const held = every.length > 0 ? [...wave] : [...own.keys()]
+  return held
+    .sort((a, b) => a - b)
+    .map((ticket) => ({ ticket, actions: [...new Set([...(own.get(ticket) ?? []), ...every])] }))
 }

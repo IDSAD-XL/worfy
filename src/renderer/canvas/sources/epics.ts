@@ -33,6 +33,7 @@ import { create } from 'zustand'
 import { DONE_SHELF_ID, DONE_SHELF_KIND, EPIC_ARRANGEMENT_ID, EPIC_ARRANGEMENT_KIND, EPIC_FRAME_KIND, TICKET_KIND, epicNodeId, onThePlane, ticketNodeId } from '../../../shared/layout/derived'
 import { ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutNode, type LayoutOpInput } from '../../../shared/layout/types'
 import type { Epic, Ticket, WorkflowModel } from '../../../shared/workflow/types'
+import { useSideEffectsMarks } from '../../autopilot/unknown-side-effects'
 import { useProjects } from '../../projects/useProjects'
 import { usePipeline } from '../../pipeline/usePipeline'
 import { usePrInbox } from '../../pr-inbox/usePrInbox'
@@ -426,7 +427,8 @@ function frameLayout(
 }
 
 /** The card context as one string, to tell a new one from the same. */
-const cardsKey = (cards: CardContext | undefined): string => JSON.stringify([cards?.stages ?? null, cards?.severalRepos ?? null, cards?.repoNames ?? null, cards?.reviewChips ?? null])
+const cardsKey = (cards: CardContext | undefined): string =>
+  JSON.stringify([cards?.stages ?? null, cards?.severalRepos ?? null, cards?.repoNames ?? null, cards?.reviewChips ?? null, cards?.sideEffects ?? null])
 
 /** Per Project and Epic, the last computed frame, so an Epic that did not change keeps its objects. */
 const cache = new Map<string, EpicEntry>()
@@ -773,14 +775,18 @@ function useEpicNodes({ projectId, layout }: NodeSourceContext): readonly Canvas
   // changes no badge changes no height.
   const { snapshot: inbox } = usePrInbox(projectId)
   const reviews = useMemo(() => JSON.stringify(reviewChipsOf(inbox, model?.tickets ?? NO_TICKETS)), [inbox, model])
+  // The Tickets marked for Unknown side effects (worfy-continuity ticket 07), as one string: their line on the card.
+  const marks = useSideEffectsMarks(projectId)
+  const sideEffects = useMemo(() => JSON.stringify(Object.fromEntries(marks.map((mark) => [`${mark.epic}/${mark.ticket}`, true]))), [marks])
   const cards = useMemo<CardContext>(
     () => ({
       stages: titles === null ? undefined : (JSON.parse(titles) as string[]),
       severalRepos,
       repoNames: names === null ? undefined : (JSON.parse(names) as string[]),
       reviewChips: JSON.parse(reviews) as Record<string, number>,
+      sideEffects: JSON.parse(sideEffects) as Record<string, true>,
     }),
-    [titles, severalRepos, names, reviews],
+    [titles, severalRepos, names, reviews, sideEffects],
   )
   const nodes = useMemo(
     () => buildEpicNodes(projectId, root, model, layout, doneExpanded, derived, answers, cards),

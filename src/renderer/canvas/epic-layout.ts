@@ -145,6 +145,11 @@ export interface CardContext {
    * badges/ReviewThreads.tsx, from the PR inbox snapshot); a Ticket it does not name draws none.
    */
   reviewChips?: Readonly<Record<string, number>> | undefined
+  /**
+   * The Tickets marked for Unknown side effects in main's Autopilot state (worfy-continuity ticket 07), by
+   * `<epic>/<num>`: such a card in work draws the mark on a line of its own (TicketNode.tsx).
+   */
+  sideEffects?: Readonly<Record<string, true>> | undefined
 }
 
 export const routeKey = (blocker: number, blocked: number): string => `${blocker}->${blocked}`
@@ -268,6 +273,7 @@ export function cardHeights(tickets: readonly LayoutTicket[], columns: EpicColum
       stages: cards.stages,
       evidence: (t.evidence?.length ?? 0) > 0,
       reviewChips: cards.reviewChips?.[`${t.epic}/${t.num}`],
+      sideEffects: cards.sideEffects?.[`${t.epic}/${t.num}`] === true,
     })
     heights.set(t.num, height)
   }

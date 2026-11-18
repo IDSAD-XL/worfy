@@ -397,6 +397,19 @@
 //                                    Journals written before worfy-continuity ticket 02 have
 //                                    neither line; a build older than that skips both and counts
 //                                    them (Reading, below)
+//   unknown-       ticket, actions   a Ticket of the cut-off Wave is left to a person (worfy-continuity
+//   side-effects                     ticket 07): its implementer, or the Orchestrator itself, has an
+//                                    external call without a result, which may or may not have run
+//                                    (heldTickets, src/main/autopilot/held-tickets.ts). ticket: its
+//                                    number as in wave-started; actions: worfy's summary of each such
+//                                    call (`gh pr merge 41`), secrets hidden as in retry-refused. Written
+//                                    right after run-continued, or before run-stopped `discarded`. The
+//                                    Ticket is not resumable, in this Run or the next of its Epic, until
+//                                    side-effects-checked names it (checkpoint.ts)
+//   side-effects-  ticket            the person chose "Checked, include" for that Ticket: it is resumable
+//   checked                          again, and the next Wave of the Run, or the next Run of the Epic,
+//                                    takes it along. Appended to the Run that holds the mark, also after
+//                                    its run-stopped
 //
 // A graceful Stop journals run-stopping → background-tasks … → run-stopped (`user-stop`, no
 // tickets). A Force stop during it: run-stopping → … → run-stopped (`user-force-stop`, tickets) →
@@ -471,6 +484,8 @@ export const JOURNAL_EVENT_KINDS = [
   'tasks-killed',
   'run-suspended',
   'run-continued',
+  'unknown-side-effects',
+  'side-effects-checked',
 ] as const
 export type JournalEventKind = (typeof JOURNAL_EVENT_KINDS)[number]
 
@@ -664,6 +679,8 @@ export const journalEventSchema = z.discriminatedUnion('kind', [
     wait: z.object({ kind: z.enum(RUN_WAIT_KINDS), until: isoTime.nullable() }).nullable().catch(null),
   }),
   event('run-continued', { after: z.enum(CONTINUED_AFTER) }),
+  event('unknown-side-effects', { ticket: text, actions: z.array(text.max(COMMAND_MAX)).min(1) }),
+  event('side-effects-checked', { ticket: text }),
 ])
 export type JournalEvent = z.output<typeof journalEventSchema>
 

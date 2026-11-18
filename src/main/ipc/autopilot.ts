@@ -23,7 +23,8 @@
 // `autopilot.queue` changes the queue of a run between Waves (worfy-autopilot-queue ticket 14, ADR-0100).
 // At the start of the app the last Run of each Project, when a restart cut it off, goes on in its journal or waits for
 // Resume (`autopilot.resume`) or Discard (`autopilot.discard`) (worfy-continuity ticket 06, continueCutOffRuns); the
-// external calls of its cut-off Wave are read from the Orchestrator's transcript first (held-tickets.ts).
+// external calls of its cut-off Wave are read from the Orchestrator's transcript first (held-tickets.ts). A Ticket they
+// leave to a person is given back with "Checked, include" (`autopilot.include`, worfy-continuity ticket 07).
 import { execFile } from 'node:child_process'
 import { join } from 'node:path'
 import { app } from 'electron'
@@ -34,6 +35,7 @@ import { estimateAnswer } from '../../shared/autopilot/limits-estimate'
 import {
   autopilotChanged,
   autopilotDiscard,
+  autopilotInclude,
   autopilotEstimate,
   autopilotForceStop,
   autopilotQueue,
@@ -101,7 +103,7 @@ const appEstimateSources: EstimateSources = { runs: (projectId) => readRecentRun
 
 /** The handlers over an Autopilot; tests pass their own. */
 export function autopilotHandlers(
-  autopilot: () => Pick<Autopilot, 'start' | 'stop' | 'forceStop' | 'state'> & Partial<Pick<Autopilot, 'refreshHarness' | 'startNow' | 'editQueue' | 'resumeCutOff' | 'discardCutOff'>>,
+  autopilot: () => Pick<Autopilot, 'start' | 'stop' | 'forceStop' | 'state'> & Partial<Pick<Autopilot, 'refreshHarness' | 'startNow' | 'editQueue' | 'resumeCutOff' | 'discardCutOff' | 'includeChecked'>>,
   sources: EstimateSources = appEstimateSources,
 ): HandlerModule {
   return [
@@ -137,6 +139,11 @@ export function autopilotHandlers(
     defineHandler(autopilotDiscard, ({ projectId }) => {
       const current = autopilot()
       return current.discardCutOff?.(projectId) ?? current.state(projectId)
+    }),
+    // Checked, include of a Ticket left to a person for Unknown side effects (worfy-continuity ticket 07).
+    defineHandler(autopilotInclude, ({ projectId, epic, ticket }) => {
+      const current = autopilot()
+      return current.includeChecked?.(projectId, epic, ticket) ?? current.state(projectId)
     }),
     defineHandler(autopilotState, ({ projectId }) => {
       const current = autopilot()

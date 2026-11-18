@@ -31,6 +31,10 @@
 //   Epic it stopped on, all it was given. What a Run was given is what the Run before it left, when
 //   that one was on the same Epic: resumableAfter() reads a Project's journals in order for it. A
 //   cut-off Run leaves none until it is continued or discarded.
+// - Unknown side effects (worfy-continuity ticket 07): the marks still open — an unknown-side-effects line, or one the
+//   Run before on the same Epic left open (`before.marks`), without a later side-effects-checked of that Ticket — and
+//   the Tickets included by Checked, include that no later wave-started carried yet. A marked Ticket is never
+//   resumable, whatever run-stopped names; an included one is, once the Run is no longer cut off.
 import type { EpicFinish } from './epic-queue'
 import { type ContinuedAfter, type JournalEvent, parseJournal, type RunWaitKind } from './journal'
 import type { RunMode } from './run-mode'
@@ -44,6 +48,8 @@ const RESUMABLE_STOPS: ReadonlySet<string> = new Set(['user-force-stop', 'sessio
 export interface LeftOver {
   epic: string
   resumable: readonly string[]
+  /** The marks of Unknown side effects still open on that Epic (worfy-continuity ticket 07); absent: none. */
+  marks?: readonly { ticket: string; actions: readonly string[] }[]
 }
 
 export interface RunCheckpoint {
@@ -76,6 +82,13 @@ export interface RunCheckpoint {
   stopped: { reason: string; tickets: string[]; at: string } | null
   /** The Run is cut off by a restart: what a continuation goes on after, and the time of the last line before it. */
   cutOff: { after: ContinuedAfter; at: string } | null
+  /**
+   * The marks of Unknown side effects still open (worfy-continuity ticket 07): the Tickets left to a person, each with
+   * worfy's summary of its calls without a result, in order of their lines (the Run before's first).
+   */
+  unknownSideEffects: { epic: string; ticket: string; actions: string[] }[]
+  /** The Tickets given back by Checked, include that no later Wave carried yet, in order of their lines. */
+  included: { epic: string; ticket: string }[]
   /** The Tickets the next Run of the Epic takes along, in number order. */
   resumable: string[]
   /** The lines of the file that did not read (journal.ts, Reading): a torn last line, a kind of a later build. */
@@ -104,6 +117,12 @@ export function runCheckpoint(events: readonly JournalEvent[], options: { skippe
   const ladder = new Map<string, RunCheckpoint['ladder'][number]>()
   let stopped: RunCheckpoint['stopped'] = null
   let suspended: { after: ContinuedAfter; at: string } | null = null
+  const before = options.before ?? null
+  const keyOf = (lineEpic: string, ticket: string): string => `${lineEpic}/${ticket}`
+  // Insertion order is line order: the Run before's marks first.
+  const marks = new Map<string, RunCheckpoint['unknownSideEffects'][number]>()
+  if (before !== null && before.epic === first) for (const mark of before.marks ?? []) marks.set(keyOf(first, mark.ticket), { epic: first, ticket: mark.ticket, actions: [...mark.actions] })
+  const included = new Map<string, RunCheckpoint['included'][number]>()
 
   const rung = (lineEpic: string, ticket: string): RunCheckpoint['ladder'][number] => {
     const key = `${lineEpic}/${ticket}`
@@ -128,6 +147,7 @@ export function runCheckpoint(events: readonly JournalEvent[], options: { skippe
       case 'wave-started':
         wave = event.wave
         open = { tickets: [...event.tickets], out: new Set() }
+        for (const ticket of event.tickets) included.delete(keyOf(event.epic, ticket))
         waiting = null
         retry = null
         break
@@ -180,6 +200,13 @@ export function runCheckpoint(events: readonly JournalEvent[], options: { skippe
       case 'run-continued':
         suspended = null
         break
+      case 'unknown-side-effects':
+        marks.set(keyOf(event.epic, event.ticket), { epic: event.epic, ticket: event.ticket, actions: [...event.actions] })
+        included.delete(keyOf(event.epic, event.ticket))
+        break
+      case 'side-effects-checked':
+        if (marks.delete(keyOf(event.epic, event.ticket))) included.set(keyOf(event.epic, event.ticket), { epic: event.epic, ticket: event.ticket })
+        break
       default:
         break
     }
@@ -189,12 +216,14 @@ export function runCheckpoint(events: readonly JournalEvent[], options: { skippe
   const cutOff: RunCheckpoint['cutOff'] =
     last.kind === 'run-suspended' ? { after: last.cause, at: last.at } : stopped === null ? (suspended ?? { after: 'crash', at: last.at }) : null
 
-  const before = options.before ?? null
   const given = before !== null && before.epic === first ? [...before.resumable] : []
   const named = start?.tickets ?? null
   const carried = named === null ? [] : given.filter((ticket) => !named.includes(ticket))
   const interrupted = stopped !== null && RESUMABLE_STOPS.has(stopped.reason) ? stopped.tickets : []
-  const resumable = cutOff !== null ? [] : [...new Set([...(wave === 0 ? given : []), ...interrupted, ...carried])].sort(byNumber)
+  const marked = new Set([...marks.values()].filter((mark) => mark.epic === epic).map((mark) => mark.ticket))
+  const giveBack = [...included.values()].filter((each) => each.epic === epic).map((each) => each.ticket)
+  const resumable =
+    cutOff !== null ? [] : [...new Set([...(wave === 0 ? given : []), ...interrupted, ...carried, ...giveBack])].filter((ticket) => !marked.has(ticket)).sort(byNumber)
 
   return {
     run: head.run,
@@ -214,6 +243,8 @@ export function runCheckpoint(events: readonly JournalEvent[], options: { skippe
     ladder: [...ladder.values()],
     stopped,
     cutOff,
+    unknownSideEffects: [...marks.values()],
+    included: [...included.values()],
     resumable,
     skipped: options.skipped ?? 0,
   }
@@ -233,7 +264,9 @@ export function resumableAfter(runs: readonly (readonly JournalEvent[])[]): Left
   let left: LeftOver | null = null
   for (const events of runs) {
     const checkpoint = runCheckpoint(events, { before: left })
-    if (checkpoint !== null) left = { epic: checkpoint.epic, resumable: checkpoint.resumable }
+    if (checkpoint === null) continue
+    const marks = checkpoint.unknownSideEffects.filter((mark) => mark.epic === checkpoint.epic).map((mark) => ({ ticket: mark.ticket, actions: mark.actions }))
+    left = { epic: checkpoint.epic, resumable: checkpoint.resumable, ...(marks.length === 0 ? {} : { marks }) }
   }
   return left
 }

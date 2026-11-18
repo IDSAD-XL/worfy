@@ -2,6 +2,7 @@ import { memo } from 'react'
 import { Handle, Position } from '@xyflow/react'
 import { reposOfTicket } from '../../../shared/ipc/checks'
 import type { Ticket } from '../../../shared/workflow/types'
+import { showSideEffectsToast, sideEffectsTitle, useUnknownSideEffects } from '../../autopilot/unknown-side-effects'
 import { requestFocus } from '../../focus/focus-state'
 import { useInFocusTile } from '../../focus/focus-tile'
 import { invoke } from '../../ipc'
@@ -33,6 +34,11 @@ import '../epic-frame.css'
 // worfy-ui ticket 16). The card on the Canvas reads no file. The Node comes from sources/epics.ts. In a
 // Project over several repositories (ADR-0045) a chip next to the number names the Ticket's
 // repository (its `Repo:` line) — every one of a Ticket over several (ADR-0104) — or says it has none.
+//
+// A Ticket an Autopilot Run left to a person for Unknown side effects (worfy-continuity ticket 07: a call of its
+// implementer that may act outside the machine has no result) has the mark «unknown side effects» on a line of its own
+// under the title, while it is in work; its tooltip names the calls, and a click shows the toast with "Checked,
+// include" again (autopilot/unknown-side-effects.ts). ticket-card.ts gives the line its room (SIDE_EFFECTS_LINE).
 //
 // Nothing on the card is cut (worfy-canvas ticket 18): the title, the reason and the blockers line
 // wrap, the top row and the checks chips take more lines. The Node is as tall as ticket-card.ts
@@ -81,6 +87,25 @@ function RepoChip({ root, ticket }: { root: string; ticket: Pick<Ticket, 'repo' 
 /** The mark of the header's rows in focus mode: a toast keeps clear of them (toast/ToastRegion.tsx). */
 type KeepOut = { 'data-toast-keep-out'?: '' }
 
+/** The mark «unknown side effects» (worfy-continuity ticket 07): a button, so the toast with "Checked, include" comes again. */
+function SideEffectsMark({ projectId, ticket, actions: calls, keepOut }: { projectId: string; ticket: Ticket; actions: readonly string[]; keepOut: KeepOut }) {
+  const title = sideEffectsTitle(calls)
+  return (
+    <div className="w-ticket__side-effects nodrag" style={{ display: 'flex', minHeight: 18 }} {...keepOut}>
+      <button
+        type="button"
+        data-testid="ticket-unknown-side-effects"
+        title={`${title}. Check it, then choose Checked, include`}
+        aria-label={`Unknown side effects: ${title}`}
+        style={{ padding: 0, border: 0, background: 'none', cursor: 'pointer' }}
+        onClick={() => showSideEffectsToast(projectId, { epic: ticket.epic, ticket: ticket.num, actions: [...calls] })}
+      >
+        <Chip variant="blocked" label="unknown side effects" />
+      </button>
+    </div>
+  )
+}
+
 /** The line under the title, the same text as ticket-card.ts gives room for (`blockersLine`). */
 function BlockersLine({ data, keepOut }: { data: TicketNodeData; keepOut: KeepOut }) {
   const { ticket, placed, waitingOn } = data
@@ -117,6 +142,9 @@ function TicketNode({ id, data, width }: CanvasNodeProps) {
   // In focus mode the header — its rows above the body, with "Open in editor" and the actions — stays
   // clear of toasts; on the Canvas a card is not marked, the Canvas moves under the toasts.
   const keepOut: KeepOut = inFocus ? { 'data-toast-keep-out': '' } : {}
+  // The mark of Unknown side effects, while the Ticket is in work (ticket-card.ts counts the same).
+  const unknownCalls = useUnknownSideEffects(projectId, ticket.epic, ticket.num)
+  const sideEffects = ticket.state === 'work' ? unknownCalls : null
 
   const openInEditor = () => {
     // In a window on a Linked machine the Ticket file lies there: the toast instead of its editor.
@@ -169,6 +197,7 @@ function TicketNode({ id, data, width }: CanvasNodeProps) {
       <div className="w-ticket__title" title={title} {...keepOut}>
         {title}
       </div>
+      {sideEffects === null ? null : <SideEffectsMark projectId={projectId} ticket={ticket} actions={sideEffects} keepOut={keepOut} />}
       {reason ? (
         <div className="w-ticket__reason" title={reason} {...keepOut}>
           {reason}
