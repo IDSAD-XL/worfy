@@ -117,3 +117,18 @@ function ticketOf(subagent: InterruptedSubagent, workflow: BindingWorkflow | und
 3. Какой Ticket получит Subagent, привязанный вручную к Epic-у, хотя в его задаче путь Ticket-а 16?
    - Строки: `src/shared/agent/unknown-side-effects.ts:93-94`
    - Ответ: никакой (`null`): ручной Binding сильнее пути в задаче, а Binding к Epic-у Ticket-а не называет.
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED; debt: src/shared/agent/unknown-side-effects.ts:38-40, :77-79 — the function counts every unresolved call among the events it is given and does not trim to the interrupted turn; this matches the ticket and spec (input: the interrupted Session's events) and errs on the safe side (a stale call reads as "may have run", never a miss), but tickets 05, 04 and 07 must each pass only the cut-off turn — carry it into ticket 05's acceptance items.
+> Noted: two continue-plan.ts mutants (parentToolUseId skip, id dedup) survive the new test file alone; their tests live in continue-plan.test.ts, which this diff does not change.
+> Review depth: low — default: the profile has no review.depth.wave
+> Review tokens: 83095
+
+Code: `src/shared/agent/unknown-side-effects.ts:38-40` · key lines: 38
+
+```ts
+   * The events of the Session's own thread: from its transcript (for Claude Code, mainThreadEvents of its lines)
+   * or its Vendor's history. Every call here without a result counts; pass the turn that was cut off to leave
+   * older turns out.
+```
