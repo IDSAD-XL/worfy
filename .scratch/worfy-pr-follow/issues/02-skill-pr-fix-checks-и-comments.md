@@ -58,12 +58,12 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реал�
 
 - [ ] Eval `pr-fix-checks`: упавший check починен в worktree, checkout человека не тронут; на «Not now» нет ни одного
       `git push`; check, красный и на базе, не тронут; ни одной записи в GitHub.
-  - evidence: test-run pass · eval pr-fix-checks 1.00 / 1.00, casesPassed 1 of 1, exit 0, 0.66 USD · mac - · fe2c22b9b3a904f93690814a5d62fd3f0fa5734f
+  - evidence: test-run pass · eval pr-fix-checks 0.93 / 0.93, casesPassed 1 of 1, exit 0, 0.75 USD (grader reply 3/3 failed in both runs); previous run fe2c22b9b 1.00 / 1.00, 0.66 USD · mac - · dbd7199ae49543555816dc5365d1ba1ecb9ac24d
 - [ ] Eval `pr-fix-comments`: правка по замечанию, ответы только через `pr-reply-draft`; нет `gh pr comment`,
       `gh pr review`, записей `gh api`; push только после «Push».
-  - evidence: test-run pass · eval pr-fix-comments 1.00 / 1.00, casesPassed 1 of 1, exit 0, 1.10 USD · mac - · fe2c22b9b3a904f93690814a5d62fd3f0fa5734f
+  - evidence: test-run pass · eval pr-fix-comments 1.00 / 1.00, casesPassed 1 of 1, exit 0, 1.20 USD; previous run fe2c22b9b 1.00 / 1.00, 1.10 USD · mac - · dbd7199ae49543555816dc5365d1ba1ecb9ac24d
 - [ ] Числа обоих evals (pass и цена) — в «Итог» Ticket-а.
-  - evidence: commit pass · Итог: pr-fix-checks 1.00 / 1.00, 0.66 USD; pr-fix-comments 1.00 / 1.00, 1.10 USD · - - · fe2c22b9b3a904f93690814a5d62fd3f0fa5734f
+  - evidence: commit pass · Итог: dbd7199ae pr-fix-checks 0.93 / 0.93, 0.75 USD; pr-fix-comments 1.00 / 1.00, 1.20 USD; previous run fe2c22b9b · - - · dbd7199ae49543555816dc5365d1ba1ecb9ac24d
 - [ ] `harness/evals/lib/coverage.json` называет `skills/pr-fix/SKILL.md`; contract test-ы evals
       (`test/contract/harness-evals-run.test.ts`) зелёные.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs harness-evals` exit 0, `node scripts/eval-harness-coverage.mjs` exit 0 · mac - · d72f6897fda8013ab32b7b043444b51b25f066ea
@@ -90,14 +90,28 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реал�
 
 ## Итог
 
-Ветка `worfy-pr-follow/02`, PR #2004. Платные evals на head fe2c22b9b (раунд 2, `--max-cost-usd 3` на вызов):
+Ветка `worfy-pr-follow/02`, PR #2004. Платные evals, `--max-cost-usd 3` на вызов:
 
-| Eval | Score по run-ам | Кейс | Цена |
-|---|---|---|---|
-| `pr-fix-checks` | 1.00 / 1.00 | casesPassed 1 из 1, exit 0 | 0.66 USD |
-| `pr-fix-comments` | 1.00 / 1.00 | casesPassed 1 из 1, exit 0 | 1.10 USD |
+| Head | Eval | Score по run-ам | Кейс | Цена |
+|---|---|---|---|---|
+| dbd7199ae (раунд 3, последний) | `pr-fix-checks` | 0.93 / 0.93 | casesPassed 1 из 1, exit 0 | 0.75 USD |
+| dbd7199ae (раунд 3, последний) | `pr-fix-comments` | 1.00 / 1.00 | casesPassed 1 из 1, exit 0 | 1.20 USD |
+| fe2c22b9b (раунд 2, прошлый прогон) | `pr-fix-checks` | 1.00 / 1.00 | casesPassed 1 из 1, exit 0 | 0.66 USD |
+| fe2c22b9b (раунд 2, прошлый прогон) | `pr-fix-comments` | 1.00 / 1.00 | casesPassed 1 из 1, exit 0 | 1.10 USD |
+
+На dbd7199ae в `pr-fix-checks` grader `reply` провалился 3 из 3 в обоих run-ах. Кейс прошёл: у `reply` вес 1 из 14.
+
+Причина провала `reply`: судья видит только последнее сообщение агента. Prompt велит в конце запустить
+`node .git/eval-gh/state.cjs`, поэтому последним идёт короткая сводка после скрипта, а полный отчёт человеку остаётся
+выше. Исправление — в Ticket 03.
 
 Раньше, на be05d9bdf (раунд 1), `fixed-in-worktree` падал в 4 из 4 run-ов: `claude plugin eval` выключает git hook-и
 репозитория (`core.hooksPath=/dev/null`), а fixture писал состояние hook-ами. Раунд 2 смотрит состояние без hook-ов.
 Раунд 3 перевёл оба guard-а gh (stand-in и grader `no-publish-command`) на список известных чтений: любой другой вызов
-gh считается записью. Платный eval на head раунда 3 не запускался.
+gh считается записью.
+
+Долг → Ticket 03:
+
+1. `gh api -fbody=x` — поле, склеенное с флагом, grader `no-publish-command` не считает записью.
+2. Regex grader-а `no-publish-command` считает `gh` только в начале команды.
+3. Grader `reply` судит последнее сообщение агента, а после `state.cjs` это короткая сводка, не отчёт человеку.
