@@ -1,7 +1,8 @@
 # 10 — Harness: инструкции summary по ролям в `compaction.md` и запасная строка в `common.md`
 
 Type: task
-Status: open
+Status: claimed 2026-11-18T01:33Z
+Branch: worfy-continuity/10
 Blocked by: 01
 Source: [spec.md](../spec.md), «Ticket-ы», 10; «Решения по реализации» → «Compaction», пункт «Инструкции summary (10)»;
 «Решения по test-ам», Harness; «Как это сделано у конкурентов» (Division Swarm, Factory Droids); «Риски», 11
@@ -36,8 +37,11 @@ Source: [spec.md](../spec.md), «Ticket-ы», 10; «Решения по реал
 
 - [ ] `harness/hooks/tests/rules-hooks.test.sh`: `compaction.md` вставляется и укладывается в предел 10 000 знаков
       вместе с правилами роли.
+  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 · mac - · b7e5f01bf97d5f4b5909c5e93554704ce089a6b1
 - [ ] Shell test: запасная строка `common.md` есть в выводе hook-а у каждой роли.
+  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 · mac - · b7e5f01bf97d5f4b5909c5e93554704ce089a6b1
 - [ ] Английская страница `skills-agents-and-hooks.md` называет `compaction.md`.
+  - evidence: commit pass · worfy-continuity/10: summary instructions for compaction through PreCompact · - - · b7e5f01bf97d5f4b5909c5e93554704ce089a6b1
 - [ ] Платформенный PR (ADR-0056, пункт 2; ADR-0071): job Windows в составе `ci-ok` зелёный на head PR до merge.
 - [ ] `pnpm lint`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
