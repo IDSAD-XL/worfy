@@ -1,7 +1,7 @@
 # 11 — Harness: hook ветки `compact` возвращает агенту состояние
 
 Type: task
-Status: claimed 2026-11-18T04:15Z
+Status: done 2026-11-18T04:44Z
 PR: #1982
 Blocked by: 01, 10
 Source: [spec.md](../spec.md), «Ticket-ы», 11; «Решения по реализации» → «Compaction», пункт «Hook ветки `compact` (11)»;
@@ -48,6 +48,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 11; «Решения по реал
   - evidence: commit pass · harness: SessionStart hook of the compact branch hands the agent its state back · - - · 5050b0bf04ec9df4817e6f952c95b0b891ccff96
 - [ ] Платформенный PR (ADR-0056, пункт 2; ADR-0071): job Windows в составе `ci-ok` зелёный на head PR до merge.
 - [ ] `pnpm lint`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44237072505/job/134580774030 · ci - · 0c2b36f6285e8a24f3cc9b20175bcffd82b41763
 
 ## Тесты
 
