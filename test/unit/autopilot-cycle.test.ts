@@ -199,6 +199,31 @@ describe('the Autopilot cycle', () => {
     expect(run([{ type: 'workflow-error', message: 'epic-status failed' }], inWave1()).effects).toEqual([{ kind: 'stopped', reason: 'workflow-error' }])
   })
 
+  it('a suspended run (the app quits, worfy-continuity ticket 04) keeps its Wave, stops nothing and ignores every later event', () => {
+    const wave = inWave1()
+    const suspended = step(wave, { type: 'suspend' })
+    // Not a stop: no `stopped` effect, the phase and the Wave stay for run-suspended.
+    expect(suspended.effects).toEqual([])
+    expect(suspended.state).toEqual({ ...wave, suspended: true })
+    for (const event of [
+      ok(WAVE1_DONE),
+      { type: 'turn-ended', isError: false, interrupted: true, message: null, tickets: OPEN, tasks: 0, idle: true },
+      { type: 'session-closed' },
+      { type: 'session-error', message: 'x' },
+      { type: 'stop', reason: 'user-force-stop' },
+      { type: 'graceful-stop', tickets: OPEN },
+      { type: 'settle-timeout' },
+      { type: 'suspend' },
+    ] satisfies CycleEvent[]) {
+      const next = step(suspended.state, event)
+      expect(next.effects, JSON.stringify(event)).toEqual([])
+      expect(next.state).toBe(suspended.state)
+    }
+    // Before its first Wave too: no Wave goes.
+    const starting = step(initialCycle(EPIC), { type: 'suspend' }).state
+    expect(step(starting, { type: 'start', tickets: OPEN })).toEqual({ state: starting, effects: [] })
+  })
+
   it('a stopped run ignores every later event', () => {
     const stopped = run([{ type: 'stop', reason: 'user-stop' }], inWave1()).state
     for (const event of [

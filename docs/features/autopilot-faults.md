@@ -60,7 +60,7 @@ During the wait a turn of a background task or of a person holds the retry: the 
 line shows the run running, and that turn's end decides. Without an error the count starts over and no continuation goes;
 with a temporary error again the next retry waits. A refusal by the Limits during the wait ends it too: the run waits for
 the Limits alone. **Stop autopilot** during the wait, with no turn under way, ends the run at once with `user-stop`, also
-when an earlier Stop already made the run stopping; Force stop, the end of the Session and the app's quit cancel the wait. Auto-continue switched off during the
+when an earlier Stop already made the run stopping; Force stop, the end of the Session and the app's quit cancel the wait; the quit keeps it in `run-suspended`. Auto-continue switched off during the
 wait is read when the time comes: the wait is dropped and the run stops with `turn-error`. With Auto-continue off a turn
 with an API error stops the run with `turn-error`, as before.
 
@@ -106,8 +106,26 @@ during the wait for the Start window, took none of those Tickets, so the next ru
 journals of the Project's runs, not from memory, so it survives a restart of the app (see [the journal as the run's
 checkpoint](#the-journal-as-the-runs-checkpoint)).
 
-**Quitting the app** stops every run with `app-quit`. The quit waits up to 3 seconds for the run to write its end. The
-Orchestrator is not started again, and background tasks end with the app.
+**Quitting the app** does not stop a run: it suspends it. The same goes for Restart now of an Update and for a shutdown of
+the system. The quit goes in four steps:
+
+1. Every run is suspended: no Wave, continuation or retry goes any more, its timers stop, and no Session takes a new
+   turn: a message sent from now on waits in the Session's queue.
+2. The quit waits for the external calls that have no result yet: a top-level `git push`, `gh pr merge`, a call of an
+   MCP server or a Subagent of a Session's turn (the same calls a retry counts as in flight, see `in-flight` above). It
+   waits 60 seconds at most. Meanwhile every window shows **Quitting worfy** with those calls and the time left, and
+   **Quit now** ends the wait at once. Without such calls there is no wait and no window.
+3. The turns are halted: each Session gets an interrupt, then its process gets 7.5 seconds to exit, then SIGKILL and 2
+   seconds more (ADR-0064, how a Session ends). The record of live Sessions stops first, so it keeps the Sessions the quit cut off.
+   Before any Session closes, a run that has already stopped but still waits for its Orchestrator's background tasks
+   writes `tasks-killed` with the tasks alive then and lets keep-awake go: those tasks end with the halt.
+4. Each suspended run writes `run-suspended` with the cause (`quit`, `update` or `shutdown`), its Wave, the Wave's
+   Tickets still in work and its open wait with the end time. `run-stopped` with `app-quit` is no longer written; the
+   reason stays for the journals of older builds.
+
+A shutdown of the system skips the wait and the halt: the run is suspended and written at once, with the cause
+`shutdown`, a stopped run still waiting for its background tasks writes their `tasks-killed`, and the Sessions end with the app. A shutdown during the wait ends the wait the same way. The Orchestrator is
+not started again in any of these cases.
 
 #### The journal as the run's checkpoint
 
@@ -125,9 +143,9 @@ app was killed. A cut-off run leaves nothing resumable until it is continued or 
 
 Two journal lines are for a run that the app's restart interrupts. `run-suspended` (`cause`: `quit`, `update` or `shutdown`)
 names the Wave, its Tickets in work and the open wait with its end time. `run-continued` (`after`: one of those causes, or
-`crash`) says that the same run went on in the same journal. The name differs from `resumed`, which ends a wait. This version
-reads both lines but writes neither of them yet: quitting still stops every run with `app-quit`. A build older than the one that
-introduced these lines skips them and counts them as unreadable, as it does with any line of a kind it does not know.
+`crash`) says that the same run went on in the same journal. The name differs from `resumed`, which ends a wait. The quit
+writes `run-suspended` (see Quitting the app above); `run-continued` is read but not written yet. A build older than the one
+that introduced these lines skips them and counts them as unreadable, as it does with any line of a kind it does not know.
 
 **Discard** writes `run-stopped` with the reason `discarded` into the cut-off run's journal, with the Tickets of its Wave in work.
 Those Tickets become `resumable`, as after a Force stop.
@@ -213,7 +231,7 @@ and the blocked Ticket as a red `!` with its `Blocked reason` and `Waits`.
 | `user-force-stop` | Force stop. |
 | `start-cancelled` | Cancel, Stop or Force stop while the run waited for the Orchestrator. |
 | `start-refused` | A check refused when the Orchestrator became free. The reason is in the journal's `message`. |
-| `app-quit` | The app quit. |
+| `app-quit` | The app quit, in a build before the quit suspended runs. A quit now writes `run-suspended` instead. |
 | `discarded` | A person discarded a run that a restart of the app cut off. `tickets` names its Wave in work, which the next run takes along. |
 
 The tooltip of the status line gives the error in words when there is one.
@@ -256,6 +274,7 @@ does not turn a later error of another kind into a refusal.
 | `src/shared/autopilot/continuation.ts` | The texts of the ladder: the continuation line, the set-aside message, the status line words; the ceiling `MAX_CONTINUATIONS`. Pure. |
 | `src/shared/autopilot/cycle.ts` | When a stuck Ticket is continued, set aside or stops the run, and `main-red`. Pure; `src/main/autopilot/run.ts` carries the effects out. |
 | `src/shared/autopilot/checkpoint.ts` | The run's state read back from its journal: the queue, the Wave and its Tickets in work, the wait, the retries, the ladder, whether the run is cut off, and what a Project's journals leave `resumable`. Pure. |
+| `src/main/quit-grace.ts` | The quit's coordinator: suspends the runs, waits for the external calls without a result, has stopped runs journal their background tasks as killed, halts the Sessions and has the runs write `run-suspended`; follows a shutdown of the system (`powerMonitor` on macOS and Linux, a window's `session-end` on Windows). The window is `src/renderer/shell/QuittingDialog.tsx`. |
 
 #### Tests
 
@@ -282,6 +301,11 @@ agent, which plays the scripts in `test/fixtures/agent-scripts/`.
 | `test/contract/autopilot-faults-github.test.ts` | Fault scenarios on the GitHub side: the gh stub's `hang` mode; gh hangs for the whole run (the Waves go on, and the stop waits no longer than the limit of the last read); gh answers 502 (the next read comes after the doubled interval); a merge conflict (the run stops with `blocked-tickets`, and a new run does not take the blocked Ticket). |
 | `test/contract/autopilot-faults-codex.test.ts` | Fault scenarios on a Codex Orchestrator: a failed turn stops the run with `turn-error`; an app-server that exits in the middle of a Wave gives `session-error`, and a new run starts in a new Session; a Ticket still `claimed` after 2 continuations is set aside and the run goes on to the next Epic. |
 | `test/unit/autopilot-continuation.test.ts` | The ladder's texts, word for word, and that the model's last words never reach them. |
+| `test/unit/quit-grace.test.ts` | The quit's coordinator on a test clock: the order of its steps, no wait without external calls, the 60-second limit, Quit now, a second quit, a shutdown before and during the wait, which calls count as open, and that a Session whose process is gone drops its calls; Sessions hold their queues from the first step on, also a Session started later, and the end of a turn after that sends nothing from the queue; the background tasks of a stopped run are journaled as killed before the halt; the halt waits for an interrupted turn up to its limit before it closes the Session, and sends SIGKILL to a process that ignores the interrupt only after 7.5 seconds, and nothing is written before that. |
+| `test/contract/autopilot-faults-quit.test.ts` | Fault scenarios of a quit: in the middle of a Wave (`run-suspended` with the Wave and its Tickets, no `run-stopped`); a `git push` without its result, waited for up to the last millisecond of the 60 seconds on the test clock; its result before the limit; Quit now; the wait for the Limits (`run-suspended` carries the wait and its end time, and nothing is continued after); a shutdown of the system, without the wait. |
+| `test/contract/autopilot-background.test.ts` | Among the background-task scenarios: the quit in its real order (suspend, halt, records) journals the tasks of a stopped run that still waits for them, and of a Session it gave back, as `tasks-killed`, never `orchestrator-returned`, and lets keep-awake go. |
+| `test/unit/update-quit.test.ts` | Restart now of an Update quits through the coordinator with the cause `update`, not with Electron's own quit. |
+| `test/e2e/autopilot-quit.spec.ts` | A quit in the built app while the Wave's `git push` has no result: the window Quitting worfy names the command with the time left, Quit now quits at once, and the journal ends with `run-suspended`. It saves the window in the light and the dark theme to `test-results/e2e/snapshots/04-quitting-worfy/`. |
 | `test/e2e/autopilot-faults.spec.ts` | Fault scenarios in the built app: the app killed with SIGKILL in the middle of a Wave and started again (nothing goes to the Orchestrator at the start, Run history shows the old run cut off, the button starts a new run that sends its Wave once); GitHub out of reach for the whole run (both Waves go through, and `gh` was only read). |
 
 **Fault scenarios.** A fault scenario is a test that injects one fault into a run on the fake agent over a temporary Project — a
@@ -296,7 +320,8 @@ returns one line per violation, and every scenario expects none. The rules:
 - **I3.** For each Ticket, the run's `ticket-status` lines are the changes of its `Status:` during the run, in order. After a Force stop,
   a quit, a Discard, or in a run without `run-stopped` (as after a killed app) the latest changes may be missing, never earlier ones.
 - **I4.** The scenario's run has one `run-stopped` with the expected reason, after the line that reason needs (for example `session-error`
-  before `turn-error`). A killed app leaves no `run-stopped`. A run that outlived the fault has a `resumed` line.
+  before `turn-error`). A killed app leaves no `run-stopped`. A run that outlived the fault has a `resumed` line. A quit suspends a run:
+  no run has `run-stopped` with `app-quit`, and a run the scenario expects suspended ends with `run-suspended` of the expected cause.
 - **I5.** No person stepped in: no `human-input` and no `refused-dialog` line.
 - **I6.** The new start after the stop is not refused and begins a journal of its own with `run-started`.
 - **I7.** worfy writes nothing into the Project: every file that differs afterwards is one the test wrote.

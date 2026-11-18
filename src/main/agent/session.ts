@@ -81,6 +81,9 @@
 // running turn is interrupted and waited for, HALT_TURN_MS at most. From then on the Session sends
 // nothing more into its process: what a person queues stays held, for the Session that replaces it.
 //
+// While worfy quits (hold(), src/main/quit-grace.ts, worfy-continuity ticket 04) a Session sends nothing more
+// either, but its queue stays as it is — not held — so the record of live Sessions keeps it for the start after.
+//
 // A Session knows when its agent's process has exited (worfy-week ticket 20, ADR-0064): the
 // driver tells it of each process it starts (SessionStart.spawned), and exited() settles once
 // none is left, killing with SIGKILL one that outlives EXIT_WAIT_MS. A Session may also be started
@@ -236,6 +239,8 @@ export class Session {
   private closing = false
   /** Set by halt(): nothing more goes into the process; queued messages stay held. */
   private halted = false
+  /** Set by hold() while worfy quits: nothing more goes into the process; the queue stays as it is. */
+  private holding = false
   /** Told when the running turn ends: the Session leaves `busy` and `needs_permission`. */
   private turnEndWaiters: (() => void)[] = []
   private settingsValue: SessionSettings
@@ -462,7 +467,7 @@ export class Session {
       this.queue.pause()
       return 'queued'
     }
-    if (this.stateValue === 'busy' || this.stateValue === 'needs_permission' || this.heldBack) {
+    if (this.stateValue === 'busy' || this.stateValue === 'needs_permission' || this.heldBack || this.holding) {
       this.queue.add(text, attachments)
       return 'queued'
     }
@@ -992,9 +997,18 @@ export class Session {
     }
   }
 
-  /** Sends the next queued message, unless the queue is held or empty, or the Session is halted. */
+  /**
+   * worfy quits (src/main/quit-grace.ts): from now on a message sent waits in the queue, and the end of a turn
+   * sends nothing from it. Unlike halt() the queue is not held and the turn runs on: a start after the quit
+   * finds the queue as it was (live-sessions.ts).
+   */
+  hold(): void {
+    this.holding = true
+  }
+
+  /** Sends the next queued message, unless the queue is held or empty, or the Session is halted or held (hold()). */
   private next(): void {
-    if (this.halted) return
+    if (this.halted || this.holding) return
     const item = this.queue.take()
     if (item !== undefined) this.deliver(item.text, item.attachments)
   }

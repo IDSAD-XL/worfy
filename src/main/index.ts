@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto'
 // First of the app's own modules: those imported below subscribe to `will-quit` as they load.
 import './quit-listeners'
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, powerMonitor } from 'electron'
 import { bindingWorkflowOf } from '../shared/binding/resolve'
+import { quitGraceChanged } from '../shared/ipc/quit-grace'
 import { updateChanged } from '../shared/ipc/update'
 import { prInboxNotifyOf, sessionArchiveOf } from '../shared/settings/app-settings'
-import { startOrchestrators } from './agent/app-orchestrators'
-import { sharedRegistry } from './agent/app-registry'
+import { sharedOrchestratorContinue, startOrchestrators } from './agent/app-orchestrators'
+import { madeRegistry, sharedRegistry } from './agent/app-registry'
 import { installLimitsRefresh } from './agent/limits-usage'
 import { appUserModelId } from './app-id'
 import { toEveryWindow } from './broadcast'
@@ -23,6 +24,7 @@ import { installDevDockIcon } from './dock-icon'
 import { installImageProtocol } from './images/protocol'
 import { appImageStore } from './images/stores'
 import { bundledHarnessVersion } from './harness/bundled'
+import { existingAutopilot } from './ipc/autopilot'
 import { liveSessionListeners, type LiveSessionsListener } from './ipc/claude-home'
 import { sharedGateQueue } from './ipc/gate-queue'
 import { appPrInboxSource, startPrInbox } from './ipc/pr-inbox'
@@ -39,6 +41,7 @@ import { bindingStore } from './layout/bindings'
 import { layoutStore } from './layout/store'
 import { appWaitsSources, electronNotifyDeps, followAppLinkPauses, installGateQueueNotifications, installNotifications, installPrInboxNotifications } from './notify'
 import { projectStore } from './projects/store'
+import { followShutdown, OpenCalls, QUIT_HALT_TURN_MS, QuitGrace, quitSteps, setAppQuitGrace } from './quit-grace'
 import { quietWindows } from './quiet-windows'
 import { registerAppSchemes } from './schemes'
 import { appSettingsStore } from './settings/store'
@@ -93,7 +96,7 @@ if (dataFolderUsable()) {
  * the UI of worfy-link ticket 02.
  *
  * Quitting stops it (worfy-link ticket 02) in `will-quit`, after every `before-quit` wait (the
- * Autopilot's included) is over: stopLinkOnQuit.
+ * quit's coordinator's included, quit-grace.ts) is over: stopLinkOnQuit.
  */
 function startLink(): void {
   const warn = (error: unknown): void => console.warn(`[link] the link service did not start: ${error instanceof Error ? error.message : String(error)}`)
@@ -119,6 +122,12 @@ function dataFolderUsable(): boolean {
 function start(): void {
   // True once the startup below has created the first window.
   let started = false
+
+  // The quit's coordinator (quit-grace.ts, worfy-continuity ticket 04), first of every `before-quit`: it holds the
+  // quit until the external calls of the Sessions have their result (60 s at most), the agents have stopped and
+  // each Autopilot Run has written run-suspended. Its calls are followed from the registry's start (below).
+  const openCalls = new OpenCalls()
+  const grace = installQuitGrace(openCalls)
 
   // WORFY_QUIET_WINDOWS=1, e2e tests only (quiet-windows.ts): worfy never comes to the front, has no
   // Dock icon, and Chromium keeps painting its transparent window; WORFY_KEEP_PAINTING=1, every e2e
@@ -178,6 +187,11 @@ function start(): void {
       // The copies of sent images (worfy-ui ticket 28) and the images on each Project's Canvas
       // (worfy-canvas ticket 23, src/main/layout/images.ts).
       inStep('installImageProtocol', () => installImageProtocol(appImageStore))
+      // The calls the quit waits for, from the first Session on (quit-grace.ts).
+      sharedRegistry().observe(openCalls.sink)
+      // A shutdown of the system suspends the Runs without the grace (quit-grace.ts), on Windows through each
+      // window's `session-end`: installed before the first window.
+      followShutdown({ platform: process.platform, power: powerMonitor, windows: app }, () => void grace.shutdown())
       // Before the first window: its creation is what opens the active Project's Orchestrator.
       inStep('startOrchestrators', () => startOrchestrators())
       // Notifications when a Session ends its turn or asks for permission (ticket 21), here and on
@@ -265,6 +279,32 @@ function start(): void {
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()
   })
+}
+
+/**
+ * Makes the app's quit coordinator over the app's registry, its record of live Sessions and Autopilot — each as
+ * made when the quit comes, none made for it — and Auto-continue of the Orchestrators' turns, and registers it in
+ * `before-quit`. Its window goes to every window.
+ */
+function installQuitGrace(calls: OpenCalls): QuitGrace {
+  const grace = new QuitGrace({
+    ...quitSteps(() => {
+      const made = madeRegistry()
+      return {
+        registry: made?.registry,
+        live: made?.live,
+        autopilot: existingAutopilot(),
+        continuer: made === null ? null : sharedOrchestratorContinue(),
+        haltTurnMs: QUIT_HALT_TURN_MS,
+      }
+    }),
+    calls,
+    show: (view) => toEveryWindow((target) => emit(target, quitGraceChanged, view)),
+    quit: () => app.quit(),
+  })
+  setAppQuitGrace(grace)
+  app.on('before-quit', (event) => grace.beforeQuit(event))
+  return grace
 }
 
 /** The workflow subscriber of the automatic archive (src/main/workflow/watch.ts). */

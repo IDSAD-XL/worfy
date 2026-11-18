@@ -76,6 +76,8 @@ vi.mock('electron', () => ({
   Menu: { buildFromTemplate: (template: unknown) => ({ template }), setApplicationMenu: (menu: unknown) => appMenus.push(menu) },
   BrowserWindow: { getAllWindows: () => [] },
   dialog: { showErrorBox: vi.fn() },
+  // The quit's coordinator follows a shutdown of the system (src/main/quit-grace.ts, worfy-continuity ticket 04).
+  powerMonitor: { on: vi.fn() },
   ipcMain: electron.ipcMain,
   protocol: electron.protocol,
 }))

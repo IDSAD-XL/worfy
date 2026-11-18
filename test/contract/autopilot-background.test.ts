@@ -22,6 +22,7 @@ import { openRun, readRun } from '../../src/main/autopilot/journal'
 import { LayoutStore } from '../../src/main/layout/store'
 import { Autopilot, STOP_TEXT } from '../../src/main/autopilot/run'
 import { readWorkflow, type EpicStatusRunner } from '../../src/main/workflow/reader'
+import { quitSteps } from '../../src/main/quit-grace'
 import { BACKGROUND_STALL_MS, TASKS_GRACE_MS } from '../../src/shared/autopilot/cycle'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import { makeRunId, type JournalEvent } from '../../src/shared/autopilot/journal'
@@ -826,6 +827,28 @@ describe('Autopilot waits for the background tasks of its Orchestrator', () => {
     await until(() => h.power.length >= 2, 'keep-awake to stop')
     expect(h.power).toEqual(['start', 'stop'])
   })
+
+  it("the app's quit in its real order — suspend, halt every Session, records — journals the tasks of a stopped run still waiting for them as killed, not as given back (worfy-continuity ticket 04)", async () => {
+    const h = harness()
+    await waveWaitsForTasks(h)
+    h.clock.fire(BACKGROUND_STALL_MS)
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    expect(h.autopilot.anyRunning()).toBe(true)
+    const session = await h.session()
+    const before = (await h.kinds()).length
+    // The steps of src/main/quit-grace.ts over the app's registry and Autopilot, as src/main/index.ts makes them.
+    const steps = quitSteps(() => ({ registry: h.registry, autopilot: h.autopilot, haltTurnMs: 100 }))
+    steps.depart()
+    await steps.halt()
+    await steps.record('quit')
+    // The halt closed the Session, and its process ended the tasks with it.
+    expect(session.state).toBe('closed')
+    const added = (await h.journal()).slice(before)
+    expect(added).toMatchObject([{ kind: 'tasks-killed', reason: 'app-quit', tasks: [{ id: 'task_impl_0001' }, { id: 'task_impl_0002' }] }])
+    expect(h.autopilot.anyRunning()).toBe(false)
+    await until(() => h.power.length >= 2, 'keep-awake to stop')
+    expect(h.power).toEqual(['start', 'stop'])
+  })
 })
 
 describe("a stop of the run's own gives the Orchestrator back as it runs: no new process, the tasks live on (worfy-autopilot-queue ticket 08)", () => {
@@ -1051,6 +1074,25 @@ describe("a stop of the run's own gives the Orchestrator back as it runs: no new
     expect(h.autopilot.anyRunning()).toBe(true)
     await h.autopilot.stopAll()
     expect((await h.journal()).at(-1)).toMatchObject({ kind: 'tasks-killed', reason: 'app-quit', tasks: [{ id: 'task_impl_0001' }, { id: 'task_impl_0002' }] })
+    expect(h.power).toEqual(['start', 'stop'])
+    expect(h.autopilot.anyRunning()).toBe(false)
+  })
+
+  it("the app's quit in its real order — suspend, halt every Session, records — journals the tasks of the given-back Session as killed and lets keep-awake go (worfy-continuity ticket 04)", async () => {
+    const h = harness({ script: turnErrorScript() })
+    await pickMode(h, 'default')
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    expect(h.autopilot.anyRunning()).toBe(true)
+    const session = await h.session()
+    const before = (await h.kinds()).length
+    const steps = quitSteps(() => ({ registry: h.registry, autopilot: h.autopilot, haltTurnMs: 100 }))
+    steps.depart()
+    await steps.halt()
+    await steps.record('quit')
+    expect(session.state).toBe('closed')
+    const added = (await h.journal()).slice(before)
+    expect(added).toMatchObject([{ kind: 'tasks-killed', reason: 'app-quit', tasks: [{ id: 'task_impl_0001' }, { id: 'task_impl_0002' }] }])
     expect(h.power).toEqual(['start', 'stop'])
     expect(h.autopilot.anyRunning()).toBe(false)
   })

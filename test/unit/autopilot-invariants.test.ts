@@ -164,6 +164,19 @@ describe('checkRecovery, rule by rule', () => {
     expect(checkRecovery({ ...good(), expect: { stop: null, waves: 1 } })).toEqual(['I4: run-stopped turn-error, the scenario expects none (killed app)'])
   })
 
+  it('I4 holds a Run a quit suspended to run-suspended with its cause last, and never lets a quit stop one with app-quit (worfy-continuity ticket 04)', () => {
+    const midWave = load('suspended-mid-wave')
+    expect(checkRecovery({ ...midWave, expect: { ...midWave.expect, suspended: 'quit' } })).toEqual([])
+    expect(checkRecovery({ ...midWave, expect: { ...midWave.expect, suspended: 'update' } })).toEqual(['I4: run-suspended quit, the scenario expects update'])
+    // The Run that stopped: no run-suspended last, and its run-stopped is where the scenario expects none.
+    expect(checkRecovery({ ...good(), expect: { ...good().expect, suspended: 'quit' } })).toEqual(['I4: the Run ends with run-stopped, the scenario expects run-suspended quit'])
+    // A quit that stopped the Run with app-quit, as before the ticket.
+    const quitStopped = good().journals[0]!.replace('"reason":"turn-error"', '"reason":"app-quit"')
+    expect(checkRecovery({ ...good(), journals: [quitStopped, ...good().journals.slice(1)], expect: { ...good().expect, stop: 'app-quit', errorText: undefined } })).toContain(
+      'I4: run 1 stopped with app-quit, a quit suspends a run',
+    )
+  })
+
   it('I6 asks for a new journal after the new start', () => {
     expect(checkRecovery({ ...good(), journals: good().journals.slice(0, 1) })).toEqual(['I6: no new journal with run-started after the new start'])
   })
