@@ -12,6 +12,16 @@
 //   tests     the exit code of `node --test` there; empty — what sumAll([]) gives there
 //   checkout  the person's checkout is on main at the commit the fixture left, with no change to a tracked file
 //
+// In mode conflicts (pull.json `fix.mode`) the line says how the commits of the worktree stand on main instead:
+//
+//   worktree=<ledger-pr-7|missing> onto=<yes|no> head=<yes|no> commits=<n> merges=<n> clean=<yes|no> tests=<exit code> both=<yes|no> checkout=<untouched|changed>
+//
+//   onto      the head of main (baseRefOid) is an ancestor of its HEAD: the conflict is settled on the current base
+//   head      the old head of the pull request is an ancestor of its HEAD: yes after a merge, no after a rebase
+//   commits   the commits of main..HEAD there; merges — the merge commits among them
+//   both      src/sum.mjs there exports both sumAll of the pull request and difference of main, and no tracked file
+//             holds a conflict marker
+//
 // The line is the state of the folders, not of the session: no git hook runs in an eval run, so nothing else records
 // where a commit was made. Reads only; writes nothing but built/state.txt.
 "use strict"
@@ -52,7 +62,30 @@ const untouched =
     out(git(project, "rev-parse", "--abbrev-ref", "HEAD")) === "main" &&
     out(git(project, "rev-parse", "HEAD")) === pull.view.baseRefOid &&
     out(git(project, "status", "--porcelain", "--untracked-files=no")) === ""
-const line = `worktree=${isWorktree ? "ledger-pr-7" : "missing"} ahead=${ahead} clean=${clean} tests=${tests} empty=${empty} checkout=${untouched ? "untouched" : "changed"}\n`
+const conflicts = pull.fix?.mode === "conflicts"
+let onto = "no"
+let fromHead = "no"
+let commits = "none"
+let merges = "none"
+let both = "no"
+if (conflicts && isWorktree) {
+    const base = pull.view.baseRefOid
+    if (git(worktree, "merge-base", "--is-ancestor", base, "HEAD").status === 0) onto = "yes"
+    if (git(worktree, "merge-base", "--is-ancestor", head, "HEAD").status === 0) fromHead = "yes"
+    commits = out(git(worktree, "rev-list", "--count", `${base}..HEAD`)) ?? "none"
+    merges = out(git(worktree, "rev-list", "--count", "--merges", `${base}..HEAD`)) ?? "none"
+    const probe = spawnSync(
+        process.execPath,
+        ["-e", 'import(require("node:url").pathToFileURL(process.argv[1]).href).then((m) => process.stdout.write(String(typeof m.sumAll === "function" && typeof m.difference === "function")))', path.join(worktree, "src", "sum.mjs")],
+        { encoding: "utf8" },
+    )
+    // git grep exits 1 when no line matches: no conflict marker in a tracked file.
+    const markers = git(worktree, "grep", "-n", "-E", "^(<<<<<<<|>>>>>>>|=======$)")
+    if (probe.status === 0 && probe.stdout === "true" && markers.status === 1) both = "yes"
+}
+const line = conflicts
+    ? `worktree=${isWorktree ? "ledger-pr-7" : "missing"} onto=${onto} head=${fromHead} commits=${commits} merges=${merges} clean=${clean} tests=${tests} both=${both} checkout=${untouched ? "untouched" : "changed"}\n`
+    : `worktree=${isWorktree ? "ledger-pr-7" : "missing"} ahead=${ahead} clean=${clean} tests=${tests} empty=${empty} checkout=${untouched ? "untouched" : "changed"}\n`
 fs.mkdirSync(path.join(project, "built"), { recursive: true })
 fs.writeFileSync(path.join(project, "built", "state.txt"), line)
 process.stdout.write(line)
