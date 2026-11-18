@@ -78,17 +78,22 @@ M10 accountAuth, login shell of another HOME (M2): rejected: no gh login for ali
    precedence over previously stored credentials»). Опыт: M6 — 401 с плохим токеном из `.zshrc`.
 6. Исключение — Codex Session. Процесс `codex app-server` получает `process.env` самого worfy, а не login shell:
    `withGhToken(options.env ?? process.env, token)` (`src/main/vendors/codex/session.ts:938`), и `appServerOptions`
-   не задаёт `env` (`session.ts:1011-1020`). Без аккаунта в Profile токен из `launchctl setenv` доходит до процесса
-   Codex и его shell-ов даже без rc-файла. Опыт M5 показывает то же для `ghRunner({})`, который берёт `process.env`.
-   Дойдёт ли он до команды внутри Codex, решают ещё правила `shell_environment_policy` самого Codex. Это здесь не
-   проверено.
-7. Аккаунт Profile-а перекрывает всё. `accountAuth` берёт `gh auth token -u <account>` и отдаёт `{ GH_TOKEN }`
-   (`src/main/github/prs.ts:172-189`). `ghRunner` кладёт его поверх env (`prs.ts:133`: `{ ...env, ...extra, … }`). Опыт:
-   M7 — с плохим `GH_TOKEN` в env `accountAuth` вернул токен keyring; M8 — gh с ним отвечает от `alice`. Без аккаунта
-   extra пустой (M9, `prs.ts:175`), и gh идёт с тем `GH_TOKEN`, который принесло env.
+   не задаёт `env` (`session.ts:1011-1020`). Токен из `launchctl setenv` доходит до процесса Codex и его shell-ов без
+   rc-файла в двух случаях: в Profile нет аккаунта, или у аккаунта нет входа в gh. Во втором `accountAuth` бросает
+   ошибку, Session пишет её в log и стартует с `token = null` (`session.ts:931-938`). Опыт M5 показывает то же для
+   `ghRunner({})`, который берёт `process.env`. Дойдёт ли он до команды внутри Codex, решают ещё правила
+   `shell_environment_policy` самого Codex. Это здесь не проверено.
+7. Аккаунт Profile-а перекрывает `GH_TOKEN` окружения, но только у вызовов, которые зовут `accountAuth`: PR inbox,
+   gate-queue, PR badges, review-offer probe, токен для Codex Session (таблица ниже). `accountAuth` берёт
+   `gh auth token -u <account>` и отдаёт `{ GH_TOKEN }` (`src/main/github/prs.ts:172-189`). `ghRunner` кладёт его поверх
+   env (`prs.ts:133`: `{ ...env, ...extra, … }`). Опыт: M7 — с плохим `GH_TOKEN` в env `accountAuth` вернул токен
+   keyring; M8 — gh с ним отвечает от `alice`. Без аккаунта extra пустой (M9, `prs.ts:175`), и gh идёт с тем
+   `GH_TOKEN`, который принесло env. Health check (`gh auth status`, `first-run/checks.ts:502-505`) и Add project
+   (`ipc/projects.ts:139-149`, `ghRunner(appGh())` без `accountAuth`) аккаунт не берут. У них `GH_TOKEN` из rc-файла
+   побеждает даже при заданном `github.account`.
 
 Ответ на вопрос «как у тестера токен из `launchctl setenv` доходит до gh»: только тремя путями. Первый — rc-файл
-экспортирует его. Второй — Codex Session без аккаунта в Profile. Третий — worfy запущен не из Finder, а из terminal,
+экспортирует его. Второй — Codex Session без аккаунта в Profile или без входа gh для него. Третий — worfy запущен не из Finder, а из terminal,
 где переменная уже есть. Но и тогда login shell начинается с `SHELL_BASE_KEYS`, так что третий путь сводится к
 Codex. Других путей в коде нет. На этой Mac ни один rc-файл (`~/.zprofile`, `~/.zshrc`) не упоминает `GH_TOKEN`,
 `GITHUB_TOKEN` или `launchctl` (`grep -c` — 0), и `launchctl getenv GH_TOKEN` пуст (проверена только длина).
@@ -126,24 +131,28 @@ Codex. Других путей в коде нет. На этой Mac ни оди
 6. Codex Session на ПК так же получает `process.env` worfy (`session.ts:938`). `GH_TOKEN` в нём есть, если worfy
    запущен после `setx` (Explorer перечитывает окружение по `WM_SETTINGCHANGE`, который шлёт `setx`). Это не
    проверено.
-7. Аккаунт Profile-а перекрывает `GH_TOKEN` из registry так же, как на Mac: это тот же код `accountAuth` и `ghRunner`.
+7. Аккаунт Profile-а перекрывает `GH_TOKEN` из registry так же, как на Mac, и у тех же вызовов: это тот же код
+   `accountAuth` и `ghRunner`. Health check и Add project аккаунт не берут, и `GH_TOKEN` из registry побеждает у них
+   при любом `github.account`.
 
 ### Таблица: вызовы `ghRunner` и `runGh`
 
-«Окружение» — то, что получает gh в app-сборке, без `WORFY_GH`. С `WORFY_GH` (stand-in gh в test-ах) каждый из них
-берёт `process.env` worfy. «Видна ли» — доходит ли переменная окружения системы до gh без аккаунта в Profile.
+«Окружение» — то, что получает gh в app-сборке, без `WORFY_GH`. С `WORFY_GH` (stand-in gh в test-ах) вызовы через
+`ghRunner` берут `process.env` worfy. Health check и тогда кладёт значения login shell поверх своих: `runGh` собирает
+`{ ...own, ...deps.env }` (`first-run/checks.ts:365`). «Кто побеждает» — чей `GH_TOKEN` получает gh: с `github.account`
+в Profile и без него. «Env» — `GH_TOKEN` окружения агента (Mac — из rc-файла, ПК — из registry), иначе keyring.
 
-| Вызов | Где | Окружение gh | Аккаунт Profile-а | `launchctl setenv` (Mac) | `setx` (ПК) |
-|---|---|---|---|---|---|
-| PR inbox | `src/main/ipc/pr-inbox.ts:73-76` | `agentEnv()` — login shell / registry | да, `accountAuth` (`github/inbox.ts:501`) | только через rc-файл | да |
-| gate-queue | `src/main/ipc/gate-queue.ts:34` | `agentEnv()` | да, `accountAuth` (`github/gate-queue.ts:241`) | только через rc-файл | да |
-| PR badges (`PrTracker`) | `src/main/ipc/checks.ts:166`, `appPrOptions` `:197-201`, `:205` | `loginEnv` = `agentEnv()` | да, `accountAuth` (`checks.ts:179`) | только через rc-файл | да |
-| Add project (`ProjectConnector.gh`) | `src/main/ipc/projects.ts:149`, `appGh` `:139-142` | `agentEnv()` | нет, gh идёт с env | только через rc-файл | да |
-| review-offer probe | `src/main/ipc/projects.ts:172-178` | `agentEnv()` | да, `accountAuth`; без аккаунта extra `{}` | только через rc-файл | да |
-| Codex: токен для Session | `src/main/vendors/codex/session.ts:1028-1039` | `agentEnv()` | да, `accountAuth` | только через rc-файл | да |
-| Codex: процесс app-server | `src/main/vendors/codex/session.ts:938`, `:1011-1020` | `process.env` worfy | да, `withGhToken` (`:133-139`) | **да, без rc-файла** | да, если worfy запущен после `setx` |
-| Health check: `gh --version`, `gh auth status` | `src/main/first-run/checks.ts:359-366`, `:370`, `:503`; env — `ipc/first-run.ts:91`, `:100` | `deps.env` = `agentEnv()`; `process.env` только при `WORFY_GH` | нет, аккаунт не задаётся | только через rc-файл | да |
-| `ghRunner({})` без `env` | `src/main/github/prs.ts:125` | `process.env` | — | да | да |
+| Вызов | Где | Окружение gh | С `github.account` | Без `github.account` | `launchctl setenv` (Mac) | `setx` (ПК) |
+|---|---|---|---|---|---|---|
+| PR inbox | `src/main/ipc/pr-inbox.ts:73-76` | `agentEnv()` — login shell / registry | аккаунт (`accountAuth`, `github/inbox.ts:501`) | env | только через rc-файл | да |
+| gate-queue | `src/main/ipc/gate-queue.ts:34` | `agentEnv()` | аккаунт (`github/gate-queue.ts:241`) | env | только через rc-файл | да |
+| PR badges (`PrTracker`) | `src/main/ipc/checks.ts:166`, `appPrOptions` `:197-201`, `:205` | `loginEnv` = `agentEnv()` | аккаунт (`checks.ts:179`) | env | только через rc-файл | да |
+| review-offer probe | `src/main/ipc/projects.ts:172-178` | `agentEnv()` | аккаунт (`accountAuth`) | env (extra `{}`) | только через rc-файл | да |
+| Codex: токен для Session | `src/main/vendors/codex/session.ts:1028-1039` | `agentEnv()` | аккаунт (`accountAuth`) | — (токена нет) | только через rc-файл | да |
+| Codex: процесс app-server | `src/main/vendors/codex/session.ts:931-938`, `:1011-1020` | `process.env` worfy | аккаунт (`withGhToken`, `:133-139`); **без входа gh для аккаунта — env** | env | **да, без rc-файла** | да, если worfy запущен после `setx` |
+| Add project (`ProjectConnector.gh`) | `src/main/ipc/projects.ts:139-149` | `agentEnv()` | **env** — аккаунт не берётся | env | только через rc-файл | да |
+| Health check: `gh --version`, `gh auth status` | `src/main/first-run/checks.ts:359-366`, `:370`, `:502-505`; env — `ipc/first-run.ts:91`, `:100` | `deps.env` = `agentEnv()` | **env** — аккаунт не берётся | env | только через rc-файл | да |
+| `ghRunner({})` без `env` | `src/main/github/prs.ts:125` | `process.env` | — | `process.env` | да | да |
 
 В app-сборке `ghRunner({})` без `env` никто не зовёт: каждый вызов выше передаёт `env`.
 
@@ -204,13 +213,20 @@ Fixtures — [`fixtures/local/`](fixtures/local/), по три файла на �
 
 ### Что это значит для Ticket-а 05 («чей токен возьмёт gh»)
 
-По коду порядок такой, на обеих Machine:
-1. В Profile задан аккаунт → `GH_TOKEN` из `gh auth token -u <account>`, то есть токен keyring. Он перекрывает любой
-   `GH_TOKEN` окружения.
+По коду порядок такой, на обеих Machine. Кто побеждает у каждого вызова — в таблице выше.
+1. Вызовы с `accountAuth` (PR inbox, gate-queue, PR badges, review-offer probe, токен для Codex Session), в Profile
+   задан аккаунт → `GH_TOKEN` из `gh auth token -u <account>`, то есть токен keyring. Он перекрывает `GH_TOKEN`
+   окружения. Нет входа gh для аккаунта → эти чтения падают с причиной, называющей аккаунт.
 2. Аккаунта нет, `GH_TOKEN` есть в окружении агента → gh берёт его, а не keyring. На Mac он попадает туда только из
    rc-файла, на ПК — из registry (`setx`).
 3. Аккаунта нет, `GH_TOKEN` нет → active-аккаунт keyring.
-4. Codex app-server — отдельно: при пункте 2 он берёт `process.env` worfy. На Mac это `launchctl setenv` без rc-файла.
+4. Исключения из пункта 1 — у них `GH_TOKEN` окружения побеждает при любом `github.account`:
+   - Health check, строка gh (`gh auth status`, `first-run/checks.ts:502-505`): аккаунт не берётся. Ticket 05 должен
+     назвать источник токена именно для этого случая.
+   - Add project (`ipc/projects.ts:139-149`): `ghRunner(appGh())` без `accountAuth`.
+   - Codex app-server: берёт `process.env` worfy (на Mac — `launchctl setenv` без rc-файла). Аккаунт его перекрывает,
+     только если у аккаунта есть вход gh. Без входа `accountAuth` бросает ошибку, и процесс стартует с `process.env`
+     как есть (`session.ts:931-938`).
 
 Сделать вывод Ticket-а 05 без ПК можно надёжно. Windows-часть держится на коде worfy (`captureWindowsEnv`, тот же
 `ghRunner` и `accountAuth`) и на кросс-платформенном коде gh. Живая проверка на ПК её подтверждает, но не меняет
@@ -252,13 +268,21 @@ Probe печатает строки G0–G10 и W1–W8. Каждая — при
 ### Итог
 
 - macOS: токен из `launchctl setenv` доходит до gh worfy только через rc-файл, который его экспортирует. Исключение —
-  Codex app-server: он берёт `process.env` worfy. Аккаунт Profile-а перекрывает оба пути. Доказательство — probe M1–M10.
+  Codex app-server: он берёт `process.env` worfy. Аккаунт Profile-а перекрывает env-токен у вызовов с `accountAuth`.
+  У Health check и Add project аккаунт не берётся, у Codex app-server — не берётся без входа gh для аккаунта.
+  Доказательство — probe M1–M10 и таблица вызовов.
 - Windows: `setx GH_TOKEN` доходит до всех вызовов gh через чтение registry в `captureWindowsEnv`. Доказано кодом и
   probe W1–W3 с подставленным registry. Живых запусков на ПК нет.
 - `gh auth token -u <login>` при заданном `GH_TOKEN` берёт keyring: Mac — опыт G2; Windows — по коду gh v2.97.0.
 - Fixtures 401, 404, «нет входа» и `gh auth status` с `(GH_TOKEN)` — в `fixtures/local/`.
 - Тестовые токены не выпускались и не отзывались. Переменные не ставились, снимать нечего: `launchctl setenv` и
   `setx` не вызывались, `launchctl getenv GH_TOKEN` пуст.
-- Решение без владельца: Ticket закрывается на доказательствах с Mac и чтении кода. Живая проверка на ПК — скрипт
-  выше, в приёмке (Ticket 10). Ticket требует «вывод запусков на ПК» и живой `launchctl setenv` с тестовым токеном.
-  Вместо этого подставлены дочерние процессы: brief Session запрещает менять окружение машины владельца.
+- Решение без владельца: Ticket закрывается на доказательствах с Mac и чтении кода. Ticket требует «вывод запусков на
+  ПК» и живой `launchctl setenv` с тестовым токеном. Вместо этого подставлены дочерние процессы: brief Session
+  запрещает менять окружение машины владельца.
+- Открыто для ПК — запуск «Скрипта для ПК» выше. Пункт про этот запуск добавлен в приёмку, Ticket 10, этим же PR.
+  - «Готово, когда», п. 2 (часть Windows с выводом запусков на ПК) — не выполнен.
+  - «Готово, когда», п. 4 (`gh auth token -u` на Windows) — не выполнен, ответ дан по коду gh.
+  - Строки probe на ПК: W4 — чтение registry через PowerShell отдаёт `GH_TOKEN`; G2 — `-u` берёт Credential
+    Manager; G3 — без `-u` берётся `GH_TOKEN`; G6 — exit, поток и строки Health check как на Mac; W7 — аккаунт
+    перекрывает плохой `GH_TOKEN`; W8 — Git Bash `-l` видит унаследованный `GH_TOKEN`.

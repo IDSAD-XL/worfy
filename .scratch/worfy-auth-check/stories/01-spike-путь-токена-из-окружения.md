@@ -32,15 +32,16 @@ Code: `.scratch/worfy-auth-check/spike.md:67-69` · key lines: 67, 69
 
 ## 3. Codex Session — единственный путь без rc-файла
 
-Code: `.scratch/worfy-auth-check/spike.md:79-84` · key lines: 79, 80, 82
+Code: `.scratch/worfy-auth-check/spike.md:79-85` · key lines: 79, 81, 82
 
 ```markdown
 6. Исключение — Codex Session. Процесс `codex app-server` получает `process.env` самого worfy, а не login shell:
    `withGhToken(options.env ?? process.env, token)` (`src/main/vendors/codex/session.ts:938`), и `appServerOptions`
-   не задаёт `env` (`session.ts:1011-1020`). Без аккаунта в Profile токен из `launchctl setenv` доходит до процесса
-   Codex и его shell-ов даже без rc-файла. Опыт M5 показывает то же для `ghRunner({})`, который берёт `process.env`.
-   Дойдёт ли он до команды внутри Codex, решают ещё правила `shell_environment_policy` самого Codex. Это здесь не
-   проверено.
+   не задаёт `env` (`session.ts:1011-1020`). Токен из `launchctl setenv` доходит до процесса Codex и его shell-ов без
+   rc-файла в двух случаях: в Profile нет аккаунта, или у аккаунта нет входа в gh. Во втором `accountAuth` бросает
+   ошибку, Session пишет её в log и стартует с `token = null` (`session.ts:931-938`). Опыт M5 показывает то же для
+   `ghRunner({})`, который берёт `process.env`. Дойдёт ли он до команды внутри Codex, решают ещё правила
+   `shell_environment_policy` самого Codex. Это здесь не проверено.
 ```
 
 - Что делает: называет одно место, где gh-путь worfy берёт `process.env`, а не login shell. В таблице вызовов это
@@ -54,7 +55,7 @@ Code: `.scratch/worfy-auth-check/spike.md:79-84` · key lines: 79, 80, 82
 
 ## 4. Health check зеленеет при неверном `GH_TOKEN`
 
-Code: `.scratch/worfy-auth-check/spike.md:199-201` · key lines: 199, 201
+Code: `.scratch/worfy-auth-check/spike.md:208-210` · key lines: 208, 210
 
 ```markdown
 - Health check читает stdout и stderr вместе (`first-run/checks.ts:505`) и считает строку `ok` по любому аккаунту в
@@ -107,4 +108,4 @@ const gh = (args, extra) => spawnSync('gh', args, { env: childEnv(extra), encodi
 2. Почему неверный `GH_TOKEN` не делает строку gh в Health check красной?
    - Ответ: `ghAccounts` считает `ok` по любому аккаунту в `success`, а аккаунты keyring остаются в отчёте. Запись
      `(GH_TOKEN)` без login пропускается, exit 1 никто не читает.
-   - Строки: `.scratch/worfy-auth-check/spike.md:199-201`
+   - Строки: `.scratch/worfy-auth-check/spike.md:208-210`
