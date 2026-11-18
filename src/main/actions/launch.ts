@@ -169,6 +169,10 @@ export const PR_FOLLOW_AUTOPILOT_HINT = 'Autopilot is running in this Project: s
 /** Why an action on a pull request of `epic` is refused while the Orchestrator bound to that Epic is busy. */
 export const prFollowWaveHint = (epic: string): string => `The Orchestrator is busy with a Wave of ${epic}: the Wave fixes its own pull requests`
 
+/** Why a second action on a PR is refused while the Session the first one started has not reported its id yet. */
+export const prFollowStartingHint = (action: PrFollowAction, repo: string, pr: number): string =>
+  `${ACTION_LABELS[action]} is already starting for ${repo}#${pr}: wait for its Session, or close its Node to start again`
+
 /** The notice line a Ticket's Session gets with the text: only the user sees it, the model does not. */
 export function prFollowNotice(action: PrFollowAction, repo: string, pr: number, delivery: 'sent' | 'queued'): string {
   return `worfy: ${ACTION_LABELS[action]} for ${repo}#${pr} ${delivery === 'sent' ? 'sent to' : 'queued in'} this Session`
@@ -245,6 +249,16 @@ const POLL_MS = 250
 const CLOSE_POLL_MS = 1000
 /** A Session that has not started its turn in this time is not bound by its launch. */
 const WAIT_MS = 10 * 60_000
+
+type Ends = ReadonlySet<LaunchedSession['state']>
+/** A closed Session never reports an id: every wait for one ends there. */
+const CLOSED: Ends = new Set(['closed'])
+/**
+ * The wait of an action on a PR also ends on `error` (Claude Code not signed in, no network, the process exited): its
+ * lock refuses every click on the PR, and the user's next click is the retry. "Ship ticket" and "Run wave" keep waiting
+ * through `error`: a Session there starts again on the user's next send, and its Binding still comes.
+ */
+const ENDED: Ends = new Set(['error', 'closed'])
 
 const delay = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms))
 
@@ -349,7 +363,7 @@ export class ActionLauncher {
     // Taken before the first await: two clicks that arrive together do not start two Sessions. A new Session keeps it
     // until its Binding is written (or given up): before that the route cannot find it, and a second click on the same
     // PR would start a second Session on the same Ticket and branch.
-    if (this.following.has(key)) throw new Error(`${ACTION_LABELS[action]} is already starting for ${repo}#${pr}`)
+    if (this.following.has(key)) throw new Error(prFollowStartingHint(action, repo, pr))
     this.following.add(key)
     let held: Promise<void> | null = null
     try {
@@ -383,7 +397,7 @@ export class ActionLauncher {
       const view = this.deps.sessions.create(projectId, near, PR_REPLY_VENDOR)
       const session = this.deps.registry.get(view.sessionId)
       session.send(state.text)
-      held = target === null ? this.untilKnown(session) : this.bindWhenKnown(projectId, session, target)
+      held = target === null ? this.untilKnown(session, ENDED) : this.bindWhenKnown(projectId, session, target, ENDED)
       return { nodeId: view.nodeId, sessionId: view.sessionId, text: state.text, delivery: 'new' }
     } finally {
       if (held === null) this.following.delete(key)
@@ -571,9 +585,9 @@ export class ActionLauncher {
    * Writes the launch Binding under the session id that names the transcript. A new Session has
    * none until Claude Code reports it (system/init of its first turn); a resumed one has it at once.
    */
-  private bindWhenKnown(projectId: string, session: LaunchedSession, target: BindingTarget): Promise<void> {
+  private bindWhenKnown(projectId: string, session: LaunchedSession, target: BindingTarget, ends: Ends = CLOSED): Promise<void> {
     const task = (async () => {
-      await this.untilKnown(session)
+      await this.untilKnown(session, ends)
       const sdkId = session.sdkId
       if (sdkId === null) {
         console.warn(`[actions] no session id came for the launch Binding to ${JSON.stringify(target)}`)
@@ -587,10 +601,13 @@ export class ActionLauncher {
     return task
   }
 
-  /** Settles once Claude Code has reported the Session's id, the Session has closed, or the wait is over. */
-  private async untilKnown(session: LaunchedSession): Promise<void> {
+  /**
+   * Settles once Claude Code has reported the Session's id, the Session is in one of the states `ends`, or the wait is
+   * over.
+   */
+  private async untilKnown(session: LaunchedSession, ends: Ends): Promise<void> {
     const pollMs = this.deps.pollMs ?? POLL_MS
     const until = Date.now() + (this.deps.waitMs ?? WAIT_MS)
-    while (session.sdkId === null && session.state !== 'closed' && Date.now() < until) await delay(pollMs)
+    while (session.sdkId === null && !ends.has(session.state) && Date.now() < until) await delay(pollMs)
   }
 }

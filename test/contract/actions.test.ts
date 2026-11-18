@@ -4,11 +4,12 @@
 // gets only the contract's keys back.
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, describe, expect, expectTypeOf, it } from 'vitest'
-import { ActionLauncher, FOLLOW_SESSION_MS, GATE_QUEUE_AUTOPILOT_HINT, gateQueueRoleHint, PR_FOLLOW_AUTOPILOT_HINT, prFollowWaveHint, type FollowSession, type LaunchDeps } from '../../src/main/actions/launch'
+import { ActionLauncher, FOLLOW_SESSION_MS, GATE_QUEUE_AUTOPILOT_HINT, gateQueueRoleHint, PR_FOLLOW_AUTOPILOT_HINT, prFollowStartingHint, prFollowWaveHint, type FollowSession, type LaunchDeps } from '../../src/main/actions/launch'
 import type { AutopilotDeps } from '../../src/main/autopilot/run'
 import { actionsHandlers, prInboxPull } from '../../src/main/ipc/actions'
 import { appUrlMatcher, emit, registerIpc } from '../../src/main/ipc/index'
 import { createLinkIpc, LinkPeer, readOnlyRefusal } from '../../src/main/link/ipc-adapter'
+import type { SessionState } from '../../src/shared/agent/events'
 import { actionsLaunchesChanged } from '../../src/shared/ipc/actions'
 import type { ManualBinding } from '../../src/shared/ipc/bindings'
 import type { AccessLevel } from '../../src/shared/ipc/link'
@@ -543,10 +544,14 @@ describe('actions.prFollow (worfy-pr-follow ticket 01)', () => {
     const fresh_session = {
       send: (text: string) => (log.push(`send starting-node-new: ${text}`), 'sent' as const),
       sdkId: world.sdkLater === true ? null : 'sdk-new',
-      state: 'idle' as const,
-    } as { send(text: string): 'sent'; sdkId: string | null; state: 'idle' }
+      state: 'idle',
+    } as { send(text: string): 'sent'; sdkId: string | null; state: SessionState }
     const report = () => {
       fresh_session.sdkId = 'sdk-new'
+    }
+    /** The new Session ends before its id: Claude Code failed to start (`error`) or its Node closed (`closed`). */
+    const end = (state: 'error' | 'closed') => {
+      fresh_session.state = state
     }
     const deps: LaunchDeps = {
       projectRoot: (projectId) => {
@@ -567,6 +572,8 @@ describe('actions.prFollow (worfy-pr-follow ticket 01)', () => {
       bindings: { setLaunch: (projectId, agent, target) => launches.push([projectId, agent, target]) },
       now: () => NOW,
       pollMs: 1,
+      // Long against the 1 ms poll, short against the test timeout: a lock held to the end of the wait reads as held.
+      waitMs: 2_000,
       prFollow: {
         pull: async (projectId, repo, pr) => {
           log.push(`pull ${projectId} ${repo}#${pr}`)
@@ -607,7 +614,7 @@ describe('actions.prFollow (worfy-pr-follow ticket 01)', () => {
     const call = async (input: Record<string, unknown> = {}) =>
       (await listener({ senderFrame: { url: APP_URL }, sender: {} } as unknown as IpcMainInvokeEvent, { projectId: 'p', repo: REPO, pr: 118, action: 'fixChecks', ...input })) as IpcResult<unknown>
     const reason = (result: IpcResult<unknown>): string => (result.ok ? 'not refused' : failureReason('actions.prFollow', result.error))
-    return { call, reason, log, created, launches, notices, launcher, report }
+    return { call, reason, log, created, launches, notices, launcher, report, end }
   }
 
   const TEXT = `/worfy:pr-fix checks ${REPO}#118 ${NEW_HEAD}`
@@ -706,7 +713,7 @@ describe('actions.prFollow (worfy-pr-follow ticket 01)', () => {
   })
 
   describe('two clicks on one PR', () => {
-    const ALREADY = `Fix checks is already starting for ${REPO}#118`
+    const ALREADY = prFollowStartingHint('fixChecks', REPO, 118)
 
     it('at once: one Session Node, the second click refused', async () => {
       const { call, reason, created } = await withLauncher({ stored: [] })
@@ -720,7 +727,7 @@ describe('actions.prFollow (worfy-pr-follow ticket 01)', () => {
       const { call, reason, created, launches, launcher, report } = await withLauncher({ stored: [], sdkLater: true })
       expect(await call()).toMatchObject({ ok: true, value: { delivery: 'new' } })
       expect(reason(await call())).toBe(ALREADY)
-      expect(reason(await call({ action: 'addressComments' }))).toBe(`Address comments is already starting for ${REPO}#118`)
+      expect(reason(await call({ action: 'addressComments' }))).toBe(prFollowStartingHint('addressComments', REPO, 118))
       expect(created).toHaveLength(1)
       expect(launches).toEqual([])
       report()
@@ -738,6 +745,27 @@ describe('actions.prFollow (worfy-pr-follow ticket 01)', () => {
       await new Promise((done) => setTimeout(done, 20))
       expect(await call()).toMatchObject({ ok: true, value: { delivery: 'new' } })
       expect(created).toHaveLength(2)
+    })
+
+    it.each([
+      ['error', 'of a Ticket'],
+      ['closed', 'of a Ticket'],
+      ['error', 'no Ticket names'],
+      ['closed', 'no Ticket names'],
+    ] as const)('a new Session that ends in %s before its id frees the lock (a PR %s): the next click starts a new one', async (state, whose) => {
+      const { call, reason, created, launches, end } = await withLauncher(whose === 'of a Ticket' ? { stored: [], sdkLater: true } : { tickets: [], sdkLater: true })
+      expect(await call()).toMatchObject({ ok: true, value: { delivery: 'new' } })
+      expect(reason(await call())).toBe(ALREADY)
+      end(state)
+      // Well under waitMs: the lock is off because the Session ended, not because the wait ran out.
+      await new Promise((done) => setTimeout(done, 30))
+      expect(launches).toEqual([])
+      expect(await call()).toMatchObject({ ok: true, value: { delivery: 'new' } })
+      expect(created).toHaveLength(2)
+    })
+
+    it('says that closing the Node frees the lock', () => {
+      expect(ALREADY).toBe(`Fix checks is already starting for ${REPO}#118: wait for its Session, or close its Node to start again`)
     })
 
     it('a click the Ticket\'s Session takes holds no lock: the next one goes to the same Session', async () => {

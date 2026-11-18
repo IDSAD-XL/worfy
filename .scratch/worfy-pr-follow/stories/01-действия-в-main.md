@@ -98,7 +98,7 @@ export function renderTemplate(template: string, values: TemplateValues, action?
 
 ## 4. Маршрут щелчка в main
 
-Code: `src/main/actions/launch.ts:344-392` · key lines: 345, 352, 359, 360, 370, 372, 375, 376, 377, 383, 386, 390
+Code: `src/main/actions/launch.ts:358-406` · key lines: 359, 366, 373, 374, 384, 386, 389, 390, 391, 397, 400, 404
 
 ```ts
   async prFollow(projectId: string, repo: string, pr: number, action: PrFollowAction, near?: CanvasSpot): Promise<PrFollowResult> {
@@ -109,7 +109,7 @@ Code: `src/main/actions/launch.ts:344-392` · key lines: 345, 352, 359, 360, 370
     // Taken before the first await: two clicks that arrive together do not start two Sessions. A new Session keeps it
     // until its Binding is written (or given up): before that the route cannot find it, and a second click on the same
     // PR would start a second Session on the same Ticket and branch.
-    if (this.following.has(key)) throw new Error(`${ACTION_LABELS[action]} is already starting for ${repo}#${pr}`)
+    if (this.following.has(key)) throw new Error(prFollowStartingHint(action, repo, pr))
     this.following.add(key)
     let held: Promise<void> | null = null
     try {
@@ -143,7 +143,7 @@ Code: `src/main/actions/launch.ts:344-392` · key lines: 345, 352, 359, 360, 370
       const view = this.deps.sessions.create(projectId, near, PR_REPLY_VENDOR)
       const session = this.deps.registry.get(view.sessionId)
       session.send(state.text)
-      held = target === null ? this.untilKnown(session) : this.bindWhenKnown(projectId, session, target)
+      held = target === null ? this.untilKnown(session, ENDED) : this.bindWhenKnown(projectId, session, target, ENDED)
       return { nodeId: view.nodeId, sessionId: view.sessionId, text: state.text, delivery: 'new' }
     } finally {
       if (held === null) this.following.delete(key)
@@ -155,21 +155,24 @@ Code: `src/main/actions/launch.ts:344-392` · key lines: 345, 352, 359, 360, 370
 - Что делает: сначала отказы, где чтение не нужно: Autopilot, пустой шаблон. Затем свежее чтение PR и вердикт
   `prFollowState` по нему, так что `{sha}` — head этого чтения. Затем отказ, если занят Orchestrator с Binding-ом на
   Epic Ticket-а этого PR-а. Дальше текст получает Session Ticket-а через `started`, `send` и `notice`, иначе новая
-  Session Node на Claude Code с Binding-ом launch на Ticket. Lock щелчка по PR (строка 352) держится, пока новая
-  Session не назвала свой id и её Binding не записан (строки 386 и 390). Иначе второй щелчок по тому же PR не нашёл бы
+  Session Node на Claude Code с Binding-ом launch на Ticket. Lock щелчка по PR (строка 366) держится, пока новая
+  Session не назвала свой id и её Binding не записан (строки 400 и 404). Иначе второй щелчок по тому же PR не нашёл бы
   её по маршруту и запустил бы вторую Session на тот же Ticket и ту же ветку.
 - Почему здесь: Ticket называет `prFollow()` в `src/main/actions/launch.ts`. Путь `started` / `send` / `notice` —
   тот, что влил worfy-continuity (ADR-0108, пункт 5). Свой путь продолжения Ticket писать запрещает.
 - Без него: щелчок по устаревшей кнопке отдал бы Session старый head. Wave и кнопка чинили бы один PR вдвоём.
 - Требование: [Что делаем, пункт 8](../issues/01-действия-в-main.md#что-делаем)
-- Риски и пробелы test-ов: Orchestrator привязан к Epic-у только сохранённым Binding-ом (`shortcut:` в строке 367).
+- Риски и пробелы test-ов: Orchestrator привязан к Epic-у только сохранённым Binding-ом (`shortcut:` в строке 381).
   Wave, набранная руками, привязана сигналами транскрипта, которые здесь не читаются. Если `started` падает, щелчок
-  уходит в новую Session (строка 380); это покрывает test «does not start again». Пока Claude Code не назвал id,
-  lock держится не дольше `WAIT_MS` (10 мин), и всё это время щелчок по PR получает «is already starting».
+  уходит в новую Session (строка 394); это покрывает test «does not start again». Пока Claude Code не назвал id,
+  lock держится не дольше `WAIT_MS` (10 мин), и всё это время щелчок по PR получает «is already starting». Ожидание
+  кончается и раньше, когда Session перешла в `error` (Claude Code не вошёл, нет сети, процесс вышел) или в `closed`:
+  следующий щелчок и есть повтор. Ship ticket и Run wave ждут и через `error`, потому что такая Session стартует
+  заново на следующий send и её Binding ещё придёт. Отказ говорит, что закрытие Node снимает ожидание.
 
 ## 5. Какая Session Ticket-а моложе 24 часов
 
-Code: `src/main/actions/launch.ts:399-418` · key lines: 401, 404, 406, 414, 416
+Code: `src/main/actions/launch.ts:413-432` · key lines: 415, 418, 420, 428, 430
 
 ```ts
   private async ticketSession(projectId: string, target: Extract<BindingTarget, { kind: 'ticket' }>, stored: ReadonlyMap<string, BindingTarget>): Promise<string | null> {
@@ -272,10 +275,9 @@ export function usePrFollowState(projectId: string, row: PrInboxRow, action: PrF
 - Раунд 2 review: 10 mutant-ов, каждый краснеет. Это снятый dedupe, lock, отпущенный до Binding-а, `throw` вместо новой
   Session, read-only после «reading», без `inbox.refresh`, строка по одному номеру, Binding Subagent-а, поле
   `isCrossRepository` вне запроса и `false` в `toPull` или `rowOf`.
+- Раунд 3 review: 5 mutant-ов ожидания id краснеют. Это снятая проверка конечного state, `ENDED` без `closed` или без
+  `error`, и ожидание `CLOSED` вместо `ENDED` для PR с Ticket-ом и без него.
 - gate fast — см. отчёт PR.
-- gate fast с тем же окружением test-ов (`env -u GIT_CONFIG_PARAMETERS TMPDIR=…`) — exit 0, `[gate] green (fast)`. Без него
-  первый запуск дал exit 2: 125 test-ов других модулей (terminal-ai, install-stable-update) упали на `TMPDIR` и
-  `GIT_CONFIG_PARAMETERS` окружения.
 - Вне списка Ticket-а с согласия Orchestrator-а: `test/contract/pr-inbox.test.ts` (разбор `isCrossRepository`),
   `test/unit/link-access.test.ts` (канал `actions.prFollow` — `write`) и
   fixture-ы шаблонов в `test/contract/projects.test.ts`, `test/contract/remote-calls.test.ts`,
@@ -284,10 +286,10 @@ export function usePrFollowState(projectId: string, row: PrInboxRow, action: PrF
 ## Проверить себя
 
 1. Кнопка Fix checks была активна, а за минуту до щелчка CI на новом head позеленел. Что получит пользователь?
-   - Строки: `src/main/actions/launch.ts:359-361`
+   - Строки: `src/main/actions/launch.ts:373-375`
    - Ответ: отказ «CI is no longer failing on <head>»: вердикт берётся по строке свежего чтения, а не по прежней.
 2. Session Ticket-а запущена Ship ticket 25 часов назад, но процесс её ещё жив. Куда уйдёт текст?
-   - Строки: `src/main/actions/launch.ts:412-417`
+   - Строки: `src/main/actions/launch.ts:426-431`
    - Ответ: в новую Session Node: решает возраст последней записи транскрипта, а не живой процесс.
 3. Почему `{sha}` проверяется в render, а не только в канале IPC?
    - Строки: `src/shared/actions/render-template.ts:33-46`
