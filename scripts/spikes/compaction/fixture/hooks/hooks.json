@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/hook.mjs\" SessionStart", "timeout": 15 }]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/hook.mjs\" SubagentStart", "timeout": 15 }]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/hook.mjs\" PreCompact", "timeout": 15 }]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/hook.mjs\" PostCompact", "timeout": 15 }]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/hook.mjs\" PreToolUse", "timeout": 15 }]
+      }
+    ]
+  }
+}
