@@ -2076,12 +2076,15 @@ describe('harness/evals: pr-fix', () => {
       expect(git(work, home, 'git status --porcelain --untracked-files=no').stdout).toBe('')
       expect(callLog(work)).not.toMatch(pattern(name, 'no-publish.md'))
 
-      // The push of step 7 reaches the push address of origin, whose hook refuses and logs it; origin keeps its GitHub address.
+      // The push of step 7 reaches the push address of origin, a bare repository of the fixture whose hook refuses and logs
+      // it; origin keeps its GitHub address, and its git may not use https.
+      expect(git(work, home, 'git config --get protocol.https.allow').stdout.trim()).toBe('never')
+      expect(git(work, home, 'git remote get-url --push origin').stdout.trim()).toMatch(/[\\/]\.git[\\/]demo-origin\.git$/)
       const push = git(work, home, fill(line('git -C "<worktree>" push'), v))
       expect(push.status).not.toBe(0)
       expect(callLog(work)).toMatch(/^PUSH refs\/heads\/sum-all [0-9a-f]{40}$/m)
       expect(callLog(work)).toMatch(pattern(name, 'no-publish.md'))
-      expect(git(work, home, 'git remote get-url origin').stdout.trim()).toBe('https://github.com/octo-org/ledger.git')
+      expect(git(work, home, 'git remote get-url origin').stdout.trim()).toMatch(/^https:\/\/github\.com\/octo-org\/ledger\.git$/)
       expect(git(work, home, 'git -C .git/demo-origin.git rev-parse --verify --quiet refs/heads/sum-all').status).not.toBe(0)
 
       // A commit in the person's checkout, or one with red tests, fails the grader of the fix.
