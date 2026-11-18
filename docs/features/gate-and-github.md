@@ -1,10 +1,11 @@
 # Gate and GitHub
 
-Five Features. **Gate** is the check of whether the changes in a worktree are ready. **Gate full** is the complete
+Six Features. **Gate** is the check of whether the changes in a worktree are ready. **Gate full** is the complete
 form of that check and the situations that call for it. **Failure records** are what a red Gate run leaves about each
 failed test or step, and the command that reads them. **PR and CI badges** are the chips on a Ticket and a Session that show
 what the Gate and GitHub say. **PR inbox notifications** are GitHub's notifications used to read a moved PR of the PR inbox at
-once. Terms are explained in [Concepts](concepts.md).
+once. **GitHub access** is the row of Health check that says whose token gh takes for a Project and whether it reaches the
+Project's repositories. Terms are explained in [Concepts](concepts.md).
 
 ## Gate
 
@@ -675,3 +676,80 @@ once instead of at the next search. The inbox works without them.
 **Main tests.** `test/contract/pr-inbox-notifications.test.ts`: 304, 200, `If-Modified-Since` and the pace, 403, 404, 429,
 `Retry-After`, the secondary rate limit, 500, a body that is not JSON, a Project switched off, the cursor, and the stub's
 log, against `test/fixtures/gh/gh-stub.mjs`.
+
+## GitHub access
+
+### Behaviour
+
+**Whose token gh takes.** gh uses one token per call, and worfy's calls do not all pick it the same way:
+
+1. A call that goes as the Project's account — the PR inbox, PR badges, the gate queue, the review offer, the token of a Codex
+   Session — gets `GH_TOKEN` from `gh auth token -u <github.account>`, the token gh keeps for that login. It wins over any
+   variable of the environment.
+2. Without an account, gh takes `GH_TOKEN`, then `GITHUB_TOKEN`, from its environment when one is set and not empty, and
+   only then the active account it stores.
+3. The Health check rows `gh` and `GitHub accounts` and the gh calls of Add project that are not about one account never pass
+   the Project's account, so a variable of the environment wins there even when `github.account` is set.
+
+The environment is the login shell's on macOS and the one built from the registry on Windows. On macOS a variable set with
+`launchctl setenv` reaches gh only when a shell startup file exports it; on Windows a `setx GH_TOKEN …` reaches it after the
+next "Check again" or a restart of worfy. One exception: the `codex app-server` process of a Codex Session starts with worfy's own
+environment, so with no gh login for the Project's account a variable of launchd reaches it too. A notice for that is a later
+Ticket (worfy-auth-check 08).
+
+**GitHub accounts names the source.** The row reads every entry of `gh auth status` and its state, not only whether a login is
+there. When gh takes a token from a variable it says so: `alice (keyring), GH_TOKEN from the environment (alice) overrides it`.
+When that token does not work the row fails — gh itself exits 1 then — even though a stored account works, and gives the
+command that removes the variable (`launchctl unsetenv GH_TOKEN` on macOS, `[Environment]::SetEnvironmentVariable('GH_TOKEN',
+$null, 'User')` on Windows) to copy. worfy never changes an environment variable itself. A timeout of GitHub on the token gh
+uses makes the row `unknown`.
+
+**The GitHub access row.** Settings → Health has one `GitHub access` row per Project of this Machine with its `origin` on
+github.com, in the group Projects. It is checked after the other rows, without holding up the start, on "Check again", and
+again after a feature's failure (at most once a minute per Project) or on the focus of a window when it is not `ok` and older
+than five minutes. It reads the Profile's `github.account`, takes that account's token as the PR inbox does and asks
+`gh api -i repos/<owner>/<repo>` for each repository. Only the name of a variable or a login is ever shown, never a token.
+
+| What it found | Row | Level | Button |
+|---|---|---|---|
+| The account reaches every repository | ok: the login, the source of its token, the repositories | critical | — |
+| `github.account` is empty, gh works with its own token | warn: `github.account is not set` and the source | non-critical | `Use <login>` when exactly one login gh has on github.com may push to every repository |
+| gh has no login for the account | fail: `no gh login for <login>` | critical | `Sign in…`; with `GH_TOKEN` set, a command that runs `gh auth login` without it, as gh refuses to sign in while the variable is set |
+| The token does not work (HTTP 401) | fail: whose token it is | critical | With `GH_TOKEN` of the environment: the command that removes it, and `Use <login>` when it applies |
+| No access (HTTP 404, another 4xx) | fail: `no access to <repo> as <login>` | critical | `Use <login>` when another login may push |
+| No network, a timeout, GitHub 5xx or its rate limit | unknown: `Couldn't check: <reason>` | non-critical | — |
+
+A Profile that cannot be read is said in the row, and gh then goes as without an account. A row of a Project never opens First
+run at the start; the Health check icon tells about it.
+
+**Use \<login\>.** A click writes the Project's `github.account` — one field, through the Harness's
+`bin/profile-set --field github.account`, which commits the change in the Harness home — and checks the GitHub access rows again.
+There is no dialog: the button names the login. It writes only while that login is still the one that may push; otherwise it
+writes nothing and says to check again. worfy never switches to an account of the keyring by itself.
+
+### How it works
+
+- **Same gh as the PR inbox.** The row's gh is `WORFY_GH` with worfy's own environment when that is set (a stand-in in tests),
+  else `gh` with the login shell's environment, and `readGithubAccount` → `accountAuth` as the PR inbox goes.
+- **The answer.** `gh api -i` prints the status line, so 401 and 404 are read from it, not from gh's message. gh's own text
+  "gh auth login" with exit code 4 means gh has no token at all. The body is never shown; a reason without a status is gh's last
+  line, with anything shaped as a token taken out.
+- **Use \<login\> asks the stored accounts.** The one login that may push is found as the account step of Add project finds it,
+  with `GH_TOKEN` and `GITHUB_TOKEN` set empty for those calls (gh reads an empty one as unset), each account's push asked with its
+  own token.
+- **Read-only.** Nothing here signs in, switches or logs out a gh account, or writes to GitHub.
+
+### Implementation
+
+| What | Where |
+|---|---|
+| Whose token gh takes, the answer of `gh api -i`, the commands to copy | `src/main/github/auth-diagnosis.ts` |
+| The entries of `gh auth status` with their source | `src/main/github/auth-text.ts` |
+| The rows `GitHub accounts` and `GitHub access`, the one login with push | `src/main/first-run/checks.ts` |
+| `Use <login>` | `src/main/first-run/actions.ts`, `src/renderer/shell/FirstRunChecks.tsx` |
+| The network rows and their re-check, the gh of the rows, `bin/profile-set` | `src/main/ipc/first-run.ts` |
+| The IPC contract | `src/shared/ipc/first-run.ts` |
+
+**Main tests.** `test/contract/health-github-access.test.ts`: the cases of the table on the gh stand-in, `Use <login>` through a
+recording `bin/profile-set`, `GitHub accounts` with `GH_TOKEN`, and a known token looked for in every row, message and log line.
+`test/unit/auth-diagnosis.test.ts` and `test/unit/gh-auth-text.test.ts`: the answers gh 2.97 printed, in `test/fixtures/gh-auth/`.

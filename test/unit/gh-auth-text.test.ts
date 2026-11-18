@@ -3,7 +3,15 @@
 // check row shows, from samples of gh 2.39 (stderr, "as <login>") and 2.40+ (stdout, "account <login>").
 import { describe, expect, it } from 'vitest'
 import { ghAccounts as healthCheckAccounts } from '../../src/main/first-run/checks'
-import { ghAccounts, ghVersion, parseAuthText } from '../../src/main/github/auth-text'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { environmentTokens, ghAccounts, ghVersion, isTokenVariable, parseAuthEntries, parseAuthText } from '../../src/main/github/auth-text'
+
+/** `gh auth status` of gh 2.97 as ticket 01 recorded it (test/fixtures/gh-auth/), stdout and stderr together. */
+const recorded = (name: string): string => {
+  const at = join(import.meta.dirname, '..', 'fixtures', 'gh-auth', name)
+  return `${readFileSync(`${at}.stdout`, 'utf8')}\n${readFileSync(`${at}.stderr`, 'utf8')}`
+}
 
 /** gh 2.39: one account per host, on stderr, no "Active account" line. */
 const GH_2_39 = [
@@ -133,6 +141,41 @@ describe('ghAccounts, the Health check row', () => {
 
   it('is the function checks.ts exports, not a copy', () => {
     expect(healthCheckAccounts).toBe(ghAccounts)
+  })
+})
+
+describe('the source of a token (worfy-auth-check ticket 05)', () => {
+  it('an entry of (GH_TOKEN) is a token from the environment with its state; a stored one is not', () => {
+    expect(environmentTokens(recorded('auth-status-gh-token-valid'))).toEqual([{ variable: 'GH_TOKEN', host: 'github.com', state: 'success', active: true, login: 'alice' }])
+    expect(environmentTokens(recorded('auth-status-gh-token-invalid'))).toEqual([{ variable: 'GH_TOKEN', host: 'github.com', state: 'error', active: true, login: null }])
+    expect(environmentTokens(recorded('auth-status-keyring'))).toEqual([])
+    expect(environmentTokens('  ✓ Logged in to github.com account alice (GITHUB_TOKEN)\n  - Active account: true\n')).toEqual([{ variable: 'GITHUB_TOKEN', host: 'github.com', state: 'success', active: true, login: 'alice' }])
+  })
+
+  it('every entry with its source, the one without a login included', () => {
+    expect(parseAuthEntries(recorded('auth-status-gh-token-invalid'))).toEqual([
+      { login: null, host: 'github.com', active: true, state: 'error', source: 'GH_TOKEN' },
+      { login: 'bob', host: 'github.com', active: false, state: 'success', source: 'keyring' },
+      { login: 'alice', host: 'github.com', active: false, state: 'success', source: 'keyring' },
+    ])
+    // gh 2.39: the source is the hosts file or the variable, and each account of its host is the active one.
+    expect(parseAuthEntries(GH_2_39).map((entry) => [entry.login, entry.source, entry.active])).toEqual([
+      ['alice', '/tmp/gh-config/hosts.yml', true],
+      ['corp', 'GH_ENTERPRISE_TOKEN', true],
+    ])
+  })
+
+  it('the variables gh takes a token from, and nothing else', () => {
+    expect(['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN'].map(isTokenVariable)).toEqual([true, true, true, true])
+    expect(['keyring', '/tmp/gh-config/hosts.yml', 'oauth_token', null].map(isTokenVariable)).toEqual([false, false, false, false])
+  })
+
+  it('the logins of the recorded texts read as before: the token entry of the environment counts as an account only with a login', () => {
+    expect(parseAuthText(recorded('auth-status-keyring')).map((each) => [each.login, each.active])).toEqual([['alice', true], ['bob', false]])
+    expect(parseAuthText(recorded('auth-status-gh-token-valid')).map((each) => [each.login, each.active])).toEqual([['alice', true], ['bob', false], ['alice', false]])
+    expect(parseAuthText(recorded('auth-status-gh-token-invalid')).map((each) => [each.login, each.active])).toEqual([['bob', false], ['alice', false]])
+    expect(parseAuthText(recorded('auth-status-gh-token-invalid-no-login'))).toEqual([])
+    expect(parseAuthText(recorded('auth-status-no-login'))).toEqual([])
   })
 })
 

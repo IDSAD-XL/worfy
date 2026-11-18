@@ -1,7 +1,7 @@
 # 05 — GitHub access: источник токена, честный `gh-auth`, строка Project-а с 401 и 404, «Use <login>»
 
 Type: task
-Status: open
+Status: claimed 2026-11-18T20:55Z
 Blocked by: 01, 03
 Source: [spec.md](../spec.md), «Ticket-ы», 5; «Проблема», пункты «Чей токен у gh» и «Health check»; «Решение»,
 пункты 1 и 7; «Починка»; «Решения по реализации», 3; «Решения по test-ам»; «Решения владельца», Q5;

@@ -158,6 +158,18 @@ no `gh auth token -u`, so the step fails with its version and the command that u
 `winget upgrade GitHub.cli`); so does a text that names no account while gh exits with 0, asking for gh 2.81 or later.
 Without gh at all the step names `brew install gh`, on Windows `winget install GitHub.cli`.
 
+The write access of each account is asked with that account's own token. A `GH_TOKEN` or `GITHUB_TOKEN` in the login
+shell's environment (on Windows, in the user's variables) still reaches gh here, and `gh auth login` of "Sign in with gh"
+refuses to run while one is set.
+
+**`github.account` and Health check.** After the Project is connected, Settings → Health has a `GitHub access` row for it when
+an `origin` of its repositories is on github.com ([Gate and GitHub](gate-and-github.md#github-access)). The row says whether
+`github.account` is set, whether gh has a login for it, whose token gh takes — the account's, `GH_TOKEN` of the environment or
+gh's active account, by name only — and whether that token reaches each repository (401: it does not work; 404: no access).
+With `github.account` empty and exactly one login of gh on github.com that may push to every repository, its `Use <login>`
+button writes `github.account` with that login through `bin/profile-set --field github.account`, on the click alone, and the
+row is checked again. worfy never sets the account, or switches to a stored one, by itself.
+
 **What the form starts with.** The language of reports is the system language, `ru` or else `en`. In Silent mode the
 attribution starts as `off`, whatever the Session proposed, and what the user picks in the form is written as picked. In
 Full mode it stays as the Session proposed. For a git repository the worktrees go under `.claude/worktrees/` of the

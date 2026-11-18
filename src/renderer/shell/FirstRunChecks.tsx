@@ -15,7 +15,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { create } from 'zustand'
 import '../canvas/actions/actions.css'
 import { failureReason } from '../../shared/ipc/channels'
-import { checkState, type Check, type CheckGroup, type CheckId, type CheckStatus, type FirstRunAction } from '../../shared/ipc/first-run'
+import { checkState, type Check, type CheckGroup, type CheckStatus, type FirstRunAction } from '../../shared/ipc/first-run'
 import { applyLayoutOp } from '../canvas/useLayout'
 import { focusCanvasNode } from '../find/canvas-requests'
 import MigrationForm from '../harness/MigrationForm'
@@ -342,15 +342,21 @@ async function openSignInTerminal(projectId: string): Promise<string | undefined
  */
 const useAction = create<{
   running: FirstRunAction | null
-  /** The row whose button started it: two rows may offer the same action (the Harness and its dependencies). */
-  row: CheckId | null
+  /**
+   * The row whose button started it (rowKey): two rows may offer the same action (the Harness and its
+   * dependencies), and the GitHub access rows of two Projects share one id.
+   */
+  row: string | null
   /** When it was pressed, in ms since the epoch. */
   since: number | null
 }>(() => ({ running: null, row: null, since: null }))
 const idle = { running: null, row: null, since: null }
 
+/** A row among the rows: its id, and the Project of a row of the group Projects (worfy-auth-check ticket 05). */
+const rowKey = (check: Pick<Check, 'id' | 'project'>): string => `${check.id}:${check.project?.id ?? ''}`
+
 /** Starts `action` pressed on `row`: the lock of every button and the clock of its progress line. */
-const startAction = (action: FirstRunAction, row: CheckId): void => useAction.setState({ running: action, row, since: Date.now() })
+const startAction = (action: FirstRunAction, row: string): void => useAction.setState({ running: action, row, since: Date.now() })
 
 /** How many places show the checks now: the dialog, the Health section, or both. */
 let views = 0
@@ -446,14 +452,16 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, children
     if (checkOnShow && report === null && !checking && failure === null && running === null) void checkAgain()
   }, [checkOnShow, report, checking, failure, running])
 
-  const act = async (action: FirstRunAction, row: CheckId): Promise<void> => {
+  const act = async (action: FirstRunAction, check: Check): Promise<void> => {
+    const row = rowKey(check)
     if (action === 'migration-form') {
       setMigrating(true)
       return
     }
     if (useAction.getState().running !== null) return
-    // The buttons of worfy-auth-check run nothing yet: the Tickets of their rows wire them (ticket 03).
-    if (action === 'use-login' || action === 'open-link' || action === 'codex-sign-in' || action === 'open-browser' || action === 'link-machine') return
+    // The buttons of worfy-auth-check run nothing yet: the Tickets of their rows wire them (ticket 03);
+    // "Use <login>" is wired (ticket 05).
+    if (action === 'open-link' || action === 'codex-sign-in' || action === 'open-browser' || action === 'link-machine') return
     startAction(action, row)
     // "Show log" of a failed Update build (worfy-update ticket 08): main opens build.log, no dialog.
     if (action === 'update-log') {
@@ -464,7 +472,10 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, children
       return
     }
     setMessage(null)
-    const result = await invoke('firstRun.run', { action, projectName: project?.name })
+    // "Use <login>" sends the Project of its row and the login it showed: main writes exactly that one.
+    const login = check.actions.find((each) => each.id === 'use-login')?.login
+    const target = action === 'use-login' ? { projectId: check.project?.id, login } : {}
+    const result = await invoke('firstRun.run', { action, projectName: project?.name, ...target })
     // The checks before the lock opens, so nothing asks for them in between.
     if (result.ok) useFirstRun.setState({ report: result.value.report })
     useAction.setState(idle)
@@ -485,7 +496,7 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, children
 
   // The move form is the action of "Move…" while it is open; it runs nothing in main by itself.
   const rowAction = (check: Check): FirstRunAction | null =>
-    check.actions.find((each) => (each.id === running && check.id === pressedRow) || (migrating && each.id === 'migration-form'))?.id ?? null
+    check.actions.find((each) => (each.id === running && rowKey(check) === pressedRow) || (migrating && each.id === 'migration-form'))?.id ?? null
   const checks = report?.checks ?? []
   const failed = checks.filter((each) => each.status === 'fail').length
   const warned = checks.filter((each) => each.status === 'warn').length
@@ -526,7 +537,7 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, children
                     checking={checking}
                     locked={locked}
                     projectName={project?.name}
-                    onAction={(action) => void act(action, each.id)}
+                    onAction={(action) => void act(action, each)}
                   />
                 ))}
               </ul>

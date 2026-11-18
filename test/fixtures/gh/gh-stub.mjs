@@ -68,6 +68,20 @@
 //     "<the diff>"}}`. Without --repo the one PR of that number is taken. `pr view` prints `view` whole, whatever
 //     --json asks; a PR the file does not hold fails as gh does ("no pull requests found").
 //
+//   - `auth status` without flags (worfy-auth-check ticket 05), as gh 2.97 prints it from auth-status.json and the
+//     environment: with GH_TOKEN (or GITHUB_TOKEN) set and not empty, first its entry — "account <login> (GH_TOKEN)"
+//     when tokens.json names that token, else "X Failed to log in … using token (GH_TOKEN)" — as the active one, then
+//     the stored accounts, not active. Any failed entry prints the whole text to stderr and exits 1, as gh does; no
+//     entry at all prints "You are not logged into any GitHub hosts" to stderr, exit 1.
+//   - `api -i repos/<owner>/<repo>` (ticket 05): as gh prints `-i`, the status line, headers, blank line, body, from
+//     repos.json for the login of GH_TOKEN — 200 with the repository for a boolean or null, the status for a number
+//     (5xx too). A GH_TOKEN that tokens.json does not name is 401 "Bad credentials"; without GH_TOKEN the active
+//     account of auth-status.json answers, and with none gh's "gh auth login" text, exit 4. Above 299 gh's line on
+//     stderr and exit 1. The body carries GH_TOKEN as `stub_token` and the token of every login as `stub_tokens`,
+//     so a test can tell that worfy never shows what gh printed.
+//   - offline: when it exists, every `api` call fails as gh does without a network ("error connecting to
+//     api.github.com", exit 1); the local commands (`auth status`, `auth token`) still answer.
+//
 // Never a write: a `--method`/`-X` other than GET (`--method=PATCH` and `-XPATCH` too), a GraphQL `mutation`, or, on
 // a REST call, a field or an input (`-f`, `-F`, `--field`, `--raw-field`, `--input`, which make gh send a POST)
 // exits 2 (after its line in the log).
@@ -120,6 +134,8 @@ if (args.length === 1 && args[0] === '--version') {
 } else if (oldGh !== undefined && command === 'auth status' && args.length === 2) {
   ;(oldGh.stream === 'stderr' ? process.stderr : process.stdout).write(oldGh.text)
   process.exit(oldGh.code ?? 0)
+} else if (command === 'auth status' && args.length === 2) {
+  authStatusText()
 } else if (command === 'pr list') {
   let pulls = read('prs.json', [])
   const head = option('--head')
@@ -152,6 +168,8 @@ if (args.length === 1 && args[0] === '--version') {
   const token = elsewhere ? undefined : read('tokens.json', {})[login]
   if (token === undefined) fail(`no oauth token found for ${host} account ${login}`)
   process.stdout.write(`${token}\n`)
+} else if (args[0] === 'api' && dir && existsSync(join(dir, 'offline'))) {
+  fail('error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com')
 } else if (replyPost() !== null) {
   postReply(replyPost())
 } else if (args[0] === 'api' && (/^(GET)?$/i.test(option('--method') ?? option('-X') ?? '') === false || args.some(writeArg) || args.some((arg) => /\bmutation\b/.test(arg)))) {
@@ -160,6 +178,8 @@ if (args.length === 1 && args[0] === '--version') {
   graphql()
 } else if (args[0] === 'api' && args.includes('-i') && args.some((arg) => /^notifications(\?|$)/.test(arg))) {
   notifications()
+} else if (args[0] === 'api' && args.length === 3 && args[1] === '-i' && /^repos\/[^/\s]+\/[^/\s]+$/.test(args[2])) {
+  repoWithHeaders(args[2].slice('repos/'.length))
 } else if (args[0] === 'api' && /^repos\/[^/\s]+\/[^/\s]+$/.test(args[1] ?? '')) {
   const slug = args[1].slice('repos/'.length)
   const tokens = read('tokens.json', {})
@@ -342,4 +362,65 @@ function postReply(reply) {
   if (world.status === undefined || world.landed === true) writeFileSync(join(dir, 'posted.json'), JSON.stringify([...list, { ...reply, login, url }]))
   if (world.status !== undefined) fail(`gh: Server Error (HTTP ${world.status})`)
   process.stdout.write(JSON.stringify({ id, html_url: url, body: reply.body, user: { login } }))
+}
+
+/** The token gh takes from its environment for github.com: GH_TOKEN, then GITHUB_TOKEN; an empty one is unset. */
+function environmentToken() {
+  if (process.env.GH_TOKEN) return { variable: 'GH_TOKEN', token: process.env.GH_TOKEN }
+  if (process.env.GITHUB_TOKEN) return { variable: 'GITHUB_TOKEN', token: process.env.GITHUB_TOKEN }
+  return null
+}
+
+/** `auth status` without flags, as gh 2.97 prints it (fixtures of worfy-auth-check ticket 01). */
+function authStatusText() {
+  const tokens = read('tokens.json', {})
+  const stored = read('auth-status.json', { hosts: {} }).hosts['github.com'] ?? []
+  const fromEnv = environmentToken()
+  const blocks = []
+  let failed = false
+  if (fromEnv !== null) {
+    const login = Object.keys(tokens).find((name) => tokens[name] === fromEnv.token)
+    if (login === undefined) {
+      failed = true
+      blocks.push([`  X Failed to log in to github.com using token (${fromEnv.variable})`, '  - Active account: true', `  - The token in ${fromEnv.variable} is invalid.`])
+    } else blocks.push([`  ✓ Logged in to github.com account ${login} (${fromEnv.variable})`, '  - Active account: true', '  - Git operations protocol: https', '  - Token: gho_************************************'])
+  }
+  for (const entry of stored) {
+    const active = fromEnv === null && entry.active === true
+    if (entry.state === 'success') blocks.push([`  ✓ Logged in to github.com account ${entry.login} (keyring)`, `  - Active account: ${String(active)}`, '  - Git operations protocol: https', '  - Token: gho_************************************'])
+    else {
+      failed = true
+      blocks.push([`  X Failed to log in to github.com account ${entry.login} (keyring)`, `  - Active account: ${String(active)}`, '  - The token in keyring is invalid.'])
+    }
+  }
+  if (blocks.length === 0) fail('You are not logged into any GitHub hosts. To log in, run: gh auth login')
+  const text = `github.com\n${blocks.map((lines) => lines.join('\n')).join('\n\n')}\n`
+  if (failed) {
+    process.stderr.write(text)
+    process.exit(1)
+  }
+  process.stdout.write(text)
+}
+
+/** `api -i repos/<slug>`: GitHub's answer with its status line and headers, for the token gh takes. */
+function repoWithHeaders(slug) {
+  const reasons = { 200: 'OK', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not Found', 500: 'Internal Server Error', 502: 'Bad Gateway', 503: 'Service Unavailable' }
+  const tokens = read('tokens.json', {})
+  const fromEnv = environmentToken()
+  let login
+  if (fromEnv !== null) login = Object.keys(tokens).find((name) => tokens[name] === fromEnv.token)
+  else {
+    login = (read('auth-status.json', { hosts: {} }).hosts['github.com'] ?? []).find((entry) => entry.active === true && entry.state === 'success')?.login
+    if (login === undefined) fail('To get started with GitHub CLI, please run:  gh auth login\nAlternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token.', 4)
+  }
+  const answers = read('repos.json', {})[slug] ?? {}
+  const answer = login === undefined ? 401 : !Object.hasOwn(answers, login) ? 404 : answers[login]
+  const status = typeof answer === 'number' ? answer : 200
+  const leak = { stub_token: fromEnv?.token ?? null, stub_tokens: Object.values(tokens) }
+  const message = status === 401 ? 'Bad credentials' : status === 404 ? 'Not Found' : status >= 500 ? 'Server Error' : 'Forbidden'
+  const body = status === 200 ? { full_name: slug, permissions: { push: answer === true, pull: true }, ...leak } : { message, documentation_url: 'https://docs.github.com/rest', status: String(status), ...leak }
+  process.stdout.write(`HTTP/2.0 ${status} ${reasons[status] ?? 'Unknown'}\nContent-Type: application/json; charset=utf-8\r\nX-Github-Request-Id: 0000:0000\r\n\r\n${JSON.stringify(body)}`)
+  if (status === 200) return
+  process.stderr.write(`gh: ${message} (HTTP ${status})\n`)
+  process.exitCode = 1
 }
