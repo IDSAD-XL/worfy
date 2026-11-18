@@ -22,6 +22,8 @@
     "human-review-setup-full": ["skills/human-review-setup/SKILL.md", "skills/human-review-setup/analyse.md", "skills/human-review-setup/write.md", "skills/human-review-setup/check.md", "skills/human-review-setup/template/SKILL.template.md", "skills/human-review-setup/template/voice-examples.md", "skills/human-review-setup/template/lint.json"],
     "pr-reply-three-threads": ["skills/pr-reply/SKILL.md"],
     "pr-reply-guards": ["skills/pr-reply/SKILL.md"],
+    "pr-fix-checks": ["skills/pr-fix/SKILL.md"],
+    "pr-fix-comments": ["skills/pr-fix/SKILL.md", "skills/pr-reply/SKILL.md"],
     "compaction-state": ["hooks/rules/compaction.md", "hooks/rules/common.md", "hooks/hooks.json", "hooks/inject-rules.mjs"]
   },
   "uncovered": {

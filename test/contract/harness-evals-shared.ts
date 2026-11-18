@@ -40,6 +40,8 @@ export const CASES: [name: string, tag: 'main' | 'gui' | 'alone'][] = [
   ['human-review-setup-full', 'main'],
   ['pr-reply-three-threads', 'main'],
   ['pr-reply-guards', 'main'],
+  ['pr-fix-checks', 'main'],
+  ['pr-fix-comments', 'main'],
   ['compaction-state', 'alone'],
 ]
 /**
