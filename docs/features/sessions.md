@@ -36,12 +36,16 @@ A Session does not go on by itself in these cases:
   as a `git push` or `gh pr merge`;
 - it was cut off more than an hour before the start;
 - worfy already continued it twice within the hour;
-- its previous Claude Code process still runs under another program.
+- its previous Claude Code process still runs under another program;
+- its Session Node names another session than the one the restart cut off. Continue then resumes the Node's own
+  session, sends no message, and brings the queue back held.
 
 A previous Claude Code process that the dead worfy left behind is waited for, then killed, before the Session goes on. A
 Session Node that does not go on shows the chip **Interrupted by restart**, with the reason in its tooltip, and
 **Continue**. Continue resumes the Session and sends the same message; the Session view then shows
-`worfy: not continued: …` with the reason, then the line above. An Orchestrator that does not go on is only logged.
+`worfy: not continued: …` with the reason, then the line above. Resuming the Session from History instead drops that
+message and queue. A Node that worfy had not saved yet when it stopped resumes the cut-off session, never a new one.
+An Orchestrator that does not go on is only logged.
 
 **Vendor.** Each Session runs on one Vendor's agent: Claude Code or Codex. A live Node keeps its Vendor next to its Session
 id, and a Node saved before Vendors existed is Claude Code's. "New session" uses the Vendor it is given, else the Project's

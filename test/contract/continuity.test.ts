@@ -194,7 +194,8 @@ function continuity(h: App, deps: Partial<ContinuityDeps> = {}): Continuity {
     exited: () => Promise.resolve(true),
     kill: () => undefined,
     orchestrator: () => Promise.reject(new Error('no Orchestrator in this test')),
-    node: (projectId, nodeId) => h.sessions.started(projectId, nodeId),
+    node: (projectId, nodeId, sessionId) => h.sessions.started(projectId, nodeId, sessionId),
+    keptSession: (projectId, nodeId) => h.sessions.keptSessionOf(projectId, nodeId),
     interrupted: (projectId, nodeId, mark) => h.sessions.interrupted(projectId, nodeId, mark),
     noteContinued: (nodeId, at) => h.live.noteContinued(nodeId, at),
     updatedAt: () => Promise.resolve(null),
@@ -322,6 +323,86 @@ describe('a Session not continued by itself: the chip and Continue', () => {
     expect(await continuity(h).run()).toMatchObject([{ outcome: 'interrupted', reason: 'it was cut off more than an hour before worfy started again' }])
     expect(h.requests).toEqual([])
     expect(viewOf(h)).toMatchObject({ state: 'closed', restart: { reason: 'it was cut off more than an hour before worfy started again' } })
+  })
+
+  it('the restart is delivered once: a start after Continue delivered it, the Session closed in between, sends nothing more', async () => {
+    savedNode()
+    writeRecords([{ ...RECORD, lastEventAt: Date.now() - 61 * MINUTE }])
+    writeTranscript([said('go on', 62)])
+    const h = app('interrupt', [{ sessionId: SDK, cwd: repo }])
+    await continuity(h).run()
+    await h.sessions.start(PROJECT, NODE)
+    await vi.waitFor(() => expect(prompts(h)).toHaveLength(1), UNTIL)
+    // The continued turn runs (the fake agent waits for an Interrupt): stop it, then close the Session.
+    await h.registry.get(viewOf(h)?.sessionId ?? '').interrupt()
+    await vi.waitFor(() => expect(viewOf(h)?.state).toBe('idle'), UNTIL)
+    h.sessions.close(NODE)
+    await vi.waitFor(() => expect(viewOf(h)?.state).toBe('closed'), UNTIL)
+    await h.sessions.start(PROJECT, NODE)
+    await vi.waitFor(() => expect(h.requests).toHaveLength(2), UNTIL)
+    expect(prompts(h)).toHaveLength(1)
+    expect(notices(h).filter((line) => line.startsWith('worfy: not continued'))).toHaveLength(1)
+  })
+
+  it('resumed from History instead of Continue: the restart is not delivered then, nor at a later start', async () => {
+    savedNode()
+    writeRecords([{ ...RECORD, lastEventAt: Date.now() - 61 * MINUTE }])
+    writeTranscript([said('go on', 62)])
+    const h = app('interrupt', [{ sessionId: SDK, cwd: repo }])
+    await continuity(h).run()
+    await h.sessions.resume(PROJECT, SDK)
+    expect(viewOf(h)?.restart).toBeUndefined()
+    h.sessions.close(NODE)
+    await vi.waitFor(() => expect(viewOf(h)?.state).toBe('closed'), UNTIL)
+    await h.sessions.start(PROJECT, NODE)
+    expect(h.requests).toEqual([{ resume: SDK }, { resume: SDK }])
+    expect(prompts(h)).toEqual([])
+    expect(notices(h)).toEqual([])
+  })
+})
+
+describe('the session of the Node and the session the restart cut off', () => {
+  it('the Node keeps no session id yet (a crash before layout.json was written): the cut-off session is resumed, never a new one', async () => {
+    savedNode({ origin: 'worfy', vendor: 'claude' })
+    writeRecords([RECORD])
+    writeTranscript([said('go on', 3)])
+    const h = app('interrupt', [{ sessionId: SDK, cwd: repo }])
+    expect(await continuity(h).run()).toMatchObject([{ outcome: 'continued', reason: null }])
+    expect(h.requests).toEqual([{ resume: SDK }])
+    await vi.waitFor(() => expect(prompts(h)).toHaveLength(1), UNTIL)
+  })
+
+  it('the Node keeps no session id and is not continued by itself: Continue resumes the cut-off session', async () => {
+    savedNode({ origin: 'worfy', vendor: 'claude' })
+    writeRecords([{ ...RECORD, lastEventAt: Date.now() - 61 * MINUTE }])
+    writeTranscript([said('go on', 62)])
+    const h = app('interrupt', [{ sessionId: SDK, cwd: repo }])
+    expect(await continuity(h).run()).toMatchObject([{ outcome: 'interrupted' }])
+    expect(viewOf(h)).toMatchObject({ state: 'closed', sdkSessionId: SDK })
+    await h.sessions.start(PROJECT, NODE)
+    expect(h.requests).toEqual([{ resume: SDK }])
+    await vi.waitFor(() => expect(prompts(h)).toHaveLength(1), UNTIL)
+  })
+
+  it('the Node names another session than the record: «Interrupted», nothing sent; Continue resumes the Node’s own session with the queue held', async () => {
+    const OTHER = 'c0000000-0000-4000-8000-0000000000d6'
+    savedNode({ origin: 'worfy', vendor: 'claude', sessionId: OTHER })
+    writeRecords([{ ...RECORD, queue: { items: [{ text: 'after that, the tests', files: [], images: [] }], held: false } }])
+    writeTranscript([said('go on', 3)])
+    const h = app('interrupt', [
+      { sessionId: SDK, cwd: repo },
+      { sessionId: OTHER, cwd: repo },
+    ])
+    const reason = `its Node names the session ${OTHER}, not ${SDK} that the restart cut off`
+    expect(await continuity(h).run()).toMatchObject([{ outcome: 'interrupted', reason }])
+    expect(h.requests).toEqual([])
+    expect(viewOf(h)).toMatchObject({ state: 'closed', restart: { reason } })
+
+    await h.sessions.start(PROJECT, NODE)
+    expect(h.requests).toEqual([{ resume: OTHER }])
+    await vi.waitFor(() => expect(notices(h)).toEqual([`worfy: not continued: ${reason}`]), UNTIL)
+    expect(prompts(h)).toEqual([])
+    expect(h.registry.get(viewOf(h)?.sessionId ?? '').queued()).toMatchObject({ items: [{ text: 'after that, the tests' }], paused: true })
   })
 })
 

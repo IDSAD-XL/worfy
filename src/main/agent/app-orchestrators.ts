@@ -280,7 +280,8 @@ export async function continueAfterRestart(): Promise<void> {
     },
     kill: (previous) => void process.kill(previous.pid, 'SIGKILL'),
     orchestrator: (projectId) => sharedOrchestrators().openSession(projectId),
-    node: (projectId, nodeId) => sharedNodeSessions().started(projectId, nodeId),
+    node: (projectId, nodeId, sessionId) => sharedNodeSessions().started(projectId, nodeId, sessionId),
+    keptSession: (projectId, nodeId) => sharedNodeSessions().keptSessionOf(projectId, nodeId),
     interrupted: (projectId, nodeId, mark) => sharedNodeSessions().interrupted(projectId, nodeId, mark),
     noteContinued: (nodeId, at) => tellLiveSessions((live) => live.noteContinued(nodeId, at)),
     updatedAt: async () => {

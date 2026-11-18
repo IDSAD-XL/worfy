@@ -228,6 +228,8 @@ export interface RestartMark {
   at: number
   /** Why it was not continued, for the chip's tooltip. */
   reason: string
+  /** The session the restart cut off (its record's vendorSessionId): Continue resumes it when the Node keeps none. */
+  sessionId: string
   delivery: RestartDelivery
 }
 
@@ -266,8 +268,13 @@ export interface ContinuityDeps {
   kill(process: PreviousProcess): void
   /** Opens the Project's Orchestrator (Orchestrators.open: its saved session, resumed) and answers its live Session. */
   orchestrator(projectId: string): Promise<ContinuedSession>
-  /** Starts the Node's Session (NodeSessions.start: its saved session, resumed) and answers it. */
-  node(projectId: string, nodeId: string): Promise<ContinuedSession>
+  /**
+   * Starts the Node's Session (NodeSessions.start: its saved session, resumed) and answers it; `sessionId`, the
+   * session the restart cut off, is resumed when the Node keeps none.
+   */
+  node(projectId: string, nodeId: string, sessionId: string): Promise<ContinuedSession>
+  /** The session id the Session Node keeps in layout.json (NodeSessions.keptSessionOf); null when it keeps none. */
+  keptSession(projectId: string, nodeId: string): string | null
   /** The Session Node keeps the chip «Interrupted by restart» and Continue (NodeSessions.interrupted). */
   interrupted(projectId: string, nodeId: string, mark: RestartMark): void
   /** worfy continued the Session of Node `nodeId` by itself at `at` (LiveSessions.noteContinued). */
@@ -339,6 +346,18 @@ export class Continuity {
     // 1. A Run's Session: the Run continues it (ticket 06).
     if (record.runId !== null) return done('skipped', `the Run ${record.runId} owns it`)
     if (record.vendorSessionId === null) return done('skipped', 'its agent had not named its session yet')
+    const sessionId = record.vendorSessionId
+    const queue = queueEntries(record.queue)
+    // A Node that names another session than the one cut off: resuming either could send the message to the wrong
+    // session. The Node keeps the chip; Continue resumes its own session and sends nothing, its queue held.
+    const kept = record.kind === 'session-node' ? this.deps.keptSession(project.id, record.nodeId) : null
+    if (kept !== null && kept !== sessionId) {
+      const reason = `its Node names the session ${kept}, not ${sessionId} that the restart cut off`
+      this.log(`worfy: the Session of ${record.nodeId} (${project.id}) was not continued: ${reason}`)
+      const delivery: RestartDelivery = { text: null, queue: { ...queue, paused: true }, before: [`worfy: not continued: ${reason}`], after: [] }
+      this.deps.interrupted(project.id, record.nodeId, { at: startedAt, reason, sessionId, delivery })
+      return done('interrupted', reason)
+    }
 
     const turn = inTurn(record)
     const at = this.deps.clock(startedAt, startedAt)
@@ -369,12 +388,11 @@ export class Continuity {
 
     const said = cause === 'update' ? `worfy: restarted at ${at} (update)` : `worfy: restarted at ${at}`
     const after = [text === null ? `${said}; the queue is back` : `${said}, sent "continue"`]
-    const queue = queueEntries(record.queue)
     if (reason !== null) {
       this.log(`worfy: the Session of ${record.nodeId} (${project.id}) was not continued: ${reason}`)
       if (record.kind === 'session-node') {
         const delivery: RestartDelivery = { text, queue, before: [`worfy: not continued: ${reason}`], after }
-        this.deps.interrupted(project.id, record.nodeId, { at: startedAt, reason, delivery })
+        this.deps.interrupted(project.id, record.nodeId, { at: startedAt, reason, sessionId, delivery })
       }
       return done('interrupted', reason)
     }
@@ -382,7 +400,7 @@ export class Continuity {
     // 5. The continuation, counted against the cap before it starts.
     for (const continued of record.continuedAt) this.deps.noteContinued(record.nodeId, continued)
     this.deps.noteContinued(record.nodeId, startedAt)
-    const session = record.kind === 'orchestrator' ? await this.deps.orchestrator(project.id) : await this.deps.node(project.id, record.nodeId)
+    const session = record.kind === 'orchestrator' ? await this.deps.orchestrator(project.id) : await this.deps.node(project.id, record.nodeId, sessionId)
     deliverRestart(session, { text, queue, before: [], after })
     return done('continued', null)
   }

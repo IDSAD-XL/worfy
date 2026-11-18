@@ -45,7 +45,7 @@ export function cutOffTurn(entries: readonly TranscriptEntry[]): { events: Agent
 
 ## 3. Решение по одной записи: Run, вызовы, час, прежний процесс
 
-Code: `src/main/agent/continuity.ts:337-388` · key lines: 340, 355, 357, 363, 368, 377, 383, 386
+Code: `src/main/agent/continuity.ts:344-406` · key lines: 347, 354, 374, 376, 382, 387, 395, 401, 404
 
 ```ts
   private async one(project: ContinuityProject, record: LiveSession, startedAt: number, updatedAt: number | null): Promise<ContinuityOutcome> {
@@ -53,6 +53,18 @@ Code: `src/main/agent/continuity.ts:337-388` · key lines: 340, 355, 357, 363, 3
     // 1. A Run's Session: the Run continues it (ticket 06).
     if (record.runId !== null) return done('skipped', `the Run ${record.runId} owns it`)
     if (record.vendorSessionId === null) return done('skipped', 'its agent had not named its session yet')
+    const sessionId = record.vendorSessionId
+    const queue = queueEntries(record.queue)
+    // A Node that names another session than the one cut off: resuming either could send the message to the wrong
+    // session. The Node keeps the chip; Continue resumes its own session and sends nothing, its queue held.
+    const kept = record.kind === 'session-node' ? this.deps.keptSession(project.id, record.nodeId) : null
+    if (kept !== null && kept !== sessionId) {
+      const reason = `its Node names the session ${kept}, not ${sessionId} that the restart cut off`
+      this.log(`worfy: the Session of ${record.nodeId} (${project.id}) was not continued: ${reason}`)
+      const delivery: RestartDelivery = { text: null, queue: { ...queue, paused: true }, before: [`worfy: not continued: ${reason}`], after: [] }
+      this.deps.interrupted(project.id, record.nodeId, { at: startedAt, reason, sessionId, delivery })
+      return done('interrupted', reason)
+    }
 
     const turn = inTurn(record)
     const at = this.deps.clock(startedAt, startedAt)
@@ -83,12 +95,11 @@ Code: `src/main/agent/continuity.ts:337-388` · key lines: 340, 355, 357, 363, 3
 
     const said = cause === 'update' ? `worfy: restarted at ${at} (update)` : `worfy: restarted at ${at}`
     const after = [text === null ? `${said}; the queue is back` : `${said}, sent "continue"`]
-    const queue = queueEntries(record.queue)
     if (reason !== null) {
       this.log(`worfy: the Session of ${record.nodeId} (${project.id}) was not continued: ${reason}`)
       if (record.kind === 'session-node') {
         const delivery: RestartDelivery = { text, queue, before: [`worfy: not continued: ${reason}`], after }
-        this.deps.interrupted(project.id, record.nodeId, { at: startedAt, reason, delivery })
+        this.deps.interrupted(project.id, record.nodeId, { at: startedAt, reason, sessionId, delivery })
       }
       return done('interrupted', reason)
     }
@@ -96,13 +107,15 @@ Code: `src/main/agent/continuity.ts:337-388` · key lines: 340, 355, 357, 363, 3
     // 5. The continuation, counted against the cap before it starts.
     for (const continued of record.continuedAt) this.deps.noteContinued(record.nodeId, continued)
     this.deps.noteContinued(record.nodeId, startedAt)
-    const session = record.kind === 'orchestrator' ? await this.deps.orchestrator(project.id) : await this.deps.node(project.id, record.nodeId)
+    const session = record.kind === 'orchestrator' ? await this.deps.orchestrator(project.id) : await this.deps.node(project.id, record.nodeId, sessionId)
     deliverRestart(session, { text, queue, before: [], after })
     return done('continued', null)
   }
 ```
 
-- Что делает: Session Run-а пропускает; для Session в turn-е читает транскрипт до resume, ищет вызовы без результата
+- Что делает: Session Run-а пропускает; Node, чей `data.sessionId` в `layout.json` называет другую Session, чем
+  запись `live-sessions.json`, получает chip без продолжения — Continue возобновит её собственную Session, ничего не
+  отправит и вернёт очередь held; для Session в turn-е читает транскрипт до resume, ищет вызовы без результата
   и строит `restartText`; затем правило часа и cap; затем прежний процесс. Есть причина — Session Node получает метку
   (chip и Continue), Orchestrator только пишется в log. Нет — продолжение засчитывается в cap до старта, Session
   стартует и получает сообщение, очередь и строку `notice`.
@@ -116,7 +129,7 @@ Code: `src/main/agent/continuity.ts:337-388` · key lines: 340, 355, 357, 363, 3
 
 ## 4. Прежний процесс: ждать, потом завершить
 
-Code: `src/main/agent/continuity.ts:391-404` · key lines: 394, 396, 398, 402
+Code: `src/main/agent/continuity.ts:409-422` · key lines: 412, 414, 416, 420
 
 ```ts
   private async previousGone(project: ContinuityProject, record: LiveSession): Promise<string | null> {
@@ -179,14 +192,14 @@ export function restartText({ at, cause, subagents }: RestartTextInput): string 
 
 ## 6. Метка на Node и Continue
 
-Code: `src/main/agent/node-sessions.ts:326-360` · key lines: 333, 339, 345, 354, 356
+Code: `src/main/agent/node-sessions.ts:334-375` · key lines: 338, 341, 353, 361, 369, 371
 
 ```ts
   interrupted(projectId: string, nodeId: string, mark: RestartMark): void {
     if (this.runs.has(nodeId)) return
     const node = this.deps.layout.get(projectId).layout.nodes.find((each) => each.id === nodeId)
     if (!node || !isWorfyNode(node)) throw new Error(`${nodeId} is not a Session Node of worfy`)
-    const saved = typeof node.data.sessionId === 'string' && node.data.sessionId !== '' ? node.data.sessionId : null
+    const saved = keptSession(node) ?? mark.sessionId
     const vendor = node.data.vendor === undefined ? UNNAMED_VENDOR : knownVendor(String(node.data.vendor))
     const kind = typeof node.data.kind === 'string' ? knownKind(node.data.kind) : undefined
     this.marks.set(nodeId, mark)
@@ -195,7 +208,7 @@ Code: `src/main/agent/node-sessions.ts:326-360` · key lines: 333, 339, 345, 354
       nodeId,
       vendor,
       ...(kind === undefined ? {} : { kind }),
-      sessionId: saved ?? `interrupted-${nodeId}`,
+      sessionId: saved,
       sdkSessionId: saved,
       state: 'closed',
       error: null,
@@ -203,6 +216,13 @@ Code: `src/main/agent/node-sessions.ts:326-360` · key lines: 333, 339, 345, 354
       model: null,
       restart: { at: mark.at, reason: mark.reason },
     })
+  }
+
+  /** The session id the Session Node keeps in layout.json; null when it keeps none yet. Throws for another Node. */
+  keptSessionOf(projectId: string, nodeId: string): string | null {
+    const node = this.deps.layout.get(projectId).layout.nodes.find((each) => each.id === nodeId)
+    if (!node || !isWorfyNode(node)) throw new Error(`${nodeId} is not a Session Node of worfy`)
+    return keptSession(node)
   }
 
   /** Gives the Session that just started on the Node what continuity.ts kept for it after the restart, once. */
@@ -221,12 +241,15 @@ Code: `src/main/agent/node-sessions.ts:326-360` · key lines: 333, 339, 345, 354
 
 - Что делает: `interrupted` хранит метку и публикует закрытый view с `restart: {at, reason}`; `deliverMark`, после
   старта Session из `start()`, один раз отдаёт ей то же сообщение, очередь и строки `notice` («not continued» перед
-  сообщением).
+  сообщением) и снимает метку. Resume из History (`resume()`) тоже снимает метку: сообщение и очередь там уже
+  устарели. Node без `data.sessionId` (crash раньше записи `layout.json`, она идёт через 250–1000 мс) возобновляет
+  Session записи — `start(…, cutOff)` или `mark.sessionId`, а не запускает новую.
 - Почему здесь: пункт 9 Ticket-а — Continue на Node это Resume (`sessions.start`) плюс `restartText`; поле
   `restart` добавлено в `sessionNodeViewSchema` (`src/shared/ipc/sessions.ts` — вне списка файлов Ticket-а).
 - Без него: Continue после «Interrupted by restart» открыл бы Session без сообщения, как обычный Resume.
 - Требование: [Что делаем, пункты 3, 4 и 9](../issues/05-продолжение-session.md#что-делаем)
-- Риски и пробелы test-ов: метка живёт в памяти; перезапуск до Continue её теряет.
+- Риски и пробелы test-ов: метка живёт в памяти; перезапуск до Continue её теряет. Повторную доставку и Resume из
+  History держат contract test-ы; мутанты без `this.marks.delete` краснеют.
 
 ## 7. Chip на Node
 
@@ -253,6 +276,7 @@ Code: `src/renderer/canvas/nodes/SessionNode.tsx:306-311` · key lines: 307, 311
 Code: `src/main/agent/app-orchestrators.ts:301-308` · key lines: 303, 305
 
 ```ts
+/** Opens the active Project; on the first window, once its page has loaded, continues the Sessions a restart cut off. */
 function onWindow(_event?: unknown, window?: BrowserWindow): void {
   openActive()
   if (continuing || window === undefined) return
@@ -260,7 +284,6 @@ function onWindow(_event?: unknown, window?: BrowserWindow): void {
   window.webContents.once('did-finish-load', () => {
     continueAfterRestart().catch((error: unknown) => console.error('[continuity] the Sessions cut off by the restart were not continued', error))
   })
-}
 ```
 
 - Что делает: тот же обработчик первого окна, что открывает активный Project, один раз, после загрузки страницы окна,
@@ -295,7 +318,7 @@ function onWindow(_event?: unknown, window?: BrowserWindow): void {
 ## Проверить себя
 
 1. Почему транскрипт читается до resume, а не после?
-   - Строки: `src/main/agent/continuity.ts:349-358`
+   - Строки: `src/main/agent/continuity.ts:367-378`
    - Ответ: после SIGKILL resume Claude Code сам дописывает результат «Tool call interrupted» к оборванному вызову —
      прочитанный после resume, вызов выглядел бы завершённым.
 2. Session прошлого turn-а сделала `git push` без результата, а оборванный turn — только чтение файлов. Продолжится
@@ -303,6 +326,6 @@ function onWindow(_event?: unknown, window?: BrowserWindow): void {
    - Строки: `src/main/agent/continuity.ts:75-88`
    - Ответ: да: в `unknownSideEffects` попадают только события от последнего сообщения человека.
 3. Что получит Session Node, которую оборвали 2 часа назад, когда человек нажмёт Continue?
-   - Строки: `src/main/agent/node-sessions.ts:350-360`
+   - Строки: `src/main/agent/node-sessions.ts:365-375`
    - Ответ: Resume, затем строку «worfy: not continued: …», то же сообщение `restartText`, очередь и строку
      «restarted at …».
