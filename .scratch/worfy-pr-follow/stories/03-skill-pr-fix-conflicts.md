@@ -13,7 +13,7 @@ guard-ам: склеенные формы `gh api` и `gh` в любой поз�
 
 ## 2. Сначала назвать конфликт, без конфликта — ничего не трогать
 
-Code: `harness/skills/pr-fix/SKILL.md:139-154` · key lines: 144, 152, 154
+Code: `harness/skills/pr-fix/SKILL.md:141-156` · key lines: 146, 154, 156
 
 ````md
 `mergeStateStatus` is what GitHub last computed; `git merge-tree` says whether the head conflicts with the head of the
@@ -46,7 +46,7 @@ has no `--write-tree`).
 
 ## 3. Политика по режиму: rebase в Full mode, merge commit в Silent mode
 
-Code: `harness/skills/pr-fix/SKILL.md:166-189` · key lines: 171, 178, 183
+Code: `harness/skills/pr-fix/SKILL.md:168-192` · key lines: 173, 180, 185
 
 ````md
 Then settle it by `_resolved.mode`:
@@ -70,7 +70,8 @@ Then settle it by `_resolved.mode`:
   ```
 
   The merge stops with the conflict. Settle each file as above, add them with `git -C "<worktree>" add <files>`, and
-  `git -C "<worktree>" commit --no-edit` makes the merge commit with that message.
+  `git -C "<worktree>" commit --no-edit --cleanup=strip` makes the merge commit with that message: `--cleanup=strip`
+  drops the `# Conflicts:` lines git adds to it, which would otherwise reach the team's repository.
 
 The rebase or the merge commit is the commit of this mode: go on with step 6, which checks it.
 ````
@@ -87,7 +88,7 @@ The rebase or the merge commit is the commit of this mode: go on with step 6, wh
 
 ## 4. Push после rebase — только с lease на head до rebase
 
-Code: `harness/skills/pr-fix/SKILL.md:261-274` · key lines: 262, 268, 273
+Code: `harness/skills/pr-fix/SKILL.md:264-277` · key lines: 265, 271, 276
 
 ````md
 Then, unless the person already answered "Not now", ask with AskUserQuestion "Push <n> commit(s) to <headRefName>?"
@@ -116,32 +117,32 @@ their commits stay is the person's decision, and this command with the new head 
 
 ## 5. Lease отказывает, когда ветку сдвинули; голый `--force` бы прошёл
 
-Code: `test/contract/harness-evals.test.ts:2213-2236` · key lines: 2215, 2222, 2229, 2234
+Code: `test/contract/harness-evals.test.ts:2214-2237` · key lines: 2216, 2223, 2230, 2235
 
 ```ts
     const marker = read(work, MARKER)
     const lease = fill(line('git -C "<worktree>" push --force-with-lease'), v)
     expect(words(lease)).toContain(`--force-with-lease=sum-all:${head}`)
-    const atBare = (): string => git(work, home, `git --git-dir ${bare} rev-parse refs/heads/sum-all`).stdout.trim()
+    const atBare = (): string => git(work, home, `git --git-dir "${bare}" rev-parse refs/heads/sum-all`).stdout.trim()
     // A colleague pushed a commit to the branch after the head this run started from.
-    const tree = git(work, home, `git --git-dir ${bare} rev-parse ${head}^{tree}`).stdout.trim()
-    const theirs = git(work, home, `git --git-dir ${bare} commit-tree ${tree} -p ${head} -m colleague`).stdout.trim()
-    expect(git(work, home, `git --git-dir ${bare} update-ref refs/heads/sum-all ${theirs} ${head}`).status).toBe(0)
+    const tree = git(work, home, `git --git-dir "${bare}" rev-parse ${head}^{tree}`).stdout.trim()
+    const theirs = git(work, home, `git --git-dir "${bare}" commit-tree ${tree} -p ${head} -m colleague`).stdout.trim()
+    expect(git(work, home, `git --git-dir "${bare}" update-ref refs/heads/sum-all ${theirs} ${head}`).status).toBe(0)
     const refused = git(work, home, lease)
     expect(refused.status, refused.stderr).not.toBe(0)
     expect(refused.stderr).toMatch(/stale info|rejected/)
     expect(atBare()).toBe(theirs)
     expect(published(CONFLICTS, work)).toBe(false)
     // A bare --force would have dropped it: the lease is what refuses.
-    const forced = git(work, home, `git -C ${worktree} push --force origin HEAD:refs/heads/sum-all`)
+    const forced = git(work, home, `git -C "${worktree}" push --force origin HEAD:refs/heads/sum-all`)
     expect(forced.status, forced.stderr).toBe(0)
-    expect(git(work, home, `git --git-dir ${bare} merge-base --is-ancestor ${theirs} refs/heads/sum-all`).status).toBe(1)
+    expect(git(work, home, `git --git-dir "${bare}" merge-base --is-ancestor ${theirs} refs/heads/sum-all`).status).toBe(1)
     // The branch still at the old head: the lease push lands, and the marker records it.
-    expect(git(work, home, `git --git-dir ${bare} update-ref refs/heads/sum-all ${head}`).status).toBe(0)
+    expect(git(work, home, `git --git-dir "${bare}" update-ref refs/heads/sum-all ${head}`).status).toBe(0)
     writeFileSync(join(work, MARKER), marker)
     const landed = git(work, home, lease)
     expect(landed.status, landed.stderr).toBe(0)
-    expect(atBare()).toBe(git(work, home, `git -C ${worktree} rev-parse HEAD`).stdout.trim())
+    expect(atBare()).toBe(git(work, home, `git -C "${worktree}" rev-parse HEAD`).stdout.trim())
     expect(published(CONFLICTS, work)).toBe(true)
 ```
 
@@ -211,13 +212,19 @@ const apiOptions = () => {
   regex только с голыми `-f`/`-F`; regex с `gh` только в начале команды; regex без `\n` перед `gh`; regex, где
   подкоманда может начаться с оператора; push в SKILL.md через голый `--force`; lease без ожидаемого SHA; lease вместе
   с `--force`; lease на remote-tracking ref.
-- Платный eval не запускался (бриф): прогон всех кейсов запускает Orchestrator.
+- Платный eval на 6f0f63a98 (запускал Orchestrator, 2 run-а на кейс, потолок 3 USD на кейс): `pr-fix-checks` 1.00
+  (0.80 USD), `pr-fix-comments` 1.00 (1.20 USD), `pr-fix-conflicts` 0.96 (0.75 USD), `pr-fix-conflicts-silent` 1.00
+  (0.83 USD); всего 3.58 USD.
+- Раунд 2: contract test закрепляет три фразы, которые держат push безопасным (push только на «Push», отказ не
+  форсится, без ответа и без человека push нет); mutant-ы «на любой ответ», «повтор с `--force`», «без человека —
+  push» красные. Пути в командах git test-ов в кавычках: блок pr-fix зелёный с TMPDIR, где есть пробел. Merge commit в
+  Silent mode — с `--cleanup=strip`: mutant без него красный, в сообщении остаются строки `# Conflicts:`.
 
 ## Проверить себя
 
 1. Почему при exit 0 у `merge-tree` skill ничего не делает, хотя база ушла вперёд?
    - Ответ: rebase ради свежей базы даёт новый head, новый CI и новое ревью без нужды; PR с зелёными checks вливается как есть.
-   - Строки: `harness/skills/pr-fix/SKILL.md:152-154`
+   - Строки: `harness/skills/pr-fix/SKILL.md:154-156`
 2. Почему lease несёт SHA head-а до rebase, а не голый `--force-with-lease`?
    - Ответ: голый lease сравнивает с remote-tracking ref, которого в новом worktree может не быть или он устарел; явный SHA отказывает ровно тогда, когда ветку сдвинули после этого head.
-   - Строки: `harness/skills/pr-fix/SKILL.md:268`, `test/contract/harness-evals.test.ts:2219-2224`
+   - Строки: `harness/skills/pr-fix/SKILL.md:271`, `test/contract/harness-evals.test.ts:2220-2225`
