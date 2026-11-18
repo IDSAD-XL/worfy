@@ -29,14 +29,13 @@
 - `worfy-human-review`: закрыт 14/14; 12 принят владельцем 11-09.
 - `worfy-multi-repo-ticket` ([spec](.scratch/worfy-multi-repo-ticket/spec.md), ADR-0104): 6/8; 01–05, 07 влиты (04 — #1752, 05 — #1758); дальше 06, 08.
 - `worfy-pr-inbox` ([spec](.scratch/worfy-pr-inbox/spec.md)): 3/8; 01, 02, 08 влиты в ночь на 11-10 (#1754, #1755, #1761); дальше 03–07.
-- `worfy-continuity` (работа переживает перезапуск worfy и compaction; [spec](.scratch/worfy-continuity/spec.md), ADR-0108): 15/16 на 2026-11-18, `main` @ `4206c5c15`; осталась 15 — приёмка владельцем. Eval 13: hook после compaction не обогнал baseline (0,64 против 0,73), повтор — «Итог» 13.
-- `worfy-pr-follow` ([spec](.scratch/worfy-pr-follow/spec.md), critic Split): часть 1 (кнопки Fix checks, Resolve conflicts, Address comments) принимается по указанию владельца 2026-11-18; потом `worfy-changes-view`.
+- `worfy-continuity` ([spec](.scratch/worfy-continuity/spec.md), ADR-0108): 15/16, осталась приёмка 15. Дальше `worfy-pr-follow` часть 1, затем `worfy-changes-view`.
 
 ## Ждёт владельца
 
 - Приёмки, старшие первыми: `worfy-multi-vendor` 43 (Mac Stable, затем ПК) → `worfy-windows` 16 → по готовности кода `worfy-auto-approve` 11; и ручные проверки (Mac и ПК, ~30 мин) — [пошаговые гайды](.scratch/owner-acceptance-guides.md).
 - `worfy-windows` 07 закрыт (#1127, отступления Q31 подтвердить).
-- `worfy-continuity` 15: приёмка после обновления Mac Stable (снимки 07, 08, 09, 12); подтвердить «Решено без владельца» spec и Ticket-ов 05–08, 12, 13 и снятие замка worktree в 05/06 (не сделано, TTL 60/30 мин).
+- `worfy-continuity` 15: приёмка в Mac Stable и «Решено без владельца» Ticket-ов.
 - Владелец в Mac Stable: экран Product Session рядом с прототипом (`worfy-product-session` 08, 21, 23), polish 75, 77 и Product Session 26–32 (в 32 — первый настоящий вызов Haiku).
 
 ## Риски и долги
@@ -69,7 +68,7 @@
 - `worfy-harness` 31: `$0` и `$1` в shell-блоках skills подменяются аргументами вызова.
 - Кандидаты Harness (`worfy-harness`): изоляция `preflight.test.sh` (11), абсолютный путь к `gh` (01), PATH с node в hook-е `gh-token-env` (18); прочие — `worfy-polish`.
 - `worfy-link` ведёт Session на Mac, `worfy-windows` — Session на ПК; PR с ПК вливает Session на Mac по `ci-ok` и `review`; метки `needs-mac-gate` нет (ADR-0083).
-- ПК должен gate full на `4206c5c15` за `worfy-continuity` (04–08 влиты со scope `pc`, e2e не прогонялись на Windows).
+- ПК должен gate full на `4206c5c15` (`worfy-continuity` 04–08 со scope `pc`).
 - ПК должен gate full на свежем `main` за #878 (влит с `check/windows` skipped, решение 2026-10-28): ПК без питания с 2026-11-05 ~20:15Z; последний, `9731f583a`, — только flaky.
 - E4 (подпись Developer ID и нотаризация) — после `worfy-link` и `worfy-windows` и только при первом внешнем пользователе ([roadmap](docs/roadmap.md)).
 
