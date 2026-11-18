@@ -1,0 +1,4 @@
+{"type":"user","isSidechain":true,"agentId":"a-free","sessionId":"s-orch","timestamp":"2026-11-18T11:00:00.000Z","message":{"role":"user","content":"Merge the open pull request once its checks are green."}}
+{"type":"assistant","isSidechain":true,"agentId":"a-free","sessionId":"s-orch","timestamp":"2026-11-18T11:00:30.000Z","message":{"id":"msg_1","role":"assistant","content":[{"type":"tool_use","id":"tu-checks","name":"Bash","input":{"command":"gh pr checks 1234"}}]}}
+{"type":"user","isSidechain":true,"agentId":"a-free","sessionId":"s-orch","timestamp":"2026-11-18T11:00:40.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu-checks","content":"ci-ok pass"}]}}
+{"type":"assistant","isSidechain":true,"agentId":"a-free","sessionId":"s-orch","timestamp":"2026-11-18T11:01:00.000Z","message":{"id":"msg_2","role":"assistant","content":[{"type":"tool_use","id":"tu-merge","name":"Bash","input":{"command":"gh pr merge 1234"}}]}}
