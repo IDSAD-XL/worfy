@@ -330,6 +330,10 @@ answers.
   names the Epic only: the Session starts before the run reads the Wave's Tickets. An Orchestrator a person opened, or a
   "Run wave" sent into it by hand, has no Epic of its own: a process's environment is fixed when it starts, and worfy does
   not restart a running Orchestrator for it. There the Harness takes the Epic of the checkout's branch.
+  Known limitation: in a queue of Epics, the first Wave of the next Epic can go to the Session that ran the previous Epic,
+  when the Orchestrator is not free for a new session (a turn, a background task or a queued message). That Session keeps
+  `WORFY_EPIC` and the system prompt line of the previous Epic, so after a compaction the Harness gives back the previous
+  Epic's state, until the run starts a new session for a later Wave.
 
 **Notifications.** A system notification goes out when a Session finishes a turn, asks a permission or asks a question while
 no worfy window has focus. A Session from a terminal or Claude desktop notifies when its status goes from busy to idle. One

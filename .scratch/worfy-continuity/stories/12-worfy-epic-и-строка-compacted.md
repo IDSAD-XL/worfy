@@ -74,9 +74,10 @@ export function sharedOrchestrators(): Orchestrators {
   достаёт `src/main/mcp/browser-server.ts`. Условие Orchestrator-а — ленивый или динамический путь.
 - Без него: Orchestrators не знали бы Epic Run-а, а `run.ts` — файл соседнего Ticket-а 06, его не трогаем.
 - Требование: [Что делаем, пункт 1](../issues/12-worfy-epic-и-строка-compacted.md#что-делаем)
-- Риски и пробелы test-ов: сама проводка (`waveEpic: runningEpic`) test-ом не покрыта; test-ы Orchestrators подставляют
-  свой `waveEpic`. Run существует только после загрузки `ipc/autopilot`, поэтому `null` от ещё не загруженного модуля
-  на деле не встречается — это вывод, не проверка.
+- Риски и пробелы test-ов: проводку (`waveEpic: runningEpic`) проверяет `test/contract/app-orchestrators.test.ts`: настоящий
+  `sharedAutopilot()` с подменённым `runningEpic`, unattended старт через `sharedOrchestrators()` даёт Session Epic `ep`;
+  test красный и без `waveEpic: runningEpic`, и при `runningEpic`, всегда равном `null`. Run существует только после
+  загрузки `ipc/autopilot`, поэтому `null` от ещё не загруженного модуля на деле не встречается — это вывод, не проверка.
 
 ## 4. Переменная и строка system prompt у Claude Code
 
@@ -170,6 +171,8 @@ Code: `src/main/vendors/codex/session.ts:941-946` · key lines: 943, 946
 - `src/renderer/session/` — notice уже показывается строкой.
 - `src/shared/transcript/parse.ts` — нет в «Где в коде».
 - Русская страница `docs/features/ru/sessions.md` — Ticket 14.
+- Первая Wave следующего Epic-а очереди, ушедшая в ту же Session (`newSession` в `run.ts` ответил `same`: Orchestrator
+  занят), оставляет `WORFY_EPIC` и строку prompt прежнего Epic-а. Только описано в `sessions.md` и «Итог» тикета.
 
 ## 8. Как проверено
 
@@ -180,6 +183,9 @@ Code: `src/main/vendors/codex/session.ts:941-946` · key lines: 943, 946
   Epic-а в `after-compact.mjs` — exit 1, проваливается новая проверка «WORFY_EPIC comes before the Epic of the
   checkout's branch» (долг Ticket-а 11).
 - `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (839 файлов test-ов); gate fast — exit 0.
+- Второй раунд PR: 5 мутантов в отдельной копии ветки, каждый красит свой test — без `waveEpic: runningEpic` и с
+  `runningEpic` = `null` (`app-orchestrators.test.ts`), пустой Epic не обращён в `null` и бросок `waveEpic` без
+  `try/catch` (`orchestrator-wave-epic.test.ts`), строка prompt при `epic: ''` (`agent-options.test.ts`).
 
 ## Проверить себя
 

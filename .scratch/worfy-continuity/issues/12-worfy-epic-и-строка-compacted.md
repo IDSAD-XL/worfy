@@ -88,6 +88,15 @@ Source: [spec.md](../spec.md), «Ticket-ы», 12; «Решения по реал
   задано при старте, а перезапускать Orchestrator ради переменной worfy не станет. Там hook `after-compact` берёт Epic
   ветки checkout-а, иначе первый из Epics in play (Ticket 11). Attended Orchestrator — открытый человеком или отданный
   после Run-а — Epic-а не несёт.
+- **Известное ограничение (не чинили, второй раунд PR).** В очереди Epic-ов первая Wave следующего Epic-а может уйти в ту
+  же Session: `newSession` (`src/main/autopilot/run.ts`) отвечает `same`, когда Orchestrator занят (turn, фоновая задача,
+  очередь сообщений). Эта Session хранит `WORFY_EPIC` и строку system prompt прежнего Epic-а, и hook `after-compact` после
+  compaction даёт wave-brief прежнего Epic-а — пока Run не начнёт новую session для следующей Wave. Записано и в
+  `docs/features/sessions.md`.
+- **Второй раунд PR, test-ы.** Связка `waveEpic` → `Autopilot.runningEpic` в `app-orchestrators.ts` теперь проверена
+  `test/contract/app-orchestrators.test.ts` (настоящий `sharedAutopilot()`, `runningEpic` подменён); бросающий и пустой
+  ответ `waveEpic` — `test/contract/orchestrator-wave-epic.test.ts`; пустой `epic` без строки prompt —
+  `test/unit/agent-options.test.ts`. Каждый test красный на своём мутанте (5 мутантов, копия ветки).
 - **Пункт 2 — дописка к system prompt.** Добавлена: «Итог» Ticket-а 01, вопрос 4, — дописка переживает compaction главной
   Session (`system_prompt_append_after: True` и при `/compact`, и при auto-compaction). Строка называет только Epic и
   просит запустить `wave-brief <epic>`; Ticket-ов Wave в ней нет: Session стартует до того, как Run прочитал Ticket-ы
