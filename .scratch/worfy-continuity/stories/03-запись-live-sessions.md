@@ -178,3 +178,17 @@ Code: `src/main/agent/app-registry.ts:94-97` · key lines: 95, 96
    - Строки: `src/main/agent/live-sessions.ts:176`
    - Ответ: Session, запущенная с `resume`, меняет временный `pending-…` id на id SDK при первом init; Node при этом
      остаётся тем же.
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED
+> Noted: src/main/agent/live-sessions.ts:84 [low] — a temp file left when the process dies between write and rename is not cleaned on the next start; harmless (dot-prefixed, .tmp suffix, pid/counter in the name). noteContinued/continuedAt are unused until ticket 05 (covered by a unit test).
+> Review depth: low — default: the profile has no review.depth.wave
+> Review tokens: 59675
+> Could not verify: no mutants were run (the reviewer may not edit the worktree); pnpm lint, typecheck and the gate were not run locally — ci-ok is green on the head.
+
+Code: `src/main/agent/live-sessions.ts:84-84` · key lines: 84
+
+```ts
+  wanted: string | null
+```
