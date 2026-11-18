@@ -1,7 +1,8 @@
 # 124 — Flaky test «gh hangs the whole Run» на Windows: последнее чтение PR не дожидается test
 
 Type: bug
-Status: claimed 2026-11-18T05:10Z
+Status: done 2026-11-18T05:37Z
+PR: #1985
 Blocked by: none
 Source: три CI run-а, красный job `windows (2/3) / full-suite` (оба захода, с повтором): `main` bdd70bfe, run
 44211591317 (2026-11-18); ветка `worfy-stuck-agents/03`, run 44032292083; ветка `worfy-continuity/09`, run 44236414105
@@ -50,6 +51,7 @@ Source: три CI run-а, красный job `windows (2/3) / full-suite` (об�
   - evidence: test-run pass · `pnpm test test/contract/autopilot-faults-*.test.ts test/contract/test-timeout-scale.test.ts` exit 0 · mac - · b11ac4e27cb3ab05b55168751a558e0a3ac03b0e
   - evidence: gate pass · `gate fast` exit 0 · mac - · b11ac4e27cb3ab05b55168751a558e0a3ac03b0e
 - [ ] Job `windows (2/3) / full-suite` PR-а зелёный.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44243998755/job/134601622170 · ci - · c02d06a9e6d800067491f91bc707489c237e886a
 - [ ] Записи карантина для этого test-а нет.
   - evidence: commit pass · worfy-polish/124: let the last gh call of the hung Run outlive the test's waits · - - · b11ac4e27cb3ab05b55168751a558e0a3ac03b0e
 

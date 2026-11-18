@@ -93,3 +93,24 @@ exit 0; gate fast — exit 0. Windows — job `windows (2/3) / full-suite` CI э
    - Ответ: что Run остановился по `END_READ_MS` на часах test-а, не дождавшись gh; вызов живёт до SIGKILL test-а,
      а не 1,5 с реального времени.
    - Строки: `test/contract/autopilot-faults-github.test.ts:189-192`
+
+## 6. Что нашёл review и что осталось
+
+> VERIFIED
+> Noted: test/contract/autopilot-faults-github.test.ts:198-200 — the test now SIGKILLs the last gh stand-in itself, so that `until(... every !alive)` can no longer fail for a product reason; "no hung gh is left" is now carried by the first-call check at :165 (ghRunner's own timeout-kill; removing the timeout in src/main/github/prs.ts:133 turns it red) and the afterEach at :100-104 (low).
+> Review depth: low — default: the profile has no review.depth.wave
+> Review tokens: 65998
+
+Code: `test/contract/autopilot-faults-github.test.ts:198-200` · key lines: 198
+
+```ts
+    process.kill(last, 'SIGKILL')
+    await until(() => hungPids(h.gh!.dir).every((pid) => !alive(pid)), 'the last hung gh call to end')
+    // I2: the log holds only `pr list`.
+```
+
+Code: `src/main/github/prs.ts:133-133` · key lines: 133
+
+```ts
+        { cwd, env: { ...env, ...extra, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', NO_COLOR: '1', ...start.env }, encoding: 'utf8', timeout: options.timeoutMs ?? 30_000, maxBuffer: 32 * 1024 * 1024 },
+```
