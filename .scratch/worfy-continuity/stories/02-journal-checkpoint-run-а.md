@@ -114,3 +114,24 @@ fixture-Journal-ов и рваная последняя строка — сос�
 2. Что получает следующий Run Epic-а, если прошлый Run шёл только по Ticket-у 01, а до него Force stop оставил 01, 02, 03?
    - Ответ: 02 и 03 — переданные и не названные Ticket-ы переходят дальше (`carried`), а 01 Run взял и закрыл.
    - Строки: `src/shared/autopilot/checkpoint.ts:195`, `src/shared/autopilot/checkpoint.ts:197`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED
+> Consider: docs/features/autopilot-faults.md:132 and the `discarded` row near :217 [low] — they say in the present tense that Discard writes `run-stopped` with `discarded`, but nothing in src writes it yet (the Discard button is a later ticket); the `run-suspended` paragraph already says «writes neither yet». Left for the ticket that adds Discard.
+> Noted: src/main/autopilot/journal.ts:230 [low, outside the diff] — readRecentRuns reads only the last 30 runs (ESTIMATE_RUNS), so a resumable list carried through more than 30 consecutive Wave-less runs would be lost; unlikely.
+> Review depth: low — default: the profile has no review.depth.wave
+> Review tokens: 76347
+> Could not verify: pnpm lint, typecheck, the full pnpm test and the gate were not run locally — ci-ok is green on the head; that renderer resumable stays empty after a restart until ticket 06 was confirmed only by reading.
+
+Code: `docs/features/autopilot-faults.md:132-132` · key lines: 132
+
+```md
+**Discard** writes `run-stopped` with the reason `discarded` into the cut-off run's journal, with the Tickets of its Wave in work.
+```
+
+Code: `src/main/autopilot/journal.ts:230-230` · key lines: 230
+
+```ts
+export const ESTIMATE_RUNS = 30
+```
