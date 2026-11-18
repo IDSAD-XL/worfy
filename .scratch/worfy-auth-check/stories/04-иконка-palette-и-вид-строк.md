@@ -228,3 +228,27 @@ Code: `src/renderer/shell/FirstRunChecks.tsx:246-252` · key lines: 249, 252
    Ответ: в tablist по ARIA только tab; tablist получил `display: contents`, и `order` рисует кнопку между вкладками верха
    и низа, а DOM и locator-ы test-ов остаются прежними.
    Lines: `src/renderer/shell/shell.css:93-113`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED
+> Round 2, delta b181c3691..fa8f87248 (two e2e files, 11+/4-; no product code). The red macos-e2e (2/2) / windows-e2e (4/4) of run 44407467643: test/e2e/settings-health.spec.ts:264 looked the rail button up by role while the modal Settings window was open; a modal dialog (src/renderer/theme/kit/Dialog.tsx:81, modal: true) hides the rest of the app from the accessibility tree, so no element was found. The test now reads the button by its class under Settings (data-health, aria-label "Health check" unchanged), and checks the dot, data-health and aria-description by role after Settings is closed (:282-286). The red windows-e2e (2/4): test/e2e/first-run.spec.ts:288 expected the Windows warnings in the old order; ticket 04 orders rows by level, so it now compares a sorted set. Round 1 verdict (2021-r1.md) stands for the rest.
+> Noted: both fixes are checked by CI on this head only (no local e2e by the owner's rule).
+
+Code: `test/e2e/settings-health.spec.ts:264-264` · key lines: 264
+
+```ts
+    // The modal Settings window hides the rest of the app from the accessibility tree, the sidebar too: a role
+```
+
+Code: `src/renderer/theme/kit/Dialog.tsx:81-81` · key lines: 81
+
+```tsx
+  const kit = useKitLayer({ open, close: onClose, modal: true })
+```
+
+Code: `test/e2e/first-run.spec.ts:288-288` · key lines: 288
+
+```ts
+      // Read as a set: the rows go by their level (worfy-auth-check ticket 04), PowerShell, a critical row, before Limits.
+```
