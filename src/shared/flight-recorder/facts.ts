@@ -26,9 +26,11 @@ export type SpanOutcome = (typeof SPAN_OUTCOMES)[number]
  * Why the work of a Run stood (the spec's Model section, on Waits, blocks and retries). `start-window`:
  * the Run mode Start window held the next Wave until the next start of its hours (worfy-resource-planner
  * ticket 08). `orchestrator-busy`: the Run was accepted while the Project's Orchestrator was busy and
- * waited for it to be free (worfy-autopilot-queue tickets 07, 18).
+ * waited for it to be free (worfy-autopilot-queue tickets 07, 18). `restart`: worfy went away under the Run
+ * (a quit, an Update, a shutdown, a crash) and the Run was continued in the same Journal (worfy-continuity
+ * ticket 09); its detail is what it went on after.
  */
-export const WAIT_CAUSES = ['limits', 'limits-budget', 'start-window', 'background-tasks', 'gate-queue', 'other-machine', 'api-retry', 'orchestrator-busy'] as const
+export const WAIT_CAUSES = ['limits', 'limits-budget', 'start-window', 'background-tasks', 'gate-queue', 'other-machine', 'api-retry', 'orchestrator-busy', 'restart'] as const
 export type WaitCause = (typeof WAIT_CAUSES)[number]
 
 /** Where a fact came from: the source of a span's start and of its end. */
@@ -61,7 +63,7 @@ export type LostSource = keyof typeof LOST_SOURCE_LABELS
 // | `work` `agent`       | transcripts (14): `Agent` … report, `SendMessage` … report; `worktree` a canonical path |
 // | `work` `ci`          | GitHub (15)                                                            |
 // | `work` `gate`, `script` | gate logs (16): a gate run by `sha`/`worktree` (a canonical path), its steps with `parentWork` |
-// | `waits`              | Journal (13): `limits`, `limits-budget`, `start-window` (worfy-resource-planner 08), `background-tasks`, `gate-queue`, `orchestrator-busy` (worfy-autopilot-queue 18); GitHub (15): `other-machine` |
+// | `waits`              | Journal (13): `limits`, `limits-budget`, `start-window` (worfy-resource-planner 08), `background-tasks`, `gate-queue`, `orchestrator-busy` (worfy-autopilot-queue 18), `restart` (worfy-continuity 09); GitHub (15): `other-machine` |
 // | `retryCauses`        | Journal (13): `narrow-round`, `session-error`, `ticket-continued` (worfy-stuck-agents 05) |
 // | `turns`              | the Orchestrator's transcript (14)                                     |
 // | `lost`               | the reader of the source that is gone: 14 transcripts, 15 GitHub, 16 gate logs and branches |

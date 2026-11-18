@@ -41,8 +41,11 @@ const SESSIONS: SessionInfo[] = [
 ]
 const GAPS: SourceGap[] = [{ source: 'transcript', start: at(30, 0, 0, 9), end: at(31, 0, 0, 9), why: 'Transcripts are deleted after 30 days.' }]
 
+/** Facts a test adds to FACTS (reset after each test). */
+let extraFacts: WorkFact[] = []
+
 function viewFor(projectId: string, period: Period, loading: WorkTrackView['loading'] = [], gaps: readonly SourceGap[] = GAPS): WorkTrackView {
-  const input = { period, now: NOW.toISOString(), facts: FACTS, sessions: SESSIONS, gaps: [...gaps] }
+  const input = { period, now: NOW.toISOString(), facts: [...FACTS, ...extraFacts], sessions: SESSIONS, gaps: [...gaps] }
   return { projectId, ...input, summary: summarize(input), loading }
 }
 
@@ -99,6 +102,7 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
 })
 afterEach(() => {
+  extraFacts = []
   cleanup()
   vi.useRealTimers()
   vi.restoreAllMocks()
@@ -159,6 +163,21 @@ describe('the Work track view', () => {
     // The merged PR is a diamond on the axis; «now» is on the track.
     expect(screen.getByTestId('work-track-pr').getAttribute('title')).toContain('PR #1500 merged')
     expect(document.querySelectorAll('[data-testid="work-track-now"]').length).toBeGreaterThan(0)
+  })
+
+  // worfy-continuity ticket 09: a Run continued after a restart is one Run, its Wait `restart` hatched on the lane of Runs.
+  it('draws the Wait `restart` of a continued Run on the lane of Runs, named by its cause, with its time in the tooltip', async () => {
+    extraFacts = [{ id: 'wait-1', kind: 'wait', start: at(4, 10), end: at(4, 10, 3), outcome: 'ok', session: null, parent: 'run-1', epic: 'worfy-alpha', source: 'journal', title: 'restart (update)' }]
+    fakeMain()
+    render(<RunsView activeProjectId="p-1" />)
+    await openWorkTrack()
+    const bar = document.querySelector<HTMLElement>('[data-span-id="wait-1"]')!
+    expect(bar.closest('[data-lane-id="runs"]')).not.toBeNull()
+    expect(bar.className).toContain('w-wt-bar--wait')
+    expect(bar.title).toMatch(/^restart \(update\)\n.*10:00 – 10:03 · 3m 00s\nworfy-alpha$/u)
+    // A Wait is no work: the Epic lanes do not hold it.
+    fireEvent.click(screen.getByRole('button', { name: 'by Epic' }))
+    expect(document.querySelector('[data-span-id="wait-1"]')).toBeNull()
   })
 
   it('shifts the period with ‹ ›, not past today', async () => {

@@ -359,6 +359,11 @@ button.w-wt-toggle {
   font-weight: 600;
   line-height: calc(var(--w-wt-bar) - 3px);
 }
+.w-wt-bar--wait {
+  background: repeating-linear-gradient(45deg, var(--span-wait-stripe) 0 3px, var(--span-wait-tint) 3px 6px);
+  border: 1px solid var(--span-wait);
+  color: var(--text);
+}
 .w-wt-bar--turn {
   background: var(--span-orchestrator);
 }

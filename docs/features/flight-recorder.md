@@ -51,7 +51,10 @@ says `Epic filter: <epic>`. Then the facts of the chosen run:
 
 - the Epic (`Epics` and the queue for a run over several, all of them in the tooltip), the start and the end (`now`
   while it goes on) in local time, and the duration;
-- how it stopped: `running`, `stopped: <reason>`, or `no stop in the Journal` when the journal just ends. A stop for a
+- how it stopped: `running`, `stopped: <reason>`, or `no stop in the Journal` when the journal just ends: the app went
+  away (a quit, an Update, a shutdown, a crash) and the run was never continued. A run that was continued after such a
+  restart is one run, in the same journal under the same id, with a `restart` wait inside it (the **Waits** lane,
+  below), and it says how it stopped at its real end. A stop for a
   block or a failure is in the problem colour. A run that waited for its Orchestrator says it in words:
   `start-cancelled: cancelled while it waited for the Orchestrator`, `start-refused: refused once the Orchestrator was
   free`; so does a queue whose last Epic waits for the owner: `waits-owner: the last Epic of the queue waits for the
@@ -95,7 +98,13 @@ The rows, top to bottom:
    `Background tasks`, `Gate queue`, `Other Machine`, `Retry after an API error` (from `turn-retry` to `resumed`, or
    to the `limits-hit` that takes it over) or `Orchestrator busy` (a run accepted while the Orchestrator was busy, from
    `orchestrator-busy` to `orchestrator-free`, or to the stop of a run cancelled while it waited; its reason is
-   `turn`, `N queued` and the Orchestrator's tasks by name). The tooltip of a `Start window` bar gives its reason:
+   `turn`, `N queued` and the Orchestrator's tasks by name) or `restart (<cause>)`: worfy went away under a run that
+   was then continued, from `run-suspended` (after a crash, which writes none, from the journal's last line before)
+   to `run-continued`, the cause what `run-continued` went on after: `quit`, `update`, `shutdown` or `crash`; its
+   label reads `restart (update) · 3m 00s`. The Wave in work is cut off where the restart began; the waits for
+   background tasks, a busy Orchestrator and the gate queue end there too, while a Limits, Start window, budget or
+   retry wait goes on across it. In Waits by cause it is `restart`. A journal of before the restart was continued
+   (a quit wrote `run-stopped` `app-quit`) reads as a stopped run with no `restart` wait. The tooltip of a `Start window` bar gives its reason:
    `outside, until <time>`, or `wave-too-long, until <time>` when the next Wave would not end inside the window. The
    time of a wait's `until` is local, as the other times on the screen, in the tooltip and in the detail panel.
 2. The **Orchestrator** lane: the Orchestrator's turns. A turn links to the Tickets it touched and is not nested in
@@ -222,7 +231,7 @@ commits are found by the branch of a Ticket and by sha; nothing is stamped into 
 
 | Source | Gives |
 |---|---|
-| The Autopilot journal | The run and its Waves, the waits for the Limits, the budget, background tasks, the gate queue, a retry after an API error and a busy Orchestrator, the Epics of a queue and their starts, the Tickets' statuses (`ticket-status`), the narrow fix round, Session errors, refused dialogs, a person's actions, the stop. |
+| The Autopilot journal | The run and its Waves, the waits for the Limits, the budget, background tasks, the gate queue, a retry after an API error, a busy Orchestrator and a restart (`run-suspended`, `run-continued`), the Epics of a queue and their starts, the Tickets' statuses (`ticket-status`), the narrow fix round, Session errors, refused dialogs, a person's actions, the stop. |
 | The Orchestrator's transcript | Its turns, the `Agent` calls and the `SendMessage` calls that resume an agent, the task-notifications. On Codex: the spawns, `send_message` and `followup_task`, and the Subagents' ends. |
 | The Subagents' transcripts | The start, the end and the outcome of each agent. |
 | GitHub | The PR opened and its new heads, CI runs and their retries, verdict comments, marks of agents on the head, the merge, and the label of the cross-machine gate (the wait `Other Machine`). |

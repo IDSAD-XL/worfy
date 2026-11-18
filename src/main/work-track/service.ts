@@ -4,7 +4,9 @@
 //
 // - Run journals (src/main/autopilot/journal.ts, listRuns; parsed by src/shared/flight-recorder/from-journal.ts):
 //   the Runs and their Waves. A Run goes on while its Journal has no run-stopped, it is the Project's newest
-//   and Autopilot works on its Epic, as Flight Recorder decides it (src/main/flight-recorder/service.ts).
+//   and Autopilot works on its Epic, as Flight Recorder decides it (src/main/flight-recorder/service.ts). A Run
+//   continued after a restart is one Run, and its Waits `restart` are facts of it, on its lane (worfy-continuity
+//   ticket 09), named as Run history names them: `restart (update)`.
 // - Wave markers and gate runs: harness-state.ts. A Wave of a Run and its marker are one Wave (sameWave): the
 //   Journal's stays, with its Run.
 // - Transcripts of every Session (transcripts.ts, ticket 05), GitHub (github.ts, ticket 06), the Ticket
@@ -216,6 +218,11 @@ export class WorkTrackService {
         }
         facts.push(fact)
         waves.push({ fact, epic, tickets: wave.tickets })
+      }
+      for (const wait of journal.waits) {
+        if (wait.cause !== 'restart' || wait.end === null) continue
+        const title = wait.detail === undefined ? 'restart' : `restart (${wait.detail})`
+        facts.push({ id: `wait:${summary.run}:${wait.id}`, kind: 'wait', start: wait.start, end: wait.end, outcome: 'ok', session: null, parent: runId, epic, source: 'journal', title })
       }
     }
     return { facts, gaps: [], waves }

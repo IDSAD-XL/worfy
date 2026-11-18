@@ -26,7 +26,8 @@ export const STATUS_ROW_TITLE = 'Ticket status'
 /** The kinds that are work: the hours count them, the Epic lanes hold them (Runs are their Waves). */
 export const WORK_KINDS: ReadonlySet<WorkFactKind> = new Set<WorkFactKind>(['wave', 'turn', 'subagent'])
 
-const RUNS_KINDS: ReadonlySet<WorkFactKind> = new Set<WorkFactKind>(['run', 'wave'])
+/** The lane «Autopilot Runs»: the Runs, their Waves and the Waits `restart` of a continued Run (worfy-continuity ticket 09). */
+const RUNS_KINDS: ReadonlySet<WorkFactKind> = new Set<WorkFactKind>(['run', 'wave', 'wait'])
 const OFF_LANE_KINDS: ReadonlySet<WorkFactKind> = new Set<WorkFactKind>(['pr', 'ci', 'ticket-status'])
 const RUNS_SOURCES: ReadonlySet<WorkSource> = new Set<WorkSource>(['journal', 'wave-marker'])
 

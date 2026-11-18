@@ -42,6 +42,7 @@ const KIND_WORDS: Readonly<Record<WorkFactKind, string>> = {
   ci: 'CI run',
   gate: 'Gate run',
   'ticket-status': 'Ticket status change',
+  wait: 'Wait',
 }
 
 const RUN_PREFIX = 'run:'
