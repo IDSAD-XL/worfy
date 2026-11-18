@@ -10,16 +10,20 @@
 //   I4  the journal names the expected reason and ends (no run-stopped only for a killed app, or for
 //       a run a quit suspended: run-suspended last, worfy-continuity ticket 02); a quit, an Update or a
 //       shutdown suspends a Run — run-suspended with its cause last — and never stops one with app-quit
-//       (worfy-continuity ticket 04);
+//       (worfy-continuity ticket 04); a Run continued after the restart (worfy-continuity ticket 06) carries
+//       run-continued with what it went on after, right after its run-suspended when a quit suspended it;
 //       with Auto-continue on (worfy-retry ticket 09) each turn-retry gets its resumed, and a
 //       retry-refused is the give-up right before run-stopped turn-error
 //
 // The continuation Auto-continue sends after a turn-retry holds no `/epic-wave` line: I1 does not
 // count it as a Wave's command, and a Wave command sent again in its place is a second one.
 //   I5  no person stepped in: no human-input, no refused-dialog
-//   I6  a new start after the stop goes through: a new journal that begins with run-started
+//   I6  a new start after the stop goes through: a new journal that begins with run-started; and after a restart the
+//       same Run goes on in its own journal (worfy-continuity ticket 06): a new journal begins only after the one
+//       before it ended with run-stopped — a stop, or a Discard of a Run the restart cut off
 //   I7  worfy writes nothing into the Project
-//   I8  every line of the journal reads (a killed app may leave one torn last line)
+//   I8  every line of the journal reads (a killed app may leave one torn last line; once the Run went on after the
+//       restart, worfy-continuity ticket 06, that line is the one right before its run-continued)
 //   I9  the continuation ladder is bounded (worfy-stuck-agents ticket 05): a Ticket has at most
 //       MAX_CONTINUATIONS ticket-continued lines in a run, and after its ticket-set-aside it is blocked
 //       (a ticket-status `blocked` of it later in that run) or the run stopped with the set-aside's cause
@@ -27,7 +31,7 @@
 // A violation is one English line that starts with the rule's number: "I1: /epic-wave for wave 1
 // sent 2 times".
 import { MAX_CONTINUATIONS } from '../src/shared/autopilot/continuation'
-import { parseJournal, type JournalEvent, type SuspendCause, type TicketStatusState } from '../src/shared/autopilot/journal'
+import { parseJournal, type ContinuedAfter, type JournalEvent, type SuspendCause, type TicketStatusState } from '../src/shared/autopilot/journal'
 
 /** A change of a Ticket's `Status:` line the test made for the Orchestrator. */
 export interface StatusWrite {
@@ -44,8 +48,13 @@ export interface StatusWrite {
 export interface RecoveryExpect {
   /** `run-stopped.reason` of the Run; null: no run-stopped at all (the app was killed, or a quit suspended it). */
   stop: string | null
-  /** A quit, an Update or a shutdown suspended the Run (worfy-continuity ticket 04): its last line is run-suspended with this cause. */
+  /**
+   * A quit, an Update or a shutdown suspended the Run (worfy-continuity ticket 04): its last line is run-suspended with
+   * this cause — or, with `continued`, a run-suspended with this cause is followed by its run-continued.
+   */
   suspended?: SuspendCause
+  /** The Run went on after the restart (worfy-continuity ticket 06): it has run-continued with this `after`. */
+  continued?: ContinuedAfter
   /** The error text of the scenario: a `session-error` of the Run before its stop matches it. */
   errorText?: RegExp
   /** How many `wave-started` lines all the journals hold together. */
@@ -184,16 +193,17 @@ const CAUSE_EVENT: Readonly<Record<string, JournalEvent['kind']>> = {
 export const namesItsEnd: Rule = (input, runs) => {
   const run = runs[0]
   if (run === undefined) return ['I4: no journal']
-  const { stop, errorText, resumed, suspended } = input.expect
+  const { stop, errorText, resumed, suspended, continued } = input.expect
   const out: string[] = []
   // The app's quit suspends a Run; app-quit is only for the journals before worfy-continuity ticket 04.
   for (const each of runs)
     for (const event of each.events) if (event.kind === 'run-stopped' && event.reason === 'app-quit') out.push(`I4: run ${each.number} stopped with app-quit, a quit suspends a run`)
-  if (suspended !== undefined) {
+  if (suspended !== undefined && continued === undefined) {
     const last = run.events.at(-1)
     if (last?.kind !== 'run-suspended') out.push(`I4: the Run ends with ${last?.kind ?? 'nothing'}, the scenario expects run-suspended ${suspended}`)
     else if (last.cause !== suspended) out.push(`I4: run-suspended ${last.cause}, the scenario expects ${suspended}`)
   }
+  if (continued !== undefined) out.push(...continuedLines(run, continued, suspended))
   const stops = run.events.filter((event): event is RunStopped => event.kind === 'run-stopped')
   const end = stops[0]
   const before = end === undefined ? run.events : run.events.slice(0, run.events.indexOf(end))
@@ -215,6 +225,24 @@ export const namesItsEnd: Rule = (input, runs) => {
     out.push(`I4: no session-error or turn-retry matches ${String(errorText)}`)
   if (resumed === true && !run.events.some((event) => event.kind === 'resumed')) out.push('I4: the Run has no resumed')
   return [...out, ...retriesEnd(run, input.expect)]
+}
+
+/**
+ * I4 of a continued Run (worfy-continuity ticket 06): its run-continued lines name `after`; with `suspended`, a
+ * run-suspended with that cause comes right before the first of them, and every run-continued follows a run-suspended or
+ * a cut (a crash: no line says).
+ */
+function continuedLines(run: Run, after: ContinuedAfter, suspended: SuspendCause | undefined): string[] {
+  const out: string[] = []
+  const lines = run.events.flatMap((event, index) => (event.kind === 'run-continued' ? [{ event, index }] : []))
+  if (lines.length === 0) return [`I4: the Run has no run-continued, the scenario expects one after ${after}`]
+  const first = lines[0]!
+  if (first.event.after !== after) out.push(`I4: run-continued after ${first.event.after}, the scenario expects ${after}`)
+  const before = run.events[first.index - 1]
+  if (suspended !== undefined && !(before?.kind === 'run-suspended' && before.cause === suspended))
+    out.push(`I4: run-continued follows ${before?.kind ?? 'nothing'}, the scenario expects run-suspended ${suspended} before it`)
+  if (run.events.some((event, index) => event.kind === 'run-stopped' && index < first.index)) out.push('I4: run-continued after run-stopped: a stopped Run does not go on')
+  return out
 }
 
 /** Stops of a person: a wait to retry may end with them, without its `resumed`; a Discard ends one a restart cut off. */
@@ -260,13 +288,21 @@ export const noHumanStep: Rule = (_input, runs) =>
     run.events.flatMap((event) => (event.kind === 'human-input' || event.kind === 'refused-dialog' ? [`I5: ${event.kind} in run ${run.number}: ${event.what}`] : [])),
   )
 
-/** I6: the new start went through and began a journal of its own. */
+/**
+ * I6: the new start went through and began a journal of its own; and a journal begins only after the one before it
+ * ended with run-stopped (worfy-continuity ticket 06): a Run a restart cut off goes on in its own journal, or is
+ * discarded, before a new Run begins.
+ */
 export const startsAgain: Rule = (input, runs) => {
-  if (input.restart === null) return []
-  if (input.restart.refusal !== null) return [`I6: the new start was refused: ${input.restart.refusal}`]
+  const out: string[] = []
+  runs.slice(0, -1).forEach((run) => {
+    if (stoppedOf(run) === undefined) out.push(`I6: run ${run.number} has no run-stopped, yet run ${run.number + 1} began a new journal instead of continuing it`)
+  })
+  if (input.restart === null) return out
+  if (input.restart.refusal !== null) return [...out, `I6: the new start was refused: ${input.restart.refusal}`]
   const first = runs[0]?.events[0]?.run
   const last = runs.length > 1 ? runs.at(-1)!.events[0] : undefined
-  return last?.kind === 'run-started' && last.run !== first ? [] : ['I6: no new journal with run-started after the new start']
+  return last?.kind === 'run-started' && last.run !== first ? out : [...out, 'I6: no new journal with run-started after the new start']
 }
 
 const slashes = (files: Record<string, string>): Map<string, string> => new Map(Object.entries(files).map(([path, bytes]) => [path.replaceAll('\\', '/'), bytes]))
@@ -286,14 +322,22 @@ export const projectUntouched: Rule = (input) => {
   return out
 }
 
-/** I8: every line of each journal reads; a run without run-stopped may end with one torn line when the scenario allows it. */
+/**
+ * I8: every line of each journal reads; a run without run-stopped may end with one torn line when the scenario allows it,
+ * and a Run continued after the restart (worfy-continuity ticket 06) may have that line right before its run-continued.
+ */
 export const journalReads: Rule = (input, runs) =>
   runs.flatMap((run) => {
     const lines = run.text.split('\n')
     const unreadable = lines.flatMap((line, index) => (line.trim() !== '' && parseJournal(line).skipped > 0 ? [index + 1] : []))
     if (unreadable.length === 0) return []
     const last = lines.findLastIndex((line) => line.trim() !== '') + 1
-    if (input.expect.tornLastLine === true && stoppedOf(run) === undefined && unreadable.length === 1 && unreadable[0] === last) return []
+    if (input.expect.tornLastLine === true && unreadable.length === 1) {
+      const torn = unreadable[0]!
+      if (torn === last && stoppedOf(run) === undefined) return []
+      const next = lines.slice(torn).find((line) => line.trim() !== '')
+      if (next !== undefined && parseJournal(next).events[0]?.kind === 'run-continued') return []
+    }
     return [`I8: journal of run ${run.number}: unreadable line ${list(unreadable.map(String))}`]
   })
 

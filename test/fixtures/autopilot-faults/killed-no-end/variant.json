@@ -1,6 +1,10 @@
 {
-  "about": "The app was killed during Wave 1 and every line it wrote reads: no run-suspended, no run-stopped. Nothing is broken.",
+  "about": "The app was killed during Wave 1 and every line it wrote reads: no run-suspended, no run-stopped. Nothing is broken. The journal as the app left it, before the start that continues the Run in it (worfy-continuity ticket 06): no new journal follows.",
   "rule": null,
+  "journals": [
+    "run-1.jsonl"
+  ],
+  "restart": null,
   "expect": {
     "stop": null,
     "errorText": null

@@ -269,14 +269,62 @@ export interface CycleStep {
 }
 
 /**
- * A run's first state; `named`: the Tickets a run over named Tickets takes, none for the whole Epic;
- * `maxContinuations`: how many continuations a Ticket may get in the run, 0 (none) by default.
+ * Where a Run a restart of the app cut off goes on from (worfy-continuity ticket 06), read from its journal
+ * (checkpoint.ts): the count of its Waves in the Epic it is on, the Tickets of its cut-off Wave still in work, and the
+ * continuation ladder so far — the continuations each Ticket has had and the Tickets set aside.
  */
-export function initialCycle(epic: string, named?: readonly number[], options: { maxContinuations?: number } = {}): CycleState {
+export interface CycleFrom {
+  wave: number
+  tickets: readonly number[]
+  continued?: Readonly<Record<number, number>>
+  setAside?: readonly number[]
+}
+
+/**
+ * A run's first state; `named`: the Tickets a run over named Tickets takes, none for the whole Epic;
+ * `maxContinuations`: how many continuations a Ticket may get in the run, 0 (none) by default. `from`: a continued
+ * Run (worfy-continuity ticket 06) — it starts in `starting` as any run, its count of Waves goes on from the cut-off
+ * Wave's (the next Wave gets the next number, so no number is used twice in one journal), and the cut-off Wave's
+ * Tickets still in work are its `tickets` until a Wave is sent: a Force stop before then names them, so they stay
+ * resumable.
+ */
+export function initialCycle(epic: string, named?: readonly number[], options: { maxContinuations?: number; from?: CycleFrom } = {}): CycleState {
   const plain: CycleState = { epic, phase: 'starting', wave: 0, tickets: [], reason: null, stopping: false, inWork: [] }
   const state = named === undefined ? plain : { ...plain, named: [...new Set(named)].sort((a, b) => a - b) }
   const max = options.maxContinuations ?? 0
-  return max > 0 ? { ...state, maxContinuations: max } : state
+  const limited = max > 0 ? { ...state, maxContinuations: max } : state
+  const from = options.from
+  if (from === undefined) return limited
+  return {
+    ...limited,
+    wave: from.wave,
+    tickets: [...from.tickets],
+    ...(from.continued === undefined || Object.keys(from.continued).length === 0 ? {} : { continued: { ...from.continued } }),
+    ...(from.setAside === undefined || from.setAside.length === 0 ? {} : { setAside: [...from.setAside] }),
+  }
+}
+
+/**
+ * How long after it was cut off a Run is continued by itself at the start of the app (worfy-continuity ticket 06,
+ * Q3 (a) of the Epic's spec); an older one waits for Resume or Discard.
+ */
+export const RESTART_HOUR_MS = 60 * 60_000
+
+/**
+ * How many times within RESTART_HOUR_MS a Run is continued by itself (its `run-continued` lines): the next restart
+ * leaves it to Resume or Discard, so a continuation that crashes the app does not loop (risk 2 of the Epic's spec).
+ */
+export const MAX_RESTART_CONTINUATIONS = 2
+
+/**
+ * Whether a Run a restart cut off at `cutAt` (ms) is continued by itself at `now`, or waits for a person (`cut-off`):
+ * it was cut off more than RESTART_HOUR_MS ago, or it has MAX_RESTART_CONTINUATIONS `run-continued` lines (`continued`,
+ * their times in ms) within the hour before `now`. Pure.
+ */
+export function restartDecision(input: { cutAt: number; continued: readonly number[]; now: number }): 'continue' | 'cut-off' {
+  if (!Number.isFinite(input.cutAt) || input.now - input.cutAt > RESTART_HOUR_MS) return 'cut-off'
+  const recent = input.continued.filter((at) => input.now - at <= RESTART_HOUR_MS)
+  return recent.length >= MAX_RESTART_CONTINUATIONS ? 'cut-off' : 'continue'
 }
 
 /** Which of `nums` are Tickets of the run's Epic in work in `tickets`. */

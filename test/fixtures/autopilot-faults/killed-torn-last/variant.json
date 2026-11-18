@@ -1,6 +1,10 @@
 {
-  "about": "The app was killed during the turn: no run-stopped, the last line is torn. Nothing is broken.",
+  "about": "The app was killed during the turn: no run-stopped, the last line is torn. Nothing is broken. The journal as the app left it, before the start that continues the Run in it (worfy-continuity ticket 06): no new journal follows.",
   "rule": null,
+  "journals": [
+    "run-1.jsonl"
+  ],
+  "restart": null,
   "expect": {
     "stop": null,
     "errorText": null,

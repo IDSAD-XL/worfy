@@ -1,6 +1,10 @@
 {
-  "about": "A run in Run mode Start window finished Wave 1 and waits for the window to open; the system shuts down during the wait: run-suspended (shutdown) between Waves, no Ticket in work. Nothing is broken.",
+  "about": "A run in Run mode Start window finished Wave 1 and waits for the window to open; the system shuts down during the wait: run-suspended (shutdown) between Waves, no Ticket in work. Nothing is broken. The journal as the app left it, before the start that continues the Run in it (worfy-continuity ticket 06): no new journal follows.",
   "rule": null,
+  "journals": [
+    "run-1.jsonl"
+  ],
+  "restart": null,
   "statusWrites": [
     {
       "at": "2026-11-03T10:00:04.000Z",

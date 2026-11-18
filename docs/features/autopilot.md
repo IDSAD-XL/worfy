@@ -107,7 +107,7 @@ The line above the button shows the state of the run:
 |---|---|
 | `starting` | The run has begun and no Wave has gone yet. |
 | `waiting for the Orchestrator · 4 min` | The run has begun and waits for the Orchestrator's turn, queue and background tasks to end. No minutes in the first minute. **Start now** and **Cancel** stand beside it. |
-| `Wave 2 · running` | The run has sent its second Wave. Waves are counted per run from 1, and again from 1 for each Epic of a queue; this is not the Wave number of the Epic's plan. |
+| `Wave 2 · running` | The run has sent its second Wave. Waves are counted per run from 1, and again from 1 for each Epic of a queue; this is not the Wave number of the Epic's plan. A run that went on after a restart of the app counts on from its cut-off Wave. |
 | `Wave 2 · 4 background tasks` | The same, with four live background tasks of the Orchestrator. |
 | `Wave 4 · continuing 05 (1 of 2)` | The Wave continues Ticket 05, which stayed in work after an earlier Wave: its first continuation of two ([a Ticket that stays in work](autopilot-faults.md#a-ticket-that-stays-in-work)). |
 | `waiting for limits · resumes 14:20` | The Limits refused a turn. The run continues at this time. |
@@ -118,6 +118,7 @@ The line above the button shows the state of the run:
 | `wave too long for window · resumes 23:00` | The Run mode is Start window: the next Wave usually takes longer than what is left of the window. |
 | `stopping · 2 tickets in work` | A Stop came. Two Tickets of the current Wave are in work. Without any it says `stopping`. |
 | `stopped: no ready wave` | The run is over, with its reason (see [Why a run stops](autopilot-faults.md#why-a-run-stops)). |
+| `cut off by restart · 14:05` | A restart of the app cut the run off at 14:05, and it did not go on by itself: the cut was more than an hour ago, or it already went on twice within the hour. **Resume** and **Discard** stand beside it, and the Autopilot button waits for them ([after a restart of the app](autopilot-faults.md#after-a-restart-of-the-app)). |
 | `stopped: turn error · 2 background tasks still run` | The run is over and gave the Orchestrator back to a person at once; two of its background tasks still run there. |
 | `Epic 2/3: checkout · Wave 1 · running` | A run over a queue of three Epics is on the second, `checkout`. Any line above gets this start when the queue holds more than one Epic, after the stop too. |
 
@@ -353,7 +354,7 @@ same PR tracker as the PR badges. The tracker limits `gh` for both together: one
 | `src/main/autopilot/harness-drift.ts` | Whether the Harness in `main` is newer than this build's. Read-only: no `git fetch`. Packaged builds only. |
 | `src/main/mcp/browser-server.ts` | What a Session in Autopilot may do with a Browser. |
 | `src/main/ipc/card-api.ts` | The refusal of a Card's `session.ask` to an unattended Session. |
-| `src/renderer/canvas/actions/AutopilotAction.tsx` | The button, the "⋯" menu, the status line and the chips; Start now and Cancel of a waiting run. |
+| `src/renderer/canvas/actions/AutopilotAction.tsx` | The button, the "⋯" menu, the status line and the chips; Start now and Cancel of a waiting run; Resume and Discard of a run cut off by a restart. |
 | `src/renderer/autopilot/StartAutopilotModal.tsx`, `src/renderer/autopilot/start-modal.ts` | The Start Autopilot window and its one open ask: the button's, Run all accepted's or the agent's; the start of a queue, its refusal toast, and Start anyway when an Epic of it runs elsewhere. |
 | `src/shared/ipc/autopilot-prepare.ts`, `src/main/ipc/autopilot-prepare.ts`, `src/main/autopilot/prepare.ts` | `autopilot.prepare`: the facts of the window, read only, from the sources of the `autopilot_start` ask; a queue's Waves and forecast one Epic after another. |
 | `src/shared/autopilot/epic-queue.ts` | The rule of the queue: the next Epic, the Epic passed for the owner, or the stop of the run; at most 10 Epics. Pure. |

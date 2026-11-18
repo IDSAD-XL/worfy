@@ -177,6 +177,40 @@ describe('checkRecovery, rule by rule', () => {
     )
   })
 
+  it('I4 asks a continued Run for run-continued with its after, right after its run-suspended, never after its run-stopped (worfy-continuity ticket 06)', () => {
+    const continued = load('continued-after-crash')
+    expect(checkRecovery(continued)).toEqual([])
+    expect(checkRecovery({ ...continued, expect: { ...continued.expect, continued: 'quit' } })).toEqual(['I4: run-continued after crash, the scenario expects quit'])
+    expect(checkRecovery({ ...continued, expect: { ...continued.expect, suspended: 'quit' } })).toEqual(['I4: run-continued follows ticket-status, the scenario expects run-suspended quit before it'])
+    expect(checkRecovery({ ...good(), expect: { ...good().expect, continued: 'crash' } })).toEqual(['I4: the Run has no run-continued, the scenario expects one after crash'])
+    // A quit suspended it: run-suspended quit right before run-continued quit.
+    const journal = continued.journals[0]!
+    const suspendedLine = journal.split('\n').find((line) => line.includes('"kind":"run-continued"'))!.replace('"kind":"run-continued","after":"crash"', '"kind":"run-suspended","cause":"quit","wave":1,"tickets":["01","02"],"wait":null')
+    const quit = journal.replace('"after":"crash"', '"after":"quit"').replace(/^(?=.*"kind":"run-continued")/mu, `${suspendedLine}\n`)
+    expect(checkRecovery({ ...continued, journals: [quit, ...continued.journals.slice(1)], expect: { ...continued.expect, continued: 'quit', suspended: 'quit' } })).toEqual([])
+    // A stopped Run that goes on.
+    const lines = journal.trimEnd().split('\n')
+    const afterStop = [...lines.slice(0, 4), lines[6]!.replace('"reason":"user-stop"', '"reason":"turn-error"'), ...lines.slice(4, 6), ''].join('\n')
+    expect(checkRecovery({ ...continued, journals: [afterStop, ...continued.journals.slice(1)], expect: { ...continued.expect, stop: 'turn-error' } })).toContain(
+      'I4: run-continued after run-stopped: a stopped Run does not go on',
+    )
+  })
+
+  it('I8 lets the line a killed app tore stand right before the run-continued of the Run that went on, nowhere else (worfy-continuity ticket 06)', () => {
+    const continued = load('continued-after-crash')
+    const lines = continued.journals[0]!.trimEnd().split('\n')
+    const torn = (at: number): string => [...lines.slice(0, at), '{"at":"2026-11-03T10:00:07.000Z","run":"2026', ...lines.slice(at), ''].join('\n')
+    const allowed = { ...continued, expect: { ...continued.expect, tornLastLine: true } }
+    expect(checkRecovery({ ...allowed, journals: [torn(4), ...continued.journals.slice(1)] })).toEqual([])
+    expect(checkRecovery({ ...allowed, journals: [torn(3), ...continued.journals.slice(1)] })).toEqual(['I8: journal of run 1: unreadable line 4'])
+    expect(checkRecovery({ ...continued, journals: [torn(4), ...continued.journals.slice(1)] })).toEqual(['I8: journal of run 1: unreadable line 5'])
+  })
+
+  it('I6 lets a new journal begin only after the Run before it stopped, a Discard included (worfy-continuity ticket 06)', () => {
+    expect(checkRecovery(load('i6-new-journal-over-cut-off'))).toEqual(['I6: run 1 has no run-stopped, yet run 2 began a new journal instead of continuing it'])
+    expect(checkRecovery(load('discarded'))).toEqual([])
+  })
+
   it('I6 asks for a new journal after the new start', () => {
     expect(checkRecovery({ ...good(), journals: good().journals.slice(0, 1) })).toEqual(['I6: no new journal with run-started after the new start'])
   })
@@ -296,7 +330,9 @@ describe('checkRecovery with Auto-continue (worfy-retry ticket 09)', () => {
       at(5, { kind: 'run-stopped', reason: 'user-stop' }),
     ]
     expect(checkRecovery(withRetry(limits, 0, { stop: 'user-stop', resumed: true }))).toEqual([])
-    expect(checkRecovery(withRetry(retried(1, 0, false), 0, { stop: null }))).toEqual([])
+    // Killed: the journal as the app left it, before the start that continues the Run in it (worfy-continuity ticket 06).
+    const killed = withRetry(retried(1, 0, false), 0, { stop: null })
+    expect(checkRecovery({ ...killed, journals: killed.journals.slice(0, 1), restart: null })).toEqual([])
   })
 })
 

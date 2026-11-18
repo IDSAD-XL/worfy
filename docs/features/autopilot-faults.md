@@ -144,11 +144,50 @@ app was killed. A cut-off run leaves nothing resumable until it is continued or 
 Two journal lines are for a run that the app's restart interrupts. `run-suspended` (`cause`: `quit`, `update` or `shutdown`)
 names the Wave, its Tickets in work and the open wait with its end time. `run-continued` (`after`: one of those causes, or
 `crash`) says that the same run went on in the same journal. The name differs from `resumed`, which ends a wait. The quit
-writes `run-suspended` (see Quitting the app above); `run-continued` is read but not written yet. A build older than the one
+writes `run-suspended` (see Quitting the app above), and the run that goes on writes `run-continued` (see [after a restart of
+the app](#after-a-restart-of-the-app)). A build older than the one
 that introduced these lines skips them and counts them as unreadable, as it does with any line of a kind it does not know.
 
 **Discard** writes `run-stopped` with the reason `discarded` into the cut-off run's journal, with the Tickets of its Wave in work.
 Those Tickets become `resumable`, as after a Force stop.
+
+#### After a restart of the app
+
+When worfy starts, the newest cut-off run of each Project goes on by itself, under the same id and in the same journal:
+
+1. The run writes `run-continued` with `after`: the cause of its `run-suspended`, or `crash` when the journal has
+   neither `run-suspended` nor `run-stopped`. It keeps its Epic, queue, named Tickets, Run mode and the count of
+   continuations of stuck Tickets.
+2. A wait that was open at the cut (the Limits, the Start window, the budget or a retry) goes on to its own end time. No
+   Wave goes before that; then the run goes on with `resumed`, as after any wait.
+3. Otherwise the next Wave goes at once, the way every Wave after a run's first goes: to a new session of the
+   Orchestrator that first reads the Wave's brief (`wave-brief`), with a Harness that has it and an Orchestrator that is
+   free; with the old Harness, to the Orchestrator's Session as it is. The command of the cut-off Wave is not sent again. Its Tickets
+   still in work go in the new Wave as resumed Tickets, together with the ready ones. The new Wave's number follows the
+   cut-off one (Wave 2 after Wave 1), so no number repeats in one journal.
+4. Before that Wave, the run reads the transcript of the Orchestrator's session of the cut-off Wave for external calls
+   without a result: a `git push`, a `gh pr merge`, a call of an MCP server or a Subagent that may or may not have
+   run. A Ticket whose implementer has such a call is held: it is not in the Wave, the run does not continue it, and it
+   stays `claimed` for a person. A call of the Orchestrator itself, or of a Subagent bound to no Ticket, holds every
+   Ticket of the Wave. Only Claude Code transcripts are read: on a Codex Orchestrator no Ticket is held.
+5. The checks of a start come first. A busy Orchestrator is waited for (`orchestrator-busy`) as at any start. On Codex
+   with the Harness's hooks not approved, the run is refused as a start is, and stays cut off with that reason.
+
+**The hour rule.** A run cut off more than an hour ago does not go on by itself. Neither does a run that already went on
+by itself twice within the last hour (two `run-continued` lines), so a continuation that brings the app down does not
+loop. Such a run stays cut off. Its status line says `cut off by restart · 14:05`, with the time of the cut, and
+**Resume** and **Discard** stand beside it; a toast says the same once. Until a person decides, the Autopilot button of
+the Epic is inactive and a start of any run in the Project is refused. **Resume** continues the run as above. **Discard**
+ends it with `run-stopped` `discarded` (see below), and the next start begins a new run.
+
+On a Linked machine, Resume and Discard need full access, as Start Autopilot does: `autopilot.resume` and
+`autopilot.discard` are write calls. With read-only access the line shows and the buttons do not.
+
+**Locks.** worfy releases no lock of the cut-off Wave. The lock on a worktree (`worktree-lock` of the Harness) is
+advisory: it never blocks, it only tells a new session that another one marked itself in the tree within the last 60
+minutes. Its registry lives under `~/.claude`, which worfy does not write (ADR-0005). The e2e lock of an implementer cut
+off in the middle of an e2e run is taken over by the next run once it is older than 30 minutes. The implementers of the
+continued Wave find their Tickets' worktrees as the cut-off Wave left them.
 
 #### After any other stop
 
@@ -274,6 +313,8 @@ does not turn a later error of another kind into a refusal.
 | `src/shared/autopilot/continuation.ts` | The texts of the ladder: the continuation line, the set-aside message, the status line words; the ceiling `MAX_CONTINUATIONS`. Pure. |
 | `src/shared/autopilot/cycle.ts` | When a stuck Ticket is continued, set aside or stops the run, and `main-red`. Pure; `src/main/autopilot/run.ts` carries the effects out. |
 | `src/shared/autopilot/checkpoint.ts` | The run's state read back from its journal: the queue, the Wave and its Tickets in work, the wait, the retries, the ladder, whether the run is cut off, and what a Project's journals leave `resumable`. Pure. |
+| `src/main/autopilot/run.ts` | `continueCutOff` at the start of the app, `resumeCutOff` and `discardCutOff`: the continued run with its id, journal, wait and Wave numbering, and the run left cut off by the hour rule. The hour rule itself is `restartDecision` in `src/shared/autopilot/cycle.ts`. |
+| `src/main/autopilot/held-tickets.ts` | The Tickets of the cut-off Wave held for a person: the external calls without a result in the transcript of the Orchestrator's session and of its Subagents, by `unknownSideEffects` of `src/shared/agent/unknown-side-effects.ts`. |
 | `src/main/quit-grace.ts` | The quit's coordinator: suspends the runs, waits for the external calls without a result, has stopped runs journal their background tasks as killed, halts the Sessions and has the runs write `run-suspended`; follows a shutdown of the system (`powerMonitor` on macOS and Linux, a window's `session-end` on Windows). The window is `src/renderer/shell/QuittingDialog.tsx`. |
 
 #### Tests
@@ -306,7 +347,10 @@ agent, which plays the scripts in `test/fixtures/agent-scripts/`.
 | `test/contract/autopilot-background.test.ts` | Among the background-task scenarios: the quit in its real order (suspend, halt, records) journals the tasks of a stopped run that still waits for them, and of a Session it gave back, as `tasks-killed`, never `orchestrator-returned`, and lets keep-awake go. |
 | `test/unit/update-quit.test.ts` | Restart now of an Update quits through the coordinator with the cause `update`, not with Electron's own quit. |
 | `test/e2e/autopilot-quit.spec.ts` | A quit in the built app while the Wave's `git push` has no result: the window Quitting worfy names the command with the time left, Quit now quits at once, and the journal ends with `run-suspended`. It saves the window in the light and the dark theme to `test-results/e2e/snapshots/04-quitting-worfy/`. |
-| `test/e2e/autopilot-faults.spec.ts` | Fault scenarios in the built app: the app killed with SIGKILL in the middle of a Wave and started again (nothing goes to the Orchestrator at the start, Run history shows the old run cut off, the button starts a new run that sends its Wave once); GitHub out of reach for the whole run (both Waves go through, and `gh` was only read). |
+| `test/contract/autopilot-faults-restart.test.ts` | A run continued after a restart of the app: a quit in the middle of a Wave and a crash (the same id and journal, `run-continued`, one new Wave with the cut-off Tickets resumed, the cut-off Wave not sent again); a quit during the wait for the Limits (the wait goes on to its end time, nothing goes before it); the third start within the hour (`cut off by restart`, the start refused, Resume); Discard (`run-stopped` `discarded`, and the next run takes the Tickets along); an implementer cut in `gh pr merge` (its Ticket is held out of the Wave). |
+| `test/unit/autopilot-restart.test.ts` | The hour rule and its cap, the first state of a continued run, the line `cut off by restart · 14:05`, and which Tickets a transcript holds. |
+| `test/unit/autopilot-cut-off-line.test.tsx` | The line of a run cut off by the hour rule: Resume and Discard, the toast, the inactive Autopilot button, and no buttons with read-only access on a Linked machine. |
+| `test/e2e/autopilot-faults.spec.ts` | Fault scenarios in the built app: the app killed with SIGKILL in the middle of a Wave and started again (the same run goes on with `run-continued` after `crash` and one new Wave command, 01 resumed and 02); a run cut off for the third time within the hour (the line with Resume and Discard, nothing sent, Resume continues it; it saves the line in the light and the dark theme to `test-results/e2e/snapshots/autopilot-cut-off-by-restart/`); GitHub out of reach for the whole run (both Waves go through, and `gh` was only read). |
 
 **Fault scenarios.** A fault scenario is a test that injects one fault into a run on the fake agent over a temporary Project — a
 model API error, a dead process, a `gh` that hangs or fails, a merge conflict, an app killed in the middle of a Wave — and then checks the
@@ -322,10 +366,15 @@ returns one line per violation, and every scenario expects none. The rules:
 - **I4.** The scenario's run has one `run-stopped` with the expected reason, after the line that reason needs (for example `session-error`
   before `turn-error`). A killed app leaves no `run-stopped`. A run that outlived the fault has a `resumed` line. A quit suspends a run:
   no run has `run-stopped` with `app-quit`, and a run the scenario expects suspended ends with `run-suspended` of the expected cause.
+  A run that went on after a restart has `run-continued` with the expected `after`, right after its `run-suspended` when a quit
+  suspended it, and never after its `run-stopped`.
 - **I5.** No person stepped in: no `human-input` and no `refused-dialog` line.
-- **I6.** The new start after the stop is not refused and begins a journal of its own with `run-started`.
+- **I6.** The new start after the stop is not refused and begins a journal of its own with `run-started`. A journal begins only after
+  the one before it has `run-stopped`: after a restart the cut-off run goes on in its own journal, and a new one begins only after it
+  stopped or was discarded.
 - **I7.** worfy writes nothing into the Project: every file that differs afterwards is one the test wrote.
-- **I8.** Every line of every journal reads. A killed app may leave one torn last line.
+- **I8.** Every line of every journal reads. A killed app may leave one torn last line; when the run then went on, that line is the
+  one right before its `run-continued`.
 - **I9.** A Ticket has at most 2 `ticket-continued` lines in a run. After its `ticket-set-aside` it is `blocked`, or the run stopped
   with the cause of the set-aside.
 

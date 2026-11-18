@@ -92,6 +92,14 @@ import { hasRunWave, useRunWaveState } from './gates'
 //   error toast with main's words. The window closes by itself once the run no longer waits.
 // The "Stop autopilot" button stays as for any run; it cancels a waiting run too.
 //
+// A Run a restart of worfy cut off that main did not continue by itself (worfy-continuity ticket 06, `cutOff` of the
+// state: cut off more than an hour before the start, or continued twice within that hour) says
+// "cut off by restart · 14:05" in the status line, with "Resume" (`autopilot.resume`: the Run goes on in its own
+// Run history) and "Discard" (`autopilot.discard`: it ends `discarded`, and the next Run of the Epic takes its
+// Tickets in work along) beside it, and an info toast says so once per Run. On a read-only screen the line shows
+// without the two buttons. Until one of them is clicked the "Autopilot" button is off: a new Run would begin a second
+// journal beside the cut-off one.
+//
 // A run keeps the display on from its start to its end (ticket 32, ADR-0034): the hints of the
 // "Autopilot" button and of the status line while running or waiting say so. The visible line does
 // not: 220px is already taken by its longest lines.
@@ -488,8 +496,44 @@ const RUN_ALL_ACCEPTED_TITLE = 'Autopilot over the accepted Epics, one after ano
 const START_NOW_TITLE = 'Start Autopilot now: shows what it interrupts first'
 const CANCEL_WAIT_TITLE = 'Cancel this Autopilot: it has not started, and the Orchestrator is not touched'
 
+/** The titles of the buttons of a Run a restart cut off (worfy-continuity ticket 06). */
+const RESUME_TITLE = 'Continue the Run the restart of worfy cut off, in its own Run history'
+const DISCARD_TITLE = 'End the Run the restart of worfy cut off; the next Autopilot of this Epic takes its Tickets in work first'
+
+/** The title of the Autopilot button while a Run a restart cut off waits for Resume or Discard. */
+const cutOffWaitsTitle = (epic: string): string => `A Run of ${epic} cut off by the restart of worfy waits: Resume or Discard it first`
+
+/** The key and `data-testid` of the toasts of a Run a restart cut off. */
+const CUT_OFF_TOAST = 'autopilot-cut-off'
+
+function cutOffToast(projectId: string, kind: 'info' | 'error', text: string): void {
+  showToast({ kind, key: `${CUT_OFF_TOAST}:${projectId}`, testId: CUT_OFF_TOAST, projectId, text })
+}
+
+/** "Resume" or "Discard" of the line of a Run a restart cut off: main continues it or ends it; a failure is an error toast. */
+async function decideCutOff(projectId: string, how: 'resume' | 'discard'): Promise<void> {
+  const channel = how === 'resume' ? 'autopilot.resume' : 'autopilot.discard'
+  const result = await invoke(channel, { projectId })
+  if (!result.ok) {
+    cutOffToast(projectId, 'error', failureReason(channel, result.error))
+    return
+  }
+  take(result.value)
+  // Main did not continue it (a refusal of the checks of a start): the line stays, with main's words.
+  if (result.value.cutOff !== undefined && result.value.message !== null) cutOffToast(projectId, 'error', `Autopilot did not resume: ${result.value.message}`)
+}
+
 /** "· Start now · Cancel" after the status line of a run that waits for its Orchestrator; `title` is the read-only reason, when there is one. */
-function WaitButtons({ enabled, title, onStartNow, onCancel }: { enabled: boolean; title: string | null; onStartNow: () => void; onCancel: () => void }) {
+/** One text button of the status line: its `data-testid`, label, hint and action. */
+interface LineButton {
+  testId: string
+  label: string
+  hint: string
+  run: () => void
+}
+
+/** Text buttons beside the status line, each after a dot: "Start now" and "Cancel", or "Resume" and "Discard". */
+function LineButtons({ enabled, title, buttons }: { enabled: boolean; title: string | null; buttons: readonly LineButton[] }) {
   const dot = (
     <span aria-hidden="true" style={{ color: 'var(--text-muted)' }}>
       ·
@@ -515,10 +559,12 @@ function WaitButtons({ enabled, title, onStartNow, onCancel }: { enabled: boolea
   )
   return (
     <>
-      {dot}
-      {button('autopilot-start-now', 'Start now', START_NOW_TITLE, onStartNow)}
-      {dot}
-      {button('autopilot-cancel-wait', 'Cancel', CANCEL_WAIT_TITLE, onCancel)}
+      {buttons.map((each) => (
+        <span key={each.testId} style={{ display: 'contents' }}>
+          {dot}
+          {button(each.testId, each.label, each.hint, each.run)}
+        </span>
+      ))}
     </>
   )
 }
@@ -650,6 +696,14 @@ function Autopilot({ projectId, root, epic, tickets }: Extract<SlotProps['subjec
   const [acting, setActing] = useState(false)
   // The Code story of the Epic, an item of "⋯" while it has one (worfy-code-stories ticket 10).
   const storyPath = epicStoryPath(epic)
+  // A Run of this Epic a restart cut off, waiting for Resume or Discard (worfy-continuity ticket 06): one toast per Run.
+  const cutOffAt = mine && state?.status === 'stopped' ? (state.cutOff?.at ?? null) : null
+  const cutOff = cutOffAt !== null
+  useEffect(() => {
+    if (cutOffAt === null) return
+    const time = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(cutOffAt)
+    cutOffToast(projectId, 'info', `The restart of worfy at ${time} cut off the Autopilot Run of ${epic.epic}: Resume or Discard it by its status line`)
+  }, [projectId, epic.epic, cutOffAt])
   if (hidden && !pastRuns && storyPath === null) return null
 
   const button =
@@ -669,10 +723,12 @@ function Autopilot({ projectId, root, epic, tickets }: Extract<SlotProps['subjec
         key="action-autopilot"
         label="Autopilot"
         testId="action-autopilot"
-        enabled={readOnly === null && !running && wave.enabled}
+        enabled={readOnly === null && !running && !cutOff && wave.enabled}
         title={
           readOnly !== null
             ? readOnly
+            : cutOff
+            ? cutOffWaitsTitle(epic.epic)
             : running
             ? `Autopilot is ${stopping ? 'stopping' : 'running'} Epic ${state?.epic ?? ''}`
             : wave.enabled
@@ -787,14 +843,36 @@ function Autopilot({ projectId, root, epic, tickets }: Extract<SlotProps['subjec
             {line}
           </span>
           {wait === null ? null : (
-            <WaitButtons
+            <LineButtons
               enabled={readOnly === null && !acting}
               title={readOnly}
-              onStartNow={() => setAskedFor(wait.since)}
-              onCancel={() => {
-                setActing(true)
-                void cancelWait(projectId).finally(() => setActing(false))
-              }}
+              buttons={[
+                { testId: 'autopilot-start-now', label: 'Start now', hint: START_NOW_TITLE, run: () => setAskedFor(wait.since) },
+                {
+                  testId: 'autopilot-cancel-wait',
+                  label: 'Cancel',
+                  hint: CANCEL_WAIT_TITLE,
+                  run: () => {
+                    setActing(true)
+                    void cancelWait(projectId).finally(() => setActing(false))
+                  },
+                },
+              ]}
+            />
+          )}
+          {!cutOff || readOnly !== null ? null : (
+            <LineButtons
+              enabled={!acting}
+              title={null}
+              buttons={(['resume', 'discard'] as const).map((how) => ({
+                testId: `autopilot-${how}`,
+                label: how === 'resume' ? 'Resume' : 'Discard',
+                hint: how === 'resume' ? RESUME_TITLE : DISCARD_TITLE,
+                run: () => {
+                  setActing(true)
+                  void decideCutOff(projectId, how).finally(() => setActing(false))
+                },
+              }))}
             />
           )}
           {shownRun === null ? null : (

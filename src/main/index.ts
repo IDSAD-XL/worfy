@@ -24,7 +24,7 @@ import { installDevDockIcon } from './dock-icon'
 import { installImageProtocol } from './images/protocol'
 import { appImageStore } from './images/stores'
 import { bundledHarnessVersion } from './harness/bundled'
-import { existingAutopilot } from './ipc/autopilot'
+import { continueCutOffRuns, existingAutopilot } from './ipc/autopilot'
 import { liveSessionListeners, type LiveSessionsListener } from './ipc/claude-home'
 import { sharedGateQueue } from './ipc/gate-queue'
 import { appPrInboxSource, startPrInbox } from './ipc/pr-inbox'
@@ -261,6 +261,10 @@ function start(): void {
       // loadFile, and only for this first window; windows opened later only log such a failure.
       inStep('createMainWindow', () => createMainWindow({ firstOfStart: true }))
       started = true
+      // The Autopilot Runs a restart cut off go on in their journals, or wait for Resume or Discard (worfy-continuity
+      // ticket 06): after the first window, whose creation opens the active Project's Orchestrator. Not a startup step:
+      // worfy runs without it.
+      void continueCutOffRuns().catch((error: unknown) => console.error('[autopilot] the Runs cut off by the restart were not continued', error))
       // The link with other Machines (worfy-link ticket 01), after the handlers it serves over the
       // network, and only once the start has succeeded: a start that failed opens nothing to the
       // network. Not a startup step: worfy runs without it (startLink).

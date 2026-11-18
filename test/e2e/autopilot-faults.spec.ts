@@ -1,17 +1,19 @@
-import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { checkRecovery, type StatusWrite } from '../autopilot-invariants'
 import { EPIC, files, ghCalls, journals, kindsOf, messages, prepareWorld, releaseTurn, setStatus } from './autopilot-world'
 import { endApp } from './end-app'
 import { launchApp } from './helpers'
 import { startAutopilot } from './autopilot-start'
+import { snapshotThemes } from './snapshots'
 
 // Fault scenarios of an Autopilot Run in the built app (worfy-faults ticket 05; the scenarios table of
 // .scratch/worfy-faults/spec.md): the app killed with SIGKILL in the middle of a Wave and started
-// again on the same data folder, and GitHub out of reach for the whole Run. Each test injects one
+// again on the same data folder — the same Run then goes on in its own journal (worfy-continuity ticket 06), by
+// itself or, cut off for the third time within the hour, after Resume — and GitHub out of reach for the whole Run. Each test injects one
 // fault into a Run on the fake agent (autopilot-fault-held: each Wave's turn holds until the test
 // releases it) and ends with checkRecovery, the Recovery invariants I1–I8 (test/autopilot-invariants.ts).
 // Every wait is for a sign the app shows or writes (a journal line, the status line), never a pause.
@@ -33,13 +35,15 @@ test.afterEach(async () => {
 
 const frameOf = (window: Page): Locator => window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
 
-test('the app killed with SIGKILL in the middle of a Wave and started again: nothing goes to the Orchestrator at the start, Run history shows the old Run cut off, and the button starts a new Run that sends its Wave once', async () => {
-  const world = prepareWorld(scratch)
-  const env = world.env(SCRIPT)
-  const writes: StatusWrite[] = []
+/** The lines of the Wave's command in what the Orchestrator got. */
+const waveCommands = (log: string): string[] => messages(log).flatMap((text) => text.split('\n').filter((line) => /^\s*\/(?:worfy:)?epic-wave\b/u.test(line)))
 
-  // The Run: Wave 1 (01, 02) goes and its turn holds; the Orchestrator claims 01; the app is killed.
-  const first = await launchApp({ env })
+/**
+ * The Run of Wave 1 (01, 02) whose turn holds, the Orchestrator claiming 01, and the app killed with SIGKILL: the
+ * journal as the killed app left it, and the run's id.
+ */
+async function killedInWave1(world: ReturnType<typeof prepareWorld>, writes: StatusWrite[]): Promise<string> {
+  const first = await launchApp({ env: world.env(SCRIPT) })
   const child = first.app.process()
   let killed = false
   try {
@@ -56,49 +60,52 @@ test('the app killed with SIGKILL in the middle of a Wave and started again: not
     await first.close(killed ? { windowGone: true } : {})
   }
   const [killedRun] = journals(world.dataDir)
-  const oldRun = (JSON.parse(killedRun!.split('\n')[0]!) as { run: string }).run
+  return (JSON.parse(killedRun!.split('\n')[0]!) as { run: string }).run
+}
 
-  // Started again on the same data folder and Project: the Run lived in memory and is gone.
-  const second = await launchApp({ env })
-  let refusal: string | null
+/**
+ * Stop autopilot while the Wave's turn holds: the Run stops with user-stop after two turns. While it stops, the line
+ * counts the Wave's Tickets still in work: 01, which the Orchestrator claimed (02 stayed open). The Stop sends the
+ * Orchestrator STOP_TEXT (run.ts, beginStopping), which waits in the Session's queue; when the Wave's turn ends, that
+ * message starts the next turn at once, so the Session is not idle and the run stays stopping (cycle.ts, turn-ended:
+ * only a turn end with the Session idle and no task stops a stopping run). SCRIPT holds every turn until it is
+ * released, the turn of the stop message too: the test releases both. A release made before its turn waits is kept
+ * for it (FakeReleases).
+ */
+async function stopRun(frame: Locator, app: ElectronApplication): Promise<void> {
+  const status = frame.getByTestId('autopilot-status')
+  await frame.getByTestId('action-stop-autopilot').click()
+  await expect(status).toHaveText('stopping · 1 ticket in work')
+  await releaseTurn(app)
+  await releaseTurn(app)
+  await expect(status).toHaveText('stopped: user stop')
+}
+
+test('the app killed with SIGKILL in the middle of a Wave and started again: the same Run goes on in its own journal, with run-continued after crash and one new Wave command — 01 continued and 02', async () => {
+  const world = prepareWorld(scratch)
+  const writes: StatusWrite[] = []
+  const run = await killedInWave1(world, writes)
+
+  // Started again on the same data folder and Project: the Run cut off a moment ago goes on by itself (worfy-continuity ticket 06).
+  const second = await launchApp({ env: world.env(SCRIPT) })
   try {
-    const { window } = second
+    const { window, app } = second
     const frame = frameOf(window)
-    const autopilot = frame.getByTestId('action-autopilot')
-    const status = frame.getByTestId('autopilot-status')
-    await expect(autopilot).toHaveAttribute('aria-disabled', 'false')
-    await expect(autopilot).toHaveText('Autopilot')
-    await expect(status).toHaveCount(0)
-
-    // Run history (the palette opens the newest Run of the Project): the killed Run, with no stop.
-    await window.keyboard.press('ControlOrMeta+k')
-    await window.getByTestId('palette-input').fill('Open Run history')
-    await window.keyboard.press('Enter')
-    await expect(window.getByTestId('run-history-choose')).toHaveValue(oldRun)
-    await expect(window.getByTestId('run-history-epic')).toHaveText(EPIC)
-    await expect(window.getByTestId('run-history-reason')).toHaveText('no stop in the Journal')
-    await window.keyboard.press('Escape')
-    await expect(window.getByTestId('run-history')).toBeHidden()
-    // Nothing went to the Orchestrator while the app started and the screen was read.
-    expect(messages(world.log)).toEqual([WAVE_1])
-
-    // The button starts a new Run, without a refusal; 01 is in work, so its Wave is 02 alone.
-    await startAutopilot(autopilot)
-    await expect(status).toHaveText('Wave 1 · running')
-    await expect.poll(() => journals(world.dataDir).map(kindsOf)).toEqual([
-      ['run-started', 'forecast', 'wave-started 1', 'ticket-status'],
-      ['run-started', 'forecast', 'wave-started 1'],
-    ])
-    await expect.poll(() => messages(world.log)).toEqual([WAVE_1, `/epic-wave Ticket-ы 02 эпика ${EPIC}`])
-    const refused = window.getByTestId('autopilot-start-refused')
-    refusal = (await refused.count()) > 0 ? await refused.innerText() : null
+    await expect(frame.getByTestId('autopilot-status')).toHaveText('Wave 2 · running')
+    // One journal, the killed Run's: run-continued after crash and Wave 2, numbered after the cut-off one.
+    await expect.poll(() => journals(world.dataDir).map(kindsOf)).toEqual([['run-started', 'forecast', 'wave-started 1', 'ticket-status', 'run-continued', 'wave-started 2']])
+    const lines = journals(world.dataDir)[0]!.split('\n').filter(Boolean).map((line) => JSON.parse(line) as { kind: string; run: string; after?: string; tickets?: string[] })
+    expect(lines.find((event) => event.kind === 'run-continued')).toMatchObject({ run, after: 'crash' })
+    expect(lines.at(-1)).toMatchObject({ kind: 'wave-started', run, tickets: ['01', '02'] })
+    // Exactly one new Wave command: 01 continued and 02. The world's Harness is the old one (an epic-status in
+    // WORFY_CLAUDE_HOME/bin, autopilot-world.ts), which has no wave-brief: the Wave goes to the Orchestrator's Session as
+    // it is, without the line of a new session (run.ts, a new session per Wave only with a Harness that has wave-brief).
+    await expect.poll(() => messages(world.log)).toEqual([WAVE_1, WAVE_1])
+    await stopRun(frame, app)
   } finally {
     await second.close()
   }
 
-  // The Recovery invariants over both Runs: the killed one ends without run-stopped, the new one
-  // with the quit above; one Wave command each; 01's claim is journaled once, by the Run it happened in.
-  expect(messages(world.log)).toEqual([WAVE_1, `/epic-wave Ticket-ы 02 эпика ${EPIC}`])
   expect(
     checkRecovery({
       journals: journals(world.dataDir),
@@ -107,8 +114,60 @@ test('the app killed with SIGKILL in the middle of a Wave and started again: not
       statusWrites: writes,
       projectBefore: world.projectBefore,
       projectAfter: files(world.repo),
-      restart: { refusal },
-      expect: { stop: null, waves: 2, tornLastLine: true },
+      restart: null,
+      expect: { stop: 'user-stop', continued: 'crash', waves: 2, tornLastLine: true },
+    }),
+  ).toEqual([])
+})
+
+test('a Run the restart cut off for the third time within the hour: the line says cut off by restart with Resume and Discard, nothing goes to the Orchestrator, and Resume continues it', async () => {
+  const world = prepareWorld(scratch)
+  const writes: StatusWrite[] = []
+  const run = await killedInWave1(world, writes)
+  // Two continuations by itself within the hour already, each cut off again by a quit: the next start leaves the Run to a person.
+  const file = join(world.dataDir, 'autopilot', `${run}.jsonl`)
+  const head = JSON.parse(readFileSync(file, 'utf8').split('\n')[0]!) as { project: string; epic: string }
+  const line = (fields: Record<string, unknown>): string => `${JSON.stringify({ at: new Date().toISOString(), run, project: head.project, epic: head.epic, ...fields })}\n`
+  const text = readFileSync(file, 'utf8')
+  const ended = text.endsWith('\n') ? text : `${text}\n`
+  const twice = [0, 1].map((round) => line({ kind: 'run-continued', after: round === 0 ? 'crash' : 'quit' }) + line({ kind: 'run-suspended', cause: 'quit', wave: 1, tickets: ['01'], wait: null }))
+  writeFileSync(file, ended + twice.join(''))
+
+  const second = await launchApp({ env: world.env(SCRIPT) })
+  try {
+    const { window, app } = second
+    const frame = frameOf(window)
+    const status = frame.getByTestId('autopilot-status')
+    const autopilot = frame.getByTestId('action-autopilot')
+    await expect(status).toHaveText(/^cut off by restart · \d\d:\d\d$/u)
+    await expect(frame.getByTestId('autopilot-resume')).toHaveText('Resume')
+    await expect(frame.getByTestId('autopilot-discard')).toHaveText('Discard')
+    await expect(window.getByTestId('autopilot-cut-off')).toBeVisible()
+    await expect(autopilot).toHaveAttribute('aria-disabled', 'true')
+    // Nothing went to the Orchestrator while the Run waits for a person.
+    expect(messages(world.log)).toEqual([WAVE_1])
+    await snapshotThemes(window, 'autopilot-cut-off-by-restart')
+
+    await frame.getByTestId('autopilot-resume').click()
+    await expect(status).toHaveText('Wave 2 · running')
+    await expect.poll(() => waveCommands(world.log)).toEqual([WAVE_1, WAVE_1])
+    await expect.poll(() => journals(world.dataDir).map(kindsOf).flat().slice(-2)).toEqual(['run-continued', 'wave-started 2'])
+    expect(journals(world.dataDir)).toHaveLength(1)
+    await stopRun(frame, app)
+  } finally {
+    await second.close()
+  }
+
+  expect(
+    checkRecovery({
+      journals: journals(world.dataDir),
+      messages: messages(world.log),
+      gh: ghCalls(world),
+      statusWrites: writes,
+      projectBefore: world.projectBefore,
+      projectAfter: files(world.repo),
+      restart: null,
+      expect: { stop: 'user-stop', continued: 'crash', waves: 2, tornLastLine: true },
     }),
   ).toEqual([])
 })

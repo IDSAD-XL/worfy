@@ -162,6 +162,22 @@ export async function openRun(start: RunStart, options: JournalOptions = {}): Pr
   }
 }
 
+/**
+ * Opens the journal of an earlier run to append to it, under its id (worfy-continuity ticket 06): a Run a restart of
+ * the app cut off goes on in its own file. Its Project and Epic are its first readable line's. A last line a killed app
+ * tore is ended with a newline first, so the next line is a line of its own. Throws when the file does not exist or
+ * has no readable line.
+ */
+export async function reopenRun(run: string, options: JournalOptions = {}): Promise<RunJournal> {
+  if (!isRunId(run)) throw new Error(`not a run id: ${run}`)
+  const file = join(journalDir(options.env), journalFileName(run))
+  const text = await readFile(file, 'utf8')
+  const first = parseJournal(text).events[0]
+  if (first === undefined) throw new Error(`the journal of ${run} has no readable line`)
+  if (text !== '' && !text.endsWith('\n')) await appendFile(file, '\n')
+  return new RunJournal(run, file, first.project, first.epic, options.now ?? (() => new Date()))
+}
+
 export interface RunSummary {
   run: string
   project: string
