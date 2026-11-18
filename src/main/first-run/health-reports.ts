@@ -49,6 +49,8 @@ interface Message {
 interface Stored {
   check: Check
   at: number
+  /** Among the extra rows: `network` — a source's row, which the next network run replaces; `recheck` — a row only a re-check made, which stays. */
+  from?: 'network' | 'recheck'
 }
 
 const keyOf = (id: CheckId, project: CheckProject | undefined): string => `${id}\u0000${project?.id ?? ''}`
@@ -58,14 +60,16 @@ const budgetOf = (project: CheckProject | undefined): string => project?.id ?? '
 
 export class HealthReports {
   /** The rows of the last checks, in their order; null before the first. */
-  private local: Stored[] | null = null
-  private localCheckedAt: string | null = null
+  private checked: Stored[] | null = null
+  private checkedAt: string | null = null
   /** The rows checked over the network or again one by one, not among the local ones. */
   private extra = new Map<string, Stored>()
   private messages = new Map<string, Message>()
   private rechecks = new Map<CheckId, Recheck>()
   private networkSources: (() => Promise<Check[]>)[] = []
   private lastRecheck = new Map<string, number>()
+  /** The rows whose re-check is running: a second one waits for nothing and starts nothing. */
+  private inFlight = new Set<string>()
   private listeners = new Set<(report: FirstRunReport) => void>()
   private sent: string | null = null
 
@@ -117,14 +121,18 @@ export class HealthReports {
    */
   setChecks(report: FirstRunReport, startedAt: number = this.now()): FirstRunReport {
     const at = this.now()
-    this.local = report.checks.map((check) => ({ check, at }))
-    this.localCheckedAt = report.checkedAt
+    this.checked = report.checks.map((check) => ({ check, at }))
+    this.checkedAt = report.checkedAt
     for (const check of report.checks) this.supersede(keyOfCheck(check), startedAt)
     this.changed()
     return this.current() ?? report
   }
 
-  /** Runs the network rows; they replace the earlier ones. Never rejects: a source that throws adds nothing. */
+  /**
+   * Runs the network rows; they replace the earlier rows of the sources. A row only a re-check made
+   * (a feature's failure, re-checked) stays unless a source answers for it now. Never rejects: a
+   * source that throws adds nothing.
+   */
   async checkNetwork(): Promise<void> {
     if (this.networkSources.length === 0) return
     const startedAt = this.now()
@@ -137,14 +145,16 @@ export class HealthReports {
       ),
     )
     const at = this.now()
-    const localKeys = new Set((this.local ?? []).map((stored) => keyOfCheck(stored.check)))
+    const checkedKeys = new Set((this.checked ?? []).map((stored) => keyOfCheck(stored.check)))
+    const before = this.extra
     this.extra = new Map()
     for (const check of answers.flat()) {
       const key = keyOfCheck(check)
-      if (localKeys.has(key)) continue
-      this.extra.set(key, { check, at })
+      if (checkedKeys.has(key)) continue
+      this.extra.set(key, { check, at, from: 'network' })
       this.supersede(key, startedAt)
     }
+    for (const [key, stored] of before) if (stored.from === 'recheck' && !this.extra.has(key)) this.extra.set(key, stored)
     this.changed()
   }
 
@@ -163,11 +173,15 @@ export class HealthReports {
   /** The merged report; null before the first check and the first message. */
   current(): FirstRunReport | null {
     const rows = this.rows().map(({ check }) => check)
-    if (this.localCheckedAt === null && rows.length === 0) return null
-    return { checks: rows, checkedAt: this.localCheckedAt ?? new Date(this.now()).toISOString() }
+    if (this.checkedAt === null && rows.length === 0) return null
+    return { checks: rows, checkedAt: this.checkedAt ?? new Date(this.now()).toISOString() }
   }
 
+  /** Checks one row again; a row whose re-check is still running is not checked a second time. */
   private async recheck(id: CheckId, project: CheckProject | undefined, recheck: Recheck): Promise<void> {
+    const key = keyOf(id, project)
+    if (this.inFlight.has(key)) return
+    this.inFlight.add(key)
     const startedAt = this.now()
     let fresh: Check | null
     try {
@@ -175,17 +189,19 @@ export class HealthReports {
     } catch (error) {
       console.warn(`[health] the re-check of ${id} failed:`, error instanceof Error ? error.name : 'error')
       return
+    } finally {
+      this.inFlight.delete(key)
     }
-    const key = keyOf(id, project)
     const at = this.now()
-    const local = this.local?.find((stored) => keyOfCheck(stored.check) === key)
+    const ofChecks = this.checked?.find((stored) => keyOfCheck(stored.check) === key)
+    const extra = this.extra.get(key)
     if (fresh === null) {
       this.extra.delete(key)
-      if (local !== undefined) this.local = (this.local ?? []).filter((stored) => stored !== local)
-    } else if (local !== undefined) {
-      local.check = fresh
-      local.at = at
-    } else this.extra.set(key, { check: fresh, at })
+      if (ofChecks !== undefined) this.checked = (this.checked ?? []).filter((stored) => stored !== ofChecks)
+    } else if (ofChecks !== undefined) {
+      ofChecks.check = fresh
+      ofChecks.at = at
+    } else this.extra.set(key, { check: fresh, at, from: extra?.from ?? 'recheck' })
     this.supersede(key, startedAt)
     this.changed()
   }
@@ -197,14 +213,14 @@ export class HealthReports {
   }
 
   private storedAt(key: string): Stored | undefined {
-    return this.local?.find((stored) => keyOfCheck(stored.check) === key) ?? this.extra.get(key)
+    return this.checked?.find((stored) => keyOfCheck(stored.check) === key) ?? this.extra.get(key)
   }
 
   /** The local rows, then the network ones, then those only a message made; each with when it was last seen. */
   private rows(): Stored[] {
     const merged: Stored[] = []
     const seen = new Set<string>()
-    for (const stored of [...(this.local ?? []), ...this.extra.values()]) {
+    for (const stored of [...(this.checked ?? []), ...this.extra.values()]) {
       const key = keyOfCheck(stored.check)
       seen.add(key)
       const message = this.messages.get(key)

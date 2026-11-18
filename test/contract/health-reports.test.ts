@@ -168,8 +168,15 @@ describe('the re-check after a failure message', () => {
     // Another Project has its own minute.
     reports.reportFailure('github-access', BETA, 'no access', 'Ask for access')
     expect(network.calls).toEqual([ALPHA, BETA])
-    // A minute after the first one, the next message checks again.
+    // A minute after the first one, while that re-check still runs, nothing starts a second one.
     tick(10_000)
+    reports.reportFailure('github-access', ALPHA, 'no access', 'Ask for access')
+    expect(network.calls).toEqual([ALPHA, BETA])
+    // Once it answered, the next message a minute later checks again.
+    network.answer(accessRow(ALPHA, 'fail'))
+    network.answer(accessRow(BETA, 'fail'))
+    await settle()
+    tick(RECHECK_AFTER_FAILURE_MS)
     reports.reportFailure('github-access', ALPHA, 'no access', 'Ask for access')
     expect(network.calls).toEqual([ALPHA, BETA, ALPHA])
   })
@@ -231,6 +238,25 @@ describe('the focus of a worfy window (Q8)', () => {
     expect(asked).toEqual(['alpha'])
   })
 
+  it('a row whose re-check still runs is not checked a second time by the next focus', async () => {
+    const { reports, tick } = setup()
+    const network = pendingRecheck()
+    reports.registerRecheck('github-access', network.recheck)
+    reports.registerNetworkRows(() => Promise.resolve([accessRow(ALPHA, 'fail')]))
+    reports.setChecks(report(machineRow('git', 'ok')))
+    await reports.checkNetwork()
+    tick(RECHECK_ON_FOCUS_MS + 1)
+    const first = reports.focus()
+    void reports.focus()
+    expect(network.calls).toEqual([ALPHA])
+    network.answer(accessRow(ALPHA, 'fail'))
+    await first
+    // Answered: the row was just checked, so a later focus waits its 5 minutes again.
+    tick(RECHECK_ON_FOCUS_MS + 1)
+    void reports.focus()
+    expect(network.calls).toEqual([ALPHA, ALPHA])
+  })
+
   it('a row with no re-check of its own is left for "Check again"', async () => {
     const { reports, tick } = setup()
     reports.setChecks(report(machineRow('jq', 'fail', { severity: 'non-critical' })))
@@ -241,6 +267,40 @@ describe('the focus of a worfy window (Q8)', () => {
 })
 
 describe('rows checked over the network', () => {
+  it('"Check again" keeps a row only a re-check made; a source that answers for it now replaces it', async () => {
+    const { reports } = setup()
+    reports.registerRecheck('github-access', (project) => Promise.resolve(accessRow(project ?? ALPHA, 'fail', 'still no access')))
+    let answer: Check[] = []
+    reports.registerNetworkRows(() => Promise.resolve(answer))
+    reports.setChecks(report(machineRow('git', 'ok')))
+    reports.reportFailure('github-access', ALPHA, 'no access', 'Ask for access')
+    await settle()
+    expect(rowOf(reports.current(), 'github-access', ALPHA)).toMatchObject({ status: 'fail', detail: 'still no access' })
+
+    reports.setChecks(report(machineRow('git', 'ok')))
+    await reports.checkNetwork()
+    expect(rowOf(reports.current(), 'github-access', ALPHA)).toMatchObject({ status: 'fail', detail: 'still no access' })
+
+    answer = [accessRow(ALPHA, 'ok')]
+    await reports.checkNetwork()
+    expect(rowOf(reports.current(), 'github-access', ALPHA)?.status).toBe('ok')
+  })
+
+  it('a source row that a re-check refreshed is still the source\'s: the next run without it drops it', async () => {
+    const { reports, tick } = setup()
+    reports.registerRecheck('github-access', (project) => Promise.resolve(accessRow(project ?? ALPHA, 'fail', 'rechecked')))
+    let answer: Check[] = [accessRow(ALPHA, 'fail')]
+    reports.registerNetworkRows(() => Promise.resolve(answer))
+    reports.setChecks(report(machineRow('git', 'ok')))
+    await reports.checkNetwork()
+    tick(RECHECK_ON_FOCUS_MS + 1)
+    await reports.focus()
+    expect(rowOf(reports.current(), 'github-access', ALPHA)?.detail).toBe('rechecked')
+    answer = []
+    await reports.checkNetwork()
+    expect(rowOf(reports.current(), 'github-access', ALPHA)).toBeUndefined()
+  })
+
   it('come after the local checks, never open First run, and a source that throws adds nothing', async () => {
     const { reports, events } = setup()
     reports.registerNetworkRows(() => Promise.resolve([{ ...accessRow(ALPHA, 'fail') }, machineRow('gh-auth', 'fail')]))
@@ -260,19 +320,27 @@ describe('rows checked over the network', () => {
 
 describe('a token never reaches the report or the log', () => {
   it('a message carrying a known token in its reason and step: the token is in no event, report or log line', async () => {
-    const TOKEN = 'ghp_0123456789abcdefABCDEF0123456789abcd'
-    const PAT = 'github_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUV'
+    // Built here, so the source holds no token-shaped text for the personal-data check.
+    const TOKEN = ['ghp', '0123456789abcdefABCDEF0123456789abcd'].join('_')
+    const PAT = ['github', 'pat', '11ABCDEFG0123456789', 'abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUV'].join('_')
     const { reports, events } = setup()
     const output: unknown[] = []
     for (const method of ['log', 'info', 'warn', 'error', 'debug'] as const) vi.spyOn(console, method).mockImplementation((...args: unknown[]) => void output.push(...args))
     reports.registerRecheck('github-access', () => Promise.reject(new Error(`gh failed with GH_TOKEN=${TOKEN}`)))
     reports.setChecks(report(machineRow('git', 'ok')))
-    reports.reportFailure('github-access', ALPHA, `GitHub refused the token ${TOKEN}`, `Unset GH_TOKEN=${PAT} or authorize it`)
+    reports.reportFailure('github-access', ALPHA, `GitHub refused the token ${TOKEN} (reasonmarker)`, `Unset GH_TOKEN=${PAT} or authorize it (stepmarker)`)
     await settle()
 
-    const everything = JSON.stringify({ events, current: reports.current(), output: output.map((each) => (each instanceof Error ? `${each.name} ${each.message}` : String(each))) })
+    const logged = JSON.stringify(output.map((each) => (each instanceof Error ? `${each.name} ${each.message}` : String(each))))
+    const everything = JSON.stringify({ events, current: reports.current(), logged })
     expect(everything).not.toContain(TOKEN)
     expect(everything).not.toContain(PAT)
+    // The module logs neither the reason nor the step, redacted or not: a secret of a shape
+    // redactSecrets does not know would go out with them.
+    expect(output.length).toBeGreaterThan(0)
+    expect(logged).not.toContain('reasonmarker')
+    expect(logged).not.toContain('stepmarker')
+    expect(rowOf(reports.current(), 'github-access', ALPHA)?.detail).toContain('reasonmarker')
     // The reason still reads: the variable's name stays, its value goes.
     expect(rowOf(reports.current(), 'github-access', ALPHA)?.hint).toContain('GH_TOKEN')
   })
