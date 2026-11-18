@@ -274,3 +274,33 @@ export function quitForUpdate(): void {
    - Строки: `src/main/quit-grace.ts:305`, `src/main/quit-grace.ts:313`
    - Ответ: после `haltAll` Session закрыта, и Run, ждущий задачи, прочёл бы закрытие как возврат Orchestrator-а; а в
      `depart` рано — за время ожидания задача может закончиться сама и не должна попасть в убитые.
+
+## 11. Что нашёл review и что осталось
+
+> VERIFIED; debt: a system shutdown skips the halt, so Autopilot.recordQuit is the only writer of `tasks-killed` on that path (src/main/quit-grace.ts:300-308, src/main/autopilot/run.ts:1959-1962) — only a code comment and docs/features/autopilot-faults.md state it; a contract test over quitSteps that skips halt and runs record('shutdown') would pin it (low); one head comment line of step 3 in src/main/quit-grace.ts runs far past the usual width (low).
+> All five round-1 items fixed, each with a test red on a mutant of its fix; the «Quitting worfy» window seen in both themes in CI artifact e2e-snapshots-1-1/04-quitting-worfy/{light,dark}.png of run 44236839847.
+> Review depth: low — default: the profile has no review.depth.wave
+> Review tokens: 74424
+
+Code: `src/main/quit-grace.ts:300-308` · key lines: 300
+
+```ts
+    halt: async () => {
+      const { registry, live, autopilot, haltTurnMs } = parts()
+      // Before any Session closes: a stopped Run would read its Session's close as given back, not killed. A failure
+      // here does not keep the Sessions from being halted.
+      try {
+        await autopilot?.recordKilled()
+      } catch (error) {
+        console.error('[quit] could not journal the background tasks as killed', error)
+      }
+```
+
+Code: `src/main/autopilot/run.ts:1959-1962` · key lines: 1959
+
+```ts
+  async recordKilled(): Promise<void> {
+    this.quitting = true
+    await Promise.all([...this.lingering].map((quit) => quit()))
+  }
+```

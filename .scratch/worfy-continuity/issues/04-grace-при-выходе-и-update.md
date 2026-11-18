@@ -1,7 +1,8 @@
 # 04 — Grace при выходе и при Update: координатор выхода, окно «Quitting worfy», `run-suspended`
 
 Type: task
-Status: claimed 2026-11-18T01:26Z
+Status: done 2026-11-18T05:00Z
+PR: #1979
 Blocked by: 02, 03
 Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решения по реализации» → «Grace при выходе и при Update»;
 «Вопросы владельцу», Q1 и Q2 (оба — (а), решено без владельца, подтвердить); «Решено без владельца», 3;
@@ -76,6 +77,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решения по реал�
   - evidence: commit pass · worfy-continuity/04: tasks-killed before the halt, tests for hold, halt wait and Update's quit, e2e shots via snapshotThemes · - - · e3609ccdf0b6fd1ac944724fcb5694d30797ef49
 - [ ] Платформенный PR (ADR-0056, пункт 2; ADR-0071): job Windows в составе `ci-ok` зелёный на head PR до merge.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44236839847/job/134585271772 · ci - · 27cf00d1d3efcc470dd7975620b01a0765608587
 
 ## Тесты
 
