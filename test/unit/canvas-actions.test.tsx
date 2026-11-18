@@ -60,6 +60,8 @@ let appSettings: AppSettings | null
 let prInbox: PrInboxSnapshot | null
 /** What actions.prFollow answers. */
 let prFollowAnswer: IpcResult<unknown>
+/** An answer of actions.prFollow that is still coming; null answers prFollowAnswer at once. */
+let prFollowPending: Promise<IpcResult<unknown>> | null
 /** Claude's part of what limits.open answers: the live Limits of the toolbar (useLimits). */
 let limitsState: LimitsState
 /** The other Vendors' part of what limits.open answers (worfy-multi-vendor ticket 38). */
@@ -75,6 +77,7 @@ beforeEach(() => {
   estimateAnswer = null
   appSettings = null
   prInbox = null
+  prFollowPending = null
   prFollowAnswer = { ok: true, value: { nodeId: 'n2', sessionId: 'pending-2', text: '/worfy:pr-fix conflicts', delivery: 'new' } }
   limitsState = { windows: {} }
   vendorsState = {}
@@ -128,7 +131,7 @@ beforeEach(() => {
           if (prInbox !== null) return Promise.resolve({ ok: true, value: prInbox })
           return Promise.resolve({ ok: true, value: { closed: true } })
         case 'actions.prFollow':
-          return Promise.resolve(prFollowAnswer)
+          return prFollowPending ?? Promise.resolve(prFollowAnswer)
         case 'shell.openExternal':
           return Promise.resolve({ ok: true, value: { url: (input as { url: string }).url } })
         default:
@@ -1386,10 +1389,55 @@ describe('the pull request actions on a Ticket (worfy-pr-follow ticket 05)', () 
     await vi.waitFor(() => expect(screen.getByTestId('action-pr-follow-more').getAttribute('title')).toBe(refusal))
   })
 
+  /** main's PR inbox changes: the snapshot it answers now, and the event the renderer reads it again on. */
+  async function inboxChanges(rows: PrInboxRow[]): Promise<void> {
+    prInbox = inbox(rows)
+    await act(async () => listeners.get('prInbox.changed')!({ projectId: PROJECT }))
+  }
+
+  it('a refusal stays with its action and PR when a new snapshot changes which action is on the button, or how many there are', async () => {
+    const refusal = 'Resolve conflicts is already starting for example-org/demo#31: wait for its Session, or close its Node to start again'
+    prFollowAnswer = { ok: false, error: `actions.prFollow failed: ${refusal}` }
+    prInbox = inbox([pull({ mergeStateStatus: 'DIRTY' })])
+    await mount()
+    const button = () => screen.getByTestId('action-pr-follow')
+    await vi.waitFor(() => expect(button().getAttribute('aria-disabled')).toBe('false'))
+    fireEvent.click(button())
+    await vi.waitFor(() => expect(button().getAttribute('title')).toBe(refusal))
+    // One more reason: the chain of states is one longer, and the refusal is still Resolve conflicts'.
+    await inboxChanges([pull({ mergeStateStatus: 'DIRTY', ci: 'failing' })])
+    await vi.waitFor(() => expect(screen.queryByTestId('action-pr-follow-more')).not.toBeNull())
+    expect([button().textContent, button().getAttribute('title')]).toEqual(['Resolve conflicts', refusal])
+    expect(moreItems()).toEqual([['Fix checks', `/worfy:pr-fix checks example-org/demo#31 ${SHA}`, false]])
+    // The conflict is gone: Fix checks takes the button, with its own text, not the refusal of another action.
+    await inboxChanges([pull({ ci: 'failing' })])
+    await vi.waitFor(() => expect(button().textContent).toBe('Fix checks'))
+    expect(button().getAttribute('title')).toBe(`/worfy:pr-fix checks example-org/demo#31 ${SHA}`)
+    expect(button().getAttribute('data-error')).toBeNull()
+  })
+
+  it('a click in flight stays inactive when a new snapshot changes the number of actions', async () => {
+    let answer: (result: IpcResult<unknown>) => void = () => undefined
+    prFollowPending = new Promise((resolve) => (answer = resolve))
+    prInbox = inbox([pull({ mergeStateStatus: 'DIRTY' })])
+    await mount()
+    const button = () => screen.getByTestId('action-pr-follow')
+    await vi.waitFor(() => expect(button().getAttribute('aria-disabled')).toBe('false'))
+    fireEvent.click(button())
+    await vi.waitFor(() => expect(button().getAttribute('aria-disabled')).toBe('true'))
+    await inboxChanges([pull({ mergeStateStatus: 'DIRTY', ci: 'failing' })])
+    await vi.waitFor(() => expect(screen.queryByTestId('action-pr-follow-more')).not.toBeNull())
+    expect(button().getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(button())
+    expect(calls.filter((call) => call.channel === 'actions.prFollow')).toHaveLength(1)
+    await act(async () => answer({ ok: true, value: { nodeId: 'n2', sessionId: 'pending-2', text: '/worfy:pr-fix conflicts', delivery: 'new' } }))
+    await vi.waitFor(() => expect(button().getAttribute('aria-disabled')).toBe('false'))
+  })
+
   it('a Ticket with a PR in two repositories (ADR-0104): the first PR\'s first reason on the button, an item per PR and reason naming its PR', async () => {
     prInbox = inbox([pull({ ci: 'failing' }), pull({ repo: 'example-org/api', number: 7, headRefOid: OTHER, mergeStateStatus: 'DIRTY', reviewDecision: 'CHANGES_REQUESTED' })])
     await mount()
-    const button = await screen.findByRole('button', { name: 'Fix checks' })
+    const button = await screen.findByRole('button', { name: 'Fix checks example-org/demo#31' })
     await vi.waitFor(() => expect(button.getAttribute('title')).toBe(`/worfy:pr-fix checks example-org/demo#31 ${SHA}`))
     expect(moreItems()).toEqual([
       ['Resolve conflicts example-org/api#7', `/worfy:pr-fix conflicts example-org/api#7 ${OTHER}`, false],

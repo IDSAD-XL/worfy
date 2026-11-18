@@ -41,7 +41,7 @@ export const prFollowTitle = ({ row, action }: PrFollowChoice): string => `${ACT
 
 ## 3. Кнопка по первой причине и ▾ с остальными
 
-Code: `src/renderer/canvas/actions/PrFollow.tsx:39-94` · key lines: 45, 55, 56, 62, 71, 82
+Code: `src/renderer/canvas/actions/PrFollow.tsx:43-129` · key lines: 49, 54, 71, 79, 83, 89, 99, 100, 108
 
 ```tsx
 function Collect(props: Collected): ReactElement {
@@ -54,43 +54,74 @@ function CollectOne({ projectId, choices, states, draw }: Collected): ReactEleme
   return <Collect projectId={projectId} choices={choices} states={[...states, state]} draw={draw} />
 }
 
+/** A choice by its action and PR: what its click left is kept under this. */
+const keyOf = ({ row, action }: PrFollowChoice): string => `${action}:${row.repo.toLowerCase()}#${row.number}`
+
+/** What a click left on a choice: in flight, or main's refusal. */
+interface Outcome {
+  running: boolean
+  error: string | null
+}
+
 const titleOf = (state: ActionState): string => (state.enabled ? state.text : state.reason)
 
 function TicketPrFollow({ projectId, root, ticket }: Extract<SlotProps['subject'], { kind: 'ticket' }>) {
   const { snapshot } = usePrInbox(projectId)
   const { model } = useWorkflow(root)
   const store = useCanvasStore()
-  const choices = prFollowChoices(snapshot, ticket, model?.tickets ?? [ticket])
+  const [outcomes, setOutcomes] = useState<Readonly<Record<string, Outcome>>>({})
+  // The model's list, the same for every Ticket Node, else one list per Ticket: the map of whose PRs is made once.
+  const alone = useMemo(() => [ticket], [ticket])
+  const choices = prFollowChoices(snapshot, ticket, model?.tickets ?? alone)
   if (choices.length === 0) return null
   const several = new Set(choices.map(({ row }) => `${row.repo}#${row.number}`)).size > 1
 
-  const run = ({ row, action }: PrFollowChoice) => async (): Promise<string | undefined> => {
+  const run = (choice: PrFollowChoice) => async (): Promise<string | undefined> => {
+    const key = keyOf(choice)
+    const settle = (outcome: Outcome) => setOutcomes((now) => ({ ...now, [key]: outcome }))
+    settle({ running: true, error: null })
     const { frames, strip } = store ? spotInputs(store.getState().nodeLookup.values()) : { frames: [], strip: undefined }
     const near = sessionSpot({ kind: 'ticket', epic: ticket.epic, num: ticket.num }, frames, strip)
-    const result = await invoke('actions.prFollow', { projectId, repo: row.repo, pr: row.number, action, ...(near ? { near } : {}) })
-    return result.ok ? undefined : failureReason('actions.prFollow', result.error)
+    const result = await invoke('actions.prFollow', { projectId, repo: choice.row.repo, pr: choice.row.number, action: choice.action, ...(near ? { near } : {}) })
+    const error = result.ok ? null : failureReason('actions.prFollow', result.error)
+    settle({ running: false, error })
+    return error ?? undefined
+  }
+  /** Active only when usePrFollowState says so and no click of it is in flight; its refusal first in the tooltip. */
+  const shown = (choice: PrFollowChoice, state: ActionState) => {
+    const outcome = outcomes[keyOf(choice)]
+    return { enabled: state.enabled && outcome?.running !== true, title: outcome?.error ?? titleOf(state) }
   }
 
   const draw = (states: readonly ActionState[]): ReactElement => {
     const [first, ...rest] = choices
-    const state = states[0]!
+    const button = shown(first!, states[0]!)
+    const refused = rest.map((choice) => outcomes[keyOf(choice)]?.error).find((error) => error != null)
     return (
       <>
-        <ActionButton label={ACTION_LABELS[first!.action]} testId="action-pr-follow" enabled={state.enabled} title={titleOf(state)} run={run(first!)} />
+        <ActionButton
+          key={keyOf(first!)}
+          label={several ? prFollowTitle(first!) : ACTION_LABELS[first!.action]}
+          testId="action-pr-follow"
+          enabled={button.enabled}
+          title={button.title}
+          run={run(first!)}
+        />
         {rest.length > 0 ? (
           <ActionMenu
+            key={rest.map(keyOf).join(' ')}
             label="More pull request actions"
             text="▾"
-            title="Other actions on the Ticket's pull requests"
+            title={refused ?? "Other actions on the Ticket's pull requests"}
             testId="action-pr-follow-more"
             menuLabel="Pull request actions"
             items={rest.map((choice, index) => {
-              const each = states[index + 1]!
+              const item = shown(choice, states[index + 1]!)
               return {
                 label: several ? prFollowTitle(choice) : ACTION_LABELS[choice.action],
-                title: titleOf(each),
+                title: item.title,
                 testId: `action-pr-follow-item-${choice.action}-${choice.row.repo}#${choice.row.number}`,
-                disabled: !each.enabled,
+                disabled: !item.enabled,
                 run: run(choice),
               }
             })}
@@ -106,10 +137,14 @@ function TicketPrFollow({ projectId, root, ticket }: Extract<SlotProps['subject'
   вызовов hook-а в компоненте не менялось. Первое действие — кнопка, остальные — пункты меню ▾ (`ActionMenu`, как у
   «Open PR»). У Ticket-а с PR в нескольких repository пункт называет свой PR. Щелчок шлёт `actions.prFollow` с `near`
   справа от колонки рамок на высоте Ticket-а, как Ship ticket. Отказ main показывает tooltip кнопки или ▾.
+  Щелчок в полёте и отказ хранятся по действию и PR (`keyOf`), а не в кнопке: новый snapshot может сменить действие на
+  кнопке или число действий, и отказ одного действия не показывается на другом, а щелчок в полёте не становится
+  снова активным. Если у Ticket-а PR в нескольких repository, кнопка тоже называет свой PR.
 - Почему здесь: Ticket называет новый slot `src/renderer/canvas/actions/PrFollow.tsx`; slot-ы добавляются по файлу.
 - Без него: на Ticket Node не было бы действий над его PR.
 - Требование: [Что делаем, пункты 1–4](../issues/05-ticket-node-и-command-palette.md#что-делаем)
-- Риски и пробелы test-ов: на кнопке стоит первая причина, даже когда она неактивна, а следующая активна. Ширину ряда
+- Риски и пробелы test-ов: на кнопке стоит первая причина, даже когда она неактивна, а следующая активна. Отказы
+  хранятся, пока Node на экране: после перерисовки Canvas с нуля их нет. Ширину ряда
   действий на карточке 240 px проверяет только e2e (`ticketCardCuts`), локально он не запускался.
 
 ## 4. Строки palette из того же списка
@@ -192,10 +227,10 @@ function CommandRow(props: RowProps) {
 ## Проверить себя
 
 1. Ticket с PR в конфликте, но шаблон Resolve conflicts пуст, а Fix checks задан. Что на кнопке?
-   - Строки: `src/renderer/canvas/actions/PrFollow.tsx:66-71`
+   - Строки: `src/renderer/canvas/actions/PrFollow.tsx:87-104`
    - Ответ: Resolve conflicts, неактивная, с подсказкой задать шаблон; Fix checks — активный пункт меню ▾.
 2. Почему состояния собираются цепочкой компонентов, а не циклом вызовов hook-а?
-   - Строки: `src/renderer/canvas/actions/PrFollow.tsx:39-47`
+   - Строки: `src/renderer/canvas/actions/PrFollow.tsx:43-50`
    - Ответ: число действий меняется со snapshot-ом, а число вызовов hook-а в одном компоненте меняться не может.
 3. Project с `"prInbox": false` — что видит palette?
    - Строки: `src/renderer/canvas/actions/pr-follow-choices.ts:28-35`

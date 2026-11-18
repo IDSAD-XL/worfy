@@ -1005,9 +1005,13 @@ describe('the pull request actions of the Tickets (worfy-pr-follow ticket 05)', 
     onTestFinished(() => {
       delete globals.worfy
     })
-    const fix = followRows(context({ prInbox: inbox([pull()]) }))[1]!
-    expect(await fix.run()).toBe('Fix checks is already starting for owner/web#118: wait for its Session, or close its Node to start again')
-    expect(asked).toEqual([{ channel: 'actions.prFollow', input: { projectId: 'p1', repo: 'owner/web', pr: 118, action: 'fixChecks' } }])
+    const [resolve, fix] = followRows(context({ prInbox: inbox([pull()]) }))
+    expect(await fix!.run()).toBe('Fix checks is already starting for owner/web#118: wait for its Session, or close its Node to start again')
+    await resolve!.run()
+    expect(asked).toEqual([
+      { channel: 'actions.prFollow', input: { projectId: 'p1', repo: 'owner/web', pr: 118, action: 'fixChecks' } },
+      { channel: 'actions.prFollow', input: { projectId: 'p1', repo: 'owner/web', pr: 118, action: 'resolveConflicts' } },
+    ])
   })
 
   it('the rows say what the Ticket\'s button and its «▾» say: the same text when active, the same reason when not', async () => {
