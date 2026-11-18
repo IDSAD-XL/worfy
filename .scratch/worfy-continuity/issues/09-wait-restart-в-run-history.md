@@ -1,7 +1,8 @@
 # 09 — Run history и Work track: Wait `restart` с причиной, продолженный Run — один Run
 
 Type: task
-Status: claimed 2026-11-18T03:26Z
+Status: done 2026-11-18T06:24Z
+PR: #1981
 Blocked by: 02
 Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решения по реализации» → «Run history и Work track»; «Истории
 пользователя», 6
@@ -43,6 +44,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решения по реал�
   - evidence: commit pass · worfy-continuity/09: a restart Wait in Run history and Work track · - - · cc7daa4476f5fbf5d5e2f40bf5a66e19003e1a2e
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · cc7daa4476f5fbf5d5e2f40bf5a66e19003e1a2e
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44246274849/job/134619375323 · ci - · 743c81036c9ff1d0ac921398bf58b27d125c7b9d
 
 ## Тесты
 
