@@ -1,0 +1,3 @@
+{"at":"2026-11-03T10:01:00.000Z","run":"2026-11-03T10-01-00-000Z-d4e5f6","project":"demo-000000a4","epic":"demo","kind":"run-started","by":"button"}
+{"at":"2026-11-03T10:01:01.000Z","run":"2026-11-03T10-01-00-000Z-d4e5f6","project":"demo-000000a4","epic":"demo","kind":"wave-started","wave":1,"tickets":["01","02"],"text":"/epic-wave Ticket-ы 01, 02 эпика demo"}
+{"at":"2026-11-03T10:01:09.000Z","run":"2026-11-03T10-01-00-000Z-d4e5f6","project":"demo-000000a4","epic":"demo","kind":"run-stopped","reason":"user-force-stop","tickets":["01","02"]}

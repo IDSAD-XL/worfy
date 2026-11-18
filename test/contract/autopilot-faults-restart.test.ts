@@ -10,7 +10,8 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { reopenRun } from '../../src/main/autopilot/journal'
-import { autopilotStatusLine } from '../../src/shared/ipc/autopilot'
+import { autopilotHandlers } from '../../src/main/ipc/autopilot'
+import { autopilotInclude, autopilotStatusLine } from '../../src/shared/ipc/autopilot'
 import { journalFileName, type JournalEvent, type SuspendCause } from '../../src/shared/autopilot/journal'
 import { checkRecovery } from '../autopilot-invariants'
 import { EPIC, faultRun, PROJECT, until, type FaultRun, type FaultRunOptions, type FaultScript } from './autopilot-faults-setup'
@@ -340,12 +341,127 @@ describe('a Run continued after a restart of the app (worfy-continuity ticket 06
     expect(h.journal(1).filter((event) => event.kind === 'side-effects-checked')).toMatchObject([{ epic: EPIC, ticket: '01' }])
     // Wave 2 ends: 02 is done, 03 still waits for 01, and 01 goes along in the next Wave.
     h.releases.release('wave')
-    await until(() => h.journal(1).filter((event) => event.kind === 'wave-started').length === 3, 'Wave 3 of the continued Run')
+    // The fake agent records the command only when its query reads it, after the journal line: wait for both.
+    await until(() => waveCommands(h).length === 3 && h.journal(1).filter((event) => event.kind === 'wave-started').length === 3, 'Wave 3 of the continued Run')
     expect(h.journal(1).filter((event) => event.kind === 'wave-started').at(-1)).toMatchObject({ wave: 3, tickets: ['01'] })
     expect(waveCommands(h).at(-1)).toMatch(/\b01\b/u)
     expect(waveCommands(h).at(-1)).not.toMatch(/\b0[23]\b/u)
 
     await autopilot.forceStop(PROJECT)
     expect(checkRecovery(h.recovery({ stop: 'user-force-stop', suspended: 'quit', continued: 'quit', waves: 3 }))).toEqual([])
+  })
+
+  it('Discard of a Run whose implementer held gh pr merge without a result: the Ticket is marked before run-stopped and is not resumable; the next Run leaves it out, keeps its mark, and Checked, include through autopilot.include gives it back (worfy-continuity ticket 07)', async () => {
+    const { h, grace } = quitRun({ scripts: [UNTIL_INTERRUPT], marks: 'claimed', processes: 'exit-at-once' })
+    await inWave1(h)
+    await grace.leave('quit')
+    implementerHolds(h, 'gh pr merge 41 --squash')
+    await continuedTwice(h)
+
+    const autopilot = h.restartApp()
+    // The Orchestrator after the restart claims nothing again: the Tickets are claimed already.
+    h.setMarks('none')
+    expect(await autopilot.continueCutOff(PROJECT)).toMatchObject({ cutOff: { after: 'quit' } })
+    const discarded = await autopilot.discardCutOff(PROJECT)
+    expect(discarded).toMatchObject({ status: 'stopped', reason: 'discarded', resumable: [2], run: runOf(h) })
+    expect(discarded.unknownSideEffects).toEqual([{ epic: EPIC, ticket: 1, actions: ['gh pr merge 41'] }])
+    // The mark goes to the journal before the Discard's run-stopped: the next Run reads it from there.
+    expect(h.journal(1).slice(-2)).toMatchObject([
+      { kind: 'unknown-side-effects', epic: EPIC, ticket: '01', actions: ['gh pr merge 41'] },
+      { kind: 'run-stopped', reason: 'discarded', tickets: ['01', '02'] },
+    ])
+
+    // The next Run takes 02 along, not 01, and its state keeps the mark.
+    expect(await h.startAgain()).toEqual({ refusal: null })
+    await until(() => waveCommands(h).length === 2 && h.journals().length === 2 && h.kinds(2).includes('wave-started'), 'the Wave of the next Run')
+    expect(h.journal(2).filter((event) => event.kind === 'wave-started')).toMatchObject([{ wave: 1, tickets: ['02'] }])
+    expect(waveCommands(h).at(-1)).toBe(`/epic-wave Ticket-ы 02 эпика ${EPIC}`)
+    expect(h.state().unknownSideEffects).toEqual([{ epic: EPIC, ticket: 1, actions: ['gh pr merge 41'] }])
+
+    // «Checked, include» as the window sends it: the channel reaches includeChecked of the app's Autopilot.
+    const include = autopilotHandlers(() => h.autopilot).find((handler) => handler.channel === autopilotInclude)!
+    const included = (await include.handle({ projectId: PROJECT, epic: EPIC, ticket: 1 } as never, { event: {} as never })) as ReturnType<typeof h.state>
+    expect(included.unknownSideEffects).toBeUndefined()
+    expect(h.journal(2).filter((event) => event.kind === 'side-effects-checked')).toMatchObject([{ epic: EPIC, ticket: '01' }])
+
+    await h.autopilot.forceStop(PROJECT)
+    expect(checkRecovery(h.recovery({ stop: 'discarded', waves: 2 }))).toEqual([])
+  })
+
+  it('after a restart of the app the stopped Run keeps its mark — the state the toast reads — and Checked, include then writes to that Run\'s journal (worfy-continuity ticket 07)', async () => {
+    const { h, grace } = quitRun({ scripts: [UNTIL_INTERRUPT], marks: 'claimed', processes: 'exit-at-once' })
+    await inWave1(h)
+    await grace.leave('quit')
+    implementerHolds(h, 'git push origin demo/01')
+    const first = h.restartApp()
+    h.setMarks('none')
+    await first.continueCutOff(PROJECT)
+    await until(() => waveCommands(h).length === 2 && h.kinds(1).at(-1) === 'wave-started', 'the Wave of the continued Run')
+    await first.forceStop(PROJECT)
+    expect(h.kinds(1)).toContain('run-stopped')
+
+    // The app starts again: the Run is not cut off — it stopped — and its open mark comes back from its journal.
+    const next = h.restartApp()
+    expect(next.state(PROJECT).unknownSideEffects).toBeUndefined()
+    const state = await next.continueCutOff(PROJECT)
+    expect(state).toMatchObject({ status: 'stopped', run: runOf(h), resumable: [2], unknownSideEffects: [{ epic: EPIC, ticket: 1, actions: ['git push origin demo/01'] }] })
+    expect(state.cutOff).toBeUndefined()
+    expect(h.journals()).toHaveLength(1)
+
+    const included = await next.includeChecked(PROJECT, EPIC, 1)
+    expect(included.resumable).toEqual([1, 2])
+    expect(included.unknownSideEffects).toBeUndefined()
+    expect(h.journal(1).filter((event) => event.kind === 'side-effects-checked')).toMatchObject([{ epic: EPIC, ticket: '01' }])
+    expect(checkRecovery(h.recovery({ stop: 'user-force-stop', suspended: 'quit', continued: 'quit', waves: 2 }))).toEqual([])
+  })
+
+  it('a second quit of a continued Run keeps the mark of the first: the next continuation still holds the Ticket out, with its mark, and writes no second line (worfy-continuity ticket 07)', async () => {
+    const { h, grace } = quitRun({ scripts: [UNTIL_INTERRUPT], marks: 'claimed', processes: 'exit-at-once' })
+    await inWave1(h)
+    await grace.leave('quit')
+    implementerHolds(h, 'git push origin demo/01')
+    const first = h.restartApp()
+    h.setMarks('none')
+    await first.continueCutOff(PROJECT)
+    await until(() => waveCommands(h).length === 2 && h.kinds(1).at(-1) === 'wave-started', 'Wave 2 of the continued Run')
+    await grace.leave('quit')
+    expect(h.kinds(1).at(-1)).toBe('run-suspended')
+
+    const second = h.restartApp()
+    await second.continueCutOff(PROJECT)
+    await until(() => waveCommands(h).length === 3 && h.journal(1).filter((event) => event.kind === 'wave-started').length === 3, 'Wave 3 after the second restart')
+    expect(h.journal(1).filter((event) => event.kind === 'wave-started').at(-1)).toMatchObject({ wave: 3, tickets: ['02'] })
+    expect(h.journal(1).filter((event) => event.kind === 'run-continued')).toHaveLength(2)
+    expect(h.journal(1).filter((event) => event.kind === 'unknown-side-effects')).toHaveLength(1)
+    expect(second.state(PROJECT).unknownSideEffects).toEqual([{ epic: EPIC, ticket: 1, actions: ['git push origin demo/01'] }])
+
+    await second.forceStop(PROJECT)
+    expect(second.state(PROJECT)).toMatchObject({ resumable: [2], unknownSideEffects: [{ epic: EPIC, ticket: 1 }] })
+    expect(checkRecovery(h.recovery({ stop: 'user-force-stop', suspended: 'quit', continued: 'quit', waves: 3 }))).toEqual([])
+  })
+
+  it('a Ticket given back by Checked, include before its Run was cut off again is not marked again for the same call: the continuation takes it along (worfy-continuity ticket 07)', async () => {
+    const { h, grace } = quitRun({ scripts: [UNTIL_INTERRUPT], marks: 'claimed', processes: 'exit-at-once' })
+    await inWave1(h)
+    await grace.leave('quit')
+    implementerHolds(h, 'gh pr merge 41 --squash')
+    // The Run went on once, marked 01, the person gave it back, and a quit came before the next Wave: the same
+    // transcript still has the call without its result.
+    const journal = await reopenRun(runOf(h), { env: { WORFY_DATA_DIR: h.dataRoot } })
+    await journal.append({ kind: 'run-continued', after: 'quit' })
+    await journal.append({ kind: 'unknown-side-effects', ticket: '01', actions: ['gh pr merge 41'] }, EPIC)
+    await journal.append({ kind: 'side-effects-checked', ticket: '01' }, EPIC)
+    await journal.append({ kind: 'run-suspended', cause: 'quit', wave: 1, tickets: ['01', '02'], wait: null })
+
+    const autopilot = h.restartApp()
+    h.setMarks('none')
+    await autopilot.continueCutOff(PROJECT)
+    await until(() => waveCommands(h).length === 2 && h.kinds(1).at(-1) === 'wave-started', 'the Wave of the continued Run')
+    expect(h.journal(1).at(-1)).toMatchObject({ kind: 'wave-started', wave: 2, tickets: ['01', '02'] })
+    expect(h.journal(1).filter((event) => event.kind === 'unknown-side-effects')).toHaveLength(1)
+    expect(autopilot.state(PROJECT).unknownSideEffects).toBeUndefined()
+
+    await autopilot.forceStop(PROJECT)
+    expect(checkRecovery(h.recovery({ stop: 'user-force-stop', suspended: 'quit', continued: 'quit', waves: 2 }))).toEqual([])
   })
 })

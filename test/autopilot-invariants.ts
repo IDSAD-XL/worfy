@@ -27,6 +27,8 @@
 //   I9  the continuation ladder is bounded (worfy-stuck-agents ticket 05): a Ticket has at most
 //       MAX_CONTINUATIONS ticket-continued lines in a run, and after its ticket-set-aside it is blocked
 //       (a ticket-status `blocked` of it later in that run) or the run stopped with the set-aside's cause
+//   I10 a Ticket marked unknown-side-effects (worfy-continuity ticket 07) is in no later wave-started, of its run or of
+//       a later one, until its side-effects-checked
 //
 // A violation is one English line that starts with the rule's number: "I1: /epic-wave for wave 1
 // sent 2 times".
@@ -364,6 +366,24 @@ export const ladderBounded: Rule = (_input, runs) =>
     return out
   })
 
+/**
+ * I10: a Ticket an `unknown-side-effects` line marked (worfy-continuity ticket 07) is in no later `wave-started` until
+ * a `side-effects-checked` of it — in the same run or in a later one, as the mark goes on to the next Run of the Epic.
+ */
+export const markedStaysOut: Rule = (_input, runs) => {
+  const out: string[] = []
+  const open = new Set<string>()
+  for (const run of runs)
+    for (const event of run.events) {
+      if (event.kind === 'unknown-side-effects') open.add(`${event.epic}/${event.ticket}`)
+      else if (event.kind === 'side-effects-checked') open.delete(`${event.epic}/${event.ticket}`)
+      else if (event.kind === 'wave-started')
+        for (const ticket of event.tickets)
+          if (open.has(`${event.epic}/${ticket}`)) out.push(`I10: ticket ${event.epic}/${ticket} in wave ${event.wave} of run ${run.number}: marked unknown-side-effects, never side-effects-checked before it`)
+    }
+  return out
+}
+
 /** The rules in order, by number. */
 export const RECOVERY_RULES: Readonly<Record<string, Rule>> = {
   I1: waveCommandOnce,
@@ -375,9 +395,10 @@ export const RECOVERY_RULES: Readonly<Record<string, Rule>> = {
   I7: projectUntouched,
   I8: journalReads,
   I9: ladderBounded,
+  I10: markedStaysOut,
 }
 
-/** Every violation of I1–I9 by the Run `input` describes, in rule order; empty when all hold. */
+/** Every violation of I1–I10 by the Run `input` describes, in rule order; empty when all hold. */
 export function checkRecovery(input: RecoveryInput): string[] {
   const runs = input.journals.map((text, index): Run => ({ number: index + 1, text, events: parseJournal(text).events }))
   return Object.values(RECOVERY_RULES).flatMap((rule) => rule(input, runs))

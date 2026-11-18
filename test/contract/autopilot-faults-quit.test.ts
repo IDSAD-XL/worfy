@@ -125,6 +125,8 @@ describe('a quit during an Autopilot Run (worfy-continuity ticket 04)', () => {
   it('a Subagent holds gh pr merge without a result: the quit waits for it no longer than GRACE_MS by the test clock, and the window names it (worfy-continuity ticket 07)', async () => {
     const { h, grace, views, quits } = quitRun({ scripts: [WAVE_UNTIL_INTERRUPT], marks: 'claimed' })
     await inWave1(h)
+    // The claims follow the Session's prompt; its SDK session id comes later, with the fake agent's init: wait for it.
+    await until(() => h.registry.list().some((info) => info.sdkSessionId !== null), 'the SDK session of the Orchestrator')
     // The Orchestrator's own turn has no call outside the machine; its implementer of 01, a background Subagent, has one.
     const session = h.registry.list().find((info) => info.sdkSessionId !== null)!.sdkSessionId!
     writeFileSync(join(h.transcripts, `${session}.jsonl`), `${JSON.stringify({ type: 'user', sessionId: session, timestamp: '2026-11-18T09:59:00.000Z', message: { role: 'user', content: 'go' } })}\n`)

@@ -3,6 +3,7 @@
 // of the registry — every Session interrupted, closed, and its process killed with SIGKILL after EXIT_WAIT_MS
 // (ADR-0064) before the records are written.
 import { EventEmitter } from 'node:events'
+import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EXIT_WAIT_MS, KILL_EXIT_MS } from '../../src/main/agent/session/process'
 import { SessionRegistry } from '../../src/main/agent/session/registry'
@@ -527,29 +528,51 @@ describe('the calls of the Subagents (worfy-continuity ticket 07)', () => {
     expect(failing.views).toEqual([])
   })
 
-  it('subagentOpenCalls: the calls without a result of each Session\'s Subagents written since the start; an older file, a finished call and a Session without a transcript give none', async () => {
+  /**
+   * subagentOpenCalls over fake files in the projects folder `projects`, with the paths of `paths` — this system's
+   * (node:path), or Windows' (path.win32), whose separator is a backslash: quit-grace.ts and held-tickets.ts join theirs
+   * with node:path, so the test builds its own with the same module.
+   */
+  function openCallsOver(open: typeof subagentOpenCalls, paths: typeof path.posix, projects: string, root: string): Promise<OpenCall[]> {
     const line = (agentId: string, content: object[], role = 'assistant') => JSON.stringify({ type: role, isSidechain: true, agentId, sessionId: 'sdk-1', timestamp: '2026-11-18T10:00:00.000Z', message: { id: `m-${agentId}`, role, content } })
+    const folder = paths.join(projects, 'sdk-1', 'subagents')
     const files: Record<string, { lines: string[]; at: number }> = {
-      '/p/sdk-1/subagents/agent-a.jsonl': { lines: [line('a', [{ type: 'tool_use', id: 't-a', name: 'Bash', input: { command: 'gh pr merge 41 --squash' } }])], at: 2_000 },
-      '/p/sdk-1/subagents/agent-b.jsonl': {
+      [paths.join(folder, 'agent-a.jsonl')]: { lines: [line('a', [{ type: 'tool_use', id: 't-a', name: 'Bash', input: { command: 'gh pr merge 41 --squash' } }])], at: 2_000 },
+      [paths.join(folder, 'agent-b.jsonl')]: {
         lines: [line('b', [{ type: 'tool_use', id: 't-b', name: 'Bash', input: { command: 'git push origin main' } }]), line('b', [{ type: 'tool_result', tool_use_id: 't-b', content: 'ok' }], 'user')],
         at: 2_000,
       },
       // Cut off by an earlier process of worfy: it never gets a result now.
-      '/p/sdk-1/subagents/agent-old.jsonl': { lines: [line('old', [{ type: 'tool_use', id: 't-old', name: 'Bash', input: { command: 'git push origin old' } }])], at: 500 },
+      [paths.join(folder, 'agent-old.jsonl')]: { lines: [line('old', [{ type: 'tool_use', id: 't-old', name: 'Bash', input: { command: 'git push origin old' } }])], at: 500 },
     }
-    const calls = await subagentOpenCalls({
+    return open({
       sessions: () => [
-        { sessionId: 's1', sdkSessionId: 'sdk-1', cwd: '/work/demo' },
-        { sessionId: 's2', sdkSessionId: null, cwd: '/work/demo' },
-        { sessionId: 's3', sdkSessionId: 'sdk-gone', cwd: '/work/demo' },
+        { sessionId: 's1', sdkSessionId: 'sdk-1', cwd: root },
+        { sessionId: 's2', sdkSessionId: null, cwd: root },
+        { sessionId: 's3', sdkSessionId: 'sdk-gone', cwd: root },
       ],
-      transcriptPath: (_root, id) => Promise.resolve(id === 'sdk-1' ? '/p/sdk-1.jsonl' : null),
+      transcriptPath: (_root, id) => Promise.resolve(id === 'sdk-1' ? paths.join(projects, 'sdk-1.jsonl') : null),
       since: 1_000,
-      listFiles: (dir) => Promise.resolve(dir === '/p/sdk-1/subagents' ? ['agent-a.jsonl', 'agent-b.jsonl', 'agent-old.jsonl', 'notes.txt'] : []),
+      listFiles: (dir) => Promise.resolve(dir === folder ? ['agent-a.jsonl', 'agent-b.jsonl', 'agent-old.jsonl', 'notes.txt'] : []),
       readLines: (file) => Promise.resolve(files[file]?.lines ?? null),
       modifiedAt: (file) => Promise.resolve(files[file]?.at ?? null),
     })
-    expect(calls).toEqual([{ sessionId: 's1', toolUseId: 't-a', description: 'gh pr merge 41' }])
+  }
+  const OPEN_MERGE: OpenCall[] = [{ sessionId: 's1', toolUseId: 't-a', description: 'gh pr merge 41' }]
+
+  it('subagentOpenCalls: the calls without a result of each Session\'s Subagents written since the start; an older file, a finished call and a Session without a transcript give none', async () => {
+    expect(await openCallsOver(subagentOpenCalls, path, path.join(path.sep, 'p'), path.join(path.sep, 'work', 'demo'))).toEqual(OPEN_MERGE)
+  })
+
+  it('subagentOpenCalls on Windows: the Subagents\' folder is found beside a transcript path with backslashes', async () => {
+    vi.resetModules()
+    vi.doMock('node:path', () => ({ ...path.win32, default: path.win32 }))
+    try {
+      const { subagentOpenCalls: onWindows } = await import('../../src/main/quit-grace')
+      expect(await openCallsOver(onWindows, path.win32, 'D:\\data\\claude\\projects\\demo', 'D:\\work\\demo')).toEqual(OPEN_MERGE)
+    } finally {
+      vi.doUnmock('node:path')
+      vi.resetModules()
+    }
   })
 })

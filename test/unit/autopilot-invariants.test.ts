@@ -1,4 +1,4 @@
-// The Recovery invariants I1–I8 (test/autopilot-invariants.ts) over the fixtures in
+// The Recovery invariants I1–I8 and I10 (test/autopilot-invariants.ts) over the fixtures in
 // test/fixtures/autopilot-faults/ (worfy-faults ticket 01).
 //
 // `api-500/` is a good Run: Wave 1 goes out, the Orchestrator's turn ends with API Error: 500, the
@@ -82,8 +82,8 @@ describe('checkRecovery over the fixtures', () => {
     expect(checkRecovery(load())).toEqual([])
   })
 
-  it('has a broken fixture for every rule I1–I8', () => {
-    expect([...new Set(broken.map((variant) => variant.rule))].sort()).toEqual(['I1', 'I2', 'I3', 'I4', 'I5', 'I6', 'I7', 'I8'])
+  it('has a broken fixture for every rule I1–I8 and I10', () => {
+    expect([...new Set(broken.map((variant) => variant.rule))].sort()).toEqual(['I1', 'I10', 'I2', 'I3', 'I4', 'I5', 'I6', 'I7', 'I8'])
   })
 
   it.each(broken)('$name breaks only $rule, once', ({ name, rule }) => {
@@ -209,6 +209,18 @@ describe('checkRecovery, rule by rule', () => {
   it('I6 lets a new journal begin only after the Run before it stopped, a Discard included (worfy-continuity ticket 06)', () => {
     expect(checkRecovery(load('i6-new-journal-over-cut-off'))).toEqual(['I6: run 1 has no run-stopped, yet run 2 began a new journal instead of continuing it'])
     expect(checkRecovery(load('discarded'))).toEqual([])
+  })
+
+  it('I10 lets a marked Ticket into a later Wave only after its side-effects-checked, in its run or the next (worfy-continuity ticket 07)', () => {
+    const marked = load('i10-marked-ticket-in-wave')
+    expect(checkRecovery(marked)).toEqual(['I10: ticket demo/01 in wave 1 of run 2: marked unknown-side-effects, never side-effects-checked before it'])
+    const [first, second] = marked.journals.map((text) => lines(text))
+    const checked = JSON.stringify({ ...(JSON.parse(second![0]!) as object), at: '2026-11-03T10:01:00.500Z', kind: 'side-effects-checked', ticket: '01' })
+    // Checked, include in the next Run, before its Wave: nothing is wrong.
+    expect(checkRecovery({ ...marked, journals: [first!.join('\n') + '\n', [second![0]!, checked, ...second!.slice(1)].join('\n') + '\n'] })).toEqual([])
+    // A side-effects-checked of another Ticket does not let 01 in.
+    const other = checked.replace('"ticket":"01"', '"ticket":"02"')
+    expect(checkRecovery({ ...marked, journals: [first!.join('\n') + '\n', [second![0]!, other, ...second!.slice(1)].join('\n') + '\n'] })).toHaveLength(1)
   })
 
   it('I6 asks for a new journal after the new start', () => {

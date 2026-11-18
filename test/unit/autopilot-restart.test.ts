@@ -130,6 +130,21 @@ describe('heldTickets: the Tickets of the cut-off Wave whose implementer has an 
     ])
   })
 
+  it('a call of a Subagent bound to no Ticket holds every Ticket of the Wave, after the own calls of each', async () => {
+    const helper = [
+      { type: 'user', isSidechain: true, agentId: 'helper', sessionId: SESSION, timestamp: '2026-11-18T14:01:00.000Z', message: { role: 'user', content: 'Look over the open pull requests' } },
+      call('t-helper', 'git push origin main', 'helper'),
+    ]
+    expect(await heldTickets(files([prompt], { helper }), cut)).toEqual([
+      { ticket: 1, actions: ['git push origin main'] },
+      { ticket: 2, actions: ['git push origin main'] },
+    ])
+    expect(await heldTickets(files([prompt], { helper, impl01: implementer('impl01', 1, 'gh pr merge 41 --squash') }), cut)).toEqual([
+      { ticket: 1, actions: [MERGE, 'git push origin main'] },
+      { ticket: 2, actions: ['git push origin main'] },
+    ])
+  })
+
   it('reads nothing for another Vendor, without a session or a transcript', async () => {
     const deps = files([prompt, call('t-own', 'gh pr merge 41 --squash')], {})
     expect(await heldTickets(deps, { ...cut, vendor: 'codex' })).toEqual([])
