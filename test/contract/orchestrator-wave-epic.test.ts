@@ -14,7 +14,7 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { fakeQueryFactory } from '../../src/main/agent/fake-query'
 import { Orchestrators } from '../../src/main/agent/orchestrator'
 import { SessionRegistry, type QueryFactory, type QueryRequest } from '../../src/main/agent/session'
@@ -95,8 +95,12 @@ function scripts(): string {
   return dir
 }
 
-/** The app's chain with `waveEpic` answering what `epic.now` holds; without `epic`, no waveEpic at all. */
-function harness(epic?: { now: string | null }) {
+/**
+ * The app's chain with `waveEpic` answering what `epic.now` holds, or what `epic` answers when it is a
+ * function (which may throw); without `epic`, no waveEpic at all.
+ */
+function harness(epic?: { now: string | null } | (() => string | null)) {
+  const ask = typeof epic === 'function' ? epic : (): string | null => epic?.now ?? null
   const requests: QueryRequest[] = []
   const fake = fakeQueryFactory({ scriptsDir: scripts(), script: 'turn' })
   const sdk = sdkQueryFactory(
@@ -120,7 +124,7 @@ function harness(epic?: { now: string | null }) {
     transcript: () => Promise.resolve({ model: null, statusBlock: null }),
     broadcast: () => undefined,
     publish: () => undefined,
-    ...(epic === undefined ? {} : { waveEpic: (projectId: string) => (projectId === PROJECT ? epic.now : null) }),
+    ...(epic === undefined ? {} : { waveEpic: (projectId: string) => (projectId === PROJECT ? ask() : null) }),
   })
   const state = (): string | undefined => {
     const node = layout.get(PROJECT).layout.nodes.find((each) => each.kind === 'orchestrator')
@@ -190,8 +194,17 @@ describe('the Epic of a Wave in the Orchestrator\'s Session', () => {
   it.each([
     ['no run answers an Epic', { now: null }],
     ['the Orchestrators have no waveEpic', undefined],
-  ] as const)('an unattended Session carries no Epic when %s', async (_case, epic) => {
-    const h = harness(epic === undefined ? undefined : { ...epic })
+    ['the run answers an empty Epic', { now: '' }],
+    [
+      'the ask for the Epic throws',
+      () => {
+        throw new Error('the Autopilot could not tell')
+      },
+    ],
+  ] as const)('an unattended Session still starts and carries no Epic when %s', async (_case, epic) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    onTestFinished(() => warn.mockRestore())
+    const h = harness(epic === undefined || typeof epic === 'function' ? epic : { ...epic })
     await h.orchestrators.open(PROJECT)
     await vi.waitFor(() => expect(h.state()).toBe('idle'))
     await h.orchestrators.setUnattended(PROJECT, true)
@@ -200,5 +213,6 @@ describe('the Epic of a Wave in the Orchestrator\'s Session', () => {
     expect(h.requests[1]).not.toHaveProperty('epic')
     expect(epicOf(1)).toBeUndefined()
     expect(appended(1)).not.toContain('wave-brief')
+    if (typeof epic === 'function') expect(warn).toHaveBeenCalledWith(expect.stringContaining(`could not tell the Epic of the run of ${PROJECT}`), expect.any(Error))
   })
 })

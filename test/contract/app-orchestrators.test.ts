@@ -4,14 +4,15 @@
 // Autopilot's refusal comes from the Vendor's real driver: its capabilities and, for Codex, its check of
 // the Harness hooks (ticket 39). Only the Session registry stands in
 // (its Sessions on the fakes: Claude Code's fake agent, the fake Codex app-server under scriptNode()),
-// so no Codex process starts through the app's own options (MCP servers, gh).
+// so no Codex process starts through the app's own options (MCP servers, gh). An unattended start asks the
+// app's Autopilot for the Epic of the Project's run (waveEpic, worfy-continuity ticket 12).
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeQueryFactory } from '../../src/main/agent/fake-query'
-import { SessionRegistry, STATIC_CLAUDE_PARTS } from '../../src/main/agent/session'
+import { SessionRegistry, STATIC_CLAUDE_PARTS, type QueryRequest } from '../../src/main/agent/session'
 import { hasExited } from '../../src/main/agent/session/process'
 import { projectDirName } from '../../src/main/claude-home/registry'
 import { CODEX_HOOKS_REFUSAL } from '../../src/main/vendors/codex/harness-hooks'
@@ -27,6 +28,8 @@ import { ms } from '../time-scale'
 vi.mock('electron', () => ({
   app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined },
   BrowserWindow: { getAllWindows: () => [], fromWebContents: () => null },
+  dialog: { showMessageBox: () => Promise.reject(new Error('no dialog in this test')) },
+  powerSaveBlocker: { start: () => 0, stop: () => undefined, isStarted: () => false },
 }))
 
 /** The registry the app's Orchestrators run their Sessions in, made by each test. */
@@ -43,6 +46,8 @@ let repo: string
 let data: string
 let log: string
 const children: ChildProcess[] = []
+/** What each start of a Claude Code Session asked the fake agent for, in order. */
+let requests: QueryRequest[] = []
 
 beforeEach(() => {
   scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-app-orchestrators-')))
@@ -77,7 +82,9 @@ beforeEach(() => {
       log: () => undefined,
     }),
   )
-  const claude = claudeSessions(fakeQueryFactory({ scriptsDir: join(REPO, 'test', 'fixtures', 'agent-scripts'), script: 'orchestrator' }), { model: () => null, effort: () => null })
+  requests = []
+  const fake = fakeQueryFactory({ scriptsDir: join(REPO, 'test', 'fixtures', 'agent-scripts'), script: 'orchestrator' })
+  const claude = claudeSessions((request) => (requests.push(request), fake(request)), { model: () => null, effort: () => null })
   stand.registry = new SessionRegistry({ sessionsOf: (vendor) => (vendor === 'codex' ? codex : claude), partsOf: () => STATIC_CLAUDE_PARTS })
 })
 
@@ -150,5 +157,30 @@ describe("the app's Orchestrators run on the Project's defaultVendor (worfy-mult
     expect(view).toMatchObject({ vendor: 'codex', model: null, statusBlock: null })
     await vi.waitFor(() => expect(readFileSync(log, 'utf8')).toContain('"method":"thread/resume"'), UNTIL_CODEX)
     expect(threadStarts()).toBe(0)
+  })
+})
+
+describe("the app's Orchestrators take the Epic of a run from the app's Autopilot (worfy-continuity ticket 12)", () => {
+  it("an unattended start gets the Epic the Autopilot's run is on; the attended start before it gets none", async () => {
+    vi.resetModules()
+    const { sharedOrchestrators } = await import('../../src/main/agent/app-orchestrators')
+    const { layoutStore } = await import('../../src/main/layout/store')
+    const { sharedAutopilot } = await import('../../src/main/ipc/autopilot')
+    vi.spyOn(sharedAutopilot(), 'runningEpic').mockImplementation((projectId) => (projectId === PROJECT ? 'ep' : null))
+    writeSettings()
+    const state = (): string | undefined => {
+      const node = layoutStore().get(PROJECT).layout.nodes.find((each) => each.kind === 'orchestrator')
+      return node === undefined ? undefined : sharedOrchestrators().view(node.id)?.state
+    }
+
+    await sharedOrchestrators().open(PROJECT)
+    await vi.waitFor(() => expect(state()).toBe('idle'))
+    await sharedOrchestrators().setUnattended(PROJECT, true)
+    await vi.waitFor(() => expect(requests).toHaveLength(2))
+
+    expect(requests.map((request) => [request.unattended, request.epic])).toEqual([
+      [false, undefined],
+      [true, 'ep'],
+    ])
   })
 })

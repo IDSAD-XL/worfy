@@ -779,6 +779,7 @@ describe('sessionOptions of a Session that runs a Wave (worfy-continuity ticket 
     expect(waveInstructions('worfy-continuity')).toContain('Epic worfy-continuity')
     expect(waveInstructions('worfy-continuity')).toContain('wave-brief worfy-continuity')
     expect(sessionOptions(input({})).systemPrompt).toEqual({ type: 'preset', preset: 'claude_code' })
+    expect(sessionOptions(input({ epic: '' })).systemPrompt).toEqual({ type: 'preset', preset: 'claude_code' })
   })
 })
 
