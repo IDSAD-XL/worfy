@@ -37,7 +37,7 @@ function later(): { answer: Promise<Answer>; give: (answer: Answer) => Promise<v
   return { answer, give: (value) => act(async () => resolve(value)) }
 }
 
-const check = (id: Check['id'], group: Check['group'], title: string, extra: Partial<Check> = {}): Check => ({ id, group, title, status: 'ok', detail: '', hint: '', command: null, actions: [], ...extra })
+const check = (id: Check['id'], group: Check['group'], title: string, extra: Partial<Check> = {}): Check => ({ id, group, title, status: 'ok', severity: 'non-critical', detail: '', hint: '', command: null, actions: [], ...extra })
 
 /** One report: a row of every status, a command to copy, and the actions the tests press. */
 const report = (extra: Partial<Record<Check['id'], Partial<Check>>> = {}): FirstRunReport => ({
@@ -90,7 +90,7 @@ const readRow = (each: HTMLElement) => ({
   detail: each.querySelector('[title]')?.getAttribute('title') ?? null,
 })
 const expected = (from: FirstRunReport) =>
-  from.checks.map((each) => ({ id: each.id, name: each.title, status: each.status, chip: { ok: 'OK', warn: 'Warning', fail: 'Failed' }[each.status], detail: each.detail }))
+  from.checks.map((each) => ({ id: each.id, name: each.title, status: each.status, chip: { ok: 'OK', warn: 'Warning', fail: 'Failed', unknown: 'Unknown' }[each.status], detail: each.detail }))
 const summaryOf = (place: HTMLElement): string | null => within(place).queryByTestId('first-run-summary')?.textContent ?? null
 const isInactive = (button: HTMLElement): boolean => button.getAttribute('aria-disabled') === 'true'
 

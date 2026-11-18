@@ -74,6 +74,7 @@ import { MIN_NODE_MAJOR, modelPlan, profileDocsLanguages, QMD_NODE_NEED, QMD_VER
 import { programStart } from '../program'
 import { ghAccounts } from '../github/auth-text'
 import type { HarnessStatus } from '../../shared/ipc/harness'
+import { severityOf } from '../../shared/health/severity'
 import type { Check, CheckGroup, CheckId, FirstRunAction, FirstRunReport } from '../../shared/ipc/first-run'
 import type { UpdateSnapshot } from '../../shared/ipc/update'
 import { numberedVersion } from '../../shared/version-number'
@@ -91,6 +92,11 @@ export interface ProjectProfile {
   profile: string | null
   /** `qmd.collections` of the Profile. */
   collections: readonly string[]
+  /**
+   * Whether a repository of the Project has its `origin` on GitHub: `gh` and `gh-auth` are critical
+   * then (src/shared/health/severity.ts). Unset counts as no.
+   */
+  github?: boolean
 }
 
 export interface CheckDeps {
@@ -199,12 +205,19 @@ export function formatBytes(bytes: number): string {
   return `${Math.round(bytes / 2 ** 20)} MiB`
 }
 
-type Row = Omit<Check, 'id' | 'group' | 'title'>
+type Row = Omit<Check, 'id' | 'group' | 'title' | 'severity'>
 const row = (status: Check['status'], detail: string, hint = '', command: string | null = null, actions: Check['actions'] = []): Row => ({ status, detail, hint, command, actions })
 const action = (id: FirstRunAction, label: string): Check['actions'][number] => ({ id, label })
 
+/**
+ * The rows these checks run. The rows of worfy-auth-check come from their own Tickets: GitHub access
+ * of a Project (05), the Codex sign-in (08), and those only a feature's message makes
+ * (src/main/first-run/health-reports.ts).
+ */
+type MachineCheckId = Exclude<CheckId, 'github-access' | 'codex-login' | 'browser-profile' | 'linked-machine'>
+
 /** The checks in the order the screen shows them, with their group and title; `windows` — on Windows only. */
-const CHECKS: readonly { id: CheckId; group: CheckGroup; title: string; windows?: true }[] = [
+const CHECKS: readonly { id: MachineCheckId; group: CheckGroup; title: string; windows?: true }[] = [
   { id: 'claude-login', group: 'Claude Code', title: 'Sign-in' },
   { id: 'claude-version', group: 'Claude Code', title: 'Claude Code in the terminal' },
   { id: 'limits', group: 'Claude Code', title: 'Limits from terminal', windows: true },
@@ -758,6 +771,11 @@ export async function runChecks(deps: CheckDeps): Promise<FirstRunReport> {
     probes: { run: (name, args, env, ms, cwd) => runTool(name, args, env, ms, { platform: system.platform, cwd }), exists: fileOrAlias, ...deps.probes },
     windows: system.platform === 'win32',
   }
+  // One read of the Projects feeds the qmd collections and the level of gh and gh-auth.
+  const readProjects = deps.projects
+  let projectsRead: Promise<readonly ProjectProfile[]> | undefined
+  const projects = (): Promise<readonly ProjectProfile[]> => (projectsRead ??= Promise.resolve().then(readProjects))
+  deps = { ...deps, projects }
   // One read of qmd's state feeds its three rows; a failure there fails each of them with the error.
   const qmdAll = qmdRows(deps, machine)
   qmdAll.catch(() => undefined)
@@ -784,7 +802,7 @@ export async function runChecks(deps: CheckDeps): Promise<FirstRunReport> {
   }
   const listed = CHECKS.filter((check) => (machine.windows || check.windows !== true) && (check.id !== 'worfy-update' || update !== undefined))
   const onWindows = (run: () => Promise<Row> | Row): Promise<Row> | null => (machine.windows ? guarded(run) : null)
-  const rows: Record<CheckId, Promise<Row> | null> = {
+  const rows: Record<MachineCheckId, Promise<Row> | null> = {
     'claude-login': guarded(() => signIn(deps)),
     'claude-version': guarded(() => claudeVersion(deps, machine, timeoutMs)),
     limits: onWindows(() => limits(deps, machine)),
@@ -808,8 +826,12 @@ export async function runChecks(deps: CheckDeps): Promise<FirstRunReport> {
     'qmd-models': guarded(async () => (await qmdAll).models),
     'qmd-collections': guarded(async () => (await qmdAll).collections),
   }
-  const checks = await Promise.all(
-    listed.map(async ({ id, group, title }) => ({ id, group, title, ...(await (rows[id] ?? Promise.resolve(row('fail', 'the check did not run')))) })),
+  const answered = await Promise.all(listed.map(async ({ id, group, title }) => ({ id, group, title, ...(await (rows[id] ?? Promise.resolve(row('fail', 'the check did not run')))) })))
+  // A list that cannot be read counts as a Project on GitHub: gh then stays critical rather than hide.
+  const githubProject = await projects().then(
+    (list) => list.some((project) => project.github === true),
+    () => true,
   )
+  const checks: Check[] = answered.map((check) => ({ ...check, severity: severityOf(check, { githubProject }) }))
   return { checks, checkedAt: new Date().toISOString() }
 }

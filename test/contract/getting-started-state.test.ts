@@ -448,7 +448,7 @@ describe('step 1 from the First run report (src/main/ipc/first-run.ts)', () => {
       ...(await original<object>()),
       runChecks: (): Promise<FirstRunReport> =>
         Promise.resolve({
-          checks: (['git', 'gh', 'node'] as const).map((id) => ({ id, group: 'Command-line tools' as const, title: id, status: failing.includes(id) ? ('fail' as const) : ('ok' as const), detail: '', hint: '', command: null, actions: [] })),
+          checks: (['git', 'gh', 'node'] as const).map((id) => ({ id, group: 'Command-line tools' as const, title: id, status: failing.includes(id) ? ('fail' as const) : ('ok' as const), severity: 'critical' as const, detail: '', hint: '', command: null, actions: [] })),
           checkedAt: new Date(0).toISOString(),
         }),
     }))

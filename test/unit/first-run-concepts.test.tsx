@@ -16,7 +16,7 @@ import type { AppSettings } from '../../src/shared/settings/app-settings'
 
 type Answer = { ok: true; value: unknown } | { ok: false; error: string }
 
-const check = (id: Check['id'], title: string): Check => ({ id, group: 'Command-line tools', title, status: 'ok', detail: 'found', hint: '', command: null, actions: [] })
+const check = (id: Check['id'], title: string): Check => ({ id, group: 'Command-line tools', title, status: 'ok', severity: 'non-critical', detail: 'found', hint: '', command: null, actions: [] })
 const REPORT: FirstRunReport = { checkedAt: '2026-10-30T00:00:00.000Z', checks: [check('git', 'git'), check('jq', 'jq')] }
 
 const snapshot = (change: Partial<GettingStartedSnapshot> = {}): GettingStartedSnapshot => ({

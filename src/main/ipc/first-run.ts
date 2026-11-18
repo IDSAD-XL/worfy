@@ -8,18 +8,29 @@
 // with the checks that failed at that moment. At start the screen opens by itself when there is no
 // mark, or when a check fails now that did not fail then (decided without the owner, F-SPEC
 // "First run"); a row marked `opensFirstRun: false` (worfy version, the Harness behind this build;
-// worfy-update spec R9) does not count. WORFY_FIRST_RUN_AUTO=0 keeps it from opening by itself (e2e runs other than its own);
-// the command palette opens it always.
+// worfy-update spec R9) does not count, nor does a row of a Project (worfy-auth-check, Q7).
+// WORFY_FIRST_RUN_AUTO=0 keeps it from opening by itself (e2e runs other than its own); the command
+// palette opens it always.
+//
+// Health check (worfy-auth-check ticket 03): every report goes through the app's HealthReports
+// (src/main/first-run/health-reports.ts), which merges in the features' messages of a failure or a
+// success and the rows checked over the network. The start decides on the local rows alone and
+// does not wait for the network rows: they come after, in `firstRun.reportChanged`, as every
+// change of the report does. The focus of a worfy window checks again the rows not in `ok` whose
+// last check is over 5 minutes old (Q8).
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog } from 'electron'
-import { firstRunChecks, firstRunClose, firstRunRun, firstRunStartup, type CheckId, type FirstRunReport } from '../../shared/ipc/first-run'
+import { firstRunChecks, firstRunClose, firstRunHealth, firstRunReportChanged, firstRunRun, firstRunStartup, type Check, type CheckId, type FirstRunReport } from '../../shared/ipc/first-run'
 import { DEFAULT_SETTINGS } from '../../shared/agent/settings'
 import { agentEnv } from '../agent/env'
+import { toEveryWindow } from '../broadcast'
 import type { AccountInfoLike } from '../agent/session'
 import { FirstRunActions, type Confirmation } from '../first-run/actions'
 import { ACCOUNT_TIMEOUT_MS, askAccount, ghOverride, oldHarnessPresent, runChecks, type Env, type ProjectProfile } from '../first-run/checks'
+import { healthReports } from '../first-run/health-reports'
+import { remoteRepos } from '../github/inbox'
 import { noteFirstRunReport } from '../getting-started/progress'
 import { gettingStartedState } from '../getting-started/state'
 import { bundledHarnessVersion } from '../harness/bundled'
@@ -27,6 +38,7 @@ import { harnessScriptEnv, recaptureForCheckAgain } from '../harness/script-env'
 import { bridgeFile } from '../harness/status-line'
 import { projectStore } from '../projects/store'
 import { claudeHome, dataRoot, harnessHome } from '../storage/paths'
+import { projectLayouts } from '../workflow/folder'
 import { profileRunner } from '../workflow/profile'
 import { appBuildNumber } from '../build-number'
 import { bundledClaudeCodeVersion } from '../vendors/claude/account'
@@ -35,7 +47,7 @@ import { appInstaller } from './harness'
 import { appUpdate } from './update'
 import { workflowHub } from './workflow'
 import { planOptions } from './harness-migration'
-import { defineHandler, type HandlerModule } from './index'
+import { defineHandler, emit, type HandlerModule } from './index'
 
 /** A prompt that never sends anything: the process only answers accountInfo() and is closed. */
 const silence = (): AsyncIterable<never> => ({ [Symbol.asyncIterator]: () => ({ next: () => new Promise<never>(() => undefined) }) })
@@ -59,7 +71,23 @@ function accountInfo(env: Env, signal?: AbortSignal): Promise<AccountInfoLike> {
   return askAccount(open, ACCOUNT_TIMEOUT_MS, signal)
 }
 
-/** The connected Projects with their Profile's name and qmd collections, through `bin/profile`. */
+/**
+ * Whether a repository of the Project at `root` has its `origin` on github.com: the folders of its
+ * layout, or the root for a Project of one repository, as the PR inbox reads them (ipc/pr-inbox.ts).
+ * git only, no network; a layout that cannot be read falls back to the root.
+ */
+async function onGithub(root: string): Promise<boolean> {
+  let folders = [root]
+  try {
+    const layout = await projectLayouts().get(root)
+    if (layout.repos.length > 0) folders = layout.repos.map((repo) => repo.path)
+  } catch {
+    // the root alone
+  }
+  return (await remoteRepos(folders)).length > 0
+}
+
+/** The connected Projects with their Profile's name and qmd collections, through `bin/profile`, and whether they are on GitHub. */
 async function projectProfiles(env: Env): Promise<ProjectProfile[]> {
   const run = profileRunner(claudeHome(), env)
   const field = async (root: string, args: string[]): Promise<string | null> => {
@@ -74,8 +102,8 @@ async function projectProfiles(env: Env): Promise<ProjectProfile[]> {
     projectStore()
       .list()
       .map(async (project) => {
-        const profile = await field(project.path, ['--name'])
-        if (profile === null || profile === '') return { name: project.name, profile: null, collections: [] }
+        const [profile, github] = await Promise.all([field(project.path, ['--name']), onGithub(project.path)])
+        if (profile === null || profile === '') return { name: project.name, profile: null, collections: [], github }
         let collections: string[] = []
         try {
           const parsed = JSON.parse((await field(project.path, ['--field', 'qmd.collections'])) ?? 'null') as unknown
@@ -83,7 +111,7 @@ async function projectProfiles(env: Env): Promise<ProjectProfile[]> {
         } catch {
           // no list: no collections
         }
-        return { name: project.name, profile, collections }
+        return { name: project.name, profile, collections, github }
       }),
   )
 }
@@ -175,6 +203,25 @@ function writeMark(mark: Mark): void {
   renameSync(tmp, file)
 }
 
+/** The app's Health check report; every change of it goes to the windows. */
+const health = healthReports()
+health.subscribe((report) => toEveryWindow((client) => emit(client, firstRunReportChanged, report)))
+// A window that gets the focus checks again the rows not in `ok`, last checked over 5 minutes ago (Q8).
+app.on('browser-window-focus', () => void health.focus())
+
+/**
+ * Whether a row opens the screen at start: a `fail` not marked `opensFirstRun: false` and not a
+ * row of a Project (Q7).
+ */
+const opensAtStart = (check: Check): boolean => check.status === 'fail' && check.opensFirstRun !== false && check.project === undefined
+
+/** Runs the local checks (with the failures of the last actions) and hands them to the Health check report. */
+async function localReport(): Promise<{ local: FirstRunReport; merged: FirstRunReport }> {
+  const startedAt = Date.now()
+  const local = await appActions().report()
+  return { local, merged: health.setChecks(local, startedAt) }
+}
+
 /** The checks the screen showed last, for the mark. */
 let lastReport: FirstRunReport | null = null
 const remember = (report: FirstRunReport): FirstRunReport => {
@@ -210,9 +257,13 @@ export default [
     // A failed action counts here only while its row's check does not pass (FirstRunActions.report):
     // a cause fixed outside worfy does not open the screen. "worfy version" and the Harness behind
     // this build (opensFirstRun: false) do not either: their signal at the start is a toast
-    // (worfy-update spec R9).
-    const report = remember(await appActions().report())
-    const fresh = report.checks.some((check) => check.status === 'fail' && check.opensFirstRun !== false && !mark.failing.includes(check.id))
+    // (worfy-update spec R9). Nor do the rows of a Project and of a feature's message (Q7); the
+    // rows checked over the network are not even here: they are added after, and the start does
+    // not wait for the network.
+    const { local, merged } = await localReport()
+    const report = remember(merged)
+    const fresh = local.checks.some((check) => opensAtStart(check) && !mark.failing.includes(check.id))
+    void health.checkNetwork()
     return { show: fresh, firstTime: false, report }
   }),
   // "Check again", and Settings → Health each time it shows: the login shell is captured again
@@ -221,16 +272,20 @@ export default [
   // timer; the Harness scripts started after this and new Sessions get it too (worfy-harness
   // ticket 37). The hub is imported, not looked up, so this does not depend on the order in which
   // the IPC handlers are registered.
+  // "Check again" waits for the network rows too: the user asked for every row.
   defineHandler(firstRunChecks, async () => {
     await recaptureForCheckAgain(workflowHub)
-    return remember(await appActions().report())
+    const { merged } = await localReport()
+    await health.checkNetwork()
+    return remember(health.current() ?? merged)
   }),
+  defineHandler(firstRunHealth, () => health.current()),
   defineHandler(firstRunRun, async ({ action, projectName }, { event }) => {
     asking = BrowserWindow.fromWebContents(event.sender)
     try {
       const result = await appActions().run(action, { projectName })
-      remember(result.report)
-      return result
+      const report = remember(health.setChecks(result.report))
+      return { ...result, report }
     } finally {
       asking = null
     }
@@ -238,6 +293,6 @@ export default [
   defineHandler(firstRunClose, () => {
     // Only the fails that open the screen: a lagging Harness kept here would hide its later
     // not-installed or error from the start (review of PR #1129).
-    writeMark({ closedAt: new Date().toISOString(), failing: (lastReport?.checks ?? []).filter((check) => check.status === 'fail' && check.opensFirstRun !== false).map((check) => check.id) })
+    writeMark({ closedAt: new Date().toISOString(), failing: (lastReport?.checks ?? []).filter(opensAtStart).map((check) => check.id) })
   }),
 ] satisfies HandlerModule

@@ -13,7 +13,7 @@ import { pressTab } from './tab-key'
 
 type Answer = { ok: true; value: unknown } | { ok: false; error: string }
 
-const check = (id: Check['id'], title: string): Check => ({ id, group: 'Command-line tools', title, status: 'ok', detail: 'found', hint: '', command: null, actions: [] })
+const check = (id: Check['id'], title: string): Check => ({ id, group: 'Command-line tools', title, status: 'ok', severity: 'non-critical', detail: 'found', hint: '', command: null, actions: [] })
 const REPORT: FirstRunReport = { checkedAt: '2026-11-12T00:00:00.000Z', checks: [check('git', 'git'), check('jq', 'jq')] }
 const SNAPSHOT: GettingStartedSnapshot = { user: 'existing', section: 'hidden', steps: {}, reworkSeen: false, noticeShown: false, demo: null }
 const APP_SETTINGS: AppSettings = {
