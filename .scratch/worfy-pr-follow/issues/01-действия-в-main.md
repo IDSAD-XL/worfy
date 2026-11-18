@@ -1,7 +1,8 @@
 # 01 — Действия PR в main: action templates, `{sha}`, причины кнопок, канал `actions.prFollow`, маршрут и отказы
 
 Type: task
-Status: claimed 2026-11-18T13:28Z
+Status: done 2026-11-18T16:23Z
+PR: #2005
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 1; «Решение» → «Куда идёт щелчок по действию»; «Решения по реализации», 1 и 4;
 «Вопросы владельцу», Q7 (решено без владельца, подтвердить); «Решено без владельца», 3 и 5;
@@ -107,6 +108,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 1; «Решение» → «Куд
 - [ ] Английская страница `docs/features/projects.md` описывает три действия, `{sha}` и маршрут.
   - evidence: commit pass · worfy-pr-follow/01: Fix checks, Resolve conflicts and Address comments in main · - - · a57442e1608790945c69189a61f46005395933bd
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44333073670/job/134921886284 · ci - · cfb3853686ea78cd0b90c78848c28c4f3f9a2493
 
 ## Где в коде
 
