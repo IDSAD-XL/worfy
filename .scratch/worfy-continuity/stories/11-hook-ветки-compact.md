@@ -153,3 +153,35 @@ const fitter = (codex) => (text) => chars(text) <= LIMIT && (!codex || Buffer.by
    - Строки: `harness/hooks/after-compact.mjs:158-161`
    - Ответ: голову со Stage-строкой, `Waiting` и `Open PRs` целиком, затем столько строк `Land`, сколько влезет, и
      строку с командой `wave-brief <epic>` для полного текста.
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED
+> Consider: harness/hooks/after-compact.mjs:46 — the 5 s stdin wait is a local constant, not an entry in hook-stdin.mjs FIRST_BYTE_MS, so test/contract/harness-hook-stdin.test.ts:376 (wait at most half the hooks.json limit) does not cover this hook (low); after-compact.mjs:261-266 — a reviewer in a worktree on a ticket's branch (not detached) is told it is that ticket's implementer (low); after-compact.mjs:44-51 — the worst-case sum of the sub-process timeouts (~46 s) exceeds the 30 s hook limit, reachable only when programs hang; Claude Code then drops the hook (low).
+> Noted: harness/hooks/tests/session-hooks.test.sh:377 — the Product Session check passes with the guard at after-compact.mjs:221 deleted (stage-lines.mjs covers for it); pass WORFY_EPIC there (low); session-hooks.test.sh:312-333 — the priority WORFY_EPIC over the branch's epic (after-compact.mjs:268-269) is not pinned by a test (low); test/harness-shell-tests.ts:115,187 — session-hooks.test.sh shard weights are stale (low, outside the diff).
+> Review depth: low — default: the profile has no review.depth.wave
+> Review tokens: 106768
+
+Code: `harness/hooks/after-compact.mjs:46-46` · key lines: 46
+
+```mjs
+const FIRST_BYTE_MS = 5000
+```
+
+Code: `test/contract/harness-hook-stdin.test.ts:376-376` · key lines: 376
+
+```ts
+    const { FIRST_BYTE_MS } = await load()
+```
+
+Code: `harness/hooks/tests/session-hooks.test.sh:377-377` · key lines: 377
+
+```sh
+compact "$CP" compact WORFY_SESSION_KIND=product
+```
+
+Code: `test/harness-shell-tests.ts:115-115` · key lines: 115
+
+```ts
+    'hooks/tests/session-hooks.test.sh': 17,
+```
