@@ -446,7 +446,7 @@ the manifest and keeps out of `harness/` what is not the Harness. Also `test/con
 `test/contract/harness-script-env.test.ts`, `test/contract/harness-script-command.test.ts` and
 `test/unit/agent-options.test.ts`.
 
-The evals make paid model calls, and CI and the Gate do not run them. `harness/evals/` holds twenty-five `claude plugin
+The evals make paid model calls, and CI and the Gate do not run them. `harness/evals/` holds twenty-seven `claude plugin
 eval` cases that check by behaviour that Claude follows the rules (`pnpm eval:harness`), and `harness/evals-outcome/` holds
 the tasks of `pnpm eval:outcome`. `test/contract/harness-evals.test.ts` checks for free that every case is complete.
 The case `compaction-state` carries the tag `alone` and runs only by `pnpm eval:harness -- --case compaction-state`:

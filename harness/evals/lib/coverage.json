@@ -24,6 +24,8 @@
     "pr-reply-guards": ["skills/pr-reply/SKILL.md"],
     "pr-fix-checks": ["skills/pr-fix/SKILL.md"],
     "pr-fix-comments": ["skills/pr-fix/SKILL.md", "skills/pr-reply/SKILL.md"],
+    "pr-fix-conflicts": ["skills/pr-fix/SKILL.md"],
+    "pr-fix-conflicts-silent": ["skills/pr-fix/SKILL.md"],
     "compaction-state": ["hooks/rules/compaction.md", "hooks/rules/common.md", "hooks/hooks.json", "hooks/inject-rules.mjs"]
   },
   "uncovered": {

@@ -22,15 +22,19 @@
 //                                                   path not listed above
 //   anything else                                 — a write, refused, exit 1. Only the reads above count as reads:
 //                                                   `pr view|list|checks|diff|status`, `run view|list`, `auth status`,
-//                                                   `repo view`, `--version`, and `api` with no method other than GET,
+//                                                   `repo view`, `--version`, and `api` whose last method is GET, with
 //                                                   no `--input`, and fields only with an explicit GET or as the inline
 //                                                   query of a GraphQL read. So `pr update-branch`, `pr revert`,
 //                                                   `pr lock`, `repo sync` and any subcommand gh adds later are writes.
+//                                                   Options of `api` count in every spelling gh takes: `-X POST`,
+//                                                   `-XPOST`, `--method=POST`, `-f k=v`, `-fk=v`, `--field=k=v`,
+//                                                   `--raw-field=k=v`, `--input=f`, and `-i` glued in front (`-iX`,
+//                                                   `-if`); of several methods the last one counts, as in gh.
 //
 // Every call is one line of <project>/gh-calls.log, as in gh.mjs: `answered <what>`, `WRITE <args>` or `REFUSED <args>`.
 // A write also rewrites the marker of pr-fix.cjs, .git/demo-github/<owner>/<name>.git/info/refs, so the grader of
-// publications sees a write and a push in one file. A call handed to gh.mjs is a read by this list, and gh.mjs counts
-// it as a read too.
+// publications sees a write and a push in one file. A call handed to gh.mjs has passed the list above, so it is a read
+// whatever gh.mjs writes in its log about it.
 import { spawnSync } from 'node:child_process'
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -55,22 +59,45 @@ const option = (...names) => {
   }
   return undefined
 }
+/**
+ * The method, the fields and the input of an `api` call, read as gh reads its options: `-X POST`, `-XPOST`,
+ * `--method POST`, `--method=POST`; `-f k=v`, `-fk=v`, `-F`, `--field k=v`, `--field=k=v`, `--raw-field`; `--input f`,
+ * `--input=f`; and short options glued after the boolean `-i` (`-iX POST`, `-ifk=v`). The last method counts, as in gh.
+ */
+const apiOptions = () => {
+  const out = { methods: [], fields: [], input: false }
+  const take = (flag, value) => {
+    if (flag === 'X' || flag === '--method') out.methods.push(value ?? '')
+    else if (flag === 'f' || flag === 'F' || flag === '--field' || flag === '--raw-field') out.fields.push(value ?? '')
+    else if (flag === '--input') out.input = true
+  }
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]
+    const long = /^(--method|--field|--raw-field|--input)(?:=([\s\S]*))?$/.exec(arg)
+    if (long !== null) {
+      if (long[2] !== undefined) take(long[1], long[2])
+      else take(long[1], args[++i])
+      continue
+    }
+    const short = /^-i*([XfF])([\s\S]*)$/.exec(arg)
+    if (short !== null && !arg.startsWith('--')) take(short[1], short[2] === '' ? args[++i] : short[2])
+  }
+  return out
+}
 const fields = () => {
   const out = {}
-  for (let i = 0; i < args.length; i++) {
-    if (['-f', '-F', '--field', '--raw-field'].includes(args[i]) && i + 1 < args.length) {
-      const at = args[i + 1].indexOf('=')
-      if (at > 0) out[args[i + 1].slice(0, at)] = args[i + 1].slice(at + 1)
-    }
+  for (const field of apiOptions().fields) {
+    const at = field.indexOf('=')
+    if (at > 0) out[field.slice(0, at)] = field.slice(at + 1)
   }
   return out
 }
 /** The words of the command without its options and their values. */
 const positional = () => {
   const out = []
-  const valued = new Set(['--repo', '-R', '--json', '--jq', '-q', '--job', '--branch', '-b', '--limit', '-L', '--template', '-t', '-f', '-F', '--field', '--raw-field', '-X', '--method', '-H', '--header'])
+  const valued = new Set(['--repo', '-R', '--json', '--jq', '-q', '--job', '--branch', '-b', '--limit', '-L', '--template', '-t', '-f', '-F', '--field', '--raw-field', '-X', '--method', '-H', '--header', '--input'])
   for (let i = 0; i < args.length; i++) {
-    if (valued.has(args[i])) i += 1
+    if (valued.has(args[i]) || /^-i+[XfFHqt]$/.test(args[i])) i += 1
     else if (!args[i].startsWith('-')) out.push(args[i])
   }
   return out
@@ -109,9 +136,10 @@ const otherRepo = () => {
 }
 
 const [command, sub] = args
-const glued = args.find((a) => /^-X./.test(a))?.slice(2)
-const method = (option('-X', '--method') ?? glued ?? 'GET').toUpperCase()
-const hasFields = args.some((a) => ['-f', '-F', '--field', '--raw-field'].includes(a))
+const api = apiOptions()
+const explicitMethod = api.methods.length > 0
+const method = (api.methods.at(-1) ?? 'GET').toUpperCase()
+const hasFields = api.fields.length > 0
 /** The inline query of `api graphql` when it only reads: not from a file or stdin, no mutation in it. */
 const graphqlRead = () => {
   const query = fields().query
@@ -124,9 +152,9 @@ function isRead() {
   if (command === 'run') return sub === 'view' || sub === 'list'
   if (command === 'auth') return sub === 'status'
   if (command === 'repo') return sub === 'view'
-  if (command !== 'api' || method !== 'GET' || args.includes('--input')) return false
+  if (command !== 'api' || method !== 'GET' || api.input) return false
   if (positional()[1] === 'graphql') return graphqlRead()
-  return !hasFields || option('-X', '--method') !== undefined || glued !== undefined
+  return !hasFields || explicitMethod
 }
 if (!isRead()) refuse(true)
 
@@ -171,7 +199,7 @@ if (command === 'run' && (sub === 'view' || sub === 'list')) {
   process.exit(0)
 }
 
-if (command === 'api' && glued === undefined) {
+if (command === 'api') {
   const path = (positional()[1] ?? '').replace(/^\//, '').replace(/\?.*$/, '')
   const noFields = Object.keys(fields()).length === 0
   if (path === 'user' && noFields) {
