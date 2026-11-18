@@ -467,7 +467,9 @@ describe('the view of a snapshot', () => {
     next = within(pane()).getByTestId('pr-inbox-next-step')
     expect(next.dataset.tone).toBe('fix')
     expect(text(next, 'pr-inbox-next-step-title')).toBe('CI failing and changes requested')
-    expect(within(next).getByTestId('pr-inbox-next-step-action').getAttribute('href')).toBe(`https://github.com/${WEB}/pull/40/checks`)
+    // Red CI and changes asked: Fix checks, Address comments beside it, and Open checks a link (worfy-pr-follow ticket 04).
+    expect(within(next).getAllByTestId('pr-inbox-follow').map((button) => button.textContent)).toEqual(['Fix checks', 'Address comments'])
+    expect(within(next).getByTestId('pr-inbox-next-step-link').getAttribute('href')).toBe(`https://github.com/${WEB}/pull/40/checks`)
     expect(text(fact('review'), 'pr-inbox-review')).toBe('Changes requested')
     expect(within(fact('review')).getByTestId('pr-inbox-review').querySelector('[data-status]')?.getAttribute('data-status')).toBe('blocked')
     expect(text(pane(), 'pr-inbox-via-team')).toBeNull()
@@ -615,23 +617,53 @@ describe('the pure parts of the two panes', () => {
   it('nextStep of a PR that waits for an answer counts its drafts; a mention without a thread asks for an answer too', async () => {
     const { nextStep } = await load()
     // Two drafts or more: Send all; one: its Send under the thread, no button of the strip; none: Draft replies.
-    expect(nextStep('needs-answer', ROWS.answer, NOW, 2, true)).toMatchObject({ text: '2 draft replies are ready below: read, edit, then send each or all.', action: { kind: 'send-all', count: 2 } })
-    expect(nextStep('needs-answer', ROWS.answer, NOW, 1, true)).toMatchObject({ text: '1 draft reply is ready below: read, edit, then Send under its thread.', action: null })
-    expect(nextStep('needs-answer', ROWS.answer, NOW, 0, true)).toMatchObject({ text: 'No drafts yet: Draft replies starts a Session that writes them.', action: { kind: 'draft-replies' } })
+    expect(nextStep('needs-answer', ROWS.answer, NOW, 2, true, ME)).toMatchObject({ text: '2 draft replies are ready below: read, edit, then send each or all.', action: { kind: 'send-all', count: 2 } })
+    expect(nextStep('needs-answer', ROWS.answer, NOW, 1, true, ME)).toMatchObject({ text: '1 draft reply is ready below: read, edit, then Send under its thread.', action: null })
+    expect(nextStep('needs-answer', ROWS.answer, NOW, 0, true, ME)).toMatchObject({ text: 'No drafts yet: Draft replies starts a Session that writes them.', action: { kind: 'draft-replies' } })
     // A Linked machine: no drafts here, no button.
-    expect(nextStep('needs-answer', ROWS.answer, NOW, 0, false)).toMatchObject({ text: 'Drafts of replies stay on the machine of the Project.', action: null })
-    expect(nextStep('needs-answer', { ...ROWS.answer, unresolvedThreads: 0 }, NOW, 0, true).title).toBe('Your answer is awaited')
-    expect(nextStep('needs-answer', { ...ROWS.answer, unresolvedThreads: 1 }, NOW, 0, true).title).toBe('Answer 1 open thread')
+    expect(nextStep('needs-answer', ROWS.answer, NOW, 0, false, ME)).toMatchObject({ text: 'Drafts of replies stay on the machine of the Project.', action: null })
+    expect(nextStep('needs-answer', { ...ROWS.answer, unresolvedThreads: 0 }, NOW, 0, true, ME).title).toBe('Your answer is awaited')
+    expect(nextStep('needs-answer', { ...ROWS.answer, unresolvedThreads: 1 }, NOW, 0, true, ME).title).toBe('Answer 1 open thread')
   })
 
-  it('nextStep of a PR to fix names what is wrong, and always opens the checks', async () => {
+  it('nextStep of a PR to fix names what is wrong; its first reason is the main button, the others beside it, and Open checks stays a link (worfy-pr-follow ticket 04)', async () => {
     const { nextStep } = await load()
-    const fix = (over: Partial<PrInboxRow>) => nextStep('needs-fix', { ...ROWS.fix, ci: 'passing', reviewDecision: null, mergeStateStatus: 'CLEAN', ...over }, NOW, 0, true)
+    const fix = (over: Partial<PrInboxRow>) => nextStep('needs-fix', { ...ROWS.fix, ci: 'passing', reviewDecision: null, mergeStateStatus: 'CLEAN', ...over }, NOW, 0, true, ME)
     const checks = { kind: 'link', label: 'Open checks', url: `${ROWS.fix.url}/checks` }
-    expect(fix({ ci: 'failing' })).toMatchObject({ title: 'CI failing', action: checks })
-    expect(fix({ reviewDecision: 'CHANGES_REQUESTED' })).toMatchObject({ title: 'Changes requested', action: checks })
-    expect(fix({ mergeStateStatus: 'DIRTY' })).toMatchObject({ title: 'Merge conflict', text: 'Resolve the conflict with the base branch.', action: checks })
-    expect(nextStep('waiting', { ...ROWS.waiting, isDraft: false }, NOW, 0, true).title).toBe('Waiting for reviewers')
+    const follow = (action: string) => ({ kind: 'pr-follow', action })
+    // In conflict and red: a PR in conflict runs no CI, so Resolve conflicts comes first.
+    expect(fix({ mergeStateStatus: 'DIRTY', ci: 'failing' })).toEqual({
+      tone: 'fix',
+      title: 'Merge conflict and CI failing',
+      text: 'Resolve conflicts hands the conflict with the base branch to a Session; it asks before it pushes.',
+      action: follow('resolveConflicts'),
+      more: [follow('fixChecks'), checks],
+    })
+    expect(fix({ ci: 'failing' })).toMatchObject({ title: 'CI failing', text: 'Fix checks hands the failing checks to a Session; it asks before it pushes.', action: follow('fixChecks'), more: [checks] })
+    expect(fix({ reviewDecision: 'CHANGES_REQUESTED' })).toMatchObject({
+      title: 'Changes requested',
+      text: 'Address comments hands the requested changes to a Session: it edits the code, drafts the replies and asks before it pushes.',
+      action: follow('addressComments'),
+      more: [checks],
+    })
+    expect(fix({ ci: 'failing', reviewDecision: 'CHANGES_REQUESTED' })).toMatchObject({ title: 'CI failing and changes requested', action: follow('fixChecks'), more: [follow('addressComments'), checks] })
+    expect(fix({ mergeStateStatus: 'DIRTY' })).toMatchObject({ title: 'Merge conflict', action: follow('resolveConflicts'), more: [checks] })
+    // No reason worfy can hand to a Session: the checks are the one button, as before.
+    expect(fix({ mergeStateStatus: 'BLOCKED' })).toEqual({ tone: 'fix', title: 'Needs a fix', text: 'Look at the PR on GitHub.', action: checks, more: [] })
+    expect(nextStep('waiting', { ...ROWS.waiting, isDraft: false }, NOW, 0, true, ME).title).toBe('Waiting for reviewers')
+  })
+
+  it('nextStep of my PR that waits for an answer puts Address comments beside Draft replies; a colleague\'s PR gets none', async () => {
+    const { nextStep } = await load()
+    expect(nextStep('needs-answer', ROWS.answer, NOW, 0, true, ME)).toMatchObject({ action: { kind: 'draft-replies' }, more: [{ kind: 'pr-follow', action: 'addressComments' }] })
+    // Drafts or none, the button stays: the Session edits the code too.
+    expect(nextStep('needs-answer', ROWS.answer, NOW, 2, true, ME).more).toEqual([{ kind: 'pr-follow', action: 'addressComments' }])
+    expect(nextStep('needs-answer', { ...ROWS.answer, author: ANA }, NOW, 0, true, ME).more).toEqual([])
+    // No login read yet: whose PR it is is not known.
+    expect(nextStep('needs-answer', ROWS.answer, NOW, 0, true, null).more).toEqual([])
+    // Every other group has no button of pr-fix.
+    expect(nextStep('needs-review', ROWS.review, NOW, 0, true, ME).more).toEqual([])
+    expect(nextStep('ready', ROWS.ready, NOW, 0, true, ME).more).toEqual([])
   })
 
   it('initialsOf and avatarTone: two letters of a login, one colour for one login', async () => {
@@ -1141,6 +1173,142 @@ describe('openPrInboxOf with a PR', () => {
   })
 })
 
+describe('Fix checks, Resolve conflicts and Address comments in the pane (worfy-pr-follow ticket 04)', () => {
+  /** A head of 40 hex characters, as {sha} takes it. */
+  const HEAD = '3f2a9c1'.padEnd(40, '0')
+  const TEMPLATES = {
+    shipTicket: '/worfy:ship-ticket {epic} {NN}',
+    runWave: '/worfy:epic-wave {wave} {epic}',
+    gateQueue: '',
+    prReply: '/worfy:pr-reply {repo}#{pr}',
+    fixChecks: '/worfy:pr-fix checks {repo}#{pr} {sha}',
+    resolveConflicts: '/worfy:pr-fix conflicts {repo}#{pr} {sha}',
+    addressComments: '/worfy:pr-fix comments {repo}#{pr} {sha}',
+  }
+  /** web#40 of demo 03: in conflict with its base and red, mine. */
+  const CONFLICT = row(WEB, 40, { title: 'Fix the date picker', headRefOid: HEAD, ci: 'failing', mergeStateStatus: 'DIRTY' })
+  const ANSWER = { ...ROWS.answer, headRefOid: HEAD }
+  const inbox = (rows: PrInboxRow[], group: 'needs-fix' | 'needs-answer' = 'needs-fix') => snapshotOf('web-00000001', { groups: [{ group, rows }] })
+  const settingsAnswer = (templates: Partial<typeof TEMPLATES> = {}) => ({
+    'projects.settings.get': () => ({ ok: true as const, value: { actionTemplates: { ...TEMPLATES, ...templates }, prInbox: true } }),
+  })
+  const follow = (action: string): HTMLElement => {
+    const found = within(pane())
+      .queryAllByTestId('pr-inbox-follow')
+      .find((each) => each.dataset.action === action)
+    if (!found) throw new Error(`no button ${action}`)
+    return found
+  }
+  /** The pane of `snapshot`, with main's PR inbox answering the same snapshot: usePrFollowState reads the login there. */
+  const show = async (snapshot: PrInboxSnapshot, answers: Record<string, (input: unknown) => IpcResult<unknown>>): Promise<void> => {
+    preload({ inbox: { 'web-00000001': snapshot }, answers })
+    await body(snapshot)
+  }
+  const followCalls = (): unknown[] => main.calls.filter((call) => call.channel === 'actions.prFollow').map((call) => call.input)
+  const shownToasts = async () => {
+    const { toasts } = await import('../../src/renderer/toast/toasts')
+    return toasts.getState().toasts.map((toast) => ({ kind: toast.kind, text: toast.text }))
+  }
+
+  it('a PR in conflict and red: Resolve conflicts is the main button, Fix checks beside it, Open checks a link; each shows the text it sends', async () => {
+    await show(inbox([CONFLICT]), settingsAnswer())
+    const next = within(pane()).getByTestId('pr-inbox-next-step')
+    expect(text(next, 'pr-inbox-next-step-title')).toBe('Merge conflict and CI failing')
+    expect(next.textContent).toContain('Resolve conflicts hands the conflict with the base branch to a Session; it asks before it pushes.')
+    expect(within(next).getAllByTestId('pr-inbox-follow').map((button) => button.textContent)).toEqual(['Resolve conflicts', 'Fix checks'])
+    expect(follow('resolveConflicts').className).toContain('w-pr-inbox-button--primary')
+    expect(follow('fixChecks').className).not.toContain('w-pr-inbox-button--primary')
+    const checks = within(next).getByTestId('pr-inbox-next-step-link')
+    expect(checks.textContent).toBe('Open checks')
+    expect(checks.tagName).toBe('A')
+    expect(checks.getAttribute('href')).toBe(`https://github.com/${WEB}/pull/40/checks`)
+    // The buttons come before the link, in the order of the reasons.
+    expect([...next.querySelectorAll('[data-testid="pr-inbox-follow"], [data-testid="pr-inbox-next-step-link"]')].map((each) => each.textContent)).toEqual(['Resolve conflicts', 'Fix checks', 'Open checks'])
+    await waitFor(() => expect(follow('fixChecks').getAttribute('aria-disabled')).toBe('false'))
+    expect(follow('fixChecks').title).toBe(`/worfy:pr-fix checks ${WEB}#40 ${HEAD}`)
+    expect(follow('resolveConflicts').title).toBe(`/worfy:pr-fix conflicts ${WEB}#40 ${HEAD}`)
+    // Showing the buttons sends nothing.
+    expect(followCalls()).toEqual([])
+  })
+
+  it('red CI alone: Fix checks; changes requested alone: Address comments', async () => {
+    await show(inbox([{ ...CONFLICT, mergeStateStatus: 'UNSTABLE' }]), settingsAnswer())
+    let next = within(pane()).getByTestId('pr-inbox-next-step')
+    expect(within(next).getAllByTestId('pr-inbox-follow').map((button) => button.textContent)).toEqual(['Fix checks'])
+    expect(text(next, 'pr-inbox-next-step-link')).toBe('Open checks')
+    cleanup()
+
+    await show(inbox([{ ...CONFLICT, ci: 'passing', mergeStateStatus: 'BLOCKED', reviewDecision: 'CHANGES_REQUESTED' }]), settingsAnswer())
+    next = within(pane()).getByTestId('pr-inbox-next-step')
+    expect(within(next).getAllByTestId('pr-inbox-follow').map((button) => button.textContent)).toEqual(['Address comments'])
+    expect(follow('addressComments').className).toContain('w-pr-inbox-button--primary')
+    expect(text(next, 'pr-inbox-next-step-link')).toBe('Open checks')
+  })
+
+  it('my PR in Needs my answer: Address comments right beside Draft replies', async () => {
+    await show(inbox([ANSWER], 'needs-answer'), settingsAnswer())
+    const next = within(pane()).getByTestId('pr-inbox-next-step')
+    const draft = within(next).getByTestId('pr-inbox-draft-replies')
+    expect(draft.nextElementSibling).toBe(follow('addressComments'))
+    expect(follow('addressComments').textContent).toBe('Address comments')
+    await waitFor(() => expect(follow('addressComments').getAttribute('aria-disabled')).toBe('false'))
+    expect(follow('addressComments').title).toBe(`/worfy:pr-fix comments ${API}#118 ${HEAD}`)
+    cleanup()
+
+    // A colleague's PR that waits for my answer: no button of pr-fix.
+    await show(inbox([{ ...ANSWER, author: ANA }], 'needs-answer'), settingsAnswer())
+    expect(within(pane()).queryAllByTestId('pr-inbox-follow')).toEqual([])
+  })
+
+  it('an empty template: the button is inactive, and its tooltip says where to set it; a click sends nothing', async () => {
+    await show(inbox([CONFLICT]), settingsAnswer({ fixChecks: '' }))
+    await waitFor(() => expect(follow('fixChecks').getAttribute('aria-disabled')).toBe('true'))
+    expect(follow('fixChecks').getAttribute('data-kit-hint')).toBe('Set the Fix checks template in Project settings')
+    expect(follow('fixChecks').getAttribute('aria-description')).toBe('Set the Fix checks template in Project settings')
+    // No native title beside the kit tooltip: the two would show one over the other.
+    expect(follow('fixChecks').hasAttribute('title')).toBe(false)
+    // The other one has its template.
+    expect(follow('resolveConflicts').getAttribute('aria-disabled')).toBe('false')
+    fireEvent.click(follow('fixChecks'))
+    await act(async () => Promise.resolve())
+    expect(followCalls()).toEqual([])
+  })
+
+  it('a refusal of the verdict of ticket 01 is the tooltip too: a PR from a fork', async () => {
+    await show(inbox([{ ...CONFLICT, isCrossRepository: true }]), settingsAnswer())
+    await waitFor(() => expect(follow('fixChecks').getAttribute('data-kit-hint')).toBe(`${WEB}#40 comes from a fork: a Session cannot push to it`))
+    expect(follow('fixChecks').getAttribute('aria-disabled')).toBe('true')
+  })
+
+  it('a click sends actions.prFollow with the Project, the PR and the action; the toast says where the text went', async () => {
+    const deliveries = ['new', 'sent', 'queued']
+    await show(inbox([CONFLICT]), {
+      ...settingsAnswer(),
+      'actions.prFollow': () => ({ ok: true, value: { nodeId: 'node-1', sessionId: 'session-1', text: `/worfy:pr-fix checks ${WEB}#40 ${HEAD}`, delivery: deliveries.shift()! } }),
+    })
+    await waitFor(() => expect(follow('fixChecks').getAttribute('aria-disabled')).toBe('false'))
+    fireEvent.click(follow('fixChecks'))
+    await waitFor(() => expect(followCalls()).toEqual([{ projectId: 'web-00000001', repo: WEB, pr: 40, action: 'fixChecks' }]))
+    await waitFor(async () => expect(await shownToasts()).toEqual([{ kind: 'success', text: `Fix checks for ${WEB}#40: Started a Session` }]))
+    // The PR's Ticket is demo 03: a Session of that Ticket took the text, at once or into its queue.
+    await waitFor(() => expect(follow('resolveConflicts').getAttribute('aria-disabled')).toBe('false'))
+    fireEvent.click(follow('resolveConflicts'))
+    await waitFor(async () => expect(await shownToasts()).toContainEqual({ kind: 'success', text: `Resolve conflicts for ${WEB}#40: Sent to the Session of demo 03` }))
+    await waitFor(() => expect(follow('fixChecks').getAttribute('aria-disabled')).toBe('false'))
+    fireEvent.click(follow('fixChecks'))
+    await waitFor(async () => expect(await shownToasts()).toContainEqual({ kind: 'success', text: `Fix checks for ${WEB}#40: Queued for the Session of demo 03` }))
+    expect(followCalls()).toHaveLength(3)
+  })
+
+  it("main's refusal is an error toast with its reason", async () => {
+    const reason = `Fix checks is already starting for ${WEB}#40: wait for its Session, or close its Node to start again`
+    await show(inbox([CONFLICT]), { ...settingsAnswer(), 'actions.prFollow': () => ({ ok: false, error: `actions.prFollow failed: ${reason}` }) })
+    await waitFor(() => expect(follow('fixChecks').getAttribute('aria-disabled')).toBe('false'))
+    fireEvent.click(follow('fixChecks'))
+    await waitFor(async () => expect(await shownToasts()).toEqual([{ kind: 'error', text: `Fix checks for ${WEB}#40 failed: ${reason}` }]))
+  })
+})
+
 describe('on a read-only screen of a Linked machine', () => {
   const HINT = 'Studio gives this Machine read-only access'
   const PROJECTS_MODULE = '../../src/renderer/projects/useProjects'
@@ -1151,6 +1319,23 @@ describe('on a read-only screen of a Linked machine', () => {
 
   afterEach(() => {
     vi.doUnmock(PROJECTS_MODULE)
+  })
+
+  it('Fix checks and the other actions on a PR are inactive, with the hint, and a click sends nothing (worfy-pr-follow ticket 04)', async () => {
+    const head = '3f2a9c1'.padEnd(40, '0')
+    const snapshot = snapshotOf('web-00000001', { groups: [{ group: 'needs-fix', rows: [row(WEB, 40, { headRefOid: head, ci: 'failing' })] }] })
+    preload({
+      inbox: { 'web-00000001': snapshot },
+      answers: { 'projects.settings.get': () => ({ ok: true, value: { actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '', fixChecks: '/worfy:pr-fix checks {repo}#{pr} {sha}', resolveConflicts: '', addressComments: '' }, prInbox: true } }) },
+    })
+    await body(snapshot)
+    const button = within(pane()).getByTestId('pr-inbox-follow')
+    expect(button.textContent).toBe('Fix checks')
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    expect(button.getAttribute('data-kit-hint')).toBe(HINT)
+    fireEvent.click(button)
+    await act(async () => Promise.resolve())
+    expect(main.calls.filter((call) => call.channel === 'actions.prFollow')).toEqual([])
   })
 
   it('a click selects a PR and shows its threads but tells main nothing', async () => {

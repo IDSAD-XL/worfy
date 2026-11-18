@@ -23,7 +23,9 @@ import { ms } from '../time-scale'
 // - the stub's log holds no write of any kind after all of it: the view only reads (ADR-0105);
 // - a draft reply (worfy-pr-inbox ticket 05): shown under its thread in the pane of the selected PR, nothing posted
 //   without a click — not on selecting, not on ↑ / ↓; edited and sent, one POST whose body is the edited text (the Profile folder and review-draft-lint are the repository's own scripts
-//   over a temporary Harness home, through stand-ins in the temporary Claude home).
+//   over a temporary Harness home, through stand-ins in the temporary Claude home);
+// - Fix checks in the strip of a red PR (worfy-pr-follow ticket 04): a new Session Node whose first message is the
+//   Project's template with the head the stub gives, on the fake agent; a screenshot of the strip in both themes.
 // Every name, login and text is invented.
 
 const PROFILE = join(import.meta.dirname, '..', '..', 'harness', 'bin', 'profile')
@@ -74,7 +76,7 @@ function stubPull(
   repo: string,
   number: number,
   title: string,
-  over: { author?: string; requested?: { login?: string; team?: string }[]; reviewDecision?: string | null; ci?: string; threads?: unknown[]; draft?: boolean; size?: [number, number]; merge?: string; branch?: string } = {},
+  over: { author?: string; requested?: { login?: string; team?: string }[]; reviewDecision?: string | null; ci?: string; threads?: unknown[]; draft?: boolean; size?: [number, number]; merge?: string; branch?: string; head?: string } = {},
 ): StubPull {
   const author = over.author ?? ME
   const requested = over.requested ?? []
@@ -82,7 +84,7 @@ function stubPull(
     repo,
     number,
     updatedAt: at(1),
-    headRefOid: `sha${number}`,
+    headRefOid: over.head ?? `sha${number}`,
     reviewRequested: requested.length > 0,
     involves: true,
     pull: {
@@ -744,6 +746,62 @@ test('a long Epic name in the Ticket chip at 1280 px: #N stays whole and uncover
     const shots = await snapshotThemes(window, 'pr-inbox-long-ticket-1280')
     for (const scheme of ['light', 'dark'] as const) copyFileSync(shots[scheme], join(SCREENS, `long-ticket-1280-${scheme}.png`))
     console.log(`pull requests long-ticket-1280: ${join(SCREENS, 'long-ticket-1280-light.png')} ${join(SCREENS, 'long-ticket-1280-dark.png')}`)
+    expectNoWrite()
+  } finally {
+    await launched.close()
+  }
+})
+
+/** The messages the fake agent got, in order (WORFY_AGENT_LOG, src/main/vendors/claude/query.ts). */
+function agentMessages(log: string): string[] {
+  if (!existsSync(log)) return []
+  return readFileSync(log, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as { kind: string; text?: string })
+    .filter((call) => call.kind === 'message')
+    .map((call) => call.text ?? '')
+}
+
+test('Fix checks in the strip of a red PR: a new Session Node gets /worfy:pr-fix checks with the head of the stub; Open checks stays a link', async () => {
+  // My PR web#118 with red CI and nothing else: Fix checks alone, the main button of its strip.
+  const head = '3f2a9c1e5b7d4a6c8e0f1a2b3c4d5e6f7a8b9c0d'
+  writeFileSync(join(ghDir, 'graphql.json'), JSON.stringify({ viewer: ME, pulls: [stubPull(WEB_REPO, 118, 'Retry on 429', { ci: 'FAILURE', merge: 'UNSTABLE', head, branch: 'fix/retry-429' })] }))
+  mkdirSync(join(dataDir, WEB), { recursive: true })
+  writeFileSync(
+    join(dataDir, WEB, 'settings.json'),
+    JSON.stringify({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '', fixChecks: '/worfy:pr-fix checks {repo}#{pr} {sha}', resolveConflicts: '', addressComments: '' }, prInbox: true }),
+  )
+  const log = join(scratch, 'agent.jsonl')
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, GH_STUB_DIR: ghDir, GH_STUB_LOG: ghLog, WORFY_AGENT_LOG: log } })
+  try {
+    const { window } = launched
+    await showSidebarSection(window, 'Pull requests')
+    await expect(sectionRow(window, WEB, 'needs-fix')).toContainText('Needs a fix1', { timeout: ms(30_000) })
+    const views = window.getByRole('group', { name: 'View', exact: true })
+    await views.getByRole('button', { name: 'Pull requests' }).click()
+    await expect(pane(window)).toHaveAttribute('data-number', '118')
+    const strip = pane(window).getByTestId('pr-inbox-next-step')
+    await expect(strip.getByTestId('pr-inbox-next-step-title')).toHaveText('CI failing')
+    const fix = strip.locator('[data-testid="pr-inbox-follow"][data-action="fixChecks"]')
+    await expect(strip.getByTestId('pr-inbox-follow')).toHaveText(['Fix checks'])
+    // Active once the Project's templates are read: its title is the text it sends.
+    await expect(fix).toHaveAttribute('aria-disabled', 'false')
+    await expect(fix).toHaveAttribute('title', `/worfy:pr-fix checks ${WEB_REPO}#118 ${head}`)
+    const checks = strip.getByTestId('pr-inbox-next-step-link')
+    await expect(checks).toHaveText('Open checks')
+    await expect(checks).toHaveAttribute('href', `https://github.com/${WEB_REPO}/pull/118/checks`)
+    // The strip with its buttons, for the review (test-results/e2e/snapshots/, kept by CI).
+    const shots = await snapshotThemes(window, 'pr-inbox-fix-checks')
+    console.log(`pull requests fix checks: ${shots.light} ${shots.dark}`)
+
+    await fix.click()
+    // No Ticket names the PR: a new Session Node, its first message the template with the stub's head.
+    await expect(window.getByTestId('pr-follow-toast')).toContainText(`Fix checks for ${WEB_REPO}#118: Started a Session`)
+    await expect.poll(() => agentMessages(log)).toEqual([`/worfy:pr-fix checks ${WEB_REPO}#118 ${head}`])
+    await views.getByRole('button', { name: 'Canvas' }).click()
+    await expect(window.locator('[data-testid="session-node"]')).toHaveCount(1)
+    // The click read the PR again and wrote nothing to GitHub: the Session asks before it pushes.
     expectNoWrite()
   } finally {
     await launched.close()
