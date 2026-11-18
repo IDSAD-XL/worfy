@@ -102,10 +102,12 @@ one other grader that fails leaves 10 / 11 = 0.91 and two leave 9 / 11 = 0.82.
 
 ## 5. Переменные compaction — только в вызове этого кейса
 
-Code: `scripts/eval-harness.mjs:333-351` · key lines: 341, 348, 349
+Code: `scripts/eval-harness.mjs:333-353` · key lines: 343, 350, 351
 
 ```js
-// A call of the tag `alone` has its own `env`; the others run with childEnv.
+// A call of the tag `alone` carries `vars`, the variables of its case. They go on top of childEnv only
+// when the call starts: gitForRuns, below, adds the copy of git and the Harness state folder to childEnv
+// after this list is made, and a copy taken here would miss them.
 const calls = []
 const named = optionValues(passThrough, '--case')
 for (const tag of ['main', 'gui', 'alone']) {
@@ -121,7 +123,7 @@ for (const tag of ['main', 'gui', 'alone']) {
       )
     }
     cases = cases.filter((one) => named.includes(one))
-    for (const name of cases) calls.push({ tag, name: `${tag}-${name}`, args: ['--case', name], cases: [name], env: { ...childEnv, ...ALONE[name] } })
+    for (const name of cases) calls.push({ tag, name: `${tag}-${name}`, args: ['--case', name], cases: [name], vars: { ...ALONE[name] } })
     continue
   }
 ```
@@ -129,7 +131,10 @@ for (const tag of ['main', 'gui', 'alone']) {
 - Что делает: кейс с тегом `alone` (у кейса теперь он, а не `main`) идёт только когда `--case` называет его точно, в
   своём вызове, и только этот вызов получает `CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000` и
   `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=5`. Общий запуск, glob в `--case` и `--changed` его пропускают и печатают строку, как
-  его запустить. Из окружения всех остальных вызовов эти переменные убраны, даже если их задал shell.
+  его запустить. Из окружения всех остальных вызовов эти переменные убраны, даже если их задал shell. Вызов хранит
+  только свои переменные (`vars`); окружение собирается при запуске, `{ ...childEnv, ...call.vars }`, уже после
+  `gitForRuns`, который кладёт в `childEnv` копию git, `EVAL_GIT` и `EVAL_HARNESS_HOME` (раунд 3: копия при сборке
+  списка их теряла, и состояние Harness ушло бы в `~/.claude/worfy-harness`).
 - Почему здесь: ревью PR #1996: общий `pnpm eval:harness` и `--changed` брали кейс без переменных (compaction нет,
   ≈ 1,4 USD впустую), а с переменными compaction случилась бы в каждом кейсе тега `main`. Из двух вариантов брифа
   выбран пропуск без явного `--case` и переменные в вызове кейса: исключить один кейс из вызова тега нельзя
@@ -137,8 +142,9 @@ for (const tag of ['main', 'gui', 'alone']) {
 - Без него: кейс тратит деньги без compaction или ломает остальные кейсы тега.
 - Требование: [Что делаем, пункт 3](../issues/13-eval-compaction-state.md#что-делаем)
 - Риски и пробелы test-ов: пять test-ов в `test/contract/harness-evals-run.test.ts` (describe «the case of the tag
-  alone»), stub записывает обе переменные каждого вызова; три мутанта (не убирать переменные shell-а, не пропускать
-  кейс, не передавать `env` вызова) валят 1, 3 и 1 из них. Что настоящий `claude plugin eval` передаёт `env` процессу
+  alone»), stub записывает обе переменные каждого вызова; test запуска сверяет у вызова `alone` `EVAL_GIT`,
+  `EVAL_HARNESS_HOME` и первую папку PATH с вызовом `main`. Мутанты (не убирать переменные shell-а, не пропускать
+  кейс, не передавать переменные вызова, копировать окружение при сборке списка) валят 1, 3, 1 и 2 из них. Что настоящий `claude plugin eval` передаёт `env` процессу
   агента, проверено только платным прогоном первого раунда, где переменные задавал shell.
 
 ## 6. Ответ по памяти
@@ -215,6 +221,6 @@ Code: `test/contract/harness-evals.test.ts:283-285` · key lines: 283, 285
    - Ответ: агент ответит по полной истории, остальные восемь grader-ов могут пройти; с весом 1 run набрал бы 8 / 9 и
      кейс прошёл бы порог 0,8, с весом 3 — не больше 8 / 11, и кейс провален.
 3. Почему общий `pnpm eval:harness` не запускает `compaction-state`, а не просто ставит переменные всем вызовам?
-   - Строки: `scripts/eval-harness.mjs:340-349`
+   - Строки: `scripts/eval-harness.mjs:342-351`
    - Ответ: с переменными compaction случилась бы в каждом кейсе вызова; поэтому кейс идёт только своим вызовом по
      точному `--case`, и только этот вызов получает переменные.

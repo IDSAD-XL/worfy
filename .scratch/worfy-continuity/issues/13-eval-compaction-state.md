@@ -109,7 +109,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», 13; «Решения по реал
   `--case compaction-state`, отдельным вызовом с `CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000` и
   `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=5`. Общий запуск, glob в `--case` и `--changed` его пропускают со строкой
   «compaction-state is skipped: … run it with pnpm eval:harness -- --case compaction-state». Из окружения остальных
-  вызовов обе переменные убраны, даже если их задал shell. Выбран пропуск, а не переменные в общем вызове: `--case` у
+  вызовов обе переменные убраны, даже если их задал shell. Окружение вызова собирается при его запуске, после копии git
+  (`EVAL_GIT`, `EVAL_HARNESS_HOME`, PATH): в раунде 2 копия при сборке списка вызовов их теряла (ревью раунда 2), и
+  остановленный платный прогон раунда 2 недействителен. Выбран пропуск, а не переменные в общем вызове: `--case` у
   `claude plugin eval` — один glob, и вынуть один кейс из вызова тега `main` нельзя.
 - **Grader-ы probe-\*.** В каждый добавлено «Judge only the section under this heading; what the other sections say
   or admit does not matter», в `probe-files` — «src/sum.mjs named as unchanged is not a failure». Числа ниже, в

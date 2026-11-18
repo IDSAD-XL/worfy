@@ -330,7 +330,9 @@ if (changedAt !== -1) {
 // --case and --tag of the user choose the cases here and do not reach claude: claude adds up every
 // --tag it is given (`--tag main gui` after the call's own `--tag main` runs all cases in each call)
 // and takes the last --case, so each call names only its own tag and case.
-// A call of the tag `alone` has its own `env`; the others run with childEnv.
+// A call of the tag `alone` carries `vars`, the variables of its case. They go on top of childEnv only
+// when the call starts: gitForRuns, below, adds the copy of git and the Harness state folder to childEnv
+// after this list is made, and a copy taken here would miss them.
 const calls = []
 const named = optionValues(passThrough, '--case')
 for (const tag of ['main', 'gui', 'alone']) {
@@ -346,7 +348,7 @@ for (const tag of ['main', 'gui', 'alone']) {
       )
     }
     cases = cases.filter((one) => named.includes(one))
-    for (const name of cases) calls.push({ tag, name: `${tag}-${name}`, args: ['--case', name], cases: [name], env: { ...childEnv, ...ALONE[name] } })
+    for (const name of cases) calls.push({ tag, name: `${tag}-${name}`, args: ['--case', name], cases: [name], vars: { ...ALONE[name] } })
     continue
   }
   if (cases.length === 0) process.stdout.write(`eval:harness: no ${tag} case selected, the ${tag} call is skipped\n`)
@@ -360,8 +362,7 @@ if (chosen && calls.length === 0) {
 }
 
 /** The variables a call sets on top of childEnv, as a prefix of its command line ('' for none). */
-const envPrefix = (call) =>
-  call.env ? Object.keys(ALONE[call.cases[0]] ?? {}).map((key) => `${key}=${call.env[key]} `).join('') : ''
+const envPrefix = (call) => Object.entries(call.vars ?? {}).map(([key, value]) => `${key}=${value} `).join('')
 
 if (limit !== null && limit > BUDGET_USD) {
   process.stdout.write(`eval:harness: --max-cost-usd ${limit} is above the ceiling of this script: the budget stays ${BUDGET_USD} USD\n`)
@@ -431,7 +432,7 @@ try {
     const outputDir = join(EVALS, 'results', `${stamp}-${call.name}`)
     const args = callArgs(call, harness, outputDir, left)
     process.stdout.write(`eval:harness: ${call.name} — ${envPrefix(call)}claude ${args.join(' ')}\n`)
-    const run = runClaude(claude, args, { stdio: 'inherit', cwd: REPO, env: call.env ?? childEnv })
+    const run = runClaude(claude, args, { stdio: 'inherit', cwd: REPO, env: { ...childEnv, ...call.vars } })
     const code = run.status ?? 128 + (constants.signals[run.signal] ?? constants.signals.SIGTERM)
     process.stdout.write(`eval:harness: ${call.name} exited ${code}\n`)
     worst = Math.max(worst, code)

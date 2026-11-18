@@ -453,11 +453,19 @@ describe('pnpm eval:harness: the case of the tag alone (claude replaced by a stu
     expect(lines(run.stdout)).toContain(SKIPPED)
   })
 
-  it('runs it alone, with main grants and its two variables over those of the shell, when --case names it', () => {
-    const { run, calls } = evalHarness('2.1.289', '0', ['--', '--case', 'compaction-state', '--runs', '1'], undefined, SHELL)
+  it('runs it alone, with main grants, the git and state folder of the runs and its two variables over those of the shell, when --case names it', () => {
+    const { run, calls } = evalHarness('2.1.289', '0,0', ['--', '--case', 'status-block', '--case', 'compaction-state', '--runs', '1'], undefined, SHELL)
     expect(run.status, run.stderr).toBe(0)
-    expect(calls).toHaveLength(1)
-    const [call] = calls
+    expect(calls).toHaveLength(2)
+    const [main, call] = calls
+    expect(listAfter(main?.args ?? [], '--case')).toEqual(['status-block'])
+    // The copy of git and the Harness state folder that gitForRuns adds after the calls are planned.
+    expect(main?.evalGit ?? '').not.toBe('')
+    expect(main?.evalHarnessHome).toBe('worfy-harness')
+    expect(call?.evalGit).toBe(main?.evalGit)
+    expect(call?.evalHarnessHome).toBe('worfy-harness')
+    expect((call?.path ?? '').split(delimiter)[0]).toBe(dirname(call?.evalGit ?? '<no git>'))
+    expect([main?.compactWindow, main?.compactPct]).toEqual([null, null])
     expect(listAfter(call?.args ?? [], '--tag')).toEqual(['alone'])
     expect(listAfter(call?.args ?? [], '--case')).toEqual(['compaction-state'])
     expect(listAfter(call?.args ?? [], '--allow-tools')).toEqual(['Bash', 'Write', 'Edit'])
