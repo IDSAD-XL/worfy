@@ -31,7 +31,7 @@ Code: `src/main/update/restart.ts:491-498` · key lines: 496, 497
 - Почему здесь: Ticket называет `src/main/update/restart.ts` и отказ `BUSY` (`plan()`); нажатие — согласие на grace и приостановку через координатор Ticket-а 04 (Что делаем, пункт 1). Почему Roll back не изменён — не записано: Ticket говорит только о "Restart now".
 - Без него: "Restart now" во время turn-а снова отвечает «a Session is working or Autopilot runs», и кнопка рядом с "Restart when idle" ничего не делает.
 - Требование: [Что делаем, пункт 1](../issues/08-update-во-время-работы.md#что-делаем)
-- Риски и пробелы test-ов: выход через настоящий `QuitGrace` и `quitForUpdate` с причиной `update` проверен contract test-ом на подставных шагах; grace с настоящими Session-ами — test-ы Ticket-а 04.
+- Риски и пробелы test-ов: выход через настоящий `QuitGrace` и `quitForUpdate` с причиной `update` проверен contract test-ом на подставных шагах; провязку `appUpdate()` (её `quit` идёт через координатор с причиной `update`, а не через голый `app.quit()`) проверяет `test/contract/update-wiring.test.ts`; отказавший "Restart now" всё равно снимает желание "Restart when idle" — contract test `"Restart now" that is refused still drops the wish…`; grace с настоящими Session-ами — test-ы Ticket-а 04.
 
 ## 3. Нажатие "Restart now" поверх ожидания "Restart when idle"
 
@@ -105,7 +105,7 @@ export function autopilotRuns(autopilot: IdleAutopilot, projectIds: readonly str
 - Почему здесь: не записано; бриф запрещает править `src/main/autopilot/run.ts` (его меняет Ticket 07), поэтому список собран из публичных `running()` и `state()`.
 - Без него: `idle()` нечем отличить Run в Wait от Run-а с Wave — у Autopilot есть только `anyRunning()`.
 - Требование: [Что делаем, пункт 2](../issues/08-update-во-время-работы.md#что-делаем)
-- Риски и пробелы test-ов: `shortcut:` — остановленный Run, ждущий задачи, рядом с другим Run-ом виден только через фоновые задачи своей Session; подключение в `src/main/ipc/update.ts` (`appIdleWatch`) проверяют только e2e, локально не запускались.
+- Риски и пробелы test-ов: `shortcut:` — остановленный Run, ждущий задачи, рядом с другим Run-ом виден только через фоновые задачи своей Session; подключение в `src/main/ipc/update.ts` (`appIdleWatch`) проверяет `test/contract/update-wiring.test.ts` на подставных Autopilot-е и Project-ах: до загрузки модулей Autopilot считается работающим, Run одного Project-а в Wait Limits не держит, Run с Wave в работе держит.
 
 ## 6. Причина в restart.json
 
@@ -163,6 +163,7 @@ Code: `src/renderer/update/toasts.ts:151-156` · key lines: 153, 154
 - Новый `test/contract/update-restart-continuity.test.ts` — exit 0; с пустым набором тихих Wait-ов (мутант) красный.
 - UI unit test-ы (toast, chip, Settings, Command palette) — сначала 9 красных, после правки exit 0.
 - `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 (840 файлов).
+- Второй раунд: `test/contract/update-wiring.test.ts` и новые expect-ы в `update-restart.test.ts`, `updates-block.test.tsx` — каждый красный на своём мутанте (голый `app.quit()` в провязке, `NOT_LOADED` → `[]` или тихий Wait, пустой список Project-ов, убранный `this.intent.cancel()`, обратный порядок кнопок, тот же testId у обеих кнопок), exit 0 без мутантов.
 - e2e `update-toasts`, `update-toolbar`, `update-settings` локально не запускались (правило владельца 2026-11-11); их проверяет CI.
 
 ## Проверить себя
