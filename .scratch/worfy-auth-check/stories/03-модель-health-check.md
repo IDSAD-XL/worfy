@@ -51,7 +51,7 @@ export function worstLevel(report: { readonly checks: readonly Pick<Check, 'stat
 
 ## 3. Сообщение фичи о сбое
 
-Code: `src/main/first-run/health-reports.ts:91-101` · key lines: 93, 94, 98
+Code: `src/main/first-run/health-reports.ts:95-105` · key lines: 97, 98, 102
 
 ```ts
   reportFailure(id: ReportedCheckId, project: CheckProject | undefined, reason: string, step: string): void {
@@ -75,11 +75,12 @@ Code: `src/main/first-run/health-reports.ts:91-101` · key lines: 93, 94, 98
 - Без него: Ticket-ы 07 и 08 не имели бы куда сообщать о сбое, иконка не менялась бы до следующей проверки.
 - Требование: [Что делаем, п. 3](../issues/03-модель-health-check.md#что-делаем)
 - Риски и пробелы test-ов: повторная проверка, которая отвечает позже следующего сообщения, всё равно заменит его, если
-  началась после него; порядок проверен только с часами test-а.
+  началась после него; порядок проверен только с часами test-а. Пока проверка строки идёт, вторую не запускает ни
+  фокус, ни новое сообщение; строку, которую сделала только повторная проверка, «Check again» не теряет.
 
 ## 4. Строка из сообщения не открывает First run
 
-Code: `src/main/first-run/health-reports.ts:236-241` · key lines: 238, 240
+Code: `src/main/first-run/health-reports.ts:252-257` · key lines: 254, 256
 
 ```ts
 function fromMessage(message: Message, checked: Check | undefined): Check {
@@ -138,8 +139,9 @@ Code: `src/main/ipc/first-run.ts:258-268` · key lines: 263, 265, 266
 - `pnpm test` 10 файлов модуля (health-severity, health-reports, first-run-checks, first-run-dialog, first-run-concepts,
   first-run-windows, settings-health, link-access, getting-started-state, getting-started-progress) — exit 0.
 - `pnpm lint` — exit 0, `pnpm typecheck` — exit 0, gate fast — exit 0.
-- 17 мутантов на таблице уровней, худшем уровне, `opensFirstRun`, ожидании сети, частоте повторной проверки, фокусе,
-  `redactSecrets` и `checkState` — все краснят test-ы.
+- 21 мутант на таблице уровней, худшем уровне, `opensFirstRun`, ожидании сети, частоте повторной проверки, фокусе,
+  `redactSecrets`, log причины, сохранении перепроверенных строк, повторной проверке в полёте и `checkState` — все
+  краснят test-ы.
 
 ## Проверить себя
 
@@ -149,7 +151,7 @@ Code: `src/main/ipc/first-run.ts:258-268` · key lines: 263, 265, 266
    Lines: `src/shared/health/severity.ts:59-79`
 2. Фича сообщила о сбое GitHub access Project-а alpha дважды за 30 секунд. Сколько повторных проверок пойдёт и почему?
    Ответ: одна: вторая попадает в ту же минуту бюджета Project-а alpha (`lastRecheck`).
-   Lines: `src/main/first-run/health-reports.ts:91-101`
+   Lines: `src/main/first-run/health-reports.ts:95-105`
 3. Почему сетевая строка в `fail` без пометки `opensFirstRun` не откроет First run при старте?
    Ответ: решение о старте берёт только `local.checks`, а сетевые строки запускаются после ответа.
    Lines: `src/main/ipc/first-run.ts:258-268`
