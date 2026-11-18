@@ -1,7 +1,7 @@
 # 05 — Продолжение Session после перезапуска: сообщение-продолжение, очередь на месте, chip и Continue
 
 Type: task
-Status: open
+Status: claimed 2026-11-18T05:06Z
 Blocked by: 01, 03, 04, 16
 Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решения по реализации» → «Продолжение Session»; «Вопросы владельцу», Q3 и Q4
 (оба — (а), решено без владельца, подтвердить); [critic 2026-11-14](../../../docs/product/critic/worfy-continuity-2026-11-14.md),

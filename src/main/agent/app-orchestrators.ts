@@ -14,13 +14,23 @@
 //
 // Auto-continue of the Orchestrators' manual turns (worfy-retry ticket 06, orchestrator-continue.ts)
 // follows the app's registry and learns from each view which Session is whose Orchestrator.
-import { app } from 'electron'
+//
+// Once the first window has loaded, the Sessions a restart of worfy cut off are continued
+// (continueAfterRestart, continuity.ts; worfy-continuity ticket 05).
+import { execFile } from 'node:child_process'
+import { readdir, readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { app, type BrowserWindow } from 'electron'
+import { LIVE_SESSIONS_FILE } from '../../shared/agent/live-sessions'
 import type { SessionSettings } from '../../shared/agent/settings'
 import { agentEvent } from '../../shared/ipc/agent'
 import { orchestratorChanged, type OrchestratorView } from '../../shared/ipc/orchestrator'
+import { parseTranscriptLines } from '../../shared/transcript/parse'
 import type { VendorId } from '../../shared/vendors/vendor'
 import { toEveryWindow } from '../broadcast'
-import { ClaudeHomeRegistry } from '../claude-home/registry'
+import { ClaudeHomeRegistry, processState } from '../claude-home/registry'
+import { readNewLines } from '../claude-home/tail'
+import { appNow } from '../clock'
 import { emit } from '../ipc/index'
 import { layoutStore } from '../layout/store'
 import { projectHolds } from '../projects/holds'
@@ -28,13 +38,17 @@ import { readProjectSettings } from '../projects/settings'
 import { projectStore } from '../projects/store'
 import { appSettingsStore, autoContinueOn } from '../settings/store'
 import { claudeHome } from '../storage/paths'
+import { restartFile, restartRecordSchema } from '../update/restart'
+import { updateDir } from '../update/state'
 import { wallTimer } from '../autopilot/limits-wait'
 import { vendorDriver } from '../vendors/registry'
+import { sharedNodeSessions } from './app-node-sessions'
 import { sharedRegistry, tellLiveSessions } from './app-registry'
+import { claudeTranscript, Continuity, parentState, processListing, type RunProgram } from './continuity'
 import { appLimits } from './limits'
 import { refreshAppUsage } from './limits-usage'
 import { Orchestrators } from './orchestrator'
-import { OrchestratorContinue } from './orchestrator-continue'
+import { clockText, OrchestratorContinue } from './orchestrator-continue'
 import { readTranscriptFacts, type TranscriptFacts } from './orchestrator-transcript'
 import { SessionSettingsStore } from './session-settings'
 
@@ -194,16 +208,115 @@ function openHeld(): void {
   }
 }
 
+/** Reads a file as text; null when it is not there. */
+async function textOf(path: string): Promise<string | null> {
+  try {
+    return await readFile(path, 'utf8')
+  } catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') return null
+    throw error
+  }
+}
+
+/** Every line of a file, read in chunks as the Session view reads a transcript; a torn last line is left out. */
+async function linesOf(path: string): Promise<string[]> {
+  const lines: string[] = []
+  let chunk = await readNewLines(path)
+  lines.push(...chunk.lines)
+  while (chunk.more) {
+    chunk = await readNewLines(path, chunk.cursor)
+    lines.push(...chunk.lines)
+  }
+  return lines
+}
+
+const run: RunProgram = (file, args, options) =>
+  new Promise((done, fail) => execFile(file, [...args], { ...options, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }, (error, stdout) => (error ? fail(error) : done(stdout))))
+
+/** How often the wait for a previous process of a Session asks whether it is gone. */
+const EXIT_POLL_MS = 250
+
+/**
+ * The continuation of the Sessions a restart of worfy cut off (continuity.ts, worfy-continuity ticket 05), over the
+ * app's parts: every Project's `live-sessions.json`, the Claude home (read only, ADR-0005) for a Claude Code
+ * Session's transcript and its previous process, a Codex thread through its driver's history, the Orchestrators,
+ * the Session Nodes and the record of live Sessions for the count of continuations.
+ */
+export async function continueAfterRestart(): Promise<void> {
+  const claude = new ClaudeHomeRegistry({ home: claudeHome() })
+  const projects = projectStore()
+  const outcomes = await new Continuity({
+    projects: () => projects.list().map((project) => ({ id: project.id, root: project.path, dataDir: projects.dataDir(project.id) })),
+    readFile: textOf,
+    liveFile: (project) => join(project.dataDir, LIVE_SESSIONS_FILE),
+    transcript: async (project, record) => {
+      const id = record.vendorSessionId
+      if (id === null) return null
+      if (record.vendor !== 'claude') return { entries: await vendorDriver(record.vendor).history.read(id, project.root), subagents: [] }
+      return claudeTranscript(() => claude.transcriptPath({ path: project.root, local: true }, id), {
+        lines: linesOf,
+        names: async (dir) => (await readdir(dir).catch(() => [])).map(String),
+        parse: (lines) => parseTranscriptLines(lines),
+      })
+    },
+    previous: async (project, record) => {
+      // Codex: worfy's own app-server per Session, no record of it under the Claude home (spec, risk 10).
+      if (record.vendor !== 'claude' || record.vendorSessionId === null) return null
+      const found = (await claude.live({ path: project.root, local: true })).find((live) => live.sessionId === record.vendorSessionId)
+      if (found === undefined) return null
+      const state = parentState(process.platform, await processListing(process.platform, run), found.pid, process.pid)
+      if (state === 'gone') return null
+      // Another program's Claude Code (a terminal, Claude desktop) is never the Session worfy left behind.
+      const ours = found.entrypoint === undefined || found.entrypoint === 'sdk-ts'
+      return { pid: found.pid, orphan: ours && state === 'orphan' }
+    },
+    exited: async (previous, withinMs) => {
+      const until = Date.now() + withinMs
+      for (;;) {
+        if ((await processState(previous.pid, previous.procStart)) === 'gone') return true
+        if (Date.now() >= until) return false
+        await new Promise((done) => setTimeout(done, EXIT_POLL_MS))
+      }
+    },
+    kill: (previous) => void process.kill(previous.pid, 'SIGKILL'),
+    orchestrator: (projectId) => sharedOrchestrators().openSession(projectId),
+    node: (projectId, nodeId) => sharedNodeSessions().started(projectId, nodeId),
+    interrupted: (projectId, nodeId, mark) => sharedNodeSessions().interrupted(projectId, nodeId, mark),
+    noteContinued: (nodeId, at) => tellLiveSessions((live) => live.noteContinued(nodeId, at)),
+    updatedAt: async () => {
+      const text = await textOf(restartFile(updateDir()))
+      const parsed = text === null ? null : restartRecordSchema.safeParse(JSON.parse(text))
+      return parsed?.success === true ? Date.parse(parsed.data.at) : null
+    },
+    now: appNow,
+    clock: clockText,
+  }).run()
+  for (const outcome of outcomes) console.warn(`[continuity] ${outcome.projectId} ${outcome.nodeId} (${outcome.kind}): ${outcome.outcome}${outcome.reason === null ? '' : `: ${outcome.reason}`}`)
+}
+
 let started = false
+let continuing = false
+
+/** Opens the active Project; on the first window, once its page has loaded, continues the Sessions a restart cut off. */
+function onWindow(_event?: unknown, window?: BrowserWindow): void {
+  openActive()
+  if (continuing || window === undefined) return
+  continuing = true
+  window.webContents.once('did-finish-load', () => {
+    continueAfterRestart().catch((error: unknown) => console.error('[continuity] the Sessions cut off by the restart were not continued', error))
+  })
+}
 
 /**
  * Subscribes main's own opening of Orchestrators; a second call does nothing. Subscribing reads
- * nothing: the Project list is read on the first window, not when this runs.
+ * nothing: the Project list is read on the first window, not when this runs. Once the first window
+ * has loaded, the Sessions a restart cut off are continued (continueAfterRestart): its page then
+ * hears their events and notice lines.
  */
 export function startOrchestrators(): void {
   if (started) return
   started = true
-  app.on('browser-window-created', openActive)
+  app.on('browser-window-created', onWindow)
   projectHolds().onChange(openHeld)
   projectStore().onChange(({ activeId, previousActiveId }) => {
     if (activeId !== previousActiveId) openActive()

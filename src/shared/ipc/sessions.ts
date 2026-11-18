@@ -105,6 +105,12 @@ export const sessionNodeViewSchema = z.object({
   cwd: z.string().min(1),
   /** The model of the last system/init. */
   model: z.string().nullable(),
+  /**
+   * Set on a closed view while a restart of worfy cut the Session off and worfy did not continue it by itself
+   * (worfy-continuity ticket 05, src/main/agent/continuity.ts): when worfy started again and why it did not continue.
+   * The Node shows «Interrupted by restart» and Continue until the Session starts again.
+   */
+  restart: z.object({ at: z.number().int().nonnegative(), reason: z.string() }).optional(),
   /** Grows with every change of any view in this run of the app: of two views, the larger is newer. */
   version: z.number().int().nonnegative(),
 })
