@@ -137,6 +137,10 @@ const fitter = (codex) => (text) => chars(text) <= LIMIT && (!codex || Buffer.by
   копии Harness: пустой `FIRST_SECTIONS` — 2 провала (длинный brief, байты Codex); worktree без Ticket-а не молчит — 1
   провал.
 - `bash harness/bin/tests/plugin-neutral.test.sh` — exit 0.
+- Полный `pnpm test` нашёл ещё два места: `harness/hooks/tests/rules-hooks.test.sh` держит список всех hook-ов
+  `hooks.json` (в него добавлена строка `SessionStart|compact|…after-compact.mjs"|30`), а
+  `harness/bin/tests/harness-home.test.sh` не пускает кириллицу в test-ы Harness (заполнитель для предела в байтах —
+  `é`, а не кириллическая буква). После правки оба — exit 0.
 - `pnpm lint && pnpm typecheck && pnpm test` под временным HOME и gate fast — коды выхода в отчёте implementer-а.
 
 ## Проверить себя

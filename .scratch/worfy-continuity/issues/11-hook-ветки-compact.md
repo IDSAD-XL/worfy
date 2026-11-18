@@ -1,7 +1,7 @@
 # 11 — Harness: hook ветки `compact` возвращает агенту состояние
 
 Type: task
-Status: open
+Status: claimed 2026-11-18T04:15Z
 Blocked by: 01, 10
 Source: [spec.md](../spec.md), «Ticket-ы», 11; «Решения по реализации» → «Compaction», пункт «Hook ветки `compact` (11)»;
 «Решения по test-ам», Harness; «Риски», 11, 12, 13
@@ -38,9 +38,13 @@ Source: [spec.md](../spec.md), «Ticket-ы», 11; «Решения по реал
 
 - [ ] `harness/hooks/tests/session-hooks.test.sh`: ветка `compact` — Orchestrator получает `wave-brief`; implementer —
       свой Ticket и `git status`; вне worfy hook молчит; обычный старт (`source: startup`) не меняется.
+  - evidence: test-run pass · `bash harness/hooks/tests/session-hooks.test.sh` exit 0 · mac - · 5050b0bf04ec9df4817e6f952c95b0b891ccff96
 - [ ] Shell test: Epic из ветки, когда `WORFY_EPIC` нет; вывод длиннее предела режется, Stage-строка остаётся.
+  - evidence: test-run pass · `bash harness/hooks/tests/session-hooks.test.sh` exit 0 · mac - · 5050b0bf04ec9df4817e6f952c95b0b891ccff96
 - [ ] Shell test: Codex `sessionStart` с compaction даёт тот же вывод.
+  - evidence: test-run pass · `bash harness/hooks/tests/session-hooks.test.sh` exit 0 · mac - · 5050b0bf04ec9df4817e6f952c95b0b891ccff96
 - [ ] Английская страница `skills-agents-and-hooks.md` называет hook ветки `compact`.
+  - evidence: commit pass · harness: SessionStart hook of the compact branch hands the agent its state back · - - · 5050b0bf04ec9df4817e6f952c95b0b891ccff96
 - [ ] Платформенный PR (ADR-0056, пункт 2; ADR-0071): job Windows в составе `ci-ok` зелёный на head PR до merge.
 - [ ] `pnpm lint`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
