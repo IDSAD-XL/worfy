@@ -1,7 +1,7 @@
 # 01 — Spike: как `GH_TOKEN` из окружения системы доходит до gh в worfy на Mac и ПК
 
 Type: spike
-Status: open
+Status: claimed 2026-11-18T19:20Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 1; «Проблема», пункт «Чей токен у gh»; «Решения по test-ам», fixtures;
 «Волны», Wave 1; [critic 2026-11-18](../../../docs/product/critic/worfy-auth-check-2026-11-18.md), возражение 1 и
