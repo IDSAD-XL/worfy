@@ -102,11 +102,35 @@ died with the Orchestrator's process, and a Ticket one of them claimed stays `cl
 names it along with the ready Tickets, and the Orchestrator resumes it as a resumed Wave (the `epic-wave` skill, "How to
 resume a wave"): by its branch, PR and result it carries the work on or hands the Ticket out again. worfy writes no
 `Status:` of its own. After a graceful Stop it takes none, also when the Orchestrator's Session fails after that Stop. A run that stops before its first Wave, for example
-during the wait for the Start window, took none of those Tickets, so the next run still gets them. worfy keeps this list in memory only, so it does not
-survive a restart of the app.
+during the wait for the Start window, took none of those Tickets, so the next run still gets them. The start reads this list from the
+journals of the Project's runs, not from memory, so it survives a restart of the app (see [the journal as the run's
+checkpoint](#the-journal-as-the-runs-checkpoint)).
 
 **Quitting the app** stops every run with `app-quit`. The quit waits up to 3 seconds for the run to write its end. The
 Orchestrator is not started again, and background tasks end with the app.
+
+#### The journal as the run's checkpoint
+
+The run's journal is the only record of the run that outlives the app, so whatever a restart needs to know about the run is
+read back from its lines alone (`src/shared/autopilot/checkpoint.ts`). The reader gives:
+
+- the queue of Epics and the Epic the run is on, the named Tickets, the Run mode, the Vendor and Auto-approval;
+- the number of the Wave and its Tickets still in work;
+- the wait the run is in (the Limits, the Start window, the budget or a retry) with its end time;
+- the count of retries and of continuations of stuck Tickets;
+- how the run ended, and the Tickets the next run of the Epic takes along (`resumable`).
+
+A run is **cut off** when the last line of its journal is `run-suspended`, or when it has no `run-stopped` at all, as after the
+app was killed. A cut-off run leaves nothing resumable until it is continued or discarded.
+
+Two journal lines are for a run that the app's restart interrupts. `run-suspended` (`cause`: `quit`, `update` or `shutdown`)
+names the Wave, its Tickets in work and the open wait with its end time. `run-continued` (`after`: one of those causes, or
+`crash`) says that the same run went on in the same journal. The name differs from `resumed`, which ends a wait. This version
+reads both lines but writes neither of them yet: quitting still stops every run with `app-quit`. A build older than the one that
+introduced these lines skips them and counts them as unreadable, as it does with any line of a kind it does not know.
+
+**Discard** writes `run-stopped` with the reason `discarded` into the cut-off run's journal, with the Tickets of its Wave in work.
+Those Tickets become `resumable`, as after a Force stop.
 
 #### After any other stop
 
@@ -190,6 +214,7 @@ and the blocked Ticket as a red `!` with its `Blocked reason` and `Waits`.
 | `start-cancelled` | Cancel, Stop or Force stop while the run waited for the Orchestrator. |
 | `start-refused` | A check refused when the Orchestrator became free. The reason is in the journal's `message`. |
 | `app-quit` | The app quit. |
+| `discarded` | A person discarded a run that a restart of the app cut off. `tickets` names its Wave in work, which the next run takes along. |
 
 The tooltip of the status line gives the error in words when there is one.
 
@@ -230,6 +255,7 @@ does not turn a later error of another kind into a refusal.
 | `src/shared/autopilot/resume-at.ts` | When a run continues after a refusal. Pure. |
 | `src/shared/autopilot/continuation.ts` | The texts of the ladder: the continuation line, the set-aside message, the status line words; the ceiling `MAX_CONTINUATIONS`. Pure. |
 | `src/shared/autopilot/cycle.ts` | When a stuck Ticket is continued, set aside or stops the run, and `main-red`. Pure; `src/main/autopilot/run.ts` carries the effects out. |
+| `src/shared/autopilot/checkpoint.ts` | The run's state read back from its journal: the queue, the Wave and its Tickets in work, the wait, the retries, the ladder, whether the run is cut off, and what a Project's journals leave `resumable`. Pure. |
 
 #### Tests
 
@@ -246,7 +272,9 @@ agent, which plays the scripts in `test/fixtures/agent-scripts/`.
 | `test/contract/autopilot-limits-switch.test.ts` | The wait for the Limits with Auto-continue off and on: the 7-day window without the 5-hour one, a reset in 3 days with keep-awake released and taken again, no reset time, the switch turned off during the wait. |
 | `test/contract/autopilot-retry.test.ts` | The retry after an API error with Auto-continue off and on: a 500 and one continuation, 529 until `cap` with the pauses of the plan, a 400, a push without its result and the secrets of its command, the Limits (also during the wait), a background task's turn, Stop (also a second one while stopping), Force stop, the quit and the switch turned off during the wait; the countdown's Retry now (one continuation, also after a double click and the timer) and Cancel (`turn-error`, `limits-timeout`, nothing sent; a Cancel queued behind the continuation finds nothing and the run goes on). |
 | `test/contract/codex-auto-continue.test.ts` | Auto-continue on a Codex Orchestrator on the fake app-server, in a run and in a manual turn: `serverOverloaded` and one continuation, an error Codex retries by itself, `vendor-quota`, a Subagent call without its result (`in-flight`), and the windows read again at the reset of a manual Limits wait. |
-| `test/unit/autopilot-invariants.test.ts` | The recovery rules over the journals of `test/fixtures/autopilot-faults/`: a good run breaks none, and each rule catches a broken copy made for it. |
+| `test/unit/autopilot-invariants.test.ts` | The recovery rules over the journals of `test/fixtures/autopilot-faults/`: a good run breaks none, and each rule catches a broken copy made for it. A run suspended in the middle of a Wave, in the wait for the Limits or for the Start window, a run killed without an end, a discarded run and a Force stop break none either. |
+| `test/unit/autopilot-checkpoint.test.ts` | The checkpoint over those fixtures, each with its state and whether it is cut off; a run over a queue with every line the checkpoint reads; what a Project's journals leave resumable, run after run; a line of a kind a later build writes is skipped and counted. |
+| `test/contract/autopilot-checkpoint.test.ts` | A Force stop in the middle of Wave 1, then a restart of the app (a new `Autopilot` over the same journals): the next run of the Epic takes the interrupted Tickets from the journal. A run cut off by a crash leaves none. |
 | `test/contract/autopilot-faults-api.test.ts` | Fault scenarios of the model API: an API 500, a 529 in the middle of a streamed answer (not taken for the Limits) and a dropped connection stop the run with `turn-error`, and a new start sends its Wave command once; Limits that refuse the turn of Wave 2 make the run wait and resume after the reset with one continuation, and Wave 1 does not go again. |
 | `test/contract/autopilot-faults-retry.test.ts` | The same Fault scenarios of the model API with Auto-continue on: an API 500, a 529 in the middle of a streamed answer and a dropped connection give `turn-retry`, one continuation and `resumed`, and the run goes on; five 529 in a row end with `retry-refused` `cap`, and a `git push` without its result with `retry-refused` `in-flight`, both then `turn-error`; Limits that refuse the turn of Wave 2 by the 7-day window, with no 5-hour one, make the run wait for that reset. The rules I1–I9 below hold in each. |
 | `test/contract/autopilot-faults-process.test.ts` | Fault scenarios of the processes: Claude Code of the Orchestrator dies while both implementers work (`session-error`, and a new start goes to a new Session, its first Wave naming the Ticket still `claimed` by the dead implementer along with the ready one); an implementer fails and its Ticket stays `claimed` (the run waits the settle time, then continues it in the next Wave) or goes back to `open` (the next Wave holds only that Ticket). |
@@ -266,7 +294,7 @@ returns one line per violation, and every scenario expects none. The rules:
   expects.
 - **I2.** Every `gh` call is a read: `pr list`, `auth status`, `auth token`, or `api` on a repository without an option that writes.
 - **I3.** For each Ticket, the run's `ticket-status` lines are the changes of its `Status:` during the run, in order. After a Force stop,
-  a quit, or in a run without `run-stopped` (as after a killed app) the latest changes may be missing, never earlier ones.
+  a quit, a Discard, or in a run without `run-stopped` (as after a killed app) the latest changes may be missing, never earlier ones.
 - **I4.** The scenario's run has one `run-stopped` with the expected reason, after the line that reason needs (for example `session-error`
   before `turn-error`). A killed app leaves no `run-stopped`. A run that outlived the fault has a `resumed` line.
 - **I5.** No person stepped in: no `human-input` and no `refused-dialog` line.

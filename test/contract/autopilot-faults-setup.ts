@@ -34,6 +34,8 @@
 //   run ends there); the fake writes no status there.
 // - A quiet turn (worfy-stuck-agents ticket 09): `quietHungMs` puts the Sessions' watch for a quiet turn on the
 //   test's clock and gives the run that limit, so moving the clock makes a turn quiet and then hung.
+// - A restart of the app (worfy-continuity ticket 02): restartApp() puts a new Autopilot over the same deps, so the
+//   next start knows only what the journals say (AutopilotDeps.pastRuns reads them), nothing of the old one's memory.
 //
 // A test file that imports this module mocks `electron` as autopilot-faults-api.test.ts does. The
 // module's afterEach stops every run, closes every Session, kills every stub and fake process and
@@ -52,8 +54,8 @@ import { hasExited } from '../../src/main/agent/session/process'
 import { NO_OUTSIDE_SIGNS } from '../../src/main/agent/session/quiet-signs'
 import { mainRedFileName, readMainRed } from '../../src/main/gate/state'
 import { SessionSettingsStore } from '../../src/main/agent/session-settings'
-import { openRun } from '../../src/main/autopilot/journal'
-import { Autopilot, type TasksClock } from '../../src/main/autopilot/run'
+import { openRun, readRecentRuns } from '../../src/main/autopilot/journal'
+import { Autopilot, type AutopilotDeps, type TasksClock } from '../../src/main/autopilot/run'
 import { ghRunner, PrTracker } from '../../src/main/github/prs'
 import { LayoutStore } from '../../src/main/layout/store'
 import { McpInventory } from '../../src/main/vendors/claude/mcp-inventory'
@@ -554,7 +556,7 @@ export function faultRun(options: FaultRunOptions = {}) {
   }
 
   const states: AutopilotState[] = []
-  const autopilot = new Autopilot({
+  const deps: AutopilotDeps = {
     projectRoot: () => repo,
     selfRefusal: () => Promise.resolve(null),
     workflow,
@@ -568,6 +570,8 @@ export function faultRun(options: FaultRunOptions = {}) {
     registry,
     waves: launcher,
     journal: (start) => openRun(start, { env }),
+    // The checkpoint of the Project's last Run (worfy-continuity ticket 02): resumable from its journals.
+    pastRuns: (projectId) => readRecentRuns(projectId, { env }),
     harness: () => 'plugin',
     keepAwake: () => ({ start: () => undefined, stop: () => undefined }),
     onChange: (state) => states.push(state),
@@ -609,9 +613,24 @@ export function faultRun(options: FaultRunOptions = {}) {
           ...(prOptions.everyMs === undefined ? {} : { prsEveryMs: prOptions.everyMs }),
           ...(prOptions.endReadMs === undefined ? {} : { endReadMs: prOptions.endReadMs }),
         }),
-  })
-  cleanups.push(() => autopilot.stopAll())
+  }
+  let autopilot = new Autopilot(deps)
+  const firstAutopilot = autopilot
+  cleanups.push(() => firstAutopilot.stopAll())
   launcher.attachAutopilot(autopilot)
+  /**
+   * The app started again (worfy-continuity ticket 02): a new Autopilot over the same Project, Orchestrators and
+   * journals, with nothing of the old one's memory. The old one must have no run going on.
+   */
+  const restartApp = (): Autopilot => {
+    const old = autopilot
+    if (old.running(PROJECT)) throw new Error('restartApp: a run of the old Autopilot goes on')
+    autopilot = new Autopilot(deps)
+    const next = autopilot
+    cleanups.push(() => next.stopAll())
+    launcher.attachAutopilot(next)
+    return next
+  }
 
   // ── reads for the test ──
 
@@ -681,7 +700,11 @@ export function faultRun(options: FaultRunOptions = {}) {
   })
 
   return {
-    autopilot,
+    /** The app's Autopilot: a new one after restartApp(). */
+    get autopilot(): Autopilot {
+      return autopilot
+    },
+    restartApp,
     registry,
     orchestrators,
     launcher,

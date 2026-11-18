@@ -1,7 +1,7 @@
 # 02 — Journal как checkpoint Run-а: `run-suspended`, `run-continued`, `resumable` из Journal-а
 
 Type: task
-Status: open
+Status: claimed 2026-11-17T23:32Z
 Blocked by: none
 Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реализации» → «Journal Run-а — его checkpoint»;
 «Решения по test-ам», Unit и Recovery invariants; «Риски», 7

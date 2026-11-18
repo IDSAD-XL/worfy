@@ -337,7 +337,10 @@
 //                                    Tickets of the Wave it interrupted, none before the first Wave
 //                                    (worfy-week tickets 17, 18; lines written before ticket 18 say
 //                                    `user-stop` for it); so with `session-error` since
-//                                    worfy-retry ticket 14; lastText: with `no-progress`,
+//                                    worfy-retry ticket 14, and with `discarded`, the Discard of
+//                                    a run cut off by a restart (its run-suspended last, or no end
+//                                    at all), since worfy-continuity ticket 02: its Wave in work,
+//                                    appended to the same journal; lastText: with `no-progress`,
 //                                    `no-ready-wave`, `blocked-tickets`, `waits-owner` and `tickets-done`
 //                                    (worfy-flight-recorder ticket 21), the first 1000
 //                                    characters of the Orchestrator's last answer in the turns of
@@ -375,6 +378,25 @@
 //                                    waiting for it, and any its interrupted turn started, ended
 //                                    with its process (worfy-autopilot-queue ticket 07), written
 //                                    only when there were any
+//   run-suspended  cause, wave,      the app went away while the run went on, and the run is to be
+//                  tickets, wait     continued from its journal (worfy-continuity ticket 02): cause
+//                                    `quit`, `update` or `shutdown`; wave: the number of the Wave in
+//                                    work in the run's Epic of the moment, 0 before its first;
+//                                    tickets: that Wave's Tickets still in work, numbers as in
+//                                    wave-started, none between Waves; wait: the wait the run was in,
+//                                    {kind, until} — kind `limits`, `start-window`, `budget` or
+//                                    `retry`, until its ISO time or null (the Limits gave no reset
+//                                    time) — or null; a wait of another shape reads as null, the line
+//                                    stays. It repeats for a person what the lines before it say: a
+//                                    reader takes the wait from those (checkpoint.ts). The run's
+//                                    last line until it is continued; it has no run-stopped then
+//   run-continued  after             the run goes on in the same journal, under the same id, after
+//                                    its run-suspended (`quit`, `update`, `shutdown`: its cause) or
+//                                    after a crash that left neither run-suspended nor run-stopped
+//                                    (`crash`). The name differs from `resumed`, the end of a wait.
+//                                    Journals written before worfy-continuity ticket 02 have
+//                                    neither line; a build older than that skips both and counts
+//                                    them (Reading, below)
 //
 // A graceful Stop journals run-stopping → background-tasks … → run-stopped (`user-stop`, no
 // tickets). A Force stop during it: run-stopping → … → run-stopped (`user-force-stop`, tickets) →
@@ -447,6 +469,8 @@ export const JOURNAL_EVENT_KINDS = [
   'run-stopped',
   'orchestrator-returned',
   'tasks-killed',
+  'run-suspended',
+  'run-continued',
 ] as const
 export type JournalEventKind = (typeof JOURNAL_EVENT_KINDS)[number]
 
@@ -477,6 +501,18 @@ export type TicketStatusState = (typeof TICKET_STATUS_STATES)[number]
 
 /** How an Epic of a run's queue ended, as `epic-finished` says it (src/shared/autopilot/epic-queue.ts, EpicFinish). */
 export const EPIC_FINISHES = ['done', 'waits-owner', 'elsewhere', 'removed'] as const satisfies readonly EpicFinish[]
+
+/** Why a run was suspended, as `run-suspended` says it (worfy-continuity ticket 02). */
+export const SUSPEND_CAUSES = ['quit', 'update', 'shutdown'] as const
+export type SuspendCause = (typeof SUSPEND_CAUSES)[number]
+
+/** What a continued run went on after, as `run-continued` says it: a suspension's cause, or a crash. */
+export const CONTINUED_AFTER = [...SUSPEND_CAUSES, 'crash'] as const
+export type ContinuedAfter = (typeof CONTINUED_AFTER)[number]
+
+/** The waits of a run between its Waves or inside one: the Limits, the Start window, the budget, a retry after an API error. */
+export const RUN_WAIT_KINDS = ['limits', 'start-window', 'budget', 'retry'] as const
+export type RunWaitKind = (typeof RUN_WAIT_KINDS)[number]
 
 /** The states of a narrow fix round a `narrow-round` line names. */
 export const NARROW_OUTCOMES = ['started', 'verified', 'rejected'] as const
@@ -621,6 +657,13 @@ export const journalEventSchema = z.discriminatedUnion('kind', [
   event('run-stopped', { reason: text, tasks: tasks.optional(), tickets: z.array(text).optional(), lastText: z.string().max(LAST_TEXT_MAX).optional(), actual, message: z.string().max(LAST_TEXT_MAX).optional() }),
   event('orchestrator-returned', { tasks: tasks.optional() }),
   event('tasks-killed', { reason: text, tasks }),
+  event('run-suspended', {
+    cause: z.enum(SUSPEND_CAUSES),
+    wave: count,
+    tickets: z.array(text),
+    wait: z.object({ kind: z.enum(RUN_WAIT_KINDS), until: isoTime.nullable() }).nullable().catch(null),
+  }),
+  event('run-continued', { after: z.enum(CONTINUED_AFTER) }),
 ])
 export type JournalEvent = z.output<typeof journalEventSchema>
 

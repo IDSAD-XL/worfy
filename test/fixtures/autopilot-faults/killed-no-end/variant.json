@@ -1,0 +1,8 @@
+{
+  "about": "The app was killed during Wave 1 and every line it wrote reads: no run-suspended, no run-stopped. Nothing is broken.",
+  "rule": null,
+  "expect": {
+    "stop": null,
+    "errorText": null
+  }
+}

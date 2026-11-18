@@ -3,7 +3,7 @@
 // to such a Wave when the run stops, and a Session that fails while the run opens its workflow
 // watch. The Session, the waves and the workflow are stand-ins, so every event comes in the order
 // the test gives it.
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { z } from 'zod'
 import type { AutopilotWaveResult } from '../../src/main/actions/launch'
 import type { RunApproval } from '../../src/main/agent/auto-approve/run-approval'
@@ -14,6 +14,7 @@ import { MessageRegistry, type LinkMessage, type MessageHandler } from '../../sr
 import type { BackgroundTask } from '../../src/shared/agent/background-tasks'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../src/shared/agent/events'
 import type { LimitsState } from '../../src/shared/agent/limits'
+import { resumableAfter } from '../../src/shared/autopilot/checkpoint'
 import { journalEventSchema, type JournalEvent, type JournalEventFields } from '../../src/shared/autopilot/journal'
 import { autopilotStateSchema, type AutopilotState, type HarnessBehind } from '../../src/shared/ipc/autopilot'
 import type { PullRequest } from '../../src/shared/ipc/checks'
@@ -2203,8 +2204,8 @@ describe('a run over named Tickets after a Force stop', () => {
     for (const num of nums) s.tickets = s.tickets.map((each) => (each.num === num ? { ...each, state: 'work' as const } : each))
   }
   /** A stand-in whose "Run wave" takes the list as launch.ts does: the ready Tickets and the interrupted ones in work, of the list only. */
-  function listStandIn() {
-    const s = standIn()
+  function listStandIn(overrides: Partial<AutopilotDeps> = {}) {
+    const s = standIn(overrides)
     s.tickets = [t(1, 'open'), t(2, 'open'), t(3, 'open')]
     s.deps.waves.autopilotWave = (_projectId, _epic, resume, _brief, named) => {
       s.resumes.push(resume)
@@ -2253,6 +2254,85 @@ describe('a run over named Tickets after a Force stop', () => {
     await settle()
     s.state = 'busy'
     expect(await s.autopilot.forceStop(PROJECT)).toMatchObject({ reason: 'user-force-stop', resumable: [1, 2, 3] })
+  })
+
+  /**
+   * The journals as the app keeps them (worfy-continuity ticket 02): one per run, its run-started first, every line with
+   * the common fields; deps.pastRuns gives them newest first, as readRecentRuns does.
+   */
+  function kept(): { runs: JournalEvent[][]; deps: Partial<AutopilotDeps> } {
+    const runs: JournalEvent[][] = []
+    const at = (): string => new Date(Date.UTC(2026, 10, 18, 0, 0, runs.flat().length)).toISOString()
+    return {
+      runs,
+      deps: {
+        journal: (start) => {
+          const n = String(runs.length + 1).padStart(2, '0')
+          const run = `2026-11-18T00-00-${n}-000Z-0000${n}`
+          const events: JournalEvent[] = [{ at: at(), run, project: start.project, epic: start.epic, kind: 'run-started', ...(start.tickets === undefined ? {} : { tickets: [...start.tickets] }) }]
+          runs.push(events)
+          return Promise.resolve({
+            run,
+            append: (fields, epic = start.epic) => {
+              events.push(journalEventSchema.parse({ ...fields, at: at(), run, project: start.project, epic }))
+              return Promise.resolve()
+            },
+          })
+        },
+        pastRuns: () => Promise.resolve([...runs].reverse()),
+      },
+    }
+  }
+
+  it('reads what the last run left resumable from the journals, the same as memory after each stop (worfy-continuity ticket 02)', async () => {
+    const journals = kept()
+    const s = listStandIn(journals.deps)
+    /** The checkpoint's resumable over the journals so far, as the memory's numbers. */
+    const fromJournals = (): number[] => (resumableAfter(journals.runs)?.resumable ?? []).map(Number)
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    claim(s, 1, 2, 3)
+    s.state = 'busy'
+    await s.autopilot.forceStop(PROJECT)
+    expect(s.autopilot.state(PROJECT).resumable).toEqual([1, 2, 3])
+    expect(fromJournals()).toEqual([1, 2, 3])
+    s.state = 'idle'
+    // A run over 01 only, after an Autopilot with no memory of the stop: it takes 01 from the journals and carries 02, 03.
+    s.autopilot = new Autopilot(s.deps)
+    runs.push(s.autopilot)
+    await s.autopilot.start(PROJECT, EPIC, { tickets: [1] })
+    await settle()
+    expect(s.resumes.at(-1)).toEqual([1, 2, 3])
+    done(s, 1)
+    s.emit(result())
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'tickets-done', resumable: [2, 3] })
+    expect(fromJournals()).toEqual([2, 3])
+    // The run of the whole Epic takes them along, from the journals again.
+    s.autopilot = new Autopilot(s.deps)
+    runs.push(s.autopilot)
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(s.resumes.at(-1)).toEqual([2, 3])
+    s.state = 'busy'
+    await s.autopilot.forceStop(PROJECT)
+    expect(s.autopilot.state(PROJECT).resumable).toEqual(fromJournals())
+  })
+
+  it('takes the resumable Tickets from memory when the journals cannot be read', async () => {
+    const s = listStandIn({ pastRuns: () => Promise.reject(new Error('EACCES')) })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    claim(s, 1, 2, 3)
+    s.state = 'busy'
+    await s.autopilot.forceStop(PROJECT)
+    s.state = 'idle'
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(s.resumes.at(-1)).toEqual([1, 2, 3])
+    expect(warn).toHaveBeenCalledWith(`[autopilot] ${PROJECT}: could not read the journals for the resumable Tickets`, expect.any(Error))
+    warn.mockRestore()
   })
 })
 

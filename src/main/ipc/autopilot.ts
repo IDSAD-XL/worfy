@@ -214,6 +214,8 @@ export function sharedAutopilot(): Autopilot {
       autopilotGateQueue: (projectId) => sharedLauncher().autopilotGateQueue(projectId),
     },
     journal: (start) => openRun(start),
+    // What the last run left resumable, read from the journals so that a restart keeps it (worfy-continuity ticket 02).
+    pastRuns: (projectId) => readRecentRuns(projectId),
     harness: () => currentHarness().kind,
     keepAwake: () => new KeepAwake(),
     // The continuation ladder (worfy-stuck-agents ticket 05): land's main-red marker in the gate folder of the

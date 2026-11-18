@@ -1,0 +1,8 @@
+{
+  "about": "The Limits refused the turn of Wave 1 and the run waits for the reset; an Update restarts the app during the wait: run-suspended (update) names the Limits wait and its until. Nothing is broken.",
+  "rule": null,
+  "expect": {
+    "stop": null,
+    "errorText": null
+  }
+}
