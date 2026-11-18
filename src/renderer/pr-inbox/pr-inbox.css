@@ -657,12 +657,22 @@
   text-decoration: none;
   cursor: default;
 }
-.w-pr-inbox-button:hover:where(:not(:disabled)),
-.w-pr-inbox-button.w-pr-inbox-button--primary:hover:where(:not(:disabled)) {
+/* An inactive button is `disabled`, or `aria-disabled` when it keeps its focus for its kit tooltip (PrFollowButton.tsx). */
+.w-pr-inbox-button:hover:where(:not(:disabled, [aria-disabled='true'])),
+.w-pr-inbox-button.w-pr-inbox-button--primary:hover:where(:not(:disabled, [aria-disabled='true'])) {
   border-color: var(--text-secondary);
 }
-.w-pr-inbox-button:disabled {
+.w-pr-inbox-button:disabled,
+.w-pr-inbox-button[aria-disabled='true'] {
   color: var(--text-muted);
+}
+/* The primary one grey too, as theme/button.css draws it disabled; its colour here as well, so the rule above does not
+   depend on the order the two sheets load in (both are two classes deep). */
+.w-pr-inbox-button.w-pr-inbox-button--primary[aria-disabled='true'] {
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font-weight: 400;
 }
 
 /* "Threads 2 open · 1 resolved", and the keys that move to the next PR. */

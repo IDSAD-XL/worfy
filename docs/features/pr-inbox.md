@@ -78,9 +78,23 @@ chooses again only when the selected PR leaves the inbox. With one PR, that PR i
   button: "Your review is asked" with **Start review** (the Files tab on GitHub); "Answer N open threads" with
   **Send all (N)** when two draft replies or more are ready below (it opens the dialog of Send all, below), with
   **Draft replies** when there is none yet, and with no button for one draft, whose **Send** is under its thread;
-  "CI failing", "Changes requested" or "Merge conflict" with **Open checks**; "Ready to merge" with **Open to merge**;
+  "CI failing", "Changes requested", "Merge conflict" or several of them ("Merge conflict and CI failing") with the
+  buttons of the PR's reasons and **Open checks**; "Ready to merge" with **Open to merge**;
   "Waiting for reviewers", or "Draft PR: no review asked yet". Needs my review is blue and Needs my answer violet in the
   light theme (lime in the dark one);
+- **the buttons of a PR to fix**: **Resolve conflicts** for a merge conflict (`DIRTY`), **Fix checks** for red CI,
+  **Address comments** for changes requested or threads that wait for the user's answer, in that order: a PR in conflict
+  runs no CI. The first reason is the strip's main button and its line says what that button does (`Fix checks hands the
+  failing checks to a Session; it asks before it pushes.`); the other reasons are buttons beside it; **Open checks** stays
+  a link to the Checks tab on GitHub, after them. The user's own PR in Needs my answer has these buttons beside
+  **Draft replies**, usually just **Address comments**; a colleague's PR has none. A click hands the PR to a Session of
+  the skill pr-fix with the Project's template: the Session of the PR's Ticket when one is live, else a new Session Node
+  ([Projects](projects.md), "Project settings…", describes the templates, the route and every refusal). A short toast says
+  where the text went: `Fix checks for owner/web#118: Sent to the Session of worfy-x 07`, `… Queued for the Session of …`
+  while that Session's turn runs, or `… Started a Session`; a refusal of main is an error toast with its reason. A button
+  that cannot run is inactive, and its tooltip says why: an empty template (`Set the Fix checks template in Project
+  settings`), a read-only screen, a PR from a fork, not the user's or whose reason is gone. The buttons write nothing to
+  GitHub: the Session asks before it pushes;
 - four cells: **CI**; **Review** (Approved, Changes requested, Review required, or None yet); **Merge** (Mergeable,
   Behind the base, Blocked, Checks failing, Conflicts, Draft, or Unknown, from GitHub's merge state); **Size** — the
   lines added and removed (`+184 −22`) with a bar of their shares, or `—` when GitHub gave none;
@@ -198,7 +212,8 @@ once, without waiting for the next search. The switch applies on Save, like the 
 
 A window on a Linked machine shows the inbox of that Machine's Project, as that Machine read it; it never asks GitHub
 itself. With Read only access PRs can be selected, but nothing is marked seen, **Mark seen** is inactive with the read-only
-hint, and the switch of Project settings is inactive. Links open on the Machine where they are clicked.
+hint, **Resolve conflicts**, **Fix checks** and **Address comments** are inactive with it too, and the switch of Project
+settings is inactive. Links open on the Machine where they are clicked.
 
 Drafts and Send stay on the machine of the Project: a window on a Linked machine shows neither the drafts nor **Draft
 replies**, and the channels of drafts and Send are refused to a Linked machine at any access level.
@@ -241,6 +256,7 @@ replies**, and the channels of drafts and Send are refused to a Linked machine a
 | The switch | `src/renderer/shell/ProjectSettings.tsx`; the `prInbox` field of `src/shared/projects/action-templates.ts` |
 | The channels `prInbox.get`, `prInbox.markSeen`, `prInbox.changed`, `prInbox.drafts`, `prInbox.saveDraft`, `prInbox.discard`, `prInbox.send` | `src/shared/ipc/pr-inbox.ts`, `src/main/ipc/pr-inbox.ts` |
 | Draft replies under their threads, Send, Send all and its dialog, Draft replies | `src/renderer/pr-inbox/DraftThread.tsx`, `src/renderer/pr-inbox/PrInboxView.tsx` |
+| Resolve conflicts, Fix checks and Address comments in the strip, and their toast | `src/renderer/pr-inbox/PrFollowButton.tsx`; whether one can run — `usePrFollowState` of `src/renderer/canvas/actions/gates.ts`; the reasons — `src/shared/actions/pr-follow.ts`; the channel `actions.prFollow` — `src/shared/ipc/actions.ts`, `src/main/actions/launch.ts` |
 | The draft file, the check again and the one POST | `src/main/github/pr-reply-send.ts` |
 | The reader and the groups | `src/main/github/inbox.ts`, `src/main/github/inbox-groups.ts` |
 | What the user has seen; the switch as main reads it | `src/main/projects/pr-inbox-state.ts` |

@@ -10,6 +10,11 @@
 // its draft reply (DraftThread.tsx, worfy-pr-inbox ticket 05): the only way to GitHub from this view is Send on a
 // draft, on the user's click (ADR-0105). Drafts are read for the selected PR only.
 //
+// The strip of a PR to fix has its reasons for skill pr-fix as buttons — Resolve conflicts, Fix checks, Address
+// comments, the first one the main button — and Open checks after them as a link; the user's own PR that waits for an
+// answer has them beside Draft replies (PrFollowButton.tsx, worfy-pr-follow ticket 04). The buttons hand the PR to a
+// Session; they write nothing to GitHub themselves.
+//
 // A PR of a Ticket whose Code story is in the Tickets root (`stories/<NN>-<slug>.md` of its Epic) has "Code story" beside
 // "Open on GitHub": the Story view on it (stories/open.ts; worfy-code-stories ticket 10). Any other PR — an ordinary
 // Session's, a colleague's, an old one — has "Code story" that builds its story by the button (ticket 11,
@@ -32,6 +37,7 @@ import { Chip, type ChipVariant } from '../theme/Chip'
 import { useWorkflow } from '../workflow/useWorkflow'
 import { CommentBody } from './CommentBody'
 import { DraftRepliesButton, PrDrafts } from './DraftThread'
+import { PrFollowButton } from './PrFollowButton'
 import {
   ageHeat,
   ageOf,
@@ -442,7 +448,7 @@ export function PrPane({ projectId, group, row, ticket, viewer, now, readOnly, s
         </header>
         <PrDrafts projectId={projectId} repo={row.repo} number={row.number} readOnly={readOnly} threads={row.threads}>
           {(render, drafts, sendAll) => {
-            const step = nextStep(group, row, now, drafts.filter((item) => item.state === 'draft').length, render !== null)
+            const step = nextStep(group, row, now, drafts.filter((item) => item.state === 'draft').length, render !== null, viewer)
             const action = step.action
             return (
               <>
@@ -472,7 +478,19 @@ export function PrPane({ projectId, group, row, ticket, viewer, now, readOnly, s
                     </button>
                   ) : action?.kind === 'draft-replies' ? (
                     <DraftRepliesButton projectId={projectId} repo={row.repo} number={row.number} readOnly={readOnly} primary />
+                  ) : action?.kind === 'pr-follow' ? (
+                    <PrFollowButton key={action.action} projectId={projectId} row={row} action={action.action} ticket={ticket} primary />
                   ) : null}
+                  {/* The PR's other reasons for pr-fix beside the main button (worfy-pr-follow ticket 04), then Open checks as a link. */}
+                  {step.more.map((each) =>
+                    each.kind === 'pr-follow' ? (
+                      <PrFollowButton key={each.action} projectId={projectId} row={row} action={each.action} ticket={ticket} />
+                    ) : each.kind === 'link' ? (
+                      <ExternalLink key={each.url} url={each.url} className="w-pr-inbox-button w-pr-inbox-button--link" testId="pr-inbox-next-step-link">
+                        {each.label}
+                      </ExternalLink>
+                    ) : null,
+                  )}
                 </div>
                 <div className="w-pr-inbox-facts">
                   <Fact name="CI">

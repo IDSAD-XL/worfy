@@ -9,7 +9,9 @@
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import { PR_INBOX_GROUPS, type PrInboxGroup, type PrInboxRow, type PrInboxSnapshot } from '../../shared/ipc/pr-inbox'
-import { sameRepo, ticketOfRow } from '../../shared/pr-inbox/rows'
+import { prFollowReasons } from '../../shared/actions/pr-follow'
+import type { PrFollowAction } from '../../shared/projects/action-templates'
+import { sameLogin, sameRepo, ticketOfRow } from '../../shared/pr-inbox/rows'
 import { invoke, subscribe } from '../ipc'
 
 // Moved to src/shared, where main reads them too (worfy-pr-follow ticket 01); the view and its tests still take them from here.
@@ -277,26 +279,55 @@ export function sizeOf(row: Pick<PrInboxRow, 'additions' | 'deletions'>): { addi
 export type NextTone = 'review' | 'answer' | 'fix' | 'ready' | 'waiting'
 
 /**
- * The main button of the "what to do next" strip: a page of the PR on GitHub to open, Send all of its draft replies (the
- * dialog with every text first), or Draft replies; null when the strip has none.
+ * A button of the "what to do next" strip: a page of the PR on GitHub to open, Send all of its draft replies (the
+ * dialog with every text first), Draft replies, or one of "Resolve conflicts", "Fix checks" and "Address comments"
+ * (`pr-follow`, worfy-pr-follow ticket 04: the PR handed to a Session of skill pr-fix, `actions.prFollow`).
  */
-export type NextAction = { kind: 'link'; label: string; url: string } | { kind: 'send-all'; count: number } | { kind: 'draft-replies' }
+export type NextAction =
+  | { kind: 'link'; label: string; url: string }
+  | { kind: 'send-all'; count: number }
+  | { kind: 'draft-replies' }
+  | { kind: 'pr-follow'; action: PrFollowAction }
 
-/** The "what to do next" strip of the pane: a title, a line, and its main button, when one helps. */
+/** The "what to do next" strip of the pane: a title, a line, its main button when one helps, and the buttons beside it. */
 export interface NextStep {
   tone: NextTone
   title: string
   text: string
   action: NextAction | null
+  /** After the main button, in this order: the PR's other reasons for pr-fix, then a link (Open checks). */
+  more: readonly NextAction[]
 }
 
 const plural = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`
 
+/** The line of the strip of a PR to fix: what its main button does. */
+const FOLLOW_TEXT: Readonly<Record<PrFollowAction, string>> = {
+  resolveConflicts: 'Resolve conflicts hands the conflict with the base branch to a Session; it asks before it pushes.',
+  fixChecks: 'Fix checks hands the failing checks to a Session; it asks before it pushes.',
+  addressComments: 'Address comments hands the requested changes to a Session: it edits the code, drafts the replies and asks before it pushes.',
+}
+
+const follow = (action: PrFollowAction): NextAction => ({ kind: 'pr-follow', action })
+
+/** "Merge conflict and CI failing": what is wrong with a PR to fix, in the order of its reasons. */
+function fixTitle(row: PrInboxRow): string {
+  const parts = [row.mergeStateStatus === 'DIRTY' ? 'merge conflict' : null, row.ci === 'failing' ? 'CI failing' : null, row.reviewDecision === 'CHANGES_REQUESTED' ? 'changes requested' : null].filter(
+    (part): part is string => part !== null,
+  )
+  if (parts.length === 0) return 'Needs a fix'
+  const title = parts.length === 1 ? parts[0]! : `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)!}`
+  return title.charAt(0).toUpperCase() + title.slice(1)
+}
+
 /**
  * What the user does next with a PR, from its group, CI, review and drafts: `drafts` counts the replies that wait to be
- * sent, `canDraft` says whether Draft replies is there (not in a window of a Linked machine).
+ * sent, `canDraft` says whether Draft replies is there (not in a window of a Linked machine), `viewer` is the login the
+ * inbox reads as. A PR to fix gets its reasons for skill pr-fix (prFollowReasons, worfy-pr-follow ticket 01) as buttons,
+ * the first one the main button, and Open checks after them as a link; the user's own PR that waits for an answer gets
+ * them beside Draft replies. Whether each button can run is not decided here: usePrFollowState says it on the button.
  */
-export function nextStep(group: PrInboxGroup, row: PrInboxRow, now: number, drafts: number, canDraft: boolean): NextStep {
+export function nextStep(group: PrInboxGroup, row: PrInboxRow, now: number, drafts: number, canDraft: boolean, viewer: string | null): NextStep {
   const open = row.unresolvedThreads
   switch (group) {
     case 'needs-review':
@@ -305,6 +336,7 @@ export function nextStep(group: PrInboxGroup, row: PrInboxRow, now: number, draf
         title: 'Your review is asked',
         text: `${row.author ?? 'ghost'} opened it ${ageText(row.createdAt, now)} ago${row.viaTeam ? ', asked through your team' : ''}.${open > 0 ? ` ${plural(open, 'open thread', 'open threads')} from others.` : ''}`,
         action: { kind: 'link', label: 'Start review', url: `${row.url}/files` },
+        more: [],
       }
     case 'needs-answer':
       return {
@@ -320,22 +352,20 @@ export function nextStep(group: PrInboxGroup, row: PrInboxRow, now: number, draf
                 ? 'No drafts yet: Draft replies starts a Session that writes them.'
                 : 'Drafts of replies stay on the machine of the Project.',
         action: drafts > 1 ? { kind: 'send-all', count: drafts } : drafts === 0 && canDraft ? { kind: 'draft-replies' } : null,
+        // Only the user's own PR: a colleague's is not the user's to push to, and the verdict would refuse it anyway.
+        more: viewer !== null && sameLogin(row.author, viewer) ? prFollowReasons(row, viewer).map(follow) : [],
       }
     case 'needs-fix': {
-      const failing = row.ci === 'failing'
-      const changes = row.reviewDecision === 'CHANGES_REQUESTED'
-      const conflict = row.mergeStateStatus === 'DIRTY'
-      return {
-        tone: 'fix',
-        title: failing && changes ? 'CI failing and changes requested' : failing ? 'CI failing' : changes ? 'Changes requested' : conflict ? 'Merge conflict' : 'Needs a fix',
-        text: failing ? 'Open the failing checks on GitHub.' : changes ? 'Read the requested changes in the threads below.' : conflict ? 'Resolve the conflict with the base branch.' : 'Look at the PR on GitHub.',
-        action: { kind: 'link', label: 'Open checks', url: `${row.url}/checks` },
-      }
+      const checks: NextAction = { kind: 'link', label: 'Open checks', url: `${row.url}/checks` }
+      const [first, ...rest] = prFollowReasons(row, viewer)
+      const title = fixTitle(row)
+      if (first === undefined) return { tone: 'fix', title, text: 'Look at the PR on GitHub.', action: checks, more: [] }
+      return { tone: 'fix', title, text: FOLLOW_TEXT[first], action: follow(first), more: [...rest.map(follow), checks] }
     }
     case 'ready':
-      return { tone: 'ready', title: 'Ready to merge', text: 'Approved, CI passing, no conflict.', action: { kind: 'link', label: 'Open to merge', url: row.url } }
+      return { tone: 'ready', title: 'Ready to merge', text: 'Approved, CI passing, no conflict.', action: { kind: 'link', label: 'Open to merge', url: row.url }, more: [] }
     case 'waiting':
-      return { tone: 'waiting', title: row.isDraft ? 'Draft PR: no review asked yet' : 'Waiting for reviewers', text: `Last activity ${ageText(row.lastActivityAt, now)} ago.`, action: null }
+      return { tone: 'waiting', title: row.isDraft ? 'Draft PR: no review asked yet' : 'Waiting for reviewers', text: `Last activity ${ageText(row.lastActivityAt, now)} ago.`, action: null, more: [] }
   }
 }
 
