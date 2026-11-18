@@ -196,3 +196,65 @@ Code: `src/main/vendors/codex/session.ts:941-946` · key lines: 943, 946
 2. Что увидит человек в Codex Session после compaction и почему без чисел?
    - Строки: `src/main/vendors/codex/items.ts:313-316`
    - Ответ: строку `Context compacted`; элемент `contextCompaction` не несёт ни trigger, ни числа токенов.
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED
+> Round 1 (two verifiers, depth medium) found no Act on; round 2 closed its medium test gap: test/contract/app-orchestrators.test.ts:164 pins the wiring waveEpic → Autopilot.runningEpic (src/main/agent/app-orchestrators.ts:84-102,128) — mutants "no waveEpic", "runningEpic always null" and "module never assigned" turn it red; test/contract/orchestrator-wave-epic.test.ts pins the '' and the throwing waveEpic (orchestrator.ts:965-972); test/unit/agent-options.test.ts:776 pins `epic !== ''` (options.ts:844).
+> Consider: src/main/vendors/codex/session.ts:149,946 — worfy's compact_prompt replaces a compact_prompt from the user's own Codex config.toml for every thread worfy starts, as spec «Compaction» asks; named in docs/features/sessions.md (low).
+> Consider: src/main/agent/orchestrator.ts:750 — at an Epic boundary of a queue a busy Orchestrator gets the next Wave in the same Session (run.ts:2528-2537 'same'), which keeps the previous Epic's WORFY_EPIC; documented in docs/features/sessions.md:333-336 as a known limitation (low).
+> Consider: test/contract/app-orchestrators.test.ts:171-175 — no explicit wait for the lazy import('../ipc/autopilot'); the test imports the module first, so the cached import settles in microtasks long before open() ends (low).
+> Consider: src/main/vendors/codex/session.ts:942 — the `opts.epic === ''` guard is not pinned; harmless, the hook reads '' as no Epic (low).
+> Noted: a hand «Run wave» into a running attended Orchestrator gets no WORFY_EPIC (env is fixed at process start); the hooks fall back to the branch's Epic; recorded in the ticket's «Итог» and sessions.md.
+> Noted: the Session view line screenshot goes to the owner's acceptance (no local Electron).
+> Checks: round 1 — vitest 8 files 221 passed, session-hooks.test.sh 54 passed, typecheck EXIT=0, 34 mutants (all but equivalent/unreachable and the ones round 2 closed killed); round 2 — 3 files 99 passed ×15 runs (shuffled half), EXIT=0.
+> Review depth: medium — the ticket header asks for medium
+> Review tokens: 392649
+
+Code: `test/contract/app-orchestrators.test.ts:164-164` · key lines: 164
+
+```ts
+  it("an unattended start gets the Epic the Autopilot's run is on; the attended start before it gets none", async () => {
+```
+
+Code: `src/main/agent/app-orchestrators.ts:84-102` · key lines: 84
+
+```ts
+let autopilotModule: Pick<typeof import('../ipc/autopilot'), 'existingAutopilot'> | null = null
+
+/** The Epic of the Project's run that goes on or is starting; null with no Autopilot made yet, or no run. */
+function runningEpic(projectId: string): string | null {
+  return autopilotModule?.existingAutopilot()?.runningEpic(projectId) ?? null
+}
+
+/** What a Node shows before its Session says anything, when the transcript is not read. */
+const NO_FACTS: TranscriptFacts = { model: null, statusBlock: null }
+
+/** The app's Orchestrators, made on first use. */
+export function sharedOrchestrators(): Orchestrators {
+  if (shared === null) {
+    void import('../ipc/autopilot').then(
+      (module) => {
+        autopilotModule = module
+      },
+      (error: unknown) => console.warn('[orchestrator] could not load Autopilot: no Session gets the Epic of a run', error),
+    )
+```
+
+Code: `test/unit/agent-options.test.ts:776-776` · key lines: 776
+
+```ts
+  it('names the Epic in a line appended to the system prompt, after the servers\' instructions; without a Wave there is no such line', () => {
+```
+
+Code: `src/main/vendors/codex/session.ts:149-149` · key lines: 149
+
+```ts
+export const CODEX_COMPACT_PROMPT = `Compact the conversation so far: write the summary that replaces it, by the rules below.\n\n${compactionRules.trim()}\n`
+```
+
+Code: `src/main/agent/orchestrator.ts:750-750` · key lines: 750
+
+```ts
+      // Marked as the Orchestrator for its autocompact window, and an unattended one with the Epic of its run;
+```

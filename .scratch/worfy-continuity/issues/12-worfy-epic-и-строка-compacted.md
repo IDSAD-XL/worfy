@@ -1,7 +1,8 @@
 # 12 — worfy: `WORFY_EPIC`, дописка к system prompt, Codex `compact_prompt`, строка «Context compacted»
 
 Type: task
-Status: claimed 2026-11-18T08:11Z
+Status: done 2026-11-18T10:16Z
+PR: #1991
 Blocked by: 11
 Source: [spec.md](../spec.md), «Ticket-ы», 12; «Решения по реализации» → «Compaction», пункт «worfy (12)»; «Истории
 пользователя», 10; «Риски», 13
@@ -54,6 +55,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 12; «Решения по реал
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 6fc7043ee2491118cb80f50c7f2255c7ecc49698
   - evidence: gate pass · `gate fast` exit 0 · mac - · e4823794515716704c68a32beb97a969cb00b378
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44272317747/job/134729653547 · ci - · 99d23491ab16011764cbe533dc1784f1ea7b34fe
 
 ## Тесты
 
