@@ -1,7 +1,8 @@
 # 13 — Eval-кейс `compaction-state`: probes о состоянии после compaction, с hook-ом и без
 
 Type: task
-Status: open
+Status: done 2026-11-18T12:54Z
+PR: #1996
 Blocked by: 10, 11, 12
 Source: [spec.md](../spec.md), «Ticket-ы», 13; «Решения по реализации» → «Compaction», пункт «Eval (13)»; «Как это сделано
 у конкурентов» (Factory Droids); «Готово, когда», пункт о compaction; «Решено без владельца», 1
@@ -37,6 +38,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 13; «Решения по реал
       следующем шаге отвечены лучше, или «Итог» называет, почему нет.
   - evidence: test-run pass · `pnpm eval:harness -- --case compaction-state --max-cost-usd 3`, with hook and with HARNESS_DIR=baseline copy: exit 1 and 1, overallScore 0.64 and 0.73, casesPassed 0 of 1 each, 1.66 + 1.38 USD; Итог names why the hook is not better on the ticket and next-step probes · mac - · 98a0cc68d
 - [ ] `pnpm lint`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44306723233/job/134814610512 · ci - · bc6da010575cb2d11b1002ec48f3f605b957d1f8
 
 ## Где в коде
 
