@@ -126,7 +126,7 @@ Code: `src/renderer/pr-inbox/PrInboxView.tsx:479-494` · key lines: 481, 482, 48
 
 ## 5. Неактивная кнопка приглушена
 
-Code: `src/renderer/pr-inbox/pr-inbox.css:660-674` · key lines: 661, 666, 670
+Code: `src/renderer/pr-inbox/pr-inbox.css:660-676` · key lines: 661, 666, 671, 674
 
 ```css
 /* An inactive button is `disabled`, or `aria-disabled` when it keeps its focus for its kit tooltip (PrFollowButton.tsx). */
@@ -138,16 +138,19 @@ Code: `src/renderer/pr-inbox/pr-inbox.css:660-674` · key lines: 661, 666, 670
 .w-pr-inbox-button[aria-disabled='true'] {
   color: var(--text-muted);
 }
-/* The primary one grey too, as theme/button.css draws it disabled. */
+/* The primary one grey too, as theme/button.css draws it disabled; its colour here as well, so the rule above does not
+   depend on the order the two sheets load in (both are two classes deep). */
 .w-pr-inbox-button.w-pr-inbox-button--primary[aria-disabled='true'] {
   border-color: var(--border-strong);
   background: var(--surface-raised);
+  color: var(--text-muted);
   font-weight: 400;
 }
 ```
 
 - Что делает: кнопка с `aria-disabled='true'` серая, как `disabled`, без рамки при hover; primary — серая, как
-  disabled primary в `theme/button.css`.
+  disabled primary в `theme/button.css`. Цвет primary задан в правиле на три класса, чтобы не зависеть от порядка
+  загрузки двух таблиц стилей.
 - Почему здесь: файла нет в списке Ticket-а; Orchestrator разрешил его ради этого правила. Без `aria-disabled` tooltip
   ui-kit не показывается.
 - Без него: неактивная кнопка выглядела бы активной.
@@ -166,7 +169,8 @@ Code: `src/renderer/pr-inbox/pr-inbox.css:660-674` · key lines: 661, 666, 670
 - Unit test `test/unit/pr-inbox-view.test.tsx`: `DIRTY` с красным CI — Resolve conflicts, Fix checks, ссылка Open
   checks; только красный CI — Fix checks; только запрос изменений — Address comments; Needs my answer — Address
   comments сразу за Draft replies; пустой шаблон, fork и read-only — `aria-disabled` с tooltip-ом; щелчок — канал и
-  три toast-а, отказ — error toast.
+  три toast-а с полным входом канала каждого щелчка; второй щелчок, пока первый в пути, ничего не шлёт; отказ — error
+  toast. Mutant-ы «action всегда fixChecks» и «без состояния is starting» краснеют.
 - E2e test `test/e2e/pr-inbox.spec.ts` (gh stub, fake agent): Fix checks создаёт Session Node, её первое сообщение —
   `/worfy:pr-fix checks example-org/web#118 <head из stub-а>`; снимок полосы в обеих темах. Локально не запускался
   (правило владельца), его проверяет CI.

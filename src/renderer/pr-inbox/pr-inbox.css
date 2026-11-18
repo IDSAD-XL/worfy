@@ -666,10 +666,12 @@
 .w-pr-inbox-button[aria-disabled='true'] {
   color: var(--text-muted);
 }
-/* The primary one grey too, as theme/button.css draws it disabled. */
+/* The primary one grey too, as theme/button.css draws it disabled; its colour here as well, so the rule above does not
+   depend on the order the two sheets load in (both are two classes deep). */
 .w-pr-inbox-button.w-pr-inbox-button--primary[aria-disabled='true'] {
   border-color: var(--border-strong);
   background: var(--surface-raised);
+  color: var(--text-muted);
   font-weight: 400;
 }
 

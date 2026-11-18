@@ -1280,24 +1280,47 @@ describe('Fix checks, Resolve conflicts and Address comments in the pane (worfy-
     expect(follow('fixChecks').getAttribute('aria-disabled')).toBe('true')
   })
 
-  it('a click sends actions.prFollow with the Project, the PR and the action; the toast says where the text went', async () => {
+  it('a click sends actions.prFollow with the Project, the PR and the action of that button; the toast says where the text went', async () => {
     const deliveries = ['new', 'sent', 'queued']
-    await show(inbox([CONFLICT]), {
+    // In conflict, red and with changes asked: all three buttons, each sending its own action.
+    await show(inbox([{ ...CONFLICT, reviewDecision: 'CHANGES_REQUESTED' }]), {
       ...settingsAnswer(),
       'actions.prFollow': () => ({ ok: true, value: { nodeId: 'node-1', sessionId: 'session-1', text: `/worfy:pr-fix checks ${WEB}#40 ${HEAD}`, delivery: deliveries.shift()! } }),
     })
+    expect(within(pane()).getAllByTestId('pr-inbox-follow').map((button) => button.dataset.action)).toEqual(['resolveConflicts', 'fixChecks', 'addressComments'])
+    const call = (action: string) => ({ projectId: 'web-00000001', repo: WEB, pr: 40, action })
     await waitFor(() => expect(follow('fixChecks').getAttribute('aria-disabled')).toBe('false'))
     fireEvent.click(follow('fixChecks'))
-    await waitFor(() => expect(followCalls()).toEqual([{ projectId: 'web-00000001', repo: WEB, pr: 40, action: 'fixChecks' }]))
+    await waitFor(() => expect(followCalls()).toEqual([call('fixChecks')]))
     await waitFor(async () => expect(await shownToasts()).toEqual([{ kind: 'success', text: `Fix checks for ${WEB}#40: Started a Session` }]))
     // The PR's Ticket is demo 03: a Session of that Ticket took the text, at once or into its queue.
     await waitFor(() => expect(follow('resolveConflicts').getAttribute('aria-disabled')).toBe('false'))
     fireEvent.click(follow('resolveConflicts'))
     await waitFor(async () => expect(await shownToasts()).toContainEqual({ kind: 'success', text: `Resolve conflicts for ${WEB}#40: Sent to the Session of demo 03` }))
+    await waitFor(() => expect(follow('addressComments').getAttribute('aria-disabled')).toBe('false'))
+    fireEvent.click(follow('addressComments'))
+    await waitFor(async () => expect(await shownToasts()).toContainEqual({ kind: 'success', text: `Address comments for ${WEB}#40: Queued for the Session of demo 03` }))
+    expect(followCalls()).toEqual([call('fixChecks'), call('resolveConflicts'), call('addressComments')])
+  })
+
+  it('while a click is on its way the button is inactive and says so: a second click sends nothing', async () => {
+    let answer: (value: IpcResult<unknown>) => void = () => undefined
+    await show(inbox([CONFLICT]), {
+      ...settingsAnswer(),
+      'actions.prFollow': () => new Promise<IpcResult<unknown>>((resolve) => (answer = resolve)) as unknown as IpcResult<unknown>,
+    })
     await waitFor(() => expect(follow('fixChecks').getAttribute('aria-disabled')).toBe('false'))
     fireEvent.click(follow('fixChecks'))
-    await waitFor(async () => expect(await shownToasts()).toContainEqual({ kind: 'success', text: `Fix checks for ${WEB}#40: Queued for the Session of demo 03` }))
-    expect(followCalls()).toHaveLength(3)
+    await waitFor(() => expect(follow('fixChecks').getAttribute('aria-disabled')).toBe('true'))
+    expect(follow('fixChecks').getAttribute('data-kit-hint')).toBe(`Fix checks is starting for ${WEB}#40…`)
+    fireEvent.click(follow('fixChecks'))
+    await act(async () => Promise.resolve())
+    expect(followCalls()).toHaveLength(1)
+    // main answers: the button is active again, and the toast says where the text went.
+    await act(async () => answer({ ok: true, value: { nodeId: 'node-1', sessionId: 'session-1', text: 'x', delivery: 'new' } }))
+    await waitFor(() => expect(follow('fixChecks').getAttribute('aria-disabled')).toBe('false'))
+    expect(await shownToasts()).toEqual([{ kind: 'success', text: `Fix checks for ${WEB}#40: Started a Session` }])
+    expect(followCalls()).toHaveLength(1)
   })
 
   it("main's refusal is an error toast with its reason", async () => {
