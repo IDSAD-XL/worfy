@@ -1,7 +1,8 @@
 # 06 — Документы: переводы страниц Feature, Amendment к ADR-0105, имена действий в CONTEXT.md
 
 Type: task
-Status: claimed 2026-11-18T19:19Z
+Status: done 2026-11-18T19:52Z
+PR: #2015
 Blocked by: 01, 02, 03, 04, 05
 Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решения по реализации», 5; «Решено без владельца», 3 и 7; «Готово,
 когда», пункт о документах
@@ -44,6 +45,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решения по реал�
   - evidence: commit pass · worfy-pr-follow/06: Russian Feature pages, ADR-0105 amendment, PR fix actions in CONTEXT · - - · 2f293e4e779db865318128bb6eaefa7179f29fdd
 - [ ] `node scripts/check-personal.mjs` и `node scripts/check-feature-docs.mjs` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `node scripts/check-personal.mjs` exit 0, `node scripts/check-feature-docs.mjs` exit 0 · mac - · 2f293e4e779db865318128bb6eaefa7179f29fdd
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44384091333/job/135086091023 · ci - · 86f7a49ded7707bef39f9961ae02ff798b390c3d
 
 ## Где в коде
 
