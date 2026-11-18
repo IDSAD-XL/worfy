@@ -22,6 +22,9 @@ interface StubCall {
   path: string
   evalGit: string
   evalHarnessHome: string | null
+  /** CLAUDE_CODE_AUTO_COMPACT_WINDOW and CLAUDE_AUTOCOMPACT_PCT_OVERRIDE of the call, null when unset. */
+  compactWindow: string | null
+  compactPct: string | null
   gitVersion: { status: number | null; stdout: string } | null
   execPath: string
   systemConfig: number | null
@@ -431,6 +434,73 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
   })
 })
 
+// The case of the tag `alone` (compaction-state, worfy-continuity ticket 13) runs only when --case names
+// it, in a call of its own that sets its two compaction variables; every other call runs without them.
+describe('pnpm eval:harness: the case of the tag alone (claude replaced by a stub)', () => {
+  const SHELL = { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '7', CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '9' }
+  const SKIPPED =
+    'eval:harness: compaction-state is skipped: it runs only alone, in a call of its own that sets ' +
+    'CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=5; run it with pnpm eval:harness -- --case compaction-state'
+
+  it('leaves it out of a general run, says why and how to run it, and keeps the variables of the shell from every call', () => {
+    const { run, calls } = evalHarness('2.1.289', '0,0', [], undefined, SHELL)
+    expect(run.status, run.stderr).toBe(0)
+    expect(calls.map((call) => listAfter(call.args, '--tag'))).toEqual([['main'], ['gui']])
+    for (const call of calls) {
+      expect(call.args).not.toContain('--case')
+      expect([call.compactWindow, call.compactPct]).toEqual([null, null])
+    }
+    expect(lines(run.stdout)).toContain(SKIPPED)
+  })
+
+  it('runs it alone, with main grants, the git and state folder of the runs and its two variables over those of the shell, when --case names it', () => {
+    const { run, calls } = evalHarness('2.1.289', '0,0', ['--', '--case', 'status-block', '--case', 'compaction-state', '--runs', '1'], undefined, SHELL)
+    expect(run.status, run.stderr).toBe(0)
+    expect(calls).toHaveLength(2)
+    const [main, call] = calls
+    expect(listAfter(main?.args ?? [], '--case')).toEqual(['status-block'])
+    // The copy of git and the Harness state folder that gitForRuns adds after the calls are planned.
+    expect(main?.evalGit ?? '').not.toBe('')
+    expect(main?.evalHarnessHome).toBe('worfy-harness')
+    expect(call?.evalGit).toBe(main?.evalGit)
+    expect(call?.evalHarnessHome).toBe('worfy-harness')
+    expect((call?.path ?? '').split(delimiter)[0]).toBe(dirname(call?.evalGit ?? '<no git>'))
+    expect([main?.compactWindow, main?.compactPct]).toEqual([null, null])
+    expect(listAfter(call?.args ?? [], '--tag')).toEqual(['alone'])
+    expect(listAfter(call?.args ?? [], '--case')).toEqual(['compaction-state'])
+    expect(listAfter(call?.args ?? [], '--allow-tools')).toEqual(['Bash', 'Write', 'Edit'])
+    expect([call?.compactWindow, call?.compactPct]).toEqual(['100000', '5'])
+    expect(run.stdout).toMatch(/alone-compaction-state — CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=5 claude plugin eval /)
+    expect(run.stdout).not.toContain(SKIPPED)
+  })
+
+  it('does not run it for a --case glob that only matches it', () => {
+    const { run, calls } = evalHarness('2.1.289', '0,0', ['--', '--case', 'compaction-*'])
+    expect(run.status, run.stderr).toBe(0)
+    expect(calls).toEqual([])
+    expect(lines(run.stdout)).toContain(SKIPPED)
+  })
+
+  it('prints the variables in the command line of a dry run', () => {
+    const { run, calls } = evalHarness('2.1.289', '0', ['--dry-run', '--case', 'compaction-state'])
+    expect(run.status, run.stderr).toBe(0)
+    expect(calls).toEqual([])
+    expect(run.stdout).toMatch(/alone-compaction-state — CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=5 claude plugin eval .* --tag alone --case compaction-state /)
+  })
+
+  it('--changed that chooses only it calls no claude, exit 0, and says how to run it', () => {
+    const { repo } = changedRepo()
+    appendFileSync(join(repo, 'harness', 'hooks', 'rules', 'compaction.md'), '\nOne more rule.\n')
+    const { run, calls, versionCalls } = evalIn(repo, ['--changed', 'HEAD'])
+    expect(run.status, run.stderr).toBe(0)
+    expect(calls).toEqual([])
+    expect(versionCalls).toBe(0)
+    expect(run.stdout).toContain('harness/hooks/rules/compaction.md -> compaction-state')
+    expect(lines(run.stdout)).toContain(SKIPPED)
+    expect(run.stdout).toMatch(/no call is left of the cases the change chose, claude is not called/)
+  })
+})
+
 // On Windows scripts/eval-run-env.mjs looks git up through `sh`, which sets the PATH of the runs again
 // with cygpath before it runs `git --exec-path`.
 describe.skipIf(process.platform !== 'win32')('pnpm eval:harness on Windows: the git that sh finds for the runs', () => {
@@ -621,7 +691,10 @@ describe('harness/evals/lib/coverage.json: which case checks which rule file', (
     const pick = (path: string): Selection => casesFor([path], coverage, CASE_NAMES)
     expect(pick('harness/skills/epic-wave/SKILL.md').cases).toEqual(['epic-wave-old-form', 'epic-wave-tickets', 'reviewer-verdict'])
     expect(pick('harness/hooks/rules/orchestrator.md').cases).toEqual(['status-block'])
-    expect(pick('harness/hooks/inject-rules.mjs').cases).toEqual(['status-block'])
+    expect(pick('harness/hooks/inject-rules.mjs').cases).toEqual(['compaction-state', 'status-block'])
+    // PreCompact and the SessionStart hook of the compact branch are entries of hooks.json (worfy-continuity 13).
+    expect(pick('harness/hooks/hooks.json').cases).toEqual(['compaction-state', 'status-block'])
+    expect(pick('harness/hooks/rules/compaction.md').cases).toEqual(['compaction-state'])
     expect(pick('harness/agents/reviewer.md').cases).toEqual(['reviewer-intended-breakage', 'reviewer-simplification', 'reviewer-verdict'])
     expect(pick('harness/evals/status-block/graders/x.md').cases).toEqual(['status-block'])
     expect(pick('harness/evals/lib/demo-project.sh').cases).toEqual([...CASE_NAMES].sort())
@@ -635,10 +708,10 @@ describe('harness/evals/lib/coverage.json: which case checks which rule file', (
     expect(pick('harness/evals/results/2026-01-01T00-00-00-000Z-main/aggregate-result.json').cases).toEqual([])
     // Several paths: each case once, and what each path chose.
     const many = casesFor(['harness/agents/implementer.md', 'README.md', 'harness/hooks/hooks.json', 'harness/hooks/rules/orchestrator.md'], coverage, CASE_NAMES)
-    expect(many.cases).toEqual(['implementer-report', 'implementer-story', 'status-block'])
+    expect(many.cases).toEqual(['compaction-state', 'implementer-report', 'implementer-story', 'status-block'])
     expect(many.files).toEqual([
       { path: 'harness/agents/implementer.md', cases: ['implementer-report', 'implementer-story'] },
-      { path: 'harness/hooks/hooks.json', cases: ['status-block'] },
+      { path: 'harness/hooks/hooks.json', cases: ['compaction-state', 'status-block'] },
       { path: 'harness/hooks/rules/orchestrator.md', cases: ['status-block'] },
     ])
   })

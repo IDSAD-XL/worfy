@@ -373,4 +373,14 @@ the home folder shown as `~` is `USERPROFILE`. The Gate's launcher is on the [Ga
 Main tests, all shell tests: `harness/hooks/tests/rules-hooks.test.sh`, `harness/hooks/tests/session-hooks.test.sh`,
 `harness/hooks/tests/gh-token-env.test.sh`, `harness/hooks/tests/guard-silent.test.sh` and
 `harness/bin/tests/harness-home.test.sh`. The eval `harness/evals/status-block/` checks by behaviour that a main Session
-follows the rules.
+follows the rules. The eval `harness/evals/compaction-state/` asks an implementer six questions after a compaction —
+its goal, Ticket, done items, files, decisions and next step — with `compaction.md` and `after-compact.mjs` and, in a
+copy of the Harness that `baseline.mjs` makes, without them. The case compacts its history before the first answer
+only with `CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000` (the context window, in tokens, that auto-compaction counts against)
+and `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=5` (compact at 5 % of it). A case may set only `EVAL_*` variables, so
+`scripts/eval-harness.mjs` sets these two in the call of this case and removes them from every other call. The case
+carries the tag `alone`: it runs only by `pnpm eval:harness -- --case compaction-state`, and a general run or
+`--changed` leaves it out with a line that says how to run it. The variant without the hook is
+`HARNESS_DIR="$(node harness/evals/compaction-state/baseline.mjs)" pnpm eval:harness -- --case compaction-state`; its
+results go to `evals/results/` of that copy, which is left for you to remove. Without a compaction the grader
+`compacted` fails the case on its own.

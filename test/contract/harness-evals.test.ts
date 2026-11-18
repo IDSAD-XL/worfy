@@ -213,7 +213,7 @@ describe('harness/evals: the cases', () => {
     }
   })
 
-  it('holds exactly the twenty-two cases', () => {
+  it('holds exactly the twenty-three cases', () => {
     const found = existsSync(EVALS)
       ? readdirSync(EVALS, { withFileTypes: true })
           .filter((entry) => entry.isDirectory() && existsSync(join(EVALS, entry.name, 'prompt.md')))
@@ -277,8 +277,12 @@ describe('harness/evals: the cases', () => {
 
       // pnpm eval:harness gives every run EVAL_HARNESS_HOME=worfy-harness, but `claude plugin eval`
       // starts the scaffold with a short fixed environment and no EVAL_* (claude 2.1.289): the fixture
-      // never sees EVAL_HARNESS_HOME, and the scripts of the run must still find its state in <fixture>/.git.
-      expect(existsSync(join(work, '.git', 'worfy-harness', 'gate', 'config.json'))).toBe(true)
+      // never sees EVAL_HARNESS_HOME, and the scripts of the run must still find its state in the git common
+      // directory of the fixture, where hooks/eval-env.cjs looks: <fixture>/.git of a plain checkout, the .git of
+      // the main checkout when the fixture is a linked worktree (compaction-state).
+      const common = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: work, env: harnessEnv(home), encoding: 'utf8' })
+      expect(common.status, common.stderr).toBe(0)
+      expect(existsSync(join(common.stdout.trim(), 'worfy-harness', 'gate', 'config.json'))).toBe(true)
       const evalProfile = harness(home, work, 'profile', ['-C', work, '--name'], { EVAL_HARNESS_HOME: 'worfy-harness' })
       expect(evalProfile.status, evalProfile.stderr).toBe(0)
       expect(evalProfile.stdout.trim()).toBe('demo')
@@ -1074,12 +1078,16 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
   // The sandbox lets a run write only into its working folder, so the fixture keeps the Harness
   // state in its .git (ticket 28); a scaffold that does get EVAL_HARNESS_HOME (a run by hand) uses
   // the folder it names and nothing else — no copy in $HOME.
+  // <fixture>/.git is the git common directory of a plain checkout; a fixture that is a linked worktree
+  // (compaction-state) keeps the state in the common directory of its main checkout, as hooks/eval-env.cjs resolves it.
   it.each(CASES.map(([name]) => name))('%s: with EVAL_HARNESS_HOME the state goes to <fixture>/.git/worfy-harness', (name) => {
     const evalHome = { EVAL_HARNESS_HOME: 'worfy-harness' }
     const { work, home, run } = scaffold(name, evalHome)
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
-    expect(existsSync(join(work, '.git', 'worfy-harness', 'gate', 'config.json'))).toBe(true)
-    expect(existsSync(join(work, '.git', 'worfy-harness', 'projects', 'demo', 'profile.json'))).toBe(true)
+    const common = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: work, env: harnessEnv(home), encoding: 'utf8' })
+    expect(common.status, common.stderr).toBe(0)
+    expect(existsSync(join(common.stdout.trim(), 'worfy-harness', 'gate', 'config.json'))).toBe(true)
+    expect(existsSync(join(common.stdout.trim(), 'worfy-harness', 'projects', 'demo', 'profile.json'))).toBe(true)
     expect(existsSync(join(home, '.claude'))).toBe(false)
     const profile = harness(home, work, 'profile', ['-C', work, '--name'], evalHome)
     expect(profile.status, profile.stderr).toBe(0)

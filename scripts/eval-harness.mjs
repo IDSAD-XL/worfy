@@ -9,7 +9,14 @@
 //   gui  — cases tagged `gui` (no-os-screen-capture), with Bash only for git, node, the Harness
 //          scripts, `echo` and `set -o pipefail`: an attempt at an OS screen capture is refused,
 //          not run. A real capture from a run started inside worfy would ask Screen Recording for
-//          the app, and granting it restarts the app (lesson 2026-10-07).
+//          the app, and granting it restarts the app (lesson 2026-10-07);
+//   alone — a case tagged `alone` (compaction-state) runs only when a --case of the user names it
+//          exactly (`pnpm eval:harness -- --case compaction-state`), in a call of its own, with the
+//          grants of main and the variables ALONE gives it in that call's environment only. A run
+//          without such a --case, --changed among them, leaves it out and prints why and how to run
+//          it: the variables of compaction-state would compact every other case of its call, and
+//          without them it measures nothing (worfy-continuity ticket 13). The variables of ALONE are
+//          removed from the environment of every other call, even when the shell sets them.
 // The target is a temporary copy of harness/ (it keeps the folder under test apart from the eval
 // results). harness/ declares no `dependencies` since worfy-skills 03; the copy still drops any that
 // another copy (HARNESS_DIR) declares: in a run only the plugin under test is installed, and Claude
@@ -34,7 +41,7 @@
 // only the cases of the rule files changed since <base> — `git diff <base>...HEAD` plus what
 // `git status` shows, the way the gate finds changed files — by the map harness/evals/lib/coverage.json
 // (scripts/eval-harness-coverage.mjs). It prints which file chose which cases and which changed rule
-// file has no case. No case chosen — exit 0 without claude. Exit 1 without claude: an unknown <base>,
+// file has no case. No case chosen, or only cases of the tag `alone` (skipped, above) — exit 0 without claude. Exit 1 without claude: an unknown <base>,
 // a git failure, --changed with --case, --tag or HARNESS_DIR, or a map that does not match harness/.
 // `claude plugin eval --case` takes one name glob, so when the change chooses some cases of a tag but
 // not all of them, each chosen case of that tag is a call of its own.
@@ -89,9 +96,18 @@ const COMMON = [
   '--model', MODEL,
   '--judge-model', JUDGE_MODEL,
 ]
+/**
+ * The cases of the tag `alone` and the environment each gets in its call. compaction-state: an auto
+ * compaction before the first answer, at 5 % of a window of 100000 tokens, as in spike 01; a case may
+ * set only EVAL_* variables itself.
+ */
+const ALONE = {
+  'compaction-state': { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '100000', CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '5' },
+}
 /** Tool grants of each call; `harness` is the path of the plugin under test. */
 const grants = (harness) => ({
   main: ['Bash', 'Write', 'Edit'],
+  alone: ['Bash', 'Write', 'Edit'],
   gui: [
     'Bash(git *)',
     'Bash(node *)',
@@ -110,8 +126,10 @@ const grants = (harness) => ({
   ],
 })
 
-// The environment of every child: no Claude Code session variables, no other Harness copy on PATH.
+// The environment of every child: no Claude Code session variables, no other Harness copy on PATH,
+// none of the variables of ALONE (a call of the tag `alone` adds those of its case).
 const childEnv = cleanEnv()
+for (const variables of Object.values(ALONE)) for (const key of Object.keys(variables)) delete childEnv[key]
 
 const fail = (message) => {
   process.stderr.write(`eval:harness: ${message}\n`)
@@ -312,16 +330,39 @@ if (changedAt !== -1) {
 // --case and --tag of the user choose the cases here and do not reach claude: claude adds up every
 // --tag it is given (`--tag main gui` after the call's own `--tag main` runs all cases in each call)
 // and takes the last --case, so each call names only its own tag and case.
+// A call of the tag `alone` carries `vars`, the variables of its case. They go on top of childEnv only
+// when the call starts: gitForRuns, below, adds the copy of git and the Harness state folder to childEnv
+// after this list is made, and a copy taken here would miss them.
 const calls = []
-for (const tag of ['main', 'gui']) {
+const named = optionValues(passThrough, '--case')
+for (const tag of ['main', 'gui', 'alone']) {
   const all = selected(tag, [])
   const filtered = selected(tag, passThrough)
-  const cases = chosen ? filtered.filter((name) => chosen.includes(name)) : filtered
+  let cases = chosen ? filtered.filter((name) => chosen.includes(name)) : filtered
+  if (tag === 'alone') {
+    for (const name of cases.filter((one) => !named.includes(one))) {
+      const variables = Object.entries(ALONE[name] ?? {}).map(([key, value]) => `${key}=${value}`).join(' ')
+      process.stdout.write(
+        `eval:harness: ${name} is skipped: it runs only alone, in a call of its own that sets ${variables || 'its variables'}; ` +
+          `run it with pnpm eval:harness -- --case ${name}\n`,
+      )
+    }
+    cases = cases.filter((one) => named.includes(one))
+    for (const name of cases) calls.push({ tag, name: `${tag}-${name}`, args: ['--case', name], cases: [name], vars: { ...ALONE[name] } })
+    continue
+  }
   if (cases.length === 0) process.stdout.write(`eval:harness: no ${tag} case selected, the ${tag} call is skipped\n`)
   else if (cases.length === all.length) calls.push({ tag, name: tag, args: [], cases })
   else for (const name of cases) calls.push({ tag, name: `${tag}-${name}`, args: ['--case', name], cases: [name] })
 }
 for (const name of ['--case', '--tag']) dropOption(passThrough, name)
+if (chosen && calls.length === 0) {
+  process.stdout.write('eval:harness: no call is left of the cases the change chose, claude is not called\n')
+  process.exit(0)
+}
+
+/** The variables a call sets on top of childEnv, as a prefix of its command line ('' for none). */
+const envPrefix = (call) => Object.entries(call.vars ?? {}).map(([key, value]) => `${key}=${value} `).join('')
 
 if (limit !== null && limit > BUDGET_USD) {
   process.stdout.write(`eval:harness: --max-cost-usd ${limit} is above the ceiling of this script: the budget stays ${BUDGET_USD} USD\n`)
@@ -345,7 +386,7 @@ if (dryRun) {
   const copy = '<plugin-copy>'
   process.stdout.write(`eval:harness: dry run, nothing is started: claude (${claude}) is not called; ${copy} stands for the temporary copy of ${SOURCE}\n`)
   for (const call of calls) {
-    process.stdout.write(`eval:harness: ${call.name} — claude ${callArgs(call, copy, join(EVALS, 'results', `${stamp}-${call.name}`), leftOf(budget, 0)).join(' ')}\n`)
+    process.stdout.write(`eval:harness: ${call.name} — ${envPrefix(call)}claude ${callArgs(call, copy, join(EVALS, 'results', `${stamp}-${call.name}`), leftOf(budget, 0)).join(' ')}\n`)
   }
   if (calls.length > 1) process.stdout.write(`eval:harness: dry run: each call after the first gets what the calls before it left of the ${budget} USD, not all of it\n`)
   process.exit(0)
@@ -390,8 +431,8 @@ try {
     }
     const outputDir = join(EVALS, 'results', `${stamp}-${call.name}`)
     const args = callArgs(call, harness, outputDir, left)
-    process.stdout.write(`eval:harness: ${call.name} — claude ${args.join(' ')}\n`)
-    const run = runClaude(claude, args, { stdio: 'inherit', cwd: REPO, env: childEnv })
+    process.stdout.write(`eval:harness: ${call.name} — ${envPrefix(call)}claude ${args.join(' ')}\n`)
+    const run = runClaude(claude, args, { stdio: 'inherit', cwd: REPO, env: { ...childEnv, ...call.vars } })
     const code = run.status ?? 128 + (constants.signals[run.signal] ?? constants.signals.SIGTERM)
     process.stdout.write(`eval:harness: ${call.name} exited ${code}\n`)
     worst = Math.max(worst, code)
