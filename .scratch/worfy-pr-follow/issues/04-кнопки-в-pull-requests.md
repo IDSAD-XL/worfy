@@ -1,7 +1,7 @@
 # 04 — Pull requests: кнопки Fix checks, Resolve conflicts, Address comments по причинам PR
 
 Type: task
-Status: open
+Status: claimed 2026-11-18T16:35Z
 Blocked by: 01
 Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решение» → «Поток пользователя», A и C; «Как это выглядит»;
 «Решения по реализации», 3 и 4; «Готово, когда», пункт о Pull requests
@@ -44,11 +44,14 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решение» → «Пот
 - [ ] Unit test (`test/unit/pr-inbox-view.test.tsx`): PR в `DIRTY` с красным CI — главная Resolve conflicts, рядом Fix
       checks, Open checks — ссылка; только красный CI — Fix checks; только `CHANGES_REQUESTED` — Address comments; в
       Needs my answer — Address comments рядом с Draft replies.
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · bb7549a9a330fb9fb30fe01f178f4141a1583946
 - [ ] Unit test: пустой шаблон и экран read-only — кнопка неактивна, tooltip с причиной.
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · bb7549a9a330fb9fb30fe01f178f4141a1583946
 - [ ] e2e test (`test/e2e/pr-inbox.spec.ts`, gh stub): Fix checks создаёт Session Node, её первое сообщение —
       `/worfy:pr-fix checks owner/web#118 <sha>` с head из stub-а.
 - [ ] Снимок экрана полосы с кнопками — в «Итог» (снимок ревью — в scratchpad, в репозиторий не кладётся).
 - [ ] Английская страница `docs/features/pr-inbox.md` описывает кнопки.
+  - evidence: commit pass · worfy-pr-follow/04: Resolve conflicts, Fix checks and Address comments in Pull requests · - - · bb7549a9a330fb9fb30fe01f178f4141a1583946
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Где в коде
