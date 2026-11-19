@@ -1,7 +1,8 @@
 # 01 — Прототип экрана Changes: Card с HTML на выдуманных данных
 
 Type: prototype
-Status: claimed 2026-11-19T12:55Z
+Status: done 2026-11-19T13:18Z
+PR: #2036
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 1; «Решение» → «Экран»; «Решено без владельца», 4
 
@@ -36,8 +37,10 @@ Source: [spec.md](../spec.md), «Ticket-ы», 1; «Решение» → «Экр
 
 - [ ] Card «Prototype: Changes» открывается на Canvas Project-а и показывает все состояния из «Что делаем», 2.
   - evidence: test-run pass · `node shoot.cjs <card>/index.html <shots>` exit 0, 8 states in light and dark, no console errors · mac - · bd27572f461ed92c55955c882bbaddea6ca9a186
+  - evidence: review pass · PR #2036 · - - · 0cd514340278681a52b69bc7051339791a04872b
 - [ ] Данные выдуманы: в Card-е нет путей, имён и кода настоящих репозиториев, кроме worfy.
   - evidence: test-run pass · `grep -inE "canvasforai|idsad|src/main|src/renderer|https?://" <card>/index.html` exit 0, one match: the comment naming the worfy tokens.css · mac - · bd27572f461ed92c55955c882bbaddea6ca9a186
+  - evidence: review pass · PR #2036 · - - · 0cd514340278681a52b69bc7051339791a04872b
 - [ ] В «Итог» — id Card-а; Ticket 03 ссылается на него в брифе.
   - evidence: commit pass · worfy-changes-view/01: result of the Changes screen prototype Card · - - · bd27572f461ed92c55955c882bbaddea6ca9a186
 
