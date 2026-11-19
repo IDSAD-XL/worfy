@@ -144,7 +144,7 @@ next typing or pick. While a command runs, another pick does nothing.
 
 | Group | Rows |
 |---|---|
-| Action | New session; New Product Session; a "New …" for each item of the Canvas menu; Tidy up; Arrange by Epic; Re-pack; Archive finished sessions now; Process gate queue; Run wave `<epic>`; Ship ticket `<epic>/<NN>`; Resolve conflicts, Fix checks and Address comments `<owner>/<repo>#<N>`; Reconnect machine…; Remove machine…; Update worfy |
+| Action | New session; New Product Session; a "New …" for each item of the Canvas menu; Tidy up; Arrange by Epic; Re-pack; Archive finished sessions now; Process gate queue; Run wave `<epic>`; Ship ticket `<epic>/<NN>`; Open changes `<epic>/<NN>`; Resolve conflicts, Fix checks and Address comments `<owner>/<repo>#<N>`; Reconnect machine…; Remove machine…; Update worfy |
 | View | Switch to Canvas; Switch to Session; Pull requests, with a Project; First-run checks; Health check; Getting started; Settings…; Keyboard shortcuts; worfy Guide; Guide: `<Topic>`, for each Topic; Show only tag `<tag>`; Show all Nodes |
 | Project | Switch to project `<name>`, for each other Project |
 | Go to | Orchestrator; each Epic, Ticket and ADR; each Node of the Layout, except those worfy draws from the workflow and binding anchors |
@@ -159,6 +159,9 @@ Some rows exist only in some states:
 - Process gate queue: only on the Machine whose Profile gives it the role `serve` of the cross-machine gate. Its detail
   counts the waiting PRs and the age of the oldest.
 - Run wave and Ship ticket: only where the Epic frame or the Ticket has that button.
+- Open changes `<epic>/<NN>`: for a Ticket with a worktree branch, a `Branch:` line or in work, the Ticket in the detail.
+  It opens the Ticket's [Changes Node](changes.md#the-changes-node) next to its card, or goes to the one there. On a
+  read-only screen it is inactive until that Node exists.
 - Resolve conflicts, Fix checks and Address comments `<owner>/<repo>#<N>`: a row for each action the button of a
   Ticket and its «▾» offer, the Ticket in the detail. An inactive row gives the same reason as the button. Picked from
   the palette, a new Session Node goes where any new Node goes.

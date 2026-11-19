@@ -74,6 +74,22 @@ export const REVIEW_LINE = 16 + 2
  * and the card's 4 px gap. It comes from main's Autopilot state, so only a card that state marks gets the room.
  */
 export const SIDE_EFFECTS_LINE = 18 + 4
+/**
+ * A Ticket with something for Changes to read draws the action "Changes" (actions/Changes.tsx, worfy-changes-view
+ * ticket 03), and its action row then may not fit one line: «Resolve conflicts ▾ Open PR Changes» is 285 px against
+ * CONTENT_WIDTH. The row wraps (`.w-ticket__actions`, epic-frame.css), so only such a card gets the room of a second
+ * line of actions: 4 px and a 20 px button.
+ */
+export const ACTIONS_LINE = 4 + 20
+
+/**
+ * Whether the card draws "Changes", from the Ticket alone: the worktree branch its status came from, its `Branch:` line,
+ * or work on it (a claimed Ticket has its branch). The layout gives such a card ACTIONS_LINE, so the button shows on no
+ * other card (a worktree the checks snapshot names alone gives no room).
+ */
+export function showsChanges(ticket: { state: TicketState; fromBranch?: string | null | undefined; branch?: string | null | undefined }): boolean {
+  return (ticket.fromBranch ?? null) !== null || Boolean(ticket.branch) || ticket.state === 'work'
+}
 
 export interface Font {
   size: number
@@ -319,6 +335,8 @@ export interface CardInput {
   reviewChips?: number | undefined
   /** The card draws the mark «unknown side effects» (worfy-continuity ticket 07): its line. */
   sideEffects?: boolean | undefined
+  /** The card draws the action "Changes" (`showsChanges`): the second line of actions. */
+  changes?: boolean | undefined
 }
 
 /** The chips of one row of checks badges: two lines (16 px each, 2 px apart), as SLOTS_HEIGHT allows for. */
@@ -342,14 +360,14 @@ export function checkRowsHeight(repos: readonly string[]): number {
 /** The room the checks rows take past the one row of chips SLOTS_HEIGHT gives every card. */
 const extraCheckRows = (card: CardInput): number => checkRowsHeight(card.checkRepos ?? []) - CHIP_LINES
 
-/** The card's height for `card`: border, padding, the top row, the title, the mark of Unknown side effects, the reason or blockers line, the slots (with the review and Evidence lines). */
+/** The card's height for `card`: border, padding, the top row, the title, the mark of Unknown side effects, the reason or blockers line, the slots (with the review and Evidence lines and the second line of actions). */
 export function cardHeight(card: CardInput): number {
   const title = TITLE_LINE * lines(card.title, { size: 13, weight: 600 }, CONTENT_WIDTH)
   const line =
     card.reason !== null
       ? 2 * REASON_PAD_Y + REASON_LINE * Math.max(1, lines(card.reason, { size: 12 }, CONTENT_WIDTH - 2 * REASON_PAD_X))
       : META_LINE * Math.max(1, textLines(metaRuns(card.meta), CONTENT_WIDTH))
-  return 2 * BORDER + 2 * PADDING_Y + topHeight(card) + CARD_GAP + title + CARD_GAP + line + CARD_GAP + SLOTS_HEIGHT + extraCheckRows(card) + REVIEW_LINE * (card.reviewChips ?? 0) + (card.evidence ? EVIDENCE_LINE : 0) + (card.sideEffects === true && card.state === 'work' ? SIDE_EFFECTS_LINE : 0)
+  return 2 * BORDER + 2 * PADDING_Y + topHeight(card) + CARD_GAP + title + CARD_GAP + line + CARD_GAP + SLOTS_HEIGHT + extraCheckRows(card) + REVIEW_LINE * (card.reviewChips ?? 0) + (card.evidence ? EVIDENCE_LINE : 0) + (card.sideEffects === true && card.state === 'work' ? SIDE_EFFECTS_LINE : 0) + (card.changes === true ? ACTIONS_LINE : 0)
 }
 
 // ── the blockers line ────────────────────────────────────────────────────────

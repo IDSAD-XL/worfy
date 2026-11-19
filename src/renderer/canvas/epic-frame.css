@@ -369,8 +369,14 @@
 .w-ticket__badges:has(> .w-evidence-chip) > .w-checks {
   flex-basis: 100%;
 }
+/* The actions wrap onto a second line, right-aligned, when they do not fit the card's width: only a card
+   with "Changes" has that line (ACTIONS_LINE of ticket-card.ts). */
 .w-ticket__actions {
   flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 4px;
+  max-width: 100%;
   margin-left: auto;
 }
 /* No size: React Flow then puts an Edge's end exactly on the middle of the Ticket's side, where the

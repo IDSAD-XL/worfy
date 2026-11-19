@@ -1113,6 +1113,76 @@ describe('Open PR', () => {
   })
 })
 
+describe('Changes (worfy-changes-view ticket 03)', () => {
+  const changesButton = async (num: number) => {
+    const { default: Changes } = await import('../../src/renderer/canvas/actions/Changes')
+    return render(<Changes subject={ticketSubject(num)} />)
+  }
+
+  it('is on a Ticket with a worktree branch, a Branch: line or work on it', async () => {
+    tickets = tickets.map((each) => (each.num === 9 ? { ...each, branch: 'feature/cart' } : each.num === 10 ? { ...each, fromBranch: 'demo/10' } : each))
+    for (const num of [9, 10, 11]) {
+      const { unmount } = await changesButton(num)
+      const button = await screen.findByRole('button', { name: 'Changes' })
+      expect(button.getAttribute('aria-disabled')).toBe('false')
+      expect(button.getAttribute('title')).toBe(`Open the changes of demo/${String(num).padStart(2, '0')}: its diff against the base`)
+      unmount()
+    }
+  })
+
+  it('is not on a Ticket with neither a branch nor work on it, one whose worktree the checks snapshot names included', async () => {
+    // The layout gives the second line of actions by the Ticket alone (showsChanges of ticket-card.ts): a done Ticket whose
+    // worktree is still there has no room on its card for the button.
+    snapshot = { ...snapshot, worktrees: [{ path: `${ROOT}/.claude/worktrees/07`, branch: 'demo/07', gate: { outcome: 'none', source: 'none', at: null } }] }
+    for (const num of [7, 8]) {
+      const { container, unmount } = await changesButton(num)
+      await new Promise((done) => setTimeout(done, 20))
+      expect(container.querySelectorAll('button')).toHaveLength(0)
+      unmount()
+    }
+  })
+
+  it('puts the Node right of the strip of Epic frames at the Ticket’s height, and goes to it on the second click', async () => {
+    const { ReactFlowProvider } = await import('@xyflow/react')
+    const { default: Changes } = await import('../../src/renderer/canvas/actions/Changes')
+    const { LayoutOpsContext, acceptLayoutState } = await import('../../src/renderer/canvas/useLayout')
+    const { useCanvasRequests } = await import('../../src/renderer/find/canvas-requests')
+    const frame = { id: 'epic:demo', type: 'epic-frame', position: { x: 0, y: 0 }, width: 600, height: 500, data: { node: { data: { epic: { epic: 'demo' }, auto: { x: 0, y: 0 } } } } }
+    const card = { id: 'ticket:demo/11', type: 'ticket', position: { x: 40, y: 320.4 }, width: 220, height: 80, data: { node: { data: { ticket: { epic: 'demo', num: 11 } } } } }
+    const applied: unknown[] = []
+    const ops = {
+      apply: (op: unknown) => {
+        applied.push(op)
+        return Promise.resolve()
+      },
+    }
+    render(
+      <ReactFlowProvider initialNodes={[frame, card]}>
+        <LayoutOpsContext.Provider value={ops}>
+          <Changes subject={ticketSubject(11)} />
+        </LayoutOpsContext.Provider>
+      </ReactFlowProvider>,
+    )
+    const button = await screen.findByRole('button', { name: 'Changes' })
+    fireEvent.click(button)
+    await vi.waitFor(() =>
+      expect(applied).toEqual([{ op: 'create', node: { id: 'changes:demo/11', kind: 'changes', x: 600 + 48, y: 320, w: 960, h: 640, data: { ticket: { epic: 'demo', num: 11 } } } }]),
+    )
+    await vi.waitFor(() => expect(useCanvasRequests.getState().focus).toMatchObject({ projectId: PROJECT, nodeId: 'changes:demo/11' }))
+
+    // main has the Node now: the next click goes to it and creates none.
+    acceptLayoutState({
+      projectId: PROJECT,
+      revision: 2,
+      layout: { viewport: { x: 0, y: 0, zoom: 1 }, nodes: [{ id: 'changes:demo/11', kind: 'changes', x: 648, y: 320, w: 960, h: 640, hidden: false, locked: false, pinned: false, tags: [], data: { ticket: { epic: 'demo', num: 11 } } }] },
+    })
+    const seq = useCanvasRequests.getState().focus?.seq ?? 0
+    fireEvent.click(button)
+    await vi.waitFor(() => expect(useCanvasRequests.getState().focus?.seq).toBe(seq + 1))
+    expect(applied).toHaveLength(1)
+  })
+})
+
 describe('Open PR on a Ticket over several repositories (worfy-multi-repo-ticket 06, ADR-0104)', () => {
   const API = `${ROOT}/api`
   const WEB = `${ROOT}/web`

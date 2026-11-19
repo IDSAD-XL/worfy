@@ -1,0 +1,446 @@
+/*
+ * The Changes screen (worfy-changes-view ticket 03): the Node canvas/nodes/ChangesNode.tsx and its parts in this
+ * folder, built after the prototype Card of ticket 01. Only roles of tokens.css: added lines take ready, deleted lines
+ * blocked (as harness/MigrationForm.tsx), no syntax colours. The Node's kind has no colour of its own (ADR-0077).
+ * A line of code is LINE_HEIGHT (diff-window.ts) tall without Wrap: the window of the diff counts on it.
+ */
+.w-changes {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  font-size: var(--text-13);
+  color: var(--text);
+}
+
+.w-changes__head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--toolbar);
+  cursor: grab;
+}
+.w-changes__title {
+  font-size: var(--text-13);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.w-changes__title .w-mono {
+  font-weight: 500;
+}
+
+.w-changes__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  outline: none;
+}
+
+.w-changes__message {
+  margin: 0;
+  padding: var(--space-3);
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.w-changes__muted {
+  color: var(--text-muted);
+}
+.w-changes__strong {
+  color: var(--text);
+}
+.w-changes__add-n {
+  color: var(--ready-text);
+}
+.w-changes__del-n {
+  color: var(--blocked-text);
+}
+.w-changes__error {
+  color: var(--blocked-text);
+}
+.w-changes__spacer {
+  flex: 1;
+}
+
+/* ── the head: scope, base and head, view ─────────────────────────────── */
+
+.w-changes__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 34px;
+  box-sizing: border-box;
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+.w-changes__meta {
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+}
+.w-changes__dropdown,
+.w-changes__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--button-height-s, 24px);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-button);
+  background: var(--surface);
+  box-shadow: var(--shadow-control);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-12);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.w-changes__dropdown::after {
+  content: '▾';
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.w-changes__dropdown:hover,
+.w-changes__button:hover {
+  box-shadow: inset 0 0 0 100vmax var(--hover-veil), var(--shadow-control);
+}
+.w-changes__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+.w-changes__check input {
+  margin: 0;
+  accent-color: var(--primary);
+}
+.w-changes__menu {
+  min-width: 240px;
+  max-width: 480px;
+}
+.w-changes__menu .w-row__trailing {
+  color: var(--text-muted);
+}
+.w-changes__menu-heading {
+  display: block;
+  padding: 6px var(--space-2) 2px;
+  font-size: var(--text-11);
+  color: var(--text-muted);
+}
+.w-changes__menu-separator {
+  height: 1px;
+  margin: var(--space-1) 0;
+  background: var(--border);
+}
+.w-changes__chip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-chip);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: var(--text-11);
+  white-space: nowrap;
+}
+
+/* ── the tree ─────────────────────────────────────────────────────────── */
+
+.w-changes__main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.w-changes__tree {
+  flex: none;
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+}
+.w-changes__filter {
+  margin: var(--space-2);
+  height: 26px;
+  padding: 0 var(--space-2);
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-button);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-12);
+}
+.w-changes__filter:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.w-changes__filtered,
+.w-changes__empty {
+  margin: 0;
+  padding: 0 var(--space-3) var(--space-1);
+  font-size: var(--text-11);
+  color: var(--text-muted);
+}
+.w-changes__list,
+.w-changes__list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.w-changes__list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: var(--space-2);
+}
+.w-changes__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 26px;
+  box-sizing: border-box;
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-12);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.w-changes__row:hover {
+  background: var(--hover-veil);
+}
+.w-changes__row.is-selected {
+  background: var(--selected);
+}
+.w-changes__row--folder,
+.w-changes__row--repo {
+  font-family: var(--font-mono);
+  font-size: var(--text-11);
+  color: var(--text-secondary);
+}
+.w-changes__row--repo {
+  font-weight: 600;
+  cursor: default;
+}
+.w-changes__row--repo:hover {
+  background: transparent;
+}
+.w-changes__row--group {
+  margin-top: var(--space-1);
+  font-family: inherit;
+}
+.w-changes__row--workflow {
+  color: var(--text-secondary);
+}
+.w-changes__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+}
+.w-changes__status {
+  flex: none;
+  width: 12px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: var(--text-11);
+  font-weight: 700;
+}
+.w-changes__status--A {
+  color: var(--ready-text);
+}
+.w-changes__status--M,
+.w-changes__status--T {
+  color: var(--working-text);
+}
+.w-changes__status--D {
+  color: var(--blocked-text);
+}
+.w-changes__status--R {
+  color: var(--text-secondary);
+}
+.w-changes__stats {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-11);
+}
+
+/* ── the diff ─────────────────────────────────────────────────────────── */
+
+.w-changes__diff {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: var(--space-2) var(--space-3) var(--space-4);
+  box-sizing: border-box;
+  font-size: var(--text-12);
+  user-select: text;
+  cursor: text;
+}
+/* Each block draws the left and right edges of its file; the head opens the file's box, the last block closes it. */
+.w-changes__block {
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+.w-changes__block.is-selected {
+  border-color: var(--accent);
+}
+.w-changes__block--head {
+  border-top: 1px solid var(--border);
+  border-radius: var(--radius-node) var(--radius-node) 0 0;
+}
+.w-changes__block--head.is-selected {
+  border-top-color: var(--accent);
+}
+.w-changes__block.is-last {
+  border-bottom: 1px solid var(--border);
+  border-radius: 0 0 var(--radius-node) var(--radius-node);
+  margin-bottom: 12px;
+}
+.w-changes__block.is-selected.is-last {
+  border-bottom-color: var(--accent);
+}
+.w-changes__block--head.is-last {
+  border-radius: var(--radius-node);
+}
+.w-changes__file-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 32px;
+  padding: 0 var(--space-2);
+  background: var(--surface-raised);
+  border-radius: var(--radius-node) var(--radius-node) 0 0;
+  overflow: hidden;
+}
+.w-changes__block--head.is-last .w-changes__file-head {
+  border-radius: var(--radius-node);
+}
+.w-changes__block--head:not(.is-last) .w-changes__file-head {
+  border-bottom: 1px solid var(--border);
+}
+.w-changes__twist {
+  flex: none;
+  width: 16px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.w-changes__path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+.w-changes__note-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  margin: 0;
+  padding: 0 var(--space-3);
+  box-sizing: border-box;
+  color: var(--text-secondary);
+}
+.w-changes__link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+.w-changes__link:hover {
+  text-decoration: underline;
+}
+.w-changes__hunk-head {
+  height: 22px;
+  box-sizing: border-box;
+  padding: 2px var(--space-2);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A line: old number, new number, the gutter (sign; the «+» of ticket 05), the code. */
+.w-changes__line {
+  display: grid;
+  grid-template-columns: 44px 44px 22px minmax(0, 1fr);
+  min-height: 20px;
+  line-height: 20px;
+  font-family: var(--font-mono);
+}
+.is-side-by-side .w-changes__line {
+  grid-template-columns: 44px 22px minmax(0, 1fr) 44px 22px minmax(0, 1fr);
+}
+.w-changes__no {
+  padding-right: var(--space-2);
+  text-align: right;
+  color: var(--text-muted);
+  user-select: none;
+}
+.w-changes__no--edge {
+  border-left: 1px solid var(--border);
+}
+.w-changes__sign {
+  position: relative;
+  text-align: center;
+  user-select: none;
+}
+/* shortcut: without Wrap a line wider than the diff is cut at its edge, not scrolled; redo when the owner's acceptance
+   (ticket 07) asks for a sideways scroll of long lines. */
+.w-changes__code {
+  padding-right: var(--space-3);
+  white-space: pre;
+  overflow: hidden;
+}
+.is-wrapped .w-changes__code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.w-changes__cell--add {
+  background: var(--ready-bg);
+  color: var(--ready-text);
+}
+.w-changes__cell--del {
+  background: var(--blocked-bg);
+  color: var(--blocked-text);
+}
+.w-changes__cell--empty {
+  background: var(--surface-raised);
+}
+.w-changes__eol {
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: var(--text-11);
+}

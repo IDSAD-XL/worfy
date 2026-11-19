@@ -32,6 +32,7 @@ import {
   type PlacedTicket,
 } from '../../src/renderer/canvas/epic-layout'
 import { layoutEpicElk } from '../../src/renderer/canvas/elk/layout'
+import { ACTIONS_LINE } from '../../src/renderer/canvas/ticket-card'
 import { ms } from '../time-scale'
 
 // ELK without a worker: the same layout code the app runs against the worker (ADR-0037).
@@ -825,7 +826,8 @@ describe('cards of different heights', () => {
     expect(several).toBeGreaterThan(cardHeights(tickets, columns, { severalRepos: false }).get(12)!)
     expect(placed(layoutEpic({ tickets, collapsed: false, doneExpanded: false, cards: { severalRepos: true } }), 12).height).toBe(several)
     // Until main answers, a Ticket with a Repo: line is what says the Project has several.
-    expect(cardHeights(tickets, columns).get(12)).toBe(TICKET_MIN_HEIGHT)
+    // In work: the card draws Changes, and has its second line of actions (ACTIONS_LINE, worfy-changes-view ticket 03).
+    expect(cardHeights(tickets, columns).get(12)).toBe(TICKET_MIN_HEIGHT + ACTIONS_LINE)
     const withRepo = [ticket(12, { state: 'work', statusRaw: 'claimed', waits: 'agent' }), ticket(13, { repo: 'api' })]
     expect(cardHeights(withRepo, epicColumns(withRepo)).get(12)).toBe(several)
   })

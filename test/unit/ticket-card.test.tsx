@@ -14,7 +14,7 @@ import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import TicketNode, { defaultHeight, defaultWidth } from '../../src/renderer/canvas/nodes/TicketNode'
 import type { CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
 import { buildEpicNodes } from '../../src/renderer/canvas/sources/epics'
-import { cardHeight, charEm, checkRowsHeight, CONTENT_WIDTH, SIDE_EFFECTS_LINE, textLines, TICKET_MIN_HEIGHT, TICKET_WIDTH, type CardInput } from '../../src/renderer/canvas/ticket-card'
+import { ACTIONS_LINE, cardHeight, charEm, checkRowsHeight, CONTENT_WIDTH, showsChanges, SIDE_EFFECTS_LINE, textLines, TICKET_MIN_HEIGHT, TICKET_WIDTH, type CardInput } from '../../src/renderer/canvas/ticket-card'
 import { takeMarks } from '../../src/renderer/autopilot/unknown-side-effects'
 
 // The badges and actions are their own tests' business: none here.
@@ -301,6 +301,40 @@ describe('the card is as tall as what it shows', () => {
 
   it('CONTENT_WIDTH is the card less its 1 px border and 10 px padding on each side', () => {
     expect(CONTENT_WIDTH).toBe(TICKET_WIDTH - 22)
+  })
+})
+
+describe('the second line of actions of a card with Changes (worfy-changes-view ticket 03)', () => {
+  it('a Ticket in work, with a Branch: line or from a worktree branch shows Changes; an open or done one with none does not', () => {
+    expect(showsChanges({ state: 'work' })).toBe(true)
+    expect(showsChanges({ state: 'open', branch: 'feature/cart' })).toBe(true)
+    expect(showsChanges({ state: 'done', fromBranch: 'demo/04' })).toBe(true)
+    expect(showsChanges({ state: 'open', branch: '', fromBranch: null })).toBe(false)
+    expect(showsChanges({ state: 'done' })).toBe(false)
+    expect(showsChanges({ state: 'blocked', branch: null })).toBe(false)
+  })
+
+  it('such a card has one more line of actions, 4 px and a 20 px button; the others keep their height', () => {
+    expect(ACTIONS_LINE).toBe(24)
+    expect(cardHeight({ ...base, state: 'work', changes: true }) - cardHeight({ ...base, state: 'work' })).toBe(ACTIONS_LINE)
+    expect(cardHeight({ ...base, changes: false })).toBe(TICKET_MIN_HEIGHT)
+  })
+
+  it('the layout gives that line by the Ticket: a card in work is ACTIONS_LINE taller than an open one', () => {
+    snapshot = { root: ROOT, pipeline: PIPELINE, tickets: [], error: null }
+    repoNames = ['repo']
+    bridge()
+    const cards = renderCards([ticket(1, { title: 'Short' }), ticket(2, { title: 'Short', state: 'work', statusRaw: 'claimed' }), ticket(3, { title: 'Short', branch: 'feature/cart' })])
+    expect(cards.map((node) => node.height)).toEqual([TICKET_MIN_HEIGHT, TICKET_MIN_HEIGHT + ACTIONS_LINE, TICKET_MIN_HEIGHT + ACTIONS_LINE])
+  })
+
+  it('the action row wraps, right-aligned, within the card: the rule the second line is for', () => {
+    const rules = rulesFor(css('canvas/epic-frame.css'), ['.w-ticket__actions']).filter((rule) => rule.selector === '.w-ticket__actions')
+    const body = rules.map((rule) => rule.body).join('')
+    expect(body).toMatch(/flex-wrap:\s*wrap/u)
+    expect(body).toMatch(/justify-content:\s*flex-end/u)
+    expect(body).toMatch(/max-width:\s*100%/u)
+    expect(body).toMatch(/row-gap:\s*4px/u)
   })
 })
 

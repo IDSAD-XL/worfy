@@ -120,4 +120,110 @@ CI too; the type changes are skipped there, as making a link on Windows needs a 
 
 ## The Changes Node
 
-Not written yet.
+### Behaviour
+
+#### Opening it
+
+A Ticket card has the button **Changes** when the Ticket has something to read: the worktree branch its status came
+from, a `Branch:` line, or work on it (a claimed Ticket). A worktree alone, with neither of these marks, shows no button:
+the card is laid out from the Ticket before the worktrees are read. Such a card has room for a second line of actions,
+and its action buttons wrap onto it, right-aligned, when they do not fit one line. The button carries no count of
+lines. The first
+click puts a Changes Node right of the strip of Epic frames, at the Ticket's height, on the nearest place that covers
+no other Node, and centers the Canvas on it. A second click goes to the Node already there: a Ticket has one Changes
+Node, and a hidden or archived one is shown again first.
+
+**Open changes** in the Command palette does the same for a Ticket with a branch or in work: it centers the Canvas on
+the Ticket's card and opens the Node next to it. When the card is not drawn within two seconds (its frame is
+collapsed), the Node goes right of everything on the Canvas.
+
+A Ticket that turns out to have neither a worktree nor a branch shows that in the Node. Focus mode shows the Node as on
+the Canvas: select a Session and the Changes Node and press Focus.
+
+#### The screen
+
+| Part | What it holds |
+|---|---|
+| Title | `Changes · Ticket 03 · <epic>`; «Read only» on the read-only screen of a Linked machine |
+| First row | The scope menu, then for each repository the base and the head (`origin/main ← <epic>/03`), the merge-base, the number of files (and of workflow files), the lines added and deleted, and Refresh |
+| Second row | Inline or Side by side, Wrap, Hide whitespace, and Compare with the branches to compare against |
+| Left | The tree of files with its filter |
+| Right | The diff of the files of the tree, one under the other |
+
+The scope menu lists what the repository's answer offers: All changes, Uncommitted (only for a Ticket with a
+worktree), and the Ticket's commits under Commit. Compare lists the branches; picking one shows All changes against it.
+The scope picked is kept in the Node, so it is there after a restart; Inline, Wrap, Hide whitespace and the filter
+belong to this screen only. Refresh reads the scopes, the files and the patches again: the screen does not refresh by
+itself.
+
+Counts are digits alone, without a separator of thousands (`+1243`). Added lines take the colours of ready, deleted
+lines those of blocked; there is no syntax highlighting.
+
+#### The tree
+
+The files stand by folder, each with its status letter (A, M, D, R, T) and its lines added and deleted, or «binary». A
+Ticket in several repositories has the repositories as the top level. The files under the Tickets root (`.scratch/`)
+stand last as the group **Workflow files (N)**, folded; the diff shows them only while the group is open. With more
+than 300 files every folder comes folded.
+
+The filter keeps the files whose path, or old path, holds its text in any case. It opens the folders and the workflow
+group that keep a match, says «N of M files», and the diff shows the same files. A filter that keeps none says so.
+
+#### The diff
+
+Each file has a header with its status, its path (`old → new` for a rename), its counts and a button that folds the
+file. Inline draws one row per line with the numbers of both sides. Side by side draws the old side on the left and the
+new side on the right: a run of deleted lines stands beside the run of added lines that follows it, and the longer run
+goes on with the other side empty. Wrap wraps long lines; without it a line wider than the diff is cut at its edge.
+Hide whitespace reads the files and the patches again without changes of spaces and line endings.
+
+A large file, a lock file and a generated file come folded: «Large diff · N lines · Show» (or «Lock file», «Generated
+file»), and Show reads the whole patch. A binary file shows the sizes of its two sides: «Binary file · 12 KB → 14 KB».
+A file whose text did not change shows its change of mode.
+
+#### Keys
+
+With the focus in the Node (a click anywhere in it): `j` and `k` select the next and the previous file and scroll to
+it, `n` and `p` scroll to the next and the previous hunk. The keys do nothing while typing in the filter.
+
+#### Size
+
+A file's patch is read only when the file comes within reach of the screen. The diff draws only the blocks — a
+file's header, a hunk, a note — on the screen and two screens above and below it; the rest stand as empty space of
+their height, so a Ticket of 300 files or a file of 2 000 lines draws a few screens.
+
+#### On a Linked machine
+
+The Node reads the diff on the Machine of the Project, with read-only access too. A read-only screen cannot put a new
+Node on the Canvas: the button and the palette row are inactive there until the Node exists, and then go to it. The
+scope picked there stays on that screen.
+
+### How it works
+
+The Node keeps its subject, the Ticket, and its scope in its data in the Layout; its id is `changes:<epic>/<num>`.
+Everything it shows comes from the four reading channels above, asked with the Ticket's `Branch:` and `Repo:` lines.
+The new Node is placed the way a Session started from the card is, and main corrects any overlap anyway
+([ADR-0038](../adr/0038-nodes-never-overlap.md)). The kind has no colour of its own
+([ADR-0077](../adr/0077-node-kind-tokens.md)): a new Node type is neutral.
+
+The palette is drawn outside the Canvas and cannot see where a card is, so it leaves a request that the card's
+button takes once the card is drawn.
+
+The diff is drawn by windows, without a library: each block has the height its rows give until it is drawn, and its
+measured height after.
+
+### Implementation
+
+- `src/renderer/canvas/nodes/ChangesNode.tsx` — the Node: its data, the reads, the keys.
+- `src/renderer/changes/ScopeBar.tsx`, `src/renderer/changes/FileTree.tsx`, `src/renderer/changes/DiffPane.tsx` — the
+  head, the tree and the diff; `src/renderer/changes/changes.css` — their look.
+- `src/renderer/changes/diff-window.ts` — the window of the diff, the rows of Side by side, the order of the tree, the
+  words of sizes and counts.
+- `src/renderer/changes/open.ts` — one Node per Ticket, where a new one goes, the palette's request to the card.
+- `src/renderer/canvas/actions/Changes.tsx` — the button on the card; Open changes — `src/renderer/palette/commands.ts`.
+
+Tests: `test/unit/changes-view.test.tsx` (the head and its scope menu from the answer, Inline and Side by side, Wrap,
+Hide whitespace, a folded large file and a binary file, Workflow files, the filter, the folders of 301 files, the keys,
+the window), `test/unit/canvas-actions.test.tsx` (where the button is, where the Node goes, the second click),
+`test/unit/palette-commands.test.tsx` (Open changes and the read-only screen), `test/e2e/changes.spec.ts` (the card,
+the files and lines against `git diff <merge-base>`, the palette, 300 files and a file of 2 100 lines folded).
