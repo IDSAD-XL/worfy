@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-19T04:04Z
+PR: #2030
 Blocked by: 04, 05
 Source: [spec.md](../spec.md), «Ticket-ы», 8; «Проблема», пункты «Codex» и «Прочее»; «Решение», пункты 1, 4 и 5;
 «Починка», строки Codex, Browser profile, Linked machine; «Решения по реализации», 5; «Решения по test-ам»; «Решения
