@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react'
 import { z } from 'zod'
 import { imageMediaTypeSchema } from '../../shared/agent/attachments'
 import { isArchived, type Layout } from '../../shared/layout/types'
-import type { PendingRound, QuoteComment, SentQuote, SentRound } from './quote-comments'
+import { onMessages, type PendingRound, type QuoteComment, type SentQuote, type SentRound } from './quote-comments'
 
 // The comments of a Session's agent messages (worfy-polish ticket 102, quote-comments.ts): the ones
 // not sent yet, which the tray above the input field holds; the rounds sent and waiting in the
@@ -20,9 +20,16 @@ import type { PendingRound, QuoteComment, SentQuote, SentRound } from './quote-c
 //   a Node keeps the entries of its SESSIONS_KEPT Sessions changed last, and an older one goes.
 // - A sent round keeps its message's text once (SentRound); SENT_KEPT sent quotes stay per Session,
 //   the newest; older ones lose their dim light, and a round with no quote left goes.
+// - A comment is on a quote of an agent's message or on lines of code (quote-comments.ts, CodeComment;
+//   worfy-changes-view ticket 04). Schema `v: 3` holds both; an entry of `v: 2`, written before
+//   comments on code, holds comments on quotes alone and reads as it is, and its next write is `v: 3`.
+//   A sent comment on code keeps no dim light here: its block in the bubble is read from the message.
 // - An entry the storage cannot hold is kept in this window alone while it is open: the listeners of
 //   onQuoteStoreError hear of it (the Session view shows it). An entry that does not read as one
 //   (another version wrote it, or it is damaged) reads as none.
+// - The comments of an entry, in the tray and in each waiting round, read one by one: a comment that
+//   does not read as one is dropped alone, and the rest of the entry stays. addDraft takes no comment
+//   on code the schema would drop at the next read, and puts the lines of one in order.
 
 const PREFIX = 'worfy.quotes:'
 
@@ -43,10 +50,34 @@ export function quoteKey(projectId: string, nodeId: string, sessionId: string): 
 const imageSchema = z.object({ kind: z.literal('image'), name: z.string(), mediaType: imageMediaTypeSchema, size: z.number(), ref: z.string().regex(/^[0-9a-f]{64}$/) })
 const rangeFields = { id: z.string(), anchor: z.string(), start: z.number().int().nonnegative(), end: z.number().int().nonnegative(), quote: z.string(), text: z.string() }
 const commentSchema = z.object({ ...rangeFields, images: z.array(imageSchema), messageAt: z.number().nullable(), at: z.number() })
-const pendingSchema = z.object({ id: z.string(), message: z.string(), at: z.number(), comments: z.array(commentSchema) })
+const line = z.number().int().positive()
+const codeSchema = z
+  .object({
+    kind: z.literal('code'),
+    id: z.string(),
+    path: z.string().min(1),
+    repository: z.string(),
+    side: z.enum(['old', 'new']),
+    startLine: line,
+    endLine: line,
+    code: z.string(),
+    commit: z.string().regex(/^[0-9a-f]{4,64}$/).nullable(),
+    subject: z.object({ kind: z.literal('ticket'), epic: z.string(), number: z.string() }),
+    worktree: z.string(),
+    branch: z.string(),
+    text: z.string(),
+    images: z.array(imageSchema),
+    at: z.number(),
+  })
+  .refine((each) => each.endLine >= each.startLine)
+const draftSchema = z.union([codeSchema, commentSchema])
+// The comments read one by one (oneByOne), so the entry itself takes any item.
+const pendingSchema = z.object({ id: z.string(), message: z.string(), at: z.number(), comments: z.array(z.unknown()) })
 const roundSchema = z.object({ id: z.string(), message: z.string(), at: z.number() })
 const sentSchema = z.object({ ...rangeFields, round: z.string(), images: z.number().int().nonnegative(), number: z.number().int().positive() })
-const entrySchema = z.object({ v: z.literal(2), at: z.number(), drafts: z.array(commentSchema), pending: z.array(pendingSchema), rounds: z.array(roundSchema), sent: z.array(sentSchema) })
+/** The schema this version writes; an entry of `v: 2` still reads (its comments are all on quotes). */
+const VERSION = 3
+const entrySchema = z.object({ v: z.union([z.literal(2), z.literal(VERSION)]), at: z.number(), drafts: z.array(z.unknown()), pending: z.array(pendingSchema), rounds: z.array(roundSchema), sent: z.array(sentSchema) })
 
 /** The comments of one Session. */
 export interface QuoteState {
@@ -61,6 +92,13 @@ export interface QuoteState {
 export const EMPTY_QUOTES: QuoteState = { drafts: [], pending: [], rounds: [], sent: [], at: 0 }
 
 const isEmpty = (state: QuoteState): boolean => state.drafts.length === 0 && state.pending.length === 0 && state.sent.length === 0
+
+/** The items that read as comments; the others are dropped alone. */
+const oneByOne = (items: readonly unknown[]): QuoteComment[] =>
+  items.flatMap((each) => {
+    const parsed = draftSchema.safeParse(each)
+    return parsed.success ? [parsed.data] : []
+  })
 
 let entries: Map<string, QuoteState> | null = null
 const pending = new Set<string>()
@@ -79,7 +117,12 @@ function known(): Map<string, QuoteState> {
       if (!name?.startsWith(PREFIX)) continue
       try {
         const parsed = entrySchema.safeParse(JSON.parse(storage.getItem(name) ?? 'null'))
-        if (parsed.success) entries.set(name.slice(PREFIX.length), parsed.data)
+        if (parsed.success) {
+          // Memory keeps no schema version: the next write is this version's.
+          const { at, drafts, pending: waiting, rounds, sent } = parsed.data
+          const state: QuoteState = { at, drafts: oneByOne(drafts), pending: waiting.map((each) => ({ ...each, comments: oneByOne(each.comments) })), rounds, sent }
+          if (!isEmpty(state)) entries.set(name.slice(PREFIX.length), state)
+        }
       } catch {
         // Not JSON: no comments.
       }
@@ -99,7 +142,7 @@ function store(key: string): void {
   const state = known().get(key)
   try {
     if (state === undefined || isEmpty(state)) globalThis.localStorage.removeItem(PREFIX + key)
-    else globalThis.localStorage.setItem(PREFIX + key, JSON.stringify({ v: 2, ...state }))
+    else globalThis.localStorage.setItem(PREFIX + key, JSON.stringify({ ...state, v: VERSION }))
   } catch (error) {
     console.error('[quotes] could not keep the comments of a Session', error)
     for (const listener of [...errorListeners]) listener(error)
@@ -149,9 +192,19 @@ export function changeQuotes(key: string, change: (state: QuoteState) => QuoteSt
   tell()
 }
 
-/** Adds a comment, or puts a deleted one back. */
-export function addDraft(key: string, comment: QuoteComment): void {
-  changeQuotes(key, (state) => ({ ...state, drafts: [...state.drafts.filter((each) => each.id !== comment.id), comment] }))
+/**
+ * Adds a comment, or puts a deleted one back; answers false, adding nothing, for a comment on code
+ * that would not read back after a restart (no file, a commit that is no hash). The lines of a
+ * comment on code selected from the bottom up are put in order.
+ */
+export function addDraft(key: string, comment: QuoteComment): boolean {
+  const added = comment.kind === 'code' && comment.startLine > comment.endLine ? { ...comment, startLine: comment.endLine, endLine: comment.startLine } : comment
+  if (added.kind === 'code' && !codeSchema.safeParse(added).success) {
+    console.error('[quotes] a comment on code of a wrong shape was not added', added)
+    return false
+  }
+  changeQuotes(key, (state) => ({ ...state, drafts: [...state.drafts.filter((each) => each.id !== added.id), added] }))
+  return true
 }
 
 /** Changes the text and the images of a comment. */
@@ -189,7 +242,7 @@ export function settlePending(key: string, id: string, how: 'sent' | 'back'): Pe
       rounds: [...state.rounds, { id: round.id, message: round.message, at: round.at }],
       sent: [
         ...state.sent,
-        ...round.comments.map((each, index): SentQuote => ({ id: each.id, round: round.id, anchor: each.anchor, start: each.start, end: each.end, quote: each.quote, text: each.text, images: each.images.length, number: index + 1 })),
+        ...onMessages(round.comments).map((each, index): SentQuote => ({ id: each.id, round: round.id, anchor: each.anchor, start: each.start, end: each.end, quote: each.quote, text: each.text, images: each.images.length, number: index + 1 })),
       ],
     }
   })

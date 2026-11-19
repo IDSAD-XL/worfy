@@ -257,6 +257,16 @@ at most, and an image's long side is scaled down to 1568 pixels before main chec
   bytes); the comment names it, and no image bytes go into the window's storage. A round after a restart reads the image
   back from there; one that is gone is refused with "attach it again". When the window's storage refuses to save the
   comments, a notice says they stay in this window until it closes.
+- A comment may be on lines of a file of a diff instead, made in Changes. It names its file, side (old or new), lines
+  and commit (or "uncommitted"), keeps the text of those lines, and takes images within the same limits. It stands in
+  the same tray, after the comments on messages: the tray then says "N comments · M on code", and its chip shows
+  `path:lines`. Send sends it in the same message, in a second section after the comments on messages: "Comments on
+  lines of the diff (N), worktree …, branch …:", then per comment `path:lines (new side, commit 9f8e7d6)`, the lines as
+  `> ` lines, the comment and its `[image N]` marks; the images are numbered across both sections. Code over 6 lines is
+  cut in the middle with "…" for the agent. The user's message draws a block per comment on code: its file and lines,
+  the code folded to three lines with "Show all", the comment and its images, read from the message's text. A sent
+  comment on code leaves no dim light in the transcript. Comments kept before comments on code read as they were. A kept
+  comment that no longer reads back is dropped alone: the other comments of the tray and of a waiting round stay.
 
 **Session view.** The second view of the window, beside the Canvas. Its header holds the title ("Orchestrator" or "Session"
 and the Project), the Vendor badge of a Session Node, the state chip, the Session picker, Model, Effort, Permissions, Cost,
