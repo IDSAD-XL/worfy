@@ -1,7 +1,8 @@
 # 02 — Чтение diff-а Ticket-а в main: только чтение git, база, scope-ы, каналы `changes.*`, новый ADR
 
 Type: task
-Status: claimed 2026-11-19T12:55Z
+Status: done 2026-11-19T16:51Z
+PR: #2038
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реализации — часть 1»: «Только чтение git», «Предмет части
 1», «База», «Scope-ы части 1», «Каналы», «Предел размера», «Файлы workflow», «Windows», «ADR»; «Решения по test-ам —
@@ -59,26 +60,34 @@ Windows runner-е CI. Глубина ревью — `high`: чтение ряд�
       пробелами и не-ASCII, свёрнутый большой и lock-файл.
   - evidence: test-run pass · `pnpm test test/unit/changes-parse.test.ts` exit 0 · mac - · 18defe1ba882e1530fb326028f3018775608a174
   - evidence: test-run pass · `pnpm test test/unit/changes-parse.test.ts` exit 0 · mac - · 1f0132f12e24fb49a2679caca52aadfc3aa536e9
+  - evidence: review pass · PR #2038 · - - · 6f45641f04bc3a8cbe176d0d238af340f6ad9a12
 - [ ] Unit test-ы (`test/unit/changes-base.test.ts`): база по `worktree.base`, по запасному порядку, без `origin` с
       `local-green`.
   - evidence: test-run pass · `pnpm test test/unit/changes-base.test.ts` exit 0 · mac - · 18defe1ba882e1530fb326028f3018775608a174
   - evidence: test-run pass · `pnpm test test/unit/changes-base.test.ts` exit 0 · mac - · 1f0132f12e24fb49a2679caca52aadfc3aa536e9
+  - evidence: review pass · PR #2038 · - - · 6f45641f04bc3a8cbe176d0d238af340f6ad9a12
 - [ ] Contract test (`test/contract/changes-read.test.ts`, временный репозиторий, `NO_GIT_MAINTENANCE` —
       `test/git-env.ts:14`): worktree против merge-base с новыми файлами, Commit, Uncommitted, Compare against; Ticket
       в двух репозиториях.
   - evidence: test-run pass · `pnpm test test/contract/changes-read.test.ts` exit 0 · mac - · 18defe1ba882e1530fb326028f3018775608a174
   - evidence: test-run pass · `pnpm test test/contract/changes-read.test.ts` exit 0 · mac - · 1f0132f12e24fb49a2679caca52aadfc3aa536e9
+  - evidence: review pass · PR #2038 · - - · 6f45641f04bc3a8cbe176d0d238af340f6ad9a12
 - [ ] Contract test: после всех чтений байты и mtime `.git/index` прежние, новых refs и объектов нет.
   - evidence: test-run pass · `pnpm test test/contract/changes-read.test.ts` exit 0 · mac - · 18defe1ba882e1530fb326028f3018775608a174
   - evidence: test-run pass · `pnpm test test/contract/changes-read.test.ts` exit 0 · mac - · 1f0132f12e24fb49a2679caca52aadfc3aa536e9
+  - evidence: review pass · PR #2038 · - - · 6f45641f04bc3a8cbe176d0d238af340f6ad9a12
 - [ ] Те же contract test-ы зелёные на Windows runner-е CI.
+  - evidence: ci-check pass · run 44562808956, job 135723149305 · ci - · 6f45641f04bc3a8cbe176d0d238af340f6ad9a12
 - [ ] Новый ADR влит; в контексте — «решено без владельца 2026-11-19, подтвердить».
+  - evidence: review pass · PR #2038 · - - · 6f45641f04bc3a8cbe176d0d238af340f6ad9a12
 - [ ] Английская страница `docs/features/changes.md` описывает чтение; `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 18defe1ba882e1530fb326028f3018775608a174
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 1f0132f12e24fb49a2679caca52aadfc3aa536e9
+  - evidence: review pass · PR #2038 · - - · 6f45641f04bc3a8cbe176d0d238af340f6ad9a12
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 18defe1ba882e1530fb326028f3018775608a174
   - evidence: gate pass · `gate fast` exit 0 · mac - · 1f0132f12e24fb49a2679caca52aadfc3aa536e9
+  - evidence: ci-check pass · run 44562808956, job 135723149305 · ci - · 6f45641f04bc3a8cbe176d0d238af340f6ad9a12
 
 ## Где в коде
 
