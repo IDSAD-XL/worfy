@@ -7,9 +7,7 @@
 - Stable copy и plugin `worfy` на Mac и ПК — `0.3.0+bacbbcef` (2026-11-03). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` ([spec](.scratch/worfy-link/spec.md)): закрыт, 42/42, принят владельцем 2026-11-02; 41 (дубль сообщения) и 42 (поток строк смены сети) — проверка после Stable.
 - `worfy-windows` (ADR 0054–0057, 0062, 0063, 0069, 0071; прошлое — «Итог» 39, 60, 66, 67): 119/120; влиты 118–120; 15 и 118 вместе прошли зелёный gate full на ПК (`5557f744`). Осталась приёмка 16; красный только на Windows — fix или Windows exception (Q1/Q9).
-- `worfy-terminal-ai` (ADR-0058): закрыт, 17/17, принят владельцем 2026-11-02.
 - `worfy-terminal-ssh` (Terminal AI в SSH session; [spec](.scratch/worfy-terminal-ssh/spec.md), подтверждён владельцем 2026-10-18) — **отложен владельцем 2026-10-21**: 0/10; spike 01 blocked — ждёт сервер.
-- `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): закрыт, 28/28, принят владельцем 2026-11-02; долги — «Итог» 03–06, 09, 10, 13–15.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
 - `worfy-polish`: 79/86; 78, 85, 86 влиты в ночь на 11-10 (#1759, #1760, #1756); 47 (flaky Windows) закрыть после Windows-job-ов main до 11-12; 75, 77 ждут взгляда владельца. Дальше 81, 83, 84 и новый 87 (flaky `beforeAll` в `affected-tests.test.ts`). Новые: 127, 128.
 - `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 63/66; 63–65 влиты 11-09 (#1730, #1733, #1734); открыты 05, 43; 31 закрыт 11-09. 43: eco у друга.
@@ -17,26 +15,25 @@
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10; 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 24/24; 24 — картинки на Linked machine (#1018), три решения — подтвердить владельцу.
 - `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 18/19; 18 — #1008, ADR-0087. 19 (эмуляция устройств) — ждёт владельца, не брать.
-- `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): закрыт, 16/16, принят владельцем 2026-11-02 (Mac). `worfy-guide`: закрыт, 21/21.
 - `worfy-flight-recorder` (ADR-0091, 28/28) и `worfy-resource-planner` (12/12): закрыты, приняты владельцем 2026-11-01; Windows-часть FR 25 не проводилась.
 - `worfy-autopilot-queue` (очередь Epic-ов и старт Autopilot при занятом Orchestrator-е; [spec](.scratch/worfy-autopilot-queue/spec.md)): приёмка 20 принята владельцем 2026-11-07. Открыт 21 — «Start anyway» в окне очереди и последний Epic, ждущий владельца (Q1, Q2 приёмки).
-- `worfy-work-track` (Work track во вкладке Runs; [spec](.scratch/worfy-work-track/spec.md)): закрыт, 13/13, принят владельцем 2026-11-07.
 - `worfy-multi-vendor`: 45/46, код в main; осталась 43 (приёмка владельца). Подтвердить: «Итог» 16, 17, 21–23, 25–29, 31, 33–42, 44, 45 (`additionalContextLimit`), 46, ADR-0095; `high` 19–21. Должен: gate full ПК на `c4eb4117`.
 - `worfy-retry` закрыт 14/14, принят владельцем 2026-11-07. Spec `worfy-auto-approve` принят 11-04; `worfy-faults` 8/8 принят 11-06; `worfy-failures` закрыт 10/10, подтвердить его «Итог» 09.
-- `worfy-evidence` закрыт 13/13, принят владельцем 11-07 на Mac и ПК («Итог» `worfy-evidence` 09).
 - `worfy-product-session`: 20/32; 19–32 влиты 11-09 (32 — Live summary от Haiku, #1743); 08, 21, 23, 26–32 ждут взгляда владельца в Mac Stable. Дальше 15; 17 после 15.
 - `worfy-scrub`: guard `scripts/check-personal.mjs` блокирует `pnpm lint` (06); слова — только `<Harness home>/user/privacy.json` владельца, хэши — `--hash-from`.
 - `worfy-human-review`: закрыт 14/14; 12 принят владельцем 11-09.
 - `worfy-multi-repo-ticket` ([spec](.scratch/worfy-multi-repo-ticket/spec.md), ADR-0104): 6/8; 01–05, 07 влиты (04 — #1752, 05 — #1758); дальше 06, 08.
 - `worfy-pr-inbox` ([spec](.scratch/worfy-pr-inbox/spec.md)): 3/8; 01, 02, 08 влиты в ночь на 11-10 (#1754, #1755, #1761); дальше 03–07.
-- `worfy-continuity` (ADR-0108): закрыт 16/16, принят владельцем 2026-11-19.
 - `worfy-pr-follow` ([spec](.scratch/worfy-pr-follow/spec.md)): часть 1 — 7/7, принята 2026-11-19; часть 2 (PR watch) — после auth-check и changes-view.
 - `worfy-auth-check` ([spec](.scratch/worfy-auth-check/spec.md)): 0/10; Wave 1: 01, 02, 03; 02 ждёт тестера.
+- `worfy-changes-view`: 3/7; 03 VERIFIED (#2043), ждёт #1513; 05–07 ждут 03.
 
 ## Ждёт владельца
 
 - Приёмки, старшие первыми: `worfy-multi-vendor` 43 (Mac Stable, затем ПК) → `worfy-windows` 16 → по готовности кода `worfy-auto-approve` 11; и ручные проверки (Mac и ПК, ~30 мин) — [пошаговые гайды](.scratch/owner-acceptance-guides.md).
 - `worfy-windows` 07 закрыт (#1127, отступления Q31 подтвердить).
+- #1513 (`pc-main-red`, `icacls` на ПК, с 11-06) держит #2043 (`worfy-changes-view` 03) и 05–07, хотя с 11-17 влито ≥12 PR scope `pc` (`land` его не читает): закрыть #1513 после gate full на ПК или влить #2043?
+- `worfy-changes-view` 03, без владельца: строка действий карточки переносится (+24 px), Changes — текстом.
 - Владелец в Mac Stable: экран Product Session рядом с прототипом (`worfy-product-session` 08, 21, 23), polish 75, 77 и Product Session 26–32 (в 32 — первый настоящий вызов Haiku).
 
 ## Риски и долги
@@ -79,6 +76,7 @@
 - `worfy-daily` (E2, Autopilot, 32/32) закрыт — [spec](.scratch/worfy-daily/spec.md); условия 3 и 4 готовности E2 ещё не выполнены (`docs/roadmap.md`, E2).
 - `worfy-week` (20/20) — [spec](.scratch/worfy-week/spec.md); условия готовности на 2026-10-08 — «Итог» Ticket-а 12.
 - `worfy-reliability` (9/9) закрыт — [spec](.scratch/worfy-reliability/spec.md); долги — «Итог» Ticket-ов 05, 07, 08, 09.
+- Закрыты и приняты владельцем: `worfy-terminal-ai` (17/17), `worfy-ui` (28/28), `worfy-work-track` (13/13), `worfy-continuity` (16/16), `worfy-update` (16/16, ADR-0089), `worfy-guide` (21/21), `worfy-evidence` (13/13, Mac и ПК); долги — «Итог» их Ticket-ов.
 - Spec-и всех Epic-ов — `.scratch/<epic>/spec.md`.
 - Этапы E1–E4 — [roadmap](docs/roadmap.md).
 - Исследования внешних проектов — [docs/research/](docs/research/).
