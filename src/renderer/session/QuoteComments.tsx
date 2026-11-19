@@ -7,7 +7,7 @@ import { label as shortcutLabel, matches as matchesShortcut } from '../shortcuts
 import { dismissToast, showToast } from '../toast/toasts'
 import { readCommentImage } from './comment-image'
 import type { OutgoingMessage } from './MessageInput'
-import { anchorRange, chipWords, composeRound, imageRefusal, inTextOrder, overlapping, squash, trimRange, type CommentImage, type QuoteComment } from './quote-comments'
+import { anchorRange, chipWords, composeRound, imageRefusal, inTextOrder, linesLabel, onMessages, overlapping, squash, trimRange, type CommentImage, type QuoteComment } from './quote-comments'
 import { ClockIcon, CommentPopover, ContextMenu, HoverCard, ImageIcon, QuoteIcon, SelectionButton, type Menu, type MenuItem, type Popover, type Selected, type Selection } from './QuoteCommentParts'
 import { onQueuedMessageRemoved } from './queue-removals'
 import { addDraft, editDraft, imageDataOf, keepImageData, markPending, onQuoteStoreError, readQuotes, removeDrafts, settlePending, useQuotes } from './quote-store'
@@ -156,9 +156,13 @@ export interface QuoteCommentsLayer {
 /** The comments on quotes of one Session view. */
 export function useQuoteComments({ storeKey, sessionId, log: logRef, assistant, refusal, prompts }: QuoteCommentsOptions): QuoteCommentsLayer {
   const quotes = useQuotes(storeKey)
-  const { drafts, sent, rounds } = quotes
+  const { sent, rounds } = quotes
+  // Every comment of the round: the ones on code too (worfy-changes-view ticket 04), which the tray
+  // lists and Send sends; the transcript lights, selects and edits the ones on messages alone.
+  const all = quotes.drafts
+  const drafts = useMemo(() => onMessages(all), [all])
   // A waiting round is lit as a sent one: it is on its way, and no longer the tray's.
-  const waiting = useMemo(() => quotes.pending.flatMap((round) => round.comments), [quotes.pending])
+  const waiting = useMemo(() => onMessages(quotes.pending.flatMap((round) => round.comments)), [quotes.pending])
   const [selection, setSelection] = useState<Selection | null>(null)
   const [menu, setMenu] = useState<Menu | null>(null)
   const [popover, setPopoverState] = useState<Popover | null>(null)
@@ -366,7 +370,7 @@ export function useQuoteComments({ storeKey, sessionId, log: logRef, assistant, 
     else editDraft(storeKey, id, { text, images: open.images })
     setPopover(null)
     flashOn(id)
-    say(open.id === null ? `Comment saved. ${plural(drafts.length + 1, 'comment')} in the reply.` : 'Comment updated.')
+    say(open.id === null ? `Comment saved. ${plural(all.length + 1, 'comment')} in the reply.` : 'Comment updated.')
   }
 
   const remove = useCallback(
@@ -404,7 +408,7 @@ export function useQuoteComments({ storeKey, sessionId, log: logRef, assistant, 
     for (const file of images) {
       const open: Popover | null = popoverNow.current
       if (open === null) return
-      const others = drafts.filter((each) => each.id !== open.id).reduce((sum, each) => sum + each.images.length, 0)
+      const others = all.filter((each) => each.id !== open.id).reduce((sum, each) => sum + each.images.length, 0)
       const refused = imageRefusal(open.images.length + open.reading, others)
       if (refused !== null) {
         setPopover({ ...open, error: refused })
@@ -622,7 +626,7 @@ export function useQuoteComments({ storeKey, sessionId, log: logRef, assistant, 
   const compose = useCallback(
     async (message: OutgoingMessage): Promise<{ message: OutgoingMessage; round: QuoteComment[] } | { error: string }> => {
       // The bytes of images this window did not read (before a restart) come back from main's copies.
-      const missing = drafts.flatMap((each) => each.images).filter((image) => imageDataOf(image.ref) === undefined)
+      const missing = all.flatMap((each) => each.images).filter((image) => imageDataOf(image.ref) === undefined)
       if (missing.length > 0 && sessionId !== null) {
         const result = await invoke('agent.attach', { sessionId, sources: missing.map((image) => ({ kind: 'kept' as const, name: image.name, ref: image.ref, mediaType: image.mediaType })) })
         if (!result.ok) return { error: result.error }
@@ -637,9 +641,9 @@ export function useQuoteComments({ storeKey, sessionId, log: logRef, assistant, 
         const data = imageDataOf(image.ref)
         return data === undefined ? undefined : { kind: 'image', name: image.name, mediaType: image.mediaType, size: image.size, data }
       }
-      return composeRound(drafts, message, imageOf)
+      return composeRound(all, message, imageOf)
     },
-    [drafts, sessionId],
+    [all, sessionId],
   )
 
   const markRoundSent = useCallback(
@@ -695,8 +699,9 @@ export function useQuoteComments({ storeKey, sessionId, log: logRef, assistant, 
   )
 
   // ── drawing ─────────────────────────────────────────────────────────────────────────────────
-  const ordered = useMemo(() => inTextOrder(drafts), [drafts])
-  const messages = new Set(ordered.map((each) => each.anchor)).size
+  const ordered = useMemo(() => inTextOrder(all), [all])
+  const messages = new Set(drafts.map((each) => each.anchor)).size
+  const onCode = ordered.length - drafts.length
   // A round sent and not gone to the agent yet: one line each, with «Back to drafts» for a message
   // that will not go (its queue went with a closed Session, or another window removed it). A prompt
   // that comes after that finds no waiting round: the comments stay drafts, counted once.
@@ -721,7 +726,7 @@ export function useQuoteComments({ storeKey, sessionId, log: logRef, assistant, 
         <div className="w-qtray__head">
           <QuoteIcon />
           <span>
-            <b>{plural(ordered.length, 'comment')}</b> {messages === 1 ? 'on this message' : `on ${messages} messages`} — sent together with your text
+            <b>{plural(ordered.length, 'comment')}</b> {onCode > 0 ? `· ${onCode} on code` : messages === 1 ? 'on this message' : `on ${messages} messages`} — sent together with your text
           </span>
           <span className="w-qtray__spacer" />
           <button type="button" className="w-qtray__link" data-testid="quote-tray-clear" onClick={() => remove(ordered.map((each) => each.id))}>
@@ -731,18 +736,27 @@ export function useQuoteComments({ storeKey, sessionId, log: logRef, assistant, 
         <ul className="w-qtray__chips" aria-label="Comments in this reply">
           {ordered.map((each, index) => (
             <li key={each.id} className={`w-qtray__chip${hover?.id === each.id ? ' w-qtray__chip--hover' : ''}`} data-testid="quote-chip" onMouseEnter={() => setHover({ id: each.id, rect: new DOMRect(), card: false })} onMouseLeave={() => setHover(null)}>
-              <button
-                type="button"
-                className="w-qtray__go"
-                title={each.text || 'Image only'}
-                aria-label={`Comment ${index + 1} on «${squash(each.quote).slice(0, 50)}». Show it.`}
-                data-testid="quote-chip-go"
-                onClick={() => goToLight(each.id, true)}
-              >
-                <span className="w-qtray__n w-mono">{index + 1}</span>
-                <span className="w-qtray__q">«{chipWords(each.quote)}»</span>
-                {each.images.length > 0 ? <ImageIcon /> : null}
-              </button>
+              {each.kind === 'code' ? (
+                // A comment on code names its file and lines; the way to them in Changes is worfy-changes-view ticket 05.
+                <span className="w-qtray__go" title={each.text || 'Image only'} aria-label={`Comment ${index + 1} on ${linesLabel(each.path, each.startLine, each.endLine)}`} data-testid="quote-chip-code">
+                  <span className="w-qtray__n w-mono">{index + 1}</span>
+                  <span className="w-qtray__q w-mono">{linesLabel(each.path, each.startLine, each.endLine)}</span>
+                  {each.images.length > 0 ? <ImageIcon /> : null}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="w-qtray__go"
+                  title={each.text || 'Image only'}
+                  aria-label={`Comment ${index + 1} on «${squash(each.quote).slice(0, 50)}». Show it.`}
+                  data-testid="quote-chip-go"
+                  onClick={() => goToLight(each.id, true)}
+                >
+                  <span className="w-qtray__n w-mono">{index + 1}</span>
+                  <span className="w-qtray__q">«{chipWords(each.quote)}»</span>
+                  {each.images.length > 0 ? <ImageIcon /> : null}
+                </button>
+              )}
               <button type="button" className="w-qtray__x" aria-label={`Remove comment ${index + 1}`} data-testid="quote-chip-remove" onClick={() => remove([each.id])}>
                 ×
               </button>
@@ -825,7 +839,7 @@ export function useQuoteComments({ storeKey, sessionId, log: logRef, assistant, 
   return {
     overlay: typeof document === 'undefined' ? overlay : createPortal(overlay, document.body),
     tray,
-    count: drafts.length,
+    count: all.length,
     compose,
     sent: markRoundSent,
     jump,

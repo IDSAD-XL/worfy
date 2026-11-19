@@ -21,7 +21,7 @@ import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import type { Attachment, AttachResult } from '../../src/shared/agent/attachments'
 import type { AgentEvent, AgentEventEnvelope } from '../../src/shared/agent/events'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import { composeRound, parseQuoted, type CommentImage, type QuoteComment } from '../../src/renderer/session/quote-comments'
+import { composeRound, parseQuoted, type CommentImage, type MessageComment } from '../../src/renderer/session/quote-comments'
 import { APP_URL } from '../app-url'
 
 vi.mock('electron', () => ({ app: { isPackaged: false, getAppPath: () => '/nowhere', on: vi.fn() } }))
@@ -103,7 +103,7 @@ async function harness() {
   return { ok, events, start, messages, keep, readBack, imagesOf }
 }
 
-const comment = (id: string, fields: Partial<QuoteComment>): QuoteComment => ({ id, anchor: 'msg_1#0', start: 0, end: 4, quote: 'quote', text: '', images: [], messageAt: null, at: 1, ...fields })
+const comment = (id: string, fields: Partial<MessageComment>): MessageComment => ({ id, anchor: 'msg_1#0', start: 0, end: 4, quote: 'quote', text: '', images: [], messageAt: null, at: 1, ...fields })
 
 describe('a round of comments through agent.send', () => {
   it('reaches Claude Code as one message: the comments’ images in order, then the field’s, and the text with its [image N] marks', async () => {

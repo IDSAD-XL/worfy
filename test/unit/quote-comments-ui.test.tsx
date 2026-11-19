@@ -3,7 +3,8 @@
 // field and its chips, the round as it goes to the agent and as it stays afterwards, and the bubble
 // of a sent message with its quote blocks — in the transcript after a restart too; a round that waits
 // in the Session's queue, and goes back to the tray when its message leaves it unsent; images kept by
-// main and read back for a round; a write the storage refuses, shown.
+// main and read back for a round; a write the storage refuses, shown. Comments on lines of code
+// (worfy-changes-view ticket 04) in the same tray, «N comments · M on code», and their blocks in the bubble.
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -15,7 +16,7 @@ import type { AgentEvent } from '../../src/shared/agent/events'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import { useQuoteComments, type QuoteCommentsLayer, type QuoteCommentsOptions } from '../../src/renderer/session/QuoteComments'
 import { queuedMessageRemoved } from '../../src/renderer/session/queue-removals'
-import { agentText, parseQuoted, quoteAnchor, type CommentImage, type QuoteComment } from '../../src/renderer/session/quote-comments'
+import { agentItems, agentText, parseQuoted, quoteAnchor, type CodeComment, type CommentImage, type QuoteComment } from '../../src/renderer/session/quote-comments'
 import { addDraft, flushQuotes, forgetQuotesInMemory, imageDataOf, readQuotes } from '../../src/renderer/session/quote-store'
 import { QuotedPrompt } from '../../src/renderer/session/QuotedPrompt'
 import { SentQuotesContext } from '../../src/renderer/session/sent-quotes'
@@ -450,6 +451,58 @@ describe('the tray above the input field', () => {
   })
 })
 
+describe('comments on lines of code in the tray (worfy-changes-view ticket 04)', () => {
+  const onCode = (id: string, fields: Partial<CodeComment> = {}): CodeComment => ({
+    kind: 'code',
+    id,
+    path: 'src/main/changes/git.ts',
+    repository: '/repo',
+    side: 'new',
+    startLine: 11,
+    endLine: 11,
+    code: 'const READ_ONLY = 1',
+    commit: null,
+    subject: { kind: 'ticket', epic: 'worfy-changes-view', number: '03' },
+    worktree: '.claude/worktrees/03',
+    branch: 'worfy-changes-view/03',
+    text: 'Why?',
+    images: [],
+    at: 1,
+    ...fields,
+  })
+
+  it('counts them «N comments · M on code», lists them after the comments on messages as `path:lines`, and sends them in the same round', async () => {
+    render(<Harness />)
+    await commentOn('m1#0', 'the lint step', 'Keep it.')
+    act(() => {
+      addDraft(storeKey, onCode('k2', { path: 'src/renderer/changes/DiffPane.tsx', startLine: 40, endLine: 44, code: 'a\nb\nc\nd\ne' }))
+      addDraft(storeKey, onCode('k1'))
+    })
+    const tray = screen.getByTestId('quote-tray')
+    expect(tray.textContent).toContain('3 comments · 2 on code — sent together with your text')
+    expect(within(tray).getAllByTestId('quote-chip').map((chip) => chip.textContent)).toEqual(['1«the lint step»×', '2src/main/changes/git.ts:11×', '3src/renderer/changes/DiffPane.tsx:40–44×'])
+    expect(within(tray).getAllByTestId('quote-chip-code')).toHaveLength(2)
+    expect(seen.current!.count).toBe(3)
+    const composed = await seen.current!.compose({ text: 'Fix both.', attachments: [] })
+    if ('error' in composed) throw new Error(composed.error)
+    expect(composed.round.map((each) => each.kind ?? 'quote')).toEqual(['quote', 'code', 'code'])
+    expect(composed.message.text).toContain('Comments on lines of the diff (2), worktree .claude/worktrees/03, branch worfy-changes-view/03:\n\n1. src/main/changes/git.ts:11 (new side, uncommitted)\n   > const READ_ONLY = 1\n   Why?')
+    act(() => seen.current!.sent(composed.round, composed.message.text))
+    expect(screen.queryByTestId('quote-tray')).toBeNull()
+    expect(readQuotes(storeKey).pending[0]?.comments).toHaveLength(3)
+    // × on a chip of code removes it as it removes a quote's.
+    act(() => addDraft(storeKey, onCode('k3')))
+    fireEvent.click(within(screen.getByTestId('quote-tray')).getByTestId('quote-chip-remove'))
+    expect(screen.queryByTestId('quote-tray')).toBeNull()
+  })
+
+  it('a tray of comments on code alone counts them on code', () => {
+    render(<Harness />)
+    act(() => addDraft(storeKey, onCode('k1')))
+    expect(screen.getByTestId('quote-tray').textContent).toContain('1 comment · 1 on code')
+  })
+})
+
 describe('sending a round', () => {
   /** Two comments, composed and sent: the round waits for its prompt. */
   async function sendRound(field = 'Thanks.') {
@@ -670,6 +723,34 @@ describe('the bubble of a sent message', () => {
     expect(screen.getByTestId('quoted-prompt-quote').textContent).toBe(long.trim())
     fireEvent.click(screen.getByTestId('quoted-prompt-source'))
     expect(showQuote).toHaveBeenCalledWith('q1')
+  })
+
+  it('draws a block per comment on code after the quote blocks — its file and lines, the code, the comment and its images — from the text alone', () => {
+    const items = agentItems([
+      { kind: 'code', id: 'k', path: 'src/renderer/changes/DiffPane.tsx', repository: '/repo', side: 'new', startLine: 40, endLine: 48, code: ['l1', 'l2', 'l3', 'l4', 'l5', 'l6', 'l7', 'l8', 'l9'].join('\n'), commit: '9f8e7d6aa', subject: { kind: 'ticket', epic: 'e', number: '03' }, worktree: 'w', branch: 'b', text: 'Split it.', images: [keptImage('two.png')], at: 1 },
+    ])
+    const text = agentText([{ quote: 'the lint step', text: 'Keep it.', images: 1, time: '14:02' }, ...items], 'Thanks.')
+    const tall = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(80)
+    render(<QuotedPrompt text={text} parsed={parseQuoted(text)!} attachments={images} assistant="claude" find="f" />)
+    expect(screen.getAllByTestId('quoted-prompt-block')).toHaveLength(1)
+    const [block] = screen.getAllByTestId('quoted-prompt-code-block')
+    expect(block!.textContent).toContain('src/renderer/changes/DiffPane.tsx:40–48')
+    expect(within(block!).getByTestId('quoted-prompt-code').textContent).toBe('l1\nl2\nl3\n…\nl8\nl9')
+    expect(within(block!).getByTestId('quoted-prompt-comment').textContent).toBe('Split it.')
+    expect(within(block!).getAllByTestId(/^message-image/).map((each) => each.getAttribute('title'))).toEqual(['two.png'])
+    // The code is folded to three lines with «Show all».
+    const more = within(block!).getByTestId('quoted-prompt-code-more')
+    expect(more.textContent).toBe('Show all')
+    fireEvent.click(more)
+    expect(within(block!).getByTestId('quoted-prompt-code').classList.contains('w-qprompt__quote--open')).toBe(true)
+    tall.mockRestore()
+    expect(screen.getAllByTestId('message-file').map((each) => each.getAttribute('title'))).toEqual(['notes.txt'])
+    expect(screen.getByTestId('quoted-prompt-general').textContent).toBe('Thanks.')
+  })
+
+  it('a bubble with no comment on code draws no code block', () => {
+    render(<QuotedPrompt text={sentText} parsed={parseQuoted(sentText)!} attachments={images} assistant="claude" find="f" />)
+    expect(screen.queryByTestId('quoted-prompt-code-block')).toBeNull()
   })
 
   it('the transcript draws a prompt in the round’s format as the quote bubble, after a restart too; other prompts as before', () => {

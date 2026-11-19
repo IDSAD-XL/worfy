@@ -4,10 +4,11 @@
 // in its order with its text kept once, or goes back to the tray; a deleted comment comes back by
 // Undo; a Node keeps the comments of its three Sessions changed last; a Node that leaves the Layout or
 // is archived takes its comments along; a write the storage refuses is told to its listeners, and an
-// entry that does not read as one reads as none.
+// entry that does not read as one reads as none. Comments on lines of code (worfy-changes-view ticket
+// 04) are kept in schema `v: 3`; an entry of `v: 2` reads as it is and is written as `v: 3` next time.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Layout, LayoutNode } from '../../src/shared/layout/types'
-import type { CommentImage, PendingRound, QuoteComment } from '../../src/renderer/session/quote-comments'
+import type { CodeComment, CommentImage, MessageComment, PendingRound, QuoteComment } from '../../src/renderer/session/quote-comments'
 
 const STORED = 'worfy.quotes:'
 
@@ -51,7 +52,7 @@ const node = (id: string, archived = false): LayoutNode => ({
 })
 const layout = (...nodes: LayoutNode[]): Layout => ({ nodes, viewport: { x: 0, y: 0, zoom: 1 } })
 
-const comment = (id: string, fields: Partial<QuoteComment> = {}): QuoteComment => ({
+const comment = (id: string, fields: Partial<MessageComment> = {}): MessageComment => ({
   id,
   anchor: 'msg_1#0',
   start: 4,
@@ -95,7 +96,7 @@ describe('the comments of a Session', () => {
     vi.advanceTimersByTime(quotes.WRITE_DELAY_MS - 1)
     expect(stored()).toEqual({})
     vi.advanceTimersByTime(1)
-    expect(stored()).toEqual({ 'p1/n1/s1': { v: 2, at: 7_000, drafts: [comment('a')], pending: [], rounds: [], sent: [] } })
+    expect(stored()).toEqual({ 'p1/n1/s1': { v: 3, at: 7_000, drafts: [comment('a')], pending: [], rounds: [], sent: [] } })
     expect(quotes.readQuotes(quotes.quoteKey('p1', 'n1', 'other'))).toBe(quotes.EMPTY_QUOTES)
   })
 
@@ -205,6 +206,69 @@ describe('a sent round', () => {
     expect(state.sent).toHaveLength(quotes.SENT_KEPT)
     expect(state.sent[0]?.id).toBe('q0')
     expect(state.rounds.map((each) => each.id)).toEqual(['new', 'last'])
+  })
+})
+
+const onCode = (id: string, fields: Partial<CodeComment> = {}): CodeComment => ({
+  kind: 'code',
+  id,
+  path: 'src/main/changes/git.ts',
+  repository: '/repo',
+  side: 'new',
+  startLine: 11,
+  endLine: 12,
+  code: 'const a = 1\nconst b = 2',
+  commit: '9f8e7d6c5b4a',
+  subject: { kind: 'ticket', epic: 'worfy-changes-view', number: '03' },
+  worktree: '.claude/worktrees/03',
+  branch: 'worfy-changes-view/03',
+  text: `code comment ${id}`,
+  images: [shot],
+  at: 3_000,
+  ...fields,
+})
+
+describe('comments on lines of code (worfy-changes-view ticket 04)', () => {
+  it('an entry of schema v: 2, kept before comments on code, reads as it is; its next write is v: 3 and keeps it whole', async () => {
+    vi.useFakeTimers({ now: 9_000 })
+    const old = comment('old', { images: [shot] })
+    const waiting = comment('waiting', { start: 30, end: 40 })
+    const state = { at: 4_000, drafts: [old], pending: [round('r0', [waiting])], rounds: [{ id: 'r9', message: 'went', at: 3_000 }], sent: [{ id: 's', round: 'r9', anchor: 'msg_1#0', start: 0, end: 3, quote: 'the', text: '', images: 0, number: 1 }] }
+    storage.setItem(`${STORED}p1/n1/s1`, JSON.stringify({ v: 2, ...state }))
+    const quotes = await import('../../src/renderer/session/quote-store')
+    const key = quotes.quoteKey('p1', 'n1', 's1')
+    expect(quotes.readQuotes(key)).toEqual(state)
+    quotes.addDraft(key, onCode('k'))
+    quotes.flushQuotes()
+    expect(stored()[key]).toEqual({ ...state, v: 3, at: 9_000, drafts: [old, onCode('k')] })
+    quotes.forgetQuotesInMemory()
+    expect(quotes.readQuotes(key)).toEqual({ ...state, at: 9_000, drafts: [old, onCode('k')] })
+  })
+
+  it('a comment on code survives a restart in the tray and in a waiting round; once sent it leaves no dim quote, and the quotes keep their numbers', async () => {
+    const quotes = await import('../../src/renderer/session/quote-store')
+    const key = quotes.quoteKey('p1', 'n1', 's1')
+    const quote = comment('a')
+    const code = onCode('k', { commit: null, side: 'old', startLine: 3, endLine: 3, code: 'x', images: [] })
+    const later = onCode('l')
+    for (const each of [quote, code, later]) quotes.addDraft(key, each)
+    quotes.markPending(key, round('r1', [quote, code]))
+    quotes.forgetQuotesInMemory()
+    expect(quotes.readQuotes(key).drafts).toEqual([later])
+    expect(quotes.readQuotes(key).pending).toEqual([round('r1', [quote, code])])
+    quotes.settlePending(key, 'r1', 'sent')
+    expect(quotes.readQuotes(key).sent).toEqual([{ id: 'a', round: 'r1', anchor: 'msg_1#0', start: 4, end: 12, quote: 'the step', text: 'comment a', images: 0, number: 1 }])
+  })
+
+  it('a comment on code of a wrong shape reads as none: no file, lines backwards, a commit that is no hash', async () => {
+    const entry = (drafts: unknown[]) => JSON.stringify({ v: 3, at: 1, drafts, pending: [], rounds: [], sent: [] })
+    storage.setItem(`${STORED}p1/n1/a`, entry([onCode('k', { path: '' })]))
+    storage.setItem(`${STORED}p1/n1/b`, entry([onCode('k', { startLine: 5, endLine: 4 })]))
+    storage.setItem(`${STORED}p1/n1/c`, entry([onCode('k', { commit: 'HEAD' })]))
+    storage.setItem(`${STORED}p1/n1/d`, entry([onCode('k')]))
+    const quotes = await import('../../src/renderer/session/quote-store')
+    for (const name of ['a', 'b', 'c']) expect(quotes.readQuotes(`p1/n1/${name}`)).toBe(quotes.EMPTY_QUOTES)
+    expect(quotes.readQuotes('p1/n1/d').drafts).toEqual([onCode('k')])
   })
 })
 

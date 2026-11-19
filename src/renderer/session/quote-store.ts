@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react'
 import { z } from 'zod'
 import { imageMediaTypeSchema } from '../../shared/agent/attachments'
 import { isArchived, type Layout } from '../../shared/layout/types'
-import type { PendingRound, QuoteComment, SentQuote, SentRound } from './quote-comments'
+import { onMessages, type PendingRound, type QuoteComment, type SentQuote, type SentRound } from './quote-comments'
 
 // The comments of a Session's agent messages (worfy-polish ticket 102, quote-comments.ts): the ones
 // not sent yet, which the tray above the input field holds; the rounds sent and waiting in the
@@ -20,6 +20,10 @@ import type { PendingRound, QuoteComment, SentQuote, SentRound } from './quote-c
 //   a Node keeps the entries of its SESSIONS_KEPT Sessions changed last, and an older one goes.
 // - A sent round keeps its message's text once (SentRound); SENT_KEPT sent quotes stay per Session,
 //   the newest; older ones lose their dim light, and a round with no quote left goes.
+// - A comment is on a quote of an agent's message or on lines of code (quote-comments.ts, CodeComment;
+//   worfy-changes-view ticket 04). Schema `v: 3` holds both; an entry of `v: 2`, written before
+//   comments on code, holds comments on quotes alone and reads as it is, and its next write is `v: 3`.
+//   A sent comment on code keeps no dim light here: its block in the bubble is read from the message.
 // - An entry the storage cannot hold is kept in this window alone while it is open: the listeners of
 //   onQuoteStoreError hear of it (the Session view shows it). An entry that does not read as one
 //   (another version wrote it, or it is damaged) reads as none.
@@ -43,10 +47,33 @@ export function quoteKey(projectId: string, nodeId: string, sessionId: string): 
 const imageSchema = z.object({ kind: z.literal('image'), name: z.string(), mediaType: imageMediaTypeSchema, size: z.number(), ref: z.string().regex(/^[0-9a-f]{64}$/) })
 const rangeFields = { id: z.string(), anchor: z.string(), start: z.number().int().nonnegative(), end: z.number().int().nonnegative(), quote: z.string(), text: z.string() }
 const commentSchema = z.object({ ...rangeFields, images: z.array(imageSchema), messageAt: z.number().nullable(), at: z.number() })
-const pendingSchema = z.object({ id: z.string(), message: z.string(), at: z.number(), comments: z.array(commentSchema) })
+const line = z.number().int().positive()
+const codeSchema = z
+  .object({
+    kind: z.literal('code'),
+    id: z.string(),
+    path: z.string().min(1),
+    repository: z.string(),
+    side: z.enum(['old', 'new']),
+    startLine: line,
+    endLine: line,
+    code: z.string(),
+    commit: z.string().regex(/^[0-9a-f]{4,64}$/).nullable(),
+    subject: z.object({ kind: z.literal('ticket'), epic: z.string(), number: z.string() }),
+    worktree: z.string(),
+    branch: z.string(),
+    text: z.string(),
+    images: z.array(imageSchema),
+    at: z.number(),
+  })
+  .refine((each) => each.endLine >= each.startLine)
+const draftSchema = z.union([codeSchema, commentSchema])
+const pendingSchema = z.object({ id: z.string(), message: z.string(), at: z.number(), comments: z.array(draftSchema) })
 const roundSchema = z.object({ id: z.string(), message: z.string(), at: z.number() })
 const sentSchema = z.object({ ...rangeFields, round: z.string(), images: z.number().int().nonnegative(), number: z.number().int().positive() })
-const entrySchema = z.object({ v: z.literal(2), at: z.number(), drafts: z.array(commentSchema), pending: z.array(pendingSchema), rounds: z.array(roundSchema), sent: z.array(sentSchema) })
+/** The schema this version writes; an entry of `v: 2` still reads (its comments are all on quotes). */
+const VERSION = 3
+const entrySchema = z.object({ v: z.union([z.literal(2), z.literal(VERSION)]), at: z.number(), drafts: z.array(draftSchema), pending: z.array(pendingSchema), rounds: z.array(roundSchema), sent: z.array(sentSchema) })
 
 /** The comments of one Session. */
 export interface QuoteState {
@@ -79,7 +106,11 @@ function known(): Map<string, QuoteState> {
       if (!name?.startsWith(PREFIX)) continue
       try {
         const parsed = entrySchema.safeParse(JSON.parse(storage.getItem(name) ?? 'null'))
-        if (parsed.success) entries.set(name.slice(PREFIX.length), parsed.data)
+        if (parsed.success) {
+          // Memory keeps no schema version: the next write is this version's.
+          const { at, drafts, pending: waiting, rounds, sent } = parsed.data
+          entries.set(name.slice(PREFIX.length), { at, drafts, pending: waiting, rounds, sent })
+        }
       } catch {
         // Not JSON: no comments.
       }
@@ -99,7 +130,7 @@ function store(key: string): void {
   const state = known().get(key)
   try {
     if (state === undefined || isEmpty(state)) globalThis.localStorage.removeItem(PREFIX + key)
-    else globalThis.localStorage.setItem(PREFIX + key, JSON.stringify({ v: 2, ...state }))
+    else globalThis.localStorage.setItem(PREFIX + key, JSON.stringify({ ...state, v: VERSION }))
   } catch (error) {
     console.error('[quotes] could not keep the comments of a Session', error)
     for (const listener of [...errorListeners]) listener(error)
@@ -189,7 +220,7 @@ export function settlePending(key: string, id: string, how: 'sent' | 'back'): Pe
       rounds: [...state.rounds, { id: round.id, message: round.message, at: round.at }],
       sent: [
         ...state.sent,
-        ...round.comments.map((each, index): SentQuote => ({ id: each.id, round: round.id, anchor: each.anchor, start: each.start, end: each.end, quote: each.quote, text: each.text, images: each.images.length, number: index + 1 })),
+        ...onMessages(round.comments).map((each, index): SentQuote => ({ id: each.id, round: round.id, anchor: each.anchor, start: each.start, end: each.end, quote: each.quote, text: each.text, images: each.images.length, number: index + 1 })),
       ],
     }
   })

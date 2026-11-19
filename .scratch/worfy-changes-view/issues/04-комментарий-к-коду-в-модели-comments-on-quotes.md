@@ -1,7 +1,7 @@
 # 04 — Комментарий к коду в модели Comments on quotes: хранилище `v: 3`, текст для агента, блок в пузыре
 
 Type: task
-Status: open
+Status: claimed 2026-11-19T12:55Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решения по реализации — часть 1» → «Комментарии к строкам», пункты
 «Модель», «Хранилище», `agentText`, «Код в цитате», «После Refresh»; «Решения по test-ам — часть 1», seam 1;

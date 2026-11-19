@@ -2,20 +2,27 @@
 // where a quote lies in its message and where it is found again, the rule against overlaps, the order
 // of a round, the text the agent gets (the 200-character cut in the middle, `[image N]` marks, the
 // limits of 3 and 10 images), how a sent message reads back into quote blocks, and the image scaling.
+// Comments on lines of code (worfy-changes-view ticket 04): their section of the agent's text after
+// the comments on messages, the 6-line cut in the middle, the blocks read back, and the lines found
+// again after a Refresh of the diff (anchorLines).
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { MAX_ATTACHMENTS, messageText, type Attachment } from '../../src/shared/agent/attachments'
 import {
+  CODE_FOR_AGENT,
   COMMENT_IMAGES,
   IMAGE_EDGE,
+  LINE_CHANGED,
   MESSAGE_IMAGES,
   QUOTE_FOR_AGENT,
   agentItems,
   agentText,
+  anchorLines,
   anchorRange,
   blockKey,
   chipWords,
   clockOf,
+  codeForAgent,
   composeRound,
   imageRefusal,
   inTextOrder,
@@ -27,8 +34,9 @@ import {
   scaledSize,
   squash,
   trimRange,
+  type CodeComment,
   type CommentImage,
-  type QuoteComment,
+  type MessageComment,
 } from '../../src/renderer/session/quote-comments'
 
 const image = (name: string): CommentImage => ({ kind: 'image', name, mediaType: 'image/png', size: 4, ref: createHash('sha256').update(name).digest('hex') })
@@ -36,7 +44,7 @@ const image = (name: string): CommentImage => ({ kind: 'image', name, mediaType:
 const imageOf = (each: CommentImage): Attachment => ({ kind: 'image', name: each.name, mediaType: each.mediaType, size: each.size, data: Buffer.from(each.name).toString('base64') })
 
 let made = 0
-const comment = (fields: Partial<QuoteComment> & Pick<QuoteComment, 'anchor' | 'start' | 'end'>): QuoteComment => ({
+const comment = (fields: Partial<MessageComment> & Pick<MessageComment, 'anchor' | 'start' | 'end'>): MessageComment => ({
   id: `c${(made += 1)}`,
   quote: 'quoted text',
   text: '',
@@ -201,6 +209,7 @@ describe('reading a sent message back into quote blocks', () => {
         { number: 1, quote: 'the lint step', time: '14:02', text: 'Keep it.\n\nIt is fast.', images: [1] },
         { number: 2, quote: quoteForAgent('x'.repeat(260)), time: null, text: '', images: [2, 3] },
       ],
+      code: [],
       general: 'Line one\nline two',
     })
   })
@@ -212,7 +221,7 @@ describe('reading a sent message back into quote blocks', () => {
     expect(parseQuoted(codex)).toEqual(parseQuoted(text))
     expect(parseQuoted(codex)?.general).toBe('General words')
     const alone = messageText(agentText([{ quote: 'q', text: '', images: 1, time: null }], ''), [{ kind: 'image', name: 'a.png', mediaType: 'image/png', size: 4, data: 'AAAA' }])
-    expect(parseQuoted(alone)).toEqual({ quotes: [{ number: 1, quote: 'q', time: null, text: '', images: [1] }], general: '' })
+    expect(parseQuoted(alone)).toEqual({ quotes: [{ number: 1, quote: 'q', time: null, text: '', images: [1] }], code: [], general: '' })
   })
 
   it('↑ in the field gives back what the user typed, not the round’s comments', () => {
@@ -222,7 +231,7 @@ describe('reading a sent message back into quote blocks', () => {
   })
 
   it('a message of comments alone has an empty general text', () => {
-    expect(parseQuoted(agentText([{ quote: 'q', text: 'c', images: 0, time: null }], ''))).toEqual({ quotes: [{ number: 1, quote: 'q', time: null, text: 'c', images: [] }], general: '' })
+    expect(parseQuoted(agentText([{ quote: 'q', text: 'c', images: 0, time: null }], ''))).toEqual({ quotes: [{ number: 1, quote: 'q', time: null, text: 'c', images: [] }], code: [], general: '' })
   })
 
   it('any other text is no quoted message: the bubble shows it as it is', () => {
@@ -317,5 +326,142 @@ describe('the words of a tray chip', () => {
     expect(chipWords('one two three four five six seven')).toBe('one two three four five…')
     expect(chipWords('averyveryverylongwordthatgoesonandonandon')).toBe('averyveryverylongwordthatgoesonan…')
     expect(squash('  a \n b  ')).toBe('a b')
+  })
+})
+
+const onCode = (fields: Partial<CodeComment> & Pick<CodeComment, 'path' | 'startLine' | 'endLine' | 'code'>): CodeComment => ({
+  kind: 'code',
+  id: `k${(made += 1)}`,
+  repository: '/repo',
+  side: 'new',
+  commit: null,
+  subject: { kind: 'ticket', epic: 'worfy-changes-view', number: '03' },
+  worktree: '.claude/worktrees/03',
+  branch: 'worfy-changes-view/03',
+  text: '',
+  images: [],
+  at: made,
+  ...fields,
+})
+
+describe('comments on lines of code (worfy-changes-view ticket 04)', () => {
+  const git = onCode({ path: 'src/main/changes/git.ts', startLine: 11, endLine: 11, code: "const READ_ONLY = { GIT_OPTIONAL_LOCKS: '0' }", commit: '9f8e7d6c5b4a39281706f5e4d3c2b1a098765432', text: 'Why not the gitRunner of stages.ts?' })
+  const pane = onCode({ path: 'src/renderer/changes/DiffPane.tsx', startLine: 40, endLine: 44, code: ['a', 'b', '', 'd', 'e'].join('\n'), images: [image('p1')] })
+  const quote = comment({ anchor: 'm#0', start: 0, end: 9, quote: 'the lint step', text: 'Keep it.', images: [image('q1')], messageAt: null })
+
+  it('the agent gets the comments on messages first, then a section on the lines of the diff, then «General:»; images are numbered across both', () => {
+    const composed = composeRound([pane, git, quote], { text: 'Fix both.', attachments: [] }, imageOf)
+    if ('error' in composed) throw new Error(composed.error)
+    expect(composed.round.map((each) => each.id)).toEqual([quote.id, git.id, pane.id])
+    expect(composed.message.attachments.map((each) => each.name)).toEqual(['q1', 'p1'])
+    expect(composed.message.text).toBe(
+      [
+        'Comments on parts of your messages (1):',
+        '',
+        '1. > «the lint step» (your message)',
+        '   Keep it.',
+        '   [image 1]',
+        '',
+        'Comments on lines of the diff (2), worktree .claude/worktrees/03, branch worfy-changes-view/03:',
+        '',
+        '1. src/main/changes/git.ts:11 (new side, commit 9f8e7d6)',
+        "   > const READ_ONLY = { GIT_OPTIONAL_LOCKS: '0' }",
+        '   Why not the gitRunner of stages.ts?',
+        '',
+        '2. src/renderer/changes/DiffPane.tsx:40–44 (new side, uncommitted)',
+        '   > a',
+        '   > b',
+        '   >',
+        '   > d',
+        '   > e',
+        '   [image 2]',
+        '',
+        'General:',
+        'Fix both.',
+      ].join('\n'),
+    )
+  })
+
+  it('reads both sections back: the quotes, the files with their lines, code, comments and image numbers, and the general text', () => {
+    const composed = composeRound([pane, git, quote], { text: 'Fix both.', attachments: [] }, imageOf)
+    if ('error' in composed) throw new Error(composed.error)
+    const where = { side: 'new', worktree: '.claude/worktrees/03', branch: 'worfy-changes-view/03' }
+    expect(parseQuoted(composed.message.text)).toEqual({
+      quotes: [{ number: 1, quote: 'the lint step', time: null, text: 'Keep it.', images: [1] }],
+      code: [
+        { number: 1, path: 'src/main/changes/git.ts', startLine: 11, endLine: 11, commit: '9f8e7d6', ...where, code: ["const READ_ONLY = { GIT_OPTIONAL_LOCKS: '0' }"], text: 'Why not the gitRunner of stages.ts?', images: [] },
+        { number: 2, path: 'src/renderer/changes/DiffPane.tsx', startLine: 40, endLine: 44, commit: null, ...where, code: ['a', 'b', '', 'd', 'e'], text: '', images: [2] },
+      ],
+      general: 'Fix both.',
+    })
+    expect(ownText(composed.message.text)).toBe('Fix both.')
+  })
+
+  it('a message of comments on code alone reads too, and a comment whose text starts with «>» keeps it as text', () => {
+    const old = onCode({ path: 'a file (1).ts', side: 'old', startLine: 3, endLine: 4, code: 'x\ny', commit: 'abcdef0', text: '> not code', worktree: '', branch: '' })
+    const text = agentText(agentItems([old]), '')
+    expect(text.split('\n')[0]).toBe('Comments on lines of the diff (1):')
+    expect(parseQuoted(text)).toEqual({
+      quotes: [],
+      code: [{ number: 1, path: 'a file (1).ts', side: 'old', startLine: 3, endLine: 4, commit: 'abcdef0', worktree: '', branch: '', code: ['x', 'y'], text: '> not code', images: [] }],
+      general: '',
+    })
+  })
+
+  it('a section per worktree and branch, in the order of the round', () => {
+    const other = onCode({ path: 'b.ts', startLine: 1, endLine: 1, code: 'b', worktree: '.claude/worktrees/07', branch: 'epic/07' })
+    const text = agentText(agentItems(inTextOrder([other, git])), '')
+    expect(text.split('\n').filter((line) => line.startsWith('Comments on lines'))).toEqual([
+      'Comments on lines of the diff (1), worktree .claude/worktrees/03, branch worfy-changes-view/03:',
+      'Comments on lines of the diff (1), worktree .claude/worktrees/07, branch epic/07:',
+    ])
+    expect(parseQuoted(text)?.code.map((each) => [each.number, each.path, each.branch])).toEqual([
+      [1, 'src/main/changes/git.ts', 'worfy-changes-view/03'],
+      [1, 'b.ts', 'epic/07'],
+    ])
+  })
+
+  it('code up to 6 lines goes whole; longer is cut in the middle with «…», and reads back as the agent got it', () => {
+    const six = ['1', '2', '3', '4', '5', '6']
+    expect(CODE_FOR_AGENT).toBe(6)
+    expect(codeForAgent(six.join('\n'))).toEqual(six)
+    const nine = ['l1', 'l2', 'l3', 'l4', 'l5', 'l6', 'l7', 'l8', 'l9']
+    expect(codeForAgent(nine.join('\n'))).toEqual(['l1', 'l2', 'l3', '…', 'l8', 'l9'])
+    const long = onCode({ path: 'big.ts', startLine: 10, endLine: 18, code: nine.join('\n'), text: 'Too long.' })
+    const text = agentText(agentItems([long]), '')
+    expect(text).toContain('   > l3\n   > …\n   > l8\n   > l9\n   Too long.')
+    expect(text).not.toContain('l5')
+    expect(parseQuoted(text)?.code[0]).toMatchObject({ startLine: 10, endLine: 18, code: ['l1', 'l2', 'l3', '…', 'l8', 'l9'], text: 'Too long.' })
+  })
+
+  it('a slash command in the field is still refused with comments on code', () => {
+    expect(composeRound([git], { text: '/compact', attachments: [] }, imageOf)).toEqual({ error: 'A command goes alone: send it without comments, or clear the comments first' })
+  })
+
+  it('a damaged section is no quoted message', () => {
+    expect(parseQuoted('Comments on lines of the diff (2):\n\n1. a.ts:1 (new side, uncommitted)\n   > a')).toBeNull()
+    expect(parseQuoted('Comments on lines of the diff (1):\n\n1. a.ts:1 (new side, uncommitted)\n   no code line')).toBeNull()
+    expect(parseQuoted('Comments on lines of the diff (1):\n\n1. a.ts:1 (left side, uncommitted)\n   > a')).toBeNull()
+  })
+})
+
+describe('the lines of a comment on code after a Refresh (anchorLines)', () => {
+  const file = ['import x', '', 'const a = 1', 'const b = 2', 'return a + b', 'const a = 1', 'const b = 2'].join('\n')
+
+  it('keeps the lines where the text there is still theirs', () => {
+    expect(anchorLines(file, { startLine: 6, code: 'const a = 1\nconst b = 2' })).toEqual({ startLine: 6, endLine: 7 })
+  })
+
+  it('finds lines that moved: the occurrence nearest to the old place', () => {
+    const moved = ['// a new first line', file].join('\n')
+    expect(anchorLines(moved, { startLine: 6, code: 'const a = 1\nconst b = 2' })).toEqual({ startLine: 7, endLine: 8 })
+    expect(anchorLines(moved, { startLine: 3, code: 'const a = 1\nconst b = 2' })).toEqual({ startLine: 4, endLine: 5 })
+    expect(anchorLines(file.replace(/\n/g, '\r\n'), { startLine: 1, code: 'return a + b' })).toEqual({ startLine: 5, endLine: 5 })
+  })
+
+  it('marks «Line changed» when the lines are no longer in the file', () => {
+    expect(LINE_CHANGED).toBe('Line changed')
+    expect(anchorLines(file.replace('return a + b', 'return a - b'), { startLine: 5, code: 'return a + b' })).toEqual({ mark: 'Line changed' })
+    expect(anchorLines('', { startLine: 1, code: 'x' })).toEqual({ mark: 'Line changed' })
   })
 })
