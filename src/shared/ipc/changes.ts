@@ -15,8 +15,8 @@ const projectId = z.string().min(1)
 const text = z.string()
 const count = z.number().int().nonnegative()
 const mode = z.string().nullable()
-/** A path from the repository's top folder: never absolute, never with a `..` part (isRepoPath). */
-const repoPath = z.string().min(1).refine(isRepoPath, { message: 'a path inside the repository' })
+/** A path from the repository's top folder: never absolute, never with a `..` part (isRepoPath, by main's platform). */
+const repoPath = z.string().min(1).refine((path) => isRepoPath(path), { message: 'a path inside the repository' })
 
 /** The Ticket the screen shows: TicketSubjectRef of src/main/changes/subjects.ts. */
 export const changesTicketSchema = z.object({

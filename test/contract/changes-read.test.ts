@@ -495,7 +495,9 @@ describe('the edge cases of reading: a Ticket on the checkout itself', () => {
 
   it('reads a new file only when git lists it as one: never a path outside the repository or an ignored file', async () => {
     const untracked = { kind: 'uncommitted' } as const
-    for (const path of ['/etc/hosts', '../secret.txt', 'a/../../secret.txt', 'C:\\Windows\\win.ini']) {
+    // `C:\Windows\win.ini` is absolute only on Windows; on macOS and Linux it is a file name, and no new file of edge.
+    if (!WINDOWS) await expect(file(untracked, 'C:\\Windows\\win.ini', { untracked: true })).rejects.toThrow(/is not a new file of edge/u)
+    for (const path of ['/etc/hosts', '../secret.txt', 'a/../../secret.txt', ...(WINDOWS ? ['C:\\Windows\\win.ini', 'a\\..\\..\\secret.txt'] : [])]) {
       await expect(file(untracked, path, { untracked: true }), path).rejects.toThrow(/a path inside the repository/u)
       await expect(file(untracked, 'staged.txt', { oldPath: path }), path).rejects.toThrow(/a path inside the repository/u)
       // Past the channel's schema too: the reader itself refuses.
@@ -565,5 +567,47 @@ describe('the path of a worktree as git prints it', () => {
     const [subject] = await ticketSubjects([{ name: 'edge', path: '/repo' }], t05, listing(['/repo', 'main'], ['/repo/.claude/worktrees/05', 'ep/05']), 'darwin')
     expect(subject).toMatchObject({ kind: 'worktree', cwd: '/repo/.claude/worktrees/05' })
     expect([nativePath('/a//b/./c', 'linux'), nativePath('D:/a/b', 'win32'), nativePath('D:\\a\\b', 'win32')]).toEqual(['/a/b/c', 'D:\\a\\b', 'D:\\a\\b'])
+  })
+})
+
+// A file name with `:` or `\` is a plain name on macOS and Linux; Windows cannot hold one, so there is nothing to read.
+describe.skipIf(process.platform === 'win32')('file names that are absolute or split only on Windows, on macOS and Linux', () => {
+  let names: string
+  let call: ReturnType<typeof caller>
+  const t06 = { epic: 'ep', num: 6 }
+  const TRACKED = [':lead.txt', 'back\\..\\slash.txt', 'c:notes.md']
+
+  beforeAll(() => {
+    root = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-changes-names-')))
+    ownGitHome()
+    names = join(root, 'names')
+    mkdirSync(names)
+    gitIn(names, 'init', '-q')
+    commit(names, 'start', Object.fromEntries(TRACKED.map((path) => [path, 'one\n'])))
+    gitIn(names, 'checkout', '-q', '-b', 'ep/06')
+    write(names, { ...Object.fromEntries(TRACKED.map((path) => [path, 'one\ntwo\n'])), 'x:new.txt': 'new\n' })
+    const layout: ProjectLayout = { ...fullLayout(names), repos: [{ name: 'names', path: names }], finish: 'local-green' }
+    call = caller(changesHandlers({ project: async () => ({ root: names, layout }), git }))
+  })
+
+  afterAll(() => {
+    vi.unstubAllEnvs()
+    removeTestTree(root)
+  })
+
+  const lines = (diff: { kind: string; hunks?: { lines: { kind: string; text: string }[] }[] }): string[] =>
+    (diff.hunks ?? []).flatMap((hunk) => hunk.lines.filter((line) => line.kind !== 'context').map((line) => `${line.kind} ${line.text}`))
+
+  it('lists them and opens each through changes.file: tracked and changed, and a new file', async () => {
+    const [changes] = (await call(changesList, { projectId: 'p', ticket: t06, scope: { kind: 'uncommitted' } })).repos
+    expect(changes!.error).toBeNull()
+    expect(changes!.files.map((each) => each.path)).toEqual([...TRACKED, 'x:new.txt'].sort())
+    for (const path of TRACKED) {
+      const { file } = await call(changesFile, { projectId: 'p', ticket: t06, repo: 'names', scope: { kind: 'uncommitted' }, path })
+      expect(file.kind, path).toBe('hunks')
+      expect(lines(file), path).toEqual(['add two'])
+    }
+    const { file } = await call(changesFile, { projectId: 'p', ticket: t06, repo: 'names', scope: { kind: 'uncommitted' }, path: 'x:new.txt', untracked: true })
+    expect(lines(file)).toEqual(['add new'])
   })
 })

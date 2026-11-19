@@ -247,9 +247,25 @@ describe('a type change (status T): two patches of one path', () => {
 })
 
 describe('a path the screen asks for', () => {
-  it('is one from the top folder of the repository: not absolute, no .. part', () => {
-    for (const path of ['a.txt', 'notes/с пробелом.md', '.scratch/ep/x.md', 'a..b/c', '...']) expect(isRepoPath(path), path).toBe(true)
-    for (const path of ['', '/etc/hosts', '\\\\server\\share', 'C:\\Windows\\win.ini', 'c:x', '..', '../../secret.txt', 'a/../../b', 'a\\..\\b', 'a\0b']) expect(isRepoPath(path), path).toBe(false)
+  it('is one from the top folder of the repository on every OS: not absolute with /, no .. part, no NUL', () => {
+    for (const platform of ['darwin', 'linux', 'win32']) {
+      for (const path of ['a.txt', 'notes/с пробелом.md', '.scratch/ep/x.md', 'a..b/c', '...']) expect(isRepoPath(path, platform), `${platform} ${path}`).toBe(true)
+      for (const path of ['', '/etc/hosts', '..', '../../secret.txt', 'a/../../b', 'a/..', 'a\0b']) expect(isRepoPath(path, platform), `${platform} ${path}`).toBe(false)
+    }
+  })
+
+  it('on Windows also refuses a drive, a leading \\ and a .. part between backslashes', () => {
+    for (const path of ['C:x', 'c:notes.md', 'C:\\Windows\\win.ini', '\\x', '\\\\server\\share', 'a\\..\\b', 'a\\..']) expect(isRepoPath(path, 'win32'), path).toBe(false)
+  })
+
+  it('on macOS and Linux takes : and \\ as letters of a file name', () => {
+    for (const platform of ['darwin', 'linux']) {
+      for (const path of [':lead.txt', 'c:notes.md', 'x:new.txt', 'C:x', 'back\\..\\slash.txt', '\\x', '..\\up']) expect(isRepoPath(path, platform), `${platform} ${path}`).toBe(true)
+    }
+  })
+
+  it('takes the platform of this process when none is given', () => {
+    expect(isRepoPath('c:notes.md')).toBe(process.platform !== 'win32')
   })
 })
 

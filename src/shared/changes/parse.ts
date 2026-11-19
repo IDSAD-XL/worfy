@@ -67,14 +67,21 @@ export function isWorkflowPath(path: string, prefix: string | null): boolean {
   return path === folder || path.startsWith(`${folder}/`)
 }
 
+/** The `process.platform` of main, or '' where there is no `process` (the renderer): this file is shared with it. */
+const hostPlatform = (): string => (globalThis as { process?: { platform?: string } }).process?.platform ?? ''
+
 /**
- * Whether `path` can be a path from a repository's top folder: not empty, not absolute (`/x`, `\x`, `C:x`), no `..`
- * part and no NUL. A path the screen asks for must be one; git never prints another.
+ * Whether `path` can be a path from the top folder of a repository on `platform` (a `process.platform`):
+ * not empty, no NUL, not absolute, no `..` part. Everywhere `/x` is absolute and `/` separates the parts. Only on
+ * Windows `\x` and `C:x` are absolute and `\` separates the parts too: on macOS and Linux `c:notes.md` and
+ * `back\..\slash.txt` are file names a repository may hold. A path the screen asks for must be one; git never prints
+ * another. The channel's schema checks it in main, on the Machine whose repository it is.
  */
-export function isRepoPath(path: string): boolean {
-  if (path === '' || path.includes('\0')) return false
-  if (path.startsWith('/') || path.startsWith('\\') || /^[A-Za-z]:/u.test(path)) return false
-  return !path.split(/[\\/]/u).includes('..')
+export function isRepoPath(path: string, platform: string = hostPlatform()): boolean {
+  if (path === '' || path.includes('\0') || path.startsWith('/')) return false
+  const windows = platform === 'win32'
+  if (windows && (path.startsWith('\\') || /^[A-Za-z]:/u.test(path))) return false
+  return !path.split(windows ? /[\\/]/u : /\//u).includes('..')
 }
 
 /** The fields of `-z` output: split on NUL, without the empty field after the last NUL. */

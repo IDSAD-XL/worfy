@@ -67,7 +67,8 @@ workflow files are not in the repository, so there is no such group.
 #### What can be asked for
 
 A file is asked for by its path from the repository's top folder: an absolute path or a path with a `..` part is
-refused. A new file is read only when git itself lists it as a new file of the repository: an ignored file, or any
+refused. On Windows `\` separates the parts of a path too and `C:x` is absolute; on macOS and Linux both `:` and `\`
+are plain letters of a file name, so `c:notes.md` opens like any other file. A new file is read only when git itself lists it as a new file of the repository: an ignored file, or any
 other file on the Machine, is never read through it.
 
 #### Nothing is written
