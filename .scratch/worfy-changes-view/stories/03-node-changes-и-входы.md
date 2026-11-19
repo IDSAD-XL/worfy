@@ -170,7 +170,7 @@ Code: `src/renderer/palette/commands.ts:376-392` · key lines: 378, 382, 389
 
 ## 7. Palette открывает Node через карточку
 
-Code: `src/renderer/changes/open.ts:188-197` · key lines: 191, 194, 196
+Code: `src/renderer/changes/open.ts:191-200` · key lines: 194, 197, 199
 
 ```ts
 export async function openChangesFromPalette(projectId: string, subject: ChangesSubject, nodes: readonly LayoutNode[]): Promise<string | undefined> {
@@ -195,14 +195,123 @@ export async function openChangesFromPalette(projectId: string, subject: Changes
 - Риски и пробелы test-ов: unit test проверяет, что palette ведёт к Node-у, который уже есть, и что иначе оставляет
   запрос карточке. Запасной путь через 2 s проверяется только тем, что он есть в коде; отдельного test-а нет.
 
-## 8. Что сознательно не меняли
+## 8. Поздний ответ старого чтения отбрасывается
+
+Code: `src/renderer/canvas/nodes/ChangesNode.tsx:117-130` · key lines: 120, 122, 126
+
+```tsx
+  useEffect(() => {
+    if (!ready || !hasRepos) return
+    const of = listFor
+    let current = true
+    void invoke('changes.list', { projectId, ticket, scope, hideWhitespace }).then((result) => {
+      if (!current) return
+      setListRead(result.ok ? { of, value: result.value.repos, error: null } : { of, value: null, error: failureReason('changes.list', result.error) })
+    })
+    return () => {
+      current = false
+    }
+    // `scope` is in `listFor`; the read starts again only when the key does.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, hasRepos, listFor])
+```
+
+- Что делает: когда ключ чтения меняется (scope, Hide whitespace, другой Ticket), cleanup эффекта помечает прежнее
+  чтение устаревшим, и его ответ, пришедший позже нового, не пишется в состояние. Так же устроены `changes.scopes` и
+  `changes.commits` выше (строки 86-110), а в `DiffPane.tsx:279` ответ `changes.file` сверяется с текущим `readFor`
+  (`asked.current.of`).
+- Почему здесь: находки 1 и 2 ревью раунда 1 (verdict PR #2043): поздний ответ старого ключа затирал ответ нового;
+  ключ состояния переставал совпадать с текущим, и экран оставался на «Reading…» или «Loading…», потому что эффект
+  второй раз не запускался.
+- Без него: Hide whitespace, включённый и выключенный во время чтения, или смена Ticket-а у Node-а оставляют пустое
+  дерево до Refresh, а файлы diff-а — на «Loading…».
+- Требование: [Готово, когда](../issues/03-node-changes-и-входы.md#готово-когда)
+- Риски и пробелы test-ов: четыре unit test-а в `test/unit/changes-view.test.tsx` (describe «a late answer of a read
+  gone by») держат один ответ моста и отпускают его после нового; каждый красный на mutant-е без своей проверки.
+  Ответ с ошибкой отбрасывается тем же путём, отдельного test-а на него нет.
+
+## 9. Свой ResizeObserver на каждый `measuredFor`
+
+Code: `src/renderer/changes/DiffPane.tsx:318-345` · key lines: 321, 322, 338
+
+```tsx
+  const measure = useCallback(
+    (element: HTMLDivElement | null) => {
+      if (element === null || typeof ResizeObserver === 'undefined') return
+      if (observer.current?.of !== measuredFor) {
+        observer.current?.watcher.disconnect()
+        const watcher = new ResizeObserver((records) => {
+          setMeasured((previous) => {
+            const map = new Map(previous.of === measuredFor ? previous.map : [])
+            let changed = previous.of !== measuredFor
+            for (const record of records) {
+              const key = (record.target as HTMLElement).dataset.block
+              // The space under a file is its last block's margin: part of the block's room in the window.
+              const height = record.target.getBoundingClientRect().height + (Number.parseFloat(getComputedStyle(record.target).marginBottom) || 0)
+              if (key === undefined || height === 0 || Math.abs((map.get(key) ?? -1) - height) <= 0.5) continue
+              map.set(key, height)
+              changed = true
+            }
+            return changed ? { of: measuredFor, map } : previous
+          })
+        })
+        observer.current = { of: measuredFor, watcher }
+      }
+      const { watcher } = observer.current
+      watcher.observe(element)
+      return () => watcher.unobserve(element)
+    },
+    [measuredFor],
+  )
+```
+
+- Что делает: observer хранится вместе с ключом `measuredFor`, для которого создан. Первый ref callback нового ключа
+  (Wrap, Inline или Side by side, Hide whitespace, Refresh) отключает старый observer и создаёт новый; эффекта, который
+  отключал observer после смены ключа, больше нет.
+- Почему здесь: находка 3 ревью раунда 1: React 19 подключает ref callback-и нового layout-а в layout-фазе, до эффектов;
+  прежний код переиспользовал старый observer через `??=`, а эффект затем отключал его, и блоки больше не измерялись.
+- Без него: после Wrap высоты блоков остаются оценками, и щелчок по файлу дерева, `j`/`k` и `n`/`p` прокручивают не туда.
+- Требование: [Готово, когда](../issues/03-node-changes-и-входы.md#готово-когда)
+- Риски и пробелы test-ов: unit test «a new Wrap measures the blocks on screen again…» со stub-ом `ResizeObserver`
+  проверяет, что каждый блок на экране под живым observer-ом и что щелчок по файлу дерева ставит прокрутку по
+  сообщённым высотам после Wrap и после Side by side; красный и на прежнем коде, и на mutant-е «observer создаётся
+  один раз». Настоящий `ResizeObserver` браузера проверяет только e2e test в CI.
+
+## 10. Номер запроса palette только растёт
+
+Code: `src/renderer/changes/open.ts:152-161` · key lines: 153, 160, 161
+
+```ts
+/** The number of the last request: it only grows, so a request's timer never meets a later request of the same number. */
+let lastSeq = 0
+
+/**
+ * Leaves a request for the card of the Ticket; resolves to true once its button took it, to false when none did in
+ * REQUEST_WAIT_MS (the request is then dropped, so a card drawn later does not open the Node unasked).
+ */
+export function requestOpenChanges(projectId: string, subject: ChangesSubject): Promise<boolean> {
+  lastSeq += 1
+  const seq = lastSeq
+```
+
+- Что делает: номер запроса Open changes берётся из счётчика модуля, а не из запроса, который сейчас лежит в store.
+- Почему здесь: находка 4 ревью раунда 1: после взятого запроса номер начинался снова с 1, и таймер первого запроса
+  через 2 s удалял запись `settle` второго.
+- Без него: второй Open changes из palette в течение 2 s после первого никогда не завершается: ни карточка его не
+  возьмёт, ни запасное место не сработает.
+- Требование: [Что делаем, п. 6](../issues/03-node-changes-и-входы.md#что-делаем)
+- Риски и пробелы test-ов: unit test в `test/unit/palette-commands.test.tsx` на fake timers: второй запрос после
+  таймера первого берётся карточкой, а не взятый запрос даёт false ровно через свои 2 s; красный на mutant-е с прежним
+  номером.
+
+## 11. Что сознательно не меняли
 
 Gutter «+», popover и лоток комментариев — Ticket 05: у `DiffPane` есть prop `renderGutter`, через который Ticket 05
 добавит «+», сам `DiffPane` его не рисует. Chip со счётчиком `+N −M`, Viewed и живое обновление — часть 2. Цвет вида
 Node-а в minimap нейтральный (`var(--border-strong)`): по ADR-0077 новый вид получает свой цвет только через новый ADR.
 Переводы страниц — Ticket 06. Подсветки синтаксиса нет: строки окрашены только `--ready-*` и `--blocked-*`.
 
-## 9. Как проверено
+## 12. Как проверено
 
 Сначала test: новые unit test-ы не могли пройти до кода — модулей `src/renderer/changes/*` и
 `src/renderer/canvas/actions/Changes.tsx` не было. Затем `node scripts/vitest-electron.mjs test/unit/changes-view.test.tsx`
@@ -212,6 +321,11 @@ Node-а в minimap нейтральный (`var(--border-strong)`): по ADR-007
 Раунд по красному CI run 44595751428: unit test-ы `test/unit/ticket-card.test.tsx`, `test/unit/canvas-actions.test.tsx`,
 `test/unit/epic-layout.test.ts` — exit 0, и каждый из четырёх mutant-ов (без `ACTIONS_LINE` в `cardHeight`, без флага
 `changes` в `cardHeights`, `flex-wrap: nowrap`, кнопка у каждого Ticket-а) делает их красными; e2e test-ы — в CI.
+Раунд по ревью PR #2043: `test/unit/changes-view.test.tsx` и `test/unit/palette-commands.test.tsx` — exit 0; mutant-ы
+каждой правки (без проверки `current` у `changes.list`, у `changes.scopes`, у `changes.commits`, без сверки
+`asked.current.of` у `changes.file`, observer создаётся один раз, observer создаётся один раз и отключается эффектом,
+прежний номер запроса) делают их красными, exit 1. Тем же способом проверены новые test-ы клавиш `n`/`p` и показа
+скрытого Node-а из palette. e2e test снимает карточку с кнопкой Changes в обеих темах (`changes-node-card`) в CI.
 
 ## Проверить себя
 
@@ -223,7 +337,7 @@ Node-а в minimap нейтральный (`var(--border-strong)`): по ADR-007
 2. Почему Open changes из palette не ставит Node сам, а оставляет запрос карточке?
    - Ответ: место рядом с карточкой считается по тому, что нарисовал Canvas; это знает только кнопка на карточке.
      Сам palette ставит Node только когда за 2 s никто не взял запрос.
-   - Lines: `src/renderer/changes/open.ts:194`, `src/renderer/changes/open.ts:196`
+   - Lines: `src/renderer/changes/open.ts:197`, `src/renderer/changes/open.ts:199`
 3. Что стоит в DOM на месте блоков вне окна diff-а, и зачем?
    - Ответ: пустое место `before` и `after` той же суммарной высоты: полоса прокрутки и позиция видимых блоков не
      прыгают, хотя нарисованы только блоки экрана и двух экранов вокруг.

@@ -86,7 +86,10 @@ function Screen({ id, projectId, root, subject, data, selected }: { id: string; 
   useEffect(() => {
     if (!ready) return
     const of = scopesFor
+    // An answer for a key that is no longer the Node's is dropped: a late one would put the screen back on «Reading…».
+    let current = true
     void invoke('changes.scopes', { projectId, ticket }).then((result) => {
+      if (!current) return
       if (!result.ok) {
         setScopesRead({ of, value: null, error: failureReason('changes.scopes', result.error) })
         return
@@ -96,11 +99,14 @@ function Screen({ id, projectId, root, subject, data, selected }: { id: string; 
       for (const repo of result.value.repos) {
         if (!repo.scopes.includes('commit') || repo.base === null) continue
         void invoke('changes.commits', { projectId, ticket, repo: repo.repo }).then((commits) => {
-          if (!commits.ok) return
+          if (!current || !commits.ok) return
           setCommitsRead((previous) => ({ of, byRepo: { ...(previous?.of === of ? previous.byRepo : {}), [repo.repo]: commits.value.commits } }))
         })
       }
     })
+    return () => {
+      current = false
+    }
   }, [ready, scopesFor, projectId, ticket])
   const scopes = scopesRead?.of === scopesFor ? scopesRead : null
   const commits = commitsRead?.of === scopesFor ? commitsRead.byRepo : {}
@@ -111,9 +117,14 @@ function Screen({ id, projectId, root, subject, data, selected }: { id: string; 
   useEffect(() => {
     if (!ready || !hasRepos) return
     const of = listFor
+    let current = true
     void invoke('changes.list', { projectId, ticket, scope, hideWhitespace }).then((result) => {
+      if (!current) return
       setListRead(result.ok ? { of, value: result.value.repos, error: null } : { of, value: null, error: failureReason('changes.list', result.error) })
     })
+    return () => {
+      current = false
+    }
     // `scope` is in `listFor`; the read starts again only when the key does.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, hasRepos, listFor])

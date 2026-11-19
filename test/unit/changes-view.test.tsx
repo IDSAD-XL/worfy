@@ -9,7 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ChangesNode from '../../src/renderer/canvas/nodes/ChangesNode'
 import type { CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
 import { LayoutOpsContext, type LayoutOps } from '../../src/renderer/canvas/useLayout'
-import { sideBySideRows, windowOf } from '../../src/renderer/changes/diff-window'
+import { DiffPane, type DiffPaneProps } from '../../src/renderer/changes/DiffPane'
+import { fileKey, sideBySideRows, windowOf } from '../../src/renderer/changes/diff-window'
 import type { ChangedFile, DiffLine, FileDiff } from '../../src/shared/changes/types'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { LayoutOpInput } from '../../src/shared/layout/types'
@@ -63,6 +64,35 @@ let files: ChangedFile[]
 let scopesOf: ('all' | 'uncommitted' | 'commit' | 'compare')[]
 let calls: { channel: string; input: Record<string, unknown> }[]
 let sent: LayoutOpInput[]
+/** Holds an answer of the bridge until it is released (holdOnce); undefined — answered at once. */
+let gate: ((channel: string, input: Record<string, unknown>) => Promise<void> | undefined) | null
+
+/** Holds the next call of `channel` that `test` picks; the function returned releases its answer and lets it land. */
+function holdOnce(channel: string, test: (input: Record<string, unknown>) => boolean = () => true): () => Promise<void> {
+  let release!: () => void
+  const wait = new Promise<void>((done) => {
+    release = done
+  })
+  let taken = false
+  const previous = gate
+  gate = (each, input) => {
+    if (!taken && each === channel && test(input)) {
+      taken = true
+      return wait
+    }
+    return previous?.(each, input)
+  }
+  return async () => {
+    expect(taken).toBe(true)
+    release()
+    await settle()
+  }
+}
+
+const settle = () =>
+  act(async () => {
+    await new Promise((done) => setTimeout(done, 20))
+  })
 
 function answer(channel: string, input: Record<string, unknown>): unknown {
   const base = { ref: 'origin/main', from: 'worktree.base', mergeBase: '4f9c2e1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }
@@ -101,6 +131,7 @@ function answer(channel: string, input: Record<string, unknown>): unknown {
 beforeEach(() => {
   calls = []
   sent = []
+  gate = null
   scopesOf = ['all', 'uncommitted', 'commit', 'compare']
   files = [
     changed('src/orders/cart.ts', { additions: 2, deletions: 1 }),
@@ -113,7 +144,9 @@ beforeEach(() => {
   const bridge = {
     invoke: (channel: string, input: Record<string, unknown>) => {
       calls.push({ channel, input })
-      return Promise.resolve({ ok: true, value: answer(channel, input) })
+      const result = { ok: true, value: answer(channel, input) }
+      const wait = gate?.(channel, input)
+      return wait === undefined ? Promise.resolve(result) : wait.then(() => result)
     },
     on: () => 1,
     off: () => undefined,
@@ -123,24 +156,31 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
   delete (globalThis as { worfy?: WorfyBridge }).worfy
 })
 
-async function open(data: Record<string, unknown> = { ticket: { epic: 'demo', num: 3 } }) {
-  const ops: LayoutOps = {
-    apply(op) {
-      sent.push(op)
-      return Promise.resolve()
-    },
-  }
+const ops: LayoutOps = {
+  apply(op) {
+    sent.push(op)
+    return Promise.resolve()
+  },
+}
+
+function node(data: Record<string, unknown>) {
   const props = { id: 'changes:demo/3', data: { node: { data } }, selected: false } as unknown as CanvasNodeProps
-  render(
+  return (
     <ReactFlowProvider>
       <LayoutOpsContext.Provider value={ops}>
         <ChangesNode {...props} />
       </LayoutOpsContext.Provider>
-    </ReactFlowProvider>,
+    </ReactFlowProvider>
   )
+}
+
+async function open(data: Record<string, unknown> = { ticket: { epic: 'demo', num: 3 } }) {
+  render(node(data))
   await screen.findAllByTestId('changes-line')
 }
 
@@ -244,6 +284,21 @@ describe('the diff', () => {
     expect(screen.queryByTestId('changes-folded')).toBeNull()
   })
 
+  it('n and p go to the next and the previous hunk', async () => {
+    await open()
+    const body = screen.getByTestId('changes-body')
+    // Before the patches are measured the heights are estimates: the header of cart.ts is 34 px, its hunk of five
+    // lines 22 + 5 × 20 px and the gap under the file 12 px, the header of discount.ts 34 px.
+    fireEvent.keyDown(body, { key: 'n' })
+    expect(diff().scrollTop).toBe(34)
+    fireEvent.keyDown(body, { key: 'n' })
+    expect(diff().scrollTop).toBe(34 + 122 + 12 + 34)
+    fireEvent.keyDown(body, { key: 'p' })
+    expect(diff().scrollTop).toBe(34)
+    fireEvent.keyDown(body, { key: 'p' })
+    expect(diff().scrollTop).toBe(34)
+  })
+
   it('a binary file shows the sizes of its two sides', async () => {
     await open()
     await vi.waitFor(() => expect(screen.getByTestId('changes-binary').textContent).toBe('Binary file · 12 KB → 14 KB'))
@@ -304,6 +359,129 @@ describe('the tree', () => {
     // Typing in the filter is typing, not a key of the Node.
     fireEvent.keyDown(screen.getByTestId('changes-filter'), { key: 'j' })
     expect(current()).toBe('assets/logo.png')
+  })
+})
+
+describe('a late answer of a read gone by (round 1 of the review)', () => {
+  const paths = () => screen.getAllByTestId('changes-tree-file').map((row) => row.getAttribute('data-path'))
+
+  it('a list read for Hide whitespace that answers after the next read is dropped, not shown over it', async () => {
+    await open()
+    const release = holdOnce('changes.list', (input) => input.hideWhitespace === true)
+    fireEvent.click(screen.getByTestId('changes-hide-whitespace'))
+    await settle()
+    fireEvent.click(screen.getByTestId('changes-hide-whitespace'))
+    await settle()
+    await release()
+    expect(paths()).toEqual(['src/orders/cart.ts', 'src/orders/discount.ts', 'assets/logo.png', 'data/catalog.json'])
+    expect(screen.getByTestId('changes-meta').textContent).toBe('origin/main ← demo/03 · base 4f9c2e1 · 4 files + 2 workflow · +1269 −3')
+  })
+
+  it('the scopes read for another Ticket that answers after this Ticket’s is dropped, not shown as «Reading…»', async () => {
+    const release = holdOnce('changes.scopes')
+    const { rerender } = render(node({ ticket: { epic: 'demo', num: 3 } }))
+    await vi.waitFor(() => expect(calls.some((call) => call.channel === 'changes.scopes')).toBe(true))
+    rerender(node({ ticket: { epic: 'demo', num: 4 } }))
+    await screen.findAllByTestId('changes-line')
+    await release()
+    expect(screen.queryByText(/Reading the changes/u)).toBeNull()
+    expect(paths()).toHaveLength(4)
+  })
+
+  it('the commits read for another Ticket that answer after this Ticket’s are dropped, and the menu keeps its commits', async () => {
+    const release = holdOnce('changes.commits')
+    const { rerender } = render(node({ ticket: { epic: 'demo', num: 3 } }))
+    await vi.waitFor(() => expect(calls.some((call) => call.channel === 'changes.commits')).toBe(true))
+    rerender(node({ ticket: { epic: 'demo', num: 4 } }))
+    await screen.findAllByTestId('changes-line')
+    await release()
+    fireEvent.click(screen.getByTestId('changes-scope'))
+    const items = await screen.findAllByRole('menuitemradio')
+    expect(items.map((item) => item.getAttribute('data-scope'))).toEqual(['all', 'uncommitted', 'commit', 'commit'])
+  })
+
+  it('a patch read for an earlier Refresh that answers after the current one is dropped, not left «Loading…»', async () => {
+    const entries = [{ key: fileKey('demo', 'src/orders/cart.ts'), repo: 'demo', file: changed('src/orders/cart.ts') }]
+    const pane = (generation: number) => {
+      const props: DiffPaneProps = { projectId: PROJECT, ticket: { epic: 'demo', num: 3 }, scope: { kind: 'all' }, hideWhitespace: false, layout: 'inline', wrap: false, entries, several: false, selected: null, generation }
+      return <DiffPane {...props} />
+    }
+    const release = holdOnce('changes.file')
+    const { rerender } = render(pane(0))
+    await settle()
+    rerender(pane(1))
+    await settle()
+    expect(fileCalls('src/orders/cart.ts')).toHaveLength(2)
+    expect(within(diff()).getAllByTestId('changes-line')).toHaveLength(5)
+    await release()
+    expect(within(diff()).queryByText('Loading…')).toBeNull()
+    expect(within(diff()).getAllByTestId('changes-line')).toHaveLength(5)
+  })
+})
+
+describe('the measure of the drawn blocks', () => {
+  it('a new Wrap measures the blocks on screen again, and a file of the tree scrolls by the new heights', async () => {
+    const observers: { watched: Set<Element>; report: ResizeObserverCallback }[] = []
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        watched = new Set<Element>()
+        report: ResizeObserverCallback
+        constructor(report: ResizeObserverCallback) {
+          this.report = report
+          observers.push(this)
+        }
+        observe(element: Element) {
+          this.watched.add(element)
+        }
+        unobserve(element: Element) {
+          this.watched.delete(element)
+        }
+        disconnect() {
+          this.watched.clear()
+        }
+      },
+    )
+    const watchedBlocks = () => new Set(observers.flatMap((each) => [...each.watched]).filter((element) => element instanceof HTMLElement && element.dataset.block !== undefined))
+    // Every block on screen is `height` px tall, as each observer that watches it reports.
+    let height = 0
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({ height }) as DOMRect)
+    const report = async (next: number) => {
+      height = next
+      await act(async () => {
+        for (const each of observers) each.report([...each.watched].map((target) => ({ target }) as ResizeObserverEntry), each as unknown as ResizeObserver)
+      })
+    }
+    // The blocks above the header of assets/logo.png: cart.ts and discount.ts, a header and a hunk each. Back at the
+    // first file after it, so that they are drawn, and measured, again.
+    const logoAt = async () => {
+      fireEvent.click(screen.getAllByTestId('changes-tree-file')[2]!)
+      await settle()
+      const at = diff().scrollTop
+      fireEvent.click(screen.getAllByTestId('changes-tree-file')[0]!)
+      await settle()
+      expect(diff().scrollTop).toBe(0)
+      return at
+    }
+    await open()
+    const blocks = () => diff().querySelectorAll('[data-block]')
+    expect(blocks().length).toBeGreaterThan(0)
+    expect(watchedBlocks().size).toBe(blocks().length)
+    await report(300)
+    expect(await logoAt()).toBe(4 * 300)
+
+    fireEvent.click(screen.getByTestId('changes-wrap'))
+    await settle()
+    expect(diff().getAttribute('data-wrap')).toBe('true')
+    expect(watchedBlocks().size).toBe(blocks().length)
+    await report(500)
+    expect(await logoAt()).toBe(4 * 500)
+
+    fireEvent.click(screen.getByTestId('changes-side-by-side'))
+    await settle()
+    expect(watchedBlocks().size).toBe(blocks().length)
+    await report(200)
+    expect(await logoAt()).toBe(4 * 200)
   })
 })
 

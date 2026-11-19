@@ -181,6 +181,8 @@ test('Changes on the card puts the Node next to it with the files and lines of g
       return { width: offsetWidth, height: offsetHeight }
     })
     expect(cardSize.width).toBeGreaterThan(0)
+    // The Ticket card with the Changes button, on the line of actions the layout gives it room for (ticket-card.ts).
+    await snapshotThemes(window, 'changes-node-card')
     await button.click()
     const node = window.locator(`[data-testid="changes-node"][data-ticket="${EPIC}/04"]`)
     await expect(node).toBeVisible({ timeout: ms(15_000) })

@@ -149,13 +149,16 @@ export const REQUEST_WAIT_MS = 2_000
 
 export const useOpenRequests = create<{ request: OpenRequest | null }>(() => ({ request: null }))
 const settle = new Map<number, (taken: boolean) => void>()
+/** The number of the last request: it only grows, so a request's timer never meets a later request of the same number. */
+let lastSeq = 0
 
 /**
  * Leaves a request for the card of the Ticket; resolves to true once its button took it, to false when none did in
  * REQUEST_WAIT_MS (the request is then dropped, so a card drawn later does not open the Node unasked).
  */
 export function requestOpenChanges(projectId: string, subject: ChangesSubject): Promise<boolean> {
-  const seq = (useOpenRequests.getState().request?.seq ?? 0) + 1
+  lastSeq += 1
+  const seq = lastSeq
   for (const [, done] of settle) done(false)
   settle.clear()
   useOpenRequests.setState({ request: { projectId, epic: subject.epic, num: subject.num, seq } })

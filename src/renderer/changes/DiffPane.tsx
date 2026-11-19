@@ -274,6 +274,9 @@ export function DiffPane({ projectId, ticket, scope, hideWhitespace, layout, wra
         ...(key.endsWith('\u0000expand') ? { expand: true } : {}),
         hideWhitespace,
       }).then((result) => {
+        // An answer for a `readFor` gone by is dropped: it would replace the patches of the current one, which are
+        // already asked for and so not asked again.
+        if (asked.current.of !== of) return
         const state: FileState = result.ok ? { kind: 'ready', diff: result.value.file } : { kind: 'error', message: failureReason('changes.file', result.error) }
         setFiles((previous) => ({ of, map: new Map(previous.of === of ? previous.map : []).set(key, state) }))
       })
@@ -302,37 +305,44 @@ export function DiffPane({ projectId, ticket, scope, hideWhitespace, layout, wra
   }, [])
 
   // Measure the drawn blocks: Wrap and the notes make them taller than their rows say.
-  const observer = useRef<ResizeObserver | null>(null)
-  useEffect(() => () => observer.current?.disconnect(), [])
+  // One observer per `measuredFor`: it reports with the key of its time, so a new layout measures anew. The ref callback
+  // makes it, not an effect: React attaches the refs of a new layout before its effects run.
+  const observer = useRef<{ of: string; watcher: ResizeObserver } | null>(null)
+  useEffect(
+    () => () => {
+      observer.current?.watcher.disconnect()
+      observer.current = null
+    },
+    [],
+  )
   const measure = useCallback(
     (element: HTMLDivElement | null) => {
       if (element === null || typeof ResizeObserver === 'undefined') return
-      observer.current ??= new ResizeObserver((records) => {
-        setMeasured((previous) => {
-          const map = new Map(previous.of === measuredFor ? previous.map : [])
-          let changed = previous.of !== measuredFor
-          for (const record of records) {
-            const key = (record.target as HTMLElement).dataset.block
-            // The space under a file is its last block's margin: part of the block's room in the window.
-            const height = record.target.getBoundingClientRect().height + (Number.parseFloat(getComputedStyle(record.target).marginBottom) || 0)
-            if (key === undefined || height === 0 || Math.abs((map.get(key) ?? -1) - height) <= 0.5) continue
-            map.set(key, height)
-            changed = true
-          }
-          return changed ? { of: measuredFor, map } : previous
+      if (observer.current?.of !== measuredFor) {
+        observer.current?.watcher.disconnect()
+        const watcher = new ResizeObserver((records) => {
+          setMeasured((previous) => {
+            const map = new Map(previous.of === measuredFor ? previous.map : [])
+            let changed = previous.of !== measuredFor
+            for (const record of records) {
+              const key = (record.target as HTMLElement).dataset.block
+              // The space under a file is its last block's margin: part of the block's room in the window.
+              const height = record.target.getBoundingClientRect().height + (Number.parseFloat(getComputedStyle(record.target).marginBottom) || 0)
+              if (key === undefined || height === 0 || Math.abs((map.get(key) ?? -1) - height) <= 0.5) continue
+              map.set(key, height)
+              changed = true
+            }
+            return changed ? { of: measuredFor, map } : previous
+          })
         })
-      })
-      const watcher = observer.current
+        observer.current = { of: measuredFor, watcher }
+      }
+      const { watcher } = observer.current
       watcher.observe(element)
       return () => watcher.unobserve(element)
     },
     [measuredFor],
   )
-  // A new layout measures anew: the observer reports with the `measuredFor` of its time.
-  useEffect(() => {
-    observer.current?.disconnect()
-    observer.current = null
-  }, [measuredFor])
 
   // A scroll asked for (a file of the tree, j and k, n and p) is set again after the blocks above it are measured.
   const pending = useRef<{ key: string; tries: number } | null>(null)

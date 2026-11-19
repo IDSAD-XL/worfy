@@ -173,6 +173,60 @@ describe('palette commands', () => {
     expect(useOpenRequests.getState().request).toBeNull()
   })
 
+  it('"Open changes" shows the Ticket’s hidden Changes Node again before it goes to it (worfy-changes-view/03)', async () => {
+    const asked: { channel: string; input: unknown }[] = []
+    const globals = globalThis as { worfy?: WorfyBridge }
+    globals.worfy = {
+      invoke: (channel: string, input: unknown) => {
+        asked.push({ channel, input })
+        return Promise.resolve({ ok: true, value: {} })
+      },
+      on: () => 1,
+      off: () => undefined,
+    } as unknown as WorfyBridge
+    onTestFinished(() => {
+      delete globals.worfy
+    })
+    const hidden = node('ch9', 'changes', { hidden: true, data: { ticket: { epic: 'e', num: 9 } } })
+    const row = buildCommands(context({ layoutNodes: [hidden] })).find((command) => command.id === 'changes:e/09')!
+    expect(await row.run()).toBeUndefined()
+    expect(asked.map(({ channel, input }) => [channel, (input as { op?: unknown }).op])).toEqual([['layout.apply', { op: 'hide', id: 'ch9', hidden: false }]])
+    expect(useCanvasRequests.getState().focus).toMatchObject({ projectId: 'p1', nodeId: 'ch9' })
+  })
+
+  it('a second "Open changes" within 2 s of a taken one is the card’s to take, and an untaken one gives up after its own 2 s (worfy-changes-view/03)', async () => {
+    const { REQUEST_WAIT_MS, requestOpenChanges, takeOpenRequest, useOpenRequests } = await import('../../src/renderer/changes/open')
+    vi.useFakeTimers()
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const first = requestOpenChanges('p1', { epic: 'e', num: 9 })
+    expect(takeOpenRequest('p1', { epic: 'e', num: 9 })).toBe(true)
+    expect(await first).toBe(true)
+    await vi.advanceTimersByTimeAsync(REQUEST_WAIT_MS / 2)
+    let second: boolean | undefined
+    void requestOpenChanges('p1', { epic: 'e', num: 7 }).then((taken) => {
+      second = taken
+    })
+    // The first request's timer runs out here: it leaves the second one alone.
+    await vi.advanceTimersByTimeAsync(REQUEST_WAIT_MS / 2 + 1)
+    expect(useOpenRequests.getState().request).toMatchObject({ projectId: 'p1', epic: 'e', num: 7 })
+    expect(takeOpenRequest('p1', { epic: 'e', num: 7 })).toBe(true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(second).toBe(true)
+
+    // A request no card takes resolves to false after its own wait, not before, and is dropped.
+    let third: boolean | undefined
+    void requestOpenChanges('p1', { epic: 'e', num: 8 }).then((taken) => {
+      third = taken
+    })
+    await vi.advanceTimersByTimeAsync(REQUEST_WAIT_MS - 1)
+    expect(third).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(third).toBe(false)
+    expect(useOpenRequests.getState().request).toBeNull()
+  })
+
   it('goes to Epics, Tickets, Sessions, Cards, Nodes and ADRs, but not to anchors', () => {
     const all = ids(context())
     expect(all).toEqual(expect.arrayContaining(['epic:e', 'ticket:e/07', 'node:s1', 'node:c1', 'node:n1', 'adr:docs/adr/0002-view.md']))
