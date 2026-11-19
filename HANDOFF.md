@@ -6,11 +6,11 @@
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): закрыт, 20/20. Проверка 14 (перетаскивание без фризов) на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
 - Stable copy и plugin `worfy` на Mac и ПК — `0.3.0+bacbbcef` (2026-11-03). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` ([spec](.scratch/worfy-link/spec.md)): закрыт, 42/42, принят владельцем 2026-11-02; 41 (дубль сообщения) и 42 (поток строк смены сети) — проверка после Stable.
-- `worfy-windows` (ADR 0054–0057, 0062, 0063, 0069, 0071; прошлое — «Итог» 39, 60, 66, 67): 119/120; влиты 118–120; 15 и 118 вместе прошли зелёный gate full на ПК (`5557f744`). Осталась приёмка 16; красный только на Windows — fix или Windows exception (Q1/Q9).
+- `worfy-windows` (ADR 0054–0057, 0062, 0063, 0069, 0071; прошлое — «Итог» 39, 60, 66, 67): 119/120; 15 и 118 вместе прошли зелёный gate full на ПК (`5557f744`). Осталась приёмка 16; новый 121 (`icacls` в setup e2e, scope `pc`). Красный только на Windows — fix или Windows exception (Q1/Q9).
 - `worfy-terminal-ssh` (Terminal AI в SSH session; [spec](.scratch/worfy-terminal-ssh/spec.md), подтверждён владельцем 2026-10-18) — **отложен владельцем 2026-10-21**: 0/10; spike 01 blocked — ждёт сервер.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
-- `worfy-polish`: 79/86; 78, 85, 86 влиты в ночь на 11-10 (#1759, #1760, #1756); 47 (flaky Windows) закрыть после Windows-job-ов main до 11-12; 75, 77 ждут взгляда владельца. Дальше 81, 83, 84 и новый 87 (flaky `beforeAll` в `affected-tests.test.ts`). Новые: 127, 128.
-- `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 63/66; 63–65 влиты 11-09 (#1730, #1733, #1734); открыты 05, 43; 31 закрыт 11-09. 43: eco у друга.
+- `worfy-polish`: 79/86; 47 (flaky Windows) закрыть после Windows-job-ов main до 11-12; 75, 77 ждут взгляда владельца. Дальше 81, 83, 84 и новый 87 (flaky `beforeAll` в `affected-tests.test.ts`). Новые: 127, 128, 130 (`land` и `pc-main-red`), 131 (`blocked --waits owner`).
+- `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 63/66; 63–65 влиты 11-09 (#1730, #1733, #1734); 05 закрыт 11-20; открыт 43; 31 закрыт 11-09. 43: eco у друга.
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 10/10; решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10; 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 24/24; 24 — картинки на Linked machine (#1018), три решения — подтвердить владельцу.
@@ -26,14 +26,12 @@
 - `worfy-pr-inbox` ([spec](.scratch/worfy-pr-inbox/spec.md)): 3/8; 01, 02, 08 влиты в ночь на 11-10 (#1754, #1755, #1761); дальше 03–07.
 - `worfy-pr-follow` ([spec](.scratch/worfy-pr-follow/spec.md)): часть 1 — 7/7, принята 2026-11-19; часть 2 (PR watch) — после auth-check и changes-view.
 - `worfy-auth-check` ([spec](.scratch/worfy-auth-check/spec.md)): 0/10; Wave 1: 01, 02, 03; 02 ждёт тестера.
-- `worfy-changes-view`: 3/7; 03 VERIFIED (#2043), ждёт #1513; 05–07 ждут 03.
+- `worfy-changes-view`: 4/7; 03 влит (#2043, решения владельца 11-20); дальше 05, затем 06–07.
 
 ## Ждёт владельца
 
 - Приёмки, старшие первыми: `worfy-multi-vendor` 43 (Mac Stable, затем ПК) → `worfy-windows` 16 → по готовности кода `worfy-auto-approve` 11; и ручные проверки (Mac и ПК, ~30 мин) — [пошаговые гайды](.scratch/owner-acceptance-guides.md).
 - `worfy-windows` 07 закрыт (#1127, отступления Q31 подтвердить).
-- #1513 (`pc-main-red`, `icacls` на ПК, с 11-06) держит #2043 (`worfy-changes-view` 03) и 05–07, хотя с 11-17 влито ≥12 PR scope `pc` (`land` его не читает): закрыть #1513 после gate full на ПК или влить #2043?
-- `worfy-changes-view` 03, без владельца: строка действий карточки переносится (+24 px), Changes — текстом.
 - Владелец в Mac Stable: экран Product Session рядом с прототипом (`worfy-product-session` 08, 21, 23), polish 75, 77 и Product Session 26–32 (в 32 — первый настоящий вызов Haiku).
 
 ## Риски и долги
