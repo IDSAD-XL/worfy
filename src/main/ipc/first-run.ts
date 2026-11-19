@@ -51,6 +51,7 @@ import {
   type ProjectProfile,
 } from '../first-run/checks'
 import { healthReports } from '../first-run/health-reports'
+import { appVendorRows } from '../first-run/vendor-checks'
 import { remoteRepos } from '../github/inbox'
 import { ghRunner } from '../github/prs'
 import { noteFirstRunReport } from '../getting-started/progress'
@@ -195,6 +196,8 @@ async function checks(): Promise<FirstRunReport> {
     // The build version that runs, as the Update check names it (src/main/ipc/update.ts, appRunning),
     // and its build number (worfy-update ticket 14).
     update: () => ({ snapshot: appUpdate().snapshot(), version: bundledHarnessVersion() ?? app.getVersion(), number: appBuildNumber() }),
+    // The Codex sign-in (worfy-auth-check ticket 08).
+    vendorRows: appVendorRows,
   })
 }
 

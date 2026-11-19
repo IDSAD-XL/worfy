@@ -64,6 +64,8 @@ import { PageError, type CdpPage, type PageOutcome, type PageTarget } from '../b
 import { ControlError, liveBrowsers, type LiveBrowsers } from '../browser/live'
 import { originOf, originRefusal, sessionMayGo } from '../browser/origins'
 import { browserProfileStore } from '../browser/profiles'
+import { healthReports, type HealthReports } from '../first-run/health-reports'
+import type { CheckProject } from '../../shared/ipc/first-run'
 import { layoutStore } from '../layout/store'
 import { projectStore, type StoredProject } from '../projects/store'
 import instructions from './browser-instructions.md?raw'
@@ -92,6 +94,69 @@ export interface BrowserContext {
   workflow?: () => Promise<CanvasWorkflow>
   /** The Epic of the Project's Autopilot run, or null when none runs. */
   runningEpic?: () => Promise<string | null>
+  /** Where a profile's sign-in is told to Health check, expired or working (worfy-auth-check ticket 08); nowhere when unset. */
+  signIns?: BrowserSignIns
+}
+
+/** What the tools tell Health check of a Browser profile's sign-in. */
+export interface BrowserSignIns {
+  /** The sign-in of `profile` expired (signInExpiry's `why`) on Browser `browser`. */
+  expired(profile: BrowserProfile, browser: string, why: string): void
+  /** A page under `profile` loaded without its sign-in page or a 401: the sign-in works. */
+  works(profile: BrowserProfile): void
+}
+
+/**
+ * The Browser profile row of one Project in Health check (worfy-auth-check ticket 08): one row per
+ * Project, failed while a profile of it has an expired sign-in and naming each such profile, with
+ * «Open Browser» on the Browser where the last one expired; a page that works under a profile takes
+ * that profile off, and the row goes with the last one. Non-critical (src/shared/health/severity.ts).
+ */
+export class BrowserSignInRow implements BrowserSignIns {
+  private readonly expiredOn = new Map<string, { why: string; browser: string }>()
+
+  constructor(
+    private readonly project: CheckProject,
+    private readonly reports: Pick<HealthReports, 'reportFailure' | 'reportOk'>,
+  ) {}
+
+  expired(profile: BrowserProfile, browser: string, why: string): void {
+    // signInExpiry's words for the agent, as a part of the row's sentence.
+    const head = `${SIGN_IN_EXPIRED} "${profile.name}"`
+    const cause = why.startsWith(head) ? why.slice(head.length) : `: ${why}`
+    // The newest goes last: its Browser is the one «Open Browser» shows.
+    this.expiredOn.delete(profile.id)
+    this.expiredOn.set(profile.id, { why: `the sign-in of Browser profile "${profile.name}" expired${cause}`, browser })
+    this.tell()
+  }
+
+  works(profile: BrowserProfile): void {
+    if (this.expiredOn.delete(profile.id)) this.tell()
+  }
+
+  private tell(): void {
+    const all = [...this.expiredOn.values()]
+    const last = all.at(-1)
+    if (last === undefined) {
+      this.reports.reportOk('browser-profile', this.project)
+      return
+    }
+    const reason = all.map(({ why }) => why).join('; ')
+    this.reports.reportFailure('browser-profile', this.project, reason, 'Sign in in the Browser of this profile: a Session never signs in itself', [{ id: 'open-browser', label: 'Open Browser', node: last.browser }])
+  }
+}
+
+/** The row of each Project, shared by the Sessions of the Project. */
+const signInRows = new Map<string, BrowserSignInRow>()
+
+/** The app's Browser profile row of Project `projectId`, named `name`. */
+export function appBrowserSignIns(projectId: string, name: () => string): BrowserSignIns {
+  let row = signInRows.get(projectId)
+  if (row === undefined) {
+    row = new BrowserSignInRow({ id: projectId, name: name() }, healthReports())
+    signInRows.set(projectId, row)
+  }
+  return row
 }
 
 export type BrowserToolContent = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
@@ -173,7 +238,11 @@ function handlers(context: BrowserContext, hold: (id: string) => void): Handlers
    */
   const arrived = <T extends { url: string }>(id: string, page: CdpPage, profile: BrowserProfile, answer: T): T | (T & { signIn: string }) => {
     const expired = signInExpiry(profile, answer.url, page.documentStatus())
-    if (expired === null) return answer
+    if (expired === null) {
+      context.signIns?.works(profile)
+      return answer
+    }
+    context.signIns?.expired(profile, id, expired)
     if (autopilot) throw new ToolError(`${expired} Do not sign in yourself: stop the checks under this profile and report "sign-in expired in Browser profile ${profile.name}". Browser ${id} is at ${answer.url}.`)
     return { ...answer, signIn: `${expired} Do not sign in yourself: ask the user to sign in in this Browser.` }
   }
@@ -246,7 +315,9 @@ function handlers(context: BrowserContext, hold: (id: string) => void): Handlers
     const onSignIn = (url: string, status: number | null): void => {
       if (!autopilot || leaves) return
       const expired = signInExpiry(profile, url, status)
-      if (expired !== null) throw new ToolError(`${expired} Browser ${id} is there: only browser_navigate away is allowed. Do not sign in yourself; report "sign-in expired in Browser profile ${profile.name}".`)
+      if (expired === null) return
+      context.signIns?.expired(profile, id, expired)
+      throw new ToolError(`${expired} Browser ${id} is there: only browser_navigate away is allowed. Do not sign in yourself; report "sign-in expired in Browser profile ${profile.name}".`)
     }
     const before = live.page(projectId, id)
     onSignIn(before?.contents.getURL() ?? (typeof node.data.url === 'string' ? node.data.url : ''), before?.documentStatus() ?? null)
@@ -480,6 +551,7 @@ export function appBrowserContext(projectId: string, sessionId: () => string | n
     live: deps.live,
     sessionId,
     autopilot,
+    signIns: appBrowserSignIns(projectId, () => deps.projects().find((project) => project.id === projectId)?.name ?? projectId),
     ...(workflow === undefined ? {} : { workflow: () => workflow(projectId) }),
     ...(runningEpic === undefined ? {} : { runningEpic: () => runningEpic(projectId) }),
   }

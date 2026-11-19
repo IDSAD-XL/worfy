@@ -62,6 +62,7 @@ Settings → Machines. Both are described under [Linked machine](#linked-machine
 |---|---|
 | Id, name, certificate; `link/machine.json` | `src/main/link/identity.ts` |
 | The secret store; `link/secrets.json` | `src/main/link/secrets.ts` |
+| The Linked machine row of Health check | `src/main/link/health.ts` (tests: `test/contract/link-reconnect.test.ts`) |
 | The service: reasons to listen, the port, the app's link and its stop on quit | `src/main/link/service.ts` |
 | Start and quit in the app | `src/main/index.ts` |
 | The data folder | `src/main/storage/paths.ts` |
@@ -183,6 +184,13 @@ shows this computer as Offline until it removes it too or "Link a machine" opens
 "Certificate changed" clears when the remembered certificate answers again, for example when another worfy had taken
 the address. A Machine that really has a new certificate has to be removed, on the side that remembers the old one,
 and linked again.
+
+**In Health check.** The group Linked machines has one "Linked machine" row, failed and non-critical, while a Linked
+machine is "Certificate changed" or while the secrets file was set aside as unreadable. The row names the Machine, or
+the file it was set aside as (`secrets.json.unreadable-<time>`), and never a token. Its step is to link again by code,
+and "Link a machine…" opens that dialog over Health check. A connection that opens to the Machine, linking it again or
+removing it takes its part off the row. The part about the secrets file goes once a Machine is linked again or
+connected. The row never opens First run by itself.
 
 #### Access to the Projects of this Machine
 

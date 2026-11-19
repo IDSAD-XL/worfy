@@ -137,6 +137,19 @@ history as `worfy · Codex` or `terminal · Codex`. A thread started outside wor
 read-only Node by itself, with its transcript read from Codex, and Resume continues it on a live Node. The details are in
 [Sessions](sessions.md).
 
+**GitHub in a Codex Session.** A Codex hook cannot set a Session's environment, so worfy puts `GH_TOKEN` of the
+Profile's `github.account` into the environment of the Codex process. When that token cannot be had, for example because
+gh has no login for that account, the Session still starts. Its transcript opens with a notice that GitHub is not
+available to the Session and why, followed by an "Open Health check" link. The GitHub access row of its Project fails in
+Health check at once and is checked again there. Neither the notice, the row nor the log holds a token.
+
+**Codex sign-in in Health check.** Health check has a "Codex sign-in" row in its group Codex, always non-critical,
+because Claude Code is the default Vendor and a Codex Session says itself what it lacks. Signed in, the row shows
+`<email> · <plan>`. Signed out, it warns and offers "Sign in to Codex…", the same sign-in as in Settings → Vendors; the
+checks run again once it is over. A Codex app-server that does not start or does not answer makes the row "Couldn't
+check" instead of a failure. A build without Codex, or a Machine where Codex was never run (no Codex home folder), has
+no row, so a user who never chose Codex gets no warning for it. The row never opens First run by itself.
+
 **worfy's tools in Codex.** A Codex Session in a Project gets the same MCP servers as a Claude Code Session, `worfy-canvas`
 (Canvas, and Cards with `worfy.ask`) and `worfy-browser`, over HTTP on `127.0.0.1` with a token of its own process. The
 details are in [Cards](cards.md) and [Browser](browser.md).
@@ -217,6 +230,7 @@ The binary is `codex.exe` from the package of the platform, x64 or arm64. The pr
 | The Codex driver | `src/main/vendors/codex/index.ts`, one file per part: `capabilities.ts`, `session.ts`, `account.ts`, `limits.ts`, `history.ts`, `commands.ts`, `mcp.ts`, `one-shot.ts`, `harness-hooks.ts` |
 | Codex process, JSON-RPC client, schema check | `src/main/vendors/codex/launch.ts`, `src/main/vendors/codex/app-server.ts`, `src/main/vendors/codex/rpc.ts`, `src/main/vendors/codex/schema.ts` |
 | Codex items to events, approvals | `src/main/vendors/codex/items.ts`, `src/main/vendors/codex/approvals.ts` |
+| The Codex sign-in row of Health check | `src/main/first-run/vendor-checks.ts` (tests: `test/contract/codex-account.test.ts`); a Session without GH_TOKEN: `test/contract/codex-session-gh-token.test.ts` |
 | The pinned binary | `src/main/vendors/codex/binary.ts`, `electron-builder.yml`, `build/codex/` |
 | Generated protocol types and schema | `src/main/vendors/codex/protocol/`, `scripts/codex-protocol.mjs` |
 | The Vendor of a Session and "New session" | `src/main/agent/node-sessions.ts`, `src/main/agent/app-registry.ts` |

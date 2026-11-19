@@ -15,10 +15,12 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { hasExited } from '../../src/main/agent/session/process'
 import type { LoginAttempt } from '../../src/main/vendors/account'
-import { codexAccountPart, codexAskStarter, type CodexAsk, type StartCodex } from '../../src/main/vendors/codex/account'
+import { codexSignInRow } from '../../src/main/first-run/vendor-checks'
+import { codexAccountPart, codexAskStarter, readCodexSignIn, type CodexAsk, type StartCodex } from '../../src/main/vendors/codex/account'
 import type { CodexRuntime } from '../../src/main/vendors/codex/binary'
 import { codexLimitsPart } from '../../src/main/vendors/codex/limits'
 import type { CodexRpcEvent } from '../../src/main/vendors/codex/rpc'
+import { checkSchema, checkState } from '../../src/shared/ipc/first-run'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 
@@ -472,5 +474,54 @@ describe('the account check on a stand-in app-server', () => {
     later.abort(new Error('the window closed'))
     await expect(check).rejects.toThrow('the window closed')
     expect(hanging.closed()).toBe(1)
+  })
+})
+
+describe('the Codex sign-in row of Health check (worfy-auth-check ticket 08)', () => {
+  const inBuild = (): Promise<boolean> => Promise.resolve(true)
+  const rowOf = (start: StartCodex, home: () => string = codexHome) => codexSignInRow({ codexInBuild: inBuild, codexSignIn: () => readCodexSignIn(start, home()) })
+
+  it('signed in: `ok` with the email and the plan, non-critical, never opening First run', async () => {
+    const { start } = fake('account-plus')
+    const row = await rowOf(start)
+    expect(row).toMatchObject({ id: 'codex-login', group: 'Codex', title: 'Codex sign-in', status: 'ok', detail: 'user@example.com · plus', severity: 'non-critical', actions: [], opensFirstRun: false })
+    expect(checkSchema.parse(row)).toEqual(row)
+  })
+
+  it('signed out: needs the user, with «Sign in to Codex…», non-critical', async () => {
+    const { start } = fake('signed-out')
+    const row = await rowOf(start)
+    expect(row).toMatchObject({ status: 'warn', severity: 'non-critical', actions: [{ id: 'codex-sign-in', label: 'Sign in to Codex…' }], opensFirstRun: false })
+    expect(checkState(row!)).toBe('needs-user')
+    expect(row?.hint).toMatch(/Codex Sessions/)
+  })
+
+  it('an app-server that does not start is `unknown`, not a failure, and non-critical', async () => {
+    const row = await rowOf(() => Promise.reject(new Error('no Codex for linux-ia32')))
+    expect(row).toMatchObject({ status: 'unknown', severity: 'non-critical', opensFirstRun: false })
+    expect(row?.detail).toBe("Couldn't check: the Codex app-server did not start (no Codex for linux-ia32)")
+  })
+
+  it('an app-server that started but did not answer is `unknown` too, and is closed', async () => {
+    const server = standIn({
+      'account/read': () => {
+        throw new Error('Codex app-server did not answer account/read')
+      },
+    })
+    expect(await rowOf(server.start)).toMatchObject({ status: 'unknown', detail: "Couldn't check: Codex app-server did not answer account/read", severity: 'non-critical' })
+    expect(server.closed()).toBe(1)
+  })
+
+  it('no row while Codex was never run here (no home folder), nor in a build without Codex: nothing is started', async () => {
+    const server = standIn({ 'account/read': () => SIGNED_IN })
+    expect(await rowOf(server.start, () => join(tempRoot(), 'no-codex-home'))).toBeNull()
+    expect(await codexSignInRow({ codexInBuild: () => Promise.resolve(false), codexSignIn: () => readCodexSignIn(server.start, codexHome()) })).toBeNull()
+    expect(server.starts()).toBe(0)
+  })
+
+  it('readCodexSignIn tells an app-server that did not start from a Codex never run here', async () => {
+    const failure = new Error('spawn ENOENT')
+    await expect(readCodexSignIn(() => Promise.reject(failure), codexHome())).resolves.toEqual({ kind: 'not-started', error: failure })
+    await expect(readCodexSignIn(standIn({}).start, join(tempRoot(), 'none'))).resolves.toEqual({ kind: 'no-home' })
   })
 })

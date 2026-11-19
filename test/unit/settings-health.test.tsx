@@ -4,6 +4,7 @@ import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { Check, FirstRunReport } from '../../src/shared/ipc/first-run'
 import type { MigrationPlan } from '../../src/shared/ipc/harness-migration'
 import type { ProjectsState } from '../../src/shared/ipc/projects'
+import { useCanvasRequests } from '../../src/renderer/find/canvas-requests'
 import { acceptProjectsState } from '../../src/renderer/projects/useProjects'
 import { SettingsDialogView } from '../../src/renderer/settings/SettingsDialog'
 import { collectSections, settingsSections } from '../../src/renderer/settings/sections'
@@ -1144,5 +1145,62 @@ describe('Settings → Health: "Use <login>" of a Project row (worfy-auth-check 
     expect(rowNamed(health, 'GitHub access, beta').dataset.status).toBe('ok')
     expect(rowNamed(health, 'GitHub access, alpha').dataset.status).toBe('warn')
     expect(health.textContent).toContain('github.account of beta is now bob')
+  })
+})
+
+describe('Settings → Health: the buttons of Codex, Browser and Link (worfy-auth-check ticket 08)', () => {
+  const alpha = { id: 'alpha-0000000a', name: 'alpha' }
+  const rowsWith = (...checks: Check[]): void => {
+    handlers['firstRun.checks'] = () => ({ ok: true, value: { checkedAt: '2026-11-19T00:00:00.000Z', checks } })
+  }
+
+  it('«Sign in to Codex…» starts the Codex sign-in of Settings → Vendors, then checks again', async () => {
+    rowsWith(check('codex-login', 'Codex', 'Codex sign-in', { status: 'warn', detail: 'not signed in to Codex', actions: [{ id: 'codex-sign-in', label: 'Sign in to Codex…' }] }))
+    const signIn = later()
+    handlers['vendors.startLogin'] = () => signIn.answer
+    renderApp()
+    const health = await openHealth()
+    const before = callsOf('firstRun.checks').length
+    fireEvent.click(within(rowOf(health, 'codex-login')).getByRole('button', { name: 'Sign in to Codex…' }))
+    expect(callsOf('vendors.startLogin')).toEqual([{ vendor: 'codex' }])
+    await waitFor(() => expect(health.textContent).toContain('Sign in to Codex in the page it opened in your browser'))
+    await signIn.give({ ok: true, value: { connections: [{ provider: 'openai', signedIn: true, email: null, plan: null }], command: null } })
+    await waitFor(() => expect(callsOf('firstRun.checks').length).toBe(before + 1))
+  })
+
+  it('a Codex sign-in that failed is an alert', async () => {
+    rowsWith(check('codex-login', 'Codex', 'Codex sign-in', { status: 'warn', actions: [{ id: 'codex-sign-in', label: 'Sign in to Codex…' }] }))
+    handlers['vendors.startLogin'] = () => ({ ok: false, error: 'the Codex sign-in was cancelled' })
+    renderApp()
+    const health = await openHealth()
+    fireEvent.click(within(rowOf(health, 'codex-login')).getByRole('button', { name: 'Sign in to Codex…' }))
+    await waitFor(() => expect(within(health).getByRole('alert').textContent).toContain('the Codex sign-in was cancelled'))
+  })
+
+  it('«Link a machine…» opens the Link a machine dialog over the section; Settings stays', async () => {
+    rowsWith(check('linked-machine', 'Linked machines', 'Linked machine', { status: 'fail', detail: 'pc answered with another certificate', actions: [{ id: 'link-machine', label: 'Link a machine…' }], opensFirstRun: false }))
+    renderApp()
+    const health = await openHealth()
+    fireEvent.click(within(rowOf(health, 'linked-machine')).getByRole('button', { name: 'Link a machine…' }))
+    expect(await screen.findByTestId('link-machine-dialog')).toBeTruthy()
+    expect(settings()).toBeTruthy()
+    expect(callsOf('firstRun.run')).toEqual([])
+  })
+
+  it("«Open Browser» makes the row's Project the current one, shows its Browser on the Canvas and closes Settings", async () => {
+    const projects: ProjectsState = { projects: [{ id: alpha.id, name: alpha.name, path: '/repo/alpha', branch: 'main' }], activeId: null, revision: 200 }
+    handlers['projects.list'] = () => ({ ok: true, value: projects })
+    handlers['projects.select'] = () => ({ ok: true, value: { ...projects, activeId: alpha.id, revision: 201 } })
+    act(() => acceptProjectsState(projects))
+    rowsWith(
+      check('browser-profile', 'Projects', 'Browser profile', { project: alpha, status: 'fail', detail: 'the sign-in of Browser profile "user" expired', actions: [{ id: 'open-browser', label: 'Open Browser', node: 'browser-1' }], opensFirstRun: false }),
+    )
+    renderApp()
+    const health = await openHealth()
+    fireEvent.click(within(rowOf(health, 'browser-profile')).getByRole('button', { name: 'Open Browser' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Settings' })).toBeNull())
+    expect(callsOf('projects.select')).toEqual([{ id: alpha.id }])
+    expect(useCanvasRequests.getState().focus).toMatchObject({ projectId: alpha.id, nodeId: 'browser-1' })
+    expect(callsOf('firstRun.run')).toEqual([])
   })
 })

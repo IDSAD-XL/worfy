@@ -37,6 +37,7 @@ import type { IpcResult } from '../../shared/ipc/channels'
 import { formatLinkAddress } from '../../shared/ipc/link'
 import type { Client } from '../clients'
 import type { ModuleLoader } from '../ipc/index'
+import { healthReports } from '../first-run/health-reports'
 import { dataRoot, type BuildKind } from '../storage/paths'
 import { isAllowedPeer, isTailscaleAddress, normalizeAddress, type HostNames, type PeerAddresses, type SocketAddresses } from './checks'
 import { LinkConnectError, openLinkSocket } from './client'
@@ -67,6 +68,7 @@ import {
   type Hello,
   type PairingResult,
 } from './pairing'
+import { LinkHealth, type LinkHealthReports } from './health'
 import { FileSecretStore, type SecretStore } from './secrets'
 import { startLinkServer, UNAUTHORIZED, type Admission, type LinkServer, type Refusal } from './server'
 import { LinkLogFile, teeLinkConsole } from './log-file'
@@ -175,6 +177,11 @@ export interface LinkServiceOptions {
    * os.hostname(), and no test starts a real `tailscale`; the app passes readSelfDnsName.
    */
   readMagicDnsName?: () => Promise<string | undefined>
+  /**
+   * Where the Linked machine row of Health check is told (health.ts, worfy-auth-check ticket 08): the
+   * app's report; nowhere by default, so a test that does not ask for it tells nothing.
+   */
+  health?: LinkHealthReports
 }
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
@@ -238,6 +245,8 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
   /** The clients of every open connection (ipc-adapter.ts); they follow the access switch. */
   private readonly peers = new Set<LinkPeer>()
   private readonly certificateChanged = new Set<string>()
+  /** The Linked machine row of Health check. */
+  private readonly health: LinkHealth
   /** pair() calls running on this side; the 'pairing' reason holds while there is one. */
   private pairingsOut = 0
   /** WebSockets of pairing attempts this side answers; stop() cuts them. */
@@ -270,6 +279,9 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     super()
     this.linkDir = join(options.dataDir, 'link')
     this.secrets = secrets
+    this.health = new LinkHealth(options.health)
+    // loadIdentity read the store already: a file it found unreadable is told now.
+    if (typeof secrets.setAside === 'string') this.health.secretsSetAside(secrets.setAside)
     this.store = new LinkedMachineStore(this.linkDir)
     this.warn = options.warn ?? ((message) => console.warn(message))
     this.settings = new LinkSettings(this.linkDir, { warn: this.warn, linked: () => this.store.list().map((record) => record.id) })
@@ -486,6 +498,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     }
     if (first.kind === 'certificate-changed' && this.store.get(machineId) !== undefined) {
       this.certificateChanged.add(record.id)
+      this.health.certificateChanged(record)
       this.emit('certificate-changed', { id: record.id, name: record.name })
     }
     if (tried.length === 0) throw first
@@ -530,6 +543,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       throw error
     }
     this.certificateChanged.delete(record.id)
+    this.health.linkedAgain(record.id)
     this.admitDialed(opened.ws, opened.remoteAddress, target.host)
     // Linked again while connecting: this socket was opened with the old token.
     const current = this.store.get(record.id)
@@ -760,6 +774,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     this.settings.setLevel(record.id, 'off')
     this.store.put(record)
     this.certificateChanged.delete(record.id)
+    this.health.linkedAgain(record.id)
     this.updateReasons()
     return record
   }
@@ -777,6 +792,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     }
     this.secrets.delete(record.outgoingTokenKey)
     this.certificateChanged.delete(machineId)
+    this.health.forgotten(machineId)
     this.warn(`[link] Machine ${record.id} (${record.name}) is no longer linked (${by === 'this-machine' ? 'revoked on this Machine' : 'revoked by that Machine'})`)
     this.emit('unlinked', { id: record.id, name: record.name, by })
     this.updateReasons()
@@ -1383,6 +1399,7 @@ export async function startAppLink(options: { buildKind: BuildKind; buildVersion
       ...(environment.listenHost === undefined ? {} : { listenHost: environment.listenHost }),
       ...(environment.interfaces === undefined ? {} : { networkInterfaces: () => environment.interfaces ?? {}, listInterfaces: true }),
       readMagicDnsName: () => readSelfDnsName(),
+      health: healthReports(),
     })
     const journal = {
       stop: (): void => {

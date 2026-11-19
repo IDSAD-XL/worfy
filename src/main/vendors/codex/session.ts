@@ -63,6 +63,7 @@ import type { AgentEvent } from '../../../shared/agent/events'
 import type { LimitWindow } from '../../../shared/agent/limits'
 import { sameMcpRows, type McpServerRow } from '../../../shared/agent/mcp-status'
 import type { ModelOption } from '../../../shared/agent/settings'
+import { redactSecrets } from '../../../shared/terminal-ai/redact'
 import { InputQueue } from '../../agent/session/input-queue'
 import { hasExited, within } from '../../agent/session/process'
 import type { AutoApprovalMode } from '../../../shared/settings/app-settings'
@@ -127,7 +128,15 @@ export interface CodexServerOptions {
    * a reason that holds no token. Without it the process gets the environment as it is.
    */
   ghToken?: (cwd: string) => Promise<string | null>
+  /**
+   * Told when `ghToken` rejected: the GitHub access row of the Project at `cwd` fails in Health check
+   * (worfy-auth-check ticket 08). `reason` holds no token. Without it nothing is told.
+   */
+  githubFailure?: (cwd: string, reason: string) => void
 }
+
+/** The notice of a Codex Session that starts without GH_TOKEN: the reason, and what it means for the Session. */
+export const noGhTokenNotice = (reason: string): string => `GitHub is not available to this Session: ${reason}. gh and git push in it run without the Project's GitHub account.`
 
 /** `env` with GH_TOKEN set to `token`, in the one spelling (Windows reads names in any case); `env` itself without one. */
 export function withGhToken(env: NodeJS.ProcessEnv, token: string | null): NodeJS.ProcessEnv {
@@ -296,6 +305,11 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource,
       model: () => this.model,
       preset: () => this.told.preset,
     })
+  }
+
+  /** A notice of worfy's own in the transcript, with the link `action` names (worfy-auth-check ticket 08). */
+  notice(text: string, action: 'open-health-check'): void {
+    this.out.push({ type: 'notice', kind: 'notification', text, action })
   }
 
   /**
@@ -932,8 +946,13 @@ async function open(options: CodexServerOptions, opts: SessionStart, resume: str
   try {
     token = (await options.ghToken?.(opts.cwd)) ?? null
   } catch (error) {
-    // The reason names the account, never a token (accountAuth); the Session starts without one.
-    options.log?.(`[codex] no GH_TOKEN for the Session: ${messageOf(error)}`)
+    // The reason names the account (accountAuth); a token gh let slip into it is cut all the same. The
+    // Session starts without one, and says so in its transcript with "Open Health check", where the
+    // GitHub access row of its Project fails now (worfy-auth-check ticket 08).
+    const reason = redactSecrets(messageOf(error))
+    options.log?.(`[codex] no GH_TOKEN for the Session: ${reason}`)
+    session.notice(noGhTokenNotice(reason), 'open-health-check')
+    options.githubFailure?.(opts.cwd, reason)
   }
   const tokenEnv = withGhToken(options.env ?? process.env, token)
   // The run's TMPDIR and git environment of an unattended Session at Shadow or On (worfy-auto-approve tickets 04, 05);
@@ -1017,7 +1036,22 @@ export async function appServerOptions(): Promise<CodexServerOptions> {
     limits: (windows) => appLimits().setWindows(CODEX_VENDOR, windows),
     mcp: appCodexMcp,
     ghToken: appGhToken,
+    githubFailure: appGithubFailure,
   }
+}
+
+/**
+ * The GitHub access row of the Project a Session at `cwd` works in fails in Health check, which then
+ * checks that row again (src/main/ipc/first-run.ts, registerRecheck). A folder in no Project tells nothing.
+ */
+function appGithubFailure(cwd: string, reason: string): void {
+  void Promise.all([import('../../first-run/health-reports'), import('../../mcp/canvas-server'), import('../../projects/store')])
+    .then(([{ healthReports }, { projectForCwd }, { projectStore }]) => {
+      const project = projectForCwd(projectStore().list(), cwd)
+      if (project === undefined) return
+      healthReports().reportFailure('github-access', { id: project.id, name: project.name }, `A Codex Session started without GH_TOKEN: ${reason}`, "Sign gh in as the Project's GitHub account, then start the Codex Session again")
+    })
+    .catch((error: unknown) => console.warn('[codex] the GitHub access row could not be told:', error instanceof Error ? error.name : 'error'))
 }
 
 /**

@@ -1,7 +1,8 @@
 # 08 — Codex, Browser, Link: строка входа Codex в своём модуле, `notice` Session Codex, сообщения Browser и Link
 
 Type: task
-Status: open
+Status: claimed 2026-11-19T04:04Z
+PR: #2030
 Blocked by: 04, 05
 Source: [spec.md](../spec.md), «Ticket-ы», 8; «Проблема», пункты «Codex» и «Прочее»; «Решение», пункты 1, 4 и 5;
 «Починка», строки Codex, Browser profile, Linked machine; «Решения по реализации», 5; «Решения по test-ам»; «Решения
@@ -50,19 +51,26 @@ Blocked by 04 — ради `openHealthCheck()`; 05 — ради строки п�
 
 - [ ] Contract test (`test/contract/codex-account.test.ts`): строка Codex — `ok` при входе, needs-user с «Sign in to
       Codex…» без входа, `unknown` при app-server, который не стартовал; уровень non-critical.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/codex-account.test.ts` exit 0 · mac - · 3116a6303847ad42d866e3245d2b6f8dbc8d5f6a
 - [ ] Contract test (`test/contract/codex-session-gh-token.test.ts`): без `GH_TOKEN` — `notice` с «Open Health check»
       и `reportFailure`; токен в `notice` и log не попадает.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/codex-session-gh-token.test.ts` exit 0 · mac - · 3116a6303847ad42d866e3245d2b6f8dbc8d5f6a
 - [ ] Contract test (`test/contract/browser-tools.test.ts`): истёкший вход — `reportFailure` строки profile; удачная
       проверка — `reportOk`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/browser-tools.test.ts` exit 0 · mac - · 3116a6303847ad42d866e3245d2b6f8dbc8d5f6a
 - [ ] Unit или contract test Link: файл секретов отложен — строка Linked machine; смена сертификата и повторная связь —
       строка появляется и снимается.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/link-reconnect.test.ts test/unit/link-secrets-write.test.ts` exit 0 · mac - · 3116a6303847ad42d866e3245d2b6f8dbc8d5f6a
 - [ ] Test, что ни одна строка, `notice`, log и текст ошибки не содержат значение токена: stand-in gh печатает
       известный токен, test ищет его во всём выводе; секреты Link в строку не попадают.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/codex-session-gh-token.test.ts test/contract/link-reconnect.test.ts` exit 0 · mac - · 3116a6303847ad42d866e3245d2b6f8dbc8d5f6a
 - [ ] Все unit и contract test-ы модуля зелёные: `test/contract/codex-account.test.ts`,
       `test/contract/codex-session-gh-token.test.ts`, `test/contract/codex-session.test.ts`,
       `test/contract/browser-tools.test.ts`, `test/unit/link-secrets-write.test.ts`, `test/unit/machines-section.test.tsx`,
       `test/contract/first-run-checks.test.ts`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run <7 module files of the item + link-reconnect, settings-health, session-view>` exit 0 · mac - · 3116a6303847ad42d866e3245d2b6f8dbc8d5f6a
 - [ ] Английские страницы `vendors.md`, `browser.md`, `link.md`, `storage-and-diagnostics.md` описывают новые строки.
+  - evidence: commit pass · worfy-auth-check/08: Codex sign-in row, Codex Session notice, Browser and Link rows in Health check · - - · 3116a6303847ad42d866e3245d2b6f8dbc8d5f6a
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Где в коде

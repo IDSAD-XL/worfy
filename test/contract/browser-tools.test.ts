@@ -13,11 +13,13 @@ import type { QueryRequest } from '../../src/main/agent/session'
 import type { CdpContents, CdpDebugger, CdpInputEvent } from '../../src/main/browser/cdp'
 import type { LiveBrowsers } from '../../src/main/browser/live'
 import type { LayoutStore } from '../../src/main/layout/store'
-import type { BrowserContext, BrowserResolver, BrowserToolResult } from '../../src/main/mcp/browser-server'
+import { HealthReports } from '../../src/main/first-run/health-reports'
+import type { BrowserContext, BrowserResolver, BrowserSignIns, BrowserToolResult } from '../../src/main/mcp/browser-server'
 import type { CanvasWorkflow } from '../../src/main/mcp/canvas-server'
 import type { ClaudeMcpServer } from '../../src/main/vendors/claude/mcp'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import type { BrowserProfile } from '../../src/shared/browser/profiles'
+import { checkState, type Check } from '../../src/shared/ipc/first-run'
 import { AUTOPILOT_ONLY, BROWSER_LOG_LIMIT, BROWSER_SERVER_NAME, BROWSER_TOOL_NAMES, PASSWORD_REFUSED, SIGN_IN_EXPIRED, TAKEN_OVER } from '../../src/shared/browser/tools'
 import { CANVAS_SERVER_NAME } from '../../src/shared/canvas/tools'
 import type { LayoutNode } from '../../src/shared/layout/types'
@@ -892,6 +894,82 @@ describe("a sign-in that expired (worfy-browser ticket 08, the owner's answer 20
     page.detach()
     const after = await rpc.call('browser_read', { id })
     expect(after.isError, textOf(after)).toBeFalsy()
+  })
+})
+
+describe('a sign-in that expired, in Health check (worfy-auth-check ticket 08)', () => {
+  const USER = 'user-cccccc'
+  const ADMIN = 'admin-aaaaaa'
+  let reports: HealthReports
+  let signIns: BrowserSignIns
+  beforeEach(() => {
+    profiles = [
+      { id: ADMIN, name: 'admin', origins: [SITE], autopilot: true, signIn: `${SITE}/admin/login` },
+      { id: USER, name: 'user', origins: [SITE], autopilot: true, signIn: `${SITE}/login` },
+    ]
+    reports = new HealthReports()
+    signIns = new server.BrowserSignInRow({ id: PROJECT, name: 'demo' }, reports)
+  })
+  const rows = (): Check[] => (reports.current()?.checks ?? []).filter((check) => check.id === 'browser-profile')
+  const openAs = async (rpc: Rpc, profile: string): Promise<{ id: string; page: FakePage }> => {
+    const { id } = json<{ id: string }>(await rpc.call('browser_open', { profile, ticket: 'demo/01' }))
+    return { id, page: pages.get(id)! }
+  }
+
+  it('outside Autopilot: the row of the Project fails with the profile, the step and «Open Browser» on that Browser; a page that works under the profile takes it back', async () => {
+    const rpc = await connect(context({ signIns }))
+    const { id, page } = await openAs(rpc, USER)
+    expect(rows()).toEqual([])
+    page.redirectTo = `${SITE}/login`
+    json(await rpc.call('browser_navigate', { id, url: `${SITE}/account` }))
+    expect(rows()).toEqual([
+      expect.objectContaining({
+        group: 'Projects',
+        title: 'Browser profile',
+        project: { id: PROJECT, name: 'demo' },
+        status: 'fail',
+        severity: 'non-critical',
+        detail: `the sign-in of Browser profile "user" expired: the page went to its sign-in page ${SITE}/login.`,
+        hint: 'Sign in in the Browser of this profile: a Session never signs in itself',
+        actions: [{ id: 'open-browser', label: 'Open Browser', node: id }],
+        opensFirstRun: false,
+      }),
+    ])
+    expect(checkState(rows()[0]!)).toBe('needs-user')
+    json(await rpc.call('browser_navigate', { id, url: `${SITE}/home` }))
+    expect(rows()).toEqual([])
+  })
+
+  it('in Autopilot: a refused call fails the row too, and so does a call refused on the sign-in page before the Session takes the Browser', async () => {
+    const rpc = await connect(context({ autopilot: true, signIns }))
+    const { id, page } = await openAs(rpc, USER)
+    page.statusOf.set(`${SITE}/private`, 401)
+    refused(await rpc.call('browser_navigate', { id, url: `${SITE}/private` }))
+    expect(rows()[0]?.detail).toBe('the sign-in of Browser profile "user" expired: the page answered 401 Unauthorized.')
+    json(await rpc.call('browser_navigate', { id, url: `${SITE}/home` }))
+    expect(rows()).toEqual([])
+
+    store.apply(PROJECT, { op: 'create', node: { id: 'browser-left', kind: 'browser', x: 0, y: 900, w: 640, h: 440, data: { profile: USER, url: `${SITE}/login` } } })
+    refused(await rpc.call('browser_read', { id: 'browser-left' }))
+    expect(rows()[0]).toMatchObject({ detail: expect.stringContaining('"user"') as unknown, actions: [{ id: 'open-browser', label: 'Open Browser', node: 'browser-left' }] })
+  })
+
+  it('two profiles that expired share the one row of the Project; it stays while one of them is still expired', async () => {
+    const rpc = await connect(context({ signIns }))
+    const user = await openAs(rpc, USER)
+    const admin = await openAs(rpc, ADMIN)
+    user.page.redirectTo = `${SITE}/login`
+    json(await rpc.call('browser_navigate', { id: user.id, url: `${SITE}/a` }))
+    admin.page.redirectTo = `${SITE}/admin/login`
+    json(await rpc.call('browser_navigate', { id: admin.id, url: `${SITE}/b` }))
+    expect(rows()).toHaveLength(1)
+    expect(rows()[0]?.detail).toMatch(/"user".*; .*"admin"/)
+    json(await rpc.call('browser_navigate', { id: user.id, url: `${SITE}/home` }))
+    expect(rows()).toHaveLength(1)
+    expect(rows()[0]?.detail).not.toContain('"user"')
+    expect(rows()[0]?.actions).toEqual([{ id: 'open-browser', label: 'Open Browser', node: admin.id }])
+    json(await rpc.call('browser_navigate', { id: admin.id, url: `${SITE}/home` }))
+    expect(rows()).toEqual([])
   })
 })
 

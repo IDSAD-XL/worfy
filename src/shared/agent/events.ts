@@ -253,6 +253,11 @@ export const agentEvent = z.discriminatedUnion('type', [
     kind: z.enum(['synthetic', 'user', 'local_command', 'notification']),
     text: z.string(),
     attachments: z.array(messageAttachmentSchema).optional(),
+    /**
+     * A link under a notice of worfy's own: `open-health-check` opens Settings → Health (a Codex Session
+     * that starts without GH_TOKEN, worfy-auth-check ticket 08).
+     */
+    action: z.literal('open-health-check').optional(),
   }),
   /**
    * A task of the Session started (task_started: a subagent of the Agent tool, a Bash or a workflow

@@ -200,6 +200,18 @@ describe('first-run checks', () => {
     expect([unread.gh, unread['gh-auth']]).toEqual(['critical', 'critical'])
   })
 
+  // worfy-auth-check ticket 08: the Codex row comes from its own module, after the Machine's rows.
+  it('adds the Vendor rows after the rows of the Machine; a source that rejects adds none', async () => {
+    tools(...ALL_TOOLS)
+    const codex: Check = { id: 'codex-login', group: 'Codex', title: 'Codex sign-in', status: 'warn', severity: 'non-critical', detail: 'not signed in to Codex', hint: '', command: null, actions: [{ id: 'codex-sign-in', label: 'Sign in to Codex…' }], opensFirstRun: false }
+    const withCodex = await runChecks(deps(loginEnv(), { vendorRows: () => Promise.resolve([codex]) }))
+    expect(withCodex.checks.at(-1)).toEqual(codex)
+    const plain = await runChecks(deps(loginEnv()))
+    expect(withCodex.checks.slice(0, -1).map((check) => check.id)).toEqual(plain.checks.map((check) => check.id))
+    const broken = await runChecks(deps(loginEnv(), { vendorRows: () => Promise.reject(new Error('no Codex')) }))
+    expect(broken.checks.map((check) => check.id)).toEqual(plain.checks.map((check) => check.id))
+  })
+
   it('reads the Projects once for the qmd collections and the levels', async () => {
     tools(...ALL_TOOLS)
     let reads = 0

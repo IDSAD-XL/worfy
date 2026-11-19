@@ -124,6 +124,29 @@ export async function readCodexAccount(ask: CodexAsk): Promise<AccountConnection
   return codexConnectionOf(await ask.request<GetAccountResponse>('account/read', { refreshToken: false }, CODEX_ASK_TIMEOUT_MS))
 }
 
+/**
+ * What one read of the Codex sign-in found: Codex was never run here (`no-home`, nothing started), its
+ * app-server did not start (`not-started`, with the error), or the connection `account/read` answered.
+ * The account check and the Codex row of Health check (src/main/first-run/vendor-checks.ts) read it alike.
+ */
+export type CodexSignIn = { kind: 'no-home' } | { kind: 'not-started'; error: unknown } | { kind: 'read'; connection: AccountConnection }
+
+/**
+ * Reads the Codex sign-in on an app-server `start` starts, closed after the answer. Rejects when the
+ * app-server started but did not answer, or when `signal` aborts.
+ */
+export async function readCodexSignIn(start: StartCodex, codexHome: string, signal?: AbortSignal): Promise<CodexSignIn> {
+  signal?.throwIfAborted()
+  if (!existsSync(codexHome)) return { kind: 'no-home' }
+  let started: CodexAsk
+  try {
+    started = await start(() => undefined)
+  } catch (error) {
+    return { kind: 'not-started', error }
+  }
+  return { kind: 'read', connection: await useCodex(started, signal, readCodexAccount) }
+}
+
 export interface CodexAccountOptions {
   /** appCodexStarter by default; tests start the fake. */
   start?: StartCodex
@@ -157,16 +180,9 @@ export function codexAccountPart(options: CodexAccountOptions = {}): AccountPart
      * rejects when the app-server started but did not answer.
      */
     async check(signal) {
-      signal?.throwIfAborted()
-      if (!existsSync(codexHome())) return [notSignedIn()]
-      let started: CodexAsk
-      try {
-        started = await start(() => undefined)
-      } catch (error) {
-        log('[codex] the app-server did not start: Codex counts as not signed in', error)
-        return [notSignedIn()]
-      }
-      return [await useCodex(started, signal, readCodexAccount)]
+      const read = await readCodexSignIn(start, codexHome(), signal)
+      if (read.kind === 'not-started') log('[codex] the app-server did not start: Codex counts as not signed in', read.error)
+      return [read.kind === 'read' ? read.connection : notSignedIn()]
     },
     startLogin: () => startCodexLogin(start, openUrl, loginTimeoutMs),
     inBuild: options.inBuild ?? appCodexInBuild,

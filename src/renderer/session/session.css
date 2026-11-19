@@ -1410,6 +1410,25 @@ body.w-split-dragging * {
   overflow-wrap: anywhere;
 }
 
+/* The link under a notice of worfy's own: "Open Health check" (worfy-auth-check ticket 08). */
+.w-tr__notice-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.w-tr__notice-link:hover {
+  text-decoration: underline;
+}
+
+.w-tr__notice-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .w-tr__marker {
   display: inline-flex;
   align-items: center;
