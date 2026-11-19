@@ -20,9 +20,9 @@ import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { gitProbe } from '../../src/main/changes/base'
-import { changesGitRunner, refusal } from '../../src/main/changes/git'
+import { changesGitRunner, refusal, type ChangesGit } from '../../src/main/changes/git'
 import { fileDiff, type ChangesContext } from '../../src/main/changes/scopes'
-import { ticketSubjects } from '../../src/main/changes/subjects'
+import { nativePath, ticketSubjects } from '../../src/main/changes/subjects'
 import { changesHandlers, type ChangesDeps } from '../../src/main/ipc/changes'
 import type { InvokeHandler } from '../../src/main/ipc/index'
 import { fullLayout, type ProjectLayout } from '../../src/main/workflow/folder'
@@ -540,5 +540,30 @@ describe('the edge cases of reading: a Ticket on the checkout itself', () => {
     await list({ kind: 'all' }, { hideWhitespace: true })
     await file({ kind: 'uncommitted' }, 'mixed.txt', { whole: true })
     expect(snapshot(join(edge, '.git'))).toEqual(before)
+  })
+})
+
+describe('the path of a worktree as git prints it', () => {
+  // git for Windows prints `worktree D:/a/b` in `git worktree list --porcelain`; the Profile names the checkout
+  // `D:\a\b`. A git stand-in prints the list, so the Windows form is checked on every OS.
+  const t05 = { epic: 'ep', num: 5 }
+  const listing = (...trees: [path: string, branch: string][]): ChangesGit => async (_cwd, args) =>
+    args[0] === 'worktree'
+      ? { code: 0, stdout: trees.map(([path, branch], at) => `worktree ${path}\nHEAD ${String(at).repeat(40)}\nbranch refs/heads/${branch}\n`).join('\n'), bytes: 0, truncated: false, stderr: '' }
+      : { code: 1, stdout: '', bytes: 0, truncated: false, stderr: 'not asked' }
+
+  it('gives the worktree as its cwd in the form of Windows on Windows, as the Profile names the checkout', async () => {
+    const checkout = 'D:\\a\\_temp\\edge'
+    const [subject] = await ticketSubjects([{ name: 'edge', path: checkout }], t05, listing(['D:/a/_temp/edge', 'main'], ['D:/a/_temp/edge/.claude/worktrees/05', 'ep/05']), 'win32')
+    expect(subject).toMatchObject({ kind: 'worktree', checkout, cwd: 'D:\\a\\_temp\\edge\\.claude\\worktrees\\05', headSha: '1'.repeat(40) })
+    // The checkout itself on the Ticket's branch (`parallel: single`): its cwd is the checkout, in one spelling.
+    const [itself] = await ticketSubjects([{ name: 'edge', path: checkout }], t05, listing(['D:/a/_temp/edge', 'ep/05']), 'win32')
+    expect(itself).toMatchObject({ kind: 'worktree', checkout, cwd: checkout })
+  })
+
+  it('leaves a POSIX path as git prints it, past what normalize folds', async () => {
+    const [subject] = await ticketSubjects([{ name: 'edge', path: '/repo' }], t05, listing(['/repo', 'main'], ['/repo/.claude/worktrees/05', 'ep/05']), 'darwin')
+    expect(subject).toMatchObject({ kind: 'worktree', cwd: '/repo/.claude/worktrees/05' })
+    expect([nativePath('/a//b/./c', 'linux'), nativePath('D:/a/b', 'win32'), nativePath('D:\\a\\b', 'win32')]).toEqual(['/a/b/c', 'D:\\a\\b', 'D:\\a\\b'])
   })
 })

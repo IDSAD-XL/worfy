@@ -243,19 +243,45 @@ Code: `test/contract/changes-read.test.ts:274-289` · key lines: 282, 283, 288
 - Риски и пробелы test-ов: проверяется один репозиторий с одним worktree; `git worktree list` и `for-each-ref` в
   репозитории с packed-refs не проверялись отдельно.
 
-## 9. Что сознательно не меняли
+## 9. Путь worktree-а — в форме своей ОС
+
+Code: `src/main/changes/subjects.ts:53-55` · key lines: 54
+
+```ts
+export function nativePath(path: string, platform: NodeJS.Platform = process.platform): string {
+  return (platform === 'win32' ? win32 : posix).normalize(path)
+}
+```
+
+- Что делает: приводит путь worktree-а из `git worktree list --porcelain` к форме ОС; `cwd` субъекта-worktree-а
+  берётся через неё (`src/main/changes/subjects.ts:74`). Git for Windows печатает `worktree D:/a/b`, а checkout в
+  Profile-е — `D:\a\b`; после `normalize` у одной папки одно написание, откуда бы путь ни пришёл.
+- Почему здесь: Ticket называет `src/main/changes/subjects.ts` среди своих файлов. Повод — красный contract test
+  «takes the checkout on the Ticket's branch as its worktree» на Windows runner-е CI: `cwd` пришёл как
+  `D:/a/_temp/…/edge`, checkout — `D:\a\_temp\…\edge`. Git принимает оба написания как `cwd`, поэтому чтение работало;
+  но `cwd` и `checkout` одного субъекта расходились, и любое сравнение путей строкой (с checkout-ом, с cwd Session)
+  ошибалось бы на Windows. Нормализация в коде, а не в test-е, оставляет test строгим.
+- Без него: на Windows `cwd` worktree-а — путь со `/`, а `checkout` — с `\`; contract test на Windows runner-е красный,
+  и красны test-ы «the path of a worktree as git prints it» на любой ОС (проверено мутантами: `cwd: worktree.path` и
+  `nativePath`, возвращающий путь как есть).
+- Требование: [Готово, когда](../issues/02-чтение-diff-а-ticket-а-в-main.md#готово-когда)
+- Риски и пробелы test-ов: форма Windows проверяется на macOS через `path.win32` и git-stand-in, который печатает
+  список worktree-ов; настоящий git for Windows — только в CI (job windows). `normalize` не меняет регистр буквы диска
+  и не раскрывает короткие имена 8.3: если git и Profile напишут их по-разному, пути всё равно разойдутся.
+
+## 10. Что сознательно не меняли
 
 Renderer, кнопка Changes и Command palette — Ticket 03. `profile.ts` не трогали: `default_branch` в main не
 передаётся, база берёт `origin/HEAD` и `origin/main`. Канал `changes.targets` — Ticket 05. Перевод страницы — Ticket 06.
 
-## 10. Как проверено
+## 11. Как проверено
 
 Сначала test, потом проверка: `test/unit/changes-parse.test.ts` красный, если убрать разбор CRLF; contract test
 «wrote nothing» красный, если убрать `diff.autoRefreshIndex=false`. Затем `pnpm lint`, `pnpm typecheck`, `pnpm test` и
 gate fast — с кодом выхода в отчёте implementer-а. Во втором раунде каждое новое поведение проверено мутантом в своём
 worktree: 44 мутанта (runner, отказ, окружение, пределы 1 MB и 64 MB, staged-файл, Hide whitespace, merge-commit,
 смена типа, пути, `--no-filters`, probe базы, строки `Repo:`, ветка в самом checkout-е, Commit и Compare только своего
-репозитория) — все убиты.
+репозитория) — все убиты. В третьем раунде (красный CI на Windows) — 2 мутанта `nativePath`, оба убиты.
 
 ## Проверить себя
 

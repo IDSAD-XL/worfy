@@ -10,6 +10,7 @@
 //
 // A Project over several repositories gives one subject per repository: the repository is the top level of every
 // answer of the screen. A repository where the Ticket has neither is left out.
+import { posix, win32 } from 'node:path'
 import { ticketBranches, ticketWorktrees } from '../workflow/reader'
 import { branchNamesTicket } from '../../shared/workflow/ticket-ref'
 import type { ChangesGit } from './git'
@@ -34,7 +35,7 @@ export interface RepoSubject {
   repo: string
   /** The repository's checkout. */
   checkout: string
-  /** Where git runs: the worktree, or the checkout for a branch checked out nowhere. */
+  /** Where git runs: the worktree in the OS's own form (nativePath), or the checkout for a branch checked out nowhere. */
   cwd: string
   kind: 'worktree' | 'branch'
   branch: string
@@ -42,6 +43,15 @@ export interface RepoSubject {
   head: string
   /** The SHA `head` points to now. */
   headSha: string
+}
+
+/**
+ * A path in the OS's own form. git for Windows prints `worktree D:/a/b` in `git worktree list --porcelain`, while the
+ * Profile's checkout and the paths of main are `D:\a\b`: the worktree's cwd is given in the second form, so the same folder
+ * reads as one path whether it came from git or from the Profile.
+ */
+export function nativePath(path: string, platform: NodeJS.Platform = process.platform): string {
+  return (platform === 'win32' ? win32 : posix).normalize(path)
 }
 
 /** A git runner in the form the workflow reader takes: stdout, or a rejection with git's exit code as `code`. */
@@ -53,15 +63,15 @@ function readerRun(git: ChangesGit): (cwd: string, args: string[]) => Promise<st
   }
 }
 
-/** The Ticket's subject in each repository of `checkouts`, in their order; only reads. */
-export async function ticketSubjects(checkouts: readonly SubjectCheckout[], ticket: TicketSubjectRef, git: ChangesGit): Promise<RepoSubject[]> {
+/** The Ticket's subject in each repository of `checkouts`, in their order; only reads. `platform` is the OS whose paths git prints. */
+export async function ticketSubjects(checkouts: readonly SubjectCheckout[], ticket: TicketSubjectRef, git: ChangesGit, platform: NodeJS.Platform = process.platform): Promise<RepoSubject[]> {
   const run = readerRun(git)
   const named = ticket.repos && ticket.repos.length > 0 ? checkouts.filter(({ name }) => ticket.repos!.includes(name)) : checkouts
   const found = await Promise.all(
     named.map(async ({ name, path }): Promise<RepoSubject | null> => {
       const worktrees = await ticketWorktrees(path, run, true).catch(() => [])
       const worktree = worktrees.find((entry) => branchNamesTicket(entry.branch, ticket))
-      if (worktree) return { repo: name, checkout: path, cwd: worktree.path, kind: 'worktree', branch: worktree.branch, head: 'HEAD', headSha: worktree.head }
+      if (worktree) return { repo: name, checkout: path, cwd: nativePath(worktree.path, platform), kind: 'worktree', branch: worktree.branch, head: 'HEAD', headSha: worktree.head }
       const like = { epic: ticket.epic, num: ticket.num, branch: ticket.branch ?? null, repo: null, pr: null, repos: [name] }
       const [branch] = await ticketBranches([{ name, path }], [like], run).catch(() => [])
       if (!branch) return null
