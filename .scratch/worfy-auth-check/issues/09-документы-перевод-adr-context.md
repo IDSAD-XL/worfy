@@ -51,6 +51,7 @@ Ticket 06 (SSO) его не держит: spec ставит 09 после 03–0
   - evidence: commit pass · worfy-auth-check/09: ADR-0109 Health check levels, ADR-0042 amendment, Health check term in CONTEXT · - - · 0658289a8bc8761dcb3048ba0238b12107fa206d
 - [ ] `node scripts/check-personal.mjs` и `node scripts/check-feature-docs.mjs` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `node scripts/check-personal.mjs && node scripts/check-feature-docs.mjs` exit 0 · mac - · 0658289a8bc8761dcb3048ba0238b12107fa206d
+  - evidence: test-run pass · `node scripts/check-personal.mjs && node scripts/check-feature-docs.mjs` exit 0 · mac - · 01c324ecaf1df517301828299e1321ae8a6a38d9
 
 ## Где в коде
 
