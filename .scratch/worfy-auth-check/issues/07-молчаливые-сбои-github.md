@@ -1,7 +1,7 @@
 # 07 — Молчаливые сбои GitHub → Health check: PR inbox, PR badges, gate-queue, Flight recorder, проба ревью, pr-reply
 
 Type: task
-Status: claimed 2026-11-19T04:04Z
+Status: done 2026-11-19T06:15Z
 PR: #2031
 Blocked by: 04, 05
 Source: [spec.md](../spec.md), «Ticket-ы», 7; «Проблема», пункты «PR inbox», «PR badges, gate-queue, Flight recorder»,
@@ -82,6 +82,7 @@ test-ам»; «Истории пользователя», 1, 2 и 6; «Волн�
       `test/unit/signin-replies.test.tsx`; страница `docs/features/projects.md` описывает это.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/github-accounts.test.ts test/unit/signin-replies.test.tsx` exit 0 · mac - · 19ac3d678
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44462802647/job/135365403767 · ci - · a9263eb6b8fa235589a74e5d2a438a1118426266
 
 ## Где в коде
 

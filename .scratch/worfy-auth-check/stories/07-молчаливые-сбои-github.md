@@ -248,3 +248,63 @@ export function signInBlock(env: Readonly<Record<string, string | undefined>>, p
    Ответ: gh берёт переменную поверх любого сохранённого account, так что вход не меняет, чей токен идёт в GitHub, а
    `gh auth login` при ней отказывает.
    Lines: `src/main/github/accounts.ts:264-275`
+
+## 10. Что нашёл review и что осталось
+
+> VERIFIED
+>
+> Consider (not blocking, all `[low]`):
+> - `src/main/github/github-health.ts:98-102`: each feature has its own `reported` map, but all share one `github-access` row per Project. Say two features (PR inbox and gate queue) both reported a failure, and one of them then answers. Its `answered` calls `reportOk` and the row goes back to `ok`, while the other feature's last report stays in its own map. That feature then fails again with the same text, and the `reported.get(...) === text` check at line 97 skips the report. The row stays `ok` while the feature still fails, until its reason changes. Both features would have to use the same account, so a lasting wrong `ok` is unlikely. A re-check from ticket 05 also overwrites it.
+> - `src/main/ipc/checks.ts:62`: `ghHealth` falls back to `gh.error` from `prs.ts:87` when `health.reason()` is null (for example a folder of no Project), and that `messageOf` does not redact. The same goes for `gate-queue.ts:255` and `flight-recorder/github.ts:131`: the `reason` that goes to the view is raw gh text. The old code did the same, so only the new Health check route redacts. A token printed in a gh line would still reach those views. Impact is low: the leak test (`pr-inbox.test.ts:946`) covers only the PR inbox path.
+> - Review-offer `run.code === 0` calls `answered`, and `!voice` calls `failed`; both are filtered through `isSignInFailure`. I found no wrong classification: 5xx, network, timeout and rate-limit texts do not match `SIGN_IN_FAILURE`, and `test/unit/github-health.test.ts` covers them.
+>
+> Noted:
+> - The gate warns that `test/contract/pr-inbox.test.ts` is over 1000 lines (935 to 1061). It does not block.
+> - The implementer's out-of-scope list (`projects-connect.test.ts:1014` with a space in TMPDIR, `claude-project-mcp.test.ts:82` with `GIT_CONFIG_PARAMETERS`) is accurate. I did not touch those files.
+>
+> Dismissed:
+> - Intended breakage: replacing the "gh unavailable" chip with the "GitHub sign-in" chip, and "Sign in with gh" not starting while a token variable is set (owner decision Q5). Both are listed under "removed" in the report and in the ticket.
+> - "A reportOk that clears a row it should not" through PR badges: `gh.available` is true only when `state.error === null` (`prs.ts:537`), so `answered` is not called while a failure stands.
+>
+> Confirmed (I ran these myself):
+> - 15 test files from the ticket's module list plus `github-health`, `read-checks`, `github-accounts`, `signin-replies` and `ci-scope-e2e`: 422 passed, exit 0.
+> - Gate fast, with a TMPDIR without spaces and `GIT_CONFIG_PARAMETERS` unset: exit 0, `[gate] green (fast): lint typecheck test`.
+> - `pnpm build`: exit 0.
+> - `story-check` on `.scratch/worfy-auth-check/stories/07-…md` against head a9263eb6b: 6 fragments checked, exit 0.
+> - Evidence sha `19ac3d678` is an ancestor of HEAD (exit 0); `ticket evidence` lists the lines and they match the items.
+> - Code reading agrees with the report's claims:
+>   - `inbox.ts:512-528` sets `signIn`, calls `failed`, and `answered` at `:583`.
+>   - `projects.ts:446-447` runs `signInBlock` before `watchSignIn` and reads only variable names (`accounts.ts:257-275`).
+>   - The classifier keeps the network, 5xx and the rate limit out of Health check.
+> - Screenshots in `/private/tmp/claude-501/verify-2031/screens/`. They come from the real `PrInboxBody`, `ChecksBadges` and `SignInTerminal` in a harness page with a fake IPC bridge, not from the app window:
+>   - `inbox-light.png` and `inbox-dark.png`: PR inbox status line "GitHub refused the sign-in: GH_TOKEN from the environment does not work (HTTP 401)" with an "Open Health check" link; text and link are readable in both themes.
+>   - `badge-card-light.png` and `badge-card-dark.png`: chip "GitHub sign-in" with the card open (one line of reason plus "Open Health check"). `badge-light.png` and `badge-dark.png` show the chip alone.
+>   - `signin-light.png` and `signin-dark.png`: the Add project box says "Not started: GH_TOKEN overrides it", gives the why text, the command `unset GH_TOKEN` and a Copy button, and shows no token value.
+>   - In `signin-light.png` the Close button is faint on the dark header. This is likely because my harness loads no global `.w-action` CSS.
+>
+> Could not verify:
+> - Real `gh` against GitHub, and `gh auth login` with `GH_TOKEN` set (the implementer also skipped these).
+> - The e2e `pr-inbox.spec.ts` and `projects-connect.spec.ts` (owner's no-local-e2e rule); `macos-e2e` on CI was not waited for.
+> - No mutation run (review depth low).
+> - Focusing the chip from script did not open the card in a real browser (the jsdom test passes); hovering it did. This may be only because programmatic focus is not `focus-visible`.
+>
+> Review depth: low (wave gate; the profile has no `review.depth.wave`).
+> Review tokens: not measured.
+>
+> Outside the diff: none found.
+
+Code: `src/main/github/github-health.ts:98-102` · key lines: 98
+
+```ts
+  }
+}
+
+/** The detail of the GitHub access row of Project `projectId` while it is not `ok`. */
+export function accessDetail(report: FirstRunReport | null, projectId: string): string | null {
+```
+
+Code: `src/main/ipc/checks.ts:62-62` · key lines: 62
+
+```ts
+  if (gh.error === null || !isSignInFailure(gh.error)) return gh
+```
