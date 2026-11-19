@@ -61,3 +61,34 @@ Ticket 06 (SSO) его не держит: spec ставит 09 после 03–0
 
 - Английские страницы — в Ticket-ах поведения.
 - Тексты агенту в Harness (`harness/hooks/gh-token-env.mjs`, `harness/bin/preflight`) — не меняются.
+
+## Итог
+
+Сделано 2026-11-19, ветка `worfy-auth-check/09`. SSO-часть (Ticket 06) не входит: 06 не влит.
+
+- **Переводы.** Девять страниц `docs/features/ru/` сверены с английскими на `main` (`5d1efe69`) по всему diff-у с прошлой
+  метки перевода, а не только по Ticket-ам 03–08: в `vendors.md` дописаны и старые хвосты (конец хода и Stop hook Codex,
+  модель и effort по умолчанию в заголовке, Code story только на Claude Code, fake Codex в собранном приложении), в
+  `onboarding.md` — «Use Codex too» и «Remove project…» у demo, в `link.md` — точка Machines на rail, tooltip-ы
+  read-only, ответ новой формы на старой сборке, в `browser.md` — `worfy-browser` у Session Codex. Строка «Перевод …
+  commit» на всех девяти — `5d1efe69`; `node scripts/feature-docs-lag.mjs` их больше не называет.
+- **ADR.** Новый [ADR-0109](../../../docs/adr/0109-health-check-row-levels-and-feature-reports.md): таблица уровней,
+  состояния строки, `unknown` никогда не critical, `reportFailure` / `reportOk`, когда проверять, `opensFirstRun: false`,
+  иконка без toast-ов, token-ы не логируются. Amendment к ADR-0042, пункт 9: источник token-а и строка при пустом
+  `github.account`; текст выше раздела `## Amendments` не тронут.
+- **CONTEXT.md.** Статья Health check: «не проверено» → «Couldn't check» (так пишет UI), состояния `ok | fixable |
+  needs-user | unknown`, gh critical только при `origin` на GitHub, серое кольцо и жёлтая точка для непроверенной строки,
+  Command palette «Health check» и «First-run checks» только для First run, ссылка на ADR-0109.
+- **Расхождение тикета с кодом.** Тикет и spec («Уровни») говорят: non-critical, когда `github.account` пуст, а
+  работает token окружения. Код (`src/main/first-run/checks.ts`, конец `githubAccess`) делает строку `warn` и
+  non-critical при пустом `github.account` всякий раз, когда gh работает с тем token-ом, который берёт сам, — из
+  переменной окружения или активного аккаунта keyring; флаг называется `environmentTokenOnly`, но ставится в обоих
+  случаях. «Use <login>» есть только при одном логине с push во все репозитории, иначе строка `needs-user`. Amendment
+  и ADR-0109 записаны по коду.
+- **Повторная проверка.** Spec называет повторную проверку после сбоя и при фокусе для всех строк; в коде своя проверка
+  (`registerRecheck`) есть только у `github-access`, строки Machine ждут «Check again». ADR-0109 записан по коду, как и
+  английская страница `onboarding.md`.
+- **Английские страницы (вне скоупа, не тронуты).** `docs/features/onboarding.md` говорит «Codex has no row», а строка
+  «Codex sign-in» в Health check есть (Ticket 08, `src/main/first-run/vendor-checks.ts`); `docs/features/gate-and-github.md`
+  называет notice Session Codex без `GH_TOKEN` «a later Ticket (worfy-auth-check 08)», а 08 влит. Перевод следует
+  английской странице.
