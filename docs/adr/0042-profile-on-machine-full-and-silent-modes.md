@@ -147,3 +147,17 @@
 ## Amendments
 
 - 2026-11-08: личные имена заменены нейтральными словами (Epic worfy-scrub), смысл не менялся.
+- **2026-11-19 — пункт 9: откуда gh берёт token и что делает Health check при пустом `github.account`**
+  (worfy-auth-check 05 и 07, PR #2023 и #2031; документы — worfy-auth-check 09, ADR-0109). Вызов, который идёт от
+  аккаунта Project-а (PR inbox, PR badges, gate queue, предложение ревью, token Session Codex), по-прежнему получает
+  `GH_TOKEN` из `gh auth token -u <github.account>` — token из keyring gh, и он сильнее переменной окружения. Когда
+  `github.account` пуст, gh берёт token сам: `GH_TOKEN`, затем `GITHUB_TOKEN` из своего окружения (login shell на macOS,
+  собранное из registry на Windows), если переменная задана и не пуста, и только потом активный аккаунт keyring. Строка
+  Health check `GitHub access` Project-а называет источник — аккаунт из keyring, имя переменной окружения или активный
+  аккаунт gh — и никогда не token (`src/main/github/auth-diagnosis.ts`, `src/main/first-run/checks.ts`). Пустой
+  `github.account` при gh, который работает с тем token-ом, что берёт сам, — строка `warn`, non-critical: работает, но
+  держится не на Profile. Если ровно один логин gh на github.com может делать push в каждый репозиторий Project-а,
+  строка даёт кнопку «Use <login>»; щелчок пишет одно поле через `bin/profile-set --field github.account` (тот commit-ит
+  изменение в Harness home) и только пока этот логин всё ещё единственный с push. Тихого перехода на аккаунт keyring нет
+  (Q5 spec-а `worfy-auth-check`). Переменные окружения worfy не меняет никогда: команду, которая удаляет переменную,
+  строка только даёт скопировать. Остальное решение в силе.
