@@ -1,7 +1,9 @@
 // The component of internal toasts (src/renderer/toast/ToastRegion.tsx; worfy-ui ticket 16): the live
 // regions and the landmark, the keyboard (Escape on a toast in focus, Tab to the buttons), the buttons
-// of an `action` toast, the pause while the pointer or the focus is on a toast, and the focus left
+// of an `action` toast and their own row under the text, the pause while the pointer or the focus is on a toast, and the focus left
 // where it was when a toast appears.
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PLACE_MS } from '../../src/renderer/toast/placement'
@@ -45,6 +47,41 @@ describe('ToastRegion', () => {
     expect(undo).toHaveBeenCalledTimes(1)
     expect(screen.queryByText('Archived 3 finished sessions')).toBeNull()
     expect(toasts.getState().toasts).toEqual([])
+  })
+
+  it('a toast with actions puts its buttons in a row of their own under the text; one without actions has no such row (polish 126)', () => {
+    render(<ToastRegion projectId={undefined} />)
+    act(() => {
+      showToast({
+        kind: 'action',
+        text: 'worfy 0.5.0 ready',
+        testId: 'with-actions',
+        actions: [
+          { label: 'Restart when idle', run: () => undefined },
+          { label: 'Restart now', run: () => undefined },
+          { label: 'Later', run: () => undefined },
+        ],
+      })
+      showToast({ kind: 'info', text: 'Copied', testId: 'without-actions' })
+    })
+    const withActions = screen.getByTestId('with-actions')
+    const row = withActions.querySelector('.w-toast__actions')
+    expect(row).not.toBeNull()
+    expect(row!.contains(withActions.querySelector('.w-toast__text'))).toBe(false)
+    expect(row!.contains(within(withActions).getByRole('button', { name: 'Dismiss' }))).toBe(false)
+    expect(within(row as HTMLElement).getAllByRole('button').map((button) => button.textContent)).toEqual(['Restart when idle', 'Restart now', 'Later'])
+    // The order in the document, which is the Tab order: the text, the actions, then Dismiss.
+    expect([...withActions.querySelectorAll('button')].map((button) => button.textContent || button.getAttribute('aria-label'))).toEqual([
+      'Restart when idle',
+      'Restart now',
+      'Later',
+      'Dismiss',
+    ])
+    expect(screen.getByTestId('without-actions').querySelector('.w-toast__actions')).toBeNull()
+    // The layout: the actions' row spans the toast under the text and Dismiss (toast.css).
+    const css = readFileSync(join(import.meta.dirname, '../../src/renderer/toast/toast.css'), 'utf8')
+    expect(css).toMatch(/\.w-toast \{[^}]*display: grid;/)
+    expect(css).toMatch(/\.w-toast__actions \{[^}]*grid-column: 1 \/ -1;/)
   })
 
   it('the close button closes any toast', () => {

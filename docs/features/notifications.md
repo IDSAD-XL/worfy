@@ -62,6 +62,9 @@ button.
 | `error` | until closed | none |
 | `action` | until closed | 1 to 3; a press runs the action and closes the toast |
 
+A toast without buttons is one row: the text, up to three lines, and Dismiss at its right. A toast with buttons puts them in
+a second row under the text, at the right edge, so the text keeps the whole width of the first row.
+
 - At most 3 toasts are on screen. A new one pushes out the oldest self-hiding toast. When all on screen stay until closed, the
   new one waits in a queue, and its time starts when it comes out.
 - A toast with a key replaces the one with the same key, in place, and its time starts again.
