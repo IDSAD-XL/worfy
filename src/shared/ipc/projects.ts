@@ -464,14 +464,25 @@ const signInRef = { signInId: z.string().min(1).max(100) }
 const signInCells = z.number().int().positive().max(10_000)
 
 /**
+ * Why "Sign in with gh" does not start (worfy-auth-check ticket 07): GH_TOKEN or GITHUB_TOKEN in the environment worfy
+ * runs gh with overrides every account gh stores. `variables` — their names; `command` — what removes them, for the
+ * platform; `why` — the sentence the step shows. Never a value.
+ */
+export const signInBlockSchema = z.object({ variables: z.array(z.enum(['GH_TOKEN', 'GITHUB_TOKEN'])).min(1), command: z.string(), why: z.string() })
+export type SignInBlock = z.infer<typeof signInBlockSchema>
+
+/**
  * "Sign in with gh": main runs `gh auth login` — the same gh worfy runs — in a pseudo-terminal of
  * its own, not in a Project's shell (there is no Project yet), and answers with the output so far.
- * Opening a running sign-in attaches to it. Its output and exit come on the events below.
+ * Opening a running sign-in attaches to it. Its output and exit come on the events below. With a
+ * token variable in gh's environment nothing starts: the answer carries `blocked` (SignInBlock),
+ * with an empty replay and no exit.
  */
 export const projectsConnectSignIn = invokeChannel(
   'projects.connect.signIn',
   z.object({ ...signInRef, cols: signInCells, rows: signInCells }),
   z.object({
+    blocked: signInBlockSchema.optional(),
     replay: z.string(),
     end: z.number().int().nonnegative(),
     /** The sizes of the pty `replay` came at, as `terminal.open` answers them (worfy-windows ticket 89). */

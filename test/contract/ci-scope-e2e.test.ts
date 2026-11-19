@@ -169,6 +169,7 @@ describe('scripts/e2e-specs.table.json of this repository', () => {
       'test/e2e/getting-started-highlight.spec.ts',
       'test/e2e/guide-entry-links.spec.ts',
       'test/e2e/harness-migrate.spec.ts',
+      'test/e2e/pr-inbox.spec.ts',
       'test/e2e/projects-connect.spec.ts',
       'test/e2e/settings-health.spec.ts',
       'test/e2e/settings.spec.ts',

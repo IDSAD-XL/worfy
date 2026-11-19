@@ -7,7 +7,9 @@
 // its account as `initial` and `pickOnly`: there a load changes nothing, only the person's pick does.
 //
 // The sign-in runs in main's pseudo-terminal of its own (`projects.connect.signIn`), not in a
-// Terminal Node: a Project being connected has no Canvas yet.
+// Terminal Node: a Project being connected has no Canvas yet. With GH_TOKEN or GITHUB_TOKEN in the
+// environment worfy runs gh with, main starts no sign-in (worfy-auth-check ticket 07): the box says why —
+// the variable overrides any account gh would store — and shows the command that removes it.
 //
 // On a Linked machine (worfy-link ticket 11) the step reads that Machine's accounts and offers no
 // sign-in and no first-run screen: both are of the Machine whose screen shows them, and gh is
@@ -17,7 +19,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { failureReason } from '../../shared/ipc/channels'
-import { githubChoice, type GithubAccountsStep, type GithubChoice } from '../../shared/ipc/projects'
+import { githubChoice, type GithubAccountsStep, type GithubChoice, type SignInBlock } from '../../shared/ipc/projects'
 import { CURSOR_BLINK } from '../../shared/terminal/cursor-answer'
 import { writeReplay } from '../canvas/nodes/terminal-replay'
 import { watchUserInput } from '../canvas/nodes/terminal-user-input'
@@ -72,6 +74,9 @@ const styles = {
   terminalBox: { margin: 'var(--space-2) 0 0', border: '1px solid var(--border)', borderRadius: 'var(--radius-button)', overflow: 'hidden', background: 'var(--terminal-bg)' },
   terminalHead: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', padding: 'var(--space-1) var(--space-2)', color: 'var(--terminal-text)', fontSize: 'var(--text-12)' },
   terminalHost: { height: 180, padding: '0 var(--space-1) var(--space-1)' },
+  blocked: { display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', padding: 'var(--space-2)', background: 'var(--surface)', color: 'var(--text)', fontSize: 'var(--text-12)' },
+  command: { display: 'flex', gap: 'var(--space-2)', alignItems: 'center' },
+  commandText: { flex: 1, minWidth: 0, padding: 'var(--space-1) var(--space-2)', borderRadius: 'var(--radius-button)', background: 'var(--surface-raised)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-12)', overflowWrap: 'anywhere', userSelect: 'text' },
 } satisfies Record<string, CSSProperties>
 
 type Load = { kind: 'error'; reason: string } | { kind: 'step'; step: GithubAccountsStep }
@@ -261,7 +266,7 @@ export function GithubAccount({ root, machine, machineName, disabled, initial, p
   )
 }
 
-type SignInStatus = { state: 'starting' } | { state: 'running' } | { state: 'exited'; exitCode: number } | { state: 'failed'; message: string }
+type SignInStatus = { state: 'starting' } | { state: 'running' } | { state: 'exited'; exitCode: number } | { state: 'failed'; message: string } | { state: 'blocked'; block: SignInBlock }
 
 /** `gh auth login` in main's pseudo-terminal: its output, the user's keys, its exit. Exported for its test. */
 export function SignInTerminal({ signInId, onExit, onClose }: { signInId: string; onExit: () => void; onClose: () => void }) {
@@ -336,7 +341,11 @@ export function SignInTerminal({ signInId, onExit, onClose }: { signInId: string
         setStatus({ state: 'failed', message: failureReason('projects.connect.signIn', result.error) })
         return
       }
-      const { replay, end, sizes, exited: ended } = result.value
+      const { blocked, replay, end, sizes, exited: ended } = result.value
+      if (blocked !== undefined) {
+        setStatus({ state: 'blocked', block: blocked })
+        return
+      }
       written = end
       // The kept output at the sizes of the pty it came at (worfy-windows ticket 89), as a Terminal
       // Node writes it; then the view takes its own size again.
@@ -394,19 +403,49 @@ export function SignInTerminal({ signInId, onExit, onClose }: { signInId: string
         ? 'Running: answer gh here'
         : status.state === 'exited'
           ? `gh exited (${String(status.exitCode)}); the accounts were read again`
-          : status.message
+          : status.state === 'blocked'
+            ? `Not started: ${status.block.variables.join(' and ')} overrides it`
+            : status.message
   return (
     <div style={styles.terminalBox} data-testid="connect-signin" data-state={status.state}>
       <div style={styles.terminalHead}>
         <span style={{ ...styles.mono, fontWeight: 600 }}>gh auth login</span>
-        <span style={{ flex: 1, minWidth: 0 }} role={status.state === 'failed' ? 'alert' : 'status'} data-testid="connect-signin-status">
+        <span style={{ flex: 1, minWidth: 0 }} role={status.state === 'failed' || status.state === 'blocked' ? 'alert' : 'status'} data-testid="connect-signin-status">
           {label}
         </span>
         <button type="button" className="w-action" onClick={onClose}>
           {status.state === 'running' ? 'Stop' : 'Close'}
         </button>
       </div>
-      <div ref={host} style={styles.terminalHost} data-testid="connect-signin-terminal" />
+      {status.state === 'blocked' ? <SignInBlocked block={status.block} /> : null}
+      <div ref={host} style={status.state === 'blocked' ? { display: 'none' } : styles.terminalHost} data-testid="connect-signin-terminal" />
+    </div>
+  )
+}
+
+/** Why the sign-in did not start, and the command that removes the token variables, to copy (worfy-auth-check ticket 07). */
+function SignInBlocked({ block }: { block: SignInBlock }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div style={styles.blocked} data-testid="connect-signin-blocked">
+      <span data-testid="connect-signin-why">{block.why}</span>
+      <div style={styles.command}>
+        <code style={styles.commandText} data-testid="connect-signin-command">
+          {block.command}
+        </code>
+        <button
+          type="button"
+          className="w-action"
+          onClick={() => {
+            void navigator.clipboard.writeText(block.command).then(
+              () => setCopied(true),
+              () => setCopied(false),
+            )
+          }}
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
     </div>
   )
 }

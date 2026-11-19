@@ -23,6 +23,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import type { TeamReviewerState } from '../../shared/ipc/projects'
+import { NO_GITHUB_HEALTH, type GithubHealth } from '../github/github-health'
 import type { HarnessLocation } from '../harness/locate'
 import { scriptEnv } from '../harness/locate'
 import type { HarnessScriptEnv } from '../harness/script-env'
@@ -231,6 +232,11 @@ export interface ReviewOfferDeps {
   emit: (projectId: string) => void
   /** Where the one line about a Project without an offer goes; console.warn by default. */
   log?: (line: string) => void
+  /**
+   * What the probe tells Health check (worfy-auth-check ticket 07): no gh login for the Profile's account, or a sign-in
+   * GitHub refused, puts the Project's GitHub access row out of `ok`; a probe that answered takes it back. Nothing by default.
+   */
+  health?: GithubHealth
 }
 
 /**
@@ -239,6 +245,7 @@ export interface ReviewOfferDeps {
  */
 export async function offerTeamReviewer(deps: ReviewOfferDeps, projectId: string, root: string): Promise<boolean> {
   const log = deps.log ?? ((line: string) => console.warn(line))
+  const health = deps.health ?? NO_GITHUB_HEALTH
   const none = (reason: string): false => {
     log(`[review-offer] ${root}: no team reviewer offer, because ${reason}`)
     return false
@@ -252,11 +259,17 @@ export async function offerTeamReviewer(deps: ReviewOfferDeps, projectId: string
       // No Profile folder: the probe below answers for the Project.
     }
     if (folder !== null && existsSync(reviewerSkill(folder))) return none('the team reviewer is built already')
-    const verdict = probeVerdict(await deps.probe(root))
+    const run = await deps.probe(root)
+    const verdict = probeVerdict(run)
+    // Exit code 0 is an answer of GitHub to the Profile's account; any other may be a refused sign-in.
+    if (run.code === 0) health.answered(root)
+    else if (!verdict.voice) health.failed(root, verdict.reason)
     if (!verdict.voice) return none(verdict.reason)
     deps.emit(projectId)
     return true
   } catch (error) {
-    return none(error instanceof Error ? error.message : String(error))
+    const reason = error instanceof Error ? error.message : String(error)
+    health.failed(root, reason)
+    return none(reason)
   }
 }

@@ -106,6 +106,11 @@ export const ghStatusSchema = z.object({
   error: z.string().nullable(),
   /** Current interval between `gh pr list` calls; doubles after each failure. */
   intervalMs: z.number().int().positive(),
+  /**
+   * gh failed because GitHub refused its sign-in (worfy-auth-check ticket 07): `error` is then the reason of the
+   * Project's GitHub access row, and the badge's tooltip links Health check. Absent — false.
+   */
+  signInFailed: z.boolean().optional(),
 })
 export type GhStatus = z.infer<typeof ghStatusSchema>
 

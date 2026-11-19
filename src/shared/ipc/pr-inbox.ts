@@ -108,6 +108,11 @@ export const prInboxSnapshotSchema = z.object({
   nextSearchAt: z.string().nullable(),
   /** Why the last read failed, or why the reader waits (a low rate limit); null when it went well. */
   error: z.string().nullable(),
+  /**
+   * The last read failed because GitHub refused gh's sign-in (worfy-auth-check ticket 07): `error` is then the reason of
+   * the Project's GitHub access row, and the view links Health check. Absent — false.
+   */
+  signInFailed: z.boolean().optional(),
   /** A line for the view about how the inbox is read (worfy-pr-inbox ticket 08 fills it); null here. */
   notice: z.string().nullable(),
 })

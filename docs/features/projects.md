@@ -159,8 +159,11 @@ no `gh auth token -u`, so the step fails with its version and the command that u
 Without gh at all the step names `brew install gh`, on Windows `winget install GitHub.cli`.
 
 The write access of each account is asked with that account's own token. A `GH_TOKEN` or `GITHUB_TOKEN` in the login
-shell's environment (on Windows, in the user's variables) still reaches gh here, and `gh auth login` of "Sign in with gh"
-refuses to run while one is set.
+shell's environment (on Windows, in the user's variables) still reaches gh here. With one set, "Sign in with gh" starts
+nothing: gh would take the variable over any account it signs in, and `gh auth login` refuses while it is set. The box names
+the variable, never its value, says why, and shows the command that removes it, with **Copy**: `launchctl unsetenv GH_TOKEN`
+on macOS, `[Environment]::SetEnvironmentVariable('GH_TOKEN', $null, 'User')` on Windows, `unset GH_TOKEN` elsewhere. The
+variable is to go from the shell startup files (on Windows, the user variables) too; then worfy is restarted.
 
 **`github.account` and Health check.** After the Project is connected, Settings → Health has a `GitHub access` row for it when
 an `origin` of its repositories is on github.com ([Gate and GitHub](gate-and-github.md#github-access)). The row says whether

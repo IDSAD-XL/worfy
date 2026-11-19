@@ -20,6 +20,7 @@
 import { z } from 'zod'
 import type { GateQueueGh, GateQueueView } from '../../shared/ipc/gate-queue'
 import { readGithubAccount, type ProfileEnv, type ProfileRunner } from '../workflow/profile'
+import { NO_GITHUB_HEALTH, type GithubHealth } from './github-health'
 import { accountAuth, type GhRunner } from './prs'
 
 export const GATE_QUEUE_INTERVAL_MS = 5 * 60_000
@@ -169,6 +170,8 @@ export interface GateQueueReaderOptions {
   log?: (message: string) => void
   baseIntervalMs?: number
   maxIntervalMs?: number
+  /** What a read tells Health check (worfy-auth-check ticket 07): a sign-in GitHub refused, and the answer after it. Nothing by default. */
+  health?: GithubHealth
 }
 
 interface ProjectQueue {
@@ -185,8 +188,10 @@ export class GateQueueReader {
   private readonly log: (message: string) => void
   private readonly base: number
   private readonly max: number
+  private readonly health: GithubHealth
 
   constructor(private readonly options: GateQueueReaderOptions) {
+    this.health = options.health ?? NO_GITHUB_HEALTH
     this.now = options.now ?? Date.now
     this.log = options.log ?? ((message) => console.warn(message))
     this.base = options.baseIntervalMs ?? GATE_QUEUE_INTERVAL_MS
@@ -245,9 +250,12 @@ export class GateQueueReader {
       const prs = prListSchema.parse(JSON.parse(stdout))
       state.intervalMs = this.base
       state.last = { role: gate.role, label: gate.label, waiting: waitingPrs(prs, gate.checksSection, account, this.now()), gh: { state: 'ok' } }
+      this.health.answered(root)
     } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
       state.intervalMs = Math.min(state.intervalMs * 2, this.max)
-      state.last = { role: gate.role, label: gate.label, waiting: [], gh: { state: 'failed', reason: error instanceof Error ? error.message : String(error) } }
+      state.last = { role: gate.role, label: gate.label, waiting: [], gh: { state: 'failed', reason } }
+      this.health.failed(root, reason)
     }
     return state.last
   }

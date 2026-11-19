@@ -12,6 +12,7 @@ import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import { agentEnv } from '../agent/env'
 import { GateReader, listWorktrees, type Worktree } from '../gate/state'
+import { appGithubHealth, isSignInFailure, NO_GITHUB_HEALTH, type GithubHealth } from '../github/github-health'
 import { accountAuth, ghRunner, PrTracker } from '../github/prs'
 import { harnessScriptEnv, type HarnessScriptEnv, type HarnessScriptEnvSource } from '../harness/script-env'
 import { insideProjects } from '../link/caller'
@@ -30,19 +31,37 @@ export interface ChecksService {
   worktrees?: (root: string) => Promise<Worktree[]>
   /** Whether a worktree lies inside %TEMP% of Windows (worfy-windows ticket 61); insideUserTemp by default. */
   insideTemp?: (path: string) => boolean
+  /**
+   * What the PR reads tell Health check (worfy-auth-check ticket 07): a sign-in GitHub refused puts the Project's GitHub
+   * access row out of `ok`, the next read that answers takes it back. Nothing by default.
+   */
+  health?: GithubHealth
 }
 
 /**
  * Gate state of each worktree and the PRs of the Ticket branches: requested ones plus those of
- * worktrees whose branch is a Ticket's — `<epic>/<NN>`, or one `isTicketBranch` names.
+ * worktrees whose branch is a Ticket's — `<epic>/<NN>`, or one `isTicketBranch` names. `projectRoot`:
+ * the root of the Project `root` is a folder of, whose GitHub access row a refused sign-in speaks for.
+ * Such a failure carries `signInFailed`, and its error is then the reason of that row.
  */
-export async function readChecks(service: ChecksService, root: string, branches: readonly string[], isTicketBranch: (branch: string) => boolean = () => false): Promise<ChecksSnapshot> {
+export async function readChecks(service: ChecksService, root: string, branches: readonly string[], isTicketBranch: (branch: string) => boolean = () => false, projectRoot: string = root): Promise<ChecksSnapshot> {
   const worktrees = await (service.worktrees ?? listWorktrees)(root)
   const worktreeBranches = worktrees.flatMap((worktree) => (worktree.branch !== null && (parseTicketBranch(worktree.branch) || isTicketBranch(worktree.branch)) ? [worktree.branch] : []))
   const [gated, prs] = await Promise.all([service.gate.read(root, worktrees), service.prs.read(root, [...new Set([...branches, ...worktreeBranches])])])
   // A worktree in %TEMP% carries a sign on its gate badge: Storage Sense may delete its files.
   const insideTemp = service.insideTemp ?? insideUserTemp
-  return { root, worktrees: gated.map((worktree) => (insideTemp(worktree.path) ? { ...worktree, insideTemp: true as const } : worktree)), pulls: prs.pulls, gh: prs.gh }
+  return { root, worktrees: gated.map((worktree) => (insideTemp(worktree.path) ? { ...worktree, insideTemp: true as const } : worktree)), pulls: prs.pulls, gh: ghHealth(service.health ?? NO_GITHUB_HEALTH, prs.gh, projectRoot) }
+}
+
+/** gh's state as the badges show it, told to Health check: a refused sign-in names the reason of the Project's GitHub access row. */
+function ghHealth(health: GithubHealth, gh: ChecksSnapshot['gh'], projectRoot: string): ChecksSnapshot['gh'] {
+  if (gh.available) {
+    health.answered(projectRoot)
+    return gh
+  }
+  if (gh.error === null || !isSignInFailure(gh.error)) return gh
+  health.failed(projectRoot, gh.error)
+  return { ...gh, error: health.reason(projectRoot) ?? gh.error, signInFailed: true }
 }
 
 /** What main asks about a Project to know where its checks may run. */
@@ -127,7 +146,7 @@ export function checksHandlers(
       const named = namedBranches(await scope.model(target.project), target.repo, target.layout)
       const foreign = branches.find((branch) => parseTicketBranch(branch) === null && !named.has(branch))
       if (foreign !== undefined) throw new Error(`${foreign} is not the branch of a Ticket of this Project`)
-      return readChecks(service, resolved, branches, (branch) => named.has(branch))
+      return readChecks(service, resolved, branches, (branch) => named.has(branch), target.project)
     }),
     defineHandler(checksRepos, async ({ root }, { event }): Promise<ProjectRepos> => {
       const resolved = insideProjects(event, resolve(root), projects, 'the Project root')
@@ -217,4 +236,4 @@ export function sharedPrTracker(): PrTracker {
   return sharedPrs
 }
 
-export default checksHandlers({ gate: new GateReader({ home: claudeHome() }), prs: sharedPrTracker() })
+export default checksHandlers({ gate: new GateReader({ home: claudeHome() }), prs: sharedPrTracker(), health: appGithubHealth('PR badges') })

@@ -45,7 +45,8 @@ import { agentEnv } from '../agent/env'
 import { fakeQueryFactory } from '../agent/fake-query'
 import { toEveryWindow } from '../broadcast'
 import { clientOf, type Client } from '../clients'
-import { signInRegistry, type GhProgram } from '../github/accounts'
+import { signInBlock, signInRegistry, type GhProgram } from '../github/accounts'
+import { appGithubHealth } from '../github/github-health'
 import { gateRegistryRepos } from '../getting-started/demo'
 import { accountAuth, ghRunner } from '../github/prs'
 import { bundledHarnessDir } from '../harness/bundled'
@@ -204,6 +205,7 @@ function offerAfterAdd(projectId: string, before: ReadonlySet<string>): void {
       answered: (id) => readProjectSettings(store.dataDir(store.get(id).id)).humanReview?.offer === 'later',
       profileDir: appProfileDir,
       emit: (id) => toEveryWindow((client) => emit(client, projectsReviewerOffer, { projectId: id })),
+      health: appGithubHealth('team reviewer probe'),
     },
     projectId,
     root,
@@ -441,6 +443,9 @@ export default [
   defineHandler(projectsConnectSignIn, async ({ signInId, cols, rows }, { event }) => {
     const client = clientOf(event)
     if (client === undefined || client.isDestroyed()) throw new Error('projects.connect.signIn needs the window that calls it')
+    // A token variable in gh's environment overrides any account gh would store: no sign-in, but why and the command (ticket 07).
+    const blocked = signInBlock(await appGh().env(), process.platform)
+    if (blocked !== null) return { blocked, replay: '', end: 0, exited: null }
     watchSignIn(client)
     const alive = (): boolean => !client.isDestroyed()
     const opened = await signIns().open(signInId, { cwd: homedir(), cols, rows }, client, {

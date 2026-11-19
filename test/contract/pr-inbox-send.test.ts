@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { githubHealth, type GithubHealth } from '../../src/main/github/github-health'
 import { PrInbox } from '../../src/main/github/inbox'
 import { draftFilePath, IN_FLIGHT, NO_ACCOUNT, POSTS_PER_MINUTE, PrReplySender, UNCONFIRMED, type LintRun, type PrReplySenderOptions } from '../../src/main/github/pr-reply-send'
 import { appUrlMatcher, registerIpc, type IpcMainLike, type ModuleLoader } from '../../src/main/ipc/index'
@@ -596,5 +597,59 @@ describe('a Session writing the file', () => {
     ok(await s.call('prInbox.saveDraft', { ...pull, item: threadRef(), body: 'Three tries.' }))
     expect(wrote).toBe(true)
     expect(s.draft().items).toEqual([threadItem('Three tries.', { edited: true }), conversationItem('Appended by the Session')])
+  })
+})
+
+// worfy-auth-check ticket 07: Send tells Health check — no `github.account`, no gh login for it and a 401 put the
+// Project's GitHub access row out of `ok`; a post GitHub took takes it back.
+describe('Health check (worfy-auth-check ticket 07)', () => {
+  function recorder(): { calls: string[]; health: GithubHealth } {
+    const calls: string[] = []
+    const health = githubHealth({
+      feature: 'Send of replies',
+      reports: { reportFailure: (id, project, reason) => void calls.push(`fail ${id} ${project?.id ?? '-'} ${reason}`), reportOk: (id, project) => void calls.push(`ok ${id} ${project?.id ?? '-'}`), current: () => null },
+      project: () => ({ id: PROJECT, name: 'shop' }),
+    })
+    return { calls, health }
+  }
+
+  it('a 401 of the POST reports the row; the next Send GitHub takes reports ok', async () => {
+    const { calls, health } = recorder()
+    const s = await setup([threadItem('The server drops one try.')], { replies: { status: 401 }, over: { health } })
+    const first = ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef(), body: 'The server drops one try.' }] }))
+    expect(first.results[0]!.outcome).toBe('failed')
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatch(/^fail github-access /u)
+    expect(calls[0]).toContain('Send of replies: gh: ')
+    expect(calls[0]).toContain('(HTTP 401)')
+
+    writeFileSync(join(s.gh.dir, 'replies.json'), JSON.stringify({ threads: { [THREAD]: REPLY_TO } }))
+    const second = ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef(), body: 'The server drops one try.' }] }))
+    expect(second.results[0]!.outcome).toBe('sent')
+    expect(calls).toEqual([calls[0], `ok github-access ${PROJECT}`])
+  })
+
+  it('no gh login for the account: the row names it, and nothing is posted', async () => {
+    const { calls, health } = recorder()
+    const s = await setup([threadItem('ok')], { over: { health, account: async () => 'dev-nobody' } })
+    const answer = ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef('ok'), body: 'ok' }] }))
+    expect(answer.results[0]!.outcome).toBe('failed')
+    expect(writes(s.gh)).toEqual([])
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toContain('no gh login for dev-nobody')
+  })
+
+  it('a Profile without github.account: the refusal goes to Health check too', async () => {
+    const { calls, health } = recorder()
+    const s = await setup([threadItem('ok')], { over: { health, account: async () => null } })
+    expect(await s.call('prInbox.send', { ...pull, items: [{ ...threadRef('ok'), body: 'ok' }] })).toEqual({ ok: false, error: `prInbox.send failed: ${NO_ACCOUNT}` })
+    expect(calls).toEqual([`fail github-access ${PROJECT} Send of replies: ${NO_ACCOUNT}`])
+  })
+
+  it('a 500 of GitHub is not the sign-in: nothing is reported', async () => {
+    const { calls, health } = recorder()
+    const s = await setup([threadItem('The server drops one try.')], { replies: { status: 500 }, over: { health } })
+    ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef(), body: 'The server drops one try.' }] }))
+    expect(calls).toEqual([])
   })
 })

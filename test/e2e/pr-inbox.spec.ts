@@ -808,3 +808,44 @@ test('Fix checks in the strip of a red PR: a new Session Node gets /worfy:pr-fix
     await launched.close()
   }
 })
+
+test('a sign-in GitHub refused in the PR inbox: the line names it with «Open Health check», the Health check dot turns red with no call to GitHub, and the link opens Settings → Health on the Project\'s GitHub access row (worfy-auth-check ticket 07)', async () => {
+  test.setTimeout(ms(180_000))
+  settings(WEB, true)
+  settings(OPS, false)
+  harnessForWeb()
+  // The Profile of web names dev-me, but gh has no login for it here: `gh auth token -u dev-me` fails, as after a
+  // token was taken out of the keyring. The PR inbox stops there, before any call to GitHub.
+  writeFileSync(join(ghDir, 'tokens.json'), JSON.stringify({}))
+  const launched = await launch()
+  try {
+    const { window } = launched
+    const nav = window.getByRole('navigation', { name: 'Sidebar' })
+    const button = nav.getByRole('button', { name: 'Health check', exact: true })
+
+    await showSidebarSection(window, 'Pull requests')
+    const views = window.getByRole('group', { name: 'View', exact: true })
+    await views.getByRole('button', { name: 'Pull requests' }).click()
+    const error = view(window).getByTestId('pr-inbox-error')
+    await expect(error).toHaveAttribute('data-sign-in', 'true', { timeout: ms(30_000) })
+    await expect(error).toContainText('GitHub refused the sign-in')
+    await expect(error).toContainText(ME)
+    // The message alone turns the dot red: no search and no `gh api repos/…` — the re-check stops at `gh auth token` too.
+    await expect(button).toHaveAttribute('data-health', 'critical')
+    await expect(button.getByTestId('health-rail-dot')).toHaveAttribute('data-tone', 'critical')
+    expect(ghCalls().filter((args) => args[0] === 'api' && (args[1] === 'graphql' || args.some((arg) => arg.startsWith('repos/'))))).toEqual([])
+    const shots = await snapshotThemes(window, 'pr-inbox-sign-in-error')
+    console.log(`pull requests view, sign-in refused: ${shots.light} ${shots.dark}`)
+
+    await error.getByRole('button', { name: 'Open Health check' }).click()
+    const settingsWindow = window.getByRole('dialog', { name: 'Settings' })
+    await expect(settingsWindow.getByRole('heading', { level: 2 })).toHaveText('Health')
+    const row = settingsWindow.getByTestId('settings-health').locator('[data-check="github-access"][aria-label="GitHub access, web"]')
+    await expect(row).toBeVisible({ timeout: ms(30_000) })
+    await expect(row).not.toHaveAttribute('data-status', 'ok')
+    await expect(row).toContainText(ME)
+    expectNoWrite()
+  } finally {
+    await launched.close()
+  }
+})

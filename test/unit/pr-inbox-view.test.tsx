@@ -749,6 +749,22 @@ describe('the status line', () => {
     expect(screen.getByTestId('pr-inbox-next').textContent).toBe('Next search in 10 min')
   })
 
+  // worfy-auth-check ticket 07: GitHub refused the sign-in — the reason of the Project's GitHub access row and Health check one click away.
+  it('a refused sign-in says the reason in plain words, and "Open Health check" opens Settings on Health', async () => {
+    const { useSettingsWindow } = await import('../../src/renderer/settings/settings-window')
+    useSettingsWindow.setState({ open: false, section: null })
+    await body(snapshotOf('web-00000001', { error: 'GH_TOKEN from the environment does not work (HTTP 401)', signInFailed: true }))
+    const row = screen.getByTestId('pr-inbox-error')
+    expect(row.textContent).toBe('GitHub refused the sign-in: GH_TOKEN from the environment does not work (HTTP 401) Open Health check')
+    fireEvent.click(within(row).getByRole('button', { name: 'Open Health check' }))
+    expect(useSettingsWindow.getState()).toEqual({ open: true, section: 'HealthSection' })
+  })
+
+  it('a failure that is not the sign-in has no Health check link', async () => {
+    await body(snapshotOf('web-00000001', { error: 'error connecting to api.github.com', signInFailed: false }))
+    expect(screen.queryByTestId('pr-inbox-health')).toBeNull()
+  })
+
   it("shows the snapshot's notice as it is", async () => {
     const notice = 'GitHub notifications unavailable for this token — checking every 5 minutes'
     await body(snapshotOf('web-00000001', { notice }))

@@ -1,7 +1,8 @@
 # 07 — Молчаливые сбои GitHub → Health check: PR inbox, PR badges, gate-queue, Flight recorder, проба ревью, pr-reply
 
 Type: task
-Status: open
+Status: claimed 2026-11-19T04:04Z
+PR: #2031
 Blocked by: 04, 05
 Source: [spec.md](../spec.md), «Ticket-ы», 7; «Проблема», пункты «PR inbox», «PR badges, gate-queue, Flight recorder»,
 «`github.account` пуст или невалиден», «Прочее»; «Решение», пункты 4 и 5; «Решения по реализации», 4; «Решения по
@@ -50,23 +51,36 @@ test-ам»; «Истории пользователя», 1, 2 и 6; «Волн�
 
 - [ ] Contract test (`test/contract/pr-inbox.test.ts`): отказ stand-in gh (401) → `state.error` с причиной строки и
       `reportFailure`; следующее успешное чтение → `reportOk`; нет `github.account` — одно сообщение на Project.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 19ac3d678
 - [ ] Contract test-ы (`test/contract/gate-queue.test.ts`, `test/contract/flight-recorder-github.test.ts`,
       `test/contract/pr-inbox-send.test.ts`, новый `test/contract/review-offer.test.ts`): сбой входа каждой фичи —
       `reportFailure` с причиной, успех — `reportOk`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-queue.test.ts test/contract/flight-recorder-github.test.ts test/contract/pr-inbox-send.test.ts test/contract/review-offer.test.ts` exit 0 · mac - · 19ac3d678
 - [ ] Unit test (`test/unit/pr-inbox-view.test.tsx`): строка ошибки со ссылкой «Open Health check» зовёт
       `openHealthCheck()`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-inbox-view.test.tsx` exit 0 · mac - · 19ac3d678
 - [ ] Unit test (`test/unit/checks-badges.test.tsx`): tooltip PR badge при сбое входа — одна строка и ссылка.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/checks-badges.test.tsx` exit 0 · mac - · 19ac3d678
 - [ ] e2e test (`test/e2e/pr-inbox.spec.ts`, stand-in gh): отказ GitHub в PR inbox → иконка Health check краснеет без
       нового запроса в сеть; щелчок открывает Settings → Health со строкой Project-а. Без реальной сети.
 - [ ] Test, что ни одна строка, log и `state.error` не содержат значение токена: stand-in gh печатает известный токен,
       test ищет его во всём выводе.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 19ac3d678
 - [ ] Все unit и contract test-ы модуля зелёные: `test/contract/pr-inbox.test.ts`, `test/contract/pr-inbox-send.test.ts`,
       `test/contract/gate-queue.test.ts`, `test/contract/flight-recorder-github.test.ts`,
       `test/unit/flight-recorder-github.test.ts`, `test/unit/pr-inbox-view.test.tsx`, `test/unit/checks-badges.test.tsx`,
       `test/unit/review-offer-toast.test.ts`, `test/unit/pr-inbox-notices.test.ts`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts test/contract/pr-inbox-send.test.ts test/contract/gate-queue.test.ts test/contract/flight-recorder-github.test.ts test/unit/flight-recorder-github.test.ts test/unit/pr-inbox-view.test.tsx test/unit/checks-badges.test.tsx test/unit/review-offer-toast.test.ts test/unit/pr-inbox-notices.test.ts` exit 0 · mac - · 19ac3d678
 - [ ] Снимок экрана строки ошибки PR inbox и tooltip PR badge — в «Итог» (снимок ревью — в scratchpad, в репозиторий не
       кладётся).
 - [ ] Английская страница `pr-inbox.md` описывает строку причины и ссылку.
+  - evidence: commit pass · worfy-auth-check/07: silent GitHub sign-in failures go to Health check · - - · 19ac3d678
+- [ ] Решение владельца Q5 (2026-11-19): при `GH_TOKEN` или `GITHUB_TOKEN` в окружении worfy «Sign in with gh» в Add
+      project не запускает `gh auth login` (переменная перекрыла бы любой account, который gh сохранит), а говорит почему
+      и показывает команду, убирающую переменную, для shell и платформы пользователя, с кнопкой Copy; значение токена
+      нигде не показывается. Test-ы: `test/contract/github-accounts.test.ts` (`signInBlock`),
+      `test/unit/signin-replies.test.tsx`; страница `docs/features/projects.md` описывает это.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/github-accounts.test.ts test/unit/signin-replies.test.tsx` exit 0 · mac - · 19ac3d678
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Где в коде
@@ -82,6 +96,16 @@ test-ам»; «Истории пользователя», 1, 2 и 6; «Волн�
 - `docs/features/pr-inbox.md`
 - `test/contract/pr-inbox.test.ts`, `test/contract/review-offer.test.ts` (новый), `test/unit/pr-inbox-view.test.tsx`,
   `test/unit/checks-badges.test.tsx`, `test/e2e/pr-inbox.spec.ts`
+- Решение владельца Q5: `src/main/ipc/projects.ts`, `src/main/github/accounts.ts`,
+  `src/renderer/projects/GithubAccount.tsx`, `src/shared/ipc/projects.ts`, `docs/features/projects.md`;
+  test-ы `test/contract/github-accounts.test.ts`, `test/unit/signin-replies.test.tsx`,
+  `test/e2e/projects-connect.spec.ts` (запуск без переменных токена)
+- Добавлено при реализации: `src/main/github/github-health.ts` (новый: что фичи сообщают Health check) и
+  `test/unit/github-health.test.ts`; подключение фич — `src/main/ipc/gate-queue.ts`, `src/main/ipc/runs.ts`,
+  `src/main/flight-recorder/service.ts`; флаг `signInFailed` в схемах — `src/shared/ipc/pr-inbox.ts`,
+  `src/shared/ipc/checks.ts`; `src/renderer/canvas/badges/checks-badges.css`; test-ы
+  `test/contract/gate-queue.test.ts`, `test/contract/flight-recorder-github.test.ts`,
+  `test/contract/pr-inbox-send.test.ts`, `test/unit/read-checks.test.ts`; страница `docs/features/gate-and-github.md`
 
 Только читать: `src/main/first-run/health-reports.ts`, `src/renderer/settings/settings-window.ts`,
 `src/main/github/auth-diagnosis.ts`.

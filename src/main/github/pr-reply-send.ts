@@ -29,6 +29,7 @@ import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { z } from 'zod'
 import { PR_REPLY_STATES, type PrReplyDrafts, type PrReplyItem, type PrReplyRef, type PrReplySendResult } from '../../shared/ipc/pr-inbox'
+import { NO_GITHUB_HEALTH, type GithubHealth } from './github-health'
 import { accountAuth, type GhEnv, type GhRunner } from './prs'
 
 /** GitHub's limit of posts that create content, per minute (docs.github.com, "secondary rate limits"). */
@@ -165,6 +166,11 @@ export interface PrReplySenderOptions {
   sleep?: (ms: number) => Promise<void>
   /** For tests: runs between the last read of the draft file and the check of its stat before a rename, as a Session writing then would. */
   beforeRename?: (file: string) => Promise<void>
+  /**
+   * What a Send tells Health check (worfy-auth-check ticket 07): no `github.account`, no gh login for it or a sign-in
+   * GitHub refused put the Project's GitHub access row out of `ok`; a post GitHub took takes it back. Nothing by default.
+   */
+  health?: GithubHealth
 }
 
 interface SendContext {
@@ -184,10 +190,12 @@ export class PrReplySender {
   private readonly folders = new Map<string, { dir: string; at: number }>()
   private readonly now: () => number
   private readonly sleep: (ms: number) => Promise<void>
+  private readonly health: GithubHealth
 
   constructor(private readonly options: PrReplySenderOptions) {
     this.now = options.now ?? Date.now
     this.sleep = options.sleep ?? ((ms) => delay(ms))
+    this.health = options.health ?? NO_GITHUB_HEALTH
   }
 
   /** The drafts of `repo`#`pr` for the Project at `root`: none without a file, a problem without a Profile folder or with a broken file. */
@@ -246,7 +254,10 @@ export class PrReplySender {
     if (!projectRepos.some((each) => each.toLowerCase() === repo.toLowerCase())) throw new DraftRefusal(`${repo} is not a repository of this Project: nothing is sent`)
     // Without an account named, gh would post as whoever is signed in on the machine: never.
     const account = await this.options.account(root)
-    if (account === null) throw new DraftRefusal(NO_ACCOUNT)
+    if (account === null) {
+      this.health.signInFailed(root, NO_ACCOUNT)
+      throw new DraftRefusal(NO_ACCOUNT)
+    }
     let token: Promise<GhEnv> | undefined
     const auth = (): Promise<GhEnv> => (token ??= accountAuth({ account: () => Promise.resolve(account), run: this.options.run })(root))
     return this.exclusive(context.file, async () => {
@@ -316,6 +327,7 @@ export class PrReplySender {
     try {
       env = await auth()
     } catch (error) {
+      this.health.failed(context.root, messageOf(error))
       return refuse('failed', `Not sent: ${messageOf(error)}`)
     }
 
@@ -328,6 +340,7 @@ export class PrReplySender {
         found = await this.comments(context, item, env)
       } catch (error) {
         const why = messageOf(error)
+        this.health.failed(context.root, why)
         return refuse('failed', again ? `Not sent: ${UNCONFIRMED} before, and worfy could not look whether it is on GitHub now: ${why}` : `Not sent: worfy could not read the thread on GitHub: ${why}`)
       }
       if (item.kind === 'thread' && found.first !== item.replyTo)
@@ -358,8 +371,10 @@ export class PrReplySender {
       this.posts.push(this.now())
       answer = await this.options.run(['api', '--method', 'POST', path, '-f', `body=${body}`], context.root, env)
     } catch (error) {
+      this.health.failed(context.root, messageOf(error))
       return refuse('failed', `${UNCONFIRMED}: ${firstLine(messageOf(error))}. Send again: worfy first looks whether it is on GitHub already`)
     }
+    this.health.answered(context.root)
     const url = urlOf(answer)
     const marked = await this.markSent(context, ref, body, url)
     return result('sent', marked, url)

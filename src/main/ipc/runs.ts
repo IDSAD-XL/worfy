@@ -68,7 +68,7 @@ async function appProfile(root: string): Promise<RunProfile> {
  */
 export function sharedFlightRecorder(): Promise<FlightRecorder> {
   shared ??= (async () => {
-    const [{ app }, { FlightRecorder }, { sharedAutopilot }, { sharedPrTracker }, { workflowHub }, { projectStore }, { harnessHomes }, { claudeHome }, { branchOfTicket }] = await Promise.all([
+    const [{ app }, { FlightRecorder }, { sharedAutopilot }, { sharedPrTracker }, { workflowHub }, { projectStore }, { harnessHomes }, { claudeHome }, { branchOfTicket }, { appGithubHealth }] = await Promise.all([
       import('electron'),
       import('../flight-recorder/service'),
       import('./autopilot'),
@@ -78,12 +78,14 @@ export function sharedFlightRecorder(): Promise<FlightRecorder> {
       import('../harness/locate'),
       import('../storage/paths'),
       import('../workflow/stages'),
+      import('../github/github-health'),
     ])
     const recorder = new FlightRecorder({
       harnessHome: harnessHomes(claudeHome()).harnessHome,
       projectRoot: (projectId) => projectStore().get(projectId).path,
       profile: appProfile,
       gh: (root, args) => sharedPrTracker().gh(root, args),
+      githubHealth: appGithubHealth('Flight recorder'),
       running: (projectId, epic) => {
         const state = sharedAutopilot().state(projectId)
         return state.status !== 'stopped' && state.epic === epic
