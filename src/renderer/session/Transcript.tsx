@@ -6,6 +6,7 @@ import { clipText as clip, hookOutput, toolSummary } from '../../shared/transcri
 import { Markdown } from '../markdown/Markdown'
 import { attachChat, CHIPS_AT_END, lightNodes, messageQuote, publishQuotes, transcriptChips, useMindMapFocus, type MessageQuote, type NodeChip, type NodeRef } from '../product/node-chips'
 import { NodeChips } from '../product/NodeChips'
+import { openHealthCheck } from '../settings/settings-window'
 import { advisorStatus } from './advisor-status'
 import { AdvisorStatus } from './AdvisorStatus'
 import { Narration } from './Narration'
@@ -650,6 +651,14 @@ function Item({ item, props, product, number }: { item: TranscriptItem; props: T
           ) : (
             <div className={`w-tr__notice${item.noticeKind === 'local_command' ? ' w-mono' : ''}`} data-find={find('notice')}>
               {item.text}
+              {item.action === 'open-health-check' ? (
+                <>
+                  {' '}
+                  <button type="button" className="w-tr__notice-link" data-testid="notice-open-health-check" onClick={openHealthCheck}>
+                    Open Health check
+                  </button>
+                </>
+              ) : null}
             </div>
           )}
         </Row>

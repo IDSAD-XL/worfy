@@ -50,6 +50,23 @@ write replaces it. The file with the Limits of the status line is not worfy's to
 
 A read that fails for another reason, such as a missing permission, throws and does not count as an empty state.
 
+The link secrets file (`link/secrets.json`) is set aside the same way, and its warning names only the file. Its tokens
+are gone with it, so Health check also shows the "Linked machine" row with the name of the set-aside file and the step to
+link again ([Link](link.md#reconnect-change-address-remove)).
+
+**Messages of the features in Health check.** Some failures that a feature used to keep to its log now change a row of
+Health check at once, without checking anything over the network:
+
+| Where it fails | The row | What takes it back |
+|---|---|---|
+| A Codex Session starts without GH_TOKEN of the Project's GitHub account | GitHub access of the Project, then checked again | The next check of the row |
+| A Browser page lands on the profile's sign-in page or gets 401 | Browser profile of the Project | A page that works under that profile |
+| A Linked machine answers with another certificate; the secrets file is set aside | Linked machine | A connection, linking again, or removing the Machine |
+
+Each such row is non-critical except GitHub access and never opens First run by itself. Its text names a Project, a
+profile, a Machine or a file, and passes through the same redaction as the Terminal AI context, so a token a tool let
+slip does not reach it.
+
 #### Windows
 
 Both folders are in the user's roaming application data. worfy quits when its last window closes, so it does not keep running

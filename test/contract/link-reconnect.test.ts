@@ -11,6 +11,7 @@ import { createServer, type AddressInfo, type Server, type Socket } from 'node:n
 import os, { type NetworkInterfaceInfo } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { HealthReports } from '../../src/main/first-run/health-reports'
 import { firewallHint, rowHint } from '../../src/main/ipc/link'
 import { LinkConnections, networkSignature, watchNetwork, type NetworkChange } from '../../src/main/link/connections'
 import {
@@ -31,6 +32,7 @@ import { LinkLogFile, teeLinkConsole } from '../../src/main/link/log-file'
 import { LinkService, stopLink, wireAppLink, type AppLink, type LinkServiceOptions } from '../../src/main/link/service'
 import { TailnetSelfName } from '../../src/main/link/tailscale'
 import { accessOf } from '../../src/shared/ipc/channels'
+import type { Check } from '../../src/shared/ipc/first-run'
 import '../../src/shared/ipc/link'
 import { LinkBench, type BenchMachine } from './link-bench'
 
@@ -605,6 +607,65 @@ describe('the names of a Linked machine', () => {
     expect(localName()).toBe('someones-mac.local')
     // What an announcement may name: a `.local` name, or a bare computer name (Windows).
     expect([mdnsName('Someones-Mac.local.'), mdnsName('DESKTOP-7Q'), mdnsName('evil.example.com')]).toEqual(['someones-mac.local', local('desktop-7q'), undefined])
+  })
+})
+
+describe('the Linked machine row of Health check (worfy-auth-check ticket 08)', () => {
+  const rows = (reports: HealthReports): Check[] => (reports.current()?.checks ?? []).filter((check) => check.id === 'linked-machine')
+
+  it('another certificate at the remembered address fails the row with the step and «Link a machine…»; linking again takes it back; no token reaches it', async () => {
+    const reports = new HealthReports()
+    const a = await bench.machine('a')
+    const b = await bench.machine('b')
+    const impostor = await bench.machine('impostor')
+    await bench.link(a, b)
+    await bench.codeOf(impostor)
+    await a.service.stop()
+    editRecord(a, b, { port: bench.portOf(impostor) })
+    await restartWith(a, { health: reports })
+    expect(rows(reports)).toEqual([])
+
+    await expect(a.service.connect(b.service.machine.id)).rejects.toThrow(/certificate changed/)
+    expect(rows(reports)).toEqual([
+      expect.objectContaining({
+        group: 'Linked machines',
+        title: 'Linked machine',
+        status: 'fail',
+        severity: 'non-critical',
+        detail: `${b.service.machine.name} answered with another certificate than the one remembered at linking`,
+        hint: 'Link it again by code: open Link a machine… on both computers',
+        actions: [{ id: 'link-machine', label: 'Link a machine…' }],
+        opensFirstRun: false,
+      }),
+    ])
+    expect(rows(reports)[0]?.project).toBeUndefined()
+    const text = JSON.stringify(reports.current())
+    for (const token of bench.tokens()) expect(text).not.toContain(token)
+
+    await bench.link(a, b)
+    expect(rows(reports)).toEqual([])
+  })
+
+  it('a secrets file that could not be read fails the row, naming only the file it was set aside as, until a Machine is linked again', async () => {
+    const reports = new HealthReports()
+    const a = await bench.machine('a')
+    const b = await bench.machine('b')
+    await bench.link(a, b)
+    await a.service.stop()
+    const secrets = join(a.dataDir, 'link', 'secrets.json')
+    const secret = `secret-${'Ab3'.repeat(8)}`
+    writeFileSync(secrets, `{"version":1,"secrets":{"outgoing:x":"${secret}"`)
+    await restartWith(a, { health: reports })
+
+    const [row] = rows(reports)
+    expect(row).toMatchObject({ status: 'fail', severity: 'non-critical', actions: [{ id: 'link-machine', label: 'Link a machine…' }] })
+    expect(row?.detail).toMatch(/^the link secrets file could not be read and was set aside as secrets\.json\.unreadable-[0-9TZ-]+: the tokens of the Linked machines are gone$/)
+    expect(JSON.stringify(reports.current())).not.toContain(secret)
+
+    // A has a new key now, which B does not take for A's; a Machine linked by code takes the row back.
+    const c = await bench.machine('c')
+    await bench.link(a, c)
+    expect(rows(reports)).toEqual([])
   })
 })
 

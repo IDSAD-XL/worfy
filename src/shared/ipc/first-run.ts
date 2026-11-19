@@ -85,8 +85,9 @@ export type FirstRunAction = z.infer<typeof firstRunActionSchema>
 
 /**
  * The actions main runs through `firstRun.run`: not the move form and "Show log", which the screen
- * handles itself, and not yet the buttons of worfy-auth-check that the Tickets of their rows add
- * (`use-login` is wired, ticket 05).
+ * handles itself, nor the buttons of worfy-auth-check the screen handles too — "Sign in to Codex…"
+ * goes through `vendors.startLogin`, "Open Browser" shows the Browser Node, "Link a machine…" opens
+ * its dialog (ticket 08); `open-link` is not wired yet (ticket 06).
  */
 export const runnableActionSchema = firstRunActionSchema.exclude(['migration-form', 'update-log', 'open-link', 'codex-sign-in', 'open-browser', 'link-machine'])
 
@@ -137,6 +138,8 @@ export const checkSchema = z.object({
       safe: z.literal(true).optional(),
       /** `use-login` only: the login the button writes to `github.account`, sent back to main as it was shown. */
       login: githubLoginSchema.optional(),
+      /** `open-browser` only: the Browser Node of the row's Project the button shows (worfy-auth-check ticket 08). */
+      node: z.string().min(1).max(200).optional(),
     }),
   ),
   /**

@@ -1451,3 +1451,24 @@ describe('row times (ticket 14)', () => {
     expect(within(answer).getByText('claude').closest('[title]')?.getAttribute('title')).toBe(full(NOW - 50_000))
   })
 })
+
+describe('a notice with a link (worfy-auth-check ticket 08)', () => {
+  it('«Open Health check» under the notice of a Codex Session without GH_TOKEN opens Settings → Health; a notice without one has no link', async () => {
+    const guard = renderGuard()
+    const [{ Transcript }, { useSettingsWindow }] = await Promise.all([import('../../src/renderer/session/Transcript'), import('../../src/renderer/settings/settings-window')])
+    guard()
+    act(() => useSettingsWindow.setState({ open: false, section: null }))
+    render(
+      <Transcript
+        events={[
+          { type: 'notice', kind: 'notification', text: 'GitHub is not available to this Session: no gh login for octo-user.', action: 'open-health-check' },
+          { type: 'notice', kind: 'notification', text: 'verify-08 finished' },
+        ]}
+      />,
+    )
+    const [withLink, without] = screen.getAllByTestId('transcript-notice') as [HTMLElement, HTMLElement]
+    expect(within(without).queryByRole('button')).toBeNull()
+    fireEvent.click(within(withLink).getByRole('button', { name: 'Open Health check' }))
+    expect(useSettingsWindow.getState()).toEqual({ open: true, section: 'HealthSection' })
+  })
+})

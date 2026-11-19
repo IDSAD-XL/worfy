@@ -43,6 +43,8 @@ interface Message {
   project: CheckProject | undefined
   reason: string
   step: string
+  /** The buttons of the row the message makes; none given — those of the checked row, or none. */
+  actions: Check['actions'] | undefined
   at: number
 }
 
@@ -92,9 +94,9 @@ export class HealthReports {
   }
 
   /** A feature failed on its row: the row is out of `ok` now, and one re-check of that Project follows. */
-  reportFailure(id: ReportedCheckId, project: CheckProject | undefined, reason: string, step: string): void {
+  reportFailure(id: ReportedCheckId, project: CheckProject | undefined, reason: string, step: string, actions?: Check['actions']): void {
     const at = this.now()
-    this.messages.set(keyOf(id, project), { id, project, reason: redactSecrets(reason), step: redactSecrets(step), at })
+    this.messages.set(keyOf(id, project), { id, project, reason: redactSecrets(reason), step: redactSecrets(step), actions, at })
     this.changed()
     const recheck = this.rechecks.get(id)
     const budget = budgetOf(project)
@@ -253,7 +255,7 @@ function fromMessage(message: Message, checked: Check | undefined): Check {
   const base = checked ?? { id: message.id, ...REPORTED_ROWS[message.id], command: null, actions: [], ...(message.project === undefined ? {} : { project: message.project }) }
   // A feature that reports a GitHub failure works with GitHub: gh counts as needed.
   const severity = checked !== undefined && checked.status !== 'unknown' ? checked.severity : severityOf({ id: message.id, status: 'fail' }, { githubProject: true })
-  return { ...base, status: 'fail', severity, detail: message.reason, hint: message.step, opensFirstRun: false }
+  return { ...base, status: 'fail', severity, detail: message.reason, hint: message.step, actions: message.actions ?? base.actions, opensFirstRun: false }
 }
 
 let shared: HealthReports | undefined

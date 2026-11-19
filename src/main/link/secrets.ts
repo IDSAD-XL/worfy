@@ -19,6 +19,8 @@ export interface SecretStore {
   get(key: string): string | undefined
   set(key: string, value: string): void
   delete(key: string): void
+  /** The file the stored secrets were set aside as, unreadable; null or absent when they read. */
+  readonly setAside?: string | null
 }
 
 const secretsSchema = z.object({ version: z.literal(1), secrets: z.record(z.string(), z.string()) })
@@ -33,14 +35,14 @@ let temporaryCounter = 0
  * Reads the secrets file. Not through json-file.ts: its message on an unreadable file quotes the
  * parser's error, and V8's JSON errors quote the text, which here is a secret. A file that cannot
  * be read as secrets is set aside under `<name>.unreadable-<time>` with a message that names the
- * file only, and the store starts empty.
+ * file only, and the store starts empty; `setAside` is the name of the file it was set aside as.
  */
-function readSecrets(file: string): Record<string, string> {
+function readSecrets(file: string): { secrets: Record<string, string>; setAside: string | null } {
   let text: string
   try {
     text = readFileSync(file, 'utf8')
   } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return {}
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return { secrets: {}, setAside: null }
     throw new Error(`could not read the link secrets file ${file}: ${error instanceof Error && 'code' in error ? String(error.code) : 'read failed'}`, { cause: error })
   }
   let parsed: z.output<typeof secretsSchema> | undefined
@@ -50,23 +52,36 @@ function readSecrets(file: string): Record<string, string> {
   } catch {
     parsed = undefined
   }
-  if (parsed !== undefined) return { ...parsed.secrets }
+  if (parsed !== undefined) return { secrets: { ...parsed.secrets }, setAside: null }
   const base = `${file}.unreadable-${new Date().toISOString().replace(/[:.]/g, '-')}`
   let target = base
   for (let n = 1; existsSync(target); n++) target = `${base}-${n}`
   renameSync(file, target)
   console.warn(`[link] ${file} could not be read and was moved to ${basename(target)}; the link secrets start empty`)
-  return {}
+  return { secrets: {}, setAside: basename(target) }
 }
 
 /** The secrets file in `file`, 0600; read once, then kept in memory and written whole on each change. */
 export class FileSecretStore implements SecretStore {
   private cache: Record<string, string> | undefined
+  private setAsideAs: string | null = null
 
   constructor(private readonly file: string) {}
 
+  /**
+   * The name of the file the secrets file was set aside as when it could not be read; null before the
+   * first read and after one that read. The Linked machine row of Health check names it (worfy-auth-check ticket 08).
+   */
+  get setAside(): string | null {
+    return this.setAsideAs
+  }
+
   private load(): Record<string, string> {
-    this.cache ??= readSecrets(this.file)
+    if (this.cache === undefined) {
+      const read = readSecrets(this.file)
+      this.cache = read.secrets
+      this.setAsideAs = read.setAside
+    }
     return this.cache
   }
 

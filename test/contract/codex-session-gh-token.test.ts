@@ -8,6 +8,7 @@ import { mkdtempSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import type { AgentEvent } from '../../src/shared/agent/events'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { hasExited } from '../../src/main/agent/session/process'
 import type { SessionHandle } from '../../src/main/vendors/session'
@@ -34,7 +35,7 @@ afterEach(async () => {
 })
 
 /** Starts a Session on the fake with `env` as worfy's environment; resolves the env the process got and the cwd asked for. */
-async function spawnedEnv(env: NodeJS.ProcessEnv, ghToken?: (cwd: string) => Promise<string | null>, log: string[] = []) {
+async function spawnedEnv(env: NodeJS.ProcessEnv, ghToken?: (cwd: string) => Promise<string | null>, log: string[] = [], failures: { cwd: string; reason: string }[] = []) {
   const root = mkdtempSync(join(realpathSync(tmpdir()), 'worfy-codex-gh-'))
   roots.push(root)
   let got: NodeJS.ProcessEnv | undefined
@@ -52,6 +53,7 @@ async function spawnedEnv(env: NodeJS.ProcessEnv, ghToken?: (cwd: string) => Pro
         return child
       },
       log: (line: string) => log.push(line),
+      githubFailure: (cwd: string, reason: string) => failures.push({ cwd, reason }),
       ...(ghToken === undefined ? {} : { ghToken: (cwd: string) => (asked.push(cwd), ghToken(cwd)) }),
     }),
   )
@@ -67,7 +69,13 @@ async function spawnedEnv(env: NodeJS.ProcessEnv, ghToken?: (cwd: string) => Pro
     spawned: () => undefined,
   })
   handles.push(handle)
-  return { env: got as NodeJS.ProcessEnv, asked, root }
+  return { env: got as NodeJS.ProcessEnv, asked, root, handle }
+}
+
+/** The events of `handle` up to its first `notice`; the Session's own notice comes before any turn. */
+async function firstNotice(handle: SessionHandle): Promise<Extract<AgentEvent, { type: 'notice' }>> {
+  for await (const event of handle.events) if (event.type === 'notice') return event
+  throw new Error('the Session ended without a notice')
 }
 
 /** process.env without any spelling of GH_TOKEN: the test's own must not decide a case. */
@@ -98,6 +106,26 @@ describe('GH_TOKEN of a Codex Session', () => {
     const { env } = await spawnedEnv(bare(), () => Promise.reject(new Error('no gh login for octo-user, the Project\'s GitHub account')), log)
     expect(Object.keys(env).filter((key) => key.toUpperCase() === 'GH_TOKEN')).toEqual([])
     expect(log).toEqual(["[codex] no GH_TOKEN for the Session: no gh login for octo-user, the Project's GitHub account"])
+  })
+
+  it('a token that cannot be had is a notice in the Session with «Open Health check», and the GitHub access row of its folder fails (worfy-auth-check ticket 08)', async () => {
+    const failures: { cwd: string; reason: string }[] = []
+    const { handle, root } = await spawnedEnv(bare(), () => Promise.reject(new Error('no gh login for octo-user, the Project\'s GitHub account')), [], failures)
+    const notice = await firstNotice(handle)
+    expect(notice).toMatchObject({ type: 'notice', kind: 'notification', action: 'open-health-check' })
+    expect(notice.text).toBe("GitHub is not available to this Session: no gh login for octo-user, the Project's GitHub account. gh and git push in it run without the Project's GitHub account.")
+    expect(failures).toEqual([{ cwd: root, reason: "no gh login for octo-user, the Project's GitHub account" }])
+  })
+
+  it('a token that gh let slip into the reason reaches neither the notice, the log nor the Health check row', async () => {
+    const token = `ghp_${'Ab3'.repeat(12)}`
+    const log: string[] = []
+    const failures: { cwd: string; reason: string }[] = []
+    const { handle } = await spawnedEnv(bare(), () => Promise.reject(new Error(`gh auth token failed: ${token} is not valid`)), log, failures)
+    const notice = await firstNotice(handle)
+    const everything = JSON.stringify({ notice, log, failures })
+    expect(everything).not.toContain(token)
+    expect(everything).toContain('gh auth token failed: [redacted] is not valid')
   })
 
   it('withGhToken leaves the environment as it is without a token', () => {

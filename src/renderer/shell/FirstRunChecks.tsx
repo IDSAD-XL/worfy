@@ -20,7 +20,8 @@ import { applyLayoutOp } from '../canvas/useLayout'
 import { focusCanvasNode } from '../find/canvas-requests'
 import MigrationForm from '../harness/MigrationForm'
 import { invoke } from '../ipc'
-import { activeProject, useProjects } from '../projects/useProjects'
+import { LinkMachineDialog } from '../machines/LinkMachineDialog'
+import { activeProject, openProject, useProjects } from '../projects/useProjects'
 import { setView } from '../session/navigation'
 import { Chip, type Status } from '../theme/Chip'
 import { showToast } from '../toast/toasts'
@@ -403,12 +404,15 @@ export interface FirstRunChecksParts {
   checkAgain: ReactNode
   /** An action is running: the place does not close until it ends. */
   running: boolean
-  /** The move form is open over the place. */
+  /** A form is open over the place: the move form, or the dialog of "Link a machine…". */
   migrating: boolean
 }
 
 export interface FirstRunChecksProps {
-  /** A confirmed GitHub sign-in opened its Terminal on the Canvas: the place gets out of its way. */
+  /**
+   * A confirmed GitHub sign-in opened its Terminal on the Canvas, or "Open Browser" showed a Browser
+   * there: the place gets out of its way.
+   */
   onTerminalOpened: () => void
   /**
    * The place asks for the checks itself: when it comes on screen and whenever there are none
@@ -430,6 +434,7 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, children
   const project = activeProject(useProjects())
   const [message, setMessage] = useState<{ error: boolean; text: string } | null>(null)
   const [migrating, setMigrating] = useState(false)
+  const [linking, setLinking] = useState(false)
   const shown = useRef(false)
 
   useEffect(() => {
@@ -458,10 +463,42 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, children
       setMigrating(true)
       return
     }
+    // "Link a machine…" of the Linked machine row (worfy-auth-check ticket 08): its dialog, over this place.
+    if (action === 'link-machine') {
+      setLinking(true)
+      return
+    }
     if (useAction.getState().running !== null) return
-    // The buttons of worfy-auth-check run nothing yet: the Tickets of their rows wire them (ticket 03);
-    // "Use <login>" is wired (ticket 05).
-    if (action === 'open-link' || action === 'codex-sign-in' || action === 'open-browser' || action === 'link-machine') return
+    // The SSO link is wired by worfy-auth-check ticket 06.
+    if (action === 'open-link') return
+    // "Open Browser" of a Browser profile row (ticket 08): the Browser where the sign-in expired, on its
+    // Project's Canvas; the place gets out of the way, as for the GitHub sign-in's Terminal.
+    if (action === 'open-browser') {
+      const node = check.actions.find((each) => each.id === 'open-browser')?.node
+      const target = check.project
+      if (node === undefined || target === undefined) return
+      const failed = await openProject(null, target.id)
+      if (failed !== undefined) {
+        setMessage({ error: true, text: failed })
+        return
+      }
+      setView('canvas')
+      focusCanvasNode(target.id, node)
+      if (shown.current) onTerminalOpened()
+      return
+    }
+    // "Sign in to Codex…" (ticket 08): the sign-in of Settings → Vendors, in the browser. It may take
+    // minutes, so it holds no lock; the checks run again once it is over.
+    if (action === 'codex-sign-in') {
+      setMessage({ error: false, text: 'Sign in to Codex in the page it opened in your browser' })
+      const result = await invoke('vendors.startLogin', { vendor: 'codex' })
+      if (!result.ok) setMessage({ error: true, text: failureReason('vendors.startLogin', result.error) })
+      else {
+        setMessage(null)
+        void checkAgain()
+      }
+      return
+    }
     startAction(action, row)
     // "Show log" of a failed Update build (worfy-update ticket 08): main opens build.log, no dialog.
     if (action === 'update-log') {
@@ -514,6 +551,8 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, children
       }}
       onMoved={() => void checkAgain()}
     />
+  ) : linking ? (
+    <LinkMachineDialog onClose={() => setLinking(false)} />
   ) : null
 
   return (
@@ -563,7 +602,7 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, children
           </button>
         ),
         running: running !== null,
-        migrating,
+        migrating: migrating || linking,
       })}
       {form}
     </>

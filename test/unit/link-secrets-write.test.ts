@@ -46,3 +46,32 @@ describe('FileSecretStore: a write that fails', () => {
     expect(store.get('machine-key')).toBe('the-first-secret')
   })
 })
+
+describe('FileSecretStore: a file that cannot be read (worfy-auth-check ticket 08)', () => {
+  let dir: string
+
+  beforeEach(() => {
+    dir = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-link-secrets-')))
+  })
+
+  afterEach(() => {
+    removeTestTree(dir)
+  })
+
+  it('is set aside: the store starts empty and names only the file it was set aside as', () => {
+    const file = join(dir, 'secrets.json')
+    writeFileSync(file, '{"version":1,"secrets":{"outgoing:m1":"the-secret"')
+    const store = new FileSecretStore(file)
+    expect(store.setAside).toBeNull()
+    expect(store.get('outgoing:m1')).toBeUndefined()
+    expect(store.setAside).toMatch(/^secrets\.json\.unreadable-[0-9TZ-]+$/)
+    expect(readdirSync(dir)).toEqual([store.setAside])
+  })
+
+  it('a file that reads, or none, sets nothing aside', () => {
+    const store = new FileSecretStore(join(dir, 'secrets.json'))
+    store.set('machine-key', 'k')
+    expect(new FileSecretStore(join(dir, 'secrets.json')).get('machine-key')).toBe('k')
+    expect(store.setAside).toBeNull()
+  })
+})

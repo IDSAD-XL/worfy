@@ -361,6 +361,12 @@ Outside Autopilot, the answer to `browser_open`, `browser_navigate`, `browser_cl
 note that the sign-in expired and asks the Session to ask the user. The note names the sign-in page by origin and path
 only.
 
+The user learns of it in Health check too, in Autopilot and outside it. The Project gets one "Browser profile" row in
+its group, failed and non-critical, which names every profile of the Project whose sign-in expired. Its step is to sign
+in in the Browser of that profile, and "Open Browser" makes the Project the current one and shows the Browser where the
+last of them expired. A page that then loads under a profile without its sign-in page or a 401 takes that profile off
+the row, and the row goes with the last one. The row never opens First run by itself.
+
 **Autopilot.** A Session in Autopilot knows only the profiles marked "Available to Autopilot":
 
 - `browser_list` shows no other profile and no Browser under one. A call naming one is refused before anything is made,

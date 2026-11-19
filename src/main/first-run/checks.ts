@@ -152,6 +152,8 @@ export interface CheckDeps {
    * version" row, and no Harness is taken for behind by GitHub's word.
    */
   update?: () => { snapshot: Pick<UpdateSnapshot, 'enabled' | 'available' | 'build' | 'harnessBehind'>; version: string; number?: number | undefined }
+  /** The rows of the Vendors besides Claude Code (src/main/first-run/vendor-checks.ts), after the Machine's; none when unset. */
+  vendorRows?: () => Promise<readonly Check[]>
 }
 
 /** The machine: process.platform, os.release() (`10.0.<build>` on Windows) and the architecture. */
@@ -1000,6 +1002,8 @@ export async function runChecks(deps: CheckDeps): Promise<FirstRunReport> {
   // One read of qmd's state feeds its three rows; a failure there fails each of them with the error.
   const qmdAll = qmdRows(deps, machine)
   qmdAll.catch(() => undefined)
+  // The Vendor rows run beside the Machine's; they never reject (vendor-checks.ts), a broken source adds none.
+  const vendors = Promise.resolve().then(() => deps.vendorRows?.() ?? []).catch(() => [])
   // One read of the installer's state feeds the Harness plugin and its dependencies.
   const harnessStatus = Promise.resolve().then(() => deps.harness())
   harnessStatus.catch(() => undefined)
@@ -1054,5 +1058,5 @@ export async function runChecks(deps: CheckDeps): Promise<FirstRunReport> {
     () => true,
   )
   const checks: Check[] = answered.map((check) => ({ ...check, severity: severityOf(check, { githubProject }) }))
-  return { checks, checkedAt: new Date().toISOString() }
+  return { checks: [...checks, ...(await vendors)], checkedAt: new Date().toISOString() }
 }
