@@ -1,7 +1,7 @@
 # 01 — Прототип экрана Changes: Card с HTML на выдуманных данных
 
 Type: prototype
-Status: open
+Status: claimed 2026-11-19T12:55Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 1; «Решение» → «Экран»; «Решено без владельца», 4
 
@@ -46,3 +46,29 @@ Source: [spec.md](../spec.md), «Ticket-ы», 1; «Решение» → «Экр
 
 - Mark seen, Viewed, Last turn, PR и chip со счётчиком — часть 2. Взгляд владельца Ticket 03 не ждёт (spec, «Решено без
   владельца», 4).
+
+## Итог
+
+- Card — `card-d72db918`, title «Prototype: Changes», Node на Canvas Project-а worfy (x 1088, y 8692, 1280 × 860).
+  Файл — `~/Library/Application Support/worfy/CanvasForAI-a2cd477b/cards/card-d72db918/index.html`: один HTML со
+  встроенными CSS и JS, без сети и сборки.
+- Данные выдуманы: Ticket `demo-epic/03` выдуманного магазина; 6 файлов — `src/orders/cart.ts` (M),
+  `src/orders/discount.ts` (A), `src/orders/legacy-tax.ts` (D), `src/ui/CartSummary.tsx → src/ui/OrderSummary.tsx` (R),
+  `assets/logo.png` (binary, 12.4 KB → 14.1 KB), `data/fixtures/catalog.json` (большой, свёрнут, `+1 204`); группа
+  Workflow files (2) под `.scratch/**` свёрнута в конце.
+- На Card-е — все состояния из «Что делаем», 2: шапка (scope All changes ▾ с Uncommitted и Commit, `origin/main ←
+  demo-epic/03`, base, число файлов, `+/−`, Refresh); дерево с фильтром и статусами A, M, D, R; Inline | Side by side,
+  Wrap, Hide whitespace (пара строк, где изменился только отступ, становится одной), Compare [main ▾]; «+» в gutter-е на
+  наведении и клавиша `c`; popover (текст, Add image до 3, Cancel, Comment ⌘↵); неотправленные комментарии под строкой
+  (Edit · Delete), комментарий к диапазону 14–18 с подсветкой строк; лоток «3 comments on 2 files», chip-ы, Clear,
+  To [Orchestrator ▾], поле общего текста, Send ⌘↵; после Send комментарии остаются тусклыми («sent to …»); Read only —
+  без «+», без комментариев и без лотка, chip Read only в шапке.
+- Полоса «Prototype · fictional data» над Node-ом — не часть экрана: кнопки Inline, Side by side, Popover open, Read
+  only, Reset. Клавиши `j` / `k` ходят по файлам.
+- Цвета — tokens темы worfy из `src/renderer/theme/tokens.css` (светлая — палитра E, тёмная — Graphite, по
+  `prefers-color-scheme`); строки diff — `--ready-*` и `--blocked-*`, как `src/renderer/harness/MigrationForm.tsx:91-92`;
+  подсветки синтаксиса нет (Q5).
+- Снимки для брифа Ticket-а 03 — в scratchpad, не в репозитории: `/tmp/worfy-changes-view-w1/impl-01/shots/`
+  (`01-inline-*`, `02-side-by-side-*`, `03-popover-*`, `04-read-only-*`, `05-binary-large-*`, `06-workflow-*`,
+  `07-gutter-plus-*`, `08-sent-*` — каждый в `light` и `dark`; `09-range-light.png`). Сняты Playwright-ом по `file://`,
+  1280 × 860, ошибок в console нет.
