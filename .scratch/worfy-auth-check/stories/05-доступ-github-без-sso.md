@@ -246,3 +246,45 @@ health.registerRecheck('github-access', async (project) => {
    Ответ: main пишет Profile именно этого Project-а и только login, который был показан, и отказывает, если единственный
    login с push уже другой.
    Lines: `src/main/first-run/actions.ts:349-374`
+
+## 11. Что нашёл review и что осталось
+
+> VERIFIED — worfy-auth-check/05, head ae188c864 (round 4, delta 7c3eead33..ae188c864; CI red on Windows after round 3)
+>
+> The Act on item is fixed: test/contract/health-github-access.test.ts:115 «a Project of two repositories» failed on Windows because the test's git stand-in matched the folder with `arg.endsWith('/web')`. The stand-in now takes the value after `-C` and splits it by both separators (test/contract/health-github-access.test.ts:69-73); a new case (:135) runs the stand-in with `win32.join` and `posix.join` paths and turns red on a mutant that splits only by `/` (and on the old `endsWith`), with the Windows symptom (acme/app instead of acme/web).
+> Production does not depend on the separator: src/main/github/accounts.ts:124 passes the folder to `git -C` unchanged; src/main/first-run/checks.ts:625 takes the folder name with `basename` of `node:path`; the `split('/')` calls in src/main/github/ split URLs or `owner/repo`, not folder paths.
+> Code story: the round 4 entry matches the code; story-check on ae188c864 — exit 0. Gate fast — exit 0, `[gate] green (fast)`. CI on ae188c864 (run 44434820280) — ci-ok success, the Windows full-suite jobs green.
+> Consider: none
+> Noted: [low] debt: .scratch/worfy-auth-check/issues/05-доступ-github-без-sso.md:94 — the evidence line «`pnpm test` of the 4 module files exit 0» does not name the four files, so it cannot be repeated.
+> Dismissed: none
+> Could not verify: the test on a real Windows machine locally (only via `path.win32`); the Windows CI job is green on this head.
+> Review depth: low — default: the profile has no review.depth.wave
+> Review tokens: 60497
+
+Code: `test/contract/health-github-access.test.ts:115-115` · key lines: 115
+
+```ts
+
+```
+
+Code: `test/contract/health-github-access.test.ts:69-73` · key lines: 69
+
+```ts
+function originOfFolder(args: readonly string[], origins: Readonly<Record<string, string>> = {}): string {
+  const at = args.indexOf('-C')
+  const name = at === -1 ? undefined : args[at + 1]?.split(/[\\/]/u).at(-1)
+  return (name === undefined ? undefined : origins[name]) ?? 'acme/app'
+}
+```
+
+Code: `src/main/github/accounts.ts:124-124` · key lines: 124
+
+```ts
+    const url = await git(['-C', path, 'remote', 'get-url', 'origin'])
+```
+
+Code: `src/main/first-run/checks.ts:625-625` · key lines: 625
+
+```ts
+    project.folders.map((path) => ({ name: basename(path), path })),
+```

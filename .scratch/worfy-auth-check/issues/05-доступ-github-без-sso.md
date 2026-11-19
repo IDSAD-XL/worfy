@@ -1,7 +1,8 @@
 # 05 — GitHub access: источник токена, честный `gh-auth`, строка Project-а с 401 и 404, «Use <login>»
 
 Type: task
-Status: claimed 2026-11-18T20:55Z
+Status: done 2026-11-19T01:51Z
+PR: #2023
 Blocked by: 01, 03
 Source: [spec.md](../spec.md), «Ticket-ы», 5; «Проблема», пункты «Чей токен у gh» и «Health check»; «Решение»,
 пункты 1 и 7; «Починка»; «Решения по реализации», 3; «Решения по test-ам»; «Решения владельца», Q5;
@@ -103,6 +104,7 @@ Windows — job Windows в составе `ci-ok` (ADR-0071). Глубина р�
   - evidence: gate pass · `gate fast` exit 0 · mac - · 535218371beea24104e2b7fa3350efa76277677f
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · f550bae7a6fb5cc263bd46ff0edc5f94b1fe8368
   - evidence: gate pass · `gate fast` exit 0 · mac - · f550bae7a6fb5cc263bd46ff0edc5f94b1fe8368
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44434820280/job/135274336122 · ci - · ae188c864c2052a6f5a9db19de979b51a2348a0d
 - [ ] Платформенный PR (ADR-0056, пункт 2; ADR-0071): job Windows в составе `ci-ok` зелёный на head PR до merge.
 
 ## Где в коде
