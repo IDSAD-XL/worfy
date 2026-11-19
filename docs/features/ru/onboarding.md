@@ -1,6 +1,6 @@
 # Onboarding
 
-> Перевод [английской версии](../onboarding.md), commit `same-pr`.
+> Перевод [английской версии](../onboarding.md), commit `5d1efe69`.
 
 Как разработчик проходит путь от свежей установки до одного влитого Ticket-а. На странице три раздела. First run описывает
 проверки Machine и действия, которые исправляют найденное. Getting started описывает список из шести шагов в панели в правом верхнем углу окна.
@@ -24,22 +24,37 @@ Machine, любым способом.
 | Закрывался, и новых упавших проверок нет | Ничего |
 
 «worfy version» и строка Harness plugin при Harness старее этой сборки здесь никогда не считаются: они падают, но при запуске
-о них сообщает toast, а не этот диалог.
+о них сообщает toast, а не этот диалог. Не считаются и строка Project-а, строка, которую создал сбой фичи, и строка, проверяемая
+по сети: First run — для настройки Machine. Строк, проверяемых по сети, даже нет в отчёте, по которому решает запуск; они
+добавляются после него, и запуск сеть не ждёт.
 
 Что значит новый и существующий пользователь, сказано в разделе [Getting started](#getting-started).
 
 **Другие входы.** «First-run checks» в Command palette открывает проверки в любой момент, с Project-ом и без него. То же делает
 «Open checks» в шаге 1 Getting started. То же делают кнопки «First-run checks…» в диалоге «Add project», когда Harness останавливает
 подключение или нет gh. Settings → Health показывает те же строки, действия и «Check again». Открытие этого раздела запускает
-проверки, а закрытие Settings не считается закрытием First run.
+проверки, а закрытие Settings не считается закрытием First run. Settings → Health — это Health check: его открывают кнопка
+Health check на rail sidebar-а и строка «Health check» в Command palette ([app-shell.md](app-shell.md#sidebar)).
 
-**Страница «Welcome to worfy».** Она коротко объясняет три понятия: Project + Harness, Orchestrator и Canvas. Проверки уже идут за
-ней. «Next» ведёт к ним. «Close» закрывает диалог как любое другое закрытие, поэтому сама страница больше не появится. При любом
+**Страница «Welcome to worfy».** Она коротко объясняет три понятия: Project + Harness, Orchestrator и Canvas. Под ними ссылка
+«worfy Guide» открывает [worfy Guide](app-shell.md#worfy-guide) поверх First run, а First run остаётся на этой странице. Проверки
+уже идут за ней. «Next» ведёт к ним. «Close» закрывает диалог как любое другое закрытие, поэтому сама страница больше не появится. При любом
 другом входе First run начинается с проверок.
 
-**Проверки.** В каждой строке есть chip (OK, Warning, Failed или Running…, пока идёт её действие), что найдено, строка о том, что
-делать, и иногда команда с «Copy» или кнопка действия. Chip наверху подводит итог: «Checking…», «Everything is ready» или
-«2 failed · 1 warning».
+**Проверки.** В каждой строке есть chip (OK, Warning, Failed, Unknown или Running…, пока идёт её действие), что найдено, строка о
+том, что делать, и иногда команда с «Copy» или кнопка действия. Строка не в OK называет свой уровень рядом с именем:
+«Critical» или «Non-critical». Строка, которую не удалось проверить, вместо найденного говорит «Couldn't check: <reason>», и её
+chip серый, а не цвета поломки. Chip наверху подводит итог: «Checking…», «Everything is ready» или
+«2 failed · 1 warning · 1 not checked».
+
+**Порядок.** Самые важные строки идут первыми — и в First run, и в Settings → Health: critical-строки не в OK, затем другие строки
+не в OK, затем строки в OK. Строки остаются в своей группе; внутри группы они идут в этом порядке, а группы — по своей первой
+строке. Группы, строки которых весят одинаково, сохраняют порядок таблицы ниже. Строки Project-а — отдельная группа на каждый
+Project, «Projects · <name>»; у входа в Codex и у Linked machine-ов тоже свои группы.
+
+**Fix.** Строка, которую чинит безопасная кнопка (она делает только то, что можно отменить, и не трогает чужих данных), показывает
+эту кнопку как «Fix» основным цветом; её tooltip говорит, что она делает («Use alice»). Остальные кнопки строки сохраняют свои
+имена.
 
 | Группа | Строка | Что спрашивает | Когда не OK |
 |---|---|---|---|
@@ -58,6 +73,8 @@ Machine, любым способом.
 | qmd | qmd models | Дан ли ответ на вопрос о моделях | Warning с размером и «Skip…», и «Download…», когда qmd установлен. После пропуска строка OK, а «Download…» остаётся, пока qmd установлен |
 | qmd | qmd collections | Коллекции каждого подключённого Project-а с Profile | Warning с «Set up…» или с тем, что поставить сначала |
 
+У Codex строки нет: это необязательный [Vendor](vendors.md), а вход в него — в Settings → Vendors.
+
 Размер моделей — 2.4 GiB или 2.2 GiB, если у какого-то Profile документы на русском. Строки qmd сообщают о найденном только как
 Warning, потому что без qmd Harness ищет через grep. На ответ инструменту даётся 15 с. Проверка, которая бросила исключение, — Failed
 с этой ошибкой, остальные строки всё равно работают.
@@ -74,9 +91,20 @@ Warning, потому что без qmd Harness ищет через grep. На �
 - «Sign in…» спрашивает, затем ставит Terminal Node на Canvas активного Project-а с набранным `gh auth login`, и диалог закрывается.
   Пользователь отвечает на вопросы gh там и проверяет снова. Без Project-а кнопки нет, строка показывает команду для копирования.
 - «Move…» открывает форму переноса старого Harness, которая спрашивает сама.
+- «Fix» запускает безопасную кнопку своей строки. Строки, где она есть, приходят с Ticket-ами их проверок.
 
 **«Check again»** сначала заново читает окружение login shell, поэтому инструмент, добавленный rc-файлом после запуска, становится
-виден. Project в sidebar, у которого не прочитался Layout, затем пробует снова сразу.
+виден. Project в sidebar, у которого не прочитался Layout, затем пробует снова сразу. Ответ приходит, когда ответили и строки,
+проверяемые по сети.
+
+**Отчёт между проверками.** Строки всегда приходят со своим уровнем: `critical`, когда основная работа без строки не идёт,
+`non-critical`, когда фича только работает хуже. `gh` и аккаунты GitHub critical, только пока у Project-а этой Machine `origin` на
+GitHub. Строка, которую не удалось проверить (нет сети, timeout), — `unknown`, и она никогда не critical. Фича, у которой сбой на
+строке, сообщает об этом отчёту, и строка сразу выходит из `ok`, без запроса в сеть. Затем идёт одна проверка этой строки, не
+чаще раза в минуту на Project. Когда та же фича снова работает, строка возвращается в `ok` без проверки. Когда окно worfy
+получает фокус, строки не в `ok`, последняя проверка которых старше 5 минут, проверяются снова. Так проверяется только строка со
+своей собственной проверкой; строки Machine ждут «Check again» или Settings → Health. Таймера нет. Каждое изменение отчёта уходит
+в окна.
 
 **«Start Getting started»** стоит рядом с «Close» у нового пользователя, пока шаг 6 Getting started не отмечен. Кнопка закрывает
 First run так же, как «Close», и показывает панель Getting started, развёрнутую и с фокусом на её заголовке.
@@ -127,13 +155,17 @@ first-run checks, и что вход в gh делается там же.
   через `CheckDeps`, поэтому test-ы проверяют Windows на любой машине.
 - `src/main/first-run/actions.ts` содержит `FirstRunActions`: диалоги, одно действие за раз и падения по строкам. Сама работа — в
   `src/main/harness/install.ts`, `src/main/harness/qmd.ts` и, для Limits from terminal, `src/main/harness/migrate/apply.ts`.
+- `src/main/first-run/health-reports.ts` держит отчёт между проверками: строки последних проверок, строки, проверенные по сети,
+  сообщения фич (`reportFailure`, `reportOk`) и проверки одной строки. Уровень каждой строки — в `src/shared/health/severity.ts`,
+  там же худший уровень отчёта.
 - `src/main/ipc/first-run.ts` связывает их с приложением, пишет и читает отметку и сообщает Getting started о каждом отчёте. Каналы — в
-  `src/shared/ipc/first-run.ts`, все с отметкой доступа `local`.
+  `src/shared/ipc/first-run.ts`, все с отметкой доступа `local`; `firstRun.reportChanged` несёт каждое изменение отчёта.
 - `src/renderer/shell/FirstRun.tsx` — диалог. `src/renderer/shell/FirstRunConcepts.tsx` — страница приветствия.
-  `src/renderer/shell/FirstRunChecks.tsx` рисует строки и запускает действия для диалога и для
-  `src/renderer/settings/HealthSection.tsx`. `src/renderer/shell/first-run-store.ts` держит состояние вне React.
+  `src/renderer/shell/FirstRunChecks.tsx` рисует строки в их порядке (`checkBlocks`, `rowRank`) с уровнем и Fix и запускает действия
+  для диалога и для `src/renderer/settings/HealthSection.tsx`. `src/renderer/shell/first-run-store.ts` держит состояние вне React.
 - `WORFY_FIRST_RUN_AUTO=0` не даёт диалогу открыться самому, для e2e-запусков, кроме его собственных.
-- Главные test-ы: `test/contract/first-run-checks.test.ts`, `test/unit/first-run-windows.test.ts`,
+- Главные test-ы: `test/contract/first-run-checks.test.ts`, `test/contract/health-reports.test.ts`,
+  `test/unit/health-severity.test.ts`, `test/unit/settings-health.test.tsx`, `test/unit/first-run-windows.test.ts`,
   `test/unit/first-run-concepts.test.tsx` и `test/e2e/first-run.spec.ts`, который использует подставные инструменты из
   `test/fixtures/first-run-tools/`.
 
@@ -217,9 +249,16 @@ project?» и `/worfy:ship-ticket todo 01`. Ничего не отправляе
 **Done.** Когда шаг 6 отмечен, панель показывает «Done — the ticket is merged» вместо шагов, с «Connect your own project» и «Remove the demo
 project». «Show steps» возвращает список до следующего монтирования панели.
 
+**worfy Guide.** «worfy Guide» внизу панели, слева от «Skip», — и под шагами, и под Done — открывает
+[worfy Guide](app-shell.md#worfy-guide). Панель остаётся как была.
+
 **Выйти и вернуться.** «Skip» внизу скрывает панель и не оставляет pill, ничего не удаляет и говорит, откуда она возвращается. «Getting started»
 в Command palette показывает панель снова в любой момент, развёрнутой и с фокусом на её заголовке, с Project-ом и без него. «Connect your own project» под шагами не
 входит в demo: «Connect…» открывает тот же «Add project», что и «+» в Projects.
+Пока Codex есть в этой сборке, в нижней строке панели между «worfy Guide» и «Skip» стоит ссылка «Use Codex too» — и под шагами, и
+под Done. Она необязательна и не является шагом: её ничто не отмечает, и счёт `n/6` её не учитывает. Она открывает Settings →
+Vendors, где находится вход ([Vendors](vendors.md)). Если её не трогать, ничего не меняется; вход в Claude Code остаётся проверкой
+шага 1. Высоты панели она не добавляет, поэтому toast-ы по-прежнему помещаются под панелью в Session view.
 
 #### Windows
 
@@ -264,13 +303,15 @@ worfy `getting-started.json` ([ADR-0005](../../adr/0005-worfy-own-state-inventor
   `test/unit/getting-started-panel.test.tsx`, `test/unit/getting-started-hints.test.ts`, `test/unit/getting-started-notice.test.tsx`,
   `test/unit/getting-started-highlight.test.ts`, `test/e2e/getting-started.spec.ts`, `test/e2e/getting-started-entry.spec.ts`,
   `test/e2e/getting-started-hints.spec.ts`, `test/e2e/getting-started-done.spec.ts` и `test/e2e/getting-started-highlight.spec.ts`.
+  `test/e2e/onboarding-codex.spec.ts` проверяет «Use Codex too» — с Codex в сборке и без него.
+  `test/e2e/guide-entry-links.spec.ts` проверяет ссылки на worfy Guide в панели и в First run.
 
 ## Demo project
 
 ### Behaviour
 
 Demo project — небольшой todo CLI в локальном git-репозитории, без GitHub. В нём один Epic, `todo`, и один Ticket, `01`: добавить `done <n>`, который
-отмечает задачу сделанной. Агенты работают по-настоящему и расходуют Claude Code пользователя. worfy говорит об этом под шагом 2, без цен.
+отмечает задачу сделанной. Агенты работают по-настоящему и расходуют лимиты Claude Code пользователя. worfy говорит об этом под шагом 2, без цен.
 
 **Создание.** «Create demo project» в шаге 2 ничего не спрашивает и не тратит токены. Шаг показывает каждый этап строкой:
 
@@ -309,8 +350,9 @@ Sonnet с effort medium. Opus использует effort модели по ум
 Если та Session отказывает, переключатель говорит, что выбор сохранён до следующего запуска, а работающая Session оставила свои настройки. Переключатель меняет
 только demo.
 
-**Удаление.** «Remove the demo project» стоит на экране Done, то есть доступна, когда шаг 6 отмечен. Сам demo не удаляется: ни от Skip, ни от Done, ни от
-перезапуска. Сначала worfy проверяет, что папка — это созданный им demo, а иначе отказывает, ничего не трогая и ни о чём не спрашивая. Папка не может быть корнем
+**Удаление.** «Remove the demo project» стоит на экране Done, то есть доступна, когда шаг 6 отмечен. «Remove project…» в
+контекстном меню строки demo в Projects запускает то же удаление на любом шаге. Сам demo не удаляется: ни от Skip, ни от Done, ни от
+перезапуска. Сначала, ещё до любого вопроса, worfy проверяет, что папка — это созданный им demo, а иначе отказывает, ничего не трогая. Папка не может быть корнем
 диска, домашней папкой или папкой над ней и не может пересекаться с папкой данных worfy. Кроме того, Harness должен знать её как `worfy-demo`, и этот Profile должен
 быть привязан только к этой папке.
 

@@ -1,7 +1,7 @@
 # 09 — Документы: переводы страниц Feature, ADR Health check, Amendment к ADR-0042, термин в CONTEXT.md
 
 Type: task
-Status: open
+Status: claimed 2026-11-19T06:30Z
 Blocked by: 01, 03, 04, 05, 07, 08
 Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решения по реализации», 6; «Волны», Wave 4; «Решения владельца», Q1;
 «Готово, когда», пункт о документах
@@ -44,9 +44,14 @@ Ticket 06 (SSO) его не держит: spec ставит 09 после 03–0
 
 - [ ] Девять страниц `docs/features/ru/` совпадают по смыслу с английскими на `main` (review по каждой).
 - [ ] Новый ADR влит; номер зарезервирован ship-ticket-ом.
+  - evidence: commit pass · worfy-auth-check/09: ADR-0109 Health check levels, ADR-0042 amendment, Health check term in CONTEXT · - - · 0658289a8bc8761dcb3048ba0238b12107fa206d
 - [ ] Amendment к ADR-0042 влит, текст ADR выше него не изменён.
+  - evidence: commit pass · worfy-auth-check/09: ADR-0109 Health check levels, ADR-0042 amendment, Health check term in CONTEXT · - - · 0658289a8bc8761dcb3048ba0238b12107fa206d
 - [ ] Статья Health check в CONTEXT.md совпадает с влитым поведением.
+  - evidence: commit pass · worfy-auth-check/09: ADR-0109 Health check levels, ADR-0042 amendment, Health check term in CONTEXT · - - · 0658289a8bc8761dcb3048ba0238b12107fa206d
 - [ ] `node scripts/check-personal.mjs` и `node scripts/check-feature-docs.mjs` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: test-run pass · `node scripts/check-personal.mjs && node scripts/check-feature-docs.mjs` exit 0 · mac - · 0658289a8bc8761dcb3048ba0238b12107fa206d
+  - evidence: test-run pass · `node scripts/check-personal.mjs && node scripts/check-feature-docs.mjs` exit 0 · mac - · 01c324ecaf1df517301828299e1321ae8a6a38d9
 
 ## Где в коде
 
@@ -61,3 +66,45 @@ Ticket 06 (SSO) его не держит: spec ставит 09 после 03–0
 
 - Английские страницы — в Ticket-ах поведения.
 - Тексты агенту в Harness (`harness/hooks/gh-token-env.mjs`, `harness/bin/preflight`) — не меняются.
+
+## Итог
+
+Сделано 2026-11-19, ветка `worfy-auth-check/09`. SSO-часть (Ticket 06) не входит: 06 не влит.
+
+- **Переводы.** Девять страниц `docs/features/ru/` сверены с английскими на `main` (`5d1efe69`) по всему diff-у с прошлой
+  метки перевода, а не только по Ticket-ам 03–08: в `vendors.md` дописаны и старые хвосты (конец хода и Stop hook Codex,
+  модель и effort по умолчанию в заголовке, Code story только на Claude Code, fake Codex в собранном приложении), в
+  `onboarding.md` — «Use Codex too» и «Remove project…» у demo, в `link.md` — точка Machines на rail, tooltip-ы
+  read-only, ответ новой формы на старой сборке, в `browser.md` — `worfy-browser` у Session Codex. Строка «Перевод …
+  commit» на всех девяти — `5d1efe69`; `node scripts/feature-docs-lag.mjs` их больше не называет.
+  У четырёх страниц (`onboarding.md`, `app-shell.md`, `projects.md`, `browser.md`) метка была `same-pr`, а не SHA, и
+  прошлой метки как базы не было. Для них база — последний commit, менявший русский файл (так считает
+  `feature-docs-lag.mjs`): `onboarding.md` — `1745e4bb8` (2026-11-01), `app-shell.md` и `projects.md` — `dad9d11ba`
+  (2026-11-18), `browser.md` — `244b33941` (2026-10-31). Во втором круге все четыре перечитаны целиком против английских
+  на `5d1efe69`, абзац за абзацем. Найдено и переведено: в `onboarding.md` — три утверждения о worfy Guide (ссылка на
+  странице «Welcome to worfy», абзац «worfy Guide» внизу панели Getting started, `test/e2e/guide-entry-links.spec.ts`),
+  «usage» Claude Code и порядок «проверка до любого вопроса» при удалении demo; в `projects.md` — «Harness home» вместо
+  «папки Harness» (два места), «idle Session» как простаивающая, а не «в ожидании», и «on the click alone» как «только по
+  щелчку пользователя»; в `browser.md` — шаг строки Browser profile «войти в аккаунт», «First run сам никогда не
+  открывается», «driven» в отказе `browser_list` и смысл «A bad file does not cost the profiles». В `app-shell.md`
+  пропусков не нашлось.
+- **ADR.** Новый [ADR-0109](../../../docs/adr/0109-health-check-row-levels-and-feature-reports.md): таблица уровней,
+  состояния строки, `unknown` никогда не critical, `reportFailure` / `reportOk`, когда проверять, `opensFirstRun: false`,
+  иконка без toast-ов, token-ы не логируются. Amendment к ADR-0042, пункт 9: источник token-а и строка при пустом
+  `github.account`; текст выше раздела `## Amendments` не тронут.
+- **CONTEXT.md.** Статья Health check: «не проверено» → «Couldn't check» (так пишет UI), состояния `ok | fixable |
+  needs-user | unknown`, gh critical только при `origin` на GitHub, серое кольцо и жёлтая точка для непроверенной строки,
+  Command palette «Health check» и «First-run checks» только для First run, ссылка на ADR-0109.
+- **Расхождение тикета с кодом.** Тикет и spec («Уровни») говорят: non-critical, когда `github.account` пуст, а
+  работает token окружения. Код (`src/main/first-run/checks.ts`, конец `githubAccess`) делает строку `warn` и
+  non-critical при пустом `github.account` всякий раз, когда gh работает с тем token-ом, который берёт сам, — из
+  переменной окружения или активного аккаунта keyring; флаг называется `environmentTokenOnly`, но ставится в обоих
+  случаях. «Use <login>» есть только при одном логине с push во все репозитории, иначе строка `needs-user`. Amendment
+  и ADR-0109 записаны по коду.
+- **Повторная проверка.** Spec называет повторную проверку после сбоя и при фокусе для всех строк; в коде своя проверка
+  (`registerRecheck`) есть только у `github-access`, строки Machine ждут «Check again». ADR-0109 записан по коду, как и
+  английская страница `onboarding.md`.
+- **Английские страницы (вне скоупа, не тронуты).** `docs/features/onboarding.md` говорит «Codex has no row», а строка
+  «Codex sign-in» в Health check есть (Ticket 08, `src/main/first-run/vendor-checks.ts`); `docs/features/gate-and-github.md`
+  называет notice Session Codex без `GH_TOKEN` «a later Ticket (worfy-auth-check 08)», а 08 влит. Перевод следует
+  английской странице.

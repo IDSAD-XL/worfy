@@ -1,6 +1,6 @@
 # Vendors
 
-> Перевод [английской версии](../vendors.md), commit `bf3d30a4`.
+> Перевод [английской версии](../vendors.md), commit `5d1efe69`.
 
 Один Feature. **Vendor** — производитель агента, на котором идёт [Session](sessions.md): Claude Code (Anthropic) или Codex
 (OpenAI). Страница описывает, как пользователь выбирает Vendor-а и входит в него, что есть и чего нет у Session Codex, как
@@ -53,13 +53,18 @@ Vendor-а, `claude` или `codex`; у Orchestrator-а остаётся `orch`.
 **Чат Session Codex.** Он работает как у Session Claude Code ([Sessions](sessions.md)). Сообщение, отправленное во время хода,
 ждёт в очереди Session и уходит после результата хода. Interrupt отменяет открытые запросы подтверждения и останавливает ход.
 Закрытие, падение и Resume ведут себя как у Claude Code; Resume продолжает тот же thread Codex. Размышления Codex видны в виде
-сводки, которую даёт сам Codex.
+сводки, которую даёт сам Codex. Ход заканчивается, когда Codex говорит, что он завершён, в любом статусе, или сообщает об ошибке,
+которую не повторяет; Session тогда idle. После ответа ход ждёт Stop hook-ов Codex, а под Codex Stop hook Harness запускает gate,
+что может занять минуты: пока идёт Stop hook, transcript после ответа показывает строку «Stop hook» со spinner-ом. Запуск hook-а,
+который закончился молча, убирает свою строку; тот, что заблокировал, упал или что-то сказал, остаётся, как hook Claude Code.
 
 **Model, effort и permissions Session Codex.** Три пикера под полем ввода предлагают то, что предлагает Codex.
 
 - Model: модели, которые называет запущенный Codex; первой — «Default (<model>)», модель, которую Codex отмечает как модель
-  по умолчанию. Смена действует со следующего хода.
-- Effort: уровни выбранной модели, от низшего.
+  по умолчанию. Смена действует со следующего хода. На «Default» заголовок называет модель, которую Codex отмечает как модель по
+  умолчанию, как только начинается ход.
+- Effort: уровни выбранной модели, от низшего. Если уровень не выбран, заголовок показывает уровень модели по умолчанию из списка
+  Codex приглушённым текстом, с tooltip-ом, который так и говорит.
 - Permissions: три preset-а словами Codex; описание — tooltip каждой строки.
 
 | Preset | Описание |
@@ -119,8 +124,9 @@ hook-и нового или обновлённого plugin-а выключен�
 [Harness](harness.md#in-codex).
 
 **Чего у Session Codex нет.** worfy не эмулирует то, чего у Vendor-а нет. Capability `hooks` у Codex выключена, с причиной
-«worfy does not run hooks in Codex yet.»; hook-и Harness исполняет сам Codex, после подтверждения. Разовые запросы, черновик
-профиля Project и [Terminal AI](terminal.md) идут только на Claude Code.
+«worfy does not run hooks in Codex yet.»; hook-и Harness исполняет сам Codex, после подтверждения. Разовые запросы —
+черновик профиля Project, [Terminal AI](terminal.md), Code story и вопрос о её строках — идут только на Claude Code: на Project-е
+Codex Code story не начинается, вопрос тоже, а progress bar показывает эту причину.
 
 **Limits по Vendor-ам.** В панели Limits на toolbar раздел на каждого Vendor-а: окна Claude Code, 5 часов и 7 дней, и, пока
 выполнен вход в Codex, окна, которые сообщает его план, с подписью по длине (`5h`, `weekly`), которую toolbar сокращает (`weekly` показывается как `7d`). Подробности — в
@@ -130,6 +136,19 @@ hook-и нового или обновлённого plugin-а выключен�
 `worfy · Codex` или `terminal · Codex`. Thread, начатый вне worfy и изменённый за последние 10 минут, сам получает read-only
 Node с transcript, прочитанным у Codex, и Resume продолжает его на live Node. Подробности — на странице
 [Sessions](sessions.md).
+
+**GitHub в Session Codex.** Hook Codex не может задать окружение Session, поэтому worfy кладёт `GH_TOKEN` аккаунта
+`github.account` Profile-а в окружение процесса Codex. Когда этот token получить нельзя, например потому что в gh нет входа для
+этого аккаунта, Session всё равно стартует. Её transcript открывается notice-ом о том, что GitHub этой Session недоступен и
+почему, со ссылкой «Open Health check». Строка GitHub access её Project-а сразу падает в Health check и там проверяется снова. Ни
+notice, ни строка, ни log не содержат token-а.
+
+**Вход в Codex в Health check.** В Health check есть строка «Codex sign-in» в группе Codex, всегда non-critical, потому что
+Vendor по умолчанию — Claude Code, а Session Codex сама говорит, чего ей не хватает. При выполненном входе строка показывает
+`<email> · <plan>`. Без входа она предупреждает и предлагает «Sign in to Codex…» — тот же вход, что в Settings → Vendors;
+когда он закончен, проверки идут снова. Codex app-server, который не стартует или не отвечает, делает строку «Couldn't check»
+вместо поломки. В сборке без Codex или на Machine, где Codex ни разу не запускали (нет домашней папки Codex), строки нет, поэтому
+пользователь, который никогда не выбирал Codex, не получает о нём предупреждения. Сама строка никогда не открывает First run.
 
 **Tool-ы worfy в Codex.** Session Codex в Project получает те же MCP-серверы, что Session Claude Code, `worfy-canvas` (Canvas
 и Cards с `worfy.ask`) и `worfy-browser`, по HTTP на `127.0.0.1` с token-ом своего процесса. Подробности — на страницах
@@ -212,6 +231,7 @@ Project-а с любым разделителем и без учёта реги�
 | Driver Codex | `src/main/vendors/codex/index.ts`, по файлу на часть: `capabilities.ts`, `session.ts`, `account.ts`, `limits.ts`, `history.ts`, `commands.ts`, `mcp.ts`, `one-shot.ts`, `harness-hooks.ts` |
 | Процесс Codex, клиент JSON-RPC, проверка по схеме | `src/main/vendors/codex/launch.ts`, `src/main/vendors/codex/app-server.ts`, `src/main/vendors/codex/rpc.ts`, `src/main/vendors/codex/schema.ts` |
 | Item-ы Codex в события, approval-ы | `src/main/vendors/codex/items.ts`, `src/main/vendors/codex/approvals.ts` |
+| Строка входа в Codex в Health check | `src/main/first-run/vendor-checks.ts` (test-ы: `test/contract/codex-account.test.ts`); Session без GH_TOKEN: `test/contract/codex-session-gh-token.test.ts` |
 | Закреплённый бинарник | `src/main/vendors/codex/binary.ts`, `electron-builder.yml`, `build/codex/` |
 | Сгенерированные типы и схема протокола | `src/main/vendors/codex/protocol/`, `scripts/codex-protocol.mjs` |
 | Vendor Session и «New session» | `src/main/agent/node-sessions.ts`, `src/main/agent/app-registry.ts` |
@@ -230,8 +250,9 @@ Project-а с любым разделителем и без учёта реги�
 подтверждения и slash-меню.
 
 **Фейк Codex.** Test-ы никогда не запускают настоящий Codex, не входят в аккаунт и не читают `~/.codex` разработчика. Под
-`WORFY_CODEX=fake` driver запускает `test/fixtures/codex-app-server/fake-app-server.mjs` под исполняемым файлом самого worfy
-вместо бинарника. Фейк играет сценарий из `test/fixtures/codex-scripts/` по шагам: `WORFY_CODEX_SCRIPT` называет сценарий
+`WORFY_CODEX=fake` driver запускает `test/fixtures/codex-app-server/fake-app-server.mjs` вместо бинарника: под исполняемым
+файлом самого worfy в запуске разработки, под `node` из PATH в собранном приложении, у которого fuse RunAsNode выключен
+(`scriptRunner` в `src/main/program.ts`). Фейк играет сценарий из `test/fixtures/codex-scripts/` по шагам: `WORFY_CODEX_SCRIPT` называет сценарий
 (по умолчанию `turn`), `WORFY_CODEX_LOG` — файл, куда фейк пишет request-ы worfy, `WORFY_CODEX_HOME` хранит его thread-ы.
 Фейк также исполняет hook-и plugin-а, установленного в его `CODEX_HOME`, по правилам закреплённого Codex
 (`test/fixtures/codex-app-server/hook-runner.mjs`): hook запускается, только когда подтверждён с верными hash-ами,

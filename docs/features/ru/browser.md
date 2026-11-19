@@ -1,6 +1,6 @@
 # Browser
 
-> Перевод [английской версии](../browser.md), commit `same-pr`.
+> Перевод [английской версии](../browser.md), commit `5d1efe69`.
 
 Два Feature. **Browser** — Node со страницей Chromium, в которой работают и пользователь, и Session-ы. **Browser profile** —
 сохранённый вход под одной ролью, под которым открывается Browser. Термины объяснены в [Concepts](concepts.md).
@@ -130,7 +130,8 @@ Claude" возвращает Browser той Session, что его вела. У 
 
 Инструменты дают MCP server `worfy-browser`, по одному server-у на Session. Session получает его, когда запускается в
 Project-е с подключённым canvas и когда список MCP server-ов Profile, если он есть, называет `worfy-browser` или
-`worfy-canvas`.
+`worfy-canvas`. Session Codex получает тот же server по HTTP на `127.0.0.1`, со своим собственным token-ом, так же как получает
+`worfy-canvas` (см. [Cards](cards.md), «Кто получает tools»).
 
 | Инструмент | Что делает |
 |---|---|
@@ -270,7 +271,7 @@ Machine показывает Project. Без такого окна страни�
 | Проверка подключения; разрешения и запросы окон страницы | `src/main/browser/attach-policy.ts`, `src/main/window.ts` |
 | MCP server и его инструкции | `src/main/mcp/browser-server.ts`, `src/main/mcp/browser-instructions.md` |
 | Схемы инструментов, пределы, тексты ответов | `src/shared/browser/tools.ts` |
-| Какая Session получает server | `src/main/agent/app-registry.ts`, `src/main/agent/options.ts` |
+| Какая Session получает server | `src/main/vendors/claude/query.ts`, `src/main/vendors/claude/options.ts`, `src/main/vendors/codex/mcp.ts` |
 | Browser-ы, уходящие с Session; ⌘Z | `src/main/layout/store.ts`, `src/renderer/canvas/history.ts` |
 | Рамка; её геометрия, адрес, Open bar и выбор profile | `src/renderer/canvas/nodes/BrowserNode.tsx`, `src/renderer/canvas/nodes/browser-frame.ts` |
 | Sidebar и viewport | `src/renderer/canvas/nodes/BrowserSidebar.tsx`, `src/renderer/canvas/nodes/browser-viewport.ts` |
@@ -354,10 +355,16 @@ profile к этому моменту уже удалён. Новый profile н�
 Вне Autopilot ответ на `browser_open`, `browser_navigate`, `browser_click` или `browser_type` тогда несёт заметку, что вход
 истёк, и просит Session обратиться к пользователю. Заметка называет sign-in page только по origin и пути.
 
+Пользователь узнаёт об этом и в Health check — в Autopilot и вне его. Project получает в своей группе одну строку «Browser
+profile», упавшую и non-critical, которая называет каждый profile Project-а с истёкшим входом. Её шаг — войти в аккаунт в Browser
+этого profile, а «Open Browser» делает Project текущим и показывает Browser, где истёк последний из них. Страница, которая затем
+загружается под profile без его sign-in page и без 401, снимает этот profile со строки, а строка уходит вместе с последним. Из-за
+этой строки First run сам никогда не открывается.
+
 **Autopilot.** Session в Autopilot знает только profile-ы с отметкой "Available to Autopilot":
 
-- `browser_list` не показывает других profile-ов и Browser-ов под ними. Вызов с таким profile отклоняется до того, как что-либо
-  создано, разбужено или взято, с ответом сообщить `sign-in needed as <name>`.
+- `browser_list` не показывает других profile-ов и Browser-ов под ними. Вызов с таким profile отклоняется раньше, чем что-либо
+  создаётся, будится или управляется, с ответом сообщить `sign-in needed as <name>`.
 - `browser_open` требует `ticket`, `<epic>/<NN>` из Epic-а, над которым работает запуск. Вне Autopilot он необязателен, и
   принимается любой Ticket Project-а.
 - Истёкший вход отклоняет вызов с `Sign-in expired in Browser profile "<name>"`. Пока страница там, разрешён только уход через
@@ -380,7 +387,7 @@ page. Её создание, изменение и удаление отклон
 - **Список partition-ов читается при каждом подключении.** Partition удалённого profile отклоняется сразу.
 - **Чтение ничего не пишет.** Список — read-канал, который может вызвать Linked machine с read-only, поэтому файл появляется при
   первом изменении ([ADR-0005](../../adr/0005-worfy-own-state-inventory.md)).
-- **Испорченный файл не стоит profile-ов.** Нечитаемый файл откладывается в сторону, и Project возвращается к Default. Sign-in
+- **Испорченный файл не губит profile-ы.** Нечитаемый файл откладывается в сторону, и Project возвращается к Default. Sign-in
   page с пользователем или паролем, записанная в файл руками, читается как отсутствующая, а profile остаётся.
 
 ### Implementation

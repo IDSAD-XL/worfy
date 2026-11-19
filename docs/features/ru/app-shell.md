@@ -1,6 +1,6 @@
 # App shell
 
-> Перевод [английской версии](../app-shell.md), commit `same-pr`.
+> Перевод [английской версии](../app-shell.md), commit `5d1efe69`.
 
 То, что окружает Canvas в каждом окне и на каждом Project-е. Семь Feature: **Sidebar**, **Command palette**, **Shortcuts**,
 **Menu**, **Settings**, **worfy Guide** и **Theme**. У восьмой, [Notifications](notifications.md), своя страница. Термины
@@ -22,8 +22,8 @@ Runs и Pull requests неактивны без Project-а. Каждый вид 
   кнопка, которая скрывает sidebar (⌘B, Ctrl+B на Windows). Перетаскивание полосы двигает окно.
 - **Project switcher** — отдельная строка под полосой, шириной с sidebar: название того, что показывает sidebar, и шеврон на
   её правом конце. Длинному имени Project-а отдана вся строка.
-- **Rail** — колонка иконок, по одной на секцию: Projects, Sessions, Pull requests, Pipeline, Epics, ADR, а внизу Machines и
-  Settings. У выбранной секции акцентная полоса. На иконке секции есть badge, который виден, пока открыта другая секция:
+- **Rail** — колонка иконок, по одной на секцию: Projects, Sessions, Pull requests, Pipeline, Epics, ADR, а внизу Health check, Machines
+  и Settings. У выбранной секции акцентная полоса. На иконке секции есть badge, который виден, пока открыта другая секция:
   число занятых Session-ов в Project-ах, которые показывает switcher, цветом работы; число pull request-ов, которым нужны вы
   (review, ответ или исправление); точка, пока Ticket в работе заблокирован или кого-то ждёт; и точка Linked machine-ов.
 - **Панель** рядом с rail. Она показывает одну секцию: её название, какие Project-ы она показывает, её собственные кнопки и её
@@ -31,6 +31,23 @@ Runs и Pull requests неактивны без Project-а. Каждый вид 
 
 Rail — одна позиция в порядке Tab. ↑ и ↓ ходят по нему и заворачивают по кругу, Home и End ведут к его концам, а секция под
 фокусом открывается сразу. Открытая секция запоминается для окна.
+
+**Health check** — кнопка rail прямо над Machines, она есть всегда. Это не секция: в панели она ничего не показывает, а щелчок
+открывает Settings → Health (строки описаны в [First run](onboarding.md#first-run)). Как и Settings, она не входит в tab-ы, по
+которым ходят ↑ и ↓; Tab доходит до неё после них. Её точка — худший уровень отчёта Health check этой Machine и каждого
+открытого на ней Project-а:
+
+| Точка | Когда |
+|---|---|
+| Красная | Critical-строка не OK: git, вход в Claude Code, Harness, gh, пока Project лежит на GitHub |
+| Жёлтая | Не OK только non-critical-строки, например модели qmd или git identity, или строку не удалось проверить |
+| Нет | Все строки OK |
+| Серое кольцо | На этом старте отчёта ещё нет, или идёт «Check again» |
+
+Строка, которую не удалось проверить (нет сети, timeout), никогда не делает точку красной. Tooltip говорит «Health check» и
+почему стоит точка: «critical: Harness plugin», «non-critical: qmd models», «Couldn't check: <reason>», «everything works».
+Кнопка читает отчёт, который main уже держит, и сама ничего не проверяет. Toast-а и системного уведомления о новой красной
+строке нет: только точка.
 
 **Project switcher** отвечает «All Projects» или одним Project-ом Machine окна:
 
@@ -93,6 +110,7 @@ Project, который хранится только на этой Machine. Pul
 | Что | Где |
 |---|---|
 | Полоса, rail и панель | `src/renderer/shell/Sidebar.tsx`, `src/renderer/shell/shell.css` |
+| Кнопка Health check и её точка | `HealthRailButton` в `src/renderer/shell/Sidebar.tsx`, `openHealthCheck` в `src/renderer/settings/settings-window.ts`, худший уровень — в `src/shared/health/severity.ts`, token-ы `--health-critical` и `--health-warning` в `src/renderer/theme/tokens.css` |
 | Рамка секции | `src/renderer/shell/SidebarSection.tsx`, `src/renderer/shell/sidebar-section.css` |
 | Project switcher | `src/renderer/shell/ProjectSwitcher.tsx` |
 | Ответ, открытая секция, badge-и | `src/renderer/shell/sidebar-scope.ts` |
@@ -101,7 +119,7 @@ Project, который хранится только на этой Machine. Pul
 | Секции | `src/renderer/shell/sidebar/` |
 | Записи секций в rail | `src/renderer/shell/registry.ts` |
 
-Главные test-ы: `test/unit/sidebar-scope.test.tsx`, `test/unit/sidebar-section.test.tsx`, `test/e2e/sidebar-rail.spec.ts`,
+Главные test-ы: `test/unit/sidebar-scope.test.tsx`, `test/unit/sidebar-section.test.tsx`, `test/unit/health-rail-button.test.tsx`, `test/e2e/sidebar-rail.spec.ts`,
 `test/e2e/sidebar-sections.spec.ts`.
 
 ## Command palette
@@ -128,11 +146,14 @@ Command palette. Settings, открытые поверх неё по ⌘,, ле�
 | Группа | Строки |
 |---|---|
 | Action | New session; New Product Session; «New …» на каждый пункт меню Canvas; Tidy up; Arrange by Epic; Re-pack; Archive finished sessions now; Process gate queue; Run wave `<epic>`; Ship ticket `<epic>/<NN>`; Resolve conflicts, Fix checks и Address comments `<owner>/<repo>#<N>`; Reconnect machine…; Remove machine…; Update worfy |
-| View | Switch to Canvas; Switch to Session; Pull requests, при открытом Project-е; First-run checks; Getting started; Settings…; Keyboard shortcuts; worfy Guide; Guide: `<Topic>` на каждый Topic; Show only tag `<tag>`; Show all Nodes |
+| View | Switch to Canvas; Switch to Session; Pull requests, при открытом Project-е; First-run checks; Health check; Getting started; Settings…; Keyboard shortcuts; worfy Guide; Guide: `<Topic>` на каждый Topic; Show only tag `<tag>`; Show all Nodes |
 | Project | Switch to project `<name>` на каждый другой Project |
 | Go to | Orchestrator; каждый Epic, Ticket и ADR; каждый Node из Layout, кроме тех, что worfy рисует из workflow, и binding anchor-ов |
 | Manual check | Каждая неотмеченная ручная проверка Ticket-а. Эти строки появляются только после ввода |
 | In transcripts | Session-ы Project-а, в разговоре которых есть запрос |
+
+«Health check» открывает Settings → Health, как кнопка Health check на rail. «First-run checks» открывает диалог First run —
+окно первой настройки Machine; одно имя другое не заменяет.
 
 Некоторые строки есть только в некоторых состояниях:
 

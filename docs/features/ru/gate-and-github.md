@@ -1,11 +1,12 @@
 # Gate и GitHub
 
-> Перевод [английской версии](../gate-and-github.md), commit `153211a2`.
+> Перевод [английской версии](../gate-and-github.md), commit `5d1efe69`.
 
-Пять Feature. **Gate** — проверка, готовы ли изменения в worktree. **Gate full** — полная форма этой проверки и случаи,
+Шесть Feature. **Gate** — проверка, готовы ли изменения в worktree. **Gate full** — полная форма этой проверки и случаи,
 когда она нужна. **Failure records** — то, что red run Gate оставляет о каждом упавшем test-е или шаге, и команда, которая это
 читает. **PR и CI badges** — chip-ы на Ticket-е и Session, которые показывают, что говорят Gate и GitHub. **PR inbox
-notifications** — уведомления GitHub, по которым PR inbox сразу перечитывает изменившийся PR. Термины объяснены в
+notifications** — уведомления GitHub, по которым PR inbox сразу перечитывает изменившийся PR. **GitHub access** — строка Health
+check, которая говорит, чей token gh берёт для Project-а и доходит ли он до репозиториев Project-а. Термины объяснены в
 [Concepts](concepts.md).
 
 ## Gate
@@ -466,6 +467,7 @@ Chip-ы на Node-ах workflow. Ticket показывает их как под�
 | `CI passing`, `CI failing`, `CI running` | Ticket | Проверки PR. Если их нет, chip-а нет. |
 | `VERIFIED`, `REJECTED` | Ticket | Вердикт ревьюера на head-коммите. Если его нет, chip-а нет. |
 | `gh unavailable` | Ticket | gh не ответил. В tooltip причина. |
+| `GitHub sign-in` | Ticket | GitHub отказал gh во входе. В его карточке причина одной строкой и **Open Health check**. |
 | `in %TEMP%` | Ticket, Session | Worktree лежит во временной папке Windows. В tooltip предупреждение и путь. |
 | `3 open threads`, `1 open thread` | Ticket | Нити review в PR Ticket-а, которые ждут ответа пользователя, из [PR inbox](pr-inbox.md). |
 | `changes requested` | Ticket | У PR Ticket-а решение review `CHANGES_REQUESTED`, из PR inbox. |
@@ -512,6 +514,11 @@ chip и это условие могут расходиться. Commit status-�
 в работе или был взят в ветке, а Ticket без всего этого не показывает ничего. Пока это длится, ни у одного Ticket-а нет chip-ов PR.
 Первый успех возвращает их.
 
+**`GitHub sign-in`.** Стоит вместо `gh unavailable`, когда GitHub отказал gh во входе: в gh нет входа для `github.account`, token не
+работает (HTTP 401), у gh нет никакого token-а или организация требует SAML. Указатель на chip-е или фокус клавиатуры открывает
+карточку с одной строкой — причиной строки [GitHub access](#github-access) Project-а — и **Open Health check**, которая открывает
+Settings → Health. Сбой уходит и в Health check.
+
 **Насколько свежо.** Renderer спрашивает, когда появляется первый badge Project-а, когда меняется набор веток Ticket-ов в работе, когда
 окно получает фокус и каждые 10 секунд, пока окно в фокусе. Он прекращает, когда последний badge Project-а исчез. Каждый ответ заново
 читает файлы Gate и `git worktree list`, а main перечисляет PR через gh не чаще раза в 60 секунд на спрошенную папку, как бы часто ни
@@ -528,7 +535,7 @@ Ticket, не называющий ни одного из них, не имеет
 
 **GitHub-аккаунт.** Когда Profile называет `github.account`, каждый вызов gh при чтении идёт от этого аккаунта, а глобальный аккаунт gh
 никогда не переключается. Без аккаунта или со значением, которое не является логином GitHub, gh работает с аккаунтом login shell-а.
-Аккаунт, для которого в gh нет входа, даёт `gh unavailable` с tooltip-ом, называющим его и `gh auth login`, и никогда не откатывается на
+Аккаунт, для которого в gh нет входа, даёт chip `GitHub sign-in`, карточка которого его называет, и никогда не откатывается на
 другой аккаунт. Изменённый Profile действует со следующего чтения, запускающего gh.
 
 **Нити review.** Chip-ы `N open threads` и `changes requested` берутся из снимка PR inbox Project-а, а не из
@@ -672,3 +679,96 @@ GitHub пользователя ускоряют это: когда уведом
 **Главные test-ы.** `test/contract/pr-inbox-notifications.test.ts`: 304, 200, `If-Modified-Since` и темп, 403, 404, 429,
 `Retry-After`, secondary rate limit, 500, тело не в JSON, выключенный Project, курсор и log stub-а, против
 `test/fixtures/gh/gh-stub.mjs`.
+
+## GitHub access
+
+### Behaviour
+
+**Чей token берёт gh.** gh использует один token на вызов, и вызовы worfy выбирают его не одинаково:
+
+1. Вызов, который идёт от аккаунта Project-а, — PR inbox, PR badges, gate queue, предложение ревью, token Session Codex —
+   получает `GH_TOKEN` из `gh auth token -u <github.account>`, token, который gh хранит для этого логина. Он сильнее любой
+   переменной окружения.
+2. Без аккаунта gh берёт из своего окружения `GH_TOKEN`, затем `GITHUB_TOKEN`, когда переменная задана и не пуста, и только
+   потом активный аккаунт, который он хранит.
+3. Строки Health check `gh` и `GitHub accounts` и вызовы gh в Add project, которые не про один аккаунт, никогда не передают
+   аккаунт Project-а, поэтому там переменная окружения побеждает, даже когда `github.account` задан.
+
+Окружение — login shell-а на macOS и собранное из registry на Windows. На macOS переменная, заданная через `launchctl setenv`,
+доходит до gh, только когда её экспортирует файл запуска shell-а; на Windows `setx GH_TOKEN …` доходит до него после следующего
+«Check again» или перезапуска worfy. Одно исключение: процесс `codex app-server` Session Codex стартует с собственным окружением
+worfy, поэтому без входа gh для аккаунта Project-а до него доходит и переменная launchd. Notice об этом — более поздний Ticket
+(worfy-auth-check 08).
+
+**GitHub accounts называет источник.** Строка читает каждую запись `gh auth status` и её состояние, а не только то, есть ли
+логин. Когда gh берёт token из переменной, она так и говорит: `alice (keyring), GH_TOKEN from the environment (alice) overrides it`.
+Когда этот token не работает, строка падает — gh сам тогда выходит с 1, — даже если сохранённый аккаунт работает, и даёт для
+копирования команду, которая удаляет переменную (`launchctl unsetenv GH_TOKEN` на macOS, `[Environment]::SetEnvironmentVariable('GH_TOKEN',
+$null, 'User')` на Windows). Сам worfy никогда не меняет переменную окружения. Timeout GitHub на token-е, который берёт gh, делает
+строку `unknown`.
+
+**Строка GitHub access.** В Settings → Health по одной строке `GitHub access` на каждый Project этой Machine с `origin` на
+github.com, в группе Projects. Она проверяется после остальных строк, не задерживая запуск, по «Check again», снова после сбоя
+фичи (не чаще раза в минуту на Project) или при фокусе окна, когда она не `ok` и старше пяти минут. Она читает `github.account`
+Profile-а, берёт token этого аккаунта так же, как PR inbox, и спрашивает `gh api -i repos/<owner>/<repo>` для каждого
+репозитория. Показывается только имя переменной или логин, никогда не token.
+
+| Что нашла | Строка | Уровень | Кнопка |
+|---|---|---|---|
+| Аккаунт доходит до каждого репозитория | ok: логин, источник его token-а, репозитории | critical | — |
+| `github.account` пуст, gh работает со своим token-ом | warn: `github.account is not set` и источник | non-critical | `Use <login>`, когда ровно один логин gh на github.com может делать push в каждый репозиторий |
+| В gh нет входа для аккаунта | fail: `no gh login for <login>` | critical | `Sign in…`; при заданном `GH_TOKEN` — команда, которая запускает `gh auth login` без него, потому что gh отказывается входить, пока переменная задана |
+| Token не работает (HTTP 401) | fail: чей это token | critical | С `GH_TOKEN` из окружения: команда, которая его удаляет, и `Use <login>`, когда подходит; собственный token аккаунта при заданном `GH_TOKEN`: команда, которая запускает `gh auth login` без него |
+| Нет доступа (HTTP 404, другой 4xx, кроме 403 rate limit-а) | fail: `no access to <repo> as <login>` | critical | `Use <login>`, когда push может делать другой логин |
+| Нет сети, timeout, GitHub 5xx или его rate limit (429, или 403 с `Retry-After`, осталось меньше 10 % лимита, или сообщение, называющее rate limit, — так, как читает PR inbox) | unknown: `Couldn't check: <reason>` | non-critical | — |
+
+**Сбой фичи.** PR inbox, PR badges, gate queue, Flight recorder, проба предложения ревью и Send черновиков ответов сообщают
+Health check, когда GitHub отказывает им во входе: в gh нет входа для `github.account`, HTTP 401, у gh нет никакого token-а,
+организация требует SAML. Send сообщает и тогда, когда Profile не называет `github.account`. Строка Project-а сразу становится
+`fail` — с именем фичи и первой строкой gh — ещё до любой проверки, поэтому иконка Health check краснеет без обращения к GitHub.
+Затем строка проверяется снова, и её причину показывают PR inbox и PR badge. Фича сообщает об одном и том же сбое один раз; её
+первый ответ после него возвращает строку в `ok`. Нет сети, timeout, GitHub 5xx и его rate limit — не вина входа и ни одной
+строки не меняют. Toast-а и уведомления нет: только иконка и строка на месте сбоя.
+
+Profile, который не читается, оставляет gh работать как без аккаунта; когда gh так работает, warn-строка говорит, что Profile не
+прочитался, и `Use <login>` не предлагает. Строка Project-а никогда не открывает First run при запуске; о ней говорит иконка
+Health check.
+
+**Use \<login\>.** Щелчок пишет `github.account` Project-а — одно поле, через `bin/profile-set --field github.account` Harness-а,
+который коммитит изменение в Harness home, — и снова проверяет строки GitHub access. Диалога нет: кнопка называет логин. Она
+пишет, только пока этот логин всё ещё тот, кто может делать push; иначе ничего не пишет и говорит проверить снова. worfy никогда
+сам не переключается на аккаунт из keyring.
+Логин с подчёркиванием — `name_shortcode` Enterprise Managed User — кнопки не получает: worfy пока не берёт такой логин в
+`github.account`, а Profile, который его называет, не читается. Такой пользователь входит в gh под логином, который worfy берёт,
+или, когда мешает `GH_TOKEN`, снимает его, чтобы gh взял логин из своего keyring.
+
+### How it works
+
+- **Тот же gh, что у PR inbox.** gh строки — `WORFY_GH` с собственным окружением worfy, когда он задан (stand-in в test-ах),
+  иначе `gh` с окружением login shell-а, и `readGithubAccount` → `accountAuth`, как идёт PR inbox.
+- **Ответ.** `gh api -i` печатает строку статуса, поэтому 401 и 404 читаются из неё, а не из сообщения gh. Собственный текст gh
+  «gh auth login» с exit code 4 значит, что у gh нет никакого token-а. Тело ответа никогда не показывается; причина без статуса —
+  последняя строка gh, из которой убрано всё, что похоже на token.
+- **Use \<login\> спрашивает сохранённые аккаунты.** Единственный логин, который может делать push, ищется так же, как его ищет
+  шаг аккаунта в Add project: с `GH_TOKEN` и `GITHUB_TOKEN`, заданными пустыми для этих вызовов (пустую gh считает незаданной), и
+  push каждого аккаунта спрашивается с его собственным token-ом.
+- **Только чтение.** Здесь ничто не входит в аккаунт gh, не переключает его и не выходит из него и ничего не пишет в GitHub.
+
+### Implementation
+
+| Что | Где |
+|---|---|
+| Чей token берёт gh, ответ `gh api -i`, команды для копирования | `src/main/github/auth-diagnosis.ts` |
+| Записи `gh auth status` с их источником | `src/main/github/auth-text.ts` |
+| Строки `GitHub accounts` и `GitHub access`, единственный логин с push | `src/main/first-run/checks.ts` |
+| `Use <login>` | `src/main/first-run/actions.ts`, `src/renderer/shell/FirstRunChecks.tsx` |
+| Строки, проверяемые по сети, и их повторная проверка, gh строк, `bin/profile-set` | `src/main/ipc/first-run.ts` |
+| Что фичи сообщают Health check: отказ во входе, ответ после него | `src/main/github/github-health.ts` |
+| Контракт IPC | `src/shared/ipc/first-run.ts` |
+
+**Главные test-ы.** `test/contract/health-github-access.test.ts`: случаи таблицы на stand-in-е gh, `Use <login>` через
+записывающий `bin/profile-set`, `GitHub accounts` с `GH_TOKEN` и поиск известного token-а в каждой строке, сообщении и строке
+log-а. `test/unit/auth-diagnosis.test.ts` и `test/unit/gh-auth-text.test.ts`: ответы, которые печатал gh 2.97, в
+`test/fixtures/gh-auth/`. `test/unit/github-health.test.ts`: какие причины — отказ во входе. Сообщение фичи:
+`test/contract/pr-inbox.test.ts`, `test/contract/gate-queue.test.ts`, `test/contract/flight-recorder-github.test.ts`,
+`test/contract/pr-inbox-send.test.ts`, `test/contract/review-offer.test.ts`, `test/unit/read-checks.test.ts`.
