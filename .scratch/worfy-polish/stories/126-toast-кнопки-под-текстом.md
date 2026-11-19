@@ -113,3 +113,21 @@ exit 0. Снимки Playwright (страница Vite с настоящими `
      `overflow-wrap: anywhere` у текста держат её минимум у нуля. Если эти две строки уберут, `1fr` не даст колонке
      стать уже слова, и × уйдёт за край toast-а; нулевой минимум в `minmax(0, 1fr)` держит колонку в ширине toast-а.
    - Строки: `src/renderer/toast/toast.css:32-38`, `src/renderer/toast/toast.css:68-76`
+
+## 6. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish/126, head 6f083403e (round 2, delta dc7677b7c..6f083403e: the Code story only)
+>
+> Both round 1 items are fixed. (1) The story (:54-58, :112-114) now calls `minmax(0, 1fr)` a safeguard: the text cell already has `overflow: hidden` and `overflow-wrap: anywhere` (src/renderer/toast/toast.css:74-75); measured — with `1fr` a 200-letter word keeps the column at 308 px. (2) The story (:86-89) now says × stays on row 1 without the `.w-toast__actions` rule (toast.css:105-106).
+> The rework's new claims hold: without toast.css:74-75 and with `1fr` the column grows to 1324 px and × leaves the toast, with `minmax(0, 1fr)` it stays at 308 px; without toast.css:80-87 the button row goes to row 2 but only into the first column (308 px), buttons left-aligned, wrapping like inline text.
+> `git diff --stat dc7677b7c..6f083403e`: one file, the story; code and tests unchanged. story-check on 6f083403e — exit 0; gate fast — exit 0, `[gate] green (fast)` (cache: no code changed). CI on 6f083403e — ci-ok success.
+> Could not verify: the layout in the built Electron app (measured in headless Chromium with the head's CSS); no local e2e by the owner's rule.
+> Review depth: low — default: the profile has no review.depth.wave
+> Review tokens: 45515
+
+Code: `src/renderer/toast/toast.css:74-75` · key lines: 74
+
+```css
+  overflow: hidden;
+  overflow-wrap: anywhere;
+```
