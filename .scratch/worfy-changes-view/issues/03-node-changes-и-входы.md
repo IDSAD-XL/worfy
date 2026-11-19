@@ -50,16 +50,21 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решение» → «Экр
 
 - [ ] Unit test (`test/unit/changes-view.test.tsx`): Inline и Side by side, Wrap, Hide whitespace, свёрнутый большой и
       binary-файл, группа Workflow files, меню scope-ов строится из ответа `changes.scopes`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/changes-view.test.tsx test/unit/canvas-actions.test.tsx test/unit/palette-commands.test.tsx` exit 0 · mac - · 36041cfb4fa64e8ded335a8ad6d75919c37d0ed9
 - [ ] Unit test (`test/unit/canvas-actions.test.tsx`): Changes есть у Ticket-а с worktree или веткой и нет у Ticket-а
       без них.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/changes-view.test.tsx test/unit/canvas-actions.test.tsx test/unit/palette-commands.test.tsx` exit 0 · mac - · 36041cfb4fa64e8ded335a8ad6d75919c37d0ed9
 - [ ] Unit test (`test/unit/palette-commands.test.tsx`): Open changes у Ticket-а с веткой.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/changes-view.test.tsx test/unit/canvas-actions.test.tsx test/unit/palette-commands.test.tsx` exit 0 · mac - · 36041cfb4fa64e8ded335a8ad6d75919c37d0ed9
 - [ ] e2e test (`test/e2e/changes.spec.ts`, fake agent, временный репозиторий): карточка → Changes → Node рядом с
       карточкой, файлы и строки совпадают с `git diff <merge-base>`; Open changes из palette; сгенерированный
       репозиторий на 300 файлов и файл на 2 000 строк открывается свёрнутым.
 - [ ] Снимок экрана Node-а рядом с Card-ом прототипа — в «Итог» (в scratchpad, в репозиторий не кладётся).
 - [ ] Английские страницы `changes.md`, `workflow.md`, `app-shell.md` описывают сделанное;
       `node scripts/check-feature-docs.mjs` — exit 0.
+  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 36041cfb4fa64e8ded335a8ad6d75919c37d0ed9
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 36041cfb4fa64e8ded335a8ad6d75919c37d0ed9
 
 ## Где в коде
 
@@ -111,3 +116,5 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решение» → «Экр
   auto-approve, `install-stable-update`, `shell-integration-*`) падают из-за `TMPDIR` Autopilot-а вне `/tmp`; с `TMPDIR` в
   `/tmp` 18 из 19 зелёные, последний (`test/unit/claude-project-mcp.test.ts:82`) падает на `safe.bareRepository=explicit`
   из `GIT_CONFIG_PARAMETERS` среды. Ни один из этих файлов не трогается изменением.
+  gate fast на `36041cfb4` с `TMPDIR` в `/tmp` и без `GIT_CONFIG_PARAMETERS` — `[gate] green (fast)`, exit 0; тот же
+  gate fast в среде Autopilot-а — exit 2 на тех же 18 файлах.
