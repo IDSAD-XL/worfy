@@ -90,3 +90,12 @@ Code: `.scratch/worfy-changes-view/issues/01-прототип-экрана-chang
 2. Чем вид Read only отличается от обычного, кроме chip-а в шапке?
    - Ответ: нет «+» в gutter-е, нет комментариев под строками и нет лотка: комментарий некому отправить.
    - Строки: `.scratch/worfy-changes-view/issues/01-прототип-экрана-changes.md:67-68`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED
+> Noted: [low] card index.html:556, :575 — "+1 243 −17" reads as "+1" and "243" (nf() at :434 uses a space as the thousands separator); [low] index.html:206-208 — the comment popover overlays line 28 and its comment instead of pushing the lines down (the real Node must push them); [low] index.html:592 — the tree filter "order" matches src/orders, so no narrowing is visible, and the filter does not touch the diff pane. All three go to the brief of ticket 03, not to rework of a throwaway prototype.
+> Review depth: low — the ticket's own depth (spec)
+> Review tokens: 103380
+>
+> Could not verify: the Card inside running worfy (Node on the Canvas) — screenshots taken outside the app via file://. pnpm test not rerun: the diff is .md only, ci-ok green on head.
