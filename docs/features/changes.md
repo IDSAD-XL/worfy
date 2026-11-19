@@ -124,16 +124,18 @@ CI too; the type changes are skipped there, as making a link on Windows needs a 
 
 #### Opening it
 
-A Ticket card has the button **Changes** when the Ticket has something to read: a worktree, the worktree branch its
-status came from, a `Branch:` line, or work on it (a claimed Ticket). The button carries no count of lines. The first
+A Ticket card has the button **Changes** when the Ticket has something to read: the worktree branch its status came
+from, a `Branch:` line, or work on it (a claimed Ticket). A worktree alone, with neither of these marks, shows no button:
+the card is laid out from the Ticket before the worktrees are read. Such a card has room for a second line of actions,
+and its action buttons wrap onto it, right-aligned, when they do not fit one line. The button carries no count of
+lines. The first
 click puts a Changes Node right of the strip of Epic frames, at the Ticket's height, on the nearest place that covers
 no other Node, and centers the Canvas on it. A second click goes to the Node already there: a Ticket has one Changes
 Node, and a hidden or archived one is shown again first.
 
 **Open changes** in the Command palette does the same for a Ticket with a branch or in work: it centers the Canvas on
 the Ticket's card and opens the Node next to it. When the card is not drawn within two seconds (its frame is
-collapsed), the Node goes right of everything on the Canvas. The palette does not see a worktree whose Ticket has
-neither of the other marks; the card's button does.
+collapsed), the Node goes right of everything on the Canvas.
 
 A Ticket that turns out to have neither a worktree nor a branch shows that in the Node. Focus mode shows the Node as on
 the Canvas: select a Session and the Changes Node and press Focus.

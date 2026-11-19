@@ -1119,10 +1119,9 @@ describe('Changes (worfy-changes-view ticket 03)', () => {
     return render(<Changes subject={ticketSubject(num)} />)
   }
 
-  it('is on a Ticket with a worktree, a worktree branch, a Branch: line or work on it', async () => {
+  it('is on a Ticket with a worktree branch, a Branch: line or work on it', async () => {
     tickets = tickets.map((each) => (each.num === 9 ? { ...each, branch: 'feature/cart' } : each.num === 10 ? { ...each, fromBranch: 'demo/10' } : each))
-    snapshot = { ...snapshot, worktrees: [{ path: `${ROOT}/.claude/worktrees/07`, branch: 'demo/07', gate: { outcome: 'none', source: 'none', at: null } }] }
-    for (const num of [7, 9, 10, 11]) {
+    for (const num of [9, 10, 11]) {
       const { unmount } = await changesButton(num)
       const button = await screen.findByRole('button', { name: 'Changes' })
       expect(button.getAttribute('aria-disabled')).toBe('false')
@@ -1131,11 +1130,16 @@ describe('Changes (worfy-changes-view ticket 03)', () => {
     }
   })
 
-  it('is not on a Ticket with neither a worktree nor a branch', async () => {
-    const { container } = await changesButton(8)
-    await vi.waitFor(() => expect(calls.some((call) => call.channel === 'checks.get')).toBe(true))
-    await new Promise((done) => setTimeout(done, 20))
-    expect(container.querySelectorAll('button')).toHaveLength(0)
+  it('is not on a Ticket with neither a branch nor work on it, one whose worktree the checks snapshot names included', async () => {
+    // The layout gives the second line of actions by the Ticket alone (showsChanges of ticket-card.ts): a done Ticket whose
+    // worktree is still there has no room on its card for the button.
+    snapshot = { ...snapshot, worktrees: [{ path: `${ROOT}/.claude/worktrees/07`, branch: 'demo/07', gate: { outcome: 'none', source: 'none', at: null } }] }
+    for (const num of [7, 8]) {
+      const { container, unmount } = await changesButton(num)
+      await new Promise((done) => setTimeout(done, 20))
+      expect(container.querySelectorAll('button')).toHaveLength(0)
+      unmount()
+    }
   })
 
   it('puts the Node right of the strip of Epic frames at the Ticket’s height, and goes to it on the second click', async () => {

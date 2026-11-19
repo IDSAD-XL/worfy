@@ -374,8 +374,8 @@ function workflowActionCommands({ project, model, readOnly, prInbox, layoutNodes
     }
   }
   for (const ticket of model.tickets) {
-    // Where the card has Changes, except a worktree the palette does not read (changes/open.ts).
-    if (!hasChangesSubject(ticket, false)) continue
+    // Where the card has Changes (changes/open.ts).
+    if (!hasChangesSubject(ticket)) continue
     const ref = `${ticket.epic}/${nn(ticket.num)}`
     const subject = { epic: ticket.epic, num: ticket.num }
     // Going to a Changes Node already there changes nothing; a new one is a change of the Layout.

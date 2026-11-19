@@ -101,11 +101,26 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решение» → «Экр
   справа от полосы рамок Epic-ов на высоте Ticket-а, как Session из истории Ticket-а (ADR-0038). `placeNear` с отступом
   40 px вместе с keep-out полосы рамок уводил Node под все рамки (unit test получал `y = 1000` вместо 320). `placeNear`
   остался запасным путём, когда рамки не нарисованы.
-- Решено без владельца: кнопка видна у Ticket-а с worktree (snapshot проверок), веткой worktree-а, строкой `Branch:`
-  или в работе; palette без snapshot-а проверок — по трём последним. Palette, когда Node-а ещё нет, центрирует карточку и
+- Решено без владельца: кнопка видна у Ticket-а с веткой worktree-а, строкой `Branch:` или в работе — так же, как строка
+  palette (worktree из snapshot-а проверок без этих признаков кнопки не даёт, см. следующий пункт). Palette, когда Node-а ещё нет, центрирует карточку и
   оставляет запрос её кнопке; через 2 s без ответа ставит Node справа от всего Canvas. Цвет вида в minimap нейтральный
   (`var(--border-strong)`): новый цвет — только через новый ADR (ADR-0077). На экране только для чтения кнопка и строка
   palette неактивны, пока Node-а нет; scope там хранится локально.
+- Вторая строка действий на карточке (раунд по красному CI run 44595751428). Посылка spec-а («Решения по реализации —
+  часть 1», «Входы части 1»: место строки действий карточка уже держит, `ticket-card.ts` не меняется) неверна: строка
+  действий шириной 218 px, а с кнопкой Changes в CI она занимала 285 px («Resolve conflicts ▾ Open PR Changes»,
+  Ticket 08 в `test/e2e/pr-follow-ticket.spec.ts`), 270 px («Address comments Open PR Changes», Ticket 08 в
+  `test/e2e/checks-badges.spec.ts`) и 221 px («Ship ticket Open PR Changes», Ticket 10 там же) — кнопки выходили за
+  карточку. Теперь строка действий переносится (справа, `.w-ticket__actions` в `src/renderer/canvas/epic-frame.css`), а
+  layout даёт +24 px (`ACTIONS_LINE`: 4 px и кнопка 20 px) карточке, на которой Changes видна по самому Ticket-у
+  (`showsChanges` в `src/renderer/canvas/ticket-card.ts`, флаг `changes` из `src/renderer/canvas/epic-layout.ts`): в
+  работе, со строкой `Branch:` или веткой worktree-а. Остальные карточки своей высоты не меняют. Кнопка видна только на
+  карточке с этой строкой. Иконка «±» вместо текста не помогла бы: она экономит ~45 px, а первому случаю нужно 67 px.
+  Решено без владельца 2026-11-19, подтвердить.
+- Тот же CI run, второй красный: e2e test кнопки искал карточку и кнопку после щелчка, а Canvas к тому времени уже
+  центрирован на Node-е, и React Flow не рисует карточку вне экрана (`onlyRenderVisibleElements`). Теперь test сравнивает
+  места на Canvas (transform Node-ов React Flow): Node справа от карточки, на её высоте, и весь в окне; второй щелчок —
+  после «Go to» карточки из palette, и Node снова в центре; число Node-ов Changes — по сохранённому Layout-у.
 - Сначала test: новые unit test-ы не могли пройти до кода — модулей `src/renderer/changes/*` и
   `src/renderer/canvas/actions/Changes.tsx` не было.
 - Снимок экрана Node-а рядом с Card-ом прототипа: not verified — снимок даёт только e2e test собранного приложения, а

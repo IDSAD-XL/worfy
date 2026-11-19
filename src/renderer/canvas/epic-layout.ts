@@ -17,7 +17,7 @@ import { checksSourcesOfTicket, reposOfTicket } from '../../shared/ipc/checks'
 import { freePlace, NODE_GAP } from '../../shared/layout/free-place'
 import type { Ticket } from '../../shared/workflow/types'
 import { readyWave, ticketLevels } from '../../shared/workflow/waves'
-import { blockersLine, cardHeight, TICKET_WIDTH, waitingOnOf, type Attention } from './ticket-card'
+import { blockersLine, cardHeight, showsChanges, TICKET_WIDTH, waitingOnOf, type Attention } from './ticket-card'
 
 export { TICKET_MIN_HEIGHT, TICKET_WIDTH } from './ticket-card'
 export const COLUMN_GAP = 24
@@ -114,7 +114,7 @@ export interface EpicLayout {
 
 /** What the layout reads of a Ticket: its blocking, and what its card shows, which sets the card's height. */
 export type LayoutTicket = Pick<Ticket, 'epic' | 'num' | 'title' | 'slug' | 'state' | 'blockedRaw' | 'blockedNums' | 'blockedParsed' | 'files' | 'filesListed'> &
-  Partial<Pick<Ticket, 'blockedReason' | 'waits' | 'repo' | 'repos' | 'evidence'>>
+  Partial<Pick<Ticket, 'blockedReason' | 'waits' | 'repo' | 'repos' | 'evidence' | 'fromBranch' | 'branch'>>
 
 export interface EpicLayoutInput {
   /** The Tickets of one Epic. */
@@ -248,7 +248,7 @@ export function epicColumns(tickets: readonly LayoutTicket[]): EpicColumns {
 /**
  * The height of each Ticket's card (ticket-card.ts): what the card shows — its title, the blocked
  * reason or the blockers line, the Ready chip, its repository, whom it waits for, the Stage names
- * it can show, the Evidence chip — and nothing measured on screen, so the same Tickets always get the same heights.
+ * it can show, the Evidence chip, the action Changes — and nothing measured on screen, so the same Tickets always get the same heights.
  */
 export function cardHeights(tickets: readonly LayoutTicket[], columns: EpicColumns, cards: CardContext = {}): Map<number, number> {
   const byNum = new Map(tickets.map((t) => [t.num, t]))
@@ -274,6 +274,7 @@ export function cardHeights(tickets: readonly LayoutTicket[], columns: EpicColum
       evidence: (t.evidence?.length ?? 0) > 0,
       reviewChips: cards.reviewChips?.[`${t.epic}/${t.num}`],
       sideEffects: cards.sideEffects?.[`${t.epic}/${t.num}`] === true,
+      changes: showsChanges(t),
     })
     heights.set(t.num, height)
   }

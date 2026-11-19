@@ -1,10 +1,11 @@
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { expect, test, type Page } from '@playwright/test'
-import { canvasReady, launchApp } from './helpers'
+import { expect, test, type Locator, type Page } from '@playwright/test'
+import { canvasReady, flowPositionsInOnePass, launchApp } from './helpers'
+import { WHOLLY_IN_VIEW } from './px'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
 import { ms } from '../time-scale'
@@ -129,6 +130,35 @@ async function shownLines(node: ReturnType<Page['locator']>, path: string): Prom
   )
 }
 
+/**
+ * The ids of the Changes Nodes in the Layout main saved, sorted: React Flow draws only the Nodes in sight, so the
+ * screen alone cannot count them.
+ */
+function savedChanges(env: Record<string, string>): string[] {
+  try {
+    const layout = JSON.parse(readFileSync(join(env.WORFY_DATA_DIR!, PROJECT, 'layout.json'), 'utf8')) as { nodes: { id: string; kind: string }[] }
+    return layout.nodes
+      .filter((node) => node.kind === 'changes')
+      .map((node) => node.id)
+      .sort()
+  } catch {
+    // Read while main writes it: the next poll reads it whole.
+    return []
+  }
+}
+
+/**
+ * How far the element's middle is from the Canvas's middle, in screen pixels; infinitely far when React Flow does not
+ * draw it (out of sight).
+ */
+async function offCenter(window: Page, element: Locator): Promise<number> {
+  if ((await element.count()) === 0) return Number.POSITIVE_INFINITY
+  const canvas = await window.getByTestId('canvas').boundingBox()
+  const box = await element.boundingBox({ timeout: ms(5_000) })
+  if (!canvas || !box) return Number.POSITIVE_INFINITY
+  return Math.hypot(box.x + box.width / 2 - (canvas.x + canvas.width / 2), box.y + box.height / 2 - (canvas.y + canvas.height / 2))
+}
+
 test('Changes on the card puts the Node next to it with the files and lines of git diff <merge-base>; a second click goes to it; Open changes of the palette opens a Ticket of 300 files folded', async () => {
   test.setTimeout(ms(150_000))
   const { env, repo } = prepare()
@@ -142,15 +172,26 @@ test('Changes on the card puts the Node next to it with the files and lines of g
     const card = window.locator('[data-testid="ticket-node"][data-ticket="4"]')
     const button = card.getByTestId('action-changes')
     await expect(button).toHaveAttribute('aria-disabled', 'false', { timeout: ms(15_000) })
+    // The card's place and size on the Canvas, read while it is drawn: the Canvas then centers on the Node, and React
+    // Flow does not draw a card out of sight.
+    const cardId = `ticket:${EPIC}/4`
+    const cardPlace = (await flowPositionsInOnePass(window, [cardId]))[cardId]
+    const cardSize = await window.locator(`[data-testid="rf__node-${cardId}"]`).evaluate((element) => {
+      const { offsetWidth, offsetHeight } = element as unknown as { offsetWidth: number; offsetHeight: number }
+      return { width: offsetWidth, height: offsetHeight }
+    })
+    expect(cardSize.width).toBeGreaterThan(0)
     await button.click()
     const node = window.locator(`[data-testid="changes-node"][data-ticket="${EPIC}/04"]`)
     await expect(node).toBeVisible({ timeout: ms(15_000) })
+    // The Canvas went to the Node: all of it is in the window.
+    await expect(node).toBeInViewport({ ...WHOLLY_IN_VIEW, timeout: ms(15_000) })
 
-    // Next to the card: right of it, at its height.
-    const cardBox = (await card.boundingBox())!
-    const nodeBox = (await node.boundingBox())!
-    expect(nodeBox.x).toBeGreaterThan(cardBox.x + cardBox.width)
-    expect(Math.abs(nodeBox.y - cardBox.y)).toBeLessThan(8)
+    // Next to the card on the Canvas: right of it, at its height (right of the strip of frames, sessionSpot).
+    const nodeId = `changes:${EPIC}/4`
+    const nodePlace = (await flowPositionsInOnePass(window, [nodeId]))[nodeId]
+    expect(nodePlace.x).toBeGreaterThan(cardPlace.x + cardSize.width)
+    expect(Math.abs(nodePlace.y - cardPlace.y)).toBeLessThan(8)
 
     // The files and lines are those of git diff against the merge-base with main.
     const mergeBase = git(repo, 'merge-base', 'main', `${EPIC}/04`)
@@ -169,9 +210,17 @@ test('Changes on the card puts the Node next to it with the files and lines of g
     await snapshotThemes(window, 'changes-node-side-by-side')
     await node.getByTestId('changes-inline').click()
 
-    // A second click goes to the Node already there.
+    // A second click goes to the Node already there. "Go to" of the palette centers the card first, so the Canvas has
+    // to move for the Node to be in the middle again.
+    await window.keyboard.press('ControlOrMeta+k')
+    await window.getByTestId('palette-input').fill(`${EPIC}/04`)
+    await window.locator(`[data-testid="palette-option"][data-command="ticket:${EPIC}/04"]`).click()
+    await expect(button).toBeVisible({ timeout: ms(15_000) })
+    expect(await offCenter(window, node)).toBeGreaterThan(100)
     await button.click()
-    await expect(window.getByTestId('changes-node')).toHaveCount(1)
+    await expect.poll(() => offCenter(window, node), { timeout: ms(15_000) }).toBeLessThan(8)
+    await expect(node).toBeInViewport(WHOLLY_IN_VIEW)
+    await expect.poll(() => savedChanges(env), { timeout: ms(15_000) }).toEqual([`changes:${EPIC}/4`])
 
     // Open changes of the Command palette, for Ticket 05.
     await window.keyboard.press('ControlOrMeta+k')
@@ -180,7 +229,7 @@ test('Changes on the card puts the Node next to it with the files and lines of g
     await window.keyboard.press('Enter')
     const big = window.locator(`[data-testid="changes-node"][data-ticket="${EPIC}/05"]`)
     await expect(big).toBeVisible({ timeout: ms(20_000) })
-    await expect(window.getByTestId('changes-node')).toHaveCount(2)
+    await expect.poll(() => savedChanges(env), { timeout: ms(15_000) }).toEqual([`changes:${EPIC}/4`, `changes:${EPIC}/5`])
 
     // 301 files: the folders come folded; the diff draws only a window of the files.
     await expect(big.getByTestId('changes-file-count')).toHaveText('301', { timeout: ms(20_000) })

@@ -22,6 +22,7 @@ import { focusCanvasNode } from '../find/canvas-requests'
 import { setView } from '../session/navigation'
 import { applyRecorded } from '../canvas/history'
 import { showNode } from '../canvas/show-node'
+import { showsChanges } from '../canvas/ticket-card'
 import { currentLayout, screenChannel } from '../canvas/useLayout'
 
 export const CHANGES_KIND = 'changes'
@@ -73,14 +74,12 @@ export function changesNodeOf(nodes: readonly LayoutNode[], subject: ChangesSubj
 }
 
 /**
- * Whether the Ticket has something for Changes to read: a worktree (`worktree`, from the checks snapshot of the card;
- * the palette does not read it), the worktree branch its status came from, its `Branch:` line, or work on it (a
- * claimed Ticket has its branch). main gives the final answer (`changes.scopes`): a Ticket whose branch is gone shows
- * that in the Node.
+ * Whether the Ticket has something for Changes to read, from the Ticket alone: the worktree branch its status came
+ * from, its `Branch:` line, or work on it (a claimed Ticket has its branch) — the cards the layout gives the room of
+ * the button (showsChanges of canvas/ticket-card.ts). main gives the final answer (`changes.scopes`): a Ticket whose
+ * branch is gone shows that in the Node.
  */
-export function hasChangesSubject(ticket: Pick<Ticket, 'state' | 'fromBranch' | 'branch'>, worktree: boolean): boolean {
-  return worktree || ticket.fromBranch !== null || Boolean(ticket.branch) || ticket.state === 'work'
-}
+export const hasChangesSubject = (ticket: Pick<Ticket, 'state' | 'fromBranch' | 'branch'>): boolean => showsChanges(ticket)
 
 /** The tooltip of the button and the detail of the palette row. */
 export const changesTitle = (subject: ChangesSubject): string => `Open the changes of ${ref(subject)}: its diff against the base`
