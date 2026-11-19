@@ -74,7 +74,7 @@ async function ghAuth(deps: CheckDeps, machine: Machine, timeoutMs: number): Pro
 
 ## 4. Строка GitHub access Project-а: аккаунт, токен, repo
 
-Code: `src/main/first-run/checks.ts:641-658` · key lines: 644, 646, 648, 652, 657, 658
+Code: `src/main/first-run/checks.ts:647-664` · key lines: 650, 652, 654, 658, 663, 664
 
 ```ts
 async function githubAccess(project: GithubProject, deps: GithubAccessDeps, platform: NodeJS.Platform): Promise<{ found: Row; environmentTokenOnly: boolean }> {
@@ -105,20 +105,21 @@ async function githubAccess(project: GithubProject, deps: GithubAccessDeps, plat
 
 ## 5. Один login с push
 
-Code: `src/main/first-run/checks.ts:617-628` · key lines: 619, 620, 625, 626, 627, 628
+Code: `src/main/first-run/checks.ts:622-634` · key lines: 624, 626, 630, 631, 634
 
 ```ts
-export async function useLoginCandidate(project: GithubProject, deps: GithubAccessDeps): Promise<string | null> {
+async function pushLogin(project: GithubProject, deps: GithubAccessDeps): Promise<{ login: string | null; managed: string | null }> {
   const gh: GhRunner = (args, cwd, extra, output) => deps.gh(args, cwd, { GH_TOKEN: '', GITHUB_TOKEN: '', ...extra }, output)
   const step = await readGithubAccounts(
     project.folders.map((path) => ({ name: basename(path), path })),
     { git: deps.git, gh, platform: deps.platform ?? process.platform },
   )
-  if (step.status !== 'accounts') return null
+  if (step.status !== 'accounts') return { login: null, managed: null }
   const withPush = step.accounts.filter((account) => account.push && account.host === 'github.com')
   const only = withPush.length === 1 ? (withPush[0]?.login ?? null) : null
   // A login the button cannot send (an Enterprise Managed User's `name_shortcode`): no button, and the report stays valid.
-  return only !== null && githubLoginSchema.safeParse(only).success ? only : null
+  if (only === null) return { login: null, managed: null }
+  return githubLoginSchema.safeParse(only).success ? { login: only, managed: null } : { login: null, managed: only }
 }
 ```
 
@@ -231,7 +232,7 @@ health.registerRecheck('github-access', async (project) => {
 1. Почему строка GitHub access с заданным `github.account` не страдает от неверного `GH_TOKEN` в окружении, а `gh-auth` страдает?
    Ответ: строка берёт токен аккаунта через `accountAuth` и передаёт его gh поверх окружения; `gh auth status` строки
    `gh-auth` идёт без аккаунта, и gh берёт переменную.
-   Lines: `src/main/first-run/checks.ts:641-658`
+   Lines: `src/main/first-run/checks.ts:647-664`
 2. Что делает строка, когда `gh api` не дошёл до GitHub, и почему это не `fail`?
    Ответ: без строки статуса и без текста про `gh auth login` ответ — `unknown` с последней строкой gh; решение
    владельца Q2: нет сети или timeout никогда не critical.
