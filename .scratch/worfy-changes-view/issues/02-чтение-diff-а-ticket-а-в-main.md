@@ -1,7 +1,7 @@
 # 02 — Чтение diff-а Ticket-а в main: только чтение git, база, scope-ы, каналы `changes.*`, новый ADR
 
 Type: task
-Status: open
+Status: claimed 2026-11-19T12:55Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реализации — часть 1»: «Только чтение git», «Предмет части
 1», «База», «Scope-ы части 1», «Каналы», «Предел размера», «Файлы workflow», «Windows», «ADR»; «Решения по test-ам —
