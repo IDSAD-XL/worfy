@@ -1,7 +1,8 @@
 # 03 — Node Changes, кнопка Changes на карточке Ticket-а и Open changes в Command palette
 
 Type: task
-Status: claimed 2026-11-19T18:07Z
+Status: done 2026-11-19T23:35Z
+PR: #2043
 Blocked by: 01, 02
 Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решение» → «Экран»; «Решения по реализации — часть 1»: «Node `changes`»,
 «Focus mode», «Входы части 1», «Kit», «Цвета без подсветки синтаксиса», «Предел размера»; «Решения по test-ам — часть
@@ -53,27 +54,34 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решение» → «Экр
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/changes-view.test.tsx test/unit/canvas-actions.test.tsx test/unit/palette-commands.test.tsx` exit 0 · mac - · 36041cfb4fa64e8ded335a8ad6d75919c37d0ed9
   - evidence: test-run pass · `pnpm test` exit 0 · mac - · c7c7e3fac0f318609f47177bd4bde7b4c8feabcc
   - evidence: test-run pass · `pnpm test` exit 0 · mac - · f876a323a3d3f4c453ddf199ce9b6bb1101a324b
+  - evidence: review pass · PR #2043 · - - · 69553a1d8ac64ca4453992badb9875de41d78621
 - [ ] Unit test (`test/unit/canvas-actions.test.tsx`): Changes есть у Ticket-а с worktree или веткой и нет у Ticket-а
       без них.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/changes-view.test.tsx test/unit/canvas-actions.test.tsx test/unit/palette-commands.test.tsx` exit 0 · mac - · 36041cfb4fa64e8ded335a8ad6d75919c37d0ed9
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/ticket-card.test.tsx test/unit/canvas-actions.test.tsx test/unit/epic-layout.test.ts` exit 0 · mac - · c7c7e3fac0f318609f47177bd4bde7b4c8feabcc
   - evidence: test-run pass · `pnpm test` exit 0 · mac - · f876a323a3d3f4c453ddf199ce9b6bb1101a324b
+  - evidence: review pass · PR #2043 · - - · 69553a1d8ac64ca4453992badb9875de41d78621
 - [ ] Unit test (`test/unit/palette-commands.test.tsx`): Open changes у Ticket-а с веткой.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/changes-view.test.tsx test/unit/canvas-actions.test.tsx test/unit/palette-commands.test.tsx` exit 0 · mac - · 36041cfb4fa64e8ded335a8ad6d75919c37d0ed9
   - evidence: test-run pass · `pnpm test` exit 0 · mac - · c7c7e3fac0f318609f47177bd4bde7b4c8feabcc
   - evidence: test-run pass · `pnpm test` exit 0 · mac - · f876a323a3d3f4c453ddf199ce9b6bb1101a324b
+  - evidence: review pass · PR #2043 · - - · 69553a1d8ac64ca4453992badb9875de41d78621
 - [ ] e2e test (`test/e2e/changes.spec.ts`, fake agent, временный репозиторий): карточка → Changes → Node рядом с
       карточкой, файлы и строки совпадают с `git diff <merge-base>`; Open changes из palette; сгенерированный
       репозиторий на 300 файлов и файл на 2 000 строк открывается свёрнутым.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44618149442/job/135910266745 · ci - · 69553a1d8ac64ca4453992badb9875de41d78621
 - [ ] Снимок экрана Node-а рядом с Card-ом прототипа — в «Итог» (в scratchpad, в репозиторий не кладётся).
+  - evidence: review pass · PR #2043 · - - · 69553a1d8ac64ca4453992badb9875de41d78621
 - [ ] Английские страницы `changes.md`, `workflow.md`, `app-shell.md` описывают сделанное;
       `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 36041cfb4fa64e8ded335a8ad6d75919c37d0ed9
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · c7c7e3fac0f318609f47177bd4bde7b4c8feabcc
+  - evidence: review pass · PR #2043 · - - · 69553a1d8ac64ca4453992badb9875de41d78621
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 36041cfb4fa64e8ded335a8ad6d75919c37d0ed9
   - evidence: gate pass · `gate fast` exit 0 · mac - · c7c7e3fac0f318609f47177bd4bde7b4c8feabcc
   - evidence: gate pass · `gate fast` exit 0 · mac - · f876a323a3d3f4c453ddf199ce9b6bb1101a324b
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44618149442/job/135910266745 · ci - · 69553a1d8ac64ca4453992badb9875de41d78621
 
 ## Где в коде
 
