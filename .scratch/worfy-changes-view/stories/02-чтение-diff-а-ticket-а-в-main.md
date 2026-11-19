@@ -330,3 +330,113 @@ worktree: 44 мутанта (runner, отказ, окружение, преде�
    - Ответ: путь внутри репозитория ещё не значит «новый файл scope-а»: игнорируемый файл (`debug.log`) лежит в
      репозитории, и `diff --no-index` прочёл бы его; только список git говорит, что файл — новый и не игнорируется.
    - Lines: `src/main/changes/scopes.ts:294`
+
+## 13. Что нашёл review и что осталось
+
+> VERIFIED
+> Act on: none. Round 3 (narrow, the one med of round 2): src/shared/changes/parse.ts:71-85 — `isRepoPath(path, platform)` refuses a leading `/`, NUL and a `..` part everywhere, and a drive letter, a leading `\` and `\` as a separator only on win32; the `changes.file` schema calls it with main's platform (src/shared/ipc/changes.ts:19), and only main parses that schema. The contract test opens `:lead.txt`, `back\..\slash.txt`, `c:notes.md` and `x:new.txt` on POSIX (test/contract/changes-read.test.ts:578-612); the unit tests refuse `C:x`, `\x`, `a\..\b` with 'win32' (test/unit/changes-parse.test.ts:249-270). Three mutants (Windows rule on every OS, `\` split on every OS, platform ignored) each turn tests red. ci-ok green on 6f45641f0 (run 44562808956), Windows full-suite included.
+> Round 1 items: all fixed (round 2 verifier). Round 2 item: fixed.
+> Consider: [low] src/main/changes/subjects.ts:62, :66 — `.catch(() => [])` still turns a missing git or a broken .git into `repos: []` without the reason (round 1, not closed); [low] a clean filter still runs on `diff` against the work tree (hash-object got --no-filters); [low] rev-parse, diff, log, show and check-attr have no exact allowed form in git.ts.
+> Noted: the contract test of `:`/`\` names is skipped on Windows (such names cannot be created there; the win32 rule is unit-tested); if the renderer ever parses the `changes.file` schema, the rule there is POSIX (no `process`); src/main/workflow/reader.ts:573 gives a worktree path as git prints it (`/` on Windows) to its other readers — not this ticket's files.
+> Dismissed: none.
+> Review depth: high — the ticket's own depth (spec); round 3 narrow on 624b374c2..6f45641f0, read by the orchestrator
+> Review tokens: 601419 + 144387
+
+Code: `src/shared/changes/parse.ts:71-85` · key lines: 71
+
+```ts
+const hostPlatform = (): string => (globalThis as { process?: { platform?: string } }).process?.platform ?? ''
+
+/**
+ * Whether `path` can be a path from the top folder of a repository on `platform` (a `process.platform`):
+ * not empty, no NUL, not absolute, no `..` part. Everywhere `/x` is absolute and `/` separates the parts. Only on
+ * Windows `\x` and `C:x` are absolute and `\` separates the parts too: on macOS and Linux `c:notes.md` and
+ * `back\..\slash.txt` are file names a repository may hold. A path the screen asks for must be one; git never prints
+ * another. The channel's schema checks it in main, on the Machine whose repository it is.
+ */
+export function isRepoPath(path: string, platform: string = hostPlatform()): boolean {
+  if (path === '' || path.includes('\0') || path.startsWith('/')) return false
+  const windows = platform === 'win32'
+  if (windows && (path.startsWith('\\') || /^[A-Za-z]:/u.test(path))) return false
+  return !path.split(windows ? /[\\/]/u : /\//u).includes('..')
+}
+```
+
+Code: `src/shared/ipc/changes.ts:19-19` · key lines: 19
+
+```ts
+const repoPath = z.string().min(1).refine((path) => isRepoPath(path), { message: 'a path inside the repository' })
+```
+
+Code: `test/contract/changes-read.test.ts:578-612` · key lines: 578
+
+```ts
+  const TRACKED = [':lead.txt', 'back\\..\\slash.txt', 'c:notes.md']
+
+  beforeAll(() => {
+    root = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-changes-names-')))
+    ownGitHome()
+    names = join(root, 'names')
+    mkdirSync(names)
+    gitIn(names, 'init', '-q')
+    commit(names, 'start', Object.fromEntries(TRACKED.map((path) => [path, 'one\n'])))
+    gitIn(names, 'checkout', '-q', '-b', 'ep/06')
+    write(names, { ...Object.fromEntries(TRACKED.map((path) => [path, 'one\ntwo\n'])), 'x:new.txt': 'new\n' })
+    const layout: ProjectLayout = { ...fullLayout(names), repos: [{ name: 'names', path: names }], finish: 'local-green' }
+    call = caller(changesHandlers({ project: async () => ({ root: names, layout }), git }))
+  })
+
+  afterAll(() => {
+    vi.unstubAllEnvs()
+    removeTestTree(root)
+  })
+
+  const lines = (diff: { kind: string; hunks?: { lines: { kind: string; text: string }[] }[] }): string[] =>
+    (diff.hunks ?? []).flatMap((hunk) => hunk.lines.filter((line) => line.kind !== 'context').map((line) => `${line.kind} ${line.text}`))
+
+  it('lists them and opens each through changes.file: tracked and changed, and a new file', async () => {
+    const [changes] = (await call(changesList, { projectId: 'p', ticket: t06, scope: { kind: 'uncommitted' } })).repos
+    expect(changes!.error).toBeNull()
+    expect(changes!.files.map((each) => each.path)).toEqual([...TRACKED, 'x:new.txt'].sort())
+    for (const path of TRACKED) {
+      const { file } = await call(changesFile, { projectId: 'p', ticket: t06, repo: 'names', scope: { kind: 'uncommitted' }, path })
+      expect(file.kind, path).toBe('hunks')
+      expect(lines(file), path).toEqual(['add two'])
+    }
+    const { file } = await call(changesFile, { projectId: 'p', ticket: t06, repo: 'names', scope: { kind: 'uncommitted' }, path: 'x:new.txt', untracked: true })
+    expect(lines(file)).toEqual(['add new'])
+  })
+```
+
+Code: `test/unit/changes-parse.test.ts:249-270` · key lines: 249
+
+```ts
+describe('a path the screen asks for', () => {
+  it('is one from the top folder of the repository on every OS: not absolute with /, no .. part, no NUL', () => {
+    for (const platform of ['darwin', 'linux', 'win32']) {
+      for (const path of ['a.txt', 'notes/с пробелом.md', '.scratch/ep/x.md', 'a..b/c', '...']) expect(isRepoPath(path, platform), `${platform} ${path}`).toBe(true)
+      for (const path of ['', '/etc/hosts', '..', '../../secret.txt', 'a/../../b', 'a/..', 'a\0b']) expect(isRepoPath(path, platform), `${platform} ${path}`).toBe(false)
+    }
+  })
+
+  it('on Windows also refuses a drive, a leading \\ and a .. part between backslashes', () => {
+    for (const path of ['C:x', 'c:notes.md', 'C:\\Windows\\win.ini', '\\x', '\\\\server\\share', 'a\\..\\b', 'a\\..']) expect(isRepoPath(path, 'win32'), path).toBe(false)
+  })
+
+  it('on macOS and Linux takes : and \\ as letters of a file name', () => {
+    for (const platform of ['darwin', 'linux']) {
+      for (const path of [':lead.txt', 'c:notes.md', 'x:new.txt', 'C:x', 'back\\..\\slash.txt', '\\x', '..\\up']) expect(isRepoPath(path, platform), `${platform} ${path}`).toBe(true)
+    }
+  })
+
+  it('takes the platform of this process when none is given', () => {
+    expect(isRepoPath('c:notes.md')).toBe(process.platform !== 'win32')
+  })
+})
+```
+
+Code: `src/main/changes/subjects.ts:62-62` · key lines: 62
+
+```ts
+    throw Object.assign(new Error(`git ${args[0] ?? ''} failed: ${read.stderr.trim() || `exit code ${String(read.code)}`}`), { code: read.code })
+```
