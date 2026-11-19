@@ -122,3 +122,20 @@ implementer-а с exit code-ами.
 3. Что делает worfy, когда `GH_TOKEN` окружения мешает, а `github.account` пуст?
    - Ответ: строка `warn`, non-critical; «Use <login>» пишет `github.account` по щелчку, а команду удаления переменной строка только даёт скопировать — сам worfy переменных не меняет.
    - Строки: `docs/adr/0042-profile-on-machine-full-and-silent-modes.md:155-163`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED
+> The first-round item is fixed: docs/features/ru/onboarding.md:39-41, :252-253 and :307 now carry the three worfy Guide statements of the English page (en:37-40, en:260-261, en:321). The wording fixes of commit 01c324eca in onboarding.md, projects.md and browser.md match the English pages.
+> Review depth: low — default: the profile has no review.depth.wave
+> Review tokens: 46219
+>
+> Could not verify: full pnpm verify not run (the rework diff is documents and .scratch only). The pages app-shell.md, projects.md and browser.md were not compared line by line in full against the English pages, only the rework diff.
+
+Code: `docs/features/ru/onboarding.md:39-41` · key lines: 39
+
+```md
+**Страница «Welcome to worfy».** Она коротко объясняет три понятия: Project + Harness, Orchestrator и Canvas. Под ними ссылка
+«worfy Guide» открывает [worfy Guide](app-shell.md#worfy-guide) поверх First run, а First run остаётся на этой странице. Проверки
+уже идут за ней. «Next» ведёт к ним. «Close» закрывает диалог как любое другое закрытие, поэтому сама страница больше не появится. При любом
+```

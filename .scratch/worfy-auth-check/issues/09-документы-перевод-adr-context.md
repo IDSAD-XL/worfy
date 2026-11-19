@@ -1,7 +1,8 @@
 # 09 — Документы: переводы страниц Feature, ADR Health check, Amendment к ADR-0042, термин в CONTEXT.md
 
 Type: task
-Status: claimed 2026-11-19T06:30Z
+Status: done 2026-11-19T07:10Z
+PR: #2034
 Blocked by: 01, 03, 04, 05, 07, 08
 Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решения по реализации», 6; «Волны», Wave 4; «Решения владельца», Q1;
 «Готово, когда», пункт о документах
@@ -43,15 +44,20 @@ Ticket 06 (SSO) его не держит: spec ставит 09 после 03–0
 ## Готово, когда
 
 - [ ] Девять страниц `docs/features/ru/` совпадают по смыслу с английскими на `main` (review по каждой).
+  - evidence: review pass · PR #2034 · - - · 9cf6a009995f50437f41f456b35e74e8f0cc9203
 - [ ] Новый ADR влит; номер зарезервирован ship-ticket-ом.
   - evidence: commit pass · worfy-auth-check/09: ADR-0109 Health check levels, ADR-0042 amendment, Health check term in CONTEXT · - - · 0658289a8bc8761dcb3048ba0238b12107fa206d
+  - evidence: review pass · PR #2034 · - - · 9cf6a009995f50437f41f456b35e74e8f0cc9203
 - [ ] Amendment к ADR-0042 влит, текст ADR выше него не изменён.
   - evidence: commit pass · worfy-auth-check/09: ADR-0109 Health check levels, ADR-0042 amendment, Health check term in CONTEXT · - - · 0658289a8bc8761dcb3048ba0238b12107fa206d
+  - evidence: review pass · PR #2034 · - - · 9cf6a009995f50437f41f456b35e74e8f0cc9203
 - [ ] Статья Health check в CONTEXT.md совпадает с влитым поведением.
   - evidence: commit pass · worfy-auth-check/09: ADR-0109 Health check levels, ADR-0042 amendment, Health check term in CONTEXT · - - · 0658289a8bc8761dcb3048ba0238b12107fa206d
+  - evidence: review pass · PR #2034 · - - · 9cf6a009995f50437f41f456b35e74e8f0cc9203
 - [ ] `node scripts/check-personal.mjs` и `node scripts/check-feature-docs.mjs` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `node scripts/check-personal.mjs && node scripts/check-feature-docs.mjs` exit 0 · mac - · 0658289a8bc8761dcb3048ba0238b12107fa206d
   - evidence: test-run pass · `node scripts/check-personal.mjs && node scripts/check-feature-docs.mjs` exit 0 · mac - · 01c324ecaf1df517301828299e1321ae8a6a38d9
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44476894985/job/135400714476 · ci - · 9cf6a009995f50437f41f456b35e74e8f0cc9203
 
 ## Где в коде
 
