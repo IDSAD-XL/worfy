@@ -51,13 +51,17 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решения по реал�
 - [ ] Unit test (`test/unit/quote-store.test.tsx`): запись `v: 2` читается, записывается `v: 3`; комментарий к коду
       переживает перечтение хранилища.
   - evidence: test-run pass · `pnpm test` (test/unit/quote-store.test.tsx; 5 store mutants red) exit 0 · mac - · dad0d94d443fd0bd042abeff20e46c25d73dae6b
+  - evidence: test-run pass · `pnpm test` (test/unit/quote-store.test.tsx; round 2: per-comment read, addDraft guard, Back with code; 6 store mutants red) exit 0 · mac - · 21efc3d9cd53ba8e539b20b1322545d75196c258
 - [ ] Unit test (`test/unit/quote-comments-ui.test.tsx`): лоток «N comments · M on code», блок кода в пузыре.
   - evidence: test-run pass · `pnpm test` (test/unit/quote-comments-ui.test.tsx) exit 0 · mac - · dad0d94d443fd0bd042abeff20e46c25d73dae6b
+  - evidence: test-run pass · `pnpm test` (test/unit/quote-comments-ui.test.tsx; round 2: Back to drafts with code, image read-back, image limit, image shown once; 3 mutants red) exit 0 · mac - · 21efc3d9cd53ba8e539b20b1322545d75196c258
 - [ ] Английская страница `docs/features/sessions.md` описывает комментарии к коду; `node scripts/check-feature-docs.mjs`
       — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · dad0d94d443fd0bd042abeff20e46c25d73dae6b
+  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 21efc3d9cd53ba8e539b20b1322545d75196c258
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · dad0d94d443fd0bd042abeff20e46c25d73dae6b
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 21efc3d9cd53ba8e539b20b1322545d75196c258
 
 ## Где в коде
 
