@@ -203,3 +203,19 @@ export function anchorLines(file: string, kept: { startLine: number; code: strin
    - Ответ: схема записи берёт комментарии любыми, а `oneByOne` проверяет каждый отдельно и отбрасывает только
      непрошедший; следующая запись на диск пишет то, что прочиталось.
    - Строки: `src/renderer/session/quote-store.ts:123-124`
+
+## 10. Что нашёл review и что осталось
+
+> VERIFIED; debt: [low] src/renderer/session/quote-store.ts:123-124 — when every comment of a waiting round is dropped while other comments keep the entry, a round with `comments: []` stays and QuoteComments.tsx:709-720 shows "Waiting to send · 0 comments" until the prompt arrives or the message leaves the queue (no data lost; drop such rounds in known()); [low] quote-store.ts:123 with :245 — when a middle quote of a waiting round (b of a, b, c) is dropped, settlePending 'sent' numbers a and c as 1 and 2 while the sent text has [1] and [3], so QuoteComments.tsx:694 links bubble quote [2] to c (before the rework the whole entry was lost; drop the whole round or keep the quote number).
+> Both first-round items are fixed: oneByOne (quote-store.ts:97) parses drafts and waiting comments one by one and drops only the broken one (test quote-store.test.tsx:263); addDraft orders the lines and refuses a code comment the schema would drop (:200-208, test :284); settlePending 'back' returns code comments to the drafts (quote-store.test.tsx:297, quote-comments-ui.test.tsx:501). Mutants of each change are red.
+> Review depth: medium — the ticket's own depth (spec)
+> Review tokens: 114628
+>
+> Could not verify: nothing.
+
+Code: `src/renderer/session/quote-store.ts:123-124` · key lines: 123
+
+```ts
+          const state: QuoteState = { at, drafts: oneByOne(drafts), pending: waiting.map((each) => ({ ...each, comments: oneByOne(each.comments) })), rounds, sent }
+          if (!isEmpty(state)) entries.set(name.slice(PREFIX.length), state)
+```
