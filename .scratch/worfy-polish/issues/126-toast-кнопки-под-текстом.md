@@ -1,7 +1,8 @@
 # 126 — Toast с кнопками: кнопки под текстом, текст не сжимается
 
 Type: bug
-Status: claimed 2026-11-19T02:04Z
+Status: done 2026-11-19T03:55Z
+PR: #2028
 Blocked by: none
 Source: баг-репорт владельца 2026-11-19 — снимок экрана toast-а обновления «worfy 0.… ready» с кнопками
 Restart when idle / Restart now / Later: текст разбился по одной-две буквы в строке: «worf / y / 0....».
@@ -48,3 +49,4 @@ Restart when idle / Restart now / Later: текст разбился по одн
   - evidence: test-run pass · `pnpm test` exit 0 (test/unit/toasts-view.test.tsx, 16 tests incl. focus order and Esc) · mac - · b83f1d806ac542795ca2e1fcd74654934cbf44df
 - [ ] gate fast зелёный; CI зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · b83f1d806ac542795ca2e1fcd74654934cbf44df
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44450639370/job/135326020623 · ci - · 6f083403ecfa7599e99464181699378977d8a874
