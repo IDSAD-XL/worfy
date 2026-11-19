@@ -1,7 +1,9 @@
 # 02 — Spike SAML SSO: read-only скрипт для тестера, ответы REST и GraphQL поиска организации с SAML
 
 Type: spike
-Status: open
+Status: blocked 2026-11-19T02:11Z
+Blocked reason: Spike SAML SSO ждёт ответов тестера: скрипт sso-probe.sh отправлен 2026-11-19
+Waits: team
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 2; «Проблема», пункт «PR inbox» (гипотеза о GraphQL); «Риски», «Гипотеза о
 GraphQL не подтвердится» и «Нет организации с SAML»; «Решения владельца», Q6; «Волны», Wave 1;
