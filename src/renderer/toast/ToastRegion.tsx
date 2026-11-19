@@ -85,11 +85,17 @@ function ToastView({ toast }: { toast: Toast }) {
       <span key={toast.version} className="w-toast__text" title={toast.text}>
         {toast.text}
       </span>
-      {toast.actions?.map((action, index) => (
-        <button key={index} type="button" className="w-toast__action" onClick={() => closing(() => pressToastAction(id, index))}>
-          {action.label}
-        </button>
-      ))}
+      {/* The actions get a row of their own under the text (toast.css), so they never squeeze it; the row
+          stays before Dismiss in the document, and so in the Tab order. */}
+      {toast.actions !== undefined && toast.actions.length > 0 && (
+        <div className="w-toast__actions">
+          {toast.actions.map((action, index) => (
+            <button key={index} type="button" className="w-toast__action" onClick={() => closing(() => pressToastAction(id, index))}>
+              {action.label}
+            </button>
+          ))}
+        </div>
+      )}
       <button type="button" className="w-toast__close" aria-label="Dismiss" title="Dismiss (Esc)" onClick={() => closing(() => dismissToast(id))}>
         <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
           <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
