@@ -42,6 +42,9 @@ Restart when idle / Restart now / Later: текст разбился по одн
 - [ ] Toast обновления «worfy … ready» с тремя кнопками показывает текст целиком в первой строке, кнопки — во второй
   (снимки Playwright в светлой и тёмной теме).
 - [ ] Toast без кнопок — одна строка, как до правки.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/toasts-view.test.tsx: a toast without actions has no .w-toast__actions row) · mac - · b83f1d806ac542795ca2e1fcd74654934cbf44df
 - [ ] Unit test на отдельную строку кнопок и на её отсутствие у toast-а без кнопок зелёный; порядок фокуса и Esc не
   изменились (существующие test-ы `toasts-view` зелёные).
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/toasts-view.test.tsx, 16 tests incl. focus order and Esc) · mac - · b83f1d806ac542795ca2e1fcd74654934cbf44df
 - [ ] gate fast зелёный; CI зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · b83f1d806ac542795ca2e1fcd74654934cbf44df
