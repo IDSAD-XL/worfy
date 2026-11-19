@@ -1,7 +1,7 @@
 # 03 — Node Changes, кнопка Changes на карточке Ticket-а и Open changes в Command palette
 
 Type: task
-Status: open
+Status: claimed 2026-11-19T18:07Z
 Blocked by: 01, 02
 Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решение» → «Экран»; «Решения по реализации — часть 1»: «Node `changes`»,
 «Focus mode», «Входы части 1», «Kit», «Цвета без подсветки синтаксиса», «Предел размера»; «Решения по test-ам — часть
@@ -79,3 +79,35 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решение» → «Экр
 
 - Gutter «+», popover, лоток, «To», Send — Ticket 05. Chip со счётчиком `+N −M`, badge Node-а Session, блок rail,
   preset Main + side, Viewed, Mark seen, живое обновление — часть 2.
+
+## Итог
+
+Сделано implementer-ом 2026-11-19, ветка `worfy-changes-view/03`.
+
+- Node `changes` (`src/renderer/canvas/nodes/ChangesNode.tsx`): id `changes:<epic>/<num>`, данные `{ ticket: { epic,
+  num }, scope? }`, размер 960×640. Шапка (`ScopeBar.tsx`), дерево с фильтром (`FileTree.tsx`), diff с окном в два
+  экрана вокруг видимого (`DiffPane.tsx`, `diff-window.ts`), клавиши `j`/`k`, `n`/`p`. Seam для «+» Ticket-а 05 — prop
+  `renderGutter` у `DiffPane`; popover-а нет. Три замечания low к прототипу учтены: числа без разделителя тысяч, нет
+  popover-а поверх строк, фильтр видимо сужает дерево и diff («N of M files»).
+- Кнопка Changes (`src/renderer/canvas/actions/Changes.tsx`, `order = 33`) и строка Open changes в группе Action
+  Command palette; общая логика — в новом файле `src/renderer/changes/open.ts` (вне списка файлов: palette не импортирует
+  registry Node-ов, а `.tsx` действия держит только компоненты).
+- Отклонение от Ticket-а: новый Node встаёт не через `placeNear` от карточки, а через `freePlace` от `sessionSpot` —
+  справа от полосы рамок Epic-ов на высоте Ticket-а, как Session из истории Ticket-а (ADR-0038). `placeNear` с отступом
+  40 px вместе с keep-out полосы рамок уводил Node под все рамки (unit test получал `y = 1000` вместо 320). `placeNear`
+  остался запасным путём, когда рамки не нарисованы.
+- Решено без владельца: кнопка видна у Ticket-а с worktree (snapshot проверок), веткой worktree-а, строкой `Branch:`
+  или в работе; palette без snapshot-а проверок — по трём последним. Palette, когда Node-а ещё нет, центрирует карточку и
+  оставляет запрос её кнопке; через 2 s без ответа ставит Node справа от всего Canvas. Цвет вида в minimap нейтральный
+  (`var(--border-strong)`): новый цвет — только через новый ADR (ADR-0077). На экране только для чтения кнопка и строка
+  palette неактивны, пока Node-а нет; scope там хранится локально.
+- Сначала test: новые unit test-ы не могли пройти до кода — модулей `src/renderer/changes/*` и
+  `src/renderer/canvas/actions/Changes.tsx` не было.
+- Снимок экрана Node-а рядом с Card-ом прототипа: not verified — снимок даёт только e2e test собранного приложения, а
+  e2e test локально не запускается до разрешения владельца; снимки `changes-node-inline`, `changes-node-side-by-side`,
+  `changes-node-large` в обеих темах снимает `test/e2e/changes.spec.ts` в gate full.
+- e2e test `test/e2e/changes.spec.ts`: not verified локально — запускается в gate full.
+- `pnpm test` в среде implementer-а красный вне этого Ticket-а: 19 файлов (contract test-ы Harness, terminal-ai,
+  auto-approve, `install-stable-update`, `shell-integration-*`) падают из-за `TMPDIR` Autopilot-а вне `/tmp`; с `TMPDIR` в
+  `/tmp` 18 из 19 зелёные, последний (`test/unit/claude-project-mcp.test.ts:82`) падает на `safe.bareRepository=explicit`
+  из `GIT_CONFIG_PARAMETERS` среды. Ни один из этих файлов не трогается изменением.
