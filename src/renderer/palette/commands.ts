@@ -48,6 +48,9 @@
 // "New Product Session" (worfy-product-session ticket 06) is an entry of its own beside "New
 // session": a Session of kind `product` on Claude Code, opened in the Session view at once.
 // "Pull requests" (worfy-pr-inbox ticket 03) opens the PR inbox of the active Project (pr-inbox/open.ts).
+// "Open changes" (worfy-changes-view ticket 03) is a row per Ticket with a branch or in work, the Ticket its detail: it opens
+// the Ticket's Changes Node next to its card, or goes to the one there, as the button Changes of the card does
+// (changes/open.ts). A read-only screen keeps the row of a Ticket whose Node is there; a new Node is a change of the Layout.
 // "Open code story" (worfy-code-stories ticket 10) is a row per Epic with its `story.md` and per Ticket with the story of
 // its PR (`stories/<NN>-<slug>.md`), the Epic or the Ticket its detail: it opens that story in the Story view, as the
 // "Code story" buttons of the Epic frame and the Ticket card do (stories/open.ts). A read, so a read-only screen keeps it.
@@ -68,6 +71,7 @@ import { runAllAccepted } from '../autopilot/start-modal'
 import { hasRunWave, hasShipTicket } from '../canvas/actions/gates'
 import { prFollowChoices, prFollowTitle } from '../canvas/actions/pr-follow-choices'
 import { archiveFinishedNow } from '../canvas/archive-now'
+import { changesNodeOf, hasChangesSubject, openChangesFromPalette } from '../changes/open'
 import { requestRepack } from '../canvas/sources/epics'
 import { showNode } from '../canvas/show-node'
 import { openRunHistory } from '../flight-recorder/open'
@@ -298,7 +302,7 @@ function actionCommands({ project, createItems, readOnly, gateQueue, now }: Comm
   return commands
 }
 
-function workflowActionCommands({ project, model, readOnly, prInbox }: CommandContext): PaletteCommand[] {
+function workflowActionCommands({ project, model, readOnly, prInbox, layoutNodes }: CommandContext): PaletteCommand[] {
   if (!project || !model || model.error !== null) return []
   const projectId = project.id
   const hint = readOnly ?? undefined
@@ -368,6 +372,23 @@ function workflowActionCommands({ project, model, readOnly, prInbox }: CommandCo
         },
       })
     }
+  }
+  for (const ticket of model.tickets) {
+    // Where the card has Changes, except a worktree the palette does not read (changes/open.ts).
+    if (!hasChangesSubject(ticket, false)) continue
+    const ref = `${ticket.epic}/${nn(ticket.num)}`
+    const subject = { epic: ticket.epic, num: ticket.num }
+    // Going to a Changes Node already there changes nothing; a new one is a change of the Layout.
+    const there = changesNodeOf(layoutNodes, subject) !== undefined
+    commands.push({
+      id: `changes:${ref}`,
+      group: 'Action',
+      title: 'Open changes',
+      detail: `${ref} — ${ticket.title}`,
+      keys: [`changes ${ref}`, `open changes ${ref}`, `diff ${ref}`],
+      readOnly: there ? undefined : hint,
+      run: () => openChangesFromPalette(projectId, subject, layoutNodes),
+    })
   }
   return commands
 }

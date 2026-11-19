@@ -135,6 +135,44 @@ describe('palette commands', () => {
     expect(asked).toEqual([{ channel: 'stories.read', input: { projectId: 'p1', path: 'e/story.md' } }])
   })
 
+  it('offers "Open changes" for a Ticket with a branch or in work, none without (worfy-changes-view/03)', () => {
+    const base = context()
+    const model = { ...base.model!, tickets: base.model!.tickets.map((each) => (each.num === 7 ? { ...each, branch: 'feature/cart' } : each.num === 8 ? { ...each, fromBranch: 'e/08' } : each)) }
+    const rows = buildCommands({ ...base, model }).filter((command) => command.title === 'Open changes')
+    expect(rows.map((command) => [command.id, command.group, command.detail])).toEqual([
+      ['changes:e/07', 'Action', 'e/07 — 07 — Ticket 7'],
+      ['changes:e/08', 'Action', 'e/08 — 08 — Ticket 8'],
+      ['changes:e/09', 'Action', 'e/09 — 09 — Ticket 9'],
+    ])
+    expect(rankItems(buildCommands({ ...base, model }), 'open changes e/07')[0]?.id).toBe('changes:e/07')
+    // A read-only screen cannot put a new Node on the Canvas, but goes to the one there.
+    const changesNode = node('ch9', 'changes', { data: { ticket: { epic: 'e', num: 9 } } })
+    const readOnly = buildCommands({ ...base, model, readOnly: 'Read-only', layoutNodes: [...base.layoutNodes, changesNode] })
+    expect(readOnly.find((command) => command.id === 'changes:e/07')?.readOnly).toBe('Read-only')
+    expect(readOnly.find((command) => command.id === 'changes:e/09')?.readOnly).toBeUndefined()
+  })
+
+  it('"Open changes" goes to the Changes Node of the Ticket that is there, and otherwise asks the card to open one (worfy-changes-view/03)', async () => {
+    const { takeOpenRequest, useOpenRequests } = await import('../../src/renderer/changes/open')
+    const changesNode = node('ch9', 'changes', { data: { ticket: { epic: 'e', num: 9 } } })
+    setView('session')
+    const there = buildCommands(context({ layoutNodes: [changesNode] })).find((command) => command.id === 'changes:e/09')!
+    expect(await there.run()).toBeUndefined()
+    expect(useNavigation.getState().view).toBe('canvas')
+    expect(useCanvasRequests.getState().focus).toMatchObject({ projectId: 'p1', nodeId: 'ch9' })
+    expect(useOpenRequests.getState().request).toBeNull()
+
+    // No Node yet: the Canvas centers on the card (its frame when collapsed), and the card's button takes the request.
+    const fresh = buildCommands(context()).find((command) => command.id === 'changes:e/09')!
+    const running = fresh.run()
+    expect(useCanvasRequests.getState().focus).toMatchObject({ projectId: 'p1', nodeId: ticketNodeId('e', 9), fallbackId: epicNodeId('e') })
+    expect(useOpenRequests.getState().request).toMatchObject({ projectId: 'p1', epic: 'e', num: 9 })
+    expect(takeOpenRequest('p1', { epic: 'e', num: 8 })).toBe(false)
+    expect(takeOpenRequest('p1', { epic: 'e', num: 9 })).toBe(true)
+    expect(await running).toBeUndefined()
+    expect(useOpenRequests.getState().request).toBeNull()
+  })
+
   it('goes to Epics, Tickets, Sessions, Cards, Nodes and ADRs, but not to anchors', () => {
     const all = ids(context())
     expect(all).toEqual(expect.arrayContaining(['epic:e', 'ticket:e/07', 'node:s1', 'node:c1', 'node:n1', 'adr:docs/adr/0002-view.md']))
@@ -633,7 +671,7 @@ describe('palette commands', () => {
   describe('on the read-only screen of a Linked machine (worfy-link/26)', () => {
     const HINT = 'Mini gives this Machine read-only access'
     /** The commands that call a `write` channel of the Project's Machine. */
-    const WRITES = ['new:session', 'new:product-session', 'new:terminal', 'tidy-up', 'arrange-by-epic', 'repack', 'archive-finished', 'run-all-accepted', 'run-wave:e', 'ship-ticket:e/07', 'ship-ticket:e/08']
+    const WRITES = ['new:session', 'new:product-session', 'new:terminal', 'tidy-up', 'arrange-by-epic', 'repack', 'archive-finished', 'run-all-accepted', 'run-wave:e', 'ship-ticket:e/07', 'ship-ticket:e/08', 'changes:e/09']
 
     it('the commands that would change the Project carry the hint; moving, showing and switching do not; with Full access none does', () => {
       const commands = buildCommands(context({ readOnly: HINT }))
