@@ -1,7 +1,7 @@
 # 09 — Документы: переводы страниц Feature, ADR Health check, Amendment к ADR-0042, термин в CONTEXT.md
 
 Type: task
-Status: open
+Status: claimed 2026-11-19T06:30Z
 Blocked by: 01, 03, 04, 05, 07, 08
 Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решения по реализации», 6; «Волны», Wave 4; «Решения владельца», Q1;
 «Готово, когда», пункт о документах
