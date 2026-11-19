@@ -277,7 +277,7 @@ describe('the popover', () => {
   })
 
   it('counts the images of the other comments in the tray against the 10 of a message', async () => {
-    const others = Array.from({ length: 3 }, (_, index): QuoteComment => ({
+    const others: QuoteComment[] = Array.from({ length: 2 }, (_, index): QuoteComment => ({
       id: `o${index}`,
       anchor: 'm2#0',
       start: index * 4,
@@ -288,6 +288,8 @@ describe('the popover', () => {
       messageAt: null,
       at: index,
     }))
+    // The images of a comment on code count too: they go in the same message.
+    others.push({ kind: 'code', id: 'o2', path: 'src/a.ts', repository: '/repo', side: 'new', startLine: 1, endLine: 1, code: 'x', commit: null, subject: { kind: 'ticket', epic: 'e', number: '01' }, worktree: 'w', branch: 'b', text: '', images: [0, 1, 2].map((each) => keptImage(`o2-${each}.png`)), at: 2 })
     for (const each of others) addDraft(storeKey, each)
     expect(others.flatMap((each) => each.images)).toHaveLength(9)
     render(<Harness />)
@@ -496,6 +498,23 @@ describe('comments on lines of code in the tray (worfy-changes-view ticket 04)',
     expect(screen.queryByTestId('quote-tray')).toBeNull()
   })
 
+  it('«Back to drafts» puts the comments on code of a waiting round back in the tray with the quotes', async () => {
+    render(<Harness />)
+    await commentOn('m1#0', 'the lint step', 'Keep it.')
+    act(() => {
+      addDraft(storeKey, onCode('k1'))
+    })
+    const composed = await seen.current!.compose({ text: 'Fix it.', attachments: [] })
+    if ('error' in composed) throw new Error(composed.error)
+    act(() => seen.current!.sent(composed.round, composed.message.text))
+    expect(screen.queryByTestId('quote-tray')).toBeNull()
+    fireEvent.click(screen.getByTestId('quote-waiting-back'))
+    const tray = screen.getByTestId('quote-tray')
+    expect(tray.textContent).toContain('2 comments · 1 on code')
+    expect(within(tray).getAllByTestId('quote-chip-code')).toHaveLength(1)
+    expect(readQuotes(storeKey).drafts.map((each) => each.id)).toContain('k1')
+  })
+
   it('a tray of comments on code alone counts them on code', () => {
     render(<Harness />)
     act(() => addDraft(storeKey, onCode('k1')))
@@ -632,14 +651,23 @@ describe('sending a round', () => {
 
   it('reads back from main the images of comments this window did not read (after a restart), and refuses one main no longer has', async () => {
     keptByMain.set(refOf('kept.png'), bytesOf('kept.png'))
+    keptByMain.set(refOf('code.png'), bytesOf('code.png'))
     addDraft(storeKey, { id: 'k', anchor: 'm1#0', start: 0, end: 3, quote: 'The', text: '', images: [keptImage('kept.png')], messageAt: null, at: 1 })
+    // A comment on code names its images the same way: they are read back too.
+    addDraft(storeKey, { kind: 'code', id: 'c', path: 'src/a.ts', repository: '/repo', side: 'new', startLine: 1, endLine: 1, code: 'x', commit: null, subject: { kind: 'ticket', epic: 'e', number: '01' }, worktree: 'w', branch: 'b', text: '', images: [keptImage('code.png')], at: 1 })
     render(<Harness />)
     const composed = await seen.current!.compose({ text: '', attachments: [] })
     if ('error' in composed) throw new Error(composed.error)
-    expect(attached).toEqual([{ name: 'kept.png', kind: 'kept', keep: false }])
-    expect(composed.message.attachments).toEqual([{ kind: 'image', name: 'kept.png', mediaType: 'image/png', size: 3, data: bytesOf('kept.png') }])
+    expect(attached).toEqual([
+      { name: 'kept.png', kind: 'kept', keep: false },
+      { name: 'code.png', kind: 'kept', keep: false },
+    ])
+    expect(composed.message.attachments).toEqual([
+      { kind: 'image', name: 'kept.png', mediaType: 'image/png', size: 3, data: bytesOf('kept.png') },
+      { kind: 'image', name: 'code.png', mediaType: 'image/png', size: 3, data: bytesOf('code.png') },
+    ])
     addDraft(storeKey, { id: 'l', anchor: 'm2#0', start: 0, end: 3, quote: 'The', text: '', images: [keptImage('lost.png')], messageAt: null, at: 2 })
-    await waitFor(() => expect(readQuotes(storeKey).drafts).toHaveLength(2))
+    await waitFor(() => expect(readQuotes(storeKey).drafts).toHaveLength(3))
     expect(await seen.current!.compose({ text: '', attachments: [] })).toEqual({ error: 'lost.png is no longer kept: attach it again' })
   })
 
@@ -738,6 +766,8 @@ describe('the bubble of a sent message', () => {
     expect(within(block!).getByTestId('quoted-prompt-code').textContent).toBe('l1\nl2\nl3\n…\nl8\nl9')
     expect(within(block!).getByTestId('quoted-prompt-comment').textContent).toBe('Split it.')
     expect(within(block!).getAllByTestId(/^message-image/).map((each) => each.getAttribute('title'))).toEqual(['two.png'])
+    // An image a comment names stands once: under its comment, not again under the bubble.
+    expect(screen.getAllByTestId(/^message-image/).map((each) => each.getAttribute('title'))).toEqual(['one.png', 'two.png'])
     // The code is folded to three lines with «Show all».
     const more = within(block!).getByTestId('quoted-prompt-code-more')
     expect(more.textContent).toBe('Show all')

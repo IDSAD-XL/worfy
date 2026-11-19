@@ -75,17 +75,18 @@ Code: `src/renderer/session/quote-comments.ts:336-348` · key lines: 339, 341, 3
 
 ## 4. Схема хранилища `v: 3`, и `v: 2` читается
 
-Code: `src/renderer/session/quote-store.ts:74-76` · key lines: 75, 76
+Code: `src/renderer/session/quote-store.ts:78-80` · key lines: 79, 80
 
 ```ts
 /** The schema this version writes; an entry of `v: 2` still reads (its comments are all on quotes). */
 const VERSION = 3
-const entrySchema = z.object({ v: z.union([z.literal(2), z.literal(VERSION)]), at: z.number(), drafts: z.array(draftSchema), pending: z.array(pendingSchema), rounds: z.array(roundSchema), sent: z.array(sentSchema) })
+const entrySchema = z.object({ v: z.union([z.literal(2), z.literal(VERSION)]), at: z.number(), drafts: z.array(z.unknown()), pending: z.array(pendingSchema), rounds: z.array(roundSchema), sent: z.array(sentSchema) })
 ```
 
-- Что делает: запись хранилища принимает `v: 2` и `v: 3`; `drafts` и комментарии ожидающих раундов — объединение схемы
-  комментария к коду и прежней схемы комментария к цитате. Запись всегда пишет `v: 3`. Отправленный комментарий к коду в
-  `sent` не попадает (`settlePending` берёт `onMessages`): тусклого следа в транскрипте у него нет.
+- Что делает: запись хранилища принимает `v: 2` и `v: 3` и всегда пишет `v: 3`. `drafts` и комментарии ожидающих
+  раундов схема записи берёт любыми: каждый из них по отдельности проверяет объединение схемы комментария к коду и
+  прежней схемы комментария к цитате (шаг 5). Отправленный комментарий к коду в `sent` не попадает (`settlePending`
+  берёт `onMessages`): тусклого следа в транскрипте у него нет.
 - Почему здесь: Ticket, «Что делаем», пункт 2: запись `v: 2` читается как есть и переписывается в `v: 3` при следующей
   записи.
 - Без него: после обновления все неотправленные комментарии пользователя пропали бы — запись другой версии читается
@@ -94,27 +95,58 @@ const entrySchema = z.object({ v: z.union([z.literal(2), z.literal(VERSION)]), a
 - Риски и пробелы test-ов: прежняя версия worfy прочтёт запись `v: 3` как пустую (откат теряет черновики); это не
   проверено и не записано как решение.
 
-## 5. В памяти нет номера схемы
+## 5. Комментарии записи читаются по одному, в памяти нет номера схемы
 
-Code: `src/renderer/session/quote-store.ts:108-113` · key lines: 111, 112
+Code: `src/renderer/session/quote-store.ts:119-125` · key lines: 122, 123, 124
 
 ```ts
         const parsed = entrySchema.safeParse(JSON.parse(storage.getItem(name) ?? 'null'))
         if (parsed.success) {
           // Memory keeps no schema version: the next write is this version's.
           const { at, drafts, pending: waiting, rounds, sent } = parsed.data
-          entries.set(name.slice(PREFIX.length), { at, drafts, pending: waiting, rounds, sent })
+          const state: QuoteState = { at, drafts: oneByOne(drafts), pending: waiting.map((each) => ({ ...each, comments: oneByOne(each.comments) })), rounds, sent }
+          if (!isEmpty(state)) entries.set(name.slice(PREFIX.length), state)
         }
 ```
 
-- Что делает: из прочитанной записи в память идут только поля состояния, без `v`.
-- Почему здесь: прежний код клал в память запись целиком, вместе с `v`, и писал `{ v: 2, ...state }` — номер из памяти
-  перекрыл бы номер новой версии. Test миграции ловил именно это.
-- Без него: запись `v: 2` после правки снова ушла бы в хранилище как `v: 2`.
+- Что делает: каждый комментарий лотка и каждого ожидающего раунда проверяется схемой отдельно (`oneByOne`); не
+  прошедший отбрасывается один, остальные остаются. Запись, в которой не осталось ничего, читается как отсутствующая. В
+  память идут только поля состояния, без `v`.
+- Почему здесь: схема комментария к коду строже типа `CodeComment` (commit — hex, непустой путь, `endLine >=
+  startLine`). Первый раунд разбирал запись одной схемой, и verifier во втором раунде показал: один такой комментарий
+  обнулял при чтении всю запись Session, а следующая правка перезаписывала её на диске. Без `v` в памяти: прежний код
+  клал в память запись вместе с `v` и писал `{ v: 2, ...state }` — номер из памяти перекрыл бы номер новой версии.
+- Без него: один битый комментарий к коду стёр бы все черновики и ждущие раунды Session; запись `v: 2` после правки
+  снова ушла бы в хранилище как `v: 2`.
 - Требование: [Что делаем, пункт 2](../issues/04-комментарий-к-коду-в-модели-comments-on-quotes.md#что-делаем)
-- Риски и пробелы test-ов: не записано
+- Риски и пробелы test-ов: отброшенный комментарий пропадает молча — ни notice, ни строки в console; `sent` и `rounds`
+  по-прежнему проверяются целиком.
 
-## 6. Строка комментария после Refresh
+## 6. addDraft не берёт комментарий к коду, который не прочтётся
+
+Code: `src/renderer/session/quote-store.ts:200-208` · key lines: 201, 202, 204
+
+```ts
+export function addDraft(key: string, comment: QuoteComment): boolean {
+  const added = comment.kind === 'code' && comment.startLine > comment.endLine ? { ...comment, startLine: comment.endLine, endLine: comment.startLine } : comment
+  if (added.kind === 'code' && !codeSchema.safeParse(added).success) {
+    console.error('[quotes] a comment on code of a wrong shape was not added', added)
+    return false
+  }
+  changeQuotes(key, (state) => ({ ...state, drafts: [...state.drafts.filter((each) => each.id !== added.id), added] }))
+  return true
+}
+```
+
+- Что делает: строки комментария к коду, выделенного снизу вверх, ставит по порядку; комментарий к коду, который схема
+  отбросила бы при следующем чтении (commit `HEAD`, пустой путь), не добавляет, пишет в console и отвечает `false`.
+- Почему здесь: находка verifier-а во втором раунде предлагает проверку при добавлении и порядок строк при создании.
+  Экрана, который создаёт комментарии к коду, в этом PR нет (Ticket 05); зачем ему ответ `false` — не записано.
+- Без него: такой комментарий жил бы в лотке до рестарта и пропадал после него.
+- Требование: [Что делаем, пункт 2](../issues/04-комментарий-к-коду-в-модели-comments-on-quotes.md#что-делаем)
+- Риски и пробелы test-ов: комментарий к сообщению при добавлении не проверяется.
+
+## 7. Строка комментария после Refresh
 
 Code: `src/renderer/session/quote-comments.ts:250-260` · key lines: 255, 257, 259
 
@@ -141,18 +173,22 @@ export function anchorLines(file: string, kept: { startLine: number; code: strin
 - Риски и пробелы test-ов: строки сравниваются точно, без пробелов в конце; одинаковые строки в двух местах выбираются по
   близости, и это может быть не та копия.
 
-## 7. Что сознательно не меняли
+## 8. Что сознательно не меняли
 
 `composeRound` не менялся: его отказы (команда со `/`, больше 10 картинок, больше вложений, чем берёт сообщение) действуют
 и на комментарии к коду. Вид Session для старых цитат тот же: шапка лотка «N comments on M messages» и блоки пузыря
 прежние, пока в раунде нет комментария к коду. Chip комментария к коду не кнопка: переход к строке в Changes — Ticket 05.
 `quote-comments.css` не правился: код в пузыре держит переносы строк через inline style.
 
-## 8. Как проверено
+## 9. Как проверено
 
 `pnpm lint && pnpm typecheck && pnpm test` — exit 0; `gate fast` — exit 0. Пять мутантов хранилища (не читать `v: 2`,
 писать `v: 2`, без схемы кода, без проверки порядка строк, отправленный код в `sent`) и четыре мутанта модели (код
 раньше сообщений, без обрезки 6 строк, `anchorLines` без «ближайшего», жадный разбор `>`) — каждый краснит test.
+Второй раунд: мутанты «лоток одной схемой», «раунд одной схемой», «пустая запись сохраняется», «addDraft без порядка
+строк», «addDraft без проверки», «Back to drafts без комментариев к коду» (`onMessages(round.comments)`), «картинки
+комментария к коду не читаются из main», «лимит 10 картинок без комментариев к коду» и «картинка комментария к коду
+второй раз под пузырём» — каждый краснит test.
 
 ## Проверить себя
 
@@ -162,4 +198,8 @@ export function anchorLines(file: string, kept: { startLine: number; code: strin
    - Строки: `src/renderer/session/quote-comments.ts:213-215`
 2. Что случилось бы с черновиком из схемы `v: 2`, если бы в память шла запись целиком?
    - Ответ: `v: 2` из памяти уехал бы в следующую запись, и хранилище так и не перешло бы на `v: 3`.
-   - Строки: `src/renderer/session/quote-store.ts:111-112`
+   - Строки: `src/renderer/session/quote-store.ts:122-124`
+3. Почему один битый комментарий к коду больше не стирает все черновики Session?
+   - Ответ: схема записи берёт комментарии любыми, а `oneByOne` проверяет каждый отдельно и отбрасывает только
+     непрошедший; следующая запись на диск пишет то, что прочиталось.
+   - Строки: `src/renderer/session/quote-store.ts:123-124`

@@ -27,6 +27,9 @@ import { onMessages, type PendingRound, type QuoteComment, type SentQuote, type 
 // - An entry the storage cannot hold is kept in this window alone while it is open: the listeners of
 //   onQuoteStoreError hear of it (the Session view shows it). An entry that does not read as one
 //   (another version wrote it, or it is damaged) reads as none.
+// - The comments of an entry, in the tray and in each waiting round, read one by one: a comment that
+//   does not read as one is dropped alone, and the rest of the entry stays. addDraft takes no comment
+//   on code the schema would drop at the next read, and puts the lines of one in order.
 
 const PREFIX = 'worfy.quotes:'
 
@@ -68,12 +71,13 @@ const codeSchema = z
   })
   .refine((each) => each.endLine >= each.startLine)
 const draftSchema = z.union([codeSchema, commentSchema])
-const pendingSchema = z.object({ id: z.string(), message: z.string(), at: z.number(), comments: z.array(draftSchema) })
+// The comments read one by one (oneByOne), so the entry itself takes any item.
+const pendingSchema = z.object({ id: z.string(), message: z.string(), at: z.number(), comments: z.array(z.unknown()) })
 const roundSchema = z.object({ id: z.string(), message: z.string(), at: z.number() })
 const sentSchema = z.object({ ...rangeFields, round: z.string(), images: z.number().int().nonnegative(), number: z.number().int().positive() })
 /** The schema this version writes; an entry of `v: 2` still reads (its comments are all on quotes). */
 const VERSION = 3
-const entrySchema = z.object({ v: z.union([z.literal(2), z.literal(VERSION)]), at: z.number(), drafts: z.array(draftSchema), pending: z.array(pendingSchema), rounds: z.array(roundSchema), sent: z.array(sentSchema) })
+const entrySchema = z.object({ v: z.union([z.literal(2), z.literal(VERSION)]), at: z.number(), drafts: z.array(z.unknown()), pending: z.array(pendingSchema), rounds: z.array(roundSchema), sent: z.array(sentSchema) })
 
 /** The comments of one Session. */
 export interface QuoteState {
@@ -88,6 +92,13 @@ export interface QuoteState {
 export const EMPTY_QUOTES: QuoteState = { drafts: [], pending: [], rounds: [], sent: [], at: 0 }
 
 const isEmpty = (state: QuoteState): boolean => state.drafts.length === 0 && state.pending.length === 0 && state.sent.length === 0
+
+/** The items that read as comments; the others are dropped alone. */
+const oneByOne = (items: readonly unknown[]): QuoteComment[] =>
+  items.flatMap((each) => {
+    const parsed = draftSchema.safeParse(each)
+    return parsed.success ? [parsed.data] : []
+  })
 
 let entries: Map<string, QuoteState> | null = null
 const pending = new Set<string>()
@@ -109,7 +120,8 @@ function known(): Map<string, QuoteState> {
         if (parsed.success) {
           // Memory keeps no schema version: the next write is this version's.
           const { at, drafts, pending: waiting, rounds, sent } = parsed.data
-          entries.set(name.slice(PREFIX.length), { at, drafts, pending: waiting, rounds, sent })
+          const state: QuoteState = { at, drafts: oneByOne(drafts), pending: waiting.map((each) => ({ ...each, comments: oneByOne(each.comments) })), rounds, sent }
+          if (!isEmpty(state)) entries.set(name.slice(PREFIX.length), state)
         }
       } catch {
         // Not JSON: no comments.
@@ -180,9 +192,19 @@ export function changeQuotes(key: string, change: (state: QuoteState) => QuoteSt
   tell()
 }
 
-/** Adds a comment, or puts a deleted one back. */
-export function addDraft(key: string, comment: QuoteComment): void {
-  changeQuotes(key, (state) => ({ ...state, drafts: [...state.drafts.filter((each) => each.id !== comment.id), comment] }))
+/**
+ * Adds a comment, or puts a deleted one back; answers false, adding nothing, for a comment on code
+ * that would not read back after a restart (no file, a commit that is no hash). The lines of a
+ * comment on code selected from the bottom up are put in order.
+ */
+export function addDraft(key: string, comment: QuoteComment): boolean {
+  const added = comment.kind === 'code' && comment.startLine > comment.endLine ? { ...comment, startLine: comment.endLine, endLine: comment.startLine } : comment
+  if (added.kind === 'code' && !codeSchema.safeParse(added).success) {
+    console.error('[quotes] a comment on code of a wrong shape was not added', added)
+    return false
+  }
+  changeQuotes(key, (state) => ({ ...state, drafts: [...state.drafts.filter((each) => each.id !== added.id), added] }))
+  return true
 }
 
 /** Changes the text and the images of a comment. */

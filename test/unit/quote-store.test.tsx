@@ -260,15 +260,53 @@ describe('comments on lines of code (worfy-changes-view ticket 04)', () => {
     expect(quotes.readQuotes(key).sent).toEqual([{ id: 'a', round: 'r1', anchor: 'msg_1#0', start: 4, end: 12, quote: 'the step', text: 'comment a', images: 0, number: 1 }])
   })
 
-  it('a comment on code of a wrong shape reads as none: no file, lines backwards, a commit that is no hash', async () => {
-    const entry = (drafts: unknown[]) => JSON.stringify({ v: 3, at: 1, drafts, pending: [], rounds: [], sent: [] })
-    storage.setItem(`${STORED}p1/n1/a`, entry([onCode('k', { path: '' })]))
-    storage.setItem(`${STORED}p1/n1/b`, entry([onCode('k', { startLine: 5, endLine: 4 })]))
-    storage.setItem(`${STORED}p1/n1/c`, entry([onCode('k', { commit: 'HEAD' })]))
-    storage.setItem(`${STORED}p1/n1/d`, entry([onCode('k')]))
+  it('a comment on code of a wrong shape is dropped alone: the other comments of the tray and of a waiting round read, and the next write keeps them', async () => {
+    vi.useFakeTimers({ now: 9_000 })
+    const entry = (drafts: unknown[], pending: unknown[] = []) => JSON.stringify({ v: 3, at: 1, drafts, pending, rounds: [], sent: [] })
+    const quote = comment('a')
+    const waiting = comment('w', { start: 30, end: 40 })
+    storage.setItem(
+      `${STORED}p1/n1/mixed`,
+      entry([quote, onCode('bad-commit', { commit: 'HEAD' }), onCode('k'), onCode('no-file', { path: '' })], [round('r1', [onCode('backwards', { startLine: 5, endLine: 4 }), waiting, onCode('k2')])]),
+    )
+    storage.setItem(`${STORED}p1/n1/only-bad`, entry([onCode('k', { commit: 'HEAD' })]))
     const quotes = await import('../../src/renderer/session/quote-store')
-    for (const name of ['a', 'b', 'c']) expect(quotes.readQuotes(`p1/n1/${name}`)).toBe(quotes.EMPTY_QUOTES)
-    expect(quotes.readQuotes('p1/n1/d').drafts).toEqual([onCode('k')])
+    const key = 'p1/n1/mixed'
+    expect(quotes.readQuotes(key).drafts).toEqual([quote, onCode('k')])
+    expect(quotes.readQuotes(key).pending).toEqual([round('r1', [waiting, onCode('k2')])])
+    // An entry whose comments are all dropped reads as none.
+    expect(quotes.readQuotes('p1/n1/only-bad')).toBe(quotes.EMPTY_QUOTES)
+    quotes.addDraft(key, comment('b', { start: 50, end: 60 }))
+    quotes.flushQuotes()
+    expect(stored()[key]).toEqual({ v: 3, at: 9_000, drafts: [quote, onCode('k'), comment('b', { start: 50, end: 60 })], pending: [round('r1', [waiting, onCode('k2')])], rounds: [], sent: [] })
+  })
+
+  it('addDraft puts the lines of a comment on code selected from the bottom up in order, and takes none that would not read back', async () => {
+    const quotes = await import('../../src/renderer/session/quote-store')
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const key = quotes.quoteKey('p1', 'n1', 's1')
+    expect(quotes.addDraft(key, onCode('up', { startLine: 20, endLine: 17 }))).toBe(true)
+    expect(quotes.addDraft(key, onCode('head', { commit: 'HEAD' }))).toBe(false)
+    expect(quotes.addDraft(key, onCode('no-file', { path: '' }))).toBe(false)
+    expect(error).toHaveBeenCalledTimes(2)
+    expect(quotes.readQuotes(key).drafts).toEqual([onCode('up', { startLine: 17, endLine: 20 })])
+    quotes.forgetQuotesInMemory()
+    expect(quotes.readQuotes(key).drafts).toEqual([onCode('up', { startLine: 17, endLine: 20 })])
+  })
+
+  it('a waiting round whose message left the queue unsent puts its comments on code back in the tray too', async () => {
+    const quotes = await import('../../src/renderer/session/quote-store')
+    const key = quotes.quoteKey('p1', 'n1', 's1')
+    const quote = comment('a')
+    const code = onCode('k')
+    quotes.addDraft(key, quote)
+    quotes.addDraft(key, code)
+    quotes.markPending(key, round('r1', [quote, code]))
+    expect(quotes.readQuotes(key).drafts).toEqual([])
+    quotes.settlePending(key, 'r1', 'back')
+    expect(quotes.readQuotes(key).drafts).toEqual([quote, code])
+    expect(quotes.readQuotes(key).pending).toEqual([])
+    expect(quotes.readQuotes(key).sent).toEqual([])
   })
 })
 

@@ -265,7 +265,8 @@ at most, and an image's long side is scaled down to 1568 pixels before main chec
   `> ` lines, the comment and its `[image N]` marks; the images are numbered across both sections. Code over 6 lines is
   cut in the middle with "…" for the agent. The user's message draws a block per comment on code: its file and lines,
   the code folded to three lines with "Show all", the comment and its images, read from the message's text. A sent
-  comment on code leaves no dim light in the transcript. Comments kept before comments on code read as they were.
+  comment on code leaves no dim light in the transcript. Comments kept before comments on code read as they were. A kept
+  comment that no longer reads back is dropped alone: the other comments of the tray and of a waiting round stay.
 
 **Session view.** The second view of the window, beside the Canvas. Its header holds the title ("Orchestrator" or "Session"
 and the Project), the Vendor badge of a Session Node, the state chip, the Session picker, Model, Effort, Permissions, Cost,
