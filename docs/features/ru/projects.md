@@ -1,6 +1,6 @@
 # Projects
 
-> Перевод [английской версии](../projects.md), commit `same-pr`.
+> Перевод [английской версии](../projects.md), commit `5d1efe69`.
 
 Три Feature, которые относятся к Project-у целиком. **Full mode и Silent mode** решают, где лежат файлы workflow. **Project
 switcher** — это список Project-ов и выбор того, который показывает окно. **ADR и HANDOFF** — view только для чтения над двумя
@@ -150,6 +150,22 @@ Profile: `github.account` и `workflow.finish`, который равен `pr-gr
 `gh auth token -u`, поэтому шаг завершается ошибкой с его версией и командой, которая его обновляет (`brew upgrade gh`, на Windows
 `winget upgrade GitHub.cli`); так же — текст, в котором нет ни одного аккаунта, когда gh завершился с 0: тогда шаг просит gh 2.81
 или новее. Совсем без gh шаг называет `brew install gh`, на Windows `winget install GitHub.cli`.
+
+Право записи каждого аккаунта спрашивается с собственным token-ом этого аккаунта. `GH_TOKEN` или `GITHUB_TOKEN` в окружении login
+shell-а (на Windows — в переменных пользователя) здесь всё равно доходит до gh. Если одна из них задана, «Sign in with gh» ничего
+не запускает: gh взял бы переменную поверх любого аккаунта, в который войдёт, а `gh auth login` отказывается, пока она задана.
+Блок называет переменную, но никогда не её значение, говорит почему и показывает с **Copy** команду, которая её удаляет:
+`launchctl unsetenv GH_TOKEN` на macOS, `[Environment]::SetEnvironmentVariable('GH_TOKEN', $null, 'User')` на Windows,
+`unset GH_TOKEN` в остальных системах. Переменную нужно убрать и из файлов запуска shell-а (на Windows — из переменных
+пользователя); затем worfy перезапускается.
+
+**`github.account` и Health check.** После подключения Project-а в Settings → Health есть строка `GitHub access` для него, когда
+`origin` одного из его репозиториев на github.com ([Gate и GitHub](gate-and-github.md#github-access)). Строка говорит, задан ли
+`github.account`, есть ли в gh вход для него, чей token берёт gh — аккаунта, `GH_TOKEN` из окружения или активного аккаунта gh,
+только по имени, — и доходит ли этот token до каждого репозитория (401 — не работает; 404 — нет доступа). Если `github.account`
+пуст и ровно один логин gh на github.com может делать push в каждый репозиторий, её кнопка `Use <login>` пишет `github.account`
+этим логином через `bin/profile-set --field github.account` — по одному щелчку, — и строка проверяется снова. worfy никогда сам не
+задаёт аккаунт и не переключается на сохранённый.
 
 **С чего начинается форма.** Язык отчётов — язык системы: `ru`, иначе `en`. В Silent mode attribution начинается с `off`, что бы
 ни предложила Session, а то, что пользователь выберет в форме, записывается как выбрано. В Full mode остаётся то, что предложила

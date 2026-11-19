@@ -1,6 +1,6 @@
 # Pull requests
 
-> Перевод [английской версии](../pr-inbox.md), commit `c079a41e`.
+> Перевод [английской версии](../pr-inbox.md), commit `5d1efe69`.
 
 **PR inbox** Project-а: открытые pull request-ы (PR) пользователя и запросы ревью у него в репозиториях Project-а,
 сгруппированные по тому, чей ход, с нитями ревью и их последними комментариями. В UI — **Pull requests**. Он читает
@@ -188,6 +188,12 @@ pending-ревью, не помечает notification прочитанным, �
 
 - «Next search in 4 min» или «Next search now», когда время пришло; в tooltip — время;
 - «The last read failed: <причина>», если последнее чтение GitHub упало или читатель ждёт rate limit;
+- «GitHub refused the sign-in: <причина>» и **Open Health check**, если чтение упало, потому что GitHub отказал gh во входе
+  (в gh нет входа для `github.account`, HTTP 401, у gh нет никакого token-а, организация требует SAML). Причина — та же, что у
+  строки `GitHub access` Project-а в Health check ([Gate и GitHub](gate-and-github.md#github-access)), которая сразу краснеет и
+  проверяется снова; строка следует за ней. **Open Health check** открывает Settings → Health. Следующее чтение, получившее
+  ответ, возвращает строку в `ok`. Project, Profile которого не называет `github.account`, читает от собственного аккаунта gh, и
+  main один раз на Project пишет в log почему;
 - notice читателя, если он есть, например «GitHub notifications unavailable for this token — checking every 5 minutes»;
 - «Mark seen failed: <причина>», если main не смог записать взгляд.
 

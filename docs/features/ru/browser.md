@@ -1,6 +1,6 @@
 # Browser
 
-> Перевод [английской версии](../browser.md), commit `same-pr`.
+> Перевод [английской версии](../browser.md), commit `5d1efe69`.
 
 Два Feature. **Browser** — Node со страницей Chromium, в которой работают и пользователь, и Session-ы. **Browser profile** —
 сохранённый вход под одной ролью, под которым открывается Browser. Термины объяснены в [Concepts](concepts.md).
@@ -130,7 +130,8 @@ Claude" возвращает Browser той Session, что его вела. У 
 
 Инструменты дают MCP server `worfy-browser`, по одному server-у на Session. Session получает его, когда запускается в
 Project-е с подключённым canvas и когда список MCP server-ов Profile, если он есть, называет `worfy-browser` или
-`worfy-canvas`.
+`worfy-canvas`. Session Codex получает тот же server по HTTP на `127.0.0.1`, со своим собственным token-ом, так же как получает
+`worfy-canvas` (см. [Cards](cards.md), «Кто получает tools»).
 
 | Инструмент | Что делает |
 |---|---|
@@ -270,7 +271,7 @@ Machine показывает Project. Без такого окна страни�
 | Проверка подключения; разрешения и запросы окон страницы | `src/main/browser/attach-policy.ts`, `src/main/window.ts` |
 | MCP server и его инструкции | `src/main/mcp/browser-server.ts`, `src/main/mcp/browser-instructions.md` |
 | Схемы инструментов, пределы, тексты ответов | `src/shared/browser/tools.ts` |
-| Какая Session получает server | `src/main/agent/app-registry.ts`, `src/main/agent/options.ts` |
+| Какая Session получает server | `src/main/vendors/claude/query.ts`, `src/main/vendors/claude/options.ts`, `src/main/vendors/codex/mcp.ts` |
 | Browser-ы, уходящие с Session; ⌘Z | `src/main/layout/store.ts`, `src/renderer/canvas/history.ts` |
 | Рамка; её геометрия, адрес, Open bar и выбор profile | `src/renderer/canvas/nodes/BrowserNode.tsx`, `src/renderer/canvas/nodes/browser-frame.ts` |
 | Sidebar и viewport | `src/renderer/canvas/nodes/BrowserSidebar.tsx`, `src/renderer/canvas/nodes/browser-viewport.ts` |
@@ -353,6 +354,12 @@ profile к этому моменту уже удалён. Новый profile н�
 
 Вне Autopilot ответ на `browser_open`, `browser_navigate`, `browser_click` или `browser_type` тогда несёт заметку, что вход
 истёк, и просит Session обратиться к пользователю. Заметка называет sign-in page только по origin и пути.
+
+Пользователь узнаёт об этом и в Health check — в Autopilot и вне его. Project получает в своей группе одну строку «Browser
+profile», упавшую и non-critical, которая называет каждый profile Project-а с истёкшим входом. Её шаг — войти в Browser этого
+profile, а «Open Browser» делает Project текущим и показывает Browser, где истёк последний из них. Страница, которая затем
+загружается под profile без его sign-in page и без 401, снимает этот profile со строки, а строка уходит вместе с последним. Сама
+строка никогда не открывает First run.
 
 **Autopilot.** Session в Autopilot знает только profile-ы с отметкой "Available to Autopilot":
 
