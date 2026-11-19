@@ -103,11 +103,6 @@ export interface CodeComment {
 /** A comment not sent yet: on a quote of an agent's message, or on lines of code. */
 export type QuoteComment = MessageComment | CodeComment
 
-/** Whether a comment is on lines of code. */
-export function isCodeComment(comment: QuoteComment): comment is CodeComment {
-  return comment.kind === 'code'
-}
-
 /** The comments on quotes of agent messages, without the ones on code: what the transcript lights. */
 export function onMessages<T extends QuoteComment>(comments: readonly T[]): Exclude<T, CodeComment>[] {
   return comments.filter((each): each is Exclude<T, CodeComment> => each.kind !== 'code')
