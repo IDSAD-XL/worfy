@@ -226,6 +226,11 @@ health.registerRecheck('github-access', async (project) => {
   занятость по одному id строки — все 14 убиты. После ревью, раунд 1: login EMU с кнопкой, 403 rate limit не `unknown`, push только
   первой папки, `messageOf` без redaction (timeout gh), `--set` с exit 1 как успех, «Sign in…» при `GH_TOKEN`, текущий Project в
   renderer, заголовки после пустой строки — все 8 убиты.
+- Раунд 4 (красный Windows job CI): test Project-а из двух repo падал только на Windows. Причина в test-е, не в production:
+  stand-in git искал папку по `arg.endsWith('/web')`, а на Windows папка — `D:\…\web`, и обе папки получали origin
+  `acme/app`. Production передаёт родной путь в `git -C <path>` и не менялся. Stand-in теперь берёт значение после `-C` и
+  делит его по обоим разделителям; новый случай проверяет stand-in путём `path.win32` и `path.posix`. Mutant (деление только
+  по `/`) убит: тот же симптом, что на Windows — `acme/app` вместо `acme/web`.
 
 ## Проверить себя
 
