@@ -12,31 +12,61 @@ Ticket 02 дал main каналы `changes.*`, которые читают diff
 
 ## 2. У какого Ticket-а есть Changes
 
-Code: `src/renderer/changes/open.ts:81-83` · key lines: 82
+Code: `src/renderer/canvas/ticket-card.ts:90-92` · key lines: 91
 
 ```ts
-export function hasChangesSubject(ticket: Pick<Ticket, 'state' | 'fromBranch' | 'branch'>, worktree: boolean): boolean {
-  return worktree || ticket.fromBranch !== null || Boolean(ticket.branch) || ticket.state === 'work'
+export function showsChanges(ticket: { state: TicketState; fromBranch?: string | null | undefined; branch?: string | null | undefined }): boolean {
+  return (ticket.fromBranch ?? null) !== null || Boolean(ticket.branch) || ticket.state === 'work'
 }
 ```
 
-- Что делает: решает, показывать ли кнопку Changes на карточке и строку Open changes в palette: у Ticket-а есть
-  worktree (по snapshot-у проверок карточки), ветка worktree-а, из которой пришёл его статус, строка `Branch:` или он в
-  работе.
+- Что делает: решает по самому Ticket-у, показывать ли кнопку Changes на карточке и строку Open changes в palette
+  (`hasChangesSubject` в `src/renderer/changes/open.ts` зовёт её) и давать ли карточке вторую строку действий в layout-е
+  (`cardHeights` в `src/renderer/canvas/epic-layout.ts`): ветка worktree-а, из которой пришёл статус, строка `Branch:`
+  или работа над Ticket-ом.
 - Почему здесь: Ticket требует кнопку «на Ticket-е с worktree или веткой» (п. 5) и строку palette для того же Ticket-а
-  (п. 6); одна функция в `src/renderer/changes/open.ts` даёт обоим одно правило. Файл `open.ts` в списке файлов Ticket-а
-  нет: palette не может импортировать registry Node-ов, а `.tsx` файла действия держит только компоненты (правило lint
-  `react-refresh/only-export-components`). `state === 'work'` добавлен implementer-ом: у взятого Ticket-а ветка уже есть,
-  даже когда worktree-а ещё не видно в snapshot-е.
-- Без него: кнопка была бы у каждого Ticket-а, и у Ticket-а без ветки Node показывал бы пустой экран.
+  (п. 6). Функция лежит в `ticket-card.ts`, потому что высоту карточки layout считает до того, как прочитаны worktree-ы:
+  кнопка видна ровно там, где есть место для неё (раунд по красному CI run 44595751428; `ticket-card.ts` в списке файлов
+  Ticket-а только для чтения, его правку разрешил orchestrator). `state === 'work'` добавлен implementer-ом: у взятого
+  Ticket-а ветка уже есть.
+- Без него: кнопка была бы у каждого Ticket-а, а у карточки без места для неё строка действий вылезала бы за край.
 - Требование: [Что делаем, п. 5 и 6](../issues/03-node-changes-и-входы.md#что-делаем)
-- Риски и пробелы test-ов: palette не читает snapshot проверок и передаёт `worktree = false`: Ticket, у которого есть
-  только worktree без строки `Branch:` и не в работе, получит кнопку, но не строку palette. Окончательный ответ даёт main
+- Риски и пробелы test-ов: Ticket, у которого есть только worktree (по snapshot-у проверок) без строки `Branch:` и не в
+  работе, кнопки не получает — решено без владельца, записано в «Итог». Окончательный ответ даёт main
   (`changes.scopes`): Ticket, ветка которого исчезла, увидит это в самом Node-е.
 
-## 3. Где встаёт новый Node
+## 3. Вторая строка действий карточки
 
-Code: `src/renderer/changes/open.ts:102-106` · key lines: 103, 104
+Code: `src/renderer/canvas/epic-frame.css:374-381` · key lines: 376, 377, 379
+
+```css
+.w-ticket__actions {
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 4px;
+  max-width: 100%;
+  margin-left: auto;
+}
+```
+
+- Что делает: кнопки действий карточки, которые не помещаются в её ширину, переносятся на вторую строку справа. Место
+  для этой строки (`ACTIONS_LINE`, 4 px и кнопка 20 px) layout даёт только карточке, на которой видна Changes
+  (`cardHeight` в `src/renderer/canvas/ticket-card.ts`).
+- Почему здесь: в CI run 44595751428 строка действий с Changes занимала 285, 270 и 221 px при ширине 218 px, и
+  `ticketCardCuts` в `test/e2e/checks-badges.spec.ts` и `test/e2e/pr-follow-ticket.spec.ts` находил кнопку за краем
+  карточки. Посылка spec-а «место строки действий карточка уже держит» оказалась неверной; решено без владельца, записано
+  в «Итог» Ticket-а.
+- Без него: «Changes» на карточке Ticket-а с PR и действием PR follow-up обрезалась бы краем карточки.
+- Требование: [Что происходит](../issues/03-node-changes-и-входы.md#что-происходит)
+- Риски и пробелы test-ов: unit test-ы `test/unit/ticket-card.test.tsx` проверяют правило CSS, +24 px у карточки в
+  работе или со строкой `Branch:` и прежнюю высоту у остальных; что ничего не обрезано в собранном приложении, проверяют
+  e2e test-ы `checks-badges` и `pr-follow-ticket` в CI. Карточка с Changes, у которой кнопки помещаются в одну строку,
+  несёт 24 px пустого места.
+
+## 4. Где встаёт новый Node
+
+Code: `src/renderer/changes/open.ts:101-105` · key lines: 102, 103
 
 ```ts
 export function changesPlace(nodes: readonly LayoutNode[], spot: { x: number; y: number } | undefined, anchor: Rect | null, keepOut: readonly Rect[]): { x: number; y: number } {
@@ -56,9 +86,10 @@ export function changesPlace(nodes: readonly LayoutNode[], spot: { x: number; y:
 - Без него: Node встал бы поверх рамки Epic-а или поверх соседней Session.
 - Требование: [Что делаем, п. 5](../issues/03-node-changes-и-входы.md#что-делаем)
 - Риски и пробелы test-ов: unit test проверяет место (`x 648, y 320`) на одном Layout-е; что Node стоит справа от
-  карточки на её высоте в собранном приложении, проверяет e2e test, который локально не запускался.
+  карточки на её высоте и весь в окне в собранном приложении, проверяет e2e test по местам Node-ов на Canvas (transform
+  React Flow): карточку вне экрана React Flow не рисует, а после щелчка Canvas центрирован на Node-е.
 
-## 4. В DOM — только окно diff-а
+## 5. В DOM — только окно diff-а
 
 Code: `src/renderer/changes/diff-window.ts:83-107` · key lines: 84, 85, 106
 
@@ -102,14 +133,14 @@ export function windowOf(heights: readonly number[], top: number, viewport: numb
   `DiffPane` меряет блок `ResizeObserver`-ом и заменяет оценку. В jsdom размеров нет, поэтому unit test проверяет
   `windowOf` на числах и то, что при 301 файле нарисованы не все; настоящую прокрутку проверяет только e2e test.
 
-## 5. Строка Open changes в Command palette
+## 6. Строка Open changes в Command palette
 
 Code: `src/renderer/palette/commands.ts:376-392` · key lines: 378, 382, 389
 
 ```ts
   for (const ticket of model.tickets) {
-    // Where the card has Changes, except a worktree the palette does not read (changes/open.ts).
-    if (!hasChangesSubject(ticket, false)) continue
+    // Where the card has Changes (changes/open.ts).
+    if (!hasChangesSubject(ticket)) continue
     const ref = `${ticket.epic}/${nn(ticket.num)}`
     const subject = { epic: ticket.epic, num: ticket.num }
     // Going to a Changes Node already there changes nothing; a new one is a change of the Layout.
@@ -137,9 +168,9 @@ Code: `src/renderer/palette/commands.ts:376-392` · key lines: 378, 382, 389
   работе, её отсутствие без них, и то, что на экране только для чтения она неактивна (`changes:e/09` в списке строк,
   которые пишут).
 
-## 6. Palette открывает Node через карточку
+## 7. Palette открывает Node через карточку
 
-Code: `src/renderer/changes/open.ts:189-198` · key lines: 192, 195, 197
+Code: `src/renderer/changes/open.ts:188-197` · key lines: 191, 194, 196
 
 ```ts
 export async function openChangesFromPalette(projectId: string, subject: ChangesSubject, nodes: readonly LayoutNode[]): Promise<string | undefined> {
@@ -164,20 +195,23 @@ export async function openChangesFromPalette(projectId: string, subject: Changes
 - Риски и пробелы test-ов: unit test проверяет, что palette ведёт к Node-у, который уже есть, и что иначе оставляет
   запрос карточке. Запасной путь через 2 s проверяется только тем, что он есть в коде; отдельного test-а нет.
 
-## 7. Что сознательно не меняли
+## 8. Что сознательно не меняли
 
 Gutter «+», popover и лоток комментариев — Ticket 05: у `DiffPane` есть prop `renderGutter`, через который Ticket 05
 добавит «+», сам `DiffPane` его не рисует. Chip со счётчиком `+N −M`, Viewed и живое обновление — часть 2. Цвет вида
 Node-а в minimap нейтральный (`var(--border-strong)`): по ADR-0077 новый вид получает свой цвет только через новый ADR.
 Переводы страниц — Ticket 06. Подсветки синтаксиса нет: строки окрашены только `--ready-*` и `--blocked-*`.
 
-## 8. Как проверено
+## 9. Как проверено
 
 Сначала test: новые unit test-ы не могли пройти до кода — модулей `src/renderer/changes/*` и
 `src/renderer/canvas/actions/Changes.tsx` не было. Затем `node scripts/vitest-electron.mjs test/unit/changes-view.test.tsx`
 (17 test-ов), `test/unit/canvas-actions.test.tsx` и `test/unit/palette-commands.test.tsx` — exit 0; `pnpm lint`,
 `pnpm typecheck` — exit 0; `node scripts/check-feature-docs.mjs` — exit 0. Полный `pnpm test` и gate fast — с кодом
-выхода в отчёте implementer-а. e2e test `test/e2e/changes.spec.ts` локально не запускался: его запускает gate full в CI.
+выхода в отчёте implementer-а. e2e test `test/e2e/changes.spec.ts` локально не запускался: его запускает CI.
+Раунд по красному CI run 44595751428: unit test-ы `test/unit/ticket-card.test.tsx`, `test/unit/canvas-actions.test.tsx`,
+`test/unit/epic-layout.test.ts` — exit 0, и каждый из четырёх mutant-ов (без `ACTIONS_LINE` в `cardHeight`, без флага
+`changes` в `cardHeights`, `flex-wrap: nowrap`, кнопка у каждого Ticket-а) делает их красными; e2e test-ы — в CI.
 
 ## Проверить себя
 
@@ -185,11 +219,11 @@ Node-а в minimap нейтральный (`var(--border-strong)`): по ADR-007
    Ticket-е?
    - Ответ: карточка стоит внутри рамки Epic-а; keep-out полосы рамок вместе с отступом `placeNear` уводил Node вниз,
      под все рамки. От точки справа от полосы `freePlace` находит ближайшее свободное место на высоте Ticket-а.
-   - Lines: `src/renderer/changes/open.ts:104`
+   - Lines: `src/renderer/changes/open.ts:103`
 2. Почему Open changes из palette не ставит Node сам, а оставляет запрос карточке?
    - Ответ: место рядом с карточкой считается по тому, что нарисовал Canvas; это знает только кнопка на карточке.
      Сам palette ставит Node только когда за 2 s никто не взял запрос.
-   - Lines: `src/renderer/changes/open.ts:195`, `src/renderer/changes/open.ts:197`
+   - Lines: `src/renderer/changes/open.ts:194`, `src/renderer/changes/open.ts:196`
 3. Что стоит в DOM на месте блоков вне окна diff-а, и зачем?
    - Ответ: пустое место `before` и `after` той же суммарной высоты: полоса прокрутки и позиция видимых блоков не
      прыгают, хотя нарисованы только блоки экрана и двух экранов вокруг.
