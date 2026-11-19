@@ -51,11 +51,14 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решение» → «Экр
 - [ ] Unit test (`test/unit/changes-view.test.tsx`): Inline и Side by side, Wrap, Hide whitespace, свёрнутый большой и
       binary-файл, группа Workflow files, меню scope-ов строится из ответа `changes.scopes`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/changes-view.test.tsx test/unit/canvas-actions.test.tsx test/unit/palette-commands.test.tsx` exit 0 · mac - · 36041cfb4fa64e8ded335a8ad6d75919c37d0ed9
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · c7c7e3fac0f318609f47177bd4bde7b4c8feabcc
 - [ ] Unit test (`test/unit/canvas-actions.test.tsx`): Changes есть у Ticket-а с worktree или веткой и нет у Ticket-а
       без них.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/changes-view.test.tsx test/unit/canvas-actions.test.tsx test/unit/palette-commands.test.tsx` exit 0 · mac - · 36041cfb4fa64e8ded335a8ad6d75919c37d0ed9
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/ticket-card.test.tsx test/unit/canvas-actions.test.tsx test/unit/epic-layout.test.ts` exit 0 · mac - · c7c7e3fac0f318609f47177bd4bde7b4c8feabcc
 - [ ] Unit test (`test/unit/palette-commands.test.tsx`): Open changes у Ticket-а с веткой.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/changes-view.test.tsx test/unit/canvas-actions.test.tsx test/unit/palette-commands.test.tsx` exit 0 · mac - · 36041cfb4fa64e8ded335a8ad6d75919c37d0ed9
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · c7c7e3fac0f318609f47177bd4bde7b4c8feabcc
 - [ ] e2e test (`test/e2e/changes.spec.ts`, fake agent, временный репозиторий): карточка → Changes → Node рядом с
       карточкой, файлы и строки совпадают с `git diff <merge-base>`; Open changes из palette; сгенерированный
       репозиторий на 300 файлов и файл на 2 000 строк открывается свёрнутым.
@@ -63,8 +66,10 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решение» → «Экр
 - [ ] Английские страницы `changes.md`, `workflow.md`, `app-shell.md` описывают сделанное;
       `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 36041cfb4fa64e8ded335a8ad6d75919c37d0ed9
+  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · c7c7e3fac0f318609f47177bd4bde7b4c8feabcc
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 36041cfb4fa64e8ded335a8ad6d75919c37d0ed9
+  - evidence: gate pass · `gate fast` exit 0 · mac - · c7c7e3fac0f318609f47177bd4bde7b4c8feabcc
 
 ## Где в коде
 
