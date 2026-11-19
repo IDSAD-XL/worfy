@@ -615,16 +615,22 @@ async function askRepo(gh: GhRunner, slug: string, cwd: string, extra: GhEnv): P
  * asked with its own token.
  */
 export async function useLoginCandidate(project: GithubProject, deps: GithubAccessDeps): Promise<string | null> {
+  return (await pushLogin(project, deps)).login
+}
+
+/** The one login with push, and the managed one (`name_shortcode`) when that is the only one and the button cannot take it. */
+async function pushLogin(project: GithubProject, deps: GithubAccessDeps): Promise<{ login: string | null; managed: string | null }> {
   const gh: GhRunner = (args, cwd, extra, output) => deps.gh(args, cwd, { GH_TOKEN: '', GITHUB_TOKEN: '', ...extra }, output)
   const step = await readGithubAccounts(
     project.folders.map((path) => ({ name: basename(path), path })),
     { git: deps.git, gh, platform: deps.platform ?? process.platform },
   )
-  if (step.status !== 'accounts') return null
+  if (step.status !== 'accounts') return { login: null, managed: null }
   const withPush = step.accounts.filter((account) => account.push && account.host === 'github.com')
   const only = withPush.length === 1 ? (withPush[0]?.login ?? null) : null
   // A login the button cannot send (an Enterprise Managed User's `name_shortcode`): no button, and the report stays valid.
-  return only !== null && githubLoginSchema.safeParse(only).success ? only : null
+  if (only === null) return { login: null, managed: null }
+  return githubLoginSchema.safeParse(only).success ? { login: only, managed: null } : { login: null, managed: only }
 }
 
 /** The account the Profile names has no gh login: sign in as it; with a token variable set, gh refuses that until it is gone. */
@@ -658,7 +664,9 @@ async function githubAccess(project: GithubProject, deps: GithubAccessDeps, plat
   const answers = await Promise.all(project.repos.map(async (slug) => ({ slug, access: await askRepo(deps.gh, slug, project.root, extra) })))
   const repos = project.repos.join(', ')
   const of = (kind: RepoAccess['kind']): string[] => answers.filter((each) => each.access.kind === kind).map((each) => each.slug)
-  const candidate = async (): Promise<string | null> => (login === null && unread === null ? useLoginCandidate(project, deps).catch(() => null) : null)
+  const none = { login: null, managed: null }
+  const lookup = async (): Promise<{ login: string | null; managed: string | null }> => (login === null && unread === null ? pushLogin(project, deps).catch(() => none) : none)
+  const candidate = async (): Promise<string | null> => (await lookup()).login
   const useLogin = (found: string | null): Check['actions'] => (found === null ? [] : [{ id: 'use-login', label: `Use ${found}`, safe: true, login: found }])
 
   if (of('no-token').length > 0) {
@@ -689,9 +697,10 @@ async function githubAccess(project: GithubProject, deps: GithubAccessDeps, plat
     return result(row('ok', `${login} · ${sourceText(source)}${ignored} · ${repos}`))
   }
   // It works, but on whatever gh takes by itself: non-critical, fixable with one login that may push.
-  const found = await candidate()
+  const { login: found, managed } = await lookup()
   const why = unread ?? 'github.account is not set'
-  const hint = found === null ? "Set the Project's github.account to the account that pushes to these repositories: gh has no single one that may" : `Use ${found} writes github.account to the Project's Profile`
+  const noButton = managed === null ? "Set the Project's github.account to the account that pushes to these repositories: gh has no single one that may" : `${managed}, the one login that may push, is a managed login worfy does not take in github.account yet: sign gh in with another login that may push`
+  const hint = found === null ? noButton : `Use ${found} writes github.account to the Project's Profile`
   return result(row('warn', `${why}: gh works with ${sourceText(source)} · ${repos}`, hint, null, useLogin(found)), true)
 }
 

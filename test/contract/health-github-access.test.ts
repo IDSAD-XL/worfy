@@ -108,6 +108,7 @@ describe('GitHub access of a Project', () => {
     const managed: StubAccount = { login: 'octocat_acme', active: true, token: shaped('o', 'emuLEAK') }
     const checked = await rowOf({ accounts: [managed], repos: { 'acme/app': { octocat_acme: true } } })
     expect(checked).toMatchObject({ status: 'warn', severity: 'non-critical', actions: [] })
+    expect(checked.hint).toContain('octocat_acme, the one login that may push, is a managed login')
     expect(firstRunReportSchema.safeParse({ checkedAt: new Date(0).toISOString(), checks: [checked] }).success).toBe(true)
   })
 

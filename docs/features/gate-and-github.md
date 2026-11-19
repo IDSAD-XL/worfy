@@ -726,7 +726,9 @@ run at the start; the Health check icon tells about it.
 `bin/profile-set --field github.account`, which commits the change in the Harness home — and checks the GitHub access rows again.
 There is no dialog: the button names the login. It writes only while that login is still the one that may push; otherwise it
 writes nothing and says to check again. worfy never switches to an account of the keyring by itself.
-A login `github.account` does not take — an Enterprise Managed User's `name_shortcode` — gets no button: set it by hand.
+A login with an underscore — an Enterprise Managed User's `name_shortcode` — gets no button: worfy does not take such a
+login in `github.account` yet, and a Profile that names one does not read. Such a user signs gh in with a login worfy takes,
+or, when `GH_TOKEN` stands in the way, unsets it so gh uses the login of its keyring.
 
 ### How it works
 
