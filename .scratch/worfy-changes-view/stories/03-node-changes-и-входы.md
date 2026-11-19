@@ -342,3 +342,38 @@ Node-а в minimap нейтральный (`var(--border-strong)`): по ADR-007
    - Ответ: пустое место `before` и `after` той же суммарной высоты: полоса прокрутки и позиция видимых блоков не
      прыгают, хотя нарисованы только блоки экрана и двух экранов вокруг.
    - Lines: `src/renderer/changes/diff-window.ts:106`
+
+## 13. Что нашёл review и что осталось
+
+> VERIFIED; debt: [low] the card shot (test/e2e/changes.spec.ts:185) shows only the Changes button on its own line — the wrapped second action line is in no shot, because the fixture Tickets have no other action; [low] src/renderer/changes/open.ts:162 — a new request settles the previous pending one with false, so the palette fallback may place the first Ticket's Node at the right of the Canvas although the user already chose another Ticket (round-1 behaviour, implementer's note).
+> Round 1 items: all five fixed (verifier re-applied the old code of each as a mutant, the guarding test fails on each: ChangesNode.tsx:86-127 stale list/scopes/commits answers, DiffPane.tsx:277-279 stale changes.file answers, DiffPane.tsx:310-345 the ResizeObserver kept with its measuredFor, open.ts:152-161 the module-level request counter, the card shot changes-node-card in both themes of CI run 44618149442). The correctness reviewer found no defect introduced by the rework (87/87 unit tests, 23/23 under StrictMode).
+> Consider: [low] src/renderer/canvas/actions/Changes.tsx:71 — the read-only inactive state of the button still has no unit test; [low] src/renderer/changes/open.ts:54, :73 — `num >= 0` and the epic compare in changesNodeOf are untested.
+> Noted: [low] the CI shots show no selected file and no outlined hunk, which the prototype has; binary and Workflow-files groups only in unit tests. Decided without the owner, to confirm: the Node is placed by freePlace from sessionSpot (right of the frames strip at the Ticket's height), not placeNear; the action row wraps and cards with a branch or worktree reserve +24 px for a second line (the spec's premise «ticket-card.ts не меняется» was false: 285/270/221 px against 218 px).
+> Dismissed: none.
+> Review depth: medium — the ticket's own depth (ticket file); round 2 on the rework diff af405ab26..69553a1d8
+> Review tokens: 408310 + 125323 = 533633
+> Could not verify: the pixel-level fit of the wrapped second action line on a card with two or more actions (no fixture has one); no local e2e by the brief, so the shots are CI's, not reproduced.
+
+Code: `test/e2e/changes.spec.ts:185-185` · key lines: 185
+
+```ts
+    await snapshotThemes(window, 'changes-node-card')
+```
+
+Code: `src/renderer/changes/open.ts:162-162` · key lines: 162
+
+```ts
+  for (const [, done] of settle) done(false)
+```
+
+Code: `src/renderer/canvas/actions/Changes.tsx:71-71` · key lines: 71
+
+```tsx
+  const inactive = readOnly !== null && !exists
+```
+
+Code: `src/renderer/changes/open.ts:54-54` · key lines: 54
+
+```ts
+  return typeof epic === 'string' && epic !== '' && typeof num === 'number' && Number.isInteger(num) && num >= 0 ? { epic, num } : null
+```
