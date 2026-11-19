@@ -76,7 +76,7 @@ export async function pickBase(facts: BaseFacts, probe: RefProbe): Promise<Picke
 }
 
 /** A ref the probe may hand to git: not an option, no whitespace or control characters. */
-export const safeRef = (ref: string): boolean => ref !== '' && !ref.startsWith('-') && !/[\s\0-\x1f\x7f]/u.test(ref)
+export const safeRef = (ref: string): boolean => ref !== '' && !ref.startsWith('-') && ![...ref].some((char) => char.charCodeAt(0) <= 0x20 || char.charCodeAt(0) === 0x7f)
 
 /** The probe over git in `cwd`: `cat-file -e` and `for-each-ref`, both only reading. */
 export function gitProbe(cwd: string, git: ChangesGit): RefProbe {

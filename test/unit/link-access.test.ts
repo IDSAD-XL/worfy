@@ -215,6 +215,11 @@ describe('the read-or-write mark of `project` channels', () => {
     'cardApi.dataGet',
     'cards.file',
     'cards.get',
+    // The diff of a Ticket, read from git with no write into the repository (worfy-changes-view ticket 02, ADR-0110).
+    'changes.commits',
+    'changes.file',
+    'changes.list',
+    'changes.scopes',
     // Read-only git and gh: the owner counts them as reading (answer 3).
     'checks.get',
     'checks.repos',
