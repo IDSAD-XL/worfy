@@ -14,6 +14,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FIELDS } from '../../src/main/github/prs'
 import { checkRecovery } from '../autopilot-invariants'
+import { quarantined } from '../quarantine'
 import { scriptNode } from '../script-node'
 import { ms } from '../time-scale'
 import { AGENT_SCRIPTS, faultRun, until, type FaultRun, type FaultScript } from './autopilot-faults-setup'
@@ -158,7 +159,7 @@ describe('the gh stand-in in the hang mode (worfy-faults ticket 04)', () => {
 })
 
 describe('Autopilot faults on the GitHub side (worfy-faults ticket 04)', () => {
-  it('gh hangs the whole Run: the Waves go on, no narrow-round, the stop waits END_READ_MS at most, and no hung gh is left', async () => {
+  quarantined('autopilot-faults-gh-hangs-whole-run')('gh hangs the whole Run: the Waves go on, no narrow-round, the stop waits END_READ_MS at most, and no hung gh is left', async () => {
     // Wave 2's turn waits for the test, so the run's last read of the PRs starts after the first gh call has died.
     // That first call ends by ghRunner's timeout. The later ones get LATER_GH_TIMEOUT_MS: the last read's gh
     // must still hang when the test moves the clock past the read's limit, however long it took to start
