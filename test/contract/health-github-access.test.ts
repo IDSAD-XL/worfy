@@ -6,7 +6,7 @@
 // log line or an error. Nothing reaches GitHub, the machine's gh or the real Profile.
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { delimiter, dirname, join } from 'node:path'
+import { delimiter, dirname, join, posix, win32 } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FirstRunActions, type ActionDeps } from '../../src/main/first-run/actions'
 import { githubAccessRow, githubAccessRows, githubAccessUnknown, runChecks, runTool, useLoginCandidate, type CheckDeps, type GithubAccessDeps, type GithubProject } from '../../src/main/first-run/checks'
@@ -62,6 +62,16 @@ interface Setup {
   origins?: Readonly<Record<string, string>>
 }
 
+/**
+ * The origin slug of the folder that `git -C <folder> remote get-url origin` names, by the folder's last path
+ * segment: split on both separators, as the folder is a native path — `D:\a\web` on Windows, `/tmp/web` elsewhere.
+ */
+function originOfFolder(args: readonly string[], origins: Readonly<Record<string, string>> = {}): string {
+  const at = args.indexOf('-C')
+  const name = at === -1 ? undefined : args[at + 1]?.split(/[\\/]/u).at(-1)
+  return (name === undefined ? undefined : origins[name]) ?? 'acme/app'
+}
+
 /** The deps of the row on a stand-in world: gh, its environment, the account of the Profile and git with an origin on github.com. */
 function world(setup: Setup): { deps: GithubAccessDeps; dir: string; profile: { account: string | null } } {
   const stub = ghWorld(join(root, `world-${Math.random().toString(36).slice(2)}`), { accounts: setup.accounts, repos: setup.repos ?? {} })
@@ -75,8 +85,7 @@ function world(setup: Setup): { deps: GithubAccessDeps; dir: string; profile: { 
     account: () => Promise.resolve({ account: profile.account, reason: profile.account === null ? (setup.reason ?? 'the Profile has no github.account field (profile exit code 4)') : null }),
     git: (args) => {
       if (!args.includes('get-url')) return Promise.resolve('')
-      const folder = Object.keys(setup.origins ?? {}).find((name) => args.some((arg) => arg.endsWith(`/${name}`)))
-      return Promise.resolve(`https://github.com/${folder === undefined ? 'acme/app' : setup.origins?.[folder]}.git`)
+      return Promise.resolve(`https://github.com/${originOfFolder(args, setup.origins)}.git`)
     },
     platform: 'darwin',
   }
@@ -121,6 +130,14 @@ describe('GitHub access of a Project', () => {
     expect(pushToFirst).toMatchObject({ status: 'warn', actions: [] })
     const pushToBoth = await rowOf({ accounts: [ALICE], repos: { 'acme/app': { alice: true }, 'acme/web': { alice: true } }, origins })
     expect(pushToBoth.actions).toEqual([{ id: 'use-login', label: 'Use alice', safe: true, login: 'alice' }])
+  })
+
+  it("the git stand-in finds a folder's origin by a Windows path as by a POSIX one", async () => {
+    const { git } = world({ accounts: [], origins: { web: 'acme/web' } }).deps
+    const originAt = (folder: string): Promise<string> => git(['-C', folder, 'remote', 'get-url', 'origin'])
+    await expect(originAt(win32.join('D:\\a\\worfy', 'web'))).resolves.toBe('https://github.com/acme/web.git')
+    await expect(originAt(posix.join('/tmp/worfy', 'web'))).resolves.toBe('https://github.com/acme/web.git')
+    await expect(originAt(win32.join('D:\\a\\worfy', 'app'))).resolves.toBe('https://github.com/acme/app.git')
   })
 
   it('an account gh has no login for: critical, Sign in… with gh auth login', async () => {
