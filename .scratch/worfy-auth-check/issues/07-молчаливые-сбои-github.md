@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-19T04:04Z
+PR: #2031
 Blocked by: 04, 05
 Source: [spec.md](../spec.md), «Ticket-ы», 7; «Проблема», пункты «PR inbox», «PR badges, gate-queue, Flight recorder»,
 «`github.account` пуст или невалиден», «Прочее»; «Решение», пункты 4 и 5; «Решения по реализации», 4; «Решения по
