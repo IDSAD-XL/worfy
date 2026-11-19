@@ -32,6 +32,8 @@ import { invoke, readableReason } from '../ipc'
 import { useNow } from '../limits/useLimits'
 import { ticketRef } from '../pipeline/board'
 import { activeProject, useProjects, useReadOnly } from '../projects/useProjects'
+import { openHealthCheck } from '../settings/settings-window'
+import { Button } from '../theme/Button'
 import { layerOf } from '../theme/open-layers'
 import { Chip, type ChipVariant } from '../theme/Chip'
 import { useWorkflow } from '../workflow/useWorkflow'
@@ -612,9 +614,19 @@ export function PrInboxBody({ name, snapshot, tickets, epics = EMPTY_EPICS, now,
             </span>
           ) : null}
           {status.error !== null ? (
-            <span className="w-pr-inbox__status-error" data-testid="pr-inbox-error">
-              {status.error}
-            </span>
+            snapshot.signInFailed === true ? (
+              // GitHub refused the sign-in (worfy-auth-check ticket 07): the reason of the Project's GitHub access row, and Health check one click away.
+              <span className="w-pr-inbox__status-error" data-testid="pr-inbox-error" data-sign-in="true">
+                <span>GitHub refused the sign-in: {snapshot.error}</span>{' '}
+                <Button variant="link" data-testid="pr-inbox-health" onClick={openHealthCheck}>
+                  Open Health check
+                </Button>
+              </span>
+            ) : (
+              <span className="w-pr-inbox__status-error" data-testid="pr-inbox-error">
+                {status.error}
+              </span>
+            )
           ) : null}
           {status.notice !== null ? <span data-testid="pr-inbox-notice">{status.notice}</span> : null}
           {failure !== null ? (

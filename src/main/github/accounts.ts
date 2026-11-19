@@ -22,6 +22,8 @@ import { fileOrAlias, findOnPath, type Env, type FileExists } from '../agent/env
 import { programStartInPty, windowsProgramPath, type ProgramStart } from '../program'
 import type { GitRunner } from '../projects/store'
 import { spawnShellPty, TerminalRegistry, type SpawnPty } from '../terminal/pty'
+import type { SignInBlock } from '../../shared/ipc/projects'
+import { removeVariableCommand, TOKEN_VARIABLES, variableHome } from './auth-diagnosis'
 import { ghVersion, parseAuthText } from './auth-text'
 import { accountAuth, appGhOverride, GhExitError, type GhRunner } from './prs'
 import { parseRemote, type RemoteRepo } from './remote'
@@ -250,6 +252,33 @@ export function signInCommand(gh: string, platform: NodeJS.Platform = process.pl
   const file = findOnPath(gh, env, exists)
   if (file === null) throw new Error(`${gh} was not found in the Path: install GitHub CLI or add its folder to the Path, then restart worfy`)
   return { file, args: ['auth', 'login'] }
+}
+
+/**
+ * Why "Sign in with gh" would not change whose token gh takes (worfy-auth-check ticket 07, the owner's decision Q5 of
+ * 2026-11-19): GH_TOKEN or GITHUB_TOKEN set, and not empty, in the environment worfy runs gh with. gh takes such a
+ * variable over every account it stores, and `gh auth login` refuses while it is set; so the sign-in does not start,
+ * and the step shows why and the command that removes the variable. Null when no such variable is set. Only the
+ * names of the variables are read, never a value.
+ */
+export function signInBlock(env: Readonly<Record<string, string | undefined>>, platform: NodeJS.Platform = process.platform): SignInBlock | null {
+  // An empty variable counts as unset, as gh reads it.
+  const variables = TOKEN_VARIABLES.filter((name) => (valueOf(env, name, platform) ?? '') !== '')
+  if (variables.length === 0) return null
+  const names = variables.join(' and ')
+  const it = variables.length === 1 ? 'it' : 'them'
+  return {
+    variables: [...variables],
+    command: variables.map((name) => removeVariableCommand(name, platform)).join('; '),
+    why: `${names} ${variables.length === 1 ? 'is' : 'are'} set in the environment worfy runs gh with. gh uses ${it} over every account it stores, so a sign-in would not change whose token gh takes, and gh auth login refuses while ${it} ${variables.length === 1 ? 'is' : 'are'} set. Run the command, remove ${it} from ${variableHome(platform)} too, then restart worfy and sign in.`,
+  }
+}
+
+/** The value of `name` in `env`; on Windows the name compares without case, as the system does. */
+function valueOf(env: Readonly<Record<string, string | undefined>>, name: string, platform: NodeJS.Platform): string | undefined {
+  if (platform !== 'win32') return env[name]
+  const key = Object.keys(env).find((each) => each.toUpperCase() === name)
+  return key === undefined ? undefined : env[key]
 }
 
 /** The app's gh: its executable and the environment it runs in. */

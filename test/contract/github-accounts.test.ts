@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { findOnPath } from '../../src/main/agent/env'
-import { parseAuthStatus, parseRemote, readGithubAccounts, signInCommand, signInRegistry, type FolderRepo } from '../../src/main/github/accounts'
+import { parseAuthStatus, parseRemote, readGithubAccounts, signInBlock, signInCommand, signInRegistry, type FolderRepo } from '../../src/main/github/accounts'
 import { GhExitError, ghRunner } from '../../src/main/github/prs'
 import { runGit } from '../../src/main/projects/store'
 import { githubAccountsStepSchema, githubChoice, withGithubAccount, type GithubAccountsStep, type ProfileDraft } from '../../src/shared/ipc/projects'
@@ -580,5 +580,33 @@ describe('"Sign in with gh"', () => {
     await registry.close('s2')
     expect(registry.has('s2')).toBe(false)
     expect(readFileSync(join(gh.dir, 'auth-status.json'), 'utf8')).not.toContain('carol')
+  })
+})
+
+// worfy-auth-check ticket 07 (the owner's decision Q5): a token variable in gh's environment overrides any account gh
+// would store, so "Sign in with gh" does not start; the step says why and gives the command for the platform.
+describe('signInBlock', () => {
+  it('is null without a token variable, and with an empty one, as gh reads it', () => {
+    expect(signInBlock({ PATH: '/usr/bin' }, 'darwin')).toBeNull()
+    expect(signInBlock({ GH_TOKEN: '', GITHUB_TOKEN: undefined }, 'darwin')).toBeNull()
+  })
+
+  it('macOS: names the variable, never its value, and gives launchctl unsetenv and the shell startup files', () => {
+    const value = `ghp_${'Zq9'.repeat(12)}`
+    const block = signInBlock({ GH_TOKEN: value }, 'darwin')
+    expect(block).toEqual({ variables: ['GH_TOKEN'], command: 'launchctl unsetenv GH_TOKEN', why: expect.stringContaining('GH_TOKEN is set in the environment worfy runs gh with') })
+    expect(block?.why).toContain('~/.zshrc')
+    expect(block?.why).toContain('gh auth login refuses')
+    expect(JSON.stringify(block)).not.toContain(value)
+  })
+
+  it('both variables: both named, one command each', () => {
+    expect(signInBlock({ GH_TOKEN: 'a', GITHUB_TOKEN: 'b' }, 'linux')).toMatchObject({ variables: ['GH_TOKEN', 'GITHUB_TOKEN'], command: 'unset GH_TOKEN; unset GITHUB_TOKEN', why: expect.stringContaining('GH_TOKEN and GITHUB_TOKEN are set') })
+  })
+
+  it('Windows: the user variable in the registry, the name compared without case', () => {
+    expect(signInBlock({ Github_Token: 'x' }, 'win32')).toMatchObject({ variables: ['GITHUB_TOKEN'], command: "[Environment]::SetEnvironmentVariable('GITHUB_TOKEN', $null, 'User')", why: expect.stringContaining('setx') })
+    // Off Windows a name in another case is another variable.
+    expect(signInBlock({ Github_Token: 'x' }, 'darwin')).toBeNull()
   })
 })

@@ -34,9 +34,11 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { z } from 'zod'
 import type { CiState } from '../../shared/ipc/checks'
 import { PR_INBOX_GROUPS, type PrInboxRow, type PrInboxSnapshot } from '../../shared/ipc/pr-inbox'
+import { redactSecrets } from '../../shared/terminal-ai/redact'
 import { readPrInboxState, writeSeenPull } from '../projects/pr-inbox-state'
 import { gitRunner, type GitRunner } from '../workflow/stages'
 import { commentsOf, decisionOf, groupPulls, lastActivityOf, same, timeOf, type InboxComment, type InboxMember, type InboxPull } from './inbox-groups'
+import { NO_GITHUB_HEALTH, isSignInFailure, type GithubHealth } from './github-health'
 import { NotificationsTrigger, type NotificationsAccount } from './inbox-notifications'
 import { accountAuth, type GhEnv, type GhRunner } from './prs'
 import { parseRemote } from './remote'
@@ -212,7 +214,8 @@ function failureOf(reason: string): 'timeout' | 'unavailable' | null {
   return null
 }
 
-const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
+/** gh's reason, without a token gh may have printed in it: it goes to the view as it is. */
+const messageOf = (error: unknown): string => redactSecrets(error instanceof Error ? error.message : String(error))
 
 /** gh's reason for a GraphQL NOT_FOUND: a PR or repository of the page GitHub cannot resolve, which fails the whole call. */
 const UNRESOLVED = /\bCould not resolve to a (?:PullRequest|Repository)\b/u
@@ -247,6 +250,12 @@ export interface PrInboxOptions {
   retryWaitMs?: number
   searchIntervalMs?: number
   maxIntervalMs?: number
+  /**
+   * What the reads tell Health check (worfy-auth-check ticket 07): a sign-in GitHub refused puts the Project's GitHub
+   * access row out of `ok`, the next read that answers takes it back, and the snapshot's error is then that row's
+   * reason. Nothing by default.
+   */
+  health?: GithubHealth
   /** The notifications trigger of ticket 08; without it the inbox reads by its search alone. */
   notifications?: {
     /** Whether a window of worfy has the focus: GitHub's poll interval then, every 5 minutes otherwise. */
@@ -279,6 +288,8 @@ interface ProjectState {
   nextAt: number
   intervalMs: number
   error: string | null
+  /** The last read failed because GitHub refused the sign-in (isSignInFailure). */
+  signIn: boolean
   running: Promise<void> | null
 }
 
@@ -292,12 +303,14 @@ export class PrInbox {
   /** The reads of Projects, one after another: a tick and the first `prInbox.get` of a Project wait for each other. */
   private queue: Promise<unknown> = Promise.resolve()
   private readonly trigger: NotificationsTrigger | null
+  private readonly health: GithubHealth
 
   constructor(private readonly options: PrInboxOptions) {
     // Date.now read at each call, so an e2e test may move main's clock for the reader and the digest alike.
     this.now = options.now ?? (() => Date.now())
     this.base = options.searchIntervalMs ?? INBOX_SEARCH_INTERVAL_MS
     this.max = options.maxIntervalMs ?? INBOX_MAX_INTERVAL_MS
+    this.health = options.health ?? NO_GITHUB_HEALTH
     const notifications = options.notifications
     this.trigger =
       notifications === undefined
@@ -379,7 +392,7 @@ export class PrInbox {
         const env = await this.envOf(first!.project.root, first!.state.account)
         await this.readPage([{ owner, name, number }], first!.project.root, env, cache, new Map([[key, repo]]))
       } catch (error) {
-        for (const { state } of readers) state.error = messageOf(error)
+        for (const { project, state } of readers) this.failed(project, state, error)
       }
       const pull = cache.pulls.get(key)?.pull
       for (const { project, state } of readers) {
@@ -414,7 +427,8 @@ export class PrInbox {
       readAt: state?.readAt == null ? null : new Date(state.readAt).toISOString(),
       // -Infinity until the first read ends: no time to show yet.
       nextSearchAt: on && state && Number.isFinite(state.nextAt) ? new Date(state.nextAt).toISOString() : null,
-      error: on ? (state?.error ?? null) : null,
+      error: on && state ? this.errorOf(project, state) : null,
+      signInFailed: on && state !== undefined && state.signIn,
       notice: on && state ? (this.trigger?.notice(state.account ?? '') ?? null) : null,
     }
   }
@@ -461,7 +475,7 @@ export class PrInbox {
   private stateOf(projectId: string): ProjectState {
     let state = this.states.get(projectId)
     if (state === undefined) {
-      state = { account: null, repos: [], members: new Map(), enabled: true, readAt: null, nextAt: -Infinity, intervalMs: this.base, error: null, running: null }
+      state = { account: null, repos: [], members: new Map(), enabled: true, readAt: null, nextAt: -Infinity, intervalMs: this.base, error: null, signIn: false, running: null }
       this.states.set(projectId, state)
     }
     return state
@@ -497,6 +511,22 @@ export class PrInbox {
     return state.running
   }
 
+  /** A read of the Project failed: its reason in the snapshot, and Health check told when GitHub refused the sign-in. */
+  private failed(project: PrInboxProject, state: ProjectState, error: unknown): void {
+    state.error = messageOf(error)
+    state.signIn = isSignInFailure(state.error)
+    this.health.failed(project.root, state.error)
+  }
+
+  /**
+   * The snapshot's error: after a sign-in GitHub refused, the reason of the Project's GitHub access row while it is
+   * not `ok` (ticket 05 names whose token gh took there, ticket 06 an organization's SSO), else gh's own words.
+   */
+  private errorOf(project: PrInboxProject, state: ProjectState): string | null {
+    if (!state.signIn) return state.error
+    return this.health.reason(project.root) ?? state.error
+  }
+
   private async envOf(root: string, account: string | null): Promise<GhEnv> {
     return accountAuth({ account: () => Promise.resolve(account), run: this.options.run })(root)
   }
@@ -523,6 +553,7 @@ export class PrInbox {
       cache = this.cacheOf(state.account ?? '')
       if (cache.pausedUntil > now) {
         state.error = cache.pauseReason
+        state.signIn = false
       } else {
         const env = await this.envOf(project.root, state.account)
         await this.search(project.root, state, env, cache)
@@ -547,9 +578,12 @@ export class PrInbox {
         state.readAt = now
         state.intervalMs = this.base
         state.error = cache.pausedUntil > now ? cache.pauseReason : null
+        state.signIn = false
+        // gh answered as the Project's account: a sign-in failure this reader reported is over.
+        this.health.answered(project.root)
       }
     } catch (error) {
-      state.error = messageOf(error)
+      this.failed(project, state, error)
       state.intervalMs = Math.min(state.intervalMs * 2, this.max)
     }
     state.nextAt = Math.max(now + state.intervalMs, cache?.pausedUntil ?? -Infinity)

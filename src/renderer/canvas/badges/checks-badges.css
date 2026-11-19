@@ -58,3 +58,19 @@
   white-space: normal;
   overflow-wrap: anywhere;
 }
+
+/* The card of a sign-in GitHub refused (worfy-auth-check ticket 07): one line of reason, then "Open Health check". */
+.w-checks-sign-in {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  max-width: 320px;
+  padding: var(--space-2) var(--space-3);
+}
+.w-checks-sign-in__reason {
+  margin: 0;
+  font-size: var(--text-12);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}

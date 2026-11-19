@@ -6,6 +6,7 @@
 import { gateQueueGet } from '../../shared/ipc/gate-queue'
 import { agentEnv } from '../agent/env'
 import { GateQueueReader, gateQueueView } from '../github/gate-queue'
+import { appGithubHealth } from '../github/github-health'
 import { ghRunner } from '../github/prs'
 import { harnessScriptEnv } from '../harness/script-env'
 import { projectStore } from '../projects/store'
@@ -32,6 +33,7 @@ export function sharedGateQueue(): GateQueueReader {
     env: () => harnessScriptEnv(),
     profile: async (cwd, args) => profileRunner(claudeHome(), await harnessScriptEnv())(cwd, args),
     run: ghRunner(stub ? { command: stub, env: () => Promise.resolve(process.env) } : { env: async () => (await agentEnv()).env }),
+    health: appGithubHealth('gate queue'),
   })
   return shared
 }

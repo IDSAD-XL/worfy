@@ -11,12 +11,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { HealthReports } from '../../src/main/first-run/health-reports'
+import { githubHealth, type GithubHealth } from '../../src/main/github/github-health'
 import { INBOX_MAX_INTERVAL_MS, INBOX_SEARCH_INTERVAL_MS, PrInbox, remoteRepos, type PrInboxOptions, type PrInboxProject } from '../../src/main/github/inbox'
 import { PrInboxDigest } from '../../src/main/github/inbox-digest'
 import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
-import { prInboxHandlers } from '../../src/main/ipc/pr-inbox'
+import { accountOncePerProject, prInboxHandlers } from '../../src/main/ipc/pr-inbox'
 import { PR_INBOX_FILE, prInboxSetting } from '../../src/main/projects/pr-inbox-state'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
+import type { Check } from '../../src/shared/ipc/first-run'
 import { prInboxSnapshotSchema, type PrInboxSnapshot } from '../../src/shared/ipc/pr-inbox'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
@@ -931,5 +934,128 @@ describe('the prInbox IPC handlers', () => {
     expect(changed).toEqual(['p1', 'p1'])
     const unknown = await call('prInbox.markSeen', { projectId: 'p1', repo: API, number: 7 })
     expect(unknown.ok).toBe(false)
+  })
+})
+
+// worfy-auth-check ticket 07: a sign-in GitHub refused goes to Health check (src/main/github/github-health.ts) — the
+// Project's GitHub access row is out of `ok` at once, the snapshot's error is that row's reason and the view links
+// Health check; the next read that answers takes the row back. A known token the stand-in prints reaches no row, no
+// log and no error.
+describe('Health check (worfy-auth-check ticket 07)', () => {
+  /** A token in the shape GitHub gives one, which the stand-in prints with its refusal. */
+  const KNOWN_TOKEN = `ghp_${'K7'.repeat(18)}`
+
+  function healthOf(reports: HealthReports, p: TestProject): GithubHealth {
+    return githubHealth({ feature: 'PR inbox', reports, project: (root) => (root === p.root ? { id: p.id, name: 'Shop' } : undefined) })
+  }
+
+  it('a 401 puts the GitHub access row out of ok with the row reason in the snapshot; the next good read reports ok', async () => {
+    const gh = world([stubPull(API, 1)])
+    const p = project('p1', [API])
+    const reports = new HealthReports(() => clock)
+    const failure = vi.spyOn(reports, 'reportFailure')
+    const ok = vi.spyOn(reports, 'reportOk')
+    // The re-check of ticket 05 names whose token gh took: that reason replaces gh's words in the PR inbox.
+    let recheck: Check | null = null
+    reports.registerRecheck('github-access', async (asked) => {
+      recheck = { id: 'github-access', group: 'Projects', title: 'GitHub access', project: asked!, status: 'fail', severity: 'critical', detail: 'GH_TOKEN from the environment does not work (HTTP 401)', hint: 'Remove the variable', command: null, actions: [], opensFirstRun: false }
+      return recheck
+    })
+    const inbox = reader(gh, [p], { health: healthOf(reports, p) })
+    await inbox.tick()
+    expect(inbox.snapshot('p1')).toMatchObject({ error: null, signInFailed: false })
+    expect(failure).not.toHaveBeenCalled()
+    // A good read with no failure before it leaves the row alone.
+    expect(ok).not.toHaveBeenCalled()
+
+    writeFileSync(join(gh.dir, 'fail'), `gh: Bad credentials (HTTP 401) ${KNOWN_TOKEN}`)
+    clock += INBOX_SEARCH_INTERVAL_MS
+    await inbox.tick()
+    expect(failure).toHaveBeenCalledTimes(1)
+    expect(failure.mock.calls[0]![0]).toBe('github-access')
+    expect(failure.mock.calls[0]![1]).toEqual({ id: 'p1', name: 'Shop' })
+    expect(failure.mock.calls[0]![2]).toContain('PR inbox')
+    expect(failure.mock.calls[0]![2]).toContain('Bad credentials (HTTP 401)')
+    await vi.waitFor(() => expect(recheck).not.toBeNull())
+    const snapshot = prInboxSnapshotSchema.parse(inbox.snapshot('p1'))
+    expect(snapshot).toMatchObject({ signInFailed: true, error: 'GH_TOKEN from the environment does not work (HTTP 401)' })
+    expect(reports.current()!.checks.find((check) => check.id === 'github-access')).toMatchObject({ status: 'fail', project: { id: 'p1' } })
+
+    // The same failure again is not reported again: no second re-check for a view that asks every few seconds.
+    clock += 2 * INBOX_SEARCH_INTERVAL_MS
+    await inbox.tick()
+    expect(failure).toHaveBeenCalledTimes(1)
+
+    rmSync(join(gh.dir, 'fail'))
+    clock += INBOX_MAX_INTERVAL_MS
+    await inbox.tick()
+    expect(ok).toHaveBeenCalledTimes(1)
+    expect(ok).toHaveBeenCalledWith('github-access', { id: 'p1', name: 'Shop' })
+    expect(inbox.snapshot('p1')).toMatchObject({ error: null, signInFailed: false })
+    expect(reports.current()!.checks.find((check) => check.id === 'github-access')).toMatchObject({ status: 'ok' })
+  })
+
+  it('no network is not the sign-in: no report, no link', async () => {
+    const gh = world([stubPull(API, 1)])
+    const p = project('p1', [API])
+    const reports = new HealthReports(() => clock)
+    const failure = vi.spyOn(reports, 'reportFailure')
+    const inbox = reader(gh, [p], { health: healthOf(reports, p) })
+    // `auth token` is local and still answers: only the call to GitHub fails, as gh does without a network.
+    writeFileSync(join(gh.dir, 'offline'), '')
+    await inbox.tick()
+    expect(inbox.snapshot('p1')).toMatchObject({ signInFailed: false, error: expect.stringContaining('api.github.com') })
+    expect(failure).not.toHaveBeenCalled()
+  })
+
+  it('no gh login for the account is a sign-in failure too', async () => {
+    const gh = world([stubPull(API, 1)])
+    const p = project('p1', [API])
+    const reports = new HealthReports(() => clock)
+    const failure = vi.spyOn(reports, 'reportFailure')
+    const inbox = reader(gh, [p], { health: healthOf(reports, p), account: async () => 'dev-nobody' })
+    await inbox.tick()
+    expect(inbox.snapshot('p1').signInFailed).toBe(true)
+    expect(failure).toHaveBeenCalledTimes(1)
+    expect(failure.mock.calls[0]![2]).toContain('no gh login for dev-nobody')
+  })
+
+  it('no row, no log and no error carries the token the stand-in printed', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      const gh = world([stubPull(API, 1)])
+      const p = project('p1', [API])
+      const reports = new HealthReports(() => clock)
+      const sent: string[] = []
+      reports.subscribe((report) => void sent.push(JSON.stringify(report)))
+      const inbox = reader(gh, [p], { health: healthOf(reports, p) })
+      writeFileSync(join(gh.dir, 'fail'), `gh: Bad credentials (HTTP 401) ${KNOWN_TOKEN}\n${KNOWN_TOKEN}`)
+      await inbox.tick()
+      const everything = [JSON.stringify(inbox.snapshot('p1')), JSON.stringify(reports.current()), ...sent, ...warn.mock.calls.flat().map(String), ...error.mock.calls.flat().map(String)].join('\n')
+      expect(everything).toContain('Bad credentials')
+      expect(everything).not.toContain(KNOWN_TOKEN)
+    } finally {
+      warn.mockRestore()
+      error.mockRestore()
+    }
+  })
+
+  it('a Project without github.account: its reason goes to the log once per Project, until it changes', async () => {
+    const lines: string[] = []
+    const reasons: Record<string, string | null> = { '/p/a': 'the github.account field is not set', '/p/b': 'the github.account field is not set' }
+    const account = accountOncePerProject(async (root) => ({ account: null, reason: reasons[root] ?? null }), (line) => void lines.push(line))
+    for (let i = 0; i < 5; i++) {
+      expect(await account('/p/a')).toBeNull()
+      await account('/p/b')
+    }
+    expect(lines).toHaveLength(2)
+    expect(lines[0]).toContain('/p/a')
+    expect(lines[0]).toContain('github.account field is not set')
+    expect(lines[1]).toContain('/p/b')
+    reasons['/p/a'] = 'the Profile could not be read'
+    await account('/p/a')
+    await account('/p/a')
+    expect(lines).toHaveLength(3)
   })
 })

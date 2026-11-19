@@ -186,6 +186,12 @@ a notification read, push, or post anything without the click on **Send** or **S
 
 - "Next search in 4 min", or "Next search now" once the time has come; the tooltip has the time;
 - "The last read failed: <reason>" when the last read of GitHub failed, or when the reader waits for the rate limit;
+- "GitHub refused the sign-in: <reason>" and **Open Health check** when the read failed because GitHub refused gh's sign-in
+  (no gh login for `github.account`, HTTP 401, gh without any token, an organization's SAML enforcement). The reason is the one
+  of the Project's `GitHub access` row in Health check ([Gate and GitHub](gate-and-github.md#github-access)), which turns red at
+  once and is checked again; the line follows the row. **Open Health check** opens Settings → Health. The next read that
+  answers takes the row back to `ok`. A Project whose Profile names no `github.account` reads with gh's own account, and
+  main logs why once per Project;
 - the notice of the reader when it has one, for example "GitHub notifications unavailable for this token — checking
   every 5 minutes";
 - "Mark seen failed: <reason>" when main could not record a look.

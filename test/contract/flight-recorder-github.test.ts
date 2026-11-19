@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GithubReader, PR_FIELDS, repoPageUrl, RUN_FIELDS, type GithubRead } from '../../src/main/flight-recorder/github'
+import { githubHealth, type GithubHealth } from '../../src/main/github/github-health'
 import { accountAuth, ghRunner, PrTracker } from '../../src/main/github/prs'
 import { githubFacts, githubNoAnswer, type GithubFacts } from '../../src/shared/flight-recorder/from-github'
 import { parseJournal, walkRun } from '../../src/shared/flight-recorder/journal-walk.mjs'
@@ -63,7 +64,7 @@ const BRANCHES = TICKETS.map(({ branch }) => branch)
  * The stand-in behind the PR tracker as the app builds it: `ghRunner` with WORFY_GH, `accountAuth` with the
  * Project's account, and the reader on `PrTracker.gh`. `calls()` — what gh was run with, and the GH_TOKEN it had.
  */
-async function nightWorld(account: string = ACCOUNT) {
+async function nightWorld(account: string = ACCOUNT, health?: GithubHealth) {
   const dir = await realpath(await mkdtemp(join(tmpdir(), 'worfy-fr-gh-')))
   temps.push(dir)
   const log = join(dir, 'calls.jsonl')
@@ -72,7 +73,7 @@ async function nightWorld(account: string = ACCOUNT) {
   let now = Date.parse('2026-11-01T10:00:00Z')
   const run = ghRunner({ processEnv: { WORFY_GH: STAND_IN }, env: async () => ({ ...process.env, FR_GH_DIR: join(NIGHT, 'gh'), FR_GH_LOG: log, FR_GH_FAIL: failFile, FR_GH_ACCOUNT: ACCOUNT, FR_GH_TOKEN: TOKEN }) })
   const tracker = new PrTracker({ run, auth: accountAuth({ account: () => Promise.resolve(account), run }) })
-  const reader = new GithubReader({ gh: (root, args) => tracker.gh(root, args), now: () => now })
+  const reader = new GithubReader({ gh: (root, args) => tracker.gh(root, args), now: () => now, ...(health === undefined ? {} : { health }) })
   const calls = async (): Promise<{ token: string | null; args: string[] }[]> =>
     (await readFile(log, 'utf8'))
       .split('\n')
@@ -286,5 +287,47 @@ describe('the address of the repository page (repoPageUrl), for the PR and commi
     expect(repoPageUrl('/srv/git/worfy.git')).toBeNull()
     expect(repoPageUrl('')).toBeNull()
     expect(repoPageUrl('https://gitlab.example.com/group/sub/app.git')).toBeNull()
+  })
+})
+
+// worfy-auth-check ticket 07: a sign-in GitHub refused on a Flight recorder read goes to Health check; the next read
+// that answers takes the GitHub access row back.
+describe('Health check (worfy-auth-check ticket 07)', () => {
+  it('a 401 of gh reports the GitHub access row once; the read after it that answers reports ok', async () => {
+    const calls: string[] = []
+    let root = ''
+    const health = githubHealth({
+      feature: 'Flight recorder',
+      reports: { reportFailure: (id, project, reason) => void calls.push(`fail ${id} ${project?.id ?? '-'} ${reason}`), reportOk: (id, project) => void calls.push(`ok ${id} ${project?.id ?? '-'}`), current: () => null },
+      project: (folder) => (folder === root ? { id: 'night', name: 'night' } : undefined),
+    })
+    const world = await nightWorld(ACCOUNT, health)
+    root = world.root
+    await world.fail('gh: Bad credentials (HTTP 401)')
+    const failed = await world.reader.read(world.root, BRANCHES)
+    expect(failed.error).toContain('Bad credentials')
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatch(/^fail github-access night Flight recorder: /u)
+    expect(calls[0]).toContain('Bad credentials (HTTP 401)')
+    // «Retry» while it still fails: the same reason is not reported again.
+    await world.reader.read(world.root, BRANCHES, { retry: true })
+    expect(calls).toHaveLength(1)
+
+    await world.heal()
+    const answered = await world.reader.read(world.root, BRANCHES, { retry: true })
+    expect(answered.error).toBeNull()
+    expect(calls).toEqual([calls[0], 'ok github-access night'])
+  })
+
+  it('no network is not the sign-in: nothing is reported', async () => {
+    const calls: string[] = []
+    const health = githubHealth({
+      feature: 'Flight recorder',
+      reports: { reportFailure: () => void calls.push('fail'), reportOk: () => void calls.push('ok'), current: () => null },
+      project: () => ({ id: 'night', name: 'night' }),
+    })
+    const reader = new GithubReader({ gh: async () => Promise.reject(new Error('error connecting to api.github.com')), health })
+    expect((await reader.read('/projects/night', BRANCHES)).error).toContain('api.github.com')
+    expect(calls).toEqual([])
   })
 })

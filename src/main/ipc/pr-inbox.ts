@@ -12,6 +12,8 @@ import { prInboxChanged, prInboxDigest, prInboxDiscard, prInboxDrafts, prInboxGe
 import { prInboxDigestOf } from '../../shared/settings/app-settings'
 import { agentEnv } from '../agent/env'
 import { toEveryWindow } from '../broadcast'
+import { healthReports } from '../first-run/health-reports'
+import { appGithubHealth } from '../github/github-health'
 import { PrInbox, remoteRepos, type PrInboxProject } from '../github/inbox'
 import { PrInboxDigest } from '../github/inbox-digest'
 import { PrReplySender } from '../github/pr-reply-send'
@@ -24,7 +26,7 @@ import { prInboxSetting } from '../projects/pr-inbox-state'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import { projectLayouts } from '../workflow/folder'
-import { HARNESS_SCRIPT_TIMEOUT_MS, readGithubAccount, readProfileFolder, runHarnessScript } from '../workflow/profile'
+import { HARNESS_SCRIPT_TIMEOUT_MS, readGithubAccount, readProfileFolder, runHarnessScript, type GithubAccount } from '../workflow/profile'
 import { defineHandler, emit, type HandlerModule } from './index'
 
 /** The drafts of replies of a Project's PRs and their Send, by the Project's id. */
@@ -75,17 +77,36 @@ function appGh(): GhRunner {
   return ghRunner(stub ? { command: stub, env: () => Promise.resolve(process.env) } : { env: async () => (await agentEnv()).env })
 }
 
-/** The Project's GitHub account from its Profile, read again on each call; its reason for none left to the PR badges to log. */
-const projectAccount = async (root: string): Promise<string | null> => (await readGithubAccount({ root, claudeHome: claudeHome(), env: await harnessScriptEnv(), log: () => undefined })).account
+/**
+ * The Project's GitHub account, read again on each call (`read`); the reason for none goes to `log` once per Project
+ * until it changes (worfy-auth-check ticket 07), not on every read of the PR inbox and not never.
+ */
+export function accountOncePerProject(read: (root: string) => Promise<GithubAccount>, log: (message: string) => void = (message) => console.warn(message)): (root: string) => Promise<string | null> {
+  const last = new Map<string, string | null>()
+  return async (root) => {
+    const { account, reason } = await read(root)
+    if (last.get(root) !== reason) {
+      last.set(root, reason)
+      if (reason !== null) log(`[pr-inbox] ${root}: the PR inbox reads with gh's own account, because ${reason}`)
+    }
+    return account
+  }
+}
+
+/** The Project's GitHub account from its Profile, read again on each call; the reason for none is logged once per Project. */
+const projectAccount = accountOncePerProject(async (root) => readGithubAccount({ root, claudeHome: claudeHome(), env: await harnessScriptEnv(), log: () => undefined }))
 
 /** Those who follow the changes of the app's reader in main: the PR inbox notifications (src/main/notify.ts). */
 const changeListeners = new Set<(projectId: string) => void>()
 
 /**
- * The app's reader: gh of appGh, the account of the Project's Profile.
+ * The app's reader: gh of appGh, the account of the Project's Profile. A sign-in GitHub refused goes to Health check
+ * (worfy-auth-check ticket 07), and every change of Health check's report reaches the views of the Projects whose
+ * inbox shows such a failure: their error is the reason of the GitHub access row, which a re-check rewrites.
  */
 export function sharedPrInbox(): PrInbox {
-  shared ??= new PrInbox({
+  if (shared !== undefined) return shared
+  const reader = new PrInbox({
     run: appGh(),
     projects: machineProjects,
     enabled: (project) => prInboxSetting(project.dataDir),
@@ -97,8 +118,15 @@ export function sharedPrInbox(): PrInbox {
     },
     // GitHub's notifications as a trigger (ticket 08): its own poll interval while a worfy window has the focus.
     notifications: { focused: () => BrowserWindow.getFocusedWindow() !== null },
+    health: appGithubHealth('PR inbox'),
   })
-  return shared
+  shared = reader
+  healthReports().subscribe(() => {
+    for (const project of machineProjects()) {
+      if (reader.snapshot(project.id).signInFailed === true) toEveryWindow((client) => emit(client, prInboxChanged, { projectId: project.id }))
+    }
+  })
+  return reader
 }
 
 /**
@@ -111,6 +139,7 @@ export function sharedPrReplySender(): PrReplySender {
   sharedSender = new PrReplySender({
     run,
     account: projectAccount,
+    health: appGithubHealth('Send of replies'),
     // The reason for no folder goes to the view with the drafts, not to the log on each look.
     profileDir: async (root) => readProfileFolder({ root, claudeHome: claudeHome(), env: await harnessScriptEnv(), log: () => undefined }),
     repos: async (root) => remoteRepos(await repoFolders(root)),

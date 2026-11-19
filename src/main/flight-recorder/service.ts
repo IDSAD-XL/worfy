@@ -43,6 +43,7 @@ import type { RunAutoApproval, RunGithub, RunListItem, RunView } from '../../sha
 import type { PipelineStage } from '../../shared/workflow/pipeline'
 import { journalDir, listRuns, type RunSummary } from '../autopilot/journal'
 import { appNow } from '../clock'
+import type { GithubHealth } from '../github/github-health'
 import type { ClientId } from '../clients'
 import { readNewLines, type TailCursor } from '../claude-home/tail'
 import { marksInFile, gitRunner, type GitRunner } from '../workflow/stages'
@@ -90,6 +91,8 @@ export interface FlightRecorderOptions {
   profile: (root: string) => Promise<RunProfile>
   /** A read-only gh command in the Project's root as its account (PrTracker.gh of src/main/github/prs.ts). */
   gh: (root: string, args: readonly string[]) => Promise<string>
+  /** What gh's reads tell Health check (worfy-auth-check ticket 07, GithubReader); nothing by default. */
+  githubHealth?: GithubHealth
   /** Whether Autopilot works on this Epic of the Project now (running or waiting, not stopped); asked for each Epic of a Run's queue. */
   running: (projectId: string, epic: string) => boolean
   /** The branch of each Ticket of the Epic by number (the Ticket's `Branch:` line, else `<epic>/<NN>`). */
@@ -268,7 +271,7 @@ export class FlightRecorder {
     this.env = options.env ?? process.env
     this.now = options.now ?? appNow
     this.git = options.git ?? gitRunner
-    this.github = new GithubReader({ gh: options.gh, now: this.now })
+    this.github = new GithubReader({ gh: options.gh, now: this.now, ...(options.githubHealth === undefined ? {} : { health: options.githubHealth }) })
   }
 
   /** The Runs of the Project, newest first; with `epic`, those whose queue holds that Epic. */

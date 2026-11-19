@@ -1,7 +1,7 @@
 // The checks badges on Tickets and Sessions (src/renderer/canvas/badges/ChecksBadges.tsx and use-checks.ts, ticket 17):
 // what each subject shows from one `checks.get` snapshot, which Ticket branches the renderer asks
 // about, and that it asks again only while the window has focus.
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { ChecksSnapshot, ProjectRepos } from '../../src/shared/ipc/checks'
@@ -170,6 +170,38 @@ describe('ChecksBadges on a Ticket', () => {
     await vi.waitFor(() => expect(screen.getByTestId('t8').querySelector('[data-testid="checks-gh-unavailable"]')?.getAttribute('title')).toBe('gh not found (gh)'))
     expect(screen.getByTestId('t9').textContent).toBe('')
     expect(container.querySelectorAll('[data-testid="checks-gh-unavailable"]')).toHaveLength(1)
+  })
+
+  // worfy-auth-check ticket 07: GitHub refused the sign-in — the chip's card says the reason of the Project's GitHub
+  // access row in one line, and "Open Health check" opens Settings on Health.
+  it('a refused sign-in is the chip «GitHub sign-in»: its card holds one line of reason and «Open Health check»', async () => {
+    const reason = 'GH_TOKEN from the environment does not work (HTTP 401)'
+    snapshot = { ...snapshot, pulls: [], gh: { available: false, error: reason, intervalMs: 120_000, signInFailed: true } }
+    const { useSettingsWindow } = await import('../../src/renderer/settings/settings-window')
+    useSettingsWindow.setState({ open: false, section: null })
+    const { default: ChecksBadges } = await load()
+    render(<ChecksBadges subject={ticketSubject(8)} />)
+    const chip = await screen.findByTestId('checks-gh-unavailable')
+    expect(chip.dataset.value).toBe('sign-in')
+    expect(chip.textContent).toBe('GitHub sign-in')
+    expect(chip.getAttribute('aria-label')).toBe(`GitHub sign-in failed: ${reason}`)
+    expect(screen.getByTestId('checks-badges').getAttribute('title')).toBe('GitHub sign-in failed')
+    // The keyboard focus opens the card at once, as the pointer does after its rest.
+    act(() => chip.focus())
+    const card = await screen.findByTestId('checks-sign-in-card')
+    expect(within(card).getByTestId('checks-sign-in-reason').textContent).toBe(reason)
+    fireEvent.click(within(card).getByRole('button', { name: 'Open Health check' }))
+    expect(useSettingsWindow.getState()).toEqual({ open: true, section: 'HealthSection' })
+  })
+
+  it('gh failing for another reason stays «gh unavailable» with its reason as the tooltip, no card', async () => {
+    snapshot = { ...snapshot, pulls: [], gh: { available: false, error: 'error connecting to api.github.com', intervalMs: 120_000 } }
+    const { default: ChecksBadges } = await load()
+    render(<ChecksBadges subject={ticketSubject(8)} />)
+    const chip = await screen.findByTestId('checks-gh-unavailable')
+    expect(chip.textContent).toBe('gh unavailable')
+    expect(chip.getAttribute('title')).toBe('error connecting to api.github.com')
+    expect(screen.queryByTestId('checks-sign-in-card')).toBeNull()
   })
 })
 

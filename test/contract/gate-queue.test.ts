@@ -4,6 +4,7 @@
 // functions here: no script, no gh and no network run.
 import { describe, expect, it } from 'vitest'
 import { GATE_QUEUE_INTERVAL_MS, GateQueueReader, waitingPrs, type QueuePr } from '../../src/main/github/gate-queue'
+import { githubHealth, type GithubHealth } from '../../src/main/github/github-health'
 import type { GhEnv } from '../../src/main/github/prs'
 import type { ProfileRun } from '../../src/main/workflow/profile'
 
@@ -89,7 +90,7 @@ interface Harness {
 }
 
 /** A reader over a fake bin/profile (`gate`: the printed cross_machine_gate, or an exit code) and a fake gh. */
-function harness(gate: unknown, options: { ghFails?: () => boolean; account?: string | null; prs?: unknown } = {}): Harness {
+function harness(gate: unknown, options: { ghFails?: () => boolean; ghError?: () => string | null; authError?: string; account?: string | null; prs?: unknown; health?: GithubHealth } = {}): Harness {
   let now = NOW
   const gh: Harness['gh'] = []
   const profile: Harness['profile'] = []
@@ -100,6 +101,7 @@ function harness(gate: unknown, options: { ghFails?: () => boolean; account?: st
     env: () => Promise.resolve({ PATH: '/bin' }),
     now: () => now,
     log: (line) => logs.push(line),
+    ...(options.health === undefined ? {} : { health: options.health }),
     profile: (cwd, args) => {
       profile.push(args)
       expect(cwd).toBe(ROOT)
@@ -110,8 +112,10 @@ function harness(gate: unknown, options: { ghFails?: () => boolean; account?: st
     },
     run: (args, cwd, env) => {
       gh.push({ args, cwd, env })
-      if (args[0] === 'auth') return Promise.resolve('gho_mac_token\n')
+      if (args[0] === 'auth') return options.authError === undefined ? Promise.resolve('gho_mac_token\n') : Promise.reject(new Error(options.authError))
       if (options.ghFails?.() === true) return Promise.reject(new Error('HTTP 502: Bad Gateway (https://api.github.com/graphql)'))
+      const error = options.ghError?.() ?? null
+      if (error !== null) return Promise.reject(new Error(error))
       return Promise.resolve(JSON.stringify(options.prs ?? THREE))
     },
   })
@@ -250,5 +254,48 @@ describe('the read of the queue', () => {
     const [a, b] = await Promise.all([h.reader.read(ROOT), h.reader.read(ROOT)])
     expect(a).toBe(b)
     expect(prLists(h)).toHaveLength(1)
+  })
+})
+
+// worfy-auth-check ticket 07: a sign-in GitHub refused goes to Health check, the next answer takes it back.
+describe('Health check (worfy-auth-check ticket 07)', () => {
+  function recorder(): { calls: string[]; health: GithubHealth } {
+    const calls: string[] = []
+    const health = githubHealth({
+      feature: 'gate queue',
+      reports: { reportFailure: (id, project, reason) => void calls.push(`fail ${id} ${project?.id ?? '-'} ${reason}`), reportOk: (id, project) => void calls.push(`ok ${id} ${project?.id ?? '-'}`), current: () => null },
+      project: (root) => (root === ROOT ? { id: 'worfy-1', name: 'worfy' } : undefined),
+    })
+    return { calls, health }
+  }
+
+  it('a 401 of gh pr list reports the GitHub access row; the next good read reports ok, once', async () => {
+    const { calls, health } = recorder()
+    let error: string | null = 'gh: Bad credentials (HTTP 401)'
+    const h = harness(GATE, { health, ghError: () => error })
+    expect((await h.reader.read(ROOT)).gh).toEqual({ state: 'failed', reason: 'gh: Bad credentials (HTTP 401)' })
+    expect(calls).toEqual(['fail github-access worfy-1 gate queue: gh: Bad credentials (HTTP 401)'])
+    error = null
+    h.wait(2 * GATE_QUEUE_INTERVAL_MS)
+    expect((await h.reader.read(ROOT)).gh).toEqual({ state: 'ok' })
+    h.wait(GATE_QUEUE_INTERVAL_MS)
+    await h.reader.read(ROOT)
+    expect(calls).toEqual(['fail github-access worfy-1 gate queue: gh: Bad credentials (HTTP 401)', 'ok github-access worfy-1'])
+  })
+
+  it('no gh login for the account is reported with the account named', async () => {
+    const { calls, health } = recorder()
+    // `gh auth token -u mac-bot` fails: accountAuth names the account.
+    const h = harness(GATE, { health, account: 'mac-bot', authError: 'no oauth token found for github.com account mac-bot' })
+    expect((await h.reader.read(ROOT)).gh.state).toBe('failed')
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toContain('no gh login for mac-bot')
+  })
+
+  it('a 502 of GitHub is not the sign-in: nothing is reported', async () => {
+    const { calls, health } = recorder()
+    const h = harness(GATE, { health, ghFails: () => true })
+    expect((await h.reader.read(ROOT)).gh.state).toBe('failed')
+    expect(calls).toEqual([])
   })
 })

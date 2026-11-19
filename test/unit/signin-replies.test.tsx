@@ -14,7 +14,7 @@ const SIGN_IN = 'signin-view-1'
 
 const xterms = vi.hoisted(() => [] as XtermTerminal[])
 /** What `projects.connect.signIn` answers: the kept output of the sign-in and the sizes of the pty it came at. */
-const opened = vi.hoisted(() => ({ replay: '', sizes: undefined as { at: number; cols: number; rows: number }[] | undefined, exited: null as { exitCode: number } | null }))
+const opened = vi.hoisted(() => ({ replay: '', sizes: undefined as { at: number; cols: number; rows: number }[] | undefined, exited: null as { exitCode: number } | null, blocked: undefined as { variables: string[]; command: string; why: string } | undefined }))
 /** Every non-empty text handed to xterm.js, with the size the terminal had then. */
 const writes = vi.hoisted(() => [] as { data: string; cols: number; rows: number }[])
 /** Runs once, right after the next write of a non-empty text is handed to xterm.js and before xterm.js parses it. */
@@ -57,7 +57,7 @@ vi.mock('@xterm/xterm/css/xterm.css', () => ({}))
 vi.mock('../../src/renderer/ipc', () => ({
   invoke: (channel: string, input: unknown) => {
     wire.calls.push({ channel, input })
-    if (channel === 'projects.connect.signIn') return Promise.resolve({ ok: true, value: { replay: opened.replay, end: opened.replay.length, sizes: opened.sizes, exited: opened.exited } })
+    if (channel === 'projects.connect.signIn') return Promise.resolve({ ok: true, value: { replay: opened.replay, end: opened.replay.length, sizes: opened.sizes, exited: opened.exited, ...(opened.blocked === undefined ? {} : { blocked: opened.blocked }) } })
     return Promise.resolve({ ok: true, value: undefined })
   },
   invokeOn: () => Promise.resolve({ ok: false, error: 'not served here' }),
@@ -75,6 +75,7 @@ beforeEach(() => {
   opened.replay = ''
   opened.sizes = undefined
   opened.exited = null
+  opened.blocked = undefined
   writes.length = 0
   whileParsing.run = null
   wire.calls.length = 0
@@ -180,6 +181,29 @@ describe('the kept output of the sign-in view (worfy-windows ticket 89)', () => 
     if (xterm === undefined) throw new Error('no xterm.js')
     act(() => xterm.input('x'))
     await act(() => new Promise<void>((resolve) => xterm.write('', resolve)))
+    expect(inputs()).toEqual([])
+  })
+})
+
+// worfy-auth-check ticket 07 (the owner's decision Q5): GH_TOKEN or GITHUB_TOKEN in gh's environment overrides any
+// account gh would store, so main starts no sign-in; the box says why and shows the command that removes it.
+describe('the sign-in with a token variable set (worfy-auth-check ticket 07)', () => {
+  it('starts nothing: the box says why and shows the command, to copy; no key goes to main', async () => {
+    const command = 'launchctl unsetenv GH_TOKEN'
+    opened.blocked = { variables: ['GH_TOKEN'], command, why: 'GH_TOKEN is set in the environment worfy runs gh with. gh uses it over every account it stores.' }
+    const writeText = vi.fn(() => Promise.resolve())
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+    render(<SignInTerminal signInId={SIGN_IN} onExit={() => undefined} onClose={() => undefined} />)
+    await waitFor(() => expect(screen.getByTestId('connect-signin').dataset.state).toBe('blocked'))
+    expect(screen.getByTestId('connect-signin-status').textContent).toBe('Not started: GH_TOKEN overrides it')
+    expect(screen.getByTestId('connect-signin-status').getAttribute('role')).toBe('alert')
+    expect(screen.getByTestId('connect-signin-why').textContent).toContain('gh uses it over every account it stores')
+    expect(screen.getByTestId('connect-signin-command').textContent).toBe(command)
+    expect(screen.getByTestId('connect-signin-terminal').style.display).toBe('none')
+    await act(async () => screen.getByRole('button', { name: 'Copy' }).click())
+    expect(writeText).toHaveBeenCalledWith(command)
+    expect(screen.getByRole('button', { name: 'Copied' })).toBeTruthy()
+    act(() => xterms.at(-1)?.input('x'))
     expect(inputs()).toEqual([])
   })
 })

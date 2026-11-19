@@ -1,9 +1,13 @@
+import { useState } from 'react'
 import { checksSourcesOfTicket, pullOfTicket, worktreeOfCwd, worktreeOfTicket, type GateOutcome, type ProjectRepoView, type PullRequest, type WorktreeChecks } from '../../../shared/ipc/checks'
 import { TEMP_FOLDER_LABEL, TEMP_FOLDER_WARNING } from '../../../shared/temp-folder'
 import type { Ticket } from '../../../shared/workflow/types'
 import { useClaudeHome } from '../../claude-home/useClaudeHome'
+import { openHealthCheck } from '../../settings/settings-window'
 import { useWorkflow } from '../../workflow/useWorkflow'
+import { Button } from '../../theme/Button'
 import { Chip, type Status } from '../../theme/Chip'
+import { PreviewCard } from '../../theme/kit/PreviewCard'
 import type { SlotProps } from './index'
 import { useChecks, useProjectRepos } from './use-checks'
 import '../epic-frame.css'
@@ -18,6 +22,10 @@ import './checks-badges.css'
 // several repositories (ADR-0104) has a row of badges per repository its `Repo:` lines name, each
 // from that repository's copy and led by its name; nothing is summed across them. Colours are the
 // ready / working / blocked tokens, always with a label.
+//
+// gh failing because GitHub refused its sign-in (worfy-auth-check ticket 07, `gh.signInFailed`) shows the chip
+// "GitHub sign-in" in place of "gh unavailable": the card under the pointer or the focus says the reason of the
+// Project's GitHub access row in one line, with "Open Health check".
 
 export const order = 10
 
@@ -70,13 +78,46 @@ function PullBadges({ pull }: { pull: PullRequest }) {
   )
 }
 
+/** The chip of a sign-in GitHub refused: its card holds the reason in one line and "Open Health check". */
+function SignInBadge({ reason }: { reason: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <PreviewCard
+      open={open}
+      onOpenChange={setOpen}
+      label="GitHub sign-in"
+      testId="checks-sign-in-card"
+      className="w-checks-sign-in"
+      trigger={
+        <button type="button" className="w-badge-button nodrag" data-testid="checks-gh-unavailable" data-value="sign-in" aria-label={`GitHub sign-in failed: ${reason}`}>
+          <Chip variant="blocked" label="GitHub sign-in" />
+        </button>
+      }
+    >
+      <p className="w-checks-sign-in__reason" data-testid="checks-sign-in-reason">
+        {reason}
+      </p>
+      <Button
+        variant="link"
+        data-testid="checks-health"
+        onClick={() => {
+          setOpen(false)
+          openHealthCheck()
+        }}
+      >
+        Open Health check
+      </Button>
+    </PreviewCard>
+  )
+}
+
 /** Everything the row shows, in one line for its tooltip. */
-function summary(worktree: WorktreeChecks | null, pull: PullRequest | null, unavailable: boolean): string {
+function summary(worktree: WorktreeChecks | null, pull: PullRequest | null, unavailable: boolean, signIn = false): string {
   const parts: string[] = []
   if (worktree) parts.push(worktree.gate.outcome === 'none' ? 'gate: no data' : GATE[worktree.gate.outcome].label)
   if (worktree?.insideTemp) parts.push(TEMP_FOLDER_LABEL)
   if (pull) parts.push(`PR #${pull.number} ${pull.state.toLowerCase()}`, ...(pull.ci ? [`CI ${pull.ci}`] : []), ...(pull.verdict ? [pull.verdict] : []))
-  if (unavailable) parts.push('gh unavailable')
+  if (unavailable) parts.push(signIn ? 'GitHub sign-in failed' : 'gh unavailable')
   return parts.join(' · ')
 }
 
@@ -94,7 +135,8 @@ function TicketChecksIn({ root, ticket, repo, label }: { root: string; ticket: T
   const unavailable = !snapshot.gh.available && candidate
   if (!worktree && !pull && !unavailable) return null
   const name = label && repo !== undefined ? repo.name : null
-  const line = summary(worktree, pull, unavailable)
+  const signIn = unavailable && snapshot.gh.signInFailed === true
+  const line = summary(worktree, pull, unavailable, signIn)
   return (
     <span className="w-checks" data-testid="checks-badges" data-repo={name ?? undefined} title={name === null ? line : `${name}: ${line}`}>
       {name !== null ? (
@@ -105,7 +147,7 @@ function TicketChecksIn({ root, ticket, repo, label }: { root: string; ticket: T
       {worktree ? <GateBadge outcome={worktree.gate.outcome} path={worktree.path} /> : null}
       {worktree?.insideTemp ? <TempBadge path={worktree.path} /> : null}
       {pull ? <PullBadges pull={pull} /> : null}
-      {unavailable ? <Neutral label="gh unavailable" title={snapshot.gh.error ?? undefined} testId="checks-gh-unavailable" /> : null}
+      {signIn ? <SignInBadge reason={snapshot.gh.error ?? 'GitHub refused the sign-in'} /> : unavailable ? <Neutral label="gh unavailable" title={snapshot.gh.error ?? undefined} testId="checks-gh-unavailable" /> : null}
     </span>
   )
 }

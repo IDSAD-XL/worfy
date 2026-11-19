@@ -470,6 +470,7 @@ Epic frame shows none. Chips wrap onto a second line and are not cut. The colour
 | `CI passing`, `CI failing`, `CI running` | Ticket | The checks of the PR. No chip when the PR has none. |
 | `VERIFIED`, `REJECTED` | Ticket | The reviewer's verdict on the head commit. No chip when there is none. |
 | `gh unavailable` | Ticket | gh did not answer. The tooltip has the reason. |
+| `GitHub sign-in` | Ticket | GitHub refused gh's sign-in. Its card has the reason in one line and **Open Health check**. |
 | `in %TEMP%` | Ticket, Session | The worktree lies in the Windows temporary folder. The tooltip has the warning and the path. |
 | `3 open threads`, `1 open thread` | Ticket | Review threads on the Ticket's PRs that wait for the user's answer, from the [PR inbox](pr-inbox.md). |
 | `changes requested` | Ticket | A PR of the Ticket has the review decision `CHANGES_REQUESTED`, from the PR inbox. |
@@ -515,6 +516,11 @@ failed review does not turn CI red.
 was claimed in a branch, and a Ticket with none of these shows nothing. While it lasts, no Ticket has PR chips. The first success brings
 them back.
 
+**`GitHub sign-in`.** In place of `gh unavailable` when GitHub refused gh's sign-in: no gh login for `github.account`, a token that
+does not work (HTTP 401), gh without any token, or an organization's SAML enforcement. The pointer resting on the chip, or the
+keyboard focus, opens a card with one line — the reason of the Project's [GitHub access](#github-access) row — and
+**Open Health check**, which opens Settings → Health. The failure goes to Health check too.
+
 **How fresh.** The renderer asks when the first badge of a Project appears, when the set of Ticket branches in work changes, when the
 window gets focus, and every 10 seconds while the window has focus. It stops when the last badge of the Project is gone. Each answer
 reads the Gate's files and `git worktree list` again, while main lists the PRs with gh at most once per 60 seconds per folder asked,
@@ -534,7 +540,7 @@ the Project root in every case. In Silent mode a Ticket's `Branch:` line ties it
 
 **The GitHub account.** When the Profile names `github.account`, every gh call of a read runs as that account, and the global gh account
 is never switched. Without an account, or with a value that is not a GitHub login, gh runs with the account of the login shell. An account
-that gh has no sign-in for gives `gh unavailable`, with a tooltip that names it and `gh auth login`, and never falls back to another
+that gh has no sign-in for gives the `GitHub sign-in` chip, whose card names it, and never falls back to another
 account. An edited Profile counts from the next read that runs gh.
 
 **Review threads.** The chips `N open threads` and `changes requested` come from the Project's PR inbox snapshot, not
@@ -719,6 +725,15 @@ than five minutes. It reads the Profile's `github.account`, takes that account's
 | No access (HTTP 404, another 4xx but a 403 of the rate limit) | fail: `no access to <repo> as <login>` | critical | `Use <login>` when another login may push |
 | No network, a timeout, GitHub 5xx or its rate limit (429, or a 403 with `Retry-After`, under 10 % of the limit left, or a message that names a rate limit, as the PR inbox reads it) | unknown: `Couldn't check: <reason>` | non-critical | — |
 
+**A feature's failure.** The PR inbox, the PR badges, the gate queue, Flight recorder, the probe of the review offer and Send of
+the drafts of replies tell Health check when GitHub refuses their sign-in: no gh login for `github.account`, HTTP 401, gh
+without any token, an organization's SAML enforcement. Send also does when the Profile names no `github.account`. The
+Project's row turns `fail` at once, with the feature's name and gh's first line, before any check runs, so the Health check
+icon turns red with no call to GitHub. Then the row is checked again, and its reason is what the PR inbox and the PR badge
+show. A feature tells the same failure once; its first answer after it takes the row back to `ok`. No network, a timeout,
+GitHub 5xx and its rate limit are not the sign-in's fault and change no row. There is no toast and no notification: only the
+icon and the line at the place of the failure.
+
 A Profile that cannot be read leaves gh going as without an account; when gh works so, the warn row says the Profile could not be read, and offers no `Use <login>`. A row of a Project never opens First
 run at the start; the Health check icon tells about it.
 
@@ -751,8 +766,12 @@ or, when `GH_TOKEN` stands in the way, unsets it so gh uses the login of its key
 | The rows `GitHub accounts` and `GitHub access`, the one login with push | `src/main/first-run/checks.ts` |
 | `Use <login>` | `src/main/first-run/actions.ts`, `src/renderer/shell/FirstRunChecks.tsx` |
 | The network rows and their re-check, the gh of the rows, `bin/profile-set` | `src/main/ipc/first-run.ts` |
+| What the features tell Health check: a refused sign-in, the answer after it | `src/main/github/github-health.ts` |
 | The IPC contract | `src/shared/ipc/first-run.ts` |
 
 **Main tests.** `test/contract/health-github-access.test.ts`: the cases of the table on the gh stand-in, `Use <login>` through a
 recording `bin/profile-set`, `GitHub accounts` with `GH_TOKEN`, and a known token looked for in every row, message and log line.
 `test/unit/auth-diagnosis.test.ts` and `test/unit/gh-auth-text.test.ts`: the answers gh 2.97 printed, in `test/fixtures/gh-auth/`.
+`test/unit/github-health.test.ts`: which reasons are a refused sign-in. A feature's message: `test/contract/pr-inbox.test.ts`,
+`test/contract/gate-queue.test.ts`, `test/contract/flight-recorder-github.test.ts`, `test/contract/pr-inbox-send.test.ts`,
+`test/contract/review-offer.test.ts`, `test/unit/read-checks.test.ts`.

@@ -15,6 +15,7 @@
 //   of ticket 17) reads at once.
 import { GH_APP_FIELDS, GH_RUN_FIELDS } from '../../shared/flight-recorder/pr-facts.mjs'
 import type { GithubAnswer, GithubPr, GithubRun } from '../../shared/flight-recorder/from-github'
+import { NO_GITHUB_HEALTH, type GithubHealth } from '../github/github-health'
 import { BASE_INTERVAL_MS } from '../github/prs'
 
 export const GITHUB_READ_INTERVAL_MS = BASE_INTERVAL_MS
@@ -39,6 +40,11 @@ export interface GithubReaderOptions {
   gh: (root: string, args: readonly string[]) => Promise<string>
   now?: () => number
   intervalMs?: number
+  /**
+   * What a read tells Health check (worfy-auth-check ticket 07): a sign-in GitHub refused puts the Project's GitHub
+   * access row out of `ok`, the next read that answers takes it back. Nothing by default.
+   */
+  health?: GithubHealth
 }
 
 interface Entry {
@@ -72,10 +78,12 @@ export class GithubReader {
   private readonly entries = new Map<string, Entry>()
   private readonly now: () => number
   private readonly interval: number
+  private readonly health: GithubHealth
 
   constructor(private readonly options: GithubReaderOptions) {
     this.now = options.now ?? Date.now
     this.interval = options.intervalMs ?? GITHUB_READ_INTERVAL_MS
+    this.health = options.health ?? NO_GITHUB_HEALTH
   }
 
   /**
@@ -116,8 +124,10 @@ export class GithubReader {
           prs.push({ ...pr, ciRuns, mergeRuns })
         }
       }
+      this.health.answered(root)
       return { answer: { prs }, error: null, at }
     } catch (error) {
+      this.health.failed(root, messageOf(error))
       return { answer: null, error: messageOf(error), at }
     }
   }

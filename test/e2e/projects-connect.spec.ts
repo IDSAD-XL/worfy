@@ -252,7 +252,8 @@ test('the GitHub account: the active account with access by default, "Sign in wi
   writeFileSync(join(ghDir, 'login.json'), JSON.stringify({ login: 'carol', token: 'gho_carol_E2E_SECRET' }))
   const ghLog = join(scratch, 'gh-calls.jsonl')
 
-  const launched = await launchApp({ env: { WORFY_CLAUDE: claudeStub(), STUB_PLUGIN_VERSION: bundledVersion(), GH_STUB_DIR: ghDir, GH_STUB_LOG: ghLog } })
+  // A token variable of the developer's own shell would stop the sign-in before it starts (worfy-auth-check ticket 07): empty, as gh reads it.
+  const launched = await launchApp({ env: { WORFY_CLAUDE: claudeStub(), STUB_PLUGIN_VERSION: bundledVersion(), GH_STUB_DIR: ghDir, GH_STUB_LOG: ghLog, GH_TOKEN: '', GITHUB_TOKEN: '' } })
   try {
     const harnessHome = harnessFor(launched)
     const dialog = await toForm(launched, shop)
