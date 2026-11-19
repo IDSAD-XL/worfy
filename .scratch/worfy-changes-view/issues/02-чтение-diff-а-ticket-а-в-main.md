@@ -58,21 +58,27 @@ Windows runner-е CI. Глубина ревью — `high`: чтение ряд�
 - [ ] Unit test-ы (`test/unit/changes-parse.test.ts`): rename, binary, «No newline at end of file», CRLF, пути с
       пробелами и не-ASCII, свёрнутый большой и lock-файл.
   - evidence: test-run pass · `pnpm test test/unit/changes-parse.test.ts` exit 0 · mac - · 18defe1ba882e1530fb326028f3018775608a174
+  - evidence: test-run pass · `pnpm test test/unit/changes-parse.test.ts` exit 0 · mac - · 1f0132f12e24fb49a2679caca52aadfc3aa536e9
 - [ ] Unit test-ы (`test/unit/changes-base.test.ts`): база по `worktree.base`, по запасному порядку, без `origin` с
       `local-green`.
   - evidence: test-run pass · `pnpm test test/unit/changes-base.test.ts` exit 0 · mac - · 18defe1ba882e1530fb326028f3018775608a174
+  - evidence: test-run pass · `pnpm test test/unit/changes-base.test.ts` exit 0 · mac - · 1f0132f12e24fb49a2679caca52aadfc3aa536e9
 - [ ] Contract test (`test/contract/changes-read.test.ts`, временный репозиторий, `NO_GIT_MAINTENANCE` —
       `test/git-env.ts:14`): worktree против merge-base с новыми файлами, Commit, Uncommitted, Compare against; Ticket
       в двух репозиториях.
   - evidence: test-run pass · `pnpm test test/contract/changes-read.test.ts` exit 0 · mac - · 18defe1ba882e1530fb326028f3018775608a174
+  - evidence: test-run pass · `pnpm test test/contract/changes-read.test.ts` exit 0 · mac - · 1f0132f12e24fb49a2679caca52aadfc3aa536e9
 - [ ] Contract test: после всех чтений байты и mtime `.git/index` прежние, новых refs и объектов нет.
   - evidence: test-run pass · `pnpm test test/contract/changes-read.test.ts` exit 0 · mac - · 18defe1ba882e1530fb326028f3018775608a174
+  - evidence: test-run pass · `pnpm test test/contract/changes-read.test.ts` exit 0 · mac - · 1f0132f12e24fb49a2679caca52aadfc3aa536e9
 - [ ] Те же contract test-ы зелёные на Windows runner-е CI.
 - [ ] Новый ADR влит; в контексте — «решено без владельца 2026-11-19, подтвердить».
 - [ ] Английская страница `docs/features/changes.md` описывает чтение; `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 18defe1ba882e1530fb326028f3018775608a174
+  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 1f0132f12e24fb49a2679caca52aadfc3aa536e9
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 18defe1ba882e1530fb326028f3018775608a174
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 1f0132f12e24fb49a2679caca52aadfc3aa536e9
 
 ## Где в коде
 
