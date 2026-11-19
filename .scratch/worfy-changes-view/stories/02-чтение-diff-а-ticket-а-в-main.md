@@ -13,30 +13,33 @@ Kind: pr · Epic: worfy-changes-view · Ticket: 02 · PR: - · Language: ru
 
 ## 2. Каждый запуск git — без записи
 
-Code: `src/main/changes/git.ts:63-67` · key lines: 64, 67
+Code: `src/main/changes/git.ts:73-77` · key lines: 74, 77
 
 ```ts
 /** `-c` settings of every run (see the top of the file). */
 export const READ_CONFIG = ['-c', 'core.quotePath=false', '-c', 'diff.autoRefreshIndex=false', '-c', 'core.fsmonitor=false'] as const
 
 /** The environment of every run on top of main's own. */
-export const READ_ENV = { GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' } as const
+export const READ_ENV = { GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0', GIT_LITERAL_PATHSPECS: '1' } as const
 ```
 
 - Что делает: добавляет к каждому запуску git настройки и окружение, при которых чтение не пишет в репозиторий:
-  `diff.autoRefreshIndex=false`, `core.fsmonitor=false`, `GIT_OPTIONAL_LOCKS=0`, `GIT_TERMINAL_PROMPT=0`, и
-  `core.quotePath=false` для путей не-ASCII.
+  `diff.autoRefreshIndex=false`, `core.fsmonitor=false`, `GIT_OPTIONAL_LOCKS=0`, `GIT_TERMINAL_PROMPT=0`,
+  `GIT_LITERAL_PATHSPECS=1` (путь после `--` — путь, не шаблон), и `core.quotePath=false` для путей не-ASCII.
 - Почему здесь: Ticket называет новый файл `src/main/changes/git.ts` — свой запуск git. `diff.autoRefreshIndex=false`
   в Ticket-е нет: опыт на git 2.50 показал, что `GIT_OPTIONAL_LOCKS=0 git diff HEAD` всё равно переписывает
-  `.git/index`, когда у файла сменился stat при том же тексте (ADR-0110, пункт 2).
+  `.git/index`, когда у файла сменился stat при том же тексте (ADR-0110, пункт 2). `GIT_LITERAL_PATHSPECS=1` добавлен
+  во втором раунде по замечанию verifier-а.
 - Без него: без `diff.autoRefreshIndex=false` contract test «wrote nothing into the repository» красный — проверено,
-  убрав настройку: index worktree-а меняется после чтения.
+  убрав настройку: index worktree-а меняется после чтения. Без любой другой настройки или переменной красный unit test
+  `test/unit/changes-git.test.ts` (точный список аргументов и окружения), проверено мутантами.
 - Требование: [Что делаем, п. 1](../issues/02-чтение-diff-а-ticket-а-в-main.md#что-делаем)
-- Риски и пробелы test-ов: на Windows проверка идёт только в CI (job windows); локально её не запускали.
+- Риски и пробелы test-ов: на Windows проверка идёт только в CI (job windows); локально её не запускали. Clean filter
+  из `.gitattributes` у `git diff` против рабочего дерева выключить нечем — это записано в ADR-0110, пункт 2.
 
-## 3. Список команд и отказ до запуска
+## 3. Список команд, одна форма и отказ до запуска процесса
 
-Code: `src/main/changes/git.ts:72-92` · key lines: 74, 78, 81
+Code: `src/main/changes/git.ts:84-95` · key lines: 86, 90, 91, 92
 
 ```ts
 /** Why `args` are refused, or null when they only read. Only the part before `--` is options; paths after it are not looked at. */
@@ -46,36 +49,29 @@ export function refusal(args: readonly string[]): string | null {
   const end = rest.indexOf('--')
   const options = end === -1 ? rest : rest.slice(0, end)
   if (options.some((arg) => arg.startsWith('--output') || arg === '-o')) return `git ${command} with --output writes a file`
-  switch (command) {
-    case 'hash-object':
-      if (options.some((arg) => arg === '-w' || arg === '--write' || /^-[^-]*w/u.test(arg))) return 'git hash-object -w writes an object'
-      return null
-    case 'cat-file':
-      return options[0] === '-e' || options[0] === '-s' ? null : 'git cat-file is run only with -e or -s'
-    case 'ls-files':
-      return options.includes('--others') && options.includes('--exclude-standard') ? null : 'git ls-files is run only with --others --exclude-standard'
-    case 'worktree':
-      return options[0] === 'list' ? null : 'git worktree is run only as worktree list'
-    default:
-      return null
-  }
+  const exact = EXACT_FORMS[command]
+  if (exact !== undefined) return sameArgs(rest, exact) ? null : `git ${command} is run only as git ${command} ${exact.join(' ')}${command === 'hash-object' ? ' (never -w)' : ''}`
+  if (command === 'cat-file') return rest.length === 2 && (rest[0] === '-e' || rest[0] === '-s') && !rest[1]!.startsWith('-') ? null : 'git cat-file is run only as cat-file -e <object> or cat-file -s <object>'
+  return null
 }
 ```
 
-- Что делает: пропускает только команды из `READ_COMMANDS`; отказывает `--output` у любой команды, `hash-object -w`,
-  `cat-file` без `-e`/`-s`, `ls-files` без `--others --exclude-standard`, `worktree` кроме `list`. Пути после `--` не
-  разбираются: файл с именем `--output=x` не мешает.
+- Что делает: пропускает только команды из `READ_COMMANDS`; отказывает `--output` и `-o` у любой команды;
+  `ls-files`, `hash-object` и `worktree` проходят только в одной форме из `EXACT_FORMS` (`worktree list --porcelain`,
+  `hash-object --no-filters --stdin-paths`), `cat-file` — только `-e`/`-s` одного объекта. Отказ возвращается до
+  запуска процесса: runner выходит сразу после ответа с отказом.
 - Почему здесь: список команд — Ticket, «Что делаем», п. 1. Три лишние команды (`check-attr`, `rev-parse`,
   `worktree list`) добавлены implementer-ом: атрибут `linguist-generated` и поиск worktree-а Ticket-а через reader
-  workflow без них не прочитать; они только читают (ADR-0110, пункт 1).
-- Без него: новая команда, которая пишет, прошла бы без ревью ADR.
+  workflow без них не прочитать (ADR-0110, пункт 1). Одна форма вместо «любой, кроме пишущих» — замечание ревью второго
+  раунда: `worktree add`/`remove`/`prune` проходили.
+- Без него: новая форма команды, которая пишет (`worktree prune`, `hash-object -w`), прошла бы без ревью ADR.
 - Требование: [Что делаем, п. 1](../issues/02-чтение-diff-а-ticket-а-в-main.md#что-делаем)
-- Риски и пробелы test-ов: отказ проверен contract test-ом на `add`, `fetch`, `stash`, `update-index`, `hash-object -w`,
-  `--output`; другие формы записи у разрешённых команд не перебирались.
+- Риски и пробелы test-ов: unit test подменяет запуск процесса и считает запуски: отвергнутая команда не запускает
+  ни одного. `rev-parse`, `diff`, `log`, `show`, `check-attr` остаются с любыми опциями, кроме `--output`.
 
 ## 4. Список файлов — по numstat
 
-Code: `src/shared/changes/parse.ts:212-231` · key lines: 215
+Code: `src/shared/changes/parse.ts:222-241` · key lines: 225
 
 ```ts
 export function parseDiffList(output: string): ListedFile[] {
@@ -148,9 +144,76 @@ export async function pickBase(facts: BaseFacts, probe: RefProbe): Promise<Picke
 - Риски и пробелы test-ов: `default_branch` репозитория main пока не передаёт — `ResolvedRepo` его не несёт; шаг
   проверен только unit test-ом.
 
-## 6. Проверка, что ничего не записано
+## 6. Путь — только из репозитория, новый файл — только из списка git
 
-Code: `test/contract/changes-read.test.ts:270-285` · key lines: 278, 279, 284
+Code: `src/main/changes/scopes.ts:284-296` · key lines: 287, 294
+
+```ts
+export async function fileDiff(context: ChangesContext, scope: ChangesScope, target: FileTarget, options: FileOptions = {}): Promise<FileDiff> {
+  const { subject, git } = context
+  // A path outside the repository is never read, whatever the caller sent (the channel's schema refuses it too).
+  for (const path of [target.path, target.oldPath]) if (path !== null && path !== undefined && !isRepoPath(path)) throw new Error(`${path} is not a path inside ${subject.repo}`)
+  const range = await rangeOf(context, scope)
+  const untracked = target.untracked === true && range.kind === 'diff' && range.untracked
+  const paths = target.oldPath && target.oldPath !== target.path ? [target.oldPath, target.path] : [target.path]
+  let listed: ListedFile | undefined
+  if (untracked) {
+    // `diff --no-index` reads any file it is given: only a new file git itself lists is one of this scope.
+    if (!(await untrackedPaths(context)).includes(target.path)) throw new Error(`${target.path} is not a new file of ${subject.repo}`)
+    const counts = await untrackedCounts(context, target.path, options)
+    listed = { path: target.path, oldPath: null, status: 'A', ...counts, binary: counts.additions === null && counts.deletions === null, oldMode: null, newMode: null, oldBlob: null, newBlob: null }
+```
+
+- Что делает: отказывает пути, который не может быть путём от верхней папки репозитория (абсолютный, с частью `..`,
+  isRepoPath из `src/shared/changes/parse.ts`); новый файл (`untracked: true`) читает через `diff --no-index`, только
+  если `ls-files --others --exclude-standard` этого репозитория его называет. Схема канала `changes.file` отвергает
+  такие пути ещё до handler-а.
+- Почему здесь: `diff --no-index` читает любой файл, который ему дали, а канал — `'project', 'read'`, его зовёт и
+  Linked machine с доступом Read only (ADR-0110, пункт 4). Замечание ревью второго раунда: `/etc/hosts` и
+  `../../secret.txt` возвращались hunk-ами.
+- Без него: contract test «reads a new file only when git lists it as one» красный — игнорируемый `debug.log` и путь
+  вне репозитория читаются; проверено мутантами (проверка в reader-е, в схеме для `path` и для `oldPath`).
+- Требование: [Что делаем, п. 6](../issues/02-чтение-diff-а-ticket-а-в-main.md#что-делаем)
+- Риски и пробелы test-ов: между `ls-files` и `diff --no-index` файл может смениться; ссылку `diff --no-index` читает
+  как ссылку (её текст), а FIFO на этом месте задержал бы git до timeout 60 s — так может сделать только тот, кто уже
+  пишет в worktree. Это не проверено test-ом.
+
+## 7. Смена типа — обе половины
+
+Code: `src/shared/changes/parse.ts:384-399` · key lines: 385, 386, 396
+
+```ts
+export function patchOfPath(patches: readonly FilePatch[], path: string): FilePatch | undefined {
+  const own = patches.filter((each) => each.newPath === path || (each.newPath === null && each.oldPath === path))
+  if (own.length < 2) return own[0]
+  const deletion = own.find((each) => each.newPath === null)
+  const addition = own.find((each) => each.oldPath === null && each.newPath === path)
+  return {
+    oldPath: deletion?.oldPath ?? own[0]!.oldPath,
+    newPath: path,
+    oldMode: deletion?.oldMode ?? own[0]!.oldMode,
+    newMode: addition?.newMode ?? own.at(-1)!.newMode,
+    renamed: false,
+    binary: own.some((each) => each.binary),
+    hunks: own.flatMap((each) => each.hunks),
+  }
+}
+
+```
+
+- Что делает: git печатает смену типа (файл стал ссылкой или обратно, статус T) как два patch-а одного пути —
+  удаление и добавление; функция склеивает их в один: строки удаления, затем добавления, старый режим одного и новый
+  другого.
+- Почему здесь: прежний поиск брал первый patch пути — удаление; список показывал `+1 −2`, экран — только «−»
+  (замечание ревью второго раунда). Разбор — в `src/shared/changes/parse.ts` по Ticket-у.
+- Без него: unit test-ы смены типа в обе стороны и contract test «a type change shows both halves» красные.
+- Требование: [Что делаем, п. 5](../issues/02-чтение-diff-а-ticket-а-в-main.md#что-делаем)
+- Риски и пробелы test-ов: contract test смены типа на Windows пропущен — ссылку там создать без привилегии нельзя;
+  разбор проверяет unit test на всех ОС.
+
+## 8. Проверка, что ничего не записано
+
+Code: `test/contract/changes-read.test.ts:274-289` · key lines: 282, 283, 288
 
 ```ts
   it('wrote nothing into the repository: the index, its bytes and mtime, refs, objects and locks are as before', async () => {
@@ -180,26 +243,33 @@ Code: `test/contract/changes-read.test.ts:270-285` · key lines: 278, 279, 284
 - Риски и пробелы test-ов: проверяется один репозиторий с одним worktree; `git worktree list` и `for-each-ref` в
   репозитории с packed-refs не проверялись отдельно.
 
-## 7. Что сознательно не меняли
+## 9. Что сознательно не меняли
 
 Renderer, кнопка Changes и Command palette — Ticket 03. `profile.ts` не трогали: `default_branch` в main не
 передаётся, база берёт `origin/HEAD` и `origin/main`. Канал `changes.targets` — Ticket 05. Перевод страницы — Ticket 06.
 
-## 8. Как проверено
+## 10. Как проверено
 
 Сначала test, потом проверка: `test/unit/changes-parse.test.ts` красный, если убрать разбор CRLF; contract test
 «wrote nothing» красный, если убрать `diff.autoRefreshIndex=false`. Затем `pnpm lint`, `pnpm typecheck`, `pnpm test` и
-gate fast — с кодом выхода в отчёте implementer-а.
+gate fast — с кодом выхода в отчёте implementer-а. Во втором раунде каждое новое поведение проверено мутантом в своём
+worktree: 44 мутанта (runner, отказ, окружение, пределы 1 MB и 64 MB, staged-файл, Hide whitespace, merge-commit,
+смена типа, пути, `--no-filters`, probe базы, строки `Repo:`, ветка в самом checkout-е, Commit и Compare только своего
+репозитория) — все убиты.
 
 ## Проверить себя
 
 1. Почему недостаточно `GIT_OPTIONAL_LOCKS=0`, чтобы чтение не писало index?
    - Ответ: `git diff` против рабочего дерева сам обновляет stat в index (`diff.autoRefreshIndex`), и эта запись не
      «необязательный lock»; её выключает только `diff.autoRefreshIndex=false`.
-   - Lines: `src/main/changes/git.ts:64`
+   - Lines: `src/main/changes/git.ts:74`
 2. Почему список файлов строится по numstat, а не по raw?
    - Ответ: с выключенным refresh raw называет и файлы со сменённым stat при том же тексте; numstat их не называет.
-   - Lines: `src/shared/changes/parse.ts:215`
+   - Lines: `src/shared/changes/parse.ts:225`
 3. Как test доказывает, что он вообще увидел бы запись?
    - Ответ: после сравнения он запускает простой `git diff` в том же worktree и ждёт, что index изменится.
-   - Lines: `test/contract/changes-read.test.ts:284`
+   - Lines: `test/contract/changes-read.test.ts:288`
+4. Почему новый файл сверяется со списком `ls-files`, если путь уже проверен на `..` и абсолютность?
+   - Ответ: путь внутри репозитория ещё не значит «новый файл scope-а»: игнорируемый файл (`debug.log`) лежит в
+     репозитории, и `diff --no-index` прочёл бы его; только список git говорит, что файл — новый и не игнорируется.
+   - Lines: `src/main/changes/scopes.ts:294`

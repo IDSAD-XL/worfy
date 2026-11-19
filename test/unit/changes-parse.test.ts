@@ -3,7 +3,7 @@
 // end of file», CRLF lines, paths with spaces and letters outside ASCII, and the patches that come folded. The
 // outputs are written as git 2.50 printed them with `-z` and `core.quotePath=false`.
 import { describe, expect, it } from 'vitest'
-import { foldOf, isLockFile, isWorkflowPath, parseCommits, parseDiffList, parseGenerated, parseNumstat, parsePatch, unquotePath, FOLD_LINES } from '../../src/shared/changes/parse'
+import { foldOf, isLockFile, isRepoPath, isWorkflowPath, parseCommits, patchOfPath, parseDiffList, parseGenerated, parseNumstat, parsePatch, unquotePath, FOLD_LINES } from '../../src/shared/changes/parse'
 
 const z = (...fields: string[]): string => `${fields.join('\0')}\0`
 const OLD = '0ff3bbb9c8bba2291654cd64067fa417ff54c508'
@@ -176,6 +176,80 @@ describe('folding', () => {
     expect(isWorkflowPath('.scratch/ep/issues/02-x.md', '.scratch')).toBe(true)
     expect(isWorkflowPath('.scratchpad/x.md', '.scratch')).toBe(false)
     expect(isWorkflowPath('.scratch/ep/spec.md', null)).toBe(false)
+  })
+})
+
+describe('a type change (status T): two patches of one path', () => {
+  // As git 2.50 prints `git diff HEAD -- f` after a file became a link, and after a link became a file.
+  const fileToLink = [
+    'diff --git a/f b/f',
+    'deleted file mode 100644',
+    'index 422c2b7..0000000',
+    '--- a/f',
+    '+++ /dev/null',
+    '@@ -1,2 +0,0 @@',
+    '-a',
+    '-b',
+    'diff --git a/f b/f',
+    'new file mode 120000',
+    'index 0000000..1de5659',
+    '--- /dev/null',
+    '+++ b/f',
+    '@@ -0,0 +1 @@',
+    '+target',
+    '\\ No newline at end of file',
+    '',
+  ].join('\n')
+  const linkToFile = [
+    'diff --git a/f b/f',
+    'deleted file mode 120000',
+    'index 1de5659..0000000',
+    '--- a/f',
+    '+++ /dev/null',
+    '@@ -1 +0,0 @@',
+    '-target',
+    '\\ No newline at end of file',
+    'diff --git a/f b/f',
+    'new file mode 100644',
+    'index 0000000..587be6b',
+    '--- /dev/null',
+    '+++ b/f',
+    '@@ -0,0 +1 @@',
+    '+x',
+    '',
+  ].join('\n')
+  const lines = (patch: ReturnType<typeof patchOfPath>) => patch?.hunks.flatMap((hunk) => hunk.lines.map((line) => [line.kind, line.oldLine, line.newLine, line.text, line.noNewline]))
+
+  it('joins a file that became a link: both halves, the old mode of the file and the new mode of the link', () => {
+    const patch = patchOfPath(parsePatch(fileToLink), 'f')
+    expect(patch).toMatchObject({ oldPath: 'f', newPath: 'f', oldMode: '100644', newMode: '120000', binary: false })
+    expect(lines(patch)).toEqual([
+      ['del', 1, null, 'a', false],
+      ['del', 2, null, 'b', false],
+      ['add', null, 1, 'target', true],
+    ])
+  })
+
+  it('joins a link that became a file the same way', () => {
+    const patch = patchOfPath(parsePatch(linkToFile), 'f')
+    expect(patch).toMatchObject({ oldPath: 'f', newPath: 'f', oldMode: '120000', newMode: '100644' })
+    expect(lines(patch)).toEqual([
+      ['del', 1, null, 'target', true],
+      ['add', null, 1, 'x', false],
+    ])
+  })
+
+  it('takes the one patch of a path as it is, a deletion too, and none of another path', () => {
+    const [deletion] = parsePatch(linkToFile)
+    expect(patchOfPath([deletion!], 'f')).toBe(deletion)
+    expect(patchOfPath(parsePatch(fileToLink), 'g')).toBeUndefined()
+  })
+})
+
+describe('a path the screen asks for', () => {
+  it('is one from the top folder of the repository: not absolute, no .. part', () => {
+    for (const path of ['a.txt', 'notes/с пробелом.md', '.scratch/ep/x.md', 'a..b/c', '...']) expect(isRepoPath(path), path).toBe(true)
+    for (const path of ['', '/etc/hosts', '\\\\server\\share', 'C:\\Windows\\win.ini', 'c:x', '..', '../../secret.txt', 'a/../../b', 'a\\..\\b', 'a\0b']) expect(isRepoPath(path), path).toBe(false)
   })
 })
 

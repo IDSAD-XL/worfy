@@ -53,7 +53,9 @@ The patch of a file is read only when it is asked for. It comes folded, as «Lar
 more than 2 000 lines added and deleted, when its patch is larger than 1 MB, for a lock file of a package manager
 (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `Cargo.lock` and the like) and for a file with the git attribute
 `linguist-generated`. A folded patch can still be asked for in full, up to 64 MB. A binary file has no lines: its
-answer is the sizes of the two sides. «Show whole file» gives the file's every line as context.
+answer is the sizes of the two sides. «Show whole file» gives the file's every line as context. A type change (a
+file that became a link, or a link that became a file) shows both sides: the old side's lines deleted, then the new
+side's lines added.
 
 Each line of a patch carries its number on the old side and on the new side. A line that ended with CRLF comes
 without the `\r` and is marked CRLF; the last line of a side without an end of line is marked so («\ No newline at
@@ -61,6 +63,12 @@ end of file»). Hide whitespace leaves out changes of spaces and of line endings
 
 In Full mode the files under the Tickets root (`.scratch/`) are marked as the group Workflow files. In Silent mode the
 workflow files are not in the repository, so there is no such group.
+
+#### What can be asked for
+
+A file is asked for by its path from the repository's top folder: an absolute path or a path with a `..` part is
+refused. A new file is read only when git itself lists it as a new file of the repository: an ignored file, or any
+other file on the Machine, is never read through it.
 
 #### Nothing is written
 
@@ -75,10 +83,15 @@ the Project is on.
 ### How it works
 
 git runs only through one runner that knows a fixed list of reading commands and refuses any other before git
-starts. Every run has optional locks off, the refresh of the index by `git diff` off (optional locks alone do not stop
-that write), the file system monitor off and no terminal prompt. Names come with `-z` and `core.quotePath=false`,
-so a path with spaces or letters outside ASCII reads the same on Windows. No program of the repository's
-configuration runs: no external diff and no text conversion. Why it is so: [ADR-0110](../adr/0110-changes-reads-git-writes-nothing.md).
+starts; the commands that have forms that write (`worktree`, `ls-files`, `hash-object`, `cat-file`) run only in the
+one form Changes uses. Every run has optional locks off, the refresh of the index by `git diff` off (optional locks
+alone do not stop that write), the file system monitor off, no terminal prompt, and paths taken literally, never as
+patterns. The variables that would point git at another repository or index (`GIT_DIR`, `GIT_INDEX_FILE` and the
+like) are dropped. Names come with `-z` and `core.quotePath=false`, so a path with spaces or letters outside ASCII
+reads the same on Windows. No external diff and no text conversion runs. One program of the user's git
+configuration can still run: a work-tree file whose modification time changed goes through the clean filter its
+`.gitattributes` names (git-lfs, for one), as in any `git diff`. A new file's blob id is that of its bytes as they
+are, with no filter. Why it is so: [ADR-0110](../adr/0110-changes-reads-git-writes-nothing.md).
 
 The base comes from the facts of the Profile main already keeps for the workflow (`worktree.base` and
 `workflow.finish`), so Changes runs no `bin/profile` of its own.
@@ -97,9 +110,12 @@ The base comes from the facts of the Profile main already keeps for the workflow
   handled in `src/main/ipc/changes.ts`), all reading.
 
 Tests: `test/unit/changes-parse.test.ts` (the reading of git's output), `test/unit/changes-base.test.ts` (the order of
-the base), `test/contract/changes-read.test.ts` (the scopes over real repositories in a temporary folder, a Ticket in
-two repositories, and the check that the files of `.git` are the same after every read). The contract test runs on
-the Windows runner of CI too.
+the base), `test/unit/changes-git.test.ts` (the commands the runner refuses, the settings of every run, the output and
+time limits; a refused command starts no process), `test/contract/changes-read.test.ts` (the scopes over real
+repositories in a temporary folder, a Ticket in two repositories, a Ticket on the checkout itself with the edge cases
+— a staged file, Hide whitespace, type changes, a merge commit, a patch past 1 MB, paths outside the repository — and
+the check that the files of `.git` are the same after every read). The contract test runs on the Windows runner of
+CI too; the type changes are skipped there, as making a link on Windows needs a privilege the runner does not have.
 
 ## The Changes Node
 

@@ -14,9 +14,9 @@
 // and comes folded past FOLD_LINES or FOLD_BYTES, for a lock file and for a `linguist-generated` one, unless the
 // screen asks to expand it; even then no patch is read past PATCH_MAX_BYTES. All git goes through the reading
 // runner of src/main/changes/git.ts.
-import { stat } from 'node:fs/promises'
+import { lstat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { foldOf, isWorkflowPath, parseCommits, parseDiffList, parseGenerated, parseNumstat, parsePatch, splitZ, COMMIT_FORMAT, FOLD_BYTES, type ListedFile } from '../../shared/changes/parse'
+import { foldOf, isRepoPath, isWorkflowPath, patchOfPath, parseCommits, parseDiffList, parseGenerated, parseNumstat, parsePatch, splitZ, COMMIT_FORMAT, FOLD_BYTES, type ListedFile } from '../../shared/changes/parse'
 import type { ChangedFile, ChangesCommit, ChangesScope, FileDiff, ScopeKind } from '../../shared/changes/types'
 import { gitProbe, mergeBase, pickBase, safeRef, type BaseFacts, type BaseSource } from './base'
 import type { ChangesGit, GitRead } from './git'
@@ -39,6 +39,8 @@ export interface ChangesContext {
   facts: BaseFacts
   /** The Tickets root from this repository's top folder (`.scratch`) in Full mode; null when the workflow is not in it. */
   workflowPrefix: string | null
+  /** The most bytes of an expanded patch; PATCH_MAX_BYTES when absent (tests set a smaller one). */
+  patchMaxBytes?: number | undefined
 }
 
 /** The base of a repository's changes: the branch and the merge-base of the Ticket with it. */
@@ -160,12 +162,16 @@ async function untrackedCounts(context: ChangesContext, path: string, options: R
   return entry ? { additions: entry.additions, deletions: entry.deletions } : { additions: 0, deletions: 0 }
 }
 
-/** The blob ids the new files would get (`hash-object --stdin-paths`, without `-w`: nothing is written). */
+/**
+ * The blob ids of the new files' bytes as they are (`hash-object --no-filters --stdin-paths`; without `-w`: nothing
+ * is written; `--no-filters`: no clean filter runs). For a file with a filter or an end-of-line conversion of
+ * `.gitattributes` the id differs from the one `git add` would give.
+ */
 async function untrackedBlobs(context: ChangesContext, paths: string[]): Promise<Map<string, string>> {
   const hashable = paths.filter((path) => !path.includes('\n'))
   const blobs = new Map<string, string>()
   if (hashable.length === 0) return blobs
-  const read = await context.git(context.subject.cwd, ['hash-object', '--stdin-paths'], { input: `${hashable.join('\n')}\n` })
+  const read = await context.git(context.subject.cwd, ['hash-object', '--no-filters', '--stdin-paths'], { input: `${hashable.join('\n')}\n` })
   if (read.code !== 0) return blobs
   const lines = read.stdout.split('\n')
   hashable.forEach((path, index) => {
@@ -265,7 +271,8 @@ async function sideSize(context: ChangesContext, blob: string | null, path: stri
   }
   if (workTree && path !== null) {
     try {
-      return (await stat(join(context.subject.cwd, path))).size
+      // lstat: a link is its own size (the length of its target path, as its blob), not that of the file it points to.
+      return (await lstat(join(context.subject.cwd, path))).size
     } catch {
       return null
     }
@@ -276,11 +283,15 @@ async function sideSize(context: ChangesContext, blob: string | null, path: stri
 /** One file of a scope: its hunks, or folded, or a binary file's sizes. Throws when git fails or the file is not in the scope. */
 export async function fileDiff(context: ChangesContext, scope: ChangesScope, target: FileTarget, options: FileOptions = {}): Promise<FileDiff> {
   const { subject, git } = context
+  // A path outside the repository is never read, whatever the caller sent (the channel's schema refuses it too).
+  for (const path of [target.path, target.oldPath]) if (path !== null && path !== undefined && !isRepoPath(path)) throw new Error(`${path} is not a path inside ${subject.repo}`)
   const range = await rangeOf(context, scope)
   const untracked = target.untracked === true && range.kind === 'diff' && range.untracked
   const paths = target.oldPath && target.oldPath !== target.path ? [target.oldPath, target.path] : [target.path]
   let listed: ListedFile | undefined
   if (untracked) {
+    // `diff --no-index` reads any file it is given: only a new file git itself lists is one of this scope.
+    if (!(await untrackedPaths(context)).includes(target.path)) throw new Error(`${target.path} is not a new file of ${subject.repo}`)
     const counts = await untrackedCounts(context, target.path, options)
     listed = { path: target.path, oldPath: null, status: 'A', ...counts, binary: counts.additions === null && counts.deletions === null, oldMode: null, newMode: null, oldBlob: null, newBlob: null }
   } else {
@@ -306,15 +317,17 @@ export async function fileDiff(context: ChangesContext, scope: ChangesScope, tar
   }
   const patchFlags = ['-M', '--patch', ...(options.whole ? [`--unified=${WHOLE_FILE_CONTEXT}`] : []), ...whitespace(options)]
   const args = untracked ? ['diff', '--no-index', ...patchFlags, '--', '/dev/null', target.path] : rangeArgs(range, patchFlags, paths)
-  const maxBytes = options.expand ? PATCH_MAX_BYTES : FOLD_BYTES + 1
+  const limit = context.patchMaxBytes ?? PATCH_MAX_BYTES
+  const maxBytes = options.expand ? limit : FOLD_BYTES + 1
   const read = await git(subject.cwd, args, { maxBytes })
   if (read.truncated) {
-    if (options.expand) throw new Error(`The patch of ${target.path} is larger than ${PATCH_MAX_BYTES / 1024 / 1024} MB`)
+    if (options.expand) throw new Error(`The patch of ${target.path} is larger than ${limit % (1024 * 1024) === 0 ? `${limit / 1024 / 1024} MB` : `${limit} bytes`}`)
     return { kind: 'folded', path: listed.path, reason: 'large', lines }
   }
   if (read.code !== 0 && !(untracked && read.code === 1)) throw failed(`git ${args[0]!}`, read)
   const patches = parsePatch(read.stdout)
-  const patch = patches.find((each) => each.newPath === target.path || (each.newPath === null && each.oldPath === target.path)) ?? patches[0]
+  // A type change (a file became a link or back) comes as two patches of one path: the deletion and the addition.
+  const patch = patchOfPath(patches, target.path) ?? patches[0]
   if (patch?.binary) return { kind: 'binary', path: listed.path, oldSize: await sideSize(context, listed.oldBlob, null, false), newSize: await sideSize(context, listed.newBlob, listed.path, range.workTree) }
   return {
     kind: 'hunks',

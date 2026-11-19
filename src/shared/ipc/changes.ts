@@ -7,6 +7,7 @@
 // A Project over several repositories answers per repository: the repository is the top level of `changes.scopes`
 // and `changes.list`; `changes.file` and `changes.commits` name the repository they read.
 import { z } from 'zod'
+import { isRepoPath } from '../changes/parse'
 import { CHANGE_STATUSES, FOLD_REASONS, SCOPE_KINDS } from '../changes/types'
 import { invokeChannel } from './channels'
 
@@ -14,6 +15,8 @@ const projectId = z.string().min(1)
 const text = z.string()
 const count = z.number().int().nonnegative()
 const mode = z.string().nullable()
+/** A path from the repository's top folder: never absolute, never with a `..` part (isRepoPath). */
+const repoPath = z.string().min(1).refine(isRepoPath, { message: 'a path inside the repository' })
 
 /** The Ticket the screen shows: TicketSubjectRef of src/main/changes/subjects.ts. */
 export const changesTicketSchema = z.object({
@@ -139,8 +142,8 @@ export const changesFile = invokeChannel(
     ...subject,
     repo: z.string().min(1),
     scope: changesScopeSchema,
-    path: z.string().min(1),
-    oldPath: z.string().min(1).nullable().optional(),
+    path: repoPath,
+    oldPath: repoPath.nullable().optional(),
     untracked: z.boolean().optional(),
     whole: z.boolean().optional(),
     expand: z.boolean().optional(),

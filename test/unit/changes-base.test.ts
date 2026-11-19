@@ -44,6 +44,11 @@ describe('the base of the changes', () => {
     expect(await pickBase({ mainBranch: null, finish: 'local-green', defaultBranch: 'trunk' }, repo(['refs/heads/trunk', 'refs/heads/main']))).toEqual({ ref: 'trunk', from: 'local' })
   })
 
+  it('with origin, local-green takes the origin order like any Project: the local branch only without origin', async () => {
+    expect(await pickBase({ mainBranch: 'origin/main', finish: 'local-green' }, repo(['origin/main', 'refs/heads/main']))).toEqual({ ref: 'origin/main', from: 'worktree.base' })
+    expect(await pickBase({ mainBranch: null, finish: 'local-green' }, repo(['origin/main', 'refs/heads/main'], 'origin/main'))).toEqual({ ref: 'origin/main', from: 'origin/HEAD' })
+  })
+
   it('falls back to the local main branch when nothing of origin exists; none at all is no base', async () => {
     expect(await pickBase({ mainBranch: 'origin/main', finish: 'pr-green-ci' }, repo(['refs/heads/main']))).toEqual({ ref: 'main', from: 'local' })
     expect(await pickBase({ mainBranch: 'origin/main' }, repo([]))).toBeNull()

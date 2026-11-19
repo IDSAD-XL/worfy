@@ -7,17 +7,19 @@
 //   and writes `.git/index` back — GIT_OPTIONAL_LOCKS=0 does not stop that write (seen on git 2.50, ADR-0110);
 // - `core.fsmonitor=false`: no file system monitor daemon is started for the read;
 // - GIT_TERMINAL_PROMPT=0: git never waits for a password;
+// - GIT_LITERAL_PATHSPECS=1: a path after `--` is a path, never a pattern or a `:(magic)` pathspec;
 // - `core.quotePath=false` and `-z` where names are printed: a path with spaces or letters outside ASCII comes as it
 //   is, on Windows too;
 // - `--no-ext-diff`, `--no-textconv`, `--no-color` on every command that prints a patch: no program of the
 //   repository's configuration runs, and the output is git's own.
 //
-// A command outside READ_COMMANDS, or a form of one that writes (`hash-object -w`, `--output`), is refused before
-// anything starts. The variables that point git at another repository (GIT_DIR, GIT_INDEX_FILE…) are dropped.
+// A command outside READ_COMMANDS, or a form of one the screen does not run (`hash-object -w`, `--output`,
+// `worktree add`), is refused before any process starts. The variables that point git at another repository
+// (GIT_DIR, GIT_INDEX_FILE…) are dropped, whatever the case of their names (Windows does not tell them apart).
 //
 // The output has a limit of its own (`maxBytes`): a list of files is read whole up to LIST_MAX_BYTES, a patch up to
 // what its caller asks. Past the limit git is stopped and the answer says `truncated`.
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 
 /** What a run gave: the exit code (null when git did not start or was stopped), stdout as UTF-8, its size in bytes. */
 export interface GitRead {
@@ -56,18 +58,28 @@ const STDERR_MAX = 4096
  */
 export const READ_COMMANDS = ['merge-base', 'diff', 'log', 'show', 'ls-files', 'for-each-ref', 'cat-file', 'hash-object', 'check-attr', 'rev-parse', 'worktree'] as const
 
+/** The only forms of the commands that have several and of which some write or start a program: the arguments after the command name. */
+export const EXACT_FORMS: Readonly<Record<string, readonly string[]>> = {
+  'ls-files': ['--others', '--exclude-standard', '-z'],
+  // `--no-filters`: no clean filter of the repository's configuration runs (ADR-0110, item 2).
+  'hash-object': ['--no-filters', '--stdin-paths'],
+  worktree: ['list', '--porcelain'],
+}
+
 /** The commands that print a patch: they get PATCH_FLAGS right after their name. */
 const PATCH_COMMANDS: ReadonlySet<string> = new Set(['diff', 'log', 'show'])
-const PATCH_FLAGS = ['--no-ext-diff', '--no-textconv', '--no-color']
+export const PATCH_FLAGS = ['--no-ext-diff', '--no-textconv', '--no-color'] as const
 
 /** `-c` settings of every run (see the top of the file). */
 export const READ_CONFIG = ['-c', 'core.quotePath=false', '-c', 'diff.autoRefreshIndex=false', '-c', 'core.fsmonitor=false'] as const
 
 /** The environment of every run on top of main's own. */
-export const READ_ENV = { GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' } as const
+export const READ_ENV = { GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0', GIT_LITERAL_PATHSPECS: '1' } as const
 
 /** Variables that would point git at another repository, index or configuration than `cwd`'s. */
-const LOCATION_VARS = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_NAMESPACE', 'GIT_CONFIG_PARAMETERS']
+export const LOCATION_VARS = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_NAMESPACE', 'GIT_CONFIG_PARAMETERS'] as const
+
+const sameArgs = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((arg, index) => arg === b[index])
 
 /** Why `args` are refused, or null when they only read. Only the part before `--` is options; paths after it are not looked at. */
 export function refusal(args: readonly string[]): string | null {
@@ -76,19 +88,10 @@ export function refusal(args: readonly string[]): string | null {
   const end = rest.indexOf('--')
   const options = end === -1 ? rest : rest.slice(0, end)
   if (options.some((arg) => arg.startsWith('--output') || arg === '-o')) return `git ${command} with --output writes a file`
-  switch (command) {
-    case 'hash-object':
-      if (options.some((arg) => arg === '-w' || arg === '--write' || /^-[^-]*w/u.test(arg))) return 'git hash-object -w writes an object'
-      return null
-    case 'cat-file':
-      return options[0] === '-e' || options[0] === '-s' ? null : 'git cat-file is run only with -e or -s'
-    case 'ls-files':
-      return options.includes('--others') && options.includes('--exclude-standard') ? null : 'git ls-files is run only with --others --exclude-standard'
-    case 'worktree':
-      return options[0] === 'list' ? null : 'git worktree is run only as worktree list'
-    default:
-      return null
-  }
+  const exact = EXACT_FORMS[command]
+  if (exact !== undefined) return sameArgs(rest, exact) ? null : `git ${command} is run only as git ${command} ${exact.join(' ')}${command === 'hash-object' ? ' (never -w)' : ''}`
+  if (command === 'cat-file') return rest.length === 2 && (rest[0] === '-e' || rest[0] === '-s') && !rest[1]!.startsWith('-') ? null : 'git cat-file is run only as cat-file -e <object> or cat-file -s <object>'
+  return null
 }
 
 /** The full command line of a run: READ_CONFIG, the command, PATCH_FLAGS for a patch command, the rest. */
@@ -99,12 +102,15 @@ export function readArgs(args: readonly string[]): string[] {
 
 /** main's environment without the location variables, with READ_ENV. */
 export function readEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  const own = Object.fromEntries(Object.entries(env).filter(([name]) => !LOCATION_VARS.includes(name.toUpperCase())))
+  const own = Object.fromEntries(Object.entries(env).filter(([name]) => !(LOCATION_VARS as readonly string[]).includes(name.toUpperCase())))
   return { ...own, ...READ_ENV }
 }
 
+/** How the runner starts git: child_process.spawn; tests hand in their own to see what would start. */
+export type SpawnGit = (command: string, args: string[], options: SpawnOptions) => ChildProcess
+
 /** The runner over the real git (`gitBinary`, `git` on PATH by default). */
-export function changesGitRunner(gitBinary = 'git'): ChangesGit {
+export function changesGitRunner(gitBinary = 'git', start: SpawnGit = spawn): ChangesGit {
   return (cwd, args, options = {}) =>
     new Promise((resolve) => {
       const refused = refusal(args)
@@ -118,7 +124,7 @@ export function changesGitRunner(gitBinary = 'git'): ChangesGit {
       let truncated = false
       let stderr = ''
       let settled = false
-      const child = spawn(gitBinary, readArgs(args), {
+      const child = start(gitBinary, readArgs(args), {
         cwd,
         env: readEnv(),
         stdio: [options.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],

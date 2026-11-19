@@ -67,6 +67,16 @@ export function isWorkflowPath(path: string, prefix: string | null): boolean {
   return path === folder || path.startsWith(`${folder}/`)
 }
 
+/**
+ * Whether `path` can be a path from a repository's top folder: not empty, not absolute (`/x`, `\x`, `C:x`), no `..`
+ * part and no NUL. A path the screen asks for must be one; git never prints another.
+ */
+export function isRepoPath(path: string): boolean {
+  if (path === '' || path.includes('\0')) return false
+  if (path.startsWith('/') || path.startsWith('\\') || /^[A-Za-z]:/u.test(path)) return false
+  return !path.split(/[\\/]/u).includes('..')
+}
+
 /** The fields of `-z` output: split on NUL, without the empty field after the last NUL. */
 export function splitZ(output: string): string[] {
   const fields = output.split('\0')
@@ -363,6 +373,28 @@ export function parsePatch(text: string): FilePatch[] {
     }
   }
   return files
+}
+
+/**
+ * The patch of the file at `path` among `patches`: the one that ends at it, or the one that deletes it. A type change
+ * (a file became a link or back, status T) comes from git as two patches of one path — the old side deleted, then the
+ * new side added; they are joined into one: the deletion's hunks, then the addition's, with the old mode of the one
+ * and the new mode of the other. Undefined when no patch is the file's.
+ */
+export function patchOfPath(patches: readonly FilePatch[], path: string): FilePatch | undefined {
+  const own = patches.filter((each) => each.newPath === path || (each.newPath === null && each.oldPath === path))
+  if (own.length < 2) return own[0]
+  const deletion = own.find((each) => each.newPath === null)
+  const addition = own.find((each) => each.oldPath === null && each.newPath === path)
+  return {
+    oldPath: deletion?.oldPath ?? own[0]!.oldPath,
+    newPath: path,
+    oldMode: deletion?.oldMode ?? own[0]!.oldMode,
+    newMode: addition?.newMode ?? own.at(-1)!.newMode,
+    renamed: false,
+    binary: own.some((each) => each.binary),
+    hunks: own.flatMap((each) => each.hunks),
+  }
 }
 
 /** The `log` format parseCommits reads: the fields by the unit separator, the commits by NUL (`-z`). */

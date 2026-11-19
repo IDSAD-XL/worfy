@@ -14,11 +14,15 @@
 // maintenance of git is off in the test's own calls (NO_GIT_MAINTENANCE): git 2.56 starts it after a commit and its
 // lock file comes and goes while the test compares the files. The same tests run on the Windows runner of CI.
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, utimesSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { gitProbe } from '../../src/main/changes/base'
 import { changesGitRunner, refusal } from '../../src/main/changes/git'
+import { fileDiff, type ChangesContext } from '../../src/main/changes/scopes'
+import { ticketSubjects } from '../../src/main/changes/subjects'
 import { changesHandlers, type ChangesDeps } from '../../src/main/ipc/changes'
 import type { InvokeHandler } from '../../src/main/ipc/index'
 import { fullLayout, type ProjectLayout } from '../../src/main/workflow/folder'
@@ -343,6 +347,17 @@ describe('a Ticket in two repositories of one Project, on a branch checked out n
     removeTestTree(root)
   })
 
+  it('reads only the repositories the Ticket names by its Repo: lines, and only the named one for Commit and Compare against', async () => {
+    const onlyWeb = await call(changesScopes, { projectId: 'p', ticket: { epic: 'ep', num: 3, repos: ['web'] } })
+    expect(onlyWeb.repos.map((entry) => entry.repo)).toEqual(['web'])
+    const t03 = { epic: 'ep', num: 3 }
+    const compared = await call(changesList, { projectId: 'p', ticket: t03, scope: { kind: 'compare', repo: 'api', ref: 'main' } })
+    expect(compared.repos.map((entry) => [entry.repo, entry.error, entry.files.map((file) => file.path)])).toEqual([['api', null, ['api-new.txt', 'server.ts']]])
+    const { commits } = await call(changesCommits, { projectId: 'p', ticket: t03, repo: 'web' })
+    const committed = await call(changesList, { projectId: 'p', ticket: t03, scope: { kind: 'commit', repo: 'web', sha: commits[0]!.sha } })
+    expect(committed.repos.map((entry) => [entry.repo, entry.error, entry.files.map((file) => file.path)])).toEqual([['web', null, ['page.tsx', 'web-new.txt']]])
+  })
+
   it('answers per repository: the repository is the top level; one without the branch is left out', async () => {
     const t03 = { epic: 'ep', num: 3 }
     const scopes = await call(changesScopes, { projectId: 'p', ticket: t03 })
@@ -367,5 +382,163 @@ describe('a Ticket in two repositories of one Project, on a branch checked out n
 
     expect(snapshot(join(api, '.git'))).toEqual(before.api)
     expect(snapshot(join(web, '.git'))).toEqual(before.web)
+  })
+})
+
+describe('the edge cases of reading: a Ticket on the checkout itself', () => {
+  const WINDOWS = process.platform === 'win32'
+  let edge: string
+  let plain: string
+  let call: ReturnType<typeof caller>
+  let context: ChangesContext
+  let merge: string
+  let before: ReturnType<typeof snapshot>
+  const t05 = { epic: 'ep', num: 5 }
+  // 1 100 lines of 1 000 bytes: past FOLD_BYTES (1 MB) in fewer than FOLD_LINES (2 000) lines.
+  const WIDE = Array.from({ length: 1_100 }, (_, i) => `${String(i).padStart(4, '0')} ${'x'.repeat(994)}`).join('\n') + '\n'
+  const CRLF_BYTES = Buffer.from('one\r\ntwo\r\n')
+
+  beforeAll(async () => {
+    root = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-changes-edge-')))
+    ownGitHome()
+    edge = join(root, 'edge')
+    mkdirSync(edge)
+    gitIn(edge, 'init', '-q')
+    write(edge, { 'ws.txt': 'a\n  b\n', 'mixed.txt': 'x\n  y\nz\n', 'kind.txt': 'a\nb\n', 'pic.bin': Buffer.from([0, 1, 2, 3]), '.gitignore': '*.log\n', '.gitattributes': '*.attr text\n' })
+    // A link in git on Windows needs a privilege the runner does not give: the type changes are read elsewhere.
+    if (!WINDOWS) symlinkSync('kind.txt', join(edge, 'link'))
+    const start = commit(edge, 'start', {})
+    gitIn(edge, 'update-ref', 'refs/remotes/origin/main', start)
+    gitIn(edge, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main')
+    // `parallel: single`: the Ticket's branch is checked out in the checkout itself, with no worktree of its own.
+    gitIn(edge, 'checkout', '-q', '-b', 'ep/05')
+    commit(edge, 'wide lines', { 'wide.txt': WIDE })
+    gitIn(edge, 'checkout', '-q', '-b', 'side')
+    commit(edge, 'side', { 'side.txt': 's\n' })
+    gitIn(edge, 'checkout', '-q', 'ep/05')
+    commit(edge, 'on the branch', { 'm.txt': 'm\n' })
+    gitIn(edge, 'merge', '-q', '--no-ff', '-m', 'merge side', 'side')
+    merge = gitIn(edge, 'rev-parse', 'HEAD')
+    // Not committed: whitespace only, whitespace and a real change, a staged new file, an ignored file, a new file
+    // whose `text` attribute would turn its CRLF into LF; a file that became a link, a link that became a file, a
+    // binary file that became a link.
+    write(edge, { 'ws.txt': 'a\n\tb\n', 'mixed.txt': 'x\n\ty\nZ\n', 'staged.txt': 'staged\n', 'debug.log': 'ignored secret\n', 'w.attr': CRLF_BYTES })
+    gitIn(edge, 'add', 'staged.txt')
+    if (!WINDOWS) {
+      unlinkSync(join(edge, 'kind.txt'))
+      symlinkSync('ws.txt', join(edge, 'kind.txt'))
+      unlinkSync(join(edge, 'link'))
+      writeFileSync(join(edge, 'link'), 'now a file\n')
+      unlinkSync(join(edge, 'pic.bin'))
+      symlinkSync('ws.txt', join(edge, 'pic.bin'))
+    }
+    writeFileSync(join(root, 'secret.txt'), 'outside the repository\n')
+
+    plain = join(root, 'plain')
+    mkdirSync(plain)
+    gitIn(plain, 'init', '-q')
+    commit(plain, 'start', { 'a.txt': 'a\n' })
+
+    const layout: ProjectLayout = { ...fullLayout(edge), repos: [{ name: 'edge', path: edge }], finish: 'pr-green-ci', mainBranch: 'origin/main' }
+    call = caller(changesHandlers({ project: async () => ({ root: edge, layout }), git }))
+    const [subject] = await ticketSubjects([{ name: 'edge', path: edge }], t05, git)
+    context = { subject: subject!, git, facts: { mainBranch: 'origin/main', finish: 'pr-green-ci' }, workflowPrefix: null }
+    before = snapshot(join(edge, '.git'))
+  })
+
+  afterAll(() => {
+    vi.unstubAllEnvs()
+    removeTestTree(root)
+  })
+
+  const file = async (scope: Record<string, unknown>, path: string, extra: Record<string, unknown> = {}) => (await call(changesFile, { projectId: 'p', ticket: t05, repo: 'edge', scope, path, ...extra })).file
+  const list = async (scope: Record<string, unknown>, extra: Record<string, unknown> = {}) => (await call(changesList, { projectId: 'p', ticket: t05, scope, ...extra })).repos[0]!
+  const lineTexts = (diff: Awaited<ReturnType<typeof file>>, withContext = true): string[] | string =>
+    diff.kind === 'hunks' ? diff.hunks.flatMap((hunk) => hunk.lines.filter((line) => withContext || line.kind !== 'context').map((line) => `${line.kind} ${line.text}`)) : diff.kind
+
+  it('takes the checkout on the Ticket\'s branch as its worktree: the work tree and Uncommitted are there', async () => {
+    const [entry] = (await call(changesScopes, { projectId: 'p', ticket: t05 })).repos
+    expect(entry).toMatchObject({ repo: 'edge', kind: 'worktree', branch: 'ep/05', scopes: ['all', 'uncommitted', 'commit', 'compare'], error: null })
+    expect(context.subject).toMatchObject({ kind: 'worktree', cwd: edge, head: 'HEAD' })
+  })
+
+  it('Uncommitted holds a staged new file as well as the work tree\'s changes', async () => {
+    const changes = await list({ kind: 'uncommitted' })
+    expect(changes.error).toBeNull()
+    expect(changes.files.find((each) => each.path === 'staged.txt')).toMatchObject({ status: 'A', untracked: false, additions: 1, deletions: 0 })
+    expect(changes.files.map((each) => each.path)).not.toContain('debug.log')
+  })
+
+  it('Hide whitespace: a change of whitespace only leaves the list, the rest of a file keeps only its real change', async () => {
+    const shown = await list({ kind: 'uncommitted' })
+    expect(shown.files.find((each) => each.path === 'ws.txt')).toMatchObject({ additions: 1, deletions: 1 })
+    expect(shown.files.find((each) => each.path === 'mixed.txt')).toMatchObject({ additions: 2, deletions: 2 })
+    const hidden = await list({ kind: 'uncommitted' }, { hideWhitespace: true })
+    expect(hidden.files.map((each) => each.path)).not.toContain('ws.txt')
+    expect(hidden.files.find((each) => each.path === 'mixed.txt')).toMatchObject({ additions: 1, deletions: 1 })
+    expect(lineTexts(await file({ kind: 'uncommitted' }, 'mixed.txt'), false)).toEqual(['del   y', 'del z', 'add \ty', 'add Z'])
+    expect(lineTexts(await file({ kind: 'uncommitted' }, 'mixed.txt', { hideWhitespace: true }), false)).toEqual(['del z', 'add Z'])
+  })
+
+  it.skipIf(WINDOWS)('a type change shows both halves: a file that became a link and a link that became a file', async () => {
+    const changes = await list({ kind: 'uncommitted' })
+    expect(changes.files.find((each) => each.path === 'kind.txt')).toMatchObject({ status: 'T', additions: 1, deletions: 2 })
+    const kind = await file({ kind: 'uncommitted' }, 'kind.txt')
+    expect(kind).toMatchObject({ kind: 'hunks', oldMode: '100644', newMode: '120000' })
+    expect(lineTexts(kind)).toEqual(['del a', 'del b', 'add ws.txt'])
+    const link = await file({ kind: 'uncommitted' }, 'link')
+    expect(link).toMatchObject({ kind: 'hunks', oldMode: '120000', newMode: '100644' })
+    expect(lineTexts(link)).toEqual(['del kind.txt', 'add now a file'])
+    // A binary file that became a link: the link's own size (its target's name), not that of the file it points to.
+    expect(await file({ kind: 'uncommitted' }, 'pic.bin')).toEqual({ kind: 'binary', path: 'pic.bin', oldSize: 4, newSize: 'ws.txt'.length })
+  })
+
+  it('reads a new file only when git lists it as one: never a path outside the repository or an ignored file', async () => {
+    const untracked = { kind: 'uncommitted' } as const
+    for (const path of ['/etc/hosts', '../secret.txt', 'a/../../secret.txt', 'C:\\Windows\\win.ini']) {
+      await expect(file(untracked, path, { untracked: true }), path).rejects.toThrow(/a path inside the repository/u)
+      await expect(file(untracked, 'staged.txt', { oldPath: path }), path).rejects.toThrow(/a path inside the repository/u)
+      // Past the channel's schema too: the reader itself refuses.
+      await expect(fileDiff(context, untracked, { path, untracked: true }), path).rejects.toThrow(/is not a path inside edge/u)
+      await expect(fileDiff(context, untracked, { path: 'staged.txt', oldPath: path }), path).rejects.toThrow(/is not a path inside edge/u)
+    }
+    await expect(file(untracked, 'debug.log', { untracked: true })).rejects.toThrow(/debug\.log is not a new file of edge/u)
+    await expect(file(untracked, 'mixed.txt', { untracked: true })).rejects.toThrow(/mixed\.txt is not a new file of edge/u)
+    await expect(file(untracked, 'gone.txt', { untracked: true })).rejects.toThrow(/gone\.txt is not a new file of edge/u)
+    expect(lineTexts(await file(untracked, 'w.attr', { untracked: true }))).toEqual(['add one', 'add two'])
+  })
+
+  it('hashes a new file\'s bytes as they are: no clean filter or end-of-line conversion of .gitattributes', async () => {
+    const changes = await list({ kind: 'uncommitted' })
+    const raw = createHash('sha1').update(Buffer.concat([Buffer.from(`blob ${CRLF_BYTES.length}\0`), CRLF_BYTES])).digest('hex')
+    expect(changes.files.find((each) => each.path === 'w.attr')).toMatchObject({ untracked: true, newBlob: raw })
+  })
+
+  it('Commit of a merge: its changes against the first parent', async () => {
+    const changes = await list({ kind: 'commit', repo: 'edge', sha: merge })
+    expect(changes.files.map((each) => [each.path, each.status, each.additions, each.deletions])).toEqual([['side.txt', 'A', 1, 0]])
+    expect(lineTexts(await file({ kind: 'commit', repo: 'edge', sha: merge }, 'side.txt'))).toEqual(['add s'])
+  })
+
+  it('a patch past 1 MB in fewer than 2 000 lines: folded once read, whole on Show, an error past the limit of Show', async () => {
+    const all = { kind: 'all' } as const
+    expect((await list(all)).files.find((each) => each.path === 'wide.txt')).toMatchObject({ additions: 1_100, fold: null })
+    expect(await file(all, 'wide.txt')).toEqual({ kind: 'folded', path: 'wide.txt', reason: 'large', lines: 1_100 })
+    const shown = await file(all, 'wide.txt', { expand: true })
+    expect(shown.kind === 'hunks' && shown.hunks.flatMap((hunk) => hunk.lines).length).toBe(1_100)
+    await expect(fileDiff({ ...context, patchMaxBytes: 512 * 1024 }, all, { path: 'wide.txt' }, { expand: true })).rejects.toThrow(/wide\.txt is larger than 524288 bytes/u)
+  })
+
+  it('the probe of the base asks the real repository: origin/HEAD and whether origin is there at all', async () => {
+    const withOrigin = gitProbe(edge, git)
+    expect([await withOrigin.originHead(), await withOrigin.hasOrigin(), await withOrigin.exists('origin/main'), await withOrigin.exists('origin/none')]).toEqual(['origin/main', true, true, false])
+    const without = gitProbe(plain, git)
+    expect([await without.originHead(), await without.hasOrigin(), await without.exists('refs/heads/main')]).toEqual([null, false, true])
+  })
+
+  it('wrote nothing into the repository', async () => {
+    await list({ kind: 'all' }, { hideWhitespace: true })
+    await file({ kind: 'uncommitted' }, 'mixed.txt', { whole: true })
+    expect(snapshot(join(edge, '.git'))).toEqual(before)
   })
 })
