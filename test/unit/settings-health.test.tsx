@@ -1108,3 +1108,41 @@ describe('Settings → Health: a pressed button shows the work under way', () =>
     }
   })
 })
+
+describe('Settings → Health: "Use <login>" of a Project row (worfy-auth-check ticket 05)', () => {
+  const alpha = { id: 'alpha-0000000a', name: 'alpha' }
+  const beta = { id: 'beta-0000000b', name: 'beta' }
+  const access = (project: { id: string; name: string }, login: string): Check =>
+    check('github-access', 'Projects', 'GitHub access', { project, status: 'warn', detail: 'github.account is not set', actions: [{ id: 'use-login', label: `Use ${login}`, safe: true, login }] })
+  const rowNamed = (place: HTMLElement, name: string): HTMLElement => {
+    const found = rowsOf(place).find((each) => each.getAttribute('aria-label') === name)
+    if (found === undefined) throw new Error(`no row ${name}`)
+    return found
+  }
+
+  it('the button of the second Project sends that Project and its login only, and only its row runs', async () => {
+    // The current Project is the first one: the button sends its row's Project, not the current one. The list of
+    // Projects stays for the tests after this one (its store keeps the highest revision), so this describe is the last.
+    const projects: ProjectsState = { projects: [{ id: alpha.id, name: alpha.name, path: '/repo/alpha', branch: 'main' }, { id: beta.id, name: beta.name, path: '/repo/beta', branch: 'main' }], activeId: alpha.id, revision: 100 }
+    handlers['projects.list'] = () => ({ ok: true, value: projects })
+    act(() => acceptProjectsState(projects))
+    handlers['firstRun.checks'] = () => ({ ok: true, value: { checkedAt: '2026-11-18T00:00:00.000Z', checks: [access(alpha, 'alice'), access(beta, 'bob')] } })
+    renderApp()
+    const health = await openHealth()
+    const pending = later()
+    handlers['firstRun.run'] = () => pending.answer
+    const answer = { ok: true as const, value: { outcome: 'done', message: 'github.account of beta is now bob', report: { checkedAt: '2026-11-18T00:00:01.000Z', checks: [access(alpha, 'alice'), { ...access(beta, 'bob'), status: 'ok', actions: [] }] } } }
+    try {
+      fireEvent.click(within(rowNamed(health, 'GitHub access, beta')).getByRole('button', { name: 'Fix: Use bob' }))
+      expect(callsOf('firstRun.run')).toEqual([{ action: 'use-login', projectName: 'alpha', projectId: 'beta-0000000b', login: 'bob' }])
+      expect(rowNamed(health, 'GitHub access, beta').querySelector('.w-chip')?.textContent).toBe('Running…')
+      expect(rowNamed(health, 'GitHub access, alpha').querySelector('.w-chip')?.textContent).toBe('Warning')
+    } finally {
+      // The action ends either way: a running one would lock the tests after this one.
+      await pending.give(answer)
+    }
+    expect(rowNamed(health, 'GitHub access, beta').dataset.status).toBe('ok')
+    expect(rowNamed(health, 'GitHub access, alpha').dataset.status).toBe('warn')
+    expect(health.textContent).toContain('github.account of beta is now bob')
+  })
+})

@@ -1,7 +1,7 @@
 # 05 — GitHub access: источник токена, честный `gh-auth`, строка Project-а с 401 и 404, «Use <login>»
 
 Type: task
-Status: open
+Status: claimed 2026-11-18T20:55Z
 Blocked by: 01, 03
 Source: [spec.md](../spec.md), «Ticket-ы», 5; «Проблема», пункты «Чей токен у gh» и «Health check»; «Решение»,
 пункты 1 и 7; «Починка»; «Решения по реализации», 3; «Решения по test-ам»; «Решения владельца», Q5;
@@ -65,20 +65,44 @@ Windows — job Windows в составе `ci-ok` (ADR-0071). Глубина р�
 - [ ] Unit test (новый `test/unit/auth-diagnosis.test.ts`) на fixtures Ticket-а 01, скопированных в
       `test/fixtures/gh-auth/` (scrub: без токенов, организаций и login тестера): источник токена — keyring,
       `GH_TOKEN`, `GITHUB_TOKEN`; 200, 401, 404, 5xx → `unknown`.
+  - evidence: test-run pass · `pnpm test test/unit/auth-diagnosis.test.ts` exit 0 · mac - · fb5e44b1a13fe981ebdb4fa303b78d173c3305c6
+  - evidence: test-run pass · `pnpm test test/unit/auth-diagnosis.test.ts` exit 0 (rate-limit 403 too) · mac - · 549f9b9b7629b4e065f986a8882e90d685eda4a2
 - [ ] Unit test (`test/unit/gh-auth-text.test.ts`): запись `(GH_TOKEN)` читается как источник с состоянием; разбор
       логинов gh до 2.40 и после не изменился.
+  - evidence: test-run pass · `pnpm test test/unit/gh-auth-text.test.ts` exit 0 · mac - · fb5e44b1a13fe981ebdb4fa303b78d173c3305c6
 - [ ] Contract test (новый `test/contract/health-github-access.test.ts`) на stand-in gh (`test/fixtures/gh/gh-stub.mjs`,
       `WORFY_GH`): нет аккаунта и один login с push → fixable с «Use <login>»; два login-а с push → needs-user без
       кнопки; аккаунт без gh login → critical с Sign in…; 401; 404; stand-in падает без сети → `unknown`.
+  - evidence: test-run pass · `pnpm test test/contract/health-github-access.test.ts` exit 0 · mac - · fb5e44b1a13fe981ebdb4fa303b78d173c3305c6
+  - evidence: test-run pass · `pnpm test test/contract/health-github-access.test.ts` exit 0 (EMU login, two repositories) · mac - · 549f9b9b7629b4e065f986a8882e90d685eda4a2
+  - evidence: test-run pass · `pnpm test test/contract/health-github-access.test.ts` exit 0 (a managed login named in the hint) · mac - · 535218371beea24104e2b7fa3350efa76277677f
+  - evidence: test-run pass · `pnpm test test/contract/health-github-access.test.ts` exit 0 (two repositories, Windows folder path in the git stand-in) · mac - · f550bae7a6fb5cc263bd46ff0edc5f94b1fe8368
 - [ ] Contract test: «Use <login>» зовёт `profile-set --field github.account` с этим login-ом, следующая проверка
       строки — `ok`; `gh-auth` с `(GH_TOKEN)` называет переменную.
+  - evidence: test-run pass · `pnpm test test/contract/health-github-access.test.ts test/unit/settings-health.test.tsx` exit 0 · mac - · fb5e44b1a13fe981ebdb4fa303b78d173c3305c6
+  - evidence: test-run pass · `pnpm test test/contract/health-github-access.test.ts test/unit/settings-health.test.tsx` exit 0 · mac - · 549f9b9b7629b4e065f986a8882e90d685eda4a2
 - [ ] Test, что ни одна строка, log и текст ошибки не содержат значение токена: stand-in gh печатает известный токен
       (в `gh auth token` и в теле ответа), test ищет его во всём выводе — в отчёте Health check, в log и в ошибках.
+  - evidence: test-run pass · `pnpm test test/contract/health-github-access.test.ts` exit 0 (the leak test) · mac - · fb5e44b1a13fe981ebdb4fa303b78d173c3305c6
+  - evidence: test-run pass · `pnpm test test/contract/health-github-access.test.ts` exit 0 (the leak test, gh ended by its time limit too) · mac - · 549f9b9b7629b4e065f986a8882e90d685eda4a2
 - [ ] Все unit и contract test-ы модуля зелёные: `test/unit/gh-auth-text.test.ts`, `test/contract/first-run-checks.test.ts`,
       `test/contract/github-prs.test.ts`, `test/contract/github-accounts.test.ts`, `test/contract/gh-stand-in.test.ts`,
       `test/contract/workflow-profile.test.ts`, `test/contract/health-reports.test.ts`.
+  - evidence: test-run pass · `pnpm test` of the 12 module files (gh-auth-text, auth-diagnosis, first-run-checks, github-prs, github-accounts, gh-stand-in, workflow-profile, health-reports, health-github-access, settings-health, first-run-dialog, link-access) exit 0 · mac - · fb5e44b1a13fe981ebdb4fa303b78d173c3305c6
+  - evidence: test-run pass · `pnpm test` of the 14 module files exit 0 · mac - · 549f9b9b7629b4e065f986a8882e90d685eda4a2
+  - evidence: test-run pass · `pnpm test` of the 12 module files exit 0 · mac - · 535218371beea24104e2b7fa3350efa76277677f
+  - evidence: test-run pass · `pnpm test` of the 4 module files exit 0 · mac - · f550bae7a6fb5cc263bd46ff0edc5f94b1fe8368
 - [ ] Английские страницы `gate-and-github.md` и `projects.md` описывают источник токена и строку GitHub access.
+  - evidence: commit pass · worfy-auth-check/05: GitHub access row, honest gh-auth, Use <login> · - - · fb5e44b1a13fe981ebdb4fa303b78d173c3305c6
+  - evidence: commit pass · worfy-auth-check/05: review round 2 — a managed login: the page and the row say worfy does not take it yet · - - · 535218371beea24104e2b7fa3350efa76277677f
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · fb5e44b1a13fe981ebdb4fa303b78d173c3305c6
+  - evidence: gate pass · `gate fast` exit 0 · mac - · fb5e44b1a13fe981ebdb4fa303b78d173c3305c6
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 549f9b9b7629b4e065f986a8882e90d685eda4a2
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 549f9b9b7629b4e065f986a8882e90d685eda4a2
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 535218371beea24104e2b7fa3350efa76277677f
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · f550bae7a6fb5cc263bd46ff0edc5f94b1fe8368
+  - evidence: gate pass · `gate fast` exit 0 · mac - · f550bae7a6fb5cc263bd46ff0edc5f94b1fe8368
 - [ ] Платформенный PR (ADR-0056, пункт 2; ADR-0071): job Windows в составе `ci-ok` зелёный на head PR до merge.
 
 ## Где в коде

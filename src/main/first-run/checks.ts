@@ -59,7 +59,7 @@
 // CheckDeps, so a test checks Windows on any machine.
 import { closeSync, existsSync, fstatSync, openSync, readSync } from 'node:fs'
 import { arch as osArch, release as osRelease, tmpdir } from 'node:os'
-import { join, win32 } from 'node:path'
+import { basename, join, win32 } from 'node:path'
 import { fileOrAlias, findGitBash, getVar, type Env as AgentEnv, type FileExists } from '../agent/env'
 import type { AccountInfoLike } from '../agent/session'
 import { limitsBridgeState } from '../harness/status-line'
@@ -72,10 +72,16 @@ import { environmentExit, harnessScriptRunner, HarnessScriptStartError, HARNESS_
 import { hasLegacyHarness, type PlanOptions } from '../harness/migrate/plan'
 import { MIN_NODE_MAJOR, modelPlan, profileDocsLanguages, QMD_NODE_NEED, QMD_VERSION, qmdState, type QmdHomes } from '../harness/qmd'
 import { programStart } from '../program'
-import { ghAccounts } from '../github/auth-text'
+import { ghAccounts, isTokenVariable, parseAuthEntries, type AuthEntry } from '../github/auth-text'
+import { environmentEntry, environmentToken, removeVariableCommand, repoAccess, signInWithoutVariables, sourceText, tokenSource, variableHome, type RepoAccess, type TokenSource } from '../github/auth-diagnosis'
+import { readGithubAccounts } from '../github/accounts'
+import { accountAuth, GhExitError, type GhEnv, type GhRunner } from '../github/prs'
+import type { GitRunner } from '../projects/store'
+import type { GithubAccount } from '../workflow/profile'
+import { redactSecrets } from '../../shared/terminal-ai/redact'
 import type { HarnessStatus } from '../../shared/ipc/harness'
 import { severityOf } from '../../shared/health/severity'
-import type { Check, CheckGroup, CheckId, FirstRunAction, FirstRunReport } from '../../shared/ipc/first-run'
+import { githubLoginSchema, type Check, type CheckGroup, type CheckId, type CheckProject, type FirstRunAction, type FirstRunReport } from '../../shared/ipc/first-run'
 import type { UpdateSnapshot } from '../../shared/ipc/update'
 import { numberedVersion } from '../../shared/version-number'
 import { installCommand, runTool, WINGET_IDS, type Env, type ToolRun } from './tools'
@@ -512,12 +518,227 @@ function limits(deps: CheckDeps, machine: Machine): Row {
   return row('warn', state.detail, 'Limits of Claude Code in a terminal reach worfy only through its bridge; the dialog shows the new statusLine first', null, [action('limits-bridge', 'Set up…')])
 }
 
+/**
+ * The accounts gh knows and whose token it takes (worfy-auth-check ticket 05): the entries of `gh auth
+ * status` and their states, not only whether one login is there. A token from a variable of gh's
+ * environment (`(GH_TOKEN)`) wins over the stored accounts for every call that does not pass the
+ * Profile's account (src/main/github/auth-diagnosis.ts): the row names the variable, never its value,
+ * and fails when that token does not work, as gh's exit code 1 says — even with a stored account that
+ * does. A timeout of GitHub on the token gh uses is `unknown`.
+ */
 async function ghAuth(deps: CheckDeps, machine: Machine, timeoutMs: number): Promise<Row> {
   const run = await runGh(['auth', 'status'], deps, machine, timeoutMs)
   if (run.missing) return row('fail', 'gh is not installed', `Install gh first (${installCommand(machine.windows, 'gh')}), then sign in`)
-  const accounts = ghAccounts(`${run.stdout}\n${run.stderr}`)
+  const text = `${run.stdout}\n${run.stderr}`
+  const entries = parseAuthEntries(text)
+  const stored = entries.filter((entry): entry is AuthEntry & { login: string } => entry.login !== null && !isTokenVariable(entry.source))
+  const working = stored.filter((entry) => entry.state === 'success')
+  const named = working.map((entry) => `${entry.login} (${entry.source ?? 'stored'})`).join(', ')
+  const fromEnv = environmentEntry(text)
+  if (fromEnv !== null) {
+    const remove = `${fromEnv.variable} comes from your environment and gh uses it over your stored accounts: put a working token in it, or remove it with the command and from ${variableHome(machine.system.platform)}`
+    if (fromEnv.state === 'timeout') return row('unknown', `Couldn't check: GitHub did not answer in time for ${fromEnv.variable} from the environment`)
+    if (fromEnv.state !== 'success') {
+      const over = working.length > 0 ? `; it overrides ${named}` : ''
+      return row('fail', `the token in ${fromEnv.variable} from the environment does not work${over}`, remove, removeVariableCommand(fromEnv.variable, machine.system.platform))
+    }
+    const who = fromEnv.login === null ? '' : ` (${fromEnv.login})`
+    const detail = working.length > 0 ? `${named}, ${fromEnv.variable} from the environment${who} overrides ${working.length === 1 ? 'it' : 'them'}` : `${fromEnv.variable} from the environment${who}`
+    return row('ok', detail)
+  }
+  const active = stored.find((entry) => entry.active)
+  if (active?.state === 'timeout') return row('unknown', `Couldn't check: GitHub did not answer in time for ${active.login}`)
+  if (active !== undefined && active.state !== 'success') {
+    return row('fail', `the token of ${active.login}, gh's active account, does not work`, `Sign in again with gh auth login as ${active.login}, or switch gh to a working account`, 'gh auth login', [action('gh-login', 'Sign in…')])
+  }
+  const accounts = ghAccounts(text)
   if (accounts.length > 0) return row('ok', accounts.join(', '))
   return row('fail', 'not signed in to any GitHub host', 'Sign in with gh auth login: you answer its questions yourself', 'gh auth login', [action('gh-login', 'Sign in…')])
+}
+
+// ── GitHub access of a Project (worfy-auth-check ticket 05) ──────────────────
+//
+// One row per Project of this Machine with its origin on github.com, in the group Projects, checked
+// over the network after the local checks (HealthReports.checkNetwork) and again after a feature's
+// failure (registerRecheck). The row goes as the PR inbox goes to gh (src/main/ipc/pr-inbox.ts): the
+// Profile's `github.account` (readGithubAccount) → accountAuth → `gh api -i repos/<owner>/<repo>` for each
+// repository, with the same gh and environment. It names the token's source — the account's keyring,
+// GH_TOKEN or GITHUB_TOKEN of the environment, gh's active account — and never a token. Without an
+// account, "Use <login>" is offered when exactly one login gh has on github.com may push to every
+// repository; the click writes `github.account` (src/main/first-run/actions.ts). Nothing here writes,
+// signs in or changes an environment variable.
+
+/** A Project of this Machine with its origin on github.com. */
+export interface GithubProject {
+  id: string
+  name: string
+  root: string
+  /** The folders of its repositories: those of its layout, or its root. */
+  folders: readonly string[]
+  /** `owner/repo` of each folder whose origin is on github.com. */
+  repos: readonly string[]
+}
+
+export interface GithubAccessDeps {
+  /** gh as the PR inbox runs it: WORFY_GH with worfy's own environment, else gh with the login shell's. */
+  gh: GhRunner
+  /** The environment that gh gets; only the names of its token variables are read. */
+  ghEnv: () => Promise<Env>
+  /** The Profile's `github.account` of the Project at `root`, with the reason when there is none (readGithubAccount). */
+  account: (root: string) => Promise<GithubAccount>
+  /** git for the origins of the account step (readGithubAccounts). */
+  git: GitRunner
+  /** The system the commands are for; process.platform by default. */
+  platform?: NodeJS.Platform
+}
+
+/** The reasons of readGithubAccount for a Profile that reads but sets no account. */
+const ACCOUNT_UNSET = /\bgithub\.account (?:field|is null|is empty)\b/u
+
+const messageOf = (error: unknown): string => redactSecrets(error instanceof Error ? error.message : String(error))
+
+/** What GitHub answered to `gh api -i repos/<slug>` with `extra` (the account's GH_TOKEN, or nothing). */
+async function askRepo(gh: GhRunner, slug: string, cwd: string, extra: GhEnv): Promise<RepoAccess> {
+  try {
+    return repoAccess({ output: await gh(['api', '-i', `repos/${slug}`], cwd, extra, 'all') })
+  } catch (error) {
+    if (error instanceof GhExitError) return repoAccess({ output: error.output })
+    return repoAccess({ failure: messageOf(error) })
+  }
+}
+
+/**
+ * The one login gh has on github.com that may push to every repository of the Project (the account step of
+ * Add project, readGithubAccounts), or null with none or several, or when that login is not one
+ * `github.account` takes (githubLoginSchema). Asked with GH_TOKEN and GITHUB_TOKEN empty — gh reads an empty
+ * one as unset — so a variable of the environment does not hide the stored accounts; each account's push is
+ * asked with its own token.
+ */
+export async function useLoginCandidate(project: GithubProject, deps: GithubAccessDeps): Promise<string | null> {
+  return (await pushLogin(project, deps)).login
+}
+
+/** The one login with push, and the managed one (`name_shortcode`) when that is the only one and the button cannot take it. */
+async function pushLogin(project: GithubProject, deps: GithubAccessDeps): Promise<{ login: string | null; managed: string | null }> {
+  const gh: GhRunner = (args, cwd, extra, output) => deps.gh(args, cwd, { GH_TOKEN: '', GITHUB_TOKEN: '', ...extra }, output)
+  const step = await readGithubAccounts(
+    project.folders.map((path) => ({ name: basename(path), path })),
+    { git: deps.git, gh, platform: deps.platform ?? process.platform },
+  )
+  if (step.status !== 'accounts') return { login: null, managed: null }
+  const withPush = step.accounts.filter((account) => account.push && account.host === 'github.com')
+  const only = withPush.length === 1 ? (withPush[0]?.login ?? null) : null
+  // A login the button cannot send (an Enterprise Managed User's `name_shortcode`): no button, and the report stays valid.
+  if (only === null) return { login: null, managed: null }
+  return githubLoginSchema.safeParse(only).success ? { login: only, managed: null } : { login: null, managed: only }
+}
+
+/** The account the Profile names has no gh login: sign in as it; with a token variable set, gh refuses that until it is gone. */
+function signInAs(login: string, variable: string | null, platform: NodeJS.Platform): Row {
+  const detail = `no gh login for ${login}, the Project's github.account`
+  if (variable === null) return row('fail', detail, `Run gh auth login and sign in as ${login}`, 'gh auth login', [action('gh-login', 'Sign in…')])
+  return row('fail', detail, `Sign in as ${login}: gh auth login refuses while ${variable} is set, so run it without the variable`, signInWithoutVariables(platform))
+}
+
+/** Who a repository answered: the account, the variable, or gh's active account. */
+const whoOf = (source: TokenSource): string => (source.kind === 'account' ? source.login : source.kind === 'environment' ? `the token of ${source.variable}` : "gh's active account")
+
+/** The row of a Project, without its id, group and level. */
+async function githubAccess(project: GithubProject, deps: GithubAccessDeps, platform: NodeJS.Platform): Promise<{ found: Row; environmentTokenOnly: boolean }> {
+  const result = (found: Row, environmentTokenOnly = false): { found: Row; environmentTokenOnly: boolean } => ({ found, environmentTokenOnly })
+  const profile = await deps.account(project.root)
+  const login = profile.account
+  const variable = environmentToken(await deps.ghEnv(), platform)
+  // A Profile that does not read: gh goes as without an account, and nothing can be written to it.
+  const unread = login === null && profile.reason !== null && !ACCOUNT_UNSET.test(profile.reason) ? `the Profile could not be read (${redactSecrets(profile.reason)})` : null
+  let extra: GhEnv = {}
+  if (login !== null) {
+    try {
+      extra = await accountAuth({ account: () => Promise.resolve(login), run: deps.gh })(project.root)
+    } catch (error) {
+      if (/\bgh not found\b/u.test(messageOf(error))) return result(row('unknown', "Couldn't check: gh is not installed"))
+      return result(signInAs(login, variable, platform))
+    }
+  }
+  const source = tokenSource({ account: login, env: variable === null ? {} : { [variable]: 'set' }, platform })
+  const answers = await Promise.all(project.repos.map(async (slug) => ({ slug, access: await askRepo(deps.gh, slug, project.root, extra) })))
+  const repos = project.repos.join(', ')
+  const of = (kind: RepoAccess['kind']): string[] => answers.filter((each) => each.access.kind === kind).map((each) => each.slug)
+  const none = { login: null, managed: null }
+  const lookup = async (): Promise<{ login: string | null; managed: string | null }> => (login === null && unread === null ? pushLogin(project, deps).catch(() => none) : none)
+  const candidate = async (): Promise<string | null> => (await lookup()).login
+  const useLogin = (found: string | null): Check['actions'] => (found === null ? [] : [{ id: 'use-login', label: `Use ${found}`, safe: true, login: found }])
+
+  if (of('no-token').length > 0) {
+    return result(row('fail', 'gh has no token: no account is signed in and no GH_TOKEN is set', 'Sign in with gh auth login: you answer its questions yourself', 'gh auth login', [action('gh-login', 'Sign in…')]))
+  }
+  if (of('bad-token').length > 0) {
+    const detail = `${sourceText(source)} does not work (HTTP 401)`
+    if (source.kind === 'environment') {
+      const found = await candidate()
+      const options = [`authorize a working token in ${source.variable}`, found === null ? "set the Project's github.account" : `set github.account (Use ${found})`, `or remove the variable with the command and from ${variableHome(platform)}`]
+      return result(row('fail', detail, `${source.variable} comes from your environment and gh uses it over your stored accounts: ${options.join(', ')}`, removeVariableCommand(source.variable, platform), useLogin(found)))
+    }
+    const who = source.kind === 'account' ? source.login : "gh's active account"
+    if (variable !== null) return result(row('fail', detail, `Sign in again as ${who}: gh auth login refuses while ${variable} is set, so run it without the variable`, signInWithoutVariables(platform)))
+    return result(row('fail', detail, `Sign in again with gh auth login as ${who}`, 'gh auth login', [action('gh-login', 'Sign in…')]))
+  }
+  const denied = answers.filter((each) => each.access.kind === 'no-access' || each.access.kind === 'refused')
+  if (denied.length > 0) {
+    const named = denied.map(({ slug, access }) => (access.kind === 'refused' ? `${slug} (HTTP ${access.status})` : slug)).join(', ')
+    const found = await candidate()
+    const hint = found === null ? 'Ask for access to the repository, or sign in to gh as an account that has it' : `Ask for access, or use ${found}: it may push to ${repos}`
+    return result(row('fail', `no access to ${named} as ${whoOf(source)}`, hint, null, useLogin(found)))
+  }
+  const unknown = answers.find((each) => each.access.kind === 'unknown')
+  if (unknown !== undefined && unknown.access.kind === 'unknown') return result(row('unknown', `Couldn't check: ${unknown.access.reason}`))
+  if (login !== null) {
+    const ignored = variable === null ? '' : ` (${variable} of the environment does not apply here)`
+    return result(row('ok', `${login} · ${sourceText(source)}${ignored} · ${repos}`))
+  }
+  // It works, but on whatever gh takes by itself: non-critical, fixable with one login that may push.
+  const { login: found, managed } = await lookup()
+  const why = unread ?? 'github.account is not set'
+  const noButton = managed === null ? "Set the Project's github.account to the account that pushes to these repositories: gh has no single one that may" : `${managed}, the one login that may push, is a managed login worfy does not take in github.account yet: sign gh in with another login that may push`
+  const hint = found === null ? noButton : `Use ${found} writes github.account to the Project's Profile`
+  return result(row('warn', `${why}: gh works with ${sourceText(source)} · ${repos}`, hint, null, useLogin(found)), true)
+}
+
+/** A GitHub access row that could not be checked, for the Project named. */
+export function githubAccessUnknown(project: CheckProject, reason: string): Check {
+  return { id: 'github-access', group: 'Projects', title: 'GitHub access', project, ...row('unknown', `Couldn't check: ${redactSecrets(reason)}`), severity: 'non-critical', opensFirstRun: false }
+}
+
+/** The GitHub access row of a Project, or null when none of its repositories is on github.com. Never rejects: what could not be checked is `unknown`. */
+export async function githubAccessRow(project: GithubProject, deps: GithubAccessDeps): Promise<Check | null> {
+  if (project.repos.length === 0) return null
+  const platform = deps.platform ?? process.platform
+  let checked: { found: Row; environmentTokenOnly: boolean }
+  try {
+    checked = await githubAccess(project, deps, platform)
+  } catch (error) {
+    checked = { found: row('unknown', `Couldn't check: ${messageOf(error)}`), environmentTokenOnly: false }
+  }
+  const { found, environmentTokenOnly } = checked
+  return {
+    id: 'github-access',
+    group: 'Projects',
+    title: 'GitHub access',
+    project: { id: project.id, name: project.name },
+    ...found,
+    severity: severityOf({ id: 'github-access', status: found.status }, { githubProject: true, environmentTokenOnly }),
+    opensFirstRun: false,
+  }
+}
+
+/** The GitHub access rows of the Projects, one after another so gh is not asked for every Project at once. */
+export async function githubAccessRows(projects: readonly GithubProject[], deps: GithubAccessDeps): Promise<Check[]> {
+  const rows: Check[] = []
+  for (const project of projects) {
+    const checked = await githubAccessRow(project, deps)
+    if (checked !== null) rows.push(checked)
+  }
+  return rows
 }
 
 /** A `fail` that does not open First run by itself at the start (worfy-update spec R9). */

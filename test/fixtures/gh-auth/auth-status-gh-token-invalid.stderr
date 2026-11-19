@@ -1,0 +1,16 @@
+github.com
+  X Failed to log in to github.com using token (GH_TOKEN)
+  - Active account: true
+  - The token in GH_TOKEN is invalid.
+
+  ✓ Logged in to github.com account bob (keyring)
+  - Active account: false
+  - Git operations protocol: https
+  - Token: gho_************************************
+  - Token scopes: 'gist', 'read:org', 'repo', 'workflow'
+
+  ✓ Logged in to github.com account alice (keyring)
+  - Active account: false
+  - Git operations protocol: https
+  - Token: gho_************************************
+  - Token scopes: 'gist', 'read:org', 'repo', 'workflow'

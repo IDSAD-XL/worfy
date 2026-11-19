@@ -11,6 +11,12 @@
 // `gh auth login` into a Terminal Node, where the user signs in. `limits-bridge` (Windows,
 // worfy-windows ticket 13) points statusLine of Claude Code's settings.json at the Limits bridge of
 // this build, with the command the move form builds (src/main/harness/status-line.ts).
+// `use-login` ("Use <login>", worfy-auth-check ticket 05; owner's decision Q5) writes the Project's
+// `github.account` on its click, with no dialog: the button names the login, and the click is the consent.
+// It writes one field through the Harness's `bin/profile-set --field github.account` (`--read`, then
+// `--set` with `--expect`), as the switch of Code stories does (src/main/ipc/code-stories-setting.ts);
+// profile-set commits the change in the Harness home. It writes only while that login is still the one
+// gh has that may push to every repository of the Project; never quietly, never another login.
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { confirmationText, type InstallOutcome, type InstallPlan } from '../harness/install'
@@ -31,6 +37,7 @@ import { writeStatusLine } from '../harness/migrate/apply'
 import { limitsBridgeState } from '../harness/status-line'
 import type { HarnessStatus } from '../../shared/ipc/harness'
 import type { CheckId, FirstRunReport, RunnableAction } from '../../shared/ipc/first-run'
+import type { ProfileRun } from '../workflow/profile'
 import { formatBytes, type Env, type ProjectProfile } from './checks'
 import { runTool } from './tools'
 
@@ -62,7 +69,29 @@ export interface ActionDeps {
    * the bridge of this build (null in a development build) and the system the command is for.
    */
   limits?: { settingsFile: string; bridge: string | null; platform: NodeJS.Platform }
+  /**
+   * "Use <login>" (worfy-auth-check ticket 05): the Project of a row by its id, with the one login that may
+   * push to its repositories now (useLoginCandidate; null with none or several), and `bin/profile-set`.
+   * Unset: the action fails, nothing is written.
+   */
+  githubAccount?: {
+    candidate: (projectId: string) => Promise<{ root: string; name: string; login: string | null } | null>
+    profileSet: (args: readonly string[]) => Promise<ProfileRun>
+  }
 }
+
+/** What the action is about: the Project of the Terminal of `gh-login`, the Project and login of `use-login`. */
+export interface ActionContext {
+  projectName?: string | undefined
+  projectId?: string | undefined
+  login?: string | undefined
+}
+
+/** The Profile field "Use <login>" writes. */
+export const GITHUB_ACCOUNT_FIELD = 'github.account'
+/** The exit codes of `bin/profile-set`: the field changed since --read, another write holds the lock (src/main/ipc/pipeline.ts). */
+const PROFILE_SET_CONFLICT = 5
+const PROFILE_SET_BUSY = 6
 
 export interface ActionResult {
   outcome: 'done' | 'declined' | 'failed' | 'confirmed'
@@ -79,6 +108,7 @@ const CHECK_OF: Record<RunnableAction, CheckId> = {
   'qmd-collections': 'qmd-collections',
   'gh-login': 'gh-auth',
   'limits-bridge': 'limits',
+  'use-login': 'github-access',
 }
 
 type Outcome = { outcome: ActionResult['outcome']; message: string | null; check?: CheckId }
@@ -132,7 +162,7 @@ export class FirstRunActions {
   }
 
   /** Runs one action after its dialog; one at a time. */
-  async run(action: RunnableAction, context: { projectName?: string | undefined } = {}): Promise<ActionResult> {
+  async run(action: RunnableAction, context: ActionContext = {}): Promise<ActionResult> {
     if (this.running) throw new Error('another action is running: wait for it to finish')
     this.running = true
     try {
@@ -149,7 +179,7 @@ export class FirstRunActions {
     }
   }
 
-  private async perform(action: RunnableAction, context: { projectName?: string | undefined }): Promise<Outcome> {
+  private async perform(action: RunnableAction, context: ActionContext): Promise<Outcome> {
     switch (action) {
       case 'harness-install':
         return this.installHarness()
@@ -165,6 +195,8 @@ export class FirstRunActions {
         return this.ghLogin(context.projectName)
       case 'limits-bridge':
         return this.limitsBridge()
+      case 'use-login':
+        return this.useLogin(context)
     }
   }
 
@@ -309,6 +341,38 @@ export class FirstRunActions {
     return done()
   }
 
+  /**
+   * Writes the Project's `github.account`: the login the button showed, and only while it is still the one
+   * login gh has that may push to every repository of the Project. `--read` gives the fingerprint `--set`
+   * expects, so a Profile changed in between is not written over.
+   */
+  private async useLogin(context: ActionContext): Promise<Outcome> {
+    const { githubAccount } = this.deps
+    const { projectId, login } = context
+    if (githubAccount === undefined) return failed('this build does not write github.account')
+    if (projectId === undefined || login === undefined) return failed('Use <login> needs the Project and the login of its row')
+    const target = await githubAccount.candidate(projectId)
+    if (target === null) return failed('the Project is not on this Machine, or none of its repositories is on GitHub')
+    if (target.login !== login) {
+      const now = target.login === null ? 'no single account of gh may push to every repository now' : `${target.login} is the account that may push now`
+      return failed(`github.account was not written: ${now}. Check again`)
+    }
+    const field = ['-C', target.root, '--field', GITHUB_ACCOUNT_FIELD]
+    try {
+      const read = await githubAccount.profileSet([...field, '--read'])
+      if (read.code !== 0) return failed(profileSetFailure(read, '--read'))
+      const fingerprint = fingerprintOf(read.stdout)
+      if (fingerprint === null) return failed('bin/profile-set --read printed no fingerprint')
+      const set = await githubAccount.profileSet([...field, '--expect', fingerprint, '--set', JSON.stringify({ [GITHUB_ACCOUNT_FIELD]: login })])
+      if (set.code === PROFILE_SET_CONFLICT) return failed('the Profile changed while it was written: check again')
+      if (set.code === PROFILE_SET_BUSY) return failed('another write holds the Profile: try again in a moment')
+      if (set.code !== 0) return failed(profileSetFailure(set, '--set'))
+    } catch (error) {
+      return failed(`bin/profile-set could not be run: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    return done(`github.account of ${target.name} is now ${login}`)
+  }
+
   private async ghLogin(projectName: string | undefined): Promise<Outcome> {
     if (projectName === undefined) return failed('there is no Project to open a Terminal in: copy the command and run it in a terminal')
     const confirmed = await this.deps.confirm({
@@ -322,4 +386,21 @@ export class FirstRunActions {
     })
     return confirmed ? { outcome: 'confirmed', message: null } : declined
   }
+}
+
+/** The fingerprint `bin/profile-set --read` prints, or null when its answer has none. */
+function fingerprintOf(stdout: string): string | null {
+  try {
+    const answer = JSON.parse(stdout) as { fingerprint?: unknown }
+    return typeof answer.fingerprint === 'string' && answer.fingerprint !== '' ? answer.fingerprint : null
+  } catch {
+    return null
+  }
+}
+
+/** Why a run of `bin/profile-set` failed, in a line: its exit code and the last line of its stderr. */
+function profileSetFailure(run: ProfileRun, what: string): string {
+  const how = run.code === null ? `stopped${run.signal ? ` by ${run.signal}` : ''}` : `exit ${run.code}`
+  const said = tail(run.stderr, 1)
+  return `bin/profile-set ${what} failed (${how})${said === '' ? '' : `: ${said}`}`
 }

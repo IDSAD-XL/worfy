@@ -85,9 +85,13 @@ export type FirstRunAction = z.infer<typeof firstRunActionSchema>
 
 /**
  * The actions main runs through `firstRun.run`: not the move form and "Show log", which the screen
- * handles itself, and not yet the buttons of worfy-auth-check, which the Tickets of their rows add.
+ * handles itself, and not yet the buttons of worfy-auth-check that the Tickets of their rows add
+ * (`use-login` is wired, ticket 05).
  */
-export const runnableActionSchema = firstRunActionSchema.exclude(['migration-form', 'update-log', 'use-login', 'open-link', 'codex-sign-in', 'open-browser', 'link-machine'])
+export const runnableActionSchema = firstRunActionSchema.exclude(['migration-form', 'update-log', 'open-link', 'codex-sign-in', 'open-browser', 'link-machine'])
+
+/** A GitHub login as `github.account` takes it (src/main/workflow/profile.ts): never one gh could read as an option. */
+export const githubLoginSchema = z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/u)
 export type RunnableAction = z.infer<typeof runnableActionSchema>
 
 /**
@@ -126,7 +130,15 @@ export const checkSchema = z.object({
    * The buttons of the row, with their labels. `safe`: the button only does what can be undone and
    * touches nobody else's data (spec: the repair) — the row is `fixable` then.
    */
-  actions: z.array(z.object({ id: firstRunActionSchema, label: z.string(), safe: z.literal(true).optional() })),
+  actions: z.array(
+    z.object({
+      id: firstRunActionSchema,
+      label: z.string(),
+      safe: z.literal(true).optional(),
+      /** `use-login` only: the login the button writes to `github.account`, sent back to main as it was shown. */
+      login: githubLoginSchema.optional(),
+    }),
+  ),
   /**
    * `false`: a `fail` of this row does not open First run by itself at the start (worfy-update spec
    * R9) — "worfy version" and the Harness behind this build, whose signal at the start is a toast;
@@ -204,6 +216,10 @@ export const firstRunRun = invokeChannel(
     action: runnableActionSchema,
     /** The Project whose Canvas gets the Terminal Node (`gh-login`); named in the dialog. */
     projectName: z.string().min(1).max(200).optional(),
+    /** `use-login`: the Project of the row, whose Profile gets `github.account`. */
+    projectId: z.string().min(1).max(200).optional(),
+    /** `use-login`: the login the button showed; main writes it only while it is still the one login that may push. */
+    login: githubLoginSchema.optional(),
   }),
   z.object({
     outcome: z.enum(['done', 'declined', 'failed', 'confirmed']),

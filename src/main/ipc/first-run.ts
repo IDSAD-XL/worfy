@@ -18,6 +18,13 @@
 // does not wait for the network rows: they come after, in `firstRun.reportChanged`, as every
 // change of the report does. The focus of a worfy window checks again the rows not in `ok` whose
 // last check is over 5 minutes old (Q8).
+//
+// GitHub access (worfy-auth-check ticket 05): a row per Project of this Machine with its origin on
+// github.com, among the network rows (checkNetwork) and with its own re-check (registerRecheck), which
+// always answers: what could not be checked is `unknown`. gh runs as the PR inbox runs it — WORFY_GH (a
+// stand-in in tests) with worfy's own environment, else gh with the login shell's — with the account of
+// the Project's Profile. "Use <login>" writes that account through `bin/profile-set` (FirstRunActions),
+// then the network rows are checked again.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -28,18 +35,34 @@ import { agentEnv } from '../agent/env'
 import { toEveryWindow } from '../broadcast'
 import type { AccountInfoLike } from '../agent/session'
 import { FirstRunActions, type Confirmation } from '../first-run/actions'
-import { ACCOUNT_TIMEOUT_MS, askAccount, ghOverride, oldHarnessPresent, runChecks, type Env, type ProjectProfile } from '../first-run/checks'
+import {
+  ACCOUNT_TIMEOUT_MS,
+  askAccount,
+  ghOverride,
+  githubAccessRow,
+  githubAccessRows,
+  githubAccessUnknown,
+  oldHarnessPresent,
+  runChecks,
+  useLoginCandidate,
+  type Env,
+  type GithubAccessDeps,
+  type GithubProject,
+  type ProjectProfile,
+} from '../first-run/checks'
 import { healthReports } from '../first-run/health-reports'
 import { remoteRepos } from '../github/inbox'
+import { ghRunner } from '../github/prs'
 import { noteFirstRunReport } from '../getting-started/progress'
 import { gettingStartedState } from '../getting-started/state'
 import { bundledHarnessVersion } from '../harness/bundled'
 import { harnessScriptEnv, recaptureForCheckAgain } from '../harness/script-env'
+import { harnessHomes, locateHarness, scriptEnv } from '../harness/locate'
 import { bridgeFile } from '../harness/status-line'
-import { projectStore } from '../projects/store'
+import { projectStore, runGit } from '../projects/store'
 import { claudeHome, dataRoot, harnessHome } from '../storage/paths'
 import { projectLayouts } from '../workflow/folder'
-import { profileRunner } from '../workflow/profile'
+import { HARNESS_SCRIPT_TIMEOUT_MS, profileRunner, readGithubAccount, runHarnessScript, type ProfileRun } from '../workflow/profile'
 import { appBuildNumber } from '../build-number'
 import { bundledClaudeCodeVersion } from '../vendors/claude/account'
 import { queryFactoryFromEnv } from '../vendors/claude/query'
@@ -77,14 +100,46 @@ function accountInfo(env: Env, signal?: AbortSignal): Promise<AccountInfoLike> {
  * git only, no network; a layout that cannot be read falls back to the root.
  */
 async function onGithub(root: string): Promise<boolean> {
-  let folders = [root]
+  return (await remoteRepos(await repoFolders(root))).length > 0
+}
+
+/** The folders of the Project's repositories: those of its layout, or the root; a layout that cannot be read falls back to the root. */
+async function repoFolders(root: string): Promise<string[]> {
   try {
     const layout = await projectLayouts().get(root)
-    if (layout.repos.length > 0) folders = layout.repos.map((repo) => repo.path)
+    if (layout.repos.length > 0) return layout.repos.map((repo) => repo.path)
   } catch {
     // the root alone
   }
-  return (await remoteRepos(folders)).length > 0
+  return [root]
+}
+
+/** The Projects of this Machine with their GitHub repositories, as the GitHub access rows read them. */
+async function githubProjects(): Promise<GithubProject[]> {
+  return Promise.all(
+    projectStore()
+      .list()
+      .map(async (project) => {
+        const folders = await repoFolders(project.path)
+        return { id: project.id, name: project.name, root: project.path, folders, repos: await remoteRepos(folders) }
+      }),
+  )
+}
+
+/**
+ * gh of the GitHub access rows, as the PR inbox runs it (src/main/ipc/pr-inbox.ts, appGh): WORFY_GH with the
+ * app's own environment, else `gh` with the login shell's. ghEnv is that same environment.
+ */
+function githubAccessDeps(): GithubAccessDeps {
+  const stub = process.env.WORFY_GH
+  const ghEnv = async (): Promise<Env> => (stub ? process.env : await loginEnv())
+  return {
+    gh: ghRunner(stub ? { command: stub, env: ghEnv } : { env: ghEnv }),
+    ghEnv,
+    // The reason for none is the row's to say, not the log's.
+    account: async (root) => readGithubAccount({ root, claudeHome: claudeHome(), env: await harnessScriptEnv(), log: () => undefined }),
+    git: runGit,
+  }
 }
 
 /** The connected Projects with their Profile's name and qmd collections, through `bin/profile`, and whether they are on GitHub. */
@@ -143,6 +198,16 @@ async function checks(): Promise<FirstRunReport> {
   })
 }
 
+/**
+ * `bin/profile-set` of the Harness found on the machine, with the Harness scripts' environment, as the
+ * Profile's other writers run it (src/main/ipc/pipeline.ts, profileSetRunner); not imported from there,
+ * which brings the whole workflow hub with it.
+ */
+async function profileSet(args: readonly string[]): Promise<ProfileRun> {
+  const harness = locateHarness(harnessHomes(claudeHome()))
+  return runHarnessScript(join(harness.binDir, 'profile-set'), args, scriptEnv(harness, await harnessScriptEnv()), { timeoutMs: HARNESS_SCRIPT_TIMEOUT_MS })
+}
+
 /** The dialog of an action, on the window that asked; only "Confirm" (button 0) runs it. */
 async function confirmIn(owner: BrowserWindow | null, confirmation: Confirmation): Promise<boolean> {
   const options = {
@@ -173,6 +238,13 @@ function appActions(): FirstRunActions {
     projects: async () => projectProfiles(await loginEnv()),
     binDir: join(harnessHome(), 'plugin', 'bin'),
     limits: { settingsFile: join(claudeHome(), 'settings.json'), bridge: limitsBridge(), platform: process.platform },
+    githubAccount: {
+      candidate: async (projectId) => {
+        const project = (await githubProjects()).find((each) => each.id === projectId && each.repos.length > 0)
+        return project === undefined ? null : { root: project.root, name: project.name, login: await useLoginCandidate(project, githubAccessDeps()) }
+      },
+      profileSet,
+    },
   })
   return actions
 }
@@ -208,6 +280,19 @@ const health = healthReports()
 health.subscribe((report) => toEveryWindow((client) => emit(client, firstRunReportChanged, report)))
 // A window that gets the focus checks again the rows not in `ok`, last checked over 5 minutes ago (Q8).
 app.on('browser-window-focus', () => void health.focus())
+// GitHub access of each Project on GitHub (worfy-auth-check ticket 05): after the local checks, and again
+// after a feature's failure or on the focus. The re-check never rejects: a Project gone, or no longer on
+// GitHub, drops its row (null); one whose repositories cannot be read is `unknown`.
+health.registerNetworkRows(async () => githubAccessRows(await githubProjects(), githubAccessDeps()))
+health.registerRecheck('github-access', async (project) => {
+  if (project === undefined) return null
+  try {
+    const found = (await githubProjects()).find((each) => each.id === project.id)
+    return found === undefined ? null : await githubAccessRow(found, githubAccessDeps())
+  } catch {
+    return githubAccessUnknown(project, "the Project's repositories could not be read")
+  }
+})
 
 /**
  * Whether a row opens the screen at start: a `fail` not marked `opensFirstRun: false` and not a
@@ -280,11 +365,16 @@ export default [
     return remember(health.current() ?? merged)
   }),
   defineHandler(firstRunHealth, () => health.current()),
-  defineHandler(firstRunRun, async ({ action, projectName }, { event }) => {
+  defineHandler(firstRunRun, async ({ action, projectName, projectId, login }, { event }) => {
     asking = BrowserWindow.fromWebContents(event.sender)
     try {
-      const result = await appActions().run(action, { projectName })
-      const report = remember(health.setChecks(result.report))
+      const result = await appActions().run(action, { projectName, projectId, login })
+      let report = remember(health.setChecks(result.report))
+      // "Use <login>" changed what the GitHub access rows read: they are checked again before the answer.
+      if (action === 'use-login' && result.outcome === 'done') {
+        await health.checkNetwork()
+        report = remember(health.current() ?? report)
+      }
       return { ...result, report }
     } finally {
       asking = null

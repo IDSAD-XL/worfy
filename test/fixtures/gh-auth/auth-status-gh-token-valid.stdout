@@ -1,0 +1,18 @@
+github.com
+  ✓ Logged in to github.com account alice (GH_TOKEN)
+  - Active account: true
+  - Git operations protocol: https
+  - Token: gho_************************************
+  - Token scopes: 'gist', 'read:org', 'repo', 'workflow'
+
+  ✓ Logged in to github.com account bob (keyring)
+  - Active account: false
+  - Git operations protocol: https
+  - Token: gho_************************************
+  - Token scopes: 'gist', 'read:org', 'repo', 'workflow'
+
+  ✓ Logged in to github.com account alice (keyring)
+  - Active account: false
+  - Git operations protocol: https
+  - Token: gho_************************************
+  - Token scopes: 'gist', 'read:org', 'repo', 'workflow'
