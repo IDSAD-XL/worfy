@@ -36,8 +36,9 @@ Machine, любым способом.
 проверки, а закрытие Settings не считается закрытием First run. Settings → Health — это Health check: его открывают кнопка
 Health check на rail sidebar-а и строка «Health check» в Command palette ([app-shell.md](app-shell.md#sidebar)).
 
-**Страница «Welcome to worfy».** Она коротко объясняет три понятия: Project + Harness, Orchestrator и Canvas. Проверки уже идут за
-ней. «Next» ведёт к ним. «Close» закрывает диалог как любое другое закрытие, поэтому сама страница больше не появится. При любом
+**Страница «Welcome to worfy».** Она коротко объясняет три понятия: Project + Harness, Orchestrator и Canvas. Под ними ссылка
+«worfy Guide» открывает [worfy Guide](app-shell.md#worfy-guide) поверх First run, а First run остаётся на этой странице. Проверки
+уже идут за ней. «Next» ведёт к ним. «Close» закрывает диалог как любое другое закрытие, поэтому сама страница больше не появится. При любом
 другом входе First run начинается с проверок.
 
 **Проверки.** В каждой строке есть chip (OK, Warning, Failed, Unknown или Running…, пока идёт её действие), что найдено, строка о
@@ -248,6 +249,9 @@ project?» и `/worfy:ship-ticket todo 01`. Ничего не отправляе
 **Done.** Когда шаг 6 отмечен, панель показывает «Done — the ticket is merged» вместо шагов, с «Connect your own project» и «Remove the demo
 project». «Show steps» возвращает список до следующего монтирования панели.
 
+**worfy Guide.** «worfy Guide» внизу панели, слева от «Skip», — и под шагами, и под Done — открывает
+[worfy Guide](app-shell.md#worfy-guide). Панель остаётся как была.
+
 **Выйти и вернуться.** «Skip» внизу скрывает панель и не оставляет pill, ничего не удаляет и говорит, откуда она возвращается. «Getting started»
 в Command palette показывает панель снова в любой момент, развёрнутой и с фокусом на её заголовке, с Project-ом и без него. «Connect your own project» под шагами не
 входит в demo: «Connect…» открывает тот же «Add project», что и «+» в Projects.
@@ -300,13 +304,14 @@ worfy `getting-started.json` ([ADR-0005](../../adr/0005-worfy-own-state-inventor
   `test/unit/getting-started-highlight.test.ts`, `test/e2e/getting-started.spec.ts`, `test/e2e/getting-started-entry.spec.ts`,
   `test/e2e/getting-started-hints.spec.ts`, `test/e2e/getting-started-done.spec.ts` и `test/e2e/getting-started-highlight.spec.ts`.
   `test/e2e/onboarding-codex.spec.ts` проверяет «Use Codex too» — с Codex в сборке и без него.
+  `test/e2e/guide-entry-links.spec.ts` проверяет ссылки на worfy Guide в панели и в First run.
 
 ## Demo project
 
 ### Behaviour
 
 Demo project — небольшой todo CLI в локальном git-репозитории, без GitHub. В нём один Epic, `todo`, и один Ticket, `01`: добавить `done <n>`, который
-отмечает задачу сделанной. Агенты работают по-настоящему и расходуют Claude Code пользователя. worfy говорит об этом под шагом 2, без цен.
+отмечает задачу сделанной. Агенты работают по-настоящему и расходуют лимиты Claude Code пользователя. worfy говорит об этом под шагом 2, без цен.
 
 **Создание.** «Create demo project» в шаге 2 ничего не спрашивает и не тратит токены. Шаг показывает каждый этап строкой:
 
@@ -347,7 +352,7 @@ Sonnet с effort medium. Opus использует effort модели по ум
 
 **Удаление.** «Remove the demo project» стоит на экране Done, то есть доступна, когда шаг 6 отмечен. «Remove project…» в
 контекстном меню строки demo в Projects запускает то же удаление на любом шаге. Сам demo не удаляется: ни от Skip, ни от Done, ни от
-перезапуска. Сначала worfy проверяет, что папка — это созданный им demo, а иначе отказывает, ничего не трогая и ни о чём не спрашивая. Папка не может быть корнем
+перезапуска. Сначала, ещё до любого вопроса, worfy проверяет, что папка — это созданный им demo, а иначе отказывает, ничего не трогая. Папка не может быть корнем
 диска, домашней папкой или папкой над ней и не может пересекаться с папкой данных worfy. Кроме того, Harness должен знать её как `worfy-demo`, и этот Profile должен
 быть привязан только к этой папке.
 

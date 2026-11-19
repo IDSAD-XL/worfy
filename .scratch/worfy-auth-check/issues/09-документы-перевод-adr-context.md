@@ -76,6 +76,17 @@ Ticket 06 (SSO) его не держит: spec ставит 09 после 03–0
   `onboarding.md` — «Use Codex too» и «Remove project…» у demo, в `link.md` — точка Machines на rail, tooltip-ы
   read-only, ответ новой формы на старой сборке, в `browser.md` — `worfy-browser` у Session Codex. Строка «Перевод …
   commit» на всех девяти — `5d1efe69`; `node scripts/feature-docs-lag.mjs` их больше не называет.
+  У четырёх страниц (`onboarding.md`, `app-shell.md`, `projects.md`, `browser.md`) метка была `same-pr`, а не SHA, и
+  прошлой метки как базы не было. Для них база — последний commit, менявший русский файл (так считает
+  `feature-docs-lag.mjs`): `onboarding.md` — `1745e4bb8` (2026-11-01), `app-shell.md` и `projects.md` — `dad9d11ba`
+  (2026-11-18), `browser.md` — `244b33941` (2026-10-31). Во втором круге все четыре перечитаны целиком против английских
+  на `5d1efe69`, абзац за абзацем. Найдено и переведено: в `onboarding.md` — три утверждения о worfy Guide (ссылка на
+  странице «Welcome to worfy», абзац «worfy Guide» внизу панели Getting started, `test/e2e/guide-entry-links.spec.ts`),
+  «usage» Claude Code и порядок «проверка до любого вопроса» при удалении demo; в `projects.md` — «Harness home» вместо
+  «папки Harness» (два места), «idle Session» как простаивающая, а не «в ожидании», и «on the click alone» как «только по
+  щелчку пользователя»; в `browser.md` — шаг строки Browser profile «войти в аккаунт», «First run сам никогда не
+  открывается», «driven» в отказе `browser_list` и смысл «A bad file does not cost the profiles». В `app-shell.md`
+  пропусков не нашлось.
 - **ADR.** Новый [ADR-0109](../../../docs/adr/0109-health-check-row-levels-and-feature-reports.md): таблица уровней,
   состояния строки, `unknown` никогда не critical, `reportFailure` / `reportOk`, когда проверять, `opensFirstRun: false`,
   иконка без toast-ов, token-ы не логируются. Amendment к ADR-0042, пункт 9: источник token-а и строка при пустом

@@ -107,6 +107,10 @@ Code: `docs/features/ru/gate-and-github.md:715-720` · key lines: 719
 больше не называет ни одной из девяти страниц. `pnpm lint`, `pnpm typecheck`, `pnpm test` и gate fast — в отчёте
 implementer-а с exit code-ами.
 
+Второй круг: verifier нашёл в `ru/onboarding.md` три пропущенных утверждения о worfy Guide. После этого четыре страницы с
+прошлой меткой `same-pr` (`onboarding.md`, `app-shell.md`, `projects.md`, `browser.md`) перечитаны целиком против
+английских на `5d1efe69`, абзац за абзацем; найденные пропуски и неточности переведены (список — в итоге тикета).
+
 ## Проверить себя
 
 1. Почему строка, которую не удалось проверить, не красит иконку в красный, даже если её `severity` — `critical`?
