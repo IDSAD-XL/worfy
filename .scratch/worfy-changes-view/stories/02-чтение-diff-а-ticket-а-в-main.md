@@ -71,7 +71,7 @@ export function refusal(args: readonly string[]): string | null {
 
 ## 4. Список файлов — по numstat
 
-Code: `src/shared/changes/parse.ts:222-241` · key lines: 225
+Code: `src/shared/changes/parse.ts:229-248` · key lines: 232
 
 ```ts
 export function parseDiffList(output: string): ListedFile[] {
@@ -180,7 +180,7 @@ export async function fileDiff(context: ChangesContext, scope: ChangesScope, tar
 
 ## 7. Смена типа — обе половины
 
-Code: `src/shared/changes/parse.ts:384-399` · key lines: 385, 386, 396
+Code: `src/shared/changes/parse.ts:391-406` · key lines: 392, 393, 403
 
 ```ts
 export function patchOfPath(patches: readonly FilePatch[], path: string): FilePatch | undefined {
@@ -269,19 +269,50 @@ export function nativePath(path: string, platform: NodeJS.Platform = process.pla
   список worktree-ов; настоящий git for Windows — только в CI (job windows). `normalize` не меняет регистр буквы диска
   и не раскрывает короткие имена 8.3: если git и Profile напишут их по-разному, пути всё равно разойдутся.
 
-## 10. Что сознательно не меняли
+## 10. Правила пути Windows — только на Windows
+
+Code: `src/shared/changes/parse.ts:80-85` · key lines: 81, 83, 84
+
+```ts
+export function isRepoPath(path: string, platform: string = hostPlatform()): boolean {
+  if (path === '' || path.includes('\0') || path.startsWith('/')) return false
+  const windows = platform === 'win32'
+  if (windows && (path.startsWith('\\') || /^[A-Za-z]:/u.test(path))) return false
+  return !path.split(windows ? /[\\/]/u : /\//u).includes('..')
+}
+```
+
+- Что делает: `/`, NUL и часть `..` отвергаются на любой ОС; буква диска (`C:x`), путь с `\` в начале и `\` как
+  разделитель частей — только при `platform === 'win32'`. По умолчанию `platform` — `process.platform` main-а: схема
+  канала `changes.file` разбирает ввод в main (`src/main/ipc/index.ts`), а Linked machine передаёт ввод дальше как
+  есть, так что путь проверяет main того Machine-а, чей это репозиторий.
+- Почему здесь: замечание ревью второго раунда (средней важности): прежнее правило отвергало настоящие файлы
+  репозитория на macOS и Linux — `c:notes.md` и `x:new.txt` по букве диска, `back\..\slash.txt` по части `..` между
+  `\`. Такой файл не открывался ни как отслеживаемый, ни как новый. Ticket называет `src/shared/changes/parse.ts`
+  среди своих файлов.
+- Без него: красны contract test «file names that are absolute or split only on Windows, on macOS and Linux» (открыть
+  `:lead.txt`, `back\..\slash.txt`, `c:notes.md`, `x:new.txt` через `changes.file`) и unit test-ы правил по платформам
+  в `test/unit/changes-parse.test.ts`. Проверено мутантами: правило буквы диска и `\` на всех ОС — exit code 1,
+  4 красных test-а; разбиение по `\` на всех ОС — exit code 1, 1 красный; `platform` не учитывается вовсе — exit code 1,
+  2 красных.
+- Требование: [Что делаем, п. 6](../issues/02-чтение-diff-а-ticket-а-в-main.md#что-делаем)
+- Риски и пробелы test-ов: contract test с такими именами пропущен на Windows — там их не создать. В renderer-е нет
+  `process`, и там правило было бы POSIX-ным, но renderer эту схему не разбирает: ввод разбирает только main.
+
+## 11. Что сознательно не меняли
 
 Renderer, кнопка Changes и Command palette — Ticket 03. `profile.ts` не трогали: `default_branch` в main не
 передаётся, база берёт `origin/HEAD` и `origin/main`. Канал `changes.targets` — Ticket 05. Перевод страницы — Ticket 06.
 
-## 11. Как проверено
+## 12. Как проверено
 
 Сначала test, потом проверка: `test/unit/changes-parse.test.ts` красный, если убрать разбор CRLF; contract test
 «wrote nothing» красный, если убрать `diff.autoRefreshIndex=false`. Затем `pnpm lint`, `pnpm typecheck`, `pnpm test` и
 gate fast — с кодом выхода в отчёте implementer-а. Во втором раунде каждое новое поведение проверено мутантом в своём
 worktree: 44 мутанта (runner, отказ, окружение, пределы 1 MB и 64 MB, staged-файл, Hide whitespace, merge-commit,
 смена типа, пути, `--no-filters`, probe базы, строки `Repo:`, ветка в самом checkout-е, Commit и Compare только своего
-репозитория) — все убиты. В третьем раунде (красный CI на Windows) — 2 мутанта `nativePath`, оба убиты.
+репозитория) — все убиты. В третьем раунде (красный CI на Windows) — 2 мутанта `nativePath`, оба убиты. В четвёртом
+(правила пути Windows) — 3 мутанта `isRepoPath`, все убиты (exit code 1 у каждого).
 
 ## Проверить себя
 
@@ -291,7 +322,7 @@ worktree: 44 мутанта (runner, отказ, окружение, преде�
    - Lines: `src/main/changes/git.ts:74`
 2. Почему список файлов строится по numstat, а не по raw?
    - Ответ: с выключенным refresh raw называет и файлы со сменённым stat при том же тексте; numstat их не называет.
-   - Lines: `src/shared/changes/parse.ts:225`
+   - Lines: `src/shared/changes/parse.ts:232`
 3. Как test доказывает, что он вообще увидел бы запись?
    - Ответ: после сравнения он запускает простой `git diff` в том же worktree и ждёт, что index изменится.
    - Lines: `test/contract/changes-read.test.ts:288`
