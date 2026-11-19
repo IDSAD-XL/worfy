@@ -219,3 +219,78 @@ Code: `src/renderer/shell/FirstRunChecks.tsx:476-501` · key lines: 480, 485, 48
 3. Почему токен, который gh мог напечатать в ошибке, не попадает ни в `notice`, ни в log, ни в строку?
    Ответ: причина проходит `redactSecrets` один раз, до всех трёх получателей.
    Lines: `src/main/vendors/codex/session.ts:948-956`
+
+## 11. Что нашёл review и что осталось
+
+> VERIFIED
+>
+> **Consider** (all `[low]`, none block the merge):
+> - `src/renderer/shell/FirstRunChecks.tsx:261`: the detail column is squeezed to 1–2 characters when the row has a button. The Codex row shows "n…" and the Linked machine row shows "th…"; see the screenshots below. The full text is only in the hover `title`. For Linked machine that text names the set-aside secrets file. The hint under the row still gives the step. The layout is the row's old one, but the new long texts make it visible.
+> - `src/main/first-run/checks.ts:1005` and `:1061`: `runChecks` awaits the Codex row at the end, so a Codex app-server that hangs delays the whole Health check.
+>   - There is no timeout of its own. The delay is bounded only by the RPC timeouts: `initialize` waits up to 60 s (`src/main/vendors/codex/rpc.ts:23`) and `account/read` up to 30 s (`account.ts:24`).
+>   - The Health check can therefore stay on "Checking…" for up to 60 s. The unit test covers a source that rejects, not one that hangs.
+> - `src/renderer/shell/FirstRunChecks.tsx:491`: "Sign in to Codex…" holds no action lock, so repeated clicks can start several logins. The report lists this as a decision made without the owner.
+> - `src/main/mcp/browser-server.ts:150`: the Browser row's Project name is read once, when the row is created, so a renamed Project keeps the old name. `signInRows` also never drops a removed Project.
+> - `src/main/first-run/vendor-checks.ts:8`: the comment says "no CODEX_HOME", but `codexHomeOf` (`account.ts:79`) falls back to `~/.codex`. Anyone with `~/.codex` and no Codex sign-in gets the yellow warning. The report's wording "у кого есть CODEX_HOME" is imprecise on this.
+>
+> **Noted** (the "removed" claims hold):
+> - `readSecrets` has one caller, `FileSecretStore.load` (`secrets.ts:81`), and it is updated. No other callers exist in `src` or `test`.
+> - The yellow dot is only non-critical. `src/shared/health/severity.ts:40` and `:60` make `codex-login` non-critical, and `unknown` is never critical. `worstLevel` returns `non-critical` for these rows.
+> - A Codex Session without a GitHub account configured still starts silently, because `accountAuth` (`src/main/github/prs.ts:175`) returns `{}`. Only a gh failure for a configured account raises the notice and `reportFailure`.
+> - Secrets: the notice, the log and the row reason all go through `redactSecrets` (`session.ts`, `health-reports.ts`, `vendor-checks.ts`). The Link row names a Machine and a file basename only. The secrets parse error is still not quoted (`secrets.ts:44-56`).
+> - Link dialog: `migrating || linking` locks the other buttons (`FirstRunChecks.tsx:605`). I took the Link dialog screenshots below and the dialog opens over Settings.
+>
+> **Dismissed:** the report's gate red (exit 2) and the 19 failing files come from the environment. I ran the gate with the clean TMPDIR and without `GIT_CONFIG_PARAMETERS`, and it is green.
+>
+> **Confirmed** (what I ran):
+> - `node scripts/vitest-electron.mjs run` on the 10 module files: 24 files passed, 919 tests passed, 8 skipped, EXIT=0.
+> - `gate.mjs fast`: EXIT=0 with `[gate] green (fast): lint typecheck test` (lint 56 s, typecheck 64 s, test 370 s).
+> - `pnpm build`: EXIT=0.
+> - `bin/story-check --repo . --head HEAD <story>`: exit 0, 7 fragments ok.
+> - `bin/ticket evidence`: 7 of 8 items verified. Item 8 (`pnpm test` and `ci-ok`) is the only one without evidence, as the report says. Commit `3116a6303` is an ancestor of HEAD.
+> - Test stand-ins only; no real Codex was started. Settings → Health screenshots taken with the fake `signed-out` script and a damaged `link/secrets.json`. They ran under `/tmp/worfy-e2e.lock` after a screen-lock check; the lock was released and no processes were left. No worktree file was edited.
+>
+> Screenshots in `/tmp/claude-501/verify-2030/screens/`. All six were taken in Settings → Health:
+> - `health-08-light.png` / `health-08-dark.png`: "3 failed · 3 warnings", the Codex group with a "Codex sign-in" Warning and a "Sign in to Codex…" button, and the Linked machine group with a Failed row, a "Link a machine…" button and the step in the hint. Both rows are marked Non-critical.
+> - `health-08-codex-light.png` / `health-08-codex-dark.png`: the same view, with the Codex row in focus. The detail is truncated to "n…".
+> - `health-08-link-dialog-light.png` / `health-08-link-dialog-dark.png`: the "Link a machine" dialog open over Settings, showing the code and the address field. Contrast and layout are fine in both themes.
+>
+> **Could not verify:**
+> - There is no screenshot of the Codex Session notice with "Open Health check", nor of the Browser profile row. Both need a live Session or an expired Browser login; the unit tests cover them.
+> - `ci-ok` and macos-e2e were not waited for, as instructed.
+> - No mutation testing at review depth low.
+>
+> **Review depth:** low (wave verifier).
+> **Review tokens:** not measured.
+>
+> outside the diff: `src/renderer/shell/FirstRunChecks.tsx:487` — the `open-link` button still does nothing; the ticket says this is ticket 06's job.
+
+Code: `src/renderer/shell/FirstRunChecks.tsx:261-261` · key lines: 261
+
+```tsx
+      aria-busy={busy !== null || checking ? 'true' : undefined}
+```
+
+Code: `src/main/first-run/checks.ts:1005-1005` · key lines: 1005
+
+```ts
+  // The Vendor rows run beside the Machine's; they never reject (vendor-checks.ts), a broken source adds none.
+```
+
+Code: `src/main/vendors/codex/rpc.ts:23-23` · key lines: 23
+
+```ts
+export const REQUEST_TIMEOUT_MS = 60_000
+```
+
+Code: `src/renderer/shell/FirstRunChecks.tsx:491-491` · key lines: 491
+
+```tsx
+    // minutes, so it holds no lock; the checks run again once it is over.
+```
+
+Code: `src/main/mcp/browser-server.ts:150-150` · key lines: 150
+
+```ts
+const signInRows = new Map<string, BrowserSignInRow>()
+```
