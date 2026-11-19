@@ -1,7 +1,7 @@
 # 08 — Codex, Browser, Link: строка входа Codex в своём модуле, `notice` Session Codex, сообщения Browser и Link
 
 Type: task
-Status: claimed 2026-11-19T04:04Z
+Status: done 2026-11-19T06:21Z
 PR: #2030
 Blocked by: 04, 05
 Source: [spec.md](../spec.md), «Ticket-ы», 8; «Проблема», пункты «Codex» и «Прочее»; «Решение», пункты 1, 4 и 5;
@@ -72,6 +72,7 @@ Blocked by 04 — ради `openHealthCheck()`; 05 — ради строки п�
 - [ ] Английские страницы `vendors.md`, `browser.md`, `link.md`, `storage-and-diagnostics.md` описывают новые строки.
   - evidence: commit pass · worfy-auth-check/08: Codex sign-in row, Codex Session notice, Browser and Link rows in Health check · - - · 3116a6303847ad42d866e3245d2b6f8dbc8d5f6a
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44461966057/job/135363338264 · ci - · bdb38bb2a25878f9acf3a7e794f36a10af5a3a41
 
 ## Где в коде
 
