@@ -452,7 +452,7 @@ export class PrSearch {
   }
 
   private who(account: string | null): string {
-    return account ?? this.viewers.get('') ?? "gh's account"
+    return account ?? this.viewers.get('') ?? 'the account gh signs in with'
   }
 
   private async envOf(root: string, account: string | null): Promise<GhEnv> {
