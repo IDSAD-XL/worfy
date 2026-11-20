@@ -1,7 +1,8 @@
 # 128 — Hook compaction: eval `compaction-state` с hook-ом лучше, чем без него
 
 Type: task
-Status: claimed 2026-11-20T12:38Z
+Status: done 2026-11-20T16:33Z
+PR: #2095
 Blocked by: none
 Source: владелец 2026-11-19 на приёмке worfy-continuity 15: пункт 8 «Готово, когда» spec-а (eval `compaction-state`
 показывает, что с hook-ом лучше) принят как есть, «плюс Ticket на переделку hook-а».
@@ -66,6 +67,7 @@ Source: владелец 2026-11-19 на приёмке worfy-continuity 15: п�
 - [ ] Log прогона обоих вариантов (команды, overallScore, баллы по probes, цена) — в «Итог».
   - evidence: commit pass · worfy-polish/128: run log of both eval variants in the ticket · - - · 0f135b8cc402ce75b51d89808689ed8d26849fa6
 - [ ] Shell test-ы hook-ов и contract test eval-а зелёные; CI зелёный.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44769911652/job/136410820267 · ci - · 49f2d68e486aa3005c3b6cfdc54d6e57a986ed4e
 
 ## Итог
 
