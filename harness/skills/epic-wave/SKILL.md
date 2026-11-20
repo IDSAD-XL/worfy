@@ -373,6 +373,42 @@ confirm" (in the docs' language). `AskUserQuestion` —
 only when the wave cannot continue without an answer; in a Session without a human (worfy
 Autopilot) it is declined automatically.
 
+**A ticket stopped for the owner's answer is `blocked` at once.** The wave stops a ticket for the
+owner when no option is the orchestrator's to pick (money, deleted data, an irreversible step, a
+direction nobody recorded) or when only the owner can clear what holds it, such as an open issue.
+The orchestrator then runs, right away — once the ticket's implementer has ended its turn (its
+report came, or it was stopped), so nothing else writes in its worktree —
+`"${CLAUDE_PLUGIN_ROOT}/bin/ticket" block <epic> <NN> "<reason>" --waits owner`; `<reason>`
+names the question and what it waits for (the issue, the decision). It does not stay `claimed`:
+worfy Autopilot counts a `claimed` ticket as stuck and spends its continuations on it, while a
+`blocked` ticket with `Waits: owner` shows as waiting for the owner. The rest is that of any other
+block: a line in the state file's list of what waits for the owner, a `blocked` row in the wave
+report (section 5), and the same `ticket block` in the documents PR (section 4, item 4). Once the
+owner answers, the ticket is claimed again and goes on in the wave. A ticket whose PR waits for
+People in the Pipeline (`human-review`, `awaiting-merge`, section 0) stays `claimed`: this rule
+does not cover it.
+
+**Where the owner-stop status is written.** worfy reads the main branch with the committed ticket
+branch of each worktree laid over it, and a branch never undoes `blocked` or `done` of the main
+branch. So:
+- The block: in the ticket's own worktree, committed on the ticket's branch with only the ticket
+  file, `git -C <worktree> commit -m "<message>" -- <ticket file>`, where the claim is ("How to
+  resume a wave"); a push is not needed. A block left uncommitted, or written in the
+  orchestrator's own tree, stays invisible until the documents PR merges, and Autopilot goes on
+  sending continuations. A ticket with no worktree (not dispatched yet, or its worktree removed)
+  gets the block on the main branch, the way the documents PR carries statuses.
+- The owner's answer: `ticket claim <epic> <NN>` in the ticket's worktree, committed the same way.
+  When the main branch already says `blocked` (the documents PR merged the block, or the ticket had
+  no worktree), the main branch gets the answer too, by the same documents path: `ticket claim`
+  when the ticket goes on in its worktree, `ticket open` when it has none, so that a later wave
+  takes it (a wave takes only `open` tickets, section 1).
+- An open PR: the status commit moves the PR's head at its next push, inside the tickets root
+  only. `land` takes such a head and carries the `review` mark over from the verified head (section
+  4, "Merge with land"); CI runs again on it, and `check/<name>` marks are never carried: the
+  orchestrator sets them again on the new head (section 4, "Checks before merge").
+- Silent mode (section 0): `ticket block` and `ticket claim` from any directory are enough; the
+  status goes straight into the Workflow folder, with no commit.
+
 Agent `worfy:implementer` (`subagent_type: "worfy:implementer"`), name `impl-<NN>`, in the
 background: steps `F workflow.implementer_steps` of the skill `F workflow.ticket_skill` up to the
 finish `F workflow.finish` (a PR and a green gate fast, or locally green checks); the merge stays with the
