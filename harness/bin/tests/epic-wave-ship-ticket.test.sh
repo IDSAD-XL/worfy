@@ -1305,9 +1305,16 @@ for p in \
     'a `blocked` row in the wave report' \
     'the state file'"'"'s list of what waits for the owner' \
     '`ticket claim <epic> <NN>` again' \
-    'People in the Pipeline (`human-review`, `awaiting-merge`, section 0) stays `claimed`'; do
+    'People in the Pipeline (`human-review`, `awaiting-merge`, section 0) stays `claimed`' \
+    'in the ticket'"'"'s own worktree and commits it on the ticket'"'"'s branch' \
+    'worfy reads the main branch with the committed ticket branch of each worktree laid over it' \
+    'A block left uncommitted, or written in the orchestrator'"'"'s own tree, stays invisible' \
+    'A ticket with no worktree' \
+    'The re-claim goes the same way'; do
     check "epic-wave: a ticket stopped for the owner — '$p'" grep -qF -- "$p" <<<"$owner_stop"
 done
+check "epic-wave: the owner-stop block is not run from the orchestrator's own tree" \
+    lacks_re <(printf '%s\n' "$owner_stop") 'right away and from its own tree'
 check "epic-wave: the owner-stop rule follows 'Questions for the owner do not stop the wave'" \
     awk '/^\*\*Questions for the owner do not stop the wave\.\*\*/ { q = NR } /^\*\*A ticket stopped for the owner/ { if (q && NR > q && NR - q < 20) found = 1 } END { exit !found }' "$EW"
 check "epic-wave: human-review and awaiting-merge tickets still stay claimed (section 0)" has_flat "$EW" \

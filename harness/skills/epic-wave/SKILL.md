@@ -376,15 +376,22 @@ Autopilot) it is declined automatically.
 **A ticket stopped for the owner's answer is `blocked` at once.** The wave stops a ticket for the
 owner when no option is the orchestrator's to pick (money, deleted data, an irreversible step, a
 direction nobody recorded) or when only the owner can clear what holds it, such as an open issue.
-The orchestrator then runs, right away and from its own tree,
+The orchestrator then runs, right away,
 `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" block <epic> <NN> "<reason>" --waits owner`; `<reason>`
 names the question and what it waits for (the issue, the decision). It does not stay `claimed`:
 worfy Autopilot counts a `claimed` ticket as stuck and spends its continuations on it, while a
-`blocked` ticket with `Waits: owner` shows as waiting for the owner. The rest is that of any other
-block: a line in the state file's list of what waits for the owner, a `blocked` row in the wave
-report (section 5), and the same `ticket block` in the documents PR (section 4, item 4). Once the
-owner answers, `ticket claim <epic> <NN>` again, and the ticket goes on in the wave. A ticket whose
-PR waits for People in the Pipeline (`human-review`, `awaiting-merge`, section 0) stays `claimed`:
+`blocked` ticket with `Waits: owner` shows as waiting for the owner. The orchestrator runs the
+block in the ticket's own worktree and commits it on the ticket's branch, where the claim is
+("How to resume a wave"): worfy reads the main branch with the committed ticket branch of each
+worktree laid over it, so a push is not needed. A block left uncommitted, or written in the
+orchestrator's own tree, stays invisible until the documents PR merges, and Autopilot goes on
+sending continuations. A ticket with no worktree (not dispatched yet, or its worktree removed)
+gets the block on the main branch, the way the documents PR carries statuses (section 4, item 4).
+The rest is that of any other block: a line in the state file's list of what waits for the owner,
+a `blocked` row in the wave report (section 5), and the same `ticket block` in the documents PR.
+Once the owner answers, `ticket claim <epic> <NN>` again, and the ticket goes on in the wave. The
+re-claim goes the same way: in the ticket's worktree, committed on its branch. A ticket whose PR
+waits for People in the Pipeline (`human-review`, `awaiting-merge`, section 0) stays `claimed`:
 this rule does not cover it.
 
 Agent `worfy:implementer` (`subagent_type: "worfy:implementer"`), name `impl-<NN>`, in the
