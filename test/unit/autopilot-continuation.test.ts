@@ -29,16 +29,52 @@ describe('the continuation line', () => {
 })
 
 describe('the set-aside message', () => {
-  it('names the exact ticket block command with Waits: owner, and asks to end the turn', () => {
+  /** Where the block goes when the run does not know the Ticket's branch (worfy-polish 138). */
+  const COMMIT =
+    'commit only the Ticket file on its branch: git -C <worktree> commit -m "<message>" -- <ticket file>. ' +
+    'A Ticket with no worktree gets the block on the main branch the way the documents PR carries statuses, never by a direct commit to main.'
+
+  it('names the exact ticket block command with Waits: owner, where to run it, and asks to end the turn', () => {
     expect(setAsideText({ epic: 'epic-a', tickets: [5], attempts: 2, cause: 'wave-unfinished' })).toBe(
-      'Ticket 05 stayed claimed after 2 continuations. Run: ticket block epic-a 05 "stuck: claimed after 2 continuations" --waits owner. Then end the turn.',
+      `Ticket 05 stayed claimed after 2 continuations. Run: ticket block epic-a 05 "stuck: claimed after 2 continuations" --waits owner. Run it in the Ticket's own worktree and ${COMMIT} Then end the turn.`,
     )
   })
 
   it('for no-progress, and for two Tickets one command each', () => {
     expect(setAsideText({ epic: 'epic-a', tickets: [5, 7], attempts: 2, cause: 'no-progress' })).toBe(
-      'Tickets 05, 07 came back as the same wave after 2 continuations. Run: ticket block epic-a 05 "stuck: same wave after 2 continuations" --waits owner; ticket block epic-a 07 "stuck: same wave after 2 continuations" --waits owner. Then end the turn.',
+      `Tickets 05, 07 came back as the same wave after 2 continuations. Run: ticket block epic-a 05 "stuck: same wave after 2 continuations" --waits owner; ticket block epic-a 07 "stuck: same wave after 2 continuations" --waits owner. Run each in its Ticket's own worktree and ${COMMIT} Then end the turn.`,
     )
+  })
+
+  // worfy-polish 138: a block written in the Orchestrator's own tree stays invisible under the claim of the Ticket's
+  // branch (the epic-wave skill, "Where the owner-stop status is written"), so the message says where to run it.
+  it('names the branch of a Ticket claimed in a worktree branch, and only of such a Ticket', () => {
+    expect(setAsideText({ epic: 'epic-a', tickets: [5], attempts: 2, cause: 'wave-unfinished', branches: { 5: 'epic-a/05' } })).toContain(
+      `Run it in the Ticket's own worktree (branch epic-a/05) and ${COMMIT} Then end the turn.`,
+    )
+    expect(setAsideText({ epic: 'epic-a', tickets: [5, 7], attempts: 2, cause: 'no-progress', branches: { 7: 'epic-a/07', 9: 'epic-a/09' } })).toContain(
+      `Run each in its Ticket's own worktree (07: branch epic-a/07) and ${COMMIT}`,
+    )
+    expect(setAsideText({ epic: 'epic-a', tickets: [5, 7], attempts: 2, cause: 'no-progress', branches: { 5: 'epic-a/05', 7: 'epic-a/07' } })).toContain(
+      `Run each in its Ticket's own worktree (05: branch epic-a/05; 07: branch epic-a/07) and ${COMMIT}`,
+    )
+  })
+
+  // Silent mode: the Tickets live in the Workflow folder outside the repository, so there is no worktree to commit in;
+  // `ticket block` from any directory writes the status there (the epic-wave skill, the Silent-mode item).
+  it('in Silent mode says to run the command from any directory with no commit, and names no worktree, branch or git', () => {
+    const one = setAsideText({ epic: 'epic-a', tickets: [5], attempts: 2, cause: 'wave-unfinished', mode: 'silent', branches: { 5: 'epic-a/05' } })
+    expect(one).toBe(
+      'Ticket 05 stayed claimed after 2 continuations. Run: ticket block epic-a 05 "stuck: claimed after 2 continuations" --waits owner. ' +
+        'Run it from any directory, with no commit: in Silent mode the status goes straight into the Workflow folder. Then end the turn.',
+    )
+    const two = setAsideText({ epic: 'epic-a', tickets: [5, 7], attempts: 2, cause: 'no-progress', mode: 'silent' })
+    expect(two).toContain('--waits owner. Run them from any directory, with no commit: in Silent mode the status goes straight into the Workflow folder. Then end the turn.')
+    for (const text of [one, two]) for (const word of ['worktree', 'branch', 'git ', 'main']) expect(text).not.toContain(word)
+  })
+
+  it('in Full mode, named or by default, keeps the worktree rule', () => {
+    expect(setAsideText({ epic: 'epic-a', tickets: [5], attempts: 2, cause: 'wave-unfinished', mode: 'full' })).toBe(setAsideText({ epic: 'epic-a', tickets: [5], attempts: 2, cause: 'wave-unfinished' }))
   })
 
   it('calls the ticket tool by the path the Harness gives, quoted when it has a space', () => {

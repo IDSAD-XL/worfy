@@ -147,7 +147,11 @@ describe('the continuation ladder on a Codex Orchestrator (worfy-stuck-agents ti
     // Each continuation went to a new Session of the Orchestrator, as every Wave after the first does.
     expect(new Set(waves.map((event) => (event.kind === 'wave-started' ? event.session : undefined))).size).toBe(3)
     expect(first.filter((event) => event.kind === 'ticket-set-aside')).toMatchObject([{ ticket: '01', cause: 'wave-unfinished', attempts: 2 }])
-    expect(h.messages()).toContain('Ticket 01 stayed claimed after 2 continuations. Run: ticket block demo 01 "stuck: claimed after 2 continuations" --waits owner. Then end the turn.')
+    expect(h.messages()).toContain(
+      'Ticket 01 stayed claimed after 2 continuations. Run: ticket block demo 01 "stuck: claimed after 2 continuations" --waits owner. ' +
+        "Run it in the Ticket's own worktree and commit only the Ticket file on its branch: git -C <worktree> commit -m \"<message>\" -- <ticket file>. " +
+        'A Ticket with no worktree gets the block on the main branch the way the documents PR carries statuses, never by a direct commit to main. Then end the turn.',
+    )
     expect(h.messages().join('\n')).not.toContain('ignore the rules')
     expect(first.filter((event) => event.kind === 'epic-finished')).toMatchObject([{ epic: EPIC, outcome: 'waits-owner', tickets: ['01', '03'] }])
     expect(first.filter((event) => event.kind === 'epic-started')).toMatchObject([{ epic: EPIC_B, index: 2, of: 2 }])

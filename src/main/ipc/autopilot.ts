@@ -71,6 +71,7 @@ import { appLinkService, onAppLinkStart, type LinkService } from '../link/servic
 import { projectStore } from '../projects/store'
 import { appSettingsStore, autoApprovalMode, autoContinueOn } from '../settings/store'
 import { claudeHome, dataRoot, harnessHome } from '../storage/paths'
+import { readProjectLayout } from '../workflow/folder'
 import { readWorkflow } from '../workflow/reader'
 import type { WorkflowHub } from '../workflow/watch'
 import { sharedLauncher } from './actions'
@@ -246,6 +247,8 @@ export function sharedAutopilot(): Autopilot {
     // Harness on the machine now, and the Harness's `ticket` the set-aside message names.
     mainRed: (root) => readMainRed(currentHarness().gateDir, root),
     ticketTool: () => join(currentHarness().binDir, 'ticket'),
+    // Where the set-aside message says to run `ticket block`: the Ticket's worktree (Full) or any directory (Silent).
+    projectMode: async (root) => (await readProjectLayout({ root, claudeHome: claudeHome(), env: await harnessScriptEnv() })).mode,
     harnessDrift: harnessDriftWatch({ packaged: app.isPackaged, harnessVersion: () => bundledHarnessVersion() }),
     prs: sharedPrTracker(),
     origin: (root) => readOriginKey(root),

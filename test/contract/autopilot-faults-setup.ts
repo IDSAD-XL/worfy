@@ -163,6 +163,14 @@ export interface FaultRunOptions {
   publish?: (view: OrchestratorView) => void
   /** The fake Orchestrator carries out the set-aside message (worfy-stuck-agents ticket 05); default: it does not. */
   setAside?: 'block' | 'ignore'
+  /**
+   * Each listed Ticket, while not blocked or done in the checkout, carries this worktree branch as the reader's
+   * `fromBranch`; default none. A stand-in for a real Ticket worktree: the set-aside message names the branch
+   * (worfy-polish 138).
+   */
+  fromBranch?: readonly { epic: string; num: number; branch: string }[]
+  /** The Project reads as in Silent mode for the set-aside message (worfy-polish 138); default Full. */
+  silent?: boolean
   /** land's main-red marker for the Project's repository exists in the gate folder the run reads; default none. */
   mainRed?: boolean
   /** A second Epic, EPIC_B, with one Ticket 01, open (`true`) or already done (`done`); default none. */
@@ -508,7 +516,16 @@ export function faultRun(options: FaultRunOptions = {}) {
     broadcast: () => undefined,
     publish: (view) => options.publish?.(view),
   })
-  const workflow = async (root: string) => (await readWorkflow({ root, claudeHome: join(scratch, 'claude-home'), env: () => Promise.resolve(process.env) }, runner)).model
+  const workflow = async (root: string) => {
+    const model = (await readWorkflow({ root, claudeHome: join(scratch, 'claude-home'), env: () => Promise.resolve(process.env) }, runner)).model
+    const tickets = model.tickets.map((ticket) => {
+      // As the reader: a Ticket blocked or done in the checkout keeps the checkout's status, with no branch.
+      const open = ticket.state !== 'blocked' && ticket.state !== 'done'
+      const branch = open ? options.fromBranch?.find((each) => each.epic === ticket.epic && each.num === ticket.num)?.branch : undefined
+      return branch === undefined ? ticket : { ...ticket, fromBranch: branch }
+    })
+    return { ...model, tickets }
+  }
   const launcher = new ActionLauncher({
     projectRoot: () => repo,
     settings: () => ({ actionTemplates: { ...DEFAULT_ACTION_TEMPLATES } }),
@@ -602,6 +619,7 @@ export function faultRun(options: FaultRunOptions = {}) {
     settleMs: options.settleMs ?? 60_000,
     mainRed: (root) => readMainRed(gateDir, root),
     ticketTool: () => 'ticket',
+    projectMode: () => Promise.resolve(options.silent === true ? 'silent' : 'full'),
     limits: {
       state: () => tracker.snapshot(),
       observeSession: (isSession, listener) => observeSessionLimits((sink) => registry.observe(sink), isSession, listener),
