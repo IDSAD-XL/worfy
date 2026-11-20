@@ -72,26 +72,33 @@ tool-а длиннее предела); «Вопросы владельцу», Q
       Integration при двух Session-ах; stdio-stub получает секрет в окружении, `args` секрета не держат. Красный до
       правки — в «Итог».
   - evidence: test-run pass · `pnpm test test/contract/integrations-proxy.test.ts` exit 0 · mac - · 84a21e9b894597e4024e3e9f28c35578dee9e047
+  - evidence: test-run pass · `pnpm test test/contract/integrations-proxy.test.ts` exit 0 · mac - · 53ce8d2b0701dab0b7b236846045db0de6b049ff
 - [ ] Тот же contract: фильтр `read-only` и список режут `tools/list` и `tools/call` (вызов отфильтрованного tool-а —
       отказ); метка в описании tool-а; 401 → ответ `isError` «Sign-in needed: <метка>…» и статус `needs-sign-in`;
       размер tools — длина JSON / 4.
   - evidence: test-run pass · `pnpm test test/contract/integrations-proxy.test.ts` exit 0 · mac - · 84a21e9b894597e4024e3e9f28c35578dee9e047
+  - evidence: test-run pass · `pnpm test test/contract/integrations-proxy.test.ts` exit 0 · mac - · 53ce8d2b0701dab0b7b236846045db0de6b049ff
 - [ ] Contract `test/contract/integrations-claude-session.test.ts` (новый) на fake query
       (`src/main/agent/fake-query.ts`): Session Project-а получает в `mcpServers` ровно его включённые Integration-ы
       рядом с `worfy-canvas`; `managedSettings` и `mcp.allowed` не изменились; Session вне Project-а их не получает;
       Turn off — Restart без неё.
   - evidence: test-run pass · `pnpm test test/contract/integrations-claude-session.test.ts` exit 0 · mac - · 84a21e9b894597e4024e3e9f28c35578dee9e047
+  - evidence: test-run pass · `pnpm test test/contract/integrations-claude-session.test.ts` exit 0 · mac - · 53ce8d2b0701dab0b7b236846045db0de6b049ff
 - [ ] Тот же contract: значение token-а не появляется в аргументах процесса Claude Code (`--mcp-config`), в логе main, в
       Journal и в Flight recorder.
   - evidence: test-run pass · `pnpm test test/contract/integrations-claude-session.test.ts` exit 0 · mac - · 84a21e9b894597e4024e3e9f28c35578dee9e047
+  - evidence: test-run pass · `pnpm test test/contract/integrations-claude-session.test.ts` exit 0 · mac - · 53ce8d2b0701dab0b7b236846045db0de6b049ff
 - [ ] Unit `test/unit/integration-server-name.test.ts` (новый): slug, предел длины, суффикс `-2` при совпадении с
       сервером Claude Code из инвентаря и с префиксом `worfy-`.
   - evidence: test-run pass · `pnpm test test/unit/integration-server-name.test.ts` exit 0 · mac - · 84a21e9b894597e4024e3e9f28c35578dee9e047
+  - evidence: test-run pass · `pnpm test test/unit/integration-server-name.test.ts` exit 0 · mac - · 53ce8d2b0701dab0b7b236846045db0de6b049ff
 - [ ] `test/unit/mcp-status-row.test.ts`: строка с источником `integration` и меткой.
   - evidence: test-run pass · `pnpm test test/unit/mcp-status-row.test.ts` exit 0 · mac - · 84a21e9b894597e4024e3e9f28c35578dee9e047
+  - evidence: test-run pass · `pnpm test test/unit/mcp-status-row.test.ts` exit 0 · mac - · 53ce8d2b0701dab0b7b236846045db0de6b049ff
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job-ы Windows CI зелёные
       (платформенный PR).
   - evidence: gate pass · `gate fast` exit 0 · mac - · 84a21e9b894597e4024e3e9f28c35578dee9e047
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 53ce8d2b0701dab0b7b236846045db0de6b049ff
 
 ## Где в коде
 
@@ -167,3 +174,35 @@ Ticket-ом 04 (#2113) — те же test-ы, `pnpm lint`, `pnpm typecheck` exit
     иначе `McpTool` с JSON Schema не собирается), новые stub-ы `test/fixtures/integrations/service-stub.ts` и
     `stdio-service-stub.mjs` (stub-ы Ticket-а 04 не перечисляют tools).
 13. Blocker 01 открыт только для живого шага владельца; tools-only proxy подтверждён («Решено без владельца», 4 spec-а).
+
+Раунд 2 ревью PR #2119 (после rebase на main):
+- Отмена или предел одного вызова (`McpError` -32001 пакета) — отказ только этого вызова; соединение, stdio-процесс и
+  статус живут.
+- Новый секрет — одно новое соединение, сколько бы вызовов его ни увидели. Карта соединений читается заново после
+  каждого ожидания. Старое соединение закрывается после своего последнего вызова, его сбой статус нового не трогает.
+- Удалённая с Machine Integration получает отказ до повторного использования соединения, даже без секретов; её
+  соединение закрывается. Удаление (`integrations.remove`) и выход из приложения (`will-quit`) закрывают соединения proxy.
+- Метки строк chip-а лежат свойством самого query: Proxy `appLimits().observe` их находит.
+- 404 на `initialize` — «the address was not found», а не «сервис дважды закрыл session».
+- Новый refresh token соединение не меняет. Место для OAuth 05 — комментарий у `fingerprint`.
+- Сервер, не прошедший `initialize`, закрывается.
+
+Test-ы: `pnpm test test/contract/integrations-proxy.test.ts test/contract/integrations-claude-session.test.ts
+test/contract/integrations-store.test.ts` до правки — exit 1 (10 из 49 упали), после — exit 0. Каждая из 10 правок
+ловится своим mutant-ом: 10 mutant-ов, все дали exit 1. Unit и contract test-ы затронутых модулей (39 файлов, 1051 test) —
+exit 0. `test/e2e/session-mcp.spec.ts` под `/tmp/worfy-e2e.lock` — exit 0. `pnpm lint`, `pnpm typecheck` — exit 0;
+`gate fast` — exit 0, `[gate] green (fast)` на 53ce8d2b0.
+
+Решено без владельца, раунд 2:
+
+14. Windows `.cmd` (например `npx.cmd`) запускается без `toolStart` (`src/main/first-run/tools.ts`). `StdioClientTransport`
+    пакета запускает команду через `cross-spawn`. Тот находит `.cmd` по PATH из переданного окружения и запускает его через
+    cmd.exe с экранированными аргументами. `toolStart` аргументы не экранирует: он рассчитан на постоянные слова, а
+    аргументы сервера задаёт пользователь. Test с shim-ом по голому имени: `.cmd` на Windows (job-ы Windows CI), shell-shim
+    на Mac.
+15. Соединение, которое заменило новое, не закрывается сразу: оно закрывается, когда кончится его последний вызов
+    (`retire`). Иначе смена секрета обрывала бы чужой вызов, который уже идёт.
+16. `QUIT_LISTENERS_MAX` 40 → 50 (`src/main/quit-listeners.ts`): мест с `will-quit` стало 31, а test держит запас 10.
+17. Новые правки вне «Где в коде», по ревью: `src/main/ipc/integrations.ts` (закрытие соединений),
+    `src/main/quit-listeners.ts`. В `test/contract/integrations-store.test.ts` и `integrations-token-auth.test.ts` добавлен
+    mock `electron`: модуль теперь подписывается на `will-quit`.
