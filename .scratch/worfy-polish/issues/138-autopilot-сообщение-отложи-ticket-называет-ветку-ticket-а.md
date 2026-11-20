@@ -1,7 +1,8 @@
 # 138 — Autopilot: сообщение «отложи Ticket» называет ветку Ticket-а
 
 Type: bug
-Status: open
+Status: claimed 2026-11-20T16:49Z
+Branch: worfy-polish/138
 Blocked by: none
 Source: решение владельца 2026-11-20, Q5. Тот же провал worfy-polish 131 исправил в skill-е epic-wave (#2086): block,
 записанный в своём дереве Orchestrator-а, не виден под `claimed` ветки Ticket-а.

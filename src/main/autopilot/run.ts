@@ -2913,7 +2913,11 @@ export class Autopilot {
     }
     for (const num of effect.tickets) await this.write(run, { kind: 'ticket-set-aside', ticket: ticketNumber(num), cause: effect.cause, attempts: effect.attempts })
     const tool = this.deps.ticketTool?.()
-    const text = setAsideText({ epic: run.epic, tickets: effect.tickets, attempts: effect.attempts, cause: effect.cause, ...(tool === undefined ? {} : { ticketTool: tool }) })
+    // The worktree branch each Ticket's claim was read from, so the message names where the block goes (worfy-polish 138).
+    const branches = Object.fromEntries(
+      (await this.freshTickets(run)).flatMap((ticket) => (ticket.epic === run.epic && effect.tickets.includes(ticket.num) && ticket.fromBranch ? [[ticket.num, ticket.fromBranch]] : [])),
+    )
+    const text = setAsideText({ epic: run.epic, tickets: effect.tickets, attempts: effect.attempts, cause: effect.cause, branches, ...(tool === undefined ? {} : { ticketTool: tool }) })
     const session = run.session
     if (session === null || session.state === 'closed') {
       await this.feed(run, { type: 'session-closed' })

@@ -251,8 +251,11 @@ after the turn (`wave-unfinished`), and the next ready Wave being the same set o
    While it runs, the status line says `Wave 4 · continuing 05 (1 of 2)`. A Ticket gets at most 2 continuations in one run; a
    new run counts from 0.
 2. **Set aside.** After its 2 continuations, the run asks the Orchestrator to set the Ticket aside:
-   `Ticket 05 stayed claimed after 2 continuations. Run: ticket block epic-a 05 "stuck: claimed after 2 continuations" --waits owner. Then end the turn.`
-   The command names the Harness's `ticket` by its path. worfy writes no `Status:` itself: only the Orchestrator runs the
+   `Ticket 05 stayed claimed after 2 continuations. Run: ticket block epic-a 05 "stuck: claimed after 2 continuations" --waits owner. Run it in the Ticket's own worktree (branch epic-a/05) and commit only the Ticket file on its branch: git -C <worktree> commit -m "<message>" -- <ticket file>. A Ticket with no worktree gets the block on the main branch. Then end the turn.`
+   The command names the Harness's `ticket` by its path. The message also says where to run it, as the `epic-wave` skill
+   does: worfy reads the main branch with each Ticket branch laid over it, so a block written in the Orchestrator's own tree
+   stays hidden under the branch's claim. When worfy read the Ticket's claim from a worktree branch, the message names that
+   branch; otherwise it gives the rule in words only. worfy writes no `Status:` itself: only the Orchestrator runs the
    command. A Ticket with `Waits: owner` waits for the owner, so the other Tickets of the Epic go on in the next Waves, and once
    nothing is ready the Epic ends with `waits-owner` and a run over a queue goes on to the next Epic.
 3. **Stop.** If the Ticket is still in work after that turn, the run stops with the old reason, `wave-unfinished` or

@@ -163,6 +163,11 @@ export interface FaultRunOptions {
   publish?: (view: OrchestratorView) => void
   /** The fake Orchestrator carries out the set-aside message (worfy-stuck-agents ticket 05); default: it does not. */
   setAside?: 'block' | 'ignore'
+  /**
+   * A claimed Ticket of EPIC reads as claimed in this worktree branch (the reader's `fromBranch`), by number; default
+   * none. A stand-in for a real Ticket worktree: the set-aside message names the branch (worfy-polish 138).
+   */
+  fromBranch?: Readonly<Partial<Record<number, string>>>
   /** land's main-red marker for the Project's repository exists in the gate folder the run reads; default none. */
   mainRed?: boolean
   /** A second Epic, EPIC_B, with one Ticket 01, open (`true`) or already done (`done`); default none. */
@@ -508,7 +513,15 @@ export function faultRun(options: FaultRunOptions = {}) {
     broadcast: () => undefined,
     publish: (view) => options.publish?.(view),
   })
-  const workflow = async (root: string) => (await readWorkflow({ root, claudeHome: join(scratch, 'claude-home'), env: () => Promise.resolve(process.env) }, runner)).model
+  const workflow = async (root: string) => {
+    const model = (await readWorkflow({ root, claudeHome: join(scratch, 'claude-home'), env: () => Promise.resolve(process.env) }, runner)).model
+    const branches = options.fromBranch ?? {}
+    const tickets = model.tickets.map((ticket) => {
+      const branch = ticket.epic === EPIC && ticket.state === 'work' ? branches[ticket.num] : undefined
+      return branch === undefined ? ticket : { ...ticket, fromBranch: branch }
+    })
+    return { ...model, tickets }
+  }
   const launcher = new ActionLauncher({
     projectRoot: () => repo,
     settings: () => ({ actionTemplates: { ...DEFAULT_ACTION_TEMPLATES } }),
