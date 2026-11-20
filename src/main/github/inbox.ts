@@ -262,6 +262,13 @@ function toPull(repo: string, raw: z.output<typeof pullSchema>): ReadPull {
       const name = who?.login ?? who?.combinedSlug ?? who?.slug
       return asCodeOwner === true && name !== undefined ? [name] : []
     }),
+    // Every open request for the reviewers of the Approvals cell (worfy-pr-review ticket 03); a request without a
+    // reviewer is a team the token cannot see.
+    requests: raw.reviewRequests.map(({ asCodeOwner, requestedReviewer: who }) => ({
+      name: who?.login ?? who?.combinedSlug ?? who?.slug ?? null,
+      team: who?.login === undefined,
+      codeOwner: asCodeOwner === true,
+    })),
   })
   return {
     approvals,

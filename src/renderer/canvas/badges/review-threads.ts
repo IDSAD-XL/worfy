@@ -1,10 +1,10 @@
 // What the review threads badge (ReviewThreads.tsx, worfy-pr-inbox ticket 06) and the Pipeline board's «Waits: N answers»
 // count, from the Project's PR inbox snapshot: pure, so the badge, the card's height (ticket-card.ts through
 // sources/epics.ts) and the board count alike.
-import type { PrInboxSnapshot } from '../../../shared/ipc/pr-inbox'
+import type { PrApprovals, PrInboxSnapshot } from '../../../shared/ipc/pr-inbox'
 import { ticketOfRow, waitingThreads } from '../../../shared/pr-inbox/rows'
 import type { Ticket } from '../../../shared/workflow/types'
-import { orderedGroups, threadsText, type PullRef } from '../../pr-inbox/usePrInbox'
+import { approvalsShort, orderedGroups, threadsText, type PullRef } from '../../pr-inbox/usePrInbox'
 
 // Moved to src/shared, where main reads it too (worfy-pr-follow ticket 01); the badge and its tests still take it from here.
 export { waitingThreads }
@@ -13,6 +13,8 @@ export { waitingThreads }
 export interface TicketPull extends PullRef {
   threads: number
   changesRequested: boolean
+  /** The PR's approvals while it is short of them (approvalsShort, worfy-pr-review ticket 03); null when enough or unknown. */
+  approvals: PrApprovals | null
 }
 
 /** What a Ticket's PRs wait for: each PR the snapshot holds for it, and their sum. */
@@ -20,6 +22,8 @@ export interface TicketReviews {
   pulls: TicketPull[]
   threads: number
   changesRequested: boolean
+  /** The first PR, in the order of the view's groups, that is short of approvals: the chip of the card and the board. */
+  short: TicketPull | null
 }
 
 const keyOf = (ticket: Pick<Ticket, 'epic' | 'num'>): string => `${ticket.epic}/${ticket.num}`
@@ -44,10 +48,17 @@ export function reviewsByTicket(snapshot: PrInboxSnapshot | undefined, tickets: 
     for (const row of rows) {
       const owner = ticketOfRow(row, tickets)
       if (owner === undefined) continue
-      const pull: TicketPull = { repo: row.repo, number: row.number, threads: waitingThreads(row, snapshot.viewer), changesRequested: row.reviewDecision === 'CHANGES_REQUESTED' }
+      const pull: TicketPull = {
+        repo: row.repo,
+        number: row.number,
+        threads: waitingThreads(row, snapshot.viewer),
+        changesRequested: row.reviewDecision === 'CHANGES_REQUESTED',
+        approvals: approvalsShort(row.approvals) ? row.approvals! : null,
+      }
+      const short = pull.approvals === null ? null : pull
       const reviews = byTicket.get(keyOf(owner))
-      if (reviews === undefined) byTicket.set(keyOf(owner), { pulls: [pull], threads: pull.threads, changesRequested: pull.changesRequested })
-      else byTicket.set(keyOf(owner), { pulls: [...reviews.pulls, pull], threads: reviews.threads + pull.threads, changesRequested: reviews.changesRequested || pull.changesRequested })
+      if (reviews === undefined) byTicket.set(keyOf(owner), { pulls: [pull], threads: pull.threads, changesRequested: pull.changesRequested, short })
+      else byTicket.set(keyOf(owner), { pulls: [...reviews.pulls, pull], threads: reviews.threads + pull.threads, changesRequested: reviews.changesRequested || pull.changesRequested, short: reviews.short ?? short })
     }
   }
   bySnapshot.set(tickets, byTicket)
@@ -69,11 +80,17 @@ export function reviewLabels(reviews: Pick<TicketReviews, 'threads' | 'changesRe
   return [...(threads === null ? [] : [threads]), ...(reviews.changesRequested ? ['changes requested'] : [])]
 }
 
-/** How many chips the badge draws on each Ticket that has any, by `<epic>/<num>`: the room ticket-card.ts gives the card. */
+/**
+ * How many lines of chips the badge draws: a line per label, and the approvals chip on the last of them, or on a line of
+ * its own when there is no label (worfy-pr-review ticket 03: the chip adds no line beside a label).
+ */
+export const reviewLinesOf = (reviews: TicketReviews | null): number => (reviews === null ? 0 : Math.max(reviewLabels(reviews).length, reviews.short === null ? 0 : 1))
+
+/** How many lines of chips the badge draws on each Ticket that has any, by `<epic>/<num>`: the room ticket-card.ts gives the card. */
 export function reviewChipsOf(snapshot: PrInboxSnapshot | undefined, tickets: readonly Ticket[]): Record<string, number> {
   const chips: Record<string, number> = {}
   for (const [key, reviews] of reviewsByTicket(snapshot, tickets)) {
-    const count = reviewLabels(reviews).length
+    const count = reviewLinesOf(reviews)
     if (count > 0) chips[key] = count
   }
   return chips

@@ -1,7 +1,7 @@
 # 03 — Chip одобрений `1/2` в UI: строка списка, ячейка Approvals, доска Pipeline на Stage Human review и карточка Ticket-а на Canvas
 
 Type: task
-Status: open
+Status: claimed 2026-11-20T04:29Z
 Blocked by: 01, 02
 Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решение», 5; «Как пользователь идёт по экрану», B и D; «Решения по
 реализации», 3 и 12; «Вопросы владельцу», Q5 и Q6

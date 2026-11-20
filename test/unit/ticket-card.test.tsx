@@ -14,7 +14,7 @@ import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import TicketNode, { defaultHeight, defaultWidth } from '../../src/renderer/canvas/nodes/TicketNode'
 import type { CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
 import { buildEpicNodes } from '../../src/renderer/canvas/sources/epics'
-import { ACTIONS_LINE, cardHeight, charEm, checkRowsHeight, CONTENT_WIDTH, showsChanges, SIDE_EFFECTS_LINE, textLines, TICKET_MIN_HEIGHT, TICKET_WIDTH, type CardInput } from '../../src/renderer/canvas/ticket-card'
+import { ACTIONS_LINE, cardHeight, charEm, checkRowsHeight, CONTENT_WIDTH, REVIEW_LINE, showsChanges, SIDE_EFFECTS_LINE, textLines, TICKET_MIN_HEIGHT, TICKET_WIDTH, type CardInput } from '../../src/renderer/canvas/ticket-card'
 import { takeMarks } from '../../src/renderer/autopilot/unknown-side-effects'
 
 // The badges and actions are their own tests' business: none here.
@@ -301,6 +301,23 @@ describe('the card is as tall as what it shows', () => {
 
   it('CONTENT_WIDTH is the card less its 1 px border and 10 px padding on each side', () => {
     expect(CONTENT_WIDTH).toBe(TICKET_WIDTH - 22)
+  })
+
+  // The approvals chip (worfy-pr-review ticket 03, Q5 (a)): drawn by the review threads badge (its own test,
+  // review-threads-badge.test.tsx); here only the room the card gets for it. REVIEW_LINE itself does not grow.
+  it('a card whose open PR is short of approvals gets one review line for the chip; beside a label it adds none; at ✓ none', async () => {
+    const { reviewChipsOf } = await import('../../src/renderer/canvas/badges/review-threads')
+    const approvals = { have: 1, need: 2, source: 'ruleset', codeOwnersPending: [], stale: 0, lastPushNeedsOther: false, moreRules: false, decision: 'review-required', reviewers: [] } as const
+    const pull = { repo: 'example-org/app', number: 7, title: 'PR 7', url: 'https://github.com/example-org/app/pull/7', isDraft: false, author: 'dev-me', headRefName: 'demo/01', headRefOid: 'sha7', createdAt: '2026-11-08T10:00:00Z', updatedAt: '2026-11-09T10:00:00Z', ci: 'passing', reviewDecision: null, mergeStateStatus: 'CLEAN', additions: null, deletions: null, viaTeam: false, unresolvedThreads: 0, newSinceSeen: 0, lastActivityAt: '2026-11-09T10:00:00Z', threads: [], comments: [] } as const
+    const inbox = (row: Record<string, unknown>) => ({ projectId: 'p', enabled: true, viewer: 'dev-me', groups: [{ group: 'waiting' as const, rows: [{ ...pull, ...row } as never] }], readAt: null, nextSearchAt: null, error: null, notice: null })
+    const tickets = [ticket(1, { pr: 7 })]
+    const room = (row: Record<string, unknown>) => cardHeight({ ...base, reviewChips: reviewChipsOf(inbox(row), tickets)['demo/1'] ?? 0 }) - cardHeight(base)
+    expect(REVIEW_LINE).toBe(18)
+    expect(room({ approvals })).toBe(REVIEW_LINE)
+    expect(room({ approvals: { ...approvals, need: null, source: 'hidden' } })).toBe(REVIEW_LINE)
+    expect(room({ approvals: { ...approvals, have: 2, decision: 'approved' } })).toBe(0)
+    expect(room({ reviewDecision: 'CHANGES_REQUESTED', approvals: { ...approvals, decision: 'changes-requested' } })).toBe(REVIEW_LINE)
+    expect(room({})).toBe(0)
   })
 })
 

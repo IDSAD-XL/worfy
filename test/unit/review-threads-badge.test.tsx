@@ -231,6 +231,82 @@ describe('ReviewThreads on a Ticket', () => {
   })
 })
 
+// The approvals chip on the Ticket card (worfy-pr-review ticket 03, Q5 (a)): only while the PR is open and short of
+// approvals, in the line of the review chips — beside the last label, or on a line of its own when there is none.
+describe('the approvals chip on a Ticket card', () => {
+  const approvals = (extra: Partial<NonNullable<PrInboxRow['approvals']>> = {}): NonNullable<PrInboxRow['approvals']> => ({
+    have: 1,
+    need: 2,
+    source: 'ruleset',
+    codeOwnersPending: [],
+    stale: 0,
+    lastPushNeedsOther: false,
+    moreRules: false,
+    decision: 'review-required',
+    reviewers: [],
+    ...extra,
+  })
+  const lines = (badge: HTMLElement): string[] => [...badge.children].map((line) => line.textContent ?? '')
+
+  it('a PR short of approvals, nothing else waiting: the chip alone on one line, its PR in the tooltip, a click opens it', async () => {
+    inbox = snapshotOf({ waiting: [row(WEB, 118, { approvals: approvals() })] })
+    const { default: ReviewThreads, usePrInboxFocus } = await load()
+    render(<ReviewThreads subject={subject(7)} />)
+    const badge = await screen.findByTestId('badge-review-threads')
+    expect(lines(badge)).toEqual(['1/2 approvals'])
+    const chip = screen.getByTestId('approvals-chip')
+    expect(chip.getAttribute('aria-label')).toBe('1 of 2 required approvals')
+    expect(chip.className).toContain('w-approvals-chip--compact')
+    expect(badge.getAttribute('title')).toBe(`${WEB}#118: 1 of 2 required approvals\nOpen in Pull requests`)
+    fireEvent.click(badge)
+    await settle()
+    expect(usePrInboxFocus.getState().focus).toMatchObject({ pr: { repo: WEB, number: 118 } })
+  })
+
+  it('beside the last label: threads and the chip share a line; with changes requested too, two lines', async () => {
+    inbox = snapshotOf({ 'needs-answer': [row(WEB, 118, { threads: [thread([PEER])], approvals: approvals({ need: null, source: 'hidden' }) })] })
+    let fresh = await load()
+    render(<fresh.default subject={subject(7)} />)
+    expect(lines(await screen.findByTestId('badge-review-threads'))).toEqual(['1 open thread1/? approvals'])
+    cleanup()
+    inbox = snapshotOf({ 'needs-fix': [row(WEB, 118, { threads: WAITING, reviewDecision: 'CHANGES_REQUESTED', approvals: approvals({ decision: 'changes-requested' }) })] })
+    fresh = await load()
+    render(<fresh.default subject={subject(7)} />)
+    expect(lines(await screen.findByTestId('badge-review-threads'))).toEqual(['3 open threads', 'changes requested✕ 1/2 approvals'])
+  })
+
+  it('approvals enough, no rule, or none read: no chip, and no badge when nothing else waits', async () => {
+    for (const each of [approvals({ have: 2, decision: 'approved' }), approvals({ need: 0, source: 'none', decision: null }), undefined]) {
+      inbox = snapshotOf({ waiting: [row(WEB, 118, { approvals: each })] })
+      const fresh = await load()
+      const { container } = render(<fresh.default subject={subject(7)} />)
+      await settle()
+      expect(container.innerHTML).toBe('')
+      cleanup()
+    }
+  })
+
+  it('the room on the card: the chip adds a line only when no label has one', async () => {
+    const { reviewChipsOf } = await load()
+    tickets = [ticket(7, { pr: 118 })]
+    expect(reviewChipsOf(snapshotOf({ waiting: [row(WEB, 118, { approvals: approvals() })] }), tickets)).toEqual({ 'shop/7': 1 })
+    expect(reviewChipsOf(snapshotOf({ 'needs-answer': [row(WEB, 118, { threads: WAITING, approvals: approvals() })] }), tickets)).toEqual({ 'shop/7': 1 })
+    expect(reviewChipsOf(snapshotOf({ 'needs-fix': [row(WEB, 118, { threads: WAITING, reviewDecision: 'CHANGES_REQUESTED', approvals: approvals() })] }), tickets)).toEqual({ 'shop/7': 2 })
+    expect(reviewChipsOf(snapshotOf({ waiting: [row(WEB, 118, { approvals: approvals({ decision: 'approved', have: 2 }) })] }), tickets)).toEqual({})
+  })
+
+  it('the line of chips and the compact chip are 16 px, the line REVIEW_LINE gives (the sheets are read)', () => {
+    const plain = (path: string) => readFileSync(join(import.meta.dirname, '../../src/renderer', path), 'utf8').replace(/\/\*[\s\S]*?\*\//gu, '')
+    const body = (sheet: string, selector: string) => {
+      const at = sheet.indexOf(`${selector} {`)
+      expect(at, selector).toBeGreaterThanOrEqual(0)
+      return sheet.slice(at, sheet.indexOf('}', at))
+    }
+    expect(body(plain('canvas/badges/review-threads.css'), '.w-review-threads__line')).toMatch(/height\s*:\s*16px/u)
+    expect(body(plain('pr-inbox/approvals-chip.css'), '.w-approvals-chip--compact')).toMatch(/height\s*:\s*16px/u)
+  })
+})
+
 describe('the room of the badge on the card (ticket-card.ts)', () => {
   it('reviewChipsOf names the Tickets that draw it with their number of chips; one without a PR in the snapshot draws none', async () => {
     const { reviewChipsOf } = await load()

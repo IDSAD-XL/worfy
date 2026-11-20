@@ -589,6 +589,73 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* The Approvals cell (worfy-pr-review ticket 03): wider than the others, as the prototype of ticket 01 draws it, for the
+   list of reviewers under the chip; the cells start at the top, as the list makes this one taller. */
+.w-pr-inbox-facts:has(> [data-fact='approvals']) {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.9fr) minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+}
+.w-pr-inbox-approvals {
+  flex: 1;
+  min-width: 0;
+}
+.w-pr-inbox-approvals__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.w-pr-inbox-approvals__head .w-pr-inbox-muted {
+  font-size: var(--text-11);
+}
+.w-pr-inbox-approvals__empty {
+  margin-top: 6px;
+  font-size: var(--text-11);
+}
+.w-pr-inbox-reviewers {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding: 6px 0 0;
+  border-top: 1px solid var(--border);
+  list-style: none;
+}
+.w-pr-inbox-reviewer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+  min-width: 0;
+  font-size: var(--text-12);
+}
+.w-pr-inbox-reviewer__who {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.w-pr-inbox-reviewer__owner {
+  height: 16px;
+}
+.w-pr-inbox-reviewer__state {
+  margin-left: auto;
+  font-size: var(--text-11);
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+.w-pr-inbox-reviewer[data-tone='ready'] .w-pr-inbox-reviewer__state {
+  color: var(--ready-text);
+}
+.w-pr-inbox-reviewer[data-tone='blocked'] .w-pr-inbox-reviewer__state {
+  color: var(--blocked-text);
+}
+.w-pr-inbox-reviewer[data-tone='muted'] .w-pr-inbox-reviewer__state {
+  color: var(--text-muted);
+}
+.w-pr-inbox-reviewer__why {
+  flex-basis: 100%;
+  padding-left: 24px;
+  font-size: var(--text-11);
+  color: var(--text-muted);
+}
 .w-pr-inbox-size {
   display: inline-flex;
   align-items: center;
@@ -816,7 +883,8 @@
     border-right: none;
     border-bottom: 1px solid var(--border);
   }
-  .w-pr-inbox-facts {
+  .w-pr-inbox-facts,
+  .w-pr-inbox-facts:has(> [data-fact='approvals']) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

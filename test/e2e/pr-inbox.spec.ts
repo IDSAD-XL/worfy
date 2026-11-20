@@ -849,3 +849,84 @@ test('a sign-in GitHub refused in the PR inbox: the line names it with «Open He
     await launched.close()
   }
 })
+
+// The approvals chip (worfy-pr-review ticket 03): main reads the rules of each base branch and the reviews with the
+// details (ticket 02); each row carries its chip and the pane's Approvals cell lists the reviewers.
+const pullRule = (count: number, extra: Record<string, unknown> = {}) => ({
+  type: 'PULL_REQUEST',
+  parameters: { requiredApprovingReviewCount: count, dismissStaleReviewsOnPush: false, requireCodeOwnerReview: false, requireLastPushApproval: false, requireExtraApprovalForUnattributedChanges: false, requiredReviewers: [], ...extra },
+})
+const review = (author: string, state: string, canPush: boolean, oid: string) => ({ author: { login: author }, state, submittedAt: at(2), authorCanPushToRepository: canPush, commit: { oid } })
+/** A PR of the stub with the rules of its base branch, its reviews and its open review requests. */
+function withApprovals(pull: StubPull, details: { rules: unknown[]; reviews: unknown[]; requests?: unknown[] }): StubPull {
+  return {
+    ...pull,
+    pull: {
+      ...pull.pull,
+      baseRefName: 'main',
+      baseRef: { rules: { nodes: details.rules }, branchProtectionRule: null },
+      latestOpinionatedReviews: { nodes: details.reviews },
+      ...(details.requests === undefined ? {} : { reviewRequests: { nodes: details.requests } }),
+    },
+  }
+}
+
+test('the approvals chip in each row and the Approvals cell with its reviewers, at 1280 px in both themes', async () => {
+  test.setTimeout(ms(90_000))
+  const head = 'sha118'
+  writeFileSync(
+    join(ghDir, 'graphql.json'),
+    JSON.stringify({
+      viewer: ME,
+      pulls: [
+        // Changes requested on my PR: every state of a reviewer, a code-owner team still asked.
+        withApprovals(stubPull(WEB_REPO, 118, 'Retry the upload', { reviewDecision: 'CHANGES_REQUESTED', merge: 'BLOCKED', size: [184, 22], head }), {
+          rules: [pullRule(2, { dismissStaleReviewsOnPush: true, requireCodeOwnerReview: true })],
+          reviews: [review(ANA, 'APPROVED', true, head), review('dev-bo', 'CHANGES_REQUESTED', true, head), review('dev-cy', 'COMMENTED', true, head), review('dev-ed', 'APPROVED', true, 'sha-old'), review('dev-fi', 'APPROVED', false, head)],
+          requests: [{ asCodeOwner: true, requestedReviewer: { __typename: 'Team', slug: 'payments', combinedSlug: 'example-org/payments' } }],
+        }),
+        // A review asked of me where the rule is not visible to my account: 1/?.
+        withApprovals(stubPull(WEB_REPO, 41, 'Add the export button', { author: ANA, requested: [{ login: ME }], reviewDecision: 'REVIEW_REQUIRED', merge: 'BLOCKED' }), {
+          rules: [],
+          reviews: [review('dev-bo', 'APPROVED', true, 'sha41')],
+        }),
+        // Approved by GitHub: ✓ 2/2.
+        withApprovals(stubPull(WEB_REPO, 40, 'Fix the date picker', { reviewDecision: 'APPROVED' }), { rules: [pullRule(2)], reviews: [review(ANA, 'APPROVED', true, 'sha40'), review('dev-bo', 'APPROVED', true, 'sha40')] }),
+        // Short of the count, waiting on others: 1/2.
+        withApprovals(stubPull(WEB_REPO, 39, 'Sketch the settings page', { reviewDecision: 'REVIEW_REQUIRED', merge: 'BLOCKED' }), { rules: [pullRule(2)], reviews: [review(ANA, 'APPROVED', true, 'sha39')] }),
+      ],
+    }),
+  )
+  writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: WEB, name: 'web', path: join(scratch, 'web') }], activeId: WEB }))
+  const launched = await launch()
+  try {
+    const { window } = launched
+    await window.setViewportSize({ width: 1280, height: 800 })
+    await showSidebarSection(window, 'Pull requests')
+    await expect(sectionRow(window, WEB, 'needs-review')).toBeVisible({ timeout: ms(30_000) })
+    await window.getByRole('group', { name: 'View', exact: true }).getByRole('button', { name: 'Pull requests' }).click()
+    const chipOf = (number: number): Locator => prRow(window, WEB_REPO, number).getByTestId('approvals-chip')
+    await expect(chipOf(118)).toHaveText('✕ 1/2', { timeout: ms(30_000) })
+    await expect(chipOf(118)).toHaveAttribute('aria-label', '1 of 2 required approvals, changes requested')
+    await expect(chipOf(41)).toHaveText('1/?')
+    await expect(chipOf(41)).toHaveAttribute('aria-label', '1 approval, rule not visible')
+    await expect(chipOf(40)).toHaveText('✓ 2/2')
+    await expect(chipOf(39)).toHaveText('1/2')
+    await prRow(window, WEB_REPO, 118).getByRole('button').click()
+    const cell = pane(window).locator('[data-testid="pr-inbox-fact"][data-fact="approvals"]')
+    await expect(cell.getByTestId('pr-inbox-reviewer')).toHaveCount(6)
+    await expect(cell.getByTestId('pr-inbox-reviewer-state')).toHaveText(['Approved', 'Changes requested', 'Commented', 'Approved · stale', 'Approved · does not count', 'Requested'])
+    await expect(cell.getByTestId('pr-inbox-reviewer-owner')).toHaveText(['code owner'])
+    // The cell's list stays inside the cell, and the row's chip inside the list.
+    const [cellBox, listBox, chipBox] = await Promise.all([cell.boundingBox(), window.getByTestId('pr-inbox-list').boundingBox(), chipOf(118).boundingBox()])
+    expect(cellBox !== null && cellBox.width > 0).toBe(true)
+    expect(listBox !== null && chipBox !== null && chipBox.x + chipBox.width <= listBox.x + listBox.width).toBe(true)
+    mkdirSync(SCREENS, { recursive: true })
+    const shots = await snapshotThemes(window, 'pr-inbox-approvals-1280')
+    for (const scheme of ['light', 'dark'] as const) copyFileSync(shots[scheme], join(SCREENS, `approvals-1280-${scheme}.png`))
+    console.log(`pull requests approvals-1280: ${join(SCREENS, 'approvals-1280-light.png')} ${join(SCREENS, 'approvals-1280-dark.png')}`)
+    expectNoWrite()
+  } finally {
+    await launched.close()
+  }
+})

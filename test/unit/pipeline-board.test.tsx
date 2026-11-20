@@ -17,7 +17,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import type { PipelineSnapshot, PipelineTicket } from '../../src/shared/ipc/pipeline'
-import type { PrInboxRow, PrInboxSnapshot, PrInboxThread } from '../../src/shared/ipc/pr-inbox'
+import type { PrApprovals, PrInboxRow, PrInboxSnapshot, PrInboxThread } from '../../src/shared/ipc/pr-inbox'
 import type { ProjectsState } from '../../src/shared/ipc/projects'
 import type { AppSettings } from '../../src/shared/settings/app-settings'
 import { stageId, stageLabel, stageOf, type CheckFact, type PipelineStage, type StageFacts } from '../../src/shared/workflow/pipeline'
@@ -943,5 +943,58 @@ describe('«Waits: N answers» on a card on Human review (worfy-pr-inbox ticket 
     const model = modelOf(ATALAYA_ROOT, [{ ...modelTicket('atalaya', 3, 'Login page'), repos: ['app', 'lib'], prs: [{ repo: 'app', number: 7 }] }])
     const lib = { ...inboxRow(41, 'atalaya/03', [thread(PEER)]), repo: 'example-org/lib' }
     expect(answersOf(inbox([inboxRow(7, 'feature/x', [thread(PEER), thread(PEER)]), lib]), model)).toEqual({ 'atalaya/3': 3 })
+  })
+
+  // `Waits: team · 1/2 approvals` (worfy-pr-review ticket 03, Q5 (a)): only on Human review, only while the PR is short.
+  const short = (extra: Partial<PrApprovals> = {}): PrApprovals => ({
+    have: 1,
+    need: 2,
+    source: 'ruleset',
+    codeOwnersPending: [],
+    stale: 0,
+    lastPushNeedsOther: false,
+    moreRules: false,
+    decision: 'review-required',
+    reviewers: [],
+    ...extra,
+  })
+  const withApprovals = (approvals: PrApprovals) => inbox([{ ...inboxRow(7, 'atalaya/03', []), approvals }])
+
+  it('a Ticket on Human review whose PR is short of approvals: «Waits: team · 1/2 approvals», the chip with its words', async () => {
+    preload({ projects: PROJECTS, pipelines: { [ATALAYA_ROOT]: atalayaSnapshot() }, models: { [ATALAYA_ROOT]: atalayaModel() }, answers: { 'prInbox.get': () => withApprovals(short()) } })
+    const { PipelineBoard } = await import('../../src/renderer/pipeline/PipelineBoard')
+    render(<PipelineBoard project={ATALAYA_PROJECT} />)
+    await waitFor(() => expect(within(cardOf('atalaya', 3)).getByTestId('pipeline-waits').textContent).toBe('Waits: team · 1/2 approvals'))
+    const chip = within(cardOf('atalaya', 3)).getByTestId('approvals-chip')
+    expect(chip.getAttribute('aria-label')).toBe('1 of 2 required approvals')
+    expect(chip.dataset.tone).toBe('neutral')
+  })
+
+  it('the rule not visible: «1/? approvals»; changes requested: the red count', async () => {
+    const { PipelineBoardView } = await import('../../src/renderer/pipeline/PipelineBoard')
+    const { approvalsByTicket } = await import('../../src/renderer/pipeline/board')
+    render(<PipelineBoardView name="atalaya" snapshot={atalayaSnapshot()} titles={{}} approvals={approvalsByTicket(withApprovals(short({ need: null, source: 'hidden' })), atalayaModel())} onOpenTicket={() => undefined} />)
+    expect(within(cardOf('atalaya', 3)).getByTestId('pipeline-waits').textContent).toBe('Waits: team · 1/? approvals')
+    cleanup()
+    render(<PipelineBoardView name="atalaya" snapshot={atalayaSnapshot()} titles={{}} approvals={approvalsByTicket(withApprovals(short({ decision: 'changes-requested' })), atalayaModel())} onOpenTicket={() => undefined} />)
+    expect(within(cardOf('atalaya', 3)).getByTestId('approvals-chip').dataset.tone).toBe('blocked')
+  })
+
+  it('no chip when approvals are enough, when nothing asks for reviews, when main sent none, and on any other Stage', async () => {
+    const { PipelineBoardView } = await import('../../src/renderer/pipeline/PipelineBoard')
+    const { approvalsByTicket } = await import('../../src/renderer/pipeline/board')
+    for (const snapshot of [withApprovals(short({ have: 2, decision: 'approved' })), withApprovals(short({ need: 0, source: 'none', decision: null })), inbox([inboxRow(7, 'atalaya/03', [])]), undefined]) {
+      const approvals = approvalsByTicket(snapshot, atalayaModel())
+      expect(approvals).toEqual({})
+      render(<PipelineBoardView name="atalaya" snapshot={atalayaSnapshot()} titles={{}} approvals={approvals} onOpenTicket={() => undefined} />)
+      expect(within(cardOf('atalaya', 3)).getByTestId('pipeline-waits').textContent).toBe('Waits: team')
+      expect(screen.queryByTestId('approvals-chip')).toBeNull()
+      cleanup()
+    }
+    // Another Stage: the chip stays off the card, whatever its PR waits for.
+    render(<PipelineBoardView name="atalaya" snapshot={atalayaSnapshot()} titles={{}} approvals={{ 'atalaya/9': short(), 'atalaya/3': short() }} onOpenTicket={() => undefined} />)
+    expect(columnOf(cardOf('atalaya', 9))).toBe('queued')
+    expect(within(cardOf('atalaya', 9)).queryByTestId('approvals-chip')).toBeNull()
+    expect(screen.getAllByTestId('approvals-chip')).toHaveLength(1)
   })
 })

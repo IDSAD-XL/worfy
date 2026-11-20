@@ -1,0 +1,49 @@
+/* The approvals chip (ApprovalsChip.tsx, worfy-pr-review ticket 03): text always, colour second, as the prototype of
+   ticket 01 draws it. 18 px with the border, mono digits; 22 px in the Approvals cell; 16 px on a Ticket card, the line
+   REVIEW_LINE of ticket-card.ts gives it. The chip is whole: never narrowed, never cut. */
+.w-approvals-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-chip);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font: 500 var(--text-11) / 1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: default;
+  box-sizing: border-box;
+}
+.w-approvals-chip--ready {
+  border-color: color-mix(in srgb, var(--ready-dot) 45%, transparent);
+  background: var(--ready-bg);
+  color: var(--ready-text);
+}
+.w-approvals-chip--blocked {
+  border-color: color-mix(in srgb, var(--blocked-ring) 50%, transparent);
+  background: var(--blocked-bg);
+  color: var(--blocked-text);
+}
+.w-approvals-chip--unknown {
+  border-style: dashed;
+  background: transparent;
+  color: var(--text-muted);
+}
+.w-approvals-chip__word {
+  font-family: var(--font-ui);
+  font-weight: 400;
+  white-space: pre;
+}
+.w-approvals-chip--large {
+  height: 22px;
+  padding: 0 8px;
+  font-size: var(--text-12);
+}
+.w-approvals-chip--compact {
+  height: 16px;
+  padding: 0 4px;
+}

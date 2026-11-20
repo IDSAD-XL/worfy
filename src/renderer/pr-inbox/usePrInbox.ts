@@ -8,7 +8,7 @@
 // PR belongs to, and the line about the next search.
 import { useEffect } from 'react'
 import { create } from 'zustand'
-import { PR_INBOX_GROUPS, type PrInboxGroup, type PrInboxRow, type PrInboxSnapshot } from '../../shared/ipc/pr-inbox'
+import { PR_INBOX_GROUPS, type PrApprovals, type PrInboxGroup, type PrInboxRow, type PrInboxSnapshot, type PrReviewer } from '../../shared/ipc/pr-inbox'
 import { prFollowReasons } from '../../shared/actions/pr-follow'
 import type { PrFollowAction } from '../../shared/projects/action-templates'
 import { sameLogin, sameRepo, ticketOfRow } from '../../shared/pr-inbox/rows'
@@ -208,6 +208,119 @@ export function reviewText(decision: string | null): { label: string; status: 'r
     default:
       return null
   }
+}
+
+// ── the approvals chip (worfy-pr-review ticket 03) ───────────────────────────
+
+/**
+ * The colour of the chip: `ready` — GitHub says approved; `blocked` — changes requested; `unknown` — the rule is not
+ * visible to the account; `waiting` — the count is reached and code owners hold it; `neutral` — short of the count.
+ */
+export type ApprovalsTone = 'ready' | 'blocked' | 'unknown' | 'waiting' | 'neutral'
+
+export interface ApprovalsChipText {
+  tone: ApprovalsTone
+  /** `1/2`, `✓ 2/2`, `✓ 2`, `✕ 1/2`, `1/?`; `review required` when the rule asks for no approvals and GitHub still wants a review. */
+  text: string
+  /** The accessible name: the chip in words. */
+  label: string
+  /** Where the number comes from, who approved, what holds it. */
+  tooltip: string
+  /** Code owners hold a reached count: the chip draws a clock. */
+  owners: boolean
+  /** The text is a count: «approvals» may follow it. */
+  count: boolean
+}
+
+const countOf = (count: number, word: string): string => `${count} ${word}${count === 1 ? '' : 's'}`
+
+/** «@a», «@a and @b», «@a, @b and @c». */
+function namesText(names: readonly string[]): string {
+  return names.length <= 1 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)!}`
+}
+
+/** A reviewer as the tooltip names them: `@login`, `@org/team`; a team the account cannot see under worfy's name for it. */
+const handleOf = (name: string): string => (/\s/u.test(name) ? name : `@${name}`)
+
+/**
+ * The chip of a PR's approvals (the spec's implementation decision 3; the prototype of ticket 01, state `chips`); null
+ * when nothing asks for reviews or main has not read approvals. GitHub's decision wins over the count: green only by
+ * APPROVED, red on CHANGES_REQUESTED, and a count reached that GitHub still holds is never called approved.
+ */
+export function approvalsChip(approvals: PrApprovals | undefined): ApprovalsChipText | null {
+  if (approvals === undefined || approvals.source === 'none' || approvals.decision === null) return null
+  const { have, need, decision } = approvals
+  const reviewers = approvals.reviewers ?? []
+  const counted = need === null || need === 0
+  const of = counted ? countOf(have, 'approval') : `${have} of ${need} required approval${need === 1 ? '' : 's'}`
+  const ratio = need === null ? `${have}/?` : need === 0 ? `${have}` : `${have}/${need}`
+  const approvers = reviewers.filter((each) => each.state === 'approved' && each.counts).map((each) => handleOf(each.login))
+  const by = approvers.length === 0 ? [] : [`approved by ${namesText(approvers)}`]
+  // Approved by GitHub over a rule the account cannot see: `✓ 2`, no «?» (Q6 (a)).
+  if (decision === 'approved') return { tone: 'ready', text: `✓ ${counted ? have : ratio}`, label: `${of}, approved`, tooltip: [of, ...by, 'GitHub says: approved'].join(' · '), owners: false, count: true }
+  if (decision === 'changes-requested') {
+    const asked = reviewers.filter((each) => each.state === 'changes-requested').map((each) => handleOf(each.login))
+    const changes = asked.length === 0 ? 'changes requested' : `changes requested by ${namesText(asked)}`
+    return { tone: 'blocked', text: `✕ ${ratio}`, label: `${of}, changes requested`, tooltip: [of, changes, ...by].join(' · '), owners: false, count: true }
+  }
+  if (need === null) {
+    const hidden = "GitHub does not show this branch's review rule to your account. GitHub says: review required"
+    return { tone: 'unknown', text: ratio, label: `${of}, rule not visible`, tooltip: [of, ...by, hidden].join(' · '), owners: false, count: true }
+  }
+  if (need === 0) return { tone: 'neutral', text: 'review required', label: `${of}, GitHub says review required`, tooltip: [of, ...by, 'GitHub says: review required'].join(' · '), owners: false, count: false }
+  const reached = have >= need
+  // Code owners a rule wants; else, on a count GitHub holds though it is reached, code owners asked that may be what it
+  // waits for — a rule the account cannot see, or a team the token cannot see.
+  const askedOwners = reached ? reviewers.filter((each) => each.codeOwner && each.state === 'requested').map((each) => each.login) : []
+  const pendingOwners = approvals.codeOwnersPending.length > 0 ? approvals.codeOwnersPending : askedOwners
+  const owners = pendingOwners.length === 0 ? [] : [`waiting for code owners: ${namesText(pendingOwners.map(handleOf))}`]
+  const stale = approvals.stale === 0 ? [] : [`${countOf(approvals.stale, 'stale approval')}, before the last push`]
+  const lastPush = approvals.lastPushNeedsOther ? ['the last push needs another approver'] : []
+  // A count reached that nothing above explains: GitHub holds it by a rule worfy does not count, or one it cannot see.
+  // The rules worfy does not count are named only here: nearly every repository has one, so on a short count they are noise.
+  const unexplained = reached && owners.length === 0 && lastPush.length === 0 ? [approvals.moreRules ? 'more rules apply — GitHub decides' : 'GitHub says: review required'] : []
+  const waiting = reached && approvals.codeOwnersPending.length > 0
+  return {
+    tone: waiting ? 'waiting' : 'neutral',
+    text: ratio,
+    label: waiting ? `${of}, waiting for code owners` : of,
+    tooltip: [of, ...by, ...owners, ...stale, ...lastPush, ...unexplained].join(' · '),
+    owners: waiting,
+    count: true,
+  }
+}
+
+/** The PR still waits for approvals: a chip is shown and GitHub has not approved (the Pipeline board and the Ticket card, Q5 (a)). */
+export const approvalsShort = (approvals: PrApprovals | undefined): boolean => approvalsChip(approvals) !== null && approvals?.decision !== 'approved'
+
+/** What the Approvals cell says of a reviewer: their state, and why it does not count where it does not. */
+export function reviewerText(reviewer: PrReviewer): { state: string; tone: 'ready' | 'blocked' | 'neutral' | 'muted'; why: string | null } {
+  switch (reviewer.state) {
+    case 'approved':
+      return reviewer.counts ? { state: 'Approved', tone: 'ready', why: null } : { state: 'Approved · does not count', tone: 'muted', why: 'no write access to the repository' }
+    case 'stale':
+      return { state: 'Approved · stale', tone: 'muted', why: 'before the last push; the rule drops it' }
+    case 'changes-requested':
+      return { state: 'Changes requested', tone: 'blocked', why: null }
+    case 'commented':
+      return { state: 'Commented', tone: 'neutral', why: null }
+    case 'dismissed':
+      return { state: 'Dismissed', tone: 'muted', why: null }
+    case 'requested':
+      return { state: 'Requested', tone: 'neutral', why: reviewer.kind === 'hidden' ? 'a team your account cannot see' : null }
+  }
+}
+
+/** The line of the Approvals cell beside the chip, or the whole cell when nothing asks for reviews. */
+export function approvalsNote(approvals: PrApprovals): string {
+  const chip = approvalsChip(approvals)
+  if (chip === null) return `No review rule · ${countOf(approvals.have, 'approval')}`
+  if (approvals.need === null) return 'rule not visible to your account'
+  if (approvals.decision === 'approved') return 'GitHub says: approved'
+  if (approvals.decision === 'changes-requested') return 'changes requested'
+  if (approvals.need === 0) return `${countOf(approvals.have, 'approval')} · GitHub decides`
+  if (chip.owners) return 'waiting for code owners'
+  return `of ${approvals.need} required`
 }
 
 // ── the two panes ────────────────────────────────────────────────────────────

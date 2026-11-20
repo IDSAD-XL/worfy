@@ -1,7 +1,8 @@
-import { useMemo } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import type { Ticket } from '../../../shared/workflow/types'
+import { ApprovalsChip } from '../../pr-inbox/ApprovalsChip'
 import { openPrInboxOf } from '../../pr-inbox/open'
-import { usePrInbox } from '../../pr-inbox/usePrInbox'
+import { approvalsChip, usePrInbox } from '../../pr-inbox/usePrInbox'
 import { StatusChip } from '../../theme/primitives'
 import { useWorkflow } from '../../workflow/useWorkflow'
 import type { SlotProps } from './index'
@@ -16,16 +17,21 @@ import './review-threads.css'
 //
 // What it counts is in review-threads.ts. The card has room for the badge only because the layout knows of it:
 // ticket-card.ts gives one line per chip (REVIEW_LINE), from `reviewChipsOf` over the same snapshot (sources/epics.ts).
+//
+// A PR short of approvals adds the approvals chip `1/2 approvals` (worfy-pr-review ticket 03, Q5 (a): only while the PR is
+// open — the inbox holds open PRs only — and approvals are short): beside the last label, or on a line of its own when
+// there is none, so it never makes a line taller and adds a line only to a card that had none.
 
 export const order = 15
 
 /** The PR a click opens: the first that waits for the user, in the order of the view's groups. */
-const firstWaiting = (reviews: TicketReviews): TicketPull | undefined => reviews.pulls.find((pull) => pull.threads > 0 || pull.changesRequested)
+const firstWaiting = (reviews: TicketReviews): TicketPull | undefined => reviews.pulls.find((pull) => pull.threads > 0 || pull.changesRequested || pull.approvals !== null)
 
-/** «example-org/web#118: 2 open threads, changes requested» per PR that waits, for the tooltip. */
+/** «example-org/web#118: 2 open threads, changes requested, 1 of 2 required approvals» per PR that waits, for the tooltip. */
 function tooltipOf(reviews: TicketReviews): string {
   const lines = reviews.pulls.flatMap((pull) => {
-    const labels = reviewLabels(pull)
+    const chip = approvalsChip(pull.approvals ?? undefined)
+    const labels = [...reviewLabels(pull), ...(chip === null ? [] : [chip.label])]
     return labels.length === 0 ? [] : [`${pull.repo}#${pull.number}: ${labels.join(', ')}`]
   })
   return `${lines.join('\n')}\nOpen in Pull requests`
@@ -39,7 +45,21 @@ function TicketReviewThreads({ projectId, root, ticket }: { projectId: string; r
   const reviews = reviewsOfTicket(snapshot, ticket, model?.tickets ?? alone)
   const labels = reviewLabels(reviews)
   const target = reviews === null ? undefined : firstWaiting(reviews)
-  if (reviews === null || labels.length === 0 || target === undefined) return null
+  if (reviews === null || (labels.length === 0 && reviews.short === null) || target === undefined) return null
+  const lines: ReactNode[] = []
+  if (reviews.threads > 0)
+    lines.push(
+      <span key="threads" data-testid="review-threads-count" data-value={reviews.threads}>
+        <StatusChip status="working" label={labels[0]!} />
+      </span>,
+    )
+  if (reviews.changesRequested)
+    lines.push(
+      <span key="changes" data-testid="review-threads-changes">
+        <StatusChip status="blocked" label="changes requested" />
+      </span>,
+    )
+  const chip = reviews.short === null ? null : <ApprovalsChip approvals={reviews.short.approvals ?? undefined} word compact />
   return (
     <button
       type="button"
@@ -55,16 +75,13 @@ function TicketReviewThreads({ projectId, root, ticket }: { projectId: string; r
       }}
       onDoubleClick={(event) => event.stopPropagation()}
     >
-      {reviews.threads > 0 ? (
-        <span data-testid="review-threads-count" data-value={reviews.threads}>
-          <StatusChip status="working" label={labels[0]!} />
+      {/* A line per label; the approvals chip beside the last one, or alone on a line. */}
+      {(lines.length === 0 ? [null] : lines).map((line, index, all) => (
+        <span key={index} className="w-review-threads__line">
+          {line}
+          {index === all.length - 1 ? chip : null}
         </span>
-      ) : null}
-      {reviews.changesRequested ? (
-        <span data-testid="review-threads-changes">
-          <StatusChip status="blocked" label="changes requested" />
-        </span>
-      ) : null}
+      ))}
     </button>
   )
 }

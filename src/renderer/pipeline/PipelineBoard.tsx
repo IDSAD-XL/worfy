@@ -5,14 +5,16 @@
 // `pipeline.changed` by itself, so there is no button to read it again.
 import { useMemo, useState, type CSSProperties } from 'react'
 import type { PipelineColumn, PipelineSnapshot, PipelineTicket } from '../../shared/ipc/pipeline'
+import type { PrApprovals } from '../../shared/ipc/pr-inbox'
 import type { ProjectView } from '../../shared/ipc/projects'
 import { epicNodeId, ticketNodeId } from '../../shared/layout/derived'
 import { focusCanvasNode } from '../find/canvas-requests'
+import { ApprovalsChip } from '../pr-inbox/ApprovalsChip'
 import { usePrInbox } from '../pr-inbox/usePrInbox'
 import { setView } from '../session/navigation'
 import { useNow } from '../limits/useLimits'
 import { useWorkflow } from '../workflow/useWorkflow'
-import { answersOf, answersText, mergedText, pullRowText, releaseLines, stuckLine, ticketKeyOf, ticketRef, titlesOf, waitsText } from './board'
+import { answersOf, answersText, approvalsByTicket, mergedText, pullRowText, releaseLines, stuckLine, ticketKeyOf, ticketRef, titlesOf, waitsText } from './board'
 import { usePipeline } from './usePipeline'
 import './pipeline.css'
 
@@ -30,6 +32,8 @@ interface TicketCardProps {
   stuck: string | null
   /** The review threads its PRs hold that wait for the user's answer (the PR inbox); 0 when none or unknown. */
   answers: number
+  /** The approvals of its PR while it is short of them (the PR inbox, worfy-pr-review ticket 03); undefined when enough or unknown. */
+  approvals: PrApprovals | undefined
   /** The kind and the name of a Stage of the Pipeline by its id. */
   columnOf: (stage: string) => PipelineColumn | undefined
   onOpen: () => void
@@ -84,9 +88,11 @@ function RepoPulls({ ticket, columnOf }: Pick<TicketCardProps, 'ticket' | 'colum
 }
 
 /** One Ticket on the board: what it is, who it waits for, its flags, and its PRs when it spans several repositories. */
-function TicketCard({ ticket, title, stuck, answers, columnOf, onOpen }: TicketCardProps) {
+function TicketCard({ ticket, title, stuck, answers, approvals, columnOf, onOpen }: TicketCardProps) {
   const blocked = ticket.blocked === null ? null : ticket.blocked.reason ? `Blocked: ${ticket.blocked.reason}` : 'Blocked'
   const waitsAnswers = answersText(ticket.kind, answers)
+  // `Waits: team · 1/2 approvals` on Human review while the PR is short of approvals (Q5 (a)).
+  const short = ticket.kind === 'human-review' ? approvals : undefined
   const name = title === undefined ? ticketRef(ticket) : `${ticketRef(ticket)} — ${title}`
   return (
     <li>
@@ -118,7 +124,7 @@ function TicketCard({ ticket, title, stuck, answers, columnOf, onOpen }: TicketC
           </span>
         ) : null}
         <RepoPulls ticket={ticket} columnOf={columnOf} />
-        {blocked !== null || ticket.rework || ticket.waits !== null || waitsAnswers !== null ? (
+        {blocked !== null || ticket.rework || ticket.waits !== null || short !== undefined || waitsAnswers !== null ? (
           <span className="w-pipeline-card__flags">
             {blocked !== null ? (
               <span className="w-pipeline-flag w-pipeline-flag--attention" data-testid="pipeline-blocked" title={blocked}>
@@ -130,9 +136,11 @@ function TicketCard({ ticket, title, stuck, answers, columnOf, onOpen }: TicketC
                 Rework
               </span>
             ) : null}
-            {ticket.waits !== null ? (
+            {ticket.waits !== null || short !== undefined ? (
               <span className="w-pipeline-card__waits" data-testid="pipeline-waits">
-                {waitsText(ticket.waits)}
+                {ticket.waits !== null ? waitsText(ticket.waits) : null}
+                {ticket.waits !== null && short !== undefined ? ' · ' : null}
+                {short !== undefined ? <ApprovalsChip approvals={short} word compact /> : null}
               </span>
             ) : null}
             {waitsAnswers !== null ? (
@@ -152,13 +160,14 @@ interface ColumnProps {
   tickets: readonly PipelineTicket[]
   titles: Readonly<Record<string, string>>
   answers: Readonly<Record<string, number>>
+  approvals: Readonly<Record<string, PrApprovals>>
   /** The board's clock, for stuckLine. */
   now: number
   columnOf: (stage: string) => PipelineColumn | undefined
   onOpenTicket: (ticket: { epic: string; num: number }) => void
 }
 
-function Column({ column, tickets, titles, answers, now, columnOf, onOpenTicket }: ColumnProps) {
+function Column({ column, tickets, titles, answers, approvals, now, columnOf, onOpenTicket }: ColumnProps) {
   // Done is folded into its count until a click opens it; the choice lasts as long as the board.
   const [doneOpen, setDoneOpen] = useState(false)
   const folded = column.kind === 'done' && !doneOpen
@@ -184,6 +193,7 @@ function Column({ column, tickets, titles, answers, now, columnOf, onOpenTicket 
               title={titles[ticketKeyOf(ticket)]}
               stuck={stuckLine(column, ticket, now)}
               answers={answers[ticketKeyOf(ticket)] ?? 0}
+              approvals={approvals[ticketKeyOf(ticket)]}
               columnOf={columnOf}
               onOpen={() => onOpenTicket({ epic: ticket.epic, num: ticket.num })}
             />
@@ -202,13 +212,16 @@ export interface PipelineBoardViewProps {
   titles: Readonly<Record<string, string>>
   /** The review threads that wait for the user's answer, by ticketKeyOf (answersOf); a Ticket without any has no line. */
   answers?: Readonly<Record<string, number>>
+  /** The approvals of each Ticket's PR short of them, by ticketKeyOf (approvalsByTicket); a Ticket without one has no chip. */
+  approvals?: Readonly<Record<string, PrApprovals>>
   onOpenTicket: (ticket: { epic: string; num: number }) => void
 }
 
 const NO_ANSWERS: Readonly<Record<string, number>> = {}
+const NO_APPROVALS: Readonly<Record<string, PrApprovals>> = {}
 
 /** The board of one snapshot, without IPC. */
-export function PipelineBoardView({ name, snapshot, titles, answers = NO_ANSWERS, onOpenTicket }: PipelineBoardViewProps) {
+export function PipelineBoardView({ name, snapshot, titles, answers = NO_ANSWERS, approvals = NO_APPROVALS, onOpenTicket }: PipelineBoardViewProps) {
   const columns = byColumn(snapshot)
   // Stuck is found again on every snapshot, which draws the board anew, and every minute by this
   // clock. shortcut: a snapshot is judged by a clock up to a minute old, so a Ticket may be framed up to a minute late; take the time of the snapshot when that minute matters.
@@ -224,7 +237,7 @@ export function PipelineBoardView({ name, snapshot, titles, answers = NO_ANSWERS
       ) : null}
       <div className="w-pipeline__columns">
         {snapshot.pipeline.map((column) => (
-          <Column key={column.id} column={column} tickets={columns.get(column.id) ?? []} titles={titles} answers={answers} now={now} columnOf={columnOf} onOpenTicket={onOpenTicket} />
+          <Column key={column.id} column={column} tickets={columns.get(column.id) ?? []} titles={titles} answers={answers} approvals={approvals} now={now} columnOf={columnOf} onOpenTicket={onOpenTicket} />
         ))}
       </div>
     </div>
@@ -252,6 +265,7 @@ export function PipelineBoard({ project }: PipelineBoardProps) {
   const { model } = useWorkflow(project?.path)
   const { snapshot: inbox } = usePrInbox(project?.id)
   const answers = useMemo(() => answersOf(inbox, model), [inbox, model])
+  const approvals = useMemo(() => approvalsByTicket(inbox, model), [inbox, model])
   if (project === undefined) return <p style={styles.message}>No project</p>
   if (error !== undefined)
     return (
@@ -261,5 +275,5 @@ export function PipelineBoard({ project }: PipelineBoardProps) {
     )
   if (snapshot === undefined) return <p style={styles.message}>Reading the Pipeline…</p>
   // Keyed by the root: another Project starts with its Done folded.
-  return <PipelineBoardView key={snapshot.root} name={project.name} snapshot={snapshot} titles={titlesOf(model)} answers={answers} onOpenTicket={(ticket) => openTicketCard(project.id, ticket)} />
+  return <PipelineBoardView key={snapshot.root} name={project.name} snapshot={snapshot} titles={titlesOf(model)} answers={answers} approvals={approvals} onOpenTicket={(ticket) => openTicketCard(project.id, ticket)} />
 }

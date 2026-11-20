@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PrInbox, type PrInboxProject } from '../../src/main/github/inbox'
 import { prInboxSetting } from '../../src/main/projects/pr-inbox-state'
-import { prInboxSnapshotSchema, type PrInboxRow, type PrInboxSnapshot } from '../../src/shared/ipc/pr-inbox'
+import { prApprovalsSchema, prInboxSnapshotSchema, type PrInboxRow, type PrInboxSnapshot } from '../../src/shared/ipc/pr-inbox'
 import { removeTestTree } from '../remove'
 import { ghWorld, type GhWorld } from './gh-world'
 
@@ -139,7 +139,20 @@ describe('the approvals of a row of the PR inbox', () => {
         latestOpinionatedReviews: { nodes: [review(ANA, 'APPROVED', true), review(BO, 'APPROVED', true, 'sha-old')] },
       }),
     ])
-    expect(rowOf(snapshot, 1).approvals).toEqual({ have: 1, need: 2, source: 'ruleset', codeOwnersPending: [], stale: 1, lastPushNeedsOther: false, moreRules: false, decision: 'review-required' })
+    expect(rowOf(snapshot, 1).approvals).toEqual({
+      have: 1,
+      need: 2,
+      source: 'ruleset',
+      codeOwnersPending: [],
+      stale: 1,
+      lastPushNeedsOther: false,
+      moreRules: false,
+      decision: 'review-required',
+      reviewers: [
+        { login: ANA, kind: 'user', state: 'approved', counts: true, codeOwner: false },
+        { login: BO, kind: 'user', state: 'stale', counts: false, codeOwner: false },
+      ],
+    })
   })
 
   it('classic protection an admin sees gives the number; its code owners still asked hold the count', async () => {
@@ -160,6 +173,32 @@ describe('the approvals of a row of the PR inbox', () => {
       }),
     ])
     expect(rowOf(snapshot, 2).approvals).toMatchObject({ have: 1, need: 1, source: 'protection', codeOwnersPending: ['demo-org/payments'], decision: 'review-required' })
+    // The Approvals cell lists the review and both open requests (worfy-pr-review ticket 03).
+    expect(rowOf(snapshot, 2).approvals?.reviewers).toEqual([
+      { login: ANA, kind: 'user', state: 'approved', counts: true, codeOwner: false },
+      { login: 'demo-org/payments', kind: 'team', state: 'requested', counts: false, codeOwner: true },
+      { login: BO, kind: 'user', state: 'requested', counts: false, codeOwner: false },
+    ])
+  })
+
+  it('a code-owner request whose team the token cannot see (no reviewer) is listed as a hidden team and holds the count', async () => {
+    const { snapshot } = await snapshotOf([
+      stubPull(8, {
+        reviewDecision: 'REVIEW_REQUIRED',
+        baseRef: { rules: { nodes: [pullRule(1, { requireCodeOwnerReview: true })] }, branchProtectionRule: null },
+        reviewRequests: { nodes: [{ asCodeOwner: true, requestedReviewer: null }] },
+        latestOpinionatedReviews: { nodes: [review(ANA, 'APPROVED', true)] },
+      }),
+    ])
+    expect(rowOf(snapshot, 8).approvals).toMatchObject({
+      have: 1,
+      need: 1,
+      codeOwnersPending: ['code owners (hidden team)'],
+      reviewers: [
+        { login: ANA, kind: 'user', state: 'approved', counts: true, codeOwner: false },
+        { login: 'code owners (hidden team)', kind: 'hidden', state: 'requested', counts: false, codeOwner: true },
+      ],
+    })
   })
 
   it('classic protection GitHub hides (null) while it gives a decision: need unknown; APPROVED from GitHub wins', async () => {
@@ -175,7 +214,17 @@ describe('the approvals of a row of the PR inbox', () => {
   it("no rule: an approval without push access does not count, and the group of the PR stays as it was (Ready by the reviews' decision)", async () => {
     const { snapshot } = await snapshotOf([stubPull(5, { baseRef: { rules: { nodes: [] }, branchProtectionRule: null }, latestOpinionatedReviews: { nodes: [review(ANA, 'APPROVED', false)] } })])
     const row = rowOf(snapshot, 5)
-    expect(row.approvals).toEqual({ have: 0, need: 0, source: 'none', codeOwnersPending: [], stale: 0, lastPushNeedsOther: false, moreRules: false, decision: null })
+    expect(row.approvals).toEqual({
+      have: 0,
+      need: 0,
+      source: 'none',
+      codeOwnersPending: [],
+      stale: 0,
+      lastPushNeedsOther: false,
+      moreRules: false,
+      decision: null,
+      reviewers: [{ login: ANA, kind: 'user', state: 'approved', counts: false, codeOwner: false }],
+    })
     expect(row.reviewDecision).toBe('APPROVED')
     expect(row.group).toBe('ready')
   })
@@ -193,6 +242,23 @@ describe('the approvals of a row of the PR inbox', () => {
     const old = rowFields()
     const parsed = prInboxSnapshotSchema.parse({ projectId: 'p1', enabled: true, viewer: ME, groups: [{ group: 'waiting', rows: [old] }], readAt: null, nextSearchAt: null, error: null, notice: null })
     expect(parsed.groups[0]!.rows[0]!.approvals).toBeUndefined()
+  })
+
+  // `reviewers` came with worfy-pr-review ticket 03: a Project machine on ticket 02 sends approvals without it, and a
+  // Linked machine on ticket 02 gets approvals with it.
+  const approvals02 = { have: 1, need: 2, source: 'ruleset', codeOwnersPending: [], stale: 0, lastPushNeedsOther: false, moreRules: false, decision: 'review-required' } as const
+
+  it('approvals of a Project machine that does not list reviewers yet still parse, without reviewers', () => {
+    const parsed = prInboxSnapshotSchema.parse({ projectId: 'p1', enabled: true, viewer: ME, groups: [{ group: 'waiting', rows: [{ ...rowFields(), approvals: approvals02 }] }], readAt: null, nextSearchAt: null, error: null, notice: null })
+    expect(parsed.groups[0]!.rows[0]!.approvals).toEqual(approvals02)
+    expect(parsed.groups[0]!.rows[0]!.approvals?.reviewers).toBeUndefined()
+  })
+
+  it('approvals of this version pass the schema of ticket 02, which knows no reviewers', () => {
+    const schema02 = prApprovalsSchema.omit({ reviewers: true })
+    const approvals = { ...approvals02, reviewers: [{ login: ANA, kind: 'user', state: 'approved', counts: true, codeOwner: false }] }
+    expect(prApprovalsSchema.parse(approvals)).toEqual(approvals)
+    expect(schema02.parse(approvals)).toEqual(approvals02)
   })
 })
 
