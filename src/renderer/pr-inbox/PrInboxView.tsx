@@ -20,10 +20,11 @@
 // Session's, a colleague's, an old one — has "Code story" that builds its story by the button (ticket 11,
 // StoryBuildButton.tsx): the progress bar in the button's place, then the Story view; a story kept before opens without
 // a request, and "Rebuild story" builds it again. Of a colleague's PR worfy keeps the agent's text only (ADR-0105).
-import { useEffect, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import { PR_INBOX_GROUP_TITLES, type PrApprovals, type PrInboxComment, type PrInboxGroup, type PrInboxRow, type PrInboxSnapshot, type PrInboxThread } from '../../shared/ipc/pr-inbox'
 import type { PrReplyItem } from '../../shared/ipc/pr-inbox'
 import type { ProjectView } from '../../shared/ipc/projects'
+import type { PrSearchNotice, PrSearchPull, PrSearchRow } from '../../shared/ipc/pr-search'
 import type { Epic, Ticket } from '../../shared/workflow/types'
 import { openStoryFile, ticketStoryPath } from '../stories/open'
 import { StoryBuildButton } from '../stories/StoryBuildButton'
@@ -41,6 +42,8 @@ import { ApprovalsChip } from './ApprovalsChip'
 import { CommentBody } from './CommentBody'
 import { DraftRepliesButton, PrDrafts } from './DraftThread'
 import { PrFollowButton } from './PrFollowButton'
+import { SearchBar } from './SearchBar'
+import { SearchResults } from './SearchResults'
 import {
   ageHeat,
   ageOf,
@@ -59,6 +62,7 @@ import {
   reviewerText,
   reviewText,
   rowKey,
+  searchStep,
   shownKey,
   sizeOf,
   statusLines,
@@ -66,6 +70,7 @@ import {
   ticketOfRow,
   usePrInbox,
   usePrInboxFocus,
+  usePrSearch,
   type FactTone,
   type NextTone,
   type PrInboxFocus,
@@ -286,7 +291,8 @@ function RowThreads({ row, now, render, drafts = [] }: { row: PrInboxRow; now: n
 // ── the list ─────────────────────────────────────────────────────────────────
 
 export interface PrListItemProps {
-  group: PrInboxGroup
+  /** The inbox group of the PR; null for a search result the inbox lacks. */
+  group: PrInboxGroup | null
   row: PrInboxRow
   ticket: Ticket | undefined
   viewer: string | null
@@ -356,7 +362,8 @@ export function PrListItem({ group, row, ticket, viewer, now, selected, onSelect
 export interface PrPaneProps {
   /** The Project the PR is of: its drafts of replies are read by it. */
   projectId: string
-  group: PrInboxGroup
+  /** The inbox group of the PR; null for a search result the inbox lacks: its strip is «Review this pull request». */
+  group: PrInboxGroup | null
   row: PrInboxRow
   ticket: Ticket | undefined
   viewer: string | null
@@ -511,7 +518,7 @@ export function PrPane({ projectId, group, row, ticket, viewer, now, readOnly, s
         </header>
         <PrDrafts projectId={projectId} repo={row.repo} number={row.number} readOnly={readOnly} threads={row.threads}>
           {(render, drafts, sendAll) => {
-            const step = nextStep(group, row, now, drafts.filter((item) => item.state === 'draft').length, render !== null, viewer)
+            const step = group === null ? searchStep(row, now, viewer) : nextStep(group, row, now, drafts.filter((item) => item.state === 'draft').length, render !== null, viewer)
             const action = step.action
             return (
               <>
@@ -655,17 +662,47 @@ export interface PrInboxBodyProps {
   readOnly: string | null
   onSelect: (row: PrInboxRow) => void
   onMarkSeen: (row: PrInboxRow) => void
+  /** The search bar under the heading (worfy-pr-review ticket 05); absent — none. */
+  searchBar?: ReactNode
+  /** A search shown: its results stand in place of the groups, its selected result in the pane; null or absent — the inbox. */
+  results?: SearchPanes | null
+}
+
+/** The two panes of a search shown: the list of its results, and the result the pane shows. */
+export interface SearchPanes {
+  list: ReactNode
+  /** The selected result as the pane shows it, with its inbox group (null when the inbox lacks it); null — none. */
+  current: { group: PrInboxGroup | null; row: PrInboxRow } | null
+  /** The results hold one PR: no ↑ ↓ hint. */
+  single: boolean
 }
 
 /** The view over one snapshot, without IPC. */
-export function PrInboxBody({ name, snapshot, tickets, epics = EMPTY_EPICS, now, selected, focusedGroup, missing, failure, readOnly, onSelect, onMarkSeen }: PrInboxBodyProps) {
+export function PrInboxBody({ name, snapshot, tickets, epics = EMPTY_EPICS, now, selected, focusedGroup, missing, failure, readOnly, onSelect, onMarkSeen, searchBar = null, results = null }: PrInboxBodyProps) {
   const status = statusLines(snapshot, now)
   const groups = listedGroups(snapshot)
-  const empty = snapshot.readAt !== null && groups.length === 0
+  const empty = results === null && snapshot.readAt !== null && groups.length === 0
   const shown = shownKey(snapshot, selected)
   const order = listOrder(snapshot)
-  const current = shown === null ? undefined : order.find(({ row }) => rowKey(row) === shown)
+  const current = results !== null ? (results.current ?? undefined) : shown === null ? undefined : order.find(({ row }) => rowKey(row) === shown)
   const currentTicket = current === undefined ? undefined : ticketOfRow(current.row, tickets)
+  const pane =
+    current !== undefined ? (
+      // Keyed by the PR: another one starts with its own drafts, typed texts and scroll.
+      <PrPane
+        key={rowKey(current.row)}
+        projectId={snapshot.projectId}
+        group={current.group}
+        row={current.row}
+        ticket={currentTicket}
+        story={currentTicket === undefined ? null : ticketStoryPath(epics.find((epic) => epic.epic === currentTicket.epic), currentTicket.num)}
+        viewer={snapshot.viewer}
+        now={now}
+        readOnly={readOnly}
+        single={results !== null ? results.single : order.length === 1}
+        onMarkSeen={() => onMarkSeen(current.row)}
+      />
+    ) : null
   return (
     <div className="w-pr-inbox" data-testid="pr-inbox-view" data-project={snapshot.projectId}>
       <header className="w-pr-inbox__head">
@@ -704,7 +741,8 @@ export function PrInboxBody({ name, snapshot, tickets, epics = EMPTY_EPICS, now,
           ) : null}
         </p>
       </header>
-      {missing !== null ? (
+      {searchBar}
+      {missing !== null && results === null ? (
         <p role="alert" className="w-pr-inbox__missing" data-testid="pr-inbox-missing">
           This pull request is not in the inbox: {missing.repo}#{missing.number}
         </p>
@@ -718,7 +756,7 @@ export function PrInboxBody({ name, snapshot, tickets, epics = EMPTY_EPICS, now,
           <p className="w-pr-inbox-empty__text">Your open pull requests and the reviews asked of you in this Project&apos;s repositories show here after a search.</p>
         </div>
       ) : null}
-      {snapshot.enabled && groups.length > 0 ? (
+      {results === null && snapshot.enabled && groups.length > 0 ? (
         <div className="w-pr-inbox__panes">
           <nav className="w-pr-inbox-list" aria-label="Pull requests of the Project" data-testid="pr-inbox-list">
             {groups.map(({ group, rows }) => (
@@ -754,22 +792,17 @@ export function PrInboxBody({ name, snapshot, tickets, epics = EMPTY_EPICS, now,
               </section>
             ))}
           </nav>
-          {current !== undefined ? (
-            // Keyed by the PR: another one starts with its own drafts, typed texts and scroll.
-            <PrPane
-              key={rowKey(current.row)}
-              projectId={snapshot.projectId}
-              group={current.group}
-              row={current.row}
-              ticket={currentTicket}
-              story={currentTicket === undefined ? null : ticketStoryPath(epics.find((epic) => epic.epic === currentTicket.epic), currentTicket.num)}
-              viewer={snapshot.viewer}
-              now={now}
-              readOnly={readOnly}
-              single={order.length === 1}
-              onMarkSeen={() => onMarkSeen(current.row)}
-            />
-          ) : null}
+          {pane}
+        </div>
+      ) : null}
+      {results !== null ? (
+        <div className="w-pr-inbox__panes" data-testid="pr-search-panes">
+          {results.list}
+          {pane ?? (
+            <div className="w-pr-inbox-pane" data-testid="pr-search-no-pane">
+              <p className="w-pr-inbox__message w-pr-inbox__message--padded">Nothing selected: no pull request found to show here.</p>
+            </div>
+          )}
         </div>
       ) : null}
     </div>
@@ -801,6 +834,29 @@ function listKey(event: KeyboardEvent, frame: HTMLElement | null): 1 | -1 | null
   if (target instanceof Element && target !== document.body && target !== document.documentElement && !frame.contains(target)) return null
   if (target instanceof HTMLElement && (target.isContentEditable || target.closest('textarea, input, select') !== null || layerOf(target) !== null)) return null
   return event.key === 'ArrowDown' ? 1 : -1
+}
+
+/** Whether this `/` is the view's: it puts the focus in the search field from anywhere in the shown view but a field. */
+function slashKey(event: KeyboardEvent, frame: HTMLElement | null): boolean {
+  if (event.key !== '/' || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return false
+  if (frame === null || frame.closest('[hidden]') !== null) return false
+  const target = event.target
+  if (target instanceof Element && target !== document.body && target !== document.documentElement && !frame.contains(target)) return false
+  return !(target instanceof HTMLElement && (target.isContentEditable || target.closest('textarea, input, select') !== null || layerOf(target) !== null))
+}
+
+/** A search row as the view shows it: one the inbox lacks has no "new since you looked", which only the inbox clears. */
+const unseenless = (row: PrSearchRow): PrSearchRow => (row.inInbox || row.newSinceSeen === 0 ? row : { ...row, newSinceSeen: 0 })
+
+/** The logins the Author chip offers besides Me: the authors of the rows shown, each once, not the user's own, at most 8. */
+function authorsOf(rows: readonly PrInboxRow[], viewer: string | null): string[] {
+  const seen = new Set<string>()
+  for (const row of rows) {
+    if (row.author === null || (viewer !== null && row.author.toLowerCase() === viewer.toLowerCase())) continue
+    seen.add(row.author)
+    if (seen.size === 8) break
+  }
+  return [...seen]
 }
 
 function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' | 'path'> }) {
@@ -846,12 +902,64 @@ function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' 
   const missing = taken?.pr != null && snapshot !== undefined && takenRow === null ? taken.pr : null
   const focusedGroup = taken !== null && taken.pr === null ? taken.group : null
 
+  // ── the search (worfy-pr-review ticket 05) ──
+  const search = usePrSearch(project.id)
+  const field = useRef<HTMLInputElement>(null)
+  /** The result the user chose, of the search it was chosen in: a new search selects its first result by itself. */
+  const [found, setFound] = useState<{ search: string; key: string } | null>(null)
+  /** The results the inbox lacks, read by `prSearch.pull` when selected, by `rowKey`. */
+  const [pulls, setPulls] = useState<Readonly<Record<string, PrSearchPull>>>({})
+  const pulling = useRef(new Set<string>())
+  const searchId = search.shown === null ? null : `${search.shown.scope} ${search.shown.text}`
+  // "N new since you looked" belongs to the inbox: a PR it lacks is never marked seen (spec, implementation decisions 2).
+  const resultRows = useMemo(() => (search.shown === null ? null : (search.result?.rows ?? []).map(unseenless)), [search.shown, search.result])
+  const chosen = found !== null && found.search === searchId ? resultRows?.find((each) => rowKey(each) === found.key) : undefined
+  const currentResult = chosen ?? resultRows?.[0]
+  const pullKey = currentResult !== undefined && !currentResult.inInbox ? rowKey(currentResult) : null
+  const pulled = pullKey === null ? undefined : pulls[pullKey]
+  const groupOf = (row: PrSearchRow): PrInboxGroup | null => (row.inInbox && snapshot !== undefined ? (findRow(snapshot, row)?.group ?? null) : null)
+  const viewer = snapshot?.viewer ?? search.result?.viewer ?? null
+  const sameText = (each: { query: string; scope: string }, text: string, scope: string): boolean => text !== '' && each.query.trim() === text && each.scope === scope
+  const savedHit = search.saved.find((each) => sameText(each, search.text.trim(), search.scope)) ?? null
+  const shownHit = search.shown === null ? null : (search.saved.find((each) => sameText(each, search.shown!.text, search.shown!.scope)) ?? null)
+  const invalid = search.shown !== null && search.text.trim() === search.shown.text ? (search.result?.notices.find((notice) => notice.kind === 'invalid')?.text ?? null) : null
+  const pullNotices: readonly PrSearchNotice[] = pulled?.notices ?? []
+
+  /** The user chose this result: the pane shows it; a PR of the inbox is a look main hears, as in the inbox. */
+  const selectResult = (row: PrSearchRow): void => {
+    if (searchId !== null) setFound({ search: searchId, key: rowKey(row) })
+    if (row.inInbox) markSeen(row)
+  }
+
+  // A selected result the inbox lacks is read once, in the shape of the inbox's row (main answers from its memory while
+  // GitHub's updatedAt is the one the results gave).
+  useEffect(() => {
+    if (pullKey === null || currentResult === undefined || pulling.current.has(pullKey)) return
+    pulling.current.add(pullKey)
+    const { repo, number, updatedAt } = currentResult
+    void invoke('prSearch.pull', { projectId: project.id, repo, number, updatedAt }).then((answer) => {
+      const value: PrSearchPull = answer.ok ? answer.value : { row: null, readAt: null, notices: [{ kind: 'failed', text: `${repo}#${number} could not be read: ${readableReason(answer.error)}`, url: null }] }
+      setPulls((before) => ({ ...before, [pullKey]: value }))
+    })
+    // Once per PR: the row is that of the render that selected it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pullKey])
+
+  /** Refresh of the results reads the selected PR again too. */
+  const refresh = (): void => {
+    pulling.current.clear()
+    setPulls({})
+    search.refresh()
+  }
+
   // After an ask is taken: it is cleared, so the view coming back does not take it again; the PR is marked
   // seen, as a click on it does, and what was asked for is scrolled into sight.
   const takenSeq = taken?.seq
   useEffect(() => {
     if (taken === null) return
     if (usePrInboxFocus.getState().focus?.seq === taken.seq) usePrInboxFocus.setState({ focus: null })
+    // An entry opens the inbox: a search shown gives way to it.
+    if (search.shown !== null) search.clear()
     if (takenRow !== null) markSeen(takenRow.row)
     const selector =
       takenRow !== null
@@ -870,6 +978,14 @@ function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' 
   const move = useRef<(step: 1 | -1) => void>(() => undefined)
   useEffect(() => {
     move.current = (step) => {
+      if (resultRows !== null) {
+        const at = currentResult === undefined ? -1 : resultRows.indexOf(currentResult)
+        const next = resultRows[Math.max(0, Math.min(resultRows.length - 1, at + step))]
+        if (next === undefined || next === currentResult) return
+        moved.current = true
+        selectResult(next)
+        return
+      }
       if (snapshot === undefined || !snapshot.enabled) return
       const order = listOrder(snapshot)
       const shown = shownKey(snapshot, selected)
@@ -882,6 +998,11 @@ function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' 
   })
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
+      if (slashKey(event, root.current)) {
+        event.preventDefault()
+        field.current?.focus()
+        return
+      }
       const step = listKey(event, root.current)
       if (step === null) return
       event.preventDefault()
@@ -895,8 +1016,8 @@ function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' 
     moved.current = false
     const item = root.current?.querySelector<HTMLElement>(`[data-testid="pr-inbox-row"][data-selected="true"]`)
     item?.scrollIntoView?.({ block: 'nearest' })
-    if (document.activeElement instanceof HTMLElement && document.activeElement.closest('[data-testid="pr-inbox-list"]') !== null) item?.querySelector('button')?.focus()
-  }, [selected])
+    if (document.activeElement instanceof HTMLElement && document.activeElement.closest('[data-testid="pr-inbox-list"], [data-testid="pr-search-results"]') !== null) item?.querySelector('button')?.focus()
+  }, [selected, found])
 
   let content: ReactNode
   if (error !== undefined && snapshot === undefined)
@@ -921,6 +1042,36 @@ function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' 
         readOnly={readOnly}
         onSelect={select}
         onMarkSeen={markSeen}
+        searchBar={<SearchBar search={search} authors={authorsOf(resultRows ?? listOrder(snapshot).map(({ row }) => row), viewer)} readOnly={readOnly} invalid={invalid} savedHit={savedHit} fieldRef={field} />}
+        results={
+          resultRows === null
+            ? null
+            : {
+                list: (
+                  <SearchResults
+                    search={{ ...search, refresh }}
+                    rows={resultRows}
+                    savedHit={shownHit}
+                    pullNotices={pullNotices}
+                    now={now}
+                    renderRow={(row) => (
+                      <PrListItem
+                        key={rowKey(row)}
+                        group={groupOf(row)}
+                        row={row}
+                        ticket={ticketOfRow(row, model?.tickets ?? EMPTY_TICKETS)}
+                        viewer={viewer}
+                        now={now}
+                        selected={currentResult === row}
+                        onSelect={() => selectResult(row)}
+                      />
+                    )}
+                  />
+                ),
+                current: currentResult === undefined ? null : { group: groupOf(currentResult), row: pulled?.row == null ? currentResult : unseenless(pulled.row) },
+                single: resultRows.length === 1,
+              }
+        }
       />
     )
   return (

@@ -137,6 +137,50 @@ Selecting a PR — a click, **↑** or **↓**, or an entry that names it — an
 "N new since you looked" goes. The PR the view selects by itself, and the first PR of a group a sidebar row asked
 for, record nothing. Links open in the system's browser, never in the window.
 
+### Search
+
+A search bar stands under the heading: a scope menu, the field, **☆ Save** and **× Clear**, and a row of filter chips
+under them. It finds any pull request the Project's GitHub account can see, not only those of the inbox.
+
+- **The field** (`role="searchbox"`, "Search pull requests") takes words and GitHub's search qualifiers. **/** puts the
+  focus in it from anywhere in the view but a text field; **Escape** takes the focus off it. **Enter** searches; typing
+  alone never does. A blank field and Enter give the inbox back. Under the field the view says, before Enter, what
+  GitHub would refuse: a search over 256 characters, or more than 5 `AND`, `OR` and `NOT`.
+- **The scope menu**: **This Project** (the default) — the Project's repositories on GitHub; **Organizations of this
+  Project** — every repository of the owners of those repositories; **All of GitHub** — everything the account can
+  see. A choice searches there at once when the field holds text. A `repo:`, `org:` or `user:` typed into the field is
+  the scope itself, and the view says the menu's scope was not added.
+- **The filter chips**: State, Review requested, Author, Involves me, Label, Draft, Review status, Reviewed by me, Asked
+  or reviewed. A chip writes its qualifier into the field (State → `is:open`, Review requested → `review-requested:@me`
+  or `user-review-requested:@me`, Asked or reviewed → `review-involves:@me`, …) and searches. The field is the one source
+  of truth: a chip shows the qualifier the field holds, whoever typed it, with its value (`Author: dev-ana`). Involves
+  me, Reviewed by me and Asked or reviewed switch on a press; the others open a menu of their qualifiers and **Remove
+  the filter**. Author offers Me and the authors of the rows shown, and **Type a login…**; Label offers **Type a
+  label…**: both put `author:` or `label:` at the end of the field for the name to be typed.
+- **The results** stand in the left pane in place of the groups: "Search · N results" (GitHub's count) and the name of
+  the saved search it is, "Searched 3 min ago · Refresh", then the rows of the inbox's list, each with its approvals
+  chip. The first result is selected by itself; **↑** and **↓** move as in the inbox; **Load more** asks GitHub for the
+  next page. The results are a snapshot: no timer searches again, only Refresh. **× Clear** empties the field and gives
+  the groups back. A search that finds nothing says "No pull requests match" and offers **Search All of GitHub**.
+- **The selected result** opens in the same pane as a PR of the inbox. A PR of the inbox keeps its group's strip, and
+  selecting it is a look, as in the inbox. A PR the inbox lacks is read in full when selected (main keeps it in memory
+  while it does not move on GitHub); it has no "N new since you looked", and a colleague's has the strip **Review this
+  pull request**: who the author asked and how many approvals are left, and **Start review**, which opens the PR's
+  Files page on GitHub.
+- **Saved searches**: the **▾** at the end of the field lists them, the two built-in ones first — "Review requested
+  from me · All of GitHub" (`review-requested:@me is:open`) and "Reviewed by me · open" (`reviewed-by:@me is:open`,
+  This Project) — then the user's, each with its text and scope; a choice runs it in its scope. **☆ Save** names the
+  search in the field and keeps it with its scope; it reads **★ Saved** when the field and the scope are a saved search
+  already. **Forget** in the same menu removes the user's own search the field is. At most 20 besides the built-in ones.
+- **Notices** of section 10 of the spec stand above the results: a repository the account cannot see, a token not
+  authorized for an organization's single sign-on (with **Authorize**, GitHub's link), results some organizations hide
+  behind single sign-on, part of the results when GitHub timed out, the first 1,000 only, the search paused until a
+  time by GitHub's rate limit, a refused sign-in (with **Open Health check**). GitHub's own words of a search it cannot
+  parse (422) stand under the field instead, and the field is framed red until the text changes.
+
+On a read-only screen of a Linked machine the search works through the Project machine, as reads do; **☆ Save** is
+inactive with the hint, and Forget is not offered.
+
 ### Draft replies and Send
 
 **Draft replies** on the selected PR starts a new Session Node of the Project on Claude Code, with a person, whose first
@@ -270,6 +314,12 @@ replies**, and the channels of drafts and Send are refused to a Linked machine a
   snapshot is there, then clears it, so coming back to the view does not select that PR again.
 - The pane is keyed by the PR: another PR starts with its own drafts, typed texts and scroll. The shell keeps every view
   mounted and hides the others, so **↑** and **↓** count only while this view is shown.
+- The search: the view sends the field and the scope to main (`prSearch.run`); main builds GitHub's search strings
+  (`is:pr`, `archived:false`, `sort:updated-desc`, and the scope's `repo:` or `org:` qualifiers, spread over several
+  searches below 256 characters), searches with the Project's account and answers the rows in the shape of the inbox's,
+  a row of the inbox taken from it. A result the inbox lacks is read by `prSearch.pull` when selected. The saved
+  searches are `pr-searches.json` in the Project's data folder (`prSearch.saved`, `prSearch.save`, `prSearch.forget`).
+  Nothing of it writes to GitHub.
 
 ### Implementation
 
@@ -288,8 +338,13 @@ replies**, and the channels of drafts and Send are refused to a Linked machine a
 | The draft file, the check again and the one POST | `src/main/github/pr-reply-send.ts` |
 | The reader and the groups | `src/main/github/inbox.ts`, `src/main/github/inbox-groups.ts` |
 | What the user has seen; the switch as main reads it | `src/main/projects/pr-inbox-state.ts` |
+| The search bar: the scope menu, the field, the chips, ☆ Save and the saved searches | `src/renderer/pr-inbox/SearchBar.tsx`, `src/renderer/pr-inbox/pr-search.css`; the search strings and the chips' qualifiers — `src/shared/pr-search/query.ts` |
+| The results, their notices, Load more; the state of the search and the strip «Review this pull request» | `src/renderer/pr-inbox/SearchResults.tsx`; `usePrSearch` and `searchStep` of `src/renderer/pr-inbox/usePrInbox.ts` |
+| The channels `prSearch.run`, `prSearch.pull`, `prSearch.saved`, `prSearch.save`, `prSearch.forget`; the search in main | `src/shared/ipc/pr-search.ts`, `src/main/ipc/pr-search.ts`, `src/main/github/pr-search.ts` |
 
 Tests: `test/unit/pr-inbox-view.test.tsx`, `test/unit/pr-inbox-open.test.tsx`, `test/e2e/pr-inbox.spec.ts` (with the
 screenshots of the two panes at 1280 and 1600 px in both themes); the reader
 in `test/contract/pr-inbox.test.ts` and `test/unit/pr-inbox-groups.test.ts`; drafts and Send in
-`test/contract/pr-inbox-send.test.ts` and `test/unit/draft-thread.test.tsx`.
+`test/contract/pr-inbox-send.test.ts` and `test/unit/draft-thread.test.tsx`; the search in `test/unit/pr-search-view.test.tsx`,
+`test/e2e/pr-search.spec.ts` (with its screenshots at 1280 and 1600 px in both themes), `test/contract/pr-search.test.ts`
+and `test/unit/pr-search-query.test.ts`.

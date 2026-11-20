@@ -1,0 +1,314 @@
+/* The search of the Pull requests view (SearchBar.tsx, SearchResults.tsx; worfy-pr-review ticket 05), as the prototype
+   of ticket 01 draws it (state `search`): the scope menu, the field and its buttons in one row, the filter chips under
+   it, then the results in the list pane. Values come from tokens.css only, so both themes come for free. */
+
+.w-pr-search {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.w-pr-search__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* The scope menu's trigger: a bordered dropdown as high as the field. */
+.w-pr-search__dropdown {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: var(--button-height-m);
+  padding: 0 9px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-button);
+  background: var(--surface);
+  box-shadow: var(--shadow-control);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-12);
+  white-space: nowrap;
+}
+.w-pr-search__caret {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* The field: the icon, the input, the `/` hint and the menu of saved searches inside one frame. */
+.w-pr-search__field {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: var(--button-height-m);
+  padding: 0 4px 0 9px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-button);
+  background: var(--surface);
+  color: var(--text-muted);
+}
+.w-pr-search__field:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+/* GitHub could not parse the search (422): a red frame, its words under the field in red (the problem colour of the
+   PR inbox's Conflicts chip). */
+.w-pr-search__field[data-invalid='true'] {
+  border-color: var(--span-problem);
+}
+.w-pr-search__field[data-invalid='true']:focus-within {
+  outline-color: var(--span-problem);
+}
+.w-pr-search__icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+.w-pr-search__input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+}
+.w-pr-search__input::placeholder {
+  font-family: var(--font-ui);
+  color: var(--text-muted);
+}
+.w-pr-search__kbd {
+  padding: 0 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 14px;
+}
+.w-pr-search__field-menu {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 10px;
+}
+.w-pr-search__field-menu:hover {
+  background: var(--hover-veil);
+}
+.w-pr-search__button {
+  --button-height: var(--button-height-m);
+  font-size: var(--text-12);
+}
+.w-pr-search__button[aria-pressed='true'] {
+  color: var(--accent);
+}
+
+/* What GitHub would refuse, before Enter, and its own words after it. */
+.w-pr-search__notes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.w-pr-search__warning,
+.w-pr-search__error {
+  margin: 0;
+  font-size: var(--text-12);
+  line-height: 16px;
+}
+.w-pr-search__warning {
+  color: var(--text-secondary);
+}
+.w-pr-search__error {
+  color: var(--span-problem);
+}
+
+/* The filter chips: pills that wrap; a chip that holds a qualifier of the field is marked. */
+.w-pr-search__chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.w-pr-search__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-12);
+  white-space: nowrap;
+}
+.w-pr-search__chip:hover {
+  background: var(--hover-veil);
+}
+.w-pr-search__chip[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--selected);
+  color: var(--text);
+}
+.w-pr-search__chip-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-11);
+}
+
+/* The menus: the scope, the saved searches, the options of a chip. */
+.w-pr-search__menu {
+  min-width: 220px;
+  max-width: 420px;
+}
+.w-pr-search__menu-heading {
+  display: block;
+  padding: 6px var(--space-2) 3px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.w-pr-search__menu-separator {
+  height: 1px;
+  margin: var(--space-1) 0;
+  background: var(--border);
+}
+.w-pr-search__item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: 6px var(--space-2);
+  border-radius: var(--radius-button);
+  color: var(--text);
+  font-size: var(--text-13);
+  outline: none;
+}
+.w-pr-search__item[data-highlighted],
+.w-pr-search__item:hover {
+  background: var(--selected);
+}
+.w-pr-search__item[aria-checked='true'] .w-pr-search__item-text {
+  font-weight: 600;
+}
+.w-pr-search__item-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--accent);
+}
+.w-pr-search__item-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.w-pr-search__item-note {
+  margin-top: 1px;
+  font-size: var(--text-11);
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+.w-pr-search__item-query {
+  margin-top: 1px;
+  font-size: var(--text-11);
+  color: var(--text-muted);
+}
+
+/* ☆ Save: the name, the search it saves, Cancel and Save. */
+.w-pr-search__save {
+  width: 300px;
+  padding: var(--space-3);
+}
+.w-pr-search__save-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+}
+.w-pr-search__save-input {
+  width: 100%;
+  height: var(--button-height-m);
+  padding: 0 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-button);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+.w-pr-search__save-query {
+  margin: 6px 0 10px;
+  font-size: var(--text-11);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.w-pr-search__save-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* The results in the list pane. */
+.w-pr-search-results__saved {
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-secondary);
+}
+.w-pr-search-results__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0 var(--space-3) 4px;
+  font-size: var(--text-11);
+  color: var(--text-muted);
+}
+.w-pr-search-results__notice {
+  margin: 4px var(--space-3);
+  padding: 6px var(--space-2);
+  border-radius: var(--radius-button);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+.w-pr-search-results__notice[role='alert'] {
+  background: var(--blocked-bg);
+  color: var(--blocked-text);
+}
+.w-pr-search-results__empty {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 28px var(--space-4);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  text-align: center;
+}
+.w-pr-search-results__empty b {
+  color: var(--text);
+  font-size: var(--text-13);
+}
+.w-pr-search-results__more {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-2);
+}

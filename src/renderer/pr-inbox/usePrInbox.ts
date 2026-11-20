@@ -6,13 +6,15 @@
 //
 // Also the pure parts of the view: the groups in the spec's order, the texts of a row, which Ticket a
 // PR belongs to, and the line about the next search.
-import { useEffect } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
 import { PR_INBOX_GROUPS, type PrApprovals, type PrInboxGroup, type PrInboxRow, type PrInboxSnapshot, type PrReviewer } from '../../shared/ipc/pr-inbox'
+import type { PrSearchResult, SavedSearch } from '../../shared/ipc/pr-search'
+import type { PrSearchScope } from '../../shared/pr-search/query'
 import { prFollowReasons } from '../../shared/actions/pr-follow'
 import type { PrFollowAction } from '../../shared/projects/action-templates'
 import { sameLogin, sameRepo, ticketOfRow } from '../../shared/pr-inbox/rows'
-import { invoke, subscribe } from '../ipc'
+import { invoke, readableReason, subscribe } from '../ipc'
 
 // Moved to src/shared, where main reads them too (worfy-pr-follow ticket 01); the view and its tests still take them from here.
 export { sameRepo, ticketOfRow }
@@ -172,8 +174,11 @@ export function ageText(iso: string, now: number): string {
   return `${Math.floor(hours / 24)}d`
 }
 
-/** The age a row shows: of the PR for a review request (the oldest waits longest), else of its last activity. */
-export const ageOf = (group: PrInboxGroup, row: Pick<PrInboxRow, 'createdAt' | 'lastActivityAt'>): string => (group === 'needs-review' ? row.createdAt : row.lastActivityAt)
+/**
+ * The age a row shows: of the PR for a review request (the oldest waits longest), else of its last activity — a row of
+ * the search results the inbox lacks (`null`) too.
+ */
+export const ageOf = (group: PrInboxGroup | null, row: Pick<PrInboxRow, 'createdAt' | 'lastActivityAt'>): string => (group === 'needs-review' ? row.createdAt : row.lastActivityAt)
 
 /** "Next search in 4 min" — or "Next search now" once the time has come. */
 export function nextSearchText(nextSearchAt: string, now: number): string {
@@ -495,4 +500,184 @@ export function avatarTone(login: string | null, tones: number): number {
   let hash = 0
   for (const char of login ?? 'ghost') hash = (hash * 31 + char.charCodeAt(0)) >>> 0
   return hash % tones
+}
+
+// ── the search (worfy-pr-review ticket 05) ───────────────────────────────────
+
+/**
+ * The "what to do next" strip of a search result the inbox lacks: a colleague's PR — «Review this pull request», who
+ * the author asked and how many approvals are left, and Start review, which opens the Files page on GitHub until
+ * ticket 09 gives it Review mode; the user's own PR — its last activity, nothing to start.
+ */
+export function searchStep(row: PrInboxRow, now: number, viewer: string | null): NextStep {
+  if (viewer !== null && sameLogin(row.author, viewer)) return { tone: 'waiting', title: 'Your pull request', text: `Last activity ${ageText(row.lastActivityAt, now)} ago.`, action: null, more: [] }
+  const approvals = row.approvals
+  const asked = (approvals?.reviewers ?? [])
+    .filter((each) => each.state === 'requested')
+    .map((each) => (viewer !== null && each.kind === 'user' && sameLogin(each.login, viewer) ? 'you' : each.login))
+  const left =
+    approvals === undefined || approvals.source === 'none'
+      ? `opened ${ageText(row.createdAt, now)} ago`
+      : approvals.need === null
+        ? `${countOf(approvals.have, 'approval')}, the rule is not visible`
+        : approvals.need === 0
+          ? 'no approvals required'
+          : `${approvals.have} of ${approvals.need} required approval${approvals.need === 1 ? '' : 's'}`
+  return {
+    tone: 'review',
+    title: 'Review this pull request',
+    text: `${row.author ?? 'ghost'} asked ${asked.length === 0 ? 'nobody' : namesText(asked)}; ${left}.`,
+    action: { kind: 'link', label: 'Start review', url: `${row.url}/files` },
+    more: [],
+  }
+}
+
+/** "Searched just now", "Searched 3 min ago", "Searched 2 h ago": the age of the results, which no timer refreshes. */
+export function searchedText(iso: string, now: number): string {
+  const minutes = Math.floor((now - Date.parse(iso)) / 60_000)
+  if (!Number.isFinite(minutes) || minutes < 1) return 'Searched just now'
+  if (minutes < 60) return `Searched ${minutes} min ago`
+  return `Searched ${Math.floor(minutes / 60)} h ago`
+}
+
+/** The search whose results the view shows: the text sent and its scope. */
+export interface ShownSearch {
+  text: string
+  scope: PrSearchScope
+}
+
+export interface PrSearchState {
+  /** The field, as typed. */
+  text: string
+  scope: PrSearchScope
+  /** The search whose results show in place of the groups; null — the inbox. */
+  shown: ShownSearch | null
+  /** Its answer, the pages of Load more added; null while the first page is on its way. */
+  result: PrSearchResult | null
+  /** A page is on its way. */
+  running: boolean
+  /** Why the call failed (not GitHub: main, or the link to the Project machine); null when it did not. */
+  failure: string | null
+  /** The Project's saved searches, the built-in ones first. */
+  saved: readonly SavedSearch[]
+}
+
+export interface PrSearch extends PrSearchState {
+  setText: (text: string) => void
+  /** Runs `text` in `scope` (the field's by default); a blank text goes back to the inbox. */
+  run: (text?: string, scope?: PrSearchScope) => void
+  /** Sets the scope; a search shown, or a field that holds text, runs in it at once. */
+  setScope: (scope: PrSearchScope) => void
+  loadMore: () => void
+  refresh: () => void
+  /** Empties the field and gives the groups back. */
+  clear: () => void
+  /** Saves the field under `name` with the scope; answers main's refusal, or null. */
+  save: (name: string) => Promise<string | null>
+  forget: (id: string) => Promise<string | null>
+}
+
+/**
+ * The search of the Pull requests view of one Project: the field is the one source of truth; Enter, a chip, a scope or a
+ * saved search sends it to main (`prSearch.run`), and the answer is a snapshot that no timer searches again (spec,
+ * implementation decisions 9). An answer to an earlier search is dropped.
+ */
+export function usePrSearch(projectId: string): PrSearch {
+  const [state, setState] = useState<PrSearchState>({ text: '', scope: 'project', shown: null, result: null, running: false, failure: null, saved: [] })
+  const asked = useRef(0)
+  const current = useRef(state)
+  useEffect(() => {
+    current.current = state
+  })
+
+  useEffect(() => {
+    let live = true
+    void invoke('prSearch.saved', { projectId }).then((answer) => {
+      // A main that does not know the channel answers something else: no saved searches then.
+      if (live && answer.ok && Array.isArray(answer.value.searches)) setState((before) => ({ ...before, saved: answer.value.searches }))
+    })
+    return () => {
+      live = false
+    }
+  }, [projectId])
+
+  const send = useCallback(
+    (shown: ShownSearch, cursor: string | null) => {
+      const request = ++asked.current
+      current.current = { ...current.current, scope: shown.scope }
+      setState((before) => ({ ...before, scope: shown.scope, shown, running: true, failure: null, result: cursor === null ? null : before.result }))
+      void invoke('prSearch.run', { projectId, text: shown.text, scope: shown.scope, cursor }).then((answer) => {
+        if (asked.current !== request) return
+        if (!answer.ok) {
+          setState((before) => ({ ...before, running: false, failure: `The search failed: ${readableReason(answer.error)}` }))
+          return
+        }
+        setState((before) => {
+          if (cursor === null || before.result === null) return { ...before, running: false, result: answer.value }
+          const seen = new Set(before.result.rows.map(rowKey))
+          const rows = [...before.result.rows, ...answer.value.rows.filter((each) => !seen.has(rowKey(each)))]
+          return { ...before, running: false, result: { ...answer.value, rows, searchedAt: before.result.searchedAt } }
+        })
+      })
+    },
+    [projectId],
+  )
+
+  const run = useCallback(
+    (text?: string, scope?: PrSearchScope) => {
+      const typed = (text ?? current.current.text).trim()
+      const where = scope ?? current.current.scope
+      if (typed === '') {
+        asked.current += 1
+        setState((before) => ({ ...before, scope: where, shown: null, result: null, running: false, failure: null }))
+        return
+      }
+      send({ text: typed, scope: where }, null)
+    },
+    [send],
+  )
+
+  const setScope = useCallback(
+    (scope: PrSearchScope) => {
+      const { shown, text } = current.current
+      current.current = { ...current.current, scope }
+      setState((before) => ({ ...before, scope }))
+      if (shown !== null || text.trim() !== '') run(text, scope)
+    },
+    [run],
+  )
+
+  const saved = useCallback((answer: Awaited<ReturnType<typeof invoke<'prSearch.save'>>>): string | null => {
+    if (!answer.ok) return readableReason(answer.error)
+    setState((before) => ({ ...before, saved: answer.value.searches }))
+    return null
+  }, [])
+
+  const setText = useCallback((text: string) => {
+    current.current = { ...current.current, text }
+    setState((before) => ({ ...before, text }))
+  }, [])
+  const clear = useCallback(() => {
+    asked.current += 1
+    current.current = { ...current.current, text: '' }
+    setState((before) => ({ ...before, text: '', shown: null, result: null, running: false, failure: null }))
+  }, [])
+  const loadMore = useCallback(() => {
+    const { shown, result, running } = current.current
+    if (shown !== null && result !== null && result.cursor !== null && !running) send(shown, result.cursor)
+  }, [send])
+  const refresh = useCallback(() => {
+    const { shown } = current.current
+    if (shown !== null) send(shown, null)
+  }, [send])
+  const save = useCallback(
+    async (name: string) => {
+      const { text, scope } = current.current
+      return saved(await invoke('prSearch.save', { projectId, name, query: text.trim(), scope }))
+    },
+    [projectId, saved],
+  )
+  const forget = useCallback(async (id: string) => saved(await invoke('prSearch.forget', { projectId, id })), [projectId, saved])
+
+  return { ...state, setText, run, setScope, loadMore, refresh, clear, save, forget }
 }
