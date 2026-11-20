@@ -1,7 +1,8 @@
 # 07 — Черновик ревью в main: файл в `state/pr-review/`, формат `payload` с `by` и `suggestedEvent`, каналы `prReview.*`, поиск строки заново, хранение 30 дней
 
 Type: task
-Status: claimed 2026-11-20T02:05Z
+Status: done 2026-11-20T06:42Z
+PR: #2061
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 7; «Решения по реализации», 6 и 11; «Решения по test-ам», Seam 1 и 2;
 [critic](../../../docs/product/critic/worfy-pr-review-2026-11-20.md), возражение 3
@@ -55,6 +56,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 7; «Решения по реал�
   - evidence: commit pass · worfy-pr-review/07: the review draft in main — state/pr-review/ file, prReview.* local channels · - - · ac8ebab4b
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · ac8ebab4b
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44680171080/job/136131606679 · ci - · 8f642554ac3817f945789583049c76de981504d1
 
 ## Где в коде
 

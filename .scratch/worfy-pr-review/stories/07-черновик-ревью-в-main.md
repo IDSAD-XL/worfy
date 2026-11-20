@@ -243,3 +243,18 @@ exit 0 (20 unit, 18 contract). Unit гоняет `harness/bin/review-draft-lint`
    Ответ: текст может написать другой писатель с другим числом строк; диапазон из текста мог дать `start_line` =
    `line`, и файл переставал разбираться.
    Строки: `src/main/github/pr-review-draft.ts:155-168`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED — worfy-pr-review 07 (local store of PR review drafts in main), head 8f642554ac3817f945789583049c76de981504d1
+>
+> Gate (depth medium, three rounds): verifier (lens: implementer's report) VERIFIED on round 1; reviewer (lens: correctness) round 1 three med + round 2 one med — all fixed test-first; round 3 delta read by the Orchestrator.
+>
+> - Verifier (9827d707c): every claim backed — draft schema .loose() with anchoredOn/submittedAt/moved; reviewPayloadOf body runs clean through review-draft-lint; person edits; RIGHT-side re-anchor to the nearest match; atomic tmp+rename; 500 ms coalescing; re-read before write; Discard refuses a submitting draft; 30-day prune; all six channels local on a Linked machine; ADR-0005 Amendment. 12 mutants red.
+> - Round 1 fixes (5933c028f): a failed write keeps the change queued and answers success with problem «not written yet» (re-Save no longer duplicates); write() drops the queue only after a successful rename, read/parse inside try; Discard removes an unparsable file but never a valid draft of another PR; putComment refuses an anchor whose line count differs from the range; reanchor keeps the comment's range size; payload test carries an unknown key. Round-2 reviewer re-ran every scenario: closed.
+> - Round 2 fix (code 7fe051346): drop() right after rename, before the tmp cleanup — a quit (flushSync) in that window no longer writes a comment twice (contract test red before ['A.','B.','B.'], green after); reanchor skips places where the range would run past the end of the file (unit test red/green).
+> - Tests: pr-review-draft-format + pr-review-draft 38 passed, EXIT=0; lint, typecheck, story-check, evidence-check EXIT=0. Local gate fast red only on file-watcher contract tests (fseventsd at 112 % CPU on this Mac; untouched files). ci-ok pass on the head.
+>
+> Decided without the owner (to confirm): extra fields anchoredOn/moved/submittedAt; payload.event absent until Finish; 30-day cleanup of submitted drafts at the first drafts call per Profile, not at startup (spec said at startup); re-anchor RIGHT side only; no IPC channel for re-anchor (ticket 09 calls it); a failed write answers success + problem instead of a refusal.
+>
+> Consider [low]: draft file name owner-name-N.json collides for a-b/c#1 and a/b-c#1 (spec-defined; same in pr-reply-send.ts:50); prune() skips an unparsable file (Discard removes it now).
