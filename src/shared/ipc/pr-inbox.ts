@@ -179,8 +179,13 @@ export type PrInboxSnapshot = z.infer<typeof prInboxSnapshotSchema>
 
 const projectInput = z.object({ projectId: z.string().min(1) })
 
-/** The Project's PR inbox as last read; the first call reads it when it was never read. */
-export const prInboxGet = invokeChannel('prInbox.get', projectInput, prInboxSnapshotSchema, 'project', 'read')
+/**
+ * The Project's PR inbox as last read; the first call reads it when it was never read. With `opened` — the Pull requests
+ * view was just opened (worfy-polish 125) — main reads the Project first, out of turn of its timer, unless it read it
+ * within 30 seconds, waits for its rate limit or for the backoff after a failed read, or the Project is off. A Project
+ * machine without this field ignores it and answers as before.
+ */
+export const prInboxGet = invokeChannel('prInbox.get', projectInput.extend({ opened: z.boolean().optional() }), prInboxSnapshotSchema, 'project', 'read')
 
 /** The user has seen this PR now: "N new since you looked" starts again from zero. Writes only `pr-inbox.json`. */
 export const prInboxMarkSeen = invokeChannel(

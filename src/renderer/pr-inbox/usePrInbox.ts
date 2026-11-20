@@ -28,23 +28,47 @@ export interface PrInboxEntry {
 
 const EMPTY: PrInboxEntry = { snapshot: undefined, error: undefined }
 
-const usePrInboxStore = create<{ byProject: Readonly<Record<string, PrInboxEntry>> }>(() => ({ byProject: {} }))
+const usePrInboxStore = create<{
+  byProject: Readonly<Record<string, PrInboxEntry>>
+  /** The Projects whose read on opening the view is under way (worfy-polish 125), by the number of its request. */
+  reading: Readonly<Record<string, number>>
+}>(() => ({ byProject: {}, reading: {} }))
 
 function setEntry(projectId: string, entry: PrInboxEntry): void {
   usePrInboxStore.setState(({ byProject }) => ({ byProject: { ...byProject, [projectId]: entry } }))
 }
 
 const users = new Map<string, number>()
-/** The number of the last request sent for each Project: an answer to an earlier one is older and dropped. */
-const asked = new Map<string, number>()
+/**
+ * The number of the request whose answer the Project's entry holds: an answer to an earlier one is older and dropped.
+ * An earlier answer that comes first is kept until a later one comes: the read on opening the view (worfy-polish 125)
+ * answers after GitHub did, and the snapshot asked just before it shows meanwhile.
+ */
+const applied = new Map<string, number>()
 let requests = 0
 let subscribed = false
 
-function load(projectId: string): void {
+/** Whether the answer to `request` is the newest of the Project so far; it is then the one the entry holds. */
+function newest(projectId: string, request: number): boolean {
+  if (!users.has(projectId) || (applied.get(projectId) ?? 0) > request) return false
+  applied.set(projectId, request)
+  return true
+}
+
+/** Asks main for the Project's inbox; `opened` — the view was just shown, and main reads GitHub first (worfy-polish 125). */
+function load(projectId: string, opened = false): void {
   const request = ++requests
-  asked.set(projectId, request)
-  void invoke('prInbox.get', { projectId }).then((result) => {
-    if (!users.has(projectId) || asked.get(projectId) !== request) return
+  if (opened) usePrInboxStore.setState(({ reading }) => ({ reading: { ...reading, [projectId]: request } }))
+  void invoke('prInbox.get', opened ? { projectId, opened } : { projectId }).then((result) => {
+    // The reading line ends with its own answer, even when a later request's answer is the one kept.
+    if (opened && usePrInboxStore.getState().reading[projectId] === request) {
+      usePrInboxStore.setState(({ reading }) => {
+        const rest = { ...reading }
+        delete rest[projectId]
+        return { reading: rest }
+      })
+    }
+    if (!newest(projectId, request)) return
     if (result.ok) setEntry(projectId, { snapshot: result.value, error: undefined })
     else setEntry(projectId, { snapshot: usePrInboxStore.getState().byProject[projectId]?.snapshot, error: result.error })
   })
@@ -80,7 +104,7 @@ function release(projectId: string): void {
     return
   }
   users.delete(projectId)
-  asked.delete(projectId)
+  applied.delete(projectId)
   usePrInboxStore.setState(({ byProject }) => {
     const rest = { ...byProject }
     delete rest[projectId]
@@ -99,15 +123,28 @@ export function usePrInbox(projectId: string | undefined): PrInboxEntry {
 }
 
 /**
+ * The Pull requests view of the Project was just shown (worfy-polish 125): main reads GitHub now, out of turn of its
+ * timer, within its limits — at most once per 30 seconds, never during a rate-limit pause (src/main/github/inbox.ts,
+ * readOnOpen) — and answers the new snapshot. For a Project the window holds (usePrInbox); nothing otherwise.
+ */
+export function readPrInboxOnOpen(projectId: string): void {
+  if (users.has(projectId)) load(projectId, true)
+}
+
+/** Whether the read on opening the view is under way for the Project: the view says it is reading. */
+export function usePrInboxReading(projectId: string): boolean {
+  return usePrInboxStore((store) => store.reading[projectId] !== undefined)
+}
+
+/**
  * The user has seen the PR now (`prInbox.markSeen`): its "N new since you looked" starts again from zero.
  * Answers why main refused, or undefined.
  */
 export async function markPullSeen(projectId: string, repo: string, number: number): Promise<string | undefined> {
   const request = ++requests
-  asked.set(projectId, request)
   const result = await invoke('prInbox.markSeen', { projectId, repo, number })
   if (!result.ok) return result.error
-  if (users.has(projectId) && asked.get(projectId) === request) setEntry(projectId, { snapshot: result.value, error: undefined })
+  if (newest(projectId, request)) setEntry(projectId, { snapshot: result.value, error: undefined })
   return undefined
 }
 
@@ -184,6 +221,12 @@ export const ageOf = (group: PrInboxGroup | null, row: Pick<PrInboxRow, 'created
 export function nextSearchText(nextSearchAt: string, now: number): string {
   const minutes = Math.ceil((Date.parse(nextSearchAt) - now) / 60_000)
   return minutes <= 0 ? 'Next search now' : `Next search in ${minutes} min`
+}
+
+/** "Last read 3m ago", "Last read just now": the time of the last read while the next one runs (worfy-polish 125). */
+export function lastReadText(readAt: string, now: number): string {
+  const age = ageText(readAt, now)
+  return age === 'now' ? 'Last read just now' : `Last read ${age} ago`
 }
 
 /** The status line of the view: the next search, why the last read failed, and the snapshot's notice; each null when there is none. */

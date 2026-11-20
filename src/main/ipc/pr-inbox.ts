@@ -38,14 +38,16 @@ export interface PrReplyDraftsAccess {
 
 /** The handlers over a reader, the drafts and the morning digest; tests pass their own. */
 export function prInboxHandlers(
-  inbox: () => Pick<PrInbox, 'ensureRead' | 'snapshot' | 'markSeen'>,
+  inbox: () => Pick<PrInbox, 'ensureRead' | 'readOnOpen' | 'snapshot' | 'markSeen'>,
   drafts: PrReplyDraftsAccess = sharedDrafts,
   digest: () => Pick<PrInboxDigest, 'ask'> = sharedPrInboxDigest,
 ): HandlerModule {
   return [
     defineHandler(prInboxDigest, async () => digest().ask()),
-    defineHandler(prInboxGet, async ({ projectId }) => {
-      await inbox().ensureRead(projectId)
+    defineHandler(prInboxGet, async ({ projectId, opened }) => {
+      // The view was opened (worfy-polish 125): a read out of turn, within the limits of readOnOpen.
+      if (opened === true) await inbox().readOnOpen(projectId)
+      else await inbox().ensureRead(projectId)
       return inbox().snapshot(projectId)
     }),
     defineHandler(prInboxMarkSeen, async ({ projectId, repo, number }) => inbox().markSeen(projectId, repo, number)),

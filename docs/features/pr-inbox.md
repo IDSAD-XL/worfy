@@ -262,6 +262,16 @@ Before the first answer the view says "Reading pull requests…". A Project that
 in Project settings, or none of its repositories is on GitHub — shows one line saying so and no panes. A read without a
 single PR shows, instead of the panes, a calm note: "No open pull requests and no review requests."
 
+**Reading on opening.** Each time the view is shown — its toolbar tab, the palette command, a group of the sidebar
+section, a notification or another entry, or another Project while the view is shown — main reads that Project from
+GitHub at once instead of waiting for the next search, so a review comment left a minute ago is there without waiting
+for the timer. While that read runs, the status line says "Reading pull requests…" and "Last read 3m ago" (the time of
+the read before it) in place of the next search, and the rows of that read stay. To keep tab switches from spending the
+rate limit, main skips that read when the Project was read less than 30 seconds ago, while its account waits for the
+rate limit, while it waits after a failed read (the interval that doubles up to 30 minutes), and for a Project whose
+switch is off. A read already running is not started twice: the view waits for it. The next search then comes 5
+minutes after that read.
+
 **Opening on one PR.** An entry can ask for one PR of a Project: the view of that Project opens with that PR selected,
 its row scrolled into sight, and marked seen. When the inbox does not hold that PR, the view opens and says "This pull
 request is not in the inbox: owner/repo#N".
@@ -304,7 +314,7 @@ replies**, and the channels of drafts and Send are refused to a Linked machine a
 - The renderer keeps one copy of each Project's inbox for the view and the section. It asks main again when main says
   the inbox changed, and when the Project's settings change, so the switch shows at once.
 - Main reads one Project at a time: the timer's reads and the read a request asks for (a Project shown for the first
-  time, or turned on again) wait for each other in one queue.
+  time, or turned on again, or the view just opened: `prInbox.get` with `opened`) wait for each other in one queue.
 - Drafts and Send: the four channels `prInbox.drafts`, `prInbox.saveDraft`, `prInbox.discard` and `prInbox.send` are
   `local`, so the link adapter refuses them to a Linked machine before any handler runs. Main writes into a draft file
   only the user's text (`edited`), a discard, the mark of a Send in flight and the reason a Send failed (both in

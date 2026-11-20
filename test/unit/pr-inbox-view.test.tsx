@@ -155,8 +155,11 @@ interface FakeMain {
 
 let main: FakeMain
 
+/** Answers of main by channel, in place of the fake's own; a promise answers later (worfy-polish 125: a read under way). */
+type Answers = Record<string, (input: unknown) => IpcResult<unknown> | Promise<IpcResult<unknown>>>
+
 /** This Machine's preload over the answers of main. `markSeen` answers the snapshot with that PR's new count at zero. */
-function preload(options: { inbox: Record<string, PrInboxSnapshot>; models?: Record<string, WorkflowModel>; answers?: Record<string, (input: unknown) => IpcResult<unknown>> }): void {
+function preload(options: { inbox: Record<string, PrInboxSnapshot>; models?: Record<string, WorkflowModel>; answers?: Answers }): void {
   const handlers = new Map<number, { channel: string; handler: (payload: unknown) => void }>()
   let projects = PROJECTS
   let next = 0
@@ -167,7 +170,7 @@ function preload(options: { inbox: Record<string, PrInboxSnapshot>; models?: Rec
       for (const each of handlers.values()) if (each.channel === channel) each.handler(payload)
     },
   }
-  const answer = (channel: string, input: unknown): IpcResult<unknown> => {
+  const answer = (channel: string, input: unknown): IpcResult<unknown> | Promise<IpcResult<unknown>> => {
     const own = options.answers?.[channel]
     if (own !== undefined) return own(input)
     switch (channel) {
@@ -883,7 +886,7 @@ describe('the status line', () => {
 })
 
 /** The view of the window over the fake main, its Project the active one. */
-async function view(inbox: Record<string, PrInboxSnapshot> = { 'web-00000001': snapshotOf('web-00000001') }, answers?: Record<string, (input: unknown) => IpcResult<unknown>>) {
+async function view(inbox: Record<string, PrInboxSnapshot> = { 'web-00000001': snapshotOf('web-00000001') }, answers?: Answers) {
   preload({ inbox, models: { [WEB_ROOT]: WEB_MODEL }, answers })
   const { PullRequestsView } = await import('../../src/renderer/pr-inbox/PrInboxView')
   const shown = render(<PullRequestsView />)
@@ -1179,6 +1182,91 @@ describe('selecting a PR', () => {
     await waitFor(() => expect(screen.getByTestId('pr-inbox-off')).toBeTruthy())
     expect(screen.queryAllByTestId('pr-inbox-row')).toHaveLength(0)
     expect(screen.queryByTestId('pr-inbox-pane')).toBeNull()
+  })
+})
+
+// worfy-polish 125: the view asks main to read GitHub now each time it is shown — the toolbar tab, an entry that opens
+// it, another Project while it is shown — and says it is reading, with the time of the last read, until main answers.
+// Whether main reads (30 seconds, the rate limit, the switch) is main's: test/contract/pr-inbox.test.ts.
+describe('the read on opening the view (worfy-polish 125)', () => {
+  const openReads = (): unknown[] => main.calls.filter((call) => call.channel === 'prInbox.get' && (call.input as { opened?: boolean }).opened === true).map((call) => call.input)
+
+  it('the view mounted hidden asks for no read; each time it is shown it asks main to read the Project now', async () => {
+    await view()
+    const { setView } = await import('../../src/renderer/session/navigation')
+    expect(openReads()).toEqual([])
+    await act(async () => setView('pull-requests'))
+    await waitFor(() => expect(openReads()).toEqual([{ projectId: 'web-00000001', opened: true }]))
+    // Shown again after another view: another ask; main decides whether it reads.
+    await act(async () => setView('canvas'))
+    await act(async () => setView('pull-requests'))
+    await waitFor(() => expect(openReads()).toHaveLength(2))
+    // A new snapshot while it stays shown asks nothing more.
+    await act(async () => main.emit('prInbox.changed', { projectId: 'web-00000001' }))
+    await act(async () => Promise.resolve())
+    expect(openReads()).toHaveLength(2)
+  })
+
+  it('an entry that opens the view (palette, notification, sidebar) asks for the read too, and so does another Project shown in it', async () => {
+    preload({ inbox: { 'web-00000001': snapshotOf('web-00000001'), 'ops-00000002': snapshotOf('ops-00000002') }, models: { [WEB_ROOT]: WEB_MODEL } })
+    const { PullRequestsView } = await import('../../src/renderer/pr-inbox/PrInboxView')
+    const { openPrInboxOf } = await import('../../src/renderer/pr-inbox/open')
+    render(<PullRequestsView />)
+    await waitFor(() => expect(screen.getAllByTestId('pr-inbox-view')).toHaveLength(1))
+    await act(async () => {
+      await openPrInboxOf('web-00000001', 'web-00000001', { repo: WEB, number: 40 })
+    })
+    await waitFor(() => expect(openReads()).toEqual([{ projectId: 'web-00000001', opened: true }]))
+    await act(async () => {
+      await openPrInboxOf('ops-00000002', 'web-00000001')
+    })
+    await waitFor(() =>
+      expect(openReads()).toEqual([
+        { projectId: 'web-00000001', opened: true },
+        { projectId: 'ops-00000002', opened: true },
+      ]),
+    )
+  })
+
+  it('while main reads, the status line says it is reading and keeps the time of the last read; the answer brings the next search back', async () => {
+    let answer: (result: IpcResult<unknown>) => void = () => undefined
+    const fresh = snapshotOf('web-00000001', { readAt: NOW_ISO, nextSearchAt: new Date(NOW + 5 * MIN).toISOString() })
+    await view(
+      { 'web-00000001': snapshotOf('web-00000001', { readAt: ago(3 * MIN) }) },
+      {
+        'prInbox.get': (input) =>
+          (input as { opened?: boolean }).opened === true
+            ? new Promise<IpcResult<unknown>>((resolve) => {
+                answer = resolve
+              })
+            : { ok: true, value: main.inbox['web-00000001'] },
+      },
+    )
+    const { setView } = await import('../../src/renderer/session/navigation')
+    expect(screen.queryByTestId('pr-inbox-reading')).toBeNull()
+    await act(async () => setView('pull-requests'))
+    await waitFor(() => expect(screen.getByTestId('pr-inbox-reading').textContent).toBe('Reading pull requests…'))
+    expect(screen.getByTestId('pr-inbox-read-at').textContent).toBe('Last read 3m ago')
+    expect(screen.queryByTestId('pr-inbox-next')).toBeNull()
+    // The rows stay while it reads.
+    expect(screen.getAllByTestId('pr-inbox-row').length).toBeGreaterThan(0)
+
+    await act(async () => answer({ ok: true, value: fresh }))
+    await waitFor(() => expect(screen.queryByTestId('pr-inbox-reading')).toBeNull())
+    expect(screen.queryByTestId('pr-inbox-read-at')).toBeNull()
+    expect(screen.getByTestId('pr-inbox-next').textContent).toBe('Next search in 5 min')
+  })
+
+  it('a read on opening that main refuses ends the reading line and keeps the rows', async () => {
+    await view(undefined, {
+      'prInbox.get': (input) => ((input as { opened?: boolean }).opened === true ? { ok: false, error: 'not a Project of this Machine' } : { ok: true, value: main.inbox['web-00000001'] }),
+    })
+    const { setView } = await import('../../src/renderer/session/navigation')
+    await act(async () => setView('pull-requests'))
+    await waitFor(() => expect(openReads()).toHaveLength(1))
+    await act(async () => Promise.resolve())
+    expect(screen.queryByTestId('pr-inbox-reading')).toBeNull()
+    expect(screen.getAllByTestId('pr-inbox-row').length).toBeGreaterThan(0)
   })
 })
 

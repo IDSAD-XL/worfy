@@ -920,6 +920,152 @@ describe('ADR-0005', () => {
   })
 })
 
+// worfy-polish 125: opening the Pull requests view reads the Project at once, not at the timer's next look — at most
+// once per 30 seconds, never during a rate-limit pause or the backoff after a failed read, never for a Project that is
+// off; the timer's next search then comes 5 minutes after that read.
+describe('the read on opening the view (worfy-polish 125)', () => {
+  const SECOND = 1_000
+
+  it('an open reads the Project at once: a PR that appeared since the last search is in the snapshot without waiting for the timer', async () => {
+    const gh = world([stubPull(API, 1)])
+    const inbox = reader(gh, [project('p1', [API])])
+    await inbox.tick()
+    expect(searches(gh)).toHaveLength(1)
+
+    clock = START + 2 * MINUTE
+    gh.set([stubPull(API, 1), stubPull(API, 2)])
+    await inbox.readOnOpen('p1')
+    expect(searches(gh)).toHaveLength(2)
+    expect(rowsOf(inbox.snapshot('p1'))).toEqual([`${API}#1`, `${API}#2`])
+    expect(inbox.snapshot('p1').readAt).toBe(new Date(START + 2 * MINUTE).toISOString())
+  })
+
+  it("the timer's next search comes 5 minutes after the read on opening, not at its old time", async () => {
+    const gh = world([stubPull(API, 1)])
+    const inbox = reader(gh, [project('p1', [API])])
+    await inbox.tick()
+    clock = START + 2 * MINUTE
+    await inbox.readOnOpen('p1')
+    expect(inbox.snapshot('p1').nextSearchAt).toBe(new Date(START + 2 * MINUTE + INBOX_SEARCH_INTERVAL_MS).toISOString())
+
+    // The old schedule: 5 minutes after the first read. Nothing then.
+    clock = START + INBOX_SEARCH_INTERVAL_MS
+    await inbox.tick()
+    expect(searches(gh)).toHaveLength(2)
+    clock = START + 2 * MINUTE + INBOX_SEARCH_INTERVAL_MS
+    await inbox.tick()
+    expect(searches(gh)).toHaveLength(3)
+  })
+
+  it('two opens within 30 seconds give one read; an open 30 seconds after the last read reads again', async () => {
+    const gh = world([stubPull(API, 1)])
+    const inbox = reader(gh, [project('p1', [API])])
+    await inbox.tick()
+    // The tick's read is 10 seconds old: no read.
+    clock = START + 10 * SECOND
+    await inbox.readOnOpen('p1')
+    expect(searches(gh)).toHaveLength(1)
+
+    clock = START + MINUTE
+    await inbox.readOnOpen('p1')
+    expect(searches(gh)).toHaveLength(2)
+    clock = START + MINUTE + 29 * SECOND
+    await inbox.readOnOpen('p1')
+    expect(searches(gh)).toHaveLength(2)
+    clock = START + MINUTE + 30 * SECOND
+    await inbox.readOnOpen('p1')
+    expect(searches(gh)).toHaveLength(3)
+  })
+
+  it('two opens at once give one read, and the second answers only once that read has ended', async () => {
+    const gh = world([stubPull(API, 1)])
+    let release: () => void = () => undefined
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const run: PrInboxOptions['run'] = async (args, cwd) => {
+      await held
+      return gh.run(args, cwd)
+    }
+    const inbox = reader(gh, [project('p1', [API])], { run })
+    // The first open's read waits on gh while the second open comes.
+    const first = inbox.readOnOpen('p1')
+    const second = inbox.readOnOpen('p1').then(() => (inbox.snapshot('p1').readAt === null ? 'before the read ended' : 'after the read'))
+    release()
+    await first
+    expect(await second).toBe('after the read')
+    expect(searches(gh)).toHaveLength(1)
+    // A third open while that read is under way joins it too.
+    clock = START + MINUTE
+    const third = inbox.readOnOpen('p1')
+    const fourth = inbox.readOnOpen('p1')
+    await Promise.all([third, fourth])
+    expect(searches(gh)).toHaveLength(2)
+  })
+
+  it('an open during a rate-limit pause reads nothing, and the pause still ends at resetAt', async () => {
+    const reset = new Date(START + 22 * MINUTE).toISOString()
+    const gh = world([stubPull(API, 1)], { rateLimit: { limit: 5000, remaining: 400, resetAt: reset } })
+    const inbox = reader(gh, [project('p1', [API])])
+    await inbox.tick()
+    const calls = gh.calls().length
+
+    clock = START + 2 * MINUTE
+    await inbox.readOnOpen('p1')
+    clock = START + 21 * MINUTE
+    await inbox.readOnOpen('p1')
+    expect(gh.calls()).toHaveLength(calls)
+    expect(inbox.snapshot('p1').error).toContain(reset)
+
+    clock = START + 22 * MINUTE
+    await inbox.readOnOpen('p1')
+    expect(searches(gh)).toHaveLength(2)
+  })
+
+  it('after a failed read an open waits for the backoff of the timer, then reads', async () => {
+    const gh = world([stubPull(API, 1)])
+    const inbox = reader(gh, [project('p1', [API])])
+    await inbox.tick()
+    writeFileSync(join(gh.dir, 'fail'), 'gh: Bad credentials (HTTP 401)')
+    clock = START + INBOX_SEARCH_INTERVAL_MS
+    await inbox.tick()
+    expect(inbox.snapshot('p1').error).toContain('HTTP 401')
+    const calls = gh.calls().length
+
+    // The failure doubled the interval to 10 minutes: an open a minute later and one at 9 minutes call nothing.
+    clock = START + INBOX_SEARCH_INTERVAL_MS + MINUTE
+    await inbox.readOnOpen('p1')
+    clock = START + INBOX_SEARCH_INTERVAL_MS + 9 * MINUTE
+    await inbox.readOnOpen('p1')
+    expect(gh.calls()).toHaveLength(calls)
+
+    rmSync(join(gh.dir, 'fail'))
+    clock = START + INBOX_SEARCH_INTERVAL_MS + 2 * INBOX_SEARCH_INTERVAL_MS
+    await inbox.readOnOpen('p1')
+    expect(gh.calls().length).toBeGreaterThan(calls)
+    expect(inbox.snapshot('p1').error).toBeNull()
+  })
+
+  it('a Project whose switch is off is not read on opening, from its first look or after a read', async () => {
+    const gh = world([stubPull(API, 1)])
+    const off = project('off', [API], { actionTemplates: {}, prInbox: false })
+    const later = project('later', [API])
+    const inbox = reader(gh, [off, later])
+    await inbox.readOnOpen('off')
+    expect(gh.calls()).toEqual([])
+    expect(inbox.snapshot('off').enabled).toBe(false)
+
+    await inbox.readOnOpen('later')
+    const calls = gh.calls().length
+    expect(calls).toBeGreaterThan(0)
+    writeFileSync(join(later.dataDir, 'settings.json'), JSON.stringify({ actionTemplates: {}, prInbox: false }))
+    clock = START + MINUTE
+    await inbox.readOnOpen('later')
+    expect(gh.calls()).toHaveLength(calls)
+    expect(inbox.snapshot('later').enabled).toBe(false)
+  })
+})
+
 describe('the prInbox IPC handlers', () => {
   it('prInbox.get answers the snapshot in the contract and reads a Project never read; markSeen answers the new one', async () => {
     const gh = world([stubPull(API, 1)])
@@ -947,6 +1093,29 @@ describe('the prInbox IPC handlers', () => {
     expect(changed).toEqual(['p1', 'p1'])
     const unknown = await call('prInbox.markSeen', { projectId: 'p1', repo: API, number: 7 })
     expect(unknown.ok).toBe(false)
+  })
+
+  it('prInbox.get with `opened` reads a Project read before at once, by the rules of the read on opening (worfy-polish 125)', async () => {
+    const gh = world([stubPull(API, 1)])
+    const inbox = reader(gh, [project('p1', [API])])
+    const handlers = new Map<string, (event: IpcMainInvokeEvent, input: unknown) => unknown>()
+    const ipc: IpcMainLike = { handle: (channel, listener) => void handlers.set(channel, listener) }
+    await registerIpc(ipc, { modules: { './pr-inbox.ts': async () => prInboxHandlers(() => inbox) }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
+    const call = async (input: unknown) => (await handlers.get(`${IPC_CHANNEL_PREFIX}prInbox.get`)!({ senderFrame: { url: APP_URL } } as unknown as IpcMainInvokeEvent, input)) as IpcResult<PrInboxSnapshot>
+
+    await call({ projectId: 'p1' })
+    expect(searches(gh)).toHaveLength(1)
+    clock = START + MINUTE
+    gh.set([stubPull(API, 1), stubPull(API, 2)])
+    // A plain get answers what was read; the view's open reads first.
+    const plain = await call({ projectId: 'p1' })
+    expect(plain.ok && rowsOf(plain.value)).toEqual([`${API}#1`])
+    const opened = await call({ projectId: 'p1', opened: true })
+    expect(searches(gh)).toHaveLength(2)
+    expect(opened.ok && rowsOf(opened.value)).toEqual([`${API}#1`, `${API}#2`])
+    // Again within 30 seconds: the snapshot, no read.
+    await call({ projectId: 'p1', opened: true })
+    expect(searches(gh)).toHaveLength(2)
   })
 })
 
