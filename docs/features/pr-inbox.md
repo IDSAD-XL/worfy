@@ -212,12 +212,14 @@ shows it not Viewed again.
 **Comments on lines.** The popover and the keys are those of the comments on lines of [Changes](changes.md), but the
 comment goes into the review draft, not to a Session, and nothing goes to GitHub before Submit. **+** in the gutter of a
 line, or **c** on the lines picked (a click picks a line, a click with Shift or a selection across lines picks a range),
-opens it; the text is Markdown, **Suggest change** adds a `suggestion` block with the text of the lines picked, **⌘↵**
-saves. Images are not taken. A popover with text not saved stays open on **Escape** and on a click outside; **Cancel**
+opens it; the text is Markdown, **Suggest change** (new side only) adds a `suggestion` block with the text of the lines
+picked, **⌘↵** saves. Images are not taken. A range covers lines of one hunk: GitHub refuses a range across hunks, so
+such a pick shows a message and opens nothing. The lines are read without Hide whitespace and unfolded (a lock,
+generated or too large file too). A popover with text not saved stays open on **Escape** and on a click outside; **Cancel**
 closes it. A comment stands under its last line: "Pending · Edit · Delete", or "Written by the agent · Edit · Delete" for
 the agent's; an edit makes the comment the person's. New comments are made only while the diff shows All changes of the
 commit the draft is on: when the head moved past it, the comments are listed above the diff and stay on that commit's
-lines. A comment on a line the PR's diff does not have (an agent took a wrong line) stands in "Not on a changed line"
+lines. A comment on a line the PR's diff does not have (an agent took a wrong line), or on a range across hunks, stands in "Not on a changed line"
 above the diff — GitHub would refuse it — with **Move to line** (the comment goes on the next line whose **+** is
 clicked, or the lines picked with **c**) and **Delete**.
 

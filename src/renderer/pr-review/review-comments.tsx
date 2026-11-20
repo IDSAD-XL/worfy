@@ -56,6 +56,23 @@ function sideLines(hunks: readonly DiffHunk[], side: LineSide): Map<number, stri
   return lines
 }
 
+/** The hunk each line of a side is in, by its number: GitHub takes a range only within one hunk. */
+function sideHunks(hunks: readonly DiffHunk[], side: LineSide): Map<number, number> {
+  const lines = new Map<number, number>()
+  hunks.forEach((hunk, index) => {
+    for (const line of hunk.lines) {
+      const number = lineNumber(line, side)
+      if (number !== null) lines.set(number, index)
+    }
+  })
+  return lines
+}
+
+/** The text of the lines a comment is made on, or why it cannot be made there. */
+type LinesOf = { ok: true; code: string } | { ok: false; why: string }
+
+const ACROSS_HUNKS = 'A comment covers lines of one hunk: GitHub refuses a range across hunks. Pick lines of one hunk.'
+
 /** The lines picked for a comment: one file, one side, `start` where the pick began. */
 interface Picked {
   key: string
@@ -123,8 +140,8 @@ export interface ReviewCommentsLayer {
   overlay: ReactNode
 }
 
-/** Which lines of each side a file's diff has; `none` — no hunks at all (binary, too large for GitHub). */
-type FileLines = { old: ReadonlySet<number>; new: ReadonlySet<number> } | 'none'
+/** The hunk of each line of each side a file's diff has; `none` — no hunks at all (binary, too large for GitHub). */
+type FileLines = { old: ReadonlyMap<number, number>; new: ReadonlyMap<number, number> } | 'none'
 
 export function useReviewComments(options: ReviewCommentsOptions): ReviewCommentsLayer {
   const { projectId, repo, number, subject, draft, canChange, onLines, canAdd, layout, entries, filesRead, generation, body, onAnswer, onNotice } = options
@@ -135,52 +152,77 @@ export function useReviewComments(options: ReviewCommentsOptions): ReviewComment
   const readFor = JSON.stringify([projectId, subject, generation])
   const [lines, setLines] = useState<{ of: string; map: ReadonlyMap<string, FileLines> }>({ of: readFor, map: new Map() })
   const known = lines.of === readFor ? lines.map : null
-  const asked = useRef<{ of: string; paths: Set<string> }>({ of: readFor, paths: new Set() })
-  // The hunks of All changes by file: the text of the lines a comment is made or moved on.
+  // The hunks of All changes by file, read without -w and unfolded: the text of the lines a comment is made or moved on.
   const read = useRef<{ of: string; map: Map<string, FileDiff> }>({ of: readFor, map: new Map() })
+  /** The reads asked for, by file: each file is read once per readFor. */
+  const reading = useRef<{ of: string; map: Map<string, Promise<void>> }>({ of: readFor, map: new Map() })
   const keep = useCallback(
     (path: string, diff: FileDiff) => {
-      const lineSets: FileLines = diff.kind === 'hunks' ? { old: new Set(sideLines(diff.hunks, 'old').keys()), new: new Set(sideLines(diff.hunks, 'new').keys()) } : 'none'
+      const lineSets: FileLines = diff.kind === 'hunks' ? { old: sideHunks(diff.hunks, 'old'), new: sideHunks(diff.hunks, 'new') } : 'none'
       setLines((previous) => ({ of: readFor, map: new Map(previous.of === readFor ? previous.map : []).set(path, lineSets) }))
     },
     [readFor],
   )
+  /**
+   * Reads a file of All changes for the comments: without -w (Hide whitespace changes the lines a hunk has) and unfolded
+   * (a lock, generated or too large file comes folded without `expand`, with no lines at all).
+   */
+  const readFile = (entry: FileEntry): Promise<void> => {
+    if (reading.current.of !== readFor) reading.current = { of: readFor, map: new Map() }
+    const asked = reading.current.map.get(entry.key)
+    if (asked !== undefined) return asked
+    const of = readFor
+    const next =
+      subject === null
+        ? Promise.resolve()
+        : invoke('changes.file', { projectId, subject, repo: entry.repo, scope: { kind: 'all' }, path: entry.file.path, oldPath: entry.file.oldPath, untracked: entry.file.untracked, hideWhitespace: false, expand: true }).then((result) => {
+            if (reading.current.of !== of || !result.ok) return
+            // A file main still answers folded has its lines unknown: neither on a changed line nor off one.
+            if (result.value.file.kind === 'folded') return
+            if (read.current.of !== of) read.current = { of, map: new Map() }
+            read.current.map.set(entry.key, result.value.file)
+            keep(entry.file.path, result.value.file)
+          })
+    reading.current.map.set(entry.key, next)
+    return next
+  }
+  const readLatest = useRef(readFile)
+  useEffect(() => {
+    readLatest.current = readFile
+  })
   const commented = [...new Set(comments.map(({ comment }) => comment.path))].sort().join('\n')
   useEffect(() => {
     if (subject === null || !canChange) return
-    if (asked.current.of !== readFor) asked.current = { of: readFor, paths: new Set() }
     for (const path of commented === '' ? [] : commented.split('\n')) {
       const entry = entries.find((each) => each.file.path === path)
-      if (entry === undefined || asked.current.paths.has(path)) continue
-      asked.current.paths.add(path)
-      const of = readFor
-      void invoke('changes.file', { projectId, subject, repo: entry.repo, scope: { kind: 'all' }, path, oldPath: entry.file.oldPath, untracked: entry.file.untracked, hideWhitespace: false }).then((result) => {
-        if (asked.current.of !== of || !result.ok) return
-        if (read.current.of !== of) read.current = { of, map: new Map() }
-        read.current.map.set(entry.key, result.value.file)
-        keep(path, result.value.file)
-      })
+      if (entry !== undefined) void readLatest.current(entry)
     }
-    // The paths with comments, the files and what they are read for start a read; each is asked for once per readFor.
+    // The paths with comments, the files and what they are read for start a read; readFile asks once per readFor.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [commented, entries, readFor, canChange])
   const onFileRead = useCallback(
     (entry: FileEntry, diff: FileDiff, readOf: FileReadOf) => {
-      if (readOf.scope.kind !== 'all' || readOf.hideWhitespace || readOf.generation !== generation) return
+      // A read with -w has other hunks, a folded one no lines: the comments read the file themselves (readFile).
+      if (readOf.scope.kind !== 'all' || readOf.hideWhitespace || readOf.generation !== generation || diff.kind === 'folded') return
       if (read.current.of !== readFor) read.current = { of: readFor, map: new Map() }
       read.current.map.set(entry.key, diff)
     },
     [generation, readFor],
   )
 
-  /** Whether the comment is on lines the diff of the PR lacks; a file not read yet is not known to be. */
+  /**
+   * Whether the comment is on lines the diff of the PR lacks, or on a range across hunks (GitHub: «start_line must be
+   * part of the same hunk as the line»); a file not read yet is not known to be.
+   */
   const isOff = (comment: ReviewComment): boolean => {
     if (!entries.some((entry) => entry.file.path === comment.path)) return filesRead
     const file = known?.get(comment.path)
     if (file === undefined) return false
     if (file === 'none') return true
-    const has = (side: ReviewComment['side'], at: number): boolean => file[lineSideOf(side)].has(at)
-    return !has(comment.side, comment.line) || (comment.start_line !== undefined && !has(comment.start_side ?? comment.side, comment.start_line))
+    const hunkOf = (side: ReviewComment['side'], at: number): number | undefined => file[lineSideOf(side)].get(at)
+    const last = hunkOf(comment.side, comment.line)
+    if (last === undefined) return true
+    return comment.start_line !== undefined && hunkOf(comment.start_side ?? comment.side, comment.start_line) !== last
   }
   const offLines = onLines ? comments.filter(({ comment }) => isOff(comment)) : []
 
@@ -206,19 +248,29 @@ export function useReviewComments(options: ReviewCommentsOptions): ReviewComment
     return true
   }
 
-  /** The text of lines `from`…`to` of a side of a file, as long as they follow each other in the diff; null off it. */
-  const codeOf = (key: string, side: LineSide, from: number, to: number): { code: string; end: number } | null => {
+  /** The text of lines `from`…`to` of a side of a file, all of one hunk; null while the file is not read. */
+  const codeOf = (key: string, side: LineSide, from: number, to: number): LinesOf | null => {
     const diff = read.current.of === readFor ? read.current.map.get(key) : undefined
-    if (diff?.kind !== 'hunks') return null
-    const sides = sideLines(diff.hunks, side)
+    if (diff === undefined) return null
+    if (diff.kind !== 'hunks') return { ok: false, why: 'This file has no lines to comment on in the diff of the PR' }
+    const hunk = diff.hunks.find((each) => each.lines.some((line) => lineNumber(line, side) === to))
+    if (hunk === undefined) return { ok: false, why: `Line ${to} is not in the diff of the PR` }
+    // Within a hunk the numbers of a side follow each other: `from` in it means every line up to `to` is.
+    const lines = sideLines([hunk], side)
+    if (!lines.has(from)) return { ok: false, why: ACROSS_HUNKS }
     const code: string[] = []
-    let end = from
-    for (let at = from; at <= to && sides.has(at); at += 1) {
-      code.push(sides.get(at)!)
-      end = at
-    }
-    return code.length === 0 ? null : { code: code.join('\n'), end }
+    for (let at = from; at <= to; at += 1) code.push(lines.get(at) ?? '')
+    return { ok: true, code: code.join('\n') }
   }
+  /** codeOf, reading the file first when it is not read yet (Hide whitespace, a folded file, a Refresh). */
+  const linesOf = async (key: string, side: LineSide, from: number, to: number): Promise<LinesOf> => {
+    const now = codeOf(key, side, from, to)
+    if (now !== null) return now
+    const entry = entries.find((each) => each.key === key)
+    if (entry !== undefined) await readFile(entry)
+    return codeOf(key, side, from, to) ?? { ok: false, why: 'The lines of this file could not be read: press Refresh and try again' }
+  }
+  const refuse = (why: string) => showToast({ kind: 'info', key: 'pr-review-lines', text: why })
 
   const save = async (open: LinePopover, input: { ref?: ReviewCommentRef; comment: ReviewComment; anchor: string }): Promise<boolean> => {
     if (subject === null || saving) return false
@@ -240,39 +292,55 @@ export function useReviewComments(options: ReviewCommentsOptions): ReviewComment
   }
 
   /** Move to line: the comment waiting goes on lines `from`…`to`, its text as it is. */
-  const moveTo = (key: string, side: LineSide, from: number, to: number) => {
+  const moveTo = async (key: string, side: LineSide, from: number, to: number) => {
     const placed = moving
     const entry = entries.find((each) => each.key === key)
-    const lines = codeOf(key, side, from, to)
-    if (placed === null || entry === undefined || lines === null) return
-    const comment: ReviewComment = { path: entry.file.path, line: lines.end, side: sideOf(side), ...(lines.end > from ? { start_line: from, start_side: sideOf(side) } : {}), body: placed.comment.body }
+    if (placed === null || entry === undefined) return
+    const lines = await linesOf(key, side, from, to)
+    if (!lines.ok) {
+      refuse(lines.why)
+      return
+    }
+    const comment: ReviewComment = { path: entry.file.path, line: to, side: sideOf(side), ...(to > from ? { start_line: from, start_side: sideOf(side) } : {}), body: placed.comment.body }
     setMoving(null)
     setPicked(null)
-    void save({ id: null, key, path: entry.file.path, side, startLine: from, endLine: lines.end, code: lines.code, text: '', images: [], reading: 0, error: null, was: { text: '', images: 0 } }, { ref: refOf(placed), comment, anchor: lines.code })
+    void save({ id: null, key, path: entry.file.path, side, startLine: from, endLine: to, code: lines.code, text: '', images: [], reading: 0, error: null, was: { text: '', images: 0 } }, { ref: refOf(placed), comment, anchor: lines.code })
   }
 
   /** Opens the popover of a new comment on lines `from`…`to` of a side of a file, or moves the comment waiting there. */
-  const openNew = (key: string, side: LineSide, from: number, to: number) => {
+  const openNew = async (key: string, side: LineSide, from: number, to: number) => {
     if (moving !== null) {
-      moveTo(key, side, from, to)
+      await moveTo(key, side, from, to)
       return
     }
     if (keepsOpen()) return
     const entry = entries.find((each) => each.key === key)
-    const lines = codeOf(key, side, from, to)
-    if (entry === undefined || lines === null) return
+    if (entry === undefined) return
+    const lines = await linesOf(key, side, from, to)
+    if (!lines.ok) {
+      refuse(lines.why)
+      return
+    }
+    // A popover opened while the file was read is not replaced.
+    if (keepsOpen()) return
     setEditing(null)
-    putPopover({ id: null, key, path: entry.file.path, side, startLine: from, endLine: lines.end, code: lines.code, text: '', images: [], reading: 0, error: null, was: { text: '', images: 0 } })
+    putPopover({ id: null, key, path: entry.file.path, side, startLine: from, endLine: to, code: lines.code, text: '', images: [], reading: 0, error: null, was: { text: '', images: 0 } })
   }
 
   /** «+» of a line: the range picked when the line is in it, else the line alone. */
   const openOn = (key: string, side: LineSide, line: number) => {
     if (!canAdd) return
-    if (picked !== null && picked.key === key && picked.side === side && line >= range(picked).from && line <= range(picked).to) openNew(key, side, range(picked).from, range(picked).to)
+    if (picked !== null && picked.key === key && picked.side === side && line >= range(picked).from && line <= range(picked).to) void openNew(key, side, range(picked).from, range(picked).to)
     else {
       setPicked({ key, side, start: line, end: line })
-      openNew(key, side, line, line)
+      void openNew(key, side, line, line)
     }
+  }
+
+  /** The lines of a comment as it stands: from its file's diff, when that has them all in one hunk. */
+  const codeOfComment = (comment: ReviewComment, key: string): string | null => {
+    const lines = codeOf(key, lineSideOf(comment.side), comment.start_line ?? comment.line, comment.line)
+    return lines?.ok === true ? lines.code : null
   }
 
   const openEdit = (placed: PlacedComment) => {
@@ -281,14 +349,19 @@ export function useReviewComments(options: ReviewCommentsOptions): ReviewComment
     setEditing(placed)
     setMoving(null)
     const entry = entries.find((each) => each.file.path === comment.path)
+    const key = entry?.key ?? ''
+    // The text kept with the comment; an agent keeps none for the old side and for a file git did not give it, so the
+    // diff's text stands in. It is taken now: the index of the comment shifts when another one is deleted meanwhile.
+    const stored = draft?.anchors[placed.index]?.text ?? ''
+    const code = stored !== '' ? stored : (codeOfComment(comment, key) ?? '')
     putPopover({
       id: String(placed.index),
-      key: entry?.key ?? '',
+      key,
       path: comment.path,
       side: lineSideOf(comment.side),
       startLine: comment.start_line ?? comment.line,
       endLine: comment.line,
-      code: draft?.anchors[placed.index]?.text ?? '',
+      code,
       text: comment.body,
       images: [],
       reading: 0,
@@ -320,8 +393,13 @@ export function useReviewComments(options: ReviewCommentsOptions): ReviewComment
     const text = open.text.trim()
     const edited = editing
     let input: { ref?: ReviewCommentRef; comment: ReviewComment; anchor: string }
-    if (edited !== null) input = { ref: refOf(edited), comment: { ...edited.comment, body: text }, anchor: draft?.anchors[edited.index]?.text ?? open.code }
-    else {
+    if (edited !== null) {
+      // The lines captured at Edit; with none known (a comment off the diff, its file not read yet), empty lines as many
+      // as it covers: main takes an anchor of exactly its lines.
+      const size = edited.comment.line - (edited.comment.start_line ?? edited.comment.line) + 1
+      const anchor = open.code !== '' ? open.code : '\n'.repeat(size - 1)
+      input = { ref: refOf(edited), comment: { ...edited.comment, body: text }, anchor }
+    } else {
       if (!canAdd) return
       const side = sideOf(open.side)
       input = { comment: { path: open.path, line: open.endLine, side, ...(open.endLine > open.startLine ? { start_line: open.startLine, start_side: side } : {}), body: text }, anchor: open.code }
@@ -332,6 +410,7 @@ export function useReviewComments(options: ReviewCommentsOptions): ReviewComment
     setPicked(null)
   }
 
+  /** Suggest change: a `suggestion` block replaces lines of the new side, so it is offered there only. */
   const suggest = () =>
     putPopover((open) => {
       if (open === null) return open
@@ -410,7 +489,7 @@ export function useReviewComments(options: ReviewCommentsOptions): ReviewComment
       showToast({ kind: 'info', key: 'pr-review-pick-hint', text: 'Click a line first, then press c' })
       return true
     }
-    openNew(picked.key, picked.side, range(picked).from, range(picked).to)
+    void openNew(picked.key, picked.side, range(picked).from, range(picked).to)
     return true
   }
 
@@ -439,7 +518,7 @@ export function useReviewComments(options: ReviewCommentsOptions): ReviewComment
           putPopover(null)
         }}
         onDelete={popover.id === null || editing === null ? null : () => remove(editing)}
-        onSuggest={popover.code === '' ? undefined : suggest}
+        onSuggest={popover.code === '' || popover.side !== 'new' ? undefined : suggest}
       />
     ) : null
 

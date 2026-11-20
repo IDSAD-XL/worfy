@@ -100,6 +100,31 @@ const hunks = (path: string): FileDiff => ({
   ],
 })
 
+/** retry.ts with a second hunk, new lines 19–21: a range from line 3 to line 20 crosses hunks. */
+const twoHunks = (path: string): FileDiff => {
+  const first = hunks(path) as Extract<FileDiff, { kind: 'hunks' }>
+  return {
+    ...first,
+    hunks: [
+      ...first.hunks,
+      {
+        header: '@@ -18,2 +19,3 @@',
+        oldStart: 18,
+        oldLines: 2,
+        newStart: 19,
+        newLines: 3,
+        section: '',
+        lines: [
+          { kind: 'context', text: 'export function retry() {', oldLine: 18, newLine: 19, crlf: false, noNewline: false },
+          { kind: 'del', text: '  return once()', oldLine: 19, newLine: null, crlf: false, noNewline: false },
+          { kind: 'add', text: '  return withBackoff()', oldLine: null, newLine: 20, crlf: false, noNewline: false },
+          { kind: 'add', text: '  // capped', oldLine: null, newLine: 21, crlf: false, noNewline: false },
+        ],
+      },
+    ],
+  }
+}
+
 const draftOf = (over: Partial<ReviewDraft> = {}): ReviewDraft => ({ schema: 1, repo: REPO, pr: NUMBER, startedOn: HEAD, payload: { body: '', comments: [] }, anchors: [], viewed: {}, state: 'draft', ...over })
 const on = (line: number, body: string, path = RETRY): ReviewComment => ({ path, line, side: 'RIGHT', body })
 const withComments = (comments: { comment: ReviewComment; by: 'person' | 'agent' }[], over: Partial<ReviewDraft> = {}): ReviewDraft =>
@@ -144,6 +169,12 @@ function preload(start: { draft?: ReviewDraft | null; answers?: Answers } = {}):
         const draft = structuredClone(fake.draft ?? draftOf({ startedOn: input.head as string }))
         fake.draft = draft
         const ref = input.ref as { index: number; path: string; body: string } | undefined
+        // putComment's check: the anchor has exactly the lines the comment covers.
+        const { line: last, start_line: first } = input.comment as ReviewComment
+        const size = last - (first ?? last) + 1
+        const lines = (input.anchor as string).split(/\r?\n/u)
+        const count = lines.length === size + 1 && lines.at(-1) === '' ? size : lines.length
+        if (count !== size) return { ok: false, error: `The text of the commented lines has ${count} lines, the comment covers ${size} lines` }
         const anchor = { text: input.anchor as string, by: 'person' as const }
         if (ref === undefined) {
           draft.payload.comments.push(input.comment as ReviewComment)
@@ -379,6 +410,144 @@ describe('the comments of the draft', () => {
     await waitFor(() => expect(calls('prReview.deleteComment')).toHaveLength(1))
     expect(calls('prReview.deleteComment')[0]!.ref).toEqual({ index: 1, path: 'src/net/client.ts', body: 'Gone file.' })
     await waitFor(() => expect(screen.queryByTestId('pr-review-not-on-line')).toBeNull())
+  })
+})
+
+describe('the lines a comment stands on', () => {
+  const toastTexts = async (): Promise<string[]> => (await import('../../src/renderer/toast/toasts')).toasts.getState().toasts.map((toast) => toast.text)
+  const withAnchors = (comments: { comment: ReviewComment; by: 'person' | 'agent'; text: string }[], over: Partial<ReviewDraft> = {}): ReviewDraft =>
+    draftOf({ payload: { body: '', comments: comments.map((each) => each.comment) }, anchors: comments.map(({ text, by }) => ({ text, by })), ...over })
+
+  it('a folded file (lock, generated, too large) is read whole: its comment on a changed line is neither «Not on a changed line» nor left out of «on M files»', async () => {
+    const BACKOFF = 'src/net/backoff.ts'
+    preload({
+      draft: withComments([{ comment: on(2, 'A.', BACKOFF), by: 'person' }]),
+      answers: { 'changes.file': (input) => ({ ok: true, value: { file: input.path === BACKOFF && input.expand !== true ? { kind: 'folded', path: BACKOFF, reason: 'lock', lines: 9000 } : hunks(input.path as string) } }) },
+    })
+    await mountReview()
+    await waitFor(() => expect(calls('changes.file').some((input) => input.path === BACKOFF && input.expand === true && input.hideWhitespace === false)).toBe(true))
+    await settle()
+    expect(screen.queryByTestId('pr-review-not-on-line')).toBeNull()
+    expect(screen.getByTestId('pr-review-bar-count').textContent).toBe('1 pending comment on 1 file')
+  })
+
+  it('Hide whitespace: «+» on a file not read for comments yet reads it without -w and opens the popover, not nothing', async () => {
+    preload()
+    await mountReview()
+    fireEvent.click(screen.getByLabelText('Hide whitespace'))
+    // Refresh drops what was read before: the diff is read again with -w only.
+    fireEvent.click(screen.getByTestId('pr-review-refresh'))
+    await settle()
+    await screen.findAllByTestId('changes-line')
+    const before = calls('changes.file').length
+    fireEvent.click(within(line(2)).getByTestId('changes-line-plus'))
+    expect(within(await screen.findByTestId('changes-comment-popover')).getByTestId('changes-comment-code').textContent).toBe('const WAIT = [100, 400]')
+    expect(calls('changes.file').slice(before).some((input) => input.path === RETRY && input.hideWhitespace === false)).toBe(true)
+  })
+
+  it('Edit of the agent\'s range whose stored text is empty sends the text of its lines from the diff, and main takes it', async () => {
+    const range: ReviewComment = { path: RETRY, start_line: 2, start_side: 'RIGHT', line: 3, side: 'RIGHT', body: 'Two lines.' }
+    preload({ draft: withAnchors([{ comment: range, by: 'agent', text: '' }], { agent: { sessionId: 's-1', state: 'done' } }) })
+    await mountReview({ how: 'agent' })
+    fireEvent.click(within((await screen.findAllByTestId('pr-review-comment'))[0]!).getByTestId('pr-review-comment-edit'))
+    await screen.findByTestId('changes-comment-popover')
+    fireEvent.change(field(), { target: { value: 'Two lines, both new.' } })
+    saveKey()
+    await waitFor(() => expect(calls('prReview.saveComment')).toHaveLength(1))
+    expect(calls('prReview.saveComment')[0]!.anchor).toBe('const WAIT = [100, 400]\nconst JITTER = 0.1')
+    await waitFor(() => expect(boxes().map((box) => box.dataset.by)).toEqual(['person']))
+  })
+
+  it('Edit of the agent\'s range off the diff with no stored text sends empty lines as many as it covers, and main takes it', async () => {
+    const range: ReviewComment = { path: RETRY, start_line: 40, start_side: 'RIGHT', line: 41, side: 'RIGHT', body: 'Off.' }
+    preload({ draft: withAnchors([{ comment: range, by: 'agent', text: '' }], { agent: { sessionId: 's-1', state: 'done' } }) })
+    await mountReview({ how: 'agent' })
+    const off = await screen.findByTestId('pr-review-not-on-line')
+    fireEvent.click(within(await within(off).findByTestId('pr-review-comment')).getByTestId('pr-review-comment-edit'))
+    await screen.findByTestId('changes-comment-popover')
+    fireEvent.change(field(), { target: { value: 'Off, edited.' } })
+    saveKey()
+    await waitFor(() => expect(calls('prReview.saveComment')).toHaveLength(1))
+    expect(calls('prReview.saveComment')[0]!.anchor).toBe('\n')
+    await waitFor(() => expect(boxes().map((box) => box.dataset.by)).toEqual(['person']))
+  })
+
+  it('Edit keeps the lines it was opened on: a comment deleted meanwhile does not pair it with a neighbour\'s text', async () => {
+    preload({
+      draft: withAnchors([
+        { comment: on(1, 'One.'), by: 'person', text: 'const MAX = 3' },
+        { comment: on(2, 'Two.'), by: 'person', text: 'const WAIT = [100, 400]' },
+        { comment: on(3, 'Three.'), by: 'person', text: 'const JITTER = 0.1' },
+      ]),
+    })
+    await mountReview()
+    await waitFor(() => expect(boxes()).toHaveLength(3))
+    fireEvent.click(within(boxes().find((box) => box.textContent?.includes('Two.'))!).getByTestId('pr-review-comment-edit'))
+    await screen.findByTestId('changes-comment-popover')
+    fireEvent.change(field(), { target: { value: 'Two, edited.' } })
+    fireEvent.click(within(boxes().find((box) => box.textContent?.includes('One.'))!).getByTestId('pr-review-comment-delete'))
+    await waitFor(() => expect(boxes()).toHaveLength(2))
+    saveKey()
+    await waitFor(() => expect(calls('prReview.saveComment')).toHaveLength(1))
+    expect(calls('prReview.saveComment')[0]).toMatchObject({ comment: on(2, 'Two, edited.'), anchor: 'const WAIT = [100, 400]' })
+  })
+
+  it('Suggest change is offered on the new side only', async () => {
+    preload()
+    await mountReview()
+    fireEvent.click(within(line(2, 'old')).getByTestId('changes-line-plus'))
+    await screen.findByTestId('changes-comment-popover')
+    expect(within(popover()).queryByTestId('changes-comment-suggest')).toBeNull()
+  })
+
+  it('a person\'s save and Delete tell the lists of drafts to read again (the chip Review draft)', async () => {
+    preload()
+    await mountReview()
+    const store = await import('../../src/renderer/pr-review/review-store')
+    function Probe() {
+      store.useReviewDrafts(PROJECT)
+      return null
+    }
+    render(<Probe />)
+    await waitFor(() => expect(calls('prReview.drafts').length).toBeGreaterThan(0))
+    await settle()
+    const read = calls('prReview.drafts').length
+    fireEvent.click(within(line(2)).getByTestId('changes-line-plus'))
+    await screen.findByTestId('changes-comment-popover')
+    fireEvent.change(field(), { target: { value: 'A.' } })
+    saveKey()
+    await waitFor(() => expect(calls('prReview.drafts')).toHaveLength(read + 1))
+    fireEvent.click(within((await screen.findAllByTestId('pr-review-comment'))[0]!).getByTestId('pr-review-comment-delete'))
+    await waitFor(() => expect(calls('prReview.drafts')).toHaveLength(read + 2))
+  })
+
+  it('an agent\'s range across hunks is «Not on a changed line» (GitHub: start_line must be in the hunk of line); a range in one hunk stands on its line', async () => {
+    preload({
+      draft: withComments([
+        { comment: { path: RETRY, start_line: 3, start_side: 'RIGHT', line: 20, side: 'RIGHT', body: 'Across.' }, by: 'agent' },
+        { comment: { path: RETRY, start_line: 2, start_side: 'RIGHT', line: 3, side: 'RIGHT', body: 'Within.' }, by: 'agent' },
+      ]),
+      answers: { 'changes.file': (input) => ({ ok: true, value: { file: input.path === RETRY ? twoHunks(RETRY) : hunks(input.path as string) } }) },
+    })
+    await mountReview()
+    const off = await screen.findByTestId('pr-review-not-on-line')
+    await waitFor(() => expect(within(off).getAllByTestId('pr-review-comment').map((box) => box.textContent?.includes('Across.'))).toEqual([true]))
+    expect(off.textContent).not.toContain('Within.')
+  })
+
+  it('a range picked across hunks is refused with a message: `c` and «+» open no popover, nothing is saved', async () => {
+    preload({ answers: { 'changes.file': (input) => ({ ok: true, value: { file: input.path === RETRY ? twoHunks(RETRY) : hunks(input.path as string) } }) } })
+    await mountReview()
+    fireEvent.click(line(3).querySelector('.w-changes__code')!)
+    fireEvent.click(line(20).querySelector('.w-changes__code')!, { shiftKey: true })
+    fireEvent.keyDown(document.body, { key: 'c' })
+    await settle()
+    expect(screen.queryByTestId('changes-comment-popover')).toBeNull()
+    expect(await toastTexts()).toContain('A comment covers lines of one hunk: GitHub refuses a range across hunks. Pick lines of one hunk.')
+    fireEvent.click(within(line(20)).getByTestId('changes-line-plus'))
+    await settle()
+    expect(screen.queryByTestId('changes-comment-popover')).toBeNull()
+    expect(writes()).toEqual([])
   })
 })
 
