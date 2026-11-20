@@ -1,7 +1,9 @@
 # 01 — Spike: Integration через worfy в Claude Code и Codex, один refresh пакета MCP SDK и что нужно сервисам
 
 Type: spike
-Status: claimed 2026-11-20T17:17Z
+Status: blocked 2026-11-20T17:52Z
+Blocked reason: waits the owner's live sign-in step
+Waits: owner
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 1; «Волны», Wave 1; «Факты», 3в, 7 и 8; «Решения по реализации» → Proxy,
 Вход OAuth, Имя сервера в Session; «Риски» (proxy не покрывает сервис, имя tool-а длиннее предела); «Вопросы
@@ -69,19 +71,24 @@ Source: [spec.md](../spec.md), «Ticket-ы», 1; «Волны», Wave 1; «Фа�
 
 - [ ] Сценарий `integrations` в `scripts/spikes/harness-plugin/probe.ts`: sandbox, без входа, без модели;
       `pnpm exec electron scripts/spikes/harness-plugin/probe.ts integrations` — exit 0, итог — в записке.
+  - evidence: test-run pass · `pnpm exec electron scripts/spikes/harness-plugin/probe.ts integrations --fixtures test/fixtures/sdk-messages` exit 0 · mac - · 4b516d1611426663c83dd7cb9da533b468754f6b
 - [ ] Записка: две Integration-ы на одном адресе рядом с записями `serverUrl` — обе connected, каждая со своим
       token-ом; `disallowedTools` убирает tool из `system/init`; `--mcp-config` на 0.3.322 и нет ли в нём token-а;
       предел длины имени tool-а — числом.
+  - evidence: test-run pass · `probe.ts integrations` exit 0, facts claude, claude_fake_api, claude_serverurl_only in summary.json; note sections 3.1-3.5 · mac - · 4b516d1611426663c83dd7cb9da533b468754f6b
 - [ ] Записка: Codex по схеме и на fake app-server-е — две Integration-ы на одном адресе через `bearer_token_env_var`;
       настоящий Codex не запускался.
+  - evidence: test-run pass · `probe.ts integrations` exit 0, fact codex (ajv schema 0.166.0, fake app-server); note section step 4 · mac - · 4b516d1611426663c83dd7cb9da533b468754f6b
 - [ ] Записка: число запросов refresh на stub-е при 10 параллельных вызовах и вывод для Ticket-а 05 (нужен ли замок в
       provider-е).
+  - evidence: test-run pass · `probe.ts integrations` exit 0, fact refresh (10 parallel: 10, 0 with rotation, 1 with single-flight fetch); note section step 5 · mac - · 4b516d1611426663c83dd7cb9da533b468754f6b
 - [ ] (вручную) Владелец вошёл из окна spike-а в Atlassian (два site-а) и Linear; в записке — `capabilities`, число
       tools, срок access token-а и refresh каждого сервера.
   - needs: mac
 - [ ] Записка кончается решением «tools-only proxy достаточен: да/нет» с выводами для Ticket-ов 03, 05 и 06.
 - [ ] Scrub probe-а пройден: новые fixture-ы и записка не держат token-ов, адресов site-ов владельца и e-mail-ов;
       `--rescrub` чистит новые fixture-ы.
+  - evidence: test-run pass · `node scripts/check-personal.mjs` exit 0 (in pnpm lint) and `probe.ts --rescrub test/fixtures/sdk-messages` exit 0 with no change · mac - · 4b516d1611426663c83dd7cb9da533b468754f6b
 
 ## Где в коде
 
@@ -100,4 +107,33 @@ Source: [spec.md](../spec.md), «Ticket-ы», 1; «Волны», Wave 1; «Фа�
 
 ## Итог
 
-Пусто до завершения Ticket-а.
+Часть агента (шаги 1–7) сделана 2026-11-20, записка — [spike-integrations.md](../spike-integrations.md). Ticket ждёт
+шаг владельца (шаг 8, раздел записки «Шаг владельца»); решение «tools-only proxy достаточен» пока предварительное —
+«да».
+
+Коротко:
+
+- Две Integration-ы на одном адресе (SDK-серверы рядом с `managedSettings` с `serverUrl`) — обе `connected`;
+  `tools/call` через Claude Code (fake Messages API на `127.0.0.1`) дошёл до каждой её token-ом. Policy tier
+  SDK-серверы не режет.
+- `disallowedTools` MCP-tool из `system/init` и из `tools` модели не убирает, только отклоняет вызов («Permission …
+  denied»); встроенный tool убирает. Фильтр tools — в `tools/list` proxy (Ticket 06).
+- `--mcp-config` на 0.3.322 есть; в нём только серверы `http` с заголовком (token виден в аргументах), SDK-серверов
+  и token-ов proxy там нет.
+- Предел имени: полное имя `mcp__<сервер>__<tool>` до 128 символов включительно; длиннее Claude Code выбрасывает
+  молча.
+- Codex: две записи `mcp_servers.<имя>` с `url` на одном endpoint-е и одной `bearer_token_env_var` проходят схему
+  0.166.0 и fake app-server; путь различает Integration-ы; token только в окружении.
+- Refresh: 10 параллельных вызовов — 10 refresh; с ротацией refresh token-а Integration теряет вход. Замка в пакете
+  нет; для Ticket 05 — один refresh за раз в `fetch` transport-а (проверено: 1 refresh, 10 из 10).
+
+### Решено без владельца
+
+1. Fake Messages API на `127.0.0.1` (`ANTHROPIC_BASE_URL`, фиктивный ключ) вместо вызова модели — чтобы пройти
+   `tools/call` через Claude Code и увидеть `tools` запроса. Запрос не уходит с машины.
+2. Роль Codex играет probe по документированному поведению (Факт 4а); настоящий binary не запускался (бриф).
+3. Unit-test-ов у кода spike-а нет, как у всего `probe.ts`; проверка — прогон сценария, exit 0.
+4. Новый fixture `plugin-integrations-two-integrations.jsonl` потребовал записи его событий в
+   `test/fixtures/sdk-events/claude.json` (так требует `test/unit/claude-events.test.ts`) — файл вне списка
+   «Где в коде», правка механическая, как в spike-е worfy-mcp-live 01.
+5. Шаг владельца отзывает token-ы в конце (revocation endpoint есть у Atlassian и Linear).
