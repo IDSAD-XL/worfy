@@ -174,3 +174,17 @@ export const prSearchSave = invokeChannel(
 3. Что станет с фоновым чтением inbox, если ответ поиска показал меньше 10 % лимита?
    - Строки: `src/main/github/inbox.ts:572`
    - Ответ: `noteAccountRate` ставит паузу в кэше аккаунта inbox, и inbox этого аккаунта ждёт `resetAt`, как и поиск.
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED — worfy-pr-review 04 (PR search in main), head 96a6c1a1ea57517cb41a332b65223a8570755dab (rebased from 1990930e8 onto main 25ac775eb; only conflict ADR-0005 Amendments order; 6 test files 140/140, lint, typecheck, story-check EXIT=0)
+>
+> Gate (depth medium, two rounds): verifier (lens: implementer's report) VERIFIED on round 1 with two test gaps; reviewer (lens: correctness) round 1 two med + two low reproduced by probes; all fixed test-first; round 2 reviewer: all closed, no new finding above low.
+>
+> - Verifier (636b8ab1f): query builder query.ts:64-122 and chips :126-218 (20 unit tests); 27 contract tests with expectNoWrite, the stand-in refuses --method and mutation; Linked machine: prSearch.save / forget are write and refused read-only, no pr-searches.json; 21st saved search refused, built-ins not forgettable; ADR-0105 and ADR-0005 Amendments; inbox.ts changes are exports only. Many mutants red (is:pr, archived, sort, split, warning, limits, pause, memory, pullsMax, SSO notice, -X POST).
+> - Round 1 fixes (code c5292719c): a negated -repo:/-org:/-user: only narrows, the Project or owners scope stays (query.ts:77); the PR memory is keyed by account + repo#N (pr-search.ts:251) — another account reads again with its own token; the Load more cursor carries a hash of the search strings and a cursor of another search is refused without a call (:173-190); a 403 with X-GitHub-SSO is checked before the rate limit (:131-137); tests pin exactly 256 chars and the newest-first merge of split searches. Round-2 reviewer: own probes and six mutants (each red) confirm; the cursor is stable across the 60 s memory and Load more after it.
+> - Tests: pr-search-query, pr-search, link-access, pr-inbox 115 tests EXIT=0; lint, typecheck, story-check, evidence-check EXIT=0. Local gate fast not run: file-watcher tests red on this Mac (fseventsd). ci-ok pass on the head.
+>
+> Decided without the owner (to confirm): two calls per page (a light search, then the inbox's details query only for PRs outside the inbox and memory); the owners scope writes org: for every owner (matches user accounts too, checked live); an un-negated repo:/org:/user: in the user's text replaces the scope; prSearch.saved is read (spec §1 says write); 20 saved searches besides the two built-in, same name replaces; the partial-results notice gives the number of hidden organizations.
+>
+> Consider [low]: pull() resolves the account before the memory check — a process start per answer from memory (pr-search.ts:363; no caller until ticket 05); «NOT repo:x» still counts as own scope (query.ts:77) — whether GitHub treats NOT before a qualifier as exclusion is unverified; keyOf misses a qualifier glued to a bracket «(-repo:a OR …)» (query.ts:58, pre-existing); appGh/repoFolders duplicated from ipc/pr-inbox.ts.
