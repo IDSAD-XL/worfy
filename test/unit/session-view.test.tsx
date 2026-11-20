@@ -1162,7 +1162,8 @@ describe('SessionPanel', () => {
       await mountKind('product')
       const header = screen.getByRole('banner')
       const picker = within(header).getByTestId('session-picker')
-      // The floor is a rule of a Product Session's header (session.css): a plain header's model shares the shrink.
+      // The 140 px floor is a rule of a Product Session's header (session.css), which jsdom does not apply: here only
+      // the class it hangs on; the e2e (product-session.spec.ts, «a narrow Product Session header») guards the width.
       expect(picker.classList.contains('w-session__picker')).toBe(true)
       expect(picker.closest('.w-session--product')).not.toBeNull()
       expect(picker.style.minWidth).toBe('')

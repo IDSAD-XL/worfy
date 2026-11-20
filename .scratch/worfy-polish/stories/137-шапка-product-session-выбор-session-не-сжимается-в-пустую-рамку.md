@@ -42,8 +42,9 @@ Code: `src/renderer/session/SessionPicker.tsx:45-58` · key lines: 46, 55, 57
   принимает.
 - Без него: выбор сжимается до пустой рамки, а полное имя не видно нигде.
 - Требование: [Что делаем, п. 1](../issues/137-шапка-product-session-выбор-session-не-сжимается-в-пустую-рамку.md#что-делаем)
-- Риски и пробелы test-ов: unit test проверяет `minWidth`, `data-kit-hint` и `aria-description` с именем и отсутствие
-  `title`; e2e — ширину ≥ 130 px и видимое имя на всех ширинах окна от 1440 до 800. Сам показ подсказки под мышью
+- Риски и пробелы test-ов: unit test проверяет класс `w-session__picker`, `data-kit-hint` и `aria-description` с
+  именем и отсутствие `title`; ширину jsdom не видит. Пол сторожит e2e: выбор ≥ 139,5 px и видимое имя на всех
+  ширинах окна от 1440 до 800; мутант `min-width: 0` делает его красным (131,8 px). Сам показ подсказки под мышью
   проверяют test-ы `HintTooltips`, не этот. В шапке обычной Session пола нет: там модель сжимается вместе с выбором,
   и пол в первой версии PR оставил модели 0 px (e2e `codex-session.spec.ts:164` покраснел в CI на macOS и Windows).
 
@@ -148,7 +149,8 @@ export function SessionStateChip({ sessionId, state, error }: { sessionId: strin
 - Без него: слово — голый текст внутри `Chip`, CSS не может скрыть его отдельно от иконки.
 - Требование: [Что делаем, п. 3](../issues/137-шапка-product-session-выбор-session-не-сжимается-в-пустую-рамку.md#что-делаем)
 - Риски и пробелы test-ов: подсказка есть и у широкого чипа, где слово видно; описание для screen reader повторяет
-  слово. Ошибка Session в подсказке kit не покрыта отдельным test-ом.
+  слово. Ошибку Session в подсказке проверяют `test/unit/session-state-chip.test.tsx` и
+  `test/unit/session-back.test.tsx`.
 
 ## 5. Что сознательно не меняли
 
@@ -161,8 +163,8 @@ export function SessionStateChip({ sessionId, state, error }: { sessionId: strin
 ## 6. Как проверено
 
 Unit test «a narrow Product Session header…» в `test/unit/session-view.test.tsx` был красным до правки (у выбора не
-было `minWidth`). `pnpm test:e2e test/e2e/product-session.spec.ts test/e2e/session-picker.spec.ts test/e2e/a11y.spec.ts`
-— 17 passed, exit 0. Снимки шапки — широкой, с обрезанной долей и узкой, в светлой и тёмной теме — в scratchpad.
+было подсказки kit) и сторожит разметку; пол 140 px сторожит e2e «a narrow Product Session header…»: мутант
+`min-width: 0` в `session.css` делает его красным. `pnpm test:e2e test/e2e/product-session.spec.ts` целиком — exit 0. Снимки шапки — широкой, с обрезанной долей и узкой, в светлой и тёмной теме — в scratchpad.
 
 ## Проверить себя
 

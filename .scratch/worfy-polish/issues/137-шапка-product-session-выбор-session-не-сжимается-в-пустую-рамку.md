@@ -33,11 +33,12 @@ Source: замечание владельца 2026-11-20 по снимку эк�
 
 ## Готово, когда
 
-- [ ] Unit test (jsdom): у выбора Session минимальная ширина 140 px и подсказка kit с полным именем Session (не `title`);
-      доля советов — в обёртке, которая уступает первой и прячет разделитель вместе с собой; слово чипа состояния — в
-      своём элементе, текст `session-state` прежний, у чипа tooltip kit со словом. Красный до правки.
+- [ ] Unit test (jsdom): у выбора Session класс правила минимальной ширины шапки Product Session и подсказка kit с
+      полным именем Session (не `title`); доля советов — в обёртке, которая уступает первой и прячет разделитель вместе
+      с собой; слово чипа состояния — в своём элементе, текст `session-state` прежний, у чипа tooltip kit со словом, а
+      при ошибке Session — с ошибкой. Красный до правки. Саму ширину jsdom не видит: её проверяет e2e (пункт 2).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/unit/session-view.test.tsx test/unit/session-state-chip.test.tsx test/unit/product-session-panel.test.tsx test/unit/session-picker.test.tsx` exit 0 · mac - · 1bc58aa08286eae2f505fa475f4df3e5173415c9
-- [ ] e2e (`test/e2e/product-session.spec.ts`) при узком окне: ширина выбора Session ≥ 130 px, имя в нём видно; доля
+- [ ] e2e (`test/e2e/product-session.spec.ts`) при узком окне: ширина выбора Session ≥ 140 px (с точностью до полпикселя), имя в нём видно; доля
       советов обрезана или скрыта раньше, чем выбор Session сжимается; чип — только иконка, текст `busy` у него есть.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 · mac dev · 1bc58aa08286eae2f505fa475f4df3e5173415c9
 - [ ] Снимки Playwright шапки, широкой и узкой, в светлой и тёмной теме — в scratchpad, названы в «Итог».
@@ -77,9 +78,14 @@ Source: замечание владельца 2026-11-20 по снимку эк�
   уже 800 px доля скрыта целиком, и только тогда сжимается заголовок; уже 640 px чип состояния — одна иконка (слово
   скрыто с экрана, не из DOM, и в tooltip kit); уже 600 px скрыт Vendor. Interrupt остаётся в шапке до окна 800 px —
   самого узкого, какое допускает приложение.
-- Unit test «a narrow Product Session header…» (`test/unit/session-view.test.tsx`) был красным до правки (у выбора не
-  было `minWidth`). e2e `test/e2e/product-session.spec.ts` («a narrow Product Session header…») сужает окно с 1440 до
-  800 px шагом 40 и на каждом шаге проверяет выбор (≥ 130 px, имя видно), заголовок, долю и Interrupt.
+- Кто что сторожит. Unit test «a narrow Product Session header…» (`test/unit/session-view.test.tsx`) был красным до
+  правки (у выбора не было подсказки kit и обёртки доли) и проверяет разметку: класс `w-session__picker`, подсказку с
+  именем, обёртку доли с разделителем, слово чипа. Пол 140 px — правило CSS, jsdom его не видит: его сторожит e2e
+  `test/e2e/product-session.spec.ts` («a narrow Product Session header…»), который сужает окно с 1440 до 800 px шагом
+  40 и на каждом шаге проверяет выбор (≥ 139,5 px, имя видно), заголовок, долю и Interrupt. Мутант `min-width: 0` в
+  `session.css` делает этот e2e красным (131,8 px при окне 1440). Ошибку Session в tooltip чипа сторожат
+  `test/unit/session-state-chip.test.tsx` и `test/unit/session-back.test.tsx`: мутант «всегда слово» делает оба
+  красными.
 - Снимки Playwright шапки (scratchpad, в репозиторий не кладутся): `137-header-wide-light.png`,
   `137-header-wide-dark.png`, `137-header-share-clipped-light.png`, `137-header-share-clipped-dark.png`,
   `137-header-narrow-light.png`, `137-header-narrow-dark.png`.

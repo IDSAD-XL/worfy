@@ -988,7 +988,7 @@ test('a narrow Product Session header: the share of advice gives way before the 
     expect(wide.word).toBeGreaterThan(20)
     await shoot('wide')
 
-    // Narrower step by step: the picker and the title lose no pixel while the share still shows; the picker never drops under 130 px,
+    // Narrower step by step: the picker and the title lose no pixel while the share still shows; the picker never drops under 140 px,
     // and keeps its name in sight; Interrupt stays inside the header.
     let clipped = false
     let narrow = wide
@@ -1003,7 +1003,8 @@ test('a narrow Product Session header: the share of advice gives way before the 
         clipped = true
         await shoot('share-clipped')
       }
-      expect(now.picker, `at ${width}`).toBeGreaterThanOrEqual(130)
+      // The floor of 140 px (session.css, `.w-session--product .w-session__picker`); jsdom cannot see it, this can.
+      expect(now.picker, `at ${width}`).toBeGreaterThanOrEqual(139.5)
       expect(now.name, `at ${width}`).toBeGreaterThan(40)
       expect(now.interruptRight, `at ${width}`).toBeLessThanOrEqual(now.right + 0.5)
       narrow = now
@@ -1021,7 +1022,7 @@ test('a narrow Product Session header: the share of advice gives way before the 
     await expect(state).toHaveAttribute('data-kit-hint', 'busy')
     // The narrowest header leaves the Vendor to the chat's heading below it.
     await expect(header.getByTestId('session-vendor')).toBeHidden()
-    await expect(view.getByTestId('session-vendor')).not.toHaveCount(0)
+    await expect(view.getByTestId('product-chat-vendor')).toBeVisible()
     await shoot('narrow')
 
     await app.evaluate(() => (globalThis as unknown as { worfyFakeRelease: (name: string) => void }).worfyFakeRelease('turn'))
