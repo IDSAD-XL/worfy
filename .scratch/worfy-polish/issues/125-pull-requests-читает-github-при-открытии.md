@@ -1,7 +1,8 @@
 # 125 — Pull requests читает GitHub сразу при открытии вкладки, а не ждёт таймера
 
 Type: task
-Status: claimed 2026-11-20T11:46Z
+Status: done 2026-11-20T14:43Z
+PR: #2092
 Blocked by: none
 Source: идея владельца 2026-11-19 во время приёмки pr-follow 07 («фетчить последние изменения пуллреквестов, когда
 юзер заходит на вкладку pull requests»): review comment в песочнице worfy-sandbox появился в Pull requests только
@@ -53,6 +54,7 @@ Source: идея владельца 2026-11-19 во время приёмки pr
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/actions.test.ts test/contract/pr-inbox-approvals.test.ts test/contract/pr-inbox-notifications.test.ts test/contract/pr-inbox-send.test.ts test/contract/pr-inbox.test.ts test/contract/pr-search.test.ts test/contract/project-pulse.test.ts test/contract/stories-handler.test.ts test/contract/test-timeout-scale.test.ts test/unit/approvals-chip.test.tsx test/unit/canvas-actions.test.tsx test/unit/draft-thread.test.tsx test/unit/palette-commands.test.tsx test/unit/pipeline-board.test.tsx test/unit/pr-follow-choices.test.tsx test/unit/pr-follow-state.test.tsx test/unit/pr-follow.test.ts test/unit/pr-inbox-digest-toast.test.tsx test/unit/pr-inbox-notices.test.ts test/unit/pr-inbox-open.test.tsx test/unit/pr-inbox-view.test.tsx test/unit/pr-search-view.test.tsx test/unit/review-threads-badge.test.tsx test/unit/sidebar-section.test.tsx test/unit/pr-inbox-groups.test.ts` exit 0 · mac - · 3eee7de269263dbe5f99e5e6017a715a5813de5b
 - [ ] Страница Feature `pr-inbox` (en и ru) говорит о чтении при открытии.
   - evidence: commit pass · worfy-polish/125: the Pull requests view reads GitHub at once when it is opened · - - · 3eee7de269263dbe5f99e5e6017a715a5813de5b
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44734684242/job/136333569048 · ci - · 903e7a0a647ba0688e6d6f4c23b9862d18410e99
 
 ## Итог
 

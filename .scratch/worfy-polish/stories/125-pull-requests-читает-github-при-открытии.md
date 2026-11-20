@@ -157,3 +157,16 @@ function newest(projectId: string, request: number): boolean {
    - Ответ: пустой вид «Reading pull requests…» до конца чтения GitHub: ответ обычного запроса отбрасывался бы, потому
      что после него ушёл запрос с `opened`.
    - Строки: `src/renderer/pr-inbox/usePrInbox.ts:47-56`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 125 (the Pull requests view reads GitHub at once when shown, not after the 5-minute timer), head 903e7a0a647ba0688e6d6f4c23b9862d18410e99
+>
+> Gate (depth medium, one round): verifier (lens: implementer's report) — every claim backed, two low bookkeeping notes; reviewer (lens: correctness) — one low (a test gap), no high or med.
+>
+> - Every showing of the view (tab, palette, sidebar group, notification / digest / badge entries, Project switch while shown) sends prInbox.get {opened:true}; main runs PrInbox.readOnOpen in the same serial queue as the timer tick (no double GitHub calls), at most once per 30 s from the start of the Project's last read, honouring the doubled interval after a failure and the account rate pause; the next timer search comes 5 min after an open read. usePrInbox drops an answer older than the one shown (request number only grows); the read indicator clears on its own answer. An older main without `opened` answers as before (plain zod object).
+> - Tests: 8 contract + 4 unit tests red before; 25 unit+contract files 750 passed EXIT=0; pr-inbox + pr-inbox-view 144/144 EXIT=0 (re-run by both reviewers); e2e pr-inbox.spec.ts + pr-search.spec.ts whole 13 passed EXIT=0; lint, typecheck, story-check, evidence-check EXIT=0; mutants: backoff check removed → red, renderer rule restricted to the last request → red. Local gate fast not run: file-watcher tests red on this Mac (fseventsd); CI is the verdict.
+>
+> Decided without the owner (to confirm): a parameter `opened` on prInbox.get rather than a new channel; the 30 s threshold counts from the start of the last read of any kind; after a failed read an open waits the doubled interval (someone who just fixed sign-in waits for the tick or Health check); the read indicator lives in the renderer only.
+>
+> Consider [low]: inbox.ts:501 — the account-pause check in openReadDue has no test (a mutant returning true survives; poll skips gh during a pause today); a quick markSeen/get answer can beat the slow open-read answer once — the rows come back with the next prInbox.changed.
