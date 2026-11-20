@@ -18,6 +18,7 @@ import type { PrApprovals, PrInboxRow, PrInboxSnapshot } from '../../src/shared/
 import type { PrSearchNotice, PrSearchPull, PrSearchResult, PrSearchRow, SavedSearch } from '../../src/shared/ipc/pr-search'
 import type { ProjectsState } from '../../src/shared/ipc/projects'
 import type { AppSettings } from '../../src/shared/settings/app-settings'
+import { ms } from '../time-scale'
 
 const NOW = Date.parse('2026-11-20T12:00:00Z')
 const MIN = 60_000
@@ -564,7 +565,7 @@ describe('review round 1: pages, the pull memory, the window focus, the pause', 
     await view({ 'prSearch.run': paused })
     await search('retry')
     expect(screen.getByTestId('pr-search-notice').dataset.kind).toBe('rate-limit')
-    await waitFor(() => expect(keys()).toEqual([`${WEB}#77`, `${WEB}#41`, 'other-org/tools#5']), { timeout: 4000 })
+    await waitFor(() => expect(keys()).toEqual([`${WEB}#77`, `${WEB}#41`, 'other-org/tools#5']), { timeout: ms(4000) })
     expect(runs()).toHaveLength(2)
     expect(runs()[1]).toEqual(runs()[0])
     cleanup()
@@ -575,7 +576,7 @@ describe('review round 1: pages, the pull memory, the window focus, the pause', 
     await act(async () => new Promise((resolve) => setTimeout(resolve, 1500)))
     expect(runs()).toHaveLength(1)
     expect(screen.queryByTestId('pr-search-results')).toBeNull()
-  }, 10_000)
+  }, ms(10_000))
 
   it('a new search that finds the same PR updated reads it again, and the pane never shows a read older than the result', async () => {
     const NEWER = { ...RETRY, title: 'Retry on 429 and 503', updatedAt: ago(MIN) }
