@@ -177,3 +177,57 @@ check "epic-wave: human-review and awaiting-merge tickets still stay claimed (se
    - Ответ: commit в worktree, где implementer ещё пишет, захватит его недописанные файлы или столкнётся на
      `index.lock`.
    - Строки: `harness/skills/epic-wave/SKILL.md:379-380`, `harness/skills/epic-wave/SKILL.md:394-395`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 131 (epic-wave: a Ticket stopped for the owner's answer goes `blocked --waits owner` at once), head 6a3fac24abdb9db83e9b5cee34d63049ec31548c
+>
+> Gate (depth medium, three rounds, cap reached): verifier (lens: implementer's report) round 1 one med (block in the Orchestrator's own tree is invisible to worfy) + one low (eval reason); reviewer (lens: correctness) round 2 two med (re-claim invisible once main says blocked; commit sweeping the implementer's work) + one low (Silent mode); round 3 low only. All med fixed test-first.
+>
+> - Rule (harness/skills/epic-wave/SKILL.md:376-410): after the implementer's turn ended, `ticket block <epic> <NN> "<reason>" --waits owner` in the ticket's own worktree, committed with only the ticket file; no worktree → on main by the documents-PR path; after the owner's answer `ticket claim` in the worktree, and on main too when main already says blocked (`ticket open` without a worktree); an open PR keeps its review mark for a tickets-root-only head move (land), check/* marks set again; Silent mode — ticket from any directory, no commit; human-review / awaiting-merge stay claimed. worfy reads committed local branches of worktrees over origin/main (reader.ts branchOverrides), so Autopilot stops continuations.
+> - Tests: epic-wave-ship-ticket.test.sh red before the text (16 failed, exit 1), 650 passed EXIT=0 after; mutants (old «own tree» wording, no «main already blocked» clause, `commit -am`) each red; agents-text.test.sh, codex-parity, lint, story-check, evidence-check EXIT=0. Local gate fast not run: file-watcher tests red on this Mac (fseventsd); CI incl. Windows jobs is the verdict (platform PR, ADR-0056).
+> - CI fix: 99c7ae775 was red on plugin-neutral.test.sh (a worfy ticket number and an app source path in two test comments); 6a3fac24a makes them neutral; plugin-neutral 37 passed, epic-wave-ship-ticket 650, agents-text, codex-parity, lint, story-check, evidence-check EXIT=0.
+>
+> Decided without the owner (to confirm): no eval case — the scaffold could set it up, but harness-evals-run.test.ts and harness-evals-shared.ts pin exactly three cases for this file; the rule is checked by text only.
+>
+> Consider [low]: SKILL.md:400-404 — the re-claim on main names no moment or tool (land's documents PR only runs `ticket done`), so worfy may show «waits owner» until a separate documents commit; SKILL.md:394 — `commit -- <ticket file>` has no fallback for an untracked ticket file or a commit during merge/rebase; SKILL.md:405-408 — the review carry needs the state file to keep the verified head; Autopilot's setAsideText (continuation.ts:40-46) still names no tree for its block (text pinned in two contract tests).
+
+Code: `harness/skills/epic-wave/SKILL.md:376-410` · key lines: 376
+
+```md
+**A ticket stopped for the owner's answer is `blocked` at once.** The wave stops a ticket for the
+owner when no option is the orchestrator's to pick (money, deleted data, an irreversible step, a
+direction nobody recorded) or when only the owner can clear what holds it, such as an open issue.
+The orchestrator then runs, right away — once the ticket's implementer has ended its turn (its
+report came, or it was stopped), so nothing else writes in its worktree —
+`"${CLAUDE_PLUGIN_ROOT}/bin/ticket" block <epic> <NN> "<reason>" --waits owner`; `<reason>`
+names the question and what it waits for (the issue, the decision). It does not stay `claimed`:
+worfy Autopilot counts a `claimed` ticket as stuck and spends its continuations on it, while a
+`blocked` ticket with `Waits: owner` shows as waiting for the owner. The rest is that of any other
+block: a line in the state file's list of what waits for the owner, a `blocked` row in the wave
+report (section 5), and the same `ticket block` in the documents PR (section 4, item 4). Once the
+owner answers, the ticket is claimed again and goes on in the wave. A ticket whose PR waits for
+People in the Pipeline (`human-review`, `awaiting-merge`, section 0) stays `claimed`: this rule
+does not cover it.
+
+**Where the owner-stop status is written.** worfy reads the main branch with the committed ticket
+branch of each worktree laid over it, and a branch never undoes `blocked` or `done` of the main
+branch. So:
+- The block: in the ticket's own worktree, committed on the ticket's branch with only the ticket
+  file, `git -C <worktree> commit -m "<message>" -- <ticket file>`, where the claim is ("How to
+  resume a wave"); a push is not needed. A block left uncommitted, or written in the
+  orchestrator's own tree, stays invisible until the documents PR merges, and Autopilot goes on
+  sending continuations. A ticket with no worktree (not dispatched yet, or its worktree removed)
+  gets the block on the main branch, the way the documents PR carries statuses.
+- The owner's answer: `ticket claim <epic> <NN>` in the ticket's worktree, committed the same way.
+  When the main branch already says `blocked` (the documents PR merged the block, or the ticket had
+  no worktree), the main branch gets the answer too, by the same documents path: `ticket claim`
+  when the ticket goes on in its worktree, `ticket open` when it has none, so that a later wave
+  takes it (a wave takes only `open` tickets, section 1).
+- An open PR: the status commit moves the PR's head at its next push, inside the tickets root
+  only. `land` takes such a head and carries the `review` mark over from the verified head (section
+  4, "Merge with land"); CI runs again on it, and `check/<name>` marks are never carried: the
+  orchestrator sets them again on the new head (section 4, "Checks before merge").
+- Silent mode (section 0): `ticket block` and `ticket claim` from any directory are enough; the
+  status goes straight into the Workflow folder, with no commit.
+```
