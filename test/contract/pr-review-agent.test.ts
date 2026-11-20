@@ -32,8 +32,10 @@ import { ms } from '../time-scale'
 const API = 'demo-org/api'
 const PR = 118
 const HEAD = 'a1b2c3d4e5f6'
+const NEWER = 'b2c3d4e5f6a7'
 const PROJECT = 'demo-0000000d'
 const RULE = 'Agent review: write the review draft only through bin/pr-review-draft (pr-review-draft --help); the verdict is only a suggestion; nothing goes to GitHub.'
+const AT = (sha: string): string => `Review the commit ${sha}: number the lines of each comment at that commit.`
 const scriptsDir = join(process.cwd(), 'test', 'fixtures', 'agent-scripts')
 
 const temps: string[] = []
@@ -52,11 +54,15 @@ interface Setup {
   vendors: VendorId[]
   changed: unknown[]
   registry: SessionRegistry
+  releases: FakeReleases
+  /** The next `n` looks of the watch at the draft fail, as a read of a file being replaced may; `failing()` is how many are left. */
+  failLooks: (n: number) => void
+  failing: () => number
   call: <T>(channel: string, input: unknown) => Promise<IpcResult<T>>
   onDisk: () => ReviewDraft
 }
 
-async function setup(options: { teamReviewer?: boolean } = {}): Promise<Setup> {
+async function setup(options: { teamReviewer?: boolean; script?: string } = {}): Promise<Setup> {
   const base = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-pr-review-agent-')))
   temps.push(base)
   const root = join(base, 'project')
@@ -68,14 +74,24 @@ async function setup(options: { teamReviewer?: boolean } = {}): Promise<Setup> {
     writeFileSync(skill, '---\nname: human-review\n---\n')
   }
   const calls: FakeCall[] = []
-  const registry = new SessionRegistry(fakeQueryFactory({ scriptsDir, script: 'interrupt', record: (call) => calls.push(call), releases: new FakeReleases() }), () => null, () => null)
+  const releases = new FakeReleases()
+  const registry = new SessionRegistry(fakeQueryFactory({ scriptsDir, script: options.script ?? 'interrupt', record: (call) => calls.push(call), releases }), () => null, () => null)
   cleanups.push(() => registry.closeAll())
   const drafts = new PrReviewDrafts({ profileDir: async () => ({ dir: profileDir, reason: null }), warn: () => undefined })
   const vendors: VendorId[] = []
   const changed: unknown[] = []
   let nodes = 0
+  let failing = 0
   const agent = new PrReviewAgent({
-    drafts,
+    drafts: {
+      draft: async (root, repo, number) => {
+        if (failing === 0) return drafts.draft(root, repo, number)
+        failing--
+        return { repo, pr: number, draft: null, problem: `The review draft of ${repo}#${number} cannot be read: EBUSY` }
+      },
+      setAgent: (...args) => drafts.setAgent(...args),
+      fileOf: (...args) => drafts.fileOf(...args),
+    },
     profileDir: async () => ({ dir: profileDir, reason: null }),
     sessions: {
       create: (_projectId, _near, vendor) => {
@@ -94,7 +110,7 @@ async function setup(options: { teamReviewer?: boolean } = {}): Promise<Setup> {
   await registerIpc(ipc, { modules: { './pr-review.ts': async () => prReviewHandlers({ drafts: () => drafts, root: () => root, agent: () => agent }) }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
   const call = async <T,>(channel: string, input: unknown) => (await handlers.get(`${IPC_CHANNEL_PREFIX}${channel}`)!({ senderFrame: { url: APP_URL } } as unknown as IpcMainInvokeEvent, input)) as IpcResult<T>
   const file = reviewDraftFilePath(profileDir, API, PR)
-  return { root, profileDir, file, agent, calls, vendors, changed, registry, call, onDisk: () => JSON.parse(readFileSync(file, 'utf8')) as ReviewDraft }
+  return { root, profileDir, file, agent, calls, vendors, changed, registry, releases, failLooks: (n) => void (failing = n), failing: () => failing, call, onDisk: () => JSON.parse(readFileSync(file, 'utf8')) as ReviewDraft }
 }
 
 function ok<T>(result: IpcResult<T>): T {
@@ -118,7 +134,7 @@ describe('prReview.agentReview', () => {
   it('without a Team reviewer: a Session on Claude Code with /worfy:code-review and the rule; the draft is created on the head with the agent writing', async () => {
     const s = await setup()
     const started = ok(await s.call<Started>('prReview.agentReview', { ...pull, head: HEAD, fill: 'new' }))
-    expect(started.text).toBe(`/worfy:code-review ${API}#${PR} ${RULE}`)
+    expect(started.text).toBe(`/worfy:code-review ${API}#${PR} ${RULE} ${AT(HEAD)}`)
     expect(s.vendors).toEqual(['claude'])
     expect(started.nodeId).toBe('node-1')
     expect(s.onDisk()).toEqual({ schema: 1, repo: API, pr: PR, startedOn: HEAD, payload: { body: '', comments: [] }, anchors: [], viewed: {}, state: 'draft', agent: { sessionId: started.sessionId, state: 'writing' } })
@@ -129,7 +145,7 @@ describe('prReview.agentReview', () => {
   it('with the Team reviewer built: /human-review over the PR', async () => {
     const s = await setup({ teamReviewer: true })
     const started = ok(await s.call<Started>('prReview.agentReview', { ...pull, head: HEAD, fill: 'new' }))
-    expect(started.text).toBe(`/human-review ${API}#${PR} ${RULE}`)
+    expect(started.text).toBe(`/human-review ${API}#${PR} ${RULE} ${AT(HEAD)}`)
     await vi.waitFor(() => expect(messages(s.calls)).toEqual([started.text]))
   })
 
@@ -141,8 +157,10 @@ describe('prReview.agentReview', () => {
       error: 'prReview.agentReview failed: This pull request has a review draft already: Ask the agent to add comments to it',
     })
     expect(s.vendors).toEqual([])
-    const started = ok(await s.call<Started>('prReview.agentReview', { ...pull, head: HEAD, fill: 'add' }))
-    expect(started.text).toBe(`/worfy:code-review ${API}#${PR} ${RULE} Add your comments to the person's draft: their comments and their summary stay.`)
+    // The author pushed since the person started: the agent reviews the commit the draft is placed on, not the new head.
+    const started = ok(await s.call<Started>('prReview.agentReview', { ...pull, head: NEWER, fill: 'add' }))
+    expect(started.text).toBe(`/worfy:code-review ${API}#${PR} ${RULE} ${AT(HEAD)} Add your comments to the person's draft: their comments and their summary stay.`)
+    expect(s.onDisk().startedOn).toBe(HEAD)
     expect(s.onDisk()).toMatchObject({ payload: { comments: [{ body: 'Why three tries?' }] }, anchors: [{ by: 'person' }], agent: { sessionId: started.sessionId, state: 'writing' } })
     expect(await s.call('prReview.agentReview', { ...pull, head: HEAD, fill: 'add' })).toEqual({
       ok: false,
@@ -166,6 +184,52 @@ describe('prReview.agentReview', () => {
       draft.agent = { sessionId: draft.agent?.sessionId ?? '', state: 'done' }
     })
     await vi.waitFor(() => expect(s.agent.watching()).toBe(0), { timeout: ms(10_000) })
+  })
+})
+
+describe('the watch of an Agent review', () => {
+  it('a look that cannot read the draft is skipped: the watch goes on and ends with done', { timeout: ms(30_000) }, async () => {
+    const s = await setup()
+    ok(await s.call<Started>('prReview.agentReview', { ...pull, head: HEAD, fill: 'new' }))
+    s.failLooks(3)
+    await vi.waitFor(() => expect(s.failing()).toBe(0), { timeout: ms(10_000) })
+    expect(s.agent.watching()).toBe(1)
+    agentWrites(s.file, (draft) => {
+      draft.agent = { sessionId: draft.agent?.sessionId ?? '', state: 'done' }
+    })
+    await vi.waitFor(() => expect(s.agent.watching()).toBe(0), { timeout: ms(10_000) })
+  })
+
+  it('the Session’s turn ends without done: the draft is marked done and the watch ends', { timeout: ms(30_000) }, async () => {
+    const s = await setup({ script: 'pr-review-agent-turn' })
+    const started = ok(await s.call<Started>('prReview.agentReview', { ...pull, head: HEAD, fill: 'new' }))
+    await vi.waitFor(() => expect(s.registry.get(started.sessionId).state).toBe('busy'))
+    // A look sees the turn running before it ends.
+    const changes = s.changed.length
+    agentWrites(s.file, (draft) => {
+      draft.payload.comments.push({ path: 'src/upload.ts', line: 3, side: 'RIGHT', body: 'A magic number.' })
+      draft.anchors.push({ text: 'const tries = 3', by: 'agent' })
+    })
+    await vi.waitFor(() => expect(s.changed.length).toBeGreaterThan(changes), { timeout: ms(10_000) })
+    expect(s.agent.watching()).toBe(1)
+    s.releases.release('end')
+    await vi.waitFor(() => expect(s.agent.watching()).toBe(0), { timeout: ms(10_000) })
+    expect(s.onDisk()).toMatchObject({ payload: { comments: [{ body: 'A magic number.' }] }, agent: { sessionId: started.sessionId, state: 'done' } })
+    expect(s.changed.at(-1)).toEqual(pull)
+  })
+
+  it('the Session closes while it writes: the draft is marked stopped, what the agent wrote stays, and the watch ends', { timeout: ms(30_000) }, async () => {
+    const s = await setup()
+    const started = ok(await s.call<Started>('prReview.agentReview', { ...pull, head: HEAD, fill: 'new' }))
+    await vi.waitFor(() => expect(s.registry.get(started.sessionId).state).toBe('busy'))
+    agentWrites(s.file, (draft) => {
+      draft.payload.comments.push({ path: 'src/upload.ts', line: 3, side: 'RIGHT', body: 'A magic number.' })
+      draft.anchors.push({ text: 'const tries = 3', by: 'agent' })
+    })
+    s.registry.get(started.sessionId).close()
+    await vi.waitFor(() => expect(s.agent.watching()).toBe(0), { timeout: ms(10_000) })
+    expect(s.onDisk()).toMatchObject({ payload: { comments: [{ body: 'A magic number.' }] }, agent: { sessionId: started.sessionId, state: 'stopped' } })
+    expect(s.changed.at(-1)).toEqual(pull)
   })
 })
 

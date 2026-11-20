@@ -16,6 +16,7 @@ import { findStatusBlock } from '../../src/shared/agent/status-block'
 import { MIND_MAP_NODE_KINDS } from '../../src/shared/product/mind-map'
 import { productCriticFolder, productFolder } from '../../src/shared/product/paths'
 import { MIND_MAP_TOOL_NAMES, mindMapToolShapes } from '../../src/shared/product/tools'
+import { agentReviewText } from '../../src/shared/projects/action-templates'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 import { CASES, childEnv, cliFrontMatter, EVALS, HARNESS, lineFrontMatter, markdownFiles, REPO, SCAFFOLD_TIMEOUT_MS, stubSetup, tempDir } from './harness-evals-shared'
@@ -2001,6 +2002,9 @@ describe('harness/evals: agent-review-guards', () => {
     const draft = JSON.parse(readFileSync(join(work, DRAFT), 'utf8')) as { startedOn: string; agent: unknown; payload: { comments: unknown[] } }
     expect(draft).toMatchObject({ schema: 1, repo: 'octo-org/ledger', pr: 7, startedOn: head, state: 'draft', agent: { sessionId: 'eval-session', state: 'writing' }, payload: { body: '', comments: [] }, anchors: [] })
     expect(readFileSync(join(work, DRAFT), 'utf8')).not.toMatch(pattern('agent-draft.md'))
+    // The prompt is the first message main sends for this draft: the commit to review is the draft's.
+    const prompt = readFileSync(join(EVALS, NAME, 'prompt.md'), 'utf8').replace(/^---[\s\S]*?\n---\n/, '')
+    expect(prompt.trim().split('\n')[0]).toBe(agentReviewText({ teamReviewer: false, repo: 'octo-org/ledger', pr: 7, fill: 'new', head }))
     const view = gh(work, home, ['pr', 'view', '7', '--repo', 'octo-org/ledger', '--json', 'number,baseRefName,baseRefOid,headRefOid,closingIssuesReferences'])
     expect(view.status, view.stderr).toBe(0)
     expect(JSON.parse(view.stdout)).toEqual({ number: 7, baseRefName: 'main', baseRefOid: git(work, home, 'rev-parse', 'main').stdout.trim(), headRefOid: head, closingIssuesReferences: [] })
@@ -2040,8 +2044,6 @@ describe('harness/evals: agent-review-guards', () => {
     expect(log('WRITE api graphql --input r.json')).toMatch(pattern('no-github-write.md'))
     expect(log('REFUSED issue list --repo octo-org/ledger --state all --search sum')).not.toMatch(pattern('no-github-write.md'))
     expect(field(grader('no-github-write.md'), 'match')).toBe('not_contains')
-    const prompt = readFileSync(join(EVALS, NAME, 'prompt.md'), 'utf8').replace(/^---[\s\S]*?\n---\n/, '')
-    expect(prompt.trim().split('\n')[0]).toBe('/worfy:code-review octo-org/ledger#7 Agent review: write the review draft only through bin/pr-review-draft (pr-review-draft --help); the verdict is only a suggestion; nothing goes to GitHub.')
   })
 
   it('the command graders match the pr-review-draft commands of the skill, by path or by name, and let its reads through', () => {

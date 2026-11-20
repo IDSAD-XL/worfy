@@ -13,7 +13,7 @@ Session с Team reviewer-ом или линзами пишет весь черн
 
 ## 2. Main пишет файл черновика под общим замком
 
-Code: `src/main/github/pr-review-draft.ts:536-546` · key lines: 536, 537, 540
+Code: `src/main/github/pr-review-draft.ts:546-556` · key lines: 546, 547, 550
 
 ```ts
       await withLock(file, async () => {
@@ -32,7 +32,8 @@ Code: `src/main/github/pr-review-draft.ts:536-546` · key lines: 536, 537, 540
 - Что делает: чтение файла, наложение очереди изменений и rename временного файла идут под замком `<file>.lock` —
   файлом, который создаётся только если его ещё нет (`flag: 'wx'`). Тот же замок берёт `bin/pr-review-draft`. Замок
   старше 10 s оставил упавший писатель, его забирают. Не дождался замка 15 s — изменения остаются в очереди до
-  следующей записи. `flushSync` при выходе и Discard берут тот же замок.
+  следующей записи. `flushSync` при выходе и Discard берут тот же замок; замок, который держит запись этого же процесса
+  (`heldHere`), `flushSync` не ждёт: до конца выхода эта запись уже не продолжится, а скрипт замок не пускает.
 - Почему здесь: Ticket 07 уже перечитывал файл перед записью, но между чтением и rename-ом проходит несколько `await`;
   скрипт, записавший в это окно, терялся. Файл `pr-review-draft.ts` Ticket 08 называет «только читать»; без правки
   main пункт «ни одна запись не потеряна» не выполнить — это отклонение записано в «Итог» Ticket-а.
@@ -88,7 +89,7 @@ function apply(draft) {
 
 ## 4. Канал запуска: черновик помечен до первого слова Session
 
-Code: `src/main/github/pr-review-agent.ts:88-102` · key lines: 92, 93, 94, 96, 99, 100
+Code: `src/main/github/pr-review-agent.ts:88-105` · key lines: 92, 93, 96, 101, 102, 103
 
 ```ts
       const current = await this.deps.drafts.draft(root, repo, number)
@@ -97,11 +98,14 @@ Code: `src/main/github/pr-review-agent.ts:88-102` · key lines: 92, 93, 94, 96, 
       if (draft !== null && draft.state !== 'draft') throw new Error(`This review is ${draft.state}: it is not changed any more`)
       if (draft?.agent?.state === 'writing' && this.live(draft.agent.sessionId)) throw new Error(`Agent review is writing the review of ${repo}#${number} already: Stop it first`)
       if (fill === 'new' && draft !== null && (draft.payload.comments.length > 0 || draft.payload.body !== '')) throw new Error('This pull request has a review draft already: Ask the agent to add comments to it')
-      const text = agentReviewText({ teamReviewer: await this.teamReviewer(root), repo, pr: number, fill })
+      const teamReviewer = await this.teamReviewer(root)
       const view = this.deps.sessions.create(projectId, undefined, AGENT_REVIEW_VENDOR)
       const marked = await this.deps.drafts.setAgent(root, repo, number, { head, agent: { sessionId: view.sessionId, state: 'writing' } })
       // Nothing is sent then: the Session Node stays, idle, and the person may close it.
       if (marked.problem !== null || marked.draft === null) throw new Error(`Agent review did not start: ${marked.problem ?? 'the draft was not written'}`)
+      // The commit of the draft, not `head`: after a push since the draft started they differ, and the script reads the
+      // commented lines at the draft's commit.
+      const text = agentReviewText({ teamReviewer, repo, pr: number, fill, head: marked.draft.anchoredOn ?? marked.draft.startedOn })
       await this.follow({ projectId, root, repo, number }, view.sessionId)
       this.deps.registry.get(view.sessionId).send(text)
       this.deps.changed({ projectId, repo, number })
@@ -110,9 +114,10 @@ Code: `src/main/github/pr-review-agent.ts:88-102` · key lines: 92, 93, 94, 96, 
 
 - Что делает: отказывает, если ревью отправляется или отправлено, если Agent review этого PR ещё пишет, и на
   `fill: 'new'` поверх черновика человека. Текст — `/human-review {repo}#{pr}`, когда skill Team reviewer-а собран в
-  личной папке Project-а, иначе `/worfy:code-review {repo}#{pr}`, плюс правило черновика. Session на Claude Code;
-  `setAgent` пишет `agent: { sessionId, state: 'writing' }` сразу, мимо 500 ms склейки записей; затем watch файла и
-  первое сообщение.
+  личной папке Project-а, иначе `/worfy:code-review {repo}#{pr}`, плюс правило черновика и коммит, который ревьюировать
+  (`Review the commit <sha>`): коммит черновика (`anchoredOn`, иначе `startedOn`), а не `head` из входа — после push-а
+  они расходятся, а строки комментариев считаются на коммите черновика. Session на Claude Code; `setAgent` пишет
+  `agent: { sessionId, state: 'writing' }` сразу, мимо 500 ms склейки записей; затем watch файла и первое сообщение.
 - Почему здесь: Ticket называет новый `src/main/github/pr-review-agent.ts`; порядок «черновик, потом сообщение» в
   Ticket-е не записан — он следует из того, что скрипт отказывает без черновика.
 - Без него: Session, начавшая писать до записи черновика, получила бы «there is no review draft» на первом же
@@ -123,14 +128,16 @@ Code: `src/main/github/pr-review-agent.ts:88-102` · key lines: 92, 93, 94, 96, 
 
 ## 5. Конец watch-а: агент закончил, остановлен, или его Session кончилась
 
-Code: `src/main/github/pr-review-agent.ts:186-201` · key lines: 191, 192, 196, 199
+Code: `src/main/github/pr-review-agent.ts:189-206` · key lines: 191, 192, 195, 201, 204
 
 ```ts
       // Gone: its Node closed.
     }
     if (state !== null && IN_TURN.has(state)) entry.turned = true
-    const { draft } = await this.deps.drafts.draft(pull.root, pull.repo, pull.number)
+    const { draft, problem } = await this.deps.drafts.draft(pull.root, pull.repo, pull.number)
     if (this.watches.get(key) !== entry || entry.ending) return
+    // Not read this time (a file being replaced, a disk busy for a moment): the next look reads it.
+    if (draft === null && problem !== null) return
     const mine = draft?.agent?.sessionId === entry.sessionId
     if (!mine || draft?.agent?.state !== 'writing' || draft.state !== 'draft') {
       await this.end(key)
@@ -144,23 +151,27 @@ Code: `src/main/github/pr-review-agent.ts:186-201` · key lines: 191, 192, 196, 
     this.deps.changed({ projectId: pull.projectId, repo: pull.repo, number: pull.number })
 ```
 
-- Что делает: на каждое изменение файла и раз в 500 ms main смотрит черновик и Session. Агент сказал `done` или
-  человек нажал Stop — watch закрыт. Ход Session кончился без `done` — черновик помечается `done`; Session закрыта
+- Что делает: на каждое изменение файла и раз в 500 ms main смотрит черновик и Session. Черновик не прочитался
+  (файл заменяют в этот момент) — этот взгляд пропущен, watch идёт дальше. Агент сказал `done` или человек нажал Stop
+  — watch закрыт. Ход Session кончился без `done` — черновик помечается `done`; Session закрыта
   или упала — `stopped`. Watch — chokidar с опросом файла (`usePolling`), закрывается только через `closeForGood`.
 - Почему здесь: Ticket требует watch на время записи и закрытие через `src/main/chokidar-close.ts`; опрос вместо
   событий ОС выбран без владельца (один файл на время ревью; события ОС на этом Mac сейчас не приходят — fseventsd).
 - Без него: Session, кончившая ход без `done`, оставила бы `writing` навсегда — Finish review (Ticket 11) неактивен,
   пока агент пишет.
 - Требование: [Что делаем, п. 4](../issues/08-agent-review.md#что-делаем)
-- Риски и пробелы test-ов: пометка `done` по концу хода и `stopped` по закрытию Session test-ом не проверены;
-  проверены `done` от агента и Stop.
+- Риски и пробелы test-ов: `done` по концу хода требует, чтобы хоть один взгляд застал ход идущим (`turned`); ход
+  короче 500 ms без записи в файл оставит `writing` до Stop. Test-ы есть на все четыре конца: `done` от агента, Stop,
+  конец хода, закрытие Session — и на пропуск нечитаемого взгляда.
 
 ## 6. Как проверено
 
-- `test/contract/harness-pr-review-draft.test.ts` — 7 test-ов: `comment`, `summary`, `verdict`, `done`, отказы,
-  гонка 200 × 200 с main; до скрипта все 7 красные, до замка в main гонка теряла 98 записей.
-- `test/contract/pr-review-agent.test.ts` — 9 test-ов на fake agent: команда при Team reviewer-е и без, `fill: 'add'`,
-  отказы, `prReview.changed`, Stop, Linked machine.
+- `test/contract/harness-pr-review-draft.test.ts` — 10 test-ов: `comment`, `summary`, `verdict`, `done`, отказы,
+  гонка 200 × 200 с main; до скрипта все 7 первых красные, до замка в main гонка теряла 98 записей. Три test-а замка
+  при выходе (`flushSync`): свой замок не ждёт (до правки — 10006 ms), чужой ждёт, устаревший забирает.
+- `test/contract/pr-review-agent.test.ts` — 12 test-ов на fake agent: команда при Team reviewer-е и без, коммит
+  черновика в сообщении, `fill: 'add'`, отказы, `prReview.changed`, Stop, конец хода, закрытие Session, пропуск
+  нечитаемого взгляда, Linked machine.
 - `test/unit/action-templates.test.ts` — текст «Agent review» и Vendor Claude Code.
 - `bash harness/bin/tests/agents-text.test.sh` — раздел в обоих skill-ах и 10 mutant-ов (фраза убрана — красный).
 - Eval `harness/evals/agent-review-guards/` (`/worfy:code-review` в режиме Agent review на fixture PR): 2 из 2 run-ов,
@@ -171,11 +182,11 @@ Code: `src/main/github/pr-review-agent.ts:186-201` · key lines: 191, 192, 196, 
 1. Почему одного «перечитать файл перед записью» (как в Ticket-е 07) мало, чтобы запись скрипта не терялась?
    Ответ: между чтением и rename-ом в main проходят `await`-ы; скрипт, записавший в это окно, затирается rename-ом
    main. Замок держит чтение, изменение и rename обоих писателей вместе.
-   Строки: `src/main/github/pr-review-draft.ts:536-546`
+   Строки: `src/main/github/pr-review-draft.ts:546-556`
 2. Что произойдёт, если агент вызовет `summary`, когда человек уже написал итоговый текст?
    Ответ: exit 1 «the summary is the person's», файл не меняется: `bodyBy` не `agent`, а текст не пуст.
    Строки: `harness/bin/pr-review-draft:193-198`
 3. Почему `setAgent` пишет файл сразу, а не через 500 ms, как правки человека?
    Ответ: сразу после него Session получает первое сообщение; `bin/pr-review-draft` отказывает без черновика и
    после остановки, поэтому файл должен быть на диске раньше первого вызова скрипта.
-   Строки: `src/main/github/pr-review-agent.ts:96-99`
+   Строки: `src/main/github/pr-review-agent.ts:96-98`

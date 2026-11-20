@@ -65,7 +65,7 @@ pointers to the profile and the Agent review section of `code-review` below. Not
 | File | Line | Edit |
 | --- | --- | --- |
 | `skills/code-review/SKILL.md` | 13 | tracker sentence |
-| `skills/code-review/SKILL.md` | 82-133 | the section "When worfy runs you for Agent review" |
+| `skills/code-review/SKILL.md` | 82-136 | the section "When worfy runs you for Agent review" |
 | `skills/domain-modeling/SKILL.md` | 12 | the glossary and the ADR folder of the profile |
 | `skills/grill-me/SKILL.md` | 7 | Skill tool: `"worfy:grilling"` |
 | `skills/grill-with-docs/SKILL.md` | 7 | Skill tool: `"worfy:grilling"`, `"worfy:domain-modeling"` |

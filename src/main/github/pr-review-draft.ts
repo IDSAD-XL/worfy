@@ -279,6 +279,13 @@ function tryLock(file: string, now: number): boolean {
 const unlock = (file: string): void => removeFile(lockOf(file))
 const lockedFor = (file: string): ReviewDraftRefusal => new ReviewDraftRefusal(`The review draft ${file} stayed locked by another writer (an Agent review) for ${LOCK_WAIT_MS / 1000} s`)
 
+/**
+ * The draft files whose lock a write of this process holds now. A quit (flushSync) finds one when it comes while that
+ * write waits for its disk: it writes at once, not after the lock goes stale, since nothing of this process runs again
+ * before the quit ends; the lock keeps the script out meanwhile.
+ */
+const heldHere = new Set<string>()
+
 /** Runs `work` holding the lock of `file`, which its folder must hold already. */
 async function withLock<T>(file: string, work: () => Promise<T>): Promise<T> {
   const until = Date.now() + LOCK_WAIT_MS
@@ -286,14 +293,17 @@ async function withLock<T>(file: string, work: () => Promise<T>): Promise<T> {
     if (Date.now() > until) throw lockedFor(file)
     await pause(2 + Math.floor(Math.random() * 8))
   }
+  heldHere.add(file)
   try {
     return await work()
   } finally {
+    heldHere.delete(file)
     unlock(file)
   }
 }
 
 function withLockSync<T>(file: string, work: () => T): T {
+  if (heldHere.has(file)) return work()
   const until = Date.now() + LOCK_WAIT_MS
   while (!tryLock(file, Date.now())) {
     if (Date.now() > until) throw lockedFor(file)

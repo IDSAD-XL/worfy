@@ -6,7 +6,7 @@
 // Stop / Take over. The last case races it with main: both write the same file 200 times at once, and no change is lost.
 // Every run gets a temporary HARNESS_HOME, HOME and project; the texts are invented.
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -289,5 +289,82 @@ describe('pr-review-draft', () => {
     expect(final.anchors.filter((anchor) => anchor.by === 'agent')).toHaveLength(N)
     expect(final.anchors.filter((anchor) => anchor.by === 'person')).toHaveLength(N)
     expect(leftovers()).toEqual([])
+  })
+})
+
+describe('the write at quit (flushSync) and the lock', () => {
+  const lock = (): string => `${file}.lock`
+  const bodies = (): string[] => saved().payload.comments.map((each) => each.body)
+  /**
+   * Main with 'First.' written and 'Second.' waiting for its write: its clock goes an hour back after the first write,
+   * so the timer of the second never fires within the test and only flushSync writes it.
+   */
+  async function oneWaiting(): Promise<PrReviewDrafts> {
+    let clock = 0
+    const drafts = new PrReviewDrafts({ profileDir: async () => ({ dir: profileDir, reason: null }), now: () => clock, warn: () => undefined })
+    for (const body of ['First.', 'Second.']) {
+      expect((await drafts.saveComment(repo, REPO, PR, { head, comment: personComment(4, body), anchor: '    items.push(i)' })).problem).toBeNull()
+      clock = -3_600_000
+    }
+    return drafts
+  }
+
+  it('does not wait for the lock its own write of this process holds: written at once, once', { timeout: ms(60_000) }, async () => {
+    reset(draft())
+    let release = (): void => undefined
+    let blocked = false
+    const drafts = new PrReviewDrafts({
+      profileDir: async () => ({ dir: profileDir, reason: null }),
+      warn: () => undefined,
+      // The write of main stops after it took the lock and read the file, before the rename: a quit comes now.
+      writeFile: async (path, text) => {
+        blocked = true
+        await new Promise<void>((resolve) => (release = resolve))
+        writeFileSync(path, text)
+      },
+    })
+    const save = drafts.saveComment(repo, REPO, PR, { head, comment: personComment(4, 'Why push?'), anchor: '    items.push(i)' })
+    while (!blocked) await new Promise((resolve) => setTimeout(resolve, 5))
+    expect(existsSync(lock())).toBe(true)
+    const started = Date.now()
+    drafts.flushSync()
+    expect(Date.now() - started).toBeLessThan(1000)
+    expect(bodies()).toEqual(['Why an array?', 'Why push?'])
+    release()
+    expect((await save).problem).toBeNull()
+    expect(bodies()).toEqual(['Why an array?', 'Why push?'])
+    expect(existsSync(lock())).toBe(false)
+    expect(leftovers()).toEqual([])
+  })
+
+  it('waits for the lock of another writer, then writes and leaves no lock', { timeout: ms(60_000) }, async () => {
+    reset(draft())
+    const drafts = await oneWaiting()
+    expect(bodies()).toEqual(['Why an array?', 'First.'])
+    // Another process holds the lock and lets it go 300 ms after it says it is running.
+    writeFileSync(lock(), '1\n')
+    const holder = spawn(scriptNode(), ['-e', "process.stdout.write('ready\\n'); setTimeout(() => require('fs').unlinkSync(process.argv[1]), 300)", lock()], { stdio: ['ignore', 'pipe', 'inherit'] })
+    const gone = new Promise((resolve) => holder.on('close', resolve))
+    await new Promise((resolve) => holder.stdout.once('data', resolve))
+    const started = Date.now()
+    drafts.flushSync()
+    expect(Date.now() - started).toBeGreaterThanOrEqual(150)
+    await gone
+    expect(bodies()).toEqual(['Why an array?', 'First.', 'Second.'])
+    expect(existsSync(lock())).toBe(false)
+    expect(leftovers()).toEqual([])
+  })
+
+  it('takes over a lock left by a writer that died (older than 10 s) at once', { timeout: ms(60_000) }, async () => {
+    reset(draft())
+    const drafts = await oneWaiting()
+    writeFileSync(lock(), '1\n')
+    const old = new Date(Date.now() - 20_000)
+    utimesSync(lock(), old, old)
+    const started = Date.now()
+    drafts.flushSync()
+    expect(Date.now() - started).toBeLessThan(1000)
+    expect(bodies()).toEqual(['Why an array?', 'First.', 'Second.'])
+    expect(existsSync(lock())).toBe(false)
   })
 })

@@ -85,15 +85,18 @@ worfy runs this skill for an Agent review of someone else's pull request when it
 request and says so: `/worfy:code-review <owner>/<repo>#<n> Agent review: …`. worfy has created the review draft of
 that pull request on this machine already; the person reads it in worfy, changes it, and submits it there. Then:
 
-1. **The fixed point is the base of the pull request.** In the folder of the repository the pull request belongs to
-   (the one whose `git remote get-url origin` names `<owner>/<repo>`), read it and open its head in a new temporary
+1. **The fixed point is the base of the pull request; the commit reviewed is the one the message names.**
+   `Review the commit <sha>` names the commit worfy's draft is placed on, `<head>` below; it may be older than the
+   head of the pull request now, and every line number of the draft is a line of `<head>`. A message that names none:
+   `<head>` is `headRefOid`. In the folder of the repository the pull request belongs to (the one whose
+   `git remote get-url origin` names `<owner>/<repo>`), read the pull request and open `<head>` in a new temporary
    folder (`mktemp -d`, below `<tmp>`), outside the person's working tree:
 
    ```bash
    gh pr view <n> --repo <owner>/<repo> --json number,title,body,baseRefName,baseRefOid,headRefOid,files,closingIssuesReferences; echo "EXIT=$?"
-   git cat-file -e "<headRefOid>^{commit}"; echo "EXIT=$?"
+   git cat-file -e "<head>^{commit}"; echo "EXIT=$?"
    git cat-file -e "<baseRefOid>^{commit}"; echo "EXIT=$?"
-   git -c core.hooksPath=/dev/null worktree add --detach "<tmp>/pr-<n>" "<headRefOid>"; echo "EXIT=$?"
+   git -c core.hooksPath=/dev/null worktree add --detach "<tmp>/pr-<n>" "<head>"; echo "EXIT=$?"
    ```
 
    When a `cat-file` does not exit 0, the commit is missing: fetch it once before the worktree,
@@ -120,7 +123,7 @@ that pull request on this machine already; the person reads it in worfy, changes
    "${CLAUDE_PLUGIN_ROOT}/bin/pr-review-draft" <owner>/<repo>#<n> done; echo "EXIT=$?"
    ```
 
-   `<line>` is the line of the file at the head commit (`--side LEFT`: at the base, for a removed line). A finding on no
+   `<line>` is the line of the file at `<head>` (`--side LEFT`: at the base, for a removed line). A finding on no
    line of the diff goes into the summary, with its `path:line`. A judgement call is written as a question. Never
    write or create the draft file yourself.
 4. **The verdict is only a suggestion**: worfy shows it to the person, who chooses the verdict. Suggest

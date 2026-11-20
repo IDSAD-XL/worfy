@@ -7,6 +7,6 @@ timeout_seconds: 1200
 allowed_tools: [Read, Glob, Grep, Skill, Agent, TodoWrite, TaskCreate, TaskGet, TaskList, TaskUpdate]
 ---
 
-/worfy:code-review octo-org/ledger#7 Agent review: write the review draft only through bin/pr-review-draft (pr-review-draft --help); the verdict is only a suggestion; nothing goes to GitHub.
+/worfy:code-review octo-org/ledger#7 Agent review: write the review draft only through bin/pr-review-draft (pr-review-draft --help); the verdict is only a suggestion; nothing goes to GitHub. Review the commit 6598be823cf07e1581152988649782193892984f: number the lines of each comment at that commit.
 
 I am away for this whole run and cannot answer questions.

@@ -91,11 +91,14 @@ export class PrReviewAgent {
       if (draft !== null && draft.state !== 'draft') throw new Error(`This review is ${draft.state}: it is not changed any more`)
       if (draft?.agent?.state === 'writing' && this.live(draft.agent.sessionId)) throw new Error(`Agent review is writing the review of ${repo}#${number} already: Stop it first`)
       if (fill === 'new' && draft !== null && (draft.payload.comments.length > 0 || draft.payload.body !== '')) throw new Error('This pull request has a review draft already: Ask the agent to add comments to it')
-      const text = agentReviewText({ teamReviewer: await this.teamReviewer(root), repo, pr: number, fill })
+      const teamReviewer = await this.teamReviewer(root)
       const view = this.deps.sessions.create(projectId, undefined, AGENT_REVIEW_VENDOR)
       const marked = await this.deps.drafts.setAgent(root, repo, number, { head, agent: { sessionId: view.sessionId, state: 'writing' } })
       // Nothing is sent then: the Session Node stays, idle, and the person may close it.
       if (marked.problem !== null || marked.draft === null) throw new Error(`Agent review did not start: ${marked.problem ?? 'the draft was not written'}`)
+      // The commit of the draft, not `head`: after a push since the draft started they differ, and the script reads the
+      // commented lines at the draft's commit.
+      const text = agentReviewText({ teamReviewer, repo, pr: number, fill, head: marked.draft.anchoredOn ?? marked.draft.startedOn })
       await this.follow({ projectId, root, repo, number }, view.sessionId)
       this.deps.registry.get(view.sessionId).send(text)
       this.deps.changed({ projectId, repo, number })
@@ -186,8 +189,10 @@ export class PrReviewAgent {
       // Gone: its Node closed.
     }
     if (state !== null && IN_TURN.has(state)) entry.turned = true
-    const { draft } = await this.deps.drafts.draft(pull.root, pull.repo, pull.number)
+    const { draft, problem } = await this.deps.drafts.draft(pull.root, pull.repo, pull.number)
     if (this.watches.get(key) !== entry || entry.ending) return
+    // Not read this time (a file being replaced, a disk busy for a moment): the next look reads it.
+    if (draft === null && problem !== null) return
     const mine = draft?.agent?.sessionId === entry.sessionId
     if (!mine || draft?.agent?.state !== 'writing' || draft.state !== 'draft') {
       await this.end(key)

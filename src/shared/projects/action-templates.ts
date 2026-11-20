@@ -211,10 +211,17 @@ export const AGENT_REVIEW_ADD_RULE = "Add your comments to the person's draft: t
 /** The Vendor of that Session: Claude Code, as for Draft replies — both skills are the Harness's. */
 export const AGENT_REVIEW_VENDOR: VendorId = 'claude'
 
-/** The first message of an Agent review of `repo`#`pr`. */
-export function agentReviewText(input: { teamReviewer: boolean; repo: string; pr: number; fill: 'new' | 'add' }): string {
+/**
+ * The commit the agent reviews: the one the draft is placed on (`anchoredOn`, else `startedOn`), not the PR's head now.
+ * bin/pr-review-draft reads the commented lines at it, and the draft keeps it after a new push («N new commits since
+ * you started», ticket 09), so a comment numbered at a newer head would land on another line.
+ */
+export const agentReviewCommit = (sha: string): string => `Review the commit ${sha}: number the lines of each comment at that commit.`
+
+/** The first message of an Agent review of `repo`#`pr`, over the commit `head` of its draft. */
+export function agentReviewText(input: { teamReviewer: boolean; repo: string; pr: number; fill: 'new' | 'add'; head: string }): string {
   const command = (input.teamReviewer ? AGENT_REVIEW_TEAM_TEMPLATE : AGENT_REVIEW_LENSES_TEMPLATE).replace('{repo}', input.repo).replace('{pr}', String(input.pr))
-  return [command, AGENT_REVIEW_RULE, ...(input.fill === 'add' ? [AGENT_REVIEW_ADD_RULE] : [])].join(' ')
+  return [command, AGENT_REVIEW_RULE, agentReviewCommit(input.head), ...(input.fill === 'add' ? [AGENT_REVIEW_ADD_RULE] : [])].join(' ')
 }
 
 /**

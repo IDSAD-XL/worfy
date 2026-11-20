@@ -193,7 +193,11 @@ draft waits in `<tmp>/review-<n>.json` for a person to read.
 worfy runs this skill for an Agent review when its first message names a pull request and says so:
 `/human-review <owner>/<repo>#<n> Agent review: …`. worfy has created the review draft of that pull request on this
 machine already; the person reads it in worfy, changes it, and submits it there. Do steps 1 to 7 as written,
-`review-draft-lint` included. Then, in place of the rest of this step, hand the draft to worfy, and stop there.
+`review-draft-lint` included, with one change: the commit the message names, `Review the commit <sha>`, stands for
+`headRefOid` in every step. It is the commit worfy's draft is placed on, and may be older than the head of the pull
+request now: open the worktree of step 1 at it, and read the files and number the lines at it. When git does not have
+it after the fetch of step 1, stop and say so. Then, in place of the rest of this step, hand the draft to worfy, and
+stop there.
 
 Write the draft only through `bin/pr-review-draft`: one call for each comment, then the summary, the suggested verdict
 and the end. `pr-review-draft` is a script of the worfy plugin, on the PATH like `review-draft-lint`:
@@ -209,7 +213,7 @@ pr-review-draft <owner>/<repo>#<n> verdict <comment|approve|request_changes>; ec
 pr-review-draft <owner>/<repo>#<n> done; echo "EXIT=$?"
 ```
 
-`<line>` is the line of the file at the head commit (`--side LEFT`: at the base, for a removed line), on a line of the
+`<line>` is the line of the file at that commit (`--side LEFT`: at the base, for a removed line), on a line of the
 diff of the pull request. A comment on no line of the diff goes into the summary, with its `path:line`. Never write or
 create the draft file yourself.
 

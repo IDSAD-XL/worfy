@@ -1068,7 +1068,8 @@ AR_SENTENCES='only through `bin/pr-review-draft`
 The verdict is only a suggestion
 Never write or create the draft file yourself.
 Nothing goes to GitHub: no `gh api` write
-End with `done`, also when'
+End with `done`, also when
+`Review the commit <sha>`'
 # agent_review_ok FILE: 0 when FILE has the section and every sentence of AR_SENTENCES inside it.
 agent_review_ok() {
     local sec s

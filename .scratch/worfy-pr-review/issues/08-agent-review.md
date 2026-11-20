@@ -120,7 +120,8 @@ skill-а, guard hook и eval.
 - Eval `harness/evals/agent-review-guards/` (fixture PR `octo-org/ledger#7`, `/worfy:code-review` в режиме Agent
   review): финальный run — 2 из 2, score 1.00, все четыре grader-а, **1.19 USD**. Всего на eval за Ticket — **8.83 USD**
   (шесть run-ов отладки grader-ов, 7.64 USD: grader не узнавал вызов через переменную `$BIN`, stand-in gh писал
-  `REFUSED` на чтение `gh issue list`; skill тут был ни при чём). Cap: 30 USD — `BUDGET_USD=4` скрипт не принял.
+  `REFUSED` на чтение `gh issue list`; skill тут был ни при чём). Cap: 30 USD — `BUDGET_USD=4` скрипт не принял: это константа скрипта, cap ниже задаёт
+  `--max-cost-usd`.
 - gate fast (один раз): exit 2. 27 красных test-ов — file watcher-ы (fseventsd на этом Mac): `cards-watch-edits`,
   `claude-home-registry`, `docs-watch-root`, `docs`, `product-watch`, `workflow-reader`, `workflow-read-from-main`,
   `profile-move`, `harness-script-env`. Два — мои, исправлены и проверены отдельно (`no-rmsync`: замок снимается
@@ -141,3 +142,34 @@ skill-а, guard hook и eval.
 - **Скрипт отказывает после Stop**, а `done` — нет: после `done` человек может попросить Session дописать в её же чате.
 - **Watch — опросом файла**, а не событиями ОС: один файл на время ревью.
 - **Комментарий агента всегда добавляется**, повтор на тех же строках не заменяет прежний.
+
+Раунд ревью 1 (ревью PR #2085, одна medium-находка и три low):
+
+- **Коммит ревью — коммит черновика** (medium). Для черновика, который уже есть, `start()` не передавал агенту коммит,
+  и skill ревьюировал `headRefOid` PR, а номера строк комментариев скрипт сверяет с коммитом черновика. Теперь первое
+  сообщение кончается фразой `Review the commit <sha>: number the lines of each comment at that commit.` с коммитом
+  черновика (`anchoredOn`, иначе `startedOn`), а оба skill-а (`/worfy:code-review` и шаблон Team reviewer-а) открывают
+  worktree и считают строки на этом коммите; без фразы — на `headRefOid`. Черновик в `start()` на новый head не
+  переставляется: так черновик остаётся на коммите начала, и Ticket 09 может показать «N new commits since you
+  started». Test-ы: `pr-review-agent.test.ts` (`fill: 'add'` с новым head — в сообщении коммит черновика, `startedOn`
+  не меняется) и `action-templates.test.ts`: 4 красных до правки (exit 1), после — 37 зелёных (exit 0).
+  `agents-text.test.sh`: новая фраза в проверках обоих skill-ов, mutant (фраза убрана) красный; 510 passed, exit 0.
+  Prompt eval-а получил ту же фразу (test `harness-evals` сверяет его первую строку с `agentReviewText`); хеш правки
+  `code-review/SKILL.md` — в `THIRD_PARTY.md` и `harness-third-party-skills.test.ts`. Eval перезапущен, потому что
+  текст skill-а и prompt изменились: 2 из 2, score 1.00, **1.20 USD** (cap 5 USD); всего на eval за Ticket —
+  **10.03 USD**.
+- **Выход не ждёт замок своей же записи** (low). `flushSync` ждал ~10 s, пока устареет замок, который держит
+  асинхронная запись main этого же процесса. Теперь замки, взятые этим процессом, в множестве `heldHere`, и
+  `flushSync` пишет сразу. Test `harness-pr-review-draft.test.ts` «does not wait for the lock its own write of this
+  process holds»: до правки 10006 ms (exit 1), после — зелёный. Там же два test-а замка при выходе, которых не было:
+  чужой замок (держит другой процесс 300 ms) `flushSync` ждёт, устаревший (20 s) забирает сразу; mutant «`flushSync`
+  без замка» красит оба.
+- **Нечитаемый черновик не закрывает watch** (low). Ответ `{ draft: null, problem }` теперь пропускает этот взгляд.
+  Test «a look that cannot read the draft is skipped»: до правки watch закрывался после первой неудачи (exit 1),
+  после — зелёный.
+- **Test-ы концов watch-а** (low). Добавлены «the Session’s turn ends without done» (fixture
+  `test/fixtures/agent-scripts/pr-review-agent-turn.jsonl`, ход держится до release) и «the Session closes while it
+  writes». Код не менялся, поэтому до правки они зелёные; mutant-ы (ветка `done` убрана, ветка `stopped` убрана) красят
+  каждый свой test.
+- Evidence перепривязаны к коммиту после rebase-а. gate fast не запускался: file watcher test-ы на этом Mac красные из-за
+  fseventsd.

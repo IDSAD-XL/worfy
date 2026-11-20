@@ -188,10 +188,12 @@ describe('action templates', () => {
     expect(AGENT_REVIEW_LABEL).toBe('Agent review')
     expect(AGENT_REVIEW_VENDOR).toBe('claude')
     const rule = 'Agent review: write the review draft only through bin/pr-review-draft (pr-review-draft --help); the verdict is only a suggestion; nothing goes to GitHub.'
-    expect(agentReviewText({ teamReviewer: true, repo: 'owner/web', pr: 118, fill: 'new' })).toBe(`/human-review owner/web#118 ${rule}`)
-    expect(agentReviewText({ teamReviewer: false, repo: 'owner/web', pr: 118, fill: 'new' })).toBe(`/worfy:code-review owner/web#118 ${rule}`)
+    // The commit the draft is placed on: the agent numbers its lines there, as bin/pr-review-draft reads them.
+    const at = 'Review the commit 3f2a9c1d: number the lines of each comment at that commit.'
+    expect(agentReviewText({ teamReviewer: true, repo: 'owner/web', pr: 118, fill: 'new', head: '3f2a9c1d' })).toBe(`/human-review owner/web#118 ${rule} ${at}`)
+    expect(agentReviewText({ teamReviewer: false, repo: 'owner/web', pr: 118, fill: 'new', head: '3f2a9c1d' })).toBe(`/worfy:code-review owner/web#118 ${rule} ${at}`)
     // Ask the agent to add comments: the person's comments and summary stay.
-    expect(agentReviewText({ teamReviewer: false, repo: 'owner/web', pr: 7, fill: 'add' })).toBe(`/worfy:code-review owner/web#7 ${rule} Add your comments to the person's draft: their comments and their summary stay.`)
+    expect(agentReviewText({ teamReviewer: false, repo: 'owner/web', pr: 7, fill: 'add', head: '3f2a9c1d' })).toBe(`/worfy:code-review owner/web#7 ${rule} ${at} Add your comments to the person's draft: their comments and their summary stay.`)
     // Not one of the Project's editable templates: the Team reviewer decides the command, not a setting.
     expect(ACTIONS).not.toContain('agentReview')
   })
