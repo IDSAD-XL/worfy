@@ -1,6 +1,6 @@
 # App shell
 
-> Перевод [английской версии](../app-shell.md), commit `5d1efe69`.
+> Перевод [английской версии](../app-shell.md), commit `1147879d`.
 
 То, что окружает Canvas в каждом окне и на каждом Project-е. Семь Feature: **Sidebar**, **Command palette**, **Shortcuts**,
 **Menu**, **Settings**, **worfy Guide** и **Theme**. У восьмой, [Notifications](notifications.md), своя страница. Термины
@@ -145,7 +145,7 @@ Command palette. Settings, открытые поверх неё по ⌘,, ле�
 
 | Группа | Строки |
 |---|---|
-| Action | New session; New Product Session; «New …» на каждый пункт меню Canvas; Tidy up; Arrange by Epic; Re-pack; Archive finished sessions now; Process gate queue; Run wave `<epic>`; Ship ticket `<epic>/<NN>`; Resolve conflicts, Fix checks и Address comments `<owner>/<repo>#<N>`; Reconnect machine…; Remove machine…; Update worfy |
+| Action | New session; New Product Session; «New …» на каждый пункт меню Canvas; Tidy up; Arrange by Epic; Re-pack; Archive finished sessions now; Process gate queue; Run wave `<epic>`; Ship ticket `<epic>/<NN>`; Open changes `<epic>/<NN>`; Resolve conflicts, Fix checks и Address comments `<owner>/<repo>#<N>`; Reconnect machine…; Remove machine…; Update worfy |
 | View | Switch to Canvas; Switch to Session; Pull requests, при открытом Project-е; First-run checks; Health check; Getting started; Settings…; Keyboard shortcuts; worfy Guide; Guide: `<Topic>` на каждый Topic; Show only tag `<tag>`; Show all Nodes |
 | Project | Switch to project `<name>` на каждый другой Project |
 | Go to | Orchestrator; каждый Epic, Ticket и ADR; каждый Node из Layout, кроме тех, что worfy рисует из workflow, и binding anchor-ов |
@@ -160,6 +160,9 @@ Command palette. Settings, открытые поверх неё по ⌘,, ле�
 - Process gate queue: только на Machine, которой Profile даёт роль `serve` в cross-machine gate. В её подробностях число
   ждущих PR и возраст самого старого.
 - Run wave и Ship ticket: только там, где у Epic frame или Ticket-а есть эта кнопка.
+- Open changes `<epic>/<NN>`: для Ticket-а с веткой worktree, строкой `Branch:` или в работе, с Ticket-ом в подробностях.
+  Строка открывает [Changes Node](changes.md#the-changes-node) Ticket-а рядом с его карточкой или переходит к тому, что уже
+  там. На экране только для чтения она неактивна, пока этого Node-а нет.
 - Resolve conflicts, Fix checks и Address comments `<owner>/<repo>#<N>`: по строке на каждое действие, которое предлагают
   кнопка Ticket-а и её «▾», с Ticket-ом в подробностях. Неактивная строка называет ту же причину, что и кнопка. Если действие
   выбрано из Command palette, новый Session Node встаёт туда, куда встаёт любой новый Node.
