@@ -46,10 +46,13 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Факты GitHub API» → �
 - [ ] Unit `test/unit/pr-approvals.test.ts` (новый): ruleset, classic protection, оба (наибольшее), скрытое правило →
       `need = null`, нет правил → `none`, `APPROVED` главнее счёта, `CHANGES_REQUESTED`, stale при dismiss stale, отзыв
       без права записи не считается, code owners ждут, last push approval. Красный до правки — в «Итог».
+  - evidence: gate pass · `gate fast` exit 0 · mac - · bb9444923fe946f705cbb68e6f563bb3b078e92d
 - [ ] Contract `test/contract/pr-inbox-approvals.test.ts` (новый) на gh stand-in (`WORFY_GH`): ruleset-ы репозитория и
       организации, classic protection видимая (admin) и `null`, поле `approvals` в строке inbox; `rateLimit.cost` до и
       после записан в «Итог».
+  - evidence: gate pass · `gate fast` exit 0 · mac - · bb9444923fe946f705cbb68e6f563bb3b078e92d
 - [ ] `test/contract/pr-inbox.test.ts` и `test/unit/pr-inbox-groups.test.ts` зелёные без правки ожиданий группировки.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · bb9444923fe946f705cbb68e6f563bb3b078e92d
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Где в коде
