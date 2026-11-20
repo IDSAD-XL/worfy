@@ -364,10 +364,12 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
           ) : null}
         </h1>
         {/* Once main's view of a Session Node is here: no Vendor flashes in the Orchestrator's header before its view. */}
-        {orchestrator === undefined && nodeSession !== undefined ? <VendorBadge vendor={nodeSession.vendor} testId="session-vendor" /> : null}
-        <span data-testid="session-state" title={view?.error ?? undefined}>
-          <SessionStateChip sessionId={sessionId} state={state} />
-        </span>
+        {orchestrator === undefined && nodeSession !== undefined ? (
+          <span className="w-session__vendor">
+            <VendorBadge vendor={nodeSession.vendor} testId="session-vendor" />
+          </span>
+        ) : null}
+        <SessionStateChip sessionId={sessionId} state={state} error={view?.error} />
         <SessionPicker projectId={projectId} shown={{ nodeId, projectId }} shownTitle={heading} />
         {/* A Product Session's header has no Model, Effort, Permissions, Cost or Hide tools (ticket 19, Q3), and no
             layout switch (owner, 2026-11-09, Q3); its advice share brings its own divider, once there is advice. */}

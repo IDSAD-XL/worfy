@@ -68,6 +68,21 @@ describe('the state chip of a Session (worfy-stuck-agents ticket 06)', () => {
   })
 })
 
+describe('the state chip in a narrow header (worfy-polish ticket 137)', () => {
+  it('keeps its word in an element of its own, and its kit tooltip says the word, or the error when there is one', async () => {
+    const { SessionStateChip } = await import('../../src/renderer/session/SessionStateChip')
+    const view = render(<SessionStateChip sessionId={SESSION} state="idle" />)
+    const chip = screen.getByTestId('session-state')
+    expect(chip.querySelector('.w-session__state-word')?.textContent).toBe('idle')
+    expect(chip.getAttribute('data-kit-hint')).toBe('idle')
+    view.rerender(<SessionStateChip sessionId={SESSION} state="error" error="the CLI exited with code 1" />)
+    expect(chip.textContent).toBe('error')
+    expect(chip.getAttribute('data-kit-hint')).toBe('the CLI exited with code 1')
+    view.rerender(<SessionStateChip sessionId={SESSION} state="error" error="" />)
+    expect(chip.getAttribute('data-kit-hint')).toBe('error')
+  })
+})
+
 describe('stateChip', () => {
   it('adds the quiet minutes to busy only', async () => {
     const { stateChip } = await import('../../src/renderer/session/format')

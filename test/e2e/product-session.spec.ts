@@ -912,6 +912,126 @@ test('a Product Session’s input line: buttons as tall as the one-line field an
   }
 })
 
+// worfy-polish ticket 137 (the owner's screenshot of 2026-11-20): a narrow header squeezed the Session picker into an
+// empty box. Now the share of accepted advice gives way first («…», then gone), the picker keeps at least 140 px with
+// the Session's name in it, and a narrow header shows the busy chip as its icon, the word kept for a screen reader.
+test('a narrow Product Session header: the share of advice gives way before the picker, which keeps its name; the busy chip turns to its icon', async () => {
+  // One accepted advice, so the header shows «Advice accepted 1 of 1 · 100%».
+  writeFileSync(mapFile, `${JSON.stringify({ version: 1, nodes: [{ id: 'd-teams', kind: 'decision', text: 'Sell to small teams first', from: null, advice: true, status: 'accepted', reason: 'they decide fast' }] }, null, 2)}\n`)
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'product-queued' } })
+  try {
+    const { app, window } = launched
+    await canvasReady(launched, { size: { width: 1440, height: 900 }, visible: [window.getByTestId('orchestrator-node')] })
+    await window.keyboard.press('ControlOrMeta+k')
+    await window.getByTestId('palette-input').fill('new product session')
+    await expect(window.locator('[data-testid="palette-option"][data-command="new:product-session"]')).toHaveAttribute('data-active', 'true')
+    await window.keyboard.press('Enter')
+    const view = sessionView(window)
+    await expect(view).toBeVisible()
+    const field = view.getByRole('textbox', { name: /^Message / })
+    await expect(field).toBeEnabled()
+    await field.fill('What could we sell?')
+    await field.press('Enter')
+    await expect(view.getByTestId('transcript-text').last()).toContainText('Reading the market notes first.')
+
+    const header = view.locator('header.w-session__header')
+    const picker = header.getByTestId('session-picker')
+    const name = picker.locator('.w-select__value')
+    const share = header.getByTestId('product-session-advice')
+    const state = header.getByTestId('session-state')
+    const word = state.locator('.w-session__state-word')
+    await expect(state).toHaveText('busy')
+    await expect(header.getByTestId('product-session-accepted')).toHaveText('Advice accepted 1 of 1 · 100%')
+    const pickerName = (await name.textContent()) ?? ''
+    expect(pickerName).not.toBe('')
+    await expect(picker).toHaveAttribute('data-kit-hint', pickerName)
+    const shoot = async (width: 'wide' | 'share-clipped' | 'narrow') => {
+      for (const scheme of ['light', 'dark'] as const) {
+        await window.emulateMedia({ colorScheme: scheme })
+        await header.screenshot({ path: test.info().outputPath(`137-header-${width}-${scheme}.png`) })
+      }
+    }
+    const resize = async (width: number) => {
+      await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0]?.setContentSize(size, 860), width)
+      await expect.poll(() => window.evaluate(() => (globalThis as unknown as { innerWidth: number }).innerWidth)).toBe(width)
+    }
+    /** What the header shows at the window's width now (the e2e project has no DOM types: a structural one). */
+    type Box = { width: number; right: number }
+    type Shown = { scrollWidth: number; clientWidth: number; getClientRects(): { length: number }; getBoundingClientRect(): Box }
+    type Root = Shown & { querySelector(selector: string): Shown | null }
+    const measure = () =>
+      header.evaluate((element) => {
+        const root = element as unknown as Root
+        const box = (selector: string) => root.querySelector(selector)?.getBoundingClientRect() ?? null
+        const shown = (selector: string) => {
+          const found = root.querySelector(selector)
+          return found !== null && found.getClientRects().length > 0 ? found : null
+        }
+        const clipped = (found: Shown | null) => found !== null && found.scrollWidth > found.clientWidth
+        const share = shown('[data-testid="product-session-advice"]')
+        return {
+          header: root.getBoundingClientRect().width,
+          picker: box('[data-testid="session-picker"]')!.width,
+          name: box('[data-testid="session-picker"] .w-select__value')!.width,
+          share: share === null ? 0 : share.getBoundingClientRect().width,
+          shareClipped: clipped(shown('[data-testid="product-session-accepted"]')),
+          titleClipped: clipped(shown('.w-session__title')),
+          word: box('.w-session__state-word')!.width,
+          interruptRight: box('[data-testid="session-interrupt"]')!.right,
+          right: root.getBoundingClientRect().right,
+        }
+      })
+
+    const wide = await measure()
+    expect(wide.share).toBeGreaterThan(100)
+    expect(wide.shareClipped).toBe(false)
+    expect(wide.word).toBeGreaterThan(20)
+    await shoot('wide')
+
+    // Narrower step by step: the picker and the title lose no pixel while the share still shows; the picker never drops under 140 px,
+    // and keeps its name in sight; Interrupt stays inside the header.
+    let clipped = false
+    let narrow = wide
+    for (let width = 1440; width >= 800; width -= 40) {
+      await resize(width)
+      const now = await measure()
+      if (now.share > 0) {
+        expect(now.picker, `at ${width}`).toBeGreaterThanOrEqual(wide.picker - 0.5)
+        expect(now.titleClipped, `at ${width}`).toBe(false)
+      }
+      if (now.share > 0 && now.shareClipped && !clipped) {
+        clipped = true
+        await shoot('share-clipped')
+      }
+      // The floor of 140 px (session.css, `.w-session--product .w-session__picker`); jsdom cannot see it, this can.
+      expect(now.picker, `at ${width}`).toBeGreaterThanOrEqual(139.5)
+      expect(now.name, `at ${width}`).toBeGreaterThan(40)
+      expect(now.interruptRight, `at ${width}`).toBeLessThanOrEqual(now.right + 0.5)
+      narrow = now
+    }
+    // The share ended in «…» on the way, and at the narrowest window it is gone.
+    expect(clipped).toBe(true)
+    expect(narrow.share).toBe(0)
+    await expect(share).toBeHidden()
+    await expect(name).toBeVisible()
+    await expect(name).toHaveText(pickerName)
+    // The busy chip: its icon alone, the word kept in the chip for a screen reader and in its kit tooltip.
+    expect(narrow.word).toBeLessThanOrEqual(1)
+    await expect(word).toHaveText('busy')
+    await expect(state).toHaveText('busy')
+    await expect(state).toHaveAttribute('data-kit-hint', 'busy')
+    // The narrowest header leaves the Vendor to the chat's heading below it.
+    await expect(header.getByTestId('session-vendor')).toBeHidden()
+    await expect(view.getByTestId('product-chat-vendor')).toBeVisible()
+    await shoot('narrow')
+
+    await app.evaluate(() => (globalThis as unknown as { worfyFakeRelease: (name: string) => void }).worfyFakeRelease('turn'))
+    await expect(state).toHaveText('idle')
+  } finally {
+    await launched.close()
+  }
+})
+
 // The owner's case (ticket 30): the Session stands at «needs permission» and the chat shows no card. A window
 // that did not see the request go out — reloaded (View ▸ Reload, Ctrl+R) or opened after it — had no event
 // to draw the card from; the Product chat does not even show the AskUserQuestion tool call, so nothing at

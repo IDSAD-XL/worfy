@@ -1155,6 +1155,39 @@ describe('SessionPanel', () => {
       expect(within(header).queryByText(/50 \/ 50|60 \/ 40/u)).toBeNull()
     })
 
+    // worfy-polish ticket 137 (the owner's screenshot of 2026-11-20): in a narrow header the picker shrank to an empty
+    // box. The picker keeps 140 px and names the Session in a kit tooltip; the share gives way first, its divider with
+    // it; the state chip keeps its word in an element of its own, which a narrow header hides from sight only.
+    it('a narrow Product Session header: the picker keeps 140 px and its name in a kit tooltip, the share gives way first, the chip keeps its word', async () => {
+      await mountKind('product')
+      const header = screen.getByRole('banner')
+      const picker = within(header).getByTestId('session-picker')
+      // The 140 px floor is a rule of a Product Session's header (session.css), which jsdom does not apply: here only
+      // the class it hangs on; the e2e (product-session.spec.ts, «a narrow Product Session header») guards the width.
+      expect(picker.classList.contains('w-session__picker')).toBe(true)
+      expect(picker.closest('.w-session--product')).not.toBeNull()
+      expect(picker.style.minWidth).toBe('')
+      const name = picker.querySelector('.w-select__value')?.textContent ?? ''
+      expect(name).not.toBe('')
+      expect(picker.getAttribute('data-kit-hint')).toBe(name)
+      expect(picker.getAttribute('aria-description')).toBe(name)
+      expect(picker.hasAttribute('title')).toBe(false)
+      expect(picker.getAttribute('aria-label')).toBe('Session')
+
+      await vi.waitFor(() => expect(within(header).getByTestId('product-session-accepted')).toBeTruthy())
+      const share = within(header).getByTestId('product-session-advice')
+      expect(share.classList.contains('w-session__advice')).toBe(true)
+      expect(share.querySelector('.w-session__divider')).not.toBeNull()
+      expect(within(share).getByTestId('product-session-accepted')).toBeTruthy()
+      expect(header.querySelectorAll('.w-session__divider')).toHaveLength(1)
+
+      const state = within(header).getByTestId('session-state')
+      expect(state.textContent).toBe('idle')
+      expect(state.querySelector('.w-session__state-word')?.textContent).toBe('idle')
+      expect(state.getAttribute('data-kit-hint')).toBe('idle')
+      expect(state.hasAttribute('title')).toBe(false)
+    })
+
     it('a plain Session keeps its icon and has no Product Session label', async () => {
       await mountKind(undefined)
       const header = screen.getByRole('banner')

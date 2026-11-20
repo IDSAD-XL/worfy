@@ -12,6 +12,9 @@ import { pickerSessions, pickerValue } from './session-picker'
 // (theme/Select.tsx) over the rows of session-picker.ts. A pick shows that Session at once, as a
 // double click on its Node does (navigation.ts, openSession); on a read-only screen it writes nothing.
 
+// It gives way with the model when the header is short of room; a longer name ends in «…». In a Product Session's
+// header it stops at 140 px (session.css, `.w-session__picker`; worfy-polish ticket 137: it shrank to an empty box).
+// A plain header keeps no floor: there the model shares the shrink with it, and a floor left the model none.
 const PICKER_STYLE: CSSProperties = { flex: '0 1 auto', maxWidth: 240 }
 
 /** Asks main for the Orchestrator's view, so its row has its state while another Session is shown. */
@@ -39,6 +42,8 @@ export function SessionPicker({ projectId, shown, shownTitle }: SessionPickerPro
   const value = pickerValue(shown)
   const options: SelectOption[] = entries.map((entry) => ({ value: entry.nodeId, label: entry.title, detail: entry.chip.label }))
   if (!options.some((option) => option.value === value)) options.unshift({ value, label: shownTitle, detail: 'shown', disabled: true })
+  // The whole name of the shown Session, for the kit tooltip: the button may cut it to «…».
+  const shownName = options.find((option) => option.value === value)?.label ?? shownTitle
   const orchestratorNode = nodes?.find((node) => node.kind === 'orchestrator')
   return (
     <>
@@ -47,9 +52,9 @@ export function SessionPicker({ projectId, shown, shownTitle }: SessionPickerPro
         value={value}
         options={options}
         aria-label="Session"
-        title="Show another Session of this Project"
+        hint={shownName}
         data-testid="session-picker"
-        // Gives way with the model when the header is short of room; a long title ends in «…».
+        className="w-session__picker"
         style={PICKER_STYLE}
         onChange={(nodeId) => {
           const entry = entries.find((each) => each.nodeId === nodeId)

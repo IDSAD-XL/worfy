@@ -225,6 +225,8 @@ describe('"Go to Orchestrator" with an Orchestrator that is down (palette row)',
       await new Promise((done) => setTimeout(done, 0))
     })
     await waitFor(() => expect(screen.getByTestId('session-state').textContent).toBe('error'))
+    // The Session's error is the state chip's kit tooltip (worfy-polish ticket 137; it was the native title).
+    expect(screen.getByTestId('session-state').getAttribute('data-kit-hint')).toBe('the session is already live in another Session')
     // The view asked once, when it mounted; nothing asks again by itself.
     expect(opens()).toHaveLength(1)
 
