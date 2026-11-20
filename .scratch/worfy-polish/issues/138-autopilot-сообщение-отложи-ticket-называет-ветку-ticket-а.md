@@ -2,6 +2,7 @@
 
 Type: bug
 Status: claimed 2026-11-20T16:49Z
+PR: #2102
 Branch: worfy-polish/138
 Blocked by: none
 Source: решение владельца 2026-11-20, Q5. Тот же провал worfy-polish 131 исправил в skill-е epic-wave (#2086): block,
