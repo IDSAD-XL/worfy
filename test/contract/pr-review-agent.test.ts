@@ -9,7 +9,7 @@
 // - prReview.stopAgent (Stop, Take over) stops the Session and marks the draft `stopped`, keeping what the agent wrote;
 // - a Linked machine is refused both channels before the handler.
 // Nothing reaches GitHub: no gh is given at all.
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -122,12 +122,39 @@ const pull = { projectId: PROJECT, repo: API, number: PR }
 type Started = { nodeId: string; sessionId: string; text: string; draft: ReviewDraft }
 const messages = (calls: FakeCall[]): string[] => calls.flatMap((each) => (each.kind === 'message' ? [each.text] : []))
 
-/** What bin/pr-review-draft does to the file, without the script: the draft with `change`, through a rename. */
+/** What a writer on Windows retries: the lock taken, or the target opened for a moment by a reader. */
+const BUSY = new Set(['EEXIST', 'EPERM', 'EACCES', 'EBUSY'])
+const pauseSync = (ms: number): void => void Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+
+/** Runs `step` until it does not fail with a code of BUSY, 5 s at most. */
+function retried(step: () => void): void {
+  const until = Date.now() + 5000
+  for (;;) {
+    try {
+      step()
+      return
+    } catch (error) {
+      if (!BUSY.has((error as NodeJS.ErrnoException).code ?? '') || Date.now() > until) throw error
+      pauseSync(10)
+    }
+  }
+}
+
+/**
+ * What bin/pr-review-draft does to the file, without the script: under the lock `<file>.lock`, the draft with `change`
+ * through a temporary file and a rename, retried while Windows refuses it because main reads the file at that moment.
+ */
 function agentWrites(file: string, change: (draft: ReviewDraft) => void): void {
-  const draft = JSON.parse(readFileSync(file, 'utf8')) as ReviewDraft
-  change(draft)
-  writeFileSync(`${file}.agent.tmp`, JSON.stringify(draft, null, 2))
-  renameSync(`${file}.agent.tmp`, file)
+  const lock = `${file}.lock`
+  retried(() => writeFileSync(lock, `${process.pid}\n`, { flag: 'wx' }))
+  try {
+    const draft = JSON.parse(readFileSync(file, 'utf8')) as ReviewDraft
+    change(draft)
+    writeFileSync(`${file}.agent.tmp`, JSON.stringify(draft, null, 2))
+    retried(() => renameSync(`${file}.agent.tmp`, file))
+  } finally {
+    unlinkSync(lock)
+  }
 }
 
 describe('prReview.agentReview', () => {
@@ -204,7 +231,7 @@ describe('the watch of an Agent review', () => {
     const s = await setup()
     const started = ok(await s.call<Started>('prReview.agentReview', { ...pull, head: HEAD, fill: 'new' }))
     await vi.waitFor(() => expect(s.registry.get(started.sessionId).state).toBe('busy'))
-    writeFileSync(s.file, '{ "schema": 1, broken')
+    retried(() => writeFileSync(s.file, '{ "schema": 1, broken'))
     s.registry.get(started.sessionId).close()
     await vi.waitFor(() => expect(s.agent.watching()).toBe(0), { timeout: ms(10_000) })
   })

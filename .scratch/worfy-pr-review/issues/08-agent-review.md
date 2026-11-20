@@ -195,3 +195,14 @@ skill-а, guard hook и eval.
   только пока в файле замка pid этого процесса; после записи замок снимается. Иначе `flushSync` ждёт, как чужой
   замок. Любой писатель main снимает замок, только пока в нём его pid. Test «waits when another process took over the
   lock of its own write»: до правки `flushSync` вернулся сразу (exit 1), после — 29 passed (exit 0).
+
+Исправление CI (job `windows (2/3) / full-suite` на head `ed1a64cdf`). Test «sends prReview.changed while the agent
+writes the file» падал на Windows с `EPERM` на `renameSync` во вспомогательной функции test-а `agentWrites`. Main в это
+время читал файл, а функция переименовывала без повтора. Сломан был только test. Скрипт `bin/pr-review-draft` уже
+повторяет rename на `EPERM`/`EBUSY`/`EACCES` (50 раз по 10 ms), как main. Теперь `agentWrites` пишет так же, как скрипт:
+берёт замок `<file>.lock` и повторяет rename. Запись битого файла в test-е тоже повторяется. Добавлен test скрипта «a
+rename Windows refuses for a moment … is retried»: preload заставляет первые N rename-ов упасть с `EPERM`. При 5 отказах
+запись проходит. При отказе навсегда скрипт выходит с exit 2, файл остаётся прежним, не остаётся ни замка, ни
+временного файла. Код скрипта не менялся, поэтому test зелёный сразу (exit 0); mutant «без повтора rename» его красит
+(exit 1). Main читает черновик через `readFile` и держит файл открытым только на время чтения. Watch опрашивает файл
+через `stat` и не держит его открытым.

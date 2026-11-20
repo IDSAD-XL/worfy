@@ -74,8 +74,8 @@ function env(): NodeJS.ProcessEnv {
   return out
 }
 
-function draftCli(args: string[], input?: string): Run {
-  const run = spawnSync(scriptNode(), [CLI, ...args], { cwd: repo, encoding: 'utf8', env: env(), ...(input === undefined ? {} : { input }) })
+function draftCli(args: string[], input?: string, extra: NodeJS.ProcessEnv = {}): Run {
+  const run = spawnSync(scriptNode(), [CLI, ...args], { cwd: repo, encoding: 'utf8', env: { ...env(), ...extra }, ...(input === undefined ? {} : { input }) })
   return { status: run.status, stdout: run.stdout, stderr: run.stderr }
 }
 
@@ -226,6 +226,28 @@ describe('pr-review-draft', () => {
     const stray = draftCli(['-C', outside, SLUG, 'done'])
     expect(stray.status).toBe(2)
     expect(stray.stderr).toContain('is not a registered project')
+    expect(leftovers()).toEqual([])
+  })
+
+  it('a rename Windows refuses for a moment (main reads the file) is retried; one refused for good writes nothing and leaves no lock', { timeout: ms(30_000) }, () => {
+    // Loaded into the script before it runs: its first FAIL_RENAMES renames fail with EPERM, as on Windows while
+    // another process has the target open.
+    const preload = join(root, 'refuse-renames.cjs')
+    writeFileSync(
+      preload,
+      "const fs = require('node:fs'); const rename = fs.renameSync; let left = Number(process.env.FAIL_RENAMES);\n" +
+        "fs.renameSync = (from, to) => { if (left-- > 0) throw Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' }); return rename(from, to) }\n",
+    )
+    const refusing = (n: number): NodeJS.ProcessEnv => ({ NODE_OPTIONS: `--require ${JSON.stringify(preload)}`, FAIL_RENAMES: String(n) })
+    reset(draft())
+    const run = draftCli([SLUG, 'comment', 'src/cart.ts', '3', 'Why three?'], undefined, refusing(5))
+    expect(run.status, run.stdout + run.stderr).toBe(0)
+    expect(saved().payload.comments.map((each) => each.body)).toEqual(['Why an array?', 'Why three?'])
+    const before = readFileSync(file, 'utf8')
+    const refused = draftCli([SLUG, 'comment', 'src/cart.ts', '4', 'And here?'], undefined, refusing(1000))
+    expect(refused.status).toBe(2)
+    expect(refused.stderr).toContain('cannot write the review draft')
+    expect(readFileSync(file, 'utf8')).toBe(before)
     expect(leftovers()).toEqual([])
   })
 

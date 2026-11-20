@@ -175,7 +175,7 @@ Code: `src/main/github/pr-review-agent.ts:189-212` · key lines: 191, 192, 198, 
 
 ## 6. Как проверено
 
-- `test/contract/harness-pr-review-draft.test.ts` — 11 test-ов: `comment`, `summary`, `verdict`, `done`, отказы,
+- `test/contract/harness-pr-review-draft.test.ts` — 12 test-ов (один — rename, отказанный как на Windows): `comment`, `summary`, `verdict`, `done`, отказы,
   гонка 200 × 200 с main; до скрипта все 7 первых красные, до замка в main гонка теряла 98 записей. Три test-а замка
   при выходе (`flushSync`) и четвёртый: свой замок не ждёт (до правки — 10006 ms), свой, но забранный скриптом, ждёт,
   чужой ждёт, устаревший забирает.
