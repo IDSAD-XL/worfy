@@ -347,7 +347,9 @@ answers.
 
 **Notifications.** A system notification goes out when a Session finishes a turn, asks a permission or asks a question while
 no worfy window has focus. A Session from a terminal or Claude desktop notifies when its status goes from busy to idle. One
-Session sends at most one notification in 10 seconds. A click opens that Session.
+Session sends at most one notification in 10 seconds. A click opens that Session. A Session of another Project
+switches the window to that Project first; so does "Open" on the toast of a question from a Session that is not on screen.
+When that Project cannot be opened, an error toast says why.
 
 #### On a Linked machine
 

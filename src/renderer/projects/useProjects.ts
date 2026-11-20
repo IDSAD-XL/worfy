@@ -97,6 +97,11 @@ export function useProjects(): ProjectsState | undefined {
   return useProjectsStore((store) => store.state)
 }
 
+/** useProjects() outside React: the list of the window's Machine as the window knows it now. */
+export function projectsNow(): ProjectsState | undefined {
+  return useProjectsStore.getState().state
+}
+
 export function activeProject(state: ProjectsState | undefined): ProjectView | undefined {
   return state?.projects.find((project) => project.id === state.activeId)
 }

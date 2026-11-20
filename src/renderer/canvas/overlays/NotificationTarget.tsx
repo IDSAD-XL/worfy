@@ -6,6 +6,7 @@ import { openPipelineOf } from '../../pipeline/open'
 import { openPrInboxOf } from '../../pr-inbox/open'
 import { openSession } from '../../session/navigation'
 import { ensureProject, useSessionNodeViews } from '../../session/node-sessions'
+import { openSessionInProject } from '../../session/open-in-project'
 import {
   carryNote,
   dropNote,
@@ -28,6 +29,8 @@ import { useOrchestratorViews } from '../nodes/orchestrator-view'
 // (worfy-pipeline ticket 06) opens the Pipeline board of its Project instead of a Session; one of a
 // Linked machine's Ticket (worfy-pipeline ticket 10) opens it among that Machine's Projects, read only. A note of
 // a PR of the PR inbox (worfy-pr-inbox ticket 07) opens the Pull requests view of its Project on that PR.
+// A Session of this Machine is looked for in each of its Projects, and one in another Project than the
+// active one selects that Project before it opens (worfy-polish ticket 127).
 //
 // A note of a Linked machine's Session (worfy-link ticket 13) opens it among the Projects of that
 // Machine, the way the sidebar opens a Linked machine's Project (worfy-link ticket 09): a window on
@@ -107,13 +110,18 @@ export default function NotificationTarget() {
       const timer = setTimeout(() => dropNote(pending), Math.max(0, pending.until - Date.now()))
       return () => clearTimeout(timer)
     }
-    // On a Linked machine a Session from the registry is looked for in any of its Projects.
+    // A Session from the registry is looked for in the Project of its root, whichever is active.
     const root = note.projectRoot
-    const where = machine === null || root === null ? project : (projects?.projects.find((each) => sameProjectRoot(each.path, root)) ?? project)
+    const where = root === null ? project : (projects?.projects.find((each) => sameProjectRoot(each.path, root)) ?? project)
     const target = notificationTarget(note, where, machine)
     if (target !== null) {
       dropNote(pending)
-      if (machine !== null && target.projectId !== projects?.activeId) {
+      // A Session of another Project of this Machine: that Project first (worfy-polish ticket 127).
+      if (machine === null) {
+        openSessionInProject(target)
+        return
+      }
+      if (target.projectId !== projects?.activeId) {
         void openProject(machine, target.projectId).then((problem) => {
           if (problem !== undefined) console.error('a notification could not open its Project:', problem)
         })
@@ -121,13 +129,9 @@ export default function NotificationTarget() {
       openSession(target)
       return
     }
-    // The Session Nodes of the Project may not have asked for their views yet; on a Linked machine,
-    // the Session may be in any of its Projects.
-    if (machine === null) {
-      if (project !== undefined) ensureProject(project.id)
-    } else {
-      for (const each of projects?.projects ?? []) ensureProject(each.id)
-    }
+    // The Session Nodes of the Projects may not have asked for their views yet; the Session may be
+    // in any Project of the window's Machine.
+    for (const each of projects?.projects ?? []) ensureProject(each.id)
     const timer = setTimeout(() => dropNote(pending), Math.max(0, pending.until - Date.now()))
     return () => clearTimeout(timer)
   }, [pending, projects, project, sessionViews, orchestratorViews])

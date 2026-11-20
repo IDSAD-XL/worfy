@@ -11,8 +11,9 @@ import type { AgentEventEnvelope } from '../../shared/agent/events'
 import { dismissToast, showToast, type ToastAction } from '../toast/toasts'
 import { invoke, showSubscribeError, subscribe, windowMachine } from '../ipc'
 import { readOnlyNow } from '../projects/read-only-now'
-import { openSession, useNavigation } from './navigation'
+import { useNavigation } from './navigation'
 import { notificationTarget } from './notification-target'
+import { openSessionInProject } from './open-in-project'
 import { useShownSession } from './shown-session'
 
 const toastKey = (requestId: string): string => `question:${requestId}`
@@ -22,11 +23,14 @@ function onScreen(sessionId: string): boolean {
   return useNavigation.getState().view === 'session' && useShownSession.getState().sessionId === sessionId
 }
 
-/** Shows the Session; the Session view of the active Project when this window knows no Node for it. */
+/**
+ * Shows the Session, selecting its Project first when it runs in another one (worfy-polish ticket 127);
+ * the Session view of the active Project when this window knows no Node for it.
+ */
 function openAsking(sessionId: string): void {
   const machine = windowMachine()
   const target = notificationTarget({ sessionId, projectRoot: null, ...(machine === null ? {} : { machineId: machine }) }, undefined, machine)
-  if (target !== null) openSession(target)
+  if (target !== null) openSessionInProject(target)
   else useNavigation.setState({ view: 'session' })
 }
 

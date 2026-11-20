@@ -539,7 +539,21 @@ describe('the toast of a question whose Session is not on screen', () => {
     ])
   })
 
-  it('"Open" shows the Session of the Node that runs it', async () => {
+  const PROJECTS = [
+    { id: 'alpha', name: 'alpha', path: '/Users/test/alpha', branch: 'main' },
+    { id: 'beta', name: 'beta', path: '/Users/test/beta', branch: 'main' },
+  ]
+  // The mocked useProjects.ts keeps its store from one test to the next: each list is newer than the last.
+  let revision = 0
+
+  /** The window's Projects: `active` is the one it shows; the Session of the question runs in alpha. */
+  async function inProjects(active: string) {
+    const { acceptProjectsState } = await import('../../src/renderer/projects/useProjects')
+    revision += 10
+    acceptProjectsState({ projects: PROJECTS, activeId: active, revision })
+  }
+
+  async function loadAlphaNode() {
     answers['sessions.views'] = () => ({ views: [nodeView({ state: 'busy' })] })
     const { useSessionNodeViewOf } = await import('../../src/renderer/session/node-sessions')
     function Load() {
@@ -550,11 +564,52 @@ describe('the toast of a question whose Session is not on screen', () => {
     await act(async () => {
       await Promise.resolve()
     })
+  }
+
+  it('"Open" shows the Session of the Node that runs it, in the active Project without selecting it again', async () => {
+    await loadAlphaNode()
+    await inProjects('alpha')
     const shown = await start()
     emit('sdk-7', request())
     const { useNavigation } = await import('../../src/renderer/session/navigation')
     act(() => shown()[0]?.actions?.at(-1)?.run())
     expect(useNavigation.getState()).toMatchObject({ view: 'session', opened: { alpha: { nodeId: 'node-7', projectId: 'alpha' } } })
+    expect(asked.filter((each) => each.channel === 'projects.select')).toEqual([])
+  })
+
+  it('"Open" on a question of a Session in another Project selects that Project, then shows the Session (worfy-polish ticket 127)', async () => {
+    await loadAlphaNode()
+    await inProjects('beta')
+    answers['projects.select'] = (input) => ({ projects: PROJECTS, activeId: (input as { id: string }).id, revision: revision + 1 })
+    const shown = await start()
+    emit('sdk-7', request())
+    const { useNavigation } = await import('../../src/renderer/session/navigation')
+    const { activeProject, useProjects } = await import('../../src/renderer/projects/useProjects')
+    function Active() {
+      return <span data-testid="active">{activeProject(useProjects())?.id}</span>
+    }
+    render(<Active />)
+    await act(async () => {
+      shown()[0]?.actions?.at(-1)?.run()
+      await Promise.resolve()
+    })
+    await vi.waitFor(() => expect(useNavigation.getState()).toMatchObject({ view: 'session', opened: { alpha: { nodeId: 'node-7', projectId: 'alpha' } } }))
+    expect(asked.filter((each) => each.channel === 'projects.select').map((each) => each.input)).toEqual([{ id: 'alpha' }])
+    expect(screen.getByTestId('active').textContent).toBe('alpha')
+  })
+
+  it('"Open" says why when the Session\'s Project cannot be selected, and opens nothing', async () => {
+    await loadAlphaNode()
+    await inProjects('beta')
+    const shown = await start()
+    emit('sdk-7', request())
+    const { useNavigation } = await import('../../src/renderer/session/navigation')
+    await act(async () => {
+      shown()[0]?.actions?.at(-1)?.run()
+      await Promise.resolve()
+    })
+    await vi.waitFor(() => expect(shown().find((each) => each.kind === 'error')).toMatchObject({ text: 'alpha could not be opened: no projects.select' }))
+    expect(useNavigation.getState()).toMatchObject({ view: 'canvas', opened: {} })
   })
 
   it('no toast while the Session view shows that Session', async () => {
