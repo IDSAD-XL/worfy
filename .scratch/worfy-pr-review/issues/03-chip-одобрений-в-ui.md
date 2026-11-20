@@ -66,3 +66,50 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решение», 5; «Как
 ## Вне скоупа
 
 - Chip в Review mode — Ticket 09. Chip в результатах поиска — Ticket 05.
+
+## Итог
+
+- Сначала падающий: `test/unit/approvals-chip.test.tsx` красный до правки — модуль `src/renderer/pr-inbox/ApprovalsChip`
+  не находится, 0 test-ов. Новые test-ы `pr-inbox-view.test.tsx` (3 из 4 красные; зелёный только test старого snapshot-а
+  без `approvals`), `pipeline-board.test.tsx` (3 из 3 красные) и `review-threads-badge.test.tsx` (3 из 5 красные; два
+  зелёных — `reviewChipsOf`, который правился раньше test-а, и случай «chip-а нет») — красные до правки renderer-а.
+- Chip — `ApprovalsChip.tsx`, его тексты — чистая `approvalsChip` в `usePrInbox.ts`: `0/2`, `1/2` нейтральный, `✓ 2/2`
+  только при `APPROVED` GitHub-а, `✓ 2` при скрытом правиле, `✕ 1/2` (`--blocked-*`), `1/?` приглушённый с пунктиром,
+  часы — когда счёт набран, а code owners держат. `aria-label` — словами; tooltip — кто одобрил, кого из code owners
+  ждут, сколько одобрений снял последний push, и почему GitHub держит набранный счёт.
+- Строка списка: chip справа, последним в строке меток. Ячейка Review панели становится Approvals, когда main прислал
+  `approvals`: chip, строка «of 2 required» / «changes requested» / «waiting for code owners» / «rule not visible to your
+  account», список reviewer-ов; snapshot Project machine старой версии — ячейка Review, как раньше. Сетка ячеек — `1fr
+  1.9fr 1fr 1fr`, как в прототипе. Chip со словом — ещё и в шапке панели (как в прототипе).
+- Доска Pipeline: на Stage Human review — `Waits: team · 1/2 approvals`, пока одобрений не хватает (`approvalsShort`:
+  chip показан и GitHub не сказал `APPROVED`); на других Stage-ах chip-а нет. Карточка Ticket-а на Canvas: chip рядом с
+  последним chip-ом ревью или отдельной строкой, если их нет; `REVIEW_LINE` прежний (18), строка не выше 16 px.
+- Снимки строки и ячейки Approvals на 1280 px: [светлая](../evidence/03-approvals-1280-light.png),
+  [тёмная](../evidence/03-approvals-1280-dark.png). От прототипа (Card `card-53b21f06`, `chips`) отличаются: в строке
+  chip стоит во второй строке справа, после пузыря нитей (в прототипе — так же, под возрастом); ячейка Approvals живёт
+  в общей сетке фактов панели, а не отдельным блоком; аватар команды — круглый, а не квадратный.
+- **Решено без владельца, подтвердить:** след Ticket-а расширен (Orchestrator разрешил 2026-11-20): `src/shared/ipc/pr-inbox.ts`
+  (необязательное поле `approvals.reviewers`), `src/shared/github/approvals.ts` (`approvalsOf` строит список из отзывов и
+  открытых запросов ревью), `src/main/github/inbox.ts` (передаёт все запросы ревью, правка только в `toPull`),
+  `test/unit/pr-approvals.test.ts`, `test/contract/pr-inbox-approvals.test.ts`. Причина: строка inbox после Ticket-а 02
+  не несла ни отзывов, ни запросов ревью — списка reviewer-ов ячейки Approvals (пункт 3) взять было неоткуда. Snapshot без
+  `reviewers` разбирается (test), новый — проходит схему Ticket-а 02 (test). Ещё правлены стили рядом со следом
+  (`approvals-chip.css` новый, `pr-inbox.css`, `review-threads.css`) и страницы Feature `pr-inbox.md`,
+  `gate-and-github.md`, `workflow.md` (английские; перевод — Ticket 12).
+- **Решено без владельца, подтвердить:** запрос code owner-а без reviewer-а (команда, которую токен не видит) — запись
+  `code owners (hidden team)`, `requested`, не считается; при правиле code owners она же идёт в `codeOwnersPending` и держит
+  chip незелёным (замечание ревью Ticket-а 02 про `inbox.ts:260-262`). Запрос без reviewer-а не от code owner-а —
+  `a team (hidden)`.
+- **Решено без владельца, подтвердить:** `moreRules` в tooltip называется только тогда, когда счёт набран, а GitHub всё ещё
+  не одобрил («more rules apply — GitHub decides»): флаг стоит почти на каждом настоящем репозитории, и на каждом PR
+  подсказка была бы шумом. Набранный счёт, который ничто из известного не объясняет, говорит «GitHub says: review
+  required» и никогда не называется одобренным.
+- **Решено без владельца, подтвердить:** правило с `need: 0` при `decision: review-required` — chip `review required` вместо
+  числа, «0/0» не бывает; при `APPROVED` — `✓ 1`.
+- **Решено без владельца, подтвердить:** при dismiss stale зелёный chip — только по решению GitHub (spec); одобрение на
+  старом commit-е в списке — `Approved · stale`, в tooltip — «1 stale approval, before the last push».
+- **Решено без владельца, подтвердить:** Ticket над несколькими репозиториями показывает на карточке и доске первый PR, которому
+  не хватает одобрений (в порядке групп вида); tooltip карточки называет его.
+- **Решено без владельца, подтвердить:** проверки chip-а на карточке Ticket-а — в `test/unit/review-threads-badge.test.tsx`
+  (там fake preload для badge-а; `ticket-card.test.tsx` отключает badge-и mock-ом); в `ticket-card.test.tsx` — место на
+  карточке: одна строка `REVIEW_LINE` для chip-а без других chip-ов, ни одной — рядом с ними и при `✓`.
