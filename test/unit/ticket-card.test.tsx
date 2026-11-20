@@ -305,7 +305,7 @@ describe('the card is as tall as what it shows', () => {
 
   // The approvals chip (worfy-pr-review ticket 03, Q5 (a)): drawn by the review threads badge (its own test,
   // review-threads-badge.test.tsx); here only the room the card gets for it. REVIEW_LINE itself does not grow.
-  it('a card whose open PR is short of approvals gets one review line for the chip; beside a label it adds none; at ✓ none', async () => {
+  it('a card whose open PR is short of approvals gets one review line of its own for the chip; at ✓ none', async () => {
     const { reviewChipsOf } = await import('../../src/renderer/canvas/badges/review-threads')
     const approvals = { have: 1, need: 2, source: 'ruleset', codeOwnersPending: [], stale: 0, lastPushNeedsOther: false, moreRules: false, decision: 'review-required', reviewers: [] } as const
     const pull = { repo: 'example-org/app', number: 7, title: 'PR 7', url: 'https://github.com/example-org/app/pull/7', isDraft: false, author: 'dev-me', headRefName: 'demo/01', headRefOid: 'sha7', createdAt: '2026-11-08T10:00:00Z', updatedAt: '2026-11-09T10:00:00Z', ci: 'passing', reviewDecision: null, mergeStateStatus: 'CLEAN', additions: null, deletions: null, viaTeam: false, unresolvedThreads: 0, newSinceSeen: 0, lastActivityAt: '2026-11-09T10:00:00Z', threads: [], comments: [] } as const
@@ -316,7 +316,7 @@ describe('the card is as tall as what it shows', () => {
     expect(room({ approvals })).toBe(REVIEW_LINE)
     expect(room({ approvals: { ...approvals, need: null, source: 'hidden' } })).toBe(REVIEW_LINE)
     expect(room({ approvals: { ...approvals, have: 2, decision: 'approved' } })).toBe(0)
-    expect(room({ reviewDecision: 'CHANGES_REQUESTED', approvals: { ...approvals, decision: 'changes-requested' } })).toBe(REVIEW_LINE)
+    expect(room({ reviewDecision: 'CHANGES_REQUESTED', approvals: { ...approvals, decision: 'changes-requested' } })).toBe(2 * REVIEW_LINE)
     expect(room({})).toBe(0)
   })
 })

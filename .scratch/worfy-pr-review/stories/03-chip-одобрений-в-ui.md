@@ -161,22 +161,24 @@ Code: `src/renderer/pr-inbox/PrInboxView.tsx:562-567` · key lines: 563, 565
 - Требование: [Что делаем, пункт 3](../issues/03-chip-одобрений-в-ui.md#что-делаем)
 - Риски и пробелы test-ов: ширина ячейки (`1fr 1.9fr 1fr 1fr`) проверена снимком на 1280 px, на 1600 px — нет.
 
-## 7. Карточка Ticket-а: chip не добавляет строку рядом с другими chip-ами
+## 7. Карточка Ticket-а: chip одобрений всегда на своей строке
 
 Code: `src/renderer/canvas/badges/review-threads.ts:87-87` · key lines: 87
 
 ```ts
-export const reviewLinesOf = (reviews: TicketReviews | null): number => (reviews === null ? 0 : Math.max(reviewLabels(reviews).length, reviews.short === null ? 0 : 1))
+export const reviewLinesOf = (reviews: TicketReviews | null): number => (reviews === null ? 0 : reviewLabels(reviews).length + (reviews.short === null ? 0 : 1))
 ```
 
-- Что делает: число строк badge-а ревью — по строке на ярлык; chip одобрений встаёт рядом с последним ярлыком, а
-  отдельную строку берёт, только если ярлыков нет. Это число `reviewChipsOf` отдаёт раскладке карточки (`REVIEW_LINE` на строку).
+- Что делает: число строк badge-а ревью — по строке на ярлык и ещё одна под chip одобрений. Это число `reviewChipsOf`
+  отдаёт раскладке карточки (`REVIEW_LINE` на строку).
 - Почему здесь: Ticket, пункт 5 — «высота строки `REVIEW_LINE` не растёт»; Q5 (а) — chip только пока PR открыт и
   одобрений не хватает.
-- Без него: карточка с нитями и chip-ом стала бы на строку выше, а chip без места на карточке с `overflow: hidden` обрезался бы.
+- Без него: chip без места на карточке с `overflow: hidden` обрезался бы. Первая версия ставила chip рядом с последним
+  ярлыком — e2e `checks-badges.spec.ts:377` в CI PR #2073 показал, что «changes requested» и `✕ 0/? approvals` вместе
+  шире карточки (226 px при 218).
 - Требование: [Что делаем, пункт 5](../issues/03-chip-одобрений-в-ui.md#что-делаем)
-- Риски и пробелы test-ов: что «3 open threads» и `1/2 approvals` помещаются в одну строку карточки шириной 218 px —
-  проверено расчётом, не снимком.
+- Риски и пробелы test-ов: карточка с chip-ом стала на строку выше; что ничего не обрезано, проверяет e2e
+  `checks-badges.spec.ts:377` (`ticketCardCuts`) только для случая «changes requested» с `✕ 0/? approvals`.
 
 ## 8. Доска Pipeline: только на Human review
 

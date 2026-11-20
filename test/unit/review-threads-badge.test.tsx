@@ -263,16 +263,19 @@ describe('the approvals chip on a Ticket card', () => {
     expect(usePrInboxFocus.getState().focus).toMatchObject({ pr: { repo: WEB, number: 118 } })
   })
 
-  it('beside the last label: threads and the chip share a line; with changes requested too, two lines', async () => {
+  it('below the labels: the chip always has a line of its own, never beside «changes requested»', async () => {
     inbox = snapshotOf({ 'needs-answer': [row(WEB, 118, { threads: [thread([PEER])], approvals: approvals({ need: null, source: 'hidden' }) })] })
     let fresh = await load()
     render(<fresh.default subject={subject(7)} />)
-    expect(lines(await screen.findByTestId('badge-review-threads'))).toEqual(['1 open thread1/? approvals'])
+    expect(lines(await screen.findByTestId('badge-review-threads'))).toEqual(['1 open thread', '1/? approvals'])
     cleanup()
     inbox = snapshotOf({ 'needs-fix': [row(WEB, 118, { threads: WAITING, reviewDecision: 'CHANGES_REQUESTED', approvals: approvals({ decision: 'changes-requested' }) })] })
     fresh = await load()
     render(<fresh.default subject={subject(7)} />)
-    expect(lines(await screen.findByTestId('badge-review-threads'))).toEqual(['3 open threads', 'changes requested✕ 1/2 approvals'])
+    const badge = await screen.findByTestId('badge-review-threads')
+    expect(lines(badge)).toEqual(['3 open threads', 'changes requested', '✕ 1/2 approvals'])
+    // The tooltip says «changes requested» once: the approvals add their count only.
+    expect(badge.getAttribute('title')).toBe(`${WEB}#118: 3 open threads, changes requested, 1 of 2 required approvals\nOpen in Pull requests`)
   })
 
   it('approvals enough, no rule, or none read: no chip, and no badge when nothing else waits', async () => {
@@ -286,12 +289,12 @@ describe('the approvals chip on a Ticket card', () => {
     }
   })
 
-  it('the room on the card: the chip adds a line only when no label has one', async () => {
+  it('the room on the card: the chip adds a line of its own', async () => {
     const { reviewChipsOf } = await load()
     tickets = [ticket(7, { pr: 118 })]
     expect(reviewChipsOf(snapshotOf({ waiting: [row(WEB, 118, { approvals: approvals() })] }), tickets)).toEqual({ 'shop/7': 1 })
-    expect(reviewChipsOf(snapshotOf({ 'needs-answer': [row(WEB, 118, { threads: WAITING, approvals: approvals() })] }), tickets)).toEqual({ 'shop/7': 1 })
-    expect(reviewChipsOf(snapshotOf({ 'needs-fix': [row(WEB, 118, { threads: WAITING, reviewDecision: 'CHANGES_REQUESTED', approvals: approvals() })] }), tickets)).toEqual({ 'shop/7': 2 })
+    expect(reviewChipsOf(snapshotOf({ 'needs-answer': [row(WEB, 118, { threads: WAITING, approvals: approvals() })] }), tickets)).toEqual({ 'shop/7': 2 })
+    expect(reviewChipsOf(snapshotOf({ 'needs-fix': [row(WEB, 118, { threads: WAITING, reviewDecision: 'CHANGES_REQUESTED', approvals: approvals() })] }), tickets)).toEqual({ 'shop/7': 3 })
     expect(reviewChipsOf(snapshotOf({ waiting: [row(WEB, 118, { approvals: approvals({ decision: 'approved', have: 2 }) })] }), tickets)).toEqual({})
   })
 

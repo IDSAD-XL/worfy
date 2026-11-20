@@ -481,7 +481,10 @@ test('review threads on Ticket 08: «3 open threads» and «changes requested» 
     await expect(badge).toBeVisible({ timeout: ms(30_000) })
     await expect(badge.getByTestId('review-threads-count')).toHaveText('3 open threads')
     await expect(badge.getByTestId('review-threads-changes')).toHaveText('changes requested')
-    await expect(badge).toHaveAttribute('title', `${slug}#31: 3 open threads, changes requested\nOpen in Pull requests`)
+    // GitHub says CHANGES_REQUESTED and no rule is visible to the account: the approvals chip `✕ 0/? approvals` stands
+    // on a line of its own below «changes requested» (worfy-pr-review ticket 03), and the tooltip adds the count without repeating it.
+    await expect(badge.getByTestId('approvals-chip')).toHaveText('✕ 0/? approvals')
+    await expect(badge).toHaveAttribute('title', `${slug}#31: 3 open threads, changes requested, 0 approvals\nOpen in Pull requests`)
     await expect(ticket(8).getByTestId('checks-pr')).toHaveText('PR #31')
     await expect(ticket(8).getByTestId('checks-verdict')).toHaveText('VERIFIED')
     await expect(ticket(9).getByTestId('badge-review-threads')).toHaveCount(0)

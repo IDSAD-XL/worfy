@@ -19,8 +19,9 @@ import './review-threads.css'
 // ticket-card.ts gives one line per chip (REVIEW_LINE), from `reviewChipsOf` over the same snapshot (sources/epics.ts).
 //
 // A PR short of approvals adds the approvals chip `1/2 approvals` (worfy-pr-review ticket 03, Q5 (a): only while the PR is
-// open — the inbox holds open PRs only — and approvals are short): beside the last label, or on a line of its own when
-// there is none, so it never makes a line taller and adds a line only to a card that had none.
+// open — the inbox holds open PRs only — and approvals are short): always on a line of its own, below the labels. Beside
+// «changes requested» the pair is wider than the card (218 px), so the chip never shares a line; it never makes a line
+// taller, and reviewLinesOf counts its line.
 
 export const order = 15
 
@@ -31,7 +32,9 @@ const firstWaiting = (reviews: TicketReviews): TicketPull | undefined => reviews
 function tooltipOf(reviews: TicketReviews): string {
   const lines = reviews.pulls.flatMap((pull) => {
     const chip = approvalsChip(pull.approvals ?? undefined)
-    const labels = [...reviewLabels(pull), ...(chip === null ? [] : [chip.label])]
+    // The approvals in words, without a second «changes requested» when the chip of that name already says it.
+    const approvals = chip === null ? [] : [pull.changesRequested ? chip.label.replace(/, changes requested$/u, '') : chip.label]
+    const labels = [...reviewLabels(pull), ...approvals]
     return labels.length === 0 ? [] : [`${pull.repo}#${pull.number}: ${labels.join(', ')}`]
   })
   return `${lines.join('\n')}\nOpen in Pull requests`
@@ -75,11 +78,10 @@ function TicketReviewThreads({ projectId, root, ticket }: { projectId: string; r
       }}
       onDoubleClick={(event) => event.stopPropagation()}
     >
-      {/* A line per label; the approvals chip beside the last one, or alone on a line. */}
-      {(lines.length === 0 ? [null] : lines).map((line, index, all) => (
+      {/* A line per label, and the approvals chip alone on the last line. */}
+      {[...lines, ...(chip === null ? [] : [chip])].map((line, index) => (
         <span key={index} className="w-review-threads__line">
           {line}
-          {index === all.length - 1 ? chip : null}
         </span>
       ))}
     </button>

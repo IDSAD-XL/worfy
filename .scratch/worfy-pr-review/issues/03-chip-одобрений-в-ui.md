@@ -90,8 +90,10 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решение», 5; «Как
   account», список reviewer-ов; snapshot Project machine старой версии — ячейка Review, как раньше. Сетка ячеек — `1fr
   1.9fr 1fr 1fr`, как в прототипе. Chip со словом — ещё и в шапке панели (как в прототипе).
 - Доска Pipeline: на Stage Human review — `Waits: team · 1/2 approvals`, пока одобрений не хватает (`approvalsShort`:
-  chip показан и GitHub не сказал `APPROVED`); на других Stage-ах chip-а нет. Карточка Ticket-а на Canvas: chip рядом с
-  последним chip-ом ревью или отдельной строкой, если их нет; `REVIEW_LINE` прежний (18), строка не выше 16 px.
+  chip показан и GitHub не сказал `APPROVED`); на других Stage-ах chip-а нет. Карточка Ticket-а на Canvas: chip всегда
+  отдельной строкой под chip-ами ревью; `REVIEW_LINE` прежний (18), строка не выше 16 px. Первая версия ставила chip
+  рядом с последним chip-ом ревью — CI PR #2073 упал на e2e `checks-badges.spec.ts:377`: «changes requested» и
+  `✕ 0/? approvals` вместе шире карточки (226 px при 218), а слово «approvals» выше своей строки (12 px при 11).
 - Снимки строки и ячейки Approvals на 1280 px: [светлая](../evidence/03-approvals-1280-light.png),
   [тёмная](../evidence/03-approvals-1280-dark.png). От прототипа (Card `card-53b21f06`, `chips`) отличаются: в строке
   chip стоит во второй строке справа, после пузыря нитей (в прототипе — так же, под возрастом); ячейка Approvals живёт
@@ -120,4 +122,4 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решение», 5; «Как
   не хватает одобрений (в порядке групп вида); tooltip карточки называет его.
 - **Решено без владельца, подтвердить:** проверки chip-а на карточке Ticket-а — в `test/unit/review-threads-badge.test.tsx`
   (там fake preload для badge-а; `ticket-card.test.tsx` отключает badge-и mock-ом); в `ticket-card.test.tsx` — место на
-  карточке: одна строка `REVIEW_LINE` для chip-а без других chip-ов, ни одной — рядом с ними и при `✓`.
+  карточке: одна строка `REVIEW_LINE` для chip-а — и без других chip-ов, и рядом с ними; ни одной при `✓`.

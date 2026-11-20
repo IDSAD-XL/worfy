@@ -264,7 +264,11 @@ test('the toolbar, the sidebar and the palette open the view; a click and ↑ / 
     await expect(pane(window).getByTestId('pr-inbox-next-step-title')).toHaveText('Answer 1 open thread')
     await expect(pane(window).getByTestId('pr-inbox-size')).toHaveText('+184−22')
     await expect(pane(window).getByTestId('pr-inbox-merge')).toHaveText('Blocked')
-    await expect(pane(window).getByTestId('pr-inbox-review')).toHaveText('Review required')
+    // The row carries approvals (worfy-pr-review ticket 03): the Approvals cell replaces Review. The stub reads no rule
+    // while GitHub says REVIEW_REQUIRED, so the rule is not visible to the account: `0/?`.
+    await expect(pane(window).getByTestId('pr-inbox-review')).toHaveCount(0)
+    await expect(pane(window).locator('[data-fact="approvals"]').getByTestId('approvals-chip')).toHaveText('0/?')
+    await expect(pane(window).getByTestId('pr-inbox-approvals-note')).toHaveText('rule not visible to your account')
     // Selected by the view itself: still new. A click is the user's look: "2 new since you looked" goes once main has it.
     await expect(answer.getByTestId('pr-inbox-new')).toHaveAttribute('aria-label', '2 new since you looked')
     await expect(pane(window).getByTestId('pr-inbox-pane-new')).toHaveText('2 new since you looked')

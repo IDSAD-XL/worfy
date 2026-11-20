@@ -34,6 +34,8 @@
   color: var(--text-muted);
 }
 .w-approvals-chip__word {
+  /* The UI face is taller than its 11 px size at line-height 1: 13 px holds it, and the 16 px chip still holds the line. */
+  line-height: 13px;
   font-family: var(--font-ui);
   font-weight: 400;
   white-space: pre;

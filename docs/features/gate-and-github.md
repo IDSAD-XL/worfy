@@ -560,8 +560,8 @@ row expanded.
 any other Stage, and with no waiting thread, the card has no such line.
 
 **Approvals.** While a PR of the Ticket is open and short of approvals (GitHub has not approved it), the Ticket card
-has the approvals chip of the [PR inbox](pr-inbox.md), `1/2 approvals`, beside its last review chip, or on a line of its
-own when it has none: the chip never makes a line taller. A Ticket over several repositories shows its first PR short of
+has the approvals chip of the [PR inbox](pr-inbox.md), `1/2 approvals`, on a line of its own below the review chips:
+beside «changes requested» the pair would be wider than the card. A Ticket over several repositories shows its first PR short of
 approvals, and the tooltip names it. On the Pipeline board a card on Human review says `Waits: team · 1/2 approvals`.
 
 **Nothing is written.** The badges read. worfy runs no gh command for them but `gh pr list` and `gh auth token -u <account>`, and changes

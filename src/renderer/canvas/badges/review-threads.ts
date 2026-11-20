@@ -81,10 +81,10 @@ export function reviewLabels(reviews: Pick<TicketReviews, 'threads' | 'changesRe
 }
 
 /**
- * How many lines of chips the badge draws: a line per label, and the approvals chip on the last of them, or on a line of
- * its own when there is no label (worfy-pr-review ticket 03: the chip adds no line beside a label).
+ * How many lines of chips the badge draws: a line per label, and a line of its own for the approvals chip
+ * (worfy-pr-review ticket 03: beside «changes requested» the pair is wider than the card).
  */
-export const reviewLinesOf = (reviews: TicketReviews | null): number => (reviews === null ? 0 : Math.max(reviewLabels(reviews).length, reviews.short === null ? 0 : 1))
+export const reviewLinesOf = (reviews: TicketReviews | null): number => (reviews === null ? 0 : reviewLabels(reviews).length + (reviews.short === null ? 0 : 1))
 
 /** How many lines of chips the badge draws on each Ticket that has any, by `<epic>/<num>`: the room ticket-card.ts gives the card. */
 export function reviewChipsOf(snapshot: PrInboxSnapshot | undefined, tickets: readonly Ticket[]): Record<string, number> {
