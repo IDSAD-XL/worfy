@@ -1011,9 +1011,9 @@ body.w-split-dragging * {
   --product-field-height: 38px;
 }
 
-/* The status lines of a quiet turn and of Auto-continue keep their Session buttons, centred on the field's line. */
+/* The Session buttons of the status lines of a quiet turn and of Auto-continue, as before. */
 .w-composer--product .w-session__button {
-  margin-bottom: 5px;
+  margin-bottom: 6px;
 }
 
 .w-composer--product .w-composer__attach,
