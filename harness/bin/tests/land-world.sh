@@ -24,7 +24,8 @@ STUBS="$T/stubs"; mkdir -p "$STUBS"
 # the file); runs-<sha> — the JSON list of `gh run list` for that head ([] without it); checks-<sha> — the JSON
 # list of check runs (one ci-ok completed success without it); status-<sha>.json — {context: state} (review
 # success without it); main-runs — the JSON list of the push runs on main ([] without it), main-runs-fail — reading
-# them fails; pulls-<sha> — the JSON list of the PRs of a commit; merge-fail-<N> — `pr merge` refused; kill-after-merge-<N> — after the merge of N it
+# them fails; issues — the JSON list `gh issue list` prints ([] without it), issues-fail — reading them fails;
+# pulls-<sha> — the JSON list of the PRs of a commit; merge-fail-<N> — `pr merge` refused; kill-after-merge-<N> — after the merge of N it
 # kills its parent (land) with SIGKILL. `pr merge` squash-merges refs/pull/<N>/head into main of $GH_ORIGIN and
 # logs whether $LAND_TEST_LOCK was held. `pr create` gives numbers from 900 and points refs/pull/<n>/head at the
 # pushed branch; kill-before-create — it kills its parent (land) with SIGKILL first and creates nothing.
@@ -91,6 +92,10 @@ if (cmd === "pr view") {
     g("-C", O, "update-ref", "refs/heads/main", oid, main)
     setPr(n, { state: "MERGED", mergeCommit: { oid } })
     if (has(`kill-after-merge-${n}`)) process.kill(process.ppid, "SIGKILL")
+} else if (cmd === "issue list") {
+    // the open issues of a label (red_elsewhere): issues — their JSON list ([] without it); issues-fail — gh fails
+    if (has("issues-fail")) { process.stderr.write("HTTP 502: Bad Gateway\n"); process.exit(1) }
+    out(JSON.parse(read("issues", "[]")))
 } else if (cmd === "pr list") {
     const br = a[a.indexOf("--head") + 1], made = JSON.parse(read("created.json", "{}"))
     out(made[br] && prJson(made[br]).state === "OPEN" ? [{ number: made[br] }] : [])
@@ -165,6 +170,16 @@ const paths = fs.readFileSync(0, "utf8").split("\n").filter(Boolean)
 fs.appendFileSync(path.join(D, "docs-only.log"), `${paths.join(" ")} cwd=${path.basename(process.cwd())}\n`)
 const p = path.join(D, "docs-only-rc")
 process.exit(fs.existsSync(p) ? +fs.readFileSync(p, "utf8") : paths.length && paths.every((x) => x.endsWith(".md")) ? 0 : 1)
+EOF
+# the scope command of red_elsewhere (which PRs a red main branch on another machine holds): `<base> <head>`; logs them
+# and its cwd; exit code from $GHD/scope-<head> (1 without it: the PR needs that machine).
+cat >"$STUBS/scope.mjs" <<'EOF'
+import fs from "node:fs"
+import path from "node:path"
+const D = process.env.GHD, [base, head] = process.argv.slice(2)
+fs.appendFileSync(path.join(D, "scope.log"), `${base} ${head} cwd=${path.basename(process.cwd())}\n`)
+const p = path.join(D, `scope-${head}`)
+process.exit(fs.existsSync(p) ? +fs.readFileSync(p, "utf8") : 1)
 EOF
 # the documents check: exit code from $GHD/docs-check-rc (0 without it).
 cat >"$STUBS/docs-check.mjs" <<'EOF'

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Tests of harness/bin/land: the merge condition (the CI check of the head, no CI run in progress, a main branch whose push
 # runs are not red — the culprit named, documents and a main fix merged, a rerun that passed is green —, the marker of a
-# red main branch for worfy (main-red-<key>.json: written, kept, removed), the review
+# red main branch for worfy (main-red-<key>.json: written, kept, removed), a main branch red on another machine (red_elsewhere:
+# an open issue of its label holds the PRs its command names; documents, a main fix and the PRs it does not name merge), the review
 # mark and its carry over a rebase, the Check marks a PR lists, the head the orchestrator verified), mergeable UNKNOWN asked again, BEHIND merged without a rebase and a conflict waiting, the
 # main-branch lock, one documents PR per run with `ticket done` for every merged PR, the Evidence lines of
 # prs[].evidence written by `ticket evidence` and the privacy check (evidence-check) before its push, a run broken
@@ -539,6 +540,78 @@ edit 's.prs[0].main_fix=true'
 red_main
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && ok "red main: a PR marked main_fix merges while main is red" || bad "red main fix: exit $rc: $(cat "$W/out")"
+
+# --- main red on another machine (red_elsewhere): an open issue of its label holds the PRs its scope command names ------
+# e.g. the label pc-main-red and the project's scope command on <base> <head> (exit 1 — the PR needs that machine)
+export NEEDS="node \"$(tn "$STUBS/scope.mjs")\" <base> <head>"
+elsewhere() { edit 's.red_elsewhere={label:"pc-main-red",needs:process.env.NEEDS}'; }
+issue_open() { printf '[{"number":1513,"title":"PC gate full red on %s","url":"https://github.com/o/r/issues/1513"}]\n' "$C2" >"$GHD/issues"; }
+HELD_REASON="#1 waits: main is red elsewhere: open pc-main-red issue #1513 \"PC gate full red on $C2\" https://github.com/o/r/issues/1513 — the PR needs that machine (red_elsewhere.needs exit 1) and waits until the issue is closed"
+new_world elsewhere 1 2
+state 1 2
+elsewhere; issue_open
+echo 0 >"$GHD/scope-$(head_of 2)"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merged_of 1)" = 0 ] && grep -qxF "$HELD_REASON" "$W/out" && tail -n 1 "$W/out" | grep -qx 'LAND=unverified' && [ "$(q "$S" 's.prs[0].result.kind')" = waits ] \
+    && ok "red elsewhere: an open issue of the label holds a PR the scope command names (exit 1); the reason names the issue, its title and URL; exit 3" || bad "red elsewhere held: exit $rc: $(cat "$W/out")"
+[ "$(merged_of 2)" = 1 ] && grep -q '^#2 merged ' "$W/out" && grep -q "Z #2: red_elsewhere.needs exit 0 — merged while pc-main-red issue #1513 is open" "$W/state.log" \
+    && ok "red elsewhere: a PR the scope command does not name (exit 0) merges while the issue is open, the log says why" || bad "red elsewhere runner: $(cat "$W/out") $(grep '#2' "$W/state.log")"
+grep -qx 'issue list --label pc-main-red --state open --json number,title,url' "$GHD/log" \
+    && ok "red elsewhere: the open issues come from gh issue list --label <label> --state open" || bad "red elsewhere gh: $(grep '^issue' "$GHD/log")"
+fork1="$(git -C "$W/origin.git" rev-parse "$(head_of 1)~1")"
+grep -qx "$fork1 $(head_of 1) cwd=repo" "$GHD/scope.log" \
+    && ok "red elsewhere: the scope command gets the PR's fork point and head, in the checkout of the main branch" || bad "red elsewhere scope args: $(cat "$GHD/scope.log" 2>/dev/null) want $fork1"
+# a PR with documents only and a PR marked main_fix merge while the issue is open; the scope command is not asked
+new_world elsewhere-docs 1
+docs_pr 2
+state 2
+edit 's.docs_only=process.env.DOCS_ONLY'
+elsewhere; issue_open
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(merged_of 2)" = 1 ] && [ ! -e "$GHD/scope.log" ] && grep -q 'Z #2: documents only — merged while pc-main-red issue #1513 is open' "$W/state.log" \
+    && ok "red elsewhere: a PR with documents only merges while the issue is open, the log says why" || bad "red elsewhere docs: exit $rc: $(cat "$W/out")"
+new_world elsewhere-fix 1
+state 1
+edit 's.prs[0].main_fix=true'
+elsewhere; issue_open
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && [ ! -e "$GHD/scope.log" ] && grep -q 'Z #1: main_fix — not held by open pc-main-red issues' "$W/state.log" \
+    && ok "red elsewhere: a PR marked main_fix merges while the issue is open, the log says why" || bad "red elsewhere fix: exit $rc: $(cat "$W/out")"
+# gh unable to read the issues, a scope command that exits neither 0 nor 1: the PR waits unverified, no merge
+new_world elsewhere-ghfail 1
+state 1
+elsewhere; issue_open; : >"$GHD/issues-fail"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -q '^#1 waits: the open pc-main-red issues: gh exit 1: HTTP 502' "$W/out" && tail -n 1 "$W/out" | grep -qx 'LAND=unverified' \
+    && ok "red elsewhere: gh issue list fails -> the PR waits (unverified), no merge" || bad "red elsewhere gh fail: exit $rc: $(cat "$W/out")"
+new_world elsewhere-scopefail 1
+state 1
+elsewhere; issue_open; echo 2 >"$GHD/scope-$(head_of 1)"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -q '^#1 waits: main is red elsewhere: open pc-main-red issue #1513 .* — red_elsewhere.needs exit 2, not 0 or 1: unverified, the PR waits' "$W/out" && tail -n 1 "$W/out" | grep -qx 'LAND=unverified' \
+    && ok "red elsewhere: a scope command that exits neither 0 nor 1 -> the PR waits (unverified), no merge" || bad "red elsewhere scope fail: exit $rc: $(cat "$W/out")"
+# no open issue: the PR merges and the scope command is not asked; without red_elsewhere no issue is read at all
+new_world elsewhere-closed 1
+state 1
+elsewhere
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && [ ! -e "$GHD/scope.log" ] \
+    && ok "red elsewhere: no open issue of the label -> the PR merges, the scope command is not asked" || bad "red elsewhere closed: exit $rc: $(cat "$W/out")"
+new_world elsewhere-off 1
+state 1
+issue_open
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && ! grep -q '^issue list' "$GHD/log" \
+    && ok "red elsewhere: without red_elsewhere in the state file land reads no issue and merges as before" || bad "red elsewhere off: exit $rc: $(cat "$W/out")"
+# read again under the lock: the issue opened while land waited for it
+new_world elsewhere-lock 1
+state 1
+elsewhere
+mkdir "$LAND_TEST_LOCK" "$GHD/on-sleep"; : >"$GHD/unlock-on-sleep"
+issue_open; mv "$GHD/issues" "$GHD/on-sleep/issues"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qxF "$HELD_REASON" "$W/out" && [ ! -e "$LAND_TEST_LOCK" ] \
+    && ok "red elsewhere: read again under the lock; the issue opened while land waited, no merge" || bad "red elsewhere lock: exit $rc: $(cat "$W/out")"
 # flaky: the red run's failed jobs were rerun once and passed — its latest attempt is green, so main is green
 new_world mainflaky 1
 state 1
@@ -623,8 +696,8 @@ main_runs "$(mrun 3 "$C3" completed failure 1 2026-11-09T10:10:00Z)" "$(mrun 2 "
 printf '[{"number":41,"merge_commit_sha":"%s"}]' "$C2" >"$GHD/pulls-$C2"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 3 ] && grep -qxF "$RED_LINE" "$W/out" && ok "red main: fewer runs than the window and none green — the oldest red one is the culprit" || bad "history: exit $rc: $(cat "$W/out")"
-# the input: main_fix is a boolean, docs_only null or a command
-for bad_input in 's.prs[0].main_fix="yes"' 's.docs_only=""' 's.docs_only=3'; do
+# the input: main_fix is a boolean, docs_only null or a command, red_elsewhere null or {label, needs}, both text
+for bad_input in 's.prs[0].main_fix="yes"' 's.docs_only=""' 's.docs_only=3' 's.red_elsewhere="pc-main-red"' 's.red_elsewhere={label:"pc-main-red"}' 's.red_elsewhere={label:"",needs:"x"}'; do
     i=$((i + 1)); new_world "input$i" 1
     state 1
     edit "$bad_input"
@@ -636,17 +709,28 @@ done
 SKILL="${SKILL_FILE:-$HERE/../../skills/epic-wave/SKILL.md}"
 awk '/^\*\*Merge with land\*\*/{s=1} s && /<<.NODE.$/{n=1; next} n && /^NODE$/{exit} n' "$SKILL" >"$T/skill-state.js"
 new_world skill 1
-node "$T/skill-state.js" "$(tn "$S")" "$(tn "$W/repo")" main pr ci-ok ci.yml "node \"$(tn "$STUBS/docs-check.mjs")\"" ".scratch/" full "$DOCS_ONLY" "1:e:01:$(head_of 1):windows:main-fix" >"$W/out" 2>&1
+node "$T/skill-state.js" "$(tn "$S")" "$(tn "$W/repo")" main pr ci-ok ci.yml "node \"$(tn "$STUBS/docs-check.mjs")\"" ".scratch/" full "$DOCS_ONLY" "--red-elsewhere=pc-main-red|$NEEDS" "1:e:01:$(head_of 1):windows:main-fix" >"$W/out" 2>&1
 echo '{"review":"success","check/windows":"success"}' >"$GHD/status-$(head_of 1).json"
 "$LAND" "$S" >>"$W/out" 2>&1; rc=$?
 [ -s "$T/skill-state.js" ] && [ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && [ "$(q "$S" 's.prs[0].head')" = "$(head_of 1)" ] && [ "$(q "$S" 's.prs[0].checks')" = '["windows"]' ] \
     && [ "$(q "$S" 's.tickets_root')" = .scratch ] && [ "$(q "$S" '"scope" in s')" = false ] && [ "$(q "$S" 's.docs_only')" = "$DOCS_ONLY" ] && [ "$(q "$S" 's.prs[0].main_fix')" = true ] \
-    && ok "skill: the state file of the epic-wave block is one land merges from, with docs_only and main_fix" || bad "skill block: exit $rc: $(cat "$W/out")"
+    && [ "$(q "$S" 's.red_elsewhere.label')" = pc-main-red ] && [ "$(q "$S" 's.red_elsewhere.needs')" = "$NEEDS" ] \
+    && ok "skill: the state file of the epic-wave block is one land merges from, with docs_only, red_elsewhere and main_fix" || bad "skill block: exit $rc: $(cat "$W/out")"
 # the tickets root: an absolute one inside the repository becomes relative, one outside it and Silent mode give null; no Check — []
 skill_root() { node "$T/skill-state.js" "$(tn "$W/s-$1.json")" "$(tn "$W/repo")" main pr ci-ok ci.yml "" "$2" "$3" "" "1:e:01:$(head_of 1):" >/dev/null 2>&1 && q "$W/s-$1.json" 's.tickets_root'; }
 [ "$(skill_root abs "$(tn "$W/repo")/work/tickets/" full)" = work/tickets ] && [ "$(skill_root out "$(tn "$T")/elsewhere/" full)" = null ] \
-    && [ "$(skill_root silent .scratch/ silent)" = null ] && [ "$(skill_root dot ./ full)" = null ] && [ "$(skill_root repo "$(tn "$W/repo")/" full)" = null ] && [ "$(skill_root none "" full)" = .scratch ] && [ "$(q "$W/s-none.json" 's.prs[0].checks')" = '[]' ] && [ "$(q "$W/s-none.json" 's.docs_only')" = null ] && [ "$(q "$W/s-none.json" '"main_fix" in s.prs[0]')" = false ] \
+    && [ "$(skill_root silent .scratch/ silent)" = null ] && [ "$(skill_root dot ./ full)" = null ] && [ "$(skill_root repo "$(tn "$W/repo")/" full)" = null ] && [ "$(skill_root none "" full)" = .scratch ] && [ "$(q "$W/s-none.json" 's.prs[0].checks')" = '[]' ] && [ "$(q "$W/s-none.json" 's.docs_only')" = null ] && [ "$(q "$W/s-none.json" '"main_fix" in s.prs[0]')" = false ] && [ "$(q "$W/s-none.json" 's.red_elsewhere')" = null ] \
     && ok "skill: tickets_root from the profile — absolute made relative, outside the repository, the repository itself or Silent mode null" || bad "skill roots: abs $(q "$W/s-abs.json" 's.tickets_root') out $(q "$W/s-out.json" 's.tickets_root') silent $(q "$W/s-silent.json" 's.tickets_root') dot $(q "$W/s-dot.json" 's.tickets_root') repo $(q "$W/s-repo.json" 's.tickets_root') none $(q "$W/s-none.json" 's.tickets_root')"
+# red_elsewhere is one named argument: a call of the old form (no --red-elsewhere) keeps every PR and leaves the check off;
+# a --red-elsewhere without both its label and its command, or an argument that is no PR spec, is refused (exit 1)
+node "$T/skill-state.js" "$(tn "$W/s-old.json")" "$(tn "$W/repo")" main pr ci-ok ci.yml "" .scratch/ full "" "101:e:01:$(head_of 1):" "102:e:02:$(head_of 1):" "103:e:03:$(head_of 1):" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(q "$W/s-old.json" 's.prs.map((p) => p.number).join(",")')" = 101,102,103 ] && [ "$(q "$W/s-old.json" 's.red_elsewhere')" = null ] \
+    && ok "skill: an old-form call with three PRs keeps all three, red_elsewhere null" || bad "skill old form: exit $rc: $(cat "$W/out" "$W/s-old.json" 2>&1)"
+for arg in "--red-elsewhere=pc-main-red" "--red-elsewhere=|$NEEDS" "--red-elsewhere=pc-main-red|" "pc-main-red"; do
+    node "$T/skill-state.js" "$(tn "$W/s-bad.json")" "$(tn "$W/repo")" main pr ci-ok ci.yml "" .scratch/ full "" "$arg" "1:e:01:$(head_of 1):" >"$W/out" 2>&1; rc=$?
+    [ "$rc" = 1 ] && [ ! -e "$W/s-bad.json" ] && ok "skill: '${arg%%|*}…' is refused, exit 1, no state file" || bad "skill bad arg $arg: exit $rc: $(cat "$W/out")"
+    rm -f "$W/s-bad.json"
+done
 
 home_after="$(real_home_snapshot "$HOME" "$T")"
 [ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" || { bad "the real home changed"; real_home_diff "$home_before" "$home_after"; }

@@ -1110,6 +1110,9 @@ the old way or one after another — every Check of the Pipeline has its mark on
   - Before merging any PR that needs this check — in a wave or not — read that place (worfy:
     `gh issue list --label pc-main-red --state open`). While the main branch is red there, no PR that
     needs this check merges, and the wave report says so with the SHA. Other PRs merge as before.
+    On the `land` path `land` reads it itself when the state file has `red_elsewhere` ("Merge with
+    land" below): give it the place and the command that names the PRs which need this check, and
+    the PR waits with a reason naming the issue.
   - The exception is the PR that fixes that red: a fix forward or a revert of the PR that broke it.
     Its description names the record (worfy: the issue, without a GitHub word that closes it on
     merge). It merges on its other conditions plus that session's check of the failing tests on its
@@ -1268,6 +1271,12 @@ of `land`. For each PR, in the order of the state file, `land`:
   the branch is red a PR with code waits, the reason naming the run, the commit and the culprit PR; a PR
   with documents only (`docs_only` of the state file says so) and a PR marked `main-fix` still merge. gh
   unable to read the push runs — the PR waits, never merges;
+- with `red_elsewhere` in the state file, needs the main branch not red on another machine for this PR
+  (the check that answers on the main branch after the merge, "Checks before merge"): while an issue
+  with its `label` is open, a PR its command `needs` names (exit 1 on the PR's fork point and head, run
+  in the checkout of the main branch) waits, the reason naming the issue — number, title and URL. A PR
+  with documents only and a PR marked `main-fix` still merge, the log saying why. gh unable to read the
+  issues, or the command exiting neither 0 nor 1 — the PR waits, never merges;
 - under the main-branch lock (the one above): asks `mergeable` again while it is `UNKNOWN`, up to 6
   times 10 s apart; `CONFLICTING` or `DIRTY` — the PR waits with `conflict: rebase`, `land` does not
   rebase it (the implementer does, after the status block above); `BEHIND` without a conflict is no reason
@@ -1296,16 +1305,27 @@ checkout of the main branch, exits 1; nothing when it exits 0; another exit code
 the file and waits. `<documents-only command>` — the command the project's rules name for a change of
 documents only: it reads the paths a PR changes on stdin, one per line, and exits 0 for documents only;
 empty when the rules name none, and then only a change inside the tickets root counts as documents. The
-same command tells which push runs on the main branch are of documents only. The tickets
+same command tells which push runs on the main branch are of documents only. `"--red-elsewhere=<label>|<command>"`
+— one argument, before the PRs: the label of the record of a main branch red on another machine and, after the
+first `|`, the scope command of the Check that answers there, with `<base>` and `<head>` left in it for `land`
+to fill (worfy: `"--red-elsewhere=pc-main-red|<the scope command its rules name>"`). Left
+out when the rules name no such check: then `red_elsewhere` is `null`. One without both parts, or any other
+argument that is not a PR (`<N>:…`), stops the block with exit 1 and no state file. The tickets
 root comes from `F tickets.root`; the block makes an absolute one relative to the repository, and one
 outside the repository, or Silent mode, means no documents PR:
 
 ```bash
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
 S=<state file>                                 # e.g. <orchestrator scratchpad>/land-<epic>-1.json
-node - "$S" <repo> <main branch> "$(F workflow.ci)" <CI check> <CI workflow> "$(F docs.handoff.check)" "$(F tickets.root)" "$(F _resolved.mode)" "<documents-only command>" <N>:<epic>:<NN>:<head>:<checks>[:main-fix]… <<'NODE'
+node - "$S" <repo> <main branch> "$(F workflow.ci)" <CI check> <CI workflow> "$(F docs.handoff.check)" "$(F tickets.root)" "$(F _resolved.mode)" "<documents-only command>" ["--red-elsewhere=<label>|<command>"] <N>:<epic>:<NN>:<head>:<checks>[:main-fix]… <<'NODE'
 const fs = require("fs"), path = require("path"), os = require("os")
-const [file, repo, branch, ci, check, workflow, docs, root, mode, docsOnly, ...prs] = process.argv.slice(2)
+const [file, repo, branch, ci, check, workflow, docs, root, mode, docsOnly, ...args] = process.argv.slice(2)
+const named = args.filter((a) => a.startsWith("--red-elsewhere=")), prs = args.filter((a) => !a.startsWith("--red-elsewhere="))
+const pair = named.length ? named[named.length - 1].slice("--red-elsewhere=".length) : null, cut = pair === null ? -1 : pair.indexOf("|")
+const stop = (m) => { console.error(m); process.exit(1) }
+if (pair !== null && (cut < 1 || cut === pair.length - 1)) stop(`--red-elsewhere=<label>|<command> needs both parts, got ${JSON.stringify(pair)}`)
+for (const p of prs) if (!/^\d+:/.test(p)) stop(`not a PR (<N>:<epic>:<NN>:<head>:<checks>): ${JSON.stringify(p)}`)
+const red_elsewhere = pair === null ? null : { label: pair.slice(0, cut), needs: pair.slice(cut + 1) }
 const val = (v) => (v === "" || v === "null" ? null : v)
 const abs = val(root) && (root.startsWith("~/") ? path.join(os.homedir(), root.slice(2)) : root)
 const rel = !abs ? ".scratch" : path.isAbsolute(abs) ? path.relative(repo, abs).split(path.sep).join("/") : abs
@@ -1313,7 +1333,7 @@ const dir = path.normalize(rel || ".").replace(/[\\/]+$/, "")   // "." or "" —
 const tickets_root = mode === "silent" || dir === "." || dir === "" || rel.startsWith("..") || path.isAbsolute(rel) ? null : rel.replace(/[\\/]+$/, "")
 const list = prs.map((p) => { const [number, epic, ticket, head, checks, fix] = p.split(":"); return { number: +number, epic, ticket, head, checks: checks ? checks.split(",") : [], ...(fix === "main-fix" ? { main_fix: true } : {}) } })
 if (!fs.existsSync(file)) fs.writeFileSync(file, JSON.stringify({ repo, branch, ci: ci || "pr", ci_check: check, ci_workflow: workflow,
-  docs_check: val(docs), docs_only: val(docsOnly), tickets_root, prs: list }, null, 2) + "\n")
+  docs_check: val(docs), docs_only: val(docsOnly), red_elsewhere, tickets_root, prs: list }, null, 2) + "\n")
 NODE
 echo "EXIT=$?"
 ```
