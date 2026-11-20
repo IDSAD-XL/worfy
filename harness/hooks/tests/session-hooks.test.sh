@@ -402,16 +402,19 @@ compact "$CP" compact WORFY_EPIC=ep2
 git -C "$CP" worktree add -q -b ep1/01 "$T/cmp/wt-01" >/dev/null 2>&1
 W1="$T/cmp/wt-01"
 {
-    printf '# 01 — first of ep1\n\nStatus: claimed 2026-01-01T00:00Z\n\n## Что происходит\n\n'
+    printf '# 01 — first of ep1\n\nStatus: claimed 2026-01-01T00:00Z\n\n## Что делаем\n\n'
     for i in $(seq 1 90); do echo "Filler line $i of a long ticket, written the way real tickets explain the problem."; done
     printf '\n## Готово, когда\n\n- [ ] LONG-DONE-ONE\n- [ ] LONG-DONE-TWO\n- [ ] LONG-DONE-THREE\n- [ ] LONG-DONE-FOUR\n'
 } >"$W1/.scratch/ep1/issues/01-first.md"
 mkdir -p "$W1/src/some/rather/long/path/to/the/modules"
 for i in $(seq 1 45); do echo "m$i" >"$W1/src/some/rather/long/path/to/the/modules/module-$i-with-a-long-name.ts"; done
 (cd "$W1" && gq add -A && gq commit -q -m "ep1/01: MANY-FILES-COMMIT") >/dev/null 2>&1
-echo ru >"$W1/файл-кириллица.txt"
+# Two Cyrillic file names, built from UTF-8 octal escapes so that this file stays ASCII ("fajl" and "novyj").
+RU_COMMITTED="$(printf '\321\204\320\260\320\271\320\273-ru.txt')"
+RU_NEW="$(printf '\320\275\320\276\320\262\321\213\320\271.txt')"
+echo ru >"$W1/$RU_COMMITTED"
 (cd "$W1" && gq add -A && gq commit -q -m "ep1/01: CYRILLIC-COMMIT") >/dev/null 2>&1
-echo new >"$W1/новый.txt"
+echo new >"$W1/$RU_NEW"
 compact "$W1" compact GIT_CONFIG_NOSYSTEM=1
 c="$(actx)"
 n="$(printf '%s' "$c" | node -e 'process.stdout.write(String([...require("fs").readFileSync(0, "utf8")].length))')"
@@ -425,7 +428,7 @@ printf '[core]\n\tquotePath = true\n' >"$T/quoting.gitconfig"
 printf '# 01 — first of ep1\n\nStatus: claimed 2026-01-01T00:00Z\n\n## Готово, когда\n\n- [ ] SHORT-DONE\n' >"$W1/.scratch/ep1/issues/01-first.md"
 compact "$W1" compact GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$T/quoting.gitconfig"
 c="$(actx)"
-[[ "$c" == *"файл-кириллица.txt"* && "$c" == *"?? новый.txt"* && "$c" != *'\321'* ]] \
+[[ "$c" == *"$RU_COMMITTED"* && "$c" == *"?? $RU_NEW"* && "$c" != *'\321'* ]] \
     && ok "after-compact: Cyrillic file names stay readable in the commits and in git status" \
     || bad "after-compact: quotePath: [$(printf '%s' "$c" | grep -n 'txt' | head -n 5)]"
 
@@ -435,13 +438,13 @@ c="$(actx)"
 for i in $(seq 1 45); do echo changed >>"$W1/src/some/rather/long/path/to/the/modules/module-$i-with-a-long-name.ts"; done
 for i in $(seq 1 10); do echo u >"$W1/extra-untracked-file-$i.txt"; done
 long_ticket() { # $1: what follows the done section
-    printf '# 01 — first of ep1\n\nStatus: claimed 2026-01-01T00:00Z\n\n## Что происходит\n\n'
+    printf '# 01 — first of ep1\n\nStatus: claimed 2026-01-01T00:00Z\n\n## Что делаем\n\n'
     for i in $(seq 1 140); do echo "Filler line $i of a very long ticket, written the way real tickets explain a problem."; done
     printf '\n## Готово, когда\n\n- [ ] HUGE-DONE-ONE\n- [ ] HUGE-DONE-TWO\n- [ ] HUGE-DONE-THREE\n- [ ] HUGE-DONE-FOUR\n%s' "$1"
 }
 for tail_kind in last followed; do
     if [ "$tail_kind" = last ]; then long_ticket "" >"$W1/.scratch/ep1/issues/01-first.md"
-    else long_ticket "$(printf '\n## Итог\n\n'; for i in $(seq 1 60); do echo "Result line $i of the ticket."; done)" >"$W1/.scratch/ep1/issues/01-first.md"; fi
+    else long_ticket "$(printf '\n## Result\n\n'; for i in $(seq 1 60); do echo "Result line $i of the ticket."; done)" >"$W1/.scratch/ep1/issues/01-first.md"; fi
     compact "$W1" compact
     c="$(actx)"
     n="$(printf '%s' "$c" | node -e 'process.stdout.write(String([...require("fs").readFileSync(0, "utf8")].length))')"
