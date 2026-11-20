@@ -1292,7 +1292,7 @@ check "epic-wave: a file list without the page that describes the changed behavi
     'An incomplete list (no test, no entry point, no page of `docs.feature_pages` that describes behaviour the ticket changes, or not what `rules.md` requires for such a change)' \
     <<<"$(para_of "$EW" 'An incomplete list')"
 
-# worfy-polish 131: a ticket the orchestrator stops for the owner's answer is blocked at once with
+# A ticket the orchestrator stops for the owner's answer is blocked at once with
 # Waits: owner. Left claimed, worfy Autopilot takes it for stuck and spends its continuations on it.
 # Tickets whose PR waits for people of the Pipeline keep their own rule and stay claimed.
 owner_stop="$(para_of "$EW" '**A ticket stopped for the owner'"'"'s answer is `blocked` at once.**')"
@@ -1309,7 +1309,7 @@ for p in \
     check "epic-wave: a ticket stopped for the owner — '$p'" grep -qF -- "$p" <<<"$owner_stop"
 done
 # Where the status goes: worfy reads the main branch with each ticket worktree's committed branch laid
-# over it (src/main/workflow/reader.ts), and a branch never undoes `blocked` or `done` of the main branch.
+# over it, and a branch never undoes `blocked` or `done` of the main branch.
 owner_where="$(para_of "$EW" '**Where the owner-stop status is written.**')"
 check "epic-wave: the paragraph on where the owner-stop status goes is there" test -n "$owner_where"
 for p in \
