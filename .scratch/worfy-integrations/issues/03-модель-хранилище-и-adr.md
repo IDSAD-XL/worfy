@@ -1,7 +1,7 @@
 # 03 — Модель, каталог, хранилище Integration-ов и секретов, поле `integrations` Project-а, каналы `integrations.*`, новый ADR и Amendment ADR-0021
 
 Type: task
-Status: open
+Status: claimed 2026-11-20T17:17Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 3; «Волны», Wave 1; «Решение», 2–4; «Решения по реализации» → Модель, Где
 лежит, Статус, Linked machine, ADR; «Вопросы владельцу», Q2, Q3, Q6, Q9; «Решено без владельца», 1, 3 и 5
