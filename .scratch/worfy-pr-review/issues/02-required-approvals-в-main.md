@@ -1,7 +1,8 @@
 # 02 — Required approvals в main: правило базовой ветки (ruleset и classic protection), действующие одобрения, `approvalsOf` и поле `approvals` строки inbox
 
 Type: task
-Status: claimed 2026-11-20T02:05Z
+Status: done 2026-11-20T04:14Z
+PR: #2058
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 2; «Факты GitHub API» → «Сколько одобрений требует ветка», «Сколько одобрений
 есть»; «Решения по реализации», 3; «Решения по test-ам», Seam 1 и 2; «Вопросы владельцу», Q6
@@ -54,6 +55,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Факты GitHub API» → �
 - [ ] `test/contract/pr-inbox.test.ts` и `test/unit/pr-inbox-groups.test.ts` зелёные без правки ожиданий группировки.
   - evidence: gate pass · `gate fast` exit 0 · mac - · bb9444923fe946f705cbb68e6f563bb3b078e92d
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44667289013/job/136070139589 · ci - · a88b47db866acab25911ea55be2e0dc027001ff5
 
 ## Где в коде
 
