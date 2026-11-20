@@ -1,7 +1,7 @@
 # 132 — Метка ручного пункта `(manual)` читается рядом с меткой Profile-а `вручную` в обеих копиях разбора
 
 Type: bug
-Status: open
+Status: claimed 2026-11-20T01:00Z
 Blocked by: none
 Source: решение владельца 2026-11-20, Q4 раунда вопросов по spec-у `worfy-acceptance` («да»); бывший Ticket 01 spec-а
 [worfy-acceptance](../../worfy-acceptance/spec.md), возражение 3 critic-а
@@ -61,13 +61,17 @@ Windows в CI.
 
 - [ ] Unit test-ы `test/unit/evidence.test.ts` и `test/unit/manual-checks.test.ts`: пункт `(manual)` при Profile-е с
       `вручную` — ручной, `(вручную)` при Profile-е с `manual` — ручной; красные до правки.
+  - evidence: test-run pass · `pnpm test` exit 0 (red before the fix) · mac - · 3ba43f182a9a5c93d626b3b4f694cfac05ed36d2
 - [ ] Contract test `test/contract/evidence-rules-agree.test.ts` с fixture-Ticket-ом
       `harness/bin/tests/fixtures/evidence/ru/03-manual-marks.md`: обе копии дают одинаковые пункты с `manualMark`
       по умолчанию и `вручную`.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/contract/evidence-rules-agree.test.ts) · mac - · 3ba43f182a9a5c93d626b3b4f694cfac05ed36d2
 - [ ] `harness/bin/tests/ticket-evidence.test.sh` — новый случай Profile-а с `вручную` зелёный; весь файл — exit 0.
+  - evidence: test-run pass · `bash harness/bin/tests/ticket-evidence.test.sh` exit 0 · mac - · 3ba43f182a9a5c93d626b3b4f694cfac05ed36d2
 - [ ] После merge `ticket evidence worfy-mcp-live 08` на main показывает пункт 2 ручным (вывод в «Итог»).
 - [ ] `docs/features/workflow.md` и `docs/features/ru/workflow.md` описывают правило меток;
       `node scripts/check-feature-docs.mjs` — exit 0.
+  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 3ba43f182a9a5c93d626b3b4f694cfac05ed36d2
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job-ы Windows CI зелёные
       (платформенный PR).
 
@@ -88,3 +92,24 @@ Windows в CI.
 - Переписать 15 Ticket-ов на метку `вручную`: правило читает обе.
 - Заголовки разделов (`## Done when` рядом с `## Готово, когда`) — то же правило, но в них нет расхождения.
 - Убрать разбор старых русских слов — Ticket worfy-neutral 08.
+
+## Итог
+
+- Правило меток ручного пункта в обеих копиях разбора: метка Profile-а, `manual` и `вручную`, без повторов.
+  worfy — `manualMarks` в `src/shared/workflow/doc-headings.ts`, её зовут `evidenceItems` и `manualChecks`. Harness —
+  `manualMarks` в `harness/lib/evidence.cjs`, её зовёт `parseDoneSection`. Заголовки разделов читаются по-прежнему.
+- Сначала падающий test: на прежнем `accepted` красными были 4 случая vitest (`evidence.test.ts` — 1,
+  `manual-checks.test.ts` — 2, contract test — 1: `expected [ false, true, false, false ] to deeply equal [ true, true,
+  true, false ]` и подобные) и новый случай `ticket-evidence.test.sh` (`passed 86, failed 1`). После правки — зелёные:
+  `ticket-evidence.test.sh` — `passed 87, failed 0`, exit 0.
+- Новый fixture-Ticket `harness/bin/tests/fixtures/evidence/ru/03-manual-marks.md`. Contract test читает все
+  fixture-Ticket-ы обеими копиями ещё и с меткой `вручную`.
+- Изменение поведения: метка Profile-а больше не вытесняет `manual`. Profile с собственной меткой (например `à la main`)
+  теперь читает и `(manual)`. Прежний test `manual-checks.test.ts` утверждал обратное — исправлен по правилу Ticket-а
+  (п. 1–2 «Что делаем»). Решено без владельца, подтвердить.
+- Пункт 2 Ticket-а `worfy-mcp-live` 08 до merge: `parseDoneSection` из Harness Mac Stable с `manualMark: 'вручную'` —
+  `2 manual: false`; из ветки — `2 manual: true`. Проверка `ticket evidence worfy-mcp-live 08` на main — после merge.
+- Matrix `ticket evidence` не печатает признак `manual`: разница видна в причине, когда под пунктом стоит строка
+  `test-run` (`manual item needs owner-check, screenshot or video`).
+- `docs/features/evidence.md:46-47` тоже описывает метки (метка Profile-а и старая русская) — не правлен: файл соседа
+  по Wave (worfy-acceptance 04).
