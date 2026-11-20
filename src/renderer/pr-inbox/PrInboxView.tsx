@@ -33,6 +33,7 @@ import { invoke, readableReason } from '../ipc'
 import { useNow } from '../limits/useLimits'
 import { ticketRef } from '../pipeline/board'
 import { activeProject, useProjects, useReadOnly } from '../projects/useProjects'
+import { useNavigation } from '../session/navigation'
 import { openHealthCheck } from '../settings/settings-window'
 import { Button } from '../theme/Button'
 import { layerOf } from '../theme/open-layers'
@@ -48,6 +49,7 @@ import {
   ageHeat,
   ageOf,
   ageText,
+  lastReadText,
   approvalsChip,
   approvalsNote,
   avatarTone,
@@ -68,8 +70,10 @@ import {
   statusLines,
   threadsText,
   ticketOfRow,
+  readPrInboxOnOpen,
   usePrInbox,
   usePrInboxFocus,
+  usePrInboxReading,
   usePrSearch,
   type FactTone,
   type NextTone,
@@ -666,6 +670,8 @@ export interface PrInboxBodyProps {
   searchBar?: ReactNode
   /** A search shown: its results stand in place of the groups, its selected result in the pane; null or absent — the inbox. */
   results?: SearchPanes | null
+  /** The read on opening the view is under way (worfy-polish 125): the status line says it reads, with the last read's time. */
+  reading?: boolean
 }
 
 /** The two panes of a search shown: the list of its results, and the result the pane shows. */
@@ -678,8 +684,10 @@ export interface SearchPanes {
 }
 
 /** The view over one snapshot, without IPC. */
-export function PrInboxBody({ name, snapshot, tickets, epics = EMPTY_EPICS, now, selected, focusedGroup, missing, failure, readOnly, onSelect, onMarkSeen, searchBar = null, results = null }: PrInboxBodyProps) {
+export function PrInboxBody({ name, snapshot, tickets, epics = EMPTY_EPICS, now, selected, focusedGroup, missing, failure, readOnly, onSelect, onMarkSeen, searchBar = null, results = null, reading = false }: PrInboxBodyProps) {
   const status = statusLines(snapshot, now)
+  // Before the first read, or while the read on opening runs: the rows of the last read stay, with its time.
+  const readingNow = snapshot.enabled && (reading || (snapshot.readAt === null && status.error === null))
   const groups = listedGroups(snapshot)
   const empty = results === null && snapshot.readAt !== null && groups.length === 0
   const shown = shownKey(snapshot, selected)
@@ -710,10 +718,15 @@ export function PrInboxBody({ name, snapshot, tickets, epics = EMPTY_EPICS, now,
         <p role="status" className="w-pr-inbox__status" data-testid="pr-inbox-status">
           {!snapshot.enabled ? (
             <span data-testid="pr-inbox-off">Pull requests are not read for this Project: reading is off in Project settings, or none of its repositories is on GitHub.</span>
-          ) : snapshot.readAt === null && status.error === null ? (
-            <span>Reading pull requests…</span>
+          ) : readingNow ? (
+            <span data-testid="pr-inbox-reading">Reading pull requests…</span>
           ) : null}
-          {status.next !== null ? (
+          {readingNow && snapshot.readAt !== null ? (
+            <span data-testid="pr-inbox-read-at" title={new Date(snapshot.readAt).toLocaleString()}>
+              {lastReadText(snapshot.readAt, now)}
+            </span>
+          ) : null}
+          {status.next !== null && !readingNow ? (
             <span className="w-pr-inbox__next" data-testid="pr-inbox-next" title={snapshot.nextSearchAt === null ? undefined : new Date(snapshot.nextSearchAt).toLocaleString()}>
               {status.next}
             </span>
@@ -864,6 +877,13 @@ function authorsOf(rows: readonly PrInboxRow[], viewer: string | null): string[]
 
 function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' | 'path'> }) {
   const { snapshot, error } = usePrInbox(project.id)
+  const openRead = usePrInboxReading(project.id)
+  // Each time the view is shown — its tab, an entry of open.ts, another Project while it is shown — main reads GitHub
+  // now, within its limits (worfy-polish 125); the views of the shell stay mounted, so this follows the shown view.
+  const shown = useNavigation((store) => store.view === 'pull-requests')
+  useEffect(() => {
+    if (shown) readPrInboxOnOpen(project.id)
+  }, [shown, project.id])
   const { model } = useWorkflow(project.path)
   const now = useNow()
   const readOnly = useReadOnly()
@@ -1082,6 +1102,7 @@ function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' 
         readOnly={readOnly}
         onSelect={select}
         onMarkSeen={markSeen}
+        reading={openRead}
         searchBar={<SearchBar search={search} authors={authorsOf(resultRows ?? listOrder(snapshot).map(({ row }) => row), viewer)} readOnly={readOnly} invalid={invalid} savedHit={savedHit} fieldRef={field} />}
         results={
           resultRows === null

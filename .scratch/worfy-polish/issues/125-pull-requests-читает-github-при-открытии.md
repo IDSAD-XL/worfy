@@ -1,7 +1,7 @@
 # 125 — Pull requests читает GitHub сразу при открытии вкладки, а не ждёт таймера
 
 Type: task
-Status: open
+Status: claimed 2026-11-20T11:46Z
 Blocked by: none
 Source: идея владельца 2026-11-19 во время приёмки pr-follow 07 («фетчить последние изменения пуллреквестов, когда
 юзер заходит на вкладку pull requests»): review comment в песочнице worfy-sandbox появился в Pull requests только

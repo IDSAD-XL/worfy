@@ -21,7 +21,9 @@
 //   (rulesets, classic protection) and the push access of each reviewer; src/shared/github/approvals.ts counts them.
 // - Pace: a search per Project every 5 minutes, focused or not. A failed read doubles the interval up to 30 minutes;
 //   the first success brings back 5. An answer whose rate limit has less than 10 % left stops every call of that
-//   account until its `resetAt`. `refresh(repo, number)` reads one PR's details out of turn.
+//   account until its `resetAt`. `refresh(repo, number)` reads one PR's details out of turn. Opening the Pull requests
+//   view reads its Project out of turn too (`readOnOpen`, worfy-polish 125): at most once per 30 seconds, never during
+//   a rate-limit pause or the backoff after a failed read; the next search then comes 5 minutes after it.
 // - Notifications (ticket 08, src/main/github/inbox-notifications.ts): with the `notifications` option, each tick
 //   also asks GitHub's notifications of every account whose Projects were read, and refreshes the PRs they name.
 //   Its 403 leaves a notice in the snapshot; the search goes on either way.
@@ -48,6 +50,8 @@ import { parseRemote } from './remote'
 
 export const INBOX_SEARCH_INTERVAL_MS = 5 * 60_000
 export const INBOX_MAX_INTERVAL_MS = 30 * 60_000
+/** The least time between two reads of a Project for the read on opening the view: tab switches do not spend the rate limit. */
+export const INBOX_OPEN_READ_MS = 30_000
 /** How often the app's timer looks for a Project whose search is due. */
 export const INBOX_TICK_MS = 30_000
 export const INBOX_SEARCH_LIMIT = 100
@@ -397,6 +401,8 @@ interface ProjectState {
   members: Map<string, { updatedAt: string; reviewRequested: boolean }>
   enabled: boolean
   readAt: number | null
+  /** When the last read began, whatever its end: the read on opening waits INBOX_OPEN_READ_MS after it. */
+  startedAt: number
   nextAt: number
   intervalMs: number
   error: string | null
@@ -464,6 +470,35 @@ export class PrInbox {
     if (!due()) return
     // A tick in front of this one may have read the Project already: pollIfDue then finds it not due.
     await this.serial(() => this.pollIfDue(project))
+  }
+
+  /**
+   * Reads the Project now, out of turn of the timer, as opening the Pull requests view asks (worfy-polish 125); the
+   * timer's next search then comes 5 minutes after this read. Nothing within INBOX_OPEN_READ_MS of the Project's last
+   * read, during its account's rate-limit pause, before the backoff after a failed read has passed, or for a Project
+   * whose switch is off. A read already under way is not started again: the open waits for it. In the queue of the
+   * ticks, as ensureRead.
+   */
+  async readOnOpen(projectId: string): Promise<void> {
+    const project = this.projectOf(projectId)
+    const running = this.states.get(projectId)?.running
+    if (running) return running
+    if (!this.openReadDue(project)) return
+    // A read queued in front of this one, by a tick or another open, may have read the Project already.
+    await this.serial(() => (this.openReadDue(project) ? this.pollIfDue(project, true) : (this.states.get(projectId)?.running ?? Promise.resolve())))
+  }
+
+  /** Whether an open of the view may read the Project now: the rules of readOnOpen. */
+  private openReadDue(project: PrInboxProject): boolean {
+    if (!this.options.enabled(project)) return false
+    const state = this.states.get(project.id)
+    if (state === undefined) return true
+    if (state.running) return false
+    const now = this.now()
+    if (now - state.startedAt < INBOX_OPEN_READ_MS) return false
+    // The backoff after a failed read: the interval was doubled, and GitHub is not asked again before its time.
+    if (state.intervalMs > this.base && now < state.nextAt) return false
+    return this.accountPause(state.account) === null
   }
 
   /** Runs `work` after every read queued before it; a failed one does not stop the queue. */
@@ -609,7 +644,7 @@ export class PrInbox {
   private stateOf(projectId: string): ProjectState {
     let state = this.states.get(projectId)
     if (state === undefined) {
-      state = { account: null, repos: [], members: new Map(), enabled: true, readAt: null, nextAt: -Infinity, intervalMs: this.base, error: null, signIn: false, running: null }
+      state = { account: null, repos: [], members: new Map(), enabled: true, readAt: null, startedAt: -Infinity, nextAt: -Infinity, intervalMs: this.base, error: null, signIn: false, running: null }
       this.states.set(projectId, state)
     }
     return state
@@ -624,7 +659,8 @@ export class PrInbox {
     return cache
   }
 
-  private async pollIfDue(project: PrInboxProject): Promise<void> {
+  /** Reads the Project when its search is due, or now with `now` (the read on opening); a Project turned off is only marked off. */
+  private async pollIfDue(project: PrInboxProject, now = false): Promise<void> {
     const state = this.stateOf(project.id)
     if (!this.options.enabled(project)) {
       const was = state.enabled
@@ -638,7 +674,7 @@ export class PrInbox {
       return
     }
     if (state.running) return state.running
-    if (this.now() < state.nextAt) return
+    if (!now && this.now() < state.nextAt) return
     state.running = this.poll(project, state).finally(() => {
       state.running = null
     })
@@ -667,6 +703,7 @@ export class PrInbox {
 
   private async poll(project: PrInboxProject, state: ProjectState): Promise<void> {
     const now = this.now()
+    state.startedAt = now
     try {
       state.repos = [...new Set(await this.options.repos(project.root))]
     } catch {

@@ -18,6 +18,8 @@ import { ms } from '../time-scale'
 //   nothing on Cancel; a long repository name at 1280 px is cut alone, the list never scrolls sideways; a long Epic
 //   name in the Ticket chip is cut after the repository name and never covers #N (worfy-polish 103); screenshots at
 //   1280 and 1600 px, both themes;
+// - opening the view reads GitHub at once (worfy-polish 125): a review comment left after the last search shows
+//   without waiting for the timer, and opening it again within 30 seconds reads nothing;
 // - openPrInboxOf with a PR of the other Project selects that Project and opens its view on the PR;
 // - the switch of Project settings: off, main runs no gh for the Project; on again, it reads;
 // - the stub's log holds no write of any kind after all of it: the view only reads (ADR-0105);
@@ -308,6 +310,53 @@ test('the toolbar, the sidebar and the palette open the view; a click and ↑ / 
 
     // The view open and a thread open: the stub saw reads only.
     expect(graphqlCalls().length).toBeGreaterThan(0)
+    expectNoWrite()
+  } finally {
+    await launched.close()
+  }
+})
+
+test('opening the view reads GitHub at once: a review comment left after the last search shows without waiting for the timer; opening again within 30 s reads nothing (worfy-polish 125)', async () => {
+  const launched = await launch()
+  try {
+    const { app, window } = launched
+    await showSidebarSection(window, 'Pull requests')
+    await expect(sectionRow(window, WEB, 'needs-answer')).toContainText('Needs my answer1', { timeout: ms(30_000) })
+    // Both Projects read: no first search is still under way when the count is taken.
+    await expect(sectionRow(window, OPS, 'needs-review')).toContainText('Needs my review1', { timeout: ms(30_000) })
+    const searchCalls = (): number => graphqlCalls().filter((args) => args.some((arg) => arg.includes('search('))).length
+    const searched = searchCalls()
+
+    // A colleague comments on #118 after that search: GitHub moves its updatedAt.
+    const pulls = PULLS.map((pull) => {
+      if (pull.number !== 118) return pull
+      const threads = (pull.pull.reviewThreads as { nodes: { comments: { nodes: unknown[] } }[] }).nodes
+      const thread = { ...threads[0]!, comments: { nodes: [...threads[0]!.comments.nodes, comment('C13', ANA, 0, 'Rename tries to attempts, please', WEB_REPO, 118)] } }
+      return { ...pull, updatedAt: new Date().toISOString(), pull: { ...pull.pull, reviewThreads: { nodes: [thread] } } }
+    })
+    writeFileSync(join(ghDir, 'graphql.json'), JSON.stringify({ viewer: ME, pulls }))
+    // A minute later by main's clock: past the 30 s of the read on opening, far from the timer's next search (5 min).
+    await app.evaluate((_electron, ahead) => {
+      const real = Date.now.bind(Date)
+      Date.now = () => real() + ahead
+    }, 60_000)
+
+    const views = window.getByRole('group', { name: 'View', exact: true })
+    await views.getByRole('button', { name: 'Pull requests' }).click()
+    await expect(pane(window)).toHaveAttribute('data-number', '118')
+    // Well within the reader's next look (30 s) and its next search (5 min): only the read on opening brings it.
+    await expect(pane(window).getByTestId('pr-inbox-comment').last()).toContainText('Rename tries to attempts', { timeout: ms(10_000) })
+    expect(searchCalls()).toBe(searched + 1)
+    // The read is over: the next search is shown again in place of the reading line.
+    await expect(view(window).getByTestId('pr-inbox-reading')).toHaveCount(0)
+    await expect(view(window).getByTestId('pr-inbox-next')).toHaveText(/^Next search in \d+ min$/u)
+
+    // Away and back at once: the read on opening is under 30 s old, so main reads nothing.
+    await views.getByRole('button', { name: 'Canvas' }).click()
+    await views.getByRole('button', { name: 'Pull requests' }).click()
+    await expect(view(window).getByTestId('pr-inbox-next')).toBeVisible()
+    await window.waitForTimeout(ms(1_000))
+    expect(searchCalls()).toBe(searched + 1)
     expectNoWrite()
   } finally {
     await launched.close()
