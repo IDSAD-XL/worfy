@@ -740,6 +740,11 @@ export function faultRun(options: FaultRunOptions = {}) {
     /** The gh stand-in's world (its folder is GH_STUB_DIR); null with `prs: false`. */
     gh,
     prs,
+    /**
+     * How many of the run's PR reads have not settled yet. A read settles on the close of its last gh
+     * process, which may come after that process is gone (worfy-polish ticket 129).
+     */
+    prsReading: (): number => prReads.size,
     vendor,
     repo,
     scratch,

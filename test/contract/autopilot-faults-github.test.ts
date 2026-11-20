@@ -14,7 +14,6 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FIELDS } from '../../src/main/github/prs'
 import { checkRecovery } from '../autopilot-invariants'
-import { quarantined } from '../quarantine'
 import { scriptNode } from '../script-node'
 import { ms } from '../time-scale'
 import { AGENT_SCRIPTS, faultRun, until, type FaultRun, type FaultScript } from './autopilot-faults-setup'
@@ -159,7 +158,7 @@ describe('the gh stand-in in the hang mode (worfy-faults ticket 04)', () => {
 })
 
 describe('Autopilot faults on the GitHub side (worfy-faults ticket 04)', () => {
-  quarantined('autopilot-faults-gh-hangs-whole-run')('gh hangs the whole Run: the Waves go on, no narrow-round, the stop waits END_READ_MS at most, and no hung gh is left', async () => {
+  it('gh hangs the whole Run: the Waves go on, no narrow-round, the stop waits END_READ_MS at most, and no hung gh is left', async () => {
     // Wave 2's turn waits for the test, so the run's last read of the PRs starts after the first gh call has died.
     // That first call ends by ghRunner's timeout. The later ones get LATER_GH_TIMEOUT_MS: the last read's gh
     // must still hang when the test moves the clock past the read's limit, however long it took to start
@@ -173,8 +172,11 @@ describe('Autopilot faults on the GitHub side (worfy-faults ticket 04)', () => {
     // Wave 1 is done and Wave 2 started while the read of Wave 1 hangs: the run does not wait for it.
     // That read is the only gh call before the release: the read of Wave 2 joins it or finds its interval not passed.
     await until(() => h.kinds(1).filter((kind) => kind === 'wave-started').length === 2, 'Wave 2 to start')
-    // ghRunner's timeout ends the hung call: no stand-in outlives it.
-    await until(() => h.gh!.calls().length === 1 && hungPids(h.gh!.dir).length === 1 && !alive(hungPids(h.gh!.dir)[0]!), 'the hung gh call of Wave 1 to end by the timeout')
+    // ghRunner's timeout ends the hung call: no stand-in outlives it. The test waits for the read to settle,
+    // not only for its stand-in to be gone: ghRunner answers on the stand-in's close, which may come later. A
+    // read still running when Wave 2's turn ends is the one the run's last read joins, with no gh call of its
+    // own, and the run stops when it settles. Windows CI lost that race (worfy-polish ticket 129).
+    await until(() => h.gh!.calls().length === 1 && hungPids(h.gh!.dir).length === 1 && !alive(hungPids(h.gh!.dir)[0]!) && h.prsReading() === 0, 'the hung gh call of Wave 1 to end by the timeout')
     expect(h.gh!.calls()).toEqual([PR_LIST])
 
     // The doubled interval passes on the test's clock (no other timer is due by then), Wave 2's turn
