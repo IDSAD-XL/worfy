@@ -57,12 +57,14 @@ interface Setup {
   releases: FakeReleases
   /** The next `n` looks of the watch at the draft fail, as a read of a file being replaced may; `failing()` is how many are left. */
   failLooks: (n: number) => void
+  /** How many looks of the watch are reading the draft now: Windows refuses a rename over the file meanwhile. */
+  reading: () => number
   failing: () => number
   call: <T>(channel: string, input: unknown) => Promise<IpcResult<T>>
   onDisk: () => ReviewDraft
 }
 
-async function setup(options: { teamReviewer?: boolean; script?: string } = {}): Promise<Setup> {
+async function setup(options: { teamReviewer?: boolean; script?: string; readMs?: number } = {}): Promise<Setup> {
   const base = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-pr-review-agent-')))
   temps.push(base)
   const root = join(base, 'project')
@@ -82,10 +84,21 @@ async function setup(options: { teamReviewer?: boolean; script?: string } = {}):
   const changed: unknown[] = []
   let nodes = 0
   let failing = 0
+  let reading = 0
   const agent = new PrReviewAgent({
     drafts: {
       draft: async (root, repo, number) => {
-        if (failing === 0) return drafts.draft(root, repo, number)
+        if (failing === 0) {
+          // A read that keeps the file open `readMs` longer, on a timer of this process, as a read in flight does.
+          reading++
+          try {
+            const answer = await drafts.draft(root, repo, number)
+            if (options.readMs !== undefined) await new Promise((resolve) => setTimeout(resolve, options.readMs))
+            return answer
+          } finally {
+            reading--
+          }
+        }
         failing--
         return { repo, pr: number, draft: null, problem: `The review draft of ${repo}#${number} cannot be read: EBUSY` }
       },
@@ -110,7 +123,7 @@ async function setup(options: { teamReviewer?: boolean; script?: string } = {}):
   await registerIpc(ipc, { modules: { './pr-review.ts': async () => prReviewHandlers({ drafts: () => drafts, root: () => root, agent: () => agent }) }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
   const call = async <T,>(channel: string, input: unknown) => (await handlers.get(`${IPC_CHANNEL_PREFIX}${channel}`)!({ senderFrame: { url: APP_URL } } as unknown as IpcMainInvokeEvent, input)) as IpcResult<T>
   const file = reviewDraftFilePath(profileDir, API, PR)
-  return { root, profileDir, file, agent, calls, vendors, changed, registry, releases, failLooks: (n) => void (failing = n), failing: () => failing, call, onDisk: () => JSON.parse(readFileSync(file, 'utf8')) as ReviewDraft }
+  return { root, profileDir, file, agent, calls, vendors, changed, registry, releases, failLooks: (n) => void (failing = n), failing: () => failing, reading: () => reading, call, onDisk: () => JSON.parse(readFileSync(file, 'utf8')) as ReviewDraft }
 }
 
 function ok<T>(result: IpcResult<T>): T {
@@ -124,10 +137,13 @@ const messages = (calls: FakeCall[]): string[] => calls.flatMap((each) => (each.
 
 /** What a writer on Windows retries: the lock taken, or the target opened for a moment by a reader. */
 const BUSY = new Set(['EEXIST', 'EPERM', 'EACCES', 'EBUSY'])
-const pauseSync = (ms: number): void => void Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 
-/** Runs `step` until it does not fail with a code of BUSY, 5 s at most. */
-function retried(step: () => void): void {
+/**
+ * Runs `step` until it does not fail with a code of BUSY, 5 s at most, waiting between tries on a timer. A synchronous
+ * wait here would hold the event loop of this process, which is main's too: a read of the draft main has open (Windows
+ * refuses a rename over an open file) would never close, and every try would fail.
+ */
+async function retried(step: () => void): Promise<void> {
   const until = Date.now() + 5000
   for (;;) {
     try {
@@ -135,7 +151,7 @@ function retried(step: () => void): void {
       return
     } catch (error) {
       if (!BUSY.has((error as NodeJS.ErrnoException).code ?? '') || Date.now() > until) throw error
-      pauseSync(10)
+      await new Promise((resolve) => setTimeout(resolve, 10))
     }
   }
 }
@@ -143,15 +159,20 @@ function retried(step: () => void): void {
 /**
  * What bin/pr-review-draft does to the file, without the script: under the lock `<file>.lock`, the draft with `change`
  * through a temporary file and a rename, retried while Windows refuses it because main reads the file at that moment.
+ * The script runs in a process of its own; here main shares this process, so the retry yields to it.
  */
-function agentWrites(file: string, change: (draft: ReviewDraft) => void): void {
+async function agentWrites(file: string, change: (draft: ReviewDraft) => void, refuseWhile: () => boolean = () => false): Promise<void> {
   const lock = `${file}.lock`
-  retried(() => writeFileSync(lock, `${process.pid}\n`, { flag: 'wx' }))
+  await retried(() => writeFileSync(lock, `${process.pid}\n`, { flag: 'wx' }))
   try {
     const draft = JSON.parse(readFileSync(file, 'utf8')) as ReviewDraft
     change(draft)
     writeFileSync(`${file}.agent.tmp`, JSON.stringify(draft, null, 2))
-    retried(() => renameSync(`${file}.agent.tmp`, file))
+    await retried(() => {
+      // Windows: a rename over a file another handle has open fails with EPERM until that handle closes.
+      if (refuseWhile()) throw Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' })
+      renameSync(`${file}.agent.tmp`, file)
+    })
   } finally {
     unlinkSync(lock)
   }
@@ -201,13 +222,13 @@ describe('prReview.agentReview', () => {
     ok(await s.call<Started>('prReview.agentReview', { ...pull, head: HEAD, fill: 'new' }))
     const before = s.changed.length
     expect(s.agent.watching()).toBe(1)
-    agentWrites(s.file, (draft) => {
+    await agentWrites(s.file, (draft) => {
       draft.payload.comments.push({ path: 'src/upload.ts', line: 3, side: 'RIGHT', body: 'A magic number.' })
       draft.anchors.push({ text: 'const tries = 3', by: 'agent' })
     })
     await vi.waitFor(() => expect(s.changed.length).toBeGreaterThan(before), { timeout: ms(10_000) })
     expect(s.changed.at(-1)).toEqual(pull)
-    agentWrites(s.file, (draft) => {
+    await agentWrites(s.file, (draft) => {
       draft.agent = { sessionId: draft.agent?.sessionId ?? '', state: 'done' }
     })
     await vi.waitFor(() => expect(s.agent.watching()).toBe(0), { timeout: ms(10_000) })
@@ -221,7 +242,7 @@ describe('the watch of an Agent review', () => {
     s.failLooks(3)
     await vi.waitFor(() => expect(s.failing()).toBe(0), { timeout: ms(10_000) })
     expect(s.agent.watching()).toBe(1)
-    agentWrites(s.file, (draft) => {
+    await agentWrites(s.file, (draft) => {
       draft.agent = { sessionId: draft.agent?.sessionId ?? '', state: 'done' }
     })
     await vi.waitFor(() => expect(s.agent.watching()).toBe(0), { timeout: ms(10_000) })
@@ -231,7 +252,7 @@ describe('the watch of an Agent review', () => {
     const s = await setup()
     const started = ok(await s.call<Started>('prReview.agentReview', { ...pull, head: HEAD, fill: 'new' }))
     await vi.waitFor(() => expect(s.registry.get(started.sessionId).state).toBe('busy'))
-    retried(() => writeFileSync(s.file, '{ "schema": 1, broken'))
+    await retried(() => writeFileSync(s.file, '{ "schema": 1, broken'))
     s.registry.get(started.sessionId).close()
     await vi.waitFor(() => expect(s.agent.watching()).toBe(0), { timeout: ms(10_000) })
   })
@@ -242,7 +263,7 @@ describe('the watch of an Agent review', () => {
     await vi.waitFor(() => expect(s.registry.get(started.sessionId).state).toBe('busy'))
     // A look sees the turn running before it ends.
     const changes = s.changed.length
-    agentWrites(s.file, (draft) => {
+    await agentWrites(s.file, (draft) => {
       draft.payload.comments.push({ path: 'src/upload.ts', line: 3, side: 'RIGHT', body: 'A magic number.' })
       draft.anchors.push({ text: 'const tries = 3', by: 'agent' })
     })
@@ -258,7 +279,7 @@ describe('the watch of an Agent review', () => {
     const s = await setup()
     const started = ok(await s.call<Started>('prReview.agentReview', { ...pull, head: HEAD, fill: 'new' }))
     await vi.waitFor(() => expect(s.registry.get(started.sessionId).state).toBe('busy'))
-    agentWrites(s.file, (draft) => {
+    await agentWrites(s.file, (draft) => {
       draft.payload.comments.push({ path: 'src/upload.ts', line: 3, side: 'RIGHT', body: 'A magic number.' })
       draft.anchors.push({ text: 'const tries = 3', by: 'agent' })
     })
@@ -269,12 +290,25 @@ describe('the watch of an Agent review', () => {
   })
 })
 
+describe('the agent writes while main reads the draft', () => {
+  it('a rename refused while a look of main has the file open goes through once the read ends (Windows)', { timeout: ms(30_000) }, async () => {
+    const s = await setup({ readMs: 30 })
+    ok(await s.call<Started>('prReview.agentReview', { ...pull, head: HEAD, fill: 'new' }))
+    await vi.waitFor(() => expect(s.reading()).toBeGreaterThan(0), { timeout: ms(10_000), interval: 1 })
+    await agentWrites(s.file, (draft) => {
+      draft.payload.comments.push({ path: 'src/upload.ts', line: 3, side: 'RIGHT', body: 'A magic number.' })
+      draft.anchors.push({ text: 'const tries = 3', by: 'agent' })
+    }, () => s.reading() > 0)
+    expect(s.onDisk().payload.comments.map((each) => each.body)).toEqual(['A magic number.'])
+  })
+})
+
 describe('prReview.stopAgent', () => {
   it('stops the Session, marks the draft stopped and keeps what the agent wrote; the watch ends', { timeout: ms(30_000) }, async () => {
     const s = await setup()
     const started = ok(await s.call<Started>('prReview.agentReview', { ...pull, head: HEAD, fill: 'new' }))
     await vi.waitFor(() => expect(s.registry.get(started.sessionId).state).toBe('busy'))
-    agentWrites(s.file, (draft) => {
+    await agentWrites(s.file, (draft) => {
       draft.payload.comments.push({ path: 'src/upload.ts', line: 3, side: 'RIGHT', body: 'A magic number.' })
       draft.anchors.push({ text: 'const tries = 3', by: 'agent' })
     })

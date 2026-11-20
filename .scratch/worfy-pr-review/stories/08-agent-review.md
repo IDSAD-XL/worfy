@@ -179,7 +179,7 @@ Code: `src/main/github/pr-review-agent.ts:189-212` · key lines: 191, 192, 198, 
   гонка 200 × 200 с main; до скрипта все 7 первых красные, до замка в main гонка теряла 98 записей. Три test-а замка
   при выходе (`flushSync`) и четвёртый: свой замок не ждёт (до правки — 10006 ms), свой, но забранный скриптом, ждёт,
   чужой ждёт, устаревший забирает.
-- `test/contract/pr-review-agent.test.ts` — 13 test-ов на fake agent: команда при Team reviewer-е и без, коммит
+- `test/contract/pr-review-agent.test.ts` — 14 test-ов (один — запись агента, пока main читает черновик, как на Windows) на fake agent: команда при Team reviewer-е и без, коммит
   черновика в сообщении, `fill: 'add'`, отказы, `prReview.changed`, Stop, конец хода, закрытие Session, пропуск
   нечитаемого взгляда, конец watch-а при нечитаемом черновике и закрытой Session, Linked machine.
 - `test/unit/action-templates.test.ts` — текст «Agent review» и Vendor Claude Code.
