@@ -1,7 +1,7 @@
 # 129 — Flaky test «gh hangs the whole Run» на Windows: вторая гонка последнего чтения PR после 124
 
 Type: bug
-Status: claimed 2026-11-20T12:41Z
+Status: done 2026-11-20T14:36Z
 PR: #2094
 Branch: worfy-polish/129
 Blocked by: none
@@ -69,6 +69,7 @@ Source: красный push run 44471611202 на `main` eb669a653 (#2030, worfy-
 - [ ] Job-ы `windows / full-suite` PR-а зелёные, test в них запускается (не skipped).
 - [ ] Записи `test/quarantine/autopilot-faults-gh-hangs-whole-run.json` нет; test объявлен через `it(`.
   - evidence: commit pass · worfy-polish/129: wait for the hung Run's first PR read to settle, not only its gh to die · - - · c6045e2a968d7db01e9a92cf7ff9586c1c806a51
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44740166839/job/136328887136 · ci - · 1c236a0f84f2a576448f6a39a36b338f0e6bc82e
 
 ## Где в коде
 

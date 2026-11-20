@@ -89,3 +89,39 @@ Code: `test/contract/autopilot-faults-github.test.ts:161-161` · key lines: 161
    - Ответ: присоединение к идущему чтению — законное поведение `PrTracker` (одно чтение за раз); сценарию test-а
      нужно, чтобы последнее чтение началось после конца первого, и test теперь ждёт этого условия.
    - Строки: `test/contract/autopilot-faults-setup.ts:743-747`
+
+## 6. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 129 (flaky test «gh hangs the whole Run» on Windows: the second race of the last PR read), head 1c236a0f84f2a576448f6a39a36b338f0e6bc82e
+>
+> Gate (depth medium, one round, test-only diff): reviewer (lenses: correctness + implementer's claims) — every claim backed, re-ran the reproduction and a mutant; no findings.
+>
+> - Cause: the test released Wave 2's turn as soon as the first stand-in gh process died, but ghRunner answers on execFile's callback when the pipes close (src/main/github/prs.ts:130-142), which can come later; PrTracker runs one read per Project and a read started meanwhile joins it (prs.ts:459-467), so the last read before run-stopped started no gh of its own and the second pid never appeared.
+> - Fix (test only): faultRun exposes prsReading() (test/contract/autopilot-faults-setup.ts:747, the harness adds a read to its set synchronously before gh starts); the test also waits for prsReading() === 0; same 5000 ms limit via ms(); quarantine file removed, test declared with it( (autopilot-faults-github.test.ts:161).
+> - Evidence: reproduction by a temporary delay of the gh refusal after process death (not in the PR) — before the fix 200 / 1000 ms red (exit 1, «timed out waiting for the last read of the PRs»), after 0 / 200 / 1000 / 3000 ms green; re-run by the reviewer; mutant prsReading() ≡ 0 with the 1000 ms delay → red. autopilot-faults-* + test-timeout-scale 57 passed EXIT=0, 5/5 repeats; lint, typecheck, story-check, evidence-check EXIT=0. Full `pnpm test` exit 1 only on the file-watcher contract tests (fseventsd at 100% CPU on this Mac), none of them touched; local gate fast not run for the same reason; CI incl. windows / full-suite is the verdict.
+>
+> Decided without the owner (to confirm): the test is fixed, not src — the last read legitimately joins the running one (one read per Project).
+
+Code: `src/main/github/prs.ts:130-142` · key lines: 130
+
+```ts
+      execFile(
+        start.file,
+        [...start.args, ...args],
+        { cwd, env: { ...env, ...extra, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', NO_COLOR: '1', ...start.env }, encoding: 'utf8', timeout: options.timeoutMs ?? 30_000, maxBuffer: 32 * 1024 * 1024 },
+        (error, stdout, stderr) => {
+          if (!error) return resolve(output === 'all' ? `${stdout}\n${stderr}` : stdout)
+          const code = (error as NodeJS.ErrnoException).code
+          if (code === 'ENOENT') return reject(new Error(`gh not found (${command})`))
+          const reason = firstLine(stderr) || error.message
+          // An exit code is a number; a timeout, a signal or a too long output leave none.
+          if (output === 'all' && typeof code === 'number') return reject(new GhExitError(reason, `${stdout}\n${stderr}`))
+          reject(new Error(reason))
+        },
+```
+
+Code: `test/contract/autopilot-faults-setup.ts:747-747` · key lines: 747
+
+```ts
+    prsReading: (): number => prReads.size,
+```
