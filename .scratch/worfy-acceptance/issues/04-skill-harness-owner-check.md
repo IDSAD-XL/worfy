@@ -44,10 +44,14 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решения по реал�
 - [ ] Harness test `harness/bin/tests/owner-check.test.sh` (новый): временный Ticket — Pass пишет одну строку и `[x]`;
       повтор не пишет вторую; Fail пишет `owner-check fail` и Ticket доработки; неручной пункт — отказ. Красный до
       правки — в «Итог».
+  - evidence: test-run pass · `bash harness/bin/tests/owner-check.test.sh` exit 0 · mac - · 1b9ec6366e495c6b8d0a93a02aedd665a229451e
 - [ ] `harness/bin/tests/agents-text.test.sh`: текст skill-а держит правило «без слова владельца не отмечать» и «на Fail
       не писать pass»; mutant (фраза убрана) — красный.
+  - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 · mac - · 1b9ec6366e495c6b8d0a93a02aedd665a229451e
 - [ ] `test/contract/codex-parity.test.ts` зелёный с новым skill-ом.
+  - evidence: test-run pass · `pnpm exec vitest run test/contract/codex-parity.test.ts` exit 0 · mac - · 1b9ec6366e495c6b8d0a93a02aedd665a229451e
 - [ ] `docs/features/evidence.md` называет skill `owner-check`; `node scripts/check-feature-docs.mjs` — exit 0.
+  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 1b9ec6366e495c6b8d0a93a02aedd665a229451e
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job-ы Windows CI зелёные
       (платформенный PR).
 
