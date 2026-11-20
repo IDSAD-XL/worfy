@@ -226,3 +226,18 @@ Code: `src/renderer/pr-inbox/PrInboxView.tsx:947-970` · key lines: 951, 956, 96
 3. Откуда панель берёт полосу для PR, которого нет в inbox?
    - Строки: `src/renderer/pr-inbox/usePrInbox.ts:512`, `src/renderer/pr-inbox/usePrInbox.ts:527`
    - Ответ: из `searchStep`: у такого PR нет группы, и полоса — «Review this pull request» или «Your pull request».
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED — worfy-pr-review 05 (search in the Pull requests view), head d00f2626c703ff3471596d487ee3407372edc9fa
+>
+> Gate (depth medium, two rounds): verifier (lens: implementer's report) — claims backed, «not verified» only on history (one code commit) and on e2e left to CI, three low test gaps; reviewer (lens: correctness) round 1 three med (two reproduced by probes) + one low spec gap; all fixed test-first; round 2 reviewer: all closed, one new low.
+>
+> - Verifier: / focuses the field (not from text fields, not with a modifier), Escape blurs (PrInboxView.tsx:840-846); chips write and show qualifiers (SearchBar.tsx:373-385); scope menu, Clear, notices 422 / SSO / sign-in / call failure; a PR outside the inbox read via prSearch.pull with the «Review this pull request» strip (PrInboxView.tsx:929-946, usePrInbox.ts:512-533); the inbox unchanged without a search; docs/features/pr-inbox.md «### Search». Mutants red. Screenshots light/dark/422/SSO match the prototype card-53b21f06 and the listed deviations; fixture data only.
+> - Round 1 fixes: a Load more refused by the rate-limit pause keeps the shown pages, cursor and notices (usePrInbox.ts:587, :657) while an honest empty last page drops Load more; the pull cache keyed rowKey + updatedAt and an older pulled row yields to the result row (PrInboxView.tsx:931); the selected PR outside the inbox is read again on window focus when older than 60 s and by Refresh with refresh: true (:983; one read for a burst of focus events, none after unmount); Enter during a rate-limit pause searches again at its end (≥ 1 s), cancelled by a new search, Clear or leaving; tests for the focus entry dropping the search, Refresh clearing the pull cache, data-invalid on 422.
+> - Tests: pr-search-view + pr-inbox-view 114/114 EXIT=0; e2e pr-search.spec.ts + pr-inbox.spec.ts whole 12/12 EXIT=0; lint, typecheck, check-feature-docs, check-personal, story-check, evidence-check EXIT=0. Local gate fast red only on file-watcher tests (fseventsd). ci-ok pass on the head.
+> - CI fix: d687cc485 was red on test-timeout-scale (two raw limits in pr-search-view.test.tsx:567,:578); d00f2626c routes both through ms(); test-timeout-scale + pr-search-view 34/34 EXIT=0, lint, typecheck EXIT=0.
+>
+> Decided without the owner (to confirm): the 14 decisions in the ticket's «Итог» (scope names incl. «Organizations of this Project», chips search at once, warnings with repos: [], Forget in the menu, the new-count hidden for PRs outside the inbox, Refresh clears the pull cache, …); prototype deviations: no «Recent» in saved searches, inbox header kept, «Searched N min ago · Refresh» and Load more added, full-width search row.
+>
+> Consider [low]: usePrInbox.ts:648 — a retry timer set by an answer that arrives after unmount / Project change fires one extra prSearch.run at the end of the pause (probe exit 1); PrInboxView.tsx is 1127 lines (gate warns > 1000); main answers the same search from its 60 s memory so Refresh in the first 60 s returns the same snapshot (spec.md:378); a toast may overlap the right edge of the search row.
