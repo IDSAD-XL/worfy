@@ -3,8 +3,11 @@
 // Project uses is its settings.json (src/main/projects/settings.ts). Nothing else is written: not the Profile, not
 // the repository, not `~/.claude.json`, `.mcp.json` or `config.toml`.
 //
-// The status here is what worfy knows without asking the service: an Integration with every secret its way to sign
-// in needs is `signed-in`, one without is `needs-sign-in`. The proxy (ticket 06) adds `error` and `checking`.
+// The status here is what worfy knows without asking the service again: an Integration without every secret its way
+// to sign in needs is `needs-sign-in`; one that signs in with a token over http is `signed-in` only after the
+// service's `initialize` let that token in (ticket 04, src/main/integrations/auth/tokens.ts), and `error` with the
+// service's text when the last check said so; any other is `signed-in` with its secrets kept. `integrations.setSecret`
+// runs that check and answers the status, never the secret. The proxy (ticket 06) adds `checking`.
 import type { Integration, IntegrationSecretPart, IntegrationStatus, ProjectIntegration } from '../../shared/integrations/types'
 import { newProjectIntegration } from '../../shared/integrations/types'
 import {
@@ -18,6 +21,7 @@ import {
   integrationsSetTools,
   integrationsStatus,
 } from '../../shared/ipc/integrations'
+import { checkSignIn, checksToken, isCurrentToken, verifyTokenSignIn, type SignInCheck } from '../integrations/auth/tokens'
 import { integrationStore, type IntegrationStore } from '../integrations/store'
 import { readProjectIntegrations, writeProjectIntegrations } from '../projects/settings'
 import { projectStore } from '../projects/store'
@@ -34,6 +38,8 @@ export interface IntegrationsHandlersOptions {
   store?: () => IntegrationStore
   /** The Projects; the app's ProjectStore when absent. */
   projects?: IntegrationProjects
+  /** The check of a token with the service's `initialize`; checkSignIn when absent. */
+  check?: SignInCheck
 }
 
 /** The secrets an Integration needs before it can be used: its token, and every secret variable of a stdio server. */
@@ -43,12 +49,22 @@ function neededSecrets(integration: Integration): IntegrationSecretPart[] {
   return [...token, ...env]
 }
 
-function statusOf(store: IntegrationStore, integration: Integration): IntegrationStatus {
-  return neededSecrets(integration).every((part) => store.hasSecret(integration.id, part)) ? { state: 'signed-in' } : { state: 'needs-sign-in' }
+/** `errors` — the text of the last check of each Integration whose check failed with something other than 401. */
+function statusOf(store: IntegrationStore, integration: Integration, errors: ReadonlyMap<string, string>): IntegrationStatus {
+  if (!neededSecrets(integration).every((part) => store.hasSecret(integration.id, part))) return { state: 'needs-sign-in' }
+  const error = errors.get(integration.id)
+  if (error !== undefined) return { state: 'error', message: error }
+  if (checksToken(integration) && integration.signIn === null) return { state: 'needs-sign-in' }
+  return { state: 'signed-in' }
 }
 
 export function integrationsHandlers(options: IntegrationsHandlersOptions = {}): HandlerModule {
   const store = options.store ?? integrationStore
+  const check = options.check ?? ((integration, headers) => checkSignIn(integration, headers))
+  // shortcut: in memory, so an error status is gone after a restart: an Integration whose new token was not checked
+  // (no answer, 429, 5xx) or was refused shows needs-sign-in, one whose same token could not be re-checked shows
+  // signed-in; keep the error in integrations.json if the proxy (ticket 06) needs it across restarts.
+  const errors = new Map<string, string>()
   // Looked up on each call: the module's default export is made when main loads it.
   const projectsOf = (): IntegrationProjects => options.projects ?? projectStore()
 
@@ -88,7 +104,7 @@ export function integrationsHandlers(options: IntegrationsHandlersOptions = {}):
       const statuses = machine
         .list()
         .filter((integration) => used.some((entry) => entry.id === integration.id))
-        .map((integration) => ({ id: integration.id, status: statusOf(machine, integration) }))
+        .map((integration) => ({ id: integration.id, status: statusOf(machine, integration, errors) }))
       return { statuses }
     }),
     defineHandler(integrationsSetEnabled, ({ projectId, id, enabled }) => changeEntry(projectId, id, (entry) => ({ ...entry, enabled }))),
@@ -105,10 +121,17 @@ export function integrationsHandlers(options: IntegrationsHandlersOptions = {}):
       writeProjectIntegrations(dataDir, [...readProjectIntegrations(dataDir).filter((entry) => entry.id !== integration.id), project])
       return { integration, project }
     }),
-    defineHandler(integrationsSetSecret, ({ id, part, value }) => {
+    defineHandler(integrationsSetSecret, async ({ id, part, value }) => {
       const machine = store()
+      const changed = machine.secret(id, part as IntegrationSecretPart) !== value
       machine.setSecret(id, part as IntegrationSecretPart, value)
-      return { status: statusOf(machine, integrationOf(id)) }
+      const integration = integrationOf(id)
+      if (part !== 'access' || !checksToken(integration)) return { status: statusOf(machine, integration, errors) }
+      errors.delete(id)
+      const status = await verifyTokenSignIn(machine, id, { check, changed })
+      // A token replaced or signed out while the service answered: its error is not the Integration's any more.
+      if (status.state === 'error' && isCurrentToken(machine, id, value)) errors.set(id, status.message)
+      return { status }
     }),
     defineHandler(integrationsRemove, ({ projectId, id, confirmed }) => {
       dataDirOf(projectId)
@@ -118,6 +141,7 @@ export function integrationsHandlers(options: IntegrationsHandlersOptions = {}):
       const using = others.filter((project) => readProjectIntegrations(projects.dataDir(project.id)).some((entry) => entry.id === id && entry.enabled))
       if (using.length > 0 && confirmed !== true) return { status: 'confirm' as const, projects: using.map((project) => project.name) }
       store().remove(id)
+      errors.delete(id)
       for (const project of projects.list()) {
         const dataDir = projects.dataDir(project.id)
         const entries = readProjectIntegrations(dataDir)

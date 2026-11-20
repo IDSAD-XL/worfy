@@ -175,6 +175,11 @@ export class IntegrationStore {
     return this.secrets.get(secretKey(id, part))
   }
 
+  /** Removes every secret of Integration `id` and keeps the Integration: Sign out (ticket 04). */
+  deleteSecrets(id: string): void {
+    for (const part of this.parts(this.existing(id))) this.secrets.delete(secretKey(id, part))
+  }
+
   /**
    * Removes Integration `id` and every secret of it. The secrets go first: a remove cut short leaves an
    * Integration without its sign-in, never a secret without its Integration.
