@@ -53,9 +53,11 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Как
 - [ ] Unit test (`test/unit/changes-tray.test.tsx`): «+», `c` и диапазон открывают popover; лоток показывает
       комментарии выбранной Session; смена «To» переносит комментарии к коду; Read only — без «+» и лотка.
   - evidence: test-run pass · `pnpm test` exit 0 (test/unit/changes-tray.test.tsx) · mac - · 8d4712631278dd4d90184936eac4f7d1d928075d
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/changes-tray.test.tsx, 20 tests) · mac - · 229bf46b987096ae3467b33254d1dbbf6ffa2002
 - [ ] Contract test (`test/contract/changes-targets.test.ts`): Session с Binding-ом на Ticket — в списке, Session другого
       Ticket-а — нет, Orchestrator — есть; значение по умолчанию по Q2.
   - evidence: test-run pass · `pnpm test` exit 0 (test/contract/changes-targets.test.ts) · mac - · 8d4712631278dd4d90184936eac4f7d1d928075d
+  - evidence: test-run pass · `pnpm test` exit 0 (test/contract/changes-targets.test.ts) · mac - · 229bf46b987096ae3467b33254d1dbbf6ffa2002
 - [ ] e2e test (`test/e2e/changes-comments.spec.ts`, fake agent): карточка → Changes → два комментария к строке и
       диапазону → Send: fake agent получил одно сообщение с разделом «Comments on lines of the diff (2)», путями,
       строками и кодом; блок в пузыре открывает Changes на строке.
@@ -66,8 +68,10 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Как
   - evidence: screenshot pass · changes-tray-light.png and changes-tray-dark.png in the scratchpad, named in «Итог» · mac dev · 8d4712631278dd4d90184936eac4f7d1d928075d
 - [ ] Английская страница `docs/features/changes.md` описывает комментарии; `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 8d4712631278dd4d90184936eac4f7d1d928075d
+  - evidence: test-run pass · `pnpm lint` exit 0 (runs node scripts/check-feature-docs.mjs) · mac - · 229bf46b987096ae3467b33254d1dbbf6ffa2002
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 8d4712631278dd4d90184936eac4f7d1d928075d
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 229bf46b987096ae3467b33254d1dbbf6ffa2002
 
 ## Где в коде
 
@@ -143,3 +147,41 @@ worktree) — exit 1, 2 файла упали (нет модуля `sent-lines`,
 `node scripts/check-feature-docs.mjs` — 0. Полная проверка `pnpm lint && pnpm typecheck && pnpm test` на `8d4712631` —
 0 (862 файла test-ов, 19 744 test-а); первый её запуск был красным — `test/unit/link-access.test.ts` требовал решить,
 чтение ли новый канал `changes.targets`, исправлено. `gate fast` — 0, `[gate] green (fast)`.
+
+### Доработка, раунд 1 (2026-11-20, по отчёту проверки PR #2049)
+
+- «To» заблокирован, пока Send ждёт запуска Session (`Tray.tsx`): раньше смена «To» в это время переносила черновики к
+  другой Session, а `markPending` шёл по старому ключу — комментарии оставались неотправленными в новом лотке и уходили
+  повторно. Send запоминает Session и ключ store-а при нажатии и составляет сообщение из store-а после запуска Session
+  (`readQuotes`), а не из снимка на момент нажатия. Пока Send идёт, заблокированы ещё поле лотка (readOnly), ×
+  и Clear, Edit и Delete под строкой, Save правки уже открытого popover-а.
+- «To» держит Session, показанную в нём, как только у неё есть черновики или она приняла Send; значение main по
+  умолчанию после Refresh или после Send его больше не сдвигает. Без черновиков и без Send «To» по-прежнему следует Q2.
+- Повторная привязка после Refresh (`onFileRead`): `DiffPane` передаёт, для какого scope, Hide whitespace и Refresh
+  прочитан файл; комментарии ищутся только в чтениях того вида (scope и Hide whitespace), в котором нажали Refresh, и
+  только комментарий на том commit-е, который это чтение показывает на его стороне (worktree — null). Строки, которых
+  чтение не показывает, «Line changed» не получают.
+- Из «Consider»: popover с несохранённым текстом или картинками не заменяется «+», `c`, Comment и Edit — toast
+  «Save or cancel the comment you are writing first»; поле лотка не теряет текст, набранный во время Send (оно
+  заблокировано).
+- Страница `docs/features/changes.md`: «To» держит Session, блокировки во время Send, Refresh в своём scope, popover.
+
+Test-ы (`test/unit/changes-tray.test.tsx`, +11): блокировки во время Send; удалённый полем Session во время запуска
+комментарий не уходит; «To» держит Session с черновиками и после Send, без них следует умолчанию; Refresh двигает
+комментарий своего вида, отмечает «Line changed», не трогает его при Hide whitespace, на другом commit-е и на
+непоказанных строках; изменённый popover остаётся. Каждое новое поведение проверено мутантом в своём worktree
+(16 мутантов, все убиты: test-файл — exit 1).
+
+Решено без владельца, подтвердить:
+
+10. «To» закрепляется за показанной Session, когда у неё появились черновики или она приняла Send, а не сразу при
+    первом показе: без черновиков «To» по-прежнему следует умолчанию main (Q2).
+11. Повторная привязка только в виде (scope + Hide whitespace), где нажат Refresh, и только для комментария на commit-е
+    этого чтения; комментарий из другого scope хранит свои строки, верные на его commit-е. Строки вне hunk-ов этого
+    чтения — не повод для «Line changed» (лучше пропустить отметку, чем поставить ложную).
+12. Во время Send правка и удаление комментариев заблокированы целиком (а не «досылаются»): сообщение уходит с
+    комментариями такими, какими они были.
+
+Проверки раунда 1 (на `229bf46b9`, после rebase на origin/main `ad2169058`): `pnpm lint && pnpm typecheck && pnpm test`
+— exit 0 (862 файла test-ов, 19 756 test-ов); `gate fast` — exit 0, `[gate] green (fast)`. e2e
+`test/e2e/changes-comments.spec.ts` в этом раунде не запускался.

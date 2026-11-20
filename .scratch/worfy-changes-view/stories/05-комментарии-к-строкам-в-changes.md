@@ -92,7 +92,7 @@ export async function changesTargets(deps: TargetsDeps, projectId: string, ticke
 
 ## 4. Смена «To» переносит комментарии к коду
 
-Code: `src/renderer/changes/line-comments.tsx:211-221` · key lines: 215, 217, 218
+Code: `src/renderer/changes/line-comments.tsx:224-234` · key lines: 228, 230, 231
 
 ```tsx
   /** Another Session in «To»: the comments on code of this Ticket go with the choice. */
@@ -119,10 +119,10 @@ Code: `src/renderer/changes/line-comments.tsx:211-221` · key lines: 215, 217, 2
 
 ## 5. Send — тот же раунд, что у Send самой Session
 
-Code: `src/renderer/changes/line-comments.tsx:443-460` · key lines: 443, 450, 456, 457
+Code: `src/renderer/changes/line-comments.tsx:481-498` · key lines: 481, 488, 494, 495
 
 ```tsx
-      const composed = composeRound(all, { text: general, attachments: [] }, imageOf)
+      const composed = composeRound(drafts, { text: general, attachments: [] }, imageOf)
       if ('error' in composed) {
         setError(composed.error)
         return
@@ -135,10 +135,10 @@ Code: `src/renderer/changes/line-comments.tsx:443-460` · key lines: 443, 450, 4
         return
       }
       const round = composed.round
-      if (round.length > 0) markPending(storeKey, { id: newId(), message: text, at: Date.now(), comments: [...round] })
+      if (round.length > 0) markPending(key, { id: newId(), message: text, at: Date.now(), comments: [...round] })
       addSentLines(
         sentKey,
-        round.filter(isMine).map((each): SentLine => ({ id: each.id, repository: each.repository, path: each.path, side: each.side, startLine: each.startLine, endLine: each.endLine, text: each.text, images: each.images.length, to: target.title, at: Date.now() })),
+        round.filter(isMine).map((each): SentLine => ({ id: each.id, repository: each.repository, path: each.path, side: each.side, startLine: each.startLine, endLine: each.endLine, text: each.text, images: each.images.length, to: to.title, at: Date.now() })),
       )
 ```
 
@@ -153,9 +153,113 @@ Code: `src/renderer/changes/line-comments.tsx:443-460` · key lines: 443, 450, 4
 - Риски и пробелы test-ов: если Session при запуске получила новый id, раунд помечается под прежним ключом store; e2e
   проверяет только Orchestrator без привязанной Session. Отказ `agent.send` показан в лотке, но unit test на него нет.
 
-## 6. Переход к строке ждёт, пока Node станет видимым
+## 6. «To» держит Session с комментариями (доработка, раунд 1)
 
-Code: `src/renderer/changes/DiffPane.tsx:420-435` · key lines: 425, 430, 434, 435
+Code: `src/renderer/changes/line-comments.tsx:198-206` · key lines: 202, 206
+
+```tsx
+  // The Session «To» keeps: the one the user picked, or the one shown once it held comments or took a Send. Main's
+  // default may name another Session on the next read of the list (a Refresh, after a Send); «To» does not follow it
+  // then, or the comments would stay in the store of a Session the tray no longer shows.
+  const [chosen, setChosen] = useState<string | null>(null)
+  const target = targets.find((each) => each.nodeId === chosen) ?? targets.find((each) => each.nodeId === answer?.defaultNodeId) ?? targets[0] ?? null
+  const storeKey = target === null ? null : quoteKey(projectId, target.nodeId, target.sessionId ?? NOT_STARTED)
+  const quotes = useQuotes(storeKey)
+  const all = quotes.drafts
+  if (chosen === null && target !== null && all.length > 0) setChosen(target.nodeId)
+```
+
+- Что делает: пока пользователь ничего не выбрал, «To» показывает умолчание main (Q2). Как только у показанной Session
+  есть черновики, она закрепляется в `chosen`; после Send она закрепляется тоже (`setChosen((was) => was ?? to.nodeId)`).
+- Почему здесь: отчёт проверки PR #2049, находка 2: список «To» читается заново при Refresh и после Send, и умолчание
+  могло перейти на другую привязанную Session — черновики оставались в store прежней и пропадали из лотка и из Send.
+- Без него: test «holding comments, it stays when main’s default turns to another Session on a Refresh» красный (мутант
+  без строки 206), «a Session that took a Send stays…» — без закрепления после Send.
+- Требование: [Что делаем, пункт 4](../issues/05-комментарии-к-строкам-в-changes.md#что-делаем)
+- Риски и пробелы test-ов: выбор не сохраняется между запусками worfy; если закреплённая Session пропадёт из списка,
+  «To» вернётся к умолчанию, а её черновики останутся у неё.
+
+## 7. Send берёт Session и комментарии на момент отправки (доработка, раунд 1)
+
+Code: `src/renderer/changes/line-comments.tsx:444-458` · key lines: 445, 447, 448, 458
+
+```tsx
+  const send = async () => {
+    if (target === null || storeKey === null || sending) return
+    // «To» is locked while Send runs (Tray.tsx): the round goes to this Session and waits in its store.
+    const to = target
+    const key = storeKey
+    setSending(true)
+    setError(null)
+    try {
+      const live = await liveSession(to)
+      if ('error' in live) {
+        setError(live.error)
+        return
+      }
+      // The comments as the store holds them now: one removed while the Session started does not go.
+      const drafts = readQuotes(key).drafts
+```
+
+- Что делает: Send запоминает Session и ключ store-а при нажатии, а состав раунда читает из store-а после запуска
+  Session. Пока `sending`, лоток блокирует «To», поле, × и Clear (`Tray.tsx`), а Edit, Delete и Save правки ждут
+  (`openEdit`, `remove`, `save`).
+- Почему здесь: отчёт проверки PR #2049, находка 1: «To» оставался доступен, пока Send ждал `sessions.start`; смена
+  «To» переносила черновики, а `markPending` шёл по старому ключу — комментарии оставались в новом лотке и уходили
+  повторно. Блокировка поля и Edit — пункт «Consider» того же отчёта.
+- Без него: test-ы «while Send runs» красные на мутантах каждой блокировки и на составе из снимка `all`.
+- Требование: [Что делаем, пункты 4 и 5](../issues/05-комментарии-к-строкам-в-changes.md#что-делаем)
+- Риски и пробелы test-ов: если Session без id получает его во время Send, а Refresh в это же время переносит
+  черновики из `not-started`, раунд их не найдёт — они останутся черновиками (test-а нет).
+
+## 8. Refresh ищет комментарии только в своём виде (доработка, раунд 1)
+
+Code: `src/renderer/changes/line-comments.tsx:515-540` · key lines: 516, 524, 533, 540
+
+```tsx
+  const [refreshedIn, setRefreshedIn] = useState({ generation, view: viewOf(scope, hideWhitespace) })
+  if (refreshedIn.generation !== generation) setRefreshedIn({ generation, view: viewOf(scope, hideWhitespace) })
+  const latest = useRef({ mine, storeKey, refreshedIn, onEntry, scopes, lists })
+  useEffect(() => {
+    latest.current = { mine, storeKey, refreshedIn, onEntry, scopes, lists }
+  })
+  const onFileRead = useCallback((entry: FileEntry, diff: FileDiff, readOf: FileReadOf) => {
+    read.current.set(entry.key, diff)
+    const { mine: drafts, storeKey: key, refreshedIn: refresh, onEntry: isOn, scopes: scoped, lists: listed } = latest.current
+    if (refresh.generation === 0 || readOf.generation !== refresh.generation || viewOf(readOf.scope, readOf.hideWhitespace) !== refresh.view) return
+    if (key === null || diff.kind !== 'hunks') return
+    const scopesOf = scoped.find((each) => each.repo === entry.repo)
+    const listOf = listed?.find((each) => each.repo === entry.repo)
+    const ids = { lost: [] as string[], found: [] as string[] }
+    for (const comment of drafts) {
+      if (!isOn(comment, entry)) continue
+      // A comment on lines of another commit than the one this read shows on its side belongs to another scope: its
+      // lines are true at its commit, and stay as they are.
+      if (comment.commit !== commitOf(readOf.scope, comment.side, scopesOf, listOf)) continue
+      const lines = sideLines(diff.hunks, comment.side)
+      const at = anchorLines(sideText(diff.hunks, comment.side), comment)
+      if ('mark' in at && at.mark === LINE_CHANGED) {
+        // Lines this view does not show are no news: they may stand there unchanged.
+        let shown = true
+        for (let number = comment.startLine; number <= comment.endLine; number += 1) shown &&= lines.has(number)
+        if (shown) ids.lost.push(comment.id)
+```
+
+- Что делает: при росте `generation` запоминается вид Node-а (scope и Hide whitespace). Чтение файла (`DiffPane`
+  передаёт, для чего оно) двигает комментарии, только если оно из этого вида и этого Refresh, и только комментарий на
+  commit-е, который чтение показывает на его стороне. «Line changed» ставится, только если строки комментария это
+  чтение показывает.
+- Почему здесь: отчёт проверки PR #2049, находка 3: после первого Refresh любое чтение (Commit, Uncommitted, Compare
+  against, Hide whitespace) двигало комментарии — комментарий worktree получал номера строк другого scope с `commit`
+  null или ложную «Line changed».
+- Без него: test-ы «after a Refresh» красные на мутантах проверки вида, проверки commit-а и проверки показанных строк.
+- Требование: [Что делаем, пункт 7](../issues/05-комментарии-к-строкам-в-changes.md#что-делаем)
+- Риски и пробелы test-ов: поиск идёт по тексту hunk-ов, не всего файла; строка, ушедшая за пределы показанных hunk-ов,
+  не найдётся, а отметка поставится, только если исходные строки видны.
+
+## 9. Переход к строке ждёт, пока Node станет видимым
+
+Code: `src/renderer/changes/DiffPane.tsx:427-442` · key lines: 432, 437, 441, 442
 
 ```tsx
   useLayoutEffect(() => {
@@ -185,7 +289,7 @@ Code: `src/renderer/changes/DiffPane.tsx:420-435` · key lines: 425, 430, 434, 4
 - Риски и пробелы test-ов: поиск бросается через 10 с (`SEEK_MS`) — свёрнутый файл или ушедшая строка не прокрутятся,
   без сообщения пользователю.
 
-## 7. Запрос строки живёт 5 секунд
+## 10. Запрос строки живёт 5 секунд
 
 Code: `src/renderer/changes/open.ts:233-237` · key lines: 236
 
@@ -206,7 +310,7 @@ export function lineRequestFor(request: LineRequest | null, projectId: string, s
 - Риски и пробелы test-ов: повторное открытие того же Node-а в течение 5 с снова прокрутит к строке; это заметно только
   при очень быстрых действиях.
 
-## 8. Какой Ticket у блока в чате
+## 11. Какой Ticket у блока в чате
 
 Code: `src/renderer/session/QuotedPrompt.tsx:35-42` · key lines: 39, 40
 
@@ -229,13 +333,13 @@ function useCodeSubject(branch: string): { projectId: string; subject: ChangesSu
 - Требование: [Что делаем, пункт 6](../issues/05-комментарии-к-строкам-в-changes.md#что-делаем)
 - Риски и пробелы test-ов: сообщение другого Project-а (не активного) не найдёт свой Ticket — путь будет текстом.
 
-## 9. Что сознательно не меняли
+## 12. Что сознательно не меняли
 
 `quote-comments.ts`, `quote-store.ts`, `launch.ts`, `getting-started.ts` и `agent.ts` — только читать по брифу. Чип
 комментария к коду в лотке поля ввода Session не менялся. «New session in this worktree», комментарии к PR и Add to
 comments — часть 2 спеки. Перевод страницы на русский — Ticket 06.
 
-## 10. Как проверено
+## 13. Как проверено
 
 - `pnpm typecheck` — exit 0; eslint изменённых файлов — exit 0.
 - `node scripts/vitest-electron.mjs` по `changes-tray`, `changes-view`, `changes-targets`, `changes-read`,
@@ -243,17 +347,19 @@ comments — часть 2 спеки. Перевод страницы на ру�
 - `pnpm test:e2e test/e2e/changes-comments.spec.ts` — exit 0, 1 passed.
 - `node scripts/check-feature-docs.mjs` — exit 0.
 - Новые test-ы на origin/main `bbf82a57f` — exit 1 (нет `sent-lines`, нет канала `changes.targets`).
+- Доработка, раунд 1: `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (862 файла test-ов, 19 756 test-ов);
+  `test/unit/changes-tray.test.tsx` — 20 test-ов, exit 0; 16 мутантов шагов 6–8 и popover-а — каждый даёт exit 1.
 
 ## Проверить себя
 
 1. Почему Binding-и в Map кладутся сначала launch, потом ручные?
    - Ответ: в Map побеждает последняя запись по ключу session id, так ручной Binding перезаписывает launch той же Session.
    - Строки: `src/main/changes/targets.ts:60-63`
-2. Зачем запросу строки срок в 5 секунд, а не одно использование?
-   - Ответ: Node Changes перемонтируется сразу после перехода из вида Session; одноразовый запрос съедал первый экземпляр,
-     а новый экземпляр должен обработать его ещё раз.
-   - Строки: `src/renderer/changes/open.ts:233-237`
+2. Почему комментарий на commit-е `abc1234` не двигается после Refresh в «All changes» над worktree?
+   - Ответ: новая сторона этого чтения — worktree (commit null), а строки комментария верны на его commit-е; чтение
+     другого commit-а показывает другие номера строк, поэтому такой комментарий пропускается.
+   - Строки: `src/renderer/changes/line-comments.tsx:531-533`
 3. Почему отправленные комментарии хранятся в `sent-lines.ts`, а не в store Session?
    - Ответ: `quote-store.ts` не хранит отправленные комментарии к коду и в этом Ticket-е только для чтения; Send после
      `markPending` записывает ушедшие строки в свой список.
-   - Строки: `src/renderer/changes/line-comments.tsx:456-460`
+   - Строки: `src/renderer/changes/line-comments.tsx:494-498`
