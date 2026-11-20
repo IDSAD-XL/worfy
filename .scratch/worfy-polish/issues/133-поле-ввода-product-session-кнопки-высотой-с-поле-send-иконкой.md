@@ -1,7 +1,8 @@
 # 133 — Поле ввода Product Session: кнопки высотой с поле, без Interrupt, Send иконкой
 
 Type: task
-Status: claimed 2026-11-20T02:06Z
+Status: done 2026-11-20T04:46Z
+PR: #2060
 Blocked by: none
 Source: просьба владельца 2026-11-20 в чате Orchestrator-а: «В продуктовой сессии отрефактори инпут, чтобы кнопки были
 одной высоты с инпутом и чтобы не было отдельных send/interrupt, только send, потому что interrupt есть сверху в
@@ -45,6 +46,7 @@ Source: просьба владельца 2026-11-20 в чате Orchestrator-а
   - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 · mac dev · 15ef693b7
 - [ ] Снимки Playwright строки ввода в светлой и тёмной теме, без хода и во время хода — в scratchpad, названы в «Итог».
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44667859730/job/136084734438 · ci - · 71666a3cd708cfd60cd8eaf0d41318d8f69645f6
 
 ## Где в коде
 
