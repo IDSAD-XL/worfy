@@ -300,7 +300,7 @@ printf '# 01 — first of ep2\n\nStatus: open\n' >"$CP/.scratch/ep2/issues/01-x.
 echo base >"$CP/file.txt"
 gq() { git -c user.email=t@example.invalid -c user.name=t -c init.defaultBranch=main -c core.autocrlf=false "$@"; }
 (cd "$CP" && gq init -q && gq add -A && gq commit -q -m base) >/dev/null 2>&1
-echo '{"schema":2,"name":"cmp","mode":"full","attribution":"on","tickets":{"root":".scratch/","path":".scratch/<epic>/issues/NN-*.md","branch":"<epic>/<NN>"},"workflow":{"finish":"pr-green-ci"}}' >"$T/sp/cmp/profile.json"
+echo '{"schema":2,"name":"cmp","mode":"full","attribution":"on","worktree":{"base":"main"},"tickets":{"root":".scratch/","path":".scratch/<epic>/issues/NN-*.md","branch":"<epic>/<NN>","done_section":"## Готово, когда"},"workflow":{"finish":"pr-green-ci"}}' >"$T/sp/cmp/profile.json"
 printf '{"repos":[{"key":"c","match":"%s","profile":"cmp"}]}\n' "$T/cmp" >"$T/cmp.json"
 printf 'process.stdout.write("[]\\n")\n' >"$T/cmp/stubs/gh.mjs"
 # A wave-brief stand-in for the limit: a head, a long Land section first, then Waiting and Open PRs.
@@ -312,6 +312,9 @@ process.stdout.write([`# Wave brief: ${epic} · now`, `Stage: /implement · ${ep
     "## Land", ...land, "", "## Waiting", "02 in work: WAITING-LINE", "", "## Open PRs", "#7 OPEN-PR-LINE", "", "## Next wave", "NEXT-LINE", ""].join("\n"))
 EOF
 git -C "$CP" worktree add -q -b ep1/02 "$T/cmp/wt-02" >/dev/null 2>&1
+# One commit on the ticket branch, then a change not committed and a new file.
+echo step >"$T/cmp/wt-02/step.txt"
+(cd "$T/cmp/wt-02" && gq add step.txt && gq commit -q -m "ep1/02: STEP-ONE-COMMIT") >/dev/null 2>&1
 echo changed >"$T/cmp/wt-02/file.txt"; echo new >"$T/cmp/wt-02/new.txt"
 git -C "$CP" worktree add -q --detach "$T/cmp/review" >/dev/null 2>&1
 # $1 directory (cwd of the input), $2 source; the rest are variables for the hook. Output in $T/aout, stderr in $T/aerr.
@@ -356,7 +359,33 @@ c="$(actx)"
     && [[ "$c" == *" M file.txt"* && "$c" == *"?? new.txt"* && "$c" != *"Wave brief"* ]] \
     && ok "after-compact: an implementer (worktree on its ticket's branch) gets its ticket file and git status --short" \
     || bad "after-compact: implementer: rc=$arc err=[$(cat "$T/aerr")] ctx=[${c:0:400}]"
+# What is committed and what is not: the commits of the branch since worktree.base of the
+# profile, each with its files, and the diff of the work not committed yet.
+[[ "$c" == *"## Commits of ep1/02 since main"* && "$c" == *"ep1/02: STEP-ONE-COMMIT"* && "$c" == *"step.txt"* ]] \
+    && [[ "$c" == *"## Not committed: git diff HEAD"* && "$c" == *"+changed"* && "$c" == *"-base"* ]] \
+    && ok "after-compact: the implementer gets the commits of its branch with their files and the diff not committed yet" \
+    || bad "after-compact: commits and diff: ctx=[${c:0:900}]"
+# The text states where the work stands and names no command to run now: an agent told to answer from memory
+# read "check each item … before the next step" as an order to open files (eval compaction-state, 2026-11-20).
+# The re-check of the done items belongs before the report.
+[[ "$c" != *"before the next step"* && "$c" == *"empty box"*"## Готово, когда"* && "$c" == *"Before your report, check each done item"* ]] \
+    && ok "after-compact: the implementer text names no command to run now, says what an empty box means and asks for a re-check before the report" \
+    || bad "after-compact: implementer header: [${c:0:600}]"
+# How the ticket ends, from workflow.finish of the profile (pr-green-ci here).
+[[ "${c%%## Commits*}" == *"ends with a pull request"*"workflow.finish pr-green-ci"* ]] \
+    && ok "after-compact: the implementer text says how the ticket ends (workflow.finish)" \
+    || bad "after-compact: finish: [${c:0:600}]"
 claude_impl="$c"
+# A long diff is cut to its own share of the limit, after the ticket: the ticket stays whole.
+for i in $(seq 1 600); do echo "long diff line $i"; done >"$T/cmp/wt-02/file.txt"
+compact "$T/cmp/wt-02" compact
+c="$(actx)"
+n="$(printf '%s' "$c" | node -e 'process.stdout.write(String([...require("fs").readFileSync(0, "utf8")].length))')"
+[ "$n" -le 10000 ] && [[ "$c" == *"EP1-TWO-DONE"* && "$c" == *"+long diff line 1"* && "$c" != *"+long diff line 600"* && "$c" == *"… the diff is cut"* ]] \
+    && [[ "${c%%## Not committed: git diff HEAD*}" == *"EP1-TWO-DONE"* ]] \
+    && ok "after-compact: a long diff is cut after the ticket ($n characters)" \
+    || bad "after-compact: long diff: $n characters, tail [$(printf '%s' "$c" | tail -n 3)]"
+echo changed >"$T/cmp/wt-02/file.txt"
 TRANSCRIPT="/codex-home/sessions/2026/11/18/rollout-2026-11-18T00-00-00-t1.jsonl" compact "$T/cmp/wt-02" compact WORFY_EPIC=ep2
 c="$(actx)"
 [ -n "$c" ] && [ "$c" = "$claude_impl" ] && ok "after-compact: Codex sessionStart (compact) gives the implementer the same context" \
@@ -367,6 +396,81 @@ compact "$CP" compact WORFY_EPIC=ep2
 [ -n "$c" ] && [ "$c" = "$(actx | sed 1d | grep -v '^# Wave brief: ')" ] \
     && ok "after-compact: Codex sessionStart (compact) gives the Orchestrator the same wave-brief (its time aside)" \
     || bad "after-compact: Codex Orchestrator differs"
+
+# A long ticket and a branch of many files: the commits never push the done items out of the limit. The
+# ticket's done section ends past character 7 700; one commit adds 45 files with long names, the next one a Cyrillic file.
+git -C "$CP" worktree add -q -b ep1/01 "$T/cmp/wt-01" >/dev/null 2>&1
+W1="$T/cmp/wt-01"
+{
+    printf '# 01 — first of ep1\n\nStatus: claimed 2026-01-01T00:00Z\n\n## Что делаем\n\n'
+    for i in $(seq 1 90); do echo "Filler line $i of a long ticket, written the way real tickets explain the problem."; done
+    printf '\n## Готово, когда\n\n- [ ] LONG-DONE-ONE\n- [ ] LONG-DONE-TWO\n- [ ] LONG-DONE-THREE\n- [ ] LONG-DONE-FOUR\n'
+} >"$W1/.scratch/ep1/issues/01-first.md"
+mkdir -p "$W1/src/some/rather/long/path/to/the/modules"
+for i in $(seq 1 45); do echo "m$i" >"$W1/src/some/rather/long/path/to/the/modules/module-$i-with-a-long-name.ts"; done
+(cd "$W1" && gq add -A && gq commit -q -m "ep1/01: MANY-FILES-COMMIT") >/dev/null 2>&1
+# Two Cyrillic file names, built from UTF-8 octal escapes so that this file stays ASCII ("fajl" and "novyj").
+RU_COMMITTED="$(printf '\321\204\320\260\320\271\320\273-ru.txt')"
+RU_NEW="$(printf '\320\275\320\276\320\262\321\213\320\271.txt')"
+echo ru >"$W1/$RU_COMMITTED"
+(cd "$W1" && gq add -A && gq commit -q -m "ep1/01: CYRILLIC-COMMIT") >/dev/null 2>&1
+echo new >"$W1/$RU_NEW"
+compact "$W1" compact GIT_CONFIG_NOSYSTEM=1
+c="$(actx)"
+n="$(printf '%s' "$c" | node -e 'process.stdout.write(String([...require("fs").readFileSync(0, "utf8")].length))')"
+[ "$arc" -eq 0 ] && [ "$n" -le 10000 ] && [[ "$c" == *"LONG-DONE-ONE"*"LONG-DONE-TWO"*"LONG-DONE-THREE"*"LONG-DONE-FOUR"* ]] \
+    && [[ "$c" == *"ep1/01: MANY-FILES-COMMIT"* ]] \
+    && ok "after-compact: a long ticket keeps all its done items next to a commit of many files ($n characters)" \
+    || bad "after-compact: long ticket and many files: rc=$arc $n characters, err=[$(cat "$T/aerr")] tail [$(printf '%s' "$c" | tail -n 4)]"
+# File names as they are, not as octal escapes (core.quotePath), in the commits and in git status; a short
+# ticket now, so the commits fit. The user's git config asks for escapes, so the hook's own setting is what counts.
+printf '[core]\n\tquotePath = true\n' >"$T/quoting.gitconfig"
+printf '# 01 — first of ep1\n\nStatus: claimed 2026-01-01T00:00Z\n\n## Готово, когда\n\n- [ ] SHORT-DONE\n' >"$W1/.scratch/ep1/issues/01-first.md"
+compact "$W1" compact GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$T/quoting.gitconfig"
+c="$(actx)"
+[[ "$c" == *"$RU_COMMITTED"* && "$c" == *"?? $RU_NEW"* && "$c" != *'\321'* ]] \
+    && ok "after-compact: Cyrillic file names stay readable in the commits and in git status" \
+    || bad "after-compact: quotePath: [$(printf '%s' "$c" | grep -n 'txt' | head -n 5)]"
+
+# A ticket over the limit by itself, behind a git status of 50 lines and more, with a commit of 45 files: the
+# ticket loses lines of its middle, never its done section — last in the ticket, or followed by other sections.
+# git status: the 45 committed files changed, and 10 new files beside them.
+for i in $(seq 1 45); do echo changed >>"$W1/src/some/rather/long/path/to/the/modules/module-$i-with-a-long-name.ts"; done
+for i in $(seq 1 10); do echo u >"$W1/extra-untracked-file-$i.txt"; done
+long_ticket() { # $1: what follows the done section
+    printf '# 01 — first of ep1\n\nStatus: claimed 2026-01-01T00:00Z\n\n## Что делаем\n\n'
+    for i in $(seq 1 140); do echo "Filler line $i of a very long ticket, written the way real tickets explain a problem."; done
+    printf '\n## Готово, когда\n\n- [ ] HUGE-DONE-ONE\n- [ ] HUGE-DONE-TWO\n- [ ] HUGE-DONE-THREE\n- [ ] HUGE-DONE-FOUR\n%s' "$1"
+}
+for tail_kind in last followed; do
+    if [ "$tail_kind" = last ]; then long_ticket "" >"$W1/.scratch/ep1/issues/01-first.md"
+    else long_ticket "$(printf '\n## Result\n\n'; for i in $(seq 1 60); do echo "Result line $i of the ticket."; done)" >"$W1/.scratch/ep1/issues/01-first.md"; fi
+    compact "$W1" compact
+    c="$(actx)"
+    n="$(printf '%s' "$c" | node -e 'process.stdout.write(String([...require("fs").readFileSync(0, "utf8")].length))')"
+    [ "$arc" -eq 0 ] && [ "$n" -le 10000 ] && [[ "$c" == *"Filler line 1 "* && "$c" == *"HUGE-DONE-ONE"*"HUGE-DONE-TWO"*"HUGE-DONE-THREE"*"HUGE-DONE-FOUR"* ]] \
+        && [[ "$c" == *" M src/some/rather/long/path/to/the/modules/module-"* && "$c" == *"… more lines: run git status --short"* ]] \
+        && [[ "$c" != *"Filler line 140 "* && "$c" != *"Result line 60 "* ]] \
+        && ok "after-compact: a ticket over the limit keeps its head and its whole done section ($tail_kind, $n characters)" \
+        || bad "after-compact: huge ticket ($tail_kind): rc=$arc $n characters, err=[$(cat "$T/aerr")] tail [$(printf '%s' "$c" | tail -n 4)]"
+done
+(cd "$W1" && gq checkout -q -- src) >/dev/null 2>&1
+rm -f "$W1"/extra-untracked-file-*.txt
+
+# A git diff that fails says so, as git status does: here the blob of a committed file is gone from the
+# object store, so git status still works (it hashes the file again) while git diff HEAD cannot read it.
+git -C "$CP" worktree add -q "$T/cmp/wt-e2" ep2/01 >/dev/null 2>&1
+W2="$T/cmp/wt-e2"
+echo "BLOB-ONLY-HERE $RANDOM$RANDOM" >"$W2/gone.txt"
+(cd "$W2" && gq add gone.txt && gq commit -q -m "ep2/01: GONE-COMMIT") >/dev/null 2>&1
+blob="$(git -C "$W2" rev-parse HEAD:gone.txt)"
+rm -f "$CP/.git/objects/${blob:0:2}/${blob:2}"
+echo changed >"$W2/gone.txt"
+compact "$W2" compact
+c="$(actx)"
+[ "$arc" -eq 0 ] && [[ "$c" == *" M gone.txt"* && "$c" == *"## Not committed: git diff HEAD"*"(git diff failed: exit "* ]] \
+    && ok "after-compact: a git diff that fails is named in the text, not dropped" \
+    || bad "after-compact: failed diff: rc=$arc err=[$(cat "$T/aerr")] tail [$(printf '%s' "$c" | tail -n 4)]"
 
 compact "$T/cmp/review" compact
 [ "$arc" -eq 0 ] && [ ! -s "$T/aout" ] && [ ! -s "$T/aerr" ] && ok "after-compact: a worktree with no ticket of its own (a reviewer's) — silent" \

@@ -275,9 +275,10 @@ and `git status` before the next step.
 **Compaction.** When Claude Code compacts the context, on `/compact` and on auto-compaction, in a main Session and in a
 Subagent, the part `compaction` (`harness/hooks/rules/compaction.md`) joins the instructions of the model that writes
 the summary. It asks for seven sections: Intent, Essential facts, Completed work, Files touched, Errors, Pending work and
-Next action. It names what each role keeps. An Orchestrator keeps the Epic, the Wave number, the PRs in work and the
-decisions taken without the owner. An implementer keeps its Ticket, each item of the Ticket's done section with its
-mark, the worktree and the branch. The hook cannot tell a Subagent from a main Session, so one text holds every role,
+Next action; the Next action carries the check that shows the step worked, after a fix the command that failed, run
+again. It names what each role keeps. An Orchestrator keeps the Epic, the Wave number, the PRs in work and the
+decisions taken without the owner. An implementer keeps its Ticket, each item of the Ticket's done section word for word
+with its mark, the worktree, the branch, and the last command that failed with its error and cause. The hook cannot tell a Subagent from a main Session, so one text holds every role,
 and the summary model picks by the conversation. It is plain text, not `additionalContext`, and Claude Code cuts it
 after 10,000 characters. Codex does not read this output.
 
@@ -288,7 +289,7 @@ work decides:
 
 | Where | What comes |
 |---|---|
-| A linked worktree whose branch is a Ticket's (the Profile's branch form, or the Ticket's `Branch:` line in Silent mode) | The Ticket, the worktree and the branch, `git status --short` of the worktree (50 lines at most), then the Ticket file |
+| A linked worktree whose branch is a Ticket's (the Profile's branch form, or the Ticket's `Branch:` line in Silent mode) | The Ticket, the worktree and the branch, and how the Ticket ends by `workflow.finish` (a pull request, or green local checks and the report); `git status --short` of the worktree (50 lines and 1,500 characters at most); the Ticket file, with a line that an empty box of its done section is the usual state while the Ticket is in work and that the done items are checked against the work before the report; then the commits of the branch since `worktree.base` of the Profile, each with its files (40 lines and 2,000 characters at most), and `git diff HEAD`, cut to 3,000 characters, or the line `(git diff failed: …)`. The commits and the diff come after the Ticket, so a branch of many files never cuts its done items, and a Ticket over the limit by itself loses lines of its middle, with a line that names the cut, never its done section (found as `bin/ticket` finds it); file names keep their letters (`core.quotePath=false`). The text states where the work stands and names no command to run now |
 | The main checkout | `wave-brief <epic>`: its head with the Stage line, then the Tickets in work (`Waiting`) and the open PRs, then the rest. The Epic is `WORFY_EPIC` when a Ticket of that Epic exists, otherwise the Epic of the checkout's branch, otherwise the first of the Epics in play, as `stage-lines.mjs` orders them |
 
 The text stays within 10,000 characters, and on Codex within 10,000 bytes too, since Codex moves a longer context to a
@@ -376,12 +377,15 @@ Main tests, all shell tests: `harness/hooks/tests/rules-hooks.test.sh`, `harness
 `harness/bin/tests/harness-home.test.sh`. The eval `harness/evals/status-block/` checks by behaviour that a main Session
 follows the rules. The eval `harness/evals/compaction-state/` asks an implementer six questions after a compaction —
 its goal, Ticket, done items, files, decisions and next step — with `compaction.md` and `after-compact.mjs` and, in a
-copy of the Harness that `baseline.mjs` makes, without them. The case compacts its history before the first answer
-only with `CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000` (the context window, in tokens, that auto-compaction counts against)
-and `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=5` (compact at 5 % of it). A case may set only `EVAL_*` variables, so
+copy of the Harness that `baseline.mjs` makes, without them. The agent writes each answer to a file of its own under
+`answers/`, and the judge of each question reads that file alone. The case compacts its history once, before the first
+answer, only with `CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000` (the context window, in tokens, that auto-compaction counts
+against) and `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50`: Claude Code compacts at 50 % of the window less 20,000 tokens of
+room for output, 40,000 tokens, which the history's count is over and the context after the compaction is under. A
+case may set only `EVAL_*` variables, so
 `scripts/eval-harness.mjs` sets these two in the call of this case and removes them from every other call. The case
 carries the tag `alone`: it runs only by `pnpm eval:harness -- --case compaction-state`, and a general run or
 `--changed` leaves it out with a line that says how to run it. The variant without the hook is
 `HARNESS_DIR="$(node harness/evals/compaction-state/baseline.mjs)" pnpm eval:harness -- --case compaction-state`; its
-results go to `evals/results/` of that copy, which is left for you to remove. Without a compaction the grader
-`compacted` fails the case on its own.
+results go to `evals/results/` of that copy, which is left for you to remove. Without exactly one compaction the
+grader `compacted` fails the case on its own.

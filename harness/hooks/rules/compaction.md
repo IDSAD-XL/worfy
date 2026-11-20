@@ -20,7 +20,8 @@ Write the summary under these seven headings, in this order:
    read that a decision rests on. This is the list summaries lose most often: keep it whole.
 5. **Errors** — every failure met, its cause, and whether it is fixed or still open.
 6. **Pending work** — what is left, in order.
-7. **Next action** — the one step to take first after compaction, with the exact command or file.
+7. **Next action** — the step to take first after compaction, with the exact edit or command, and the check
+   that shows it worked: after a fix, the command that failed, run again.
 
 ## By role
 
@@ -35,9 +36,9 @@ the owner.
 
 **Implementer** — an agent that ships one ticket (`worfy:implementer`): the ticket file, the worktree
 path, the branch and the base commit; every item of the ticket's done section (`tickets.done_section`
-of the profile), each with its mark — done with its evidence, not done, or not verified; the PR number
-when there is one; the commands run so far with their exit codes, and what the change removed from
-existing behaviour.
+of the profile), word for word, each with its mark — done with its evidence, not done, or not verified;
+the PR number when there is one; the commands run so far with their exit codes; the last command that
+failed, the error it printed and its cause; and what the change removed from existing behaviour.
 
 **Any other agent** — a reviewer, a scout, a Product Session or any other task: the task as given, its
 target (a PR, a branch, a lens, a topic), every file edited, and the findings so far, each with its

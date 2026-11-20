@@ -1,8 +1,9 @@
 ---
 type: llm
+focus: { source: file, path: answers/4-files.md }
 ---
 
-Probe 4, the files. Judge only the section under this heading; what the other sections say or admit does not matter. Under the heading for the files the reply lists the files the task created or changed:
+Probe 4, the files. The text is the answer the agent wrote to answers/4-files.md, and nothing else of its reply. The answer lists the files the task created or changed:
 src/alpha.mjs and test/alpha.test.mjs (committed, in the commit "demo/01: double with tests"),
 src/index.mjs and test/index.test.mjs (new, not committed), package.json (the `exports` field, not
 committed), and the ticket file .scratch/demo/issues/01-alpha.md (its status, committed as the claim).
