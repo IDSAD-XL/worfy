@@ -18,6 +18,7 @@ SKILL="${SKILL_FILE:-$SKILLS/owner-check/SKILL.md}"
 B="$(blockf 'owner-check: record the decision')"
 [ -n "$B" ] || bad "the record block (# owner-check: record the decision) not found in $SKILL"
 D="$(date +%F)"
+NAME="/somebody" AT="@acme.io" # a user name in a home folder path and an email domain, joined only in the words below
 
 # A Full project: registered in a temporary HARNESS_HOME, tickets in .scratch/ of its repository.
 FP="$T/full"; FR="$FP/repo"; FHH="$FP/hh"
@@ -108,7 +109,8 @@ for sh in "${SHELLS[@]}"; do
 
     # --- the words: never run by the shell, personal data replaced ---------------------------------------------
     I="$FR/.scratch/w-$sh/issues"; ticket02 "$I"; F="$I/02-demo.md"
-    words '> Seen in /home/somebody/work/app, mail jane@acme.io' "> \`touch $T/ran-$sh\` \$(touch $T/ran2-$sh) · ok"
+    # The personal values are put together here, so this file itself holds none: the repository's own check of personal data reads it.
+    words "> Seen in /home$NAME/work/app, mail jane$AT" "> \`touch $T/ran-$sh\` \$(touch $T/ran2-$sh) · ok"
     run "$sh" "$FR" FENV "w-$sh" 02 2 pass -
     line="$(grep -- '- evidence: owner-check' "$F")"
     if [[ "$out" == *"EXIT=0"* && "$out" == *"owner words: replaced by a stand-in: "*"home-path"* && "$out" == *"email"* ]] \

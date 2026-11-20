@@ -120,7 +120,7 @@ const privacyOptions = { hostname: os.hostname(), deny: privacy.personal(harness
 const replaced = []
 for (const f of privacy.findings(words, privacyOptions).reverse()) {
     let start = f.index
-    // A home folder path goes whole up to the user name: /home/name/x becomes <home>/x.
+    // A home folder path goes whole up to the user name: the root, the home folder and the name become <home>.
     if (f.rule === "home-path") while (start > 0 && !/[\s"`(<]/.test(words[start - 1])) start--
     words = words.slice(0, start) + (STAND_IN[f.rule] || "<private>") + words.slice(f.index + f.length)
     replaced.push(f.rule)
