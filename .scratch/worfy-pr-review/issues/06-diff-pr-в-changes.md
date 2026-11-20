@@ -49,13 +49,16 @@ Source: [spec.md](../spec.md), «Ticket-ы», 6; «Факты GitHub API» → �
 - [ ] Unit `test/unit/changes-github-patch.test.ts` (новый): `patch` GitHub → hunk-и; файл без `patch`; переименование;
       binary. Красный до правки — в «Итог».
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/changes-github-patch.test.ts` exit 0 · mac - · e83146a6b5db115f2996bb2e69bc3671baa361e8
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/changes-github-patch.test.ts` exit 0 (review round 1) · mac - · b0e5d20040dfdf75395f6ad3e026f01fe18b47e8
 - [ ] Contract `test/contract/changes-pr.test.ts` (новый) на gh stand-in и временном git-репозитории: локальный путь,
       путь GitHub, 3 000 файлов, файл без `patch`, кэш по head (второй вызов gh не делает), Since my review; ни одного
       `fetch`, `.git/index` не тронут (mtime и hash), ни одного `--method` у gh.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/changes-pr.test.ts` exit 0 · mac - · e83146a6b5db115f2996bb2e69bc3671baa361e8
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/changes-pr.test.ts test/contract/pr-inbox.test.ts` exit 0 (review round 1) · mac - · b0e5d20040dfdf75395f6ad3e026f01fe18b47e8
 - [ ] `test/contract/changes-read.test.ts`, `test/unit/changes-view.test.tsx`, `test/e2e/changes.spec.ts` зелёные с
       `subject` вместо `ticket`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/changes-read.test.ts test/unit/changes-view.test.tsx` exit 0; `pnpm test:e2e test/e2e/changes.spec.ts test/e2e/changes-comments.spec.ts` exit 0 · mac - · e83146a6b5db115f2996bb2e69bc3671baa361e8
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/changes-read.test.ts test/unit/changes-view.test.tsx` exit 0 (review round 1; e2e not rerun this round) · mac - · b0e5d20040dfdf75395f6ad3e026f01fe18b47e8
 - [ ] Amendment ADR-0110 влит в этом PR; `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · e83146a6b5db115f2996bb2e69bc3671baa361e8
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
