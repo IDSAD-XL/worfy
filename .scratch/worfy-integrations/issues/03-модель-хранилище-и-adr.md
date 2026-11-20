@@ -58,16 +58,22 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Волны», Wave 1; «Ре�
 - [ ] Unit `test/unit/integrations-catalogue.test.ts` (новый): у каждой строки каталога — адрес `https://` или stdio,
       хотя бы один способ входа, имя по умолчанию; GitHub — только token; Figma помечен; ключа `slack` нет (Q6). Красный
       до правки — в «Итог».
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/integrations-catalogue.test.ts` exit 0 (7 tests; before the change exit 1, module missing) · mac - · df802e449041c2eb3c5bcdda8da8d3971e5bcc77
 - [ ] Contract `test/contract/integrations-store.test.ts` (новый): `integrations.json` без секретов (поиск значений
       секретов в файле — пусто); `secrets.json` 0600 в папке 0700 (на Windows — как `test/unit/link-secrets-write.test.ts`);
       ключи `<id>:…`; метка уникальна на Machine; запись переживает прерванную запись (временный файл).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/integrations-store.test.ts` exit 0 (14 tests; before the change exit 1, module missing) · mac - · df802e449041c2eb3c5bcdda8da8d3971e5bcc77
 - [ ] Тот же contract: поле `integrations` в `settings.json` Project-а; старый `settings.json` без поля читается; Profile
       и файлы репозитория после записи не изменились.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/integrations-store.test.ts` exit 0 (settings field, old file, repo and Claude home unchanged) · mac - · df802e449041c2eb3c5bcdda8da8d3971e5bcc77
 - [ ] Тот же contract: каналы `integrations.*` с Linked machine Read only — `list` и `status` разрешены, `setEnabled`
       — отказ; Full access — `setEnabled` разрешён, `add`, `setSecret`, `remove` — отказ; Remove включённой в другом
       Project-е без подтверждения — отказ.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/integrations-store.test.ts` exit 0 (createLinkIpc read and all; remove confirm) · mac - · df802e449041c2eb3c5bcdda8da8d3971e5bcc77
 - [ ] Новый ADR и Amendment ADR-0021 влиты в этом PR.
+  - evidence: commit pass · worfy-integrations/03: Integration model, catalogue, Machine store with its secret store, Project field, integrations.* channels, ADR-0111 · - - · df802e449041c2eb3c5bcdda8da8d3971e5bcc77
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · df802e449041c2eb3c5bcdda8da8d3971e5bcc77
 
 ## Где в коде
 
