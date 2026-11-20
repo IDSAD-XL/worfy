@@ -185,3 +185,27 @@ Code: `harness/skills/owner-check/SKILL.md:190-193` · key lines: 193
    - Ответ: по строке `Source: owner-check fail <date> of <epic> <NN>, item <k>` в шапке Ticket-а доработки и по
      совпадению текста пунктов.
    - Строки: `harness/skills/owner-check/SKILL.md:158-166`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED — acceptance 04 (skill owner-check), head aab14e0ebd04c348e18b222ec7a549037087d36f
+>
+> Gate (depth medium): verifier (lens: implementer's report) VERIFIED; reviewer (lens: correctness) 3 med + 1 low; each med went to its own sceptic — all three downgraded to low.
+>
+> - Verifier: files_changed = diff (8 files); owner-check.test.sh passed 35 / failed 0, agents-text.test.sh passed 495 / failed 0; three mutants of its own (old path.join rework path, weaker repeat check, manual-item check removed) each red; story-check and evidence-check exit 0; CI run 44664848110 on the head green incl. all Windows jobs (platform PR).
+> - Reviewer: test runs the block cut from SKILL.md itself (no drift); CRLF tickets and Windows paths correct; refusals leave the file untouched; owner words never reach a shell or a regex; Silent mode keeps the repo clean; Pass on a rework item reaches the original through a chain.
+>
+> Consider [low] (downgraded by sceptics, no ticket by the owner's rule):
+> - harness/skills/owner-check/SKILL.md:131,140 — the repeat key includes the record date inside `ref`, so the same decision recorded again on another day adds a second line (reproduced); worfy re-sends only unrecorded decisions (spec :271), so it needs a late-processed queue across midnight. Fix: compare without the date.
+> - SKILL.md:177 — the next rework number comes from the current worktree only; an unmerged day PR and a next-day Fail can pick the same number. Loud failure (`ticket` refuses an ambiguous number); no ticket path in the Harness reserves numbers (pre-existing class).
+> - SKILL.md:61-68 — the open PR of the day is looked up by the exact head; an open `-2` PR is missed. Same-day repeats are blocked by the 24 h Send again rule; the cost is an extra day PR or a merge conflict. Fix: look up by prefix.
+> - SKILL.md:121-125 — overlapping scrub ranges (home path widened to the word start + host) cut text (`on <host>it broke`); no leak.
+> - Ticket evidence lines cite pre-rebase sha 1b9ec6366 (patch-identical to 7dd7c253e on the branch).
+>
+> Not verified: a real call of the skill by a Claude/Codex Session; the git/gh part of the day's documents PR (section 2/4 of the skill).
+
+Code: `harness/skills/owner-check/SKILL.md:131-131` · key lines: 131
+
+```md
+const ref = `${date}: ${words || `${verdict}, no words`}`
+```
