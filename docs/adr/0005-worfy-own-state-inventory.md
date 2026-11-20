@@ -48,3 +48,13 @@ worfy ничего не пишет в репозитории Project-ов — н
   `<Project data folder>/pr-inbox.json` в `WORFY_DATA_DIR` (что пользователь видел: id, sha, время; без текстов
   коллег) и черновики ответов в `<Profile folder>/state/pr-inbox/drafts/` на этой машине, вне истории git Harness home:
   их пишет Session, main дописывает правку пользователя и отметку `sent`.
+- 2026-11-20 — Epic `worfy-pr-review`, Ticket 07: новое место состояния — черновик ревью чужого PR,
+  `<Profile folder>/state/pr-review/<owner>-<name>-<N>.json` на этой машине, рядом с черновиками ответов
+  (`state/pr-inbox/drafts/`), вне репозиториев Project-а и вне истории git Harness home. Один файл на PR: `payload` —
+  тело `POST /repos/{o}/{r}/pulls/{n}/reviews` (то, что проверяет `review-draft-lint`), плюс поля worfy — `anchors`
+  (текст строк комментария и кто написал его последним), `suggestedEvent`, `agent`, `viewed`, `state`, `reviewUrl`,
+  `submittedAt`, `error`. Пишет main (`src/main/github/pr-review-draft.ts`) через временный файл и rename, не чаще раза в
+  500 ms на файл; с Ticket-а 08 — ещё Session Agent review через `bin/pr-review-draft`. Discard review удаляет файл;
+  отправленный черновик хранится 30 дней и удаляется при первом обращении к черновикам Project-а после запуска worfy.
+  Каналы `prReview.*` — `local`: Linked machine черновик не читает и не пишет. На GitHub worfy pending review не
+  создаёт (ADR-0105).
