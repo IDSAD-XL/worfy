@@ -90,7 +90,10 @@ sign-in…» и ссылка на страницу Atlassian) и `tokenUrl` (с�
 текстом, журнал без token-ов) и `test/fixtures/integrations/stdio-stub.mjs` (секрет из окружения).
 
 Красный до правки: `pnpm test test/unit/integrations-auth-headers.test.ts test/contract/integrations-token-auth.test.ts`
-— exit 1 (модуля `src/main/integrations/auth/tokens.ts` нет, оба файла падают на импорте). После правки — exit 0
+— exit 1 (модуля `src/main/integrations/auth/tokens.ts` нет, оба файла падают на импорте). Ревью, раунд 2: новые случаи
+contract-а (две проверки одной Integration-ы сразу, Sign out во время проверки, 503 после входа, 307 на другой адрес,
+копия token-а `gh` для OAuth) — exit 1 до правки (8 из 22 красные), exit 0 после; mutant без `scrubServiceText` в тексте
+отказа и в «Could not reach» — exit 1 (по одному красному test-у на каждый). После правки — exit 0
 (вместе с `integrations-store` и `integrations-catalogue`: 48 test-ов). `pnpm lint`, `pnpm typecheck` — exit 0;
 `gate fast` — exit 0 (lint, typecheck, весь `pnpm test`).
 
@@ -105,9 +108,15 @@ sign-in…» и ссылка на страницу Atlassian) и `tokenUrl` (с�
    `needs-sign-in`: верный token, который запретил admin, не отличить от неверного.
 4. Проверка — прямой `POST initialize`, без `Client` MCP SDK: пакет ещё не прямая зависимость worfy (её добавит
    Ticket 06).
-5. Статус `error` держится в памяти обработчиков (`shortcut:` в `src/main/ipc/integrations.ts`): после перезапуска такая
-   Integration — `needs-sign-in` до новой проверки. Отвергнутый token (401) остаётся в `SecretStore`, статус —
-   `needs-sign-in`.
+5. Статус `error` держится в памяти обработчиков (`shortcut:` в `src/main/ipc/integrations.ts`). Вход (`signIn`)
+   стирает только отказ сервиса (401, 403, ответ не MCP, redirect); сбой по дороге — нет ответа, timeout, 429, 5xx —
+   оставляет прежний вход как был (ревью, раунд 2): после перезапуска такая Integration — `signed-in`, хотя новый token
+   ещё не проверен, а proxy (Ticket 06) узнает отказ при первом соединении. Отвергнутый token (401) остаётся в
+   `SecretStore`, статус — `needs-sign-in`.
+8. Ревью, раунд 2: ответ проверки, пока шла которой token сменился (второй `setSecret` или Sign out), ничего не
+   записывает — ни вход, ни ошибку (`isCurrentToken`). Redirect не выполняется (`redirect: 'manual'`): заголовок входа
+   не уходит на другой адрес, 3xx — `error`. `signInWithGhToken` не кладёт копию token-а `gh` Integration-е, которая
+   не входит по token-у по http.
 6. Новых каналов нет: Sign out, предложение token-а `gh` и вход им — функции main; каналы для экрана — Ticket 08 (его
    «Где в коде» называет `src/shared/ipc/integrations.ts`). Stdio-сервер не проверяется (процесс здесь не запускается).
 7. Вне «Где в коде»: `IntegrationStore.deleteSecrets` в `src/main/integrations/store.ts` (у хранилища было только

@@ -12,7 +12,7 @@ Kind: pr · Epic: worfy-integrations · Ticket: 04 · PR: - · Language: ru
 
 ## 2. Секреты stdio — в окружении, не в аргументах
 
-Code: `src/main/integrations/auth/tokens.ts:103-109` · key lines: 106, 107, 108
+Code: `src/main/integrations/auth/tokens.ts:104-110` · key lines: 107, 108, 109
 
 ```ts
 export function stdioLaunch(integration: Integration, read: SecretReader): StdioLaunch {
@@ -35,22 +35,28 @@ export function stdioLaunch(integration: Integration, read: SecretReader): Stdio
 
 ## 3. Ответ сервиса на `initialize` → статус
 
-Code: `src/main/integrations/auth/tokens.ts:238-243` · key lines: 239, 240, 241
+Code: `src/main/integrations/auth/tokens.ts:249-258` · key lines: 250, 254, 255, 258
 
 ```ts
-  if (response.status === 401 || response.status === 403) {
-    if (atlassian) return { state: 'error', message: atlassianRefusal(text, response.status) }
-    if (response.status === 401) return { state: 'needs-sign-in' }
-    return { state: 'error', message: text === '' ? `${host} refused the sign-in (403)` : text }
+  const failed = (message: string, transient = false): CheckOutcome => ({ status: { state: 'error', message }, transient })
+  if (response.status >= 300 && response.status < 400) {
+    return failed(`${host} answered ${response.status}, a redirect to another address; worfy does not send the sign-in there`)
   }
-  if (!response.ok) return { state: 'error', message: `${host} answered ${response.status}${text === '' ? '' : `: ${text}`}` }
+  if (response.status === 401 || response.status === 403) {
+    if (atlassian) return failed(atlassianRefusal(text, response.status))
+    if (response.status === 401) return { status: { state: 'needs-sign-in' }, transient: false }
+    return failed(text === '' ? `${host} refused the sign-in (403)` : text)
+  }
+  if (!response.ok) return failed(`${host} answered ${response.status}${text === '' ? '' : `: ${text}`}`, response.status === 429 || response.status >= 500)
 ```
 
-- Что делает: 401 — `needs-sign-in`, 403 — `error` с текстом сервиса; у Atlassian оба — `error` с текстом и ссылкой на
-  страницу, где admin включает вход по token-у; прочие коды — `error` с кодом. Текст уже прошёл `scrubServiceText`:
-  token, его base64 и всё похожее на credential скрыты.
+- Что делает: 3xx — `error` (fetch идёт с `redirect: 'manual'`, заголовок входа на другой адрес не уходит); 401 —
+  `needs-sign-in`, 403 — `error` с текстом сервиса; у Atlassian оба — `error` с текстом и ссылкой на страницу, где admin
+  включает вход по token-у; 429 и 5xx — `error` с пометкой `transient`. Текст уже прошёл `scrubServiceText`: token, его
+  base64 и всё похожее на credential скрыты.
 - Почему здесь: Ticket, «Что делаем», пункт 2, и «Риски» spec-а (admin клиента запретил). Почему 401 у Atlassian тоже
   `error` — решено в этом Ticket-е («Итог», пункт 3): верный token под запретом admin-а не отличить от неверного.
+  Redirect и `transient` — ревью, раунд 2 («Итог», пункты 5 и 8).
 - Без него: неверный token выглядел бы рабочим до первого вызова tool-а.
 - Требование: [Что делаем, пункт 2](../issues/04-вход-по-token-у.md#что-делаем)
 - Риски и пробелы test-ов: какой код отдаёт настоящий Atlassian при выключенном входе по token-у, не проверено —
@@ -58,7 +64,7 @@ Code: `src/main/integrations/auth/tokens.ts:238-243` · key lines: 239, 240, 241
 
 ## 4. `integrations.setSecret` проверяет token и отвечает статусом
 
-Code: `src/main/ipc/integrations.ts:123-132` · key lines: 127, 129, 130
+Code: `src/main/ipc/integrations.ts:123-133` · key lines: 127, 129, 131
 
 ```ts
     defineHandler(integrationsSetSecret, async ({ id, part, value }) => {
@@ -68,19 +74,44 @@ Code: `src/main/ipc/integrations.ts:123-132` · key lines: 127, 129, 130
       if (part !== 'access' || !checksToken(integration)) return { status: statusOf(machine, integration, errors) }
       errors.delete(id)
       const status = await verifyTokenSignIn(machine, id, { check })
-      if (status.state === 'error') errors.set(id, status.message)
+      // A token replaced or signed out while the service answered: its error is not the Integration's any more.
+      if (status.state === 'error' && isCurrentToken(machine, id, value)) errors.set(id, status.message)
       return { status }
     }),
 ```
 
 - Что делает: записывает секрет; если это token Integration-ы по http (`bearer`, `basic`, `header`), проверяет его через
-  `verifyTokenSignIn` и отвечает статусом — никогда секретом. Ошибку запоминает для `integrations.status`.
+  `verifyTokenSignIn` и отвечает статусом — никогда секретом. Ошибку запоминает для `integrations.status`, только если
+  token всё ещё тот, что проверяли.
 - Почему здесь: Ticket, «Что делаем», пункт 6.
 - Без него: экран Ticket-а 08 не узнал бы, принял ли сервис token.
 - Требование: [Что делаем, пункт 6](../issues/04-вход-по-token-у.md#что-делаем)
 - Риски и пробелы test-ов: ошибка живёт в памяти (`shortcut:`), после перезапуска — `needs-sign-in` до новой проверки.
 
-## 5. Статус: `signed-in` только после удачной проверки
+## 5. Ответ о token-е, которого уже нет, ничего не пишет
+
+Code: `src/main/integrations/auth/tokens.ts:306-312` · key lines: 306, 308, 310
+
+```ts
+  const checked = store.secret(id, 'access')
+  const { status, transient } = await (options.check ?? checkSignIn)(integration, headers)
+  if (!isCurrentToken(store, id, checked)) return status
+  if (status.state !== 'signed-in') {
+    if (!transient) store.setSignIn(id, null)
+    return status
+  }
+```
+
+- Что делает: запоминает token до запроса; если после ответа в `SecretStore` уже другой token или его нет (второй
+  `setSecret`, Sign out), не трогает вход. Сбой по дороге (`transient`) оставляет прежний вход.
+- Почему здесь: ревью, раунд 2 («Итог», пункты 5 и 8).
+- Без него: медленный 401 неверного token-а A после быстрого `signed-in` верного B оставил бы B в хранилище со статусом
+  `needs-sign-in`, и так — после перезапуска тоже.
+- Требование: [Что делаем, пункт 2](../issues/04-вход-по-token-у.md#что-делаем)
+- Риски и пробелы test-ов: один и тот же token, записанный дважды, проверяется дважды, и пишут оба ответа — они про один
+  token. Contract держит ответ stub-а до `release` — без отсчёта по часам.
+
+## 6. Статус: `signed-in` только после удачной проверки
 
 Code: `src/main/ipc/integrations.ts:53-59` · key lines: 54, 56, 57
 
@@ -101,14 +132,18 @@ function statusOf(store: IntegrationStore, integration: Integration, errors: Rea
 - Требование: [Что делаем, пункт 4](../issues/04-вход-по-token-у.md#что-делаем)
 - Риски и пробелы test-ов: stdio и OAuth по-прежнему `signed-in` по наличию секретов — их проверяют Ticket-ы 05 и 06.
 
-## 6. Token аккаунта `gh` — копия в `SecretStore`
+## 7. Token аккаунта `gh` — копия в `SecretStore`
 
-Code: `src/main/integrations/auth/tokens.ts:362-370` · key lines: 365, 368, 369
+Code: `src/main/integrations/auth/tokens.ts:386-398` · key lines: 392, 393, 396, 397
 
 ```ts
 export async function signInWithGhToken(options: GhTokenOptions & { store: TokenStore; id: string; check?: SignInCheck }): Promise<CheckedStatus> {
   const { account } = options
   if (account === null) throw new Error('the Project has no GitHub account')
+  const integration = options.store.get(options.id)
+  if (integration === undefined) throw new Error(`no Integration ${options.id} on this Machine`)
+  // Before the copy: a token kept for an Integration that does not sign in with one would only lie in the store.
+  if (!checksToken(integration)) throw new Error(`Integration ${options.id} does not sign in with a token over http`)
   const env = await accountAuth({ account: () => Promise.resolve(account), run: options.run })(options.root)
   const token = env.GH_TOKEN
   if (token === undefined) throw new Error(`gh gave no token for ${account}`)
@@ -117,24 +152,27 @@ export async function signInWithGhToken(options: GhTokenOptions & { store: Token
 }
 ```
 
-- Что делает: берёт token аккаунта `gh` Project-а через `accountAuth`, кладёт копию в `<id>:access` и проверяет её как
-  token, введённый руками; login `gh` становится аккаунтом входа.
+- Что делает: сначала убеждается, что Integration входит по token-у по http; берёт token аккаунта `gh` Project-а через
+  `accountAuth`, кладёт копию в `<id>:access` и проверяет её как token, введённый руками; login `gh` становится
+  аккаунтом входа.
 - Почему здесь: Ticket, «Что делаем», пункт 3, оставил выбор implementer-у; выбор и причина — «Итог», пункт 1.
 - Без него: GitHub Integration требовала бы отдельный PAT даже там, где worfy уже знает token `gh`.
 - Требование: [Что делаем, пункт 3](../issues/04-вход-по-token-у.md#что-делаем)
 - Риски и пробелы test-ов: после `gh auth refresh` копия устаревает до нового входа; канала для экрана нет — его добавит
   Ticket 08.
 
-## 7. Что сознательно не меняли
+## 8. Что сознательно не меняли
 
 - Каналов не добавляли: Sign out, предложение token-а `gh` и вход им — функции main; канал для экрана — Ticket 08.
 - MCP SDK не стал прямой зависимостью: проверка — один `POST initialize` через `fetch`.
 - Stdio-сервер не запускается и не проверяется — это proxy Ticket-а 06.
 
-## 8. Как проверено
+## 9. Как проверено
 
 - `pnpm test test/unit/integrations-auth-headers.test.ts test/contract/integrations-token-auth.test.ts` — до правки
   exit 1 (модуля `tokens.ts` нет), после — exit 0.
+- Ревью, раунд 2: новые случаи contract-а — exit 1 до правки (8 из 22), exit 0 после; mutant без `scrubServiceText` в
+  тексте отказа и в «Could not reach» — exit 1.
 - `pnpm lint`, `pnpm typecheck` — exit 0; gate fast — exit 0 (весь `pnpm test`).
 
 ## Проверить себя
@@ -145,7 +183,7 @@ export async function signInWithGhToken(options: GhTokenOptions & { store: Token
 2. Почему отказ Atlassian — `error` со ссылкой, а не `needs-sign-in`?
    - Ответ: Atlassian пускает token, только если admin организации включил такой вход; верный token под запретом не
      отличить от неверного, поэтому статус называет страницу admin-а.
-   - Строки: `src/main/integrations/auth/tokens.ts:239`
+   - Строки: `src/main/integrations/auth/tokens.ts:254`
 3. Где у stdio-сервера секрет, а где его не бывает никогда?
    - Ответ: в `env` запуска; `args` копируются из transport-а как есть, секретов в них нет.
-   - Строки: `src/main/integrations/auth/tokens.ts:106-108`
+   - Строки: `src/main/integrations/auth/tokens.ts:107-109`
