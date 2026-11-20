@@ -1068,7 +1068,7 @@ describe('SessionPanel', () => {
       './BindingRail.tsx': { default: (props: RailBlockProps) => <p>{`bound to ${props.nodeId}`}</p>, order: 10 },
       './SubagentsRail.tsx': { default: () => <p>subagents list</p>, order: 20 },
     }
-    async function mountKind(kind: 'product' | undefined) {
+    async function mountKind(kind: 'product' | undefined, state: 'idle' | 'busy' = 'idle') {
       answers['orchestrator.view'] = () => ({ view: null })
       const guard = renderGuard()
       const { SessionPanel } = await import('../../src/renderer/session/SessionView')
@@ -1082,7 +1082,7 @@ describe('SessionPanel', () => {
         ...(kind === undefined ? {} : { kind }),
         sessionId: 'live-1',
         sdkSessionId: null,
-        state: 'idle',
+        state,
         error: null,
         cwd: '/p',
         model: 'claude-opus-5-5',
@@ -1206,6 +1206,43 @@ describe('SessionPanel', () => {
       for (const testId of ['picker-model', 'picker-effort', 'picker-permissions', 'context-meter', 'queue']) expect(within(input).queryByTestId(testId), testId).toBeNull()
       expect(input.querySelector('.w-composer__hint')).toBeNull()
       expect(input.querySelector('[data-item="Pickers"], [data-item="ContextMeter"], [data-item="Queue"]')).toBeNull()
+    })
+
+    // worfy-polish ticket 133 (owner 2026-11-20): the header's Interrupt stops the turn, so the field's line has no
+    // Interrupt of its own; Send is an icon button named «Send» whose tooltip names the key.
+    it('a Product Session\'s field has no Interrupt during a turn: the header has it, Esc in the field still interrupts', async () => {
+      await mountKind('product', 'busy')
+      const input = screen.getByTestId('message-input')
+      expect(within(input).queryByTestId('input-interrupt')).toBeNull()
+      expect(within(input).queryByText('Interrupt')).toBeNull()
+      const header = within(screen.getByRole('banner')).getByTestId<HTMLButtonElement>('session-interrupt')
+      expect(header.disabled).toBe(false)
+      fireEvent.click(header)
+      expect(asked).toContainEqual({ channel: 'agent.interrupt', input: { sessionId: 'live-1' } })
+      const before = asked.filter((each) => each.channel === 'agent.interrupt').length
+      fireEvent.keyDown(within(input).getByRole('textbox', { name: 'Message Product Session' }), { key: 'Escape' })
+      expect(asked.filter((each) => each.channel === 'agent.interrupt').length).toBe(before + 1)
+    })
+
+    it.each(['idle', 'busy'] as const)('a Product Session\'s Send (%s) is an icon button named «Send», its tooltip names the key; Return sends (queues during a turn)', async (state) => {
+      await mountKind('product', state)
+      const send = screen.getByTestId('input-send')
+      expect(send.getAttribute('aria-label')).toBe('Send')
+      expect(send.textContent).toBe('')
+      expect(send.querySelector('svg')).not.toBeNull()
+      expect(send.getAttribute('aria-keyshortcuts')).toBe('Enter')
+      expect(send.getAttribute('aria-description')).toMatch(state === 'idle' ? /^Send \((⏎|Enter)\)$/u : /^Send \((⏎|Enter)\) — queued until the turn ends$/u)
+      // An empty field: inactive, yet focusable with its tooltip (Tooltip kit); a click sends nothing.
+      expect(send.getAttribute('aria-disabled')).toBe('true')
+      fireEvent.click(send)
+      expect(asked.some((each) => each.channel === 'agent.send')).toBe(false)
+      const field = screen.getByRole('textbox', { name: 'Message Product Session' })
+      fireEvent.change(field, { target: { value: `from ${state}` } })
+      expect(send.getAttribute('aria-disabled')).toBeNull()
+      await act(async () => {
+        fireEvent.keyDown(field, { key: 'Enter' })
+      })
+      expect(asked).toContainEqual({ channel: 'agent.send', input: { sessionId: 'live-1', text: `from ${state}` } })
     })
 
     // worfy-mcp-live ticket 09 (owner 2026-11-12, Q9, Q10): the chip «MCP n/m» stands in the bar under the input

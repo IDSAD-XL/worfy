@@ -1,8 +1,12 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type ReactNode, type Ref } from 'react'
 import type { Attachment, AttachResult } from '../../shared/agent/attachments'
+import { SHORTCUTS } from '../../shared/shortcuts'
 import { invoke, windowMachine } from '../ipc'
 import { writeAction } from '../projects/read-only'
 import { useReadOnly } from '../projects/useProjects'
+import { ariaKeys, label as shortcutLabel } from '../shortcuts/match'
+import { Button } from '../theme/Button'
+import { Tooltip } from '../theme/kit/Tooltip'
 import { escapeBelongsToPopup } from '../theme/open-layers'
 import { attachFiles as attachFilesIn, roomFor, takeAttached, type FileKind } from './attach-files'
 import { dropRefusal } from './chat-drop'
@@ -44,8 +48,9 @@ import { useSlashMenu } from './SlashMenu'
 // target of the Getting started ring (worfy-onboarding ticket 14, getting-started/highlight.ts).
 //
 // A Product Session's field (`product`; worfy-product-session ticket 19, Q4) is one line under the text:
-// attaching, Interrupt while a turn runs, and Send. Its bar has no MCP chip, context meter, queue, pickers or hints
-// (PRODUCT_SESSION_HIDDEN_COMPOSER_ITEMS); Return still sends, and while a turn runs main still queues.
+// attaching and an icon Send. Its bar has no MCP chip, context meter, queue, pickers or hints
+// (PRODUCT_SESSION_HIDDEN_COMPOSER_ITEMS), and no Interrupt: the view's header has one (worfy-polish ticket 133).
+// Return still sends, while a turn runs main still queues, and Escape still interrupts.
 //
 // What is typed and not sent is the field's draft (`draft`, drafts.ts; worfy-polish ticket 95): a field
 // made again — another Session picked and back, another Project, a restart — opens with it, and a
@@ -70,7 +75,7 @@ export interface MessageInputProps {
   recipient: string
   /** The key of the field's draft (drafts.ts, draftKey); none: what is typed goes with the field. */
   draft?: string
-  /** A Product Session's field: one line with attaching, Interrupt and Send. */
+  /** A Product Session's field: one line with attaching and an icon Send; Interrupt is the header's. */
   product?: boolean
   /**
    * What stands above the field: the tray of comments on quotes (worfy-polish ticket 102,
@@ -408,10 +413,29 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, draf
       <kbd className="w-session__kbd w-mono">esc</kbd>
     </button>
   ) : null
+  // A Product Session's Send (worfy-polish ticket 133): a kit icon button with the key in its tooltip. An empty
+  // field leaves it aria-disabled, not disabled, so the tooltip still shows (Tooltip kit); send() checks the field.
+  const sendKey = shortcutLabel(SHORTCUTS.send)
+  const productSendButton = (
+    <Tooltip label={busy ? `Send (${sendKey}) — queued until the turn ends` : `Send (${sendKey})`} side="top">
+      <Button
+        variant="icon"
+        className="w-composer__send-icon"
+        aria-label="Send"
+        aria-keyshortcuts={ariaKeys(SHORTCUTS.send)}
+        aria-disabled={canSend ? undefined : true}
+        data-testid="input-send"
+        data-getting-started-target={nodeId === undefined ? undefined : 'send'}
+        data-getting-started-node={nodeId}
+        onClick={() => void send()}
+        icon={<SendIcon />}
+      />
+    </Tooltip>
+  )
   const sendButton = (
     <button
       type="button"
-      className={`w-composer__send${product ? ' w-composer__send--text' : ''}`}
+      className="w-composer__send"
       aria-label={busy ? 'Queue message' : 'Send message'}
       data-testid="input-send"
       data-getting-started-target={nodeId === undefined ? undefined : 'send'}
@@ -419,7 +443,7 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, draf
       disabled={!canSend}
       onClick={() => void send()}
     >
-      {product ? 'Send' : <SendIcon />}
+      <SendIcon />
     </button>
   )
 
@@ -455,7 +479,7 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, draf
   )
 
   // A Product Session's field, as the owner's prototype has it (worfy-product-session ticket 22): one line —
-  // attaching, a one-line field in the UI font, Interrupt during a turn and a text Send button.
+  // attaching, a one-line field in the UI font and Send; the buttons are as tall as the one-line field (ticket 133).
   if (product) {
     return (
       <div className="w-composer w-composer--product" data-testid="message-input" data-toast-keep-out="">
@@ -469,9 +493,8 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, draf
             <div className="w-composer__box" data-disabled={disabled || undefined} data-testid="message-input-box">
               {fieldElement}
             </div>
-            {interruptButton}
             <span className="w-composer__send-group" data-testid="input-send-group">
-              {sendButton}
+              {productSendButton}
             </span>
           </div>
         </div>

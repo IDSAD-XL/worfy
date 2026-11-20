@@ -974,8 +974,9 @@ body.w-split-dragging * {
 }
 
 /* A Product Session's field as the owner's prototype has it (MessageInput.tsx, worfy-product-session ticket
-   22): one line — attaching, a 38 px field in the UI font on the background, Interrupt during a turn and a
-   text Send button — with no lime focus ring. The buttons sit at the field's last line as it grows. */
+   22): one line — attaching, a 38 px field in the UI font on the background and an icon Send — with no lime
+   focus ring. Attach and Send are as tall as the one-line field and stand at its bottom edge as it
+   grows (worfy-polish ticket 133); Interrupt is the header's. */
 /* Two classes: the plain field's padding (.w-composer) comes later in this file and would win (ticket 24). */
 .w-composer.w-composer--product {
   padding: 10px 12px 12px;
@@ -1006,14 +1007,36 @@ body.w-split-dragging * {
   line-height: 18px;
 }
 
-.w-composer--product .w-composer__attach,
-.w-composer--product .w-session__button,
-.w-composer--product .w-composer__send-group {
-  margin-bottom: 6px;
+.w-composer--product {
+  --product-field-height: 38px;
 }
 
-.w-composer--product .w-composer__attach {
-  margin-bottom: 7px;
+/* The status lines of a quiet turn and of Auto-continue keep their Session buttons, centred on the field's line. */
+.w-composer--product .w-session__button {
+  margin-bottom: 5px;
+}
+
+.w-composer--product .w-composer__attach,
+.w-composer--product .w-composer__send-icon {
+  width: var(--product-field-height);
+  height: var(--product-field-height);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+}
+
+.w-composer--product .w-composer__send-icon {
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+.w-composer--product .w-composer__send-icon:hover:not([aria-disabled='true']) {
+  background: var(--surface-raised);
+  box-shadow: var(--hover-shadow);
+}
+
+.w-composer--product .w-composer__send-icon:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 /* The placeholder on one line, cut with «…», however narrow the field (ticket 24). */
@@ -1039,8 +1062,8 @@ body.w-split-dragging * {
   color: var(--text-secondary);
 }
 
-/* A narrow chat (the agents list open in a small window, ticket 24): tighter padding and gaps and a compact
-   Send, so the field keeps the width the prototype's has in the same column — the attach button stays. */
+/* A narrow chat (the agents list open in a small window, ticket 24): tighter padding and gaps, so the field
+   keeps the width the prototype's has in the same column — the attach button and the icon Send stay. */
 .w-product .w-session__main {
   container: w-product-chat / inline-size;
 }
@@ -1058,36 +1081,6 @@ body.w-split-dragging * {
   .w-composer__line[data-line='product'] {
     gap: 4px;
   }
-
-  .w-composer--product .w-composer__send.w-composer__send--text {
-    padding: 0 8px;
-  }
-}
-
-/* Two classes: the round icon button's rules (.w-composer__send) come later in this file. */
-.w-composer__send.w-composer__send--text {
-  width: auto;
-  height: var(--w-session-button-height);
-  padding: 0 10px;
-  border-color: var(--border-strong);
-  border-radius: 6px;
-  background: var(--surface-raised);
-  color: var(--text);
-  box-shadow: none;
-  font: inherit;
-  font-size: 12.5px;
-  white-space: nowrap;
-}
-
-.w-composer__send.w-composer__send--text:hover:not(:disabled) {
-  box-shadow: var(--hover-shadow);
-}
-
-.w-composer__send.w-composer__send--text:disabled {
-  border-color: var(--border-strong);
-  background: var(--surface-raised);
-  color: var(--text);
-  opacity: 0.4;
 }
 
 /* Transcript */

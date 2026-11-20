@@ -27,7 +27,7 @@ Source: просьба владельца 2026-11-20 в чате Orchestrator-а
 2. Send — кнопка-иконка «↑» (`SendIcon` поля обычной Session) на Button kit (`variant="icon"`) с tooltip kit:
    имя `Send`, подсказка «Send (⏎)» с клавишей из реестра (`SHORTCUTS.send`); во время хода подсказка говорит, что
    сообщение встанет в очередь. Пустое поле — `aria-disabled`, подсказка видна (правило Tooltip kit).
-3. Кнопки строки — «+», Modes и Send — высотой с однострочное поле (38 px) и прижаты к низу: поле растёт, кнопки
+3. Кнопки строки — «+» и Send — высотой с однострочное поле (38 px) и прижаты к низу: поле растёт, кнопки
    остаются у его нижнего края.
 4. Return отправляет, во время хода ставит в очередь (правило не меняется); Esc в поле прерывает ход.
 5. Поле обычной Session не меняется.
@@ -59,3 +59,22 @@ Source: просьба владельца 2026-11-20 в чате Orchestrator-а
 - Кнопки `QuietTurn` и `ContinueCountdown` (строки статуса тихого хода и отсчёта Auto-continue): появляются только в
   своём состоянии.
 - Общий набор иконок в worfy-ui-kit: его нет, иконки — inline SVG своих компонентов.
+
+## Итог
+
+- Строка ввода Product Session: «+» и Send — по 38 px, как однострочное поле, низ кнопок совпадает с низом поля и
+  после трёх строк текста (e2e `test/e2e/product-session.spec.ts`, test «a Product Session’s input line…»).
+- Interrupt в строке нет; ход останавливают Interrupt шапки (`session-interrupt`, тот же `agent.interrupt`) и Esc в
+  поле. Send — Button kit `variant="icon"` со стрелкой `SendIcon`, имя `Send`, `aria-keyshortcuts="Enter"`, tooltip kit
+  «Send (⏎)», во время хода «Send (⏎) — queued until the turn ends». Пустое поле — `aria-disabled`, не `disabled`:
+  tooltip виден и у неактивной кнопки (правило Tooltip kit).
+- Поле обычной Session и Orchestrator-а не менялось: та же круглая «↑», Interrupt и «Queue message» / «Send message».
+  Компонент общий (`MessageInput`), правка — только в ветке `product`.
+- Unit test-ы (`test/unit/session-view.test.tsx`, три новых случая) были красными до правки: в поле был
+  `input-interrupt`, имя Send — «Send message».
+- Снимки Playwright строки ввода (scratchpad, в репозиторий не кладутся): `133-input-idle-light.png`,
+  `133-input-idle-dark.png`, `133-input-busy-light.png`, `133-input-busy-dark.png`.
+- Решено без владельца, подтвердить: набора иконок в worfy-ui-kit нет — Send берёт ту же стрелку `SendIcon`, что круглая
+  кнопка обычной Session, на кнопке Button kit; Send нейтральный (рамка, `--surface-raised`), не лаймовый, как прежняя
+  текстовая «Send» прототипа; имя кнопки во время хода тоже `Send` (у обычной Session — «Queue message»), очередь
+  называет tooltip.
