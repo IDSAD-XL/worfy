@@ -35,7 +35,7 @@ export function stdioLaunch(integration: Integration, read: SecretReader): Stdio
 
 ## 3. Ответ сервиса на `initialize` → статус
 
-Code: `src/main/integrations/auth/tokens.ts:249-258` · key lines: 250, 254, 255, 258
+Code: `src/main/integrations/auth/tokens.ts:250-259` · key lines: 251, 255, 256, 259
 
 ```ts
   const failed = (message: string, transient = false): CheckOutcome => ({ status: { state: 'error', message }, transient })
@@ -64,16 +64,17 @@ Code: `src/main/integrations/auth/tokens.ts:249-258` · key lines: 250, 254, 255
 
 ## 4. `integrations.setSecret` проверяет token и отвечает статусом
 
-Code: `src/main/ipc/integrations.ts:123-133` · key lines: 127, 129, 131
+Code: `src/main/ipc/integrations.ts:124-135` · key lines: 126, 128, 131, 133
 
 ```ts
     defineHandler(integrationsSetSecret, async ({ id, part, value }) => {
       const machine = store()
+      const changed = machine.secret(id, part as IntegrationSecretPart) !== value
       machine.setSecret(id, part as IntegrationSecretPart, value)
       const integration = integrationOf(id)
       if (part !== 'access' || !checksToken(integration)) return { status: statusOf(machine, integration, errors) }
       errors.delete(id)
-      const status = await verifyTokenSignIn(machine, id, { check })
+      const status = await verifyTokenSignIn(machine, id, { check, changed })
       // A token replaced or signed out while the service answered: its error is not the Integration's any more.
       if (status.state === 'error' && isCurrentToken(machine, id, value)) errors.set(id, status.message)
       return { status }
@@ -81,8 +82,8 @@ Code: `src/main/ipc/integrations.ts:123-133` · key lines: 127, 129, 131
 ```
 
 - Что делает: записывает секрет; если это token Integration-ы по http (`bearer`, `basic`, `header`), проверяет его через
-  `verifyTokenSignIn` и отвечает статусом — никогда секретом. Ошибку запоминает для `integrations.status`, только если
-  token всё ещё тот, что проверяли.
+  `verifyTokenSignIn` и отвечает статусом — никогда секретом. Сначала отмечает, сменился ли token (`changed`). Ошибку
+  запоминает для `integrations.status`, только если token всё ещё тот, что проверяли.
 - Почему здесь: Ticket, «Что делаем», пункт 6.
 - Без него: экран Ticket-а 08 не узнал бы, принял ли сервис token.
 - Требование: [Что делаем, пункт 6](../issues/04-вход-по-token-у.md#что-делаем)
@@ -90,21 +91,22 @@ Code: `src/main/ipc/integrations.ts:123-133` · key lines: 127, 129, 131
 
 ## 5. Ответ о token-е, которого уже нет, ничего не пишет
 
-Code: `src/main/integrations/auth/tokens.ts:306-312` · key lines: 306, 308, 310
+Code: `src/main/integrations/auth/tokens.ts:318-324` · key lines: 318, 320, 322
 
 ```ts
   const checked = store.secret(id, 'access')
   const { status, transient } = await (options.check ?? checkSignIn)(integration, headers)
   if (!isCurrentToken(store, id, checked)) return status
   if (status.state !== 'signed-in') {
-    if (!transient) store.setSignIn(id, null)
+    if (!transient || options.changed !== false) store.setSignIn(id, null)
     return status
   }
 ```
 
 - Что делает: запоминает token до запроса; если после ответа в `SecretStore` уже другой token или его нет (второй
-  `setSecret`, Sign out), не трогает вход. Сбой по дороге (`transient`) оставляет прежний вход.
-- Почему здесь: ревью, раунд 2 («Итог», пункты 5 и 8).
+  `setSecret`, Sign out), не трогает вход. Сбой по дороге (`transient`) оставляет прежний вход только при повторной
+  проверке того же token-а; новый, никем не проверенный token его не наследует.
+- Почему здесь: ревью, раунды 2 и 3 («Итог», пункты 5 и 8).
 - Без него: медленный 401 неверного token-а A после быстрого `signed-in` верного B оставил бы B в хранилище со статусом
   `needs-sign-in`, и так — после перезапуска тоже.
 - Требование: [Что делаем, пункт 2](../issues/04-вход-по-token-у.md#что-делаем)
@@ -134,7 +136,7 @@ function statusOf(store: IntegrationStore, integration: Integration, errors: Rea
 
 ## 7. Token аккаунта `gh` — копия в `SecretStore`
 
-Code: `src/main/integrations/auth/tokens.ts:386-398` · key lines: 392, 393, 396, 397
+Code: `src/main/integrations/auth/tokens.ts:398-412` · key lines: 405, 406, 409, 411
 
 ```ts
 export async function signInWithGhToken(options: GhTokenOptions & { store: TokenStore; id: string; check?: SignInCheck }): Promise<CheckedStatus> {
@@ -142,17 +144,20 @@ export async function signInWithGhToken(options: GhTokenOptions & { store: Token
   if (account === null) throw new Error('the Project has no GitHub account')
   const integration = options.store.get(options.id)
   if (integration === undefined) throw new Error(`no Integration ${options.id} on this Machine`)
-  // Before the copy: a token kept for an Integration that does not sign in with one would only lie in the store.
-  if (!checksToken(integration)) throw new Error(`Integration ${options.id} does not sign in with a token over http`)
+  // Before the copy: the gh token is a Bearer token. Kept for another way to sign in it would only lie in the store, or
+  // overwrite the <e-mail>:<token> pair of a Basic Integration.
+  if (integration.auth !== 'bearer' || !checksToken(integration)) throw new Error(`Integration ${options.id} does not sign in with a Bearer token over http`)
   const env = await accountAuth({ account: () => Promise.resolve(account), run: options.run })(options.root)
   const token = env.GH_TOKEN
   if (token === undefined) throw new Error(`gh gave no token for ${account}`)
+  const changed = options.store.secret(options.id, 'access') !== token
   options.store.setSecret(options.id, 'access', token)
-  return verifyTokenSignIn(options.store, options.id, { account, ...(options.check === undefined ? {} : { check: options.check }) })
+  return verifyTokenSignIn(options.store, options.id, { account, changed, ...(options.check === undefined ? {} : { check: options.check }) })
 }
 ```
 
-- Что делает: сначала убеждается, что Integration входит по token-у по http; берёт token аккаунта `gh` Project-а через
+- Что делает: сначала убеждается, что Integration входит по Bearer token-у по http (пара e-mail:token Basic не
+  перезаписывается); берёт token аккаунта `gh` Project-а через
   `accountAuth`, кладёт копию в `<id>:access` и проверяет её как token, введённый руками; login `gh` становится
   аккаунтом входа.
 - Почему здесь: Ticket, «Что делаем», пункт 3, оставил выбор implementer-у; выбор и причина — «Итог», пункт 1.
@@ -183,7 +188,7 @@ export async function signInWithGhToken(options: GhTokenOptions & { store: Token
 2. Почему отказ Atlassian — `error` со ссылкой, а не `needs-sign-in`?
    - Ответ: Atlassian пускает token, только если admin организации включил такой вход; верный token под запретом не
      отличить от неверного, поэтому статус называет страницу admin-а.
-   - Строки: `src/main/integrations/auth/tokens.ts:254`
+   - Строки: `src/main/integrations/auth/tokens.ts:255`
 3. Где у stdio-сервера секрет, а где его не бывает никогда?
    - Ответ: в `env` запуска; `args` копируются из transport-а как есть, секретов в них нет.
    - Строки: `src/main/integrations/auth/tokens.ts:107-109`
