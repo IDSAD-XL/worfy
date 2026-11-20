@@ -2,6 +2,7 @@
 
 Type: bug
 Status: claimed 2026-11-20T11:02Z
+PR: #2088
 Branch: worfy-polish/130
 Blocked by: none
 Source: решение владельца 2026-11-20 («со всем согласен»). ADR-0086, пункт 4, не исполнялся: с 2026-11-17 по
