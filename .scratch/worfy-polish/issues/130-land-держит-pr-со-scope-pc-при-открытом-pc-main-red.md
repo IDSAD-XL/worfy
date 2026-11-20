@@ -1,7 +1,7 @@
 # 130 — `bin/land` держит PR со scope `pc`, пока открыт issue `pc-main-red`
 
 Type: bug
-Status: claimed 2026-11-20T11:02Z
+Status: done 2026-11-20T12:27Z
 PR: #2088
 Branch: worfy-polish/130
 Blocked by: none
@@ -52,6 +52,7 @@ Windows — job-ы Windows в CI.
       красный.
   - evidence: test-run pass · `bash harness/bin/tests/land.test.sh` exit 0 · mac - · 99b2018718af8184109bbe8e0ad915a53eea6bd0
 - [ ] Job-ы Windows CI на PR зелёные (платформенный PR).
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44731319509/job/136286038407 · ci - · 020f0d9572a48402bfca1bf5abc367630ac01621
 
 ## Где в коде
 
