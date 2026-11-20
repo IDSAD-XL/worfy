@@ -1,7 +1,7 @@
 # 07 — Черновик ревью в main: файл в `state/pr-review/`, формат `payload` с `by` и `suggestedEvent`, каналы `prReview.*`, поиск строки заново, хранение 30 дней
 
 Type: task
-Status: open
+Status: claimed 2026-11-20T02:05Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 7; «Решения по реализации», 6 и 11; «Решения по test-ам», Seam 1 и 2;
 [critic](../../../docs/product/critic/worfy-pr-review-2026-11-20.md), возражение 3
@@ -42,11 +42,15 @@ Source: [spec.md](../spec.md), «Ticket-ы», 7; «Решения по реал�
 - [ ] Unit `test/unit/pr-review-draft-format.test.ts` (новый): черновик ↔ `payload`, который принимает
       `review-draft-lint` (тот же `payload` проходит `node harness/bin/review-draft-lint` без находок формата);
       `by` после правки; re-anchor на сдвинутой строке и «line moved». Красный до правки — в «Итог».
+  - evidence: test-run pass · `pnpm test` (test/unit/pr-review-draft-format.test.ts, 16 tests) exit 0 · mac - · ac8ebab4b
 - [ ] Contract `test/contract/pr-review-draft.test.ts` (новый): запись через rename (нет полузаписанного файла при
       обрыве), 500 ms, Discard, 30 дней, отказ Linked machine на каждом `prReview.*`. Без test-а гонки с
       `bin/pr-review-draft` — он в Ticket-е 08.
+  - evidence: test-run pass · `pnpm test` (test/contract/pr-review-draft.test.ts, 13 tests) exit 0 · mac - · ac8ebab4b
 - [ ] Amendment ADR-0005 влит в этом PR.
+  - evidence: commit pass · worfy-pr-review/07: the review draft in main — state/pr-review/ file, prReview.* local channels · - - · ac8ebab4b
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · ac8ebab4b
 
 ## Где в коде
 
@@ -62,3 +66,39 @@ Source: [spec.md](../spec.md), «Ticket-ы», 7; «Решения по реал�
 
 - `bin/pr-review-draft`, Session Agent review и test гонки двух писателей — Ticket 08. Отметки Viewed с github.com —
   Ticket 09. Submit — Ticket 11.
+
+## Итог
+
+- `src/main/github/pr-review-draft.ts` — черновик ревью: чистая часть (`newReviewDraft`, `putComment`, `removeComment`,
+  `setViewed`, `reviewPayloadOf`, `reanchor`) и класс `PrReviewDrafts` — файл
+  `<Profile folder>/state/pr-review/<owner>-<name>-<N>.json`. Формат и каналы — `src/shared/ipc/pr-review.ts`, handler-ы —
+  `src/main/ipc/pr-review.ts` (модуль находится сам, `import.meta.glob`; `test/unit/link-access.test.ts` перечисляет
+  только каналы `project`, правка не нужна).
+- Запись: изменение кладётся в очередь файла, первое пишется сразу, следующие — одной записью не раньше чем через
+  500 ms после предыдущей. Запись читает файл заново и применяет к нему изменения из очереди: то, что за это время
+  записал другой писатель (Agent review, Ticket 08), и поля, которых эта версия не знает, остаются. Ответ каждого
+  канала — файл с применённой очередью. Временный файл и rename; сбой записи оставляет файл прежним, без `.tmp`, а
+  изменение ждёт следующей записи. При выходе (`will-quit`) очередь пишется синхронно.
+- Красный test до правки: `test/unit/pr-review-draft-format.test.ts` падал на импорте
+  `src/main/github/pr-review-draft` (модуля не было), «Tests no tests», exit 1. После — 16 unit и 13 contract
+  (`test/contract/pr-review-draft.test.ts`) зелёные.
+- Amendment ADR-0005 (место `state/pr-review/`) — в этом PR.
+
+Решено без владельца, подтвердить:
+
+- **Поля сверх формата spec-а.** `anchoredOn` — head, к строкам которого привязаны комментарии (нет — `startedOn`);
+  `reanchor` ставит его, `startedOn` не меняется (tooltip «started on …» и полоса «N new commits since you started»
+  считают от начала). `anchors[i].moved: true` — отметка «line moved». `submittedAt` — время Submit, от него считаются
+  30 дней (нет — время изменения файла). `payload.event` нет, пока человек не выбрал вердикт в Finish review: worfy
+  не выбирает `COMMENT` за него.
+- **Удаление отправленных черновиков старше 30 дней — при первом обращении к черновикам Project-а после запуска**
+  (`prReview.drafts`, chip `Review draft`), а не в `src/main/index.ts` при старте: папку Profile-а даёт `bin/profile`,
+  и запускать его для каждого Project-а при старте worfy — лишняя цена; черновик, на который не смотрят, никому не
+  мешает.
+- **Re-anchor** ищет текст строк (без хвостовых пробелов) только для комментариев стороны `RIGHT`; ближайшее к старой
+  строке совпадение; диапазон двигается целиком. Комментарий к `LEFT` не двигается: база не head. Канала для
+  re-anchor нет — его вызовет Review mode (Ticket 09).
+- **Каналы** сверх списка Ticket-а: `prReview.setViewed` и `prReview.saveComment` принимают `head` — первый
+  комментарий или отметка Viewed создают черновик на этом head-е. Комментарий именуется `{index, path, body}`, как ответ
+  в `prInbox.*`: Agent review мог сдвинуть комментарии, main берёт комментарий этого файла с этим текстом, ближайший к
+  `index`, или отказывает.
