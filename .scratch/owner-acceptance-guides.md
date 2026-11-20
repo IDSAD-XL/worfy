@@ -28,6 +28,7 @@ Orchestrator отмечает пункты «(вручную)» в Ticket-е и 
 6. [`worfy-autopilot-queue` 20](#worfy-autopilot-queue-20) — принят 2026-11-07.
 7. [`worfy-work-track` 12](#worfy-work-track-12) — ещё не готово: ждёт Ticket-ов 01–11 (03 — твой шаг, в
    [ручных проверках](#ручные-проверки-вне-приёмок)).
+8. [`worfy-auth-check` 10](#worfy-auth-check-10) — Mac готов к приёмке; ПК и SSO — отдельно.
 
 Шаги на ПК в 1 и 2 удобно пройти за один подход.
 
@@ -221,6 +222,180 @@ Mac:
    каждому пункту «подтверждаю» или «в Ticket».
 
 Результат — в Ticket `worfy-work-track` 12, «Итог»; Status spec-а и `HANDOFF.md`.
+
+## worfy-auth-check 10
+
+Приёмка Epic-а «Health check проверяет входы и настройку» ([Ticket](worfy-auth-check/issues/10-приёмка-владельцем.md),
+[spec](worfy-auth-check/spec.md)). Health check — раздел Settings → Health: строки проверок Machine и Project-ов, у
+каждой уровень Critical или Non-critical; кнопка на rail sidebar показывает худший уровень точкой.
+
+**Stable содержит код Epic-а: да (commit `5d1efe69`).** Mac Stable — версия `0.4.0+5d1efe69` (файл
+`Contents/Resources/harness/.claude-plugin/plugin.json` в `~/Applications/worfy-stable.app`, сверено 2026-11-20).
+Merge-commit-ы Ticket-ов 01 (#2017), 03 (#2018), 04 (#2021), 05 (#2023), 07 (#2031) и 08 (#2030) — предки `5d1efe69`
+(`git merge-base --is-ancestor`, exit 0 у всех шести). Ticket 09 (#2034, `5081bf57`) влит позже, но в нём только
+документы, без `src/`. Обновлять Mac Stable для приёмки не нужно. Версию Stable copy на ПК отсюда не видно — её сверит
+Orchestrator через мост.
+
+- **Где:** Mac Stable `5d1efe69` или новее, Project `worfy-sandbox` (origin на GitHub; песочница, в ней ничего не
+  жалко); потом ПК — Stable copy с тем же кодом.
+- **Время:** Mac ~25 мин, ПК ~25 мин.
+- **Что нельзя проверить сейчас:**
+  - SSO (строка со ссылкой авторизации): ждёт Ticket 06, а тот — вывода тестера по Ticket-у 02 (read-only скрипт SAML
+    SSO). Пока закрывается только запись «SSO принимается отдельно после Ticket-а 06».
+  - Пункты ПК (три сценария с `setx GH_TOKEN` и probe из `spike.md`) — нужен включённый ПК и ты у него. Без них
+    последний пункт «Владелец принял Epic на Mac и ПК» не закрыть.
+- **Перед началом Orchestrator сделает:** пункты «Готово, когда» spec-а без «(вручную)» — CI каждого PR Epic-а (#2017,
+  #2018, #2021, #2023, #2031, #2030, #2034) и имена test-ов на `main` (test утечки токена — по имени); через CDP
+  прочитает Settings → Health и назовёт строки Machine, которые уже не в `ok` (от них зависит цвет точки в шагах ниже);
+  остановит land-ы и Wave-ы на время шагов с переменной; запомнит `github.account` Project-а `worfy-sandbox`, чтобы вернуть его в конце.
+
+Шаги 2–11 меняют окружение новых shell-ов Mac примерно на 20 минут: gh в новом Terminal пойдёт с `GH_TOKEN`.
+Переменную ставит и снимает Orchestrator — после твоего «да» в шаге 1.
+
+### Mac, пункт 1 — токен окружения и пустой `github.account` (~8 мин)
+
+Перед шагом 2 Orchestrator: `launchctl setenv GH_TOKEN` с токеном gh того login-а, который пушит в `worfy-sandbox`
+(`gh auth token -u <login>`: новый токен не выпускается, отзывать потом нечего); строка в `~/.zshrc`, которая
+экспортирует `$(launchctl getenv GH_TOKEN)` — на macOS переменная launchd доходит до gh worfy только так (spike
+Ticket-а 01); очистит `github.account` Project-а `worfy-sandbox` через `profile-set`; перезапустит Stable.
+
+1. Сделай: ответь «да» на смену окружения Mac на время шагов 2–11 → Должно быть: Orchestrator пишет, что переменная
+   стоит и Stable перезапущена.
+2. Сделай: на rail sidebar слева найди кнопку с сердцем и линией пульса прямо над Machines и наведи на неё → Должно
+   быть: жёлтая точка; tooltip «Health check — non-critical: GitHub access (worfy-sandbox)» (и строки, которые
+   Orchestrator назвал до начала). Красной точки нет.
+3. Сделай: щёлкни эту кнопку → Должно быть: открылись Settings → Health; блок «Projects · worfy-sandbox», строка
+   GitHub access — Warning, Non-critical: `github.account is not set: gh works with GH_TOKEN from the environment ·
+   <repo>`. Видно имя переменной, значения токена нет нигде. Есть кнопка «Use <login>» с твоим login-ом.
+4. Сделай: найди строку GitHub accounts (группа GitHub) → Должно быть: строка говорит, что `GH_TOKEN from the
+   environment` перекрывает login из keyring; значения токена нет.
+5. Сделай: нажми «Use <login>» → Должно быть: строка GitHub access стала `ok`: `<login> · the token of <login> from
+   gh's keyring (GH_TOKEN of the environment does not apply here) · <repo>`; жёлтая точка от неё ушла.
+
+Pass: шаги 2–5 сошлись — точка жёлтая, не красная; в тексте имя переменной, а не значение; «Use <login>» записал поле
+(Orchestrator сверит `github.account` в Profile и commit в Harness home). Fail: красная точка, токен в тексте, нет
+кнопки «Use <login>» или строка после щелчка не `ok`.
+
+### Mac, пункт 2 — отказ GitHub (~8 мин)
+
+Перед шагом 6 Orchestrator: снова очистит `github.account` `worfy-sandbox`; поставит в `GH_TOKEN` заведомо неверное
+значение (не токен); перезапустит Stable.
+
+6. Сделай: после перезапуска посмотри, что открылось само → Должно быть: если открылось окно First run — в нём
+   красная строка GitHub accounts (строка Machine: токен окружения не работает). Это верно, закрой окно. Строки
+   GitHub access Project-а в причине открытия нет.
+7. Сделай: наведи на кнопку Health check на rail → Должно быть: красная точка; tooltip начинается с «critical:» и
+   называет GitHub access (worfy-sandbox).
+8. Сделай: открой Pull requests Project-а `worfy-sandbox` (View switch на toolbar или Command palette → «Pull
+   requests») → Должно быть: под заголовком строка «GitHub refused the sign-in: GH_TOKEN from the environment does not
+   work (HTTP 401)» и ссылка **Open Health check**; пустого списка без причины нет. Строка может появиться через
+   несколько секунд после «Reading pull requests…».
+9. Сделай: щёлкни **Open Health check** → Должно быть: Settings → Health, блок «Projects · worfy-sandbox», строка
+   GitHub access — Failed, Critical: `GH_TOKEN from the environment does not work (HTTP 401)`; подсказка с тремя
+   вариантами; команда `launchctl unsetenv GH_TOKEN` с Copy; кнопка «Use <login>».
+10. Сделай: нажми «Use <login>» → Должно быть: строка GitHub access стала `ok` (аккаунт Profile-а перекрывает
+    переменную). Красная точка остаётся от строки GitHub accounts, пока стоит переменная, — это верно.
+11. Сделай: скажи Orchestrator-у «снимай» → Должно быть: Orchestrator снимает переменную (`launchctl unsetenv GH_TOKEN` и
+    строку в `~/.zshrc`), перезапускает Stable; красной точки больше нет.
+
+Pass: точка красная до любого действия; строка причины и ссылка в PR inbox; ссылка ведёт к строке Project-а; First run
+не открылся из-за строки Project-а. Fail: PR inbox пустой без строки причины, точка жёлтая или серая, ссылка открывает не
+Settings → Health, или First run открылся и в нём красная только строка GitHub access.
+
+### Mac, пункт 3 — qmd без моделей, Codex без входа, `notice` в Session Codex (~10 мин)
+
+Перед шагом 12 Orchestrator: отложит в сторону файл ответа о моделях qmd (`~/.claude/worfy-harness/qmd-models`) — строка
+qmd models снова «не скачаны»; отложит `~/.codex/auth.json` (вход Codex), когда не идёт ни одна Session Codex; нажмёт
+«Check again» через CDP.
+
+12. Сделай: наведи на кнопку Health check → Должно быть: жёлтая точка, не красная; tooltip «non-critical: qmd models,
+    Codex sign-in».
+13. Сделай: щёлкни кнопку → Должно быть: строка qmd models — Warning, Non-critical, `not downloaded (<размер>)`, кнопки
+    «Download…» и «Skip…»; в группе Codex строка Codex sign-in — Warning, Non-critical, кнопка «Sign in to Codex…». Не
+    жми «Download…» и «Skip…»: файл ответа вернёт Orchestrator.
+14. Сделай: нажми «Check again» и смотри на кнопку на rail → Должно быть: пока идёт проверка, на месте точки серое
+    кольцо; потом снова жёлтая точка.
+15. Сделай: нажми «Sign in to Codex…» и войди через ChatGPT в браузере → Должно быть: проверки идут снова, строка Codex
+    sign-in — `ok` с `<email> · <plan>`.
+
+Перед шагом 16 Orchestrator: вернёт файл ответа qmd (и старый `auth.json`, если вход в шаге 15 не прошёл); запишет в
+`github.account` `worfy-sandbox` login, которого нет в gh; перезапустит Stable.
+
+16. Сделай: после перезапуска посмотри на экран → Должно быть: окно First run само не открылось; на кнопке rail красная
+    точка, tooltip называет GitHub access (worfy-sandbox).
+17. Сделай: в Project-е `worfy-sandbox` — «New session» в sidebar, в списке «New session on» — Codex → Должно быть: в
+    начале транскрипта `notice` «GitHub is not available to this Session: … gh and git push in it run without the
+    Project's GitHub account.», под ним **Open Health check**; значения токена нет.
+18. Сделай: щёлкни **Open Health check** → Должно быть: Settings → Health, строка GitHub access `worfy-sandbox` — Failed,
+    `no gh login for <login>`, кнопка «Sign in…». Не нажимай: прежний `github.account` вернёт Orchestrator.
+19. Сделай: когда Orchestrator вернёт `github.account` и нажмёт «Check again», открой Command palette (⌘K), набери
+    «Health check» и выбери строку → Должно быть: открылись Settings → Health, а не окно First run; точки на rail нет
+    (или только от строк, которые Orchestrator назвал до начала).
+
+Pass: qmd и Codex дают жёлтую точку, не красную; серое кольцо во время «Check again»; `notice` со ссылкой в Session
+Codex; palette открывает Settings → Health; First run не открылся сам в шаге 16. Fail: красная точка от qmd или Codex,
+нет `notice`, palette открывает First run, или First run открылся сам в шаге 16.
+
+Замечено ревью Ticket-а 08, не блокирует: у строки с кнопкой колонка detail сжата до 1–2 знаков (Codex sign-in — «n…»),
+полный текст виден только при наведении. Скажи в шаге 13, мешает ли — тогда Ticket.
+
+### ПК — те же сценарии с `setx` и probe (~25 мин, отдельный подход)
+
+Перед началом Orchestrator через мост: обновит Stable copy на ПК до `main` с Ticket-ами Epic-а и сверит версию; запустит
+probe из [`spike.md`](worfy-auth-check/spike.md), раздел «Скрипт для ПК», в checkout-е worfy на ПК и запишет строки W4,
+G2, W8 (и G3, G6, W7) в «Итог» `spike.md` — так закрываются пункты 2 и 4 Ticket-а 01 (путь токена на Windows); ставит
+`setx GH_TOKEN …` и снимает её `[Environment]::SetEnvironmentVariable('GH_TOKEN', $null, 'User')`, перезапуская Stable
+copy между сценариями; файлы qmd и Codex откладывает и возвращает, как на Mac (`%USERPROFILE%\.claude\worfy-harness`,
+`%USERPROFILE%\.codex`).
+
+20. Сделай: ответь «да» на обновление Stable copy и на переменную пользователя `GH_TOKEN` на ПК примерно на 20 минут →
+    Должно быть: Orchestrator пишет, что Stable copy обновлена, probe прошёл и строки записаны.
+21. Сделай: пройди шаги 2–5 в Stable copy на ПК → Должно быть: то же, что на Mac. «Use <login>» есть, если у gh на ПК
+    ровно один login с push в `worfy-sandbox`; иначе строка просит задать `github.account` — это тоже верно.
+22. Сделай: пройди шаги 6–10 → Должно быть: то же, что на Mac; команда в строке GitHub access — для Windows
+    (`[Environment]::SetEnvironmentVariable('GH_TOKEN', $null, 'User')`), не `launchctl`.
+23. Сделай: пройди шаги 12–19 → Должно быть: то же, что на Mac.
+
+Pass: шаги 21–23 сошлись, строки probe в «Итог» `spike.md`. Fail: любое расхождение с Mac, кроме текста команды.
+
+### SSO и итог
+
+SSO не проверить, пока нет Ticket-а 06 (он ждёт вывода тестера по Ticket-у 02). Orchestrator пишет в «Итог» Ticket-а 10
+«SSO принимается отдельно после Ticket-а 06» — этим закрывается пункт SSO.
+
+24. Сделай: после Mac и ПК скажи «принимаю Epic» или назови номер шага, который не сошёлся → Должно быть: Orchestrator
+    отмечает пункты «(вручную)» и пишет «Итог»; SSO — отдельная приёмка после Ticket-а 06.
+
+### Подтвердить решения без владельца
+
+Ответь по номеру: «подтверждаю» или «в Ticket».
+
+1. Ticket 01 ([`spike.md`](worfy-auth-check/spike.md), «Итог»): «Решение без владельца: Ticket закрывается на
+   доказательствах с Mac и чтении кода». Живого `launchctl setenv` с тестовым токеном и запусков на ПК не было; запуск
+   на ПК перенесён в эту приёмку.
+2. Ticket 03 ([Code story](worfy-auth-check/stories/03-модель-health-check.md), раздел 4): «уровень строки из сообщения
+   считается с `githubProject: true` — не записано в spec, решено здесь». Сбой входа GitHub, о котором сообщила фича,
+   всегда даёт critical-строку.
+3. Ticket 04 ([Code story](worfy-auth-check/stories/04-иконка-palette-и-вид-строк.md), раздел 3): «светлый жёлтый
+   `#A87F00` выбран ради контраста ≥ 3:1 с sidebar — это не записано владельцем». Цвет жёлтой точки в светлой теме.
+4. Ticket 04 (там же, раздел 5): «Так решено без владельца, чтобы строки не уходили из своих групп». Порядок «critical,
+   non-critical, ok» строгий внутри группы, а не по всему списку: `ok`-строка Harness может стоять выше жёлтой строки jq.
+5. Ticket 08 ([Code story](worfy-auth-check/stories/08-сбои-codex-browser-и-link.md), раздел 3): «решение без владельца —
+   без `CODEX_HOME` и в сборке без Codex строки нет». Кто не запускал Codex, не видит жёлтой точки. Уточнение ревью:
+   папка по умолчанию `~/.codex` тоже считается, с ней и без входа точка жёлтая.
+6. Ticket 08 (ревью PR #2030 в той же Code story, раздел 11): «"Sign in to Codex…" holds no action lock… The report
+   lists this as a decision made without the owner». Повторные щелчки могут начать несколько входов Codex.
+7. Ticket 09 (Ticket, «Итог», «Расхождение тикета с кодом»): «Amendment и ADR-0109 записаны по коду». Пустой
+   `github.account` даёт жёлтую non-critical строку всякий раз, когда gh работает своим токеном — из переменной или из
+   keyring, — а не только из переменной, как в spec.
+8. Ticket 09 (там же, «Повторная проверка»): «ADR-0109 записан по коду». Сама перепроверяется (после сбоя фичи и при
+   фокусе окна) только строка GitHub access; строки Machine ждут «Check again».
+
+Известно, не входит в приёмку: английские страницы `docs/features/onboarding.md` («Codex has no row») и
+`docs/features/gate-and-github.md` («A notice for that is a later Ticket (worfy-auth-check 08)») отстали от кода — это
+нашёл Ticket 09.
+
+Результат — в Ticket `worfy-auth-check` 10, «Итог»; Status spec-а.
 
 ## Ручные проверки вне приёмок
 
