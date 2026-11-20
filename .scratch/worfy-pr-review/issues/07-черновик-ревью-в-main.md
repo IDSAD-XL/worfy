@@ -43,10 +43,12 @@ Source: [spec.md](../spec.md), «Ticket-ы», 7; «Решения по реал�
       `review-draft-lint` (тот же `payload` проходит `node harness/bin/review-draft-lint` без находок формата);
       `by` после правки; re-anchor на сдвинутой строке и «line moved». Красный до правки — в «Итог».
   - evidence: test-run pass · `pnpm test` (test/unit/pr-review-draft-format.test.ts, 16 tests) exit 0 · mac - · ac8ebab4b
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-review-draft-format.test.ts test/contract/pr-review-draft.test.ts` (19 unit) exit 0 · mac - · 2b0e9436a2af78dd037bba64411ccb2346cba070
 - [ ] Contract `test/contract/pr-review-draft.test.ts` (новый): запись через rename (нет полузаписанного файла при
       обрыве), 500 ms, Discard, 30 дней, отказ Linked machine на каждом `prReview.*`. Без test-а гонки с
       `bin/pr-review-draft` — он в Ticket-е 08.
   - evidence: test-run pass · `pnpm test` (test/contract/pr-review-draft.test.ts, 13 tests) exit 0 · mac - · ac8ebab4b
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-review-draft-format.test.ts test/contract/pr-review-draft.test.ts` (17 contract) exit 0 · mac - · 2b0e9436a2af78dd037bba64411ccb2346cba070
 - [ ] Amendment ADR-0005 влит в этом PR.
   - evidence: commit pass · worfy-pr-review/07: the review draft in main — state/pr-review/ file, prReview.* local channels · - - · ac8ebab4b
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
