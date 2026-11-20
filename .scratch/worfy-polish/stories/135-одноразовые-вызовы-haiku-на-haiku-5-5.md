@@ -168,3 +168,29 @@ eval-ов, это вопрос владельцу (раздел «Вне ско�
    - Ответ: предел — потолок; в Limits идут только написанные token-ы, а thinking считается в тот же потолок, и при 256
      он мог не оставить места строке.
    - Строки: `src/main/vendors/claude/narrator.ts:35-41`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 135 (one-shot Haiku calls on Haiku 5.5), head 7c0f47492b5ebab92a69ce04977bccdc86822dc6
+>
+> Gate (depth medium): verifier (lens: implementer's report) VERIFIED; reviewer (lens: correctness) no findings above low.
+>
+> - Verifier: claude-haiku-5-5 as HAIKU_MODEL_ID (terminal-ai.ts:70); claimOptions sends settings.effortLevel 'low', no maxThinkingTokens (:73-82, :92); thinking and option_not_applied no longer abort a Suggestion (assist.ts:483-486); thinking text never reaches a Suggestion (assist.ts:216-221; contract test covers thinking_delta, thinking block, redacted_thinking, with and without result); narrator Haiku 5.5 effort low, cap 4096 (narrator.ts:35-41, 59-60); ADR-0058 Amendment; feature pages match. Mutants: assist.ts from main → 3 red, terminal-ai.ts from main → 4 red, narrator cap 256 + thinking disabled → 2 red. claude-haiku-4-5 gone from src/main/terminal-ai and narrator.ts. The «Итог» table matches before.txt/after.txt (n=20 each: 20/20 within 5 s; median 1397 → 1864 ms; p90 1676 → 2558 ms; 5/20 turns with thinking; 0 option_not_applied).
+> - Reviewer: no thinking leak (assist.ts:218-222, 513-516; narrator takes only result; a mutant taking block.thinking → exit 1); 5 s timeout and the drop of a non-continuing answer kept; zsh cancels on any line change; the narrator line is cut to 120 chars downstream (agent/narrator.ts:28,108-110) so the 4096 cap cannot reach the UI; Claude Code 2.1.322 lists effort for claude-haiku-5-5; Codex untouched. typecheck exit 0; 22 test files 685 passed exit 0.
+> - ci-ok pass on the head.
+>
+> Decided without the owner (to confirm): the cancel on option_not_applied removed too (a refused model now yields the default model's answer within 5 s — 0 such refusals measured); narrator effort low, cap 4096 not measured; JUDGE_MODEL of the eval scripts left on haiku-4-5 (owner question).
+>
+> Consider [low]: suggest.ts:5 comment still says «Haiku without thinking»; docs/features/terminal.md:322 and ADR-0058 Amendment :205 say «Only its 5 s limit or an answer that no longer continues the typed line ends it» — a new request, a line change or a refused claim end it too, and a non-continuing answer is hidden, not ending; scripts/agent-cost.mjs:31 has no Haiku 5.5 price row.
+
+Code: `docs/features/terminal.md:322-322` · key lines: 322
+
+```md
+- **A Suggestion that would come late is dropped.** Only its 5 s limit or an answer that no longer continues the typed line
+```
+
+Code: `scripts/agent-cost.mjs:31-31` · key lines: 31
+
+```mjs
+  'claude-haiku-4-5-20251001': [1, 5, 0.1, 1.25, 2],
+```

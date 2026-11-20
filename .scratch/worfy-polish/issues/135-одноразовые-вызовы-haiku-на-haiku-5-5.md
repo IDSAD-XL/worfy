@@ -1,7 +1,7 @@
 # 135 — Одноразовые вызовы Haiku переходят на Haiku 5.5; thinking больше не отменяет Suggestion Terminal AI
 
 Type: task
-Status: claimed 2026-11-20T03:17Z
+Status: done 2026-11-20T05:32Z
 PR: #2063
 Blocked by: none
 Source: слова владельца 2026-11-20 через Product Session, тема `proactive-runtime`: «Переходим на 5.5, без проблем. Это по
@@ -60,6 +60,7 @@ Source: слова владельца 2026-11-20 через Product Session, т�
       новую модель и правило; `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 63268e2fe849c4f53edb711f7983dc2a6bf484f9
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44671216496/job/136100815607 · ci - · 7c0f47492b5ebab92a69ce04977bccdc86822dc6
 
 ## Где в коде
 
