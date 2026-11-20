@@ -1,7 +1,7 @@
 // What the Pipeline board (PipelineBoard.tsx) and the sidebar's Pipeline section
 // (shell/sidebar/PipelineSection.tsx) say alike about a Ticket.
 import type { PipelineColumn, PipelineTicket } from '../../shared/ipc/pipeline'
-import type { PrInboxSnapshot } from '../../shared/ipc/pr-inbox'
+import type { PrApprovals, PrInboxSnapshot } from '../../shared/ipc/pr-inbox'
 import { onStageFor, stuckOf, type ReleaseFact, type RepoPull, type TicketStage } from '../../shared/workflow/pipeline'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import { reviewsByTicket } from '../canvas/badges/review-threads'
@@ -35,6 +35,17 @@ export function answersOf(inbox: PrInboxSnapshot | undefined, model: WorkflowMod
   const answers: Record<string, number> = {}
   for (const [key, reviews] of reviewsByTicket(inbox, model?.tickets ?? [])) if (reviews.threads > 0) answers[key] = reviews.threads
   return answers
+}
+
+/**
+ * The approvals of each Ticket's PR that is short of them, by ticketKeyOf, from the Project's PR inbox snapshot
+ * (worfy-pr-review ticket 03, Q5 (a)): the board's `Waits: team · 1/2 approvals`. The same map as the Ticket card's
+ * chip (reviewsByTicket); a Ticket over several repositories shows its first PR short of approvals. Only Tickets that have one.
+ */
+export function approvalsByTicket(inbox: PrInboxSnapshot | undefined, model: WorkflowModel | undefined): Record<string, PrApprovals> {
+  const approvals: Record<string, PrApprovals> = {}
+  for (const [key, reviews] of reviewsByTicket(inbox, model?.tickets ?? [])) if (reviews.short?.approvals) approvals[key] = reviews.short.approvals
+  return approvals
 }
 
 /** The titles of the model's Tickets without their leading number, by ticketKeyOf. */

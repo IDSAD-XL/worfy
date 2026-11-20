@@ -48,8 +48,18 @@ When the line runs short, the repository name gives way first, then the Epic nam
 ellipsis; its number stays whole, and `<epic> <NN> — <title>` is the chip's tooltip). `#N` and the CI text stay
 whole, and nothing is drawn over anything. On
 the right: the age, the count of open threads with a speech-bubble icon (orange on the user's own PR, where someone
-waits for the user; "2 open threads" is the tooltip), and a blue dot when there are new comments ("N new since you
-looked" is the tooltip).
+waits for the user; "2 open threads" is the tooltip), a blue dot when there are new comments ("N new since you
+looked" is the tooltip), and the approvals chip.
+
+- **Approvals chip**: how many approvals count and how many the rule of the base branch asks for. `0/2` and `1/2` are
+  neutral; `✓ 2/2` is green only when GitHub says APPROVED, and `✓ 2` when it approves a PR whose rule the account
+  cannot see; `✕ 1/2` is orange on changes requested; `1/?` is grey and dashed when the rule is not visible to the
+  account; a clock marks a count that is reached while code owners still hold it. A rule that asks for no approvals
+  while GitHub still wants a review shows `review required`, never `0/0`. The tooltip says who approved, which code
+  owners are waited for, the approvals an older push made stale, and, when the count is reached but GitHub still holds
+  the PR, GitHub's word (`GitHub says: review required`, or `more rules apply — GitHub decides` when the branch has a
+  rule worfy does not count). The accessible name says the chip in words (`1 of 2 required approvals`, `1 approval,
+  rule not visible`). A branch with no review rule has no chip.
 
 - **Title**: cut with an ellipsis when it does not fit; the whole title is its tooltip.
 - **CI dot**: green — passing, orange — failing, an empty blue ring — running, an empty grey ring — no CI. Its text is
@@ -95,7 +105,13 @@ chooses again only when the selected PR leaves the inbox. With one PR, that PR i
   that cannot run is inactive, and its tooltip says why: an empty template (`Set the Fix checks template in Project
   settings`), a read-only screen, a PR from a fork, not the user's or whose reason is gone. The buttons write nothing to
   GitHub: the Session asks before it pushes;
-- four cells: **CI**; **Review** (Approved, Changes requested, Review required, or None yet); **Merge** (Mergeable,
+- four cells: **CI**; **Approvals** — the approvals chip, what it comes to (`of 2 required`, `changes requested`,
+  `waiting for code owners`, `rule not visible to your account`, `GitHub says: approved`), and every reviewer with the
+  state of their review: Approved, Changes requested, Commented, Requested (with `code owner` when asked as one),
+  Dismissed, `Approved · stale` (before the last push, when the rule drops such approvals) and a grey `Approved · does
+  not count` for a reviewer without write access; a code-owner team the account cannot see is listed as `code owners
+  (hidden team)`. A branch with no review rule says `No review rule · 1 approval`. A Project machine that does not read
+  approvals yet shows **Review** in its place (Approved, Changes requested, Review required, or None yet); **Merge** (Mergeable,
   Behind the base, Blocked, Checks failing, Conflicts, Draft, or Unknown, from GitHub's merge state); **Size** — the
   lines added and removed (`+184 −22`) with a bar of their shares, or `—` when GitHub gave none;
 - **Open on GitHub**; **Code story**, which opens the Code story of the PR's Ticket in the Story view when the Tickets

@@ -55,6 +55,23 @@ export const prInboxThreadSchema = z.object({
 export type PrInboxThread = z.infer<typeof prInboxThreadSchema>
 
 /**
+ * A reviewer of a PR as the Approvals cell lists them (worfy-pr-review ticket 03): their latest review, or their review
+ * request still open. `login` is a user's login, a team's `org/slug`, or, for a team the account cannot see (`hidden`),
+ * a name worfy gives it.
+ */
+export const prReviewerSchema = z.object({
+  login: z.string(),
+  kind: z.enum(['user', 'team', 'hidden']),
+  /** `stale`: an approval that "dismiss stale reviews on push" takes away; `requested`: asked and not answered yet. */
+  state: z.enum(['approved', 'changes-requested', 'commented', 'dismissed', 'stale', 'requested']),
+  /** The review is an approval the rule counts: the reviewer can push, it is not the author's, it is not stale. */
+  counts: z.boolean(),
+  /** Asked as a code owner. */
+  codeOwner: z.boolean(),
+})
+export type PrReviewer = z.infer<typeof prReviewerSchema>
+
+/**
  * The approvals of a PR by the rules of its base branch (worfy-pr-review ticket 02, src/shared/github/approvals.ts):
  * how many count, how many the branch asks for, and where that number comes from.
  */
@@ -81,6 +98,11 @@ export const prApprovalsSchema = z.object({
    * when nothing asks for reviews.
    */
   decision: z.enum(['approved', 'changes-requested', 'review-required']).nullable(),
+  /**
+   * Each reviewer once, the reviews first, then the review requests still open (worfy-pr-review ticket 03). Absent in a
+   * snapshot of a Project machine that does not list them yet.
+   */
+  reviewers: z.array(prReviewerSchema).optional(),
 })
 export type PrApprovals = z.infer<typeof prApprovalsSchema>
 

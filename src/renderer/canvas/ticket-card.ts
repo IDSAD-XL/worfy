@@ -331,7 +331,10 @@ export interface CardInput {
   stages?: readonly string[] | undefined
   /** The done section has checkbox items: the card draws the Evidence chip. */
   evidence?: boolean | undefined
-  /** How many chips the review threads badge draws (0–2; `reviewChipsOf` of badges/ReviewThreads.tsx): a line each. */
+  /**
+   * How many lines of chips the review threads badge draws (0–2; `reviewChipsOf` of badges/review-threads.ts): a line per
+   * label; the approvals chip (worfy-pr-review ticket 03) shares the last one, or takes one alone.
+   */
   reviewChips?: number | undefined
   /** The card draws the mark «unknown side effects» (worfy-continuity ticket 07): its line. */
   sideEffects?: boolean | undefined

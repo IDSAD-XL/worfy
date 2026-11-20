@@ -21,7 +21,7 @@
 // StoryBuildButton.tsx): the progress bar in the button's place, then the Story view; a story kept before opens without
 // a request, and "Rebuild story" builds it again. Of a colleague's PR worfy keeps the agent's text only (ADR-0105).
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
-import { PR_INBOX_GROUP_TITLES, type PrInboxComment, type PrInboxGroup, type PrInboxRow, type PrInboxSnapshot, type PrInboxThread } from '../../shared/ipc/pr-inbox'
+import { PR_INBOX_GROUP_TITLES, type PrApprovals, type PrInboxComment, type PrInboxGroup, type PrInboxRow, type PrInboxSnapshot, type PrInboxThread } from '../../shared/ipc/pr-inbox'
 import type { PrReplyItem } from '../../shared/ipc/pr-inbox'
 import type { ProjectView } from '../../shared/ipc/projects'
 import type { Epic, Ticket } from '../../shared/workflow/types'
@@ -37,6 +37,7 @@ import { Button } from '../theme/Button'
 import { layerOf } from '../theme/open-layers'
 import { Chip, type ChipVariant } from '../theme/Chip'
 import { useWorkflow } from '../workflow/useWorkflow'
+import { ApprovalsChip } from './ApprovalsChip'
 import { CommentBody } from './CommentBody'
 import { DraftRepliesButton, PrDrafts } from './DraftThread'
 import { PrFollowButton } from './PrFollowButton'
@@ -44,6 +45,8 @@ import {
   ageHeat,
   ageOf,
   ageText,
+  approvalsChip,
+  approvalsNote,
   avatarTone,
   findRow,
   initialsOf,
@@ -53,6 +56,7 @@ import {
   mergeText,
   newText,
   nextStep,
+  reviewerText,
   reviewText,
   rowKey,
   shownKey,
@@ -297,6 +301,7 @@ export function PrListItem({ group, row, ticket, viewer, now, selected, onSelect
   const fresh = newText(row.newSinceSeen)
   const age = ageOf(group, row)
   const name = row.repo.slice(row.repo.indexOf('/') + 1)
+  const chip = approvalsChip(row.approvals) !== null
   return (
     <li className="w-pr-inbox-row" data-testid="pr-inbox-row" data-repo={row.repo} data-number={row.number} data-selected={selected ? 'true' : undefined}>
       <button type="button" className="w-pr-inbox-item" aria-current={selected ? 'true' : undefined} onClick={onSelect}>
@@ -321,7 +326,7 @@ export function PrListItem({ group, row, ticket, viewer, now, selected, onSelect
           <span className="w-pr-inbox-age w-mono" data-testid="pr-inbox-age" data-heat={ageHeat(age, now)} title={new Date(age).toLocaleString()}>
             {ageText(age, now)}
           </span>
-          {threads !== null || fresh !== null ? (
+          {threads !== null || fresh !== null || chip ? (
             <span className="w-pr-inbox-item__marks">
               {threads !== null ? (
                 <span
@@ -336,6 +341,8 @@ export function PrListItem({ group, row, ticket, viewer, now, selected, onSelect
                 </span>
               ) : null}
               {fresh !== null ? <span className="w-pr-inbox-newdot" data-testid="pr-inbox-new" role="img" title={fresh} aria-label={fresh} /> : null}
+              {/* The approvals chip last on the right of the row (worfy-pr-review ticket 03); none when nothing asks for reviews. */}
+              {chip ? <ApprovalsChip approvals={row.approvals} /> : null}
             </span>
           ) : null}
         </span>
@@ -409,6 +416,59 @@ function Size({ row }: { row: PrInboxRow }) {
   )
 }
 
+/**
+ * The Approvals cell (worfy-pr-review ticket 03): the chip and what it comes to, then every reviewer with the state of
+ * their review — approved, changes requested, commented, requested, stale, and a grey «does not count» for an approval
+ * the rule does not count. Without a review rule, «No review rule · 1 approval» and no chip.
+ */
+function ApprovalsCell({ approvals, viewer }: { approvals: PrApprovals; viewer: string | null }) {
+  const reviewers = approvals.reviewers ?? []
+  return (
+    <div className="w-pr-inbox-approvals">
+      <div className="w-pr-inbox-approvals__head">
+        <ApprovalsChip approvals={approvals} large />
+        <span className={approvalsChip(approvals) === null ? undefined : 'w-pr-inbox-muted'} data-testid="pr-inbox-approvals-note">
+          {approvalsNote(approvals)}
+        </span>
+      </div>
+      {approvals.reviewers === undefined ? null : reviewers.length === 0 ? (
+        <div className="w-pr-inbox-muted w-pr-inbox-approvals__empty" data-testid="pr-inbox-reviewers-empty">
+          No reviewers asked yet.
+        </div>
+      ) : (
+        <ul className="w-pr-inbox-reviewers">
+          {reviewers.map((reviewer) => {
+            const said = reviewerText(reviewer)
+            const you = reviewer.kind === 'user' && viewer !== null && reviewer.login.toLowerCase() === viewer.toLowerCase()
+            return (
+              <li key={reviewer.login} className="w-pr-inbox-reviewer" data-testid="pr-inbox-reviewer" data-login={reviewer.login} data-state={reviewer.state} data-tone={said.tone}>
+                <Avatar login={reviewer.kind === 'hidden' ? null : reviewer.login} viewer={viewer} small />
+                <span className="w-pr-inbox-reviewer__who">
+                  {reviewer.login}
+                  {you ? <span className="w-pr-inbox-muted"> (you)</span> : null}
+                </span>
+                {reviewer.codeOwner ? (
+                  <span className="w-pr-inbox-flag w-pr-inbox-reviewer__owner" data-testid="pr-inbox-reviewer-owner">
+                    code owner
+                  </span>
+                ) : null}
+                <span className="w-pr-inbox-reviewer__state" data-testid="pr-inbox-reviewer-state">
+                  {said.state}
+                </span>
+                {said.why !== null ? (
+                  <span className="w-pr-inbox-reviewer__why" data-testid="pr-inbox-reviewer-why">
+                    {said.why}
+                  </span>
+                ) : null}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 /** The selected PR in full: its title and facts, what to do next, the links and buttons, its threads with their drafts. */
 export function PrPane({ projectId, group, row, ticket, viewer, now, readOnly, single, onMarkSeen, story = null }: PrPaneProps) {
   const review = reviewText(row.reviewDecision)
@@ -445,6 +505,7 @@ export function PrPane({ projectId, group, row, ticket, viewer, now, readOnly, s
                   {fresh}
                 </span>
               ) : null}
+              <ApprovalsChip approvals={row.approvals} word />
             </div>
           </div>
         </header>
@@ -498,15 +559,22 @@ export function PrPane({ projectId, group, row, ticket, viewer, now, readOnly, s
                   <Fact name="CI">
                     <CiDot ci={row.ci} label />
                   </Fact>
-                  <Fact name="Review">
-                    {review !== null ? (
+                  {/* The Approvals cell in place of Review once main reads approvals (worfy-pr-review ticket 03). */}
+                  {row.approvals !== undefined ? (
+                    <Fact name="Approvals">
+                      <ApprovalsCell approvals={row.approvals} viewer={viewer} />
+                    </Fact>
+                  ) : (
+                    <Fact name="Review">
+                      {review !== null ? (
                       <span data-testid="pr-inbox-review" data-value={row.reviewDecision ?? undefined}>
                         <Chip {...FACT_CHIP[review.status ?? 'open']} label={review.label} />
                       </span>
                     ) : (
                       <span className="w-pr-inbox-muted">None yet</span>
                     )}
-                  </Fact>
+                    </Fact>
+                  )}
                   <Fact name="Merge">
                     {merge !== null ? (
                       <span data-testid="pr-inbox-merge" data-value={row.mergeStateStatus ?? undefined}>

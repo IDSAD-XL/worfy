@@ -553,6 +553,95 @@ describe('the view of a snapshot', () => {
   })
 })
 
+describe('the approvals chip in the row and the Approvals cell (worfy-pr-review ticket 03)', () => {
+  const approvals = (extra: Partial<NonNullable<PrInboxRow['approvals']>> = {}): NonNullable<PrInboxRow['approvals']> => ({
+    have: 1,
+    need: 2,
+    source: 'ruleset',
+    codeOwnersPending: [],
+    stale: 0,
+    lastPushNeedsOther: false,
+    moreRules: false,
+    decision: 'review-required',
+    reviewers: [],
+    ...extra,
+  })
+  const FULL = approvals({
+    decision: 'changes-requested',
+    reviewers: [
+      { login: ANA, kind: 'user', state: 'approved', counts: true, codeOwner: false },
+      { login: BO, kind: 'user', state: 'changes-requested', counts: false, codeOwner: false },
+      { login: ME, kind: 'user', state: 'commented', counts: false, codeOwner: false },
+      { login: 'example-org/payments', kind: 'team', state: 'requested', counts: false, codeOwner: true },
+      { login: 'dev-ed', kind: 'user', state: 'stale', counts: false, codeOwner: false },
+      { login: 'dev-fi', kind: 'user', state: 'approved', counts: false, codeOwner: false },
+    ],
+  })
+  const rowChip = (repo: string, number: number): HTMLElement | null => {
+    const item = screen.getAllByTestId('pr-inbox-row').find((each) => each.dataset.repo === repo && each.dataset.number === String(number))!
+    return within(item).queryByTestId('approvals-chip')
+  }
+  const withApprovals = (waiting: PrInboxRow['approvals'], ready: PrInboxRow['approvals'] = undefined) =>
+    snapshotOf('web-00000001', {
+      groups: [
+        { group: 'waiting', rows: [{ ...ROWS.waiting, approvals: waiting }] },
+        { group: 'ready', rows: [{ ...ROWS.ready, approvals: ready }] },
+      ],
+    })
+
+  it('a row carries the chip on its right; none when nothing asks for reviews or main sent no approvals', async () => {
+    await body(withApprovals(approvals({ reviewers: [{ login: ANA, kind: 'user', state: 'approved', counts: true, codeOwner: false }] }), approvals({ need: 0, source: 'none', decision: null })))
+    const chip = rowChip(WEB, 39)!
+    expect(chip.textContent).toBe('1/2')
+    expect(chip.getAttribute('aria-label')).toBe('1 of 2 required approvals')
+    expect(chip.getAttribute('title')).toBe(`1 of 2 required approvals · approved by @${ANA}`)
+    expect(chip.closest('.w-pr-inbox-item__side')).not.toBeNull()
+    expect(rowChip(API, 120)).toBeNull()
+    cleanup()
+    await body(snapshotOf('web-00000001'))
+    expect(screen.queryAllByTestId('approvals-chip')).toEqual([])
+  })
+
+  it('the Review cell becomes Approvals: the chip, its line and every reviewer with their state', async () => {
+    await body(withApprovals(FULL), TICKETS, { selected: `${WEB}#39` })
+    expect(screen.queryByTestId('pr-inbox-review')).toBeNull()
+    const cell = fact('approvals')
+    expect(within(cell).getByTestId('approvals-chip').textContent).toBe('✕ 1/2')
+    expect(within(cell).getByTestId('approvals-chip').className).toContain('w-approvals-chip--large')
+    expect(text(cell, 'pr-inbox-approvals-note')).toBe('changes requested')
+    const reviewers = within(cell).getAllByTestId('pr-inbox-reviewer')
+    expect(reviewers.map((each) => [each.dataset.login, each.dataset.state, text(each, 'pr-inbox-reviewer-state')])).toEqual([
+      [ANA, 'approved', 'Approved'],
+      [BO, 'changes-requested', 'Changes requested'],
+      [ME, 'commented', 'Commented'],
+      ['example-org/payments', 'requested', 'Requested'],
+      ['dev-ed', 'stale', 'Approved · stale'],
+      ['dev-fi', 'approved', 'Approved · does not count'],
+    ])
+    expect(reviewers[2]!.textContent).toContain('(you)')
+    expect(text(reviewers[3]!, 'pr-inbox-reviewer-owner')).toBe('code owner')
+    expect(text(reviewers[4]!, 'pr-inbox-reviewer-why')).toBe('before the last push; the rule drops it')
+    expect(text(reviewers[5]!, 'pr-inbox-reviewer-why')).toBe('no write access to the repository')
+    expect(reviewers[5]!.dataset.tone).toBe('muted')
+    // The pane's header carries the chip with its word too, as the prototype draws it.
+    expect(within(pane()).getAllByTestId('approvals-chip')[0]!.textContent).toBe('✕ 1/2 approvals')
+  })
+
+  it('no review rule: «No review rule · 1 approval», no chip; no reviewer yet: says so', async () => {
+    await body(withApprovals(approvals({ need: 0, source: 'none', decision: null, reviewers: [] })), TICKETS, { selected: `${WEB}#39` })
+    const cell = fact('approvals')
+    expect(within(cell).queryByTestId('approvals-chip')).toBeNull()
+    expect(text(cell, 'pr-inbox-approvals-note')).toBe('No review rule · 1 approval')
+    expect(text(cell, 'pr-inbox-reviewers-empty')).toBe('No reviewers asked yet.')
+  })
+
+  it('a Project machine that sends no approvals: the Review cell as before', async () => {
+    await body(withApprovals(undefined), TICKETS, { selected: `${WEB}#39` })
+    expect(screen.queryByTestId('pr-inbox-approvals-note')).toBeNull()
+    expect(screen.getAllByTestId('pr-inbox-fact').map((each) => each.dataset.fact)).toEqual(['ci', 'review', 'merge', 'size'])
+  })
+})
+
 describe('the chips of the facts are the Chip of their tone, each with its icon (worfy-ui-kit ticket 16)', () => {
   it.each([
     ['CLEAN', 'Mergeable', 'w-chip--ready', null],

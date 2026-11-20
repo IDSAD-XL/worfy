@@ -2,7 +2,7 @@
 // pure function over what main read — rulesets, classic protection, the reviews and the open code-owner requests.
 // Logins, teams and commits are made up.
 import { describe, expect, it } from 'vitest'
-import { approvalsOf, type ApprovalReview, type ApprovalsInput, type PullRequestRule } from '../../src/shared/github/approvals'
+import { approvalsOf, HIDDEN_CODE_OWNERS, HIDDEN_TEAM, type ApprovalReview, type ApprovalsInput, type PullRequestRule } from '../../src/shared/github/approvals'
 
 const ME = 'dev-me'
 const ANA = 'dev-ana'
@@ -70,7 +70,17 @@ describe('how many approvals the base branch asks for', () => {
   })
 
   it('no rule and no decision: nothing asks for reviews, need 0, the approvals still counted', () => {
-    expect(approvalsOf(input({ reviews: [approved(ANA)] }))).toEqual({ have: 1, need: 0, source: 'none', codeOwnersPending: [], stale: 0, lastPushNeedsOther: false, moreRules: false, decision: null })
+    expect(approvalsOf(input({ reviews: [approved(ANA)] }))).toEqual({
+      have: 1,
+      need: 0,
+      source: 'none',
+      codeOwnersPending: [],
+      stale: 0,
+      lastPushNeedsOther: false,
+      moreRules: false,
+      decision: null,
+      reviewers: [{ login: ANA, kind: 'user', state: 'approved', counts: true, codeOwner: false }],
+    })
   })
 })
 
@@ -136,5 +146,67 @@ describe('how many approvals count', () => {
     const more = { rules: [rule(1, { moreRules: true })], reviews: [approved(ANA)] }
     expect(approvalsOf(input(more))).toMatchObject({ have: 1, moreRules: true, decision: 'review-required' })
     expect(approvalsOf(input({ ...more, reviewDecision: 'APPROVED' }))).toMatchObject({ decision: 'approved' })
+  })
+})
+
+// The reviewers of the Approvals cell (worfy-pr-review ticket 03): each reviewer of the PR once, with what their review
+// is now and whether it counts toward the rule; then the review requests still open, a team the account cannot see too.
+describe('the reviewers of the Approvals cell', () => {
+  const changes = (author: string): ApprovalReview => ({ author, state: 'CHANGES_REQUESTED', authorCanPush: true, commit: HEAD })
+  const commented = (author: string): ApprovalReview => ({ author, state: 'COMMENTED', authorCanPush: true, commit: HEAD })
+
+  it('each review once, its state and whether it counts; the counted ones are `have`', () => {
+    const reviews = [approved(ANA), changes(BO), commented(CY), approved('dev-di', { authorCanPush: false }), approved('dev-ed', { commit: OLD })]
+    const result = approvalsOf(input({ rules: [rule(2, { dismissStaleReviewsOnPush: true })], reviewDecision: 'CHANGES_REQUESTED', reviews }))
+    expect(result.reviewers).toEqual([
+      { login: ANA, kind: 'user', state: 'approved', counts: true, codeOwner: false },
+      { login: BO, kind: 'user', state: 'changes-requested', counts: false, codeOwner: false },
+      { login: CY, kind: 'user', state: 'commented', counts: false, codeOwner: false },
+      { login: 'dev-di', kind: 'user', state: 'approved', counts: false, codeOwner: false },
+      { login: 'dev-ed', kind: 'user', state: 'stale', counts: false, codeOwner: false },
+    ])
+    expect(result.reviewers?.filter((each) => each.counts)).toHaveLength(result.have)
+  })
+
+  it("the author's own reviews and a pending one are not listed; a deleted account is ghost; a dismissed review without the rule is dismissed", () => {
+    const reviews = [approved(ME), { author: ANA, state: 'PENDING', authorCanPush: true, commit: HEAD }, { author: null, state: 'APPROVED', authorCanPush: null, commit: HEAD }, { author: BO, state: 'DISMISSED', authorCanPush: true, commit: OLD }]
+    expect(approvalsOf(input({ rules: [rule(1)], reviews })).reviewers).toEqual([
+      { login: 'ghost', kind: 'user', state: 'approved', counts: false, codeOwner: false },
+      { login: BO, kind: 'user', state: 'dismissed', counts: false, codeOwner: false },
+    ])
+  })
+
+  it('open review requests after the reviews: a user, a team, a code owner; a reviewer asked again keeps their review', () => {
+    const requests = [
+      { name: CY, team: false, codeOwner: false },
+      { name: 'demo-org/payments', team: true, codeOwner: true },
+      { name: ANA.toUpperCase(), team: false, codeOwner: true },
+    ]
+    expect(approvalsOf(input({ rules: [rule(2)], reviews: [approved(ANA)], requests })).reviewers).toEqual([
+      { login: ANA, kind: 'user', state: 'approved', counts: true, codeOwner: true },
+      { login: CY, kind: 'user', state: 'requested', counts: false, codeOwner: false },
+      { login: 'demo-org/payments', kind: 'team', state: 'requested', counts: false, codeOwner: true },
+    ])
+  })
+
+  it('a code-owner request of a team the account cannot see is listed once, and holds the count while a rule wants code owners', () => {
+    const requests = [
+      { name: null, team: true, codeOwner: true },
+      { name: null, team: true, codeOwner: true },
+      { name: null, team: true, codeOwner: false },
+    ]
+    const result = approvalsOf(input({ rules: [rule(1, { requireCodeOwnerReview: true })], reviews: [approved(ANA)], requests }))
+    expect(result.reviewers).toEqual([
+      { login: ANA, kind: 'user', state: 'approved', counts: true, codeOwner: false },
+      { login: HIDDEN_CODE_OWNERS, kind: 'hidden', state: 'requested', counts: false, codeOwner: true },
+      { login: HIDDEN_TEAM, kind: 'hidden', state: 'requested', counts: false, codeOwner: false },
+    ])
+    expect(result).toMatchObject({ codeOwnersPending: [HIDDEN_CODE_OWNERS], decision: 'review-required' })
+    // No rule wants code owners: the hidden request is listed and holds nothing.
+    expect(approvalsOf(input({ rules: [rule(1)], reviews: [approved(ANA)], requests }))).toMatchObject({ codeOwnersPending: [], decision: 'approved' })
+  })
+
+  it('without requests and reviews the list is empty', () => {
+    expect(approvalsOf(input({ rules: [rule(1)] })).reviewers).toEqual([])
   })
 })
