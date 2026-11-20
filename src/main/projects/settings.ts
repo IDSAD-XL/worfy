@@ -1,7 +1,8 @@
 // A Project's settings (`<Project data folder>/settings.json`): the action templates, for
 // Windows the shell of the Terminals, the Default vendor, the answer to the team reviewer's
-// offer (worfy-human-review ticket 09), the date of the last reminder to update it (ticket 10) and
-// the folders a Product Session may also write in (worfy-polish ticket 82).
+// offer (worfy-human-review ticket 09), the date of the last reminder to update it (ticket 10),
+// the folders a Product Session may also write in (worfy-polish ticket 82) and the Integrations of
+// the Machine the Project uses (worfy-integrations ticket 03).
 // The schema and the defaults live in src/shared/projects/action-templates.ts. The defaults are
 // those of the Harness found on the machine (src/main/harness/locate.ts, worfy-harness ticket 12),
 // looked up again on every call unless the caller names it.
@@ -18,6 +19,7 @@ import {
   type ProjectSettings,
   type ProjectSettingsInput,
 } from '../../shared/projects/action-templates'
+import type { ProjectIntegration } from '../../shared/integrations/types'
 import { currentHarness } from '../harness/locate'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 
@@ -47,7 +49,8 @@ export function readProjectSettings(projectDataDir: string, harness: HarnessKind
  * `productWriteFolders` keep the saved list (worfy-polish ticket 82), and the folders of
  * `productWriteFoldersRemoved` leave it: "Save" sends the folders removed in the dialog, so one «Always
  * allow» added meanwhile stays. Settings without `prInbox` keep the saved one too (worfy-pr-inbox ticket 02):
- * a save that does not know the switch does not turn the PR inbox back on.
+ * a save that does not know the switch does not turn the PR inbox back on. The Integrations the Project uses (`integrations`, worfy-integrations ticket 03) always
+ * stay as saved: only writeProjectIntegrations changes them.
  */
 export function writeProjectSettings(projectDataDir: string, settings: ProjectSettingsInput, harness: HarnessKind = currentHarness().kind): ProjectSettings {
   let saved: ProjectSettings | undefined
@@ -59,15 +62,37 @@ export function writeProjectSettings(projectDataDir: string, settings: ProjectSe
   const { productWriteFolders: listed, productWriteFoldersRemoved: removed = [], ...others } = rest
   const productWriteFolders = (listed ?? read().productWriteFolders)?.filter((folder) => !removed.includes(folder))
   const prInbox = askedInbox ?? read().prInbox
+  // `integrations` of the input is never written here: only writeProjectIntegrations changes the field.
+  const integrations = read().integrations
   writeJsonFile(settingsPath(projectDataDir), projectSettingsSchema, {
     ...others,
     ...(defaultVendor === undefined ? {} : { defaultVendor }),
     ...(humanReview === undefined ? {} : { humanReview }),
     ...(productWriteFolders === undefined ? {} : { productWriteFolders }),
     ...(prInbox === undefined ? {} : { prInbox }),
+    integrations,
     actionTemplates: { ...settings.actionTemplates, ...later },
   })
   return readProjectSettings(projectDataDir, harness)
+}
+
+/**
+ * The Integrations of the Machine this Project uses (worfy-integrations ticket 03, ADR-0111): the field
+ * `integrations` of its settings.json; empty for a file saved before the field, and for one whose field does not read.
+ */
+export function readProjectIntegrations(projectDataDir: string, harness: HarnessKind = currentHarness().kind): ProjectIntegration[] {
+  return readProjectSettings(projectDataDir, harness).integrations ?? []
+}
+
+/**
+ * Writes the Integrations this Project uses and keeps every other setting as it is saved. Only the Project's
+ * settings.json is written: never the Profile, the repository, `~/.claude.json`, `.mcp.json` or Codex's
+ * `config.toml`, in Full and Silent mode alike. Returns the list as saved.
+ */
+export function writeProjectIntegrations(projectDataDir: string, integrations: readonly ProjectIntegration[], harness: HarnessKind = currentHarness().kind): ProjectIntegration[] {
+  const current = readProjectSettings(projectDataDir, harness)
+  writeJsonFile(settingsPath(projectDataDir), projectSettingsSchema, { ...current, integrations: [...integrations] })
+  return readProjectIntegrations(projectDataDir, harness)
 }
 
 /**

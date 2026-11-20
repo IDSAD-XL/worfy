@@ -3,6 +3,7 @@
 // worfy-windows ticket 17; worfy-pr-inbox ticket 04; worfy-pr-follow ticket 01). Each Project runs its own process, so the text is a Project setting. worfy does not
 // know what the skill does: it keeps the string and ticket 23 fills in the placeholders.
 import { z } from 'zod'
+import { projectIntegrationSchema } from '../integrations/types'
 import { vendorIdSchema, type VendorId } from '../vendors/vendor'
 
 /** The placeholders a template may contain, written as `{name}`. */
@@ -280,6 +281,12 @@ export const projectSettingsSchema = z.object({
    * Project's open PRs when one of its repositories is on GitHub; `false` — it never runs gh for the Project.
    */
   prInbox: z.boolean().optional(),
+  /**
+   * The Integrations of the Machine this Project uses (worfy-integrations ticket 03, ADR-0111): which are enabled,
+   * their tools filter and «Available to Autopilot». Absent in a file saved before the field, which reads as none.
+   * Only the channels `integrations.*` write it (src/main/projects/settings.ts, writeProjectIntegrations).
+   */
+  integrations: z.array(projectIntegrationSchema).optional(),
 })
 export type ProjectSettings = z.output<typeof projectSettingsSchema>
 
@@ -320,6 +327,8 @@ export const savedProjectSettingsSchema = projectSettingsSchema.extend({
   productWriteFolders: projectSettingsSchema.shape.productWriteFolders.catch(undefined),
   // A value that is not a boolean reads as absent: the inbox stays on, as by default.
   prInbox: z.boolean().optional().catch(undefined),
+  // A list that does not read reads as none: the rest of the file stays.
+  integrations: projectSettingsSchema.shape.integrations.catch(undefined),
 })
 export type SavedProjectSettings = z.output<typeof savedProjectSettingsSchema>
 
