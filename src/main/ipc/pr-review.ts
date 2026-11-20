@@ -53,7 +53,11 @@ export function sharedPrReviewDrafts(): PrReviewDrafts {
     // The reason for no folder goes to the view, not to the log on each look.
     profileDir: async (root) => readProfileFolder({ root, claudeHome: claudeHome(), env: await harnessScriptEnv(), log: () => undefined }),
   })
-  app.on('will-quit', () => drafts.flushSync())
+  // One listener for both: the watches of an Agent review end, and what waits is written.
+  app.on('will-quit', () => {
+    void sharedAgent?.closeAll()
+    drafts.flushSync()
+  })
   shared = drafts
   return drafts
 }
@@ -68,7 +72,6 @@ export function sharedPrReviewAgent(): PrReviewAgent {
     registry: { get: (sessionId) => sharedRegistry().get(sessionId) },
     changed: (input) => toEveryWindow((client) => emit(client, prReviewChanged, input)),
   })
-  app.on('will-quit', () => void agent.closeAll())
   sharedAgent = agent
   return agent
 }

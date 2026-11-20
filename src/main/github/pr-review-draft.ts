@@ -19,7 +19,7 @@
 //   first look at the Project's drafts after worfy starts.
 // - Nothing here reaches GitHub.
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import {
@@ -32,6 +32,7 @@ import {
   type ReviewDraft,
   type ReviewEvent,
 } from '../../shared/ipc/pr-review'
+import { removeFile } from '../storage/remove'
 
 /** At most one write of a draft file in this many milliseconds. */
 export const WRITE_INTERVAL_MS = 500
@@ -268,14 +269,14 @@ function tryLock(file: string, now: number): boolean {
   try {
     // shortcut: two writers that find one stale lock at once may both take it over, redo with a lock that names its
     // owner if a writer is ever seen to die while holding it.
-    if (now - statSync(lockOf(file)).mtimeMs > LOCK_STALE_MS) rmSync(lockOf(file), { force: true })
+    if (now - statSync(lockOf(file)).mtimeMs > LOCK_STALE_MS) removeFile(lockOf(file))
   } catch {
     // Released meanwhile: the next try takes it.
   }
   return false
 }
 
-const unlock = (file: string): void => rmSync(lockOf(file), { force: true })
+const unlock = (file: string): void => removeFile(lockOf(file))
 const lockedFor = (file: string): ReviewDraftRefusal => new ReviewDraftRefusal(`The review draft ${file} stayed locked by another writer (an Agent review) for ${LOCK_WAIT_MS / 1000} s`)
 
 /** Runs `work` holding the lock of `file`, which its folder must hold already. */
