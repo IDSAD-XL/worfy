@@ -136,3 +136,24 @@ function decisionOf(reviewDecision: string | null, have: number, need: number | 
 3. Почему одобрение старого commit-а иногда считается, а иногда нет?
    - Ответ: оно не считается только когда правило снимает старые одобрения при push (dismiss stale); тогда оно в `stale`.
    - Строки: `src/shared/github/approvals.ts:76-78`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED — pr-review 02 (required approvals in main), head a88b47db866acab25911ea55be2e0dc027001ff5
+>
+> Gate (depth medium): verifier (lens: implementer's report) VERIFIED; reviewer (lens: correctness) 3 med + 1 low; each med went to its own sceptic — all three downgraded to low.
+>
+> - Verifier: files_changed = diff; pr-approvals (16 unit), pr-inbox-approvals (7 contract), unchanged pr-inbox + pr-inbox-groups green (630 passed); red before on origin/main confirmed (unit fails to load, contract 6 of 7 red); two mutants of its own (author exclusion dropped; write-access filter dropped) each red; gate fast `[gate] green (fast)`; eslint, evidence-check, story-check exit 0. The two «decided without the owner» items hold: writersOnly not set (spec.md:308/421 vs :424-425 contradict; filtering in approvalsOf keeps Ready grouping and the grey «does not count» list); last pusher approximated by the head commit author (null author → flag stays false).
+> - Reviewer: query validated live (read-only) on next.js, grafana, node, vscode — branchProtectionRule null for a non-admin without error, cost 1 per PR; schema compatible with an older Linked machine both ways.
+> - ci-ok pass on the head.
+>
+> Consider [low] (downgraded by sceptics; notes for ticket 03):
+> - approvals.ts:77 — with dismiss-stale, an APPROVED review on an older commit counts as stale; GitHub dismisses on any diff change incl. Update branch, so only a no-op push leaves it — chip still green (GitHub's decision wins), count understated. Ticket 02 line 81 asks for this behaviour.
+> - inbox.ts:260-262 — a code-owner request with requestedReviewer null (a team the token cannot see; 6 of 30 grafana PRs) is dropped: the «waiting for code owners» hint is missing; the chip is right whenever GitHub gives a decision. Fix: a placeholder name.
+> - approvals.ts:65-68 — a read rule with 0 approvals gives need 0, source ruleset, even with REVIEW_REQUIRED; not seen on real repos; ticket 03 must render need 0 + review-required sensibly (not «0/0»).
+> - inbox.ts:79 — rules(first: 50) counts rules of every type; past 50 a PULL_REQUEST rule may be missed (next.js has 18).
+> - requireExtraApprovalForUnattributedChanges is true on every PULL_REQUEST rule seen → the «more rules apply» hint would show on every PR.
+> - inbox.ts:179 — stray formatting `={` (main has `= {`).
+> - reviews first:10 → 50 can change Ready grouping for PRs with >10 reviewers (spec asks for 50); «Итог» says the input set is unchanged.
+>
+> Not verified: max-of-rules on a test repo with two rules (needs GitHub writes).
