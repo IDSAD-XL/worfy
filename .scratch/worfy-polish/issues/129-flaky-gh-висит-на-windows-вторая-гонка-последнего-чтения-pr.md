@@ -1,7 +1,8 @@
 # 129 — Flaky test «gh hangs the whole Run» на Windows: вторая гонка последнего чтения PR после 124
 
 Type: bug
-Status: open
+Status: claimed 2026-11-20T12:41Z
+Branch: worfy-polish/129
 Blocked by: none
 Source: красный push run 44471611202 на `main` eb669a653 (#2030, worfy-auth-check 08 — Autopilot не трогает), job
 `windows (2/3) / full-suite`. Тот же файл зелёный в `windows (2/3)` на том же коде в run-ах 44550103039 (job
