@@ -83,6 +83,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», 11; «Решение», 4 и 6; «
 Только читать: `src/main/github/pr-reply-send.ts`, `test/contract/pr-inbox-send.test.ts` (образец «ни одной записи без
 щелчка»), `src/main/github/pr-review-draft.ts`.
 
+Образец вида — Card `card-53b21f06` («Prototype: PR search and review», Ticket 01), состояния `finish`,
+`finish-agent`, `submitted`. Состояние открывается сразу по `#state=<name>&theme=dark`.
+
 ## Вне скоупа
 
 - Pending review на GitHub и продолжение ревью, начатого на github.com; resolve нитей, re-request review, dismiss,

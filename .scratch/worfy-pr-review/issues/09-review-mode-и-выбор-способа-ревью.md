@@ -66,6 +66,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решение», 3 и 6; «�
 Только читать: `src/renderer/changes/DiffPane.tsx`, `src/renderer/changes/FileTree.tsx` (Ticket 06),
 `src/shared/ipc/pr-review.ts` (Ticket-ы 07 и 08), `src/renderer/theme/kit/`.
 
+Образец вида — Card `card-53b21f06` («Prototype: PR search and review», Ticket 01), состояния `start`,
+`myself`, `agent-writing`, `agent-done`. Состояние открывается сразу по `#state=<name>&theme=dark`.
+
 ## Вне скоупа
 
 - «+» в gutter, popover, Pending на строке, полоса Your review со счётом и Discard — Ticket 10. Диалог Finish review —

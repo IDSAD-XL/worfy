@@ -59,6 +59,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», 10; «Как пользовате�
 Только читать: `src/shared/ipc/pr-review.ts`, `src/main/github/pr-review-draft.ts` (Ticket 07),
 `.scratch/worfy-changes-view/issues/05-*.md`.
 
+Образец вида — Card `card-53b21f06` («Prototype: PR search and review», Ticket 01), состояния `popover`,
+`myself`, `moved`, `discard`. Состояние открывается сразу по `#state=<name>&theme=dark`.
+
 ## Вне скоупа
 
 - Диалог Finish review и отправка — Ticket 11. Ответ в существующей нити — черновик и Send PR inbox без изменений.

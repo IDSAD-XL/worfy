@@ -60,6 +60,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решение», 5; «Как
 Только читать: `src/shared/github/approvals.ts` (Ticket 02), `src/shared/workflow/pipeline.ts`,
 `src/renderer/theme/tokens.css`.
 
+Образец вида — Card `card-53b21f06` («Prototype: PR search and review», Ticket 01), состояние `chips`
+(Approvals chip). Состояние открывается сразу по `#state=<name>&theme=dark`.
+
 ## Вне скоупа
 
 - Chip в Review mode — Ticket 09. Chip в результатах поиска — Ticket 05.

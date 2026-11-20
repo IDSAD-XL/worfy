@@ -78,3 +78,4 @@ Source: [spec.md](../spec.md), «Ticket-ы», 1; «Решение» → «Экр
   (`01-inline-*`, `02-side-by-side-*`, `03-popover-*`, `04-read-only-*`, `05-binary-large-*`, `06-workflow-*`,
   `07-gutter-plus-*`, `08-sent-*` — каждый в `light` и `dark`; `09-range-light.png`). Сняты Playwright-ом по `file://`,
   1280 × 860, ошибок в console нет.
+- Владелец одобрил прототип (Card `card-d72db918`) 2026-11-20: «Прототип Changes глянул, апруваю».
