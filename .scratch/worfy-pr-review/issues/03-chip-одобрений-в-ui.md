@@ -1,7 +1,7 @@
 # 03 — Chip одобрений `1/2` в UI: строка списка, ячейка Approvals, доска Pipeline на Stage Human review и карточка Ticket-а на Canvas
 
 Type: task
-Status: claimed 2026-11-20T04:29Z
+Status: done 2026-11-20T07:56Z
 PR: #2073
 Blocked by: 01, 02
 Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решение», 5; «Как пользователь идёт по экрану», B и D; «Решения по
@@ -54,6 +54,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решение», 5; «Как
   - evidence: screenshot pass · `../evidence/03-approvals-1280-light.png` `../evidence/03-approvals-1280-dark.png` · mac dev · 794a964a6 · scrub: 2026-11-20
   - evidence: screenshot pass · `../evidence/03-approvals-1280-dark.png` dark theme · mac dev · 794a964a6 · scrub: 2026-11-20
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44688597250/job/136160365251 · ci - · 44bda4d975f876d517221a37dbeb71e771a6b90e
 
 ## Где в коде
 

@@ -223,3 +223,17 @@ exit 2: 20–22 test-а наблюдения за файлами (`docs-watch-ro
    - Ответ: только когда у неё нет других chip-ов ревью: тогда он берёт строку `REVIEW_LINE`; рядом с ярлыком строк не
      прибавляет.
    - Строки: `src/renderer/canvas/badges/review-threads.ts:87`
+
+## 11. Что нашёл review и что осталось
+
+> VERIFIED — worfy-pr-review 03 (the approvals chip 1/2 in the PR list, the Approvals cell, the Pipeline board and the Ticket card), head 44bda4d975f876d517221a37dbeb71e771a6b90e
+>
+> Gate (depth medium): verifier (lens: implementer's report) VERIFIED; reviewer (lens: correctness) no findings above low. CI round: the first head was red on two e2e tests this PR caused (checks-badges.spec.ts:377 — the Ticket card chips overflowed the 218 px card, fixed in code: the approvals chip always on its own line; pr-inbox.spec.ts:224 — the Approvals cell replaces Review as the ticket says, expectation updated); both spec files pass whole locally (17/17).
+>
+> - Verifier: chip states (usePrInbox.ts:250-291, ApprovalsChip.tsx); row chip PrInboxView.tsx:344-345 and Approvals cell :562-570 with the Review fallback; Pipeline «Waits: team · 1/2 approvals» only on Human review (PipelineBoard.tsx:95); Ticket card line via reviewLinesOf (review-threads.ts:88), REVIEW_LINE 18; approvalsOf reviewers incl. hidden code owner and stale (approvals.ts:98-127). 13 mutants red. Screenshots light/dark 1280 px match the ticket; fixture names only.
+> - Reviewer: hidden code-owner request keeps codeOwnersPending only when reviewDecision is null — display only; Ready group and Human review still read reviewDecision, nothing GitHub considers mergeable is blocked; author's and PENDING reviews not counted; older snapshots without reviewers parse; the extra chip line flows into cardHeight (ticket-card.ts:373) and epic-layout.ts:275; Pipeline waits never null on Human review (pipeline.ts:422). 7 test files 228 passed, typecheck EXIT=0.
+> - check-feature-docs, check-personal, story-check, evidence-check EXIT=0. ci-ok pass on the head.
+>
+> Decided without the owner (to confirm): a hidden team request shows as «code owners (hidden team)» / «a team (hidden)»; the Review cell gives way to Approvals when the row has approvals; the review badge on a Ticket card appears on missing approvals alone; the approvals chip always on its own card line (card 18 px taller).
+>
+> Consider [low]: a DISMISSED review under dismiss-stale shows as «Approved · stale» (approvals.ts:117); a review requested from a Bot / Mannequin shows as «a team (hidden)» (inbox.ts:87 lacks ... on Bot / Mannequin); with reviewDecision null and the rule met the chip says «GitHub says: approved» though GitHub said nothing (usePrInbox.ts:260,319); stale comments ticket-card.ts:335-336, review-threads.css:3; e2e evidence lines cite 794a964a6.
