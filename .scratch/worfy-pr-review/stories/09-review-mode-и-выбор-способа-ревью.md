@@ -171,3 +171,18 @@ export function reviewAway(): string | null {
 3. Почему на Linked machine с Full access Start review тоже неактивен?
    Ответ: каналы `prReview.*` — `local`; признак берётся из машины окна, а не из уровня доступа.
    Строки: `src/renderer/pr-review/review-store.ts:19-20`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED — worfy-pr-review 09 (Review mode and the choice of review method), head 0111e46962431fed2982ff5d4f5aa395b66f740f
+>
+> Gate (depth medium, three rounds): verifier (lens: implementer's claims, sonnet) — all 7 claims CONFIRMED, one medium finding; reviewer (correctness) — round 1 FIX (two medium, four low), round 2 MERGE with one regression (low) fixed in round 3, round 3 MERGE.
+>
+> - What the user sees: Start review ▾ (Review myself / Agent review, last choice per Project) opens Review mode in place of the PR pane — file tree, the head diff with GitHub threads, Viewed marks read from github.com once and read-only (prReview.start, local), «N new commits» when the head moved, the bar Ask the agent / Stop / Take over; on a Linked machine Start review is inactive and View changes opens it read-only.
+> - Commit consistency: one draftCommitOf = anchoredOn ?? startedOn draws the comments, counts «N new commits» and scopes Show new commits; reanchor is never called, so today anchoredOn = startedOn. Ticket 11 (Finish review) must send commit_id = draftCommitOf, not startedOn as spec.md:528 says.
+> - Fixed in rounds 2–3: no start (empty draft, lost Viewed marks) while the file list or a repo read failed; inbox keys gated by Review mode actually shown in this view (DOM), Review mode closes when its PR leaves the list only after a finished read (search re-run keeps it); `v` without a draft writes nothing; Enter on the viewer's own PR only selects; ≤3000 files sent; checkboxes no longer swallow j/k/v/Escape.
+> - Evidence: each fix red before / green after; mutants caught by the reviewers (filesRead, store-based gate, close effect, settled, isViewed blob, start merge); 29 module unit+contract files 676 tests EXIT=0; e2e pr-review + pr-inbox + pr-search whole 16 passed EXIT=0; lint, typecheck, story-check, evidence-check EXIT=0; gate fast green EXIT=0. Four committed screenshots checked clean (no machine, user, path or email).
+> - Prototype deviations: no «+», Discard, Finish review (tickets 10, 11); own view row instead of ScopeBar; comments on another commit listed above the diff; View changes added; agent comment colour --accent.
+> - Low, not tickets: Viewed marks past file 3000 are dropped (local-git diffs only); a failing search keeps Review mode in the store until the next search or Clear; a permanently failing file read leaves Agent review waiting with only the list error shown.
+>
+> Decided without the owner (to confirm): channel prReview.start; baseRefOid/baseRefName on PR rows; render hooks on DiffPane/FileTree; head-only diff; Linked machine judged by the window's machine; last choice in localStorage; empty draft created at start.

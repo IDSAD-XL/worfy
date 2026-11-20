@@ -1,7 +1,7 @@
 # 09 — Review mode и выбор способа ревью: Start review с меню Review myself / Agent review, дерево, diff, Viewed, «N new commits», смена способа, Read only
 
 Type: task
-Status: claimed 2026-11-20T16:50Z
+Status: done 2026-11-20T20:12Z
 PR: #2109
 Branch: worfy-pr-review/09
 Blocked by: 01, 05, 06, 07, 08
@@ -71,6 +71,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решение», 3 и 6; «�
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-inbox-view.test.tsx test/unit/pr-search-view.test.tsx` exit 0 (review round 2; red before and on three mutants: exit 1) · mac - · 710375236450688756825e8b378326f1ff680f11
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint` exit 0; `pnpm typecheck` exit 0; `pnpm test` exit 0 (ci-ok not read yet) · mac - · 34f5fdbad919d13b5ee22e4b5102b243557883e8
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44798982658/job/136540476762 · ci - · 0111e46962431fed2982ff5d4f5aa395b66f740f
 
 ## Где в коде
 
