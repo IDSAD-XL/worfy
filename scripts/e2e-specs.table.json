@@ -75,9 +75,10 @@
         "test/e2e/linked-sleep.spec.ts",
         "test/e2e/linked-system-actions.spec.ts",
         "test/e2e/linked-tailscale.spec.ts",
+        "test/e2e/pr-review.spec.ts",
         "test/e2e/sidebar-sections.spec.ts"
       ],
-      "why": "The link between machines: its remote paths run only with a linked machine, in the specs that pair two apps (linkThroughUi, launchLinkedPair) or open the Linked machines settings: the linked-* specs, family.spec.ts, controls.spec.ts and browser-family.spec.ts; sidebar-sections and focus-sidebar show the Link machine button, autopilot.spec.ts and autopilot-faults.spec.ts reach service.ts through ipc/autopilot.ts. Left out: caller.ts and messages.ts (every ipc handler calls through them), ipc-adapter.ts (browser/read-only.ts, read by ipc/layout.ts for every canvas) and autopilot-runs.ts (ipc/autopilot.ts)."
+      "why": "The link between machines: its remote paths run only with a linked machine, in the specs that pair two apps (linkThroughUi, launchLinkedPair) or open the Linked machines settings: the linked-* specs, family.spec.ts, controls.spec.ts, browser-family.spec.ts and pr-review.spec.ts (Review mode read only in a window on a Linked machine, worfy-pr-review ticket 09); sidebar-sections and focus-sidebar show the Link machine button, autopilot.spec.ts and autopilot-faults.spec.ts reach service.ts through ipc/autopilot.ts. Left out: caller.ts and messages.ts (every ipc handler calls through them), ipc-adapter.ts (browser/read-only.ts, read by ipc/layout.ts for every canvas) and autopilot-runs.ts (ipc/autopilot.ts)."
     },
     {
       "paths": [

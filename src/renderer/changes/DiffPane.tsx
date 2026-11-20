@@ -74,6 +74,8 @@ export interface DiffPaneProps {
   threads?: readonly ChangesThread[]
   /** Reply in a thread: the reply draft of the PR inbox; without it a thread has no Reply. */
   onReply?: (thread: ChangesThread) => void
+  /** What stands at the end of a file's header: Viewed of Review mode (worfy-pr-review ticket 09); nothing by default. */
+  renderHeadEnd?: (entry: FileEntry) => ReactNode
   ref?: Ref<DiffPaneHandle>
 }
 
@@ -433,7 +435,7 @@ function ThreadView({ thread, onReply, where }: { thread: ChangesThread; onReply
 const EMPTY_FILES: ReadonlyMap<string, FileState> = new Map()
 const EMPTY_HEIGHTS: ReadonlyMap<string, number> = new Map()
 
-export function DiffPane({ projectId, subject, scope, hideWhitespace, layout, wrap, entries, several, selected, generation, renderGutter, renderBelow, isPicked, lineEvents, onFileRead, threads, onReply, ref }: DiffPaneProps) {
+export function DiffPane({ projectId, subject, scope, hideWhitespace, layout, wrap, entries, several, selected, generation, renderGutter, renderBelow, isPicked, lineEvents, onFileRead, threads, onReply, renderHeadEnd, ref }: DiffPaneProps) {
   const scroller = useRef<HTMLDivElement>(null)
   const [top, setTop] = useState(0)
   const [viewport, setViewport] = useState(0)
@@ -702,6 +704,7 @@ export function DiffPane({ projectId, subject, scope, hideWhitespace, layout, wr
                     View file on GitHub
                   </button>
                 ) : null}
+                {renderHeadEnd?.(entry) ?? null}
               </div>
             </div>
           )

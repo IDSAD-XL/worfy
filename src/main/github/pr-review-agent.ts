@@ -9,21 +9,21 @@
 //   comments) runs over the person's draft; `'new'` is refused over one, and any start while an Agent review of the PR
 //   still writes.
 // - While the Session writes, main watches the draft file and sends `prReview.changed` on each change, so the view
-//   shows the agent's comments as they come. The watch polls the file (chokidar `usePolling`): one file for the length
-//   of a review, and it does not depend on the file events of the OS. It ends when the draft says the agent is done or
-//   stopped, when the Session's turn ends (the draft is then marked done) or the Session closes (stopped), and on
-//   Stop; it is closed only through closeForGood (src/main/chokidar-close.ts).
+//   shows the agent's comments as they come. The watch reads the draft every AGENT_POLL_MS and compares it with the last
+//   one it saw, the first read before the Session's first word: one file for the length of a review, and it does not
+//   depend on the file events of the OS. Not a poll of the file's stat (chokidar `usePolling`, fs.watchFile): that poll
+//   takes its first state from a stat that runs later, on the thread pool, and a write landing before it was never seen.
+//   It ends when the draft says the agent is done or stopped, when the Session's turn ends (the draft is then marked
+//   done) or the Session closes (stopped), and on Stop.
 // - Stop and Take over (`prReview.stopAgent`): the Session is halted — its turn interrupted, its queue held — and the
 //   draft is marked `stopped`, keeping what the agent wrote. bin/pr-review-draft refuses a stopped review.
 // Nothing here reaches GitHub; the Session's own writes there are refused by the skill's text and the guard hook.
 import { existsSync } from 'node:fs'
-import { watch, type FSWatcher } from 'chokidar'
 import type { SessionState } from '../../shared/agent/events'
 import type { PrReviewDraftAnswer, ReviewDraft } from '../../shared/ipc/pr-review'
 import { AGENT_REVIEW_VENDOR, agentReviewText } from '../../shared/projects/action-templates'
 import type { VendorId } from '../../shared/vendors/vendor'
 import type { Session } from '../agent/session'
-import { closeForGood } from '../chokidar-close'
 import { privateFolder, reviewerSkill } from '../projects/review-offer'
 import type { PrReviewDrafts } from './pr-review-draft'
 
@@ -34,7 +34,7 @@ export const AGENT_POLL_MS = 500
 export type AgentSession = Pick<Session, 'send' | 'halt' | 'state'>
 
 export interface PrReviewAgentDeps {
-  drafts: Pick<PrReviewDrafts, 'draft' | 'setAgent' | 'fileOf'>
+  drafts: Pick<PrReviewDrafts, 'draft' | 'setAgent'>
   /** The Project's Profile folder (readProfileFolder): the Team reviewer lies in its private folder. */
   profileDir: (root: string) => Promise<{ dir: string | null; reason: string | null }>
   /** "New session" on Claude Code: a new Session Node of the Project (src/main/agent/node-sessions.ts). */
@@ -57,8 +57,9 @@ export interface AgentReviewStart {
 }
 
 interface Watch {
-  watcher: FSWatcher
-  timer: ReturnType<typeof setInterval>
+  timer: ReturnType<typeof setInterval> | null
+  /** The draft as the watch last saw it (JSON), null before a first read: another one is a change. */
+  seen: string | null
   sessionId: string
   /** The Session was seen in a turn: back to idle, the turn is over. */
   turned: boolean
@@ -155,20 +156,14 @@ export class PrReviewAgent {
   private async follow(pull: { projectId: string; root: string; repo: string; number: number }, sessionId: string): Promise<void> {
     const key = keyOf(pull.root, pull.repo, pull.number)
     await this.end(key)
-    const file = await this.deps.drafts.fileOf(pull.root, pull.repo, pull.number)
-    const pollMs = this.deps.pollMs ?? AGENT_POLL_MS
-    const watcher = watch(file, { ignoreInitial: true, usePolling: true, interval: pollMs })
-    const entry: Watch = { watcher, sessionId, turned: false, ending: false, timer: setInterval(() => void this.look(key, pull, entry), pollMs) }
-    entry.timer.unref?.()
-    const told = (): void => {
-      this.deps.changed({ projectId: pull.projectId, repo: pull.repo, number: pull.number })
-      void this.look(key, pull, entry)
-    }
-    watcher.on('add', told).on('change', told).on('unlink', told)
-    watcher.on('error', (error: unknown) => this.warn(`[pr-review] the watch of ${file} failed: ${String(error)}`))
+    const entry: Watch = { sessionId, turned: false, ending: false, seen: null, timer: null }
     this.watches.set(key, entry)
-    // Before the Session's first word: a write before the first poll of the file would read as its first state.
-    await new Promise<void>((resolve) => watcher.once('ready', () => resolve()))
+    // Before the Session's first word: what it writes afterwards differs from this first state.
+    const first = await this.deps.drafts.draft(pull.root, pull.repo, pull.number)
+    if (this.watches.get(key) !== entry) return
+    if (first.draft !== null || first.problem === null) entry.seen = JSON.stringify(first.draft)
+    entry.timer = setInterval(() => void this.look(key, pull, entry), this.deps.pollMs ?? AGENT_POLL_MS)
+    entry.timer.unref?.()
   }
 
   /** Ends the watch when the review is over: the draft says so, or the Session's turn ended or it closed. */
@@ -200,6 +195,11 @@ export class PrReviewAgent {
       await this.end(key)
       return
     }
+    const seen = JSON.stringify(draft)
+    if (seen !== entry.seen) {
+      entry.seen = seen
+      this.deps.changed({ projectId: pull.projectId, repo: pull.repo, number: pull.number })
+    }
     const mine = draft?.agent?.sessionId === entry.sessionId
     if (!mine || draft?.agent?.state !== 'writing' || draft.state !== 'draft') {
       await this.end(key)
@@ -216,7 +216,6 @@ export class PrReviewAgent {
     const entry = this.watches.get(key)
     if (entry === undefined) return
     this.watches.delete(key)
-    clearInterval(entry.timer)
-    await closeForGood(entry.watcher)
+    if (entry.timer !== null) clearInterval(entry.timer)
   }
 }
