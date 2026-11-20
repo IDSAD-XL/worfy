@@ -161,3 +161,17 @@ Project-а; окно на Linked machine) красные на прежнем `qu
    - Ответ: Node Session другого Project-а окно знает только из его views; без запроса уведомление о такой Session не
      находит её и истекает.
    - Строки: `src/renderer/canvas/overlays/NotificationTarget.tsx:113-134`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 127 («Open» on a Session of another Project switches the Project), head e0518be58db068e0be4ff9f8e18795ad17e165a8
+>
+> Gate (depth medium, two rounds): verifier (lens: implementer's report) — claims backed, two low gaps; reviewer (lens: correctness) round 1 one low (Linked machine claim), round 2 three low — no high or med.
+>
+> - Fix: openSessionInProject (src/renderer/session/open-in-project.ts) opens the Session's Project first, then the Session; error toast and nothing opened when the Project cannot be selected; question toast «Open» and the notification overlay use it; the overlay asks every Project for its Session views and matches a registry Session by its Project root.
+> - Round 1: a window reloaded after the Session started now finds the Session (or an Orchestrator through its Project's Layout) by asking every Project of the window's Machine; Linked machine window toast path tested; «Итог» corrected.
+> - Tests: question-card + permission-card 69/69 EXIT=0 (three new cases red on the previous question-toast.ts, four new cases red on main); 81 unit files importing touched modules + test-timeout-scale 1597 tests EXIT=0; e2e session-question.spec.ts + linked-notify.spec.ts whole 3/3 EXIT=0; lint, typecheck, story-check, evidence-check EXIT=0. Local gate fast not run: file-watcher tests red on this Mac (fseventsd); CI is the verdict.
+>
+> Decided without the owner (to confirm): overlay loads Session views of every Project; helper in its own file; projectsNow() in useProjects.ts; order Project then Session; Orchestrator of another Project found through its Layout.
+>
+> Consider [low]: question-toast.ts:66-68 — nothing found after the sweep opens the active Project's last Session with no notice (Project removed, Orchestrator not run since start); question-toast.ts:41-71 — no in-flight guard, a late openSession still moves a user who navigated away; a miss repeats the whole sweep on every click (no negative cache).
