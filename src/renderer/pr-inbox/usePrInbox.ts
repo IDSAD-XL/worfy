@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
 import { PR_INBOX_GROUPS, type PrApprovals, type PrInboxGroup, type PrInboxRow, type PrInboxSnapshot, type PrReviewer } from '../../shared/ipc/pr-inbox'
-import type { PrSearchResult, SavedSearch } from '../../shared/ipc/pr-search'
+import type { PrSearchNotice, PrSearchResult, SavedSearch } from '../../shared/ipc/pr-search'
 import type { PrSearchScope } from '../../shared/pr-search/query'
 import { prFollowReasons } from '../../shared/actions/pr-follow'
 import type { PrFollowAction } from '../../shared/projects/action-templates'
@@ -577,6 +577,23 @@ export interface PrSearch extends PrSearchState {
   forget: (id: string) => Promise<string | null>
 }
 
+/** The shortest wait for the end of a rate-limit pause: a pause already over does not search in a loop. */
+const PAUSE_MIN_MS = 1000
+
+/** Kinds of notice that say main gave no page at all. */
+const REFUSALS: ReadonlySet<PrSearchNotice['kind']> = new Set(['rate-limit', 'failed', 'sign-in', 'sso', 'not-visible'])
+
+/** A page main refused: no rows, no next page, and a pause or a refusal that says why (not just the end of the results). */
+const refused = (page: PrSearchResult): boolean => page.rows.length === 0 && page.cursor === null && (page.pausedUntil !== null || page.notices.some((each) => REFUSALS.has(each.kind)))
+
+/** The notices of the pages shown and of a new one, each once; a new rate-limit notice replaces an old one. */
+function joined(before: readonly PrSearchNotice[], added: readonly PrSearchNotice[]): PrSearchNotice[] {
+  const pause = added.some((each) => each.kind === 'rate-limit')
+  const kept = before.filter((each) => !(pause && each.kind === 'rate-limit'))
+  const seen = new Set(kept.map((each) => `${each.kind}:${each.text}`))
+  return [...kept, ...added.filter((each) => !seen.has(`${each.kind}:${each.text}`))]
+}
+
 /**
  * The search of the Pull requests view of one Project: the field is the one source of truth; Enter, a chip, a scope or a
  * saved search sends it to main (`prSearch.run`), and the answer is a snapshot that no timer searches again (spec,
@@ -601,8 +618,19 @@ export function usePrSearch(projectId: string): PrSearch {
     }
   }, [projectId])
 
+  /** The search that waits for the end of a rate-limit pause, and `send` as of the last render, which it calls. */
+  const pending = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const again = useRef<(shown: ShownSearch, cursor: string | null) => void>(() => undefined)
+  const wake = useCallback(() => {
+    if (pending.current === null) return
+    clearTimeout(pending.current)
+    pending.current = null
+  }, [])
+  useEffect(() => wake, [wake])
+
   const send = useCallback(
     (shown: ShownSearch, cursor: string | null) => {
+      wake()
       const request = ++asked.current
       current.current = { ...current.current, scope: shown.scope }
       setState((before) => ({ ...before, scope: shown.scope, shown, running: true, failure: null, result: cursor === null ? null : before.result }))
@@ -612,29 +640,46 @@ export function usePrSearch(projectId: string): PrSearch {
           setState((before) => ({ ...before, running: false, failure: `The search failed: ${readableReason(answer.error)}` }))
           return
         }
+        // A search refused for the rate limit runs again by itself when the pause ends, unless another search or
+        // Clear came first (spec, section 10: Enter during the pause schedules the search for its end).
+        const until = answer.value.pausedUntil === null ? Number.NaN : Date.parse(answer.value.pausedUntil)
+        if (Number.isFinite(until)) {
+          wake()
+          pending.current = setTimeout(() => {
+            pending.current = null
+            if (asked.current === request) again.current(shown, cursor)
+          }, Math.max(PAUSE_MIN_MS, until - Date.now()))
+        }
         setState((before) => {
           if (cursor === null || before.result === null) return { ...before, running: false, result: answer.value }
+          // A page main refused (the pause, a failure) brings no rows and no cursor: the pages shown keep their count,
+          // their cursor and their notices, and its own notices join them.
+          if (refused(answer.value)) return { ...before, running: false, result: { ...before.result, pausedUntil: answer.value.pausedUntil, notices: joined(before.result.notices, answer.value.notices) } }
           const seen = new Set(before.result.rows.map(rowKey))
           const rows = [...before.result.rows, ...answer.value.rows.filter((each) => !seen.has(rowKey(each)))]
           return { ...before, running: false, result: { ...answer.value, rows, searchedAt: before.result.searchedAt } }
         })
       })
     },
-    [projectId],
+    [projectId, wake],
   )
+  useEffect(() => {
+    again.current = send
+  })
 
   const run = useCallback(
     (text?: string, scope?: PrSearchScope) => {
       const typed = (text ?? current.current.text).trim()
       const where = scope ?? current.current.scope
       if (typed === '') {
+        wake()
         asked.current += 1
         setState((before) => ({ ...before, scope: where, shown: null, result: null, running: false, failure: null }))
         return
       }
       send({ text: typed, scope: where }, null)
     },
-    [send],
+    [send, wake],
   )
 
   const setScope = useCallback(
@@ -658,10 +703,11 @@ export function usePrSearch(projectId: string): PrSearch {
     setState((before) => ({ ...before, text }))
   }, [])
   const clear = useCallback(() => {
+    wake()
     asked.current += 1
     current.current = { ...current.current, text: '' }
     setState((before) => ({ ...before, text: '', shown: null, result: null, running: false, failure: null }))
-  }, [])
+  }, [wake])
   const loadMore = useCallback(() => {
     const { shown, result, running } = current.current
     if (shown !== null && result !== null && result.cursor !== null && !running) send(shown, result.cursor)

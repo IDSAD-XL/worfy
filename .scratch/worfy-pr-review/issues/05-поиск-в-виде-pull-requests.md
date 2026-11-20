@@ -120,3 +120,33 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение», 1 и 2; «�
   12. Пустая панель — «Nothing selected: no pull request found to show here.»
   13. Рамка и текст 422 — `--span-problem` (красный).
   14. Enter на строке результата не запускает ревью (spec, раздел 12) — это Ticket 09.
+
+### Раунд ревью 1
+
+Каждая находка — сначала test, красный до правки: `ELECTRON_RUN_AS_NODE=1 pnpm exec vitest run
+test/unit/pr-search-view.test.tsx` — exit 1, 5 из 27 упали (ровно новые test-ы находок 1, 2, 3, 4-Refresh и 5). После
+правки `ELECTRON_RUN_AS_NODE=1 pnpm exec vitest run test/unit/pr-search-view.test.tsx test/unit/pr-inbox-view.test.tsx`
+— exit 0, 114 из 114.
+
+1. [med] Load more, который main отказал (пауза rate limit: ни строк, ни `cursor`), затирал первую страницу. Теперь
+   такая страница оставляет число результатов, `cursor` и notice-ы показанных страниц и добавляет свои (`refused`,
+   `joined` в `usePrInbox.ts`). Отказ узнаётся по `pausedUntil` или notice-у отказа, чтобы честная пустая последняя
+   страница не держала Load more вечно. Test: «a Load more refused by the rate-limit pause keeps the pages shown…».
+2. [med] Память `prSearch.pull` в renderer теперь по ключу `rowKey` + `updatedAt` результата: новый поиск, нашедший PR
+   изменённым, читает его снова; прочитанная строка старше строки результата уступает ей. Test: «a new search that
+   finds the same PR updated reads it again…».
+3. [med] Фокус окна читает выбранный PR вне inbox снова (`refresh: true`), когда чтению больше 60 s (spec, решения по
+   реализации, 9). Refresh результатов теперь тоже шлёт `refresh: true`. Повторное чтение со сбоем оставляет прежнюю
+   строку и показывает notice. Test-ы: «the selected PR outside the inbox is read again on the window focus…»,
+   «Refresh of the results reads the selected PR again, past main's memory».
+4. [low] Добавлены test-ы: вход, открывающий PR inbox, снимает поиск («an entry that opens a PR of the inbox drops the
+   search shown» — зелёный сразу; без `search.clear()` в коде он красный, exit 1); рамка 422 — `data-invalid="true"`
+   проверяется в test-е 422 и снимается вместе с правкой текста.
+5. [low] Сделано: ответ с `pausedUntil` ставит тот же запрос (и Load more) на конец паузы, не раньше чем через 1 s;
+   новый поиск, Clear или уход с вида его отменяют. Test: «Enter during a rate-limit pause searches again when the pause
+   ends; Clear before then cancels it» (реальный таймер 1 s).
+
+Проверки на коде раунда: e2e `test/e2e/pr-search.spec.ts` и `test/e2e/pr-inbox.spec.ts` целиком под
+`/tmp/worfy-e2e.lock` — 12 из 12, exit 0; `pnpm lint` exit 0; `pnpm typecheck` exit 0. Gate fast не запускался: на
+этом Mac сломан fseventsd, и contract test-ы слежения за файлами красные без связи с этим PR.
+`src/renderer/pr-inbox/PrInboxView.tsx` вырос до 1127 строк (предупреждение gate о файлах длиннее 1000 строк).

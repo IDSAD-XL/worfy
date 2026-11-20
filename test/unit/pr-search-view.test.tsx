@@ -427,11 +427,14 @@ describe('the notices of the search (spec, implementation decisions 10)', () => 
     await search('author:')
     expect(screen.getByTestId('pr-search-invalid').textContent).toBe('Validation Failed: the query is malformed')
     expect(field().getAttribute('aria-invalid')).toBe('true')
+    // The red frame (pr-search.css) hangs on this attribute.
+    expect(field().closest('.w-pr-search__field')!.getAttribute('data-invalid')).toBe('true')
     expect(screen.queryAllByTestId('pr-search-notice')).toHaveLength(0)
     expect(screen.queryByTestId('pr-search-empty')).toBeNull()
     // The next search clears it.
     fireEvent.change(field(), { target: { value: 'retry' } })
     expect(field().getAttribute('aria-invalid')).toBe('false')
+    expect(field().closest('.w-pr-search__field')!.getAttribute('data-invalid')).toBeNull()
   })
 
   it('single sign-on: the notice above the results with the link that authorizes the token', async () => {
@@ -531,5 +534,96 @@ describe('on a read-only screen of a Linked machine', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Saved searches' }))
     await screen.findAllByTestId('pr-search-saved-item')
     expect(screen.queryByTestId('pr-search-forget')).toBeNull()
+  })
+})
+
+describe('review round 1: pages, the pull memory, the window focus, the pause', () => {
+  const pulls = (): unknown[] => calls.filter((call) => call.channel === 'prSearch.pull').map((call) => call.input)
+  const PAUSE: PrSearchNotice = { kind: 'rate-limit', text: 'Search paused until 13:00 (GitHub rate limit)', url: null }
+  const FIRST_1000: PrSearchNotice = { kind: 'first-1000', text: 'Showing the first 1,000 — narrow the search', url: null }
+
+  it('a Load more refused by the rate-limit pause keeps the pages shown: their count, their cursor and their notices', async () => {
+    const pages: Record<string, PrSearchResult> = {
+      first: result([searchRow(RETRY, false)], { issueCount: 1500, cursor: 'c1', notices: [FIRST_1000] }),
+      // What main answers while the account's rate limit is paused (src/main/github/pr-search.ts, empty()).
+      c1: result([], { issueCount: 0, cursor: null, pausedUntil: new Date(NOW + HOUR).toISOString(), notices: [PAUSE] }),
+    }
+    await view({ 'prSearch.run': (input) => ({ ok: true, value: pages[(input as { cursor: string | null }).cursor ?? 'first']! }) })
+    await search('retry')
+    const heading = screen.getByTestId('pr-search-heading').textContent
+    fireEvent.click(screen.getByTestId('pr-search-load-more'))
+    await waitFor(() => expect(screen.getAllByTestId('pr-search-notice').map((each) => each.dataset.kind)).toEqual(['first-1000', 'rate-limit']))
+    expect(screen.getByTestId('pr-search-heading').textContent).toBe(heading)
+    expect(keys()).toEqual([`${WEB}#77`])
+    expect(screen.getByTestId('pr-search-load-more')).toBeDefined()
+  })
+
+  it('Enter during a rate-limit pause searches again when the pause ends; Clear before then cancels it', async () => {
+    let answered = 0
+    const paused = (): IpcResult<unknown> => ({ ok: true, value: answered++ === 0 ? result([], { pausedUntil: new Date(NOW + 1000).toISOString(), notices: [PAUSE] }) : RESULTS })
+    await view({ 'prSearch.run': paused })
+    await search('retry')
+    expect(screen.getByTestId('pr-search-notice').dataset.kind).toBe('rate-limit')
+    await waitFor(() => expect(keys()).toEqual([`${WEB}#77`, `${WEB}#41`, 'other-org/tools#5']), { timeout: 4000 })
+    expect(runs()).toHaveLength(2)
+    expect(runs()[1]).toEqual(runs()[0])
+    cleanup()
+    answered = 0
+    await view({ 'prSearch.run': paused })
+    await search('retry')
+    fireEvent.click(screen.getByTestId('pr-search-clear'))
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 1500)))
+    expect(runs()).toHaveLength(1)
+    expect(screen.queryByTestId('pr-search-results')).toBeNull()
+  }, 10_000)
+
+  it('a new search that finds the same PR updated reads it again, and the pane never shows a read older than the result', async () => {
+    const NEWER = { ...RETRY, title: 'Retry on 429 and 503', updatedAt: ago(MIN) }
+    await view({
+      'prSearch.run': (input) => ({ ok: true, value: (input as { text: string }).text === 'retry' ? RESULTS : result([searchRow(NEWER, false)]) }),
+      // A read main kept from before: the older title.
+      'prSearch.pull': () => ({ ok: true, value: { row: searchRow(RETRY, false), readAt: new Date(NOW).toISOString(), notices: [] } }),
+    })
+    await search('retry')
+    await waitFor(() => expect(pulls()).toHaveLength(1))
+    expect(within(pane()).getByTestId('pr-inbox-pane-title').textContent).toContain('Retry on 429')
+    await search('retry 503')
+    await waitFor(() => expect(pulls()).toHaveLength(2))
+    expect(pulls()[1]).toEqual({ projectId: PROJECT, repo: WEB, number: 77, updatedAt: NEWER.updatedAt })
+    await act(async () => Promise.resolve())
+    expect(within(pane()).getByTestId('pr-inbox-pane-title').textContent).toContain('Retry on 429 and 503')
+  })
+
+  it('the selected PR outside the inbox is read again on the window focus once its read is older than 60 s', async () => {
+    await view()
+    await search('retry')
+    await waitFor(() => expect(pulls()).toHaveLength(1))
+    vi.setSystemTime(NOW + 30_000)
+    fireEvent.focus(window)
+    await act(async () => Promise.resolve())
+    expect(pulls()).toHaveLength(1)
+    vi.setSystemTime(NOW + 2 * MIN)
+    fireEvent.focus(window)
+    await waitFor(() => expect(pulls()).toHaveLength(2))
+    expect(pulls()[1]).toEqual({ projectId: PROJECT, repo: WEB, number: 77, updatedAt: RETRY.updatedAt, refresh: true })
+  })
+
+  it("Refresh of the results reads the selected PR again, past main's memory", async () => {
+    await view()
+    await search('retry')
+    await waitFor(() => expect(pulls()).toHaveLength(1))
+    fireEvent.click(screen.getByTestId('pr-search-refresh'))
+    await waitFor(() => expect(pulls()).toHaveLength(2))
+    expect(pulls()[1]).toEqual({ projectId: PROJECT, repo: WEB, number: 77, updatedAt: RETRY.updatedAt, refresh: true })
+  })
+
+  it('an entry that opens a PR of the inbox drops the search shown', async () => {
+    await view()
+    await search('retry')
+    const { usePrInboxFocus } = await import('../../src/renderer/pr-inbox/usePrInbox')
+    act(() => usePrInboxFocus.setState({ focus: { projectId: PROJECT, pr: { repo: API, number: 118 }, group: null, seq: 1000 } }))
+    await waitFor(() => expect(screen.queryByTestId('pr-search-results')).toBeNull())
+    expect(screen.getAllByTestId('pr-inbox-group')).toHaveLength(2)
+    expect(selected()).toEqual([`${API}#118`])
   })
 })

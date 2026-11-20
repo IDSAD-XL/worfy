@@ -66,13 +66,14 @@ Code: `src/renderer/pr-inbox/SearchBar.tsx:373-385` · key lines: 377, 379, 381
   переключателя, Author и Label; варианты Review requested и Review status идут через те же `setChip` и `chipsOf`,
   их покрывает `test/unit/pr-search-query.test.ts`.
 
-## 4. Последний поиск побеждает, Load more дописывает
+## 4. Последний поиск побеждает, Load more дописывает, пауза ждёт своего конца
 
-Code: `src/renderer/pr-inbox/usePrInbox.ts:604-624` · key lines: 606, 610, 616, 618
+Code: `src/renderer/pr-inbox/usePrInbox.ts:631-664` · key lines: 634, 638, 645, 650, 657
 
 ```ts
   const send = useCallback(
     (shown: ShownSearch, cursor: string | null) => {
+      wake()
       const request = ++asked.current
       current.current = { ...current.current, scope: shown.scope }
       setState((before) => ({ ...before, scope: shown.scope, shown, running: true, failure: null, result: cursor === null ? null : before.result }))
@@ -82,26 +83,41 @@ Code: `src/renderer/pr-inbox/usePrInbox.ts:604-624` · key lines: 606, 610, 616,
           setState((before) => ({ ...before, running: false, failure: `The search failed: ${readableReason(answer.error)}` }))
           return
         }
+        // A search refused for the rate limit runs again by itself when the pause ends, unless another search or
+        // Clear came first (spec, section 10: Enter during the pause schedules the search for its end).
+        const until = answer.value.pausedUntil === null ? Number.NaN : Date.parse(answer.value.pausedUntil)
+        if (Number.isFinite(until)) {
+          wake()
+          pending.current = setTimeout(() => {
+            pending.current = null
+            if (asked.current === request) again.current(shown, cursor)
+          }, Math.max(PAUSE_MIN_MS, until - Date.now()))
+        }
         setState((before) => {
           if (cursor === null || before.result === null) return { ...before, running: false, result: answer.value }
+          // A page main refused (the pause, a failure) brings no rows and no cursor: the pages shown keep their count,
+          // their cursor and their notices, and its own notices join them.
+          if (refused(answer.value)) return { ...before, running: false, result: { ...before.result, pausedUntil: answer.value.pausedUntil, notices: joined(before.result.notices, answer.value.notices) } }
           const seen = new Set(before.result.rows.map(rowKey))
           const rows = [...before.result.rows, ...answer.value.rows.filter((each) => !seen.has(rowKey(each)))]
           return { ...before, running: false, result: { ...answer.value, rows, searchedAt: before.result.searchedAt } }
         })
       })
     },
-    [projectId],
-  )
+    [projectId, wake],
 ```
 
 - Что делает: каждый запрос получает номер; ответ, который пришёл после следующего запроса или после Clear, отброшен.
   Новый поиск заменяет результаты, Load more (с `cursor`) дописывает строки без повторов и сохраняет время первого
-  поиска, чтобы «Searched N min ago» не врал.
+  поиска. Страница, которую main отказал (пауза rate limit, сбой: ни строк, ни `cursor`), не затирает показанные:
+  их число, `cursor` и notice-ы остаются, notice-ы отказа добавляются (раунд ревью 1). Ответ с `pausedUntil` ставит тот
+  же запрос на конец паузы; новый поиск, Clear или уход с вида его снимают.
 - Почему здесь: в hook-е `usePrSearch` рядом с `usePrInbox`; состояние поиска — состояние вида, в main его нет.
-- Без него: медленный ответ первого поиска затёр бы результаты второго, а Clear, нажатый до ответа, вернул бы
-  результаты на экран.
-- Требование: [Что делаем, пункт 3](../issues/05-поиск-в-виде-pull-requests.md#что-делаем)
-- Риски и пробелы test-ов: гонку двух поисков unit не воспроизводит — ответы fake preload приходят по порядку.
+- Без него: медленный ответ первого поиска затёр бы результаты второго; Load more во время паузы показал бы
+  «Search · 0 results» над строками и убрал бы Load more насовсем; Enter во время паузы пришлось бы повторять руками.
+- Требование: [Что делаем, пункты 3 и 6](../issues/05-поиск-в-виде-pull-requests.md#что-делаем)
+- Риски и пробелы test-ов: гонку двух поисков unit не воспроизводит — ответы fake preload приходят по порядку. Пауза
+  проверена на 1 s реального таймера; минимум ожидания — 1 s, чтобы прошедшая пауза не искала в цикле.
 
 ## 5. Полоса чужого PR вне inbox
 
@@ -140,40 +156,49 @@ export function searchStep(row: PrInboxRow, now: number, viewer: string | null):
 - Требование: [Что делаем, пункт 5](../issues/05-поиск-в-виде-pull-requests.md#что-делаем)
 - Риски и пробелы test-ов: Start review ведёт на GitHub до Ticket-а 09; e2e проверяет текст полосы и ссылку.
 
-## 6. Выбор результата вне inbox читает PR один раз
+## 6. Выбор результата вне inbox читает PR, пока результат не новее чтения
 
-Code: `src/renderer/pr-inbox/PrInboxView.tsx:929-946` · key lines: 931, 937, 940, 941
+Code: `src/renderer/pr-inbox/PrInboxView.tsx:947-970` · key lines: 951, 956, 963, 965, 967
 
 ```tsx
-  const selectResult = (row: PrSearchRow): void => {
-    if (searchId !== null) setFound({ search: searchId, key: rowKey(row) })
-    if (row.inInbox) markSeen(row)
+  const pull = (key: string, row: PrSearchRow, refresh: boolean): void => {
+    if (reading.current.has(key)) return
+    reading.current.add(key)
+    const { repo, number, updatedAt } = row
+    void invoke('prSearch.pull', { projectId: project.id, repo, number, updatedAt, ...(refresh ? { refresh: true } : {}) }).then((answer) => {
+      reading.current.delete(key)
+      const value: PrSearchPull = answer.ok ? answer.value : { row: null, readAt: null, notices: [{ kind: 'failed', text: `${repo}#${number} could not be read: ${readableReason(answer.error)}`, url: null }] }
+      setPulls((before) => {
+        const old = before[key]
+        return { ...before, [key]: value.row === null && old?.row != null ? { ...old, notices: value.notices } : value }
+      })
+    })
   }
-
-  // A selected result the inbox lacks is read once, in the shape of the inbox's row (main answers from its memory while
-  // GitHub's updatedAt is the one the results gave).
+  // A selected result the inbox lacks is read once per `updatedAt` the results gave, in the shape of the inbox's row
+  // (main answers from its memory while GitHub's updatedAt is that one).
   useEffect(() => {
     if (pullKey === null || currentResult === undefined || pulling.current.has(pullKey)) return
     pulling.current.add(pullKey)
-    const { repo, number, updatedAt } = currentResult
-    void invoke('prSearch.pull', { projectId: project.id, repo, number, updatedAt }).then((answer) => {
-      const value: PrSearchPull = answer.ok ? answer.value : { row: null, readAt: null, notices: [{ kind: 'failed', text: `${repo}#${number} could not be read: ${readableReason(answer.error)}`, url: null }] }
-      setPulls((before) => ({ ...before, [pullKey]: value }))
-    })
+    const refresh = forced.current
+    forced.current = false
+    pull(pullKey, currentResult, refresh)
     // Once per PR: the row is that of the render that selected it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pullKey])
 ```
 
-- Что делает: выбор запоминается по поиску, поэтому новый поиск снова выбирает первый результат. PR из inbox
-  отмечается просмотренным, как клик в inbox. PR вне inbox читается `prSearch.pull` один раз за поиск; ошибка чтения
-  становится notice в панели.
+- Что делает: PR вне inbox читается `prSearch.pull` один раз на `updatedAt`, который дали результаты: ключ памяти —
+  `rowKey` и `updatedAt`, поэтому новый поиск, нашедший PR изменённым, читает его снова, а панель берёт строку
+  результата, если прочитанная старше (раунд ревью 1). Refresh читает выбранный PR мимо памяти main
+  (`refresh: true`), фокус окна — тоже, когда чтению больше 60 s (spec, решения по реализации, 9). Повторное чтение со
+  сбоем оставляет прежнюю строку и добавляет notice.
 - Почему здесь: в `ProjectPrInbox`, который уже держит выбор, `markSeen` и панель; `PrInboxBody` получает готовые
   `results` и не знает о каналах.
-- Без него: панель PR вне inbox показала бы только строку поиска без ветки, CI и ревьюеров, а ↑ ↓ по результатам
-  читали бы один PR снова и снова.
+- Без него: панель PR вне inbox показала бы только строку поиска без ветки, CI и ревьюеров; после второго поиска —
+  старые заголовок, CI и обсуждения.
 - Требование: [Что делаем, пункт 5](../issues/05-поиск-в-виде-pull-requests.md#что-делаем)
-- Риски и пробелы test-ов: Refresh сбрасывает кэш, и выбранный PR читается заново (решено без владельца).
+- Риски и пробелы test-ов: фокус проверен событием `focus` окна в jsdom; фокус настоящего окна Electron e2e не
+  проверяет.
 
 ## 7. Что сознательно не меняли
 
@@ -184,8 +209,8 @@ Code: `src/renderer/pr-inbox/PrInboxView.tsx:929-946` · key lines: 931, 937, 94
 
 ## 8. Как проверено
 
-- `test/unit/pr-search-view.test.tsx` — красный до правки (21 из 21), затем 21 из 21; с `test/unit/pr-inbox-view.test.tsx`
-  108 из 108.
+- `test/unit/pr-search-view.test.tsx` — красный до правки (21 из 21), затем 21 из 21; после раунда ревью 1 — 27 из 27; с `test/unit/pr-inbox-view.test.tsx`
+  114 из 114.
 - `test/e2e/pr-search.spec.ts` и `test/e2e/pr-inbox.spec.ts` целиком — 12 из 12 на gh stand-in без записи в GitHub.
 - `pnpm lint`, `pnpm typecheck`, `check-feature-docs`, `check-personal` — exit 0; `pnpm test` и gate fast красные
   только на contract test-ах слежения за файлами (fseventsd этого Mac) — подробности в «Итог» Ticket-а.
@@ -196,7 +221,7 @@ Code: `src/renderer/pr-inbox/PrInboxView.tsx:929-946` · key lines: 931, 937, 94
    - Строки: `src/renderer/pr-inbox/PrInboxView.tsx:845`
    - Ответ: `slashKey` отказывает, когда цель — `input`, `textarea`, `select` или редактируемый текст.
 2. Что увидит пользователь, если ответ первого поиска придёт после ответа второго?
-   - Строки: `src/renderer/pr-inbox/usePrInbox.ts:606`, `src/renderer/pr-inbox/usePrInbox.ts:610`
+   - Строки: `src/renderer/pr-inbox/usePrInbox.ts:634`, `src/renderer/pr-inbox/usePrInbox.ts:638`
    - Ответ: результаты второго: ответ с устаревшим номером запроса отброшен.
 3. Откуда панель берёт полосу для PR, которого нет в inbox?
    - Строки: `src/renderer/pr-inbox/usePrInbox.ts:512`, `src/renderer/pr-inbox/usePrInbox.ts:527`

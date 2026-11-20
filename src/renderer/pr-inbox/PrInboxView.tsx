@@ -845,6 +845,9 @@ function slashKey(event: KeyboardEvent, frame: HTMLElement | null): boolean {
   return !(target instanceof HTMLElement && (target.isContentEditable || target.closest('textarea, input, select') !== null || layerOf(target) !== null))
 }
 
+/** How old a read of the selected result may be before the window's focus reads it again. */
+const PULL_STALE_MS = 60_000
+
 /** A search row as the view shows it: one the inbox lacks has no "new since you looked", which only the inbox clears. */
 const unseenless = (row: PrSearchRow): PrSearchRow => (row.inInbox || row.newSinceSeen === 0 ? row : { ...row, newSinceSeen: 0 })
 
@@ -907,16 +910,25 @@ function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' 
   const field = useRef<HTMLInputElement>(null)
   /** The result the user chose, of the search it was chosen in: a new search selects its first result by itself. */
   const [found, setFound] = useState<{ search: string; key: string } | null>(null)
-  /** The results the inbox lacks, read by `prSearch.pull` when selected, by `rowKey`. */
+  /**
+   * The results the inbox lacks, read by `prSearch.pull` when selected, by `rowKey` and the `updatedAt` the results
+   * gave: a later search that finds the PR changed reads it again.
+   */
   const [pulls, setPulls] = useState<Readonly<Record<string, PrSearchPull>>>({})
   const pulling = useRef(new Set<string>())
+  /** Reads on their way, so a second focus does not ask again. */
+  const reading = useRef(new Set<string>())
+  /** Refresh asked to read the selected PR past main's memory. */
+  const forced = useRef(false)
   const searchId = search.shown === null ? null : `${search.shown.scope} ${search.shown.text}`
   // "N new since you looked" belongs to the inbox: a PR it lacks is never marked seen (spec, implementation decisions 2).
   const resultRows = useMemo(() => (search.shown === null ? null : (search.result?.rows ?? []).map(unseenless)), [search.shown, search.result])
   const chosen = found !== null && found.search === searchId ? resultRows?.find((each) => rowKey(each) === found.key) : undefined
   const currentResult = chosen ?? resultRows?.[0]
-  const pullKey = currentResult !== undefined && !currentResult.inInbox ? rowKey(currentResult) : null
+  const pullKey = currentResult !== undefined && !currentResult.inInbox ? `${rowKey(currentResult)} ${currentResult.updatedAt}` : null
   const pulled = pullKey === null ? undefined : pulls[pullKey]
+  // A read older than the result (a refused read, or main's memory behind GitHub) gives way to the result's row.
+  const pulledRow = pulled?.row != null && currentResult !== undefined && !(Date.parse(pulled.row.updatedAt) < Date.parse(currentResult.updatedAt)) ? pulled.row : null
   const groupOf = (row: PrSearchRow): PrInboxGroup | null => (row.inInbox && snapshot !== undefined ? (findRow(snapshot, row)?.group ?? null) : null)
   const viewer = snapshot?.viewer ?? search.result?.viewer ?? null
   const sameText = (each: { query: string; scope: string }, text: string, scope: string): boolean => text !== '' && each.query.trim() === text && each.scope === scope
@@ -931,23 +943,51 @@ function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' 
     if (row.inInbox) markSeen(row)
   }
 
-  // A selected result the inbox lacks is read once, in the shape of the inbox's row (main answers from its memory while
-  // GitHub's updatedAt is the one the results gave).
+  /** Reads the result into `pulls`; `refresh` past main's memory. A failed read again keeps the row read before. */
+  const pull = (key: string, row: PrSearchRow, refresh: boolean): void => {
+    if (reading.current.has(key)) return
+    reading.current.add(key)
+    const { repo, number, updatedAt } = row
+    void invoke('prSearch.pull', { projectId: project.id, repo, number, updatedAt, ...(refresh ? { refresh: true } : {}) }).then((answer) => {
+      reading.current.delete(key)
+      const value: PrSearchPull = answer.ok ? answer.value : { row: null, readAt: null, notices: [{ kind: 'failed', text: `${repo}#${number} could not be read: ${readableReason(answer.error)}`, url: null }] }
+      setPulls((before) => {
+        const old = before[key]
+        return { ...before, [key]: value.row === null && old?.row != null ? { ...old, notices: value.notices } : value }
+      })
+    })
+  }
+  // A selected result the inbox lacks is read once per `updatedAt` the results gave, in the shape of the inbox's row
+  // (main answers from its memory while GitHub's updatedAt is that one).
   useEffect(() => {
     if (pullKey === null || currentResult === undefined || pulling.current.has(pullKey)) return
     pulling.current.add(pullKey)
-    const { repo, number, updatedAt } = currentResult
-    void invoke('prSearch.pull', { projectId: project.id, repo, number, updatedAt }).then((answer) => {
-      const value: PrSearchPull = answer.ok ? answer.value : { row: null, readAt: null, notices: [{ kind: 'failed', text: `${repo}#${number} could not be read: ${readableReason(answer.error)}`, url: null }] }
-      setPulls((before) => ({ ...before, [pullKey]: value }))
-    })
+    const refresh = forced.current
+    forced.current = false
+    pull(pullKey, currentResult, refresh)
     // Once per PR: the row is that of the render that selected it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pullKey])
 
-  /** Refresh of the results reads the selected PR again too. */
+  // The window's focus reads the selected PR again once its read is older than 60 s (spec, implementation decisions 9).
+  const latest = useRef<{ key: string | null; row: PrSearchRow | undefined; readAt: string | null; pull: typeof pull }>({ key: null, row: undefined, readAt: null, pull })
+  useEffect(() => {
+    latest.current = { key: pullKey, row: currentResult, readAt: pulled?.readAt ?? null, pull }
+  })
+  useEffect(() => {
+    const onFocus = (): void => {
+      const { key, row, readAt, pull: read } = latest.current
+      if (key === null || row === undefined || readAt === null || Date.now() - Date.parse(readAt) <= PULL_STALE_MS) return
+      read(key, row, true)
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [])
+
+  /** Refresh of the results reads the selected PR again too, past main's memory. */
   const refresh = (): void => {
     pulling.current.clear()
+    forced.current = true
     setPulls({})
     search.refresh()
   }
@@ -1068,7 +1108,7 @@ function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' 
                     )}
                   />
                 ),
-                current: currentResult === undefined ? null : { group: groupOf(currentResult), row: pulled?.row == null ? currentResult : unseenless(pulled.row) },
+                current: currentResult === undefined ? null : { group: groupOf(currentResult), row: pulledRow === null ? currentResult : unseenless(pulledRow) },
                 single: resultRows.length === 1,
               }
         }

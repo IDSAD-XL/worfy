@@ -164,7 +164,8 @@ under them. It finds any pull request the Project's GitHub account can see, not 
   the groups back. A search that finds nothing says "No pull requests match" and offers **Search All of GitHub**.
 - **The selected result** opens in the same pane as a PR of the inbox. A PR of the inbox keeps its group's strip, and
   selecting it is a look, as in the inbox. A PR the inbox lacks is read in full when selected (main keeps it in memory
-  while it does not move on GitHub); it has no "N new since you looked", and a colleague's has the strip **Review this
+  while it does not move on GitHub; Refresh, and the window's focus once the read is over a minute old, read it
+  again past that memory); it has no "N new since you looked", and a colleague's has the strip **Review this
   pull request**: who the author asked and how many approvals are left, and **Start review**, which opens the PR's
   Files page on GitHub.
 - **Saved searches**: the **▾** at the end of the field lists them, the two built-in ones first — "Review requested
@@ -175,7 +176,8 @@ under them. It finds any pull request the Project's GitHub account can see, not 
 - **Notices** of section 10 of the spec stand above the results: a repository the account cannot see, a token not
   authorized for an organization's single sign-on (with **Authorize**, GitHub's link), results some organizations hide
   behind single sign-on, part of the results when GitHub timed out, the first 1,000 only, the search paused until a
-  time by GitHub's rate limit, a refused sign-in (with **Open Health check**). GitHub's own words of a search it cannot
+  time by GitHub's rate limit (the search then runs again by itself at that time, unless another search or Clear
+  comes first; a Load more it refuses keeps the pages shown), a refused sign-in (with **Open Health check**). GitHub's own words of a search it cannot
   parse (422) stand under the field instead, and the field is framed red until the text changes.
 
 On a read-only screen of a Linked machine the search works through the Project machine, as reads do; **☆ Save** is
