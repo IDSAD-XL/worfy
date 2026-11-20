@@ -47,13 +47,18 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Волны», Wave 2; «Ре�
 
 - [ ] Unit `test/unit/integrations-auth-headers.test.ts` (новый): Bearer, Basic (base64 e-mail:token), свой заголовок,
       переменные-секреты stdio — в окружении, не в `args`. Красный до правки — в «Итог».
+  - evidence: test-run pass · `pnpm test test/unit/integrations-auth-headers.test.ts` exit 0 · mac - · 4d9e700c21965ab5415b10c974e3534cb2335635
 - [ ] Contract `test/contract/integrations-token-auth.test.ts` (новый) на stub-е: верный token → `signed-in` и
       `initialize` прошёл; неверный → `needs-sign-in`; 403 с текстом → `error` с этим текстом; две Integration-ы на
       одном адресе stub-а с разными token-ами проверяются каждая своим token-ом; Sign out удаляет ключи `<id>:*`.
+  - evidence: test-run pass · `pnpm test test/contract/integrations-token-auth.test.ts` exit 0 · mac - · 4d9e700c21965ab5415b10c974e3534cb2335635
 - [ ] Тот же contract: token не появляется в `integrations.json`, в ответе канала, в логе main и в Journal (поиск
       значения token-а — пусто).
+  - evidence: test-run pass · `pnpm test test/contract/integrations-token-auth.test.ts` exit 0 · mac - · 4d9e700c21965ab5415b10c974e3534cb2335635
 - [ ] Тот же contract: `integrations.setSecret` с Linked machine (любой уровень доступа) — отказ.
+  - evidence: test-run pass · `pnpm test test/contract/integrations-token-auth.test.ts` exit 0 · mac - · 4d9e700c21965ab5415b10c974e3534cb2335635
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 4d9e700c21965ab5415b10c974e3534cb2335635
 
 ## Где в коде
 
@@ -72,4 +77,39 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Волны», Wave 2; «Ре�
 
 ## Итог
 
-Пусто до завершения Ticket-а.
+Вход по token-у — `src/main/integrations/auth/tokens.ts`: `signInHeaders` (Bearer, Basic base64 e-mail:token, свой
+заголовок; `oauth` и `none` — без заголовка), `connectionHeaders` (читает `SecretStore` при каждом вызове — для proxy
+Ticket-а 06), `stdioLaunch` (секреты stdio — в `env`, не в `args`), `checkSignIn` (`POST initialize` с заголовком
+входа: ответ MCP — `signed-in`, 401 — `needs-sign-in`, 403 и прочее — `error` с текстом сервиса без token-а; открытая
+сервером session закрывается `DELETE`), `verifyTokenSignIn`, `signOut` (все ключи `<id>:*` и `signIn: null`),
+`offerGhToken` и `signInWithGhToken`. `integrations.setSecret` с `part: 'access'` у Integration-а с token-ом по http
+запускает проверку и отвечает статусом; `integrations.status` показывает `signed-in` такой Integration-ы только после
+удачной проверки. Каталог: у Atlassian — `tokenNote` («Works only if your organization admin turned on API token
+sign-in…» и ссылка на страницу Atlassian) и `tokenUrl` (страница token-ов); у GitHub — `tokenUrl`. Stub-ы:
+`test/fixtures/integrations/http-stub.ts` (streamable HTTP на `127.0.0.1`: Bearer, Basic, свой заголовок, 403 с
+текстом, журнал без token-ов) и `test/fixtures/integrations/stdio-stub.mjs` (секрет из окружения).
+
+Красный до правки: `pnpm test test/unit/integrations-auth-headers.test.ts test/contract/integrations-token-auth.test.ts`
+— exit 1 (модуля `src/main/integrations/auth/tokens.ts` нет, оба файла падают на импорте). После правки — exit 0
+(вместе с `integrations-store` и `integrations-catalogue`: 48 test-ов). `pnpm lint`, `pnpm typecheck` — exit 0;
+`gate fast` — exit 0 (lint, typecheck, весь `pnpm test`).
+
+Решено без владельца:
+1. Token аккаунта `gh` для GitHub — копия в `SecretStore` при входе (`signInWithGhToken`), а не `accountAuth` при
+   каждом соединении. Integration принадлежит Machine, а аккаунт `gh` — Profile-ю Project-а: чтение при соединении
+   привязало бы proxy к папке Project-а и запуску `gh` на каждое соединение. С копией у proxy один путь — `SecretStore`.
+   Цена: после `gh auth refresh` или logout у Integration-ы старый token до нового входа; предупреждение
+   `offerGhToken` называет аккаунт и его scope-ы (`gh auth status --json hosts`; старый `gh` — «scope-ы неизвестны»).
+2. Basic: `<id>:access` хранит `<e-mail>:<token>` целиком (`basicSecret`); e-mail становится аккаунтом входа.
+3. Отказ Atlassian (401 и 403) — `error` с текстом сервиса и ссылкой на страницу про включение входа admin-ом, а не
+   `needs-sign-in`: верный token, который запретил admin, не отличить от неверного.
+4. Проверка — прямой `POST initialize`, без `Client` MCP SDK: пакет ещё не прямая зависимость worfy (её добавит
+   Ticket 06).
+5. Статус `error` держится в памяти обработчиков (`shortcut:` в `src/main/ipc/integrations.ts`): после перезапуска такая
+   Integration — `needs-sign-in` до новой проверки. Отвергнутый token (401) остаётся в `SecretStore`, статус —
+   `needs-sign-in`.
+6. Новых каналов нет: Sign out, предложение token-а `gh` и вход им — функции main; каналы для экрана — Ticket 08 (его
+   «Где в коде» называет `src/shared/ipc/integrations.ts`). Stdio-сервер не проверяется (процесс здесь не запускается).
+7. Вне «Где в коде»: `IntegrationStore.deleteSecrets` в `src/main/integrations/store.ts` (у хранилища было только
+   `remove` вместе с Integration-ой), `test/fixtures/integrations/**/*.ts` в `tsconfig.test.node.json`, stand-in проверки
+   в `test/contract/integrations-store.test.ts` (иначе его `setSecret` Linear пошёл бы на настоящий адрес).
