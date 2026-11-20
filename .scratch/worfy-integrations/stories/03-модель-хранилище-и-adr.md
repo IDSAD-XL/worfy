@@ -182,3 +182,16 @@ Code: `src/main/ipc/integrations.ts:113-127` · key lines: 118, 119, 123
    - Ответ: Integration в списке без части или всех секретов (needs-sign-in), но не секрет без Integration: секреты
      удаляются первыми.
    - Строки: `src/main/integrations/store.ts:182-186`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED — worfy-integrations 03 (the Integration model, the Machine store with secrets apart, per-Project enabling, ADR-0111), head fb1dcb679dffbc4cef5072852f10d3e01556d85c
+>
+> Gate (depth medium, one round): verifier (lens: implementer's claims, sonnet) — all 7 claims CONFIRMED; reviewer (correctness) — MERGE, no critical/high/medium findings.
+>
+> - Model: an Integration lives on the Machine in <WORFY_DATA_DIR>/integrations/integrations.json (no secrets; temp file + rename); secrets in integrations/secrets.json through FileSecretStore (0600 file in a 0700 folder; keys <id>:access|refresh|client|env:<NAME>); label unique per Machine, case- and space-insensitive. A Project enables it in its settings.json field integrations ({id, enabled, tools, autopilot}); the Project settings Save keeps the stored field. Catalogue: https for every service, Custom server http|stdio, GitHub token only, Figma «may refuse worfy», no Slack.
+> - Link access: list/status — project read; setEnabled/setTools/setAutopilot/rename — project write; add/setSecret/remove — local only, so a secret never goes over the link channels.
+> - Evidence: catalogue + store tests red without src (exit 1) and green after (21 tests, exit 0), re-run by the verifier; mutants caught by the reviewer and verifier (setSecret opened to a Linked machine; Save dropping integrations) → red; 10 settings-related files 264 tests EXIT=0; pnpm lint + typecheck + test (876 files) EXIT=0; gate fast green EXIT=0; story-check, evidence-check, check-feature-docs EXIT=0. ADR-0111 matches the spec (Q2, Q3, Q9); ADR-0021 has a dated line.
+> - Low findings (not tickets): one unreadable entry empties the whole list (only on a build rollback); FileSecretStore messages say «link secrets»; Remove that fails mid-way leaves orphan ids in Projects (harmless now — ticket 06 must resolve by the store, noted for its brief); Add may leave the Integration not enabled if settings.json fails; ADR-0111 point 8 «never over the link» holds for integrations.* channels, while Full access already gives a shell; the repo/home sha256 check proves little.
+>
+> Decided without the owner (to confirm): integrations field in projectSettingsSchema; secretEnv / headerName on transports; status before the proxy = all secrets present → signed-in; Remove asks only when enabled in another Project; folder 0700 from the first write; rename relabels Machine-wide; catalogue add refuses a foreign address; Figma OAuth only; link-access test list extended.

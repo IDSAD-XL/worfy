@@ -1,7 +1,8 @@
 # 03 — Модель, каталог, хранилище Integration-ов и секретов, поле `integrations` Project-а, каналы `integrations.*`, новый ADR и Amendment ADR-0021
 
 Type: task
-Status: claimed 2026-11-20T17:17Z
+Status: done 2026-11-20T19:09Z
+PR: #2106
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 3; «Волны», Wave 1; «Решение», 2–4; «Решения по реализации» → Модель, Где
 лежит, Статус, Linked machine, ADR; «Вопросы владельцу», Q2, Q3, Q6, Q9; «Решено без владельца», 1, 3 и 5
@@ -74,6 +75,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Волны», Wave 1; «Ре�
   - evidence: commit pass · worfy-integrations/03: Integration model, catalogue, Machine store with its secret store, Project field, integrations.* channels, ADR-0111 · - - · df802e449041c2eb3c5bcdda8da8d3971e5bcc77
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · df802e449041c2eb3c5bcdda8da8d3971e5bcc77
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44788804575/job/136489042630 · ci - · fb1dcb679dffbc4cef5072852f10d3e01556d85c
 
 ## Где в коде
 
