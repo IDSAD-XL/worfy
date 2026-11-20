@@ -16,19 +16,9 @@ compaction, а судья, получая весь ответ сразу, про
 
 ## 2. Hook отдаёт implementer-у состояние работы: финиш, commit-ы, Ticket и diff
 
-Code: `harness/hooks/after-compact.mjs:212-263` · key lines: 214, 219, 246, 250, 256, 259, 260
+Code: `harness/hooks/after-compact.mjs:229-280` · key lines: 253, 268, 271, 275, 276, 279
 
 ```js
-async function commitsSince(cwd, base) {
-    if (typeof base !== "string" || !base.trim()) return ""
-    const log = await run(GIT, [...PLAIN_NAMES, "log", "--no-color", "--format=%h %s", "--name-status", `${base}..HEAD`, "--"], cwd)
-    if (log.code !== 0) return ""
-    let lines = log.out.split("\n").filter(Boolean)
-    const more = lines.length - COMMIT_LINES
-    if (more > 0) lines = [...lines.slice(0, COMMIT_LINES), `… ${more} more lines: run git log --name-status ${base}..HEAD`]
-    return lines.length ? capped(lines.join("\n"), COMMIT_LIMIT, `… the commits are cut; all of them: git log --name-status ${base}..HEAD`) : "(none yet)"
-}
-
 async function implementerContext({ cwd, top, branch, ticket, base, finish, doneSection, fits }) {
     const id = `${ticket.epic}/${String(ticket.num).padStart(2, "0")}`
     const [root, status, commits, diff] = await Promise.all([
@@ -49,13 +39,18 @@ async function implementerContext({ cwd, top, branch, ticket, base, finish, done
     let lines = status.code === 0 ? status.out.split("\n").filter(Boolean) : []
     const more = lines.length - STATUS_LINES
     if (more > 0) lines = [...lines.slice(0, STATUS_LINES), `… ${more} more lines: run git status --short`]
-    const statusText = status.code !== 0 ? `(git status failed: ${why(status)})` : lines.length ? lines.join("\n") : "(clean)"
-    // The heading of the profile, when the ticket has it (a profile without the field gets the default heading).
-    const heading = typeof doneSection === "string" ? doneSection.trim() : ""
-    const done = heading && text.split("\n").some((line) => line.trim() === heading) ? heading : "of done items"
+    const statusText =
+        status.code !== 0
+            ? `(git status failed: ${why(status)})`
+            : lines.length
+              ? capped(lines.join("\n"), STATUS_LIMIT, "… more lines: run git status --short")
+              : "(clean)"
+    const section = doneLines(text, doneSection)
+    const done = section ? section.heading : "of done items"
     const diffText = diff.code === 0 ? diff.out.replace(/\n+$/, "") : `(git diff failed: ${why(diff)})`
     const ends = FINISH[finish]
-    const body = [
+    const note = `… cut to fit the hook limit; the whole ticket: ${file}; the diff: git diff HEAD`
+    const head = [
         `Context compacted. You are the implementer of ticket ${id}: worktree ${slashes(top)}, branch ${branch}. The Harness read the state of that work for you right after the compaction: the commits of the branch, the changes not committed yet, and the ticket file. Together with the summary above, this is where the work stands now.`,
         ...(ends ? [`The ticket ${ends} (workflow.finish ${finish} of the profile).`] : []),
         "",
@@ -65,11 +60,16 @@ async function implementerContext({ cwd, top, branch, ticket, base, finish, done
         `## Ticket ${file}`,
         `An empty box in its section ${done} is the usual state while the ticket is in work; the commits and the changes below show which items hold now. Before your report, check each done item against the work.`,
         "",
-        text,
+    ].join("\n")
+    const ticketText = fittedTicket(text, section, (t) => fits(`${head}\n${t}\n${note}`), file)
+    const body = [
+        head,
+        ticketText,
         ...(commits ? ["", `## Commits of ${branch} since ${base}`, commits] : []),
         ...(diffText ? ["", "## Not committed: git diff HEAD", capped(diffText, DIFF_LIMIT, "… the diff is cut; the whole of it: git diff HEAD")] : []),
     ].join("\n")
-    return cut(body, `… cut to fit the hook limit; the whole ticket: ${file}; the diff: git diff HEAD`, fits)
+    // What has no fixed size comes after the ticket, so this cut takes the commits and the diff first.
+    return cut(body, note, fits)
 }
 ```
 
@@ -91,7 +91,63 @@ async function implementerContext({ cwd, top, branch, ticket, base, finish, done
   упавший `git diff`. `git status` (до 50 строк) по-прежнему стоит перед Ticket-ом, как в main. Качество текста для агента проверяет только платный eval; его прогоны в
   CI не входят.
 
-## 3. Правила summary: следующий шаг с проверкой, пункты дословно, последняя упавшая команда
+## 3. Ticket больше лимита теряет середину, но не раздел «Готово, когда»
+
+Code: `harness/hooks/after-compact.mjs:284-318` · key lines: 285, 300, 306, 309
+
+```js
+function doneLines(text, doneSection) {
+    const items = parseDoneSection(text, { doneSection })
+    if (!items.length) return null
+    const lines = text.split("\n")
+    const isHeading = (line) => /^#{1,6}\s/.test(line)
+    let from = items[0].line - 1
+    while (from > 0 && !isHeading(lines[from])) from--
+    let to = items[items.length - 1].end - 1
+    while (to + 1 < lines.length && !isHeading(lines[to + 1])) to++
+    return { heading: lines[from].trim(), from, to }
+}
+
+/** `text` when `fits` takes it; otherwise its first lines that fit, a line that names the cut, and the whole done
+ * section after it: the description in the middle gives way, the done items never do. Without a done section,
+ * `text` as it is; a done section over the limit by itself comes without the lines before it, and the last cut
+ * takes its tail. */
+function fittedTicket(text, section, fits, file) {
+    if (fits(text) || !section) return text
+    const lines = text.split("\n")
+    const after = section.to + 1 < lines.length ? [`… the rest of the ticket after this section is cut; the whole ticket: ${file}`] : []
+    const build = (k) => {
+        const skipped = section.from - k
+        const gap = skipped > 0 ? [`… ${skipped} lines of the ticket cut here; the whole ticket: ${file}`, ""] : []
+        return [...lines.slice(0, k), ...gap, ...lines.slice(section.from, section.to + 1), ...after].join("\n")
+    }
+    if (!fits(build(0))) return build(0)
+    let lo = 0
+    let hi = section.from
+    while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2)
+        if (fits(build(mid))) lo = mid
+        else hi = mid - 1
+    }
+    return build(lo)
+}
+```
+
+- Что делает: `doneLines` находит раздел «Готово, когда» так же, как `bin/ticket` (`parseDoneSection` из
+  `lib/evidence.cjs`: заголовок профиля, заголовок по умолчанию и старый русский), от его заголовка до следующего.
+  Когда Ticket сам не влезает в лимит, `fittedTicket` оставляет столько первых строк, сколько влезает, строку о
+  вырезанной середине и весь раздел; разделы после него заменяет одна строка. `git status` перед Ticket-ом ограничен
+  1500 символами (шаг 2, строка 253).
+- Почему здесь: находка review, раунд 2: в этом репозитории 596 из 1126 Ticket-ов длиннее 8000 символов, и
+  последний `cut` оставлял начало Ticket-а без пунктов. Резать середину (описание), а не хвост, и искать раздел так,
+  как его ищет Harness, предложил тот же review.
+- Без него: при `git status` на 20 файлов и Ticket-е в 9000 символов агент получает начало Ticket-а и ни одного пункта.
+- Требование: [Что делаем, п. 3](../issues/128-hook-compaction-лучше-baseline-в-eval.md#что-делаем)
+- Риски и пробелы test-ов: `session-hooks.test.sh` проверяет Ticket в 12 000 символов с разделом в конце и с
+  разделом перед «Итог», `git status` в 56 строк и commit из 45 файлов; mutant-ы без обрезки середины и без лимита
+  `git status` — красные. Раздел, который сам длиннее лимита, режется с хвоста.
+
+## 4. Правила summary: следующий шаг с проверкой, пункты дословно, последняя упавшая команда
 
 Code: `harness/hooks/rules/compaction.md:23-41` · key lines: 23, 24, 39, 40, 41
 
@@ -127,7 +183,7 @@ failed, the error it printed and its cause; and what the change removed from exi
 - Риски и пробелы test-ов: `rules-hooks.test.sh` проверяет три новые фразы текстом; следует ли им модель, видно только
   в eval.
 
-## 4. Кейс сжимает разговор ровно один раз
+## 5. Кейс сжимает разговор ровно один раз
 
 Code: `scripts/eval-harness.mjs:99-108` · key lines: 102, 107
 
@@ -155,7 +211,7 @@ const ALONE = {
 - Риски и пробелы test-ов: `harness-evals-run.test.ts` проверяет, что порог не ниже 36000 и ниже usage истории.
   Реальный размер контекста после compaction test не меряет: он зависит от версии Claude Code и длины правил.
 
-## 5. Каждый ответ — в свой файл, и судья читает только его
+## 6. Каждый ответ — в свой файл, и судья читает только его
 
 Code: `harness/evals/compaction-state/graders/probe-done-items.md:1-16` · key lines: 3, 6
 
@@ -188,19 +244,19 @@ the answer says it does not know the items.
 - Риски и пробелы test-ов: contract test `harness-evals.test.ts` проверяет, что кейс полон и fixture строится;
   правильность критериев судьи проверялась только повтором ответов на настоящем судье (0,94 USD).
 
-## 6. Что сознательно не меняли
+## 7. Что сознательно не меняли
 
 - Пункт «After a compaction…» в `harness/hooks/rules/common.md`: он нужен, когда hook не сработал.
 - Последнюю упавшую команду hook не читает из transcript-а: у Subagent-а `transcript_path` — transcript главной
-  Session. Её хранит summary (шаг 3).
+  Session. Её хранит summary (шаг 4).
 - Русский перевод `docs/features/ru/`: по правилу проекта правится английская страница.
 
-## 7. Как проверено
+## 8. Как проверено
 
 - Eval, Claude Code 2.1.322, агент `claude-sonnet-5`, судья `claude-haiku-4-5`: окончательный вариант дважды по шесть
   run-ов — overallScore с hook-ом 0,955 и 0,985, без hook-а 0,924 и 0,924. Пункты «Готово, когда» с hook-ом 5/6 и 6/6,
   без hook-а 1/6 и 2/6; Ticket и следующий шаг — 6/6 в обоих вариантах. Все прогоны и цена (16,96 USD) — в «Итог».
-- `bash harness/hooks/tests/session-hooks.test.sh` (61), `bash harness/hooks/tests/rules-hooks.test.sh` (331),
+- `bash harness/hooks/tests/session-hooks.test.sh` (63), `bash harness/hooks/tests/rules-hooks.test.sh` (331),
   `pnpm exec vitest run test/contract/harness-evals.test.ts test/contract/harness-evals-run.test.ts
   test/contract/harness-evals-story.test.ts` (351), `bash harness/bin/tests/plugin-neutral.test.sh`,
   `bash harness/bin/tests/agents-text.test.sh`, `pnpm lint`, `pnpm typecheck` — exit 0. gate fast не запускался по
@@ -216,4 +272,8 @@ the answer says it does not know the items.
 2. Почему commit-ы и diff стоят после файла Ticket-а, а не перед ним?
    - Ответ: когда текст не влезает в лимит hook-а, `cut` режет конец; так теряется хвост commit-ов и diff-а, а Ticket
      с пунктами «Готово, когда» доходит целиком, даже если ветка меняет много файлов.
-   - Строки: `harness/hooks/after-compact.mjs:255-262`
+   - Строки: `harness/hooks/after-compact.mjs:271-279`
+3. Что теряет Ticket, который сам длиннее лимита?
+   - Ответ: строки середины (описание) между первыми строками и разделом «Готово, когда»; вместо них — строка с
+     числом вырезанных строк и путём к файлу. Раздел целиком остаётся; разделы после него заменяет одна строка.
+   - Строки: `harness/hooks/after-compact.mjs:303-317`
