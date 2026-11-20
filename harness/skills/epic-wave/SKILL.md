@@ -373,6 +373,20 @@ confirm" (in the docs' language). `AskUserQuestion` —
 only when the wave cannot continue without an answer; in a Session without a human (worfy
 Autopilot) it is declined automatically.
 
+**A ticket stopped for the owner's answer is `blocked` at once.** The wave stops a ticket for the
+owner when no option is the orchestrator's to pick (money, deleted data, an irreversible step, a
+direction nobody recorded) or when only the owner can clear what holds it, such as an open issue.
+The orchestrator then runs, right away and from its own tree,
+`"${CLAUDE_PLUGIN_ROOT}/bin/ticket" block <epic> <NN> "<reason>" --waits owner`; `<reason>`
+names the question and what it waits for (the issue, the decision). It does not stay `claimed`:
+worfy Autopilot counts a `claimed` ticket as stuck and spends its continuations on it, while a
+`blocked` ticket with `Waits: owner` shows as waiting for the owner. The rest is that of any other
+block: a line in the state file's list of what waits for the owner, a `blocked` row in the wave
+report (section 5), and the same `ticket block` in the documents PR (section 4, item 4). Once the
+owner answers, `ticket claim <epic> <NN>` again, and the ticket goes on in the wave. A ticket whose
+PR waits for People in the Pipeline (`human-review`, `awaiting-merge`, section 0) stays `claimed`:
+this rule does not cover it.
+
 Agent `worfy:implementer` (`subagent_type: "worfy:implementer"`), name `impl-<NN>`, in the
 background: steps `F workflow.implementer_steps` of the skill `F workflow.ticket_skill` up to the
 finish `F workflow.finish` (a PR and a green gate fast, or locally green checks); the merge stays with the

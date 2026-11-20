@@ -1292,6 +1292,27 @@ check "epic-wave: a file list without the page that describes the changed behavi
     'An incomplete list (no test, no entry point, no page of `docs.feature_pages` that describes behaviour the ticket changes, or not what `rules.md` requires for such a change)' \
     <<<"$(para_of "$EW" 'An incomplete list')"
 
+# worfy-polish 131: a ticket the orchestrator stops for the owner's answer is blocked at once with
+# Waits: owner. Left claimed, worfy Autopilot takes it for stuck and spends its continuations on it.
+# Tickets whose PR waits for people of the Pipeline keep their own rule and stay claimed.
+owner_stop="$(para_of "$EW" '**A ticket stopped for the owner'"'"'s answer is `blocked` at once.**')"
+check "epic-wave: the paragraph on a ticket stopped for the owner is in section 2" test -n "$owner_stop"
+for p in \
+    '"${CLAUDE_PLUGIN_ROOT}/bin/ticket" block <epic> <NN> "<reason>" --waits owner' \
+    'right away' \
+    'It does not stay `claimed`' \
+    'names the question and what it waits for' \
+    'a `blocked` row in the wave report' \
+    'the state file'"'"'s list of what waits for the owner' \
+    '`ticket claim <epic> <NN>` again' \
+    'People in the Pipeline (`human-review`, `awaiting-merge`, section 0) stays `claimed`'; do
+    check "epic-wave: a ticket stopped for the owner — '$p'" grep -qF -- "$p" <<<"$owner_stop"
+done
+check "epic-wave: the owner-stop rule follows 'Questions for the owner do not stop the wave'" \
+    awk '/^\*\*Questions for the owner do not stop the wave\.\*\*/ { q = NR } /^\*\*A ticket stopped for the owner/ { if (q && NR > q && NR - q < 20) found = 1 } END { exit !found }' "$EW"
+check "epic-wave: human-review and awaiting-merge tickets still stay claimed (section 0)" has_flat "$EW" \
+    'Such a ticket stays `claimed` with its PR open, the wave goes on without it, and its report row says whom it waits for (section 5): it is not `blocked`.'
+
 home_after="$(real_home_snapshot "$REAL_HOME" "$T")"
 check "the real ~/.claude and ~/.claude/worfy-harness are unchanged" test "$home_before" = "$home_after"
 

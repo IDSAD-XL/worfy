@@ -1,7 +1,7 @@
 # 131 — epic-wave: Ticket, который Orchestrator остановил ради решения владельца, сразу `blocked --waits owner`
 
 Type: bug
-Status: open
+Status: claimed 2026-11-20T11:02Z
 Blocked by: none
 Source: решение владельца 2026-11-20 («со всем согласен»). Случай 2026-11-20: worfy-changes-view 03 ждал владельца
 по issue #1513 (метка `pc-main-red`) и оставался `claimed`; Autopilot послал 2 continuation-а и потом поставил его
