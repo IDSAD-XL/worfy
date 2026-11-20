@@ -37,10 +37,10 @@ Source: замечание владельца 2026-11-20 по снимку эк�
       полным именем Session (не `title`); доля советов — в обёртке, которая уступает первой и прячет разделитель вместе
       с собой; слово чипа состояния — в своём элементе, текст `session-state` прежний, у чипа tooltip kit со словом, а
       при ошибке Session — с ошибкой. Красный до правки. Саму ширину jsdom не видит: её проверяет e2e (пункт 2).
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/unit/session-view.test.tsx test/unit/session-state-chip.test.tsx test/unit/product-session-panel.test.tsx test/unit/session-picker.test.tsx` exit 0 · mac - · 1bc58aa08286eae2f505fa475f4df3e5173415c9
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/unit/session-view.test.tsx test/unit/session-state-chip.test.tsx test/unit/session-back.test.tsx test/unit/product-session-panel.test.tsx test/unit/session-picker.test.tsx` exit 0 · mac - · dd2b2476e36b4134750e7d4836596ac27c4a720b
 - [ ] e2e (`test/e2e/product-session.spec.ts`) при узком окне: ширина выбора Session ≥ 140 px (с точностью до полпикселя), имя в нём видно; доля
       советов обрезана или скрыта раньше, чем выбор Session сжимается; чип — только иконка, текст `busy` у него есть.
-  - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 · mac dev · 1bc58aa08286eae2f505fa475f4df3e5173415c9
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 · mac dev · dd2b2476e36b4134750e7d4836596ac27c4a720b
 - [ ] Снимки Playwright шапки, широкой и узкой, в светлой и тёмной теме — в scratchpad, названы в «Итог».
 - [ ] `docs/features/product-session.md` — если страница описывает шапку.
   - evidence: commit pass · worfy-polish/137: Product Session header — the picker keeps its name, the advice share gives way first · - - · 52bcdad43
