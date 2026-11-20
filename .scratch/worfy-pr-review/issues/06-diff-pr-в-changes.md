@@ -1,7 +1,7 @@
 # 06 — Diff PR в Changes: предмет `pr`, локальный diff или diff из GitHub, нити ревью на строках, Amendment ADR-0110
 
 Type: task
-Status: claimed 2026-11-20T03:43Z
+Status: done 2026-11-20T07:32Z
 PR: #2069
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 6; «Факты GitHub API» → «Diff и файлы»; «Решения по реализации», 4;
@@ -62,6 +62,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 6; «Факты GitHub API» → �
 - [ ] Amendment ADR-0110 влит в этом PR; `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · e83146a6b5db115f2996bb2e69bc3671baa361e8
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44683543934/job/136150874655 · ci - · 69d94d793cd0a47dbc2f5c5f98fa3b6997f1c347
 
 ## Где в коде
 

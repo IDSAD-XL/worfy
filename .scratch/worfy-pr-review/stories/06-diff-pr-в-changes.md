@@ -244,3 +244,36 @@ HOME), gate fast — `[gate] green (fast)`, exit 0; `pnpm test:e2e test/e2e/chan
    - Ответ: у binary GitHub не считает строк (0 и 0), и статус — `modified`; у большого строки есть. Оба показывают
      «Large diff · Open on GitHub».
    - Lines: `src/main/changes/github.ts:96`
+
+## 10. Что нашёл review и что осталось
+
+> VERIFIED — worfy-pr-review 06 (the diff of a pull request in Changes), head 69d94d793cd0a47dbc2f5c5f98fa3b6997f1c347
+>
+> Gate (depth medium, two rounds): verifier (lens: implementer's report) VERIFIED on round 1; reviewer (lens: correctness) round 1 one med + four low, all fixed test-first; round 2 reviewer: all closed, no new findings.
+>
+> - Verifier (21581609): channels take subject ticket|pr (src/shared/ipc/changes.ts); local read only when origin matches and both commits exist, else gh api, never fetch, index unchanged (src/main/ipc/changes.ts:89-102; changes-pr.test.ts:183); patchHunks and no-patch/binary/rename shapes; 30 pages of 100 with truncatedAt 3000; head cache; threads, outdated list, Reply, View file on GitHub in DiffPane; FileTree note; ADR-0110 Amendment and changes.md section match. 11 of 12 mutants red.
+> - Round 1 fixes: inbox.ts requests diffSide → thread side; All changes places both sides, Since my review only the new side, Commit none — every thread without a visible line goes to the list under the file header (never lost; side by side shows each once — reviewer's probe exit 0); cache key has Project, repo, number, head, base, scope; changesPrSchema refuses . and .. segments; binary only for status modified, empty file / mode change shows «No lines changed»; ghApiGet builds the args for the app and the test (['api', path]). Old inbox snapshots without side still parse.
+> - Tests: Changes + PR inbox 21 files, 463 tests EXIT=0; lint, typecheck, check-feature-docs, story-check, evidence-check EXIT=0. Local gate fast not run: file-watcher tests red on this Mac (fseventsd). ci-ok pass on the head.
+>
+> Decided without the owner (to confirm): Since my review = compare scope with a commit, three dots; base.mergeBase '' for a PR read from GitHub; 16 reads in memory; Open on GitHub → blob_url; resolved threads shown; an added binary file reads «No lines changed» (GitHub does not tell it from an empty file); old-side threads in Since my review go to the list; no head check that pulls/{n}/files returned headOid. Compat: changes.* take subject; a Linked machine on an older build is refused.
+>
+> Consider [low]: pulls/{n}/files always returns the current head — after a push the inbox's older headOid keys newer data (noted in «Итог»).
+
+Code: `src/main/ipc/changes.ts:89-102` · key lines: 89
+
+```ts
+async function prSource(deps: ChangesDeps, projectId: string, pr: ChangesPrRef): Promise<PrSource> {
+  const { layout, checkouts } = await checkoutsOf(deps, projectId)
+  const remotes = deps.remotes ?? (async (folder: string) => (await import('../github/inbox')).remoteRepos([folder]))
+  for (const { path } of checkouts) {
+    const slugs = await remotes(path).catch((): string[] => [])
+    if (!slugs.some((slug) => slug.toLowerCase() === pr.repo.toLowerCase())) continue
+    const probe = gitProbe(path, deps.git)
+    if (!(await probe.exists(pr.headOid)) || !(await probe.exists(pr.baseOid))) continue
+    const subject: RepoSubject = { repo: pr.repo, checkout: path, cwd: path, kind: 'pr', branch: `#${pr.number}`, head: pr.headOid, headSha: pr.headOid }
+    return { kind: 'git', context: { subject, git: deps.git, facts: {}, workflowPrefix: workflowPrefixOf(layout, path), base: pr.baseOid } }
+  }
+  if (deps.gh === undefined) throw new Error(`This build cannot read ${pr.repo}#${pr.number} from GitHub`)
+  return { kind: 'github', reader: { who: projectId, get: deps.gh(projectId) } }
+}
+```
