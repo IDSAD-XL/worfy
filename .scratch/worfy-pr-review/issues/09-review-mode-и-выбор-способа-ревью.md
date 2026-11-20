@@ -51,6 +51,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решение», 3 и 6; «�
       `v`, Escape; Viewed снимается при новом blob; полоса «N new commits»; Ask the agent to add comments, Stop и Take
       over вызывают нужные каналы; Read only без «+». Красный до правки — в «Итог».
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/review-mode.test.tsx` exit 0 (red before: exit 1) · mac - · 34f5fdbad919d13b5ee22e4b5102b243557883e8
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/review-mode.test.tsx` exit 0 (review round 1; red before: exit 1) · mac - · 7e15f6cc115e2eccc209920119258bdfc1c065bb
 - [ ] Contract `test/contract/pr-review-draft.test.ts`: отметки Viewed с github.com берутся один раз и только чтением —
       stand-in валит test на любом `--method` и `mutation`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-review-draft.test.ts` exit 0 (red before: exit 1, 6 failed) · mac - · 34f5fdbad919d13b5ee22e4b5102b243557883e8
@@ -62,8 +63,10 @@ Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решение», 3 и 6; «�
   - evidence: screenshot pass · `../evidence/09-myself-1600-dark.png` dark theme · mac dev · 34f5fdbad919d13b5ee22e4b5102b243557883e8 · scrub: 2026-11-20
   - evidence: screenshot pass · `../evidence/09-agent-done-1280-light.png` Agent review done · mac dev · 34f5fdbad919d13b5ee22e4b5102b243557883e8 · scrub: 2026-11-20
   - evidence: screenshot pass · `../evidence/09-agent-done-1280-dark.png` Agent review done, dark theme · mac dev · 34f5fdbad919d13b5ee22e4b5102b243557883e8 · scrub: 2026-11-20
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-review.spec.ts test/e2e/pr-inbox.spec.ts test/e2e/pr-search.spec.ts` exit 0 (review round 1) · mac dev · 7e15f6cc115e2eccc209920119258bdfc1c065bb
 - [ ] `test/unit/pr-inbox-view.test.tsx`, `test/e2e/pr-inbox.spec.ts`, `test/e2e/pr-search.spec.ts` зелёные.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-inbox-view.test.tsx` exit 0; `pnpm test:e2e test/e2e/pr-inbox.spec.ts test/e2e/pr-search.spec.ts` exit 0 · mac dev · 34f5fdbad919d13b5ee22e4b5102b243557883e8
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-inbox-view.test.tsx test/unit/pr-search-view.test.tsx` exit 0 (review round 1; red before: exit 1) · mac - · 7e15f6cc115e2eccc209920119258bdfc1c065bb
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint` exit 0; `pnpm typecheck` exit 0; `pnpm test` exit 0 (ci-ok not read yet) · mac - · 34f5fdbad919d13b5ee22e4b5102b243557883e8
 
@@ -162,3 +165,14 @@ test/e2e/pr-review.spec.ts test/e2e/pr-inbox.spec.ts test/e2e/pr-search.spec.ts`
 - Вне следа по необходимости: `scripts/e2e-specs.table.json` (pr-review.spec.ts связывает две машины — правило link),
   `test/unit/pr-search-view.test.tsx` и `test/e2e/pr-search.spec.ts` (Start review больше не ссылка на Files),
   `test/fixtures/gh/gh-stub.mjs` (ответ на `viewerViewedState`).
+
+**Review round 1 (исправлено, commit 7e15f6cc1):**
+- `prReview.start` ждёт, пока список файлов head прочитан без ошибки; Refresh читает его снова. Раньше сбой чтения
+  (5xx, rate limit) создавал черновик без отметок Viewed с github.com, и они терялись навсегда.
+- Клавиши списка отдаются Review mode, только если он показан в этом виде. Review mode закрывается, когда его PR ушёл
+  из списка (ушёл из inbox при чтении, Clear, другой поиск).
+- `v` без черновика ничего не пишет; Enter на своём PR в результатах только выбирает его; Start review шлёт не больше
+  3 000 файлов; checkbox-ы (Viewed, Wrap, Hide whitespace) больше не забирают j/k/v/Escape.
+- Красный до правки: 4 новых test-а `test/unit/review-mode.test.tsx` и по одному в `test/unit/pr-inbox-view.test.tsx`
+  и `test/unit/pr-search-view.test.tsx` — exit 1 (6 failed). Зелёный: 29 файлов модулей exit 0 (674 tests), три e2e
+  spec-а exit 0 (16 passed).
