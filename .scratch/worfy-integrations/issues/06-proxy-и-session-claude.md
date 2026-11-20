@@ -71,20 +71,27 @@ tool-а длиннее предела); «Вопросы владельцу», Q
       Integration-ы на одном адресе stub-а с разными token-ами отвечают каждая своими данными; одно соединение на
       Integration при двух Session-ах; stdio-stub получает секрет в окружении, `args` секрета не держат. Красный до
       правки — в «Итог».
+  - evidence: test-run pass · `pnpm test test/contract/integrations-proxy.test.ts` exit 0 · mac - · 84a21e9b894597e4024e3e9f28c35578dee9e047
 - [ ] Тот же contract: фильтр `read-only` и список режут `tools/list` и `tools/call` (вызов отфильтрованного tool-а —
       отказ); метка в описании tool-а; 401 → ответ `isError` «Sign-in needed: <метка>…» и статус `needs-sign-in`;
       размер tools — длина JSON / 4.
+  - evidence: test-run pass · `pnpm test test/contract/integrations-proxy.test.ts` exit 0 · mac - · 84a21e9b894597e4024e3e9f28c35578dee9e047
 - [ ] Contract `test/contract/integrations-claude-session.test.ts` (новый) на fake query
       (`src/main/agent/fake-query.ts`): Session Project-а получает в `mcpServers` ровно его включённые Integration-ы
       рядом с `worfy-canvas`; `managedSettings` и `mcp.allowed` не изменились; Session вне Project-а их не получает;
       Turn off — Restart без неё.
+  - evidence: test-run pass · `pnpm test test/contract/integrations-claude-session.test.ts` exit 0 · mac - · 84a21e9b894597e4024e3e9f28c35578dee9e047
 - [ ] Тот же contract: значение token-а не появляется в аргументах процесса Claude Code (`--mcp-config`), в логе main, в
       Journal и в Flight recorder.
+  - evidence: test-run pass · `pnpm test test/contract/integrations-claude-session.test.ts` exit 0 · mac - · 84a21e9b894597e4024e3e9f28c35578dee9e047
 - [ ] Unit `test/unit/integration-server-name.test.ts` (новый): slug, предел длины, суффикс `-2` при совпадении с
       сервером Claude Code из инвентаря и с префиксом `worfy-`.
+  - evidence: test-run pass · `pnpm test test/unit/integration-server-name.test.ts` exit 0 · mac - · 84a21e9b894597e4024e3e9f28c35578dee9e047
 - [ ] `test/unit/mcp-status-row.test.ts`: строка с источником `integration` и меткой.
+  - evidence: test-run pass · `pnpm test test/unit/mcp-status-row.test.ts` exit 0 · mac - · 84a21e9b894597e4024e3e9f28c35578dee9e047
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job-ы Windows CI зелёные
       (платформенный PR).
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 84a21e9b894597e4024e3e9f28c35578dee9e047
 
 ## Где в коде
 
@@ -127,7 +134,9 @@ test/contract/integrations-proxy.test.ts test/contract/integrations-claude-sessi
 — exit 0; `pnpm test:e2e test/e2e/session-mcp.spec.ts` под `/tmp/worfy-e2e.lock` — exit 0. `pnpm lint`, `pnpm typecheck`
 — exit 0. Token: аргументы и окружение процесса, которые строит настоящий `query()` Agent SDK (spawn test-а ничего не
 запускает), опции Session, строки `console` main и ответы tool-ов (их читает транскрипт, а из него Journal и Flight
-recorder) — без token-а; Autopilot-ом Journal и Flight recorder отдельно не прогонялись.
+recorder) — без token-а; Autopilot-ом Journal и Flight recorder отдельно не прогонялись. После rebase на main с
+Ticket-ом 04 (#2113) — те же test-ы, `pnpm lint`, `pnpm typecheck` exit 0; `gate fast` — exit 0, `[gate] green (fast)`
+на 84a21e9b8. Полный e2e и job-ы Windows — CI.
 
 Решено без владельца:
 1. Метка — в начале описания tool-а («[Jira — client A] …»), не в конце: так она видна первой и не теряется, если
