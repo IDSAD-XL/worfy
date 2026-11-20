@@ -612,6 +612,86 @@ describe('the toast of a question whose Session is not on screen', () => {
     expect(useNavigation.getState()).toMatchObject({ view: 'canvas', opened: {} })
   })
 
+  it('"Open" in a window loaded after the Session started asks every Project for its Session Nodes, then selects the Project of the one that runs it (review round 1)', async () => {
+    await inProjects('alpha')
+    answers['sessions.views'] = (input) => ({
+      views: (input as { projectId: string }).projectId === 'beta' ? [nodeView({ projectId: 'beta', nodeId: 'node-9', sessionId: 'sdk-9', sdkSessionId: 'sdk-9', state: 'needs_permission' })] : [],
+    })
+    answers['projects.select'] = (input) => ({ projects: PROJECTS, activeId: (input as { id: string }).id, revision: revision + 1 })
+    const shown = await start()
+    emit('sdk-9', request())
+    const { useNavigation } = await import('../../src/renderer/session/navigation')
+    await act(async () => {
+      shown()[0]?.actions?.at(-1)?.run()
+      await Promise.resolve()
+    })
+    await vi.waitFor(() => expect(useNavigation.getState()).toMatchObject({ view: 'session', opened: { beta: { nodeId: 'node-9', projectId: 'beta' } } }))
+    expect(asked.filter((each) => each.channel === 'sessions.views').map((each) => each.input)).toEqual([{ projectId: 'alpha' }, { projectId: 'beta' }])
+    expect(asked.filter((each) => each.channel === 'projects.select').map((each) => each.input)).toEqual([{ id: 'beta' }])
+  })
+
+  it('"Open" in such a window finds the Orchestrator of another Project through its Layout (review round 1)', async () => {
+    await inProjects('alpha')
+    answers['layout.get'] = (input) => {
+      const { projectId } = input as { projectId: string }
+      return { projectId, revision: 1, layout: { nodes: projectId === 'beta' ? [{ id: 'orch-b', kind: 'orchestrator', x: 0, y: 0, w: 320, h: 200 }] : [] } }
+    }
+    answers['orchestrator.view'] = (input) => ({
+      view: (input as { nodeId: string }).nodeId === 'orch-b' ? { projectId: 'beta', nodeId: 'orch-b', sessionId: 'sdk-o', state: 'needs_permission', error: null, version: 1 } : null,
+    })
+    answers['projects.select'] = (input) => ({ projects: PROJECTS, activeId: (input as { id: string }).id, revision: revision + 1 })
+    const shown = await start()
+    emit('sdk-o', request())
+    const { useNavigation } = await import('../../src/renderer/session/navigation')
+    await act(async () => {
+      shown()[0]?.actions?.at(-1)?.run()
+      await Promise.resolve()
+    })
+    await vi.waitFor(() => expect(useNavigation.getState()).toMatchObject({ view: 'session', opened: { beta: { nodeId: 'orch-b', projectId: 'beta' } } }))
+    expect(asked.filter((each) => each.channel === 'orchestrator.view').map((each) => each.input)).toEqual([{ nodeId: 'orch-b' }])
+    expect(asked.filter((each) => each.channel === 'projects.select').map((each) => each.input)).toEqual([{ id: 'beta' }])
+  })
+
+  it('"Open" in a window on a Linked machine shows the Project of the Session there: linked.open, no projects.select (review round 1)', async () => {
+    window.history.replaceState(null, '', '/?machine=machine-a&project=beta')
+    try {
+      const OF_A = [
+        { id: 'beta', name: 'beta', path: '/Users/test/beta', branch: 'main' },
+        { id: 'gamma', name: 'gamma', path: '/Users/test/gamma', branch: 'main' },
+      ]
+      answers['linked.open'] = () => ({})
+      answers['linked.invoke'] = (input) => {
+        const call = input as { channel: string; input: { projectId?: string } }
+        if (call.channel === 'sessions.views') {
+          const views = call.input.projectId === 'gamma' ? [nodeView({ projectId: 'gamma', nodeId: 'node-g', sessionId: 'sdk-g', sdkSessionId: 'sdk-g', state: 'needs_permission' })] : []
+          return { ok: true, value: { views } }
+        }
+        return { ok: false, error: `no ${call.channel} on machine-a` }
+      }
+      const { acceptProjectsState, openProject } = await import('../../src/renderer/projects/useProjects')
+      revision += 10
+      acceptProjectsState({ projects: OF_A, activeId: 'beta', revision })
+      await openProject('machine-a', 'beta')
+      asked.length = 0
+      // The events of a Linked machine come through the Link, not `agent.event` of the preload: the event is handed over directly.
+      const { acceptQuestionEvent } = await import('../../src/renderer/session/question-toast')
+      const { toasts } = await import('../../src/renderer/toast/toasts')
+      const shown = () => toasts.getState().toasts
+      act(() => acceptQuestionEvent({ sessionId: 'sdk-g', event: request() }))
+      const { useNavigation } = await import('../../src/renderer/session/navigation')
+      await act(async () => {
+        shown()[0]?.actions?.at(-1)?.run()
+        await Promise.resolve()
+      })
+      await vi.waitFor(() => expect(useNavigation.getState()).toMatchObject({ view: 'session', opened: { gamma: { nodeId: 'node-g', projectId: 'gamma' } } }))
+      expect(asked.filter((each) => each.channel === 'linked.open').map((each) => each.input)).toEqual([{ machine: 'machine-a', projectId: 'gamma' }])
+      expect(asked.filter((each) => each.channel === 'projects.select')).toEqual([])
+      expect(new URL(window.location.href).searchParams.get('project')).toBe('gamma')
+    } finally {
+      window.history.replaceState(null, '', '/')
+    }
+  })
+
   it('no toast while the Session view shows that Session', async () => {
     const shown = await start()
     const { useNavigation } = await import('../../src/renderer/session/navigation')
