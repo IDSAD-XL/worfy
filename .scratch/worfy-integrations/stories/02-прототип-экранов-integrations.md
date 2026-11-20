@@ -92,3 +92,16 @@ Code: `.scratch/worfy-integrations/issues/02-прототип-экранов-int
 2. Каким Ticket-ам нужны состояния окна входа, и почему не Ticket-у 08?
    - Ответ: Ticket-у 09 — он ставит Sign in на экран и в chip; Ticket 08 строит раздел, Add integration и фильтр.
    - Строки: `.scratch/worfy-integrations/issues/02-прототип-экранов-integrations.md:100-102`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED — worfy-integrations 02 (prototype Card of the Integrations screens), head 8b5f9aa963ffce09f8462291f066a644fd2d7dcb
+>
+> Gate (documents-only diff: the ticket and its Code story; the Card lives outside the repo): Orchestrator check of the Card file and the implementer's evidence.
+>
+> - Card card-e53beada «Prototype: Integrations», linked to the Epic worfy-integrations; 22 states in Light and Dark: Project settings → Integrations (both groups, signed-in / Sign-in needed / error / checking rows, tools count and ~token size, the connector-and-Integration warning, Add as integration), Add integration (catalog, «Use in this Project», Jira form by token and sign-in, Custom http and stdio), the sign-in window states, the tools filter, Available to Autopilot, the chip, Settings → Integrations.
+> - Evidence: headless Chrome walk over every button — 22 states, 1372 clicks, 0 console errors (exit 0); personal-data grep exit 1 (no match); story-check, evidence-check EXIT=0; pnpm lint+typecheck+test EXIT=0.
+> - Slack: no Slack in the Add integration catalog (Q6). The Card keeps one «claude.ai Slack» row in the «From Claude Code» group (card index.html:406) — exactly the owner's answer to the Slack question (Slack only through the claude.ai connector); the ticket's literal `grep -ic slack` = 0 was written stricter than the decision, so item 3 is met in substance.
+> - Not checked inside a running worfy (file:// in headless Chrome); the owner looks at the Card on the Canvas.
+>
+> Decided without the owner (to confirm): the claude.ai Slack connector row stays in «From Claude Code».
