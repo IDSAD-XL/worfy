@@ -146,3 +146,33 @@ Unit test-ы в `test/unit/session-view.test.tsx` (три новых случа�
 3. Почему кнопки остаются у низа поля, когда оно растёт, без отступов снизу?
    - Ответ: строка выравнивает детей по низу (`align-items: flex-end`), а кнопки той же высоты, что однострочное поле.
    - Строки: `src/renderer/session/session.css:1010-1025`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 133 (Product Session input: buttons as tall as the field, Send as an icon), head 71666a3cd708cfd60cd8eaf0d41318d8f69645f6
+>
+> Gate (depth medium): verifier (lens: implementer's report) VERIFIED; reviewer (lens: correctness) no findings above low.
+>
+> - Verifier: every claim backed — header Interrupt replaces the row's (SessionView.tsx:426), Esc still interrupts; Send is a kit icon button with aria-label Send, Tooltip «Send (⏎)» / queued variant, aria-disabled when empty (Button.tsx:41-43 click no-op, send() re-checks); the regular Session unchanged (88/88); 38 px buttons bottom-aligned (session.css:1010-1025, e2e product-session.spec.ts:854 green in CI). A mutant with MessageInput.tsx from origin/main turns 3 new tests red. Screenshots light/dark idle/busy exist; two opened and match. check-feature-docs, check-personal, story-check, evidence-check exit 0.
+> - Reviewer: keyboard (Return / Shift+Return / IME isComposing) untouched; inactive Send blocked twice; narrow column e2e green; Getting started ring only targets Send with text; docs/features/product-session.md:105-109 match the code. Unit tests of the input: 692 passed, exit 0.
+> - ci-ok pass on the head; macos-e2e, windows-e2e, linux-tests all green.
+>
+> Decided without the owner (to confirm): existing SendIcon used (no UI-kit icon set); Send neutral (border, --surface-raised), not lime.
+>
+> Consider [low]: button.css:62,76,84,92 keep `:not(.w-composer__send--text)` for a class the PR removed (dead selector); ticket evidence lines cite 15ef693b7, not the head; docs/features/ru/product-session.md:84 still says «Send, Interrupt» (translation ticket, ADR-0088).
+
+Code: `docs/features/product-session.md:105-109` · key lines: 105
+
+```md
+- The input field is one line, as in the prototype: the attach button, a field in the interface font, and an icon
+  Send button (an arrow, named "Send", its tooltip "Send (⏎)"). Both buttons are as tall as the one-line field and stay
+  at its bottom edge as the field grows. The line has no Interrupt of its own: the header's Interrupt stops the turn,
+  and so does Esc in the field. Return sends; during a turn it queues the message. It keeps attaching a file or a
+  picture. It has no pickers, context meter, queue chip or hints.
+```
+
+Code: `docs/features/ru/product-session.md:84-84` · key lines: 84
+
+```md
+- В строке ввода — текст, Send, Interrupt во время хода и прикрепление файла или картинки. Pickers, context meter, чипа
+```
