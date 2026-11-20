@@ -48,6 +48,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 vi.mock('../../src/main/agent/env', () => ({ agentEnv: mocks.agentEnv }))
 
 const { projectIntegrationsResolver, sdkQueryFactory } = await import('../../src/main/vendors/claude/query')
+const { LimitsTracker } = await import('../../src/main/agent/limits')
 
 const TOKEN_A = 'tok-jira-a-91c2e7d4'
 const TOKEN_L = 'tok-linear-3a8f0b62'
@@ -107,7 +108,7 @@ interface Started {
  * query is the fake agent's, whose mcpServerStatus() answers the servers its options handed to Claude Code, connected,
  * as Claude Code would; `taken` — the servers of Claude Code from the inventory's last answer.
  */
-async function start(input: { project?: boolean; unattended?: boolean; mcpOff?: string[]; taken?: string[] } = {}): Promise<Started> {
+async function start(input: { project?: boolean; unattended?: boolean; mcpOff?: string[]; taken?: string[]; limits?: boolean } = {}): Promise<Started> {
   const listed: (readonly string[] | null)[] = []
   const request: QueryRequest = {
     prompt: (async function* () {})(),
@@ -135,7 +136,7 @@ async function start(input: { project?: boolean; unattended?: boolean; mcpOff?: 
     attachment: { server: { type: 'sdk', name: CANVAS_SERVER_NAME } as never, cardsDir: join(scratch, 'cards'), instructions: 'canvas' },
     observe: (query) => query,
   }
-  const factory = sdkQueryFactory(() => Promise.resolve(input.project === false ? null : attached), () => Promise.resolve(LIST), {
+  const made = sdkQueryFactory(() => Promise.resolve(input.project === false ? null : attached), () => Promise.resolve(LIST), {
     loadSdk: () => Promise.resolve(sdk),
     autoCompactWindow: () => null,
     browser: () => Promise.resolve(null),
@@ -143,6 +144,8 @@ async function start(input: { project?: boolean; unattended?: boolean; mcpOff?: 
     privateSkills: () => Promise.resolve(null),
     integrations: projectIntegrationsResolver({ dataDirOf: () => projectData, store, proxy, taken: () => input.taken ?? [] }),
   })
+  // The app wraps the factory as session.ts does: appLimits().observe, whose queries are Proxies of the SDK's.
+  const factory = input.limits === true ? new LimitsTracker({ dataDir: join(scratch, 'limits'), watch: null }).observe(made) : made
   const got = await factory(request)
   if (options === undefined) throw new Error('query() was not called')
   return { options, handle: got, listed }
@@ -193,6 +196,14 @@ describe('a Session of the Project', () => {
     expect(row === undefined ? null : mcpShownName(row)).toBe('Jira — client A')
     // worfy-canvas stays worfy's own, with no Turn off.
     expect(rows?.find((each) => each.name === CANVAS_SERVER_NAME)).toMatchObject({ source: 'worfy', actions: [] })
+  })
+})
+
+describe('a Session the app wraps', () => {
+  it('its Integration`s row keeps the source integration and the label through the Limits` observe', async () => {
+    const started = await start({ limits: true })
+    const rows = await claudeMcpStatus(started.handle, null, 'test', { attended: true, pickUp: false })
+    expect(rows?.find((each) => each.name === 'jira-client-a')).toMatchObject({ source: 'integration', label: 'Jira — client A' })
   })
 })
 

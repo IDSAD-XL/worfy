@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HandlerModule } from '../../src/main/ipc/index'
 import { integrationsHandlers } from '../../src/main/ipc/integrations'
 import { IntegrationStore, LabelTakenError } from '../../src/main/integrations/store'
@@ -14,6 +14,9 @@ import { createLinkIpc, LinkPeer, notOpenRefusal, readOnlyRefusal } from '../../
 import { readProjectIntegrations, readProjectSettings, settingsPath, writeProjectIntegrations, writeProjectSettings } from '../../src/main/projects/settings'
 import { defaultProjectSettings } from '../../src/shared/projects/action-templates'
 import { removeTestTree } from '../remove'
+
+// The module's default export subscribes to the app's quit (ticket 06): Electron's app, which a test has not.
+vi.mock('electron', () => ({ app: { on: () => undefined } }))
 
 const SECRET = 'lin_api_THE-SECRET-VALUE-0123456789'
 const REFRESH = 'refresh-THE-OTHER-SECRET-9876'
@@ -181,7 +184,7 @@ interface Bench {
   call: (channel: string, input: unknown) => Promise<unknown>
 }
 
-function bench(): Bench {
+function bench(closed: (string | undefined)[] = [], onQuit?: (listener: () => void) => void): Bench {
   const store = new IntegrationStore(join(root, 'worfy-data', 'integrations'))
   const projects = [
     { id: 'p1', name: 'One' },
@@ -195,7 +198,10 @@ function bench(): Bench {
   // The token check of ticket 04 asks the service; these Integrations are on the catalogue's real addresses, so a
   // stand-in lets every token in and no request leaves the machine (test/contract/integrations-token-auth.test.ts
   // checks against a stub server).
-  const module = integrationsHandlers({ store: () => store, projects: { list: () => projects, dataDir }, check: async () => ({ status: { state: 'signed-in' }, transient: false }) })
+  const module = integrationsHandlers({ store: () => store, projects: { list: () => projects, dataDir }, check: async () => ({ status: { state: 'signed-in' }, transient: false }),
+    closeConnections: async (id) => void closed.push(id),
+    ...(onQuit === undefined ? {} : { onQuit }),
+  })
   const call = async (channel: string, input: unknown): Promise<unknown> => {
     const handler = module.find((entry) => entry.channel.name === channel)
     if (handler === undefined) throw new Error(`no handler for ${channel}`)
@@ -270,6 +276,24 @@ describe('the channels integrations.*', () => {
     const id = added.integration.id
     await call('integrations.setEnabled', { projectId: 'p2', id, enabled: false })
     expect(await call('integrations.remove', { projectId: 'p1', id })).toEqual({ status: 'removed' })
+  })
+
+  it('remove closes the proxy`s connection of the Integration, so a stdio server`s process ends with it (ticket 06)', async () => {
+    const closed: (string | undefined)[] = []
+    const { call } = bench(closed)
+    const added = (await call('integrations.add', { projectId: 'p1', service: 'linear', label: 'Linear', auth: 'bearer' })) as { integration: { id: string } }
+    expect(closed).toEqual([])
+    await call('integrations.remove', { projectId: 'p1', id: added.integration.id })
+    expect(closed).toEqual([added.integration.id])
+  })
+
+  it('the app`s quit closes every connection of the proxy (ticket 06; src/main/quit-listeners.ts)', () => {
+    const closed: (string | undefined)[] = []
+    const listeners: (() => void)[] = []
+    bench(closed, (listener) => void listeners.push(listener))
+    expect(listeners).toHaveLength(1)
+    listeners[0]?.()
+    expect(closed).toEqual([undefined])
   })
 })
 

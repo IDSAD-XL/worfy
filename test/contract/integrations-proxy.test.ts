@@ -5,7 +5,7 @@
 // the proxy's server (a low-level Server of the MCP SDK), reached through an MCP client over an in-memory transport.
 // The service side is a stub on 127.0.0.1 (test/fixtures/integrations/service-stub.ts) and a stdio stub
 // (stdio-service-stub.mjs); no real service, no real token.
-import { mkdtempSync, realpathSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
@@ -80,6 +80,8 @@ const textOf = (result: unknown): string =>
     .join('\n')
 
 const call = async (client: Client, name: string, args: Record<string, unknown> = {}) => client.callTool({ name, arguments: args })
+/** `text` as a literal part of a regular expression. */
+const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
 const toolCalls = () => stub.log.filter((entry) => entry.method === 'tools/call').length
 
 describe('two Integrations on one address', () => {
@@ -121,11 +123,185 @@ describe('a stdio server worfy starts itself', () => {
     })
     store.setSecret(added.id, 'env:STUB_API_KEY', 'stdio-alpha-key')
     const client = await session(added.id, 'local-tool')
-    expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(['whoami'])
+    expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(['whoami', 'slow'])
     // The stub saw its key in its environment (dataset alpha), not among its arguments, of which it got the one given,
     // and the agent environment's PATH first, so a command such as npx is found as in a terminal.
-    expect(textOf(await call(client, 'whoami'))).toBe(`dataset alpha; keyInArgs=false; args=1; firstPath=${LOGIN_BIN}`)
+    expect(textOf(await call(client, 'whoami'))).toMatch(new RegExp(`^dataset alpha; keyInArgs=false; args=1; firstPath=${escape(LOGIN_BIN)}; pid=\\d+$`, 'u'))
   }, ms(20_000))
+
+  it('a bare command name is found on the PATH of the login shell — on Windows a .cmd shim, run through cmd.exe', async () => {
+    // As `npx` is: a shim in a folder of the login shell's PATH, named without its extension.
+    const bin = join(root, 'shim-bin')
+    mkdirSync(bin)
+    if (process.platform === 'win32') {
+      writeFileSync(join(bin, 'worfy-stdio-stub.cmd'), `@"${scriptNode()}" "${STDIO_STUB}" %*\r\n`)
+    } else {
+      writeFileSync(join(bin, 'worfy-stdio-stub'), `#!/bin/sh\nexec "${scriptNode()}" "${STDIO_STUB}" "$@"\n`)
+      chmodSync(join(bin, 'worfy-stdio-stub'), 0o755)
+    }
+    mocks.agentEnv.mockResolvedValue({ env: { PATH: [bin, process.env.PATH ?? ''].join(delimiter) }, from: 'login-shell' })
+    const added = store.add({
+      service: 'custom',
+      label: 'Shim tool',
+      auth: 'none',
+      transport: { kind: 'stdio', command: 'worfy-stdio-stub', args: ['--verbose'], env: {}, secretEnv: ['STUB_API_KEY'] },
+    })
+    store.setSecret(added.id, 'env:STUB_API_KEY', 'stdio-alpha-key')
+    const client = await session(added.id, 'shim-tool')
+    expect(textOf(await call(client, 'whoami'))).toMatch(/^dataset alpha; keyInArgs=false; args=1; /u)
+  }, ms(20_000))
+})
+
+/** A stdio Integration of the stub with no secret or with `key`; each process it starts appends its id to `log`. */
+function addStdio(label: string, log: string, key: string | null = null): string {
+  const added = store.add({
+    service: 'custom',
+    label,
+    auth: 'none',
+    transport: { kind: 'stdio', command: scriptNode(), args: [STDIO_STUB], env: { STUB_SPAWN_LOG: log }, secretEnv: key === null ? [] : ['STUB_API_KEY'] },
+  })
+  if (key !== null) store.setSecret(added.id, 'env:STUB_API_KEY', key)
+  return added.id
+}
+
+/** The ids of the processes the stdio stub started, by its log. */
+const spawned = (log: string): number[] => logLines(log).filter((line) => /^\d+$/u.test(line)).map(Number)
+const logLines = (log: string): string[] => (existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean) : [])
+
+const alive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+const pidOf = (text: string): number => Number(/pid=(\d+)/u.exec(text)?.[1])
+
+describe('one call that ends early', () => {
+  it('a call one Session cancels ends that call only: another Session`s call answers on the same process', async () => {
+    const log = join(root, 'spawned.log')
+    const id = addStdio('Local tool', log)
+    const a = await session(id, 'local-tool')
+    const b = await session(id, 'local-tool')
+    await Promise.all([a.listTools(), b.listTools()])
+    const cancel = new AbortController()
+    const cancelled = a.callTool({ name: 'slow', arguments: { ms: ms(10_000) } }, undefined, { signal: cancel.signal })
+    const answered = b.callTool({ name: 'slow', arguments: { ms: ms(600) } })
+    setTimeout(() => cancel.abort('the agent stopped'), ms(100))
+    await expect(cancelled).rejects.toThrow()
+    const answer = await answered
+    expect(answer.isError).not.toBe(true)
+    expect(textOf(answer)).toMatch(/^slow done pid=\d+$/u)
+    const [pid] = spawned(log)
+    expect(pidOf(textOf(answer))).toBe(pid)
+    expect(pidOf(textOf(await call(b, 'whoami')))).toBe(pid)
+    expect(spawned(log)).toHaveLength(1)
+    expect(alive(pid ?? -1)).toBe(true)
+    expect(proxy.status(id)?.status).toEqual({ state: 'signed-in' })
+  }, ms(20_000))
+
+  it('a call past the time limit fails alone, naming the Integration; the connection stays', async () => {
+    await proxy.close()
+    proxy = new IntegrationProxy({ store, callTimeoutMs: ms(300) })
+    const log = join(root, 'spawned.log')
+    const id = addStdio('Local tool', log)
+    const client = await session(id, 'local-tool')
+    const late = call(client, 'slow', { ms: ms(5_000) })
+    expect(textOf(await call(client, 'whoami'))).toMatch(/^dataset none;/u)
+    const answer = await late
+    expect(answer.isError).toBe(true)
+    expect(textOf(answer)).toMatch(/^Local tool: /u)
+    expect(textOf(await call(client, 'whoami'))).toMatch(/^dataset none;/u)
+    expect(spawned(log)).toHaveLength(1)
+    expect(proxy.status(id)?.status).toEqual({ state: 'signed-in' })
+  }, ms(20_000))
+})
+
+describe('a changed sign-in', () => {
+  it('calls made together after a new secret open one new connection, and the old process ends', async () => {
+    const log = join(root, 'spawned.log')
+    const id = addStdio('Local tool', log, 'stdio-alpha-key')
+    const client = await session(id, 'local-tool')
+    expect(textOf(await call(client, 'whoami'))).toMatch(/^dataset alpha;/u)
+    store.setSecret(id, 'env:STUB_API_KEY', 'stdio-other-key')
+    const answers = await Promise.all([call(client, 'whoami'), call(client, 'whoami'), call(client, 'whoami')])
+    for (const answer of answers) expect(textOf(answer)).toMatch(/^dataset none;/u)
+    const pids = spawned(log)
+    expect(pids).toHaveLength(2)
+    await vi.waitFor(() => expect(alive(pids[0] ?? -1)).toBe(false), { timeout: ms(5_000) })
+    expect(alive(pids[1] ?? -1)).toBe(true)
+  }, ms(20_000))
+
+  it('a new refresh token alone keeps the connection: only the token a request carries tells a new sign-in', async () => {
+    const id = addHttp('Acme — alpha', TOKEN_A)
+    const client = await session(id, 'acme-alpha')
+    expect(textOf(await call(client, 'whoami'))).toBe('dataset alpha')
+    store.setSecret(id, 'refresh', 'refresh-token-0b5e1c')
+    expect(textOf(await call(client, 'whoami'))).toBe('dataset alpha')
+    expect(stub.initialized('alpha')).toBe(1)
+  })
+
+  it('a call on the connection a new one replaced fails without touching the new one`s status', async () => {
+    const log = join(root, 'spawned.log')
+    const id = addStdio('Local tool', log, 'stdio-alpha-key')
+    const a = await session(id, 'local-tool')
+    const b = await session(id, 'local-tool')
+    await Promise.all([a.listTools(), b.listTools()])
+    // A call in flight on the first process; then a new secret, and B's call opens the second.
+    const inFlight = call(a, 'slow', { ms: ms(10_000) })
+    await vi.waitFor(() => expect(logLines(log).filter((line) => line.startsWith('slow '))).toHaveLength(1), { timeout: ms(5_000) })
+    store.setSecret(id, 'env:STUB_API_KEY', 'stdio-other-key')
+    expect(textOf(await call(b, 'whoami'))).toMatch(/^dataset none;/u)
+    expect(proxy.status(id)?.status).toEqual({ state: 'signed-in' })
+    // The first process dies under the call it still runs: that call fails, the status stays the new connection's.
+    const [first] = spawned(log)
+    process.kill(first ?? -1)
+    const failed = await inFlight
+    expect(failed.isError).toBe(true)
+    expect(textOf(failed)).toMatch(/^Local tool: /u)
+    expect(proxy.status(id)?.status).toEqual({ state: 'signed-in' })
+    expect(textOf(await call(b, 'whoami'))).toMatch(/^dataset none;/u)
+    expect(spawned(log)).toHaveLength(2)
+  }, ms(20_000))
+})
+
+describe('an Integration removed from the Machine', () => {
+  it('one with no secret stops answering too, and its process ends', async () => {
+    const log = join(root, 'spawned.log')
+    const id = addStdio('Local tool', log)
+    const client = await session(id, 'local-tool')
+    expect(textOf(await call(client, 'whoami'))).toMatch(/^dataset none;/u)
+    store.remove(id)
+    const answer = await call(client, 'whoami')
+    expect(answer.isError).toBe(true)
+    expect(textOf(answer)).toMatch(/^Local tool is no longer on this Machine/u)
+    const [pid] = spawned(log)
+    await vi.waitFor(() => expect(alive(pid ?? -1)).toBe(false), { timeout: ms(5_000) })
+  }, ms(20_000))
+
+  it('close(id) ends its connection at once', async () => {
+    const log = join(root, 'spawned.log')
+    const id = addStdio('Local tool', log)
+    const client = await session(id, 'local-tool')
+    await call(client, 'whoami')
+    const [pid] = spawned(log)
+    await proxy.close(id)
+    await vi.waitFor(() => expect(alive(pid ?? -1)).toBe(false), { timeout: ms(5_000) })
+  }, ms(20_000))
+})
+
+describe('an address with no MCP server', () => {
+  it('a 404 to initialize says the address was not found, not that a session ended', async () => {
+    const added = store.add({ service: 'custom', label: 'Wrong address', auth: 'bearer', transport: { kind: 'http', url: `${stub.url}/nowhere` } })
+    store.setSecret(added.id, 'access', TOKEN_A)
+    const client = await session(added.id, 'wrong-address')
+    const listed = client.listTools()
+    await expect(listed).rejects.toThrow(/Wrong address: the address was not found/u)
+    await expect(listed).rejects.not.toThrow(/session/u)
+    expect(proxy.status(added.id)?.status).toMatchObject({ state: 'error' })
+  })
 })
 
 describe('the tools filter of the Project', () => {

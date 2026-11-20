@@ -81,12 +81,16 @@ export async function claudeMcpStatus(query: QueryHandle, initServers: readonly 
   }
   if (rows === null) return null
   const signs = typeof (query as Partial<ClaudeSignIn>).mcpAuthenticate === 'function'
-  const labels = integrationLabels.get(query)
+  const labels = (query as Partial<Record<typeof INTEGRATION_LABELS, ReadonlyMap<string, string>>>)[INTEGRATION_LABELS]
   return rows.map((row) => withSignIn(read.attended ? withTurnOff(withLabel(row, labels)) : withLabel(row, labels), signs))
 }
 
-/** The Integrations of each query, by server name: their labels (labelIntegrations). */
-const integrationLabels = new WeakMap<object, ReadonlyMap<string, string>>()
+/**
+ * Where a query keeps the labels of its Integrations, by server name (labelIntegrations). A property of the query
+ * itself, not a map keyed by it: the app wraps each query again after the start (appLimits().observe, session.ts) in
+ * a Proxy that hands every property on to the query it wraps, so the Session's handle still finds them.
+ */
+const INTEGRATION_LABELS: unique symbol = Symbol('worfy.integrationLabels')
 
 /**
  * Tells the rows of `query`'s servers `servers` are Integrations of the Project (worfy-integrations ticket 06): their
@@ -94,7 +98,7 @@ const integrationLabels = new WeakMap<object, ReadonlyMap<string, string>>()
  */
 export function labelIntegrations(query: QueryHandle, servers: readonly { name: string; label: string }[]): void {
   if (servers.length === 0) return
-  integrationLabels.set(query, new Map(servers.map((server) => [server.name, server.label])))
+  Object.defineProperty(query, INTEGRATION_LABELS, { value: new Map(servers.map((server) => [server.name, server.label])), configurable: true })
 }
 
 /** `row` as an Integration's when `labels` names it; an Integration is never one of worfy's own servers. */

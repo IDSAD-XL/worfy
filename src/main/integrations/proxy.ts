@@ -16,9 +16,11 @@
 //   two accounts of one service tells them apart. A call of a tool the list lacks is refused before the service.
 // - A refused sign-in (401, a token not kept, OAuth's UnauthorizedError) answers the tool call with isError
 //   «Sign-in needed: <label>. Ask the user to sign in in worfy» and sets the status `needs-sign-in`; a session the
-//   service forgot (404) is opened again once; any other failure of the connection drops it, so the next call opens a
-//   new one. An Integration removed from the Machine, or one whose connection failed while worfy restarted, answers an
-//   error that names it.
+//   service forgot (404) is opened again once; a call the agent cancelled or that ran past its time limit fails alone;
+//   any other failure of the connection drops it, so the next call opens a new one. A changed sign-in opens one new
+//   connection however many calls find it; the old one closes when its last call ends. An Integration removed from the
+//   Machine, or one whose connection failed while worfy restarted, answers an error that names it; the removal and the
+//   app's quit close its connection (src/main/ipc/integrations.ts).
 // - Nothing a Session gets carries a secret: every text from the service — the text blocks of an answer and the
 //   message of an error — passes scrubServiceText with the Integration's secrets. A log line names the Integration's
 //   id and the kind of the failure, never its message.
@@ -215,6 +217,12 @@ interface Live {
   /** The secrets it was opened with: what scrubServiceText hides, and how a changed sign-in is told. */
   secrets: string[]
   fingerprint: string
+  /** Which opening of the Integration's connection this is: a failure of an older one leaves the status alone. */
+  generation: number
+  /** Calls and lists running on it now. */
+  inFlight: number
+  /** A newer connection replaced it: it closes when its last call ends. */
+  retired: boolean
 }
 
 /** Why a call or a list failed. */
@@ -225,6 +233,8 @@ type Failure =
   | { kind: 'expired' }
   /** The service answered an error of the protocol: the connection stays. */
   | { kind: 'service'; message: string }
+  /** This one request ended early — cancelled by the agent, or past its time limit: the connection stays. */
+  | { kind: 'call'; message: string }
   /** The connection failed: dropped, the next call opens another. */
   | { kind: 'connection'; message: string }
 
@@ -237,6 +247,8 @@ class SignInNeededError extends Error {}
 export class IntegrationProxy {
   private readonly store: SecretSource
   private readonly connections = new Map<string, Promise<Live>>()
+  /** The generation of each Integration's newest connection (Live.generation). */
+  private readonly generations = new Map<string, number>()
   private readonly statuses = new Map<string, IntegrationProxyStatus>()
   /** The last list of each Integration's tools, for a Session that starts while the service refuses the sign-in. */
   private readonly lastTools = new Map<string, ServiceTool[]>()
@@ -327,7 +339,7 @@ export class IntegrationProxy {
       throw new SignInNeededError(signInNeeded(label))
     }
     if (failure.kind === 'gone') throw new IntegrationGone(`${label} is no longer on this Machine: restart the Session without it.`)
-    throw new Error(`${label}: ${failure.kind === 'expired' ? 'the service ended the session' : failure.message}`)
+    throw new Error(`${label}: ${failure.kind === 'expired' ? 'the service ended the session twice in a row' : failure.message}`)
   }
 
   /** Calls `tool` of Integration `id` with `args`; never throws. */
@@ -353,6 +365,7 @@ export class IntegrationProxy {
       case 'expired':
         return refusal(`${label}: the service ended the session twice in a row; try again.`)
       case 'service':
+      case 'call':
       case 'connection':
         return refusal(`${label}: ${failure.message}`)
     }
@@ -360,38 +373,70 @@ export class IntegrationProxy {
 
   /**
    * Runs `work` on the Integration's connection, opened if needed: a changed sign-in opens a new one, a session the
-   * service forgot (404) is opened again and `work` runs once more. A failure is classified and the status set; the
-   * connection is dropped unless the service only answered an error of the protocol.
+   * service forgot (404) is opened again and `work` runs once more. A failure is classified and the status set — only
+   * by the newest connection, so an older one that dies under its last call does not mark the new one failed. The
+   * connection is dropped unless the service only answered an error of the protocol or this one request ended early.
    */
   private async withConnection<T>(id: string, work: (live: Live) => Promise<T>): Promise<{ ok: true; value: T } | { ok: false; failure: Failure }> {
     for (let attempt = 0; ; attempt++) {
       let live: Live | null = null
-      let secrets: string[] = []
       try {
         live = await this.connection(id)
-        secrets = live.secrets
-        return { ok: true, value: await work(live) }
+        // Another call retired it between its opening and this turn: take the one that replaced it.
+        while (live.retired) live = await this.connection(id)
+        const running = live
+        running.inFlight++
+        try {
+          return { ok: true, value: await work(running) }
+        } finally {
+          running.inFlight--
+          if (running.retired && running.inFlight === 0) void running.client.close().catch(() => undefined)
+        }
       } catch (error) {
-        const failure = await this.failureOf(error, secrets.length > 0 ? secrets : this.secretsOf(id))
-        if (failure.kind !== 'service') await this.drop(id, live)
+        const failure = await this.failureOf(error, live?.secrets ?? this.secretsOf(id), live !== null)
+        if (failure.kind !== 'service' && failure.kind !== 'call') this.drop(id, live)
         if (failure.kind === 'expired' && attempt === 0) continue
-        if (failure.kind === 'sign-in') this.setStatus(id, { status: { state: 'needs-sign-in' } })
-        if (failure.kind === 'connection') this.setStatus(id, { status: { state: 'error', message: failure.message } })
-        if (failure.kind !== 'service') console.warn(`[integrations] ${id}: ${failure.kind === 'connection' ? 'the connection failed' : failure.kind === 'sign-in' ? 'sign-in needed' : failure.kind}`)
+        const newest = live === null || this.generations.get(id) === live.generation
+        if (newest && failure.kind === 'sign-in') this.setStatus(id, { status: { state: 'needs-sign-in' } })
+        if (newest && failure.kind === 'connection') this.setStatus(id, { status: { state: 'error', message: failure.message } })
+        if (failure.kind !== 'service' && failure.kind !== 'call') console.warn(`[integrations] ${id}: ${failure.kind === 'connection' ? 'the connection failed' : failure.kind === 'sign-in' ? 'sign-in needed' : failure.kind}`)
         return { ok: false, failure }
       }
     }
   }
 
-  /** The open connection of Integration `id`, or a new one when there is none or its sign-in changed since. */
+  /**
+   * The open connection of Integration `id`, or a new one when there is none or its sign-in changed since. One opening
+   * at a time: the map is read again after every wait, and a new opening replaces the old in the same turn, so calls
+   * that find the sign-in changed together share one new connection. An Integration no longer on the Machine is
+   * refused here, its connection closed, whatever secrets it had.
+   */
   private async connection(id: string): Promise<Live> {
-    const existing = this.connections.get(id)
-    if (existing !== undefined) {
+    for (;;) {
+      const existing = this.connections.get(id)
+      if (existing === undefined) {
+        if (this.store.get(id) === undefined) throw new IntegrationGone()
+        return this.startOpening(id)
+      }
       const live = await existing.catch(() => null)
+      // Replaced or forgotten while this call waited: look again.
+      if (this.connections.get(id) !== existing) continue
+      if (this.store.get(id) === undefined) {
+        this.connections.delete(id)
+        if (live !== null) this.retire(live)
+        throw new IntegrationGone()
+      }
       if (live !== null && live.fingerprint === this.fingerprint(id)) return live
-      if (this.connections.get(id) === existing) await this.drop(id, live)
+      if (live !== null) this.retire(live)
+      return this.startOpening(id)
     }
-    const opening = this.open(id)
+  }
+
+  /** Opens a new connection of Integration `id` and makes it the one calls use. */
+  private startOpening(id: string): Promise<Live> {
+    const generation = (this.generations.get(id) ?? 0) + 1
+    this.generations.set(id, generation)
+    const opening = this.open(id, generation)
     this.connections.set(id, opening)
     opening.catch(() => {
       if (this.connections.get(id) === opening) this.connections.delete(id)
@@ -399,12 +444,18 @@ export class IntegrationProxy {
     return opening
   }
 
+  /** A connection a newer one replaced: closed now, or when the calls still running on it end. */
+  private retire(live: Live): void {
+    live.retired = true
+    if (live.inFlight === 0) void live.client.close().catch(() => undefined)
+  }
+
   /** Every secret of Integration `id` the store keeps, and their parts that could be quoted alone. */
-  private secretsOf(id: string): string[] {
+  private secretsOf(id: string, options: { refresh: boolean } = { refresh: true }): string[] {
     const integration = this.store.get(id)
     if (integration === undefined) return []
     const env = integration.transport.kind === 'stdio' ? integration.transport.secretEnv.map((name): IntegrationSecretPart => `env:${name}`) : []
-    const parts: IntegrationSecretPart[] = ['access', 'refresh', 'client', ...env]
+    const parts: IntegrationSecretPart[] = ['access', ...(options.refresh ? (['refresh'] as const) : []), 'client', ...env]
     const values: string[] = []
     for (const part of parts) {
       const value = this.store.secret(id, part)
@@ -417,61 +468,73 @@ export class IntegrationProxy {
     return values.filter((value) => value.length >= 4)
   }
 
-  /** What tells the sign-in a connection was opened with: its secrets, in order. */
+  /**
+   * What tells the sign-in a connection was opened with: the secrets a request carries, in order. Not the refresh
+   * token: storing a new one changes nothing a request sends. Ticket 05 (OAuth): the authProvider hands each request
+   * its access token, so a refreshed access token must not open a new connection either — leave `access` out of an
+   * OAuth Integration's fingerprint there, or calls in flight on the old connection would run on a retired one.
+   */
   private fingerprint(id: string): string {
-    return JSON.stringify(this.secretsOf(id))
+    return JSON.stringify(this.secretsOf(id, { refresh: false }))
   }
 
   /** Opens a connection to the service of Integration `id`: `initialize` with the sign-in read now. */
-  private async open(id: string): Promise<Live> {
+  private async open(id: string, generation: number): Promise<Live> {
     const integration = this.store.get(id)
     if (integration === undefined) throw new IntegrationGone()
     const sdk = await this.loadSdk()
     const secrets = this.secretsOf(id)
-    const fingerprint = JSON.stringify(secrets)
+    const fingerprint = this.fingerprint(id)
     const client = new sdk.Client({ name: 'worfy', version: '1.0.0' }, { capabilities: {} })
-    if (integration.transport.kind === 'http') {
-      const headers = connectionHeaders(this.store, id)
-      const oauth = this.options.oauth?.(integration)
-      const transport = new sdk.StreamableHTTPClientTransport(new URL(integration.transport.url), { requestInit: { headers }, ...oauth })
-      await client.connect(transport)
-    } else {
-      const launch = stdioLaunch(integration, (part) => this.store.secret(id, part))
-      const base = this.options.baseEnv === undefined ? await defaultBaseEnv(sdk) : await this.options.baseEnv()
-      // stderr is not read: a server may print what it was started with.
-      const transport = new sdk.StdioClientTransport({ command: launch.command, args: launch.args, env: { ...base, ...launch.env }, stderr: 'ignore' })
-      await client.connect(transport)
+    try {
+      if (integration.transport.kind === 'http') {
+        const headers = connectionHeaders(this.store, id)
+        const oauth = this.options.oauth?.(integration)
+        const transport = new sdk.StreamableHTTPClientTransport(new URL(integration.transport.url), { requestInit: { headers }, ...oauth })
+        await client.connect(transport)
+      } else {
+        const launch = stdioLaunch(integration, (part) => this.store.secret(id, part))
+        const base = this.options.baseEnv === undefined ? await defaultBaseEnv(sdk) : await this.options.baseEnv()
+        // stderr is not read: a server may print what it was started with. The MCP SDK starts the command with
+        // cross-spawn, which finds a bare name on the PATH given here and runs a Windows .cmd shim (npx.cmd) through
+        // cmd.exe with its arguments escaped, so no shell of worfy's own is needed.
+        const transport = new sdk.StdioClientTransport({ command: launch.command, args: launch.args, env: { ...base, ...launch.env }, stderr: 'ignore' })
+        await client.connect(transport)
+      }
+    } catch (error) {
+      // A server that started but failed `initialize` is not left running.
+      await client.close().catch(() => undefined)
+      throw error
     }
-    const live: Live = { client, secrets, fingerprint }
+    const live: Live = { client, secrets, fingerprint, generation, inFlight: 0, retired: false }
     client.onclose = () => {
-      void this.connections.get(id)?.then((current) => {
-        if (current === live) this.connections.delete(id)
-      }, () => undefined)
+      if (this.generations.get(id) === generation) this.connections.delete(id)
     }
     return live
   }
 
-  /** Forgets the connection `live` of Integration `id` and closes it; a newer one stays. */
-  private async drop(id: string, live: Live | null): Promise<void> {
-    const current = this.connections.get(id)
-    if (current !== undefined) {
-      const known = await current.catch(() => null)
-      if (live === null || known === live || known === null) this.connections.delete(id)
-    }
-    await live?.client.close().catch(() => undefined)
+  /** Forgets the connection `live` of Integration `id`, unless a newer one took its place, and closes it. */
+  private drop(id: string, live: Live | null): void {
+    if (live === null) return
+    if (this.generations.get(id) === live.generation) this.connections.delete(id)
+    void live.client.close().catch(() => undefined)
   }
 
-  /** Why `error` happened, its text scrubbed of `secrets`. */
-  private async failureOf(error: unknown, secrets: readonly string[]): Promise<Failure> {
+  /** Why `error` happened, its text scrubbed of `secrets`; `opened` — the connection was open when it happened. */
+  private async failureOf(error: unknown, secrets: readonly string[], opened: boolean): Promise<Failure> {
     if (error instanceof IntegrationGone) return { kind: 'gone' }
     if (error instanceof MissingSecretError) return { kind: 'sign-in' }
     const sdk = await this.loadSdk()
     if (error instanceof sdk.UnauthorizedError) return { kind: 'sign-in' }
     if (error instanceof sdk.StreamableHTTPError) {
       if (error.code === 401) return { kind: 'sign-in' }
-      if (error.code === 404) return { kind: 'expired' }
+      // 404 to a request of an open session: the service forgot it. 404 to `initialize`: nothing answers MCP there.
+      if (error.code === 404) return opened ? { kind: 'expired' } : { kind: 'connection', message: 'the address was not found (HTTP 404): check the address of the Integration' }
     }
     const message = scrubServiceText(error instanceof Error ? error.message : String(error), secrets)
+    // -32001 (RequestTimeout) is how the MCP SDK ends one request the caller cancelled or that ran past its time
+    // limit (shared/protocol.js): that request fails, the connection and every other call on it go on.
+    if (opened && error instanceof sdk.McpError && error.code === -32001) return { kind: 'call', message: message === '' ? 'the call ended before the service answered' : message }
     if (error instanceof sdk.McpError && error.code !== -32000 && error.code !== -32001) return { kind: 'service', message }
     return { kind: 'connection', message: message === '' ? 'the service did not answer' : message }
   }
@@ -483,6 +546,8 @@ export class IntegrationProxy {
       ids.map(async (each) => {
         const opening = this.connections.get(each)
         this.connections.delete(each)
+        // Calls still running on it fail as an older connection's: the status is not theirs to set.
+        this.generations.set(each, (this.generations.get(each) ?? 0) + 1)
         const live = await opening?.catch(() => null)
         await live?.client.close().catch(() => undefined)
       }),
@@ -556,4 +621,12 @@ let appProxy: IntegrationProxy | undefined
 export function integrationProxy(): IntegrationProxy {
   appProxy ??= new IntegrationProxy()
   return appProxy
+}
+
+/**
+ * Closes the app proxy's connection of Integration `id`, or every connection, when the proxy was made at all: what
+ * the removal of an Integration and the app's quit call (src/main/ipc/integrations.ts).
+ */
+export async function closeIntegrationConnections(id?: string): Promise<void> {
+  await appProxy?.close(id)
 }
