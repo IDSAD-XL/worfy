@@ -108,3 +108,24 @@ function manualMarks(value) {
    - Ответ: правил две копии — в Harness и в worfy; их согласие проверяет contract test на общих fixture-Ticket-ах, и
      копия Harness повторяет правило worfy слово в слово.
    - Строки: `harness/lib/evidence.cjs:59-61`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED — polish 132, head 04372db24e622662b76a65cd4f2cb8fb84f83291
+>
+> Gate (depth medium): verifier (lens: implementer's report) VERIFIED; reviewer (lens: correctness) found nothing.
+>
+> - Verifier: files_changed matches `git diff --name-only origin/main...HEAD` (13 files); `ticket-evidence.test.sh` passed 87 / failed 0; gate fast `[gate] green (fast)`; story-check ok; the evidence sha 3ba43f182 is in the branch.
+> - Reviewer: both parser copies (`src/shared/workflow/evidence.ts` + `manual-checks.ts` and `harness/lib/evidence.cjs`) compared on 504 combinations of Profile mark × item text × LF/CRLF: 0 differences. Headings still go through `accepted()`; `ticket done` only warns on the verified count; no other reader of manual marks in src, harness or scripts.
+> - ci-ok pass on the head, Windows full-suite and harness-scripts jobs pass (platform PR).
+>
+> Consider [low]: `docs/features/evidence.md:46-47` names the Profile mark and the Russian one but not the always-read `manual` — incomplete, not wrong; done Tickets with an unchecked `(manual)` item now get Manual check rows in the Command palette, as the ticket intends.
+>
+> Not verified: item 4 (`ticket evidence worfy-mcp-live 08` on main) runs only after merge.
+
+Code: `docs/features/evidence.md:46-47` · key lines: 46
+
+```md
+section is the Profile's `tickets.done_section` (`## Done when` without a Profile) and the manual mark is
+`tickets.manual_mark` (`manual`); the old Russian heading and mark are read too, for one release.
+```

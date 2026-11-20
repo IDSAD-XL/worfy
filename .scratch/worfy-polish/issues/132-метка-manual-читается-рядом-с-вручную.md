@@ -1,7 +1,8 @@
 # 132 — Метка ручного пункта `(manual)` читается рядом с меткой Profile-а `вручную` в обеих копиях разбора
 
 Type: bug
-Status: claimed 2026-11-20T01:00Z
+Status: done 2026-11-20T02:38Z
+PR: #2050
 Blocked by: none
 Source: решение владельца 2026-11-20, Q4 раунда вопросов по spec-у `worfy-acceptance` («да»); бывший Ticket 01 spec-а
 [worfy-acceptance](../../worfy-acceptance/spec.md), возражение 3 critic-а
@@ -74,6 +75,7 @@ Windows в CI.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 3ba43f182a9a5c93d626b3b4f694cfac05ed36d2
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job-ы Windows CI зелёные
       (платформенный PR).
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44655063359/job/136033490788 · ci - · 04372db24e622662b76a65cd4f2cb8fb84f83291
 
 ## Где в коде
 
