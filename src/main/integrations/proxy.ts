@@ -247,6 +247,8 @@ class SignInNeededError extends Error {}
 export class IntegrationProxy {
   private readonly store: SecretSource
   private readonly connections = new Map<string, Promise<Live>>()
+  /** Connections a newer one replaced while calls still ran on them, by Integration (retire). */
+  private readonly replaced = new Map<string, Set<Live>>()
   /** The generation of each Integration's newest connection (Live.generation). */
   private readonly generations = new Map<string, number>()
   private readonly statuses = new Map<string, IntegrationProxyStatus>()
@@ -350,7 +352,7 @@ export class IntegrationProxy {
         ...(signal === undefined ? {} : { signal }),
       })
       return { answer: answer as McpToolResult, secrets: live.secrets }
-    })
+    }, signal)
     if (outcome.ok) {
       this.setStatus(id, { status: { state: 'signed-in' } })
       return scrubResult(outcome.value.answer, outcome.value.secrets)
@@ -377,7 +379,7 @@ export class IntegrationProxy {
    * by the newest connection, so an older one that dies under its last call does not mark the new one failed. The
    * connection is dropped unless the service only answered an error of the protocol or this one request ended early.
    */
-  private async withConnection<T>(id: string, work: (live: Live) => Promise<T>): Promise<{ ok: true; value: T } | { ok: false; failure: Failure }> {
+  private async withConnection<T>(id: string, work: (live: Live) => Promise<T>, signal?: AbortSignal): Promise<{ ok: true; value: T } | { ok: false; failure: Failure }> {
     for (let attempt = 0; ; attempt++) {
       let live: Live | null = null
       try {
@@ -390,10 +392,13 @@ export class IntegrationProxy {
           return { ok: true, value: await work(running) }
         } finally {
           running.inFlight--
-          if (running.retired && running.inFlight === 0) void running.client.close().catch(() => undefined)
+          if (running.retired && running.inFlight === 0) this.closeRetired(id, running)
         }
       } catch (error) {
-        const failure = await this.failureOf(error, live?.secrets ?? this.secretsOf(id), live !== null)
+        // Cancelled before its request went out (while the connection opened, say): the MCP SDK throws the bare reason
+        // (signal.throwIfAborted, shared/protocol.js), not -32001 — still this call's end alone.
+        const failure: Failure =
+          live !== null && signal?.aborted === true ? { kind: 'call', message: 'the call was cancelled' } : await this.failureOf(error, live?.secrets ?? this.secretsOf(id), live !== null)
         if (failure.kind !== 'service' && failure.kind !== 'call') this.drop(id, live)
         if (failure.kind === 'expired' && attempt === 0) continue
         const newest = live === null || this.generations.get(id) === live.generation
@@ -418,16 +423,17 @@ export class IntegrationProxy {
         if (this.store.get(id) === undefined) throw new IntegrationGone()
         return this.startOpening(id)
       }
-      const live = await existing.catch(() => null)
+      // An opening that fails fails every call that waited for it: none of them opens again on its own.
+      const live = await existing
       // Replaced or forgotten while this call waited: look again.
       if (this.connections.get(id) !== existing) continue
       if (this.store.get(id) === undefined) {
         this.connections.delete(id)
-        if (live !== null) this.retire(live)
+        this.retire(id, live)
         throw new IntegrationGone()
       }
-      if (live !== null && live.fingerprint === this.fingerprint(id)) return live
-      if (live !== null) this.retire(live)
+      if (live.fingerprint === this.fingerprint(id)) return live
+      this.retire(id, live)
       return this.startOpening(id)
     }
   }
@@ -444,10 +450,27 @@ export class IntegrationProxy {
     return opening
   }
 
-  /** A connection a newer one replaced: closed now, or when the calls still running on it end. */
-  private retire(live: Live): void {
+  /**
+   * A connection of Integration `id` a newer one replaced: closed now, or when the calls still running on it end —
+   * kept in `replaced` till then, so close(id) and close() end it too.
+   */
+  private retire(id: string, live: Live): void {
     live.retired = true
-    if (live.inFlight === 0) void live.client.close().catch(() => undefined)
+    if (live.inFlight === 0) {
+      void live.client.close().catch(() => undefined)
+      return
+    }
+    const kept = this.replaced.get(id) ?? new Set<Live>()
+    kept.add(live)
+    this.replaced.set(id, kept)
+  }
+
+  /** A replaced connection of Integration `id` whose last call ended: closed and forgotten. */
+  private closeRetired(id: string, live: Live): void {
+    const kept = this.replaced.get(id)
+    kept?.delete(live)
+    if (kept?.size === 0) this.replaced.delete(id)
+    void live.client.close().catch(() => undefined)
   }
 
   /** Every secret of Integration `id` the store keeps, and their parts that could be quoted alone. */
@@ -541,15 +564,18 @@ export class IntegrationProxy {
 
   /** Closes the connection of Integration `id`, or every connection: a stdio server's process ends with it. */
   async close(id?: string): Promise<void> {
-    const ids = id === undefined ? [...this.connections.keys()] : [id]
+    const ids = id === undefined ? [...new Set([...this.connections.keys(), ...this.replaced.keys()])] : [id]
     await Promise.all(
       ids.map(async (each) => {
         const opening = this.connections.get(each)
         this.connections.delete(each)
         // Calls still running on it fail as an older connection's: the status is not theirs to set.
         this.generations.set(each, (this.generations.get(each) ?? 0) + 1)
+        // The connections a newer one replaced, with calls still running on them, end too.
+        const replaced = [...(this.replaced.get(each) ?? [])]
+        this.replaced.delete(each)
         const live = await opening?.catch(() => null)
-        await live?.client.close().catch(() => undefined)
+        await Promise.all([live, ...replaced].map((connection) => connection?.client.close().catch(() => undefined)))
       }),
     )
   }

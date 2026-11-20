@@ -4,7 +4,8 @@
 // opens (`alpha` for `stdio-alpha-key`, `none` otherwise), whether the key came in its arguments, which it never
 // should, and the first folder of its PATH. `slow` answers after `ms` milliseconds with the process id, so a test
 // tells whether the same process answered. With STUB_SPAWN_LOG set, each start appends its process id to that file —
-// a test counts the processes worfy started — and each `slow` call `slow <pid>`. It prints no secret.
+// a test counts the processes worfy started — and each `slow` call `slow <pid>`. With STUB_INIT_DELAY_MS set, it
+// answers `initialize` that much later: a connection that is still opening. It prints no secret.
 import { appendFileSync } from 'node:fs'
 import { delimiter } from 'node:path'
 import process from 'node:process'
@@ -28,6 +29,10 @@ const text = (value) => ({ content: [{ type: 'text', text: value }] })
 const answer = (message) => {
   switch (message.method) {
     case 'initialize':
+      if (process.env.STUB_INIT_DELAY_MS) {
+        setTimeout(() => reply(message.id, { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: `stdio-stub-${dataset}`, version: '1.0.0' } }), Number(process.env.STUB_INIT_DELAY_MS))
+        return undefined
+      }
       return reply(message.id, { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: `stdio-stub-${dataset}`, version: '1.0.0' } })
     case 'tools/list':
       return reply(message.id, { tools: TOOLS })

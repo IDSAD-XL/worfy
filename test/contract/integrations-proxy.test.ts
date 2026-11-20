@@ -153,12 +153,12 @@ describe('a stdio server worfy starts itself', () => {
 })
 
 /** A stdio Integration of the stub with no secret or with `key`; each process it starts appends its id to `log`. */
-function addStdio(label: string, log: string, key: string | null = null): string {
+function addStdio(label: string, log: string, key: string | null = null, env: Record<string, string> = {}): string {
   const added = store.add({
     service: 'custom',
     label,
     auth: 'none',
-    transport: { kind: 'stdio', command: scriptNode(), args: [STDIO_STUB], env: { STUB_SPAWN_LOG: log }, secretEnv: key === null ? [] : ['STUB_API_KEY'] },
+    transport: { kind: 'stdio', command: scriptNode(), args: [STDIO_STUB], env: { STUB_SPAWN_LOG: log, ...env }, secretEnv: key === null ? [] : ['STUB_API_KEY'] },
   })
   if (key !== null) store.setSecret(added.id, 'env:STUB_API_KEY', key)
   return added.id
@@ -199,6 +199,28 @@ describe('one call that ends early', () => {
     expect(pidOf(textOf(await call(b, 'whoami')))).toBe(pid)
     expect(spawned(log)).toHaveLength(1)
     expect(alive(pid ?? -1)).toBe(true)
+    expect(proxy.status(id)?.status).toEqual({ state: 'signed-in' })
+  }, ms(20_000))
+
+  it('a call cancelled while its connection still opens ends alone: the call waiting beside it answers', async () => {
+    const log = join(root, 'spawned.log')
+    const id = addStdio('Local tool', log, 'stdio-alpha-key', { STUB_INIT_DELAY_MS: String(ms(600)) })
+    const a = await session(id, 'local-tool')
+    const b = await session(id, 'local-tool')
+    await Promise.all([a.listTools(), b.listTools()])
+    // A new secret: the next calls wait for a new connection, whose initialize takes a while.
+    store.setSecret(id, 'env:STUB_API_KEY', 'stdio-other-key')
+    const cancel = new AbortController()
+    const cancelled = a.callTool({ name: 'whoami', arguments: {} }, undefined, { signal: cancel.signal })
+    const waiting = call(b, 'slow', { ms: ms(400) })
+    setTimeout(() => cancel.abort('the agent stopped'), ms(150))
+    await expect(cancelled).rejects.toThrow()
+    const answer = await waiting
+    expect(answer.isError).not.toBe(true)
+    expect(textOf(answer)).toMatch(/^slow done pid=\d+$/u)
+    // The connection B used is still the one: no third process.
+    expect(textOf(await call(b, 'whoami'))).toMatch(/^dataset none;/u)
+    expect(spawned(log)).toHaveLength(2)
     expect(proxy.status(id)?.status).toEqual({ state: 'signed-in' })
   }, ms(20_000))
 
@@ -267,6 +289,18 @@ describe('a changed sign-in', () => {
   }, ms(20_000))
 })
 
+describe('an opening that fails', () => {
+  it('calls that waited for it get its failure: one initialize, not one per call', async () => {
+    const id = addHttp('Jira — client A', TOKEN_A)
+    stub.revoke(TOKEN_A)
+    const sessions = await Promise.all([1, 2, 3, 4, 5].map(() => session(id, 'jira-client-a')))
+    const lists = await Promise.allSettled(sessions.map((client) => client.listTools()))
+    for (const list of lists) expect(list.status).toBe('rejected')
+    expect(stub.log.filter((entry) => entry.method === 'initialize')).toHaveLength(1)
+    expect(proxy.status(id)?.status).toEqual({ state: 'needs-sign-in' })
+  })
+})
+
 describe('an Integration removed from the Machine', () => {
   it('one with no secret stops answering too, and its process ends', async () => {
     const log = join(root, 'spawned.log')
@@ -279,6 +313,26 @@ describe('an Integration removed from the Machine', () => {
     expect(textOf(answer)).toMatch(/^Local tool is no longer on this Machine/u)
     const [pid] = spawned(log)
     await vi.waitFor(() => expect(alive(pid ?? -1)).toBe(false), { timeout: ms(5_000) })
+  }, ms(20_000))
+
+  it.each([
+    ['close(id) — the removal', true],
+    ['close() — the app`s quit', false],
+  ])('%s ends a connection a new one replaced too, though a call still runs on it', async (_, byId) => {
+    const log = join(root, 'spawned.log')
+    const id = addStdio('Local tool', log, 'stdio-alpha-key')
+    const a = await session(id, 'local-tool')
+    const b = await session(id, 'local-tool')
+    await Promise.all([a.listTools(), b.listTools()])
+    const inFlight = call(a, 'slow', { ms: ms(10_000) })
+    await vi.waitFor(() => expect(logLines(log).filter((line) => line.startsWith('slow '))).toHaveLength(1), { timeout: ms(5_000) })
+    store.setSecret(id, 'env:STUB_API_KEY', 'stdio-other-key')
+    await call(b, 'whoami')
+    const pids = spawned(log)
+    expect(pids).toHaveLength(2)
+    await (byId ? proxy.close(id) : proxy.close())
+    await vi.waitFor(() => expect(pids.filter(alive)).toEqual([]), { timeout: ms(5_000) })
+    expect((await inFlight).isError).toBe(true)
   }, ms(20_000))
 
   it('close(id) ends its connection at once', async () => {
