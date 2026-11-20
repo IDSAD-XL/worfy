@@ -94,7 +94,7 @@ Code: `src/main/github/pr-search.ts:388-406` · key lines: 390, 391, 394, 400, 4
 
 ## 4. Пауза на rate limit общая с PR inbox
 
-Code: `src/main/github/inbox.ts:557-573` · key lines: 559, 564, 570, 571
+Code: `src/main/github/inbox.ts:565-581` · key lines: 567, 572, 578, 579
 
 ```ts
   accountPause(account: string | null): { until: number; reason: string } | null {
@@ -172,5 +172,5 @@ export const prSearchSave = invokeChannel(
    - Строки: `src/main/github/pr-search.ts:390`, `src/main/github/pr-search.ts:400`
    - Ответ: ни разу — строка берётся из inbox; читаются только PR вне inbox и вне памяти.
 3. Что станет с фоновым чтением inbox, если ответ поиска показал меньше 10 % лимита?
-   - Строки: `src/main/github/inbox.ts:564`
+   - Строки: `src/main/github/inbox.ts:572`
    - Ответ: `noteAccountRate` ставит паузу в кэше аккаунта inbox, и inbox этого аккаунта ждёт `resetAt`, как и поиск.
