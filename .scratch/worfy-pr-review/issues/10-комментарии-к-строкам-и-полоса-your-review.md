@@ -1,7 +1,8 @@
 # 10 — Комментарии к строкам чужого PR: «+» в gutter, `c`, диапазон, Suggest change, Pending и «Written by the agent», полоса Your review, Discard
 
 Type: task
-Status: claimed 2026-11-20T20:19Z
+Status: done 2026-11-20T22:54Z
+PR: #2115
 Branch: worfy-pr-review/10
 Blocked by: 07, 09
 Source: [spec.md](../spec.md), «Ticket-ы», 10; «Как пользователь идёт по экрану», A (шаги 5–6) и E; «Экран»; «Решения по
@@ -57,6 +58,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 10; «Как пользовате�
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/changes-view.test.tsx test/unit/changes-tray.test.tsx` exit 0 and `pnpm test:e2e test/e2e/changes.spec.ts` exit 0 · mac - · 6596e039faad61ed85ea970b941d5ead06a6410a
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/changes-view.test.tsx test/unit/changes-tray.test.tsx` exit 0 and `pnpm test:e2e test/e2e/changes.spec.ts` exit 0 · mac - · 39e5b64cd5ca8d510bdb88c8c1380e902022f437
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44821710627/job/136601480838 · ci - · 27849a3684178e2caf5ca061c568019a5b16cbf9
 
 ## Где в коде
 
