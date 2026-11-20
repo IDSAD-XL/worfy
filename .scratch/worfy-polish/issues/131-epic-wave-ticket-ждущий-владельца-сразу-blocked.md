@@ -1,7 +1,7 @@
 # 131 — epic-wave: Ticket, который Orchestrator остановил ради решения владельца, сразу `blocked --waits owner`
 
 Type: bug
-Status: claimed 2026-11-20T11:02Z
+Status: done 2026-11-20T12:18Z
 PR: #2086
 Blocked by: none
 Source: решение владельца 2026-11-20 («со всем согласен»). Случай 2026-11-20: worfy-changes-view 03 ждал владельца
@@ -55,6 +55,7 @@ Windows — job-ы Windows в CI.
 - [ ] Eval-случай добавлен и прогнан (exit code и счёт в «Итог»), или в «Итог» записано, почему его нет.
   - evidence: commit pass · worfy-polish/131: result section and evidence · - - · 3390cc7ab5f080b178ab52475daa279f3c8e1523
 - [ ] Job-ы Windows CI на PR зелёные (платформенный PR).
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44731177907/job/136282089715 · ci - · 6a3fac24abdb9db83e9b5cee34d63049ec31548c
 
 ## Где в коде
 
