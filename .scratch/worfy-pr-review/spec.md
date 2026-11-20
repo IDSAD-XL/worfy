@@ -1,6 +1,7 @@
 # worfy-pr-review: поиск и ревью чужих PR прямо во вкладке Pull requests; счётчик нужных одобрений (1/2, 2/2) по правилам репозитория
 
-Status: draft 2026-11-20 — черновик Orchestrator-а; владелец его не видел, critic не запускался
+Status: draft 2026-11-20 — черновик Orchestrator-а; владелец его не видел
+Critic: [docs/product/critic/worfy-pr-review-2026-11-20.md](../../docs/product/critic/worfy-pr-review-2026-11-20.md) — Reorder: три строки `Blocked by:` (06 и 09 ждут `worfy-changes-view` 05, 04 ждёт 02, test гонки с `bin/pr-review-draft` — в 10).
 Source: просьба владельца 2026-11-20: «нужна ещё возможность искать и ревьювать чужие пулл реквесты прямо во вкладке
 pull requests, продумай все детали по этому; ещё нужно отображение сколько нужно аппрувов (1/2, 2/2) в зависимости от
 настроек репозитория, и это нужно отображать». Факты GitHub API — по документации docs.github.com (раздел «Факты GitHub
