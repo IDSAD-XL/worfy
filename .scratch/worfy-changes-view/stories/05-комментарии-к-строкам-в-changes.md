@@ -363,3 +363,22 @@ comments — часть 2 спеки. Перевод страницы на ру�
    - Ответ: `quote-store.ts` не хранит отправленные комментарии к коду и в этом Ticket-е только для чтения; Send после
      `markPending` записывает ушедшие строки в свой список.
    - Строки: `src/renderer/changes/line-comments.tsx:494-498`
+
+## 14. Что нашёл review и что осталось
+
+> VERIFIED — changes-view 05 round 2, head 00db8a874efb516e1b79d4d66a40866fb7c7097e
+>
+> Second gate round (depth medium), scope: the three med findings of round 1 and the rework diff b267bf761..229bf46b9.
+>
+> - «To» enabled during Send: fixed. Tray.tsx:99 disables «To» while sending, ×/Clear/field locked (Tray.tsx:75,83,125); send fixes target and store key at press time and re-reads drafts after the Session starts (line-comments.tsx:444-458), markPending on that key (:494); remove/edit/Save refuse while sending (:309,:329,:350). Lock released in finally.
+> - Default «To» flipping on reload: fixed. Pin once the shown Session holds drafts (line-comments.tsx:206) or took a Send (:501); without either it follows main's default (Q2).
+> - Re-anchoring on any scope after Refresh: fixed. DiffPane.tsx:338 passes {scope, hideWhitespace, generation}; re-anchor only in reads of the Refresh's own view and generation and only when the comment's commit matches the read's side (line-comments.tsx:512-540).
+> - Verifier: changes-tray.test.tsx 20/20; two mutants of its own (pin line removed; commit check removed) each red. Implementer: 16 mutants killed; full pnpm lint/typecheck/test exit 0 (19 756 tests); gate fast green. ci-ok pass on the head.
+>
+> Consider [low]:
+> - line-comments.tsx:206 — the pin applies only while `chosen === null`; if a pinned Session leaves the targets list, «To» shows the default and never re-pins, so drafts written there can drift on a later default change.
+> - line-comments.tsx:124 (used at :533) — for scope Commit, commitOf returns the commit's sha for both sides, but the old side is its first parent; an old-side comment from Uncommitted can re-anchor against the parent's text (false «Line changed» or shift).
+> - line-comments.tsx:310,330 — Edit/Delete during Send silently do nothing (no disabled state or toast).
+> - Outside the diff: save takes commit/branch from the current scope if the scope changed while the popover was open (pre-existing).
+>
+> Not verified: e2e changes-comments.spec.ts not rerun this round; evidence lines for items 3-5 point at round-1 commit 8d4712631.
