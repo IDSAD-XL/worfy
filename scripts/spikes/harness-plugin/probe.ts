@@ -10,6 +10,8 @@
 //   pnpm exec electron scripts/spikes/harness-plugin/probe.ts install         # plugin validate/marketplace/install/update/uninstall, sandbox only
 //   pnpm exec electron scripts/spikes/harness-plugin/probe.ts mcp-name        # the plugin's `qmd` against allowedMcpServers
 //   pnpm exec electron scripts/spikes/harness-plugin/probe.ts mcp-live --fixtures test/fixtures/sdk-messages  # a server added while a query runs (worfy-mcp-live/01)
+//   pnpm exec electron scripts/spikes/harness-plugin/probe.ts integrations    # Integrations through worfy (worfy-integrations/01), sandbox, no model call
+//   pnpm exec electron scripts/spikes/harness-plugin/probe.ts integrations-sign-in  # the owner's step of that ticket: real sign-ins in the spike window
 //   pnpm exec electron scripts/spikes/harness-plugin/probe.ts --rescrub test/fixtures/sdk-messages  # re-sanitize plugin-*.jsonl, no model call
 //   pnpm exec electron scripts/spikes/harness-plugin/probe.ts --rescrub test/fixtures/mcp-live      # re-sanitize mcp-live-*.json, no model call
 //
@@ -18,7 +20,8 @@
 // test/fixtures/sdk-messages; the control-call answers of mcp-live go next to it, into
 // ../mcp-live/mcp-live-<step>.json), --model <model> (default haiku, the cheapest model that follows
 // these short prompts; the env-file SDK session defaults to sonnet, because haiku refuses to hash
-// GH_TOKEN), --account <login> (default: `github.account` of the worfy Profile).
+// GH_TOKEN), --account <login> (default: `github.account` of the worfy Profile), --services <list>
+// (integrations-sign-in only; default atlassian,atlassian,linear).
 //
 // Model calls: `known`, `workflow-hooks` and `env-file` run real sessions with the user's own
 // settings (settingSources user + project + local, as worfy does) in a temporary working
@@ -27,6 +30,11 @@
 // logged in) — Claude Code still loads plugins, hooks and MCP servers and sends system/init there.
 // `mcp-live` also puts fake `security` and `open` first on PATH, so Claude Code reaches neither the
 // login Keychain nor the browser; its OAuth server is a local fake that never issues a token.
+// `integrations` makes no model call either: the same sandbox, a local stub service
+// (integrations-stub.mjs) and a sign-in to that stub only.
+// `integrations-sign-in` is the one scenario that signs in to real services: the owner runs it, the
+// spike window opens for each sign-in, and tokens stay in the memory of the process (no Claude Code
+// runs). It is left out when no scenario is named.
 //
 // The probe never writes to ~/.claude itself. Claude Code does what it does for any session:
 // transcripts under ~/.claude/projects, which the probe lists in summary.json. Real settings are
@@ -47,11 +55,15 @@ import { homedir, tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import type { Options, Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
-import { app } from 'electron'
+import { rm } from 'node:fs/promises'
+import { app, BrowserWindow, session as electronSession } from 'electron'
 import { personalLast, scrubPersonal } from '../personal-scrub.mjs'
+import { allTools, followRedirect, loadMcpSdk, memoryProvider, parallelAfterExpiry, revoke, serverReport, signIn, singleFlightFetch, windowOpener } from './integrations-oauth.mjs'
+import { startEndpoint, startFakeMessagesApi, startStub } from './integrations-stub.mjs'
 
-type Scenario = 'known' | 'workflow-hooks' | 'env-file' | 'install' | 'mcp-name' | 'mcp-live'
-const ALL: Scenario[] = ['known', 'workflow-hooks', 'env-file', 'install', 'mcp-name', 'mcp-live']
+type Scenario = 'known' | 'workflow-hooks' | 'env-file' | 'install' | 'mcp-name' | 'mcp-live' | 'integrations' | 'integrations-sign-in'
+// integrations-sign-in is not here: it needs the owner at the window.
+const ALL: Scenario[] = ['known', 'workflow-hooks', 'env-file', 'install', 'mcp-name', 'mcp-live', 'integrations']
 type Facts = Record<string, unknown>
 type Recorded = { t: number; msg: unknown }
 
@@ -60,7 +72,7 @@ const flag = (name: string): string | undefined => {
   const i = args.indexOf(name)
   return i >= 0 ? args[i + 1] : undefined
 }
-const flagValues = new Set([flag('--out'), flag('--fixtures'), flag('--model'), flag('--account'), flag('--rescrub')])
+const flagValues = new Set([flag('--out'), flag('--fixtures'), flag('--model'), flag('--account'), flag('--rescrub'), flag('--services')])
 const picked = args.filter((a) => !a.startsWith('--') && !flagValues.has(a)) as Scenario[]
 const scenarios = picked.length > 0 ? picked : ALL
 const outDir = resolve(flag('--out') ?? join(tmpdir(), 'worfy-harness-probe', new Date().toISOString().replace(/[:.]/g, '-')))
@@ -212,6 +224,9 @@ function scrub(s: string): string {
   let out = s
     .split(FAKE_TOKEN)
     .join('<fake-token>')
+    // The fake tokens of the integrations scenario and the tokens its stub issues.
+    .replace(/worfy-spike-int-([a-z]+)-0{10}/g, '<token-$1>')
+    .replace(/stub-(access|refresh|code|client)-[0-9a-f]{24}/g, '<stub-$1>')
     .split(scratch)
     .join('<tmp>')
     .split(repo)
@@ -1264,6 +1279,498 @@ async function runMcpLive(): Promise<Facts> {
   return out
 }
 
+// --- integrations (worfy-integrations/01) -----------------------------------------------------
+
+// The fake tokens of the stub service: they look like no real token format, and scrub() turns each
+// into <token-label>. A proxy, a header server and a user server each get one of their own.
+const intToken = (label: string): string => `worfy-spike-int-${label}-0000000000`
+// The full lengths of mcp__n__<tool> the long-name server offers (server name `n`, 8 characters of prefix).
+const NAME_LENGTHS = [60, 64, 65, 100, 128, 129, 200, 256]
+const longToolName = (full: number): string => `t${full}_`.padEnd(full - 'mcp__n__'.length, 'x')
+// The redirect of a sign-in, as Ticket 05 plans it: caught in the window, no listener behind it.
+const REDIRECT = 'http://127.0.0.1/worfy-oauth/'
+// The services of the owner's step (spec, Facts 5 and 7).
+const SERVICES: Record<string, string> = { atlassian: 'https://mcp.atlassian.com/v2/mcp', linear: 'https://mcp.linear.app/mcp' }
+
+/** Electron's userData of a run with an integrations scenario: a temporary folder, removed at the end. */
+const userDataDir = !flag('--rescrub') && scenarios.some((name) => name.startsWith('integrations')) ? realpathSync(mkdtempSync(join(tmpdir(), 'worfy-integrations-spike-'))) : undefined
+if (userDataDir) app.setPath('userData', userDataDir)
+
+/** The sandbox of a scenario reads and writes nothing of the user's: fresh temporary HOME and CLAUDE_CONFIG_DIR, no API key. */
+function sandboxGuard(box: Sandbox): Facts {
+  const tmp = realpathSync(tmpdir())
+  return {
+    home_in_fresh_tmp: box.home.startsWith(`${scratch}/`) && scratch.startsWith(tmp),
+    config_in_fresh_tmp: box.config.startsWith(`${scratch}/`),
+    env_home: box.env.HOME === box.home,
+    env_config: box.env.CLAUDE_CONFIG_DIR === box.config,
+    no_api_key: Object.keys(box.env).every((k) => !/^ANTHROPIC_|^CLAUDE_CODE_OAUTH/.test(k)),
+  }
+}
+
+type McpSdk = Awaited<ReturnType<typeof loadMcpSdk>>
+type McpClient = InstanceType<McpSdk['Client']>
+type Handler = (method: string, params: Record<string, unknown>) => Promise<unknown>
+
+/** The proxy of one Integration as Ticket 06 plans it: a low-level MCP Server whose tools come from the service's client. */
+function proxyServer(sdk: McpSdk, name: string, upstream: McpClient): InstanceType<McpSdk['Server']> {
+  const server = new sdk.Server({ name, version: '0.0.1' }, { capabilities: { tools: {} } })
+  server.setRequestHandler(sdk.ListToolsRequestSchema, () => upstream.listTools())
+  server.setRequestHandler(sdk.CallToolRequestSchema, (request: { params: Record<string, unknown> }) => upstream.callTool(request.params))
+  return server
+}
+
+/** The same proxy behind worfy's endpoint (Codex): JSON-RPC methods over the service's client. */
+const proxyRoute =
+  (name: string, upstream: McpClient): Handler =>
+  async (method, params) => {
+    if (method === 'initialize') return { protocolVersion: params.protocolVersion ?? '2025-06-18', capabilities: { tools: {} }, serverInfo: { name, version: '0.0.1' } }
+    if (method === 'ping') return {}
+    if (method === 'tools/list') return upstream.listTools(params)
+    if (method === 'tools/call') return upstream.callTool(params)
+    throw Object.assign(new Error(`method not found: ${method}`), { code: -32601 })
+  }
+
+/** A server whose tools have names of every length in NAME_LENGTHS: where does Claude Code cut? */
+function longNameServer(sdk: McpSdk): InstanceType<McpSdk['Server']> {
+  const server = new sdk.Server({ name: 'n', version: '0.0.1' }, { capabilities: { tools: {} } })
+  const tools = NAME_LENGTHS.map((full) => ({ name: longToolName(full), description: `The full name mcp__n__<this> has ${full} characters.`, inputSchema: { type: 'object', properties: {} } }))
+  server.setRequestHandler(sdk.ListToolsRequestSchema, async () => ({ tools }))
+  server.setRequestHandler(sdk.CallToolRequestSchema, async () => ({ content: [{ type: 'text', text: 'ok' }] }))
+  return server
+}
+
+const sdkConfig = (name: string, instance: unknown) => ({ type: 'sdk', name, instance }) as unknown as NonNullable<Options['mcpServers']>[string]
+const textOf = (result: unknown): string => ((result as { content?: { text?: string }[] }).content ?? []).map((c) => c.text ?? '').join(' ')
+const labelCounts = (log: string[]): Record<string, number> => {
+  const out: Record<string, number> = {}
+  for (const line of log) {
+    const label = line.split(' ').slice(3).join(' ') || line.split(' ')[2] || '?'
+    out[label] = (out[label] ?? 0) + 1
+  }
+  return out
+}
+
+/** One app-server conversation over stdio (no "jsonrpc" field): sends each request and waits for its answer. */
+async function fakeCodex(env: Record<string, string | undefined>, requests: { method: string; params?: unknown; notify?: boolean }[]): Promise<Facts[]> {
+  const child = spawn(process.execPath, [join(repo, 'test', 'fixtures', 'codex-app-server', 'fake-app-server.mjs')], { env: { ...env, ELECTRON_RUN_AS_NODE: '1' }, stdio: ['pipe', 'pipe', 'pipe'] })
+  const answers = new Map<number, Facts>()
+  let buffer = ''
+  let stderr = ''
+  child.stderr.on('data', (c: Buffer) => (stderr += c.toString()))
+  child.stdout.on('data', (c: Buffer) => {
+    buffer += c.toString()
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      try {
+        const m = JSON.parse(line) as Facts
+        if (typeof m.id === 'number') answers.set(m.id, m)
+      } catch {
+        // not JSON: ignored
+      }
+    }
+  })
+  const out: Facts[] = []
+  let id = 0
+  for (const r of requests) {
+    if (r.notify) {
+      child.stdin.write(`${JSON.stringify({ method: r.method, ...(r.params ? { params: r.params } : {}) })}\n`)
+      continue
+    }
+    id += 1
+    child.stdin.write(`${JSON.stringify({ id, method: r.method, params: r.params ?? {} })}\n`)
+    const mine = id
+    const ok = await waitFor(() => answers.has(mine), 10_000)
+    out.push(ok ? (answers.get(mine) as Facts) : { method: r.method, error: 'no answer in 10 s', stderr: scrub(stderr.slice(-400)) })
+  }
+  child.stdin.end()
+  await exited(child, 10_000)
+  if (child.exitCode === null) child.kill('SIGTERM')
+  return out
+}
+
+/**
+ * Integrations through worfy (spec of worfy-integrations, decision 1): an Integration is a proxy
+ * server of worfy. Claude gets it as an SDK server in worfy's process, Codex through worfy's endpoint
+ * on 127.0.0.1 with the Session's token. Everything against a local stub service; Claude Code runs in
+ * a sandbox, not logged in, and its one turn is refused locally (no model call); Codex is the fake
+ * app-server, never the real binary.
+ */
+async function runIntegrations(): Promise<Facts> {
+  const sdk = await loadMcpSdk(repo)
+  const fake = fakeBin(join(scratch, 'integrations-bin'))
+  const sb = sandbox('integrations', { PATH: `${fake.bin}:${process.env.PATH ?? ''}`, BROWSER: join(fake.bin, 'open') })
+  const guard = sandboxGuard(sb)
+  if (!Object.values(guard).every(Boolean)) throw new Error(`integrations: the sandbox guard failed: ${JSON.stringify(guard)}`)
+  const out: Facts = { sandbox_guard: guard, mcp_sdk_version: sdk.version }
+  const stub = await startStub({ tokens: { [intToken('alpha')]: 'alpha', [intToken('beta')]: 'beta', [intToken('header')]: 'header', [intToken('user')]: 'user' } })
+  const upstreams: McpClient[] = []
+  const connect = async (url: string, token: string): Promise<McpClient> => {
+    const client = new sdk.Client({ name: 'worfy-spike-proxy', version: '0.0.1' })
+    await client.connect(new sdk.StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { authorization: `Bearer ${token}` } } }))
+    upstreams.push(client)
+    return client
+  }
+  const cwd = workDir('integrations')
+  const spawned: { args: string[]; env: Record<string, string | undefined> }[] = []
+  const spawnCapture: Options['spawnClaudeCodeProcess'] = (o) => {
+    spawned.push({ args: [...o.args], env: { ...o.env } })
+    return (spawnWatched as NonNullable<Options['spawnClaudeCodeProcess']>)(o)
+  }
+  const statusWithDescriptions = async (q: Query): Promise<unknown> =>
+    (await q.mcpServerStatus()).map((row) => ({ name: row.name, status: row.status, scope: row.scope, error: row.error, tools: row.tools?.map((t) => ({ name: t.name, description: t.description })) }))
+  const finish = async (s: Session): Promise<Facts> => {
+    await s.finish()
+    return { exited: await exited(liveChildren[liveChildren.length - 1], 30_000) }
+  }
+  try {
+    const alpha = await connect(stub.url, intToken('alpha'))
+    const beta = await connect(stub.url, intToken('beta'))
+    // 0. The proxies alone (an in-memory client): each answers with the data of its own token.
+    {
+      const viaProxy = async (name: string, upstream: McpClient): Promise<string> => {
+        const [clientSide, serverSide] = sdk.InMemoryTransport.createLinkedPair()
+        await proxyServer(sdk, name, upstream).connect(serverSide)
+        const client = new sdk.Client({ name: 'check', version: '0.0.1' })
+        await client.connect(clientSide)
+        const text = textOf(await client.callTool({ name: 'whoami', arguments: {} }))
+        await client.close()
+        return text
+      }
+      out.proxy_tools_call = { 'acme-alpha': await viaProxy('acme-alpha', alpha), 'acme-beta': await viaProxy('acme-beta', beta) }
+    }
+    // 1. Claude: two Integrations on one stub address with two tokens, as SDK servers, next to the
+    //    managedSettings worfy sends (worfy-canvas by name, the user's servers by `serverUrl`); next to them
+    //    a header server and a user server on the same address; one tool cut by disallowedTools; the long names.
+    {
+      out.user_server_add = cli(sb, ['mcp', 'add', '--scope', 'user', '--transport', 'http', 'acme-user', stub.url, '--header', `Authorization: Bearer ${intToken('user')}`])
+      const managedSettings = { allowManagedMcpServersOnly: true, allowedMcpServers: [{ serverName: 'worfy-canvas' }, { serverUrl: stub.url }] }
+      // NotebookEdit: the control, a built-in tool in the same list.
+      const disallowedTools = ['mcp__acme-beta__list_items', 'NotebookEdit']
+      const logStart = stub.log.length
+      const s = start(
+        sessionOptions(cwd, {
+          env: sb.env,
+          spawnClaudeCodeProcess: spawnCapture,
+          managedSettings,
+          disallowedTools,
+          mcpServers: {
+            ...(await canvasServer()),
+            'acme-alpha': sdkConfig('acme-alpha', proxyServer(sdk, 'acme-alpha', alpha)),
+            'acme-beta': sdkConfig('acme-beta', proxyServer(sdk, 'acme-beta', beta)),
+            'acme-header': { type: 'http', url: stub.url, headers: { Authorization: `Bearer ${intToken('header')}` } },
+            n: sdkConfig('n', longNameServer(sdk)),
+          },
+        }),
+      )
+      const step: Facts = { managedSettings, disallowedTools }
+      await warmStatus(s.q)
+      step.status = await statusWithDescriptions(s.q)
+      // A turn refused locally (not logged in): only for the system/init it brings.
+      step.turn = resultFacts(await s.turn('Reply with: ok'))
+      const init = initOf(s)
+      const initTools = ((init?.tools as string[] | undefined) ?? []).filter((t) => t.startsWith('mcp__'))
+      step.init_mcp_servers = init?.mcp_servers
+      step.init_mcp_tools = initTools
+      const statusTools = (name: string): string[] => ((step.status as { name: string; tools?: { name: string }[] }[]).find((r) => r.name === name)?.tools ?? []).map((t) => t.name)
+      step.disallowed = {
+        'init has mcp__acme-beta__list_items': initTools.includes('mcp__acme-beta__list_items'),
+        'init has mcp__acme-beta__whoami': initTools.includes('mcp__acme-beta__whoami'),
+        'init has mcp__acme-alpha__list_items': initTools.includes('mcp__acme-alpha__list_items'),
+        'status of acme-beta lists list_items': statusTools('acme-beta').includes('list_items'),
+        'init has NotebookEdit (control)': ((init?.tools as string[] | undefined) ?? []).includes('NotebookEdit'),
+      }
+      step.long_names = NAME_LENGTHS.map((full) => {
+        const name = longToolName(full)
+        const seen = initTools.filter((t) => t.startsWith(`mcp__n__t${full}_`))
+        return { full_length: full, in_status: statusTools('n').includes(name), in_init_exact: initTools.includes(`mcp__n__${name}`), in_init_as: seen.map((t) => ({ length: t.length, exact: t === `mcp__n__${name}` })) }
+      })
+      step.stub_requests_by_dataset = labelCounts(stub.log.slice(logStart))
+      const first = spawned[0]
+      const args = first?.args ?? []
+      const at = args.indexOf('--mcp-config')
+      let config: unknown = null
+      if (at >= 0) {
+        try {
+          config = JSON.parse(args[at + 1] ?? '')
+        } catch {
+          config = 'not JSON'
+        }
+      }
+      const has = (token: string) => args.some((a) => a.includes(token))
+      step.process = {
+        flags: args.filter((a) => a.startsWith('--')),
+        mcp_config_present: at >= 0,
+        mcp_config: config,
+        header_token_in_args: has(intToken('header')),
+        proxy_tokens_in_args: has(intToken('alpha')) || has(intToken('beta')),
+        proxy_tokens_in_env: Object.values(first?.env ?? {}).some((v) => typeof v === 'string' && (v.includes(intToken('alpha')) || v.includes(intToken('beta')))),
+      }
+      step.close = await finish(s)
+      keepInit('integrations', 'two-integrations', s)
+      out.claude = step
+    }
+    // 1b. The same Session against a fake Messages API on 127.0.0.1 (ANTHROPIC_BASE_URL, a dummy key that
+    //     reaches nothing else): which tools would the model get, and does a tools/call through Claude Code
+    //     reach each Integration with its own token? No model runs; the fake answers with tool_use blocks.
+    //     Twice: with tool search as Claude Code sets it by default, and with ENABLE_TOOL_SEARCH=false.
+    const fakeApi: Facts = {}
+    for (const [variant, extraEnv] of [
+      ['tool-search-default', {}],
+      ['tool-search-off', { ENABLE_TOOL_SEARCH: 'false' }],
+    ] as const) {
+      const callTools = ['mcp__acme-alpha__whoami', 'mcp__acme-beta__whoami', 'mcp__acme-beta__list_items']
+      const watch = [...callTools, 'mcp__acme-alpha__list_items', ...NAME_LENGTHS.map((full) => `mcp__n__${longToolName(full)}`)]
+      const api = await startFakeMessagesApi({ callTools, watch })
+      const env = { ...sb.env, ...extraEnv, ANTHROPIC_BASE_URL: api.base, ANTHROPIC_API_KEY: 'local-fake-messages-api', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' }
+      const step: Facts = { api_is_local: api.base.startsWith('http://127.0.0.1:'), env: Object.keys(extraEnv), disallowedTools: ['mcp__acme-beta__list_items', 'NotebookEdit'] }
+      const logStart = stub.log.length
+      const s = start(
+        sessionOptions(cwd, {
+          env,
+          spawnClaudeCodeProcess: spawnWatched,
+          managedSettings: { allowManagedMcpServersOnly: true, allowedMcpServers: [{ serverName: 'worfy-canvas' }, { serverUrl: stub.url }] },
+          disallowedTools: ['mcp__acme-beta__list_items', 'NotebookEdit'],
+          mcpServers: {
+            ...(await canvasServer()),
+            'acme-alpha': sdkConfig('acme-alpha', proxyServer(sdk, 'acme-alpha', alpha)),
+            'acme-beta': sdkConfig('acme-beta', proxyServer(sdk, 'acme-beta', beta)),
+            n: sdkConfig('n', longNameServer(sdk)),
+          },
+        }),
+      )
+      step.turn = resultFacts(await s.turn('Call the whoami tools.'))
+      step.close = await finish(s)
+      type Req = { model: string; tools: string[]; deferred: string[]; mentions: string[]; messages: number; tool_results: number }
+      const main = (api.requests as Req[]).find((r) => r.mentions.length > 0)
+      step.requests = (api.requests as Req[]).map((r) => ({ model: r.model, tools: r.tools.length, mcp_tools: r.tools.filter((t) => t.startsWith('mcp__')).length, deferred: r.deferred.length, mentions: r.mentions.length, messages: r.messages, tool_results: r.tool_results }))
+      step.first_request_tools = (api.requests as Req[])[0]?.tools.filter((t) => !t.startsWith('mcp__')) ?? []
+      step.model_gets = {
+        mcp_tools_in_tools: (main?.tools ?? []).filter((t) => t.startsWith('mcp__')),
+        named_anywhere: main?.mentions ?? [],
+        'has NotebookEdit (control)': (main?.tools ?? []).includes('NotebookEdit'),
+      }
+      step.tool_results = api.toolResults
+      step.stub_requests_by_dataset = labelCounts(stub.log.slice(logStart))
+      step.stub_tools_call_lines = stub.log.slice(logStart).filter((l) => l.includes('tools/call'))
+      await api.close()
+      fakeApi[variant] = step
+    }
+    out.claude_fake_api = fakeApi
+    // 2. The same two Integrations with a list that names only addresses, and with one that names only worfy-canvas:
+    //    does the policy tier leave SDK servers alone either way?
+    for (const [variant, allowedMcpServers] of [
+      ['serverurl-only', [{ serverUrl: stub.url }]],
+      ['canvas-name-only', [{ serverName: 'worfy-canvas' }]],
+    ] as const) {
+      const s = start(
+        sessionOptions(cwd, {
+          env: sb.env,
+          spawnClaudeCodeProcess: spawnWatched,
+          managedSettings: { allowManagedMcpServersOnly: true, allowedMcpServers: [...allowedMcpServers] },
+          mcpServers: { 'acme-alpha': sdkConfig('acme-alpha', proxyServer(sdk, 'acme-alpha', alpha)), 'acme-beta': sdkConfig('acme-beta', proxyServer(sdk, 'acme-beta', beta)) },
+        }),
+      )
+      const status = await warmStatus(s.q)
+      out[`claude_${variant.replace(/-/g, '_')}`] = { allowedMcpServers, status, close: await finish(s) }
+    }
+    // 3. Codex: two Integrations on one address of worfy's endpoint, `mcp_servers.<name>` with `url` and
+    //    `bearer_token_env_var` (src/main/vendors/codex/mcp.ts:286-287), checked against the pinned
+    //    app-server schema and sent to the fake app-server. The real Codex never runs: the probe then does
+    //    what Codex does with such an entry (Fact 4a of the spec) — reads the token from the named variable and
+    //    connects to `url` — so the endpoint's routing is measured, not assumed.
+    {
+      const sessionToken = intToken('session')
+      const endpoint = await startEndpoint({ token: sessionToken, routes: { 'acme-alpha': proxyRoute('acme-alpha', alpha), 'acme-beta': proxyRoute('acme-beta', beta) } })
+      const tokenEnv = 'WORFY_MCP_TOKEN'
+      const env: Record<string, string> = { [tokenEnv]: sessionToken }
+      const config: Record<string, { url: string; bearer_token_env_var: string }> = {}
+      for (const name of ['acme-alpha', 'acme-beta']) config[`mcp_servers.${name}`] = { url: endpoint.urls[name] as string, bearer_token_env_var: tokenEnv }
+      const step: Facts = { same_origin: new Set(Object.values(config).map((c) => new URL(c.url).origin)).size === 1 }
+      const codexRole: Record<string, Facts> = {}
+      const toolsOf: Record<string, unknown[]> = {}
+      for (const [key, entry] of Object.entries(config)) {
+        const name = key.slice('mcp_servers.'.length)
+        const client = await connect(entry.url, env[entry.bearer_token_env_var] as string)
+        const tools = await allTools(client)
+        toolsOf[name] = tools
+        codexRole[name] = { tools: tools.map((t: { name: string; description?: string }) => ({ name: t.name, description: t.description })), whoami: textOf(await client.callTool({ name: 'whoami', arguments: {} })) }
+      }
+      step.codex_role = codexRole
+      step.wrong_token = await connect(config['mcp_servers.acme-alpha']?.url ?? '', intToken('wrong')).then(
+        () => 'connected',
+        (err: unknown) => scrub(err instanceof Error ? err.message : String(err)),
+      )
+      // The pinned schema: thread/start with these keys, and the status list Codex would answer.
+      const { Ajv } = createRequire(join(repo, 'package.json'))('ajv') as { Ajv: new (o: object) => { compile: (s: object) => ((v: unknown) => boolean) & { errors?: unknown } } }
+      const ajv = new Ajv({ strict: false, validateFormats: false, allErrors: true })
+      const schemaOf = (file: string) => ajv.compile(JSON.parse(readFileSync(join(repo, 'src', 'main', 'vendors', 'codex', 'protocol', 'json', 'v2', file), 'utf8')) as object)
+      const threadStart = { cwd, config }
+      const checkStart = schemaOf('ThreadStartParams.json')
+      step.thread_start_valid = checkStart(threadStart)
+      if (!step.thread_start_valid) step.thread_start_errors = checkStart.errors
+      const statusAnswer = {
+        data: Object.keys(toolsOf).map((name) => ({
+          name,
+          runtimeStatus: 'connected',
+          pluginId: null,
+          httpOrigin: endpoint.base,
+          serverInfo: null,
+          serverCapabilities: null,
+          toolListMeta: null,
+          tools: Object.fromEntries((toolsOf[name] as { name: string; description?: string; inputSchema: unknown }[]).map((t) => [t.name, { name: t.name, description: t.description, inputSchema: t.inputSchema }])),
+          toolsError: null,
+          resources: [],
+          resourceTemplates: [],
+          authStatus: 'bearerToken',
+        })),
+        nextCursor: null,
+      }
+      const checkStatus = schemaOf('ListMcpServerStatusResponse.json')
+      step.status_answer_valid = checkStatus(statusAnswer)
+      if (!step.status_answer_valid) step.status_answer_errors = checkStatus.errors
+      // The fake app-server: the first three steps of the mcp-status script, then this status list.
+      const scripts = join(scratch, 'codex-scripts')
+      mkdirSync(scripts, { recursive: true })
+      const head = readFileSync(join(repo, 'test', 'fixtures', 'codex-scripts', 'mcp-status.jsonl'), 'utf8').split('\n').slice(0, 3)
+      writeFileSync(join(scripts, 'integrations.jsonl'), `${[...head, JSON.stringify({ expect: 'mcpServerStatus/list', result: statusAnswer })].join('\n')}\n`)
+      const log = join(scratch, 'codex-log.jsonl')
+      const answers = await fakeCodex({ ...cleanEnv(), ...env, WORFY_CODEX_SCRIPTS: scripts, WORFY_CODEX_SCRIPT: 'integrations', WORFY_CODEX_LOG: log }, [
+        { method: 'initialize', params: { clientInfo: { name: 'worfy-spike', title: null, version: '0.0.1' }, capabilities: null } },
+        { method: 'initialized', notify: true },
+        { method: 'thread/start', params: threadStart },
+        { method: 'mcpServerStatus/list', params: { threadId: 'thr_fake_1' } },
+      ])
+      step.fake_answers = answers.map((a) => (a.error ? { error: a.error } : { ok: true, servers: ((a.result as { data?: { name: string; authStatus: string }[] }).data ?? []).map((d) => `${d.name}:${d.authStatus}`) }))
+      const sent = existsSync(log) ? readFileSync(log, 'utf8') : ''
+      step.fake_log_has_config_keys = sent.includes('mcp_servers.acme-alpha') && sent.includes('mcp_servers.acme-beta')
+      step.token_in_app_server_messages = sent.includes(sessionToken)
+      step.endpoint_requests = endpoint.log.map((l) => scrub(l))
+      await endpoint.close()
+      out.codex = step
+    }
+  } finally {
+    for (const c of upstreams) await c.close().catch(() => undefined)
+    await stub.close()
+    const alive = liveChildren.filter((c) => c.exitCode === null && c.signalCode === null)
+    for (const c of alive) c.kill('SIGTERM')
+    out.children = { spawned: liveChildren.length, alive_at_end_killed: alive.length }
+    out.fake_bin_calls = existsSync(fake.log) ? [...new Set(readFileSync(fake.log, 'utf8').split('\n').filter(Boolean))] : []
+  }
+  // 4. One refresh at a time? 10 parallel tools/call after the access token ended, through the package's
+  //    transport with an authProvider (the OAuthClientProvider of the package, in memory).
+  {
+    const refresh: Facts = {}
+    for (const variant of [
+      { name: 'reused-refresh-token', rotate: false, singleFlight: false },
+      { name: 'rotated-refresh-token', rotate: true, singleFlight: false },
+      { name: 'rotated-with-single-flight-fetch', rotate: true, singleFlight: true },
+    ]) {
+      const st = await startStub({ oauth: { ttlMs: 3_600_000, rotate: variant.rotate, tokenDelayMs: 100 } })
+      try {
+        const memory = memoryProvider({ redirectUrl: `${REDIRECT}refresh`, clientName: 'worfy integrations spike' })
+        const client = await signIn(sdk, st.url, memory, followRedirect, variant.singleFlight ? { fetch: singleFlightFetch() } : {})
+        const logBefore = st.log.length
+        const oneCall = await parallelAfterExpiry(client, st.counts, st.expireAccess, 1)
+        refresh[variant.name] = {
+          one_call: { ...oneCall, service_requests: st.log.slice(logBefore) },
+          ten_parallel: await parallelAfterExpiry(client, st.counts, st.expireAccess, 10),
+          ten_parallel_again: await parallelAfterExpiry(client, st.counts, st.expireAccess, 10),
+          stub_counts: { ...st.counts },
+        }
+        await client.close()
+      } catch (err) {
+        refresh[variant.name] = { error: scrub(err instanceof Error ? err.message : String(err)) }
+      } finally {
+        await st.close()
+      }
+    }
+    out.refresh = refresh
+  }
+  // 5. The spike window against the stub: the owner's step on a service that approves at once, the
+  //    window hidden. Same code as integrations-sign-in.
+  {
+    const st = await startStub({ oauth: { ttlMs: 600_000, rotate: true } })
+    const slot = 'stub-1'
+    const partition = `integration-spike-${slot}`
+    try {
+      const memory = memoryProvider({ redirectUrl: `${REDIRECT}${slot}`, clientName: 'worfy integrations spike' })
+      const t0 = Date.now()
+      const client = await signIn(sdk, st.url, memory, windowOpener({ BrowserWindow, session: electronSession }, { partition, show: false, title: 'worfy spike', redirectPrefix: `${REDIRECT}${slot}`, timeoutMs: 30_000 }))
+      const report: Facts = { sign_in_ms: Date.now() - t0, ...(await serverReport(sdk, st.url, client, memory)) }
+      report.revoke = await revoke(report.revocation_url as string | null, memory)
+      delete report.revocation_url
+      report.stub_counts = { ...st.counts }
+      await client.close()
+      out.window = report
+    } catch (err) {
+      out.window = { error: scrub(err instanceof Error ? err.message : String(err)) }
+    } finally {
+      await electronSession.fromPartition(partition).clearStorageData()
+      await st.close()
+    }
+  }
+  return out
+}
+
+/**
+ * The owner's step of worfy-integrations/01: a real sign-in to each service of --services in the
+ * spike window (a partition of its own each, in memory), then what the spike asks of the server. No
+ * Claude Code and no Codex run. Tokens stay in this process and are revoked at the end where the
+ * server has a revocation endpoint. The report holds no token, no site address and no e-mail.
+ */
+async function runIntegrationsSignIn(): Promise<Facts> {
+  const sdk = await loadMcpSdk(repo)
+  const list = (flag('--services') ?? 'atlassian,atlassian,linear').split(',').map((s) => s.trim())
+  const out: Facts = { mcp_sdk_version: sdk.version, services: list }
+  const sites: Record<string, Set<string>> = {}
+  const done: { slot: string; memory: ReturnType<typeof memoryProvider>; revocation: string | null; client: McpClient }[] = []
+  for (const [i, service] of list.entries()) {
+    const url = SERVICES[service]
+    const slot = `${service}-${i + 1}`
+    if (!url) {
+      out[slot] = { error: `unknown service ${service}; known: ${Object.keys(SERVICES).join(', ')}` }
+      continue
+    }
+    process.stdout.write(`[probe] sign-in ${i + 1} of ${list.length}: ${service}. A window opens: sign in${service === 'atlassian' ? ' and pick the site for this Integration' : ''}.\n`)
+    const memory = memoryProvider({ redirectUrl: `${REDIRECT}${slot}`, clientName: 'worfy integrations spike' })
+    try {
+      const t0 = Date.now()
+      const client = await signIn(sdk, url, memory, windowOpener({ BrowserWindow, session: electronSession }, { partition: `integration-spike-${slot}`, show: true, title: `worfy spike: ${slot}`, redirectPrefix: `${REDIRECT}${slot}`, timeoutMs: 10 * 60_000 }))
+      const report: Facts = { sign_in_ms: Date.now() - t0, ...(await serverReport(sdk, url, client, memory)) }
+      const revocation = (report.revocation_url as string | null) ?? null
+      delete report.revocation_url
+      // Atlassian: which site this sign-in reached, as a count and a comparison only (ids stay in memory).
+      const siteTool = (report.tool_names as string[]).find((n) => /^getAccessibleAtlassianResources$/i.test(n))
+      if (siteTool) {
+        try {
+          const parsed = JSON.parse(textOf(await client.callTool({ name: siteTool, arguments: {} }))) as { id?: string }[]
+          sites[slot] = new Set(parsed.map((r) => String(r.id)))
+          report.sites = parsed.length
+        } catch (err) {
+          report.sites = `not read: ${scrub(err instanceof Error ? err.message : String(err))}`
+        }
+      }
+      out[slot] = report
+      done.push({ slot, memory, revocation, client })
+    } catch (err) {
+      out[slot] = { error: scrub(err instanceof Error ? err.message : String(err)) }
+    }
+  }
+  const atlassian = Object.keys(sites).filter((s) => s.startsWith('atlassian-'))
+  if (atlassian.length === 2) {
+    const [a, b] = atlassian.map((s) => sites[s] as Set<string>)
+    out.atlassian_two_sign_ins_reach_different_sites = [...(a as Set<string>)].some((id) => !(b as Set<string>).has(id)) || [...(b as Set<string>)].some((id) => !(a as Set<string>).has(id))
+  }
+  for (const each of done) {
+    await each.client.close().catch(() => undefined)
+    ;(out[each.slot] as Facts).revoke = await revoke(each.revocation, each.memory)
+    await electronSession.fromPartition(`integration-spike-${each.slot}`).clearStorageData()
+  }
+  return out
+}
+
 const RUNNERS: Record<Scenario, () => Promise<Facts>> = {
   known: runKnown,
   'workflow-hooks': runWorkflowHooks,
@@ -1271,6 +1778,8 @@ const RUNNERS: Record<Scenario, () => Promise<Facts>> = {
   install: runInstall,
   'mcp-name': runMcpName,
   'mcp-live': runMcpLive,
+  integrations: runIntegrations,
+  'integrations-sign-in': runIntegrationsSignIn,
 }
 
 // --- main ------------------------------------------------------------------------------------
@@ -1299,6 +1808,8 @@ function rescrub(dir: string): void {
 }
 
 async function main(): Promise<void> {
+  // The spike window of the integrations scenarios: closing the last one must not quit the probe.
+  app.on('window-all-closed', () => undefined)
   await app.whenReady()
   app.dock?.hide()
   const rescrubDir = flag('--rescrub')
@@ -1349,6 +1860,8 @@ async function main(): Promise<void> {
     }
   }
   process.stdout.write(`${JSON.stringify(summary, null, 2)}\n[probe] written to ${outDir}\n`)
+  // Electron's own files of an integrations run (its partitions kept nothing on disk: they are in memory).
+  if (userDataDir) await rm(userDataDir, { recursive: true, force: true })
 }
 
 main().then(

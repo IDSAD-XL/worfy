@@ -1,7 +1,7 @@
 # 01 — Spike: Integration через worfy в Claude Code и Codex, один refresh пакета MCP SDK и что нужно сервисам
 
 Type: spike
-Status: open
+Status: claimed 2026-11-20T17:17Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 1; «Волны», Wave 1; «Факты», 3в, 7 и 8; «Решения по реализации» → Proxy,
 Вход OAuth, Имя сервера в Session; «Риски» (proxy не покрывает сервис, имя tool-а длиннее предела); «Вопросы
