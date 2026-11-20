@@ -192,3 +192,21 @@ ADR-0021) остаётся для Session-ов: assist-процесс — не S
 - **Выбрано:** assist-процесс без MCP, tools, настроек пользователя и транскриптов, на подписке; один
   прогретый процесс, свежий `claim()` на каждую просьбу; haiku без thinking для Suggestion, sonnet
   для остального.
+
+## Amendments
+
+- **2026-11-20, одноразовые вызовы Haiku — Haiku 5.5; thinking больше не отменяет Suggestion** (`worfy-polish` 135,
+  слова владельца через Product Session `proactive-runtime`: «Переходим на 5.5, без проблем. Это по прежнему очень
+  дешевая и очень быстрая модель.» и о правиле пункта 3: «Тогда поменяй это правило, что бы оно не мешало.»).
+  - Suggestion и Next command на haiku идут на `claude-haiku-5-5` — по ID, не по псевдониму, при `effortLevel: 'low'`.
+    Claude Code 2.1.322 (Agent SDK 0.3.322) принимает effort для этой модели: в её записи каталога есть `effort`,
+    `adaptive_thinking` и `rejects_disabled_thinking`, effort по умолчанию — `medium`.
+  - `maxThinkingTokens: 0` больше не передаётся: у Haiku 5.5 thinking не выключается.
+  - Пункт 3 читается так: Suggestion отменяют только её таймаут (5 с) или ответ, который уже не продолжает набранное.
+    Поток, начавшийся с thinking, и `option_not_applied` при `claim()` запрос не отменяют; на `option_not_applied`
+    в log пишется строка, ответ берётся — как у остальных функций.
+  - Текст thinking в Suggestion не попадает: ответ собирается только из text-блоков и `result` хода.
+  - narrator Live summary Product Session — тоже Haiku 5.5 по ID, effort `low`, без `thinking: { type: 'disabled' }`;
+    предел вывода поднят с 256 до 4096 token-ов, потому что thinking считается в него.
+  - Последствие: часть Suggestion от модели может не уложиться в 5 с. Ввод от этого не ломается — история команд
+    показывается первой, без модели. Долю ответов за 5 с замеряет Orchestrator скриптом замера ticket-а.

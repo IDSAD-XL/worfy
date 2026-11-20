@@ -5,10 +5,10 @@
 // Sessions take, never an API key: the agent environment without API_KEY_VARS. Its options (narratorOptions, a
 // pure function, so a unit test reads exactly what goes to the SDK) are those of Terminal AI's spare process
 // (terminal-ai.ts, ADR-0058): no settings of the user or a Project, no MCP servers, no tools, one turn, no
-// transcript, no thinking — and Haiku 4.5 by its id (HAIKU_WITHOUT_THINKING: the alias haiku now takes thinking-off
-// as adaptive thinking, which would spend the short output limit). The narrator is not a Session, so it is not bound by
+// transcript — and Haiku 5.5 by its id (HAIKU_MODEL_ID) at low effort. Haiku 5.5 cannot run without thinking, so no
+// thinking switch is sent (worfy-polish 135). The narrator is not a Session, so it is not bound by
 // isSelectableModel (Sessions never run on haiku). Its folder is the empty <WORFY_DATA_DIR>/narrator, outside
-// every Project, so no Node is ever made for it. CLAUDE_CODE_MAX_OUTPUT_TOKENS keeps the answer short.
+// every Project, so no Node is ever made for it. CLAUDE_CODE_MAX_OUTPUT_TOKENS caps the answer, thinking included.
 //
 // Under WORFY_AGENT=fake the requests go to the fake agent (src/main/agent/fake-query.ts), which plays
 // test/fixtures/agent-scripts/<WORFY_NARRATOR_SCRIPT or "narrator">.jsonl; WORFY_NARRATOR_FIRST_MS and
@@ -25,15 +25,20 @@ import { NARRATOR_SYSTEM_PROMPT, type NarratorAsk, type NarratorCadence } from '
 import type { QueryFactory } from '../../agent/session'
 import { oneMessage } from './one-shot'
 import { claudeExecutablePath, type RuntimeInfo } from './options'
-import { HAIKU_WITHOUT_THINKING } from './terminal-ai'
+import { HAIKU_MODEL_ID } from './terminal-ai'
 
 /** The model of every request: the narrator is not a Session (see the head of this file). */
-export const NARRATOR_MODEL = HAIKU_WITHOUT_THINKING
+export const NARRATOR_MODEL = HAIKU_MODEL_ID
 /** The folder every request runs in, under worfy's data folder: empty, worfy's own, outside every Project. */
 export const NARRATOR_DIR = 'narrator'
 export const narratorDir = (dataDir: string): string => join(dataDir, NARRATOR_DIR)
-/** The most the answer may take, in tokens: one line needs far fewer. */
-export const NARRATOR_MAX_OUTPUT_TOKENS = 256
+/**
+ * The most the answer may take, in tokens, thinking included. The line itself is under 100 tokens (120 characters);
+ * the rest is room for Haiku 5.5's thinking at low effort. A cap is a ceiling, not a spend: only the tokens written
+ * count against the Limits, while a cap that cuts thinking short leaves no line at all. 4096 is a guess with wide
+ * room, not a measurement (worfy-polish 135).
+ */
+export const NARRATOR_MAX_OUTPUT_TOKENS = 4096
 
 export interface NarratorOptionsInput {
   /** The agent environment (agentEnv()); its API keys are dropped again here. */
@@ -52,7 +57,7 @@ export function narratorOptions(input: NarratorOptionsInput): Options {
   return {
     cwd: input.cwd,
     model: NARRATOR_MODEL,
-    thinking: { type: 'disabled' },
+    effort: 'low',
     settingSources: [],
     mcpServers: {},
     strictMcpConfig: true,

@@ -309,13 +309,17 @@ Terminal, Machine которого работает на Windows, никогда
 
 | Функция | Модель | Предел времени |
 |---|---|---|
-| Suggestion | Haiku, без thinking | 5 с |
-| Next command | Sonnet при low effort или Haiku по Settings | 8 с |
+| Suggestion | Haiku 5.5 при low effort | 5 с |
+| Next command | Sonnet при low effort или Haiku 5.5 при low effort по Settings | 8 с |
 | Command request | Sonnet при low effort | 30 с |
 | Fix | Sonnet при low effort | 30 с |
 
-- **Suggestion, который опоздал бы, отбрасывается.** Запрос заканчивается, когда модель начинает думать или когда процесс не смог
-  применить настройку, выключающую thinking.
+- **Haiku — по ID.** Запросы на Haiku называют `claude-haiku-5-5`, а не псевдоним `haiku`, чтобы модель не менялась, когда
+  псевдоним переедет. У Haiku 5.5 thinking не выключается: запросы не шлют выключатель thinking, а low effort держит thinking
+  коротким.
+- **Suggestion, который опоздал бы, отбрасывается.** Его заканчивают только предел 5 с или ответ, который уже не продолжает
+  набранное. Thinking его не заканчивает. Процесс, не применивший настройку, тоже: тогда в log пишется строка, а ответ берётся.
+  Текст thinking в Suggestion не попадает: ответ собирается только из текста и результата хода.
 - **Процесс отказал.** Если процесс отказал в запросе до отправки prompt-а, Command request и Fix пробуют ещё раз через новый
   процесс, а Suggestion и Next command сдаются.
 - **Ответ — одна команда.** Берётся его первая строка, без backticks, блока кода и prompt-а `$ `.

@@ -11,7 +11,7 @@
 //   ADR-0007). No `cwd`: at prewarm() it is only the parking folder, never a Session's folder.
 // - claimOptions(): what one request sets at claim() — the empty folder <WORFY_DATA_DIR>/terminal-ai
 //   as `cwd` (worfy takes a process with its cwd inside a Project for a Session of that Project,
-//   src/main/claude-home/registry.ts), the model, thinking and effort of the feature, its
+//   src/main/claude-home/registry.ts), the model and effort of the feature, its
 //   instruction (`appendSystemPrompt`) and title.
 // - coldQueryOptions(): both together, for the one retry through query() when a claim was refused
 //   before the prompt went out.
@@ -61,20 +61,21 @@ export function prewarmOptions(input: PrewarmOptionsInput): Options {
 }
 
 /**
- * The Haiku a request without thinking names, by its id. Not the alias `haiku`: since Claude Code 2.1.322
- * (Agent SDK 0.3.322) the alias resolves to Haiku 5.5, whose catalog entry says `rejects_disabled_thinking`,
- * and Claude Code then turns thinking-off into adaptive thinking. A Suggestion that thinks is cancelled
- * (ADR-0058, point 3), and the narrator's thinking would spend its short output limit. When Haiku 4.5 is
- * retired, the request fails like any other: no Suggestion from the model, a silent narrator, a line in the log.
+ * The Haiku of every one-shot request (Suggestion, Next command on haiku, the narrator), by its id, never the
+ * alias `haiku`: the model stays the same when the alias moves (owner, 2026-11-20, worfy-polish 135). Haiku 5.5
+ * cannot run without thinking — Claude Code 2.1.322 (Agent SDK 0.3.322) lists it with `rejects_disabled_thinking`
+ * and `effort` — so no request sends a thinking switch; low effort keeps its thinking short, and thinking no
+ * longer cancels a Suggestion (ADR-0058, Amendment 2026-11-20).
  */
-export const HAIKU_WITHOUT_THINKING = 'claude-haiku-4-5'
+export const HAIKU_MODEL_ID = 'claude-haiku-5-5'
 
-/** What one request sets at claim(). Haiku runs without thinking, Sonnet at low effort. */
+/** What one request sets at claim(): the feature's model at low effort, Haiku by its id. */
 export function claimOptions(feature: TerminalAiFeature, settings: TerminalAiSettings, dataDir: string): ClaimOptions {
   const model = featureModel(feature, settings)
   return {
     cwd: assistDir(dataDir),
-    ...(model === 'haiku' ? { model: HAIKU_WITHOUT_THINKING, maxThinkingTokens: 0 } : { model, settings: { effortLevel: 'low' } }),
+    model: model === 'haiku' ? HAIKU_MODEL_ID : model,
+    settings: { effortLevel: 'low' },
     appendSystemPrompt: FEATURE_PROMPTS[feature],
     title: FEATURE_TITLES[feature],
   }
@@ -91,7 +92,6 @@ export function coldQueryOptions(prewarmed: AssistProcessOptions, claimed: Assis
     ...prewarm,
     cwd: claim.cwd,
     ...(claim.model === undefined ? {} : { model: claim.model }),
-    ...(claim.maxThinkingTokens === undefined || claim.maxThinkingTokens === null ? {} : { maxThinkingTokens: claim.maxThinkingTokens }),
     ...(claim.settings?.effortLevel === undefined || claim.settings.effortLevel === null ? {} : { effort: claim.settings.effortLevel }),
     systemPrompt: claim.appendSystemPrompt === undefined ? prewarm.systemPrompt : `${String(prewarm.systemPrompt ?? '')}\n\n${claim.appendSystemPrompt}`,
   }

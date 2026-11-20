@@ -1,7 +1,7 @@
 # 135 — Одноразовые вызовы Haiku переходят на Haiku 5.5; thinking больше не отменяет Suggestion Terminal AI
 
 Type: task
-Status: open
+Status: claimed 2026-11-20T03:17Z
 Blocked by: none
 Source: слова владельца 2026-11-20 через Product Session, тема `proactive-runtime`: «Переходим на 5.5, без проблем. Это по
 прежнему очень дешевая и очень быстрая модель.» О правиле ADR-0058, по которому Suggestion отменяется на thinking: «Тогда

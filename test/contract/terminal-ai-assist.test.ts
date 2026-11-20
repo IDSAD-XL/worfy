@@ -80,7 +80,7 @@ class FakeQuery implements AssistQuery {
   /** The model answers `text` and the turn ends. */
   answer(text: string): void {
     this.push(
-      { type: 'system', subtype: 'init', claude_code_version: '2.1.289', apiKeySource: 'none', model: 'claude-haiku-4-5', plugins: [{ name: 'builtin-a', path: '/x' }] },
+      { type: 'system', subtype: 'init', claude_code_version: '2.1.289', apiKeySource: 'none', model: 'claude-haiku-5-5', plugins: [{ name: 'builtin-a', path: '/x' }] },
       { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] } },
       { type: 'result', subtype: 'success', is_error: false, result: text },
     )
@@ -242,7 +242,7 @@ describe('the assist process', () => {
     expect(service.state().process).toBe('busy')
     const spare = sdk.claimedSpare
     expect(spare).toBe(sdk.spares[0])
-    expect(spare.query?.options).toMatchObject({ cwd: join(dataDir, 'terminal-ai'), model: 'claude-haiku-4-5', maxThinkingTokens: 0 })
+    expect(spare.query?.options).toMatchObject({ cwd: join(dataDir, 'terminal-ai'), model: 'claude-haiku-5-5', settings: { effortLevel: 'low' } })
     spare.query?.answer('git status')
     expect(await answer).toEqual({ ok: true, command: 'git status', model: 'haiku' })
   })
@@ -329,7 +329,7 @@ describe('the assist process', () => {
     await answer
     expect(log).toContain('[terminal-ai] assist process ran a hook: UserPromptSubmit builtin-a:remind')
     expect(log).toContain('[terminal-ai] suggest: model haiku')
-    expect(log).toContain('[terminal-ai] assist process: Claude Code 2.1.289, apiKeySource none, model claude-haiku-4-5, plugins: builtin-a; hooks: not reported by init')
+    expect(log).toContain('[terminal-ai] assist process: Claude Code 2.1.289, apiKeySource none, model claude-haiku-5-5, plugins: builtin-a; hooks: not reported by init')
     const text = log.join('\n')
     expect(text).not.toContain('git sta')
     expect(text).not.toContain('secret-project')
@@ -436,13 +436,15 @@ describe('a request in flight', () => {
     expect(sdk.spares[0]?.closed).toBe(true)
   })
 
-  it('cancels a Suggestion whose stream starts with thinking, and takes a Next command that thinks', async () => {
+  // Haiku 5.5 cannot run without thinking (worfy-polish 135, ADR-0058 Amendment 2026-11-20): only the 5 s limit or an
+  // answer that no longer continues the line ends a Suggestion, never thinking.
+  it('takes a Suggestion whose stream starts with thinking, and a Next command that thinks', async () => {
     const thinking = { type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } } }
     const { service, sdk } = world()
     const { answer: suggest } = await start(service, 'suggest')
     sdk.claimedSpare.query?.push(thinking)
-    expect(await suggest).toEqual({ ok: false, reason: 'thinking' })
-    expect(sdk.spares[0]?.closed).toBe(true)
+    sdk.claimedSpare.query?.answer('git status')
+    expect(await suggest).toEqual({ ok: true, command: 'git status', model: 'haiku' })
 
     const { answer: next } = await start(service, 'next', { line: '' })
     sdk.claimedSpare.query?.push(thinking)
@@ -450,12 +452,35 @@ describe('a request in flight', () => {
     expect(await next).toMatchObject({ ok: true, command: 'git push' })
   })
 
-  it('cancels a Suggestion on option_not_applied, and takes the answer of a Fix with a line in the log', async () => {
+  it('never puts the text of thinking into a Suggestion, whether the turn ends with a result or not', async () => {
+    const thought = 'rm -rf ~ would be wrong here, so git status'
+    const thinkingStream = [
+      { type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } } },
+      { type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: thought } } },
+    ]
+    const turn = (result: boolean): unknown[] => [
+      ...thinkingStream,
+      { type: 'assistant', message: { role: 'assistant', content: [{ type: 'thinking', thinking: thought, signature: 's' }] } },
+      { type: 'assistant', message: { role: 'assistant', content: [{ type: 'redacted_thinking', data: 'x' }, { type: 'text', text: 'git status' }] } },
+      ...(result ? [{ type: 'result', subtype: 'success', is_error: false, result: 'git status' }] : []),
+    ]
+    const { service, sdk } = world()
+    for (const result of [true, false]) {
+      const { answer } = await start(service, 'suggest', { line: 'git st' })
+      sdk.claimedSpare.query?.push(...turn(result))
+      sdk.claimedSpare.query?.end()
+      expect(await answer).toEqual({ ok: true, command: 'git status', model: 'haiku' })
+    }
+  })
+
+  it('takes the answer of a Suggestion and of a Fix on option_not_applied, with a line in the log', async () => {
     const { service, sdk, log } = world()
     const { answer: suggest } = await start(service, 'suggest')
-    sdk.claimedSpare.rejectClaim(new Error('option_not_applied: maxThinkingTokens'))
-    expect(await suggest).toEqual({ ok: false, reason: 'option-not-applied' })
-    expect(sdk.spares[0]?.closed).toBe(true)
+    sdk.claimedSpare.rejectClaim(new Error('option_not_applied: effortLevel'))
+    await settle()
+    sdk.claimedSpare.query?.answer('git status')
+    expect(await suggest).toMatchObject({ ok: true, command: 'git status' })
+    expect(log).toContain('[terminal-ai] suggest: option_not_applied; the answer is taken')
 
     const { answer: fix } = await start(service, 'fix', { exitCode: 1 })
     sdk.claimedSpare.rejectClaim(new Error('option_not_applied: model'))
@@ -566,7 +591,7 @@ describe('Limits and refusals', () => {
     const { service, sdk } = world()
     service.setSettings({ nextCommandModel: 'haiku' })
     const { answer: next } = await start(service, 'next', { line: '' })
-    expect(sdk.claimedSpare.query?.options).toMatchObject({ model: 'claude-haiku-4-5', maxThinkingTokens: 0 })
+    expect(sdk.claimedSpare.query?.options).toMatchObject({ model: 'claude-haiku-5-5', settings: { effortLevel: 'low' } })
     sdk.claimedSpare.query?.answer('ls')
     expect(await next).toEqual({ ok: true, command: 'ls', model: 'haiku' })
   })
@@ -837,7 +862,7 @@ describe('the fake backend and the real one', () => {
     expect(lines).toEqual([
       {
         feature: 'suggest',
-        model: 'claude-haiku-4-5',
+        model: 'claude-haiku-5-5',
         context: { line: 'git st', request: null, cwd: '/Users/someone/work', commands: [`GH_TOKEN=${REDACTED} gh pr list`], branch: null, exitCode: 0, output: null },
         cancelled: false,
         cold: false,

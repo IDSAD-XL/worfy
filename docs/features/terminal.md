@@ -311,13 +311,18 @@ and Fix work. Only the panel does not, because the ⌘I shortcut exists on macOS
 
 | Function | Model | Time limit |
 |---|---|---|
-| Suggestion | Haiku, no thinking | 5 s |
-| Next command | Sonnet at low effort, or Haiku by Settings | 8 s |
+| Suggestion | Haiku 5.5 at low effort | 5 s |
+| Next command | Sonnet at low effort, or Haiku 5.5 at low effort by Settings | 8 s |
 | Command request | Sonnet at low effort | 30 s |
 | Fix | Sonnet at low effort | 30 s |
 
-- **A Suggestion that would come late is dropped.** It ends when the model starts to think, or when the process could not
-  apply the setting that turns thinking off.
+- **Haiku is named by its id.** Requests on Haiku name `claude-haiku-5-5`, never the alias `haiku`, so the model stays the
+  same when the alias moves. Haiku 5.5 cannot run without thinking: requests send no thinking switch, and low effort keeps
+  the thinking short.
+- **A Suggestion that would come late is dropped.** Only its 5 s limit or an answer that no longer continues the typed line
+  ends it. Thinking does not. Neither does a process that could not apply a setting: that writes a line in the log, and the
+  answer is taken. The text of thinking never reaches the Suggestion: the answer is made of the text and the result of the
+  turn only.
 - **A refused process.** When a process refuses a request before the prompt went out, Command request and Fix retry once by
   starting a new process, and Suggestion and Next command give up.
 - **The answer is one command.** Its first line is taken, without backticks, a code block or a `$ ` prompt.
