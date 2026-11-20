@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-20T03:43Z
+PR: #2065
 Blocked by: 02, 03, 04, 05
 Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решено без владельца», 10; «Готово, когда», пункт о документах
 
