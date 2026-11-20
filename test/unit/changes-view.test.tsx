@@ -9,7 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ChangesNode from '../../src/renderer/canvas/nodes/ChangesNode'
 import type { CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
 import { LayoutOpsContext, type LayoutOps } from '../../src/renderer/canvas/useLayout'
-import { DiffPane, type DiffPaneProps } from '../../src/renderer/changes/DiffPane'
+import { DiffPane, type ChangesThread, type DiffPaneProps } from '../../src/renderer/changes/DiffPane'
+import { FileTree } from '../../src/renderer/changes/FileTree'
 import { fileKey, sideBySideRows, windowOf } from '../../src/renderer/changes/diff-window'
 import type { ChangedFile, DiffLine, FileDiff } from '../../src/shared/changes/types'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
@@ -120,6 +121,7 @@ function answer(channel: string, input: Record<string, unknown>): unknown {
       const path = input.path as string
       if (path === 'assets/logo.png') return { file: { kind: 'binary', path, oldSize: 12 * 1024, newSize: 14 * 1024 } }
       if (path === 'data/catalog.json' && input.expand !== true) return { file: { kind: 'folded', path, reason: 'large', lines: 2100 } }
+      if (path === 'data/big.json') return { file: { kind: 'no-patch', path, url: 'https://github.com/acme/api/blob/b0b/data/big.json' } }
       if (path === 'src/orders/cart.ts') return { file: CART_DIFF }
       return { file: { ...CART_DIFF, path } }
     }
@@ -403,7 +405,7 @@ describe('a late answer of a read gone by (round 1 of the review)', () => {
   it('a patch read for an earlier Refresh that answers after the current one is dropped, not left «Loading…»', async () => {
     const entries = [{ key: fileKey('demo', 'src/orders/cart.ts'), repo: 'demo', file: changed('src/orders/cart.ts') }]
     const pane = (generation: number) => {
-      const props: DiffPaneProps = { projectId: PROJECT, ticket: { epic: 'demo', num: 3 }, scope: { kind: 'all' }, hideWhitespace: false, layout: 'inline', wrap: false, entries, several: false, selected: null, generation }
+      const props: DiffPaneProps = { projectId: PROJECT, subject: { kind: 'ticket', epic: 'demo', num: 3 }, scope: { kind: 'all' }, hideWhitespace: false, layout: 'inline', wrap: false, entries, several: false, selected: null, generation }
       return <DiffPane {...props} />
     }
     const release = holdOnce('changes.file')
@@ -501,5 +503,93 @@ describe('diff-window.ts', () => {
     expect(windowOf(heights, 0, 200)).toEqual({ start: 0, end: 6, before: 0, after: 9400 })
     expect(windowOf(heights, 5000, 200)).toEqual({ start: 46, end: 56, before: 4600, after: 4400 })
     expect(windowOf(heights, 9800, 200)).toEqual({ start: 94, end: 100, before: 9400, after: 0 })
+  })
+})
+
+// The diff of a pull request (worfy-pr-review ticket 06): DiffPane with the subject `pr`, the review threads of GitHub
+// on their lines and the outdated ones under the file's header, a file GitHub sent without patch, «View file on
+// GitHub», and the tree's line when GitHub listed only the first 3,000 files.
+describe('the diff of a pull request', () => {
+  const PR = { kind: 'pr', repo: 'acme/api', number: 7, headOid: 'b0b'.padEnd(40, '0'), baseOid: 'c0c'.padEnd(40, '0') } as const
+  const URL = 'https://github.com/acme/api/blob/b0b/src/orders/cart.ts'
+  const comment = (id: string, author: string, body: string) => ({ id, databaseId: 1, author, body, createdAt: '2026-11-19T10:00:00Z', url: `https://github.com/acme/api/pull/7#${id}` })
+  const thread = (id: string, line: number | null, over: Partial<ChangesThread> = {}): ChangesThread => ({ id, isResolved: false, isOutdated: false, path: 'src/orders/cart.ts', line, viewerCanReply: true, comments: [comment(`c-${id}`, 'bob', `Why ${id}?`)], ...over })
+  const entries = [
+    { key: fileKey('acme/api', 'src/orders/cart.ts'), repo: 'acme/api', file: changed('src/orders/cart.ts', { url: URL }) },
+    { key: fileKey('acme/api', 'data/big.json'), repo: 'acme/api', file: changed('data/big.json', { additions: 30_000, deletions: 0, url: 'https://github.com/acme/api/blob/b0b/data/big.json' }) },
+  ]
+  const pane = (over: Partial<DiffPaneProps> = {}) => <DiffPane projectId={PROJECT} subject={PR} scope={{ kind: 'all' }} hideWhitespace={false} layout="inline" wrap={false} entries={entries} several={false} selected={null} generation={0} {...over} />
+
+  it('reads each file with the PR as its subject', async () => {
+    render(pane())
+    await settle()
+    const asked = calls.filter((each) => each.channel === 'changes.file')
+    expect(asked.map((each) => [each.input.subject, each.input.repo, each.input.path])).toEqual([
+      [PR, 'acme/api', 'src/orders/cart.ts'],
+      [PR, 'acme/api', 'data/big.json'],
+    ])
+  })
+
+  it('a thread stands under its line of the new side; an outdated one and one without a line under the header; Reply goes to the PR inbox', async () => {
+    const onReply = vi.fn()
+    render(pane({ threads: [thread('t1', 3), thread('t2', 9, { isOutdated: true }), thread('t3', null, { viewerCanReply: false }), thread('t4', 3, { path: 'other.ts' })], onReply }))
+    await settle()
+    const rows = screen.getAllByTestId('changes-line')
+    const added = rows.find((row) => row.getAttribute('data-line') === '3' && row.getAttribute('data-kind') === 'add')!
+    const under = added.nextElementSibling as HTMLElement
+    expect(under.getAttribute('data-testid')).toBe('changes-thread')
+    expect(under.getAttribute('data-thread-id')).toBe('t1')
+    expect(within(under).getByText('Why t1?')).toBeTruthy()
+    expect(within(under).getByText(/open thread on GitHub/u)).toBeTruthy()
+    const outdated = screen.getByTestId('changes-outdated')
+    expect(within(outdated).getByText('2 outdated threads')).toBeTruthy()
+    expect(within(outdated).getAllByTestId('changes-thread').map((each) => each.getAttribute('data-thread-id'))).toEqual(['t2', 't3'])
+    // A thread of a file that is not in the diff stands nowhere.
+    expect(screen.queryByText('Why t4?')).toBeNull()
+    // Reply only where GitHub lets the viewer reply.
+    expect(screen.getAllByTestId('changes-thread-reply')).toHaveLength(2)
+    fireEvent.click(within(under).getByTestId('changes-thread-reply'))
+    expect(onReply).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }))
+  })
+
+  it('without threads there is no thread and no Reply', async () => {
+    render(pane())
+    await settle()
+    expect(screen.queryByTestId('changes-thread')).toBeNull()
+    expect(screen.queryByTestId('changes-outdated')).toBeNull()
+  })
+
+  it('a file without patch reads «Large diff · Open on GitHub»; a file read from GitHub has «View file on GitHub»; both open the system browser', async () => {
+    render(pane())
+    await settle()
+    const note = screen.getByTestId('changes-no-patch')
+    expect(note.textContent).toBe('Large diff · Open on GitHub')
+    expect(screen.getAllByTestId('changes-view-on-github')).toHaveLength(2)
+    fireEvent.click(within(note).getByTestId('changes-open-github'))
+    fireEvent.click(screen.getAllByTestId('changes-view-on-github')[0]!)
+    await settle()
+    expect(calls.filter((each) => each.channel === 'shell.openExternal').map((each) => each.input.url)).toEqual(['https://github.com/acme/api/blob/b0b/data/big.json', URL])
+  })
+
+  it('a Ticket’s file has no «View file on GitHub»', async () => {
+    render(pane({ subject: { kind: 'ticket', epic: 'demo', num: 3 }, entries: [{ key: fileKey('demo', 'src/orders/cart.ts'), repo: 'demo', file: changed('src/orders/cart.ts') }] }))
+    await settle()
+    expect(screen.queryByTestId('changes-view-on-github')).toBeNull()
+  })
+
+  it('the tree says when GitHub listed only the first 3,000 files', () => {
+    const props = { repos: [{ repo: 'acme/big', files: [changed('a.ts')], error: null }], filter: '', onFilter: () => undefined, selected: null, onSelect: () => undefined, workflowOpen: false, onWorkflowOpen: () => undefined, toggled: new Set<string>(), onToggle: () => undefined }
+    const { rerender } = render(<FileTree {...props} truncatedAt={3_000} />)
+    expect(screen.getByTestId('changes-truncated').textContent).toBe('GitHub lists the first 3,000 files')
+    rerender(<FileTree {...props} truncatedAt={null} />)
+    expect(screen.queryByTestId('changes-truncated')).toBeNull()
+  })
+
+  it('the Node of a Ticket asks `changes.*` with the Ticket as its subject', async () => {
+    render(node({ ticket: { epic: 'demo', num: 3 } }))
+    await settle()
+    const list = calls.find((each) => each.channel === 'changes.list')
+    expect(list?.input.subject).toMatchObject({ kind: 'ticket', epic: 'demo', num: 3 })
+    expect(list?.input).not.toHaveProperty('ticket')
   })
 })

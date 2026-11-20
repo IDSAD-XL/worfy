@@ -10,8 +10,8 @@ an agent that commits in the same worktree at the same moment. New to the terms:
 
 #### What is read
 
-The subject is a Ticket. In each repository of the Project, Changes reads the Ticket's worktree: the worktree whose
-branch names the Ticket (`<epic>/<NN>`, or the branch of its `Branch:` line). It may be the checkout itself, when the
+The subject is a Ticket, or a pull request ([A pull request](#a-pull-request)). In each repository of the Project,
+Changes reads the Ticket's worktree: the worktree whose branch names the Ticket (`<epic>/<NN>`, or the branch of its `Branch:` line). It may be the checkout itself, when the
 Ticket's branch is checked out there (`parallel: single`). Without a worktree, Changes reads the Ticket's branch: a
 local branch that names the Ticket and is checked out nowhere. A Project over several repositories gives one answer
 per repository, and the repository is the top level of every answer. A repository where the Ticket has neither a
@@ -316,3 +316,50 @@ another Session takes the comments, «To» keeps a Session with comments, the lo
 comment's own scope, a changed popover stays, Read only), `test/contract/changes-targets.test.ts` (who is in «To» and the
 default), `test/e2e/changes-comments.spec.ts` (two comments, a reload, one message to the fake agent, the block in the
 chat opens the Node on its line).
+
+## A pull request
+
+### Behaviour
+
+The subject of Changes may be a pull request: its repository `owner/name`, its number, its head commit and its base
+commit. The channels of Changes read it; no screen opens one yet — the Review mode of the Pull requests tab will
+(worfy-pr-review, a later Ticket). The Changes Node on the Canvas shows a Ticket.
+
+- **Read locally when it can be.** When the PR's repository is the `origin` of a checkout of the Project and both its
+  commits are in that checkout, the diff is read with the same reading git as a Ticket's: the PR is a branch checked
+  out nowhere whose base is the PR's base commit. «Show whole file» works. worfy never fetches: a commit that is not
+  in the checkout sends the read to GitHub instead.
+- **Else read from GitHub.** The files come from GitHub's list of the PR's files, page after page. GitHub lists at
+  most 3,000 files of a PR; past that the tree says «GitHub lists the first 3,000 files». A file GitHub sends without
+  a patch — too large, or binary — reads «Large diff · Open on GitHub». There is no context past the hunks GitHub
+  sent, so a file of such a diff has «View file on GitHub» in its header, and Hide whitespace does not change it. The
+  answer is kept in memory by the PR's head: reading it again for the same head asks GitHub nothing.
+- **Scopes of a PR.** All changes (the base against the head), Commit (the PR's commits, newest first), and Since my
+  review — the scope Compare against with a commit in place of a branch: the head against the commit the review was
+  on, a three-dot diff as GitHub's compare. A PR has no Uncommitted and no branches to compare against.
+- **Review threads.** The PR's review threads on GitHub, as the PR inbox reads them, stand under the line of the new
+  side they are on; an outdated thread, or one without a line, stands in a list under its file's header. A thread the
+  viewer may answer has Reply, which opens the reply draft of the PR inbox; nothing new is sent from the diff.
+
+### How it works
+
+GitHub is read only with `gh api <path>` — a GET, never with `--method` or a field — as the GitHub account the
+Project's Profile names, and only while an open screen asks for the files, a file or the commits. The paths are the
+PR's files (`pulls/{n}/files`), its commits (`pulls/{n}/commits`), one commit (`commits/{sha}`) and Since my review
+(`compare/{a}...{head}`). A patch of GitHub is the hunks of a git patch without its headers: it is read by the same
+reading of git's output as a local diff. Why: [ADR-0110](../adr/0110-changes-reads-git-writes-nothing.md), its
+Amendment of 2026-11-20.
+
+### Implementation
+
+- `src/main/changes/github.ts` — the files of GitHub as the screen lists them, a patch into hunks, the pages, the
+  memory by head.
+- `src/main/ipc/changes.ts` — where a PR is read: the checkout whose `origin` is its repository and which has both
+  commits, else GitHub.
+- `src/renderer/changes/DiffPane.tsx` — the threads on their lines and the outdated ones, «Large diff · Open on
+  GitHub», «View file on GitHub»; `src/renderer/changes/FileTree.tsx` — «GitHub lists the first 3,000 files».
+
+Tests: `test/unit/changes-github-patch.test.ts` (a patch of GitHub into hunks, a file without patch, a rename, a
+binary file), `test/contract/changes-pr.test.ts` (the local path and the GitHub path over the gh stand-in: 3,000 files,
+a file without patch, the memory by head, Commit, Since my review, no fetch, the index untouched, no `--method`),
+`test/unit/changes-view.test.tsx` (the threads, the notes and the links of a PR's diff).

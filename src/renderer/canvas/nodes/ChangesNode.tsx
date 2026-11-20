@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { ChangesCommit, ChangesScope } from '../../../shared/changes/types'
+import type { ChangesCommit, ChangesScope, ChangesTicketRef } from '../../../shared/changes/types'
 import { failureReason } from '../../../shared/ipc/channels'
 // The channels must be declared in this window too: a `project` channel goes to the Machine of the Project (ipc.ts).
 import '../../../shared/ipc/changes'
 import { repoFactsOf } from '../../../shared/workflow/types'
 import { changesScopeOf, changesSubjectOf, CHANGES_KIND, CHANGES_SIZE, type ChangesSubject } from '../../changes/open'
-import { DiffPane, type ChangesTicket, type DiffPaneHandle } from '../../changes/DiffPane'
+import { DiffPane, type DiffPaneHandle } from '../../changes/DiffPane'
 import { orderedFiles, scopeKey, type DiffLayout, type RepoFiles } from '../../changes/diff-window'
 import { FileTree } from '../../changes/FileTree'
 import { useLineComments } from '../../changes/line-comments'
@@ -64,7 +64,7 @@ function Screen({ id, projectId, root, subject, data, selected }: { id: string; 
   const found = model?.tickets.find((each) => each.epic === subject.epic && each.num === subject.num)
   const branch = found?.branch ?? null
   const reposKey = found === undefined ? '' : repoFactsOf(found).repos.join('\n')
-  const ticket = useMemo<ChangesTicket>(() => ({ epic: subject.epic, num: subject.num, branch, ...(reposKey === '' ? {} : { repos: reposKey.split('\n') }) }), [subject.epic, subject.num, branch, reposKey])
+  const ticket = useMemo<ChangesTicketRef>(() => ({ kind: 'ticket', epic: subject.epic, num: subject.num, branch, ...(reposKey === '' ? {} : { repos: reposKey.split('\n') }) }), [subject.epic, subject.num, branch, reposKey])
   // The model names the Ticket's `Branch:` and `Repo:` lines: the reads wait for it, unless it failed.
   const ready = model !== undefined || workflowError !== undefined
 
@@ -92,7 +92,7 @@ function Screen({ id, projectId, root, subject, data, selected }: { id: string; 
     const of = scopesFor
     // An answer for a key that is no longer the Node's is dropped: a late one would put the screen back on «Reading…».
     let current = true
-    void invoke('changes.scopes', { projectId, ticket }).then((result) => {
+    void invoke('changes.scopes', { projectId, subject: ticket }).then((result) => {
       if (!current) return
       if (!result.ok) {
         setScopesRead({ of, value: null, error: failureReason('changes.scopes', result.error) })
@@ -102,7 +102,7 @@ function Screen({ id, projectId, root, subject, data, selected }: { id: string; 
       // The Commit items of the menu: the Ticket's commits in each repository that has a base.
       for (const repo of result.value.repos) {
         if (!repo.scopes.includes('commit') || repo.base === null) continue
-        void invoke('changes.commits', { projectId, ticket, repo: repo.repo }).then((commits) => {
+        void invoke('changes.commits', { projectId, subject: ticket, repo: repo.repo }).then((commits) => {
           if (!current || !commits.ok) return
           setCommitsRead((previous) => ({ of, byRepo: { ...(previous?.of === of ? previous.byRepo : {}), [repo.repo]: commits.value.commits } }))
         })
@@ -122,7 +122,7 @@ function Screen({ id, projectId, root, subject, data, selected }: { id: string; 
     if (!ready || !hasRepos) return
     const of = listFor
     let current = true
-    void invoke('changes.list', { projectId, ticket, scope, hideWhitespace }).then((result) => {
+    void invoke('changes.list', { projectId, subject: ticket, scope, hideWhitespace }).then((result) => {
       if (!current) return
       setListRead(result.ok ? { of, value: result.value.repos, error: null } : { of, value: null, error: failureReason('changes.list', result.error) })
     })
@@ -229,7 +229,7 @@ function Screen({ id, projectId, root, subject, data, selected }: { id: string; 
           <DiffPane
             ref={pane}
             projectId={projectId}
-            ticket={ticket}
+            subject={ticket}
             scope={scope}
             hideWhitespace={hideWhitespace}
             layout={layout}

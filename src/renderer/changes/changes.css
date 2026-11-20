@@ -523,6 +523,24 @@
 .w-cl__muted {
   color: var(--text-muted);
 }
+/* A review thread of GitHub on the diff of a pull request (worfy-pr-review ticket 06): the look of a comment on lines
+   with the accent at its edge; the outdated threads of a file stand in a list under its header. */
+.w-cl--github {
+  border-left: 3px solid var(--accent);
+}
+.w-cl__comment + .w-cl__comment {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.w-cl__who {
+  color: var(--text);
+  font-weight: 600;
+}
+.w-changes__outdated-head {
+  margin: 6px var(--space-3) 0 110px;
+  font-size: var(--text-11);
+}
 .w-ctray {
   flex: none;
   display: flex;

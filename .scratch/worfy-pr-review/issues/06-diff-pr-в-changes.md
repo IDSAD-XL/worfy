@@ -1,7 +1,7 @@
 # 06 — Diff PR в Changes: предмет `pr`, локальный diff или diff из GitHub, нити ревью на строках, Amendment ADR-0110
 
 Type: task
-Status: open
+Status: claimed 2026-11-20T03:43Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 6; «Факты GitHub API» → «Diff и файлы»; «Решения по реализации», 4;
 «Решения по test-ам», Seam 1 и 2; [critic](../../../docs/product/critic/worfy-pr-review-2026-11-20.md), возражение 1

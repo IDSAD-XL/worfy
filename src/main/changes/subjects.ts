@@ -37,7 +37,8 @@ export interface RepoSubject {
   checkout: string
   /** Where git runs: the worktree in the OS's own form (nativePath), or the checkout for a branch checked out nowhere. */
   cwd: string
-  kind: 'worktree' | 'branch'
+  /** A pull request (worfy-pr-review ticket 06) is read as a branch checked out nowhere, with its own base. */
+  kind: 'worktree' | 'branch' | 'pr'
   branch: string
   /** What the changes end at: `HEAD` of the worktree, `refs/heads/<branch>` of a branch. */
   head: string

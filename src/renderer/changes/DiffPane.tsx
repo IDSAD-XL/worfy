@@ -10,20 +10,21 @@
 // (`isPicked`); the pointer on the diff goes to `lineEvents`, which finds the line by the attributes of its cells
 // (`data-side`, `data-line`, and the file's `data-key` on its hunk). A line asked for (scrollToLine: a chip of the
 // tray, a block of a sent message) is brought into view once its file is read, and flashes.
-import { Fragment, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type HTMLAttributes, type ReactNode, type Ref } from 'react'
-import type { ChangesScope, DiffHunk, DiffLine, FileDiff } from '../../shared/changes/types'
+//
+// The subject is a Ticket or a pull request (worfy-pr-review ticket 06). A PR's review threads of GitHub (`threads`, as
+// the PR inbox reads them) stand under the line of the new side they are on; an outdated one, or one without a line,
+// in a list under the file's header. A file GitHub sent without its patch reads «Large diff · Open on GitHub»; a file
+// of a diff read from GitHub has «View file on GitHub» in its header (no context past the hunks GitHub sent).
+import { Fragment, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type HTMLAttributes, type ReactNode, type Ref } from 'react'
+import type { ChangesScope, ChangesSubjectRef, DiffHunk, DiffLine, FileDiff } from '../../shared/changes/types'
 import { failureReason } from '../../shared/ipc/channels'
+import type { PrInboxThread } from '../../shared/ipc/pr-inbox'
 import { invoke } from '../ipc'
 import { FILE_GAP, FILE_HEADER_HEIGHT, NOTE_HEIGHT, count, lineNumber, hunkHeight, offsetsOf, sideBySideRows, sizeLabel, unreadHeight, windowOf, type DiffLayout, type FileEntry } from './diff-window'
 import { FileStats, StatusLetter } from './FileTree'
 
-/** The Ticket as `changes.*` take it. */
-export interface ChangesTicket {
-  epic: string
-  num: number
-  branch?: string | null
-  repos?: string[]
-}
+/** A review thread of GitHub on the diff of a pull request, as the PR inbox reads it (worfy-pr-review ticket 06). */
+export type ChangesThread = PrInboxThread
 
 /** The side of a line its number belongs to. */
 export type LineSide = 'old' | 'new'
@@ -44,7 +45,8 @@ const SEEK_MS = 10_000
 
 export interface DiffPaneProps {
   projectId: string
-  ticket: ChangesTicket
+  /** The Ticket or the pull request, as `changes.*` take it. */
+  subject: ChangesSubjectRef
   scope: ChangesScope
   hideWhitespace: boolean
   layout: DiffLayout
@@ -66,6 +68,10 @@ export interface DiffPaneProps {
   lineEvents?: Pick<HTMLAttributes<HTMLDivElement>, 'onClick' | 'onContextMenu' | 'onMouseUp' | 'onMouseDown'>
   /** A file's patch was read: its hunks, and the scope, Hide whitespace and Refresh it was read for (ticket 05). */
   onFileRead?: (entry: FileEntry, diff: FileDiff, readOf: FileReadOf) => void
+  /** The review threads of a pull request on GitHub; none by default. */
+  threads?: readonly ChangesThread[]
+  /** Reply in a thread: the reply draft of the PR inbox; without it a thread has no Reply. */
+  onReply?: (thread: ChangesThread) => void
   ref?: Ref<DiffPaneHandle>
 }
 
@@ -82,6 +88,7 @@ type Block =
   | { kind: 'head'; key: string; entry: FileEntry; last: boolean }
   | { kind: 'hunk'; key: string; entry: FileEntry; hunk: DiffHunk; last: boolean }
   | { kind: 'note'; key: string; entry: FileEntry; note: Note; last: boolean }
+  | { kind: 'outdated'; key: string; entry: FileEntry; threads: readonly ChangesThread[]; last: boolean }
 
 type Note =
   | { kind: 'loading' }
@@ -90,6 +97,7 @@ type Note =
   | { kind: 'binary'; oldSize: number | null; newSize: number | null }
   | { kind: 'binary-unread' }
   | { kind: 'empty'; oldMode: string | null; newMode: string | null }
+  | { kind: 'no-patch'; url: string | null }
 
 /** In a test the scroll box has no height: the window is then as tall as a screen of this many px. */
 const FALLBACK_VIEWPORT = 800
@@ -108,13 +116,38 @@ function noteOf(entry: FileEntry, state: FileState | undefined, expanded: boolea
   const { diff } = state
   if (diff.kind === 'folded') return { kind: 'folded', reason: diff.reason, lines: diff.lines }
   if (diff.kind === 'binary') return { kind: 'binary', oldSize: diff.oldSize, newSize: diff.newSize }
+  if (diff.kind === 'no-patch') return { kind: 'no-patch', url: diff.url }
   return diff.hunks.length === 0 ? { kind: 'empty', oldMode: diff.oldMode, newMode: diff.newMode } : null
 }
 
 /** A file's patch needs reading: it is not read, and not folded unasked. */
 const needsRead = (entry: FileEntry, state: FileState | undefined, expanded: boolean): boolean => state === undefined && (entry.file.fold === null || expanded)
 
-function blocksOf(entries: readonly FileEntry[], files: ReadonlyMap<string, FileState>, expanded: ReadonlySet<string>, collapsed: ReadonlySet<string>): Block[] {
+/** The threads of a PR by path: those on a line of the new side, by line, and the others (outdated, or without a line). */
+interface ThreadsByPath {
+  onLine: ReadonlyMap<string, ReadonlyMap<number, readonly ChangesThread[]>>
+  elsewhere: ReadonlyMap<string, readonly ChangesThread[]>
+}
+
+function threadsByPath(threads: readonly ChangesThread[]): ThreadsByPath {
+  const onLine = new Map<string, Map<number, ChangesThread[]>>()
+  const elsewhere = new Map<string, ChangesThread[]>()
+  for (const thread of threads) {
+    if (thread.path === null) continue
+    if (thread.isOutdated || thread.line === null) {
+      elsewhere.set(thread.path, [...(elsewhere.get(thread.path) ?? []), thread])
+      continue
+    }
+    const lines = onLine.get(thread.path) ?? new Map<number, ChangesThread[]>()
+    lines.set(thread.line, [...(lines.get(thread.line) ?? []), thread])
+    onLine.set(thread.path, lines)
+  }
+  return { onLine, elsewhere }
+}
+
+const NO_THREADS: ThreadsByPath = { onLine: new Map(), elsewhere: new Map() }
+
+function blocksOf(entries: readonly FileEntry[], files: ReadonlyMap<string, FileState>, expanded: ReadonlySet<string>, collapsed: ReadonlySet<string>, threads: ThreadsByPath): Block[] {
   const blocks: Block[] = []
   for (const entry of entries) {
     if (collapsed.has(entry.key)) {
@@ -122,6 +155,8 @@ function blocksOf(entries: readonly FileEntry[], files: ReadonlyMap<string, File
       continue
     }
     blocks.push({ kind: 'head', key: `${entry.key}\u0000head`, entry, last: false })
+    const outdated = threads.elsewhere.get(entry.file.path)
+    if (outdated !== undefined) blocks.push({ kind: 'outdated', key: `${entry.key}\u0000outdated`, entry, threads: outdated, last: false })
     const open = expanded.has(entry.key)
     const state = files.get(readKey(entry.key, open))
     const note = noteOf(entry, state, open)
@@ -139,6 +174,7 @@ function estimate(block: Block, layout: DiffLayout): number {
   const gap = block.last ? FILE_GAP : 0
   if (block.kind === 'head') return FILE_HEADER_HEIGHT + gap
   if (block.kind === 'hunk') return hunkHeight(block.hunk, layout) + gap
+  if (block.kind === 'outdated') return NOTE_HEIGHT * (block.threads.length + 1) + gap
   return (block.note.kind === 'loading' ? unreadHeight(block.entry.file) : NOTE_HEIGHT) + gap
 }
 
@@ -177,11 +213,26 @@ interface RowsProps {
   renderGutter: DiffPaneProps['renderGutter']
   renderBelow: DiffPaneProps['renderBelow']
   isPicked: DiffPaneProps['isPicked']
+  /** The PR's threads on the lines of this file's new side, by line. */
+  threads: ReadonlyMap<number, readonly ChangesThread[]> | undefined
+  onReply: DiffPaneProps['onReply']
 }
 
-function HunkRows({ hunk, entry, layout, renderGutter, renderBelow, isPicked }: RowsProps) {
+function HunkRows({ hunk, entry, layout, renderGutter, renderBelow, isPicked, threads, onReply }: RowsProps) {
   const gutter = (line: DiffLine, side: LineSide) => renderGutter?.(line, side, entry) ?? null
-  const below = (line: DiffLine, side: LineSide) => renderBelow?.(line, side, entry) ?? null
+  const below = (line: DiffLine, side: LineSide) => {
+    const own = renderBelow?.(line, side, entry) ?? null
+    const on = side === 'new' && line.newLine !== null ? threads?.get(line.newLine) : undefined
+    if (on === undefined) return own
+    return (
+      <>
+        {on.map((thread) => (
+          <ThreadView key={thread.id} thread={thread} onReply={onReply} />
+        ))}
+        {own}
+      </>
+    )
+  }
   const marks = (line: DiffLine, side: LineSide): string => (isPicked?.(line, side, entry) === true ? ' is-picked' : '')
   if (layout === 'inline') {
     return hunk.lines.map((line, index) => {
@@ -265,6 +316,19 @@ function NoteView({ note, onShow }: { note: Note; onShow: () => void }) {
           Binary file
         </p>
       )
+    case 'no-patch':
+      return (
+        <p className="w-changes__note-text" data-testid="changes-no-patch">
+          Large diff ·{' '}
+          {note.url === null ? (
+            'GitHub sent no patch'
+          ) : (
+            <button type="button" className="w-changes__link nodrag" data-testid="changes-open-github" onClick={() => openOnGithub(note.url!)}>
+              Open on GitHub
+            </button>
+          )}
+        </p>
+      )
     case 'empty':
       return (
         <p className="w-changes__note-text w-changes__muted">
@@ -274,15 +338,49 @@ function NoteView({ note, onShow }: { note: Note; onShow: () => void }) {
   }
 }
 
+/** A page of GitHub opens in the system's browser. */
+function openOnGithub(url: string): void {
+  void invoke('shell.openExternal', { url }).then((result) => {
+    if (!result.ok) console.error('shell.openExternal failed:', result.error)
+  })
+}
+
+/** A review thread of GitHub: its last comments, oldest first, and Reply when the PR inbox can draft one. */
+function ThreadView({ thread, onReply }: { thread: ChangesThread; onReply: DiffPaneProps['onReply'] }) {
+  const state = thread.isResolved ? 'resolved thread' : 'open thread'
+  return (
+    <div className="w-cl w-cl--github nodrag" data-testid="changes-thread" data-thread-id={thread.id} data-path={thread.path ?? undefined} data-line={thread.line ?? undefined}>
+      {thread.comments.map((comment) => (
+        <div key={comment.id} className="w-cl__comment">
+          <div className="w-cl__head">
+            <span className="w-cl__who">{comment.author ?? 'ghost'}</span>
+            <span>· {state} on GitHub</span>
+          </div>
+          <div className="w-cl__text">{comment.body}</div>
+        </div>
+      ))}
+      {thread.comments.length === 0 ? <div className="w-cl__muted">{state} on GitHub</div> : null}
+      {onReply !== undefined && thread.viewerCanReply ? (
+        <div className="w-cl__bar">
+          <span className="w-qtray__spacer" />
+          <button type="button" className="w-changes__link" data-testid="changes-thread-reply" onClick={() => onReply(thread)}>
+            Reply
+          </button>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 const EMPTY_FILES: ReadonlyMap<string, FileState> = new Map()
 const EMPTY_HEIGHTS: ReadonlyMap<string, number> = new Map()
 
-export function DiffPane({ projectId, ticket, scope, hideWhitespace, layout, wrap, entries, several, selected, generation, renderGutter, renderBelow, isPicked, lineEvents, onFileRead, ref }: DiffPaneProps) {
+export function DiffPane({ projectId, subject, scope, hideWhitespace, layout, wrap, entries, several, selected, generation, renderGutter, renderBelow, isPicked, lineEvents, onFileRead, threads, onReply, ref }: DiffPaneProps) {
   const scroller = useRef<HTMLDivElement>(null)
   const [top, setTop] = useState(0)
   const [viewport, setViewport] = useState(0)
-  // What was read, for the scope, the whitespace, the Ticket and the Refresh it was read for.
-  const readFor = JSON.stringify([projectId, ticket, scope, hideWhitespace, generation])
+  // What was read, for the scope, the whitespace, the subject and the Refresh it was read for.
+  const readFor = JSON.stringify([projectId, subject, scope, hideWhitespace, generation])
   const [files, setFiles] = useState<{ of: string; map: ReadonlyMap<string, FileState> }>({ of: readFor, map: new Map() })
   const current = files.of === readFor ? files.map : EMPTY_FILES
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
@@ -292,7 +390,8 @@ export function DiffPane({ projectId, ticket, scope, hideWhitespace, layout, wra
   const [measured, setMeasured] = useState<{ of: string; map: ReadonlyMap<string, number> }>({ of: measuredFor, map: new Map() })
   const heightOf = measured.of === measuredFor ? measured.map : EMPTY_HEIGHTS
 
-  const blocks = blocksOf(entries, current, expanded, collapsed)
+  const byPath = useMemo(() => (threads === undefined || threads.length === 0 ? NO_THREADS : threadsByPath(threads)), [threads])
+  const blocks = blocksOf(entries, current, expanded, collapsed, byPath)
   const heights = blocks.map((block) => heightOf.get(block.key) ?? estimate(block, layout))
   const offsets = offsetsOf(heights)
   const slice = windowOf(heights, top, viewport || FALLBACK_VIEWPORT)
@@ -321,7 +420,7 @@ export function DiffPane({ projectId, ticket, scope, hideWhitespace, layout, wra
       const { file } = entry
       void invoke('changes.file', {
         projectId,
-        ticket,
+        subject,
         repo: entry.repo,
         scope,
         path: file.path,
@@ -540,7 +639,22 @@ export function DiffPane({ projectId, ticket, scope, hideWhitespace, layout, wra
                 {several ? <span className="w-changes__chip">{entry.repo}</span> : null}
                 {entry.file.workflow ? <span className="w-changes__chip">Workflow</span> : null}
                 {entry.file.untracked ? <span className="w-changes__chip">Untracked</span> : null}
+                {entry.file.url !== undefined ? (
+                  <button type="button" className="w-changes__link nodrag" data-testid="changes-view-on-github" onClick={() => openOnGithub(entry.file.url!)}>
+                    View file on GitHub
+                  </button>
+                ) : null}
               </div>
+            </div>
+          )
+        }
+        if (block.kind === 'outdated') {
+          return (
+            <div key={block.key} ref={measure} data-block={block.key} className={className} data-testid="changes-outdated" data-path={entry.file.path}>
+              <p className="w-changes__outdated-head w-changes__muted">{block.threads.length === 1 ? '1 outdated thread' : `${block.threads.length} outdated threads`}</p>
+              {block.threads.map((thread) => (
+                <ThreadView key={thread.id} thread={thread} onReply={onReply} />
+              ))}
             </div>
           )
         }
@@ -557,7 +671,7 @@ export function DiffPane({ projectId, ticket, scope, hideWhitespace, layout, wra
               {block.hunk.header}
               {block.hunk.section === '' ? null : ` ${block.hunk.section}`}
             </div>
-            <HunkRows hunk={block.hunk} entry={entry} layout={layout} renderGutter={renderGutter} renderBelow={renderBelow} isPicked={isPicked} />
+            <HunkRows hunk={block.hunk} entry={entry} layout={layout} renderGutter={renderGutter} renderBelow={renderBelow} isPicked={isPicked} threads={byPath.onLine.get(entry.file.path)} onReply={onReply} />
           </div>
         )
       })}

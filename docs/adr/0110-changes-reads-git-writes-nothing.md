@@ -82,3 +82,16 @@
   и уводит git от index, который видит агент; `diff.autoRefreshIndex=false` даёт то же без копии.
 - **Plumbing (`diff-index`, `diff-files`) вместо `git diff`.** Они не пишут index, но не умеют `--no-index` и сами не
   отсеивают stat-изменения; `git diff` с выключенным refresh проще и печатает тот же формат.
+
+## Amendments
+
+- 2026-11-20 — Changes читает GitHub для предмета `pr` (Epic `worfy-pr-review`, Ticket 06; решение владельца — принятый
+  spec Epic-а, раздел «Решения по реализации», 4). Предмет `pr` — `{ repo, number, headOid, baseOid }`. Если репозиторий
+  PR — `origin` одного из checkout-ов Project-а и оба commit-а в нём есть (`git cat-file -e`), diff считает тот же runner
+  этого ADR, без новых команд git: PR читается как ветка, не взятая ни в один worktree, с базой `baseOid`; fetch по-прежнему
+  не делается никогда — commit-а нет локально, значит, читаем GitHub. Иначе — `src/main/changes/github.ts`: только
+  `gh api <path>` (GET, без `--method` и полей) от аккаунта GitHub Project-а — `pulls/{n}/files` страницами (не больше
+  3 000 файлов), `pulls/{n}/commits`, `commits/{sha}`, `compare/{a}...{head}` (Since my review — scope `compare` с commit-ом
+  вместо ветки); только когда открытый экран просит `changes.list`, `changes.file` или `changes.commits`; ответ держится в
+  памяти main по head commit-у. Чтение GitHub ничего не пишет ни в репозиторий, ни на GitHub; contract test
+  `test/contract/changes-pr.test.ts` проверяет: ни одного `fetch`, `.git/index` не тронут, ни одного `--method` у gh.

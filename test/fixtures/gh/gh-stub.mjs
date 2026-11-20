@@ -79,6 +79,10 @@
 //     account of auth-status.json answers, and with none gh's "gh auth login" text, exit 4. Above 299 gh's line on
 //     stderr and exit 1. The body carries GH_TOKEN as `stub_token` and the token of every login as `stub_tokens`,
 //     so a test can tell that worfy never shows what gh printed.
+//   - rest.json: REST reads of a pull request's diff (worfy-pr-review ticket 06), `{"<path with its query>": <body>}`:
+//     `api repos/<o>/<r>/pulls/<n>/files?per_page=100&page=<k>`, `…/pulls/<n>/commits?…`, `…/commits/<sha>?…` and
+//     `…/compare/<a>...<b>` with exactly one argument after `api`, answered with the body named by that path, as JSON.
+//     A path the file does not name fails with HTTP 404, as GitHub answers for a PR or a commit it does not know.
 //   - offline: when it exists, every `api` call fails as gh does without a network ("error connecting to
 //     api.github.com", exit 1); the local commands (`auth status`, `auth token`) still answer.
 //   - hang-leak: when it exists, every `api` call prints to stderr one line with GH_TOKEN and the proxy URL that
@@ -187,6 +191,10 @@ if (args.length === 1 && args[0] === '--version') {
   notifications()
 } else if (args[0] === 'api' && args.length === 3 && args[1] === '-i' && /^repos\/[^/\s]+\/[^/\s]+$/.test(args[2])) {
   repoWithHeaders(args[2].slice('repos/'.length))
+} else if (args[0] === 'api' && args.length === 2 && /^repos\/[^/\s]+\/[^/\s]+\/(?:pulls|commits|compare)\//.test(args[1])) {
+  const answers = read('rest.json', {})
+  if (!Object.hasOwn(answers, args[1])) fail('gh: Not Found (HTTP 404)')
+  process.stdout.write(JSON.stringify(answers[args[1]]))
 } else if (args[0] === 'api' && /^repos\/[^/\s]+\/[^/\s]+$/.test(args[1] ?? '')) {
   const slug = args[1].slice('repos/'.length)
   const tokens = read('tokens.json', {})

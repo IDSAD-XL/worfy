@@ -9,7 +9,9 @@ export type ChangeStatus = (typeof CHANGE_STATUSES)[number]
 /**
  * The scopes of part 1. `all` — the Ticket's branch against the merge-base with the base, the files not in git
  * yet too; `uncommitted` — the work tree against HEAD, with the new files (only a Ticket with a worktree);
- * `commit` — one commit of the Ticket; `compare` — `all` with another branch in place of the base.
+ * `commit` — one commit of the Ticket; `compare` — `all` with another branch in place of the base. A pull request
+ * (worfy-pr-review ticket 06) has `all` (its base ↔ its head), `commit`, and `compare` with a commit as `ref`: Since
+ * my review, the head against the commit the review was on — a three-dot diff, as GitHub's `compare/{a}...{b}`.
  */
 export const SCOPE_KINDS = ['all', 'uncommitted', 'commit', 'compare'] as const
 export type ScopeKind = (typeof SCOPE_KINDS)[number]
@@ -48,6 +50,8 @@ export interface ChangedFile {
   workflow: boolean
   /** Why its patch comes folded; null when it comes whole. */
   fold: FoldReason | null
+  /** The file at the head on GitHub (`blob_url`): only in the diff of a PR read from GitHub (worfy-pr-review ticket 06). */
+  url?: string
 }
 
 /** One line of a hunk, with its numbers on the two sides. */
@@ -93,6 +97,11 @@ export type FileDiff =
   | { kind: 'folded'; path: string; reason: FoldReason; lines: number }
   /** «Binary file · 12 KB → 14 KB»: the sizes in bytes; null on the side the file is not on. */
   | { kind: 'binary'; path: string; oldSize: number | null; newSize: number | null }
+  /**
+   * «Large diff · Open on GitHub»: GitHub sent the file of a PR without its patch — too large, or binary (worfy-pr-review
+   * ticket 06). `url` is the file on GitHub; null when GitHub named none.
+   */
+  | { kind: 'no-patch'; path: string; url: string | null }
 
 /** One commit of the Ticket (`git log <merge-base>..HEAD`). */
 export interface ChangesCommit {
@@ -103,3 +112,27 @@ export interface ChangesCommit {
   date: string
   subject: string
 }
+
+/** The Ticket a Changes screen shows: its `Branch:` and `Repo:` lines, when it has them. */
+export interface ChangesTicketRef {
+  kind: 'ticket'
+  epic: string
+  num: number
+  branch?: string | null
+  repos?: string[]
+}
+
+/**
+ * A pull request a Changes screen shows (worfy-pr-review ticket 06): its repository `owner/name`, its number, and the
+ * two commits of its diff — the head and the base as GitHub names them (`headRefOid`, `baseRefOid`).
+ */
+export interface ChangesPrRef {
+  kind: 'pr'
+  repo: string
+  number: number
+  headOid: string
+  baseOid: string
+}
+
+/** What `changes.*` read: a Ticket, or a pull request. */
+export type ChangesSubjectRef = ChangesTicketRef | ChangesPrRef
