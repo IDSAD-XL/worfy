@@ -80,7 +80,7 @@ const UPSTREAM: Record<string, string> = {
 // sha256 of the files with the edits THIRD_PARTY.md lists, as this repository ships them: an edit
 // beyond the list changes the hash. A new edit updates THIRD_PARTY.md and this map together.
 const EDITED: Record<string, string> = {
-  'code-review/SKILL.md': '37cce433b54816e5b64544faee76bc971296bdd0b32459c8d1f6fe8a1e77183c',
+  'code-review/SKILL.md': 'f568e6f85c3ff7859140e6bdc10b057371f94d6501e23fa55beb1657c0704db3',
   'domain-modeling/SKILL.md': '0bc08303c0874c9ef11a54fa0783c55d6520844ad5c7bce8202a314c9276eabd',
   'grill-me/SKILL.md': '310e9e01d9b18a9bbe949de4d9c238402919c570342de771f2e221af6221d6df',
   'grill-with-docs/SKILL.md': '55287c9fd1f0b72bdb01657d4c25db66911c8e171c90bb42c86d3063d8e01be3',

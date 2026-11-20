@@ -187,3 +187,37 @@ On "no", or to drop the draft: post nothing and say the draft was not posted.
 
 In a session with no person to answer (an unattended run): stop at the draft. Show it, post nothing, and say the
 draft waits in `<tmp>/review-<n>.json` for a person to read.
+
+### When worfy runs you for Agent review
+
+worfy runs this skill for an Agent review when its first message names a pull request and says so:
+`/human-review <owner>/<repo>#<n> Agent review: …`. worfy has created the review draft of that pull request on this
+machine already; the person reads it in worfy, changes it, and submits it there. Do steps 1 to 7 as written,
+`review-draft-lint` included. Then, in place of the rest of this step, hand the draft to worfy, and stop there.
+
+Write the draft only through `bin/pr-review-draft`: one call for each comment, then the summary, the suggested verdict
+and the end. `pr-review-draft` is a script of the worfy plugin, on the PATH like `review-draft-lint`:
+
+```bash
+pr-review-draft <owner>/<repo>#<n> comment <path> <line> [--start-line <first line>] [--side LEFT] - <<'TEXT'; echo "EXIT=$?"
+<the comment>
+TEXT
+pr-review-draft <owner>/<repo>#<n> summary - <<'TEXT'; echo "EXIT=$?"
+<payload.body>
+TEXT
+pr-review-draft <owner>/<repo>#<n> verdict <comment|approve|request_changes>; echo "EXIT=$?"
+pr-review-draft <owner>/<repo>#<n> done; echo "EXIT=$?"
+```
+
+`<line>` is the line of the file at the head commit (`--side LEFT`: at the base, for a removed line), on a line of the
+diff of the pull request. A comment on no line of the diff goes into the summary, with its `path:line`. Never write or
+create the draft file yourself.
+
+The verdict is only a suggestion: the `event` of step 6 goes to `verdict`, and the person chooses the verdict in worfy.
+
+The person's comments and summary stay as they are: the script changes only what the agent wrote, and exit 1 is such
+a refusal ("the summary is the person's"); do not try another way. When it says the Agent review was stopped, stop:
+the person took the review over.
+
+Nothing goes to GitHub: no `gh api` write, and no review or comment posted another way. The person submits the
+review in worfy. End with `done`, also when the review has no comment.

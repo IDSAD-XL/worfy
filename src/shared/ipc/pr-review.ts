@@ -7,7 +7,7 @@
 // Nothing here reaches GitHub: worfy creates no pending review there (ADR-0105). Every channel is `local`, as the drafts
 // of replies (src/shared/ipc/pr-inbox.ts): a Linked machine never reaches the draft, whatever its access.
 import { z } from 'zod'
-import { invokeChannel } from './channels'
+import { eventChannel, invokeChannel } from './channels'
 
 /** GitHub's verdicts of a review; the person chooses one in Finish review, an Agent review only suggests one. */
 export const REVIEW_EVENTS = ['APPROVE', 'REQUEST_CHANGES', 'COMMENT'] as const
@@ -15,6 +15,10 @@ export const reviewEventSchema = z.enum(REVIEW_EVENTS)
 export type ReviewEvent = z.infer<typeof reviewEventSchema>
 
 export const REVIEW_DRAFT_STATES = ['draft', 'submitting', 'submitted'] as const
+
+/** An Agent review (ticket 08): its Session writes the draft, has said it is done, or was stopped (Stop, Take over). */
+export const AGENT_REVIEW_STATES = ['writing', 'done', 'stopped'] as const
+export type AgentReviewState = (typeof AGENT_REVIEW_STATES)[number]
 
 /** GitHub's longest comment body, in characters. */
 export const REVIEW_MAX_CHARS = 65_536
@@ -65,9 +69,15 @@ export const reviewDraftSchema = z
       .loose(),
     /** `anchors[i]` belongs to `payload.comments[i]`. */
     anchors: z.array(reviewAnchorSchema),
+    /**
+     * Who wrote `payload.body` last; absent — the person's when it is not empty. An Agent review writes the summary only
+     * while it is empty or its own (bin/pr-review-draft, ticket 08).
+     */
+    bodyBy: z.enum(['person', 'agent']).optional(),
     /** The verdict an Agent review suggested; never sent by itself. */
     suggestedEvent: reviewEventSchema.optional(),
-    agent: z.object({ sessionId: z.string(), state: z.enum(['writing', 'done', 'stopped']) }).loose().optional(),
+    /** The Agent review of the draft: the id of its Session (the app's id) and its state. */
+    agent: z.object({ sessionId: z.string(), state: z.enum(AGENT_REVIEW_STATES) }).loose().optional(),
     /** The files marked Viewed: path → the blob sha it was viewed at. */
     viewed: z.record(z.string(), z.string()),
     state: z.enum(REVIEW_DRAFT_STATES),
@@ -134,6 +144,26 @@ export const prReviewDiscard = invokeChannel('prReview.discard', pullInput, prRe
 /** The PRs of the Project with a draft on this machine. */
 export const prReviewDrafts = invokeChannel('prReview.drafts', projectInput, z.object({ drafts: z.array(prReviewDraftRowSchema), problem: z.string().nullable() }), 'local')
 
+/**
+ * Agent review (ticket 08): a new Session Node of the Project on Claude Code with the Team reviewer of the Project
+ * (`/human-review`) or, without one, the review lenses of `/worfy:code-review`, which writes the draft only through
+ * harness/bin/pr-review-draft. `fill: 'new'` starts a review of a PR with no draft of the person (a draft is created on
+ * `head` when there is none); `'add'` is Ask the agent to add comments to the person's draft. Refused while an Agent
+ * review of the PR still writes. Local: the Session runs on the Machine of the draft.
+ */
+export const prReviewAgentReview = invokeChannel(
+  'prReview.agentReview',
+  pullInput.extend({ head: shaSchema, fill: z.enum(['new', 'add']) }),
+  z.object({ nodeId: z.string(), sessionId: z.string(), text: z.string(), draft: reviewDraftSchema }),
+  'local',
+)
+
+/** Stop and Take over: the Session of the Agent review stops, the draft keeps what it wrote, `agent.state` is `stopped`. */
+export const prReviewStopAgent = invokeChannel('prReview.stopAgent', pullInput, prReviewDraftAnswerSchema, 'local')
+
+/** The draft file of a PR changed while an Agent review writes it: read it again (`prReview.draft`). */
+export const prReviewChanged = eventChannel('prReview.changed', pullInput, 'local')
+
 declare module './channels' {
   interface IpcContract {
     'prReview.draft': typeof prReviewDraft
@@ -142,5 +172,8 @@ declare module './channels' {
     'prReview.setViewed': typeof prReviewSetViewed
     'prReview.discard': typeof prReviewDiscard
     'prReview.drafts': typeof prReviewDrafts
+    'prReview.agentReview': typeof prReviewAgentReview
+    'prReview.stopAgent': typeof prReviewStopAgent
+    'prReview.changed': typeof prReviewChanged
   }
 }

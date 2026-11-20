@@ -37,8 +37,8 @@ these folders alone: upstream links the files of a skill relatively, not through
 
 ## Reference edits
 
-Every file is the 1.3.1 file byte for byte, except the references, the ticket header and the two
-pointers to the profile below. Nothing else in the text changed: words such as issue, label,
+Every file is the 1.3.1 file byte for byte, except the references, the ticket header, the two
+pointers to the profile and the Agent review section of `code-review` below. Nothing else in the text changed: words such as issue, label,
 `resolved` and `GLOSSARY.md` stay upstream's, and `bin/TICKETS.md`, section "Wayfinding operations", reads them in worfy's terms.
 
 - A call of the Skill tool names the skill `worfy:<name>` instead of `<name>`.
@@ -58,10 +58,14 @@ pointers to the profile below. Nothing else in the text changed: words such as i
 - The local ticket template of `to-tickets` puts its acceptance criteria under `## Done when`, the
   heading `tickets.done_section` of the profile: Evidence (`bin/ticket evidence`) attaches only to
   the items of that section.
+- `code-review` has a section of worfy's own, "When worfy runs you for Agent review", before "Why
+  two axes": run over a pull request for worfy's Agent review, it writes its findings as a review
+  draft through `bin/pr-review-draft`, suggests the verdict only, and posts nothing to GitHub.
 
 | File | Line | Edit |
 | --- | --- | --- |
 | `skills/code-review/SKILL.md` | 13 | tracker sentence |
+| `skills/code-review/SKILL.md` | 82-133 | the section "When worfy runs you for Agent review" |
 | `skills/domain-modeling/SKILL.md` | 12 | the glossary and the ADR folder of the profile |
 | `skills/grill-me/SKILL.md` | 7 | Skill tool: `"worfy:grilling"` |
 | `skills/grill-with-docs/SKILL.md` | 7 | Skill tool: `"worfy:grilling"`, `"worfy:domain-modeling"` |

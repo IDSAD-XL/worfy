@@ -195,6 +195,29 @@ export const SHIP_TICKET_VENDOR: VendorId = 'claude'
 export const PR_REPLY_VENDOR: VendorId = 'claude'
 
 /**
+ * "Agent review" of someone else's pull request (worfy-pr-review ticket 08): a Session writes the whole review draft —
+ * comments on lines, the summary, a suggested verdict — through harness/bin/pr-review-draft, and posts nothing. Its first
+ * message: the Team reviewer of the Project (`/human-review`, ADR-0102) when it is built, else the review lenses of
+ * `/worfy:code-review` over the pull request; then AGENT_REVIEW_RULE, which also tells a Team reviewer built before its
+ * section «When worfy runs you for Agent review» what to do, until its next Refresh. Not a setting of the Project: which
+ * of the two runs depends on the Team reviewer, not on a template the person edits (decided without the owner).
+ */
+export const AGENT_REVIEW_LABEL = 'Agent review'
+export const AGENT_REVIEW_TEAM_TEMPLATE = '/human-review {repo}#{pr}'
+export const AGENT_REVIEW_LENSES_TEMPLATE = '/worfy:code-review {repo}#{pr}'
+export const AGENT_REVIEW_RULE = 'Agent review: write the review draft only through bin/pr-review-draft (pr-review-draft --help); the verdict is only a suggestion; nothing goes to GitHub.'
+/** Ask the agent to add comments: the draft is the person's. */
+export const AGENT_REVIEW_ADD_RULE = "Add your comments to the person's draft: their comments and their summary stay."
+/** The Vendor of that Session: Claude Code, as for Draft replies — both skills are the Harness's. */
+export const AGENT_REVIEW_VENDOR: VendorId = 'claude'
+
+/** The first message of an Agent review of `repo`#`pr`. */
+export function agentReviewText(input: { teamReviewer: boolean; repo: string; pr: number; fill: 'new' | 'add' }): string {
+  const command = (input.teamReviewer ? AGENT_REVIEW_TEAM_TEMPLATE : AGENT_REVIEW_LENSES_TEMPLATE).replace('{repo}', input.repo).replace('{pr}', String(input.pr))
+  return [command, AGENT_REVIEW_RULE, ...(input.fill === 'add' ? [AGENT_REVIEW_ADD_RULE] : [])].join(' ')
+}
+
+/**
  * The first message of the Session "Build" of the team reviewer starts (worfy-human-review ticket 09):
  * the Harness's generator skill, which reads the Project's review history and writes its private
  * reviewer skill. worfy only sends the text (ADR-0002).
