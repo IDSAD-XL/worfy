@@ -241,6 +241,32 @@ describe('a comment on lines', () => {
     expect((readQuotes(KEY_A).drafts as CodeComment[]).map((each) => [each.startLine, each.endLine])).toEqual([[2, 4]])
   })
 
+  // worfy-polish 136: Esc in the field closed a changed popover too, and the text typed was gone.
+  it('Esc keeps a changed popover with its text, closes an unchanged one; Cancel closes a changed one', async () => {
+    await open()
+    fireEvent.click(within(row(2)).getByTestId('changes-line-plus'))
+    let popover = await screen.findByTestId('changes-comment-popover')
+    let field = within(popover).getByTestId('changes-comment-text') as HTMLTextAreaElement
+    expect(document.activeElement).toBe(field)
+    fireEvent.change(field, { target: { value: 'Keep the old name' } })
+    fireEvent.keyDown(field, { key: 'Escape' })
+    await settle()
+    popover = screen.getByTestId('changes-comment-popover')
+    expect((within(popover).getByTestId('changes-comment-text') as HTMLTextAreaElement).value).toBe('Keep the old name')
+
+    fireEvent.click(within(popover).getByTestId('changes-comment-cancel'))
+    await settle()
+    expect(screen.queryByTestId('changes-comment-popover')).toBeNull()
+    expect(readQuotes(KEY_A).drafts).toEqual([])
+
+    fireEvent.click(within(row(3)).getByTestId('changes-line-plus'))
+    popover = await screen.findByTestId('changes-comment-popover')
+    field = within(popover).getByTestId('changes-comment-text') as HTMLTextAreaElement
+    fireEvent.keyDown(field, { key: 'Escape' })
+    await settle()
+    expect(screen.queryByTestId('changes-comment-popover')).toBeNull()
+  })
+
   it('a deleted line takes a comment on the old side, at the base commit', async () => {
     await open()
     fireEvent.click(within(row(2, 'old')).getByTestId('changes-line-plus'))

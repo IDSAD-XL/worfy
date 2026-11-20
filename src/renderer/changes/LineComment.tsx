@@ -77,8 +77,8 @@ export function LineCommentPopover({
     element.setSelectionRange(element.value.length, element.value.length)
   }, [])
   const changed = popover.text.trim() !== popover.was.text.trim() || popover.images.length !== popover.was.images
-  // A click outside closes an unchanged popover and keeps a changed one, so no text is lost; a blur of the window closes
-  // none: «Add image» opens the system's file picker.
+  // A click outside or an Esc closes an unchanged popover and keeps a changed one, so no text is lost; a blur of the
+  // window closes none: «Add image» opens the system's file picker. Cancel always closes it.
   const dismiss = (reason: DismissReason): boolean => {
     if (reason !== 'blur' && !changed) onCancel()
     return false
@@ -86,6 +86,12 @@ export function LineCommentPopover({
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     // The Node's own keys (j, k, n, p, c) are not for it while the popover is open.
     event.stopPropagation()
+    // The kit closes its popup on an Esc pressed in it whatever the place says; an Esc marked handled here keeps it
+    // (worfy-polish 136).
+    if (event.key === 'Escape' && !event.nativeEvent.isComposing && changed) {
+      event.preventDefault()
+      return
+    }
     if (matchesShortcut(event.nativeEvent, SHORTCUTS.quoteSave)) {
       event.preventDefault()
       onSave()
