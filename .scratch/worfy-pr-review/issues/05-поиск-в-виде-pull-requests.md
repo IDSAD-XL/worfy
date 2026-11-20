@@ -1,7 +1,7 @@
 # 05 — Поиск в виде Pull requests: поле, `/`, меню области, chip-ы фильтров, сохранённые поиски, список результатов и полоса «Review this pull request»
 
 Type: task
-Status: claimed 2026-11-20T09:18Z
+Status: done 2026-11-20T11:40Z
 PR: #2084
 Blocked by: 01, 03, 04
 Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение», 1 и 2; «Как пользователь идёт по экрану», A (шаги 1–3);
@@ -53,6 +53,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение», 1 и 2; «�
 - [ ] `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 592c6239627d4575da34e3754d52f1968646fbfa
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44724315407/job/136264213789 · ci - · d00f2626c703ff3471596d487ee3407372edc9fa
 
 ## Где в коде
 
