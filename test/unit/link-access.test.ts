@@ -248,6 +248,9 @@ describe('the read-or-write mark of `project` channels', () => {
     'ecoMode.read',
     // The switch "Code stories for PRs" reads the Profile through bin/profile-set --read (worfy-code-stories ticket 03), as ecoMode.read.
     'codeStoriesSetting.read',
+    // The Integrations of the Machine and how the Project uses them, and their status: no secret in either (worfy-integrations ticket 03).
+    'integrations.list',
+    'integrations.status',
     // Read-only gh, as checks.get: the cross-machine gate queue (worfy-windows ticket 17).
     'gateQueue.get',
     // A stored image for the window of a Linked machine that shows it (worfy-canvas ticket 24): reading, as cards.file.
@@ -389,6 +392,12 @@ describe('the read-or-write mark of `project` channels', () => {
     'ecoMode.set',
     // Writes code_stories.pr of the Project's Profile through bin/profile-set, as ecoMode.set.
     'codeStoriesSetting.set',
+    // An Integration on or off in the Project, its tools filter, «Available to Autopilot», its label (worfy-integrations ticket 03).
+    // Add integration, a secret and Remove are `local`: no secret crosses the link.
+    'integrations.rename',
+    'integrations.setAutopilot',
+    'integrations.setEnabled',
+    'integrations.setTools',
     // Writes an image file into the Project's data folder (worfy-canvas ticket 23).
     'canvasImage.add',
     'layout.apply',
