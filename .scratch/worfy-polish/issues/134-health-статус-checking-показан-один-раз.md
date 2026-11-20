@@ -1,7 +1,7 @@
 # 134 — Health: статус «Checking…» показан один раз, на кнопке
 
 Type: bug
-Status: claimed 2026-11-20T02:09Z
+Status: done 2026-11-20T03:54Z
 PR: #2056
 Blocked by: none
 Source: скриншот и слова владельца 2026-11-20 «В health дублируется статус чип».
@@ -35,6 +35,7 @@ Source: скриншот и слова владельца 2026-11-20 «В health
 - [ ] `docs/features/onboarding.md` и `docs/features/ru/onboarding.md` описывают chip-итог без «Checking…».
   - evidence: commit pass · fix(health): show the running check once, on the Check again button · - - · 5f00066f5
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44665681668/job/136066421949 · ci - · 8b3ab410d3a490f1c4fe55970bda5345967ac22d
 
 ## Где в коде
 
