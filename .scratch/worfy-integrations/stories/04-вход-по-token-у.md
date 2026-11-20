@@ -192,3 +192,15 @@ export async function signInWithGhToken(options: GhTokenOptions & { store: Token
 3. Где у stdio-сервера секрет, а где его не бывает никогда?
    - Ответ: в `env` запуска; `args` копируются из transport-а как есть, секретов в них нет.
    - Строки: `src/main/integrations/auth/tokens.ts:107-109`
+
+## 10. Что нашёл review и что осталось
+
+> VERIFIED — worfy-integrations 04 (sign-in to an Integration by token), head 0323bd653629753d6d63e1a38bce3bef1c63adbf (4db29de14 + main merged in, which carries the flaky-test fix #2116)
+>
+> Gate (depth medium, three rounds — the cap): verifier (lens: implementer's claims, sonnet) — all 7 claims CONFIRMED, one medium test gap; reviewer (correctness) — round 1 MERGE with one medium race, round 2 FIX (one medium), round 3 code clean, one low test gap left (below).
+>
+> - What works: Bearer, Basic (<e-mail>:<token>), a custom header; connectionHeaders reads SecretStore on every call; stdio secrets only in the child env. setSecret checks a token with POST initialize (redirect: 'manual', 3xx → error, 15 s timeout): OK → signed-in; 401 → needs-sign-in; 403 → error with the service text, token scrubbed (Atlassian adds the admin page link). A NEW token with a transient failure (no answer, timeout, 429, 5xx) clears the sign-in (error in memory, needs-sign-in after restart); a re-check of the SAME token keeps it. Two checks racing on one Integration: only the one for the currently stored token writes. Sign out deletes the <id>:* keys; the gh token is copied only into bearer-over-http Integrations, after the check. No token in data files other than secrets.json, in channel answers, console or args; setSecret refused from a Linked machine.
+> - Evidence: each round's tests red before / green after (8 of 22, then 4 of 25 red before); 59 tests in the 4 integration files EXIT=0; reviewers' mutants caught (race guard, scrub of refusal and unreachable text, custom-header scrub, redirect, transient classification, changed computed before the write in the ipc handler, gh checksToken); lint, typecheck, story-check, evidence-check EXIT=0; gate fast green EXIT=0.
+> - Left at the round cap (low, not a ticket): the `changed` flag in signInWithGhToken (tokens.ts:408-409) has no test — signInWithGhToken is not wired to any channel yet; ticket 08 (the screen) wires it and its brief asks for a gh-path test with a 503/429 on a new token.
+>
+> Decided without the owner (to confirm): gh token stored as a copy (Integration belongs to the Machine, the gh account to a Project); Basic keeps <e-mail>:<token> with the e-mail as account; Atlassian 401/403 → error with a link; the check is a plain fetch, not the MCP SDK client; error status in memory only; no new IPC channels (ticket 08 adds them); tokenUrl/tokenNote in the catalogue; IntegrationStore.deleteSecrets added.

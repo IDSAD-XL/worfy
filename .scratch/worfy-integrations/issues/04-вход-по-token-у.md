@@ -1,7 +1,8 @@
 # 04 — Вход по token-у: Bearer, Basic, свой заголовок, переменные-секреты stdio и token `gh` в `SecretStore`, проверка `initialize`, Sign out
 
 Type: task
-Status: claimed 2026-11-20T19:16Z
+Status: done 2026-11-20T22:48Z
+PR: #2113
 Blocked by: 03
 Source: [spec.md](../spec.md), «Ticket-ы», 4; «Волны», Wave 2; «Решение», 3; «Факты», 5 и 7; «Решения по реализации»
 → Вход по token-у, Где лежит; «Решения по test-ам»; «Риски» (admin клиента запретил); «Вопросы владельцу», Q3 и Q10;
@@ -69,6 +70,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Волны», Wave 2; «Ре�
   - evidence: gate pass · `gate fast` exit 0 · mac - · 4d9e700c21965ab5415b10c974e3534cb2335635
   - evidence: gate pass · `gate fast` exit 0 · mac - · c682407014956b3a46d259f67b568affb5a97421
   - evidence: gate pass · `gate fast` exit 0 · mac - · 849ecfffb5dd4e723767e567dbdf1a23b10582be
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44824611211/job/136617743879 · ci - · 0323bd653629753d6d63e1a38bce3bef1c63adbf
 
 ## Где в коде
 
