@@ -150,7 +150,7 @@ describe('the continuation ladder on a Codex Orchestrator (worfy-stuck-agents ti
     expect(h.messages()).toContain(
       'Ticket 01 stayed claimed after 2 continuations. Run: ticket block demo 01 "stuck: claimed after 2 continuations" --waits owner. ' +
         "Run it in the Ticket's own worktree and commit only the Ticket file on its branch: git -C <worktree> commit -m \"<message>\" -- <ticket file>. " +
-        'A Ticket with no worktree gets the block on the main branch. Then end the turn.',
+        'A Ticket with no worktree gets the block on the main branch the way the documents PR carries statuses, never by a direct commit to main. Then end the turn.',
     )
     expect(h.messages().join('\n')).not.toContain('ignore the rules')
     expect(first.filter((event) => event.kind === 'epic-finished')).toMatchObject([{ epic: EPIC, outcome: 'waits-owner', tickets: ['01', '03'] }])

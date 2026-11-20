@@ -254,7 +254,7 @@ import {
   type CycleEvent,
   type CycleState,
 } from '../../shared/autopilot/cycle'
-import { continuationLine, MAX_CONTINUATIONS, setAsideText } from '../../shared/autopilot/continuation'
+import { continuationLine, MAX_CONTINUATIONS, setAsideText, type ProjectMode } from '../../shared/autopilot/continuation'
 import type { AutopilotQueueEdit, AutopilotState, HarnessBehind, QueueEpicStatus } from '../../shared/ipc/autopilot'
 import type { HarnessKind } from '../../shared/projects/action-templates'
 import type { PullRequest } from '../../shared/ipc/checks'
@@ -456,6 +456,11 @@ export interface AutopilotDeps {
   mainRed?(root: string): Promise<unknown>
   /** The path of the Harness's `ticket` for the set-aside message (src/main/harness/locate.ts, binDir); `ticket` without it. */
   ticketTool?(): string
+  /**
+   * The Project's mode (src/main/workflow/folder.ts, ProjectLayout.mode), for where the set-aside message says to
+   * run `ticket block` (worfy-polish 138). Without it, or when the read throws, the Project counts as Full.
+   */
+  projectMode?(root: string): Promise<ProjectMode>
   /**
    * The Limits and the wait for them (limits-wait.ts); without it a refused turn ends the run as
    * `turn-error`, and no Wave's line has `limits`.
@@ -2881,6 +2886,18 @@ export class Autopilot {
     }
   }
 
+  /** The Project's mode for the set-aside message; Full without the dep or when its read throws. */
+  private async projectMode(run: Run): Promise<ProjectMode> {
+    const read = this.deps.projectMode
+    if (read === undefined) return 'full'
+    try {
+      return await read.call(this.deps, run.root)
+    } catch (error) {
+      console.warn(`[autopilot] ${run.projectId}: could not read the Project's mode`, error)
+      return 'full'
+    }
+  }
+
   /**
    * The cycle continues stuck Tickets (worfy-stuck-agents ticket 05): on a red main the run stops with `main-red`
    * and continues nothing. Otherwise each Ticket gets its `ticket-continued` line, and the next Wave goes as
@@ -2917,7 +2934,8 @@ export class Autopilot {
     const branches = Object.fromEntries(
       (await this.freshTickets(run)).flatMap((ticket) => (ticket.epic === run.epic && effect.tickets.includes(ticket.num) && ticket.fromBranch ? [[ticket.num, ticket.fromBranch]] : [])),
     )
-    const text = setAsideText({ epic: run.epic, tickets: effect.tickets, attempts: effect.attempts, cause: effect.cause, branches, ...(tool === undefined ? {} : { ticketTool: tool }) })
+    const mode = await this.projectMode(run)
+    const text = setAsideText({ epic: run.epic, tickets: effect.tickets, attempts: effect.attempts, cause: effect.cause, branches, mode, ...(tool === undefined ? {} : { ticketTool: tool }) })
     const session = run.session
     if (session === null || session.state === 'closed') {
       await this.feed(run, { type: 'session-closed' })

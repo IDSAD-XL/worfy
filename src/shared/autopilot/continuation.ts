@@ -35,10 +35,13 @@ const toolWord = (tool: string): string => (/[\s"'$`\\]/u.test(tool) ? `"${tool.
  * Where the block goes (worfy-polish 138), as the epic-wave skill says in "Where the owner-stop status is written":
  * worfy reads the main branch with each Ticket branch laid over it, and a branch's claim hides a block written
  * anywhere else, so the block goes into the Ticket's own worktree, committed on its branch with only the Ticket
- * file; a Ticket with no worktree gets it on the main branch. `branches`: the branch of each Ticket the run saw
- * claimed in a worktree branch, named in parentheses; the others get the rule in words only.
+ * file; a Ticket with no worktree gets it on the main branch the way the documents PR carries statuses. `branches`:
+ * the branch of each Ticket the run saw claimed in a worktree branch, named in parentheses; the others get the rule
+ * in words only. Silent mode: the Ticket files live in the Workflow folder outside the repository, so `ticket block`
+ * from any directory is enough and there is nothing to commit.
  */
-function setAsidePlace(tickets: readonly number[], branches: Readonly<Partial<Record<number, string>>>): string {
+function setAsidePlace(tickets: readonly number[], branches: Readonly<Partial<Record<number, string>>>, mode: ProjectMode): string {
+  if (mode === 'silent') return `Run ${tickets.length === 1 ? 'it' : 'them'} from any directory, with no commit: in Silent mode the status goes straight into the Workflow folder.`
   const known = tickets.flatMap((num) => {
     const branch = branches[num]
     return branch === undefined || branch === '' ? [] : [{ num, branch }]
@@ -46,15 +49,19 @@ function setAsidePlace(tickets: readonly number[], branches: Readonly<Partial<Re
   const one = tickets.length === 1
   const named = known.length === 0 ? '' : ` (${known.map((each) => (one ? `branch ${each.branch}` : `${ticketNumber(each.num)}: branch ${each.branch}`)).join('; ')})`
   const run = one ? "Run it in the Ticket's own worktree" : "Run each in its Ticket's own worktree"
-  return `${run}${named} and commit only the Ticket file on its branch: git -C <worktree> commit -m "<message>" -- <ticket file>. A Ticket with no worktree gets the block on the main branch.`
+  return `${run}${named} and commit only the Ticket file on its branch: git -C <worktree> commit -m "<message>" -- <ticket file>. A Ticket with no worktree gets the block on the main branch the way the documents PR carries statuses, never by a direct commit to main.`
 }
+
+/** The Project's mode (ADR-0042): where its Ticket files live, the repository (`full`) or the Workflow folder (`silent`). */
+export type ProjectMode = 'full' | 'silent'
 
 /**
  * The message that asks the Orchestrator to set stuck Tickets aside after `attempts` continuations: the exact
  * `ticket block <epic> <NN> "stuck: …" --waits owner` per Ticket, where to run it (setAsidePlace), then the end of
  * the turn. `Waits: owner` is what lets the queue go on (epic-queue.ts). worfy writes no status itself (ADR-0002):
  * only the Orchestrator runs the command. `ticketTool`: the path of the Harness's `ticket`, `ticket` when unknown.
- * `branches`: the worktree branch by Ticket number, for the Tickets whose claim the run read from one.
+ * `branches`: the worktree branch by Ticket number, for the Tickets whose claim the run read from one. `mode`: the
+ * Project's mode, `full` when unknown.
  */
 export function setAsideText(input: {
   epic: string
@@ -63,6 +70,7 @@ export function setAsideText(input: {
   cause: ContinuationCause
   ticketTool?: string
   branches?: Readonly<Partial<Record<number, string>>>
+  mode?: ProjectMode
 }): string {
   const { epic, attempts, cause } = input
   const nums = input.tickets.map(ticketNumber)
@@ -71,7 +79,7 @@ export function setAsideText(input: {
   const tool = toolWord(input.ticketTool ?? 'ticket')
   const commands = nums.map((num) => `${tool} block ${epic} ${num} "stuck: ${short} after ${attempts} continuations" --waits owner`)
   const who = `${nums.length === 1 ? 'Ticket' : 'Tickets'} ${nums.join(', ')}`
-  return `${who} ${what} after ${attempts} continuations. Run: ${commands.join('; ')}. ${setAsidePlace(input.tickets, input.branches ?? {})} Then end the turn.`
+  return `${who} ${what} after ${attempts} continuations. Run: ${commands.join('; ')}. ${setAsidePlace(input.tickets, input.branches ?? {}, input.mode ?? 'full')} Then end the turn.`
 }
 
 /**

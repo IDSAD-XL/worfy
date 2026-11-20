@@ -44,13 +44,20 @@ const DONE = 'done — 2026-11-05'
 const SCRIPT = 'autopilot-set-aside'
 
 /** Where the block goes (worfy-polish 138): the Ticket's worktree with a commit on its branch, or the main branch. */
-const COMMIT = 'commit only the Ticket file on its branch: git -C <worktree> commit -m "<message>" -- <ticket file>. A Ticket with no worktree gets the block on the main branch.'
+const COMMIT =
+  'commit only the Ticket file on its branch: git -C <worktree> commit -m "<message>" -- <ticket file>. ' +
+  'A Ticket with no worktree gets the block on the main branch the way the documents PR carries statuses, never by a direct commit to main.'
 
 /** The set-aside message worfy sends for Ticket 01 after two continuations of `wave-unfinished`. */
 const SET_ASIDE_01 = `Ticket 01 stayed claimed after 2 continuations. Run: ticket block demo 01 "stuck: claimed after 2 continuations" --waits owner. Run it in the Ticket's own worktree and ${COMMIT} Then end the turn.`
 
 /** The same message for Ticket 01 claimed in its worktree branch `demo/01`: it names the branch. */
 const SET_ASIDE_01_BRANCH = `Ticket 01 stayed claimed after 2 continuations. Run: ticket block demo 01 "stuck: claimed after 2 continuations" --waits owner. Run it in the Ticket's own worktree (branch demo/01) and ${COMMIT} Then end the turn.`
+
+/** The same message in Silent mode: no worktree, no commit; the status goes into the Workflow folder. */
+const SET_ASIDE_01_SILENT =
+  'Ticket 01 stayed claimed after 2 continuations. Run: ticket block demo 01 "stuck: claimed after 2 continuations" --waits owner. ' +
+  'Run it from any directory, with no commit: in Silent mode the status goes straight into the Workflow folder. Then end the turn.'
 
 const ofKind = <K extends JournalEvent['kind']>(events: readonly JournalEvent[], kind: K): Extract<JournalEvent, { kind: K }>[] =>
   events.filter((event): event is Extract<JournalEvent, { kind: K }> => event.kind === kind)
@@ -103,7 +110,12 @@ describe('the continuation ladder of a Run (worfy-stuck-agents ticket 05)', () =
 
   it('scenario 2: still claimed after two continuations → set-aside → the Orchestrator blocks it, Waits: owner → the Run goes to the next Epic', async () => {
     // 01's claim reads from its worktree branch, so the set-aside message names the branch (worfy-polish 138).
-    const h = faultRun({ scripts: [SCRIPT, SCRIPT, SCRIPT, 'autopilot-fault-held'], marks: 'claimed', settleMs: SETTLE_MS, setAside: 'block', secondEpic: true, fromBranch: { 1: 'demo/01' } })
+    const h = faultRun({ scripts: [SCRIPT, SCRIPT, SCRIPT, 'autopilot-fault-held'], marks: 'claimed', settleMs: SETTLE_MS, setAside: 'block', secondEpic: true, fromBranch: [
+        { epic: EPIC, num: 1, branch: 'demo/01' },
+        // Ticket 01 of the other Epic has a branch too: the message must not take it for the set-aside Ticket's.
+        { epic: EPIC_B, num: 1, branch: 'demo-b/01' },
+      ],
+    })
     await stuckOn01(h, 'none', [EPIC, EPIC_B])
     // wave-started is journaled once the Session took the Wave's text; Claude Code reads it from its stdin
     // later, so the test waits for the command it got too before the Force stop closes the Session.
@@ -155,6 +167,16 @@ describe('the continuation ladder of a Run (worfy-stuck-agents ticket 05)', () =
     expect(h.messages().at(-1)).toBe(SET_ASIDE_01)
     expect(statusLines(first, '01')).toEqual(['claimed'])
 
+    expect(checkRecovery(h.recovery({ stop: 'wave-unfinished', waves: 3 }))).toEqual([])
+  })
+
+  it('scenario 3, Silent mode: the set-aside message says to run the command from any directory with no commit (worfy-polish 138)', async () => {
+    const h = faultRun({ scripts: [SCRIPT], marks: 'claimed', settleMs: SETTLE_MS, setAside: 'ignore', silent: true, fromBranch: [{ epic: EPIC, num: 1, branch: 'demo/01' }] })
+    await stuckOn01(h)
+    await h.stopped(1)
+
+    expect(ofKind(h.journal(1), 'ticket-set-aside')).toMatchObject([{ ticket: '01', cause: 'wave-unfinished', attempts: 2 }])
+    expect(h.messages().at(-1)).toBe(SET_ASIDE_01_SILENT)
     expect(checkRecovery(h.recovery({ stop: 'wave-unfinished', waves: 3 }))).toEqual([])
   })
 
