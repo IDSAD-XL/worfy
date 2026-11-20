@@ -1,7 +1,7 @@
 # 134 — Health: статус «Checking…» показан один раз, на кнопке
 
 Type: bug
-Status: open
+Status: claimed 2026-11-20T02:09Z
 Blocked by: none
 Source: скриншот и слова владельца 2026-11-20 «В health дублируется статус чип».
 
@@ -39,11 +39,27 @@ Source: скриншот и слова владельца 2026-11-20 «В health
 - `src/renderer/settings/HealthSection.tsx`, `src/renderer/shell/FirstRun.tsx` — только читать (раскладка частей)
 - `test/unit/settings-health.test.tsx`
 - `test/e2e/settings-health.spec.ts`, `test/e2e/first-run.spec.ts`, `test/e2e/guide-entry-links.spec.ts`,
-  `test/e2e/getting-started-entry.spec.ts`, `test/e2e/harness-migrate.spec.ts`, `test/acceptance/e3.spec.ts` — ждут
-  конца проверки по chip-у (`not.toHaveText('Checking…')`)
+  `test/e2e/getting-started-entry.spec.ts`, `test/e2e/harness-migrate.spec.ts`, `test/acceptance/e3.spec.ts` — только
+  читать: ждут конца проверки через `not.toHaveText('Checking…')` на chip-е; Playwright повторяет такое ожидание, пока
+  элемента нет, так что без chip-а оно ждёт chip с итогом
 - `docs/features/onboarding.md`, `docs/features/ru/onboarding.md`
 
 ## Вне скоупа
 
 - Chip «Checking…» на каждой строке во время «Check again» — отдельный вопрос, владелец его не называл.
 - Другие экраны со spinner-ом на кнопке.
+
+## Итог
+
+- **Решено без владельца, подтвердить:** единственный знак идущей проверки — кнопка «Check again» («Checking…» со
+  spinner-ом), потому что она и есть control. Chip-итог слева показывает только результат проверки; пока проверка идёт,
+  chip-а нет совсем — прошлый результат тоже не показан, он устарел. Chip-и строк («Checking…», «Running…») не менялись.
+- Правка — `src/renderer/shell/FirstRunChecks.tsx`: `summary` пустой, пока `checking`; chip-итог больше не берёт вид
+  `running`. Health и диалог First run берут chip из одного места, поэтому изменились оба.
+- Сначала падающий test: `test/unit/settings-health.test.tsx` на старом коде — 7 красных (chip `first-run-summary` был
+  «Checking…»), после правки — 51/51 зелёные.
+- e2e без правок: `pnpm test:e2e test/e2e/settings-health.spec.ts test/e2e/first-run.spec.ts` — 13 passed, exit 0.
+- Снимки Playwright своей сборки с fixture-данными (scratchpad, в репозиторий не кладутся):
+  `/tmp/worfy-night-1120/impl-polish-134/health-checking-light.png`, `health-checking-dark.png` (идёт проверка: слева
+  chip-а нет, справа кнопка «Checking…»), `health-after-light.png`, `health-after-dark.png` (после: chip
+  «1 failed · 2 warnings», кнопка «Check again»).
