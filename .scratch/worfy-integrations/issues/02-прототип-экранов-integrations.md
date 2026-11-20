@@ -1,7 +1,7 @@
 # 02 — Прототип экранов: раздел Integrations, Add integration, вход, строка Integration, фильтр tools, chip и Settings → Integrations
 
 Type: prototype
-Status: claimed 2026-11-20T17:29Z
+Status: done 2026-11-20T17:54Z
 PR: #2104
 Branch: worfy-integrations/02
 Blocked by: —
@@ -54,6 +54,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Волны», Wave 1; «Ре�
   - evidence: test-run pass · `grep -inE "canvasforai|idsad|src/main|src/renderer" <card>/index.html` exit 1, no match · mac - · c7281b1184707db2be304e0eab0d74443d1d2433
 - [ ] В каталоге Card-а нет Slack (Q6): `grep -ic slack <card>/index.html` — 0.
 - [ ] В «Итог» — id Card-а и состояния; брифы Ticket-ов 08 и 09 ссылаются на него.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44786702132/job/136465948723 · ci - · 8b5f9aa963ffce09f8462291f066a644fd2d7dcb
 
 ## Где в коде
 
