@@ -1,7 +1,8 @@
 # 10 — Комментарии к строкам чужого PR: «+» в gutter, `c`, диапазон, Suggest change, Pending и «Written by the agent», полоса Your review, Discard
 
 Type: task
-Status: open
+Status: claimed 2026-11-20T20:19Z
+Branch: worfy-pr-review/10
 Blocked by: 07, 09
 Source: [spec.md](../spec.md), «Ticket-ы», 10; «Как пользователь идёт по экрану», A (шаги 5–6) и E; «Экран»; «Решения по
 реализации», 6 и 7 («Комментарии»); «Вопросы владельцу», Q7 раунда;

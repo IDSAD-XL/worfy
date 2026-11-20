@@ -17,37 +17,36 @@
 // - Agent review (ticket 08): Start review → Agent review starts the Session at once (`prReview.agentReview`); its
 //   comments come as it writes them (`prReview.changed`). The bar at the bottom: «Agent is writing the review… · Stop»
 //   with Take over while it writes, Take over on the agent's draft after it, Ask the agent to add comments on the
-//   person's (`fill: 'add'`). Stop and Take over both stop the Session (`prReview.stopAgent`).
-// - Keys: j / k and ↓ / ↑ — the next and the previous file, n / p — hunks, v — Viewed of the file; Escape closes a menu
-//   first (the kit marks it handled), then Review mode.
+//   person's (`fill: 'add'`). Stop and Take over both stop the Session (`prReview.stopAgent`). The bar itself is
+//   ReviewBar.tsx: the count of comments, Discard, Finish review (ticket 10).
+// - Comments on lines (ticket 10, review-comments.tsx): «+» in the gutter, `c` on the lines picked, the popover of the
+//   Changes screen; they go into the draft, never to GitHub before Submit (ticket 11).
+// - Keys: j / k and ↓ / ↑ — the next and the previous file, n / p — hunks, v — Viewed of the file, c — a comment on the
+//   lines picked; Escape closes a menu or a popover first (the kit marks it handled), then Review mode.
 // - A Linked machine (read-only access or not): the draft lives on the Machine of the Project, so Review mode shows the
 //   diff and the threads only — no Viewed, no draft, no bar.
 // - Which PR, its file and Show new commits live in the store of the view (useReviewMode): another tab and back keeps them.
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { ChangesPrRef, ChangesScope, DiffLine } from '../../shared/changes/types'
+import type { ChangesPrRef, ChangesScope } from '../../shared/changes/types'
 import { failureReason } from '../../shared/ipc/channels'
 // The channels must be declared in this window too: a `project` channel goes to the Machine of the Project (ipc.ts).
 import '../../shared/ipc/changes'
 import type { PrInboxRow } from '../../shared/ipc/pr-inbox'
 import '../../shared/ipc/pr-review'
-import { REVIEW_FILES_MAX, type ReviewComment, type ReviewDraft } from '../../shared/ipc/pr-review'
-import { DiffPane, type DiffPaneHandle, type LineSide } from '../changes/DiffPane'
+import { REVIEW_FILES_MAX, type PrReviewDraftAnswer, type ReviewDraft } from '../../shared/ipc/pr-review'
+import { DiffPane, type DiffPaneHandle } from '../changes/DiffPane'
 import { orderedFiles, type DiffLayout, type FileEntry, type RepoFiles } from '../changes/diff-window'
 import { FileTree } from '../changes/FileTree'
 import '../changes/changes.css'
 import { invoke, subscribe } from '../ipc'
 import { ApprovalsChip } from '../pr-inbox/ApprovalsChip'
-import { CommentBody } from '../pr-inbox/CommentBody'
 import { layerOf } from '../theme/open-layers'
 import { ToggleGroup, ToggleGroupItem } from '../theme/kit/ToggleGroup'
-import { closeReviewMode, draftCommitOf, isViewed, plural, REVIEW_REFRESH_MS, REVIEW_STALE_MS, reviewOpenOn, sameCommit, short, useReviewMode, viewedBlobOf } from './review-store'
+import { showToast } from '../toast/toasts'
+import { ReviewBar } from './ReviewBar'
+import { useReviewComments } from './review-comments'
+import { closeReviewMode, draftChanged, draftCommitOf, isViewed, plural, REVIEW_REFRESH_MS, REVIEW_STALE_MS, reviewOpenOn, sameCommit, short, useReviewMode, viewedBlobOf } from './review-store'
 import './pr-review.css'
-
-/** The comment stands under this line: its last line, on its side. Inline draws a context line once, on the new side. */
-function commentOnLine(comment: ReviewComment, line: DiffLine, side: LineSide, layout: DiffLayout): boolean {
-  if (comment.side === 'RIGHT') return side === 'new' && line.kind !== 'del' && line.newLine === comment.line
-  return line.kind !== 'add' && line.oldLine === comment.line && (side === 'old' || (layout === 'inline' && line.kind === 'context'))
-}
 
 /** Input types that take no text: a key pressed on one (Viewed, Wrap, Hide whitespace) is Review mode's. */
 const NO_TEXT = new Set(['checkbox', 'radio', 'button', 'submit', 'reset', 'range', 'color', 'file', 'image'])
@@ -60,21 +59,6 @@ function typingIn(target: HTMLElement): boolean {
 }
 
 type Read<T> ={ of: string; value: T; error: null } | { of: string; value: null; error: string }
-
-/** A comment of the draft as Review mode shows it; Ticket 10 gives it Edit and Delete. */
-function DraftComment({ comment, by, repo, where }: { comment: ReviewComment; by: 'person' | 'agent'; repo: string; where?: string }) {
-  return (
-    <div className={`w-pr-review-comment${by === 'agent' ? ' is-agent' : ''}`} data-testid="pr-review-comment" data-by={by} data-path={comment.path} data-line={comment.line}>
-      <div className="w-pr-review-comment__head">
-        {by === 'agent' ? <span className="w-pr-review-flag w-pr-review-flag--agent">Written by the agent</span> : <span className="w-pr-review-flag">Pending</span>}
-        {where !== undefined ? <span className="w-mono">{where}</span> : comment.start_line !== undefined ? <span className="w-mono w-changes__muted">lines {comment.start_line}–{comment.line}</span> : null}
-        <span className="w-changes__spacer" />
-        <span className="w-changes__muted">not on GitHub yet</span>
-      </div>
-      <CommentBody body={comment.body} repo={repo} />
-    </div>
-  )
-}
 
 export interface ReviewModeProps {
   projectId: string
@@ -99,6 +83,7 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
   // ── the draft ──
   const [draftRead, setDraftRead] = useState<{ draft: ReviewDraft | null; problem: string | null } | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const takeAnswer = useCallback((answer: PrReviewDraftAnswer) => setDraftRead({ draft: answer.draft, problem: answer.problem }), [])
   const readDraft = useCallback(() => {
     void invoke('prReview.draft', { projectId, repo, number }).then((answer) => {
       if (answer.ok) setDraftRead({ draft: answer.value.draft, problem: answer.value.problem })
@@ -169,6 +154,7 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
         return
       }
       setDraftRead({ draft: answer.value.draft, problem: answer.value.problem })
+      draftChanged()
       const asked = useReviewMode.getState().open
       if (asked === null || !asked.agentAsked || !reviewOpenOn(asked, projectId, row)) return
       useReviewMode.setState({ open: { ...asked, agentAsked: false } })
@@ -201,6 +187,30 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
   // ── the file, the keys ──
   const pane = useRef<DiffPaneHandle>(null)
   const root = useRef<HTMLElement>(null)
+
+  // ── the comments on lines (ticket 10) ──
+  // They stand on their lines while the diff shown is All changes of the commit the draft is numbered on; new ones are
+  // made only then, so each is numbered on that commit.
+  const onLines = scope.kind === 'all' && !moved
+  const canChange = local && subject !== null && draft !== null && draft.state === 'draft'
+  const lineComments = useReviewComments({
+    projectId,
+    repo,
+    number,
+    subject,
+    draft,
+    canChange,
+    onLines,
+    canAdd: canChange && onLines,
+    layout,
+    entries: allEntries,
+    filesRead,
+    generation,
+    body: root,
+    onAnswer: takeAnswer,
+    onNotice: setNotice,
+  })
+  const { comments } = lineComments
   const select = useCallback((key: string) => {
     useReviewMode.setState({ file: key })
     pane.current?.scrollToFile(key)
@@ -226,9 +236,9 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
     [local, subject, draft, projectId, repo, number],
   )
 
-  const latest = useRef({ entries, chosen, select, toggleViewed })
+  const latest = useRef({ entries, chosen, select, toggleViewed, commentKey: lineComments.commentKey })
   useEffect(() => {
-    latest.current = { entries, chosen, select, toggleViewed }
+    latest.current = { entries, chosen, select, toggleViewed, commentKey: lineComments.commentKey }
   })
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -238,13 +248,17 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
       if (frame === null || frame.closest('[hidden]') !== null) return
       const target = event.target
       if (target instanceof HTMLElement && (typingIn(target) || layerOf(target) !== null)) return
-      const { entries: files, chosen: at, select: go, toggleViewed: mark } = latest.current
+      const { entries: files, chosen: at, select: go, toggleViewed: mark, commentKey } = latest.current
       if (event.key === 'Escape') {
         event.preventDefault()
         closeReviewMode()
         return
       }
       if (event.shiftKey) return
+      if (event.key === 'c') {
+        if (commentKey()) event.preventDefault()
+        return
+      }
       if (event.key === 'n' || event.key === 'p') {
         event.preventDefault()
         pane.current?.moveHunk(event.key === 'n' ? 1 : -1)
@@ -300,14 +314,6 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
   }
 
   // ── what the draft puts on the screen ──
-  const comments = useMemo(() => (draft === null ? [] : draft.payload.comments.map((comment, index) => ({ comment, by: draft.anchors[index]?.by ?? 'person' }))), [draft])
-  const onLines = scope.kind === 'all' && !moved
-  const renderBelow = (line: DiffLine, side: LineSide, entry: FileEntry): ReactNode => {
-    if (!onLines) return null
-    const here = comments.filter(({ comment }) => comment.path === entry.file.path && commentOnLine(comment, line, side, layout))
-    if (here.length === 0) return null
-    return here.map(({ comment, by }, index) => <DraftComment key={`${comment.path}:${comment.line}:${index}`} comment={comment} by={by} repo={repo} />)
-  }
   const threadsOf = (path: string): number => row.threads.filter((thread) => !thread.isResolved && thread.path === path).length
   const renderRowEnd = (entry: FileEntry): ReactNode => {
     const counted = threadsOf(entry.file.path) + comments.filter(({ comment }) => comment.path === entry.file.path).length
@@ -334,9 +340,12 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
     ) : null
 
   const viewedCount = allEntries.filter((entry) => isViewed(draft, entry)).length
-  const agentComments = comments.filter(({ by }) => by === 'agent').length
-  const writing = draft?.agent?.state === 'writing'
-  const agentDraft = draft?.agent !== undefined && draft.agent.state !== 'stopped'
+  const offIndexes = new Set(lineComments.offLines.map(({ index }) => index))
+  const count = {
+    all: comments.length,
+    agent: comments.filter(({ by }) => by === 'agent').length,
+    files: new Set(comments.filter(({ index }) => !offIndexes.has(index)).map(({ comment }) => comment.path)).size,
+  }
 
   const callAgent = (channel: 'stop' | 'add'): void => {
     if (subject === null) return
@@ -349,54 +358,23 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
     else void invoke('prReview.agentReview', { projectId, repo, number, head: subject.headOid, fill: 'add' }).then((answer) => done(answer, 'prReview.agentReview'))
   }
 
-  let bar: ReactNode = null
-  if (local && draft !== null) {
-    bar = writing ? (
-      <footer className="w-pr-review-bar is-writing" role="status" data-testid="pr-review-bar" data-state="writing">
-        <span className="w-pr-review-bar__spin" aria-hidden="true" />
-        <span className="w-pr-review-bar__what">
-          <b>Agent is writing the review…</b>
-          <span className="w-changes__muted">{plural(agentComments, 'comment')} so far · you can read and write your own comments; the agent does not touch them.</span>
-        </span>
-        <span className="w-changes__spacer" />
-        <button type="button" className="w-pr-inbox-button" data-testid="pr-review-take-over" title="Stop the agent and keep what it wrote as your draft" onClick={() => callAgent('stop')}>
-          Take over
-        </button>
-        <button type="button" className="w-pr-inbox-button" data-testid="pr-review-stop" onClick={() => callAgent('stop')}>
-          Stop
-        </button>
-      </footer>
-    ) : (
-      <footer className="w-pr-review-bar" role="status" data-testid="pr-review-bar" data-state={agentDraft ? 'agent' : 'person'}>
-        <span className="w-pr-review-bar__what">
-          <b>Your review</b>
-          <span className="w-changes__muted" data-testid="pr-review-bar-count">
-            {comments.length === 0
-              ? 'No comments yet'
-              : agentComments > 0
-                ? `${plural(comments.length, 'comment')} (${agentComments} by the agent)`
-                : plural(comments.length, 'pending comment')}
-          </span>
-          {draft.agent?.state === 'stopped' ? <span className="w-pr-review-flag">Agent stopped</span> : null}
-          {draft.suggestedEvent !== undefined ? (
-            <span data-testid="pr-review-suggests">
-              · The agent suggests: <b>{{ APPROVE: 'Approve', REQUEST_CHANGES: 'Request changes', COMMENT: 'Comment' }[draft.suggestedEvent]}</b>
-            </span>
-          ) : null}
-        </span>
-        <span className="w-changes__spacer" />
-        {agentDraft ? (
-          <button type="button" className="w-pr-inbox-button" data-testid="pr-review-take-over" title="Make the draft yours: the agent stops and its comments stay" onClick={() => callAgent('stop')}>
-            Take over
-          </button>
-        ) : (
-          <button type="button" className="w-pr-inbox-button" data-testid="pr-review-ask-agent" title="The agent adds its comments; yours and your summary stay as they are" onClick={() => callAgent('add')}>
-            Ask the agent to add comments
-          </button>
-        )}
-      </footer>
-    )
+  const discard = (): void => {
+    if (!canChange) return
+    setNotice(null)
+    void invoke('prReview.discard', { projectId, repo, number }).then((answer) => {
+      if (!answer.ok) {
+        setNotice(failureReason('prReview.discard', answer.error))
+        return
+      }
+      takeAnswer(answer.value)
+      draftChanged()
+      showToast({ kind: 'success', key: `pr-review-discarded:${repo}#${number}`, text: 'Review draft discarded' })
+      closeReviewMode()
+    })
   }
+
+  const bar: ReactNode =
+    local && draft !== null ? <ReviewBar draft={draft} count={count} canChange={canChange} onStop={() => callAgent('stop')} onAsk={() => callAgent('add')} onDiscard={discard} /> : null
 
   const value = list?.value
   const files = allEntries.length
@@ -432,11 +410,10 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
               <p className="w-changes__muted">
                 {plural(comments.length, 'comment')} on the lines of <span className="w-mono">{short(draftCommit)}</span>, not of this diff
               </p>
-              {comments.map(({ comment, by }, index) => (
-                <DraftComment key={index} comment={comment} by={by} repo={repo} where={`${comment.path}:${comment.start_line === undefined ? comment.line : `${comment.start_line}–${comment.line}`}`} />
-              ))}
+              {comments.map(lineComments.listed)}
             </section>
           ) : null}
+          {lineComments.offList}
           <DiffPane
             ref={pane}
             projectId={projectId}
@@ -450,8 +427,8 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
             selected={chosen}
             generation={generation}
             threads={row.threads}
-            renderBelow={renderBelow}
             renderHeadEnd={renderHeadEnd}
+            {...lineComments.diff}
           />
         </div>
       </div>
@@ -533,7 +510,7 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
           Hide whitespace
         </label>
         <span className="w-changes__spacer" />
-        <span className="w-changes__muted w-pr-review__keys">j / k file · n / p hunk{local ? ' · v Viewed' : ''} · Esc close</span>
+        <span className="w-changes__muted w-pr-review__keys">j / k file · n / p hunk{local ? ' · v Viewed · c comment' : ''} · Esc close</span>
       </div>
       {notice !== null || draftRead?.problem != null ? (
         <p className="w-pr-review__notice" role="alert" data-testid="pr-review-notice">
@@ -542,6 +519,7 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
       ) : null}
       {body}
       {bar}
+      {lineComments.overlay}
     </section>
   )
 }

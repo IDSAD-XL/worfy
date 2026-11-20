@@ -1,10 +1,12 @@
 // The state of Review mode and of Start review outside their components (worfy-pr-review ticket 09): which PR Review mode
 // is open on, its file and Show new commits — in the store of the view, so another tab and back keeps them — the
 // Project's last choice of who writes the review, and the small rules both screens and their tests share.
+import { useEffect, useState } from 'react'
 import { create } from 'zustand'
-import type { ReviewDraft } from '../../shared/ipc/pr-review'
+import '../../shared/ipc/pr-review'
+import type { PrReviewDraftRow, ReviewDraft } from '../../shared/ipc/pr-review'
 import type { FileEntry } from '../changes/diff-window'
-import { windowMachine } from '../ipc'
+import { invoke, subscribe, windowMachine } from '../ipc'
 
 /** Who writes the review. */
 export type ReviewHow = 'myself' | 'agent'
@@ -94,3 +96,52 @@ export const viewedBlobOf = (entry: FileEntry): string => entry.file.newBlob ?? 
 
 /** Viewed: marked at the blob the file has now. A mark at another blob is one a new head took away. */
 export const isViewed = (draft: ReviewDraft | null, entry: FileEntry): boolean => draft !== null && draft.viewed[entry.file.path] === viewedBlobOf(entry)
+
+// ── the drafts of the Project, for the chip `Review draft` of a list row (worfy-pr-review ticket 10) ──
+
+/** Grows with each change of a draft this window made: the list reads the drafts again. */
+const useDraftsSeq = create<{ seq: number }>(() => ({ seq: 0 }))
+
+/** A draft changed here (a comment saved or deleted, Discard, Start review). */
+export function draftChanged(): void {
+  useDraftsSeq.setState((state) => ({ seq: state.seq + 1 }))
+}
+
+/** The key of a PR in useReviewDrafts' answer. */
+export const draftKey = (repo: string, pr: number): string => `${repo.toLowerCase()}#${pr}`
+
+const NO_DRAFTS: ReadonlyMap<string, PrReviewDraftRow> = new Map()
+
+/**
+ * The drafts of the Project on this machine (`prReview.drafts`), by draftKey: read when the Project is shown, after each
+ * change this window made, and when an Agent review writes one (`prReview.changed`). A Linked machine reads none: the
+ * channel is local, the drafts live on the Machine of the Project.
+ */
+export function useReviewDrafts(projectId: string): ReadonlyMap<string, PrReviewDraftRow> {
+  const seq = useDraftsSeq((state) => state.seq)
+  const [changed, setChanged] = useState(0)
+  const [read, setRead] = useState<{ of: string; drafts: ReadonlyMap<string, PrReviewDraftRow> } | null>(null)
+  const away = reviewAway() !== null
+  useEffect(() => {
+    if (away) return
+    return subscribe('prReview.changed', (payload) => {
+      if (payload.projectId === projectId) setChanged((value) => value + 1)
+    })
+  }, [away, projectId])
+  useEffect(() => {
+    if (away) return
+    let current = true
+    void invoke('prReview.drafts', { projectId }).then((answer) => {
+      if (!current) return
+      // A failed read keeps what was shown: the chip is a hint, the draft itself is read by Review mode.
+      if (!answer.ok) return
+      // An answer without the list (an older main, a stand-in of a test) is no drafts.
+      const rows = (answer.value as Partial<typeof answer.value> | null)?.drafts ?? []
+      setRead({ of: projectId, drafts: new Map(rows.map((row) => [draftKey(row.repo, row.pr), row])) })
+    })
+    return () => {
+      current = false
+    }
+  }, [away, projectId, seq, changed])
+  return read?.of === projectId ? read.drafts : NO_DRAFTS
+}

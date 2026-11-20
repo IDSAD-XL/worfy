@@ -363,7 +363,7 @@ describe('Review mode', () => {
     await mountReview()
     const bar = await screen.findByTestId('pr-review-bar')
     await waitFor(() => expect(bar.dataset.state).toBe('agent'))
-    expect(within(bar).getByTestId('pr-review-bar-count').textContent).toBe('1 comment (1 by the agent)')
+    expect(within(bar).getByTestId('pr-review-bar-count').textContent).toBe('1 comment (1 by the agent) on 1 file')
     expect(within(bar).getByTestId('pr-review-suggests').textContent).toBe('· The agent suggests: Request changes')
     expect(within(bar).queryByTestId('pr-review-ask-agent')).toBeNull()
     const onLine = await screen.findByTestId('pr-review-comment')

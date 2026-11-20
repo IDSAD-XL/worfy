@@ -23,11 +23,12 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import { PR_INBOX_GROUP_TITLES, type PrApprovals, type PrInboxComment, type PrInboxGroup, type PrInboxRow, type PrInboxSnapshot, type PrInboxThread } from '../../shared/ipc/pr-inbox'
 import type { PrReplyItem } from '../../shared/ipc/pr-inbox'
+import type { PrReviewDraftRow } from '../../shared/ipc/pr-review'
 import type { ProjectView } from '../../shared/ipc/projects'
 import type { PrSearchNotice, PrSearchPull, PrSearchRow } from '../../shared/ipc/pr-search'
 import type { Epic, Ticket } from '../../shared/workflow/types'
 import { ReviewMode } from '../pr-review/ReviewMode'
-import { closeReviewMode, lastReviewChoice, openReviewMode, reviewAway, reviewOpenOn, useReviewMode } from '../pr-review/review-store'
+import { closeReviewMode, draftKey, lastReviewChoice, openReviewMode, plural, reviewAway, reviewOpenOn, short, useReviewDrafts, useReviewMode } from '../pr-review/review-store'
 import { StartReviewMenu } from '../pr-review/StartReviewMenu'
 import { openStoryFile, ticketStoryPath } from '../stories/open'
 import { StoryBuildButton } from '../stories/StoryBuildButton'
@@ -306,15 +307,21 @@ export interface PrListItemProps {
   now: number
   selected: boolean
   onSelect: () => void
+  /** The review draft of the PR on this machine (worfy-pr-review ticket 10): the chip `Review draft`. */
+  draft?: PrReviewDraftRow | undefined
 }
 
+/** A draft the chip `Review draft` stands for: one with comments, not submitted yet. */
+const draftShown = (draft: PrReviewDraftRow | undefined): draft is PrReviewDraftRow => draft !== undefined && draft.state !== 'submitted' && draft.comments > 0
+
 /** One PR of the list: the author, the title, `name#N`, the Ticket chip and CI, the age, open threads and a new mark. */
-export function PrListItem({ group, row, ticket, viewer, now, selected, onSelect }: PrListItemProps) {
+export function PrListItem({ group, row, ticket, viewer, now, selected, onSelect, draft }: PrListItemProps) {
   const threads = threadsText(row.unresolvedThreads)
   const fresh = newText(row.newSinceSeen)
   const age = ageOf(group, row)
   const name = row.repo.slice(row.repo.indexOf('/') + 1)
   const chip = approvalsChip(row.approvals) !== null
+  const reviewDraft = draftShown(draft) ? draft : null
   return (
     <li className="w-pr-inbox-row" data-testid="pr-inbox-row" data-repo={row.repo} data-number={row.number} data-selected={selected ? 'true' : undefined}>
       <button type="button" className="w-pr-inbox-item" aria-current={selected ? 'true' : undefined} onClick={onSelect}>
@@ -339,8 +346,13 @@ export function PrListItem({ group, row, ticket, viewer, now, selected, onSelect
           <span className="w-pr-inbox-age w-mono" data-testid="pr-inbox-age" data-heat={ageHeat(age, now)} title={new Date(age).toLocaleString()}>
             {ageText(age, now)}
           </span>
-          {threads !== null || fresh !== null || chip ? (
+          {threads !== null || fresh !== null || chip || reviewDraft !== null ? (
             <span className="w-pr-inbox-item__marks">
+              {reviewDraft !== null ? (
+                <span className="w-pr-inbox-flag w-pr-review-draft-chip" data-testid="pr-review-draft-chip" title={`${plural(reviewDraft.comments, 'pending comment')}, started on ${short(reviewDraft.startedOn)}`}>
+                  Review draft
+                </span>
+              ) : null}
               {threads !== null ? (
                 <span
                   className="w-pr-inbox-bubble"
@@ -687,6 +699,8 @@ export interface PrInboxBodyProps {
   reading?: boolean
   /** Reads the PR Review mode shows again (worfy-pr-review ticket 09); absent — Review mode reads only its diff. */
   onRefreshPr?: (row: PrInboxRow) => void
+  /** The review drafts of the Project on this machine, by draftKey (worfy-pr-review ticket 10): the chip `Review draft`. */
+  reviewDrafts?: ReadonlyMap<string, PrReviewDraftRow>
 }
 
 /** The two panes of a search shown: the list of its results, and the result the pane shows. */
@@ -740,7 +754,7 @@ function ReviewColumn({ rows, current, viewer, results, onPick }: { rows: readon
 }
 
 /** The view over one snapshot, without IPC. */
-export function PrInboxBody({ name, snapshot, tickets, epics = EMPTY_EPICS, now, selected, focusedGroup, missing, failure, readOnly, onSelect, onMarkSeen, searchBar = null, results = null, reading = false, onRefreshPr }: PrInboxBodyProps) {
+export function PrInboxBody({ name, snapshot, tickets, epics = EMPTY_EPICS, now, selected, focusedGroup, missing, failure, readOnly, onSelect, onMarkSeen, searchBar = null, results = null, reading = false, onRefreshPr, reviewDrafts }: PrInboxBodyProps) {
   const status = statusLines(snapshot, now)
   // Before the first read, or while the read on opening runs: the rows of the last read stay, with its time.
   const readingNow = snapshot.enabled && (reading || (snapshot.readAt === null && status.error === null))
@@ -885,6 +899,7 @@ export function PrInboxBody({ name, snapshot, tickets, epics = EMPTY_EPICS, now,
                       now={now}
                       selected={shown === rowKey(row)}
                       onSelect={() => onSelect(row)}
+                      draft={reviewDrafts?.get(draftKey(row.repo, row.number))}
                     />
                   ))}
                 </ul>
@@ -969,6 +984,8 @@ function authorsOf(rows: readonly PrInboxRow[], viewer: string | null): string[]
 function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' | 'path'> }) {
   const { snapshot, error } = usePrInbox(project.id)
   const openRead = usePrInboxReading(project.id)
+  // The review drafts on this machine, for the chip `Review draft` of a row (worfy-pr-review ticket 10).
+  const reviewDrafts = useReviewDrafts(project.id)
   // Each time the view is shown — its tab, an entry of open.ts, another Project while it is shown — main reads GitHub
   // now, within its limits (worfy-polish 125); the views of the shell stay mounted, so this follows the shown view.
   const shown = useNavigation((store) => store.view === 'pull-requests')
@@ -1228,6 +1245,7 @@ function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' 
         onMarkSeen={markSeen}
         reading={openRead}
         onRefreshPr={refreshPr}
+        reviewDrafts={reviewDrafts}
         searchBar={<SearchBar search={search} authors={authorsOf(resultRows ?? listOrder(snapshot).map(({ row }) => row), viewer)} readOnly={readOnly} invalid={invalid} savedHit={savedHit} fieldRef={field} />}
         results={
           resultRows === null
@@ -1250,6 +1268,7 @@ function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' 
                         now={now}
                         selected={currentResult === row}
                         onSelect={() => selectResult(row)}
+                        draft={reviewDrafts.get(draftKey(row.repo, row.number))}
                       />
                     )}
                   />

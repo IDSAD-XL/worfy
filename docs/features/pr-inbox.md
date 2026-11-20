@@ -197,7 +197,7 @@ Review mode and selects that PR. The head of the screen: `owner/repo#N` and the 
 **Wrap**, **Hide whitespace**, then the tree and the diff of [Changes](changes.md) for the PR, with the review threads
 of GitHub on their lines. A file in the tree shows how many open threads and comments of the draft it has, and ✓ when
 it is Viewed. **j** / **k** and **↓** / **↑** move along the files (not along the PRs), **n** / **p** along the hunks, **v**
-marks the file Viewed or takes the mark off. **Escape** closes an open menu first; the next one closes Review mode. The
+marks the file Viewed or takes the mark off, **c** comments on the lines picked. **Escape** closes an open menu or comment first; the next one closes Review mode. The
 draft stays. Another tab and back keeps the PR, its file and Show new commits. A PR that leaves the list (it left
 the inbox on a read, or the search was cleared) closes Review mode, and the list takes its keys again.
 
@@ -207,8 +207,28 @@ GraphQL query, `viewerViewedState`, read only — and marks them Viewed in the d
 files. The draft waits until the files of the PR are read without an error: after a failed read (GitHub busy, a rate
 limit) **Refresh** reads them and starts it. After that the marks live only in
 worfy and are never written to GitHub. A mark belongs to the blob of the file's new side: a push that changes the file
-shows it not Viewed again. The comments of the draft stand on their lines, "Pending", or "Written by the agent" for the
-agent's; writing and editing them comes with the comments on lines.
+shows it not Viewed again.
+
+**Comments on lines.** The popover and the keys are those of the comments on lines of [Changes](changes.md), but the
+comment goes into the review draft, not to a Session, and nothing goes to GitHub before Submit. **+** in the gutter of a
+line, or **c** on the lines picked (a click picks a line, a click with Shift or a selection across lines picks a range),
+opens it; the text is Markdown, **Suggest change** adds a `suggestion` block with the text of the lines picked, **⌘↵**
+saves. Images are not taken. A popover with text not saved stays open on **Escape** and on a click outside; **Cancel**
+closes it. A comment stands under its last line: "Pending · Edit · Delete", or "Written by the agent · Edit · Delete" for
+the agent's; an edit makes the comment the person's. New comments are made only while the diff shows All changes of the
+commit the draft is on: when the head moved past it, the comments are listed above the diff and stay on that commit's
+lines. A comment on a line the PR's diff does not have (an agent took a wrong line) stands in "Not on a changed line"
+above the diff — GitHub would refuse it — with **Move to line** (the comment goes on the next line whose **+** is
+clicked, or the lines picked with **c**) and **Delete**.
+
+**The bar Your review** at the bottom: "Your review · 3 pending comments on 2 files", or "5 comments (5 by the agent) on
+3 files" when the agent wrote some. **Discard** asks "Discard 3 pending comments?" and then deletes the draft file and
+closes Review mode; nothing was on GitHub, so nothing changes there. **Finish review** is inactive for now ("Coming
+next"), and inactive while the Session of an Agent review writes ("Waits until the agent finishes or you stop it").
+
+**The chip Review draft.** A PR with a draft of comments on this machine shows **Review draft** in its row of the inbox
+and of the search results, with "3 pending comments, started on 3f2a9c1" in its tooltip. The draft survives quitting
+worfy.
 
 **New commits.** Review mode reads the PR again on entering, by **Refresh**, when the window gets the focus and the last
 read is over a minute old, and every 2 minutes while it is shown and the window has the focus. When the head is past the
@@ -226,7 +246,7 @@ person's draft has **Ask the agent to add comments** instead: a Session adds its
 comments and summary as they are.
 
 **On a Linked machine** Start review is inactive with "Review on the machine of the Project". **View changes** opens
-Review mode read only: the diff and the threads, "Read only" in the head, no Viewed, no draft, no bar.
+Review mode read only: the diff and the threads, "Read only" in the head, no Viewed, no draft, no bar, no **+**.
 
 ### Draft replies and Send
 
@@ -406,6 +426,7 @@ draft: Start review is inactive there, and Review mode opens read only through *
 | The results, their notices, Load more; the state of the search and the strip «Review this pull request» | `src/renderer/pr-inbox/SearchResults.tsx`; `usePrSearch` and `searchStep` of `src/renderer/pr-inbox/usePrInbox.ts` |
 | The channels `prSearch.run`, `prSearch.pull`, `prSearch.saved`, `prSearch.save`, `prSearch.forget`; the search in main | `src/shared/ipc/pr-search.ts`, `src/main/ipc/pr-search.ts`, `src/main/github/pr-search.ts` |
 | Start review ▾, Review mode, its column, the Project's last choice | `src/renderer/pr-review/StartReviewMenu.tsx`, `src/renderer/pr-review/ReviewMode.tsx`, `src/renderer/pr-review/review-store.ts`, `src/renderer/pr-review/pr-review.css`; the column — `src/renderer/pr-inbox/PrInboxView.tsx` |
+| Comments on lines of Review mode, «Not on a changed line», the bar Your review and Discard, the chip Review draft | `src/renderer/pr-review/review-comments.tsx`, `src/renderer/pr-review/ReviewBar.tsx`, the popover — `src/renderer/changes/LineComment.tsx`; the drafts of the Project — `useReviewDrafts` of `src/renderer/pr-review/review-store.ts`; the chip — `PrListItem` of `src/renderer/pr-inbox/PrInboxView.tsx` |
 | Start review in main: the draft, the files Viewed on github.com | `prReview.start` of `src/shared/ipc/pr-review.ts`, `src/main/ipc/pr-review.ts`; `viewedOnGithub` and `start` of `src/main/github/pr-review-draft.ts` |
 
 Tests: `test/unit/pr-inbox-view.test.tsx`, `test/unit/pr-inbox-open.test.tsx`, `test/e2e/pr-inbox.spec.ts` (with the
@@ -413,5 +434,5 @@ screenshots of the two panes at 1280 and 1600 px in both themes); the reader
 in `test/contract/pr-inbox.test.ts` and `test/unit/pr-inbox-groups.test.ts`; drafts and Send in
 `test/contract/pr-inbox-send.test.ts` and `test/unit/draft-thread.test.tsx`; the search in `test/unit/pr-search-view.test.tsx`,
 `test/e2e/pr-search.spec.ts` (with its screenshots at 1280 and 1600 px in both themes), `test/contract/pr-search.test.ts`
-and `test/unit/pr-search-query.test.ts`; Review mode in `test/unit/review-mode.test.tsx`, `test/contract/pr-review-draft.test.ts`
+and `test/unit/pr-search-query.test.ts`; Review mode in `test/unit/review-mode.test.tsx`, `test/unit/review-comments.test.tsx`, `test/contract/pr-review-draft.test.ts`
 and `test/e2e/pr-review.spec.ts` (with its screenshots at 1280 and 1600 px in both themes).

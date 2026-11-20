@@ -176,6 +176,23 @@ describe('Start review: the files Viewed on github.com, read once and only read'
     expect(readFileSync(s.file, 'utf8')).toBe(before)
   })
 
+  it('the comments of Review mode (worfy-pr-review ticket 10) — new, on a range, changed, an agent\'s made the person\'s, moved, deleted — and Discard: no call to GitHub at all', async () => {
+    const gh = world()
+    const s = await setup({}, gh)
+    ok(await s.call('prReview.start', start))
+    const read = gh.calls().length
+    ok(await s.call('prReview.saveComment', save(12, 'Why three tries?')))
+    ok(await s.call('prReview.saveComment', { ...pull, head: HEAD, comment: { path: 'src/upload.ts', line: 14, side: 'RIGHT', start_line: 13, start_side: 'RIGHT', body: '```suggestion\nconst TRIES = 2\nconst WAIT = 100\n```' }, anchor: 'line 13\nline 14' }))
+    ok(await s.call('prReview.saveComment', { ...save(12, 'Why not two?'), ref: { index: 0, path: 'src/upload.ts', body: 'Why three tries?' } }))
+    ok(await s.call('prReview.saveComment', { ...save(30, 'Why not two?'), ref: { index: 0, path: 'src/upload.ts', body: 'Why not two?' } }))
+    const left = ok(await s.call<PrReviewDraftAnswer>('prReview.deleteComment', { ...pull, ref: { index: 1, path: 'src/upload.ts', body: '```suggestion\nconst TRIES = 2\nconst WAIT = 100\n```' } }))
+    expect(left.draft?.payload.comments).toEqual([{ path: 'src/upload.ts', line: 30, side: 'RIGHT', body: 'Why not two?' }])
+    expect(ok(await s.call<PrReviewDraftAnswer>('prReview.discard', pull)).draft).toBeNull()
+    expect(s.onDisk()).toBeNull()
+    expect(gh.calls()).toHaveLength(read)
+    readsOnly(gh.calls())
+  })
+
   it('GitHub does not answer: the draft starts without marks, and the read is not tried again', async () => {
     const gh = world()
     writeFileSync(join(gh.dir, 'offline'), '')
