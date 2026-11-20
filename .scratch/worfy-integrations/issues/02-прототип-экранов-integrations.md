@@ -1,7 +1,8 @@
 # 02 — Прототип экранов: раздел Integrations, Add integration, вход, строка Integration, фильтр tools, chip и Settings → Integrations
 
 Type: prototype
-Status: open
+Status: claimed 2026-11-20T17:29Z
+Branch: worfy-integrations/02
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 2; «Волны», Wave 1; «Решение» (пункты 1–5, «Как пользователь идёт по
 экранам», «Экран (набросок)»); «Решено без владельца», 2 и 5; «Вопросы владельцу», Q2, Q4, Q6, Q7, Q9
@@ -65,4 +66,44 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Волны», Wave 1; «Ре�
 
 ## Итог
 
-Пусто до завершения Ticket-а.
+- Card — `card-e53beada`, title «Prototype: Integrations», Node на Canvas Project-а worfy (x 1088, y 10752,
+  1300 × 880), связан с Epic-ом `worfy-integrations` (`link_card`). Файл —
+  `~/Library/Application Support/worfy/CanvasForAI-a2cd477b/cards/card-e53beada/index.html`: один HTML со встроенными
+  CSS и JS, без сети и сборки. Цвета — копия tokens темы worfy (светлая — палитра E, тёмная — Graphite), как у
+  `card-53b21f06` (прототип worfy-pr-review).
+- 22 состояния — кнопки в полосе «Prototype · fictional data»; `#state=<name>&theme=dark` открывает состояние сразу;
+  переключатели Light / Dark и Project (`client-a-app`, `client-a-api`, `client-b-app`):
+  - Project settings → Integrations («Что делаем», 2): `list` — группы «worfy integrations» (signed in; Sign-in needed
+    с кнопкой Sign in; error с текстом сервиса «401 Bad credentials»; checking; «41 tools · ~9k tokens») и «From Claude
+    Code» (предупреждение «Two Jira tool sets» у connector-а claude.ai Atlassian, «Add as integration» у него и у
+    сервера `linear` из user config); `details` — раскрытая строка (имя сервера в Session, фильтр, Enabled in this
+    Project, Available to Autopilot, где ещё используется); `menu` — «…» (Test, Re-sign in, Rename, Sign out, Disable
+    in this Project, Remove from Machine); `connector-off` — connector не разрешён, строка предупреждает до Allow;
+    `empty` — новый Project без Integration-ов.
+  - Add integration (3): `add` — сверху «Use in this Project: Jira — client A (used in 2 Projects: …)», ниже каталог
+    со способами входа; `form` — Jira: Label и Sign in with Atlassian; `form-token` — e-mail, API token, ссылка на
+    страницу token-ов и пометка «Works only if your organization admin turned on API token sign-in…»; `form-dup` —
+    метка уже есть на Machine; `custom-http` — адрес `https://…` и заголовок; `custom-stdio` — command, args, env с
+    флажком Secret.
+  - Окно входа (4): `signin` — страница входа сервиса (заглушка) и «Open in system browser»; `signin-site` — выбор
+    site Atlassian; `signin-browser` — ожидание системного браузера; `signin-failed` — отказ сервиса; `checking` —
+    строка после входа.
+  - Фильтр Tools и галочки (5): `filter` — All, Read only, Choose… с числом и размером; `filter-noro` — Read only
+    недоступен у Sentry без `readOnlyHint`, с причиной; `choose` — список tools с read-only / writes и размером.
+    Available to Autopilot по умолчанию выключена (у «Jira — client A» включена пользователем).
+  - chip «MCP n/m» (6): `chip` — строки с источником «worfy integration» и меткой, Sign in у строки Sign-in needed;
+    рядом — ответ tool-а «Sign-in needed: …» и строка Health check.
+  - Settings → Integrations (7): `machine` — все Integration-ы Machine, где каждая используется, Sign out, Remove;
+    `remove` — подтверждение со списком Project-ов.
+- Для брифов: Ticket 08 — `list`, `details`, `menu`, `filter`, `filter-noro`, `choose`, `connector-off`, `empty`,
+  `add`, `form`, `form-token`, `form-dup`, `custom-http`, `custom-stdio`, `machine`, `remove`; Ticket 09 — `signin`,
+  `signin-site`, `signin-browser`, `signin-failed`, `checking`, `chip` и строка Sign-in needed в `list`.
+- Снимки экрана — в scratchpad, не в репозитории: `/tmp/claude-scratch-impl-int02/shots/`, 44 PNG, 1300 × 880, каждое
+  состояние в `light` и `dark` (headless Chrome по `file://`).
+- Console: скрипт в scratchpad прошёл все 22 состояния в обеих темах и нажал каждую кнопку с `data-act` (1372 нажатия)
+  — 0 ошибок. Внутри Card-а на Canvas не проверялось.
+- Данные выдуманы: `grep -inE "canvasforai|idsad|src/main|src/renderer" <card>/index.html` — exit 1, ничего не найдено.
+- Slack: в каталоге (`CATALOG`) его нет. Слово встречается один раз — строка connector-а «claude.ai Slack» в группе
+  «From Claude Code»: так велят spec («Решения по реализации» → Slack: connector «виден в группе From Claude Code») и
+  brief Orchestrator-а. Поэтому `grep -ic slack <card>/index.html` даёт 1, а не 0; проверка «Готово, когда», 3, по
+  букве не проходит, по смыслу (каталог без Slack) проходит.
