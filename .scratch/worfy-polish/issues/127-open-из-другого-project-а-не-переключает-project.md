@@ -1,7 +1,8 @@
 # 127 — «Open» Session из другого Project-а не переключает Project
 
 Type: bug
-Status: claimed 2026-11-20T11:02Z
+Status: done 2026-11-20T12:08Z
+PR: #2087
 Blocked by: none
 Source: владелец 2026-11-19 во время приёмки worfy-pr-follow 07: «Open» у Session, которая работает над PR (вопрос
 «Push / Not now» skill-а `pr-fix`, его уведомление), при другом активном Project-е не переключил Project; после ручного
@@ -59,6 +60,7 @@ Source: владелец 2026-11-19 во время приёмки worfy-pr-foll
   - evidence: test-run pass · `pnpm test test/unit/question-card.test.tsx test/unit/permission-card.test.tsx` exit 0 · mac - · 799539bb46395fc4a7b0749b85339a68142f78c5
   - evidence: test-run pass · `pnpm test test/unit/question-card.test.tsx test/unit/permission-card.test.tsx` exit 0 · mac - · aa197d7e6694bd1bede012e4f7ea0c0106646a0e
 - [ ] Unit test-ы на оба пути зелёные; CI зелёный.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44727572617/job/136277413013 · ci - · e0518be58db068e0be4ff9f8e18795ad17e165a8
 
 ## Итог
 
