@@ -270,6 +270,10 @@ describe('the read-or-write mark of `project` channels', () => {
     'product.share',
     // The PR inbox of a Project as main last read it (worfy-pr-inbox ticket 02): read-only gh, as checks.get.
     'prInbox.get',
+    // The PR search (worfy-pr-review ticket 04): read-only gh as the Project's account, and the saved searches read.
+    'prSearch.pull',
+    'prSearch.run',
+    'prSearch.saved',
     // "Edit profile" (worfy-polish ticket 78): the Profile's fields through bin/profile-set --read and --check, which write nothing.
     'profileEdit.check',
     'profileEdit.read',
@@ -409,6 +413,9 @@ describe('the read-or-write mark of `project` channels', () => {
     'projects.hold',
     // Writes pr-inbox.json into the Project's data folder: what the user has seen (worfy-pr-inbox ticket 02).
     'prInbox.markSeen',
+    // Write and remove a search in pr-searches.json of the Project's data folder (worfy-pr-review ticket 04).
+    'prSearch.forget',
+    'prSearch.save',
     'projects.remove',
     // The team reviewer (worfy-human-review ticket 09): Build starts a Session, Delete erases the private
     // folder, Later writes the Project's settings, and so does a due reminder to update it (ticket 10).

@@ -1,7 +1,7 @@
 # 04 — Поиск PR в main: сборка запроса, три области, `prSearch.run` и `prSearch.pull`, сохранённые поиски, Amendment-ы ADR-0105 и ADR-0005
 
 Type: task
-Status: open
+Status: claimed 2026-11-20T04:30Z
 Blocked by: 02
 Source: [spec.md](../spec.md), «Ticket-ы», 4; «Факты GitHub API» → «Поиск PR»; «Решения по реализации», 1, 2, 9 и 10;
 «Решения по test-ам», Seam 1 и 2; «Вопросы владельцу», Q1; [critic](../../../docs/product/critic/worfy-pr-review-2026-11-20.md),

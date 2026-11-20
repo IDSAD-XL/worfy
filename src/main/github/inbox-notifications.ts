@@ -72,7 +72,7 @@ export function parseNotificationsAnswer(output: string): NotificationsAnswer {
 }
 
 /** The first JSON value of `text`: on success gh's stderr follows the body in output mode `all`. */
-function firstJson(text: string): unknown {
+export function firstJson(text: string): unknown {
   const start = text.search(/[[{]/u)
   if (start < 0) throw new Error('no JSON in the answer')
   let depth = 0
