@@ -51,15 +51,22 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Как
 
 - [ ] Unit test (`test/unit/changes-tray.test.tsx`): «+», `c` и диапазон открывают popover; лоток показывает
       комментарии выбранной Session; смена «To» переносит комментарии к коду; Read only — без «+» и лотка.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/changes-tray.test.tsx) · mac - · 8d4712631278dd4d90184936eac4f7d1d928075d
 - [ ] Contract test (`test/contract/changes-targets.test.ts`): Session с Binding-ом на Ticket — в списке, Session другого
       Ticket-а — нет, Orchestrator — есть; значение по умолчанию по Q2.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/contract/changes-targets.test.ts) · mac - · 8d4712631278dd4d90184936eac4f7d1d928075d
 - [ ] e2e test (`test/e2e/changes-comments.spec.ts`, fake agent): карточка → Changes → два комментария к строке и
       диапазону → Send: fake agent получил одно сообщение с разделом «Comments on lines of the diff (2)», путями,
       строками и кодом; блок в пузыре открывает Changes на строке.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/changes-comments.spec.ts` exit 0 · mac dev · 8d4712631278dd4d90184936eac4f7d1d928075d
 - [ ] e2e test: неотправленный комментарий переживает перезапуск окна.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/changes-comments.spec.ts` exit 0 (window.reload) · mac dev · 8d4712631278dd4d90184936eac4f7d1d928075d
 - [ ] Снимок экрана лотка с «To» — в «Итог» (в scratchpad, в репозиторий не кладётся).
+  - evidence: screenshot pass · changes-tray-light.png and changes-tray-dark.png in the scratchpad, named in «Итог» · mac dev · 8d4712631278dd4d90184936eac4f7d1d928075d
 - [ ] Английская страница `docs/features/changes.md` описывает комментарии; `node scripts/check-feature-docs.mjs` — exit 0.
+  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 8d4712631278dd4d90184936eac4f7d1d928075d
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 8d4712631278dd4d90184936eac4f7d1d928075d
 
 ## Где в коде
 
@@ -103,7 +110,8 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Как
 - Read only (Linked machine): нет «+», `c`, Comment и лотка.
 - Файлы вне списка «Где в коде»: `src/renderer/canvas/nodes/ChangesNode.tsx` (монтирует лоток и popover, клавиша `c`),
   `src/renderer/changes/line-comments.tsx`, `sent-lines.ts`, `open.ts`, `diff-window.ts` (`lineNumber` — из-за правила
-  lint react-refresh), `changes.css`.
+  lint react-refresh), `changes.css`; `test/unit/link-access.test.ts` — новый канал `changes.targets` помечен как
+  чтение (test требует решения по каждому каналу `project`).
 - Страница `docs/features/changes.md`: раздел «Comments on lines», клавиша `c`, Read only.
 
 Снимки лотка с «To» (Playwright `page.screenshot()` в e2e, в репозиторий не положены):
@@ -131,4 +139,6 @@ worktree) — exit 1, 2 файла упали (нет модуля `sent-lines`,
 Проверки (exit code): `pnpm typecheck` — 0; eslint изменённых файлов — 0; unit и contract test-ы
 (`changes-tray`, `changes-view`, `changes-targets`, `changes-read`, `quote-comments*`, `quote-store`, `session-view`) —
 0, 8 файлов, 245 test-ов; `pnpm test:e2e test/e2e/changes-comments.spec.ts` — 0, 1 passed;
-`node scripts/check-feature-docs.mjs` — 0.
+`node scripts/check-feature-docs.mjs` — 0. Полная проверка `pnpm lint && pnpm typecheck && pnpm test` на `8d4712631` —
+0 (862 файла test-ов, 19 744 test-а); первый её запуск был красным — `test/unit/link-access.test.ts` требовал решить,
+чтение ли новый канал `changes.targets`, исправлено. `gate fast` — 0, `[gate] green (fast)`.
