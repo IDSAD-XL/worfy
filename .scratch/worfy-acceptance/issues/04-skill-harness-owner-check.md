@@ -1,7 +1,8 @@
 # 04 — Skill Harness `owner-check`: строка `owner-check` через `ticket evidence`, Pass отмечает пункт, Fail заводит доработку
 
 Type: task
-Status: claimed 2026-11-20T01:05Z
+Status: done 2026-11-20T03:23Z
+PR: #2051
 Branch: worfy-acceptance/04
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решения по реализации» → «Skill `owner-check` Harness-а»; «Риски», «Слова
@@ -55,6 +56,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решения по реал�
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 1b9ec6366e495c6b8d0a93a02aedd665a229451e
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job-ы Windows CI зелёные
       (платформенный PR).
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44664848110/job/136054714026 · ci - · aab14e0ebd04c348e18b222ec7a549037087d36f
 
 ## Где в коде
 
