@@ -67,7 +67,7 @@ async function lowLevelServer(server: McpServer): Promise<ClaudeMcpServer> {
 
 ## 4. Session-сервер proxy: фильтр, метка, длинные имена
 
-Code: `src/main/integrations/proxy.ts:284-301` · key lines: 288, 289, 290, 293, 296, 299
+Code: `src/main/integrations/proxy.ts:286-303` · key lines: 290, 291, 292, 295, 298, 301
 
 ```ts
     const list = async (): Promise<readonly McpTool[]> => {
@@ -103,10 +103,10 @@ Code: `src/main/integrations/proxy.ts:284-301` · key lines: 288, 289, 290, 293,
 
 ## 5. Одно соединение и разбор отказов
 
-Code: `src/main/integrations/proxy.ts:380-406` · key lines: 386, 388, 393, 396, 397, 399, 400, 401
+Code: `src/main/integrations/proxy.ts:382-411` · key lines: 388, 390, 395, 401, 402, 404, 405, 406
 
 ```ts
-  private async withConnection<T>(id: string, work: (live: Live) => Promise<T>): Promise<{ ok: true; value: T } | { ok: false; failure: Failure }> {
+  private async withConnection<T>(id: string, work: (live: Live) => Promise<T>, signal?: AbortSignal): Promise<{ ok: true; value: T } | { ok: false; failure: Failure }> {
     for (let attempt = 0; ; attempt++) {
       let live: Live | null = null
       try {
@@ -119,10 +119,13 @@ Code: `src/main/integrations/proxy.ts:380-406` · key lines: 386, 388, 393, 396,
           return { ok: true, value: await work(running) }
         } finally {
           running.inFlight--
-          if (running.retired && running.inFlight === 0) void running.client.close().catch(() => undefined)
+          if (running.retired && running.inFlight === 0) this.closeRetired(id, running)
         }
       } catch (error) {
-        const failure = await this.failureOf(error, live?.secrets ?? this.secretsOf(id), live !== null)
+        // Cancelled before its request went out (while the connection opened, say): the MCP SDK throws the bare reason
+        // (signal.throwIfAborted, shared/protocol.js), not -32001 — still this call's end alone.
+        const failure: Failure =
+          live !== null && signal?.aborted === true ? { kind: 'call', message: 'the call was cancelled' } : await this.failureOf(error, live?.secrets ?? this.secretsOf(id), live !== null)
         if (failure.kind !== 'service' && failure.kind !== 'call') this.drop(id, live)
         if (failure.kind === 'expired' && attempt === 0) continue
         const newest = live === null || this.generations.get(id) === live.generation
@@ -138,12 +141,12 @@ Code: `src/main/integrations/proxy.ts:380-406` · key lines: 386, 388, 393, 396,
 - Что делает: каждый вызов любой Session идёт через одно соединение Integration-ы и считается в нём (`inFlight`).
   401, не сохранённый token и `UnauthorizedError` OAuth — статус `needs-sign-in`, а вызов tool-а отвечает «Sign-in
   needed: <метка>. Ask the user to sign in in worfy.»; 404 открытой session — соединение открывается заново один раз;
-  вызов, который агент отменил или который не уложился в предел (`McpError` -32001 пакета), отказывает один, соединение
-  и чужие вызовы живут; прочий сбой соединения — статус `error` с текстом без секретов. Статус ставит только самое новое
+  вызов, который агент отменил или который не уложился в предел (`McpError` -32001 пакета, а при отмене до отправки
+  запроса — голая причина отмены), отказывает один, соединение и чужие вызовы живут; прочий сбой соединения — статус `error` с текстом без секретов. Статус ставит только самое новое
   соединение (`generation`): старое, умершее под своим последним вызовом, статус нового не трогает. Строка лога — id и
   вид сбоя, без текста.
 - Почему здесь: Ticket, «Что делаем», пункты 3 и 4; spec, «Решения по реализации» → Proxy; отмена, предел и статус
-  старого соединения — ревью PR, раунд 2.
+  старого соединения — ревью PR, раунды 2 и 3.
 - Без него: отмена одного вызова закрывала бы общее соединение — вызов другой Session падал бы «Connection closed», а
   stdio-процесс сервиса убивался бы.
 - Требование: [Что делаем, пункт 3](../issues/06-proxy-и-session-claude.md#что-делаем)
@@ -152,7 +155,7 @@ Code: `src/main/integrations/proxy.ts:380-406` · key lines: 386, 388, 393, 396,
 
 ## 6. Одно открытие на Integration
 
-Code: `src/main/integrations/proxy.ts:414-433` · key lines: 421, 423, 424, 429, 430, 431
+Code: `src/main/integrations/proxy.ts:419-439` · key lines: 427, 429, 430, 432, 435, 436
 
 ```ts
   private async connection(id: string): Promise<Live> {
@@ -162,16 +165,17 @@ Code: `src/main/integrations/proxy.ts:414-433` · key lines: 421, 423, 424, 429,
         if (this.store.get(id) === undefined) throw new IntegrationGone()
         return this.startOpening(id)
       }
-      const live = await existing.catch(() => null)
+      // An opening that fails fails every call that waited for it: none of them opens again on its own.
+      const live = await existing
       // Replaced or forgotten while this call waited: look again.
       if (this.connections.get(id) !== existing) continue
       if (this.store.get(id) === undefined) {
         this.connections.delete(id)
-        if (live !== null) this.retire(live)
+        this.retire(id, live)
         throw new IntegrationGone()
       }
-      if (live !== null && live.fingerprint === this.fingerprint(id)) return live
-      if (live !== null) this.retire(live)
+      if (live.fingerprint === this.fingerprint(id)) return live
+      this.retire(id, live)
       return this.startOpening(id)
     }
   }
@@ -179,10 +183,12 @@ Code: `src/main/integrations/proxy.ts:414-433` · key lines: 421, 423, 424, 429,
 
 - Что делает: после каждого ожидания карта соединений читается заново, а новое открытие встаёт на место старого в том же
   шаге, поэтому вызовы, которые вместе увидели новый секрет, делят одно новое соединение; старое закрывается, когда
-  кончится его последний вызов (`retire`). Integration, которой больше нет на Machine, получает отказ здесь же, даже без
-  секретов, и её соединение закрывается.
+  кончится его последний вызов (`retire`), а `close(id)` и `close()` закрывают и его. Открытие, которое не удалось,
+  отказывает всем вызовам, что его ждали: каждый не открывает своё. Integration, которой больше нет на Machine, получает
+  отказ здесь же, даже без секретов, и её соединение закрывается.
 - Почему здесь: ревью PR, раунд 2: три параллельных вызова после смены секрета запускали три процесса, два оставались
-  без хозяина; удалённая Integration без секретов продолжала отвечать.
+  без хозяина; удалённая Integration без секретов продолжала отвечать; раунд 3: пять вызовов к сервису с 401 давали пять
+  `initialize` подряд.
 - Без него: лишние stdio-процессы сервиса и ответы Integration-ы, которую пользователь удалил.
 - Требование: [Что делаем, пункт 3](../issues/06-proxy-и-session-claude.md#что-делаем)
 - Риски и пробелы test-ов: OAuth (Ticket 05) должен не считать новый access token сменой входа — оставлено место и
@@ -190,7 +196,7 @@ Code: `src/main/integrations/proxy.ts:414-433` · key lines: 421, 423, 424, 429,
 
 ## 7. Stdio-сервер: секрет в окружении, stderr не читается
 
-Code: `src/main/integrations/proxy.ts:482-508` · key lines: 491, 492, 493, 496, 497, 501, 506
+Code: `src/main/integrations/proxy.ts:505-531` · key lines: 514, 515, 516, 519, 520, 524, 529
 
 ```ts
   private async open(id: string, generation: number): Promise<Live> {
@@ -335,17 +341,19 @@ export function labelIntegrations(query: QueryHandle, servers: readonly { name: 
 - Раунд 2: новые test-ы (отмена и предел одного вызова, одно открытие после смены секрета, refresh token, статус
   старого соединения, удалённая Integration без секретов, 404 на `initialize`, закрытие при удалении и выходе, метка
   через `observe` Limits, shim) — exit 1 до правки, exit 0 после; каждая правка ловится своим mutant-ом.
+- Раунд 3: test-ы отмены до отправки запроса, одного `initialize` на неудачное открытие и `close(id)`/`close()` с
+  заменённым соединением — exit 1 до правки, exit 0 после; три mutant-а — exit 1.
 
 ## Проверить себя
 
 1. Почему фильтр Read only режет `tools/list` proxy, а не `disallowedTools` Claude Code?
    - Ответ: `disallowedTools` MCP-tool из списка модели не убирает, только запрещает вызов (spike 01, 3.3); список
      proxy убирает tool из того, что видит модель, а вызов не из списка отказывает до сервиса.
-   - Строки: `src/main/integrations/proxy.ts:289`
+   - Строки: `src/main/integrations/proxy.ts:291`
 2. Что получает Session, когда сервис ответил 401 посреди её работы?
    - Ответ: ответ tool-а `isError` «Sign-in needed: <метка>…», статус Integration-ы `needs-sign-in`, соединение
      закрыто, чтобы следующий вызов вошёл с новым token-ом.
-   - Строки: `src/main/integrations/proxy.ts:397-400`
+   - Строки: `src/main/integrations/proxy.ts:402-405`
 3. Почему token сервиса не виден в `ps` процесса Claude Code?
    - Ответ: Integration — SDK-сервер в процессе worfy, не запись `http` с заголовками: `--mcp-config` её не несёт, а
      заголовки и секреты stdio живут только в main.
