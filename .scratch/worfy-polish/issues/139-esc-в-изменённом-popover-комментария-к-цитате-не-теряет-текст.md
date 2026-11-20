@@ -1,7 +1,8 @@
 # 139 — Esc в изменённом popover комментария к цитате не теряет текст
 
 Type: bug
-Status: open
+Status: claimed 2026-11-20T16:50Z
+Branch: worfy-polish/139
 Blocked by: none
 Source: решение владельца 2026-11-20, Q9. В Changes то же исправил worfy-polish 136 (#2072); комментарий к цитате
 тогда оставлен вне скоупа.

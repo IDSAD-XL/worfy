@@ -281,8 +281,8 @@ export function CommentPopover({
     element.classList.add('w-qpop--shake')
   }, [shake])
   const changed = popover.text.trim() !== popover.was.text.trim() || popover.images.length !== popover.was.images
-  // A click outside closes an unchanged popover; a changed one asks to be saved or cancelled first
-  // (onOutside). An Esc pressed outside that no field took (the message field interrupts a running
+  // A click outside or an Esc closes an unchanged popover; a changed one asks to be saved or cancelled
+  // first (onOutside). An Esc pressed outside that no field took (the message field interrupts a running
   // turn with it) is the same as a click outside. The focus going elsewhere or a switch of the view
   // closes an unchanged one and keeps a changed one, without a word: the text is not lost. A blur of
   // the window closes none: «Attach image» opens the system's file picker, which takes the focus of
@@ -292,8 +292,14 @@ export function CommentPopover({
     else if (reason !== 'blur' && !changed) onCancel()
     return false
   }
-  // Esc pressed in the popover is the kit's: it closes the popover (onCancel) and goes no further.
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    // The kit closes its popup on an Esc pressed in it whatever the place says; an Esc marked handled here keeps a
+    // changed popover and answers as a click outside does (worfy-polish 139, as worfy-polish 136 in Changes).
+    if (event.key === 'Escape' && !event.nativeEvent.isComposing && changed) {
+      event.preventDefault()
+      onOutside()
+      return
+    }
     if (matchesShortcut(event.nativeEvent, SHORTCUTS.quoteSave)) {
       event.preventDefault()
       onSave()
