@@ -46,6 +46,8 @@ export const prInboxThreadSchema = z.object({
   isOutdated: z.boolean(),
   path: z.string().nullable(),
   line: z.number().int().nullable(),
+  /** The side of the diff `line` is on (GitHub `diffSide`): LEFT — a line of the base, RIGHT — of the head; absent reads as RIGHT. */
+  side: z.enum(['LEFT', 'RIGHT']).optional(),
   viewerCanReply: z.boolean(),
   /** The last comments of the thread, oldest first. */
   comments: z.array(prInboxCommentSchema),

@@ -97,7 +97,7 @@ function caller(handlers: readonly InvokeHandler[]) {
 }
 
 const SPEC = (lines: number): string => Array.from({ length: lines }, (_, i) => `line ${i + 1}`).join('\n') + '\n'
-const ticket = { epic: 'ep', num: 2 }
+const ticket = { kind: 'ticket' as const, epic: 'ep', num: 2 }
 
 describe('a Ticket with a worktree', () => {
   let repo: string
@@ -170,7 +170,7 @@ describe('a Ticket with a worktree', () => {
   })
 
   it('names its repository, the worktree, the base and merge-base, the four scopes and the branches to compare', async () => {
-    const answer = await call(changesScopes, { projectId: 'p', ticket })
+    const answer = await call(changesScopes, { projectId: 'p', subject: ticket })
     expect(answer.repos).toHaveLength(1)
     const [entry] = answer.repos
     expect(entry).toMatchObject({ repo: 'repo', kind: 'worktree', branch: 'ep/02', headSha: secondOnBranch, base: { ref: 'origin/main', from: 'worktree.base', mergeBase: base }, scopes: ['all', 'uncommitted', 'commit', 'compare'], error: null })
@@ -179,7 +179,7 @@ describe('a Ticket with a worktree', () => {
   })
 
   it('All changes: the branch and the work tree against the merge-base, with the new files, not main\'s later commit', async () => {
-    const { repos } = await call(changesList, { projectId: 'p', ticket, scope: { kind: 'all' } })
+    const { repos } = await call(changesList, { projectId: 'p', subject: ticket, scope: { kind: 'all' } })
     const [changes] = repos
     expect(changes!.error).toBeNull()
     expect(changes!.base).toEqual({ ref: 'origin/main', from: 'worktree.base', mergeBase: base })
@@ -203,7 +203,7 @@ describe('a Ticket with a worktree', () => {
   })
 
   it('a file of All changes: its hunks with the numbers of both sides; CRLF, a binary file, a folded one, a new file', async () => {
-    const file = async (path: string, extra: Record<string, unknown> = {}) => (await call(changesFile, { projectId: 'p', ticket, repo: 'repo', scope: { kind: 'all' }, path, ...extra })).file
+    const file = async (path: string, extra: Record<string, unknown> = {}) => (await call(changesFile, { projectId: 'p', subject: ticket, repo: 'repo', scope: { kind: 'all' }, path, ...extra })).file
     const a = await file('a.txt')
     expect(a.kind).toBe('hunks')
     if (a.kind !== 'hunks') return
@@ -240,7 +240,7 @@ describe('a Ticket with a worktree', () => {
   })
 
   it('Uncommitted: only what is not committed, with the new files', async () => {
-    const [changes] = (await call(changesList, { projectId: 'p', ticket, scope: { kind: 'uncommitted' } })).repos
+    const [changes] = (await call(changesList, { projectId: 'p', subject: ticket, scope: { kind: 'uncommitted' } })).repos
     expect(changes!.base).toBeNull()
     expect(changes!.files.map((file) => [file.path, file.untracked])).toEqual([
       ['a.txt', false],
@@ -251,33 +251,33 @@ describe('a Ticket with a worktree', () => {
   })
 
   it('Commit: the Ticket\'s commits newest first, and one commit\'s files', async () => {
-    const { commits, base: logBase } = await call(changesCommits, { projectId: 'p', ticket, repo: 'repo' })
+    const { commits, base: logBase } = await call(changesCommits, { projectId: 'p', subject: ticket, repo: 'repo' })
     expect(logBase.mergeBase).toBe(base)
     expect(commits.map((each) => [each.sha, each.subject])).toEqual([
       [secondOnBranch, 'second'],
       [firstOnBranch, 'first'],
     ])
-    const [changes] = (await call(changesList, { projectId: 'p', ticket, scope: { kind: 'commit', repo: 'repo', sha: secondOnBranch } })).repos
+    const [changes] = (await call(changesList, { projectId: 'p', subject: ticket, scope: { kind: 'commit', repo: 'repo', sha: secondOnBranch } })).repos
     expect(changes!.files.map((file) => file.path)).toEqual(['b c.txt', 'big.txt'])
-    const file = (await call(changesFile, { projectId: 'p', ticket, repo: 'repo', scope: { kind: 'commit', repo: 'repo', sha: secondOnBranch }, path: 'b c.txt' })).file
+    const file = (await call(changesFile, { projectId: 'p', subject: ticket, repo: 'repo', scope: { kind: 'commit', repo: 'repo', sha: secondOnBranch }, path: 'b c.txt' })).file
     expect(file.kind === 'hunks' && file.hunks[0]!.lines).toMatchObject([{ kind: 'add', newLine: 1, text: 'two words' }])
   })
 
   it('Compare against: another branch in place of the base', async () => {
-    const [changes] = (await call(changesList, { projectId: 'p', ticket, scope: { kind: 'compare', repo: 'repo', ref: 'main' } })).repos
+    const [changes] = (await call(changesList, { projectId: 'p', subject: ticket, scope: { kind: 'compare', repo: 'repo', ref: 'main' } })).repos
     expect(changes!.base).toMatchObject({ ref: 'main', from: 'compare', mergeBase: base })
     expect(changes!.files.map((file) => file.path)).toContain('b c.txt')
-    const [none] = (await call(changesList, { projectId: 'p', ticket, scope: { kind: 'compare', repo: 'repo', ref: 'no-such-branch' } })).repos
+    const [none] = (await call(changesList, { projectId: 'p', subject: ticket, scope: { kind: 'compare', repo: 'repo', ref: 'no-such-branch' } })).repos
     expect(none!.error).toMatch(/No branch no-such-branch/u)
   })
 
   it('wrote nothing into the repository: the index, its bytes and mtime, refs, objects and locks are as before', async () => {
     // Every read once more, with Hide whitespace too, then the comparison.
     for (const scope of [{ kind: 'all' }, { kind: 'uncommitted' }, { kind: 'commit', repo: 'repo', sha: firstOnBranch }, { kind: 'compare', repo: 'repo', ref: 'other' }]) {
-      await call(changesList, { projectId: 'p', ticket, scope, hideWhitespace: true })
-      await call(changesFile, { projectId: 'p', ticket, repo: 'repo', scope, path: 'a.txt', whole: true })
+      await call(changesList, { projectId: 'p', subject: ticket, scope, hideWhitespace: true })
+      await call(changesFile, { projectId: 'p', subject: ticket, repo: 'repo', scope, path: 'a.txt', whole: true })
     }
-    await call(changesScopes, { projectId: 'p', ticket })
+    await call(changesScopes, { projectId: 'p', subject: ticket })
     const after = snapshot(join(repo, '.git'))
     expect(after.indexes).toEqual(before.indexes)
     expect(after.files).toEqual(before.files)
@@ -348,37 +348,37 @@ describe('a Ticket in two repositories of one Project, on a branch checked out n
   })
 
   it('reads only the repositories the Ticket names by its Repo: lines, and only the named one for Commit and Compare against', async () => {
-    const onlyWeb = await call(changesScopes, { projectId: 'p', ticket: { epic: 'ep', num: 3, repos: ['web'] } })
+    const onlyWeb = await call(changesScopes, { projectId: 'p', subject: { kind: 'ticket', epic: 'ep', num: 3, repos: ['web'] } })
     expect(onlyWeb.repos.map((entry) => entry.repo)).toEqual(['web'])
-    const t03 = { epic: 'ep', num: 3 }
-    const compared = await call(changesList, { projectId: 'p', ticket: t03, scope: { kind: 'compare', repo: 'api', ref: 'main' } })
+    const t03 = { kind: 'ticket' as const, epic: 'ep', num: 3 }
+    const compared = await call(changesList, { projectId: 'p', subject: t03, scope: { kind: 'compare', repo: 'api', ref: 'main' } })
     expect(compared.repos.map((entry) => [entry.repo, entry.error, entry.files.map((file) => file.path)])).toEqual([['api', null, ['api-new.txt', 'server.ts']]])
-    const { commits } = await call(changesCommits, { projectId: 'p', ticket: t03, repo: 'web' })
-    const committed = await call(changesList, { projectId: 'p', ticket: t03, scope: { kind: 'commit', repo: 'web', sha: commits[0]!.sha } })
+    const { commits } = await call(changesCommits, { projectId: 'p', subject: t03, repo: 'web' })
+    const committed = await call(changesList, { projectId: 'p', subject: t03, scope: { kind: 'commit', repo: 'web', sha: commits[0]!.sha } })
     expect(committed.repos.map((entry) => [entry.repo, entry.error, entry.files.map((file) => file.path)])).toEqual([['web', null, ['page.tsx', 'web-new.txt']]])
   })
 
   it('answers per repository: the repository is the top level; one without the branch is left out', async () => {
-    const t03 = { epic: 'ep', num: 3 }
-    const scopes = await call(changesScopes, { projectId: 'p', ticket: t03 })
+    const t03 = { kind: 'ticket' as const, epic: 'ep', num: 3 }
+    const scopes = await call(changesScopes, { projectId: 'p', subject: t03 })
     expect(scopes.repos.map((entry) => [entry.repo, entry.kind, entry.branch, entry.base?.ref, entry.base?.from, entry.scopes])).toEqual([
       ['api', 'branch', 'ep/03', 'main', 'local', ['all', 'commit', 'compare']],
       ['web', 'branch', 'ep/03', 'main', 'local', ['all', 'commit', 'compare']],
     ])
-    const { repos } = await call(changesList, { projectId: 'p', ticket: t03, scope: { kind: 'all' } })
+    const { repos } = await call(changesList, { projectId: 'p', subject: t03, scope: { kind: 'all' } })
     expect(repos.map((entry) => [entry.repo, entry.workTree, entry.files.map((file) => `${file.status} ${file.path} +${String(file.additions)} -${String(file.deletions)}`)])).toEqual([
       ['api', false, ['A api-new.txt +1 -0', 'M server.ts +1 -0']],
       ['web', false, ['M page.tsx +1 -0', 'A web-new.txt +1 -0']],
     ])
     expect(repos.every((entry) => entry.files.every((file) => !file.workflow))).toBe(true)
-    const file = (await call(changesFile, { projectId: 'p', ticket: t03, repo: 'web', scope: { kind: 'all' }, path: 'page.tsx' })).file
+    const file = (await call(changesFile, { projectId: 'p', subject: t03, repo: 'web', scope: { kind: 'all' }, path: 'page.tsx' })).file
     expect(file.kind === 'hunks' && file.hunks[0]!.lines.map((line) => [line.kind, line.text])).toEqual([
       ['context', 'one'],
       ['add', 'two'],
     ])
-    const { commits } = await call(changesCommits, { projectId: 'p', ticket: t03, repo: 'api' })
+    const { commits } = await call(changesCommits, { projectId: 'p', subject: t03, repo: 'api' })
     expect(commits.map((each) => each.subject)).toEqual(['ticket 03'])
-    await expect(call(changesCommits, { projectId: 'p', ticket: t03, repo: 'docs' })).rejects.toThrow(/no worktree or branch in docs/u)
+    await expect(call(changesCommits, { projectId: 'p', subject: t03, repo: 'docs' })).rejects.toThrow(/no worktree or branch in docs/u)
 
     expect(snapshot(join(api, '.git'))).toEqual(before.api)
     expect(snapshot(join(web, '.git'))).toEqual(before.web)
@@ -393,7 +393,7 @@ describe('the edge cases of reading: a Ticket on the checkout itself', () => {
   let context: ChangesContext
   let merge: string
   let before: ReturnType<typeof snapshot>
-  const t05 = { epic: 'ep', num: 5 }
+  const t05 = { kind: 'ticket' as const, epic: 'ep', num: 5 }
   // 1 100 lines of 1 000 bytes: past FOLD_BYTES (1 MB) in fewer than FOLD_LINES (2 000) lines.
   const WIDE = Array.from({ length: 1_100 }, (_, i) => `${String(i).padStart(4, '0')} ${'x'.repeat(994)}`).join('\n') + '\n'
   const CRLF_BYTES = Buffer.from('one\r\ntwo\r\n')
@@ -451,13 +451,13 @@ describe('the edge cases of reading: a Ticket on the checkout itself', () => {
     removeTestTree(root)
   })
 
-  const file = async (scope: Record<string, unknown>, path: string, extra: Record<string, unknown> = {}) => (await call(changesFile, { projectId: 'p', ticket: t05, repo: 'edge', scope, path, ...extra })).file
-  const list = async (scope: Record<string, unknown>, extra: Record<string, unknown> = {}) => (await call(changesList, { projectId: 'p', ticket: t05, scope, ...extra })).repos[0]!
+  const file = async (scope: Record<string, unknown>, path: string, extra: Record<string, unknown> = {}) => (await call(changesFile, { projectId: 'p', subject: t05, repo: 'edge', scope, path, ...extra })).file
+  const list = async (scope: Record<string, unknown>, extra: Record<string, unknown> = {}) => (await call(changesList, { projectId: 'p', subject: t05, scope, ...extra })).repos[0]!
   const lineTexts = (diff: Awaited<ReturnType<typeof file>>, withContext = true): string[] | string =>
     diff.kind === 'hunks' ? diff.hunks.flatMap((hunk) => hunk.lines.filter((line) => withContext || line.kind !== 'context').map((line) => `${line.kind} ${line.text}`)) : diff.kind
 
   it('takes the checkout on the Ticket\'s branch as its worktree: the work tree and Uncommitted are there', async () => {
-    const [entry] = (await call(changesScopes, { projectId: 'p', ticket: t05 })).repos
+    const [entry] = (await call(changesScopes, { projectId: 'p', subject: t05 })).repos
     expect(entry).toMatchObject({ repo: 'edge', kind: 'worktree', branch: 'ep/05', scopes: ['all', 'uncommitted', 'commit', 'compare'], error: null })
     expect(context.subject).toMatchObject({ kind: 'worktree', cwd: edge, head: 'HEAD' })
   })
@@ -548,7 +548,7 @@ describe('the edge cases of reading: a Ticket on the checkout itself', () => {
 describe('the path of a worktree as git prints it', () => {
   // git for Windows prints `worktree D:/a/b` in `git worktree list --porcelain`; the Profile names the checkout
   // `D:\a\b`. A git stand-in prints the list, so the Windows form is checked on every OS.
-  const t05 = { epic: 'ep', num: 5 }
+  const t05 = { kind: 'ticket' as const, epic: 'ep', num: 5 }
   const listing = (...trees: [path: string, branch: string][]): ChangesGit => async (_cwd, args) =>
     args[0] === 'worktree'
       ? { code: 0, stdout: trees.map(([path, branch], at) => `worktree ${path}\nHEAD ${String(at).repeat(40)}\nbranch refs/heads/${branch}\n`).join('\n'), bytes: 0, truncated: false, stderr: '' }
@@ -574,7 +574,7 @@ describe('the path of a worktree as git prints it', () => {
 describe.skipIf(process.platform === 'win32')('file names that are absolute or split only on Windows, on macOS and Linux', () => {
   let names: string
   let call: ReturnType<typeof caller>
-  const t06 = { epic: 'ep', num: 6 }
+  const t06 = { kind: 'ticket' as const, epic: 'ep', num: 6 }
   const TRACKED = [':lead.txt', 'back\\..\\slash.txt', 'c:notes.md']
 
   beforeAll(() => {
@@ -599,15 +599,15 @@ describe.skipIf(process.platform === 'win32')('file names that are absolute or s
     (diff.hunks ?? []).flatMap((hunk) => hunk.lines.filter((line) => line.kind !== 'context').map((line) => `${line.kind} ${line.text}`))
 
   it('lists them and opens each through changes.file: tracked and changed, and a new file', async () => {
-    const [changes] = (await call(changesList, { projectId: 'p', ticket: t06, scope: { kind: 'uncommitted' } })).repos
+    const [changes] = (await call(changesList, { projectId: 'p', subject: t06, scope: { kind: 'uncommitted' } })).repos
     expect(changes!.error).toBeNull()
     expect(changes!.files.map((each) => each.path)).toEqual([...TRACKED, 'x:new.txt'].sort())
     for (const path of TRACKED) {
-      const { file } = await call(changesFile, { projectId: 'p', ticket: t06, repo: 'names', scope: { kind: 'uncommitted' }, path })
+      const { file } = await call(changesFile, { projectId: 'p', subject: t06, repo: 'names', scope: { kind: 'uncommitted' }, path })
       expect(file.kind, path).toBe('hunks')
       expect(lines(file), path).toEqual(['add two'])
     }
-    const { file } = await call(changesFile, { projectId: 'p', ticket: t06, repo: 'names', scope: { kind: 'uncommitted' }, path: 'x:new.txt', untracked: true })
+    const { file } = await call(changesFile, { projectId: 'p', subject: t06, repo: 'names', scope: { kind: 'uncommitted' }, path: 'x:new.txt', untracked: true })
     expect(lines(file)).toEqual(['add new'])
   })
 })

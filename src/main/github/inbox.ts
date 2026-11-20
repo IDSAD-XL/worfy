@@ -86,7 +86,7 @@ export const PULL_FIELDS = [
   `baseRef { ${BASE_RULES} }`,
   'reviewRequests(first: 10) { nodes { asCodeOwner requestedReviewer { __typename ... on User { login } ... on Team { slug combinedSlug } } } }',
   'latestOpinionatedReviews(first: 50) { nodes { author { login } state submittedAt authorCanPushToRepository commit { oid } } }',
-  `reviewThreads(first: 50) { nodes { id isResolved isOutdated path line viewerCanReply comments(last: 3) { nodes { ${COMMENT} } } } }`,
+  `reviewThreads(first: 50) { nodes { id isResolved isOutdated path line diffSide viewerCanReply comments(last: 3) { nodes { ${COMMENT} } } } }`,
   `comments(last: 5) { nodes { ${COMMENT} } }`,
 ].join(' ')
 
@@ -233,6 +233,7 @@ const pullSchema = z.object({
       isOutdated: z.boolean().catch(false),
       path: z.string().nullish().catch(null),
       line: z.number().int().nullish().catch(null),
+      diffSide: z.enum(['LEFT', 'RIGHT']).nullish().catch(null),
       viewerCanReply: z.boolean().catch(false),
       comments: nodes(commentSchema),
     }),
@@ -285,7 +286,7 @@ function toPull(repo: string, raw: z.output<typeof pullSchema>): ReadPull {
     ci: rollup === undefined ? null : (ROLLUP[rollup] ?? null),
     reviewRequests: raw.reviewRequests.map(({ requestedReviewer: who }) => ({ login: who?.login ?? null, team: who?.slug ?? null })),
     reviews: raw.latestOpinionatedReviews.map((review) => ({ author: review.author, state: review.state, submittedAt: review.submittedAt ?? null })),
-    threads: raw.reviewThreads.map((thread) => ({ ...thread, path: thread.path ?? null, line: thread.line ?? null })),
+    threads: raw.reviewThreads.map(({ diffSide, ...thread }) => ({ ...thread, path: thread.path ?? null, line: thread.line ?? null, side: diffSide ?? 'RIGHT' })),
     comments: raw.comments,
   }
 }

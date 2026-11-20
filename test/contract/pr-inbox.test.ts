@@ -437,6 +437,19 @@ describe('the search of a Project', () => {
     expect(rows.find((row) => row.number === 1)).toMatchObject({ additions: 184, deletions: 22 })
     expect(rows.find((row) => row.number === 2)).toMatchObject({ additions: null, deletions: null })
   })
+
+  it('a thread: the side of the diff its line is on, asked in the details query; RIGHT when GitHub gives none (worfy-pr-review ticket 06)', async () => {
+    const left = { id: 'TL', isResolved: false, isOutdated: false, path: 'src/a.ts', line: 40, diffSide: 'LEFT', viewerCanReply: true, comments: { nodes: [] } }
+    const gh = world([stubPull(API, 1, { pull: { reviewThreads: { nodes: [left] } } }), stubPull(API, 2)])
+    const inbox = reader(gh, [project('p1', [API])])
+    await inbox.tick()
+    const details = gh.calls().find((args) => args.some((arg) => arg.includes('pullRequest(number: $k0)')))
+    expect(details?.join(' ')).toMatch(/\bline diffSide\b/u)
+    const rows = inbox.snapshot('p1').groups.flatMap((group) => group.rows)
+    expect(rows.find((row) => row.number === 1)?.threads).toEqual([expect.objectContaining({ id: 'TL', line: 40, side: 'LEFT' })])
+    expect(rows.find((row) => row.number === 2)?.threads).toEqual([expect.objectContaining({ id: 'T2', line: 3, side: 'RIGHT' })])
+    expect(rows.find((row) => row.number === 1)?.threads[0]).not.toHaveProperty('diffSide')
+  })
 })
 
 describe('a PR from a fork (worfy-pr-follow ticket 01)', () => {

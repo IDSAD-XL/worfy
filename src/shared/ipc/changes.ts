@@ -6,6 +6,10 @@
 //
 // A Project over several repositories answers per repository: the repository is the top level of `changes.scopes`
 // and `changes.list`; `changes.file` and `changes.commits` name the repository they read.
+//
+// The subject is a Ticket or a pull request (worfy-pr-review ticket 06): a PR is read with the Project's git when its
+// repository is the Project's and both commits are there, else from GitHub with `gh api` GETs only, while the screen is
+// open (ADR-0110, Amendment); its one repository is `owner/name`.
 import { z } from 'zod'
 import { isRepoPath } from '../changes/parse'
 import { CHANGE_STATUSES, FOLD_REASONS, SCOPE_KINDS } from '../changes/types'
@@ -28,20 +32,46 @@ export const changesTicketSchema = z.object({
   repos: z.array(z.string().min(1)).optional(),
 })
 
+const SHA = /^[0-9a-f]{7,64}$/u
+
+/**
+ * A pull request the screen shows (ChangesPrRef of src/shared/changes/types.ts; worfy-pr-review ticket 06): read with
+ * the Project's git when its repository is the Project's and both commits are in it, else from GitHub (ADR-0110,
+ * Amendment).
+ */
+export const changesPrSchema = z.object({
+  kind: z.literal('pr'),
+  // `.` and `..` are refused as owner or name: the repository goes into the path of `gh api repos/{repo}/…`.
+  repo: z
+    .string()
+    .regex(/^[\w.-]+\/[\w.-]+$/u, { message: 'owner/name' })
+    .refine((repo) => repo.split('/').every((part) => part !== '.' && part !== '..'), { message: 'owner/name' }),
+  number: z.number().int().positive(),
+  headOid: z.string().regex(SHA),
+  baseOid: z.string().regex(SHA),
+})
+
+/** What `changes.scopes`, `changes.list`, `changes.file` and `changes.commits` read: a Ticket, or a pull request. */
+export const changesSubjectSchema = z.discriminatedUnion('kind', [changesTicketSchema.extend({ kind: z.literal('ticket') }), changesPrSchema])
+
 /** ChangesScope of src/shared/changes/types.ts. */
 export const changesScopeSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('all') }),
   z.object({ kind: z.literal('uncommitted') }),
-  z.object({ kind: z.literal('commit'), repo: z.string().min(1), sha: z.string().regex(/^[0-9a-f]{7,64}$/u) }),
+  z.object({ kind: z.literal('commit'), repo: z.string().min(1), sha: z.string().regex(SHA) }),
   z.object({ kind: z.literal('compare'), repo: z.string().min(1), ref: z.string().min(1) }),
 ])
 
-const subjectKind = z.enum(['worktree', 'branch'])
+/** A Ticket's worktree or branch, or a pull request. */
+const subjectKind = z.enum(['worktree', 'branch', 'pr'])
+/** Where the diff was read: the Project's git, or GitHub (a pull request only). */
+const source = z.enum(['git', 'github'])
 
 /** RepoBase of src/main/changes/scopes.ts. */
 export const changesBaseSchema = z.object({
   ref: text,
-  from: z.enum(['worktree.base', 'default_branch', 'origin/HEAD', 'origin/main', 'local', 'compare']),
+  from: z.enum(['worktree.base', 'default_branch', 'origin/HEAD', 'origin/main', 'local', 'compare', 'pr']),
+  /** Empty for a pull request read from GitHub: `pulls/{n}/files` does not name it. */
   mergeBase: text,
 })
 
@@ -60,6 +90,7 @@ export const changedFileSchema = z.object({
   untracked: z.boolean(),
   workflow: z.boolean(),
   fold: z.enum(FOLD_REASONS).nullable(),
+  url: text.optional(),
 })
 
 /** DiffLine of src/shared/changes/types.ts. */
@@ -88,6 +119,7 @@ export const fileDiffSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('hunks'), path: text, oldPath: text.nullable(), oldMode: mode, newMode: mode, hunks: z.array(diffHunkSchema), whole: z.boolean() }),
   z.object({ kind: z.literal('folded'), path: text, reason: z.enum(FOLD_REASONS), lines: count }),
   z.object({ kind: z.literal('binary'), path: text, oldSize: count.nullable(), newSize: count.nullable() }),
+  z.object({ kind: z.literal('no-patch'), path: text, url: text.nullable() }),
 ])
 
 /** The Ticket in one repository and what the screen may ask of it. */
@@ -109,6 +141,8 @@ export const changesRepoScopesSchema = z.object({
    */
   checkout: text.optional(),
   worktree: text.optional(),
+  /** Where the diff is read (worfy-pr-review ticket 06); absent in an answer of a build before that ticket. */
+  source: source.optional(),
 })
 
 export const changesScopesAnswerSchema = z.object({
@@ -129,14 +163,17 @@ export const changesRepoListSchema = z.object({
   additions: count,
   deletions: count,
   error: text.nullable(),
+  source: source.optional(),
+  /** GitHub listed only this many files of the pull request (3,000 of `pulls/{n}/files`, 300 of a compare); null when it listed all. */
+  truncatedAt: count.nullable().optional(),
 })
 
 export const changesCommitSchema = z.object({ sha: text, short: text, author: text, date: text, subject: text })
 
-const subject = { projectId, ticket: changesTicketSchema }
+const subject = { projectId, subject: changesSubjectSchema }
 const whitespace = { hideWhitespace: z.boolean().optional() }
 
-/** The repositories of the Ticket, each with its scopes, its base and the branches to compare against. */
+/** The repositories of the Ticket, each with its scopes, its base and the branches to compare against; the one repository of a PR. */
 export const changesScopes = invokeChannel('changes.scopes', z.object(subject), changesScopesAnswerSchema, 'project', 'read')
 
 /** The files of a scope, per repository (`commit` and `compare` read only the repository they name). */
@@ -161,7 +198,7 @@ export const changesFile = invokeChannel(
   'read',
 )
 
-/** The Ticket's commits in a repository (`git log <merge-base>..HEAD`), for the scope Commit. */
+/** The Ticket's commits in a repository (`git log <merge-base>..HEAD`), for the scope Commit; a PR's, from git or `pulls/{n}/commits`. */
 export const changesCommits = invokeChannel(
   'changes.commits',
   z.object({ ...subject, repo: z.string().min(1) }),

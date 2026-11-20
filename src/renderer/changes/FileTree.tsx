@@ -3,7 +3,8 @@
 // the top level. The files of the workflow (under the Tickets root, `.scratch/`) stand last, as the group Workflow
 // files, folded until it is opened. Over MANY_FILES files the folders come folded. The filter narrows the tree to the
 // files whose path holds its text, opens every folder that keeps one, and says how many of how many are left; the diff
-// beside it shows the same files (ChangesNode.tsx).
+// beside it shows the same files (ChangesNode.tsx). The diff of a pull request read from GitHub may name fewer files
+// than it has (worfy-pr-review ticket 06): `truncatedAt` puts «GitHub lists the first 3,000 files» over the tree.
 import type { ChangedFile } from '../../shared/changes/types'
 import { count, MANY_FILES, nameOf, treeOf, type FileEntry, type RepoFiles } from './diff-window'
 
@@ -40,9 +41,11 @@ export interface FileTreeProps {
   /** The folders the user opened or folded, against how they come. */
   toggled: ReadonlySet<string>
   onToggle: (key: string) => void
+  /** GitHub listed only this many files of a pull request; null or absent when it listed all. */
+  truncatedAt?: number | null
 }
 
-export function FileTree({ repos, filter, onFilter, selected, onSelect, workflowOpen, onWorkflowOpen, toggled, onToggle }: FileTreeProps) {
+export function FileTree({ repos, filter, onFilter, selected, onSelect, workflowOpen, onWorkflowOpen, toggled, onToggle, truncatedAt }: FileTreeProps) {
   const total = repos.reduce((sum, repo) => sum + repo.files.length, 0)
   const tree = treeOf(repos, filter)
   const filtering = filter.trim() !== ''
@@ -82,6 +85,11 @@ export function FileTree({ repos, filter, onFilter, selected, onSelect, workflow
         data-testid="changes-filter"
         onChange={(event) => onFilter(event.target.value)}
       />
+      {truncatedAt !== undefined && truncatedAt !== null ? (
+        <p className="w-changes__filtered" role="status" data-testid="changes-truncated">
+          GitHub lists the first {truncatedAt.toLocaleString('en-US')} files
+        </p>
+      ) : null}
       {filtering ? (
         <p className="w-changes__filtered" data-testid="changes-filter-count">
           {count(left)} of {count(total)} files

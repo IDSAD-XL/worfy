@@ -1,7 +1,8 @@
 # 06 — Diff PR в Changes: предмет `pr`, локальный diff или diff из GitHub, нити ревью на строках, Amendment ADR-0110
 
 Type: task
-Status: open
+Status: claimed 2026-11-20T03:43Z
+PR: #2069
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 6; «Факты GitHub API» → «Diff и файлы»; «Решения по реализации», 4;
 «Решения по test-ам», Seam 1 и 2; [critic](../../../docs/product/critic/worfy-pr-review-2026-11-20.md), возражение 1
@@ -47,12 +48,19 @@ Source: [spec.md](../spec.md), «Ticket-ы», 6; «Факты GitHub API» → �
 
 - [ ] Unit `test/unit/changes-github-patch.test.ts` (новый): `patch` GitHub → hunk-и; файл без `patch`; переименование;
       binary. Красный до правки — в «Итог».
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/changes-github-patch.test.ts` exit 0 · mac - · e83146a6b5db115f2996bb2e69bc3671baa361e8
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/changes-github-patch.test.ts` exit 0 (review round 1) · mac - · b0e5d20040dfdf75395f6ad3e026f01fe18b47e8
 - [ ] Contract `test/contract/changes-pr.test.ts` (новый) на gh stand-in и временном git-репозитории: локальный путь,
       путь GitHub, 3 000 файлов, файл без `patch`, кэш по head (второй вызов gh не делает), Since my review; ни одного
       `fetch`, `.git/index` не тронут (mtime и hash), ни одного `--method` у gh.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/changes-pr.test.ts` exit 0 · mac - · e83146a6b5db115f2996bb2e69bc3671baa361e8
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/changes-pr.test.ts test/contract/pr-inbox.test.ts` exit 0 (review round 1) · mac - · b0e5d20040dfdf75395f6ad3e026f01fe18b47e8
 - [ ] `test/contract/changes-read.test.ts`, `test/unit/changes-view.test.tsx`, `test/e2e/changes.spec.ts` зелёные с
       `subject` вместо `ticket`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/changes-read.test.ts test/unit/changes-view.test.tsx` exit 0; `pnpm test:e2e test/e2e/changes.spec.ts test/e2e/changes-comments.spec.ts` exit 0 · mac - · e83146a6b5db115f2996bb2e69bc3671baa361e8
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/changes-read.test.ts test/unit/changes-view.test.tsx` exit 0 (review round 1; e2e not rerun this round) · mac - · b0e5d20040dfdf75395f6ad3e026f01fe18b47e8
 - [ ] Amendment ADR-0110 влит в этом PR; `node scripts/check-feature-docs.mjs` — exit 0.
+  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · e83146a6b5db115f2996bb2e69bc3671baa361e8
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Где в коде
@@ -72,3 +80,74 @@ Source: [spec.md](../spec.md), «Ticket-ы», 6; «Факты GitHub API» → �
 
 - Review mode — Ticket 09; комментарии к строкам чужого PR — Ticket 10. Подсветка синтаксиса, diff картинок, контекст
   шире hunk-ов у diff-а из GitHub — вне Epic-а.
+
+## Итог
+
+Сделано implementer-ом 2026-11-20, ветка `worfy-pr-review/06`, на `main` после merge `worfy-changes-view` 05 (#2049).
+
+- Каналы `changes.scopes`, `changes.list`, `changes.file`, `changes.commits` принимают `subject` вместо `ticket`:
+  `{ kind: 'ticket', epic, num, branch?, repos? }` или `{ kind: 'pr', repo, number, headOid, baseOid }`
+  (`src/shared/ipc/changes.ts`, `src/shared/changes/types.ts`). `DiffPane` получает `subject`; Changes Node передаёт
+  Ticket как `subject` (`src/renderer/canvas/nodes/ChangesNode.tsx`). `changes.targets` не менялся.
+- PR читается локально (`src/main/ipc/changes.ts`, `prSource`), если `origin` одного из checkout-ов — репозиторий PR и оба
+  commit-а есть (`cat-file -e`): тот же reading runner, база — `baseOid`, «Show whole file» работает. Иначе — GitHub
+  (`src/main/changes/github.ts`, новый): `pulls/{n}/files` страницами до 3 000, `commits/{sha}`, `compare/{a}...{head}`,
+  `pulls/{n}/commits`; только `gh api <path>` от аккаунта Project-а; память по head. Ответ несёт `source` и
+  `truncatedAt`; файл — `url` (GitHub `blob_url`) и `newBlob` (`sha`).
+- `DiffPane`: нити ревью на строках новой стороны, outdated и без строки — списком под заголовком файла, Reply через
+  `onReply` (черновик PR inbox, Ticket 09 подключит); «Large diff · Open on GitHub» (новый вид `no-patch` у
+  `FileDiff`), «View file on GitHub» в заголовке файла. `FileTree`: «GitHub lists the first 3,000 files».
+- Amendment ADR-0110; `docs/features/changes.md`, раздел «A pull request».
+- Красный до правки: `test/unit/changes-github-patch.test.ts` и `test/contract/changes-pr.test.ts` падали на импорте
+  отсутствующего `src/main/changes/github.ts` (exit 1, «no tests»), до любой строки кода.
+- Вне следа Ticket-а, по необходимости: `src/renderer/canvas/nodes/ChangesNode.tsx` (поле `subject` в вызовах),
+  `src/renderer/changes/changes.css` (вид нити), `test/fixtures/gh/gh-stub.mjs` (ответы `rest.json` на REST GET diff-а PR).
+
+Решено без владельца, подтвердить:
+
+- Since my review — не новый scope, а `compare` с commit-ом вместо ветки: оба — three-dot diff (как `compare/{a}...{b}`
+  GitHub); у PR `compare` с именем ветки отвергается.
+- Файл GitHub без `patch` и без строк (кроме голого переименования) считается binary; оба случая без `patch` —
+  «Large diff · Open on GitHub». Голое переименование без `patch` — «No lines changed».
+- Merge-base у PR из GitHub не известен (`pulls/{n}/files` его не называет): `base.mergeBase` — пустая строка.
+- В памяти main держится до 16 чтений GitHub; неудачное не держится.
+- Ссылки «Open on GitHub» и «View file on GitHub» ведут на `blob_url` файла на head.
+- Нить с `isOutdated` или без `line` — в списке над файлом; нити с resolved показываются тоже, с подписью «resolved thread».
+
+Проверка: `pnpm lint && pnpm typecheck && pnpm test` под временным HOME — exit 0 до rebase на `main` (864 файла test-ов),
+gate fast — `[gate] green (fast)`, exit 0. После rebase тот же прогон — exit 1: упали
+`test/contract/workflow-reader.test.ts` (watcher, 16,7 s) и `test/unit/story-build-button.test.tsx`; оба зелёные
+отдельно (exit 0), этот PR их не трогает. 5 мутантов (`patchHunks` без заголовка, память без попадания, PR никогда не
+локально, outdated на строке, без `truncatedAt`) — все убиты. Снимки diff-а PR-а на fixture-данных, светлая и тёмная
+тема — в scratchpad, в репозиторий не кладутся.
+
+### Раунд ревью 1
+
+- Нити и сторона diff-а. PR inbox теперь спрашивает у GitHub `diffSide` нити (`src/main/github/inbox.ts`) и несёт его
+  полем `side` у `PrInboxThread` (`LEFT` | `RIGHT`, без поля — `RIGHT`). `DiffPane`: нить LEFT — под строкой старого
+  файла, остальные — под строкой нового. Нить, чьей строки hunk-и не показывают (например, строка 101 при
+  `@@ -100,3 +100,0 @@`), — в списке под заголовком файла. Подпись списка — «N threads not on a line of this diff»; у
+  каждой нити там написано, где она была: «outdated», «no line», «line 101», «old line 9». Пока файл читается, нить,
+  которая ещё может найти свою строку, не показывается нигде.
+- Scope-ы. All changes ставит на строки нити обеих сторон. Since my review — только новой стороны: старая сторона там —
+  проверенный commit, а не база PR-а. Commit нумерует строки по-своему, там все нити — в списке под заголовком.
+- Память чтений GitHub: ключ — Project, head и base PR-а и scope. Другой Project читает заново: его аккаунт может не
+  видеть репозиторий. PR, перенесённый на другую базу без push, тоже читается заново.
+- Репозиторий PR с частью `.` или `..` (`../..`, `acme/..`) схема `changesPrSchema` отвергает.
+- Файл GitHub без `patch` и без строк — binary только при статусе `modified`. Добавленный или удалённый пустой файл,
+  смена mode (`changed`) и переименование — «No lines changed».
+- Вызов `gh api <path>` собирает `ghApiGet` (`src/main/changes/github.ts`): его зовут и app, и contract test. Unit
+  test проверяет аргументы целиком: `['api', path]`.
+
+Решено без владельца, подтвердить:
+
+- Добавленный или удалённый binary-файл GitHub (без `patch`, 0/0) тоже читается «No lines changed». GitHub не отличает
+  пустой файл от binary; в заголовке файла остаётся «View file on GitHub».
+- Since my review ставит на строки только нити новой стороны; нити старой стороны — в списке.
+- Проверка head: `pulls/{n}/files` всегда отдаёт файлы текущего head PR-а, даже если `headOid` в запросе старее. Diff
+  может не совпасть с `headOid`, пока PR inbox не перечитал PR. Сверка не делается: ревью сочло её необязательной.
+
+Проверка раунда: новые test-ы красные до правки (exit 1, 18 упавших). После правки зелёные: все test-ы
+Changes и PR inbox (21 файл, 463 test-а), exit 0. Ещё `pnpm lint`, `pnpm typecheck`,
+`node scripts/check-feature-docs.mjs`. gate fast в этом раунде не запускался: на этой машине fseventsd сейчас
+роняет test-ы file watcher-а.

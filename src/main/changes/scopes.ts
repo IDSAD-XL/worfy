@@ -41,12 +41,17 @@ export interface ChangesContext {
   workflowPrefix: string | null
   /** The most bytes of an expanded patch; PATCH_MAX_BYTES when absent (tests set a smaller one). */
   patchMaxBytes?: number | undefined
+  /**
+   * The base commit of a pull request (worfy-pr-review ticket 06): All changes is its head against the merge-base with
+   * it, whatever the Profile names; absent for a Ticket.
+   */
+  base?: string | undefined
 }
 
 /** The base of a repository's changes: the branch and the merge-base of the Ticket with it. */
 export interface RepoBase {
   ref: string
-  from: BaseSource | 'compare'
+  from: BaseSource | 'compare' | 'pr'
   mergeBase: string
 }
 
@@ -85,7 +90,7 @@ export interface FileOptions extends ReadOptions {
   expand?: boolean | undefined
 }
 
-/** The scopes the subject has: Uncommitted only where there is a work tree. */
+/** The scopes the subject has: Uncommitted only where there is a work tree (never for a pull request). */
 export function scopeKinds(subject: RepoSubject): ScopeKind[] {
   return subject.kind === 'worktree' ? ['all', 'uncommitted', 'commit', 'compare'] : ['all', 'commit', 'compare']
 }
@@ -102,6 +107,10 @@ export async function resolveBase(context: ChangesContext, compare?: string): Pr
     if (!(await probe.exists(compare))) throw new Error(`No branch ${compare} in ${subject.repo}`)
     ref = compare
     from = 'compare'
+  } else if (context.base !== undefined) {
+    if (!(await probe.exists(context.base))) throw new Error(`No commit ${context.base} in ${subject.repo}`)
+    ref = context.base
+    from = 'pr'
   } else {
     const picked = await pickBase(context.facts, probe)
     if (picked === null) throw new Error(`No base branch in ${subject.repo}: neither worktree.base of the Profile nor origin/main nor a local main exists`)
