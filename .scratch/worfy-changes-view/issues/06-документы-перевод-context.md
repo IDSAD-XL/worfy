@@ -1,7 +1,7 @@
 # 06 — Документы: перевод страниц Feature, термин Changes в CONTEXT.md
 
 Type: task
-Status: claimed 2026-11-20T03:43Z
+Status: done 2026-11-20T04:21Z
 PR: #2065
 Blocked by: 02, 03, 04, 05
 Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решено без владельца», 10; «Готово, когда», пункт о документах
@@ -38,6 +38,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решено без влад�
   - evidence: commit pass · worfy-changes-view/06: Russian Feature pages of Changes, the Changes term in CONTEXT.md · - - · 02ad3f292
 - [ ] `node scripts/check-personal.mjs` и `node scripts/check-feature-docs.mjs` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `node scripts/check-personal.mjs && node scripts/check-feature-docs.mjs` exit 0 · mac - · 02ad3f292
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44671629548/job/136075001924 · ci - · fff49a87a029f053d3894ec037519cd54b84524d
 
 ## Где в коде
 

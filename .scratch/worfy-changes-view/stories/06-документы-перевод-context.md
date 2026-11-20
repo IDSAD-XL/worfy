@@ -124,3 +124,30 @@ _Avoid_: diff view, Review pane, Files changed
 2. Сколько разделов «Comments on lines of the diff» получит сообщение с комментариями из двух worktree?
    - Ответ: два: раздел начинается заново там, где меняются worktree или ветка, и каждый заголовок называет свои.
    - Строки: `docs/features/changes.md:273-276`
+
+## 10. Что нашёл review и что осталось
+
+> VERIFIED — changes-view 06 (docs: ru translations, Changes in CONTEXT.md), head fff49a87a029f053d3894ec037519cd54b84524d
+>
+> Gate (depth medium): verifier (lens: implementer's report) VERIFIED; reviewer (lens: correctness of the docs against the code) one med, confirmed by a sceptic with a test.
+>
+> - Verifier: check-feature-docs, check-personal, check-handoff, evidence-check, story-check exit 0; ru/changes.md follows the English page section by section (numbers, UI strings, Latin terms identical); translation marks per docs/features/README.md and ADR-0088; the two English edits (Show whole file; the Send section heading) backed by src/shared/ipc/changes.ts:145, DiffPane.tsx:322-331, quote-comments.ts:339,353; CONTEXT.md entry in glossary format; «Итог» items checked against spec, ADR-0110 and tickets 03/05.
+> - Reviewer: every number and UI string of the page matches the code; the five claims the implementer did not trace (Send mid-turn, «To» keeps a Session with drafts, Focus mode, long-line clipping, the translation) are backed.
+> - ci-ok pass on the head.
+>
+> Act on (moved to a code ticket, not this docs PR): docs/features/changes.md:249-250 and ru/changes.md:247 say Esc keeps a changed line-comment popover; the code drops the typed text on Esc in the textarea (LineComment.tsx:73-78 focus; layer.ts:111-121 reason 'escape'; Popover.tsx:131 skips the changed-check). A sceptic's throwaway test reproduced it (popover gone after typing + Escape, exit 1). The page describes the intended behaviour (ticket 05 «Итог»); the code is fixed by worfy-polish 136 so the doc becomes true — no doc change here.
+>
+> Consider [low]: ru/changes.md:7 «Термины объяснены в Concepts» lost the newcomer pointer; changes.md:273 «with the worktree and the branch» — the code omits an empty value; ticket 06 «Итог» item 7 «Прототип не держит Ticket 03» is stale (prototype approved 2026-11-20).
+
+Code: `src/shared/ipc/changes.ts:145-145` · key lines: 145
+
+```ts
+/** One file's hunks; `whole` — «Show whole file», `expand` — «Show» on a folded patch. */
+```
+
+Code: `docs/features/changes.md:249-250` · key lines: 249
+
+```md
+(Comments on quotes, [Sessions](sessions.md)). `⌘↵` (Ctrl+Enter on Windows and Linux) saves it; Esc or a click outside
+closes an unchanged popover and keeps a changed one. A changed popover also stays when «+», `c`, Comment or Edit is
+```
