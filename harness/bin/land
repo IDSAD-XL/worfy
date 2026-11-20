@@ -43,8 +43,8 @@
 //     runs — the PR waits (unverified), never merges. Each reading of the runs keeps the file
 //     <gate state>/main-red-<key>.json for worfy (see markMain): written while the branch is red, removed once it is not,
 //     left as it is while the red run is rerun or when gh cannot read the runs;
-//   - with red_elsewhere in the state file, the main branch is not red on another machine for this PR (worfy: ADR-0086,
-//     point 4): `gh issue list --label <label> --state open` has no issue, or the project's command (needs) does not name the PR.
+//   - with red_elsewhere in the state file, the main branch is not red on another machine for this PR (the project's
+//     rules): `gh issue list --label <label> --state open` has no issue, or the project's command (needs) does not name the PR.
 //     The command runs in the checkout with <base> and <head> replaced by the PR's fork point and head: exit 1 — the PR
 //     needs that machine and waits with the reason `main is red elsewhere: open <label> issue #<N> "<title>" <URL> — the
 //     PR needs that machine …`; exit 0 — it merges, the log saying it merged while the issue is open; any other exit
@@ -118,7 +118,7 @@
 //                 code; any other exit code counts as code. No command: documents only means every path inside the
 //                 tickets root. The same rule tells a push run of a documents-only commit, which gives no verdict
 //   red_elsewhere optional, null or {label, needs}: the main branch red on another machine, by the project's rules
-//                 (worfy: {"label": "pc-main-red", "needs": "node scripts/windows-verdict-scope.mjs <base> <head>"}).
+//                 (e.g. {"label": "pc-main-red", "needs": "node <scope script> <base> <head>"}).
 //                 label — the GitHub label of the open issue that records it; needs — a shell command run in the
 //                 checkout, <base> and <head> replaced by SHAs: exit 1 — the PR needs that machine and waits while
 //                 such an issue is open, 0 — it does not, anything else — unverified. null — no such check

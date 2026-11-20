@@ -542,7 +542,7 @@ red_main
 [ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && ok "red main: a PR marked main_fix merges while main is red" || bad "red main fix: exit $rc: $(cat "$W/out")"
 
 # --- main red on another machine (red_elsewhere): an open issue of its label holds the PRs its scope command names ------
-# worfy: the label pc-main-red, the command scripts/windows-verdict-scope.mjs <base> <head> (exit 1 — scope pc)
+# e.g. the label pc-main-red and the project's scope command on <base> <head> (exit 1 — the PR needs that machine)
 export NEEDS="node \"$(tn "$STUBS/scope.mjs")\" <base> <head>"
 elsewhere() { edit 's.red_elsewhere={label:"pc-main-red",needs:process.env.NEEDS}'; }
 issue_open() { printf '[{"number":1513,"title":"PC gate full red on %s","url":"https://github.com/o/r/issues/1513"}]\n' "$C2" >"$GHD/issues"; }

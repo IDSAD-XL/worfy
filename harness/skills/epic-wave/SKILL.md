@@ -1272,7 +1272,7 @@ empty when the rules name none, and then only a change inside the tickets root c
 same command tells which push runs on the main branch are of documents only. `"--red-elsewhere=<label>|<command>"`
 — one argument, before the PRs: the label of the record of a main branch red on another machine and, after the
 first `|`, the scope command of the Check that answers there, with `<base>` and `<head>` left in it for `land`
-to fill (worfy: `"--red-elsewhere=pc-main-red|node scripts/windows-verdict-scope.mjs <base> <head>"`). Left
+to fill (worfy: `"--red-elsewhere=pc-main-red|<the scope command its rules name>"`). Left
 out when the rules name no such check: then `red_elsewhere` is `null`. One without both parts, or any other
 argument that is not a PR (`<N>:…`), stops the block with exit 1 and no state file. The tickets
 root comes from `F tickets.root`; the block makes an absolute one relative to the repository, and one
