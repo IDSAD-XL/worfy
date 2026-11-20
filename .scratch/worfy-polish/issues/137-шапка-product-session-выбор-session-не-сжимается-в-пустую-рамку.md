@@ -36,9 +36,10 @@ Source: замечание владельца 2026-11-20 по снимку эк�
 - [ ] Unit test (jsdom): у выбора Session минимальная ширина 140 px и подсказка kit с полным именем Session (не `title`);
       доля советов — в обёртке, которая уступает первой и прячет разделитель вместе с собой; слово чипа состояния — в
       своём элементе, текст `session-state` прежний, у чипа tooltip kit со словом. Красный до правки.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/unit/session-view.test.tsx test/unit/session-state-chip.test.tsx test/unit/product-session-panel.test.tsx test/unit/session-picker.test.tsx` exit 0 · mac - · 4d521a89a763710304421e6de2d07ccc036381f1
 - [ ] e2e (`test/e2e/product-session.spec.ts`) при узком окне: ширина выбора Session ≥ 130 px, имя в нём видно; доля
       советов обрезана или скрыта раньше, чем выбор Session сжимается; чип — только иконка, текст `busy` у него есть.
-  - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 · mac dev · bb46f23e0d4cd14a20173c60e77b324c4fcf2308
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 · mac dev · 4d521a89a763710304421e6de2d07ccc036381f1
 - [ ] Снимки Playwright шапки, широкой и узкой, в светлой и тёмной теме — в scratchpad, названы в «Итог».
 - [ ] `docs/features/product-session.md` — если страница описывает шапку.
   - evidence: commit pass · worfy-polish/137: Product Session header — the picker keeps its name, the advice share gives way first · - - · 52bcdad43
