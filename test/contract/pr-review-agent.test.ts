@@ -9,6 +9,7 @@
 // - prReview.stopAgent (Stop, Take over) stops the Session and marks the draft `stopped`, keeping what the agent wrote;
 // - a Linked machine is refused both channels before the handler.
 // Nothing reaches GitHub: no gh is given at all.
+import { pbkdf2 } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -103,7 +104,6 @@ async function setup(options: { teamReviewer?: boolean; script?: string; readMs?
         return { repo, pr: number, draft: null, problem: `The review draft of ${repo}#${number} cannot be read: EBUSY` }
       },
       setAgent: (...args) => drafts.setAgent(...args),
-      fileOf: (...args) => drafts.fileOf(...args),
     },
     profileDir: async () => ({ dir: profileDir, reason: null }),
     sessions: {
@@ -178,6 +178,22 @@ async function agentWrites(file: string, change: (draft: ReviewDraft) => void, r
   }
 }
 
+/**
+ * Keeps the thread pool of this process (libuv: fs requests, crypto) busy with `depth` hashing jobs in a loop, as a
+ * loaded machine does: each fs request waits its turn behind them. Returns the stop, which resolves once the jobs drained.
+ */
+function busyThreadPool(depth = 8): () => Promise<void> {
+  let on = true
+  const hash = (): Promise<void> => new Promise((resolve) => pbkdf2('worfy', 'salt', 100_000, 32, 'sha256', () => resolve()))
+  const lanes = Array.from({ length: depth }, async () => {
+    while (on) await hash()
+  })
+  return async () => {
+    on = false
+    await Promise.all(lanes)
+  }
+}
+
 describe('prReview.agentReview', () => {
   it('without a Team reviewer: a Session on Claude Code with /worfy:code-review and the rule; the draft is created on the head with the agent writing', async () => {
     const s = await setup()
@@ -236,6 +252,26 @@ describe('prReview.agentReview', () => {
 })
 
 describe('the watch of an Agent review', () => {
+  it('a write that lands right after the start is reported, however late the first poll of the file runs', { timeout: ms(60_000) }, async () => {
+    const s = await setup()
+    // The poll of the file takes its first state from a stat in the thread pool: busy, that stat runs after the write.
+    const stop = busyThreadPool()
+    let before: number
+    try {
+      ok(await s.call<Started>('prReview.agentReview', { ...pull, head: HEAD, fill: 'new' }))
+      before = s.changed.length
+      await agentWrites(s.file, (draft) => {
+        draft.payload.comments.push({ path: 'src/upload.ts', line: 3, side: 'RIGHT', body: 'A magic number.' })
+        draft.anchors.push({ text: 'const tries = 3', by: 'agent' })
+      })
+    } finally {
+      await stop()
+    }
+    await vi.waitFor(() => expect(s.changed.length).toBeGreaterThan(before), { timeout: ms(10_000) })
+    expect(s.changed.at(-1)).toEqual(pull)
+    expect(s.agent.watching()).toBe(1)
+  })
+
   it('a look that cannot read the draft is skipped: the watch goes on and ends with done', { timeout: ms(30_000) }, async () => {
     const s = await setup()
     ok(await s.call<Started>('prReview.agentReview', { ...pull, head: HEAD, fill: 'new' }))

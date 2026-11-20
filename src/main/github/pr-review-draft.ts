@@ -496,11 +496,6 @@ export class PrReviewDrafts {
     }
   }
 
-  /** The draft file of `repo`#`pr` of the Project at `root`; a refusal without a Profile folder. */
-  fileOf(root: string, repo: string, pr: number): Promise<string> {
-    return this.file(root, repo, pr)
-  }
-
   /**
    * Discard review: the file goes, and the changes waiting for it. A review being submitted is not discarded, nor a
    * draft of another PR. A file that is no draft at all (half written, another shape) goes too: nothing else can change
