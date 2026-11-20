@@ -11,54 +11,86 @@ worfy-changes-view 03 ждал владельца по issue с меткой `pc
 
 - Требование: [Что происходит](../issues/131-epic-wave-ticket-ждущий-владельца-сразу-blocked.md#что-происходит)
 
-## 2. Правило в разделе 2 skill-а: Ticket, остановленный ради владельца, сразу `blocked` с `Waits: owner`, в своём worktree
+## 2. Правило: Ticket, остановленный ради владельца, сразу `blocked` с `Waits: owner`
 
-Code: `harness/skills/epic-wave/SKILL.md:376-395` · key lines: 380, 384, 385, 387, 392, 393
+Code: `harness/skills/epic-wave/SKILL.md:376-389` · key lines: 379, 381, 382, 387, 388
 
 ```md
 **A ticket stopped for the owner's answer is `blocked` at once.** The wave stops a ticket for the
 owner when no option is the orchestrator's to pick (money, deleted data, an irreversible step, a
 direction nobody recorded) or when only the owner can clear what holds it, such as an open issue.
-The orchestrator then runs, right away,
+The orchestrator then runs, right away — once the ticket's implementer has ended its turn (its
+report came, or it was stopped), so nothing else writes in its worktree —
 `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" block <epic> <NN> "<reason>" --waits owner`; `<reason>`
 names the question and what it waits for (the issue, the decision). It does not stay `claimed`:
 worfy Autopilot counts a `claimed` ticket as stuck and spends its continuations on it, while a
-`blocked` ticket with `Waits: owner` shows as waiting for the owner. The orchestrator runs the
-block in the ticket's own worktree and commits it on the ticket's branch, where the claim is
-("How to resume a wave"): worfy reads the main branch with the committed ticket branch of each
-worktree laid over it, so a push is not needed. A block left uncommitted, or written in the
-orchestrator's own tree, stays invisible until the documents PR merges, and Autopilot goes on
-sending continuations. A ticket with no worktree (not dispatched yet, or its worktree removed)
-gets the block on the main branch, the way the documents PR carries statuses (section 4, item 4).
-The rest is that of any other block: a line in the state file's list of what waits for the owner,
-a `blocked` row in the wave report (section 5), and the same `ticket block` in the documents PR.
-Once the owner answers, `ticket claim <epic> <NN>` again, and the ticket goes on in the wave. The
-re-claim goes the same way: in the ticket's worktree, committed on its branch. A ticket whose PR
-waits for People in the Pipeline (`human-review`, `awaiting-merge`, section 0) stays `claimed`:
-this rule does not cover it.
+`blocked` ticket with `Waits: owner` shows as waiting for the owner. The rest is that of any other
+block: a line in the state file's list of what waits for the owner, a `blocked` row in the wave
+report (section 5), and the same `ticket block` in the documents PR (section 4, item 4). Once the
+owner answers, the ticket is claimed again and goes on in the wave. A ticket whose PR waits for
+People in the Pipeline (`human-review`, `awaiting-merge`, section 0) stays `claimed`: this rule
+does not cover it.
 ```
 
 - Что делает: называет, когда Wave останавливает Ticket ради владельца, и даёт Orchestrator-у точную команду
-  `ticket block … --waits owner` сразу, а не в конце Wave-а. Команда идёт в worktree самого Ticket-а и commit-ится на его
-  ветке, там же, где лежит claim; Ticket без worktree получает блок на main ветке. После ответа — `ticket claim` снова,
-  тем же путём. Дальше — как у любой блокировки: строка в state file, строка `blocked` в отчёте, тот же статус в
-  documents PR. Ticket-ы, чей PR ждёт людей Pipeline-а, правило не трогает.
+  `ticket block … --waits owner` сразу, но после конца хода implementer-а этого Ticket-а. Дальше — как у любой
+  блокировки: строка в state file, строка `blocked` в отчёте, тот же статус в documents PR. Ticket-ы, чей PR ждёт людей
+  Pipeline-а, правило не трогает.
 - Почему здесь: Ticket называет раздел 2 «Dispatch», абзац «Questions for the owner do not stop the wave»; новый абзац
-  стоит сразу после него. Место записи — по тому, что читает worfy: main ветку (`src/main/workflow/main-ref.ts`, при
-  `pr-green-ci` — `origin/main`) и поверх неё commit-нутое дерево локальной ветки каждого worktree Ticket-а
-  (`src/main/workflow/reader.ts`: `ticketWorktrees` по `git worktree list --porcelain`, `epic-status --json --ref
-  <branch>`, `branchOverrides`). Push для этого не нужен.
+  стоит сразу после него. Ждать конца хода implementer-а — находка review (раунд 2): иначе commit в его worktree
+  захватывает его недописанные файлы или сталкивается на `index.lock`.
 - Без него: Ticket, ждущий владельца, остаётся `claimed`, Autopilot тратит на него два continuation-а и откладывает его
-  сам, с причиной «stuck», которая не называет вопрос. Блок, записанный не в той ветке, тоже остаётся невидимым до
-  documents PR.
+  сам, с причиной «stuck», которая не называет вопрос.
 - Требование: [Что делаем, п. 1–3](../issues/131-epic-wave-ticket-ждущий-владельца-сразу-blocked.md#что-делаем)
 - Риски и пробелы test-ов: поведение агента проверяет только текст; eval-случая нет (причина — в «Итог» Ticket-а).
-  Ticket, чей блок уже влит в main documents PR-ом, повторный claim на ветке не перекроет: `branchOverrides` не даёт
-  ветке отменить `blocked` из main; этот случай правило не описывает.
 
-## 3. Text contract test: абзац на месте, команда, место записи и границы правила в нём
+## 3. Где записывается статус: worktree Ticket-а, main при `blocked` в main, открытый PR, Silent mode
 
-Code: `harness/bin/tests/epic-wave-ship-ticket.test.sh:1295-1321` · key lines: 1298, 1301, 1309, 1311, 1316, 1317
+Code: `harness/skills/epic-wave/SKILL.md:391-410` · key lines: 391, 392, 395, 401, 404, 407, 409
+
+```md
+**Where the owner-stop status is written.** worfy reads the main branch with the committed ticket
+branch of each worktree laid over it, and a branch never undoes `blocked` or `done` of the main
+branch. So:
+- The block: in the ticket's own worktree, committed on the ticket's branch with only the ticket
+  file, `git -C <worktree> commit -m "<message>" -- <ticket file>`, where the claim is ("How to
+  resume a wave"); a push is not needed. A block left uncommitted, or written in the
+  orchestrator's own tree, stays invisible until the documents PR merges, and Autopilot goes on
+  sending continuations. A ticket with no worktree (not dispatched yet, or its worktree removed)
+  gets the block on the main branch, the way the documents PR carries statuses.
+- The owner's answer: `ticket claim <epic> <NN>` in the ticket's worktree, committed the same way.
+  When the main branch already says `blocked` (the documents PR merged the block, or the ticket had
+  no worktree), the main branch gets the answer too, by the same documents path: `ticket claim`
+  when the ticket goes on in its worktree, `ticket open` when it has none, so that a later wave
+  takes it (a wave takes only `open` tickets, section 1).
+- An open PR: the status commit moves the PR's head at its next push, inside the tickets root
+  only. `land` takes such a head and carries the `review` mark over from the verified head (section
+  4, "Merge with land"); CI runs again on it, and `check/<name>` marks are never carried: the
+  orchestrator sets them again on the new head (section 4, "Checks before merge").
+- Silent mode (section 0): `ticket block` and `ticket claim` from any directory are enough; the
+  status goes straight into the Workflow folder, with no commit.
+```
+
+- Что делает: говорит, куда писать блок и ответ владельца, чтобы их увидели worfy и Autopilot. Блок — commit одного
+  файла Ticket-а на его ветке в его worktree; Ticket без worktree — main ветка путём documents. Ответ — `ticket claim`
+  на ветке, а если main уже говорит `blocked` — ещё и в main (`ticket claim` или `ticket open`). Для открытого PR —
+  что будет с отметками на новом head-е. В Silent mode — без commit-а.
+- Почему здесь: так читает worfy — main ветку (`src/main/workflow/main-ref.ts`, при `pr-green-ci` — `origin/main`) и
+  поверх неё commit-нутое дерево локальной ветки каждого worktree Ticket-а (`src/main/workflow/reader.ts`:
+  `ticketWorktrees` по `git worktree list --porcelain`, `epic-status --json --ref <branch>`); `branchOverrides` не даёт
+  ветке отменить `blocked`/`done` из main (ADR-0033). Поведение `land` с head-ом, сдвинутым только в корне тикетов, — по
+  шапке `harness/bin/land`. Silent mode — раздел 0 skill-а.
+- Без него: блок, записанный в дереве Orchestrator-а или без commit-а, не виден до documents PR, и Autopilot шлёт
+  continuation-ы дальше; ответ владельца на ветке не снимает `blocked`, уже влитый в main, и Ticket так и висит «ждёт
+  владельца»; Ticket без worktree, заблокированный в main, ни одна Wave больше не берёт.
+- Требование: [Что делаем, п. 1–3](../issues/131-epic-wave-ticket-ждущий-владельца-сразу-blocked.md#что-делаем)
+- Риски и пробелы test-ов: что отметки `review` и `check/<name>` ведут себя на новом head-е так, как сказано, проверено
+  чтением шапки `land`, не прогоном. `setAsideText` Autopilot-а по-прежнему не говорит, где запускать `ticket block`
+  (в «Итог» — почему не правился).
+
+## 4. Text contract test: оба абзаца, команда, место записи и границы правила
+
+Code: `harness/bin/tests/epic-wave-ship-ticket.test.sh:1295-1339` · key lines: 1298, 1308, 1314, 1319, 1322, 1331
 
 ```bash
 # worfy-polish 131: a ticket the orchestrator stops for the owner's answer is blocked at once with
@@ -73,58 +105,75 @@ for p in \
     'names the question and what it waits for' \
     'a `blocked` row in the wave report' \
     'the state file'"'"'s list of what waits for the owner' \
-    '`ticket claim <epic> <NN>` again' \
     'People in the Pipeline (`human-review`, `awaiting-merge`, section 0) stays `claimed`' \
-    'in the ticket'"'"'s own worktree and commits it on the ticket'"'"'s branch' \
-    'worfy reads the main branch with the committed ticket branch of each worktree laid over it' \
-    'A block left uncommitted, or written in the orchestrator'"'"'s own tree, stays invisible' \
-    'A ticket with no worktree' \
-    'The re-claim goes the same way'; do
+    'once the ticket'"'"'s implementer has ended its turn'; do
     check "epic-wave: a ticket stopped for the owner — '$p'" grep -qF -- "$p" <<<"$owner_stop"
 done
+# Where the status goes: worfy reads the main branch with each ticket worktree's committed branch laid
+# over it (src/main/workflow/reader.ts), and a branch never undoes `blocked` or `done` of the main branch.
+owner_where="$(para_of "$EW" '**Where the owner-stop status is written.**')"
+check "epic-wave: the paragraph on where the owner-stop status goes is there" test -n "$owner_where"
+for p in \
+    'worfy reads the main branch with the committed ticket branch of each worktree laid over it' \
+    'a branch never undoes `blocked` or `done` of the main branch' \
+    'in the ticket'"'"'s own worktree, committed on the ticket'"'"'s branch with only the ticket file' \
+    'git -C <worktree> commit -m "<message>" -- <ticket file>' \
+    'A block left uncommitted, or written in the orchestrator'"'"'s own tree, stays invisible' \
+    'A ticket with no worktree' \
+    '`ticket claim <epic> <NN>` in the ticket'"'"'s worktree, committed the same way' \
+    'When the main branch already says `blocked`' \
+    '`ticket open` when it has none' \
+    'carries the `review` mark over' \
+    '`check/<name>` marks are never carried' \
+    'Silent mode (section 0): `ticket block` and `ticket claim` from any directory are enough'; do
+    check "epic-wave: where the owner-stop status goes — '$p'" grep -qF -- "$p" <<<"$owner_where"
+done
 check "epic-wave: the owner-stop block is not run from the orchestrator's own tree" \
-    lacks_re <(printf '%s\n' "$owner_stop") 'right away and from its own tree'
+    lacks_re <(printf '%s\n%s\n' "$owner_stop" "$owner_where") 'right away and from its own tree'
+check "epic-wave: the re-claim does not always go on the branch alone" \
+    lacks_re <(printf '%s\n%s\n' "$owner_stop" "$owner_where") 're-claim goes the same way'
+check "epic-wave: the where-paragraph follows the owner-stop rule" \
+    awk '/^\*\*A ticket stopped for the owner/ { q = NR } /^\*\*Where the owner-stop status is written\.\*\*/ { if (q && NR > q && NR - q < 20) found = 1 } END { exit !found }' "$EW"
 check "epic-wave: the owner-stop rule follows 'Questions for the owner do not stop the wave'" \
     awk '/^\*\*Questions for the owner do not stop the wave\.\*\*/ { q = NR } /^\*\*A ticket stopped for the owner/ { if (q && NR > q && NR - q < 20) found = 1 } END { exit !found }' "$EW"
 check "epic-wave: human-review and awaiting-merge tickets still stay claimed (section 0)" has_flat "$EW" \
     'Such a ticket stays `claimed` with its PR open, the wave goes on without it, and its report row says whom it waits for (section 5): it is not `blocked`.'
 ```
 
-- Что делает: берёт абзац целиком (`para_of`, абзац между пустыми строками) и ищет в нём команду, слово «right away»,
-  отказ от `claimed`, причину, строки отчёта и state file, повторный `claim`, исключение для людей Pipeline-а и место
-  записи: worktree Ticket-а с commit-ом на его ветке, Ticket без worktree, повторный claim тем же путём. Отдельно — что
-  в абзаце нет прежней формы «from its own tree», что абзац стоит сразу после «Questions for the owner…» и что фраза
-  раздела 0 про `human-review` / `awaiting-merge` не изменилась.
+- Что делает: берёт каждый абзац целиком (`para_of`, абзац между пустыми строками) и ищет в нём нужные фразы: команду,
+  «right away» после конца хода implementer-а, отказ от `claimed`, строки отчёта и state file, исключение для людей
+  Pipeline-а; во втором — что читает worfy, commit одного файла, Ticket без worktree, ответ в main при `blocked` там,
+  отметки на новом head-е, Silent mode. Отдельно — нет прежних форм («from its own tree», «re-claim goes the same
+  way»), порядок абзацев и неизменная фраза раздела 0.
 - Почему здесь: Ticket называет этот файл местом проверки (`has`/`lacks` по тексту SKILL.md).
-- Без него: правило можно убрать из skill-а или вернуть запись в дерево Orchestrator-а, и ни одна проверка не
-  покраснеет.
+- Без него: правило или место записи можно убрать или вернуть прежнюю форму, и ни одна проверка не покраснеет.
 - Требование: [Что делаем, п. 4](../issues/131-epic-wave-ticket-ждущий-владельца-сразу-blocked.md#что-делаем)
-- Риски и пробелы test-ов: проверяет слова, а не поведение агента; mutant-ы с убранной командой и с местом «from its
-  own tree» красные, перефразировка с теми же фразами — зелёная.
+- Риски и пробелы test-ов: проверяет слова, а не поведение агента; mutant-ы (без команды, «from its own tree», без
+  «When the main branch already says `blocked`», `commit -am` вместо `-- <ticket file>`) красные, перефразировка с теми
+  же фразами — зелёная.
 
-## 4. Что сознательно не меняли
+## 5. Что сознательно не меняли
 
 Раздел 0 (люди Pipeline-а: `human-review`, `awaiting-merge` — Ticket остаётся `claimed`) не тронут. Eval-случай не
 добавлен, хотя scaffold мог бы его поставить: новый случай на `skills/epic-wave/SKILL.md` меняет набор, который
 `--changed` выбирает для этого файла, а ровно три случая закрепляют contract test-ы runner-а
-(`test/contract/harness-evals-run.test.ts`, `test/contract/harness-evals-shared.ts`) вне следа Ticket-а.
+(`test/contract/harness-evals-run.test.ts`, `test/contract/harness-evals-shared.ts`) вне следа Ticket-а. Сообщение
+`setAsideText` Autopilot-а не правилось: его текст дословно закреплён в двух contract test-ах и на feature page.
 
-## 5. Как проверено
+## 6. Как проверено
 
-`bash harness/bin/tests/epic-wave-ship-ticket.test.sh`: первая редакция — до правки exit 1 (10 красных), после exit 0
-(634); mutant без команды `ticket block … --waits owner` — exit 1. Раунд 1 — новые проверки места записи до правки
-exit 1 (6 красных), после exit 0 (640); mutant «from its own tree» — exit 1 (1 красная). `bash
-harness/bin/tests/agents-text.test.sh`, `pnpm test test/contract/codex-parity.test.ts`, `pnpm lint` — exit 0. gate fast
-не запускался по брифу: на этом Mac `fseventsd` делает test-ы watcher-а файлов красными; вердикт — CI, включая job-ы
-Windows (платформенный PR).
+`bash harness/bin/tests/epic-wave-ship-ticket.test.sh`: каждая редакция — сначала красная (10, затем 6, затем 16
+красных проверок), потом exit 0 (сейчас 650); каждый mutant — exit 1. `bash harness/bin/tests/agents-text.test.sh`,
+`pnpm test test/contract/codex-parity.test.ts`, `pnpm lint` — exit 0. gate fast не запускался по брифу: на этом Mac
+`fseventsd` делает test-ы watcher-а файлов красными; вердикт — CI, включая job-ы Windows (платформенный PR).
 
 ## Проверить себя
 
-1. Почему блок пишется в worktree Ticket-а с commit-ом, а не в дереве Orchestrator-а?
-   - Ответ: worfy читает main ветку и поверх неё commit-нутые ветки worktree-ов Ticket-ов; правка в дереве
-     Orchestrator-а или без commit-а не видна до documents PR, и Autopilot продолжает слать continuation-ы.
-   - Строки: `harness/skills/epic-wave/SKILL.md:383-388`
-2. Почему Ticket с PR в `awaiting-merge` остаётся `claimed`, а ждущий ответа владельца — нет?
-   - Ответ: Ticket людей Pipeline-а ждёт по собственному правилу раздела 0, и его строка отчёта говорит, кого он ждёт;
-     правило про ответ владельца его прямо исключает.
-   - Строки: `harness/skills/epic-wave/SKILL.md:393-395`
+1. Почему ответ владельца иногда надо записать и в main, а не только на ветку Ticket-а?
+   - Ответ: ветка никогда не отменяет `blocked` из main; если documents PR уже влил блок или у Ticket-а нет worktree,
+     claim на ветке не виден, а Wave берёт только `open` Ticket-ы.
+   - Строки: `harness/skills/epic-wave/SKILL.md:400-404`
+2. Почему блок ждёт конца хода implementer-а и commit-ит только файл Ticket-а?
+   - Ответ: commit в worktree, где implementer ещё пишет, захватит его недописанные файлы или столкнётся на
+     `index.lock`.
+   - Строки: `harness/skills/epic-wave/SKILL.md:379-380`, `harness/skills/epic-wave/SKILL.md:394-395`

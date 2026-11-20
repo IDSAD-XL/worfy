@@ -46,9 +46,11 @@ Windows — job-ы Windows в CI.
       владельца; правило `human-review` / `awaiting-merge` не изменилось.
   - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` exit 0 (634 passed: the owner-stop paragraph of section 2 and the unchanged section 0 sentence on human-review and awaiting-merge) · mac - · 6587ed776acbdecf9af41c4057a61365456891c9
   - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` exit 0 (640 passed: the block runs in the ticket worktree, committed on its branch; section 0 sentence on human-review and awaiting-merge unchanged) · mac - · ecdf2cd3d2d7d5397adb758c24d4d1045b6ce6b7
+  - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` exit 0 (650 passed: block after the implementer turn, ticket file only, main branch re-claim, Silent mode; human-review and awaiting-merge unchanged) · mac - · 11f2c3f6cd8ade57c37f25dd8d89fd75c83ff713
 - [ ] Проверка в `epic-wave-ship-ticket.test.sh` зелёная, mutant (фраза убрана) — красный; весь файл — exit 0.
   - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` exit 0; exit 1 before the text change (10 failed); exit 1 on the mutant without the ticket block command (1 failed) · mac - · 6587ed776acbdecf9af41c4057a61365456891c9
   - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` exit 0; review round 1 checks exit 1 before the text change (6 failed); exit 1 on the mutant with the block from its own tree (1 failed) · mac - · ecdf2cd3d2d7d5397adb758c24d4d1045b6ce6b7
+  - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` exit 0; review round 2 checks exit 1 before the text change (16 failed); exit 1 on each of two mutants (1 failed) · mac - · 11f2c3f6cd8ade57c37f25dd8d89fd75c83ff713
 - [ ] Eval-случай добавлен и прогнан (exit code и счёт в «Итог»), или в «Итог» записано, почему его нет.
   - evidence: commit pass · worfy-polish/131: result section and evidence · - - · 3390cc7ab5f080b178ab52475daa279f3c8e1523
 - [ ] Job-ы Windows CI на PR зелёные (платформенный PR).
@@ -97,3 +99,27 @@ Windows — job-ы Windows в CI.
   отдельный Ticket. Платный eval не запускался, расход 0 USD.
 - Feature pages не правились: `docs/features/autopilot.md` и `autopilot-faults.md` описывают поведение worfy (продолжения
   и set-aside), оно не изменилось.
+
+### Раунд ревью 2
+
+- Правило разделено на два абзаца `SKILL.md:376-410`: сам блок («A ticket stopped for the owner's answer…») и
+  «Where the owner-stop status is written».
+- Блок — только после того, как ход implementer-а закончился (пришёл отчёт или агент остановлен): иначе commit в его
+  worktree может захватить его недописанные файлы или столкнуться на `index.lock`. Commit берёт только файл Ticket-а:
+  `git -C <worktree> commit -m "<message>" -- <ticket file>`.
+- Ответ владельца: `ticket claim` в worktree Ticket-а с commit-ом. Ветка никогда не отменяет `blocked`/`done` из main
+  (`src/main/workflow/reader.ts`, `branchOverrides`; ADR-0033), поэтому когда main уже говорит `blocked` (documents PR
+  влил блок, или у Ticket-а не было worktree), ответ идёт и в main тем же путём documents: `ticket claim`, если Ticket
+  продолжается в своём worktree, `ticket open`, если worktree нет, — Wave берёт только `open` Ticket-ы.
+- Открытый PR: commit статуса сдвигает head PR-а при следующем push, но только внутри корня тикетов. Сверено с
+  `harness/bin/land` (шапка, условия merge): такой head `land` принимает (diff PR-а вне корня тикетов тот же) и
+  переносит отметку `review` с проверенного head-а; CI идёт заново, а отметки `check/<name>` не переносятся никогда —
+  Orchestrator ставит их на новом head-е заново.
+- Silent mode: `ticket block` и `ticket claim` из любой папки достаточно, статус сразу в Workflow folder, без commit-а.
+- `setAsideText` (`src/shared/autopilot/continuation.ts:40-46`) тоже не говорит, где запускать `ticket block`, — та же
+  ошибка. В одну строку с её unit test-ом правка не помещается: текст сообщения дословно закреплён ещё в
+  `test/contract/autopilot-faults-codex.test.ts:150`, `test/contract/autopilot-faults-ladder.test.ts:47,192` и в
+  `docs/features/autopilot-faults.md:254` (и переводе). Не правил; предлагаю отдельный Ticket.
+- Проверки: новые проверки `epic-wave-ship-ticket.test.sh` до правки текста — exit 1 (16 красных), после — exit 0 (650).
+  Mutant «When the main branch already says `blocked`» убран — exit 1 (1 красная); mutant `commit -am` вместо
+  `-- <ticket file>` — exit 1 (1 красная).
