@@ -2,6 +2,7 @@
 
 Type: bug
 Status: claimed 2026-11-20T12:41Z
+PR: #2094
 Branch: worfy-polish/129
 Blocked by: none
 Source: красный push run 44471611202 на `main` eb669a653 (#2030, worfy-auth-check 08 — Autopilot не трогает), job
