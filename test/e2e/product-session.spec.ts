@@ -955,22 +955,30 @@ test('a narrow Product Session header: the share of advice gives way before the 
       await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0]?.setContentSize(size, 860), width)
       await expect.poll(() => window.evaluate(() => (globalThis as unknown as { innerWidth: number }).innerWidth)).toBe(width)
     }
-    /** What the header shows at the window's width now. */
+    /** What the header shows at the window's width now (the e2e project has no DOM types: a structural one). */
+    type Box = { width: number; right: number }
+    type Shown = { scrollWidth: number; clientWidth: number; getClientRects(): { length: number }; getBoundingClientRect(): Box }
+    type Root = Shown & { querySelector(selector: string): Shown | null }
     const measure = () =>
       header.evaluate((element) => {
-        const box = (selector: string) => element.querySelector(selector)?.getBoundingClientRect() ?? null
-        const shareBox = element.querySelector<HTMLElement>('[data-testid="product-session-advice"]')
-        const accepted = element.querySelector<HTMLElement>('[data-testid="product-session-accepted"]')
+        const root = element as unknown as Root
+        const box = (selector: string) => root.querySelector(selector)?.getBoundingClientRect() ?? null
+        const shown = (selector: string) => {
+          const found = root.querySelector(selector)
+          return found !== null && found.getClientRects().length > 0 ? found : null
+        }
+        const clipped = (found: Shown | null) => found !== null && found.scrollWidth > found.clientWidth
+        const share = shown('[data-testid="product-session-advice"]')
         return {
-          header: element.getBoundingClientRect().width,
+          header: root.getBoundingClientRect().width,
           picker: box('[data-testid="session-picker"]')!.width,
           name: box('[data-testid="session-picker"] .w-select__value')!.width,
-          share: shareBox === null || shareBox.getClientRects().length === 0 ? 0 : shareBox.getBoundingClientRect().width,
-          shareClipped: accepted !== null && accepted.getClientRects().length > 0 && accepted.scrollWidth > accepted.clientWidth,
-          titleClipped: ((title) => title.scrollWidth > title.clientWidth)(element.querySelector<HTMLElement>('.w-session__title')!),
+          share: share === null ? 0 : share.getBoundingClientRect().width,
+          shareClipped: clipped(shown('[data-testid="product-session-accepted"]')),
+          titleClipped: clipped(shown('.w-session__title')),
           word: box('.w-session__state-word')!.width,
           interruptRight: box('[data-testid="session-interrupt"]')!.right,
-          right: element.getBoundingClientRect().right,
+          right: root.getBoundingClientRect().right,
         }
       })
 

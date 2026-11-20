@@ -38,8 +38,10 @@ Source: замечание владельца 2026-11-20 по снимку эк�
       своём элементе, текст `session-state` прежний, у чипа tooltip kit со словом. Красный до правки.
 - [ ] e2e (`test/e2e/product-session.spec.ts`) при узком окне: ширина выбора Session ≥ 130 px, имя в нём видно; доля
       советов обрезана или скрыта раньше, чем выбор Session сжимается; чип — только иконка, текст `busy` у него есть.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 · mac dev · bb46f23e0d4cd14a20173c60e77b324c4fcf2308
 - [ ] Снимки Playwright шапки, широкой и узкой, в светлой и тёмной теме — в scratchpad, названы в «Итог».
 - [ ] `docs/features/product-session.md` — если страница описывает шапку.
+  - evidence: commit pass · worfy-polish/137: Product Session header — the picker keeps its name, the advice share gives way first · - - · 52bcdad43
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Где в коде
