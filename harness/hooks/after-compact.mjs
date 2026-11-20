@@ -9,9 +9,10 @@
 // where the text depends on where the session works (the `cwd` of the input):
 //   - a linked worktree whose branch is a ticket's branch (the profile's form `tickets.branch`, or the `Branch:`
 //     line of a ticket in Silent mode) — an implementer: how the ticket ends (`workflow.finish` of the profile,
-//     FINISH), `git status --short` of the worktree, the ticket file, then the commits of the branch since
-//     `worktree.base` of the profile with their files (COMMIT_LIMIT characters) and `git diff HEAD` (DIFF_LIMIT):
-//     what has no fixed size goes after the ticket. The text states where the work stands and names no command to
+//     FINISH), `git status --short` of the worktree (STATUS_LIMIT characters), the ticket file, then the commits
+//     of the branch since `worktree.base` of the profile with their files (COMMIT_LIMIT characters) and
+//     `git diff HEAD` (DIFF_LIMIT). Over the limit the commits and the diff go first; a ticket over the limit by
+//     itself loses lines of its middle, never its done section (fittedTicket). The text states where the work stands and names no command to
 //     run now (an agent told to answer from memory read an order to re-check the files into it); the re-check of
 //     the done items is asked for before the report;
 //   - the main checkout of the project — the Orchestrator: `bin/wave-brief <epic>`, its head (the Stage line) and
@@ -40,11 +41,15 @@
 
 import { spawn } from "node:child_process"
 import fs from "node:fs"
+import { createRequire } from "node:module"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { isCodexInput } from "./codex-input.mjs"
 import { git as GIT } from "./eval-env.cjs"
 import { firstByteWait, readStdin } from "./hook-stdin.mjs"
+
+// The done section the way bin/ticket reads it: the profile's heading, the default one, the old Russian one.
+const { parseDoneSection } = createRequire(import.meta.url)("../lib/evidence.cjs")
 
 const LIMIT = 10000
 // Of the 30 s hooks.json gives the hook, the wait for the first byte of the input (hook-stdin.mjs).
@@ -55,7 +60,9 @@ const STEP_MS = 8000
 const STAGE_MS = 10000
 const BRIEF_MS = 15000
 const NOT_REGISTERED = 3
+// git status goes before the ticket: at most this many lines and characters, so the ticket keeps its room.
 const STATUS_LINES = 50
+const STATUS_LIMIT = 1500
 // The commits of the branch: lines of `git log --name-status`, a subject or a file each, in at most COMMIT_LIMIT
 // characters. They go after the ticket, as the diff does: a branch of many files never pushes the ticket's done
 // items out of the limit.
@@ -239,13 +246,18 @@ async function implementerContext({ cwd, top, branch, ticket, base, finish, done
     let lines = status.code === 0 ? status.out.split("\n").filter(Boolean) : []
     const more = lines.length - STATUS_LINES
     if (more > 0) lines = [...lines.slice(0, STATUS_LINES), `… ${more} more lines: run git status --short`]
-    const statusText = status.code !== 0 ? `(git status failed: ${why(status)})` : lines.length ? lines.join("\n") : "(clean)"
-    // The heading of the profile, when the ticket has it (a profile without the field gets the default heading).
-    const heading = typeof doneSection === "string" ? doneSection.trim() : ""
-    const done = heading && text.split("\n").some((line) => line.trim() === heading) ? heading : "of done items"
+    const statusText =
+        status.code !== 0
+            ? `(git status failed: ${why(status)})`
+            : lines.length
+              ? capped(lines.join("\n"), STATUS_LIMIT, "… more lines: run git status --short")
+              : "(clean)"
+    const section = doneLines(text, doneSection)
+    const done = section ? section.heading : "of done items"
     const diffText = diff.code === 0 ? diff.out.replace(/\n+$/, "") : `(git diff failed: ${why(diff)})`
     const ends = FINISH[finish]
-    const body = [
+    const note = `… cut to fit the hook limit; the whole ticket: ${file}; the diff: git diff HEAD`
+    const head = [
         `Context compacted. You are the implementer of ticket ${id}: worktree ${slashes(top)}, branch ${branch}. The Harness read the state of that work for you right after the compaction: the commits of the branch, the changes not committed yet, and the ticket file. Together with the summary above, this is where the work stands now.`,
         ...(ends ? [`The ticket ${ends} (workflow.finish ${finish} of the profile).`] : []),
         "",
@@ -255,11 +267,54 @@ async function implementerContext({ cwd, top, branch, ticket, base, finish, done
         `## Ticket ${file}`,
         `An empty box in its section ${done} is the usual state while the ticket is in work; the commits and the changes below show which items hold now. Before your report, check each done item against the work.`,
         "",
-        text,
+    ].join("\n")
+    const ticketText = fittedTicket(text, section, (t) => fits(`${head}\n${t}\n${note}`), file)
+    const body = [
+        head,
+        ticketText,
         ...(commits ? ["", `## Commits of ${branch} since ${base}`, commits] : []),
         ...(diffText ? ["", "## Not committed: git diff HEAD", capped(diffText, DIFF_LIMIT, "… the diff is cut; the whole of it: git diff HEAD")] : []),
     ].join("\n")
-    return cut(body, `… cut to fit the hook limit; the whole ticket: ${file}; the diff: git diff HEAD`, fits)
+    // What has no fixed size comes after the ticket, so this cut takes the commits and the diff first.
+    return cut(body, note, fits)
+}
+
+/** The done section of `text` as bin/ticket finds it: {heading, from, to}, 0-based lines from its heading to the
+ * line before the next heading; null when the ticket has no checkbox item under such a heading. */
+function doneLines(text, doneSection) {
+    const items = parseDoneSection(text, { doneSection })
+    if (!items.length) return null
+    const lines = text.split("\n")
+    const isHeading = (line) => /^#{1,6}\s/.test(line)
+    let from = items[0].line - 1
+    while (from > 0 && !isHeading(lines[from])) from--
+    let to = items[items.length - 1].end - 1
+    while (to + 1 < lines.length && !isHeading(lines[to + 1])) to++
+    return { heading: lines[from].trim(), from, to }
+}
+
+/** `text` when `fits` takes it; otherwise its first lines that fit, a line that names the cut, and the whole done
+ * section after it: the description in the middle gives way, the done items never do. Without a done section,
+ * `text` as it is; a done section over the limit by itself comes without the lines before it, and the last cut
+ * takes its tail. */
+function fittedTicket(text, section, fits, file) {
+    if (fits(text) || !section) return text
+    const lines = text.split("\n")
+    const after = section.to + 1 < lines.length ? [`… the rest of the ticket after this section is cut; the whole ticket: ${file}`] : []
+    const build = (k) => {
+        const skipped = section.from - k
+        const gap = skipped > 0 ? [`… ${skipped} lines of the ticket cut here; the whole ticket: ${file}`, ""] : []
+        return [...lines.slice(0, k), ...gap, ...lines.slice(section.from, section.to + 1), ...after].join("\n")
+    }
+    if (!fits(build(0))) return build(0)
+    let lo = 0
+    let hi = section.from
+    while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2)
+        if (fits(build(mid))) lo = mid
+        else hi = mid - 1
+    }
+    return build(lo)
 }
 
 async function orchestratorContext({ cwd, epic, fits }) {

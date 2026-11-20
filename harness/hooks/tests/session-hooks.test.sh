@@ -420,13 +420,39 @@ n="$(printf '%s' "$c" | node -e 'process.stdout.write(String([...require("fs").r
     && ok "after-compact: a long ticket keeps all its done items next to a commit of many files ($n characters)" \
     || bad "after-compact: long ticket and many files: rc=$arc $n characters, err=[$(cat "$T/aerr")] tail [$(printf '%s' "$c" | tail -n 4)]"
 # File names as they are, not as octal escapes (core.quotePath), in the commits and in git status; a short
-# ticket now, so the commits fit.
+# ticket now, so the commits fit. The user's git config asks for escapes, so the hook's own setting is what counts.
+printf '[core]\n\tquotePath = true\n' >"$T/quoting.gitconfig"
 printf '# 01 — first of ep1\n\nStatus: claimed 2026-01-01T00:00Z\n\n## Готово, когда\n\n- [ ] SHORT-DONE\n' >"$W1/.scratch/ep1/issues/01-first.md"
-compact "$W1" compact GIT_CONFIG_NOSYSTEM=1
+compact "$W1" compact GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$T/quoting.gitconfig"
 c="$(actx)"
 [[ "$c" == *"файл-кириллица.txt"* && "$c" == *"?? новый.txt"* && "$c" != *'\321'* ]] \
     && ok "after-compact: Cyrillic file names stay readable in the commits and in git status" \
     || bad "after-compact: quotePath: [$(printf '%s' "$c" | grep -n 'txt' | head -n 5)]"
+
+# A ticket over the limit by itself, behind a git status of 50 lines and more, with a commit of 45 files: the
+# ticket loses lines of its middle, never its done section — last in the ticket, or followed by other sections.
+# git status: the 45 committed files changed, and 10 new files beside them.
+for i in $(seq 1 45); do echo changed >>"$W1/src/some/rather/long/path/to/the/modules/module-$i-with-a-long-name.ts"; done
+for i in $(seq 1 10); do echo u >"$W1/extra-untracked-file-$i.txt"; done
+long_ticket() { # $1: what follows the done section
+    printf '# 01 — first of ep1\n\nStatus: claimed 2026-01-01T00:00Z\n\n## Что происходит\n\n'
+    for i in $(seq 1 140); do echo "Filler line $i of a very long ticket, written the way real tickets explain a problem."; done
+    printf '\n## Готово, когда\n\n- [ ] HUGE-DONE-ONE\n- [ ] HUGE-DONE-TWO\n- [ ] HUGE-DONE-THREE\n- [ ] HUGE-DONE-FOUR\n%s' "$1"
+}
+for tail_kind in last followed; do
+    if [ "$tail_kind" = last ]; then long_ticket "" >"$W1/.scratch/ep1/issues/01-first.md"
+    else long_ticket "$(printf '\n## Итог\n\n'; for i in $(seq 1 60); do echo "Result line $i of the ticket."; done)" >"$W1/.scratch/ep1/issues/01-first.md"; fi
+    compact "$W1" compact
+    c="$(actx)"
+    n="$(printf '%s' "$c" | node -e 'process.stdout.write(String([...require("fs").readFileSync(0, "utf8")].length))')"
+    [ "$arc" -eq 0 ] && [ "$n" -le 10000 ] && [[ "$c" == *"Filler line 1 "* && "$c" == *"HUGE-DONE-ONE"*"HUGE-DONE-TWO"*"HUGE-DONE-THREE"*"HUGE-DONE-FOUR"* ]] \
+        && [[ "$c" == *" M src/some/rather/long/path/to/the/modules/module-"* && "$c" == *"… more lines: run git status --short"* ]] \
+        && [[ "$c" != *"Filler line 140 "* && "$c" != *"Result line 60 "* ]] \
+        && ok "after-compact: a ticket over the limit keeps its head and its whole done section ($tail_kind, $n characters)" \
+        || bad "after-compact: huge ticket ($tail_kind): rc=$arc $n characters, err=[$(cat "$T/aerr")] tail [$(printf '%s' "$c" | tail -n 4)]"
+done
+(cd "$W1" && gq checkout -q -- src) >/dev/null 2>&1
+rm -f "$W1"/extra-untracked-file-*.txt
 
 # A git diff that fails says so, as git status does: here the blob of a committed file is gone from the
 # object store, so git status still works (it hashes the file again) while git diff HEAD cannot read it.
