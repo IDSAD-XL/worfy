@@ -64,9 +64,11 @@ Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решение», 3 и 6; «�
   - evidence: screenshot pass · `../evidence/09-agent-done-1280-light.png` Agent review done · mac dev · 34f5fdbad919d13b5ee22e4b5102b243557883e8 · scrub: 2026-11-20
   - evidence: screenshot pass · `../evidence/09-agent-done-1280-dark.png` Agent review done, dark theme · mac dev · 34f5fdbad919d13b5ee22e4b5102b243557883e8 · scrub: 2026-11-20
   - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-review.spec.ts test/e2e/pr-inbox.spec.ts test/e2e/pr-search.spec.ts` exit 0 (review round 1) · mac dev · 7e15f6cc115e2eccc209920119258bdfc1c065bb
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-review.spec.ts test/e2e/pr-inbox.spec.ts test/e2e/pr-search.spec.ts` exit 0 (review round 2) · mac dev · 710375236450688756825e8b378326f1ff680f11
 - [ ] `test/unit/pr-inbox-view.test.tsx`, `test/e2e/pr-inbox.spec.ts`, `test/e2e/pr-search.spec.ts` зелёные.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-inbox-view.test.tsx` exit 0; `pnpm test:e2e test/e2e/pr-inbox.spec.ts test/e2e/pr-search.spec.ts` exit 0 · mac dev · 34f5fdbad919d13b5ee22e4b5102b243557883e8
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-inbox-view.test.tsx test/unit/pr-search-view.test.tsx` exit 0 (review round 1; red before: exit 1) · mac - · 7e15f6cc115e2eccc209920119258bdfc1c065bb
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-inbox-view.test.tsx test/unit/pr-search-view.test.tsx` exit 0 (review round 2; red before and on three mutants: exit 1) · mac - · 710375236450688756825e8b378326f1ff680f11
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint` exit 0; `pnpm typecheck` exit 0; `pnpm test` exit 0 (ci-ok not read yet) · mac - · 34f5fdbad919d13b5ee22e4b5102b243557883e8
 
@@ -176,3 +178,11 @@ test/e2e/pr-review.spec.ts test/e2e/pr-inbox.spec.ts test/e2e/pr-search.spec.ts`
 - Красный до правки: 4 новых test-а `test/unit/review-mode.test.tsx` и по одному в `test/unit/pr-inbox-view.test.tsx`
   и `test/unit/pr-search-view.test.tsx` — exit 1 (6 failed). Зелёный: 29 файлов модулей exit 0 (674 tests), три e2e
   spec-а exit 0 (16 passed).
+
+**Review round 2 (исправлено, commit 710375236):**
+- Поиск, запущенный снова при открытом Review mode на результате, больше не закрывает его: решает только законченное
+  чтение (`settled` у результатов, у inbox — чтение не идёт). Test «тот же поиск снова» — до правки exit 1.
+- Каждая половина исправления round 1 держится своим test-ом, и каждый краснеет на своём mutant-е (exit 1): gate клавиш
+  по глобальному `open` — «Review mode открыт в одном Project-е, Pull requests другого берут ↑ ↓»; без закрытия — «PR
+  ушёл и вернулся, Review mode не открывается сам»; без `settled` — «тот же поиск снова».
+- Зелёный: 29 файлов модулей exit 0 (676 tests), три e2e spec-а exit 0 (16 passed).

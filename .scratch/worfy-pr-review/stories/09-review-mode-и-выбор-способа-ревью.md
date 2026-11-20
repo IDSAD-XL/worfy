@@ -93,27 +93,32 @@ Code: `src/renderer/pr-review/ReviewMode.tsx:117-119` · key lines: 117, 118, 11
 
 ## 5. Review mode закрывается, когда его PR ушёл из списка
 
-Code: `src/renderer/pr-inbox/PrInboxView.tsx:754-760` · key lines: 756, 757, 759
+Code: `src/renderer/pr-inbox/PrInboxView.tsx:756-764` · key lines: 760, 761, 763
 
 ```tsx
   // Review mode on a PR this view no longer lists (it left the inbox on a read; the search was cleared or changed):
-  // closed, so the list takes its keys again and the PR does not come back in Review mode later.
+  // closed, so the list takes its keys again and the PR does not come back in Review mode later. Only a finished read
+  // decides: a search running again shows no rows until its answer, and an inbox read keeps the last ones.
   const listed = results !== null ? [...(results.rows ?? []), ...(results.current === null ? [] : [results.current.row])] : order.map(({ row }) => row)
-  const reviewGone = reviewOpen !== null && reviewOpen.projectId === snapshot.projectId && (results !== null || snapshot.readAt !== null) && !listed.some((row) => reviewOpenOn(reviewOpen, snapshot.projectId, row))
+  const decided = results !== null ? results.settled !== false : snapshot.readAt !== null && !readingNow
+  const reviewGone = reviewOpen !== null && reviewOpen.projectId === snapshot.projectId && decided && !listed.some((row) => reviewOpenOn(reviewOpen, snapshot.projectId, row))
   useEffect(() => {
     if (reviewGone) closeReviewMode()
   }, [reviewGone])
 ```
 
 - Что делает: если PR, на котором открыт Review mode, пропал из списка этого Project-а (ушёл из inbox при чтении, поиск
-  очищен или заменён), Review mode закрывается. Клавиши списка отдаются Review mode, только если он показан в этом виде
-  (`PrInboxView.tsx:1174`), а не по глобальному `open` store-а.
+  очищен или заменён), Review mode закрывается. Решает только законченное чтение: поиск, запущенный снова, до ответа
+  показывает пустой список (`settled` ложно), и это не уход PR. Клавиши списка отдаются Review mode, только если он
+  показан в этом виде (`PrInboxView.tsx:1178`), а не по глобальному `open` store-а.
 - Почему здесь: store Review mode общий для всех Project-ов; review round 1 нашёл, что ↑ ↓, Enter и Escape списка
   умирали после такого ухода и в Pull requests другого Project-а.
 - Без него: список показан, а клавиши не работают; PR, вернувшийся в inbox позже, снова открылся бы в Review mode.
 - Требование: [Что делаем, п. 8](../issues/09-review-mode-и-выбор-способа-ревью.md#что-делаем)
-- Риски и пробелы test-ов: сценарий «Review mode открыт в Project A, показан Project B» test-ом не проверен; его
-  закрывает проверка по DOM вида, а не по store.
+- Риски и пробелы test-ов: каждую половину держит свой test, и каждый краснеет на своём mutant-е: «Review mode открыт в
+  одном Project-е — Pull requests другого берут ↑ ↓» (gate по глобальному `open`), «PR ушёл и вернулся — Review mode не
+  открывается сам» (без закрытия), «тот же поиск снова — Review mode снова на результате» (без `settled`). Пока поиск
+  идёт, Review mode не показан (у результатов нет текущего PR) и возвращается с ответом.
 
 ## 6. Linked machine — по окну, не по уровню доступа
 
