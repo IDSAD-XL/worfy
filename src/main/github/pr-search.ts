@@ -22,7 +22,7 @@
 //
 // Saved searches: `<Project data folder>/pr-searches.json` beside `pr-inbox.json` (ADR-0005, amended 2026-11-20): a
 // name, the text and the scope of each, at most PR_SEARCHES_MAX; two built-in ones are never stored or forgotten.
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { z } from 'zod'
 import type { PrInboxRow } from '../../shared/ipc/pr-inbox'
@@ -128,6 +128,13 @@ function failureOf(answer: GhAnswer, now: number, who: string, repo: string | nu
   const ok = answer.status !== null && answer.status < 300 && answer.reason === ''
   if (ok) return null
   const words = githubWords(answer)
+  // Single sign-on before the rate limit: a 403 of SSO may come while little of the limit is left, and its link is what
+  // the user needs (review round 1).
+  const sso = answer.headers.get('x-github-sso') ?? ''
+  if (sso.startsWith('required') || (answer.status === 403 && /\bSAML\b/u.test(words)) || errors.some((each) => /\bSAML\b/u.test(each.message))) {
+    const url = /\burl=(\S+)/u.exec(sso)?.[1] ?? null
+    return { notice: notice('sso', `Authorize your token for ${ssoOrg(url) ?? 'the organization'} single sign-on`, url), pauseUntil: null }
+  }
   const remaining = Number(answer.headers.get('x-ratelimit-remaining'))
   const limit = Number(answer.headers.get('x-ratelimit-limit'))
   const low = answer.headers.has('x-ratelimit-remaining') && limit > 0 && remaining < limit * RATE_LIMIT_FLOOR
@@ -140,11 +147,6 @@ function failureOf(answer: GhAnswer, now: number, who: string, repo: string | nu
     return { notice: notice('rate-limit', `Search paused until ${clockOf(until)} (GitHub rate limit)`), pauseUntil: until }
   }
   if (answer.status === 401 || (answer.status === null && isSignInFailure(answer.reason))) return { notice: notice('sign-in', `GitHub refused the sign-in: ${words}`), pauseUntil: null }
-  const sso = answer.headers.get('x-github-sso') ?? ''
-  if (sso.startsWith('required') || (answer.status === 403 && /\bSAML\b/u.test(words)) || errors.some((each) => /\bSAML\b/u.test(each.message))) {
-    const url = /\burl=(\S+)/u.exec(sso)?.[1] ?? null
-    return { notice: notice('sso', `Authorize your token for ${ssoOrg(url) ?? 'the organization'} single sign-on`, url), pauseUntil: null }
-  }
   if (answer.status === 404 || errors.some((each) => each.type === 'NOT_FOUND')) return { notice: notice('not-visible', `${repo ?? 'The repository'} is not visible to ${who}`), pauseUntil: null }
   if (answer.status === 422) return { notice: notice('invalid', words), pauseUntil: null }
   return { notice: notice('failed', words), pauseUntil: null }
@@ -163,22 +165,29 @@ function partialOf(answer: GhAnswer): PrSearchNotice | null {
 
 /** Per search string: the cursor of its next page, null for its first, false when it has no more. */
 type Pages = (string | null | false)[]
-const pagesSchema = z.array(z.union([z.string(), z.null(), z.literal(false)]))
+/**
+ * The cursor as the view gets it: the pages, and a hash of the search strings they belong to. GitHub's cursors are
+ * offsets, so one of another search would answer that search from the middle.
+ */
+const cursorSchema = z.object({ of: z.string(), pages: z.array(z.union([z.string(), z.null(), z.literal(false)])) })
 
-function pagesOf(cursor: string | null | undefined, count: number): Pages {
-  if (cursor == null) return Array.from({ length: count }, () => null)
+const hashOf = (queries: readonly string[]): string => createHash('sha256').update(JSON.stringify(queries)).digest('base64url').slice(0, 22)
+
+function pagesOf(cursor: string | null | undefined, queries: readonly string[]): Pages {
+  if (cursor == null) return queries.map(() => null)
   let parsed: unknown
   try {
     parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'))
   } catch {
     parsed = undefined
   }
-  const pages = pagesSchema.safeParse(parsed)
-  if (!pages.success || pages.data.length !== count) throw new Error('the cursor is not of this search; search again')
-  return pages.data
+  const decoded = cursorSchema.safeParse(parsed)
+  if (!decoded.success || decoded.data.of !== hashOf(queries) || decoded.data.pages.length !== queries.length) throw new Error('the cursor is not of this search; search again')
+  return decoded.data.pages
 }
 
-const cursorOf = (pages: Pages): string | null => (pages.some((page) => typeof page === 'string') ? Buffer.from(JSON.stringify(pages)).toString('base64url') : null)
+const cursorOf = (pages: Pages, queries: readonly string[]): string | null =>
+  pages.some((page) => typeof page === 'string') ? Buffer.from(JSON.stringify({ of: hashOf(queries), pages })).toString('base64url') : null
 
 // ── the reader ───────────────────────────────────────────────────────────────
 
@@ -235,6 +244,11 @@ interface Found {
 }
 
 const keyOf = (repo: string, number: number): string => `${repo.toLowerCase()}#${number}`
+/**
+ * A PR in memory by the account that read it as well: another account may not see it, and its row counts the comments
+ * new to that account's viewer (review round 1).
+ */
+const pullKeyOf = (account: string | null, repo: string, number: number): string => JSON.stringify([account ?? '', keyOf(repo, number)])
 
 export class PrSearch {
   private readonly now: () => number
@@ -252,7 +266,7 @@ export class PrSearch {
     const now = this.now()
     const repos = input.scope === 'github' ? [] : [...(await this.options.repos(project.root).catch(() => []))]
     const built = buildSearch({ text: input.text, scope: input.scope, repos })
-    const pages = pagesOf(input.cursor, built.queries.length)
+    const pages = pagesOf(input.cursor, built.queries)
     const notices: PrSearchNotice[] = []
     if (built.dropped.length > 0) notices.push(notice('issue-dropped', `${built.dropped.join(' ')} left out: this search finds pull requests only`))
     if (built.ownScope && input.scope !== 'github') notices.push(notice('own-scope', 'The search names its own repo:, org: or user:, so the scope adds none'))
@@ -330,7 +344,7 @@ export class PrSearch {
       queries: built.queries,
       rows,
       issueCount,
-      cursor: cursorOf(next),
+      cursor: cursorOf(next, built.queries),
       viewer,
       rate,
       pausedUntil: null,
@@ -346,7 +360,8 @@ export class PrSearch {
   async pull(project: PrSearchProject, input: PrPullInput): Promise<PrSearchPull> {
     const inbox = this.options.inboxRow(project.id, input.repo, input.number)
     if (inbox !== null) return { row: { ...inbox, inInbox: true }, readAt: null, notices: [] }
-    const key = keyOf(input.repo, input.number)
+    const account = await this.options.account(project.root)
+    const key = pullKeyOf(account, input.repo, input.number)
     const cached = this.pulls.get(key)
     const fresh = input.updatedAt == null ? cached !== undefined && this.now() - cached.readAt < PR_SEARCH_MEMORY_MS : cached?.row.updatedAt === input.updatedAt
     if (cached !== undefined && fresh && input.refresh !== true) {
@@ -354,7 +369,6 @@ export class PrSearch {
       return { row: { ...cached.row, inInbox: false }, readAt: new Date(cached.readAt).toISOString(), notices: [] }
     }
     const before = { row: cached === undefined ? null : { ...cached.row, inInbox: false }, readAt: cached === undefined ? null : new Date(cached.readAt).toISOString() }
-    const account = await this.options.account(project.root)
     const paused = this.options.rates.accountPause(account)
     if (paused !== null) return { ...before, notices: [notice('rate-limit', `Search paused until ${clockOf(paused.until)} (GitHub rate limit)`)] }
     let env: GhEnv
@@ -374,7 +388,7 @@ export class PrSearch {
   private async rowsOf(project: PrSearchProject, found: readonly Found[], viewer: string | null, env: GhEnv, account: string | null, notices: PrSearchNotice[]): Promise<PrSearchRow[]> {
     const wanted = found.filter((each) => {
       if (this.options.inboxRow(project.id, each.repo, each.number) !== null) return false
-      return this.pulls.get(keyOf(each.repo, each.number))?.row.updatedAt !== each.updatedAt
+      return this.pulls.get(pullKeyOf(account, each.repo, each.number))?.row.updatedAt !== each.updatedAt
     })
     for (let at = 0; at < wanted.length; at += INBOX_DETAILS_PAGE) {
       if (!(await this.read(wanted.slice(at, at + INBOX_DETAILS_PAGE), project.root, env, account, viewer, notices))) break
@@ -386,7 +400,7 @@ export class PrSearch {
         rows.push({ ...inbox, inInbox: true })
         continue
       }
-      const kept = this.pulls.get(keyOf(each.repo, each.number))
+      const kept = this.pulls.get(pullKeyOf(account, each.repo, each.number))
       if (kept !== undefined) rows.push({ ...kept.row, inInbox: false })
     }
     return rows
@@ -413,7 +427,7 @@ export class PrSearch {
     this.options.rates.noteAccountRate(account, data.rateLimit)
     const errors = parsed.success ? (parsed.data.errors ?? []) : []
     for (const [n, each] of page.entries()) {
-      const key = keyOf(each.repo, each.number)
+      const key = pullKeyOf(account, each.repo, each.number)
       const pull = readPull(each.repo, (data[`p${n}`] as { pullRequest?: unknown } | null | undefined)?.pullRequest)
       if (pull === null) {
         this.pulls.delete(key)

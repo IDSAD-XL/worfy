@@ -14,7 +14,7 @@ PR inbox искал двумя фиксированными запросами �
 
 ## 2. Строка поиска и деление области на несколько запросов
 
-Code: `src/shared/pr-search/query.ts:94-112` · key lines: 97, 104, 105, 106
+Code: `src/shared/pr-search/query.ts:96-114` · key lines: 99, 106, 107, 108
 
 ```ts
 export function buildSearch(input: SearchInput): BuiltSearch {
@@ -40,7 +40,8 @@ export function buildSearch(input: SearchInput): BuiltSearch {
 
 - Что делает: к тексту пользователя (уже без `is:issue`, с `is:pr`, `archived:false` и `sort:updated-desc` по
   умолчанию — `baseOf`) добавляет `repo:` или `org:` области и раскладывает их по запросам так, чтобы каждый был
-  короче 256 символов; ни один репозиторий не теряется. `repo:`, `org:` или `user:` в тексте заменяют область.
+  короче 256 символов; ни один репозиторий не теряется. `repo:`, `org:` или `user:` в тексте заменяют область;
+  отрицание (`-repo:`) только сужает поиск и область не снимает (раунд ревью 1).
 - Почему здесь: Ticket называет чистую функцию `src/shared/pr-search/query.ts`; в `src/shared` её же вызовет вид
   Ticket-а 05 до Enter (`searchWarnings`). Почему `repo:` пользователя заменяет область: в обычном поиске GitHub два
   `repo:` — это ИЛИ, и область Project-а расширила бы поиск пользователя (решено без владельца, в «Итог» Ticket-а).
@@ -53,13 +54,13 @@ export function buildSearch(input: SearchInput): BuiltSearch {
 
 ## 3. Строка из inbox берётся из inbox, остальное читается один раз
 
-Code: `src/main/github/pr-search.ts:374-392` · key lines: 376, 377, 380, 386, 390
+Code: `src/main/github/pr-search.ts:388-406` · key lines: 390, 391, 394, 400, 404
 
 ```ts
   private async rowsOf(project: PrSearchProject, found: readonly Found[], viewer: string | null, env: GhEnv, account: string | null, notices: PrSearchNotice[]): Promise<PrSearchRow[]> {
     const wanted = found.filter((each) => {
       if (this.options.inboxRow(project.id, each.repo, each.number) !== null) return false
-      return this.pulls.get(keyOf(each.repo, each.number))?.row.updatedAt !== each.updatedAt
+      return this.pulls.get(pullKeyOf(account, each.repo, each.number))?.row.updatedAt !== each.updatedAt
     })
     for (let at = 0; at < wanted.length; at += INBOX_DETAILS_PAGE) {
       if (!(await this.read(wanted.slice(at, at + INBOX_DETAILS_PAGE), project.root, env, account, viewer, notices))) break
@@ -71,7 +72,7 @@ Code: `src/main/github/pr-search.ts:374-392` · key lines: 376, 377, 380, 386, 3
         rows.push({ ...inbox, inInbox: true })
         continue
       }
-      const kept = this.pulls.get(keyOf(each.repo, each.number))
+      const kept = this.pulls.get(pullKeyOf(account, each.repo, each.number))
       if (kept !== undefined) rows.push({ ...kept.row, inInbox: false })
     }
     return rows
@@ -88,7 +89,8 @@ Code: `src/main/github/pr-search.ts:374-392` · key lines: 376, 377, 380, 386, 3
   уже прочитанные PR.
 - Требование: [Что делаем, пункты 2 и 3](../issues/04-поиск-pr-в-main.md#что-делаем)
 - Риски и пробелы test-ов: результат из памяти поиска (60 s) не обновляется, если inbox за это время перечитал PR.
-  Цена в пунктах измерена вручную на публичном репозитории; stand-in её не знает.
+  Цена в пунктах измерена вручную на публичном репозитории; stand-in её не знает. Память PR — по аккаунту и
+  `repo#N` (раунд ревью 1): Project другого аккаунта читает PR сам, своим токеном.
 
 ## 4. Пауза на rate limit общая с PR inbox
 
@@ -164,10 +166,10 @@ export const prSearchSave = invokeChannel(
 ## Проверить себя
 
 1. Почему `repo:other-org/lib` в тексте пользователя отключает область This Project, а не добавляется к ней?
-   - Строки: `src/shared/pr-search/query.ts:97`
+   - Строки: `src/shared/pr-search/query.ts:99`
    - Ответ: в обычном поиске GitHub два `repo:` значат ИЛИ; область Project-а расширила бы поиск, а не сузила.
 2. Сколько раз поиск прочитает детали PR, который есть в inbox?
-   - Строки: `src/main/github/pr-search.ts:376`, `src/main/github/pr-search.ts:386`
+   - Строки: `src/main/github/pr-search.ts:390`, `src/main/github/pr-search.ts:400`
    - Ответ: ни разу — строка берётся из inbox; читаются только PR вне inbox и вне памяти.
 3. Что станет с фоновым чтением inbox, если ответ поиска показал меньше 10 % лимита?
    - Строки: `src/main/github/inbox.ts:564`

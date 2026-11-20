@@ -54,6 +54,15 @@ describe('buildSearch', () => {
     expect(buildSearch({ text: 'User:dev-ana', scope: 'owners', repos: REPOS }).ownScope).toBe(true)
   })
 
+  it('a negated -repo:, -org: or -user: only narrows: the scope stays (review round 1)', () => {
+    expect(buildSearch({ text: 'is:open -repo:demo-org/web', scope: 'project', repos: REPOS })).toEqual({
+      queries: ['is:open -repo:demo-org/web is:pr archived:false sort:updated-desc repo:demo-org/api repo:demo-org/web repo:dev-me/tools'],
+      dropped: [],
+      ownScope: false,
+    })
+    expect(buildSearch({ text: '-org:demo-org -user:dev-ana', scope: 'owners', repos: REPOS }).queries).toEqual(['-org:demo-org -user:dev-ana is:pr archived:false sort:updated-desc org:demo-org org:dev-me'])
+  })
+
   it('a quoted label stays one word', () => {
     expect(buildSearch({ text: 'label:"needs review" retry', scope: 'github', repos: [] }).queries).toEqual(['label:"needs review" retry is:pr archived:false sort:updated-desc'])
   })
@@ -77,6 +86,15 @@ describe('buildSearch', () => {
     const built = buildSearch({ text: '', scope: 'project', repos: [repo] })
     expect(built.queries).toHaveLength(1)
     expect(built.queries[0]).toHaveLength(PR_SEARCH_MAX_CHARS - 1)
+  })
+
+  it(`a search that would be exactly ${PR_SEARCH_MAX_CHARS} characters long is split too (review round 1)`, () => {
+    const base = 'is:pr archived:false sort:updated-desc'
+    const first = 'demo-org/a'
+    // The second repository makes the one search exactly 256 characters long.
+    const second = `demo-org/${'x'.repeat(PR_SEARCH_MAX_CHARS - `${base} repo:${first} repo:demo-org/`.length)}`
+    expect(`${base} repo:${first} repo:${second}`).toHaveLength(PR_SEARCH_MAX_CHARS)
+    expect(buildSearch({ text: '', scope: 'project', repos: [first, second] }).queries).toEqual([`${base} repo:${first}`, `${base} repo:${second}`])
   })
 
   it('the owners split too', () => {

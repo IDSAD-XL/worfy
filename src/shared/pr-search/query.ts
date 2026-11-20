@@ -73,7 +73,9 @@ function baseOf(text: string): { words: string[]; dropped: string[]; ownScope: b
   const kept = tokens.filter((token) => !IS_PR.has(lower(token)) && !IS_ISSUE.has(lower(token)))
   const keys = new Set(kept.map(keyOf))
   const words = [...kept, 'is:pr', ...(keys.has('archived') ? [] : ['archived:false']), ...(keys.has('sort') ? [] : ['sort:updated-desc'])]
-  return { words, dropped, ownScope: [...keys].some((key) => key !== null && SCOPE_KEYS.has(key)) }
+  // Only a `repo:`, `org:` or `user:` that names where to look is the user's scope; a negated one only narrows.
+  const ownScope = kept.some((token) => !token.startsWith('-') && SCOPE_KEYS.has(keyOf(token) ?? ''))
+  return { words, dropped, ownScope }
 }
 
 /** The scope's qualifiers: `repo:` of each repository, or `org:` of each owner once; none for All of GitHub. */

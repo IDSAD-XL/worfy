@@ -13,6 +13,7 @@ import { BUILT_IN_SEARCHES, PR_SEARCHES_MAX, PrSearch, prSearchesPath, saveSearc
 import { prSearchHandlers } from '../../src/main/ipc/pr-search'
 import { createLinkIpc, LinkPeer, readOnlyRefusal } from '../../src/main/link/ipc-adapter'
 import { prInboxStatePath, prInboxSetting } from '../../src/main/projects/pr-inbox-state'
+import { buildSearch } from '../../src/shared/pr-search/query'
 import type { PrInboxRow } from '../../src/shared/ipc/pr-inbox'
 import { prSearchForget, prSearchPull, prSearchResultSchema, prSearchRun, prSearchSave, prSearchSaved, type PrSearchResult } from '../../src/shared/ipc/pr-search'
 import { removeTestTree } from '../remove'
@@ -227,6 +228,24 @@ describe('prSearch.run: the rows', () => {
   })
 })
 
+describe('prSearch.run: a search split into several', () => {
+  it('the results of the searches come newest first across them, by updatedAt (review round 1)', async () => {
+    const repos = Array.from({ length: 30 }, (_, n) => `demo-org/service-number-${String(n).padStart(2, '0')}`)
+    const [early, late] = [repos[0]!, repos[29]!]
+    const bench = setUp([stubPull(early, 1), stubPull(early, 3), stubPull(late, 2), stubPull(late, 4)])
+    const queries = buildSearch({ text: 'retry', scope: 'project', repos }).queries
+    expect(queries.length).toBeGreaterThan(1)
+    bench.answers([
+      { q: queries[0]!, nodes: [node(early, 1, '2026-11-20T08:00:00Z'), node(early, 3, '2026-11-20T06:00:00Z')] },
+      { q: queries.at(-1)!, nodes: [node(late, 4, '2026-11-20T09:00:00Z'), node(late, 2, '2026-11-20T07:00:00Z')] },
+    ])
+    const search = new PrSearch({ run: bench.gh.run, account: async () => ME, repos: async () => repos, inboxRow: () => null, rates: bench.inbox, now: () => bench.clock.now })
+    const result = await search.run(bench.project, { text: 'retry', scope: 'project' })
+    expect(result.queries).toEqual(queries)
+    expect(result.rows.map((row) => row.number)).toEqual([4, 1, 2, 3])
+  })
+})
+
 describe('prSearch.run: Load more and the 1,000', () => {
   it('the cursor of a page asks the next one; the last page has none', async () => {
     const bench = setUp([stubPull(WEB, 5), stubPull(WEB, 6)])
@@ -243,11 +262,15 @@ describe('prSearch.run: Load more and the 1,000', () => {
     expect(bench.searchCalls().map((args) => varOf(args, 'cursor'))).toEqual([undefined, 'Y3Vyc29yOjMw'])
   })
 
-  it('a cursor of another search is refused without a call', async () => {
-    const bench = setUp()
-    bench.answers([])
+  it('a cursor of another search is refused without a call: a broken one, and the page-1 cursor of a search with other words', async () => {
+    const bench = setUp([stubPull(WEB, 5)])
+    bench.answers([{ q: PROJECT_Q, nodes: [node(WEB, 5)], hasNextPage: true, endCursor: 'Y3Vyc29yOjMw' }])
     await expect(bench.search.run(bench.project, { text: 'retry', scope: 'project', cursor: 'not-a-cursor' })).rejects.toThrow(/cursor is not of this search/u)
     expect(bench.searchCalls()).toEqual([])
+    const first = await run(bench, 'retry')
+    expect(first.cursor).not.toBeNull()
+    await expect(bench.search.run(bench.project, { text: 'other', scope: 'project', cursor: first.cursor })).rejects.toThrow(/cursor is not of this search/u)
+    expect(bench.searchCalls()).toHaveLength(1)
   })
 
   it('more than 1,000 results: GitHub gives the first 1,000 only, and the notice says so', async () => {
@@ -305,6 +328,15 @@ describe('prSearch.run: what GitHub refuses', () => {
     expect(result.rows).toEqual([])
     expect(result.notices).toEqual([{ kind: 'sso', text: 'Authorize your token for demo-sso single sign-on', url }])
     expect(bench.inbox.accountPause(ME)).toBeNull()
+  })
+
+  it('403 with X-GitHub-SSO while the rate limit is low: still the SSO notice, and no pause (review round 1)', async () => {
+    const bench = setUp()
+    const url = 'https://github.com/orgs/demo-sso/sso?authorization_request=A1b2C3'
+    bench.answers([{ q: PROJECT_Q, status: 403, message: 'Resource protected by organization SAML enforcement.', headers: { 'X-GitHub-SSO': `required; url=${url}` } }], { limit: 5000, remaining: 10, resetAt: '2026-11-20T09:40:00Z' })
+    const result = await run(bench, 'retry')
+    expect(result.notices).toEqual([{ kind: 'sso', text: 'Authorize your token for demo-sso single sign-on', url }])
+    expect(result.pausedUntil).toBeNull()
   })
 
   it('X-GitHub-SSO: partial-results: the results that came, and a notice that some are hidden', async () => {
@@ -392,6 +424,20 @@ describe('prSearch.pull: one PR of the results', () => {
     expect(bench.detailsCalls()).toHaveLength(4)
     await bench.search.pull(bench.project, { repo: WEB, number: 5, updatedAt: '2026-11-20T08:00:00Z' })
     expect(bench.detailsCalls()).toHaveLength(5)
+  })
+
+  it('two Projects of two accounts: the PR in memory of one is read again as the other account, with no row of the first (review round 1)', async () => {
+    const bench = setUp([stubPull(WEB, 5)])
+    writeFileSync(join(bench.gh.dir, 'tokens.json'), JSON.stringify({ [ME]: 'tok-me', 'dev-other': 'tok-other' }))
+    const other = { id: 'p2', root: join(bench.project.root, '..', 'root-2') }
+    mkdirSync(other.root, { recursive: true })
+    const search = new PrSearch({ run: bench.gh.run, account: async (root) => (root === other.root ? 'dev-other' : ME), repos: async () => [WEB], inboxRow: () => null, rates: bench.inbox, now: () => bench.clock.now })
+    const mine = await search.pull(bench.project, { repo: WEB, number: 5, updatedAt: '2026-11-20T08:00:00Z' })
+    expect(mine.row).toMatchObject({ number: 5 })
+    const theirs = await search.pull(other, { repo: WEB, number: 5, updatedAt: '2026-11-20T08:00:00Z' })
+    expect(theirs.row).toMatchObject({ number: 5 })
+    expect(bench.detailsCalls()).toHaveLength(2)
+    expect(bench.gh.calls().filter((args) => args[0] === 'auth').map((args) => args[3])).toEqual([ME, 'dev-other'])
   })
 
   it('404: a repository the account cannot see', async () => {
