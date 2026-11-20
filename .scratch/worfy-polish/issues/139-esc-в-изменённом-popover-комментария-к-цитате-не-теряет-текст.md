@@ -1,7 +1,8 @@
 # 139 — Esc в изменённом popover комментария к цитате не теряет текст
 
 Type: bug
-Status: claimed 2026-11-20T16:50Z
+Status: done 2026-11-20T18:55Z
+PR: #2101
 Branch: worfy-polish/139
 Blocked by: none
 Source: решение владельца 2026-11-20, Q9. В Changes то же исправил worfy-polish 136 (#2072); комментарий к цитате
@@ -47,6 +48,7 @@ Source: решение владельца 2026-11-20, Q9. В Changes то же �
 - [ ] Подсказка `onOutside` и `docs/features/sessions.md` не называют Esc способом выбросить изменённый комментарий.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/quote-comments-ui.test.tsx` exit 0 asserts the hint Save (...) or Cancel first.; docs/features/sessions.md:224 rewritten, `node scripts/check-feature-docs.mjs` exit 0 · mac - · b22bcc2dd0d5464f19a9748629aa01cc29df6637
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44780418742/job/136460614614 · ci - · 3f54b8b7a02428c009c349fab2e0010158f3db5a
 
 ## Где в коде
 
