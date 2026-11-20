@@ -48,6 +48,16 @@ export function accepted(value: string, old: string): string[] {
 }
 
 /**
+ * The marks of a manual item to look for: the Profile's, the default `manual` and the old Russian one, without
+ * repeats. The default is read whatever the Profile names, so a Ticket that writes `(manual)` is read the same in
+ * every Project, and still is once the old Russian mark is no longer read.
+ */
+export function manualMarks(value: string): string[] {
+  const given = value.trim() || DEFAULT_DOC_HEADINGS.manualMark
+  return [...new Set([given, DEFAULT_DOC_HEADINGS.manualMark, OLD_DOC_HEADINGS.manualMark])]
+}
+
+/**
  * Follows the headings of a document for one section. `at(line)` is null for a line that is not a
  * heading; for a heading it says whether the lines after it lie in the section. The section starts at
  * a heading that is one of `values` — `## Where in code` matches `##   Where in code  `, of exactly that

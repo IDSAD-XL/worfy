@@ -55,8 +55,8 @@ const tickets = readdirSync(FIXTURES, { withFileTypes: true })
   .sort()
 
 /** The Harness's reading of a Ticket, in the shape of worfy's items. */
-function harnessItems(markdown: string): unknown[] {
-  return harness.parseDoneSection(markdown).map((item) => {
+function harnessItems(markdown: string, headings?: { doneSection?: string; manualMark?: string }): unknown[] {
+  return harness.parseDoneSection(markdown, headings).map((item) => {
     const state = harness.itemState(item)
     return {
       index: item.index,
@@ -119,6 +119,28 @@ describe('the Evidence rules of the Harness and of worfy agree', () => {
     const ours = evidenceItems(markdown)
     expect(ours).toEqual(harnessItems(markdown))
     expect(ours.length).toBeGreaterThan(0)
+  })
+
+  // A Profile may name the old Russian mark (worfy's own does); `(manual)` is a manual item then too.
+  it.each(tickets)('read the fixture Ticket %s the same way when the Profile names the old Russian mark', (name) => {
+    const markdown = readFileSync(join(FIXTURES, name), 'utf8')
+    const headings = { doneSection: '## Готово, когда', manualMark: 'вручную' }
+    expect(evidenceItems(markdown, headings)).toEqual(harnessItems(markdown, headings))
+  })
+
+  it('both read the default mark, the old Russian one and the default with a note as manual items, by either Profile mark', () => {
+    const markdown = readFileSync(join(FIXTURES, 'ru', '03-manual-marks.md'), 'utf8')
+    const expected = [
+      { manual: true, state: 'not-verified' },
+      { manual: true, state: 'not-verified' },
+      { manual: true, state: 'verified' },
+      { manual: false, state: 'verified' },
+    ]
+    for (const headings of [undefined, { doneSection: '## Готово, когда', manualMark: 'вручную' }]) {
+      const ours = evidenceItems(markdown, headings)
+      expect(ours).toEqual(harnessItems(markdown, headings))
+      expect(ours).toMatchObject(expected)
+    }
   })
 
   it('give the same answer for the same Ticket with Windows line ends', () => {

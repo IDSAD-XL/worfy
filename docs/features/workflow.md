@@ -151,6 +151,8 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
   last update, shows when fetch has failed for 10 minutes.
 - **The headings are the Profile's.** `tickets.trail_section`, `tickets.done_section` and `tickets.manual_mark` name them.
   Without them the defaults are `## Where in code`, `## Done when` and `manual`, and the older Russian names are read too.
+  A manual item's mark is read in three forms whatever the Profile names: the Profile's own, `manual` and the older
+  Russian `вручную`. So `(manual)` is a manual item in a Project whose Profile names `вручную`, and the other way round.
 - **Reads follow changes.** A file event under the Tickets root leads to one full `epic-status` after 300 ms of quiet, and
   at the latest 1 s after the first event of a series. When the list is read from the main branch, a file event alone
   reads nothing again: the list is read again when that branch moves (a fetch, a merge). Reads never overlap. In Full mode the git refs and the worktree list
