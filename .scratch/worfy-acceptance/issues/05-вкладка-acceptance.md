@@ -1,0 +1,75 @@
+# 05 — Вкладка Acceptance: две панели, группы, пункт с Evidence вне focus mode, строка Stable copy, Pass и Fail
+
+Type: task
+Status: open
+Blocked by: 01, 02, 03
+Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Набросок функции» («Путь владельца», «Экран»); «Решения по
+реализации» → «Вид», «Платформа, копия и commit строки»; «Решения по test-ам», Seam 3; «Риски», «Размер 05»; «Вопросы
+владельцу», Q6 и «Место в очереди (Q2 раунда)»
+
+Кто: агент.
+
+Не платформенный Ticket (renderer). Глубина ревью — `medium`; снимки двух панелей в «Итог».
+
+Вне Epic-а: Ticket начинается после merge `worfy-changes-view` 05 (комментарии к строкам в Changes) — решение владельца
+2026-11-20, Q2 раунда: оба трогают окно и `src/renderer/shell/`. Поле Blocked by берёт только номера этого Epic-а.
+
+Правило размера (Q7 раунда): если вид выходит больше примерно 600 строк кода, Ticket делится на два — список с группами
+и панель пункта; деление записывается в «Итог», второй Ticket заводит Orchestrator.
+
+## Что происходит
+
+- После Ticket-ов 01–03 main отдаёт снимок очереди (`acceptance.get`, `acceptance.changed`) со строкой Stable copy, а
+  канал `actions.ownerCheck` отправляет решение. Окна нет.
+- Вкладки окна — `ShellView` (`src/renderer/shell/Toolbar.tsx:19`) и `VIEW_NAMES` (`src/renderer/shell/AppShell.tsx:78`);
+  у `story` вкладки нет, так что Acceptance — шестая вкладка после Pull requests.
+- Две панели и ↑ ↓ — образец Pull requests (`src/renderer/pr-inbox/PrInboxView.tsx`, `usePrInbox.ts`, `open.ts`,
+  `docs/features/pr-inbox.md`, «Selecting»).
+- Evidence пункта рисует `EvidenceMatrix` (`src/renderer/canvas/nodes/EvidenceMatrix.tsx`), превью —
+  `EvidencePreview` (`src/renderer/canvas/nodes/EvidencePreview.tsx`); снимки и клипы отдаёт `worfy-image://`
+  (`src/main/images/protocol.ts`). Сегодня они видны только в focus mode.
+
+## Что делаем
+
+1. `src/renderer/acceptance/AcceptanceView.tsx`, `useAcceptance.ts`, `open.ts`, `acceptance.css` (новые): вкладка
+   «Acceptance» с числом Ready to check, tooltip «Checks that wait for you»; вкладка активна и без открытого Project-а.
+2. Левая панель: группы spec-а со счётом, In work и Older свёрнуты; ↑ ↓ — как в Pull requests, новых сочетаний клавиш нет.
+3. Правая панель: Project, Epic, Ticket, номер пункта; текст пункта через `src/renderer/markdown/Markdown.tsx`; `needs:`;
+   строка Stable copy с Update worfy; Evidence пункта (матрица одного пункта, превью снимков и клип с contact sheet);
+   «Prepared by the Orchestrator» — неручные пункты Ticket-а с состоянием; Open Ticket, Open PR.
+4. Строка решения: поле комментария (обязательно для Fail; в Project-е с Full mode — подпись, что слова попадут в
+   репозиторий), «Checked in: <платформа> · <копия> · <версия>» с выбором, Pass и Fail. Пока идёт Autopilot — кнопки
+   неактивны с причиной (Q6 (а)). После отправки — «Sent · waits for the line» и следующий пункт; «Not recorded yet» и
+   Send again через 24 часа.
+5. Waits for you: `Blocked reason:`, Open Ticket и Open Orchestrator, без Pass и Fail.
+6. Английская страница `docs/features/acceptance.md`: раздел о виде.
+
+## Готово, когда
+
+- [ ] Unit test (`test/unit/acceptance-view.test.tsx`, новый): группы и счёт, Fail без комментария неактивен, при
+      Autopilot кнопки неактивны с причиной, Waits for you без Pass и Fail, «Sent» и «Not recorded yet». Красный до
+      правки — в «Итог».
+- [ ] e2e test (`test/e2e/acceptance.spec.ts`, новый, fake agent): пункт со снимком и клипом из
+      `test/fixtures/evidence-clip/`; Pass → текст в очереди fake Orchestrator-а; test дописывает строку `owner-check` в
+      Ticket-файл → пункт уходит; ↑ ↓ выбирают пункты.
+- [ ] e2e test: снимки двух панелей при 1280 и 1600 px в обеих темах, как `test/e2e/pr-inbox.spec.ts` (в «Итог», в
+      репозиторий не кладутся).
+- [ ] Английская страница `docs/features/acceptance.md` описывает вид; `node scripts/check-feature-docs.mjs` — exit 0.
+- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+
+## Где в коде
+
+- `src/renderer/acceptance/AcceptanceView.tsx`, `useAcceptance.ts`, `open.ts`, `acceptance.css` (новые)
+- `src/renderer/shell/Toolbar.tsx` (`ShellView`), `src/renderer/shell/AppShell.tsx` (`VIEW_NAMES`, монтирование вида)
+- `src/renderer/canvas/nodes/EvidenceMatrix.tsx`, `src/renderer/canvas/nodes/EvidencePreview.tsx` (вид одного пункта,
+  если нужен)
+- `test/unit/acceptance-view.test.tsx`, `test/e2e/acceptance.spec.ts` (новые)
+- `docs/features/acceptance.md`
+
+Только читать: `src/renderer/pr-inbox/PrInboxView.tsx`, `src/renderer/pr-inbox/usePrInbox.ts`,
+`src/main/images/protocol.ts`, `src/renderer/markdown/Markdown.tsx`, `test/e2e/pr-inbox.spec.ts`.
+
+## Вне скоупа
+
+- Секция боковой панели, бейдж rail-а, палитра и уведомление — Ticket 06. Окно Linked machine — Ticket 07.
+- Комментарий к области снимка; снимки Stable copy из вида (spec, «Не в этом Epic-е»).
