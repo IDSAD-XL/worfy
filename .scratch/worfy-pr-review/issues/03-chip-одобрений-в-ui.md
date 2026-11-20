@@ -51,6 +51,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решение», 5; «Как
 - [ ] e2e `test/e2e/pr-inbox.spec.ts`: снимок строки и ячейки Approvals в светлой и тёмной теме на 1280 px.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-inbox.spec.ts -g "approvals chip"` exit 0 · mac - · 794a964a6
   - evidence: screenshot pass · `../evidence/03-approvals-1280-light.png` `../evidence/03-approvals-1280-dark.png` · mac dev · 794a964a6 · scrub: 2026-11-20
+  - evidence: screenshot pass · `../evidence/03-approvals-1280-dark.png` dark theme · mac dev · 794a964a6 · scrub: 2026-11-20
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Где в коде
