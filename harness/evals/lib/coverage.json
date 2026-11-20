@@ -36,6 +36,7 @@
     "skills/connect-project/SKILL.md": "No case yet.",
     "skills/gate-queue/SKILL.md": "No case yet.",
     "skills/max-review/SKILL.md": "No case yet.",
+    "skills/owner-check/SKILL.md": "No case yet: bin/tests/owner-check.test.sh runs its record block.",
     "agents/scout.md": "No case yet.",
     "hooks/rules/product.md": "No case yet: a Product Session needs the worfy-mind-map server, which the eval runner does not start.",
     "skills/ship-ticket/step-9-merge.md": "No case yet: the pr-green-ci case cannot open a PR, so no run reaches the merge.",

@@ -64,3 +64,32 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решения по реал�
 ## Вне скоупа
 
 - worfy-шаблон, который вызывает skill, — Ticket 03. Правило записи шагов приёмки — Ticket 08.
+
+## Итог
+
+- Skill `harness/skills/owner-check/SKILL.md`: аргументы, абзац «Owner's words:», правило «только слово владельца»,
+  блок записи решения (проверка ручного пункта, одна строка через `ticket evidence`, `[x]` на Pass, Ticket доработки на
+  Fail, Pass на доработке закрывает исходный пункт, privacy check слов), documents PR дня в Full mode, Workflow folder в
+  Silent mode. Code story: [04-skill-harness-owner-check.md](../stories/04-skill-harness-owner-check.md).
+- Красный до правки: `bash harness/bin/tests/owner-check.test.sh` без skill-а (`SKILL_FILE` на несуществующий файл) —
+  `FAIL no skill file …`, exit 1. Mutant-ы блока — каждый красный: без проверки повтора (повторный Pass — вторая строка),
+  без проверки ручного пункта (неручной пункт получил строку), без Ticket-а доработки, `--sha -` в `ticket evidence`
+  (`sha is 7 to 40 hex digits`). Mutant-ы `agents-text.test.sh`: фраза «Never tick an item without the owner's word»
+  убрана — `FAIL owner-check skill: no 'Never tick …'`, exit 1; фраза «Never write `pass` on a Fail» убрана — так же, exit 1.
+- Решено без владельца, подтвердить:
+  - Логика записи — блок `node -e` внутри `SKILL.md`, а не отдельный скрипт в `harness/bin/`: след Ticket-а называет только
+    `SKILL.md`; test вырезает блок из `SKILL.md` и гоняет его в bash и zsh, как `skill-blocks.test.sh`.
+  - «Ручной пункт» проверяется парсером `parseDoneSection` (`harness/lib/evidence.cjs`) с `done_section` и `manual_mark`
+    Profile-а — тем же, что внутри `ticket evidence`: его матрица не печатает, ручной ли пункт.
+  - «Та же строка» — тот же вердикт, ref (дата и слова), платформа и копия; `sha` не сравнивается: при `-` это `HEAD`,
+    который между двумя Send again может сдвинуться.
+  - Ticket доработки: каркас на английском (тексты Harness — английские), строка `Source: owner-check fail <date> of
+    <epic> <NN>, item <k> — <файл>` в одной форме; Pass на пункте доработки доходит до исходного пункта по этой строке и
+    по совпадению текста пунктов. Один Ticket доработки на пункт и день.
+  - Замены в словах: путь с именем → `<home>`, хост → `<host>`, email → `<email>`, адрес Tailscale → `<ip>`, UUID →
+    `<uuid>`, token → `<token>`, слово личного списка → `<private>`; владельцу называются виды, не значения.
+  - Ветка documents PR дня — `owner-check/<YYYY-MM-DD>` (занята влитым PR-ом — `-2`, `-3`); skill его не вливает.
+  - Fail не снимает `[x]` с уже отмеченного пункта: Ticket этого не просит.
+- Вне следа, без них `pnpm test` красный: новый skill вписан в `harness/evals/lib/coverage.json` («uncovered», case-а
+  нет, блок гоняет `owner-check.test.sh`) и в список skill-ов plugin-а в `test/contract/harness-migrate.test.ts` (старый
+  Harness его не имел — план миграции не предлагает его удалить).
