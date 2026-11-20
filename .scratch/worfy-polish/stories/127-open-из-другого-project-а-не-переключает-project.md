@@ -40,27 +40,59 @@ export function openSessionInProject(target: OpenedSession): void {
 - Без него: окно остаётся на активном Project-е, нужный чат запомнен за другим.
 - Требование: [Что делаем, п. 1 и 2](../issues/127-open-из-другого-project-а-не-переключает-project.md#что-делаем)
 - Риски и пробелы test-ов: unit test-ы проверяют оба исхода и отсутствие `projects.select` для активного Project-а.
-  Окно на Linked machine (`openProject` с той же Machine меняет только показанный Project) unit test-ом через этот helper
-  не проверено.
+  Окно на Linked machine (`openProject` с той же Machine меняет только показанный Project) проверено unit test-ом
+  toast-а (раунд ревью 1).
 
 ## 3. «Open» toast-а вопроса
 
-Code: `src/renderer/session/question-toast.ts:30-35` · key lines: 33
+Code: `src/renderer/session/question-toast.ts:41-71` · key lines: 45, 47, 49, 63, 66, 68
 
 ```ts
+async function loadViews(): Promise<void> {
+  const projects = projectsNow()?.projects ?? []
+  await Promise.all(
+    projects.map(async (project) => {
+      const [sessions, layout] = await Promise.all([invoke('sessions.views', { projectId: project.id }), invoke('layout.get', { projectId: project.id })])
+      if (sessions.ok) for (const view of sessions.value.views) acceptSessionNodeView(view)
+      const orchestrator = layout.ok ? layout.value.layout.nodes.find((node) => node.kind === ORCHESTRATOR_KIND) : undefined
+      if (orchestrator === undefined) return
+      const result = await invoke('orchestrator.view', { nodeId: orchestrator.id })
+      if (result.ok && result.value.view !== null) acceptOrchestratorView(result.value.view)
+    }),
+  )
+}
+
+/**
+ * Shows the Session, selecting its Project first when it runs in another one (worfy-polish ticket 127).
+ * When this window knows no Node for it, the views of every Project are asked for first; still none,
+ * the Session view of the active Project.
+ */
 function openAsking(sessionId: string): void {
-  const machine = windowMachine()
-  const target = notificationTarget({ sessionId, projectRoot: null, ...(machine === null ? {} : { machineId: machine }) }, undefined, machine)
-  if (target !== null) openSessionInProject(target)
-  else useNavigation.setState({ view: 'session' })
+  const target = targetOf(sessionId)
+  if (target !== null) {
+    openSessionInProject(target)
+    return
+  }
+  void loadViews().then(() => {
+    const found = targetOf(sessionId)
+    if (found !== null) openSessionInProject(found)
+    else useNavigation.setState({ view: 'session' })
+  })
 }
 ```
 
-- Что делает: найденный Node Session открывается через helper шага 2.
-- Почему здесь: Ticket называет `question-toast.ts:26-31`.
+- Что делает: найденный Node Session открывается через helper шага 2. Когда окно не знает Node-а Session (окно
+  загружено после её старта и знает views только Canvas-а активного Project-а), `loadViews` спрашивает у каждого
+  Project-а машины окна `sessions.views`, а Orchestrator — через его Node в `layout.get` и `orchestrator.view`; потом
+  поиск повторяется. Не нашлось и так — Session view активного Project-а, как раньше. В окне на Linked machine helper
+  меняет показанный Project той машины (`linked.open`), а не активный Project.
+- Почему здесь: Ticket называет `question-toast.ts:26-31`. Загрузка views всех Project-ов — находка ревью, раунд 1;
+  поиск Orchestrator-а через Layout — решено без владельца: channel-а «Orchestrator Project-а» нет.
 - Без него: «Open» на вопросе `pr-fix` из Session другого Project-а показывает чат активного Project-а.
 - Требование: [Готово, когда](../issues/127-open-из-другого-project-а-не-переключает-project.md#готово-когда)
-- Риски и пробелы test-ов: ветка без Node (`view: 'session'` активного Project-а) не менялась.
+- Риски и пробелы test-ов: в окне со многими Project-ами «Open» без известного Node-а шлёт по три вызова на Project;
+  это бывает только после перезагрузки окна. Unit test-ы покрывают Session Node и Orchestrator другого Project-а и окно
+  на Linked machine.
 
 ## 4. Overlay уведомления ОС на своей машине
 
@@ -113,6 +145,8 @@ Code: `src/renderer/canvas/overlays/NotificationTarget.tsx:113-134` · key lines
 были красными на коде `main` (exit 1) и зелёные после правки (66 из 66, exit 0). Все unit test-ы, что импортируют
 тронутые модули, и contract `test-timeout-scale.test.ts` — 81 файл, exit 0. `pnpm lint` и `pnpm typecheck` — exit 0.
 e2e `session-question.spec.ts` и `linked-notify.spec.ts` целиком — 3 passed, exit 0.
+Раунд ревью 1: три новых случая `question-card.test.tsx` (окно после перезагрузки — Session Node и Orchestrator другого
+Project-а; окно на Linked machine) красные на прежнем `question-toast.ts` (exit 1), после правки 34 из 34 (exit 0).
 
 ## Проверить себя
 
