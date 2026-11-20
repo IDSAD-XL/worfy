@@ -107,9 +107,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», 1; «Волны», Wave 1; «Фа�
 
 ## Итог
 
-Часть агента (шаги 1–7) сделана 2026-11-20, записка — [spike-integrations.md](../spike-integrations.md). Ticket ждёт
-шаг владельца (шаг 8, раздел записки «Шаг владельца»); решение «tools-only proxy достаточен» пока предварительное —
-«да».
+Часть агента (шаги 1–7) сделана 2026-11-20, записка — [spike-integrations.md](../spike-integrations.md). Шаг
+владельца (шаг 8) сделан 2026-11-20: вход в Atlassian два раза и в Linear, итог — раздел записки «Итог шага
+владельца». Решение — **tools-only proxy достаточен: да** (последний раздел записки).
 
 Коротко:
 
@@ -126,6 +126,13 @@ Source: [spec.md](../spec.md), «Ticket-ы», 1; «Волны», Wave 1; «Фа�
   0.166.0 и fake app-server; путь различает Integration-ы; token только в окружении.
 - Refresh: 10 параллельных вызовов — 10 refresh; с ротацией refresh token-а Integration теряет вход. Замка в пакете
   нет; для Ticket 05 — один refresh за раз в `fetch` transport-а (проверено: 1 refresh, 10 из 10).
+- Шаг владельца: Atlassian — `capabilities` `logging` и `tools{listChanged}`, 26 tools, access token 8 ч; Linear —
+  `tools{listChanged}`, 70 tools, ~24 ч. У обоих refresh сработал и сменил refresh token (ротация), revocation —
+  200/200. Полное имя tool-а при сервере в 24 символа — до 62. Различаются ли site-ы двух входов Atlassian — не
+  проверено (`sites: "not read"`).
+- Решение: `resources` и `prompts` сервисы не объявляют — tools-only proxy достаточен. Ticket 06: пересылать
+  `tools/list_changed` и `instructions` сервиса, `logging` не объявлять. Ticket 05: замок refresh обязателен (оба
+  сервиса ротируют), scope явный. Ticket 03: пометок сервисов не нужно, явный scope в шаблоне.
 
 ### Решено без владельца
 
@@ -137,3 +144,5 @@ Source: [spec.md](../spec.md), «Ticket-ы», 1; «Волны», Wave 1; «Фа�
    `test/fixtures/sdk-events/claude.json` (так требует `test/unit/claude-events.test.ts`) — файл вне списка
    «Где в коде», правка механическая, как в spike-е worfy-mcp-live 01.
 5. Шаг владельца отзывает token-ы в конце (revocation endpoint есть у Atlassian и Linear).
+6. Сравнение site-ов двух входов Atlassian оставлено непроверенным, повторного входа не просим: решения для
+   Ticket-ов 03, 05 и 06 от него не зависят; проверить можно в приёмке Ticket-а 05.

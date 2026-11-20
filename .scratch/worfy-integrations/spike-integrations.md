@@ -4,8 +4,8 @@
 `@modelcontextprotocol/sdk` 1.32.0 (копия, которую ставит peer Agent SDK), Electron 44, macOS arm64. Codex — по схеме
 0.166.0 (`src/main/vendors/codex/protocol/`) и на fake app-server-е; настоящий Codex не запускался.
 
-Часть агента сделана: шаги 1–7 тикета. Шаг владельца (вход в Atlassian и Linear) — ниже, раздел «Шаг владельца»;
-до него Ticket стоит `blocked --waits owner`.
+Часть агента сделана: шаги 1–7 тикета. Шаг владельца (вход в Atlassian и Linear) сделан 2026-11-20: итог — раздел
+«Итог шага владельца», окончательное решение — раздел «Решение: tools-only proxy достаточен?».
 
 ## Как проверено
 
@@ -92,7 +92,8 @@ proxy нет ни в аргументах, ни в окружении проце
   в 128 символов Claude Code отправил, значит сам он шлёт до 128.
 
 Для Ticket 06: при имени сервера до 24 символов tool сервиса может быть до 97 символов (128 − `mcp__` − 24 − `__`).
-Самые длинные имена tools Atlassian и Linear — в «Итоге шага владельца».
+Самые длинные имена tools живых сервисов (шаг владельца): Atlassian — 31 символ, Linear — 29; полное имя с именем
+сервера в 24 символа — 62 и 60. Это меньше и 128, и 64 (более строгого шаблона из бинарника).
 
 ### 3.6 Tool search по умолчанию
 
@@ -143,8 +144,9 @@ proxy нет ни в аргументах, ни в окружении проце
 
 Вывод для Ticket 05: замок нужен, в provider-е его не поставить — у `OAuthClientProvider` нет места вокруг refresh.
 Место — `fetch` transport-а (опция `fetch` у `StreamableHTTPClientTransport`): один запрос `grant_type=refresh_token`
-на Integration за раз, остальные ждут его ответа. Ротирует ли refresh token Atlassian и Linear — покажет шаг владельца
-(`refresh_token_rotated`).
+на Integration за раз, остальные ждут его ответа. Шаг владельца показал: и Atlassian, и Linear при refresh выдают
+новый refresh token (`refresh_token_rotated: true` у всех трёх входов), то есть живые сервисы — строка «с ротацией»
+таблицы, и без замка Integration теряет вход.
 
 ## Окно spike-а (шаг 6), проверено на stub-е
 
@@ -177,15 +179,8 @@ Atlassian в metadata ресурса перечисляет 40 scope-ов, в т
 - **Ticket 05 (вход OAuth).** Замок refresh — в `fetch` transport-а, один refresh на Integration за раз (шаг 5).
   Scope — явный. Redirect через перехват навигации окна без listener-а работает (шаг 6).
 - **Ticket 07 (Codex).** Одна переменная `WORFY_MCP_TOKEN` на Session, путь `/mcp/<имя>` на Integration (шаг 4).
-- **Ticket 03 (каталог).** Поле scope-ов в шаблоне сервиса; пометки сервисов — после шага владельца.
-
-## Решение: tools-only proxy достаточен?
-
-Предварительно — да: stub, Claude и Codex обходятся `initialize`, `tools/list`, `tools/call`. Окончательно — по
-`capabilities` Atlassian и Linear из шага владельца: если сервер объявляет `resources`, `prompts` или его tools
-опираются на них, — что добавить в Ticket 06 и какие сервисы пометить в каталоге (Ticket 03), запишет агент в
-«Итог шага владельца». Elicitation и sampling — возможности клиента, а не сервера: `initialize` их не покажет;
-нужны ли они, видно только по вызову tool-а, и в этом spike-е не проверяется.
+- **Ticket 03 (каталог).** Поле scope-ов в шаблоне сервиса. Пометок «нужно больше, чем tools» Atlassian и Linear не
+  требуют (раздел «Решение: tools-only proxy достаточен?»).
 
 ## Шаг владельца (вручную, 10–15 минут)
 
@@ -223,7 +218,43 @@ probe отзывает token-ы всех уже выполненных вход�
 
 ## Итог шага владельца (вручную)
 
-Пусто до шага владельца.
+Владелец прогнал `probe.ts integrations-sign-in` 2026-11-20: Atlassian два раза (`atlassian-1`, `atlassian-2`), затем
+Linear (`linear-3`). Orchestrator проверил `summary.json` (token-ов, e-mail-ов и адресов site-ов нет); значения ниже —
+только из него. Версии: Agent SDK 0.3.322, Claude Code 2.1.322, Electron 44.10.2, `@modelcontextprotocol/sdk` 1.32.0.
+
+| | atlassian-1 | atlassian-2 | linear-3 |
+|---|---|---|---|
+| Сервер (`serverInfo.name`) | `atlassian-mcp-server` | `atlassian-mcp-server` | `linear` |
+| `capabilities` | `logging{}`, `tools{listChanged}` | `logging{}`, `tools{listChanged}` | `tools{listChanged}` |
+| `instructions`, символов | 2422 | 2797 | 2873 |
+| Tools | 26 | 26 | 70 |
+| Самое длинное имя tool-а / полное при сервере в 24 символа | 31 / 62 | 31 / 62 | 29 / 60 |
+| Access token: тип, срок | `Bearer`, 28800 с (8 ч) | `Bearer`, 28800 с (8 ч) | `bearer`, 86100 с (~24 ч) |
+| Refresh token выдан | да | да | да |
+| Refresh: итог, время | `AUTHORIZED`, 1503 мс | `AUTHORIZED`, 509 мс | `AUTHORIZED`, 400 мс |
+| Refresh: новый access token / refresh token сменился | да / да | да / да | да / да |
+| Срок после refresh; tools после refresh | 28800 с; 26 | 28800 с; 26 | 86100 с; 70 |
+| Revocation: refresh / access token | 200 / 200 | 200 / 200 | 200 / 200 |
+| Вход (окно, вместе с действиями владельца) | 166527 мс | 296715 мс | 134670 мс |
+
+Сервер авторизации, DCR, revocation endpoint и Client ID Metadata Document — как в «Метаданных сервисов»: у обоих
+сервисов есть. Grant-ы Atlassian: `authorization_code`, `client_credentials`, `refresh_token`, token-revoke, jwt-bearer,
+token-exchange; способы аутентификации client-а — `none`, `client_secret_post`, `client_secret_basic`,
+`private_key_jwt`. Linear: `authorization_code`, `refresh_token`, jwt-bearer; `client_secret_basic`,
+`client_secret_post`, `none`.
+
+- **Scope.** Atlassian выдал длинный список, от `email offline_access read:account …` до прав записи (`write:all:twg`
+  и другие `write:…`): пакет без явного scope попросил всё из metadata, как и ожидалось. Linear — `read write`.
+- **Tools.** У Atlassian среди 26 есть `executeWrite` и `executeDestructive`, у Linear среди 70 — `save_*`,
+  `delete_*`, `merge_diff`: оба сервиса дают агенту запись и удаление. Три Integration-ы — 122 tools.
+- **Два site-а Atlassian не сравнены.** Вызов `getAccessibleAtlassianResources` у обоих входов дал `sites: "not read"`:
+  tool упал или его ответ не разобрался как JSON-список (spike пишет только эту строку, без текста ответа). Попали ли
+  два входа на разные site-ы, этот шаг не показал. Что видно: оба входа прошли, refresh и revocation у каждого свои,
+  `instructions` у двух входов разной длины (2422 и 2797).
+- **Настройки владельца.** `~/.claude/settings.json` и файлы плагинов (`installed_plugins.json`,
+  `known_marketplaces.json`) до и после — те же. `~/.claude.json` изменился: это запись самого Claude Code
+  (Orchestrator проверил), временной папки probe-а в нём нет (`probe_tmp_in_real_claude_json: false`). Новых
+  transcript-ов нет.
 
 ## Решено без владельца
 
@@ -240,3 +271,34 @@ probe отзывает token-ы всех уже выполненных вход�
    stub-е: `--services stub-ok,stub-tools-fail,stub-bad-sites` — exit 0, у всех трёх входов revoke 200/200, маркер
    из ответа stub-а не попал ни в `summary.json`, ни в вывод; `stub-tools-hang` и SIGINT — «revoke … 200/200» перед
    выходом, процесс не остался.
+5. Сравнение двух site-ов Atlassian осталось непроверенным, повторного входа владельца не просим: решение про proxy,
+   замок refresh и предел имени от него не зависят. Что две Integration-ы одного сервиса держат каждая свой token и
+   свой refresh, показали stub (3.1, шаг 5) и два входа Atlassian. Проверить site-ы можно в приёмке Ticket-а 05:
+   у живой Integration список site-ов виден в ответе tool-а.
+
+## Решение: tools-only proxy достаточен?
+
+**Да.** Ни Atlassian, ни Linear не объявляют в `initialize` ни `resources`, ни `prompts`, ни `completions`. Объявлены
+только `tools` (с `listChanged`) и у Atlassian `logging` — это уведомления сервера, не данные для агента. Stub,
+Claude Code и Codex обходятся `initialize`, `tools/list` и `tools/call`. Elicitation и sampling — возможности
+client-а, `initialize` сервера их не показывает; нужны ли они при вызове tool-а, этот spike не проверял.
+
+Выводы:
+
+- **Ticket 06 (proxy).** Объём — tools, плюс три вещи из живых серверов:
+  1. `tools.listChanged`: на `notifications/tools/list_changed` от сервиса proxy заново берёт `tools/list` и сам
+     шлёт `list_changed` агенту — оба сервиса это объявили.
+  2. `instructions` из `initialize` сервиса (2422–2873 символа) proxy отдаёт в своём `initialize`: без них агент
+     теряет описание сервиса. Берутся от каждой Integration отдельно — у двух входов Atlassian они разной длины.
+  3. `logging` proxy не объявляет, уведомления `notifications/message` сервиса не пересылает (или только в журнал
+     worfy).
+  Предел имени: при имени сервера до 24 символов самые длинные полные имена — 62 (Atlassian) и 60 (Linear), меньше
+  128 и даже 64; правило «tool не виден агенту: имя длиннее 128» остаётся для других сервисов. 26 + 26 + 70 tools —
+  фильтр tools Project-а в `tools/list` proxy нужен уже на этих двух сервисах (`executeDestructive`, `delete_*`).
+- **Ticket 05 (вход OAuth).** Замок refresh обязателен: оба сервиса ротируют refresh token, а без замка пакет при
+  параллельных вызовах шлёт несколько refresh и после `invalid_grant` стирает вход (шаг 5). Замок — в `fetch`
+  transport-а, один refresh на Integration за раз. Scope — явный: без него Atlassian выдаёт и права записи.
+  Access token живёт 8 ч (Atlassian) и ~24 ч (Linear): refresh — обычный путь, а не редкость. Revocation endpoint
+  есть у обоих и отвечает 200 — отключение Integration-а может отзывать token-ы у сервиса.
+- **Ticket 03 (каталог).** Пометок «нужно больше, чем tools» Atlassian и Linear не требуют. В шаблоне сервиса —
+  явный scope (для Linear `read write`, для Atlassian — выбранный список вместо всех из metadata).
