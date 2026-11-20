@@ -440,12 +440,14 @@ export function sizeOf(row: Pick<PrInboxRow, 'additions' | 'deletions'>): { addi
 export type NextTone = 'review' | 'answer' | 'fix' | 'ready' | 'waiting'
 
 /**
- * A button of the "what to do next" strip: a page of the PR on GitHub to open, Send all of its draft replies (the
- * dialog with every text first), Draft replies, or one of "Resolve conflicts", "Fix checks" and "Address comments"
+ * A button of the "what to do next" strip: a page of the PR on GitHub to open, Start review (Review mode with the choice
+ * of who writes the review, worfy-pr-review ticket 09), Send all of its draft replies (the dialog with every text
+ * first), Draft replies, or one of "Resolve conflicts", "Fix checks" and "Address comments"
  * (`pr-follow`, worfy-pr-follow ticket 04: the PR handed to a Session of skill pr-fix, `actions.prFollow`).
  */
 export type NextAction =
   | { kind: 'link'; label: string; url: string }
+  | { kind: 'start-review' }
   | { kind: 'send-all'; count: number }
   | { kind: 'draft-replies' }
   | { kind: 'pr-follow'; action: PrFollowAction }
@@ -496,7 +498,7 @@ export function nextStep(group: PrInboxGroup, row: PrInboxRow, now: number, draf
         tone: 'review',
         title: 'Your review is asked',
         text: `${row.author ?? 'ghost'} opened it ${ageText(row.createdAt, now)} ago${row.viaTeam ? ', asked through your team' : ''}.${open > 0 ? ` ${plural(open, 'open thread', 'open threads')} from others.` : ''}`,
-        action: { kind: 'link', label: 'Start review', url: `${row.url}/files` },
+        action: { kind: 'start-review' },
         more: [],
       }
     case 'needs-answer':
@@ -549,8 +551,8 @@ export function avatarTone(login: string | null, tones: number): number {
 
 /**
  * The "what to do next" strip of a search result the inbox lacks: a colleague's PR — «Review this pull request», who
- * the author asked and how many approvals are left, and Start review, which opens the Files page on GitHub until
- * ticket 09 gives it Review mode; the user's own PR — its last activity, nothing to start.
+ * the author asked and how many approvals are left, and Start review (Review mode, worfy-pr-review ticket 09); the
+ * user's own PR — its last activity, nothing to start.
  */
 export function searchStep(row: PrInboxRow, now: number, viewer: string | null): NextStep {
   if (viewer !== null && sameLogin(row.author, viewer)) return { tone: 'waiting', title: 'Your pull request', text: `Last activity ${ageText(row.lastActivityAt, now)} ago.`, action: null, more: [] }
@@ -570,7 +572,7 @@ export function searchStep(row: PrInboxRow, now: number, viewer: string | null):
     tone: 'review',
     title: 'Review this pull request',
     text: `${row.author ?? 'ghost'} asked ${asked.length === 0 ? 'nobody' : namesText(asked)}; ${left}.`,
-    action: { kind: 'link', label: 'Start review', url: `${row.url}/files` },
+    action: { kind: 'start-review' },
     more: [],
   }
 }

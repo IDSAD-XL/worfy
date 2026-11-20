@@ -14,7 +14,7 @@ import { ms } from '../time-scale'
 // search string main sends (main builds it: src/shared/pr-search/query.ts).
 // - `/` puts the focus in the field; Enter searches This Project; the results stand in place of the groups, each row
 //   with its approvals chip; the first result, a colleague's PR the inbox lacks, is read by `prSearch.pull` and shown
-//   in the pane with the strip «Review this pull request» and Start review on the Files page; Clear gives the inbox
+//   in the pane with the strip «Review this pull request» and Start review ▾ (Review mode, ticket 09: test/e2e/pr-review.spec.ts); Clear gives the inbox
 //   back; screenshots at 1280 and 1600 px in both themes;
 // - a built-in saved search runs in its own scope (All of GitHub); ☆ Save names a search and main keeps it in the
 //   Project's data folder (pr-searches.json);
@@ -221,7 +221,9 @@ test('`/`, Enter and the results with their approvals chips; a result the inbox 
     await expect(pane(window).getByTestId('pr-inbox-next-step-title')).toHaveText('Review this pull request')
     await expect(pane(window).getByTestId('pr-inbox-next-step')).toContainText(`${BO} asked ${ANA}; 0 of 2 required approvals.`)
     await expect(pane(window).getByTestId('pr-inbox-next-step-action')).toHaveText('Start review')
-    await expect(pane(window).getByTestId('pr-inbox-next-step-action')).toHaveAttribute('href', `https://github.com/${WEB_REPO}/pull/77/files`)
+    // Start review opens Review mode in worfy (ticket 09), no longer the Files page of GitHub; ▾ chooses who writes it.
+    await expect(pane(window).getByTestId('pr-inbox-next-step-action')).not.toHaveAttribute('href', /./)
+    await expect(pane(window).getByTestId('pr-review-start-more')).toHaveAttribute('aria-label', 'Choose who writes the review')
     await expect(pane(window).getByTestId('pr-inbox-comment')).toContainText('Why three tries?')
     // A result of the inbox keeps the inbox's strip; ↓ moves along the results.
     await field(window).blur()

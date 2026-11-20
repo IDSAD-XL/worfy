@@ -158,6 +158,20 @@ export const prReviewAgentReview = invokeChannel(
   'local',
 )
 
+/** A file of the PR as Review mode lists it: its path and the blob of its new side, which a Viewed mark is set at. */
+export const reviewFileSchema = z.object({ path: z.string().min(1), blob: z.string().min(1) })
+
+/** GitHub lists at most this many files of a pull request; Start review sends no more. */
+export const REVIEW_FILES_MAX = 3_000
+
+/**
+ * Start review (worfy-pr-review ticket 09): Review mode opens on the PR. A PR without a draft gets one on `head`, with
+ * the files the account marked Viewed on github.com — read once, by one GraphQL query (`viewerViewedState`), never
+ * written back (Q3 (a)); a mark is set at the blob `files` gives for its path. A PR with a draft keeps it as it is, and
+ * nothing is read. Local, as the whole draft.
+ */
+export const prReviewStart = invokeChannel('prReview.start', pullInput.extend({ head: shaSchema, files: z.array(reviewFileSchema).max(REVIEW_FILES_MAX) }), prReviewDraftAnswerSchema, 'local')
+
 /** Stop and Take over: the Session of the Agent review stops, the draft keeps what it wrote, `agent.state` is `stopped`. */
 export const prReviewStopAgent = invokeChannel('prReview.stopAgent', pullInput, prReviewDraftAnswerSchema, 'local')
 
@@ -175,5 +189,6 @@ declare module './channels' {
     'prReview.agentReview': typeof prReviewAgentReview
     'prReview.stopAgent': typeof prReviewStopAgent
     'prReview.changed': typeof prReviewChanged
+    'prReview.start': typeof prReviewStart
   }
 }

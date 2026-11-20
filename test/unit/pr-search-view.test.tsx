@@ -7,7 +7,7 @@
 // - the results in place of the groups, the inbox's row with its approvals chip; the first one selected; ↑ ↓; Load more;
 //   "Searched N min ago · Refresh"; Clear gives the groups back;
 // - a result the inbox lacks is read by `prSearch.pull` and shown in the same pane, its strip «Review this pull request»
-//   with Start review, which opens the Files page on GitHub until ticket 09;
+//   with Start review ▾, which opens Review mode in worfy (ticket 09);
 // - the saved searches: the menu of the field, ☆ Save, read-only on a Linked machine;
 // - the notices of section 10 of the spec: above the results, or under the field with a red frame for 422.
 // main is a fake preload bridge; every owner, repository, login and text is invented. Nothing here reaches GitHub.
@@ -348,7 +348,7 @@ describe('the results', () => {
     expect(screen.getAllByTestId('pr-inbox-group')).toHaveLength(2)
   })
 
-  it('a result the inbox lacks is read by prSearch.pull and shown in the pane: «Review this pull request» with Start review on the Files page', async () => {
+  it('a result the inbox lacks is read by prSearch.pull and shown in the pane: «Review this pull request» with Start review ▾ (Review mode)', async () => {
     await view()
     await search('retry')
     await waitFor(() => expect(calls.filter((call) => call.channel === 'prSearch.pull').map((call) => call.input)).toEqual([{ projectId: PROJECT, repo: WEB, number: 77, updatedAt: RETRY.updatedAt }]))
@@ -357,7 +357,8 @@ describe('the results', () => {
     expect(within(pane()).getByTestId('pr-inbox-next-step').textContent).toContain(`${BO} asked ${ANA}; 0 of 2 required approvals.`)
     const start = within(pane()).getByTestId('pr-inbox-next-step-action')
     expect(start.textContent).toBe('Start review')
-    expect(start.getAttribute('href')).toBe(`${RETRY.url}/files`)
+    expect(start.getAttribute('href')).toBeNull()
+    expect(within(pane()).getByTestId('pr-review-start-more').getAttribute('aria-label')).toBe('Choose who writes the review')
     // No "new since you looked" on a PR the inbox lacks: nothing could ever mark it seen.
     expect(within(pane()).queryByTestId('pr-inbox-pane-new')).toBeNull()
     expect(within(screen.getAllByTestId('pr-inbox-row')[0]!).queryByTestId('pr-inbox-new')).toBeNull()

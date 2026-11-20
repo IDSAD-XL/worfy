@@ -17,11 +17,15 @@
 //   waiting for the next write.
 // - Discard removes the file. A submitted draft is kept SUBMITTED_KEEP_MS (the link to the review) and removed at the
 //   first look at the Project's drafts after worfy starts.
-// - Nothing here reaches GitHub.
+// - Start review (ticket 09): a PR without a draft gets one, with the files the account marked Viewed on github.com —
+//   one GraphQL read (`viewerViewedState`, viewedOnGithub), once: the draft is there after it, and a second Start review
+//   of the same PR, at once or later, reads nothing. Nothing is written to GitHub, ever: no `markFileAsViewed` (Q3 (a)).
+// - Apart from that read nothing here reaches GitHub.
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { z } from 'zod'
 import {
   reviewDraftSchema,
   type AgentReviewState,
@@ -190,6 +194,60 @@ export function reanchor(draft: ReviewDraft, head: string, read: (path: string) 
   return next
 }
 
+// ── Viewed on github.com (ticket 09) ───────────────────────────────────────
+
+/** Runs `gh <args>` as the Project's account and resolves its stdout; rejects with gh's reason. */
+export type GhCall = (args: readonly string[]) => Promise<string>
+
+/** The files of a PR page by page, with whether the account marked each Viewed. A query, never a mutation. */
+export const VIEWED_QUERY =
+  'query($owner: String!, $name: String!, $pr: Int!, $after: String) { repository(owner: $owner, name: $name) { pullRequest(number: $pr) { files(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { path viewerViewedState } } } } }'
+
+/** GitHub lists at most 3,000 files of a PR: 30 pages of 100. */
+const VIEWED_PAGES_MAX = 30
+
+const viewedPageSchema = z.object({
+  data: z.object({
+    repository: z
+      .object({
+        pullRequest: z
+          .object({
+            files: z.object({
+              pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullish() }),
+              nodes: z.array(z.object({ path: z.string(), viewerViewedState: z.string().nullish() }).nullable()),
+            }),
+          })
+          .nullable(),
+      })
+      .nullable(),
+  }),
+})
+
+/** The paths of the PR's files the account marked Viewed on github.com (`VIEWED`; a `DISMISSED` mark is one the file's change since took away). */
+export async function viewedOnGithub(call: GhCall, repo: string, pr: number): Promise<string[]> {
+  const [owner = '', name = ''] = repo.split('/')
+  const viewed: string[] = []
+  let after: string | null = null
+  for (let page = 0; page < VIEWED_PAGES_MAX; page++) {
+    const args = ['api', 'graphql', '-f', `query=${VIEWED_QUERY}`, '-f', `owner=${owner}`, '-f', `name=${name}`, '-F', `pr=${pr}`, ...(after === null ? [] : ['-f', `after=${after}`])]
+    const answer = viewedPageSchema.parse(JSON.parse(await call(args)))
+    const files = answer.data.repository?.pullRequest?.files
+    if (files === undefined) throw new Error(`GitHub does not show ${repo}#${pr} to the account`)
+    for (const node of files.nodes) if (node?.viewerViewedState === 'VIEWED') viewed.push(node.path)
+    if (!files.pageInfo.hasNextPage || files.pageInfo.endCursor == null) break
+    after = files.pageInfo.endCursor
+  }
+  return viewed
+}
+
+/** The draft Start review creates: on `head`, the files GitHub says are Viewed marked at the blob Review mode lists them with. */
+export function startedDraft(repo: string, pr: number, head: string, files: readonly { path: string; blob: string }[], viewed: readonly string[]): ReviewDraft {
+  const draft = newReviewDraft(repo, pr, head)
+  const marked = new Set(viewed)
+  for (const file of files) if (marked.has(file.path)) draft.viewed[file.path] = file.blob
+  return draft
+}
+
 // ── the file ───────────────────────────────────────────────────────────────
 
 /** A change waiting for the next write: applied to the draft in the file then (null — no draft). */
@@ -356,6 +414,8 @@ export class PrReviewDrafts {
   private readonly folders = new Map<string, { dir: string; at: number }>()
   /** The Profile folders whose old submitted drafts were removed in this run of worfy. */
   private readonly pruned = new Set<string>()
+  /** The Start reviews under way, by draft file: a second one of the same PR waits for the first and reads nothing. */
+  private readonly starts = new Map<string, Promise<PrReviewDraftAnswer>>()
   private readonly now: () => number
   private readonly warn: (message: string) => void
 
@@ -406,6 +466,34 @@ export class PrReviewDrafts {
       },
       { now: true },
     )
+  }
+
+  /**
+   * Start review (ticket 09): the draft of the PR as it is; without one, a new one on `head` with the files the account
+   * marked Viewed on github.com (`viewed`, called once here; null — no reader). A read that fails starts the draft
+   * without marks, and is not tried again: the draft is there.
+   */
+  async start(root: string, repo: string, pr: number, input: { head: string; files: readonly { path: string; blob: string }[]; viewed: (() => Promise<string[]>) | null }): Promise<PrReviewDraftAnswer> {
+    const file = await this.file(root, repo, pr)
+    const running = this.starts.get(file)
+    if (running !== undefined) return running.then(() => this.draft(root, repo, pr))
+    const started = (async (): Promise<PrReviewDraftAnswer> => {
+      const current = await this.draft(root, repo, pr)
+      if (current.draft !== null || current.problem !== null) return current
+      let viewed: string[] = []
+      try {
+        viewed = input.viewed === null ? [] : await input.viewed()
+      } catch (error) {
+        this.warn(`[pr-review] the files Viewed on github.com of ${repo}#${pr} were not read: ${messageOf(error)}`)
+      }
+      return this.change(root, repo, pr, (draft) => draft ?? startedDraft(repo, pr, input.head, input.files, viewed), { now: true })
+    })()
+    this.starts.set(file, started)
+    try {
+      return await started
+    } finally {
+      this.starts.delete(file)
+    }
   }
 
   /** The draft file of `repo`#`pr` of the Project at `root`; a refusal without a Profile folder. */
