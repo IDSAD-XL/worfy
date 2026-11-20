@@ -36,7 +36,7 @@ export function mcpInputSchema(tool: McpTool): Record<string, unknown> {
 
 ## 3. SDK-сервер Claude на низкоуровневом `Server`
 
-Code: `src/main/vendors/claude/mcp.ts:273-286` · key lines: 275, 277, 280, 281, 283
+Code: `src/main/vendors/claude/mcp.ts:277-290` · key lines: 279, 281, 284, 285, 287
 
 ```ts
 async function lowLevelServer(server: McpServer): Promise<ClaudeMcpServer> {
@@ -67,7 +67,7 @@ async function lowLevelServer(server: McpServer): Promise<ClaudeMcpServer> {
 
 ## 4. Session-сервер proxy: фильтр, метка, длинные имена
 
-Code: `src/main/integrations/proxy.ts:272-289` · key lines: 276, 277, 278, 281, 284, 287
+Code: `src/main/integrations/proxy.ts:284-301` · key lines: 288, 289, 290, 293, 296, 299
 
 ```ts
     const list = async (): Promise<readonly McpTool[]> => {
@@ -103,80 +103,138 @@ Code: `src/main/integrations/proxy.ts:272-289` · key lines: 276, 277, 278, 281,
 
 ## 5. Одно соединение и разбор отказов
 
-Code: `src/main/integrations/proxy.ts:366-384` · key lines: 371, 375, 376, 377, 378, 379
+Code: `src/main/integrations/proxy.ts:380-406` · key lines: 386, 388, 393, 396, 397, 399, 400, 401
 
 ```ts
   private async withConnection<T>(id: string, work: (live: Live) => Promise<T>): Promise<{ ok: true; value: T } | { ok: false; failure: Failure }> {
     for (let attempt = 0; ; attempt++) {
       let live: Live | null = null
-      let secrets: string[] = []
       try {
         live = await this.connection(id)
-        secrets = live.secrets
-        return { ok: true, value: await work(live) }
+        // Another call retired it between its opening and this turn: take the one that replaced it.
+        while (live.retired) live = await this.connection(id)
+        const running = live
+        running.inFlight++
+        try {
+          return { ok: true, value: await work(running) }
+        } finally {
+          running.inFlight--
+          if (running.retired && running.inFlight === 0) void running.client.close().catch(() => undefined)
+        }
       } catch (error) {
-        const failure = await this.failureOf(error, secrets.length > 0 ? secrets : this.secretsOf(id))
-        if (failure.kind !== 'service') await this.drop(id, live)
+        const failure = await this.failureOf(error, live?.secrets ?? this.secretsOf(id), live !== null)
+        if (failure.kind !== 'service' && failure.kind !== 'call') this.drop(id, live)
         if (failure.kind === 'expired' && attempt === 0) continue
-        if (failure.kind === 'sign-in') this.setStatus(id, { status: { state: 'needs-sign-in' } })
-        if (failure.kind === 'connection') this.setStatus(id, { status: { state: 'error', message: failure.message } })
-        if (failure.kind !== 'service') console.warn(`[integrations] ${id}: ${failure.kind === 'connection' ? 'the connection failed' : failure.kind === 'sign-in' ? 'sign-in needed' : failure.kind}`)
+        const newest = live === null || this.generations.get(id) === live.generation
+        if (newest && failure.kind === 'sign-in') this.setStatus(id, { status: { state: 'needs-sign-in' } })
+        if (newest && failure.kind === 'connection') this.setStatus(id, { status: { state: 'error', message: failure.message } })
+        if (failure.kind !== 'service' && failure.kind !== 'call') console.warn(`[integrations] ${id}: ${failure.kind === 'connection' ? 'the connection failed' : failure.kind === 'sign-in' ? 'sign-in needed' : failure.kind}`)
         return { ok: false, failure }
       }
     }
   }
 ```
 
-- Что делает: каждый вызов любой Session идёт через одно соединение Integration-ы (`connection` открывает новое, только
-  если его нет или сменились секреты). 401, не сохранённый token и `UnauthorizedError` OAuth — статус `needs-sign-in`, а
-  вызов tool-а отвечает «Sign-in needed: <метка>. Ask the user to sign in in worfy.»; 404 (сервис забыл session) —
-  соединение открывается заново один раз; прочий сбой соединения — статус `error` с текстом без секретов. Строка лога —
-  id и вид сбоя, без текста.
-- Почему здесь: Ticket, «Что делаем», пункты 3 и 4; spec, «Решения по реализации» → Proxy.
-- Без него: каждая Session открывала бы своё соединение, а отказ входа был бы для агента молчанием.
+- Что делает: каждый вызов любой Session идёт через одно соединение Integration-ы и считается в нём (`inFlight`).
+  401, не сохранённый token и `UnauthorizedError` OAuth — статус `needs-sign-in`, а вызов tool-а отвечает «Sign-in
+  needed: <метка>. Ask the user to sign in in worfy.»; 404 открытой session — соединение открывается заново один раз;
+  вызов, который агент отменил или который не уложился в предел (`McpError` -32001 пакета), отказывает один, соединение
+  и чужие вызовы живут; прочий сбой соединения — статус `error` с текстом без секретов. Статус ставит только самое новое
+  соединение (`generation`): старое, умершее под своим последним вызовом, статус нового не трогает. Строка лога — id и
+  вид сбоя, без текста.
+- Почему здесь: Ticket, «Что делаем», пункты 3 и 4; spec, «Решения по реализации» → Proxy; отмена, предел и статус
+  старого соединения — ревью PR, раунд 2.
+- Без него: отмена одного вызова закрывала бы общее соединение — вызов другой Session падал бы «Connection closed», а
+  stdio-процесс сервиса убивался бы.
 - Требование: [Что делаем, пункт 3](../issues/06-proxy-и-session-claude.md#что-делаем)
 - Риски и пробелы test-ов: OAuth-ветки (`UnauthorizedError`, единственный refresh в `fetch` transport-а) здесь только
   место — их проверит Ticket 05.
 
-## 6. Stdio-сервер: секрет в окружении, stderr не читается
+## 6. Одно открытие на Integration
 
-Code: `src/main/integrations/proxy.ts:426-445` · key lines: 434, 435, 436, 439, 440, 442
+Code: `src/main/integrations/proxy.ts:414-433` · key lines: 421, 423, 424, 429, 430, 431
 
 ```ts
-  private async open(id: string): Promise<Live> {
+  private async connection(id: string): Promise<Live> {
+    for (;;) {
+      const existing = this.connections.get(id)
+      if (existing === undefined) {
+        if (this.store.get(id) === undefined) throw new IntegrationGone()
+        return this.startOpening(id)
+      }
+      const live = await existing.catch(() => null)
+      // Replaced or forgotten while this call waited: look again.
+      if (this.connections.get(id) !== existing) continue
+      if (this.store.get(id) === undefined) {
+        this.connections.delete(id)
+        if (live !== null) this.retire(live)
+        throw new IntegrationGone()
+      }
+      if (live !== null && live.fingerprint === this.fingerprint(id)) return live
+      if (live !== null) this.retire(live)
+      return this.startOpening(id)
+    }
+  }
+```
+
+- Что делает: после каждого ожидания карта соединений читается заново, а новое открытие встаёт на место старого в том же
+  шаге, поэтому вызовы, которые вместе увидели новый секрет, делят одно новое соединение; старое закрывается, когда
+  кончится его последний вызов (`retire`). Integration, которой больше нет на Machine, получает отказ здесь же, даже без
+  секретов, и её соединение закрывается.
+- Почему здесь: ревью PR, раунд 2: три параллельных вызова после смены секрета запускали три процесса, два оставались
+  без хозяина; удалённая Integration без секретов продолжала отвечать.
+- Без него: лишние stdio-процессы сервиса и ответы Integration-ы, которую пользователь удалил.
+- Требование: [Что делаем, пункт 3](../issues/06-proxy-и-session-claude.md#что-делаем)
+- Риски и пробелы test-ов: OAuth (Ticket 05) должен не считать новый access token сменой входа — оставлено место и
+  комментарий у `fingerprint`.
+
+## 7. Stdio-сервер: секрет в окружении, stderr не читается
+
+Code: `src/main/integrations/proxy.ts:482-508` · key lines: 491, 492, 493, 496, 497, 501, 506
+
+```ts
+  private async open(id: string, generation: number): Promise<Live> {
     const integration = this.store.get(id)
     if (integration === undefined) throw new IntegrationGone()
     const sdk = await this.loadSdk()
     const secrets = this.secretsOf(id)
-    const fingerprint = JSON.stringify(secrets)
+    const fingerprint = this.fingerprint(id)
     const client = new sdk.Client({ name: 'worfy', version: '1.0.0' }, { capabilities: {} })
-    if (integration.transport.kind === 'http') {
-      const headers = connectionHeaders(this.store, id)
-      const oauth = this.options.oauth?.(integration)
-      const transport = new sdk.StreamableHTTPClientTransport(new URL(integration.transport.url), { requestInit: { headers }, ...oauth })
-      await client.connect(transport)
-    } else {
-      const launch = stdioLaunch(integration, (part) => this.store.secret(id, part))
-      const base = this.options.baseEnv === undefined ? await defaultBaseEnv(sdk) : await this.options.baseEnv()
-      // stderr is not read: a server may print what it was started with.
-      const transport = new sdk.StdioClientTransport({ command: launch.command, args: launch.args, env: { ...base, ...launch.env }, stderr: 'ignore' })
-      await client.connect(transport)
+    try {
+      if (integration.transport.kind === 'http') {
+        const headers = connectionHeaders(this.store, id)
+        const oauth = this.options.oauth?.(integration)
+        const transport = new sdk.StreamableHTTPClientTransport(new URL(integration.transport.url), { requestInit: { headers }, ...oauth })
+        await client.connect(transport)
+      } else {
+        const launch = stdioLaunch(integration, (part) => this.store.secret(id, part))
+        const base = this.options.baseEnv === undefined ? await defaultBaseEnv(sdk) : await this.options.baseEnv()
+        // stderr is not read: a server may print what it was started with. The MCP SDK starts the command with
+        // cross-spawn, which finds a bare name on the PATH given here and runs a Windows .cmd shim (npx.cmd) through
+        // cmd.exe with its arguments escaped, so no shell of worfy's own is needed.
+        const transport = new sdk.StdioClientTransport({ command: launch.command, args: launch.args, env: { ...base, ...launch.env }, stderr: 'ignore' })
+        await client.connect(transport)
+      }
+    } catch (error) {
+      // A server that started but failed `initialize` is not left running.
+      await client.close().catch(() => undefined)
+      throw error
     }
-    const live: Live = { client, secrets, fingerprint }
 ```
 
 - Что делает: http — заголовки входа Ticket-а 04 читаются при каждом открытии соединения, место OAuth (`authProvider`,
   `fetch`) пустое до Ticket-а 05. Stdio — процесс запускает сам worfy через `StdioClientTransport` пакета (`cross-spawn`:
   `.cmd` на Windows), секреты — в `env`, аргументы — как дал пользователь; базовое окружение — короткий безопасный список
-  пакета с PATH окружения агента.
+  пакета с PATH окружения агента. Сервер, который запустился, но не прошёл `initialize`, закрывается.
 - Почему здесь: Ticket, «Что делаем», пункт 3; ADR-0111, пункт 1 — token сервиса не попадает в аргументы процесса.
 - Без него: секрет stdio-сервера мог бы оказаться в `args` и в `ps`.
 - Требование: [Что делаем, пункт 3](../issues/06-proxy-и-session-claude.md#что-делаем)
-- Риски и пробелы test-ов: запуск `.cmd` на Windows проверит только job-ы Windows CI (платформенный Ticket).
+- Риски и пробелы test-ов: запуск `.cmd`-shim-а по голому имени проверяет test с shim-ом; на Windows его прогоняют
+  только job-ы Windows CI (платформенный Ticket), на Mac — shell-shim.
 
-## 7. Имя сервера в Session
+## 8. Имя сервера в Session
 
-Code: `src/main/integrations/proxy.ts:85-101` · key lines: 89, 92, 94, 96, 99
+Code: `src/main/integrations/proxy.ts:87-103` · key lines: 91, 94, 96, 98, 101
 
 ```ts
 export function integrationServerNames(integrations: readonly { id: string; label: string }[], taken: readonly string[]): IntegrationServerName[] {
@@ -208,7 +266,7 @@ export function integrationServerNames(integrations: readonly { id: string; labe
 - Риски и пробелы test-ов: первая Session после запуска worfy стартует раньше первого ответа инвентаря, и совпадение с
   сервером Claude Code тогда не видно — «Итог», решение 7.
 
-## 8. Session Claude получает Integration-ы рядом с `worfy-canvas`
+## 9. Session Claude получает Integration-ы рядом с `worfy-canvas`
 
 Code: `src/main/vendors/claude/options.ts:851-856` · key lines: 854, 855
 
@@ -230,53 +288,64 @@ Code: `src/main/vendors/claude/options.ts:851-856` · key lines: 854, 855
 - Требование: [Что делаем, пункт 7](../issues/06-proxy-и-session-claude.md#что-делаем)
 - Риски и пробелы test-ов: Session Codex Integration-ы не получает — Ticket 07.
 
-## 9. Строка Integration-ы в chip-е «MCP n/m»
+## 10. Строка Integration-ы в chip-е «MCP n/m»
 
-Code: `src/main/vendors/claude/mcp.ts:99-104` · key lines: 102, 103
+Code: `src/main/vendors/claude/mcp.ts:93-102` · key lines: 93, 101
 
 ```ts
+const INTEGRATION_LABELS: unique symbol = Symbol('worfy.integrationLabels')
 
-/** `row` as an Integration's when `labels` names it; an Integration is never one of worfy's own servers. */
-function withLabel(row: McpServerRow, labels: ReadonlyMap<string, string> | undefined): McpServerRow {
-  const label = labels?.get(row.name)
-  return label === undefined ? row : { ...row, source: 'integration', sourceWord: null, label }
+/**
+ * Tells the rows of `query`'s servers `servers` are Integrations of the Project (worfy-integrations ticket 06): their
+ * rows get the source `integration` and the label. Called by the Session's start (query.ts) with the query it hands on.
+ */
+export function labelIntegrations(query: QueryHandle, servers: readonly { name: string; label: string }[]): void {
+  if (servers.length === 0) return
+  Object.defineProperty(query, INTEGRATION_LABELS, { value: new Map(servers.map((server) => [server.name, server.label])), configurable: true })
 }
 ```
 
 - Что делает: Claude Code сообщает Integration как сервер `sdk`; строка получает источник `integration` и метку по тому,
-  что сказал старт этой Session (`labelIntegrations`, ключ — query), и, подключённая, — Turn off.
-- Почему здесь: Ticket, «Что делаем», пункт 8, называет `src/shared/agent/mcp-status.ts`; почему метки хранятся по
-  query, а не в `session.ts`, — «Итог», решение 8.
+  что сказал старт этой Session (`labelIntegrations`), и, подключённая, — Turn off. Метки лежат свойством самого query
+  под символом: приложение после старта ещё раз оборачивает query (`appLimits().observe`, Proxy, который отдаёт каждое
+  свойство обёрнутому объекту), и handle Session их находит.
+- Почему здесь: Ticket, «Что делаем», пункт 8, называет `src/shared/agent/mcp-status.ts`; почему метки хранятся в
+  query, а не в `session.ts`, — «Итог», решение 8; почему свойством, а не `WeakMap` по query, — ревью PR, раунд 2.
 - Без него: Integration в chip-е выглядела бы своим сервером worfy под slug-ом.
 - Требование: [Что делаем, пункт 8](../issues/06-proxy-и-session-claude.md#что-делаем)
 - Риски и пробелы test-ов: действие Sign in у строки — Ticket 09.
 
-## 10. Что сознательно не меняли
+## 11. Что сознательно не меняли
 
 - Proxy передаёт только tools: `resources`, `prompts`, elicitation, sampling — вне Epic-а («Решено без владельца», 4
   spec-а).
 - Статус proxy (`signed-in` / `needs-sign-in` / `error`, число и размер tools, скрытые tools) живёт в памяти main;
   каналом его покажет Ticket 08.
 - `session.ts` и `QueryRequest` не менялись.
+- Stdio-сервер не запускается через `toolStart` (`src/main/first-run/tools.ts`): пакет запускает команду через
+  `cross-spawn`, который сам находит `.cmd` и экранирует аргументы для cmd.exe, а `toolStart` аргументы не экранирует.
 
-## 11. Как проверено
+## 12. Как проверено
 
 - До правки: `pnpm test test/unit/integration-server-name.test.ts test/unit/mcp-status-row.test.ts
   test/contract/integrations-proxy.test.ts test/contract/integrations-claude-session.test.ts` — exit 1 (модуля
   `proxy.ts` нет, `labelIntegrations` нет, источников четыре). После — exit 0.
 - Все unit и contract test-ы затронутых модулей (38 файлов) — exit 0; `test/e2e/session-mcp.spec.ts` под замком — exit 0.
 - `pnpm lint`, `pnpm typecheck` — exit 0; gate fast — exit 0.
+- Раунд 2: новые test-ы (отмена и предел одного вызова, одно открытие после смены секрета, refresh token, статус
+  старого соединения, удалённая Integration без секретов, 404 на `initialize`, закрытие при удалении и выходе, метка
+  через `observe` Limits, shim) — exit 1 до правки, exit 0 после; каждая правка ловится своим mutant-ом.
 
 ## Проверить себя
 
 1. Почему фильтр Read only режет `tools/list` proxy, а не `disallowedTools` Claude Code?
    - Ответ: `disallowedTools` MCP-tool из списка модели не убирает, только запрещает вызов (spike 01, 3.3); список
      proxy убирает tool из того, что видит модель, а вызов не из списка отказывает до сервиса.
-   - Строки: `src/main/integrations/proxy.ts:277`
+   - Строки: `src/main/integrations/proxy.ts:289`
 2. Что получает Session, когда сервис ответил 401 посреди её работы?
    - Ответ: ответ tool-а `isError` «Sign-in needed: <метка>…», статус Integration-ы `needs-sign-in`, соединение
      закрыто, чтобы следующий вызов вошёл с новым token-ом.
-   - Строки: `src/main/integrations/proxy.ts:376-378`
+   - Строки: `src/main/integrations/proxy.ts:397-400`
 3. Почему token сервиса не виден в `ps` процесса Claude Code?
    - Ответ: Integration — SDK-сервер в процессе worfy, не запись `http` с заголовками: `--mcp-config` её не несёт, а
      заголовки и секреты stdio живут только в main.
