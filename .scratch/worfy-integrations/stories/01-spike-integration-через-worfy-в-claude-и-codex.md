@@ -86,7 +86,7 @@ export function singleFlightFetch(base = fetch) {
 - Без него: с ротацией refresh token-а после истечения access token-а все вызовы — `Unauthorized`, до нового входа.
 - Требование: [Что делаем, п. 5](../issues/01-spike-integration-через-worfy-в-claude-и-codex.md#что-делаем)
 - Риски и пробелы test-ов: ключ — адрес и тело запроса; refresh с другим телом (другой scope) пройдёт вторым запросом.
-  Проверено на stub-е; ротирует ли Atlassian или Linear refresh token — покажет шаг владельца.
+  Проверено на stub-е. Шаг владельца: Atlassian и Linear refresh token ротируют, так что замок нужен на живых сервисах.
 
 ## 5. Окно spike-а ловит redirect без listener-а
 
@@ -106,8 +106,8 @@ Code: `scripts/spikes/harness-plugin/integrations-oauth.mjs:151-155` · key line
   без listener-а; шаг владельца входит в Atlassian и Linear этим же окном.
 - Без него: окну понадобился бы loopback listener, а Ticket 05 — проверка другого пути.
 - Требование: [Что делаем, п. 6](../issues/01-spike-integration-через-worfy-в-claude-и-codex.md#что-делаем)
-- Риски и пробелы test-ов: проверено на stub-е, который отвечает 302 сразу; страницы входа Atlassian и Linear — шаг
-  владельца.
+- Риски и пробелы test-ов: на stub-е, который отвечает 302 сразу, и в шаге владельца: три живых входа (Atlassian
+  дважды, Linear) прошли этим окном.
 
 ## 6. Вход владельца отзывается при любом исходе и не пишет ответ сервиса
 

@@ -1,9 +1,8 @@
 # 01 — Spike: Integration через worfy в Claude Code и Codex, один refresh пакета MCP SDK и что нужно сервисам
 
 Type: spike
-Status: blocked 2026-11-20T17:52Z
-Blocked reason: waits the owner's live sign-in step
-Waits: owner
+Status: claimed 2026-11-20T23:55Z
+Branch: worfy-integrations/01
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 1; «Волны», Wave 1; «Факты», 3в, 7 и 8; «Решения по реализации» → Proxy,
 Вход OAuth, Имя сервера в Session; «Риски» (proxy не покрывает сервис, имя tool-а длиннее предела); «Вопросы
@@ -86,6 +85,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 1; «Волны», Wave 1; «Фа�
       tools, срок access token-а и refresh каждого сервера.
   - needs: mac
 - [ ] Записка кончается решением «tools-only proxy достаточен: да/нет» с выводами для Ticket-ов 03, 05 и 06.
+  - evidence: commit pass · f91f809f4: note ends with «tools-only proxy достаточен: да», conclusions for tickets 03, 05, 06 · - - · f91f809f4943ad2a2c13de7ef62de07b73881d3a
 - [ ] Scrub probe-а пройден: новые fixture-ы и записка не держат token-ов, адресов site-ов владельца и e-mail-ов;
       `--rescrub` чистит новые fixture-ы.
   - evidence: test-run pass · `node scripts/check-personal.mjs` exit 0 (in pnpm lint) and `probe.ts --rescrub test/fixtures/sdk-messages` exit 0 with no change · mac - · 4b516d1611426663c83dd7cb9da533b468754f6b
