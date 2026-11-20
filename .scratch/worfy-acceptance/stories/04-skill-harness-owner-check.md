@@ -137,7 +137,28 @@ if (verdict === "fail") {
   `language.docs` дописывает Orchestrator. Если текст ручного пункта доработки переписать, Pass не дойдёт до исходного
   пункта — skill печатает об этом `note:`.
 
-## 6. Что сознательно не меняли
+## 6. Путь Ticket-а доработки печатается через `/` на любой ОС
+
+Code: `harness/skills/owner-check/SKILL.md:190-193` · key lines: 193
+
+```js
+    const name = `${next}-rework-${nnPad}-item-${itemArg}.md`
+    fs.writeFileSync(path.join(dir, name), body.join("\n"))
+    // Printed with "/" on every system: path.join would give "\" on Windows, and the owner reads the same form everywhere.
+    console.log(`rework ticket: ${epic}/issues/${name}`)
+```
+
+- Что делает: файл пишется по пути, собранному `path.join` (так его открывает ОС), а в вывод путь идёт строкой
+  `<epic>/issues/<файл>` — с `/` и на Windows.
+- Почему здесь: первый CI run PR-а был красным только на Windows (job `windows (harness-scripts 2/2)`): `path.join` под
+  Git Bash печатал `f-bash\issues\03-rework-02-item-2.md`, а раздел «What its output means» и test ждут
+  `rework ticket: <epic>/issues/…`.
+- Без него: на Windows строка вывода расходится с описанием skill-а, и case «Fail writes owner-check fail…» красный.
+- Требование: [Что делаем, пункт 4](../issues/04-skill-harness-owner-check.md#что-делаем)
+- Риски и пробелы test-ов: на Mac и Linux `path.join` и так даёт `/`, поэтому case с `FENVW` подменяет `path.join` блока
+  preload-ом, который соединяет относительный путь через `\`; настоящий Windows проверяет только CI job Windows.
+
+## 7. Что сознательно не меняли
 
 - `harness/bin/ticket` и `harness/lib/evidence.cjs`: только читать по брифу; `lib/evidence.cjs` в этой Wave правит
   `worfy-polish` 132.
@@ -145,10 +166,11 @@ if (verdict === "fail") {
   skill туда не добавляли — файл только читать.
 - Fail не снимает `[x]` с уже отмеченного пункта: Ticket этого не просит; состояние пункта по последней строке — failed.
 
-## 7. Как проверено
+## 8. Как проверено
 
-- `bash harness/bin/tests/owner-check.test.sh` — exit 0 (32 проверки, bash и zsh); без skill-а — exit 1; четыре mutant-а
-  блока (без проверки повтора, без проверки ручного пункта, без Ticket-а доработки, `--sha -`) — каждый красный.
+- `bash harness/bin/tests/owner-check.test.sh` — exit 0 (35 проверок, bash и zsh); без skill-а — exit 1; пять mutant-ов
+  блока (без проверки повтора, без проверки ручного пункта, без Ticket-а доработки, `--sha -`, путь доработки снова через
+  `path.join`) — каждый красный.
 - `bash harness/bin/tests/agents-text.test.sh` — exit 0; mutant-ы без фраз «Never tick an item without the owner's word» и
   «Never write `pass` on a Fail» — красные.
 - `pnpm exec vitest run test/contract/codex-parity.test.ts` — exit 0 (16 tests).

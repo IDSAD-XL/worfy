@@ -45,6 +45,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решения по реал�
       повтор не пишет вторую; Fail пишет `owner-check fail` и Ticket доработки; неручной пункт — отказ. Красный до
       правки — в «Итог».
   - evidence: test-run pass · `bash harness/bin/tests/owner-check.test.sh` exit 0 · mac - · 1b9ec6366e495c6b8d0a93a02aedd665a229451e
+  - evidence: test-run pass · `bash harness/bin/tests/owner-check.test.sh` exit 0 · mac - · 124c0b1327e4e9321cbf580c2ab446f22f77a1e8
 - [ ] `harness/bin/tests/agents-text.test.sh`: текст skill-а держит правило «без слова владельца не отмечать» и «на Fail
       не писать pass»; mutant (фраза убрана) — красный.
   - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 · mac - · 1b9ec6366e495c6b8d0a93a02aedd665a229451e
@@ -80,6 +81,13 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решения по реал�
   без проверки ручного пункта (неручной пункт получил строку), без Ticket-а доработки, `--sha -` в `ticket evidence`
   (`sha is 7 to 40 hex digits`). Mutant-ы `agents-text.test.sh`: фраза «Never tick an item without the owner's word»
   убрана — `FAIL owner-check skill: no 'Never tick …'`, exit 1; фраза «Never write `pass` on a Fail» убрана — так же, exit 1.
+- Доработка 1 (красный CI на Windows, job `windows (harness-scripts 2/2)`): на Git Bash case «Fail writes owner-check
+  fail…» падал — блок печатал путь Ticket-а доработки через `path.join`, на Windows это `f-bash\issues\03-rework-…md`,
+  а test и раздел «What its output means» ждут `/`. Теперь путь собирается строкой `<epic>/issues/<файл>` на любой
+  ОС. Новый case гоняет Fail с preload-ом (`FENVW`), который заставляет `path.join` блока соединять относительный путь
+  через `\`, как на Windows: mutant с прежним `path.join` красный и на Mac (`FAIL bash/zsh: rework path with a \ path.join`,
+  exit 1). CRLF и `[` в grep не причина: парсер читает строки через `/\r?\n/`, а остальные проверки этого case-а на
+  Windows прошли.
 - Решено без владельца, подтвердить:
   - Логика записи — блок `node -e` внутри `SKILL.md`, а не отдельный скрипт в `harness/bin/`: след Ticket-а называет только
     `SKILL.md`; test вырезает блок из `SKILL.md` и гоняет его в bash и zsh, как `skill-blocks.test.sh`.
