@@ -102,6 +102,13 @@ export const changesRepoScopesSchema = z.object({
   /** The branches Compare against offers. */
   branches: z.array(text),
   error: text.nullable(),
+  /**
+   * The repository's checkout and, for a worktree, the worktree's folder from it with `/` (`.claude/worktrees/03`;
+   * absolute when it lies outside; empty for a branch): what a comment on lines names (ticket 05). Absent in an answer
+   * of a build before that ticket.
+   */
+  checkout: text.optional(),
+  worktree: text.optional(),
 })
 
 export const changesScopesAnswerSchema = z.object({
@@ -163,11 +170,40 @@ export const changesCommits = invokeChannel(
   'read',
 )
 
+/**
+ * A Session the comments on lines of the diff may go to (worfy-changes-view ticket 05, the list «To»): a Session Node
+ * of worfy bound to the Ticket, or the Project's Orchestrator. `sessionId` names the Session's comments (quoteKey of
+ * src/renderer/session/quote-store.ts), as its Session view names them: the live Session's id once its agent reported
+ * it, else the saved one; null when the Node has none yet.
+ */
+export const changesTargetSchema = z.object({
+  kind: z.enum(['session', 'orchestrator']),
+  nodeId: z.string().min(1),
+  sessionId: z.string().min(1).nullable(),
+  /** How the list names it. */
+  title: text,
+  /** The time of the last record of its transcript, in ms; null when it has none. */
+  lastAt: z.number().nullable(),
+})
+
+export const changesTargetsAnswerSchema = z.object({
+  /** The bound Sessions, the one with the newest record first, then the Orchestrator. */
+  targets: z.array(changesTargetSchema),
+  /** The Node the comments go to unless the user picks another (spec, Q2); null when the list is empty. */
+  defaultNodeId: z.string().min(1).nullable(),
+  /** Autopilot runs in the Project now: the Orchestrator is busy with its Run. */
+  autopilot: z.boolean(),
+})
+
+/** The list «To» of the comments on lines of the Ticket's diff (ticket 05): reading only, as every channel here. */
+export const changesTargets = invokeChannel('changes.targets', z.object({ projectId, ticket: changesTicketSchema.pick({ epic: true, num: true }) }), changesTargetsAnswerSchema, 'project', 'read')
+
 declare module './channels' {
   interface IpcContract {
     'changes.scopes': typeof changesScopes
     'changes.list': typeof changesList
     'changes.file': typeof changesFile
     'changes.commits': typeof changesCommits
+    'changes.targets': typeof changesTargets
   }
 }

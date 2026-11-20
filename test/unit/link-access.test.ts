@@ -220,6 +220,9 @@ describe('the read-or-write mark of `project` channels', () => {
     'changes.file',
     'changes.list',
     'changes.scopes',
+    // The list «To» of the comments on lines: the Layout, the Bindings and the transcripts' times (worfy-changes-view
+    // ticket 05).
+    'changes.targets',
     // Read-only git and gh: the owner counts them as reading (answer 3).
     'checks.get',
     'checks.repos',

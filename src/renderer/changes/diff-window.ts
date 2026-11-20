@@ -149,6 +149,9 @@ export interface FileEntry {
 
 export const fileKey = (repo: string, path: string): string => `${repo}\u0000${path}`
 
+/** The number of a line on a side of the diff (`old` before the change, `new` after it); null when the line is not on that side. */
+export const lineNumber = (line: DiffLine, side: 'old' | 'new'): number | null => (side === 'old' ? line.oldLine : line.newLine)
+
 const folderOf = (path: string): string => {
   const at = path.lastIndexOf('/')
   return at < 0 ? '' : path.slice(0, at)

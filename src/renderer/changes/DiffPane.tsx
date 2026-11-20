@@ -5,12 +5,16 @@
 // file · 12 KB → 14 KB». Added lines take the colours of ready, deleted lines those of blocked, as the migration form
 // does (harness/MigrationForm.tsx); there are no syntax colours (spec, Q5).
 //
-// The gutter of a line (the sign cell) is where ticket 05 puts its «+»: `renderGutter` draws into it.
-import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react'
+// The gutter of a line (the sign cell) is where ticket 05 puts its «+»: `renderGutter` draws into it. The comments on
+// lines (ticket 05, LineComment.tsx) stand under their last line (`renderBelow`); the lines picked for a comment are lit
+// (`isPicked`); the pointer on the diff goes to `lineEvents`, which finds the line by the attributes of its cells
+// (`data-side`, `data-line`, and the file's `data-key` on its hunk). A line asked for (scrollToLine: a chip of the
+// tray, a block of a sent message) is brought into view once its file is read, and flashes.
+import { Fragment, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type HTMLAttributes, type ReactNode, type Ref } from 'react'
 import type { ChangesScope, DiffHunk, DiffLine, FileDiff } from '../../shared/changes/types'
 import { failureReason } from '../../shared/ipc/channels'
 import { invoke } from '../ipc'
-import { FILE_GAP, FILE_HEADER_HEIGHT, NOTE_HEIGHT, count, hunkHeight, offsetsOf, sideBySideRows, sizeLabel, unreadHeight, windowOf, type DiffLayout, type FileEntry } from './diff-window'
+import { FILE_GAP, FILE_HEADER_HEIGHT, NOTE_HEIGHT, count, lineNumber, hunkHeight, offsetsOf, sideBySideRows, sizeLabel, unreadHeight, windowOf, type DiffLayout, type FileEntry } from './diff-window'
 import { FileStats, StatusLetter } from './FileTree'
 
 /** The Ticket as `changes.*` take it. */
@@ -29,7 +33,14 @@ export interface DiffPaneHandle {
   scrollToFile(key: string): void
   /** Scrolls to the next hunk (`1`) or the one before (`-1`); false when there is none that way. */
   moveHunk(step: 1 | -1): boolean
+  /** Brings the line of the file into view once its patch is read, and flashes it. */
+  scrollToLine(key: string, side: LineSide, line: number): void
 }
+
+/** How long a line asked for flashes, in ms. */
+const FLASH_MS = 1600
+/** How long a line asked for is looked for while its file is read, in ms. */
+const SEEK_MS = 10_000
 
 export interface DiffPaneProps {
   projectId: string
@@ -47,7 +58,22 @@ export interface DiffPaneProps {
   generation: number
   /** The gutter of a line (ticket 05); nothing by default. */
   renderGutter?: (line: DiffLine, side: LineSide, entry: FileEntry) => ReactNode
+  /** What stands under a line: its comments (ticket 05); nothing by default. */
+  renderBelow?: (line: DiffLine, side: LineSide, entry: FileEntry) => ReactNode
+  /** Whether a line is among the ones picked for a comment (ticket 05). */
+  isPicked?: (line: DiffLine, side: LineSide, entry: FileEntry) => boolean
+  /** The pointer's events on the diff (ticket 05). */
+  lineEvents?: Pick<HTMLAttributes<HTMLDivElement>, 'onClick' | 'onContextMenu' | 'onMouseUp' | 'onMouseDown'>
+  /** A file's patch was read: its hunks, and the scope, Hide whitespace and Refresh it was read for (ticket 05). */
+  onFileRead?: (entry: FileEntry, diff: FileDiff, readOf: FileReadOf) => void
   ref?: Ref<DiffPaneHandle>
+}
+
+/** What a file's patch was read for: the scope, Hide whitespace and the Refresh (generation) of its read. */
+export interface FileReadOf {
+  scope: ChangesScope
+  hideWhitespace: boolean
+  generation: number
 }
 
 type FileState = { kind: 'loading' } | { kind: 'ready'; diff: FileDiff } | { kind: 'error'; message: string }
@@ -122,9 +148,17 @@ function sign(kind: DiffLine['kind']): string {
 
 const lineClass = (kind: DiffLine['kind']): string => (kind === 'add' ? ' w-changes__cell--add' : kind === 'del' ? ' w-changes__cell--del' : '')
 
-function Code({ line }: { line: DiffLine }) {
+/** The side and the line a cell of Side by side names, and its marks. */
+interface CellAt {
+  'data-side'?: LineSide
+  'data-line'?: number
+  mark?: string
+}
+
+function Code({ line, at }: { line: DiffLine; at?: CellAt }) {
+  const { mark = '', ...data } = at ?? {}
   return (
-    <span className={`w-changes__code${lineClass(line.kind)}`}>
+    <span className={`w-changes__code${lineClass(line.kind)}${mark}`} {...data}>
       {line.text}
       {line.noNewline ? (
         <span className="w-changes__eol" title="No newline at end of file">
@@ -141,23 +175,31 @@ interface RowsProps {
   entry: FileEntry
   layout: DiffLayout
   renderGutter: DiffPaneProps['renderGutter']
+  renderBelow: DiffPaneProps['renderBelow']
+  isPicked: DiffPaneProps['isPicked']
 }
 
-function HunkRows({ hunk, entry, layout, renderGutter }: RowsProps) {
+function HunkRows({ hunk, entry, layout, renderGutter, renderBelow, isPicked }: RowsProps) {
   const gutter = (line: DiffLine, side: LineSide) => renderGutter?.(line, side, entry) ?? null
+  const below = (line: DiffLine, side: LineSide) => renderBelow?.(line, side, entry) ?? null
+  const marks = (line: DiffLine, side: LineSide): string => (isPicked?.(line, side, entry) === true ? ' is-picked' : '')
   if (layout === 'inline') {
     return hunk.lines.map((line, index) => {
       const side: LineSide = line.kind === 'del' ? 'old' : 'new'
+      const under = below(line, side)
       return (
-        <div key={index} className={`w-changes__line w-changes__line--${line.kind}`} data-testid="changes-line" data-kind={line.kind} data-side={side} data-line={side === 'old' ? line.oldLine : line.newLine}>
-          <span className={`w-changes__no${lineClass(line.kind)}`}>{line.oldLine ?? ''}</span>
-          <span className={`w-changes__no${lineClass(line.kind)}`}>{line.newLine ?? ''}</span>
-          <span className={`w-changes__sign${lineClass(line.kind)}`}>
-            {sign(line.kind)}
-            {gutter(line, side)}
-          </span>
-          <Code line={line} />
-        </div>
+        <Fragment key={index}>
+          <div className={`w-changes__line w-changes__line--${line.kind}${marks(line, side)}`} data-testid="changes-line" data-kind={line.kind} data-side={side} data-line={lineNumber(line, side) ?? undefined}>
+            <span className={`w-changes__no${lineClass(line.kind)}`}>{line.oldLine ?? ''}</span>
+            <span className={`w-changes__no${lineClass(line.kind)}`}>{line.newLine ?? ''}</span>
+            <span className={`w-changes__sign${lineClass(line.kind)}`}>
+              {sign(line.kind)}
+              {gutter(line, side)}
+            </span>
+            <Code line={line} />
+          </div>
+          {under}
+        </Fragment>
       )
     })
   }
@@ -166,23 +208,32 @@ function HunkRows({ hunk, entry, layout, renderGutter }: RowsProps) {
       if (line === null) {
         return [<span key={`${side}-no`} className={`w-changes__no w-changes__cell--empty${side === 'new' ? ' w-changes__no--edge' : ''}`} />, <span key={`${side}-sign`} className="w-changes__sign w-changes__cell--empty" />, <span key={`${side}-code`} className="w-changes__code w-changes__cell--empty" />]
       }
+      // Each cell names its side and line: a click, a right click or a selection finds the line by them.
+      const mark = marks(line, side)
+      const data = { 'data-side': side, 'data-line': lineNumber(line, side) ?? undefined }
       return [
-        <span key={`${side}-no`} className={`w-changes__no${lineClass(line.kind)}${side === 'new' ? ' w-changes__no--edge' : ''}`}>
-          {side === 'old' ? line.oldLine : line.newLine}
+        <span key={`${side}-no`} className={`w-changes__no${lineClass(line.kind)}${side === 'new' ? ' w-changes__no--edge' : ''}${mark}`} {...data}>
+          {lineNumber(line, side)}
         </span>,
-        <span key={`${side}-sign`} className={`w-changes__sign${lineClass(line.kind)}`}>
+        <span key={`${side}-sign`} className={`w-changes__sign${lineClass(line.kind)}${mark}`} {...data}>
           {sign(line.kind)}
           {gutter(line, side)}
         </span>,
-        <Code key={`${side}-code`} line={line} />,
+        <Code key={`${side}-code`} line={line} at={{ ...data, mark }} />,
       ]
     }
     const kind = row.old?.kind === 'context' ? 'context' : row.old !== null && row.new !== null ? 'change' : row.old !== null ? 'del' : 'add'
+    // A context line stands on both sides: its comments on either side come under the row.
+    const under = [row.old === null ? null : below(row.old, 'old'), row.new === null ? null : below(row.new, 'new')]
     return (
-      <div key={index} className="w-changes__line w-changes__line--pair" data-testid="changes-row" data-kind={kind}>
-        {half(row.old, 'old')}
-        {half(row.new, 'new')}
-      </div>
+      <Fragment key={index}>
+        <div className="w-changes__line w-changes__line--pair" data-testid="changes-row" data-kind={kind}>
+          {half(row.old, 'old')}
+          {half(row.new, 'new')}
+        </div>
+        {under[0]}
+        {under[1]}
+      </Fragment>
     )
   })
 }
@@ -226,7 +277,7 @@ function NoteView({ note, onShow }: { note: Note; onShow: () => void }) {
 const EMPTY_FILES: ReadonlyMap<string, FileState> = new Map()
 const EMPTY_HEIGHTS: ReadonlyMap<string, number> = new Map()
 
-export function DiffPane({ projectId, ticket, scope, hideWhitespace, layout, wrap, entries, several, selected, generation, renderGutter, ref }: DiffPaneProps) {
+export function DiffPane({ projectId, ticket, scope, hideWhitespace, layout, wrap, entries, several, selected, generation, renderGutter, renderBelow, isPicked, lineEvents, onFileRead, ref }: DiffPaneProps) {
   const scroller = useRef<HTMLDivElement>(null)
   const [top, setTop] = useState(0)
   const [viewport, setViewport] = useState(0)
@@ -256,6 +307,11 @@ export function DiffPane({ projectId, ticket, scope, hideWhitespace, layout, wra
   }
   const wantedKeys = [...wanted.keys()].join('\n')
   const asked = useRef<{ of: string; keys: Set<string> }>({ of: readFor, keys: new Set() })
+  // The listener of reads, as it is now: the read's answer comes after the render that asked for it.
+  const readListener = useRef(onFileRead)
+  useEffect(() => {
+    readListener.current = onFileRead
+  })
   useEffect(() => {
     if (asked.current.of !== readFor) asked.current = { of: readFor, keys: new Set() }
     const of = readFor
@@ -279,6 +335,7 @@ export function DiffPane({ projectId, ticket, scope, hideWhitespace, layout, wra
         if (asked.current.of !== of) return
         const state: FileState = result.ok ? { kind: 'ready', diff: result.value.file } : { kind: 'error', message: failureReason('changes.file', result.error) }
         setFiles((previous) => ({ of, map: new Map(previous.of === of ? previous.map : []).set(key, state) }))
+        if (result.ok) readListener.current?.(entry, result.value.file, { scope, hideWhitespace, generation })
       })
     }
     // `wanted` is a new Map each render; its keys, with what they are read for, are what starts a read.
@@ -362,9 +419,64 @@ export function DiffPane({ projectId, ticket, scope, hideWhitespace, layout, wra
     if (target.tries <= 0) pending.current = null
   })
 
+  // A line asked for: the file's header first, so its patch is read; then the line's hunk, once it is there; then the
+  // drawn line itself goes to the middle and flashes (a mark on its elements, not React's state: it only lasts a moment).
+  // Given up after SEEK_MS: the file may be folded, or no longer have the line.
+  const seek = useRef<{ key: string; side: LineSide; line: number; until: number; scrolled: boolean } | null>(null)
+  const [, poke] = useState(0)
+  useLayoutEffect(() => {
+    const target = seek.current
+    const box = scroller.current
+    // A hidden view (the Session view is in front while the Canvas comes back) neither scrolls nor shows a flash: the
+    // look waits for the box to have a size again, which its ResizeObserver reports with a render.
+    if (target === null || box === null || box.clientHeight === 0) return
+    if (Date.now() > target.until) {
+      seek.current = null
+      return
+    }
+    const hunk = Array.from(box.querySelectorAll<HTMLElement>('[data-testid="changes-hunk"]')).find((each) => each.dataset.key === target.key && each.querySelector(`[data-side="${target.side}"][data-line="${target.line}"]`) !== null)
+    if (hunk !== undefined) {
+      seek.current = null
+      pending.current = null
+      const marked = Array.from(hunk.querySelectorAll<HTMLElement>(`[data-side="${target.side}"][data-line="${target.line}"]`))
+      marked[0]?.scrollIntoView?.({ block: 'center' })
+      for (const element of marked) {
+        element.classList.add('is-flash')
+        element.dataset.flash = 'true'
+      }
+      setTimeout(() => {
+        for (const element of marked) {
+          element.classList.remove('is-flash')
+          delete element.dataset.flash
+        }
+      }, FLASH_MS)
+      return
+    }
+    if (target.scrolled) return
+    const index = blocks.findIndex((block) => block.kind === 'hunk' && block.entry.key === target.key && block.hunk.lines.some((line) => lineNumber(line, target.side) === target.line))
+    if (index < 0) return
+    // The hunk is read but not drawn: to it, so the window draws it; the line itself on the next pass.
+    target.scrolled = true
+    pending.current = null
+    box.scrollTop = offsets[index]!
+  })
+
   useImperativeHandle(
     ref,
     () => ({
+      scrollToLine(key, side, line) {
+        const index = blocks.findIndex((block) => block.kind === 'head' && block.entry.key === key)
+        setCollapsed((set) => {
+          if (!set.has(key)) return set
+          const next = new Set(set)
+          next.delete(key)
+          return next
+        })
+        seek.current = { key, side, line, until: Date.now() + SEEK_MS, scrolled: false }
+        if (index >= 0) scrollTo(offsets[index]!)
+        // A render, so the look for the line runs even when the scroll did not move.
+        poke((value) => value + 1)
+      },
       scrollToFile(key) {
         const index = blocks.findIndex((block) => block.kind === 'head' && block.entry.key === key)
         if (index < 0) return
@@ -398,6 +510,7 @@ export function DiffPane({ projectId, ticket, scope, hideWhitespace, layout, wra
       data-layout={layout}
       data-wrap={String(wrap)}
       data-drawn={drawn.length}
+      {...lineEvents}
     >
       <div style={{ height: slice.before }} aria-hidden="true" />
       {drawn.map((block) => {
@@ -439,12 +552,12 @@ export function DiffPane({ projectId, ticket, scope, hideWhitespace, layout, wra
           )
         }
         return (
-          <div key={block.key} ref={measure} data-block={block.key} className={className} data-testid="changes-hunk" data-path={entry.file.path} data-repo={entry.repo}>
+          <div key={block.key} ref={measure} data-block={block.key} className={className} data-testid="changes-hunk" data-path={entry.file.path} data-repo={entry.repo} data-key={entry.key}>
             <div className="w-changes__hunk-head">
               {block.hunk.header}
               {block.hunk.section === '' ? null : ` ${block.hunk.section}`}
             </div>
-            <HunkRows hunk={block.hunk} entry={entry} layout={layout} renderGutter={renderGutter} />
+            <HunkRows hunk={block.hunk} entry={entry} layout={layout} renderGutter={renderGutter} renderBelow={renderBelow} isPicked={isPicked} />
           </div>
         )
       })}

@@ -198,3 +198,40 @@ export async function openChangesFromPalette(projectId: string, subject: Changes
   const now = currentLayout(projectId)?.nodes ?? nodes
   return direct(now, () => changesPlace(now, undefined, null, []))
 }
+
+// ── a line asked for from a sent message ────────────────────────────────────
+
+/** A line of a Ticket's diff that a block of a sent message asks Changes to show (ticket 05). */
+export interface LineRequest extends ChangesSubject {
+  projectId: string
+  path: string
+  side: 'old' | 'new'
+  line: number
+  seq: number
+  /** When it was asked for, ms (Date.now). */
+  at: number
+}
+
+/**
+ * How long a line asked for stays asked for, in ms. Going to the Canvas may draw the Node anew (React Flow draws the
+ * Nodes in sight): a Node drawn anew within this time brings the line into view again.
+ */
+export const LINE_REQUEST_MS = 5_000
+
+export const useLineRequests = create<{ request: LineRequest | null }>(() => ({ request: null }))
+
+/**
+ * The block of a comment on code in a sent message (session/QuotedPrompt.tsx): opens the Ticket's Changes Node as Open
+ * changes of the Command palette does, and leaves the line for the Node to bring into view (lineRequestFor).
+ */
+export async function openChangesAtLine(projectId: string, subject: ChangesSubject, at: { path: string; side: 'old' | 'new'; line: number }): Promise<string | undefined> {
+  lastSeq += 1
+  useLineRequests.setState({ request: { projectId, epic: subject.epic, num: subject.num, ...at, seq: lastSeq, at: Date.now() } })
+  return openChangesFromPalette(projectId, subject, currentLayout(projectId)?.nodes ?? [])
+}
+
+/** The line asked for the Ticket's Node, while it is fresh (LINE_REQUEST_MS); null when there is none. */
+export function lineRequestFor(request: LineRequest | null, projectId: string, subject: ChangesSubject, now = Date.now()): LineRequest | null {
+  if (request === null || request.projectId !== projectId || request.epic !== subject.epic || request.num !== subject.num) return null
+  return now - request.at <= LINE_REQUEST_MS ? request : null
+}

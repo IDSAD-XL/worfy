@@ -184,7 +184,8 @@ A file whose text did not change shows its change of mode.
 #### Keys
 
 With the focus in the Node (a click anywhere in it): `j` and `k` select the next and the previous file and scroll to
-it, `n` and `p` scroll to the next and the previous hunk. The keys do nothing while typing in the filter.
+it, `n` and `p` scroll to the next and the previous hunk, `c` comments on the lines picked ([Comments on
+lines](#comments-on-lines)). The keys do nothing while typing in the filter.
 
 #### Size
 
@@ -196,7 +197,8 @@ their height, so a Ticket of 300 files or a file of 2 000 lines draws a few scre
 
 The Node reads the diff on the Machine of the Project, with read-only access too. A read-only screen cannot put a new
 Node on the Canvas: the button and the palette row are inactive there until the Node exists, and then go to it. The
-scope picked there stays on that screen.
+scope picked there stays on that screen. A read-only screen takes no comments on lines: it has no «+», no `c` and no
+tray.
 
 ### How it works
 
@@ -227,3 +229,88 @@ Hide whitespace, a folded large file and a binary file, Workflow files, the filt
 the window), `test/unit/canvas-actions.test.tsx` (where the button is, where the Node goes, the second click),
 `test/unit/palette-commands.test.tsx` (Open changes and the read-only screen), `test/e2e/changes.spec.ts` (the card,
 the files and lines against `git diff <merge-base>`, the palette, 300 files and a file of 2 100 lines folded).
+
+## Comments on lines
+
+### Behaviour
+
+#### Making one
+
+A comment is made on one line or on a range of lines of one file and one side of the diff:
+
+- **«+»** in the gutter of the line under the pointer;
+- the key **`c`** on the lines picked: a click on a line picks it, a click with Shift or a selection across lines picks
+  a range;
+- **Comment** in the menu of a right click on a line, next to **Copy line**.
+
+A popover opens over the line. It names the place (`src/cart.ts:13 · new side`), shows the code of the lines and takes
+the text and up to three images, pasted or added, as a comment on a quote does
+(Comments on quotes, [Sessions](sessions.md)). `⌘↵` (Ctrl+Enter on Windows and Linux) saves it; Esc or a click outside
+closes an unchanged popover and keeps a changed one. A changed popover also stays when «+», `c`, Comment or Edit is
+used elsewhere: worfy asks to save or cancel it first. The comment then stands under its last line, marked «not sent»,
+with Edit and Delete. Delete offers Undo for six seconds.
+
+#### The tray and «To»
+
+The bottom of the Node is the tray: «N comments on M files» (and «K on messages» when the Session in «To» has comments
+on its messages too), a chip per comment that scrolls to its line, Clear, the list **To**, a field for a general
+message and **Send**.
+
+«To» lists the Sessions of worfy bound to the Ticket (a manual Binding wins over the one a launch made), newest record
+first, then the Orchestrator. A Session of any Vendor may be there. The default is the bound Session with the newest
+record, however old it is; without a bound Session, the Orchestrator. Once the Session shown holds comments or has
+taken a Send, «To» keeps it until you pick another: a later default (after a Refresh, or the list read again after a
+Send) does not move «To» away from the comments. With the Orchestrator in «To» while Autopilot runs, the tray says
+«Autopilot is running».
+
+A comment belongs to the Session in «To»: it is a draft of that Session, the same one its input field lists in its own
+tray. Picking another Session moves this Ticket's comments on code to it; comments on messages stay where they are.
+The comments not sent yet survive a reload of the window and a restart of worfy.
+
+#### Send
+
+Send sends one message to the Session in «To»: the section «Comments on lines of the diff (N)» with the branch, then for
+each comment its path and lines, its side and commit, its code quoted and its text, then «General:» and the text of the
+field. It is the message the Session's own Send would make from the same drafts, comments on its messages included. A
+Session that runs no more is started first; one in the middle of a turn keeps the message in its queue. The comments
+that went stay dim on their lines, «sent to <Session>». While Send runs, «To», the field, × and Clear in the tray, and
+Edit and Delete under a line wait for it: the message goes to the Session it was sent to, with the comments as they
+were.
+
+In the Session's chat the message shows each comment as a block with its path and lines. A click on the path opens the
+Changes Node of the Ticket and scrolls to the line, which flashes.
+
+#### After a Refresh
+
+Each comment not sent yet is looked for again in its file's lines and moves with them. This happens in the reads of
+the scope and Hide whitespace the Refresh was pressed in, and only for a comment on the commit those reads show on its
+side (the work tree for uncommitted lines): a comment made in another scope keeps its lines, true at its commit. One
+whose lines the read shows and which are gone keeps its place, is marked «Line changed» on the line and in the tray,
+and is sent as it was written; lines the read does not show are no news.
+
+### How it works
+
+`changes.targets` reads the list «To» in main: the Session Nodes of the Layout, the stored Bindings, the time of each
+transcript's last record and whether Autopilot runs. A Session that runs is named by its live id. A Session that has not
+reported its id yet keeps its comments under a placeholder; they move to its id once it reports one.
+
+The comments are kept in the store of comments on quotes, in this window's localStorage, which lives in worfy's data
+folder: nothing is written into the repository. The comments that went are kept per Ticket, the newest 200, so they
+stay dim after a restart. The commit of a comment is the head of the scope it was made in: the worktree for its
+uncommitted lines, the commit of a Commit scope, the merge-base for the old side.
+
+### Implementation
+
+- `src/renderer/changes/line-comments.tsx` — what the diff, the popover, the tray and «To» do together; Send.
+- `src/renderer/changes/LineComment.tsx` — the popover and the boxes under the lines; `src/renderer/changes/Tray.tsx` —
+  the tray; `src/renderer/changes/sent-lines.ts` — the comments that went.
+- `src/renderer/changes/DiffPane.tsx` — the gutter, the lines picked, the boxes under the lines, the scroll to a line.
+- `src/renderer/changes/open.ts` — the request that opens the Node on a line; `src/renderer/session/QuotedPrompt.tsx` —
+  the block of a comment in the chat.
+- `src/main/changes/targets.ts` and `src/main/ipc/changes.ts` — the list «To»; `src/shared/ipc/changes.ts` — its channel.
+
+Tests: `test/unit/changes-tray.test.tsx` («+», `c` and a range open the popover, the tray of the Session in «To»,
+another Session takes the comments, «To» keeps a Session with comments, the locks while Send runs, a Refresh in the
+comment's own scope, a changed popover stays, Read only), `test/contract/changes-targets.test.ts` (who is in «To» and the
+default), `test/e2e/changes-comments.spec.ts` (two comments, a reload, one message to the fake agent, the block in the
+chat opens the Node on its line).
