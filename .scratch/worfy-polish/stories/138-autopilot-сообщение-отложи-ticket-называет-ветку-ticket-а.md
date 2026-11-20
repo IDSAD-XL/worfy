@@ -101,3 +101,16 @@ contract test-ами: 9 failed, exit 1) и зелёные после. Mutant-ы:
    - Ответ: когда у Ticket-а своего Epic-а нет `fromBranch` в свежем чтении — claim уже в main, ветки нет или чтение не
      удалось; тогда правило звучит только словами.
    - Строки: `src/main/autopilot/run.ts:2933-2938`
+
+## 6. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 138 (the Autopilot «set the Ticket aside» message says where to run `ticket block`), head 4a517c31c4d32601f74753cc0a37e8072e52a4a3
+>
+> Gate (depth medium, two rounds): verifier (lens: implementer's claims, sonnet) — all six claims CONFIRMED on round 1; reviewer (correctness) — round 1 FIX (one medium, two low), round 2 MERGE, all three FIXED.
+>
+> - Fix: continuation.ts names `branch <epic>/<NN>` per Ticket when the fresh workflow read knows fromBranch (run.ts, filtered by run.epic), asks for `git -C <worktree> commit … -- <ticket file>`; a Ticket without a worktree gets the block on main only the way the documents PR carries statuses, never by a direct commit. Silent mode (projectMode dep = readProjectLayout(root).mode, wired in ipc/autopilot.ts; failure → Full): «Run it from any directory, with no commit», no worktree/branch/git words — as the skill epic-wave says.
+> - Evidence: unit red before (exit 1) / green after (exit 0); round 2 tests 9 failed → 27 passed; mutants re-run by the reviewer: drop the epic filter → scenario 2 red, no mode → Silent scenario 3 red; 42 autopilot-* unit+contract files 1049 passed EXIT=0; lint, typecheck, story-check, evidence-check EXIT=0; gate fast green EXIT=0.
+> - Low findings (not tickets): projectMode bypasses the projectLayouts() cache (two extra node processes per set-aside); «from any directory» is literal-loose (ticket finds the profile from cwd; the Orchestrator runs in the Project root); the ipc wiring has no test.
+> - worfy has no worktree path in its model (only fromBranch), so `<worktree>` stays a placeholder the Orchestrator fills — meets the ticket («ветку или worktree»).
+>
+> Decided without the owner (to confirm): branch from fromBranch of a fresh workflow read; unknown mode → Full; helper options fromBranch/silent in autopilot-faults-setup.ts and the ipc/autopilot.ts edit outside «Где в коде»; ru/autopilot-faults.md updated because the brief named it.

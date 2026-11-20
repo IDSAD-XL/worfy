@@ -1,7 +1,7 @@
 # 138 — Autopilot: сообщение «отложи Ticket» называет ветку Ticket-а
 
 Type: bug
-Status: claimed 2026-11-20T16:49Z
+Status: done 2026-11-20T19:02Z
 PR: #2102
 Branch: worfy-polish/138
 Blocked by: none
@@ -54,6 +54,7 @@ Source: решение владельца 2026-11-20, Q5. Тот же прова
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0; `pnpm lint` exit 0; `pnpm typecheck` exit 0 · mac - · afc1146d4794844532b64d11723baf365e02c7ee
   - evidence: gate pass · `gate fast` exit 0; `pnpm lint` exit 0; `pnpm typecheck` exit 0 · mac - · efeb1df63474580925d8ff01fa8ca8438ae85c07
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44783618672/job/136473542242 · ci - · 4a517c31c4d32601f74753cc0a37e8072e52a4a3
 
 ## Где в коде
 
