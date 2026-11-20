@@ -127,3 +127,15 @@ Source: [spec.md](../spec.md), «Ticket-ы», 7; «Решения по реал�
    `reviewPayloadOf` даёт красный.
 
 После раунда — 19 unit и 17 contract зелёные.
+
+Раунд ревью 2 (ревьюер подтвердил четыре правки и нашёл одну регрессию от них; каждая правка — test, красный до неё):
+
+1. **Очередь снимается сразу после rename**, а не после удаления временного файла: выход worfy (`flushSync` на
+   `will-quit`) в этом окне применял записанное изменение второй раз — `['A','B','B']` в файле. Для test-а добавлен
+   параметр `removeTemp` (удаление временного файла). Test: contract «a quit between the rename and the removal of the
+   temporary file writes nothing twice».
+2. **Диапазон не выходит за конец файла после поиска строк заново:** место, где `start + size - 1` больше длины файла,
+   не считается; не осталось мест — комментарий на старой строке с отметкой «line moved» (иначе GitHub ответил бы 422
+   на Submit). Test: unit «a range that would run past the end of the file stays in place, marked moved».
+
+После раунда — 20 unit и 18 contract зелёные.

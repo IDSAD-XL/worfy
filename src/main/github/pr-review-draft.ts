@@ -155,7 +155,10 @@ export function reanchor(draft: ReviewDraft, head: string, read: (path: string) 
     const size = sizeOf(comment)
     const lines = linesOf(anchor.text, size)
     const old = comment.start_line ?? comment.line
-    const places = file === null || anchor.text.trim() === '' ? [] : placesOf(file, lines)
+    // A line end at the very end of the file starts no line of its own.
+    const length = file === null ? 0 : file.at(-1) === '' ? file.length - 1 : file.length
+    // A place where the whole range would not fit — past the end of the file — is no place.
+    const places = file === null || anchor.text.trim() === '' ? [] : placesOf(file, lines).filter((place) => place + size - 1 <= length)
     if (places.length === 0) {
       next.anchors[index] = { ...anchor, moved: true }
       return
@@ -187,6 +190,8 @@ export interface PrReviewDraftsOptions {
   now?: () => number
   /** For tests: the write of the temporary file. */
   writeFile?: (file: string, text: string) => Promise<void>
+  /** For tests: the removal of the temporary file after a write. */
+  removeTemp?: (file: string) => Promise<void>
   /** For tests: after each rename of a draft file into place. */
   wrote?: (file: string) => void
   warn?: (message: string) => void
@@ -415,11 +420,12 @@ export class PrReviewDrafts {
         await rename(tmp, file)
         written = true
       }
+      // Right after the rename, with no await between: a quit (flushSync) while the temporary file is removed must not
+      // find the written changes still waiting. Inside exclusive(): no change came meanwhile, so what waited is what was written.
+      this.drop(file)
     } finally {
-      await rm(tmp, { force: true })
+      await (this.options.removeTemp ?? ((path) => rm(path, { force: true })))(tmp)
     }
-    // Inside exclusive(): no change came meanwhile, so what waited is what was written.
-    this.drop(file)
     if (!written) return
     this.lastWrite.set(file, this.now())
     this.options.wrote?.(file)

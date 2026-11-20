@@ -213,9 +213,22 @@ describe('finding the lines again after a new head', () => {
     const draft = agentDraft()
     draft.payload.comments[1] = { ...draft.payload.comments[1]!, start_line: 20, line: 22 }
     draft.anchors[1] = { text: '  wait *= 2', by: 'agent' }
-    const after = reanchor(draft, NEXT, () => moved)
+    const after = reanchor(draft, NEXT, () => `${moved}\n  return wait`)
     expect(after.payload.comments[1]).toMatchObject({ start_line: 26, line: 28 })
     expect(reviewDraftSchema.parse(after)).toEqual(after)
+  })
+
+  it('a range that would run past the end of the file stays in place, marked moved', () => {
+    // Range 1–3 with the text of one line only, found on the last line of a three-line file: 3–5 would not exist.
+    const draft = newReviewDraft(REPO, PR, HEAD)
+    draft.payload.comments.push({ path: 'src/a.ts', start_line: 1, start_side: 'RIGHT', line: 3, side: 'RIGHT', body: 'Why?' })
+    draft.anchors.push({ text: 'target', by: 'agent' })
+    const after = reanchor(draft, NEXT, () => 'x\ny\ntarget\n')
+    expect(after.payload.comments[0]).toMatchObject({ start_line: 1, line: 3 })
+    expect(after.anchors[0]).toEqual({ text: 'target', by: 'agent', moved: true })
+    // The same range found where it fits moves as usual.
+    expect(reanchor(draft, NEXT, () => 'target\ny\nz\n').payload.comments[0]).toMatchObject({ start_line: 1, line: 3 })
+    expect(reanchor(draft, NEXT, () => 'w\ntarget\ny\nz').payload.comments[0]).toMatchObject({ start_line: 2, line: 4 })
   })
 
   it('a trailing line end in the text of the lines does not move the comment a line down', () => {

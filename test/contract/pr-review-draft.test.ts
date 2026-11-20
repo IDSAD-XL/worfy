@@ -9,7 +9,7 @@
 // - a Linked machine, at any access level, is refused every `prReview.*` channel before the handler.
 // The race of main with bin/pr-review-draft is ticket 08's. Nothing reaches GitHub: no gh is given at all.
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, utimesSync, writeFileSync } from 'node:fs'
-import { writeFile } from 'node:fs/promises'
+import { rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -185,6 +185,26 @@ describe('at most one write in 500 ms', () => {
     await vi.waitFor(() => expect(s.onDisk()?.payload.comments).toHaveLength(5), { timeout: ms(5_000), interval: 50 })
     expect(s.writes.length).toBeLessThanOrEqual(2)
     for (let i = 1; i < s.writes.length; i++) expect(s.writes[i]! - s.writes[i - 1]!).toBeGreaterThanOrEqual(WRITE_INTERVAL_MS)
+  })
+
+  it('a quit between the rename and the removal of the temporary file writes nothing twice', async () => {
+    let now = 0
+    let quitting = false
+    const holder: { drafts?: PrReviewDrafts } = {}
+    const s = await setup({
+      now: () => now,
+      removeTemp: async (path) => {
+        // worfy quits (will-quit) while the write still removes its temporary file.
+        if (quitting) holder.drafts!.flushSync()
+        await rm(path, { force: true })
+      },
+    })
+    holder.drafts = s.drafts
+    ok(await s.call('prReview.saveComment', save(12, 'A.')))
+    quitting = true
+    now += WRITE_INTERVAL_MS
+    ok(await s.call('prReview.saveComment', save(30, 'B.')))
+    expect(s.onDisk()?.payload.comments.map((each) => each.body)).toEqual(['A.', 'B.'])
   })
 
   it('what waits is written at quit, synchronously', async () => {
