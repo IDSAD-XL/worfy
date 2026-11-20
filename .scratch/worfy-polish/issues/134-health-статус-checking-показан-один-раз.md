@@ -29,8 +29,10 @@ Source: скриншот и слова владельца 2026-11-20 «В health
 
 - [ ] Unit test `test/unit/settings-health.test.tsx`: пока идёт проверка, chip-а `first-run-summary` нет ни в Health, ни
       в First run, кнопка — «Checking…» со spinner-ом; после ответа chip показывает итог. Красный до правки.
+  - evidence: test-run pass · `pnpm test test/unit/settings-health.test.tsx test/unit/first-run-dialog.test.tsx` exit 0 · mac - · 5f00066f5
 - [ ] Снимки Playwright Health в светлой и тёмной теме — во время проверки и после неё (в scratchpad, названы в «Итог»).
 - [ ] `docs/features/onboarding.md` и `docs/features/ru/onboarding.md` описывают chip-итог без «Checking…».
+  - evidence: commit pass · fix(health): show the running check once, on the Check again button · - - · 5f00066f5
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Где в коде
