@@ -1,7 +1,7 @@
 # 01 — Прототип: поиск, Start review с выбором Review myself или Agent review, Review mode, диалог Submit и chip одобрений
 
 Type: prototype
-Status: open
+Status: done 2026-11-20T02:25Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 1; «Решение» (пункты 1–6, «Как пользователь идёт по экрану», «Экран»);
 «Вопросы владельцу», Q5, Q6 и требование владельца 2026-11-20
@@ -45,9 +45,10 @@ Source: [spec.md](../spec.md), «Ticket-ы», 1; «Решение» (пункт�
 
 - [ ] Card «Prototype: PR search and review» открывается на Canvas Project-а и показывает все состояния из «Что
       делаем», 2–6, в светлой и тёмной теме; в консоли Card-а нет ошибок.
-- [ ] Данные выдуманы: `grep -inE "canvasforai|idsad|src/main|src/renderer|https?://" <card>/index.html` не
+  - не проверено: консоль смотрели в headless Chromium, не в Card-е; владелец смотрит Card
+- [x] Данные выдуманы: `grep -inE "canvasforai|idsad|src/main|src/renderer|https?://" <card>/index.html` не
       находит настоящих путей, имён и адресов.
-- [ ] В «Итог» — id Card-а; брифы Ticket-ов 03, 05, 09, 10 и 11 ссылаются на него.
+- [x] В «Итог» — id Card-а; брифы Ticket-ов 03, 05, 09, 10 и 11 ссылаются на него.
 
 ## Где в коде
 
@@ -59,3 +60,23 @@ Source: [spec.md](../spec.md), «Ticket-ы», 1; «Решение» (пункт�
 ## Вне скоупа
 
 - Код вида и main — Ticket-ы 02–11. Логика Agent review — Ticket 08.
+
+## Итог
+
+- Card — `card-53b21f06`, title «Prototype: PR search and review», связан с Ticket-ом `worfy-pr-review/01`. Файл —
+  `~/Library/Application Support/worfy/CanvasForAI-a2cd477b/cards/card-53b21f06/index.html`.
+- 17 состояний (кнопки в полосе «Prototype · fictional data»): `search`, `inbox`, `scope`, `saved`, `savepop`,
+  `filter`, `start`, `myself`, `popover`, `agent-writing`, `agent-done`, `moved`, `finish`, `finish-agent`, `discard`,
+  `submitted`, `chips`. Переключатель Light / Dark; `#state=<name>&theme=dark` открывает состояние сразу.
+- Брифы Ticket-ов ссылаются на состояния: 03 — `chips`; 05 — поиск и inbox (`search` … `filter`); 09 — Review mode и
+  Start review (`start`, `myself`, `agent-writing`, `agent-done`); 10 — комментарии к строкам и полоса Your review
+  (`popover`, `myself`, `moved`, `discard`); 11 — диалог Finish review и состояние после отправки (`finish`,
+  `finish-agent`, `submitted`).
+- Снимки экрана — в scratchpad, не в репозитории: `/tmp/worfy-night-1120/prr-01/shots/`, 36 PNG, 1440 × 900, каждое
+  состояние в `light` и `dark` (плюс `chips-cards-*` — chip на карточках доски Pipeline и Canvas).
+- Данные выдуманы: `grep -inE "canvasforai|idsad|src/main|src/renderer|https?://" <card>/index.html` — exit 1,
+  ничего не найдено.
+- Console: ошибок нет в headless Chromium (Playwright). Внутри Card-а на Canvas не проверялось.
+- Требование владельца (кто пишет ревью): прототип показывает Start review ▾ с Review myself и Agent review. Вердикт
+  агента — только подсказка в Finish review («The agent suggests: …»); выбор Comment / Approve / Request changes
+  остаётся за человеком.

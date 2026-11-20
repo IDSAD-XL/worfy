@@ -56,6 +56,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение», 1 и 2; «�
 Только читать: `src/shared/ipc/pr-search.ts` (Ticket 04), `src/renderer/pr-inbox/ApprovalsChip.tsx` (Ticket 03),
 `src/renderer/theme/kit/`, `test/e2e/pr-inbox.spec.ts` (образец stand-in-а).
 
+Образец вида — Card `card-53b21f06` («Prototype: PR search and review», Ticket 01), состояния `search`,
+`inbox`, `scope`, `saved`, `savepop`, `filter`. Состояние открывается сразу по `#state=<name>&theme=dark`.
+
 ## Вне скоупа
 
 - Review mode и выбор способа ревью — Ticket 09. Уведомления о новых результатах сохранённого поиска — вне Epic-а.
