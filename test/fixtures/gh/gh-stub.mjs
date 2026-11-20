@@ -42,7 +42,16 @@
 //     the call prints the data and exits 1 with "GraphQL: Could not resolve to a PullRequest …". A details query
 //     of more PRs than `detailsMax` fails with HTTP 504, as GitHub times out on a heavy page. `rateLimit` goes
 //     into every answer.
+//     A pull of graphql.json with `"hidden": true` sits in a repository the token cannot see: its alias is null and
+//     the error is "Could not resolve to a Repository with the name …", as GitHub answers for a private one.
 //   - graphql-503: a number; that many `api graphql` calls fail with HTTP 503 first, one less each time.
+//   - search.json: what the PR search (worfy-pr-review ticket 04, `search(type: ISSUE, query: $q, …)`) answers, `{"viewer"?
+//     (graphql.json's), "rateLimit"?, "answers": [{"q": <the exact search string>, "after"?: <the cursor asked, null for
+//     the first page>, "status"?: <HTTP status, 200>, "headers"?: {<extra headers>}, "message"?, "errors"?: [<GraphQL
+//     errors>], "noData"?: true, "issueCount"?, "nodes"?: [{"repo", "number", "updatedAt"}], "endCursor"?,
+//     "hasNextPage"?}]}`. A search none names answers no results. A status above 299 prints `{"message"}` as the body
+//     and `gh: <message> (HTTP <status>)` on stderr and exits 1; `errors` go with the data and exit 1 with "GraphQL: …"
+//     as gh does. With `-i` (any `api graphql` call) the status line and the headers come first, as gh prints them.
 //   - notifications.json: what `api -i notifications?participating=true [-H "If-Modified-Since: <date>"]` answers
 //     (worfy-pr-inbox ticket 08), `{"lastModified"?, "pollInterval"? (60), "rate"?: {"limit", "remaining", "reset"},
 //     "status"?, "message"?, "retryAfter"?, "notifications"?: [<GitHub's notification threads>], "body"?: <a raw body
@@ -239,6 +248,10 @@ function graphql() {
     writeFileSync(join(dir, 'graphql-503'), String(pending503 - 1))
     fail('gh: Service Unavailable (HTTP 503)')
   }
+  if (query.includes('search(type: ISSUE, query: $q')) {
+    prSearch(vars, world, rateLimit)
+    return
+  }
   if (query.includes('search(')) {
     const data = { viewer: { login: world.viewer }, rateLimit }
     for (const [name, text] of Object.entries(vars)) {
@@ -275,17 +288,59 @@ function graphql() {
       const n = key.slice(1)
       const slug = `${vars[`o${n}`]}/${vars[`n${n}`]}`
       const pull = world.pulls.find((each) => each.repo === slug && each.number === Number(vars[key]))
-      if (pull === undefined || pull.missing === true) {
+      if (pull?.hidden === true) {
+        data[`p${n}`] = null
+        errors.push({ type: 'NOT_FOUND', path: [`p${n}`], message: `Could not resolve to a Repository with the name '${slug}'.` })
+      } else if (pull === undefined || pull.missing === true) {
         data[`p${n}`] = { pullRequest: null }
         errors.push({ type: 'NOT_FOUND', path: [`p${n}`, 'pullRequest'], message: `Could not resolve to a PullRequest with the number of ${vars[key]}.` })
       } else data[`p${n}`] = { pullRequest: { number: pull.number, updatedAt: pull.updatedAt, headRefOid: pull.headRefOid, ...pull.pull } }
     }
-    process.stdout.write(JSON.stringify(errors.length > 0 ? { data, errors } : { data }))
-    // As gh: an answer with GraphQL errors exits 1 and names the first one on stderr, the data on stdout all the same.
-    if (errors.length > 0) fail(`GraphQL: ${errors[0].message} (${errors[0].path.join('.')})`)
+    graphqlAnswer({ data, ...(errors.length > 0 ? { errors } : {}) }, rateLimit)
     return
   }
   fail(`gh stub: unsupported GraphQL query: ${query.slice(0, 80)}`, 2)
+}
+
+/**
+ * Prints a GraphQL answer as gh does: with `-i`, the status line and the headers first; a status above 299 — the
+ * body, then `gh: <message> (HTTP <status>)` on stderr, exit 1; GraphQL errors — the body, then "GraphQL: …", exit 1.
+ */
+function graphqlAnswer(body, rateLimit, status = 200, extra = {}) {
+  if (args.includes('-i')) {
+    const reasons = { 200: 'OK', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not Found', 422: 'Unprocessable Entity', 429: 'Too Many Requests', 502: 'Bad Gateway' }
+    const headers = {
+      'Content-Type': 'application/json; charset=utf-8',
+      'X-Ratelimit-Limit': String(rateLimit.limit),
+      'X-Ratelimit-Remaining': String(rateLimit.remaining),
+      'X-Ratelimit-Reset': String(Math.floor(Date.parse(rateLimit.resetAt) / 1000)),
+      'X-Ratelimit-Resource': 'graphql',
+      ...extra,
+    }
+    process.stdout.write(`HTTP/2.0 ${status} ${reasons[status] ?? 'Unknown'}\n`)
+    for (const name of Object.keys(headers).sort()) process.stdout.write(`${name}: ${headers[name]}\r\n`)
+    process.stdout.write('\r\n')
+  }
+  process.stdout.write(JSON.stringify(body))
+  // As gh: an answer with GraphQL errors exits 1 and names the first one on stderr, the data on stdout all the same.
+  const reason = status > 299 ? `gh: ${body.message ?? 'HTTP error'} (HTTP ${status})` : body.errors?.length > 0 ? `GraphQL: ${body.errors[0].message}${body.errors[0].path ? ` (${body.errors[0].path.join('.')})` : ''}` : null
+  if (reason === null) return
+  // Exit code 1 without process.exit, so stdout, which may be written later on a pipe, is not cut off.
+  process.stderr.write(`${reason}\n`)
+  process.exitCode = 1
+}
+
+/** The PR search of worfy-pr-review ticket 04: the answer search.json gives the search string and cursor. */
+function prSearch(vars, world, rateLimit) {
+  const searches = read('search.json', { answers: [] })
+  const rate = searches.rateLimit ?? rateLimit
+  const answer = searches.answers.find((each) => each.q === vars.q && (each.after ?? null) === (vars.cursor ?? null)) ?? {}
+  const status = answer.status ?? 200
+  if (status > 299) return graphqlAnswer({ message: answer.message ?? 'HTTP error', documentation_url: 'https://docs.github.com/graphql' }, rate, status, answer.headers)
+  const nodes = (answer.nodes ?? []).map((node) => ({ number: node.number, updatedAt: node.updatedAt, repository: { nameWithOwner: node.repo } }))
+  const search = { issueCount: answer.issueCount ?? nodes.length, pageInfo: { hasNextPage: answer.hasNextPage ?? false, endCursor: answer.endCursor ?? null }, nodes }
+  const data = answer.noData === true ? null : { viewer: { login: searches.viewer ?? world.viewer }, rateLimit: rate, search }
+  graphqlAnswer({ data, ...(answer.errors ? { errors: answer.errors } : {}) }, rate, status, answer.headers)
 }
 
 /**
@@ -333,7 +388,7 @@ function writeArg(arg) {
 /** Whether an `api graphql` call is one of the PR inbox's queries; any other GraphQL is not understood. */
 function inboxQuery() {
   const query = args.find((arg, i) => args[i - 1] === '-f' && arg.startsWith('query=')) ?? ''
-  return (query.includes('review: search(') && query.includes('involves: search(')) || query.includes('pullRequest(number: $k0)') || query.includes('node(id: $thread)') || query.includes('pullRequest(number: $number)')
+  return (query.includes('review: search(') && query.includes('involves: search(')) || query.includes('search(type: ISSUE, query: $q') || query.includes('pullRequest(number: $k0)') || query.includes('node(id: $thread)') || query.includes('pullRequest(number: $number)')
 }
 
 /** The login of GH_TOKEN (tokens.json); the viewer of graphql.json without one. */

@@ -58,3 +58,9 @@ worfy ничего не пишет в репозитории Project-ов — н
   отправленный черновик хранится 30 дней и удаляется при первом обращении к черновикам Project-а после запуска worfy.
   Каналы `prReview.*` — `local`: Linked machine черновик не читает и не пишет. На GitHub worfy pending review не
   создаёт (ADR-0105).
+- 2026-11-20 — ещё одно место состояния PR inbox (worfy-pr-review 04): `<Project data folder>/pr-searches.json` в
+  `WORFY_DATA_DIR`, рядом с `pr-inbox.json` — сохранённые поиски PR вкладки Pull requests: имя, строка поиска и
+  область каждого (This Project, организации Project-а, All of GitHub), не больше 20. Результаты поиска и тексты PR в
+  файл не пишутся. Два встроенных поиска («Review requested from me · All of GitHub», «Reviewed by me · open») в файле
+  не хранятся и не удаляются. Пишут файл только каналы `prSearch.save` и `prSearch.forget` (`'project', 'write'`):
+  Linked machine с доступом Read only их не вызовет, `prSearch.saved` (`'project', 'read'`) ей открыт.

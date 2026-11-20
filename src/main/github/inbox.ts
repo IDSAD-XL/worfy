@@ -246,7 +246,7 @@ const pullSchema = z.object({
  * row of the snapshot carries on; the groups do not read it. With them its approvals by the rules of its base branch
  * (worfy-pr-review ticket 02), which the groups do not read either: Ready stays on `decisionOf`.
  */
-type ReadPull = InboxPull & { isCrossRepository?: boolean; approvals?: PrApprovals }
+export type ReadPull = InboxPull & { isCrossRepository?: boolean; approvals?: PrApprovals }
 
 function toPull(repo: string, raw: z.output<typeof pullSchema>): ReadPull {
   const head = raw.commits.at(-1)?.commit
@@ -296,6 +296,15 @@ function toPull(repo: string, raw: z.output<typeof pullSchema>): ReadPull {
     threads: raw.reviewThreads.map(({ diffSide, ...thread }) => ({ ...thread, path: thread.path ?? null, line: thread.line ?? null, side: diffSide ?? 'RIGHT' })),
     comments: raw.comments,
   }
+}
+
+/**
+ * A PR of a details answer (`pN.pullRequest`) as the reader keeps it; null for a PR GitHub gave none of, or one this
+ * build cannot parse. The PR search reads the PRs outside the inbox with it (worfy-pr-review ticket 04).
+ */
+export function readPull(repo: string, raw: unknown): ReadPull | null {
+  const parsed = pullSchema.safeParse(raw)
+  return parsed.success ? toPull(repo, parsed.data) : null
 }
 
 const foundSchema = z.object({ number: z.number().int().positive(), updatedAt: z.string(), repository: z.object({ nameWithOwner: z.string() }) })
@@ -549,6 +558,28 @@ export class PrInbox {
     return this.snapshot(projectId)
   }
 
+  /**
+   * The rate-limit pause of an account (null — gh's own): set by the inbox's reads and by the PR search's alike
+   * (worfy-pr-review ticket 04), so neither spends what the other left; null when its calls may run.
+   */
+  accountPause(account: string | null): { until: number; reason: string } | null {
+    const cache = this.accounts.get(account ?? '')
+    return cache !== undefined && cache.pausedUntil > this.now() ? { until: cache.pausedUntil, reason: cache.pauseReason ?? '' } : null
+  }
+
+  /** A read of the account outside the inbox (the PR search) saw this `rateLimit`: below RATE_LIMIT_FLOOR the inbox waits too. */
+  noteAccountRate(account: string | null, rate: unknown): void {
+    this.noteRate(this.cacheOf(account ?? ''), rateSchema.parse(rate))
+  }
+
+  /** GitHub refused a read of the account outside the inbox for its rate limit: the inbox waits until `until` too. */
+  pauseAccount(account: string | null, until: number, reason: string): void {
+    const cache = this.cacheOf(account ?? '')
+    if (until <= cache.pausedUntil) return
+    cache.pausedUntil = until
+    cache.pauseReason = reason
+  }
+
   /** Tells every Project of the account (its cache key) that its snapshot changed. */
   private changedAccount(account: string): void {
     for (const [projectId, state] of this.states) if ((state.account ?? '') === account) this.options.onChange?.(projectId)
@@ -797,7 +828,8 @@ function refOf(key: string, repo: string): PullRef {
   return { owner, name, number: Number(key.slice(key.lastIndexOf('#') + 1)) }
 }
 
-function rowOf(pull: ReadPull, viaTeam: boolean, viewer: string | null, seenAt: string | null): PrInboxRow {
+/** The row of the view; the PR search makes its rows of the PRs outside the inbox with it too (worfy-pr-review ticket 04). */
+export function rowOf(pull: ReadPull, viaTeam: boolean, viewer: string | null, seenAt: string | null): PrInboxRow {
   const since = timeOf(seenAt)
   const fresh = commentsOf(pull).filter((comment) => (viewer === null || !same(comment.author, viewer)) && (Number.isNaN(since) || timeOf(comment.createdAt) > since))
   return {
