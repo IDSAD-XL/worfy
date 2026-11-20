@@ -30,7 +30,7 @@ import { failureReason } from '../../shared/ipc/channels'
 import '../../shared/ipc/changes'
 import type { PrInboxRow } from '../../shared/ipc/pr-inbox'
 import '../../shared/ipc/pr-review'
-import type { ReviewComment, ReviewDraft } from '../../shared/ipc/pr-review'
+import { REVIEW_FILES_MAX, type ReviewComment, type ReviewDraft } from '../../shared/ipc/pr-review'
 import { DiffPane, type DiffPaneHandle, type LineSide } from '../changes/DiffPane'
 import { orderedFiles, type DiffLayout, type FileEntry, type RepoFiles } from '../changes/diff-window'
 import { FileTree } from '../changes/FileTree'
@@ -49,7 +49,17 @@ function commentOnLine(comment: ReviewComment, line: DiffLine, side: LineSide, l
   return line.kind !== 'add' && line.oldLine === comment.line && (side === 'old' || (layout === 'inline' && line.kind === 'context'))
 }
 
-type Read<T> = { of: string; value: T; error: null } | { of: string; value: null; error: string }
+/** Input types that take no text: a key pressed on one (Viewed, Wrap, Hide whitespace) is Review mode's. */
+const NO_TEXT = new Set(['checkbox', 'radio', 'button', 'submit', 'reset', 'range', 'color', 'file', 'image'])
+
+/** Whether the keys belong to a field the person types in. */
+function typingIn(target: HTMLElement): boolean {
+  if (target.isContentEditable || target.closest('textarea, select') !== null) return true
+  const input = target.closest('input')
+  return input !== null && !NO_TEXT.has(input.type)
+}
+
+type Read<T> ={ of: string; value: T; error: null } | { of: string; value: null; error: string }
 
 /** A comment of the draft as Review mode shows it; Ticket 10 gives it Edit and Delete. */
 function DraftComment({ comment, by, repo, where }: { comment: ReviewComment; by: 'person' | 'agent'; repo: string; where?: string }) {
@@ -145,10 +155,14 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
 
   // ── Start review: the draft on the head, the marks of github.com; then the Session of an Agent review ──
   const started = useRef(false)
+  // The files of the head, read without an error: a failed read (5xx, rate limit) would start the draft without the
+  // marks of github.com, and a draft that exists is never started again. Refresh reads the files again.
+  const filesRead = list !== null && list.value !== null && scope.kind === 'all' && list.value.repos.every((each) => each.error === null)
   useEffect(() => {
-    if (!local || subject === null || list === null || started.current) return
+    if (!local || subject === null || !filesRead || started.current) return
     started.current = true
-    const files = scope.kind === 'all' ? allEntries.map((entry) => ({ path: entry.file.path, blob: viewedBlobOf(entry) })) : []
+    // A draft keeps marks for at most REVIEW_FILES_MAX files (GitHub lists no more; local git may).
+    const files = allEntries.slice(0, REVIEW_FILES_MAX).map((entry) => ({ path: entry.file.path, blob: viewedBlobOf(entry) }))
     void invoke('prReview.start', { projectId, repo, number, head: subject.headOid, files }).then((answer) => {
       if (!answer.ok) {
         setNotice(failureReason('prReview.start', answer.error))
@@ -163,7 +177,7 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
         readDraft()
       })
     })
-  }, [local, subject, list, scope.kind, allEntries, projectId, repo, number, row, readDraft])
+  }, [local, subject, filesRead, allEntries, projectId, repo, number, row, readDraft])
 
   // ── the commits since the draft's ──
   const [newCommits, setNewCommits] = useState<{ of: string; count: number | null } | null>(null)
@@ -201,7 +215,8 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
 
   const toggleViewed = useCallback(
     (entry: FileEntry) => {
-      if (!local || subject === null) return
+      // Before Start review created the draft a mark would create it, and Start review would then skip the marks of github.com.
+      if (!local || subject === null || draft === null) return
       const blob = isViewed(draft, entry) ? null : viewedBlobOf(entry)
       void invoke('prReview.setViewed', { projectId, repo, number, head: subject.headOid, path: entry.file.path, blob }).then((answer) => {
         if (!answer.ok) setNotice(failureReason('prReview.setViewed', answer.error))
@@ -222,7 +237,7 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
       // The views of the shell stay mounted and hidden: only the shown one takes keys.
       if (frame === null || frame.closest('[hidden]') !== null) return
       const target = event.target
-      if (target instanceof HTMLElement && (target.isContentEditable || target.closest('textarea, input, select') !== null || layerOf(target) !== null)) return
+      if (target instanceof HTMLElement && (typingIn(target) || layerOf(target) !== null)) return
       const { entries: files, chosen: at, select: go, toggleViewed: mark } = latest.current
       if (event.key === 'Escape') {
         event.preventDefault()

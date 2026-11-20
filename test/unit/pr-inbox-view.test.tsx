@@ -951,6 +951,22 @@ describe('Start review (worfy-pr-review ticket 09)', () => {
     expect(screen.queryByTestId('pr-review-mode')).toBeNull()
     expect(text(pane(), 'pr-inbox-pane-title')).toBe('Add the export button')
   })
+
+  it('the PR in Review mode leaves the inbox on a read (merged, review no longer asked): Review mode closes and ↑ ↓ move along the list again', async () => {
+    await view({ 'web-00000001': reviewed() }, reviewAnswers)
+    select(WEB, 41)
+    fireEvent.click(within(pane()).getByTestId('pr-review-start-more'))
+    fireEvent.click(await screen.findByTestId('pr-review-start-myself'))
+    await screen.findByTestId('pr-review-mode')
+    const gone = reviewed()
+    main.inbox['web-00000001'] = { ...gone, groups: gone.groups.map((group) => ({ ...group, rows: group.rows.filter((each) => each.number !== 41) })).filter((group) => group.rows.length > 0) }
+    await act(async () => main.emit('prInbox.changed', { projectId: 'web-00000001' }))
+    await waitFor(() => expect(screen.queryByTestId('pr-review-mode')).toBeNull())
+    const before = selectedRows()
+    expect(before).toHaveLength(1)
+    key('ArrowDown')
+    expect(selectedRows()).not.toEqual(before)
+  })
 })
 
 describe('selecting a PR', () => {

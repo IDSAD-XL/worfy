@@ -386,6 +386,80 @@ describe('Review mode', () => {
     await waitFor(() => expect(screen.getByTestId('pr-review-comment').textContent).toContain('Jitter as a fraction?'))
   })
 
+  it('the files of the PR not read (the read failed, GitHub refused the repository): no Start review; Refresh reads them, and Start review goes then with the files', async () => {
+    let reads = 0
+    const listed = (files: ChangedFile[], error: string | null): IpcResult<unknown> => ({
+      ok: true,
+      value: { repos: [{ repo: REPO, kind: 'pr', branch: `#${NUMBER}`, scope: 'all', base: null, headSha: HEAD, workTree: false, files, additions: 3, deletions: 1, error, source: 'github', truncatedAt: null }] },
+    })
+    preload({
+      answers: {
+        'changes.list': () => {
+          reads += 1
+          if (reads === 1) return { ok: false, error: 'changes.list failed: HTTP 502' }
+          if (reads === 2) return listed([], 'API rate limit exceeded')
+          return listed(FILES, null)
+        },
+      },
+    })
+    const mode = { ...(await import('../../src/renderer/pr-review/ReviewMode')), ...(await import('../../src/renderer/pr-review/review-store')) }
+    mode.openReviewMode({ projectId: PROJECT, repo: REPO, number: NUMBER }, 'myself', false)
+    render(<mode.ReviewMode projectId={PROJECT} row={row()} readOnly={null} onRefresh={vi.fn()} />)
+    await waitFor(() => expect(reads).toBe(1))
+    await act(async () => Promise.resolve())
+    expect(calls('prReview.start')).toEqual([])
+    fireEvent.click(screen.getByTestId('pr-review-refresh'))
+    await waitFor(() => expect(reads).toBe(2))
+    await act(async () => Promise.resolve())
+    expect(calls('prReview.start')).toEqual([])
+    fireEvent.click(screen.getByTestId('pr-review-refresh'))
+    await waitFor(() => expect(calls('prReview.start')).toHaveLength(1))
+    expect((calls('prReview.start')[0]!.files as unknown[]).length).toBe(2)
+  })
+
+  it('more files than a draft keeps marks for (local git lists them all): Start review sends the first 3,000', async () => {
+    const many = Array.from({ length: 3_005 }, (_, index) => file(`src/f/${String(index).padStart(4, '0')}.ts`))
+    preload({
+      answers: {
+        'changes.list': () => ({
+          ok: true,
+          value: { repos: [{ repo: REPO, kind: 'pr', branch: `#${NUMBER}`, scope: 'all', base: null, headSha: HEAD, workTree: false, files: many, additions: 3, deletions: 1, error: null, source: 'git', truncatedAt: null }] },
+        }),
+      },
+    })
+    const mode = { ...(await import('../../src/renderer/pr-review/ReviewMode')), ...(await import('../../src/renderer/pr-review/review-store')) }
+    mode.openReviewMode({ projectId: PROJECT, repo: REPO, number: NUMBER }, 'myself', false)
+    render(<mode.ReviewMode projectId={PROJECT} row={row()} readOnly={null} onRefresh={vi.fn()} />)
+    await waitFor(() => expect(calls('prReview.start')).toHaveLength(1))
+    expect((calls('prReview.start')[0]!.files as unknown[]).length).toBe(3_000)
+  })
+
+  it('no draft yet (Start review refused): v writes nothing, so github.com marks are not skipped later; no Viewed box either', async () => {
+    preload({ answers: { 'prReview.start': () => ({ ok: false, error: 'prReview.start failed: no Profile folder' }) } })
+    await mountReview()
+    await waitFor(() => expect(calls('prReview.start')).toHaveLength(1))
+    key('j')
+    key('v')
+    expect(screen.queryByTestId('pr-review-viewed')).toBeNull()
+    await act(async () => Promise.resolve())
+    expect(calls('prReview.setViewed')).toEqual([])
+  })
+
+  it('the keys work from a checkbox (Viewed, Wrap); a text field keeps them', async () => {
+    preload()
+    const { mode } = await mountReview()
+    await waitFor(() => expect(screen.getAllByTestId('pr-review-viewed')).toHaveLength(2))
+    const box = screen.getAllByTestId('pr-review-viewed').find((each) => each.dataset.path === 'src/net/retry.ts')!
+    fireEvent.keyDown(box, { key: 'j' })
+    expect(mode.useReviewMode.getState().file).toBe(`${REPO}\u0000src/net/retry.ts`)
+    fireEvent.keyDown(box, { key: 'j' })
+    expect(mode.useReviewMode.getState().file).toBe(`${REPO}\u0000src/net/backoff.ts`)
+    fireEvent.keyDown(screen.getByTestId('changes-filter'), { key: 'Escape' })
+    expect(mode.useReviewMode.getState().open).not.toBeNull()
+    fireEvent.keyDown(screen.getByRole('checkbox', { name: 'Wrap' }), { key: 'Escape' })
+    expect(mode.useReviewMode.getState().open).toBeNull()
+  })
+
   it('read only (a Linked machine): the diff and the threads, no draft, no Viewed, no bar', async () => {
     preload()
     await mountReview({ readOnly: 'Beta gives this Machine read-only access' })

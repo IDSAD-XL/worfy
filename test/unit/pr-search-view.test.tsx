@@ -332,6 +332,30 @@ describe('the filter chips', () => {
 })
 
 describe('the results', () => {
+  it('Enter on a result opens Review mode (worfy-pr-review ticket 09), but not on a PR of my own; Clear closes it with the result', async () => {
+    const mine = searchRow(INBOX.answer, true)
+    const answer = (input: unknown) => {
+      const { repo, number } = input as { repo: string; number: number }
+      const found = [mine, searchRow(RETRY, false)].find((each) => each.repo === repo && each.number === number) ?? null
+      return { ok: true as const, value: { row: found, readAt: new Date(NOW).toISOString(), notices: [] } satisfies PrSearchPull }
+    }
+    await view({ 'prSearch.run': () => ({ ok: true, value: result([mine, searchRow(RETRY, false)]) }), 'prSearch.pull': answer })
+    await search('retry')
+    const rowButton = (number: number): HTMLElement => within(screen.getAllByTestId('pr-inbox-row').find((each) => each.dataset.number === String(number))!).getByRole('button')
+    fireEvent.keyDown(rowButton(118), { key: 'Enter' })
+    expect(screen.queryByTestId('pr-review-mode')).toBeNull()
+    fireEvent.keyDown(rowButton(77), { key: 'Enter' })
+    expect((await screen.findByTestId('pr-review-mode')).dataset.number).toBe('77')
+    fireEvent.click(screen.getByTestId('pr-search-clear'))
+    await waitFor(() => expect(screen.queryByTestId('pr-review-mode')).toBeNull())
+    expect(screen.getAllByTestId('pr-inbox-group').length).toBeGreaterThan(0)
+    // The list takes ↓ again: Review mode is gone, not only hidden.
+    const before = selected()
+    const last = keys().indexOf(before[0]!) === keys().length - 1
+    fireEvent.keyDown(document.body, { key: last ? 'ArrowUp' : 'ArrowDown' })
+    expect(selected()).not.toEqual(before)
+  })
+
   it('replace the groups: «Search · N results», the inbox row with its approvals chip, the first one selected; Clear gives the groups back', async () => {
     await view()
     expect(screen.getAllByTestId('pr-inbox-group')).toHaveLength(2)

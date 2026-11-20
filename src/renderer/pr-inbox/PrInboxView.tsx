@@ -751,6 +751,13 @@ export function PrInboxBody({ name, snapshot, tickets, epics = EMPTY_EPICS, now,
   // Review mode on the PR the pane shows (worfy-pr-review ticket 09): it takes the pane's place, the list folds.
   const reviewOpen = useReviewMode((store) => store.open)
   const reviewing = current !== undefined && reviewOpenOn(reviewOpen, snapshot.projectId, current.row)
+  // Review mode on a PR this view no longer lists (it left the inbox on a read; the search was cleared or changed):
+  // closed, so the list takes its keys again and the PR does not come back in Review mode later.
+  const listed = results !== null ? [...(results.rows ?? []), ...(results.current === null ? [] : [results.current.row])] : order.map(({ row }) => row)
+  const reviewGone = reviewOpen !== null && reviewOpen.projectId === snapshot.projectId && (results !== null || snapshot.readAt !== null) && !listed.some((row) => reviewOpenOn(reviewOpen, snapshot.projectId, row))
+  useEffect(() => {
+    if (reviewGone) closeReviewMode()
+  }, [reviewGone])
   const review =
     current !== undefined && reviewing ? (
       <>
@@ -1153,7 +1160,8 @@ function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' 
       const item = target.closest<HTMLElement>('[data-testid="pr-search-results"] [data-testid="pr-inbox-row"]')
       if (item === null || resultRows === null) return false
       const row = resultRows.find((each) => each.repo === item.dataset.repo && String(each.number) === item.dataset.number)
-      if (row === undefined) return false
+      // A PR of one's own is not reviewed: Enter only selects it.
+      if (row === undefined || (viewer !== null && row.author?.toLowerCase() === viewer.toLowerCase())) return false
       selectResult(row)
       openReviewMode({ projectId: project.id, repo: row.repo, number: row.number }, lastReviewChoice(project.id), reviewAway() !== null)
       return true
@@ -1161,8 +1169,9 @@ function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' 
   })
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      // Review mode takes the keys of the view: ↑ ↓ move along its files, Escape closes it (pr-review/ReviewMode.tsx).
-      if (useReviewMode.getState().open !== null) return
+      // Review mode shown in this view takes its keys: ↑ ↓ move along its files, Escape closes it (pr-review/ReviewMode.tsx).
+      // Open on another Project's PR, or on one this view no longer shows, it takes none.
+      if (root.current?.querySelector('[data-testid="pr-review-mode"]') != null) return
       if (event.key === 'Enter' && !event.defaultPrevented && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.target instanceof HTMLElement && root.current?.contains(event.target) === true) {
         if (startOn.current(event.target)) {
           event.preventDefault()

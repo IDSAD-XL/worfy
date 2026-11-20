@@ -167,7 +167,8 @@ under them. It finds any pull request the Project's GitHub account can see, not 
   while it does not move on GitHub; Refresh, and the window's focus once the read is over a minute old, read it
   again past that memory); it has no "N new since you looked", and a colleague's has the strip **Review this
   pull request**: who the author asked and how many approvals are left, and **Start review ▾**, which opens
-  [Review mode](#review-mode). **Enter** on a result starts the review the same way.
+  [Review mode](#review-mode). **Enter** on a result starts the review the same way; on a PR of your own it only
+  selects it.
 - **Saved searches**: the **▾** at the end of the field lists them, the two built-in ones first — "Review requested
   from me · All of GitHub" (`review-requested:@me is:open`) and "Reviewed by me · open" (`reviewed-by:@me is:open`,
   This Project) — then the user's, each with its text and scope; a choice runs it in its scope. **☆ Save** names the
@@ -197,11 +198,14 @@ Review mode and selects that PR. The head of the screen: `owner/repo#N` and the 
 of GitHub on their lines. A file in the tree shows how many open threads and comments of the draft it has, and ✓ when
 it is Viewed. **j** / **k** and **↓** / **↑** move along the files (not along the PRs), **n** / **p** along the hunks, **v**
 marks the file Viewed or takes the mark off. **Escape** closes an open menu first; the next one closes Review mode. The
-draft stays. Another tab and back keeps the PR, its file and Show new commits.
+draft stays. Another tab and back keeps the PR, its file and Show new commits. A PR that leaves the list (it left
+the inbox on a read, or the search was cleared) closes Review mode, and the list takes its keys again.
 
 **The draft.** Start review creates the review draft of the PR on its head when there is none: a file on
 this machine, in the Project's Profile folder, never on GitHub. That first time main reads which files the account marked Viewed on github.com — one
-GraphQL query, `viewerViewedState`, read only — and marks them Viewed in the draft. After that the marks live only in
+GraphQL query, `viewerViewedState`, read only — and marks them Viewed in the draft, for at most the first 3,000
+files. The draft waits until the files of the PR are read without an error: after a failed read (GitHub busy, a rate
+limit) **Refresh** reads them and starts it. After that the marks live only in
 worfy and are never written to GitHub. A mark belongs to the blob of the file's new side: a push that changes the file
 shows it not Viewed again. The comments of the draft stand on their lines, "Pending", or "Written by the agent" for the
 agent's; writing and editing them comes with the comments on lines.
