@@ -955,6 +955,19 @@ for p in 'owner-check pass --ref "<date>: <the owner'"'"'s word>" --copy <copy>'
     'A screenshot no person has checked yet gets no line and is not committed'; do
     ev "$GUI" "ship-ticket step 6, manual items" "$p"
 done
+# Skill owner-check writes the owner-check line: only on the owner's word, the verdict as the owner gave it, through
+# ticket evidence in the one form, the words never in a shell command, and the privacy check before the push of its
+# documents PR. Its block itself is run by owner-check.test.sh.
+OCS="$SK/owner-check/SKILL.md"
+for p in 'Never tick an item without the owner'"'"'s word' \
+    'not on your own look at the app, not on a test run, not on another agent'"'"'s report' \
+    'Never write `pass` on a Fail: the verdict is the one the owner gave, word for word, even when you think the item works.' \
+    'ticket evidence <epic> <NN> <item> owner-check <pass|fail> --ref "<YYYY-MM-DD>: <the owner'"'"'s words>" --platform <p> --copy <c> [--sha <s>]' \
+    'Never paste the words into a shell command' 'Tell the owner which kinds were replaced, never the values.' \
+    'the lines of one day go into one documents PR' 'node "${CLAUDE_PLUGIN_ROOT}/bin/evidence-check" --changed; echo "EXIT=$?"' \
+    'do not push until it is 0'; do
+    ev "$OCS" "owner-check skill" "$p"
+done
 # When an item needs a picture: three cases (how it looks — a screenshot in both themes; motion — a clip
 # with its contact sheet; anything else — none, a test proves it), pictures only from a fixture build
 # through the e2e runner, and scrub: only after every frame of the sheet is checked. The implementer's

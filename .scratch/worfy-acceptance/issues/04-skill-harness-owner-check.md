@@ -1,7 +1,8 @@
 # 04 — Skill Harness `owner-check`: строка `owner-check` через `ticket evidence`, Pass отмечает пункт, Fail заводит доработку
 
 Type: task
-Status: open
+Status: claimed 2026-11-20T01:05Z
+Branch: worfy-acceptance/04
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решения по реализации» → «Skill `owner-check` Harness-а»; «Риски», «Слова
 владельца в публичном репозитории», «Codex как Orchestrator»; «Вопросы владельцу», Q2

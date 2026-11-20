@@ -85,11 +85,18 @@ ask who runs it.
 | `test-run`, `gate`, `commit` | The implementer | On its own branch, with the code, before the PR, so the lines are in the PR's diff and in the review. Only `pass`, and only for the items its checks proved |
 | `review` | The Orchestrator | At the close: `pass` for `VERIFIED`, `fail` for `REJECTED`, ref `PR #N` |
 | `ci-check` | The Orchestrator | At the close: the URL of the final CI check's run on the PR head, platform `ci` |
-| `owner-check` | The Orchestrator, from the owner's word | Ref: the date and the owner's word; copy: the copy the owner looked at |
+| `owner-check` | The skill `owner-check` of the Harness, run by the Orchestrator on the owner's word: worfy's action "Record owner check" or the owner's own message | Ref: the date and the owner's words, personal data in them replaced by a stand-in; platform and copy: where the owner looked; Pass ticks the item, Fail files a rework Ticket |
 | `screenshot` | Whoever took it | After a person has checked its pixels: the date of that check goes into `scrub:` |
 | `video` | Whoever recorded it | After every frame of its contact sheet has been checked. For a clip of the fixture build that check may be the agent's own, and the owner looks at such clips by sample; any other clip waits for a person |
 
-A manual item gets no line from the implementer, except that `video` line of a clip of the fixture build. The reviewer
+A manual item gets no line from the implementer, except that `video` line of a clip of the fixture build. The skill
+`owner-check` (`/worfy:owner-check <epic> <NN> <item> <pass|fail> <platform> <copy> <sha|->`, the owner's comment in an
+"Owner's words:" paragraph after it) refuses an item that is not a manual item of that Ticket and never writes a line the
+owner did not give. The same decision sent again adds no second line. On Pass it ticks the item `[x]`. On Fail it files a
+rework Ticket in the same Epic, with no blockers: its `Source:` line names the Epic, the Ticket, the item and the date, and
+its done section is the same manual item with its `needs:` line. A Pass on that item records `owner-check pass` on the
+item it reworks too, and ticks it. In Full mode the lines of one day go into one documents PR, after `evidence-check
+--changed`; in Silent mode into the Workflow folder. The reviewer
 writes no line: it checks that each ref exists, that the SHA is on the branch and that `needs` matches.
 
 `review` and `ci-check` are written at the close and not on the branch, because a line on the branch after CI would make a
@@ -127,7 +134,7 @@ the merge or whether a gate verdict exists. A line is an honest record with a vi
 | The grammar and the state rules, Harness copy | `harness/lib/evidence.cjs` |
 | `ticket evidence`, the warning of `ticket done` | `harness/bin/ticket`; the description for people: `harness/bin/TICKETS.md`, "Evidence" |
 | The lines of the close, `prs[].evidence` | `harness/bin/land` |
-| Who writes which line | `harness/skills/ship-ticket/implementer-finish.md`, `harness/skills/ship-ticket/step-6-manual-gui-checks.md`, `harness/skills/ship-ticket/step-9-merge.md`, `harness/skills/epic-wave/SKILL.md`, `harness/agents/reviewer.md` |
+| Who writes which line | `harness/skills/ship-ticket/implementer-finish.md`, `harness/skills/ship-ticket/step-6-manual-gui-checks.md`, `harness/skills/ship-ticket/step-9-merge.md`, `harness/skills/epic-wave/SKILL.md`, `harness/agents/reviewer.md`, `harness/skills/owner-check/SKILL.md` |
 | The grammar and the state rules, worfy copy; the model | `src/shared/workflow/evidence.ts`, `src/shared/workflow/types.ts` |
 | Reading the items with the Ticket | `src/main/workflow/reader.ts` |
 | The chip and the matrix | `src/renderer/canvas/badges/Evidence.tsx`, `src/renderer/canvas/nodes/EvidenceMatrix.tsx` |
@@ -142,6 +149,8 @@ line.
   headings.
 - `harness/bin/tests/land.test.sh`: the lines of `prs[].evidence` and the check before push.
 - `harness/bin/tests/agents-text.test.sh`: the agent and skill texts keep the rules of who writes which line.
+- `harness/bin/tests/owner-check.test.sh`: the block of skill `owner-check` on temporary Tickets: one line per decision,
+  the tick, the refusal of an item that is not manual, the rework Ticket, the stand-ins in the owner's words.
 - `test/unit/evidence.test.ts` and `test/contract/evidence-rules-agree.test.ts`, the latter on the shared cases
   `harness/bin/tests/fixtures/evidence/grammar.json`: worfy's copy, and that it agrees with the Harness's.
 - `test/unit/evidence-matrix.test.tsx`, `test/e2e/ticket-evidence.spec.ts`: the chip, the matrix and where its links lead.
