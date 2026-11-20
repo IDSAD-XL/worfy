@@ -61,8 +61,10 @@ Source: владелец 2026-11-19 на приёмке worfy-continuity 15: п�
 ## Готово, когда
 
 - [ ] Eval `compaction-state` с hook-ом выше baseline по overallScore.
+  - evidence: test-run pass · `pnpm eval:harness -- --case compaction-state --runs 6 --max-cost-usd 5` exit 0, overallScore 0.985 vs baseline 0.924 · mac - · f180f57dd
 - [ ] С hook-ом выше baseline по каждой группе probes: Ticket, пункты «Готово, когда», следующий шаг.
 - [ ] Log прогона обоих вариантов (команды, overallScore, баллы по probes, цена) — в «Итог».
+  - evidence: commit pass · worfy-polish/128: run log of both eval variants in the ticket · - - · 0f135b8cc402ce75b51d89808689ed8d26849fa6
 - [ ] Shell test-ы hook-ов и contract test eval-а зелёные; CI зелёный.
 
 ## Итог
