@@ -163,3 +163,18 @@ grep -qx 'issue list --label pc-main-red --state open --json number,title,url' "
    - Ответ: все три PR и `red_elsewhere: null`: метка и команда приходят только именованным аргументом, позиционные
      аргументы после `<documents-only command>` — всегда PR. Проверка при этом выключена.
    - Строки: `harness/skills/epic-wave/SKILL.md:1286-1292`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 130 (`bin/land` holds a PR with scope `pc` while an issue labelled `pc-main-red` is open), head 020f0d9572a48402bfca1bf5abc367630ac01621
+>
+> Gate (depth medium, two rounds): verifier (lens: implementer's report) — claims backed; med finding outside the repo (the Orchestrator's own state-file builder writes no red_elsewhere — follow-up by the Orchestrator after merge), count slip 12 vs 14; reviewer (lens: correctness) round 1 one low (new positional arguments could silently swallow PRs), round 2 low only.
+>
+> - land (harness/bin/land): with red_elsewhere {label, needs} in the state file it reads open issues of the label (`gh issue list`) before the main lock and again under it; with an open issue runs `needs` on the PR's merge-base and head; exit 1 → the PR waits, reason names number, title, URL of every open issue; exit 0 → merge; other code or gh/git failure → LAND=unverified exit 3; main_fix and documents-only PRs merge with a log line; no field → off.
+> - Round 1: the epic-wave state-file block takes the pair as one optional `--red-elsewhere=<label>|<command>` (split on the first `|`, the command's own pipes kept); an old-form call with 3 PRs keeps all 3; a malformed pair or a non-PR positional → exit 1, no state file.
+> - Tests: land.test.sh red before (12 FAIL against origin/main's land; 7 more for the block), 142 passed EXIT=0 after; mutant «never read the issues» 9 FAIL; land-story, land-epic-story, agents-text, lint, typecheck, story-check, evidence-check EXIT=0. Local gate fast not run: file-watcher tests red on this Mac (fseventsd); CI incl. Windows jobs is the verdict (platform PR, ADR-0056).
+> - CI fix: 50130dd04 was red on plugin-neutral.test.sh (an ADR number and the project script path in land, land.test.sh and SKILL.md); 020f0d957 makes four lines neutral; plugin-neutral 37 passed, land.test.sh 142, land-story, land-epic-story, agents-text, lint, typecheck, story-check, evidence-check EXIT=0.
+>
+> Decided without the owner (to confirm): config is the state-file field red_elsewhere (like docs_check/docs_only), profile unchanged; issues read before the scope command, so a gh failure holds even runner-scope PRs; <base> = merge-base SHA; all open issues named; the pair as one argument split on the first `|`.
+>
+> Consider [low]: a duplicate --red-elsewhere flag silently takes the last one; an empty "" positional (valid in the old form) is now refused — leave the argument out; ADR-0086 writes `gh issue list --repo IDSAD-XL/worfy`, land relies on the checkout's default remote like its other gh calls.
