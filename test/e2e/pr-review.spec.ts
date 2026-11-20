@@ -20,7 +20,11 @@ import { ms } from '../time-scale'
 //   Session writes through harness/bin/pr-review-draft shows on its line, «Written by the agent»; the end of its turn
 //   gives the suggested verdict and Take over, which makes the draft the person's;
 // - a window on a Linked machine with Read only: Start review inactive with «Review on the machine of the Project»;
-//   View changes opens Review mode read only — the diff and the threads, no Viewed, no bar.
+//   View changes opens Review mode read only — the diff and the threads, no Viewed, no bar, no «+».
+// - comments on lines (worfy-pr-review ticket 10): «+» and Suggest change, a range and `c`, ⌘↵; they stand on their
+//   lines, Pending; the bar counts them; worfy quits and starts again — the draft is there, and the row of the PR has the
+//   chip `Review draft`; Discard asks first and removes it; the agent's comment edited is the person's; screenshots in
+//   both themes; nothing written to GitHub.
 // Every name, login, sha and text is invented.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
@@ -380,13 +384,26 @@ test('Start review → Agent review: the bar says the agent writes, its comment 
     await app.evaluate(() => (globalThis as { worfyFakeRelease?: (name: string) => void }).worfyFakeRelease?.('end'))
     await expect(bar).toHaveAttribute('data-state', 'agent', { timeout: ms(30_000) })
     await expect(review(window).getByTestId('pr-review-suggests')).toContainText('Request changes')
-    await expect(review(window).getByTestId('pr-review-bar-count')).toHaveText('1 comment (1 by the agent)')
+    await expect(review(window).getByTestId('pr-review-bar-count')).toHaveText('1 comment (1 by the agent) on 1 file')
     await noToasts(window)
     await shoot(window, 'agent-done-1280')
     await review(window).getByTestId('pr-review-take-over').click()
     await expect(bar).toHaveAttribute('data-state', 'person', { timeout: ms(15_000) })
     await expect(review(window).getByTestId('pr-review-ask-agent')).toBeVisible()
     await expect(comment).toContainText('Two hundred ms is a guess')
+
+    // The person edits the agent's comment: it is the person's from then on, Pending.
+    await comment.getByTestId('pr-review-comment-edit').click()
+    const field = window.getByTestId('changes-comment-popover').getByTestId('changes-comment-text')
+    await expect(field).toHaveValue('Two hundred ms is a guess: read the delay from the config.')
+    await field.fill('Two hundred ms is a guess: read the delay from the config, as the client does.')
+    await field.press('ControlOrMeta+Enter')
+    await expect(window.getByTestId('changes-comment-popover')).toHaveCount(0)
+    const mine = review(window).locator('[data-testid="pr-review-comment"][data-line="3"]')
+    await expect(mine).toHaveAttribute('data-by', 'person', { timeout: ms(15_000) })
+    await expect(mine).toContainText('Pending')
+    await expect(mine).toContainText('as the client does')
+    await expect(review(window).getByTestId('pr-review-bar-count')).toHaveText('1 pending comment on 1 file')
 
     // Escape and back: the strip's button keeps the last choice.
     await review(window).getByTestId('pr-review-head').click()
@@ -447,6 +464,8 @@ test('a window on a Linked machine with Read only: Start review inactive with it
     await expect(review(a.window).locator('[data-testid="changes-thread"][data-path="src/net/retry.ts"]')).toContainText('Why three tries?')
     await expect(review(a.window).getByTestId('pr-review-viewed')).toHaveCount(0)
     await expect(review(a.window).getByTestId('pr-review-bar')).toHaveCount(0)
+    await expect(review(a.window).locator('[data-testid="changes-line"]').first()).toBeVisible({ timeout: ms(15_000) })
+    await expect(review(a.window).getByTestId('changes-line-plus')).toHaveCount(0)
     await shoot(a.window, 'linked-read-only-1280')
     // Nothing read of github.com's Viewed marks: no draft was started on B.
     expect(viewedReads(ghLog)).toBe(0)
@@ -454,5 +473,91 @@ test('a window on a Linked machine with Read only: Start review inactive with it
   } finally {
     await a.close()
     await b?.close()
+  }
+})
+
+/** The row of line `line` of `path` on the new side, in the diff of Review mode. */
+const diffLine = (window: Page, path: string, line: number): Locator =>
+  review(window).locator(`[data-testid="changes-hunk"][data-path="${path}"] [data-testid="changes-line"][data-side="new"][data-line="${line}"]`)
+
+test('comments on lines: «+», Suggest change, a range and `c`; Pending on their lines; worfy again — the draft and the chip Review draft; Discard', async () => {
+  test.setTimeout(ms(240_000))
+  harnessForWeb()
+  let launched = await launch()
+  try {
+    let { window } = launched
+    await window.setViewportSize({ width: 1280, height: 800 })
+    await openView(window)
+    await noToasts(window)
+    await selectRow(window, 41)
+    await startReview(window, 'myself')
+    await expect(diffLine(window, 'src/net/retry.ts', 3)).toBeVisible({ timeout: ms(30_000) })
+    await expect(review(window).getByTestId('pr-review-bar')).toHaveAttribute('data-state', 'person', { timeout: ms(15_000) })
+
+    // «+» on line 3: the popover; Suggest change puts the line into a suggestion block after the text; ⌘↵ saves.
+    await diffLine(window, 'src/net/retry.ts', 3).hover()
+    await diffLine(window, 'src/net/retry.ts', 3).getByTestId('changes-line-plus').click()
+    const popover = window.getByTestId('changes-comment-popover')
+    await expect(popover.getByTestId('changes-comment-where')).toHaveText('src/net/retry.ts:3 · new side')
+    const field = popover.getByTestId('changes-comment-text')
+    await field.fill('Read it from the config:')
+    await popover.getByTestId('changes-comment-suggest').click()
+    await expect(field).toHaveValue('Read it from the config:\n\n```suggestion\nconst DELAY_MS = 200\n```')
+    await field.press('ControlOrMeta+Enter')
+    await expect(popover).toHaveCount(0)
+    const first = review(window).locator('[data-testid="pr-review-comment"][data-line="3"]')
+    await expect(first).toContainText('Pending', { timeout: ms(15_000) })
+    await expect(first).toHaveAttribute('data-by', 'person')
+
+    // A range: a click on line 5, Shift and a click on line 6, then `c`.
+    await diffLine(window, 'src/net/retry.ts', 5).locator('.w-changes__code').click()
+    await diffLine(window, 'src/net/retry.ts', 6).locator('.w-changes__code').click({ modifiers: ['Shift'] })
+    await window.keyboard.press('c')
+    await expect(popover.getByTestId('changes-comment-where')).toHaveText('src/net/retry.ts:5–6 · new side')
+    await popover.getByTestId('changes-comment-text').fill('The wait comes before the first try too.')
+    await popover.getByTestId('changes-comment-text').press('ControlOrMeta+Enter')
+    const second = review(window).locator('[data-testid="pr-review-comment"][data-line="6"]')
+    await expect(second).toContainText('lines 5–6', { timeout: ms(15_000) })
+    await expect(review(window).getByTestId('pr-review-bar-count')).toHaveText('2 pending comments on 1 file')
+    const finish = review(window).getByTestId('pr-review-finish')
+    await expect(finish).toHaveAttribute('aria-disabled', 'true')
+    await expect(finish).toHaveAttribute('title', 'Coming next')
+    await noToasts(window)
+    await first.scrollIntoViewIfNeeded()
+    await shoot(window, 'comments-1280')
+
+    // worfy quits and starts again: the draft is there; the row of the PR has the chip Review draft.
+    await launched.close()
+    launched = await launch()
+    ;({ window } = launched)
+    await window.setViewportSize({ width: 1280, height: 800 })
+    await openView(window)
+    await noToasts(window)
+    const chip = window.locator('[data-testid="pr-inbox-group"] [data-testid="pr-inbox-row"][data-number="41"]').getByTestId('pr-review-draft-chip')
+    await expect(chip).toHaveText('Review draft', { timeout: ms(15_000) })
+    await expect(chip).toHaveAttribute('title', `2 pending comments, started on ${headOf(41).slice(0, 7)}`)
+    await noToasts(window)
+    await shoot(window, 'draft-chip-1280')
+    await selectRow(window, 41)
+    await pane(window).getByTestId('pr-inbox-next-step-action').click()
+    await expect(review(window).locator('[data-testid="pr-review-comment"][data-line="3"]')).toContainText('Read it from the config', { timeout: ms(30_000) })
+    await expect(review(window).getByTestId('pr-review-bar-count')).toHaveText('2 pending comments on 1 file')
+
+    // Discard asks first; Cancel keeps the draft, Discard removes it and closes Review mode; the chip goes.
+    await review(window).getByTestId('pr-review-discard').click()
+    const ask = window.getByTestId('pr-review-discard-confirm')
+    await expect(ask).toContainText('Discard 2 pending comments?')
+    await noToasts(window)
+    await shoot(window, 'discard-1280')
+    await ask.getByTestId('pr-review-discard-cancel').click()
+    await expect(ask).toHaveCount(0)
+    await expect(review(window)).toBeVisible()
+    await review(window).getByTestId('pr-review-discard').click()
+    await window.getByTestId('pr-review-discard-confirm').getByTestId('pr-review-discard-ok').click()
+    await expect(review(window)).toHaveCount(0)
+    await expect(chip).toHaveCount(0, { timeout: ms(15_000) })
+    expectNoWrite(ghLog)
+  } finally {
+    await launched.close()
   }
 })

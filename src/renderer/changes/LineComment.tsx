@@ -54,17 +54,23 @@ export function LineCommentPopover({
   onSave,
   onCancel,
   onDelete,
+  onSuggest,
+  placeholder = 'Your comment. Paste or drop an image here.',
 }: {
   popover: LinePopover
   saveKeys: string
   /** The last line's row on the screen; null while it is not drawn. */
   anchor: () => Element | null
   onText: (text: string) => void
-  onRemoveImage: (index: number) => void
-  onFiles: (files: File[]) => void
+  /** Without these two the comment takes no images (a comment of a review of a PR, worfy-pr-review ticket 10). */
+  onRemoveImage?: (index: number) => void
+  onFiles?: (files: File[]) => void
   onSave: () => void
   onCancel: () => void
   onDelete: (() => void) | null
+  /** Suggest change (worfy-pr-review ticket 10): puts a `suggestion` block into the field; without it no such button. */
+  onSuggest?: () => void
+  placeholder?: string
 }) {
   const field = useRef<HTMLTextAreaElement>(null)
   const chooser = useRef<HTMLInputElement>(null)
@@ -98,13 +104,14 @@ export function LineCommentPopover({
     }
   }
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    if (onFiles === undefined) return
     const images = [...event.clipboardData.files].filter((file) => file.type.startsWith('image/'))
     if (images.length === 0) return
     event.preventDefault()
     onFiles(images)
   }
   const drag = (event: DragEvent<HTMLDivElement>, over: boolean | null) => {
-    if (!event.dataTransfer.types.includes('Files')) return
+    if (onFiles === undefined || !event.dataTransfer.types.includes('Files')) return
     event.preventDefault()
     event.stopPropagation()
     if (over !== null) setDragging(over)
@@ -136,7 +143,7 @@ export function LineCommentPopover({
         },
         onDrop: (event) => {
           drag(event, false)
-          if (event.dataTransfer.types.includes('Files')) onFiles([...event.dataTransfer.files])
+          if (onFiles !== undefined && event.dataTransfer.types.includes('Files')) onFiles([...event.dataTransfer.files])
         },
       }}
     >
@@ -154,7 +161,7 @@ export function LineCommentPopover({
         className="w-qpop__text"
         rows={3}
         aria-label="Comment text"
-        placeholder="Your comment. Paste or drop an image here."
+        placeholder={placeholder}
         data-testid="changes-comment-text"
         value={popover.text}
         onChange={(event) => onText(event.target.value)}
@@ -165,7 +172,7 @@ export function LineCommentPopover({
           {popover.images.map((image, index) => (
             <li key={`${index}:${image.name}`} className="w-qpop__image" data-testid="changes-comment-image">
               <img src={imageSource(image)} alt={image.name} />
-              <button type="button" className="w-qpop__image-remove" aria-label={`Remove image ${image.name}`} onClick={() => onRemoveImage(index)}>
+              <button type="button" className="w-qpop__image-remove" aria-label={`Remove image ${image.name}`} onClick={() => onRemoveImage?.(index)}>
                 ×
               </button>
             </li>
@@ -181,24 +188,42 @@ export function LineCommentPopover({
         </div>
       ) : null}
       <div className="w-qpop__bar">
-        <button type="button" className="w-qbtn w-qbtn--ghost" data-testid="changes-comment-add-image" onClick={() => chooser.current?.click()}>
-          Add image
-        </button>
-        <input
-          ref={chooser}
-          type="file"
-          accept="image/png,image/jpeg,image/gif,image/webp"
-          multiple
-          hidden
-          tabIndex={-1}
-          aria-hidden="true"
-          onChange={(event) => {
-            const files = [...(event.target.files ?? [])]
-            event.target.value = ''
-            if (files.length > 0) onFiles(files)
-            field.current?.focus()
-          }}
-        />
+        {onSuggest !== undefined ? (
+          <button
+            type="button"
+            className="w-qbtn w-qbtn--ghost"
+            data-testid="changes-comment-suggest"
+            title="Put the lines into a suggestion block: GitHub offers the author to commit your change"
+            onClick={() => {
+              onSuggest()
+              field.current?.focus()
+            }}
+          >
+            Suggest change
+          </button>
+        ) : null}
+        {onFiles !== undefined ? (
+          <>
+            <button type="button" className="w-qbtn w-qbtn--ghost" data-testid="changes-comment-add-image" onClick={() => chooser.current?.click()}>
+              Add image
+            </button>
+            <input
+              ref={chooser}
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              multiple
+              hidden
+              tabIndex={-1}
+              aria-hidden="true"
+              onChange={(event) => {
+                const files = [...(event.target.files ?? [])]
+                event.target.value = ''
+                if (files.length > 0) onFiles(files)
+                field.current?.focus()
+              }}
+            />
+          </>
+        ) : null}
         <span className="w-qtray__spacer" />
         {onDelete !== null ? (
           <button type="button" className="w-qbtn w-qbtn--danger" data-testid="changes-comment-delete" onClick={onDelete}>
