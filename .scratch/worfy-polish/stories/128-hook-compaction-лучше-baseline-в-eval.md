@@ -277,3 +277,20 @@ the answer says it does not know the items.
    - Ответ: строки середины (описание) между первыми строками и разделом «Готово, когда»; вместо них — строка с
      числом вырезанных строк и путём к файлу. Раздел целиком остаётся; разделы после него заменяет одна строка.
    - Строки: `harness/hooks/after-compact.mjs:303-317`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 128 (the after-compaction hook: eval `compaction-state` with the hook beats the baseline), head 49f2d68e486aa3005c3b6cfdc54d6e57a986ed4e
+>
+> Gate (depth medium, three rounds, cap reached): verifier (lens: implementer's report, eval integrity) — all four run pairs on disk, numbers match, case edits act on both variants and fix real case defects (repeated compaction, a question contradicting its grader); reviewer (lens: correctness) round 1 one med (commits before the ticket pushed its done items out of the 10 000-char limit) + three low; round 2 one med (header + long git status + long ticket still cut the done items); round 3 one low. Both med fixed test-first.
+>
+> - Hook (harness/hooks/after-compact.mjs): after compaction the implementer gets the finish line, git status (≤ 50 lines, ≤ 1 500 chars, core.quotePath=false), the ticket — a ticket that does not fit keeps its first lines and its whole done section (found via parseDoneSection, as bin/ticket does), the middle replaced by one line naming the count and the file — then the branch commits since worktree.base (≤ 40 lines, ≤ 2 000 chars) and `git diff HEAD` (≤ 3 000 chars, a failure printed); «Before your report, check each done item against the work.»; output ≤ 10 000 chars, exit 0 always.
+> - Eval compaction-state, hook vs baseline (all runs reported): run 0 old code 0.667/0.697; run 1 0.927/0.945; run 2 0.955/0.924; run 3 0.985/0.924; round 4 0.955/0.894; round 5 0.955/0.909. Done-items group: 4/5·3/5, 5/6·1/6, 6/6·2/6, 5/6·0/6, 5/6·2/6. Ticket and next-step groups 100 % in both variants since run 1. Total eval cost 26.16 USD (pre-approved, under 100).
+> - Tests: session-hooks.test.sh 63 passed EXIT=0 (new cases red before each round; mutants: no middle cut, no status char cap, no quotePath → red), rules-hooks 331, plugin-neutral 37, agents-text 495, harness-evals*.test.ts 351 passed, lint, typecheck, story-check, evidence-check EXIT=0. Local gate fast not run: file-watcher tests red on this Mac (fseventsd); CI is the verdict.
+> - CI fix: b7971e1f7 was red on harness-home.test.sh (Cyrillic outside the allowed substrings in session-hooks.test.sh fixtures); 49f2d68e4 changes only that test file (allowed headings, Cyrillic file names built from printf octal escapes); harness-home 46 passed, session-hooks 63 (mutants red), plugin-neutral, rules-hooks, agents-text, lint, typecheck EXIT=0; the hook text the agent sees is unchanged, no new eval.
+>
+> Owner decision required before merge: «Готово, когда» item 2 («above baseline in every probe group») is not literally met — Ticket and next-step groups are 100 % in both variants, «above» is impossible; recommendation: accept «not worse» for those two groups.
+>
+> Decided without the owner (to confirm): eval case edits (compaction at 50 %, BASE_TOKENS 38000, exactly one compaction, per-probe answer files, max_turns 12 with Write, question 6 asks for the verification); confirming eval rounds 4 and 5 after the review fixes; git status stays before the ticket as on main.
+>
+> Consider [low]: doneLines finds headings with /^#{1,6}\s/ ignoring code fences (parseDoneSection skips fenced lines) — a fenced `# comment` inside or after the done section can mislabel the section or cut the prose after the last item; scripts/eval-harness.mjs — two eval:harness runs started in the same millisecond share a git cache folder name (EEXIST).
