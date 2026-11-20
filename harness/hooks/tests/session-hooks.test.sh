@@ -365,10 +365,11 @@ c="$(actx)"
     && [[ "$c" == *"## Not committed: git diff HEAD"* && "$c" == *"+changed"* && "$c" == *"-base"* ]] \
     && ok "after-compact: the implementer gets the commits of its branch with their files and the diff not committed yet" \
     || bad "after-compact: commits and diff: ctx=[${c:0:900}]"
-# The text states where the work stands and names no command to run: an agent told to answer from memory read
-# "check each item" as an order to open files (eval compaction-state, 2026-11-20).
-[[ "$c" != *"check each item"* && "$c" == *"empty box"*"## Готово, когда"* ]] \
-    && ok "after-compact: the implementer text names no command to run and says what an empty box of the done section means" \
+# The text states where the work stands and names no command to run now: an agent told to answer from memory
+# read "check each item … before the next step" as an order to open files (eval compaction-state, 2026-11-20).
+# The re-check of the done items belongs before the report.
+[[ "$c" != *"before the next step"* && "$c" == *"empty box"*"## Готово, когда"* && "$c" == *"Before your report, check each done item"* ]] \
+    && ok "after-compact: the implementer text names no command to run now, says what an empty box means and asks for a re-check before the report" \
     || bad "after-compact: implementer header: [${c:0:600}]"
 # How the ticket ends, from workflow.finish of the profile (pr-green-ci here).
 [[ "${c%%## Commits*}" == *"ends with a pull request"*"workflow.finish pr-green-ci"* ]] \
@@ -395,6 +396,52 @@ compact "$CP" compact WORFY_EPIC=ep2
 [ -n "$c" ] && [ "$c" = "$(actx | sed 1d | grep -v '^# Wave brief: ')" ] \
     && ok "after-compact: Codex sessionStart (compact) gives the Orchestrator the same wave-brief (its time aside)" \
     || bad "after-compact: Codex Orchestrator differs"
+
+# A long ticket and a branch of many files: the commits never push the done items out of the limit. The
+# ticket's done section ends past character 7 700; one commit adds 45 files with long names, the next one a Cyrillic file.
+git -C "$CP" worktree add -q -b ep1/01 "$T/cmp/wt-01" >/dev/null 2>&1
+W1="$T/cmp/wt-01"
+{
+    printf '# 01 — first of ep1\n\nStatus: claimed 2026-01-01T00:00Z\n\n## Что происходит\n\n'
+    for i in $(seq 1 90); do echo "Filler line $i of a long ticket, written the way real tickets explain the problem."; done
+    printf '\n## Готово, когда\n\n- [ ] LONG-DONE-ONE\n- [ ] LONG-DONE-TWO\n- [ ] LONG-DONE-THREE\n- [ ] LONG-DONE-FOUR\n'
+} >"$W1/.scratch/ep1/issues/01-first.md"
+mkdir -p "$W1/src/some/rather/long/path/to/the/modules"
+for i in $(seq 1 45); do echo "m$i" >"$W1/src/some/rather/long/path/to/the/modules/module-$i-with-a-long-name.ts"; done
+(cd "$W1" && gq add -A && gq commit -q -m "ep1/01: MANY-FILES-COMMIT") >/dev/null 2>&1
+echo ru >"$W1/файл-кириллица.txt"
+(cd "$W1" && gq add -A && gq commit -q -m "ep1/01: CYRILLIC-COMMIT") >/dev/null 2>&1
+echo new >"$W1/новый.txt"
+compact "$W1" compact GIT_CONFIG_NOSYSTEM=1
+c="$(actx)"
+n="$(printf '%s' "$c" | node -e 'process.stdout.write(String([...require("fs").readFileSync(0, "utf8")].length))')"
+[ "$arc" -eq 0 ] && [ "$n" -le 10000 ] && [[ "$c" == *"LONG-DONE-ONE"*"LONG-DONE-TWO"*"LONG-DONE-THREE"*"LONG-DONE-FOUR"* ]] \
+    && [[ "$c" == *"ep1/01: MANY-FILES-COMMIT"* ]] \
+    && ok "after-compact: a long ticket keeps all its done items next to a commit of many files ($n characters)" \
+    || bad "after-compact: long ticket and many files: rc=$arc $n characters, err=[$(cat "$T/aerr")] tail [$(printf '%s' "$c" | tail -n 4)]"
+# File names as they are, not as octal escapes (core.quotePath), in the commits and in git status; a short
+# ticket now, so the commits fit.
+printf '# 01 — first of ep1\n\nStatus: claimed 2026-01-01T00:00Z\n\n## Готово, когда\n\n- [ ] SHORT-DONE\n' >"$W1/.scratch/ep1/issues/01-first.md"
+compact "$W1" compact GIT_CONFIG_NOSYSTEM=1
+c="$(actx)"
+[[ "$c" == *"файл-кириллица.txt"* && "$c" == *"?? новый.txt"* && "$c" != *'\321'* ]] \
+    && ok "after-compact: Cyrillic file names stay readable in the commits and in git status" \
+    || bad "after-compact: quotePath: [$(printf '%s' "$c" | grep -n 'txt' | head -n 5)]"
+
+# A git diff that fails says so, as git status does: here the blob of a committed file is gone from the
+# object store, so git status still works (it hashes the file again) while git diff HEAD cannot read it.
+git -C "$CP" worktree add -q "$T/cmp/wt-e2" ep2/01 >/dev/null 2>&1
+W2="$T/cmp/wt-e2"
+echo "BLOB-ONLY-HERE $RANDOM$RANDOM" >"$W2/gone.txt"
+(cd "$W2" && gq add gone.txt && gq commit -q -m "ep2/01: GONE-COMMIT") >/dev/null 2>&1
+blob="$(git -C "$W2" rev-parse HEAD:gone.txt)"
+rm -f "$CP/.git/objects/${blob:0:2}/${blob:2}"
+echo changed >"$W2/gone.txt"
+compact "$W2" compact
+c="$(actx)"
+[ "$arc" -eq 0 ] && [[ "$c" == *" M gone.txt"* && "$c" == *"## Not committed: git diff HEAD"*"(git diff failed: exit "* ]] \
+    && ok "after-compact: a git diff that fails is named in the text, not dropped" \
+    || bad "after-compact: failed diff: rc=$arc err=[$(cat "$T/aerr")] tail [$(printf '%s' "$c" | tail -n 4)]"
 
 compact "$T/cmp/review" compact
 [ "$arc" -eq 0 ] && [ ! -s "$T/aout" ] && [ ! -s "$T/aerr" ] && ok "after-compact: a worktree with no ticket of its own (a reviewer's) — silent" \
