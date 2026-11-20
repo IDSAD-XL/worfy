@@ -53,7 +53,8 @@ The patch of a file is read only when it is asked for. It comes folded, as «Lar
 more than 2 000 lines added and deleted, when its patch is larger than 1 MB, for a lock file of a package manager
 (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `Cargo.lock` and the like) and for a file with the git attribute
 `linguist-generated`. A folded patch can still be asked for in full, up to 64 MB. A binary file has no lines: its
-answer is the sizes of the two sides. «Show whole file» gives the file's every line as context. A type change (a
+answer is the sizes of the two sides. A patch can also be read with the file's every line as context (the option
+`whole` of `changes.file`); the screen has no button for it yet. A type change (a
 file that became a link, or a link that became a file) shows both sides: the old side's lines deleted, then the new
 side's lines added.
 
@@ -269,7 +270,8 @@ The comments not sent yet survive a reload of the window and a restart of worfy.
 
 #### Send
 
-Send sends one message to the Session in «To»: the section «Comments on lines of the diff (N)» with the branch, then for
+Send sends one message to the Session in «To»: the section «Comments on lines of the diff (N)» with the worktree and the
+branch (a section per worktree and branch), then for
 each comment its path and lines, its side and commit, its code quoted and its text, then «General:» and the text of the
 field. It is the message the Session's own Send would make from the same drafts, comments on its messages included. A
 Session that runs no more is started first; one in the middle of a turn keeps the message in its queue. The comments

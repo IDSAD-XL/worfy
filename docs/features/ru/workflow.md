@@ -1,6 +1,6 @@
 # Workflow
 
-> Перевод [английской версии](../workflow.md), commit `same-pr`.
+> Перевод [английской версии](../workflow.md), commit `ea853f5d`.
 
 Три близких Feature. **Ticket и Epic на Canvas** показывают работу Project-а так, как её записывают файлы Ticket-ов.
 **Pipeline** говорит, на каком Stage стоит каждый Ticket. **Binding** связывает каждого агента с Ticket-ом или Epic-ом, над
@@ -110,6 +110,7 @@ Ticket без раздела со следом может быть в Wave: он
 | Ship ticket | На Ticket-е, который `open`, `blocked` или без статуса | Он `open`, каждый blocker завершён в checkout, запущенная этой кнопкой Session этого Ticket-а не жива, шаблон задан и заполняется | Новый Session Node с текстом как первым сообщением, справа от полосы frame-ов на высоте Ticket-а. Если их нет на Canvas — там, куда попадает любой новый Node. Из Command palette место не передаётся: Node попадает туда, куда и любой новый Node |
 | Run wave | На frame, если не все его Ticket-ы завершены | Ready Wave не пуста, шаблон задан и заполняется | Текст уходит Orchestrator-у, в очередь, пока идёт turn. Отказ, пока в Project-е работает Autopilot |
 | Open PR | На Ticket-е с PR | Адрес на `https://github.com/` | Открывает PR в браузере и ничего не пишет в GitHub |
+| Changes | На Ticket-е с веткой worktree, строкой `Branch:` или в работе; у такой карточки есть вторая строка для её действий | Всегда; на экране Linked machine только для чтения — только когда Changes Node Ticket-а уже есть | Открывает [Changes Node](changes.md#the-changes-node) Ticket-а: первый щелчок ставит его справа от полосы frame-ов на высоте Ticket-а, второй переходит к нему. Читает git и ничего не пишет |
 | Resolve conflicts, Fix checks, Address comments | На Ticket-е, PR которого есть в PR inbox Project-а и требует одного из них: одна кнопка для первой причины в порядке Resolve conflicts (у PR конфликт), Fix checks (его CI падает), Address comments (запрошены изменения или thread ждёт ответа пользователя), а рядом «▾» с остальными причинами. Ticket с PR в нескольких репозиториях получает пункт на каждую пару PR и причины, и каждый называет свой PR. Project с `"prInbox": false` не показывает ни одного | PR принадлежит самому пользователю и не из fork, причина ещё есть, шаблон задан и заполняется. Ещё main отказывает, пока в Project-е работает Autopilot и пока Orchestrator занят Wave Epic-а этого Ticket-а (эта Wave сама чинит свои pull request-ы) | Передаёт PR Session с шаблоном, заполненным значениями `{repo}`, `{pr}` и `{sha}`: Session Claude Code, связанной с Ticket-ом, когда в её transcript писали за последние 24 часа, иначе новому Session Node справа от полосы frame-ов на высоте Ticket-а; из Command palette место не передаётся, и Node попадает туда, куда и любой новый Node. Сначала main заново читает PR; его отказ становится tooltip кнопки или «▾» |
 
 Шаблон с неизвестной подстановкой или с подстановкой без значения не заполняется, и ошибка становится причиной на кнопке. При
