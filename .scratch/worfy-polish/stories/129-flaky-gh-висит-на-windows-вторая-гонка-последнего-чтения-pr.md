@@ -4,71 +4,88 @@ Kind: pr · Epic: worfy-polish · Ticket: 129 · PR: - · Language: ru
 
 ## 1. Что было не так
 
-Push run 44471611202 на `main` eb669a653 (#2030) упал в job-е `windows (2/3) / full-suite`: contract test «gh hangs
-the whole Run» не дождался последнего чтения PR (`Error: timed out waiting for the last read of the PRs`). #2030
-Autopilot не трогает, и тот же файл зелёный на том же коде в четырёх следующих run-ах — это flaky test, а не ошибка
-#2030. Красный `main` останавливает merge PR с кодом, поэтому test уходит в карантин на Windows, а причину ищет
-этот Ticket.
+Contract test «gh hangs the whole Run» снова падал на Windows с `Error: timed out waiting for the last read of the
+PRs` уже после исправления worfy-polish 124, и стоял в карантине на win32. Test ждёт, что последнее чтение PR перед
+`run-stopped` запустит новый зависший вызов gh (второй pid в `hang.pids`). Оно его не запускало: Run к тому моменту
+уже остановился с одним pid и без timer-ов. Причина — test отпускал turn Wave 2, когда stand-in первого вызова gh уже
+умер, но чтение PR, которому он принадлежал, ещё не закончилось. `PrTracker` ведёт одно чтение за раз, и последнее
+чтение присоединялось к этому, не запуская gh. На Mac это воспроизводится задержкой ответа `ghRunner` на 200 мс после
+смерти процесса.
 
 - Требование: [Что происходит](../issues/129-flaky-gh-висит-на-windows-вторая-гонка-последнего-чтения-pr.md#что-происходит)
 
-## 2. Запись карантина: только win32, на 14 дней, с владельцем
+## 2. faultRun говорит, сколько чтений PR ещё идёт
 
-Code: `test/quarantine/autopilot-faults-gh-hangs-whole-run.json:2-12` · key lines: 2, 7, 8, 10, 12
-
-```json
-  "kind": "quarantine",
-  "runner": "vitest",
-  "file": "test/contract/autopilot-faults-github.test.ts",
-  "test": "Autopilot faults on the GitHub side (worfy-faults ticket 04) > gh hangs the whole Run: the Waves go on, no narrow-round, the stop waits END_READ_MS at most, and no hung gh is left",
-  "reason": "Red main: push run 44471611202 on main eb669a653 (#2030, which does not touch Autopilot), job windows (2/3) / full-suite: test/contract/autopilot-faults-github.test.ts:161 failed with \"Error: timed out waiting for the last read of the PRs\". The same file passed in windows (2/3) with the same code in runs 44550103039 (job 135651372486), 44547578992, 44535810835 and 44535483050, so it is flaky. This is a second race after the fix of worfy-polish 124 (PR #1985), still in the wait for the last read of the PRs on a slow Windows runner; the cause is not established yet. No limit is raised.",
-  "platforms": [
-    "win32"
-  ],
-  "owner": "worfy-polish 129",
-  "since": "2026-11-19",
-  "until": "2026-12-03"
-```
-
-- Что делает: на Windows test пропускается до 2026-12-03 включительно, строка на stderr и `::warning` в CI называют
-  владельца и дату; на Mac и Linux test идёт как раньше. Полное имя — `describe > it`, как его печатает vitest.
-- Почему здесь: правила карантина — шапка `test/quarantine.ts`: запись в `test/quarantine/<id>.json`, срок не
-  дальше 14 дней от `since`, у записи — Ticket-владелец.
-- Без него: `ci-ok` на `main` и на PR красный, пока на Windows runner-е выпадает эта гонка.
-- Требование: [Что происходит](../issues/129-flaky-gh-висит-на-windows-вторая-гонка-последнего-чтения-pr.md#что-происходит)
-- Риски и пробелы test-ов: пока запись есть, сценарий «gh висит весь Run» на Windows не проверен; на Mac и Linux он
-  проверяется. После `until` запись перестаёт действовать, и `test/unit/quarantine.test.ts` краснеет над ней.
-
-## 3. Test объявлен через `quarantined`, тело не тронуто
-
-Code: `test/contract/autopilot-faults-github.test.ts:162-162` · key lines: 162
+Code: `test/contract/autopilot-faults-setup.ts:742-747` · key lines: 747
 
 ```ts
-  quarantined('autopilot-faults-gh-hangs-whole-run')('gh hangs the whole Run: the Waves go on, no narrow-round, the stop waits END_READ_MS at most, and no hung gh is left', async () => {
+    prs,
+    /**
+     * How many of the run's PR reads have not settled yet. A read settles on the close of its last gh
+     * process, which may come after that process is gone (worfy-polish ticket 129).
+     */
+    prsReading: (): number => prReads.size,
 ```
 
-- Что делает: `quarantined('<id>')` вместо `it`: helper читает запись и пропускает test только там, где она
-  действует; имя и тело test-а прежние.
-- Почему здесь: Ticket называет этот файл; без пометки в самом test-е запись ничего не пропускает.
-- Без него: запись есть, а test на Windows всё равно запускается и краснит job.
+- Что делает: отдаёт test-у размер `prReads` — набора чтений PR, которые Run начал и которые ещё не закончились.
+  Этот набор уже был: по нему cleanup ждёт последних stand-in-ов перед удалением папки (worfy-polish 90).
+- Почему здесь: Ticket называет `autopilot-faults-setup.ts` среди своих файлов; `prReads` живёт внутри `faultRun`.
+- Без него: test видит только процессы stand-in-а и не может отличить «процесс умер» от «чтение закончилось».
+- Требование: [Что делаем, п. 2](../issues/129-flaky-gh-висит-на-windows-вторая-гонка-последнего-чтения-pr.md#что-делаем)
+- Риски и пробелы test-ов: чтение попадает в `prReads` только через обёртку `prReader`; чтение, которое тест сам
+  делает через `h.prs`, сюда не входит. В этом test-е таких нет.
+
+## 3. Test ждёт конца чтения, а не только смерти stand-in-а
+
+Code: `test/contract/autopilot-faults-github.test.ts:175-179` · key lines: 179
+
+```ts
+    // ghRunner's timeout ends the hung call: no stand-in outlives it. The test waits for the read to settle,
+    // not only for its stand-in to be gone: ghRunner answers on the stand-in's close, which may come later. A
+    // read still running when Wave 2's turn ends is the one the run's last read joins, with no gh call of its
+    // own, and the run stops when it settles. Windows CI lost that race (worfy-polish ticket 129).
+    await until(() => h.gh!.calls().length === 1 && hungPids(h.gh!.dir).length === 1 && !alive(hungPids(h.gh!.dir)[0]!) && h.prsReading() === 0, 'the hung gh call of Wave 1 to end by the timeout')
+```
+
+- Что делает: к условию «первый вызов gh умер» добавляет «ни одно чтение PR Run-а не идёт». Только после этого test
+  сдвигает часы и отпускает turn Wave 2, так что последнее чтение начинается с нового вызова gh.
+- Почему здесь: это ожидание стоит прямо перед release; предел `until` прежний, ожидание — условие, а не часы.
+- Без него: при задержке ответа `ghRunner` после смерти процесса длиннее пути от release до `end()` (на Mac 45–65 мс)
+  test краснеет с той же ошибкой, что на Windows CI.
+- Требование: [Что делаем, п. 2](../issues/129-flaky-gh-висит-на-windows-вторая-гонка-последнего-чтения-pr.md#что-делаем)
+- Риски и пробелы test-ов: величина этой задержки на Windows не измерена; механизм доказан на Mac временной правкой.
+  Окончательно — job-ы `windows / full-suite` этого PR и следующих.
+
+## 4. Карантин снят
+
+Code: `test/contract/autopilot-faults-github.test.ts:161-161` · key lines: 161
+
+```ts
+  it('gh hangs the whole Run: the Waves go on, no narrow-round, the stop waits END_READ_MS at most, and no hung gh is left', async () => {
+```
+
+- Что делает: test снова объявлен через `it(`; запись `test/quarantine/autopilot-faults-gh-hangs-whole-run.json`
+  удалена, и на Windows test запускается.
+- Почему здесь: Ticket требует убрать запись и вернуть `it(`.
+- Без него: на Windows сценарий «gh висит весь Run» не проверяется до 2026-12-03.
 - Требование: [Что делаем, п. 3](../issues/129-flaky-gh-висит-на-windows-вторая-гонка-последнего-чтения-pr.md#что-делаем)
-- Риски и пробелы test-ов: имя в записи должно совпасть с полным именем test-а (`describe > it`); если не совпадёт,
-  helper ничего не пропустит, и на Windows test пойдёт как раньше. Это проверит только Windows job этого PR: на Mac
-  запись не действует.
+- Риски и пробелы test-ов: если на Windows есть третья гонка, она снова покраснит `ci-ok`.
 
-## 4. Как проверено
+## 5. Как проверено
 
-- `pnpm vitest run test/unit/quarantine.test.ts test/unit/quarantine-suggest.test.ts test/unit/e2e-no-spawn-on-load.test.ts test/contract/ci-scope-e2e.test.ts` — exit 0.
-- `pnpm vitest run test/contract/autopilot-faults-github.test.ts` на Mac — exit 0, 5 test-ов прошли (на darwin
-  запись не действует).
-- gate fast (lint, typecheck, test) — exit 0, `[gate] green (fast)`.
+- Воспроизведение (временная правка обёртки `run` в `faultRun`, не в PR): задержка отказа вызова gh на 200 и
+  1000 мс — до исправления exit 1 с `timed out waiting for the last read of the PRs`, после — exit 0 (и с 0 и 3000 мс).
+- Все `test/contract/autopilot-faults-*.test.ts` и `test/contract/test-timeout-scale.test.ts` — 5 запусков подряд,
+  5 из 5 exit 0 (57 test-ов).
+- `pnpm lint` exit 0, `pnpm typecheck` exit 0.
 
 ## Проверить себя
 
-1. Почему #2030 не откатили, хотя push run на нём красный?
-   - Ответ: test flaky: тот же файл зелёный в `windows (2/3)` на том же коде в четырёх следующих run-ах, а #2030
-     Autopilot не трогает.
-   - Строки: `test/quarantine/autopilot-faults-gh-hangs-whole-run.json:6-6`
-2. Запускается ли этот test на Mac, пока запись есть?
-   - Ответ: да: `platforms` — только `win32`, на darwin helper запускает test под его именем.
-   - Строки: `test/quarantine/autopilot-faults-gh-hangs-whole-run.json:7-9`
+1. Почему смерти stand-in-а мало, чтобы последнее чтение запустило свой вызов gh?
+   - Ответ: `ghRunner` отвечает на `close` процесса, а не на его смерть; пока чтение Wave 1 не закончилось, последнее
+     чтение присоединяется к нему и gh не запускает.
+   - Строки: `test/contract/autopilot-faults-github.test.ts:175-179`
+2. Почему исправлен test, а не `src/`?
+   - Ответ: присоединение к идущему чтению — законное поведение `PrTracker` (одно чтение за раз); сценарию test-а
+     нужно, чтобы последнее чтение началось после конца первого, и test теперь ждёт этого условия.
+   - Строки: `test/contract/autopilot-faults-setup.ts:743-747`
