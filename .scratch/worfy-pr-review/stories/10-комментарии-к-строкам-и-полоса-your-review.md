@@ -203,3 +203,16 @@ const draftShown = (draft: PrReviewDraftRow | undefined): draft is PrReviewDraft
 3. Когда комментарий на файле PR не считается «не на строке», хотя его строки ещё не проверены?
    Ответ: пока ответ `changes.file` по этому файлу не пришёл: `known` его не знает, и `isOff` даёт false.
    Строки: `src/renderer/pr-review/review-comments.tsx:219-220`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED — worfy-pr-review 10 (line comments on someone else's PR in Review mode), head 27849a3684178e2caf5ca061c568019a5b16cbf9
+>
+> Gate (depth medium, two rounds): verifier (lens: implementer's claims, sonnet) — all claims CONFIRMED, no findings; reviewer (correctness) — round 1 FIX (three medium, three low), round 2 MERGE, all seven items FIXED.
+>
+> - What the user sees: in Review mode «+» in the gutter or `c` on the picked lines open the Changes popover; Shift-click range (start_line/start_side), Suggest change (new side only), ⌘↵ saves into the local review draft on the draft's commit (draftCommitOf), never a Session; comments show Pending or «Written by the agent» with Edit and Delete (Edit makes an agent comment the person's); comments off the diff go to «Not on a changed line» with Move to line; the bar «N pending comments on M files (K by the agent)»; Discard asks first; Finish review inactive (ticket 11); the Review draft chip on the PR row.
+> - Fixed in round 2: folded files (lock, generated, large) read with expand, so their comments count as on the line; under Hide whitespace «+»/c read the file themselves (toast on failure, no silent no-op); Edit of an agent comment with stored "" line text takes the text from the diff, else blank lines by count (reanchor marks such anchors moved — same as before for the agent's ""); the line text is captured at open; a range across hunks is refused with a toast and an agent range across hunks goes to «Not on a changed line» (GitHub's same-hunk rule for start_line).
+> - Evidence: review-comments.test.tsx 13 of 15 red before / 15 green after (round 1), 8 new red before / 24 green after (round 2); reviewers' mutants caught (10 of 11; the 11th — onFileRead's folded guard — has no observable effect); 16 module files 453 tests EXIT=0; e2e pr-review + changes + pr-inbox + pr-search whole 18 passed EXIT=0; lint, typecheck, story-check, evidence-check EXIT=0; gate fast green EXIT=0. No gh calls on save/edit/move/delete/discard (contract).
+> - Prototype deviations: kit popover instead of an in-diff composer; `c` without a picked line shows a hint; no «You» avatar; Move to line is a mode; «Not on a changed line» is one list above the diff; no draft dot in the narrow column; no «+» while the head moved from the draft's commit.
+>
+> Decided without the owner (to confirm): the Review draft chip only for an unsent draft with comments; new comments only on All changes of the draft's commit; no images in comments; Delete without confirm or Undo; Discard inactive without comments and closes Review mode; a cross-hunk range refused with a toast; unknown line text → blank lines by count.
