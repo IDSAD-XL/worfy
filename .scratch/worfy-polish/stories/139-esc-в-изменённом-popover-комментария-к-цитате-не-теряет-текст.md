@@ -170,3 +170,25 @@ quote-store, composer-popovers, product-transcript, session-view, contract agent
    - Ответ: тогда любой Esc идёт в `onOutside`, а он сам закрывает неизменённый popover через `close()` — тот же исход,
      что у kit-а.
    - Строки: `src/renderer/session/QuoteComments.tsx:810-811`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 139 (Esc keeps a changed quote-comment popover, as Changes does after polish 136), head 3f54b8b7a02428c009c349fab2e0010158f3db5a
+>
+> Gate (depth medium, one round): verifier (lens: implementer's claims, sonnet) — all five claims CONFIRMED; reviewer (correctness) — MERGE, no blocking findings.
+>
+> - Fix: QuoteCommentParts.tsx:296-300 — Esc on a changed popover calls preventDefault() and onOutside(); QuoteComments.tsx:813 shows «Save (⌘↵) or Cancel first.» and shakes, like an outside click. The kit layer (layer.ts:112-118) sees defaultPrevented and stops bubbling, so Focus mode and document Esc handlers do not fire. Unchanged Esc closes; Cancel discards; IME Esc skipped.
+> - Evidence: quote-comments-ui.test.tsx red with src reverted (exit 1, 3 failed) and green after (exit 0, 46/46), re-run by the verifier; mutant `!changed` → red; module unit+contract 222/222 EXIT=0; e2e quote-comments.spec.ts whole 3/3 EXIT=0 (implementer); lint, typecheck, check-feature-docs, story-check, evidence-check EXIT=0; gate fast green EXIT=0.
+> - Ticket item «without `changed` the test is red» is unachievable: removing the condition is an equivalent mutant (onOutside closes an unchanged popover through the same close()); recorded honestly in Итог.
+> - Low findings (not tickets): no Esc test for an image-only change; the isComposing guard is untested. Pre-existing, outside the diff: an image still being read can be lost if the popover closes meanwhile.
+> - docs/features/sessions.md:224-226 updated; ru/ left to lag per ADR-0088 point 1.
+>
+> Decided without the owner (to confirm): keep the `changed` condition in onKeyDown as in 136; no path-mapped e2e beyond quote-comments.spec.ts.
+
+Code: `docs/features/sessions.md:224-226` · key lines: 224
+
+```md
+saves with ⌘↵; Cancel discards it. An Esc, in it or outside it, or a click outside closes a popover left unchanged; with
+a text or an image added it stays, shakes and asks to save or cancel first. An Esc in the input field of a busy Session
+interrupts the turn and leaves the popover as it is. A comment may be images alone. The images of one message's comments are 10
+```
