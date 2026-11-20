@@ -1008,6 +1008,7 @@ test('a narrow Product Session header: the share of advice gives way before the 
     await expect(name).toHaveText(pickerName)
     // The busy chip: its icon alone, the word kept in the chip for a screen reader and in its kit tooltip.
     expect(narrow.word).toBeLessThanOrEqual(1)
+    await expect(word).toHaveText('busy')
     await expect(state).toHaveText('busy')
     await expect(state).toHaveAttribute('data-kit-hint', 'busy')
     // The narrowest header leaves the Vendor to the chat's heading below it.
