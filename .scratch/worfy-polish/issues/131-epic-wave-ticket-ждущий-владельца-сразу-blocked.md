@@ -47,6 +47,7 @@ Windows — job-ы Windows в CI.
 - [ ] Проверка в `epic-wave-ship-ticket.test.sh` зелёная, mutant (фраза убрана) — красный; весь файл — exit 0.
   - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` exit 0; exit 1 before the text change (10 failed); exit 1 on the mutant without the ticket block command (1 failed) · mac - · 6587ed776acbdecf9af41c4057a61365456891c9
 - [ ] Eval-случай добавлен и прогнан (exit code и счёт в «Итог»), или в «Итог» записано, почему его нет.
+  - evidence: commit pass · worfy-polish/131: result section and evidence · - - · 3390cc7ab5f080b178ab52475daa279f3c8e1523
 - [ ] Job-ы Windows CI на PR зелёные (платформенный PR).
 
 ## Где в коде
