@@ -41,7 +41,11 @@ const SHA = /^[0-9a-f]{7,64}$/u
  */
 export const changesPrSchema = z.object({
   kind: z.literal('pr'),
-  repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/u, { message: 'owner/name' }),
+  // `.` and `..` are refused as owner or name: the repository goes into the path of `gh api repos/{repo}/…`.
+  repo: z
+    .string()
+    .regex(/^[\w.-]+\/[\w.-]+$/u, { message: 'owner/name' })
+    .refine((repo) => repo.split('/').every((part) => part !== '.' && part !== '..'), { message: 'owner/name' }),
   number: z.number().int().positive(),
   headOid: z.string().regex(SHA),
   baseOid: z.string().regex(SHA),

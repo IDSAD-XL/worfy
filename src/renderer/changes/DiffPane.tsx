@@ -12,8 +12,10 @@
 // tray, a block of a sent message) is brought into view once its file is read, and flashes.
 //
 // The subject is a Ticket or a pull request (worfy-pr-review ticket 06). A PR's review threads of GitHub (`threads`, as
-// the PR inbox reads them) stand under the line of the new side they are on; an outdated one, or one without a line,
-// in a list under the file's header. A file GitHub sent without its patch reads «Large diff · Open on GitHub»; a file
+// the PR inbox reads them) stand under their line: of the old side for a thread on a deleted line (LEFT), of the new
+// side otherwise — in All changes, and in Since my review for the new side only (a Commit numbers its lines of its
+// own). An outdated thread, one without a line, and one whose line the scope or the hunks do not show stand in a list
+// under the file's header, each with where it was. A file GitHub sent without its patch reads «Large diff · Open on GitHub»; a file
 // of a diff read from GitHub has «View file on GitHub» in its header (no context past the hunks GitHub sent).
 import { Fragment, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type HTMLAttributes, type ReactNode, type Ref } from 'react'
 import type { ChangesScope, ChangesSubjectRef, DiffHunk, DiffLine, FileDiff } from '../../shared/changes/types'
@@ -86,7 +88,7 @@ type FileState = { kind: 'loading' } | { kind: 'ready'; diff: FileDiff } | { kin
 
 type Block =
   | { kind: 'head'; key: string; entry: FileEntry; last: boolean }
-  | { kind: 'hunk'; key: string; entry: FileEntry; hunk: DiffHunk; last: boolean }
+  | { kind: 'hunk'; key: string; entry: FileEntry; hunk: DiffHunk; threads: ReadonlyMap<string, readonly ChangesThread[]>; last: boolean }
   | { kind: 'note'; key: string; entry: FileEntry; note: Note; last: boolean }
   | { kind: 'outdated'; key: string; entry: FileEntry; threads: readonly ChangesThread[]; last: boolean }
 
@@ -123,31 +125,74 @@ function noteOf(entry: FileEntry, state: FileState | undefined, expanded: boolea
 /** A file's patch needs reading: it is not read, and not folded unasked. */
 const needsRead = (entry: FileEntry, state: FileState | undefined, expanded: boolean): boolean => state === undefined && (entry.file.fold === null || expanded)
 
-/** The threads of a PR by path: those on a line of the new side, by line, and the others (outdated, or without a line). */
-interface ThreadsByPath {
-  onLine: ReadonlyMap<string, ReadonlyMap<number, readonly ChangesThread[]>>
-  elsewhere: ReadonlyMap<string, readonly ChangesThread[]>
+/** The side of the diff a thread's line is on: LEFT is a line of the base, RIGHT (and no side) one of the head. */
+const threadSide = (thread: ChangesThread): LineSide => (thread.side === 'LEFT' ? 'old' : 'new')
+
+/** The key of a line of a side, as the threads on lines are kept. */
+const lineKey = (side: LineSide, line: number): string => `${side}:${line}`
+
+/** Where a thread of the list under a file's header was: outdated, without a line, or on a line this diff does not show. */
+function threadWhere(thread: ChangesThread): string {
+  if (thread.isOutdated) return 'outdated'
+  if (thread.line === null) return 'no line'
+  return threadSide(thread) === 'old' ? `old line ${thread.line}` : `line ${thread.line}`
 }
 
-function threadsByPath(threads: readonly ChangesThread[]): ThreadsByPath {
-  const onLine = new Map<string, Map<number, ChangesThread[]>>()
-  const elsewhere = new Map<string, ChangesThread[]>()
+/** The threads of a PR by path. */
+function threadsByPath(threads: readonly ChangesThread[]): ReadonlyMap<string, readonly ChangesThread[]> {
+  const byPath = new Map<string, ChangesThread[]>()
+  for (const thread of threads) if (thread.path !== null) byPath.set(thread.path, [...(byPath.get(thread.path) ?? []), thread])
+  return byPath
+}
+
+const NO_THREADS: ReadonlyMap<string, readonly ChangesThread[]> = new Map()
+
+/**
+ * The sides whose numbers are those GitHub gave the threads: All changes is the PR's diff, both sides; Since my review
+ * ends at the head, its new side only; a Commit numbers its lines of its own, neither.
+ */
+function sidesOf(scope: ChangesScope): ReadonlySet<LineSide> {
+  if (scope.kind === 'all') return new Set(['old', 'new'])
+  if (scope.kind === 'compare') return new Set(['new'])
+  return new Set()
+}
+
+/** A file's threads: those on a line its hunks show, by side and line, and those listed under its header. */
+interface FileThreads {
+  onLine: ReadonlyMap<string, readonly ChangesThread[]>
+  listed: readonly ChangesThread[]
+}
+
+/**
+ * Places a file's threads. A thread stands on its line when the scope numbers that side as GitHub does and the hunks
+ * show that line; any other — outdated, without a line, on a line not shown — is listed under the header. While the
+ * file is read (`hunks` null), a thread that may yet find its line is in neither.
+ */
+function placeThreads(threads: readonly ChangesThread[], hunks: readonly DiffHunk[] | null, sides: ReadonlySet<LineSide>): FileThreads {
+  const shown = new Set<string>()
+  for (const hunk of hunks ?? []) {
+    for (const line of hunk.lines) {
+      if (line.kind !== 'add' && line.oldLine !== null) shown.add(lineKey('old', line.oldLine))
+      if (line.kind !== 'del' && line.newLine !== null) shown.add(lineKey('new', line.newLine))
+    }
+  }
+  const onLine = new Map<string, ChangesThread[]>()
+  const listed: ChangesThread[] = []
   for (const thread of threads) {
-    if (thread.path === null) continue
-    if (thread.isOutdated || thread.line === null) {
-      elsewhere.set(thread.path, [...(elsewhere.get(thread.path) ?? []), thread])
+    if (thread.isOutdated || thread.line === null || !sides.has(threadSide(thread))) {
+      listed.push(thread)
       continue
     }
-    const lines = onLine.get(thread.path) ?? new Map<number, ChangesThread[]>()
-    lines.set(thread.line, [...(lines.get(thread.line) ?? []), thread])
-    onLine.set(thread.path, lines)
+    const key = lineKey(threadSide(thread), thread.line)
+    if (shown.has(key)) onLine.set(key, [...(onLine.get(key) ?? []), thread])
+    else if (hunks !== null) listed.push(thread)
   }
-  return { onLine, elsewhere }
+  return { onLine, listed }
 }
 
-const NO_THREADS: ThreadsByPath = { onLine: new Map(), elsewhere: new Map() }
+const NO_LINE_THREADS: ReadonlyMap<string, readonly ChangesThread[]> = new Map()
 
-function blocksOf(entries: readonly FileEntry[], files: ReadonlyMap<string, FileState>, expanded: ReadonlySet<string>, collapsed: ReadonlySet<string>, threads: ThreadsByPath): Block[] {
+function blocksOf(entries: readonly FileEntry[], files: ReadonlyMap<string, FileState>, expanded: ReadonlySet<string>, collapsed: ReadonlySet<string>, threads: ReadonlyMap<string, readonly ChangesThread[]>, sides: ReadonlySet<LineSide>): Block[] {
   const blocks: Block[] = []
   for (const entry of entries) {
     if (collapsed.has(entry.key)) {
@@ -155,17 +200,20 @@ function blocksOf(entries: readonly FileEntry[], files: ReadonlyMap<string, File
       continue
     }
     blocks.push({ kind: 'head', key: `${entry.key}\u0000head`, entry, last: false })
-    const outdated = threads.elsewhere.get(entry.file.path)
-    if (outdated !== undefined) blocks.push({ kind: 'outdated', key: `${entry.key}\u0000outdated`, entry, threads: outdated, last: false })
     const open = expanded.has(entry.key)
     const state = files.get(readKey(entry.key, open))
     const note = noteOf(entry, state, open)
+    const hunks = note === null && state?.kind === 'ready' && state.diff.kind === 'hunks' ? state.diff.hunks : []
+    const own = threads.get(entry.file.path)
+    // A file being read may yet show a thread's line; one with a note (folded, binary, no patch, an error) shows none.
+    const placed = own === undefined ? null : placeThreads(own, note?.kind === 'loading' ? null : hunks, sides)
+    if (placed !== null && placed.listed.length > 0) blocks.push({ kind: 'outdated', key: `${entry.key}\u0000outdated`, entry, threads: placed.listed, last: false })
     if (note !== null) {
       blocks.push({ kind: 'note', key: `${entry.key}\u0000note`, entry, note, last: true })
       continue
     }
-    const hunks = state?.kind === 'ready' && state.diff.kind === 'hunks' ? state.diff.hunks : []
-    hunks.forEach((hunk, index) => blocks.push({ kind: 'hunk', key: `${entry.key}\u0000hunk${index}`, entry, hunk, last: index === hunks.length - 1 }))
+    const onLine = placed?.onLine ?? NO_LINE_THREADS
+    hunks.forEach((hunk, index) => blocks.push({ kind: 'hunk', key: `${entry.key}\u0000hunk${index}`, entry, hunk, threads: onLine, last: index === hunks.length - 1 }))
   }
   return blocks
 }
@@ -213,8 +261,8 @@ interface RowsProps {
   renderGutter: DiffPaneProps['renderGutter']
   renderBelow: DiffPaneProps['renderBelow']
   isPicked: DiffPaneProps['isPicked']
-  /** The PR's threads on the lines of this file's new side, by line. */
-  threads: ReadonlyMap<number, readonly ChangesThread[]> | undefined
+  /** The PR's threads on the lines of this file, by side and line (lineKey). */
+  threads: ReadonlyMap<string, readonly ChangesThread[]>
   onReply: DiffPaneProps['onReply']
 }
 
@@ -222,8 +270,13 @@ function HunkRows({ hunk, entry, layout, renderGutter, renderBelow, isPicked, th
   const gutter = (line: DiffLine, side: LineSide) => renderGutter?.(line, side, entry) ?? null
   const below = (line: DiffLine, side: LineSide) => {
     const own = renderBelow?.(line, side, entry) ?? null
-    const on = side === 'new' && line.newLine !== null ? threads?.get(line.newLine) : undefined
-    if (on === undefined) return own
+    // Inline draws a context line once: the threads of both its sides stand under it. Side by side draws it on each.
+    const sides: LineSide[] = layout === 'inline' ? ['old', 'new'] : [side]
+    const on = sides.flatMap((each) => {
+      const number = each === 'old' ? (line.kind === 'add' ? null : line.oldLine) : line.kind === 'del' ? null : line.newLine
+      return number === null ? [] : (threads.get(lineKey(each, number)) ?? [])
+    })
+    if (on.length === 0) return own
     return (
       <>
         {on.map((thread) => (
@@ -346,10 +399,15 @@ function openOnGithub(url: string): void {
 }
 
 /** A review thread of GitHub: its last comments, oldest first, and Reply when the PR inbox can draft one. */
-function ThreadView({ thread, onReply }: { thread: ChangesThread; onReply: DiffPaneProps['onReply'] }) {
+function ThreadView({ thread, onReply, where }: { thread: ChangesThread; onReply: DiffPaneProps['onReply']; where?: string }) {
   const state = thread.isResolved ? 'resolved thread' : 'open thread'
   return (
     <div className="w-cl w-cl--github nodrag" data-testid="changes-thread" data-thread-id={thread.id} data-path={thread.path ?? undefined} data-line={thread.line ?? undefined}>
+      {where === undefined ? null : (
+        <div className="w-cl__muted" data-testid="changes-thread-where">
+          {where}
+        </div>
+      )}
       {thread.comments.map((comment) => (
         <div key={comment.id} className="w-cl__comment">
           <div className="w-cl__head">
@@ -391,7 +449,7 @@ export function DiffPane({ projectId, subject, scope, hideWhitespace, layout, wr
   const heightOf = measured.of === measuredFor ? measured.map : EMPTY_HEIGHTS
 
   const byPath = useMemo(() => (threads === undefined || threads.length === 0 ? NO_THREADS : threadsByPath(threads)), [threads])
-  const blocks = blocksOf(entries, current, expanded, collapsed, byPath)
+  const blocks = blocksOf(entries, current, expanded, collapsed, byPath, sidesOf(scope))
   const heights = blocks.map((block) => heightOf.get(block.key) ?? estimate(block, layout))
   const offsets = offsetsOf(heights)
   const slice = windowOf(heights, top, viewport || FALLBACK_VIEWPORT)
@@ -651,9 +709,9 @@ export function DiffPane({ projectId, subject, scope, hideWhitespace, layout, wr
         if (block.kind === 'outdated') {
           return (
             <div key={block.key} ref={measure} data-block={block.key} className={className} data-testid="changes-outdated" data-path={entry.file.path}>
-              <p className="w-changes__outdated-head w-changes__muted">{block.threads.length === 1 ? '1 outdated thread' : `${block.threads.length} outdated threads`}</p>
+              <p className="w-changes__outdated-head w-changes__muted">{block.threads.length === 1 ? '1 thread not on a line of this diff' : `${block.threads.length} threads not on a line of this diff`}</p>
               {block.threads.map((thread) => (
-                <ThreadView key={thread.id} thread={thread} onReply={onReply} />
+                <ThreadView key={thread.id} thread={thread} onReply={onReply} where={threadWhere(thread)} />
               ))}
             </div>
           )
@@ -671,7 +729,7 @@ export function DiffPane({ projectId, subject, scope, hideWhitespace, layout, wr
               {block.hunk.header}
               {block.hunk.section === '' ? null : ` ${block.hunk.section}`}
             </div>
-            <HunkRows hunk={block.hunk} entry={entry} layout={layout} renderGutter={renderGutter} renderBelow={renderBelow} isPicked={isPicked} threads={byPath.onLine.get(entry.file.path)} onReply={onReply} />
+            <HunkRows hunk={block.hunk} entry={entry} layout={layout} renderGutter={renderGutter} renderBelow={renderBelow} isPicked={isPicked} threads={block.threads} onReply={onReply} />
           </div>
         )
       })}

@@ -542,14 +542,64 @@ describe('the diff of a pull request', () => {
     expect(within(under).getByText('Why t1?')).toBeTruthy()
     expect(within(under).getByText(/open thread on GitHub/u)).toBeTruthy()
     const outdated = screen.getByTestId('changes-outdated')
-    expect(within(outdated).getByText('2 outdated threads')).toBeTruthy()
+    expect(within(outdated).getByText('2 threads not on a line of this diff')).toBeTruthy()
     expect(within(outdated).getAllByTestId('changes-thread').map((each) => each.getAttribute('data-thread-id'))).toEqual(['t2', 't3'])
+    expect(within(outdated).getAllByTestId('changes-thread-where').map((each) => each.textContent)).toEqual(['outdated', 'no line'])
     // A thread of a file that is not in the diff stands nowhere.
     expect(screen.queryByText('Why t4?')).toBeNull()
     // Reply only where GitHub lets the viewer reply.
     expect(screen.getAllByTestId('changes-thread-reply')).toHaveLength(2)
     fireEvent.click(within(under).getByTestId('changes-thread-reply'))
     expect(onReply).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }))
+  })
+
+  // Review round 1: the side of a thread, a line the hunks do not have, and the scopes whose numbers are not the PR's.
+  const threadUnder = (row: HTMLElement): string[] => {
+    const ids: string[] = []
+    for (let next = row.nextElementSibling; next?.getAttribute('data-testid') === 'changes-thread'; next = next.nextElementSibling) ids.push(next.getAttribute('data-thread-id')!)
+    return ids
+  }
+  const lineRow = (kind: string, number: string) => screen.getAllByTestId('changes-line').find((row) => row.getAttribute('data-kind') === kind && row.getAttribute('data-line') === number)!
+  const listed = () => {
+    const list = screen.queryByTestId('changes-outdated')
+    return list === null ? [] : within(list).getAllByTestId('changes-thread').map((each) => each.getAttribute('data-thread-id'))
+  }
+
+  it('a thread on a deleted line (LEFT) stands under that line of the old file, not under the new line of the same number', async () => {
+    render(pane({ threads: [thread('left', 2, { side: 'LEFT' }), thread('right', 2, { side: 'RIGHT' })] }))
+    await settle()
+    expect(threadUnder(lineRow('del', '2'))).toEqual(['left'])
+    expect(threadUnder(lineRow('add', '2'))).toEqual(['right'])
+    expect(listed()).toEqual([])
+  })
+
+  it('a thread on a line the hunks do not have stands in the list under the header, with its line', async () => {
+    render(pane({ threads: [thread('far', 101), thread('gone', 9, { side: 'LEFT' }), thread('near', 3)] }))
+    await settle()
+    expect(listed()).toEqual(['far', 'gone'])
+    expect(within(screen.getByTestId('changes-outdated')).getAllByTestId('changes-thread-where').map((each) => each.textContent)).toEqual(['line 101', 'old line 9'])
+    expect(threadUnder(lineRow('add', '3'))).toEqual(['near'])
+  })
+
+  it('Side by side: a thread on a line both sides show stands under it once', async () => {
+    render(pane({ layout: 'side-by-side', threads: [thread('old1', 1, { side: 'LEFT' }), thread('new4', 4)] }))
+    await settle()
+    expect(screen.getAllByTestId('changes-thread').map((each) => each.getAttribute('data-thread-id'))).toEqual(['old1', 'new4'])
+    expect(listed()).toEqual([])
+  })
+
+  it('a Commit has numbers of its own: every thread stands in the list; Since my review keeps the new side on its lines, the old side in the list', async () => {
+    const threads = [thread('right', 3), thread('left', 2, { side: 'LEFT' })]
+    const { unmount } = render(pane({ scope: { kind: 'commit', repo: 'acme/api', sha: 'd0d'.padEnd(40, '0') }, threads }))
+    await settle()
+    expect(threadUnder(lineRow('add', '3'))).toEqual([])
+    expect(listed()).toEqual(['right', 'left'])
+    unmount()
+    render(pane({ scope: { kind: 'compare', repo: 'acme/api', ref: 'e0e'.padEnd(40, '0') }, threads }))
+    await settle()
+    expect(threadUnder(lineRow('add', '3'))).toEqual(['right'])
+    expect(threadUnder(lineRow('del', '2'))).toEqual([])
+    expect(listed()).toEqual(['left'])
   })
 
   it('without threads there is no thread and no Reply', async () => {

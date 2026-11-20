@@ -15,7 +15,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, writeFile
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { GITHUB_FILES_MAX } from '../../src/main/changes/github'
+import { GITHUB_FILES_MAX, ghApiGet } from '../../src/main/changes/github'
 import { changesGitRunner, type ChangesGit } from '../../src/main/changes/git'
 import { changesHandlers } from '../../src/main/ipc/changes'
 import type { InvokeHandler } from '../../src/main/ipc/index'
@@ -83,7 +83,7 @@ const COMMIT = oid('d')
 function restAnswers(): Record<string, unknown> {
   const files = (repo: string, number: number, page: number) => `repos/${repo}/pulls/${number}/files?per_page=100&page=${page}`
   const answers: Record<string, unknown> = {
-    [files(API, 7, 1)]: [ghFile(API, 'src/net/retry.ts'), ghFile(API, 'data/big.json', { patch: undefined, additions: 30_000, deletions: 0, changes: 30_000 }), ghFile(API, 'img/logo.png', { status: 'added', patch: undefined, additions: 0, deletions: 0, changes: 0 })],
+    [files(API, 7, 1)]: [ghFile(API, 'src/net/retry.ts'), ghFile(API, 'data/big.json', { patch: undefined, additions: 30_000, deletions: 0, changes: 30_000 }), ghFile(API, 'img/logo.png', { status: 'modified', patch: undefined, additions: 0, deletions: 0, changes: 0 })],
     [`repos/${API}/pulls/7/commits?per_page=100&page=1`]: [
       { sha: oid('1'), commit: { message: 'First step\n\nbody', author: { name: 'Ana', date: '2026-11-19T10:00:00Z' } } },
       { sha: oid('2'), commit: { message: 'Second step', author: { name: 'Bob', date: '2026-11-19T11:00:00Z' } } },
@@ -139,7 +139,7 @@ describe('the diff of a pull request', () => {
       return reading(cwd, args, options)
     }
     const layout: ProjectLayout = { ...fullLayout(repo), repos: [{ name: 'web', path: repo }], finish: 'pr-green-ci', mainBranch: 'origin/main' }
-    call = caller(changesHandlers({ project: async () => ({ root: repo, layout }), git, gh: () => (path) => world.run(['api', path], repo) }))
+    call = caller(changesHandlers({ project: async () => ({ root: repo, layout }), git, gh: () => ghApiGet(world.run, async () => ({}), repo) }))
     indexBefore = indexState(repo)
   })
 
@@ -213,7 +213,7 @@ describe('the diff of a pull request', () => {
       expect(changes!).toMatchObject({ repo: API, kind: 'pr', error: null, truncatedAt: null })
       expect(changes!.files.map((file) => [file.path, file.status, file.binary, file.newBlob, file.url])).toEqual([
         ['data/big.json', 'M', false, oid('e'), `https://github.com/${API}/blob/${oid('b')}/data/big.json`],
-        ['img/logo.png', 'A', true, oid('e'), `https://github.com/${API}/blob/${oid('b')}/img/logo.png`],
+        ['img/logo.png', 'M', true, oid('e'), `https://github.com/${API}/blob/${oid('b')}/img/logo.png`],
         ['src/net/retry.ts', 'M', false, oid('e'), `https://github.com/${API}/blob/${oid('b')}/src/net/retry.ts`],
       ])
       expect(world.calls().slice(before)).toEqual([['api', `repos/${API}/pulls/7/files?per_page=100&page=1`]])
@@ -238,6 +238,27 @@ describe('the diff of a pull request', () => {
       const [changes] = (await call(changesList, { projectId: 'p', subject: { ...ghPr, headOid: oid('9') }, scope: { kind: 'all' } })).repos
       expect(changes!.files).toHaveLength(3)
       expect(world.calls().length).toBe(before + 1)
+    })
+
+    it('a new base — the PR retargeted without a push — is read again (review round 1)', async () => {
+      await call(changesList, { projectId: 'p', subject: ghPr, scope: { kind: 'all' } })
+      const before = start()
+      const [changes] = (await call(changesList, { projectId: 'p', subject: { ...ghPr, baseOid: oid('8') }, scope: { kind: 'all' } })).repos
+      expect(changes!.files).toHaveLength(3)
+      expect(world.calls().length).toBe(before + 1)
+    })
+
+    it('another Project is read again: its account of GitHub may not see what this one saw (review round 1)', async () => {
+      // A head of its own: the commits of `ghPr` are read by the test after this one.
+      const pr9 = { ...ghPr, headOid: oid('9') }
+      await call(changesList, { projectId: 'p', subject: pr9, scope: { kind: 'all' } })
+      const before = start()
+      await call(changesList, { projectId: 'q', subject: pr9, scope: { kind: 'all' } })
+      await call(changesCommits, { projectId: 'q', subject: pr9, repo: API })
+      await call(changesCommits, { projectId: 'p', subject: pr9, repo: API })
+      const after = world.calls().slice(before).map((args) => args[1])
+      expect(after.filter((path) => path?.includes('/files'))).toHaveLength(1)
+      expect(after.filter((path) => path?.includes('/commits'))).toHaveLength(2)
     })
 
     it('the commits of the PR, newest first; a commit; Since my review through compare', async () => {

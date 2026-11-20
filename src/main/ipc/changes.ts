@@ -14,7 +14,7 @@ import { changesCommits, changesFile, changesList, changesScopes, changesTargets
 import type { ChangesPrRef, ChangesScope, ChangesSubjectRef } from '../../shared/changes/types'
 import { gitProbe } from '../changes/base'
 import type { ChangesGit } from '../changes/git'
-import { PrDiffs, prFileDiff, type GhGet } from '../changes/github'
+import { ghApiGet, PrDiffs, prFileDiff, type GhGet, type GhReader } from '../changes/github'
 import { compareBranches, fileDiff, listChanges, listCommits, resolveBase, scopeKinds, type ChangesContext, type RepoBase } from '../changes/scopes'
 import { ticketSubjects, type RepoSubject, type TicketSubjectRef } from '../changes/subjects'
 import { changesTargets as listTargets, type TargetsDeps } from '../changes/targets'
@@ -80,7 +80,7 @@ async function contextOf(deps: ChangesDeps, projectId: string, ticket: TicketSub
 }
 
 /** Where a pull request is read: the Project's git, or GitHub. */
-type PrSource = { kind: 'git'; context: ChangesContext } | { kind: 'github'; get: GhGet }
+type PrSource = { kind: 'git'; context: ChangesContext } | { kind: 'github'; reader: GhReader }
 
 /**
  * The checkout whose `origin` is the PR's repository and which has both its commits: the PR is read there, as a branch
@@ -98,7 +98,7 @@ async function prSource(deps: ChangesDeps, projectId: string, pr: ChangesPrRef):
     return { kind: 'git', context: { subject, git: deps.git, facts: {}, workflowPrefix: workflowPrefixOf(layout, path), base: pr.baseOid } }
   }
   if (deps.gh === undefined) throw new Error(`This build cannot read ${pr.repo}#${pr.number} from GitHub`)
-  return { kind: 'github', get: deps.gh(projectId) }
+  return { kind: 'github', reader: { who: projectId, get: deps.gh(projectId) } }
 }
 
 /** The base of a PR read from GitHub: its base commit; `pulls/{n}/files` does not name the merge-base. */
@@ -156,7 +156,7 @@ export function changesHandlers(deps: ChangesDeps): HandlerModule {
     if (source.kind === 'git') return { ...(await listChanges(source.context, scope, { hideWhitespace })), source: 'git' as const }
     const answer = { repo: pr.repo, kind: 'pr' as const, branch: `#${pr.number}`, scope: scope.kind, base: scope.kind === 'all' ? githubBase(pr) : null, headSha: pr.headOid, workTree: false, source: 'github' as const }
     try {
-      const { files, truncatedAt } = await diffs.files(source.get, pr, scope)
+      const { files, truncatedAt } = await diffs.files(source.reader, pr, scope)
       const changed = files.map((each) => each.file)
       const sum = (pick: (file: (typeof changed)[number]) => number | null): number => changed.reduce((total, file) => total + (pick(file) ?? 0), 0)
       return { ...answer, files: changed, additions: sum((file) => file.additions), deletions: sum((file) => file.deletions), error: null, truncatedAt }
@@ -188,7 +188,7 @@ export function changesHandlers(deps: ChangesDeps): HandlerModule {
         const source = await prSource(deps, projectId, subject)
         // A pull request has no file outside git: `untracked` has no meaning for it.
         if (source.kind === 'git') return { file: await fileDiff(source.context, scope, { path, oldPath }, { whole, expand, hideWhitespace }) }
-        const entry = (await diffs.files(source.get, subject, scope)).files.find((each) => each.file.path === path)
+        const entry = (await diffs.files(source.reader, subject, scope)).files.find((each) => each.file.path === path)
         if (entry === undefined) throw new Error(`${path} has no changes in this scope`)
         return { file: prFileDiff(entry, { expand }) }
       }
@@ -200,7 +200,7 @@ export function changesHandlers(deps: ChangesDeps): HandlerModule {
         samePrRepo(subject, repo)
         const source = await prSource(deps, projectId, subject)
         if (source.kind === 'git') return listCommits(source.context)
-        return { base: githubBase(subject), commits: await diffs.commits(source.get, subject) }
+        return { base: githubBase(subject), commits: await diffs.commits(source.reader, subject) }
       }
       return listCommits(await contextOf(deps, projectId, ticketOf(subject), repo))
     }),
@@ -240,10 +240,7 @@ async function appDeps(): Promise<ChangesDeps> {
     },
     git: changesGit,
     // `gh api <path>`: a GET, never with --method or a field (ADR-0110, Amendment).
-    gh: (projectId) => async (path) => {
-      const root = projectStore().get(projectId).path
-      return run(['api', path], root, await auth(root))
-    },
+    gh: (projectId) => ghApiGet(run, auth, projectStore().get(projectId).path),
   }
   return shared
 }

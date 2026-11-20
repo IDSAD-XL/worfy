@@ -3,7 +3,8 @@
 // the same hunks src/shared/changes/parse.ts gives for a local diff. A file GitHub sends without `patch` (too large, or
 // binary) reads as «Large diff · Open on GitHub». The repository, the paths and the texts are made up.
 import { describe, expect, it } from 'vitest'
-import { patchHunks, prFileDiff, prFileOf, type GithubFile } from '../../src/main/changes/github'
+import { ghApiGet, patchHunks, prFileDiff, prFileOf, type GithubFile } from '../../src/main/changes/github'
+import { changesPrSchema } from '../../src/shared/ipc/changes'
 
 const BLOB = 'https://github.com/acme/api/blob/1111111111111111111111111111111111111111'
 
@@ -66,10 +67,18 @@ describe('the patch of a file GitHub sends', () => {
     expect(prFileDiff(entry, { expand: true })).toEqual({ kind: 'no-patch', path: 'data/big.json', url: `${BLOB}/data/big.json` })
   })
 
-  it('a binary file — no patch, no lines — is binary, without counts, and reads as «Large diff · Open on GitHub» too', () => {
-    const entry = prFileOf(raw({ filename: 'img/logo.png', status: 'added' }))
-    expect(entry.file).toMatchObject({ status: 'A', binary: true, additions: null, deletions: null, fold: null })
+  it('a modified binary file — no patch, no lines — is binary, without counts, and reads as «Large diff · Open on GitHub» too', () => {
+    const entry = prFileOf(raw({ filename: 'img/logo.png', status: 'modified' }))
+    expect(entry.file).toMatchObject({ status: 'M', binary: true, additions: null, deletions: null, fold: null })
     expect(prFileDiff(entry, {})).toEqual({ kind: 'no-patch', path: 'img/logo.png', url: `${BLOB}/img/logo.png` })
+  })
+
+  it('an empty file added or removed, and a change of mode only — no patch, no lines — read as «No lines changed», not binary', () => {
+    for (const status of ['added', 'removed', 'changed'] as const) {
+      const entry = prFileOf(raw({ filename: 'empty.txt', status }))
+      expect(entry.file, status).toMatchObject({ binary: false, additions: 0, deletions: 0, fold: null })
+      expect(prFileDiff(entry, {}), status).toMatchObject({ kind: 'hunks', hunks: [] })
+    }
   })
 
   it('a deleted file has no blob on the new side; added, removed, changed and copied map to A, D, T, A', () => {
@@ -84,5 +93,28 @@ describe('the patch of a file GitHub sends', () => {
     expect(lock.file.fold).toBe('lock')
     expect(prFileDiff(lock, {})).toEqual({ kind: 'folded', path: 'pnpm-lock.yaml', reason: 'lock', lines: 2 })
     expect(prFileDiff(lock, { expand: true }).kind).toBe('hunks')
+  })
+})
+
+describe('the subject `pr` of `changes.*` (review round 1)', () => {
+  it('a repository is owner/name; a segment `.` or `..` is refused: it would climb out of repos/ in `gh api`', () => {
+    const pr = (repo: string) => changesPrSchema.safeParse({ kind: 'pr', repo, number: 1, headOid: 'a'.repeat(40), baseOid: 'b'.repeat(40) }).success
+    expect(pr('acme/api')).toBe(true)
+    expect(pr('acme.io/api.js')).toBe(true)
+    expect(pr('acme/.github')).toBe(true)
+    for (const bad of ['../..', 'acme/..', '../api', './api', 'acme/.', '..', 'acme/api/x']) expect(pr(bad), bad).toBe(false)
+  })
+})
+
+describe('how the app asks GitHub (review round 1)', () => {
+  it('a read is `gh api <path>` in the Project’s folder under its account: no --method, no field, nothing else', async () => {
+    const runs: { args: readonly string[]; cwd: string; env: unknown }[] = []
+    const run = async (args: readonly string[], cwd: string, env?: unknown) => {
+      runs.push({ args, cwd, env })
+      return '[]'
+    }
+    const get = ghApiGet(run, async (root) => ({ GH_TOKEN: `token of ${root}` }), '/projects/web')
+    expect(await get('repos/acme/api/pulls/7/files?per_page=100&page=1')).toBe('[]')
+    expect(runs).toEqual([{ args: ['api', 'repos/acme/api/pulls/7/files?per_page=100&page=1'], cwd: '/projects/web', env: { GH_TOKEN: 'token of /projects/web' } }])
   })
 })

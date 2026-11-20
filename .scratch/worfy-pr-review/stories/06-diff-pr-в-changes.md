@@ -27,7 +27,7 @@ async function prSource(deps: ChangesDeps, projectId: string, pr: ChangesPrRef):
     return { kind: 'git', context: { subject, git: deps.git, facts: {}, workflowPrefix: workflowPrefixOf(layout, path), base: pr.baseOid } }
   }
   if (deps.gh === undefined) throw new Error(`This build cannot read ${pr.repo}#${pr.number} from GitHub`)
-  return { kind: 'github', get: deps.gh(projectId) }
+  return { kind: 'github', reader: { who: projectId, get: deps.gh(projectId) } }
 }
 ```
 
@@ -48,7 +48,7 @@ async function prSource(deps: ChangesDeps, projectId: string, pr: ChangesPrRef):
 
 ## 3. Patch GitHub — те же hunk-и, что у git
 
-Code: `src/main/changes/github.ts:66-70` · key lines: 69
+Code: `src/main/changes/github.ts:81-85` · key lines: 84
 
 ```ts
 /** The hunks of a patch GitHub sent: hunks without the headers of git, read by parse.ts under a header of their own. */
@@ -71,14 +71,14 @@ export function patchHunks(patch: string): DiffHunk[] {
 
 ## 4. Файл без patch, binary и переименование
 
-Code: `src/main/changes/github.ts:76-101` · key lines: 79, 80, 93, 97, 98
+Code: `src/main/changes/github.ts:92-117` · key lines: 94, 96, 109, 112, 113
 
 ```ts
 export function prFileOf(input: GithubFile): PrFile {
   const raw = githubFileSchema.parse(input)
   const status = STATUSES[raw.status] ?? 'M'
   const patch = raw.patch === undefined || raw.patch === '' ? null : raw.patch
-  const binary = patch === null && raw.additions === 0 && raw.deletions === 0 && status !== 'R'
+  const binary = patch === null && raw.additions === 0 && raw.deletions === 0 && raw.status === 'modified'
   const additions = binary ? null : raw.additions
   const deletions = binary ? null : raw.deletions
   const file: ChangedFile = {
@@ -102,8 +102,9 @@ export function prFileOf(input: GithubFile): PrFile {
 }
 ```
 
-- Что делает: переводит файл `pulls/{n}/files` в `ChangedFile` экрана. Нет `patch` и нет строк (и это не голое
-  переименование) — файл считается binary, без счётчиков. Файл без `patch` не сворачивается: показывать у него нечего,
+- Что делает: переводит файл `pulls/{n}/files` в `ChangedFile` экрана. Нет `patch` и нет строк у файла со статусом
+  `modified` — файл считается binary, без счётчиков. Добавленный или удалённый пустой файл, смена mode и голое
+  переименование — «No lines changed» (раунд ревью 1). Файл без `patch` не сворачивается: показывать у него нечего,
   кроме «Large diff · Open on GitHub». `sha` — blob id новой стороны (по нему Ticket 09 снимает Viewed), `blob_url` —
   ссылка «View file on GitHub».
 - Почему здесь: Ticket, «Что делаем», п. 3 и 4. Что именно GitHub шлёт у binary и большого файла, документация не
@@ -111,12 +112,13 @@ export function prFileOf(input: GithubFile): PrFile {
   без владельца.
 - Без него: файл без `patch` с `fold: 'large'` показал бы «Large diff · N lines · Show», и «Show» не дал бы ничего.
 - Требование: [Что делаем](../issues/06-diff-pr-в-changes.md#что-делаем)
-- Риски и пробелы test-ов: пустой новый файл (0 строк, без `patch`) тоже будет назван binary. Если GitHub всё-таки шлёт
-  `patch` у binary, файл покажет его как текст — не проверено на настоящем GitHub.
+- Риски и пробелы test-ов: добавленный binary-файл (0 строк, без `patch`) GitHub не отличает от пустого — он прочтётся
+  «No lines changed»; в заголовке остаётся «View file on GitHub». Если GitHub всё-таки шлёт `patch` у binary, файл
+  покажет его как текст — не проверено на настоящем GitHub.
 
 ## 5. Страницы и предел 3 000 файлов
 
-Code: `src/main/changes/github.ts:138-147` · key lines: 140, 144, 146
+Code: `src/main/changes/github.ts:154-163` · key lines: 156, 160, 162
 
 ```ts
 async function pages(get: GhGet, path: string, max: number, items: (answer: unknown) => unknown[]): Promise<{ items: unknown[]; full: boolean }> {
@@ -141,13 +143,13 @@ async function pages(get: GhGet, path: string, max: number, items: (answer: unkn
 - Риски и пробелы test-ов: PR ровно из 3 000 файлов тоже получит строку о пределе — 31-ю страницу GitHub не отдаёт,
   отличить нечем.
 
-## 6. Память по head
+## 6. Память по Project-у, head и base
 
-Code: `src/main/changes/github.ts:201-214` · key lines: 202, 204, 212, 213
+Code: `src/main/changes/github.ts:222-235` · key lines: 223, 224, 232, 233
 
 ```ts
-  private keep<T>(pr: ChangesPrRef, what: string, read: () => Promise<T>): Promise<T> {
-    const key = `${pr.repo.toLowerCase()}#${pr.number}@${pr.headOid}|${what}`
+  private keep<T>(reader: GhReader, pr: ChangesPrRef, what: string, read: () => Promise<T>): Promise<T> {
+    const key = JSON.stringify([reader.who, pr.repo.toLowerCase(), pr.number, pr.headOid, pr.baseOid, what])
     const found = this.kept.get(key)
     if (found !== undefined) {
       // The newest use last: the oldest goes first.
@@ -162,54 +164,66 @@ Code: `src/main/changes/github.ts:201-214` · key lines: 202, 204, 212, 213
     })
 ```
 
-- Что делает: держит в памяти main ответ GitHub по PR-у, его head и scope-у; повторное чтение того же head-а не
-  вызывает `gh`. Неудачное чтение не держится. Держится не больше 16 чтений, старое уходит первым.
+- Что делает: держит в памяти main ответ GitHub по Project-у, PR-у, его head, base и scope-у; повторное чтение того
+  же не вызывает `gh`. Другой Project читает заново — его аккаунт может не видеть репозиторий; PR, перенесённый на
+  другую базу без push, тоже. Неудачное чтение не держится. Держится не больше 16 чтений, старое уходит первым.
 - Почему здесь: Ticket, «Что делаем», п. 3: «Кэш в памяти main по head commit-у». Число 16 — решено без владельца.
 - Без него: каждый `changes.file` (один на файл в окне diff-а) заново читал бы все страницы `pulls/{n}/files`.
-  Contract test «the second read asks gh nothing» считает вызовы stand-in-а.
+  Contract test «the second read asks gh nothing» считает вызовы stand-in-а; «a new base … is read again» и «another
+  Project is read again» — ключ.
 - Требование: [Что делаем](../issues/06-diff-pr-в-changes.md#что-делаем)
 - Риски и пробелы test-ов: вытеснение старых чтений (больше 16) test не проверяет.
 
-## 7. Нити ревью на своих строках
+## 7. Нити ревью на своих строках: сторона, строка, scope
 
-Code: `src/renderer/changes/DiffPane.tsx:132-146` · key lines: 134, 137, 142
+Code: `src/renderer/changes/DiffPane.tsx:171-191` · key lines: 175, 176, 182, 186, 187, 188
 
 ```tsx
-function threadsByPath(threads: readonly ChangesThread[]): ThreadsByPath {
-  const onLine = new Map<string, Map<number, ChangesThread[]>>()
-  const elsewhere = new Map<string, ChangesThread[]>()
+function placeThreads(threads: readonly ChangesThread[], hunks: readonly DiffHunk[] | null, sides: ReadonlySet<LineSide>): FileThreads {
+  const shown = new Set<string>()
+  for (const hunk of hunks ?? []) {
+    for (const line of hunk.lines) {
+      if (line.kind !== 'add' && line.oldLine !== null) shown.add(lineKey('old', line.oldLine))
+      if (line.kind !== 'del' && line.newLine !== null) shown.add(lineKey('new', line.newLine))
+    }
+  }
+  const onLine = new Map<string, ChangesThread[]>()
+  const listed: ChangesThread[] = []
   for (const thread of threads) {
-    if (thread.path === null) continue
-    if (thread.isOutdated || thread.line === null) {
-      elsewhere.set(thread.path, [...(elsewhere.get(thread.path) ?? []), thread])
+    if (thread.isOutdated || thread.line === null || !sides.has(threadSide(thread))) {
+      listed.push(thread)
       continue
     }
-    const lines = onLine.get(thread.path) ?? new Map<number, ChangesThread[]>()
-    lines.set(thread.line, [...(lines.get(thread.line) ?? []), thread])
-    onLine.set(thread.path, lines)
+    const key = lineKey(threadSide(thread), thread.line)
+    if (shown.has(key)) onLine.set(key, [...(onLine.get(key) ?? []), thread])
+    else if (hunks !== null) listed.push(thread)
   }
-  return { onLine, elsewhere }
+  return { onLine, listed }
 }
 ```
 
-- Что делает: раскладывает нити PR-а (в той форме, в какой их читает PR inbox: `path`, `line`, `isOutdated`) по
-  файлам: нить со строкой — под эту строку новой стороны, outdated и нить без строки — списком под заголовком файла.
-  Reply показывается, только если дан `onReply` и GitHub разрешает ответ (`viewerCanReply`): ответ идёт существующим
-  черновиком PR inbox, своего канала записи у diff-а нет.
-- Почему здесь: Ticket, «Что делаем», п. 5; Ticket называет `src/renderer/changes/DiffPane.tsx`.
-- Без него: нити на diff-е не видны. Unit test «a thread stands under its line of the new side» в
-  `test/unit/changes-view.test.tsx`.
+- Что делает: раскладывает нити одного файла PR-а (как их читает PR inbox: `path`, `line`, `side`, `isOutdated`). Нить
+  встаёт под свою строку, если scope нумерует эту сторону, как GitHub, и hunk-и эту строку показывают. Нить LEFT — под
+  строкой старого файла, остальные — новой. Остальные нити — списком под заголовком файла, с подписью, где нить была.
+  Пока файл читается, нить, которая ещё может найти строку, не показывается нигде. `sidesOf` решает по scope-у: All
+  changes — обе стороны, Since my review — новая, Commit — ни одной. Reply — только при `onReply` и `viewerCanReply`:
+  ответ идёт существующим черновиком PR inbox.
+- Почему здесь: Ticket, «Что делаем», п. 5; Ticket называет `src/renderer/changes/DiffPane.tsx`. Сторону и scope
+  добавил раунд ревью 1: нить на удалённой строке стояла под строкой нового файла, нить на строке вне hunk-ов терялась,
+  а в Commit номера строк не те.
+- Без него: нить не на своей строке или нигде. Unit test-ы в `test/unit/changes-view.test.tsx`: «a thread on a deleted
+  line (LEFT)…», «a thread on a line the hunks do not have…», «a Commit has numbers of its own…».
 - Требование: [Что делаем](../issues/06-diff-pr-в-changes.md#что-делаем)
-- Риски и пробелы test-ов: PR inbox не читает `diffSide`, поэтому нить на удалённой строке (сторона LEFT) встанет под
-  строку новой стороны с тем же номером. Чтение `diffSide` — файл Ticket-а 02 (`src/main/github/inbox.ts`), в этот PR не
-  вошло.
+- Риски и пробелы test-ов: многострочная нить ставится под свою последнюю строку (`line`); начало диапазона
+  (`startLine`) не читается.
 
 ## 8. Что сознательно не меняли
 
 Ни один экран ещё не открывает diff PR-а: Review mode во вкладке Pull requests — Ticket 09, он передаст `DiffPane` и
 `FileTree` предмет `pr`, нити и `onReply`. Changes Node на Canvas по-прежнему показывает Ticket. `ScopeBar.tsx` не
 менялся: подписи scope-ов PR-а (Since my review) — забота Review mode. Перевод страницы Feature — Ticket 12.
-`src/main/github/inbox.ts` и `src/shared/ipc/pr-inbox.ts` (Ticket 02) только читаются.
+Из файлов Ticket-а 02 раунд ревью 1 тронул только сторону нити: `diffSide` в запросе `src/main/github/inbox.ts`
+и поле `side` в `src/shared/ipc/pr-inbox.ts`.
 
 ## 9. Как проверено
 
@@ -224,8 +238,9 @@ HOME), gate fast — `[gate] green (fast)`, exit 0; `pnpm test:e2e test/e2e/chan
    - Ответ: если хотя бы одного из двух commit-ов нет локально, worfy не делает fetch (ADR-0110) и читает GitHub.
    - Lines: `src/main/ipc/changes.ts:96`
 2. Почему второй `changes.file` того же PR-а не вызывает `gh`?
-   - Ответ: ответ `pulls/{n}/files` с patch-ами всех файлов держится в памяти по PR-у, head-у и scope-у.
-   - Lines: `src/main/changes/github.ts:202`
+   - Ответ: ответ `pulls/{n}/files` с patch-ами всех файлов держится в памяти по Project-у, PR-у, head, base и scope-у.
+   - Lines: `src/main/changes/github.ts:223`
 3. Чем у файла без patch отличается binary от слишком большого?
-   - Ответ: у binary GitHub не считает строк (0 и 0); у большого строки есть. Оба показывают «Large diff · Open on GitHub».
-   - Lines: `src/main/changes/github.ts:80`
+   - Ответ: у binary GitHub не считает строк (0 и 0), и статус — `modified`; у большого строки есть. Оба показывают
+     «Large diff · Open on GitHub».
+   - Lines: `src/main/changes/github.ts:96`

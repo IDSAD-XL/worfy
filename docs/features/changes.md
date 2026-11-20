@@ -331,15 +331,24 @@ commit. The channels of Changes read it; no screen opens one yet — the Review 
   in the checkout sends the read to GitHub instead.
 - **Else read from GitHub.** The files come from GitHub's list of the PR's files, page after page. GitHub lists at
   most 3,000 files of a PR; past that the tree says «GitHub lists the first 3,000 files». A file GitHub sends without
-  a patch — too large, or binary — reads «Large diff · Open on GitHub». There is no context past the hunks GitHub
-  sent, so a file of such a diff has «View file on GitHub» in its header, and Hide whitespace does not change it. The
-  answer is kept in memory by the PR's head: reading it again for the same head asks GitHub nothing.
+  a patch — too large, or binary — reads «Large diff · Open on GitHub». An added or removed file, a change of mode or
+  a rename without a patch and without a line counted reads «No lines changed»: GitHub does not tell an empty file
+  from a binary one, so only a modified file without lines is taken for binary. There is no context past the hunks
+  GitHub sent, so a file of such a diff has «View file on GitHub» in its header, and Hide whitespace does not change
+  it. The answer is kept in memory by the Project that asked, the PR's head and its base: reading it again for the
+  same asks GitHub nothing. Another Project asks again — its GitHub account may not see the repository — and so does a
+  PR moved to another base without a push. A repository named with a `.` or `..` part is refused.
 - **Scopes of a PR.** All changes (the base against the head), Commit (the PR's commits, newest first), and Since my
   review — the scope Compare against with a commit in place of a branch: the head against the commit the review was
   on, a three-dot diff as GitHub's compare. A PR has no Uncommitted and no branches to compare against.
-- **Review threads.** The PR's review threads on GitHub, as the PR inbox reads them, stand under the line of the new
-  side they are on; an outdated thread, or one without a line, stands in a list under its file's header. A thread the
-  viewer may answer has Reply, which opens the reply draft of the PR inbox; nothing new is sent from the diff.
+- **Review threads.** The PR's review threads on GitHub, as the PR inbox reads them with their side, stand under
+  their line: a thread on a deleted line under that line of the old file, any other under its line of the new file. In
+  All changes both sides are placed; in Since my review only the new side (the old side there is the reviewed commit,
+  not the PR's base); a Commit numbers its lines of its own, so there every thread is listed. An outdated thread, one
+  without a line, and one whose line the scope or the hunks do not show stand in a list under the file's header,
+  «N threads not on a line of this diff», each with where it was («outdated», «no line», «line 101», «old line 9»).
+  A thread the viewer may answer has Reply, which opens the reply draft of the PR inbox; nothing new is sent from
+  the diff.
 
 ### How it works
 
@@ -353,13 +362,15 @@ Amendment of 2026-11-20.
 ### Implementation
 
 - `src/main/changes/github.ts` — the files of GitHub as the screen lists them, a patch into hunks, the pages, the
-  memory by head.
+  memory by Project, head and base, the `gh api <path>` call itself (`ghApiGet`).
 - `src/main/ipc/changes.ts` — where a PR is read: the checkout whose `origin` is its repository and which has both
   commits, else GitHub.
-- `src/renderer/changes/DiffPane.tsx` — the threads on their lines and the outdated ones, «Large diff · Open on
-  GitHub», «View file on GitHub»; `src/renderer/changes/FileTree.tsx` — «GitHub lists the first 3,000 files».
+- `src/renderer/changes/DiffPane.tsx` — the threads on their lines by side and scope, and the list of the others,
+  «Large diff · Open on GitHub», «View file on GitHub»; `src/renderer/changes/FileTree.tsx` — «GitHub lists the first
+  3,000 files».
 
 Tests: `test/unit/changes-github-patch.test.ts` (a patch of GitHub into hunks, a file without patch, a rename, a
 binary file), `test/contract/changes-pr.test.ts` (the local path and the GitHub path over the gh stand-in: 3,000 files,
-a file without patch, the memory by head, Commit, Since my review, no fetch, the index untouched, no `--method`),
-`test/unit/changes-view.test.tsx` (the threads, the notes and the links of a PR's diff).
+a file without patch, the memory by Project, head and base, Commit, Since my review, no fetch, the index untouched,
+no `--method` in the call the app builds), `test/unit/changes-view.test.tsx` (the threads by side, line and scope, the
+notes and the links of a PR's diff), `test/contract/pr-inbox.test.ts` (the side of a thread).

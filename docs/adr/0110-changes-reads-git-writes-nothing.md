@@ -93,5 +93,5 @@
   `gh api <path>` (GET, без `--method` и полей) от аккаунта GitHub Project-а — `pulls/{n}/files` страницами (не больше
   3 000 файлов), `pulls/{n}/commits`, `commits/{sha}`, `compare/{a}...{head}` (Since my review — scope `compare` с commit-ом
   вместо ветки); только когда открытый экран просит `changes.list`, `changes.file` или `changes.commits`; ответ держится в
-  памяти main по head commit-у. Чтение GitHub ничего не пишет ни в репозиторий, ни на GitHub; contract test
+  памяти main по Project-у (его аккаунт GitHub), head и base commit-ам PR-а. Чтение GitHub ничего не пишет ни в репозиторий, ни на GitHub; contract test
   `test/contract/changes-pr.test.ts` проверяет: ни одного `fetch`, `.git/index` не тронут, ни одного `--method` у gh.
