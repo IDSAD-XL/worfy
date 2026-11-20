@@ -1,7 +1,7 @@
 # 05 — Комментарии к строкам в Changes: gutter, popover, лоток, список «To» и Send одним сообщением
 
 Type: task
-Status: claimed 2026-11-20T00:15Z
+Status: done 2026-11-20T03:36Z
 PR: #2049
 Blocked by: 03, 04
 Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Как пользователь идёт по экрану», шаги 4–6 и 8;
@@ -72,6 +72,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Как
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 8d4712631278dd4d90184936eac4f7d1d928075d
   - evidence: gate pass · `gate fast` exit 0 · mac - · 229bf46b987096ae3467b33254d1dbbf6ffa2002
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44660840128/job/136050749596 · ci - · 00db8a874efb516e1b79d4d66a40866fb7c7097e
 
 ## Где в коде
 
