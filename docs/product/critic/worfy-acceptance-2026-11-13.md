@@ -11,7 +11,7 @@ Fact: `docs/product/roadmap-worfy/drafts/roadmap-section.md:21-22` (accepted by 
 
 Judgement: Accepting this spec now means either jumping ahead of the Epic the owner already accepted for the slot or running two new Epics at once. The owner explicitly rejected the second option ("прежняя скорость с несколькими новыми Epic-ами сразу", `issues/04…md:25`), and none of the three revisit conditions is met. The plan has 11 tickets in 6 waves, and its first usable result is the view in Wave 3. By then the open acceptances it is meant to help with (`worfy-mcp-live` 08, `worfy-ui-kit` 19, `worfy-multi-vendor` 43) will most likely have gone through the existing guides file.
 
-Owner decision:
+Owner decision: rejected 2026-11-20 (Q1 (б) of the question round): «эпиков может быть и не один» — several new Epics may run at once; the spec is accepted.
 
 ### 2. The 107-ticket backlog includes manual items the owner already removed on 2026-11-06, and Q5(a) deletes the only record of that decision
 
@@ -19,7 +19,7 @@ Fact: `.scratch/owner-acceptance-guides.md:3` quotes the owner's request: «пр
 
 Judgement: The rule in Ticket 02 (manual, not `[x]`, not `verified`) would put work the owner already handed to the Orchestrator into the owner's own queue. That goes against the 2026-11-06 instruction to leave out everything an agent can do. The real owner-only list is the 13 steps under «Ручные проверки вне приёмок» plus a handful of acceptances, not 166 items, so the size of the problem, and Q1's framing, is overstated. If the spec goes ahead, a docs pass before Ticket 02 should copy the 2026-11-06 triage into the tickets. Q5 should also say that it replaces a format the owner asked for, not one the Orchestrator chose.
 
-Owner decision:
+Owner decision: accepted 2026-11-20 (Q1 (б), Q3 (а), Q5 (а) of the round): a docs PR carries the 2026-11-06 triage into the tickets before Wave 1; the guides file stays until the owner accepts the view.
 
 ### 3. Ticket 01 is a bug fix that stands on its own and affects open acceptances today; it should not wait for the Epic
 
@@ -27,7 +27,7 @@ Fact: The Profile sets `tickets.manual_mark` to `вручную`. `src/shared/wo
 
 Judgement: Today the Evidence chip, the manual-check rows of the Command palette and Harness `ticket evidence` all miss these items on the very acceptances now in progress. Fixing that is a `worfy-polish` ticket of one or two files per parser copy, plus the shared `grammar.json` cases. Keeping it as Ticket 01 of an Epic that is not accepted holds back a fix that has value whatever happens to the view.
 
-Owner decision:
+Owner decision: accepted 2026-11-20 (Q1 (б), Q4 of the round): the fix is worfy-polish 132, done now, apart from the Epic.
 
 ## Alternative
 
