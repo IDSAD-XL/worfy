@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-20T16:50Z
+PR: #2109
 Branch: worfy-pr-review/09
 Blocked by: 01, 05, 06, 07, 08
 Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решение», 3 и 6; «Как пользователь идёт по экрану», A (шаги 3–5), C и E;
