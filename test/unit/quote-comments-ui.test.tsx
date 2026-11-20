@@ -234,14 +234,38 @@ describe('the popover', () => {
     expect(screen.getByTestId('quote-tray').textContent).toContain('1 comment on this message')
   })
 
-  it('Esc cancels: nothing is kept', async () => {
+  // worfy-polish 139: Esc in the popover keeps a changed one, the way a click outside does; Cancel discards.
+  it('Esc in a changed popover keeps it and its text, asks to save or cancel and shakes it', async () => {
     render(<Harness />)
     select('m1#0', 'the lint step')
     fireEvent.click(await screen.findByTestId('quote-button'))
     const field = within(await screen.findByTestId('quote-popover')).getByTestId('quote-popover-text')
-    fireEvent.change(field, { target: { value: 'Not this.' } })
+    fireEvent.change(field, { target: { value: 'Not lost.' } })
     fireEvent.keyDown(field, { key: 'Escape' })
-    expect(screen.queryByTestId('quote-popover')).toBeNull()
+    await waitFor(() => expect(screen.getByTestId('quote-popover-error').textContent).toMatch(/^Save \(.+\) or Cancel first\.$/))
+    const shown = screen.getByTestId('quote-popover')
+    expect((within(shown).getByTestId('quote-popover-text') as HTMLTextAreaElement).value).toBe('Not lost.')
+    await waitFor(() => expect(shown.classList.contains('w-qpop--shake')).toBe(true))
+    expect(readQuotes(storeKey).drafts).toEqual([])
+  })
+
+  it('Esc in an unchanged popover closes it', async () => {
+    render(<Harness />)
+    select('m1#0', 'the lint step')
+    fireEvent.click(await screen.findByTestId('quote-button'))
+    fireEvent.keyDown(within(await screen.findByTestId('quote-popover')).getByTestId('quote-popover-text'), { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByTestId('quote-popover')).toBeNull())
+    expect(readQuotes(storeKey).drafts).toEqual([])
+  })
+
+  it('Cancel closes a changed popover: nothing is kept', async () => {
+    render(<Harness />)
+    select('m1#0', 'the lint step')
+    fireEvent.click(await screen.findByTestId('quote-button'))
+    const popover = await screen.findByTestId('quote-popover')
+    fireEvent.change(within(popover).getByTestId('quote-popover-text'), { target: { value: 'Not this.' } })
+    fireEvent.click(within(popover).getByTestId('quote-popover-cancel'))
+    await waitFor(() => expect(screen.queryByTestId('quote-popover')).toBeNull())
     expect(readQuotes(storeKey).drafts).toEqual([])
   })
 
@@ -344,7 +368,7 @@ describe('the popover and the card on the kit (worfy-ui-kit ticket 10)', () => {
     fireEvent.change(within(popover).getByTestId('quote-popover-text'), { target: { value: 'Not lost.' } })
     press(screen.getByTestId('log'))
     await settle()
-    expect(screen.getByTestId('quote-popover-error').textContent).toMatch(/^Save \(.+\) or Cancel \(Esc\) first\.$/)
+    expect(screen.getByTestId('quote-popover-error').textContent).toMatch(/^Save \(.+\) or Cancel first\.$/)
     await act(async () => {
       window.dispatchEvent(new Event('blur'))
     })
@@ -392,7 +416,7 @@ describe('the popover and the card on the kit (worfy-ui-kit ticket 10)', () => {
       await settle()
       const shown = screen.getByTestId('quote-popover')
       expect((within(shown).getByTestId('quote-popover-text') as HTMLTextAreaElement).value).toBe('Not lost.')
-      expect(within(shown).getByTestId('quote-popover-error').textContent).toMatch(/^Save \(.+\) or Cancel \(Esc\) first\.$/)
+      expect(within(shown).getByTestId('quote-popover-error').textContent).toMatch(/^Save \(.+\) or Cancel first\.$/)
       expect(shown.classList.contains('w-qpop--shake')).toBe(true)
     } finally {
       outside.remove()
