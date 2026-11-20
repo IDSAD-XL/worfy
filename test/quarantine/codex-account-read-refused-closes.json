@@ -1,0 +1,13 @@
+{
+  "kind": "windows-exception",
+  "runner": "vitest",
+  "file": "test/contract/codex-account.test.ts",
+  "test": "the limits part on the fake app-server > read() rejects when Codex refuses the read, and closes the app-server",
+  "reason": "Red on Windows only, in CI push run 44776300399 on main e74ff6219, job 136427053816 (windows (3/3) / full-suite): expected false to be true at test/contract/codex-account.test.ts:176, the app-server child not yet exited right after read() rejected, red on its CI retry too. The same run took 2223 s and printed two other tests of this file as FLAKY (:99, :138); the change it ran on (#2085) touched neither this file nor src/main/vendors/codex. Passes on macOS and Linux. Hypothesis, not established: on a loaded Windows runner the exit of the killed child arrives after the rejection, and the test reads hasExited() once instead of waiting for the exit.",
+  "platforms": [
+    "win32"
+  ],
+  "owner": "worfy-windows 117",
+  "since": "2026-11-20",
+  "until": "2027-01-04"
+}

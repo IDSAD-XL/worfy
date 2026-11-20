@@ -1,0 +1,13 @@
+{
+  "kind": "windows-exception",
+  "runner": "vitest",
+  "file": "test/contract/projects-connect.test.ts",
+  "test": "attribution: what the form gets and what Connect writes (ADR-0061) > Full: the form gets what the Session proposed, on or off, and Connect writes it",
+  "reason": "Red on Windows only, in CI push run 44776300399 on main e74ff6219, job 136427053816 (windows (3/3) / full-suite): Test timed out in 45000ms at test/contract/projects-connect.test.ts:1418, on its CI retry too, then EBUSY on rmdir of the test's D:\\a\\_temp\\worfy-connect-* folder in afterEach (:268), a child process still holding it. The test runs two drafts and two writes in a loop, each starting real processes; the run took 2223 s. The change it ran on (#2085) touched neither this file nor src/main/harness. Passes on macOS and Linux. Hypothesis, not established: on a loaded Windows runner the two rounds of real process starts exceed the 45 s bound.",
+  "platforms": [
+    "win32"
+  ],
+  "owner": "worfy-windows 117",
+  "since": "2026-11-20",
+  "until": "2027-01-04"
+}
