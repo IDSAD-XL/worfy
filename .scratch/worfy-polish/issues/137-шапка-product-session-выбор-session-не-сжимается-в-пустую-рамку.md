@@ -2,7 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-20T04:55Z
-PR: -
+PR: #2076
 Blocked by: none
 Source: замечание владельца 2026-11-20 по снимку экрана: в узкой шапке Product Session выбор Session сжимается в
 пустую рамку — имени Session не видно.
