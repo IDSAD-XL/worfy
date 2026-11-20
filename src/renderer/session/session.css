@@ -176,10 +176,15 @@
  * A Product Session's header short of room (worfy-polish ticket 137, the owner's screenshot of 2026-11-20).
  * The share of accepted advice, with its divider, gives way first: its shrink weight dwarfs every other one,
  * so it ends in «…» while the Session picker keeps its width; the picker then shrinks to its floor of 140 px
- * (SessionPicker.tsx), never to an empty box. A narrower header drops the share altogether, then shows the
+ * (`.w-session__picker` below), never to an empty box. A narrower header drops the share altogether, then shows the
  * state chip as its icon alone (the word stays for a screen reader and in the chip's kit tooltip), and the
  * narrowest drops the Vendor, so Interrupt stays inside the header down to the smallest window.
  */
+/* The Session picker's floor, a Product Session's header only: in a plain one the model shares the shrink. */
+.w-session--product .w-session__picker {
+  min-width: 140px;
+}
+
 .w-session__advice {
   display: inline-flex;
   align-items: center;

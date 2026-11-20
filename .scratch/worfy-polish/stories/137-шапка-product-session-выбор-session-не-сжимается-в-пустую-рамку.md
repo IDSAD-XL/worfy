@@ -12,7 +12,7 @@ Kind: pr · Epic: worfy-polish · Ticket: 137 · PR: - · Language: ru
 
 ## 2. Выбор Session: пол 140 px и имя в tooltip kit
 
-Code: `src/renderer/session/SessionPicker.tsx:44-56` · key lines: 45, 54, 56
+Code: `src/renderer/session/SessionPicker.tsx:45-58` · key lines: 46, 55, 57
 
 ```tsx
   // The whole name of the shown Session, for the kit tooltip: the button may cut it to «…».
@@ -27,12 +27,14 @@ Code: `src/renderer/session/SessionPicker.tsx:44-56` · key lines: 45, 54, 56
         aria-label="Session"
         hint={shownName}
         data-testid="session-picker"
+        className="w-session__picker"
         style={PICKER_STYLE}
 ```
 
 - Что делает: выбор Session получает подсказку kit с полным именем показанной Session вместо родного `title` «Show
-  another Session of this Project». `PICKER_STYLE` (строка 17 того же файла) теперь несёт `minWidth: 140`: кнопка не
-  уже 140 px, длинное имя обрезает многоточием `.w-select__value` Select kit. Новое свойство `hint` Select kit
+  another Session of this Project». Класс `w-session__picker` получает в шапке Product Session правило
+  `min-width: 140px` (`session.css`, `.w-session--product .w-session__picker`): кнопка не уже 140 px, длинное имя
+  обрезает многоточием `.w-select__value` Select kit. Новое свойство `hint` Select kit
   (`src/renderer/theme/Select.tsx:406`) раскладывает на кнопку `hintProps`: подсказку показывает `HintTooltips` при
   наведении и при фокусе с клавиатуры, и она же — описание кнопки для screen reader.
 - Почему здесь: Ticket называет `SessionPicker.tsx` (`PICKER_STYLE`, подсказка) и `Select.tsx` «если подсказку нельзя
@@ -42,11 +44,12 @@ Code: `src/renderer/session/SessionPicker.tsx:44-56` · key lines: 45, 54, 56
 - Требование: [Что делаем, п. 1](../issues/137-шапка-product-session-выбор-session-не-сжимается-в-пустую-рамку.md#что-делаем)
 - Риски и пробелы test-ов: unit test проверяет `minWidth`, `data-kit-hint` и `aria-description` с именем и отсутствие
   `title`; e2e — ширину ≥ 130 px и видимое имя на всех ширинах окна от 1440 до 800. Сам показ подсказки под мышью
-  проверяют test-ы `HintTooltips`, не этот. Пол действует и в шапке обычной Session: там тоже стоит этот выбор.
+  проверяют test-ы `HintTooltips`, не этот. В шапке обычной Session пола нет: там модель сжимается вместе с выбором,
+  и пол в первой версии PR оставил модели 0 px (e2e `codex-session.spec.ts:164` покраснел в CI на macOS и Windows).
 
 ## 3. Порядок уступок шапки
 
-Code: `src/renderer/session/session.css:183-235` · key lines: 187, 206, 213, 218, 231
+Code: `src/renderer/session/session.css:188-240` · key lines: 192, 211, 218, 223, 236
 
 ```css
 .w-session__advice {
@@ -149,8 +152,8 @@ export function SessionStateChip({ sessionId, state, error }: { sessionId: strin
 
 ## 5. Что сознательно не меняли
 
-- Шапка обычной Session: контейнера и порогов у неё нет, модель уступает первой, как раньше. Общие у них только пол
-  выбора Session и обёртки чипа и Vendor.
+- Шапка обычной Session: контейнера, порогов и пола выбора у неё нет, модель сжимается вместе с выбором, как раньше.
+  Общие у них только подсказка kit выбора и обёртки чипа и Vendor.
 - Перевод `docs/features/ru/product-session.md` — по ADR-0088 правится только английская страница.
 - `StatusChip` (theme/primitives.tsx) остался: `SessionStateChip` теперь рисует `Chip` напрямую, чтобы передать слово
   элементом.
@@ -166,11 +169,11 @@ Unit test «a narrow Product Session header…» в `test/unit/session-view.test
 1. Почему заголовок Product Session сжимается только после того, как доля советов скрыта?
    - Ответ: пока доля видна, её вес 1000 забирает всё сжатие, и заголовок с крошечным весом цел; без доли и с выбором на
      полу заголовок остаётся один, и с весом меньше 1 сожмётся лишь на долю нужного — правило контейнера даёт ему вес 1.
-   - Строки: `src/renderer/session/session.css:183-235`
+   - Строки: `src/renderer/session/session.css:188-240`
 2. Как в узкой шапке screen reader узнаёт состояние Session, если видна одна иконка?
    - Ответ: слово остаётся в DOM в своём элементе, скрыто только с экрана (`clip-path`), и ещё служит подсказкой kit.
    - Строки: `src/renderer/session/SessionStateChip.tsx:12-20`
 3. Откуда берётся текст подсказки выбора Session?
    - Ответ: из подписи выбранной строки списка, а если её нет — из заголовка показанной Session; передаётся в `hint`
      Select kit, а не в `title`.
-   - Строки: `src/renderer/session/SessionPicker.tsx:44-56`
+   - Строки: `src/renderer/session/SessionPicker.tsx:45-58`

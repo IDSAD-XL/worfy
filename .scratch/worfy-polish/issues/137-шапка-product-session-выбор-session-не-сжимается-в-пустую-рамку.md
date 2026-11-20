@@ -67,7 +67,9 @@ Source: замечание владельца 2026-11-20 по снимку эк�
 
 ## Итог
 
-- Выбор Session не уже 140 px (`PICKER_STYLE`, `SessionPicker.tsx`); имя показанной Session — в tooltip kit через
+- Выбор Session в шапке Product Session не уже 140 px (`.w-session--product .w-session__picker`, `session.css`); в
+  шапке обычной Session пола нет — там модель сжимается вместе с выбором, и пол оставлял ей 0 px (CI #2076, e2e
+  `codex-session.spec.ts:164`). Имя показанной Session — в tooltip kit через
   новое свойство `hint` Select kit (`hintProps` на кнопке), родного `title` больше нет. Длинное имя обрезает многоточием
   Select kit, как раньше.
 - Доля советов и её разделитель — одна обёртка `product-session-advice` с весом сжатия 1000: при нехватке места она

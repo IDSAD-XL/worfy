@@ -12,9 +12,10 @@ import { pickerSessions, pickerValue } from './session-picker'
 // (theme/Select.tsx) over the rows of session-picker.ts. A pick shows that Session at once, as a
 // double click on its Node does (navigation.ts, openSession); on a read-only screen it writes nothing.
 
-// It gives way with the model when the header is short of room, but never below 140 px, where a name still reads
-// (worfy-polish ticket 137: without a floor it shrank to an empty box). A longer name ends in «…».
-const PICKER_STYLE: CSSProperties = { flex: '0 1 auto', minWidth: 140, maxWidth: 240 }
+// It gives way with the model when the header is short of room; a longer name ends in «…». In a Product Session's
+// header it stops at 140 px (session.css, `.w-session__picker`; worfy-polish ticket 137: it shrank to an empty box).
+// A plain header keeps no floor: there the model shares the shrink with it, and a floor left the model none.
+const PICKER_STYLE: CSSProperties = { flex: '0 1 auto', maxWidth: 240 }
 
 /** Asks main for the Orchestrator's view, so its row has its state while another Session is shown. */
 function FollowOrchestrator({ nodeId }: { nodeId: string }) {
@@ -53,6 +54,7 @@ export function SessionPicker({ projectId, shown, shownTitle }: SessionPickerPro
         aria-label="Session"
         hint={shownName}
         data-testid="session-picker"
+        className="w-session__picker"
         style={PICKER_STYLE}
         onChange={(nodeId) => {
           const entry = entries.find((each) => each.nodeId === nodeId)

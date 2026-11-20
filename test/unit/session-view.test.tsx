@@ -1162,7 +1162,10 @@ describe('SessionPanel', () => {
       await mountKind('product')
       const header = screen.getByRole('banner')
       const picker = within(header).getByTestId('session-picker')
-      expect(picker.style.minWidth).toBe('140px')
+      // The floor is a rule of a Product Session's header (session.css): a plain header's model shares the shrink.
+      expect(picker.classList.contains('w-session__picker')).toBe(true)
+      expect(picker.closest('.w-session--product')).not.toBeNull()
+      expect(picker.style.minWidth).toBe('')
       const name = picker.querySelector('.w-select__value')?.textContent ?? ''
       expect(name).not.toBe('')
       expect(picker.getAttribute('data-kit-hint')).toBe(name)
