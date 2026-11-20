@@ -2,6 +2,7 @@
 
 Type: prototype
 Status: claimed 2026-11-20T17:29Z
+PR: #2104
 Branch: worfy-integrations/02
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 2; «Волны», Wave 1; «Решение» (пункты 1–5, «Как пользователь идёт по

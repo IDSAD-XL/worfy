@@ -12,7 +12,7 @@ Kind: pr · Epic: worfy-integrations · Ticket: 02 · PR: - · Language: ru
 
 ## 2. Где лежит Card
 
-Code: `.scratch/worfy-integrations/issues/02-прототип-экранов-integrations.md:70-73` · key lines: 70, 72
+Code: `.scratch/worfy-integrations/issues/02-прототип-экранов-integrations.md:71-74` · key lines: 71, 73
 
 ```markdown
 - Card — `card-e53beada`, title «Prototype: Integrations», Node на Canvas Project-а worfy (x 1088, y 10752,
@@ -30,7 +30,7 @@ Code: `.scratch/worfy-integrations/issues/02-прототип-экранов-int
 
 ## 3. Какие состояния нужны каким Ticket-ам
 
-Code: `.scratch/worfy-integrations/issues/02-прототип-экранов-integrations.md:99-101` · key lines: 99, 100
+Code: `.scratch/worfy-integrations/issues/02-прототип-экранов-integrations.md:100-102` · key lines: 100, 101
 
 ```markdown
 - Для брифов: Ticket 08 — `list`, `details`, `menu`, `filter`, `filter-noro`, `choose`, `connector-off`, `empty`,
@@ -49,7 +49,7 @@ Code: `.scratch/worfy-integrations/issues/02-прототип-экранов-int
 
 ## 4. Slack: каталог без него, строка connector-а — с ним
 
-Code: `.scratch/worfy-integrations/issues/02-прототип-экранов-integrations.md:107-110` · key lines: 107, 109
+Code: `.scratch/worfy-integrations/issues/02-прототип-экранов-integrations.md:108-111` · key lines: 108, 110
 
 ```markdown
 - Slack: в каталоге (`CATALOG`) его нет. Слово встречается один раз — строка connector-а «claude.ai Slack» в группе
@@ -88,7 +88,7 @@ Code: `.scratch/worfy-integrations/issues/02-прототип-экранов-int
 1. Почему проверка `grep -ic slack` даёт 1, и какой пункт spec-а это оправдывает?
    - Ответ: строка connector-а «claude.ai Slack» стоит в группе «From Claude Code», потому что spec оставляет Slack за
      connector-ом claude.ai и показывает его там; в каталоге Add integration Slack нет.
-   - Строки: `.scratch/worfy-integrations/issues/02-прототип-экранов-integrations.md:107-110`
+   - Строки: `.scratch/worfy-integrations/issues/02-прототип-экранов-integrations.md:108-111`
 2. Каким Ticket-ам нужны состояния окна входа, и почему не Ticket-у 08?
    - Ответ: Ticket-у 09 — он ставит Sign in на экран и в chip; Ticket 08 строит раздел, Add integration и фильтр.
-   - Строки: `.scratch/worfy-integrations/issues/02-прототип-экранов-integrations.md:99-101`
+   - Строки: `.scratch/worfy-integrations/issues/02-прототип-экранов-integrations.md:100-102`
