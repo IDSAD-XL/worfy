@@ -474,6 +474,7 @@ Epic frame shows none. Chips wrap onto a second line and are not cut. The colour
 | `in %TEMP%` | Ticket, Session | The worktree lies in the Windows temporary folder. The tooltip has the warning and the path. |
 | `3 open threads`, `1 open thread` | Ticket | Review threads on the Ticket's PRs that wait for the user's answer, from the [PR inbox](pr-inbox.md). |
 | `changes requested` | Ticket | A PR of the Ticket has the review decision `CHANGES_REQUESTED`, from the PR inbox. |
+| `1/2 approvals`, `1/? approvals` | Ticket | A PR of the Ticket is open and short of the approvals its base branch asks for, from the PR inbox. Gone once GitHub approves. |
 
 The tooltip of a Gate chip adds the worktree's path, and the tooltip of a Ticket's row sums up all its chips. A Ticket with a PR also has the
 action **Open PR**, which opens the address in the browser. An address that is not a page on `https://github.com/` leaves the button
@@ -557,6 +558,11 @@ row expanded.
 **Waits: N answers on the Pipeline board.** A card on Human review whose PRs hold such threads has the line
 `Waits: 2 answers` (`Waits: 1 answer`) under `Waits: team`, summed over the PRs of a Ticket over several repositories. On
 any other Stage, and with no waiting thread, the card has no such line.
+
+**Approvals.** While a PR of the Ticket is open and short of approvals (GitHub has not approved it), the Ticket card
+has the approvals chip of the [PR inbox](pr-inbox.md), `1/2 approvals`, beside its last review chip, or on a line of its
+own when it has none: the chip never makes a line taller. A Ticket over several repositories shows its first PR short of
+approvals, and the tooltip names it. On the Pipeline board a card on Human review says `Waits: team · 1/2 approvals`.
 
 **Nothing is written.** The badges read. worfy runs no gh command for them but `gh pr list` and `gh auth token -u <account>`, and changes
 nothing on GitHub, in the Project or in the Gate's state.
