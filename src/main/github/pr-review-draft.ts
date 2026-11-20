@@ -563,6 +563,15 @@ export class PrReviewDrafts {
     }
   }
 
+  /**
+   * A change of Submit review (pr-review-submit.ts, ticket 11): its marks `submitting` and `submitted`, written at once
+   * with what waits, under the lock. `change` gets the draft as the file has it and may refuse; a change that no
+   * longer applies to the file when it is written is dropped, so Submit reads the file again after it.
+   */
+  changeNow(root: string, repo: string, pr: number, change: (draft: ReviewDraft | null) => ReviewDraft): Promise<PrReviewDraftAnswer> {
+    return this.change(root, repo, pr, change, { now: true })
+  }
+
   /** Writes every change waiting now. */
   async flush(): Promise<void> {
     await Promise.all([...this.pending.keys()].map((file) => this.exclusive(file, async () => this.write(file))))

@@ -74,6 +74,17 @@
 //     `threads`, with `first` its first comment, the databaseId there) and of a PR's conversation, are answered from
 //     posted.json, with `viewer` the same login.
 //
+//   - reviews.json: a world where worfy may submit a review (worfy-pr-review ticket 11), `{"status"?, "landed"?,
+//     "message"?, "existing"?: [<a review as GitHub lists it>]}`. Without the file a review is a write like any other
+//     (below). Exactly one call is understood: `api --method POST repos/<o>/<r>/pulls/<n>/reviews --input <file>`, and
+//     nothing else in it. The review goes into posted-reviews.json next to it, `[{"repo", "pr", "login", "raw" (the
+//     bytes of the file as they are), "url", "id"}]`, the login by GH_TOKEN (tokens.json), and the call prints the
+//     review GitHub creates (`id`, `html_url`, `user.login`, `body`, `state`, `commit_id`). With `status` the call fails
+//     with that HTTP status, as gh does — `message` on stdout as GitHub's `{"message"}` — and posts nothing, unless
+//     `landed` is true: then the review is posted although gh fails (an answer lost on the way). The read
+//     `api repos/<o>/<r>/pulls/<n>/reviews?per_page=100&page=<k>` lists `existing`, then the reviews posted, 100 a page;
+//     the details query of the PR then holds a posted Approve or Request changes in `latestOpinionatedReviews`.
+//
 //   - pulls.json: single PRs as `gh pr view <N> [--repo <owner>/<repo>] --json …` and `gh pr diff <N> [--repo …]` read
 //     them (worfy-code-stories ticket 11), `{"<owner>/<repo>#<N>": {"view": {<the JSON fields of gh pr view>}, "diff":
 //     "<the diff>"}}`. Without --repo the one PR of that number is taken. `pr view` prints `view` whole, whatever
@@ -194,6 +205,10 @@ if (args.length === 1 && args[0] === '--version') {
   fail('error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com')
 } else if (replyPost() !== null) {
   postReply(replyPost())
+} else if (reviewPost() !== null) {
+  postReview(reviewPost())
+} else if (reviewList() !== null) {
+  listReviews(reviewList())
 } else if (args[0] === 'api' && (/^(GET)?$/i.test(option('--method') ?? option('-X') ?? '') === false || args.some(writeArg) || args.some((arg) => /\bmutation\b/.test(arg)))) {
   fail(`gh stub: a write is never expected: ${args.join(' ')}`, 2)
 } else if (args[0] === 'api' && args[1] === 'graphql' && inboxQuery()) {
@@ -303,7 +318,7 @@ function graphql() {
       } else if (pull === undefined || pull.missing === true) {
         data[`p${n}`] = { pullRequest: null }
         errors.push({ type: 'NOT_FOUND', path: [`p${n}`, 'pullRequest'], message: `Could not resolve to a PullRequest with the number of ${vars[key]}.` })
-      } else data[`p${n}`] = { pullRequest: { number: pull.number, updatedAt: pull.updatedAt, headRefOid: pull.headRefOid, ...pull.pull } }
+      } else data[`p${n}`] = { pullRequest: { number: pull.number, updatedAt: pull.updatedAt, headRefOid: pull.headRefOid, ...withPostedReviews(pull) } }
     }
     graphqlAnswer({ data, ...(errors.length > 0 ? { errors } : {}) }, rateLimit)
     return
@@ -441,6 +456,76 @@ function postReply(reply) {
   if (world.status === undefined || world.landed === true) writeFileSync(join(dir, 'posted.json'), JSON.stringify([...list, { ...reply, login, url }]))
   if (world.status !== undefined) fail(`gh: Server Error (HTTP ${world.status})`)
   process.stdout.write(JSON.stringify({ id, html_url: url, body: reply.body, user: { login } }))
+}
+
+/** The reviews posted so far (posted-reviews.json). */
+function postedReviews() {
+  return read('posted-reviews.json', [])
+}
+
+/**
+ * The review this call submits, when it is the one call worfy may make for it and reviews.json lets it: its
+ * repository, PR and the file of its body. Null for any other call, which the write check then refuses.
+ */
+function reviewPost() {
+  if (!dir || !existsSync(join(dir, 'reviews.json'))) return null
+  if (args.length !== 6 || args[0] !== 'api' || args[1] !== '--method' || args[2] !== 'POST' || args[4] !== '--input') return null
+  const match = /^repos\/([^/\s]+\/[^/\s]+)\/pulls\/(\d+)\/reviews$/.exec(args[3])
+  if (match === null) return null
+  return { repo: match[1], pr: Number(match[2]), file: args[5] }
+}
+
+/** Posts the review into posted-reviews.json and prints it as GitHub creates it, or fails as reviews.json says. */
+function postReview(review) {
+  const world = read('reviews.json', {})
+  const list = postedReviews()
+  const raw = readFileSync(review.file, 'utf8')
+  const request = JSON.parse(raw)
+  const id = 7000 + list.length + 1
+  const url = `https://github.com/${review.repo}/pull/${review.pr}#pullrequestreview-${id}`
+  const login = stubLogin()
+  if (world.status === undefined || world.landed === true) writeFileSync(join(dir, 'posted-reviews.json'), JSON.stringify([...list, { repo: review.repo, pr: review.pr, login, raw, url, id }]))
+  if (world.status !== undefined) {
+    if (world.message !== undefined) process.stdout.write(JSON.stringify({ message: world.message, documentation_url: 'https://docs.github.com/rest' }))
+    fail(`gh: ${world.message ?? 'Server Error'} (HTTP ${world.status})`)
+  }
+  process.stdout.write(JSON.stringify(reviewOf({ login, raw, url, id }, request)))
+}
+
+/** A review as GitHub gives it, of a body worfy sent. */
+function reviewOf(each, request = JSON.parse(each.raw)) {
+  const state = { APPROVE: 'APPROVED', REQUEST_CHANGES: 'CHANGES_REQUESTED', COMMENT: 'COMMENTED' }[request.event] ?? 'PENDING'
+  return { id: each.id, user: { login: each.login }, body: request.body ?? '', state, html_url: each.url, commit_id: request.commit_id }
+}
+
+/**
+ * The details of `pull` (its `pull` of graphql.json) with the Approve and Request changes posted to it since
+ * (posted-reviews.json) in `latestOpinionatedReviews`, as GitHub then lists them: the poster's earlier one replaced.
+ */
+function withPostedReviews(pull) {
+  const posted = existsSync(join(dir, 'reviews.json')) ? postedReviews().filter((each) => each.repo === pull.repo && each.pr === pull.number) : []
+  if (posted.length === 0) return pull.pull
+  let nodes = pull.pull.latestOpinionatedReviews?.nodes ?? []
+  for (const each of posted) {
+    const review = reviewOf(each)
+    if (review.state !== 'APPROVED' && review.state !== 'CHANGES_REQUESTED') continue
+    nodes = [...nodes.filter((node) => node.author?.login !== each.login), { author: { login: each.login }, state: review.state, submittedAt: new Date().toISOString(), authorCanPushToRepository: true, commit: { oid: review.commit_id } }]
+  }
+  return { ...pull.pull, latestOpinionatedReviews: { nodes } }
+}
+
+/** The PR and page of a read of its reviews, when reviews.json is there; null for any other call. */
+function reviewList() {
+  if (!dir || !existsSync(join(dir, 'reviews.json')) || args.length !== 2 || args[0] !== 'api') return null
+  const match = /^repos\/([^/\s]+\/[^/\s]+)\/pulls\/(\d+)\/reviews\?per_page=100&page=(\d+)$/.exec(args[1])
+  return match === null ? null : { repo: match[1], pr: Number(match[2]), page: Number(match[3]) }
+}
+
+/** `existing`, then the reviews posted to that PR, a page of 100. */
+function listReviews(asked) {
+  const world = read('reviews.json', {})
+  const all = [...(world.existing ?? []), ...postedReviews().filter((each) => each.repo === asked.repo && each.pr === asked.pr).map((each) => reviewOf(each))]
+  process.stdout.write(JSON.stringify(all.slice((asked.page - 1) * 100, asked.page * 100)))
 }
 
 /** The token gh takes from its environment for github.com: GH_TOKEN, then GITHUB_TOKEN; an empty one is unset. */

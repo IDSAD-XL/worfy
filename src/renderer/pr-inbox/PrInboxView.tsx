@@ -786,7 +786,7 @@ export function PrInboxBody({ name, snapshot, tickets, epics = EMPTY_EPICS, now,
           results={results !== null}
           onPick={(row) => (results !== null ? results.onPick?.(row) : onSelect(row))}
         />
-        <ReviewMode key={rowKey(current.row)} projectId={snapshot.projectId} row={current.row} readOnly={reviewAway()} onRefresh={() => onRefreshPr?.(current.row)} />
+        <ReviewMode key={rowKey(current.row)} projectId={snapshot.projectId} row={current.row} readOnly={reviewAway()} onRefresh={() => onRefreshPr?.(current.row)} viewer={snapshot.viewer} />
       </>
     ) : null
   const pane =

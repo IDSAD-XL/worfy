@@ -4,8 +4,9 @@
 // fields of worfy: who wrote each comment last, the text of its lines for finding them again after a new push, the
 // verdict an Agent review suggested, the files marked Viewed, and the state of a Submit.
 //
-// Nothing here reaches GitHub: worfy creates no pending review there (ADR-0105). Every channel is `local`, as the drafts
-// of replies (src/shared/ipc/pr-inbox.ts): a Linked machine never reaches the draft, whatever its access.
+// Only Submit review (`prReview.submit`, ticket 11, ADR-0112) writes to GitHub: one POST on the person's click. worfy
+// creates no pending review there (ADR-0105). Every channel is `local`, as the drafts of replies
+// (src/shared/ipc/pr-inbox.ts): a Linked machine never reaches the draft, whatever its access.
 import { z } from 'zod'
 import { eventChannel, invokeChannel } from './channels'
 
@@ -175,6 +176,39 @@ export const prReviewStart = invokeChannel('prReview.start', pullInput.extend({ 
 /** Stop and Take over: the Session of the Agent review stops, the draft keeps what it wrote, `agent.state` is `stopped`. */
 export const prReviewStopAgent = invokeChannel('prReview.stopAgent', pullInput, prReviewDraftAnswerSchema, 'local')
 
+/** What the Finish review dialog shows and Submit sends: the verdict the person chose, the summary, each comment as it goes. */
+export const reviewSubmittedTextsSchema = z.object({ event: reviewEventSchema, body: z.string().max(REVIEW_MAX_CHARS), comments: z.array(reviewCommentSchema) })
+
+/**
+ * The check of the Finish review dialog (worfy-pr-review ticket 11): review-draft-lint over the texts shown — the
+ * traces of the workflow, an AI signature, personal data, the length. `findings` — one line each; `reason` — why the
+ * check could not run. Never reaches GitHub.
+ */
+export const prReviewCheck = invokeChannel('prReview.check', pullInput.merge(reviewSubmittedTextsSchema), z.object({ findings: z.array(z.string()), reason: z.string().nullable() }), 'local')
+
+/** How a Submit ended: posted now, found on GitHub already (a Submit before whose answer was lost), refused before any POST, or failed at GitHub. */
+export const REVIEW_SUBMIT_OUTCOMES = ['submitted', 'already-submitted', 'refused', 'failed'] as const
+
+export const prReviewSubmitAnswerSchema = z.object({
+  outcome: z.enum(REVIEW_SUBMIT_OUTCOMES),
+  /** Why it was refused or failed; null when the review is on GitHub. */
+  reason: z.string().nullable(),
+  reviewUrl: z.string().nullable(),
+  /** The head of the PR GitHub has now, when Submit read it; the dialog shows a head that moved. */
+  head: z.string().nullable(),
+  /** The draft after it; null when it could not be read. */
+  draft: reviewDraftSchema.nullable(),
+})
+export type PrReviewSubmitAnswer = z.infer<typeof prReviewSubmitAnswerSchema>
+
+/**
+ * Submit review (ticket 11, ADR-0112): one POST of the review on the person's click in the Finish review dialog, with
+ * exactly the texts it shows. `commit` — the commit the comments are drawn and numbered on (the draft's `anchoredOn`,
+ * else `startedOn`), which the review goes on; `head` — the head of the PR the dialog showed: a head that moved since
+ * is refused, with the head now. Local: the draft lives on this machine, and only its account posts.
+ */
+export const prReviewSubmit = invokeChannel('prReview.submit', pullInput.merge(reviewSubmittedTextsSchema).extend({ commit: shaSchema, head: shaSchema }), prReviewSubmitAnswerSchema, 'local')
+
 /** The draft file of a PR changed while an Agent review writes it: read it again (`prReview.draft`). */
 export const prReviewChanged = eventChannel('prReview.changed', pullInput, 'local')
 
@@ -190,5 +224,7 @@ declare module './channels' {
     'prReview.stopAgent': typeof prReviewStopAgent
     'prReview.changed': typeof prReviewChanged
     'prReview.start': typeof prReviewStart
+    'prReview.check': typeof prReviewCheck
+    'prReview.submit': typeof prReviewSubmit
   }
 }

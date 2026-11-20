@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // review-draft-lint — checks a review draft before a person sees it, and the rules of a generated review skill.
 //
-//   review-draft-lint <draft.json> --rules <lint.json> [-C <project dir>]
+//   review-draft-lint <draft.json> [--rules <lint.json>] [-C <project dir>]
 //   review-draft-lint --reply <draft.json> [--rules <lint.json>] [-C <project dir>]
 //   review-draft-lint --skill <folder> [--prs <prs.jsonl>] [--known <file>]...
 //
@@ -9,6 +9,10 @@
 // POST /repos/{owner}/{repo}/pulls/{number}/reviews as it is (event, body, comments[] with path, line, side,
 // body); tiers — the tier of each comment, in the order of payload.comments; body_tier — the tier of the body,
 // needed when the body is not empty. lint.json is { schema: 1, tiers: { <tier>: { max_chars } }, forbidden }.
+// Without --rules (worfy's Submit review of a draft the person wrote, which has no tiers) the template's lint.json
+// (skills/human-review-setup/template/) is the one, as for --reply: `tiers` and `body_tier` are not read, and every
+// text is held to its largest max_chars. With --rules a draft without `tiers` and `body_tier` is held the same way, to
+// the largest max_chars of --rules; a draft with either needs both, as before.
 //
 // A finding, one line each on stdout, `<where>: <rule> …`, where <where> is `body` or `comments[<i>] <path>:<line>`:
 //   - length: a text longer than max_chars of its tier (characters, not bytes);
@@ -62,7 +66,7 @@ const BIN = path.dirname(fs.realpathSync(__filename))
 const PROFILE = process.env.CLAUDE_PROFILE_BIN || path.join(BIN, "profile")
 const TICKET = process.env.CLAUDE_TICKET_BIN || path.join(BIN, "ticket")
 
-const USAGE = `usage: review-draft-lint <draft.json> --rules <lint.json> [-C <project dir>]
+const USAGE = `usage: review-draft-lint <draft.json> [--rules <lint.json>] [-C <project dir>]
        review-draft-lint --reply <draft.json> [--rules <lint.json>] [-C <project dir>]
        review-draft-lint --skill <folder> [--prs <prs.jsonl>] [--known <file>]...
 exit: 0 clean, 1 findings, 2 usage error or broken input`
@@ -261,14 +265,13 @@ if (skillDir !== null) {
 // --- the draft and lint.json --------------------------------------------------------
 if (replyFile !== null && draftFile !== null) die(2, `--reply takes its draft as its value: extra argument ${draftFile}\n${USAGE}`)
 if (replyFile === null && draftFile === null) die(2, `no draft named\n${USAGE}`)
-if (replyFile === null && rulesFile === null) die(2, `no --rules named\n${USAGE}`)
 try {
     if (!fs.statSync(dir).isDirectory()) die(2, `not a directory: ${dir}`)
 } catch {
     die(2, `no such directory: ${dir}`)
 }
 
-// A reply without --rules is held to the template's lint.json: its largest tier is the one length of a reply.
+// A reply, or a review, without --rules is held to the template's lint.json: its largest tier is the one length.
 const lintFile = rulesFile === null ? path.join(TEMPLATE, "lint.json") : rulesFile
 const lint = readJson(lintFile, "lint.json")
 const bad = (msg) => die(2, `lint.json ${lintFile}: ${msg}`)
@@ -338,7 +341,10 @@ function reviewTexts() {
     comments.forEach((c, i) => {
         if (!isObject(c) || typeof c.body !== "string") badDraft(`payload.comments[${i}] must be an object with a text body`)
     })
-    const tiers = draft.tiers === undefined ? [] : draft.tiers
+    // Without --rules, or without tiers at all, one length for every text: the largest of the lint.json in use.
+    const oneLength = rulesFile === null || (draft.tiers === undefined && draft.body_tier === undefined)
+    const max = Math.max(...Object.values(lint.tiers).map((t) => t.max_chars))
+    const tiers = oneLength ? comments.map(() => null) : draft.tiers === undefined ? [] : draft.tiers
     if (!Array.isArray(tiers) || tiers.length !== comments.length)
         badDraft(`"tiers" must be a list with one tier for each of the ${comments.length} comments of payload.comments`)
     const tierOf = (tier, where) => {
@@ -347,15 +353,19 @@ function reviewTexts() {
         return tier
     }
     const of = (tier) => [lint.tiers[tier].max_chars, `tier ${tier}`, false]
+    const one = [max, rulesFile === null ? "the template" : "lint.json", false]
     const texts = []
     const body = payload.body || ""
     if (body.trim() !== "") {
-        if (draft.body_tier === undefined) badDraft(`"body_tier" is needed: payload.body is not empty`)
-        texts.push(["body", body, ...of(tierOf(draft.body_tier, "the body"))])
+        if (oneLength) texts.push(["body", body, ...one])
+        else {
+            if (draft.body_tier === undefined) badDraft(`"body_tier" is needed: payload.body is not empty`)
+            texts.push(["body", body, ...of(tierOf(draft.body_tier, "the body"))])
+        }
     }
     comments.forEach((c, i) => {
         const at = typeof c.path === "string" ? ` ${c.path}${c.line !== undefined ? `:${c.line}` : ""}` : ""
-        texts.push([`comments[${i}]${at}`, c.body, ...of(tierOf(tiers[i], `comments[${i}]`))])
+        texts.push([`comments[${i}]${at}`, c.body, ...(oneLength ? one : of(tierOf(tiers[i], `comments[${i}]`)))])
     })
     return texts
 }
