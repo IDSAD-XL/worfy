@@ -73,11 +73,13 @@ tool-а длиннее предела); «Вопросы владельцу», Q
       правки — в «Итог».
   - evidence: test-run pass · `pnpm test test/contract/integrations-proxy.test.ts` exit 0 · mac - · 84a21e9b894597e4024e3e9f28c35578dee9e047
   - evidence: test-run pass · `pnpm test test/contract/integrations-proxy.test.ts` exit 0 · mac - · 53ce8d2b0701dab0b7b236846045db0de6b049ff
+  - evidence: test-run pass · `pnpm test test/contract/integrations-proxy.test.ts` exit 0 · mac - · 43e3154e1eab45058dbbe155e4880b06c1bab875
 - [ ] Тот же contract: фильтр `read-only` и список режут `tools/list` и `tools/call` (вызов отфильтрованного tool-а —
       отказ); метка в описании tool-а; 401 → ответ `isError` «Sign-in needed: <метка>…» и статус `needs-sign-in`;
       размер tools — длина JSON / 4.
   - evidence: test-run pass · `pnpm test test/contract/integrations-proxy.test.ts` exit 0 · mac - · 84a21e9b894597e4024e3e9f28c35578dee9e047
   - evidence: test-run pass · `pnpm test test/contract/integrations-proxy.test.ts` exit 0 · mac - · 53ce8d2b0701dab0b7b236846045db0de6b049ff
+  - evidence: test-run pass · `pnpm test test/contract/integrations-proxy.test.ts` exit 0 · mac - · 43e3154e1eab45058dbbe155e4880b06c1bab875
 - [ ] Contract `test/contract/integrations-claude-session.test.ts` (новый) на fake query
       (`src/main/agent/fake-query.ts`): Session Project-а получает в `mcpServers` ровно его включённые Integration-ы
       рядом с `worfy-canvas`; `managedSettings` и `mcp.allowed` не изменились; Session вне Project-а их не получает;
@@ -99,6 +101,7 @@ tool-а длиннее предела); «Вопросы владельцу», Q
       (платформенный PR).
   - evidence: gate pass · `gate fast` exit 0 · mac - · 84a21e9b894597e4024e3e9f28c35578dee9e047
   - evidence: gate pass · `gate fast` exit 0 · mac - · 53ce8d2b0701dab0b7b236846045db0de6b049ff
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 43e3154e1eab45058dbbe155e4880b06c1bab875
 
 ## Где в коде
 
@@ -206,3 +209,15 @@ exit 0. `test/e2e/session-mcp.spec.ts` под `/tmp/worfy-e2e.lock` — exit 0. 
 17. Новые правки вне «Где в коде», по ревью: `src/main/ipc/integrations.ts` (закрытие соединений),
     `src/main/quit-listeners.ts`. В `test/contract/integrations-store.test.ts` и `integrations-token-auth.test.ts` добавлен
     mock `electron`: модуль теперь подписывается на `will-quit`.
+
+Раунд 3 ревью PR #2119:
+- Отмена до отправки запроса (например, пока соединение ещё открывается) — отказ только этого вызова. Пакет MCP SDK
+  бросает тогда голую причину отмены, а не -32001. Proxy смотрит на `signal.aborted`, общее соединение не закрывает.
+- Неудачное открытие отказывает всем вызовам, что его ждали: один `initialize` на всех, а не по одному на каждый вызов.
+- `close(id)` и `close()` закрывают и соединения, которые заменило новое, пока по ним шёл вызов. Удаление Integration-ы и
+  выход из приложения не оставляют stdio-процесс жить до конца вызова (до 10 минут).
+
+Test-ы: `pnpm test test/contract/integrations-proxy.test.ts` до правки — exit 1 (4 из 27 упали), после — exit 0. Три
+mutant-а, по одному на правку, — exit 1. Unit и contract test-ы затронутых модулей (39 файлов, 1055 test) — exit 0.
+`test/e2e/session-mcp.spec.ts` под `/tmp/worfy-e2e.lock` — exit 0. `pnpm lint`, `pnpm typecheck` — exit 0. `gate fast` —
+exit 0, `[gate] green (fast)` на 43e3154e1.
