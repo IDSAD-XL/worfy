@@ -7,7 +7,7 @@
 // the conventions and the other tickets read, a red test, a first plan that the orchestrator corrects
 // (NaN and Infinity are numbers), the commit of double, the entry point, and a red `node --test` because
 // `exports` names ./src/index.js. The history ends there; the prompt of the case asks the questions of
-// probes.md after an auto-compaction: the shell of the run sets a low threshold (prompt.md, description).
+// probes.md after one auto-compaction: the call of the case sets the threshold (prompt.md, description).
 //
 // The facts the probes ask about are spread over the history on purpose and some of them change on the
 // way (the plan for NaN): a summary that keeps only the last messages loses them.
@@ -25,8 +25,11 @@ const SESSION = '5c0e7a3e-13c0-4d6a-9b1e-2f6a8c4d0b13'
 const MODEL = 'claude-sonnet-5'
 const CWD = '/tmp/demo-work'
 const START = Date.parse('2026-10-01T09:10:00Z')
-// The tokens of the system prompt, the tools and the rules of the session, before the first message.
-const BASE_TOKENS = 21000
+// The tokens the usage of the history counts before the first message. The real system prompt, tools and
+// rules of a run are about 23000; the history counts more, so that its last usage (about 45000) is over the
+// compaction threshold of the case (40000, set by the eval script for this case) while the real context after the
+// compaction (about 30500) stays under it: one compaction, not one on every call.
+const BASE_TOKENS = 38000
 
 let counter = 0
 const id = (kind) => createHash('sha256').update(`${kind}-${counter++}`).digest('hex')

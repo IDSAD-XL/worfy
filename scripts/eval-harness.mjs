@@ -97,12 +97,14 @@ const COMMON = [
   '--judge-model', JUDGE_MODEL,
 ]
 /**
- * The cases of the tag `alone` and the environment each gets in its call. compaction-state: an auto
- * compaction before the first answer, at 5 % of a window of 100000 tokens, as in spike 01; a case may
- * set only EVAL_* variables itself.
+ * The cases of the tag `alone` and the environment each gets in its call; a case may set only EVAL_*
+ * variables itself. compaction-state: exactly one auto compaction, before the first answer. Claude Code
+ * 2.1.322 compacts at 50 % of the window less 20000 tokens of output room: 40000. The history counts more
+ * (harness/evals/compaction-state/history.mjs); the context after the compaction, about 30500 tokens, stays
+ * under it. At 5 % (4000) every call after the first compaction compacted again (worfy-polish ticket 128).
  */
 const ALONE = {
-  'compaction-state': { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '100000', CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '5' },
+  'compaction-state': { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '100000', CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '50' },
 }
 /** Tool grants of each call; `harness` is the path of the plugin under test. */
 const grants = (harness) => ({

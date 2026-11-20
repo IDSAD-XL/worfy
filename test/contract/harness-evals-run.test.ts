@@ -440,7 +440,7 @@ describe('pnpm eval:harness: the case of the tag alone (claude replaced by a stu
   const SHELL = { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '7', CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '9' }
   const SKIPPED =
     'eval:harness: compaction-state is skipped: it runs only alone, in a call of its own that sets ' +
-    'CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=5; run it with pnpm eval:harness -- --case compaction-state'
+    'CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50; run it with pnpm eval:harness -- --case compaction-state'
 
   it('leaves it out of a general run, says why and how to run it, and keeps the variables of the shell from every call', () => {
     const { run, calls } = evalHarness('2.1.289', '0,0', [], undefined, SHELL)
@@ -469,8 +469,8 @@ describe('pnpm eval:harness: the case of the tag alone (claude replaced by a stu
     expect(listAfter(call?.args ?? [], '--tag')).toEqual(['alone'])
     expect(listAfter(call?.args ?? [], '--case')).toEqual(['compaction-state'])
     expect(listAfter(call?.args ?? [], '--allow-tools')).toEqual(['Bash', 'Write', 'Edit'])
-    expect([call?.compactWindow, call?.compactPct]).toEqual(['100000', '5'])
-    expect(run.stdout).toMatch(/alone-compaction-state — CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=5 claude plugin eval /)
+    expect([call?.compactWindow, call?.compactPct]).toEqual(['100000', '50'])
+    expect(run.stdout).toMatch(/alone-compaction-state — CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50 claude plugin eval /)
     expect(run.stdout).not.toContain(SKIPPED)
   })
 
@@ -485,7 +485,27 @@ describe('pnpm eval:harness: the case of the tag alone (claude replaced by a stu
     const { run, calls } = evalHarness('2.1.289', '0', ['--dry-run', '--case', 'compaction-state'])
     expect(run.status, run.stderr).toBe(0)
     expect(calls).toEqual([])
-    expect(run.stdout).toMatch(/alone-compaction-state — CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=5 claude plugin eval .* --tag alone --case compaction-state /)
+    expect(run.stdout).toMatch(/alone-compaction-state — CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50 claude plugin eval .* --tag alone --case compaction-state /)
+  })
+
+  // Exactly one compaction (worfy-polish ticket 128). Claude Code 2.1.322 compacts at
+  // min((window - 20000) * pct / 100, window - 33000) tokens. The history must count more than that, so the
+  // run compacts before its first answer; the context after that compaction — about 30500 tokens with the
+  // hook, measured 2026-11-20 — must stay under it, or every later call compacts again (two compactions in
+  // every run at 5 %, and the second summary already holds the questions of PROBES.md).
+  it('sets a threshold above the context after one compaction and below the tokens the history counts', () => {
+    const { run } = evalHarness('2.1.289', '0', ['--dry-run', '--case', 'compaction-state'])
+    const [, window, pct] = /CLAUDE_CODE_AUTO_COMPACT_WINDOW=(\d+) CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=(\d+) /.exec(run.stdout) ?? []
+    const effective = Number(window) - 20000
+    const threshold = Math.min(Math.floor((effective * Number(pct)) / 100), effective - 13000)
+    const rows = readFileSync(join(HARNESS, 'evals', 'compaction-state', 'history.jsonl'), 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { message?: { usage?: Record<string, number> } })
+    const usage = rows.filter((row) => row.message?.usage).at(-1)?.message?.usage ?? {}
+    const counted = (usage.input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.output_tokens ?? 0)
+    expect(threshold).toBeGreaterThanOrEqual(36000)
+    expect(counted).toBeGreaterThan(threshold)
   })
 
   it('--changed that chooses only it calls no claude, exit 0, and says how to run it', () => {

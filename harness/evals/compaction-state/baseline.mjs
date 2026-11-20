@@ -7,7 +7,7 @@
 // Everything else stays as it is: the rules of every session, the skills, the agents, the case itself.
 // Prints the path of the copy; the run of the variant is
 //   HARNESS_DIR=<that path> pnpm eval:harness -- --case compaction-state …
-// (the call of this case sets CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000 and CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=5 itself)
+// (the call of this case sets CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000 and CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50 itself)
 // and its results go to <that path>/evals/results/. The copy is not removed: remove it after the run.
 //
 // Exit 1, with the reason on stderr and the copy removed, when one of the three parts is not where this

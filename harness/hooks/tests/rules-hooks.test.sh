@@ -796,7 +796,7 @@ done
 pcflat="$(tr '\n' ' ' <"$COMPACTION" 2>/dev/null | tr -s ' ')"
 for p in '**Orchestrator**' 'the epic' 'the wave number' 'every PR in work' 'without the owner' '`decisions.tsv`' '`worfy:epic-wave`' \
     '**Implementer**' '`worfy:implementer`' 'the ticket file' '`tickets.done_section`' 'with its mark' 'the worktree path' 'the branch' \
-    '**Any other agent**' 'every file edited'; do
+    '**Any other agent**' 'every file edited' 'the check that shows it worked' 'word for word' 'the last command that failed'; do
     [[ "$pcflat" == *"$p"* ]] && ok "compaction.md names $p" || bad "compaction.md does not name $p"
 done
 

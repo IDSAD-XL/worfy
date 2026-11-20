@@ -11,9 +11,10 @@
 #   PROBES.md the questions the prompt asks the agent to read after the compaction
 #
 # The run starts in ./, so hooks/after-compact.mjs sees a linked worktree on a ticket's branch and hands
-# back the ticket file and `git status --short`: the implementer's half of the hook. The main checkout lies
-# inside the worktree folder because the scaffold may write only into the current folder and $HOME; its
-# .git/info/exclude keeps .demo/ and PROBES.md out of `git status`.
+# back the commits of the branch, `git status --short`, the ticket file and the diff: the implementer's half
+# of the hook. The main checkout lies inside the worktree folder because the scaffold may write only into the
+# current folder and $HOME; its .git/info/exclude keeps .demo/, PROBES.md and the answers/ the agent writes
+# out of `git status`.
 #
 # Bash, not Node, as every scaffold: it is test code. Writes only into the current folder and $HOME
 # (demo-project.sh writes the Harness state there and refuses the user's real home folder).
@@ -89,7 +90,7 @@ git -C .demo push -q origin main
 git -C .demo fetch -q origin
 # The git of an eval run is a copy without its templates: `git init` made no info/.
 mkdir -p .demo/.git/info
-printf '/.demo/\n/.wt/\n/PROBES.md\n' >>.demo/.git/info/exclude
+printf '/.demo/\n/.wt/\n/PROBES.md\n/answers/\n' >>.demo/.git/info/exclude
 
 # --- the worktree: made in .wt/01, then moved here (git refuses a folder that is not empty) ------
 git -C .demo worktree add -q --no-checkout -b demo/01 "$work/.wt/01" origin/main

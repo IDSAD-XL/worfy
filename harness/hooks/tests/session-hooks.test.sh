@@ -300,7 +300,7 @@ printf '# 01 — first of ep2\n\nStatus: open\n' >"$CP/.scratch/ep2/issues/01-x.
 echo base >"$CP/file.txt"
 gq() { git -c user.email=t@example.invalid -c user.name=t -c init.defaultBranch=main -c core.autocrlf=false "$@"; }
 (cd "$CP" && gq init -q && gq add -A && gq commit -q -m base) >/dev/null 2>&1
-echo '{"schema":2,"name":"cmp","mode":"full","attribution":"on","tickets":{"root":".scratch/","path":".scratch/<epic>/issues/NN-*.md","branch":"<epic>/<NN>"},"workflow":{"finish":"pr-green-ci"}}' >"$T/sp/cmp/profile.json"
+echo '{"schema":2,"name":"cmp","mode":"full","attribution":"on","worktree":{"base":"main"},"tickets":{"root":".scratch/","path":".scratch/<epic>/issues/NN-*.md","branch":"<epic>/<NN>","done_section":"## Готово, когда"},"workflow":{"finish":"pr-green-ci"}}' >"$T/sp/cmp/profile.json"
 printf '{"repos":[{"key":"c","match":"%s","profile":"cmp"}]}\n' "$T/cmp" >"$T/cmp.json"
 printf 'process.stdout.write("[]\\n")\n' >"$T/cmp/stubs/gh.mjs"
 # A wave-brief stand-in for the limit: a head, a long Land section first, then Waiting and Open PRs.
@@ -312,6 +312,9 @@ process.stdout.write([`# Wave brief: ${epic} · now`, `Stage: /implement · ${ep
     "## Land", ...land, "", "## Waiting", "02 in work: WAITING-LINE", "", "## Open PRs", "#7 OPEN-PR-LINE", "", "## Next wave", "NEXT-LINE", ""].join("\n"))
 EOF
 git -C "$CP" worktree add -q -b ep1/02 "$T/cmp/wt-02" >/dev/null 2>&1
+# One commit on the ticket branch, then a change not committed and a new file.
+echo step >"$T/cmp/wt-02/step.txt"
+(cd "$T/cmp/wt-02" && gq add step.txt && gq commit -q -m "ep1/02: STEP-ONE-COMMIT") >/dev/null 2>&1
 echo changed >"$T/cmp/wt-02/file.txt"; echo new >"$T/cmp/wt-02/new.txt"
 git -C "$CP" worktree add -q --detach "$T/cmp/review" >/dev/null 2>&1
 # $1 directory (cwd of the input), $2 source; the rest are variables for the hook. Output in $T/aout, stderr in $T/aerr.
@@ -356,7 +359,32 @@ c="$(actx)"
     && [[ "$c" == *" M file.txt"* && "$c" == *"?? new.txt"* && "$c" != *"Wave brief"* ]] \
     && ok "after-compact: an implementer (worktree on its ticket's branch) gets its ticket file and git status --short" \
     || bad "after-compact: implementer: rc=$arc err=[$(cat "$T/aerr")] ctx=[${c:0:400}]"
+# What is committed and what is not: the commits of the branch since worktree.base of the
+# profile, each with its files, and the diff of the work not committed yet.
+[[ "$c" == *"## Commits of ep1/02 since main"* && "$c" == *"ep1/02: STEP-ONE-COMMIT"* && "$c" == *"step.txt"* ]] \
+    && [[ "$c" == *"## Not committed: git diff HEAD"* && "$c" == *"+changed"* && "$c" == *"-base"* ]] \
+    && ok "after-compact: the implementer gets the commits of its branch with their files and the diff not committed yet" \
+    || bad "after-compact: commits and diff: ctx=[${c:0:900}]"
+# The text states where the work stands and names no command to run: an agent told to answer from memory read
+# "check each item" as an order to open files (eval compaction-state, 2026-11-20).
+[[ "$c" != *"check each item"* && "$c" == *"empty box"*"## Готово, когда"* ]] \
+    && ok "after-compact: the implementer text names no command to run and says what an empty box of the done section means" \
+    || bad "after-compact: implementer header: [${c:0:600}]"
+# How the ticket ends, from workflow.finish of the profile (pr-green-ci here).
+[[ "${c%%## Commits*}" == *"ends with a pull request"*"workflow.finish pr-green-ci"* ]] \
+    && ok "after-compact: the implementer text says how the ticket ends (workflow.finish)" \
+    || bad "after-compact: finish: [${c:0:600}]"
 claude_impl="$c"
+# A long diff is cut to its own share of the limit, after the ticket: the ticket stays whole.
+for i in $(seq 1 600); do echo "long diff line $i"; done >"$T/cmp/wt-02/file.txt"
+compact "$T/cmp/wt-02" compact
+c="$(actx)"
+n="$(printf '%s' "$c" | node -e 'process.stdout.write(String([...require("fs").readFileSync(0, "utf8")].length))')"
+[ "$n" -le 10000 ] && [[ "$c" == *"EP1-TWO-DONE"* && "$c" == *"+long diff line 1"* && "$c" != *"+long diff line 600"* && "$c" == *"… the diff is cut"* ]] \
+    && [[ "${c%%## Not committed: git diff HEAD*}" == *"EP1-TWO-DONE"* ]] \
+    && ok "after-compact: a long diff is cut after the ticket ($n characters)" \
+    || bad "after-compact: long diff: $n characters, tail [$(printf '%s' "$c" | tail -n 3)]"
+echo changed >"$T/cmp/wt-02/file.txt"
 TRANSCRIPT="/codex-home/sessions/2026/11/18/rollout-2026-11-18T00-00-00-t1.jsonl" compact "$T/cmp/wt-02" compact WORFY_EPIC=ep2
 c="$(actx)"
 [ -n "$c" ] && [ "$c" = "$claude_impl" ] && ok "after-compact: Codex sessionStart (compact) gives the implementer the same context" \

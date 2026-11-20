@@ -455,8 +455,8 @@ The evals make paid model calls, and CI and the Gate do not run them. `harness/e
 eval` cases that check by behaviour that Claude follows the rules (`pnpm eval:harness`), and `harness/evals-outcome/` holds
 the tasks of `pnpm eval:outcome`. `test/contract/harness-evals.test.ts` checks for free that every case is complete.
 The case `compaction-state` carries the tag `alone` and runs only by `pnpm eval:harness -- --case compaction-state`:
-its call alone gets `CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000` and `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=5`, the variables
-that make Claude Code compact the history before the first answer, and every other call runs without them, even when
+its call alone gets `CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000` and `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50`, the variables
+that make Claude Code compact the history once, before the first answer, and every other call runs without them, even when
 the shell sets them. A general run and `--changed` leave the case out and print how to run it. Its run without the
 compaction hook and instructions is
 `HARNESS_DIR="$(node harness/evals/compaction-state/baseline.mjs)" pnpm eval:harness -- --case compaction-state`
