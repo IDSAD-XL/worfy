@@ -50,6 +50,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Волны», Wave 1; «Ре�
       в светлой и тёмной теме; в консоли Card-а нет ошибок.
 - [ ] Данные выдуманы: `grep -inE "canvasforai|idsad|src/main|src/renderer" <card>/index.html` не находит
       настоящих путей, имён и адресов.
+  - evidence: test-run pass · `grep -inE "canvasforai|idsad|src/main|src/renderer" <card>/index.html` exit 1, no match · mac - · c7281b1184707db2be304e0eab0d74443d1d2433
 - [ ] В каталоге Card-а нет Slack (Q6): `grep -ic slack <card>/index.html` — 0.
 - [ ] В «Итог» — id Card-а и состояния; брифы Ticket-ов 08 и 09 ссылаются на него.
 
