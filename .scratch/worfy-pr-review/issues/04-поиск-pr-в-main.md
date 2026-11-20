@@ -54,12 +54,16 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Факты GitHub API» → �
 - [ ] Unit `test/unit/pr-search-query.test.ts` (новый): `is:pr` всегда, три области, `archived:false`, сортировка,
       деление по 256 символам, предупреждение про 5 операторов, chip-квалификаторы раздела 1 spec-а. Красный до правки —
       в «Итог».
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-search-query.test.ts` exit 0 · mac - · b63f39113812ecffbdcb0dbf30f1ea8f521393e3
 - [ ] Contract `test/contract/pr-search.test.ts` (новый) на gh stand-in (`WORFY_GH`): строка запроса каждой области,
       cursor и «Load more», 1 000, rate limit, 403 SSO и `partial-results`, 422, 404; строка из inbox не читается
       дважды; stand-in валит test на любом `--method` и `mutation` — ни одной записи на GitHub.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-search.test.ts` exit 0 · mac - · b63f39113812ecffbdcb0dbf30f1ea8f521393e3
 - [ ] Тот же contract: `prSearch.save` с Linked machine Read only — отказ; `prSearch.run` — разрешён; больше 20
       сохранённых — отказ; встроенные не удаляются.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-search.test.ts` exit 0 · mac - · b63f39113812ecffbdcb0dbf30f1ea8f521393e3
 - [ ] Amendment-ы ADR-0105 (пункт 1) и ADR-0005 влиты в этом PR.
+  - evidence: commit pass · worfy-pr-review/04: PR search in main — query builder, three scopes, prSearch.run/pull, saved searches · - - · b63f39113812ecffbdcb0dbf30f1ea8f521393e3
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Где в коде
@@ -77,3 +81,50 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Факты GitHub API» → �
 ## Вне скоупа
 
 - Поле поиска и список в виде — Ticket 05. Поиск issues, кода, GitLab, GitHub Enterprise Server — вне Epic-а.
+
+## Итог
+
+- Красный до правки: `test/unit/pr-search-query.test.ts` написан первым и упал на импорте — модуля
+  `src/shared/pr-search/query.ts` ещё не было (`vitest run --project node test/unit/pr-search-query.test.ts` exit 1,
+  «Test Files 1 failed»). После `query.ts` — 20 из 20 зелёные. Contract `test/contract/pr-search.test.ts` написан
+  вместе с `src/main/github/pr-search.ts`: 27 test-ов на gh stand-in.
+- Замеры на GitHub (только чтение, `gh api graphql`, публичный cli/cli, 2026-11-20): `search(type: ISSUE)` стоит 1
+  пункт; страница из 30 PR со всеми полями строки inbox — 17 пунктов и 10 s, из 10 PR — 6 пунктов и 3 s. Заголовок
+  ответа — `X-Ratelimit-Resource: graphql`: GraphQL-поиск тратит общий лимит GraphQL аккаунта, отдельного счётчика
+  `search` в ответе нет. GraphQL-поиск принял строку в 331 символ и 6 операторов OR без ошибки (422 — правило REST);
+  предупреждение и деление по 256 оставлены, как велит Ticket. `org:` и `user:` дают одно и то же и для организации
+  (cli), и для пользователя (torvalds).
+- Решено без владельца, подтвердить:
+  1. Поиск в два шага: лёгкий `search` (номер, `updatedAt`, репозиторий), затем запрос деталей inbox (`detailsArgs`,
+     страницы по 10) только для PR, которых нет в inbox и в памяти с тем же `updatedAt`. Spec говорит «один вызов на
+     страницу», но тогда PR из inbox читался бы второй раз; цена двух шагов по замеру почти та же (1 + 3 × 6 = 19 против 17
+     пунктов за 30 PR).
+  2. Область «организации» пишет `org:` для каждого владельца, без запроса, организация это или пользователь: GitHub
+     понимает `org:` и для пользователя (замер выше).
+  3. `repo:`, `org:` или `user:` в тексте пользователя заменяют область: в обычном поиске GitHub два `repo:` — это
+     ИЛИ, и область Project-а расширила бы поиск пользователя. Notice `own-scope` говорит об этом.
+  4. Деление и предупреждение: каждый запрос короче 256 символов; предупреждение — когда хоть один запрос длиннее 256
+     (его нельзя разделить: одна область или текст пользователя слишком длинный). Деление касается и области
+     организаций.
+  5. Notice `partial-results` называет число скрытых организаций, а не их имена: GitHub отдаёт в заголовке только id.
+  6. 20 — предел сохранённых поисков пользователя, два встроенных сверх него. Сохранение под тем же именем (без учёта
+     регистра) заменяет поиск. Встроенный «Reviewed by me · open» — в области This Project, «Review requested from me»
+     — All of GitHub, как в его имени.
+  7. `prSearch.saved` — `'project', 'read'` (так в Ticket-е; spec в разделе 1 называет все три канала сохранённых
+     поисков `write`, но в разделе 11 говорит «с доступом Read only читаются, но не меняются»).
+  8. Курсор «Load more» — непрозрачная строка с курсором каждого из разделённых запросов; результаты нескольких
+     запросов сливаются по `updatedAt`, если пользователь не задал свой `sort:`.
+- Вне `## Где в коде`, но нужно для Ticket-а: `test/fixtures/gh/gh-stub.mjs` (stand-in отвечает на поиск из
+  `search.json`, печатает статус и заголовки при `-i`, «скрытый» репозиторий для 404), `test/unit/link-access.test.ts`
+  (пять новых каналов в списках read/write — test требует назвать каждый), экспорт `firstJson` в
+  `src/main/github/inbox-notifications.ts`. В `src/main/github/inbox.ts` кроме экспорта `rowOf` — `readPull` и три
+  метода общей паузы на rate limit (`accountPause`, `noteAccountRate`, `pauseAccount`): пауза общая с PR inbox, а
+  живёт она в кэше аккаунта `PrInbox`.
+- Проверка на head `b63f39113` (под временным HOME): `pnpm lint` и `pnpm typecheck` — exit 0; `pnpm test` — exit 1,
+  gate fast — exit 2 (`[gate] red (fast): worfy/.:test`, lint и typecheck прошли). Красные только test-ы слежения за
+  файлами (fs watch): `docs.test.ts`, `docs-watch-root.test.ts`, `cards-watch-edits.test.ts`, `product-watch.test.ts`,
+  `profile-move.test.ts`, `workflow-reader.test.ts` (watcher), `workflow-read-from-main.test.ts`,
+  `claude-home-registry.test.ts` (watching) — 30 test-ов, все ждут событие изменения файла и не дожидаются.
+  `docs-watch-root.test.ts` красный и отдельно, и на чистом `origin/main` 0d5246cd4 (2 из 6) — это окружение Mac
+  (fseventsd), не этот PR; ни один из этих файлов этот PR не трогает. Тесты Ticket-а и соседние test-ы PR inbox
+  (9 файлов, 197 test-ов) — exit 0. Зелёный `ci-ok` решает CI.
