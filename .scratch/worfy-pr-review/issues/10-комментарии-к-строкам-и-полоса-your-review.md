@@ -44,14 +44,18 @@ Source: [spec.md](../spec.md), «Ticket-ы», 10; «Как пользовате�
       Pending и «Written by the agent»; правка делает комментарий человека; «Not on a changed line»; Discard с
       подтверждением; Finish review неактивна, пока Session пишет. Красный до правки — в «Итог».
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/review-comments.test.tsx` exit 0 (15 tests; red before the change: 13 of 15) · mac - · 6596e039faad61ed85ea970b941d5ead06a6410a
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/review-comments.test.tsx` exit 0 (24 tests; red before: 13 of 15, round 2: 7 of 8) · mac - · 39e5b64cd5ca8d510bdb88c8c1380e902022f437
 - [ ] e2e `test/e2e/pr-review.spec.ts`: комментарий → перезапуск worfy → черновик на месте; chip `Review draft` в
       строке; на `WORFY_AGENT=fake` — правка комментария агента; снимки обеих тем.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-review.spec.ts test/e2e/changes.spec.ts test/e2e/pr-inbox.spec.ts test/e2e/pr-search.spec.ts` exit 0 (18 passed, screenshots of both themes) · mac - · 6596e039faad61ed85ea970b941d5ead06a6410a
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-review.spec.ts test/e2e/changes.spec.ts test/e2e/pr-inbox.spec.ts test/e2e/pr-search.spec.ts` exit 0 (18 passed, screenshots of both themes) · mac - · 39e5b64cd5ca8d510bdb88c8c1380e902022f437
 - [ ] Contract `test/contract/pr-review-draft.test.ts` и `test/contract/pr-search.test.ts`: ни одной записи на GitHub от
       комментариев, Discard и открытого Review mode.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-review-draft.test.ts test/contract/pr-search.test.ts` exit 0 · mac - · 6596e039faad61ed85ea970b941d5ead06a6410a
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-review-draft.test.ts test/contract/pr-search.test.ts` exit 0 · mac - · 39e5b64cd5ca8d510bdb88c8c1380e902022f437
 - [ ] `test/unit/changes-view.test.tsx` и `test/e2e/changes.spec.ts` зелёные: комментарии Changes не изменились.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/changes-view.test.tsx test/unit/changes-tray.test.tsx` exit 0 and `pnpm test:e2e test/e2e/changes.spec.ts` exit 0 · mac - · 6596e039faad61ed85ea970b941d5ead06a6410a
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/changes-view.test.tsx test/unit/changes-tray.test.tsx` exit 0 and `pnpm test:e2e test/e2e/changes.spec.ts` exit 0 · mac - · 39e5b64cd5ca8d510bdb88c8c1380e902022f437
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Где в коде
@@ -123,3 +127,18 @@ Discard — ни одного вызова gh) и `test/contract/pr-search.test.
   иначе номер строки и commit Submit-а разошлись бы.
 - Картинок в комментарии ревью нет (GitHub их в review comment не принимает).
 - Delete — без подтверждения и без Undo (как в прототипе); Discard неактивен без комментариев и закрывает Review mode.
+- Диапазон через несколько hunk-ов в UI не сохраняется: `c` и «+» показывают toast «A comment covers lines of one hunk…»
+  (GitHub отвечает 422 «start_line must be part of the same hunk as the line»); такой диапазон агента — в «Not on a
+  changed line».
+- Правка комментария без текста строк (агент пишет "" для LEFT и для файлов, которых git не дал) берёт текст из diff-а;
+  если строк в diff-е нет (комментарий не на строке diff-а) — пустые строки по числу строк комментария: main требует
+  anchor ровно на столько строк.
+
+Раунд 2 (review PR #2115). Строки для комментариев читаются без -w и с `expand` (свёрнутый файл — lock, generated,
+слишком большой — больше не попадает в «Not on a changed line»); «+» и `c` при Hide whitespace читают файл сами, а не
+молчат; Edit берёт текст строк в момент открытия (удаление соседа не подменяет его); Suggest change — только на новой
+стороне. Test-ы: 9 новых в `test/unit/review-comments.test.tsx`; до правки из первых 8 — 7 красных (exit 1; зелёный — `draftChanged()`,
+он стережёт mutant), 9-й (пустые строки) добавлен после; итог — 24 из 24, exit 0;
+fake main проверяет число строк anchor-а, как `putComment`. Mutant-ы (по одному: `expand`, проверка `start_line`,
+чтение при промахе, `draftChanged()` после save и после Delete, текст строк из diff-а при Edit, пустые строки, Suggest
+только на новой стороне, отказ через hunk-и) — каждый даёт exit 1.
