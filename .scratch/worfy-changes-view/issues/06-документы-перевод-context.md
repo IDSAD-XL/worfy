@@ -30,9 +30,13 @@ Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решено без влад�
 ## Готово, когда
 
 - [ ] Пять файлов `docs/features/ru/` совпадают по смыслу с английскими на `main` (review по каждому).
+  - evidence: commit pass · worfy-changes-view/06: Russian Feature pages of Changes, the Changes term in CONTEXT.md · - - · 02ad3f292
 - [ ] `CONTEXT.md` называет Changes, с _Avoid_.
+  - evidence: commit pass · worfy-changes-view/06: Russian Feature pages of Changes, the Changes term in CONTEXT.md · - - · 02ad3f292
 - [ ] В «Итог» — список решений без владельца части 1.
+  - evidence: commit pass · worfy-changes-view/06: Russian Feature pages of Changes, the Changes term in CONTEXT.md · - - · 02ad3f292
 - [ ] `node scripts/check-personal.mjs` и `node scripts/check-feature-docs.mjs` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: test-run pass · `node scripts/check-personal.mjs && node scripts/check-feature-docs.mjs` exit 0 · mac - · 02ad3f292
 
 ## Где в коде
 
