@@ -200,3 +200,21 @@ Code: `src/main/github/pr-review-agent.ts:189-212` · key lines: 191, 192, 198, 
    Ответ: сразу после него Session получает первое сообщение; `bin/pr-review-draft` отказывает без черновика и
    после остановки, поэтому файл должен быть на диске раньше первого вызова скрипта.
    Строки: `src/main/github/pr-review-agent.ts:96-98`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED — worfy-pr-review 08 (Agent review: bin/pr-review-draft, prReview.agentReview and stopAgent), head c8c38b96a54d023dd1a07cfa95be7d8e0a820790
+>
+> Gate (depth medium, three rounds, cap reached): verifier (lens: implementer's report) — claims backed, test gaps listed; reviewer (lens: correctness) round 1 one med + three low, round 2 three low, round 3 one low — all med fixed test-first.
+>
+> - Round 1: the agent now reviews the draft's commit (anchoredOn ?? startedOn) named in agentReviewText, both skills number lines on that commit; flushSync at quit no longer waits ~10 s on its own lock; a transient unreadable look no longer ends the watch; tests for watch end on done/stopped and the quit lock path; evidence re-pinned.
+> - Round 2: an unreadable draft no longer keeps the watch after the Session ended; both skills take diff, sizes, paths and lines from `git diff <baseRefOid>...<sha>` and stop when the commit is gone after fetch (agents-text checks + mutants); flushSync skips waiting only while the lock file holds this pid, unlock only by the pid written in the lock.
+> - Tests: 10 test files incl. harness-pr-review-draft, pr-review-agent, pr-review-draft, action-templates, quit-listeners, codex-parity, no-rmsync, harness-evals, harness-third-party-skills, harness-human-review-setup 509 passed EXIT=0; agents-text.test.sh 514 passed EXIT=0; lint, typecheck, story-check, evidence-check EXIT=0. Local gate fast not run: file-watcher tests red on this Mac (fseventsd); CI is the verdict.
+> - Eval main-agent-review-guards: pass 2/2, score 1.00; total eval cost for the ticket 10.03 USD (pre-approved, under 100).
+> - CI fix: ed1a64cdf was red on windows (2/3): the test helper agentWrites (pr-review-agent.test.ts) renamed without retry (EPERM while main read the file); f347b9e00 writes like the script (lock + retry on EPERM/EBUSY/EACCES); the script already retried — new test «a rename Windows refuses for a moment … is retried» (red without the retry); 10 test files 510 passed, agents-text 514, lint, typecheck, story-check, evidence-check EXIT=0.
+> - CI fix 2: f347b9e00 still red on windows (2/3): the test helper waited between rename retries synchronously (Atomics.wait) in the same process as main, so main's async readFile of the watch never closed and every retry hit EPERM; c8c38b96a makes the helper async (timer waits). The real script is a separate process, unaffected; chokidar usePolling uses stat, holds no fd. New test simulating Windows (rename refused while main's read is open) red with the sync wait (exit 1), green now; 10 test files 511 passed, agents-text 514, lint, typecheck, story-check, evidence-check EXIT=0.
+> - CI rerun (owner exception 2026-11-20, Q1): windows (3/3) on c8c38b96a failed once on harness-evals-outcome.test.ts:1191 (scaffold of the synthetic case imported-it exit 2304, EBUSY rmdir) — a test the PR does not touch, green on the previous head; one `gh run rerun 44735668795 --failed` → pass. If it fails again anywhere → ticket.
+>
+> Decided without the owner (to confirm): the decisions in the ticket's «Итог» (Agent review as constants; channel input {projectId, repo, number, head, fill}; fill new refused over a person's draft; poll watch; agent comment always appended; lock in pr-review-draft.ts; reviews the draft's commit, not a reanchor).
+>
+> Consider [low]: pr-review-agent.ts:193-199 — once the Session is over, one failed read (e.g. EBUSY on Windows) ends the watch without retry and the draft stays agent.state 'writing' until the next Agent review; pr-review-draft (script) does not tie writes to the agent's Session; spec.md:528 submits with commit_id startedOn while lines are numbered at anchoredOn ?? startedOn — ticket 09 must keep them aligned when it reanchors.

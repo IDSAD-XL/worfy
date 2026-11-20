@@ -1,7 +1,7 @@
 # 08 — Agent review: Session с Team reviewer-ом или линзами пишет весь черновик ревью через `bin/pr-review-draft`; канал запуска и остановки
 
 Type: task
-Status: claimed 2026-11-20T09:12Z
+Status: done 2026-11-20T16:44Z
 PR: #2085
 Blocked by: 06, 07
 Source: [spec.md](../spec.md), «Ticket-ы», 8; «Решение», 6; «Как пользователь идёт по экрану», E; «Решения по
@@ -73,6 +73,7 @@ skill-а, guard hook и eval.
   - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 (514 passed); `pnpm test test/contract/codex-parity.test.ts` exit 0 · mac - · 2f4fff13c0d7e293ee31a4a900a6acb34358899a
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job-ы Windows CI зелёные
       (платформенный PR).
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44735668795/job/136426153572 · ci - · c8c38b96a54d023dd1a07cfa95be7d8e0a820790
 
 ## Где в коде
 
