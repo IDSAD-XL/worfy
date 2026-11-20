@@ -93,3 +93,24 @@ warnings» и «Check again».
    - Ответ: chip-а нет, а отрицательное ожидание Playwright на отсутствующем элементе не выполняется и повторяется, пока
      не появится chip с итогом.
    - Строки: `src/renderer/shell/FirstRunChecks.tsx:563-567`
+
+## 6. Что нашёл review и что осталось
+
+> VERIFIED — polish 134 (Health shows «Checking…» once), head 8b3ab410d3a490f1c4fe55970bda5345967ac22d
+>
+> Gate (depth medium): verifier (lens: implementer's report) VERIFIED, no findings; reviewer (lens: correctness) no defect, two low.
+>
+> - Verifier: files_changed = diff (6 files); FirstRunChecks.tsx:545, 563-567 as claimed (summary empty while checking or before the first report; the summary chip's `running` variant gone; Health and First run share the component); settings-health + first-run-dialog unit 56 passed; a mutant of its own (summary back during a check with a report) → 3 failed; e2e settings-health.spec.ts + first-run.spec.ts 13 passed under the e2e lock; gate fast `[gate] green (fast)`; story-check ok; the four screenshots show the claim (no chip + «⟳ Checking…» button while checking; «1 failed · 2 warnings» + Check again after), no machine/host/user names.
+> - Reviewer: first check, re-check, failed and discarded checks, a check that never answers — all behave; Chip has no aria-live, so no announcement lost; Close in First run unaffected; `not.toHaveText('Checking…')` on an absent chip keeps waiting (Playwright 1.63 isNot semantics).
+> - ci-ok pass on the head.
+>
+> Consider [low]:
+> - docs/design/F-SPEC.md:153 still says the First run header summary chip shows «Checking…» (working) — align it with this decision.
+> - FirstRunChecks.tsx:545 / HealthSection.tsx:28-30 — a leftover action message shifts left by the chip's width during a re-check and back after.
+> - Owner question: each row chip still says «Checking…» during Check again (FirstRunChecks.tsx:182, 264); if the owner's screenshot showed the rows, that repeat remains.
+
+Code: `docs/design/F-SPEC.md:153-153` · key lines: 153
+
+```md
+  - **Header**: the title "First run" (20px, semibold), under it one line in 12px secondary text, never wrapped (cut with an ellipsis in a narrow window): "worfy checks this Mac for itself and the Harness. Nothing changes until you confirm it." (on Windows "this PC") Right of the title, the summary chip: "Checking…" (working), "N failed · M warnings" (the fail colors when anything failed, else the warning colors), "Everything is ready" (ready). 1px border under the header.
+```
