@@ -1,7 +1,8 @@
 # 130 — `bin/land` держит PR со scope `pc`, пока открыт issue `pc-main-red`
 
 Type: bug
-Status: open
+Status: claimed 2026-11-20T11:02Z
+Branch: worfy-polish/130
 Blocked by: none
 Source: решение владельца 2026-11-20 («со всем согласен»). ADR-0086, пункт 4, не исполнялся: с 2026-11-17 по
 2026-11-19 не меньше 12 PR со scope `pc` влиты, пока был открыт issue #1513 с меткой `pc-main-red`.

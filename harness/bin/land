@@ -43,6 +43,14 @@
 //     runs — the PR waits (unverified), never merges. Each reading of the runs keeps the file
 //     <gate state>/main-red-<key>.json for worfy (see markMain): written while the branch is red, removed once it is not,
 //     left as it is while the red run is rerun or when gh cannot read the runs;
+//   - with red_elsewhere in the state file, the main branch is not red on another machine for this PR (worfy: ADR-0086,
+//     point 4): `gh issue list --label <label> --state open` has no issue, or the project's command (needs) does not name the PR.
+//     The command runs in the checkout with <base> and <head> replaced by the PR's fork point and head: exit 1 — the PR
+//     needs that machine and waits with the reason `main is red elsewhere: open <label> issue #<N> "<title>" <URL> — the
+//     PR needs that machine …`; exit 0 — it merges, the log saying it merged while the issue is open; any other exit
+//     code, gh unable to read the issues or git unable to get the head — the PR waits (unverified). A PR with main_fix
+//     true (the fix of that red, point 5) and a PR with documents only (docs_only, as above) are not held, the log says
+//     why. Without red_elsewhere no issue is read;
 //   - then, under the main-branch lock (mkdir of main_lock, by default <git common dir>/main.lock — the lock
 //     the skills share): `mergeable` UNKNOWN is asked again up to MERGEABLE_RETRIES times, RETRY_S apart;
 //     CONFLICTING or DIRTY — the PR waits with "conflict: rebase" (land rebases nothing); the head must still
@@ -109,6 +117,11 @@
 //                 one per line on stdin; exit 0 — documents only (the PR merges while the main branch is red), 1 —
 //                 code; any other exit code counts as code. No command: documents only means every path inside the
 //                 tickets root. The same rule tells a push run of a documents-only commit, which gives no verdict
+//   red_elsewhere optional, null or {label, needs}: the main branch red on another machine, by the project's rules
+//                 (worfy: {"label": "pc-main-red", "needs": "node scripts/windows-verdict-scope.mjs <base> <head>"}).
+//                 label — the GitHub label of the open issue that records it; needs — a shell command run in the
+//                 checkout, <base> and <head> replaced by SHAs: exit 1 — the PR needs that machine and waits while
+//                 such an issue is open, 0 — it does not, anything else — unverified. null — no such check
 //   tickets_root  optional, ".scratch": the tickets root, relative to the repository root (profile
 //                 tickets.root; an absolute one the orchestrator makes relative); null — the tickets are not
 //                 in the repository (Silent mode, a root outside it), no documents PR: `ticket done` is the
@@ -267,6 +280,12 @@ function load(file) {
     if (st.main_lock !== undefined && st.main_lock !== null && (typeof st.main_lock !== "string" || !path.isAbsolute(st.main_lock)))
         fail(`${file}: "main_lock" must be an absolute path`)
     if (st.docs_only !== undefined && st.docs_only !== null && !text("docs_only")) fail(`${file}: "docs_only" must be null or a command`)
+    if (st.red_elsewhere !== undefined && st.red_elsewhere !== null) {
+        const r = st.red_elsewhere
+        const word = (v) => typeof v === "string" && v.trim() !== ""
+        if (typeof r !== "object" || Array.isArray(r) || !word(r.label) || !word(r.needs))
+            fail(`${file}: "red_elsewhere" must be null or {label, needs}: the issue label and the command that names the PRs it holds`)
+    }
     if (!Array.isArray(st.prs) || !st.prs.length) fail(`${file}: "prs" must be a list of PRs`)
     const seen = new Set()
     for (const pr of st.prs) {
@@ -613,6 +632,39 @@ function mainAllows(st, pr, head) {
         log(`#${pr.number}: documents only, merged while ${st.branch} is red`)
     }
 }
+// The main branch red on another machine (red_elsewhere): while an issue with its label is open, a PR its command names
+// waits. A PR marked main_fix and one with documents only are not held; gh, git or the command unable to answer — the PR
+// waits (unverified).
+function elsewhereAllows(st, pr, head) {
+    const rule = st.red_elsewhere
+    if (!rule) return
+    if (pr.main_fix) {
+        log(`#${pr.number}: main_fix — not held by open ${rule.label} issues`)
+        return
+    }
+    const what = `the open ${rule.label} issues`
+    const list = ghJson(st, ["issue", "list", "--label", rule.label, "--state", "open", "--json", "number,title,url"], what)
+    if (!Array.isArray(list)) throw new Wait(`${what}: gh printed no list`)
+    const issues = list.filter((i) => i && Number.isInteger(i.number))
+    if (!issues.length) return
+    const named = `${rule.label} issue${issues.length > 1 ? "s" : ""} ${issues.map((i) => `#${i.number}`).join(", ")} ${issues.length > 1 ? "are" : "is"} open`
+    if (documentsOnly(st, pr, head)) {
+        log(`#${pr.number}: documents only — merged while ${named}`)
+        return
+    }
+    const red = `main is red elsewhere: open ${rule.label} issue${issues.length > 1 ? "s" : ""} ${issues.map((i) => `#${i.number} ${JSON.stringify(String(i.title || ""))} ${i.url || ""}`.trim()).join(", ")}`
+    if (!haveCommit(st, head, pr.number)) throw new Wait(`${red} — git has not got the head ${short(head)} to ask red_elsewhere.needs: unverified, the PR waits`)
+    const base = git(["merge-base", head, `refs/remotes/${st.remote || "origin"}/${st.branch}`], st.repo)
+    // the SHAs are hex: substituted as they are, the command reads the same in sh and in cmd.exe
+    const r = sh(rule.needs.replace(/<base>/g, base).replace(/<head>/g, head), st.repo)
+    log(`#${pr.number}: red_elsewhere.needs ${short(base)} ${short(head)} — exit ${r.code}${r.code > 1 ? `: ${firstLine(r.err || r.out)}` : ""}`)
+    if (r.code === 0) {
+        log(`#${pr.number}: red_elsewhere.needs exit 0 — merged while ${named}`)
+        return
+    }
+    if (r.code === 1) throw new Wait(`${red} — the PR needs that machine (red_elsewhere.needs exit 1) and waits until the issue is closed`)
+    throw new Wait(`${red} — red_elsewhere.needs exit ${r.code}, not 0 or 1: unverified, the PR waits`)
+}
 // --- the Code story of a ticket's PR (bin/TICKETS.md, "Code story" and "Story anchor") --------------------------------
 // The profile's code_stories.pr of the checkout, read once per run: true for "on". A project with no profile (bin/profile
 // exit 3) has no switch and needs no story; any other failure of the profile is a wait, never a merge.
@@ -708,6 +760,7 @@ function ready(st, pr, head, carry) {
     checked(pr, head, marks)
     storyGreen(st, pr, head)
     mainAllows(st, pr, head)
+    elsewhereAllows(st, pr, head)
 }
 
 // --- the merge, under the main-branch lock -------------------------------------------------------------
