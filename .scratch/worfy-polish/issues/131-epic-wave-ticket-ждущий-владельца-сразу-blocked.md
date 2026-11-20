@@ -90,7 +90,7 @@ Windows — job-ы Windows в CI.
   claim, Ticket без worktree, нет «from its own tree») до правки — exit 1, 6 красных; после — exit 0, 640. Mutant (фраза
   «in the ticket's own worktree and commits it on the ticket's branch» заменена на «from its own tree») — exit 1, 1
   красная.
-- Eval-случая нет — решено без владельца, подтвердить. Ticket разрешает пропуск, только если scaffold не может поставить
+- Eval-случая нет — решено без владельца, подтверждено владельцем 2026-11-20. Ticket разрешает пропуск, только если scaffold не может поставить
   случай без настоящего GitHub. Это условие не выполнено: scaffold может (вариант `demo-project.sh` с вопросом владельцу
   в Ticket-е 02, grader `regex` по файлу Ticket-а: `Status: blocked` и `Waits: owner`), и Bash у случаев с меткой `main`
   есть (`scripts/eval-harness.mjs` даёт им Bash, Write и Edit; посылка Ticket-а «нет Bash» неверна). Настоящая причина

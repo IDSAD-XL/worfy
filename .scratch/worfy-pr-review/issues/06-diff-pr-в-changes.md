@@ -104,7 +104,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 6; «Факты GitHub API» → �
 - Вне следа Ticket-а, по необходимости: `src/renderer/canvas/nodes/ChangesNode.tsx` (поле `subject` в вызовах),
   `src/renderer/changes/changes.css` (вид нити), `test/fixtures/gh/gh-stub.mjs` (ответы `rest.json` на REST GET diff-а PR).
 
-Решено без владельца, подтвердить:
+Решено без владельца, подтверждено владельцем 2026-11-20:
 
 - Since my review — не новый scope, а `compare` с commit-ом вместо ветки: оба — three-dot diff (как `compare/{a}...{b}`
   GitHub); у PR `compare` с именем ветки отвергается.
@@ -140,7 +140,7 @@ gate fast — `[gate] green (fast)`, exit 0. После rebase тот же пр�
 - Вызов `gh api <path>` собирает `ghApiGet` (`src/main/changes/github.ts`): его зовут и app, и contract test. Unit
   test проверяет аргументы целиком: `['api', path]`.
 
-Решено без владельца, подтвердить:
+Решено без владельца, подтверждено владельцем 2026-11-20:
 
 - Добавленный или удалённый binary-файл GitHub (без `patch`, 0/0) тоже читается «No lines changed». GitHub не отличает
   пустой файл от binary; в заголовке файла остаётся «View file on GitHub».

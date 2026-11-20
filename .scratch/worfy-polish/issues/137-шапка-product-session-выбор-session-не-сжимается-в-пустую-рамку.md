@@ -91,7 +91,7 @@ Source: замечание владельца 2026-11-20 по снимку эк�
   `137-header-wide-dark.png`, `137-header-share-clipped-light.png`, `137-header-share-clipped-dark.png`,
   `137-header-narrow-light.png`, `137-header-narrow-dark.png`.
 - `docs/features/product-session.md`: абзац о шапке и строки в таблицах кода и test-ов.
-- Решено без владельца, подтвердить:
+- Решено без владельца, подтверждено владельцем 2026-11-20:
   - подсказка выбора Session — только полное имя; прежний текст «Show another Session of this Project» убран;
   - заголовок («Product Session · тема») сжимается после доли советов вместе с выбором Session, а не раньше него;
   - в самой узкой шапке (уже 600 px) скрыт Vendor: без этого при полу выбора 140 px Interrupt выходил за край шапки

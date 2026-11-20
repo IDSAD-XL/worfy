@@ -100,7 +100,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение», 1 и 2; «�
   5. «Load more» добавлен (требует Ticket).
   6. Строка поиска — во всю ширину над панелями, как в прототипе; Ticket говорит «над списком».
   7. Toast inbox может лечь поверх правого края строки поиска.
-- Решено без владельца, подтвердить:
+- Решено без владельца, подтверждено владельцем 2026-11-20:
   1. Названия области — `PR_SEARCH_SCOPE_TITLES` Ticket-а 04: This Project, Organizations of this Project, All of
      GitHub; описания — «The repositories of this Project», «Every repository of the owners of its repositories»,
      «Everything your GitHub account can see».

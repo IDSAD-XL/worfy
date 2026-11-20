@@ -90,7 +90,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 7; «Решения по реал�
   (`test/contract/pr-review-draft.test.ts`) зелёные.
 - Amendment ADR-0005 (место `state/pr-review/`) — в этом PR.
 
-Решено без владельца, подтвердить:
+Решено без владельца, подтверждено владельцем 2026-11-20:
 
 - **Поля сверх формата spec-а.** `anchoredOn` — head, к строкам которого привязаны комментарии (нет — `startedOn`);
   `reanchor` ставит его, `startedOn` не меняется (tooltip «started on …» и полоса «N new commits since you started»

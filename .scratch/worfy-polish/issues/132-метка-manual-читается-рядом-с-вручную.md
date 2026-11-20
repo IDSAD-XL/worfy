@@ -108,7 +108,7 @@ Windows в CI.
   fixture-Ticket-ы обеими копиями ещё и с меткой `вручную`.
 - Изменение поведения: метка Profile-а больше не вытесняет `manual`. Profile с собственной меткой (например `à la main`)
   теперь читает и `(manual)`. Прежний test `manual-checks.test.ts` утверждал обратное — исправлен по правилу Ticket-а
-  (п. 1–2 «Что делаем»). Решено без владельца, подтвердить.
+  (п. 1–2 «Что делаем»). Решено без владельца, подтверждено владельцем 2026-11-20.
 - Пункт 2 Ticket-а `worfy-mcp-live` 08 до merge: `parseDoneSection` из Harness Mac Stable с `manualMark: 'вручную'` —
   `2 manual: false`; из ветки — `2 manual: true`. После merge (2026-11-20, main `b18784e94`): `parseDoneSection` из
   `harness/lib/evidence.cjs` main с `manualMark: 'вручную'` читает пункты 1–5 Ticket-а `worfy-mcp-live` 08 как

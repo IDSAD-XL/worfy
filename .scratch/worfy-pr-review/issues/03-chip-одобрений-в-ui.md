@@ -99,7 +99,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решение», 5; «Как
   [тёмная](../evidence/03-approvals-1280-dark.png). От прототипа (Card `card-53b21f06`, `chips`) отличаются: в строке
   chip стоит во второй строке справа, после пузыря нитей (в прототипе — так же, под возрастом); ячейка Approvals живёт
   в общей сетке фактов панели, а не отдельным блоком; аватар команды — круглый, а не квадратный.
-- **Решено без владельца, подтвердить:** след Ticket-а расширен (Orchestrator разрешил 2026-11-20): `src/shared/ipc/pr-inbox.ts`
+- **Решено без владельца, подтверждено владельцем 2026-11-20:** след Ticket-а расширен (Orchestrator разрешил 2026-11-20): `src/shared/ipc/pr-inbox.ts`
   (необязательное поле `approvals.reviewers`), `src/shared/github/approvals.ts` (`approvalsOf` строит список из отзывов и
   открытых запросов ревью), `src/main/github/inbox.ts` (передаёт все запросы ревью, правка только в `toPull`),
   `test/unit/pr-approvals.test.ts`, `test/contract/pr-inbox-approvals.test.ts`. Причина: строка inbox после Ticket-а 02
@@ -107,20 +107,20 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решение», 5; «Как
   `reviewers` разбирается (test), новый — проходит схему Ticket-а 02 (test). Ещё правлены стили рядом со следом
   (`approvals-chip.css` новый, `pr-inbox.css`, `review-threads.css`) и страницы Feature `pr-inbox.md`,
   `gate-and-github.md`, `workflow.md` (английские; перевод — Ticket 12).
-- **Решено без владельца, подтвердить:** запрос code owner-а без reviewer-а (команда, которую токен не видит) — запись
+- **Решено без владельца, подтверждено владельцем 2026-11-20:** запрос code owner-а без reviewer-а (команда, которую токен не видит) — запись
   `code owners (hidden team)`, `requested`, не считается; при правиле code owners она же идёт в `codeOwnersPending` и держит
   chip незелёным (замечание ревью Ticket-а 02 про `inbox.ts:260-262`). Запрос без reviewer-а не от code owner-а —
   `a team (hidden)`.
-- **Решено без владельца, подтвердить:** `moreRules` в tooltip называется только тогда, когда счёт набран, а GitHub всё ещё
+- **Решено без владельца, подтверждено владельцем 2026-11-20:** `moreRules` в tooltip называется только тогда, когда счёт набран, а GitHub всё ещё
   не одобрил («more rules apply — GitHub decides»): флаг стоит почти на каждом настоящем репозитории, и на каждом PR
   подсказка была бы шумом. Набранный счёт, который ничто из известного не объясняет, говорит «GitHub says: review
   required» и никогда не называется одобренным.
-- **Решено без владельца, подтвердить:** правило с `need: 0` при `decision: review-required` — chip `review required` вместо
+- **Решено без владельца, подтверждено владельцем 2026-11-20:** правило с `need: 0` при `decision: review-required` — chip `review required` вместо
   числа, «0/0» не бывает; при `APPROVED` — `✓ 1`.
-- **Решено без владельца, подтвердить:** при dismiss stale зелёный chip — только по решению GitHub (spec); одобрение на
+- **Решено без владельца, подтверждено владельцем 2026-11-20:** при dismiss stale зелёный chip — только по решению GitHub (spec); одобрение на
   старом commit-е в списке — `Approved · stale`, в tooltip — «1 stale approval, before the last push».
-- **Решено без владельца, подтвердить:** Ticket над несколькими репозиториями показывает на карточке и доске первый PR, которому
+- **Решено без владельца, подтверждено владельцем 2026-11-20:** Ticket над несколькими репозиториями показывает на карточке и доске первый PR, которому
   не хватает одобрений (в порядке групп вида); tooltip карточки называет его.
-- **Решено без владельца, подтвердить:** проверки chip-а на карточке Ticket-а — в `test/unit/review-threads-badge.test.tsx`
+- **Решено без владельца, подтверждено владельцем 2026-11-20:** проверки chip-а на карточке Ticket-а — в `test/unit/review-threads-badge.test.tsx`
   (там fake preload для badge-а; `ticket-card.test.tsx` отключает badge-и mock-ом); в `ticket-card.test.tsx` — место на
   карточке: одна строка `REVIEW_LINE` для chip-а — и без других chip-ов, и рядом с ними; ни одной при `✓`.

@@ -77,13 +77,13 @@ Source: владелец 2026-11-19 во время приёмки worfy-pr-foll
 - Overlay уведомления на своей машине теперь спрашивает views Session Node-ов всех Project-ов (раньше только активного),
   а Session из registry ищет в Project-е по её корню (раньше только в активном) — так же, как на Linked machine. Без
   этого уведомление о Session другого Project-а в окне, которое ещё не знало её Node, не находило её. Решено без
-  владельца.
+  владельца, подтверждено владельцем 2026-11-20.
 - Helper — отдельный файл, а не `navigation.ts`: `navigation.ts` импортирует почти весь renderer и десятки unit test-ов,
-  часть из них подменяет `useProjects.ts` без `openProject`. Решено без владельца.
+  часть из них подменяет `useProjects.ts` без `openProject`. Решено без владельца, подтверждено владельцем 2026-11-20.
 - `useProjects.ts` — новая функция `projectsNow()` (список Project-ов вне React), чтобы helper знал активный Project.
-  Файла нет в «Где в коде». Решено без владельца.
+  Файла нет в «Где в коде». Решено без владельца, подтверждено владельцем 2026-11-20.
 - Порядок «сначала `openProject`, потом `openSession`», а не как в sidebar (`requestSession`, затем `openProject`): Node
-  Session уже известен, и Session view не показывает на миг чат чужого Project-а. Решено без владельца.
+  Session уже известен, и Session view не показывает на миг чат чужого Project-а. Решено без владельца, подтверждено владельцем 2026-11-20.
 - Остальные вызовы `openSession(` в `src/renderer/` (`git grep -n 'openSession(' src/renderer/`) проверены: все
   открывают Session активного Project-а — Node-ы и badge-и Canvas-а (`OrchestratorNode`, `SessionNode`,
   `SubagentNode`, `NeedsPermission`, `WaitsForAnswer`), `FirstEpic`, `start-modal`, команды и поиск по транскриптам
@@ -104,7 +104,7 @@ Source: владелец 2026-11-19 во время приёмки worfy-pr-foll
   вопроса не находил Session или Orchestrator другого Project-а — падал в Session view активного Project-а, исходный
   bug. Теперь `openAsking` в таком случае спрашивает у каждого Project-а машины окна `sessions.views`, а Orchestrator —
   через `layout.get` и `orchestrator.view`, и только потом открывает Session через `openSessionInProject`. Решено без
-  владельца: Orchestrator ищется по Node-у в Layout-е, отдельного channel-а «Orchestrator Project-а» нет.
+  владельца, подтверждено владельцем 2026-11-20: Orchestrator ищется по Node-у в Layout-е, отдельного channel-а «Orchestrator Project-а» нет.
 - Low 2: «Open» в окне на Linked machine переключает показанный Project той машины (`linked.open`, адрес окна), без
   `projects.select`; поведение оставлено, добавлен unit test. Строка выше про путь Linked machine исправлена.
 - Test-ы: два новых случая окна после перезагрузки (Session Node и Orchestrator другого Project-а) красные на прежнем
