@@ -84,7 +84,7 @@ const BASE_RULES = [
   'branchProtectionRule { requiresApprovingReviews requiredApprovingReviewCount requiresCodeOwnerReviews dismissesStaleReviews requireLastPushApproval }',
 ].join(' ')
 export const PULL_FIELDS = [
-  'number title url state isDraft isCrossRepository createdAt updatedAt baseRefName headRefName headRefOid reviewDecision mergeable mergeStateStatus additions deletions',
+  'number title url state isDraft isCrossRepository createdAt updatedAt baseRefName baseRefOid headRefName headRefOid reviewDecision mergeable mergeStateStatus additions deletions',
   'author { login }',
   'commits(last: 1) { nodes { commit { author { user { login } } statusCheckRollup { state } } } }',
   `baseRef { ${BASE_RULES} }`,
@@ -193,6 +193,8 @@ const pullSchema = z.object({
   updatedAt: z.string(),
   headRefName: z.string().catch(''),
   headRefOid: z.string().nullish().catch(null),
+  baseRefName: z.string().nullish().catch(null),
+  baseRefOid: z.string().nullish().catch(null),
   reviewDecision: z.string().nullish().catch(null),
   mergeable: z.string().nullish().catch(null),
   mergeStateStatus: z.string().nullish().catch(null),
@@ -250,7 +252,7 @@ const pullSchema = z.object({
  * row of the snapshot carries on; the groups do not read it. With them its approvals by the rules of its base branch
  * (worfy-pr-review ticket 02), which the groups do not read either: Ready stays on `decisionOf`.
  */
-export type ReadPull = InboxPull & { isCrossRepository?: boolean; approvals?: PrApprovals }
+export type ReadPull = InboxPull & { isCrossRepository?: boolean; approvals?: PrApprovals; baseRefName?: string | null; baseRefOid?: string | null }
 
 function toPull(repo: string, raw: z.output<typeof pullSchema>): ReadPull {
   const head = raw.commits.at(-1)?.commit
@@ -284,6 +286,8 @@ function toPull(repo: string, raw: z.output<typeof pullSchema>): ReadPull {
     state: raw.state,
     isDraft: raw.isDraft,
     isCrossRepository: raw.isCrossRepository,
+    baseRefName: raw.baseRefName ?? null,
+    baseRefOid: raw.baseRefOid ?? null,
     author: raw.author,
     headRefName: raw.headRefName,
     headRefOid: raw.headRefOid ?? null,
@@ -879,6 +883,9 @@ export function rowOf(pull: ReadPull, viaTeam: boolean, viewer: string | null, s
     author: pull.author,
     headRefName: pull.headRefName,
     headRefOid: pull.headRefOid,
+    // The base of the diff of Review mode (worfy-pr-review ticket 09): absent from a pull read before this field.
+    ...(pull.baseRefOid == null ? {} : { baseRefOid: pull.baseRefOid }),
+    ...(pull.baseRefName == null ? {} : { baseRefName: pull.baseRefName }),
     createdAt: pull.createdAt,
     updatedAt: pull.updatedAt,
     ci: pull.ci,
