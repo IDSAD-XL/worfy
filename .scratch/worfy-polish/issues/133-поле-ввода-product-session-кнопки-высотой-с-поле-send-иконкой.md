@@ -79,7 +79,7 @@ Source: просьба владельца 2026-11-20 в чате Orchestrator-а
   `input-interrupt`, имя Send — «Send message».
 - Снимки Playwright строки ввода (scratchpad, в репозиторий не кладутся): `133-input-idle-light.png`,
   `133-input-idle-dark.png`, `133-input-busy-light.png`, `133-input-busy-dark.png`.
-- Решено без владельца, подтвердить: набора иконок в worfy-ui-kit нет — Send берёт ту же стрелку `SendIcon`, что круглая
+- Решено без владельца, подтверждено владельцем 2026-11-20: набора иконок в worfy-ui-kit нет — Send берёт ту же стрелку `SendIcon`, что круглая
   кнопка обычной Session, на кнопке Button kit; Send нейтральный (рамка, `--surface-raised`), не лаймовый, как прежняя
   текстовая «Send» прототипа; имя кнопки во время хода тоже `Send` (у обычной Session — «Queue message»), очередь
   называет tooltip.

@@ -86,13 +86,13 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Факты GitHub API» → �
 - `PrInboxRow.approvals` — необязательное поле (`prApprovalsSchema` в `src/shared/ipc/pr-inbox.ts`): snapshot Project
   machine старой версии на Linked machine разбирается без него. Группировка (`inbox-groups.ts`) не тронута: Ready
   по-прежнему по `decisionOf`; `test/contract/pr-inbox.test.ts` и `test/unit/pr-inbox-groups.test.ts` зелёные без правки.
-- **Решено без владельца, подтвердить:** `writersOnly: true` из пункта 1 не поставлен. Отзывы читаются как раньше, все
+- **Решено без владельца, подтверждено владельцем 2026-11-20:** `writersOnly: true` из пункта 1 не поставлен. Отзывы читаются как раньше, все
   (`latestOpinionatedReviews(first: 50)`), с `authorCanPushToRepository`, а отбор по праву записи делает `approvalsOf`.
   Причина: `decisionOf` берёт решение из отзывов, когда `reviewDecision` равен `null`; с `writersOnly` одобрение человека
   без права записи перестало бы переводить PR в Ready — это правка правила группировки, которую Ticket запрещает. И
   spec (раздел 3) хочет показывать такие одобрения серым «does not count» — без них в ответе показать нечего. Цена: те же
   50 отзывов на PR, запрос не дороже (замер ниже).
-- **Решено без владельца, подтвердить:** кто сделал последний push, GraphQL не говорит; `lastPusher` — автор head commit-а
+- **Решено без владельца, подтверждено владельцем 2026-11-20:** кто сделал последний push, GraphQL не говорит; `lastPusher` — автор head commit-а
   (`commits(last: 1) { commit { author { user { login } } } }`). `lastPushNeedsOther` — правило есть, одобрения есть, но
   ни одного на head commit-е от другого человека.
 - `codeOwnersPending` — открытые запросы с `asCodeOwner: true` (login или `combinedSlug` команды, вида `org/team`), только

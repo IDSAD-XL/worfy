@@ -1,0 +1,60 @@
+# 138 — Autopilot: сообщение «отложи Ticket» называет ветку Ticket-а
+
+Type: bug
+Status: open
+Blocked by: none
+Source: решение владельца 2026-11-20, Q5. Тот же провал worfy-polish 131 исправил в skill-е epic-wave (#2086): block,
+записанный в своём дереве Orchestrator-а, не виден под `claimed` ветки Ticket-а.
+
+Кто: агент. Глубина review — `medium`. Не платформенный PR.
+
+## Что происходит
+
+- Autopilot (автоматический запуск Wave-ов в worfy) после 2 continuation-ов (сообщений «продолжай») просит
+  Orchestrator отложить застрявший Ticket. Текст строит `setAsideText` (`src/shared/autopilot/continuation.ts:39-48`),
+  шлёт его `src/main/autopilot/run.ts:2905-2916`: `Run: ticket block <epic> <NN> "stuck: …" --waits owner. Then end
+  the turn.` Где запускать команду, текст не говорит.
+- Orchestrator запускает её в своём дереве (main checkout). worfy читает origin/main, поверх которого лежит закоммиченная
+  ветка каждого worktree Ticket-а, а ветка никогда не отменяет `blocked` из main
+  (`harness/skills/epic-wave/SKILL.md:391-399`). Поэтому block в дереве Orchestrator-а остаётся невидим под `claimed`
+  ветки Ticket-а, пока не вольётся docs PR. Autopilot по-прежнему видит Ticket застрявшим, и очередь Epic-ов не идёт
+  дальше.
+- worfy-polish 131 (#2086) записал в skill epic-wave, где ставить block: в worktree Ticket-а, commit на его ветке только
+  с файлом Ticket-а; Ticket без worktree — на main. Сообщение Autopilot-а этого не повторяет.
+
+## Что делаем
+
+1. `setAsideText` называет место команды: для каждого Ticket-а — в его worktree, commit на ветке Ticket-а только с
+   файлом Ticket-а (`git -C <worktree> commit -m "<message>" -- <ticket file>`); Ticket без worktree — на main. Текст
+   короткий и согласован с абзацем «Where the owner-stop status is written» skill-а epic-wave. Если run знает ветку
+   или worktree Ticket-а, текст называет их; не знает — описывает правило словами.
+2. Текст закреплён в test-ах и в документации — они меняются вместе с ним:
+   - `test/contract/autopilot-faults-codex.test.ts:150`;
+   - `test/contract/autopilot-faults-ladder.test.ts:47` (`SET_ASIDE_01`) и `:192`;
+   - `docs/features/autopilot-faults.md:254`; перевод `docs/features/ru/autopilot-faults.md:263` — по правилу проекта
+     (ADR-0088: правится английская страница).
+3. Unit test `setAsideText` (если его нет — рядом с другими test-ами `continuation.ts`): текст называет место для
+   Ticket-а с worktree и для Ticket-а без него. Красный до правки.
+
+## Готово, когда
+
+- [ ] Сообщение «отложи Ticket» называет, где запускать `ticket block … --waits owner`: worktree Ticket-а с commit-ом на
+      его ветке, Ticket без worktree — main.
+- [ ] Unit test текста красный до правки и зелёный после; mutant (место убрано из текста) — красный.
+- [ ] Contract test-ы `autopilot-faults-codex.test.ts` и `autopilot-faults-ladder.test.ts` и
+      `docs/features/autopilot-faults.md` совпадают с новым текстом.
+- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR.
+
+## Где в коде
+
+- `src/shared/autopilot/continuation.ts:31-48` (`setAsideText`, `toolWord`)
+- `src/main/autopilot/run.ts:2905-2916` — вызов `setAsideText`, откуда брать ветку или worktree Ticket-а
+- `test/contract/autopilot-faults-codex.test.ts:150`, `test/contract/autopilot-faults-ladder.test.ts:47,192`
+- `docs/features/autopilot-faults.md:254`
+- `harness/skills/epic-wave/SKILL.md:376-399` — только читать: правило worfy-polish 131
+- `src/shared/autopilot/cycle.ts` — только читать: какие Ticket-ы Autopilot считает застрявшими
+
+## Вне скоупа
+
+- worfy сам статус не пишет (ADR-0002): команду по-прежнему запускает Orchestrator.
+- Правило skill-а epic-wave — его уже исправил worfy-polish 131.
