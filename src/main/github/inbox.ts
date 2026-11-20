@@ -17,6 +17,8 @@
 //   all in one page per search at most, the unsettled first, then the longest unread. HTTP 502 or 504 — the same PRs again in two halves; HTTP 503 — the
 //   same call again, at most twice; as harness/bin/review-history does. A PR GitHub cannot resolve (deleted, or
 //   moved) fails the whole page in gh: the page's PRs are then read one by one, and that PR leaves the cache.
+// - Approvals (worfy-pr-review ticket 02): the same details query reads the review rules of each PR's base branch
+//   (rulesets, classic protection) and the push access of each reviewer; src/shared/github/approvals.ts counts them.
 // - Pace: a search per Project every 5 minutes, focused or not. A failed read doubles the interval up to 30 minutes;
 //   the first success brings back 5. An answer whose rate limit has less than 10 % left stops every call of that
 //   account until its `resetAt`. `refresh(repo, number)` reads one PR's details out of turn.
@@ -33,7 +35,8 @@
 import { setTimeout as sleep } from 'node:timers/promises'
 import { z } from 'zod'
 import type { CiState } from '../../shared/ipc/checks'
-import { PR_INBOX_GROUPS, type PrInboxRow, type PrInboxSnapshot } from '../../shared/ipc/pr-inbox'
+import { approvalsOf, type ProtectionRule, type PullRequestRule } from '../../shared/github/approvals'
+import { PR_INBOX_GROUPS, type PrApprovals, type PrInboxRow, type PrInboxSnapshot } from '../../shared/ipc/pr-inbox'
 import { redactSecrets } from '../../shared/terminal-ai/redact'
 import { readPrInboxState, writeSeenPull } from '../projects/pr-inbox-state'
 import { gitRunner, type GitRunner } from '../workflow/stages'
@@ -68,12 +71,21 @@ const FOUND = '... on PullRequest { number updatedAt headRefOid repository { nam
 export const SEARCH_QUERY = `query($review: String!, $involves: String!) { viewer { login } ${RATE} review: search(query: $review, type: ISSUE, first: ${INBOX_SEARCH_LIMIT}) { nodes { ${FOUND} } } involves: search(query: $involves, type: ISSUE, first: ${INBOX_SEARCH_LIMIT}) { nodes { ${FOUND} } } }`
 
 const COMMENT = 'id databaseId author { login } body createdAt url'
+/**
+ * The review rules of the base branch (worfy-pr-review ticket 02): its rulesets' rules, the organization's too, which
+ * a reader sees, and its classic protection, which GitHub gives an admin only (null to anyone else).
+ */
+const BASE_RULES = [
+  'rules(first: 50) { nodes { type parameters { ... on PullRequestParameters { requiredApprovingReviewCount dismissStaleReviewsOnPush requireCodeOwnerReview requireLastPushApproval requireExtraApprovalForUnattributedChanges requiredReviewers { minimumApprovals } } } } }',
+  'branchProtectionRule { requiresApprovingReviews requiredApprovingReviewCount requiresCodeOwnerReviews dismissesStaleReviews requireLastPushApproval }',
+].join(' ')
 export const PULL_FIELDS = [
-  'number title url state isDraft isCrossRepository createdAt updatedAt headRefName headRefOid reviewDecision mergeable mergeStateStatus additions deletions',
+  'number title url state isDraft isCrossRepository createdAt updatedAt baseRefName headRefName headRefOid reviewDecision mergeable mergeStateStatus additions deletions',
   'author { login }',
-  'commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }',
-  'reviewRequests(first: 10) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug } } } }',
-  'latestOpinionatedReviews(first: 10) { nodes { author { login } state submittedAt } }',
+  'commits(last: 1) { nodes { commit { author { user { login } } statusCheckRollup { state } } } }',
+  `baseRef { ${BASE_RULES} }`,
+  'reviewRequests(first: 10) { nodes { asCodeOwner requestedReviewer { __typename ... on User { login } ... on Team { slug combinedSlug } } } }',
+  'latestOpinionatedReviews(first: 50) { nodes { author { login } state submittedAt authorCanPushToRepository commit { oid } } }',
   `reviewThreads(first: 50) { nodes { id isResolved isOutdated path line viewerCanReply comments(last: 3) { nodes { ${COMMENT} } } } }`,
   `comments(last: 5) { nodes { ${COMMENT} } }`,
 ].join(' ')
@@ -125,7 +137,46 @@ const commentSchema = z
   .object({ id: z.string(), databaseId: z.number().int().nullish().catch(null), author: loginSchema, body: z.string().catch(''), createdAt: z.string(), url: z.string().catch('') })
   .transform((comment): InboxComment => ({ ...comment, databaseId: comment.databaseId ?? null }))
 
-const ROLLUP: Record<string, CiState> = { SUCCESS: 'passing', FAILURE: 'failing', ERROR: 'failing', PENDING: 'running', EXPECTED: 'running' }
+/** A rule of the base branch: only a PULL_REQUEST rule asks for reviews; any other reads as null. */
+const ruleSchema = z
+  .object({
+    type: z.string(),
+    parameters: z
+      .object({
+        requiredApprovingReviewCount: z.number().int().nonnegative().catch(0),
+        dismissStaleReviewsOnPush: z.boolean().catch(false),
+        requireCodeOwnerReview: z.boolean().catch(false),
+        requireLastPushApproval: z.boolean().catch(false),
+        requireExtraApprovalForUnattributedChanges: z.boolean().catch(false),
+        requiredReviewers: z.array(z.unknown()).nullish().catch(null),
+      })
+      .nullish()
+      .catch(null),
+  })
+  .transform(({ type, parameters }): PullRequestRule | null =>
+    type !== 'PULL_REQUEST' || parameters == null
+      ? null
+      : {
+          requiredApprovingReviewCount: parameters.requiredApprovingReviewCount,
+          dismissStaleReviewsOnPush: parameters.dismissStaleReviewsOnPush,
+          requireCodeOwnerReview: parameters.requireCodeOwnerReview,
+          requireLastPushApproval: parameters.requireLastPushApproval,
+          moreRules: parameters.requireExtraApprovalForUnattributedChanges || (parameters.requiredReviewers ?? []).length > 0,
+        },
+  )
+const protectionSchema = z
+  .object({
+    requiresApprovingReviews: z.boolean().catch(false),
+    requiredApprovingReviewCount: z.number().int().nonnegative().nullish().catch(null),
+    requiresCodeOwnerReviews: z.boolean().catch(false),
+    dismissesStaleReviews: z.boolean().catch(false),
+    requireLastPushApproval: z.boolean().catch(false),
+  })
+  .nullish()
+  .catch(null)
+  .transform((rule): ProtectionRule | null => (rule == null ? null : { ...rule, requiredApprovingReviewCount: rule.requiredApprovingReviewCount ?? null }))
+
+const ROLLUP: Record<string, CiState> ={ SUCCESS: 'passing', FAILURE: 'failing', ERROR: 'failing', PENDING: 'running', EXPECTED: 'running' }
 
 const pullSchema = z.object({
   number: z.number().int().positive(),
@@ -144,9 +195,37 @@ const pullSchema = z.object({
   additions: z.number().int().nonnegative().nullish().catch(null),
   deletions: z.number().int().nonnegative().nullish().catch(null),
   author: loginSchema,
-  commits: nodes(z.object({ commit: z.object({ statusCheckRollup: z.object({ state: z.string() }).nullish().catch(null) }) })),
-  reviewRequests: nodes(z.object({ requestedReviewer: z.object({ __typename: z.string().optional(), login: z.string().optional(), slug: z.string().optional() }).nullish() })),
-  latestOpinionatedReviews: nodes(z.object({ author: loginSchema, state: z.string(), submittedAt: z.string().nullish().catch(null) })),
+  commits: nodes(
+    z.object({
+      commit: z.object({
+        author: z
+          .object({ user: loginSchema })
+          .nullish()
+          .catch(null)
+          .transform((author) => author?.user ?? null),
+        statusCheckRollup: z.object({ state: z.string() }).nullish().catch(null),
+      }),
+    }),
+  ),
+  baseRef: z
+    .object({ rules: nodes(ruleSchema), branchProtectionRule: protectionSchema })
+    .nullish()
+    .catch(null),
+  reviewRequests: nodes(
+    z.object({
+      asCodeOwner: z.boolean().nullish().catch(null),
+      requestedReviewer: z.object({ __typename: z.string().optional(), login: z.string().optional(), slug: z.string().optional(), combinedSlug: z.string().optional() }).nullish(),
+    }),
+  ),
+  latestOpinionatedReviews: nodes(
+    z.object({
+      author: loginSchema,
+      state: z.string(),
+      submittedAt: z.string().nullish().catch(null),
+      authorCanPushToRepository: z.boolean().nullish().catch(null),
+      commit: z.object({ oid: z.string() }).nullish().catch(null),
+    }),
+  ),
   reviewThreads: nodes(
     z.object({
       id: z.string(),
@@ -163,13 +242,29 @@ const pullSchema = z.object({
 
 /**
  * A PR as the reader keeps it: InboxPull, and whether it comes from a fork (worfy-pr-follow ticket 01), which only the
- * row of the snapshot carries on; the groups do not read it.
+ * row of the snapshot carries on; the groups do not read it. With them its approvals by the rules of its base branch
+ * (worfy-pr-review ticket 02), which the groups do not read either: Ready stays on `decisionOf`.
  */
-type ReadPull = InboxPull & { isCrossRepository?: boolean }
+type ReadPull = InboxPull & { isCrossRepository?: boolean; approvals?: PrApprovals }
 
 function toPull(repo: string, raw: z.output<typeof pullSchema>): ReadPull {
-  const rollup = raw.commits.at(-1)?.commit.statusCheckRollup?.state
+  const head = raw.commits.at(-1)?.commit
+  const rollup = head?.statusCheckRollup?.state
+  const approvals = approvalsOf({
+    author: raw.author,
+    headRefOid: raw.headRefOid ?? null,
+    lastPusher: head?.author ?? null,
+    reviewDecision: raw.reviewDecision ?? null,
+    rules: raw.baseRef?.rules ?? [],
+    protection: raw.baseRef?.branchProtectionRule ?? null,
+    reviews: raw.latestOpinionatedReviews.map((review) => ({ author: review.author, state: review.state, authorCanPush: review.authorCanPushToRepository ?? null, commit: review.commit?.oid ?? null })),
+    codeOwnerRequests: raw.reviewRequests.flatMap(({ asCodeOwner, requestedReviewer: who }) => {
+      const name = who?.login ?? who?.combinedSlug ?? who?.slug
+      return asCodeOwner === true && name !== undefined ? [name] : []
+    }),
+  })
   return {
+    approvals,
     repo,
     number: raw.number,
     title: raw.title,
@@ -711,6 +806,7 @@ function rowOf(pull: ReadPull, viaTeam: boolean, viewer: string | null, seenAt: 
     updatedAt: pull.updatedAt,
     ci: pull.ci,
     reviewDecision: decisionOf(pull),
+    ...(pull.approvals === undefined ? {} : { approvals: pull.approvals }),
     mergeStateStatus: pull.mergeStateStatus,
     additions: pull.additions,
     deletions: pull.deletions,

@@ -52,6 +52,36 @@ export const prInboxThreadSchema = z.object({
 })
 export type PrInboxThread = z.infer<typeof prInboxThreadSchema>
 
+/**
+ * The approvals of a PR by the rules of its base branch (worfy-pr-review ticket 02, src/shared/github/approvals.ts):
+ * how many count, how many the branch asks for, and where that number comes from.
+ */
+export const prApprovalsSchema = z.object({
+  /** The latest approvals of reviewers who can push to the repository, not the author's, not stale. */
+  have: z.number().int().nonnegative(),
+  /** The approvals the base branch asks for; null when a rule the account cannot see asks for reviews (`hidden`). */
+  need: z.number().int().nonnegative().nullable(),
+  /**
+   * Where `need` comes from: a ruleset of the branch, its classic protection (visible to an admin only), a rule the
+   * account cannot see (GitHub gives a review decision, worfy reads no rule), or none (nothing asks for reviews).
+   */
+  source: z.enum(['ruleset', 'protection', 'hidden', 'none']),
+  /** Code owners whose review is asked and still open while a rule wants their review: logins and `org/team`. */
+  codeOwnersPending: z.array(z.string()),
+  /** Approvals of an older commit that "dismiss stale reviews on push" takes away. */
+  stale: z.number().int().nonnegative(),
+  /** A rule wants the last push approved by someone other than who pushed it, and no counted approval does that. */
+  lastPushNeedsOther: z.boolean(),
+  /** A rule worfy does not count applies (reviewers by file path, an extra approval for unattributed changes). */
+  moreRules: z.boolean(),
+  /**
+   * What the count comes to: GitHub's `reviewDecision` when it gives one, else worfy's count against `need`; null
+   * when nothing asks for reviews.
+   */
+  decision: z.enum(['approved', 'changes-requested', 'review-required']).nullable(),
+})
+export type PrApprovals = z.infer<typeof prApprovalsSchema>
+
 export const prInboxRowSchema = z.object({
   /** `owner/name`. */
   repo: z.string(),
@@ -81,6 +111,11 @@ export const prInboxRowSchema = z.object({
    * Project machine that does not read it yet, which reads as false, the value GitHub gives a PR of the repository itself.
    */
   isCrossRepository: z.boolean().optional(),
+  /**
+   * The approvals of the PR against the rules of its base branch (worfy-pr-review ticket 02). Absent in a snapshot of a
+   * Project machine that does not read them yet.
+   */
+  approvals: prApprovalsSchema.optional(),
   /** The review is asked of the user only through a team: the row says "via team". */
   viaTeam: z.boolean(),
   unresolvedThreads: z.number().int().nonnegative(),
