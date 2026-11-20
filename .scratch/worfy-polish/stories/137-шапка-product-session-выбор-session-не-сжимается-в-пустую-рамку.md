@@ -179,3 +179,17 @@ Unit test «a narrow Product Session header…» в `test/unit/session-view.test
    - Ответ: из подписи выбранной строки списка, а если её нет — из заголовка показанной Session; передаётся в `hint`
      Select kit, а не в `title`.
    - Строки: `src/renderer/session/SessionPicker.tsx:45-58`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 137 (Product Session header: the session select keeps ~140 px, the advice share collapses first, the busy chip goes icon-only), head b7956490f1a3931b593cf851bb1c9162f7afd53c
+>
+> Gate (depth medium, two rounds): one reviewer with lenses implementer's report + correctness. CI round: the first head was red on codex-session.spec.ts:164 (the 140 px floor set inline hit every Session header and collapsed session-model to 0 px) — fixed in code: the floor is `.w-session--product .w-session__picker` only. Round 1 verdict NOT VERIFIED on stale claims (the unit test cannot see CSS; the error tooltip untested; an always-true vendor e2e check) — fixed in tests and wording; the delta is tests, ticket and story only (6 files, +45 −18), read by the Orchestrator.
+>
+> - Reviewer: SessionPicker hint via the new kit Select prop (SessionPicker.tsx:46,55; Select.tsx:406), no native title; 140 px only in the Product Session header (session.css:184); advice share + separator wrapped (ProductSessionPanel.tsx:208); chip word in its own element, visually hidden by clip-path, kept in the DOM (SessionStateChip.tsx:14-17); thresholds 800/640/600 measured on the header via container query (session.css:47, 211-240); the regular Session header unchanged (same 18 px height, 13 px offset, probed in Chromium); the other 12 Select users get no new attributes; theme tokens only. Screenshots narrow-light and share-clipped-dark match the ticket.
+> - Round 2: the e2e «a narrow Product Session header» guards the floor at ≥ 139.5 px — a mutant min-width: 0 turns it red (131.8 px at 1440), restored green; the Session error lands in the chip's data-kit-hint (session-state-chip, session-back tests; mutant red); the e2e asserts product-chat-vendor visible.
+> - Tests: unit 707 passed EXIT=0; product-session.spec.ts whole 11 passed; codex-session, session-picker and every spec using session-model/session-vendor 34 passed (previous head); lint, typecheck, story-check, evidence-check EXIT=0. Local gate fast not run (fseventsd). ci-ok pass on the head.
+>
+> Decided without the owner (to confirm): thresholds 800 / 640 / 600 px of the header; the Vendor hidden below 600 px; the state chip's error shown in the kit tooltip instead of a native title.
+>
+> Consider [low]: session.css:81 — the regular Session title keeps the flex-shrink 0.0001 trap (out of scope).

@@ -1,7 +1,7 @@
 # 137 — Шапка Product Session: выбор Session не сжимается в пустую рамку
 
 Type: task
-Status: claimed 2026-11-20T04:55Z
+Status: done 2026-11-20T09:21Z
 PR: #2076
 Blocked by: none
 Source: замечание владельца 2026-11-20 по снимку экрана: в узкой шапке Product Session выбор Session сжимается в
@@ -45,6 +45,7 @@ Source: замечание владельца 2026-11-20 по снимку эк�
 - [ ] `docs/features/product-session.md` — если страница описывает шапку.
   - evidence: commit pass · worfy-polish/137: Product Session header — the picker keeps its name, the advice share gives way first · - - · 52bcdad43
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44699740578/job/136197456783 · ci - · b7956490f1a3931b593cf851bb1c9162f7afd53c
 
 ## Где в коде
 
