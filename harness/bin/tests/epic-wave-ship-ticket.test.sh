@@ -1304,17 +1304,35 @@ for p in \
     'names the question and what it waits for' \
     'a `blocked` row in the wave report' \
     'the state file'"'"'s list of what waits for the owner' \
-    '`ticket claim <epic> <NN>` again' \
     'People in the Pipeline (`human-review`, `awaiting-merge`, section 0) stays `claimed`' \
-    'in the ticket'"'"'s own worktree and commits it on the ticket'"'"'s branch' \
-    'worfy reads the main branch with the committed ticket branch of each worktree laid over it' \
-    'A block left uncommitted, or written in the orchestrator'"'"'s own tree, stays invisible' \
-    'A ticket with no worktree' \
-    'The re-claim goes the same way'; do
+    'once the ticket'"'"'s implementer has ended its turn'; do
     check "epic-wave: a ticket stopped for the owner — '$p'" grep -qF -- "$p" <<<"$owner_stop"
 done
+# Where the status goes: worfy reads the main branch with each ticket worktree's committed branch laid
+# over it (src/main/workflow/reader.ts), and a branch never undoes `blocked` or `done` of the main branch.
+owner_where="$(para_of "$EW" '**Where the owner-stop status is written.**')"
+check "epic-wave: the paragraph on where the owner-stop status goes is there" test -n "$owner_where"
+for p in \
+    'worfy reads the main branch with the committed ticket branch of each worktree laid over it' \
+    'a branch never undoes `blocked` or `done` of the main branch' \
+    'in the ticket'"'"'s own worktree, committed on the ticket'"'"'s branch with only the ticket file' \
+    'git -C <worktree> commit -m "<message>" -- <ticket file>' \
+    'A block left uncommitted, or written in the orchestrator'"'"'s own tree, stays invisible' \
+    'A ticket with no worktree' \
+    '`ticket claim <epic> <NN>` in the ticket'"'"'s worktree, committed the same way' \
+    'When the main branch already says `blocked`' \
+    '`ticket open` when it has none' \
+    'carries the `review` mark over' \
+    '`check/<name>` marks are never carried' \
+    'Silent mode (section 0): `ticket block` and `ticket claim` from any directory are enough'; do
+    check "epic-wave: where the owner-stop status goes — '$p'" grep -qF -- "$p" <<<"$owner_where"
+done
 check "epic-wave: the owner-stop block is not run from the orchestrator's own tree" \
-    lacks_re <(printf '%s\n' "$owner_stop") 'right away and from its own tree'
+    lacks_re <(printf '%s\n%s\n' "$owner_stop" "$owner_where") 'right away and from its own tree'
+check "epic-wave: the re-claim does not always go on the branch alone" \
+    lacks_re <(printf '%s\n%s\n' "$owner_stop" "$owner_where") 're-claim goes the same way'
+check "epic-wave: the where-paragraph follows the owner-stop rule" \
+    awk '/^\*\*A ticket stopped for the owner/ { q = NR } /^\*\*Where the owner-stop status is written\.\*\*/ { if (q && NR > q && NR - q < 20) found = 1 } END { exit !found }' "$EW"
 check "epic-wave: the owner-stop rule follows 'Questions for the owner do not stop the wave'" \
     awk '/^\*\*Questions for the owner do not stop the wave\.\*\*/ { q = NR } /^\*\*A ticket stopped for the owner/ { if (q && NR > q && NR - q < 20) found = 1 } END { exit !found }' "$EW"
 check "epic-wave: human-review and awaiting-merge tickets still stay claimed (section 0)" has_flat "$EW" \
