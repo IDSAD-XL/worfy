@@ -61,10 +61,10 @@ describe('claimOptions', () => {
     expect(titles.size).toBe(4)
   })
 
-  it('asks Haiku without thinking for a Suggestion', () => {
+  it('asks Haiku 5.5 at low effort for a Suggestion, with no thinking switch', () => {
     const options = claimOptions('suggest', DEFAULT_TERMINAL_AI_SETTINGS, DATA_DIR)
-    expect(options).toMatchObject({ model: 'claude-haiku-4-5', maxThinkingTokens: 0 })
-    expect(options).not.toHaveProperty('settings')
+    expect(options).toMatchObject({ model: 'claude-haiku-5-5', settings: { effortLevel: 'low' } })
+    expect(options).not.toHaveProperty('maxThinkingTokens')
   })
 
   it('asks Sonnet at low effort for Next command, Command request and Fix', () => {
@@ -75,29 +75,33 @@ describe('claimOptions', () => {
     }
   })
 
-  it('asks Haiku without thinking for Next command when Settings say Haiku; the other features stay', () => {
+  it('asks Haiku 5.5 at low effort for Next command when Settings say Haiku; the other features stay', () => {
     const settings = { ...DEFAULT_TERMINAL_AI_SETTINGS, nextCommandModel: 'haiku' as const }
-    expect(claimOptions('next', settings, DATA_DIR)).toMatchObject({ model: 'claude-haiku-4-5', maxThinkingTokens: 0 })
+    expect(claimOptions('next', settings, DATA_DIR)).toMatchObject({ model: 'claude-haiku-5-5', settings: { effortLevel: 'low' } })
+    expect(claimOptions('next', settings, DATA_DIR)).not.toHaveProperty('maxThinkingTokens')
     expect(claimOptions('fix', settings, DATA_DIR)).toMatchObject({ model: 'sonnet' })
   })
 })
 
-// Claude Code 2.1.322 (Agent SDK 0.3.322) resolves the alias `haiku` to Haiku 5.5, which rejects disabled thinking:
-// Claude Code turns the request's thinking-off into adaptive thinking, and a Suggestion that thinks is cancelled
-// (ADR-0058, point 3). Haiku 4.5 still takes thinking-off, so a request without thinking names it by its id.
-describe('the Haiku of a request without thinking', () => {
-  it('is Haiku 4.5 by its id, never the alias haiku, for every feature that runs on Haiku', () => {
+// Haiku 5.5 cannot run without thinking: Claude Code 2.1.322 (Agent SDK 0.3.322) lists it with
+// `rejects_disabled_thinking` and `effort`. A Suggestion that thinks is taken (ADR-0058, Amendment 2026-11-20,
+// worfy-polish 135); low effort keeps the thinking short. The id, not the alias haiku, so the model stays the same
+// when the alias moves.
+describe('the Haiku of a one-shot request', () => {
+  it('is Haiku 5.5 by its id, never the alias haiku, for every feature that runs on Haiku', () => {
     const settings = { ...DEFAULT_TERMINAL_AI_SETTINGS, nextCommandModel: 'haiku' as const }
     for (const feature of ['suggest', 'next'] as const) {
       const options = claimOptions(feature, settings, DATA_DIR)
       expect(options.model).not.toBe('haiku')
-      expect(options.model).toBe('claude-haiku-4-5')
+      expect(options.model).toBe('claude-haiku-5-5')
     }
   })
 
-  it('reaches a cold query() of a Suggestion with thinking off', () => {
+  it('reaches a cold query() of a Suggestion at low effort, without maxThinkingTokens', () => {
     const options = coldQueryOptions(prewarmOptions({ env: ENV, runtime: DEV }), claimOptions('suggest', DEFAULT_TERMINAL_AI_SETTINGS, DATA_DIR))
-    expect(options).toMatchObject({ model: 'claude-haiku-4-5', maxThinkingTokens: 0 })
+    expect(options).toMatchObject({ model: 'claude-haiku-5-5', effort: 'low' })
+    expect(options).not.toHaveProperty('maxThinkingTokens')
+    expect(options).not.toHaveProperty('thinking')
   })
 })
 

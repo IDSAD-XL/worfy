@@ -15,10 +15,11 @@
 //
 // A request is refused before anything goes out when its feature is off in Settings, a command is
 // running or a full-screen program holds the Terminal, a Suggestion's line starts with a space, or
-// the Limits stop the feature (limits-gate.ts). In flight it ends on its timeout (options.ts), on a
-// Suggestion stream that thinks, on `option_not_applied` of a Suggestion, or on a refused claim. A
-// refused claim (the prompt did not go out) of request or fix is retried once with a cold query();
-// of suggest or next it is a refusal at once.
+// the Limits stop the feature (limits-gate.ts). In flight it ends on its timeout (options.ts) or on a
+// refused claim. Thinking ends nothing: Haiku 5.5 cannot run without it (ADR-0058, Amendment
+// 2026-11-20), and only the text blocks and the turn's result make the answer. A refused claim (the
+// prompt did not go out) of request or fix is retried once with a cold query(); of suggest or next it
+// is a refusal at once.
 //
 // Every message of every request goes to the Limits (appLimits().recordSdkMessage), as observe()
 // does for Sessions: each process sends its rate_limit_event, so the toolbar's LimitsMeter is fresh
@@ -105,8 +106,6 @@ export type AssistRefusalReason =
   | 'busy'
   | 'cancelled'
   | 'timeout'
-  | 'thinking'
-  | 'option-not-applied'
   | 'not-claimed'
   | 'empty'
   | 'failed'
@@ -203,25 +202,6 @@ const refusalCode = (message: string): string => /^[a-z_]+/.exec(message)?.[0] ?
 
 const record = (value: unknown): Record<string, unknown> | null => (typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null)
 
-/** A thinking block starts in this message (a stream event or a whole assistant message). */
-function isThinking(message: unknown): boolean {
-  const m = record(message)
-  if (m === null) return false
-  const thinkingBlock = (block: unknown): boolean => {
-    const type = record(block)?.type
-    return type === 'thinking' || type === 'redacted_thinking'
-  }
-  if (m.type === 'stream_event') {
-    const event = record(m.event)
-    return event?.type === 'content_block_start' && thinkingBlock(event.content_block)
-  }
-  if (m.type === 'assistant') {
-    const content = record(m.message)?.content
-    return Array.isArray(content) && content.some(thinkingBlock)
-  }
-  return false
-}
-
 /**
  * The claim's Query, or the code of its refusal: a spare that exited or was closed after it was
  * taken refuses by throwing, and nothing went out.
@@ -234,7 +214,7 @@ function claimOf(spare: AssistSpare, prompt: string, options: AssistClaimOptions
   }
 }
 
-/** The text blocks of an assistant message. */
+/** The text blocks of an assistant message; thinking and redacted thinking blocks never reach the answer. */
 function assistantText(message: Record<string, unknown>): string {
   const content = record(message.message)?.content
   if (!Array.isArray(content)) return ''
@@ -487,8 +467,7 @@ export class AssistService {
 
   /**
    * Reads one query to its end, recording every message in the Limits. Ends early when the flight
-   * aborts (timeout, a cancel, a Suggestion that thinks or lost its thinking switch) or when the
-   * claim is refused: then the query is closed and nothing of it is used.
+   * aborts (timeout, a cancel) or when the claim is refused: then the query is closed and nothing of it is used.
    */
   private async attempt(feature: TerminalAiFeature, flight: AbortController, query: AssistQuery, claimed: Promise<unknown> | null): Promise<Attempt> {
     const local = new AbortController()
@@ -502,8 +481,7 @@ export class AssistService {
       (error: unknown) => {
         const message = messageOf(error)
         if (message.startsWith('option_not_applied')) {
-          if (feature === 'suggest') flight.abort('option-not-applied')
-          else this.log(`[terminal-ai] ${feature}: option_not_applied; the answer is taken`)
+          this.log(`[terminal-ai] ${feature}: option_not_applied; the answer is taken`)
           return
         }
         refusal = refusalCode(message)
@@ -529,10 +507,6 @@ export class AssistService {
         const message: unknown = next.value
         this.recordLimits(message)
         this.observeSystem(message)
-        if (feature === 'suggest' && isThinking(message)) {
-          flight.abort('thinking')
-          continue
-        }
         const m = record(message)
         if (m?.type === 'assistant') text += assistantText(m)
         if (m?.type === 'result') {

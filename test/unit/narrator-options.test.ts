@@ -12,12 +12,12 @@ const PACKAGED = { packaged: true, resourcesPath: '/Applications/worfy.app/Conte
 const ENV = { HOME: '/Users/someone', PATH: '/usr/bin:/bin', ANTHROPIC_API_KEY: 'sk-ant-made-up', ANTHROPIC_AUTH_TOKEN: 'made-up' }
 
 describe('narratorOptions', () => {
-  it('asks Haiku without thinking, settings, MCP servers, tools or a transcript, in one turn, in worfy’s own folder', () => {
+  it('asks Haiku 5.5 at low effort, without settings, MCP servers, tools or a transcript, in one turn, in worfy’s own folder', () => {
     const options = narratorOptions({ env: ENV, runtime: DEV, cwd: narratorDir(DATA_DIR) })
     expect(options).toMatchObject({
       cwd: join(DATA_DIR, 'narrator'),
-      model: 'claude-haiku-4-5',
-      thinking: { type: 'disabled' },
+      model: 'claude-haiku-5-5',
+      effort: 'low',
       settingSources: [],
       mcpServers: {},
       strictMcpConfig: true,
@@ -28,17 +28,21 @@ describe('narratorOptions', () => {
       systemPrompt: NARRATOR_SYSTEM_PROMPT,
     })
     expect(options).not.toHaveProperty('pathToClaudeCodeExecutable')
-    // Not the alias haiku: Claude Code 2.1.322 resolves it to Haiku 5.5, which turns thinking-off into adaptive
-    // thinking, and thinking would spend the NARRATOR_MAX_OUTPUT_TOKENS meant for the line.
+    // The id, not the alias haiku, so the model stays when the alias moves. Haiku 5.5 cannot run without thinking
+    // (worfy-polish 135): no thinking switch is sent, and low effort keeps the thinking short.
     expect(options.model).not.toBe('haiku')
+    expect(options).not.toHaveProperty('thinking')
+    expect(options).not.toHaveProperty('maxThinkingTokens')
     expect(options).not.toHaveProperty('resume')
   })
 
-  it('never passes an API key: the user’s own login, and a short answer', () => {
+  it('never passes an API key: the user’s own login, and room for thinking before the line', () => {
     const options = narratorOptions({ env: ENV, runtime: DEV, cwd: narratorDir(DATA_DIR) })
     expect(options.env).not.toHaveProperty('ANTHROPIC_API_KEY')
     expect(options.env).not.toHaveProperty('ANTHROPIC_AUTH_TOKEN')
     expect(options.env).toMatchObject({ HOME: '/Users/someone', PATH: '/usr/bin:/bin', CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(NARRATOR_MAX_OUTPUT_TOKENS) })
+    // Thinking counts against the cap: 256 tokens, enough for the line alone, would let thinking cut it off.
+    expect(NARRATOR_MAX_OUTPUT_TOKENS).toBe(4096)
     // The environment it was given stays as it was.
     expect(ENV).toHaveProperty('ANTHROPIC_API_KEY')
   })
