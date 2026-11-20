@@ -286,6 +286,13 @@
 }
 
 /* Finish review (ticket 11): the review as it goes, in a window of the kit (Dialog.tsx). */
+/* The verdict is a radio group: the chosen one looks as the kit's pressed segment (primitives.css). */
+.w-pr-review-finish .w-segmented__item[aria-checked='true'] {
+  background: var(--segment-thumb);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: var(--shadow-control);
+}
 .w-pr-review-finish {
   display: flex;
   flex-direction: column;

@@ -138,7 +138,10 @@ async function setup(draft: ReviewDraft, world: World = {}, over: Partial<PrRevi
   const submitter = new PrReviewSubmitter({ run: gh.run, account: async () => ME, drafts, profileDir: async () => ({ dir: profileDir, reason: null }), lint: lintRunner(base), ...over })
   const handlers = new Map<string, (event: IpcMainInvokeEvent, input: unknown) => unknown>()
   const ipc: IpcMainLike = { handle: (channel, listener) => void handlers.set(channel, listener) }
-  await registerIpc(ipc, { modules: { './pr-review.ts': async () => prReviewHandlers({ drafts: () => drafts, root: () => root, submitter: () => submitter }) }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
+  // The PRs the PR inbox was asked to read again: after a Submit GitHub has, the approvals chip of the row.
+  const refreshed: string[] = []
+  const inbox = { refresh: async (repo: string, number: number) => void refreshed.push(`${repo}#${number}`) }
+  await registerIpc(ipc, { modules: { './pr-review.ts': async () => prReviewHandlers({ drafts: () => drafts, root: () => root, submitter: () => submitter, inbox: () => inbox }) }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
   const call = async <T,>(channel: string, input: unknown) => (await handlers.get(`${IPC_CHANNEL_PREFIX}${channel}`)!({ senderFrame: { url: APP_URL } } as unknown as IpcMainInvokeEvent, input)) as IpcResult<T>
   return {
     gh,
@@ -153,6 +156,7 @@ async function setup(draft: ReviewDraft, world: World = {}, over: Partial<PrRevi
     },
     onDisk: () => JSON.parse(readFileSync(file, 'utf8')) as ReviewDraft,
     call,
+    refreshed,
   }
 }
 
@@ -402,8 +406,11 @@ describe('Submit review', () => {
     ok(await s.call('prReview.check', { ...pull, event: 'COMMENT', body: '', comments }))
     expect(ok(await s.call<PrReviewSubmitAnswer>('prReview.submit', { ...pull, ...shown({ event: 'COMMENT', body: '', comments, head: MOVED }) })).outcome).toBe('refused')
     expect(s.writes()).toEqual([])
+    // A refused Submit leaves the PR inbox as it is; a review GitHub has makes it read the PR again.
+    expect(s.refreshed).toEqual([])
     expect(ok(await s.call<PrReviewSubmitAnswer>('prReview.submit', { ...pull, ...shown({ event: 'COMMENT', body: '', comments }) })).outcome).toBe('submitted')
     expect(s.writes()).toHaveLength(1)
+    expect(s.refreshed).toEqual([`${API}#${PR}`])
   })
 
   it('Submit and its check are `local`: a Linked machine never reaches them', async () => {

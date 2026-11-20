@@ -606,6 +606,12 @@ describe('the bar Your review', () => {
     expect(bar.textContent).toContain('You reviewed this pull request · Approve')
     expect(within(bar).getByTestId('pr-review-open-review').getAttribute('href')).toBe('https://github.com/example-org/web/pull/77#pullrequestreview-1')
     expect(within(bar).queryByTestId('pr-review-finish')).toBeNull()
+    // Its comments are on GitHub: not Pending any more.
+    const posted = await screen.findByTestId('pr-review-comment')
+    expect(posted.textContent).toContain('Submitted')
+    expect(posted.textContent).toContain('on GitHub')
+    expect(posted.textContent).not.toContain('Pending')
+    expect(posted.textContent).not.toContain('not on GitHub yet')
     fireEvent.click(within(bar).getByTestId('pr-review-new'))
     await waitFor(() => expect(calls('prReview.discard')).toHaveLength(1))
     await waitFor(() => expect(screen.getByTestId('pr-review-bar').dataset.state).toBe('person'))
