@@ -102,3 +102,26 @@ Source: [spec.md](../spec.md), «Ticket-ы», 7; «Решения по реал�
   комментарий или отметка Viewed создают черновик на этом head-е. Комментарий именуется `{index, path, body}`, как ответ
   в `prInbox.*`: Agent review мог сдвинуть комментарии, main берёт комментарий этого файла с этим текстом, ближайший к
   `index`, или отказывает.
+
+Раунд ревью 1 (находки ревью корректности, каждая — test, красный до правки):
+
+1. **Сбой записи — один честный исход.** Раньше изменение возвращалось в очередь, а вид получал отказ «The review
+   draft was not saved»; повторный Save того же нового комментария добавлял его дважды. Теперь — как написано выше в
+   «Итог» («изменение ждёт следующей записи»): канал отвечает успехом, черновик с изменением и `problem` «The review
+   draft is not written yet: … worfy writes it with the next change, and when it quits». Очередь снимается только
+   после rename: файл, который стал нечитаемым или битым между изменением и записью, больше не теряет очередь.
+   Test-ы: contract «a write broken half way … told as not written yet, and written once», «the changes waiting are
+   kept when the file cannot be read at the time of the write, and written once it can».
+2. **Discard файла, который не разбирается** (обрезан, другая форма от `bin/pr-review-draft` или ручной правки):
+   удаляет его без разбора; `submitting` проверяется, только когда файл читается как черновик; черновик другого PR по
+   тому же пути не удаляется. Test-ы: contract «removes a file that is not a draft any more» (два случая), «does not
+   remove a draft of another PR found at its path».
+3. **Диапазон и текст строк.** `putComment` отказывает, если в `anchor` не столько строк, сколько в диапазоне
+   `start_line..line` (один перевод строки в конце не считается строкой); `reanchor` берёт размер диапазона из
+   комментария, а не из текста, — черновик после поиска строк заново всегда разбирается. Test-ы: unit «the text of a
+   comment has exactly the lines it comments…», «a range keeps its size…», «a trailing line end … does not move the
+   comment a line down».
+4. **Payload без полей worfy:** test payload теперь кладёт неизвестное поле в сам `payload` — `...draft.payload` в
+   `reviewPayloadOf` даёт красный.
+
+После раунда — 19 unit и 17 contract зелёные.

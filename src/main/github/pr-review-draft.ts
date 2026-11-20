@@ -67,10 +67,25 @@ function locate(draft: ReviewDraft, ref: ReviewCommentRef): number {
   return found
 }
 
-/** A comment of the person, new (no `ref`) or a change of `ref`; either way it is the person's now. */
+/** How many lines a comment covers: `start_line`..`line`, or `line` alone. */
+const sizeOf = (comment: ReviewComment): number => comment.line - (comment.start_line ?? comment.line) + 1
+
+const LINE_END = /\r?\n/u
+
+/** The lines of `text` as many as `size` asks: a line end at the very end is not a line of its own when it is one too many. */
+function linesOf(text: string, size: number): string[] {
+  const lines = text.split(LINE_END)
+  return lines.length === size + 1 && lines.at(-1) === '' ? lines.slice(0, -1) : lines
+}
+
+/** A comment of the person, new (no `ref`) or a change of `ref`; either way it is the person's now. `anchor` has exactly its lines. */
 export function putComment(draft: ReviewDraft, input: { ref?: ReviewCommentRef | undefined; comment: ReviewComment; anchor: string }): ReviewDraft {
   const next = editable(draft)
-  const anchor = { text: input.anchor, by: 'person' as const }
+  const size = sizeOf(input.comment)
+  const lines = linesOf(input.anchor, size)
+  if (lines.length !== size) throw new ReviewDraftRefusal(`The text of the commented lines has ${lines.length} lines, the comment covers ${size} lines`)
+  const text = lines.length === input.anchor.split(LINE_END).length ? input.anchor : input.anchor.replace(/\r?\n$/u, '')
+  const anchor = { text, by: 'person' as const }
   if (input.ref === undefined) {
     next.payload.comments.push(input.comment)
     next.anchors.push(anchor)
@@ -136,7 +151,9 @@ export function reanchor(draft: ReviewDraft, head: string, read: (path: string) 
     if (anchor === undefined || comment.side !== 'RIGHT' || (comment.start_side ?? 'RIGHT') !== 'RIGHT') return
     if (!texts.has(comment.path)) texts.set(comment.path, read(comment.path)?.split(/\r?\n/u) ?? null)
     const file = texts.get(comment.path) ?? null
-    const lines = anchor.text.split(/\r?\n/u)
+    // The range keeps its size: a text written by another writer (bin/pr-review-draft) may have more or fewer lines.
+    const size = sizeOf(comment)
+    const lines = linesOf(anchor.text, size)
     const old = comment.start_line ?? comment.line
     const places = file === null || anchor.text.trim() === '' ? [] : placesOf(file, lines)
     if (places.length === 0) {
@@ -145,7 +162,7 @@ export function reanchor(draft: ReviewDraft, head: string, read: (path: string) 
     }
     const start = places.reduce((best, place) => (Math.abs(place - old) < Math.abs(best - old) ? place : best))
     if (comment.start_line !== undefined) comment.start_line = start
-    comment.line = start + lines.length - 1
+    comment.line = start + size - 1
     next.anchors[index] = { text: anchor.text, by: anchor.by }
   })
   next.anchoredOn = head
@@ -175,7 +192,8 @@ export interface PrReviewDraftsOptions {
   warn?: (message: string) => void
 }
 
-function parse(text: string, file: string, repo: string, pr: number): ReviewDraft {
+/** The draft in `text`, of whatever PR; a refusal when it is not JSON or not of the draft's shape. */
+function parseAny(text: string, file: string): ReviewDraft {
   let json: unknown
   try {
     json = JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text)
@@ -184,9 +202,16 @@ function parse(text: string, file: string, repo: string, pr: number): ReviewDraf
   }
   const parsed = reviewDraftSchema.safeParse(json)
   if (!parsed.success) throw new ReviewDraftRefusal(`The review draft ${file} has another shape: ${parsed.error.issues[0]?.message ?? 'unknown'}`)
-  if (parsed.data.repo !== repo || parsed.data.pr !== pr) throw new ReviewDraftRefusal(`The review draft ${file} is of ${parsed.data.repo}#${parsed.data.pr}`)
   return parsed.data
 }
+
+/** The draft of `repo`#`pr` in `text`: a draft of another PR is refused too. */
+function ownDraft(draft: ReviewDraft, file: string, repo: string, pr: number): ReviewDraft {
+  if (draft.repo !== repo || draft.pr !== pr) throw new ReviewDraftRefusal(`The review draft ${file} is of ${draft.repo}#${draft.pr}`)
+  return draft
+}
+
+const parse = (text: string, file: string, repo: string, pr: number): ReviewDraft => ownDraft(parseAny(text, file), file, repo, pr)
 
 /** The draft of `text` (null — no file) with `changes` applied; a change that no longer applies is dropped and told. */
 function applied(text: string | null, changes: readonly Change[], file: string, repo: string, pr: number, warn: (message: string) => void): ReviewDraft | null {
@@ -244,12 +269,22 @@ export class PrReviewDrafts {
     return this.change(root, repo, pr, (draft) => setViewed(draft ?? newReviewDraft(repo, pr, head), path, blob))
   }
 
-  /** Discard review: the file goes, and the changes waiting for it. A review being submitted is not discarded. */
+  /**
+   * Discard review: the file goes, and the changes waiting for it. A review being submitted is not discarded, nor a
+   * draft of another PR. A file that is no draft at all (half written, another shape) goes too: nothing else can change
+   * or remove it, so without this the PR would keep it for good.
+   */
   async discard(root: string, repo: string, pr: number): Promise<PrReviewDraftAnswer> {
     const file = await this.file(root, repo, pr)
     return this.exclusive(file, async () => {
-      const now = await this.answer(file, repo, pr)
-      if (now.draft?.state === 'submitting') throw new ReviewDraftRefusal('This review is being submitted: it is not discarded')
+      const text = await this.read(file)
+      let draft: ReviewDraft | null = null
+      try {
+        draft = text === null ? null : parseAny(text, file)
+      } catch {
+        // Not a draft: removed below.
+      }
+      if (draft !== null && ownDraft(draft, file, repo, pr).state === 'submitting') throw new ReviewDraftRefusal('This review is being submitted: it is not discarded')
       this.drop(file)
       await rm(file, { force: true })
       return { repo, pr, draft: null, problem: null }
@@ -332,8 +367,14 @@ export class PrReviewDrafts {
       pending.changes.push(change)
       this.pending.set(file, pending)
       const wait = (this.lastWrite.get(file) ?? -Infinity) + WRITE_INTERVAL_MS - this.now()
-      if (wait <= 0) await this.write(file)
-      else if (pending.timer === null) {
+      if (wait <= 0) {
+        try {
+          await this.write(file)
+        } catch (error) {
+          // The change is taken and waits: the view shows it, told it is not on disk yet, so it is not saved twice.
+          return { repo, pr, draft, problem: `The review draft is not written yet: ${messageOf(error)}. worfy writes it with the next change, and when it quits` }
+        }
+      } else if (pending.timer === null) {
         pending.timer = setTimeout(() => void this.exclusive(file, async () => this.write(file)).catch((error: unknown) => this.warn(`[pr-review] ${file} was not written: ${messageOf(error)}`)), wait)
         pending.timer.unref?.()
       }
@@ -348,35 +389,38 @@ export class PrReviewDrafts {
   }
 
   /**
-   * Writes the waiting changes of `file`, applied to the file as it is now, through a temporary file and a rename. A
-   * write that fails keeps the changes waiting for the next one; the file stays as it was.
+   * Writes the waiting changes of `file`, applied to the file as it is now, through a temporary file and a rename. They
+   * stop waiting only once written: a write that fails — the file unreadable or broken meanwhile, the disk — keeps them
+   * waiting for the next one, and the file stays as it was.
    */
   private async write(file: string): Promise<void> {
     const pending = this.pending.get(file)
     if (pending === undefined) return
-    this.drop(file)
+    if (pending.timer !== null) clearTimeout(pending.timer)
+    pending.timer = null
     const wait = (this.lastWrite.get(file) ?? -Infinity) + WRITE_INTERVAL_MS - this.now()
     if (wait > 0) {
       // A timer that fired a little early: wait the rest.
-      this.pending.set(file, pending)
       pending.timer = setTimeout(() => void this.exclusive(file, async () => this.write(file)).catch(() => undefined), wait)
       pending.timer.unref?.()
       return
     }
-    const draft = applied(await this.read(file), pending.changes, file, pending.repo, pending.pr, this.warn)
-    if (draft === null) return
     const tmp = `${file}.${randomUUID()}.tmp`
+    let written = false
     try {
-      await mkdir(dirname(file), { recursive: true })
-      await (this.options.writeFile ?? ((path, text) => writeFile(path, text)))(tmp, serialize(draft))
-      await rename(tmp, file)
-    } catch (error) {
-      // Inside exclusive(): no change came meanwhile, so the waiting ones go back as they were.
-      this.pending.set(file, { ...pending, timer: null })
-      throw new ReviewDraftRefusal(`The review draft was not saved: ${messageOf(error)}`)
+      const draft = applied(await this.read(file), pending.changes, file, pending.repo, pending.pr, this.warn)
+      if (draft !== null) {
+        await mkdir(dirname(file), { recursive: true })
+        await (this.options.writeFile ?? ((path, text) => writeFile(path, text)))(tmp, serialize(draft))
+        await rename(tmp, file)
+        written = true
+      }
     } finally {
       await rm(tmp, { force: true })
     }
+    // Inside exclusive(): no change came meanwhile, so what waited is what was written.
+    this.drop(file)
+    if (!written) return
     this.lastWrite.set(file, this.now())
     this.options.wrote?.(file)
   }

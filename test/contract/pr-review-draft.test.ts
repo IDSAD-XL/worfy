@@ -112,7 +112,7 @@ describe('the draft through the prReview channels', () => {
 })
 
 describe('a write goes through a temporary file and a rename', () => {
-  it('a write broken half way leaves the file as it was, no temporary file behind, and the change waits for the next write', async () => {
+  it('a write broken half way leaves the file as it was, no temporary file behind; the change is taken, told as not written yet, and written once', async () => {
     let broken = false
     let now = 0
     const s = await setup({
@@ -128,15 +128,32 @@ describe('a write goes through a temporary file and a rename', () => {
     const before = readFileSync(s.file, 'utf8')
     broken = true
     now += WRITE_INTERVAL_MS
-    expect(await s.call('prReview.saveComment', save(30, 'And here.'))).toEqual({ ok: false, error: 'prReview.saveComment failed: The review draft was not saved: the disk went away' })
+    const answer = ok(await s.call<PrReviewDraftAnswer>('prReview.saveComment', save(30, 'And here.')))
+    expect(answer.draft?.payload.comments.map((each) => each.body)).toEqual(['Why three tries?', 'And here.'])
+    expect(answer.problem).toBe('The review draft is not written yet: the disk went away. worfy writes it with the next change, and when it quits')
     expect(readFileSync(s.file, 'utf8')).toBe(before)
     expect(readdirSync(dirname(s.file))).toEqual(['demo-org-api-118.json'])
-    // The view still has the comment; the next write saves both.
+    // The view has the comment once; the next write saves it once.
     expect(ok(await s.call<PrReviewDraftAnswer>('prReview.draft', pull)).draft?.payload.comments).toHaveLength(2)
     broken = false
     now += WRITE_INTERVAL_MS
-    ok(await s.call('prReview.setViewed', { ...pull, head: HEAD, path: 'src/upload.ts', blob: 'b10b5a' }))
+    expect(ok(await s.call<PrReviewDraftAnswer>('prReview.setViewed', { ...pull, head: HEAD, path: 'src/upload.ts', blob: 'b10b5a' })).problem).toBeNull()
     expect(s.onDisk()?.payload.comments.map((each) => each.body)).toEqual(['Why three tries?', 'And here.'])
+  })
+
+  it('the changes waiting are kept when the file cannot be read at the time of the write, and written once it can', async () => {
+    let now = 0
+    const s = await setup({ now: () => now })
+    ok(await s.call('prReview.saveComment', save(12, 'First.')))
+    ok(await s.call('prReview.saveComment', save(30, 'Second.')))
+    const good = readFileSync(s.file, 'utf8')
+    // Another writer leaves the file half written for a moment.
+    writeFileSync(s.file, good.slice(0, 20))
+    now += WRITE_INTERVAL_MS
+    await expect(s.drafts.flush()).rejects.toThrow(/not JSON/u)
+    writeFileSync(s.file, good)
+    await s.drafts.flush()
+    expect(s.onDisk()?.payload.comments.map((each) => each.body)).toEqual(['First.', 'Second.'])
   })
 
   it('a write keeps what another writer put into the file meanwhile and fields this version does not know', async () => {
@@ -199,6 +216,26 @@ describe('Discard', () => {
     ok(await s.call('prReview.saveComment', save(12, 'First.')))
     writeFileSync(s.file, JSON.stringify({ ...s.onDisk()!, state: 'submitting' }))
     expect(await s.call('prReview.discard', pull)).toEqual({ ok: false, error: 'prReview.discard failed: This review is being submitted: it is not discarded' })
+    expect(existsSync(s.file)).toBe(true)
+  })
+
+  it.each([
+    ['half written', '{"schema": 1, "repo": "demo-org/api", "pr": 118, "payl'],
+    ['of another shape', JSON.stringify({ schema: 1, repo: API, pr: PR, comments: 'none' })],
+  ])('removes a file that is not a draft any more (%s), which nothing else can change or remove', async (_, text) => {
+    const s = await setup()
+    mkdirSync(dirname(s.file), { recursive: true })
+    writeFileSync(s.file, text)
+    expect(ok(await s.call<PrReviewDraftAnswer>('prReview.draft', pull)).problem).toMatch(/not JSON|another shape/u)
+    expect(ok(await s.call<PrReviewDraftAnswer>('prReview.discard', pull))).toEqual({ repo: API, pr: PR, draft: null, problem: null })
+    expect(existsSync(s.file)).toBe(false)
+  })
+
+  it('does not remove a draft of another PR found at its path', async () => {
+    const s = await setup()
+    mkdirSync(dirname(s.file), { recursive: true })
+    writeFileSync(s.file, JSON.stringify({ schema: 1, repo: 'demo-org/api-x', pr: 7, startedOn: HEAD, payload: { body: '', comments: [] }, anchors: [], viewed: {}, state: 'draft' }))
+    expect(await s.call('prReview.discard', pull)).toEqual({ ok: false, error: `prReview.discard failed: The review draft ${s.file} is of demo-org/api-x#7` })
     expect(existsSync(s.file)).toBe(true)
   })
 })

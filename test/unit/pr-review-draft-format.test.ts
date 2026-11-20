@@ -75,6 +75,8 @@ describe('the draft and the payload of review-draft-lint', () => {
   it('the payload is the body of the GitHub request, without a field of worfy; the lint finds nothing in it', () => {
     const draft = putComment(agentDraft(), { comment: { path: 'src/retry.ts', line: 3, side: 'LEFT', body: 'Was this removed on purpose?' }, anchor: 'import { retry } from "./old"' })
     draft.payload.event = 'COMMENT'
+    // A field of a later worfy inside `payload` itself: kept in the file, never sent.
+    Object.assign(draft.payload, { worfyLater: { kept: true } })
     draft.suggestedEvent = 'REQUEST_CHANGES'
     draft.viewed['src/upload.ts'] = 'b10b5a'
     const payload = reviewPayloadOf(draft)
@@ -146,6 +148,18 @@ describe('who wrote a comment', () => {
     expect(after.anchors.map((anchor) => anchor.text)).toEqual(['x', '  wait *= 2\n  await sleep(wait)'])
   })
 
+  it('the text of a comment has exactly the lines it comments; a trailing line end does not count as a line', () => {
+    const range = { path: 'src/upload.ts', start_line: 10, start_side: 'RIGHT' as const, line: 12, side: 'RIGHT' as const, body: 'Why?' }
+    expect(() => putComment(agentDraft(), { comment: range, anchor: 'one line' })).toThrow(ReviewDraftRefusal)
+    expect(() => putComment(agentDraft(), { comment: range, anchor: 'a\nb\nc\nd' })).toThrow(/3 lines/u)
+    expect(putComment(agentDraft(), { comment: range, anchor: 'a\nb\nc' }).anchors[2]).toEqual({ text: 'a\nb\nc', by: 'person' })
+    expect(putComment(agentDraft(), { comment: range, anchor: 'a\r\nb\r\nc\r\n' }).anchors[2]!.text).toBe('a\r\nb\r\nc')
+    const single = { path: 'src/upload.ts', line: 7, side: 'RIGHT' as const, body: 'Why?' }
+    expect(putComment(agentDraft(), { comment: single, anchor: 'x\n' }).anchors[2]!.text).toBe('x')
+    // Two lines whose second is empty, taken as they are: the count already fits.
+    expect(putComment(agentDraft(), { comment: { ...single, start_line: 6, start_side: 'RIGHT' }, anchor: 'x\n' }).anchors[2]!.text).toBe('x\n')
+  })
+
   it('a submitted draft is not changed any more', () => {
     const draft = { ...agentDraft(), state: 'submitted' as const }
     expect(() => putComment(draft, { comment: { path: 'a', line: 1, side: 'RIGHT', body: 'x' }, anchor: '' })).toThrow(/submitted/u)
@@ -192,6 +206,26 @@ describe('finding the lines again after a new head', () => {
     const twice = ['  const tries = 3', ...Array.from({ length: 12 }, () => ''), '  const tries = 3'].join('\n')
     const after = reanchor(agentDraft(), NEXT, () => twice)
     expect(after.payload.comments[0]!.line).toBe(14)
+  })
+
+  it('a range keeps its size whatever the text written beside it; the draft still parses', () => {
+    // An Agent review (bin/pr-review-draft) may write a range 20–22 with the text of its first line only.
+    const draft = agentDraft()
+    draft.payload.comments[1] = { ...draft.payload.comments[1]!, start_line: 20, line: 22 }
+    draft.anchors[1] = { text: '  wait *= 2', by: 'agent' }
+    const after = reanchor(draft, NEXT, () => moved)
+    expect(after.payload.comments[1]).toMatchObject({ start_line: 26, line: 28 })
+    expect(reviewDraftSchema.parse(after)).toEqual(after)
+  })
+
+  it('a trailing line end in the text of the lines does not move the comment a line down', () => {
+    const draft = agentDraft()
+    draft.anchors[0] = { text: '  const tries = 3\n', by: 'agent' }
+    draft.anchors[1] = { text: '  wait *= 2\n  await sleep(wait)\n', by: 'agent' }
+    const after = reanchor(draft, NEXT, () => `${moved}\n`)
+    expect(after.payload.comments[0]).toMatchObject({ line: 15 })
+    expect(after.payload.comments[1]).toMatchObject({ start_line: 26, line: 27 })
+    expect(after.anchors.map((anchor) => anchor.moved)).toEqual([undefined, undefined])
   })
 
   it('a comment on the old side of the diff stays where it is', () => {

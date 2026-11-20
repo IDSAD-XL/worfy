@@ -80,7 +80,11 @@ export const reviewDraftSchema = z
   .refine((draft) => draft.anchors.length === draft.payload.comments.length, { message: 'anchors must have one entry for each comment of payload.comments' })
 export type ReviewDraft = z.infer<typeof reviewDraftSchema>
 
-/** The draft of one PR: null without one; `problem` when it cannot be read (no Profile folder, a broken file). */
+/**
+ * The draft of one PR: null without one; `problem` when it cannot be read (no Profile folder, a broken file), or beside
+ * the draft when a change is taken but not written yet (the disk refused): it waits for the next write, so the view must
+ * not save it again.
+ */
 export const prReviewDraftAnswerSchema = z.object({ repo: z.string(), pr: z.number().int().positive(), draft: reviewDraftSchema.nullable(), problem: z.string().nullable() })
 export type PrReviewDraftAnswer = z.infer<typeof prReviewDraftAnswerSchema>
 
