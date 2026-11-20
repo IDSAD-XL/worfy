@@ -59,3 +59,24 @@ Source: решение владельца 2026-11-20, Q5. Тот же прова
 
 - worfy сам статус не пишет (ADR-0002): команду по-прежнему запускает Orchestrator.
 - Правило skill-а epic-wave — его уже исправил worfy-polish 131.
+
+## Итог
+
+- `setAsideText` (`src/shared/autopilot/continuation.ts`) после команд `ticket block … --waits owner` говорит, где их
+  запускать, теми же словами, что абзац «Where the owner-stop status is written» skill-а epic-wave: `Run it in the
+  Ticket's own worktree (branch <branch>) and commit only the Ticket file on its branch: git -C <worktree> commit -m
+  "<message>" -- <ticket file>. A Ticket with no worktree gets the block on the main branch. Then end the turn.` Для
+  нескольких Ticket-ов — `Run each in its Ticket's own worktree (05: branch …; 07: branch …)`.
+- Ветку run берёт из свежего чтения workflow (`setAside` в `src/main/autopilot/run.ts`): `fromBranch` Ticket-а —
+  ветка worktree, из которой worfy прочёл его claim. Нет `fromBranch` (claim уже в main, или ветка не читалась) —
+  скобок нет, правило только словами. Путь worktree в модели worfy не хранится, поэтому текст называет ветку, а
+  `<worktree>` остаётся местом для Orchestrator-а. Решено без владельца, подтвердить.
+- Кто что сторожит. Unit test-ы `test/unit/autopilot-continuation.test.ts` (место без ветки, с веткой одного и двух
+  Ticket-ов) были красными до правки (3 failed, exit 1). Contract test scenario 2 `autopilot-faults-ladder.test.ts`
+  читает claim Ticket-а 01 из ветки `demo/01` и ждёт её имя в сообщении: mutant «run.ts не передаёт branches» — красный
+  (1 failed). Mutant «место убрано из текста» — 7 test-ов красные в unit, ladder и codex.
+- Для contract test-а `test/contract/autopilot-faults-setup.ts` получил опцию `fromBranch`: claimed Ticket Epic-а
+  `demo` читается как claimed в ветке worktree, без настоящего worktree. Файла нет в «Где в коде» — решено без
+  владельца, подтвердить.
+- Тексты в `autopilot-faults-codex.test.ts`, `autopilot-faults-ladder.test.ts` и `docs/features/autopilot-faults.md`
+  (и перевод `docs/features/ru/autopilot-faults.md`, по брифу) — новые.
