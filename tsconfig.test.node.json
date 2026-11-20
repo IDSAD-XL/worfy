@@ -76,6 +76,7 @@
     "test/update-stub.ts",
     "test/unit/**/*.ts",
     "test/contract/**/*.ts",
+    "test/fixtures/integrations/**/*.ts",
     "test/e2e/**/*.ts",
     "test/acceptance/**/*.ts",
     "playwright.acceptance.config.ts"

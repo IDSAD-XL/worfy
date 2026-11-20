@@ -1,7 +1,7 @@
 # 04 — Вход по token-у: Bearer, Basic, свой заголовок, переменные-секреты stdio и token `gh` в `SecretStore`, проверка `initialize`, Sign out
 
 Type: task
-Status: open
+Status: claimed 2026-11-20T19:16Z
 Blocked by: 03
 Source: [spec.md](../spec.md), «Ticket-ы», 4; «Волны», Wave 2; «Решение», 3; «Факты», 5 и 7; «Решения по реализации»
 → Вход по token-у, Где лежит; «Решения по test-ам»; «Риски» (admin клиента запретил); «Вопросы владельцу», Q3 и Q10;

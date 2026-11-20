@@ -49,6 +49,14 @@ describe('the catalogue of Integrations', () => {
     expect(catalogueEntry('atlassian')?.auth).toContain('oauth')
   })
 
+  it('marks the Atlassian API token as working only when the organisation admin turned it on, with the token page (ticket 04)', () => {
+    const atlassian = catalogueEntry('atlassian')
+    expect(atlassian?.tokenNote?.text).toMatch(/works only if your organization admin turned on API token sign-in/i)
+    expect(atlassian?.tokenNote?.url).toMatch(/^https:\/\/support\.atlassian\.com\//)
+    expect(atlassian?.tokenUrl).toBe('https://id.atlassian.com/manage-profile/security/api-tokens')
+    for (const entry of CATALOGUE) if (entry.tokenUrl !== null) expect(new URL(entry.tokenUrl).protocol, entry.key).toBe('https:')
+  })
+
   it('has no Slack (Q6: Slack stays with the claude.ai connector)', () => {
     expect(catalogueEntry('slack')).toBeUndefined()
     for (const entry of CATALOGUE) {

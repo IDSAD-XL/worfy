@@ -25,6 +25,10 @@ export interface CatalogueEntry {
   readonly hint: string
   /** Where to get a token, for a service that signs in with one; null when it signs in with OAuth only. */
   readonly tokenHint: string | null
+  /** The page where the user makes a token (worfy-integrations ticket 04); null where the catalogue knows none. */
+  readonly tokenUrl: string | null
+  /** A condition the token works under, and the page that explains it; null when there is none. */
+  readonly tokenNote: { readonly text: string; readonly url: string } | null
   /** Why the service may refuse worfy as its client; null when nothing is known against it. */
   readonly mayRefuse: string | null
 }
@@ -40,6 +44,11 @@ export const CATALOGUE: readonly CatalogueEntry[] = [
     hint: 'Atlassian Rovo MCP server. One site per sign-in: add one Integration per site.',
     tokenHint:
       'An Atlassian API token (e-mail and token) or a service account token. Works only when the organisation admin turned token sign-in on: Admin → Rovo → Rovo MCP server → Authentication.',
+    tokenUrl: 'https://id.atlassian.com/manage-profile/security/api-tokens',
+    tokenNote: {
+      text: 'Works only if your organization admin turned on API token sign-in: Admin → Rovo → Rovo MCP server → Authentication.',
+      url: 'https://support.atlassian.com/atlassian-rovo-mcp-server/docs/configuring-authentication-via-api-token',
+    },
     mayRefuse: null,
   },
   {
@@ -51,6 +60,8 @@ export const CATALOGUE: readonly CatalogueEntry[] = [
     scopes: [],
     hint: 'Linear MCP server.',
     tokenHint: 'A Linear personal API key (Settings → Security & access).',
+    tokenUrl: null,
+    tokenNote: null,
     mayRefuse: null,
   },
   {
@@ -62,6 +73,8 @@ export const CATALOGUE: readonly CatalogueEntry[] = [
     scopes: [],
     hint: 'Notion MCP server.',
     tokenHint: 'A Notion MCP token, on the Business and Enterprise plans.',
+    tokenUrl: null,
+    tokenNote: null,
     mayRefuse: null,
   },
   {
@@ -73,6 +86,8 @@ export const CATALOGUE: readonly CatalogueEntry[] = [
     scopes: [],
     hint: 'Sentry MCP server.',
     tokenHint: 'A Sentry user auth token (User settings → Personal tokens).',
+    tokenUrl: null,
+    tokenNote: null,
     mayRefuse: null,
   },
   {
@@ -85,6 +100,8 @@ export const CATALOGUE: readonly CatalogueEntry[] = [
     scopes: [],
     hint: 'GitHub MCP server.',
     tokenHint: 'A personal access token: GitHub → Settings → Developer settings → Personal access tokens, or the token gh already has.',
+    tokenUrl: 'https://github.com/settings/tokens',
+    tokenNote: null,
     mayRefuse: null,
   },
   {
@@ -96,6 +113,8 @@ export const CATALOGUE: readonly CatalogueEntry[] = [
     scopes: [],
     hint: 'Figma MCP server.',
     tokenHint: null,
+    tokenUrl: null,
+    tokenNote: null,
     mayRefuse: 'Figma accepts only the clients of its own catalogue and may refuse worfy.',
   },
   {
@@ -107,6 +126,8 @@ export const CATALOGUE: readonly CatalogueEntry[] = [
     scopes: [],
     hint: 'Any MCP server: an address (streamable HTTP) or a command worfy starts on this Machine.',
     tokenHint: 'The token, the header or the secret variables the server documents.',
+    tokenUrl: null,
+    tokenNote: null,
     mayRefuse: null,
   },
 ]
