@@ -16,26 +16,26 @@ compaction, а судья, получая весь ответ сразу, про
 
 ## 2. Hook отдаёт implementer-у состояние работы: финиш, commit-ы, Ticket и diff
 
-Code: `harness/hooks/after-compact.mjs:206-257` · key lines: 208, 241, 244, 246, 251, 254
+Code: `harness/hooks/after-compact.mjs:212-263` · key lines: 214, 219, 246, 250, 256, 259, 260
 
 ```js
 async function commitsSince(cwd, base) {
     if (typeof base !== "string" || !base.trim()) return ""
-    const log = await run(GIT, ["log", "--no-color", "--format=%h %s", "--name-status", `${base}..HEAD`, "--"], cwd)
+    const log = await run(GIT, [...PLAIN_NAMES, "log", "--no-color", "--format=%h %s", "--name-status", `${base}..HEAD`, "--"], cwd)
     if (log.code !== 0) return ""
     let lines = log.out.split("\n").filter(Boolean)
     const more = lines.length - COMMIT_LINES
     if (more > 0) lines = [...lines.slice(0, COMMIT_LINES), `… ${more} more lines: run git log --name-status ${base}..HEAD`]
-    return lines.length ? lines.join("\n") : "(none yet)"
+    return lines.length ? capped(lines.join("\n"), COMMIT_LIMIT, `… the commits are cut; all of them: git log --name-status ${base}..HEAD`) : "(none yet)"
 }
 
 async function implementerContext({ cwd, top, branch, ticket, base, finish, doneSection, fits }) {
     const id = `${ticket.epic}/${String(ticket.num).padStart(2, "0")}`
     const [root, status, commits, diff] = await Promise.all([
         node(process.env.CLAUDE_TICKET_BIN || path.join(bin, "ticket"), ["root"], cwd),
-        run(GIT, ["status", "--short"], cwd),
+        run(GIT, [...PLAIN_NAMES, "status", "--short"], cwd),
         commitsSince(cwd, base),
-        run(GIT, ["diff", "--no-color", "--no-ext-diff", "HEAD", "--"], cwd),
+        run(GIT, [...PLAIN_NAMES, "diff", "--no-color", "--no-ext-diff", "HEAD", "--"], cwd),
     ])
     if (root.code !== 0) throw new Quiet(`bin/ticket root ${why(root)}`)
     const issues = path.join(root.out.trim(), ticket.epic, "issues")
@@ -53,20 +53,20 @@ async function implementerContext({ cwd, top, branch, ticket, base, finish, done
     // The heading of the profile, when the ticket has it (a profile without the field gets the default heading).
     const heading = typeof doneSection === "string" ? doneSection.trim() : ""
     const done = heading && text.split("\n").some((line) => line.trim() === heading) ? heading : "of done items"
-    const diffText = diff.code === 0 ? diff.out.replace(/\n+$/, "") : ""
+    const diffText = diff.code === 0 ? diff.out.replace(/\n+$/, "") : `(git diff failed: ${why(diff)})`
     const ends = FINISH[finish]
     const body = [
         `Context compacted. You are the implementer of ticket ${id}: worktree ${slashes(top)}, branch ${branch}. The Harness read the state of that work for you right after the compaction: the commits of the branch, the changes not committed yet, and the ticket file. Together with the summary above, this is where the work stands now.`,
         ...(ends ? [`The ticket ${ends} (workflow.finish ${finish} of the profile).`] : []),
         "",
-        ...(commits ? [`## Commits of ${branch} since ${base}`, commits, ""] : []),
         "## Not committed: git status --short",
         statusText,
         "",
         `## Ticket ${file}`,
-        `An empty box in its section ${done} is the usual state while the ticket is in work; the commits and the changes show which items hold now.`,
+        `An empty box in its section ${done} is the usual state while the ticket is in work; the commits and the changes below show which items hold now. Before your report, check each done item against the work.`,
         "",
         text,
+        ...(commits ? ["", `## Commits of ${branch} since ${base}`, commits] : []),
         ...(diffText ? ["", "## Not committed: git diff HEAD", capped(diffText, DIFF_LIMIT, "… the diff is cut; the whole of it: git diff HEAD")] : []),
     ].join("\n")
     return cut(body, `… cut to fit the hook limit; the whole ticket: ${file}; the diff: git diff HEAD`, fits)
@@ -74,18 +74,21 @@ async function implementerContext({ cwd, top, branch, ticket, base, finish, done
 ```
 
 - Что делает: после compaction implementer получает не только файл Ticket-а и `git status`, но и то, чем Ticket
-  кончается (`workflow.finish` профиля), commit-ы ветки от `worktree.base` с их файлами, строку о том, что пустые
-  флажки «Готово, когда» — обычное состояние в работе, и `git diff HEAD` до 3000 символов. Diff стоит после Ticket-а:
-  когда текст не влезает в лимит hook-а, режется он, а не Ticket. Текст описывает состояние и не велит запускать
-  команды: прежнее «check each item of its done section against the work before the next step» удалено.
+  кончается (`workflow.finish` профиля), строку о том, что пустые флажки «Готово, когда» — обычное состояние в работе,
+  а затем commit-ы ветки от `worktree.base` с их файлами (до 40 строк и 2000 символов) и `git diff HEAD` (до 3000
+  символов или строка `(git diff failed: …)`). Commit-ы и diff стоят после Ticket-а: когда текст не влезает в лимит
+  hook-а, режутся они, а не пункты «Готово, когда» (находка review, раунд 1). Имена файлов git печатает как есть
+  (`core.quotePath=false`). Текст не велит запускать команды сейчас: прежнее «check each item of its done section
+  against the work before the next step» удалено, проверка пунктов просится «before your report».
 - Почему здесь: Ticket называет `after-compact.mjs` (`:195` implementer) в разделе «Где в коде» и предлагает, чтобы
   hook называл следующий шаг из ticket-файла и `git status`. Что агент читал прежнюю фразу как приказ открыть файлы и
   не знал, что закоммичено, — записано в «Итог», причина 3.
 - Без него: агент после compaction не знает, какие пункты уже выполнены (файл Ticket-а этого не говорит), и прогон с
   hook-ом набирал 0/3 по пунктам «Готово, когда».
 - Требование: [Что делаем, п. 3](../issues/128-hook-compaction-лучше-baseline-в-eval.md#что-делаем)
-- Риски и пробелы test-ов: `session-hooks.test.sh` проверяет commit-ы, diff, строку финиша, отсутствие команды и
-  обрезку длинного diff-а после Ticket-а. Качество текста для агента проверяет только платный eval; его прогоны в
+- Риски и пробелы test-ов: `session-hooks.test.sh` проверяет commit-ы, diff, строку финиша, отсутствие команды на
+  сейчас, обрезку длинного diff-а после Ticket-а, длинный Ticket рядом с commit-ом 45 файлов, имена на кириллице и
+  упавший `git diff`. `git status` (до 50 строк) по-прежнему стоит перед Ticket-ом, как в main. Качество текста для агента проверяет только платный eval; его прогоны в
   CI не входят.
 
 ## 3. Правила summary: следующий шаг с проверкой, пункты дословно, последняя упавшая команда
@@ -197,7 +200,7 @@ the answer says it does not know the items.
 - Eval, Claude Code 2.1.322, агент `claude-sonnet-5`, судья `claude-haiku-4-5`: окончательный вариант дважды по шесть
   run-ов — overallScore с hook-ом 0,955 и 0,985, без hook-а 0,924 и 0,924. Пункты «Готово, когда» с hook-ом 5/6 и 6/6,
   без hook-а 1/6 и 2/6; Ticket и следующий шаг — 6/6 в обоих вариантах. Все прогоны и цена (16,96 USD) — в «Итог».
-- `bash harness/hooks/tests/session-hooks.test.sh` (58), `bash harness/hooks/tests/rules-hooks.test.sh` (331),
+- `bash harness/hooks/tests/session-hooks.test.sh` (61), `bash harness/hooks/tests/rules-hooks.test.sh` (331),
   `pnpm exec vitest run test/contract/harness-evals.test.ts test/contract/harness-evals-run.test.ts
   test/contract/harness-evals-story.test.ts` (351), `bash harness/bin/tests/plugin-neutral.test.sh`,
   `bash harness/bin/tests/agents-text.test.sh`, `pnpm lint`, `pnpm typecheck` — exit 0. gate fast не запускался по
@@ -210,7 +213,7 @@ the answer says it does not know the items.
      сжимал разговор. Порог 40000 выше контекста после compaction, а история должна считать больше 40000, чтобы
      первая compaction вообще случилась.
    - Строки: `scripts/eval-harness.mjs:102-104`
-2. Почему diff стоит после файла Ticket-а, а не перед ним?
-   - Ответ: когда текст не влезает в лимит hook-а, `cut` режет конец; так теряется хвост diff-а, а Ticket с пунктами
-     «Готово, когда» доходит целиком.
-   - Строки: `harness/hooks/after-compact.mjs:250-256`
+2. Почему commit-ы и diff стоят после файла Ticket-а, а не перед ним?
+   - Ответ: когда текст не влезает в лимит hook-а, `cut` режет конец; так теряется хвост commit-ов и diff-а, а Ticket
+     с пунктами «Готово, когда» доходит целиком, даже если ветка меняет много файлов.
+   - Строки: `harness/hooks/after-compact.mjs:255-262`
