@@ -61,7 +61,7 @@ Code: `scripts/spikes/harness-plugin/probe.ts:1501-1509` · key lines: 1504, 150
 
 ## 4. Один refresh за раз — в fetch transport-а
 
-Code: `scripts/spikes/harness-plugin/integrations-oauth.mjs:275-287` · key lines: 279, 281, 282, 285
+Code: `scripts/spikes/harness-plugin/integrations-oauth.mjs:296-308` · key lines: 300, 302, 303, 306
 
 ```js
 export function singleFlightFetch(base = fetch) {
@@ -90,7 +90,7 @@ export function singleFlightFetch(base = fetch) {
 
 ## 5. Окно spike-а ловит redirect без listener-а
 
-Code: `scripts/spikes/harness-plugin/integrations-oauth.mjs:145-149` · key lines: 146, 147, 148
+Code: `scripts/spikes/harness-plugin/integrations-oauth.mjs:151-155` · key lines: 152, 153, 154
 
 ```js
       ses.webRequest.onBeforeRequest((details, callback) => {
@@ -109,12 +109,42 @@ Code: `scripts/spikes/harness-plugin/integrations-oauth.mjs:145-149` · key line
 - Риски и пробелы test-ов: проверено на stub-е, который отвечает 302 сразу; страницы входа Atlassian и Linear — шаг
   владельца.
 
-## 6. Что сознательно не меняли
+## 6. Вход владельца отзывается при любом исходе и не пишет ответ сервиса
+
+Code: `scripts/spikes/harness-plugin/probe.ts:1802-1814` · key lines: 1804, 1809, 1812
+
+```ts
+          } catch {
+            // A fixed text: the message of JSON.parse quotes a piece of the answer, which names the site.
+            report.sites = 'not read'
+          }
+        }
+      } catch (err) {
+        report.failed_at = stage
+        Object.assign(report, errorShape(err))
+      } finally {
+        await client?.close().catch(() => undefined)
+        report.revoke = await revokeSlot(slot)
+        await electronSession.fromPartition(partition).clearStorageData()
+        out[slot] = report
+```
+
+- Что делает: каждый вход сценария `integrations-sign-in` отзывает свои token-ы в `finally`, даже если отчёт по
+  серверу упал; ошибка попадает в отчёт классом и HTTP-статусом, неразобранный список site-ов — строкой «not read».
+  На SIGINT, SIGTERM и необработанную ошибку тот же `revokeSlot` отзывает все входы до выхода.
+- Почему здесь: замечание Orchestrator-а к PR: при падении `tools/list` или Ctrl+C token-ы реальных аккаунтов
+  владельца оставались живыми, а текст ошибки `JSON.parse` цитирует кусок ответа с адресом site-а.
+- Без него: живые token-ы Atlassian и Linear после spike-а и адрес site-а владельца в `summary.json`.
+- Требование: [Что делаем, п. 8](../issues/01-spike-integration-через-worfy-в-claude-и-codex.md#что-делаем)
+- Риски и пробелы test-ов: `kill -9` и падение самого Electron не ловятся — записка говорит, как отозвать доступ
+  руками. Проверено на stub-е (`stub-tools-fail`, `stub-bad-sites`, `stub-tools-hang` с SIGINT), не на сервисах.
+
+## 7. Что сознательно не меняли
 
 Код worfy (`src/`) не тронут: модель, вход, proxy и Codex — Ticket-ы 03–07. Настоящий Codex не запускался, вход в
 настоящие сервисы — только в сценарии `integrations-sign-in`, который запускает владелец.
 
-## 7. Как проверено
+## 8. Как проверено
 
 - `pnpm exec electron scripts/spikes/harness-plugin/probe.ts integrations --fixtures test/fixtures/sdk-messages` —
   exit 0, факты в `summary.json` и в записке `spike-integrations.md`.
@@ -133,6 +163,6 @@ Code: `scripts/spikes/harness-plugin/integrations-oauth.mjs:145-149` · key line
    Ответ: такой сервер уходит в `--mcp-config`, и token виден в аргументах процесса; у SDK-сервера token остаётся в
    процессе worfy.
 3. Что ломается без одного refresh за раз, если сервис ротирует refresh token?
-   Строки: `scripts/spikes/harness-plugin/integrations-oauth.mjs:275-287`
+   Строки: `scripts/spikes/harness-plugin/integrations-oauth.mjs:296-308`
    Ответ: второй параллельный refresh несёт использованный token, сервер отвечает `invalid_grant`, пакет стирает
    token-ы, и Integration теряет вход.

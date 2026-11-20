@@ -45,6 +45,12 @@ export async function loadMcpSdk(repo) {
   }
 }
 
+/**
+ * What a report keeps of an error: its class and an HTTP status, never its message. A message of the
+ * package or of JSON.parse can carry a piece of the server's answer (a site address, an e-mail).
+ */
+export const errorShape = (error) => ({ error: error?.constructor?.name ?? typeof error, ...(typeof error?.code === 'number' ? { code: error.code } : {}) })
+
 const short = (value) => (typeof value === 'string' ? createHash('sha256').update(value).digest('hex').slice(0, 12) : null)
 
 /** An OAuthClientProvider of the package that keeps the client, the tokens and the verifier in memory. */
@@ -203,7 +209,7 @@ export async function serverReport(sdk, url, client, memory) {
     report.token_auth_methods = meta.token_endpoint_auth_methods_supported ?? null
     report.revocation_url = meta.revocation_endpoint ?? null
   } catch (error) {
-    report.metadata_error = String(error?.message ?? error)
+    report.metadata_error = errorShape(error)
   }
   if (report.refresh_token) {
     const t0 = Date.now()
@@ -219,7 +225,7 @@ export async function serverReport(sdk, url, client, memory) {
       }
       report.refresh.tools_after_refresh = (await allTools(client)).length
     } catch (error) {
-      report.refresh = { error: String(error?.message ?? error), ms: Date.now() - t0 }
+      report.refresh = { ...errorShape(error), ms: Date.now() - t0 }
     }
   } else report.refresh = 'no refresh token'
   return report
@@ -239,10 +245,25 @@ export async function revoke(url, memory) {
     const body = new URLSearchParams({ token, token_type_hint: hint, ...(clientId ? { client_id: clientId } : {}) })
     out[hint] = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body }).then(
       (r) => r.status,
-      (error) => String(error?.message ?? error),
+      (error) => errorShape(error).error,
     )
   }
   return out
+}
+
+/**
+ * Revokes the tokens `memory` holds for the server at `url`, finding the revocation endpoint itself
+ * (it does not rely on a report that may not exist). Without tokens there is nothing to revoke.
+ */
+export async function revokeAt(sdk, url, memory) {
+  if (!memory.kept.tokens) return 'no tokens'
+  let endpoint
+  try {
+    endpoint = (await sdk.discoverOAuthServerInfo(url)).authorizationServerMetadata?.revocation_endpoint ?? null
+  } catch (error) {
+    return { metadata: errorShape(error) }
+  }
+  return revoke(endpoint, memory)
 }
 
 /**

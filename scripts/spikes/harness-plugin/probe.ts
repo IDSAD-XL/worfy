@@ -58,7 +58,7 @@ import type { Options, Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/c
 import { rm } from 'node:fs/promises'
 import { app, BrowserWindow, session as electronSession } from 'electron'
 import { personalLast, scrubPersonal } from '../personal-scrub.mjs'
-import { allTools, followRedirect, loadMcpSdk, memoryProvider, parallelAfterExpiry, revoke, serverReport, signIn, singleFlightFetch, windowOpener } from './integrations-oauth.mjs'
+import { allTools, errorShape, followRedirect, loadMcpSdk, memoryProvider, parallelAfterExpiry, revoke, revokeAt, serverReport, signIn, singleFlightFetch, windowOpener } from './integrations-oauth.mjs'
 import { startEndpoint, startFakeMessagesApi, startStub } from './integrations-stub.mjs'
 
 type Scenario = 'known' | 'workflow-hooks' | 'env-file' | 'install' | 'mcp-name' | 'mcp-live' | 'integrations' | 'integrations-sign-in'
@@ -1714,59 +1714,117 @@ async function runIntegrations(): Promise<Facts> {
   return out
 }
 
+// Local stub services for checking integrations-sign-in itself (never in the default list): each signs
+// in to a stub on 127.0.0.1 in a hidden window and then breaks in one way (integrations-stub.mjs, faults).
+const STUB_SERVICES: Record<string, Record<string, string>> = {
+  'stub-ok': {},
+  'stub-tools-fail': { toolsList: 'fail' },
+  'stub-tools-hang': { toolsList: 'hang' },
+  'stub-bad-sites': { siteList: 'malformed' },
+}
+
 /**
  * The owner's step of worfy-integrations/01: a real sign-in to each service of --services in the
  * spike window (a partition of its own each, in memory), then what the spike asks of the server. No
- * Claude Code and no Codex run. Tokens stay in this process and are revoked at the end where the
- * server has a revocation endpoint. The report holds no token, no site address and no e-mail.
+ * Claude Code and no Codex run. Tokens stay in this process. Every slot that got tokens is revoked
+ * whatever happens next: in a finally right after its report, and on SIGINT, SIGTERM or an uncaught
+ * error before the probe exits. Only a kill the process cannot catch (SIGKILL, a crash of Electron
+ * itself) leaves them; the note says how to revoke them by hand. The report holds no token, no site
+ * address and no e-mail: an error is kept as its class and HTTP status, never its message.
  */
 async function runIntegrationsSignIn(): Promise<Facts> {
   const sdk = await loadMcpSdk(repo)
   const list = (flag('--services') ?? 'atlassian,atlassian,linear').split(',').map((s) => s.trim())
   const out: Facts = { mcp_sdk_version: sdk.version, services: list }
   const sites: Record<string, Set<string>> = {}
-  const done: { slot: string; memory: ReturnType<typeof memoryProvider>; revocation: string | null; client: McpClient }[] = []
-  for (const [i, service] of list.entries()) {
-    const url = SERVICES[service]
-    const slot = `${service}-${i + 1}`
-    if (!url) {
-      out[slot] = { error: `unknown service ${service}; known: ${Object.keys(SERVICES).join(', ')}` }
-      continue
-    }
-    process.stdout.write(`[probe] sign-in ${i + 1} of ${list.length}: ${service}. A window opens: sign in${service === 'atlassian' ? ' and pick the site for this Integration' : ''}.\n`)
-    const memory = memoryProvider({ redirectUrl: `${REDIRECT}${slot}`, clientName: 'worfy integrations spike' })
-    try {
-      const t0 = Date.now()
-      const client = await signIn(sdk, url, memory, windowOpener({ BrowserWindow, session: electronSession }, { partition: `integration-spike-${slot}`, show: true, title: `worfy spike: ${slot}`, redirectPrefix: `${REDIRECT}${slot}`, timeoutMs: 10 * 60_000 }))
-      const report: Facts = { sign_in_ms: Date.now() - t0, ...(await serverReport(sdk, url, client, memory)) }
-      const revocation = (report.revocation_url as string | null) ?? null
-      delete report.revocation_url
-      // Atlassian: which site this sign-in reached, as a count and a comparison only (ids stay in memory).
-      const siteTool = (report.tool_names as string[]).find((n) => /^getAccessibleAtlassianResources$/i.test(n))
-      if (siteTool) {
-        try {
-          const parsed = JSON.parse(textOf(await client.callTool({ name: siteTool, arguments: {} }))) as { id?: string }[]
-          sites[slot] = new Set(parsed.map((r) => String(r.id)))
-          report.sites = parsed.length
-        } catch (err) {
-          report.sites = `not read: ${scrub(err instanceof Error ? err.message : String(err))}`
-        }
+  type Live = { url: string; memory: ReturnType<typeof memoryProvider>; revoke?: Promise<unknown> }
+  const live = new Map<string, Live>()
+  // Once per slot: the finally and a signal handler may both ask.
+  const revokeSlot = (slot: string): Promise<unknown> => {
+    const each = live.get(slot) as Live
+    each.revoke ??= revokeAt(sdk, each.url, each.memory).catch((err: unknown) => errorShape(err))
+    return each.revoke
+  }
+  let leaving = false
+  const leave = (why: string, code: number) => {
+    if (leaving) return
+    leaving = true
+    process.stdout.write(`[probe] ${why}: revoking every signed-in slot before exit\n`)
+    const all = Promise.all(
+      [...live.keys()].map(async (slot) => {
+        const result = await revokeSlot(slot)
+        process.stdout.write(`[probe] revoke ${slot}: ${JSON.stringify(result)}\n`)
+      }),
+    )
+    void Promise.race([all, new Promise((r) => setTimeout(r, 15_000))]).finally(() => app.exit(code))
+  }
+  const onSigint = () => leave('SIGINT', 130)
+  const onSigterm = () => leave('SIGTERM', 143)
+  const onError = (err: unknown) => leave(`uncaught ${errorShape(err).error}`, 1)
+  process.on('SIGINT', onSigint)
+  process.on('SIGTERM', onSigterm)
+  process.on('uncaughtException', onError)
+  process.on('unhandledRejection', onError)
+  const stubs: { close: () => Promise<void> }[] = []
+  try {
+    for (const [i, service] of list.entries()) {
+      const slot = `${service}-${i + 1}`
+      const faults = STUB_SERVICES[service]
+      const stub = faults ? await startStub({ oauth: { ttlMs: 600_000, rotate: true }, faults }) : undefined
+      if (stub) stubs.push(stub)
+      const url = stub?.url ?? SERVICES[service]
+      if (!url) {
+        out[slot] = { error: `unknown service ${service}; known: ${Object.keys(SERVICES).join(', ')}` }
+        continue
       }
-      out[slot] = report
-      done.push({ slot, memory, revocation, client })
-    } catch (err) {
-      out[slot] = { error: scrub(err instanceof Error ? err.message : String(err)) }
+      process.stdout.write(`[probe] sign-in ${i + 1} of ${list.length}: ${service}.${stub ? '' : ` A window opens: sign in${service === 'atlassian' ? ' and pick the site for this Integration' : ''}.`}\n`)
+      const memory = memoryProvider({ redirectUrl: `${REDIRECT}${slot}`, clientName: 'worfy integrations spike' })
+      live.set(slot, { url, memory })
+      const partition = `integration-spike-${slot}`
+      let stage = 'sign-in'
+      let client: McpClient | undefined
+      const report: Facts = {}
+      try {
+        const t0 = Date.now()
+        client = await signIn(sdk, url, memory, windowOpener({ BrowserWindow, session: electronSession }, { partition, show: !stub, title: `worfy spike: ${slot}`, redirectPrefix: `${REDIRECT}${slot}`, timeoutMs: stub ? 30_000 : 10 * 60_000 }))
+        report.sign_in_ms = Date.now() - t0
+        stage = 'report'
+        Object.assign(report, await serverReport(sdk, url, client, memory))
+        delete report.revocation_url
+        // Atlassian: which site this sign-in reached, as a count and a comparison only (ids stay in memory).
+        const siteTool = (report.tool_names as string[]).find((n) => /^getAccessibleAtlassianResources$/i.test(n))
+        if (siteTool) {
+          stage = 'site list'
+          try {
+            const parsed = JSON.parse(textOf(await client.callTool({ name: siteTool, arguments: {} }))) as { id?: string }[]
+            sites[slot] = new Set(parsed.map((r) => String(r.id)))
+            report.sites = parsed.length
+          } catch {
+            // A fixed text: the message of JSON.parse quotes a piece of the answer, which names the site.
+            report.sites = 'not read'
+          }
+        }
+      } catch (err) {
+        report.failed_at = stage
+        Object.assign(report, errorShape(err))
+      } finally {
+        await client?.close().catch(() => undefined)
+        report.revoke = await revokeSlot(slot)
+        await electronSession.fromPartition(partition).clearStorageData()
+        out[slot] = report
+      }
     }
+  } finally {
+    process.off('SIGINT', onSigint)
+    process.off('SIGTERM', onSigterm)
+    process.off('uncaughtException', onError)
+    process.off('unhandledRejection', onError)
+    for (const stub of stubs) await stub.close()
   }
   const atlassian = Object.keys(sites).filter((s) => s.startsWith('atlassian-'))
   if (atlassian.length === 2) {
     const [a, b] = atlassian.map((s) => sites[s] as Set<string>)
     out.atlassian_two_sign_ins_reach_different_sites = [...(a as Set<string>)].some((id) => !(b as Set<string>).has(id)) || [...(b as Set<string>)].some((id) => !(a as Set<string>).has(id))
-  }
-  for (const each of done) {
-    await each.client.close().catch(() => undefined)
-    ;(out[each.slot] as Facts).revoke = await revoke(each.revocation, each.memory)
-    await electronSession.fromPartition(`integration-spike-${each.slot}`).clearStorageData()
   }
   return out
 }

@@ -67,17 +67,29 @@ async function rpc(req, res, body, handle) {
 
 const notFound = (method) => Object.assign(new Error(`method not found: ${method}`), { code: -32601 })
 
-/** The MCP methods of the stub service for one dataset. */
-function serviceMethods(label) {
+// The text the malformed site list carries: a run that writes it anywhere has leaked a response body.
+export const LEAK_MARKER = 'leakmarker-site.example.com'
+
+/**
+ * The MCP methods of the stub service for one dataset. `faults` (OAuth mode) break it on purpose:
+ * `toolsList: 'fail'` answers tools/list with an error whose text holds LEAK_MARKER, `'hang'` never
+ * answers it; `siteList: 'malformed'` adds getAccessibleAtlassianResources, which answers text that is
+ * not JSON and holds LEAK_MARKER.
+ */
+function serviceMethods(label, faults = {}) {
   const tools = [
     { name: 'whoami', description: `Names the dataset of the token (dataset ${label}).`, inputSchema: { type: 'object', properties: {} } },
     { name: 'list_items', description: `Lists the items of dataset ${label}.`, inputSchema: { type: 'object', properties: { limit: { type: 'number' } } } },
   ]
+  if (faults.siteList === 'malformed') tools.push({ name: 'getAccessibleAtlassianResources', description: 'Sites of the token.', inputSchema: { type: 'object', properties: {} } })
   return async (method, params) => {
     if (method === 'initialize') return { protocolVersion: params.protocolVersion ?? '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'integrations-stub', version: '0.0.1' } }
     if (method === 'ping') return {}
+    if (method === 'tools/list' && faults.toolsList === 'fail') throw new Error(`tools/list failed for https://${LEAK_MARKER}/wiki`)
+    if (method === 'tools/list' && faults.toolsList === 'hang') return new Promise(() => undefined)
     if (method === 'tools/list') return { tools }
     if (method === 'tools/call') {
+      if (params.name === 'getAccessibleAtlassianResources') return { content: [{ type: 'text', text: `[{"id":"1","url":"https://${LEAK_MARKER}"` }] }
       if (params.name === 'whoami') return { content: [{ type: 'text', text: `dataset ${label}` }] }
       if (params.name === 'list_items') return { content: [{ type: 'text', text: `${label}-1, ${label}-2` }] }
       return { content: [{ type: 'text', text: `unknown tool ${params.name}` }], isError: true }
@@ -91,9 +103,9 @@ const secret = (prefix) => `${prefix}-${randomBytes(12).toString('hex')}`
 
 /**
  * Starts the stub service. `tokens`: token -> dataset label (bearer). `oauth`: { ttlMs, rotate, tokenDelayMs }
- * turns the OAuth mode on; its tokens carry the dataset label `oauth`.
+ * turns the OAuth mode on; its tokens carry the dataset label `oauth`. `faults`: see serviceMethods.
  */
-export async function startStub({ tokens = {}, oauth } = {}) {
+export async function startStub({ tokens = {}, oauth, faults = {} } = {}) {
   const log = []
   const counts = { register: 0, authorize: 0, token_code: 0, token_refresh: 0, refresh_refused: 0, revoke: 0, unauthorized: 0 }
   const clients = new Map() // client_id -> redirect_uris
@@ -130,7 +142,7 @@ export async function startStub({ tokens = {}, oauth } = {}) {
         // logged as '-'
       }
       log.push(`${req.method} ${path} ${method} ${label}`)
-      return rpc(req, res, body, serviceMethods(label))
+      return rpc(req, res, body, serviceMethods(label, faults))
     }
     if (!oauth) return sendJson(res, 404, { error: 'not_found' })
     if (path.startsWith('/.well-known/oauth-protected-resource')) return sendJson(res, 200, { resource: `${base}/mcp`, authorization_servers: [base], bearer_methods_supported: ['header'] })
