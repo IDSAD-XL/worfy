@@ -61,8 +61,9 @@ function statusOf(store: IntegrationStore, integration: Integration, errors: Rea
 export function integrationsHandlers(options: IntegrationsHandlersOptions = {}): HandlerModule {
   const store = options.store ?? integrationStore
   const check = options.check ?? ((integration, headers) => checkSignIn(integration, headers))
-  // shortcut: in memory, so an error status is gone after a restart and the Integration shows needs-sign-in until the
-  // next check; keep it in integrations.json if the proxy (ticket 06) needs it across restarts.
+  // shortcut: in memory, so an error status is gone after a restart: an Integration whose new token was not checked
+  // (no answer, 429, 5xx) or was refused shows needs-sign-in, one whose same token could not be re-checked shows
+  // signed-in; keep the error in integrations.json if the proxy (ticket 06) needs it across restarts.
   const errors = new Map<string, string>()
   // Looked up on each call: the module's default export is made when main loads it.
   const projectsOf = (): IntegrationProjects => options.projects ?? projectStore()
@@ -122,11 +123,12 @@ export function integrationsHandlers(options: IntegrationsHandlersOptions = {}):
     }),
     defineHandler(integrationsSetSecret, async ({ id, part, value }) => {
       const machine = store()
+      const changed = machine.secret(id, part as IntegrationSecretPart) !== value
       machine.setSecret(id, part as IntegrationSecretPart, value)
       const integration = integrationOf(id)
       if (part !== 'access' || !checksToken(integration)) return { status: statusOf(machine, integration, errors) }
       errors.delete(id)
-      const status = await verifyTokenSignIn(machine, id, { check })
+      const status = await verifyTokenSignIn(machine, id, { check, changed })
       // A token replaced or signed out while the service answered: its error is not the Integration's any more.
       if (status.state === 'error' && isCurrentToken(machine, id, value)) errors.set(id, status.message)
       return { status }

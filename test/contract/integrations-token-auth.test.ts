@@ -205,20 +205,38 @@ describe('two checks of one Integration at once (review round 2, 1)', () => {
   })
 })
 
-describe('a failure on the way is not a refusal of the token (review round 2, 4)', () => {
-  it('a 503 or no answer while a new token is checked keeps the previous sign-in; a 401 clears it', async () => {
-    const UNAVAILABLE = 'tok-UNAVAILABLE-SECRET-6666'
+describe('a failure on the way is not a refusal of the token (review rounds 2 and 3)', () => {
+  it.each([503, 429])('%s on a re-check of the same token keeps the sign-in; on a new token it clears it, the error shown until a restart', async (code) => {
+    const NEW = 'tok-NEW-UNCHECKED-SECRET-6666'
     await stub.close()
-    stub = await startHttpStub({ bearer: { [ALPHA]: 'alpha' }, unavailable: [UNAVAILABLE] })
+    stub = await startHttpStub({ bearer: { [ALPHA]: 'alpha', [NEW]: 'new' } })
     const b = bench()
     const id = await b.add('Stub', 'bearer')
     await setSecret(b, id, ALPHA)
     const signedIn = b.store.get(id)?.signIn
     expect(signedIn).not.toBeNull()
-    const answer = (await setSecret(b, id, UNAVAILABLE)) as { status: { state: string; message: string } }
-    expect(answer.status.state).toBe('error')
-    expect(answer.status.message).toContain('503')
+
+    stub.unavailable.set(ALPHA, code)
+    const again = (await setSecret(b, id, ALPHA)) as { status: { state: string; message: string } }
+    expect(again.status.state).toBe('error')
+    expect(again.status.message).toContain(String(code))
     expect(b.store.get(id)?.signIn).toEqual(signedIn)
+    const restarted = integrationsHandlers({ store: () => b.store, projects: { list: () => [{ id: 'p1', name: 'One' }], dataDir: (p) => join(b.data, 'projects', p) } })
+    const status = restarted.find((entry) => entry.channel.name === 'integrations.status')
+    expect(await status?.handle({ projectId: 'p1' }, { event: {} as never })).toEqual({ statuses: [{ id, status: { state: 'signed-in' } }] })
+
+    stub.unavailable.set(NEW, code)
+    const fresh = (await setSecret(b, id, NEW)) as { status: { state: string; message: string } }
+    expect(fresh.status.state).toBe('error')
+    expect(b.store.get(id)?.signIn).toBeNull()
+    expect(await b.call('integrations.status', { projectId: 'p1' })).toEqual({ statuses: [{ id, status: fresh.status }] })
+    expect(await status?.handle({ projectId: 'p1' }, { event: {} as never })).toEqual({ statuses: [{ id, status: { state: 'needs-sign-in' } }] })
+  })
+
+  it('a 401 clears the sign-in', async () => {
+    const b = bench()
+    const id = await b.add('Stub', 'bearer')
+    await setSecret(b, id, ALPHA)
     expect(await setSecret(b, id, WRONG)).toEqual({ status: { state: 'needs-sign-in' } })
     expect(b.store.get(id)?.signIn).toBeNull()
   })
@@ -246,7 +264,7 @@ describe('a redirect is not followed with the sign-in (review round 2, 3)', () =
 describe('what the service says back is scrubbed of the token (review round 2, 2)', () => {
   it('a 403 that quotes a Bearer token, a Basic pair and a header token shows none of them', async () => {
     await stub.close()
-    stub = await startHttpStub({ echoUnknown: true })
+    stub = await startHttpStub({ echoUnknown: true, header: { name: 'X-Api-Key', values: {} } })
     const b = bench()
     const bearer = await b.add('Bearer', 'bearer')
     const basic = await b.add('Basic', 'basic')
@@ -256,7 +274,7 @@ describe('what the service says back is scrubbed of the token (review round 2, 2
       (await setSecret(b, basic, basicSecret('me@example.test', API_TOKEN))) as { status: { state: string; message: string } },
       (await setSecret(b, header, HEADER_TOKEN)) as { status: { state: string; message: string } },
     ]
-    expect(answers.slice(0, 2).map((answer) => answer.status.state)).toEqual(['error', 'error'])
+    expect(answers.map((answer) => answer.status.state)).toEqual(['error', 'error', 'error'])
     expect(answers[0]?.status.message).toMatch(/is not allowed here/)
     const basic64 = Buffer.from(`me@example.test:${API_TOKEN}`, 'utf8').toString('base64')
     for (const secret of [WRONG, API_TOKEN, basic64, HEADER_TOKEN]) expect(JSON.stringify(answers)).not.toContain(secret)
@@ -387,8 +405,17 @@ describe('the token of the Project’s gh account', () => {
   it('keeps no copy for an Integration that does not sign in with a token (review round 2, 5)', async () => {
     const b = bench()
     const id = await b.add('OAuth server', 'oauth')
-    await expect(signInWithGhToken({ store: b.store, id, account: 'alice', run: gh('repo'), root })).rejects.toThrow(/token/)
+    await expect(signInWithGhToken({ store: b.store, id, account: 'alice', run: gh('repo'), root })).rejects.toThrow(/Bearer/)
     expect(b.store.hasSecret(id, 'access')).toBe(false)
+  })
+
+  it('does not overwrite the e-mail and token of a Basic Integration (review round 3, 3)', async () => {
+    const b = bench()
+    const id = await b.add('Jira by token', 'basic')
+    const pair = basicSecret('me@example.test', API_TOKEN)
+    await setSecret(b, id, pair)
+    await expect(signInWithGhToken({ store: b.store, id, account: 'alice', run: gh('repo'), root })).rejects.toThrow(/Bearer/)
+    expect(b.store.secret(id, 'access')).toBe(pair)
   })
 
   it('signs a GitHub Integration in with a copy in the secret store, the gh login as its account', async () => {

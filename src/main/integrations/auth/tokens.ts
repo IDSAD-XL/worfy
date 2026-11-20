@@ -204,8 +204,9 @@ export interface CheckOptions {
 export type CheckedStatus = Exclude<IntegrationStatus, { state: 'checking' }>
 
 /**
- * A check and whether its failure says nothing about the token: no answer, a timeout, 429 or 5xx. Such a failure keeps
- * the previous sign-in; a refusal or an answer that is not MCP clears it.
+ * A check and whether its failure says nothing about the token: no answer, a timeout, 429 or 5xx. Such a failure on a
+ * re-check of the same token keeps the previous sign-in; on a new token, a refusal or an answer that is not MCP it is
+ * cleared (verifyTokenSignIn).
  */
 export interface CheckOutcome {
   status: CheckedStatus
@@ -286,12 +287,23 @@ export function checksToken(integration: Integration): boolean {
 
 /**
  * Checks the token Integration `id` keeps and records the outcome: `signed-in` keeps the sign-in (the account is the
- * e-mail of a Basic secret, or `account`), a transient failure leaves the previous sign-in as it was, anything else
- * clears it. A token that is not kept is `needs-sign-in` without asking the service. When the token changed while the
+ * e-mail of a Basic secret, or `account`); a transient failure leaves the previous sign-in as it was only when the
+ * token is the one that sign-in was made with (`changed: false`) — a new token nobody checked never inherits it;
+ * anything else clears it. A token that is not kept is `needs-sign-in` without asking the service. When the token changed while the
  * service answered — another check or a Sign out came in between — nothing is recorded: the answer is about a token
  * the Integration no longer has. The caller tells that case with isCurrentToken().
  */
-export async function verifyTokenSignIn(store: TokenStore, id: string, options: { check?: SignInCheck; account?: string | null; now?: () => Date } = {}): Promise<CheckedStatus> {
+export async function verifyTokenSignIn(
+  store: TokenStore,
+  id: string,
+  options: {
+    check?: SignInCheck
+    account?: string | null
+    now?: () => Date
+    /** Whether the token was just replaced by another one; true when the caller does not say. */
+    changed?: boolean
+  } = {},
+): Promise<CheckedStatus> {
   const integration = store.get(id)
   if (integration === undefined) throw new Error(`no Integration ${id} on this Machine`)
   if (!checksToken(integration)) throw new Error(`Integration ${id} does not sign in with a token over http`)
@@ -307,7 +319,7 @@ export async function verifyTokenSignIn(store: TokenStore, id: string, options: 
   const { status, transient } = await (options.check ?? checkSignIn)(integration, headers)
   if (!isCurrentToken(store, id, checked)) return status
   if (status.state !== 'signed-in') {
-    if (!transient) store.setSignIn(id, null)
+    if (!transient || options.changed !== false) store.setSignIn(id, null)
     return status
   }
   const secret = integration.auth === 'basic' ? store.secret(id, 'access') : undefined
@@ -388,11 +400,13 @@ export async function signInWithGhToken(options: GhTokenOptions & { store: Token
   if (account === null) throw new Error('the Project has no GitHub account')
   const integration = options.store.get(options.id)
   if (integration === undefined) throw new Error(`no Integration ${options.id} on this Machine`)
-  // Before the copy: a token kept for an Integration that does not sign in with one would only lie in the store.
-  if (!checksToken(integration)) throw new Error(`Integration ${options.id} does not sign in with a token over http`)
+  // Before the copy: the gh token is a Bearer token. Kept for another way to sign in it would only lie in the store, or
+  // overwrite the <e-mail>:<token> pair of a Basic Integration.
+  if (integration.auth !== 'bearer' || !checksToken(integration)) throw new Error(`Integration ${options.id} does not sign in with a Bearer token over http`)
   const env = await accountAuth({ account: () => Promise.resolve(account), run: options.run })(options.root)
   const token = env.GH_TOKEN
   if (token === undefined) throw new Error(`gh gave no token for ${account}`)
+  const changed = options.store.secret(options.id, 'access') !== token
   options.store.setSecret(options.id, 'access', token)
-  return verifyTokenSignIn(options.store, options.id, { account, ...(options.check === undefined ? {} : { check: options.check }) })
+  return verifyTokenSignIn(options.store, options.id, { account, changed, ...(options.check === undefined ? {} : { check: options.check }) })
 }

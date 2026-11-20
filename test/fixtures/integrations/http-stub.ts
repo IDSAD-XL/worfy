@@ -20,11 +20,14 @@ export interface HttpStubOptions {
   forbidden?: Record<string, string>
   /** Bearer tokens whose answer waits until `release(token)`. */
   hold?: readonly string[]
-  /** Bearer tokens answered with 503. */
-  unavailable?: readonly string[]
+  /** Bearer token → the status it is answered with instead of its dataset: 503, 429…; HttpStub.unavailable changes it. */
+  unavailable?: Record<string, number>
   /** A credential the stub does not know gets 307 to this address instead of 401. */
   redirectTo?: string
-  /** A credential the stub does not know gets 403 that quotes it — raw, and decoded for Basic — instead of 401. */
+  /**
+   * A credential the stub does not know gets 403 that quotes it — raw, decoded for Basic, and the value of the
+   * `header` option's header — instead of 401.
+   */
   echoUnknown?: boolean
 }
 
@@ -40,6 +43,8 @@ export interface HttpStub {
   log: StubLogEntry[]
   /** Session ids the server gave out and that were not ended with DELETE yet. */
   openSessions: Set<string>
+  /** Bearer token → the status it is answered with now; the test changes it between checks. */
+  unavailable: Map<string, number>
   /** How many requests with each held token are waiting for release. */
   held(token: string): number
   /** Lets the held answers to `token` go. */
@@ -87,6 +92,7 @@ export async function startHttpStub(options: HttpStubOptions): Promise<HttpStub>
   const log: StubLogEntry[] = []
   const openSessions = new Set<string>()
   const waiting = new Map<string, (() => void)[]>()
+  const unavailable = new Map<string, number>(Object.entries(options.unavailable ?? {}))
   const server = createServer((request, response) => {
     void (async () => {
       if (request.url !== '/mcp') return json(response, 404, { error: 'not found' })
@@ -94,9 +100,10 @@ export async function startHttpStub(options: HttpStubOptions): Promise<HttpStub>
       if (bearer !== undefined && request.method === 'POST' && options.hold?.includes(bearer) === true) {
         await new Promise<void>((resolve) => waiting.set(bearer, [...(waiting.get(bearer) ?? []), resolve]))
       }
-      if (bearer !== undefined && options.unavailable?.includes(bearer) === true) {
+      const failWith = bearer === undefined ? undefined : unavailable.get(bearer)
+      if (failWith !== undefined) {
         log.push({ method: request.method ?? '', dataset: 'unavailable' })
-        return json(response, 503, { error: 'unavailable', error_description: 'Try again later' })
+        return json(response, failWith, { error: 'unavailable', error_description: 'Try again later' })
       }
       const opened = datasetOf(request, options)
       if (request.method === 'DELETE') {
@@ -116,7 +123,8 @@ export async function startHttpStub(options: HttpStubOptions): Promise<HttpStub>
         log.push({ method: message.method, dataset: 'echoed' })
         const credential = /^(?:Bearer|Basic) (.+)$/u.exec(request.headers.authorization ?? '')?.[1] ?? ''
         const decoded = request.headers.authorization?.startsWith('Basic ') === true ? Buffer.from(credential, 'base64').toString('utf8') : ''
-        return json(response, 403, { error: 'forbidden', error_description: `credential ${credential} ${decoded} is not allowed here` })
+        const own = options.header === undefined ? '' : String(request.headers[options.header.name.toLowerCase()] ?? '')
+        return json(response, 403, { error: 'forbidden', error_description: `credential ${credential} ${decoded} ${own} is not allowed here` })
       }
       if (opened === null) {
         log.push({ method: message.method, dataset: 'unauthorized' })
@@ -158,6 +166,7 @@ export async function startHttpStub(options: HttpStubOptions): Promise<HttpStub>
     url: `http://127.0.0.1:${port}/mcp`,
     log,
     openSessions,
+    unavailable,
     held: (token) => waiting.get(token)?.length ?? 0,
     release: (token) => {
       for (const resolve of waiting.get(token) ?? []) resolve()
