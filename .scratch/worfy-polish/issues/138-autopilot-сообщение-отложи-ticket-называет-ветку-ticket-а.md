@@ -41,10 +41,14 @@ Source: решение владельца 2026-11-20, Q5. Тот же прова
 
 - [ ] Сообщение «отложи Ticket» называет, где запускать `ticket block … --waits owner`: worktree Ticket-а с commit-ом на
       его ветке, Ticket без worktree — main.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/autopilot-continuation.test.ts test/contract/autopilot-faults-ladder.test.ts test/contract/autopilot-faults-codex.test.ts` exit 0 · mac - · 2c347bb81d232f90a16cc2a09aefc3666add4340
 - [ ] Unit test текста красный до правки и зелёный после; mutant (место убрано из текста) — красный.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/autopilot-continuation.test.ts` exit 1 before the change (3 failed), exit 0 after; mutant without the place: 7 failed · mac - · 2c347bb81d232f90a16cc2a09aefc3666add4340
 - [ ] Contract test-ы `autopilot-faults-codex.test.ts` и `autopilot-faults-ladder.test.ts` и
       `docs/features/autopilot-faults.md` совпадают с новым текстом.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs` over all 42 test/unit and test/contract autopilot-*.test.ts exit 0; `pnpm lint` (check-feature-docs) exit 0 · mac - · 2c347bb81d232f90a16cc2a09aefc3666add4340
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0; `pnpm lint` exit 0; `pnpm typecheck` exit 0 · mac - · afc1146d4794844532b64d11723baf365e02c7ee
 
 ## Где в коде
 
