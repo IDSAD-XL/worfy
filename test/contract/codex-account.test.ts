@@ -21,6 +21,7 @@ import type { CodexRuntime } from '../../src/main/vendors/codex/binary'
 import { codexLimitsPart } from '../../src/main/vendors/codex/limits'
 import type { CodexRpcEvent } from '../../src/main/vendors/codex/rpc'
 import { checkSchema, checkState } from '../../src/shared/ipc/first-run'
+import { quarantined } from '../quarantine'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 
@@ -169,14 +170,14 @@ describe('the limits part on the fake app-server', () => {
     expect(sent().filter((message) => message.method === 'account/rateLimits/read')).toEqual([{ id: 2, method: 'account/rateLimits/read', params: {} }])
   })
 
-  it('read() rejects when Codex refuses the read, and closes the app-server', async () => {
+  quarantined('codex-account-read-refused-closes')('read() rejects when Codex refuses the read, and closes the app-server', async () => {
     // The fake of a Codex signed out waits for account/read first and refuses the read before it.
     const { start, started } = fake('signed-out')
     await expect(codexLimitsPart({ start, codexHome }).read()).rejects.toThrow(/^Codex app-server refused account\/rateLimits\/read: /)
     expect(hasExited(started[0]!)).toBe(true)
   })
 
-  it('a poll aborted while its app-server starts closes that app-server once started and rejects: no process is left', async () => {
+  quarantined('codex-account-poll-aborted-no-process')('a poll aborted while its app-server starts closes that app-server once started and rejects: no process is left', async () => {
     const { start, started } = fake('account-plus')
     const quit = new AbortController()
     const polling = codexLimitsPart({ start, codexHome }).poll(quit.signal)

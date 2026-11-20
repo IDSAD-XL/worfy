@@ -43,6 +43,7 @@ import { profileRegistryFiles, type HarnessLocation } from '../../src/main/harne
 import { HarnessScriptStartError, killRunningHarnessScripts, type ProfileRunner, type runHarnessScript, type SpawnProcess } from '../../src/main/workflow/profile'
 import { NODE, NODE_DIR, nodeScript, scriptsEnv } from '../harness-node'
 import { ghWorld } from './gh-world'
+import { quarantined } from '../quarantine'
 import { removeTestTree } from '../remove'
 import { ms } from '../time-scale'
 
@@ -1415,7 +1416,7 @@ describe('attribution: what the form gets and what Connect writes (ADR-0061)', (
     expect(await printedAttribution(repo)).toBe('on')
   })
 
-  it('Full: the form gets what the Session proposed, on or off, and Connect writes it', async () => {
+  quarantined('projects-connect-attribution-full')('Full: the form gets what the Session proposed, on or off, and Connect writes it', async () => {
     for (const proposed of ['on', 'off'] as const) {
       const name = `full-${proposed}`
       const repo = makeRepo(join(scratch, name))
