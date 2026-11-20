@@ -1,10 +1,12 @@
-# worfy-integrations: несколько MCP-серверов одного сервиса (Jira, Slack, Linear…) на Project, с добавлением, входом и управлением внутри worfy
+# worfy-integrations: несколько MCP-серверов одного сервиса (Jira, Linear, Notion…) на Project, с добавлением, входом и управлением внутри worfy
 
-Status: draft 2026-11-20, владелец не отвечал
+Status: accepted 2026-11-20 — Q1–Q5 и Q7–Q10 приняты как рекомендовано; Q6 (Slack) — второй раунд, ответ (а): Slack
+только через connector claude.ai, в каталоге первой версии Slack нет (раздел «Ответы владельца»)
 Critic: docs/product/critic/worfy-integrations-2026-11-20.md (Split, applied) — возражение 1: в `Blocked by:` добавлены
-05 ← 04a, 07 ← 05, 08 ← 06; возражение 2: вход OAuth Ticket-а 04b — `OAuthClientProvider` пакета `@modelcontextprotocol/sdk`
-1.32.0 (прямая зависимость), refresh — в transport-е proxy; возражение 3: Ticket 04 разрезан на 04a (вход по token-у) и
-04b (OAuth), первая рабочая Integration — после 03, 04a, 05 и 07 (Q10).
+06 ← 04, 08 ← 06, 09 ← 07; возражение 2: вход OAuth Ticket-а 05 — `OAuthClientProvider` пакета `@modelcontextprotocol/sdk`
+1.32.0 (прямая зависимость), refresh — в transport-е proxy; возражение 3: Ticket 04 разрезан на 04 (вход по token-у) и
+05 (OAuth), первая рабочая Integration — после 03, 04, 06 и 08 (Q10). Номера Ticket-ов — целые: CLI `ticket`
+принимает только цифры, поэтому 04a, 04b и 05–10 critic-а и черновика стали 04, 05 и 06–11.
 Source: просьба владельца 2026-11-20, его слова: «поддержка нескольких Jira, Slack, etc MCP сервисов одновременно,
 чтобы настраивалось под разные проекты» и «продумай как удобно сделать добавление новых MCP прямо изнутри ворфи,
 менеджить их на уровне проекта, авторизовывать и т.д., ибо очевидно добавлять их просто например с claude plugins вряд
@@ -22,8 +24,7 @@ check, Browser profile. Строки кода сверены с `ad2169058` (202
 у каждого ссылка и отметка «проверено» или «не проверено».
 Зависит от: Epic-а [worfy-mcp-live](../worfy-mcp-live/spec.md) (13/14, ждёт приёмки владельцем, Ticket 08: chip «MCP
 n/m», строки статуса, Restart с тем же разговором) и Epic-а worfy-auth-check (строки Health check, ADR-0109).
-Ticket-ы: Epic `worfy-integrations` — 11 Ticket-ов: `issues/01`–`03`, `04a`, `04b`, `05`–`10` появятся после
-принятия spec-а. Имена новых файлов ниже — предложение; implementer сверяет их с `main`.
+Ticket-ы: Epic `worfy-integrations` — 11 Ticket-ов, `issues/01`–`11` (созданы 2026-11-20 при принятии spec-а). Имена новых файлов ниже — предложение; implementer сверяет их с `main`.
 
 ## Проблема
 
@@ -75,7 +76,7 @@ Ticket-ы: Epic `worfy-integrations` — 11 Ticket-ов: `issues/01`–`03`, `04
 ## Решение
 
 У Project-а появляется раздел **Integrations** в Project settings. Integration — один подключённый аккаунт одного
-сервиса с меткой: «Jira — client A», «Jira — client B», «Slack — client A». worfy сам добавляет его (каталог сервисов
+сервиса с меткой: «Jira — client A», «Jira — client B», «Linear — client A». worfy сам добавляет его (каталог сервисов
 или свой адрес), сам входит (OAuth в своём окне или token), сам хранит вход на Machine и сам отдаёт каждой Session
 Project-а ровно её Integration-ы как MCP-серверы с уникальными именами. Claude Code и Codex входа не видят: они
 говорят с сервером worfy, а worfy — с сервисом. Поэтому предел «один connector на сервис и аккаунт» к Integration-ам
@@ -93,11 +94,11 @@ Project-а ровно её Integration-ы как MCP-серверы с уник�
    включена в этом Project-е. Другой Project той же Machine включает её одной галочкой, без второго входа. Список всех
    Integration-ов Machine — в Settings → Integrations (выход, удаление, где используется).
 3. **Вход — дело worfy** (Q3, Q4, Q5, Q10). Сначала — token-ы (API token, PAT, секреты stdio): с ними первая
-   Integration работает раньше всего (Ticket 04a). Затем OAuth 2.1 с PKCE (Ticket 04b) на `OAuthClientProvider` пакета
+   Integration работает раньше всего (Ticket 04). Затем OAuth 2.1 с PKCE (Ticket 05) на `OAuthClientProvider` пакета
    `@modelcontextprotocol/sdk` в окне worfy с отдельным cookie partition на Integration
    (два аккаунта Atlassian не мешают друг другу), регистрация клиента через Dynamic Client Registration; token-ы — в
    хранилище секретов worfy (0600, как у связи), не в Profile и не в репозитории. Где OAuth сервиса закрыт для
-   стороннего клиента (Slack, GitHub) — API token или token приложения пользователя.
+   стороннего клиента (GitHub) — token. Slack в первой версии не подключается: только connector claude.ai (Q6).
 4. **Список `mcp.allowed` остаётся для серверов Claude Code** (Q9). Integration-ы в нём не живут: включение
    Integration в Project — в `<Project data folder>/settings.json`. Раздел Integrations показывает и серверы Claude
    Code (user, local, `.mcp.json`, connector-ы claude.ai) с нынешним Allow, и предупреждает, когда connector и
@@ -112,7 +113,7 @@ Project-а ровно её Integration-ы как MCP-серверы с уник�
 
 1. Project settings → раздел **Integrations**. Две группы: «worfy integrations» (свои аккаунты) и «From Claude Code»
    (серверы и connector-ы Claude Code с нынешним Allow). Кнопка **Add integration**.
-2. Окно **Add integration** — каталог: Jira and Confluence (Atlassian), Slack, Linear, Notion, GitHub, Sentry, Figma и
+2. Окно **Add integration** — каталог: Jira and Confluence (Atlassian), Linear, Notion, GitHub, Sentry, Figma и
    **Custom server**. У каждого сервиса — как входят: «Sign in» или «API token». Integration, уже заведённая на Machine
    в другом Project-е, стоит сверху строкой «Use in this Project: Jira — client A (used in 2 Projects)».
 3. Пользователь выбирает Jira. Поля: **Label** (по умолчанию «Jira», уникальна на Machine), способ входа
@@ -143,7 +144,7 @@ Project settings — client-a-app
   Integrations
   ┌ worfy integrations ──────────────────────────────────────────────────────── [ Add integration ] ┐
   │ ● Jira — client A     client-a.atlassian.net · a…@client-a.com   41 tools ~9k  [All ▾] [✓ Autopilot] … │
-  │ ● Slack — client A    client-a.slack.com                          12 tools ~3k  [Read only ▾] [ ] …    │
+  │ ● Notion — client A   client-a workspace                          12 tools ~3k  [Read only ▾] [ ] …    │
   │ ▲ Linear — client A   Sign-in needed                                             [ Sign in ]  …     │
   └──────────────────────────────────────────────────────────────────────────────────────────────────┘
   ┌ From Claude Code ─────────────────────────────────────────────────────────────────────────────────┐
@@ -291,10 +292,10 @@ issue, вывод или вторичный источник.
   1.32.0 — той же, что `pnpm-lock.yaml:3929-3932` уже ставит peer-ом `@anthropic-ai/claude-agent-sdk` 0.3.322 (диапазон
   peer-а `^1.29.0`, `pnpm-lock.yaml:212-215`); вторая копия пакета в сборку не попадает. Одно соединение с сервисом на
   Integration и Machine, общее для всех Session-ов; `tools/list` кэшируется на время Session. Заголовок входа по
-  token-у (Ticket 04a) proxy берёт из `SecretStore` при каждом соединении. Для OAuth у transport-а есть место
+  token-у (Ticket 04) proxy берёт из `SecretStore` при каждом соединении. Для OAuth у transport-а есть место
   `authProvider`: transport сам обновляет истёкший access token и бросает `UnauthorizedError`, когда не может
-  (`dist/esm/client/streamableHttp.d.ts:62-73` пакета 1.32.0, проверено). Ticket 05 оставляет это место пустым, Ticket
-  04b вставляет туда своего provider-а, и refresh живёт в transport-е, а не в своём коде proxy. Отказ входа (401 при
+  (`dist/esm/client/streamableHttp.d.ts:62-73` пакета 1.32.0, проверено). Ticket 06 оставляет это место пустым, Ticket
+  05 вставляет туда своего provider-а, и refresh живёт в transport-е, а не в своём коде proxy. Отказ входа (401 при
   token-е, `UnauthorizedError` при OAuth) → ответ tool-а `isError` «Sign-in needed: <метка>…» и статус Integration
   `needs-sign-in`. Фильтр tools Project-а режет и `tools/list`, и `tools/call`. Первая версия proxy передаёт tools
   (текст, картинки, ссылки на ресурсы); `resources`, `prompts`, elicitation и sampling — «Не в этом Epic-е», если
@@ -308,14 +309,14 @@ issue, вывод или вторичный источник.
   `mcp_servers.<имя>` в `config` `thread/start` с `bearer_token_env_var` Session (`src/main/vendors/codex/mcp.ts:286-287`).
   Endpoint сегодня отвечает только `initialize`, `ping`, `tools/list`, `tools/call` (`http-server.ts:20-23`) — этого
   хватает tools-only proxy. Свой OAuth Codex не используется.
-- **Вход по token-у — Ticket 04a** (`src/main/integrations/auth/tokens.ts`). Bearer (Linear API key, GitHub PAT,
+- **Вход по token-у — Ticket 04** (`src/main/integrations/auth/tokens.ts`). Bearer (Linear API key, GitHub PAT,
   Notion MCP token, Atlassian service account), Basic (Atlassian e-mail и API token), свой заголовок (Custom server),
   переменные-секреты stdio — в `SecretStore`; проверка — `initialize` сервиса с этим заголовком. GitHub предлагает и
   token аккаунта `gh`, который worfy уже знает для Project-а, — с предупреждением о его scope-ах. Окна, DCR и живого
   сервиса в test-ах не нужно. Оговорка: Atlassian API token работает, только если admin организации клиента включил
   вход по token-у (Admin → Rovo → Rovo MCP server → Authentication, Факт 5); без этого Jira клиента входит только по
   OAuth, поэтому OAuth остаётся в Epic-е.
-- **Вход OAuth — Ticket 04b** (`src/main/integrations/auth/oauth.ts`, Q4, Q5). Протокол не пишется заново:
+- **Вход OAuth — Ticket 05** (`src/main/integrations/auth/oauth.ts`, Q4, Q5). Протокол не пишется заново:
   `OAuthClientProvider` пакета `@modelcontextprotocol/sdk` 1.32.0 (`dist/esm/client/auth.d.ts:15`; там же
   `discoverOAuthProtectedResourceMetadata`, `startAuthorization` с `resource`, `refreshAuthorization`,
   `registerClient` — строки 268, 361, 418, 466; `clientMetadataUrl` — `:25`; проверено). worfy пишет только provider-а над `SecretStore` (client id и secret, token-ы,
@@ -327,9 +328,11 @@ issue, вывод или вторичный источник.
   навигации окна, без listener-а; «Open in system browser» поднимает loopback listener на `127.0.0.1` со случайным
   портом (RFC 8252) и ждёт до 10 минут. Sign out — revocation endpoint (если есть), удаление ключей `SecretStore` и
   `session.fromPartition(…).clearStorageData()`.
-- **Slack** (Q6, Ticket 04b). Шаблон Slack просит client id и client secret приложения Slack пользователя (internal
-  app его workspace) и ведёт по шагам создания приложения; дальше — тот же OAuth с `client_secret_post`. Без приложения —
-  connector claude.ai Slack для одного workspace, как сейчас.
+- **Slack** (Q6, ответ владельца 2026-11-20). В каталоге первой версии Slack нет. Сервер Slack пускает только
+  зарегистрированное приложение Slack с secret-ом (Факты 6, 7), а workspace-ы клиентов владельца не разрешают
+  добавлять сторонние приложения, в том числе internal app пользователя. Slack остаётся за connector-ом claude.ai
+  (один workspace на аккаунт claude.ai), он виден в группе «From Claude Code» с нынешним Allow. Cookie token-ы
+  браузера (`xoxc`/`xoxd`) worfy не использует никогда.
 - **Статус.** `IntegrationStatus`: `signed-in`, `needs-sign-in`, `error` (текст сервиса без token-ов), `checking`.
   Строки chip-а «MCP n/m» (`src/shared/agent/mcp-status.ts`) получают источник `integration` и метку; действие Sign
   in у строки Integration открывает окно worfy, а не `mcpAuthenticate`.
@@ -357,7 +360,7 @@ issue, вывод или вторичный источник.
 ## Решения по test-ам
 
 - Stub сервиса MCP на `127.0.0.1` (streamable HTTP, 401 с `resource_metadata`, DCR, PKCE, refresh, revocation) и stub
-  stdio-сервера — общие fixture-ы `test/fixtures/integrations/`. Настоящие Atlassian, Slack и Linear test-ы не зовут.
+  stdio-сервера — общие fixture-ы `test/fixtures/integrations/`. Настоящие Atlassian и Linear test-ы не зовут.
 - Contract test-ы: две Integration-ы на одном адресе stub-а с разными token-ами отвечают каждая своим; token не
   появляется в аргументах процесса Claude Code и Codex, в логе, в Journal и в Flight recorder; фильтр tools режет и
   `tools/list`, и `tools/call`; refresh одним запросом при параллельных вызовах.
@@ -369,13 +372,13 @@ issue, вывод или вторичный источник.
 
 - **Proxy не покрывает сервис.** Сервис, чьи tools требуют elicitation, sampling, `resources` или поток от сервера,
   через tools-only proxy работает хуже. Мера: spike (Ticket 01) записывает `capabilities` выбранных сервисов; если
-  нужны — Ticket 05 растёт, а сервис без поддержки помечается в каталоге.
+  нужны — Ticket 06 растёт, а сервис без поддержки помечается в каталоге.
 - **Сервис закроет DCR.** Спецификация пометила DCR как deprecated (Факт 8). Мера: Client ID Metadata Document у пакета
   MCP SDK — одно поле `clientMetadataUrl` provider-а (Q5, вариант б), второго пути в коде нет.
 - **Slack и Figma не пускают стороннего клиента.** Slack — только приложение с secret, Figma — каталог клиентов
-  (Факты 6, 7). Мера: Slack — приложение пользователя; Figma — в каталоге с пометкой «may refuse worfy», вход через
-  connector claude.ai остаётся.
-- **Admin клиента запретил.** Atlassian API token включает admin, Slack-клиентов одобряет admin workspace. worfy
+  (Факты 6, 7). Мера: Slack — только connector claude.ai, второго workspace Slack в Session нет (Q6); Figma — в каталоге
+  с пометкой «may refuse worfy», вход через connector claude.ai остаётся.
+- **Admin клиента запретил.** Atlassian API token включает admin организации клиента. worfy
   показывает текст отказа сервиса и ссылку на страницу admin-а, а не «error».
 - **Keychain или файл.** Файл 0600 читает любой процесс того же пользователя — как `~/.claude/.credentials.json` на
   Linux и Windows и файловый режим Codex. Правило владельца о соразмерной защите: угроза, которой нужны права самого
@@ -391,6 +394,14 @@ issue, вывод или вторичный источник.
 
 Вопросы о деньгах и необратимых шагах: регистрация приложения Slack или публикация документа CIMD — только варианты
 (б) в Q5 и Q6.
+
+### Ответы владельца 2026-11-20
+
+- Q1–Q5, Q7–Q10 — «да»: приняты рекомендованные варианты (а).
+- Q6 — вариант (а) отвергнут: «internal app — это не вариант, добавлять левые приложения в workspace нигде не
+  разрешают». Второй раунд, ответ (а): в каталоге первой версии Slack нет, Slack — только через connector claude.ai.
+  Cookie token-ы `xoxc`/`xoxd` — никогда. Своё приложение worfy в Slack Marketplace — не планируется.
+- «Решено без владельца» 1–5 — подтверждены (каталог пункта 5 — уже без Slack).
 Ответ «да» на вопрос принимает рекомендованный вариант (а).
 
 1. **Q1. Как Session ходит к Integration?**
@@ -430,7 +441,7 @@ issue, вывод или вторичный источник.
      profile (ADR-0078, пункт 10): Run без человека не пишет в Jira клиента, пока пользователь этого не решил.
    - (б) По умолчанию включена.
 8. **Q8. Codex — в этом Epic-е?**
-   - (а) Да, тем же proxy (Ticket 06). Рекомендация: путь `127.0.0.1` уже есть у `worfy-canvas`, работы немного.
+   - (а) Да, тем же proxy (Ticket 07). Рекомендация: путь `127.0.0.1` уже есть у `worfy-canvas`, работы немного.
    - (б) Позже, Claude сначала.
 9. **Q9. Что с нынешним `mcp.allowed`?**
    - (а) Остаётся для серверов Claude Code и connector-ов, как есть; автоматического переноса нет; у сервера с адресом
@@ -438,15 +449,15 @@ issue, вывод или вторичный источник.
    - (б) Перенести серверы каталога из `mcp.allowed` в Integration-ы автоматически при первом запуске.
 10. **Q10. Первая рабочая Integration — по token-у, OAuth — следующей Wave-ой?** Новый вопрос после возражения 3
     critic-а: он меняет порядок решения 3 («Вход — дело worfy»), а не его состав.
-    - (а) Да: Ticket 04a (API token, PAT, секреты stdio) идёт раньше, и две Jira в двух Project-ах работают после
-      Ticket-ов 03, 04a, 05 и 07 (конец Wave 4); Sign in через OAuth (Ticket 04b, та же Wave 4) кнопкой на экране
-      появляется в Ticket-е 08 (Wave 5). Рекомендация: token покрывает Linear, GitHub, Notion и Atlassian, а token
+    - (а) Да: Ticket 04 (API token, PAT, секреты stdio) идёт раньше, и две Jira в двух Project-ах работают после
+      Ticket-ов 03, 04, 06 и 08 (конец Wave 4); Sign in через OAuth (Ticket 05, та же Wave 4) кнопкой на экране
+      появляется в Ticket-е 09 (Wave 5). Рекомендация: token покрывает Linear, GitHub, Notion и Atlassian, а token
       Atlassian ещё и не привязан к site (Факт 5). Оговорка: Atlassian API token работает, только если admin
       организации клиента его включил, поэтому OAuth в Epic-е остаётся.
-    - (б) Нет: Sign in через OAuth — на первом же экране, первая рабочая Integration ждёт Ticket 04b (на одну Wave
+    - (б) Нет: Sign in через OAuth — на первом же экране, первая рабочая Integration ждёт Ticket 05 (на одну Wave
       позже).
 
-## Решено без владельца (подтвердить)
+## Решено без владельца (подтверждено владельцем 2026-11-20)
 
 1. **Имя Epic-а** — `worfy-integrations`; термин UI и CONTEXT.md — Integration («Integrations» в Project settings и
    Settings).
@@ -456,13 +467,14 @@ issue, вывод или вторичный источник.
    access включает, выключает и запускает Sign in там.
 4. **Первая версия proxy — только tools.** `resources`, `prompts`, elicitation и sampling — если spike покажет нужду.
 5. **Каталог первой версии:** Jira and Confluence, Linear, Notion, Sentry (OAuth worfy и token-ы), GitHub (PAT или
-   token `gh`), Slack (по Q6), Figma (с пометкой), Custom server (http и stdio).
+   token `gh`), Figma (с пометкой), Custom server (http и stdio). Slack — нет (Q6).
 
 ## Ticket-ы
 
-После critic-а (Split, 2026-11-20): Ticket 04 разрезан на 04a (вход по token-у) и 04b (OAuth на пакете
-`@modelcontextprotocol/sdk`); в `Blocked by:` добавлены 05 ← 04a, 07 ← 05, 08 ← 06 (06 и 08 правят один файл,
-`src/shared/agent/mcp-status.ts`). Первая рабочая Integration — после 03, 04a, 05 и 07 (конец Wave 4, Q10).
+После critic-а (Split, 2026-11-20): Ticket 04 разрезан на 04 (вход по token-у) и 05 (OAuth на пакете
+`@modelcontextprotocol/sdk`); в `Blocked by:` добавлены 06 ← 04, 08 ← 06, 09 ← 07 (07 и 09 правят один файл,
+`src/shared/agent/mcp-status.ts`). Первая рабочая Integration — после 03, 04, 06 и 08 (конец Wave 4, Q10). Номера —
+целые, потому что CLI `ticket` принимает только цифры: 04a, 04b и 05–10 critic-а и черновика — теперь 04, 05 и 06–11.
 
 1. **01 — Spike: Integration через worfy в Claude Code и Codex; что нужно сервисам.** Сценарий `integrations` в
    `scripts/spikes/harness-plugin/probe.ts` (sandbox: HOME и CLAUDE_CONFIG_DIR во временной папке, без входа, без
@@ -482,44 +494,44 @@ issue, вывод или вторичный источник.
    (`integrations.json`, `SecretStore` со своим файлом), поле `integrations` в `settings.json` Project-а, каналы
    `integrations.*`, новый ADR и Amendment ADR-0021.
    Blocked by: —.
-4. **04a — Вход по token-у**: Bearer, Basic, свой заголовок, переменные-секреты stdio, token аккаунта `gh` — в
+4. **04 — Вход по token-у**: Bearer, Basic, свой заголовок, переменные-секреты stdio, token аккаунта `gh` — в
    `SecretStore`; проверка `initialize` сервиса; Sign out для token-а (удаление ключей). Каталог помечает, что
    Atlassian API token работает, только если admin организации клиента включил вход по token-у; без этого — OAuth
-   (04b).
+   (05).
    Blocked by: 03.
-5. **04b — Вход OAuth**: `OAuthClientProvider` пакета `@modelcontextprotocol/sdk` над `SecretStore` (DCR, PKCE,
+5. **05 — Вход OAuth**: `OAuthClientProvider` пакета `@modelcontextprotocol/sdk` над `SecretStore` (DCR, PKCE,
    `resource` и refresh делает пакет), окно `BrowserWindow` с partition, перехват redirect, «Open in system browser» с
-   loopback listener-ом, Sign out с revocation, шаблон Slack с приложением пользователя (по Q6), канал
-   `integrations.signIn`; provider вставляется в `authProvider` transport-а proxy 05. Кнопку Sign in на экран и в
-   chip ставит 08.
-   Blocked by: 01, 03, 05.
-6. **05 — Proxy и Session Claude**: `@modelcontextprotocol/sdk` 1.32.0 — прямая зависимость в `package.json` (версия
+   loopback listener-ом, Sign out с revocation, канал
+   `integrations.signIn`; provider вставляется в `authProvider` transport-а proxy 06. Кнопку Sign in на экран и в
+   chip ставит 09.
+   Blocked by: 01, 03, 06.
+6. **06 — Proxy и Session Claude**: `@modelcontextprotocol/sdk` 1.32.0 — прямая зависимость в `package.json` (версия
    из `pnpm-lock.yaml`, как у peer-а Agent SDK); `McpServer` с JSON Schema сервиса, `Client` со
-   `StreamableHTTPClientTransport` (место `authProvider` пустое до 04b) и stdio-процесс в main; заголовок token-а из
-   04a; одно соединение на Integration, фильтр tools, ответ «Sign-in needed», метка в описании tool-а; SDK-серверы в
+   `StreamableHTTPClientTransport` (место `authProvider` пустое до 05) и stdio-процесс в main; заголовок token-а из
+   04; одно соединение на Integration, фильтр tools, ответ «Sign-in needed», метка в описании tool-а; SDK-серверы в
    `mcpServers` Session Project-а, имена без совпадений.
-   Blocked by: 01, 03, 04a.
-7. **06 — Codex**: Integration-ы через `src/main/mcp/http-server.ts` ключами `mcp_servers.<имя>`; строки Codex в chip-е
+   Blocked by: 01, 03, 04.
+7. **07 — Codex**: Integration-ы через `src/main/mcp/http-server.ts` ключами `mcp_servers.<имя>`; строки Codex в chip-е
    (`src/shared/agent/mcp-status.ts`).
-   Blocked by: 05.
-8. **07 — Раздел Integrations в Project settings и Settings → Integrations**: группы «worfy integrations» и «From
+   Blocked by: 06.
+8. **08 — Раздел Integrations в Project settings и Settings → Integrations**: группы «worfy integrations» и «From
    Claude Code», Add integration (каталог, Custom server http и stdio), метка, ввод token-а, статус, Test, фильтр с
-   числом и размером tools (их даёт proxy 05), Available to Autopilot, Rename, Sign out, Disable, Remove с
+   числом и размером tools (их даёт proxy 06), Available to Autopilot, Rename, Sign out, Disable, Remove с
    подтверждением; предупреждение о двух наборах; «Add as integration». После этого Ticket-а две Jira по token-у
    работают в двух Project-ах.
-   Blocked by: 02, 03, 04a, 05.
-9. **08 — Sign in, Session, Autopilot, Health check, Linked machine**: кнопка Sign in (OAuth 04b) в разделе
-   Integrations и у строк Integration в chip-е (`src/shared/agent/mcp-status.ts`, тот же файл, что у 06), Restart для
+   Blocked by: 02, 03, 04, 06.
+9. **09 — Sign in, Session, Autopilot, Health check, Linked machine**: кнопка Sign in (OAuth 05) в разделе
+   Integrations и у строк Integration в chip-е (`src/shared/agent/mcp-status.ts`, тот же файл, что у 07), Restart для
    Integration, включённой на ходу; Autopilot — только `autopilot: true`, набор на Wave, без окна; строки Health
    check; права Linked machine.
-   Blocked by: 04b, 06, 07.
-10. **09 — Документы**: `docs/features/integrations.md` и перевод `docs/features/ru/integrations.md`, правка
+   Blocked by: 05, 07, 08.
+10. **10 — Документы**: `docs/features/integrations.md` и перевод `docs/features/ru/integrations.md`, правка
     `docs/features/mcp-servers.md` и `projects.md`, термин Integration в `CONTEXT.md`, проверка, что ADR Ticket-а 03
     влит.
-    Blocked by: 03, 04a, 04b, 05, 06, 07, 08.
-11. **10 — Приёмка владельцем**: две Jira (два site-а) в двух Project-ах — по token-у и по OAuth, Linear или Slack,
+    Blocked by: 03, 04, 05, 06, 07, 08, 09.
+11. **11 — Приёмка владельцем**: две Jira (два site-а) в двух Project-ах — по token-у и по OAuth, Linear,
     Claude и Codex, Session Autopilot со строкой «Sign-in needed», Mac Stable copy; решения без владельца.
-    Blocked by: 01, 02, 03, 04a, 04b, 05, 06, 07, 08, 09.
+    Blocked by: 01, 02, 03, 04, 05, 06, 07, 08, 09, 10.
 
 ## Волны
 
@@ -528,12 +540,12 @@ issue, вывод или вторичный источник.
 | Wave | Ticket-ы | Blocked by | Почему так |
 |---|---|---|---|
 | 1 | 01, 02, 03 | — | spike (сценарий probe, записка), прототип (Card, файлов репозитория нет), модель и хранилище (`src/shared/integrations/`, `src/main/integrations/store.ts`, ADR): общих файлов нет |
-| 2 | 04a | 03 | вход по token-у (`src/main/integrations/auth/tokens.ts`) стоит на хранилище 03 |
-| 3 | 05 | 01, 03, 04a | proxy и Session Claude (`src/main/integrations/proxy.ts`, `package.json`, `src/main/vendors/claude/query.ts`, `options.ts`, `mcp.ts`): нужен ответ spike-а 01, модель 03 и заголовок 04a |
-| 4 | 04b, 06, 07 | 04b — 01, 03, 05; 06 — 05; 07 — 02, 03, 04a, 05 | OAuth (`src/main/integrations/auth/oauth.ts`, окно входа), Codex (`src/main/vendors/codex/mcp.ts`, `src/shared/agent/mcp-status.ts`) и экран (`src/renderer/shell/ProjectSettings.tsx`, `src/renderer/integrations/`, `src/renderer/settings/`): общих файлов нет; после этой Wave первая Integration работает по token-у (03, 04a, 05, 07) |
-| 5 | 08 | 04b, 06, 07 | Sign in на экране и в chip-е, Autopilot, Health check, Linked machine; правит `mcp-status.ts` после 06 |
-| 6 | 09 | 03, 04a, 04b, 05–08 | документы по сделанному |
-| 7 | 10 | 01–09 | приёмка |
+| 2 | 04 | 03 | вход по token-у (`src/main/integrations/auth/tokens.ts`) стоит на хранилище 03 |
+| 3 | 06 | 01, 03, 04 | proxy и Session Claude (`src/main/integrations/proxy.ts`, `package.json`, `src/main/vendors/claude/query.ts`, `options.ts`, `mcp.ts`): нужен ответ spike-а 01, модель 03 и заголовок 04 |
+| 4 | 05, 07, 08 | 05 — 01, 03, 06; 07 — 06; 08 — 02, 03, 04, 06 | OAuth (`src/main/integrations/auth/oauth.ts`, окно входа), Codex (`src/main/vendors/codex/mcp.ts`, `src/shared/agent/mcp-status.ts`) и экран (`src/renderer/shell/ProjectSettings.tsx`, `src/renderer/integrations/`, `src/renderer/settings/`): общих файлов нет; после этой Wave первая Integration работает по token-у (03, 04, 06, 08) |
+| 5 | 09 | 05, 07, 08 | Sign in на экране и в chip-е, Autopilot, Health check, Linked machine; правит `mcp-status.ts` после 07 |
+| 6 | 10 | 03, 04, 05, 06–09 | документы по сделанному |
+| 7 | 11 | 01–10 | приёмка |
 
 Wave, которую берут в работу, вычисляется заново в момент запуска (CONTEXT.md, термин Wave); таблица — прогноз по
 Blocked by и спискам файлов.
@@ -552,14 +564,16 @@ Blocked by и спискам файлов.
 - [ ] Autopilot получает только Integration-ы с «Available to Autopilot» и не открывает окно входа.
 - [ ] Серверы Claude Code и connector-ы claude.ai видны в разделе с Allow, как раньше; `mcp.allowed` работает как раньше.
 - [ ] Новый ADR, Amendment ADR-0021, страница Feature en и ru, термин Integration в `CONTEXT.md`.
-- [ ] (manual) Владелец принял Epic.
+- [ ] (вручную) Владелец принял Epic.
 
 ## Не в этом Epic-е
 
 - Запись серверов в конфигурацию Claude Code или Codex (`claude mcp add`, `.mcp.json`, `~/.claude.json`,
   `config.toml`): Session в терминале остаётся со своими серверами (ADR-0021, «Последствия»).
 - Integration-ы в Terminal Node и Terminal AI: там Claude Code в терминале со своим `/mcp`.
-- Своё приложение Slack у worfy в Marketplace (Q6, вариант б) и публикация документа CIMD (Q5, вариант б).
+- Slack как Integration: ни приложение пользователя, ни своё приложение worfy в Marketplace, ни cookie token-ы (Q6);
+  Slack — через connector claude.ai.
+- Публикация документа CIMD (Q5, вариант б).
 - `resources`, `prompts`, elicitation, sampling и MCP Apps через proxy (если spike не покажет нужду).
 - Общий доступ к Integration-ам между Machine-ами и перенос token-ов по связи.
 - Управление connector-ами claude.ai (добавить, удалить) — это делается в claude.ai.

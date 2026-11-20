@@ -323,6 +323,10 @@ _Avoid_: парковка, отложенный запрос, hold
 Настройка Project-а на Machine: после временной ошибки API worfy шлёт Orchestrator-у продолжение с растущей паузой, после отказа Limits ждёт сброса окна и продолжает. Исходное сообщение и команду Wave не повторяет.
 _Avoid_: автоповтор, replay, retry loop
 
+**Integration**:
+Один подключённый аккаунт одного внешнего сервиса (Jira, Linear, Notion…) с меткой, например «Jira — client A». worfy сам добавляет его, сам входит (окно входа сервиса или token) и сам хранит вход на Machine; Session-ы Project-а, где Integration включена, получают её tools, но входа не видят. Одного сервиса может быть несколько Integration-ов — по одной на аккаунт; Autopilot пользуется Integration только если пользователь это разрешил. Это не сервер MCP, который пользователь добавил в Claude Code сам, и не connector claude.ai ([spec worfy-integrations](.scratch/worfy-integrations/spec.md)).
+_Avoid_: интеграция как общее слово, connector (это claude.ai), MCP-сервер worfy, аккаунт
+
 ## App
 
 **Settings**:
