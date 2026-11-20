@@ -332,6 +332,29 @@ describe('the filter chips', () => {
 })
 
 describe('the results', () => {
+  it('the same search again while Review mode is open on a result: once its answer is in, Review mode is back on the result', async () => {
+    let release: (() => void) | null = null
+    let runs = 0
+    const run = (): IpcResult<unknown> | Promise<IpcResult<unknown>> => {
+      runs += 1
+      if (runs === 1) return { ok: true, value: RESULTS }
+      return new Promise((done) => {
+        release = () => done({ ok: true, value: RESULTS })
+      })
+    }
+    await view({ 'prSearch.run': run as Answer })
+    await search('retry')
+    const rowButton = within(screen.getAllByTestId('pr-inbox-row').find((each) => each.dataset.number === '77')!).getByRole('button')
+    fireEvent.keyDown(rowButton, { key: 'Enter' })
+    await screen.findByTestId('pr-review-mode')
+    fireEvent.keyDown(field(), { key: 'Enter' })
+    // While it runs the results have no rows yet: that is no answer, and Review mode is not closed for it.
+    await waitFor(() => expect(release).not.toBeNull())
+    await act(async () => Promise.resolve())
+    await act(async () => release!())
+    await waitFor(() => expect(screen.getByTestId('pr-review-mode').dataset.number).toBe('77'))
+  })
+
   it('Enter on a result opens Review mode (worfy-pr-review ticket 09), but not on a PR of my own; Clear closes it with the result', async () => {
     const mine = searchRow(INBOX.answer, true)
     const answer = (input: unknown) => {

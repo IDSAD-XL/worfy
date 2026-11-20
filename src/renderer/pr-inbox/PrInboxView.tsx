@@ -700,6 +700,8 @@ export interface SearchPanes {
   rows?: readonly PrInboxRow[]
   /** A result picked in the column of Review mode. */
   onPick?: (row: PrInboxRow) => void
+  /** The search's answer is in: none runs, and it did not fail. Until then its rows say nothing of what left. */
+  settled?: boolean
 }
 
 /**
@@ -752,9 +754,11 @@ export function PrInboxBody({ name, snapshot, tickets, epics = EMPTY_EPICS, now,
   const reviewOpen = useReviewMode((store) => store.open)
   const reviewing = current !== undefined && reviewOpenOn(reviewOpen, snapshot.projectId, current.row)
   // Review mode on a PR this view no longer lists (it left the inbox on a read; the search was cleared or changed):
-  // closed, so the list takes its keys again and the PR does not come back in Review mode later.
+  // closed, so the list takes its keys again and the PR does not come back in Review mode later. Only a finished read
+  // decides: a search running again shows no rows until its answer, and an inbox read keeps the last ones.
   const listed = results !== null ? [...(results.rows ?? []), ...(results.current === null ? [] : [results.current.row])] : order.map(({ row }) => row)
-  const reviewGone = reviewOpen !== null && reviewOpen.projectId === snapshot.projectId && (results !== null || snapshot.readAt !== null) && !listed.some((row) => reviewOpenOn(reviewOpen, snapshot.projectId, row))
+  const decided = results !== null ? results.settled !== false : snapshot.readAt !== null && !readingNow
+  const reviewGone = reviewOpen !== null && reviewOpen.projectId === snapshot.projectId && decided && !listed.some((row) => reviewOpenOn(reviewOpen, snapshot.projectId, row))
   useEffect(() => {
     if (reviewGone) closeReviewMode()
   }, [reviewGone])
@@ -1253,6 +1257,7 @@ function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' 
                 current: currentResult === undefined ? null : { group: groupOf(currentResult), row: pulledRow === null ? currentResult : unseenless(pulledRow) },
                 single: resultRows.length === 1,
                 rows: resultRows,
+                settled: !search.running && search.result !== null,
                 onPick: (row) => {
                   const found = resultRows.find((each) => rowKey(each) === rowKey(row))
                   if (found !== undefined) selectResult(found)

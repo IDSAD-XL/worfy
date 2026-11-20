@@ -966,6 +966,33 @@ describe('Start review (worfy-pr-review ticket 09)', () => {
     expect(before).toHaveLength(1)
     key('ArrowDown')
     expect(selectedRows()).not.toEqual(before)
+    // It comes back on the next read: selected, it shows in the pane, not in Review mode.
+    main.inbox['web-00000001'] = reviewed()
+    await act(async () => main.emit('prInbox.changed', { projectId: 'web-00000001' }))
+    await waitFor(() => expect(rowOf(WEB, 41)).toBeTruthy())
+    select(WEB, 41)
+    await waitFor(() => expect(pane().dataset.number).toBe('41'))
+    expect(screen.queryByTestId('pr-review-mode')).toBeNull()
+  })
+
+  it('Review mode open in one Project: the Pull requests of another Project take ↑ ↓ as before', async () => {
+    const ops = snapshotOf('ops-00000002', { groups: [{ group: 'needs-review', rows: [row('example-org/ops', 5, { title: 'Rotate the keys', author: ANA }), row('example-org/ops', 6, { title: 'Pin the base image', author: ANA })] }] })
+    preload({ inbox: { 'web-00000001': reviewed(), 'ops-00000002': ops }, models: { [WEB_ROOT]: WEB_MODEL }, answers: reviewAnswers })
+    const { PullRequestsView } = await import('../../src/renderer/pr-inbox/PrInboxView')
+    const { openPrInboxOf } = await import('../../src/renderer/pr-inbox/open')
+    render(<PullRequestsView />)
+    await waitFor(() => expect(screen.getAllByTestId('pr-inbox-row').length).toBeGreaterThan(0))
+    select(WEB, 41)
+    fireEvent.click(within(pane()).getByTestId('pr-review-start-more'))
+    fireEvent.click(await screen.findByTestId('pr-review-start-myself'))
+    await screen.findByTestId('pr-review-mode')
+    await act(async () => {
+      await openPrInboxOf('ops-00000002', 'web-00000001', { repo: 'example-org/ops', number: 5 })
+    })
+    await waitFor(() => expect(screen.getByTestId('pr-inbox-view').dataset.project).toBe('ops-00000002'))
+    await waitFor(() => expect(selectedRows()).toEqual(['example-org/ops#5']))
+    key('ArrowDown')
+    expect(selectedRows()).toEqual(['example-org/ops#6'])
   })
 })
 
