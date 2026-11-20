@@ -56,13 +56,16 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Факты GitHub API» → �
       деление по 256 символам, предупреждение про 5 операторов, chip-квалификаторы раздела 1 spec-а. Красный до правки —
       в «Итог».
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-search-query.test.ts` exit 0 · mac - · b63f39113812ecffbdcb0dbf30f1ea8f521393e3
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-search-query.test.ts` exit 0 · mac - · c5292719c3746a1189dec7a2b0befbb9006589ba
 - [ ] Contract `test/contract/pr-search.test.ts` (новый) на gh stand-in (`WORFY_GH`): строка запроса каждой области,
       cursor и «Load more», 1 000, rate limit, 403 SSO и `partial-results`, 422, 404; строка из inbox не читается
       дважды; stand-in валит test на любом `--method` и `mutation` — ни одной записи на GitHub.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-search.test.ts` exit 0 · mac - · b63f39113812ecffbdcb0dbf30f1ea8f521393e3
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-search.test.ts` exit 0 · mac - · c5292719c3746a1189dec7a2b0befbb9006589ba
 - [ ] Тот же contract: `prSearch.save` с Linked machine Read only — отказ; `prSearch.run` — разрешён; больше 20
       сохранённых — отказ; встроенные не удаляются.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-search.test.ts` exit 0 · mac - · b63f39113812ecffbdcb0dbf30f1ea8f521393e3
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-search.test.ts` exit 0 · mac - · c5292719c3746a1189dec7a2b0befbb9006589ba
 - [ ] Amendment-ы ADR-0105 (пункт 1) и ADR-0005 влиты в этом PR.
   - evidence: commit pass · worfy-pr-review/04: PR search in main — query builder, three scopes, prSearch.run/pull, saved searches · - - · b63f39113812ecffbdcb0dbf30f1ea8f521393e3
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
@@ -129,3 +132,17 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Факты GitHub API» → �
   `docs-watch-root.test.ts` красный и отдельно, и на чистом `origin/main` 0d5246cd4 (2 из 6) — это окружение Mac
   (fseventsd), не этот PR; ни один из этих файлов этот PR не трогает. Тесты Ticket-а и соседние test-ы PR inbox
   (9 файлов, 197 test-ов) — exit 0. Зелёный `ci-ok` решает CI.
+- Раунд ревью 1 (commit c5292719c), каждый пункт — сначала красный test, потом правка:
+  1. `-repo:`, `-org:`, `-user:` в тексте больше не снимают область (раньше поиск This Project уходил на весь
+     GitHub) — unit «a negated -repo:, -org: or -user: only narrows».
+  2. Память PR вне inbox — по аккаунту и `repo#N`: Project другого аккаунта читает PR своим токеном и не получает
+     строку чужого аккаунта — contract «two Projects of two accounts…».
+  3. Курсор «Load more» несёт hash строк поиска; курсор другого поиска отклоняется без вызова — contract «a cursor of
+     another search is refused…».
+  4. 403 с `X-GitHub-SSO` даёт notice SSO и при низком остатке лимита (проверка SSO раньше rate limit) — contract
+     «403 with X-GitHub-SSO while the rate limit is low».
+  5. Добавлены test-ы на ровно 256 символов (деление при `>=`) и на порядок по `updatedAt` при нескольких запросах.
+  Mutant-ы (в своём дереве, восстановлены из копии): `>=` на `>`, сортировка выключена, отрицание как область, память
+  без аккаунта, курсор без hash — все пять убиты (test exit 1). Test-ы `pr-search-query`, `pr-search`, `link-access`,
+  `pr-inbox` — exit 0 (115 test-ов); `pnpm lint`, `pnpm typecheck` — exit 0. Gate fast не запускался: на этом Mac
+  test-ы слежения за файлами красные из-за fseventsd (см. выше), прогон ничего бы не решил.
