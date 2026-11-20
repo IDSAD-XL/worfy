@@ -276,13 +276,26 @@ function tryLock(file: string, now: number): boolean {
   return false
 }
 
-const unlock = (file: string): void => removeFile(lockOf(file))
+/** Whether the lock of `file` is there and names this process: a writer that found it stale may have taken it over. */
+function ownLock(file: string): boolean {
+  try {
+    return readFileSync(lockOf(file), 'utf8').trim() === String(process.pid)
+  } catch {
+    return false
+  }
+}
+
+/** Removes the lock of `file` only while it is this process's: never one another writer took over meanwhile. */
+const unlock = (file: string): void => {
+  if (ownLock(file)) removeFile(lockOf(file))
+}
 const lockedFor = (file: string): ReviewDraftRefusal => new ReviewDraftRefusal(`The review draft ${file} stayed locked by another writer (an Agent review) for ${LOCK_WAIT_MS / 1000} s`)
 
 /**
- * The draft files whose lock a write of this process holds now. A quit (flushSync) finds one when it comes while that
- * write waits for its disk: it writes at once, not after the lock goes stale, since nothing of this process runs again
- * before the quit ends; the lock keeps the script out meanwhile.
+ * The draft files whose lock a write of this process took. A quit (flushSync) finds one when it comes while that write
+ * waits for its disk: while the lock still names this process it writes at once, not after the lock goes stale, since
+ * nothing of this process runs again before the quit ends, and the lock keeps the script out meanwhile. A lock the
+ * script took over as stale is waited for like any other.
  */
 const heldHere = new Set<string>()
 
@@ -303,7 +316,14 @@ async function withLock<T>(file: string, work: () => Promise<T>): Promise<T> {
 }
 
 function withLockSync<T>(file: string, work: () => T): T {
-  if (heldHere.has(file)) return work()
+  if (heldHere.has(file) && ownLock(file)) {
+    try {
+      return work()
+    } finally {
+      heldHere.delete(file)
+      unlock(file)
+    }
+  }
   const until = Date.now() + LOCK_WAIT_MS
   while (!tryLock(file, Date.now())) {
     if (Date.now() > until) throw lockedFor(file)

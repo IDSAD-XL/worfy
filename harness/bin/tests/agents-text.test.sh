@@ -1061,7 +1061,8 @@ leak="$(grep -rniE 'reasoning log|running log of (its|your|the) reasoning|log of
 [ -z "$leak" ] && ok "no ship-ticket file or agent asks for a reasoning log" || bad "a request for a reasoning log: $leak"
 
 # Agent review of worfy: the Team reviewer's template and /worfy:code-review each carry the section
-# worfy runs them by, which binds the draft to bin/pr-review-draft and makes the verdict only a suggestion. A copy of
+# worfy runs them by, which binds the draft to bin/pr-review-draft and makes the verdict only a suggestion; the diff
+# and the lines are those of the named commit, which must exist after the fetch. A copy of
 # each without one of these sentences must fail the same check (the mutant below).
 AR_HEAD='When worfy runs you for Agent review' # a heading of level 2 or 3
 AR_SENTENCES='only through `bin/pr-review-draft`
@@ -1069,7 +1070,9 @@ The verdict is only a suggestion
 Never write or create the draft file yourself.
 Nothing goes to GitHub: no `gh api` write
 End with `done`, also when
-`Review the commit <sha>`'
+`Review the commit <sha>`
+not `gh pr diff`
+still missing after the fetch'
 # agent_review_ok FILE: 0 when FILE has the section and every sentence of AR_SENTENCES inside it.
 agent_review_ok() {
     local sec s

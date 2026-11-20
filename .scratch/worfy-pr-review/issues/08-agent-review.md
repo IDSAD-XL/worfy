@@ -173,3 +173,25 @@ skill-а, guard hook и eval.
   каждый свой test.
 - Evidence перепривязаны к коммиту после rebase-а. gate fast не запускался: file watcher test-ы на этом Mac красные из-за
   fseventsd.
+
+Раунд ревью 2 (ревью PR #2085, три low):
+
+- **Нечитаемый черновик не держит watch после конца Session.** Раньше взгляд, который не прочитал черновик, пропускался
+  ещё до проверки Session. Черновик, нечитаемый навсегда (битый JSON, папка Profile пропала), держал таймер и chokidar
+  до выхода из worfy. Теперь такой взгляд закрывает watch с warn, когда Session закрыта, упала, пропала или её ход
+  кончился. Пометить черновик тогда нельзя: он не читается. Test «a draft that stays unreadable does not keep the watch
+  once the Session closed»: до правки красный по timeout (exit 1), после — 13 passed (exit 0).
+- **Diff и строки — на названном коммите.** `gh pr diff` и `additions`/`deletions`/`files` из `gh pr view` всегда
+  описывают текущий head PR. Шаблон Team reviewer-а теперь берёт diff из `git diff <baseRefOid>...<sha>` в worktree
+  шага 1, оттуда же размер, пути и «строка diff-а». `/worfy:code-review` делает то же с `<head>`. Оба skill-а
+  останавливаются, если коммит пропал и после fetch-а (его убрал force push): `cat-file` повторяется после fetch-а. В
+  `agents-text.test.sh` добавлены фразы ``not `gh pr diff` `` и `still missing after the fetch` с mutant-ами. На
+  старых текстах test красный: 2 failed, exit 1. После правки — 514 passed, exit 0. Хеш и диапазон строк правки
+  `code-review/SKILL.md` обновлены в `THIRD_PARTY.md` и `harness-third-party-skills.test.ts`. Eval не перезапускался:
+  case остаётся верным. Его fixture-коммит есть в репозитории, diff тот же, а grader-ы проверяют только запись через
+  `bin/pr-review-draft` и отсутствие записей на GitHub.
+- **Свой замок, забранный скриптом, `flushSync` ждёт.** `heldHere` значит только «этот процесс взял замок». Через
+  10 s скрипт мог забрать его как устаревший, и тогда `flushSync` писал без ожидания. Теперь путь без ожидания идёт,
+  только пока в файле замка pid этого процесса; после записи замок снимается. Иначе `flushSync` ждёт, как чужой
+  замок. Любой писатель main снимает замок, только пока в нём его pid. Test «waits when another process took over the
+  lock of its own write»: до правки `flushSync` вернулся сразу (exit 1), после — 29 passed (exit 0).

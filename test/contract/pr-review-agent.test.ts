@@ -200,6 +200,15 @@ describe('the watch of an Agent review', () => {
     await vi.waitFor(() => expect(s.agent.watching()).toBe(0), { timeout: ms(10_000) })
   })
 
+  it('a draft that stays unreadable does not keep the watch once the Session closed', { timeout: ms(30_000) }, async () => {
+    const s = await setup()
+    const started = ok(await s.call<Started>('prReview.agentReview', { ...pull, head: HEAD, fill: 'new' }))
+    await vi.waitFor(() => expect(s.registry.get(started.sessionId).state).toBe('busy'))
+    writeFileSync(s.file, '{ "schema": 1, broken')
+    s.registry.get(started.sessionId).close()
+    await vi.waitFor(() => expect(s.agent.watching()).toBe(0), { timeout: ms(10_000) })
+  })
+
   it('the Session’s turn ends without done: the draft is marked done and the watch ends', { timeout: ms(30_000) }, async () => {
     const s = await setup({ script: 'pr-review-agent-turn' })
     const started = ok(await s.call<Started>('prReview.agentReview', { ...pull, head: HEAD, fill: 'new' }))

@@ -337,6 +337,37 @@ describe('the write at quit (flushSync) and the lock', () => {
     expect(leftovers()).toEqual([])
   })
 
+  it('waits when another process took over the lock of its own write (stale meanwhile), then writes and leaves no lock', { timeout: ms(60_000) }, async () => {
+    reset(draft())
+    let release = (): void => undefined
+    let blocked = false
+    const drafts = new PrReviewDrafts({
+      profileDir: async () => ({ dir: profileDir, reason: null }),
+      warn: () => undefined,
+      writeFile: async (path, text) => {
+        blocked = true
+        await new Promise<void>((resolve) => (release = resolve))
+        writeFileSync(path, text)
+      },
+    })
+    const save = drafts.saveComment(repo, REPO, PR, { head, comment: personComment(4, 'Why push?'), anchor: '    items.push(i)' })
+    while (!blocked) await new Promise((resolve) => setTimeout(resolve, 5))
+    // The script found the lock stale and took it over: the lock now names its process, which lets it go in 300 ms.
+    const holder = spawn(scriptNode(), ['-e', "require('fs').writeFileSync(process.argv[1], process.pid + '\\n'); process.stdout.write('ready\\n'); setTimeout(() => require('fs').unlinkSync(process.argv[1]), 300)", lock()], { stdio: ['ignore', 'pipe', 'inherit'] })
+    const gone = new Promise((resolve) => holder.on('close', resolve))
+    await new Promise((resolve) => holder.stdout.once('data', resolve))
+    const started = Date.now()
+    drafts.flushSync()
+    expect(Date.now() - started).toBeGreaterThanOrEqual(150)
+    await gone
+    expect(bodies()).toEqual(['Why an array?', 'Why push?'])
+    expect(existsSync(lock())).toBe(false)
+    release()
+    await save
+    expect(existsSync(lock())).toBe(false)
+    expect(leftovers()).toEqual([])
+  })
+
   it('waits for the lock of another writer, then writes and leaves no lock', { timeout: ms(60_000) }, async () => {
     reset(draft())
     const drafts = await oneWaiting()

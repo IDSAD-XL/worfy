@@ -189,16 +189,22 @@ export class PrReviewAgent {
       // Gone: its Node closed.
     }
     if (state !== null && IN_TURN.has(state)) entry.turned = true
+    const over = state === null || state === 'closed' || state === 'error' ? 'stopped' : entry.turned && state === 'idle' ? 'done' : null
     const { draft, problem } = await this.deps.drafts.draft(pull.root, pull.repo, pull.number)
     if (this.watches.get(key) !== entry || entry.ending) return
-    // Not read this time (a file being replaced, a disk busy for a moment): the next look reads it.
-    if (draft === null && problem !== null) return
+    if (draft === null && problem !== null) {
+      // Not read this time (a file being replaced, a disk busy for a moment): the next look reads it — while the
+      // Session writes. Once it is over, the draft cannot be marked: the watch ends as it is.
+      if (over === null) return
+      this.warn(`[pr-review] the Agent review of ${pull.repo}#${pull.number} is over, its draft was not marked ${over}: ${problem}`)
+      await this.end(key)
+      return
+    }
     const mine = draft?.agent?.sessionId === entry.sessionId
     if (!mine || draft?.agent?.state !== 'writing' || draft.state !== 'draft') {
       await this.end(key)
       return
     }
-    const over = state === null || state === 'closed' || state === 'error' ? 'stopped' : entry.turned && state === 'idle' ? 'done' : null
     if (over === null) return
     entry.ending = true
     await this.deps.drafts.setAgent(pull.root, pull.repo, pull.number, { agent: { sessionId: entry.sessionId, state: over } })

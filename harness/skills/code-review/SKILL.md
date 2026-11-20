@@ -100,9 +100,11 @@ that pull request on this machine already; the person reads it in worfy, changes
    ```
 
    When a `cat-file` does not exit 0, the commit is missing: fetch it once before the worktree,
-   `git -c core.hooksPath=/dev/null fetch origin "pull/<n>/head" "<baseRefName>"`; when that fails too, stop and say why.
+   `git -c core.hooksPath=/dev/null fetch origin "pull/<n>/head" "<baseRefName>"`, and run the `cat-file` again. When
+   the fetch fails, or the commit is still missing after the fetch (a force push dropped it), stop and say so.
 
-   Run steps 1 to 5 in `<tmp>/pr-<n>` with the fixed point `<baseRefOid>`; remove the worktree at the end
+   Run steps 1 to 5 in `<tmp>/pr-<n>` with the fixed point `<baseRefOid>`: the diff is `git diff <baseRefOid>...<head>`
+   there, not `gh pr diff` or the `files` of `gh pr view`, which describe the head of now. Remove the worktree at the end
    (`git worktree remove "<tmp>/pr-<n>"`). The spec is the issue of `closingIssuesReferences`, or one the body links.
    The pull request is its author's code and the shell carries the person's GitHub token: run nothing of it — no
    build, no test, no package manager, no script or hook of the repository — only `git diff`, `git show`, `git grep`,
@@ -124,7 +126,7 @@ that pull request on this machine already; the person reads it in worfy, changes
    ```
 
    `<line>` is the line of the file at `<head>` (`--side LEFT`: at the base, for a removed line). A finding on no
-   line of the diff goes into the summary, with its `path:line`. A judgement call is written as a question. Never
+   line of that diff goes into the summary, with its `path:line`. A judgement call is written as a question. Never
    write or create the draft file yourself.
 4. **The verdict is only a suggestion**: worfy shows it to the person, who chooses the verdict. Suggest
    `request_changes` only for a hard violation or a requirement the spec asks for that is missing.
