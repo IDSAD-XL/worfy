@@ -1,5 +1,10 @@
 import { useContext, useLayoutEffect, useRef, useState } from 'react'
 import type { MessageAttachment } from '../../shared/agent/attachments'
+import { branchNamesTicket } from '../../shared/workflow/ticket-ref'
+import { openChangesAtLine, type ChangesSubject } from '../changes/open'
+import { activeProject, useProjects } from '../projects/useProjects'
+import { showToast } from '../toast/toasts'
+import { useWorkflow } from '../workflow/useWorkflow'
 import { MessageAttachments } from './MessageAttachments'
 import { linesLabel, squash, type ParsedCode, type ParsedMessage, type SentQuote } from './quote-comments'
 import { SentQuotesContext } from './sent-quotes'
@@ -14,7 +19,8 @@ import './quote-comments.css'
 // line leads back to the quote's dim light in the agent's message.
 // A comment on lines of code (worfy-changes-view ticket 04) has its block after the quote blocks: the
 // file and its lines, the code as the agent got it, folded to three lines with «Show all», the comment
-// and its images — all from the message's text too. The way to the lines in Changes is ticket 05.
+// and its images — all from the message's text too. Its source line opens the Changes of the Ticket its branch names on
+// those lines (ticket 05): the Ticket is found by the branch, `<epic>/<NN>` or the one a Ticket's `Branch:` line names.
 
 /** The arrow of a source line: up, to the agent's message. */
 function UpIcon() {
@@ -25,8 +31,19 @@ function UpIcon() {
   )
 }
 
+/** The Ticket a sent comment on code is about, by its branch in the active Project's workflow; null when none is. */
+function useCodeSubject(branch: string): { projectId: string; subject: ChangesSubject } | null {
+  const project = activeProject(useProjects())
+  const { model } = useWorkflow(branch === '' ? undefined : project?.path)
+  if (project === undefined || branch === '') return null
+  const ticket = model?.tickets.find((each) => branchNamesTicket(branch, each))
+  if (ticket !== undefined) return { projectId: project.id, subject: { epic: ticket.epic, num: ticket.num } }
+  return null
+}
+
 function CodeBlock({ code, images }: { code: ParsedCode; images: readonly MessageAttachment[] }) {
   const codeRef = useRef<HTMLQuoteElement>(null)
+  const target = useCodeSubject(code.branch)
   const [open, setOpen] = useState(false)
   const [clamped, setClamped] = useState(false)
   const shown = code.code.join('\n')
@@ -39,10 +56,28 @@ function CodeBlock({ code, images }: { code: ParsedCode; images: readonly Messag
   const where = linesLabel(code.path, code.startLine, code.endLine)
   return (
     <div className="w-qprompt__block" data-testid="quoted-prompt-code-block" data-code-number={code.number} tabIndex={-1}>
-      <span className="w-qprompt__source w-mono" title={`${code.side} side, ${code.commit === null ? 'uncommitted' : `commit ${code.commit}`}`}>
-        <span className="w-qprompt__number">{code.number}</span>
-        {where}
-      </span>
+      {target === null ? (
+        <span className="w-qprompt__source w-mono" title={`${code.side} side, ${code.commit === null ? 'uncommitted' : `commit ${code.commit}`}`}>
+          <span className="w-qprompt__number">{code.number}</span>
+          {where}
+        </span>
+      ) : (
+        <button
+          type="button"
+          className="w-qprompt__source w-mono"
+          title={`Open ${where} in Changes (${code.side} side, ${code.commit === null ? 'uncommitted' : `commit ${code.commit}`})`}
+          aria-label={`Open ${where} in Changes`}
+          data-testid="quoted-prompt-code-source"
+          onClick={() =>
+            void openChangesAtLine(target.projectId, target.subject, { path: code.path, side: code.side, line: code.startLine }).then((refusal) => {
+              if (refusal !== undefined) showToast({ kind: 'error', key: 'changes-open-refused', text: refusal })
+            })
+          }
+        >
+          <span className="w-qprompt__number">{code.number}</span>
+          {where}
+        </button>
+      )}
       <blockquote ref={codeRef} className={`w-qprompt__quote w-mono${open ? ' w-qprompt__quote--open' : ''}`} style={{ whiteSpace: 'pre-wrap' }} aria-label={`Code of ${where}`} data-testid="quoted-prompt-code">
         {shown}
       </blockquote>

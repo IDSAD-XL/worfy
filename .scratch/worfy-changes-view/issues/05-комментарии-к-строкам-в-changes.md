@@ -1,7 +1,7 @@
 # 05 — Комментарии к строкам в Changes: gutter, popover, лоток, список «To» и Send одним сообщением
 
 Type: task
-Status: open
+Status: claimed 2026-11-20T00:15Z
 Blocked by: 03, 04
 Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Как пользователь идёт по экрану», шаги 4–6 и 8;
 «Решения по реализации — часть 1» → «Комментарии к строкам», пункты «Экран», Send, «Список «To»», «На экране только для
@@ -76,3 +76,59 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Как
 ## Вне скоупа
 
 - «New session in this worktree» и Session самого Node-а в «To», комментарии к PR и Add to comments — часть 2.
+
+## Итог
+
+Сделано implementer-ом 2026-11-20, ветка `worfy-changes-view/05`.
+
+- Комментарий к строке или диапазону одного файла и одной стороны: «+» в gutter строки под указателем, клавиша `c` на
+  выбранных строках (клик, клик с Shift, выделение через строки), Comment в меню правого клика (рядом Copy line).
+  Popover (`src/renderer/changes/LineComment.tsx`) — место, код строк, текст и до трёх картинок, ⌘↵ сохраняет; клик
+  вне или Esc закрывает только неизменённый. Комментарий — черновик Session из «To» в общем store
+  (`quote-store.ts`, `addDraft`/`editDraft`), под последней строкой — «not sent», Edit, Delete с Undo 6 с.
+- Лоток (`src/renderer/changes/Tray.tsx`): «N comments on M files[ · K on messages]», chip на комментарий (переход к
+  строке), Clear, «To», поле общего сообщения, Send. «Autopilot is running» — при Orchestrator-е в «To» и идущем Autopilot.
+- «To» — канал `changes.targets` (`src/shared/ipc/changes.ts`, `src/main/ipc/changes.ts`, новый
+  `src/main/changes/targets.ts`): Session-ы worfy с Binding-ом на Ticket (ручной Binding сильнее launch-а), не в архиве,
+  по свежести последней записи, затем Orchestrator.
+- Send (`src/renderer/changes/line-comments.tsx`) делает то же, что Send поля ввода Session: `composeRound` →
+  `agent.send` → `markPending`; Session, которая не идёт, сначала запускается (`sessions.start` / `orchestrator.open`).
+  Отправленные остаются тусклыми на строках: новый store `src/renderer/changes/sent-lines.ts` (localStorage, ключ
+  `worfy.changes-sent:<project>/<epic>/<num>`, 200 последних на Ticket).
+- После Refresh неотправленные ищутся заново в строках hunk-ов (`anchorLines`); не найденные — «Line changed».
+- Блок комментария в пузыре чата (`src/renderer/session/QuotedPrompt.tsx`): путь — кнопка, открывает Node Changes
+  Ticket-а ветки и прокручивает к строке с подсветкой (`openChangesAtLine` в `src/renderer/changes/open.ts`; запрос
+  живёт 5 с, потому что Node перемонтируется при смене вида). `DiffPane.tsx` получил `renderBelow`, `isPicked`,
+  `lineEvents`, `onFileRead` и `scrollToLine`.
+- Read only (Linked machine): нет «+», `c`, Comment и лотка.
+- Файлы вне списка «Где в коде»: `src/renderer/canvas/nodes/ChangesNode.tsx` (монтирует лоток и popover, клавиша `c`),
+  `src/renderer/changes/line-comments.tsx`, `sent-lines.ts`, `open.ts`, `diff-window.ts` (`lineNumber` — из-за правила
+  lint react-refresh), `changes.css`.
+- Страница `docs/features/changes.md`: раздел «Comments on lines», клавиша `c`, Read only.
+
+Снимки лотка с «To» (Playwright `page.screenshot()` в e2e, в репозиторий не положены):
+`/tmp/worfy-changes-view-w3/impl-05/changes-tray-light.png`, `/tmp/worfy-changes-view-w3/impl-05/changes-tray-dark.png`.
+
+Test-ы написаны после кода, не до. Красный прогон проверен потом: новые test-ы на origin/main `bbf82a57f` (временный
+worktree) — exit 1, 2 файла упали (нет модуля `sent-lines`, нет канала `changes.targets`).
+
+Решено без владельца, подтвердить:
+
+1. В «To» — Session-ы любого Vendor-а, не только Claude Code: комментарий — простой текст (действия на PR ограничены
+   Claude, потому что шлют skill Claude).
+2. Без предела в 24 часа на Session-ы в «To».
+3. Значение по умолчанию — по Q2 спеки: привязанная Session с самой свежей записью, иначе Orchestrator.
+4. Session или Orchestrator без session id держат комментарии под ключом `not-started`; когда Session сообщает id,
+   комментарии переезжают на него.
+5. Отправленные комментарии тусклые через отдельный store `sent-lines.ts`: `quote-store.ts` не хранит отправленные
+   комментарии к коду и по Ticket-у — только для чтения.
+6. Send запускает Session, если она не идёт (поле самой Session в этом случае только отказывает).
+7. Send шлёт все черновики этой Session, включая комментарии к её сообщениям, — как её собственный Send.
+8. «Line changed» — отметка только в памяти; повторная привязка после Refresh — по тексту hunk-ов, не всего файла.
+9. `commit` комментария по scope: all / compare — новая сторона = worktree (null), если он есть, иначе head; старая =
+   merge-base; uncommitted — новая = null, старая = head; commit — этот sha с обеих сторон.
+
+Проверки (exit code): `pnpm typecheck` — 0; eslint изменённых файлов — 0; unit и contract test-ы
+(`changes-tray`, `changes-view`, `changes-targets`, `changes-read`, `quote-comments*`, `quote-store`, `session-view`) —
+0, 8 файлов, 245 test-ов; `pnpm test:e2e test/e2e/changes-comments.spec.ts` — 0, 1 passed;
+`node scripts/check-feature-docs.mjs` — 0.

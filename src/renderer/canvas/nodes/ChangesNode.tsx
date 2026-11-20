@@ -8,6 +8,7 @@ import { changesScopeOf, changesSubjectOf, CHANGES_KIND, CHANGES_SIZE, type Chan
 import { DiffPane, type ChangesTicket, type DiffPaneHandle } from '../../changes/DiffPane'
 import { orderedFiles, scopeKey, type DiffLayout, type RepoFiles } from '../../changes/diff-window'
 import { FileTree } from '../../changes/FileTree'
+import { useLineComments } from '../../changes/line-comments'
 import { ScopeBar, type RepoList, type RepoScopes } from '../../changes/ScopeBar'
 import '../../changes/changes.css'
 import { invoke } from '../../ipc'
@@ -25,9 +26,12 @@ import type { CanvasNodeProps } from './index'
 // only. One Node per Ticket: the button Changes on the card and Open changes of the Command palette go to it once it
 // is there (canvas/actions/Changes.tsx).
 //
+// The comments on lines (ticket 05; changes/line-comments.tsx): «+» in the gutter, the key c on the lines picked, the
+// tray at the bottom with «To» and Send. A read-only screen has none of them.
+//
 // The head is ScopeBar.tsx, the tree FileTree.tsx, the diff DiffPane.tsx, drawn by windows of a few screens
 // (diff-window.ts). Keys while the focus is in the Node: j and k — the next and the previous file, n and p — the next
-// and the previous hunk. Refresh reads it all again; part 1 has no live refresh. In a focus tile (focus mode) the Node
+// and the previous hunk, c — a comment on the lines picked. Refresh reads it all again; part 1 has no live refresh. In a focus tile (focus mode) the Node
 // works as on the Canvas: the tile draws this component. The kind is neutral, as every Node type without an ADR of its
 // own colour (ADR-0077): no band, no icon colour, the minimap's grey.
 export const kind = 'changes' satisfies typeof CHANGES_KIND
@@ -133,25 +137,33 @@ function Screen({ id, projectId, root, subject, data, selected }: { id: string; 
   const repos: RepoFiles[] = useMemo(() => (list?.value ?? []).map((each) => ({ repo: each.repo, files: each.files, error: each.error })), [list])
   const entries = useMemo(() => orderedFiles(repos, filter, workflowOpen), [repos, filter, workflowOpen])
   const pane = useRef<DiffPaneHandle>(null)
+  const root$ = useRef<HTMLDivElement>(null)
+  const comments = useLineComments({ projectId, subject, scope, scopes: scopes?.value ?? [], lists: list?.value ?? undefined, entries, readOnly, pane, body: root$, generation })
   const select = (key: string) => {
     setChosen(key)
     pane.current?.scrollToFile(key)
   }
 
-  // j, k, n and p while the focus is in the Node, not in its filter or a menu.
-  const root$ = useRef<HTMLDivElement>(null)
-  const latest = useRef({ entries, chosen, select })
+  // j, k, n, p and c while the focus is in the Node, not in its filter or a menu.
+  const latest = useRef({ entries, chosen, select, commentKey: comments.commentKey })
   useEffect(() => {
-    latest.current = { entries, chosen, select }
+    latest.current = { entries, chosen, select, commentKey: comments.commentKey }
   })
   useEffect(() => {
     const element = root$.current
     if (element === null) return
     const onKey = (event: KeyboardEvent) => {
       const action = KEYS[event.key]
-      if (action === undefined || event.metaKey || event.ctrlKey || event.altKey) return
+      if ((action === undefined && event.key !== 'c') || event.metaKey || event.ctrlKey || event.altKey) return
       const target = event.target as HTMLElement
       if (target.closest('input, textarea, select, [contenteditable="true"], [role="menu"]') !== null) return
+      if (action === undefined) {
+        if (latest.current.commentKey()) {
+          event.preventDefault()
+          event.stopPropagation()
+        }
+        return
+      }
       const { entries: files, chosen: at, select: go } = latest.current
       event.preventDefault()
       event.stopPropagation()
@@ -226,8 +238,11 @@ function Screen({ id, projectId, root, subject, data, selected }: { id: string; 
             several={repos.length > 1}
             selected={chosen}
             generation={generation}
+            {...comments.diff}
           />
         </div>
+        {comments.tray}
+        {comments.overlay}
       </>
     )
 
