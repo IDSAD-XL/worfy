@@ -12,7 +12,7 @@
 // This is the second copy of the rules of harness/lib/evidence.cjs (spec of the worfy-evidence Epic, "Model"); the
 // two are held together by test/contract/evidence-rules-agree.test.ts on the Harness's shared fixtures
 // (harness/bin/tests/fixtures/evidence/). A change of a rule goes into both. Pure: no Node, no DOM.
-import { accepted, DEFAULT_DOC_HEADINGS, escapeRegExp, OLD_DOC_HEADINGS, sectionHeadings, type DocHeadings } from './doc-headings'
+import { accepted, DEFAULT_DOC_HEADINGS, escapeRegExp, manualMarks, OLD_DOC_HEADINGS, sectionHeadings, type DocHeadings } from './doc-headings'
 import type { EvidenceItem, EvidenceLine, EvidenceNeeds } from './types'
 
 export const KINDS = ['commit', 'test-run', 'ci-check', 'gate', 'review', 'screenshot', 'video', 'owner-check'] as const
@@ -165,7 +165,7 @@ export function itemState(item: ReadItem): Pick<EvidenceItem, 'state' | 'reason'
 export function evidenceItems(markdown: string, headings: Pick<DocHeadings, 'doneSection' | 'manualMark'> = DEFAULT_DOC_HEADINGS): EvidenceItem[] {
   const pick = (value: string, fallback: string): string => value.trim() || fallback
   const done = sectionHeadings(accepted(pick(headings.doneSection, DEFAULT_DOC_HEADINGS.doneSection), OLD_DOC_HEADINGS.doneSection))
-  const marks = accepted(pick(headings.manualMark, DEFAULT_DOC_HEADINGS.manualMark), OLD_DOC_HEADINGS.manualMark)
+  const marks = manualMarks(headings.manualMark)
   const manual = new RegExp(`^\\((?:${marks.map(escapeRegExp).join('|')})(?:,[^)]*)?\\)`, 'u')
   const isCode = codeLines()
   const items: ReadItem[] = []

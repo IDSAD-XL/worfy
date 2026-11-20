@@ -56,6 +56,14 @@ function accepted(value, fallback, old) {
     return v === old ? [v] : [v, old]
 }
 
+/** The marks of a manual item: the profile's, the default `manual` and the old Russian one, without repeats. The
+ * default is read whatever the profile names, so `(manual)` reads the same in every project, and still does once the
+ * old Russian mark is no longer read (worfy's copy: manualMarks of src/shared/workflow/doc-headings.ts). */
+function manualMarks(value) {
+    const given = typeof value === "string" && value.trim() ? value.trim() : DEFAULTS.manualMark
+    return [...new Set([given, DEFAULTS.manualMark, OLD_HEADINGS.manualMark])]
+}
+
 // The heading test of one section, the rule the worfy app reads its sections by: a heading that is one of `values` at its own level opens the section, the next heading of that level or
 // above closes it, a deeper one inside it does not.
 function sectionHeadings(values) {
@@ -147,11 +155,11 @@ function formatEvidence(f) {
  * space; `line` is the item's line and `end` the last line of its block — continuation, Evidence and needs lines
  * (both 1-based), where a new Evidence line goes after; `indent` is the indentation of a line nested under it.
  * `errors` are "line N: why" for lines that do not read. The section heading is `doneSection` (the profile's
- * tickets.done_section, `## Done when` without one) and the old Russian one; the manual mark likewise.
+ * tickets.done_section, `## Done when` without one) and the old Russian one; the manual marks are those of manualMarks.
  */
 function parseDoneSection(markdown, { doneSection, manualMark } = {}) {
     const headings = sectionHeadings(accepted(doneSection, DEFAULTS.doneSection, OLD_HEADINGS.doneSection))
-    const marks = accepted(manualMark, DEFAULTS.manualMark, OLD_HEADINGS.manualMark)
+    const marks = manualMarks(manualMark)
     const manualRe = new RegExp(`^\\((?:${marks.map(escRe).join("|")})(?:,[^)]*)?\\)`, "u")
     const lines = String(markdown).replace(/^\uFEFF/, "").split(/\r?\n/)
     const isCode = codeLines()

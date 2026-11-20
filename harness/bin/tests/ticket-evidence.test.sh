@@ -24,23 +24,27 @@ unset GH_TOKEN GITHUB_TOKEN CLAUDE_PROFILE_BIN GITHUB_ACTIONS
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 export HOME="$T/home" USERPROFILE="$T/home" HARNESS_HOME="$T/hh"
 export CLAUDE_GATE_CONFIG="$T/config.json" CLAUDE_PROFILES_DIR="$T/profiles"
-mkdir -p "$HOME" "$HARNESS_HOME" "$CLAUDE_PROFILES_DIR/en" "$CLAUDE_PROFILES_DIR/acc"
+mkdir -p "$HOME" "$HARNESS_HOME" "$CLAUDE_PROFILES_DIR/en" "$CLAUDE_PROFILES_DIR/acc" "$CLAUDE_PROFILES_DIR/rum"
 
 # --- the projects: ru — not registered, the old Russian heading; en — registered, the profile's English
-# heading; acc — registered with a heading of its own, so the test sees that the profile is read -------------
-for r in ru en acc; do git init -q -b main "$T/$r" && git -C "$T/$r" commit -q --allow-empty -m init; done
+# heading; acc — registered with a heading of its own, so the test sees that the profile is read; rum — registered,
+# the profile names the old Russian heading and mark, as worfy's own profile does -----------------------------------
+for r in ru en acc rum; do git init -q -b main "$T/$r" && git -C "$T/$r" commit -q --allow-empty -m init; done
 cat >"$CLAUDE_GATE_CONFIG" <<EOF
 {"repos":[
  {"key":"en","match":"$T/en","profile":"en","pm":"npm","root":{},"workspace":{}},
  {"key":"acc","match":"$T/acc","profile":"acc","pm":"npm","root":{},"workspace":{}},
+ {"key":"rum","match":"$T/rum","profile":"rum","pm":"npm","root":{},"workspace":{}},
  {"key":"sil","match":"$T/sil","profile":"sil","pm":"npm","root":{},"workspace":{}}
 ]}
 EOF
 printf '{"schema":1,"name":"en","tickets":{"root":".scratch/","done_section":"## Done when","manual_mark":"manual"}}\n' >"$CLAUDE_PROFILES_DIR/en/profile.json"
 printf '{"schema":1,"name":"acc","tickets":{"root":".scratch/","done_section":"## Acceptance","manual_mark":"by hand"}}\n' >"$CLAUDE_PROFILES_DIR/acc/profile.json"
-: >"$CLAUDE_PROFILES_DIR/en/rules.md"; : >"$CLAUDE_PROFILES_DIR/acc/rules.md"
+printf '{"schema":1,"name":"rum","tickets":{"root":".scratch/","done_section":"## Готово, когда","manual_mark":"вручную"}}\n' >"$CLAUDE_PROFILES_DIR/rum/profile.json"
+: >"$CLAUDE_PROFILES_DIR/en/rules.md"; : >"$CLAUDE_PROFILES_DIR/acc/rules.md"; : >"$CLAUDE_PROFILES_DIR/rum/rules.md"
 RU="$T/ru/.scratch/demo/issues"
-mkdir -p "$RU" "$T/en/.scratch/demo/issues" "$T/acc/.scratch/demo/issues"
+mkdir -p "$RU" "$T/en/.scratch/demo/issues" "$T/acc/.scratch/demo/issues" "$T/rum/.scratch/demo/issues"
+cp "$FX/ru/03-manual-marks.md" "$T/rum/.scratch/demo/issues/03-manual-marks.md"
 fresh() { cp "$FX/ru/01-three-items.md" "$RU/01-three-items.md"; cp "$FX/ru/02-states.md" "$RU/02-states.md"; }
 fresh
 cp "$FX/en/01-english.md" "$T/en/.scratch/demo/issues/01-english.md"
@@ -195,6 +199,15 @@ tk "$T/acc" evidence demo 01
     && ok "a heading of the profile's own (## Acceptance, by hand) is read" || bad "acc: exit $rc $(cat "$T/out" "$T/err")"
 tk "$T" evidence demo 01 --root "$T/ru/.scratch"
 [ "$rc" -eq 0 ] && [ "$(tail -n 1 "$T/out")" = "evidence: 0 of 3 verified" ] && ok "the old ## Готово, когда is read with --root and no profile" || bad "--root: exit $rc $(cat "$T/out" "$T/err")"
+# A profile that names the old Russian mark still reads the default (manual): a test run does not prove such an item.
+tk "$T/rum" evidence demo 03
+if [ "$rc" -eq 0 ] && [ "$(tail -n 1 "$T/out")" = "evidence: 2 of 4 verified" ] \
+    && has "1. not-verified manual item needs owner-check, screenshot or video — (вручную) Old mark with a test run only." \
+    && has "2. not-verified manual item needs owner-check, screenshot or video — (manual) Default mark with a test run only." \
+    && has "3. verified — (manual, needs: mac stable) Default mark with a note, the owner checked." \
+    && has "4. verified — Not a manual item."; then
+    ok "a profile with manual_mark вручную reads (manual) as a manual item too, and a test-run does not prove it"
+else bad "rum: exit $rc $(cat "$T/out" "$T/err")"; fi
 
 # --- 9. the grammar: the shared cases, and a written line reads back as written ---------------------------------------------
 node - "$LIB/evidence.cjs" "$FX/grammar.json" >"$T/out" 2>&1 <<'NODE'

@@ -73,11 +73,25 @@ describe('manual checks named by the Profile', () => {
     ])
   })
 
-  it('reads the section and the mark the Profile names, and not the English ones then', () => {
+  it('reads the section the Profile names and not the English one then, and its mark beside the default one', () => {
     const headings = docHeadings({ doneSection: '## Fini quand', manualMark: 'à la main' })
-    const french = ['# 05', '', '## Fini quand', '', '- [ ] (à la main) vérifier (a+b)', '- [ ] (manual) not the mark', '', '## Done when', '', '- [ ] (à la main) not the section'].join('\n')
-    expect(manualChecks(french, headings)).toEqual([{ text: 'vérifier (a+b)', checked: false }])
+    const french = ['# 05', '', '## Fini quand', '', '- [ ] (à la main) vérifier (a+b)', '- [ ] (manual) the default mark', '- [ ] (by hand) not a mark', '', '## Done when', '', '- [ ] (à la main) not the section'].join('\n')
+    expect(manualChecks(french, headings)).toEqual([
+      { text: 'vérifier (a+b)', checked: false },
+      { text: 'the default mark', checked: false },
+    ])
     expect(manualChecks(english('- [ ] (manual) English'), headings)).toEqual([])
+  })
+
+  it('reads the default mark when the Profile names the old Russian one, and the old Russian one when it names the default', () => {
+    const markdown = ticket(['- [ ] (manual) Default mark.', '- [x] (вручную) Old mark.', '- [ ] (manual, owner) With a note.', '- [ ] Not manual.'].join('\n'))
+    const expected = [
+      { text: 'Default mark.', checked: false },
+      { text: 'Old mark.', checked: true },
+      { text: '(owner) With a note.', checked: false },
+    ]
+    expect(manualChecks(markdown, docHeadings({ doneSection: '## Готово, когда', manualMark: 'вручную' }))).toEqual(expected)
+    expect(manualChecks(markdown, docHeadings({ doneSection: '## Готово, когда', manualMark: 'manual' }))).toEqual(expected)
   })
 
   it('takes the characters of the Profile\'s values as they are, not as a pattern', () => {

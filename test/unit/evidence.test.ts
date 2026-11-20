@@ -110,6 +110,16 @@ describe('evidence: what is read', () => {
     expect(evidenceItems(named)).toEqual([])
   })
 
+  it('reads the default mark beside the Profile\'s old Russian one, and the old Russian one beside the Profile\'s default', () => {
+    const markdown = ['## Готово, когда', '', '- [ ] (manual) Default mark.', '- [ ] (вручную) Old mark.', '- [ ] (manual, owner) With a note.', '- [ ] (by hand) Not a mark here.'].join('\n')
+    const manual = (headings: { doneSection: string; manualMark: string }): boolean[] => evidenceItems(markdown, headings).map((item) => item.manual)
+    expect(manual({ doneSection: '## Готово, когда', manualMark: 'вручную' })).toEqual([true, true, true, false])
+    expect(manual({ doneSection: '## Готово, когда', manualMark: 'manual' })).toEqual([true, true, true, false])
+    expect(manual({ doneSection: '## Готово, когда', manualMark: 'by hand' })).toEqual([true, true, true, true])
+    const proved = evidenceItems(ticket('(manual) A card moves.', line('test-run', 'pass', 'mac dev')), { doneSection: '## Done when', manualMark: 'вручную' })
+    expect(proved.map((item) => [item.state, item.reason])).toEqual([['not-verified', 'manual item needs owner-check, screenshot or video']])
+  })
+
   it('a Ticket without the section has no items', () => {
     expect(evidenceItems('# 05 — A ticket\n\nStatus: open\n')).toEqual([])
   })
