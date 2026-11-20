@@ -56,21 +56,21 @@ skill-а, guard hook и eval.
       `test/contract/harness-pr-reply-draft.test.ts`): `comment`, `summary`, `verdict`, `done`; не трогает записи
       `by: 'person'` и итоговый текст человека; отказ на `submitting` / `submitted` и без черновика. Красный до правки —
       в «Итог».
-  - evidence: test-run pass · `pnpm test test/contract/harness-pr-review-draft.test.ts` exit 0 (10 tests) · mac - · d710dde5dbde0b5de1e0d670bc312def26f7983e
+  - evidence: test-run pass · `pnpm test test/contract/harness-pr-review-draft.test.ts` exit 0 (11 tests) · mac - · 42f3b2f2befeca5014a33943a4a8380768edbc0f
 - [ ] Тот же contract — test гонки: main (`prReview.saveComment` Ticket-а 07) и `bin/pr-review-draft` пишут в один файл
       одновременно 200 раз; ни одна запись не потеряна, файл всегда разбирается.
-  - evidence: test-run pass · `pnpm test test/contract/harness-pr-review-draft.test.ts` exit 0 (races main: 200 + 200 writes; quit lock: own, other, stale) · mac - · d710dde5dbde0b5de1e0d670bc312def26f7983e
+  - evidence: test-run pass · `pnpm test test/contract/harness-pr-review-draft.test.ts` exit 0 (races main: 200 + 200 writes; quit lock: own, own taken over, other, stale) · mac - · 42f3b2f2befeca5014a33943a4a8380768edbc0f
 - [ ] Contract `test/contract/pr-review-agent.test.ts` (новый) на `WORFY_AGENT=fake`: `prReview.agentReview` запускает
       Session с `/human-review …` при Team reviewer-е и с `/worfy:code-review` без него; `fill: 'add'`;
       `prReview.stopAgent`; `prReview.changed` при записи; отказ Linked machine.
-  - evidence: test-run pass · `pnpm test test/contract/pr-review-agent.test.ts` exit 0 (12 tests: commit of the draft, end of turn, closed Session, unreadable look) · mac - · d710dde5dbde0b5de1e0d670bc312def26f7983e
+  - evidence: test-run pass · `pnpm test test/contract/pr-review-agent.test.ts` exit 0 (13 tests) · mac - · 42f3b2f2befeca5014a33943a4a8380768edbc0f
 - [ ] `test/unit/action-templates.test.ts`: шаблон «Agent review» и его Vendor.
-  - evidence: test-run pass · `pnpm test test/unit/action-templates.test.ts` exit 0 · mac - · d710dde5dbde0b5de1e0d670bc312def26f7983e
+  - evidence: test-run pass · `pnpm test test/unit/action-templates.test.ts` exit 0 · mac - · 42f3b2f2befeca5014a33943a4a8380768edbc0f
 - [ ] Eval `harness/evals/agent-review-guards/` — pass; результат и цена — в «Итог».
   - evidence: test-run pass · `pnpm eval:harness -- --case agent-review-guards --max-cost-usd 5` exit 0, score 1.00, 2 of 2 runs, 1.20 USD · mac - · d710dde5dbde0b5de1e0d670bc312def26f7983e
 - [ ] `harness/bin/tests/agents-text.test.sh`: текст раздела держит «только через `bin/pr-review-draft`» и «вердикт —
       только предложение»; mutant (фраза убрана) — красный. `test/contract/codex-parity.test.ts` зелёный.
-  - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 (510 passed); `pnpm test test/contract/codex-parity.test.ts` exit 0 · mac - · d710dde5dbde0b5de1e0d670bc312def26f7983e
+  - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 (514 passed); `pnpm test test/contract/codex-parity.test.ts` exit 0 · mac - · 42f3b2f2befeca5014a33943a4a8380768edbc0f
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job-ы Windows CI зелёные
       (платформенный PR).
 
