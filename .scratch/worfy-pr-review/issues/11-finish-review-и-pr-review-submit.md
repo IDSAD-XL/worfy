@@ -1,7 +1,7 @@
 # 11 — Finish review и `pr-review-submit.ts`: диалог с каждым комментарием ровно, lint, проверка head, один POST ревью по Submit человека, новый ADR
 
 Type: task
-Status: open
+Status: claimed 2026-11-20T23:02Z
 Blocked by: 10
 Source: [spec.md](../spec.md), «Ticket-ы», 11; «Решение», 4 и 6; «Как пользователь идёт по экрану», A (шаги 7–8), C и E
 (шаг 4); «Факты GitHub API» → «Отправка ревью»; «Решения по реализации», 7, 10 и 13; «Риски», «Новая запись на GitHub»,
