@@ -29,6 +29,17 @@ printf '{"repos":[{"key":"fp","match":"%s","profile":"fp"}]}\n' "$(native "$FR")
 printf '{"schema":2,"name":"fp","mode":"full","tickets":{"root":".scratch/","done_section":"## Done when","manual_mark":"manual"}}\n' >"$FHH/projects/fp/profile.json"
 FENV=(env -u CLAUDE_GATE_CONFIG -u CLAUDE_PROFILES_DIR -u CLAUDE_PROFILE_BIN -u CLAUDE_TICKET_BIN HOME="$FP/home" HARNESS_HOME="$FHH" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT"
       GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t)
+# FENVW: FENV with path.join of the block's own node joining a relative path with "\" as on Windows, so a path the
+# block prints through path.join fails here on every system. Absolute paths keep this system's form, so files still
+# open; the preload drops itself from NODE_OPTIONS, so `ticket` and `profile` run with the real path.join.
+mkdir -p "$T/winsep"
+printf '%s\n' 'const path = require("path"), join = path.join' \
+    'path.join = (...a) => { const p = join(...a); return path.isAbsolute(p) ? p : p.split("/").join("\\") }' \
+    'process.env.NODE_OPTIONS = String(process.env.NODE_OPTIONS || "").replace(/--require "[^"]*winsep[^"]*"/, "").trim()' \
+    >"$T/winsep/win-sep.cjs"
+FENVW=("${FENV[@]}" NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require \"$(native "$T/winsep")/win-sep.cjs\"")
+[ "$("${FENVW[@]}" node -e 'console.log(require("path").join("a", "b"))' 2>&1)" = 'a\b' ] \
+    && ok "the preload of FENVW makes path.join join a relative path with \\" || bad "the preload of FENVW does not work"
 
 # ticket02 <issues dir>: the demo ticket file 02-demo.md with a non-manual item, a manual item with a needs line, and another non-manual item.
 ticket02() {
@@ -103,6 +114,13 @@ for sh in "${SHELLS[@]}"; do
         && grep -qxF -- '- [x] (manual) The panel shows the list' "$F"; then
         ok "$sh: Pass on the rework item records owner-check pass on the reworked item and ticks it"
     else bad "$sh: Pass on the rework: [$out]"$'\n'"$(cat "$F")"; fi
+    # --- the printed rework path uses "/" where path.join gives "\" (Windows): the block runs under WINSEP ---------
+    I="$FR/.scratch/s-$sh/issues"; ticket02 "$I"
+    words '> Broken.'
+    run "$sh" "$FR" FENVW "s-$sh" 02 2 fail abcdef1
+    [[ "$out" == *"EXIT=0"* && "$out" == *"rework ticket: s-$sh/issues/03-rework-02-item-2.md"* && -f "$I/03-rework-02-item-2.md" ]] \
+        && ok "$sh: the rework ticket path is printed with / even where path.join joins with \\" \
+        || bad "$sh: rework path with a \\ path.join: [$out]"
     st="$(cd "$FR" && "${FENV[@]}" node "$PLUGIN_ROOT/bin/ticket" evidence "f-$sh" 02 2>&1 | grep '^2\. ')"
     [ "$st" = "2. verified — (manual) The panel shows the list" ] && ok "$sh: the reworked item reads verified after the Pass" \
         || bad "$sh: the reworked item: [$st]"

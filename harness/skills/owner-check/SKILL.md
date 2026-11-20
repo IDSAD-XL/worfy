@@ -189,7 +189,8 @@ if (verdict === "fail") {
     ]
     const name = `${next}-rework-${nnPad}-item-${itemArg}.md`
     fs.writeFileSync(path.join(dir, name), body.join("\n"))
-    console.log(`rework ticket: ${path.join(epic, "issues", name)}`)
+    // Printed with "/" on every system: path.join would give "\" on Windows, and the owner reads the same form everywhere.
+    console.log(`rework ticket: ${epic}/issues/${name}`)
 }
 ' "${CLAUDE_PLUGIN_ROOT}" "$E" "$N" "$I" "$V" "$P" "$C" "$S" "$W" "$D"; echo "EXIT=$?"
 ```
