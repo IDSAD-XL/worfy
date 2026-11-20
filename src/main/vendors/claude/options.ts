@@ -39,6 +39,9 @@
 // The Mind map server `worfy-mind-map` (worfy-product-session ticket 04, src/main/mcp/mind-map-server.ts)
 // goes to a Product Session only, whatever its Profile's list names (withMindMapServer): a plain Session
 // and the Orchestrator never get it, so they have no tool that changes a Mind map (the owner's answer Q2).
+// The Integrations of the Project (worfy-integrations ticket 06, ADR-0111 item 10) go in `mcpServers` too, each the
+// SDK server of its proxy (src/main/integrations/proxy.ts): never on the Profile's list, never cut by the policy
+// tier, and never an `http` entry, whose headers would carry the service's token into `--mcp-config` (Fact 3c).
 //
 // Plugins and skills (ADR-0084, worfy-throughput ticket 38): a Session in a Project whose Profile
 // has `skills.allowed` gets, of the user's plugins and own skills, only those on the list; worfy's
@@ -302,6 +305,12 @@ export interface SessionOptionsInput {
   browser?: BrowserAttachment | null | undefined
   /** The Mind map server of a Product Session (worfy-product-session ticket 04); read only with `kind: 'product'`. */
   mindMap?: MindMapAttachment | null | undefined
+  /**
+   * The Integrations of the Session's Project (worfy-integrations ticket 06, ADR-0111), each the SDK server of its
+   * proxy under its server name: passed in `mcpServers` next to worfy-canvas, out of reach of the Profile's list,
+   * unless turned off for this Session. Absent outside a Project.
+   */
+  integrations?: readonly { name: string; server: ClaudeMcpServer }[] | undefined
   /** The model, effort and permission mode to start with; DEFAULT_SETTINGS when absent. */
   settings?: SessionSettings | undefined
   /** Answers permission requests outside bypassPermissions; without it Claude Code's own default applies. */
@@ -839,6 +848,11 @@ export function sessionOptions(input: SessionOptionsInput): Options {
   if (input.kind === 'product' && input.mindMap && allowed(MIND_MAP_SERVER_NAME)) {
     servers[MIND_MAP_SERVER_NAME] = sdkServerConfig(input.mindMap.server)
     appended.push(input.mindMap.instructions)
+  }
+  // An Integration is not on the Profile's list and the policy tier does not cut an SDK server (the spike of
+  // worfy-integrations ticket 01, 3.2): only a Turn off for this Session leaves it out.
+  for (const integration of input.integrations ?? []) {
+    if (!off.includes(integration.name)) servers[integration.name] = sdkServerConfig(integration.server)
   }
   if (input.instructions !== undefined && input.instructions !== '') appended.push(input.instructions)
   if (input.epic !== undefined && input.epic !== '') appended.push(waveInstructions(input.epic))

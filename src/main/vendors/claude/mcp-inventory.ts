@@ -74,6 +74,27 @@ function beforeLimit<T>(promise: Promise<T>, limit: number): Promise<T> {
   return Promise.race([promise, late]).finally(() => clearTimeout(timer))
 }
 
+/** The inventories of this process — the app makes one (session.ts) — for inventoryServerNames. */
+const inventories = new Set<WeakRef<McpInventory>>()
+
+/**
+ * The names of the servers of Claude Code in the Project of the folder `cwd` by the last answer of every inventory of
+ * this process; empty before any answered. An Integration's server never takes one of them (worfy-integrations
+ * ticket 06, proxy.ts integrationServerNames).
+ */
+export function inventoryServerNames(cwd: string): string[] {
+  const names = new Set<string>()
+  for (const ref of inventories) {
+    const inventory = ref.deref()
+    if (inventory === undefined) {
+      inventories.delete(ref)
+      continue
+    }
+    for (const row of inventory.latest(cwd) ?? []) names.add(row.name)
+  }
+  return [...names]
+}
+
 export class McpInventory {
   /** The last answer of each Project, as rows; in memory only. */
   private readonly answers = new Map<string, McpServerRow[]>()
@@ -92,7 +113,9 @@ export class McpInventory {
     private readonly start: InventoryQueryStarter,
     private readonly timing: McpInventoryTiming = { settleMs: INVENTORY_SETTLE_MS, pollMs: INVENTORY_POLL_MS },
     private readonly rootOf: ProjectRootOf = repositoryRoot,
-  ) {}
+  ) {
+    inventories.add(new WeakRef(this))
+  }
 
   /** The servers of the user in the Project of the folder `cwd` by the last run that answered; null before any did. */
   latest(cwd: string): readonly McpServerRow[] | null {

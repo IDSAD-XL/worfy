@@ -7,7 +7,7 @@
 // user's own among them, as the rows of src/shared/agent/mcp-status.ts, and does what a row offers.
 // Ticket 03: Turn off, Turn on and Restart are a Restart of the Session with the same conversation,
 // done by the Session for a driver that `restarts`.
-import type { z } from 'zod'
+import { z } from 'zod'
 import type { McpServerAction, McpServerRow } from '../../shared/agent/mcp-status'
 import type { SessionHandle } from './session'
 
@@ -47,8 +47,16 @@ export class McpActionRefused extends Error {
   }
 }
 
-/** One block of a tool's answer: text, or an image (a Browser screenshot). */
-export type McpToolContent = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
+/**
+ * One block of a tool's answer: text, an image (a Browser screenshot), or — passed on from an Integration's service
+ * (worfy-integrations ticket 06) — audio, a link to a resource or a resource itself, as MCP defines them.
+ */
+export type McpToolContent =
+  | { type: 'text'; text: string }
+  | { type: 'image'; data: string; mimeType: string }
+  | { type: 'audio'; data: string; mimeType: string }
+  | { [key: string]: unknown; type: 'resource_link'; uri: string; name: string }
+  | { [key: string]: unknown; type: 'resource'; resource: { [key: string]: unknown; uri: string } }
 
 /** What a tool call answers; `isError` marks a refusal the agent reads. */
 export interface McpToolResult {
@@ -57,19 +65,49 @@ export interface McpToolResult {
   isError?: boolean
 }
 
-/** One tool of a worfy MCP server. */
-export interface McpTool {
+/** A JSON Schema of a tool's arguments, as an MCP server lists it: an object schema. */
+export interface McpJsonSchema {
+  [key: string]: unknown
+  type: 'object'
+}
+
+/** What else a call gets: the agent's cancel of it. */
+export interface McpCallExtra {
+  signal?: AbortSignal
+}
+
+interface McpToolCommon {
   readonly name: string
   readonly description: string
-  /** The arguments as a zod object shape: the agent sees it as the tool's input schema. */
-  readonly shape: z.ZodRawShape
+  /** MCP's hints about the tool (`readOnlyHint`…), passed on as they are; absent for worfy's own tools. */
+  readonly annotations?: Readonly<Record<string, unknown>>
   /** Answers one call; never throws (a refusal is a result with `isError`). */
-  call(args: unknown): Promise<McpToolResult>
+  call(args: unknown, extra?: McpCallExtra): Promise<McpToolResult>
+}
+
+/**
+ * One tool of a worfy MCP server. Its arguments are a zod object shape (worfy's own tools), or the JSON Schema a
+ * service gave (`inputSchema`: an Integration's tools through the proxy, worfy-integrations ticket 06); the agent sees
+ * either as the tool's input schema.
+ */
+export type McpTool = McpToolCommon & ({ readonly shape: z.ZodRawShape; readonly inputSchema?: undefined } | { readonly inputSchema: McpJsonSchema; readonly shape?: undefined })
+
+/** The input schema the agent sees for `tool`: the service's own, or its zod shape as JSON Schema. */
+export function mcpInputSchema(tool: McpTool): Record<string, unknown> {
+  if (tool.inputSchema !== undefined) return tool.inputSchema
+  return z.toJSONSchema(z.object(tool.shape), { io: 'input', unrepresentable: 'any' })
 }
 
 /** A worfy MCP server: what a driver needs to serve it to its agent. */
 export interface McpServer {
   readonly name: string
   readonly version: string
+  /** Its tools; ignored when it has listTools. */
   readonly tools: readonly McpTool[]
+  /**
+   * The tools asked when the agent lists them, for a server whose tools come from elsewhere (an Integration's proxy,
+   * worfy-integrations ticket 06): a rejection fails the agent's tools/list with its message. A call goes to the
+   * tool of that name in the list it answers.
+   */
+  readonly listTools?: () => Promise<readonly McpTool[]>
 }

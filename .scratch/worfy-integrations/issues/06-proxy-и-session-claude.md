@@ -1,7 +1,8 @@
 # 06 — Proxy и Session Claude: `@modelcontextprotocol/sdk` прямой зависимостью, `McpServer` с JSON Schema сервиса, одно соединение на Integration, фильтр tools, «Sign-in needed», SDK-серверы в `mcpServers`
 
 Type: task
-Status: open
+Status: claimed 2026-11-20T22:02Z
+Branch: worfy-integrations/06
 Blocked by: 01, 03, 04
 Source: [spec.md](../spec.md), «Ticket-ы», 6; «Волны», Wave 3; «Решение», 1, 4 и 5; «Как пользователь идёт по
 экранам», 5, 8 и 9; «Факты», 3а–3д; «Решения по реализации» → Имя сервера в Session, Proxy, Session Claude, Статус,
@@ -106,4 +107,54 @@ tool-а длиннее предела); «Вопросы владельцу», Q
 
 ## Итог
 
-Пусто до завершения Ticket-а.
+Proxy — `src/main/integrations/proxy.ts`: `IntegrationProxy` держит одно соединение с сервисом на Integration и Machine
+(`Client` пакета `@modelcontextprotocol/sdk` 1.32.0 — теперь прямая зависимость, в `pnpm-lock.yaml` одна копия — со
+`StreamableHTTPClientTransport` или `StdioClientTransport`), общее для всех Session-ов. `sessionServer` — сервер одной
+Session: `tools/list` сервиса один раз на старт, фильтр Project-а (`all`, `read-only` по `readOnlyHint`, список),
+метка в начале описания, tool с полным именем длиннее 128 убран и назван в статусе; вызов отфильтрованного tool-а
+отказывает до сервиса. 401, не сохранённый token и `UnauthorizedError` — ответ `isError` «Sign-in needed: <метка>. Ask
+the user to sign in in worfy.» и статус `needs-sign-in`. Статус (`status(id)`): вход, `toolsCost` (число tools и длина
+JSON имён, описаний и схем / 4), скрытые tools. Имя сервера — `integrationServerNames` (slug до 24 символов, `-2` при
+совпадении). `McpTool` (`src/main/vendors/mcp.ts`) получил второй вид входа — `inputSchema`, `McpServer` — `listTools()`;
+SDK-сервер Claude для такого сервера — низкоуровневый `Server` пакета (`src/main/vendors/claude/mcp.ts`). `sdkQueryFactory`
+отдаёт включённые Integration-ы Project-а в `mcpServers` рядом с `worfy-canvas`; строки chip-а — источник `integration`
+и метка (`mcpShownName` показывает метку).
+
+Красный до правки: `pnpm test test/unit/integration-server-name.test.ts test/unit/mcp-status-row.test.ts
+test/contract/integrations-proxy.test.ts test/contract/integrations-claude-session.test.ts` — exit 1 (4 файла: модуля
+`proxy.ts` нет, `labelIntegrations` нет, источников четыре). После правки — exit 0 (51 test). Проверка PATH stdio-сервера
+добавлена вместе с кодом, отдельного красного run-а у неё нет. Все unit и contract test-ы затронутых модулей (38 файлов)
+— exit 0; `pnpm test:e2e test/e2e/session-mcp.spec.ts` под `/tmp/worfy-e2e.lock` — exit 0. `pnpm lint`, `pnpm typecheck`
+— exit 0. Token: аргументы и окружение процесса, которые строит настоящий `query()` Agent SDK (spawn test-а ничего не
+запускает), опции Session, строки `console` main и ответы tool-ов (их читает транскрипт, а из него Journal и Flight
+recorder) — без token-а; Autopilot-ом Journal и Flight recorder отдельно не прогонялись.
+
+Решено без владельца:
+1. Метка — в начале описания tool-а («[Jira — client A] …»), не в конце: так она видна первой и не теряется, если
+   описание длинное.
+2. Tool с полным именем `mcp__<сервер>__<tool>` длиннее 128 proxy сам убирает из `tools/list` (Claude Code всё равно
+   выбросил бы его молча) и называет в статусе (`hidden`) — экран Ticket-а 08 покажет «tool не виден агенту».
+3. Slug: латиница без диакритики (NFKD); метка без латиницы и цифр — `integration`. Slug с префиксом `worfy-` получает
+   `-2`, как велит Ticket (`worfy-canvas` → `worfy-canvas-2`): с суффиксом имя не совпадает ни с одним сервером worfy.
+4. Отказ входа при первом `tools/list`, когда списка ещё не было, — `tools/list` падает с текстом «Sign-in needed: …»
+   (Claude Code покажет сервер failed с этим текстом); если список Integration-ы уже был, Session получает его, а вызовы
+   отвечают «Sign-in needed».
+5. Соединение: другие секреты в хранилище (новый token) — новое соединение при следующем вызове; 404 (сервис забыл
+   session) — переоткрыть один раз; прочий сбой — соединение закрывается, статус `error` с текстом без секретов; ошибка
+   протокола от сервиса (JSON-RPC) соединение не закрывает.
+6. Текстовые блоки и `structuredContent` успешного ответа тоже очищаются от секретов этой Integration-ы — на случай
+   сервиса, который цитирует token.
+7. Имена серверов Claude Code — `inventoryServerNames` в `mcp-inventory.ts` (реестр экземпляров `McpInventory`), без
+   правки `session.ts`. Цена: первая Session после запуска worfy стартует раньше первого ответа инвентаря, и совпадение с
+   сервером Claude Code тогда не видно.
+8. Метки строк хранятся по query (`labelIntegrations`, `WeakMap` в `src/main/vendors/claude/mcp.ts`), без правки
+   `session.ts` и `QueryRequest`; строки и `system/init`, и `mcpServerStatus()` получают их.
+9. Stdio: stderr сервера не читается (может печатать то, с чем запущен); базовое окружение — короткий список пакета
+   (HOME, PATH, USER…) с PATH окружения агента (login shell), а не всё окружение worfy.
+10. Вызов tool-а ждёт до 10 минут; отмена агента доходит до сервиса.
+11. Статус proxy живёт в памяти main (`IntegrationProxy.status`); каналом его покажет Ticket 08.
+12. Вне «Где в коде», вынужденно: `src/renderer/session/McpChip.tsx` (подпись источника `worfy integration` — тип
+    `Record<McpServerSource, …>` требует её), `src/main/mcp/http-server.ts` (одна строка — схема через `mcpInputSchema`,
+    иначе `McpTool` с JSON Schema не собирается), новые stub-ы `test/fixtures/integrations/service-stub.ts` и
+    `stdio-service-stub.mjs` (stub-ы Ticket-а 04 не перечисляют tools).
+13. Blocker 01 открыт только для живого шага владельца; tools-only proxy подтверждён («Решено без владельца», 4 spec-а).

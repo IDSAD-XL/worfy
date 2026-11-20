@@ -25,8 +25,7 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { z } from 'zod'
-import type { McpServer, McpTool, McpToolResult } from '../vendors/mcp'
+import { mcpInputSchema, type McpServer, type McpTool, type McpToolResult } from '../vendors/mcp'
 
 /** The only address the endpoint listens on. */
 export const MCP_HTTP_HOST = '127.0.0.1'
@@ -86,7 +85,7 @@ const failure = (id: JsonRpcId, code: number, message: string): JsonRpcAnswer =>
 
 /** A tool as tools/list gives it: the zod shape of its arguments as JSON Schema. */
 function listed(tool: McpTool): { name: string; description: string; inputSchema: unknown } {
-  return { name: tool.name, description: tool.description, inputSchema: z.toJSONSchema(z.object(tool.shape), { io: 'input', unrepresentable: 'any' }) }
+  return { name: tool.name, description: tool.description, inputSchema: mcpInputSchema(tool) }
 }
 
 /** One tool call; a tool that throws, which it should not, is answered as a refusal the agent reads. */

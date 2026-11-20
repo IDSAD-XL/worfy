@@ -17,8 +17,11 @@ import { MIND_MAP_SERVER_NAME } from '../product/tools'
  */
 export const MCP_SERVER_STATUSES = ['connected', 'failed', 'needs-auth', 'pending', 'disabled', 'not-allowed', 'not-started'] as const
 
-/** Where the server came from: a claude.ai connector, the user's config, the Project's, or worfy's own (and plugins'). */
-export const MCP_SERVER_SOURCES = ['claudeai', 'user', 'project', 'worfy'] as const
+/**
+ * Where the server came from: a claude.ai connector, the user's config, the Project's, worfy's own (and plugins'), or
+ * an Integration of the Project (worfy-integrations ticket 06): a server worfy runs for one account of a service.
+ */
+export const MCP_SERVER_SOURCES = ['claudeai', 'user', 'project', 'worfy', 'integration'] as const
 export type McpServerSource = (typeof MCP_SERVER_SOURCES)[number]
 
 /**
@@ -39,6 +42,8 @@ export const mcpServerRowSchema = z.object({
   source: z.enum(MCP_SERVER_SOURCES),
   /** The Vendor's own word for a source worfy shows as user config without knowing it (`managed`, …), for a tooltip; null otherwise. */
   sourceWord: z.string().nullable(),
+  /** The label of an Integration (source `integration`): «Jira — client A»; absent for every other server. */
+  label: z.string().min(1).optional(),
   actions: z.array(mcpServerActionSchema),
 })
 export type McpServerRow = z.infer<typeof mcpServerRowSchema>
@@ -83,10 +88,11 @@ const CLAUDEAI_PREFIX = 'claude.ai '
 
 /**
  * The name the popover shows for `row` (worfy-mcp-live ticket 10): a claude.ai connector's name without the
- * leading «claude.ai », which its source already says; every other name whole. The row keeps its full name:
- * the actions go to main by it, and the popover shows it in a tooltip.
+ * leading «claude.ai », which its source already says; an Integration's label (worfy-integrations ticket 06); every
+ * other name whole. The row keeps its full name: the actions go to main by it, and the popover shows it in a tooltip.
  */
-export function mcpShownName(row: Pick<McpServerRow, 'name' | 'source'>): string {
+export function mcpShownName(row: Pick<McpServerRow, 'name' | 'source' | 'label'>): string {
+  if (row.source === 'integration' && row.label !== undefined) return row.label
   const rest = row.name.slice(CLAUDEAI_PREFIX.length)
   return row.source === 'claudeai' && row.name.startsWith(CLAUDEAI_PREFIX) && rest.trim() !== '' ? rest : row.name
 }

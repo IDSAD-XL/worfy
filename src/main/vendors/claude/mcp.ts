@@ -31,13 +31,20 @@
 // anywhere but to the browser. A claude.ai connector signs in on claude.ai, with no callback
 // (callbackExpected false): the action ends once the page is open, and the person presses Reconnect after.
 // A Claude Code without mcpAuthenticate offers no Sign in: the row says where to sign in, and Reconnect.
+//
+// worfy-integrations ticket 06: an Integration of the Project is an SDK server here too, but its tools come from the
+// service through the proxy (src/main/integrations/proxy.ts) as JSON Schema, which createSdkMcpServer cannot take (it
+// takes zod shapes only): such a server is built on the MCP SDK's low-level Server. Claude Code reports it as source
+// `sdk`; its row gets the source `integration` and the Integration's label from what the Session's start told
+// (labelIntegrations), keyed by the query, so a row of another Session is never relabelled.
 import type { McpSdkServerConfigWithInstance, McpServerConfig } from '@anthropic-ai/claude-agent-sdk'
+import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js'
 import type { QueryHandle } from '../../agent/session/types'
 import { isWorfyOwnServer, type McpServerRow } from '../../../shared/agent/mcp-status'
 import { z } from 'zod'
 import { mcpServerRowsOf } from '../../../shared/vendors/claude/events'
 import { PartNotWired } from '../driver'
-import { McpActionRefused, type McpPart, type McpServer } from '../mcp'
+import { McpActionRefused, mcpInputSchema, type McpPart, type McpServer, type McpTool } from '../mcp'
 import type { SessionHandle } from '../session'
 
 /** How a read of the status goes (claudeMcpStatus). */
@@ -74,7 +81,26 @@ export async function claudeMcpStatus(query: QueryHandle, initServers: readonly 
   }
   if (rows === null) return null
   const signs = typeof (query as Partial<ClaudeSignIn>).mcpAuthenticate === 'function'
-  return rows.map((row) => withSignIn(read.attended ? withTurnOff(row) : row, signs))
+  const labels = integrationLabels.get(query)
+  return rows.map((row) => withSignIn(read.attended ? withTurnOff(withLabel(row, labels)) : withLabel(row, labels), signs))
+}
+
+/** The Integrations of each query, by server name: their labels (labelIntegrations). */
+const integrationLabels = new WeakMap<object, ReadonlyMap<string, string>>()
+
+/**
+ * Tells the rows of `query`'s servers `servers` are Integrations of the Project (worfy-integrations ticket 06): their
+ * rows get the source `integration` and the label. Called by the Session's start (query.ts) with the query it hands on.
+ */
+export function labelIntegrations(query: QueryHandle, servers: readonly { name: string; label: string }[]): void {
+  if (servers.length === 0) return
+  integrationLabels.set(query, new Map(servers.map((server) => [server.name, server.label])))
+}
+
+/** `row` as an Integration's when `labels` names it; an Integration is never one of worfy's own servers. */
+function withLabel(row: McpServerRow, labels: ReadonlyMap<string, string> | undefined): McpServerRow {
+  const label = labels?.get(row.name)
+  return label === undefined ? row : { ...row, source: 'integration', sourceWord: null, label }
 }
 
 /** Where to sign in to a server in needs-auth when Claude Code cannot start the sign-in itself. */
@@ -217,14 +243,46 @@ export interface ClaudeMcpServer {
   readonly instance: { connect(transport: never): Promise<void> }
 }
 
-/** The SDK server of `server`. The SDK is loaded on first use, as a Session loads it. */
+/**
+ * The SDK server of `server`. The SDK is loaded on first use, as a Session loads it. A server of zod-shaped tools is
+ * the Agent SDK's createSdkMcpServer; one whose tools come from elsewhere (listTools) or carry a service's JSON Schema
+ * is a low-level Server of the MCP SDK (lowLevelServer).
+ */
 export async function claudeMcpServer(server: McpServer): Promise<ClaudeMcpServer> {
+  if (server.listTools !== undefined || server.tools.some((each) => each.shape === undefined)) return lowLevelServer(server)
   const { createSdkMcpServer, tool } = await import('@anthropic-ai/claude-agent-sdk')
+  const zodTools = server.tools.flatMap((each) => (each.shape === undefined ? [] : [{ ...each, shape: each.shape }]))
   return createSdkMcpServer({
     name: server.name,
     version: server.version,
-    tools: server.tools.map((each) => tool(each.name, each.description, each.shape, (args) => each.call(args))),
+    // worfy's own tools answer text and images only, which MCP's CallToolResult takes as they are.
+    tools: zodTools.map((each) => tool(each.name, each.description, each.shape, (args) => each.call(args) as Promise<CallToolResult>)),
   })
+}
+
+/** A tool as tools/list gives it: its name, description, input schema and MCP's hints. */
+function listedTool(tool: McpTool): Tool {
+  return { name: tool.name, description: tool.description, inputSchema: mcpInputSchema(tool) as Tool['inputSchema'], ...(tool.annotations === undefined ? {} : { annotations: tool.annotations as Tool['annotations'] }) }
+}
+
+/**
+ * `server` on the MCP SDK's low-level Server: tools/list answers its listTools() (or its tools), tools/call goes to
+ * the tool of that name in that list, with the agent's cancel; a name the list lacks is a refusal the agent reads.
+ * A rejected listTools() fails the agent's tools/list with its message.
+ */
+async function lowLevelServer(server: McpServer): Promise<ClaudeMcpServer> {
+  const [{ Server }, { CallToolRequestSchema, ListToolsRequestSchema }] = await Promise.all([import('@modelcontextprotocol/sdk/server/index.js'), import('@modelcontextprotocol/sdk/types.js')])
+  const instance = new Server({ name: server.name, version: server.version }, { capabilities: { tools: {} } })
+  const tools = (): Promise<readonly McpTool[]> => (server.listTools === undefined ? Promise.resolve(server.tools) : server.listTools())
+  instance.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: (await tools()).map(listedTool) }))
+  instance.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+    const name = request.params.name
+    const tool = (await tools()).find((each) => each.name === name)
+    if (tool === undefined) return { content: [{ type: 'text', text: `No tool ${name} on ${server.name}` }], isError: true }
+    // The answer goes on as the tool gave it: a service's blocks are MCP's own (the proxy passes them through).
+    return (await tool.call(request.params.arguments ?? {}, { signal: extra.signal })) as CallToolResult
+  })
+  return { type: 'sdk', name: server.name, instance }
 }
 
 /** The SDK's config of a server claudeMcpServer made, for the `mcpServers` of a Session's options. */
