@@ -846,6 +846,72 @@ test('a message sent while the advisor works shows last in the chat as queued, a
   }
 })
 
+// worfy-polish ticket 133 (owner, 2026-11-20): the input line of a Product Session — attach and an icon Send —
+// is as tall as the one-line field, and its buttons stay at the field's bottom edge as the field grows. During a
+// turn the line has no Interrupt: the header's stops the turn. The fake script product-queued.jsonl holds the first
+// turn until the test lets it go. The row's screenshots, light and dark, idle and during the turn, go to the test's
+// output folder.
+test('a Product Session’s input line: buttons as tall as the one-line field and at its bottom; during a turn no Interrupt in it, the header has one', async () => {
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'product-queued' } })
+  try {
+    const { app, window } = launched
+    await canvasReady(launched, { size: { width: 1440, height: 900 }, visible: [window.getByTestId('orchestrator-node')] })
+    await window.keyboard.press('ControlOrMeta+k')
+    await window.getByTestId('palette-input').fill('new product session')
+    await expect(window.locator('[data-testid="palette-option"][data-command="new:product-session"]')).toHaveAttribute('data-active', 'true')
+    await window.keyboard.press('Enter')
+    const view = sessionView(window)
+    await expect(view).toBeVisible()
+    const input = view.getByTestId('message-input')
+    const field = view.getByRole('textbox', { name: /^Message / })
+    await expect(field).toBeEnabled()
+    const send = input.getByTestId('input-send')
+    await expect(send).toHaveAttribute('aria-label', 'Send')
+    await expect(send).toHaveText('')
+    const buttons = [input.getByTestId('input-attach'), send]
+    // Each button's bottom edge on the field's; returns the field's box.
+    const aligned = async () => {
+      const fieldBox = (await view.getByTestId('message-input-box').boundingBox())!
+      for (const button of buttons) {
+        const own = (await button.boundingBox())!
+        expect(Math.abs(own.y + own.height - (fieldBox.y + fieldBox.height))).toBeLessThanOrEqual(0.5)
+      }
+      return fieldBox
+    }
+    const shoot = async (name: string) => {
+      for (const scheme of ['light', 'dark'] as const) {
+        await window.emulateMedia({ colorScheme: scheme })
+        await input.screenshot({ path: test.info().outputPath(`133-input-${name}-${scheme}.png`) })
+      }
+    }
+
+    const oneLine = await aligned()
+    expect(Math.round(oneLine.height)).toBe(38)
+    for (const button of buttons) expect(Math.round((await button.boundingBox())!.height)).toBe(38)
+    await shoot('idle')
+    // The field grows with its text; the buttons stay at its bottom edge.
+    await field.fill('one\ntwo\nthree')
+    expect((await aligned()).height).toBeGreaterThan(oneLine.height + 20)
+    await field.fill('')
+    expect(Math.round((await aligned()).height)).toBe(38)
+
+    await field.fill('What could we sell?')
+    await field.press('Enter')
+    await expect(view.getByTestId('transcript-text').last()).toContainText('Reading the market notes first.')
+    await expect(view.getByTestId('session-state')).toHaveText('busy')
+    await expect(input.getByTestId('input-interrupt')).toHaveCount(0)
+    await expect(view.locator('header.w-session__header').getByTestId('session-interrupt')).toBeEnabled()
+    await field.fill('And for solo founders?')
+    await aligned()
+    await shoot('busy')
+    await field.fill('')
+    await app.evaluate(() => (globalThis as unknown as { worfyFakeRelease: (name: string) => void }).worfyFakeRelease('turn'))
+    await expect(view.getByTestId('session-state')).toHaveText('idle')
+  } finally {
+    await launched.close()
+  }
+})
+
 // The owner's case (ticket 30): the Session stands at «needs permission» and the chat shows no card. A window
 // that did not see the request go out — reloaded (View ▸ Reload, Ctrl+R) or opened after it — had no event
 // to draw the card from; the Product chat does not even show the AskUserQuestion tool call, so nothing at

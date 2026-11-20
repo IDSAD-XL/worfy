@@ -102,9 +102,11 @@ The input field keeps about 126 px in a chat as narrow as the agents list leaves
   the advisor works" turns it off; it is on by default, and off means no request to Haiku at all.
 - Find (⌘F) looks only in what the chat shows, and only in the messages the view has read: the part of the transcript
   file behind "Load earlier" is not searched, and the find bar then says "Earlier messages not loaded".
-- The input field is one line, as in the prototype: the attach button, a field in the interface font, Interrupt while a
-  turn runs, and a text "Send" button. It keeps attaching a file or a picture. It has no pickers, context meter, queue
-  chip or hints.
+- The input field is one line, as in the prototype: the attach button, a field in the interface font, and an icon
+  Send button (an arrow, named "Send", its tooltip "Send (⏎)"). Both buttons are as tall as the one-line field and stay
+  at its bottom edge as the field grows. The line has no Interrupt of its own: the header's Interrupt stops the turn,
+  and so does Esc in the field. Return sends; during a turn it queues the message. It keeps attaching a file or a
+  picture. It has no pickers, context meter, queue chip or hints.
 - A message sent while a turn runs waits in the Session's queue, and the chat shows it at once: the owner's bubble,
   dimmed, with "queued" and no number, last in the chat, below the status line and below whatever the advisor
   writes meanwhile. Several wait in the order sent. Once the turn ends, worfy gives the next one to the advisor, and it
