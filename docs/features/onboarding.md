@@ -43,8 +43,9 @@ again by itself. Opened in any other way, First run starts on the checks.
 **The checks.** Each row has a chip (OK, Warning, Failed, Unknown, or Running… while its action runs), what was found, a line
 of what to do, and sometimes a command with "Copy" or an action button. A row not in OK names its level beside its name:
 "Critical" or "Non-critical". A row that could not be checked says "Couldn't check: <reason>" in place of what was found,
-and its chip is grey, not the colour of a failure. A chip at the top sums up: "Checking…", "Everything is ready" or
-"2 failed · 1 warning · 1 not checked".
+and its chip is grey, not the colour of a failure. A chip at the top sums up the result: "Everything is ready" or
+"2 failed · 1 warning · 1 not checked". While a check runs there is no such chip: the "Check again" button says
+"Checking…" with a spinner instead.
 
 **The order.** The rows that matter most come first, in First run and in Settings → Health alike: critical rows not in OK,
 then the other rows not in OK, then the rows in OK. Rows stay in their group; inside a group they go in that order, and the

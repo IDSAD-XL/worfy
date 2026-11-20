@@ -394,7 +394,10 @@ function forgetWhenUnwatched(): void {
 
 /** The parts of the checks, for the place that shows them to lay out. */
 export interface FirstRunChecksParts {
-  /** The chip that sums the checks up: "Checking…", "2 failed · 1 warning", "Everything is ready"; null before the first checks. */
+  /**
+   * The chip that sums the checks up: "2 failed · 1 warning", "Everything is ready". Null before the first checks
+   * and while a check runs: "Check again" says "Checking…" then, and the place shows it once (worfy-polish ticket 134).
+   */
   summary: ReactNode
   /** The groups with their rows. */
   list: ReactNode
@@ -539,7 +542,7 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, children
   const warned = checks.filter((each) => each.status === 'warn').length
   const unchecked = checks.filter((each) => each.status === 'unknown').length
   const counts = [failed > 0 ? `${failed} failed` : null, warned > 0 ? `${warned} ${warned === 1 ? 'warning' : 'warnings'}` : null, unchecked > 0 ? `${unchecked} not checked` : null]
-  const summary = checking ? 'Checking…' : report === null ? '' : failed + warned + unchecked === 0 ? 'Everything is ready' : counts.filter(Boolean).join(' · ')
+  const summary = checking || report === null ? '' : failed + warned + unchecked === 0 ? 'Everything is ready' : counts.filter(Boolean).join(' · ')
   const locked = running !== null || checking
   const isError = message?.error || failure !== null
 
@@ -560,7 +563,7 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, children
       {children({
         summary:
           summary !== '' ? (
-            <Chip {...FIRST_RUN_CHIP[checking ? 'running' : failed > 0 ? 'fail' : warned > 0 ? 'warn' : unchecked > 0 ? 'unknown' : 'ok']} icon={null} data-testid="first-run-summary" label={summary} />
+            <Chip {...FIRST_RUN_CHIP[failed > 0 ? 'fail' : warned > 0 ? 'warn' : unchecked > 0 ? 'unknown' : 'ok']} icon={null} data-testid="first-run-summary" label={summary} />
           ) : null,
         list: checkBlocks(checks).map(({ key, title, rows }) => {
           return (

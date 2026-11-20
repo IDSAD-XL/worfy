@@ -44,8 +44,9 @@ Health check на rail sidebar-а и строка «Health check» в Command pa
 **Проверки.** В каждой строке есть chip (OK, Warning, Failed, Unknown или Running…, пока идёт её действие), что найдено, строка о
 том, что делать, и иногда команда с «Copy» или кнопка действия. Строка не в OK называет свой уровень рядом с именем:
 «Critical» или «Non-critical». Строка, которую не удалось проверить, вместо найденного говорит «Couldn't check: <reason>», и её
-chip серый, а не цвета поломки. Chip наверху подводит итог: «Checking…», «Everything is ready» или
-«2 failed · 1 warning · 1 not checked».
+chip серый, а не цвета поломки. Chip наверху подводит итог: «Everything is ready» или
+«2 failed · 1 warning · 1 not checked». Пока идёт проверка, этого chip-а нет: вместо него кнопка «Check again» пишет
+«Checking…» со spinner-ом.
 
 **Порядок.** Самые важные строки идут первыми — и в First run, и в Settings → Health: critical-строки не в OK, затем другие строки
 не в OK, затем строки в OK. Строки остаются в своей группе; внутри группы они идут в этом порядке, а группы — по своей первой

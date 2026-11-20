@@ -107,7 +107,8 @@ const isInactive = (button: HTMLElement): boolean => button.getAttribute('aria-d
 /** Opens Settings → Health and waits for the checks main answered with. */
 async function openHealth(): Promise<HTMLElement> {
   act(() => openSettings('HealthSection'))
-  await waitFor(() => expect(summaryOf(settings())).not.toBe('Checking…'))
+  // The button says "Checking…" while the check runs, and only it (worfy-polish ticket 134).
+  await waitFor(() => expect(within(settings()).getByRole('button', { name: 'Check again' })).toBeTruthy())
   return settings()
 }
 
@@ -158,7 +159,9 @@ describe('Settings → Health: the section', () => {
     expect(callsOf('firstRun.checks')).toHaveLength(0)
     act(() => openSettings('HealthSection'))
     expect(within(settings()).getByRole('heading', { level: 2 }).textContent).toBe('Health')
-    expect(summaryOf(settings())).toBe('Checking…')
+    // The running check shows once, on the button: no summary chip until there is a result (worfy-polish ticket 134).
+    expect(summaryOf(settings())).toBeNull()
+    expect(within(settings()).getByRole('button', { name: 'Checking…' })).toBeTruthy()
     const health = await openHealth()
     expect(callsOf('firstRun.checks')).toHaveLength(1)
     expect(rowsOf(health).map(readRow)).toEqual(expected(report()))
@@ -180,7 +183,7 @@ describe('Settings → Health: the section', () => {
       warn: { classes: ['w-chip--blocked', 'w-chip--quiet'], icons: 0 },
       fail: { classes: ['w-chip--blocked', 'w-chip--bordered'], icons: 0 },
     }
-    expect(look(within(settings()).getByTestId('first-run-summary'))).toEqual({ classes: ['w-chip--working', 'w-chip--bordered'], icons: 0 })
+    expect(within(settings()).queryByTestId('first-run-summary')).toBeNull()
     const health = await openHealth()
     const rows = rowsOf(health)
     expect(new Set(rows.map((each) => each.dataset.status))).toEqual(new Set(['ok', 'warn', 'fail']))
@@ -239,7 +242,7 @@ describe('Settings → Health: the section', () => {
     expect([again, ...actions()].map(isInactive)).toEqual([false, false, false, false, false])
     fireEvent.click(again)
     expect(callsOf('firstRun.checks')).toHaveLength(2)
-    expect(summaryOf(health)).toBe('Checking…')
+    expect(summaryOf(health)).toBeNull()
     // Inactive to the eye too (F-SPEC "First run": muted, no fill), not only deaf to the click.
     expect([again, ...actions()].map(isInactive)).toEqual([true, true, true, true, true])
     fireEvent.click(again)
@@ -546,7 +549,8 @@ describe('Settings → Health: the mark of First run and the shared checks', () 
     fireEvent.click(within(health).getByRole('button', { name: 'Close' }))
     expect(useFirstRun.getState()).toMatchObject({ open: false, report: null, failure: null })
     act(() => openFirstRun())
-    expect(summaryOf(firstRun())).toBe('Checking…')
+    expect(summaryOf(firstRun())).toBeNull()
+    expect(within(firstRun()).getByRole('button', { name: 'Checking…' })).toBeTruthy()
     await waitFor(() => expect(rowsOf(firstRun())).toHaveLength(report().checks.length))
     expect(callsOf('firstRun.checks')).toHaveLength(2)
   })
@@ -601,7 +605,8 @@ describe('Settings → Health: the mark of First run and the shared checks', () 
     act(() => openSettings('HealthSection'))
     // One check at a time: the section waits for the one that runs.
     expect(callsOf('firstRun.checks')).toHaveLength(1)
-    expect(summaryOf(settings())).toBe('Checking…')
+    expect(summaryOf(settings())).toBeNull()
+    expect(within(settings()).getByRole('button', { name: 'Checking…' })).toBeTruthy()
     handlers['firstRun.checks'] = () => ({ ok: true, value: installed() })
     await dropped.give({ ok: true, value: report() })
     await waitFor(() => expect(rowsOf(settings()).map(readRow)).toEqual(expected(installed())))
@@ -621,8 +626,8 @@ describe('Settings → Health: the mark of First run and the shared checks', () 
     act(() => openSettings('HealthSection'))
     expect(rowsOf(settings()).map(readRow)).toEqual(rowsOf(firstRun()).map(readRow))
     expect(callsOf('firstRun.checks')).toHaveLength(2)
-    expect(summaryOf(settings())).toBe('Checking…')
-    expect(summaryOf(firstRun())).toBe('Checking…')
+    expect(summaryOf(settings())).toBeNull()
+    expect(summaryOf(firstRun())).toBeNull()
     await pending.give({ ok: true, value: installed() })
     expect(rowsOf(settings()).map(readRow)).toEqual(expected(installed()))
     expect(rowsOf(firstRun()).map(readRow)).toEqual(expected(installed()))
@@ -947,13 +952,16 @@ describe('Settings → Health: a pressed button shows the work under way', () =>
     vi.useRealTimers()
   })
 
-  it('"Check again": the button says "Checking…" with a spinner and is off, every row chip says "Checking…"; the answer brings the labels back', async () => {
+  it('"Check again": the button says "Checking…" with a spinner and is off, every row chip says "Checking…", the summary chip goes; the answer brings the labels back', async () => {
     renderApp()
     const health = await openHealth()
+    expect(summaryOf(health)).toBe('3 failed · 2 warnings')
     const pending = later()
     handlers['firstRun.checks'] = () => pending.answer
     fireEvent.click(within(health).getByRole('button', { name: 'Check again' }))
 
+    // The running check shows once, on the button: the summary chip says only a result (worfy-polish ticket 134).
+    expect(summaryOf(health)).toBeNull()
     const busy = within(health).getByRole('button', { name: 'Checking…' })
     expect(isInactive(busy)).toBe(true)
     expect(spinnerOf(busy)).not.toBeNull()
@@ -971,6 +979,7 @@ describe('Settings → Health: a pressed button shows the work under way', () =>
     const again = within(health).getByRole('button', { name: 'Check again' })
     expect(isInactive(again)).toBe(false)
     expect(spinnerOf(again)).toBeNull()
+    expect(summaryOf(health)).toBe('3 failed · 2 warnings')
     expect(rowsOf(health).map(readRow)).toEqual(expected(report()))
     expect(rowsOf(health).map((each) => each.getAttribute('aria-busy'))).toEqual(report().checks.map(() => null))
     expect(buttonsOf(health).map((each) => each.name)).toEqual(expect.arrayContaining(['Install', 'Move…', 'Download…', 'Skip…', 'Check again']))
@@ -1084,7 +1093,7 @@ describe('Settings → Health: a pressed button shows the work under way', () =>
     const busy = within(rowOf(health, 'legacy-harness')).getByRole('button', { name: 'Moving…', hidden: true })
     expect([isInactive(busy), spinnerOf(busy) !== null]).toEqual([true, true])
     fireEvent.click(within(screen.getByTestId('migration-form')).getByTestId('migration-close'))
-    await waitFor(() => expect(summaryOf(health)).not.toBe('Checking…'))
+    await waitFor(() => expect(summaryOf(health)).not.toBeNull())
     expect(isInactive(within(rowOf(health, 'legacy-harness')).getByRole('button', { name: 'Move…' }))).toBe(false)
   })
 
