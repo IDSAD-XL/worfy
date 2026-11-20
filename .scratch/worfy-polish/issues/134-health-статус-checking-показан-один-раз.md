@@ -2,6 +2,7 @@
 
 Type: bug
 Status: claimed 2026-11-20T02:09Z
+PR: #2056
 Blocked by: none
 Source: скриншот и слова владельца 2026-11-20 «В health дублируется статус чип».
 
