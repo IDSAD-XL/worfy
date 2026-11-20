@@ -12,8 +12,9 @@
 //
 // The check is the service's own `initialize` with that header, one POST without the MCP SDK's Client: 401 is
 // `needs-sign-in`, 403 and anything else that is not an MCP answer is `error` with the service's text. Atlassian lets a
-// token in only when the organisation admin turned token sign-in on, so its refusal names that page. A token never
-// goes into a message, a log line or an answer: every text from the service passes scrubServiceText().
+// token in only when the organisation admin turned token sign-in on, so its refusal names that page. A redirect is not
+// followed: the sign-in header would go to another address. A token never goes into a message, a log line or an
+// answer: every text from the service passes scrubServiceText().
 import { z } from 'zod'
 import { catalogueEntry } from '../../../shared/integrations/catalogue'
 import type { Integration, IntegrationSecretPart, IntegrationSignIn, IntegrationStatus } from '../../../shared/integrations/types'
@@ -203,11 +204,20 @@ export interface CheckOptions {
 export type CheckedStatus = Exclude<IntegrationStatus, { state: 'checking' }>
 
 /**
- * Asks the Integration's server `initialize` with the sign-in `headers`: an MCP answer is `signed-in`, 401
- * `needs-sign-in`, anything else `error` with the service's text, scrubbed. A session the server opened is ended with
- * DELETE. Only for an http Integration.
+ * A check and whether its failure says nothing about the token: no answer, a timeout, 429 or 5xx. Such a failure keeps
+ * the previous sign-in; a refusal or an answer that is not MCP clears it.
  */
-export async function checkSignIn(integration: Integration, headers: Record<string, string>, options: CheckOptions = {}): Promise<CheckedStatus> {
+export interface CheckOutcome {
+  status: CheckedStatus
+  transient: boolean
+}
+
+/**
+ * Asks the Integration's server `initialize` with the sign-in `headers`: an MCP answer is `signed-in`, 401
+ * `needs-sign-in`, anything else `error` with the service's text, scrubbed. A redirect is an error and is not
+ * followed. A session the server opened is ended with DELETE. Only for an http Integration.
+ */
+export async function checkSignIn(integration: Integration, headers: Record<string, string>, options: CheckOptions = {}): Promise<CheckOutcome> {
   const { transport } = integration
   if (transport.kind !== 'http') throw new Error(`Integration ${integration.id} is not an http server`)
   const doFetch = options.fetch ?? globalThis.fetch
@@ -227,31 +237,36 @@ export async function checkSignIn(integration: Integration, headers: Record<stri
       method: 'POST',
       headers: { ...headers, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'worfy', version: '1' } } }),
+      redirect: 'manual',
       signal: AbortSignal.timeout(options.timeoutMs ?? CHECK_TIMEOUT_MS),
     })
     body = await response.text()
   } catch (error) {
     const reason = error instanceof Error ? (error.cause instanceof Error && 'code' in error.cause ? String(error.cause.code) : error.name === 'TimeoutError' ? 'no answer in time' : error.message) : String(error)
-    return { state: 'error', message: scrubServiceText(`Could not reach ${host}: ${reason}`, secrets) }
+    return { status: { state: 'error', message: scrubServiceText(`Could not reach ${host}: ${reason}`, secrets) }, transient: true }
   }
   const text = scrubServiceText(refusalText(body), secrets)
-  if (response.status === 401 || response.status === 403) {
-    if (atlassian) return { state: 'error', message: atlassianRefusal(text, response.status) }
-    if (response.status === 401) return { state: 'needs-sign-in' }
-    return { state: 'error', message: text === '' ? `${host} refused the sign-in (403)` : text }
+  const failed = (message: string, transient = false): CheckOutcome => ({ status: { state: 'error', message }, transient })
+  if (response.status >= 300 && response.status < 400) {
+    return failed(`${host} answered ${response.status}, a redirect to another address; worfy does not send the sign-in there`)
   }
-  if (!response.ok) return { state: 'error', message: `${host} answered ${response.status}${text === '' ? '' : `: ${text}`}` }
+  if (response.status === 401 || response.status === 403) {
+    if (atlassian) return failed(atlassianRefusal(text, response.status))
+    if (response.status === 401) return { status: { state: 'needs-sign-in' }, transient: false }
+    return failed(text === '' ? `${host} refused the sign-in (403)` : text)
+  }
+  if (!response.ok) return failed(`${host} answered ${response.status}${text === '' ? '' : `: ${text}`}`, response.status === 429 || response.status >= 500)
   const answer = rpcAnswer(response.headers.get('content-type') ?? '', body)
   const session = response.headers.get('mcp-session-id')
   if (session !== null) {
     // The check needs no session: end it, as the protocol asks; a server that cannot is no reason to fail the check.
-    await doFetch(transport.url, { method: 'DELETE', headers: { ...headers, 'mcp-session-id': session }, signal: AbortSignal.timeout(options.timeoutMs ?? CHECK_TIMEOUT_MS) })
+    await doFetch(transport.url, { method: 'DELETE', headers: { ...headers, 'mcp-session-id': session }, redirect: 'manual', signal: AbortSignal.timeout(options.timeoutMs ?? CHECK_TIMEOUT_MS) })
       .then((ended) => ended.body?.cancel())
       .catch(() => undefined)
   }
-  if (answer?.result !== undefined) return { state: 'signed-in' }
-  if (answer?.error !== undefined) return { state: 'error', message: scrubServiceText(`${host}: ${answer.error.message}`, secrets) }
-  return { state: 'error', message: `${host} did not answer initialize as an MCP server` }
+  if (answer?.result !== undefined) return { status: { state: 'signed-in' }, transient: false }
+  if (answer?.error !== undefined) return failed(scrubServiceText(`${host}: ${answer.error.message}`, secrets))
+  return failed(`${host} did not answer initialize as an MCP server`)
 }
 
 /** The part of the Integration store a token sign-in reads and writes; IntegrationStore is one. */
@@ -262,7 +277,7 @@ export interface TokenStore extends SecretSource {
 }
 
 /** The check a sign-in runs; checkSignIn by default. */
-export type SignInCheck = (integration: Integration, headers: Record<string, string>) => Promise<CheckedStatus>
+export type SignInCheck = (integration: Integration, headers: Record<string, string>) => Promise<CheckOutcome>
 
 /** Whether Integration `integration` signs in with a token worfy can check: a token way over http. */
 export function checksToken(integration: Integration): boolean {
@@ -271,8 +286,10 @@ export function checksToken(integration: Integration): boolean {
 
 /**
  * Checks the token Integration `id` keeps and records the outcome: `signed-in` keeps the sign-in (the account is the
- * e-mail of a Basic secret, or `account`), anything else clears it. A token that is not kept is `needs-sign-in`
- * without asking the service.
+ * e-mail of a Basic secret, or `account`), a transient failure leaves the previous sign-in as it was, anything else
+ * clears it. A token that is not kept is `needs-sign-in` without asking the service. When the token changed while the
+ * service answered — another check or a Sign out came in between — nothing is recorded: the answer is about a token
+ * the Integration no longer has. The caller tells that case with isCurrentToken().
  */
 export async function verifyTokenSignIn(store: TokenStore, id: string, options: { check?: SignInCheck; account?: string | null; now?: () => Date } = {}): Promise<CheckedStatus> {
   const integration = store.get(id)
@@ -286,15 +303,22 @@ export async function verifyTokenSignIn(store: TokenStore, id: string, options: 
     if (error instanceof MissingSecretError) return { state: 'needs-sign-in' }
     return { state: 'error', message: error instanceof Error ? error.message : 'the sign-in could not be read' }
   }
-  const status = await (options.check ?? checkSignIn)(integration, headers)
+  const checked = store.secret(id, 'access')
+  const { status, transient } = await (options.check ?? checkSignIn)(integration, headers)
+  if (!isCurrentToken(store, id, checked)) return status
   if (status.state !== 'signed-in') {
-    store.setSignIn(id, null)
+    if (!transient) store.setSignIn(id, null)
     return status
   }
   const secret = integration.auth === 'basic' ? store.secret(id, 'access') : undefined
   const account = secret === undefined ? (options.account ?? null) : basicEmail(secret)
   store.setSignIn(id, { account, site: null, at: (options.now ?? (() => new Date()))().toISOString() })
   return status
+}
+
+/** Whether Integration `id` still keeps `token` as its token: false after another token or a Sign out. */
+export function isCurrentToken(store: SecretSource, id: string, token: string | undefined): boolean {
+  return store.secret(id, 'access') === token
 }
 
 /** Sign out of a token: every `<id>:*` key leaves the secret store, and the Integration needs sign-in. */
@@ -362,6 +386,10 @@ export async function offerGhToken(options: GhTokenOptions): Promise<GhTokenOffe
 export async function signInWithGhToken(options: GhTokenOptions & { store: TokenStore; id: string; check?: SignInCheck }): Promise<CheckedStatus> {
   const { account } = options
   if (account === null) throw new Error('the Project has no GitHub account')
+  const integration = options.store.get(options.id)
+  if (integration === undefined) throw new Error(`no Integration ${options.id} on this Machine`)
+  // Before the copy: a token kept for an Integration that does not sign in with one would only lie in the store.
+  if (!checksToken(integration)) throw new Error(`Integration ${options.id} does not sign in with a token over http`)
   const env = await accountAuth({ account: () => Promise.resolve(account), run: options.run })(options.root)
   const token = env.GH_TOKEN
   if (token === undefined) throw new Error(`gh gave no token for ${account}`)

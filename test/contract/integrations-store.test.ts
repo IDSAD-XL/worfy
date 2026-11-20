@@ -195,7 +195,7 @@ function bench(): Bench {
   // The token check of ticket 04 asks the service; these Integrations are on the catalogue's real addresses, so a
   // stand-in lets every token in and no request leaves the machine (test/contract/integrations-token-auth.test.ts
   // checks against a stub server).
-  const module = integrationsHandlers({ store: () => store, projects: { list: () => projects, dataDir }, check: async () => ({ state: 'signed-in' }) })
+  const module = integrationsHandlers({ store: () => store, projects: { list: () => projects, dataDir }, check: async () => ({ status: { state: 'signed-in' }, transient: false }) })
   const call = async (channel: string, input: unknown): Promise<unknown> => {
     const handler = module.find((entry) => entry.channel.name === channel)
     if (handler === undefined) throw new Error(`no handler for ${channel}`)

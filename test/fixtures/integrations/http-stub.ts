@@ -2,7 +2,9 @@
 // 127.0.0.1, answers in JSON. Each credential it knows opens a dataset of its own (`alpha`, `beta`…), so two
 // Integrations on one address tell themselves apart by what the server answers. It checks a Bearer token, Basic of
 // an e-mail and a token, and a header of its own; a credential listed under `forbidden` gets 403 with that text.
-// Its log names the dataset or the refusal, never the credential.
+// For the tests of what worfy does with a bad answer it can also: hold the answer to a Bearer token until the test
+// releases it, answer 503, redirect to another address, or echo the credential it got in a 403 — the way a careless
+// service quotes it back. Its log names the dataset or the refusal, never the credential.
 import { randomUUID } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -16,6 +18,14 @@ export interface HttpStubOptions {
   header?: { name: string; values: Record<string, string> }
   /** Bearer token → the text of a 403 answer. */
   forbidden?: Record<string, string>
+  /** Bearer tokens whose answer waits until `release(token)`. */
+  hold?: readonly string[]
+  /** Bearer tokens answered with 503. */
+  unavailable?: readonly string[]
+  /** A credential the stub does not know gets 307 to this address instead of 401. */
+  redirectTo?: string
+  /** A credential the stub does not know gets 403 that quotes it — raw, and decoded for Basic — instead of 401. */
+  echoUnknown?: boolean
 }
 
 export interface StubLogEntry {
@@ -30,6 +40,10 @@ export interface HttpStub {
   log: StubLogEntry[]
   /** Session ids the server gave out and that were not ended with DELETE yet. */
   openSessions: Set<string>
+  /** How many requests with each held token are waiting for release. */
+  held(token: string): number
+  /** Lets the held answers to `token` go. */
+  release(token: string): void
   close(): Promise<void>
 }
 
@@ -72,9 +86,18 @@ function json(response: ServerResponse, status: number, body: unknown, headers: 
 export async function startHttpStub(options: HttpStubOptions): Promise<HttpStub> {
   const log: StubLogEntry[] = []
   const openSessions = new Set<string>()
+  const waiting = new Map<string, (() => void)[]>()
   const server = createServer((request, response) => {
     void (async () => {
       if (request.url !== '/mcp') return json(response, 404, { error: 'not found' })
+      const bearer = /^Bearer (.+)$/u.exec(request.headers.authorization ?? '')?.[1]
+      if (bearer !== undefined && request.method === 'POST' && options.hold?.includes(bearer) === true) {
+        await new Promise<void>((resolve) => waiting.set(bearer, [...(waiting.get(bearer) ?? []), resolve]))
+      }
+      if (bearer !== undefined && options.unavailable?.includes(bearer) === true) {
+        log.push({ method: request.method ?? '', dataset: 'unavailable' })
+        return json(response, 503, { error: 'unavailable', error_description: 'Try again later' })
+      }
       const opened = datasetOf(request, options)
       if (request.method === 'DELETE') {
         const session = request.headers['mcp-session-id']
@@ -84,6 +107,17 @@ export async function startHttpStub(options: HttpStubOptions): Promise<HttpStub>
       }
       if (request.method !== 'POST') return json(response, 405, { error: 'method not allowed' })
       const message = JSON.parse(await bodyOf(request)) as { id?: number | string; method: string }
+      if (opened === null && options.redirectTo !== undefined) {
+        log.push({ method: message.method, dataset: 'redirected' })
+        response.writeHead(307, { location: options.redirectTo })
+        return response.end()
+      }
+      if (opened === null && options.echoUnknown === true) {
+        log.push({ method: message.method, dataset: 'echoed' })
+        const credential = /^(?:Bearer|Basic) (.+)$/u.exec(request.headers.authorization ?? '')?.[1] ?? ''
+        const decoded = request.headers.authorization?.startsWith('Basic ') === true ? Buffer.from(credential, 'base64').toString('utf8') : ''
+        return json(response, 403, { error: 'forbidden', error_description: `credential ${credential} ${decoded} is not allowed here` })
+      }
       if (opened === null) {
         log.push({ method: message.method, dataset: 'unauthorized' })
         return json(response, 401, { error: 'invalid_token', error_description: 'The token is not valid' }, { 'www-authenticate': 'Bearer error="invalid_token"' })
@@ -124,8 +158,15 @@ export async function startHttpStub(options: HttpStubOptions): Promise<HttpStub>
     url: `http://127.0.0.1:${port}/mcp`,
     log,
     openSessions,
+    held: (token) => waiting.get(token)?.length ?? 0,
+    release: (token) => {
+      for (const resolve of waiting.get(token) ?? []) resolve()
+      waiting.delete(token)
+    },
     close: () =>
       new Promise<void>((resolve, reject) => {
+        for (const resolvers of waiting.values()) for (const go of resolvers) go()
+        waiting.clear()
         server.closeAllConnections()
         server.close((error) => (error === undefined ? resolve() : reject(error)))
       }),

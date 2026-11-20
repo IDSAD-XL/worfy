@@ -171,6 +171,110 @@ describe('integrations.setSecret checks the token with the service’s initializ
   })
 })
 
+describe('two checks of one Integration at once (review round 2, 1)', () => {
+  it.each([
+    ['a wrong token', WRONG],
+    ['a refused token', DENIED],
+  ])('%s answered after a right one leaves the right one signed-in, with no foreign error', async (_what, slow) => {
+    await stub.close()
+    stub = await startHttpStub({ bearer: { [ALPHA]: 'alpha' }, forbidden: { [DENIED]: DENIAL }, hold: [slow] })
+    const b = bench()
+    const id = await b.add('Stub', 'bearer')
+    const first = setSecret(b, id, slow)
+    await vi.waitFor(() => expect(stub.held(slow)).toBe(1))
+    expect(await setSecret(b, id, ALPHA)).toEqual({ status: { state: 'signed-in' } })
+    stub.release(slow)
+    await first
+    expect(b.store.secret(id, 'access')).toBe(ALPHA)
+    expect(b.store.get(id)?.signIn).not.toBeNull()
+    expect(await b.call('integrations.status', { projectId: 'p1' })).toEqual({ statuses: [{ id, status: { state: 'signed-in' } }] })
+  })
+
+  it('a Sign out during the check is not undone by the check’s answer', async () => {
+    await stub.close()
+    stub = await startHttpStub({ bearer: { [ALPHA]: 'alpha' }, hold: [ALPHA] })
+    const b = bench()
+    const id = await b.add('Stub', 'bearer')
+    const pending = setSecret(b, id, ALPHA)
+    await vi.waitFor(() => expect(stub.held(ALPHA)).toBe(1))
+    signOut(b.store, id)
+    stub.release(ALPHA)
+    await pending
+    expect(b.store.get(id)?.signIn).toBeNull()
+    expect(await b.call('integrations.status', { projectId: 'p1' })).toEqual({ statuses: [{ id, status: { state: 'needs-sign-in' } }] })
+  })
+})
+
+describe('a failure on the way is not a refusal of the token (review round 2, 4)', () => {
+  it('a 503 or no answer while a new token is checked keeps the previous sign-in; a 401 clears it', async () => {
+    const UNAVAILABLE = 'tok-UNAVAILABLE-SECRET-6666'
+    await stub.close()
+    stub = await startHttpStub({ bearer: { [ALPHA]: 'alpha' }, unavailable: [UNAVAILABLE] })
+    const b = bench()
+    const id = await b.add('Stub', 'bearer')
+    await setSecret(b, id, ALPHA)
+    const signedIn = b.store.get(id)?.signIn
+    expect(signedIn).not.toBeNull()
+    const answer = (await setSecret(b, id, UNAVAILABLE)) as { status: { state: string; message: string } }
+    expect(answer.status.state).toBe('error')
+    expect(answer.status.message).toContain('503')
+    expect(b.store.get(id)?.signIn).toEqual(signedIn)
+    expect(await setSecret(b, id, WRONG)).toEqual({ status: { state: 'needs-sign-in' } })
+    expect(b.store.get(id)?.signIn).toBeNull()
+  })
+})
+
+describe('a redirect is not followed with the sign-in (review round 2, 3)', () => {
+  it('a 307 to another address is an error, and the other address never gets the header', async () => {
+    const other = await startHttpStub({})
+    try {
+      await stub.close()
+      stub = await startHttpStub({ redirectTo: other.url })
+      const b = bench()
+      const id = await b.add('Header server', 'header', 'X-Api-Key')
+      const answer = (await setSecret(b, id, HEADER_TOKEN)) as { status: { state: string; message: string } }
+      expect(answer.status.state).toBe('error')
+      expect(answer.status.message).toMatch(/307/)
+      expect(stub.log).toEqual([{ method: 'initialize', dataset: 'redirected' }])
+      expect(other.log).toEqual([])
+    } finally {
+      await other.close()
+    }
+  })
+})
+
+describe('what the service says back is scrubbed of the token (review round 2, 2)', () => {
+  it('a 403 that quotes a Bearer token, a Basic pair and a header token shows none of them', async () => {
+    await stub.close()
+    stub = await startHttpStub({ echoUnknown: true })
+    const b = bench()
+    const bearer = await b.add('Bearer', 'bearer')
+    const basic = await b.add('Basic', 'basic')
+    const header = await b.add('Header', 'header', 'X-Api-Key')
+    const answers = [
+      (await setSecret(b, bearer, WRONG)) as { status: { state: string; message: string } },
+      (await setSecret(b, basic, basicSecret('me@example.test', API_TOKEN))) as { status: { state: string; message: string } },
+      (await setSecret(b, header, HEADER_TOKEN)) as { status: { state: string; message: string } },
+    ]
+    expect(answers.slice(0, 2).map((answer) => answer.status.state)).toEqual(['error', 'error'])
+    expect(answers[0]?.status.message).toMatch(/is not allowed here/)
+    const basic64 = Buffer.from(`me@example.test:${API_TOKEN}`, 'utf8').toString('base64')
+    for (const secret of [WRONG, API_TOKEN, basic64, HEADER_TOKEN]) expect(JSON.stringify(answers)).not.toContain(secret)
+  })
+
+  it('a failure to reach the service that names the token shows no token', async () => {
+    const integration: Integration = { id: 'unreach1', service: 'custom', label: 'Stub', transport: { kind: 'http', url: stub.url }, auth: 'bearer', headerName: null, signIn: null }
+    const failing = (async () => {
+      throw new Error(`connect failed while sending ${ALPHA}`)
+    }) as typeof fetch
+    const { status, transient } = await checkSignIn(integration, { Authorization: `Bearer ${ALPHA}` }, { fetch: failing })
+    expect(status.state).toBe('error')
+    expect(transient).toBe(true)
+    expect(JSON.stringify(status)).toMatch(/Could not reach 127\.0\.0\.1/)
+    expect(JSON.stringify(status)).not.toContain(ALPHA)
+  })
+})
+
 describe('Atlassian refuses a token', () => {
   it('shows the service’s text and the admin page, not a bare error', async () => {
     const atlassian: Integration = {
@@ -182,7 +286,7 @@ describe('Atlassian refuses a token', () => {
       headerName: null,
       signIn: null,
     }
-    const status = await checkSignIn(atlassian, { Authorization: `Bearer ${DENIED}` })
+    const { status } = await checkSignIn(atlassian, { Authorization: `Bearer ${DENIED}` })
     expect(status.state).toBe('error')
     const message = status.state === 'error' ? status.message : ''
     expect(message).toContain(DENIAL)
@@ -278,6 +382,13 @@ describe('the token of the Project’s gh account', () => {
     const unknown = await offerGhToken({ account: 'alice', run: gh(null), root })
     expect(unknown?.scopes).toBeNull()
     expect(unknown?.warning).toMatch(/scopes/)
+  })
+
+  it('keeps no copy for an Integration that does not sign in with a token (review round 2, 5)', async () => {
+    const b = bench()
+    const id = await b.add('OAuth server', 'oauth')
+    await expect(signInWithGhToken({ store: b.store, id, account: 'alice', run: gh('repo'), root })).rejects.toThrow(/token/)
+    expect(b.store.hasSecret(id, 'access')).toBe(false)
   })
 
   it('signs a GitHub Integration in with a copy in the secret store, the gh login as its account', async () => {

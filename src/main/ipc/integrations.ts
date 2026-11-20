@@ -21,7 +21,7 @@ import {
   integrationsSetTools,
   integrationsStatus,
 } from '../../shared/ipc/integrations'
-import { checkSignIn, checksToken, verifyTokenSignIn, type SignInCheck } from '../integrations/auth/tokens'
+import { checkSignIn, checksToken, isCurrentToken, verifyTokenSignIn, type SignInCheck } from '../integrations/auth/tokens'
 import { integrationStore, type IntegrationStore } from '../integrations/store'
 import { readProjectIntegrations, writeProjectIntegrations } from '../projects/settings'
 import { projectStore } from '../projects/store'
@@ -127,7 +127,8 @@ export function integrationsHandlers(options: IntegrationsHandlersOptions = {}):
       if (part !== 'access' || !checksToken(integration)) return { status: statusOf(machine, integration, errors) }
       errors.delete(id)
       const status = await verifyTokenSignIn(machine, id, { check })
-      if (status.state === 'error') errors.set(id, status.message)
+      // A token replaced or signed out while the service answered: its error is not the Integration's any more.
+      if (status.state === 'error' && isCurrentToken(machine, id, value)) errors.set(id, status.message)
       return { status }
     }),
     defineHandler(integrationsRemove, ({ projectId, id, confirmed }) => {
