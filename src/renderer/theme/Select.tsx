@@ -1,6 +1,7 @@
 import { useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import './select.css'
+import { hintProps } from './kit/hint'
 import { SelectListContainer } from './select-container'
 
 /*
@@ -63,6 +64,11 @@ export interface SelectProps<V extends string = string> {
   'aria-describedby'?: string
   'data-testid'?: string
   title?: string
+  /**
+   * A kit tooltip on the button (theme/kit/Tooltip.tsx, `hintProps`) in place of the native `title`: it shows on
+   * hover and on keyboard focus and is the button's description (worfy-polish ticket 137).
+   */
+  hint?: string
   className?: string
   /** Inline style of the button, for a form whose fields have their own look. */
   style?: CSSProperties
@@ -94,7 +100,7 @@ function labelText(button: HTMLButtonElement | null): string | undefined {
 }
 
 export function Select<V extends string = string>(props: SelectProps<V>): ReactElement {
-  const { value, options, onChange, disabled = false, mono = false, onOpen, prefix, title, className, style } = props
+  const { value, options, onChange, disabled = false, mono = false, onOpen, prefix, title, hint, className, style } = props
   const base = useId()
   const container = useContext(SelectListContainer)
   const buttonId = props.id ?? `${base}-button`
@@ -397,6 +403,7 @@ export function Select<V extends string = string>(props: SelectProps<V>): ReactE
         data-value={value}
         disabled={disabled}
         title={title}
+        {...(hint === undefined || hint === '' ? {} : hintProps(hint))}
         className={classes}
         style={style}
         onClick={() => {

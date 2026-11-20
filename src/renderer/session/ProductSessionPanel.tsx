@@ -203,11 +203,12 @@ export function AcceptedAdvice({ projectId }: { projectId: string }) {
         </span>
       </span>
     )
+  // The divider and the share give way together, first in the header: «…», then nothing (worfy-polish ticket 137).
   return (
-    <>
+    <span className="w-session__advice" data-testid="product-session-advice">
       <span className="w-session__divider" aria-hidden="true" />
       {fact}
-    </>
+    </span>
   )
 }
 

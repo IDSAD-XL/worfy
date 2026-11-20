@@ -31,7 +31,11 @@ Modes menu: that menu belongs to the Orchestrator.
 the toolbar's background, holds a violet "Product Session" label, "Product Session" and the topic of the Mind map (the
 Project's name until a topic is known), the Vendor, the state, the Session switcher, the share of accepted advice (see
 the last section) and Interrupt. The share shows only once the Project has advice, decided or not. It has no Model,
-Effort, Permissions, Cost, "Hide tools" or layout switch. Its body is three parts side by side:
+Effort, Permissions, Cost, "Hide tools" or layout switch. When the header is short of room, the share gives way first:
+it ends in "…", and in a narrow header it is gone. The Session switcher is never narrower than 140 px and shows the
+Session's name, ending in "…" when it is long, with the whole name in its tooltip. A narrower header shows the state as
+its icon alone, the word in its tooltip and for a screen reader, and the narrowest leaves the Vendor to the chat's
+heading, so Interrupt stays in sight down to the smallest window. Its body is three parts side by side:
 
 | Part | What it holds |
 |---|---|
@@ -215,6 +219,7 @@ changes make one message. One signal runs at a time per Project.
 | `src/shared/product/paths.ts` | `productFolder` and the names of a topic folder |
 | `src/renderer/shell/sidebar/SessionsSection.tsx`, `src/renderer/palette/commands.ts` | The two entries "New Product Session" |
 | `src/renderer/session/SessionView.tsx`, `src/renderer/session/ProductSessionPanel.tsx` | The header, the body, the chat's heading and the agents strip |
+| `src/renderer/session/SessionPicker.tsx`, `src/renderer/session/SessionStateChip.tsx`, `src/renderer/session/session.css` | The header short of room: the switcher's floor and tooltip, the state chip's word, what gives way and in which order |
 | `src/renderer/session/ProductAgentsList.tsx`, `src/renderer/session/product-agents.ts` | The agents list: names, states, the critic's objections |
 | `src/renderer/session/ProductRailPanels.tsx` | The Critic, Idea generator and Drafts panels of the strip |
 | `src/renderer/session/product-session.ts` | `shownInProductChat`: the rows the chat shows; the input field's items it leaves out; `chatQueue`: the queue as the chat draws it |
@@ -243,6 +248,8 @@ changes make one message. One signal runs at a time per Project.
 - `test/unit/product-session-panel.test.tsx`, `test/unit/session-node-product.test.tsx`: the screen, the divider, the
   strip, its four panels and the Node.
 - `test/e2e/new-product-session.spec.ts`: the Command palette entry in the running app.
+- `test/e2e/product-session.spec.ts`: among others, the header from a wide to the smallest window — the share gives
+  way first, the switcher keeps its name, Interrupt stays inside.
 - `test/e2e/product-session.spec.ts` (question and permission cards), `test/unit/waiting-requests.test.tsx`,
   `test/contract/permissions.test.ts` (`agent.requests`): the cards of the Session and its Subagents in the narrow chat,
   and the open requests a reloaded window asks main for.

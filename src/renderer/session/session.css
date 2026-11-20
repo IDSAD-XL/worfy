@@ -43,6 +43,8 @@
   height: 48px;
   background: var(--toolbar);
   border-bottom-color: var(--toolbar-border);
+  /* Its width sets what gives way when it is short of room (worfy-polish ticket 137, below). */
+  container: w-session-header / inline-size;
 }
 
 .w-session--product .w-session__title {
@@ -168,6 +170,68 @@
 .w-session__spacer {
   flex: 1;
   min-width: var(--space-2);
+}
+
+/*
+ * A Product Session's header short of room (worfy-polish ticket 137, the owner's screenshot of 2026-11-20).
+ * The share of accepted advice, with its divider, gives way first: its shrink weight dwarfs every other one,
+ * so it ends in «…» while the Session picker keeps its width; the picker then shrinks to its floor of 140 px
+ * (SessionPicker.tsx), never to an empty box. A narrower header drops the share altogether, then shows the
+ * state chip as its icon alone (the word stays for a screen reader and in the chip's kit tooltip), and the
+ * narrowest drops the Vendor, so Interrupt stays inside the header down to the smallest window.
+ */
+.w-session__advice {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 1000 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.w-session__advice .w-session__accepted {
+  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.w-session__state,
+.w-session__vendor {
+  display: inline-flex;
+  flex: none;
+}
+
+@container w-session-header (width < 800px) {
+  .w-session__advice {
+    display: none;
+  }
+
+  /* With the share gone and the picker at its floor, the title is left alone to shrink, and with its tiny weight
+     (flex factors under 1 in sum shrink by that fraction only) it pushed Interrupt out of the header. */
+  .w-session__title {
+    flex-shrink: 1;
+  }
+}
+
+@container w-session-header (width < 640px) {
+  /* Hidden from sight only: the chip stays named for a screen reader. */
+  .w-session__state-word {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+/* The narrowest header: the chat's heading right below names the Vendor too. */
+@container w-session-header (width < 600px) {
+  .w-session__vendor {
+    display: none;
+  }
 }
 
 /* The height of a Session button (Interrupt, «Send queued»): the hint line of the input bar keeps
