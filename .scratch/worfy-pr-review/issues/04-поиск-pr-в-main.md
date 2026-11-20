@@ -1,7 +1,7 @@
 # 04 — Поиск PR в main: сборка запроса, три области, `prSearch.run` и `prSearch.pull`, сохранённые поиски, Amendment-ы ADR-0105 и ADR-0005
 
 Type: task
-Status: claimed 2026-11-20T04:30Z
+Status: done 2026-11-20T09:11Z
 PR: #2074
 Blocked by: 02
 Source: [spec.md](../spec.md), «Ticket-ы», 4; «Факты GitHub API» → «Поиск PR»; «Решения по реализации», 1, 2, 9 и 10;
@@ -72,6 +72,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Факты GitHub API» → �
 - [ ] Amendment-ы ADR-0105 (пункт 1) и ADR-0005 влиты в этом PR.
   - evidence: commit pass · worfy-pr-review/04: PR search in main — query builder, three scopes, prSearch.run/pull, saved searches · - - · b63f39113812ecffbdcb0dbf30f1ea8f521393e3
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44699716703/job/136193437838 · ci - · 96a6c1a1ea57517cb41a332b65223a8570755dab
 
 ## Где в коде
 
