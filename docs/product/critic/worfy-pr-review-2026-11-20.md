@@ -11,7 +11,7 @@ Fact: `epic-status worfy-changes-view` prints `/implement · worfy-changes-view 
 
 Judgement: Started today, ticket 06 would rewrite `DiffPane.tsx` and the `changes.*` channels under a 2,500-line branch that lands on the same lines; one of the two PRs gets a large rebase, and the line references the spec gives for `DiffPane.tsx:17-23` and `:229` go stale as soon as 05 lands. Ticket 09 cannot reuse a popover that is not in `main`. Both tickets need `worfy-changes-view` 05 named in `Blocked by:` (the form `Blocked by: 02, 03, \`worfy-multi-repo-ticket\` 06` is already used in the repository), and Wave 1 holds 01, 02, 04 and 08 until it lands.
 
-Owner decision:
+Owner decision: accepted 2026-11-20 («1-7 да», Q7 of the round). Ticket 06 (the diff of a PR in Changes) and ticket 10 (line comments, the Your review bar, Discard — one half of the former ticket 09) wait for the merge of `worfy-changes-view` 05; written in the ticket text, since `Blocked by` takes only numbers of this epic. Wave 1 is 01, 02, 07; ticket 06 joins as soon as `worfy-changes-view` 05 is merged.
 
 ### 2. Ticket 04 (search in main) returns rows with the approvals fields that ticket 02 adds, yet both sit in Wave 1 with "no shared files"
 
@@ -19,7 +19,7 @@ Fact: section 1 says search results carry "поля строки списка: �
 
 Judgement: Ticket 04 must either export and reuse `rowOf` and the field list from `inbox.ts`, the file ticket 02 edits in the same wave, or copy them and drift from the inbox row. Either way it needs 02's `approvals` shape to meet its own spec. `Blocked by: 02` on ticket 04 costs nothing on the critical path, since ticket 05 already waits for 03, which waits for 02.
 
-Owner decision:
+Owner decision: accepted 2026-11-20 («1-7 да», Q7 of the round). Ticket 04 (search in main) has `Blocked by: 02` and reuses the row builder and the field list of `src/main/github/inbox.ts` with the `approvals` shape of ticket 02.
 
 ### 3. Ticket 08's contract test races against `bin/pr-review-draft`, a script that only ticket 10 creates, and 10 is blocked by 08
 
@@ -27,7 +27,7 @@ Fact: ticket 08 tests "гонка с `bin/pr-review-draft`" (`spec.md:603`); tic
 
 Judgement: Ticket 08 cannot meet its own definition of done without either writing ticket 10's script early or testing against a stand-in that 10 may later contradict. If the owner answers Q4 "no", ticket 10 disappears (`spec.md:636`) and the test refers to a writer that never exists. The race test and the agent-writer rule belong to ticket 10; ticket 08 should test only main's own writes and the Linked machine refusal.
 
-Owner decision:
+Owner decision: accepted 2026-11-20 («1-7 да», Q7 of the round). The race test with `bin/pr-review-draft` moved to ticket 08 (Agent review, the former ticket 10), which creates the script; ticket 07 (the review draft in main, the former 08) tests only main's own writes and the Linked machine refusal. The owner's new requirement of the same day (a choice between Review myself and Agent review) made the agent ticket mandatory and moved it to Wave 3, right after the draft and the diff. The closer alternative was also accepted: the former ticket 09 is split into ticket 10 (review depth `medium`) and ticket 11, the Finish review dialog and `pr-review-submit.ts` (review depth `max`).
 
 ## Alternative
 

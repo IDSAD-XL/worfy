@@ -1,7 +1,13 @@
 # worfy-pr-review: поиск и ревью чужих PR прямо во вкладке Pull requests; счётчик нужных одобрений (1/2, 2/2) по правилам репозитория
 
-Status: draft 2026-11-20 — черновик Orchestrator-а; владелец его не видел
-Critic: [docs/product/critic/worfy-pr-review-2026-11-20.md](../../docs/product/critic/worfy-pr-review-2026-11-20.md) — Reorder: три строки `Blocked by:` (06 и 09 ждут `worfy-changes-view` 05, 04 ждёт 02, test гонки с `bin/pr-review-draft` — в 10).
+Status: принят владельцем 2026-11-20 — раунд вопросов Q1–Q7 («1-7 да»: каждый ответ — рекомендация; раздел «Вопросы
+владельцу») и новое требование владельца: выбор, какое ревью делать — самому или агентом (раздел «Решение», 3 и 6).
+Черновик Orchestrator-а 2026-11-20.
+Critic: [docs/product/critic/worfy-pr-review-2026-11-20.md](../../docs/product/critic/worfy-pr-review-2026-11-20.md) — Reorder;
+владелец принял все три возражения (Q7 раунда): Ticket 06 и Ticket комментариев к строкам ждут `worfy-changes-view` 05,
+поиск в main ждёт Required approvals в main, test гонки с `bin/pr-review-draft` — в Ticket-е Agent review. Принята и
+близкая альтернатива critic-а: бывший Ticket 09 разделён на «комментарии к строкам, полоса Your review, Discard»
+(ступень `medium`) и «диалог Finish review и `pr-review-submit.ts`» (ступень `max`).
 Source: просьба владельца 2026-11-20: «нужна ещё возможность искать и ревьювать чужие пулл реквесты прямо во вкладке
 pull requests, продумай все детали по этому; ещё нужно отображение сколько нужно аппрувов (1/2, 2/2) в зависимости от
 настроек репозитория, и это нужно отображать». Факты GitHub API — по документации docs.github.com (раздел «Факты GitHub
@@ -20,9 +26,11 @@ inbox читает GitHub из main), [0110](../../docs/adr/0110-changes-reads-g
 ничего не пишет).
 Термины [CONTEXT.md](../../CONTEXT.md): PR inbox, Team reviewer, Session, Binding, Project, Profile, Linked machine,
 Full mode, Silent mode, Health check, Stage; Changes — термин, который вносит Ticket 06 worfy-changes-view. Новые термины
-этого Epic-а — Review mode и Required approvals (раздел «Решения по реализации», 13).
-Ticket-ы: Epic `worfy-pr-review`, 12 Ticket-ов, `issues/01`–`issues/12`. Файлов Ticket-ов ещё нет: их заводит
-`/worfy:to-tickets` после принятия spec-а. Имена новых файлов ниже — предложение; implementer сверяет их с `main`.
+этого Epic-а — Review mode, Required approvals и Agent review (раздел «Решения по реализации», 13). «Human review» в
+этом spec-е — только Stage `human-review` Pipeline-а; ревью, которое пишет сам человек, называется по кнопке — Review
+myself (в CONTEXT.md «human review» запрещено как имя skill-а Team reviewer).
+Ticket-ы: Epic `worfy-pr-review`, 13 Ticket-ов в 8 Wave-ах, нумерация с `01`, файлы — [issues/](issues/) (2026-11-20).
+Имена новых файлов кода в Ticket-ах — предложение; implementer сверяет их с `main`.
 
 ## Проблема
 
@@ -63,7 +71,7 @@ Ticket-ы: Epic `worfy-pr-review`, 12 Ticket-ов, `issues/01`–`issues/12`. Ф
 | Diff, дерево файлов, Inline / Side by side, Wrap, Hide whitespace, окно отрисовки | worfy-changes-view часть 1 (`src/renderer/changes/DiffPane.tsx:229`, `FileTree.tsx:45`, `src/main/changes/`) | Предмет `pr` у Changes: diff PR из локального git, если commit-ы есть, иначе из GitHub. Это пункт «PR» наброска части 2 worfy-changes-view (`.scratch/worfy-changes-view/spec.md:623-635`) — его берёт этот Epic, часть 2 его вычёркивает |
 | Комментарий к строке: «+» в gutter, `c`, диапазон, popover | worfy-changes-view Ticket 05 (открыт) | Тот же popover и те же клавиши; адресат — не Session, а «Your review» |
 | Черновики ответов в нитях, Send, Send all | worfy-pr-inbox (`DraftThread.tsx`) | Ответ в существующей нити в Review mode — тот же черновик и тот же Send, без изменений |
-| Skill-ы ревью: Team reviewer (`/human-review`), линзы `/worfy:code-review` | worfy-human-review, Harness | Кнопка Ask an agent for a first pass (Q4): Session пишет предложения в черновик ревью; ничего не публикует |
+| Skill-ы ревью: Team reviewer (`/human-review`), линзы `/worfy:code-review` | worfy-human-review, Harness | Agent review (Q4 и требование владельца 2026-11-20): Start review предлагает Review myself или Agent review; Session с Team reviewer-ом или линзами пишет весь черновик — комментарии к строкам, итоговый текст, предложенный вердикт; ничего не публикует |
 | Действия правки своего PR, PR watch | worfy-pr-follow части 1 и 2 | Не трогает: этот Epic — про чужие PR. Свой PR в Review mode можно смотреть и комментировать (Comment), но не Approve и не Request changes — GitHub это запрещает |
 
 ## Решение
@@ -77,7 +85,9 @@ Ticket-ы: Epic `worfy-pr-review`, 12 Ticket-ов, `issues/01`–`issues/12`. Ф
    сохранить: сохранённые поиски — в меню поля.
 2. **PR из результатов** открывается в той же панели справа, что PR из inbox: заголовок, полоса «что дальше», ячейки,
    нити, разговор. Полоса чужого PR — «Review this pull request» с кнопкой **Start review**.
-3. **Review mode.** Start review — теперь кнопка в worfy, не ссылка на GitHub. Список сворачивается в узкую колонку,
+3. **Review mode.** Start review — теперь кнопка в worfy, не ссылка на GitHub. Она спрашивает, кто пишет ревью
+   (требование владельца 2026-11-20): **Review myself** — человек сам пишет комментарии и выбирает вердикт; **Agent
+   review** — черновик целиком пишет агент (пункт 6). Список сворачивается в узкую колонку,
    панель PR становится экраном ревью: дерево файлов с отметками Viewed, diff из Changes, нити GitHub на своих строках.
    Пользователь пишет комментарии к строкам и диапазонам, предлагает правку блоком `suggestion`, отмечает файлы. Всё это
    — **pending review**, черновик на этой машине (не на GitHub), он переживает перезапуск worfy.
@@ -87,8 +97,26 @@ Ticket-ы: Epic `worfy-pr-review`, 12 Ticket-ов, `issues/01`–`issues/12`. Ф
 5. **Одобрения.** У каждого PR — chip `1/2`: сколько действующих одобрений есть и сколько требует правило базовой ветки.
    Он стоит в строке списка, в шапке PR и в Review mode, на карточке доски Pipeline на Stage Human review и на карточке
    Ticket-а на Canvas (Q5). Правило читается из rulesets ветки, доступных на чтение; если правило не видно — `1/?`.
-6. **Помощь агента** (Q4, отдельный Ticket в конце). Ask an agent for a first pass запускает Session, которая пишет
-   предложенные комментарии в тот же черновик. Пользователь берёт или отбрасывает каждый; публикует только Submit.
+6. **Agent review** (Q4 (а) и требование владельца 2026-11-20: «должен быть выбор какое ревью делать, обычное ллмкой
+   или human-review»). Agent review запускает Session с Team reviewer-ом Project-а (`/human-review`) или, если его нет,
+   с линзами `/worfy:code-review` Profile-а. Session пишет весь черновик: комментарии к строкам, итоговый текст и
+   предложенный вердикт. Оба способа кончаются одним и тем же локальным черновиком, который человек правит; публикует
+   только Submit человека (ADR-0105). Способ меняется и потом: к своему черновику можно позвать агента («Ask the agent
+   to add comments»), а черновик агента — взять в свои руки (Take over). Это не дополнение в конце Epic-а: Ticket Agent
+   review идёт сразу после черновика ревью и diff-а PR, а выбор стоит в Ticket-е Review mode.
+
+   _Решено без владельца по его требованию 2026-11-20, подтвердить_ (само требование — его, детали ниже — мои):
+   - названия кнопок — Review myself и Agent review; выбор — в меню кнопки Start review, последний выбор для Project-а
+     запоминается и стоит первым;
+   - вердикт агента — только подсказка: переключатель диалога Finish review всегда начинается с Comment, рядом строка
+     «The agent suggests: Approve»; Approve или Request changes человек выбирает сам;
+   - комментарий агента до правки человеком помечен «Written by the agent»; в диалоге Finish review такие стоят с той
+     же пометкой, человек может убрать любой; правка человеком делает комментарий его;
+   - пока Session пишет, полоса Your review говорит «Agent is writing the review… · Stop»; человек может читать и писать
+     свои комментарии, агент их не трогает (`bin/pr-review-draft` меняет только записи `by: 'agent'`); Finish review
+     неактивен, пока Session пишет;
+   - Take over останавливает Session и оставляет её записи в черновике; Ask the agent to add comments дописывает
+     комментарии агента и не трогает итоговый текст человека, если он не пустой.
 
 ### Как пользователь идёт по экрану
 
@@ -98,7 +126,8 @@ Ticket-ы: Epic `worfy-pr-review`, 12 Ticket-ов, `issues/01`–`issues/12`. Ф
    — This Project; Enter.
 2. Слева вместо групп — «Search · 7 results», строки как в inbox и у каждой chip одобрений (`0/2`). Первый результат
    выбран сам; ↑ ↓ ходят по списку.
-3. Справа — PR: полоса «Review this pull request» и **Start review**. Пользователь жмёт.
+3. Справа — PR: полоса «Review this pull request» и **Start review ▾**. Меню: Review myself · Agent review.
+   Пользователь выбирает Review myself (Agent review — поток E).
 4. Review mode: список уходит в узкую колонку со стрелкой «← Results», справа — дерево файлов и diff. В шапке —
    `main ← fix/retry-429`, head `3f2a9c1`, `6 files · +184 −22`, chip `0/2 approvals`, «Viewed 0/6».
 5. `j` / `k` — по файлам, `n` / `p` — по hunk-ам, `v` — Viewed. На строке `c` или «+» в gutter открывает popover:
@@ -134,6 +163,19 @@ Ticket-ы: Epic `worfy-pr-review`, 12 Ticket-ов, `issues/01`–`issues/12`. Ф
 может. Chip — `1/?`, tooltip: «1 approval · GitHub does not show this branch's review rule to your account. GitHub
 says: review required». Когда GitHub говорит `APPROVED`, chip — `✓ 2` зелёный: решение GitHub важнее счёта.
 
+**E. Agent review** (требование владельца 2026-11-20; детали — «Решено без владельца, подтвердить», пункт 6 выше).
+
+1. Start review ▾ → Agent review. worfy открывает Review mode и запускает Session Node Project-а: Team reviewer
+   (`/human-review owner/web#118`), если он есть у Project-а, иначе `/worfy:code-review` с линзами Profile-а.
+2. Полоса внизу: «Agent is writing the review… · Stop». Комментарии агента встают на строки по мере записи, с
+   пометкой «Written by the agent». Человек читает diff и может писать свои комментарии.
+3. Session кончила: полоса «Your review · 5 comments (5 by the agent) · The agent suggests: Request changes ·
+   [Finish review]». Человек правит один комментарий, удаляет другой — они становятся его или исчезают.
+4. Finish review: диалог, как в шаге A.7; переключатель стоит на Comment, строка «The agent suggests: Request
+   changes». Человек выбирает Request changes сам и жмёт Submit review. Один POST, как в шаге A.8.
+5. Обратный путь: человек начал Review myself и жмёт в полосе Ask the agent to add comments — Session дописывает свои
+   комментарии к его черновику, его записи не трогает. Take over в полосе агента останавливает Session.
+
 ### Экран
 
 ```
@@ -143,7 +185,7 @@ says: review required». Когда GitHub говорит `APPROVED`, chip — `
 ├─ Search · 7 results ────────────┬─ owner/web#118  Retry on 429 ─────────────────────────────────────┤
 │ > AL Retry on 429        0/2    │ fix/retry-429 → main · alice · 2 h ago                            │
 │   web#118 · CI ●   2h  💬 2     │ ┌ Review this pull request ─────────────────────────────────────┐ │
-│   BO Cache headers       ✓ 2/2  │ │ alice asked nobody; 0 of 2 required approvals.  [Start review] │ │
+│   BO Cache headers       ✓ 2/2  │ │ alice asked nobody; 0 of 2 required approvals. [Start review ▾]│ │
 │   web#121 · CI ●   1d           │ └───────────────────────────────────────────────────────────────┘ │
 │   CA Pagination  Review draft   │ CI ●  Approvals 0/2  Merge Blocked  Size +184 −22                 │
 │   api#77 · CI ○    3d    1/?    │ Threads 2 open · 0 resolved …                                      │
@@ -163,8 +205,17 @@ Review mode
 │           │                       │      │ Why three tries?        [Reply]          │              │
 │           │                       │      └──────────────────────────────────────────┘              │
 │           ├───────────────────────┴────────────────────────────────────────────────────────────────┤
-│           │ Your review · 3 pending comments on 2 files   [Ask an agent…]  Discard  [Finish review] │
+│           │ Your review · 3 pending comments on 2 files  [Ask the agent to add comments] Discard [Finish review] │
 └───────────┴─────────────────────────────────────────────────────────────────────────────────────────┘
+
+Start review ▾ (menu)              Agent review, while the Session writes
+┌──────────────────────────────┐   ┌ Agent is writing the review… · Team reviewer · 2 of 6 files   [Stop] ┐
+│ Review myself                │   └──────────────────────────────────────────────────────────────────────┘
+│   You write the comments     │   After it:
+│ Agent review                 │   ┌ Your review · 5 comments (5 by the agent) · The agent suggests:      ┐
+│   An agent drafts it; you    │   │ Request changes            [Take over]  Discard  [Finish review]     │
+│   edit and submit            │   └──────────────────────────────────────────────────────────────────────┘
+└──────────────────────────────┘
 
 Finish review (dialog)
 ┌ Submit review to owner/web#118 ─────────────────────────────────────────┐
@@ -186,9 +237,12 @@ flowchart LR
   Q[Search field, scope, filters] --> R[Results list]
   I[Inbox groups] --> P[PR pane]
   R --> P
-  P -->|Start review| M[Review mode: files, diff, threads]
-  M -->|c or + in the gutter| C[Pending comment, kept on this machine]
-  A[Ask an agent for a first pass] -.suggestions.-> C
+  P -->|Start review: Review myself| M[Review mode: files, diff, threads]
+  P -->|Start review: Agent review| A[Session: Team reviewer or review lenses]
+  A -->|bin/pr-review-draft: comments, summary, suggested verdict| C
+  A --> M
+  M -->|c or + in the gutter| C[Review draft, kept on this machine]
+  M -.Ask the agent to add comments.-> A
   C --> F[Finish review dialog]
   F -->|Submit review: lint, head check, one POST| G[GitHub review]
   G --> X[Approvals chip 1/2 → 2/2]
@@ -270,7 +324,7 @@ cli/cli, microsoft/vscode, golang/go, kubernetes/kubernetes, vercel/next.js).
 - GraphQL-аналоги — `addPullRequestReview`, `addPullRequestReviewThread`, `submitPullRequestReview` — проверено
   интроспекцией; worfy берёт REST, как `pr-reply-send.ts`.
 - «Один pending review на пользователя и PR»: документация этого не говорит — **не проверено**. Если у пользователя
-  висит pending review с github.com, поведение POST неизвестно; Ticket 09 проверяет это на тестовом репозитории.
+  висит pending review с github.com, поведение POST неизвестно; Ticket 11 проверяет это на тестовом репозитории.
 - Права: fine-grained — Pull requests: write; classic — `repo` (private) или `public_repo` (только public; хватает ли его
   для review — вывод, **не проверено**) — по
   [permissions for fine-grained tokens](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens)
@@ -403,10 +457,18 @@ cli/cli, microsoft/vscode, golang/go, kubernetes/kubernetes, vercel/next.js).
   без изменений.
 - Amendment к ADR-0110: Changes читает GitHub для предмета `pr`; только GET, только по открытому экрану.
 
-### 5. Review mode во вкладке Pull requests (Ticket 07)
+### 5. Review mode во вкладке Pull requests (Ticket 09)
 
 - Start review в полосе «что дальше» — кнопка, а не ссылка (`src/renderer/pr-inbox/usePrInbox.ts:338`); Open on GitHub
   остаётся в ряду кнопок. Полоса чужого PR вне Needs my review — «Review this pull request» с той же кнопкой.
+- **Кто пишет ревью** (требование владельца 2026-11-20). Start review — кнопка с меню (Menu kit-а): Review myself и
+  Agent review; щелчок по самой кнопке берёт последний выбор этого Project-а (по умолчанию Review myself). Agent review
+  вызывает канал Ticket-а 08 и открывает Review mode сразу, комментарии агента появляются по мере записи. Смена способа
+  в открытом Review mode: Ask the agent to add comments (черновик человека) и Take over (черновик агента). Детали —
+  «Решение», пункт 6, «Решено без владельца по его требованию 2026-11-20, подтвердить».
+- **Viewed с github.com** (Q3 (а), решение владельца 2026-11-20). При первом открытии Review mode для PR без черновика
+  main один раз читает `files { path viewerViewedState }` PR (GraphQL, только чтение) и ставит отметки `VIEWED` в
+  черновик; дальше отметки живут только в worfy и на GitHub не пишутся (мутаций `markFileAsViewed` нет).
 - Review mode — компонент `src/renderer/pr-review/ReviewMode.tsx` на месте панели PR. Список сворачивается в колонку
   48 px с аватарами и номерами (`← Results` / `← Inbox` возвращает его); ↑ ↓ в Review mode не меняют PR — меняют файл,
   как `j` / `k`. Escape закрывает popover, второй Escape — Review mode (черновик остаётся).
@@ -418,18 +480,23 @@ cli/cli, microsoft/vscode, golang/go, kubernetes/kubernetes, vercel/next.js).
 - Состояние Review mode (PR, файл, прокрутка) живёт в store вида: смена вкладки и возврат его сохраняют, как сейчас
   панель PR (`docs/features/pr-inbox.md:249-250`).
 
-### 6. Черновик ревью (Ticket 08)
+### 6. Черновик ревью (Ticket 07)
 
 - Файл `<Profile folder>/state/pr-review/<owner>-<repo>-<N>.json` на этой машине, рядом с черновиками ответов
   (`state/pr-inbox/drafts/`, ADR-0105, пункт 6), вне репозитория и вне истории git Harness home. Формат — тот, что
   проверяет `review-draft-lint` (`harness/bin/review-draft-lint:8-11`), плюс поля worfy:
   `{ schema: 1, repo, pr, startedOn: <head sha>, payload: { event, body, comments: [{ path, line, side, start_line?,
-  start_side?, body }] }, anchors: [{ text, by: 'user'|'agent', kept }], viewed: { <path>: <blob> }, state:
-  'draft'|'submitting'|'submitted', reviewUrl?, error? }`. В `anchors` — текст строк, к которым стоит комментарий (код,
+  start_side?, body }] }, anchors: [{ text, by: 'person'|'agent' }], suggestedEvent?, agent?: { sessionId, state:
+  'writing'|'done'|'stopped' }, viewed: { <path>: <blob> }, state: 'draft'|'submitting'|'submitted', reviewUrl?,
+  error? }`. `anchors[i]` относится к `payload.comments[i]`; `by` — кто написал комментарий последним: правка человеком
+  делает его `person`. `suggestedEvent` — вердикт, который предложил агент (Agent review); `payload.event` выбирает
+  только человек в диалоге Finish review. В `anchors` — текст строк, к которым стоит комментарий (код,
   не слова коллег), для поиска строки заново после нового push.
 - Пишет main: каждое изменение через временный файл и rename, не чаще раза в 500 ms, как правки черновиков ответов
-  (`docs/features/pr-inbox.md:242-246`). Session помощи агента (раздел 8) пишет только через `bin/pr-review-draft`,
-  который добавляет предложения с `by: 'agent'` и не трогает комментарии пользователя.
+  (`docs/features/pr-inbox.md:242-246`). Session Agent review (раздел 8, Ticket 08) пишет только через
+  `bin/pr-review-draft`, который меняет только записи `by: 'agent'`, итоговый текст — только пустой или свой, и не
+  трогает комментарии человека. Test гонки этих двух писателей — в Ticket-е 08 (возражение 3 critic-а); Ticket 07
+  проверяет только записи main и отказ Linked machine.
 - Один черновик на PR. Discard review удаляет файл после подтверждения «Discard 3 pending comments?». Отправленный
   черновик хранится 30 дней (ссылка на ревью для повторной проверки), потом удаляется при запуске worfy.
 - Каналы `prReview.draft`, `prReview.saveComment`, `prReview.deleteComment`, `prReview.setViewed`, `prReview.discard` —
@@ -437,16 +504,26 @@ cli/cli, microsoft/vscode, golang/go, kubernetes/kubernetes, vercel/next.js).
 - Строка списка с черновиком — chip `Review draft` (tooltip — «3 pending comments, started on 3f2a9c1»).
 - Profile без `github.account` ревью не теряет, но Submit отказывает, как Send (`docs/features/pr-inbox.md:165-166`).
 
-### 7. Submit review (Ticket 09)
+### 7. Комментарии к строкам (Ticket 10) и Submit review (Ticket 11)
 
+- **Комментарии (Ticket 10, ступень `medium`).** «+» в gutter, `c`, диапазон и popover — те же, что у комментариев к
+  строкам Changes (`worfy-changes-view` 05; Ticket 10 ждёт его merge); адресат — черновик ревью, не Session. Suggest
+  change вставляет блок `suggestion` с текстом выбранных строк. Комментарий стоит на строке с пометкой Pending, у
+  комментария агента — «Written by the agent». Полоса Your review: счёт комментариев, Ask the agent to add comments или
+  Take over, Discard, Finish review (кнопка открывает диалог Ticket-а 11; до него она неактивна). Комментарий к
+  строке, которой нет в diff-е PR (агент ошибся строкой), стоит списком над файлом «Not on a changed line» и в POST не
+  идёт, пока человек его не перенесёт или не удалит: GitHub отвергает такой комментарий (422).
 - Finish review открывает Dialog kit-а. Выбор Approve и Request changes неактивен на своём PR («GitHub does not let
   you approve or request changes on your own pull request»). Request changes и Comment без Summary и без комментариев
   неактивны (раздел «Факты»: GitHub требует `body` для этих событий). Диалог держит тексты, с которыми открылся: правка
   черновика агентом во время диалога не меняет того, что уйдёт (как Send all, `docs/features/pr-inbox.md:154-157`).
+  Пока Session Agent review пишет, Finish review неактивен. Переключатель вердикта всегда начинается с Comment; при
+  `suggestedEvent` рядом строка «The agent suggests: Request changes». Комментарии агента, которые человек не правил,
+  стоят в списке с пометкой «by the agent»; у каждого — Remove.
 - Порядок в main, модуль `src/main/github/pr-review-submit.ts` рядом с `pr-reply-send.ts`:
   1. перечитать файл черновика и взять ровно показанные тексты (как ADR-0105, пункт 3);
   2. `review-draft-lint` над `payload` — следы workflow, подпись ИИ, личные данные, длина; без `lint.json` Team
-     reviewer-а — длины шаблона, как уже делает `--reply` (`harness/bin/review-draft-lint:264`, `:271`; Ticket 09
+     reviewer-а — длины шаблона, как уже делает `--reply` (`harness/bin/review-draft-lint:264`, `:271`; Ticket 11
      добавляет это и обычному режиму). Находка — ничего не отправлено, текст находки в диалоге;
   3. перечитать head PR; head сдвинулся — диалог показывает это до отправки (поток C), комментарии идут на `startedOn`;
   4. отметка `state: 'submitting'` в файле, затем один `POST /repos/{o}/{r}/pulls/{n}/reviews` с `commit_id`,
@@ -458,19 +535,36 @@ cli/cli, microsoft/vscode, golang/go, kubernetes/kubernetes, vercel/next.js).
   `docs/features/pr-inbox.md:172-176`).
 - **Никогда:** pending review на GitHub (запрос без `event`), второй POST по одному щелчку, resolve нитей, re-request
   review, dismiss чужого отзыва, merge. Pending review — только локальный файл (ADR-0105, пункт 6, в силе).
-- Новый ADR «worfy отправляет ревью PR только по Submit пользователя» (номер — при Ticket-е 09): третья запись к двум
-  записям ADR-0105, пункт 4; Amendment к ADR-0105 и ADR-0002. Ревью кода Ticket-а 09 — ступень `max` (запись на GitHub,
-  как `pr-reply-send.ts` в ADR-0105, «Последствия»).
+- Новый ADR «worfy отправляет ревью PR только по Submit пользователя» (номер — при Ticket-е 11): третья запись к двум
+  записям ADR-0105, пункт 4; Amendment к ADR-0105 и ADR-0002. Ревью кода Ticket-а 11 — ступень `max` (решение
+  владельца 2026-11-20, Q2 и Q7 раунда): запись на GitHub, как `pr-reply-send.ts` в ADR-0105, «Последствия».
 
-### 8. Помощь агента (Ticket 10, если Q4 — да)
+### 8. Agent review (Ticket 08)
 
-- Ask an agent for a first pass в полосе Review mode запускает новую Session Node Project-а на Claude Code с шаблоном
-  Project-а «Pre-review» (новый action template рядом с Draft replies, `src/shared/projects/action-templates.ts`):
-  `/human-review {repo}#{pr}`, когда у Project-а есть Team reviewer, иначе `/worfy:code-review` над PR с линзами Profile-а.
-- Session пишет предложения через новый `harness/bin/pr-review-draft` в тот же файл черновика (`by: 'agent'`); сама на
-  GitHub не пишет — тот же запрет, что у `pr-reply` (`harness/skills/pr-reply/SKILL.md:12-19`), и тот же guard hook.
-- Предложение агента стоит на строке пунктиром «Suggested by the agent · Keep · Edit · Dismiss». В диалог Submit идут
-  только комментарии пользователя и принятые (Keep или Edit) предложения.
+Решение владельца 2026-11-20: Q4 (а) и требование «должен быть выбор какое ревью делать, обычное ллмкой или
+human-review». Ticket идёт сразу после черновика ревью (07) и diff-а PR (06), до Review mode (09): выбор способа стоит
+в 09 и вызывает готовый канал. Детали ниже — «Решено без владельца по его требованию 2026-11-20, подтвердить».
+
+- Канал `prReview.agentReview` (`'local'`) с `{ repo, pr, fill: 'new'|'add' }` создаёт черновик, если его нет
+  (`startedOn` — head PR), и запускает новую Session Node Project-а на Claude Code с шаблоном Project-а «Agent review»
+  (новый action template рядом с Draft replies, `src/shared/projects/action-templates.ts`): `/human-review {repo}#{pr}`,
+  когда у Project-а есть Team reviewer, иначе `/worfy:code-review` над PR с линзами Profile-а. `fill: 'add'` — Ask the
+  agent to add comments к черновику человека. Канал `prReview.stopAgent` — Stop и Take over: останавливает Session,
+  ставит `agent.state: 'stopped'`.
+- Session пишет весь черновик через новый `harness/bin/pr-review-draft`: `comment` (path, line, side, диапазон, текст),
+  `summary` (итоговый текст; только если он пустой или написан агентом), `verdict` (`suggestedEvent`), `done`. Скрипт
+  пишет через временный файл и rename, меняет только записи `by: 'agent'` и отказывает, если черновика нет или он
+  `submitting` / `submitted`. Сама Session на GitHub не пишет — тот же запрет, что у `pr-reply`
+  (`harness/skills/pr-reply/SKILL.md:12-19`), и тот же guard hook (`harness/hooks/guard.mjs`, ADR-0105, пункт 5);
+  eval Ticket-а 08 проверяет, что команды записи на GitHub нет.
+- Skill-ы: Team reviewer (`harness/skills/human-review-setup/template/SKILL.template.md`) и `/worfy:code-review`
+  (`harness/skills/code-review/SKILL.md`) получают раздел «When worfy runs you for Agent review»: черновик — только через
+  `bin/pr-review-draft`, вердикт — только предложение. Уже собранные Team reviewer-ы Project-ов получают раздел при
+  следующем Refresh (`harness/skills/human-review-setup/refresh.md`); до него worfy передаёт правило в тексте шаблона.
+- Main следит за файлом черновика, пока Session пишет (новое: черновики ответов main читает только по запросу), и шлёт
+  `prReview.changed`: Review mode показывает комментарии агента по мере записи. Закрывать watch — только через
+  `src/main/chokidar-close.ts` (правило worfy-windows 75 и 76).
+- Linked machine: Agent review — `'local'`, как весь черновик (раздел 11).
 - Session видит diff и нити чужого PR, они попадают в её транскрипт, как при Draft replies (`.scratch/worfy-pr-follow/spec.md`,
   «Риски», «Тексты коллег в транскрипте»).
 
@@ -506,10 +600,11 @@ cli/cli, microsoft/vscode, golang/go, kubernetes/kubernetes, vercel/next.js).
 - **Linked machine.** Поиск, чтение PR, diff и chip одобрений — каналы `'project', 'read'`: окно Linked machine видит
   их, вызовы идут на Machine Project-а её аккаунтом. Черновик ревью и Submit — `'local'`, как черновики ответов: на Linked
   machine Start review неактивен с tooltip «Review on the machine of the Project», Review mode открывается только для
-  чтения (diff, нити, без «+» и полосы ревью). Сохранённые поиски с доступом Read only читаются, но не меняются.
+  чтения (diff, нити, без «+» и полосы ревью). Agent review — тоже `'local'`: его Session идёт на Machine, где лежит
+  черновик. Сохранённые поиски с доступом Read only читаются, но не меняются.
 - **Silent mode.** Текст ревью проверяет `review-draft-lint` на следы workflow и подпись ИИ — в любом режиме, как
-  ответы. Предложения агента — особенно: они проходят тот же lint при Submit.
-- **Vendor.** Помощь агента запускает Claude Code, как Draft replies и действия pr-follow, пока skill-ы Harness не
+  ответы. Черновик Agent review — особенно: он проходит тот же lint при Submit.
+- **Vendor.** Agent review запускает Claude Code, как Draft replies и действия pr-follow, пока skill-ы Harness не
   перенесены в Codex.
 
 ### 12. Доступность и темы
@@ -532,9 +627,13 @@ cli/cli, microsoft/vscode, golang/go, kubernetes/kubernetes, vercel/next.js).
   переводы в `docs/features/ru/`.
 - CONTEXT.md: **Review mode** — экран ревью одного PR во вкладке Pull requests: diff, нити, pending comments,
   Submit review; _Avoid_: review screen, режим ревью. **Required approvals** — сколько одобрений требует правило базовой
-  ветки PR и сколько их есть, `1/2`; _Avoid_: аппрувы, approvals count. Термин PR inbox получает фразу о поиске и
-  Submit review.
-- ADR: новый — Submit review (Ticket 09); Amendment-ы — ADR-0105 (пункты 1, 4), ADR-0002 (исключение «main пишет»
+  ветки PR и сколько их есть, `1/2`; _Avoid_: аппрувы, approvals count. **Agent review** — способ ревью чужого PR, в
+  котором черновик ревью (комментарии к строкам, итоговый текст, предложенный вердикт) пишет Session с Team reviewer-ом
+  Project-а или с линзами `/worfy:code-review`; человек правит черновик и сам жмёт Submit review; другой способ —
+  Review myself (кнопка), ревью пишет сам человек; _Avoid_: AI review, LLM review, ревью ллмкой, auto review, human
+  review (как имя способа Review myself: «Human review» — Stage Pipeline-а). Термин PR inbox получает фразу о поиске и
+  Submit review. Эти термины здесь — список spec-а; в CONTEXT.md их вносит Ticket 12.
+- ADR: новый — Submit review (Ticket 11); Amendment-ы — ADR-0105 (пункты 1, 4), ADR-0002 (исключение «main пишет»
   расширено), ADR-0005 (`pr-searches.json`, `state/pr-review/`), ADR-0110 (чтение GitHub для предмета `pr`).
 
 ## Решения по test-ам
@@ -554,8 +653,10 @@ cli/cli, microsoft/vscode, golang/go, kubernetes/kubernetes, vercel/next.js).
   падает test на любом `--method`, кроме одного POST Submit-а).
 - **Seam 3 — e2e** в настоящем Electron (образец — `test/e2e/pr-inbox.spec.ts`): поиск → результат → Start review →
   комментарий → перезапуск → черновик на месте → Finish review → Submit → stand-in получил один POST с ровно этими
-  текстами; chip `1/2` → `2/2`; Linked machine Read only — Review mode без «+». Снимки в обеих темах.
-- Eval (Ticket 10): skill помощи агента не пишет на GitHub и пишет только через `bin/pr-review-draft`.
+  текстами; chip `1/2` → `2/2`; Agent review на `WORFY_AGENT=fake` — комментарии агента на строках, человек правит,
+  в POST ровно показанное; Linked machine Read only — Review mode без «+». Снимки в обеих темах.
+- Eval (Ticket 08): skill Agent review не пишет на GitHub и пишет только через `bin/pr-review-draft`; test гонки
+  записи main и `bin/pr-review-draft` в один файл черновика — тоже в Ticket-е 08 (возражение 3 critic-а).
 - **Сначала падающий test** в каждом Ticket-е кода; он красный на старом поведении, это пишется в «Итог».
 
 ## Не в этом Epic-е
@@ -568,96 +669,107 @@ cli/cli, microsoft/vscode, golang/go, kubernetes/kubernetes, vercel/next.js).
 - **Подсветка синтаксиса** (Q5 worfy-changes-view — решено «нет»), diff картинок, контекст шире hunk-ов у diff-а из
   GitHub.
 - **Правка чужого PR агентом** (push в чужую ветку) — действия pr-follow остаются только для своих PR.
-- **Сводка ревью моделью без Session** (Haiku и т.п.) — только Session по щелчку (Q4).
+- **Ревью моделью без Session** (Haiku и т.п.) — Agent review только Session-ой по выбору человека (Q4).
+- **Отправка ревью агентом** — даже по просьбе человека: Submit жмёт только человек (ADR-0105).
 - **Счётчик одобрений для веток без PR** и редактирование правил защиты веток.
 
 ## Ticket-ы
 
-1. **01 — Прототип: поиск, Review mode, диалог Submit и chip одобрений.** Card с HTML-прототипом на выдуманных данных:
-   поле, область, chip-ы, результаты, Review mode с pending-комментарием и предложением агента, диалог, все состояния
-   chip-а (`0/2`, `1/2`, `✓ 2/2`, `1/?`, changes requested, code owners) в обеих темах. Ticket-ы 03, 05, 07 строят экран
-   по нему. Test-ы: нет кода; проверка — Card открывается, все состояния на месте. Blocked by: —.
-2. **02 — Required approvals в main.** Поля `PULL_FIELDS`, rulesets и classic protection базовой ветки в запросе деталей,
-   `approvalsOf` в `src/shared/github/approvals.ts`, поле `approvals` строки inbox. Test-ы: unit `approvalsOf` (все
-   случаи раздела 3); contract — stand-in с ruleset-ами репозитория и организации, с classic protection видимой (admin) и
-   `null`, цена страницы до и после; ручная сверка правила «наибольшее из двух» на тестовом репозитории. Blocked by: —.
-3. **03 — Chip одобрений в UI.** `src/renderer/pr-inbox/ApprovalsChip.tsx`; строка списка, ячейка Approvals со
-   списком reviewer-ов, tooltip; доска Pipeline на Stage Human review (`src/renderer/pipeline/PipelineBoard.tsx:139`);
-   карточка Ticket-а на Canvas по Q5 (`src/renderer/canvas/badges/ReviewThreads.tsx`, `ticket-card.ts:70`). Test-ы: unit
-   компонента (тексты, aria-label, цвета состояний); unit доски; e2e снимок обеих тем. Blocked by: 01, 02.
-4. **04 — Поиск в main.** `src/main/github/pr-search.ts`, `src/shared/pr-search/query.ts`, каналы `prSearch.run`,
-   `prSearch.pull`, `prSearch.saved/save/forget`, `pr-searches.json`, Amendment-ы к ADR-0105 (пункт 1) и ADR-0005.
-   Test-ы: unit сборки запроса; contract — область, cursor, 1 000, rate limit, SSO, 422, нет записей, сохранённые поиски
-   и отказ Linked machine Read only на `save`. Blocked by: —.
-5. **05 — Поиск в виде Pull requests.** Поле, `/`, меню области, chip-ы, сохранённые поиски, список результатов,
-   «Load more», выбор → панель PR (полоса «Review this pull request»), ошибки раздела 10; `docs/features/pr-inbox.md`.
-   Test-ы: unit вида поиска; e2e — поиск, выбор, Clear возвращает inbox, ошибки. Blocked by: 01, 03, 04.
-6. **06 — Diff PR в Changes.** Предмет `pr` в `src/shared/ipc/changes.ts` и `src/main/changes/`, локальный путь и
-   `src/main/changes/github.ts` (`pulls/{n}/files`, `commits`, `compare`), `subject` у `DiffPane` и `FileTree`, нити на
-   строках, Amendment к ADR-0110; `docs/features/changes.md`. Test-ы: unit разбора `patch`; contract — локально и из
-   GitHub, 3 000 файлов, файл без `patch`, кэш по head, никакого `fetch`, `.git/index` не тронут. Blocked by: —.
-7. **07 — Review mode.** `src/renderer/pr-review/ReviewMode.tsx`, Start review — кнопка, свёрнутый список, шапка, дерево
-   с нитями, Viewed (по Q3), клавиши, полоса «N new commits», Since my review, Read only. Test-ы: unit клавиш и Viewed;
-   e2e — Start review из inbox и из поиска, Escape, возврат, Linked machine Read only. Blocked by: 01, 05, 06.
-8. **08 — Черновик ревью в main.** `src/main/github/pr-review-draft.ts`, файл в `state/pr-review/`, каналы
-   `prReview.*` (`'local'`), поиск строки заново по `anchors`, хранение 30 дней, поправка к ADR-0005. Test-ы: unit
-   формата ↔ `payload`, re-anchor; contract — запись через rename, гонка с `bin/pr-review-draft`, отказ Linked machine.
+Решено владельцем 2026-11-20 (Q7 раунда): три поправки `Blocked by` critic-а и деление бывшего Ticket-а 09 на два.
+Требование владельца того же дня (выбор Review myself или Agent review) перенесло Agent review из конца в Wave 3.
+13 Ticket-ов в 8 Wave-ах, нумерация с `01` без букв. Бывшие номера черновика: 01–06 — те же; 07 (Review mode) — 09;
+08 (черновик) — 07; 09 — 10 (комментарии) и 11 (Submit); 10 (помощь агента) — 08 (Agent review); 11 — 12; 12 — 13.
+
+Вне Epic-а: Ticket-ы 06 и 10 ждут merge `worfy-changes-view` 05 (комментарии к строкам в Changes; возражение 1
+critic-а). Поле Blocked by берёт только номера этого Epic-а, поэтому это написано в тексте Ticket-ов.
+
+1. **01 — Прототип**: Card с HTML-прототипом на выдуманных данных — поле поиска, область, chip-ы фильтров, результаты,
+   меню Start review (Review myself, Agent review), Review mode с комментарием человека и комментарием агента, полоса
+   «Agent is writing the review…», диалог Finish review с «The agent suggests», все состояния chip-а одобрений, обе
+   темы. Агент. Blocked by: —.
+2. **02 — Required approvals в main**: поля `PULL_FIELDS`, rulesets и classic protection базовой ветки, `approvalsOf`,
+   поле `approvals` строки inbox, цена запроса. Агент. Blocked by: —.
+3. **03 — Chip одобрений в UI**: строка списка, ячейка Approvals, tooltip, доска Pipeline на Stage Human review и
+   карточка Ticket-а на Canvas, пока одобрений не хватает (Q5 (а)); `1/?` и зелёный `✓ 2` (Q6 (а)). Агент.
+   Blocked by: 01, 02.
+4. **04 — Поиск в main**: `pr-search.ts`, сборка запроса, три области (Q1 (а)), `prSearch.run`, `prSearch.pull`,
+   сохранённые поиски, Amendment-ы ADR-0105 (пункт 1) и ADR-0005. Агент. Blocked by: 02 (возражение 2 critic-а).
+5. **05 — Поиск в виде Pull requests**: поле, `/`, меню области, chip-ы фильтров, сохранённые поиски, результаты,
+   «Load more», ошибки, полоса «Review this pull request». Агент. Blocked by: 01, 03, 04.
+6. **06 — Diff PR в Changes**: предмет `pr`, локальный diff и diff из GitHub, нити на строках, Amendment ADR-0110.
+   Агент. Blocked by: —; вне Epic-а — merge `worfy-changes-view` 05.
+7. **07 — Черновик ревью в main**: файл в `state/pr-review/`, формат с `by` и `suggestedEvent`, каналы `prReview.*`
+   (`'local'`), re-anchor, хранение 30 дней, Amendment ADR-0005. Без test-а гонки (возражение 3 critic-а). Агент.
    Blocked by: —.
-9. **09 — Комментарии и Submit review.** «+» в gutter, `c`, диапазон, Suggest change, Pending на строке, полоса «Your
-   review», Discard, диалог Finish review, `src/main/github/pr-review-submit.ts`, `review-draft-lint` без `lint.json`,
-   новый ADR, Amendment-ы к ADR-0105 и ADR-0002. Ревью — ступень `max`. Test-ы: contract — lint-отказ, head сдвинулся,
-   ровно один POST с ровно показанным телом, свой PR, сбой и повтор без второго POST, ни одной записи без щелчка; e2e —
-   полный путь A и C. Blocked by: 07, 08.
-10. **10 — Помощь агента (если Q4 — да).** Action template «Pre-review», `harness/bin/pr-review-draft`, правка skill-а
-    Team reviewer-а и раздел в `/worfy:code-review` о записи в черновик, Keep / Edit / Dismiss в Review mode. Test-ы:
-    unit `pr-review-draft`; eval — skill не пишет на GitHub; e2e на fake agent — предложения на строках, в POST только
-    принятые. Blocked by: 08, 09.
-11. **11 — Документы.** Переводы `docs/features/ru/` (`pr-inbox.md`, `changes.md`, `workflow.md`), термины Review mode и
-    Required approvals в CONTEXT.md, фраза в термине PR inbox, проверка, что ADR и Amendment-ы влиты; вычеркнуть пункт
-    «PR» и Q3 из части 2 worfy-changes-view. Test-ы: `check-handoff`, `evidence-check`. Blocked by: 02–10.
-12. **12 — Приёмка владельцем.** Тестовый репозиторий, как в приёмке worfy-pr-follow: поиск по трём областям, ревью
-    чужого PR с Approve от второго аккаунта, `1/2` → `2/2` при правиле ruleset на 2 одобрения, `1/?` на classic
-    protection без прав admin, перезапуск с черновиком, Linked machine. Blocked by: 01–11.
+8. **08 — Agent review**: канал `prReview.agentReview` и `prReview.stopAgent`, action template «Agent review»,
+   `harness/bin/pr-review-draft`, раздел в skill-ах Team reviewer и `/worfy:code-review`, test гонки с записями main,
+   eval «не пишет на GitHub». Агент, платформенный PR. Blocked by: 06, 07.
+9. **09 — Review mode и выбор способа ревью**: Start review с меню Review myself / Agent review, свёрнутый список,
+   шапка, дерево, diff, Viewed (Q3 (а)), «N new commits», Since my review, Ask the agent to add comments, Take over,
+   Read only на Linked machine. Агент. Blocked by: 01, 05, 06, 07, 08.
+10. **10 — Комментарии к строкам, полоса Your review, Discard**: «+» в gutter, `c`, диапазон, Suggest change, Pending
+    и «Written by the agent» на строке, «Not on a changed line», chip `Review draft`. Ступень `medium`. Агент.
+    Blocked by: 07, 09; вне Epic-а — merge `worfy-changes-view` 05.
+11. **11 — Finish review и `pr-review-submit.ts`**: диалог, lint, head сдвинулся, один POST, сбой и повтор без второго
+    POST, новый ADR, Amendment-ы ADR-0105 и ADR-0002. Ступень `max` (Q2 (а)). Агент. Blocked by: 10.
+12. **12 — Документы**: страницы Feature en и ru, термины Review mode, Required approvals и Agent review в CONTEXT.md,
+    вычеркнуть пункт «PR» и Q3 части 2 `worfy-changes-view`. Агент. Blocked by: 02–11.
+13. **13 — Приёмка владельцем** на тестовом репозитории: поиск по трём областям, Review myself и Agent review чужого
+    PR, Submit, `1/2` → `2/2`, `1/?`, Pipeline и Canvas, перезапуск с черновиком, Linked machine. Владелец.
+    Blocked by: 01–12.
 
 ## Волны
 
 | Wave | Ticket-ы | Blocked by | Почему так |
 |---|---|---|---|
-| 1 | 01, 02, 04, 06, 08 | — | прототип (Card вне репозитория), одобрения (`src/main/github/inbox.ts` `PULL_FIELDS`, `src/shared/github/`), поиск (`src/main/github/pr-search.ts`, `src/shared/pr-search/`, `src/shared/ipc/pr-search.ts`), diff PR (`src/main/changes/`, `src/shared/changes/`, `src/shared/ipc/changes.ts`, `src/renderer/changes/`), черновик (`src/main/github/pr-review-draft.ts`, `src/shared/ipc/pr-review.ts`): общих файлов нет |
-| 2 | 03 | 01, 02 | chip одобрений (`src/renderer/pr-inbox/`, доска Pipeline, карточка Ticket-а): вторая просьба владельца доходит до него в Wave 2 |
-| 3 | 05 | 01, 03, 04 | поиск в виде: общий с 03 и 07 файл `src/renderer/pr-inbox/PrInboxView.tsx`, поэтому отдельной Wave |
-| 4 | 07 | 01, 05, 06 | Review mode: тот же `PrInboxView.tsx` и `usePrInbox.ts` |
-| 5 | 09 | 07, 08 | комментарии и Submit; после этой Wave главный путь — найти, прочитать, прокомментировать, отправить — у пользователя |
-| 6 | 10 | 08, 09 | помощь агента (Harness и Review mode) |
-| 7 | 11 | 02–10 | документы по сделанному |
-| 8 | 12 | 01–11 | приёмка |
+| 1 | 01, 02, 07 | — | прототип (Card вне репозитория), одобрения (`src/main/github/inbox.ts` `PULL_FIELDS`, `src/shared/github/`), черновик (`src/main/github/pr-review-draft.ts`, `src/shared/ipc/pr-review.ts`): общих файлов нет. 06 встаёт сюда, если `worfy-changes-view` 05 уже влит |
+| 2 | 03, 04, 06 | 03 — 01, 02; 04 — 02; 06 — вне Epic-а `worfy-changes-view` 05 | chip одобрений (`src/renderer/pr-inbox/`, доска Pipeline, карточка Ticket-а), поиск (`src/main/github/pr-search.ts`, `src/shared/pr-search/`, `src/shared/ipc/pr-search.ts`), diff PR (`src/main/changes/`, `src/shared/changes/`, `src/renderer/changes/`): общих файлов нет. Первый видимый результат — chip `1/2` — у владельца в Wave 2 |
+| 3 | 05, 08 | 05 — 01, 03, 04; 08 — 06, 07 | поиск в виде (`src/renderer/pr-inbox/`) и Agent review (`harness/`, `src/shared/projects/action-templates.ts`, `src/main/github/pr-review-agent.ts`): общих файлов нет. Agent review — сразу после черновика и diff-а (требование владельца 2026-11-20) |
+| 4 | 09 | 01, 05, 06, 07, 08 | Review mode и выбор способа ревью: `PrInboxView.tsx`, `usePrInbox.ts`, новый `src/renderer/pr-review/` |
+| 5 | 10 | 07, 09 | комментарии к строкам: `src/renderer/pr-review/`, popover из `worfy-changes-view` 05 |
+| 6 | 11 | 10 | Finish review и Submit; ступень `max`. После этой Wave главный путь — найти, прочитать, написать самому или агентом, отправить — у пользователя |
+| 7 | 12 | 02–11 | документы по сделанному |
+| 8 | 13 | 01–12 | приёмка |
 
 Wave — Ticket-ы, которые можно брать параллельно: блокеры закрыты, общих файлов нет. Wave, которую берут в работу,
-вычисляется заново в момент запуска (CONTEXT.md, термин Wave); таблица — прогноз. Wave-ы 3 и 4 идут по одной, потому что
-`PrInboxView.tsx` — общий файл вида; если владелец выберет Q4 «нет», Wave 6 пропадает.
+вычисляется заново в момент запуска (CONTEXT.md, термин Wave); таблица — прогноз. Wave-ы 4–6 идут по одной: 09, 10 и
+11 правят `src/renderer/pr-review/` и `PrInboxView.tsx` по очереди. Если `worfy-changes-view` 05 задержится, 06 и за
+ним 08 сдвигаются, а Wave 2 идёт с 03 и 04.
 
 ## Риски
 
 - **Новая запись на GitHub.** Submit review — третья запись main после двух ADR-0105, и одобрение влияет на merge чужого
   кода. Меры: только щелчок в диалоге, ровно показанный текст, lint, один POST без повтора, повтор после сбоя сначала
-  ищет уже отправленный отзыв, ступень ревью `max`, contract test «ни одной записи без щелчка».
+  ищет уже отправленный отзыв, ступень ревью `max` у Ticket-а 11, contract test «ни одной записи без щелчка».
+- **Agent review одобряет чужой код.** Агент может предложить Approve на коде, который человек не читал. Меры:
+  вердикт агента — только строка «The agent suggests», переключатель начинается с Comment; комментарии агента до правки
+  помечены; Submit жмёт только человек; skill пишет только через `bin/pr-review-draft` (eval Ticket-а 08).
+- **Agent review ставит комментарий не на ту строку.** GitHub отвергает комментарий вне diff-а (422). Мера — такие
+  комментарии стоят списком «Not on a changed line» и в POST не идут (Ticket 10).
 - **Approve не на том коде.** Пока пользователь писал, автор сделал push. Мера — проверка head перед POST, `commit_id` =
   head начала ревью, диалог называет оба commit-а (поток C).
 - **Число одобрений неверно.** Правило может быть невидимо аккаунту (classic protection без admin), а одобрения людей
-  без права записи не считаются. Меры: `1/?` вместо выдуманного числа; решение GitHub (`reviewDecision`) главнее счёта;
-  в tooltip — откуда число (ruleset, protection, hidden).
+  без права записи не считаются. Меры: `1/?` вместо выдуманного числа (Q6 (а)); решение GitHub (`reviewDecision`)
+  главнее счёта; в tooltip — откуда число (ruleset, protection, hidden).
 - **Rate limit поиска.** REST-поиск — 30 запросов в минуту; лимит GraphQL-поиска в минуту не документирован
-  (раздел «Факты»). Меры: поиск по Enter, кэш 60 с, без таймера,
-  пауза до сброса с понятной строкой; общий порог 10 % с PR inbox.
-- **Слова коллег.** Код и комментарии чужих PR — только в памяти main; на диск ложится только текст пользователя и
-  строки кода для поиска строки заново. Помощь агента кладёт их в транскрипт Session — так же, как Draft replies.
-- **Шире Project-а.** All of GitHub ищет по всему, что видит аккаунт Project-а, включая другие организации. Мера — Q1;
-  область по умолчанию — This Project.
+  (раздел «Факты»). Меры: поиск по Enter, кэш 60 с, без таймера, пауза до сброса с понятной строкой; общий порог 10 %
+  с PR inbox.
+- **Слова коллег.** Код и комментарии чужих PR — только в памяти main; на диск ложится только текст пользователя,
+  текст агента и строки кода для поиска строки заново. Agent review кладёт их в транскрипт Session — так же, как Draft
+  replies.
+- **Шире Project-а.** All of GitHub ищет по всему, что видит аккаунт Project-а, включая другие организации. Мера — Q1
+  (а): область по умолчанию — This Project; чтение шире Project-а — Amendment ADR-0105 (Ticket 04).
 - **Большие PR.** Diff из GitHub — постранично, файлы без `patch` свёрнуты, предел 3 000 файлов; отрисовка окном
   Changes уже есть (`src/renderer/changes/diff-window.ts:68-83`).
-- **Общий файл вида.** `PrInboxView.tsx` правят 03, 05, 07, 09 — отсюда последовательные Wave-ы 2–5.
+- **Общий файл вида.** `PrInboxView.tsx` правят 03, 05, 09, 10, 11 — отсюда Wave-ы 4–6 по одной и 03 и 05 в разных
+  Wave-ах.
+- **Незавершённый Epic рядом.** `worfy-changes-view` 05 правит `DiffPane.tsx` и каналы `changes.*`; 06 и 10 ждут его
+  merge (возражение 1 critic-а).
 
 ## Вопросы владельцу
+
+Владелец ответил 2026-11-20 «1-7 да»: Q1–Q6 spec-а и Q7 раунда — каждый ответ — рекомендация. Он же добавил требование
+выбора способа ревью — последний пункт ниже.
 
 1. **Q1. Где искать?**
    - (а) Три области: This Project (по умолчанию), организации владельцев репозиториев Project-а, All of GitHub — всё,
@@ -665,43 +777,77 @@ Wave — Ticket-ы, которые можно брать параллельно:
      нужен для `review-requested:@me` во всех организациях.
    - (б) Только This Project и организации Project-а; All of GitHub — нет.
    - (в) Только репозитории Project-а, как PR inbox сейчас.
+
+   Решено владельцем 2026-11-20: (а) — три области, This Project по умолчанию; чтение за пределами репозиториев
+   Project-а — Amendment ADR-0105, пункт 1 (Ticket 04).
 2. **Q2. Отправлять ревью из worfy?** Это новая запись на GitHub: ADR-0105 сейчас запрещает отправку review.
    - (а) Да: Submit review в диалоге, один POST с Comment / Approve / Request changes, pending review — только файл на
      этой машине. Рекомендация: «ревьювать прямо во вкладке» без отправки — половина функции.
    - (б) worfy готовит ревью, а отправляет пользователь на github.com: Copy review и Open on GitHub.
    - (в) Pending review на GitHub: worfy создаёт его по мере комментариев, отправляет пользователь там. Запись на GitHub
      до щелчка, забытый pending review висит (ADR-0105 отверг это, Considered Options).
+
+   Решено владельцем 2026-11-20: (а) — локальный файл черновика и один запрос из диалога, который показывает каждый
+   комментарий ровно; новый ADR; ступень ревью `max` у Ticket-а Submit (Ticket 11).
 3. **Q3. Отметки Viewed.**
    - (а) Свои, в черновике на этой машине; при первом открытии берутся отметки github.com (`viewerViewedState`, чтение),
      обратно не пишутся. Рекомендация: ни одной записи на GitHub сверх Submit.
    - (б) Синхронно с github.com: отметка в worfy ставит её и на GitHub (мутация `markFileAsViewed`) — ещё одна запись.
    - (в) Только свои, github.com не читаем.
+
+   Решено владельцем 2026-11-20: (а) — свои отметки worfy, один раз взятые с github.com, обратно не пишутся (Ticket 09).
 4. **Q4. Помощь агента в ревью.**
-   - (а) Да, отдельным Ticket-ом 10 в конце: Ask an agent for a first pass, Team reviewer или линзы `/worfy:code-review`,
+   - (а) Да, отдельным Ticket-ом 10 черновика, в конце: Ask an agent for a first pass, Team reviewer или линзы
+     `/worfy:code-review`,
      предложения пунктиром, публикует только Submit. Рекомендация: формат черновика уже общий с Team reviewer-ом.
    - (б) Нет в этом Epic-е; позже отдельным Ticket-ом.
+
+   Решено владельцем 2026-11-20: (а), с новым требованием ниже: агент не «первый проход» в конце Epic-а, а один из двух
+   способов ревью — Agent review, Ticket 08 сразу после черновика и diff-а.
 5. **Q5. Где показывать `1/2`.** В строке списка, в шапке PR и в Review mode — в любом случае.
    - (а) Ещё на доске Pipeline на Stage Human review и на карточке Ticket-а на Canvas — в строке chip-ов ревью, только
      пока PR открыт и одобрений не хватает. Рекомендация: Ticket ждёт людей, и карточка должна говорить, скольких.
    - (б) Ещё только на доске Pipeline; карточка Canvas не меняется (её высота не растёт).
    - (в) Только в Pull requests.
+
+   Решено владельцем 2026-11-20: (а) — ещё доска Pipeline (Stage Human review) и карточка Ticket-а на Canvas, пока
+   одобрений не хватает (Ticket 03).
 6. **Q6. Когда правило не видно** (classic protection без прав admin).
    - (а) `1/?` и tooltip «rule not visible to your account»; при `APPROVED` от GitHub — зелёный `✓ 2`. Рекомендация:
      не выдумывать число.
    - (б) Только число одобрений без знаменателя: `1 approval`.
    - (в) Спросить пользователя число для репозитория и хранить его в Project settings.
 
+   Решено владельцем 2026-11-20: (а) (Ticket 03).
+7. **Q7 раунда. Поправки critic-а и деление Ticket-а Submit.** Принять три поправки `Blocked by` critic-а (06 и бывший
+   09 ждут `worfy-changes-view` 05; поиск в main ждёт 02; test гонки с `bin/pr-review-draft` — из черновика в Ticket
+   агента) и разделить бывший 09 на «комментарии к строкам, полоса Your review, Discard» (`medium`) и «диалог Finish
+   review и `pr-review-submit.ts`» (`max`)?
+
+   Решено владельцем 2026-11-20: да. Новые номера — раздел «Ticket-ы»: 06 и 10 ждут `worfy-changes-view` 05, 04 ждёт
+   02, test гонки — в 08, бывший 09 — Ticket-ы 10 (`medium`) и 11 (`max`).
+8. **Требование владельца 2026-11-20 (не вопрос раунда):** «должен быть выбор какое ревью делать, обычное ллмкой или
+   human-review». Требование — его; детали — «Решено без владельца по его требованию 2026-11-20, подтвердить»
+   («Решение», пункт 6; «Решения по реализации», 5 и 8): Start review с меню Review myself и Agent review; оба способа
+   дают один локальный черновик, который человек правит, публикует только его Submit; способ меняется потом (Ask the
+   agent to add comments, Take over); вердикт агента — только подсказка, переключатель начинается с Comment; Agent
+   review — Ticket 08 в Wave 3, выбор — в Ticket-е 09; термин Agent review — в списке терминов spec-а
+   («Решения по реализации», 13), в CONTEXT.md его вносит Ticket 12.
+
 ## Готово, когда
 
-- [ ] Поле поиска во вкладке Pull requests ищет PR по тексту и квалификаторам GitHub в выбранной области; chip-ы
-      фильтров, сохранённые поиски, «Load more»; Clear возвращает inbox.
-- [ ] PR из результатов открывается в панели PR; Start review открывает Review mode с diff-ом, деревом, нитями и Viewed.
+- [ ] Поле поиска во вкладке Pull requests ищет PR по тексту и квалификаторам GitHub в выбранной из трёх областей;
+      chip-ы фильтров, сохранённые поиски, «Load more»; Clear возвращает inbox.
+- [ ] PR из результатов открывается в панели PR; Start review предлагает Review myself и Agent review и открывает
+      Review mode с diff-ом, деревом, нитями и Viewed.
+- [ ] Agent review: Session с Team reviewer-ом или линзами пишет комментарии, итоговый текст и предложенный вердикт в
+      локальный черновик; человек правит; способ меняется в открытом Review mode; на GitHub агент не пишет ничего.
 - [ ] Комментарии к строкам и диапазонам, Suggest change, Pending на строке; черновик переживает перезапуск.
-- [ ] Finish review → диалог → Submit review отправляет один POST ровно с показанными текстами и выбранным событием;
-      без щелчка на GitHub не уходит ничего; head сдвинулся — диалог говорит это до отправки.
+- [ ] Finish review → диалог → Submit review отправляет один POST ровно с показанными текстами и выбранным человеком
+      событием; без щелчка на GitHub не уходит ничего; head сдвинулся — диалог говорит это до отправки.
 - [ ] Chip `M/N` по ruleset или classic protection, `1/?` при скрытом правиле, `✓` при `APPROVED`; code owners и stale
-      одобрения в tooltip и в ячейке Approvals; на доске Pipeline (и на карточке Ticket-а — по Q5).
+      одобрения в tooltip и в ячейке Approvals; на доске Pipeline на Stage Human review и на карточке Ticket-а.
 - [ ] Ошибки доступа, SSO, rate limit и 1 000 результатов — понятной строкой; Linked machine Read only ищет и читает,
       но не ревьюит.
 - [ ] Новый ADR, Amendment-ы, страницы Feature en и ru, термины в CONTEXT.md.
-- [ ] (manual) Владелец принял Epic на тестовом репозитории.
+- [ ] (вручную) Владелец принял Epic на тестовом репозитории.
