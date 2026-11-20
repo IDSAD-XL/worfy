@@ -88,23 +88,31 @@ function ready(st, pr, head, carry) {
 - Требование: [Готово, когда](../issues/130-land-держит-pr-со-scope-pc-при-открытом-pc-main-red.md#готово-когда)
 - Риски и пробелы test-ов: не записано.
 
-## 4. State file получает метку и команду из блока skill-а
+## 4. State file получает метку и команду одним именованным аргументом блока skill-а
 
-Code: `harness/skills/epic-wave/SKILL.md:1293-1293` · key lines: 1293
+Code: `harness/skills/epic-wave/SKILL.md:1286-1292` · key lines: 1287, 1290, 1291, 1292
 
 ```js
-  docs_check: val(docs), docs_only: val(docsOnly), red_elsewhere: val(redLabel) && val(redNeeds) ? { label: redLabel, needs: redNeeds } : null, tickets_root, prs: list }, null, 2) + "\n")
+const [file, repo, branch, ci, check, workflow, docs, root, mode, docsOnly, ...args] = process.argv.slice(2)
+const named = args.filter((a) => a.startsWith("--red-elsewhere=")), prs = args.filter((a) => !a.startsWith("--red-elsewhere="))
+const pair = named.length ? named[named.length - 1].slice("--red-elsewhere=".length) : null, cut = pair === null ? -1 : pair.indexOf("|")
+const stop = (m) => { console.error(m); process.exit(1) }
+if (pair !== null && (cut < 1 || cut === pair.length - 1)) stop(`--red-elsewhere=<label>|<command> needs both parts, got ${JSON.stringify(pair)}`)
+for (const p of prs) if (!/^\d+:/.test(p)) stop(`not a PR (<N>:<epic>:<NN>:<head>:<checks>): ${JSON.stringify(p)}`)
+const red_elsewhere = pair === null ? null : { label: pair.slice(0, cut), needs: pair.slice(cut + 1) }
 ```
 
-- Что делает: блок, которым Orchestrator пишет state file `land`, берёт два новых аргумента — метку и команду (worfy:
-  `pc-main-red` и `node scripts/windows-verdict-scope.mjs <base> <head>`). Оба пустые — `red_elsewhere: null`, проверка
-  выключена.
+- Что делает: блок, которым Orchestrator пишет state file `land`, берёт метку и команду одним аргументом
+  `--red-elsewhere=<label>|<command>` (worfy: `pc-main-red` и `node scripts/windows-verdict-scope.mjs <base> <head>`).
+  Нет аргумента — `red_elsewhere: null`, проверка выключена. Аргумент без одной из частей или любой аргумент, который
+  не PR (`<N>:…`), — exit 1 и state file не пишется.
 - Почему здесь: Ticket, «Что делаем», п. 3 — настройка рядом с `docs_check` и `docs_only`, полями того же state file;
-  profile не меняется.
+  profile не меняется. Именованная форма вместо двух позиционных — review, раунд 1: вызов старой формы с тремя PR молча
+  превращал первые два PR в метку и команду.
 - Без него: поле есть в `land`, но Orchestrator его не заполняет — проверка выключена для всех.
 - Требование: [Что делаем, п. 3 и 6](../issues/130-land-держит-pr-со-scope-pc-при-открытом-pc-main-red.md#что-делаем)
-- Риски и пробелы test-ов: правило работает, только если Orchestrator передаст метку и команду; пустые аргументы его
-  молча выключают.
+- Риски и пробелы test-ов: правило работает, только если Orchestrator передаст аргумент; без него проверка молча
+  выключена — так и задумано для проектов без другой машины.
 
 ## 5. Test: issue держит PR со scope `pc`, PR без него вливается
 
@@ -136,7 +144,8 @@ grep -qx 'issue list --label pc-main-red --state open --json number,title,url' "
 
 ## 6. Как проверено
 
-`bash harness/bin/tests/land.test.sh` до кода — exit 1 (14 FAIL новых case-ов), после — exit 0 (passed 137). Mutant
+`bash harness/bin/tests/land.test.sh` против `land` и skill-а из origin/main — exit 1, 19 FAIL: 12 — проверка в `land`
+(9 case-ов `red_elsewhere` и 3 отказа входа), 7 — блок skill-а (с раунда review 1). После — exit 0 (passed 142). Mutant
 «не читать issue» (вызов `elsewhereAllows` убран из `ready`) — exit 1, 9 FAIL. `land-story.test.sh`,
 `land-epic-story.test.sh`, `agents-text.test.sh` — exit 0. `pnpm lint`, `pnpm typecheck` — exit 0. gate fast не
 запускался: file-watcher test-ы на этом Mac красные из-за fseventsd. Вердикт Windows — job-ы Windows в CI PR.
@@ -150,7 +159,7 @@ grep -qx 'issue list --label pc-main-red --state open --json number,title,url' "
 2. Issue открыли, пока `land` ждал lock `main`. Будет ли merge?
    - Ответ: нет: `ready` с `elsewhereAllows` вызывается ещё раз под lock-ом, перед `gh pr merge`, и читает issue заново.
    - Строки: `harness/bin/land:755-764`
-3. Что произойдёт, если Orchestrator соберёт state file, оставив метку пустой?
-   - Ответ: `red_elsewhere` будет `null`, и `elsewhereAllows` выйдет на первой проверке — PR со scope `pc` снова пройдут
-     при открытом issue.
-   - Строки: `harness/skills/epic-wave/SKILL.md:1293-1293`
+3. Orchestrator вызвал блок старой формы — без `--red-elsewhere` — с тремя PR. Что окажется в state file?
+   - Ответ: все три PR и `red_elsewhere: null`: метка и команда приходят только именованным аргументом, позиционные
+     аргументы после `<documents-only command>` — всегда PR. Проверка при этом выключена.
+   - Строки: `harness/skills/epic-wave/SKILL.md:1286-1292`

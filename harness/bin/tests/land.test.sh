@@ -709,7 +709,7 @@ done
 SKILL="${SKILL_FILE:-$HERE/../../skills/epic-wave/SKILL.md}"
 awk '/^\*\*Merge with land\*\*/{s=1} s && /<<.NODE.$/{n=1; next} n && /^NODE$/{exit} n' "$SKILL" >"$T/skill-state.js"
 new_world skill 1
-node "$T/skill-state.js" "$(tn "$S")" "$(tn "$W/repo")" main pr ci-ok ci.yml "node \"$(tn "$STUBS/docs-check.mjs")\"" ".scratch/" full "$DOCS_ONLY" pc-main-red "$NEEDS" "1:e:01:$(head_of 1):windows:main-fix" >"$W/out" 2>&1
+node "$T/skill-state.js" "$(tn "$S")" "$(tn "$W/repo")" main pr ci-ok ci.yml "node \"$(tn "$STUBS/docs-check.mjs")\"" ".scratch/" full "$DOCS_ONLY" "--red-elsewhere=pc-main-red|$NEEDS" "1:e:01:$(head_of 1):windows:main-fix" >"$W/out" 2>&1
 echo '{"review":"success","check/windows":"success"}' >"$GHD/status-$(head_of 1).json"
 "$LAND" "$S" >>"$W/out" 2>&1; rc=$?
 [ -s "$T/skill-state.js" ] && [ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && [ "$(q "$S" 's.prs[0].head')" = "$(head_of 1)" ] && [ "$(q "$S" 's.prs[0].checks')" = '["windows"]' ] \
@@ -717,10 +717,20 @@ echo '{"review":"success","check/windows":"success"}' >"$GHD/status-$(head_of 1)
     && [ "$(q "$S" 's.red_elsewhere.label')" = pc-main-red ] && [ "$(q "$S" 's.red_elsewhere.needs')" = "$NEEDS" ] \
     && ok "skill: the state file of the epic-wave block is one land merges from, with docs_only, red_elsewhere and main_fix" || bad "skill block: exit $rc: $(cat "$W/out")"
 # the tickets root: an absolute one inside the repository becomes relative, one outside it and Silent mode give null; no Check — []
-skill_root() { node "$T/skill-state.js" "$(tn "$W/s-$1.json")" "$(tn "$W/repo")" main pr ci-ok ci.yml "" "$2" "$3" "" "" "" "1:e:01:$(head_of 1):" >/dev/null 2>&1 && q "$W/s-$1.json" 's.tickets_root'; }
+skill_root() { node "$T/skill-state.js" "$(tn "$W/s-$1.json")" "$(tn "$W/repo")" main pr ci-ok ci.yml "" "$2" "$3" "" "1:e:01:$(head_of 1):" >/dev/null 2>&1 && q "$W/s-$1.json" 's.tickets_root'; }
 [ "$(skill_root abs "$(tn "$W/repo")/work/tickets/" full)" = work/tickets ] && [ "$(skill_root out "$(tn "$T")/elsewhere/" full)" = null ] \
     && [ "$(skill_root silent .scratch/ silent)" = null ] && [ "$(skill_root dot ./ full)" = null ] && [ "$(skill_root repo "$(tn "$W/repo")/" full)" = null ] && [ "$(skill_root none "" full)" = .scratch ] && [ "$(q "$W/s-none.json" 's.prs[0].checks')" = '[]' ] && [ "$(q "$W/s-none.json" 's.docs_only')" = null ] && [ "$(q "$W/s-none.json" '"main_fix" in s.prs[0]')" = false ] && [ "$(q "$W/s-none.json" 's.red_elsewhere')" = null ] \
     && ok "skill: tickets_root from the profile — absolute made relative, outside the repository, the repository itself or Silent mode null" || bad "skill roots: abs $(q "$W/s-abs.json" 's.tickets_root') out $(q "$W/s-out.json" 's.tickets_root') silent $(q "$W/s-silent.json" 's.tickets_root') dot $(q "$W/s-dot.json" 's.tickets_root') repo $(q "$W/s-repo.json" 's.tickets_root') none $(q "$W/s-none.json" 's.tickets_root')"
+# red_elsewhere is one named argument: a call of the old form (no --red-elsewhere) keeps every PR and leaves the check off;
+# a --red-elsewhere without both its label and its command, or an argument that is no PR spec, is refused (exit 1)
+node "$T/skill-state.js" "$(tn "$W/s-old.json")" "$(tn "$W/repo")" main pr ci-ok ci.yml "" .scratch/ full "" "101:e:01:$(head_of 1):" "102:e:02:$(head_of 1):" "103:e:03:$(head_of 1):" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(q "$W/s-old.json" 's.prs.map((p) => p.number).join(",")')" = 101,102,103 ] && [ "$(q "$W/s-old.json" 's.red_elsewhere')" = null ] \
+    && ok "skill: an old-form call with three PRs keeps all three, red_elsewhere null" || bad "skill old form: exit $rc: $(cat "$W/out" "$W/s-old.json" 2>&1)"
+for arg in "--red-elsewhere=pc-main-red" "--red-elsewhere=|$NEEDS" "--red-elsewhere=pc-main-red|" "pc-main-red"; do
+    node "$T/skill-state.js" "$(tn "$W/s-bad.json")" "$(tn "$W/repo")" main pr ci-ok ci.yml "" .scratch/ full "" "$arg" "1:e:01:$(head_of 1):" >"$W/out" 2>&1; rc=$?
+    [ "$rc" = 1 ] && [ ! -e "$W/s-bad.json" ] && ok "skill: '${arg%%|*}…' is refused, exit 1, no state file" || bad "skill bad arg $arg: exit $rc: $(cat "$W/out")"
+    rm -f "$W/s-bad.json"
+done
 
 home_after="$(real_home_snapshot "$HOME" "$T")"
 [ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" || { bad "the real home changed"; real_home_diff "$home_before" "$home_after"; }
