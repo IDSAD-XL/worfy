@@ -8,7 +8,8 @@ import { Menu, MenuRadioGroup, MenuRadioItem } from '../theme/kit/Menu'
 // The tray at the bottom of the Changes Node (worfy-changes-view ticket 05; the screen of the spec): the comments of
 // the Session picked in «To» — the same ones its input field lists (session/QuoteComments.tsx), from its store
 // (quote-store.ts, quoteKey) — as chips: a comment on lines goes to its line, × removes it. Clear removes them all.
-// Under them the general text, «To» and Send ⌘↵, which sends them as that Session's Send does: one message.
+// Under them the general text, «To» and Send ⌘↵, which sends them as that Session's Send does: one message. While Send
+// runs, «To», the field, × and Clear are locked: the round goes to the Session it was sent to, as it was sent.
 
 const plural = (count: number, word: string): string => `${count} ${word}${count === 1 ? '' : 's'}`
 
@@ -71,7 +72,7 @@ export function Tray({ comments, changed, targets, target, onTarget, autopilot, 
                   <span className="w-qtray__q">«{chipWords(each.quote)}»</span>
                 </span>
               )}
-              <button type="button" className="w-qtray__x" aria-label={`Remove comment ${index + 1}`} data-testid="changes-tray-remove" onClick={() => onRemove([each.id])}>
+              <button type="button" className="w-qtray__x" aria-label={`Remove comment ${index + 1}`} data-testid="changes-tray-remove" disabled={sending} onClick={() => onRemove([each.id])}>
                 ×
               </button>
             </li>
@@ -79,7 +80,7 @@ export function Tray({ comments, changed, targets, target, onTarget, autopilot, 
         </ul>
         <span className="w-qtray__spacer" />
         {comments.length > 0 ? (
-          <button type="button" className="w-changes__link" data-testid="changes-tray-clear" onClick={() => onRemove(comments.map((each) => each.id))}>
+          <button type="button" className="w-changes__link" data-testid="changes-tray-clear" disabled={sending} onClick={() => onRemove(comments.map((each) => each.id))}>
             Clear
           </button>
         ) : null}
@@ -95,7 +96,7 @@ export function Tray({ comments, changed, targets, target, onTarget, autopilot, 
           className="w-changes__menu"
           focusOnOpen='[aria-checked="true"]'
           trigger={
-            <button type="button" className="w-changes__dropdown nodrag" data-testid="changes-to" aria-label={`To: ${target?.title ?? 'no Session'}`} disabled={targets.length === 0}>
+            <button type="button" className="w-changes__dropdown nodrag" data-testid="changes-to" aria-label={`To: ${target?.title ?? 'no Session'}`} disabled={targets.length === 0 || sending}>
               {target?.title ?? 'No Session'}
             </button>
           }
@@ -121,6 +122,7 @@ export function Tray({ comments, changed, targets, target, onTarget, autopilot, 
           placeholder="Message to the agent…"
           data-testid="changes-tray-text"
           value={general}
+          readOnly={sending}
           onChange={(event) => onGeneral(event.target.value)}
           onKeyDown={onKeyDown}
         />

@@ -246,7 +246,8 @@ A comment is made on one line or on a range of lines of one file and one side of
 A popover opens over the line. It names the place (`src/cart.ts:13 · new side`), shows the code of the lines and takes
 the text and up to three images, pasted or added, as a comment on a quote does
 (Comments on quotes, [Sessions](sessions.md)). `⌘↵` (Ctrl+Enter on Windows and Linux) saves it; Esc or a click outside
-closes an unchanged popover and keeps a changed one. The comment then stands under its last line, marked «not sent»,
+closes an unchanged popover and keeps a changed one. A changed popover also stays when «+», `c`, Comment or Edit is
+used elsewhere: worfy asks to save or cancel it first. The comment then stands under its last line, marked «not sent»,
 with Edit and Delete. Delete offers Undo for six seconds.
 
 #### The tray and «To»
@@ -257,8 +258,10 @@ message and **Send**.
 
 «To» lists the Sessions of worfy bound to the Ticket (a manual Binding wins over the one a launch made), newest record
 first, then the Orchestrator. A Session of any Vendor may be there. The default is the bound Session with the newest
-record, however old it is; without a bound Session, the Orchestrator. With the Orchestrator in «To» while Autopilot
-runs, the tray says «Autopilot is running».
+record, however old it is; without a bound Session, the Orchestrator. Once the Session shown holds comments or has
+taken a Send, «To» keeps it until you pick another: a later default (after a Refresh, or the list read again after a
+Send) does not move «To» away from the comments. With the Orchestrator in «To» while Autopilot runs, the tray says
+«Autopilot is running».
 
 A comment belongs to the Session in «To»: it is a draft of that Session, the same one its input field lists in its own
 tray. Picking another Session moves this Ticket's comments on code to it; comments on messages stay where they are.
@@ -270,15 +273,20 @@ Send sends one message to the Session in «To»: the section «Comments on lines
 each comment its path and lines, its side and commit, its code quoted and its text, then «General:» and the text of the
 field. It is the message the Session's own Send would make from the same drafts, comments on its messages included. A
 Session that runs no more is started first; one in the middle of a turn keeps the message in its queue. The comments
-that went stay dim on their lines, «sent to <Session>».
+that went stay dim on their lines, «sent to <Session>». While Send runs, «To», the field, × and Clear in the tray, and
+Edit and Delete under a line wait for it: the message goes to the Session it was sent to, with the comments as they
+were.
 
 In the Session's chat the message shows each comment as a block with its path and lines. A click on the path opens the
 Changes Node of the Ticket and scrolls to the line, which flashes.
 
 #### After a Refresh
 
-Each comment not sent yet is looked for again in its file's lines and moves with them. One whose lines are gone keeps
-its place, is marked «Line changed» on the line and in the tray, and is sent as it was written.
+Each comment not sent yet is looked for again in its file's lines and moves with them. This happens in the reads of
+the scope and Hide whitespace the Refresh was pressed in, and only for a comment on the commit those reads show on its
+side (the work tree for uncommitted lines): a comment made in another scope keeps its lines, true at its commit. One
+whose lines the read shows and which are gone keeps its place, is marked «Line changed» on the line and in the tray,
+and is sent as it was written; lines the read does not show are no news.
 
 ### How it works
 
@@ -302,6 +310,7 @@ uncommitted lines, the commit of a Commit scope, the merge-base for the old side
 - `src/main/changes/targets.ts` and `src/main/ipc/changes.ts` — the list «To»; `src/shared/ipc/changes.ts` — its channel.
 
 Tests: `test/unit/changes-tray.test.tsx` («+», `c` and a range open the popover, the tray of the Session in «To»,
-another Session takes the comments, Read only), `test/contract/changes-targets.test.ts` (who is in «To» and the
+another Session takes the comments, «To» keeps a Session with comments, the locks while Send runs, a Refresh in the
+comment's own scope, a changed popover stays, Read only), `test/contract/changes-targets.test.ts` (who is in «To» and the
 default), `test/e2e/changes-comments.spec.ts` (two comments, a reload, one message to the fake agent, the block in the
 chat opens the Node on its line).

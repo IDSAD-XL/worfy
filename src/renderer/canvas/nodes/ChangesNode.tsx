@@ -138,7 +138,7 @@ function Screen({ id, projectId, root, subject, data, selected }: { id: string; 
   const entries = useMemo(() => orderedFiles(repos, filter, workflowOpen), [repos, filter, workflowOpen])
   const pane = useRef<DiffPaneHandle>(null)
   const root$ = useRef<HTMLDivElement>(null)
-  const comments = useLineComments({ projectId, subject, scope, scopes: scopes?.value ?? [], lists: list?.value ?? undefined, entries, readOnly, pane, body: root$, generation })
+  const comments = useLineComments({ projectId, subject, scope, scopes: scopes?.value ?? [], lists: list?.value ?? undefined, entries, readOnly, pane, body: root$, hideWhitespace, generation })
   const select = (key: string) => {
     setChosen(key)
     pane.current?.scrollToFile(key)

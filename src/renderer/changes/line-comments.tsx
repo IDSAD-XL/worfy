@@ -15,7 +15,7 @@ import { label as shortcutLabel } from '../shortcuts/match'
 import { ContextMenu } from '../theme/kit/ContextMenu'
 import { MenuItem } from '../theme/kit/Menu'
 import { dismissToast, showToast } from '../toast/toasts'
-import type { DiffPaneHandle, DiffPaneProps, LineSide } from './DiffPane'
+import type { DiffPaneHandle, DiffPaneProps, FileReadOf, LineSide } from './DiffPane'
 import { lineNumber, type FileEntry } from './diff-window'
 import { LineCommentBox, LineCommentPopover, SentLineBox, type LinePopover } from './LineComment'
 import { lineRequestFor, useLineRequests, type ChangesSubject } from './open'
@@ -31,14 +31,18 @@ import { Tray } from './Tray'
 //   or Comment in the right click's menu. The popover takes its text and images; it goes into the store of the Session
 //   in «To» (session/quote-store.ts, quoteKey), the store that Session's input field lists too.
 // - «To» is main's list (`changes.targets`, src/main/changes/targets.ts): the Sessions bound to the Ticket and the
-//   Orchestrator; its default is main's (Q2). A Session that never reported its id keeps its comments under
-//   NOT_STARTED until it does; they move to its id then. Another Session picked takes the comments on code of this
-//   Ticket with it; the comments on its messages stay with each Session.
+//   Orchestrator; its default is main's (Q2) until the Session shown holds comments or takes a Send: «To» keeps it
+//   then. A Session that never reported its id keeps its comments under NOT_STARTED until it does; they move to its id
+//   then. Another Session picked takes the comments on code of this Ticket with it; the comments on its messages stay
+//   with each Session.
 // - Send does what that Session's Send does (SessionView.tsx): starts it when it runs no more, composes the round
 //   (composeRound) and sends it with `agent.send`, where a busy agent's queue keeps it; the round waits for its prompt
-//   (markPending). The comments on lines that went stay dim on their lines (sent-lines.ts).
-// - After a Refresh each comment not sent yet is looked for again in its file's lines (anchorLines); one whose lines
-//   are gone is marked «Line changed» and stays in the tray.
+//   (markPending). The comments on lines that went stay dim on their lines (sent-lines.ts). While it runs, «To», the
+//   tray's field, Edit and removing a comment are locked.
+// - After a Refresh each comment not sent yet is looked for again in its file's lines (anchorLines), in the reads of
+//   the scope and Hide whitespace the Refresh was pressed in, and only a comment on the commit that read shows on its
+//   side (the work tree for null); one whose lines are gone is marked «Line changed» and stays in the tray.
+// - A popover with text or images not saved yet stays open: «+», `c`, Comment and Edit do not replace it.
 // - A read-only screen (a Linked machine with Read only, ADR-0066) shows no «+», no `c`, no Comment and no tray: the diff
 //   reads as it is.
 
@@ -98,6 +102,9 @@ function sideText(hunks: readonly DiffHunk[], side: LineSide): string {
   return Array.from({ length: last }, (_, index) => lines.get(index + 1) ?? '\u0000').join('\n')
 }
 
+/** A view of the diff, as the reads of one compare: the scope and Hide whitespace. */
+const viewOf = (scope: ChangesScope, hideWhitespace: boolean): string => JSON.stringify([scope, hideWhitespace])
+
 /** What a comment of a repository names: its checkout and worktree, its branch, and the commit each side was read at. */
 interface RepoFacts {
   repository: string
@@ -134,6 +141,8 @@ export interface LineCommentsOptions {
   pane: RefObject<DiffPaneHandle | null>
   /** The Node's body: where the rows of the diff are looked for. */
   body: RefObject<HTMLElement | null>
+  /** The Node's Hide whitespace: with the scope, the view a Refresh is pressed in. */
+  hideWhitespace: boolean
   /** Grows with every Refresh: the comments are looked for again in the lines read after it. */
   generation: number
 }
@@ -163,7 +172,7 @@ function lineAt(target: EventTarget | null): { key: string; side: LineSide; line
 /** A click on these is theirs, not a pick of the line. */
 const OWN_CONTROLS = 'button, a, input, textarea, .w-cl'
 
-export function useLineComments({ projectId, subject, scope, scopes, lists, entries, readOnly, pane, body, generation }: LineCommentsOptions): LineCommentsLayer {
+export function useLineComments({ projectId, subject, scope, scopes, lists, entries, readOnly, pane, body, hideWhitespace, generation }: LineCommentsOptions): LineCommentsLayer {
   const saveKeys = shortcutLabel(SHORTCUTS.quoteSave)
 
   // ── «To» ──────────────────────────────────────────────────────────────────────────────────
@@ -186,11 +195,15 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
     }
   }, [projectId, subject.epic, subject.num, readOnly, generation, asked])
   const targets = useMemo(() => answer?.targets ?? [], [answer])
+  // The Session «To» keeps: the one the user picked, or the one shown once it held comments or took a Send. Main's
+  // default may name another Session on the next read of the list (a Refresh, after a Send); «To» does not follow it
+  // then, or the comments would stay in the store of a Session the tray no longer shows.
   const [chosen, setChosen] = useState<string | null>(null)
   const target = targets.find((each) => each.nodeId === chosen) ?? targets.find((each) => each.nodeId === answer?.defaultNodeId) ?? targets[0] ?? null
   const storeKey = target === null ? null : quoteKey(projectId, target.nodeId, target.sessionId ?? NOT_STARTED)
   const quotes = useQuotes(storeKey)
   const all = quotes.drafts
+  if (chosen === null && target !== null && all.length > 0) setChosen(target.nodeId)
   const ordered = useMemo(() => inTextOrder(all), [all])
   const isMine = useCallback((comment: { kind?: string; subject?: CodeComment['subject'] }): comment is CodeComment => comment.kind === 'code' && comment.subject?.epic === subject.epic && Number(comment.subject.number) === subject.num, [subject.epic, subject.num])
   const mine = useMemo(() => all.filter(isMine), [all, isMine])
@@ -244,6 +257,8 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
   const [popover, setPopover] = useState<LinePopover | null>(null)
   const [menu, setMenu] = useState<{ x: number; y: number; key: string; side: LineSide; line: number; text: string | null } | null>(null)
   const [changed, setChanged] = useState<ReadonlySet<string>>(new Set())
+  // Send is on its way: «To», the tray's field, Edit and removing a comment wait for it (Send below).
+  const [sending, setSending] = useState(false)
   // The popover as it is now, ahead of the next render: reading images is async.
   const popoverNow = useRef<LinePopover | null>(null)
   const putPopover = useCallback((next: LinePopover | null | ((open: LinePopover | null) => LinePopover | null)) => {
@@ -251,8 +266,20 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
     setPopover(popoverNow.current)
   }, [])
 
+  /**
+   * Whether the popover open now holds what Save has not kept: text or images other than the comment had, or an image
+   * being read. Another popover does not replace it then; the user saves or cancels it first.
+   */
+  const keepsOpen = (): boolean => {
+    const open = popoverNow.current
+    if (open === null || (open.text.trim() === open.was.text.trim() && open.images.length === open.was.images && open.reading === 0)) return false
+    showToast({ kind: 'info', key: 'changes-comment-open', text: 'Save or cancel the comment you are writing first' })
+    return true
+  }
+
   /** Opens the popover of a new comment on lines `from`…`to` of a side of a file; they have to be read and next to each other. */
   const openNew = (key: string, side: LineSide, from: number, to: number) => {
+    if (keepsOpen()) return
     const entry = entryOf(key)
     const diff = read.current.get(key)
     if (entry === undefined || diff?.kind !== 'hunks') return
@@ -270,7 +297,7 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
 
   /** The comment of a line: of the range picked when the line is in it, else of the line alone. */
   const openOn = (key: string, side: LineSide, line: number) => {
-    if (!canComment) return
+    if (!canComment || keepsOpen()) return
     if (picked !== null && picked.key === key && picked.side === side && line >= range(picked).from && line <= range(picked).to) openNew(key, side, range(picked).from, range(picked).to)
     else {
       setPicked({ key, side, start: line, end: line })
@@ -279,6 +306,8 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
   }
 
   const openEdit = (comment: CodeComment) => {
+    // A comment is not edited while Send takes it: the message would go with the text it had.
+    if (sending || keepsOpen()) return
     const entry = entries.find((each) => onEntry(comment, each))
     putPopover({
       id: comment.id,
@@ -297,7 +326,8 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
   }
 
   const remove = (ids: readonly string[]) => {
-    if (storeKey === null) return
+    // While Send runs the round is taken: a comment removed and then put back by Undo would wait twice.
+    if (storeKey === null || sending) return
     const gone = removeDrafts(storeKey, ids)
     if (gone.length === 0) return
     putPopover((open) => (open !== null && open.id !== null && ids.includes(open.id) ? null : open))
@@ -317,6 +347,10 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
     if (open === null || storeKey === null) return
     if (open.text.trim() === '' && open.images.length === 0) return
     if (open.id !== null) {
+      if (sending) {
+        putPopover({ ...open, error: 'Send is taking this comment with the text it had; it cannot change now.' })
+        return
+      }
       editDraft(storeKey, open.id, { text: open.text.trim(), images: open.images })
       putPopover(null)
       return
@@ -406,20 +440,24 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
 
   // ── Send ──────────────────────────────────────────────────────────────────────────────────
   const [general, setGeneral] = useState('')
-  const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const send = async () => {
     if (target === null || storeKey === null || sending) return
+    // «To» is locked while Send runs (Tray.tsx): the round goes to this Session and waits in its store.
+    const to = target
+    const key = storeKey
     setSending(true)
     setError(null)
     try {
-      const live = await liveSession(target)
+      const live = await liveSession(to)
       if ('error' in live) {
         setError(live.error)
         return
       }
+      // The comments as the store holds them now: one removed while the Session started does not go.
+      const drafts = readQuotes(key).drafts
       // The bytes of images this window did not read (before a restart) come back from main's copies.
-      const missing = all.flatMap((each) => each.images).filter((image) => imageDataOf(image.ref) === undefined)
+      const missing = drafts.flatMap((each) => each.images).filter((image) => imageDataOf(image.ref) === undefined)
       if (missing.length > 0) {
         const result = await invoke('agent.attach', { sessionId: live.id, sources: missing.map((image) => ({ kind: 'kept' as const, name: image.name, ref: image.ref, mediaType: image.mediaType })) })
         if (!result.ok) {
@@ -440,7 +478,7 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
         const data = imageDataOf(image.ref)
         return data === undefined ? undefined : { kind: 'image', name: image.name, mediaType: image.mediaType, size: image.size, data }
       }
-      const composed = composeRound(all, { text: general, attachments: [] }, imageOf)
+      const composed = composeRound(drafts, { text: general, attachments: [] }, imageOf)
       if ('error' in composed) {
         setError(composed.error)
         return
@@ -453,13 +491,16 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
         return
       }
       const round = composed.round
-      if (round.length > 0) markPending(storeKey, { id: newId(), message: text, at: Date.now(), comments: [...round] })
+      if (round.length > 0) markPending(key, { id: newId(), message: text, at: Date.now(), comments: [...round] })
       addSentLines(
         sentKey,
-        round.filter(isMine).map((each): SentLine => ({ id: each.id, repository: each.repository, path: each.path, side: each.side, startLine: each.startLine, endLine: each.endLine, text: each.text, images: each.images.length, to: target.title, at: Date.now() })),
+        round.filter(isMine).map((each): SentLine => ({ id: each.id, repository: each.repository, path: each.path, side: each.side, startLine: each.startLine, endLine: each.endLine, text: each.text, images: each.images.length, to: to.title, at: Date.now() })),
       )
+      // The field was locked while Send ran (Tray.tsx): what it held is what went.
       setGeneral('')
-      showToast({ kind: 'success', key: `changes-sent:${sentKey}`, text: round.length === 0 ? `Sent to ${target.title}` : `Sent ${plural(round.length, 'comment')} to ${target.title}`, testId: 'changes-sent-toast' })
+      // A Session that took a Send stays in «To» when main's default turns to another one.
+      setChosen((was) => was ?? to.nodeId)
+      showToast({ kind: 'success', key: `changes-sent:${sentKey}`, text: round.length === 0 ? `Sent to ${to.title}` : `Sent ${plural(round.length, 'comment')} to ${to.title}`, testId: 'changes-sent-toast' })
       // The Session may report its id now: the list is read again.
       setAsked((value) => value + 1)
     } finally {
@@ -468,20 +509,35 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
   }
 
   // ── after a Refresh, the lines again ──────────────────────────────────────────────────────
-  const latest = useRef({ mine, storeKey, generation, onEntry })
+  // The view a Refresh was pressed in: the scope and Hide whitespace the Node showed when the count grew. Only the reads
+  // of that view and that Refresh look for the comments again; a read of another scope, or with the other Hide
+  // whitespace, shows other hunks and, in another scope, other line numbers.
+  const [refreshedIn, setRefreshedIn] = useState({ generation, view: viewOf(scope, hideWhitespace) })
+  if (refreshedIn.generation !== generation) setRefreshedIn({ generation, view: viewOf(scope, hideWhitespace) })
+  const latest = useRef({ mine, storeKey, refreshedIn, onEntry, scopes, lists })
   useEffect(() => {
-    latest.current = { mine, storeKey, generation, onEntry }
+    latest.current = { mine, storeKey, refreshedIn, onEntry, scopes, lists }
   })
-  const onFileRead = useCallback((entry: FileEntry, diff: FileDiff) => {
+  const onFileRead = useCallback((entry: FileEntry, diff: FileDiff, readOf: FileReadOf) => {
     read.current.set(entry.key, diff)
-    const { mine: drafts, storeKey: key, generation: refreshed, onEntry: isOn } = latest.current
-    if (refreshed === 0 || key === null || diff.kind !== 'hunks') return
+    const { mine: drafts, storeKey: key, refreshedIn: refresh, onEntry: isOn, scopes: scoped, lists: listed } = latest.current
+    if (refresh.generation === 0 || readOf.generation !== refresh.generation || viewOf(readOf.scope, readOf.hideWhitespace) !== refresh.view) return
+    if (key === null || diff.kind !== 'hunks') return
+    const scopesOf = scoped.find((each) => each.repo === entry.repo)
+    const listOf = listed?.find((each) => each.repo === entry.repo)
     const ids = { lost: [] as string[], found: [] as string[] }
     for (const comment of drafts) {
       if (!isOn(comment, entry)) continue
+      // A comment on lines of another commit than the one this read shows on its side belongs to another scope: its
+      // lines are true at its commit, and stay as they are.
+      if (comment.commit !== commitOf(readOf.scope, comment.side, scopesOf, listOf)) continue
+      const lines = sideLines(diff.hunks, comment.side)
       const at = anchorLines(sideText(diff.hunks, comment.side), comment)
       if ('mark' in at && at.mark === LINE_CHANGED) {
-        ids.lost.push(comment.id)
+        // Lines this view does not show are no news: they may stand there unchanged.
+        let shown = true
+        for (let number = comment.startLine; number <= comment.endLine; number += 1) shown &&= lines.has(number)
+        if (shown) ids.lost.push(comment.id)
         continue
       }
       ids.found.push(comment.id)

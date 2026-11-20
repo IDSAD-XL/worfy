@@ -16,7 +16,8 @@ import type { CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
 import { LayoutOpsContext, type LayoutOps } from '../../src/renderer/canvas/useLayout'
 import { forgetSentLinesInMemory } from '../../src/renderer/changes/sent-lines'
 import type { CodeComment, MessageComment } from '../../src/renderer/session/quote-comments'
-import { addDraft, forgetQuotesInMemory, quoteKey, readQuotes } from '../../src/renderer/session/quote-store'
+import { addDraft, forgetQuotesInMemory, quoteKey, readQuotes, removeDrafts } from '../../src/renderer/session/quote-store'
+import { toasts } from '../../src/renderer/toast/toasts'
 import type { ChangedFile, DiffLine, FileDiff } from '../../src/shared/changes/types'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
@@ -80,6 +81,26 @@ const TARGETS = {
 
 let calls: { channel: string; input: Record<string, unknown> }[]
 let targets: unknown
+/** The patch `changes.file` answers with, by what it is asked. */
+let fileDiff: (input: Record<string, unknown>) => FileDiff
+/** Channels whose answer waits for the test: the promise the bridge waits on, by channel. */
+let held: Map<string, Promise<void>>
+
+/** Holds the answers of a channel until the function returned is called. */
+function hold(channel: string): () => Promise<void> {
+  let release = () => {}
+  held.set(
+    channel,
+    new Promise<void>((done) => {
+      release = done
+    }),
+  )
+  return async () => {
+    held.delete(channel)
+    release()
+    await settle()
+  }
+}
 
 function answer(channel: string, input: Record<string, unknown>): unknown {
   const base = { ref: 'origin/main', from: 'worktree.base', mergeBase: '4f9c2e1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }
@@ -93,7 +114,7 @@ function answer(channel: string, input: Record<string, unknown>): unknown {
     case 'changes.list':
       return { repos: [{ repo: 'demo', kind: 'worktree', branch: 'demo/03', scope: (input.scope as { kind: string }).kind, base, headSha: 'c0ffee1', workTree: true, files: [changed(PATH)], additions: 2, deletions: 1, error: null }] }
     case 'changes.file':
-      return { file: CART_DIFF }
+      return { file: fileDiff(input) }
     case 'changes.commits':
       return { base, commits: [] }
     case 'changes.targets':
@@ -111,13 +132,15 @@ beforeEach(() => {
   readOnly = null
   calls = []
   targets = TARGETS
+  fileDiff = () => CART_DIFF
+  held = new Map()
   globalThis.localStorage.clear()
   forgetQuotesInMemory()
   forgetSentLinesInMemory()
   ;(globalThis as { worfy?: WorfyBridge }).worfy = {
     invoke: (channel: string, input: Record<string, unknown>) => {
       calls.push({ channel, input })
-      return Promise.resolve({ ok: true, value: answer(channel, input) })
+      return (held.get(channel) ?? Promise.resolve()).then(() => ({ ok: true, value: answer(channel, input) }))
     },
     on: () => 1,
     off: () => undefined,
@@ -294,5 +317,199 @@ describe('a read-only screen', () => {
     await settle()
     expect(screen.queryByTestId('changes-comment-popover')).toBeNull()
     expect(calls.some((call) => call.channel === 'changes.targets')).toBe(false)
+  })
+})
+
+// ── round 1 of the review (PR #2049): Send, «To» and Refresh ───────────────────────────────────
+
+const hunks = (header: string, lines: DiffLine[]): FileDiff => ({ ...CART_DIFF, hunks: [{ header, oldStart: 1, oldLines: 3, newStart: 1, newLines: lines.length, section: '', lines }] })
+/** `const MAX = 0.5` moved from line 3 to line 4. */
+const MOVED_DIFF = hunks('@@ -1,3 +1,5 @@', [line('context', "import { sum } from './money'", 1, 1), line('del', '  taxRate: number', 2, null), line('add', '  discount?: Discount', null, 2), line('add', 'const MIN = 0', null, 3), line('add', 'const MAX = 0.5', null, 4), line('context', '}', 3, 5)])
+/** `const MAX = 0.5` gone: line 3 is `}` now. */
+const GONE_DIFF = hunks('@@ -1,3 +1,3 @@', [line('context', "import { sum } from './money'", 1, 1), line('del', '  taxRate: number', 2, null), line('add', '  discount?: Discount', null, 2), line('context', '}', 3, 3)])
+/** A hunk far from line 3: the read does not show it. */
+const FAR_DIFF: FileDiff = { ...CART_DIFF, hunks: [{ header: '@@ -20,2 +20,2 @@', oldStart: 20, oldLines: 2, newStart: 20, newLines: 2, section: '', lines: [line('context', 'a', 20, 20), line('del', 'b', 21, null), line('add', 'c', null, 21)] }] }
+
+const to = (): HTMLButtonElement => screen.getByTestId('changes-to')
+const chipText = (): string => screen.getByTestId('changes-tray-chip').textContent ?? ''
+
+async function refresh() {
+  fireEvent.click(screen.getByTestId('changes-refresh'))
+  await settle()
+  await settle()
+}
+
+describe('while Send runs', () => {
+  it('«To», the field, × and Clear are locked; the round goes to the Session it was sent to', async () => {
+    addDraft(KEY_A, codeComment())
+    await open()
+    fireEvent.change(screen.getByTestId('changes-tray-text'), { target: { value: 'Fix it' } })
+    const release = hold('sessions.start')
+    fireEvent.click(screen.getByTestId('changes-tray-send'))
+    await settle()
+    expect(to().disabled).toBe(true)
+    fireEvent.click(to())
+    expect(screen.queryByRole('menuitemradio', { name: /Orchestrator/u })).toBeNull()
+    expect((screen.getByTestId('changes-tray-text') as HTMLTextAreaElement).readOnly).toBe(true)
+    expect((screen.getByTestId('changes-tray-remove') as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByTestId('changes-tray-clear') as HTMLButtonElement).disabled).toBe(true)
+    await release()
+    expect(calls.filter((call) => call.channel === 'agent.send')).toHaveLength(1)
+    expect(readQuotes(KEY_A).pending.map((round) => round.comments.map((each) => each.id))).toEqual([['c-old']])
+    expect(readQuotes(KEY_A).drafts).toEqual([])
+    expect(readQuotes(KEY_ORCH).drafts).toEqual([])
+    expect(to().disabled).toBe(false)
+  })
+
+  it('Edit and Delete under a line wait; a popover open before Send does not change the comment', async () => {
+    addDraft(KEY_A, codeComment())
+    await open()
+    fireEvent.click(screen.getByTestId('changes-comment-edit'))
+    const popover = await screen.findByTestId('changes-comment-popover')
+    fireEvent.change(within(popover).getByTestId('changes-comment-text'), { target: { value: 'Why not 0.6?' } })
+    const release = hold('sessions.start')
+    fireEvent.click(screen.getByTestId('changes-tray-send'))
+    await settle()
+    fireEvent.click(within(popover).getByTestId('changes-comment-save'))
+    await settle()
+    expect(within(screen.getByTestId('changes-comment-popover')).getByTestId('changes-comment-error').textContent).toContain('cannot change now')
+    fireEvent.click(within(screen.getByTestId('changes-comment-popover')).getByTestId('changes-comment-cancel'))
+    await settle()
+    fireEvent.click(screen.getByTestId('changes-comment-edit'))
+    await settle()
+    expect(screen.queryByTestId('changes-comment-popover')).toBeNull()
+    fireEvent.click(screen.getByTestId('changes-comment-remove'))
+    await settle()
+    expect(readQuotes(KEY_A).drafts.map((each) => each.id)).toEqual(['c-old'])
+    await release()
+    const [sent] = calls.filter((call) => call.channel === 'agent.send')
+    expect(sent!.input.text).toContain('Why 0.5?')
+    expect(readQuotes(KEY_A).pending).toHaveLength(1)
+  })
+
+  it('a comment the Session’s own field removes while the Session starts does not go', async () => {
+    addDraft(KEY_A, codeComment())
+    addDraft(KEY_A, codeComment({ id: 'c-two', startLine: 2, endLine: 2, code: '  discount?: Discount', text: 'Rename it' }))
+    await open()
+    const release = hold('sessions.start')
+    fireEvent.click(screen.getByTestId('changes-tray-send'))
+    await settle()
+    // The input field of the Session lists the same store and may remove a comment meanwhile.
+    act(() => {
+      removeDrafts(KEY_A, ['c-two'])
+    })
+    await release()
+    const [sent] = calls.filter((call) => call.channel === 'agent.send')
+    expect(sent!.input.text).toContain('Comments on lines of the diff (1)')
+    expect(sent!.input.text).not.toContain('Rename it')
+  })
+})
+
+describe('«To» keeps its Session', () => {
+  const flipped = { ...TARGETS, defaultNodeId: 'orchestrator' }
+
+  it('holding comments, it stays when main’s default turns to another Session on a Refresh', async () => {
+    addDraft(KEY_A, codeComment())
+    await open()
+    targets = flipped
+    await refresh()
+    expect(calls.filter((call) => call.channel === 'changes.targets').length).toBeGreaterThan(1)
+    expect(to().textContent).toBe('Session sdk-a')
+    expect(screen.getByTestId('changes-tray-count').textContent).toBe('1 comment on 1 file')
+  })
+
+  it('with no comments and no Send, it follows main’s default (Q2)', async () => {
+    await open()
+    targets = flipped
+    await refresh()
+    expect(to().textContent).toBe('Orchestrator')
+  })
+
+  it('a Session that took a Send stays when the list read after the Send names another default', async () => {
+    await open()
+    fireEvent.change(screen.getByTestId('changes-tray-text'), { target: { value: 'Run the tests.' } })
+    targets = flipped
+    fireEvent.click(screen.getByTestId('changes-tray-send'))
+    await settle()
+    await settle()
+    expect(calls.filter((call) => call.channel === 'agent.send').map((call) => call.input.sessionId)).toEqual(['sdk-a'])
+    expect(calls.filter((call) => call.channel === 'changes.targets').length).toBeGreaterThan(1)
+    expect(to().textContent).toBe('Session sdk-a')
+  })
+})
+
+describe('after a Refresh', () => {
+  it('a comment of the scope the Refresh is pressed in moves to its lines', async () => {
+    addDraft(KEY_A, codeComment())
+    await open()
+    fileDiff = () => MOVED_DIFF
+    await refresh()
+    expect(readQuotes(KEY_A).drafts).toMatchObject([{ id: 'c-old', startLine: 4, endLine: 4 }])
+    expect(chipText()).not.toContain('Line changed')
+  })
+
+  it('a comment whose lines are shown and gone is marked «Line changed» and stays in the tray', async () => {
+    addDraft(KEY_A, codeComment())
+    await open()
+    fileDiff = () => GONE_DIFF
+    await refresh()
+    expect(chipText()).toContain('Line changed')
+    expect(readQuotes(KEY_A).drafts).toMatchObject([{ id: 'c-old', startLine: 3 }])
+  })
+
+  it('a read with the other Hide whitespace does not look for the comments again', async () => {
+    addDraft(KEY_A, codeComment())
+    await open()
+    await refresh()
+    fileDiff = (input) => (input.hideWhitespace === true ? GONE_DIFF : CART_DIFF)
+    fireEvent.click(screen.getByTestId('changes-hide-whitespace'))
+    await settle()
+    await settle()
+    expect(calls.some((call) => call.channel === 'changes.file' && call.input.hideWhitespace === true)).toBe(true)
+    expect(chipText()).not.toContain('Line changed')
+  })
+
+  it('a comment on another commit than the read shows on its side stays where it is', async () => {
+    addDraft(KEY_A, codeComment({ commit: 'abc1234' }))
+    await open()
+    fileDiff = () => MOVED_DIFF
+    await refresh()
+    expect(readQuotes(KEY_A).drafts).toMatchObject([{ id: 'c-old', startLine: 3, commit: 'abc1234' }])
+    expect(chipText()).not.toContain('Line changed')
+  })
+
+  it('lines the read does not show are not marked «Line changed»', async () => {
+    addDraft(KEY_A, codeComment())
+    await open()
+    fileDiff = () => FAR_DIFF
+    await refresh()
+    expect(calls.filter((call) => call.channel === 'changes.file').length).toBeGreaterThan(1)
+    expect(chipText()).not.toContain('Line changed')
+    expect(readQuotes(KEY_A).drafts).toMatchObject([{ id: 'c-old', startLine: 3 }])
+  })
+})
+
+describe('an open popover', () => {
+  it('with text not saved stays when «+» is pressed on another line; an untouched one gives way', async () => {
+    toasts.setState({ toasts: [] })
+    const asked = () => toasts.getState().toasts.filter((each) => each.key === 'changes-comment-open').length
+    await open()
+    fireEvent.click(within(row(2)).getByTestId('changes-line-plus'))
+    await screen.findByTestId('changes-comment-popover')
+    // The key c with the focus out of the popover (it keeps an untouched popover open on a blur) opens it anew.
+    fireEvent.keyDown(screen.getByTestId('changes-body'), { key: 'c' })
+    await settle()
+    expect(asked()).toBe(0)
+    fireEvent.click(within(row(3)).getByTestId('changes-line-plus'))
+    await settle()
+    let popover = screen.getByTestId('changes-comment-popover')
+    expect(within(popover).getByTestId('changes-comment-where').textContent).toBe(`${PATH}:3 · new side`)
+    fireEvent.change(within(popover).getByTestId('changes-comment-text'), { target: { value: 'Half a thought' } })
+    fireEvent.click(within(row(2)).getByTestId('changes-line-plus'))
+    await settle()
+    popover = screen.getByTestId('changes-comment-popover')
+    expect(within(popover).getByTestId('changes-comment-where').textContent).toBe(`${PATH}:3 · new side`)
+    expect((within(popover).getByTestId('changes-comment-text') as HTMLTextAreaElement).value).toBe('Half a thought')
+    expect(asked()).toBe(1)
   })
 })

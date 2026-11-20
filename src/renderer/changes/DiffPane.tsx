@@ -64,9 +64,16 @@ export interface DiffPaneProps {
   isPicked?: (line: DiffLine, side: LineSide, entry: FileEntry) => boolean
   /** The pointer's events on the diff (ticket 05). */
   lineEvents?: Pick<HTMLAttributes<HTMLDivElement>, 'onClick' | 'onContextMenu' | 'onMouseUp' | 'onMouseDown'>
-  /** A file's patch was read: its hunks, for the comments to find their lines again (ticket 05). */
-  onFileRead?: (entry: FileEntry, diff: FileDiff) => void
+  /** A file's patch was read: its hunks, and the scope, Hide whitespace and Refresh it was read for (ticket 05). */
+  onFileRead?: (entry: FileEntry, diff: FileDiff, readOf: FileReadOf) => void
   ref?: Ref<DiffPaneHandle>
+}
+
+/** What a file's patch was read for: the scope, Hide whitespace and the Refresh (generation) of its read. */
+export interface FileReadOf {
+  scope: ChangesScope
+  hideWhitespace: boolean
+  generation: number
 }
 
 type FileState = { kind: 'loading' } | { kind: 'ready'; diff: FileDiff } | { kind: 'error'; message: string }
@@ -328,7 +335,7 @@ export function DiffPane({ projectId, ticket, scope, hideWhitespace, layout, wra
         if (asked.current.of !== of) return
         const state: FileState = result.ok ? { kind: 'ready', diff: result.value.file } : { kind: 'error', message: failureReason('changes.file', result.error) }
         setFiles((previous) => ({ of, map: new Map(previous.of === of ? previous.map : []).set(key, state) }))
-        if (result.ok) readListener.current?.(entry, result.value.file)
+        if (result.ok) readListener.current?.(entry, result.value.file, { scope, hideWhitespace, generation })
       })
     }
     // `wanted` is a new Map each render; its keys, with what they are read for, are what starts a read.
