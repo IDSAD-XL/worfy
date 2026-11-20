@@ -43,7 +43,9 @@ Windows — job-ы Windows в CI.
 
 - [ ] SKILL.md epic-wave требует `ticket block … --waits owner` сразу для Ticket-а, остановленного ради решения
       владельца; правило `human-review` / `awaiting-merge` не изменилось.
+  - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` exit 0 (634 passed: the owner-stop paragraph of section 2 and the unchanged section 0 sentence on human-review and awaiting-merge) · mac - · 6587ed776acbdecf9af41c4057a61365456891c9
 - [ ] Проверка в `epic-wave-ship-ticket.test.sh` зелёная, mutant (фраза убрана) — красный; весь файл — exit 0.
+  - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` exit 0; exit 1 before the text change (10 failed); exit 1 on the mutant without the ticket block command (1 failed) · mac - · 6587ed776acbdecf9af41c4057a61365456891c9
 - [ ] Eval-случай добавлен и прогнан (exit code и счёт в «Итог»), или в «Итог» записано, почему его нет.
 - [ ] Job-ы Windows CI на PR зелёные (платформенный PR).
 
@@ -54,3 +56,28 @@ Windows — job-ы Windows в CI.
 - `harness/bin/tests/epic-wave-ship-ticket.test.sh`.
 - `harness/evals/epic-wave-tickets/` — образец eval-случая.
 - `src/shared/autopilot/cycle.ts` — только читать: какие Ticket-ы Autopilot считает застрявшими.
+
+## Итог
+
+- Правило — `harness/skills/epic-wave/SKILL.md`, раздел 2, новый абзац сразу после «Questions for the owner do not stop
+  the wave»: «A ticket stopped for the owner's answer is `blocked` at once». Когда ни один вариант не Orchestrator-у
+  выбирать (деньги, удалённые данные, необратимый шаг, незаписанное направление) или Ticket держит то, что снимает только
+  владелец (например, открытый issue), Orchestrator сразу, из своего дерева, запускает
+  `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" block <epic> <NN> "<reason>" --waits owner`; причина называет вопрос и то, чего он
+  ждёт. Строка в списке state file «что ждёт владельца», строка `blocked` в отчёте Wave-а и тот же `ticket block` в
+  documents PR — как у других блокировок. Ответ владельца получен — `ticket claim <epic> <NN>` снова.
+- Ticket, чей PR ждёт людей Pipeline-а (`human-review`, `awaiting-merge`), по-прежнему остаётся `claimed`: абзац прямо
+  отсылает к разделу 0, текст раздела 0 не менялся (его фразу держит отдельная проверка).
+- Сначала красная проверка: `harness/bin/tests/epic-wave-ship-ticket.test.sh` до правки текста — exit 1, 10 проверок
+  красные; после — exit 0, 634 проверки. Mutant (из SKILL.md убрана команда `ticket block … --waits owner`) — exit 1,
+  красная ровно проверка этой команды.
+- Eval-случая нет — решено без владельца, подтвердить. Scaffold поставить его мог бы (вариант `demo-project.sh` с
+  вопросом владельцу в Ticket-е 02, grader `regex` по файлу Ticket-а: `Status: blocked` и `Waits: owner`), и Bash у
+  случаев с меткой `main` есть: `scripts/eval-harness.mjs` даёт им Bash, Write и Edit. Но новый случай на
+  `skills/epic-wave/SKILL.md` меняет набор случаев, который выбирает `--changed` для этого файла: contract test-ы runner-а
+  (`test/contract/harness-evals-run.test.ts`: выбор `casesFor`, вызовы по одному на случай, бюджет 30 USD по вызовам
+  `[30, 17.5, 5]`, набор `THREE`) и список `CASES` в `test/contract/harness-evals-shared.ts` закрепляют ровно три
+  случая. Это переписывание test-ов runner-а вне следа Ticket-а; предлагаю отдельный Ticket. Платный eval не
+  запускался, расход 0 USD.
+- Feature pages не правились: `docs/features/autopilot.md` и `autopilot-faults.md` описывают поведение worfy (продолжения
+  и set-aside), оно не изменилось.
