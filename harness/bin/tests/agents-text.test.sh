@@ -1060,5 +1060,46 @@ grep -qF 'the Code story of the PR (with `code_stories.pr` on)' "$ROOT/agents/im
 leak="$(grep -rniE 'reasoning log|running log of (its|your|the) reasoning|log of (its|your) reasoning' "$SK/ship-ticket" "$ROOT/agents" 2>/dev/null)"
 [ -z "$leak" ] && ok "no ship-ticket file or agent asks for a reasoning log" || bad "a request for a reasoning log: $leak"
 
+# Agent review of worfy: the Team reviewer's template and /worfy:code-review each carry the section
+# worfy runs them by, which binds the draft to bin/pr-review-draft and makes the verdict only a suggestion; the diff
+# and the lines are those of the named commit, which must exist after the fetch. A copy of
+# each without one of these sentences must fail the same check (the mutant below).
+AR_HEAD='When worfy runs you for Agent review' # a heading of level 2 or 3
+AR_SENTENCES='only through `bin/pr-review-draft`
+The verdict is only a suggestion
+Never write or create the draft file yourself.
+Nothing goes to GitHub: no `gh api` write
+End with `done`, also when
+`Review the commit <sha>`
+not `gh pr diff`
+still missing after the fetch'
+# agent_review_ok FILE: 0 when FILE has the section and every sentence of AR_SENTENCES inside it.
+agent_review_ok() {
+    local sec s
+    sec="$(awk -v h="$AR_HEAD" '$0 == "## " h || $0 == "### " h { s = 1; next } s && /^##?#? / { exit } s' "$1" | tr '\r\n' '  ' | tr -s ' ')"
+    [ -n "$sec" ] || return 1
+    while IFS= read -r s; do
+        [ -z "$s" ] && continue
+        printf '%s\n' "$sec" | grep -qF -- "$s" || return 1
+    done <<EOF
+$AR_SENTENCES
+EOF
+}
+for f in "$SK/human-review-setup/template/SKILL.template.md" "$SK/code-review/SKILL.md"; do
+    name="${f#"$SK/"}"
+    agent_review_ok "$f" && ok "$name: Agent review section binds the draft to bin/pr-review-draft" || bad "$name: no Agent review section with every sentence"
+    # The section on one line under its heading: a sentence the file wraps over two lines is cut whole.
+    { printf '## %s\n' "$AR_HEAD"; awk -v h="$AR_HEAD" '$0 == "## " h || $0 == "### " h { s = 1; next } s && /^##?#? / { exit } s' "$f" | tr '\r\n' '  ' | tr -s ' '; echo; } >"$T/agent-review-flat.md"
+    while IFS= read -r s; do
+        [ -z "$s" ] && continue
+        strip "$T/agent-review-flat.md" "$s" >"$T/agent-review-mutant.md"
+        agent_review_ok "$T/agent-review-mutant.md" && bad "$name: a copy without '$s' still passes" || ok "$name: a copy without '$s' fails"
+    done <<EOF
+$AR_SENTENCES
+EOF
+done
+grep -qF '`### When worfy runs you for Agent review`' "$SK/human-review-setup/refresh.md" \
+    && ok "human-review-setup refresh.md: Refresh adds the Agent review section" || bad "human-review-setup refresh.md: Refresh does not add the Agent review section"
+
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]

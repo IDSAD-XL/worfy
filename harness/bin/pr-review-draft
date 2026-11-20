@@ -1,0 +1,292 @@
+#!/usr/bin/env node
+// pr-review-draft — the only way a Session of an Agent review writes the review draft of someone else's pull request:
+// the draft worfy keeps on this machine, <Profile folder>/state/pr-review/<owner>-<name>-<N>.json.
+//
+//   pr-review-draft [-C <project dir>] <owner>/<name>#<N> comment <path> <line> [--side LEFT|RIGHT] [--start-line <n>] <text | ->
+//   pr-review-draft [-C <project dir>] <owner>/<name>#<N> summary <text | ->
+//   pr-review-draft [-C <project dir>] <owner>/<name>#<N> verdict <comment|approve|request_changes>
+//   pr-review-draft [-C <project dir>] <owner>/<name>#<N> done
+//
+// `-` reads the text from stdin. worfy creates the draft when it starts the Agent review (prReview.agentReview); this
+// script never creates one. What each command changes:
+//   - comment: adds a comment of the agent on `line` (the last line), or on `--start-line`..`line`, of `path` on the
+//     side `--side` (RIGHT, the head, by default). Beside it goes the text of those lines at the head the draft is
+//     placed on (`anchoredOn`, else `startedOn`), read with `git show` in the project folder: worfy finds the comment
+//     again by it after a new push. A line past the end of the file there is refused; a file git cannot show (the
+//     head not fetched, the old side, a removed file) keeps an empty text, and the comment stays on its line.
+//   - summary: the text of the review (`payload.body`), only while it is empty or the agent wrote it (`bodyBy`).
+//   - verdict: the verdict the agent suggests (`suggestedEvent`). The person chooses the verdict in worfy; this never
+//     sets `payload.event`.
+//   - done: the agent's writing is over (`agent.state: done`).
+// The comments and the summary of the person are never changed. Refused, with nothing written: no draft, a draft
+// being submitted or submitted, and an Agent review the person stopped (Stop or Take over in worfy).
+//
+// The draft file has two writers, worfy's main process and this script. Each takes the lock `<file>.lock` (a file
+// created only when it does not exist yet) for its read, change and write, writes a temporary file beside the draft
+// and renames it into place, so a reader never sees half a file and neither writer drops the other's change.
+// A lock older than LOCK_STALE_MS was left by a writer that died, and is taken over.
+//
+// Nothing here reaches GitHub: the person submits the review in worfy.
+//
+// Output (stdout, English): `pr-review-draft: wrote <file>: <what>`.
+// Exit codes: 0 — written; 1 — refused (no draft, submitting or submitted, stopped, the person's summary, a line past
+// the end of the file), nothing written; 2 — usage error, a project that is not registered, a draft file that is not a
+// review draft of this pull request, or a write that failed.
+"use strict"
+
+const fs = require("node:fs")
+const path = require("node:path")
+const { randomUUID } = require("node:crypto")
+const { spawnSync } = require("node:child_process")
+const { git: GIT } = require("../hooks/eval-env.cjs")
+
+const BIN = path.dirname(fs.realpathSync(__filename))
+const PROFILE = process.env.CLAUDE_PROFILE_BIN || path.join(BIN, "profile")
+
+const USAGE = `usage: pr-review-draft [-C <project dir>] <owner>/<name>#<N> <command>
+  comment <path> <line> [--side LEFT|RIGHT] [--start-line <n>] <text | ->
+  summary <text | ->
+  verdict <comment|approve|request_changes>
+  done
+exit: 0 written, 1 refused (nothing written), 2 usage error or broken input`
+
+/** How long a writer waits for the lock of the draft file. */
+const LOCK_WAIT_MS = 15_000
+/** A lock this old was left by a writer that died: main holds it for one read and one write. */
+const LOCK_STALE_MS = 10_000
+/** GitHub's longest comment body, in characters (src/shared/ipc/pr-review.ts). */
+const MAX_CHARS = 65_536
+const REPO = /^([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)\/([A-Za-z0-9._-]+)#([1-9][0-9]*)$/
+const VERDICTS = { comment: "COMMENT", approve: "APPROVE", request_changes: "REQUEST_CHANGES" }
+const BUSY = new Set(["EEXIST", "EPERM", "EACCES", "EBUSY"])
+
+const die = (code, msg) => {
+    if (msg) process.stderr.write(`pr-review-draft: ${msg}\n`)
+    process.exit(code)
+}
+const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v)
+const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+
+// --- arguments ----------------------------------------------------------------------------------
+let dir = process.cwd()
+const rest = []
+const argv = process.argv.slice(2)
+for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]
+    if (a === "-C") {
+        const v = argv[++i]
+        if (v === undefined || v === "") die(2, `-C needs a value\n${USAGE}`)
+        dir = path.resolve(v)
+    } else if (a === "-h" || a === "--help") {
+        process.stdout.write(USAGE + "\n")
+        process.exit(0)
+    } else rest.push(a)
+}
+const [slug, command, ...args] = rest
+if (slug === undefined) die(2, `name the pull request as <owner>/<name>#<N>\n${USAGE}`)
+const pull = REPO.exec(slug)
+if (!pull) die(2, `the pull request must be <owner>/<name>#<N>, got ${JSON.stringify(slug)}\n${USAGE}`)
+const repo = `${pull[1]}/${pull[2]}`
+const pr = Number(pull[3])
+
+/** The text argument: `-` reads stdin, without one line end at its very end. */
+function textOf(value, what) {
+    if (value === undefined) die(2, `${command} needs the ${what}\n${USAGE}`)
+    let text = value
+    if (value === "-") {
+        try {
+            text = fs.readFileSync(0, "utf8").replace(/^﻿/, "").replace(/\r?\n$/, "")
+        } catch (e) {
+            die(2, `cannot read the ${what} from stdin: ${e.message}`)
+        }
+    }
+    if (text.trim() === "") die(2, `the ${what} is empty`)
+    if (text.length > MAX_CHARS) die(2, `the ${what} has ${text.length} characters, GitHub takes ${MAX_CHARS} at most`)
+    return text
+}
+
+const positive = (value, what) => {
+    if (!/^[1-9][0-9]*$/.test(value ?? "")) die(2, `${what} must be a line number, got ${JSON.stringify(value)}\n${USAGE}`)
+    return Number(value)
+}
+
+/** What the command asks: a change of the draft, applied under the lock to the draft as it is then. */
+let request
+if (command === "comment") {
+    const plain = []
+    let side = "RIGHT"
+    let start
+    for (let i = 0; i < args.length; i++) {
+        if (args[i] === "--side") {
+            side = args[++i]
+            if (side !== "LEFT" && side !== "RIGHT") die(2, `--side must be LEFT or RIGHT, got ${JSON.stringify(side)}`)
+        } else if (args[i] === "--start-line") start = positive(args[++i], "--start-line")
+        else plain.push(args[i])
+    }
+    if (plain.length !== 3) die(2, `comment takes <path> <line> <text>\n${USAGE}`)
+    const [file, lineArg, textArg] = plain
+    if (file === "" || path.isAbsolute(file) || file.includes("\\")) die(2, `the path must be the file's path in the repository, with /, got ${JSON.stringify(file)}`)
+    const line = positive(lineArg, "the line")
+    if (start !== undefined && start >= line) die(2, `--start-line ${start} must be before the line ${line}`)
+    request = { kind: "comment", path: file, line, side, start, body: textOf(textArg, "comment") }
+} else if (command === "summary") {
+    if (args.length !== 1) die(2, `summary takes one text\n${USAGE}`)
+    request = { kind: "summary", body: textOf(args[0], "summary") }
+} else if (command === "verdict") {
+    const event = VERDICTS[args[0]]
+    if (args.length !== 1 || event === undefined) die(2, `the verdict must be comment, approve or request_changes, got ${JSON.stringify(args.join(" "))}`)
+    request = { kind: "verdict", event }
+} else if (command === "done") {
+    if (args.length !== 0) die(2, `done takes no arguments\n${USAGE}`)
+    request = { kind: "done" }
+} else die(2, `unknown command ${JSON.stringify(command ?? "")}\n${USAGE}`)
+
+// --- the Profile folder ---------------------------------------------------------------------
+// A sibling script runs with the node running this one: Windows does not start an extensionless file by its #! line.
+const profile = spawnSync(process.execPath, [PROFILE, "-C", dir, "--dir"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
+if (profile.status === 3) die(2, `${dir} is not a registered project: there is no review draft for it (connect it with /worfy:connect-project)`)
+if (profile.status !== 0) die(2, `profile not read (exit ${profile.status}): ${String(profile.stderr || profile.error || "").split("\n")[0]}`)
+const profileDir = profile.stdout.trim()
+if (!profileDir) die(2, "profile printed no folder")
+const file = path.join(profileDir, "state", "pr-review", `${pull[1]}-${pull[2]}-${pr}.json`)
+const lock = `${file}.lock`
+
+// --- the change -----------------------------------------------------------------------------------
+/** The text of `start`..`line` of `file` at `sha` in the project folder; null when git cannot show the file. */
+function linesAt(sha, file, start, line) {
+    const shown = spawnSync(GIT, ["-C", dir, "show", `${sha}:${file}`], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024 })
+    if (shown.status !== 0) return null
+    const lines = shown.stdout.split(/\r?\n/)
+    // A line end at the very end of the file starts no line of its own.
+    const count = lines.at(-1) === "" ? lines.length - 1 : lines.length
+    if (line > count) die(1, `line ${line} is past the end of ${file} at ${sha} (${count} lines): nothing written`)
+    return lines.slice(start - 1, line).join("\n")
+}
+
+/** The draft of this pull request in `text`; exit 2 when it is not one. */
+function parse(text) {
+    let draft
+    try {
+        draft = JSON.parse(text.replace(/^﻿/, ""))
+    } catch (e) {
+        die(2, `the review draft ${file} is not JSON (${e.message}): nothing written`)
+    }
+    const shape =
+        isObject(draft) && draft.schema === 1 && isObject(draft.payload) && Array.isArray(draft.payload.comments) && typeof draft.payload.body === "string" && Array.isArray(draft.anchors) && draft.anchors.length === draft.payload.comments.length && typeof draft.state === "string"
+    if (!shape) die(2, `the review draft ${file} has another shape: nothing written`)
+    if (draft.repo !== repo || draft.pr !== pr) die(2, `the review draft ${file} is of ${draft.repo}#${draft.pr}, not of ${slug}: nothing written`)
+    return draft
+}
+
+/** The draft with the change of this run; exit 1 when it is refused. Answers what to print. */
+function apply(draft) {
+    if (draft.state !== "draft") die(1, `the review is ${draft.state}: nothing written`)
+    if (isObject(draft.agent) && draft.agent.state === "stopped") die(1, "Agent review was stopped in worfy (Stop or Take over): nothing written")
+    if (request.kind === "comment") {
+        const { path: where, line, side, start, body } = request
+        const first = start ?? line
+        const text = side === "RIGHT" ? linesAt(draft.anchoredOn ?? draft.startedOn, where, first, line) : null
+        draft.payload.comments.push({ path: where, ...(start === undefined ? {} : { start_line: start, start_side: side }), line, side, body })
+        draft.anchors.push({ text: text ?? "", by: "agent" })
+        return `a comment on ${where}:${start === undefined ? line : `${start}-${line}`}`
+    }
+    if (request.kind === "summary") {
+        if (draft.payload.body !== "" && draft.bodyBy !== "agent") die(1, "the summary is the person's: nothing written")
+        draft.payload.body = request.body
+        draft.bodyBy = "agent"
+        return "the summary"
+    }
+    if (request.kind === "verdict") {
+        draft.suggestedEvent = request.event
+        return `the suggested verdict ${request.event}`
+    }
+    if (isObject(draft.agent)) draft.agent.state = "done"
+    return "the end of the Agent review"
+}
+
+/** Takes the lock of the draft file; exit 2 when another writer holds it LOCK_WAIT_MS. */
+function takeLock() {
+    const until = Date.now() + LOCK_WAIT_MS
+    for (;;) {
+        try {
+            fs.writeFileSync(lock, `${process.pid}\n`, { flag: "wx" })
+            return
+        } catch (e) {
+            if (e.code === "ENOENT") die(1, `there is no review draft of ${slug}: worfy creates it when it starts the Agent review`)
+            if (!BUSY.has(e.code)) die(2, `cannot lock the review draft ${file}: ${e.message}`)
+        }
+        try {
+            // shortcut: two writers that find one stale lock at once may both take it over, redo with a lock that
+            // names its owner if a writer is ever seen to die while holding it.
+            if (Date.now() - fs.statSync(lock).mtimeMs > LOCK_STALE_MS) fs.rmSync(lock, { force: true })
+        } catch {
+            // Released meanwhile: try again.
+        }
+        if (Date.now() > until) die(2, `the review draft ${file} stayed locked by another writer for ${LOCK_WAIT_MS / 1000} s: nothing written`)
+        sleep(2 + Math.floor(Math.random() * 8))
+    }
+}
+
+/** Renames `from` onto `to`; Windows refuses a rename for a moment while another process opens the target. */
+function renameInto(from, to) {
+    for (let attempt = 1; ; attempt++) {
+        try {
+            fs.renameSync(from, to)
+            return
+        } catch (e) {
+            if (!BUSY.has(e.code) || attempt >= 50) throw e
+            sleep(10)
+        }
+    }
+}
+
+let before
+try {
+    before = fs.readFileSync(file, "utf8")
+} catch (e) {
+    if (e.code === "ENOENT") die(1, `there is no review draft of ${slug}: worfy creates it when it starts the Agent review`)
+    die(2, `cannot read the review draft ${file}: ${e.message}`)
+}
+parse(before)
+
+const tmp = `${file}.${randomUUID()}.tmp`
+let locked = false
+// die() ends the process with process.exit, which skips every finally block: the lock goes here then.
+process.on("exit", () => {
+    if (locked) release()
+})
+takeLock()
+locked = true
+let what
+try {
+    let text
+    try {
+        text = fs.readFileSync(file, "utf8")
+    } catch (e) {
+        if (e.code === "ENOENT") die(1, `there is no review draft of ${slug} (discarded meanwhile): nothing written`)
+        die(2, `cannot read the review draft ${file}: ${e.message}`)
+    }
+    const draft = parse(text)
+    what = apply(draft)
+    fs.writeFileSync(tmp, `${JSON.stringify(draft, null, 2)}\n`)
+    renameInto(tmp, file)
+} catch (e) {
+    die(2, `cannot write the review draft ${file}: ${e.message}`)
+} finally {
+    release()
+    locked = false
+}
+
+function release() {
+    try {
+        fs.rmSync(tmp, { force: true })
+    } catch {
+        // Named in no message: the next writer leaves its own temporary file, never this one.
+    }
+    try {
+        fs.rmSync(lock, { force: true })
+    } catch {
+        // A lock left behind goes stale and is taken over.
+    }
+}
+process.stdout.write(`pr-review-draft: wrote ${file}: ${what}\n`)

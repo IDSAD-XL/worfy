@@ -4,6 +4,9 @@ import {
   ACTION_LABELS,
   actionTemplateSchema,
   ACTIONS,
+  AGENT_REVIEW_LABEL,
+  AGENT_REVIEW_VENDOR,
+  agentReviewText,
   DEFAULT_ACTION_TEMPLATES,
   defaultActionTemplates,
   defaultProjectSettings,
@@ -179,6 +182,20 @@ describe('action templates', () => {
     expect(projectSettingsSchema.safeParse({ actionTemplates: { shipTicket: '' } }).success).toBe(false)
     const parsed = projectSettingsSchema.parse({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '', ...NO_FOLLOW, extra: 'x' }, other: 1 })
     expect(parsed).toStrictEqual({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '', ...NO_FOLLOW } })
+  })
+
+  it('Agent review: the Team reviewer when the Project has one built, else the review lenses of /worfy:code-review, with the rule of the draft; on Claude Code (worfy-pr-review ticket 08)', () => {
+    expect(AGENT_REVIEW_LABEL).toBe('Agent review')
+    expect(AGENT_REVIEW_VENDOR).toBe('claude')
+    const rule = 'Agent review: write the review draft only through bin/pr-review-draft (pr-review-draft --help); the verdict is only a suggestion; nothing goes to GitHub.'
+    // The commit the draft is placed on: the agent numbers its lines there, as bin/pr-review-draft reads them.
+    const at = 'Review the commit 3f2a9c1d: number the lines of each comment at that commit.'
+    expect(agentReviewText({ teamReviewer: true, repo: 'owner/web', pr: 118, fill: 'new', head: '3f2a9c1d' })).toBe(`/human-review owner/web#118 ${rule} ${at}`)
+    expect(agentReviewText({ teamReviewer: false, repo: 'owner/web', pr: 118, fill: 'new', head: '3f2a9c1d' })).toBe(`/worfy:code-review owner/web#118 ${rule} ${at}`)
+    // Ask the agent to add comments: the person's comments and summary stay.
+    expect(agentReviewText({ teamReviewer: false, repo: 'owner/web', pr: 7, fill: 'add', head: '3f2a9c1d' })).toBe(`/worfy:code-review owner/web#7 ${rule} ${at} Add your comments to the person's draft: their comments and their summary stay.`)
+    // Not one of the Project's editable templates: the Team reviewer decides the command, not a setting.
+    expect(ACTIONS).not.toContain('agentReview')
   })
 
   it('has Draft replies among the actions: /worfy:pr-reply {repo}#{pr} with the plugin and with no Harness, empty with the old Harness (worfy-pr-inbox ticket 04)', () => {

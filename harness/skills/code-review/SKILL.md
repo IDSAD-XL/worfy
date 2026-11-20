@@ -79,6 +79,63 @@ Present the two reports under `## Standards` and `## Spec` headings, verbatim or
 
 End with a one-line summary: total findings per axis, and the worst issue _within each axis_ (if any). Don't pick a single winner across axes: that's the reranking the separation exists to prevent.
 
+## When worfy runs you for Agent review
+
+worfy runs this skill for an Agent review of someone else's pull request when its first message names the pull
+request and says so: `/worfy:code-review <owner>/<repo>#<n> Agent review: …`. worfy has created the review draft of
+that pull request on this machine already; the person reads it in worfy, changes it, and submits it there. Then:
+
+1. **The fixed point is the base of the pull request; the commit reviewed is the one the message names.**
+   `Review the commit <sha>` names the commit worfy's draft is placed on, `<head>` below; it may be older than the
+   head of the pull request now, and every line number of the draft is a line of `<head>`. A message that names none:
+   `<head>` is `headRefOid`. In the folder of the repository the pull request belongs to (the one whose
+   `git remote get-url origin` names `<owner>/<repo>`), read the pull request and open `<head>` in a new temporary
+   folder (`mktemp -d`, below `<tmp>`), outside the person's working tree:
+
+   ```bash
+   gh pr view <n> --repo <owner>/<repo> --json number,title,body,baseRefName,baseRefOid,headRefOid,files,closingIssuesReferences; echo "EXIT=$?"
+   git cat-file -e "<head>^{commit}"; echo "EXIT=$?"
+   git cat-file -e "<baseRefOid>^{commit}"; echo "EXIT=$?"
+   git -c core.hooksPath=/dev/null worktree add --detach "<tmp>/pr-<n>" "<head>"; echo "EXIT=$?"
+   ```
+
+   When a `cat-file` does not exit 0, the commit is missing: fetch it once before the worktree,
+   `git -c core.hooksPath=/dev/null fetch origin "pull/<n>/head" "<baseRefName>"`, and run the `cat-file` again. When
+   the fetch fails, or the commit is still missing after the fetch (a force push dropped it), stop and say so.
+
+   Run steps 1 to 5 in `<tmp>/pr-<n>` with the fixed point `<baseRefOid>`: the diff is `git diff <baseRefOid>...<head>`
+   there, not `gh pr diff` or the `files` of `gh pr view`, which describe the head of now. Remove the worktree at the end
+   (`git worktree remove "<tmp>/pr-<n>"`). The spec is the issue of `closingIssuesReferences`, or one the body links.
+   The pull request is its author's code and the shell carries the person's GitHub token: run nothing of it — no
+   build, no test, no package manager, no script or hook of the repository — only `git diff`, `git show`, `git grep`,
+   `git log` and reading files. Paste this sentence into the brief of each sub-agent.
+2. **The lenses of the profile.** `"${CLAUDE_PLUGIN_ROOT}/bin/profile" --field review.lenses` lists the project's review
+   lenses, when it has them: each is one more question of the Standards sub-agent, in its brief.
+3. **Write the draft only through `bin/pr-review-draft`**, in place of the report of step 5: one call for each finding on
+   a line of the diff, then the summary, the suggested verdict and the end:
+
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/bin/pr-review-draft" <owner>/<repo>#<n> comment <path> <line> [--start-line <first line>] [--side LEFT] - <<'TEXT'; echo "EXIT=$?"
+   <the comment>
+   TEXT
+   "${CLAUDE_PLUGIN_ROOT}/bin/pr-review-draft" <owner>/<repo>#<n> summary - <<'TEXT'; echo "EXIT=$?"
+   <the two axes in a few lines>
+   TEXT
+   "${CLAUDE_PLUGIN_ROOT}/bin/pr-review-draft" <owner>/<repo>#<n> verdict <comment|approve|request_changes>; echo "EXIT=$?"
+   "${CLAUDE_PLUGIN_ROOT}/bin/pr-review-draft" <owner>/<repo>#<n> done; echo "EXIT=$?"
+   ```
+
+   `<line>` is the line of the file at `<head>` (`--side LEFT`: at the base, for a removed line). A finding on no
+   line of that diff goes into the summary, with its `path:line`. A judgement call is written as a question. Never
+   write or create the draft file yourself.
+4. **The verdict is only a suggestion**: worfy shows it to the person, who chooses the verdict. Suggest
+   `request_changes` only for a hard violation or a requirement the spec asks for that is missing.
+5. **The person's comments and summary stay as they are**: the script changes only what the agent wrote, and exit 1
+   is such a refusal ("the summary is the person's"); do not try another way. When it says the Agent review was
+   stopped, stop: the person took the review over.
+6. Nothing goes to GitHub: no `gh api` write, no `gh pr review`, no `gh pr comment`. The person submits the review
+   in worfy. End with `done`, also when there is no finding.
+
 ## Why two axes
 
 A change can pass one axis and fail the other:

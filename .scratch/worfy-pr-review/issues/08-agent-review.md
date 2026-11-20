@@ -1,7 +1,8 @@
 # 08 — Agent review: Session с Team reviewer-ом или линзами пишет весь черновик ревью через `bin/pr-review-draft`; канал запуска и остановки
 
 Type: task
-Status: open
+Status: claimed 2026-11-20T09:12Z
+PR: #2085
 Blocked by: 06, 07
 Source: [spec.md](../spec.md), «Ticket-ы», 8; «Решение», 6; «Как пользователь идёт по экрану», E; «Решения по
 реализации», 6, 8 и 11; «Решения по test-ам»; «Вопросы владельцу», Q4 и требование владельца 2026-11-20;
@@ -55,15 +56,21 @@ skill-а, guard hook и eval.
       `test/contract/harness-pr-reply-draft.test.ts`): `comment`, `summary`, `verdict`, `done`; не трогает записи
       `by: 'person'` и итоговый текст человека; отказ на `submitting` / `submitted` и без черновика. Красный до правки —
       в «Итог».
+  - evidence: test-run pass · `pnpm test test/contract/harness-pr-review-draft.test.ts` exit 0 (12 tests, a rename refused as on Windows among them) · mac - · 2f4fff13c0d7e293ee31a4a900a6acb34358899a
 - [ ] Тот же contract — test гонки: main (`prReview.saveComment` Ticket-а 07) и `bin/pr-review-draft` пишут в один файл
       одновременно 200 раз; ни одна запись не потеряна, файл всегда разбирается.
+  - evidence: test-run pass · `pnpm test test/contract/harness-pr-review-draft.test.ts` exit 0 (races main: 200 + 200 writes; quit lock: own, own taken over, other, stale) · mac - · 2f4fff13c0d7e293ee31a4a900a6acb34358899a
 - [ ] Contract `test/contract/pr-review-agent.test.ts` (новый) на `WORFY_AGENT=fake`: `prReview.agentReview` запускает
       Session с `/human-review …` при Team reviewer-е и с `/worfy:code-review` без него; `fill: 'add'`;
       `prReview.stopAgent`; `prReview.changed` при записи; отказ Linked machine.
+  - evidence: test-run pass · `pnpm test test/contract/pr-review-agent.test.ts` exit 0 (14 tests, the agent writing while main reads as on Windows among them) · mac - · 2f4fff13c0d7e293ee31a4a900a6acb34358899a
 - [ ] `test/unit/action-templates.test.ts`: шаблон «Agent review» и его Vendor.
+  - evidence: test-run pass · `pnpm test test/unit/action-templates.test.ts` exit 0 · mac - · 2f4fff13c0d7e293ee31a4a900a6acb34358899a
 - [ ] Eval `harness/evals/agent-review-guards/` — pass; результат и цена — в «Итог».
+  - evidence: test-run pass · `pnpm eval:harness -- --case agent-review-guards --max-cost-usd 5` exit 0, score 1.00, 2 of 2 runs, 1.20 USD · mac - · d710dde5dbde0b5de1e0d670bc312def26f7983e
 - [ ] `harness/bin/tests/agents-text.test.sh`: текст раздела держит «только через `bin/pr-review-draft`» и «вердикт —
       только предложение»; mutant (фраза убрана) — красный. `test/contract/codex-parity.test.ts` зелёный.
+  - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 (514 passed); `pnpm test test/contract/codex-parity.test.ts` exit 0 · mac - · 2f4fff13c0d7e293ee31a4a900a6acb34358899a
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job-ы Windows CI зелёные
       (платформенный PR).
 
@@ -85,3 +92,132 @@ skill-а, guard hook и eval.
 
 - Меню Start review, Ask the agent to add comments и Take over в UI — Ticket 09; пометка «Written by the agent» на
   строке — Ticket 10; «The agent suggests» в диалоге — Ticket 11. Отправка ревью агентом — никогда.
+
+## Итог
+
+- `harness/bin/pr-review-draft` — единственный писатель черновика у Agent review:
+  `pr-review-draft [-C <папка>] <owner>/<name>#<N> comment <path> <line> [--side] [--start-line] <текст|->`, `summary`,
+  `verdict <comment|approve|request_changes>` (`suggestedEvent`), `done` (`agent.state: 'done'`). Меняет только записи
+  `by: 'agent'`; итоговый текст — только пустой или агентский (новое поле `bodyBy`); exit 1 без черновика, на
+  `submitting` / `submitted` и после Stop (`agent.state: 'stopped'`). Текст строк комментария берёт `git show` на head-е
+  черновика; строка за концом файла — отказ. Git — через `hooks/eval-env.cjs`, как соседние скрипты.
+- Замок `<file>.lock` (файл, создаваемый только если его нет) держат оба писателя — main и скрипт — на чтение,
+  изменение и rename; замок старше 10 s забирается. Rename повторяется на `EPERM`/`EBUSY` (Windows).
+- `src/main/github/pr-review-agent.ts`: `prReview.agentReview` (`{ projectId, repo, number, head, fill }`, `'local'`)
+  создаёт Session Node на Claude Code с `/human-review {repo}#{pr}` (skill Team reviewer-а собран) или
+  `/worfy:code-review {repo}#{pr}` и правилом черновика в том же сообщении; до сообщения пишет `agent: { sessionId,
+  state: 'writing' }` сразу, мимо 500 ms склейки. Watch файла (chokidar с опросом, закрытие через `closeForGood`) шлёт
+  `prReview.changed`; кончается на `done`, Stop, конце хода Session (черновик → `done`) или её закрытии (→ `stopped`).
+  `prReview.stopAgent` — `halt()` Session и `stopped`, записи агента остаются.
+- Раздел «When worfy runs you for Agent review» — в `/worfy:code-review` (свой раздел перед «Why two axes»; правка
+  внесена в `harness/skills/THIRD_PARTY.md`) и в шаблоне Team reviewer-а (подраздел `###` шага 8: test шаблона не
+  допускает девятого `## ` и пунктов списка без `[R<n>]`). Refresh (`refresh.md`, шаг 1) дописывает его в уже собранный
+  reviewer, как `review-history upgrade` — шаг 1.
+- Красное до правки: `test/contract/harness-pr-review-draft.test.ts` — 7 из 7 падали (скрипта не было); после скрипта
+  гонка падала, пока main писал без замка: из 400 комментариев в файле 302 — 98 записей скрипта затёрты rename-ом main.
+  `test/contract/pr-review-agent.test.ts` падал на импорте модуля. `test/unit/action-templates.test.ts`: «expected
+  undefined to be 'Agent review'». `agents-text.test.sh`: 10 mutant-ов (фраза убрана из раздела) — красные.
+- Eval `harness/evals/agent-review-guards/` (fixture PR `octo-org/ledger#7`, `/worfy:code-review` в режиме Agent
+  review): финальный run — 2 из 2, score 1.00, все четыре grader-а, **1.19 USD**. Всего на eval за Ticket — **8.83 USD**
+  (шесть run-ов отладки grader-ов, 7.64 USD: grader не узнавал вызов через переменную `$BIN`, stand-in gh писал
+  `REFUSED` на чтение `gh issue list`; skill тут был ни при чём). Cap: 30 USD — `BUDGET_USD=4` скрипт не принял: это константа скрипта, cap ниже задаёт
+  `--max-cost-usd`.
+- gate fast (один раз): exit 2. 27 красных test-ов — file watcher-ы (fseventsd на этом Mac): `cards-watch-edits`,
+  `claude-home-registry`, `docs-watch-root`, `docs`, `product-watch`, `workflow-reader`, `workflow-read-from-main`,
+  `profile-move`, `harness-script-env`. Два — мои, исправлены и проверены отдельно (`no-rmsync`: замок снимается
+  через `removeFile`; `quit-listeners`: один `will-quit` на черновики и Agent review).
+
+Решено без владельца, подтвердить:
+
+- **«Agent review» — не шаблон в Project settings, а константы** (`AGENT_REVIEW_TEAM_TEMPLATE`,
+  `AGENT_REVIEW_LENSES_TEMPLATE`, `AGENT_REVIEW_RULE`, `AGENT_REVIEW_VENDOR` в `action-templates.ts`): какой из двух
+  текстов идёт, решает наличие Team reviewer-а, а не шаблон человека; новое действие в `ACTIONS` потянуло бы правку
+  десятка fixture-ов настроек.
+- **Правка `src/main/github/pr-review-draft.ts`** (в Ticket-е — «только читать»): без замка в main test гонки терял
+  записи скрипта; там же `setAgent` и запись «сразу» для него.
+- **Вход канала** — `{ projectId, repo, number, head, fill }`, как у каналов Ticket-а 07, а не `{ repo, pr, fill }`:
+  `head` нужен, чтобы создать черновик.
+- **`fill: 'new'` отказывает поверх черновика с комментариями или текстом человека** («Ask the agent to add comments
+  to it»); любой запуск отказывает, пока Agent review этого PR пишет и его Session жива.
+- **Скрипт отказывает после Stop**, а `done` — нет: после `done` человек может попросить Session дописать в её же чате.
+- **Watch — опросом файла**, а не событиями ОС: один файл на время ревью.
+- **Комментарий агента всегда добавляется**, повтор на тех же строках не заменяет прежний.
+
+Раунд ревью 1 (ревью PR #2085, одна medium-находка и три low):
+
+- **Коммит ревью — коммит черновика** (medium). Для черновика, который уже есть, `start()` не передавал агенту коммит,
+  и skill ревьюировал `headRefOid` PR, а номера строк комментариев скрипт сверяет с коммитом черновика. Теперь первое
+  сообщение кончается фразой `Review the commit <sha>: number the lines of each comment at that commit.` с коммитом
+  черновика (`anchoredOn`, иначе `startedOn`), а оба skill-а (`/worfy:code-review` и шаблон Team reviewer-а) открывают
+  worktree и считают строки на этом коммите; без фразы — на `headRefOid`. Черновик в `start()` на новый head не
+  переставляется: так черновик остаётся на коммите начала, и Ticket 09 может показать «N new commits since you
+  started». Test-ы: `pr-review-agent.test.ts` (`fill: 'add'` с новым head — в сообщении коммит черновика, `startedOn`
+  не меняется) и `action-templates.test.ts`: 4 красных до правки (exit 1), после — 37 зелёных (exit 0).
+  `agents-text.test.sh`: новая фраза в проверках обоих skill-ов, mutant (фраза убрана) красный; 510 passed, exit 0.
+  Prompt eval-а получил ту же фразу (test `harness-evals` сверяет его первую строку с `agentReviewText`); хеш правки
+  `code-review/SKILL.md` — в `THIRD_PARTY.md` и `harness-third-party-skills.test.ts`. Eval перезапущен, потому что
+  текст skill-а и prompt изменились: 2 из 2, score 1.00, **1.20 USD** (cap 5 USD); всего на eval за Ticket —
+  **10.03 USD**.
+- **Выход не ждёт замок своей же записи** (low). `flushSync` ждал ~10 s, пока устареет замок, который держит
+  асинхронная запись main этого же процесса. Теперь замки, взятые этим процессом, в множестве `heldHere`, и
+  `flushSync` пишет сразу. Test `harness-pr-review-draft.test.ts` «does not wait for the lock its own write of this
+  process holds»: до правки 10006 ms (exit 1), после — зелёный. Там же два test-а замка при выходе, которых не было:
+  чужой замок (держит другой процесс 300 ms) `flushSync` ждёт, устаревший (20 s) забирает сразу; mutant «`flushSync`
+  без замка» красит оба.
+- **Нечитаемый черновик не закрывает watch** (low). Ответ `{ draft: null, problem }` теперь пропускает этот взгляд.
+  Test «a look that cannot read the draft is skipped»: до правки watch закрывался после первой неудачи (exit 1),
+  после — зелёный.
+- **Test-ы концов watch-а** (low). Добавлены «the Session’s turn ends without done» (fixture
+  `test/fixtures/agent-scripts/pr-review-agent-turn.jsonl`, ход держится до release) и «the Session closes while it
+  writes». Код не менялся, поэтому до правки они зелёные; mutant-ы (ветка `done` убрана, ветка `stopped` убрана) красят
+  каждый свой test.
+- Evidence перепривязаны к коммиту после rebase-а. gate fast не запускался: file watcher test-ы на этом Mac красные из-за
+  fseventsd.
+
+Раунд ревью 2 (ревью PR #2085, три low):
+
+- **Нечитаемый черновик не держит watch после конца Session.** Раньше взгляд, который не прочитал черновик, пропускался
+  ещё до проверки Session. Черновик, нечитаемый навсегда (битый JSON, папка Profile пропала), держал таймер и chokidar
+  до выхода из worfy. Теперь такой взгляд закрывает watch с warn, когда Session закрыта, упала, пропала или её ход
+  кончился. Пометить черновик тогда нельзя: он не читается. Test «a draft that stays unreadable does not keep the watch
+  once the Session closed»: до правки красный по timeout (exit 1), после — 13 passed (exit 0).
+- **Diff и строки — на названном коммите.** `gh pr diff` и `additions`/`deletions`/`files` из `gh pr view` всегда
+  описывают текущий head PR. Шаблон Team reviewer-а теперь берёт diff из `git diff <baseRefOid>...<sha>` в worktree
+  шага 1, оттуда же размер, пути и «строка diff-а». `/worfy:code-review` делает то же с `<head>`. Оба skill-а
+  останавливаются, если коммит пропал и после fetch-а (его убрал force push): `cat-file` повторяется после fetch-а. В
+  `agents-text.test.sh` добавлены фразы ``not `gh pr diff` `` и `still missing after the fetch` с mutant-ами. На
+  старых текстах test красный: 2 failed, exit 1. После правки — 514 passed, exit 0. Хеш и диапазон строк правки
+  `code-review/SKILL.md` обновлены в `THIRD_PARTY.md` и `harness-third-party-skills.test.ts`. Eval не перезапускался:
+  case остаётся верным. Его fixture-коммит есть в репозитории, diff тот же, а grader-ы проверяют только запись через
+  `bin/pr-review-draft` и отсутствие записей на GitHub.
+- **Свой замок, забранный скриптом, `flushSync` ждёт.** `heldHere` значит только «этот процесс взял замок». Через
+  10 s скрипт мог забрать его как устаревший, и тогда `flushSync` писал без ожидания. Теперь путь без ожидания идёт,
+  только пока в файле замка pid этого процесса; после записи замок снимается. Иначе `flushSync` ждёт, как чужой
+  замок. Любой писатель main снимает замок, только пока в нём его pid. Test «waits when another process took over the
+  lock of its own write»: до правки `flushSync` вернулся сразу (exit 1), после — 29 passed (exit 0).
+
+Исправление CI (job `windows (2/3) / full-suite` на head `ed1a64cdf`). Test «sends prReview.changed while the agent
+writes the file» падал на Windows с `EPERM` на `renameSync` во вспомогательной функции test-а `agentWrites`. Main в это
+время читал файл, а функция переименовывала без повтора. Сломан был только test. Скрипт `bin/pr-review-draft` уже
+повторяет rename на `EPERM`/`EBUSY`/`EACCES` (50 раз по 10 ms), как main. Теперь `agentWrites` пишет так же, как скрипт:
+берёт замок `<file>.lock` и повторяет rename. Запись битого файла в test-е тоже повторяется. Добавлен test скрипта «a
+rename Windows refuses for a moment … is retried»: preload заставляет первые N rename-ов упасть с `EPERM`. При 5 отказах
+запись проходит. При отказе навсегда скрипт выходит с exit 2, файл остаётся прежним, не остаётся ни замка, ни
+временного файла. Код скрипта не менялся, поэтому test зелёный сразу (exit 0); mutant «без повтора rename» его красит
+(exit 1). Main читает черновик через `readFile` и держит файл открытым только на время чтения. Watch опрашивает файл
+через `stat` и не держит его открытым.
+
+Исправление CI, вторая попытка (тот же job на head `f347b9e00`, снова `EPERM`, хотя повтор шёл 5 s). Файл держал
+открытым сам main. `lookNow` (`src/main/github/pr-review-agent.ts:193`) каждые 50 ms читает черновик через
+`readFile` (`src/main/github/pr-review-draft.ts:617`). Это асинхронное чтение: дескриптор открыт, пока event loop не
+дойдёт до его закрытия. Вспомогательная функция test-а работала в том же процессе, что и main, и ждала между
+попытками синхронно (`Atomics.wait`). Event loop стоял, чтение не закрывалось, а Windows отказывает в rename поверх
+открытого файла — так все попытки и падали. У настоящего агента этой ошибки нет. Скрипт — отдельный процесс, его
+синхронное ожидание не останавливает main, чтение main закрывается за миллисекунды, и повтор скрипта проходит.
+chokidar с `usePolling` следит через `fs.watchFile` (`stat`) и дескриптор на файле не держит.
+
+Исправление: `agentWrites` и её повтор теперь асинхронные и ждут на таймере, а вызовы — `await`. Новый test «a rename
+refused while a look of main has the file open goes through once the read ends (Windows)» повторяет механизм на Mac.
+Обёртка над `drafts.draft` держит чтение «открытым» ещё 30 ms на таймере, а rename отказывает с `EPERM`, пока такое
+чтение идёт. С синхронным ожиданием этот test падает через 5 s с тем же `EPERM`, что и CI (exit 1). С асинхронным
+он проходит: 14 passed (exit 0).

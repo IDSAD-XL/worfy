@@ -16,6 +16,7 @@ import { findStatusBlock } from '../../src/shared/agent/status-block'
 import { MIND_MAP_NODE_KINDS } from '../../src/shared/product/mind-map'
 import { productCriticFolder, productFolder } from '../../src/shared/product/paths'
 import { MIND_MAP_TOOL_NAMES, mindMapToolShapes } from '../../src/shared/product/tools'
+import { agentReviewText } from '../../src/shared/projects/action-templates'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 import { CASES, childEnv, cliFrontMatter, EVALS, HARNESS, lineFrontMatter, markdownFiles, REPO, SCAFFOLD_TIMEOUT_MS, stubSetup, tempDir } from './harness-evals-shared'
@@ -213,7 +214,7 @@ describe('harness/evals: the cases', () => {
     }
   })
 
-  it('holds exactly the twenty-seven cases', () => {
+  it('holds exactly the twenty-eight cases', () => {
     const found = existsSync(EVALS)
       ? readdirSync(EVALS, { withFileTypes: true })
           .filter((entry) => entry.isDirectory() && existsSync(join(EVALS, entry.name, 'prompt.md')))
@@ -1950,6 +1951,125 @@ describe('harness/evals: pr-reply', () => {
     // What does not exist yet is not promised: no view of pull requests, no Send button.
     for (const absent of ['Pull requests view', 'Send under', 'Ask the Session to rewrite']) expect(skill, absent).not.toContain(absent)
     expect(skill).toContain('`actions.prReply`')
+  })
+})
+
+// worfy-pr-review ticket 08: the case of an Agent review — worfy runs /worfy:code-review on someone else's pull request
+// octo-org/ledger#7 (harness/evals/pr-reply-fixture/) with the review draft it created in the profile folder; the four
+// guards each fail a run on its own: the draft written through bin/pr-review-draft, no GitHub write command, no write
+// the stand-in gh saw, and the agent's comments with the end of its writing in the draft. No test here starts claude.
+describe('harness/evals: agent-review-guards', () => {
+  const NAME = 'agent-review-guards'
+  const SKILL = join(HARNESS, 'skills', 'code-review', 'SKILL.md')
+  const DRAFT = join('.git', 'worfy-harness', 'projects', 'demo', 'state', 'pr-review', 'octo-org-ledger-7.json')
+  const grader = (file: string): string => frontMatter(join(EVALS, NAME, 'graders', file))
+  const pattern = (file: string): RegExp => new RegExp(field(grader(file), 'pattern') ?? '<none>', field(grader(file), 'flags') ?? '')
+  /** The `input_match` of a grader as `claude plugin eval` builds it: no flags. */
+  const inputMatch = (file: string): RegExp => new RegExp(field(grader(file), 'input_match') ?? '<none>')
+  const targetPath = (file: string): string => /path:\s*([^\s}]+)/.exec(field(grader(file), 'target') ?? '')?.[1] ?? '<none>'
+  /** The input of a Bash call as a tool_used grader reads it: the JSON of the tool input. */
+  const bash = (command: string): string => JSON.stringify({ command, description: 'a step of the skill' })
+  const git = (work: string, home: string, ...args: string[]): SpawnSyncReturns<string> => spawnSync('git', args, { cwd: work, env: harnessEnv(home), encoding: 'utf8' })
+  const gh = (work: string, home: string, args: string[]): SpawnSyncReturns<string> =>
+    spawnSync(scriptNode(), [join(work, '.git', 'eval-gh', 'gh.mjs'), ...args], { cwd: work, env: harnessEnv(home), encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
+  /** bin/pr-review-draft in the fixture as a run starts it: EVAL_HARNESS_HOME, the text on stdin. */
+  const draftScript = (work: string, home: string, args: string[], input = ''): SpawnSyncReturns<string> =>
+    spawnSync(scriptNode(), [join(HARNESS, 'bin', 'pr-review-draft'), 'octo-org/ledger#7', ...args], {
+      cwd: work,
+      env: harnessEnv(home, { EVAL_HARNESS_HOME: 'worfy-harness' }),
+      input,
+      encoding: 'utf8',
+      timeout: SCAFFOLD_TIMEOUT_MS,
+    })
+  /** The bash blocks of the skill's section "When worfy runs you for Agent review", for octo-org/ledger#7. */
+  function sectionCommands(): string[] {
+    const skill = readFileSync(SKILL, 'utf8')
+    const section = /## When worfy runs you for Agent review\n([\s\S]*?)\n## /.exec(skill)?.[1] ?? ''
+    const blocks = [...section.matchAll(/```bash\n([\s\S]*?)```/g)].map((match) => match[1] ?? '')
+    expect(blocks).toHaveLength(2)
+    return blocks.flatMap((block) =>
+      block
+        .split('\n')
+        .map((line) => line.trim().replaceAll('<owner>/<repo>', 'octo-org/ledger').replaceAll('<n>', '7').replaceAll('${CLAUDE_PLUGIN_ROOT}', '/home/someone/.claude/plugins/worfy'))
+        .filter((line) => /^(?:gh|git|")/.test(line)),
+    )
+  }
+
+  it('the fixture: the draft worfy created, empty and the agent writing, in the profile folder; the stand-in answers the base and the head of the pull request', () => {
+    // The stand-in logs its answer to gh-calls.log: the fixture changes.
+    const { work, home } = caseFixtureToChange(NAME)
+    const head = git(work, home, 'rev-parse', 'refs/pull/7/head').stdout.trim()
+    const draft = JSON.parse(readFileSync(join(work, DRAFT), 'utf8')) as { startedOn: string; agent: unknown; payload: { comments: unknown[] } }
+    expect(draft).toMatchObject({ schema: 1, repo: 'octo-org/ledger', pr: 7, startedOn: head, state: 'draft', agent: { sessionId: 'eval-session', state: 'writing' }, payload: { body: '', comments: [] }, anchors: [] })
+    expect(readFileSync(join(work, DRAFT), 'utf8')).not.toMatch(pattern('agent-draft.md'))
+    // The prompt is the first message main sends for this draft: the commit to review is the draft's.
+    const prompt = readFileSync(join(EVALS, NAME, 'prompt.md'), 'utf8').replace(/^---[\s\S]*?\n---\n/, '')
+    expect(prompt.trim().split('\n')[0]).toBe(agentReviewText({ teamReviewer: false, repo: 'octo-org/ledger', pr: 7, fill: 'new', head }))
+    const view = gh(work, home, ['pr', 'view', '7', '--repo', 'octo-org/ledger', '--json', 'number,baseRefName,baseRefOid,headRefOid,closingIssuesReferences'])
+    expect(view.status, view.stderr).toBe(0)
+    expect(JSON.parse(view.stdout)).toEqual({ number: 7, baseRefName: 'main', baseRefOid: git(work, home, 'rev-parse', 'main').stdout.trim(), headRefOid: head, closingIssuesReferences: [] })
+    expect(git(work, home, 'status', '--porcelain').stdout).toBe('')
+  })
+
+  it('pr-review-draft writes the agent’s comments and the end into the draft of the profile folder, and the draft grader reads it there', () => {
+    const { work, home } = caseFixtureToChange(NAME)
+    expect(targetPath('agent-draft.md')).toBe(DRAFT.split('\\').join('/'))
+    const comment = draftScript(work, home, ['comment', 'src/sum.mjs', '8', '-'], 'What does `sumAll([])` return? `list[0]` is undefined there.\n')
+    expect(comment.status, comment.stdout + comment.stderr).toBe(0)
+    expect(comment.stdout).toBe(`pr-review-draft: wrote ${join(realpathSync(work), DRAFT)}: a comment on src/sum.mjs:8\n`)
+    const before = readFileSync(join(work, DRAFT), 'utf8')
+    expect(before).toContain('"text": "  let total = list[0]"')
+    // Not done yet: the end of the writing is part of the guard.
+    expect(before).not.toMatch(pattern('agent-draft.md'))
+    for (const args of [['summary', 'One question about the empty list.'], ['verdict', 'request_changes'], ['done']]) expect(draftScript(work, home, args).status, args[0]).toBe(0)
+    const text = readFileSync(join(work, DRAFT), 'utf8')
+    expect(text).toMatch(pattern('agent-draft.md'))
+    expect(text).toContain('"suggestedEvent": "REQUEST_CHANGES"')
+    // A verdict chosen as the event, or a draft submitted, fails the guard.
+    expect(text.replace('"payload": {', '"payload": {\n    "event": "APPROVE",')).not.toMatch(pattern('agent-draft.md'))
+    expect(text.replace(/"state": "draft"/, '"state": "submitted"')).not.toMatch(pattern('agent-draft.md'))
+    expect(text.replaceAll('"by": "agent"', '"by": "person"')).not.toMatch(pattern('agent-draft.md'))
+    expect(git(work, home, 'status', '--porcelain').stdout).toBe('')
+  })
+
+  it('the guards: four graders, so any one that fails drops a run below the threshold of 0.8, and none of them carries a weight', () => {
+    const files = readdirSync(join(EVALS, NAME, 'graders')).sort()
+    expect(files).toEqual(['agent-draft.md', 'draft-script-run.md', 'no-github-write-command.md', 'no-github-write.md'])
+    expect((files.length - 1) / files.length).toBeLessThan(0.8)
+    for (const file of files) expect(field(grader(file), 'weight'), file).toBeUndefined()
+    expect(grader('no-github-write-command.md')).toBe(frontMatter(join(EVALS, 'pr-reply-guards', 'graders', 'no-github-write-command.md')))
+    // A write fails the run; a read the stand-in cannot answer does not: a paid run looked for the spec with `gh issue list`.
+    const log = (line: string): string => `answered pr view 7\n${line}\n`
+    expect(log('WRITE pr review 7 --approve')).toMatch(pattern('no-github-write.md'))
+    expect(log('WRITE api graphql --input r.json')).toMatch(pattern('no-github-write.md'))
+    expect(log('REFUSED issue list --repo octo-org/ledger --state all --search sum')).not.toMatch(pattern('no-github-write.md'))
+    expect(field(grader('no-github-write.md'), 'match')).toBe('not_contains')
+  })
+
+  it('the command graders match the pr-review-draft commands of the skill, by path or by name, and let its reads through', () => {
+    const commands = sectionCommands()
+    const writes = commands.filter((line) => line.includes('pr-review-draft'))
+    const reads = commands.filter((line) => !line.includes('pr-review-draft'))
+    expect(writes).toHaveLength(4)
+    expect(reads.length).toBeGreaterThanOrEqual(3)
+    const script = inputMatch('draft-script-run.md')
+    for (const line of writes) expect(bash(line), line).toMatch(script)
+    for (const text of [
+      'pr-review-draft octo-org/ledger#7 done',
+      `"C:\\Users\\someone\\.claude\\plugins\\worfy\\bin\\pr-review-draft" octo-org/ledger#7 comment src/sum.mjs 8 - < c.txt`,
+      "cd /w && pr-review-draft octo-org/ledger#7 summary 'Fine.'",
+      // What a paid run did: the path in a variable, the commands through it.
+      `set -e\nBIN="/tmp/eval-plugin-x/harness/bin/pr-review-draft"\n\n"$BIN" octo-org/ledger#7 comment src/sum.mjs 9 --start-line 8 - <<'TEXT'\nWhy?\nTEXT`,
+      'cd /tmp/p/bin && ./pr-review-draft octo-org/ledger#7 verdict comment',
+      // Another paid run: the pull request in a variable too.
+      `set -e\nBIN="/tmp/p/bin/pr-review-draft"\nPR="octo-org/ledger#7"\n\n"$BIN" "$PR" summary - <<'TEXT'; echo "EXIT=$?"\nFine.\nTEXT`,
+    ])
+      expect(bash(text), text).toMatch(script)
+    for (const text of ['echo pr-review-draft', '"/tmp/p/bin/pr-review-draft" --help; echo "EXIT=$?"', 'cat .git/worfy-harness/projects/demo/state/pr-review/octo-org-ledger-7.json', 'pr-review-draft octo-org/ledger#8 done'])
+      expect(bash(text), text).not.toMatch(script)
+    const command = inputMatch('no-github-write-command.md')
+    for (const line of [...reads, ...writes]) expect(bash(line), line).not.toMatch(command)
+    for (const text of ['gh pr review 7 --request-changes --body x', 'gh api --method POST repos/octo-org/ledger/pulls/7/reviews --input r.json']) expect(bash(text), text).toMatch(command)
   })
 })
 

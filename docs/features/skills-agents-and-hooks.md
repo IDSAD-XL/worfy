@@ -41,7 +41,7 @@ comes in only as a PR of its own.
 
 | Skill | When | What it does |
 |---|---|---|
-| `code-review` | The model, or `/worfy:code-review` | Reviews the changes since a fixed point on two axes, the repository's standards and the spec, in two Subagents |
+| `code-review` | The model, or `/worfy:code-review`; worfy's Agent review runs `/worfy:code-review <owner>/<repo>#<N>` when the Project has no team reviewer | Reviews the changes since a fixed point on two axes, the repository's standards and the spec, in two Subagents. Run for an Agent review, it reviews the pull request against its base with the Profile's review lenses and writes its findings as a review draft only through `bin/pr-review-draft`; the verdict is only a suggestion, and nothing goes to GitHub |
 | `codebase-design` | The model | The vocabulary of deep modules: interface, seam, depth |
 | `diagnosing-bugs` | The model | A diagnosis loop for a hard bug or a performance regression |
 | `domain-modeling` | The model | The Project's glossary and ADRs, kept while designing |

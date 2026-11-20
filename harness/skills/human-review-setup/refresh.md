@@ -29,6 +29,13 @@ Step 1 of SKILL.md has given `_resolved.dir` and the private folder. Then:
   file before goes to `previous/SKILL-<stamp>-step1.md`. It is a fix of the installed skill, not part of the update:
   it stays on "Nothing new", on "no" and on **Reject**. Show the person its line. On exit 1 show its stderr line, tell
   the person to build the reviewer again with `/worfy:human-review-setup` without `--refresh`, and stop.
+- **The Agent review section.** A reviewer built before worfy's Agent review has no part `### When worfy runs you
+  for Agent review` in its step 8, and writes no draft through `bin/pr-review-draft` when worfy runs it for one. When
+  the installed `SKILL.md` has no line `### When worfy runs you for Agent review`, copy that part of the template
+  (`<plugin>/skills/human-review-setup/template/SKILL.template.md`, from its heading to the end of the file, the end of
+  step 8) to the end of the installed `SKILL.md`, word for word, and change nothing else of it. Like `upgrade`, it is a fix of the
+  installed skill, not part of the update: it stays on "Nothing new", on "no" and on **Reject**. Tell the person in one
+  line that the section was added.
 - The date the update reads from is the later of two dates of `meta.json`: `analysed_through`, which the last
   update the person accepted wrote (step 8), and `fetched_at`, the last whole read of the history, which a first
   run or a whole build again analysed. Compare them: a whole build after an update keeps the older

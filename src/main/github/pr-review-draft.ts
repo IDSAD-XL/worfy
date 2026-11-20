@@ -10,15 +10,21 @@
 //   write reads the file again and applies the waiting changes to what is there, so a draft an Agent review wrote
 //   meanwhile (bin/pr-review-draft, ticket 08) is changed, not overwritten. Every answer shows the file with the
 //   waiting changes applied. Quitting writes what waits (`flushSync`).
+// - The lock (ticket 08): the Session of an Agent review writes the same file through bin/pr-review-draft, another
+//   process. Each writer — main here, the script there — holds `<file>.lock`, a file created only when it is not there
+//   yet, for its read, change and rename, so neither drops a change of the other. A lock older than LOCK_STALE_MS was
+//   left by a writer that died, and is taken over. A write that cannot get the lock in LOCK_WAIT_MS keeps its changes
+//   waiting for the next write.
 // - Discard removes the file. A submitted draft is kept SUBMITTED_KEEP_MS (the link to the review) and removed at the
 //   first look at the Project's drafts after worfy starts.
 // - Nothing here reaches GitHub.
 import { randomUUID } from 'node:crypto'
-import { readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import {
   reviewDraftSchema,
+  type AgentReviewState,
   type PrReviewDraftAnswer,
   type PrReviewDraftRow,
   type ReviewComment,
@@ -26,11 +32,16 @@ import {
   type ReviewDraft,
   type ReviewEvent,
 } from '../../shared/ipc/pr-review'
+import { removeFile } from '../storage/remove'
 
 /** At most one write of a draft file in this many milliseconds. */
 export const WRITE_INTERVAL_MS = 500
 /** How long a submitted draft is kept. */
 export const SUBMITTED_KEEP_MS = 30 * 24 * 60 * 60 * 1000
+/** How long a writer waits for the lock of a draft file (bin/pr-review-draft waits as long). */
+export const LOCK_WAIT_MS = 15_000
+/** A lock this old was left by a writer that died; bin/pr-review-draft has the same number. */
+export const LOCK_STALE_MS = 10_000
 /** How long a Profile folder found is taken as it is, as for the drafts of replies. */
 const FOLDER_TTL_MS = 30_000
 const FILE = /^[A-Za-z0-9-]+-[A-Za-z0-9._-]+-\d+\.json$/u
@@ -102,6 +113,13 @@ export function removeComment(draft: ReviewDraft, ref: ReviewCommentRef): Review
   const index = locate(next, ref)
   next.payload.comments.splice(index, 1)
   next.anchors.splice(index, 1)
+  return next
+}
+
+/** The Agent review of the draft (ticket 08): its Session and whether it writes, is done or was stopped. */
+export function setAgent(draft: ReviewDraft, agent: { sessionId: string; state: AgentReviewState }): ReviewDraft {
+  const next = editable(draft)
+  next.agent = { ...next.agent, ...agent }
   return next
 }
 
@@ -233,6 +251,104 @@ function applied(text: string | null, changes: readonly Change[], file: string, 
 
 const serialize = (draft: ReviewDraft): string => `${JSON.stringify(draft, null, 2)}\n`
 
+/** What a refused lock, or a rename Windows refuses for a moment, fails with: try again. */
+const BUSY = new Set(['EEXIST', 'EPERM', 'EACCES', 'EBUSY'])
+const codeOf = (error: unknown): string | undefined => (error as NodeJS.ErrnoException | undefined)?.code
+const lockOf = (file: string): string => `${file}.lock`
+const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+const pauseSync = (ms: number): void => void Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+
+/** One try at the lock of `file`: true when taken; a stale lock is removed for the next try. */
+function tryLock(file: string, now: number): boolean {
+  try {
+    writeFileSync(lockOf(file), `${process.pid}\n`, { flag: 'wx' })
+    return true
+  } catch (error) {
+    if (!BUSY.has(codeOf(error) ?? '')) throw error
+  }
+  try {
+    // shortcut: two writers that find one stale lock at once may both take it over, redo with a lock that names its
+    // owner if a writer is ever seen to die while holding it.
+    if (now - statSync(lockOf(file)).mtimeMs > LOCK_STALE_MS) removeFile(lockOf(file))
+  } catch {
+    // Released meanwhile: the next try takes it.
+  }
+  return false
+}
+
+/** Whether the lock of `file` is there and names this process: a writer that found it stale may have taken it over. */
+function ownLock(file: string): boolean {
+  try {
+    return readFileSync(lockOf(file), 'utf8').trim() === String(process.pid)
+  } catch {
+    return false
+  }
+}
+
+/** Removes the lock of `file` only while it is this process's: never one another writer took over meanwhile. */
+const unlock = (file: string): void => {
+  if (ownLock(file)) removeFile(lockOf(file))
+}
+const lockedFor = (file: string): ReviewDraftRefusal => new ReviewDraftRefusal(`The review draft ${file} stayed locked by another writer (an Agent review) for ${LOCK_WAIT_MS / 1000} s`)
+
+/**
+ * The draft files whose lock a write of this process took. A quit (flushSync) finds one when it comes while that write
+ * waits for its disk: while the lock still names this process it writes at once, not after the lock goes stale, since
+ * nothing of this process runs again before the quit ends, and the lock keeps the script out meanwhile. A lock the
+ * script took over as stale is waited for like any other.
+ */
+const heldHere = new Set<string>()
+
+/** Runs `work` holding the lock of `file`, which its folder must hold already. */
+async function withLock<T>(file: string, work: () => Promise<T>): Promise<T> {
+  const until = Date.now() + LOCK_WAIT_MS
+  while (!tryLock(file, Date.now())) {
+    if (Date.now() > until) throw lockedFor(file)
+    await pause(2 + Math.floor(Math.random() * 8))
+  }
+  heldHere.add(file)
+  try {
+    return await work()
+  } finally {
+    heldHere.delete(file)
+    unlock(file)
+  }
+}
+
+function withLockSync<T>(file: string, work: () => T): T {
+  if (heldHere.has(file) && ownLock(file)) {
+    try {
+      return work()
+    } finally {
+      heldHere.delete(file)
+      unlock(file)
+    }
+  }
+  const until = Date.now() + LOCK_WAIT_MS
+  while (!tryLock(file, Date.now())) {
+    if (Date.now() > until) throw lockedFor(file)
+    pauseSync(5)
+  }
+  try {
+    return work()
+  } finally {
+    unlock(file)
+  }
+}
+
+/** A rename into place; Windows refuses one for a moment while another process opens the target. */
+async function renameInto(from: string, to: string): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await rename(from, to)
+      return
+    } catch (error) {
+      if (!BUSY.has(codeOf(error) ?? '') || attempt >= 50) throw error
+      await pause(10)
+    }
+  }
+}
+
 export class PrReviewDrafts {
   private readonly pending = new Map<string, Pending>()
   private readonly lastWrite = new Map<string, number>()
@@ -275,6 +391,29 @@ export class PrReviewDrafts {
   }
 
   /**
+   * The Agent review of the draft (ticket 08): `writing` when it starts — a draft created now starts on `head` — and
+   * `stopped` on Stop or Take over. Written at once, not after WRITE_INTERVAL_MS: the Session's bin/pr-review-draft
+   * reads the file, and refuses without a draft or after a stop.
+   */
+  setAgent(root: string, repo: string, pr: number, input: { head?: string; agent: { sessionId: string; state: AgentReviewState } }): Promise<PrReviewDraftAnswer> {
+    return this.change(
+      root,
+      repo,
+      pr,
+      (draft) => {
+        if (draft === null && input.head === undefined) throw new ReviewDraftRefusal(`There is no review draft of ${repo}#${pr}`)
+        return setAgent(draft ?? newReviewDraft(repo, pr, input.head ?? ''), input.agent)
+      },
+      { now: true },
+    )
+  }
+
+  /** The draft file of `repo`#`pr` of the Project at `root`; a refusal without a Profile folder. */
+  fileOf(root: string, repo: string, pr: number): Promise<string> {
+    return this.file(root, repo, pr)
+  }
+
+  /**
    * Discard review: the file goes, and the changes waiting for it. A review being submitted is not discarded, nor a
    * draft of another PR. A file that is no draft at all (half written, another shape) goes too: nothing else can change
    * or remove it, so without this the PR would keep it for good.
@@ -282,17 +421,24 @@ export class PrReviewDrafts {
   async discard(root: string, repo: string, pr: number): Promise<PrReviewDraftAnswer> {
     const file = await this.file(root, repo, pr)
     return this.exclusive(file, async () => {
-      const text = await this.read(file)
-      let draft: ReviewDraft | null = null
-      try {
-        draft = text === null ? null : parseAny(text, file)
-      } catch {
-        // Not a draft: removed below.
+      if ((await this.read(file)) === null) {
+        this.drop(file)
+        return { repo, pr, draft: null, problem: null }
       }
-      if (draft !== null && ownDraft(draft, file, repo, pr).state === 'submitting') throw new ReviewDraftRefusal('This review is being submitted: it is not discarded')
-      this.drop(file)
-      await rm(file, { force: true })
-      return { repo, pr, draft: null, problem: null }
+      // Under the lock: an Agent review that read the draft before cannot write it back after.
+      return withLock(file, async () => {
+        const text = await this.read(file)
+        let draft: ReviewDraft | null = null
+        try {
+          draft = text === null ? null : parseAny(text, file)
+        } catch {
+          // Not a draft: removed below.
+        }
+        if (draft !== null && ownDraft(draft, file, repo, pr).state === 'submitting') throw new ReviewDraftRefusal('This review is being submitted: it is not discarded')
+        this.drop(file)
+        await rm(file, { force: true })
+        return { repo, pr, draft: null, problem: null }
+      })
     })
   }
 
@@ -343,18 +489,21 @@ export class PrReviewDrafts {
   flushSync(): void {
     for (const [file, pending] of [...this.pending]) {
       this.drop(file)
-      let text: string | null = null
       try {
-        text = readFileSync(file, 'utf8')
-      } catch {
-        // No file yet.
-      }
-      try {
-        const draft = applied(text, pending.changes, file, pending.repo, pending.pr, this.warn)
-        if (draft === null) continue
-        const tmp = `${file}.${randomUUID()}.tmp`
-        writeFileSync(tmp, serialize(draft))
-        renameSync(tmp, file)
+        mkdirSync(dirname(file), { recursive: true })
+        withLockSync(file, () => {
+          let text: string | null = null
+          try {
+            text = readFileSync(file, 'utf8')
+          } catch {
+            // No file yet.
+          }
+          const draft = applied(text, pending.changes, file, pending.repo, pending.pr, this.warn)
+          if (draft === null) return
+          const tmp = `${file}.${randomUUID()}.tmp`
+          writeFileSync(tmp, serialize(draft))
+          renameSync(tmp, file)
+        })
       } catch (error) {
         this.warn(`[pr-review] ${file} was not written at quit: ${messageOf(error)}`)
       }
@@ -363,7 +512,7 @@ export class PrReviewDrafts {
 
   // ── inside ──────────────────────────────────────────────────────────────
 
-  private async change(root: string, repo: string, pr: number, change: Change): Promise<PrReviewDraftAnswer> {
+  private async change(root: string, repo: string, pr: number, change: Change, options: { now?: boolean } = {}): Promise<PrReviewDraftAnswer> {
     const file = await this.file(root, repo, pr)
     return this.exclusive(file, async () => {
       // Refused now, with the reason, when it does not apply to what the view sees.
@@ -372,9 +521,9 @@ export class PrReviewDrafts {
       pending.changes.push(change)
       this.pending.set(file, pending)
       const wait = (this.lastWrite.get(file) ?? -Infinity) + WRITE_INTERVAL_MS - this.now()
-      if (wait <= 0) {
+      if (wait <= 0 || options.now === true) {
         try {
-          await this.write(file)
+          await this.write(file, options.now === true)
         } catch (error) {
           // The change is taken and waits: the view shows it, told it is not on disk yet, so it is not saved twice.
           return { repo, pr, draft, problem: `The review draft is not written yet: ${messageOf(error)}. worfy writes it with the next change, and when it quits` }
@@ -398,13 +547,13 @@ export class PrReviewDrafts {
    * stop waiting only once written: a write that fails — the file unreadable or broken meanwhile, the disk — keeps them
    * waiting for the next one, and the file stays as it was.
    */
-  private async write(file: string): Promise<void> {
+  private async write(file: string, now = false): Promise<void> {
     const pending = this.pending.get(file)
     if (pending === undefined) return
     if (pending.timer !== null) clearTimeout(pending.timer)
     pending.timer = null
     const wait = (this.lastWrite.get(file) ?? -Infinity) + WRITE_INTERVAL_MS - this.now()
-    if (wait > 0) {
+    if (wait > 0 && !now) {
       // A timer that fired a little early: wait the rest.
       pending.timer = setTimeout(() => void this.exclusive(file, async () => this.write(file)).catch(() => undefined), wait)
       pending.timer.unref?.()
@@ -413,16 +562,18 @@ export class PrReviewDrafts {
     const tmp = `${file}.${randomUUID()}.tmp`
     let written = false
     try {
-      const draft = applied(await this.read(file), pending.changes, file, pending.repo, pending.pr, this.warn)
-      if (draft !== null) {
-        await mkdir(dirname(file), { recursive: true })
-        await (this.options.writeFile ?? ((path, text) => writeFile(path, text)))(tmp, serialize(draft))
-        await rename(tmp, file)
-        written = true
-      }
-      // Right after the rename, with no await between: a quit (flushSync) while the temporary file is removed must not
-      // find the written changes still waiting. Inside exclusive(): no change came meanwhile, so what waited is what was written.
-      this.drop(file)
+      await mkdir(dirname(file), { recursive: true })
+      await withLock(file, async () => {
+        const draft = applied(await this.read(file), pending.changes, file, pending.repo, pending.pr, this.warn)
+        if (draft !== null) {
+          await (this.options.writeFile ?? ((path, text) => writeFile(path, text)))(tmp, serialize(draft))
+          await renameInto(tmp, file)
+          written = true
+        }
+        // Right after the rename, with no await between: a quit (flushSync) while the temporary file is removed must not
+        // find the written changes still waiting. Inside exclusive(): no change came meanwhile, so what waited is what was written.
+        this.drop(file)
+      })
     } finally {
       await (this.options.removeTemp ?? ((path) => rm(path, { force: true })))(tmp)
     }
