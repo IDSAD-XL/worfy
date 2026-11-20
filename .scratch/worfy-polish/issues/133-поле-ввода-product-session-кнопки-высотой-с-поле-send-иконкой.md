@@ -37,9 +37,12 @@ Source: просьба владельца 2026-11-20 в чате Orchestrator-а
 - [ ] Unit test (`test/unit/session-view.test.tsx`): в поле Product Session во время хода нет `input-interrupt`, в
       шапке есть `session-interrupt`; Esc в поле прерывает ход; Send — кнопка с именем `Send` без текста, с
       подсказкой клавиши; Return отправляет, во время хода — в очередь. Красный до правки.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/unit/session-view.test.tsx` exit 0 · mac - · 15ef693b7
 - [ ] Поле обычной Session: Interrupt и «Queue message» / «Send message» как раньше (существующие test-ы зелёные).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/unit/session-view.test.tsx` exit 0 · mac - · 15ef693b7
 - [ ] e2e (`test/e2e/product-session.spec.ts`): «+», Send и поле одной высоты, низ кнопок совпадает с низом поля, и
       так же после трёх строк текста.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 · mac dev · 15ef693b7
 - [ ] Снимки Playwright строки ввода в светлой и тёмной теме, без хода и во время хода — в scratchpad, названы в «Итог».
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
