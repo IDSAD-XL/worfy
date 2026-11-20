@@ -110,7 +110,9 @@ Windows в CI.
   теперь читает и `(manual)`. Прежний test `manual-checks.test.ts` утверждал обратное — исправлен по правилу Ticket-а
   (п. 1–2 «Что делаем»). Решено без владельца, подтвердить.
 - Пункт 2 Ticket-а `worfy-mcp-live` 08 до merge: `parseDoneSection` из Harness Mac Stable с `manualMark: 'вручную'` —
-  `2 manual: false`; из ветки — `2 manual: true`. Проверка `ticket evidence worfy-mcp-live 08` на main — после merge.
+  `2 manual: false`; из ветки — `2 manual: true`. После merge (2026-11-20, main `b18784e94`): `parseDoneSection` из
+  `harness/lib/evidence.cjs` main с `manualMark: 'вручную'` читает пункты 1–5 Ticket-а `worfy-mcp-live` 08 как
+  `manual` `false, true, false, false, false` — пункт 2 ручной, exit 0.
 - Matrix `ticket evidence` не печатает признак `manual`: разница видна в причине, когда под пунктом стоит строка
   `test-run` (`manual item needs owner-check, screenshot or video`).
 - `docs/features/evidence.md:46-47` тоже описывает метки (метка Profile-а и старая русская) — не правлен: файл соседа
