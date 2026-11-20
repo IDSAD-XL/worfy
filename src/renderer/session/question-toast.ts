@@ -8,11 +8,16 @@
 // "On screen" is the Session view showing that Session (shown-session.ts): the toast is for the
 // Canvas, the Pipeline board and the Session view of another Session.
 import type { AgentEventEnvelope } from '../../shared/agent/events'
+import { ORCHESTRATOR_KIND } from '../../shared/ipc/orchestrator'
+import { acceptOrchestratorView } from '../canvas/nodes/orchestrator-view'
 import { dismissToast, showToast, type ToastAction } from '../toast/toasts'
 import { invoke, showSubscribeError, subscribe, windowMachine } from '../ipc'
 import { readOnlyNow } from '../projects/read-only-now'
-import { openSession, useNavigation } from './navigation'
+import { projectsNow } from '../projects/useProjects'
+import { useNavigation, type OpenedSession } from './navigation'
+import { acceptSessionNodeView } from './node-sessions'
 import { notificationTarget } from './notification-target'
+import { openSessionInProject } from './open-in-project'
 import { useShownSession } from './shown-session'
 
 const toastKey = (requestId: string): string => `question:${requestId}`
@@ -22,12 +27,47 @@ function onScreen(sessionId: string): boolean {
   return useNavigation.getState().view === 'session' && useShownSession.getState().sessionId === sessionId
 }
 
-/** Shows the Session; the Session view of the active Project when this window knows no Node for it. */
-function openAsking(sessionId: string): void {
+/** The Node of the Session among the views this window has now: a Session Node or an Orchestrator; null when none. */
+function targetOf(sessionId: string): OpenedSession | null {
   const machine = windowMachine()
-  const target = notificationTarget({ sessionId, projectRoot: null, ...(machine === null ? {} : { machineId: machine }) }, undefined, machine)
-  if (target !== null) openSession(target)
-  else useNavigation.setState({ view: 'session' })
+  return notificationTarget({ sessionId, projectRoot: null, ...(machine === null ? {} : { machineId: machine }) }, undefined, machine)
+}
+
+/**
+ * Asks main for the views of every Project of the window's Machine: its Session Nodes, and its
+ * Orchestrator found in its Layout. A window loaded after the Session started knows the views of the
+ * active Project's Canvas only.
+ */
+async function loadViews(): Promise<void> {
+  const projects = projectsNow()?.projects ?? []
+  await Promise.all(
+    projects.map(async (project) => {
+      const [sessions, layout] = await Promise.all([invoke('sessions.views', { projectId: project.id }), invoke('layout.get', { projectId: project.id })])
+      if (sessions.ok) for (const view of sessions.value.views) acceptSessionNodeView(view)
+      const orchestrator = layout.ok ? layout.value.layout.nodes.find((node) => node.kind === ORCHESTRATOR_KIND) : undefined
+      if (orchestrator === undefined) return
+      const result = await invoke('orchestrator.view', { nodeId: orchestrator.id })
+      if (result.ok && result.value.view !== null) acceptOrchestratorView(result.value.view)
+    }),
+  )
+}
+
+/**
+ * Shows the Session, selecting its Project first when it runs in another one (worfy-polish ticket 127).
+ * When this window knows no Node for it, the views of every Project are asked for first; still none,
+ * the Session view of the active Project.
+ */
+function openAsking(sessionId: string): void {
+  const target = targetOf(sessionId)
+  if (target !== null) {
+    openSessionInProject(target)
+    return
+  }
+  void loadViews().then(() => {
+    const found = targetOf(sessionId)
+    if (found !== null) openSessionInProject(found)
+    else useNavigation.setState({ view: 'session' })
+  })
 }
 
 async function answer(sessionId: string, requestId: string, label: string): Promise<void> {

@@ -372,6 +372,37 @@ describe('the notification overlay', () => {
     expect(asked.filter((each) => each.channel === 'notify.pending')).not.toHaveLength(0)
     expect(asked).toContainEqual({ channel: 'sessions.views', input: { projectId: 'alpha' } })
     expect(h.target.usePendingNote.getState().pending).toBeNull()
+    // The Session is in the active Project: it is not selected again.
+    expect(asked.filter((each) => each.channel === 'projects.select')).toEqual([])
+  })
+
+  describe('a note of a Session in another Project of this Machine (worfy-polish ticket 127)', () => {
+    const TWO = { projects: [...PROJECTS.projects, { id: 'beta', name: 'beta', path: '/Users/test/beta', branch: 'main' }], activeId: 'alpha', revision: 1 }
+
+    beforeEach(() => {
+      answers['projects.list'] = () => TWO
+      answers['projects.select'] = (input) => ({ ...TWO, activeId: (input as { id: string }).id, revision: 2 })
+    })
+
+    it('selects that Project, then opens the Session of its Node', async () => {
+      // Only beta's views know the Session; the window has not asked for them before the note.
+      answers['sessions.views'] = (input) => ({
+        views: (input as { projectId: string }).projectId === 'beta' ? [nodeView({ projectId: 'beta', nodeId: 'node-9', sessionId: 'sdk-9', sdkSessionId: 'sdk-9', state: 'busy' })] : [],
+      })
+      answers['notify.pending'] = () => ({ note: { sessionId: 'sdk-9', projectRoot: null } })
+      const h = await mountOverlay()
+      await vi.waitFor(() => expect(h.opened()).toMatchObject({ view: 'session', opened: { beta: { nodeId: 'node-9', projectId: 'beta' } } }))
+      expect(asked.filter((each) => each.channel === 'projects.select').map((each) => each.input)).toEqual([{ id: 'beta' }])
+      expect(h.target.usePendingNote.getState().pending).toBeNull()
+    })
+
+    it('selects the Project whose root a registry Session names, then opens it read-only there', async () => {
+      answers['notify.pending'] = () => ({ note: { sessionId: 'ext-2', projectRoot: '/Users/test/beta' } })
+      const h = await mountOverlay()
+      await vi.waitFor(() => expect(h.opened().opened['beta']).toEqual({ nodeId: 'session:ext-2', projectId: 'beta', external: { sessionId: 'ext-2' } }))
+      expect(h.opened().view).toBe('session')
+      expect(asked.filter((each) => each.channel === 'projects.select').map((each) => each.input)).toEqual([{ id: 'beta' }])
+    })
   })
 
   it('in an open window, `notify.open` makes the overlay take the note from main and open its Session', async () => {
