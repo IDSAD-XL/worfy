@@ -1,7 +1,8 @@
 # 04 — Skill Harness `owner-check`: строка `owner-check` через `ticket evidence`, Pass отмечает пункт, Fail заводит доработку
 
 Type: task
-Status: open
+Status: claimed 2026-11-20T01:05Z
+Branch: worfy-acceptance/04
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решения по реализации» → «Skill `owner-check` Harness-а»; «Риски», «Слова
 владельца в публичном репозитории», «Codex как Orchestrator»; «Вопросы владельцу», Q2
@@ -43,10 +44,15 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решения по реал�
 - [ ] Harness test `harness/bin/tests/owner-check.test.sh` (новый): временный Ticket — Pass пишет одну строку и `[x]`;
       повтор не пишет вторую; Fail пишет `owner-check fail` и Ticket доработки; неручной пункт — отказ. Красный до
       правки — в «Итог».
+  - evidence: test-run pass · `bash harness/bin/tests/owner-check.test.sh` exit 0 · mac - · 1b9ec6366e495c6b8d0a93a02aedd665a229451e
+  - evidence: test-run pass · `bash harness/bin/tests/owner-check.test.sh` exit 0 · mac - · 124c0b1327e4e9321cbf580c2ab446f22f77a1e8
 - [ ] `harness/bin/tests/agents-text.test.sh`: текст skill-а держит правило «без слова владельца не отмечать» и «на Fail
       не писать pass»; mutant (фраза убрана) — красный.
+  - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 · mac - · 1b9ec6366e495c6b8d0a93a02aedd665a229451e
 - [ ] `test/contract/codex-parity.test.ts` зелёный с новым skill-ом.
+  - evidence: test-run pass · `pnpm exec vitest run test/contract/codex-parity.test.ts` exit 0 · mac - · 1b9ec6366e495c6b8d0a93a02aedd665a229451e
 - [ ] `docs/features/evidence.md` называет skill `owner-check`; `node scripts/check-feature-docs.mjs` — exit 0.
+  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 1b9ec6366e495c6b8d0a93a02aedd665a229451e
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job-ы Windows CI зелёные
       (платформенный PR).
 
@@ -63,3 +69,39 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решения по реал�
 ## Вне скоупа
 
 - worfy-шаблон, который вызывает skill, — Ticket 03. Правило записи шагов приёмки — Ticket 08.
+
+## Итог
+
+- Skill `harness/skills/owner-check/SKILL.md`: аргументы, абзац «Owner's words:», правило «только слово владельца»,
+  блок записи решения (проверка ручного пункта, одна строка через `ticket evidence`, `[x]` на Pass, Ticket доработки на
+  Fail, Pass на доработке закрывает исходный пункт, privacy check слов), documents PR дня в Full mode, Workflow folder в
+  Silent mode. Code story: [04-skill-harness-owner-check.md](../stories/04-skill-harness-owner-check.md).
+- Красный до правки: `bash harness/bin/tests/owner-check.test.sh` без skill-а (`SKILL_FILE` на несуществующий файл) —
+  `FAIL no skill file …`, exit 1. Mutant-ы блока — каждый красный: без проверки повтора (повторный Pass — вторая строка),
+  без проверки ручного пункта (неручной пункт получил строку), без Ticket-а доработки, `--sha -` в `ticket evidence`
+  (`sha is 7 to 40 hex digits`). Mutant-ы `agents-text.test.sh`: фраза «Never tick an item without the owner's word»
+  убрана — `FAIL owner-check skill: no 'Never tick …'`, exit 1; фраза «Never write `pass` on a Fail» убрана — так же, exit 1.
+- Доработка 1 (красный CI на Windows, job `windows (harness-scripts 2/2)`): на Git Bash case «Fail writes owner-check
+  fail…» падал — блок печатал путь Ticket-а доработки через `path.join`, на Windows это `f-bash\issues\03-rework-…md`,
+  а test и раздел «What its output means» ждут `/`. Теперь путь собирается строкой `<epic>/issues/<файл>` на любой
+  ОС. Новый case гоняет Fail с preload-ом (`FENVW`), который заставляет `path.join` блока соединять относительный путь
+  через `\`, как на Windows: mutant с прежним `path.join` красный и на Mac (`FAIL bash/zsh: rework path with a \ path.join`,
+  exit 1). CRLF и `[` в grep не причина: парсер читает строки через `/\r?\n/`, а остальные проверки этого case-а на
+  Windows прошли.
+- Решено без владельца, подтвердить:
+  - Логика записи — блок `node -e` внутри `SKILL.md`, а не отдельный скрипт в `harness/bin/`: след Ticket-а называет только
+    `SKILL.md`; test вырезает блок из `SKILL.md` и гоняет его в bash и zsh, как `skill-blocks.test.sh`.
+  - «Ручной пункт» проверяется парсером `parseDoneSection` (`harness/lib/evidence.cjs`) с `done_section` и `manual_mark`
+    Profile-а — тем же, что внутри `ticket evidence`: его матрица не печатает, ручной ли пункт.
+  - «Та же строка» — тот же вердикт, ref (дата и слова), платформа и копия; `sha` не сравнивается: при `-` это `HEAD`,
+    который между двумя Send again может сдвинуться.
+  - Ticket доработки: каркас на английском (тексты Harness — английские), строка `Source: owner-check fail <date> of
+    <epic> <NN>, item <k> — <файл>` в одной форме; Pass на пункте доработки доходит до исходного пункта по этой строке и
+    по совпадению текста пунктов. Один Ticket доработки на пункт и день.
+  - Замены в словах: путь с именем → `<home>`, хост → `<host>`, email → `<email>`, адрес Tailscale → `<ip>`, UUID →
+    `<uuid>`, token → `<token>`, слово личного списка → `<private>`; владельцу называются виды, не значения.
+  - Ветка documents PR дня — `owner-check/<YYYY-MM-DD>` (занята влитым PR-ом — `-2`, `-3`); skill его не вливает.
+  - Fail не снимает `[x]` с уже отмеченного пункта: Ticket этого не просит.
+- Вне следа, без них `pnpm test` красный: новый skill вписан в `harness/evals/lib/coverage.json` («uncovered», case-а
+  нет, блок гоняет `owner-check.test.sh`) и в список skill-ов plugin-а в `test/contract/harness-migrate.test.ts` (старый
+  Harness его не имел — план миграции не предлагает его удалить).
