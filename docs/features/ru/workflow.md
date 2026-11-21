@@ -1,6 +1,6 @@
 # Workflow
 
-> Перевод [английской версии](../workflow.md), commit `ea853f5d`.
+> Перевод [английской версии](../workflow.md), commit `same-pr`.
 
 Три близких Feature. **Ticket и Epic на Canvas** показывают работу Project-а так, как её записывают файлы Ticket-ов.
 **Pipeline** говорит, на каком Stage стоит каждый Ticket. **Binding** связывает каждого агента с Ticket-ом или Epic-ом, над
@@ -365,6 +365,7 @@ CI, Agent review, Gate & merge, Closing, Done.
 | `gate running`, `waiting for gate`, `gate busy` | На Gate & merge, пока занята e2e-блокировка из Profile: этим PR, другими или без читаемого владельца | Подпись | В tooltip |
 | Waits | Строка `Waits:`, иначе `team` на Human review, Release и Awaiting merge, иначе `agent`. На Done нет | `Waits: <who>` | `<who>` |
 | Answers | На Human review review threads его PR ждут ответа пользователя, по данным [PR inbox](pr-inbox.md) (см. [PR и CI badges](gate-and-github.md#pr-и-ci-badges)) | `Waits: 2 answers` | Нет |
+| Approvals | На Human review его PR открыт, у базовой ветки есть правило ревью, а PR ещё не одобрен (ни GitHub, ни собственным счётом worfy, когда GitHub решения не даёт), по данным [PR inbox](pr-inbox.md); Ticket в нескольких репозиториях показывает первый такой PR | `Waits: team · 1/2 approvals`: это chip одобрений PR inbox, поэтому `✕ 1/2` при запрошенных изменениях и `1/?`, когда правило не видно аккаунту | Нет |
 | Stuck | Время на Stage достигло порога | Рамка и `stuck: on CI for 3 h` в tooltip | То же |
 
 **Пороги stuck.**
