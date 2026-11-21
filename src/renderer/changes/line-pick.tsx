@@ -72,8 +72,10 @@ export const hintText = (pick: Picked): string => {
 }
 
 export interface LinePickOptions {
-  /** Lines may be picked and commented on: no «+», no hint and no pick otherwise. */
+  /** Lines may be commented on: no «+», no hint and no `c` otherwise. */
   enabled: boolean
+  /** Lines may be picked by a click or a selection of text, even with nowhere to send a comment yet; `enabled` when absent. */
+  pickable?: boolean
   /** A comment is open: the hint stands aside. */
   commenting: boolean
   /** The comment of lines `from`…`to` of a side of a file. */
@@ -118,6 +120,7 @@ interface Drag {
 
 export function useLinePick(options: LinePickOptions): LinePick {
   const { enabled, commenting, toastKey } = options
+  const pickable = options.pickable ?? enabled
   const [picked, setPicked] = useState<Picked | null>(null)
   // A drag of «+» is on: the hint waits for it to end, or it would push the lines under the pointer down.
   const [dragging, setDragging] = useState(false)
@@ -237,7 +240,7 @@ export function useLinePick(options: LinePickOptions): LinePick {
 
   const lineEvents: LinePick['lineEvents'] = {
     onClick: (event) => {
-      if (!enabled || (event.target as Element).closest?.(options.ownControls)) return
+      if (!pickable || (event.target as Element).closest?.(options.ownControls)) return
       // A drag that selected text is a pick of its own (onMouseUp).
       if (globalThis.getSelection?.()?.isCollapsed === false) return
       const at = lineAt(event.target)
@@ -245,7 +248,7 @@ export function useLinePick(options: LinePickOptions): LinePick {
       setPicked(event.shiftKey ? stretched(picked, at) : stretched(null, at))
     },
     onMouseUp: () => {
-      if (!enabled) return
+      if (!pickable) return
       const selection = globalThis.getSelection?.()
       if (selection == null || selection.isCollapsed) return
       const from = lineAt(selection.anchorNode)
@@ -268,7 +271,7 @@ export function useLinePick(options: LinePickOptions): LinePick {
   }
 
   const clear = (): boolean => {
-    if (!enabled || latest.current.picked === null) return false
+    if (latest.current.picked === null) return false
     setPicked(null)
     return true
   }

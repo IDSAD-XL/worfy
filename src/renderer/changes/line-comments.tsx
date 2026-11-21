@@ -296,6 +296,8 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
 
   const pick = useLinePick({
     enabled: canComment,
+    // A click picks a line on any view that is not read only, as before the hook; «+», the hint and `c` need a Session.
+    pickable: readOnly === null,
     commenting: popover !== null,
     open: openNew,
     held: keepsOpen,

@@ -12,7 +12,7 @@ Kind: pr · Epic: worfy-changes-view · Ticket: 09 · PR: - · Language: ru
 
 ## 2. Перетаскивание «+» — один hook на два экрана
 
-Code: `src/renderer/changes/line-pick.tsx:149-189` · key lines: 155, 161, 167, 169, 174, 177, 178
+Code: `src/renderer/changes/line-pick.tsx:152-192` · key lines: 158, 164, 170, 172, 177, 180, 181
 
 ```tsx
   const press = (start: LineAt) => {
@@ -73,12 +73,12 @@ Code: `src/renderer/changes/line-pick.tsx:149-189` · key lines: 155, 161, 167, 
 
 ## 3. Любой способ растянуть выбор держит его в одном hunk-е
 
-Code: `src/renderer/changes/line-pick.tsx:45-47` · key lines: 46, 47
+Code: `src/renderer/changes/line-pick.tsx:46-48` · key lines: 47, 48
 
 ```tsx
-
 /** The pick stretched to a line: from the same start when the line is of its file, side and hunk, else the line alone. */
 const stretched = (pick: Picked | null, at: LineAt): Picked =>
+  pick !== null && pick.key === at.key && pick.side === at.side && pick.block === at.block ? { ...pick, end: at.line } : { key: at.key, side: at.side, block: at.block, start: at.line, end: at.line }
 ```
 
 - Что делает: Shift с «+» (мышью и клавиатурой), щелчок с Shift по строке и выделение текста через строки растягивают
@@ -96,7 +96,7 @@ const stretched = (pick: Picked | null, at: LineAt): Picked =>
 
 ## 4. Подсказка под последней выбранной строкой
 
-Code: `src/renderer/changes/line-pick.tsx:227-236` · key lines: 229, 232, 233
+Code: `src/renderer/changes/line-pick.tsx:230-239` · key lines: 232, 235, 236
 
 ```tsx
   const hint = (line: DiffLine, side: LineSide, entry: FileEntry): ReactNode => {
@@ -147,7 +147,7 @@ async function uncommittedPaths(context: ChangesContext): Promise<Set<string>> {
 
 ## 6. Commit комментария — по файлу; после Refresh комментарий идёт за файлом
 
-Code: `src/renderer/changes/line-comments.tsx:535-537` · key lines: 535, 536, 537
+Code: `src/renderer/changes/line-comments.tsx:537-539` · key lines: 537, 538, 539
 
 ```tsx
       const now = commitOf(readOf.scope, comment.side, entry.file, scopesOf, listOf)
@@ -180,17 +180,20 @@ Code: `src/renderer/changes/line-comments.tsx:535-537` · key lines: 535, 536, 5
   (head-ы в хранилище, hunk, blur, кнопка, `headSha`) — каждый даёт exit 1 своего test-а.
 - Раунд 3: 5 мутантов, по одному на путь растяжения (Shift с «+» мышью и клавиатурой, щелчок с Shift, выделение,
   перетаскивание) без проверки hunk-а — каждый даёт exit 1 своего test-а.
+- После слияния с Ticket-ом 10 (подсветка синтаксиса) его test «щелчок по цветному слову выбирает строку» показал, что
+  hook требовал Session и для выбора строки щелчком; на main выбор щелчком нужен только вне read only. Опция `pickable`
+  вернула это: «+», подсказка и `c` по-прежнему ждут Session.
 
 ## Проверить себя
 
 1. Почему во время перетаскивания подсказки нет?
    - Ответ: она встаёт под последней выбранной строкой и сдвигает строки ниже, так что указатель попадал бы не на ту
      строку.
-   - Строки: `src/renderer/changes/line-pick.tsx:229`
+   - Строки: `src/renderer/changes/line-pick.tsx:232`
 2. Что вернёт «+», если отпустить его на той же строке внутри выбранного диапазона?
    - Ответ: popover на весь диапазон: без движения `onUp` идёт в `openOn`, который берёт диапазон, если строка в нём.
-   - Строки: `src/renderer/changes/line-pick.tsx:169-171`
+   - Строки: `src/renderer/changes/line-pick.tsx:172-174`
 3. Почему комментарий не теряет строки, когда агент закоммитил файл после него?
    - Ответ: на новой стороне All changes комментарий с `null` или с прочитанным head-ом ищется заново и получает commit
      нового чтения.
-   - Строки: `src/renderer/changes/line-comments.tsx:536-537`
+   - Строки: `src/renderer/changes/line-comments.tsx:538-539`
