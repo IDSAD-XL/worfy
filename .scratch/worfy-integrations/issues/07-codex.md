@@ -44,6 +44,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 7; «Волны», Wave 4; «Ре�
 - [ ] Тот же contract: значение token-а сервиса не появляется в аргументах процесса Codex, в `config` `thread/start`, в
       логе main, в Journal и в Flight recorder; фильтр tools режет `tools/list` и `tools/call` endpoint-а.
   - evidence: test-run pass · `pnpm test test/contract/integrations-codex.test.ts` exit 0 · mac - · 0789154c9
+  - evidence: test-run pass · `pnpm test test/contract/integrations-codex.test.ts` exit 0 · mac - · b9685624d
 - [ ] `test/unit/codex-mcp-row.test.ts`: строка Integration с источником `integration` и меткой.
   - evidence: test-run pass · `pnpm test test/unit/codex-mcp-row.test.ts` exit 0 · mac - · 0789154c9
 - [ ] Настоящий binary Codex test-ы не запускают (`grep` по новым test-ам: только fake app-server).
@@ -51,6 +52,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 7; «Волны», Wave 4; «Ре�
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 0789154c9
   - evidence: gate pass · `gate fast` exit 0 · mac - · 0789154c9
+  - evidence: gate pass · `gate fast` exit 0 · mac - · b9685624d
 
 ## Где в коде
 
@@ -90,6 +92,11 @@ Codex test-ы не запускают: `grep` по новым test-ам — то
 хранит транскрипт Codex); Autopilot-ом Journal и Flight recorder отдельно не прогонялись. Страницы
 `docs/features/mcp-servers.md` (Codex) и `docs/features/vendors.md` дополнены.
 
+Раунд 1 ревью PR #2128: отмена вызова. До правки `pnpm test test/contract/integrations-codex.test.ts` — exit 1 (2 новых
+test-а: закрытое соединение и `notifications/cancelled`); после — exit 0 (13). Пять mutant-ов (без signal у tool-а,
+закрытие соединения не отменяет, `notifications/cancelled` не читается, отмена чужой Session, отмена по любому id) —
+каждый exit 1.
+
 Решено без владельца:
 1. Метки и отказ входа — на выходе handle (`observe` в `mcp.ts`), без правки `src/main/vendors/codex/session.ts` (не в
    «Где в коде»): строки, которые Session хранит, остаются как их дал Codex. Цена: событие `mcp` уходит, только когда
@@ -100,12 +107,17 @@ Codex test-ы не запускают: `grep` по новым test-ам — то
    бы в endpoint worfy, а не в сервис. Sign in у строки — Ticket 09.
 3. Имена серверов — те же, что у Claude (занятые — серверы Claude Code из инвентаря). Сервер пользователя в
    `config.toml` Codex с тем же именем ключ `mcp_servers.<имя>` в этой Session заменит: `config.toml` worfy не читает.
+   Долг для Ticket-а 09 (ревью PR #2128, раунд 1): замена молчаливая (`src/main/vendors/codex/mcp.ts:404`), а строка
+   Claude при совпадении имени несёт предупреждение (`src/main/integrations/proxy.ts:101`).
 4. Integration-ы идут вместе с canvas, как у Claude: Session, у которой canvas не нашёл Project, их не получает; список
    Profile-а без `worfy-canvas` их не отменяет. С одними Integration-ами `developerInstructions` — `null`: Codex
    оставляет инструкции своего config, а не получает пустую строку.
 5. Вызов срезанного tool-а — ошибка JSON-RPC «Unknown tool», как у своих tools worfy, а не ответ `isError`, как у
    Claude.
-6. Отмену вызова агентом endpoint без состояния proxy не передаёт: вызов кончается по пределу proxy (10 минут).
+6. Отмена вызова агентом доходит до сервиса (ревью PR #2128, раунд 1, вместо прежнего «не передаёт»): каждый
+   `tools/call` endpoint-а получает signal, его отменяет закрытие соединения запроса до ответа (Stop, закрытая Session,
+   предел Codex) и `notifications/cancelled` с id вызова от той же Session к тому же серверу. Id, повторённый, пока его
+   вызов идёт, оставляет отменяемым только новый вызов (`shortcut:` в `http-server.ts`).
 7. `src/shared/agent/mcp-status.ts` не менялся: источника `integration` и `label` Ticket-а 06 хватает.
 8. Вне «Где в коде»: сценарий fake `test/fixtures/codex-scripts/integrations.jsonl` (его проверяет
    `test/contract/codex-fake.test.ts` по схеме 0.166.0), страницы `docs/features/mcp-servers.md` и `vendors.md`.

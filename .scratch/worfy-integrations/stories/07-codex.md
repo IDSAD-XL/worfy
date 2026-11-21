@@ -13,7 +13,7 @@ Kind: pr · Epic: worfy-integrations · Ticket: 07 · PR: - · Language: ru
 
 ## 2. Endpoint отдаёт tools proxy
 
-Code: `src/main/mcp/http-server.ts:132-144` · key lines: 136, 138, 140, 141, 142
+Code: `src/main/mcp/http-server.ts:149-166` · key lines: 153, 155, 157, 158, 159
 
 ```ts
     case 'tools/list':
@@ -27,7 +27,12 @@ Code: `src/main/mcp/http-server.ts:132-144` · key lines: 136, 138, 140, 141, 14
       if (message.method === 'tools/list') return answer(id, { tools: tools.map(listed) })
       const tool = tools.find((each) => each.name === params.name)
       if (tool === undefined) return failure(id, INVALID_PARAMS, `Unknown tool: ${String(params.name)}`)
-      return answer(id, await called(tool, params.arguments))
+      const call = calls.start(id)
+      try {
+        return answer(id, await called(tool, params.arguments, call.signal))
+      } finally {
+        call.end()
+      }
     }
 ```
 
@@ -38,11 +43,49 @@ Code: `src/main/mcp/http-server.ts:132-144` · key lines: 136, 138, 140, 141, 14
 - Почему здесь: Ticket, «Что делаем», пункт 2, называет `src/main/mcp/http-server.ts`: тот же `McpServer`, что у Claude.
 - Без него: Codex видел бы у Integration-ы пустой список, а фильтр tools не резал бы `tools/call`.
 - Требование: [Что делаем, пункт 2](../issues/07-codex.md#что-делаем)
-- Риски и пробелы test-ов: endpoint без состояния — отмену вызова агентом (`notifications/cancelled`) он не передаёт
-  proxy; вызов кончается по пределу proxy (10 минут). Отказ срезанного tool-а — ошибка JSON-RPC, как для своих tools
-  worfy, а не ответ `isError`, как у Claude.
+- Риски и пробелы test-ов: отказ срезанного tool-а — ошибка JSON-RPC, как для своих tools worfy, а не ответ `isError`,
+  как у Claude.
 
-## 3. Integration-ы Project-а в `thread/start`
+## 3. Отмена вызова доходит до сервиса
+
+Code: `src/main/mcp/http-server.ts:237-256` · key lines: 239, 240, 242, 246, 248, 254
+
+```ts
+    // Codex gave up on the request: the connection closed before its answer went out.
+    const abandoned = new AbortController()
+    response.once('close', () => {
+      if (!response.writableFinished) abandoned.abort()
+    })
+    const key = (id: string | number): string => runningKey(grant!, server.name, id)
+    const calls: RunningCalls = {
+      start: (id) => {
+        const cancel = new AbortController()
+        running.set(key(id), cancel)
+        return {
+          signal: AbortSignal.any([cancel.signal, abandoned.signal]),
+          // shortcut: a reused id leaves only the newer call cancellable, redo when a client reuses ids (JSON-RPC forbids it).
+          end: () => void running.delete(key(id)),
+        }
+      },
+      cancel: (id) => {
+        if (typeof id === 'string' || typeof id === 'number') running.get(key(id))?.abort()
+      },
+    }
+```
+
+- Что делает: каждый `tools/call` получает signal; его отменяет закрытие соединения запроса до ответа и
+  `notifications/cancelled` с id вызова (`src/main/mcp/http-server.ts:135`). Ключ — digest token-а Session, сервер и id, поэтому чужая
+  Session и чужой id ничего не отменяют. Signal идёт в `tool.call`, proxy отдаёт его сервису.
+- Почему здесь: ревью PR #2128, раунд 1: без этого вызов, который Codex бросил (Stop, закрытая Session, свой предел),
+  proxy вёл до 10 минут, и, например, `create_item` выполнялся после ошибки у агента, а повтор давал вторую запись.
+  Путь Claude уже передаёт `extra.signal`.
+- Без него: двойные записи в сервисе после отмены.
+- Требование: [Что делаем, пункт 2](../issues/07-codex.md#что-делаем)
+- Риски и пробелы test-ов: `notifications/cancelled`, пришедший раньше, чем вызов дошёл до `start` (пока ждёт
+  `listTools()`), ничего не отменяет. Id, повторённый, пока его вызов идёт, оставляет отменяемым только новый вызов
+  (`shortcut:`).
+
+## 4. Integration-ы Project-а в `thread/start`
 
 Code: `src/main/vendors/codex/mcp.ts:392-410` · key lines: 396, 397, 400, 404, 406, 409
 
@@ -80,7 +123,7 @@ Code: `src/main/vendors/codex/mcp.ts:392-410` · key lines: 396, 397, 400, 404, 
   worfy не читает. С одними Integration-ами `developerInstructions` — `null` (строка 417), и Codex оставляет
   инструкции своего config.
 
-## 4. Откуда Integration-ы и их вход
+## 5. Откуда Integration-ы и их вход
 
 Code: `src/main/vendors/codex/mcp.ts:219-240` · key lines: 222, 226, 229, 233, 237
 
@@ -119,7 +162,7 @@ export function codexIntegrations(deps: CodexIntegrationsDeps): CodexIntegration
 - Риски и пробелы test-ов: модули грузятся при первом старте Session, как остальное в `appCodexMcp`; путь приложения
   (`appCodexMcp`) прошли e2e Codex, но без Integration-ов в Project-е.
 
-## 5. Строка Integration-ы
+## 6. Строка Integration-ы
 
 Code: `src/main/vendors/codex/mcp.ts:182-194` · key lines: 183, 184, 188, 191, 192
 
@@ -149,7 +192,7 @@ export function codexIntegrationRow(row: McpServerRow, label: string, signInErro
 - Риски и пробелы test-ов: событие `mcp` уходит, только когда строки Codex изменились; одна смена статуса proxy его не
   шлёт — chip узнаёт её при следующем чтении (popover спрашивает статус при открытии).
 
-## 6. Строки меняются на выходе handle, а Sign in Codex отказан
+## 7. Строки меняются на выходе handle, а Sign in Codex отказан
 
 Code: `src/main/vendors/codex/mcp.ts:331-352` · key lines: 332, 345, 346, 349
 
@@ -187,13 +230,13 @@ Code: `src/main/vendors/codex/mcp.ts:331-352` · key lines: 332, 345, 346, 349
 - Требование: [Что делаем, пункт 3](../issues/07-codex.md#что-делаем)
 - Риски и пробелы test-ов: not recorded.
 
-## 7. Что сознательно не меняли
+## 8. Что сознательно не меняли
 
 - `src/shared/agent/mcp-status.ts`: источник `integration` и поле `label` уже есть с Ticket-а 06; его правит Ticket 09.
 - `src/main/vendors/codex/session.ts` и `src/main/integrations/proxy.ts` — не тронуты.
 - `config.toml` Codex worfy не читает и не пишет («Вне скоупа»).
 
-## 8. Как проверено
+## 9. Как проверено
 
 - До правки: `pnpm test test/unit/codex-mcp-row.test.ts test/contract/integrations-codex.test.ts` — exit 1 (13 из 23
   упали: нет `codexIntegrations`, `codexIntegrationRow`). После — exit 0 (24).
@@ -201,6 +244,7 @@ Code: `src/main/vendors/codex/mcp.ts:331-352` · key lines: 332, 345, 346, 349
   списка worfy — ничего; пустые инструкции; строка без источника, без отказа входа, с действиями Codex; Sign in не
   отказан; событие и статус без меток; Autopilot без фильтра; отказ у `pending`; статус proxy не читается) — каждый
   exit 1 на этих двух файлах.
+- Раунд 1 ревью: два test-а отмены до правки — exit 1, после — exit 0; пять mutant-ов отмены — каждый exit 1.
 - Unit и contract test-ы затронутых модулей (72 файла, 1290 test-ов) — exit 0. `pnpm test:e2e
   test/e2e/codex-session.spec.ts test/e2e/codex-sessions-on-canvas.spec.ts test/e2e/session-mcp.spec.ts` под
   `/tmp/worfy-e2e.lock` — exit 0.
@@ -218,4 +262,4 @@ Code: `src/main/vendors/codex/mcp.ts:331-352` · key lines: 332, 345, 346, 349
 3. Как фильтр Read only режет `tools/call`, если Codex зовёт tool по имени напрямую?
    - Ответ: endpoint ищет tool в том же списке `listTools()`, который фильтр уже срезал, и отказывает, не дойдя до
      сервиса.
-   - Строки: `src/main/mcp/http-server.ts:141-142`
+   - Строки: `src/main/mcp/http-server.ts:158-159`
