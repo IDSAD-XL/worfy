@@ -3,14 +3,16 @@
 // for both): the tree of files on the left (FileTree.tsx), the diff on the right (DiffPane.tsx), and what stands above
 // the diff. Each caller puts its own around it — a PR its head, Viewed and the review bar; a Ticket its scopes and the
 // tray of comments.
+// The folders opened and folded are the caller's (toggledWith of diff-window.ts): the callers draw «Reading…» in
+// place of this screen while a read runs, and the folders must outlive it (review round 1 of PR #2124).
 // The keys of the screen are diff-keys.ts.
-import { useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { DiffPane, type DiffPaneProps } from './DiffPane'
 import { FileTree, type FileTreeProps } from './FileTree'
 
 export interface DiffScreenProps {
-  /** The tree; the folders opened and folded are the screen's own. */
-  tree: Omit<FileTreeProps, 'toggled' | 'onToggle'>
+  /** The tree, with the folders opened and folded kept by the caller. */
+  tree: FileTreeProps
   diff: DiffPaneProps
   /** What stands above the diff, in its column: the comments of Review mode off their lines. */
   aboveDiff?: ReactNode
@@ -19,20 +21,9 @@ export interface DiffScreenProps {
 }
 
 export function DiffScreen({ tree, diff, aboveDiff, columnClassName = 'w-changes__column' }: DiffScreenProps) {
-  const [toggled, setToggled] = useState<ReadonlySet<string>>(new Set())
   return (
     <div className="w-changes__main">
-      <FileTree
-        {...tree}
-        toggled={toggled}
-        onToggle={(key) =>
-          setToggled((set) => {
-            const next = new Set(set)
-            if (!next.delete(key)) next.add(key)
-            return next
-          })
-        }
-      />
+      <FileTree {...tree} />
       <div className={columnClassName}>
         {aboveDiff}
         <DiffPane {...diff} />

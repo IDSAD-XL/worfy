@@ -28,7 +28,7 @@ import { useWorkflow } from '../workflow/useWorkflow'
 import { type DiffPaneHandle } from './DiffPane'
 import { useDiffKeys } from './diff-keys'
 import { DiffScreen } from './DiffScreen'
-import { orderedFiles, scopeKey, type DiffLayout, type RepoFiles } from './diff-window'
+import { orderedFiles, scopeKey, toggledWith, type DiffLayout, type RepoFiles } from './diff-window'
 import { useLineComments } from './line-comments'
 import { changesScopeFor, closeChanges, setChangesScope, useChangesView, type ChangesBack, type ChangesSubject } from './open'
 import { ScopeBar, type RepoList, type RepoScopes } from './ScopeBar'
@@ -70,6 +70,8 @@ export function ChangesView({ projectId, root, subject, back, active }: ChangesV
   const [filter, setFilter] = useState('')
   const [chosen, setChosen] = useState<string | null>(null)
   const [workflowOpen, setWorkflowOpen] = useState(false)
+  // Kept here, not in DiffScreen: «Reading…» stands in its place while Refresh reads the Ticket again.
+  const [toggled, setToggled] = useState<ReadonlySet<string>>(new Set())
   const [generation, setGeneration] = useState(0)
 
   const scopesFor = JSON.stringify([projectId, ticket, generation])
@@ -163,7 +165,7 @@ export function ChangesView({ projectId, root, subject, back, active }: ChangesV
         />
         {list?.error != null ? <p className="w-changes__message">{list.error}</p> : null}
         <DiffScreen
-          tree={{ repos, filter, onFilter: setFilter, selected: chosen, onSelect: select, workflowOpen, onWorkflowOpen: setWorkflowOpen }}
+          tree={{ repos, filter, onFilter: setFilter, selected: chosen, onSelect: select, workflowOpen, onWorkflowOpen: setWorkflowOpen, toggled, onToggle: (key) => setToggled((set) => toggledWith(set, key)) }}
           diff={{
             ref: pane,
             projectId,

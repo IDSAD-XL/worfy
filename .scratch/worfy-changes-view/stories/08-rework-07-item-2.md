@@ -100,27 +100,26 @@ Code: `src/renderer/changes/diff-keys.ts:49-63` · key lines: 50, 54, 56, 59, 61
 
 ## 5. Один экран дерева и diff-а для Ticket-а и PR
 
-Code: `src/renderer/pr-review/ReviewMode.tsx:386-403` · key lines: 387, 388, 389, 390
+Code: `src/renderer/pr-review/ReviewMode.tsx:388-404` · key lines: 388, 398, 399, 403
 
 ```tsx
       <DiffScreen
-        tree={{ repos, filter, onFilter: setFilter, selected: chosen, onSelect: select, workflowOpen, onWorkflowOpen: setWorkflowOpen, truncatedAt: value?.truncatedAt ?? null, renderRowEnd }}
+        tree={{
+          repos,
+          filter,
+          onFilter: setFilter,
+          selected: chosen,
+          onSelect: select,
+          workflowOpen,
+          onWorkflowOpen: setWorkflowOpen,
+          toggled,
+          onToggle: (key) => setToggled((set) => toggledWith(set, key)),
+          truncatedAt: value?.truncatedAt ?? null,
+          renderRowEnd,
+        }}
         diff={{ ref: pane, projectId, subject, scope, hideWhitespace, layout, wrap, entries, several: false, selected: chosen, generation, threads: row.threads, renderHeadEnd, ...lineComments.diff }}
         columnClassName="w-pr-review__diff"
         aboveDiff={
-          <>
-            {!onLines && comments.length > 0 && draftCommit !== null ? (
-              <section className="w-pr-review-off" data-testid="pr-review-off-lines" aria-label={`Your comments on ${short(draftCommit)}`}>
-                <p className="w-changes__muted">
-                  {plural(comments.length, 'comment')} on the lines of <span className="w-mono">{short(draftCommit)}</span>, not of this diff
-                </p>
-                {comments.map(lineComments.listed)}
-              </section>
-            ) : null}
-            {lineComments.offList}
-          </>
-        }
-      />
 ```
 
 - Что делает: Review mode рисует дерево и diff через общий `DiffScreen`, отдавая ему свои части: конец строки дерева,
@@ -131,7 +130,28 @@ Code: `src/renderer/pr-review/ReviewMode.tsx:386-403` · key lines: 387, 388, 38
 - Требование: [Что делаем, пункт 2](../issues/08-rework-07-item-2.md#что-делаем)
 - Риски и пробелы test-ов: экран PR проверяет `test/e2e/pr-review.spec.ts` без правки ожиданий и `test/unit/review-mode.test.tsx`.
 
-## 6. Старые Node-ы `changes` уходят при чтении Layout-а
+## 6. Папки дерева переживают перечитывание (доработка, раунд 1)
+
+Code: `src/renderer/pr-review/ReviewMode.tsx:110-114` · key lines: 112, 113
+
+```tsx
+  const [filter, setFilter] = useState('')
+  const [workflowOpen, setWorkflowOpen] = useState(false)
+  // Kept here, not in DiffScreen: «Reading…» stands in its place while a read runs (Hide whitespace, Refresh, a new head).
+  const [toggled, setToggled] = useState<ReadonlySet<string>>(new Set())
+  const [generation, setGeneration] = useState(0)
+```
+
+- Что делает: свёрнутые и открытые папки дерева хранит вызывающий экран, а не `DiffScreen`; так же в `ChangesView.tsx`.
+- Почему здесь: ревью раунда 1 PR #2124 — пока идёт чтение (Hide whitespace, Refresh, новый head), оба экрана рисуют
+  «Reading…» вместо `DiffScreen`, и его собственное состояние терялось; Ticket требует, чтобы экран PR не менялся.
+- Без него: после Hide whitespace, Refresh или push каждая папка, которую человек открыл или свернул, возвращалась
+  в исходный вид.
+- Требование: [Что делаем, пункт 2](../issues/08-rework-07-item-2.md#что-делаем)
+- Риски и пробелы test-ов: unit test-ы `review-mode` (Hide whitespace) и `changes-view` (Refresh); три мутанта
+  (состояние обратно в `DiffScreen`, сброс по `generation`, сброс по `listFor`) дают exit 1.
+
+## 7. Старые Node-ы `changes` уходят при чтении Layout-а
 
 Code: `src/main/layout/upgrade.ts:41-49` · key lines: 46, 47, 48
 
@@ -153,19 +173,19 @@ Code: `src/main/layout/upgrade.ts:41-49` · key lines: 46, 47, 48
 - Требование: [Решено без владельца, 1](../issues/08-rework-07-item-2.md#решено-без-владельца)
 - Риски и пробелы test-ов: Node хранил только Ticket и scope; scope после обновления сбрасывается на All changes.
 
-## 7. Что сознательно не меняли
+## 8. Что сознательно не меняли
 
 Шапка Review mode, Viewed, Review bar и обработчик клавиш `ReviewMode` — по брифу, пока идёт worfy-pr-review 11.
 Чтение git в main (`src/main/changes/`) — только читать, ADR-0110. Диапазон «+» перетаскиванием и подсветка — Ticket-ы
 09 и 10.
 
-## 8. Как проверено
+## 9. Как проверено
 
 - `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 (880 файлов test-ов); gate fast — exit 0.
 - 37 файлов unit и contract test-ов модулей changes, pr-review, layout, palette, canvas actions, quote, shell — exit 0.
 - `pnpm test:e2e test/e2e/changes.spec.ts test/e2e/changes-comments.spec.ts test/e2e/pr-review.spec.ts` — exit 0, 6 passed.
-- 14 мутантов (upgrade, кнопка, palette, клавиши, возврат, смена Project-а, scope, фокус, запрос строки) — каждый
-  даёт exit 1 своего test-а.
+- 14 мутантов (upgrade, кнопка, palette, клавиши, возврат, смена Project-а, scope, фокус, запрос строки) и 3 мутанта
+  раунда 1 (папки дерева) — каждый даёт exit 1 своего test-а.
 
 ## Проверить себя
 

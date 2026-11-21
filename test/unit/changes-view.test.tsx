@@ -718,6 +718,20 @@ describe('the view over the window', () => {
     expect(useNavigation.getState().view).toBe('changes')
   })
 
+  it('a folder folded in the tree stays folded after Refresh reads the Ticket again (review round 1)', async () => {
+    openChanges(PROJECT, { epic: 'demo', num: 3 })
+    render(screenOf())
+    await screen.findAllByTestId('changes-line')
+    const folder = () => screen.getAllByTestId('changes-tree-folder').find((each) => each.dataset.path === 'src/orders')!
+    fireEvent.click(folder())
+    expect(folder().getAttribute('aria-expanded')).toBe('false')
+    const before = calls.filter((call) => call.channel === 'changes.scopes').length
+    fireEvent.click(screen.getByTestId('changes-refresh'))
+    await vi.waitFor(() => expect(calls.filter((call) => call.channel === 'changes.scopes').length).toBeGreaterThan(before))
+    await screen.findAllByTestId('changes-line')
+    expect(folder().getAttribute('aria-expanded')).toBe('false')
+  })
+
   it('takes no keys while another view is shown', async () => {
     openChanges(PROJECT, { epic: 'demo', num: 3 })
     render(screenOf())

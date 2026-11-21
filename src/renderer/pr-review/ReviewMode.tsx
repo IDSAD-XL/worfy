@@ -36,7 +36,7 @@ import '../../shared/ipc/pr-review'
 import { REVIEW_FILES_MAX, type PrReviewDraftAnswer, type ReviewDraft } from '../../shared/ipc/pr-review'
 import { type DiffPaneHandle } from '../changes/DiffPane'
 import { DiffScreen } from '../changes/DiffScreen'
-import { orderedFiles, type DiffLayout, type FileEntry, type RepoFiles } from '../changes/diff-window'
+import { orderedFiles, toggledWith, type DiffLayout, type FileEntry, type RepoFiles } from '../changes/diff-window'
 import '../changes/changes.css'
 import { invoke, subscribe } from '../ipc'
 import { ApprovalsChip } from '../pr-inbox/ApprovalsChip'
@@ -109,6 +109,8 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
   const [hideWhitespace, setHideWhitespace] = useState(false)
   const [filter, setFilter] = useState('')
   const [workflowOpen, setWorkflowOpen] = useState(false)
+  // Kept here, not in DiffScreen: «Reading…» stands in its place while a read runs (Hide whitespace, Refresh, a new head).
+  const [toggled, setToggled] = useState<ReadonlySet<string>>(new Set())
   const [generation, setGeneration] = useState(0)
   const listFor = JSON.stringify([projectId, subject, scope, hideWhitespace, generation])
   const [listRead, setListRead] = useState<Read<{ repos: RepoFiles[]; truncatedAt: number | null; additions: number; deletions: number }> | null>(null)
@@ -384,7 +386,19 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
   else
     body = (
       <DiffScreen
-        tree={{ repos, filter, onFilter: setFilter, selected: chosen, onSelect: select, workflowOpen, onWorkflowOpen: setWorkflowOpen, truncatedAt: value?.truncatedAt ?? null, renderRowEnd }}
+        tree={{
+          repos,
+          filter,
+          onFilter: setFilter,
+          selected: chosen,
+          onSelect: select,
+          workflowOpen,
+          onWorkflowOpen: setWorkflowOpen,
+          toggled,
+          onToggle: (key) => setToggled((set) => toggledWith(set, key)),
+          truncatedAt: value?.truncatedAt ?? null,
+          renderRowEnd,
+        }}
         diff={{ ref: pane, projectId, subject, scope, hideWhitespace, layout, wrap, entries, several: false, selected: chosen, generation, threads: row.threads, renderHeadEnd, ...lineComments.diff }}
         columnClassName="w-pr-review__diff"
         aboveDiff={

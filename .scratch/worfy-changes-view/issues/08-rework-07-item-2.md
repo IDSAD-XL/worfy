@@ -153,7 +153,7 @@ Source: owner-check fail 2026-11-21 of worfy-changes-view 07, item 2 — 07-пр
   в toolbar. Компонент — `src/renderer/changes/ChangesView.tsx` (`ChangesScreen` монтирует shell): шапка «← Canvas»
   (`data-testid="changes-back"`), заголовок, `ScopeBar`, дерево и diff, лоток. Предмет вида, вид возврата и scope по
   Ticket-у — store `useChangesView` в `src/renderer/changes/open.ts`, не Layout.
-- Общий экран diff-а — `src/renderer/changes/DiffScreen.tsx` (дерево слева, колонка diff-а справа, свёрнутые папки) и
+- Общий экран diff-а — `src/renderer/changes/DiffScreen.tsx` (дерево слева, колонка diff-а справа) и
   клавиши `src/renderer/changes/diff-keys.ts` (`j`/`k`, `↓`/`↑`, `n`/`p`, `c`, Esc; не в текстовом поле и не в открытом
   слое). `ReviewMode.tsx` рисует свои дерево и diff через `DiffScreen`; его шапка, Viewed, Review bar и обработчик клавиш
   не тронуты. e2e `test/e2e/pr-review.spec.ts` прошёл без правки ожиданий.
@@ -168,3 +168,6 @@ Source: owner-check fail 2026-11-21 of worfy-changes-view 07, item 2 — 07-пр
   отдельной правкой после merge 11.
 - Снимки вида в обеих темах снимает `test/e2e/changes.spec.ts` (`changes-view-card`, `-inline`, `-side-by-side`, `-large`
   в `test-results/e2e/snapshots/`). В репозиторий они не положены: человек ещё не проверил их пиксели (`scrub:`).
+- Доработка, раунд 1 ревью PR #2124: свёрнутые и открытые папки дерева снова хранит вызывающий экран (`ReviewMode`,
+  `ChangesView`), а не `DiffScreen`: пока идёт чтение, оба рисуют «Reading…» вместо него, и папки сбрасывались после
+  Hide whitespace, Refresh или нового head-а. Unit test-ы в `review-mode.test.tsx` и `changes-view.test.tsx`.
