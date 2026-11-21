@@ -1,14 +1,16 @@
 # Pull requests
 
-> Перевод [английской версии](../pr-inbox.md), commit `5d1efe69`.
+> Перевод [английской версии](../pr-inbox.md), commit `same-pr`.
 
 **PR inbox** Project-а: открытые pull request-ы (PR) пользователя и запросы ревью у него в репозиториях Project-а,
 сгруппированные по тому, чей ход, с нитями ревью и их последними комментариями. В UI — **Pull requests**. Он читает
-GitHub. Единственное, что он вообще публикует, — ответ, который Session написала skill-ом `pr-reply`: пользователь может
-его поправить, и уходит он только по щелчку пользователя на **Send**. Больше ничего он там не закрывает, не запрашивает,
-не ревьюит и не помечает
-([ADR-0105](../../adr/0105-pr-reply-only-on-the-users-click.md)). Термины — в [Concepts](concepts.md); badge-и PR и CI
-у Ticket-а — на странице [Gate и GitHub](gate-and-github.md).
+GitHub, а его поиск находит любой другой PR, который видит аккаунт Project-а. Публикует он две вещи, каждую — только по
+щелчку пользователя: ответ, который Session написала skill-ом `pr-reply` и который пользователь может поправить, — по
+**Send** ([ADR-0105](../../adr/0105-pr-reply-only-on-the-users-click.md)), и ревью чужого PR, написанное в
+[Review mode](#review-mode) самим пользователем или Agent review, — по **Submit review**
+([ADR-0112](../../adr/0112-pr-review-submit-only-on-the-users-click.md)). Больше ничего он там не закрывает, не
+запрашивает и не помечает. Термины — в [Concepts](concepts.md); badge-и PR и CI у Ticket-а — на странице
+[Gate и GitHub](gate-and-github.md).
 
 ## Вид Pull requests
 
@@ -48,8 +50,20 @@ PR без Ticket-а — такая же строка, как остальные.
 и точка CI — с текстом рядом, когда CI не зелёный. Когда строке не хватает места, первым уступает имя репозитория, потом
 имя Epic-а в chip-е Ticket-а (обрезается многоточием; его номер остаётся целым, а `<epic> <NN> — <title>` — tooltip
 chip-а). `#N` и текст CI остаются целыми, и ничто не рисуется поверх другого. Справа: возраст, число открытых нитей со
-значком реплики (оранжевое на PR самого пользователя, где ждут его; tooltip — «2 open threads») и синяя точка, когда есть
-новые комментарии (tooltip — «N new since you looked»).
+значком реплики (оранжевое на PR самого пользователя, где ждут его; tooltip — «2 open threads»), синяя точка, когда есть
+новые комментарии (tooltip — «N new since you looked»), и chip одобрений.
+
+- **Chip одобрений**: сколько одобрений засчитано и сколько их просит правило базовой ветки. `0/2` и `1/2` нейтральны;
+  `✓ 2/2` зелёный, когда GitHub говорит APPROVED — или, когда GitHub вообще не даёт решения по ревью, когда счёт набран,
+  code owner-ов не ждут, последний push не требует ещё одного одобрения и у ветки нет правила, которого worfy не умеет
+  считать, — и `✓ 2`, когда
+  GitHub одобряет PR, правило которого аккаунт не видит; `✕ 1/2` оранжевый при запрошенных правках; `1/?` серый и
+  пунктирный, когда правило аккаунту не видно; часы помечают счёт, который набран, пока code owner-ы ещё держат PR.
+  Правило, которое не просит одобрений, пока GitHub всё ещё хочет ревью, показывает `review required`, никогда `0/0`.
+  Tooltip говорит, кто одобрил, каких code owner-ов ждут, какие одобрения даны до последнего push-а и правило их снимает (stale), и, когда
+  счёт набран, но GitHub всё ещё держит PR, — слово GitHub (`GitHub says: review required` или `more rules apply — GitHub
+  decides`, когда у ветки есть правило, которое worfy не считает). Accessible name называет chip словами (`1 of 2
+  required approvals`, `1 approval, rule not visible`). У ветки без правила ревью chip-а нет.
 
 - **Заголовок**: обрезается многоточием, когда не помещается; весь заголовок — его tooltip.
 - **Точка CI**: зелёная — проходит, оранжевая — упал, пустое синее кольцо — идёт, пустое серое кольцо — CI нет. Её текст —
@@ -74,12 +88,12 @@ chip-а). `#N` и текст CI остаются целыми, и ничто н�
 - заголовок, `owner/repo#N`, chip Ticket-а, `Draft` у черновика PR, «via team», если ревью просят только у команды
   пользователя, автора, ветку и «N new since you looked»;
 - **что делать дальше** — одна плашка в цвете группы PR, по группе, CI, ревью и черновикам, с главной кнопкой: «Your
-  review is asked» с **Start review** (вкладка Files на GitHub); «Answer N open threads» — с **Send all (N)**, когда ниже
-  готовы два черновика ответов или больше (открывает диалог Send all, см. ниже), с **Draft replies**, когда черновиков
-  ещё нет, и без кнопки при одном черновике — его **Send** стоит под его нитью; «CI failing», «Changes requested»,
-  «Merge conflict» или несколько из них («Merge conflict and CI failing») с кнопками причин PR и **Open checks**; «Ready
-  to merge» с **Open to merge**; «Waiting for reviewers» или «Draft PR: no review asked yet». В светлой теме Needs my
-  review — синяя, Needs my answer — фиолетовая (в тёмной — лаймовая);
+  review is asked» с **Start review ▾** ([Review mode](#review-mode)); «Answer N open threads» — с **Send all (N)**, когда
+  ниже готовы два черновика ответов или больше (открывает диалог Send all, см. ниже), с **Draft replies**, когда
+  черновиков ещё нет, и без кнопки при одном черновике — его **Send** стоит под его нитью; «CI failing», «Changes
+  requested», «Merge conflict» или несколько из них («Merge conflict and CI failing») с кнопками причин PR и **Open
+  checks**; «Ready to merge» с **Open to merge**; «Waiting for reviewers» или «Draft PR: no review asked yet». В светлой
+  теме Needs my review — синяя, Needs my answer — фиолетовая (в тёмной — лаймовая);
 - **кнопки PR, который надо исправить**: **Resolve conflicts** при конфликте merge (`DIRTY`), **Fix checks** при красном
   CI, **Address comments** при запрошенных правках или нитях, которые ждут ответа пользователя, — в этом порядке: PR с
   конфликтом CI не запускает. Первая причина — главная кнопка плашки, и строка плашки говорит, что эта кнопка делает
@@ -93,9 +107,15 @@ chip-а). `#N` и текст CI остаются целыми, и ничто н�
   может запуститься, неактивна, и её tooltip говорит почему: пустой шаблон (`Set the Fix checks template in Project
   settings`), экран только для чтения, PR из fork-а, PR не пользователя или PR, у которого причины больше нет. Кнопки
   ничего не пишут на GitHub: Session спрашивает, прежде чем push-ить;
-- четыре ячейки: **CI**; **Review** (Approved, Changes requested, Review required или None yet); **Merge** (Mergeable,
-  Behind the base, Blocked, Checks failing, Conflicts, Draft или Unknown — по состоянию merge на GitHub); **Size** —
-  добавленные и удалённые строки (`+184 −22`) с полосой их долей, или `—`, если GitHub их не дал;
+- четыре ячейки: **CI**; **Approvals** — chip одобрений, к чему он сводится (`of 2 required`, `changes requested`,
+  `waiting for code owners`, `rule not visible to your account`, `GitHub says: approved`), и каждый ревьюер с состоянием
+  его ревью: Approved, Changes requested, Commented, Requested (с `code owner`, когда его просили как code owner-а),
+  Dismissed, `Approved · stale` (до последнего push-а, когда правило сбрасывает такие одобрения) и серый `Approved · does
+  not count` у ревьюера без права записи; команда code owner-ов, которую аккаунт не видит, указана как `code owners
+  (hidden team)`. Ветка без правила ревью пишет `No review rule · 1 approval`. Project machine, которая ещё не читает
+  одобрения, показывает на этом месте **Review** (Approved, Changes requested, Review required или None yet); **Merge**
+  (Mergeable, Behind the base, Blocked, Checks failing, Conflicts, Draft или Unknown — по состоянию merge на GitHub);
+  **Size** — добавленные и удалённые строки (`+184 −22`) с полосой их долей, или `—`, если GitHub их не дал;
 - **Open on GitHub**; **Code story** — открывает Code story Ticket-а этого PR в Story view, когда она есть в Tickets
   root, а иначе собирает story PR по кнопке, с полосой прогресса на её месте, или открывает сохранённую раньше;
   **Rebuild story**, когда story сохранена ([Workflow](workflow.md)); **Draft replies** (см. ниже; в плашке вместо этого
@@ -119,6 +139,151 @@ text, которая открывает изображение в браузер
 Выбор PR — щелчок, **↑** или **↓**, вход, который называет PR, — и **Mark seen** записывают, что пользователь посмотрел:
 «N new since you looked» гаснет. PR, который вид выбрал сам, и первый PR группы, о которой попросила строка sidebar-а, не
 записывают ничего. Ссылки открываются в браузере системы, никогда не в окне.
+
+### Поиск
+
+Под заголовком стоит строка поиска: меню области, поле, **☆ Save** и **× Clear**, а под ними — ряд chip-ов фильтров.
+Она находит любой pull request, который видит GitHub-аккаунт Project-а, а не только PR из inbox.
+
+- **Поле** (`role="searchbox"`, «Search pull requests») принимает слова и квалификаторы поиска GitHub. **/** ставит в
+  него фокус откуда угодно в виде, кроме текстового поля; **Escape** снимает с него фокус. **Enter** ищет; сам ввод
+  текста — никогда. Пустое поле и Enter возвращают inbox. Под полем вид ещё до Enter говорит, от чего GitHub отказался
+  бы: поиск длиннее 256 символов или больше 5 `AND`, `OR` и `NOT`.
+- **Меню области**: **This Project** (по умолчанию) — репозитории Project-а на GitHub; **Organizations of this
+  Project** — все репозитории владельцев этих репозиториев; **All of GitHub** — всё, что видит аккаунт. Выбор сразу ищет
+  там, когда в поле есть текст. `repo:`, `org:` или `user:`, набранный в поле, сам и есть область, и вид говорит, что
+  область меню не добавлена.
+- **Chip-ы фильтров**: State, Review requested, Author, Involves me, Label, Draft, Review status, Reviewed by me, Asked
+  or reviewed. Chip пишет свой квалификатор в поле (State → `is:open`, Review requested → `review-requested:@me` или
+  `user-review-requested:@me`, Asked or reviewed → `review-involves:@me`, …) и ищет. Поле — единственный источник
+  истины: chip показывает квалификатор, который держит поле, кто бы его ни набрал, с его значением (`Author: dev-ana`).
+  Involves me, Reviewed by me и Asked or reviewed переключаются нажатием; остальные открывают меню своих квалификаторов и
+  **Remove the filter**. Author предлагает Me, авторов показанных строк и **Type a login…**; Label предлагает **Type a
+  label…**: оба ставят `author:` или `label:` в конец поля, чтобы набрать имя.
+- **Результаты** стоят в левой панели вместо групп: «Search · N results» (счёт GitHub) и имя сохранённого поиска, если
+  это он, «Searched 3 min ago · Refresh», затем строки как в списке inbox, каждая со своим chip-ом одобрений. Первый
+  результат выбирается сам; **↑** и **↓** двигают выбор, как в inbox; **Load more** просит у GitHub следующую страницу.
+  Результаты — снимок: никакой таймер не ищет снова, только Refresh. **× Clear** очищает поле и возвращает группы.
+  Поиск, который ничего не нашёл, пишет «No pull requests match» и предлагает **Search All of GitHub**.
+- **Выбранный результат** открывается в той же панели, что и PR из inbox. PR из inbox сохраняет плашку своей группы, и
+  его выбор считается взглядом, как в inbox. PR, которого в inbox нет, при выборе читается целиком (main держит его в
+  памяти, пока он не меняется на GitHub; Refresh и фокус окна, когда чтению больше минуты, читают его снова мимо этой
+  памяти); у него нет «N new since you looked», а у PR коллеги есть плашка **Review this pull request**: кого попросил
+  автор и сколько одобрений осталось, и **Start review ▾**, которая открывает [Review mode](#review-mode). **Enter** на
+  результате запускает ревью так же; на собственном PR он только выбирает его.
+- **Сохранённые поиски**: **▾** в конце поля перечисляет их — сначала два встроенных, «Review requested from me · All of
+  GitHub» (`review-requested:@me is:open`) и «Reviewed by me · open» (`reviewed-by:@me is:open`, This Project), — затем
+  поиски пользователя, каждый со своим текстом и областью; выбор запускает поиск в его области. **☆ Save** даёт имя
+  поиску в поле и сохраняет его вместе с областью; кнопка пишет **★ Saved**, когда поле и область уже — сохранённый
+  поиск. **Forget** в том же меню удаляет собственный поиск пользователя, который сейчас в поле. Не больше 20 помимо
+  встроенных.
+- **Notice-ы** из раздела 10 spec-а стоят над результатами: репозиторий, который аккаунт не видит; token, не
+  авторизованный для single sign-on организации (с **Authorize** — ссылкой GitHub); результаты, которые некоторые
+  организации прячут за single sign-on; часть результатов, когда у GitHub истёк timeout; только первые 1 000; поиск,
+  приостановленный до определённого времени по rate limit GitHub (тогда поиск сам запускается снова в это время, если
+  раньше не придут другой поиск или Clear; Load more, которому он отказал, оставляет показанные страницы); отказ во входе
+  (с **Open Health check**). Собственные слова GitHub о поиске, который он не может разобрать (422), стоят вместо этого
+  под полем, и поле обведено красным, пока текст не изменится.
+
+На экране только для чтения Linked machine поиск работает через Project machine, как и чтение; **☆ Save** неактивна с
+подсказкой, а Forget не предлагается.
+
+### Review mode
+
+**Start review ▾** спрашивает, кто пишет ревью. В его меню — **Review myself** («You write the comments and choose the
+verdict») и **Agent review** («An agent drafts it; you edit and submit»). Щелчок по самой кнопке берёт последний выбор
+Project-а на этой машине, а пока выбора не было — Review myself; когда последний выбор — Agent review, кнопка пишет
+«Start review · Agent».
+
+**Экран.** Review mode встаёт на место панели PR; список сворачивается в колонку шириной 48 px с аватаром и номером
+каждого PR, а **← Inbox** (или **← Results** для поиска) сверху возвращает список. PR, выбранный в колонке, закрывает
+Review mode и выбирает этот PR. Шапка экрана: `owner/repo#N` и заголовок, `main ← branch`, head commit,
+«N files · +a −d», chip одобрений, «Viewed N/M», **Refresh** и **Close**. Под ней: **Inline** | **Side by side**,
+**Wrap**, **Hide whitespace**, затем дерево и diff [Changes](changes.md) для PR, с нитями ревью GitHub на их строках.
+Файл в дереве показывает, сколько у него открытых нитей и комментариев черновика, и ✓, когда он Viewed. **j** / **k**
+и **↓** / **↑** двигают по файлам (не по PR), **n** / **p** — по hunk-ам, **v** помечает файл Viewed или снимает
+пометку, **c** комментирует выбранные строки. **Escape** сначала закрывает открытое меню или комментарий; следующий
+закрывает Review mode. Черновик остаётся. Другая вкладка и возврат сохраняют PR, его файл и Show new commits. PR,
+который уходит из списка (ушёл из inbox при чтении или поиск очистили), закрывает Review mode, и список снова берёт
+свои клавиши.
+
+**Черновик.** Start review создаёт черновик ревью PR на его head, когда черновика нет: файл на этой машине, в папке
+Profile Project-а, никогда не на GitHub. В этот первый раз main читает, какие файлы аккаунт пометил Viewed на
+github.com, — один запрос GraphQL, `viewerViewedState`, только чтение, — и помечает их Viewed в черновике, не больше
+чем для первых 3 000 файлов. Черновик ждёт, пока файлы PR прочитаются без ошибки: после упавшего чтения (GitHub занят,
+rate limit) **Refresh** читает их и создаёт черновик. После этого пометки живут только в worfy и никогда не пишутся на
+GitHub. Пометка принадлежит blob-у новой стороны файла: push, который меняет файл, снова показывает его не Viewed.
+
+**Комментарии на строках.** Popover и клавиши — те же, что у комментариев на строках в [Changes](changes.md), но
+комментарий идёт в черновик ревью, а не в Session, и до Submit ничего не уходит на GitHub. Его открывает **+** в
+gutter строки или **c** на выбранных строках (щелчок выбирает строку, щелчок с Shift или выделение через несколько
+строк выбирает диапазон); текст — Markdown, **Suggest change** (только новая сторона) добавляет блок `suggestion` с
+текстом выбранных строк, **⌘↵** сохраняет. Изображения не принимаются. Диапазон покрывает строки одного hunk-а: GitHub
+отказывает диапазону через несколько hunk-ов, поэтому такой выбор показывает сообщение и ничего не открывает. Строки
+читаются без Hide whitespace и развёрнутыми (у lock-файла, сгенерированного или слишком большого файла тоже). Popover
+с несохранённым текстом остаётся открытым на **Escape** и на щелчок снаружи; **Cancel** закрывает его. Комментарий
+стоит под своей последней строкой: «Pending · Edit · Delete» или «Written by the agent · Edit · Delete» у комментария
+агента; правка делает комментарий комментарием человека. Новые комментарии создаются только пока diff показывает All
+changes commit-а, на котором стоит черновик: когда head ушёл дальше, комментарии перечислены над diff и остаются на
+строках того commit-а. Комментарий на строке, которой нет в diff PR (агент взял не ту строку), или на диапазоне через
+несколько hunk-ов стоит в «Not on a changed line» над diff — GitHub отказал бы ему — с **Move to line** (комментарий
+встаёт на следующую строку, по чьему **+** щёлкнут, или на строки, выбранные через **c**) и **Delete**.
+
+**Полоса Your review** внизу: «Your review · 3 pending comments on 2 files» или «5 comments (5 by the agent) on
+3 files», когда часть написал агент. **Discard**, неактивная, пока в черновике нет комментария, спрашивает «Discard
+3 pending comments?», а затем удаляет файл черновика и закрывает Review mode; на GitHub ничего не было, так что там
+ничего не меняется. **Finish review** (или ⌘⇧↵) открывает диалог Submit review, описанный ниже; она неактивна, пока
+пишет Session Agent review («Waits until the agent finishes or you stop it»).
+
+**Finish review и Submit.** Диалог «Submit review to example-org/web#41» показывает ровно то, что уйдёт:
+- **Summary** — текст ревью в целом;
+- **Comment**, **Approve** или **Request changes**: выбор всегда начинается с Comment. После Agent review строка пишет
+  «The agent suggests: Request changes — you choose». Approve и Request changes неактивны на собственном PR; Comment и
+  Request changes требуют summary или комментария;
+- «2 comments will be posted on 3f2a9c1, exactly as below»: каждый комментарий с его файлом, строками и текстом.
+  Комментарий, который написал агент и не правил человек, помечен «by the agent». **Remove** не пускает комментарий в
+  этот Submit;
+- проверка текстов через `review-draft-lint` (следы workflow, подпись AI, личные данные, длина): «Checked: no workflow
+  traces, no AI signature, no personal data» или то, что она нашла, — тогда Submit неактивна.
+
+**Submit review** публикует ревью только по щелчку или ⌘↵; один Enter — нет. На GitHub уходит один запрос, от
+GitHub-аккаунта Project-а. Когда head PR сдвинулся с начала черновика, диалог пишет «Your comments are on 3f2a9c1; the
+head is 7d0e4b2.», и кнопка становится **Submit on 3f2a9c1**: комментарии уходят на те строки, на которых их написали.
+Комментарий не на изменённой строке этого commit-а останавливает весь Submit, пока его не удалят или не перенесут:
+GitHub отказал бы ревью с ним. GitHub принял: toast «Review sent to example-org/web#41 · Approve · 2 comments», PR
+читается снова (его chip одобрений учитывает это одобрение), и Review mode закрывается; когда это ревью у GitHub уже
+было, toast пишет «GitHub had this review of example-org/web#41 already: it is marked submitted, nothing was posted
+again». При новом открытии его полоса пишет «You reviewed this pull request · Approve» с **Open the review on GitHub**
+и **Start a new review**; комментарии пишут «Submitted · on GitHub». GitHub отказал: его причина — в диалоге, черновик
+остаётся со всеми комментариями, и с убранными тоже. GitHub не ответил: полоса держит «GitHub did not confirm the
+review: <причина>», а ушедшие тексты остаются как есть — без правок, без агента, и диалог открывается на них,
+запертый; следующий Submit сначала смотрит, есть ли ревью на GitHub. В течение 5 минут после Submit, если ревью не
+нашлось, он пишет «Not submitted: GitHub did not confirm the review, and it has not listed it yet — try again in a
+minute»; позже те же тексты публикуются. **Discard** там по-прежнему работает и предупреждает, что ревью уже может
+быть на GitHub.
+
+**Chip Review draft.** PR, у которого на этой машине есть черновик комментариев, показывает **Review draft** в своей
+строке inbox и результатов поиска, с «3 pending comments, started on 3f2a9c1» в tooltip. Черновик переживает выход
+из worfy.
+
+**Новые commit-ы.** Review mode читает PR снова при входе, по **Refresh**, когда окно получает фокус, а последнему
+чтению больше минуты, и каждые 2 минуты, пока он показан и окно в фокусе. Когда head ушёл дальше commit-а черновика,
+плашка пишет «2 new commits since you started · you started on 3f2a9c1, the head is 7d0e4b2. Your comments stay on the
+lines of 3f2a9c1.» («The head moved since you started», когда число новых commit-ов неизвестно.) Комментарии черновика
+тогда перечислены над diff со своими строками.
+**Show new commits** показывает diff с этого commit-а (Since my review); **Show all changes** возвращает назад. Commit
+плашки — тот, по которому пронумерованы строки комментариев (`anchoredOn`, иначе `startedOn` черновика).
+
+**Agent review.** Start review → Agent review открывает Review mode и сразу запускает Session Agent review: Team
+reviewer Project-а (`/human-review`), иначе линзы ревью `/worfy:code-review`. Её комментарии появляются на своих
+строках по мере того, как она их пишет. Полоса внизу пишет «Agent is writing the review… · N comments so far» с
+**Take over** и **Stop**; человек тем временем может читать и писать. После неё полоса пишет «Your review · 5 comments
+(5 by the agent) · The agent suggests: Request changes» с **Take over**: Session останавливается, а её комментарии
+остаются. У черновика человека вместо этого есть **Ask the agent to add comments**: Session добавляет свои комментарии
+и оставляет комментарии и summary человека как есть.
+
+**На Linked machine** Start review неактивна с «Review on the machine of the Project». **View changes** открывает
+Review mode только для чтения: diff и нити, «Read only» в шапке, без Viewed, без черновика, без полосы, без **+**.
 
 ### Draft replies и Send
 
@@ -232,21 +397,28 @@ Project читается сразу, не дожидаясь следующег�
 неактивен. Ссылки открываются на той Machine, где по ним щёлкнули.
 
 Черновики и Send остаются на машине Project-а: окно на Linked machine не показывает ни черновиков, ни **Draft replies**, а
-каналы черновиков и Send отказывают Linked machine при любом уровне доступа.
+каналы черновиков и Send отказывают Linked machine при любом уровне доступа. Так же и черновик ревью: Start review там
+неактивна, а Review mode открывается только для чтения через **View changes**.
 
 ### Как работает
 
 - GitHub читает main — по Project-у, с GitHub-аккаунтом Project-а, только репозитории Project-а: поиск раз в 5 минут,
   потом детали сдвинувшихся PR, среди них размер (`additions`, `deletions`). Конфликт после merge другого PR или
   повторный запуск CI не сдвигают PR на стороне GitHub: такой PR читается снова, когда его деталям 30 минут, не больше
-  одной страницы из 10 PR за поиск. Main считает группы и счётчики и шлёт виду снимок
-  ([ADR-0105](../../adr/0105-pr-reply-only-on-the-users-click.md), пункт 1). Вид его только рисует.
+  одной страницы из 10 PR за поиск. Те же детали несут правила ревью базовой ветки каждого PR: правила PULL_REQUEST её
+  ruleset-ов (и организации тоже) и её классическую branch protection, которую GitHub показывает только admin-у
+  репозитория. По ним main считает одобрения PR: последнее одобрение каждого ревьюера, который может push-ить в
+  репозиторий, — не автора и не одобрение более старого commit-а, когда правило снимает устаревшие ревью; число,
+  которого требует ветка, — наибольшее из её правил, неизвестное, когда GitHub даёт review decision, но аккаунт не видит
+  ни одного правила. Собственный review decision GitHub важнее этого подсчёта, и группы по-прежнему следуют ему. Main
+  считает группы и счётчики и шлёт виду снимок ([ADR-0105](../../adr/0105-pr-reply-only-on-the-users-click.md),
+  пункт 1). Вид его только рисует.
 - Слова коллег остаются в памяти main. Что пользователь видел, идёт в папку данных Project-а — id, commit и время, без
   текстов ([ADR-0005](../../adr/0005-worfy-own-state-inventory.md) с поправкой ADR-0105).
 - Renderer держит одну копию inbox каждого Project-а для вида и раздела. Он спрашивает main снова, когда main сообщает
   об изменении inbox и когда меняются настройки Project-а, — так переключатель виден сразу.
-- Main читает Project-ы по одному: чтения по таймеру и чтение по запросу (Project показан впервые или включён снова, или вид только что открыт: `prInbox.get` с `opened`) ждут
-  друг друга в одной очереди.
+- Main читает Project-ы по одному: чтения по таймеру и чтение по запросу (Project показан впервые или включён снова,
+  или вид только что открыт: `prInbox.get` с `opened`) ждут друг друга в одной очереди.
 - Черновики и Send: четыре канала `prInbox.drafts`, `prInbox.saveDraft`, `prInbox.discard` и `prInbox.send` —
   `local`, поэтому адаптер link отказывает в них Linked machine раньше, чем запустится любой handler. Main пишет в файл
   черновиков только текст пользователя (`edited`), отказ от ответа, отметку идущего Send и причину, по которой Send
@@ -258,6 +430,33 @@ Project читается сразу, не дожидаясь следующег�
   стирает, поэтому возврат к виду не выбирает этот PR снова.
 - Правая панель привязана к PR: другой PR начинает со своих черновиков, набранных текстов и прокрутки. Shell держит все
   виды смонтированными и прячет лишние, поэтому **↑** и **↓** работают, только пока этот вид показан.
+- Поиск: вид шлёт main поле и scope (`prSearch.run`); main строит строки поиска GitHub (`is:pr`, `archived:false`,
+  `sort:updated-desc` и qualifier-ы `repo:` или `org:` из scope, разложенные на несколько поисков короче 256 символов),
+  ищет от аккаунта Project-а и отвечает строками в той же форме, что строки inbox, а строку, которая есть в inbox, берёт
+  из него. Результат, которого нет в inbox, читается через `prSearch.pull`, когда его выбирают. Сохранённые поиски —
+  `pr-searches.json` в папке данных Project-а (`prSearch.saved`, `prSearch.save`, `prSearch.forget`). Ничто из этого не
+  пишет на GitHub.
+- Review mode: строки несут базовую ветку и commit PR (`baseRefName`, `baseRefOid`) — то, с чем diff сравнивает head.
+  Start review — `prReview.start` (`local`): PR без черновика получает черновик на своём head, и main один раз читает
+  файлы, которые аккаунт пометил Viewed на github.com, через gh от аккаунта Project-а; PR с черновиком ничего не читает.
+  Viewed — `prReview.setViewed`; Agent review, Ask the agent to add comments, Stop и Take over — `prReview.agentReview`
+  и `prReview.stopAgent`; записи Agent review приходят как `prReview.changed`. На каком PR открыт Review mode, хранит
+  store вида в renderer (`review-store.ts`).
+- Submit review (ADR-0112, третья запись main после двух записей ADR-0105): диалог спрашивает у `prReview.check`
+  (`local`) lint своих текстов через 400 ms после того, как они перестали меняться; Submit — `prReview.submit`
+  (`local`). Main снова читает файл черновика и берёт показанные тексты, прогоняет по ним `review-draft-lint`
+  (`lint.json` Team reviewer-а с `--untiered`, иначе длины шаблона), читает PR (`GET repos/{o}/{r}/pulls/{n}`: его head,
+  базу и автора), сверяет каждый комментарий с diff GitHub его commit-а (`pulls/{n}/files` на head, иначе
+  `compare/{base}...{commit}`), помечает черновик `submitting` и шлёт один `POST repos/{o}/{r}/pulls/{n}/reviews` с
+  `{commit_id, event, body, comments}`, где `commit_id` — commit, на котором стоят комментарии (`anchoredOn`, иначе
+  `startedOn`), от `github.account` Profile-а. 4xx, кроме 408, — отказ GitHub; 408, 5xx, потерянное соединение или
+  timeout gh — «did not confirm», и следующий Submit раньше любой другой проверки читает `GET …/reviews` в поисках ревью
+  этого аккаунта на этом commit-е с этим body, отправленного не раньше отметки `submitting` (`submittingAt`) минус
+  2 минуты, чьи комментарии на строках (`GET …/reviews/{id}/comments`) — комментарии черновика. Не нашлось в течение
+  5 минут после отметки — отказ, отметка остаётся (GitHub может показать ревью с опозданием); не нашлось позже — те же
+  тексты проходят проверки и один POST, и только отметка этого POST заменяет старую. Main отказывает в изменении этих
+  текстов (сохранённый или удалённый комментарий, Agent review). Никогда ревью без `event` (pending-ревью на GitHub),
+  никогда второй POST на один щелчок.
 
 ### Реализация
 
@@ -275,9 +474,22 @@ Project читается сразу, не дожидаясь следующег�
 | Resolve conflicts, Fix checks и Address comments в плашке и их toast | `src/renderer/pr-inbox/PrFollowButton.tsx`; может ли кнопка запуститься — `usePrFollowState` в `src/renderer/canvas/actions/gates.ts`; причины — `src/shared/actions/pr-follow.ts`; канал `actions.prFollow` — `src/shared/ipc/actions.ts`, `src/main/actions/launch.ts` |
 | Файл черновиков, повторная проверка и единственный POST | `src/main/github/pr-reply-send.ts` |
 | Читатель и группы | `src/main/github/inbox.ts`, `src/main/github/inbox-groups.ts` |
+| Подсчёт одобрений; chip одобрений, его tooltip и ячейка Approvals | `approvalsOf` в `src/shared/github/approvals.ts`; `src/renderer/pr-inbox/ApprovalsChip.tsx`, `src/renderer/pr-inbox/approvals-chip.css`; `approvalsChip`, `approvalsNote` и `reviewerText` в `src/renderer/pr-inbox/usePrInbox.ts` |
 | Что пользователь видел; переключатель, как его читает main | `src/main/projects/pr-inbox-state.ts` |
+| Строка поиска: меню scope, поле, chip-ы, ☆ Save и сохранённые поиски | `src/renderer/pr-inbox/SearchBar.tsx`, `src/renderer/pr-inbox/pr-search.css`; строки поиска и qualifier-ы chip-ов — `src/shared/pr-search/query.ts` |
+| Результаты, их notice-ы, Load more; состояние поиска и плашка «Review this pull request» | `src/renderer/pr-inbox/SearchResults.tsx`; `usePrSearch` и `searchStep` в `src/renderer/pr-inbox/usePrInbox.ts` |
+| Каналы `prSearch.run`, `prSearch.pull`, `prSearch.saved`, `prSearch.save`, `prSearch.forget`; поиск в main | `src/shared/ipc/pr-search.ts`, `src/main/ipc/pr-search.ts`, `src/main/github/pr-search.ts` |
+| Start review ▾, Review mode, его колонка, последний выбор Project-а | `src/renderer/pr-review/StartReviewMenu.tsx`, `src/renderer/pr-review/ReviewMode.tsx`, `src/renderer/pr-review/review-store.ts`, `src/renderer/pr-review/pr-review.css`; колонка — `src/renderer/pr-inbox/PrInboxView.tsx` |
+| Комментарии на строках в Review mode, «Not on a changed line», полоса Your review и Discard, chip Review draft | `src/renderer/pr-review/review-comments.tsx`, `src/renderer/pr-review/ReviewBar.tsx`, popover — `src/renderer/changes/LineComment.tsx`; черновики Project-а — `useReviewDrafts` в `src/renderer/pr-review/review-store.ts`; chip — `PrListItem` в `src/renderer/pr-inbox/PrInboxView.tsx` |
+| Start review в main: черновик, файлы, помеченные Viewed на github.com | `prReview.start` в `src/shared/ipc/pr-review.ts`, `src/main/ipc/pr-review.ts`; `viewedOnGithub` и `start` в `src/main/github/pr-review-draft.ts` |
+| Finish review и Submit: диалог, проверка, единственный POST | `src/renderer/pr-review/FinishReviewDialog.tsx`, `src/renderer/pr-review/ReviewBar.tsx`; `prReview.check` и `prReview.submit` в `src/shared/ipc/pr-review.ts`, `src/main/ipc/pr-review.ts`; `src/main/github/pr-review-submit.ts`; lint — `harness/bin/review-draft-lint` |
 
 Test-ы: `test/unit/pr-inbox-view.test.tsx`, `test/unit/pr-inbox-open.test.tsx`, `test/e2e/pr-inbox.spec.ts` (со
 screenshot-ами двух панелей при 1280 и 1600 px в обеих темах); читатель — в `test/contract/pr-inbox.test.ts` и
 `test/unit/pr-inbox-groups.test.ts`; черновики и Send — в `test/contract/pr-inbox-send.test.ts` и
-`test/unit/draft-thread.test.tsx`.
+`test/unit/draft-thread.test.tsx`; поиск — в `test/unit/pr-search-view.test.tsx`, `test/e2e/pr-search.spec.ts` (с его
+screenshot-ами при 1280 и 1600 px в обеих темах), `test/contract/pr-search.test.ts` и
+`test/unit/pr-search-query.test.ts`; Review mode — в `test/unit/review-mode.test.tsx`,
+`test/unit/review-comments.test.tsx`, `test/contract/pr-review-draft.test.ts`, Submit review — в
+`test/unit/finish-review-dialog.test.tsx`, `test/contract/pr-review-submit.test.ts` и `test/e2e/pr-review.spec.ts` (с
+его screenshot-ами при 1280 и 1600 px в обеих темах).

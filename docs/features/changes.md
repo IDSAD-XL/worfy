@@ -329,8 +329,8 @@ chat opens the view on its line).
 ### Behaviour
 
 The subject of Changes may be a pull request: its repository `owner/name`, its number, its head commit and its base
-commit. The channels of Changes read it; no screen opens one yet — the Review mode of the Pull requests tab will
-(worfy-pr-review, a later Ticket). The Changes view shows a Ticket.
+commit. [Review mode](pr-inbox.md#review-mode) of the Pull requests tab opens it: the same tree and diff as the
+Changes view, which shows a Ticket. A row of the PR inbox without its head or base commit opens no diff.
 
 - **Read locally when it can be.** When the PR's repository is the `origin` of a checkout of the Project and both its
   commits are in that checkout, the diff is read with the same reading git as a Ticket's: the PR is a branch checked
@@ -354,8 +354,8 @@ commit. The channels of Changes read it; no screen opens one yet — the Review 
   not the PR's base); a Commit numbers its lines of its own, so there every thread is listed. An outdated thread, one
   without a line, and one whose line the scope or the hunks do not show stand in a list under the file's header,
   «N threads not on a line of this diff», each with where it was («outdated», «no line», «line 101», «old line 9»).
-  A thread the viewer may answer has Reply, which opens the reply draft of the PR inbox; nothing new is sent from
-  the diff.
+  The diff has no Reply under a thread: a reply is drafted under its thread in the pane of the PR
+  ([Draft replies and Send](pr-inbox.md#draft-replies-and-send)), and nothing is sent from the diff.
 
 ### How it works
 

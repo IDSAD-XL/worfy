@@ -359,7 +359,7 @@ A mark counts only on the head commit, so a new push makes earlier verdicts stop
 | `gate running`, `waiting for gate`, `gate busy` | On Gate & merge while the e2e lock of the Profile is held: for this PR, for others, or with no readable holder | A caption | In the tooltip |
 | Waits | The `Waits:` line, else `team` on Human review, Release and Awaiting merge, else `agent`. None on Done | `Waits: <who>` | `<who>` |
 | Answers | On Human review, review threads on its PRs wait for the user's answer, from the [PR inbox](pr-inbox.md) (see [PR and CI badges](gate-and-github.md#pr-and-ci-badges)) | `Waits: 2 answers` | None |
-| Approvals | On Human review, its PR is open and short of the approvals its base branch asks for, from the [PR inbox](pr-inbox.md) | `Waits: team · 1/2 approvals` | None |
+| Approvals | On Human review, its PR is open, its base branch has a review rule, and GitHub has not approved it, from the [PR inbox](pr-inbox.md); a Ticket over several repositories shows its first such PR | `Waits: team · 1/2 approvals`: the approvals chip of the PR inbox, so `✕ 1/2` on changes requested and `1/?` when the rule is not visible to the account | None |
 | Stuck | The time on the Stage reached its threshold | A frame, and `stuck: on CI for 3 h` in the tooltip | The same |
 
 **Thresholds of stuck.**

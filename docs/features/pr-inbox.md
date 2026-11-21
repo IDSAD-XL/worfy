@@ -2,11 +2,13 @@
 
 The **PR inbox** of a Project: the user's open pull requests (PRs) and the review requests to the user in the
 Project's repositories, grouped by whose move it is, with the review threads and their last comments. The UI calls it
-**Pull requests**. It reads GitHub. The one thing it ever posts is a reply a Session drafted with skill `pr-reply`,
-which the user may edit, and which goes only on the user's click on **Send**; nothing in it resolves, requests,
-reviews or marks anything there
-([ADR-0105](../adr/0105-pr-reply-only-on-the-users-click.md)). Terms are explained in [Concepts](concepts.md); the PR
-and CI badges of a Ticket are on [Gate and GitHub](gate-and-github.md).
+**Pull requests**. It reads GitHub, and its search finds any other PR the Project's account can see. It posts two
+things, each only on the user's click: a reply a Session drafted with skill `pr-reply`, which the user may edit, on
+**Send** ([ADR-0105](../adr/0105-pr-reply-only-on-the-users-click.md)), and a review of someone else's PR written in
+[Review mode](#review-mode), by the user or by an Agent review, on **Submit review**
+([ADR-0112](../adr/0112-pr-review-submit-only-on-the-users-click.md)). Nothing in it resolves, requests or marks
+anything there. Terms are explained in [Concepts](concepts.md); the PR and CI badges of a Ticket are on
+[Gate and GitHub](gate-and-github.md).
 
 ## The Pull requests view
 
@@ -52,11 +54,13 @@ waits for the user; "2 open threads" is the tooltip), a blue dot when there are 
 looked" is the tooltip), and the approvals chip.
 
 - **Approvals chip**: how many approvals count and how many the rule of the base branch asks for. `0/2` and `1/2` are
-  neutral; `✓ 2/2` is green only when GitHub says APPROVED, and `✓ 2` when it approves a PR whose rule the account
-  cannot see; `✕ 1/2` is orange on changes requested; `1/?` is grey and dashed when the rule is not visible to the
+  neutral; `✓ 2/2` is green when GitHub says APPROVED — or, when GitHub gives no review decision at all, when the count
+  is reached, no code owner is waited for, the last push needs no other approval, and the branch has no rule worfy
+  cannot count — and `✓ 2` when GitHub
+  approves a PR whose rule the account cannot see; `✕ 1/2` is orange on changes requested; `1/?` is grey and dashed when the rule is not visible to the
   account; a clock marks a count that is reached while code owners still hold it. A rule that asks for no approvals
   while GitHub still wants a review shows `review required`, never `0/0`. The tooltip says who approved, which code
-  owners are waited for, the approvals an older push made stale, and, when the count is reached but GitHub still holds
+  owners are waited for, the approvals given before the last push that the rule drops (stale), and, when the count is reached but GitHub still holds
   the PR, GitHub's word (`GitHub says: review required`, or `more rules apply — GitHub decides` when the branch has a
   rule worfy does not count). The accessible name says the chip in words (`1 of 2 required approvals`, `1 approval,
   rule not visible`). A branch with no review rule has no chip.
@@ -188,7 +192,8 @@ inactive with the hint, and Forget is not offered.
 
 **Start review ▾** asks who writes the review. Its menu has **Review myself** ("You write the comments and choose the
 verdict") and **Agent review** ("An agent drafts it; you edit and submit"). A click on the button itself takes the
-Project's last choice on this machine, Review myself until one is made; the button then reads "Start review · Agent".
+Project's last choice on this machine, Review myself until one is made; when that choice is Agent review, the button
+reads "Start review · Agent".
 
 **The screen.** Review mode takes the place of the PR pane; the list folds into a column of 48 px with each PR's avatar
 and number, and **← Inbox** (or **← Results** for a search) on top gives the list back. A PR picked in the column closes
@@ -224,7 +229,7 @@ above the diff — GitHub would refuse it — with **Move to line** (the comment
 clicked, or the lines picked with **c**) and **Delete**.
 
 **The bar Your review** at the bottom: "Your review · 3 pending comments on 2 files", or "5 comments (5 by the agent) on
-3 files" when the agent wrote some. **Discard** asks "Discard 3 pending comments?" and then deletes the draft file and
+3 files" when the agent wrote some. **Discard**, inactive while the draft has no comment, asks "Discard 3 pending comments?" and then deletes the draft file and
 closes Review mode; nothing was on GitHub, so nothing changes there. **Finish review** (or ⌘⇧↵) opens the dialog of
 Submit review below; it is inactive while the Session of an Agent review writes ("Waits until the agent finishes or you
 stop it").
@@ -245,13 +250,15 @@ GitHub account. When the head of the PR moved since the draft started, the dialo
 the head is 7d0e4b2." and the button becomes **Submit on 3f2a9c1**: the comments go on the lines they were written on. A
 comment that is not on a changed line of that commit stops the whole Submit until it is removed or moved: GitHub would
 refuse the review with it. GitHub took it: a toast "Review sent to example-org/web#41 · Approve · 2 comments", the PR is
-read again (its approvals chip counts the approval), and Review mode closes. Opened again, its bar says "You reviewed
+read again (its approvals chip counts the approval), and Review mode closes; when GitHub had that review already,
+the toast says "GitHub had this review of example-org/web#41 already: it is marked submitted, nothing was posted
+again". Opened again, its bar says "You reviewed
 this pull request · Approve" with **Open the review on GitHub** and **Start a new review**; the comments say
 "Submitted · on GitHub". GitHub refused it: its reason in the dialog, the draft stays with all its comments, the
 removed ones too. GitHub did not answer: the bar keeps "GitHub did not confirm the review: <reason>", and the texts that
 went stay as they are — no edits, no agent, and the dialog opens on them, locked; the next Submit first looks whether
-GitHub has the review. Within 5 minutes of the Submit, not finding it says "GitHub has not listed it yet — try again in
-a minute"; later the same texts are posted. **Discard** still works there, and warns that the review may be on GitHub
+GitHub has the review. Within 5 minutes of the Submit, not finding it says "Not submitted: GitHub did not confirm the review, and it has
+not listed it yet — try again in a minute"; later the same texts are posted. **Discard** still works there, and warns that the review may be on GitHub
 already.
 
 **The chip Review draft.** A PR with a draft of comments on this machine shows **Review draft** in its row of the inbox
@@ -261,7 +268,8 @@ worfy.
 **New commits.** Review mode reads the PR again on entering, by **Refresh**, when the window gets the focus and the last
 read is over a minute old, and every 2 minutes while it is shown and the window has the focus. When the head is past the
 commit of the draft, a strip says "2 new commits since you started · you started on 3f2a9c1, the head is 7d0e4b2. Your
-comments stay on the lines of 3f2a9c1." Its comments are then listed above the diff with their lines.
+comments stay on the lines of 3f2a9c1." ("The head moved since you started" when the count of new commits is not
+known.) Its comments are then listed above the diff with their lines.
 **Show new commits** shows the diff since that commit (Since my review); **Show all changes** goes back. The commit of
 the strip is the one the comments' lines are numbered on (`anchoredOn`, else `startedOn` of the draft).
 
@@ -439,7 +447,7 @@ draft: Start review is inactive there, and Review mode opens read only through *
   comment against GitHub's diff of its commit (`pulls/{n}/files` at the head, else `compare/{base}...{commit}`), marks
   the draft `submitting` and sends one `POST repos/{o}/{r}/pulls/{n}/reviews` with
   `{commit_id, event, body, comments}`, `commit_id` the commit the comments are on (`anchoredOn`, else `startedOn`), as
-  the Profile's `github.account`. A 4xx is GitHub's refusal; a 5xx, a lost connection or gh's timeout is "did not
+  the Profile's `github.account`. A 4xx but 408 is GitHub's refusal; a 408, a 5xx, a lost connection or gh's timeout is "did not
   confirm", and the next Submit, before any other check, reads `GET …/reviews` for a review of that account on that
   commit with that body, given no earlier than the mark `submitting` (`submittingAt`) less 2 minutes, whose line
   comments (`GET …/reviews/{id}/comments`) are the draft's. None within 5 minutes of the mark — refused, the mark kept
@@ -463,6 +471,7 @@ draft: Start review is inactive there, and Review mode opens read only through *
 | Resolve conflicts, Fix checks and Address comments in the strip, and their toast | `src/renderer/pr-inbox/PrFollowButton.tsx`; whether one can run — `usePrFollowState` of `src/renderer/canvas/actions/gates.ts`; the reasons — `src/shared/actions/pr-follow.ts`; the channel `actions.prFollow` — `src/shared/ipc/actions.ts`, `src/main/actions/launch.ts` |
 | The draft file, the check again and the one POST | `src/main/github/pr-reply-send.ts` |
 | The reader and the groups | `src/main/github/inbox.ts`, `src/main/github/inbox-groups.ts` |
+| The count of approvals; the approvals chip, its tooltip and the Approvals cell | `approvalsOf` of `src/shared/github/approvals.ts`; `src/renderer/pr-inbox/ApprovalsChip.tsx`, `src/renderer/pr-inbox/approvals-chip.css`; `approvalsChip`, `approvalsNote` and `reviewerText` of `src/renderer/pr-inbox/usePrInbox.ts` |
 | What the user has seen; the switch as main reads it | `src/main/projects/pr-inbox-state.ts` |
 | The search bar: the scope menu, the field, the chips, ☆ Save and the saved searches | `src/renderer/pr-inbox/SearchBar.tsx`, `src/renderer/pr-inbox/pr-search.css`; the search strings and the chips' qualifiers — `src/shared/pr-search/query.ts` |
 | The results, their notices, Load more; the state of the search and the strip «Review this pull request» | `src/renderer/pr-inbox/SearchResults.tsx`; `usePrSearch` and `searchStep` of `src/renderer/pr-inbox/usePrInbox.ts` |
