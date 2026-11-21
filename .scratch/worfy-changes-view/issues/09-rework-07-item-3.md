@@ -1,0 +1,129 @@
+# 09: Rework of worfy-changes-view 07, item 3
+
+Type: task
+Status: open
+Blocked by: 08
+Source: owner-check fail 2026-11-21 of worfy-changes-view 07, item 3 — 07-приёмка-владельцем.md
+
+**What to build:** the owner checked item 3 of worfy-changes-view 07 on mac stable and it failed. In the words of the owner:
+
+> во вторых - как выделать диапазон строк непонятно
+
+Кто: агент. Решения владельца — [spec.md](../spec.md), «Ответы владельца 2026-11-21», D2 (Q2) и D3 (Q3).
+
+Не платформенный Ticket (renderer и чтение git в main). Глубина ревью — `medium`; снимок экрана подсказки в «Итог».
+Blocked by 08: те же файлы — лоток и клавиши, которые Ticket 08 переносит из `ChangesNode.tsx` в вид Changes,
+`line-comments.tsx`, `docs/features/changes.md`.
+
+## Что происходит
+
+- **Диапазон строк (D2).** Выбрать диапазон сейчас можно, но этого не видно:
+  - «+» в gutter сразу открывает popover на одну строку (`src/renderer/changes/line-comments.tsx:574-590`, `onClick` →
+    `openOn`);
+  - диапазон даёт только щелчок по строке, затем щелчок по другой с Shift (`:612-622`), или выделение текста через
+    строки (`:623-632`), а потом клавиша `c` (`:643-651`) или Comment в меню правого клика (`:633-641`, `:667`);
+  - без выбранной строки `c` показывает toast «Click a line first, then press c» (`:645-648`); пока строки выбраны,
+    экран ничего не подсказывает.
+  - Тот же код, отдельной копией, — в Review mode PR: `src/renderer/pr-review/review-comments.tsx:230` (`picked`),
+    `:434` (`renderGutter`), `:466-483` (щелчок с Shift и выделение), `:486-494` (`c`); меню правого клика там нет.
+  - Состояние выбора — `Picked { key, side, start, end }` (`line-comments.tsx:76-84`); строки выбора подсвечивает
+    `isPicked` в `DiffPane.tsx` (`marks`, класс `is-picked`).
+- **Commit в тексте агенту (D3).** `commitOf` (`src/renderer/changes/line-comments.tsx:121-128`) в All changes на
+  worktree даёт `null` для новой стороны любого файла (`:126`: `list?.workTree === true ? null : hex(head)`), а
+  `agentText` пишет на `null` слово «uncommitted» (`src/renderer/session/quote-comments.ts:341`). Поэтому каждый
+  комментарий говорит «uncommitted», даже в чистом worktree, где все строки уже в HEAD.
+  - All changes на worktree — один diff от merge-base до рабочего дерева (`src/main/changes/scopes.ts:137`); какие файлы
+    отличаются от HEAD, ответ `changes.list` не говорит: у репозитория есть только `headSha` и `workTree`
+    (`src/shared/ipc/changes.ts:160-161`), у файла — только `untracked` (`src/shared/changes/types.ts:48`).
+  - Commit сохраняется в комментарии при сохранении (`line-comments.tsx:370`), а после Refresh комментарий с другим
+    commit-ом, чем у нового чтения, не ищется заново (`:533`) — считается комментарием другого scope-а.
+  - Формат строки агенту читает `parseQuoted` (`CODE_ITEM`, `src/renderer/session/quote-comments.ts:299`):
+    `(new side, commit f3bcb3e16)` или `(new side, uncommitted)`.
+
+## Что делаем
+
+1. Общий выбор строк для Changes и Review mode PR — новый модуль `src/renderer/changes/line-pick.ts` (hook): обе копии
+   (`line-comments.tsx`, `review-comments.tsx`) переходят на него.
+2. Перетаскивание «+», как на GitHub: нажатие на «+» начинает выбор на своей строке; движение вниз или вверх по строкам
+   того же файла и той же стороны растягивает его (слушатели `mousemove` и `mouseup` на `window` до отпускания, строка —
+   по `data-side`/`data-line` под указателем); отпускание открывает popover на весь диапазон. Строка другого файла или
+   другой стороны выбор не меняет. Отпускание на той же строке — popover на одну строку, как сейчас.
+3. Щелчок с Shift на «+» растягивает выбранное до этой строки (тот же файл и сторона) и popover не открывает; без
+   выбранного — выбор одной строки.
+4. Пока строки выбраны, у последней выбранной строки видна подсказка «Comment on lines 95–102 (c)» (на одну строку —
+   «Comment on line 95 (c)»), `data-testid="changes-pick-hint"`. Щелчок по ней открывает popover, как `c`. Escape и
+   щелчок по строке вне выбора её убирают.
+5. Клавиша `c` и Comment в меню правого клика остаются как есть. Щелчок по строке, щелчок с Shift по строке и
+   выделение текста через строки тоже остаются.
+6. Commit по файлу: в ответ `changes.list` у файла новое поле `uncommitted: boolean` (`src/shared/changes/types.ts`,
+   `src/shared/ipc/changes.ts`). Main ставит его на worktree: файл отличается от HEAD (в index или в рабочем дереве)
+   или не отслеживается git-ом; список — одной командой `git diff --name-only -z HEAD` на репозиторий
+   (`src/main/changes/scopes.ts`, только чтение, `GIT_OPTIONAL_LOCKS=0`, ADR-0110; `diff` уже в `READ_COMMANDS`,
+   `src/main/changes/git.ts:59`). У ветки без worktree поле `false`; в scope Uncommitted — `true` у каждого файла.
+7. `commitOf` получает файл: новая сторона в All changes и Compare against на worktree — `null` («uncommitted») только у
+   файла с `uncommitted`, иначе HEAD (`headSha`). Старая сторона, Commit и Uncommitted — как сейчас.
+8. Refresh: неотправленный комментарий новой стороны All changes ищется заново, даже если его commit был `null` или
+   прежним HEAD-ом этого Ticket-а (агент закоммитил файл после комментария), и получает commit нового чтения. Иначе после
+   commit-а агента комментарий выпадает из поиска (`line-comments.tsx:533`).
+9. Английская страница `docs/features/changes.md` и её перевод `docs/features/ru/changes.md`: перетаскивание «+», Shift
+   на «+», подсказка; строка commit-а в тексте агенту. То же для Review mode — в `docs/features/human-review.md` и
+   переводе, если страница описывает выбор строк в Review mode.
+
+## Готово, когда
+
+- [ ] Unit test (`test/unit/changes-line-pick.test.tsx`, новый): нажатие на «+» и движение через строки выбирает
+      диапазон, отпускание открывает popover на него; строка другого файла или стороны выбор не меняет; Shift-щелчок по
+      «+» растягивает выбранное без popover-а; подсказка «Comment on lines N–M (c)» видна, пока строки выбраны, и
+      щелчок по ней открывает popover.
+- [ ] Unit test (`test/unit/review-comments.test.tsx`): то же перетаскивание и подсказка в Review mode PR.
+- [ ] Unit test (`test/unit/changes-tray.test.tsx`): в чистом worktree комментарий новой стороны All changes несёт
+      `headSha`; у файла с `uncommitted` — `null`; после Refresh, где файл стал закоммиченным, неотправленный комментарий
+      найден на строке и несёт новый HEAD.
+- [ ] Contract test (`test/contract/changes-read.test.ts`): `uncommitted` у файла, изменённого только commit-ом Ticket-а, —
+      `false`; у правленного в рабочем дереве, в index и у нового неотслеживаемого — `true`; `.git/index` не тронут.
+- [ ] e2e test (`test/e2e/changes-comments.spec.ts`, fake agent, временный репозиторий с закоммиченной и незакоммиченной
+      правкой): диапазон перетаскиванием «+» и комментарий к строке → Send → одно сообщение; у строки закоммиченного файла
+      — `(new side, commit <HEAD>)`, у незакоммиченного — `(new side, uncommitted)`; снимок подсказки в светлой и тёмной
+      теме.
+- [ ] e2e test (`test/e2e/pr-review.spec.ts`, тест «comments on lines»): диапазон перетаскиванием «+» в Review mode.
+- [ ] Страница `docs/features/changes.md` и перевод описывают выбор диапазона и строку commit-а;
+      `node scripts/check-feature-docs.mjs` — exit 0.
+- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+- [ ] (manual) Mac Stable: комментарии к строке и диапазону уходят агенту одним сообщением с путями, строками и кодом.
+  - needs: mac stable
+
+Пункт (manual) выше записан owner-check-ом дословно из Ticket-а 07. Владелец проверяет по нему и то, что решил в D2 и
+D3: диапазон выбирается перетаскиванием «+», подсказка видна, а закоммиченный файл в тексте агенту назван commit-ом HEAD.
+
+## Где в коде
+
+- `src/renderer/changes/line-pick.ts` (новый), `src/renderer/changes/line-comments.tsx:76-128`, `:574-651`,
+  `src/renderer/pr-review/review-comments.tsx:230`, `:434-494`, `src/renderer/changes/changes.css` (подсказка)
+- `src/shared/changes/types.ts:48`, `src/shared/ipc/changes.ts:153-169`, `src/main/changes/scopes.ts:137`, `:226`
+  (`listChanges`)
+- `test/unit/changes-line-pick.test.tsx` (новый), `test/unit/review-comments.test.tsx`, `test/unit/changes-tray.test.tsx`,
+  `test/contract/changes-read.test.ts`, `test/e2e/changes-comments.spec.ts`, `test/e2e/pr-review.spec.ts`
+- `docs/features/changes.md`, `docs/features/ru/changes.md`, `docs/features/human-review.md` и перевод (если нужно)
+
+Только читать: `src/renderer/session/quote-comments.ts:299`, `:341` (формат не меняется), `src/main/changes/git.ts:59`,
+`src/renderer/changes/DiffPane.tsx` (подсказка и перетаскивание идут через `renderGutter`, `renderBelow` и
+`lineEvents`; `Code` правит Ticket 10).
+
+## Вне скоупа
+
+- Меню правого клика в Review mode PR. Commit по отдельной строке, а не по файлу. Подсветка синтаксиса — Ticket 10.
+
+## Решено без владельца
+
+1. **Формат строки агенту не меняется:** `(new side, commit f3bcb3e16)`, как у старой стороны сейчас. Пример владельца
+   `new side, f3bcb3e16` несёт то же; слово `commit` держит `parseQuoted` (`quote-comments.ts:299`) и уже отправленные
+   сообщения.
+2. **«Uncommitted» — по файлу, а не по строке**, как сказал владелец: у файла с незакоммиченными правками все строки
+   новой стороны — «uncommitted», даже те, что уже в HEAD.
+3. **Перетаскивание и подсказка — и в Review mode PR.** После Ticket-а 08 это один экран; два разных способа выбрать
+   диапазон на одном экране запутали бы.
+4. **Отпускание после перетаскивания открывает popover сразу**, как на GitHub; Shift-щелчок только растягивает выбор, а
+   popover открывают `c`, подсказка или Comment.
+5. **Подсказка стоит у последней выбранной строки**, не в шапке: она там, куда смотрит пользователь.
+6. **Подсказка и перетаскивание не трогают `DiffPane.tsx`**: они идут через его props, а `mousemove` слушает `window`.
+   Так Ticket 10, который правит `Code` в `DiffPane.tsx`, идёт параллельно.
