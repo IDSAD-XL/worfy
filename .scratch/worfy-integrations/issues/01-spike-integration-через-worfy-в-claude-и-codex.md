@@ -76,9 +76,10 @@ Source: [spec.md](../spec.md), «Ticket-ы», 1; «Волны», Wave 1; «Фа�
       настоящий Codex не запускался.
 - [ ] Записка: число запросов refresh на stub-е при 10 параллельных вызовах и вывод для Ticket-а 05 (нужен ли замок в
       provider-е).
-- [ ] (вручную) Владелец вошёл из окна spike-а в Atlassian (два site-а) и Linear; в записке — `capabilities`, число
+- [x] (вручную) Владелец вошёл из окна spike-а в Atlassian (два site-а) и Linear; в записке — `capabilities`, число
       tools, срок access token-а и refresh каждого сервера.
   - needs: mac
+  - evidence: owner-check pass · 2026-11-21: 1 /var/folders/<tmp>/worfy-harness-probe/2026-11-20T23-30-08-619Z — 1 ок · mac dev · 5a00e0a59c23797e5c92fdababab5666425827a1
 - [ ] Записка кончается решением «tools-only proxy достаточен: да/нет» с выводами для Ticket-ов 03, 05 и 06.
 - [ ] Scrub probe-а пройден: новые fixture-ы и записка не держат token-ов, адресов site-ов владельца и e-mail-ов;
       `--rescrub` чистит новые fixture-ы.

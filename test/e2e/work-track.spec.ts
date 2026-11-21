@@ -238,6 +238,11 @@ const pressed = (window: Page, group: string) => window.locator(`[role="group"][
  * more than 30 days back, so it has its «no data» stretch. On the machine's clock both failed on some days: the
  * Month before starts less than 30 days back on the 1st of May, July, October and December and on the 1st to
  * the 3rd of March, and the Month has no worked day yet on the 1st before the stub's first turn.
+ *
+ * The third test runs at it too. The stub's CI runs of a day come from a generator seeded by the date, and on some
+ * days a CI run of another PR starts before yesterday's first CI run ends: that later mark is drawn over the middle
+ * of the first, and the click on the first one never lands (on 9 days of 2026, yesterday the 20th or
+ * the 21st of November among them). On the 16th of June the first CI run is alone.
  */
 const PINNED = new Date(2026, 5, 17, 12).getTime()
 
@@ -376,8 +381,9 @@ test('Work track: CI runs and Ticket status changes under the axis, GitHub and g
   try {
     const { window, app } = launched
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1600, 1000))
-    await stubWorkTrack(app, null, true)
+    await stubWorkTrack(app, null, true, PINNED)
     await expect(window.getByTestId('app-shell')).toBeVisible()
+    await pinWindowClock(window, PINNED)
 
     await window.locator('.w-toolbar [role="group"][aria-label="View"]').getByRole('button', { name: 'Runs' }).click()
     await window.getByRole('button', { name: 'Work track' }).click()
