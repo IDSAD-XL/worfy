@@ -31,7 +31,7 @@ import { writeProjectIntegrations } from '../../src/main/projects/settings'
 import type { CodexRuntime } from '../../src/main/vendors/codex/binary'
 import { codexIntegrations, codexMcp, codexMcpSessions, MCP_TOKEN_ENV, type CodexMcpResolver } from '../../src/main/vendors/codex/mcp'
 import { codexSessions } from '../../src/main/vendors/codex/session'
-import { McpActionRefused } from '../../src/main/vendors/mcp'
+import { McpActionRefused, type McpCallExtra, type McpServer } from '../../src/main/vendors/mcp'
 import type { SessionHandle, SessionPart, SessionStart } from '../../src/main/vendors/session'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import { mcpServerRowSchema, mcpShownName } from '../../src/shared/agent/mcp-status'
@@ -339,6 +339,75 @@ describe('the rows of a Codex Session`s Integrations in the chip', () => {
     const event = session.events.find((each) => each.type === 'mcp')
     const servers = (event?.type === 'mcp' ? event.servers : null) ?? []
     expect(servers.find((each) => each.name === 'linear')).toMatchObject({ source: 'integration', label: 'Linear' })
+  })
+})
+
+describe('the endpoint passes the agent`s cancel on to the call', () => {
+  /** A server whose one tool `slow` runs until its call is cancelled; `calls` holds the signal of each call. */
+  function slowServer(): { server: McpServer; calls: AbortSignal[] } {
+    const calls: AbortSignal[] = []
+    const server: McpServer = {
+      name: 'slow-service',
+      version: '1.0.0',
+      tools: [],
+      listTools: () =>
+        Promise.resolve([
+          {
+            name: 'slow',
+            description: 'Runs until cancelled',
+            inputSchema: { type: 'object' },
+            call: (_args: unknown, extra?: McpCallExtra) => {
+              const signal = extra?.signal
+              if (signal === undefined) return Promise.resolve({ content: [{ type: 'text' as const, text: 'no signal' }], isError: true })
+              calls.push(signal)
+              return new Promise((resolve) => signal.addEventListener('abort', () => resolve({ content: [{ type: 'text' as const, text: 'cancelled' }], isError: true })))
+            },
+          },
+        ]),
+    }
+    return { server, calls }
+  }
+
+  const post = (url: string, token: string, body: unknown, signal?: AbortSignal): Promise<Response> =>
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+      ...(signal === undefined ? {} : { signal }),
+    })
+
+  it('a request Codex abandons — its connection closed before the answer — cancels the call', async () => {
+    const { server, calls } = slowServer()
+    const grant = endpoint.grant([server])
+    const client = new AbortController()
+    const pending = post(grant.urls['slow-service']!, grant.token, { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'slow', arguments: {} } }, client.signal).catch(() => null)
+    await eventually(() => calls.length === 1, 'the call to start')
+    expect(calls[0]?.aborted).toBe(false)
+    client.abort()
+    await pending
+    await eventually(() => calls[0]?.aborted === true, 'the call to be cancelled')
+  })
+
+  it('notifications/cancelled of the request`s id cancels that call only, and only for the same Session', async () => {
+    const { server, calls } = slowServer()
+    const grant = endpoint.grant([server])
+    const other = endpoint.grant([server])
+    const url = grant.urls['slow-service']!
+    const call = (id: number) => post(url, grant.token, { jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'slow', arguments: {} } })
+    const first = call(1)
+    const second = call(2)
+    await eventually(() => calls.length === 2, 'both calls to start')
+    const cancel = (token: string, requestId: number) => post(url, token, { jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId, reason: 'the turn was interrupted' } })
+    // Another Session's token, and an id no call has: nothing is cancelled.
+    expect((await cancel(other.token, 1)).status).toBe(202)
+    expect((await cancel(grant.token, 99)).status).toBe(202)
+    expect(calls.map((signal) => signal.aborted)).toEqual([false, false])
+    expect((await cancel(grant.token, 1)).status).toBe(202)
+    const answered = (await (await first).json()) as Answer
+    expect(textOf(answered)).toBe('cancelled')
+    expect(calls.map((signal) => signal.aborted)).toEqual([true, false])
+    expect((await cancel(grant.token, 2)).status).toBe(202)
+    await second
   })
 })
 
