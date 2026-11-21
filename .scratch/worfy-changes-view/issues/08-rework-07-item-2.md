@@ -136,3 +136,26 @@ Source: owner-check fail 2026-11-21 of worfy-changes-view 07, item 2 — 07-пр
 3. **Scope вида не сохраняется между запусками worfy.** Его хранил Node; у вида scope живёт в памяти окна, по Ticket-у,
    и после перезапуска снова All changes.
 4. **У вида нет кнопки в toolbar**, как у `story`: без Ticket-а виду нечего показать.
+
+## Итог
+
+Сделано implementer-ом 2026-11-21, ветка `worfy-changes-view/08`.
+
+- Вид окна `changes` (`ShellView` в `src/renderer/shell/Toolbar.tsx`, `data-view="changes"` в `AppShell.tsx`) без кнопки
+  в toolbar. Компонент — `src/renderer/changes/ChangesView.tsx` (`ChangesScreen` монтирует shell): шапка «← Canvas»
+  (`data-testid="changes-back"`), заголовок, `ScopeBar`, дерево и diff, лоток. Предмет вида, вид возврата и scope по
+  Ticket-у — store `useChangesView` в `src/renderer/changes/open.ts`, не Layout.
+- Общий экран diff-а — `src/renderer/changes/DiffScreen.tsx` (дерево слева, колонка diff-а справа, свёрнутые папки) и
+  клавиши `src/renderer/changes/diff-keys.ts` (`j`/`k`, `↓`/`↑`, `n`/`p`, `c`, Esc; не в текстовом поле и не в открытом
+  слое). `ReviewMode.tsx` рисует свои дерево и diff через `DiffScreen`; его шапка, Viewed, Review bar и обработчик клавиш
+  не тронуты. e2e `test/e2e/pr-review.spec.ts` прошёл без правки ожиданий.
+- Входы: кнопка Changes (`canvas/actions/Changes.tsx`), Open changes (`palette/commands.ts`) и блок в пузыре
+  (`openChangesAtLine`) открывают вид сразу; ожидание карточки 2 s и запрос строки на 5 s удалены. На экране Read only
+  кнопка и строка palette активны.
+- `ChangesNode.tsx` удалён вместе с `changesNodeOf`, `changesPlace`, `requestOpenChanges`, `takeOpenRequest`,
+  `openChangesFromPalette`. `upgradeLayout` убирает Node-ы `changes` при чтении Layout-а, одна строка log-а на Project
+  (`CHANGES_KIND` — в `src/shared/layout/derived.ts`).
+- Отклонение от «Что делаем», 2: клавиши `ReviewMode` не перенесены в `diff-keys.ts` — его обработчик сейчас правит
+  worfy-pr-review 11 (⌘⇧↵ Finish review, PR #2122); общая шапка тоже не вынесена: у PR и Ticket-а она разная. Перенос —
+  отдельной правкой после merge 11.
+- Снимки вида: [светлая тема](../evidence/08-changes-view-light.png), [тёмная тема](../evidence/08-changes-view-dark.png).
