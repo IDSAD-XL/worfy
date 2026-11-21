@@ -44,6 +44,8 @@
 //     into every answer.
 //     A pull of graphql.json with `"hidden": true` sits in a repository the token cannot see: its alias is null and
 //     the error is "Could not resolve to a Repository with the name …", as GitHub answers for a private one.
+//     The files Viewed on github.com (worfy-pr-review ticket 09, `viewerViewedState`, variables `owner`, `name`, `pr`)
+//     come from the pull's `"viewed": {"<path>": "VIEWED"|"UNVIEWED"|"DISMISSED"}`, one page; a PR it does not know is null.
 //   - graphql-503: a number; that many `api graphql` calls fail with HTTP 503 first, one less each time.
 //   - search.json: what the PR search (worfy-pr-review ticket 04, `search(type: ISSUE, query: $q, …)`) answers, `{"viewer"?
 //     (graphql.json's), "rateLimit"?, "answers": [{"q": <the exact search string>, "after"?: <the cursor asked, null for
@@ -273,6 +275,13 @@ function graphql() {
     process.stdout.write(JSON.stringify({ data: { viewer: { login: stubLogin() }, node: nodes === null ? null : { first, comments: { nodes: nodes.map(commentNode) } } } }))
     return
   }
+  if (query.includes('viewerViewedState')) {
+    const pull = world.pulls.find((each) => each.repo === `${vars.owner}/${vars.name}` && each.number === Number(vars.pr))
+    const nodes = Object.entries(pull?.viewed ?? {}).map(([path, state]) => ({ path, viewerViewedState: state }))
+    const pullRequest = pull === undefined ? null : { files: { pageInfo: { hasNextPage: false, endCursor: null }, nodes } }
+    process.stdout.write(JSON.stringify({ data: { repository: { pullRequest } } }))
+    return
+  }
   if (query.includes('pullRequest(number: $number)')) {
     const slug = `${vars.owner}/${vars.name}`
     const nodes = posted().filter((each) => each.repo === slug && each.pr === Number(vars.number) && each.replyTo === null)
@@ -388,7 +397,7 @@ function writeArg(arg) {
 /** Whether an `api graphql` call is one of the PR inbox's queries; any other GraphQL is not understood. */
 function inboxQuery() {
   const query = args.find((arg, i) => args[i - 1] === '-f' && arg.startsWith('query=')) ?? ''
-  return (query.includes('review: search(') && query.includes('involves: search(')) || query.includes('search(type: ISSUE, query: $q') || query.includes('pullRequest(number: $k0)') || query.includes('node(id: $thread)') || query.includes('pullRequest(number: $number)')
+  return (query.includes('review: search(') && query.includes('involves: search(')) || query.includes('search(type: ISSUE, query: $q') || query.includes('pullRequest(number: $k0)') || query.includes('node(id: $thread)') || query.includes('pullRequest(number: $number)') || query.includes('viewerViewedState')
 }
 
 /** The login of GH_TOKEN (tokens.json); the viewer of graphql.json without one. */

@@ -116,6 +116,12 @@ export const prInboxRowSchema = z.object({
   author: z.string().nullable(),
   headRefName: z.string(),
   headRefOid: z.string().nullable(),
+  /**
+   * The base branch and its commit, the base of the PR's diff in Review mode (worfy-pr-review ticket 09). Absent in a
+   * snapshot of a Project machine that does not read them yet: Review mode then waits for a read that has them.
+   */
+  baseRefName: z.string().optional(),
+  baseRefOid: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
   ci: ciStateSchema.nullable(),

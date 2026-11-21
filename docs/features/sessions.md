@@ -221,9 +221,9 @@ request either, the chat says the Session waits for an answer this window cannot
 commented on. A button next to the selection says "Comment ⇧⌘M"; a right click (a two-finger click on a trackpad) opens
 "Comment" and "Copy"; ⇧⌘M (Ctrl+Shift+M) does the same. A selection across two messages says "Select inside one message
 to comment". The popover shows the quote, takes a text and up to 3 images (a file from "Add image", ⌘V, or a drop), and
-saves with ⌘↵; Esc in it cancels. A click outside, or an Esc pressed outside it, closes a popover left unchanged; with a
-text or an image added it stays and asks to save or cancel first. An Esc in the input field of a busy Session interrupts
-the turn and leaves the popover as it is. A comment may be images alone. The images of one message's comments are 10
+saves with ⌘↵; Cancel discards it. An Esc, in it or outside it, or a click outside closes a popover left unchanged; with
+a text or an image added it stays, shakes and asks to save or cancel first. An Esc in the input field of a busy Session
+interrupts the turn and leaves the popover as it is. A comment may be images alone. The images of one message's comments are 10
 at most, and an image's long side is scaled down to 1568 pixels before main checks it.
 
 - The quote gets a light green ground and a green underline: the accent in the dark theme, the ready dot's green in the

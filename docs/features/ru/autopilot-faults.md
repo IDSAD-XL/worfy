@@ -260,8 +260,12 @@ Orchestrator остаётся unattended, экран остаётся включ
    после первой. Пока она идёт, строка состояния показывает `Wave 4 · continuing 05 (1 of 2)`. У Ticket-а не больше 2
    продолжений за один run; новый run считает с 0.
 2. **Отложить.** После 2 продолжений run просит Orchestrator отложить Ticket:
-   `Ticket 05 stayed claimed after 2 continuations. Run: ticket block epic-a 05 "stuck: claimed after 2 continuations" --waits owner. Then end the turn.`
-   Команда называет `ticket` из Harness по его пути. worfy сам `Status:` не пишет: команду выполняет только Orchestrator.
+   `Ticket 05 stayed claimed after 2 continuations. Run: ticket block epic-a 05 "stuck: claimed after 2 continuations" --waits owner. Run it in the Ticket's own worktree (branch epic-a/05) and commit only the Ticket file on its branch: git -C <worktree> commit -m "<message>" -- <ticket file>. A Ticket with no worktree gets the block on the main branch the way the documents PR carries statuses, never by a direct commit to main. Then end the turn.`
+   Команда называет `ticket` из Harness по его пути. Сообщение говорит и где её запускать, как skill `epic-wave`: worfy
+   читает main branch с веткой каждого Ticket-а поверх, поэтому block, записанный в своём дереве Orchestrator-а, остаётся
+   скрыт под claim-ом ветки. Если worfy прочёл claim Ticket-а из ветки worktree, сообщение называет эту ветку; иначе даёт
+   правило только словами. В Silent mode файлы Ticket-ов лежат в папке Workflow, и сообщение говорит вместо этого:
+   `Run it from any directory, with no commit: in Silent mode the status goes straight into the Workflow folder.` worfy сам `Status:` не пишет: команду выполняет только Orchestrator.
    Ticket с `Waits: owner` ждёт владельца, поэтому остальные Ticket-ы Epic-а идут в следующих Wave-ах, а когда больше ничего
    не готово, Epic заканчивается с `waits-owner`, и run над очередью переходит к следующему Epic-у.
 3. **Остановка.** Если после этого turn-а Ticket всё ещё в работе, run останавливается с прежней причиной, `wave-unfinished`

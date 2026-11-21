@@ -113,3 +113,8 @@ Ticket, которому нужен сервер вне списка, в worfy �
   - **Что не измерено.** Что запись `serverUrl` пропускает настоящий connector `claudeai-proxy`, проверяет владелец,
     шаг 3 живой проверки в заметке spike 11 (приёмка, Ticket 08); sandbox показал это только на http-сервере с именем
     вида `claude.ai …`.
+- 2026-11-20 — Integration-ы — вне списка (Epic `worfy-integrations`, Ticket 03; ADR-0111; решение владельца Q9). Список
+  `mcp.allowed` остаётся для серверов Claude Code и connector-ов claude.ai как есть. Integration — сервер MCP, который ведёт
+  worfy: Session Project-а получает её по полю `integrations` в `<Project data folder>/settings.json`, policy tier её не
+  трогает, в `mcp.allowed` она не пишется, и записи списка в Integration-ы сами не переносятся. Цену tools в каждом ходе
+  для Integration держит её фильтр tools в Project-е (All, Read only, выбранные).

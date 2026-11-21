@@ -810,7 +810,7 @@ export function useQuoteComments({ storeKey, sessionId, log: logRef, assistant, 
             const changed = open.text.trim() !== open.was.text.trim() || open.images.length !== open.was.images
             if (!changed) close()
             else {
-              setPopover({ ...open, error: `Save (${saveKeys}) or Cancel (Esc) first.` })
+              setPopover({ ...open, error: `Save (${saveKeys}) or Cancel first.` })
               setShake((was) => was + 1)
             }
           }}

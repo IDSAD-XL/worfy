@@ -5,6 +5,7 @@
 // files whose path holds its text, opens every folder that keeps one, and says how many of how many are left; the diff
 // beside it shows the same files (ChangesNode.tsx). The diff of a pull request read from GitHub may name fewer files
 // than it has (worfy-pr-review ticket 06): `truncatedAt` puts «GitHub lists the first 3,000 files» over the tree.
+import type { ReactNode } from 'react'
 import type { ChangedFile } from '../../shared/changes/types'
 import { count, MANY_FILES, nameOf, treeOf, type FileEntry, type RepoFiles } from './diff-window'
 
@@ -43,9 +44,11 @@ export interface FileTreeProps {
   onToggle: (key: string) => void
   /** GitHub listed only this many files of a pull request; null or absent when it listed all. */
   truncatedAt?: number | null
+  /** What stands at the end of a file's row: the counts and Viewed of Review mode (worfy-pr-review ticket 09); nothing by default. */
+  renderRowEnd?: (entry: FileEntry) => ReactNode
 }
 
-export function FileTree({ repos, filter, onFilter, selected, onSelect, workflowOpen, onWorkflowOpen, toggled, onToggle, truncatedAt }: FileTreeProps) {
+export function FileTree({ repos, filter, onFilter, selected, onSelect, workflowOpen, onWorkflowOpen, toggled, onToggle, truncatedAt, renderRowEnd }: FileTreeProps) {
   const total = repos.reduce((sum, repo) => sum + repo.files.length, 0)
   const tree = treeOf(repos, filter)
   const filtering = filter.trim() !== ''
@@ -70,6 +73,7 @@ export function FileTree({ repos, filter, onFilter, selected, onSelect, workflow
         <StatusLetter status={entry.file.status} />
         <span className="w-changes__name">{nameOf(entry.file.path)}</span>
         <FileStats file={entry.file} />
+        {renderRowEnd?.(entry) ?? null}
       </button>
     </li>
   )

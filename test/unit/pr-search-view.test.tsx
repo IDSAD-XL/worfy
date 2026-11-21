@@ -7,7 +7,7 @@
 // - the results in place of the groups, the inbox's row with its approvals chip; the first one selected; ↑ ↓; Load more;
 //   "Searched N min ago · Refresh"; Clear gives the groups back;
 // - a result the inbox lacks is read by `prSearch.pull` and shown in the same pane, its strip «Review this pull request»
-//   with Start review, which opens the Files page on GitHub until ticket 09;
+//   with Start review ▾, which opens Review mode in worfy (ticket 09);
 // - the saved searches: the menu of the field, ☆ Save, read-only on a Linked machine;
 // - the notices of section 10 of the spec: above the results, or under the field with a red frame for 422.
 // main is a fake preload bridge; every owner, repository, login and text is invented. Nothing here reaches GitHub.
@@ -332,6 +332,53 @@ describe('the filter chips', () => {
 })
 
 describe('the results', () => {
+  it('the same search again while Review mode is open on a result: once its answer is in, Review mode is back on the result', async () => {
+    let release: (() => void) | null = null
+    let runs = 0
+    const run = (): IpcResult<unknown> | Promise<IpcResult<unknown>> => {
+      runs += 1
+      if (runs === 1) return { ok: true, value: RESULTS }
+      return new Promise((done) => {
+        release = () => done({ ok: true, value: RESULTS })
+      })
+    }
+    await view({ 'prSearch.run': run as Answer })
+    await search('retry')
+    const rowButton = within(screen.getAllByTestId('pr-inbox-row').find((each) => each.dataset.number === '77')!).getByRole('button')
+    fireEvent.keyDown(rowButton, { key: 'Enter' })
+    await screen.findByTestId('pr-review-mode')
+    fireEvent.keyDown(field(), { key: 'Enter' })
+    // While it runs the results have no rows yet: that is no answer, and Review mode is not closed for it.
+    await waitFor(() => expect(release).not.toBeNull())
+    await act(async () => Promise.resolve())
+    await act(async () => release!())
+    await waitFor(() => expect(screen.getByTestId('pr-review-mode').dataset.number).toBe('77'))
+  })
+
+  it('Enter on a result opens Review mode (worfy-pr-review ticket 09), but not on a PR of my own; Clear closes it with the result', async () => {
+    const mine = searchRow(INBOX.answer, true)
+    const answer = (input: unknown) => {
+      const { repo, number } = input as { repo: string; number: number }
+      const found = [mine, searchRow(RETRY, false)].find((each) => each.repo === repo && each.number === number) ?? null
+      return { ok: true as const, value: { row: found, readAt: new Date(NOW).toISOString(), notices: [] } satisfies PrSearchPull }
+    }
+    await view({ 'prSearch.run': () => ({ ok: true, value: result([mine, searchRow(RETRY, false)]) }), 'prSearch.pull': answer })
+    await search('retry')
+    const rowButton = (number: number): HTMLElement => within(screen.getAllByTestId('pr-inbox-row').find((each) => each.dataset.number === String(number))!).getByRole('button')
+    fireEvent.keyDown(rowButton(118), { key: 'Enter' })
+    expect(screen.queryByTestId('pr-review-mode')).toBeNull()
+    fireEvent.keyDown(rowButton(77), { key: 'Enter' })
+    expect((await screen.findByTestId('pr-review-mode')).dataset.number).toBe('77')
+    fireEvent.click(screen.getByTestId('pr-search-clear'))
+    await waitFor(() => expect(screen.queryByTestId('pr-review-mode')).toBeNull())
+    expect(screen.getAllByTestId('pr-inbox-group').length).toBeGreaterThan(0)
+    // The list takes ↓ again: Review mode is gone, not only hidden.
+    const before = selected()
+    const last = keys().indexOf(before[0]!) === keys().length - 1
+    fireEvent.keyDown(document.body, { key: last ? 'ArrowUp' : 'ArrowDown' })
+    expect(selected()).not.toEqual(before)
+  })
+
   it('replace the groups: «Search · N results», the inbox row with its approvals chip, the first one selected; Clear gives the groups back', async () => {
     await view()
     expect(screen.getAllByTestId('pr-inbox-group')).toHaveLength(2)
@@ -348,7 +395,7 @@ describe('the results', () => {
     expect(screen.getAllByTestId('pr-inbox-group')).toHaveLength(2)
   })
 
-  it('a result the inbox lacks is read by prSearch.pull and shown in the pane: «Review this pull request» with Start review on the Files page', async () => {
+  it('a result the inbox lacks is read by prSearch.pull and shown in the pane: «Review this pull request» with Start review ▾ (Review mode)', async () => {
     await view()
     await search('retry')
     await waitFor(() => expect(calls.filter((call) => call.channel === 'prSearch.pull').map((call) => call.input)).toEqual([{ projectId: PROJECT, repo: WEB, number: 77, updatedAt: RETRY.updatedAt }]))
@@ -357,7 +404,8 @@ describe('the results', () => {
     expect(within(pane()).getByTestId('pr-inbox-next-step').textContent).toContain(`${BO} asked ${ANA}; 0 of 2 required approvals.`)
     const start = within(pane()).getByTestId('pr-inbox-next-step-action')
     expect(start.textContent).toBe('Start review')
-    expect(start.getAttribute('href')).toBe(`${RETRY.url}/files`)
+    expect(start.getAttribute('href')).toBeNull()
+    expect(within(pane()).getByTestId('pr-review-start-more').getAttribute('aria-label')).toBe('Choose who writes the review')
     // No "new since you looked" on a PR the inbox lacks: nothing could ever mark it seen.
     expect(within(pane()).queryByTestId('pr-inbox-pane-new')).toBeNull()
     expect(within(screen.getAllByTestId('pr-inbox-row')[0]!).queryByTestId('pr-inbox-new')).toBeNull()

@@ -81,9 +81,10 @@ Source: [spec.md](../spec.md), «Ticket-ы», 1; «Волны», Wave 1; «Фа�
 - [ ] Записка: число запросов refresh на stub-е при 10 параллельных вызовах и вывод для Ticket-а 05 (нужен ли замок в
       provider-е).
   - evidence: test-run pass · `probe.ts integrations` exit 0, fact refresh (10 parallel: 10, 0 with rotation, 1 with single-flight fetch); note section step 5 · mac - · 4b516d1611426663c83dd7cb9da533b468754f6b
-- [ ] (вручную) Владелец вошёл из окна spike-а в Atlassian (два site-а) и Linear; в записке — `capabilities`, число
+- [x] (вручную) Владелец вошёл из окна spike-а в Atlassian (два site-а) и Linear; в записке — `capabilities`, число
       tools, срок access token-а и refresh каждого сервера.
   - needs: mac
+  - evidence: owner-check pass · 2026-11-21: 1 /var/folders/<tmp>/worfy-harness-probe/2026-11-20T23-30-08-619Z — 1 ок · mac dev · 5a00e0a59c23797e5c92fdababab5666425827a1
 - [ ] Записка кончается решением «tools-only proxy достаточен: да/нет» с выводами для Ticket-ов 03, 05 и 06.
   - evidence: commit pass · f91f809f4: note ends with «tools-only proxy достаточен: да», conclusions for tickets 03, 05, 06 · - - · f91f809f4943ad2a2c13de7ef62de07b73881d3a
 - [ ] Scrub probe-а пройден: новые fixture-ы и записка не держат token-ов, адресов site-ов владельца и e-mail-ов;

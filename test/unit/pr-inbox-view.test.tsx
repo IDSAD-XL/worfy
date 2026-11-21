@@ -458,7 +458,9 @@ describe('the view of a snapshot', () => {
     expect(within(pane()).getAllByTestId('pr-inbox-draft-replies')).toHaveLength(1)
     // More than one PR: the keys that move to the next one are shown.
     expect(within(pane()).queryByTestId('pr-inbox-keys-hint')).not.toBeNull()
-    expect(within(next).getByTestId('pr-inbox-next-step-action').getAttribute('href')).toBe(`https://github.com/${WEB}/pull/41/files`)
+    // Start review is a button of worfy now (worfy-pr-review ticket 09): Review mode, not the Files page on GitHub.
+    expect(within(next).getByTestId('pr-inbox-next-step-action').getAttribute('href')).toBeNull()
+    expect(within(next).getByTestId('pr-review-start-more').getAttribute('aria-label')).toBe('Choose who writes the review')
     expect(text(pane(), 'pr-inbox-via-team')).toBe('via team')
     expect(text(fact('review'), 'pr-inbox-review')).toBe('Review required')
     expect(fact('ci').textContent).toBe('CI running')
@@ -893,6 +895,106 @@ async function view(inbox: Record<string, PrInboxSnapshot> = { 'web-00000001': s
   await waitFor(() => expect(screen.getAllByTestId('pr-inbox-row').length).toBeGreaterThan(0))
   return shown
 }
+
+describe('Start review (worfy-pr-review ticket 09)', () => {
+  /** The answers Review mode reads: one file of the PR, and the draft Start review creates. */
+  const reviewAnswers: Answers = {
+    'changes.list': () => ({
+      ok: true,
+      value: {
+        repos: [
+          {
+            repo: WEB,
+            kind: 'pr',
+            branch: '#41',
+            scope: 'all',
+            base: null,
+            headSha: 'abc1234',
+            workTree: false,
+            files: [{ path: 'src/export.ts', oldPath: null, status: 'A', additions: 1, deletions: 0, binary: false, oldMode: null, newMode: '100644', oldBlob: null, newBlob: 'b1', untracked: false, workflow: false, fold: null }],
+            additions: 1,
+            deletions: 0,
+            error: null,
+            source: 'github',
+            truncatedAt: null,
+          },
+        ],
+      },
+    }),
+    'changes.file': () => ({ ok: true, value: { file: { kind: 'hunks', path: 'src/export.ts', oldPath: null, oldMode: null, newMode: null, whole: false, hunks: [] } } }),
+    'prReview.draft': () => ({ ok: true, value: { repo: WEB, pr: 41, draft: null, problem: null } }),
+    'prReview.start': (input) => ({ ok: true, value: { repo: WEB, pr: 41, draft: { schema: 1, repo: WEB, pr: 41, startedOn: (input as { head: string }).head, payload: { body: '', comments: [] }, anchors: [], viewed: {}, state: 'draft' }, problem: null } }),
+  }
+  const reviewed = (): PrInboxSnapshot => {
+    const snapshot = snapshotOf('web-00000001')
+    return { ...snapshot, groups: snapshot.groups.map((group) => ({ ...group, rows: group.rows.map((each) => (each.number === 41 ? { ...each, headRefOid: 'abc1234', baseRefOid: 'def5678', baseRefName: 'main' } : each)) })) }
+  }
+
+  it('Start review → Review myself: Review mode in the pane\'s place, the list folded into a column; ← Inbox gives the list back', async () => {
+    await view({ 'web-00000001': reviewed() }, reviewAnswers)
+    select(WEB, 41)
+    fireEvent.click(within(pane()).getByTestId('pr-review-start-more'))
+    fireEvent.click(await screen.findByTestId('pr-review-start-myself'))
+    const mode = await screen.findByTestId('pr-review-mode')
+    expect(mode.dataset.number).toBe('41')
+    expect(screen.queryByTestId('pr-inbox-pane')).toBeNull()
+    expect(screen.queryByTestId('pr-inbox-list')).toBeNull()
+    const column = screen.getByTestId('pr-review-column')
+    expect(within(column).getByTestId('pr-review-back').textContent).toBe('←Inbox')
+    expect(within(column).getAllByTestId('pr-review-column-item').map((each) => each.textContent?.endsWith(`#${each.dataset.number}`))).not.toContain(false)
+    await waitFor(() => expect(main.calls.filter((call) => call.channel === 'prReview.start')).toHaveLength(1))
+    expect(main.calls.find((call) => call.channel === 'changes.list')?.input).toMatchObject({ subject: { kind: 'pr', repo: WEB, number: 41, headOid: 'abc1234', baseOid: 'def5678' } })
+    // ↑ ↓ move along the files of Review mode, not along the list.
+    key('ArrowDown')
+    expect(within(column).getByRole('button', { current: true }).dataset.number).toBe('41')
+    fireEvent.click(within(column).getByTestId('pr-review-back'))
+    expect(screen.queryByTestId('pr-review-mode')).toBeNull()
+    expect(text(pane(), 'pr-inbox-pane-title')).toBe('Add the export button')
+  })
+
+  it('the PR in Review mode leaves the inbox on a read (merged, review no longer asked): Review mode closes and ↑ ↓ move along the list again', async () => {
+    await view({ 'web-00000001': reviewed() }, reviewAnswers)
+    select(WEB, 41)
+    fireEvent.click(within(pane()).getByTestId('pr-review-start-more'))
+    fireEvent.click(await screen.findByTestId('pr-review-start-myself'))
+    await screen.findByTestId('pr-review-mode')
+    const gone = reviewed()
+    main.inbox['web-00000001'] = { ...gone, groups: gone.groups.map((group) => ({ ...group, rows: group.rows.filter((each) => each.number !== 41) })).filter((group) => group.rows.length > 0) }
+    await act(async () => main.emit('prInbox.changed', { projectId: 'web-00000001' }))
+    await waitFor(() => expect(screen.queryByTestId('pr-review-mode')).toBeNull())
+    const before = selectedRows()
+    expect(before).toHaveLength(1)
+    key('ArrowDown')
+    expect(selectedRows()).not.toEqual(before)
+    // It comes back on the next read: selected, it shows in the pane, not in Review mode.
+    main.inbox['web-00000001'] = reviewed()
+    await act(async () => main.emit('prInbox.changed', { projectId: 'web-00000001' }))
+    await waitFor(() => expect(rowOf(WEB, 41)).toBeTruthy())
+    select(WEB, 41)
+    await waitFor(() => expect(pane().dataset.number).toBe('41'))
+    expect(screen.queryByTestId('pr-review-mode')).toBeNull()
+  })
+
+  it('Review mode open in one Project: the Pull requests of another Project take ↑ ↓ as before', async () => {
+    const ops = snapshotOf('ops-00000002', { groups: [{ group: 'needs-review', rows: [row('example-org/ops', 5, { title: 'Rotate the keys', author: ANA }), row('example-org/ops', 6, { title: 'Pin the base image', author: ANA })] }] })
+    preload({ inbox: { 'web-00000001': reviewed(), 'ops-00000002': ops }, models: { [WEB_ROOT]: WEB_MODEL }, answers: reviewAnswers })
+    const { PullRequestsView } = await import('../../src/renderer/pr-inbox/PrInboxView')
+    const { openPrInboxOf } = await import('../../src/renderer/pr-inbox/open')
+    render(<PullRequestsView />)
+    await waitFor(() => expect(screen.getAllByTestId('pr-inbox-row').length).toBeGreaterThan(0))
+    select(WEB, 41)
+    fireEvent.click(within(pane()).getByTestId('pr-review-start-more'))
+    fireEvent.click(await screen.findByTestId('pr-review-start-myself'))
+    await screen.findByTestId('pr-review-mode')
+    await act(async () => {
+      await openPrInboxOf('ops-00000002', 'web-00000001', { repo: 'example-org/ops', number: 5 })
+    })
+    await waitFor(() => expect(screen.getByTestId('pr-inbox-view').dataset.project).toBe('ops-00000002'))
+    await waitFor(() => expect(selectedRows()).toEqual(['example-org/ops#5']))
+    key('ArrowDown')
+    expect(selectedRows()).toEqual(['example-org/ops#6'])
+  })
+})
 
 describe('selecting a PR', () => {
   it('the PR the view selects by itself tells main nothing; a click on one selects it and tells main it was seen', async () => {

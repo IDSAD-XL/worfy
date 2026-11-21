@@ -1,7 +1,8 @@
 # 03 — Модель, каталог, хранилище Integration-ов и секретов, поле `integrations` Project-а, каналы `integrations.*`, новый ADR и Amendment ADR-0021
 
 Type: task
-Status: open
+Status: done 2026-11-20T19:09Z
+PR: #2106
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 3; «Волны», Wave 1; «Решение», 2–4; «Решения по реализации» → Модель, Где
 лежит, Статус, Linked machine, ADR; «Вопросы владельцу», Q2, Q3, Q6, Q9; «Решено без владельца», 1, 3 и 5
@@ -58,16 +59,23 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Волны», Wave 1; «Ре�
 - [ ] Unit `test/unit/integrations-catalogue.test.ts` (новый): у каждой строки каталога — адрес `https://` или stdio,
       хотя бы один способ входа, имя по умолчанию; GitHub — только token; Figma помечен; ключа `slack` нет (Q6). Красный
       до правки — в «Итог».
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/integrations-catalogue.test.ts` exit 0 (7 tests; before the change exit 1, module missing) · mac - · df802e449041c2eb3c5bcdda8da8d3971e5bcc77
 - [ ] Contract `test/contract/integrations-store.test.ts` (новый): `integrations.json` без секретов (поиск значений
       секретов в файле — пусто); `secrets.json` 0600 в папке 0700 (на Windows — как `test/unit/link-secrets-write.test.ts`);
       ключи `<id>:…`; метка уникальна на Machine; запись переживает прерванную запись (временный файл).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/integrations-store.test.ts` exit 0 (14 tests; before the change exit 1, module missing) · mac - · df802e449041c2eb3c5bcdda8da8d3971e5bcc77
 - [ ] Тот же contract: поле `integrations` в `settings.json` Project-а; старый `settings.json` без поля читается; Profile
       и файлы репозитория после записи не изменились.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/integrations-store.test.ts` exit 0 (settings field, old file, repo and Claude home unchanged) · mac - · df802e449041c2eb3c5bcdda8da8d3971e5bcc77
 - [ ] Тот же contract: каналы `integrations.*` с Linked machine Read only — `list` и `status` разрешены, `setEnabled`
       — отказ; Full access — `setEnabled` разрешён, `add`, `setSecret`, `remove` — отказ; Remove включённой в другом
       Project-е без подтверждения — отказ.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/integrations-store.test.ts` exit 0 (createLinkIpc read and all; remove confirm) · mac - · df802e449041c2eb3c5bcdda8da8d3971e5bcc77
 - [ ] Новый ADR и Amendment ADR-0021 влиты в этом PR.
+  - evidence: commit pass · worfy-integrations/03: Integration model, catalogue, Machine store with its secret store, Project field, integrations.* channels, ADR-0111 · - - · df802e449041c2eb3c5bcdda8da8d3971e5bcc77
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · df802e449041c2eb3c5bcdda8da8d3971e5bcc77
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44788804575/job/136489042630 · ci - · fb1dcb679dffbc4cef5072852f10d3e01556d85c
 
 ## Где в коде
 
@@ -89,4 +97,36 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Волны», Wave 1; «Ре�
 
 ## Итог
 
-Пусто до завершения Ticket-а.
+- Сначала падающий: `test/unit/integrations-catalogue.test.ts` и `test/contract/integrations-store.test.ts` красные до
+  правки — модулей `src/shared/integrations/catalogue.ts`, `src/main/integrations/store.ts` и `src/main/ipc/integrations.ts`
+  нет (импорт не находится, 0 test-ов, exit 1). После правки — 7 и 14 test-ов зелёные.
+- Модель — `src/shared/integrations/types.ts`: `Integration` (`id`, `service`, `label`, `transport` http или stdio, `auth`,
+  `headerName`, `signIn`), `IntegrationStatus`, запись Project-а `{ id, enabled, tools, autopilot }`. Каталог —
+  `src/shared/integrations/catalogue.ts`, семь строк данных, Slack нет. Хранилище — `IntegrationStore`
+  (`src/main/integrations/store.ts`): `integrations.json` через `json-file.ts` (временный файл и rename) и свой
+  `FileSecretStore` в `integrations/secrets.json`. Поле `integrations` Project-а — `readProjectIntegrations` и
+  `writeProjectIntegrations` в `src/main/projects/settings.ts`. Каналы — `src/shared/ipc/integrations.ts` и
+  `src/main/ipc/integrations.ts`. ADR-0111 и Amendment ADR-0021 2026-11-20 — в этом PR.
+- **Решено без владельца:** поле `integrations` добавлено в `projectSettingsSchema` (`src/shared/projects/action-templates.ts`,
+  файла нет в «Где в коде»). Без этого любой Save окна Project settings стирал бы поле: `writeJsonFile` отбрасывает ключи,
+  которых схема не знает. `writeProjectSettings` поле из входа не пишет никогда, оставляет сохранённое; меняет его только
+  `writeProjectIntegrations`. Поле, которое не читается, читается как пустой список, остальные настройки остаются.
+- **Решено без владельца:** у stdio-транспорта есть `secretEnv` — имена секретных переменных (значения — в `SecretStore`
+  под `<id>:env:<NAME>`). Без списка имён `SecretStore` не перечисляет ключи, и Remove не нашёл бы, что удалить;
+  `setSecret` отказывает имени, которого нет в списке. У способа `header` — видимое имя заголовка `headerName`.
+- **Решено без владельца:** статус до proxy (Ticket 06) — только то, что worfy знает без запроса к сервису: все нужные
+  секреты есть (token при `auth` не `none` и каждая переменная `secretEnv`) — `signed-in`, иначе — `needs-sign-in`.
+  `error` и `checking` пишет proxy.
+- **Решено без владельца:** Remove спрашивает подтверждение, только когда Integration включена (`enabled: true`) в другом
+  Project-е; выключенная запись не считается. После Remove запись уходит из `settings.json` всех Project-ов Machine. Секреты
+  удаляются раньше записи списка: прерванное удаление оставляет Integration без входа, но не секрет без Integration.
+- **Решено без владельца:** папка `integrations/` — 0700 с первой записи списка, а не только `secrets.json`.
+  `integrations.rename` принимает `projectId` (окно, из которого переименовали; так связь узнаёт Project, local к
+  Machine), метка меняется на всей Machine. `integrations.add` для сервиса каталога берёт адрес каталога и отказывает
+  другому. `scopes` в каталоге пусты: scope-ы назовут метаданные сервера (Ticket 05). Figma — только OAuth.
+- Каналы Linked machine: `list`, `status` — `project` `read`; `setEnabled`, `setTools`, `setAutopilot`, `rename` —
+  `project` `write`; `add`, `setSecret`, `remove` — `local`. Contract test идёт через `createLinkIpc` с доступом read и all.
+- Ничего вне `<WORFY_DATA_DIR>` не пишется: contract test сравнивает sha256 всех файлов папки репозитория (с `.mcp.json`) и
+  Claude home (Profile, `.claude.json`) до и после всех каналов.
+- Spike 01 ещё не влит (`spike-integrations.md` нет): пометки «tools-only proxy мало» в каталоге нет ни у кого, кроме
+  Figma.

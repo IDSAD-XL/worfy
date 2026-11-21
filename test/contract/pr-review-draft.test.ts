@@ -7,7 +7,12 @@
 // - Discard removes the file and the changes waiting for it; a draft being submitted is not discarded;
 // - a submitted draft is kept 30 days, then removed at the first look at the Project's drafts in a run of worfy;
 // - a Linked machine, at any access level, is refused every `prReview.*` channel before the handler.
-// The race of main with bin/pr-review-draft is ticket 08's. Nothing reaches GitHub: no gh is given at all.
+// - Start review (worfy-pr-review ticket 09, `prReview.start`): a PR without a draft gets one on its head, with the files
+//   the account marked Viewed on github.com (`viewerViewedState`, Q3 (a)) — read once, by one GraphQL query, over the gh
+//   stand-in (test/fixtures/gh/gh-stub.mjs), which fails the test on any `--method` and any `mutation`; a PR with a draft
+//   reads nothing.
+// The race of main with bin/pr-review-draft is ticket 08's. Apart from Start review nothing reaches GitHub: no gh is
+// given at all.
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, utimesSync, writeFileSync } from 'node:fs'
 import { rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -19,10 +24,11 @@ import { appUrlMatcher, registerIpc, type IpcMainLike, type ModuleLoader } from 
 import { prReviewHandlers } from '../../src/main/ipc/pr-review'
 import { createLinkIpc, LinkPeer } from '../../src/main/link/ipc-adapter'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import { prReviewDeleteComment, prReviewDiscard, prReviewDraft, prReviewDrafts, prReviewSaveComment, prReviewSetViewed, type PrReviewDraftAnswer, type ReviewDraft } from '../../src/shared/ipc/pr-review'
+import { prReviewDeleteComment, prReviewDiscard, prReviewDraft, prReviewDrafts, prReviewSaveComment, prReviewSetViewed, prReviewStart, type PrReviewDraftAnswer, type ReviewDraft } from '../../src/shared/ipc/pr-review'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
 import { ms } from '../time-scale'
+import { ghWorld, type GhWorld } from './gh-world'
 
 const API = 'demo-org/api'
 const PR = 118
@@ -46,7 +52,7 @@ interface Setup {
   onDisk: () => ReviewDraft | null
 }
 
-async function setup(over: Partial<PrReviewDraftsOptions> = {}): Promise<Setup> {
+async function setup(over: Partial<PrReviewDraftsOptions> = {}, world?: GhWorld): Promise<Setup> {
   const base = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-pr-review-')))
   temps.push(base)
   const root = join(base, 'project')
@@ -56,7 +62,7 @@ async function setup(over: Partial<PrReviewDraftsOptions> = {}): Promise<Setup> 
   const drafts = new PrReviewDrafts({ profileDir: async () => ({ dir: profileDir, reason: null }), wrote: () => void writes.push(Date.now()), warn: () => undefined, ...over })
   const handlers = new Map<string, (event: IpcMainInvokeEvent, input: unknown) => unknown>()
   const ipc: IpcMainLike = { handle: (channel, listener) => void handlers.set(channel, listener) }
-  await registerIpc(ipc, { modules: { './pr-review.ts': async () => prReviewHandlers({ drafts: () => drafts, root: () => root }) }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
+  await registerIpc(ipc, { modules: { './pr-review.ts': async () => prReviewHandlers({ drafts: () => drafts, root: () => root, ...(world === undefined ? {} : { github: () => (args) => world.run(args, root) }) }) }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
   const call = async <T,>(channel: string, input: unknown) => (await handlers.get(`${IPC_CHANNEL_PREFIX}${channel}`)!({ senderFrame: { url: APP_URL } } as unknown as IpcMainInvokeEvent, input)) as IpcResult<T>
   const file = reviewDraftFilePath(profileDir, API, PR)
   return { profileDir, file, drafts, writes, call, onDisk: () => (existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as ReviewDraft) : null) }
@@ -108,6 +114,98 @@ describe('the draft through the prReview channels', () => {
       ok: false,
       error: 'prReview.deleteComment failed: The comment changed meanwhile (an Agent review writes the draft): look at it again',
     })
+  })
+})
+
+describe('Start review: the files Viewed on github.com, read once and only read', () => {
+  const FILES = [
+    { path: 'src/upload.ts', blob: 'b10b5a' },
+    { path: 'src/old.ts', blob: 'b20b5a' },
+    { path: 'README.md', blob: 'b30b5a' },
+  ]
+  const start = { ...pull, head: HEAD, files: FILES }
+
+  /** The stand-in with the PR whose files the account marked on github.com: one Viewed, one Viewed before a change since, one not. */
+  function world(): GhWorld {
+    const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-pr-review-gh-')))
+    temps.push(dir)
+    const made = ghWorld(join(dir, 'gh'), { accounts: [] })
+    writeFileSync(join(made.dir, 'graphql.json'), JSON.stringify({ viewer: 'dev-me', pulls: [{ repo: API, number: PR, updatedAt: '2026-11-20T10:00:00Z', headRefOid: HEAD, viewed: { 'src/upload.ts': 'VIEWED', 'src/old.ts': 'DISMISSED', 'README.md': 'UNVIEWED' } }] }))
+    return made
+  }
+
+  /** No call of the stand-in writes: no method but GET, no field of a REST call, no GraphQL mutation. */
+  const readsOnly = (calls: string[][]): void => {
+    for (const args of calls) {
+      expect(args.slice(0, 2)).toEqual(['api', 'graphql'])
+      expect(args.some((arg) => /^(?:--method|-X)/u.test(arg))).toBe(false)
+      expect(args.some((arg) => /\bmutation\b/u.test(arg))).toBe(false)
+    }
+  }
+
+  it('a PR without a draft: one GraphQL read; the draft starts on the head with the files marked VIEWED at their blob', async () => {
+    const gh = world()
+    const s = await setup({}, gh)
+    const answer = ok(await s.call<PrReviewDraftAnswer>('prReview.start', start))
+    expect(s.onDisk()).toEqual({ schema: 1, repo: API, pr: PR, startedOn: HEAD, payload: { body: '', comments: [] }, anchors: [], viewed: { 'src/upload.ts': 'b10b5a' }, state: 'draft' })
+    expect(answer).toEqual({ repo: API, pr: PR, draft: s.onDisk(), problem: null })
+    expect(gh.calls()).toHaveLength(1)
+    expect(gh.calls()[0]!.join(' ')).toContain('viewerViewedState')
+    readsOnly(gh.calls())
+  })
+
+  it('once: a second Start review, and two at once, read GitHub no more; the marks of the person stay', async () => {
+    const gh = world()
+    const s = await setup({}, gh)
+    await Promise.all([s.call('prReview.start', start), s.call('prReview.start', start)])
+    ok(await s.call('prReview.setViewed', { ...pull, head: HEAD, path: 'src/upload.ts', blob: null }))
+    const again = ok(await s.call<PrReviewDraftAnswer>('prReview.start', start))
+    expect(again.draft?.viewed).toEqual({})
+    expect(gh.calls()).toHaveLength(1)
+    readsOnly(gh.calls())
+  })
+
+  it('a PR with a draft already (a comment, an Agent review): nothing is read, the draft stays as it is', async () => {
+    const gh = world()
+    const s = await setup({}, gh)
+    ok(await s.call('prReview.saveComment', save(12, 'Why three tries?')))
+    const before = readFileSync(s.file, 'utf8')
+    const answer = ok(await s.call<PrReviewDraftAnswer>('prReview.start', { ...start, head: 'ffeeddccbbaa' }))
+    expect(answer.draft?.startedOn).toBe(HEAD)
+    expect(gh.calls()).toEqual([])
+    expect(readFileSync(s.file, 'utf8')).toBe(before)
+  })
+
+  it('the comments of Review mode (worfy-pr-review ticket 10) — new, on a range, changed, an agent\'s made the person\'s, moved, deleted — and Discard: no call to GitHub at all', async () => {
+    const gh = world()
+    const s = await setup({}, gh)
+    ok(await s.call('prReview.start', start))
+    const read = gh.calls().length
+    ok(await s.call('prReview.saveComment', save(12, 'Why three tries?')))
+    ok(await s.call('prReview.saveComment', { ...pull, head: HEAD, comment: { path: 'src/upload.ts', line: 14, side: 'RIGHT', start_line: 13, start_side: 'RIGHT', body: '```suggestion\nconst TRIES = 2\nconst WAIT = 100\n```' }, anchor: 'line 13\nline 14' }))
+    ok(await s.call('prReview.saveComment', { ...save(12, 'Why not two?'), ref: { index: 0, path: 'src/upload.ts', body: 'Why three tries?' } }))
+    ok(await s.call('prReview.saveComment', { ...save(30, 'Why not two?'), ref: { index: 0, path: 'src/upload.ts', body: 'Why not two?' } }))
+    const left = ok(await s.call<PrReviewDraftAnswer>('prReview.deleteComment', { ...pull, ref: { index: 1, path: 'src/upload.ts', body: '```suggestion\nconst TRIES = 2\nconst WAIT = 100\n```' } }))
+    expect(left.draft?.payload.comments).toEqual([{ path: 'src/upload.ts', line: 30, side: 'RIGHT', body: 'Why not two?' }])
+    expect(ok(await s.call<PrReviewDraftAnswer>('prReview.discard', pull)).draft).toBeNull()
+    expect(s.onDisk()).toBeNull()
+    expect(gh.calls()).toHaveLength(read)
+    readsOnly(gh.calls())
+  })
+
+  it('GitHub does not answer: the draft starts without marks, and the read is not tried again', async () => {
+    const gh = world()
+    writeFileSync(join(gh.dir, 'offline'), '')
+    const s = await setup({}, gh)
+    const answer = ok(await s.call<PrReviewDraftAnswer>('prReview.start', start))
+    expect(answer.draft).toMatchObject({ startedOn: HEAD, viewed: {} })
+    ok(await s.call('prReview.start', start))
+    expect(gh.calls()).toHaveLength(1)
+  })
+
+  it('without a reader of GitHub (a test build): the draft starts without marks', async () => {
+    const s = await setup()
+    expect(ok(await s.call<PrReviewDraftAnswer>('prReview.start', start)).draft).toMatchObject({ startedOn: HEAD, viewed: {} })
   })
 })
 
@@ -287,14 +385,14 @@ describe('a Linked machine', () => {
   const LINKED = '66666666-6666-4666-8666-666666666666'
 
   it('every prReview channel is `local`', () => {
-    expect([prReviewDraft, prReviewSaveComment, prReviewDeleteComment, prReviewSetViewed, prReviewDiscard, prReviewDrafts].map((channel) => channel.access)).toEqual(Array(6).fill('local'))
+    expect([prReviewDraft, prReviewSaveComment, prReviewDeleteComment, prReviewSetViewed, prReviewDiscard, prReviewDrafts, prReviewStart].map((channel) => channel.access)).toEqual(Array(7).fill('local'))
   })
 
   it.each(['all', 'read'] as const)('with access %s: every prReview channel is refused before the handler; nothing is read or written', async (level) => {
     const s = await setup()
     ok(await s.call('prReview.saveComment', save(12, 'Why three tries?')))
     const before = readFileSync(s.file, 'utf8')
-    const spy = { draft: vi.fn(), saveComment: vi.fn(), deleteComment: vi.fn(), setViewed: vi.fn(), discard: vi.fn(), list: vi.fn() }
+    const spy = { draft: vi.fn(), saveComment: vi.fn(), deleteComment: vi.fn(), setViewed: vi.fn(), discard: vi.fn(), list: vi.fn(), start: vi.fn() }
     const modules: Record<string, ModuleLoader> = { './pr-review.ts': async () => prReviewHandlers({ drafts: () => spy as never, root: () => '/nowhere' }) }
     const adapter = await createLinkIpc({ modules, isLinked: (id) => id === LINKED })
     expect(adapter.channels()).toEqual([])
@@ -308,6 +406,7 @@ describe('a Linked machine', () => {
       ['prReview.setViewed', { ...pull, head: HEAD, path: 'src/upload.ts', blob: 'b10b5a' }],
       ['prReview.discard', pull],
       ['prReview.drafts', { projectId: PROJECT }],
+      ['prReview.start', { ...pull, head: HEAD, files: [{ path: 'src/upload.ts', blob: 'b10b5a' }] }],
     ] as const)
       expect(await adapter.call(peer, channel, input, 'Beta')).toEqual({ ok: false, error: `${channel}: not open to Linked machines` })
     for (const each of Object.values(spy)) expect(each).not.toHaveBeenCalled()

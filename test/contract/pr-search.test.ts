@@ -407,6 +407,18 @@ describe('prSearch.pull: one PR of the results', () => {
     expectNoWrite(bench.gh)
   })
 
+  it('Review mode open on a PR (worfy-pr-review ticket 10): its reads — entering, Refresh, every 2 minutes — only read; nothing is written, nothing marked seen', async () => {
+    const bench = setUp([stubPull(WEB, 5)])
+    await bench.search.pull(bench.project, { repo: WEB, number: 5 })
+    for (let tick = 0; tick < 4; tick += 1) {
+      bench.clock.now += 120_000
+      await bench.search.pull(bench.project, { repo: WEB, number: 5, refresh: true })
+    }
+    expect(bench.detailsCalls()).toHaveLength(5)
+    expect(existsSync(prInboxStatePath(bench.project.dataDir))).toBe(false)
+    expectNoWrite(bench.gh)
+  })
+
   it('a PR of the inbox: the inbox row, no call', async () => {
     const bench = setUp([minePull(API, 1)])
     await bench.inbox.tick()

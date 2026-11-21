@@ -23,9 +23,13 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import { PR_INBOX_GROUP_TITLES, type PrApprovals, type PrInboxComment, type PrInboxGroup, type PrInboxRow, type PrInboxSnapshot, type PrInboxThread } from '../../shared/ipc/pr-inbox'
 import type { PrReplyItem } from '../../shared/ipc/pr-inbox'
+import type { PrReviewDraftRow } from '../../shared/ipc/pr-review'
 import type { ProjectView } from '../../shared/ipc/projects'
 import type { PrSearchNotice, PrSearchPull, PrSearchRow } from '../../shared/ipc/pr-search'
 import type { Epic, Ticket } from '../../shared/workflow/types'
+import { ReviewMode } from '../pr-review/ReviewMode'
+import { closeReviewMode, draftKey, lastReviewChoice, openReviewMode, plural, reviewAway, reviewOpenOn, short, useReviewDrafts, useReviewMode } from '../pr-review/review-store'
+import { StartReviewMenu } from '../pr-review/StartReviewMenu'
 import { openStoryFile, ticketStoryPath } from '../stories/open'
 import { StoryBuildButton } from '../stories/StoryBuildButton'
 import { ticketTitle } from '../canvas/epic-layout'
@@ -303,15 +307,21 @@ export interface PrListItemProps {
   now: number
   selected: boolean
   onSelect: () => void
+  /** The review draft of the PR on this machine (worfy-pr-review ticket 10): the chip `Review draft`. */
+  draft?: PrReviewDraftRow | undefined
 }
 
+/** A draft the chip `Review draft` stands for: one with comments, not submitted yet. */
+const draftShown = (draft: PrReviewDraftRow | undefined): draft is PrReviewDraftRow => draft !== undefined && draft.state !== 'submitted' && draft.comments > 0
+
 /** One PR of the list: the author, the title, `name#N`, the Ticket chip and CI, the age, open threads and a new mark. */
-export function PrListItem({ group, row, ticket, viewer, now, selected, onSelect }: PrListItemProps) {
+export function PrListItem({ group, row, ticket, viewer, now, selected, onSelect, draft }: PrListItemProps) {
   const threads = threadsText(row.unresolvedThreads)
   const fresh = newText(row.newSinceSeen)
   const age = ageOf(group, row)
   const name = row.repo.slice(row.repo.indexOf('/') + 1)
   const chip = approvalsChip(row.approvals) !== null
+  const reviewDraft = draftShown(draft) ? draft : null
   return (
     <li className="w-pr-inbox-row" data-testid="pr-inbox-row" data-repo={row.repo} data-number={row.number} data-selected={selected ? 'true' : undefined}>
       <button type="button" className="w-pr-inbox-item" aria-current={selected ? 'true' : undefined} onClick={onSelect}>
@@ -336,8 +346,13 @@ export function PrListItem({ group, row, ticket, viewer, now, selected, onSelect
           <span className="w-pr-inbox-age w-mono" data-testid="pr-inbox-age" data-heat={ageHeat(age, now)} title={new Date(age).toLocaleString()}>
             {ageText(age, now)}
           </span>
-          {threads !== null || fresh !== null || chip ? (
+          {threads !== null || fresh !== null || chip || reviewDraft !== null ? (
             <span className="w-pr-inbox-item__marks">
+              {reviewDraft !== null ? (
+                <span className="w-pr-inbox-flag w-pr-review-draft-chip" data-testid="pr-review-draft-chip" title={`${plural(reviewDraft.comments, 'pending comment')}, started on ${short(reviewDraft.startedOn)}`}>
+                  Review draft
+                </span>
+              ) : null}
               {threads !== null ? (
                 <span
                   className="w-pr-inbox-bubble"
@@ -538,6 +553,16 @@ export function PrPane({ projectId, group, row, ticket, viewer, now, readOnly, s
                     <ExternalLink url={action.url} className="w-pr-inbox-button w-pr-inbox-button--primary w-pr-inbox-button--link" testId="pr-inbox-next-step-action">
                       {action.label}
                     </ExternalLink>
+                  ) : action?.kind === 'start-review' ? (
+                    <>
+                      {/* A Linked machine: the draft stays on the Machine of the Project; the diff and the threads open read-only. */}
+                      {reviewAway() !== null ? (
+                        <button type="button" className="w-pr-inbox-button" data-testid="pr-review-view" title="Review mode, read only: the diff and the threads" onClick={() => openReviewMode({ projectId, repo: row.repo, number: row.number }, 'myself', true)}>
+                          View changes
+                        </button>
+                      ) : null}
+                      <StartReviewMenu projectId={projectId} away={reviewAway()} onStart={(how) => openReviewMode({ projectId, repo: row.repo, number: row.number }, how, false)} />
+                    </>
                   ) : action?.kind === 'send-all' && sendAll !== null ? (
                     // The dialog of Send all with every text first: nothing is posted without its own Send all (ADR-0105).
                     <button
@@ -672,6 +697,10 @@ export interface PrInboxBodyProps {
   results?: SearchPanes | null
   /** The read on opening the view is under way (worfy-polish 125): the status line says it reads, with the last read's time. */
   reading?: boolean
+  /** Reads the PR Review mode shows again (worfy-pr-review ticket 09); absent — Review mode reads only its diff. */
+  onRefreshPr?: (row: PrInboxRow) => void
+  /** The review drafts of the Project on this machine, by draftKey (worfy-pr-review ticket 10): the chip `Review draft`. */
+  reviewDrafts?: ReadonlyMap<string, PrReviewDraftRow>
 }
 
 /** The two panes of a search shown: the list of its results, and the result the pane shows. */
@@ -681,10 +710,51 @@ export interface SearchPanes {
   current: { group: PrInboxGroup | null; row: PrInboxRow } | null
   /** The results hold one PR: no ↑ ↓ hint. */
   single: boolean
+  /** The results in order, for the column of Review mode; absent — the column lists none. */
+  rows?: readonly PrInboxRow[]
+  /** A result picked in the column of Review mode. */
+  onPick?: (row: PrInboxRow) => void
+  /** The search's answer is in: none runs, and it did not fail. Until then its rows say nothing of what left. */
+  settled?: boolean
+}
+
+/**
+ * The list folded into a column of 48 px beside Review mode (worfy-pr-review ticket 09): `← Results` or `← Inbox` gives
+ * the list back, an avatar with its number picks another PR — Review mode closes on it, the draft stays.
+ */
+function ReviewColumn({ rows, current, viewer, results, onPick }: { rows: readonly PrInboxRow[]; current: PrInboxRow; viewer: string | null; results: boolean; onPick: (row: PrInboxRow) => void }) {
+  const back = results ? 'Results' : 'Inbox'
+  return (
+    <nav className="w-pr-review-narrow" aria-label={back} data-testid="pr-review-column">
+      <button type="button" className="w-pr-review-narrow__back" data-testid="pr-review-back" title="Back to the list (Escape). The draft stays." onClick={closeReviewMode}>
+        <span aria-hidden="true">←</span>
+        <span>{back}</span>
+      </button>
+      {rows.map((row) => (
+        <button
+          key={rowKey(row)}
+          type="button"
+          className="w-pr-review-narrow__item"
+          data-testid="pr-review-column-item"
+          data-repo={row.repo}
+          data-number={row.number}
+          aria-current={rowKey(row) === rowKey(current) ? 'true' : undefined}
+          title={`${row.repo}#${row.number} ${row.title}`}
+          onClick={() => {
+            closeReviewMode()
+            onPick(row)
+          }}
+        >
+          <Avatar login={row.author} viewer={viewer} small />
+          <span className="w-mono">#{row.number}</span>
+        </button>
+      ))}
+    </nav>
+  )
 }
 
 /** The view over one snapshot, without IPC. */
-export function PrInboxBody({ name, snapshot, tickets, epics = EMPTY_EPICS, now, selected, focusedGroup, missing, failure, readOnly, onSelect, onMarkSeen, searchBar = null, results = null, reading = false }: PrInboxBodyProps) {
+export function PrInboxBody({ name, snapshot, tickets, epics = EMPTY_EPICS, now, selected, focusedGroup, missing, failure, readOnly, onSelect, onMarkSeen, searchBar = null, results = null, reading = false, onRefreshPr, reviewDrafts }: PrInboxBodyProps) {
   const status = statusLines(snapshot, now)
   // Before the first read, or while the read on opening runs: the rows of the last read stay, with its time.
   const readingNow = snapshot.enabled && (reading || (snapshot.readAt === null && status.error === null))
@@ -694,6 +764,31 @@ export function PrInboxBody({ name, snapshot, tickets, epics = EMPTY_EPICS, now,
   const order = listOrder(snapshot)
   const current = results !== null ? (results.current ?? undefined) : shown === null ? undefined : order.find(({ row }) => rowKey(row) === shown)
   const currentTicket = current === undefined ? undefined : ticketOfRow(current.row, tickets)
+  // Review mode on the PR the pane shows (worfy-pr-review ticket 09): it takes the pane's place, the list folds.
+  const reviewOpen = useReviewMode((store) => store.open)
+  const reviewing = current !== undefined && reviewOpenOn(reviewOpen, snapshot.projectId, current.row)
+  // Review mode on a PR this view no longer lists (it left the inbox on a read; the search was cleared or changed):
+  // closed, so the list takes its keys again and the PR does not come back in Review mode later. Only a finished read
+  // decides: a search running again shows no rows until its answer, and an inbox read keeps the last ones.
+  const listed = results !== null ? [...(results.rows ?? []), ...(results.current === null ? [] : [results.current.row])] : order.map(({ row }) => row)
+  const decided = results !== null ? results.settled !== false : snapshot.readAt !== null && !readingNow
+  const reviewGone = reviewOpen !== null && reviewOpen.projectId === snapshot.projectId && decided && !listed.some((row) => reviewOpenOn(reviewOpen, snapshot.projectId, row))
+  useEffect(() => {
+    if (reviewGone) closeReviewMode()
+  }, [reviewGone])
+  const review =
+    current !== undefined && reviewing ? (
+      <>
+        <ReviewColumn
+          rows={results !== null ? (results.rows ?? []) : order.map(({ row }) => row)}
+          current={current.row}
+          viewer={snapshot.viewer}
+          results={results !== null}
+          onPick={(row) => (results !== null ? results.onPick?.(row) : onSelect(row))}
+        />
+        <ReviewMode key={rowKey(current.row)} projectId={snapshot.projectId} row={current.row} readOnly={reviewAway()} onRefresh={() => onRefreshPr?.(current.row)} />
+      </>
+    ) : null
   const pane =
     current !== undefined ? (
       // Keyed by the PR: another one starts with its own drafts, typed texts and scroll.
@@ -769,7 +864,12 @@ export function PrInboxBody({ name, snapshot, tickets, epics = EMPTY_EPICS, now,
           <p className="w-pr-inbox-empty__text">Your open pull requests and the reviews asked of you in this Project&apos;s repositories show here after a search.</p>
         </div>
       ) : null}
-      {results === null && snapshot.enabled && groups.length > 0 ? (
+      {results === null && snapshot.enabled && groups.length > 0 && review !== null ? (
+        <div className="w-pr-inbox__panes is-reviewing" data-testid="pr-review-panes">
+          {review}
+        </div>
+      ) : null}
+      {results === null && snapshot.enabled && groups.length > 0 && review === null ? (
         <div className="w-pr-inbox__panes">
           <nav className="w-pr-inbox-list" aria-label="Pull requests of the Project" data-testid="pr-inbox-list">
             {groups.map(({ group, rows }) => (
@@ -799,6 +899,7 @@ export function PrInboxBody({ name, snapshot, tickets, epics = EMPTY_EPICS, now,
                       now={now}
                       selected={shown === rowKey(row)}
                       onSelect={() => onSelect(row)}
+                      draft={reviewDrafts?.get(draftKey(row.repo, row.number))}
                     />
                   ))}
                 </ul>
@@ -808,7 +909,12 @@ export function PrInboxBody({ name, snapshot, tickets, epics = EMPTY_EPICS, now,
           {pane}
         </div>
       ) : null}
-      {results !== null ? (
+      {results !== null && review !== null ? (
+        <div className="w-pr-inbox__panes is-reviewing" data-testid="pr-review-panes">
+          {review}
+        </div>
+      ) : null}
+      {results !== null && review === null ? (
         <div className="w-pr-inbox__panes" data-testid="pr-search-panes">
           {results.list}
           {pane ?? (
@@ -878,6 +984,8 @@ function authorsOf(rows: readonly PrInboxRow[], viewer: string | null): string[]
 function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' | 'path'> }) {
   const { snapshot, error } = usePrInbox(project.id)
   const openRead = usePrInboxReading(project.id)
+  // The review drafts on this machine, for the chip `Review draft` of a row (worfy-pr-review ticket 10).
+  const reviewDrafts = useReviewDrafts(project.id)
   // Each time the view is shown — its tab, an entry of open.ts, another Project while it is shown — main reads GitHub
   // now, within its limits (worfy-polish 125); the views of the shell stay mounted, so this follows the shown view.
   const shown = useNavigation((store) => store.view === 'pull-requests')
@@ -1004,6 +1112,16 @@ function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' 
     return () => window.removeEventListener('focus', onFocus)
   }, [])
 
+  /**
+   * Review mode reads its PR again (worfy-pr-review ticket 09): a PR of the inbox with the inbox's read, within its
+   * limits; a result the inbox lacks past main's memory.
+   */
+  const refreshPr = (row: PrInboxRow): void => {
+    const result = resultRows?.find((each) => rowKey(each) === rowKey(row))
+    if (result !== undefined && !result.inInbox) pull(`${rowKey(result)} ${result.updatedAt}`, result, true)
+    else readPrInboxOnOpen(project.id)
+  }
+
   /** Refresh of the results reads the selected PR again too, past main's memory. */
   const refresh = (): void => {
     pulling.current.clear()
@@ -1056,8 +1174,31 @@ function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' 
       select(next.row)
     }
   })
+  /** Enter on a result: Start review with the Project's last choice (spec, implementation decisions 12). */
+  const startOn = useRef<(target: HTMLElement) => boolean>(() => false)
+  useEffect(() => {
+    startOn.current = (target) => {
+      const item = target.closest<HTMLElement>('[data-testid="pr-search-results"] [data-testid="pr-inbox-row"]')
+      if (item === null || resultRows === null) return false
+      const row = resultRows.find((each) => each.repo === item.dataset.repo && String(each.number) === item.dataset.number)
+      // A PR of one's own is not reviewed: Enter only selects it.
+      if (row === undefined || (viewer !== null && row.author?.toLowerCase() === viewer.toLowerCase())) return false
+      selectResult(row)
+      openReviewMode({ projectId: project.id, repo: row.repo, number: row.number }, lastReviewChoice(project.id), reviewAway() !== null)
+      return true
+    }
+  })
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
+      // Review mode shown in this view takes its keys: ↑ ↓ move along its files, Escape closes it (pr-review/ReviewMode.tsx).
+      // Open on another Project's PR, or on one this view no longer shows, it takes none.
+      if (root.current?.querySelector('[data-testid="pr-review-mode"]') != null) return
+      if (event.key === 'Enter' && !event.defaultPrevented && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.target instanceof HTMLElement && root.current?.contains(event.target) === true) {
+        if (startOn.current(event.target)) {
+          event.preventDefault()
+          return
+        }
+      }
       if (slashKey(event, root.current)) {
         event.preventDefault()
         field.current?.focus()
@@ -1103,6 +1244,8 @@ function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' 
         onSelect={select}
         onMarkSeen={markSeen}
         reading={openRead}
+        onRefreshPr={refreshPr}
+        reviewDrafts={reviewDrafts}
         searchBar={<SearchBar search={search} authors={authorsOf(resultRows ?? listOrder(snapshot).map(({ row }) => row), viewer)} readOnly={readOnly} invalid={invalid} savedHit={savedHit} fieldRef={field} />}
         results={
           resultRows === null
@@ -1125,12 +1268,19 @@ function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' 
                         now={now}
                         selected={currentResult === row}
                         onSelect={() => selectResult(row)}
+                        draft={reviewDrafts.get(draftKey(row.repo, row.number))}
                       />
                     )}
                   />
                 ),
                 current: currentResult === undefined ? null : { group: groupOf(currentResult), row: pulledRow === null ? currentResult : unseenless(pulledRow) },
                 single: resultRows.length === 1,
+                rows: resultRows,
+                settled: !search.running && search.result !== null,
+                onPick: (row) => {
+                  const found = resultRows.find((each) => rowKey(each) === rowKey(row))
+                  if (found !== undefined) selectResult(found)
+                },
               }
         }
       />
