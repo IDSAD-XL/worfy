@@ -247,9 +247,10 @@ comment that is not on a changed line of that commit stops the whole Submit unti
 refuse the review with it. GitHub took it: a toast "Review sent to example-org/web#41 · Approve · 2 comments", the PR is
 read again (its approvals chip counts the approval), and Review mode closes. Opened again, its bar says "You reviewed
 this pull request · Approve" with **Open the review on GitHub** and **Start a new review**; the comments say
-"Submitted · on GitHub". GitHub refused it: its reason in the dialog, the draft stays. GitHub did not answer: the bar
-keeps "GitHub did not confirm the review: <reason>"; the next Submit first looks whether GitHub has the review and
-posts it only if not.
+"Submitted · on GitHub". GitHub refused it: its reason in the dialog, the draft stays with all its comments, the
+removed ones too. GitHub did not answer: the bar keeps "GitHub did not confirm the review: <reason>", and the texts that
+went stay as they are — no edits, no Discard, no agent, and the dialog opens on them, locked; the next Submit first
+looks whether GitHub has the review and posts it only if not.
 
 **The chip Review draft.** A PR with a draft of comments on this machine shows **Review draft** in its row of the inbox
 and of the search results, with "3 pending comments, started on 3f2a9c1" in its tooltip. The draft survives quitting
@@ -431,13 +432,15 @@ draft: Start review is inactive there, and Review mode opens read only through *
   mode is open on lives in the renderer's store of the view (`review-store.ts`).
 - Submit review (ADR-0112, the third write of main after ADR-0105's two): the dialog asks `prReview.check` (`local`)
   for the lint of its texts, 400 ms after they stop changing; Submit is `prReview.submit` (`local`). Main reads the
-  draft file again and takes the shown texts, runs `review-draft-lint` over them (the template's lengths when the
-  Profile has no `lint.json`), reads the PR (`GET repos/{o}/{r}/pulls/{n}`: its head, base and author), checks each
+  draft file again and takes the shown texts, runs `review-draft-lint` over them (the Team reviewer's `lint.json` with
+  `--untiered`, else the template's lengths), reads the PR (`GET repos/{o}/{r}/pulls/{n}`: its head, base and author), checks each
   comment against GitHub's diff of its commit (`pulls/{n}/files` at the head, else `compare/{base}...{commit}`), marks
   the draft `submitting` and sends one `POST repos/{o}/{r}/pulls/{n}/reviews` with
   `{commit_id, event, body, comments}`, `commit_id` the commit the comments are on (`anchoredOn`, else `startedOn`), as
   the Profile's `github.account`. A 4xx is GitHub's refusal; a 5xx, a lost connection or gh's timeout is "did not
-  confirm", and the next Submit first reads `GET …/reviews` for a review of that account on that commit with that body.
+  confirm", and the next Submit, before any other check, reads `GET …/reviews` for a review of that account on that
+  commit with that body, given no earlier than the mark `submitting` (`submittingAt`) less 2 minutes, whose line
+  comments (`GET …/reviews/{id}/comments`) are the draft's; none — the draft is a draft again.
   Never a review without `event` (a pending review on GitHub), never a second POST for one click.
 
 ### Implementation

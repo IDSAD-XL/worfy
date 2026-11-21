@@ -7,8 +7,12 @@
 // - exactly one POST, its body byte for byte the texts the dialog showed, with `commit_id` that commit;
 // - Approve or Request changes on the account's own PR: refused before the POST;
 // - GitHub 500 without the review landed: nothing more is posted; the next Submit looks on GitHub first, then posts once;
-//   with the review landed it is only marked submitted; a 422 says GitHub's reason and the next Submit posts at once;
-// - `submitting` left by a crash: the next Submit looks first;
+//   with the review landed it is only marked submitted; a 422 says GitHub's reason, gives back the comments removed in
+//   the dialog, and the next Submit posts at once;
+// - `submitting` left by a crash, or a Submit GitHub did not confirm: only the same texts go again, and the lookup runs
+//   before every other check (a moved head too); it takes a review of this account on that commit with that body and
+//   those line comments, in any state, given from the mark on; nothing found frees the draft;
+// - the Profile's lint.json with `--untiered`: every text held to its largest length, its forbidden words still found;
 // - an Agent review: the event of the POST is the one the person chose, not the one the agent suggested; a comment the
 //   person removed in the dialog is not posted; nothing while the agent writes;
 // - a comment not on a changed line of GitHub's diff, or a range across hunks: refused, no POST;
@@ -20,7 +24,7 @@ import { delimiter, dirname, join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PrReviewDrafts, reviewDraftFilePath } from '../../src/main/github/pr-review-draft'
-import { AGENT_WRITING, NO_ACCOUNT, OWN_PULL, PrReviewSubmitter, UNCONFIRMED, type PrReviewSubmitterOptions } from '../../src/main/github/pr-review-submit'
+import { AGENT_WRITING, NO_ACCOUNT, OWN_PULL, PrReviewSubmitter, submitLintArgs, UNCONFIRMED, type PrReviewSubmitterOptions } from '../../src/main/github/pr-review-submit'
 import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import { prReviewHandlers } from '../../src/main/ipc/pr-review'
 import { createLinkIpc } from '../../src/main/link/ipc-adapter'
@@ -75,7 +79,7 @@ function lintRunner(base: string): PrReviewSubmitterOptions['lint'] {
   const env: Record<string, string | undefined> = { ...process.env, HOME: home, USERPROFILE: home, HARNESS_HOME: harnessHome, EVAL_HARNESS_HOME: '' }
   for (const name of ['CLAUDE_GATE_CONFIG', 'CLAUDE_GATE_RESOLVE', 'CLAUDE_PROFILES_DIR', 'CLAUDE_PROFILE_BIN', 'CLAUDE_TICKET_BIN']) delete env[name]
   env.PATH = `${dirname(scriptNode())}${delimiter}${env.PATH ?? ''}`
-  return (draft, root, rules) => runHarnessScript(LINT, ['-', '-C', root, ...(rules === null ? [] : ['--rules', rules])], env, { stdin: draft, timeoutMs: ms(30_000) })
+  return (draft, root, rules) => runHarnessScript(LINT, submitLintArgs(root, rules), env, { stdin: draft, timeoutMs: ms(30_000) })
 }
 
 interface World {
@@ -98,6 +102,8 @@ interface Setup {
   call: <T>(channel: string, input: unknown) => Promise<IpcResult<T>>
   /** The PRs the PR inbox was asked to read again, `repo#number`. */
   refreshed: string[]
+  /** The Profile folder of the Project. */
+  profileDir: string
 }
 
 function draftOf(comments: readonly { comment: ReviewComment; by: 'person' | 'agent' }[], over: Partial<ReviewDraft> = {}): ReviewDraft {
@@ -159,6 +165,7 @@ async function setup(draft: ReviewDraft, world: World = {}, over: Partial<PrRevi
     onDisk: () => JSON.parse(readFileSync(file, 'utf8')) as ReviewDraft,
     call,
     refreshed,
+    profileDir,
   }
 }
 
@@ -278,6 +285,8 @@ describe('Submit review', () => {
     const kept = s.onDisk()
     expect(kept.state).toBe('draft')
     expect(kept.error).toContain(UNCONFIRMED)
+    // The time of the mark stays: the next Submit takes only a review given from then on.
+    expect(Date.parse(kept.submittingAt ?? '')).toBeGreaterThan(Date.now() - ms(60_000))
     writeFileSync(join(s.gh.dir, 'reviews.json'), '{}')
     const again = await s.submitter.submit(s.root, API, PR, input)
     expect(again.outcome, again.reason ?? '').toBe('submitted')
@@ -303,23 +312,88 @@ describe('Submit review', () => {
     expect(s.onDisk().state).toBe('submitted')
   })
 
-  it('a review of the account on another commit, with another body or another verdict is not taken for this one',{ timeout: ms(60_000) }, async () => {
+  it('a review of the account on another commit, with another body, by another account, from before the mark or with other line comments is not taken for this one', { timeout: ms(60_000) }, async () => {
     const comments = [on(2, 'One.')]
+    const marked = '2026-11-21T10:00:00.000Z'
+    const after = '2026-11-21T10:00:05Z'
+    const review = (id: number, over: Record<string, unknown>) => ({ id, user: { login: ME }, body: 'Body.', state: 'COMMENTED', html_url: `https://github.com/r${id}`, commit_id: START, submitted_at: after, comments: [{ path: FILE, line: 2, body: 'One.' }], ...over })
     const existing = [
-      { id: 1, user: { login: ME }, body: 'Body.', state: 'COMMENTED', html_url: 'https://github.com/x', commit_id: MOVED },
-      { id: 2, user: { login: ME }, body: 'Other.', state: 'COMMENTED', html_url: 'https://github.com/y', commit_id: START },
-      { id: 3, user: { login: ANA }, body: 'Body.', state: 'COMMENTED', html_url: 'https://github.com/z', commit_id: START },
-      { id: 4, user: { login: ME }, body: 'Body.', state: 'APPROVED', html_url: 'https://github.com/w', commit_id: START },
+      review(1, { commit_id: MOVED }),
+      review(2, { body: 'Other.' }),
+      review(3, { user: { login: ANA } }),
+      // An earlier review of the same texts: New review on the same head, then a 502 that created nothing.
+      review(4, { submitted_at: '2026-11-21T09:40:00Z' }),
+      review(5, { comments: [{ path: FILE, line: 2, body: 'Another comment.' }] }),
+      review(6, { comments: [] }),
     ]
-    const s = await setup(draftOf([{ comment: comments[0]!, by: 'person' }], { state: 'submitting', payload: { event: 'COMMENT', body: 'Body.', comments } }), { reviews: { existing } })
+    const s = await setup(draftOf([{ comment: comments[0]!, by: 'person' }], { state: 'submitting', submittingAt: marked, payload: { event: 'COMMENT', body: 'Body.', comments } }), { reviews: { existing } })
     const answer = await s.submitter.submit(s.root, API, PR, shown({ event: 'COMMENT', body: 'Body.', comments }))
     expect(answer.outcome, answer.reason ?? '').toBe('submitted')
     expect(s.writes()).toHaveLength(1)
   })
 
+  it('the review found is the one of the stored texts in any state: a Comment GitHub lists as dismissed or approved is still it', { timeout: ms(60_000) }, async () => {
+    const comments = [on(2, 'One.')]
+    const existing = [{ id: 8, user: { login: ME }, body: 'Body.', state: 'DISMISSED', html_url: `https://github.com/${API}/pull/${PR}#pullrequestreview-8`, commit_id: START, submitted_at: '2026-11-21T10:00:05Z', comments: [{ path: FILE, line: 2, body: 'One.' }] }]
+    const s = await setup(draftOf([{ comment: comments[0]!, by: 'person' }], { state: 'submitting', submittingAt: '2026-11-21T10:00:00.000Z', payload: { event: 'COMMENT', body: 'Body.', comments } }), { reviews: { existing } })
+    const answer = await s.submitter.submit(s.root, API, PR, shown({ event: 'COMMENT', body: 'Body.', comments }))
+    expect(answer.outcome, answer.reason ?? '').toBe('already-submitted')
+    expect(s.writes()).toEqual([])
+  })
+
+  it('GitHub did not confirm an Approve that landed: a Submit of other texts is refused, the stored ones are found — never a second review', { timeout: ms(60_000) }, async () => {
+    const comments = [on(2, 'One.')]
+    const s = await setup(draftOf([{ comment: comments[0]!, by: 'person' }]), { reviews: { status: 502, landed: true } })
+    expect((await s.submitter.submit(s.root, API, PR, shown({ event: 'APPROVE', body: 'Ship it.', comments }))).outcome).toBe('failed')
+    writeFileSync(join(s.gh.dir, 'reviews.json'), '{}')
+    // The draft keeps the texts that went; the dialog shows them, and other ones are refused before any call.
+    expect(s.onDisk().payload.event).toBe('APPROVE')
+    for (const other of [shown({ event: 'COMMENT', body: 'Ship it.', comments }), shown({ event: 'APPROVE', body: 'Ship it now.', comments }), shown({ event: 'APPROVE', body: 'Ship it.', comments: [] })]) {
+      const refused = await s.submitter.submit(s.root, API, PR, other)
+      expect(refused.outcome).toBe('refused')
+      expect(refused.reason).toContain(UNCONFIRMED)
+    }
+    expect(s.writes()).toHaveLength(1)
+    const found = await s.submitter.submit(s.root, API, PR, shown({ event: 'APPROVE', body: 'Ship it.', comments }))
+    expect(found.outcome, found.reason ?? '').toBe('already-submitted')
+    expect(s.writes()).toHaveLength(1)
+  })
+
+  it('a Submit that may have landed looks first: found on a head that moved since, it is only marked; not found, the draft is a draft again', { timeout: ms(60_000) }, async () => {
+    const comments = [on(2, 'One.')]
+    const existing = [{ id: 9, user: { login: ME }, body: 'Body.', state: 'COMMENTED', html_url: `https://github.com/${API}/pull/${PR}#pullrequestreview-9`, commit_id: START, submitted_at: '2026-11-21T10:00:05Z', comments: [{ path: FILE, line: 2, body: 'One.' }] }]
+    const pending = { state: 'draft' as const, error: `${UNCONFIRMED}: gh: Bad Gateway (HTTP 502)`, submittingAt: '2026-11-21T10:00:00.000Z', payload: { event: 'COMMENT' as const, body: 'Body.', comments } }
+    const s = await setup(draftOf([{ comment: comments[0]!, by: 'person' }], pending), { head: MOVED, reviews: { existing } })
+    const found = await s.submitter.submit(s.root, API, PR, shown({ event: 'COMMENT', body: 'Body.', comments }))
+    expect(found.outcome, found.reason ?? '').toBe('already-submitted')
+    expect(s.onDisk().state).toBe('submitted')
+    // Nothing on GitHub: the head check refuses, and the texts are free again.
+    const t = await setup(draftOf([{ comment: comments[0]!, by: 'person' }], pending), { head: MOVED, reviews: {} })
+    const refused = await t.submitter.submit(t.root, API, PR, shown({ event: 'COMMENT', body: 'Body.', comments }))
+    expect(refused.outcome).toBe('refused')
+    expect(refused.head).toBe(MOVED)
+    const after = t.onDisk()
+    expect(after.state).toBe('draft')
+    expect(after.error).toBeUndefined()
+    expect(t.writes()).toEqual([])
+  })
+
+  it('GitHub refuses (422) a review with a comment removed in the dialog: the draft has all its comments again', { timeout: ms(60_000) }, async () => {
+    const comments = [on(2, 'One.'), on(3, 'Two.'), on(4, 'Three.')]
+    const draft = draftOf(comments.map((comment, at) => ({ comment, by: at === 1 ? 'agent' : 'person' })))
+    const s = await setup(draft, { reviews: { status: 422, message: 'Validation Failed' } })
+    const refused = await s.submitter.submit(s.root, API, PR, shown({ event: 'COMMENT', body: '', comments: [comments[0]!, comments[2]!] }))
+    expect(refused.outcome).toBe('failed')
+    const after = s.onDisk()
+    expect(after.state).toBe('draft')
+    expect(after.payload.comments).toEqual(comments)
+    expect(after.anchors).toEqual(draft.anchors)
+    expect(after.submittingAt).toBeUndefined()
+  })
+
   it('`submitting` left by a crash: the next Submit looks on GitHub first and only marks a review found', { timeout: ms(60_000) }, async () => {
     const comments = [on(2, 'One.')]
-    const existing = [{ id: 9, user: { login: ME }, body: 'Body.', state: 'COMMENTED', html_url: `https://github.com/${API}/pull/${PR}#pullrequestreview-9`, commit_id: START }]
+    const existing = [{ id: 9, user: { login: ME }, body: 'Body.', state: 'COMMENTED', html_url: `https://github.com/${API}/pull/${PR}#pullrequestreview-9`, commit_id: START, submitted_at: '2026-11-21T10:00:05Z', comments: [{ path: FILE, line: 2, body: 'One.' }] }]
     const s = await setup(draftOf([{ comment: comments[0]!, by: 'person' }], { state: 'submitting', payload: { event: 'COMMENT', body: 'Body.', comments } }), { reviews: { existing } })
     const answer = await s.submitter.submit(s.root, API, PR, shown({ event: 'COMMENT', body: 'Body.', comments }))
     expect(answer.outcome).toBe('already-submitted')
@@ -364,6 +438,20 @@ describe('Submit review', () => {
     expect(request.event).toBe('COMMENT')
     expect((request.comments as ReviewComment[]).map((each) => each.body)).toEqual(['Mine.', 'The agent: this name reads better as total.'])
     expect(s.onDisk().payload.comments.map((each) => each.body)).toEqual(['Mine.', 'The agent: this name reads better as total.'])
+  })
+
+  it("the Team reviewer's lint.json of the Project checks a draft the person wrote, which names no tiers: it goes; a word it forbids is a finding", { timeout: ms(60_000) }, async () => {
+    const comments = [on(2, 'One.')]
+    const s = await setup(draftOf([{ comment: comments[0]!, by: 'person' }]))
+    const rules = join(s.profileDir, 'state', 'human-review', 'lint.json')
+    mkdirSync(dirname(rules), { recursive: true })
+    writeFileSync(rules, JSON.stringify({ schema: 1, tiers: { nit: { max_chars: 200 }, blocker: { max_chars: 1200 } }, forbidden: ['blammo'] }))
+    const found = await s.submitter.check(s.root, API, PR, { event: 'COMMENT', body: 'This blammo of a function.', comments })
+    expect(found.reason).toBeNull()
+    expect(found.findings.join('\n')).toContain('forbidden "blammo"')
+    const answer = await s.submitter.submit(s.root, API, PR, shown({ event: 'COMMENT', body: 'Fine apart from the retry.', comments }))
+    expect(answer.outcome, answer.reason ?? '').toBe('submitted')
+    expect(s.writes()).toHaveLength(1)
   })
 
   it('nothing while the Session of an Agent review writes the draft', { timeout: ms(60_000) }, async () => {

@@ -17,7 +17,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { failureReason } from '../../shared/ipc/channels'
 import '../../shared/ipc/pr-review'
-import type { PrReviewSubmitAnswer, ReviewComment, ReviewDraft, ReviewEvent } from '../../shared/ipc/pr-review'
+import { submitPending, type PrReviewSubmitAnswer, type ReviewComment, type ReviewDraft, type ReviewEvent } from '../../shared/ipc/pr-review'
 import { invoke } from '../ipc'
 import { Dialog } from '../theme/kit/Dialog'
 import { EVENT_WORDS, openOutside, plural, short } from './review-store'
@@ -67,7 +67,9 @@ export function FinishReviewDialog({ projectId, repo, number, draft, head, mine,
   // The texts it opened with, kept: a draft that changes while it is open changes nothing here.
   const [opened] = useState(() => ({
     commit: draft.anchoredOn ?? draft.startedOn,
-    unfinished: draft.state === 'submitting',
+    // A Submit GitHub did not confirm, or one worfy stopped in: its texts went and may be on GitHub (ADR-0112).
+    unfinished: submitPending(draft),
+    stopped: draft.state === 'submitting',
     suggested: draft.suggestedEvent,
     comments: draft.payload.comments.map<Shown>((comment, index) => ({ index, comment, by: draft.anchors[index]?.by ?? 'person' })),
     off: new Set(off),
@@ -167,7 +169,7 @@ export function FinishReviewDialog({ projectId, repo, number, draft, head, mine,
       </h3>
       {opened.unfinished ? (
         <p className="w-pr-review-finish__stripe" role="status" data-testid="pr-review-dialog-unfinished">
-          A Submit of this review did not finish. Submit it again: worfy first looks whether GitHub has it already.
+          {opened.stopped ? 'A Submit of this review did not finish.' : 'GitHub did not confirm this review.'} Submit the same texts again: worfy first looks whether GitHub has it already.
         </p>
       ) : null}
       {moved ? (

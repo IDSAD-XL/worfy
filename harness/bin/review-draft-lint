@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // review-draft-lint — checks a review draft before a person sees it, and the rules of a generated review skill.
 //
-//   review-draft-lint <draft.json> [--rules <lint.json>] [-C <project dir>]
+//   review-draft-lint <draft.json> [--rules <lint.json> [--untiered]] [-C <project dir>]
 //   review-draft-lint --reply <draft.json> [--rules <lint.json>] [-C <project dir>]
 //   review-draft-lint --skill <folder> [--prs <prs.jsonl>] [--known <file>]...
 //
@@ -11,8 +11,8 @@
 // needed when the body is not empty. lint.json is { schema: 1, tiers: { <tier>: { max_chars } }, forbidden }.
 // Without --rules (worfy's Submit review of a draft the person wrote, which has no tiers) the template's lint.json
 // (skills/human-review-setup/template/) is the one, as for --reply: `tiers` and `body_tier` are not read, and every
-// text is held to its largest max_chars. With --rules a draft without `tiers` and `body_tier` is held the same way, to
-// the largest max_chars of --rules; a draft with either needs both, as before.
+// text is held to its largest max_chars. --untiered with --rules does the same over --rules (worfy's Submit in a Project
+// whose Team reviewer has a lint.json); without it a draft checked by --rules names its tiers, as the Team reviewer's do.
 //
 // A finding, one line each on stdout, `<where>: <rule> …`, where <where> is `body` or `comments[<i>] <path>:<line>`:
 //   - length: a text longer than max_chars of its tier (characters, not bytes);
@@ -66,7 +66,7 @@ const BIN = path.dirname(fs.realpathSync(__filename))
 const PROFILE = process.env.CLAUDE_PROFILE_BIN || path.join(BIN, "profile")
 const TICKET = process.env.CLAUDE_TICKET_BIN || path.join(BIN, "ticket")
 
-const USAGE = `usage: review-draft-lint <draft.json> [--rules <lint.json>] [-C <project dir>]
+const USAGE = `usage: review-draft-lint <draft.json> [--rules <lint.json> [--untiered]] [-C <project dir>]
        review-draft-lint --reply <draft.json> [--rules <lint.json>] [-C <project dir>]
        review-draft-lint --skill <folder> [--prs <prs.jsonl>] [--known <file>]...
 exit: 0 clean, 1 findings, 2 usage error or broken input`
@@ -88,6 +88,7 @@ let draftFile = null
 let rulesFile = null
 let skillDir = null
 let replyFile = null
+let untiered = false
 let prsFile = null
 const knownFiles = []
 const argv = process.argv.slice(2)
@@ -103,6 +104,7 @@ for (let i = 0; i < argv.length; i++) {
     else if (a === "--skill") skillDir = next()
     else if (a === "--reply") replyFile = next()
     else if (a === "--prs") prsFile = next()
+    else if (a === "--untiered") untiered = true
     else if (a === "--known") knownFiles.push(next())
     else if (a === "-h" || a === "--help") {
         process.stdout.write(USAGE + "\n")
@@ -265,6 +267,7 @@ if (skillDir !== null) {
 // --- the draft and lint.json --------------------------------------------------------
 if (replyFile !== null && draftFile !== null) die(2, `--reply takes its draft as its value: extra argument ${draftFile}\n${USAGE}`)
 if (replyFile === null && draftFile === null) die(2, `no draft named\n${USAGE}`)
+if (untiered && (replyFile !== null || rulesFile === null)) die(2, `--untiered goes with --rules on a review draft\n${USAGE}`)
 try {
     if (!fs.statSync(dir).isDirectory()) die(2, `not a directory: ${dir}`)
 } catch {
@@ -341,8 +344,8 @@ function reviewTexts() {
     comments.forEach((c, i) => {
         if (!isObject(c) || typeof c.body !== "string") badDraft(`payload.comments[${i}] must be an object with a text body`)
     })
-    // Without --rules, or without tiers at all, one length for every text: the largest of the lint.json in use.
-    const oneLength = rulesFile === null || (draft.tiers === undefined && draft.body_tier === undefined)
+    // Without --rules, or with --untiered, one length for every text: the largest of the lint.json in use.
+    const oneLength = rulesFile === null || untiered
     const max = Math.max(...Object.values(lint.tiers).map((t) => t.max_chars))
     const tiers = oneLength ? comments.map(() => null) : draft.tiers === undefined ? [] : draft.tiers
     if (!Array.isArray(tiers) || tiers.length !== comments.length)

@@ -20,7 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChangedFile, FileDiff } from '../../src/shared/changes/types'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import type { PrInboxRow } from '../../src/shared/ipc/pr-inbox'
-import type { ReviewComment, ReviewDraft } from '../../src/shared/ipc/pr-review'
+import { UNCONFIRMED, type ReviewComment, type ReviewDraft } from '../../src/shared/ipc/pr-review'
 
 const PROJECT = 'web-00000001'
 const REPO = 'example-org/web'
@@ -621,6 +621,22 @@ describe('the bar Your review', () => {
     preload({ draft: withComments([{ comment: on(2, 'A.'), by: 'person' }], { error: 'GitHub did not confirm the review: gh: Server Error (HTTP 502)' }) })
     await mountReview()
     expect(screen.getByTestId('pr-review-bar-error').textContent).toBe('GitHub did not confirm the review: gh: Server Error (HTTP 502)')
+  })
+
+  it('a draft whose Submit GitHub did not confirm keeps the texts that went: no Edit, no Delete, no «+», no Discard, no agent; Finish review submits them again', async () => {
+    preload({ draft: withComments([{ comment: on(2, 'A.'), by: 'person' }], { error: `${UNCONFIRMED}: gh: Server Error (HTTP 502)` }) })
+    await mountReview()
+    const bar = screen.getByTestId('pr-review-bar')
+    expect(bar.dataset.state).toBe('unconfirmed')
+    expect(screen.getByTestId('pr-review-bar-count').textContent).toContain('worfy first looks whether GitHub has it already')
+    const shown = await screen.findByTestId('pr-review-comment')
+    expect(within(shown).queryByTestId('pr-review-comment-edit')).toBeNull()
+    expect(within(shown).queryByTestId('pr-review-comment-delete')).toBeNull()
+    expect(screen.queryByTestId('changes-line-plus')).toBeNull()
+    expect(screen.getByTestId('pr-review-discard').hasAttribute('disabled')).toBe(true)
+    expect(within(bar).queryByTestId('pr-review-ask-agent')).toBeNull()
+    expect(within(bar).queryByTestId('pr-review-take-over')).toBeNull()
+    expect(screen.getByTestId('pr-review-finish').getAttribute('aria-disabled')).toBe('false')
   })
 
   it('while the Session of an Agent review writes: Finish review inactive with its reason, and no Discard', async () => {

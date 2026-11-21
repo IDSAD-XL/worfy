@@ -259,16 +259,24 @@ describe('review-draft-lint', () => {
     expect(piped.status, piped.stdout + piped.stderr).toBe(0)
   })
 
-  it('with --rules and no tiers at all: every text held to the largest max_chars of --rules', { timeout: ms(30_000) }, () => {
+  it('--rules with a draft without tiers is refused as before; --untiered holds every text to the largest max_chars of --rules', { timeout: ms(30_000) }, () => {
     const rules = file(RULES, 'lint.json')
     const fits = 'y'.repeat(1200)
-    const run = lint([file({ payload: { event: 'COMMENT', body: fits, comments: [{ path: 'src/cart.ts', line: 3, side: 'RIGHT', body: fits }] } }), '--rules', rules], outside)
+    const untiered = { payload: { event: 'COMMENT', body: fits, comments: [{ path: 'src/cart.ts', line: 3, side: 'RIGHT', body: fits }] } }
+    // A Team reviewer's draft must name its tiers: without them the lint refuses (exit 2), never passes.
+    const refused = lint([file(untiered), '--rules', rules], outside)
+    expect(refused.status, refused.stdout + refused.stderr).toBe(2)
+    expect(refused.stderr).toContain('"tiers" must be a list')
+    // worfy's Submit of a draft the person wrote: --untiered.
+    const run = lint([file(untiered), '--rules', rules, '--untiered'], outside)
     expect(run.status, run.stdout + run.stderr).toBe(0)
-    const over = lint([file({ payload: { event: 'COMMENT', body: 'Fine.', comments: [{ path: 'src/cart.ts', line: 3, side: 'RIGHT', body: `${fits}y` }] } }), '--rules', rules], outside)
+    const tiered = lint([file(CLEAN), '--rules', rules, '--untiered'], outside)
+    expect(tiered.status, tiered.stdout + tiered.stderr).toBe(0)
+    const over = lint([file({ payload: { event: 'COMMENT', body: 'Fine.', comments: [{ path: 'src/cart.ts', line: 3, side: 'RIGHT', body: `${fits}y` }] } }), '--rules', rules, '--untiered'], outside)
     expect(over.status, over.stdout + over.stderr).toBe(1)
     expect(over.stdout).toContain('comments[0] src/cart.ts:3: length 1201 chars, over 1200 of lint.json')
     expect(over.stdout).not.toContain('body:')
-    const word = lint([file({ payload: { event: 'COMMENT', body: 'This blammo of a function.', comments: [] } }), '--rules', rules], outside)
+    const word = lint([file({ payload: { event: 'COMMENT', body: 'This blammo of a function.', comments: [] } }), '--rules', rules, '--untiered'], outside)
     expect(word.status, word.stdout + word.stderr).toBe(1)
     expect(word.stdout).toContain('forbidden "blammo"')
   })

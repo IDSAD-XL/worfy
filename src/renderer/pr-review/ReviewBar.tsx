@@ -5,11 +5,12 @@
 //   suggests; Take over on the agent's draft, Ask the agent to add comments on the person's; Discard, which asks
 //   «Discard N pending comments?» first; Finish review, which opens the dialog of Submit review (ticket 11,
 //   FinishReviewDialog.tsx; ⌘⇧↵ too). A Submit GitHub did not confirm or refused leaves its reason on the bar.
-// - A Submit that did not finish (worfy quit while it ran): «Submitting did not finish» and Finish review, which
-//   submits it again — main first looks whether GitHub has it.
+// - A Submit that did not finish (worfy quit while it ran: «Submitting did not finish»), or that GitHub did not confirm:
+//   the texts that went stay as they are — no Ask the agent, no Take over, no Discard — and Finish review submits them
+//   again; main first looks whether GitHub has them.
 // - Submitted: «You reviewed this pull request · Approve», the link to the review on GitHub, and Start a new review.
 import { useId, useState } from 'react'
-import type { ReviewDraft } from '../../shared/ipc/pr-review'
+import { submitPending, type ReviewDraft } from '../../shared/ipc/pr-review'
 import { Dialog } from '../theme/kit/Dialog'
 import { EVENT_WORDS, openOutside, plural, short } from './review-store'
 
@@ -57,6 +58,7 @@ export function ReviewBar({ draft, count, canChange, finishWhy, onStop, onAsk, o
   const titleId = useId()
   const writing = draft.agent?.state === 'writing'
   const agentDraft = draft.agent !== undefined && draft.agent.state !== 'stopped'
+  const pending = submitPending(draft)
 
   if (draft.state === 'submitted')
     return (
@@ -100,11 +102,11 @@ export function ReviewBar({ draft, count, canChange, finishWhy, onStop, onAsk, o
 
   const words = count.all === 0 ? 'No comments yet. Press c on a line or the + in the gutter.' : `${count.agent > 0 ? `${plural(count.all, 'comment')} (${count.agent} by the agent)` : plural(count.all, 'pending comment')} on ${plural(count.files, 'file')}`
   return (
-    <footer className="w-pr-review-bar" role="status" data-testid="pr-review-bar" data-state={draft.state === 'submitting' ? 'submitting' : agentDraft ? 'agent' : 'person'}>
+    <footer className="w-pr-review-bar" role="status" data-testid="pr-review-bar" data-state={draft.state === 'submitting' ? 'submitting' : pending ? 'unconfirmed' : agentDraft ? 'agent' : 'person'}>
       <span className="w-pr-review-bar__what">
         <b>{draft.state === 'submitting' ? 'Submitting did not finish' : 'Your review'}</b>
         <span className="w-changes__muted" data-testid="pr-review-bar-count">
-          {draft.state === 'submitting' ? 'Finish review submits it again: worfy first looks whether GitHub has it already.' : words}
+          {pending ? 'Finish review submits it again: worfy first looks whether GitHub has it already.' : words}
         </span>
         {draft.agent?.state === 'stopped' ? <span className="w-pr-review-flag">Agent stopped</span> : null}
         {draft.suggestedEvent !== undefined ? (
@@ -119,7 +121,7 @@ export function ReviewBar({ draft, count, canChange, finishWhy, onStop, onAsk, o
         ) : null}
       </span>
       <span className="w-changes__spacer" />
-      {agentDraft ? (
+      {pending ? null : agentDraft ? (
         <button type="button" className="w-pr-inbox-button" data-testid="pr-review-take-over" title="Make the draft yours: the agent stops and its comments stay" onClick={onStop}>
           Take over
         </button>

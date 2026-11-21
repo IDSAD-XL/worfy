@@ -85,11 +85,25 @@ export const reviewDraftSchema = z
     reviewUrl: z.string().optional(),
     /** When GitHub took the review (ISO): a submitted draft is kept 30 days from it. */
     submittedAt: z.string().optional(),
+    /**
+     * When Submit marked the draft `submitting` (ISO), kept while GitHub has not confirmed that Submit: the next one looks
+     * on GitHub only for a review given from then on (ticket 11, ADR-0112, point 6).
+     */
+    submittingAt: z.string().optional(),
     error: z.string().optional(),
   })
   .loose()
   .refine((draft) => draft.anchors.length === draft.payload.comments.length, { message: 'anchors must have one entry for each comment of payload.comments' })
 export type ReviewDraft = z.infer<typeof reviewDraftSchema>
+
+/** The words every reason of a Submit GitHub did not confirm carries: the next Submit looks on GitHub first. */
+export const UNCONFIRMED = 'GitHub did not confirm the review'
+
+/**
+ * A Submit of the draft may be on GitHub: it is marked `submitting` (worfy stopped during the POST), or GitHub did not
+ * confirm it. Its texts are the ones that went and stay as they are until the next Submit looks on GitHub (ADR-0112).
+ */
+export const submitPending = (draft: Pick<ReviewDraft, 'state' | 'error'>): boolean => draft.state === 'submitting' || (draft.state === 'draft' && (draft.error?.includes(UNCONFIRMED) ?? false))
 
 /**
  * The draft of one PR: null without one; `problem` when it cannot be read (no Profile folder, a broken file), or beside

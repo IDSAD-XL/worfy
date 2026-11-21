@@ -36,7 +36,7 @@ import { failureReason } from '../../shared/ipc/channels'
 import '../../shared/ipc/changes'
 import type { PrInboxRow } from '../../shared/ipc/pr-inbox'
 import '../../shared/ipc/pr-review'
-import { REVIEW_FILES_MAX, type PrReviewDraftAnswer, type PrReviewSubmitAnswer, type ReviewDraft, type ReviewEvent } from '../../shared/ipc/pr-review'
+import { REVIEW_FILES_MAX, submitPending, type PrReviewDraftAnswer, type PrReviewSubmitAnswer, type ReviewDraft, type ReviewEvent } from '../../shared/ipc/pr-review'
 import { type DiffPaneHandle } from '../changes/DiffPane'
 import { DiffScreen } from '../changes/DiffScreen'
 import { orderedFiles, toggledWith, type DiffLayout, type FileEntry, type RepoFiles } from '../changes/diff-window'
@@ -199,7 +199,8 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh, viewer = null 
   // They stand on their lines while the diff shown is All changes of the commit the draft is numbered on; new ones are
   // made only then, so each is numbered on that commit.
   const onLines = scope.kind === 'all' && !moved
-  const canChange = local && subject !== null && draft !== null && draft.state === 'draft'
+  // A draft whose Submit GitHub did not confirm keeps the texts that went until the next Submit looks on GitHub.
+  const canChange = local && subject !== null && draft !== null && draft.state === 'draft' && !submitPending(draft)
   const lineComments = useReviewComments({
     projectId,
     repo,

@@ -15,7 +15,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import { ms } from '../time-scale'
-import type { PrReviewSubmitAnswer, ReviewComment, ReviewDraft } from '../../src/shared/ipc/pr-review'
+import { UNCONFIRMED, type PrReviewSubmitAnswer, type ReviewComment, type ReviewDraft } from '../../src/shared/ipc/pr-review'
 
 const PROJECT = 'web-00000001'
 const REPO = 'example-org/web'
@@ -247,6 +247,24 @@ describe('the Finish review dialog', () => {
     fireEvent.change(summary(), { target: { value: 'See .scratch/notes.' } })
     await waitFor(() => expect(within(dialog()).getByTestId('pr-review-dialog-lint').textContent).toContain('body: .scratch ".scratch"'), { timeout: ms(3000) })
     expect(disabled(submit())).toBe(true)
+  })
+
+  it('a draft whose Submit GitHub did not confirm opens on the texts that went, locked: its verdict, its summary, no Remove', async () => {
+    preload()
+    const went = on(2, 'Cap the retries.')
+    await mount(draftOf([{ comment: went, by: 'person' }], { error: `${UNCONFIRMED}: gh: Bad Gateway (HTTP 502)`, payload: { event: 'APPROVE', body: 'Ship it.', comments: [went] } }))
+    expect(within(dialog()).getByTestId('pr-review-dialog-unfinished')).toBeTruthy()
+    expect(radio('Approve').getAttribute('aria-checked')).toBe('true')
+    expect(disabled(radio('Comment'))).toBe(true)
+    expect(disabled(radio('Request changes'))).toBe(true)
+    fireEvent.click(radio('Comment'))
+    expect(radio('Approve').getAttribute('aria-checked')).toBe('true')
+    expect(summary().value).toBe('Ship it.')
+    expect(summary().readOnly).toBe(true)
+    expect(within(dialog()).queryByRole('button', { name: 'Remove' })).toBeNull()
+    fireEvent.click(submit())
+    await waitFor(() => expect(calls('prReview.submit')).toHaveLength(1))
+    expect(calls('prReview.submit')[0]).toEqual({ projectId: PROJECT, repo: REPO, number: NUMBER, event: 'APPROVE', body: 'Ship it.', comments: [went], commit: START, head: START })
   })
 
   it('Cancel closes without a POST', async () => {

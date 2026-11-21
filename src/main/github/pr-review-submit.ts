@@ -6,26 +6,29 @@
 // 1. The draft as the file has it (pr-review-draft.ts). Nothing while the Session of an Agent review writes it, nor
 //    for a review submitted already. The texts shown must be the file's: the verdict and the summary the person chose
 //    (the summary may be new — it goes into the file with the mark), and each comment shown one of the file's, as it
-//    is; a comment the person removed in the dialog, or one the dialog did not show, is not posted. The commit the
-//    dialog says the comments go on must be the draft's (`anchoredOn`, else `startedOn`): the lines of each comment
-//    are numbered on it, so the review goes on it — never on a later head, where the numbers name other lines.
-// 2. review-draft-lint over those texts (the body of the POST): the traces of the workflow, an AI signature, personal
-//    data, the length — the Team reviewer's lint.json when the Project has one, else the template's lengths. A finding,
-//    or a lint that could not run, and nothing is posted.
-// 3. The account the Project's Profile names (`github.account`); none named — nothing is posted.
-// 4. GitHub as it is now, by reads only: the PR (its head; the author — Approve and Request changes on the account's own
+//    is; a comment the person removed in the dialog, or one the dialog did not show, is not posted. A draft whose
+//    Submit GitHub did not confirm (submitPending: the mark `submitting` left by a crash, or the words of UNCONFIRMED)
+//    takes exactly the texts that went and no others. The commit the dialog says the comments go on must be the
+//    draft's (`anchoredOn`, else `startedOn`): the lines of each comment are numbered on it, so the review goes on it —
+//    never on a later head, where the numbers name other lines.
+// 2. The account the Project's Profile names (`github.account`); none named — nothing is posted.
+// 3. A draft whose Submit GitHub did not confirm first reads the reviews of the PR, before any other check, and looks
+//    for the one that Submit made: this account's, on the same commit, with the same body, in any state, given no
+//    earlier than the mark less the clock skew, with exactly the draft's line comments. Found — the draft is only
+//    marked submitted. None — the draft is a draft again, and the Submit goes on as a new one.
+// 4. review-draft-lint over those texts (the body of the POST): the traces of the workflow, an AI signature, personal
+//    data, the length — the Team reviewer's lint.json when the Project has one (`--untiered`: the draft has no
+//    tiers), else the template's lengths. A finding, or a lint that could not run, and nothing is posted.
+// 5. GitHub as it is now, by reads only: the PR (its head; the author — Approve and Request changes on the account's own
 //    PR are refused), a head that moved since the dialog opened is refused with the head now, so the dialog says so
 //    before the person submits on the old commit; then the files of the diff on that commit — every comment on a line
 //    of a hunk, a range within one hunk (GitHub refuses the review whole otherwise, 422).
-// 5. A Submit whose earlier one GitHub did not confirm — the mark `submitting` left by a crash, or the words of
-//    UNCONFIRMED — first reads the reviews of the PR and looks for this account's on the same commit, with the same
-//    body and verdict: found, the draft is only marked submitted.
-// 6. The mark `submitting` in the file with the texts that go, then the file read again, then one
+// 6. The mark `submitting` in the file with the texts that go and its time, then the file read again, then one
 //    `POST repos/{o}/{r}/pulls/{n}/reviews` as that account, its body `{ commit_id, event, body, comments }` from the
 //    file, without a byte added. GitHub's answer marks the draft `submitted` with the review's link. A refusal of
-//    GitHub (4xx) takes the draft back to `draft` with GitHub's reason: nothing was created. Any other failure — 5xx,
-//    the network, gh's time limit — takes it back with UNCONFIRMED in the reason, and the next Submit looks first.
-//    Never retried by itself.
+//    GitHub (4xx) takes the draft back to `draft` with GitHub's reason and the comments it had before the mark:
+//    nothing was created. Any other failure — 5xx, the network, gh's time limit — takes it back with UNCONFIRMED in
+//    the reason and the texts that went, and the next Submit looks first. Never retried by itself.
 // - Never: a request without `event` (a pending review on GitHub), a second POST on one click, resolve, re-request
 //   review, dismiss, merge.
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -34,7 +37,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
 import type { ChangesPrRef, DiffHunk } from '../../shared/changes/types'
-import type { PrReviewSubmitAnswer, ReviewComment, ReviewDraft, ReviewEvent } from '../../shared/ipc/pr-review'
+import { submitPending, UNCONFIRMED, type PrReviewSubmitAnswer, type ReviewComment, type ReviewDraft, type ReviewEvent } from '../../shared/ipc/pr-review'
 import { PrDiffs, patchHunks, type GhReader } from '../changes/github'
 import { NO_GITHUB_HEALTH, type GithubHealth } from './github-health'
 import { lintRulesPath, type LintRun } from './pr-reply-send'
@@ -42,23 +45,20 @@ import { reviewPayloadOf, type PrReviewDrafts } from './pr-review-draft'
 import { accountAuth, GhExitError, type GhEnv, type GhRunner } from './prs'
 
 export type { LintRun }
-
-/** The words every reason of a Submit GitHub did not confirm carries: the next Submit looks on GitHub first. */
-export const UNCONFIRMED = 'GitHub did not confirm the review'
+export { UNCONFIRMED }
 export const NO_ACCOUNT =
   "Not submitted: the Project's Profile names no GitHub account (github.account). Set it to the account reviews go from; worfy never posts as the gh login of the machine"
 export const AGENT_WRITING = 'Not submitted: the agent is still writing the review. Wait until it finishes, or stop it'
 export const OWN_PULL = 'GitHub does not let you approve or request changes on your own pull request'
 /** GitHub needs a body for these verdicts: a summary or a comment. */
 export const NEEDS_TEXT = 'GitHub needs a summary or a comment for this verdict'
-/** How many pages of the PR's reviews a Submit GitHub did not confirm reads to find it. */
+/** How many pages of the PR's reviews, and of the line comments of one, a Submit GitHub did not confirm reads to find it. */
 const REVIEW_PAGES_MAX = 30
-
-const STATES: Readonly<Record<ReviewEvent, readonly string[]>> = { APPROVE: ['APPROVED', 'DISMISSED'], REQUEST_CHANGES: ['CHANGES_REQUESTED', 'DISMISSED'], COMMENT: ['COMMENTED'] }
+/** How far GitHub's clock may be behind this machine's: a review given this long before the mark may still be it. */
+const CLOCK_SKEW_MS = 2 * 60_000
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 const firstLine = (text: string): string => text.trim().split('\n')[0]?.trim() ?? ''
-const unconfirmed = (error: string | undefined): boolean => error !== undefined && error.includes(UNCONFIRMED)
 const sameSha = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase()
 /** GitHub keeps a body as sent, but line ends may come back as LF and trailing white space may go. */
 const sameText = (a: string, b: string): boolean => a.replace(/\r\n/gu, '\n').trimEnd() === b.replace(/\r\n/gu, '\n').trimEnd()
@@ -67,6 +67,12 @@ const sameComment = (a: ReviewComment, b: ReviewComment): boolean =>
 /** The commit the comments of a draft are numbered on, which the review goes on. */
 export const draftCommitOf = (draft: Pick<ReviewDraft, 'anchoredOn' | 'startedOn'>): string => draft.anchoredOn ?? draft.startedOn
 const whereOf = (comment: ReviewComment): string => `${comment.path}:${comment.start_line === undefined ? comment.line : `${comment.start_line}–${comment.line}`}`
+
+/**
+ * The arguments of review-draft-lint for Submit, the draft on stdin: the Team reviewer's lint.json of the Project with
+ * --untiered (a draft the person wrote has no tiers: each text is held to its largest length), else the template's.
+ */
+export const submitLintArgs = (root: string, rules: string | null): string[] => ['-', '-C', root, ...(rules === null ? [] : ['--rules', rules, '--untiered'])]
 
 /** The texts the dialog shows and Submit sends. */
 export interface SubmittedTexts {
@@ -83,7 +89,7 @@ export interface PrReviewSubmitterOptions {
   drafts: Pick<PrReviewDrafts, 'draft' | 'changeNow'>
   /** The Project's Profile folder: the Team reviewer's lint.json lies there. */
   profileDir: (root: string) => Promise<{ dir: string | null; reason: string | null }>
-  /** `review-draft-lint - -C <root> [--rules <rules>]` with `draft` on its stdin. */
+  /** review-draft-lint with submitLintArgs and `draft` on its stdin. */
   lint: (draft: string, root: string, rules: string | null) => Promise<LintRun>
   /** What a Submit tells Health check, as Send does. Nothing by default. */
   health?: GithubHealth
@@ -142,11 +148,7 @@ export class PrReviewSubmitter {
       // 1. The draft, and the texts shown in it.
       const draft = await this.read(root, repo, pr)
       const texts = textsOf(draft, input)
-      // 2. The check over exactly those texts.
-      const lint = await this.lint(root, texts)
-      if (lint.kind === 'findings') throw new Refusal(`Not submitted: review-draft-lint found ${lint.findings.join('; ')}`)
-      if (lint.kind === 'broken') throw new Refusal(lint.reason)
-      // 3. As the Project's account, and no other.
+      // 2. As the Project's account, and no other.
       const account = await this.options.account(root)
       if (account === null) {
         this.health.signInFailed(root, NO_ACCOUNT)
@@ -160,8 +162,36 @@ export class PrReviewSubmitter {
         throw new Refusal(`Not submitted: ${messageOf(error)}`)
       }
       const get = async (path: string): Promise<string> => this.options.run(['api', path], root, env)
-      // 4. GitHub as it is now: the head, the author, the lines of the diff on the commit.
       const commit = draftCommitOf(draft)
+      // 3. A Submit that may have landed looks on GitHub first, before any other check: found, it is only marked.
+      if (submitPending(draft)) {
+        let found: { url: string | null } | null
+        try {
+          found = await this.posted(get, repo, pr, account, commit, draft)
+        } catch (error) {
+          this.health.failed(root, messageOf(error))
+          throw new Refusal(`Not submitted: ${UNCONFIRMED} before, and worfy could not look whether it is on GitHub now: ${firstLine(messageOf(error))}`)
+        }
+        if (found !== null) {
+          const marked = await this.markSubmitted(root, repo, pr, found.url)
+          this.health.answered(root)
+          return answer('already-submitted', marked, { reviewUrl: found.url })
+        }
+        // GitHub has none: the draft is a draft again, its texts free; this Submit goes on as a new one.
+        const freed = await this.options.drafts.changeNow(root, repo, pr, (current) => {
+          if (current === null || !submitPending(current)) throw new Refusal('The draft changed meanwhile. Look at it again')
+          const next: ReviewDraft = { ...current, state: 'draft' }
+          delete next.error
+          delete next.submittingAt
+          return next
+        })
+        if (freed.problem !== null) throw new Refusal(`Not submitted: ${freed.problem}`)
+      }
+      // 4. The check over exactly those texts.
+      const lint = await this.lint(root, texts)
+      if (lint.kind === 'findings') throw new Refusal(`Not submitted: review-draft-lint found ${lint.findings.join('; ')}`)
+      if (lint.kind === 'broken') throw new Refusal(lint.reason)
+      // 5. GitHub as it is now: the head, the author, the lines of the diff on the commit.
       let pull: PullNow
       try {
         pull = pullSchema.parse(JSON.parse(await get(`repos/${repo}/pulls/${pr}`)))
@@ -173,35 +203,36 @@ export class PrReviewSubmitter {
       if (!sameSha(pull.head.sha, input.head)) throw new Refusal(`Not submitted: the head of ${repo}#${pr} moved to ${pull.head.sha.slice(0, 7)} since the dialog opened. Look at it again`, pull.head.sha)
       const off = await this.offLines(texts.comments, { who: root, get }, { kind: 'pr', repo, number: pr, headOid: commit, baseOid: pull.base.sha }, sameSha(pull.head.sha, commit))
       if (off.length > 0) throw new Refusal(`Not submitted: GitHub refuses a comment off the lines of the diff on ${commit.slice(0, 7)} — ${off.join('; ')}. Move it to a changed line or remove it`)
-      // 5. A Submit GitHub did not confirm may have landed: look first.
-      if (draft.state === 'submitting' || unconfirmed(draft.error)) {
-        let found: { url: string | null } | null
-        try {
-          found = await this.posted(get, repo, pr, account, commit, texts)
-        } catch (error) {
-          this.health.failed(root, messageOf(error))
-          throw new Refusal(`Not submitted: ${UNCONFIRMED} before, and worfy could not look whether it is on GitHub now: ${firstLine(messageOf(error))}`)
-        }
-        if (found !== null) {
-          const marked = await this.markSubmitted(root, repo, pr, found.url)
-          this.health.answered(root)
-          return answer('already-submitted', marked, { reviewUrl: found.url })
-        }
-      }
-      // 6. The mark, the file read again, one POST.
-      const marking = await this.options.drafts.changeNow(root, repo, pr, (current) => markSubmitting(current, texts, commit))
+      // 6. The mark, the file read again, one POST. The draft as it was before the mark comes back on GitHub's refusal.
+      let before: ReviewDraft | null = null
+      const marking = await this.options.drafts.changeNow(root, repo, pr, (current) => {
+        before = current
+        return markSubmitting(current, texts, commit, new Date().toISOString())
+      })
       const marked = (await this.options.drafts.draft(root, repo, pr)).draft
-      if (marking.problem !== null || marked === null || marked.state !== 'submitting')
+      if (marking.problem !== null || marked === null || marked.state !== 'submitting' || before === null)
         throw new Refusal(`Not submitted: the draft could not be marked before the POST${marking.problem === null ? '' : `: ${marking.problem}`}`)
-      return await this.post(root, repo, pr, env, marked, answer)
+      return await this.post(root, repo, pr, env, marked, before, answer)
     } catch (error) {
       if (error instanceof Refusal) return answer('refused', error.message, { head: error.head })
       return answer('refused', `Not submitted: ${messageOf(error)}`)
     }
   }
 
-  /** The one POST, from the draft marked `submitting`; its answer marks the draft. */
-  private async post(root: string, repo: string, pr: number, env: GhEnv, marked: ReviewDraft, answer: (outcome: PrReviewSubmitAnswer['outcome'], reason: string | null, extra?: { reviewUrl?: string | null }) => Promise<PrReviewSubmitAnswer>): Promise<PrReviewSubmitAnswer> {
+  /**
+   * The one POST, from the draft marked `submitting`; its answer marks the draft. GitHub's refusal gives the draft back
+   * its comments as they were before the mark (`before`): nothing was created, and a comment removed in the dialog is
+   * the person's again. Any other failure keeps the texts that went, which the next Submit looks for.
+   */
+  private async post(
+    root: string,
+    repo: string,
+    pr: number,
+    env: GhEnv,
+    marked: ReviewDraft,
+    before: ReviewDraft,
+    answer: (outcome: PrReviewSubmitAnswer['outcome'], reason: string | null, extra?: { reviewUrl?: string | null }) => Promise<PrReviewSubmitAnswer>,
+  ): Promise<PrReviewSubmitAnswer> {
     const payload = reviewPayloadOf(marked)
     const body = JSON.stringify({ commit_id: draftCommitOf(marked), event: payload.event, body: payload.body, comments: payload.comments })
     const folder = await mkdtemp(join(tmpdir(), 'worfy-review-'))
@@ -218,7 +249,10 @@ export class PrReviewSubmitter {
         await this.options.drafts
           .changeNow(root, repo, pr, (current) => {
             if (current === null || current.state !== 'submitting') throw new Error('not submitting')
-            return { ...current, state: 'draft', error: reason }
+            if (refused === null) return { ...current, state: 'draft', error: reason }
+            const next: ReviewDraft = { ...current, state: 'draft', error: reason, payload: { ...current.payload, comments: before.payload.comments }, anchors: before.anchors }
+            delete next.submittingAt
+            return next
           })
           .catch(() => undefined)
         return answer('failed', reason)
@@ -249,18 +283,40 @@ export class PrReviewSubmitter {
     }
   }
 
-  /** The review of `account` on `commit` with these texts, when GitHub lists one; null when it lists none. */
-  private async posted(get: (path: string) => Promise<string>, repo: string, pr: number, account: string, commit: string, texts: SubmittedTexts): Promise<{ url: string | null } | null> {
+  /**
+   * The review the Submit of `draft` that GitHub did not confirm created, when GitHub lists it; null when it lists none.
+   * It is a review of `account` on `commit` with the draft's body, in any state (a reviewer may have dismissed it
+   * since), given no earlier than the mark `submitting` less the clock skew, with exactly the draft's line comments —
+   * so an earlier review of the same texts, or one of the same body with other comments, is not taken for it.
+   */
+  private async posted(get: (path: string) => Promise<string>, repo: string, pr: number, account: string, commit: string, draft: ReviewDraft): Promise<{ url: string | null } | null> {
+    const since = draft.submittingAt === undefined ? Number.NaN : Date.parse(draft.submittingAt) - CLOCK_SKEW_MS
+    const wanted = draft.payload.comments.map((comment) => `${comment.path}\n${comment.body.replace(/\r\n/gu, '\n').trimEnd()}`).sort()
     for (let page = 1; page <= REVIEW_PAGES_MAX; page++) {
       const reviews = z.array(reviewSchema).parse(JSON.parse(await get(`repos/${repo}/pulls/${pr}/reviews?per_page=100&page=${page}`)))
-      const found = reviews.find(
-        (review) =>
-          review.user?.login?.toLowerCase() === account.toLowerCase() && review.commit_id != null && sameSha(review.commit_id, commit) && sameText(review.body ?? '', texts.body) && STATES[texts.event].includes(review.state ?? ''),
-      )
-      if (found !== undefined) return { url: found.html_url ?? null }
+      for (const review of reviews) {
+        if (review.user?.login?.toLowerCase() !== account.toLowerCase() || review.commit_id == null || !sameSha(review.commit_id, commit) || !sameText(review.body ?? '', draft.payload.body)) continue
+        const given = review.submitted_at == null ? Number.NaN : Date.parse(review.submitted_at)
+        if (!Number.isNaN(since) && !(given >= since)) continue
+        if (review.id == null) continue
+        const comments = await this.reviewComments(get, repo, pr, review.id)
+        const got = comments.map((comment) => `${comment.path}\n${comment.body.replace(/\r\n/gu, '\n').trimEnd()}`).sort()
+        if (got.length === wanted.length && got.every((each, at) => each === wanted[at])) return { url: review.html_url ?? null }
+      }
       if (reviews.length < 100) return null
     }
     return null
+  }
+
+  /** The line comments GitHub lists for review `id`. */
+  private async reviewComments(get: (path: string) => Promise<string>, repo: string, pr: number, id: number): Promise<{ path: string; body: string }[]> {
+    const all: { path: string; body: string }[] = []
+    for (let page = 1; page <= REVIEW_PAGES_MAX; page++) {
+      const comments = z.array(reviewCommentSchema).parse(JSON.parse(await get(`repos/${repo}/pulls/${pr}/reviews/${id}/comments?per_page=100&page=${page}`)))
+      all.push(...comments)
+      if (comments.length < 100) break
+    }
+    return all
   }
 
   /**
@@ -327,11 +383,11 @@ function textsOf(draft: ReviewDraft, input: SubmittedTexts & { commit: string })
   if (!sameSha(commit, input.commit)) throw new Refusal(`Not submitted: the comments are on ${commit.slice(0, 7)} now, not on ${input.commit.slice(0, 7)}. Look at them again`)
   const texts: SubmittedTexts = { event: input.event, body: input.body, comments: input.comments }
   if (input.event !== 'APPROVE' && input.body.trim() === '' && input.comments.length === 0) throw new Refusal(NEEDS_TEXT)
-  if (draft.state === 'submitting') {
-    // The texts of the Submit that did not finish, and no others: they may be on GitHub already.
+  if (submitPending(draft)) {
+    // The texts of the Submit GitHub did not confirm, and no others: they may be on GitHub already.
     const was = draft.payload
     const same = was.event === input.event && was.body === input.body && was.comments.length === input.comments.length && was.comments.every((comment, at) => sameComment(comment, input.comments[at]!))
-    if (!same) throw new Refusal(`Not submitted: a Submit of other texts did not finish. ${UNCONFIRMED}: Submit those, and worfy first looks whether they are on GitHub`)
+    if (!same) throw new Refusal(`Not submitted: ${UNCONFIRMED} for other texts. Submit those, and worfy first looks whether they are on GitHub`)
     return texts
   }
   const taken = new Set<number>()
@@ -344,7 +400,7 @@ function textsOf(draft: ReviewDraft, input: SubmittedTexts & { commit: string })
 }
 
 /** The draft marked `submitting`, holding exactly the texts that go: the comments shown, in their order, with their anchors. */
-function markSubmitting(current: ReviewDraft | null, texts: SubmittedTexts, commit: string): ReviewDraft {
+function markSubmitting(current: ReviewDraft | null, texts: SubmittedTexts, commit: string, at: string): ReviewDraft {
   if (current === null) throw new Refusal('There is no review draft')
   if (current.state === 'submitted') throw new Refusal('Submitted already')
   if (current.agent?.state === 'writing') throw new Refusal(AGENT_WRITING)
@@ -352,16 +408,18 @@ function markSubmitting(current: ReviewDraft | null, texts: SubmittedTexts, comm
   const anchors: ReviewDraft['anchors'] = []
   const taken = new Set<number>()
   for (const comment of texts.comments) {
-    const at = current.payload.comments.findIndex((each, index) => !taken.has(index) && sameComment(each, comment))
-    if (at === -1) throw new Refusal('The draft changed meanwhile')
-    taken.add(at)
-    anchors.push(current.anchors[at]!)
+    const index = current.payload.comments.findIndex((each, place) => !taken.has(place) && sameComment(each, comment))
+    const anchor = current.anchors[index]
+    if (index === -1 || anchor === undefined) throw new Refusal('The draft changed meanwhile')
+    taken.add(index)
+    anchors.push(anchor)
   }
   const next: ReviewDraft = {
     ...current,
     state: 'submitting',
     payload: { ...current.payload, event: texts.event, body: texts.body, comments: texts.comments.map((comment) => ({ ...comment })) },
     anchors,
+    submittingAt: at,
     ...(texts.body === current.payload.body ? {} : { bodyBy: 'person' as const }),
   }
   delete next.error
@@ -411,4 +469,7 @@ function urlOf(printed: string): string | null {
 const pullSchema = z.object({ head: z.object({ sha: z.string().min(7) }).loose(), base: z.object({ sha: z.string().min(7) }).loose(), user: z.object({ login: z.string() }).loose().nullish() }).loose()
 type PullNow = z.infer<typeof pullSchema>
 
-const reviewSchema = z.object({ user: z.object({ login: z.string() }).loose().nullish(), body: z.string().nullish(), state: z.string().nullish(), html_url: z.string().nullish(), commit_id: z.string().nullish() }).loose()
+const reviewSchema = z
+  .object({ id: z.number().nullish(), user: z.object({ login: z.string() }).loose().nullish(), body: z.string().nullish(), html_url: z.string().nullish(), commit_id: z.string().nullish(), submitted_at: z.string().nullish() })
+  .loose()
+const reviewCommentSchema = z.object({ path: z.string(), body: z.string() }).loose()

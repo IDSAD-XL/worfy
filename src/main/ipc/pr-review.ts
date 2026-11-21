@@ -28,7 +28,7 @@ import type { PrInbox } from '../github/inbox'
 import { PrReviewAgent } from '../github/pr-review-agent'
 import { appGithubHealth } from '../github/github-health'
 import { PrReviewDrafts, viewedOnGithub, type GhCall } from '../github/pr-review-draft'
-import { PrReviewSubmitter } from '../github/pr-review-submit'
+import { PrReviewSubmitter, submitLintArgs } from '../github/pr-review-submit'
 import { accountAuth, ghRunner, type GhRunner } from '../github/prs'
 import { harnessHomes, locateHarness, scriptEnv } from '../harness/locate'
 import { harnessScriptEnv } from '../harness/script-env'
@@ -153,8 +153,7 @@ export function sharedPrReviewSubmitter(): PrReviewSubmitter {
     lint: async (draft, root, rules) => {
       const harness = locateHarness(harnessHomes(claudeHome()))
       const env = scriptEnv(harness, await harnessScriptEnv())
-      const args = ['-', '-C', root, ...(rules === null ? [] : ['--rules', rules])]
-      return runHarnessScript(join(harness.binDir, 'review-draft-lint'), args, env, { stdin: draft, timeoutMs: HARNESS_SCRIPT_TIMEOUT_MS })
+      return runHarnessScript(join(harness.binDir, 'review-draft-lint'), submitLintArgs(root, rules), env, { stdin: draft, timeoutMs: HARNESS_SCRIPT_TIMEOUT_MS })
     },
   })
   return sharedSubmitter
