@@ -123,6 +123,24 @@ test-ы затронутых модулей (`integrations-*`, `add-integration-
 Снимки раздела (e2e, собранное приложение, stub-сервер на 127.0.0.1, token-ов в кадре нет):
 `/tmp/worfy-integrations-08-shots/08-integrations-section-light.png` и `…-dark.png` — вне репозитория.
 
+Раунд 2 review (три низкие находки):
+- Clean up против непрочитанного списка: `integrations.json` повреждён или другой версии (`readJsonFile` откладывает его
+  в сторону, и список читается пустым), его нет, или рядом лежит отложенный — `integrations.machine` не называет сирот,
+  `integrations.cleanUp` отвечает `removed: 0` и записи Project-ов остаются (`IntegrationStore.wholeList`, правка
+  `src/main/integrations/store.ts` вне списка файлов). Пока отложенный файл лежит рядом, Clean up не предлагается и после
+  новых Integration-ов: старый список ещё можно вернуть.
+- Add integration и «From Claude Code» ходят через `call` раздела: в окне Linked machine с Project-ом этой Machine
+  `integrations.setEnabled`, `integrations.add`, `integrations.tools`, `profileEdit.read` и `profileEdit.write` идут в
+  мост этой Machine, не окна. `shell.openExternal` остался `invoke`.
+- Profile без `mcp.allowed` показывает список по умолчанию (`plugin_worfy_qmd`, `worfy-canvas`) разрешённым, как его
+  получают Session-ы, и Allow дописывает к нему; `DEFAULT_MCP_SERVERS` переехал в `src/shared/workflow/mcp-servers.ts`
+  (`src/main/workflow/profile.ts` его реэкспортирует).
+Красный до правки: 4 contract test-а и 2 unit test-а — exit 1; после — exit 0. Mutant-ы (6) — каждый exit 1 своего
+test-а: сироты против непрочитанного списка, Clean up по `list()`, `wholeList` без проверки отложенного файла, диалог и
+«From Claude Code» через Machine окна, нет списка — нет имён. Unit и contract test-ы модулей integrations, settings,
+link, ipc, mcp и profile (90 файлов) — exit 0; `pnpm test:e2e test/e2e/integrations.spec.ts` под замком — exit 0;
+`pnpm lint`, `pnpm typecheck` — exit 0; gate fast — exit 0, `[gate] green (fast)`.
+
 Решено без владельца:
 1. Цена tools («41 tools · ~9k tokens», с фильтром «12 of 41 tools · ~3k tokens») считается после фильтра Tools
    Project-а: proxy режет `tools/list` тем же фильтром, это и получает Session в каждом запросе. Префикс метки в
