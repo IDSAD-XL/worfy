@@ -263,3 +263,35 @@ Code: `src/main/vendors/codex/mcp.ts:331-352` · key lines: 332, 345, 346, 349
    - Ответ: endpoint ищет tool в том же списке `listTools()`, который фильтр уже срезал, и отказывает, не дойдя до
      сервиса.
    - Строки: `src/main/mcp/http-server.ts:158-159`
+
+## 10. Что нашёл review и что осталось
+
+> VERIFIED — worfy-integrations 07 (Codex: Integrations through worfy's endpoint on 127.0.0.1 with mcp_servers.<name> keys, Codex rows in the header chip), head e9cb26edddfbdc6d913f2334986e860acee61d26
+>
+> Gate (depth medium, two rounds): verifier (lens: implementer's claims, sonnet) — MERGE, five claims CONFIRMED, four mutants caught; reviewer (correctness) — round 1 MERGE with two lows (cancellation not forwarded — sent to round 2 because it can duplicate writes in a service; a same-name config.toml server replaced silently — debt for ticket 09), round 2 MERGE.
+>
+> - What the user sees: a Codex Session of a Project gets every enabled Integration as mcp_servers.<name> pointing at worfy's endpoint with bearer_token_env_var WORFY_MCP_TOKEN; two Integrations on one service address are two names; the chip shows a Codex row per Integration with its source and label; a sign-in the proxy refused shows «Sign-in needed: <label>» with Reconnect only.
+> - Safety: the service token never reaches Codex (args, env, thread/start config, logs, events, endpoint answers); the endpoint refuses a request without the bearer token (401) and with an Origin header (403); tools/list and tools/call both go through the filtered list, a filtered tool is «Unknown tool». A call Codex abandons is cancelled: its connection closing before the answer, or notifications/cancelled of its id from the same Session to the same server, aborts the call's signal, which the proxy passes to the service.
+> - Evidence: integrations-codex + codex-mcp-row 24 tests red-before/green-after; 72 module unit+contract files 1292 tests EXIT=0; e2e codex-session, codex-sessions-on-canvas, session-mcp whole 6 passed EXIT=0; 15 + 5 mutants each red on its own test; lint, typecheck, story-check EXIT=0; gate fast green EXIT=0. The real Codex binary never ran.
+> - Debt (low): a user's config.toml server with the same name as an Integration is replaced in that Codex Session without a warning (src/main/vendors/codex/mcp.ts:404) — ticket 09; the `shortcut:` comment on a reused JSON-RPC id describes the behaviour wrongly (src/main/mcp/http-server.ts:250-251); the 'close' handler is attached after the body is read (http-server.ts:239), a microscopic window; the Claude row of an Integration does not show the proxy's needs-sign-in (src/main/vendors/claude/mcp.ts:107) — ticket 09.
+>
+> Decided without the owner (to confirm): labels and the refused sign-in are set on the Session handle's output (observe), session.ts untouched; a refused sign-in shows as needs-auth (the chip row has no needs-sign-in); the same server names as in the Claude Session; Integrations come with the canvas even when the Profile's MCP list omits worfy-canvas; developerInstructions null when a Session gets only Integrations; cancellation by connection close or notifications/cancelled from the same Session.
+
+Code: `src/main/vendors/codex/mcp.ts:404-404` · key lines: 404
+
+```ts
+    for (const server of servers) config[`mcp_servers.${server.name}`] = { url: grant.urls[server.name]!, bearer_token_env_var: MCP_TOKEN_ENV }
+```
+
+Code: `src/main/mcp/http-server.ts:250-251` · key lines: 250
+
+```ts
+          end: () => void running.delete(key(id)),
+        }
+```
+
+Code: `src/main/vendors/claude/mcp.ts:107-107` · key lines: 107
+
+```ts
+  return label === undefined ? row : { ...row, source: 'integration', sourceWord: null, label }
+```

@@ -1,7 +1,8 @@
 # 07 — Codex: Integration-ы через endpoint worfy на `127.0.0.1` ключами `mcp_servers.<имя>`, строки Codex в chip-е
 
 Type: task
-Status: claimed 2026-11-21T02:04Z
+Status: done 2026-11-21T03:42Z
+PR: #2128
 Blocked by: 06
 Source: [spec.md](../spec.md), «Ticket-ы», 7; «Волны», Wave 4; «Решение», 1; «Факты», 4а–4в; «Решения по реализации»
 → Session Codex, Статус; «Решения по test-ам»; «Вопросы владельцу», Q1 и Q8;
@@ -53,6 +54,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 7; «Волны», Wave 4; «Ре�
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 0789154c9
   - evidence: gate pass · `gate fast` exit 0 · mac - · 0789154c9
   - evidence: gate pass · `gate fast` exit 0 · mac - · b9685624d
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44858054685/job/136718193369 · ci - · e9cb26edddfbdc6d913f2334986e860acee61d26
 
 ## Где в коде
 
