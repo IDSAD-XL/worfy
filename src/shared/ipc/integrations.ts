@@ -4,8 +4,9 @@
 // The marks follow where the secret goes (spec, "decided without the owner", 3): reading the list and the status is
 // `project` `read` — a Linked machine with read-only access sees them, and they carry no secret; turning an
 // Integration on or off in a Project, its tools filter, «Available to Autopilot» and its label are `project`
-// `write` — full access only; Add integration, a secret and Remove are `local` — never open to a Linked machine, so
-// no token crosses the link.
+// `write` — full access only, and so is Sign in with OAuth (ticket 05): its window opens on the Machine of the Project
+// and its answer carries no token; Add integration, a secret and Remove are `local` — never open to a Linked machine,
+// so no token crosses the link.
 import { z } from 'zod'
 import {
   integrationAuthSchema,
@@ -13,6 +14,7 @@ import {
   integrationLabelSchema,
   integrationSchema,
   integrationSecretPartSchema,
+  integrationSignInSchema,
   integrationStatusSchema,
   integrationToolsSchema,
   integrationTransportSchema,
@@ -119,6 +121,19 @@ export const integrationsRemove = invokeChannel(
   'local',
 )
 
+/**
+ * Sign in with OAuth (ticket 05): the window of the service's sign-in, or the system browser for single sign-on and
+ * passkeys (`via: 'browser'`), on this Machine. Answers when the person has signed in — up to 10 minutes — with what
+ * the sign-in shows, never a token. Only a person starts it: an unattended Session never calls it (ticket 09).
+ */
+export const integrationsSignIn = invokeChannel(
+  'integrations.signIn',
+  z.object({ projectId: projectIdSchema, id: integrationIdSchema, via: z.enum(['window', 'browser']).optional() }),
+  z.object({ signIn: integrationSignInSchema }),
+  'project',
+  'write',
+)
+
 declare module './channels' {
   interface IpcContract {
     'integrations.list': typeof integrationsList
@@ -130,5 +145,6 @@ declare module './channels' {
     'integrations.add': typeof integrationsAdd
     'integrations.setSecret': typeof integrationsSetSecret
     'integrations.remove': typeof integrationsRemove
+    'integrations.signIn': typeof integrationsSignIn
   }
 }

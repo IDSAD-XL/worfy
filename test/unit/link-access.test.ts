@@ -398,6 +398,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'integrations.setAutopilot',
     'integrations.setEnabled',
     'integrations.setTools',
+    // Sign in with OAuth opens its window on this Machine and answers no token (worfy-integrations ticket 05).
+    'integrations.signIn',
     // Writes an image file into the Project's data folder (worfy-canvas ticket 23).
     'canvasImage.add',
     'layout.apply',
