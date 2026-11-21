@@ -104,3 +104,10 @@ never comments, merges or edits a label; the skill /worfy:gate-queue does that i
   ничего не меняется, Mark seen для таких PR не пишется. Детали PR вне inbox — только в памяти main, не больше 200 PR;
   на диск, как и по пункту 6, слова коллег не попадают. Пауза на rate limit общая с PR inbox (порог 10 %): поиск,
   который видит низкий остаток, останавливает и inbox этого аккаунта, и наоборот.
+- **2026-11-21 — пункт 4: третья запись — отправка review по Submit пользователя** (worfy-pr-review 11; решение
+  владельца 2026-11-20, Q2 (а) spec-а `.scratch/worfy-pr-review/spec.md`; ADR-0112). Main делает один
+  `POST /repos/{o}/{r}/pulls/{n}/reviews` по щелчку Submit review в диалоге Finish review, который показывает Summary,
+  событие и каждый комментарий так, как они уйдут (`src/main/github/pr-review-submit.ts`). Всегда с `event`: pending
+  review main по-прежнему не создаёт. Порядок тот же, что у Send: проверка `review-draft-lint`, отметка
+  `submitting`, один POST, без автоматического повтора; новый Submit после сбоя сначала ищет ревью на GitHub.
+  Resolve, re-request review, dismiss, merge main не делает.

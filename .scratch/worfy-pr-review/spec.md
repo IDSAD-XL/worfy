@@ -526,6 +526,8 @@ cli/cli, microsoft/vscode, golang/go, kubernetes/kubernetes, vercel/next.js).
      reviewer-а — длины шаблона, как уже делает `--reply` (`harness/bin/review-draft-lint:264`, `:271`; Ticket 11
      добавляет это и обычному режиму). Находка — ничего не отправлено, текст находки в диалоге;
   3. перечитать head PR; head сдвинулся — диалог показывает это до отправки (поток C), комментарии идут на `startedOn`;
+     *Amendment 2026-11-21 (Ticket 11, ADR-0112, пункт 5): `commit_id = anchoredOn ?? startedOn` — комментарии,
+     перенесённые на новый head (`anchoredOn`, Ticket 10), стоят на строках этого коммита;*
   4. отметка `state: 'submitting'` в файле, затем один `POST /repos/{o}/{r}/pulls/{n}/reviews` с `commit_id`,
      `event`, `body`, `comments` — тело ровно как в `payload`, без добавленного байта;
   5. ответ GitHub → `submitted` и `reviewUrl`; PR inbox и строка результата перечитывают PR (`refresh`).
