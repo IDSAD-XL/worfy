@@ -95,7 +95,7 @@ export interface IntegrationsHandlersOptions {
   /** Where the handlers learn that the app quits; none when absent (the module's default export: will-quit). */
   onQuit?: (listener: () => void) => void
   /** The proxy the tools are asked through; the app's integrationProxy() when absent. */
-  proxy?: () => Pick<IntegrationProxy, 'serviceToolsOf' | 'status' | 'clearStatus'>
+  proxy?: () => Pick<IntegrationProxy, 'serviceToolsOf' | 'status' | 'clearStatus' | 'retell'>
   /** The gh account's token; the app's gh and Profile when absent. */
   gh?: () => IntegrationGh
 }
@@ -224,7 +224,12 @@ export function integrationsHandlers(options: IntegrationsHandlersOptions = {}):
         .map((integration) => ({ id: integration.id, status: statusOf(machine, integration, errors) }))
       return { statuses }
     }),
-    defineHandler(integrationsSetEnabled, ({ projectId, id, enabled }) => changeEntry(projectId, id, (entry) => ({ ...entry, enabled }))),
+    defineHandler(integrationsSetEnabled, ({ projectId, id, enabled }) => {
+      const changed = changeEntry(projectId, id, (entry) => ({ ...entry, enabled }))
+      // The Health check rows are the Projects' that have it on (integrations/health.ts): they follow at once.
+      proxyOf().retell(id)
+      return changed
+    }),
     defineHandler(integrationsSetTools, ({ projectId, id, tools }) => changeEntry(projectId, id, (entry) => ({ ...entry, tools }))),
     defineHandler(integrationsSetAutopilot, ({ projectId, id, autopilot }) => changeEntry(projectId, id, (entry) => ({ ...entry, autopilot }))),
     defineHandler(integrationsRename, ({ projectId, id, label }) => {
@@ -356,6 +361,8 @@ export function integrationsHandlers(options: IntegrationsHandlersOptions = {}):
       }
       store().remove(id)
       errors.delete(id)
+      // Also after a sign-out that failed half-way: no row is left of an Integration that is gone.
+      proxyOf().clearStatus(id)
       closeQuietly(id)
       for (const project of projects.list()) {
         const dataDir = projects.dataDir(project.id)

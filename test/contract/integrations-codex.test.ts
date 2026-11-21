@@ -481,6 +481,8 @@ describe('the names of the MCP servers of a config.toml', () => {
   it('reads the tables [mcp_servers.<name>], quoted or bare, and their dotted keys, nothing else', () => {
     const text = [
       'model = "o4"',
+      // A dotted key at the top, before any table, is a server.
+      'mcp_servers.dotted.command = "npx"',
       '[mcp_servers.jira-client-a]',
       'url = "https://example.com/mcp"',
       '[mcp_servers."two words"]',
@@ -489,8 +491,21 @@ describe('the names of the MCP servers of a config.toml', () => {
       '  [ mcp_servers.spaced ]',
       '[profiles.mcp_servers]',
       '# [mcp_servers.commented]',
-      'mcp_servers.dotted.command = "npx"',
     ].join('\n')
-    expect(codexConfigServerNames(text)).toEqual(['jira-client-a', 'two words', 'single', 'spaced', 'dotted'])
+    expect(codexConfigServerNames(text)).toEqual(['dotted', 'jira-client-a', 'two words', 'single', 'spaced'])
+  })
+
+  it('reads a server given as an inline table at the top: mcp_servers.<name> = { … }', () => {
+    expect(codexConfigServerNames(['mcp_servers.inline = { url = "https://example.com/mcp" }', 'mcp_servers."quoted one" = { command = "npx" }'].join('\n'))).toEqual(['inline', 'quoted one'])
+  })
+
+  it('reads the keys of the table [mcp_servers], until the next table', () => {
+    const text = ['[mcp_servers]', 'linear = { url = "https://mcp.linear.app/mcp" }', '"two words".command = "npx"', '', '[profiles.work]', 'model = "o4"'].join('\n')
+    expect(codexConfigServerNames(text)).toEqual(['linear', 'two words'])
+  })
+
+  it('does not take a dotted key of another table for a server: [profiles.work] mcp_servers.foo.enabled = false', () => {
+    const text = ['[mcp_servers.real]', 'url = "https://example.com/mcp"', '[profiles.work]', 'mcp_servers.foo.enabled = false'].join('\n')
+    expect(codexConfigServerNames(text)).toEqual(['real'])
   })
 })

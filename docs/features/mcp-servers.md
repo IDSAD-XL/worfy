@@ -222,9 +222,10 @@ row in the chip shows its label and the source `worfy integration`. Claude Code 
   change of the Project during the Wave does not reach it, and its rows offer no Restart. A refused sign-in is never
   mended by Autopilot: the tool answers «Sign-in needed: <label>…», no sign-in window opens, and Health check gets a row.
 - **Health check** has a non-critical row per enabled Integration of each Project whose sign-in the service refused or
-  that failed: «Integration: <label>», «<label>: sign-in needed» (or the service's text, tokens hidden), with Sign in for
-  one that signs in through the service's page and where to put a new token for the others. A sign-in that works again
-  takes the row back to OK.
+  that failed, named by its reason: «<label>: sign-in needed» (or «<label>: <the service's text>», tokens hidden), with
+  Sign in for one that signs in through the service's page and where to put a new token for the others. Turning the
+  Integration off in a Project takes that Project's row away at once, and turning it on in another gives that one a row.
+  A sign-in that works again, or a Remove, takes the rows away.
 - **On a Linked machine** with read-only access the section shows the list and the status, and every control is
   inactive. With full access the ticks, the filter, Rename and Sign in work — the sign-in window opens on the Project's
   machine; Add integration, the token, Sign out and Remove stay on the Project's machine, because a token never crosses

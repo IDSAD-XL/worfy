@@ -14,9 +14,12 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HealthReports } from '../../src/main/first-run/health-reports'
 import { integrationHealth } from '../../src/main/integrations/health'
+import { integrationsHandlers } from '../../src/main/ipc/integrations'
 import { IntegrationProxy } from '../../src/main/integrations/proxy'
 import { IntegrationStore } from '../../src/main/integrations/store'
-import { writeProjectIntegrations } from '../../src/main/projects/settings'
+import { settingsPath, writeProjectIntegrations } from '../../src/main/projects/settings'
+import { defaultProjectSettings } from '../../src/shared/projects/action-templates'
+import { writeFileSync } from 'node:fs'
 import { claudeMcpServer } from '../../src/main/vendors/claude/mcp'
 import { checkSchema, type Check } from '../../src/shared/ipc/first-run'
 import { startServiceStub, type ServiceStub } from '../fixtures/integrations/service-stub'
@@ -111,7 +114,8 @@ describe('an Integration whose sign-in the service refused', () => {
     expect(row).toMatchObject({
       id: 'integration',
       group: 'Projects',
-      title: 'Integration: Jira — client A',
+      // The reason is the row's name, read whole as in the prototype: «Jira — client A: sign-in needed».
+      title: 'Jira — client A: sign-in needed',
       status: 'fail',
       severity: 'non-critical',
       project: { id: 'alpha-0000000a', name: 'alpha' },
@@ -165,3 +169,70 @@ describe('an Integration whose sign-in the service refused', () => {
     expect(failing()).toEqual([])
   })
 })
+
+// Round 2 of the review: a Project turning an Integration on or off takes its row along at once — the rows are built
+// for the Projects that have it on, so the last status the proxy knows is told again for the new set.
+describe('a Project turning an Integration on or off', () => {
+  /** The channels of this Machine over the test's store, proxy and Projects. */
+  function channels(): (channel: string, input: unknown) => Promise<unknown> {
+    for (const project of projects) {
+      const settings = { ...defaultProjectSettings('plugin'), integrations: readEntries(project.id) }
+      writeFileSync(settingsPath(dataDir(project.id)), `${JSON.stringify(settings)}\n`)
+    }
+    const module = integrationsHandlers({ store: () => store, projects: { list: () => projects, dataDir }, proxy: () => proxy, closeConnections: async () => undefined })
+    return async (channel, input) => {
+      const handler = module.find((entry) => entry.channel.name === channel)
+      if (handler === undefined) throw new Error(`no handler ${channel}`)
+      return handler.handle(handler.channel.input.parse(input), { event: {} as never })
+    }
+  }
+  const readEntries = (projectId: string) =>
+    projectId === projects[0]!.id
+      ? [
+          { id: ids.jira, enabled: true, tools: 'all' as const, autopilot: false },
+          { id: ids.linear, enabled: true, tools: 'all' as const, autopilot: false },
+          { id: ids.oauth, enabled: true, tools: 'all' as const, autopilot: false },
+        ]
+      : [{ id: ids.jira, enabled: false, tools: 'all' as const, autopilot: false }]
+  const failingIn = (projectId: string): string[] => failing().filter((row) => row.project?.id === projectId).map((row) => row.subject?.id ?? '')
+
+  it('off in alpha takes alpha`s row away; on in beta gives beta one', async () => {
+    const call = channels()
+    const client = await session(ids.jira, 'jira-client-a')
+    stub.revoke(TOKEN_A)
+    await client.callTool({ name: 'whoami', arguments: {} }).catch(() => undefined)
+    expect(failingIn(projects[0]!.id)).toEqual([ids.jira])
+    expect(failingIn(projects[1]!.id)).toEqual([])
+
+    await call('integrations.setEnabled', { projectId: projects[0]!.id, id: ids.jira, enabled: false })
+    expect(failingIn(projects[0]!.id)).toEqual([])
+    await call('integrations.setEnabled', { projectId: projects[1]!.id, id: ids.jira, enabled: true })
+    expect(failingIn(projects[1]!.id)).toEqual([ids.jira])
+  })
+
+  it('a Remove whose sign-out fails still leaves no row of the Integration', async () => {
+    channels()
+    const client = await session(ids.jira, 'jira-client-a')
+    stub.revoke(TOKEN_A)
+    await client.callTool({ name: 'whoami', arguments: {} }).catch(() => undefined)
+    expect(failingIn(projects[0]!.id)).toEqual([ids.jira])
+    // The OAuth sign-out fails as a partition that cannot be cleared would (oauth.ts, clearPartition).
+    const module = integrationsHandlers({
+      store: () => store,
+      projects: { list: () => projects, dataDir },
+      proxy: () => proxy,
+      closeConnections: async () => undefined,
+      oauth: () => ({ signIn: () => Promise.reject(new Error('not here')), signOut: () => Promise.reject(new Error('the partition could not be cleared')) }),
+    })
+    const oauthJira = store.add({ service: 'custom', label: 'Jira OAuth', auth: 'oauth', transport: { kind: 'http', url: stub.url } }).id
+    writeProjectIntegrations(dataDir(projects[0]!.id), [...readEntries(projects[0]!.id), { id: oauthJira, enabled: true, tools: 'all', autopilot: false }])
+    const oauthClient = await session(oauthJira, 'jira-oauth')
+    await oauthClient.callTool({ name: 'whoami', arguments: {} }).catch(() => undefined)
+    expect(failingIn(projects[0]!.id)).toContain(oauthJira)
+    const remove = module.find((entry) => entry.channel.name === 'integrations.remove')!
+    await remove.handle(remove.channel.input.parse({ projectId: projects[0]!.id, id: oauthJira, confirmed: true }), { event: {} as never })
+    expect(store.get(oauthJira)).toBeUndefined()
+    expect(failingIn(projects[0]!.id)).not.toContain(oauthJira)
+  })
+})
+

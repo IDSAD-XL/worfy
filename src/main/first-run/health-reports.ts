@@ -269,8 +269,10 @@ function fromMessage(message: Message, checked: Check | undefined): Check {
     command: null,
     actions: [],
     ...(message.project === undefined ? {} : { project: message.project }),
-    // A row per subject (worfy-integrations ticket 09: an Integration) names it: two rows of one Project read apart.
-    ...(message.subject === undefined ? {} : { subject: message.subject, title: `${REPORTED_ROWS[message.id].title}: ${message.subject.label}` }),
+    // A row per subject (worfy-integrations ticket 09: an Integration) is named by its reason, which starts with the
+    // subject's label — «Jira — client A: sign-in needed», read whole, as the prototype has it; two rows of one Project
+    // read apart.
+    ...(message.subject === undefined ? {} : { subject: message.subject, title: message.reason }),
   }
   // A feature that reports a GitHub failure works with GitHub: gh counts as needed.
   const severity = checked !== undefined && checked.status !== 'unknown' ? checked.severity : severityOf({ id: message.id, status: 'fail' }, { githubProject: true })

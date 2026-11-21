@@ -509,6 +509,22 @@ describe('Electron notifications', () => {
     }
   })
 
+  // worfy-integrations ticket 09, round 2: a person signing in to a service in worfy's sign-in window is not looking at
+  // worfy — its notifications are shown, not held.
+  it('a sign-in window in focus does not count as worfy in focus', async () => {
+    const { markSignInWindow } = await import('../../src/main/sign-in-windows')
+    const contents = {}
+    markSignInWindow(contents as never)
+    electron.focused = { webContents: contents }
+    try {
+      expect(electronDeps('darwin').notify.focused()).toBe(false)
+      electron.focused = { webContents: {} }
+      expect(electronDeps('darwin').notify.focused()).toBe(true)
+    } finally {
+      electron.focused = null
+    }
+  })
+
   it('with quiet windows (WORFY_QUIET_WINDOWS=1, e2e tests) shows no system notification, though no window has focus', () => {
     electron.shown.length = 0
     electron.focused = null

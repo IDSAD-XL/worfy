@@ -222,21 +222,35 @@ export function codexIntegrationRow(row: McpServerRow, label: string, signInErro
 export const configReplacedNote = (name: string): string => `Replaces the server ${name} of your config.toml in this Session.`
 
 /**
- * The names of the MCP servers a config.toml declares: the tables `[mcp_servers.<name>]` (and their sub-tables), bare or
- * quoted, and the dotted keys `mcp_servers.<name>.…` at the top. Comments and other tables are skipped.
- * shortcut: a line scan, not a TOML parser — a server declared as an inline table (`mcp_servers = { … }`) or under a
- * multi-line string is not found, and its row then lacks the note; the Session itself is the same either way.
+ * The names of the MCP servers a config.toml declares: the tables `[mcp_servers.<name>]` (and their sub-tables); the keys
+ * of the table `[mcp_servers]` (`<name> = { … }`, `<name>.command = …`); and at the top, before any table, the dotted
+ * keys `mcp_servers.<name>.… = …` and `mcp_servers.<name> = { … }`. A key is bare or quoted. A dotted key under another
+ * table (`[profiles.work]`, `mcp_servers.foo.enabled = false`) is that table's, not a server. Comments are skipped.
+ * shortcut: a line scan, not a TOML parser — a server declared as `mcp_servers = { … }` at the top or under a multi-line
+ * string is not found, and its row then lacks the note; the Session itself is the same either way.
  */
 export function codexConfigServerNames(text: string): string[] {
   const names: string[] = []
   const KEY = String.raw`(?:"([^"]*)"|'([^']*)'|([A-Za-z0-9_-]+))`
-  const table = new RegExp(String.raw`^\[\s*mcp_servers\s*\.\s*${KEY}`, 'u')
-  const dotted = new RegExp(String.raw`^mcp_servers\s*\.\s*${KEY}\s*\.`, 'u')
+  const keyOf = (found: RegExpExecArray | null): string | undefined => (found === null ? undefined : (found[1] ?? found[2] ?? found[3]))
+  const header = /^\[\s*([^[\]]*?)\s*\](?:\s*#.*)?$/u
+  const serverTable = new RegExp(String.raw`^mcp_servers\s*\.\s*${KEY}`, 'u')
+  // A key of the table it is in, followed by `.` (a dotted key) or `=` (its value).
+  const keyHere = new RegExp(String.raw`^${KEY}\s*[.=]`, 'u')
+  const topLevel = new RegExp(String.raw`^mcp_servers\s*\.\s*${KEY}\s*[.=]`, 'u')
+  /** The table the lines are in: '' at the top; null in an array of tables, whose keys are never servers. */
+  let table: string | null = ''
   for (const raw of text.split(/\r?\n/u)) {
     const line = raw.trim()
-    if (line.startsWith('#')) continue
-    const found = table.exec(line) ?? dotted.exec(line)
-    const name = found === null ? undefined : (found[1] ?? found[2] ?? found[3])
+    if (line === '' || line.startsWith('#')) continue
+    let name: string | undefined
+    if (line.startsWith('[[')) table = null
+    else if (line.startsWith('[')) {
+      const found = header.exec(line)
+      table = found === null ? null : (found[1] ?? '')
+      name = table === null ? undefined : keyOf(serverTable.exec(table))
+    } else if (table === '') name = keyOf(topLevel.exec(line))
+    else if (table !== null && /^mcp_servers$/u.test(table)) name = keyOf(keyHere.exec(line))
     if (name !== undefined && !names.includes(name)) names.push(name)
   }
   return names

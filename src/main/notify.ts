@@ -90,7 +90,7 @@ import { workflowHub } from './ipc/workflow'
 import { pendingOpens, type PendingOpens } from './notify-pending'
 import { projectStore } from './projects/store'
 import { quietWindows, type QuietWindows } from './quiet-windows'
-import { appWindows } from './sign-in-windows'
+import { appWindows, isSignInContents } from './sign-in-windows'
 import { createMainWindow } from './window'
 import { installWaitsNotifications, type WaitsHub } from './workflow/waits-notify'
 
@@ -877,7 +877,11 @@ function showSystem(note: { title: string; body: string }, onClick: () => void):
  */
 export function electronDeps(platform: NodeJS.Platform): { notify: NotifyDeps<DisplayNote>; window: WindowNoteDeps; prInbox: PrInboxNoteDeps } {
   const focused = createFocusCheck({
-    electronFocused: () => BrowserWindow.getFocusedWindow() !== null,
+    // A service's sign-in window in focus is not worfy in focus (worfy-integrations ticket 09): notifications still show.
+    electronFocused: () => {
+      const window = BrowserWindow.getFocusedWindow()
+      return window !== null && !isSignInContents(window.webContents)
+    },
     platform,
     pid: process.pid,
     foreground: () => foregroundPid(),

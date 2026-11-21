@@ -75,7 +75,7 @@ async function linked(level: 'read' | 'all'): Promise<(channel: string, input?: 
     projects: { list: () => [{ id: PROJECT, name: 'alpha' }], dataDir },
     oauth: () => oauth,
     closeConnections: async () => undefined,
-    proxy: () => ({ serviceToolsOf: async () => [], status: () => null, clearStatus: () => undefined }),
+    proxy: () => ({ serviceToolsOf: async () => [], status: () => null, clearStatus: () => undefined, retell: () => undefined }),
   })
   const adapter = await createLinkIpc({ modules: { './integrations.ts': async () => module }, isLinked: () => true })
   const peer = new LinkPeer({ machineId: 'mac', describe: () => 'mac', push: () => undefined, local: () => ({ id: 'here', name: 'Studio', protocol: 1, build: 'test' }), warn: () => undefined })
