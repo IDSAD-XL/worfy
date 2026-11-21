@@ -57,7 +57,8 @@ export const CATALOGUE: readonly CatalogueEntry[] = [
     defaultLabel: 'Linear',
     server: { kind: 'http', url: 'https://mcp.linear.app/mcp' },
     auth: ['oauth', 'bearer'],
-    scopes: [],
+    // What Linear granted in the live sign-in of ticket 01's spike.
+    scopes: ['read', 'write'],
     hint: 'Linear MCP server.',
     tokenHint: 'A Linear personal API key (Settings → Security & access).',
     tokenUrl: null,

@@ -5,7 +5,7 @@
 import type { HandlerDetails, WebContents } from 'electron'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { appUrlMatcher } from '../../src/main/ipc/index'
-import { grantsPermission, installWebPolicy, windowOpenResponse } from '../../src/main/window'
+import { allowSignInNavigation, grantsPermission, installWebPolicy, windowOpenResponse } from '../../src/main/window'
 import { APP_URL as INDEX_URL, INDEX_HTML } from '../app-url'
 
 const APP_URL = `${INDEX_URL}#/canvas`
@@ -125,6 +125,15 @@ describe('installWebPolicy puts the decisions on every web contents and the sess
     expect(fake.navigate({ isMainFrame: false, frameUrl: CARD, url: 'https://example.com/' })).toBe(false)
     expect(fake.navigate({ isMainFrame: true, frameUrl: APP_URL, url: CARD })).toBe(false)
     expect(fake.navigate({ isMainFrame: true, frameUrl: '', url: APP_URL })).toBe(true)
+  })
+
+  it('lets an Integration’s sign-in window follow the service to any site, and only that window; its new windows stay refused', () => {
+    const signIn = created()
+    allowSignInNavigation(signIn.contents)
+    expect(signIn.navigate({ isMainFrame: true, frameUrl: 'https://auth.example.test/authorize', url: 'https://sso.example.test/login' })).toBe(true)
+    expect(signIn.open(details('https://popup.example.test/', 'https://auth.example.test/'))).toEqual({ action: 'deny' })
+    const window = created()
+    expect(window.navigate({ isMainFrame: true, frameUrl: APP_URL, url: 'https://sso.example.test/login' })).toBe(false)
   })
 
   it('answers permission requests: the renderer yes, a Card and anything else no', () => {

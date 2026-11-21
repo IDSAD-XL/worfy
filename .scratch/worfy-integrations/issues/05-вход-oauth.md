@@ -1,7 +1,8 @@
 # 05 — Вход OAuth: `OAuthClientProvider` пакета `@modelcontextprotocol/sdk` над `SecretStore`, окно worfy с partition, «Open in system browser», Sign out с revocation, канал `integrations.signIn`
 
 Type: task
-Status: open
+Status: claimed 2026-11-21T01:51Z
+Branch: worfy-integrations/05
 Blocked by: 01, 03, 06
 Source: [spec.md](../spec.md), «Ticket-ы», 5; «Волны», Wave 4; «Решение», 3; «Как пользователь идёт по экранам», 4 и
 10; «Факты», 3а, 5, 7 и 8; «Решения по реализации» → Proxy, Вход OAuth; «Риски» (сервис закроет DCR, admin клиента

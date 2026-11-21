@@ -342,6 +342,18 @@ export function guardBrowserSession(browserSession: Session): void {
   browserSession.setPermissionCheckHandler(() => false)
 }
 
+/** The web contents of the OAuth sign-in windows of Integrations (src/main/integrations/auth/oauth.ts). */
+const signInContents = new WeakSet<WebContents>()
+
+/**
+ * Lets the main frame of `contents` — an Integration's sign-in window, with no preload and on a partition of its
+ * own (worfy-integrations ticket 05) — follow the service's sign-in to any site: its login form, a single sign-on
+ * page of the organisation. Its new windows and permissions stay refused.
+ */
+export function allowSignInNavigation(contents: WebContents): void {
+  signInContents.add(contents)
+}
+
 /**
  * Puts up main's side of the walls for every web contents: frame navigation (a Card stays on its
  * own origin, the main frame of the window stays on the app's own address), no new windows,
@@ -376,6 +388,8 @@ export function installWebPolicy(isAppUrl: (url: string) => boolean, browserPart
       return
     }
     contents.on('will-frame-navigate', (details) => {
+      // An Integration's sign-in window goes wherever the service's sign-in leads; it has no preload.
+      if (signInContents.has(contents)) return
       // The main frame of the app window goes only to the app's own address: a foreign page there
       // would get the preload and every event main sends the window (audit-security-2026-11-07
       // ticket 02). Loads main starts itself (loadURL, View ▸ Reload) do not come through here.
