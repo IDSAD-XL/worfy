@@ -119,7 +119,7 @@ index-е, Hide whitespace, смена типа, merge commit, patch больше
 `.git` после каждого чтения те же). Contract test запускается и на Windows runner-е CI; смена типа там пропускается,
 потому что для создания ссылки на Windows нужна привилегия, которой у runner-а нет.
 
-## The Changes Node
+## The Changes view
 
 ### Behaviour
 
@@ -129,22 +129,24 @@ index-е, Hide whitespace, смена типа, merge commit, patch больше
 статус, строка `Branch:` или работа над ним (Ticket взят в работу). Один worktree без этих признаков кнопки не даёт:
 карточка раскладывается по Ticket-у до того, как прочитаны worktree. У такой карточки есть место для второй строки
 действий, и её кнопки действий переносятся туда, выровненные вправо, когда не помещаются в одну строку. Счёта строк на
-кнопке нет. Первый щелчок ставит Changes Node справа от полосы рамок Epic-ов, на высоте Ticket-а, на ближайшее место,
-которое не закрывает другой Node, и центрирует Canvas на нём. Второй щелчок переходит к Node-у, который уже есть: у
-Ticket-а один Changes Node, и скрытый или архивированный сначала снова показывается.
+кнопке нет. Щелчок открывает вид Changes Ticket-а во всю основную область окна, как вид Pull requests показывает pull
+request: toolbar и sidebar остаются, Canvas скрыт под видом. На Canvas ничего не ставится.
 
-**Open changes** в Command palette делает то же для Ticket-а с веткой или в работе: центрирует Canvas на карточке
-Ticket-а и открывает Node рядом с ней. Когда карточка не нарисована за две секунды (её рамка свёрнута), Node встаёт
-справа от всего, что есть на Canvas.
+**Open changes** в Command palette делает то же для Ticket-а с веткой или в работе, а щелчок по пути комментария к коду
+в чате открывает вид на этой строке ([Send](#send)).
 
-Ticket, у которого не оказалось ни worktree, ни ветки, показывает это в Node-е. Focus mode показывает Node так же, как
-Canvas: выделите Session и Changes Node и нажмите Focus.
+Вкладки в toolbar у вида нет: без Ticket-а ему нечего показать. **← Canvas** слева от заголовка возвращает на Canvas, и
+Esc тоже, если не открыто меню или popover (Esc сначала закрывает его) и фокус не в текстовом поле. Открытая из
+сообщения в Session view, кнопка читается **← Session** и возвращает туда. Выбор другого Project-а в sidebar возвращает
+на Canvas.
+
+Ticket, у которого не оказалось ни worktree, ни ветки, показывает это в виде.
 
 #### The screen
 
 | Часть | Что в ней |
 |---|---|
-| Заголовок | `Changes · Ticket 03 · <epic>`; «Read only» на экране Linked machine только для чтения |
+| Заголовок | **← Canvas** (или **← Session**), `Changes · Ticket 03 · <epic>`; «Read only» на экране Linked machine только для чтения |
 | Первая строка | Меню scope-а, затем для каждого репозитория база и head (`origin/main ← <epic>/03`), merge-base, число файлов (и файлов workflow), добавленные и удалённые строки и Refresh |
 | Вторая строка | Inline или Side by side, Wrap, Hide whitespace и Compare с ветками для сравнения |
 | Слева | Дерево файлов с фильтром |
@@ -152,8 +154,8 @@ Canvas: выделите Session и Changes Node и нажмите Focus.
 
 Меню scope-а перечисляет то, что предлагает ответ репозитория: All changes, Uncommitted (только у Ticket-а с worktree)
 и commit-ы Ticket-а под Commit. Compare перечисляет ветки; выбор ветки показывает All changes против неё. Выбранный
-scope хранится в Node-е, поэтому он на месте и после перезапуска; Inline, Wrap, Hide whitespace и фильтр принадлежат
-только этому экрану. Refresh заново читает scope-ы, файлы и patch-и: сам экран не обновляется.
+scope хранится для каждого Ticket-а, пока открыто окно, а после перезапуска снова All changes; Inline, Wrap, Hide
+whitespace и фильтр принадлежат только этому экрану. Refresh заново читает scope-ы, файлы и patch-и: сам экран не обновляется.
 
 Числа — одни цифры, без разделителя тысяч (`+1243`). Добавленные строки берут цвета ready, удалённые — цвета blocked;
 подсветки синтаксиса нет.
@@ -183,9 +185,10 @@ Inline рисует по строке на каждую строку, с ном�
 
 #### Keys
 
-Когда фокус в Node-е (щелчок в любом его месте): `j` и `k` выбирают следующий и предыдущий файл и прокручивают к нему,
-`n` и `p` прокручивают к следующему и предыдущему hunk-у, `c` комментирует выбранные строки ([Comments on
-lines](#comments-on-lines)). Пока идёт ввод в фильтр, клавиши ничего не делают.
+Пока вид на экране: `j` и `k` (или `↓` и `↑`) выбирают следующий и предыдущий файл и прокручивают к нему, `n` и `p`
+прокручивают к следующему и предыдущему hunk-у, `c` комментирует выбранные строки ([Comments on
+lines](#comments-on-lines)), Esc возвращает назад. Пока идёт ввод в поле или открыто меню или popover, клавиши ничего не
+делают.
 
 #### Size
 
@@ -195,39 +198,42 @@ Patch файла читается, только когда файл подход
 
 #### On a Linked machine
 
-Node читает diff на Machine Project-а, в том числе с доступом только для чтения. Экран только для чтения не может
-поставить на Canvas новый Node: кнопка и строка palette там неактивны, пока Node-а нет, а потом переходят к нему.
-Выбранный там scope остаётся на этом экране. Экран только для чтения не принимает комментариев к строкам: на нём нет
-«+», `c` и tray.
+Вид читает diff на Machine Project-а, в том числе с доступом только для чтения: он ничего не меняет, поэтому кнопка и
+строка palette на экране только для чтения активны. Экран только для чтения не принимает комментариев к строкам: на нём
+нет «+», `c` и tray.
 
 ### How it works
 
-Node хранит свой предмет, Ticket, и свой scope в своих данных в Layout; его id — `changes:<epic>/<num>`. Всё, что он
-показывает, приходит из четырёх читающих каналов выше, которые спрашивают со строками `Branch:` и `Repo:` Ticket-а.
-Новый Node ставится так же, как Session, запущенная с карточки, и main всё равно исправляет любое перекрытие
-([ADR-0038](../../adr/0038-nodes-never-overlap.md)). Своего цвета у вида нет
-([ADR-0077](../../adr/0077-node-kind-tokens.md)): новый тип Node-а нейтральный.
+Вид — вид окна, рядом с Canvas, Session и Pull requests. То, что он показывает, — Ticket, вид, куда вернуться, и scope,
+выбранный для каждого Ticket-а, — живёт в памяти окна, а не в Layout: открытие не меняет Layout и не требует операции
+main. Всё, что он показывает, приходит из четырёх читающих каналов выше, которые спрашивают со строками `Branch:` и
+`Repo:` Ticket-а. Дерево и diff — тот же экран, что Review mode pull request-а ([Pull requests](pr-inbox.md)): каждый
+добавляет вокруг них свою шапку и свою панель.
 
-Palette рисуется вне Canvas и не видит, где карточка, поэтому оставляет запрос, который кнопка карточки забирает, как
-только карточка нарисована.
+Прежние версии ставили на Canvas Changes Node. main убирает такие Node-ы при чтении Layout-а, с одной строкой log-а на
+Project; неотправленные комментарии — черновики своей Session и остаются.
 
 Diff рисуется окнами, без библиотеки: у каждого блока высота, которую дают его строки, пока он не нарисован, и
 измеренная высота после.
 
 ### Implementation
 
-- `src/renderer/canvas/nodes/ChangesNode.tsx` — Node: его данные, чтения, клавиши.
+- `src/renderer/changes/ChangesView.tsx` — вид: чтения, шапка с кнопкой возврата, Esc, фокус.
+- `src/renderer/changes/DiffScreen.tsx` — дерево и diff, общие для вида и Review mode; `src/renderer/changes/diff-keys.ts`
+  — клавиши вида.
 - `src/renderer/changes/ScopeBar.tsx`, `src/renderer/changes/FileTree.tsx`, `src/renderer/changes/DiffPane.tsx` —
   шапка, дерево и diff; `src/renderer/changes/changes.css` — их вид.
 - `src/renderer/changes/diff-window.ts` — окно diff-а, строки Side by side, порядок дерева, слова размеров и чисел.
-- `src/renderer/changes/open.ts` — один Node на Ticket, куда встаёт новый, запрос palette к карточке.
+- `src/renderer/changes/open.ts` — открытие вида, вид, куда вернуться, scope каждого Ticket-а.
 - `src/renderer/canvas/actions/Changes.tsx` — кнопка на карточке; Open changes — `src/renderer/palette/commands.ts`.
+- `src/renderer/shell/AppShell.tsx` — вид в окне; `src/main/layout/upgrade.ts` — старые Node-ы убираются.
 
 Test-ы: `test/unit/changes-view.test.tsx` (шапка и её меню scope-а из ответа, Inline и Side by side, Wrap, Hide
-whitespace, свёрнутый большой файл и бинарный файл, Workflow files, фильтр, папки при 301 файле, клавиши, окно),
-`test/unit/canvas-actions.test.tsx` (где кнопка, куда встаёт Node, второй щелчок), `test/unit/palette-commands.test.tsx`
-(Open changes и экран только для чтения), `test/e2e/changes.spec.ts` (карточка, файлы и строки против
-`git diff <merge-base>`, palette, 300 файлов и свёрнутый файл из 2 100 строк).
+whitespace, свёрнутый большой файл и бинарный файл, Workflow files, фильтр, папки при 301 файле, клавиши, окно, ← Canvas
+и Esc, Esc меню, scope каждого Ticket-а), `test/unit/canvas-actions.test.tsx` (где кнопка, какой вид она открывает, экран
+только для чтения), `test/unit/palette-commands.test.tsx` (Open changes и экран только для чтения),
+`test/contract/layout-store.test.ts` (старые Node-ы убираются один раз), `test/e2e/changes.spec.ts` (карточка, вид во всё
+окно, файлы и строки против `git diff <merge-base>`, ← Canvas, palette, 300 файлов и свёрнутый файл из 2 100 строк).
 
 ## Comments on lines
 
@@ -251,7 +257,7 @@ popover и оставляет изменённый. Изменённый popover
 
 #### The tray and «To»
 
-Низ Node-а — tray: «N comments on M files» (и «K on messages», когда у Session из «To» есть ещё комментарии к её
+Низ вида — tray: «N comments on M files» (и «K on messages», когда у Session из «To» есть ещё комментарии к её
 сообщениям), chip на каждый комментарий, который прокручивает к его строке, Clear, список **To**, поле для общего
 сообщения и **Send**.
 
@@ -277,8 +283,8 @@ Session, которая больше не работает, сначала за�
 tray, Edit и Delete под строкой ждут его: сообщение уходит той Session, которой его отправили, с комментариями такими,
 какими они были.
 
-В чате Session сообщение показывает каждый комментарий блоком с его путём и строками. Щелчок по пути открывает Changes
-Node Ticket-а и прокручивает к строке, которая мигает.
+В чате Session сообщение показывает каждый комментарий блоком с его путём и строками. Щелчок по пути открывает вид Changes
+Ticket-а и прокручивает к строке, которая мигает; из Session view его кнопка возврата читается **← Session**.
 
 #### After a Refresh
 
@@ -306,7 +312,7 @@ commit scope-а Commit, merge-base для старой стороны.
 - `src/renderer/changes/LineComment.tsx` — popover и блоки под строками; `src/renderer/changes/Tray.tsx` — tray;
   `src/renderer/changes/sent-lines.ts` — ушедшие комментарии.
 - `src/renderer/changes/DiffPane.tsx` — gutter, выбранные строки, блоки под строками, прокрутка к строке.
-- `src/renderer/changes/open.ts` — запрос, который открывает Node на строке; `src/renderer/session/QuotedPrompt.tsx` —
+- `src/renderer/changes/open.ts` — запрос, который открывает вид на строке; `src/renderer/session/QuotedPrompt.tsx` —
   блок комментария в чате.
 - `src/main/changes/targets.ts` и `src/main/ipc/changes.ts` — список «To»; `src/shared/ipc/changes.ts` — его канал.
 
@@ -314,4 +320,4 @@ Test-ы: `test/unit/changes-tray.test.tsx` («+», `c` и диапазон от�
 забирает комментарии, «To» держит Session с комментариями, блокировки во время Send, Refresh в собственном scope-е
 комментария, изменённый popover остаётся, Read only), `test/contract/changes-targets.test.ts` (кто в «To» и значение по
 умолчанию), `test/e2e/changes-comments.spec.ts` (два комментария, перезагрузка, одно сообщение фальшивому агенту, блок в
-чате открывает Node на его строке).
+чате открывает вид на его строке).

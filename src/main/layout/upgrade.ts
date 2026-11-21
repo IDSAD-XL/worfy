@@ -5,6 +5,8 @@
 //   the `offset:<NN>` keys of each `epic-frame` Node (a Ticket's offset in its frame) go, while the
 //   frame's own offset (`x`, `y`) and `collapsed` stay, and the `subagent-tree` Nodes (a Session's
 //   Subagent offsets) go;
+// - the Changes of a Ticket open over the whole window (worfy-changes-view ticket 08), no longer as a Node, so the
+//   `changes` Nodes go; they kept only the Ticket and the scope last picked;
 // - Nodes never overlap: the Nodes on the plane are taken in the order of the Layout, the order
 //   they were created in, and a Node closer than the gap to one before it goes to its nearest clear
 //   place (shared/layout/free-place.ts). Each such move is one log line.
@@ -12,7 +14,7 @@
 // LayoutStore runs this on every read of the file; a Layout without such leftovers or overlaps
 // comes back as it is (null), so the second read writes nothing. Not an operation: it is not sent
 // to the renderer as one and is not in the ⌘Z history.
-import { EPIC_FRAME_KIND, SUBAGENT_TREE_KIND } from '../../shared/layout/derived'
+import { CHANGES_KIND, EPIC_FRAME_KIND, SUBAGENT_TREE_KIND } from '../../shared/layout/derived'
 import { removeOverlaps, type NodeMove } from '../../shared/layout/free-place'
 import type { Layout, LayoutNode } from '../../shared/layout/types'
 
@@ -22,6 +24,8 @@ export interface LayoutUpgrade {
   ticketOffsets: number
   /** `subagent-tree` Nodes removed. */
   subagentTrees: number
+  /** `changes` Nodes removed. */
+  changesNodes: number
   /** Nodes moved off the Nodes created before them, in the order they were moved. */
   moves: NodeMove[]
 }
@@ -32,10 +36,15 @@ const isOffsetKey = (key: string): boolean => key.startsWith('offset:')
 export function upgradeLayout(layout: Layout): LayoutUpgrade | null {
   let ticketOffsets = 0
   let subagentTrees = 0
+  let changesNodes = 0
   const kept: LayoutNode[] = []
   for (const node of layout.nodes) {
     if (node.kind === SUBAGENT_TREE_KIND) {
       subagentTrees += 1
+      continue
+    }
+    if (node.kind === CHANGES_KIND) {
+      changesNodes += 1
       continue
     }
     if (node.kind === EPIC_FRAME_KIND && Object.keys(node.data).some(isOffsetKey)) {
@@ -47,20 +56,26 @@ export function upgradeLayout(layout: Layout): LayoutUpgrade | null {
     kept.push(node)
   }
   const { nodes, moves } = removeOverlaps(kept)
-  if (ticketOffsets === 0 && subagentTrees === 0 && moves.length === 0) return null
-  return { layout: { ...layout, nodes }, ticketOffsets, subagentTrees, moves }
+  if (ticketOffsets === 0 && subagentTrees === 0 && changesNodes === 0 && moves.length === 0) return null
+  return { layout: { ...layout, nodes }, ticketOffsets, subagentTrees, changesNodes, moves }
 }
 
 const point = ({ x, y }: { x: number; y: number }): string => `(${x}, ${y})`
 
 /** The log lines for a Project whose Layout changed: one for the leftovers, if any, and one per moved Node. */
-export function upgradeMessages(projectId: string, { ticketOffsets, subagentTrees, moves }: LayoutUpgrade): string[] {
+export function upgradeMessages(projectId: string, { ticketOffsets, subagentTrees, changesNodes, moves }: LayoutUpgrade): string[] {
   const lines: string[] = []
+  const removed: string[] = []
+  const why: string[] = []
   if (ticketOffsets > 0 || subagentTrees > 0) {
-    lines.push(
-      `[layout] ${projectId}: removed ${ticketOffsets} Ticket offset(s) from Epic frames and ${subagentTrees} Subagent tree Node(s); Tickets and Subagents are laid out, not moved by hand (ADR-0037)`,
-    )
+    removed.push(`${ticketOffsets} Ticket offset(s) from Epic frames and ${subagentTrees} Subagent tree Node(s)`)
+    why.push('Tickets and Subagents are laid out, not moved by hand (ADR-0037)')
   }
+  if (changesNodes > 0) {
+    removed.push(`${changesNodes} Changes Node(s)`)
+    why.push('the Changes of a Ticket open over the whole window')
+  }
+  if (removed.length > 0) lines.push(`[layout] ${projectId}: removed ${removed.join(' and ')}; ${why.join('; ')}`)
   for (const move of moves) lines.push(`[layout] ${projectId}: moved Node ${move.id} from ${point(move.from)} to ${point(move.to)} off the Nodes created before it; Nodes never overlap (ADR-0038)`)
   return lines
 }

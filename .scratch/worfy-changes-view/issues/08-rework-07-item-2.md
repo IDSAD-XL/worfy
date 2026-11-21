@@ -1,7 +1,7 @@
 # 08: Rework of worfy-changes-view 07, item 2
 
 Type: task
-Status: open
+Status: claimed 2026-11-21T00:07Z
 Blocked by: None — can start immediately
 Source: owner-check fail 2026-11-21 of worfy-changes-view 07, item 2 — 07-приёмка-владельцем.md
 
@@ -76,20 +76,28 @@ Source: owner-check fail 2026-11-21 of worfy-changes-view 07, item 2 — 07-пр
 
 - [ ] Unit test (`test/unit/canvas-actions.test.tsx`): кнопка Changes открывает вид `changes` с этим Ticket-ом и не шлёт
       операции Layout-а; на экране Read only она активна.
+  - evidence: test-run pass · `pnpm test -- test/unit/canvas-actions.test.tsx` exit 0 · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
 - [ ] Unit test (`test/unit/palette-commands.test.tsx`): Open changes открывает вид `changes`, без `readOnly`.
+  - evidence: test-run pass · `pnpm test -- test/unit/palette-commands.test.tsx` exit 0 · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
 - [ ] Unit test (`test/unit/changes-view.test.tsx`): вид рисует шапку scope-ов, дерево и diff Ticket-а; «← Canvas» и
       Escape возвращают на Canvas; Escape при открытом popover закрывает только popover.
+  - evidence: test-run pass · `pnpm test -- test/unit/changes-view.test.tsx test/unit/changes-tray.test.tsx` exit 0 · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
 - [ ] Contract test (`test/contract/layout-store.test.ts`): Layout с Node-ом `changes` читается без него, строка log-а
       одна; второе чтение ничего не пишет.
+  - evidence: test-run pass · `pnpm test -- test/contract/layout-store.test.ts` exit 0 · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
 - [ ] e2e test (`test/e2e/changes.spec.ts`, fake agent, временный репозиторий): карточка → Changes → вид `changes` во всё
       окно, файлы и строки совпадают с `git diff <merge-base>`; в сохранённом Layout-е нет Node-а `changes`; «← Canvas»
       возвращает на Canvas; Open changes из palette; репозиторий на 300 файлов открывается свёрнутым; снимки вида в
       светлой и тёмной теме.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/changes.spec.ts` exit 0 · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
 - [ ] e2e test (`test/e2e/changes-comments.spec.ts`): два комментария к строке и диапазону уходят одним сообщением из
       вида; блок в пузыре открывает вид на строке.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/changes-comments.spec.ts` exit 0 · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
 - [ ] e2e test-ы `test/e2e/pr-review.spec.ts` зелёные без правки ожиданий: экран PR не изменился.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-review.spec.ts` exit 0 · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
 - [ ] Страницы `docs/features/changes.md`, `app-shell.md`, `workflow.md`, их переводы в `docs/features/ru/` и термин в
       `CONTEXT.md` описывают вид; `node scripts/check-feature-docs.mjs` — exit 0.
+  - evidence: test-run pass · `pnpm lint` exit 0 (check-feature-docs ok) · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 - [ ] (manual) Mac Stable: кнопка Changes на карточке открывает Node с diff-ом ветки.
   - needs: mac stable
@@ -136,3 +144,30 @@ Source: owner-check fail 2026-11-21 of worfy-changes-view 07, item 2 — 07-пр
 3. **Scope вида не сохраняется между запусками worfy.** Его хранил Node; у вида scope живёт в памяти окна, по Ticket-у,
    и после перезапуска снова All changes.
 4. **У вида нет кнопки в toolbar**, как у `story`: без Ticket-а виду нечего показать.
+
+## Итог
+
+Сделано implementer-ом 2026-11-21, ветка `worfy-changes-view/08`.
+
+- Вид окна `changes` (`ShellView` в `src/renderer/shell/Toolbar.tsx`, `data-view="changes"` в `AppShell.tsx`) без кнопки
+  в toolbar. Компонент — `src/renderer/changes/ChangesView.tsx` (`ChangesScreen` монтирует shell): шапка «← Canvas»
+  (`data-testid="changes-back"`), заголовок, `ScopeBar`, дерево и diff, лоток. Предмет вида, вид возврата и scope по
+  Ticket-у — store `useChangesView` в `src/renderer/changes/open.ts`, не Layout.
+- Общий экран diff-а — `src/renderer/changes/DiffScreen.tsx` (дерево слева, колонка diff-а справа) и
+  клавиши `src/renderer/changes/diff-keys.ts` (`j`/`k`, `↓`/`↑`, `n`/`p`, `c`, Esc; не в текстовом поле и не в открытом
+  слое). `ReviewMode.tsx` рисует свои дерево и diff через `DiffScreen`; его шапка, Viewed, Review bar и обработчик клавиш
+  не тронуты. e2e `test/e2e/pr-review.spec.ts` прошёл без правки ожиданий.
+- Входы: кнопка Changes (`canvas/actions/Changes.tsx`), Open changes (`palette/commands.ts`) и блок в пузыре
+  (`openChangesAtLine`) открывают вид сразу; ожидание карточки 2 s и запрос строки на 5 s удалены. На экране Read only
+  кнопка и строка palette активны.
+- `ChangesNode.tsx` удалён вместе с `changesNodeOf`, `changesPlace`, `requestOpenChanges`, `takeOpenRequest`,
+  `openChangesFromPalette`. `upgradeLayout` убирает Node-ы `changes` при чтении Layout-а, одна строка log-а на Project
+  (`CHANGES_KIND` — в `src/shared/layout/derived.ts`).
+- Отклонение от «Что делаем», 2: клавиши `ReviewMode` не перенесены в `diff-keys.ts` — его обработчик сейчас правит
+  worfy-pr-review 11 (⌘⇧↵ Finish review, PR #2122); общая шапка тоже не вынесена: у PR и Ticket-а она разная. Перенос —
+  отдельной правкой после merge 11.
+- Снимки вида в обеих темах снимает `test/e2e/changes.spec.ts` (`changes-view-card`, `-inline`, `-side-by-side`, `-large`
+  в `test-results/e2e/snapshots/`). В репозиторий они не положены: человек ещё не проверил их пиксели (`scrub:`).
+- Доработка, раунд 1 ревью PR #2124: свёрнутые и открытые папки дерева снова хранит вызывающий экран (`ReviewMode`,
+  `ChangesView`), а не `DiffScreen`: пока идёт чтение, оба рисуют «Reading…» вместо него, и папки сбрасывались после
+  Hide whitespace, Refresh или нового head-а. Unit test-ы в `review-mode.test.tsx` и `changes-view.test.tsx`.

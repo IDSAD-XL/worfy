@@ -33,7 +33,7 @@ Epic-ам и Ticket-ам.
 | [Projects](projects.md) | Full mode и Silent mode, переключатель, просмотр ADR и HANDOFF |
 | [Team reviewer](human-review.md) | Team reviewer: частный skill ревью Project-а голосом его команды, предложение, сборка, проверка и ежемесячное обновление |
 | [Workflow](workflow.md) | Ticket и Epic на Canvas, Pipeline, Binding |
-| [Changes](changes.md) | Чтение изменений Ticket-а: предмет, база, scope-ы, пределы, ничего не пишется в репозиторий; Changes Node |
+| [Changes](changes.md) | Чтение изменений Ticket-а: предмет, база, scope-ы, пределы, ничего не пишется в репозиторий; вид Changes во всё окно |
 | [Evidence](evidence.md) | Evidence, privacy check, снимки и клипы |
 | [Code stories](code-stories.md) | Code story: story PR, story Epic-а, story по кнопке, `story-check` и guard на merge; вид Story, вопрос к строке, Check yourself, отметки «прочитано» |
 | [Sessions](sessions.md) | Session, Subagent |

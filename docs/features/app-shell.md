@@ -160,8 +160,8 @@ Some rows exist only in some states:
   counts the waiting PRs and the age of the oldest.
 - Run wave and Ship ticket: only where the Epic frame or the Ticket has that button.
 - Open changes `<epic>/<NN>`: for a Ticket with a worktree branch, a `Branch:` line or in work, the Ticket in the detail.
-  It opens the Ticket's [Changes Node](changes.md#the-changes-node) next to its card, or goes to the one there. On a
-  read-only screen it is inactive until that Node exists.
+  It opens the Ticket's [Changes view](changes.md#the-changes-view) over the whole window, as the button Changes of the
+  card does; **← Canvas** and Esc go back. It reads git only, so a read-only screen keeps it active.
 - Resolve conflicts, Fix checks and Address comments `<owner>/<repo>#<N>`: a row for each action the button of a
   Ticket and its «▾» offer, the Ticket in the detail. An inactive row gives the same reason as the button. Picked from
   the palette, a new Session Node goes where any new Node goes.

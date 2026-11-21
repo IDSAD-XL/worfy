@@ -458,6 +458,65 @@ describe('layout store: what an older version kept and this one drops (ADR-0037)
     }
   })
 
+  // worfy-changes-view ticket 08: the Changes of a Ticket open over the whole window, no longer as a Node.
+  it('removes the Changes Nodes once, with one log line; the other Nodes stay; a second read writes nothing', async () => {
+    const before = {
+      nodes: [
+        { id: 'changes:demo/3', kind: 'changes', x: 500, y: 0, w: 960, h: 640, hidden: false, locked: false, pinned: false, tags: [], data: { ticket: { epic: 'demo', num: 3 }, scope: { kind: 'uncommitted' } } },
+        { id: 'n1', kind: 'note', x: 40, y: 40, w: 220, h: 120, hidden: false, locked: false, pinned: false, tags: [], data: { text: 'kept' } },
+        { id: 'changes:demo/4', kind: 'changes', x: 0, y: 2000, w: 960, h: 640, hidden: true, locked: false, pinned: false, tags: [], data: { ticket: { epic: 'demo', num: 4 } } },
+      ],
+      viewport: { x: 1, y: 2, zoom: 1 },
+    }
+    writeFileSync(layoutFile(), JSON.stringify(before))
+    utimesSync(layoutFile(), OLD, OLD)
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+    try {
+      const state = await value('layout.get', { projectId: PROJECT })
+      expect(state.layout.nodes.map((node) => node.id)).toEqual(['n1'])
+      expect(info.mock.calls.map((args) => String(args[0]))).toEqual([expect.stringMatching(new RegExp(`^\\[layout\\] ${PROJECT}: removed 2 Changes Node\\(s\\)`))])
+      expect(onDisk()).toEqual(state.layout)
+      expect(statSync(layoutFile()).mtimeMs).toBeGreaterThan(OLD.getTime())
+      expect(electron.sent).toEqual([])
+
+      utimesSync(layoutFile(), OLD, OLD)
+      const written = readFileSync(layoutFile(), 'utf8')
+      info.mockClear()
+      await start()
+      expect((await value('layout.get', { projectId: PROJECT })).layout).toEqual(state.layout)
+      store.flushAll()
+      expect(statSync(layoutFile()).mtimeMs).toBe(OLD.getTime())
+      expect(readFileSync(layoutFile(), 'utf8')).toBe(written)
+      expect(info).not.toHaveBeenCalled()
+    } finally {
+      info.mockRestore()
+    }
+  })
+
+  it('a Layout with Ticket offsets, a Subagent tree and a Changes Node logs one line for all three', async () => {
+    writeFileSync(
+      layoutFile(),
+      JSON.stringify({
+        nodes: [
+          { id: 'epic:demo', kind: 'epic-frame', x: 3, y: 4, w: 1, h: 1, locked: true, data: { collapsed: false, 'offset:3': { dx: 1, dy: 1 } } },
+          { id: `subagents:${SESSION}`, kind: 'subagent-tree', x: 0, y: 0, w: 1, h: 1, locked: true, data: {} },
+          { id: 'changes:demo/3', kind: 'changes', x: 900, y: 900, w: 960, h: 640, data: { ticket: { epic: 'demo', num: 3 } } },
+        ],
+        viewport: { x: 0, y: 0, zoom: 1 },
+      }),
+    )
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+    try {
+      const state = await value('layout.get', { projectId: PROJECT })
+      expect(state.layout.nodes.map((node) => node.id)).toEqual(['epic:demo'])
+      expect(info.mock.calls.map((args) => String(args[0]))).toEqual([
+        expect.stringMatching(new RegExp(`^\\[layout\\] ${PROJECT}: removed 1 Ticket offset\\(s\\) from Epic frames and 1 Subagent tree Node\\(s\\) and 1 Changes Node\\(s\\)`)),
+      ])
+    } finally {
+      info.mockRestore()
+    }
+  })
+
   it('leaves a Layout with nothing to drop as it is on disk', async () => {
     writeFileSync(layoutFile(), JSON.stringify({ nodes: [{ id: 'epic:demo', kind: 'epic-frame', x: 3, y: 4, w: 1, h: 1, locked: true, data: { collapsed: true } }], viewport: { x: 0, y: 0, zoom: 1 } }))
     utimesSync(layoutFile(), OLD, OLD)

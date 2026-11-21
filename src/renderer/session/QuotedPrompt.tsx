@@ -3,7 +3,6 @@ import type { MessageAttachment } from '../../shared/agent/attachments'
 import { branchNamesTicket } from '../../shared/workflow/ticket-ref'
 import { openChangesAtLine, type ChangesSubject } from '../changes/open'
 import { activeProject, useProjects } from '../projects/useProjects'
-import { showToast } from '../toast/toasts'
 import { useWorkflow } from '../workflow/useWorkflow'
 import { MessageAttachments } from './MessageAttachments'
 import { linesLabel, squash, type ParsedCode, type ParsedMessage, type SentQuote } from './quote-comments'
@@ -68,11 +67,7 @@ function CodeBlock({ code, images }: { code: ParsedCode; images: readonly Messag
           title={`Open ${where} in Changes (${code.side} side, ${code.commit === null ? 'uncommitted' : `commit ${code.commit}`})`}
           aria-label={`Open ${where} in Changes`}
           data-testid="quoted-prompt-code-source"
-          onClick={() =>
-            void openChangesAtLine(target.projectId, target.subject, { path: code.path, side: code.side, line: code.startLine }).then((refusal) => {
-              if (refusal !== undefined) showToast({ kind: 'error', key: 'changes-open-refused', text: refusal })
-            })
-          }
+          onClick={() => openChangesAtLine(target.projectId, target.subject, { path: code.path, side: code.side, line: code.startLine })}
         >
           <span className="w-qprompt__number">{code.number}</span>
           {where}

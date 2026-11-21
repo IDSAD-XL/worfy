@@ -445,6 +445,19 @@ describe('Review mode', () => {
     expect(calls('prReview.setViewed')).toEqual([])
   })
 
+  it('a folder folded in the tree stays folded after Hide whitespace reads the files again (worfy-changes-view 08, review round 1)', async () => {
+    preload()
+    await mountReview()
+    const folder = () => screen.getAllByTestId('changes-tree-folder').find((each) => each.dataset.path === 'src/net')!
+    fireEvent.click(folder())
+    expect(folder().getAttribute('aria-expanded')).toBe('false')
+    const before = calls('changes.list').length
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Hide whitespace' }))
+    await waitFor(() => expect(calls('changes.list').length).toBeGreaterThan(before))
+    await waitFor(() => expect(screen.getAllByTestId('changes-tree-folder').length).toBeGreaterThan(0))
+    expect(folder().getAttribute('aria-expanded')).toBe('false')
+  })
+
   it('the keys work from a checkbox (Viewed, Wrap); a text field keeps them', async () => {
     preload()
     const { mode } = await mountReview()

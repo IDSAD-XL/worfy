@@ -1,5 +1,5 @@
-// The comments on lines of the Changes screen (worfy-changes-view ticket 05): the Node src/renderer/canvas/nodes/
-// ChangesNode.tsx with its comments (changes/line-comments.tsx, LineComment.tsx, Tray.tsx), over a bridge that answers
+// The comments on lines of the Changes screen (worfy-changes-view tickets 05 and 08): the view
+// src/renderer/changes/ChangesView.tsx with its comments (changes/line-comments.tsx, LineComment.tsx, Tray.tsx), over a bridge that answers
 // the `changes.*` channels as main would. What is checked is what the user sees and what the store of the Session in
 // «To» holds (session/quote-store.ts), the store that Session's input field lists:
 // - «+» in the gutter, the key c on a line clicked, and a range (a click, then a click with Shift) open the popover
@@ -9,13 +9,11 @@
 // - Send sends one message with the section of the comments on lines;
 // - a read-only screen has no «+», no c and no tray, and its diff reads.
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { ReactFlowProvider } from '@xyflow/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import ChangesNode from '../../src/renderer/canvas/nodes/ChangesNode'
-import type { CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
-import { LayoutOpsContext, type LayoutOps } from '../../src/renderer/canvas/useLayout'
+import { ChangesView } from '../../src/renderer/changes/ChangesView'
 import { forgetSentLinesInMemory } from '../../src/renderer/changes/sent-lines'
 import type { CodeComment, MessageComment } from '../../src/renderer/session/quote-comments'
+import { setView, useNavigation } from '../../src/renderer/session/navigation'
 import { addDraft, forgetQuotesInMemory, quoteKey, readQuotes, removeDrafts } from '../../src/renderer/session/quote-store'
 import { toasts } from '../../src/renderer/toast/toasts'
 import type { ChangedFile, DiffLine, FileDiff } from '../../src/shared/changes/types'
@@ -154,22 +152,14 @@ afterEach(() => {
   delete (globalThis as { worfy?: WorfyBridge }).worfy
 })
 
-const ops: LayoutOps = { apply: () => Promise.resolve() }
-
 const settle = () =>
   act(async () => {
     await new Promise((done) => setTimeout(done, 20))
   })
 
 async function open() {
-  const props = { id: 'changes:demo/3', data: { node: { data: { ticket: { epic: 'demo', num: 3 } } } }, selected: false } as unknown as CanvasNodeProps
-  render(
-    <ReactFlowProvider>
-      <LayoutOpsContext.Provider value={ops}>
-        <ChangesNode {...props} />
-      </LayoutOpsContext.Provider>
-    </ReactFlowProvider>,
-  )
+  setView('changes')
+  render(<ChangesView projectId={PROJECT} root={ROOT} subject={{ epic: 'demo', num: 3 }} back="canvas" active />)
   await screen.findAllByTestId('changes-line')
   await settle()
 }
@@ -265,6 +255,8 @@ describe('a comment on lines', () => {
     fireEvent.keyDown(field, { key: 'Escape' })
     await settle()
     expect(screen.queryByTestId('changes-comment-popover')).toBeNull()
+    // Each Esc took only the popover: the view stays (worfy-changes-view ticket 08).
+    expect(useNavigation.getState().view).toBe('changes')
   })
 
   it('a deleted line takes a comment on the old side, at the base commit', async () => {

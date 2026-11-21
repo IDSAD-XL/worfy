@@ -218,3 +218,10 @@ export function scopeKey(scope: ChangesScope): string {
       return `compare\u0000${scope.repo}\u0000${scope.ref}`
   }
 }
+
+/** The folders toggled with `key` toggled once more: opened again, or folded again. */
+export function toggledWith(toggled: ReadonlySet<string>, key: string): ReadonlySet<string> {
+  const next = new Set(toggled)
+  if (!next.delete(key)) next.add(key)
+  return next
+}

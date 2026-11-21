@@ -119,7 +119,7 @@ repositories in a temporary folder, a Ticket in two repositories, a Ticket on th
 the check that the files of `.git` are the same after every read). The contract test runs on the Windows runner of
 CI too; the type changes are skipped there, as making a link on Windows needs a privilege the runner does not have.
 
-## The Changes Node
+## The Changes view
 
 ### Behaviour
 
@@ -129,23 +129,24 @@ A Ticket card has the button **Changes** when the Ticket has something to read: 
 from, a `Branch:` line, or work on it (a claimed Ticket). A worktree alone, with neither of these marks, shows no button:
 the card is laid out from the Ticket before the worktrees are read. Such a card has room for a second line of actions,
 and its action buttons wrap onto it, right-aligned, when they do not fit one line. The button carries no count of
-lines. The first
-click puts a Changes Node right of the strip of Epic frames, at the Ticket's height, on the nearest place that covers
-no other Node, and centers the Canvas on it. A second click goes to the Node already there: a Ticket has one Changes
-Node, and a hidden or archived one is shown again first.
+lines. A click opens the Changes view of the Ticket over the whole main area of the window, as the Pull requests view
+shows a pull request: the toolbar and the sidebar stay, the Canvas is hidden under it. Nothing is put on the Canvas.
 
-**Open changes** in the Command palette does the same for a Ticket with a branch or in work: it centers the Canvas on
-the Ticket's card and opens the Node next to it. When the card is not drawn within two seconds (its frame is
-collapsed), the Node goes right of everything on the Canvas.
+**Open changes** in the Command palette does the same for a Ticket with a branch or in work, and a click on the path of
+a comment on code in the chat opens the view on that line ([Send](#send)).
 
-A Ticket that turns out to have neither a worktree nor a branch shows that in the Node. Focus mode shows the Node as on
-the Canvas: select a Session and the Changes Node and press Focus.
+The view has no tab in the toolbar: without a Ticket it has nothing to show. **← Canvas** at the left of its title goes
+back to the Canvas, and so does Esc, unless a menu or a popover is open (Esc closes that first) or the focus is in a
+text field. Opened from a message in the Session view, the button reads **← Session** and goes back there. Picking
+another Project in the sidebar goes back to the Canvas.
+
+A Ticket that turns out to have neither a worktree nor a branch shows that in the view.
 
 #### The screen
 
 | Part | What it holds |
 |---|---|
-| Title | `Changes · Ticket 03 · <epic>`; «Read only» on the read-only screen of a Linked machine |
+| Title | **← Canvas** (or **← Session**), `Changes · Ticket 03 · <epic>`; «Read only» on the read-only screen of a Linked machine |
 | First row | The scope menu, then for each repository the base and the head (`origin/main ← <epic>/03`), the merge-base, the number of files (and of workflow files), the lines added and deleted, and Refresh |
 | Second row | Inline or Side by side, Wrap, Hide whitespace, and Compare with the branches to compare against |
 | Left | The tree of files with its filter |
@@ -153,8 +154,8 @@ the Canvas: select a Session and the Changes Node and press Focus.
 
 The scope menu lists what the repository's answer offers: All changes, Uncommitted (only for a Ticket with a
 worktree), and the Ticket's commits under Commit. Compare lists the branches; picking one shows All changes against it.
-The scope picked is kept in the Node, so it is there after a restart; Inline, Wrap, Hide whitespace and the filter
-belong to this screen only. Refresh reads the scopes, the files and the patches again: the screen does not refresh by
+The scope picked is kept for each Ticket while the window is open, and a restart starts at All changes again; Inline,
+Wrap, Hide whitespace and the filter belong to this screen only. Refresh reads the scopes, the files and the patches again: the screen does not refresh by
 itself.
 
 Counts are digits alone, without a separator of thousands (`+1243`). Added lines take the colours of ready, deleted
@@ -184,9 +185,10 @@ A file whose text did not change shows its change of mode.
 
 #### Keys
 
-With the focus in the Node (a click anywhere in it): `j` and `k` select the next and the previous file and scroll to
-it, `n` and `p` scroll to the next and the previous hunk, `c` comments on the lines picked ([Comments on
-lines](#comments-on-lines)). The keys do nothing while typing in the filter.
+While the view is shown: `j` and `k` (or `↓` and `↑`) select the next and the previous file and scroll to it, `n` and
+`p` scroll to the next and the previous hunk, `c` comments on the lines picked ([Comments on
+lines](#comments-on-lines)), Esc goes back. The keys do nothing while typing in a field or while a menu or a popover
+is open.
 
 #### Size
 
@@ -196,40 +198,44 @@ their height, so a Ticket of 300 files or a file of 2 000 lines draws a few scre
 
 #### On a Linked machine
 
-The Node reads the diff on the Machine of the Project, with read-only access too. A read-only screen cannot put a new
-Node on the Canvas: the button and the palette row are inactive there until the Node exists, and then go to it. The
-scope picked there stays on that screen. A read-only screen takes no comments on lines: it has no «+», no `c` and no
-tray.
+The view reads the diff on the Machine of the Project, with read-only access too: it changes nothing, so the button
+and the palette row are active on a read-only screen. A read-only screen takes no comments on lines: it has no «+», no
+`c` and no tray.
 
 ### How it works
 
-The Node keeps its subject, the Ticket, and its scope in its data in the Layout; its id is `changes:<epic>/<num>`.
-Everything it shows comes from the four reading channels above, asked with the Ticket's `Branch:` and `Repo:` lines.
-The new Node is placed the way a Session started from the card is, and main corrects any overlap anyway
-([ADR-0038](../adr/0038-nodes-never-overlap.md)). The kind has no colour of its own
-([ADR-0077](../adr/0077-node-kind-tokens.md)): a new Node type is neutral.
+The view is a view of the window, beside Canvas, Session and Pull requests. What it shows — the Ticket, the view to go
+back to and the scope picked for each Ticket — lives in the window's memory, not in the Layout: opening it changes no
+Layout and needs no operation of main. Everything it shows comes from the four reading channels above, asked with the
+Ticket's `Branch:` and `Repo:` lines. The tree and the diff are the same screen as Review mode of a pull request
+([Pull requests](pr-inbox.md)): each adds its own head and its own bar around them.
 
-The palette is drawn outside the Canvas and cannot see where a card is, so it leaves a request that the card's
-button takes once the card is drawn.
+Older versions put a Changes Node on the Canvas. main removes such Nodes when it reads a Layout, with one log line for
+the Project; the comments not sent yet are drafts of their Session and stay.
 
 The diff is drawn by windows, without a library: each block has the height its rows give until it is drawn, and its
 measured height after.
 
 ### Implementation
 
-- `src/renderer/canvas/nodes/ChangesNode.tsx` — the Node: its data, the reads, the keys.
+- `src/renderer/changes/ChangesView.tsx` — the view: the reads, the head with the button back, Esc, the focus.
+- `src/renderer/changes/DiffScreen.tsx` — the tree and the diff that the view and Review mode share;
+  `src/renderer/changes/diff-keys.ts` — the keys of the view.
 - `src/renderer/changes/ScopeBar.tsx`, `src/renderer/changes/FileTree.tsx`, `src/renderer/changes/DiffPane.tsx` — the
   head, the tree and the diff; `src/renderer/changes/changes.css` — their look.
 - `src/renderer/changes/diff-window.ts` — the window of the diff, the rows of Side by side, the order of the tree, the
   words of sizes and counts.
-- `src/renderer/changes/open.ts` — one Node per Ticket, where a new one goes, the palette's request to the card.
+- `src/renderer/changes/open.ts` — opening the view, the view to go back to, the scope of each Ticket.
 - `src/renderer/canvas/actions/Changes.tsx` — the button on the card; Open changes — `src/renderer/palette/commands.ts`.
+- `src/renderer/shell/AppShell.tsx` — the view in the window; `src/main/layout/upgrade.ts` — the old Nodes removed.
 
 Tests: `test/unit/changes-view.test.tsx` (the head and its scope menu from the answer, Inline and Side by side, Wrap,
 Hide whitespace, a folded large file and a binary file, Workflow files, the filter, the folders of 301 files, the keys,
-the window), `test/unit/canvas-actions.test.tsx` (where the button is, where the Node goes, the second click),
-`test/unit/palette-commands.test.tsx` (Open changes and the read-only screen), `test/e2e/changes.spec.ts` (the card,
-the files and lines against `git diff <merge-base>`, the palette, 300 files and a file of 2 100 lines folded).
+the window, ← Canvas and Esc, a menu's Esc, the scope of each Ticket), `test/unit/canvas-actions.test.tsx` (where the
+button is, the view it opens, the read-only screen), `test/unit/palette-commands.test.tsx` (Open changes and the
+read-only screen), `test/contract/layout-store.test.ts` (the old Nodes removed once), `test/e2e/changes.spec.ts` (the
+card, the view over the window, the files and lines against `git diff <merge-base>`, ← Canvas, the palette, 300 files
+and a file of 2 100 lines folded).
 
 ## Comments on lines
 
@@ -253,7 +259,7 @@ with Edit and Delete. Delete offers Undo for six seconds.
 
 #### The tray and «To»
 
-The bottom of the Node is the tray: «N comments on M files» (and «K on messages» when the Session in «To» has comments
+The bottom of the view is the tray: «N comments on M files» (and «K on messages» when the Session in «To» has comments
 on its messages too), a chip per comment that scrolls to its line, Clear, the list **To**, a field for a general
 message and **Send**.
 
@@ -280,7 +286,8 @@ Edit and Delete under a line wait for it: the message goes to the Session it was
 were.
 
 In the Session's chat the message shows each comment as a block with its path and lines. A click on the path opens the
-Changes Node of the Ticket and scrolls to the line, which flashes.
+Changes view of the Ticket and scrolls to the line, which flashes; from the Session view its button back reads
+**← Session**.
 
 #### After a Refresh
 
@@ -307,7 +314,7 @@ uncommitted lines, the commit of a Commit scope, the merge-base for the old side
 - `src/renderer/changes/LineComment.tsx` — the popover and the boxes under the lines; `src/renderer/changes/Tray.tsx` —
   the tray; `src/renderer/changes/sent-lines.ts` — the comments that went.
 - `src/renderer/changes/DiffPane.tsx` — the gutter, the lines picked, the boxes under the lines, the scroll to a line.
-- `src/renderer/changes/open.ts` — the request that opens the Node on a line; `src/renderer/session/QuotedPrompt.tsx` —
+- `src/renderer/changes/open.ts` — the request that opens the view on a line; `src/renderer/session/QuotedPrompt.tsx` —
   the block of a comment in the chat.
 - `src/main/changes/targets.ts` and `src/main/ipc/changes.ts` — the list «To»; `src/shared/ipc/changes.ts` — its channel.
 
@@ -315,7 +322,7 @@ Tests: `test/unit/changes-tray.test.tsx` («+», `c` and a range open the popove
 another Session takes the comments, «To» keeps a Session with comments, the locks while Send runs, a Refresh in the
 comment's own scope, a changed popover stays, Read only), `test/contract/changes-targets.test.ts` (who is in «To» and the
 default), `test/e2e/changes-comments.spec.ts` (two comments, a reload, one message to the fake agent, the block in the
-chat opens the Node on its line).
+chat opens the view on its line).
 
 ## A pull request
 
@@ -323,7 +330,7 @@ chat opens the Node on its line).
 
 The subject of Changes may be a pull request: its repository `owner/name`, its number, its head commit and its base
 commit. The channels of Changes read it; no screen opens one yet — the Review mode of the Pull requests tab will
-(worfy-pr-review, a later Ticket). The Changes Node on the Canvas shows a Ticket.
+(worfy-pr-review, a later Ticket). The Changes view shows a Ticket.
 
 - **Read locally when it can be.** When the PR's repository is the `origin` of a checkout of the Project and both its
   commits are in that checkout, the diff is read with the same reading git as a Ticket's: the PR is a branch checked

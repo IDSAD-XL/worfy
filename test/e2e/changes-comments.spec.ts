@@ -8,16 +8,17 @@ import { canvasReady, launchApp } from './helpers'
 import { catScript } from '../harness-node'
 import { ms } from '../time-scale'
 
-// Comments on lines of the Changes Node (worfy-changes-view ticket 05) in the built app, on the fake agent
+// Comments on lines of the Changes view (worfy-changes-view tickets 05 and 08) in the built app, on the fake agent
 // (test/fixtures/agent-scripts/message-input.jsonl), over a git repository the test builds in a temporary folder: Epic
 // demo-cart with Ticket 04, whose branch changes src/cart.ts and adds src/discount.ts; the branch is checked out nowhere,
 // so Changes reads it against its merge-base with the local main. No Session is bound to the Ticket, so «To» is the
 // Orchestrator (spec, Q2).
 //
-// The card's Changes button opens the Node; a comment on a line by «+» in its gutter and one on a range (a click, a
-// click with Shift, the key c) go into the tray; a reload of the window keeps them; Send gives the fake agent one
-// message with the section «Comments on lines of the diff (2)», the paths, the lines and the code; the comments stay dim
-// on their lines; the block of the message in the Orchestrator's chat opens Changes on its line.
+// The card's Changes button opens the view over the window; a comment on a line by «+» in its gutter and one on a range
+// (a click, a click with Shift, the key c) go into the tray; a reload of the window keeps them, and the view opened
+// again shows them; Send gives the fake agent one message with the section «Comments on lines of the diff (2)», the
+// paths, the lines and the code; the comments stay dim on their lines; the block of the message in the Orchestrator's
+// chat opens the view on its line, and «← Session» goes back to the chat.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 const PROJECT = 'demo-cart-000003c0'
@@ -96,16 +97,16 @@ const messages = (): Call[] =>
         .filter((call) => call.kind === 'message' && call.narrator !== true)
     : []
 
-/** The row of a line of `path` on a side, in the Node's Inline diff. */
+/** The row of a line of `path` on a side, in the view's Inline diff. */
 const row = (node: Locator, path: string, line: number, side: 'old' | 'new' = 'new'): Locator => node.locator(`[data-testid="changes-hunk"][data-path="${path}"] [data-testid="changes-line"][data-side="${side}"][data-line="${line}"]`)
 
-async function openNode(window: Page): Promise<Locator> {
+async function openView(window: Page): Promise<Locator> {
   const button = window.locator('[data-testid="ticket-node"][data-ticket="4"]').getByTestId('action-changes')
   await expect(button).toHaveAttribute('aria-disabled', 'false', { timeout: ms(15_000) })
   await button.click()
-  const node = window.locator(`[data-testid="changes-node"][data-ticket="${EPIC}/04"]`)
-  await expect(node).toBeVisible({ timeout: ms(15_000) })
-  return node
+  const view = window.locator(`[data-testid="changes-view"][data-ticket="${EPIC}/04"]`)
+  await expect(view).toBeVisible({ timeout: ms(15_000) })
+  return view
 }
 
 test('two comments — on a line and on a range — go to the Orchestrator as one message; they survive a reload; the block in the chat opens Changes on its line', async () => {
@@ -117,7 +118,7 @@ test('two comments — on a line and on a range — go to the Orchestrator as on
     const { window } = app
     const frame = window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
     await canvasReady(app, { size: { width: 1600, height: 1000 }, visible: [frame] })
-    const node = await openNode(window)
+    const node = await openView(window)
     const tray = node.getByTestId('changes-tray')
     await expect(tray.getByTestId('changes-to')).toHaveText('Orchestrator', { timeout: ms(15_000) })
 
@@ -152,10 +153,10 @@ test('two comments — on a line and on a range — go to the Orchestrator as on
     }
     await window.emulateMedia({ colorScheme: null })
 
-    // A reload of the window keeps the comments not sent yet.
+    // A reload of the window keeps the comments not sent yet; it starts on the Canvas, and the view opened again shows them.
     await window.reload()
-    const again = window.locator(`[data-testid="changes-node"][data-ticket="${EPIC}/04"]`)
-    await expect(again).toBeVisible({ timeout: ms(30_000) })
+    await canvasReady(app, { size: { width: 1600, height: 1000 }, visible: [frame] })
+    const again = await openView(window)
     await expect(again.getByTestId('changes-tray-count')).toHaveText('2 comments on 2 files', { timeout: ms(15_000) })
     await expect(again.getByTestId('changes-comment')).toHaveCount(2, { timeout: ms(15_000) })
 
@@ -186,7 +187,7 @@ test('two comments — on a line and on a range — go to the Orchestrator as on
     await expect(again.getByTestId('changes-comment')).toHaveCount(0)
     await expect(again.getByTestId('changes-comment-sent')).toHaveCount(2)
 
-    // The block of the message in the Orchestrator's chat opens Changes on its line.
+    // The block of the message in the Orchestrator's chat opens the view on its line; «← Session» goes back to the chat.
     await window.keyboard.press('ControlOrMeta+k')
     await window.getByTestId('palette-input').fill('orchestrator')
     await window.locator('[data-testid="palette-option"][data-command="go-to:orchestrator"]').click()
@@ -197,6 +198,10 @@ test('two comments — on a line and on a range — go to the Orchestrator as on
     await expect(again).toBeVisible({ timeout: ms(15_000) })
     await expect(row(again, 'src/discount.ts', 1)).toHaveAttribute('data-flash', 'true', { timeout: ms(5_000) })
     await expect(row(again, 'src/discount.ts', 1)).toBeInViewport()
+    await expect(again.getByTestId('changes-back')).toHaveText('← Session')
+    await again.getByTestId('changes-back').click()
+    await expect(block).toBeVisible()
+    await expect(again).toBeHidden()
   } finally {
     await app.close()
   }

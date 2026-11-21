@@ -23,7 +23,7 @@ import type { RepoList, RepoScopes } from './ScopeBar'
 import { addSentLines, sentLinesKey, useSentLines, type SentLine } from './sent-lines'
 import { Tray } from './Tray'
 
-// The comments on lines of the Changes Node (worfy-changes-view ticket 05; the spec's part on comments on lines): what
+// The comments on lines of the Changes view (worfy-changes-view tickets 05 and 08; the spec's part on comments on lines): what
 // the diff, the popover, the tray and the list «To» do together.
 //
 // - A comment is made on a line or a range of one file and one side: «+» in the gutter of a line under the pointer, the
@@ -139,9 +139,9 @@ export interface LineCommentsOptions {
   /** Why nothing can be commented on (a read-only screen); null when it can. */
   readOnly: string | null
   pane: RefObject<DiffPaneHandle | null>
-  /** The Node's body: where the rows of the diff are looked for. */
+  /** The view's body: where the rows of the diff are looked for. */
   body: RefObject<HTMLElement | null>
-  /** The Node's Hide whitespace: with the scope, the view a Refresh is pressed in. */
+  /** The view's Hide whitespace: with the scope, the view a Refresh is pressed in. */
   hideWhitespace: boolean
   /** Grows with every Refresh: the comments are looked for again in the lines read after it. */
   generation: number
@@ -150,9 +150,9 @@ export interface LineCommentsOptions {
 export interface LineCommentsLayer {
   /** What the diff draws and hears (DiffPane.tsx). */
   diff: Pick<DiffPaneProps, 'renderGutter' | 'renderBelow' | 'isPicked' | 'lineEvents' | 'onFileRead'>
-  /** The key `c`: the comment of the lines picked; false when it is not the Node's to take. */
+  /** The key `c`: the comment of the lines picked; false when it is not the view's to take. */
   commentKey: () => boolean
-  /** The tray at the bottom of the Node; null on a read-only screen and without a Session to send to. */
+  /** The tray at the bottom of the view; null on a read-only screen and without a Session to send to. */
   tray: ReactNode
   /** The popover and the menu of a line. */
   overlay: ReactNode
@@ -509,7 +509,7 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
   }
 
   // ── after a Refresh, the lines again ──────────────────────────────────────────────────────
-  // The view a Refresh was pressed in: the scope and Hide whitespace the Node showed when the count grew. Only the reads
+  // The view a Refresh was pressed in: the scope and Hide whitespace the view showed when the count grew. Only the reads
   // of that view and that Refresh look for the comments again; a read of another scope, or with the other Hide
   // whitespace, shows other hunks and, in another scope, other line numbers.
   const [refreshedIn, setRefreshedIn] = useState({ generation, view: viewOf(scope, hideWhitespace) })
@@ -553,7 +553,7 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
   }, [])
 
   // ── a line asked for by a block of a sent message ─────────────────────────────────────────
-  // Each Node drawn handles a request once; a Node drawn anew while it is fresh handles it again (open.ts).
+  // The view handles a request once its files are read; another opening of the view drops it (open.ts).
   const request = useLineRequests((store) => store.request)
   const handled = useRef<number | null>(null)
   useEffect(() => {

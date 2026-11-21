@@ -34,9 +34,9 @@ import '../../shared/ipc/changes'
 import type { PrInboxRow } from '../../shared/ipc/pr-inbox'
 import '../../shared/ipc/pr-review'
 import { REVIEW_FILES_MAX, type PrReviewDraftAnswer, type ReviewDraft } from '../../shared/ipc/pr-review'
-import { DiffPane, type DiffPaneHandle } from '../changes/DiffPane'
-import { orderedFiles, type DiffLayout, type FileEntry, type RepoFiles } from '../changes/diff-window'
-import { FileTree } from '../changes/FileTree'
+import { type DiffPaneHandle } from '../changes/DiffPane'
+import { DiffScreen } from '../changes/DiffScreen'
+import { orderedFiles, toggledWith, type DiffLayout, type FileEntry, type RepoFiles } from '../changes/diff-window'
 import '../changes/changes.css'
 import { invoke, subscribe } from '../ipc'
 import { ApprovalsChip } from '../pr-inbox/ApprovalsChip'
@@ -109,6 +109,7 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
   const [hideWhitespace, setHideWhitespace] = useState(false)
   const [filter, setFilter] = useState('')
   const [workflowOpen, setWorkflowOpen] = useState(false)
+  // Kept here, not in DiffScreen: «Reading…» stands in its place while a read runs (Hide whitespace, Refresh, a new head).
   const [toggled, setToggled] = useState<ReadonlySet<string>>(new Set())
   const [generation, setGeneration] = useState(0)
   const listFor = JSON.stringify([projectId, subject, scope, hideWhitespace, generation])
@@ -384,54 +385,36 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
   else if (list.error !== null) body = <p className="w-changes__message">{list.error}</p>
   else
     body = (
-      <div className="w-changes__main">
-        <FileTree
-          repos={repos}
-          filter={filter}
-          onFilter={setFilter}
-          selected={chosen}
-          onSelect={select}
-          workflowOpen={workflowOpen}
-          onWorkflowOpen={setWorkflowOpen}
-          toggled={toggled}
-          onToggle={(key) =>
-            setToggled((set) => {
-              const next = new Set(set)
-              if (!next.delete(key)) next.add(key)
-              return next
-            })
-          }
-          truncatedAt={value?.truncatedAt ?? null}
-          renderRowEnd={renderRowEnd}
-        />
-        <div className="w-pr-review__diff">
-          {!onLines && comments.length > 0 && draftCommit !== null ? (
-            <section className="w-pr-review-off" data-testid="pr-review-off-lines" aria-label={`Your comments on ${short(draftCommit)}`}>
-              <p className="w-changes__muted">
-                {plural(comments.length, 'comment')} on the lines of <span className="w-mono">{short(draftCommit)}</span>, not of this diff
-              </p>
-              {comments.map(lineComments.listed)}
-            </section>
-          ) : null}
-          {lineComments.offList}
-          <DiffPane
-            ref={pane}
-            projectId={projectId}
-            subject={subject}
-            scope={scope}
-            hideWhitespace={hideWhitespace}
-            layout={layout}
-            wrap={wrap}
-            entries={entries}
-            several={false}
-            selected={chosen}
-            generation={generation}
-            threads={row.threads}
-            renderHeadEnd={renderHeadEnd}
-            {...lineComments.diff}
-          />
-        </div>
-      </div>
+      <DiffScreen
+        tree={{
+          repos,
+          filter,
+          onFilter: setFilter,
+          selected: chosen,
+          onSelect: select,
+          workflowOpen,
+          onWorkflowOpen: setWorkflowOpen,
+          toggled,
+          onToggle: (key) => setToggled((set) => toggledWith(set, key)),
+          truncatedAt: value?.truncatedAt ?? null,
+          renderRowEnd,
+        }}
+        diff={{ ref: pane, projectId, subject, scope, hideWhitespace, layout, wrap, entries, several: false, selected: chosen, generation, threads: row.threads, renderHeadEnd, ...lineComments.diff }}
+        columnClassName="w-pr-review__diff"
+        aboveDiff={
+          <>
+            {!onLines && comments.length > 0 && draftCommit !== null ? (
+              <section className="w-pr-review-off" data-testid="pr-review-off-lines" aria-label={`Your comments on ${short(draftCommit)}`}>
+                <p className="w-changes__muted">
+                  {plural(comments.length, 'comment')} on the lines of <span className="w-mono">{short(draftCommit)}</span>, not of this diff
+                </p>
+                {comments.map(lineComments.listed)}
+              </section>
+            ) : null}
+            {lineComments.offList}
+          </>
+        }
+      />
     )
 
   return (
