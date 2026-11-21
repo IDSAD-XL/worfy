@@ -72,6 +72,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 11; «Решение», 4 и 6; «
 - [x] Новый ADR и Amendment-ы ADR-0105 и ADR-0002 влиты в этом PR.
   - evidence: commit pass · worfy-pr-review/11: ADR-0112, Amendments of ADR-0105 and ADR-0002, feature page, ticket result · - - · eb55565fd576736aeb4259fbfce8675eda9f53bb
 - [ ] Ревью ступени `max` (skill `worfy:max-review`) — вердикт в «Итог».
+  - evidence: review pass · max review on 52f0db464 (PR #2122 comment 7054192719): MAX-REVIEW REJECTED, four findings A-D, sceptics refuted none; treated as review round 1; fixed in rounds 2-3, correctness re-review MERGE on e288c26e4 · - - · e288c26e455272ccc8933feb1d8de7ed66ab6055
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job-ы Windows CI зелёные
       (платформенный PR).
 
