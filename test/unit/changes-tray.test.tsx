@@ -82,6 +82,9 @@ let targets: unknown
 /** The head `changes.list` names, and its files. */
 let head: string
 let listed: () => ChangedFile[]
+/** The scopes `changes.scopes` offers, and the Ticket's commits. */
+let scopeKinds: string[]
+let commits: { sha: string; short: string; author: string; date: string; subject: string }[]
 /** The patch `changes.file` answers with, by what it is asked. */
 let fileDiff: (input: Record<string, unknown>) => FileDiff
 /** Channels whose answer waits for the test: the promise the bridge waits on, by channel. */
@@ -111,13 +114,13 @@ function answer(channel: string, input: Record<string, unknown>): unknown {
     case 'workflow.open':
       return { root: ROOT, epics: [{ epic: 'demo', hasSpec: true, hasMap: false, title: 'Demo' }], tickets: [TICKET], error: null, branchErrors: [] } satisfies WorkflowModel
     case 'changes.scopes':
-      return { repos: [{ repo: 'demo', kind: 'worktree', branch: 'demo/03', headSha: 'c0ffee1', base, scopes: ['all', 'uncommitted'], branches: ['main'], error: null, checkout: ROOT, worktree: '.claude/worktrees/03' }] }
+      return { repos: [{ repo: 'demo', kind: 'worktree', branch: 'demo/03', headSha: 'c0ffee1', base, scopes: scopeKinds, branches: ['main'], error: null, checkout: ROOT, worktree: '.claude/worktrees/03' }] }
     case 'changes.list':
       return { repos: [{ repo: 'demo', kind: 'worktree', branch: 'demo/03', scope: (input.scope as { kind: string }).kind, base, headSha: head, workTree: true, files: listed(), additions: 2, deletions: 1, error: null }] }
     case 'changes.file':
       return { file: fileDiff(input) }
     case 'changes.commits':
-      return { base, commits: [] }
+      return { base, commits }
     case 'changes.targets':
       return targets
     case 'sessions.start':
@@ -135,6 +138,8 @@ beforeEach(() => {
   targets = TARGETS
   head = 'c0ffee1'
   listed = () => [changed(PATH)]
+  scopeKinds = ['all', 'uncommitted']
+  commits = []
   fileDiff = () => CART_DIFF
   held = new Map()
   globalThis.localStorage.clear()
@@ -590,6 +595,20 @@ describe('after a Refresh', () => {
     fileDiff = () => MOVED_DIFF
     await refresh()
     expect(readQuotes(KEY_A).drafts).toMatchObject([{ id: 'c-old', startLine: 4, commit: null }])
+  })
+
+  it('a comment on the work tree is not taken by a Refresh in a Commit scope: its lines are not that commit\'s', async () => {
+    scopeKinds = ['all', 'uncommitted', 'commit']
+    commits = [{ sha: 'abcdef1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', short: 'abcdef1', author: 'dev', date: '2026-11-20T10:00:00Z', subject: 'Cap' }]
+    addDraft(KEY_A, codeComment({ commit: null }))
+    await open()
+    fireEvent.click(screen.getByTestId('changes-scope'))
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: /abcdef1/u }))
+    await settle()
+    fileDiff = () => MOVED_DIFF
+    await refresh()
+    expect(calls.some((call) => call.channel === 'changes.file' && (call.input.scope as { kind: string }).kind === 'commit')).toBe(true)
+    expect(readQuotes(KEY_A).drafts).toMatchObject([{ id: 'c-old', startLine: 3, commit: null }])
   })
 
   it('lines the read does not show are not marked «Line changed»', async () => {
