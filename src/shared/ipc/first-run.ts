@@ -50,6 +50,9 @@ export const checkIdSchema = z.enum([
   'codex-login',
   'browser-profile',
   'linked-machine',
+  // An Integration of a Project whose sign-in is needed or whose service fails (worfy-integrations ticket 09): one
+  // row per Integration and Project, told apart by the row's `subject`.
+  'integration',
 ])
 export type CheckId = z.infer<typeof checkIdSchema>
 
@@ -63,7 +66,8 @@ export type CheckId = z.infer<typeof checkIdSchema>
  * The buttons of worfy-auth-check, declared at once (ticket 03) and wired by the Tickets of their
  * rows: `use-login` ("Use <login>", writes `github.account`, ticket 05), `open-link` (the SSO link,
  * ticket 06), `codex-sign-in` ("Sign in to Codex…"), `open-browser` ("Open Browser") and
- * `link-machine` ("Link a machine…", ticket 08).
+ * `link-machine` ("Link a machine…", ticket 08). `integration-sign-in` ("Sign in", worfy-integrations ticket 09)
+ * opens the OAuth sign-in window of the row's Integration through `integrations.signIn`; only a person presses it.
  */
 export const firstRunActionSchema = z.enum([
   'harness-install',
@@ -80,6 +84,7 @@ export const firstRunActionSchema = z.enum([
   'codex-sign-in',
   'open-browser',
   'link-machine',
+  'integration-sign-in',
 ])
 export type FirstRunAction = z.infer<typeof firstRunActionSchema>
 
@@ -89,7 +94,7 @@ export type FirstRunAction = z.infer<typeof firstRunActionSchema>
  * goes through `vendors.startLogin`, "Open Browser" shows the Browser Node, "Link a machine…" opens
  * its dialog (ticket 08); `open-link` is not wired yet (ticket 06).
  */
-export const runnableActionSchema = firstRunActionSchema.exclude(['migration-form', 'update-log', 'open-link', 'codex-sign-in', 'open-browser', 'link-machine'])
+export const runnableActionSchema = firstRunActionSchema.exclude(['migration-form', 'update-log', 'open-link', 'codex-sign-in', 'open-browser', 'link-machine', 'integration-sign-in'])
 
 /** A GitHub login as `github.account` takes it (src/main/workflow/profile.ts): never one gh could read as an option. */
 export const githubLoginSchema = z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/u)
@@ -140,8 +145,15 @@ export const checkSchema = z.object({
       login: githubLoginSchema.optional(),
       /** `open-browser` only: the Browser Node of the row's Project the button shows (worfy-auth-check ticket 08). */
       node: z.string().min(1).max(200).optional(),
+      /** `integration-sign-in` only: the id of the Integration the button signs in (worfy-integrations ticket 09). */
+      integration: z.string().min(1).max(200).optional(),
     }),
   ),
+  /**
+   * What the row is about when one id and Project hold several rows: an Integration (worfy-integrations ticket 09), its
+   * id and label. Absent for every other row.
+   */
+  subject: z.object({ id: z.string().min(1).max(200), label: z.string().max(200) }).optional(),
   /**
    * `false`: a `fail` of this row does not open First run by itself at the start (worfy-update spec
    * R9) — "worfy version" and the Harness behind this build, whose signal at the start is a toast;

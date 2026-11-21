@@ -3,6 +3,10 @@
 // Projects removed or turned it off) shows «Not used in any Project», so it can be removed. The entries a Project
 // keeps of an Integration the Machine no longer has (a Remove cut short) are named in one line with Clean up.
 // Everything here is the Machine's own: the channels are `local`.
+//
+// worfy-integrations ticket 09: an OAuth Integration that needs a sign-in has Sign in here too — through the first
+// Project that uses it, as integrations.signIn takes a Project — and while the Machine's list is set aside as
+// unreadable, a line names the file and says Clean up waits: nothing can tell an orphan from an Integration then.
 import { useEffect, useState } from 'react'
 import { catalogueEntry } from '../../shared/integrations/catalogue'
 import type { MachineIntegration } from '../../shared/ipc/integrations'
@@ -18,6 +22,8 @@ const STATUS_TEXT = { 'signed-in': 'Signed in', 'needs-sign-in': 'Sign-in needed
 export default function IntegrationsSection() {
   const [items, setItems] = useState<MachineIntegration[]>()
   const [dangling, setDangling] = useState<{ projectId: string; name: string; count: number }[]>([])
+  const [setAside, setSetAside] = useState<string | null>(null)
+  const [signingIn, setSigningIn] = useState<string | null>(null)
   const [problem, setProblem] = useState<string>()
   const [confirm, setConfirm] = useState<{ id: string; projects: string[] } | null>(null)
 
@@ -33,6 +39,7 @@ export default function IntegrationsSection() {
       setProblem(undefined)
       setItems(result.value.items)
       setDangling(result.value.dangling)
+      setSetAside(result.value.setAside)
     })
     return () => {
       active = false
@@ -49,6 +56,14 @@ export default function IntegrationsSection() {
     if (!result.ok) return setProblem(result.error)
     if (result.value.status === 'confirm') return setConfirm({ id, projects: result.value.projects })
     setConfirm(null)
+    load()
+  }
+  const signIn = async (id: string, projectId: string): Promise<void> => {
+    setSigningIn(id)
+    const result = await invoke('integrations.signIn', { projectId, id })
+    setSigningIn(null)
+    if (!result.ok) return setProblem(result.error)
+    setProblem(undefined)
     load()
   }
   const cleanUp = async (): Promise<void> => {
@@ -90,6 +105,16 @@ export default function IntegrationsSection() {
                     {off.length === 0 ? null : <div className="w-int__note">Off in {off.map((project) => project.name).join(', ')}</div>}
                   </td>
                   <td className="w-int__acts">
+                    {integration.auth !== 'oauth' || status.state !== 'needs-sign-in' ? null : (
+                      <Button
+                        variant="primary"
+                        disabled={used[0] === undefined || signingIn !== null}
+                        title={used[0] === undefined ? 'Turn it on in a Project first: a sign-in goes through a Project that uses it' : undefined}
+                        onClick={() => (used[0] === undefined ? undefined : void signIn(integration.id, used[0].id))}
+                      >
+                        {signingIn === integration.id ? 'Signing in…' : 'Sign in'}
+                      </Button>
+                    )}
                     <Button disabled={status.state === 'needs-sign-in'} onClick={() => void signOut(integration.id)}>
                       Sign out
                     </Button>
@@ -120,6 +145,12 @@ export default function IntegrationsSection() {
           <span className="w-int__acts">
             <Button onClick={() => void cleanUp()}>Clean up</Button>
           </span>
+        </div>
+      )}
+      {setAside === null ? null : (
+        <div className="w-int__warnline" data-testid="settings-integrations-set-aside">
+          The list of Integrations on this Machine could not be read and was set aside as {setAside}. Clean up waits until a list reads again: until then nothing tells a Project&apos;s entry of a removed
+          Integration from one of an Integration that is still here.
         </div>
       )}
       {problem === undefined ? null : (

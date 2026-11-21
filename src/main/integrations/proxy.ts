@@ -34,8 +34,13 @@ import type { StreamableHTTPClientTransportOptions } from '@modelcontextprotocol
 import type { Integration, IntegrationSecretPart, IntegrationStatus, IntegrationTools, ProjectIntegration } from '../../shared/integrations/types'
 import type { McpJsonSchema, McpServer, McpTool, McpToolContent, McpToolResult } from '../vendors/mcp'
 import { agentEnv } from '../agent/env'
+import { healthReports } from '../first-run/health-reports'
+import { readProjectIntegrations } from '../projects/settings'
+import { projectStore } from '../projects/store'
 import { integrationOAuth } from './auth/oauth'
 import { connectionHeaders, MissingSecretError, scrubServiceText, stdioLaunch, type SecretSource } from './auth/tokens'
+import { integrationHealth } from './health'
+import type { IntegrationRowFacts } from './rows'
 import { integrationStore } from './store'
 
 // ── the name of an Integration's server in a Session ─────────────────────────
@@ -177,6 +182,12 @@ export interface IntegrationProxyOptions {
   oauth?: (integration: Integration) => OAuthTransport | undefined
   /** How long one tool call may take; CALL_TIMEOUT_MS by default. */
   callTimeoutMs?: number
+  /**
+   * Told each time an Integration's status changes — signed in, a sign-in needed, an error — and with null when the
+   * status is forgotten (clearStatus): the Health check rows of the Integrations (src/main/integrations/health.ts,
+   * worfy-integrations ticket 09). A listener that throws changes nothing here.
+   */
+  onStatus?: (id: string, status: IntegrationProxyStatus['status'] | null) => void
 }
 
 /** How long a tool call may take: a service's tool may run long, and the agent can cancel it. */
@@ -282,9 +293,29 @@ export class IntegrationProxy {
     return this.serviceTools(id, this.store.get(id)?.label ?? id)
   }
 
+  /**
+   * Forgets what the proxy knew of Integration `id`'s sign-in: a person signed it in again (integrations.signIn), so a
+   * refusal it remembered is not the Integration's any more; the next call or list finds out anew.
+   */
+  clearStatus(id: string): void {
+    if (!this.statuses.delete(id)) return
+    this.tell(id, null)
+  }
+
   private setStatus(id: string, change: Partial<IntegrationProxyStatus>): void {
-    const was = this.statuses.get(id) ?? { status: { state: 'signed-in' }, tools: null, hidden: [] }
-    this.statuses.set(id, { ...was, ...change })
+    const known = this.statuses.get(id)
+    const was = known ?? { status: { state: 'signed-in' }, tools: null, hidden: [] }
+    const next = { ...was, ...change }
+    this.statuses.set(id, next)
+    if (change.status !== undefined && (known === undefined || JSON.stringify(known.status) !== JSON.stringify(next.status))) this.tell(id, next.status)
+  }
+
+  private tell(id: string, status: IntegrationProxyStatus['status'] | null): void {
+    try {
+      this.options.onStatus?.(id, status)
+    } catch (error) {
+      console.warn(`[integrations] ${id}: a listener of the status failed: ${error instanceof Error ? error.name : 'an error'}`)
+    }
   }
 
   private loadSdk(): Promise<McpSdk> {
@@ -640,8 +671,9 @@ function hide(text: string, secrets: readonly string[]): string {
   return out
 }
 
-/** An Integration a Session gets: its server name and label, and the server itself. */
+/** An Integration a Session gets: its id, server name and label, and the server itself. */
 export interface SessionIntegration {
+  id: string
   name: string
   label: string
   server: McpServer
@@ -659,12 +691,21 @@ export interface SessionIntegrationsInput {
   taken: readonly string[]
 }
 
+/** An Integration of the Project as a Session of it would get it now: its id, server name, label and the entry. */
+export interface SessionIntegrationName {
+  id: string
+  name: string
+  label: string
+  entry: ProjectIntegration
+}
+
 /**
- * The Integrations a Session of the Project gets: each enabled entry the Machine still has, under its server name —
- * the names given over every enabled Integration, so an unattended Session's are the same — and for an unattended
- * Session only those «Available to Autopilot».
+ * The Integrations a Session of the Project gets, without their servers: each enabled entry the Machine still has,
+ * under its server name — the names given over every enabled Integration, so an unattended Session's are the same —
+ * and for an unattended Session only those «Available to Autopilot». What a running Session's rows compare its own set
+ * with (worfy-integrations ticket 09: an Integration turned on since is a row «not started»).
  */
-export function sessionIntegrations(input: SessionIntegrationsInput): SessionIntegration[] {
+export function sessionIntegrationNames(input: Omit<SessionIntegrationsInput, 'proxy'>): SessionIntegrationName[] {
   const known = input.entries.flatMap((entry) => {
     if (!entry.enabled) return []
     const integration = input.store.get(entry.id)
@@ -676,16 +717,40 @@ export function sessionIntegrations(input: SessionIntegrationsInput): SessionInt
   )
   return known.flatMap(({ entry, label }, index) => {
     if (input.unattended && !entry.autopilot) return []
-    const name = names[index]?.name ?? serverNameSlug(label)
-    return [{ name, label, server: input.proxy.sessionServer({ id: entry.id, name, tools: entry.tools }) }]
+    return [{ id: entry.id, name: names[index]?.name ?? serverNameSlug(label), label, entry }]
   })
+}
+
+/** The Integrations a Session of the Project gets (sessionIntegrationNames), each with its server. */
+export function sessionIntegrations(input: SessionIntegrationsInput): SessionIntegration[] {
+  return sessionIntegrationNames(input).map(({ id, name, label, entry }) => ({ id, name, label, server: input.proxy.sessionServer({ id, name, tools: entry.tools }) }))
+}
+
+// ── the rows of a running Session's Integrations (worfy-integrations ticket 09; rows.ts) ──────────────────────────
+
+/** The facts over the Project's settings at `dataDir`, the Machine's store and the proxy's statuses. */
+export function integrationRowFacts(input: { dataDir: string; store: Pick<SecretSource, 'get'>; proxy: Pick<IntegrationProxy, 'status'>; taken: () => readonly string[] }): IntegrationRowFacts {
+  return {
+    signInError: (id) => (input.proxy.status(id)?.status.state === 'needs-sign-in' ? signInNeeded(input.store.get(id)?.label ?? id) : null),
+    oauth: (id) => input.store.get(id)?.auth === 'oauth',
+    current: () => {
+      try {
+        return sessionIntegrationNames({ entries: readProjectIntegrations(input.dataDir), store: input.store, unattended: false, taken: input.taken() })
+      } catch {
+        return []
+      }
+    },
+  }
 }
 
 let appProxy: IntegrationProxy | undefined
 
-/** The proxy of this Machine's Integrations, shared by every Session of the app. */
+/**
+ * The proxy of this Machine's Integrations, shared by every Session of the app; its statuses keep the Integrations'
+ * rows of the app's Health check (health.ts, worfy-integrations ticket 09).
+ */
 export function integrationProxy(): IntegrationProxy {
-  appProxy ??= new IntegrationProxy()
+  appProxy ??= new IntegrationProxy({ onStatus: integrationHealth({ reports: healthReports(), store: integrationStore(), projects: () => projectStore() }) })
   return appProxy
 }
 

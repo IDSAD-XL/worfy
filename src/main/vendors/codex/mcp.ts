@@ -36,12 +36,20 @@
 // rows the Session keeps stay as Codex gave them) have the source `integration` and the label, a sign-in the proxy
 // found refused is `needs-auth` with its text, and Codex's own Sign in (mcpServer/oauth/login) is never offered or
 // done for them: it would sign in to worfy's endpoint, not to the service. Codex keeps its own OAuth unused.
+//
+// worfy-integrations ticket 09: an OAuth Integration's row in needs-auth offers worfy's own Sign in (the sign-in
+// window, integrations.signIn) to a person — still never Codex's; an Integration the Project turned on while a Session
+// a person is at runs is a row «not started» whose Restart, with the same conversation, gives it to the Session in
+// thread/resume (integrations/rows.ts; the Session restarts the process, so `restarts`); and an Integration whose server
+// name is a server of the user's config.toml says on its row that it replaces that server in this Session — the
+// `mcp_servers.<name>` key of thread/start wins over the file (the review of ticket 07).
 import { BROWSER_SERVER_NAME } from '../../../shared/browser/tools'
 import { CANVAS_SERVER_NAME } from '../../../shared/canvas/tools'
 import type { AgentEvent } from '../../../shared/agent/events'
 import type { McpServerAction, McpServerRow } from '../../../shared/agent/mcp-status'
 import type { SecretSource } from '../../integrations/auth/tokens'
 import type { IntegrationProxy, SessionIntegration } from '../../integrations/proxy'
+import { INTEGRATION_JOINED, joinedIntegrationRows, type IntegrationRowFacts } from '../../integrations/rows'
 import type { BrowserBinding } from '../../mcp/browser-server'
 import type { CanvasBinding } from '../../mcp/canvas-server'
 import type { McpHttpEndpoint } from '../../mcp/http-server'
@@ -74,12 +82,15 @@ const NOT_OURS = 'it takes the SessionHandle of the Codex driver'
 
 export const codexMcp: McpPart = {
   delivery: 'http',
+  // Restart of an Integration turned on since the start (ticket 09): the Session resumes the thread in a new process,
+  // whose thread/resume carries the Project's Integrations of now. No row offers Turn off or Allow (see above).
+  restarts: true,
   status(session) {
     const live = mcpLive(session)
     return live === null ? Promise.reject(new PartNotWired('codex', 'mcp.status', NOT_OURS)) : live.codexMcpStatus()
   },
   async act(session, name, action) {
-    // Turn off, Turn on, Allow and Restart are not Codex's (see above); Restart comes with the shared path of ticket 03.
+    // Turn off, Turn on and Allow are not Codex's (see above); Restart is the Session's own (restartFor).
     if (action !== 'reconnect' && action !== 'sign-in') throw new McpActionRefused(action)
     // An Integration signs in in worfy, never through Codex (codexIntegrationRow).
     if (action === 'sign-in' && integrationNamesOf(session).has(name)) throw new McpActionRefused(action)
@@ -174,14 +185,26 @@ export function codexStartupRow(previous: McpServerRow | undefined, update: McpS
   }
 }
 
+/** What an Integration's row knows of it besides its label (ticket 09): its id, whether it signs in with OAuth, and whether a person is at the Session. */
+export interface CodexIntegrationOwn {
+  id: string
+  oauth: boolean
+  attended: boolean
+  /** The line under the row, or null: «Replaces the server <name> of your config.toml in this Session.» */
+  note: string | null
+}
+
 /**
  * The row of an Integration's server over the row Codex gave (`row`): the source `integration` and the label; with
  * `signInError` — the proxy found its sign-in refused — `needs-auth` with that text, unless Codex has not started the
- * server or turned it off. It offers Reconnect when it failed or needs a sign-in, never Codex's Sign in.
+ * server or turned it off. It offers Reconnect when it failed or needs a sign-in, never Codex's Sign in; with `own`
+ * (ticket 09) the row carries the Integration's id and note, and a refused sign-in of an OAuth Integration offers
+ * worfy's own Sign in to a person.
  */
-export function codexIntegrationRow(row: McpServerRow, label: string, signInError: string | null): McpServerRow {
+export function codexIntegrationRow(row: McpServerRow, label: string, signInError: string | null, own?: CodexIntegrationOwn): McpServerRow {
   const refused = signInError !== null && row.status !== 'pending' && row.status !== 'disabled'
   const status = refused ? 'needs-auth' : row.status
+  const actions: McpServerAction[] = status === 'failed' || status === 'needs-auth' ? ['reconnect'] : []
   return {
     ...row,
     status,
@@ -189,18 +212,53 @@ export function codexIntegrationRow(row: McpServerRow, label: string, signInErro
     source: 'integration',
     sourceWord: null,
     label,
-    actions: status === 'failed' || status === 'needs-auth' ? ['reconnect'] : [],
+    ...(own === undefined ? {} : { integrationId: own.id }),
+    ...(own === undefined || own.note === null ? {} : { note: own.note }),
+    actions: refused && own?.oauth === true && own.attended ? ['sign-in', ...actions] : actions,
   }
 }
+
+/** The line of an Integration's row whose server name is a server of the user's config.toml. */
+export const configReplacedNote = (name: string): string => `Replaces the server ${name} of your config.toml in this Session.`
+
+/**
+ * The names of the MCP servers a config.toml declares: the tables `[mcp_servers.<name>]` (and their sub-tables), bare or
+ * quoted, and the dotted keys `mcp_servers.<name>.…` at the top. Comments and other tables are skipped.
+ * shortcut: a line scan, not a TOML parser — a server declared as an inline table (`mcp_servers = { … }`) or under a
+ * multi-line string is not found, and its row then lacks the note; the Session itself is the same either way.
+ */
+export function codexConfigServerNames(text: string): string[] {
+  const names: string[] = []
+  const KEY = String.raw`(?:"([^"]*)"|'([^']*)'|([A-Za-z0-9_-]+))`
+  const table = new RegExp(String.raw`^\[\s*mcp_servers\s*\.\s*${KEY}`, 'u')
+  const dotted = new RegExp(String.raw`^mcp_servers\s*\.\s*${KEY}\s*\.`, 'u')
+  for (const raw of text.split(/\r?\n/u)) {
+    const line = raw.trim()
+    if (line.startsWith('#')) continue
+    const found = table.exec(line) ?? dotted.exec(line)
+    const name = found === null ? undefined : (found[1] ?? found[2] ?? found[3])
+    if (name !== undefined && !names.includes(name)) names.push(name)
+  }
+  return names
+}
+
+export { INTEGRATION_JOINED }
 
 /** An Integration of the Project as a Codex Session gets it: its server name, label and server, and its sign-in. */
 export interface CodexIntegration extends SessionIntegration {
   /** The text of a refused sign-in («Sign-in needed: <label>…») when the proxy found one, else null; asked for each row. */
   signInError(): string | null
+  /** Whether it signs in with OAuth: its Sign in is worfy's own window (ticket 09). */
+  oauth: boolean
 }
 
-/** The Integrations a Codex Session at `cwd` gets; never asked outside a Project's canvas. */
-export type CodexIntegrationsResolver = (request: { cwd: string; unattended: boolean }) => Promise<readonly CodexIntegration[]>
+/**
+ * The Integrations a Codex Session at `cwd` gets; never asked outside a Project's canvas. `rowFacts` — what the rows
+ * read each time they are asked (ticket 09, integrations/rows.ts); absent: no row «not started».
+ */
+export type CodexIntegrationsResolver = ((request: { cwd: string; unattended: boolean }) => Promise<readonly CodexIntegration[]>) & {
+  rowFacts?: ((request: { cwd: string }) => Promise<IntegrationRowFacts | null>) | undefined
+}
 
 /** Where the Integrations of a Codex Session come from: as for a Claude Session (src/main/vendors/claude/query.ts). */
 export interface CodexIntegrationsDeps {
@@ -217,26 +275,23 @@ export interface CodexIntegrationsDeps {
  * gives them a Claude Session, each with its sign-in by the proxy's status. The modules are loaded on first use.
  */
 export function codexIntegrations(deps: CodexIntegrationsDeps): CodexIntegrationsResolver {
-  return async ({ cwd, unattended }) => {
+  const resolve = async ({ cwd, unattended }: { cwd: string; unattended: boolean }): Promise<readonly CodexIntegration[]> => {
     const dir = deps.dataDirOf(cwd)
     if (dir === null) return []
     const [{ readProjectIntegrations }, { sessionIntegrations, signInNeeded }] = await Promise.all([import('../../projects/settings'), import('../../integrations/proxy')])
-    // The id of each server name, as the proxy is asked for it: what its status is read by.
-    const ids = new Map<string, string>()
-    const proxy = {
-      sessionServer: (entry: Parameters<IntegrationProxy['sessionServer']>[0]) => {
-        ids.set(entry.name, entry.id)
-        return deps.proxy.sessionServer(entry)
-      },
-    }
-    return sessionIntegrations({ entries: readProjectIntegrations(dir), store: deps.store, proxy, unattended, taken: deps.taken(cwd) }).map((each) => ({
+    return sessionIntegrations({ entries: readProjectIntegrations(dir), store: deps.store, proxy: deps.proxy, unattended, taken: deps.taken(cwd) }).map((each) => ({
       ...each,
-      signInError: () => {
-        const id = ids.get(each.name)
-        return id !== undefined && deps.proxy.status(id)?.status.state === 'needs-sign-in' ? signInNeeded(deps.store.get(id)?.label ?? each.label) : null
-      },
+      oauth: deps.store.get(each.id)?.auth === 'oauth',
+      signInError: () => (deps.proxy.status(each.id)?.status.state === 'needs-sign-in' ? signInNeeded(deps.store.get(each.id)?.label ?? each.label) : null),
     }))
   }
+  const rowFacts = async ({ cwd }: { cwd: string }): Promise<IntegrationRowFacts | null> => {
+    const dir = deps.dataDirOf(cwd)
+    if (dir === null) return null
+    const { integrationRowFacts } = await import('../../integrations/proxy')
+    return integrationRowFacts({ dataDir: dir, store: deps.store, proxy: deps.proxy, taken: () => deps.taken(cwd) })
+  }
+  return Object.assign(resolve, { rowFacts })
 }
 
 /** Where the observed handle of a Session keeps the names of its Integrations' servers (codexMcp.act). */
@@ -278,6 +333,8 @@ export interface CodexMcpDeps {
   endpoint(): Promise<McpHttpEndpoint>
   /** The Integrations of the Project at `cwd` (codexIntegrations); none when absent. A failure gives none, not no Session. */
   integrations?: CodexIntegrationsResolver
+  /** The MCP servers of the user's config.toml (codexConfigServerNames); none when absent or unreadable (ticket 09). */
+  userServers?: () => Promise<readonly string[]>
 }
 
 /** The hosts the endpoint's URLs may name; the URLs name MCP_HTTP_HOST (src/main/mcp/http-server.ts). */
@@ -403,11 +460,24 @@ export function codexMcpSessions(deps: CodexMcpDeps): CodexMcpResolver {
     // One key per server, not the whole `mcp_servers` table: the user's own servers stay as they are.
     for (const server of servers) config[`mcp_servers.${server.name}`] = { url: grant.urls[server.name]!, bearer_token_env_var: MCP_TOKEN_ENV }
     const byName = new Map(integrations.map((each) => [each.name, each]))
-    const labelled = (rows: McpServerRow[]): McpServerRow[] =>
-      rows.map((row) => {
+    const attended = !request.unattended
+    // Read at the start, as the Session's set is: the user's servers an Integration replaces, and — for a Session a
+    // person is at — what tells an Integration turned on since (an unattended Session's set is fixed for the Wave).
+    const [userServers, facts] = await Promise.all([
+      integrations.length === 0 ? Promise.resolve([] as readonly string[]) : (deps.userServers?.() ?? Promise.resolve([] as readonly string[])).catch(() => [] as readonly string[]),
+      attended ? (deps.integrations?.rowFacts?.({ cwd: request.cwd }) ?? Promise.resolve(null)).catch(() => null) : Promise.resolve(null),
+    ])
+    const replaced = new Set(userServers)
+    const ids = new Set(integrations.map((each) => each.id))
+    const labelled = (rows: McpServerRow[]): McpServerRow[] => {
+      const shown = rows.map((row) => {
         const integration = byName.get(row.name)
-        return integration === undefined ? row : codexIntegrationRow(row, integration.label, integration.signInError())
+        if (integration === undefined) return row
+        const note = replaced.has(row.name) ? configReplacedNote(row.name) : null
+        return codexIntegrationRow(row, integration.label, integration.signInError(), { id: integration.id, oauth: integration.oauth, attended, note })
       })
+      return facts === null ? shown : [...shown, ...joinedIntegrationRows(facts, { names: new Set(shown.map((row) => row.name)), ids }, attended)]
+    }
     const sessionId = (id: string): void => {
       canvas.setSessionId(id)
       browser?.setSessionId(id)
@@ -457,6 +527,10 @@ export const appCodexMcp: CodexMcpResolver = (request) =>
         return (await readMcpAllowlist({ root: cwd, claudeHome: claudeHome(), env: (await agentEnv()).env })).servers
       },
       endpoint: appMcpHttpEndpoint,
+      userServers: async () => {
+        const [{ readFile }, { join }, { codexHomeOf }] = await Promise.all([import('node:fs/promises'), import('node:path'), import('./account')])
+        return codexConfigServerNames(await readFile(join(codexHomeOf(), 'config.toml'), 'utf8'))
+      },
       integrations: codexIntegrations({
         dataDirOf: (cwd) => {
           const project = projectForCwd(projects.list(), cwd)

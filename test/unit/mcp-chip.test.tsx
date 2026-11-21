@@ -658,3 +658,67 @@ describe('the rows of a Session view', () => {
     expect(useSessionLogs.getState().logs['s-b']?.mcp?.servers).toEqual(failed)
   })
 })
+
+// worfy-integrations ticket 09: an Integration's row signs in in worfy's own window, and an Integration turned on while
+// the Session runs is a row «not started» whose Restart gives it to the Session with the same conversation.
+describe('the rows of Integrations', () => {
+  const jira = row('jira-client-a', {
+    status: 'needs-auth',
+    tools: null,
+    source: 'integration',
+    label: 'Jira — client A',
+    integrationId: 'int-jira-a1',
+    error: 'Sign-in needed: Jira — client A. Ask the user to sign in in worfy.',
+    actions: ['sign-in'],
+  })
+
+  it('Sign in opens worfy’s sign-in window through integrations.signIn, never the Vendor’s sign-in, then reads the rows again', async () => {
+    acceptAgentEvent({ sessionId: 's-int', event: { type: 'mcp', servers: [jira] } })
+    main.answers['integrations.signIn'] = () => ({ ok: true, value: { signIn: { account: null, site: null, at: '2026-11-22T10:00:00.000Z' } } })
+    main.answers['agent.mcp'] = () => ({ ok: true, value: { servers: [{ ...jira, status: 'connected', error: null, tools: 6, actions: [] }] } })
+    render(<SessionMcpChip sessionId="s-int" projectId="alpha-0000000a" orchestrator={false} />)
+    main.calls.length = 0
+    const popover = open()
+    await act(async () => fireEvent.click(within(rowOf(popover, 'jira-client-a')).getByRole('button', { name: 'Sign in' })))
+    expect(main.calls.filter((call) => call.channel === 'agent.mcpAction')).toEqual([])
+    expect(main.calls.find((call) => call.channel === 'integrations.signIn')?.input).toEqual({ projectId: 'alpha-0000000a', id: 'int-jira-a1' })
+    expect(main.calls.some((call) => call.channel === 'agent.mcp')).toBe(true)
+    expect(useSessionLogs.getState().logs['s-int']?.mcp?.servers?.[0]?.status).toBe('connected')
+  })
+
+  it('a refused sign-in is a toast and stays written in the row', async () => {
+    main.answers['integrations.signIn'] = () => ({ ok: false, error: 'Jira — client A: the service did not sign you in: access_denied' })
+    render(<McpChip sessionId="s" projectId="alpha-0000000a" rows={[jira]} autopilot={false} />)
+    const popover = open()
+    await act(async () => fireEvent.click(within(rowOf(popover, 'jira-client-a')).getByRole('button', { name: 'Sign in' })))
+    expect(within(rowOf(popover, 'jira-client-a')).getByTestId('mcp-row-action-error').textContent).toContain('access_denied')
+    expect(main.toasts.at(-1)?.kind).toBe('error')
+    expect(main.calls.filter((call) => call.channel === 'agent.mcpAction')).toEqual([])
+  })
+
+  it('an Integration turned on while the Session runs stands «not started» under its label, and Restart Session gives it to the Session', async () => {
+    const late = row('linear', {
+      status: 'not-started',
+      tools: null,
+      source: 'integration',
+      label: 'Linear',
+      integrationId: 'int-linear-1',
+      error: 'Enabled in this Project after this Session started.',
+      actions: ['restart'],
+    })
+    main.answers['agent.mcpAction'] = () => ({ ok: true, value: { servers: [{ ...late, status: 'connected', error: null, tools: 4, actions: [] }], error: null } })
+    render(<McpChip sessionId="s" projectId="alpha-0000000a" rows={[row('example-notes'), late]} autopilot={false} />)
+    const popover = open()
+    const group = within(popover).getByTestId('mcp-not-started')
+    expect(within(group).getByRole('heading').textContent).toBe('Enabled in this Project after this Session started.')
+    expect(within(rowOf(group, 'linear')).getByTestId('mcp-row-name').textContent).toBe('Linear')
+    await act(async () => fireEvent.click(within(group).getByTestId('mcp-restart')))
+    expect(main.calls.find((call) => call.channel === 'agent.mcpAction')?.input).toEqual({ sessionId: 's', name: 'linear', action: 'restart' })
+  })
+
+  it('an Integration’s server that replaces a server of the user’s config says so under its row', () => {
+    const noted = row('jira-client-a', { source: 'integration', label: 'Jira — client A', integrationId: 'int-jira-a1', note: 'Replaces the server jira-client-a of your config.toml in this Session.' })
+    render(<McpChip sessionId="s" projectId="p" rows={[noted]} autopilot={false} />)
+    expect(within(rowOf(open(), 'jira-client-a')).getByTestId('mcp-row-note').textContent).toBe('Replaces the server jira-client-a of your config.toml in this Session.')
+  })
+})

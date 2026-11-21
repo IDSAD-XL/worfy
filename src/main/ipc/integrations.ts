@@ -19,6 +19,13 @@
 // the entries of Integrations the Machine no longer has (a Remove cut short: the store is written before the
 // Projects); `integrations.cleanUp` drops those. `integrations.signOut` and the gh account's token (ticket 04's
 // signOut, offerGhToken and signInWithGhToken) are reached here.
+//
+// Ticket 09 (the reviews of 05 and 08): Sign out and Remove of an Integration that signs in with OAuth are
+// IntegrationOAuth.signOut — the tokens revoked at the service where it has a revocation endpoint, every `<id>:*` key
+// removed, the cookie partition of its window cleared — not a delete of the secrets alone; a token Integration's are
+// ticket 04's signOut. A sign-in through `integrations.signIn` makes the proxy forget the refusal it remembered
+// (clearStatus), so the rows of the chip and of the Health check follow at once. `integrations.machine` names the file
+// of the Machine's list set aside as unreadable (`setAside`), so Settings says why Clean up waits.
 import type { Integration, IntegrationSecretPart, IntegrationStatus, ProjectIntegration } from '../../shared/integrations/types'
 import { newProjectIntegration } from '../../shared/integrations/types'
 import {
@@ -83,12 +90,12 @@ export interface IntegrationsHandlersOptions {
   check?: SignInCheck
   /** Closes the proxy's connection of an Integration, or every one with no id; closeIntegrationConnections when absent. */
   closeConnections?: (id?: string) => Promise<void>
-  /** The OAuth sign-in; the app's integrationOAuth() when absent. */
-  oauth?: () => Pick<IntegrationOAuth, 'signIn'>
+  /** The OAuth sign-in and sign-out; the app's integrationOAuth() when absent. */
+  oauth?: () => Pick<IntegrationOAuth, 'signIn' | 'signOut'>
   /** Where the handlers learn that the app quits; none when absent (the module's default export: will-quit). */
   onQuit?: (listener: () => void) => void
   /** The proxy the tools are asked through; the app's integrationProxy() when absent. */
-  proxy?: () => Pick<IntegrationProxy, 'serviceToolsOf' | 'status'>
+  proxy?: () => Pick<IntegrationProxy, 'serviceToolsOf' | 'status' | 'clearStatus'>
   /** The gh account's token; the app's gh and Profile when absent. */
   gh?: () => IntegrationGh
 }
@@ -150,6 +157,18 @@ export function integrationsHandlers(options: IntegrationsHandlersOptions = {}):
   const projectsOf = (): IntegrationProjects => options.projects ?? projectStore()
   const proxyOf = options.proxy ?? integrationProxy
   const ghOf = (): Promise<IntegrationGh> => (options.gh === undefined ? appGh() : Promise.resolve(options.gh()))
+  const oauthOf = options.oauth ?? integrationOAuth
+
+  /**
+   * Signs Integration `integration` out: OAuth's sign-out for one that signs in with OAuth over http (revocation, every
+   * `<id>:*` key, the partition), ticket 04's for every other; the proxy forgets its status.
+   */
+  const signOutOf = async (machine: IntegrationStore, integration: Integration): Promise<void> => {
+    if (integration.auth === 'oauth' && integration.transport.kind === 'http') await oauthOf().signOut(integration.id)
+    else signOut(machine, integration.id)
+    errors.delete(integration.id)
+    proxyOf().clearStatus(integration.id)
+  }
 
   /** The Project of this Machine with `projectId`; an unknown id throws. */
   const projectOf = (projectId: string): { readonly id: string; readonly name: string; readonly path?: string } => {
@@ -249,11 +268,9 @@ export function integrationsHandlers(options: IntegrationsHandlersOptions = {}):
         return { status, tools: null, hidden: after?.hidden ?? [] }
       }
     }),
-    defineHandler(integrationsSignOut, ({ id }) => {
+    defineHandler(integrationsSignOut, async ({ id }) => {
       const machine = store()
-      integrationOf(id)
-      signOut(machine, id)
-      errors.delete(id)
+      await signOutOf(machine, integrationOf(id))
       closeQuietly(id)
       return { status: statusOf(machine, integrationOf(id), errors) }
     }),
@@ -277,7 +294,7 @@ export function integrationsHandlers(options: IntegrationsHandlersOptions = {}):
         const count = used.filter((entry) => !integrations.some((integration) => integration.id === entry.id)).length
         return count === 0 ? [] : [{ projectId: project.id, name: project.name, count }]
       })
-      return { items, dangling }
+      return { items, dangling, setAside: machine.setAsideFile() }
     }),
     defineHandler(integrationsCleanUp, () => {
       const whole = store().wholeList()
@@ -318,17 +335,25 @@ export function integrationsHandlers(options: IntegrationsHandlersOptions = {}):
       dataDirOf(projectId)
       integrationOf(id)
       // An Integration that does not sign in with OAuth is refused there.
-      const signIn = await (options.oauth ?? integrationOAuth)().signIn(id, { via: via ?? 'window' })
+      const signIn = await oauthOf().signIn(id, { via: via ?? 'window' })
       errors.delete(id)
+      // A refusal the proxy remembered is the old sign-in's: the chip's row and the Health check row follow now.
+      proxyOf().clearStatus(id)
       return { signIn }
     }),
-    defineHandler(integrationsRemove, ({ projectId, id, confirmed }) => {
+    defineHandler(integrationsRemove, async ({ projectId, id, confirmed }) => {
       if (projectId !== undefined) dataDirOf(projectId)
       integrationOf(id)
       const projects = projectsOf()
       const others = projects.list().filter((project) => project.id !== projectId)
       const using = others.filter((project) => readProjectIntegrations(projects.dataDir(project.id)).some((entry) => entry.id === id && entry.enabled))
       if (using.length > 0 && confirmed !== true) return { status: 'confirm' as const, projects: using.map((project) => project.name) }
+      // Signed out first, while the store still has it: a refused revocation or partition does not keep it on the Machine.
+      try {
+        await signOutOf(store(), integrationOf(id))
+      } catch (error) {
+        console.warn(`[integrations] ${id}: the sign-out before the removal failed: ${error instanceof Error ? error.name : 'an error'}`)
+      }
       store().remove(id)
       errors.delete(id)
       closeQuietly(id)

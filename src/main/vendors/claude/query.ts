@@ -44,7 +44,8 @@ import { browserForSession, type BrowserResolver, type BrowserSession } from '..
 import { canvasForSession, projectForCwd, type CanvasResolver, type CanvasSession } from '../../mcp/canvas-server'
 import { mindMapForSession, type MindMapResolver, type MindMapSession } from '../../mcp/mind-map-server'
 import type { SecretSource } from '../../integrations/auth/tokens'
-import { integrationProxy, sessionIntegrations, type IntegrationProxy, type SessionIntegration } from '../../integrations/proxy'
+import { integrationProxy, integrationRowFacts, sessionIntegrations, type IntegrationProxy, type SessionIntegration } from '../../integrations/proxy'
+import type { IntegrationRowFacts } from '../../integrations/rows'
 import { integrationStore } from '../../integrations/store'
 import { privateFolder, reviewerSkill } from '../../projects/review-offer'
 import { addProductWriteFolder, readProjectIntegrations, readProjectSettings } from '../../projects/settings'
@@ -90,30 +91,40 @@ async function mindMapOrNull(mindMap: MindMapResolver, cwd: string, productFolde
   }
 }
 
-/** The Integrations a Session in the Project at `cwd` gets (worfy-integrations ticket 06); asked only with the canvas. */
-export type IntegrationsResolver = (request: { cwd: string; unattended: boolean }) => Promise<readonly SessionIntegration[]>
+/**
+ * The Integrations a Session in the Project at `cwd` gets (worfy-integrations ticket 06); asked only with the canvas.
+ * `rowFacts` — what the Session's rows read each time they are asked (ticket 09, integrations/rows.ts); absent: none.
+ */
+export type IntegrationsResolver = ((request: { cwd: string; unattended: boolean }) => Promise<readonly SessionIntegration[]>) & {
+  rowFacts?: ((request: { cwd: string }) => IntegrationRowFacts | null) | undefined
+}
 
 /** Where the Integrations of a Session come from: its Project's settings, the Machine's store, the proxy, Claude Code's names. */
 export interface ProjectIntegrationsDeps {
   /** The data folder of the Project holding `cwd`; null outside every Project. */
   dataDirOf: (cwd: string) => string | null
   store: Pick<SecretSource, 'get'>
-  proxy: Pick<IntegrationProxy, 'sessionServer'>
+  proxy: Pick<IntegrationProxy, 'sessionServer' | 'status'>
   /** The servers of Claude Code in the Project of `cwd` (the MCP inventory's last answer). */
   taken: (cwd: string) => readonly string[]
 }
 
 /** The Integrations of the Project's settings (readProjectIntegrations) through `deps` (sessionIntegrations). */
 export function projectIntegrationsResolver(deps: ProjectIntegrationsDeps): IntegrationsResolver {
-  return async ({ cwd, unattended }) => {
+  const resolve = async ({ cwd, unattended }: { cwd: string; unattended: boolean }): Promise<readonly SessionIntegration[]> => {
     const dir = deps.dataDirOf(cwd)
     if (dir === null) return []
     return sessionIntegrations({ entries: readProjectIntegrations(dir), store: deps.store, proxy: deps.proxy, unattended, taken: deps.taken(cwd) })
   }
+  const rowFacts = ({ cwd }: { cwd: string }): IntegrationRowFacts | null => {
+    const dir = deps.dataDirOf(cwd)
+    return dir === null ? null : integrationRowFacts({ dataDir: dir, store: deps.store, proxy: deps.proxy, taken: () => deps.taken(cwd) })
+  }
+  return Object.assign(resolve, { rowFacts })
 }
 
 /** The app's: the Project of the app's list, this Machine's store and proxy, the app's MCP inventory. */
-const appIntegrations: IntegrationsResolver = (request) => {
+function appResolver(): IntegrationsResolver {
   const projects = projectStore()
   return projectIntegrationsResolver({
     dataDirOf: (cwd) => {
@@ -123,11 +134,25 @@ const appIntegrations: IntegrationsResolver = (request) => {
     store: integrationStore(),
     proxy: integrationProxy(),
     taken: inventoryServerNames,
-  })(request)
+  })
 }
 
-/** An Integration as the Session's options take it: its server name, label and SDK server. */
+const appIntegrations: IntegrationsResolver = Object.assign((request: { cwd: string; unattended: boolean }) => appResolver()(request), {
+  rowFacts: (request: { cwd: string }) => appResolver().rowFacts?.(request) ?? null,
+})
+
+/** The row facts of a Session's Integrations; a failure leaves the rows with their labels alone. */
+function rowFactsOrNone(integrations: IntegrationsResolver, cwd: string): IntegrationRowFacts | undefined {
+  try {
+    return integrations.rowFacts?.({ cwd }) ?? undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** An Integration as the Session's options take it: its id, server name, label and SDK server. */
 interface ClaudeIntegration {
+  id: string
   name: string
   label: string
   server: ClaudeMcpServer
@@ -137,7 +162,7 @@ interface ClaudeIntegration {
 async function integrationsOrNone(integrations: IntegrationsResolver, request: QueryRequest): Promise<ClaudeIntegration[]> {
   try {
     const found = await integrations({ cwd: request.cwd, unattended: request.unattended === true })
-    return await Promise.all(found.map(async ({ name, label, server }) => ({ name, label, server: await claudeMcpServer(server) })))
+    return await Promise.all(found.map(async ({ id, name, label, server }) => ({ id, name, label, server: await claudeMcpServer(server) })))
   } catch (error) {
     console.warn(`[agent] no Integrations for ${request.cwd}: ${error instanceof Error ? error.name : 'an error'}`)
     return []
@@ -455,8 +480,9 @@ export function sdkQueryFactory(
     const observed = attached ? attached.observe(handle) : handle
     const browsed = browserSession ? browserSession.observe(observed) : observed
     const mapped = mindMapSession ? mindMapSession.observe(browsed) : browsed
-    // The rows of the Integrations' servers say so, with their labels (claudeMcpStatus).
-    labelIntegrations(mapped, sessionIntegrated)
+    // The rows of the Integrations' servers say so, with their labels (claudeMcpStatus), and — ticket 09 — what the
+    // proxy finds of them and what the Project turned on since.
+    labelIntegrations(mapped, sessionIntegrated, attached ? rowFactsOrNone(integrations, request.cwd) : undefined)
     return mapped
   }
 }
@@ -485,9 +511,9 @@ function fakeOptionsFromEnv(env: NodeJS.ProcessEnv): FakeQueryOptions {
       const found = await appIntegrations({ cwd: request.cwd, unattended: request.unattended === true })
       // A list the service refused leaves that server without tools, not the Session without its Integrations.
       const toolsOf = async (server: (typeof found)[number]['server']): Promise<string[]> => (await (server.listTools?.() ?? Promise.resolve(server.tools)).catch(() => [])).map((tool) => tool.name)
-      return Promise.all(found.map(async ({ name, label, server }) => ({ name, label, tools: await toolsOf(server) })))
+      return Promise.all(found.map(async ({ id, name, label, server }) => ({ id, name, label, tools: await toolsOf(server) })))
     },
-    labelIntegrations,
+    labelIntegrations: (query, servers, request) => labelIntegrations(query, servers, rowFactsOrNone(appIntegrations, request.cwd)),
   }
 }
 

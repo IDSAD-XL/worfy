@@ -40,9 +40,10 @@
 import type { McpSdkServerConfigWithInstance, McpServerConfig } from '@anthropic-ai/claude-agent-sdk'
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js'
 import type { QueryHandle } from '../../agent/session/types'
-import { isWorfyOwnServer, type McpServerRow } from '../../../shared/agent/mcp-status'
+import { isWorfyOwnServer, type McpServerAction, type McpServerRow } from '../../../shared/agent/mcp-status'
 import { z } from 'zod'
 import { mcpServerRowsOf } from '../../../shared/vendors/claude/events'
+import { INTEGRATION_JOINED, integrationRow, joinedIntegrationRows, type IntegrationRowFacts } from '../../integrations/rows'
 import { PartNotWired } from '../driver'
 import { McpActionRefused, mcpInputSchema, type McpPart, type McpServer, type McpTool } from '../mcp'
 import type { SessionHandle } from '../session'
@@ -81,9 +82,40 @@ export async function claudeMcpStatus(query: QueryHandle, initServers: readonly 
   }
   if (rows === null) return null
   const signs = typeof (query as Partial<ClaudeSignIn>).mcpAuthenticate === 'function'
-  const labels = (query as Partial<Record<typeof INTEGRATION_LABELS, ReadonlyMap<string, string>>>)[INTEGRATION_LABELS]
-  return rows.map((row) => withSignIn(read.attended ? withTurnOff(withLabel(row, labels)) : withLabel(row, labels), signs))
+  const marks = integrationsOf(query)
+  const vendorActions = (row: McpServerRow): McpServerAction[] => (read.attended ? withTurnOff(row) : row).actions
+  const shown = rows.map((row) => {
+    const own = marks?.labels.get(row.name)
+    if (own === undefined) return withSignIn(read.attended ? withTurnOff(row) : row, signs)
+    // An Integration's row says what the proxy found; Sign in, when there is one, is worfy's window, never Claude Code's.
+    if (own.id !== undefined && marks?.facts !== undefined) return integrationRow(row, { id: own.id, label: own.label }, marks.facts, read.attended, vendorActions)
+    return withSignIn(read.attended ? withTurnOff(withLabel(row, own.label)) : withLabel(row, own.label), signs)
+  })
+  if (marks?.facts === undefined) return shown
+  const ids = new Set([...marks.labels.values()].flatMap((own) => (own.id === undefined ? [] : [own.id])))
+  return [...shown, ...joinedIntegrationRows(marks.facts, { names: new Set(shown.map((row) => row.name)), ids }, read.attended)]
 }
+
+/** The marks labelIntegrations left on `query`; undefined for a query that has none. */
+function integrationsOf(query: QueryHandle): IntegrationMarks | undefined {
+  return (query as Partial<Record<typeof INTEGRATION_LABELS, IntegrationMarks>>)[INTEGRATION_LABELS]
+}
+
+/** An Integration's server as the query's marks know it: its label and, when the Session's start told it, its id. */
+export interface IntegrationMark {
+  name: string
+  label: string
+  id?: string | undefined
+}
+
+interface IntegrationMarks {
+  labels: ReadonlyMap<string, { label: string; id?: string | undefined }>
+  /** What the rows read each time (worfy-integrations ticket 09); absent: the labels alone. */
+  facts?: IntegrationRowFacts | undefined
+}
+
+/** The error of an Integration's row «not started» (integrationRow in the proxy). */
+export { INTEGRATION_JOINED }
 
 /**
  * Where a query keeps the labels of its Integrations, by server name (labelIntegrations). A property of the query
@@ -96,15 +128,16 @@ const INTEGRATION_LABELS: unique symbol = Symbol('worfy.integrationLabels')
  * Tells the rows of `query`'s servers `servers` are Integrations of the Project (worfy-integrations ticket 06): their
  * rows get the source `integration` and the label. Called by the Session's start (query.ts) with the query it hands on.
  */
-export function labelIntegrations(query: QueryHandle, servers: readonly { name: string; label: string }[]): void {
-  if (servers.length === 0) return
-  Object.defineProperty(query, INTEGRATION_LABELS, { value: new Map(servers.map((server) => [server.name, server.label])), configurable: true })
+export function labelIntegrations(query: QueryHandle, servers: readonly IntegrationMark[], facts?: IntegrationRowFacts): void {
+  // Ticket 09: with `facts`, a Session started without an Integration still shows one the Project turned on since.
+  if (servers.length === 0 && facts === undefined) return
+  const marks: IntegrationMarks = { labels: new Map(servers.map((server) => [server.name, { label: server.label, id: server.id }])), facts }
+  Object.defineProperty(query, INTEGRATION_LABELS, { value: marks, configurable: true })
 }
 
-/** `row` as an Integration's when `labels` names it; an Integration is never one of worfy's own servers. */
-function withLabel(row: McpServerRow, labels: ReadonlyMap<string, string> | undefined): McpServerRow {
-  const label = labels?.get(row.name)
-  return label === undefined ? row : { ...row, source: 'integration', sourceWord: null, label }
+/** `row` as an Integration's, under `label`; an Integration is never one of worfy's own servers. */
+function withLabel(row: McpServerRow, label: string): McpServerRow {
+  return { ...row, source: 'integration', sourceWord: null, label }
 }
 
 /** Where to sign in to a server in needs-auth when Claude Code cannot start the sign-in itself. */
@@ -230,6 +263,8 @@ export const claudeMcp: McpPart = {
     if (live === null) throw new PartNotWired('claude', 'mcp.act', NOT_OURS)
     const query = live.query
     if (query === null) throw new Error('Claude Code is not running')
+    // An Integration signs in in worfy's window (integrations.signIn), never through Claude Code (ticket 09).
+    if (action === 'sign-in' && integrationsOf(query)?.labels.has(name) === true) throw new McpActionRefused(action)
     if (action === 'sign-in') return signIn(query, name, openWithShell)
     if (query.reconnectMcpServer === undefined) throw new McpActionRefused(action)
     await query.reconnectMcpServer(name)

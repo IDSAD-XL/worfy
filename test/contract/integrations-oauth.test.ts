@@ -545,3 +545,66 @@ describe('integrations.signIn', () => {
     expect(stub.registrations).toEqual([])
   })
 })
+
+// worfy-integrations ticket 09 (the review of ticket 08): Sign out and Remove of an OAuth Integration through the
+// channels are the OAuth sign-out — the tokens revoked at the service, every `<id>:*` key gone, the partition cleared —
+// not a delete of the secrets alone; and a new sign-in through the channel forgets the refusal the proxy remembered.
+describe('the channels of an OAuth Integration', () => {
+  const projects = [{ id: 'p1', name: 'One' }]
+  const dataDir = (projectId: string): string => join(data, 'projects', projectId)
+  let closed: (string | undefined)[]
+
+  function call(): (channel: string, input: unknown) => Promise<unknown> {
+    mkdirSync(dataDir('p1'), { recursive: true })
+    writeFileSync(settingsPath(dataDir('p1')), `${JSON.stringify(defaultProjectSettings('plugin'))}\n`)
+    closed = []
+    const module = integrationsHandlers({ store: () => store, projects: { list: () => projects, dataDir }, oauth: () => oauth, proxy: () => proxy, closeConnections: async (id) => void closed.push(id) })
+    return async (channel, input) => {
+      const handler = module.find((entry) => entry.channel.name === channel)
+      if (handler === undefined) throw new Error(`no handler for ${channel}`)
+      return handler.handle(handler.channel.input.parse(input), { event: {} as never })
+    }
+  }
+
+  it('integrations.signOut revokes the tokens at the service, removes every <id>: key and clears the partition', async () => {
+    const id = addOAuth('Acme — client A')
+    const channel = call()
+    await channel('integrations.signIn', { projectId: 'p1', id })
+    expect(Object.keys(secrets()).sort()).toEqual([`${id}:access`, `${id}:client`, `${id}:refresh`])
+    expect(await channel('integrations.signOut', { id })).toEqual({ status: { state: 'needs-sign-in' } })
+    expect(stub.revocations).toEqual([
+      { hint: 'refresh_token', known: true },
+      { hint: 'access_token', known: true },
+    ])
+    expect(Object.keys(secrets())).toEqual([])
+    expect(store.get(id)?.signIn).toBeNull()
+    expect(cleared).toEqual([partitionOf(id)])
+    expect(closed).toEqual([id])
+  })
+
+  it('integrations.remove of an OAuth Integration signs it out the same way before it goes', async () => {
+    const id = addOAuth('Acme — client A')
+    const channel = call()
+    await channel('integrations.signIn', { projectId: 'p1', id })
+    expect(await channel('integrations.remove', { projectId: 'p1', id })).toEqual({ status: 'removed' })
+    expect(stub.revocations.map((each) => each.known)).toEqual([true, true])
+    expect(Object.keys(secrets())).toEqual([])
+    expect(cleared).toEqual([partitionOf(id)])
+    expect(store.get(id)).toBeUndefined()
+  })
+
+  it('a new sign-in through the channel forgets the refusal the proxy remembered', async () => {
+    const id = addOAuth('Acme — client A')
+    const channel = call()
+    await channel('integrations.signIn', { projectId: 'p1', id })
+    const client = await session(id, 'acme-client-a')
+    stub.expireAccessTokens()
+    stub.expireRefreshTokens()
+    // The tools were never listed on this connection: the refused list is an MCP error, not a tool's answer.
+    await whoami(client).catch(() => undefined)
+    expect(proxy.status(id)?.status).toEqual({ state: 'needs-sign-in' })
+    await channel('integrations.signIn', { projectId: 'p1', id })
+    expect(proxy.status(id)).toBeNull()
+    expect(textOf(await whoami(client))).toMatch(/^dataset client-1$/u)
+  })
+})

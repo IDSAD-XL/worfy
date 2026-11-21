@@ -117,7 +117,9 @@ describe('the form of a service', () => {
   it('Atlassian: e-mail and API token become one pair, with the admin’s condition and the token page shown', async () => {
     open()
     pick('Jira and Confluence')
-    expect(within(form()).getByRole('radio', { name: /Sign in with Atlassian — not available yet/u })).toHaveProperty('disabled', true)
+    // Both ways of the service (worfy-integrations ticket 09): its sign-in page, and the API token, which is picked.
+    expect(within(form()).getByRole('radio', { name: 'Sign in with Atlassian' })).toHaveProperty('disabled', false)
+    expect(within(form()).getByRole('radio', { name: 'API token (e-mail and token)' })).toHaveProperty('checked', true)
     expect(screen.getByTestId('add-integration-token-note').textContent).toContain('organization admin turned on API token sign-in')
     expect(within(form()).getByRole('button', { name: 'Where to get a token' })).toBeTruthy()
     fireEvent.change(within(form()).getByLabelText('Label'), { target: { value: 'Jira — client A' } })
@@ -202,5 +204,37 @@ describe('the form of a service', () => {
     await save()
     expect(asked('integrations.tools')).toEqual([])
     expect(screen.getByTestId('add-integration-result-status').textContent).toBe('the secret store could not be written')
+  })
+})
+
+// worfy-integrations ticket 09: «Sign in with Atlassian» adds the Integration and opens the service's sign-in window
+// (integrations.signIn); then the check and the tools, as after a token. No token field for it.
+describe('Sign in with the service', () => {
+  it('Atlassian: «Sign in with Atlassian» adds, signs in in worfy`s window, then checks and counts the tools', async () => {
+    main.answers['integrations.signIn'] = { ok: true, value: { signIn: { account: null, site: null, at: '2026-11-22T10:00:00.000Z' } } }
+    open()
+    pick('Jira and Confluence')
+    fireEvent.click(within(form()).getByRole('radio', { name: 'Sign in with Atlassian' }))
+    expect(within(form()).queryByLabelText('API token')).toBeNull()
+    expect(screen.getByTestId('add-integration-save').textContent).toBe('Sign in with Atlassian')
+    fireEvent.change(within(form()).getByLabelText('Label'), { target: { value: 'Jira — client A' } })
+    await save()
+    await flush()
+    expect(asked('integrations.add')).toEqual([{ projectId: PROJECT.id, service: 'atlassian', label: 'Jira — client A', auth: 'oauth' }])
+    expect(asked('integrations.signIn')).toEqual([{ projectId: PROJECT.id, id: NEW_ID }])
+    expect(asked('integrations.setSecret')).toEqual([])
+    expect(asked('integrations.tools')).toEqual([{ projectId: PROJECT.id, id: NEW_ID }])
+    expect(screen.getByTestId('add-integration-result-status').textContent).toBe('Signed in · 1 tool · ~26 tokens')
+  })
+
+  it('a sign-in that did not finish leaves the Integration added, needing a sign-in, and asks the service nothing', async () => {
+    main.answers['integrations.signIn'] = { ok: false, error: 'Jira — client A: The sign-in was ended.' }
+    open()
+    pick('Jira and Confluence')
+    fireEvent.click(within(form()).getByRole('radio', { name: 'Sign in with Atlassian' }))
+    await save()
+    await flush()
+    expect(asked('integrations.tools')).toEqual([])
+    expect(screen.getByTestId('add-integration-result').textContent).toContain('The sign-in was ended.')
   })
 })

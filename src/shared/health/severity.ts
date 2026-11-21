@@ -42,6 +42,8 @@ const LEVELS: Record<CheckId, Level> = {
   'browser-profile': 'non-critical',
   // One Linked machine is gone.
   'linked-machine': 'non-critical',
+  // One account of one service: its tools answer «Sign-in needed», every other Session works (worfy-integrations ticket 09).
+  integration: 'non-critical',
 }
 
 /** What a row's level depends on besides its id and status. */

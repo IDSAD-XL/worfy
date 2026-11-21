@@ -25,7 +25,11 @@ import { IntegrationProxy } from '../../src/main/integrations/proxy'
 import { IntegrationStore } from '../../src/main/integrations/store'
 import type { CanvasSession } from '../../src/main/mcp/canvas-server'
 import { writeProjectIntegrations } from '../../src/main/projects/settings'
-import { claudeMcpStatus } from '../../src/main/vendors/claude/mcp'
+import { claudeMcpStatus, INTEGRATION_JOINED } from '../../src/main/vendors/claude/mcp'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import { signInNeeded } from '../../src/main/integrations/proxy'
+import { McpActionRefused } from '../../src/main/vendors/mcp'
 import { mcpServerRowSchema, mcpShownName } from '../../src/shared/agent/mcp-status'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { CANVAS_SERVER_NAME } from '../../src/shared/canvas/tools'
@@ -191,7 +195,7 @@ describe('a Session of the Project', () => {
     const started = await start()
     const rows = await claudeMcpStatus(started.handle, null, 'test', { attended: true, pickUp: false })
     const row = rows?.find((each) => each.name === 'jira-client-a')
-    expect(row).toEqual({ name: 'jira-client-a', status: 'connected', tools: 1, error: null, source: 'integration', sourceWord: null, label: 'Jira — client A', actions: ['turn-off'] })
+    expect(row).toEqual({ name: 'jira-client-a', status: 'connected', tools: 1, error: null, source: 'integration', sourceWord: null, label: 'Jira — client A', integrationId: ids.jiraA, actions: ['turn-off'] })
     expect(mcpServerRowSchema.parse(row)).toEqual(row)
     expect(row === undefined ? null : mcpShownName(row)).toBe('Jira — client A')
     // worfy-canvas stays worfy's own, with no Turn off.
@@ -294,4 +298,88 @@ describe('the token of an Integration', () => {
     expect(leaks(answers.join('\n'))).toEqual([])
     expect(leaks(lines.join('\n'))).toEqual([])
   }, ms(20_000))
+})
+
+// worfy-integrations ticket 09: the row of an Integration says what the proxy found — a refused sign-in is needs-auth,
+// with worfy's Sign in for one that signs in with OAuth and none for a token — and an Integration the Project turned on
+// while the Session runs is a row «not started» whose Restart, with the same conversation, gives it to the Session.
+describe('the rows of a Session`s Integrations, ticket 09', () => {
+  /** Claude Code's side of the Session's in-process server `name`. */
+  async function connect(started: Started, name: string): Promise<Client> {
+    const server = started.options.mcpServers?.[name]
+    if (server?.instance === undefined) throw new Error(`no SDK server ${name}`)
+    const [ours, theirs] = InMemoryTransport.createLinkedPair()
+    await (server.instance as { connect(transport: InMemoryTransport): Promise<void> }).connect(theirs)
+    const client = new Client({ name: 'claude-code-stand-in', version: '1.0.0' })
+    await client.connect(ours)
+    return client
+  }
+
+  it('a sign-in the proxy found refused is needs-auth with its text; a token Integration offers no Sign in of the Vendor`s', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const started = await start()
+    const client = await connect(started, 'jira-client-a')
+    stub.revoke(TOKEN_A)
+    await client.callTool({ name: 'whoami', arguments: {} }).catch(() => undefined)
+    const rows = await claudeMcpStatus(started.handle, null, 'test', { attended: true, pickUp: false })
+    expect(rows?.find((row) => row.name === 'jira-client-a')).toEqual({
+      name: 'jira-client-a',
+      status: 'needs-auth',
+      tools: null,
+      error: signInNeeded('Jira — client A'),
+      source: 'integration',
+      sourceWord: null,
+      label: 'Jira — client A',
+      integrationId: ids.jiraA,
+      actions: [],
+    })
+    expect(rows?.find((row) => row.name === 'linear')).toMatchObject({ status: 'connected', integrationId: ids.linear })
+    await client.close()
+  })
+
+  it('an OAuth Integration in needs-auth offers Sign in, which the Vendor never does for it', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const oauthId = store.add({ service: 'custom', label: 'Notion', auth: 'oauth', transport: { kind: 'http', url: stub.url } }).id
+    writeProjectIntegrations(projectData, [{ id: oauthId, enabled: true, tools: 'all', autopilot: false }])
+    const started = await start()
+    const client = await connect(started, 'notion')
+    await client.callTool({ name: 'whoami', arguments: {} }).catch(() => undefined)
+    const handle = started.handle as QueryHandle & { mcpAuthenticate?: (name: string) => Promise<void> }
+    handle.mcpAuthenticate = vi.fn(() => Promise.resolve())
+    const rows = await claudeMcpStatus(started.handle, null, 'test', { attended: true, pickUp: false })
+    expect(rows?.find((row) => row.name === 'notion')).toMatchObject({ status: 'needs-auth', integrationId: oauthId, actions: ['sign-in'] })
+    const { claudeMcp } = await import('../../src/main/vendors/claude/mcp')
+    // The Session's handle as the Claude driver holds it (ClaudeMcpLive): its live query and its rows.
+    const session = { query: started.handle, readMcp: () => Promise.resolve(rows) }
+    await expect(claudeMcp.act!(session as never, 'notion', 'sign-in')).rejects.toThrow(McpActionRefused)
+    expect(handle.mcpAuthenticate).not.toHaveBeenCalled()
+    await client.close()
+  })
+
+  it('an Integration turned on while the Session runs is «not started» with Restart; an unattended Session shows none', async () => {
+    const attended = await start()
+    const unattended = await start({ unattended: true })
+    writeProjectIntegrations(projectData, [
+      { id: ids.jiraA, enabled: true, tools: 'all', autopilot: false },
+      { id: ids.linear, enabled: true, tools: 'read-only', autopilot: true },
+      { id: ids.jiraB, enabled: true, tools: 'all', autopilot: true },
+    ])
+    const rows = await claudeMcpStatus(attended.handle, null, 'test', { attended: true, pickUp: false })
+    expect(rows?.find((row) => row.name === 'jira-client-b')).toEqual({
+      name: 'jira-client-b',
+      status: 'not-started',
+      tools: null,
+      error: INTEGRATION_JOINED,
+      source: 'integration',
+      sourceWord: null,
+      label: 'Jira — client B',
+      integrationId: ids.jiraB,
+      actions: ['restart'],
+    })
+    expect(mcpServerRowSchema.parse(rows?.find((row) => row.name === 'jira-client-b'))).toBeTruthy()
+    const fixed = await claudeMcpStatus(unattended.handle, null, 'test', { attended: false, pickUp: false })
+    expect(fixed?.map((row) => row.name)).toEqual([CANVAS_SERVER_NAME, 'linear'])
+    // The Restart's new start gets it.
+    expect(serverNames(await start())).toEqual([CANVAS_SERVER_NAME, 'jira-client-a', 'linear', 'jira-client-b'])
+  })
 })

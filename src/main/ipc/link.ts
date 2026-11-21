@@ -35,6 +35,7 @@ import {
   type LinkState,
 } from '../../shared/ipc/link'
 import { ClientHolders, clientOf, type Client, type ClientId } from '../clients'
+import { appWindows } from '../sign-in-windows'
 import { localMachineOf } from '../link/ipc-adapter'
 import { appLink, appLinkProblem, appLinkService, onAppLinkStart, type AppLink } from '../link/service'
 import { readTailscalePeers } from '../link/tailscale'
@@ -143,7 +144,8 @@ async function broadcast(): Promise<void> {
   try {
     const { BrowserWindow } = await import('electron')
     const state = buildState()
-    for (const window of BrowserWindow.getAllWindows()) {
+    // An Integration's sign-in window holds a service's page: no state of the link goes into it (src/main/sign-in-windows.ts).
+    for (const window of appWindows(BrowserWindow.getAllWindows())) {
       if (window.isDestroyed() || window.webContents.isDestroyed()) continue
       emit(window.webContents, linkChanged, state)
     }

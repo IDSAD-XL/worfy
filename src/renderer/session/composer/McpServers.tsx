@@ -1,5 +1,6 @@
 import { useOrchestratorViews } from '../../canvas/nodes/orchestrator-view'
 import { SessionMcpChip } from '../McpChip'
+import { useSessionNodeViews } from '../node-sessions'
 import type { ComposerItemProps } from './index'
 
 // The chip «MCP n/m» of the Session's MCP servers (McpChip.tsx, worfy-mcp-live ticket 04) in the bar under the
@@ -19,5 +20,8 @@ export default function McpServers({ sessionId }: ComposerItemProps) {
   // The Orchestrator's Session: Allow there says it takes effect from the next Wave while Autopilot runs.
   const views = useOrchestratorViews()
   const orchestrator = sessionId === null ? undefined : Object.values(views).find((each) => each.sessionId === sessionId)
-  return <SessionMcpChip sessionId={sessionId} projectId={orchestrator?.projectId ?? ''} orchestrator={orchestrator !== undefined} />
+  // A Session Node's Project too: an Integration's Sign in goes through it (worfy-integrations ticket 09).
+  const nodes = useSessionNodeViews()
+  const node = sessionId === null ? undefined : Object.values(nodes).find((each) => each.sessionId === sessionId)
+  return <SessionMcpChip sessionId={sessionId} projectId={orchestrator?.projectId ?? node?.projectId ?? ''} orchestrator={orchestrator !== undefined} />
 }

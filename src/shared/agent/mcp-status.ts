@@ -44,6 +44,13 @@ export const mcpServerRowSchema = z.object({
   sourceWord: z.string().nullable(),
   /** The label of an Integration (source `integration`): «Jira — client A»; absent for every other server. */
   label: z.string().min(1).optional(),
+  /**
+   * The id of an Integration (source `integration`, worfy-integrations ticket 09): its Sign in opens worfy's own
+   * sign-in window (`integrations.signIn`), never the Vendor's. Absent for every other server.
+   */
+  integrationId: z.string().min(1).optional(),
+  /** A line under the row that is no error: an Integration's server that replaces a server of the user's config in this Session. */
+  note: z.string().min(1).optional(),
   actions: z.array(mcpServerActionSchema),
 })
 export type McpServerRow = z.infer<typeof mcpServerRowSchema>

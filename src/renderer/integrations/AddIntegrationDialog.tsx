@@ -8,7 +8,8 @@
 // (the token is checked by main, ticket 04) and asks the service for its tools (ticket 06): the last step shows both.
 //
 // Only on the Project's own Machine: every channel here but the tools is `local` (spec, decided without the owner, 3).
-// Sign in through the service's page (OAuth) is not here yet: its way shows, off.
+// Sign in through the service's page (OAuth, worfy-integrations ticket 09): its way adds the Integration, then opens the
+// service's sign-in window (integrations.signIn), then asks for the tools as after a token; no token field for it.
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import { CATALOGUE, catalogueEntry, type CatalogueEntry } from '../../shared/integrations/catalogue'
 import type { IntegrationAuth, IntegrationSecretPart, IntegrationStatus, IntegrationTransport } from '../../shared/integrations/types'
@@ -17,7 +18,7 @@ import { invoke } from '../ipc'
 import { Button } from '../theme/Button'
 import { Dialog } from '../theme/kit/Dialog'
 import { costText } from './cost'
-import { addressProblem, basicPair, keepSecrets, offered, sameLabel, wayName } from './model'
+import { addressProblem, basicPair, firstWay, keepSecrets, offered, sameLabel, wayName } from './model'
 
 export interface AddIntegrationDialogProps {
   project: { id: string; name: string }
@@ -168,7 +169,7 @@ function ServiceForm({ entry, project, labels, onClose, onAdded, call }: Service
   const ways = offered(entry)
   const custom = entry.server.kind === 'custom'
   const [label, setLabel] = useState(entry.defaultLabel)
-  const [auth, setAuth] = useState<IntegrationAuth | 'gh'>(ways[0] ?? 'none')
+  const [auth, setAuth] = useState<IntegrationAuth | 'gh'>(firstWay(ways))
   const [email, setEmail] = useState('')
   const [token, setToken] = useState('')
   const [headerName, setHeaderName] = useState('Authorization')
@@ -256,6 +257,11 @@ function ServiceForm({ entry, project, labels, onClose, onAdded, call }: Service
     if (auth === 'gh') {
       const signed = await call('integrations.ghSignIn', { projectId: project.id, id: integrationId })
       if (signed.ok) status = signed.value.status
+      else failed = signed.error
+    } else if (authNow === 'oauth') {
+      // The service's sign-in window; a sign-in that did not finish leaves the Integration added, needing one.
+      const signed = await call('integrations.signIn', { projectId: project.id, id: integrationId })
+      if (signed.ok) status = { state: 'signed-in' }
       else failed = signed.error
     } else if (secrets.length > 0) {
       const kept = await keepSecrets(integrationId, secrets)
@@ -358,11 +364,6 @@ function ServiceForm({ entry, project, labels, onClose, onAdded, call }: Service
       ) : (
         <div className="w-int-field" role="radiogroup" aria-label="Sign-in">
           <span className="w-int-field__label">Sign-in</span>
-          {entry.auth.includes('oauth') ? (
-            <label className="w-int__check w-int__check--off" title="Sign-in through the service’s page is not available yet.">
-              <input type="radio" disabled /> {wayName(entry, 'oauth')} — not available yet
-            </label>
-          ) : null}
           {ways.map((way) => (
             <label key={way} className="w-int__check">
               <input type="radio" name={`${id}-auth`} checked={auth === way} onChange={() => setAuth(way)} /> {wayName(entry, way)}
@@ -386,7 +387,7 @@ function ServiceForm({ entry, project, labels, onClose, onAdded, call }: Service
       {authNow === 'basic'
         ? field('email', 'E-mail', <input id={`${id}-email`} className="w-int-field__input" value={email} placeholder="you@example.com" onChange={(event) => setEmail(event.target.value)} />)
         : null}
-      {!stdio && auth !== 'gh' && authNow !== 'none'
+      {!stdio && auth !== 'gh' && authNow !== 'none' && authNow !== 'oauth'
         ? field(
             'token',
             authNow === 'header' ? `${headerName || 'Header'} value` : 'API token',
@@ -428,7 +429,7 @@ function ServiceForm({ entry, project, labels, onClose, onAdded, call }: Service
       <div className="w-int-dialog__foot">
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="primary" disabled={busy} onClick={() => void submit()} data-testid="add-integration-save">
-          {busy ? 'Checking…' : 'Add'}
+          {authNow === 'oauth' ? (busy ? 'Signing in…' : wayName(entry, 'oauth')) : busy ? 'Checking…' : 'Add'}
         </Button>
       </div>
     </div>

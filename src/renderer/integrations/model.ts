@@ -77,8 +77,14 @@ export function wayName(entry: CatalogueEntry, auth: IntegrationAuth): string {
   }
 }
 
-/** The ways the screen offers for `entry` now: OAuth comes with the next ticket; Basic for a custom server is not offered. */
-export const offered = (entry: CatalogueEntry): IntegrationAuth[] => entry.auth.filter((auth) => auth !== 'oauth' && !(entry.key === 'custom' && auth === 'basic'))
+/** The ways the screen offers for `entry`, in the catalogue's order: every one but Basic for a custom server. */
+export const offered = (entry: CatalogueEntry): IntegrationAuth[] => entry.auth.filter((auth) => !(entry.key === 'custom' && auth === 'basic'))
+
+/**
+ * The way picked when the form opens: the first that is not OAuth (worfy-integrations ticket 09) — a token is the way
+ * every service here was added before, and the sign-in page is one click away — else OAuth, else none.
+ */
+export const firstWay = (ways: readonly IntegrationAuth[]): IntegrationAuth => ways.find((auth) => auth !== 'oauth') ?? ways[0] ?? 'none'
 
 /** An address a token may go to: https, or http on this computer only (a local server, a stub). */
 export function addressProblem(url: string): string | null {

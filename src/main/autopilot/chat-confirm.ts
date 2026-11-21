@@ -58,6 +58,7 @@ import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import { harnessScriptEnv } from '../harness/script-env'
 import { emit, type EventTarget } from '../ipc/index'
+import { appWindows, isSignInContents } from '../sign-in-windows'
 import { readWorkflow } from '../workflow/reader'
 import type { ChatStartAnswer, ChatStartRequest } from './chat-start'
 import { startRefusal } from './run'
@@ -219,13 +220,14 @@ export interface LocalWindows {
 /**
  * The window of this Machine the dialog goes on: the focused one when it is on screen, else the
  * first one on screen, else the first one there is, restored and shown first; null when worfy has
- * no window (macOS keeps the app running without one).
+ * no window (macOS keeps the app running without one). An Integration's sign-in window is a service's
+ * page, not worfy's (src/main/sign-in-windows.ts): the dialog never goes there, where nobody would see it.
  */
 export function dialogOwner(windows: LocalWindows = BrowserWindow): BrowserWindow | null {
   const onScreen = (window: BrowserWindow): boolean => window.isVisible() && !window.isMinimized()
   const focused = windows.getFocusedWindow()
-  if (focused !== null && !focused.isDestroyed() && onScreen(focused)) return focused
-  const live = windows.getAllWindows().filter((window) => !window.isDestroyed())
+  if (focused !== null && !focused.isDestroyed() && !isSignInContents(focused.webContents) && onScreen(focused)) return focused
+  const live = appWindows(windows.getAllWindows()).filter((window) => !window.isDestroyed())
   const shown = live.find(onScreen)
   if (shown !== undefined) return shown
   const [first] = live
