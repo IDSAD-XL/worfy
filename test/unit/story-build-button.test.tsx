@@ -299,3 +299,32 @@ describe('the toast of a story nobody follows any more', () => {
     expect(toastsOf(MADE_STORY_FAILED_TEST_ID)).toEqual([])
   })
 })
+
+// A loaded machine (load average about 30 in the gate): Testing Library's wait is done once the DOM shows the bar, and it
+// lets the test go on by a 0 ms timer; React runs the passive effects of that commit by setImmediate. A process away for
+// a few milliseconds after the commit finds the timer due first, so a line main sent as soon as the bar was on screen
+// came before the bar's listener of stories.activity was there, and was lost. The observer below is that pause, made
+// certain: after the microtasks of each DOM change, 5 ms of busy CPU.
+describe('on a loaded machine: a line of the agent as soon as the bar is on screen', () => {
+  let away: MutationObserver | null = null
+  beforeEach(() => {
+    away = new MutationObserver(() => {
+      let after = Promise.resolve()
+      for (let hop = 0; hop < 30; hop += 1) after = after.then(() => undefined)
+      void after.then(() => {
+        const until = performance.now() + 5
+        while (performance.now() < until);
+      })
+    })
+    away.observe(document, { subtree: true, childList: true, attributes: true, characterData: true })
+  })
+  afterEach(() => away?.disconnect())
+
+  it('a button that comes back to its PR shows the line', async () => {
+    underWay.set(targetKey(PR_A), { storyId: 's-a', key: KEY_A, lines: ['Read src/cart.ts'] })
+    render(<PrButton target={PR_A} />)
+    await screen.findByTestId('pr-inbox-code-story-progress')
+    tell('stories.activity', { storyId: 's-a', text: 'Read src/money.ts' })
+    expect(lines('story-progress-lines')).toEqual(['Read src/cart.ts', 'Read src/money.ts'])
+  })
+})

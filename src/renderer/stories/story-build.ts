@@ -9,7 +9,7 @@
 // reload of the window — follows the build under way (`follow`, `stories.running`) and ends with it (`stories.made`).
 // The rule of #1890 stays for a build by `start` (`stories.build`): main keeps no key of it to come back to, so it is
 // stopped when the component that holds it goes away, on reset() while it runs, and when start() or make() replaces it.
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { failureReason, type IpcResult } from '../../shared/ipc/channels'
 import { RUNNING_LINES_KEPT, type StoryInput, type StoryMade, type StoryOutcome, type StoryTarget } from '../../shared/ipc/stories'
 import type { Story } from '../../shared/stories/schema'
@@ -119,7 +119,9 @@ export function useStoryBuild(projectId: string): StoryBuild {
     }
   }, [])
 
-  useEffect(() => {
+  // The agent's lines, heard from the commit that draws the bar: a layout effect, so the listener is there before the bar
+  // is on screen. In a passive effect it came after the bar, and a line main sent as soon as the bar showed was lost.
+  useLayoutEffect(() => {
     if (running === null) return
     return subscribe('stories.activity', ({ storyId, text }) => {
       setRun((now) => (now.kind === 'running' && now.storyId === storyId ? { ...now, lines: [...now.lines, text].slice(-SHOWN_LINES) } : now))
