@@ -13,7 +13,7 @@ Kind: pr · Epic: worfy-pr-review · Ticket: 11 · PR: - · Language: ru
 
 ## 2. Сначала посмотреть на GitHub, если прошлый Submit мог дойти
 
-Code: `src/main/github/pr-review-submit.ts:166-188` · key lines: 167, 170, 175, 181, 185
+Code: `src/main/github/pr-review-submit.ts:170-186` · key lines: 171, 174, 179, 186
 
 ```ts
       // 3. A Submit that may have landed looks on GitHub first, before any other check: found, it is only marked.
@@ -30,29 +30,26 @@ Code: `src/main/github/pr-review-submit.ts:166-188` · key lines: 167, 170, 175,
           this.health.answered(root)
           return answer('already-submitted', marked, { reviewUrl: found.url })
         }
-        // GitHub has none: the draft is a draft again, its texts free; this Submit goes on as a new one.
-        const freed = await this.options.drafts.changeNow(root, repo, pr, (current) => {
-          if (current === null || !submitPending(current)) throw new Refusal('The draft changed meanwhile. Look at it again')
-          const next: ReviewDraft = { ...current, state: 'draft' }
-          delete next.error
-          delete next.submittingAt
-          return next
-        })
-        if (freed.problem !== null) throw new Refusal(`Not submitted: ${freed.problem}`)
+        // GitHub lists none. Soon after the mark that is no proof: GitHub may list a review late. Later, this Submit
+        // goes on with the same texts; the mark stays until the mark of its POST, so a refusal below keeps the lock.
+        if (markAge(draft) < LISTING_WAIT_MS) throw new Refusal(`Not submitted: ${NOT_LISTED_YET}`)
 ```
 
 - Что делает: если прошлый Submit не подтвердился (`submitting` после обрыва или ошибка «GitHub did not confirm»), до
-  всех прочих проверок ищет это ревью на GitHub; нашёл — только отмечает `submitted`, POST не делает. Не нашёл —
-  черновик снова обычный (без ошибки и без `submittingAt`), и Submit идёт дальше как новый.
+  всех прочих проверок ищет это ревью на GitHub; нашёл — только отмечает `submitted`, POST не делает. Не нашёл в
+  первые 5 минут после отметки — отказ «try again in a minute», отметка остаётся. Не нашёл позже — те же тексты идут
+  через проверки и один POST; старую отметку заменяет только отметка этого POST.
 - Почему здесь: Ticket, «Что делаем», п. 3; образец — Send ответа (`src/main/github/pr-reply-send.ts`). Поиск первым —
   находка ревью раунда 1: ушедшее ревью находится и тогда, когда head сдвинулся или lint стал строже.
 - Без него: ответ, потерянный после успешного POST, дал бы второе ревью при повторном щелчке.
 - Требование: [Что делаем, п. 3 и 4](../issues/11-finish-review-и-pr-review-submit.md#что-делаем)
-- Риски и пробелы test-ов: ошибка чтения ревью — отказ с причиной, черновик остаётся запертым.
+- Риски и пробелы test-ов: ошибка чтения ревью — отказ с причиной, черновик остаётся запертым; выйти из этого можно
+  Discard-ом (раздел 7). 5 минут ожидания — решено без владельца: POST gh ограничен 30 s, GitHub обычно показывает ревью
+  за секунды.
 
 ## 3. Какое ревью считается тем самым
 
-Code: `src/main/github/pr-review-submit.ts:292-307` · key lines: 293, 298, 300, 302, 304
+Code: `src/main/github/pr-review-submit.ts:290-305` · key lines: 291, 296, 298, 300, 302
 
 ```ts
   private async posted(get: (path: string) => Promise<string>, repo: string, pr: number, account: string, commit: string, draft: ReviewDraft): Promise<{ url: string | null } | null> {
@@ -86,7 +83,7 @@ Code: `src/main/github/pr-review-submit.ts:292-307` · key lines: 293, 298, 300,
 
 ## 4. Тексты неподтверждённого Submit-а заперты
 
-Code: `src/main/github/pr-review-submit.ts:386-391` · key lines: 386, 389, 390
+Code: `src/main/github/pr-review-submit.ts:384-389` · key lines: 384, 387, 388
 
 ```ts
   if (submitPending(draft)) {
@@ -98,15 +95,17 @@ Code: `src/main/github/pr-review-submit.ts:386-391` · key lines: 386, 389, 390
 ```
 
 - Что делает: пока Submit не подтверждён, main принимает только ушедшие событие, Summary и комментарии; диалог
-  открывается на них же без правки (`submitPending` в `src/shared/ipc/pr-review.ts`), Review mode их не правит.
+  открывается на них же без правки (`submitPending` в `src/shared/ipc/pr-review.ts`), Review mode их не правит. Тот
+  же запрет держит main: `textsEditable` в `src/main/github/pr-review-draft.ts` (сохранить или удалить комментарий) и
+  `src/main/github/pr-review-agent.ts` (Agent review не запускается).
 - Почему здесь: искать на GitHub имеет смысл только то, что ушло; другие тексты — другое ревью.
 - Без него: человек сменил бы Comment на Approve, поиск не нашёл бы ушедшее ревью, и ушло бы второе.
 - Требование: [Что делаем, п. 3](../issues/11-finish-review-и-pr-review-submit.md#что-делаем)
-- Риски и пробелы test-ов: убрать неподтверждённое можно только Submit-ом тех же текстов; Discard заперт.
+- Риски и пробелы test-ов: убрать неподтверждённое можно Submit-ом тех же текстов или Discard-ом с предупреждением.
 
 ## 5. Проверки до записи: свой PR, сдвинутый head, строки вне diff-а
 
-Code: `src/main/github/pr-review-submit.ts:190-205` · key lines: 191, 202, 203, 205
+Code: `src/main/github/pr-review-submit.ts:188-203` · key lines: 189, 200, 201, 203
 
 ```ts
       // 4. The check over exactly those texts.
@@ -142,7 +141,7 @@ Code: `src/main/github/pr-review-submit.ts:190-205` · key lines: 191, 202, 203,
 
 ## 6. Один POST и что значит его ошибка
 
-Code: `src/main/github/pr-review-submit.ts:245-257` · key lines: 247, 248, 252, 253, 254
+Code: `src/main/github/pr-review-submit.ts:243-255` · key lines: 245, 246, 250, 251, 252
 
 ```ts
       } catch (error) {
@@ -171,7 +170,27 @@ Code: `src/main/github/pr-review-submit.ts:245-257` · key lines: 247, 248, 252,
 - Риски и пробелы test-ов: ответ GitHub при висящем pending review с github.com не проверен на настоящем GitHub (п. 8,
   sandbox).
 
-## 7. Enter не отправляет
+## 7. Discard черновика, чей Submit мог дойти
+
+Code: `src/main/github/pr-review-draft.ts:534-537` · key lines: 534, 536, 537
+
+```ts
+        // A POST may still run while its mark is young; a Submit GitHub did not confirm is over, and may be discarded
+        // with the warning of the bar: the lookup can fail for good (access lost, repository gone).
+        if (draft !== null && ownDraft(draft, file, repo, pr).state === 'submitting' && markAge(draft) < LISTING_WAIT_MS)
+          throw new ReviewDraftRefusal('This review is being submitted: it is not discarded')
+```
+
+- Что делает: черновик с «GitHub did not confirm the review» удаляется Discard-ом; полоса спрашивает «Discard this
+  review?» и предупреждает, что ревью может уже быть на GitHub. Отметку `submitting` моложе 5 минут main не удаляет:
+  её POST может ещё идти; старше — worfy закрылся во время POST, и её удалить можно.
+- Почему здесь: находка ревью раунда 2. Если поиск падает каждый раз (403/404: доступ потерян, репозиторий удалён),
+  Submit отказывает всегда, а правка заперта — без Discard черновик застрял бы навсегда.
+- Без него: черновик PR, к которому потерян доступ, нельзя было бы ни отправить, ни убрать.
+- Требование: [Что делаем, п. 3](../issues/11-finish-review-и-pr-review-submit.md#что-делаем)
+- Риски и пробелы test-ов: после Discard ревью на GitHub, если оно там есть, остаётся; worfy его не трогает.
+
+## 8. Enter не отправляет
 
 Code: `src/renderer/pr-review/FinishReviewDialog.tsx:274-287` · key lines: 277, 279, 283, 286
 
@@ -199,7 +218,7 @@ Code: `src/renderer/pr-review/FinishReviewDialog.tsx:274-287` · key lines: 277,
 - Требование: [Что делаем, п. 1](../issues/11-finish-review-и-pr-review-submit.md#что-делаем)
 - Риски и пробелы test-ов: e2e пути A проверяет, что после Enter нет ни одной записи и диалог открыт.
 
-## 8. PR inbox перечитывает PR сразу после отправки
+## 9. PR inbox перечитывает PR сразу после отправки
 
 Code: `src/main/ipc/pr-review.ts:72-81` · key lines: 73, 75, 78
 
@@ -224,36 +243,36 @@ Code: `src/main/ipc/pr-review.ts:72-81` · key lines: 73, 75, 78
 - Требование: [Готово, когда — e2e, chip 1/2 → 2/2](../issues/11-finish-review-и-pr-review-submit.md#готово-когда)
 - Риски и пробелы test-ов: ошибка этого чтения только пишется в log; ревью от этого не страдает.
 
-## 9. Что сознательно не меняли
+## 10. Что сознательно не меняли
 
 - Pending review на GitHub main не создаёт и не продолжает; resolve, re-request review, dismiss, merge — нет
   (ADR-0112, п. 8).
 - Полоса сдвинутого head не называет комментарии, которые GitHub покажет как outdated (поток C.3 spec-а) — не сделано.
 
-## 10. Как проверено
+## 11. Как проверено
 
-- `pnpm test test/contract/pr-review-submit.test.ts` — exit 0 (24 test-а на gh stand-in; красный до модуля, до
+- `pnpm test test/contract/pr-review-submit.test.ts` — exit 0 (gh stand-in; красный до модуля, до
   `refresh` и до правок раунда 2: 5 failed).
 - `pnpm test test/unit/finish-review-dialog.test.tsx` — exit 0; `pnpm test test/unit/review-comments.test.tsx` — exit 0
   (запертый неподтверждённый черновик: 2 failed до правки).
 - `pnpm test test/contract/harness-review-draft-lint.test.ts` — exit 0 (красный на старом скрипте: 2 failed; на
   `--untiered`: 1 failed).
 - `pnpm test:e2e test/e2e/pr-review.spec.ts test/e2e/pr-inbox.spec.ts` — exit 0, 18 passed.
-- Mutation testing: 15 mutant-ов раунда 1 и 13 раунда 2, все убиты.
+- Mutation testing: 15 mutant-ов раунда 1, 13 раунда 2 и 10 раунда 3, все убиты.
 - `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 
 ## Проверить себя
 
 1. Почему Submit отказывает целиком, если один комментарий не на изменённой строке, а не отправляет остальные?
-   Строки: `src/main/github/pr-review-submit.ts:204-205`
+   Строки: `src/main/github/pr-review-submit.ts:202-203`
    Ответ: GitHub отвергает весь review с таким комментарием, а молча выкинутый комментарий меняет смысл ревью;
    человек убирает или переносит его сам.
 2. Что делает второй щелчок Submit после ответа 502 и почему он не создаёт второе ревью?
-   Строки: `src/main/github/pr-review-submit.ts:167-178`
+   Строки: `src/main/github/pr-review-submit.ts:171-186`
    Ответ: до всех прочих проверок main читает ревью PR и ищет ревью этого аккаунта с ушедшими текстами, данное после
-   отметки; нашёл — только отмечает `submitted`, POST не делает.
+   отметки; нашёл — только отмечает `submitted`. Не нашёл в первые 5 минут — отказ: GitHub может показать ревью позже.
 3. Почему после 502 человек не может сменить Comment на Approve и отправить снова?
-   Строки: `src/main/github/pr-review-submit.ts:386-390`
+   Строки: `src/main/github/pr-review-submit.ts:384-388`
    Ответ: искать на GitHub можно только то, что ушло; другие тексты не нашлись бы, и ушло бы второе ревью.
 4. На каком commit-е стоят комментарии, если человек перенёс черновик на новый head?
    Строки: `src/main/github/pr-review-submit.ts:68-68`
