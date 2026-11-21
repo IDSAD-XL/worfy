@@ -2,12 +2,42 @@
 // language of a file by its extension or its name, the tokens of a hunk with the colours of both GitHub themes, each
 // side of a hunk read on its own (so a comment of several lines is coloured on every line), and plain text where the
 // file's language is unknown, a line is too long or a hunk too big. The text of the tokens of a line is always the
-// line's text: the colours never change what is copied, quoted or sent.
+// line's text: the colours never change what is copied, quoted or sent. A side is read in steps of CHUNK_CHARS, one
+// task each, so no hunk holds the window up; a side of more than MAX_SIDE_CHARS characters is plain text, and the cache
+// holds at most CACHE_CHARS characters of hunks (round 2 of the review).
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
-import { MAX_HUNK_LINES, MAX_LINE_LENGTH, highlightHunk, languageOf, peekHunkTokens, requestHunkTokens, type HunkTokens, type LineTokens } from '../../src/renderer/changes/highlight'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { CACHE_CHARS, CHUNK_CHARS, MAX_HUNK_LINES, MAX_LINE_LENGTH, MAX_SIDE_CHARS, cachedCharacters, highlightHunk, languageOf, peekHunkTokens, requestHunkTokens, type HunkTokens, type LineTokens } from '../../src/renderer/changes/highlight'
 import type { DiffHunk, DiffLine } from '../../src/shared/changes/types'
+import { ms } from '../time-scale'
+
+// Every text highlight.ts hands to Shiki, as Shiki gets it; `onParse` runs before each parse.
+const shiki = vi.hoisted(() => ({ parsed: [] as string[], onParse: null as ((code: string) => void) | null }))
+vi.mock('@shikijs/core', async (original) => {
+  const real = await original<typeof import('@shikijs/core')>()
+  return {
+    ...real,
+    createHighlighterCore: async (...args: Parameters<typeof real.createHighlighterCore>) => {
+      const core = await real.createHighlighterCore(...args)
+      const codeToTokens = core.codeToTokens.bind(core)
+      core.codeToTokens = ((code: string, options: Parameters<typeof codeToTokens>[1]) => {
+        shiki.parsed.push(code)
+        shiki.onParse?.(code)
+        return codeToTokens(code, options)
+      }) as typeof core.codeToTokens
+      return core
+    },
+  }
+})
+
+afterEach(() => {
+  shiki.parsed = []
+  shiki.onParse = null
+})
+
+/** A long hunk takes several seconds to colour on a loaded machine. */
+const LONG = ms(60_000)
 
 const line = (kind: DiffLine['kind'], text: string, oldLine: number | null, newLine: number | null): DiffLine => ({ kind, text, oldLine, newLine, crlf: false, noNewline: false })
 
@@ -98,6 +128,13 @@ describe('highlightHunk', () => {
     expect(tokenOf(tokens, 'new', 1, 'const')?.light).toBe('#CF222E')
   })
 
+  it('a line longer than the limit is never handed to Shiki', async () => {
+    const long = `const never = '${'y'.repeat(MAX_LINE_LENGTH)}'`
+    await highlightHunk('src/never.ts', hunkOf([line('add', 'const before = 1', null, 1), line('add', long, null, 2)]))
+    expect(shiki.parsed.length).toBeGreaterThan(0)
+    expect(shiki.parsed.some((code) => code.includes('never'))).toBe(false)
+  })
+
   it('a hunk of more lines than the limit is plain text', async () => {
     const lines = Array.from({ length: MAX_HUNK_LINES + 1 }, (_, index) => line('add', `const v${index} = ${index}`, null, index + 1))
     expect(await highlightHunk('src/big.ts', hunkOf(lines))).toBeNull()
@@ -128,6 +165,99 @@ describe('highlightHunk', () => {
     // An unknown language is known at once: plain text.
     expect(peekHunkTokens('a.xyz', hunk)).toBeNull()
   })
+})
+
+describe('the cost of a hunk', () => {
+  /** `count` added lines of `width` characters each, of valid TypeScript. */
+  const added = (count: number, width: number, tag = 'v') =>
+    Array.from({ length: count }, (_, index) => {
+      const head = `const ${tag}${index} = '`
+      return line('add', `${head}${'z'.repeat(Math.max(0, width - head.length - 1))}'`, null, index + 1)
+    })
+
+  it('a side of more characters than the limit is plain text, even within the limits of a line and of a hunk', async () => {
+    const hunk = hunkOf(added(MAX_HUNK_LINES - 1, MAX_LINE_LENGTH - 1))
+    expect(peekHunkTokens('src/wide.ts', hunk)).toBeNull()
+    expect(await highlightHunk('src/wide.ts', hunk)).toBeNull()
+    expect(shiki.parsed).toEqual([])
+  })
+
+  it(
+    'a side just under the limit is coloured to its last line, read in steps of at most CHUNK_CHARS characters',
+    async () => {
+      const width = 80
+      const lines = added(Math.floor(MAX_SIDE_CHARS / width), width, 'w')
+      expect(lines.reduce((sum, each) => sum + each.text.length, 0)).toBeLessThanOrEqual(MAX_SIDE_CHARS)
+      const tokens = (await highlightHunk('src/under.ts', hunkOf(lines)))!
+      expect(tokens).not.toBeNull()
+      const last = tokens.new[lines.length - 1]!
+      expect(last.find((token) => token.text === 'const')?.light).toBe('#CF222E')
+      expect(shiki.parsed.length).toBeGreaterThan(1)
+      expect(Math.max(...shiki.parsed.map((code) => code.length))).toBeLessThanOrEqual(CHUNK_CHARS + width)
+    },
+    LONG,
+  )
+
+  it('a comment that crosses the border of two steps is coloured as a comment past it', async () => {
+    const inside = Array.from({ length: Math.ceil((CHUNK_CHARS * 2) / 40) }, (_, index) => line('add', ` * line ${index} of the comment, const not a keyword`, null, index + 2))
+    const lines = [line('add', '/**', null, 1), ...inside, line('add', ' */', null, inside.length + 2), line('add', 'const after = 1', null, inside.length + 3)]
+    const tokens = (await highlightHunk('src/border.ts', hunkOf(lines)))!
+    expect(shiki.parsed.length).toBeGreaterThan(1)
+    const comment = tokens.new[0]![0]!.light
+    expect(tokens.new[inside.length]!.every((token) => token.light === comment)).toBe(true)
+    expect(tokens.new[lines.length - 1]!.find((token) => token.text === 'const')?.light).toBe('#CF222E')
+  })
+
+  it('the window gets a task between two steps of a hunk: a timer set in the first step runs before the second', async () => {
+    const hunk = hunkOf(added(Math.ceil((CHUNK_CHARS * 3) / 60), 60, 't'))
+    let stepsWhenTheTimerRan: number | null = null
+    let steps = 0
+    shiki.onParse = (code) => {
+      if (!code.includes('const t')) return
+      steps += 1
+      if (steps === 1) setTimeout(() => (stepsWhenTheTimerRan = steps), 0)
+    }
+    await highlightHunk('src/tasks.ts', hunk)
+    expect(steps).toBeGreaterThan(1)
+    expect(stepsWhenTheTimerRan).toBe(1)
+  })
+
+  it('a request cancelled while its hunk is read stops at the next step and keeps nothing', async () => {
+    const hunk = hunkOf(added(Math.ceil((CHUNK_CHARS * 4) / 60), 60, 'c'))
+    let cancel: () => void = () => undefined
+    let steps = 0
+    shiki.onParse = (code) => {
+      if (!code.includes('const c0 ')) return
+      steps += 1
+      cancel()
+    }
+    const answered: unknown[] = []
+    cancel = requestHunkTokens('src/cancelled.ts', hunk, (tokens) => answered.push(tokens))
+    await vi.waitFor(() => expect(steps).toBe(1), { timeout: LONG })
+    // The next request runs only after the cancelled one stopped.
+    await new Promise<void>((done) => requestHunkTokens('src/after.ts', hunkOf([line('add', 'const after = 1', null, 1)]), () => done()))
+    expect(steps).toBe(1)
+    expect(shiki.parsed.filter((code) => code.includes('const c')).length).toBe(1)
+    expect(answered).toEqual([])
+    expect(peekHunkTokens('src/cancelled.ts', hunk)).toBeUndefined()
+  })
+
+  it(
+    'the cache holds at most CACHE_CHARS characters of hunks: the oldest go first',
+    async () => {
+      // Diff files: the cheapest grammar to read, so the cache fills fast.
+      const big = (index: number) => hunkOf(Array.from({ length: 1_000 }, (_, at) => line('add', `#${index} ${at} ${'q'.repeat(80)}`, null, at + 1)))
+      const first = big(0)
+      await highlightHunk('notes/0.diff', first)
+      for (let index = 1; index * 85_000 <= CACHE_CHARS + 200_000; index += 1) {
+        await highlightHunk(`notes/${index}.diff`, big(index))
+        expect(cachedCharacters()).toBeLessThanOrEqual(CACHE_CHARS)
+      }
+      expect(peekHunkTokens('notes/0.diff', first)).toBeUndefined()
+      expect(cachedCharacters()).toBeGreaterThan(CACHE_CHARS / 2)
+    },
+    LONG,
+  )
 })
 
 describe('requestHunkTokens', () => {

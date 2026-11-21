@@ -273,6 +273,8 @@ test('Changes on the card opens the view over the window with the files and line
     const measured = { ...scrolled, lastDrawnAfter, lastColouredAfter: Date.now() - startedLast }
     test.info().annotations.push({ type: 'ticket-10 300-file scroll', description: JSON.stringify(measured) })
     console.log(`[changes e2e] 300-file diff scrolled to its end: ${JSON.stringify(measured)}`)
+    // No screen of the scroll waited on the colours: 18 ms measured, the bound leaves room for a slow runner.
+    expect(scrolled.longest).toBeLessThan(ms(200))
     await big.getByTestId('changes-diff').evaluate((box) => {
       box.scrollTop = 0
     })

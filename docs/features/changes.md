@@ -195,8 +195,8 @@ background. The colours come a moment after a hunk is drawn; until then the hunk
 - Each side of a hunk is coloured as one text: the old side (context and deleted lines) and the new side (context and
   added lines). A comment or a string of several lines inside a hunk is coloured on each of its lines; a hunk that
   starts inside such a comment is coloured as if it did not.
-- Plain text, too: a line longer than 1 000 characters and a hunk of more than 2 000 lines. A folded file (large, lock,
-  generated) is coloured only after Show, and a binary file never.
+- Plain text, too: a line longer than 400 characters, a side of a hunk of more than 100 000 characters and a hunk of
+  more than 2 000 lines. A folded file (large, lock, generated) is coloured only after Show, and a binary file never.
 - The colours change no text: selection, Copy line, a comment's lines and the message to the agent hold the text of
   the line as `git diff` gives it. There is no switch to turn the colours off.
 
@@ -236,8 +236,10 @@ measured height after.
 The syntax colours are Shiki's (ADR-0113) with its JavaScript engine of regular expressions: no WebAssembly, so the
 renderer's Content-Security-Policy stays as it is. Shiki, both themes and each grammar are chunks of their own, loaded
 with `import()` on the first hunk that needs them: the window starts without them. A hunk is coloured only while it is
-drawn, one hunk per task of the event loop, and a hunk scrolled out of the window before its turn is not read. The
-tokens of a hunk are kept by language and text for the next time it is drawn. Each token carries its colours of both
+drawn, one hunk at a time: each side is read in steps of about 2 000 characters, each step a task of the event loop of
+its own, the state of the grammar carried from step to step. A hunk scrolled out of the window stops at its next step.
+The tokens of a hunk are kept by language and text for the next time it is drawn, up to 1 000 000 characters of hunks,
+the oldest dropped first. Each token carries its colours of both
 themes as CSS variables, and `prefers-color-scheme` picks one.
 
 ### Implementation
