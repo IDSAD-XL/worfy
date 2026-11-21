@@ -415,7 +415,8 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh, viewer = null 
   }
 
   const discard = (): void => {
-    if (!canChange) return
+    // A draft whose Submit may be on GitHub is discarded too, after the bar's warning: the lookup can fail for good.
+    if (!canChange && !(local && draft !== null && submitPending(draft))) return
     setNotice(null)
     void invoke('prReview.discard', { projectId, repo, number }).then((answer) => {
       if (!answer.ok) {

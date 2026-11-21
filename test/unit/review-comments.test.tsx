@@ -623,7 +623,20 @@ describe('the bar Your review', () => {
     expect(screen.getByTestId('pr-review-bar-error').textContent).toBe('GitHub did not confirm the review: gh: Server Error (HTTP 502)')
   })
 
-  it('a draft whose Submit GitHub did not confirm keeps the texts that went: no Edit, no Delete, no «+», no Discard, no agent; Finish review submits them again', async () => {
+  it('Discard of a draft whose Submit GitHub did not confirm warns that the review may be on GitHub already', async () => {
+    preload({ draft: withComments([], { error: `${UNCONFIRMED}: gh: Not Found (HTTP 404)`, payload: { event: 'APPROVE', body: 'Ship it.', comments: [] } }) })
+    await mountReview()
+    const discard = screen.getByTestId('pr-review-discard')
+    expect(discard.hasAttribute('disabled')).toBe(false)
+    fireEvent.click(discard)
+    const ask = await screen.findByTestId('pr-review-discard-confirm')
+    expect(within(ask).getByRole('heading').textContent).toBe('Discard this review?')
+    expect(within(ask).getByTestId('pr-review-discard-text').textContent).toContain('may be on GitHub already')
+    fireEvent.click(within(ask).getByTestId('pr-review-discard-ok'))
+    await waitFor(() => expect(calls('prReview.discard')).toEqual([{ projectId: PROJECT, repo: REPO, number: NUMBER }]))
+  })
+
+  it('a draft whose Submit GitHub did not confirm keeps the texts that went: no Edit, no Delete, no «+», no agent; Finish review submits them again', async () => {
     preload({ draft: withComments([{ comment: on(2, 'A.'), by: 'person' }], { error: `${UNCONFIRMED}: gh: Server Error (HTTP 502)` }) })
     await mountReview()
     const bar = screen.getByTestId('pr-review-bar')
@@ -633,7 +646,6 @@ describe('the bar Your review', () => {
     expect(within(shown).queryByTestId('pr-review-comment-edit')).toBeNull()
     expect(within(shown).queryByTestId('pr-review-comment-delete')).toBeNull()
     expect(screen.queryByTestId('changes-line-plus')).toBeNull()
-    expect(screen.getByTestId('pr-review-discard').hasAttribute('disabled')).toBe(true)
     expect(within(bar).queryByTestId('pr-review-ask-agent')).toBeNull()
     expect(within(bar).queryByTestId('pr-review-take-over')).toBeNull()
     expect(screen.getByTestId('pr-review-finish').getAttribute('aria-disabled')).toBe('false')

@@ -105,6 +105,22 @@ export const UNCONFIRMED = 'GitHub did not confirm the review'
  */
 export const submitPending = (draft: Pick<ReviewDraft, 'state' | 'error'>): boolean => draft.state === 'submitting' || (draft.state === 'draft' && (draft.error?.includes(UNCONFIRMED) ?? false))
 
+/** Why main refuses to change the texts of a draft whose Submit may be on GitHub (submitPending). */
+export const TEXTS_LOCKED = `${UNCONFIRMED} yet: its texts stay as they went until worfy finds it on GitHub, a Submit of them posts it, or you Discard the review`
+
+/**
+ * How long after the mark `submitting` GitHub gets to list the review it made. A POST of gh ends within 30 s; GitHub
+ * lists a new review within seconds, and 5 minutes leave room for a slow answer of a busy GitHub. Until then a Submit
+ * that finds nothing is refused, not posted again, and a mark `submitting` is not discarded: the POST may still run.
+ */
+export const LISTING_WAIT_MS = 5 * 60_000
+
+/** How long ago the mark `submitting` of `draft` was set; Infinity without one (a draft from before the mark kept its time). */
+export const markAge = (draft: Pick<ReviewDraft, 'submittingAt'>, now: number = Date.now()): number => {
+  const at = draft.submittingAt === undefined ? Number.NaN : Date.parse(draft.submittingAt)
+  return Number.isNaN(at) ? Infinity : now - at
+}
+
 /**
  * The draft of one PR: null without one; `problem` when it cannot be read (no Profile folder, a broken file), or beside
  * the draft when a change is taken but not written yet (the disk refused): it waits for the next write, so the view must

@@ -15,8 +15,11 @@
 //   yet, for its read, change and rename, so neither drops a change of the other. A lock older than LOCK_STALE_MS was
 //   left by a writer that died, and is taken over. A write that cannot get the lock in LOCK_WAIT_MS keeps its changes
 //   waiting for the next write.
-// - Discard removes the file. A submitted draft is kept SUBMITTED_KEEP_MS (the link to the review) and removed at the
-//   first look at the Project's drafts after worfy starts.
+// - A draft whose Submit may be on GitHub (submitPending, ADR-0112, point 6) keeps the texts that went: a comment is
+//   neither saved nor deleted (TEXTS_LOCKED) until the next Submit finds the review or posts them.
+// - Discard removes the file; a mark `submitting` younger than LISTING_WAIT_MS stays (its POST may still run). A
+//   submitted draft is kept SUBMITTED_KEEP_MS (the link to the review) and removed at the first look at the Project's
+//   drafts after worfy starts.
 // - Start review (ticket 09): a PR without a draft gets one, with the files the account marked Viewed on github.com —
 //   one GraphQL read (`viewerViewedState`, viewedOnGithub), once: the draft is there after it, and a second Start review
 //   of the same PR, at once or later, reads nothing. Nothing is written to GitHub, ever: no `markFileAsViewed` (Q3 (a)).
@@ -27,7 +30,11 @@ import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/p
 import { dirname, join } from 'node:path'
 import { z } from 'zod'
 import {
+  LISTING_WAIT_MS,
+  markAge,
   reviewDraftSchema,
+  submitPending,
+  TEXTS_LOCKED,
   type AgentReviewState,
   type PrReviewDraftAnswer,
   type PrReviewDraftRow,
@@ -71,6 +78,12 @@ function editable(draft: ReviewDraft): ReviewDraft {
   return structuredClone(draft)
 }
 
+/** The draft, to change its texts: not while a Submit of them may be on GitHub (ADR-0112, point 6). */
+function textsEditable(draft: ReviewDraft): ReviewDraft {
+  if (submitPending(draft)) throw new ReviewDraftRefusal(TEXTS_LOCKED)
+  return editable(draft)
+}
+
 /** The place of the comment `ref` names: of its file and with its text, the nearest to its old place. */
 function locate(draft: ReviewDraft, ref: ReviewCommentRef): number {
   let found = -1
@@ -95,7 +108,7 @@ function linesOf(text: string, size: number): string[] {
 
 /** A comment of the person, new (no `ref`) or a change of `ref`; either way it is the person's now. `anchor` has exactly its lines. */
 export function putComment(draft: ReviewDraft, input: { ref?: ReviewCommentRef | undefined; comment: ReviewComment; anchor: string }): ReviewDraft {
-  const next = editable(draft)
+  const next = textsEditable(draft)
   const size = sizeOf(input.comment)
   const lines = linesOf(input.anchor, size)
   if (lines.length !== size) throw new ReviewDraftRefusal(`The text of the commented lines has ${lines.length} lines, the comment covers ${size} lines`)
@@ -113,7 +126,7 @@ export function putComment(draft: ReviewDraft, input: { ref?: ReviewCommentRef |
 }
 
 export function removeComment(draft: ReviewDraft, ref: ReviewCommentRef): ReviewDraft {
-  const next = editable(draft)
+  const next = textsEditable(draft)
   const index = locate(next, ref)
   next.payload.comments.splice(index, 1)
   next.anchors.splice(index, 1)
@@ -497,7 +510,8 @@ export class PrReviewDrafts {
   }
 
   /**
-   * Discard review: the file goes, and the changes waiting for it. A review being submitted is not discarded, nor a
+   * Discard review: the file goes, and the changes waiting for it. A review being submitted (its mark younger than
+   * LISTING_WAIT_MS) is not discarded, nor a
    * draft of another PR. A file that is no draft at all (half written, another shape) goes too: nothing else can change
    * or remove it, so without this the PR would keep it for good.
    */
@@ -517,7 +531,10 @@ export class PrReviewDrafts {
         } catch {
           // Not a draft: removed below.
         }
-        if (draft !== null && ownDraft(draft, file, repo, pr).state === 'submitting') throw new ReviewDraftRefusal('This review is being submitted: it is not discarded')
+        // A POST may still run while its mark is young; a Submit GitHub did not confirm is over, and may be discarded
+        // with the warning of the bar: the lookup can fail for good (access lost, repository gone).
+        if (draft !== null && ownDraft(draft, file, repo, pr).state === 'submitting' && markAge(draft) < LISTING_WAIT_MS)
+          throw new ReviewDraftRefusal('This review is being submitted: it is not discarded')
         this.drop(file)
         await rm(file, { force: true })
         return { repo, pr, draft: null, problem: null }

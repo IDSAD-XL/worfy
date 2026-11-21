@@ -15,7 +15,9 @@
 // 3. A draft whose Submit GitHub did not confirm first reads the reviews of the PR, before any other check, and looks
 //    for the one that Submit made: this account's, on the same commit, with the same body, in any state, given no
 //    earlier than the mark less the clock skew, with exactly the draft's line comments. Found — the draft is only
-//    marked submitted. None — the draft is a draft again, and the Submit goes on as a new one.
+//    marked submitted. None within LISTING_WAIT_MS of the mark — refused (GitHub may list a review late), the mark
+//    kept. None later — the Submit goes on with the same texts; the mark stays until the mark of its POST (step 6), so
+//    a refusal of the checks below leaves the texts locked.
 // 4. review-draft-lint over those texts (the body of the POST): the traces of the workflow, an AI signature, personal
 //    data, the length — the Team reviewer's lint.json when the Project has one (`--untiered`: the draft has no
 //    tiers), else the template's lengths. A finding, or a lint that could not run, and nothing is posted.
@@ -37,7 +39,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
 import type { ChangesPrRef, DiffHunk } from '../../shared/changes/types'
-import { submitPending, UNCONFIRMED, type PrReviewSubmitAnswer, type ReviewComment, type ReviewDraft, type ReviewEvent } from '../../shared/ipc/pr-review'
+import { LISTING_WAIT_MS, markAge, submitPending, UNCONFIRMED, type PrReviewSubmitAnswer, type ReviewComment, type ReviewDraft, type ReviewEvent } from '../../shared/ipc/pr-review'
 import { PrDiffs, patchHunks, type GhReader } from '../changes/github'
 import { NO_GITHUB_HEALTH, type GithubHealth } from './github-health'
 import { lintRulesPath, type LintRun } from './pr-reply-send'
@@ -50,6 +52,8 @@ export const NO_ACCOUNT =
   "Not submitted: the Project's Profile names no GitHub account (github.account). Set it to the account reviews go from; worfy never posts as the gh login of the machine"
 export const AGENT_WRITING = 'Not submitted: the agent is still writing the review. Wait until it finishes, or stop it'
 export const OWN_PULL = 'GitHub does not let you approve or request changes on your own pull request'
+/** A Submit GitHub did not confirm, not listed by GitHub within LISTING_WAIT_MS of its mark yet. */
+export const NOT_LISTED_YET = 'GitHub did not confirm the review, and it has not listed it yet — try again in a minute'
 /** GitHub needs a body for these verdicts: a summary or a comment. */
 export const NEEDS_TEXT = 'GitHub needs a summary or a comment for this verdict'
 /** How many pages of the PR's reviews, and of the line comments of one, a Submit GitHub did not confirm reads to find it. */
@@ -177,15 +181,9 @@ export class PrReviewSubmitter {
           this.health.answered(root)
           return answer('already-submitted', marked, { reviewUrl: found.url })
         }
-        // GitHub has none: the draft is a draft again, its texts free; this Submit goes on as a new one.
-        const freed = await this.options.drafts.changeNow(root, repo, pr, (current) => {
-          if (current === null || !submitPending(current)) throw new Refusal('The draft changed meanwhile. Look at it again')
-          const next: ReviewDraft = { ...current, state: 'draft' }
-          delete next.error
-          delete next.submittingAt
-          return next
-        })
-        if (freed.problem !== null) throw new Refusal(`Not submitted: ${freed.problem}`)
+        // GitHub lists none. Soon after the mark that is no proof: GitHub may list a review late. Later, this Submit
+        // goes on with the same texts; the mark stays until the mark of its POST, so a refusal below keeps the lock.
+        if (markAge(draft) < LISTING_WAIT_MS) throw new Refusal(`Not submitted: ${NOT_LISTED_YET}`)
       }
       // 4. The check over exactly those texts.
       const lint = await this.lint(root, texts)

@@ -24,13 +24,13 @@ import { delimiter, dirname, join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PrReviewDrafts, reviewDraftFilePath } from '../../src/main/github/pr-review-draft'
-import { AGENT_WRITING, NO_ACCOUNT, OWN_PULL, PrReviewSubmitter, submitLintArgs, UNCONFIRMED, type PrReviewSubmitterOptions } from '../../src/main/github/pr-review-submit'
+import { AGENT_WRITING, NO_ACCOUNT, NOT_LISTED_YET, OWN_PULL, PrReviewSubmitter, submitLintArgs, UNCONFIRMED, type PrReviewSubmitterOptions } from '../../src/main/github/pr-review-submit'
 import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import { prReviewHandlers } from '../../src/main/ipc/pr-review'
 import { createLinkIpc } from '../../src/main/link/ipc-adapter'
 import { runHarnessScript } from '../../src/main/workflow/profile'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import { prReviewCheck, prReviewSubmit, type PrReviewSubmitAnswer, type ReviewComment, type ReviewDraft, type ReviewEvent } from '../../src/shared/ipc/pr-review'
+import { LISTING_WAIT_MS, prReviewCheck, prReviewSubmit, type PrReviewSubmitAnswer, type ReviewComment, type ReviewDraft, type ReviewEvent } from '../../src/shared/ipc/pr-review'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
@@ -55,6 +55,14 @@ const FILE = 'src/upload.ts'
  */
 const PATCH = '@@ -1,3 +1,5 @@\n const a = 1\n+const b = 2\n+const c = 3\n const d = 4\n const e = 5\n@@ -20,2 +22,3 @@\n function f() {\n+  return retry()\n }'
 /** What the person typed: quotes, a line break, an `@`, a placeholder of gh, `=` and characters beyond ASCII. */
+/** The time of a mark `minutes` ago, as the file keeps it. */
+const markedAgo = (minutes: number): string => new Date(Date.now() - minutes * 60_000).toISOString()
+/** Minutes past the wait for GitHub to list a review. */
+const PAST_WAIT = LISTING_WAIT_MS / 60_000 + 1
+/** The draft file with its mark `submitting` moved back in time: GitHub had that long to list the review. */
+function ageMark(s: { file: string; onDisk: () => ReviewDraft }, minutes: number): void {
+  writeFileSync(s.file, JSON.stringify({ ...s.onDisk(), submittingAt: markedAgo(minutes) }))
+}
 const TYPED = 'Good catch — the server drops the first try.\n@team: "{owner}" stays; retries=3, naïve ✓\n'
 
 beforeEach(() => {
@@ -274,7 +282,7 @@ describe('Submit review', () => {
     expect((await s.submitter.submit(s.root, API, PR, shown({ event: 'APPROVE', body: '', comments: [] }))).outcome).toBe('submitted')
   })
 
-  it('GitHub 500, the review not landed: no retry; the next Submit looks on GitHub first, then posts once', { timeout: ms(60_000) }, async () => {
+  it('GitHub 500, the review not landed: no retry; a Submit right after is refused while GitHub may not list it yet; later it looks first, then posts once', { timeout: ms(60_000) }, async () => {
     const comments = [on(2, 'One.')]
     const s = await setup(draftOf([{ comment: comments[0]!, by: 'person' }]), { reviews: { status: 500 } })
     const input = shown({ event: 'COMMENT', body: 'Body.', comments })
@@ -288,6 +296,13 @@ describe('Submit review', () => {
     // The time of the mark stays: the next Submit takes only a review given from then on.
     expect(Date.parse(kept.submittingAt ?? '')).toBeGreaterThan(Date.now() - ms(60_000))
     writeFileSync(join(s.gh.dir, 'reviews.json'), '{}')
+    // Right after: GitHub may list a review late; nothing found is no proof yet, and the mark stays as it is.
+    const soon = await s.submitter.submit(s.root, API, PR, input)
+    expect(soon.outcome).toBe('refused')
+    expect(soon.reason).toContain(NOT_LISTED_YET)
+    expect(s.writes()).toHaveLength(1)
+    expect(s.onDisk()).toEqual(kept)
+    ageMark(s, PAST_WAIT)
     const again = await s.submitter.submit(s.root, API, PR, input)
     expect(again.outcome, again.reason ?? '').toBe('submitted')
     const calls = s.gh.calls()
@@ -314,15 +329,15 @@ describe('Submit review', () => {
 
   it('a review of the account on another commit, with another body, by another account, from before the mark or with other line comments is not taken for this one', { timeout: ms(60_000) }, async () => {
     const comments = [on(2, 'One.')]
-    const marked = '2026-11-21T10:00:00.000Z'
-    const after = '2026-11-21T10:00:05Z'
+    const marked = markedAgo(PAST_WAIT + 10)
+    const after = new Date(Date.parse(marked) + 5_000).toISOString()
     const review = (id: number, over: Record<string, unknown>) => ({ id, user: { login: ME }, body: 'Body.', state: 'COMMENTED', html_url: `https://github.com/r${id}`, commit_id: START, submitted_at: after, comments: [{ path: FILE, line: 2, body: 'One.' }], ...over })
     const existing = [
       review(1, { commit_id: MOVED }),
       review(2, { body: 'Other.' }),
       review(3, { user: { login: ANA } }),
       // An earlier review of the same texts: New review on the same head, then a 502 that created nothing.
-      review(4, { submitted_at: '2026-11-21T09:40:00Z' }),
+      review(4, { submitted_at: new Date(Date.parse(marked) - 20 * 60_000).toISOString() }),
       review(5, { comments: [{ path: FILE, line: 2, body: 'Another comment.' }] }),
       review(6, { comments: [] }),
     ]
@@ -359,7 +374,7 @@ describe('Submit review', () => {
     expect(s.writes()).toHaveLength(1)
   })
 
-  it('a Submit that may have landed looks first: found on a head that moved since, it is only marked; not found, the draft is a draft again', { timeout: ms(60_000) }, async () => {
+  it('a Submit that may have landed looks first: found on a head that moved since, it is only marked; not found, the mark stays until the next POST', { timeout: ms(60_000) }, async () => {
     const comments = [on(2, 'One.')]
     const existing = [{ id: 9, user: { login: ME }, body: 'Body.', state: 'COMMENTED', html_url: `https://github.com/${API}/pull/${PR}#pullrequestreview-9`, commit_id: START, submitted_at: '2026-11-21T10:00:05Z', comments: [{ path: FILE, line: 2, body: 'One.' }] }]
     const pending = { state: 'draft' as const, error: `${UNCONFIRMED}: gh: Bad Gateway (HTTP 502)`, submittingAt: '2026-11-21T10:00:00.000Z', payload: { event: 'COMMENT' as const, body: 'Body.', comments } }
@@ -367,14 +382,21 @@ describe('Submit review', () => {
     const found = await s.submitter.submit(s.root, API, PR, shown({ event: 'COMMENT', body: 'Body.', comments }))
     expect(found.outcome, found.reason ?? '').toBe('already-submitted')
     expect(s.onDisk().state).toBe('submitted')
-    // Nothing on GitHub: the head check refuses, and the texts are free again.
-    const t = await setup(draftOf([{ comment: comments[0]!, by: 'person' }], pending), { head: MOVED, reviews: {} })
+    // Nothing on GitHub, the mark young: refused before any other check, the mark as it was.
+    const young = { ...pending, submittingAt: markedAgo(1) }
+    const u = await setup(draftOf([{ comment: comments[0]!, by: 'person' }], young), { head: MOVED, reviews: {} })
+    const soon = await u.submitter.submit(u.root, API, PR, shown({ event: 'COMMENT', body: 'Body.', comments }))
+    expect(soon.outcome).toBe('refused')
+    expect(soon.reason).toContain(NOT_LISTED_YET)
+    expect(u.gh.calls().some((args) => args[1] === `repos/${API}/pulls/${PR}`)).toBe(false)
+    expect(u.onDisk()).toMatchObject(young)
+    // Nothing on GitHub, the mark old: the head check refuses, and the mark stays; only the next POST clears it.
+    const old = { ...pending, submittingAt: markedAgo(PAST_WAIT) }
+    const t = await setup(draftOf([{ comment: comments[0]!, by: 'person' }], old), { head: MOVED, reviews: {} })
     const refused = await t.submitter.submit(t.root, API, PR, shown({ event: 'COMMENT', body: 'Body.', comments }))
     expect(refused.outcome).toBe('refused')
     expect(refused.head).toBe(MOVED)
-    const after = t.onDisk()
-    expect(after.state).toBe('draft')
-    expect(after.error).toBeUndefined()
+    expect(t.onDisk()).toMatchObject(old)
     expect(t.writes()).toEqual([])
   })
 

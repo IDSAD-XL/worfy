@@ -6,8 +6,9 @@
 //   «Discard N pending comments?» first; Finish review, which opens the dialog of Submit review (ticket 11,
 //   FinishReviewDialog.tsx; ⌘⇧↵ too). A Submit GitHub did not confirm or refused leaves its reason on the bar.
 // - A Submit that did not finish (worfy quit while it ran: «Submitting did not finish»), or that GitHub did not confirm:
-//   the texts that went stay as they are — no Ask the agent, no Take over, no Discard — and Finish review submits them
-//   again; main first looks whether GitHub has them.
+//   the texts that went stay as they are — no Ask the agent, no Take over — and Finish review submits them again; main
+//   first looks whether GitHub has them. Discard stays, warning that the review may be on GitHub already: the lookup
+//   can fail for good (access lost, repository gone).
 // - Submitted: «You reviewed this pull request · Approve», the link to the review on GitHub, and Start a new review.
 import { useId, useState } from 'react'
 import { submitPending, type ReviewDraft } from '../../shared/ipc/pr-review'
@@ -21,7 +22,7 @@ export interface ReviewBarProps {
   draft: ReviewDraft
   /** The comments of the draft, those by the agent among them, and the files of those on a changed line. */
   count: { all: number; agent: number; files: number }
-  /** The draft may be changed: Discard. */
+  /** The draft may be changed: Discard (a draft whose Submit may be on GitHub is discarded with a warning anyway). */
   canChange: boolean
   /** Why Finish review is inactive; null when it opens the dialog. */
   finishWhy: string | null
@@ -130,16 +131,20 @@ export function ReviewBar({ draft, count, canChange, finishWhy, onStop, onAsk, o
           Ask the agent to add comments
         </button>
       )}
-      <button type="button" className="w-pr-inbox-button w-pr-review-bar__discard" data-testid="pr-review-discard" disabled={!canChange || count.all === 0} title="Delete the draft on this machine" onClick={() => setAsking(true)}>
+      <button type="button" className="w-pr-inbox-button w-pr-review-bar__discard" data-testid="pr-review-discard" disabled={pending ? false : !canChange || count.all === 0} title="Delete the draft on this machine" onClick={() => setAsking(true)}>
         Discard
       </button>
       <FinishButton why={finishWhy} onFinish={onFinish} />
       {asking ? (
         <Dialog open onClose={() => setAsking(false)} labelledBy={titleId} className="w-pr-review-confirm" data-testid="pr-review-discard-confirm">
           <h3 id={titleId} className="w-pr-review-confirm__title">
-            Discard {plural(count.all, 'pending comment')}?
+            {pending ? 'Discard this review?' : `Discard ${plural(count.all, 'pending comment')}?`}
           </h3>
-          <p className="w-pr-review-confirm__text">The draft file on this machine is deleted. Nothing was on GitHub, so nothing changes there.</p>
+          <p className="w-pr-review-confirm__text" data-testid="pr-review-discard-text">
+            {pending
+              ? 'GitHub did not confirm the Submit of this review: it may be on GitHub already. Discard deletes only the draft on this machine; a review on GitHub stays there — look at the pull request on GitHub.'
+              : 'The draft file on this machine is deleted. Nothing was on GitHub, so nothing changes there.'}
+          </p>
           <div className="w-pr-review-confirm__bar">
             <button type="button" className="w-pr-inbox-button" data-testid="pr-review-discard-cancel" onClick={() => setAsking(false)}>
               Cancel

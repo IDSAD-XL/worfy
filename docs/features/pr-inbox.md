@@ -249,8 +249,10 @@ read again (its approvals chip counts the approval), and Review mode closes. Ope
 this pull request · Approve" with **Open the review on GitHub** and **Start a new review**; the comments say
 "Submitted · on GitHub". GitHub refused it: its reason in the dialog, the draft stays with all its comments, the
 removed ones too. GitHub did not answer: the bar keeps "GitHub did not confirm the review: <reason>", and the texts that
-went stay as they are — no edits, no Discard, no agent, and the dialog opens on them, locked; the next Submit first
-looks whether GitHub has the review and posts it only if not.
+went stay as they are — no edits, no agent, and the dialog opens on them, locked; the next Submit first looks whether
+GitHub has the review. Within 5 minutes of the Submit, not finding it says "GitHub has not listed it yet — try again in
+a minute"; later the same texts are posted. **Discard** still works there, and warns that the review may be on GitHub
+already.
 
 **The chip Review draft.** A PR with a draft of comments on this machine shows **Review draft** in its row of the inbox
 and of the search results, with "3 pending comments, started on 3f2a9c1" in its tooltip. The draft survives quitting
@@ -440,7 +442,9 @@ draft: Start review is inactive there, and Review mode opens read only through *
   the Profile's `github.account`. A 4xx is GitHub's refusal; a 5xx, a lost connection or gh's timeout is "did not
   confirm", and the next Submit, before any other check, reads `GET …/reviews` for a review of that account on that
   commit with that body, given no earlier than the mark `submitting` (`submittingAt`) less 2 minutes, whose line
-  comments (`GET …/reviews/{id}/comments`) are the draft's; none — the draft is a draft again.
+  comments (`GET …/reviews/{id}/comments`) are the draft's. None within 5 minutes of the mark — refused, the mark kept
+  (GitHub may list a review late); none later — the same texts go through the checks and one POST, and only the mark of
+  that POST replaces the old one. Main refuses changes of those texts (a comment saved or deleted, an Agent review).
   Never a review without `event` (a pending review on GitHub), never a second POST for one click.
 
 ### Implementation
