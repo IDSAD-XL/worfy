@@ -36,7 +36,8 @@ Comments on quotes (worfy-polish, Ticket 102: хранилище и лоток �
 [worfy-pr-inbox](../worfy-pr-inbox/spec.md) (вид Pull requests, нити ревью, `pr-inbox.json`),
 [worfy-human-review](../worfy-human-review/spec.md) (Team reviewer) и [worfy-pipeline](../worfy-pipeline/spec.md)
 (Stage Human review).
-Ticket-ы: Epic `worfy-changes-view`, часть 1 — 7 Ticket-ов: `issues/01`–`issues/07`. Двенадцать Ticket-ов черновика
+Ticket-ы: Epic `worfy-changes-view`, часть 1 — 7 Ticket-ов: `issues/01`–`issues/07`; переделка после приёмки
+2026-11-21 — `issues/08`–`issues/10` («Ответы владельца 2026-11-21»). Двенадцать Ticket-ов черновика
 перенумерованы под часть 1; у части 2 Ticket-ов нет. Имена новых файлов ниже — предложение; implementer сверяет их с
 `main`.
 
@@ -447,6 +448,18 @@ mode и счётчика — возражение 2 critic-а) — 03, комм�
 7. **07 — Приёмка части 1 владельцем**: путь Ticket → Changes → комментарии → Send на Mac Stable copy; решения без
    владельца. Blocked by: 01, 02, 03, 04, 05, 06.
 
+Переделка после приёмки 2026-11-21 (раздел «Ответы владельца 2026-11-21»):
+
+8. **08 — Changes во всё окно** (D1; owner-check fail Ticket-а 07, пункт 2): вид окна `changes` вместо Node-а — тот же
+   экран diff-а, что у PR во вкладке Pull requests; входы — кнопка Changes на карточке, Open changes в Command palette,
+   блок в пузыре; кнопка «← Canvas»; Node-ы `changes` на Canvas-ах пользователей убираются при загрузке Layout-а.
+   Blocked by: —.
+9. **09 — Диапазон строк, как на GitHub, и commit в тексте агенту** (D2, D3; owner-check fail Ticket-а 07, пункт 3):
+   перетаскивание «+», Shift-щелчок по «+», подсказка «Comment on lines 95–102 (c)» — в Changes и Review mode PR;
+   «uncommitted» только у файла с незакоммиченными правками, иначе commit HEAD. Blocked by: 08.
+10. **10 — Подсветка синтаксиса** (D4): Shiki с движком на JavaScript, темы GitHub light и dark, в diff-е Changes и PR;
+    новый ADR с проверкой лицензии. Blocked by: 08.
+
 ## Волны
 
 | Wave | Ticket-ы | Blocked by | Почему так |
@@ -456,6 +469,8 @@ mode и счётчика — возражение 2 critic-а) — 03, комм�
 | 3 | 05 | 05 — 03, 04 | комментарии на экране (`src/renderer/changes/Tray.tsx`, `DiffPane.tsx`, `src/main/changes/targets.ts`): нужен Node 03 и модель 04; после этой Wave главный цикл — прочитать, прокомментировать, отправить — у пользователя |
 | 4 | 06 | 02–05 | документы по сделанному |
 | 5 | 07 | 01–06 | приёмка |
+| 6 | 08 | — | вид Changes во всё окно (`src/renderer/shell/`, `src/renderer/changes/`, `src/renderer/pr-review/ReviewMode.tsx`, `src/main/layout/upgrade.ts`): переносит лоток и клавиши из `ChangesNode.tsx`, которые правит 09, и `DiffPane.tsx`, который правит 10 |
+| 7 | 09, 10 | 09 — 08; 10 — 08 | диапазон и commit (`line-comments.tsx`, `review-comments.tsx`, `src/main/changes/scopes.ts`, `src/shared/changes/types.ts`) и подсветка (`DiffPane.tsx` `Code`, новые `highlight.ts`, `highlight.css`, `package.json`, ADR-0112): общих файлов кода нет; оба дописывают свой раздел `docs/features/changes.md` и перевода — второй PR делает rebase |
 
 Wave — Ticket-ы, которые можно брать параллельно: блокеры закрыты, общих файлов нет. Wave, которую берут в работу,
 вычисляется заново в момент запуска (CONTEXT.md, термин Wave); таблица — прогноз по Blocked by и спискам файлов.
@@ -536,6 +551,28 @@ Wave — Ticket-ы, которые можно брать параллельно:
     CONTEXT.md, как в worfy-pr-follow.
 11. **Форма строки Status.** Указание звучит «продолжай все остальные эпики»; строка написана в единой форме «принят
     владельцем YYYY-MM-DD …», как у worfy-pr-follow, чтобы `epic-status` видел дату принятия.
+
+## Ответы владельца 2026-11-21
+
+Приёмка части 1 (Ticket 07) на Mac Stable 2026-11-21: пункты 2 и 3 не прошли (owner-check fail; слова владельца — в
+Ticket-е 07 и в Ticket-ах 08 и 09). На три вопроса Orchestrator-а владелец ответил «все да» и добавил одну просьбу.
+**Q1 (а) и Q5 (а) раздела «Вопросы владельцу» заменены** ответами D1 и D4; Q2 (а) остаётся.
+
+- **D1 (Q1 → (в)).** Changes Ticket-а открываются не отдельным Node-ом на Canvas, а во весь размер окна, как вид Pull
+  requests, — тот же экран diff-а, что у PR во вкладке Pull requests (Epic worfy-pr-review, Ticket-ы 05–10). Входы —
+  кнопка Changes на карточке Ticket-а и строка Open changes в Command palette; одна кнопка возвращает на Canvas. Панель
+  рядом с чатом в Session view — часть 2, без Ticket-а сейчас. Ticket 08.
+- **D2 (Q2).** Диапазон строк — как на GitHub: «+» в gutter тянут вниз через строки; щелчок с Shift по «+» растягивает
+  выбор до этой строки; пока строки выбраны, видна подсказка «Comment on lines 95–102 (c)». Клавиша `c` и Comment в меню
+  правого клика остаются. Ticket 09.
+- **D3 (Q3).** Текст агенту называет сторону «uncommitted», только если в файле правда есть незакоммиченные правки;
+  иначе — commit HEAD (например, `new side, f3bcb3e16`). Сейчас `commitOf`
+  (`src/renderer/changes/line-comments.tsx:121-128`) в All changes даёт `null` новой стороне любого файла worktree, и
+  каждый комментарий говорит «uncommitted» даже в чистом worktree. Ticket 09.
+- **D4 (новая просьба; отменяет Q5 (а)).** Подсветка синтаксиса кода, как на GitHub, в diff-е — и для Changes Ticket-а,
+  и для diff-а PR: это один экран. Новая зависимость (рекомендация — Shiki) с новым ADR и проверкой лицензии, как Base UI
+  в ADR-0106. Пункт «Цвета без подсветки синтаксиса» раздела «Решения по реализации — часть 1» больше не действует.
+  Ticket 10.
 
 ## Готово, когда
 
