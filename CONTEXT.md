@@ -153,8 +153,20 @@ _Avoid_: пропущенный Ticket, skipped, отложенный (без `W
 _Avoid_: silent (Silent mode — режим Project-а), hung (так зовётся только причина остановки `turn-hung`), idle
 
 **PR inbox**:
-Вид «Pull requests» Project-а: открытые PR пользователя и запросы ревью у него по репозиториям Project-а, сгруппированные по тому, чей ход (Needs my review, Needs my answer, Needs a fix, Ready, Waiting on others), нити ревью и черновики ответов. Читает GitHub из main и ничего не публикует без щелчка Send ([ADR-0105](docs/adr/0105-pr-reply-only-on-the-users-click.md)). Подпись в UI — «Pull requests». Три действия правки PR пользователя — Fix checks (упавшие checks), Resolve conflicts (конфликт с базовой веткой) и Address comments (замечания ревью) — передают PR Session-и Project-а, а push в ветку PR бывает только после ответа пользователя «Push».
+Вид «Pull requests» Project-а: открытые PR пользователя и запросы ревью у него по репозиториям Project-а, сгруппированные по тому, чей ход (Needs my review, Needs my answer, Needs a fix, Ready, Waiting on others), нити ревью и черновики ответов. Строка поиска над списком находит и любой другой PR, видимый аккаунту Project-а (This Project, Organizations of this Project, All of GitHub); чужой PR из inbox или из результатов поиска открывается в Review mode, и ревью уходит на GitHub только по Submit review. Читает GitHub из main и публикует только по щелчку пользователя: ответ в нити — по Send ([ADR-0105](docs/adr/0105-pr-reply-only-on-the-users-click.md)), ревью — по Submit review ([ADR-0112](docs/adr/0112-pr-review-submit-only-on-the-users-click.md)). Подпись в UI — «Pull requests». Три действия правки PR пользователя — Fix checks (упавшие checks), Resolve conflicts (конфликт с базовой веткой) и Address comments (замечания ревью) — передают PR Session-и Project-а, а push в ветку PR бывает только после ответа пользователя «Push».
 _Avoid_: inbox (без PR), входящие, dashboard; для действий правки — голое Fix (так зовутся действие Terminal AI и кнопка строки Health check), autofix
+
+**Review mode**:
+Экран ревью одного PR во вкладке Pull requests: список сворачивается в узкую колонку, на месте панели PR — дерево файлов с отметками Viewed, diff из Changes, нити ревью GitHub на своих строках, pending comments черновика ревью и полоса Your review с Finish review, который открывает диалог Submit review. Открывается кнопкой Start review; черновик ревью — файл на этой Machine, не pending review на GitHub. На Linked machine — только чтение (View changes).
+_Avoid_: review screen, режим ревью, Changes view (тот показывает Ticket)
+
+**Required approvals**:
+Сколько действующих одобрений есть у PR и сколько требует правило его базовой ветки (rulesets и classic branch protection), chip `1/2`: в строке Pull requests, в ячейке Approvals и в шапке Review mode, на карточке доски Pipeline на Stage Human review и на карточке Ticket-а на Canvas. Правило, которого аккаунт Project-а не видит, даёт `1/?`; решение GitHub `APPROVED` важнее счёта.
+_Avoid_: аппрувы, approvals count
+
+**Agent review**:
+Способ ревью чужого PR, в котором черновик ревью — комментарии к строкам, итоговый текст и предложенный вердикт — пишет Session с Team reviewer-ом Project-а или, если его нет, с линзами `/worfy:code-review`; человек правит черновик и сам жмёт Submit review, вердикт агента — только подсказка. Другой способ — кнопка Review myself: ревью пишет сам человек. Оба — пункты меню Start review.
+_Avoid_: AI review, LLM review, ревью ллмкой, auto review, human review (как имя способа Review myself: «Human review» — Stage Pipeline-а)
 
 **Flight Recorder**:
 Часть worfy, которая собирает факты Run-а из журнала Autopilot-а, транскриптов, GitHub и логов gate (у Project-а без PR — из файла отметок и git) и строит Run history; своего хранилища нет.

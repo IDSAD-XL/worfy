@@ -392,3 +392,59 @@ Read only), `test/contract/changes-read.test.ts` (`uncommitted` у закомм�
 ветке), `test/contract/changes-targets.test.ts` (кто в «To» и значение по умолчанию), `test/e2e/changes-comments.spec.ts`
 (два комментария, перезагрузка, одно сообщение фальшивому агенту, блок в чате открывает вид на его строке; на checkout-е
 Ticket-а диапазон перетаскиванием «+», подсказка, commit HEAD и «uncommitted» в сообщении).
+
+## A pull request
+
+### Behaviour
+
+Предметом Changes может быть pull request: его репозиторий `owner/name`, его номер, его head commit и его base
+commit. Его открывает [Review mode](pr-inbox.md#review-mode) вкладки Pull requests: то же дерево и тот же diff, что у
+вида Changes, который показывает Ticket. Строка PR inbox без head или base commit-а diff не открывает.
+
+- **Локально, когда можно.** Если репозиторий PR — `origin` одного из checkout-ов Project-а и оба его commit-а есть в
+  этом checkout-е, diff читается тем же чтением git, что у Ticket-а: PR — это ветка, нигде не checked out, чья база —
+  base commit PR. «Show whole file» работает. worfy никогда не делает fetch: commit, которого нет в checkout-е,
+  отправляет чтение в GitHub.
+- **Иначе — из GitHub.** Файлы берутся из списка файлов PR на GitHub, страница за страницей. GitHub отдаёт не больше
+  3 000 файлов PR; дальше дерево говорит «GitHub lists the first 3,000 files». Файл, который GitHub прислал без patch —
+  слишком большой или бинарный, — читается как «Large diff · Open on GitHub». Добавленный или удалённый файл, смена
+  mode или переименование без patch и без единой посчитанной строки читаются как «No lines changed»: GitHub не отличает
+  пустой файл от бинарного, поэтому бинарным считается только изменённый файл без строк. Контекста за пределами
+  hunk-ов, присланных GitHub, нет, поэтому у файла такого diff-а в шапке есть «View file on GitHub», а Hide whitespace
+  его не меняет. Ответ хранится в памяти по Project-у, который спросил, head PR и его базе: повторное чтение того же
+  ничего не спрашивает у GitHub. Другой Project спрашивает заново — его аккаунт GitHub может не видеть репозиторий, —
+  и так же PR, переведённый на другую базу без push. Репозиторий с частью `.` или `..` в имени отклоняется.
+- **Scopes PR.** All changes (база против head), Commit (commit-ы PR, новые сверху) и Since my review — scope
+  Compare against с commit-ом вместо ветки: head против commit-а, на котором было ревью, three-dot diff, как compare
+  на GitHub. У PR нет Uncommitted и нет веток для сравнения.
+- **Review threads.** Review threads PR на GitHub, как их читает PR inbox, со стороной, стоят под своей строкой:
+  thread на удалённой строке — под этой строкой старого файла, любой другой — под своей строкой нового файла. В All
+  changes расставлены обе стороны; в Since my review — только новая (старая сторона там — commit ревью, а не база PR);
+  Commit нумерует строки по-своему, поэтому там все threads идут списком. Outdated thread, thread без строки и thread,
+  чью строку scope или hunk-и не показывают, стоят списком под шапкой файла, «N threads not on a line of this diff»,
+  каждый с тем, где он был («outdated», «no line», «line 101», «old line 9»). Под thread-ом в diff-е нет Reply: ответ
+  пишется черновиком под его thread-ом в панели PR ([Draft replies и Send](pr-inbox.md#draft-replies-и-send)), и из
+  diff-а ничего не отправляется.
+
+### How it works
+
+GitHub читается только через `gh api <path>` — GET, никогда с `--method` или полем, — аккаунтом GitHub, который
+называет Profile Project-а, и только пока открытый экран просит файлы, файл или commit-ы. Пути — файлы PR
+(`pulls/{n}/files`), его commit-ы (`pulls/{n}/commits`), один commit (`commits/{sha}`) и Since my review
+(`compare/{a}...{head}`). Patch GitHub — это hunk-и git patch без заголовков: он читается тем же чтением вывода git, что
+и локальный diff. Почему: [ADR-0110](../../adr/0110-changes-reads-git-writes-nothing.md), его Amendment от 2026-11-20.
+
+### Implementation
+
+- `src/main/changes/github.ts` — файлы GitHub в том виде, в каком их показывает экран, patch в hunk-и, страницы,
+  память по Project-у, head и базе, сам вызов `gh api <path>` (`ghApiGet`).
+- `src/main/ipc/changes.ts` — где читается PR: checkout, чей `origin` — его репозиторий и в котором есть оба commit-а,
+  иначе GitHub.
+- `src/renderer/changes/DiffPane.tsx` — threads на своих строках по стороне и scope-у и список остальных, «Large diff ·
+  Open on GitHub», «View file on GitHub»; `src/renderer/changes/FileTree.tsx` — «GitHub lists the first 3,000 files».
+
+Test-ы: `test/unit/changes-github-patch.test.ts` (patch GitHub в hunk-и, файл без patch, переименование, бинарный
+файл), `test/contract/changes-pr.test.ts` (локальный путь и путь через GitHub на подмене gh: 3 000 файлов, файл без
+patch, память по Project-у, head и базе, Commit, Since my review, без fetch, index не тронут, нет `--method` в вызове,
+который строит приложение), `test/unit/changes-view.test.tsx` (threads по стороне, строке и scope-у, пометки и ссылки
+diff-а PR), `test/contract/pr-inbox.test.ts` (сторона thread-а).
