@@ -199,3 +199,16 @@ Code: `src/main/layout/upgrade.ts:41-49` · key lines: 46, 47, 48
 3. Почему Esc в фильтре файлов не закрывает вид?
    - Ответ: обработчик пропускает нажатия, у которых цель — текстовое поле (`typingIn`).
    - Строки: `src/renderer/changes/diff-keys.ts:55-56`
+
+## 10. Что нашёл review и что осталось
+
+> VERIFIED — worfy-changes-view 08 (rework of 07 item 2: Changes of a Ticket open in a full-window view, not a canvas Node), head fb19066c19098e159cd70ccbd28e6ce10689fef9
+>
+> Gate (depth medium, two rounds): verifier (lens: implementer's claims, sonnet) — MERGE, all seven claims CONFIRMED; reviewer (correctness) — round 1 FIX (one medium), round 2 checked by the Orchestrator on the 33-line diff: the folders of the file tree are kept by ReviewMode and ChangesView again, DiffScreen keeps none, both red-before tests now green.
+>
+> - What the user sees: the Changes button on a Ticket card, the palette line «Open changes» and the code-comment block in a chat bubble open the full-window view `changes` (scope bar, file tree, diff, Inline / Side by side, Wrap, Hide whitespace, Compare, Refresh, the comment tray with Send); «← Canvas» (or «← Session» when opened from a bubble in Session view) and Esc go back; Esc with a menu or popover open closes only that; no keys are taken while typing. The diff screen (tree + diff column) is shared with PR Review mode. Saved Changes Nodes are dropped from layout.json on the first read, one log line per Project.
+> - Fixed in round 2: folded and opened folders outlive Hide whitespace, Refresh and a new head in Review mode and in Changes.
+> - Evidence: 14 + 3 mutants, each red on its own test; 37 module unit+contract files 904 tests EXIT=0; e2e changes.spec.ts, changes-comments.spec.ts, pr-review.spec.ts whole 6 passed EXIT=0; lint, typecheck, story-check EXIT=0; gate fast green EXIT=0.
+> - Debt (low): the keys of Review mode are not moved into the shared screen yet (PR #2122 edits that handler) — two handlers with the same keys until a follow-up after #2122.
+>
+> Decided without the owner (to confirm): «← Session» vs «← Canvas» by where the view was opened; ↓/↑ move between files as in Review mode; one log line per Project for every dropped part; the back button is the kit Button; the folders are kept by the callers (Review mode as before this ticket).
