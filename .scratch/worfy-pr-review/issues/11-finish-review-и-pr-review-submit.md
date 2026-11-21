@@ -117,8 +117,8 @@ Source: [spec.md](../spec.md), «Ticket-ы», 11; «Решение», 4 и 6; «
   reviewed this pull request · Approve», Open the review on GitHub, Start a new review. Комментарии отправленного
   черновика — «Submitted · on GitHub» (`DraftComment.tsx`).
 - `harness/bin/review-draft-lint`: обычный режим без `--rules` — длины шаблона (`lint.json` skill-а
-  human-review-setup), каждому тексту наибольший `max_chars`; `--rules` без `tiers`/`body_tier` — так же по своему
-  файлу.
+  human-review-setup), каждому тексту наибольший `max_chars`; `--rules <lint.json> --untiered` — так же по своему
+  файлу (раунд 2; `--rules` без tier-ов и без флага по-прежнему exit 2).
 - Документы: ADR-0112 (новый); Amendment-ы ADR-0105 (пункт 4 — третья запись) и ADR-0002; Amendment в spec.md
   (поток решения 7, шаг 3: `commit_id = anchoredOn ?? startedOn`); `docs/features/pr-inbox.md` — Finish review and
   Submit, How it works, Implementation, Tests.
@@ -161,9 +161,8 @@ Test-ы, красный до правки → зелёный:
 - Какие строки изменены — по diff-у GitHub на commit-е комментариев: `pulls/{n}/files`, когда commit — head, иначе
   `compare/{base}...{commit}`.
 - 4xx (кроме 408) — «GitHub refused the review: <сообщение GitHub>», ревью нет; 5xx, обрыв, timeout gh — «GitHub did
-  not confirm the review», следующий Submit сначала читает до 30 страниц `…/reviews` и сверяет аккаунт, commit, body
-  (без хвостовых пробелов) и state по событию (APPROVE → APPROVED/DISMISSED, REQUEST_CHANGES →
-  CHANGES_REQUESTED/DISMISSED, COMMENT → COMMENTED) — строже spec-а, где state не сверяется.
+  not confirm the review», следующий Submit сначала читает до 30 страниц `…/reviews` и ищет ревью по ушедшим текстам
+  (как именно — раунд 2 ниже).
 - Head сдвинулся с открытия диалога — первый Submit отказывает без записи, диалог показывает оба commit-а, второй
   щелчок «Submit on <a>» отправляет.
 - Remove в диалоге убирает комментарий только из этого Submit-а; в файле `submitted` остаются только ушедшие.
@@ -175,6 +174,44 @@ Test-ы, красный до правки → зелёный:
   читать»: отметка `submitting` без отложенной записи); `viewer` в `src/renderer/pr-inbox/PrInboxView.tsx`;
   флаг `submitted` в `src/renderer/pr-review/DraftComment.tsx` и `review-comments.tsx`; `test/fixtures/gh/gh-stub.mjs`
   (`reviews.json`, `posted-reviews.json`, отправленное ревью в `latestOpinionatedReviews`).
+
+### Раунд 2 (ревью PR #2122)
+
+Ветка перенесена на `main` 7d511a51b. Находки ревью `max` и что сделано:
+- A (high): Submit, который GitHub не подтвердил (5xx, timeout), открывал диалог на Comment с правимыми текстами, а
+  поиск сверял state нового выбора — ушедший Approve не находился, уходило второе ревью. Теперь черновик с «GitHub did
+  not confirm the review» заперт, как `submitting` (`submitPending` в `src/shared/ipc/pr-review.ts`): диалог открывается
+  на ушедших событии, Summary и комментариях без правки; Review mode не правит, не удаляет и не добавляет; Discard, Ask
+  и Take over скрыты или неактивны; main отказывает Submit-у других текстов.
+- Поиск идёт первым — до проверок head, lint-а и diff-а; сверяет ушедший `payload`, state не сверяет.
+- B (med): поиск сужен. Отметка `submitting` хранит `submittingAt`; берётся ревью этого аккаунта на том же commit-е, с
+  тем же body, данное не раньше отметки минус 2 минуты, и с теми же комментариями к строкам
+  (`GET …/reviews/{id}/comments`, путь и текст каждого, как мультимножество). ADR-0112, пункт 6, обновлён.
+- C (med): ответ 4xx возвращает черновику комментарии и anchors, какими они были до отметки; 5xx оставляет ушедшие.
+- D (med): `review-draft-lint --rules` без tier-ов снова exit 2, как в `main`; Submit передаёт новый флаг `--untiered`
+  (`submitLintArgs`).
+- Low: отсутствующий anchor при отметке — теперь ошибка, а не `anchors.push(undefined)`.
+
+Test-ы, красный до правки → зелёный:
+- `test/contract/pr-review-submit.test.ts`: 5 новых или изменённых — 5 failed / 18 passed, exit 1 → 23 passed, exit 0;
+  затем test `lint.json` Profile-а с `--untiered` — 24 passed, exit 0.
+- `test/contract/harness-review-draft-lint.test.ts`: `--rules` без tier-ов — отказ, `--untiered` — 1 failed / 61
+  passed, exit 1 → 62 passed, exit 0.
+- `test/unit/finish-review-dialog.test.tsx`, `test/unit/review-comments.test.tsx`: запертый неподтверждённый черновик —
+  2 failed / 39 passed, exit 1 → exit 0.
+- Mutation testing, 13 mutant-ов — все убиты: запирает только `submitting` (main, диалог, Review mode, полоса), без
+  поиска первым, черновик не освобождается после «не нашёл», без фильтра по времени, без сверки комментариев, отметка
+  без времени, 4xx не возвращает комментарии и оставляет время, `--untiered` игнорируется, Submit без `--untiered`.
+- Test-ы модуля (13 файлов) — 280 passed, exit 0; `plugin-neutral`, `harness-home`, `agents-text` — exit 0.
+- e2e `pr-review.spec.ts` + `pr-inbox.spec.ts` под `/tmp/worfy-e2e.lock` — 18 passed, exit 0; spec-и таблицы для
+  `harness/bin/` — 53 passed и 31 passed + 1 skipped, exit 0 (`packaged.spec.ts` прогнан после commit-а: он требует
+  чистый `harness/` в git).
+
+Решено без владельца (раунд 2):
+- Допуск часов — 2 минуты до отметки: часы машины и GitHub расходятся.
+- Комментарии сверяются по пути и тексту: строки GitHub может вернуть `null` для устаревших.
+- Отдельный флаг `--untiered`, а не запуск без `--rules`: запреты `lint.json` Profile-а остаются.
+- «Не нашёл» освобождает черновик (снова обычный, без `submittingAt`), и Submit идёт как новый.
 
 Не проверено:
 - Пункт 8, sandbox: что GitHub отвечает на POST ревью при висящем pending review с github.com. Запросы к настоящему
