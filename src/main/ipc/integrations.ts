@@ -254,7 +254,9 @@ export function integrationsHandlers(options: IntegrationsHandlersOptions = {}):
     }),
     defineHandler(integrationsMachine, () => {
       const machine = store()
-      const integrations = machine.list()
+      // A list not known whole (its file damaged and set aside, or missing) would make every entry an orphan.
+      const whole = machine.wholeList()
+      const integrations = whole ?? []
       const projects = projectsOf()
       const entries = projects.list().map((project) => ({ project, used: readProjectIntegrations(projects.dataDir(project.id)) }))
       const items = integrations.map((integration) => ({
@@ -265,18 +267,17 @@ export function integrationsHandlers(options: IntegrationsHandlersOptions = {}):
           return entry === undefined ? [] : [{ id: project.id, name: project.name, enabled: entry.enabled }]
         }),
       }))
-      const dangling = entries.flatMap(({ project, used }) => {
+      const dangling = (whole === null ? [] : entries).flatMap(({ project, used }) => {
         const count = used.filter((entry) => !integrations.some((integration) => integration.id === entry.id)).length
         return count === 0 ? [] : [{ projectId: project.id, name: project.name, count }]
       })
       return { items, dangling }
     }),
     defineHandler(integrationsCleanUp, () => {
-      const known = new Set(
-        store()
-          .list()
-          .map((integration) => integration.id),
-      )
+      const whole = store().wholeList()
+      // Cleaning up against a list that could not be read would erase every Project's settings for good.
+      if (whole === null) return { removed: 0 }
+      const known = new Set(whole.map((integration) => integration.id))
       const projects = projectsOf()
       let removed = 0
       for (const project of projects.list()) {

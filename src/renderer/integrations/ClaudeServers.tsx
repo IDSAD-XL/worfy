@@ -17,7 +17,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { WORFY_SERVER_NAMES, type McpServerRow } from '../../shared/agent/mcp-status'
 import { catalogueEntry } from '../../shared/integrations/catalogue'
 import type { ProfileEditRead } from '../../shared/ipc/profile-edit'
-import { invoke } from '../ipc'
+import { DEFAULT_MCP_SERVERS } from '../../shared/workflow/mcp-servers'
+import type { invoke } from '../ipc'
 import { useOrchestratorViews } from '../canvas/nodes/orchestrator-view'
 import { useProjects } from '../projects/useProjects'
 import { McpStatusChip } from '../session/McpChip'
@@ -27,6 +28,15 @@ import { Button } from '../theme/Button'
 import { serviceOfServer } from './model'
 
 const FIELD = 'mcp.allowed'
+
+/**
+ * The names of the Profile's list as the Sessions get them: a Profile with no list has the default one
+ * (DEFAULT_MCP_SERVERS, ADR-0021), as main reads it and as the chip's Allow adds to it; null for a value that is no list.
+ */
+function namesOf(value: unknown): string[] | null {
+  if (value === null || value === undefined) return [...DEFAULT_MCP_SERVERS]
+  return Array.isArray(value) ? value.filter((name): name is string => typeof name === 'string') : null
+}
 
 const SOURCE_TEXT: Record<string, string> = { claudeai: 'claude.ai connector', user: 'user config', project: 'Project (.mcp.json)' }
 
@@ -39,6 +49,8 @@ export interface ClaudeServersProps {
   /** The services of the Integrations enabled in the Project, with their labels. */
   enabledServices: readonly { service: string; label: string }[]
   onAddAsIntegration: (service: string) => void
+  /** The channels of the Project's Machine (IntegrationsSection's `call`): this Machine's bridge for its own Project. */
+  call: typeof invoke
 }
 
 interface ServerRow {
@@ -65,26 +77,26 @@ function useProjectMcp(path: string): readonly McpServerRow[] | null {
   return useLatestMcp(sessionIds)
 }
 
-export function ClaudeServers({ path, remote, readOnly, enabledServices, onAddAsIntegration }: ClaudeServersProps) {
+export function ClaudeServers({ path, remote, readOnly, enabledServices, onAddAsIntegration, call }: ClaudeServersProps) {
   const rows = useProjectMcp(path)
   const [read, setRead] = useState<ProfileEditRead>()
   const [problem, setProblem] = useState<string>()
   const [busy, setBusy] = useState(false)
 
   const reread = useCallback(async (): Promise<ProfileEditRead | undefined> => {
-    const result = await invoke('profileEdit.read', { root: path })
+    const result = await call('profileEdit.read', { root: path })
     if (!result.ok) {
       setProblem(result.error)
       return undefined
     }
     setRead(result.value)
     return result.value
-  }, [path])
+  }, [call, path])
 
   useEffect(() => {
     if (remote) return
     let active = true
-    void invoke('profileEdit.read', { root: path }).then((result) => {
+    void call('profileEdit.read', { root: path }).then((result) => {
       if (!active) return
       if (result.ok) setRead(result.value)
       else setProblem(result.error)
@@ -92,7 +104,7 @@ export function ClaudeServers({ path, remote, readOnly, enabledServices, onAddAs
     return () => {
       active = false
     }
-  }, [remote, path])
+  }, [call, remote, path])
 
   if (remote) {
     return (
@@ -105,8 +117,7 @@ export function ClaudeServers({ path, remote, readOnly, enabledServices, onAddAs
     )
   }
 
-  const list = read?.available === true ? read.values[FIELD] : undefined
-  const names = Array.isArray(list) ? list.filter((name): name is string => typeof name === 'string') : null
+  const names = read?.available === true ? namesOf(read.values[FIELD]) : null
   const servers: ServerRow[] = []
   const seen = new Set<string>()
   const push = (name: string, row: McpServerRow | undefined): void => {
@@ -123,10 +134,10 @@ export function ClaudeServers({ path, remote, readOnly, enabledServices, onAddAs
     for (let attempt = 0; attempt < 2; attempt++) {
       const now = await reread()
       if (now?.available !== true) break
-      const current = now.values[FIELD]
-      if (!Array.isArray(current)) break
+      const current = namesOf(now.values[FIELD])
+      if (current === null) break
       const next = allow ? [...new Set([...current, name])] : current.filter((each) => each !== name)
-      const result = await invoke('profileEdit.write', { root: path, values: { ...now.values, [FIELD]: next }, expected: now.fingerprint })
+      const result = await call('profileEdit.write', { root: path, values: { ...now.values, [FIELD]: next }, expected: now.fingerprint })
       if (!result.ok) {
         setProblem(result.error)
         break
@@ -150,7 +161,7 @@ export function ClaudeServers({ path, remote, readOnly, enabledServices, onAddAs
         <span className="w-int__note">Servers and claude.ai connectors Claude Code knows. Allow puts the name on the Profile’s MCP servers list, as Edit profile does.</span>
       </div>
       {read?.available === false ? <p className="w-int__note">{read.reason}</p> : null}
-      {read?.available === true && names === null ? <p className="w-int__note">The Profile has no MCP servers list: set one in Edit profile.</p> : null}
+      {read?.available === true && names === null ? <p className="w-int__note">The Profile’s MCP servers list is not a list: set it in Edit profile.</p> : null}
       {rows === null ? <p className="w-int__note">Start a Session in this Project to see every server Claude Code knows; until then only the Profile’s list shows.</p> : null}
       <ul className="w-int__rows">
         {servers.map((server) => {

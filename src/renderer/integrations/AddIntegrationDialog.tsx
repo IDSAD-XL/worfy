@@ -30,6 +30,11 @@ export interface AddIntegrationDialogProps {
   onClose: () => void
   /** Something changed: the section reads the list again. */
   onDone: () => void
+  /**
+   * The channels of the Project's Machine (IntegrationsSection's `call`): this Machine's bridge for its own Project,
+   * also in a window of a Linked machine, where a bare `invoke` of a `project` channel goes to the window's Machine.
+   */
+  call?: typeof invoke
 }
 
 interface EnvRow {
@@ -40,7 +45,7 @@ interface EnvRow {
 
 type Step = { kind: 'catalogue' } | { kind: 'form'; entry: CatalogueEntry } | { kind: 'result'; label: string; status: IntegrationStatus | null; problem: string | null; tools: string | null }
 
-export function AddIntegrationDialog({ project, items, machineItems, service, onClose, onDone }: AddIntegrationDialogProps) {
+export function AddIntegrationDialog({ project, items, machineItems, service, onClose, onDone, call = invoke }: AddIntegrationDialogProps) {
   const preset = service === undefined ? undefined : catalogueEntry(service)
   const [step, setStep] = useState<Step>(preset === undefined ? { kind: 'catalogue' } : { kind: 'form', entry: preset })
   const titleId = useId()
@@ -53,7 +58,7 @@ export function AddIntegrationDialog({ project, items, machineItems, service, on
   const [problem, setProblem] = useState<string>()
 
   const use = async (id: string): Promise<void> => {
-    const result = await invoke('integrations.setEnabled', { projectId: project.id, id, enabled: true })
+    const result = await call('integrations.setEnabled', { projectId: project.id, id, enabled: true })
     if (!result.ok) return setProblem(result.error)
     onDone()
   }
@@ -124,7 +129,7 @@ export function AddIntegrationDialog({ project, items, machineItems, service, on
           </div>
         </div>
       ) : step.kind === 'form' ? (
-        <ServiceForm entry={step.entry} project={project} labels={items.map((item) => item.integration.label)} onClose={onClose} onAdded={(result) => setStep({ kind: 'result', ...result })} />
+        <ServiceForm entry={step.entry} project={project} labels={items.map((item) => item.integration.label)} onClose={onClose} onAdded={(result) => setStep({ kind: 'result', ...result })} call={call} />
       ) : (
         <div className="w-int-dialog__body" data-testid="add-integration-result">
           <p className="w-int__note">
@@ -156,9 +161,10 @@ interface ServiceFormProps {
   labels: readonly string[]
   onClose: () => void
   onAdded: (result: { label: string; status: IntegrationStatus | null; problem: string | null; tools: string | null }) => void
+  call: typeof invoke
 }
 
-function ServiceForm({ entry, project, labels, onClose, onAdded }: ServiceFormProps) {
+function ServiceForm({ entry, project, labels, onClose, onAdded, call }: ServiceFormProps) {
   const ways = offered(entry)
   const custom = entry.server.kind === 'custom'
   const [label, setLabel] = useState(entry.defaultLabel)
@@ -180,13 +186,13 @@ function ServiceForm({ entry, project, labels, onClose, onAdded }: ServiceFormPr
   useEffect(() => {
     if (entry.key !== 'github') return
     let active = true
-    void invoke('integrations.ghOffer', { projectId: project.id }).then((result) => {
+    void call('integrations.ghOffer', { projectId: project.id }).then((result) => {
       if (active && result.ok) setGh(result.value.offer)
     })
     return () => {
       active = false
     }
-  }, [entry.key, project.id])
+  }, [call, entry.key, project.id])
 
   const taken = labels.find((other) => sameLabel(other, label))
   const stdio = custom && kind === 'stdio'
@@ -232,7 +238,7 @@ function ServiceForm({ entry, project, labels, onClose, onAdded }: ServiceFormPr
     }
     setProblem(undefined)
     setBusy(true)
-    const added = await invoke('integrations.add', {
+    const added = await call('integrations.add', {
       projectId: project.id,
       service: entry.key,
       label: label.trim(),
@@ -248,7 +254,7 @@ function ServiceForm({ entry, project, labels, onClose, onAdded }: ServiceFormPr
     let status: IntegrationStatus | null = null
     let failed: string | null = null
     if (auth === 'gh') {
-      const signed = await invoke('integrations.ghSignIn', { projectId: project.id, id: integrationId })
+      const signed = await call('integrations.ghSignIn', { projectId: project.id, id: integrationId })
       if (signed.ok) status = signed.value.status
       else failed = signed.error
     } else if (secrets.length > 0) {
@@ -259,7 +265,7 @@ function ServiceForm({ entry, project, labels, onClose, onAdded }: ServiceFormPr
     let tools: string | null = null
     // The tools are asked only of an Integration whose sign-in held: nothing starts after a failure.
     if (failed === null && status?.state !== 'needs-sign-in') {
-      const listed = await invoke('integrations.tools', { projectId: project.id, id: integrationId })
+      const listed = await call('integrations.tools', { projectId: project.id, id: integrationId })
       if (listed.ok) {
         status = listed.value.status
         tools = listed.value.tools === null ? null : costText(listed.value.tools, 'all')

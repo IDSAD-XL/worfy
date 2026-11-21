@@ -334,6 +334,55 @@ describe('«From Claude Code»', () => {
     expect(screen.getByTestId('add-integration-form').dataset.key).toBe('linear')
     expect(asked('profileEdit.write')).toEqual([])
   })
+
+  it('a Profile with no list shows the default one as allowed, as the Sessions get it, and Allow adds to it', async () => {
+    project([])
+    main.rows = [server('plugin_worfy_qmd', 'user'), server('linear', 'user')]
+    main.answers['profileEdit.read'] = { ok: true, value: { available: true, name: 'demo', values: { 'mcp.allowed': null }, fixed: {}, fixedFingerprint: 'f1', interrupted: false, severalRepos: false, fingerprint: 'f2' } }
+    main.answers['profileEdit.write'] = { ok: true, value: { status: 'saved', fingerprint: 'f3', warning: null } }
+    await open({ path: true })
+    const rows = screen.getAllByTestId('claude-server')
+    expect(rows.map((each) => [each.dataset.name, each.dataset.allowed])).toEqual([
+      ['plugin_worfy_qmd', 'true'],
+      ['linear', 'false'],
+    ])
+    expect(screen.getByTestId('integrations-claude').textContent).not.toContain('no MCP servers list')
+    fireEvent.click(within(rows[1]!).getByRole('button', { name: 'Allow' }))
+    await flush()
+    expect(asked('profileEdit.write')).toEqual([{ root: PROJECT.path, values: { 'mcp.allowed': ['plugin_worfy_qmd', 'worfy-canvas', 'linear'] }, expected: 'f2' }])
+  })
+})
+
+describe('a window of a Linked machine with a Project of this Machine', () => {
+  const profile: Answer = { ok: true, value: { available: true, name: 'demo', values: { 'mcp.allowed': [] }, fixed: {}, fixedFingerprint: 'f1', interrupted: false, severalRepos: false, fingerprint: 'f2' } }
+
+  it('sends the Project’s channels of Add integration and «From Claude Code» to this Machine, not to the window’s', async () => {
+    main.windowMachine = 'mac-l'
+    const other = integration('ffff0006', 'Tracker — client B')
+    project([{ integration: other, project: null, status: { state: 'signed-in' } }])
+    main.answers['profileEdit.read'] = profile
+    main.answers['integrations.setEnabled'] = { ok: true, value: { project: entry(other.id) } }
+    main.answers['integrations.add'] = (input) => ({ ok: true, value: { integration: integration('ffff0007', (input as { label: string }).label), project: entry('ffff0007') } })
+    main.answers['integrations.setSecret'] = { ok: true, value: { status: { state: 'signed-in' } } }
+    await open({ machine: null, path: true })
+    const through = (channel: string): (string | null | undefined)[] => main.calls.filter((call) => call.channel === channel).map((call) => call.machine)
+    expect(through('profileEdit.read').length).toBeGreaterThan(0)
+    expect(new Set(through('profileEdit.read'))).toEqual(new Set([null]))
+
+    fireEvent.click(screen.getByTestId('integrations-add'))
+    fireEvent.click(within(screen.getByTestId('add-integration-reuse')).getByRole('button', { name: 'Use in this Project' }))
+    await flush()
+    expect(through('integrations.setEnabled')).toEqual([null])
+
+    fireEvent.click(screen.getByTestId('integrations-add'))
+    fireEvent.click(within(screen.getByTestId('add-integration-catalogue')).getByText('Linear'))
+    fireEvent.change(within(screen.getByTestId('add-integration-form')).getByLabelText('API token', { exact: true }), { target: { value: 'typed-value' } })
+    fireEvent.click(screen.getByTestId('add-integration-save'))
+    await flush()
+    expect(through('integrations.add')).toEqual([null])
+    expect(through('integrations.tools').filter((machine) => machine !== null)).toEqual([])
+    expect(asked('integrations.tools')).toContainEqual({ projectId: PROJECT.id, id: 'ffff0007' })
+  })
 })
 
 describe('a Linked machine', () => {

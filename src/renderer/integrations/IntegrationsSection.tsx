@@ -355,6 +355,7 @@ export function IntegrationsSection({ project, machine, readOnly }: Integrations
           readOnly={locked}
           enabledServices={rows.filter((row) => row.project.enabled).map((row) => ({ service: row.integration.service, label: row.integration.label }))}
           onAddAsIntegration={(service) => setOpen({ kind: 'add', service })}
+          call={call}
         />
       )}
 
@@ -364,6 +365,7 @@ export function IntegrationsSection({ project, machine, readOnly }: Integrations
           items={items ?? []}
           machineItems={machineItems}
           service={open.service}
+          call={call}
           onClose={() => setOpen(null)}
           onDone={() => {
             setOpen(null)

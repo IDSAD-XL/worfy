@@ -190,6 +190,42 @@ describe('the Machine’s Integrations: where each is used, and orphans', () => 
     expect(await call('integrations.cleanUp')).toEqual({ removed: 0 })
   })
 
+  it.each([
+    ['damaged', '{"version": 1, "integrations": ['],
+    ['of another version', '{"version": 99, "integrations": []}'],
+  ])('a list of the Machine that could not be read (%s) names no orphan, and Clean up erases nothing', async (_kind, text) => {
+    const call = handlers()
+    const id = await added(call, 'Stub — A', TOKEN_A, 'p1')
+    await call('integrations.setTools', { projectId: 'p1', id, tools: 'read-only' })
+    const before = readProjectIntegrations(dataDir('p1'))
+    writeFileSync(join(root, 'worfy-data', 'integrations', 'integrations.json'), text)
+
+    // The first read sets the file aside, so the Machine's list reads as empty from then on.
+    for (let read = 0; read < 2; read++) expect(((await call('integrations.machine')) as { dangling: unknown[] }).dangling).toEqual([])
+    expect(await call('integrations.cleanUp')).toEqual({ removed: 0 })
+    expect(readProjectIntegrations(dataDir('p1'))).toEqual(before)
+  })
+
+  it('a new Integration after a damaged list was set aside still names no orphan: the old list may yet be put back', async () => {
+    const call = handlers()
+    const id = await added(call, 'Stub — A', TOKEN_A, 'p1')
+    writeFileSync(join(root, 'worfy-data', 'integrations', 'integrations.json'), '{"version": 1, "integrations": [')
+    await call('integrations.machine')
+    // A new list is written beside the one set aside.
+    await added(call, 'Stub — B', TOKEN_B, 'p1')
+    expect(((await call('integrations.machine')) as { dangling: unknown[] }).dangling).toEqual([])
+    expect(await call('integrations.cleanUp')).toEqual({ removed: 0 })
+    expect(readProjectIntegrations(dataDir('p1')).map((entry) => entry.id)).toContain(id)
+  })
+
+  it('a Machine with no list of Integrations at all names no orphan either', async () => {
+    const call = handlers()
+    writeProjectIntegrations(dataDir('p1'), [{ id: 'gone0001', enabled: true, tools: 'all', autopilot: false }])
+    expect(((await call('integrations.machine')) as { dangling: unknown[] }).dangling).toEqual([])
+    expect(await call('integrations.cleanUp')).toEqual({ removed: 0 })
+    expect(readProjectIntegrations(dataDir('p1')).map((entry) => entry.id)).toEqual(['gone0001'])
+  })
+
   it('removes from Settings, without a Project: every Project that has it enabled asks for the confirmation first', async () => {
     const call = handlers()
     const id = await added(call, 'Stub — A', TOKEN_A, 'p1')

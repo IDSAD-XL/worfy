@@ -193,12 +193,15 @@ row in the chip shows its label and the source `worfy integration`. Claude Code 
   command worfy starts, whose variables marked Secret go to the secret store. After the token worfy checks the sign-in
   and lists the tools. Sign-in through the service's page is not available yet.
 - **From Claude Code** under it lists the servers and claude.ai connectors of Claude Code, as Edit profile does, with
-  Allow. When one of them is a service of the catalogue whose Integration this Project has on, the row warns that the
+  Allow; a Profile with no list shows the default one (`plugin_worfy_qmd`, `worfy-canvas`) as allowed, as Sessions get
+  it. When one of them is a service of the catalogue whose Integration this Project has on, the row warns that the
   Sessions get two tool sets of it, possibly of different accounts, and offers to turn the server off in this Project.
   «Add as integration» opens Add integration on that service; the Profile's list does not change by itself.
 - **Settings → Integrations** lists every Integration of the Machine, its status and the Projects that use it, with
   Sign out and Remove. One no Project uses shows «Not used in any Project». Entries a Project still keeps of an
-  Integration the Machine no longer has (a Remove cut short) are named in one line with Clean up.
+  Integration the Machine no longer has (a Remove cut short) are named in one line with Clean up. When the
+  Machine's list could not be read (its file damaged or of another version, and set aside) nothing is named and Clean
+  up erases nothing: every entry would look removed.
 - **On a Linked machine** with read-only access the section shows the list and the status, and every control is
   inactive. With full access the ticks, the filter and Rename work; Add integration, the token, Sign out and Remove
   stay on the Project's machine, because a token never crosses the link.

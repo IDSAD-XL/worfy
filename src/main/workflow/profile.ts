@@ -23,9 +23,9 @@ import { constants } from 'node:fs'
 import { access, open, stat, type FileHandle } from 'node:fs/promises'
 import { basename, delimiter, isAbsolute, join } from 'node:path'
 import { z } from 'zod'
-import { CANVAS_SERVER_NAME } from '../../shared/canvas/tools'
 import { DEFAULT_PIPELINE, pipelineSchema, type PipelineStage } from '../../shared/workflow/pipeline'
 import type { DocHeadings } from '../../shared/workflow/doc-headings'
+import { DEFAULT_MCP_SERVERS } from '../../shared/workflow/mcp-servers'
 import { isAbsolutePath, isWindowsAbsolutePath } from '../../shared/paths'
 import { harnessHomes, locateHarness, scriptEnv } from '../harness/locate'
 import type { HarnessScriptEnv } from '../harness/script-env'
@@ -36,13 +36,8 @@ export type ProfileEnv = HarnessScriptEnv
 /** The Profile field with the list of MCP server names. */
 export const MCP_ALLOWED_FIELD = 'mcp.allowed'
 
-/**
- * The servers the workflow needs: the qmd of the Harness plugin (ADRs, lessons, Tickets), which worfy
- * registers as `plugin_worfy_qmd` (src/main/agent/options.ts, ADR-0048 item 4), and the canvas. The
- * name `qmd` means the user's own server from ~/.claude.json: it is not in the default list, so a
- * Session never gets two qmd servers (worfy-harness ticket 17).
- */
-export const DEFAULT_MCP_SERVERS: readonly string[] = Object.freeze(['plugin_worfy_qmd', CANVAS_SERVER_NAME])
+/** The default list of MCP servers (ADR-0021); it lives in shared, where the screens that show the list read it too. */
+export { DEFAULT_MCP_SERVERS }
 
 /** What one run of `bin/profile` ended with. */
 export interface ProfileRun {
