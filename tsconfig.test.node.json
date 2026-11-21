@@ -44,6 +44,7 @@
     "src/renderer/stories/story-toast.ts",
     "src/renderer/product/mind-map-layout.ts",
     "src/renderer/session/quote-comments.ts",
+    "src/renderer/integrations/cost.ts",
     "test/app-url.ts",
     "test/autopilot-invariants.ts",
     "test/big-transcript.ts",

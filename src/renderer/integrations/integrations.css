@@ -1,0 +1,382 @@
+/* Project settings → Integrations and Settings → Integrations (worfy-integrations ticket 08): the look of the
+   prototype Card of ticket 02 on worfy's tokens. */
+.w-int {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  font-size: var(--text-13);
+}
+.w-int__lead {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  line-height: 17px;
+}
+.w-int__group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-node);
+  background: var(--surface-raised);
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.w-int__ghead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.w-int__ghead h3 {
+  margin: 0;
+  font-size: var(--text-13);
+  font-weight: 600;
+}
+.w-int__count {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.w-int__spacer {
+  flex: 1;
+}
+.w-int__note {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  margin: 0;
+}
+.w-int__error {
+  color: var(--blocked-text);
+  font-size: var(--text-12);
+  margin: 0;
+}
+.w-int__warn {
+  color: var(--blocked-text);
+  font-size: var(--text-12);
+}
+.w-int__empty {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-3);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+.w-int__rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.w-int__row,
+.w-int__crow {
+  display: grid;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border);
+}
+.w-int__row {
+  grid-template-columns: 10px minmax(0, 1fr) auto auto auto auto auto;
+}
+.w-int__crow {
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+}
+.w-int__rows > li:first-child {
+  border-top: none;
+}
+.w-int__row--off .w-int__main {
+  opacity: 0.6;
+}
+.w-int__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+.w-int__dot--signed-in {
+  background: var(--ready-text);
+}
+.w-int__dot--needs-sign-in,
+.w-int__dot--error {
+  background: var(--blocked-ring);
+}
+.w-int__dot--checking {
+  background: var(--working-text);
+}
+.w-int__dot--off {
+  background: transparent;
+  border: 1px dashed var(--text-muted);
+}
+.w-int__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.w-int__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.w-int__label {
+  font-weight: 600;
+}
+.w-int__sub {
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  overflow-wrap: anywhere;
+}
+.w-int__sub--bad {
+  color: var(--blocked-text);
+}
+.w-int__flag {
+  font-size: var(--text-11);
+  border-radius: var(--radius-chip);
+  padding: 0 6px;
+  line-height: 16px;
+  background: var(--done-bg);
+  color: var(--done-text);
+}
+.w-int__flag--signed-in {
+  background: var(--ready-bg);
+  color: var(--ready-text);
+}
+.w-int__flag--needs-sign-in,
+.w-int__flag--error {
+  background: var(--blocked-bg);
+  color: var(--blocked-text);
+}
+.w-int__flag--checking {
+  background: var(--working-bg);
+  color: var(--working-text);
+}
+.w-int__flag--off {
+  background: transparent;
+  border: 1px dashed var(--border-strong);
+}
+.w-int__cost {
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.w-int__filter,
+.w-int__more {
+  font: inherit;
+  font-size: var(--text-12);
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-button);
+  padding: 2px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.w-int__filter:disabled,
+.w-int__more:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.w-int__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-12);
+  white-space: nowrap;
+}
+.w-int__check--off {
+  color: var(--text-muted);
+}
+.w-int__menu-right {
+  margin-left: auto;
+  padding-left: var(--space-3);
+  color: var(--text-muted);
+}
+.w-int__why {
+  display: block;
+  max-width: 280px;
+  white-space: normal;
+  color: var(--text-muted);
+  font-size: var(--text-11);
+}
+.w-int__allowed {
+  color: var(--ready-text);
+  font-size: var(--text-12);
+}
+.w-int__acts {
+  display: inline-flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+.w-int__warnline {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border-left: 3px solid var(--blocked-ring);
+  background: var(--blocked-bg);
+  color: var(--text);
+  font-size: var(--text-12);
+  border-radius: var(--radius-chip);
+}
+.w-int__sect {
+  color: var(--text-muted);
+  font-size: var(--text-11);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.w-int-dialog {
+  width: 460px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: var(--space-4);
+  border-radius: var(--radius-popover);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-node);
+  font-size: var(--text-13);
+}
+.w-int-dialog--wide {
+  width: 620px;
+}
+.w-int-dialog__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.w-int-dialog__title {
+  margin: 0;
+  font-size: var(--text-15);
+  font-weight: 600;
+  flex: 1;
+}
+.w-int-dialog__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.w-int-dialog__foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.w-int-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.w-int-field__label {
+  font-weight: 600;
+  font-size: var(--text-12);
+}
+.w-int-field__input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 4px 8px;
+  border-radius: var(--radius-button);
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-12);
+}
+.w-int-field__input[aria-invalid='true'] {
+  border-color: var(--blocked-ring);
+}
+.w-int-env {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr) auto auto;
+  gap: var(--space-1);
+  align-items: center;
+}
+.w-int-catalogue,
+.w-int-reuse,
+.w-int-choose {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.w-int-catalogue__item {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-node);
+  padding: var(--space-2) var(--space-3);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px var(--space-2);
+  cursor: pointer;
+}
+.w-int-catalogue__item:hover {
+  border-color: var(--border-strong);
+}
+.w-int-catalogue__name {
+  font-weight: 600;
+}
+.w-int-catalogue__ways {
+  grid-column: 2;
+  grid-row: 1;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+.w-int-reuse__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-content: space-between;
+  padding: var(--space-1) 0;
+}
+.w-int-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-12);
+}
+.w-int-table th {
+  text-align: left;
+  color: var(--text-muted);
+  font-weight: 500;
+  padding: 4px 6px;
+}
+.w-int-table td {
+  border-top: 1px solid var(--border);
+  padding: 6px;
+  vertical-align: top;
+}
+/* The tabs of Project settings: General and Integrations. */
+.w-int-tabs {
+  display: flex;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--border);
+  margin: 0 0 var(--space-3);
+}
+.w-int-tab {
+  font: inherit;
+  font-size: var(--text-12);
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 4px 10px 6px;
+  cursor: pointer;
+}
+.w-int-tab[aria-selected='true'] {
+  color: var(--text);
+  border-bottom-color: var(--text);
+  font-weight: 600;
+}

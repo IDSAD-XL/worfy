@@ -431,6 +431,33 @@ describe('the token of the Project’s gh account', () => {
     expect(stub.log).toEqual([{ method: 'initialize', dataset: 'gh' }])
     expect(logged.join('\n')).not.toContain(GH_TOKEN)
   })
+
+  // worfy-integrations ticket 08 (the low finding of ticket 04: `changed` of signInWithGhToken had no test).
+  it.each([503, 429])('a new gh token the service answers %s for does not inherit the sign-in of the token before it', async (code) => {
+    const b = bench()
+    const id = await b.add('GitHub', 'bearer')
+    await setSecret(b, id, ALPHA)
+    expect(b.store.get(id)?.signIn).not.toBeNull()
+    stub.unavailable.set(GH_TOKEN, code)
+    const status = await signInWithGhToken({ store: b.store, id, account: 'alice', run: gh('repo'), root })
+    expect(status.state).toBe('error')
+    expect(status.state === 'error' ? status.message : '').toContain(String(code))
+    expect(b.store.secret(id, 'access')).toBe(GH_TOKEN)
+    expect(b.store.get(id)?.signIn).toBeNull()
+    expect(logged.join('\n')).not.toContain(GH_TOKEN)
+  })
+
+  it.each([503, 429])('the same gh token signed in again while the service answers %s keeps its sign-in', async (code) => {
+    const b = bench()
+    const id = await b.add('GitHub', 'bearer')
+    expect(await signInWithGhToken({ store: b.store, id, account: 'alice', run: gh('repo'), root })).toEqual({ state: 'signed-in' })
+    const signedIn = b.store.get(id)?.signIn
+    expect(signedIn?.account).toBe('alice')
+    stub.unavailable.set(GH_TOKEN, code)
+    const again = await signInWithGhToken({ store: b.store, id, account: 'alice', run: gh('repo'), root })
+    expect(again.state).toBe('error')
+    expect(b.store.get(id)?.signIn).toEqual(signedIn)
+  })
 })
 
 describe('the secret variables of a stdio server', () => {

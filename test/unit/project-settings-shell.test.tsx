@@ -634,3 +634,71 @@ describe('Project settings is a window of the kit', () => {
     expect(screen.queryByRole('dialog', { name: 'Project settings' })).toBeNull()
   })
 })
+
+describe('Integrations in Project settings and in Settings (worfy-integrations ticket 08)', () => {
+  const jira = {
+    id: 'aaaa0001',
+    service: 'atlassian',
+    label: 'Jira — client A',
+    transport: { kind: 'http', url: 'https://mcp.atlassian.com/v2/mcp' },
+    auth: 'basic',
+    headerName: null,
+    signIn: { account: 'person@example.com', site: null, at: '2026-11-21T00:00:00.000Z' },
+  }
+  const notes = { ...jira, id: 'bbbb0002', service: 'notion', label: 'Notion — client B', transport: { kind: 'http', url: 'https://mcp.notion.com/mcp' }, auth: 'bearer', signIn: null }
+
+  it('opens the Integrations tab with the Project’s Integrations, and General keeps Save', async () => {
+    main.answers['integrations.list'] = { ok: true, value: { items: [{ integration: jira, project: { id: jira.id, enabled: true, tools: 'all', autopilot: false } }] } }
+    main.answers['integrations.status'] = { ok: true, value: { statuses: [{ id: jira.id, status: { state: 'signed-in' } }] } }
+    main.answers['integrations.machine'] = { ok: true, value: { items: [], dangling: [] } }
+    main.answers['integrations.tools'] = { ok: true, value: { status: { state: 'signed-in' }, tools: [{ name: 'getJiraIssue', readOnly: true, size: 98 }], hidden: [] } }
+    await open()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy()
+    // Nothing of the Integrations is read before the tab opens.
+    expect(main.calls.some((call) => call.channel.startsWith('integrations.'))).toBe(false)
+    fireEvent.click(screen.getByRole('tab', { name: 'Integrations' }))
+    await flush()
+    const section = screen.getByTestId('integrations-section')
+    expect(within(section).getByTestId('integration-row').dataset.status).toBe('signed-in')
+    expect(within(section).getByTestId('integration-cost').textContent).toBe('1 tool · ~25 tokens')
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Close' })).toBeTruthy()
+  })
+
+  it('Settings → Integrations lists every Integration of the Machine and where it is used, an unused one too', async () => {
+    const { default: MachineIntegrations, title } = await import('../../src/renderer/settings/IntegrationsSection')
+    expect(title).toBe('Integrations')
+    main.answers['integrations.machine'] = {
+      ok: true,
+      value: {
+        items: [
+          {
+            integration: jira,
+            status: { state: 'signed-in' },
+            projects: [
+              { id: 'p1', name: 'client-a-app', enabled: true },
+              { id: 'p2', name: 'client-a-web', enabled: false },
+            ],
+          },
+          { integration: notes, status: { state: 'needs-sign-in' }, projects: [] },
+        ],
+        dangling: [{ projectId: 'p3', name: 'client-b-app', count: 2 }],
+      },
+    }
+    main.answers['integrations.cleanUp'] = { ok: true, value: { removed: 2 } }
+    render(<MachineIntegrations />)
+    await flush()
+    const rows = screen.getAllByTestId('settings-integration')
+    expect(rows.map((row) => within(row).getByTestId('settings-integration-used').textContent)).toEqual(['client-a-appOff in client-a-web', 'Not used in any Project'])
+    expect(rows.map((row) => within(row).getByTestId('settings-integration-status').textContent)).toEqual(['Signed in', 'Sign-in needed'])
+    expect(screen.getByTestId('settings-integrations-dangling').textContent).toContain('client-b-app (2)')
+    fireEvent.click(screen.getByRole('button', { name: 'Clean up' }))
+    await flush()
+    expect(main.calls.filter((call) => call.channel === 'integrations.cleanUp')).toHaveLength(1)
+    main.answers['integrations.remove'] = { ok: true, value: { status: 'confirm', projects: ['client-a-app'] } }
+    fireEvent.click(within(rows[0]!).getByRole('button', { name: 'Remove' }))
+    await flush()
+    expect(screen.getByTestId('settings-integration-confirm').textContent).toContain('enabled in client-a-app')
+    expect(main.calls.filter((call) => call.channel === 'integrations.remove').map((call) => call.input)).toEqual([{ id: jira.id, confirmed: false }])
+  })
+})

@@ -1,7 +1,7 @@
 # 08 — Раздел Integrations в Project settings и Settings → Integrations: Add integration, ввод token-а, фильтр tools, Available to Autopilot, «From Claude Code»
 
 Type: task
-Status: open
+Status: claimed 2026-11-21T01:51Z
 Blocked by: 02, 03, 04, 06
 Source: [spec.md](../spec.md), «Ticket-ы», 8; «Волны», Wave 4; «Решение», 2, 4 и 5; «Как пользователь идёт по
 экранам», 1–3 и 5–10; «Экран (набросок)»; «Решения по реализации» → Серверы Claude Code рядом, Цена tools, Linked

@@ -266,6 +266,14 @@ export class IntegrationProxy {
     return known === undefined ? null : { ...known, hidden: [...known.hidden] }
   }
 
+  /**
+   * The service's whole tool list for the screen's count and Test (worfy-integrations ticket 08), before any filter,
+   * on the shared connection; it fails as a Session's tools/list does, and leaves status() as that would.
+   */
+  serviceToolsOf(id: string): Promise<ServiceTool[]> {
+    return this.serviceTools(id, this.store.get(id)?.label ?? id)
+  }
+
   private setStatus(id: string, change: Partial<IntegrationProxyStatus>): void {
     const was = this.statuses.get(id) ?? { status: { state: 'signed-in' }, tools: null, hidden: [] }
     this.statuses.set(id, { ...was, ...change })

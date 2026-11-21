@@ -251,6 +251,8 @@ describe('the read-or-write mark of `project` channels', () => {
     // The Integrations of the Machine and how the Project uses them, and their status: no secret in either (worfy-integrations ticket 03).
     'integrations.list',
     'integrations.status',
+    // The service's tool list for the row's price and Test: it asks the service, keeps nothing (worfy-integrations ticket 08).
+    'integrations.tools',
     // Read-only gh, as checks.get: the cross-machine gate queue (worfy-windows ticket 17).
     'gateQueue.get',
     // A stored image for the window of a Linked machine that shows it (worfy-canvas ticket 24): reading, as cards.file.
