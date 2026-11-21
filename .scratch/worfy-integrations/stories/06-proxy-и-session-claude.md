@@ -358,3 +358,17 @@ export function labelIntegrations(query: QueryHandle, servers: readonly { name: 
    - Ответ: Integration — SDK-сервер в процессе worfy, не запись `http` с заголовками: `--mcp-config` её не несёт, а
      заголовки и секреты stdio живут только в main.
    - Строки: `src/main/vendors/claude/options.ts:855`
+
+## 13. Что нашёл review и что осталось
+
+> VERIFIED — worfy-integrations 06 (MCP proxy in main and Integrations in the Claude Session), head cac50b181958bf90e422b57f2a48aca7df92c6bc
+>
+> Gate (depth medium, three rounds): verifier (lens: implementer's claims, sonnet) — claims CONFIRMED; reviewer (correctness) — round 1 FIX (one high, four medium, four low), round 2 FIX (one medium, two low), round 3 MERGE, all items FIXED.
+>
+> - What the user sees: a Claude Session gets the tools of the Project's Integrations through one proxy in worfy's main process; the header chip names the Integration a tool comes from; a removed Integration answers with a refusal and its process ends; quitting worfy ends every Integration process.
+> - Fixed over rounds 2–3: a cancelled or timed-out call (McpError -32001, or the raw abort reason before the request goes out) breaks only that call, never the shared connection; one open per Integration (single-flight) and waiters get the error of the open they waited on; a new refresh token alone opens no new connection; a replaced connection closes after its last call, and close(id)/close() end it too; an error of a replaced connection does not overwrite the new one's status; 404 on initialize says «the address was not found»; the source label survives LimitsTracker.observe.
+> - Windows: stdio `npx.cmd` starts through cross-spawn inside the MCP SDK StdioClientTransport (reviewer read SDK 1.32.0 and cross-spawn 7.0.6); a test with a `.cmd` shim by bare name runs in the Windows CI jobs.
+> - Evidence: integrations-proxy 4 of 27 red before / 27 green after (round 3); 13 mutants over rounds 2–3, each red on its own test; 39 module unit+contract files 1055 passed EXIT=0; e2e session-mcp.spec.ts whole 3 passed EXIT=0; lint, typecheck, story-check, evidence-check EXIT=0; gate fast green EXIT=0.
+> - Low, not blocking: a call made while an open with an old token is still running gets «Sign-in needed» for that one open (proxy.ts:427); an abort that coincides with a real connection failure leaves the status to the next call (proxy.ts:401).
+>
+> Decided without the owner (to confirm): npx.cmd through cross-spawn, no toolStart (14); a replaced connection closes after its last call (15); QUIT_LISTENERS_MAX 40 → 50 (16); review fixes outside «Где в коде» — ipc/integrations.ts, quit-listeners.ts (17).
