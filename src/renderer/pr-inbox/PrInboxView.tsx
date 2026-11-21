@@ -20,7 +20,7 @@
 // Session's, a colleague's, an old one — has "Code story" that builds its story by the button (ticket 11,
 // StoryBuildButton.tsx): the progress bar in the button's place, then the Story view; a story kept before opens without
 // a request, and "Rebuild story" builds it again. Of a colleague's PR worfy keeps the agent's text only (ADR-0105).
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import { PR_INBOX_GROUP_TITLES, type PrApprovals, type PrInboxComment, type PrInboxGroup, type PrInboxRow, type PrInboxSnapshot, type PrInboxThread } from '../../shared/ipc/pr-inbox'
 import type { PrReplyItem } from '../../shared/ipc/pr-inbox'
 import type { PrReviewDraftRow } from '../../shared/ipc/pr-review'
@@ -1099,7 +1099,7 @@ function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' 
 
   // The window's focus reads the selected PR again once its read is older than 60 s (spec, implementation decisions 9).
   const latest = useRef<{ key: string | null; row: PrSearchRow | undefined; readAt: string | null; pull: typeof pull }>({ key: null, row: undefined, readAt: null, pull })
-  useEffect(() => {
+  useLayoutEffect(() => {
     latest.current = { key: pullKey, row: currentResult, readAt: pulled?.readAt ?? null, pull }
   })
   useEffect(() => {
@@ -1153,8 +1153,10 @@ function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' 
 
   // ↑ and ↓ move the selection along the list, from anywhere in the shown view but a field.
   // The handler is bound once; it moves along the order of the last render.
+  // This ref and the others the bound handlers read are set in layout effects, within the commit: a passive effect may
+  // run a task after the rows are on screen (on a loaded machine), and a key pressed in between met the old rows.
   const move = useRef<(step: 1 | -1) => void>(() => undefined)
-  useEffect(() => {
+  useLayoutEffect(() => {
     move.current = (step) => {
       if (resultRows !== null) {
         const at = currentResult === undefined ? -1 : resultRows.indexOf(currentResult)
@@ -1176,7 +1178,7 @@ function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' 
   })
   /** Enter on a result: Start review with the Project's last choice (spec, implementation decisions 12). */
   const startOn = useRef<(target: HTMLElement) => boolean>(() => false)
-  useEffect(() => {
+  useLayoutEffect(() => {
     startOn.current = (target) => {
       const item = target.closest<HTMLElement>('[data-testid="pr-search-results"] [data-testid="pr-inbox-row"]')
       if (item === null || resultRows === null) return false

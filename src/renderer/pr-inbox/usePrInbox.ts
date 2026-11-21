@@ -6,7 +6,7 @@
 //
 // Also the pure parts of the view: the groups in the spec's order, the texts of a row, which Ticket a
 // PR belongs to, and the line about the next search.
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
 import { PR_INBOX_GROUPS, type PrApprovals, type PrInboxGroup, type PrInboxRow, type PrInboxSnapshot, type PrReviewer } from '../../shared/ipc/pr-inbox'
 import type { PrSearchNotice, PrSearchResult, SavedSearch } from '../../shared/ipc/pr-search'
@@ -648,7 +648,9 @@ export function usePrSearch(projectId: string): PrSearch {
   const [state, setState] = useState<PrSearchState>({ text: '', scope: 'project', shown: null, result: null, running: false, failure: null, saved: [] })
   const asked = useRef(0)
   const current = useRef(state)
-  useEffect(() => {
+  // Set within the commit, not a task after it: Load more or Refresh clicked as soon as an answer is on screen reads
+  // that answer, not `running` of the render before it.
+  useLayoutEffect(() => {
     current.current = state
   })
 
@@ -708,7 +710,7 @@ export function usePrSearch(projectId: string): PrSearch {
     },
     [projectId, wake],
   )
-  useEffect(() => {
+  useLayoutEffect(() => {
     again.current = send
   })
 

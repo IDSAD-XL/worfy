@@ -676,3 +676,49 @@ describe('review round 1: pages, the pull memory, the window focus, the pause', 
     expect(selected()).toEqual([`${API}#118`])
   })
 })
+
+// A loaded machine (load average 40+ in the gate): Testing Library's wait is done once the DOM shows the answer, and it
+// lets the test go on by a 0 ms timer; React runs the passive effects of that commit by setImmediate. A process away
+// for a few milliseconds after the commit finds the timer due first, so the test pressed keys before the passive
+// effects ran — and the handlers bound once (↑ ↓, Enter, Load more) still read the render before the answer.
+// The observer below is that pause, made certain: after the microtasks of each DOM change, 5 ms of busy CPU.
+describe('on a loaded machine: a key or a click as soon as the answer is on screen', () => {
+  let away: MutationObserver | null = null
+  beforeEach(() => {
+    away = new MutationObserver(() => {
+      let after = Promise.resolve()
+      for (let hop = 0; hop < 30; hop += 1) after = after.then(() => undefined)
+      void after.then(() => {
+        const until = performance.now() + 5
+        while (performance.now() < until);
+      })
+    })
+    away.observe(document, { subtree: true, childList: true, attributes: true, characterData: true })
+  })
+  afterEach(() => away?.disconnect())
+
+  it('↓ moves along the results', async () => {
+    await view()
+    await search('retry')
+    fireEvent.keyDown(document.body, { key: 'ArrowDown' })
+    expect(selected()).toEqual([`${WEB}#41`])
+  })
+
+  it('Enter on a result opens Review mode', async () => {
+    await view()
+    await search('retry')
+    fireEvent.keyDown(within(screen.getAllByTestId('pr-inbox-row').find((each) => each.dataset.number === '77')!).getByRole('button'), { key: 'Enter' })
+    expect((await screen.findByTestId('pr-review-mode')).dataset.number).toBe('77')
+  })
+
+  it('Load more asks for the next page', async () => {
+    const pages: Record<string, PrSearchResult> = {
+      first: result([searchRow(RETRY, false)], { issueCount: 2, cursor: 'c1' }),
+      c1: result([searchRow(OTHER, false)], { issueCount: 2, cursor: null }),
+    }
+    await view({ 'prSearch.run': (input) => ({ ok: true, value: pages[(input as { cursor: string | null }).cursor ?? 'first']! }) })
+    await search('retry')
+    fireEvent.click(screen.getByTestId('pr-search-load-more'))
+    expect(runs().at(-1)).toEqual({ projectId: PROJECT, text: 'retry', scope: 'project', cursor: 'c1' })
+  })
+})
