@@ -111,6 +111,8 @@ type Note =
 const FALLBACK_VIEWPORT = 800
 /** The patches read at a time (`changes.file`): a read is several git processes, slow to start on Windows. */
 export const READS_AT_ONCE = 6
+/** The `readFor` of a view that has closed: no read is of it. */
+const CLOSED = '\u0000closed'
 
 const FOLD_WORDS = { large: 'Large diff', lock: 'Lock file', generated: 'Generated file' } as const
 
@@ -552,6 +554,14 @@ export function DiffPane({ projectId, subject, scope, hideWhitespace, layout, wr
     startReads.current()
     // `wanted` is a new Map each render; its keys, with what they are read for, are what starts a read.
   }, [wantedKeys, readFor])
+  // The view closes: the reads running end with no one to show them. Their answers are dropped, as those of a
+  // `readFor` gone by, and start no more reads of the files drawn last.
+  useEffect(
+    () => () => {
+      asked.current = { of: CLOSED, keys: new Set(), running: 0 }
+    },
+    [],
+  )
 
   // Follow the scroll and the height of the box.
   useEffect(() => {
