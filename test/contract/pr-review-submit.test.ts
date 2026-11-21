@@ -96,6 +96,8 @@ interface Setup {
   posted: () => { raw: string; request: Record<string, unknown>; login: string }[]
   onDisk: () => ReviewDraft
   call: <T>(channel: string, input: unknown) => Promise<IpcResult<T>>
+  /** The PRs the PR inbox was asked to read again, `repo#number`. */
+  refreshed: string[]
 }
 
 function draftOf(comments: readonly { comment: ReviewComment; by: 'person' | 'agent' }[], over: Partial<ReviewDraft> = {}): ReviewDraft {

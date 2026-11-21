@@ -225,8 +225,31 @@ clicked, or the lines picked with **c**) and **Delete**.
 
 **The bar Your review** at the bottom: "Your review · 3 pending comments on 2 files", or "5 comments (5 by the agent) on
 3 files" when the agent wrote some. **Discard** asks "Discard 3 pending comments?" and then deletes the draft file and
-closes Review mode; nothing was on GitHub, so nothing changes there. **Finish review** is inactive for now ("Coming
-next"), and inactive while the Session of an Agent review writes ("Waits until the agent finishes or you stop it").
+closes Review mode; nothing was on GitHub, so nothing changes there. **Finish review** (or ⌘⇧↵) opens the dialog of
+Submit review below; it is inactive while the Session of an Agent review writes ("Waits until the agent finishes or you
+stop it").
+
+**Finish review and Submit.** The dialog "Submit review to example-org/web#41" shows what will go, exactly:
+- **Summary**, the text of the review as a whole;
+- **Comment**, **Approve** or **Request changes**: it always starts on Comment. After an Agent review a line says "The
+  agent suggests: Request changes — you choose". Approve and Request changes are inactive on your own PR; Comment and
+  Request changes need a summary or a comment;
+- "2 comments will be posted on 3f2a9c1, exactly as below": each comment with its file and lines and its text. A
+  comment the agent wrote and the person did not edit says "by the agent". **Remove** keeps a comment out of this
+  Submit;
+- the check of the texts by `review-draft-lint` (workflow traces, AI signature, personal data, length): "Checked: no
+  workflow traces, no AI signature, no personal data", or what it found — then Submit is inactive.
+
+**Submit review** posts it only on a click or ⌘↵; Enter alone does not. One request goes to GitHub, as the Project's
+GitHub account. When the head of the PR moved since the draft started, the dialog says "Your comments are on 3f2a9c1;
+the head is 7d0e4b2." and the button becomes **Submit on 3f2a9c1**: the comments go on the lines they were written on. A
+comment that is not on a changed line of that commit stops the whole Submit until it is removed or moved: GitHub would
+refuse the review with it. GitHub took it: a toast "Review sent to example-org/web#41 · Approve · 2 comments", the PR is
+read again (its approvals chip counts the approval), and Review mode closes. Opened again, its bar says "You reviewed
+this pull request · Approve" with **Open the review on GitHub** and **Start a new review**; the comments say
+"Submitted · on GitHub". GitHub refused it: its reason in the dialog, the draft stays. GitHub did not answer: the bar
+keeps "GitHub did not confirm the review: <reason>"; the next Submit first looks whether GitHub has the review and
+posts it only if not.
 
 **The chip Review draft.** A PR with a draft of comments on this machine shows **Review draft** in its row of the inbox
 and of the search results, with "3 pending comments, started on 3f2a9c1" in its tooltip. The draft survives quitting
@@ -406,6 +429,16 @@ draft: Start review is inactive there, and Review mode opens read only through *
   nothing. Viewed is `prReview.setViewed`; Agent review, Ask the agent to add comments, Stop and Take over are
   `prReview.agentReview` and `prReview.stopAgent`; an Agent review's writes come as `prReview.changed`. Which PR Review
   mode is open on lives in the renderer's store of the view (`review-store.ts`).
+- Submit review (ADR-0112, the third write of main after ADR-0105's two): the dialog asks `prReview.check` (`local`)
+  for the lint of its texts, 400 ms after they stop changing; Submit is `prReview.submit` (`local`). Main reads the
+  draft file again and takes the shown texts, runs `review-draft-lint` over them (the template's lengths when the
+  Profile has no `lint.json`), reads the PR (`GET repos/{o}/{r}/pulls/{n}`: its head, base and author), checks each
+  comment against GitHub's diff of its commit (`pulls/{n}/files` at the head, else `compare/{base}...{commit}`), marks
+  the draft `submitting` and sends one `POST repos/{o}/{r}/pulls/{n}/reviews` with
+  `{commit_id, event, body, comments}`, `commit_id` the commit the comments are on (`anchoredOn`, else `startedOn`), as
+  the Profile's `github.account`. A 4xx is GitHub's refusal; a 5xx, a lost connection or gh's timeout is "did not
+  confirm", and the next Submit first reads `GET …/reviews` for a review of that account on that commit with that body.
+  Never a review without `event` (a pending review on GitHub), never a second POST for one click.
 
 ### Implementation
 
@@ -430,11 +463,13 @@ draft: Start review is inactive there, and Review mode opens read only through *
 | Start review ▾, Review mode, its column, the Project's last choice | `src/renderer/pr-review/StartReviewMenu.tsx`, `src/renderer/pr-review/ReviewMode.tsx`, `src/renderer/pr-review/review-store.ts`, `src/renderer/pr-review/pr-review.css`; the column — `src/renderer/pr-inbox/PrInboxView.tsx` |
 | Comments on lines of Review mode, «Not on a changed line», the bar Your review and Discard, the chip Review draft | `src/renderer/pr-review/review-comments.tsx`, `src/renderer/pr-review/ReviewBar.tsx`, the popover — `src/renderer/changes/LineComment.tsx`; the drafts of the Project — `useReviewDrafts` of `src/renderer/pr-review/review-store.ts`; the chip — `PrListItem` of `src/renderer/pr-inbox/PrInboxView.tsx` |
 | Start review in main: the draft, the files Viewed on github.com | `prReview.start` of `src/shared/ipc/pr-review.ts`, `src/main/ipc/pr-review.ts`; `viewedOnGithub` and `start` of `src/main/github/pr-review-draft.ts` |
+| Finish review and Submit: the dialog, the check, the one POST | `src/renderer/pr-review/FinishReviewDialog.tsx`, `src/renderer/pr-review/ReviewBar.tsx`; `prReview.check` and `prReview.submit` of `src/shared/ipc/pr-review.ts`, `src/main/ipc/pr-review.ts`; `src/main/github/pr-review-submit.ts`; the lint — `harness/bin/review-draft-lint` |
 
 Tests: `test/unit/pr-inbox-view.test.tsx`, `test/unit/pr-inbox-open.test.tsx`, `test/e2e/pr-inbox.spec.ts` (with the
 screenshots of the two panes at 1280 and 1600 px in both themes); the reader
 in `test/contract/pr-inbox.test.ts` and `test/unit/pr-inbox-groups.test.ts`; drafts and Send in
 `test/contract/pr-inbox-send.test.ts` and `test/unit/draft-thread.test.tsx`; the search in `test/unit/pr-search-view.test.tsx`,
 `test/e2e/pr-search.spec.ts` (with its screenshots at 1280 and 1600 px in both themes), `test/contract/pr-search.test.ts`
-and `test/unit/pr-search-query.test.ts`; Review mode in `test/unit/review-mode.test.tsx`, `test/unit/review-comments.test.tsx`, `test/contract/pr-review-draft.test.ts`
+and `test/unit/pr-search-query.test.ts`; Review mode in `test/unit/review-mode.test.tsx`, `test/unit/review-comments.test.tsx`, `test/contract/pr-review-draft.test.ts`,
+Submit review in `test/unit/finish-review-dialog.test.tsx`, `test/contract/pr-review-submit.test.ts`
 and `test/e2e/pr-review.spec.ts` (with its screenshots at 1280 and 1600 px in both themes).
