@@ -680,6 +680,44 @@ describe('the view over the window', () => {
     expect(useNavigation.getState().view).toBe('canvas')
   })
 
+  it('a key pressed in an open menu is the menu’s, not the view’s', async () => {
+    openChanges(PROJECT, { epic: 'demo', num: 3 })
+    render(screenOf())
+    await screen.findAllByTestId('changes-line')
+    fireEvent.click(screen.getByTestId('changes-scope'))
+    const item = (await screen.findAllByRole('menuitemradio'))[0]!
+    fireEvent.keyDown(item, { key: 'n' })
+    expect(diff().scrollTop).toBe(0)
+  })
+
+  it('a key pressed in a dialog of the window is the dialog’s, not the view’s', async () => {
+    openChanges(PROJECT, { epic: 'demo', num: 3 })
+    render(
+      <>
+        {screenOf()}
+        <div role="dialog" aria-label="Settings">
+          <button type="button">OK</button>
+        </div>
+      </>,
+    )
+    await screen.findAllByTestId('changes-line')
+    fireEvent.keyDown(screen.getByRole('button', { name: 'OK' }), { key: 'n' })
+    expect(diff().scrollTop).toBe(0)
+  })
+
+  it('Esc while a dialog of the window is open is that dialog’s: the view stays', async () => {
+    openChanges(PROJECT, { epic: 'demo', num: 3 })
+    render(
+      <>
+        {screenOf()}
+        <div role="dialog" aria-label="Settings" />
+      </>,
+    )
+    await screen.findAllByTestId('changes-line')
+    fireEvent.keyDown(screen.getByTestId('changes-body'), { key: 'Escape' })
+    expect(useNavigation.getState().view).toBe('changes')
+  })
+
   it('takes no keys while another view is shown', async () => {
     openChanges(PROJECT, { epic: 'demo', num: 3 })
     render(screenOf())
