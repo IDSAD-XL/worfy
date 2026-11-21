@@ -1,7 +1,8 @@
 # 08 — Раздел Integrations в Project settings и Settings → Integrations: Add integration, ввод token-а, фильтр tools, Available to Autopilot, «From Claude Code»
 
 Type: task
-Status: claimed 2026-11-21T01:51Z
+Status: done 2026-11-21T20:35Z
+PR: #2133
 Blocked by: 02, 03, 04, 06
 Source: [spec.md](../spec.md), «Ticket-ы», 8; «Волны», Wave 4; «Решение», 2, 4 и 5; «Как пользователь идёт по
 экранам», 1–3 и 5–10; «Экран (набросок)»; «Решения по реализации» → Серверы Claude Code рядом, Цена tools, Linked
@@ -73,6 +74,7 @@ machine; «Решения по test-ам» (e2e); «Вопросы владел�
       зелёный на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 76dd3b85e
   - evidence: gate pass · `gate fast` exit 0 · mac - · 76dd3b85e
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44935146001/job/136950921848 · ci - · 06fbf929246660dd3096dabe00915ab08b5e4e15
 
 ## Где в коде
 

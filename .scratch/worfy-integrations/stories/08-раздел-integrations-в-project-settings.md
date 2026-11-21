@@ -217,3 +217,18 @@ Code: `src/main/agent/fake-query.ts:544-550` · key lines: 546, 549
    - Ответ: выключение сервера Claude Code через `disallowedTools` не убирает MCP-tool из контекста модели; риск — два
      аккаунта одного сервиса рядом.
    - Строки: `src/renderer/integrations/ClaudeServers.tsx:203`
+
+## 10. Что нашёл review и что осталось
+
+> VERIFIED — worfy-integrations 08 (the Integrations section in Project settings and Settings → Integrations, by the prototype Card card-e53beada), head 06fbf929246660dd3096dabe00915ab08b5e4e15
+>
+> Gate (depth medium, three rounds): reviewer (correctness) — round 1 MERGE with three lows, all sent to round 2 (one erased data); round 2 re-review FIX (one med the round introduced); round 3 (16 lines) checked by the Orchestrator. The verifier (lens: implementer's claims) was stopped from worfy; the owner chose on 2026-11-21 to land on the reviewer's verdict.
+>
+> - What the user sees: Project settings has tabs General | Integrations; the Integrations tab and Settings → Integrations list every Integration with its status, a per-Project checkbox, a Tools filter, Rename / Sign out / Remove, the «two tool sets» warning, the «From Claude Code» servers with Allow / Turn off, Add integration (catalogue + Custom server, Token sign-in; OAuth shown «not available yet» until ticket 09), orphan rows with Clean up; tool cost counted after the Project's filter; no text promises context savings; Linked machine Read only — all inactive; Full access — checkboxes, filter, Rename; Add/token/Sign out/Remove only on the Project's machine.
+> - Fixed in rounds 2–3: Clean up never erases Project records while integrations.json is damaged, set aside or missing (items still listed from the current file, only orphans and Clean up wait); Add integration and «From Claude Code» route project channels to the Project's Machine from a Linked machine's window; a Profile without mcp.allowed shows the default MCP list.
+> - Evidence: 4 new test files red-before/green-after; 90 unit+contract files of integrations, settings, link, ipc, mcp, profile EXIT=0; e2e integrations.spec.ts whole EXIT=0 (round 2; round 3 touched only integrations.machine); mutants 13 + R1–R8 each red on its own test; pnpm lint, typecheck EXIT=0; gate fast green EXIT=0.
+> - After the verdict: merged origin/main with integrations 05 (OAuth sign-in); conflicts in src/shared/ipc/integrations.ts and src/main/ipc/integrations.ts resolved keeping both sides; 92 unit+contract files, e2e integrations.spec.ts whole, lint, typecheck, gate fast EXIT=0.
+> - Debt (low): the channel integrations.signOut of this ticket deletes the secrets only and does not call IntegrationOAuth.signOut (revocation at the service) — ticket 09; while a set-aside integrations.json.unreadable-… file exists, Clean up stays off with no line on the screen saying why; src/main/agent/fake-query.ts passed 1000 lines (gate warning).
+> - Not verified: the e2e checks the per-Integration data by tools/list of the stub's datasets, not by tools/call; a secret without an Integration is not shown (SecretStore lists no keys).
+>
+> Decided without the owner (to confirm): tool cost after the Project's Tools filter; no context-savings promise (spec fact 3g is wrong: disallowedTools does not remove an MCP tool from the model's context); orphans shown both ways (Project record without Integration → Clean up; Integration in no Project → Remove); Project settings split into tabs, 820 px, Close without Save on the Integrations tab; Claude Code servers matched to the catalogue by name; Custom server https, http only on loopback; the bearer method named «Token»; integrations.remove without projectId asks for every Project where the Integration is on; Clean up off while a set-aside list exists.
