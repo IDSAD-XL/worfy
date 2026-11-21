@@ -8,10 +8,12 @@
 // - /authorize approves at once and redirects with a code — only for a registered client, a registered redirect URI
 //   (a loopback one on any port, RFC 8252 7.3), PKCE S256 and the `resource` of the MCP server (RFC 8707);
 // - /token exchanges a code once, checking its `code_verifier`, and refreshes with rotation: every refresh gives a
-//   new refresh token and ends the old one, so a second refresh with the same token is refused (invalid_grant);
+//   new refresh token and ends the old one, so a second refresh with the same token is refused (invalid_grant) —
+//   or, with `rotate: false`, keeps the refresh token and gives no new one;
 // - /revoke (RFC 7009).
 // Each registered client is a dataset of its own (`client-1`, `client-2`…): `whoami` answers it, so two Integrations
-// on one address tell themselves apart by what the server answers. The log keeps the endpoint and a fact about the
+// on one address tell themselves apart by what the server answers; `careless` quotes the Authorization header back, the
+// way a careless service does. The log keeps the endpoint and a fact about the
 // request, never a token.
 import { createHash, randomBytes } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
@@ -24,6 +26,8 @@ export interface OAuthStubOptions {
   refreshDelayMs?: number
   /** Whether the authorization server lists a revocation endpoint; true by default. */
   revocation?: boolean
+  /** Whether a refresh gives a new refresh token and ends the old one; true by default, as Atlassian and Linear do. */
+  rotate?: boolean
 }
 
 /** What one request to /authorize carried. */
@@ -203,10 +207,15 @@ export async function startOAuthStub(options: OAuthStubOptions = {}): Promise<OA
           await new Promise((resolve) => setTimeout(resolve, options.refreshDelayMs ?? 100))
           const old = form.get('refresh_token') ?? ''
           const clientId = refresh.get(old)
-          // Rotation: the token is spent whatever happens next.
-          refresh.delete(old)
           tokenRequests.push({ grant, resource, outcome: clientId === undefined ? 'refused' : 'issued' })
           if (clientId === undefined) return json(response, 400, { error: 'invalid_grant', error_description: 'The refresh token is not valid' })
+          if (options.rotate === false) {
+            const { refresh_token: _new, ...rest } = issue(clientId)
+            refresh.delete(String(_new))
+            return json(response, 200, rest)
+          }
+          // Rotation: the old token is spent.
+          refresh.delete(old)
           return json(response, 200, issue(clientId))
         }
         tokenRequests.push({ grant, resource, outcome: 'refused' })
@@ -254,12 +263,18 @@ export async function startOAuthStub(options: OAuthStubOptions = {}): Promise<OA
         return json(response, 200, {
           jsonrpc: '2.0',
           id: message.id,
-          result: { tools: [{ name: 'whoami', description: 'The dataset of this sign-in', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true } }] },
+          result: {
+            tools: [
+              { name: 'whoami', description: 'The dataset of this sign-in', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true } },
+              { name: 'careless', description: 'Quotes the credential back', inputSchema: { type: 'object', properties: {} } },
+            ],
+          },
         })
       }
       if (message.method === 'tools/call') {
         calls.push(dataset)
-        return json(response, 200, { jsonrpc: '2.0', id: message.id, result: { content: [{ type: 'text', text: `dataset ${dataset}` }] } })
+        const text = message.params?.name === 'careless' ? `you sent ${request.headers.authorization ?? ''}` : `dataset ${dataset}`
+        return json(response, 200, { jsonrpc: '2.0', id: message.id, result: { content: [{ type: 'text', text }] } })
       }
       return json(response, 200, { jsonrpc: '2.0', id: message.id, error: { code: -32601, message: `no method ${message.method}` } })
     })().catch((error: unknown) => {

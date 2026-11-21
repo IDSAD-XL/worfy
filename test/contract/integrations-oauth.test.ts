@@ -24,6 +24,12 @@ import { startOAuthStub, type OAuthStub } from '../fixtures/integrations/oauth-s
 
 // The module's default export subscribes to the app's quit (ticket 06): Electron's app, which a test has not.
 vi.mock('electron', () => ({ app: { on: () => undefined } }))
+// The app's OAuth, which the proxy takes when it is given none, is this test's (it would read worfy's own data folder).
+const app = vi.hoisted(() => ({ oauth: undefined as unknown }))
+vi.mock('../../src/main/integrations/auth/oauth', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/main/integrations/auth/oauth')>()),
+  integrationOAuth: () => app.oauth,
+}))
 
 let root: string
 let data: string
@@ -93,6 +99,7 @@ beforeEach(async () => {
     clearPartition: async (partition) => void cleared.push(partition),
     scopes: () => ['read', 'write'],
   })
+  app.oauth = oauth
   proxy = new IntegrationProxy({ store, oauth: (integration) => oauth.transport(integration) })
   logged = []
   for (const level of ['log', 'info', 'warn', 'error', 'debug'] as const) {
@@ -237,6 +244,42 @@ describe('an expired access token, through the proxy', () => {
     expect(stub.initializes()).toBe(1)
   })
 
+  it('keeps the refresh token a service does not rotate', async () => {
+    await stub.close()
+    stub = await startOAuthStub({ rotate: false })
+    const id = addOAuth('Acme — client A')
+    await oauth.signIn(id)
+    const refresh = secrets()[`${id}:refresh`]
+    const client = await session(id, 'acme-client-a')
+    for (const round of [1, 2]) {
+      stub.expireAccessTokens()
+      expect(textOf(await whoami(client))).toBe('dataset client-1')
+      expect(stub.refreshes()).toBe(round)
+      expect(secrets()[`${id}:refresh`]).toBe(refresh)
+    }
+  })
+
+  it('hides a refreshed access token a careless service quotes back', async () => {
+    const id = addOAuth('Acme — client A')
+    await oauth.signIn(id)
+    const client = await session(id, 'acme-client-a')
+    expect(textOf(await whoami(client))).toBe('dataset client-1')
+    stub.expireAccessTokens()
+    const answer = textOf(await client.callTool({ name: 'careless', arguments: {} }))
+    expect(stub.refreshes()).toBe(1)
+    expect(answer).toBe('you sent Bearer [redacted]')
+    expect(answer).not.toContain(secrets()[`${id}:access`] ?? '-')
+  })
+
+  it('reaches the service through the app’s OAuth when the proxy is given none', async () => {
+    const id = addOAuth('Acme — client A')
+    await oauth.signIn(id)
+    await proxy.close()
+    proxy = new IntegrationProxy({ store })
+    const client = await session(id, 'acme-client-a')
+    expect(textOf(await whoami(client))).toBe('dataset client-1')
+  })
+
   it('a refused refresh answers «Sign-in needed: <label>…» with isError, sets needs-sign-in, and asks the service once', async () => {
     const id = addOAuth('Acme — client A')
     await oauth.signIn(id)
@@ -267,6 +310,59 @@ describe('an expired access token, through the proxy', () => {
     await expect(whoami(client)).rejects.toThrow(signInNeeded('Acme — client A'))
     expect(stub.registrations).toEqual([])
     expect(stub.tokenRequests).toEqual([])
+  })
+})
+
+describe('the refresh lock', () => {
+  /** A refresh request as the MCP SDK sends it, through the Integration's transport fetch. */
+  async function refreshWith(id: string, refreshToken: string): Promise<{ status: number; body: Record<string, unknown> }> {
+    const integration = store.get(id)
+    const fetchFn = integration === undefined ? undefined : oauth.transport(integration)?.fetch
+    if (fetchFn === undefined) throw new Error('no transport fetch')
+    const body = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken, client_id: 'client-1', resource: stub.url })
+    const answer = await fetchFn(`${stub.origin}/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body })
+    return { status: answer.status, body: (await answer.json()) as Record<string, unknown> }
+  }
+
+  /** An MCP request with the kept access token, through the Integration's transport fetch: the service's status. */
+  async function mcpWithKept(id: string): Promise<number> {
+    const integration = store.get(id)
+    const fetchFn = integration === undefined ? undefined : oauth.transport(integration)?.fetch
+    if (fetchFn === undefined) throw new Error('no transport fetch')
+    const answer = await fetchFn(stub.url, { method: 'POST', headers: { authorization: `Bearer ${secrets()[`${id}:access`] ?? ''}`, 'content-type': 'application/json' }, body: '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' })
+    await answer.text()
+    return answer.status
+  }
+
+  it('answers a refresh with the kept tokens while the service never refused the kept access token', async () => {
+    const id = addOAuth('Acme — client A')
+    await oauth.signIn(id)
+    const kept = secrets()
+    const answer = await refreshWith(id, kept[`${id}:refresh`] ?? '')
+    expect(answer).toEqual({ status: 200, body: { access_token: kept[`${id}:access`], token_type: 'Bearer', refresh_token: kept[`${id}:refresh`] } })
+    expect(stub.refreshes()).toBe(0)
+  })
+
+  it('never sends a spent refresh token again, even after the kept access token was refused', async () => {
+    const id = addOAuth('Acme — client A')
+    await oauth.signIn(id)
+    const first = secrets()[`${id}:refresh`] ?? ''
+    const client = await session(id, 'acme-client-a')
+    for (let round = 0; round < 2; round++) {
+      stub.expireAccessTokens()
+      expect(textOf(await whoami(client))).toBe('dataset client-1')
+    }
+    expect(stub.refreshes()).toBe(2)
+    stub.expireAccessTokens()
+    expect(await mcpWithKept(id)).toBe(401)
+    const kept = secrets()
+    const answer = await refreshWith(id, first)
+    expect(stub.refreshes()).toBe(2)
+    expect(answer).toEqual({ status: 200, body: { access_token: kept[`${id}:access`], token_type: 'Bearer', refresh_token: kept[`${id}:refresh`] } })
+    // The kept refresh token, whose access token was refused, does go to the service: once.
+    const fresh = await refreshWith(id, kept[`${id}:refresh`] ?? '')
+    expect(fresh.status).toBe(200)
+    expect(stub.refreshes()).toBe(3)
   })
 })
 

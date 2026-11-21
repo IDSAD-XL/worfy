@@ -375,8 +375,12 @@ function bearerOf(init: RequestInit | undefined): string | null {
 interface LockState {
   /** Access tokens the service answered 401 to since the tokens were last saved. */
   refused: Set<string>
-  /** The last refresh that went to the service: its refresh token and its answer; dropped when it failed for no token reason. */
-  last: { from: string; answer: Promise<Captured> } | null
+  /**
+   * The last refresh that went to the service: its refresh token, its answer, and whether that answer is still on its
+   * way into the store (`pending`: from the request until the tokens it gave are saved, or it failed). Dropped when it
+   * failed for no reason of the token's (a failure of the service, no answer).
+   */
+  last: { from: string; answer: Promise<Captured>; pending: boolean } | null
 }
 
 // ── the sign-in ───────────────────────────────────────────────────────────────
@@ -480,23 +484,27 @@ export class IntegrationOAuth {
         if (response.status === 401 && sent !== null) state.refused.add(sent)
         return response
       }
-      const last = state.last
-      if (last?.from === spent) return replay(await last.answer)
       const kept = keptOf(this.store, id)
+      const last = state.last
+      // The refresh of this token on its way, or done and its access token not refused since: its answer. A service that
+      // does not rotate the refresh token gets a new refresh with it once the access token it gave was refused.
+      if (last?.from === spent && (last.pending || kept.access === undefined || !state.refused.has(kept.access))) return replay(await last.answer)
       if (kept.refresh !== spent) {
         // Spent by a refresh before this one, or signed out since: never sent again.
         return kept.access === undefined ? jsonAnswer(400, { error: 'invalid_grant', error_description: 'signed out' }) : this.keptAnswer(kept)
       }
       if (kept.access !== undefined && !state.refused.has(kept.access)) return this.keptAnswer(kept)
       const answer = base(input, init).then(async (response): Promise<Captured> => ({ status: response.status, headers: [...response.headers.entries()], body: await response.text() }))
-      state.last = { from: spent, answer }
+      const current = { from: spent, answer, pending: true }
+      state.last = current
       const forget = (): void => {
-        if (state.last?.from === spent) state.last = null
+        if (state.last === current) state.last = null
       }
       try {
         const captured = await answer
         // A refusal (invalid_grant) stays the answer to this token; a failure of the service lets a later refresh try again.
         if (captured.status >= 500) forget()
+        else if (captured.status >= 300) current.pending = false
         return replay(captured)
       } catch (error) {
         forget()
@@ -510,9 +518,11 @@ export class IntegrationOAuth {
     return jsonAnswer(200, { access_token: kept.access, token_type: 'Bearer', ...(kept.refresh === undefined ? {} : { refresh_token: kept.refresh }) })
   }
 
-  /** Tokens were saved: the refusals were of the tokens before them. */
+  /** Tokens were saved: the refusals were of the tokens before them, and the last refresh's answer is in the store. */
   private saved(id: string): void {
-    this.lock(id).refused.clear()
+    const state = this.lock(id)
+    state.refused.clear()
+    if (state.last !== null) state.last.pending = false
   }
 
   /**
