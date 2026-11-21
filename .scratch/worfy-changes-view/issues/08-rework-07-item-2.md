@@ -158,4 +158,5 @@ Source: owner-check fail 2026-11-21 of worfy-changes-view 07, item 2 — 07-пр
 - Отклонение от «Что делаем», 2: клавиши `ReviewMode` не перенесены в `diff-keys.ts` — его обработчик сейчас правит
   worfy-pr-review 11 (⌘⇧↵ Finish review, PR #2122); общая шапка тоже не вынесена: у PR и Ticket-а она разная. Перенос —
   отдельной правкой после merge 11.
-- Снимки вида: [светлая тема](../evidence/08-changes-view-light.png), [тёмная тема](../evidence/08-changes-view-dark.png).
+- Снимки вида в обеих темах снимает `test/e2e/changes.spec.ts` (`changes-view-card`, `-inline`, `-side-by-side`, `-large`
+  в `test-results/e2e/snapshots/`). В репозиторий они не положены: человек ещё не проверил их пиксели (`scrub:`).
