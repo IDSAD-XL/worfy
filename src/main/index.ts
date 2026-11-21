@@ -54,6 +54,7 @@ import { updateEnabled } from './update/stable-copy'
 import { updateDir, updateStateFile } from './update/state'
 import { appCodexBindingSignals } from './vendors/codex/binding'
 import { appCodexSessions } from './vendors/codex/sessions-on-canvas'
+import { appWindows } from './sign-in-windows'
 import { createMainWindow, installWebPolicy, rendererEntry } from './window'
 
 // Before anything else runs: an uncaught exception's stack reaches stderr before Electron's error box
@@ -139,7 +140,8 @@ function start(): void {
 
   // The second process quits; the running one comes to the front instead (not in quiet mode).
   app.on('second-instance', () => {
-    const [window] = BrowserWindow.getAllWindows()
+    // An Integration's sign-in window is not worfy's window: a second start brings the main one, or opens it.
+    const [window] = appWindows(BrowserWindow.getAllWindows())
     if (window !== undefined) {
       if (window.isMinimized()) window.restore()
       if (quiet.takesFocus) window.focus()
@@ -271,7 +273,7 @@ function start(): void {
       startLink()
 
       app.on('activate', () => {
-        if (BrowserWindow.getAllWindows().length === 0) createMainWindow()
+        if (appWindows(BrowserWindow.getAllWindows()).length === 0) createMainWindow()
       })
     })
     .catch((error: unknown) => {

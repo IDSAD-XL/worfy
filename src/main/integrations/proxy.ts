@@ -6,9 +6,11 @@
 // - The sign-in: the headers of a token sign-in (ticket 04, connectionHeaders) are read from the secret store each time
 //   a connection opens, and a call checks they are still the same: a new token opens a new connection. The secret
 //   variables of a stdio server go into its environment, never its arguments (stdioLaunch); its stderr is not read.
-//   OAuth (ticket 05) plugs its provider in through `oauth`, the transport's own place for it: the transport refreshes
-//   an expired token itself and throws UnauthorizedError when it cannot; the one-refresh-at-a-time lock of the spike
-//   of ticket 01 (step 5) belongs in the transport's `fetch`, which the same option carries.
+//   OAuth (ticket 05, src/main/integrations/auth/oauth.ts) plugs its provider into the transport's own place for it,
+//   `authProvider`: the transport refreshes an expired token itself and throws UnauthorizedError when it cannot; the
+//   one-refresh-at-a-time lock of the spike of ticket 01 (step 5) is in the transport's `fetch`, which the same option
+//   carries. A refreshed access token keeps the connection: an OAuth Integration's connection is opened anew only by a
+//   new sign-in or a Sign out.
 // - A Session's server (sessionServer) lists the service's tools once per Session start and keeps the list: the
 //   Project's tools filter (all, read-only by the service's readOnlyHint, or names) cuts it, a tool whose full name
 //   `mcp__<server>__<tool>` would pass 128 characters is left out (Claude Code drops it without a word, the spike's
@@ -32,6 +34,7 @@ import type { StreamableHTTPClientTransportOptions } from '@modelcontextprotocol
 import type { Integration, IntegrationSecretPart, IntegrationStatus, IntegrationTools, ProjectIntegration } from '../../shared/integrations/types'
 import type { McpJsonSchema, McpServer, McpTool, McpToolContent, McpToolResult } from '../vendors/mcp'
 import { agentEnv } from '../agent/env'
+import { integrationOAuth } from './auth/oauth'
 import { connectionHeaders, MissingSecretError, scrubServiceText, stdioLaunch, type SecretSource } from './auth/tokens'
 import { integrationStore } from './store'
 
@@ -167,7 +170,10 @@ export interface IntegrationProxyOptions {
    * the login shell on macOS), so a command such as `npx` is found as in a terminal.
    */
   baseEnv?: () => Promise<Record<string, string>>
-  /** OAuth's part of an http transport (ticket 05); none until then. */
+  /**
+   * OAuth's part of an http transport (ticket 05): the app's IntegrationOAuth by default, which gives one only to an
+   * Integration that signs in with OAuth and throws MissingSecretError for one with no token kept.
+   */
   oauth?: (integration: Integration) => OAuthTransport | undefined
   /** How long one tool call may take; CALL_TIMEOUT_MS by default. */
   callTimeoutMs?: number
@@ -255,9 +261,11 @@ export class IntegrationProxy {
   /** The last list of each Integration's tools, for a Session that starts while the service refuses the sign-in. */
   private readonly lastTools = new Map<string, ServiceTool[]>()
   private sdk: Promise<McpSdk> | null = null
+  private readonly oauth: (integration: Integration) => OAuthTransport | undefined
 
   constructor(private readonly options: IntegrationProxyOptions = {}) {
     this.store = options.store ?? integrationStore()
+    this.oauth = options.oauth ?? ((integration) => integrationOAuth().transport(integration))
   }
 
   /** What the proxy knows of Integration `id`; null before it first spoke to its service. */
@@ -359,7 +367,8 @@ export class IntegrationProxy {
         timeout: this.options.callTimeoutMs ?? CALL_TIMEOUT_MS,
         ...(signal === undefined ? {} : { signal }),
       })
-      return { answer: answer as McpToolResult, secrets: live.secrets }
+      // An OAuth Integration's access token may have been refreshed on this connection: hide the kept ones too.
+      return { answer: answer as McpToolResult, secrets: [...live.secrets, ...this.secretsOf(id)] }
     }, signal)
     if (outcome.ok) {
       this.setStatus(id, { status: { state: 'signed-in' } })
@@ -407,7 +416,9 @@ export class IntegrationProxy {
         // (signal.throwIfAborted, shared/protocol.js), not -32001 — still this call's end alone.
         const failure: Failure =
           live !== null && signal?.aborted === true ? { kind: 'call', message: 'the call was cancelled' } : await this.failureOf(error, live?.secrets ?? this.secretsOf(id), live !== null)
-        if (failure.kind !== 'service' && failure.kind !== 'call') this.drop(id, live)
+        // A refused sign-in lets the calls still running on the connection end with their own refusal, not with its close.
+        if (failure.kind === 'sign-in') this.forget(id, live)
+        else if (failure.kind !== 'service' && failure.kind !== 'call') this.drop(id, live)
         if (failure.kind === 'expired' && attempt === 0) continue
         const newest = live === null || this.generations.get(id) === live.generation
         if (newest && failure.kind === 'sign-in') this.setStatus(id, { status: { state: 'needs-sign-in' } })
@@ -495,17 +506,21 @@ export class IntegrationProxy {
       // A Basic secret `<e-mail>:<token>`: the token alone too.
       const colon = value.indexOf(':')
       if (colon > 0) values.push(value.slice(colon + 1))
+      // The OAuth client (ticket 05) is JSON: its secret, when the service gave one.
+      if (part === 'client') values.push(clientSecretOf(value))
     }
     return values.filter((value) => value.length >= 4)
   }
 
   /**
    * What tells the sign-in a connection was opened with: the secrets a request carries, in order. Not the refresh
-   * token: storing a new one changes nothing a request sends. Ticket 05 (OAuth): the authProvider hands each request
-   * its access token, so a refreshed access token must not open a new connection either — leave `access` out of an
-   * OAuth Integration's fingerprint there, or calls in flight on the old connection would run on a retired one.
+   * token: storing a new one changes nothing a request sends. For OAuth (ticket 05) the authProvider hands each request
+   * the access token kept now, so a refreshed one must not open a new connection — calls in flight on the old one would
+   * run on a retired one: its fingerprint is its sign-in, which only a new sign-in or a Sign out changes.
    */
   private fingerprint(id: string): string {
+    const integration = this.store.get(id)
+    if (integration?.auth === 'oauth') return JSON.stringify(['oauth', integration.signIn?.at ?? null])
     return JSON.stringify(this.secretsOf(id, { refresh: false }))
   }
 
@@ -520,7 +535,7 @@ export class IntegrationProxy {
     try {
       if (integration.transport.kind === 'http') {
         const headers = connectionHeaders(this.store, id)
-        const oauth = this.options.oauth?.(integration)
+        const oauth = this.oauth(integration)
         const transport = new sdk.StreamableHTTPClientTransport(new URL(integration.transport.url), { requestInit: { headers }, ...oauth })
         await client.connect(transport)
       } else {
@@ -542,6 +557,13 @@ export class IntegrationProxy {
       if (this.generations.get(id) === generation) this.connections.delete(id)
     }
     return live
+  }
+
+  /** Forgets the connection `live` of Integration `id`, unless a newer one took its place; it closes when its last call ends. */
+  private forget(id: string, live: Live | null): void {
+    if (live === null || live.retired) return
+    if (this.generations.get(id) === live.generation) this.connections.delete(id)
+    this.retire(id, live)
   }
 
   /** Forgets the connection `live` of Integration `id`, unless a newer one took its place, and closes it. */
@@ -586,6 +608,16 @@ export class IntegrationProxy {
         await Promise.all([live, ...replaced].map((connection) => connection?.client.close().catch(() => undefined)))
       }),
     )
+  }
+}
+
+/** The `client_secret` of a kept OAuth client, '' when it has none or is not JSON. */
+function clientSecretOf(value: string): string {
+  try {
+    const secret = (JSON.parse(value) as { client_secret?: unknown }).client_secret
+    return typeof secret === 'string' ? secret : ''
+  } catch {
+    return ''
   }
 }
 

@@ -93,6 +93,8 @@ export class ProjectPulseHub {
   private stops: (() => void)[] = []
   private running: Promise<void> | null = null
   private again = false
+  /** A poll is under way: the next one waits for its turn of the interval. */
+  private ticking = false
   /** Bumped by stop(): a read that started before it keeps nothing (its subscribers are gone). */
   private generation = 0
   /** Reads of the registry made so far; for tests. */
@@ -159,16 +161,26 @@ export class ProjectPulseHub {
    * the last read is `recheckMs` old.
    */
   private async tick(): Promise<void> {
-    let stamp: string
+    // A poll that comes while the one before it or a read still runs is skipped. Under load a listing and a read of the
+    // registry outlast `pollMs`: such a poll saw the stamp of the change the read under way had not kept yet, and folded
+    // a second read of the same change behind it. The read under way keeps the stamp it was taken from, so a change
+    // after that is seen by the next poll that runs.
+    if (this.ticking || this.running) return
+    this.ticking = true
     try {
-      stamp = await this.sources.stamp()
-    } catch (error) {
-      console.error('[pulse] the registry of live Sessions could not be listed', error)
-      return
+      let stamp: string
+      try {
+        stamp = await this.sources.stamp()
+      } catch (error) {
+        console.error('[pulse] the registry of live Sessions could not be listed', error)
+        return
+      }
+      const pids = this.state?.projects.flatMap((project) => project.live.map((session) => session.pid)) ?? []
+      const due = pids.length > 0 && (this.timing.now() - this.readAt >= this.timing.recheckMs || pids.some((pid) => this.sources.gone(pid)))
+      if (stamp !== this.stamp || due) await this.refresh(stamp)
+    } finally {
+      this.ticking = false
     }
-    const pids = this.state?.projects.flatMap((project) => project.live.map((session) => session.pid)) ?? []
-    const due = pids.length > 0 && (this.timing.now() - this.readAt >= this.timing.recheckMs || pids.some((pid) => this.sources.gone(pid)))
-    if (stamp !== this.stamp || due) await this.refresh(stamp)
   }
 
   /** Reads the state again; calls that come while one runs fold into one more read. */

@@ -7,7 +7,8 @@
 // to sign in needs is `needs-sign-in`; one that signs in with a token over http is `signed-in` only after the
 // service's `initialize` let that token in (ticket 04, src/main/integrations/auth/tokens.ts), and `error` with the
 // service's text when the last check said so; any other is `signed-in` with its secrets kept. `integrations.setSecret`
-// runs that check and answers the status, never the secret. The proxy (ticket 06) adds `checking`. Removing an
+// runs that check and answers the status, never the secret. `integrations.signIn` runs the OAuth sign-in (ticket 05,
+// src/main/integrations/auth/oauth.ts) and answers what it shows. The proxy (ticket 06) adds `checking`. Removing an
 // Integration closes the proxy's connection to its service, and the app's quit closes every one (ticket 06), so no
 // stdio server worfy started outlives them.
 //
@@ -33,6 +34,7 @@ import {
   integrationsSetEnabled,
   integrationsSetSecret,
   integrationsSetTools,
+  integrationsSignIn,
   integrationsSignOut,
   integrationsStatus,
   integrationsTools,
@@ -40,6 +42,7 @@ import {
 } from '../../shared/ipc/integrations'
 import { app } from 'electron'
 import type { GhRunner } from '../github/prs'
+import { integrationOAuth, type IntegrationOAuth } from '../integrations/auth/oauth'
 import {
   checkSignIn,
   checksToken,
@@ -80,6 +83,8 @@ export interface IntegrationsHandlersOptions {
   check?: SignInCheck
   /** Closes the proxy's connection of an Integration, or every one with no id; closeIntegrationConnections when absent. */
   closeConnections?: (id?: string) => Promise<void>
+  /** The OAuth sign-in; the app's integrationOAuth() when absent. */
+  oauth?: () => Pick<IntegrationOAuth, 'signIn'>
   /** Where the handlers learn that the app quits; none when absent (the module's default export: will-quit). */
   onQuit?: (listener: () => void) => void
   /** The proxy the tools are asked through; the app's integrationProxy() when absent. */
@@ -308,6 +313,14 @@ export function integrationsHandlers(options: IntegrationsHandlersOptions = {}):
       // The token checked is the copy signInWithGhToken kept; read back only for the error's keeping. A sign-in that came
       // in between makes verifyTokenSignIn record nothing, and its own answer replaces this error.
       return { status: recordChecked(machine, id, machine.secret(id, 'access'), status) }
+    }),
+    defineHandler(integrationsSignIn, async ({ projectId, id, via }) => {
+      dataDirOf(projectId)
+      integrationOf(id)
+      // An Integration that does not sign in with OAuth is refused there.
+      const signIn = await (options.oauth ?? integrationOAuth)().signIn(id, { via: via ?? 'window' })
+      errors.delete(id)
+      return { signIn }
     }),
     defineHandler(integrationsRemove, ({ projectId, id, confirmed }) => {
       if (projectId !== undefined) dataDirOf(projectId)

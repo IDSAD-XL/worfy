@@ -11,6 +11,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChangesView } from '../../src/renderer/changes/ChangesView'
+import { forgetSeenHeadsInMemory } from '../../src/renderer/changes/seen-heads'
 import { forgetSentLinesInMemory } from '../../src/renderer/changes/sent-lines'
 import type { CodeComment, MessageComment } from '../../src/renderer/session/quote-comments'
 import { setView, useNavigation } from '../../src/renderer/session/navigation'
@@ -21,6 +22,8 @@ import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 
 let readOnly: string | null = null
+/** A move of the pointer with its main button held: a drag of «+». */
+const PRESSED = { buttons: 1 }
 vi.mock('../../src/renderer/projects/useProjects', async (original) => ({ ...(await original<typeof import('../../src/renderer/projects/useProjects')>()), useReadOnly: () => readOnly }))
 
 const ROOT = '/Users/test/projects/demo'
@@ -79,6 +82,12 @@ const TARGETS = {
 
 let calls: { channel: string; input: Record<string, unknown> }[]
 let targets: unknown
+/** The head `changes.list` names, and its files. */
+let head: string
+let listed: () => ChangedFile[]
+/** The scopes `changes.scopes` offers, and the Ticket's commits. */
+let scopeKinds: string[]
+let commits: { sha: string; short: string; author: string; date: string; subject: string }[]
 /** The patch `changes.file` answers with, by what it is asked. */
 let fileDiff: (input: Record<string, unknown>) => FileDiff
 /** Channels whose answer waits for the test: the promise the bridge waits on, by channel. */
@@ -108,13 +117,13 @@ function answer(channel: string, input: Record<string, unknown>): unknown {
     case 'workflow.open':
       return { root: ROOT, epics: [{ epic: 'demo', hasSpec: true, hasMap: false, title: 'Demo' }], tickets: [TICKET], error: null, branchErrors: [] } satisfies WorkflowModel
     case 'changes.scopes':
-      return { repos: [{ repo: 'demo', kind: 'worktree', branch: 'demo/03', headSha: 'c0ffee1', base, scopes: ['all', 'uncommitted'], branches: ['main'], error: null, checkout: ROOT, worktree: '.claude/worktrees/03' }] }
+      return { repos: [{ repo: 'demo', kind: 'worktree', branch: 'demo/03', headSha: 'c0ffee1', base, scopes: scopeKinds, branches: ['main'], error: null, checkout: ROOT, worktree: '.claude/worktrees/03' }] }
     case 'changes.list':
-      return { repos: [{ repo: 'demo', kind: 'worktree', branch: 'demo/03', scope: (input.scope as { kind: string }).kind, base, headSha: 'c0ffee1', workTree: true, files: [changed(PATH)], additions: 2, deletions: 1, error: null }] }
+      return { repos: [{ repo: 'demo', kind: 'worktree', branch: 'demo/03', scope: (input.scope as { kind: string }).kind, base, headSha: head, workTree: true, files: listed(), additions: 2, deletions: 1, error: null }] }
     case 'changes.file':
       return { file: fileDiff(input) }
     case 'changes.commits':
-      return { base, commits: [] }
+      return { base, commits }
     case 'changes.targets':
       return targets
     case 'sessions.start':
@@ -130,11 +139,16 @@ beforeEach(() => {
   readOnly = null
   calls = []
   targets = TARGETS
+  head = 'c0ffee1'
+  listed = () => [changed(PATH)]
+  scopeKinds = ['all', 'uncommitted']
+  commits = []
   fileDiff = () => CART_DIFF
   held = new Map()
   globalThis.localStorage.clear()
   forgetQuotesInMemory()
   forgetSentLinesInMemory()
+  forgetSeenHeadsInMemory()
   ;(globalThis as { worfy?: WorfyBridge }).worfy = {
     invoke: (channel: string, input: Record<string, unknown>) => {
       calls.push({ channel, input })
@@ -257,6 +271,64 @@ describe('a comment on lines', () => {
     expect(screen.queryByTestId('changes-comment-popover')).toBeNull()
     // Each Esc took only the popover: the view stays (worfy-changes-view ticket 08).
     expect(useNavigation.getState().view).toBe('changes')
+  })
+
+  // worfy-changes-view ticket 09 (D2): a range is picked by dragging «+», as on GitHub, and a hint says how to comment.
+  it('dragging «+» over lines opens the popover on the range; the hint stands under its last line; Esc takes the pick, the next Esc goes back', async () => {
+    await open()
+    fireEvent.mouseDown(within(row(2)).getByTestId('changes-line-plus'))
+    fireEvent.mouseMove(row(3).querySelector('.w-changes__code')!, PRESSED)
+    fireEvent.mouseMove(row(4).querySelector('.w-changes__code')!, PRESSED)
+    fireEvent.mouseUp(row(4).querySelector('.w-changes__code')!)
+    const popover = await screen.findByTestId('changes-comment-popover')
+    expect(within(popover).getByTestId('changes-comment-where').textContent).toBe(`${PATH}:2–4 · new side`)
+    expect(screen.queryByTestId('changes-pick-hint')).toBeNull()
+    fireEvent.click(within(popover).getByTestId('changes-comment-cancel'))
+    await settle()
+    const hint = screen.getByTestId('changes-pick-hint')
+    expect(hint.textContent).toBe('Comment on lines 2–4 (c)')
+    expect(row(4).compareDocumentPosition(hint) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(hint.compareDocumentPosition(row(3)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeFalsy()
+    fireEvent.click(hint)
+    expect(within(await screen.findByTestId('changes-comment-popover')).getByTestId('changes-comment-where').textContent).toBe(`${PATH}:2–4 · new side`)
+    await writeAndSave('One block')
+    expect((readQuotes(KEY_A).drafts as CodeComment[]).map((each) => [each.startLine, each.endLine])).toEqual([[2, 4]])
+
+    fireEvent.click(row(3).querySelector('.w-changes__code')!)
+    expect(screen.getByTestId('changes-pick-hint').textContent).toBe('Comment on line 3 (c)')
+    fireEvent.keyDown(screen.getByTestId('changes-body'), { key: 'Escape' })
+    expect(screen.queryByTestId('changes-pick-hint')).toBeNull()
+    expect(useNavigation.getState().view).toBe('changes')
+    fireEvent.keyDown(screen.getByTestId('changes-body'), { key: 'Escape' })
+    expect(useNavigation.getState().view).toBe('canvas')
+  })
+
+  // worfy-changes-view ticket 09 (D3): «uncommitted» only for a file with uncommitted edits, else the commit HEAD.
+  it('in a clean worktree a comment on the new side of All changes is on the commit HEAD; on a file with uncommitted edits on none', async () => {
+    listed = () => [{ ...changed(PATH), uncommitted: false }]
+    await open()
+    fireEvent.click(within(row(3)).getByTestId('changes-line-plus'))
+    await writeAndSave('Why 0.5?')
+    expect(readQuotes(KEY_A).drafts).toMatchObject([{ side: 'new', startLine: 3, commit: 'c0ffee1' }])
+    cleanup()
+    removeDrafts(KEY_A, readQuotes(KEY_A).drafts.map((each) => each.id))
+
+    listed = () => [{ ...changed(PATH), uncommitted: true }]
+    await open()
+    fireEvent.click(within(row(3)).getByTestId('changes-line-plus'))
+    await writeAndSave('Why 0.5?')
+    expect(readQuotes(KEY_A).drafts).toMatchObject([{ side: 'new', startLine: 3, commit: null }])
+  })
+
+  it('Send names the commit HEAD for a committed file: «(new side, commit c0ffee1)»', async () => {
+    listed = () => [{ ...changed(PATH), uncommitted: false }]
+    await open()
+    fireEvent.click(within(row(3)).getByTestId('changes-line-plus'))
+    await writeAndSave('Why 0.5?')
+    fireEvent.click(screen.getByTestId('changes-tray-send'))
+    await settle()
+    const [send] = calls.filter((call) => call.channel === 'agent.send')
+    expect(String(send!.input.text)).toContain(`1. ${PATH}:3 (new side, commit c0ffee1)`)
   })
 
   it('a deleted line takes a comment on the old side, at the base commit', async () => {
@@ -494,6 +566,72 @@ describe('after a Refresh', () => {
     await refresh()
     expect(readQuotes(KEY_A).drafts).toMatchObject([{ id: 'c-old', startLine: 3, commit: 'abc1234' }])
     expect(chipText()).not.toContain('Line changed')
+  })
+
+  // worfy-changes-view ticket 09: the agent committed the file after the comment; it is not lost from the lines.
+  it('a comment not sent, made while its file was uncommitted, is found on its lines after the agent committed it, and is on the new HEAD', async () => {
+    addDraft(KEY_A, codeComment({ commit: null }))
+    listed = () => [{ ...changed(PATH), uncommitted: true }]
+    await open()
+    head = 'c0ffee2'
+    listed = () => [{ ...changed(PATH), uncommitted: false }]
+    fileDiff = () => MOVED_DIFF
+    await refresh()
+    expect(readQuotes(KEY_A).drafts).toMatchObject([{ id: 'c-old', startLine: 4, endLine: 4, commit: 'c0ffee2' }])
+    expect(chipText()).not.toContain('Line changed')
+  })
+
+  it('a comment on the HEAD this view read before is found after the agent commits again, and is on the new HEAD', async () => {
+    listed = () => [{ ...changed(PATH), uncommitted: false }]
+    addDraft(KEY_A, codeComment({ commit: 'c0ffee1' }))
+    await open()
+    head = 'c0ffee2'
+    fileDiff = () => MOVED_DIFF
+    await refresh()
+    expect(readQuotes(KEY_A).drafts).toMatchObject([{ id: 'c-old', startLine: 4, commit: 'c0ffee2' }])
+  })
+
+  // Review round 2: the heads read were kept only while the view was mounted.
+  it('after another Ticket was opened or worfy restarted, a comment on the HEAD read then follows the agent\'s next commit', async () => {
+    listed = () => [{ ...changed(PATH), uncommitted: false }]
+    await open()
+    fireEvent.click(within(row(3)).getByTestId('changes-line-plus'))
+    await writeAndSave('Why 0.5?')
+    expect(readQuotes(KEY_A).drafts).toMatchObject([{ startLine: 3, commit: 'c0ffee1' }])
+    cleanup()
+    // A restart: what memory holds is read again from the window's storage.
+    forgetQuotesInMemory()
+    forgetSeenHeadsInMemory()
+    head = 'c0ffee2'
+    fileDiff = () => MOVED_DIFF
+    await open()
+    await refresh()
+    expect(readQuotes(KEY_A).drafts).toMatchObject([{ startLine: 4, endLine: 4, commit: 'c0ffee2' }])
+    expect(chipText()).not.toContain('Line changed')
+  })
+
+  it('a comment on the HEAD the file was committed at is on no commit once the file has uncommitted edits again', async () => {
+    listed = () => [{ ...changed(PATH), uncommitted: false }]
+    addDraft(KEY_A, codeComment({ commit: 'c0ffee1' }))
+    await open()
+    listed = () => [{ ...changed(PATH), uncommitted: true }]
+    fileDiff = () => MOVED_DIFF
+    await refresh()
+    expect(readQuotes(KEY_A).drafts).toMatchObject([{ id: 'c-old', startLine: 4, commit: null }])
+  })
+
+  it('a comment on the work tree is not taken by a Refresh in a Commit scope: its lines are not that commit\'s', async () => {
+    scopeKinds = ['all', 'uncommitted', 'commit']
+    commits = [{ sha: 'abcdef1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', short: 'abcdef1', author: 'dev', date: '2026-11-20T10:00:00Z', subject: 'Cap' }]
+    addDraft(KEY_A, codeComment({ commit: null }))
+    await open()
+    fireEvent.click(screen.getByTestId('changes-scope'))
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: /abcdef1/u }))
+    await settle()
+    fileDiff = () => MOVED_DIFF
+    await refresh()
+    expect(calls.some((call) => call.channel === 'changes.file' && (call.input.scope as { kind: string }).kind === 'commit')).toBe(true)
+    expect(readQuotes(KEY_A).drafts).toMatchObject([{ id: 'c-old', startLine: 3, commit: null }])
   })
 
   it('lines the read does not show are not marked «Line changed»', async () => {

@@ -15,6 +15,8 @@ const electron = vi.hoisted(() => ({
   /** What the next BrowserWindow's loadFile / loadURL answers. */
   load: (): Promise<void> => Promise.resolve(),
   destroyed: false,
+  /** What BrowserWindow.getAllWindows() answers; none by default. */
+  windows: [] as unknown[],
   /** Emits did-start-navigation on the last window's webContents, as Chromium does. */
   startNavigation: (() => undefined) as (details: { isMainFrame: boolean; isSameDocument: boolean }) => void,
   requestSingleInstanceLock: vi.fn(() => true),
@@ -33,7 +35,7 @@ const electron = vi.hoisted(() => ({
 vi.mock('electron', () => {
   class FakeWindow {
     static getAllWindows(): FakeWindow[] {
-      return []
+      return electron.windows as FakeWindow[]
     }
     webContents = {
       on(event: string, listener: (details: { isMainFrame: boolean; isSameDocument: boolean }) => void): void {
@@ -633,7 +635,24 @@ describe('which windows src/main/index.ts opens as the first of the start', () =
       expect(createMainWindow).toHaveBeenCalledTimes(3)
       expect(createMainWindow.mock.calls.slice(1)).toEqual([[], []])
       expect(electron.showErrorBox).not.toHaveBeenCalled()
+
+      // Only an Integration's sign-in window open (macOS, the main window closed): it is not worfy's window, so the Dock
+      // icon and a second start still open the main window, and leave the sign-in window alone.
+      const { markSignInWindow } = await import('../../src/main/sign-in-windows')
+      const signIn = { webContents: {}, isMinimized: vi.fn(() => false), restore: vi.fn(), focus: vi.fn() }
+      markSignInWindow(signIn.webContents)
+      electron.windows = [signIn]
+      listener('activate')()
+      listener('second-instance')()
+      expect(createMainWindow).toHaveBeenCalledTimes(5)
+      expect(signIn.focus).not.toHaveBeenCalled()
+      // With the main window open, neither opens another.
+      electron.windows = [signIn, { webContents: {}, isMinimized: () => false, restore: vi.fn(), focus: vi.fn() }]
+      listener('activate')()
+      listener('second-instance')()
+      expect(createMainWindow).toHaveBeenCalledTimes(5)
     } finally {
+      electron.windows = []
       vi.doUnmock('../../src/main/window')
     }
   })

@@ -202,7 +202,7 @@ Review mode and selects that PR. The head of the screen: `owner/repo#N` and the 
 **Wrap**, **Hide whitespace**, then the tree and the diff of [Changes](changes.md) for the PR, with the review threads
 of GitHub on their lines and the code in the syntax colours of GitHub ([Syntax colours](changes.md#syntax-colours)). A file in the tree shows how many open threads and comments of the draft it has, and ✓ when
 it is Viewed. **j** / **k** and **↓** / **↑** move along the files (not along the PRs), **n** / **p** along the hunks, **v**
-marks the file Viewed or takes the mark off, **c** comments on the lines picked. **Escape** closes an open menu or comment first; the next one closes Review mode. The
+marks the file Viewed or takes the mark off, **c** comments on the lines picked. **Escape** closes an open menu or comment first, then takes the lines picked away; the next one closes Review mode. The
 draft stays. Another tab and back keeps the PR, its file and Show new commits. A PR that leaves the list (it left
 the inbox on a read, or the search was cleared) closes Review mode, and the list takes its keys again.
 
@@ -216,10 +216,11 @@ shows it not Viewed again.
 
 **Comments on lines.** The popover and the keys are those of the comments on lines of [Changes](changes.md), but the
 comment goes into the review draft, not to a Session, and nothing goes to GitHub before Submit. **+** in the gutter of a
-line, or **c** on the lines picked (a click picks a line, a click with Shift or a selection across lines picks a range),
-opens it; the text is Markdown, **Suggest change** (new side only) adds a `suggestion` block with the text of the lines
+line, dragged over lines for a range, or **c** or the hint «Comment on lines N–M (c)» on the lines picked (a click picks
+a line; a click with Shift on a line or its **+**, or a selection across lines, picks a range), opens it, as in
+[Changes](changes.md#picking-a-range); the text is Markdown, **Suggest change** (new side only) adds a `suggestion` block with the text of the lines
 picked, **⌘↵** saves. Images are not taken. A range covers lines of one hunk: GitHub refuses a range across hunks, so
-such a pick shows a message and opens nothing. The lines are read without Hide whitespace and unfolded (a lock,
+a pick stays in the hunk it began in, and a line of another hunk is picked alone. The lines are read without Hide whitespace and unfolded (a lock,
 generated or too large file too). A popover with text not saved stays open on **Escape** and on a click outside; **Cancel**
 closes it. A comment stands under its last line: "Pending · Edit · Delete", or "Written by the agent · Edit · Delete" for
 the agent's; an edit makes the comment the person's. New comments are made only while the diff shows All changes of the

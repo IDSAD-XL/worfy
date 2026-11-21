@@ -21,7 +21,7 @@ import { dirname, join, relative } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { gitProbe } from '../../src/main/changes/base'
 import { changesGitRunner, refusal, type ChangesGit } from '../../src/main/changes/git'
-import { fileDiff, type ChangesContext } from '../../src/main/changes/scopes'
+import { fileDiff, listChanges, type ChangesContext } from '../../src/main/changes/scopes'
 import { nativePath, ticketSubjects } from '../../src/main/changes/subjects'
 import { changesHandlers, type ChangesDeps } from '../../src/main/ipc/changes'
 import type { InvokeHandler } from '../../src/main/ipc/index'
@@ -202,6 +202,44 @@ describe('a Ticket with a worktree', () => {
     expect(changes!.files.map((file) => file.path)).not.toContain('keep.txt')
   })
 
+  // worfy-changes-view ticket 09 (D3): the text to the agent says «uncommitted» only for a file that has uncommitted edits.
+  it('uncommitted: false for a file only the Ticket\'s commits changed; true for one edited in the work tree and a new one; every file of Uncommitted', async () => {
+    const [all] = (await call(changesList, { projectId: 'p', subject: ticket, scope: { kind: 'all' } })).repos
+    const byPath = Object.fromEntries(all!.files.map((file) => [file.path, file.uncommitted]))
+    expect(byPath).toMatchObject({ 'b c.txt': false, 'big.txt': false, 'crlf.txt': false, 'moved ü.txt': false, 'a.txt': true, 'new ü file.txt': true, 'notes/с пробелом.md': true })
+    const [compare] = (await call(changesList, { projectId: 'p', subject: ticket, scope: { kind: 'compare', repo: 'repo', ref: 'main' } })).repos
+    expect(compare!.files.find((file) => file.path === 'a.txt')!.uncommitted).toBe(true)
+    expect(compare!.files.find((file) => file.path === 'b c.txt')!.uncommitted).toBe(false)
+    const [uncommitted] = (await call(changesList, { projectId: 'p', subject: ticket, scope: { kind: 'uncommitted' } })).repos
+    expect(uncommitted!.files.map((file) => file.uncommitted)).toEqual([true, true, true])
+    const [one] = (await call(changesList, { projectId: 'p', subject: ticket, scope: { kind: 'commit', repo: 'repo', sha: firstOnBranch } })).repos
+    expect(one!.files.length).toBeGreaterThan(0)
+    expect(one!.files.every((file) => file.uncommitted === false)).toBe(true)
+    // The read wrote nothing: the index of the worktree is as it was.
+    expect(snapshot(join(repo, '.git')).indexes).toEqual(before.indexes)
+  })
+
+  // Review round 2: the answer names the head the worktree list read; the files are told against that head, not against
+  // a HEAD an agent's commit moved between the two reads.
+  it('uncommitted is told against the head the answer names, not against a HEAD that moved after it was read', async () => {
+    const [subject] = await ticketSubjects([{ name: 'repo', path: repo }], ticket, git)
+    expect(subject!.headSha).toBe(secondOnBranch)
+    const asked: string[][] = []
+    const watched: ChangesGit = (cwd, args, options) => {
+      asked.push([...args])
+      return git(cwd, args, options)
+    }
+    // The worktree list was read at the first commit; HEAD is the second one now.
+    const context: ChangesContext = { subject: { ...subject!, headSha: firstOnBranch }, git: watched, facts: { mainBranch: 'origin/main', finish: 'pr-green-ci' }, workflowPrefix: null }
+    const changes = await listChanges(context, { kind: 'all' })
+    expect(changes.error).toBeNull()
+    expect(changes.headSha).toBe(firstOnBranch)
+    expect(asked.find((args) => args.includes('--name-only'))).toContain(firstOnBranch)
+    // b c.txt came with the second commit: against the first one it is not committed.
+    expect(changes.files.find((file) => file.path === 'b c.txt')!.uncommitted).toBe(true)
+    expect(changes.files.find((file) => file.path === 'crlf.txt')!.uncommitted).toBe(false)
+  })
+
   it('a file of All changes: its hunks with the numbers of both sides; CRLF, a binary file, a folded one, a new file', async () => {
     const file = async (path: string, extra: Record<string, unknown> = {}) => (await call(changesFile, { projectId: 'p', subject: ticket, repo: 'repo', scope: { kind: 'all' }, path, ...extra })).file
     const a = await file('a.txt')
@@ -358,6 +396,18 @@ describe('a Ticket in two repositories of one Project, on a branch checked out n
     expect(committed.repos.map((entry) => [entry.repo, entry.error, entry.files.map((file) => file.path)])).toEqual([['web', null, ['page.tsx', 'web-new.txt']]])
   })
 
+  it('uncommitted is false for every file of a branch checked out nowhere, whatever the checkout holds uncommitted', async () => {
+    write(api, { 'server.ts': 'one\nedited in the checkout of main\n' })
+    const t03 = { kind: 'ticket' as const, epic: 'ep', num: 3 }
+    const { repos } = await call(changesList, { projectId: 'p', subject: t03, scope: { kind: 'all' } })
+    expect(repos.map((entry) => [entry.repo, entry.files.map((file) => [file.path, file.uncommitted])])).toEqual([
+      ['api', [['api-new.txt', false], ['server.ts', false]]],
+      ['web', [['page.tsx', false], ['web-new.txt', false]]],
+    ])
+    // Back as main has it, by hand: a `git checkout` would write the index the next test compares.
+    write(api, { 'server.ts': 'one\n' })
+  })
+
   it('answers per repository: the repository is the top level; one without the branch is left out', async () => {
     const t03 = { kind: 'ticket' as const, epic: 'ep', num: 3 }
     const scopes = await call(changesScopes, { projectId: 'p', subject: t03 })
@@ -467,6 +517,18 @@ describe('the edge cases of reading: a Ticket on the checkout itself', () => {
     expect(changes.error).toBeNull()
     expect(changes.files.find((each) => each.path === 'staged.txt')).toMatchObject({ status: 'A', untracked: false, additions: 1, deletions: 0 })
     expect(changes.files.map((each) => each.path)).not.toContain('debug.log')
+  })
+
+  it('uncommitted: true for a file edited only in the index (staged) and in the work tree, and for a new one; false for a committed one; nothing written', async () => {
+    const changes = await list({ kind: 'all' })
+    expect(changes.error).toBeNull()
+    const of = (path: string) => changes.files.find((each) => each.path === path)?.uncommitted
+    expect([of('staged.txt'), of('ws.txt'), of('w.attr'), of('m.txt'), of('wide.txt')]).toEqual([true, true, true, false, false])
+    // Hide whitespace leaves ws.txt out of the list; the others are as they were.
+    const quiet = await list({ kind: 'all' }, { hideWhitespace: true })
+    expect(quiet.files.find((each) => each.path === 'staged.txt')?.uncommitted).toBe(true)
+    expect(quiet.files.find((each) => each.path === 'm.txt')?.uncommitted).toBe(false)
+    expect(snapshot(join(edge, '.git'))).toEqual(before)
   })
 
   it('Hide whitespace: a change of whitespace only leaves the list, the rest of a file keeps only its real change', async () => {
