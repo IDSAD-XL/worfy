@@ -35,7 +35,7 @@ export function costOf(tools: readonly IntegrationToolInfo[]): ToolsCostView {
 
 ## 3. Канал `integrations.tools`: весь список, без входа — ни запроса
 
-Code: `src/main/ipc/integrations.ts:228-246` · key lines: 231, 233, 236, 240
+Code: `src/main/ipc/integrations.ts:233-251` · key lines: 236, 238, 241, 245
 
 ```ts
     defineHandler(integrationsTools, async ({ projectId, id }) => {
@@ -71,7 +71,7 @@ Code: `src/main/ipc/integrations.ts:228-246` · key lines: 231, 233, 236, 240
 
 ## 4. Сироты: записи Project-а без Integration-ы Machine
 
-Code: `src/main/ipc/integrations.ts:271-293` · key lines: 271, 280, 287
+Code: `src/main/ipc/integrations.ts:276-298` · key lines: 276, 285, 292
 
 ```ts
       const dangling = (whole === null ? [] : entries).flatMap(({ project, used }) => {
@@ -141,7 +141,7 @@ Code: `src/renderer/integrations/ClaudeServers.tsx:201-210` · key lines: 203, 2
 
 ## 6. Весь список tools у proxy
 
-Code: `src/main/integrations/proxy.ts:269-275` · key lines: 273, 274
+Code: `src/main/integrations/proxy.ts:277-283` · key lines: 281, 282
 
 ```ts
   /**
@@ -208,11 +208,11 @@ Code: `src/main/agent/fake-query.ts:544-550` · key lines: 546, 549
 1. Почему цена на строке считается после фильтра Tools, а `integrations.tools` отдаёт список до него?
    - Ответ: модель получает только то, что пропустил фильтр proxy, — это и есть цена; а весь список нужен экрану, чтобы
      предложить Read only и Choose… и сказать «of N».
-   - Строки: `src/renderer/integrations/cost.ts:17`, `src/main/ipc/integrations.ts:236`
+   - Строки: `src/renderer/integrations/cost.ts:17`, `src/main/ipc/integrations.ts:241`
 2. Что увидит пользователь, если Remove из Settings оборвался после удаления Integration-ы, но до записи Project-ов?
    - Ответ: строку «… still name(s) Integrations no longer on this Machine» с Clean up; Clean up удалит только записи
      без Integration-ы на Machine.
-   - Строки: `src/main/ipc/integrations.ts:271`, `src/main/ipc/integrations.ts:287`
+   - Строки: `src/main/ipc/integrations.ts:276`, `src/main/ipc/integrations.ts:292`
 3. Почему предупреждение о двух наборах tools не говорит об экономии контекста?
    - Ответ: выключение сервера Claude Code через `disallowedTools` не убирает MCP-tool из контекста модели; риск — два
      аккаунта одного сервиса рядом.
