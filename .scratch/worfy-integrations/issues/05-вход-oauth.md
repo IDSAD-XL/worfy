@@ -1,7 +1,8 @@
 # 05 — Вход OAuth: `OAuthClientProvider` пакета `@modelcontextprotocol/sdk` над `SecretStore`, окно worfy с partition, «Open in system browser», Sign out с revocation, канал `integrations.signIn`
 
 Type: task
-Status: claimed 2026-11-21T01:51Z
+Status: done 2026-11-21T16:09Z
+PR: #2129
 Branch: worfy-integrations/05
 Blocked by: 01, 03, 06
 Source: [spec.md](../spec.md), «Ticket-ы», 5; «Волны», Wave 4; «Решение», 3; «Как пользователь идёт по экранам», 4 и
@@ -74,6 +75,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Волны», Wave 4; «Ре�
 - [ ] `integrations.signIn` с Linked machine Read only — отказ; Full access — разрешён (тот же contract).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/integrations-oauth.test.ts` exit 0 · mac - · 404167efa
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44919213738/job/136902391695 · ci - · 15649bf4240c5e0f21391dbf7e5268f39f237332
 
 ## Где в коде
 

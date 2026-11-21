@@ -232,3 +232,50 @@ Code: `src/main/integrations/proxy.ts:513-517` · key lines: 515
    - Ответ: provider proxy не отдаёт и не сохраняет нового клиента и ничего не делает в `redirectToAuthorization`, так
      что пакет кончает `UnauthorizedError`, а proxy отвечает «Sign-in needed».
    - Строки: `src/main/integrations/auth/oauth.ts:300-311`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED — worfy-integrations 05 (OAuth sign-in: the MCP SDK's OAuthClientProvider over SecretStore, a worfy window with its own partition, «Open in system browser», Sign out with revocation, channel integrations.signIn), head 15649bf4240c5e0f21391dbf7e5268f39f237332
+>
+> Gate (depth medium, two rounds): reviewer (correctness) — round 1 FIX (one med, two lows), round 2 MERGE. The verifier (lens: implementer's claims) was stopped twice from worfy; the owner chose on 2026-11-21 to land on the reviewer's verdict alone.
+>
+> - What the user sees: an Integration signs in through discovery, one dynamic client registration per Integration, PKCE S256 and resource; tokens live in secrets.json under <id>:access, <id>:refresh, <id>:client; an expired token refreshes without Restart Session; two Integrations on one address get two clients and two partitions; Sign out revokes both tokens, deletes <id>:* and clears the partition; integrations.signIn is refused over a Linked machine with Read only.
+> - Fixed in round 2: a call whose 401 arrives after another call's refresh is resent once with the stored token instead of answering «Sign-in needed»; a 2xx refresh answer without an access token is forgotten like a 5xx; the sign-in window no longer counts as an app window for the Dock icon, a second start and a notification click.
+> - After the verdict: CI Windows was red on the Sign out test because its file keys used the platform separator; the test now joins them with '/' (test/contract/integrations-oauth.test.ts:10), and origin/main was merged in; oauth contract + redirect unit 37/37, lint, typecheck EXIT=0.
+> - Evidence: contract integrations-oauth 19 tests and the redirect unit test red-before/green-after; 30 module unit+contract files 641 passed; 32 mutants each red on its own test; the reviewer's race scenarios R1–R3 green with one refresh each; pnpm lint, typecheck EXIT=0; gate fast green EXIT=0. No real service was signed in to.
+> - Debt (low, ticket 09): the sign-in window still counts as an app window in the Autopilot confirmation owner (src/main/autopilot/chat-confirm.ts:226-228), menu commands (src/main/menu.ts:65) and event broadcasts (src/main/broadcast.ts:11, src/main/ipc/link.ts:146, src/main/ipc/linked.ts:77); integrations.remove of an OAuth Integration does not revoke its tokens or clear its partition (src/main/ipc/integrations.ts:182).
+> - Not verified: the window sign-in in real Electron (webRequest on the service's 302 to 127.0.0.1); loopback redirect with a port at Atlassian and Linear; the minimal Atlassian scopes — at the owner's acceptance (ticket 11).
+>
+> Decided without the owner (to confirm): the refresh lock lives in the transport's fetch and never sends a used refresh token; the proxy never opens a sign-in window; Linear scopes read write, Atlassian from metadata; account and site null; the web policy allows navigation only for the sign-in window (src/main/window.ts, outside the ticket's file list); DCR registers the redirect URI without a port.
+
+Code: `test/contract/integrations-oauth.test.ts:10-10` · key lines: 10
+
+```ts
+import { join, relative, sep } from 'node:path'
+```
+
+Code: `src/main/autopilot/chat-confirm.ts:226-228` · key lines: 226
+
+```ts
+  const focused = windows.getFocusedWindow()
+  if (focused !== null && !focused.isDestroyed() && onScreen(focused)) return focused
+  const live = windows.getAllWindows().filter((window) => !window.isDestroyed())
+```
+
+Code: `src/main/menu.ts:65-65` · key lines: 65
+
+```ts
+  const target = window instanceof BrowserWindow ? window : BrowserWindow.getFocusedWindow()
+```
+
+Code: `src/main/broadcast.ts:11-11` · key lines: 11
+
+```ts
+  for (const window of BrowserWindow.getAllWindows()) {
+```
+
+Code: `src/main/ipc/link.ts:146-146` · key lines: 146
+
+```ts
+    for (const window of BrowserWindow.getAllWindows()) {
+```
