@@ -319,8 +319,9 @@ function providerOf(
       }
     },
     saveTokens: (tokens) => {
-      // A refresh that gives no new refresh token leaves the old one (RFC 6749 6); a new sign-in replaces both.
-      if (signIn !== undefined || tokens.refresh_token !== undefined) keepOnly(store, id, ['client'])
+      // Both are replaced: after a refresh that gave no new refresh token the package hands the old one back itself
+      // (refreshAuthorization, RFC 6749 6).
+      keepOnly(store, id, ['client'])
       store.setSecret(id, 'access', tokens.access_token)
       if (tokens.refresh_token !== undefined) store.setSecret(id, 'refresh', tokens.refresh_token)
       onSaved()
