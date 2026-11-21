@@ -480,6 +480,14 @@ function fakeOptionsFromEnv(env: NodeJS.ProcessEnv): FakeQueryOptions {
     // A Product Session's guard, which Claude Code would run before canUseTool (worfy-polish ticket 82).
     preToolUse: (request) => (request.kind === 'product' ? productHooks(request).then(fakePreToolUse) : undefined),
     ...(env.WORFY_AGENT_MCP_ALLOWLIST === 'profile' ? { mcpAllowlist: async (request: QueryRequest) => profileAllowlist(request.cwd, definedOnly(await harnessScriptEnv())) } : {}),
+    // The Project's Integrations, through the app's proxy as a real Session gets them (worfy-integrations ticket 08).
+    integrations: async (request) => {
+      const found = await appIntegrations({ cwd: request.cwd, unattended: request.unattended === true })
+      // A list the service refused leaves that server without tools, not the Session without its Integrations.
+      const toolsOf = async (server: (typeof found)[number]['server']): Promise<string[]> => (await (server.listTools?.() ?? Promise.resolve(server.tools)).catch(() => [])).map((tool) => tool.name)
+      return Promise.all(found.map(async ({ name, label, server }) => ({ name, label, tools: await toolsOf(server) })))
+    },
+    labelIntegrations,
   }
 }
 

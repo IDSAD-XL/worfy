@@ -13,11 +13,13 @@ import type { CodeStoriesSettingState } from '../../shared/ipc/code-stories-sett
 import type { TeamReviewerState } from '../../shared/ipc/projects'
 import { UNNAMED_VENDOR, VENDOR_IDS, vendorLabel, type VendorId } from '../../shared/vendors/vendor'
 import { invoke, invokeOn, windowMachine } from '../ipc'
+import { IntegrationsSection } from '../integrations/IntegrationsSection'
 import { EditProfile } from '../projects/EditProfile'
 import { useReadOnly } from '../projects/useProjects'
 import { SettingSwitch } from '../settings/controls'
 import { Button } from '../theme/Button'
 import { Dialog } from '../theme/kit/Dialog'
+import { Tab, TabList, TabPanel, Tabs } from '../theme/kit/Tabs'
 import { Select } from '../theme/Select'
 
 export interface ProjectSettingsProps {
@@ -116,6 +118,10 @@ const VENDOR_OPTIONS: readonly { value: VendorChoice; label: string }[] = [
  * the settings of this window. Edit profile is drawn inside this window and over it: Esc there closes
  * it alone, and the focus comes back to "Edit profile…".
  *
+ * Two tabs (worfy-integrations ticket 08, the prototype Card of ticket 02): General — everything above, saved with
+ * Save — and Integrations (integrations/IntegrationsSection.tsx), whose changes go to main at once; the window
+ * widens for it.
+ *
  * A modal window of the kit (theme/kit/Dialog.tsx, worfy-ui-kit ticket 05): its focus trap, its Esc,
  * its backdrop, and the focus back on what opened it.
  */
@@ -140,6 +146,7 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
   const [saving, setSaving] = useState(false)
   // "Edit profile" is open over the window; the line its Save left.
   const [editingProfile, setEditingProfile] = useState(false)
+  const [tab, setTab] = useState<'general' | 'integrations'>('general')
   const [profileSaved, setProfileSaved] = useState<string>()
   // The window gives the focus back to "Edit profile…" when it closes (theme/kit/Dialog.tsx).
   const closeProfile = (): void => setEditingProfile(false)
@@ -220,10 +227,26 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
   }
 
   return (
-    <Dialog open onClose={onClose} labelledBy={titleId} className="" style={styles.dialog} data-testid="project-settings">
+    <Dialog open onClose={onClose} labelledBy={titleId} className="" style={tab === 'integrations' ? { ...styles.dialog, width: 820 } : styles.dialog} data-testid="project-settings">
       <h2 id={titleId} style={styles.title}>
         Project settings
       </h2>
+      <Tabs value={tab} onValueChange={setTab}>
+      <TabList className="w-int-tabs" aria-label="Project settings">
+        <Tab value="general" className="w-int-tab" data-testid="project-settings-tab-general">
+          General
+        </Tab>
+        <Tab value="integrations" className="w-int-tab" data-testid="project-settings-tab-integrations">
+          Integrations
+        </Tab>
+      </TabList>
+      <TabPanel value="integrations">
+        <IntegrationsSection project={project} machine={machine} readOnly={readOnly} />
+        <div style={{ ...styles.actions, justifyContent: 'flex-end', marginTop: 'var(--space-3)' }}>
+          <Button onClick={onClose}>Close</Button>
+        </div>
+      </TabPanel>
+      <TabPanel value="general">
       <p style={styles.subtitle}>
         {project.name} · the message each action sends. Empty means the action is not configured.
       </p>
@@ -394,6 +417,8 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
           Save
         </Button>
       </div>
+      </TabPanel>
+      </Tabs>
       {/* A window of its own, drawn inside this one in the React tree: Esc there closes it alone. */}
       {editingProfile && project.path !== undefined ? (
         <EditProfile

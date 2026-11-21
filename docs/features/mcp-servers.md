@@ -4,7 +4,7 @@ One Feature. The **MCP servers of a Session** are the servers whose tools the ag
 user's own (from the user's config, a Project's `.mcp.json` or claude.ai connectors) and worfy's (`worfy-canvas`,
 `worfy-browser`, `worfy-mind-map` and the Harness plugin's server). This page covers the chip «MCP n/m» in the bar under
 a Session's input field, its popover, the actions on a server, taking in a server added while the Session runs, the servers the Project
-does not allow, and the same status in Project settings. Which servers a Session gets at its start is on
+does not allow, the same status in Project settings, and the Integrations a Project turns on there. Which servers a Session gets at its start is on
 [Sessions](sessions.md#how-it-works); Claude Code and Codex are on [Vendors](vendors.md). New to the terms: start with
 [Concepts](concepts.md).
 
@@ -170,6 +170,42 @@ Edit profile shows, under the field "MCP servers", each name of the list with it
 on this Machine, its Orchestrator or a Session Node, whose rows reached this window last. A name that Session does not
 have shows without a status; with no Session, nothing shows. The form is on [Projects](projects.md).
 
+#### Integrations
+
+An **Integration** is an account of a service (Jira and Confluence, Linear, GitHub, a custom MCP server…) that worfy
+signs in to and keeps on this Machine; the Sessions of a Project that turns it on get it as a server of worfy's, whose
+row in the chip shows its label and the source `worfy integration`. Claude Code and Codex never see the token.
+
+- **Project settings → Integrations** (a tab beside General) lists the Project's Integrations under «worfy
+  integrations»: the label, the service and the site, the status (`Signed in`, `Sign-in needed` with Sign in, `Error`
+  with the service's text, `Checking`), the tools and their size, the Tools filter, the ticks Enabled and Autopilot, and
+  a «…» menu with Test, Rename, Sign out, Disable in this Project and Remove from Machine. Changes go to main at once;
+  the tab has Close, not Save.
+- **The size of the tools** («12 of 41 tools · ~3k tokens») is counted after the Project's Tools filter: worfy's
+  server lists only the tools the filter lets through, so that is what each request of the Project's Sessions carries.
+- **Tools filter**: All (the default), Read only (the tools the service marks read-only; not offered for a service that
+  marks none, with the reason), or Choose… for a list of names.
+- **Available to Autopilot** is off for a new Integration.
+- **Add integration** opens the catalogue (no Slack); an Integration of this Machine the Project does not use yet shows
+  on top as «Use in this Project», which turns it on without a second sign-in. A service's form takes a Label unique on
+  the Machine and its token (Atlassian: the e-mail and the API token; GitHub: a token or the one of the Project's gh
+  account, with its scopes shown). A custom server takes an `https://` address (`http://` only on this computer) or a
+  command worfy starts, whose variables marked Secret go to the secret store. After the token worfy checks the sign-in
+  and lists the tools. Sign-in through the service's page is not available yet.
+- **From Claude Code** under it lists the servers and claude.ai connectors of Claude Code, as Edit profile does, with
+  Allow; a Profile with no list shows the default one (`plugin_worfy_qmd`, `worfy-canvas`) as allowed, as Sessions get
+  it. When one of them is a service of the catalogue whose Integration this Project has on, the row warns that the
+  Sessions get two tool sets of it, possibly of different accounts, and offers to turn the server off in this Project.
+  «Add as integration» opens Add integration on that service; the Profile's list does not change by itself.
+- **Settings → Integrations** lists every Integration of the Machine, its status and the Projects that use it, with
+  Sign out and Remove. One no Project uses shows «Not used in any Project». Entries a Project still keeps of an
+  Integration the Machine no longer has (a Remove cut short) are named in one line with Clean up. When the
+  Machine's list could not be read (its file damaged or of another version, and set aside) nothing is named and Clean
+  up erases nothing: every entry would look removed.
+- **On a Linked machine** with read-only access the section shows the list and the status, and every control is
+  inactive. With full access the ticks, the filter and Rename work; Add integration, the token, Sign out and Remove
+  stay on the Project's machine, because a token never crosses the link.
+
 #### On a Linked machine
 
 - With read-only access the chip and the popover show the rows of the Machine that runs the Session, and each action
@@ -233,6 +269,8 @@ have shows without a status; with no Session, nothing shows. The form is on [Pro
 | The chip, the popover, the status in Edit profile | `src/renderer/session/McpChip.tsx`, `src/renderer/session/mcp-chip.css`, `src/renderer/session/header-facts.ts`, `src/renderer/session/store.ts`, `src/renderer/projects/EditProfile.tsx` |
 | The chip's place in the bar under the input field | `src/renderer/session/composer/McpServers.tsx`, `src/renderer/session/product-session.ts` |
 | The test agent's MCP answers | `src/main/agent/fake-query.ts` |
+| Integrations in Project settings and in Settings | `src/renderer/integrations/IntegrationsSection.tsx`, `src/renderer/integrations/AddIntegrationDialog.tsx`, `src/renderer/integrations/ClaudeServers.tsx`, `src/renderer/integrations/cost.ts`, `src/renderer/settings/IntegrationsSection.tsx` |
+| Their channels | `src/shared/ipc/integrations.ts`, `src/main/ipc/integrations.ts` |
 
 **Data flow.** The driver of the Session's Vendor sends its rows as an `mcp` event. The Session adds the rows of the
 servers turned off for it and sends only a change on `agent.event`; the renderer store keeps the latest rows of each
@@ -263,3 +301,7 @@ and `agent.mcpAllowAll` write channels, so read-only access on a Linked machine 
 | `test/contract/integrations-codex.test.ts` | The Integrations of a Codex Session on the fake app-server: their keys in `thread/start`, two on one address answering each with its own data, the tools filter on `tools/list` and `tools/call` of the endpoint, Autopilot, outside a Project, their rows, the service's token nowhere Codex or a log sees it. |
 | `test/contract/sdk-compat.test.ts` | The SDK still has the sign-in method worfy calls. |
 | `test/e2e/session-mcp.spec.ts` | The chip under the input field and the popover above it in the built app, Reconnect, Allow in the same Session, the not started group with its Restart Session; shots of the popover in both themes. |
+| `test/unit/integrations-section.test.tsx` | The rows of each status, the Tools filter and its price, the ticks, the «…» menu, Remove's confirmation, «two tool sets» and «Add as integration», a Linked machine. |
+| `test/unit/add-integration-dialog.test.tsx` | The catalogue without Slack, «Use in this Project», the unique Label, the token fields, a custom server over http and stdio. |
+| `test/contract/integrations-screen.test.ts` | The channels of the screen: the tools before the filter and the price after it, Sign out, the Machine's list with orphans and Clean up, Remove from Settings, the gh account's token. |
+| `test/e2e/integrations.spec.ts` | Add integration on a stub server in the built app, the row signed in, two Projects on one address each with its own data, the Integration in the chip of a new Session; shots of the section in both themes. |

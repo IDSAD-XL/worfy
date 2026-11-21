@@ -11,7 +11,7 @@
 //   gives). The folder is the one of the list, so the list sits in the 0700 folder too.
 // A label is unique on the Machine, compared without case and without the spaces around it.
 import { randomBytes } from 'node:crypto'
-import { chmodSync, mkdirSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { catalogueEntry } from '../../shared/integrations/catalogue'
@@ -81,6 +81,19 @@ export class IntegrationStore {
   /** The Integrations of the Machine, in the order they were added. Read from the file on every call. */
   list(): Integration[] {
     return readJsonFile(this.file, integrationsFileSchema)?.integrations ?? []
+  }
+
+  /**
+   * The Integrations of the Machine when the list is known whole: its file read as it is and none of it set aside as
+   * unreadable (readJsonFile moves a damaged file or one of another version to `integrations.json.unreadable-…` and
+   * reads as empty from then on). null otherwise: an empty list then is not the Machine's, and every Integration a
+   * Project names would look removed (worfy-integrations ticket 08, Clean up).
+   */
+  wholeList(): Integration[] | null {
+    const integrations = this.list()
+    if (!existsSync(this.file)) return null
+    const setAside = readdirSync(this.dir).some((name) => name.startsWith(`${INTEGRATIONS_FILE}.unreadable-`))
+    return setAside ? null : integrations
   }
 
   get(id: string): Integration | undefined {

@@ -11,11 +11,23 @@
 // src/main/integrations/auth/oauth.ts) and answers what it shows. The proxy (ticket 06) adds `checking`. Removing an
 // Integration closes the proxy's connection to its service, and the app's quit closes every one (ticket 06), so no
 // stdio server worfy started outlives them.
+//
+// The screen's channels (worfy-integrations ticket 08): `integrations.tools` asks the service through the proxy
+// (initialize and tools/list on the shared connection) and answers the whole list, before the Project's filter, with
+// each tool's size — the screen counts what the filter lets through. It asks nothing of an Integration that lacks a
+// secret. `integrations.machine` lists the Machine's Integrations with the Projects that have an entry for each, and
+// the entries of Integrations the Machine no longer has (a Remove cut short: the store is written before the
+// Projects); `integrations.cleanUp` drops those. `integrations.signOut` and the gh account's token (ticket 04's
+// signOut, offerGhToken and signInWithGhToken) are reached here.
 import type { Integration, IntegrationSecretPart, IntegrationStatus, ProjectIntegration } from '../../shared/integrations/types'
 import { newProjectIntegration } from '../../shared/integrations/types'
 import {
   integrationsAdd,
+  integrationsCleanUp,
+  integrationsGhOffer,
+  integrationsGhSignIn,
   integrationsList,
+  integrationsMachine,
   integrationsRemove,
   integrationsRename,
   integrationsSetAutopilot,
@@ -23,12 +35,26 @@ import {
   integrationsSetSecret,
   integrationsSetTools,
   integrationsSignIn,
+  integrationsSignOut,
   integrationsStatus,
+  integrationsTools,
+  type IntegrationToolInfo,
 } from '../../shared/ipc/integrations'
 import { app } from 'electron'
+import type { GhRunner } from '../github/prs'
 import { integrationOAuth, type IntegrationOAuth } from '../integrations/auth/oauth'
-import { checkSignIn, checksToken, isCurrentToken, verifyTokenSignIn, type SignInCheck } from '../integrations/auth/tokens'
-import { closeIntegrationConnections } from '../integrations/proxy'
+import {
+  checkSignIn,
+  checksToken,
+  isCurrentToken,
+  offerGhToken,
+  signInWithGhToken,
+  signOut,
+  verifyTokenSignIn,
+  type CheckedStatus,
+  type SignInCheck,
+} from '../integrations/auth/tokens'
+import { closeIntegrationConnections, integrationProxy, type IntegrationProxy, type ServiceTool } from '../integrations/proxy'
 import { integrationStore, type IntegrationStore } from '../integrations/store'
 import { readProjectIntegrations, writeProjectIntegrations } from '../projects/settings'
 import { projectStore } from '../projects/store'
@@ -36,8 +62,16 @@ import { defineHandler, type HandlerModule } from './index'
 
 /** The Projects of this Machine, as the handlers need them; ProjectStore is one. */
 export interface IntegrationProjects {
-  list(): readonly { readonly id: string; readonly name: string }[]
+  /** `path` — the Project's repository root, where gh runs for the gh account's token. */
+  list(): readonly { readonly id: string; readonly name: string; readonly path?: string }[]
   dataDir(id: string): string
+}
+
+/** The Project's gh account and the runner gh goes through, for the gh account's token. */
+export interface IntegrationGh {
+  /** The Project's GitHub account by its Profile; null when it names none. */
+  account(root: string): Promise<string | null>
+  run: GhRunner
 }
 
 export interface IntegrationsHandlersOptions {
@@ -53,6 +87,35 @@ export interface IntegrationsHandlersOptions {
   oauth?: () => Pick<IntegrationOAuth, 'signIn'>
   /** Where the handlers learn that the app quits; none when absent (the module's default export: will-quit). */
   onQuit?: (listener: () => void) => void
+  /** The proxy the tools are asked through; the app's integrationProxy() when absent. */
+  proxy?: () => Pick<IntegrationProxy, 'serviceToolsOf' | 'status'>
+  /** The gh account's token; the app's gh and Profile when absent. */
+  gh?: () => IntegrationGh
+}
+
+/** The app's gh: as the Codex Session reads it (src/main/vendors/codex/session.ts, appGhToken), WORFY_GH in tests. */
+async function appGh(): Promise<IntegrationGh> {
+  const [{ agentEnv }, { ghRunner }, { readGithubAccount }, { harnessScriptEnv }, { claudeHome }] = await Promise.all([
+    import('../agent/env'),
+    import('../github/prs'),
+    import('../workflow/profile'),
+    import('../harness/script-env'),
+    import('../storage/paths'),
+  ])
+  const stub = process.env.WORFY_GH
+  const run = ghRunner({ command: stub || undefined, env: stub ? () => Promise.resolve(process.env) : async () => (await agentEnv()).env })
+  const account = async (root: string): Promise<string | null> => (await readGithubAccount({ root, claudeHome: claudeHome(), env: await harnessScriptEnv(), log: () => undefined })).account
+  return { account, run }
+}
+
+/** What the screen counts of a tool: its name, its read-only mark and the length of the JSON toolsCost measures. */
+export function toolInfo(tool: ServiceTool): IntegrationToolInfo {
+  const hint = tool.annotations?.readOnlyHint
+  return {
+    name: tool.name,
+    readOnly: typeof hint === 'boolean' ? hint : null,
+    size: JSON.stringify({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema }).length,
+  }
 }
 
 /** The secrets an Integration needs before it can be used: its token, and every secret variable of a stdio server. */
@@ -85,6 +148,23 @@ export function integrationsHandlers(options: IntegrationsHandlersOptions = {}):
   options.onQuit?.(() => closeQuietly())
   // Looked up on each call: the module's default export is made when main loads it.
   const projectsOf = (): IntegrationProjects => options.projects ?? projectStore()
+  const proxyOf = options.proxy ?? integrationProxy
+  const ghOf = (): Promise<IntegrationGh> => (options.gh === undefined ? appGh() : Promise.resolve(options.gh()))
+
+  /** The Project of this Machine with `projectId`; an unknown id throws. */
+  const projectOf = (projectId: string): { readonly id: string; readonly name: string; readonly path?: string } => {
+    const project = projectsOf()
+      .list()
+      .find((each) => each.id === projectId)
+    if (project === undefined) throw new Error(`No Project with id ${projectId}`)
+    return project
+  }
+
+  /** The status a token sign-in answered, its error kept while `token` — the one checked — is still the Integration's. */
+  const recordChecked = (machine: IntegrationStore, id: string, token: string | undefined, status: CheckedStatus): CheckedStatus => {
+    if (status.state === 'error' && isCurrentToken(machine, id, token)) errors.set(id, status.message)
+    return status
+  }
 
   /** The data folder of a Project of this Machine; an unknown id throws. */
   const dataDirOf = (projectId: string): string => {
@@ -148,8 +228,91 @@ export function integrationsHandlers(options: IntegrationsHandlersOptions = {}):
       errors.delete(id)
       const status = await verifyTokenSignIn(machine, id, { check, changed })
       // A token replaced or signed out while the service answered: its error is not the Integration's any more.
-      if (status.state === 'error' && isCurrentToken(machine, id, value)) errors.set(id, status.message)
-      return { status }
+      return { status: recordChecked(machine, id, value, status) }
+    }),
+    defineHandler(integrationsTools, async ({ projectId, id }) => {
+      dataDirOf(projectId)
+      const machine = store()
+      const known = statusOf(machine, integrationOf(id), errors)
+      // Without its secret the service would only refuse: nothing is started for it.
+      if (known.state === 'needs-sign-in') return { status: known, tools: null, hidden: [] }
+      const proxy = proxyOf()
+      try {
+        const tools = await proxy.serviceToolsOf(id)
+        const after = proxy.status(id)
+        const status = after?.status ?? { state: 'signed-in' as const }
+        // A list kept from before a refused sign-in is not this answer's: the row shows the sign-in, not old tools.
+        return { status, tools: status.state === 'signed-in' ? tools.map(toolInfo) : null, hidden: after?.hidden ?? [] }
+      } catch (error) {
+        const after = proxy.status(id)
+        const status = after !== null && after.status.state !== 'signed-in' ? after.status : { state: 'error' as const, message: error instanceof Error ? error.message : 'the service did not list its tools' }
+        return { status, tools: null, hidden: after?.hidden ?? [] }
+      }
+    }),
+    defineHandler(integrationsSignOut, ({ id }) => {
+      const machine = store()
+      integrationOf(id)
+      signOut(machine, id)
+      errors.delete(id)
+      closeQuietly(id)
+      return { status: statusOf(machine, integrationOf(id), errors) }
+    }),
+    defineHandler(integrationsMachine, () => {
+      const machine = store()
+      const integrations = machine.list()
+      // A list not known whole (its file damaged and set aside, or missing) would make every entry an orphan: the
+      // Integrations of the new list still show, only the orphans wait.
+      const whole = machine.wholeList()
+      const projects = projectsOf()
+      const entries = projects.list().map((project) => ({ project, used: readProjectIntegrations(projects.dataDir(project.id)) }))
+      const items = integrations.map((integration) => ({
+        integration,
+        status: statusOf(machine, integration, errors),
+        projects: entries.flatMap(({ project, used }) => {
+          const entry = used.find((each) => each.id === integration.id)
+          return entry === undefined ? [] : [{ id: project.id, name: project.name, enabled: entry.enabled }]
+        }),
+      }))
+      const dangling = (whole === null ? [] : entries).flatMap(({ project, used }) => {
+        const count = used.filter((entry) => !integrations.some((integration) => integration.id === entry.id)).length
+        return count === 0 ? [] : [{ projectId: project.id, name: project.name, count }]
+      })
+      return { items, dangling }
+    }),
+    defineHandler(integrationsCleanUp, () => {
+      const whole = store().wholeList()
+      // Cleaning up against a list that could not be read would erase every Project's settings for good.
+      if (whole === null) return { removed: 0 }
+      const known = new Set(whole.map((integration) => integration.id))
+      const projects = projectsOf()
+      let removed = 0
+      for (const project of projects.list()) {
+        const dataDir = projects.dataDir(project.id)
+        const entries = readProjectIntegrations(dataDir)
+        const kept = entries.filter((entry) => known.has(entry.id))
+        if (kept.length === entries.length) continue
+        writeProjectIntegrations(dataDir, kept)
+        removed += entries.length - kept.length
+      }
+      return { removed }
+    }),
+    defineHandler(integrationsGhOffer, async ({ projectId }) => {
+      const { path } = projectOf(projectId)
+      if (path === undefined) return { offer: null }
+      const gh = await ghOf()
+      return { offer: await offerGhToken({ account: await gh.account(path), run: gh.run, root: path }) }
+    }),
+    defineHandler(integrationsGhSignIn, async ({ projectId, id }) => {
+      const { path } = projectOf(projectId)
+      if (path === undefined) throw new Error('the Project has no folder for gh to run in')
+      integrationOf(id)
+      const gh = await ghOf()
+      const machine = store()
+      errors.delete(id)
+      const status = await signInWithGhToken({ account: await gh.account(path), run: gh.run, root: path, store: machine, id, check })
+      // The token checked is the copy signInWithGhToken kept; read back only for the error's keeping. A sign-in that came
+      // in between makes verifyTokenSignIn record nothing, and its own answer replaces this error.
+      return { status: recordChecked(machine, id, machine.secret(id, 'access'), status) }
     }),
     defineHandler(integrationsSignIn, async ({ projectId, id, via }) => {
       dataDirOf(projectId)
@@ -160,7 +323,7 @@ export function integrationsHandlers(options: IntegrationsHandlersOptions = {}):
       return { signIn }
     }),
     defineHandler(integrationsRemove, ({ projectId, id, confirmed }) => {
-      dataDirOf(projectId)
+      if (projectId !== undefined) dataDirOf(projectId)
       integrationOf(id)
       const projects = projectsOf()
       const others = projects.list().filter((project) => project.id !== projectId)

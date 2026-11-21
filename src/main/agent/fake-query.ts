@@ -476,6 +476,8 @@ class FakeQuery implements QueryHandle {
     private readonly listed: readonly string[] | null = null,
     /** A query of the MCP inventory (fakeInventoryStarter): its servers from the start, recorded as `inventory`. */
     private readonly inventory = false,
+    /** The Integrations of the request's Project, after the servers of the script (FakeQueryOptions.integrations). */
+    private readonly integrations: readonly FakeIntegration[] = [],
   ) {
     // A failure to make them leaves the query without hooks, as a Claude Code without them would run.
     this.preToolUse = preToolUse?.(request)?.catch(() => undefined) ?? null
@@ -536,7 +538,15 @@ class FakeQuery implements QueryHandle {
   /** Answers what the last `mcp` line set, as it stood when called; the servers the request turned off are not in it. */
   mcpServerStatus(): Promise<unknown> {
     const answer = this.mcp
-    return 'error' in answer ? Promise.reject(new Error(answer.error)) : Promise.resolve(this.withoutOff(answer.servers))
+    return 'error' in answer ? Promise.reject(new Error(answer.error)) : Promise.resolve([...this.withoutOff(answer.servers), ...this.integrationServers()])
+  }
+
+  /** The Integrations as servers in the SDK's shape, without those the request turned off; never on the Profile's list. */
+  private integrationServers(): Record<string, unknown>[] {
+    const off = this.request.mcpOff ?? []
+    return this.integrations
+      .filter((each) => !off.includes(each.name))
+      .map((each) => ({ name: each.name, status: 'connected', scope: 'sdk', tools: each.tools.map((name) => ({ name })) }))
   }
 
   /** Takes in what an `mcp_added` line wrote, as Claude Code did (F:allowed-reload-plugins); the SDK's shape of the answer. */
@@ -938,6 +948,21 @@ export interface FakeQueryOptions {
    * (QueryRequest.mcpListed). Absent: no list, every server the script names; told null.
    */
   mcpAllowlist?: ((request: QueryRequest) => Promise<readonly string[] | null>) | undefined
+  /**
+   * The Integrations of the request's Project (worfy-integrations ticket 08): each is listed by mcpServerStatus() as a
+   * connected server of worfy's (scope sdk) with the tools its proxy listed — asked of the service once, at the start,
+   * as Claude Code lists an SDK server's tools — and `label` marks its row as an Integration's. Absent: none.
+   */
+  integrations?: ((request: QueryRequest) => Promise<readonly FakeIntegration[]>) | undefined
+  /** Marks the rows of the Integrations of `query` (src/main/vendors/claude/mcp.ts, labelIntegrations). */
+  labelIntegrations?: ((query: QueryHandle, servers: readonly FakeIntegration[]) => void) | undefined
+}
+
+/** An Integration as the fake agent lists it: its server name, its label and the names of the tools its proxy gave. */
+export interface FakeIntegration {
+  name: string
+  label: string
+  tools: readonly string[]
 }
 
 /** One tool call as the PreToolUse hooks get it: the tool, its id, its input and the shell's folder. */
@@ -964,7 +989,10 @@ export function fakeQueryFactory(options: FakeQueryOptions): QueryFactory {
     const name = typeof options.script === 'string' ? options.script : options.script(request)
     const listed = options.mcpAllowlist === undefined ? null : await options.mcpAllowlist(request)
     request.mcpListed?.(listed)
-    return new FakeQuery(join(options.scriptsDir, `${name}.jsonl`), request, record, options.settingsHome ?? null, shared, options.registryHome ?? null, options.preToolUse, listed)
+    const integrations = options.integrations === undefined ? [] : await options.integrations(request).catch(() => [])
+    const query = new FakeQuery(join(options.scriptsDir, `${name}.jsonl`), request, record, options.settingsHome ?? null, shared, options.registryHome ?? null, options.preToolUse, listed, false, integrations)
+    options.labelIntegrations?.(query, integrations)
+    return query
   }
 }
 
