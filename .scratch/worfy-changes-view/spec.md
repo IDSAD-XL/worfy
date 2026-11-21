@@ -319,7 +319,8 @@ diff картинок и вид конфликтов (Orca), порядок фа
 - **Kit.** ToggleGroup (Inline и Side by side), Menu (scope, Compare against), Popover (комментарий), Tooltip и
   ContextMenu (Comment, Copy line на строке) — из `src/renderer/theme/kit/` (ADR-0106 — kit на Base UI). ContextMenu kit
   влит: Epic worfy-ui-kit закрыт, 19/19.
-- **Цвета без подсветки синтаксиса** (Q5, решено без владельца). Добавленные и удалённые строки — tokens `--ready-*` и
+- **Цвета без подсветки синтаксиса** (Q5, решено без владельца) — **отменено D4 2026-11-21, см. Ticket 10** (подсветка
+  Shiki, ADR-0113). Добавленные и удалённые строки — tokens `--ready-*` и
   `--blocked-*`, как в `src/renderer/harness/MigrationForm.tsx:91-92`. Блоки кода в PR inbox тоже без цветов
   синтаксиса.
 - **Комментарии к строкам** — то же хранилище и тот же лоток, что Comments on quotes (`docs/features/sessions.md:220-254`).

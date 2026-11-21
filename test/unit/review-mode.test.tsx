@@ -18,6 +18,10 @@ import type { ChangedFile, FileDiff } from '../../src/shared/changes/types'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import type { PrInboxRow } from '../../src/shared/ipc/pr-inbox'
 import type { ReviewDraft } from '../../src/shared/ipc/pr-review'
+import { ms } from '../time-scale'
+
+/** Every test loads the modules anew (vi.resetModules): the first hunk waits for Shiki and its grammar (worfy-changes-view 10). */
+const GRAMMAR_WAIT = ms(5_000)
 
 const PROJECT = 'web-00000001'
 const REPO = 'example-org/web'
@@ -471,6 +475,16 @@ describe('Review mode', () => {
     expect(mode.useReviewMode.getState().open).not.toBeNull()
     fireEvent.keyDown(screen.getByRole('checkbox', { name: 'Wrap' }), { key: 'Escape' })
     expect(mode.useReviewMode.getState().open).toBeNull()
+  })
+
+  it('the diff of the PR has the syntax colours of the diff of a Ticket: the same Code of DiffPane (worfy-changes-view 10)', async () => {
+    preload()
+    await mountReview()
+    const codes = () => Array.from(document.querySelectorAll<HTMLElement>('[data-testid="changes-hunk"][data-path="src/net/retry.ts"] .w-changes__code'))
+    await waitFor(() => expect(codes().filter((code) => code.dataset.highlighted === 'true')).toHaveLength(4), { timeout: GRAMMAR_WAIT })
+    expect(codes().map((code) => code.textContent)).toEqual(['const MAX = 3', 'const WAIT = 100', 'const WAIT = [100, 400]', 'const JITTER = 0.1'])
+    const keyword = Array.from(codes()[0]!.querySelectorAll<HTMLElement>('.w-hl')).find((token) => token.textContent === 'const')!
+    expect(keyword.style.getPropertyValue('--hl-light')).toBe('#CF222E')
   })
 
   it('read only (a Linked machine): the diff and the threads, no draft, no Viewed, no bar', async () => {

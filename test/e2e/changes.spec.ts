@@ -11,7 +11,8 @@ import { ms } from '../time-scale'
 
 // The Changes view (worfy-changes-view tickets 03 and 08) in the built app, over a git repository the test builds in a
 // temporary folder: Epic demo-cart with Ticket 04, whose branch changes, adds and deletes a few files, and Ticket 05,
-// whose branch adds 300 files in 30 folders and a file of 2 100 lines. Both branches are checked out nowhere, so
+// whose branch adds 300 files in 30 folders and a file of 2 100 lines. Ticket 04 also adds a TSX, a JSON and a Markdown
+// file: the code of the diff takes the syntax colours of the GitHub themes, light and dark (ticket 10). Both branches are checked out nowhere, so
 // Changes reads each branch against its merge-base with the local main (the Project has no Profile). The workflow
 // comes from an `epic-status` script under the temporary Claude home that prints a fixed answer; the fake agent
 // (WORFY_AGENT=fake, as every e2e run) is never asked: the screen only reads git.
@@ -69,6 +70,9 @@ function prepare(): { env: Record<string, string>; repo: string } {
   git(repo, 'checkout', '-q', '-b', `${EPIC}/04`)
   write(repo, 'src/cart.ts', lines(13, (index) => (index === 4 ? '  discount?: Discount' : index === 12 ? 'const MAX_DISCOUNT_SHARE = 0.5' : `export const line${index} = ${index}`)))
   write(repo, 'src/discount.ts', lines(4, (index) => `export const discount${index} = ${index}`))
+  write(repo, 'src/Total.tsx', "import { sum } from './money'\n\n/** The total of the cart, in cents. */\nexport function Total({ items }: { items: number[] }) {\n  return <span className=\"total\">{sum(items)}</span>\n}\n")
+  write(repo, 'config/discounts.json', '{\n  "maxShare": 0.5,\n  "stack": true,\n  "codes": ["SPRING", "VIP"]\n}\n')
+  write(repo, 'docs/discounts.md', '# Discounts\n\nA cart takes **one** code; `maxShare` caps it.\n\n- SPRING — 10 %\n- VIP — 20 %\n')
   git(repo, 'rm', '-q', 'src/legacy-tax.ts')
   git(repo, 'add', '.')
   git(repo, 'commit', '-q', '-m', 'discounts')
@@ -181,11 +185,36 @@ test('Changes on the card opens the view over the window with the files and line
     const tree = view.getByTestId('changes-tree-file')
     await expect(tree).toHaveCount(expected.length, { timeout: ms(15_000) })
     expect((await tree.evaluateAll((rows) => rows.map((row) => row.getAttribute('data-path') ?? ''))).sort()).toEqual(expected)
-    await expect(view.getByTestId('changes-meta')).toContainText(`main ← ${EPIC}/04 · base ${mergeBase.slice(0, 7)} · 3 files`)
-    for (const path of ['src/cart.ts', 'src/discount.ts', 'src/legacy-tax.ts']) {
+    await expect(view.getByTestId('changes-meta')).toContainText(`main ← ${EPIC}/04 · base ${mergeBase.slice(0, 7)} · 6 files`)
+    for (const path of ['src/cart.ts', 'src/discount.ts', 'src/legacy-tax.ts', 'src/Total.tsx', 'config/discounts.json', 'docs/discounts.md']) {
       await expect(view.locator(`[data-testid="changes-hunk"][data-path="${path}"]`).first()).toBeVisible({ timeout: ms(15_000) })
       expect(await shownLines(view, path)).toEqual(gitLines(repo, mergeBase, `${EPIC}/04`, path))
     }
+    // The syntax colours (ticket 10): a keyword of the .ts file has a colour of its own, not that of plain text, in the
+    // light and in the dark theme; the text of each line stayed that of git diff (shownLines above reads textContent).
+    for (const path of ['src/cart.ts', 'src/Total.tsx', 'config/discounts.json', 'docs/discounts.md']) {
+      await expect(view.locator(`[data-testid="changes-hunk"][data-path="${path}"] .w-changes__code[data-highlighted="true"]`).first()).toBeVisible({ timeout: ms(15_000) })
+    }
+    const keywordColours = async (): Promise<{ keyword: string | null; plain: string }> =>
+      view.locator('[data-testid="changes-hunk"][data-path="src/cart.ts"]').first().evaluate((hunk) => {
+        const page = globalThis as unknown as { getComputedStyle(of: unknown): { color: string } }
+        const keyword = Array.from(hunk.querySelectorAll('.w-hl') as ArrayLike<{ textContent: string | null }>).find((token) => token.textContent === 'export')
+        return { keyword: keyword === undefined ? null : page.getComputedStyle(keyword).color, plain: page.getComputedStyle(hunk.querySelector('.w-changes__code')).color }
+      })
+    const seen: Record<string, string | null> = {}
+    try {
+      for (const colorScheme of ['light', 'dark'] as const) {
+        await window.emulateMedia({ colorScheme })
+        const colours = await keywordColours()
+        expect(colours.keyword).not.toBeNull()
+        expect(colours.keyword).not.toBe(colours.plain)
+        seen[colorScheme] = colours.keyword
+      }
+    } finally {
+      await window.emulateMedia({ colorScheme: null })
+    }
+    // Each theme has its own keyword colour.
+    expect(seen.light).not.toBe(seen.dark)
     await snapshotThemes(window, 'changes-view-inline')
     await view.getByTestId('changes-side-by-side').click()
     await expect(view.getByTestId('changes-diff')).toHaveAttribute('data-layout', 'side-by-side')
@@ -217,6 +246,39 @@ test('Changes on the card opens the view over the window with the files and line
     expect(await folders.evaluateAll((rows) => rows.every((row) => row.getAttribute('aria-expanded') === 'false'))).toBe(true)
     await expect(big.getByTestId('changes-tree-file')).toHaveCount(0)
     expect(await big.getByTestId('changes-file').count()).toBeLessThan(301)
+    // The code of the files drawn is coloured; the diff, scrolled screen by screen to its end, keeps drawing a window
+    // (ticket 10): the longest screen is noted for the ADR.
+    await expect(big.locator('.w-changes__code[data-highlighted="true"]').first()).toBeVisible({ timeout: ms(15_000) })
+    const scrolled = await big.getByTestId('changes-diff').evaluate(async (box) => {
+      const page = globalThis as unknown as { requestAnimationFrame(callback: () => void): number }
+      const frame = () => new Promise<void>((done) => page.requestAnimationFrame(() => page.requestAnimationFrame(() => done())))
+      let longest = 0
+      let steps = 0
+      const started = performance.now()
+      while (box.scrollTop + box.clientHeight < box.scrollHeight - 1 && steps < 400) {
+        const at = performance.now()
+        box.scrollTop += box.clientHeight
+        await frame()
+        longest = Math.max(longest, performance.now() - at)
+        steps += 1
+      }
+      return { steps, longest: Math.round(longest), total: Math.round(performance.now() - started), drawn: Number(box.dataset.drawn) }
+    })
+    expect(scrolled.drawn).toBeLessThan(301)
+    // The files at the end are read and coloured once there: the last of them (pkg/m29/file-299.ts) too.
+    const startedLast = Date.now()
+    await expect(big.locator('[data-testid="changes-hunk"][data-path="pkg/m29/file-299.ts"]')).toBeVisible({ timeout: ms(15_000) })
+    const lastDrawnAfter = Date.now() - startedLast
+    await expect(big.locator('[data-testid="changes-hunk"][data-path="pkg/m29/file-299.ts"] .w-changes__code[data-highlighted="true"]')).toBeVisible({ timeout: ms(15_000) })
+    const measured = { ...scrolled, lastDrawnAfter, lastColouredAfter: Date.now() - startedLast }
+    test.info().annotations.push({ type: 'ticket-10 300-file scroll', description: JSON.stringify(measured) })
+    console.log(`[changes e2e] 300-file diff scrolled to its end: ${JSON.stringify(measured)}`)
+    // No screen of the scroll waited on the colours: 18 ms measured, the bound leaves room for a slow runner.
+    // unscaled: a time budget of the product (a step of the colours holds no screen), not a wait of the test
+    expect(scrolled.longest).toBeLessThan(200)
+    await big.getByTestId('changes-diff').evaluate((box) => {
+      box.scrollTop = 0
+    })
 
     // The file of 2 100 lines comes folded; the filter narrows the tree to it.
     await big.getByTestId('changes-filter').fill('catalog')
