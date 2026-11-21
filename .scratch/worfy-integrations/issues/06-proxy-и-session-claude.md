@@ -1,7 +1,8 @@
 # 06 — Proxy и Session Claude: `@modelcontextprotocol/sdk` прямой зависимостью, `McpServer` с JSON Schema сервиса, одно соединение на Integration, фильтр tools, «Sign-in needed», SDK-серверы в `mcpServers`
 
 Type: task
-Status: claimed 2026-11-20T22:02Z
+Status: done 2026-11-21T01:44Z
+PR: #2119
 Branch: worfy-integrations/06
 Blocked by: 01, 03, 04
 Source: [spec.md](../spec.md), «Ticket-ы», 6; «Волны», Wave 3; «Решение», 1, 4 и 5; «Как пользователь идёт по
@@ -102,6 +103,7 @@ tool-а длиннее предела); «Вопросы владельцу», Q
   - evidence: gate pass · `gate fast` exit 0 · mac - · 84a21e9b894597e4024e3e9f28c35578dee9e047
   - evidence: gate pass · `gate fast` exit 0 · mac - · 53ce8d2b0701dab0b7b236846045db0de6b049ff
   - evidence: gate pass · `gate fast` exit 0 · mac - · 43e3154e1eab45058dbbe155e4880b06c1bab875
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44846732384/job/136684875649 · ci - · cac50b181958bf90e422b57f2a48aca7df92c6bc
 
 ## Где в коде
 
