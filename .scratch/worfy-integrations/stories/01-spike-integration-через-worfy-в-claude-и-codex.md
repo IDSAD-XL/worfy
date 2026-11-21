@@ -166,3 +166,16 @@ Code: `scripts/spikes/harness-plugin/probe.ts:1802-1814` · key lines: 1804, 180
    Строки: `scripts/spikes/harness-plugin/integrations-oauth.mjs:296-308`
    Ответ: второй параллельный refresh несёт использованный token, сервер отвечает `invalid_grant`, пакет стирает
    token-ы, и Integration теряет вход.
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED — worfy-integrations 01 (Spike: an Integration through worfy in Claude Code and Codex, one refresh of the MCP SDK package, what the services need), head 95f9a1d31a7d29813f5ed4048c064d412d58ed8e
+>
+> Gate (depth medium): verifier (lens: implementer's claims, sonnet) — MERGE; every number of the owner's live step in the note and in the ticket's «Итог» matches the probe summary; no value outside it; check-personal, evidence-check and story-check EXIT=0.
+>
+> - What the spike found (live, owner's sign-in 2026-11-20): Atlassian twice — 26 tools, capabilities logging + tools{listChanged}, access token 8 h, refresh rotates the refresh token, revoke 200; Linear — 70 tools, tools{listChanged}, token ~24 h, refresh rotates, revoke 200; longest full tool name 62 characters with a 24-character server name; the real ~/.claude settings and plugin files unchanged.
+> - Decision: a tools-only proxy is enough. Ticket 06 forwards tools/list_changed and the service instructions and does not declare logging; ticket 05 needs a refresh lock (both services rotate the refresh token) and an explicit scope; ticket 03 needs no service marks.
+> - Evidence: probe.ts integrations exit 0 (sandbox, fixtures); probe.ts integrations-sign-in run by the owner (summary checked by the Orchestrator: no tokens, e-mails or site addresses); pnpm lint EXIT=0; gate fast green EXIT=0; owner-check pass on the manual item (docs PR #2121).
+> - Not verified: whether the two Atlassian sign-ins reached different sites (the site list was not read) — to check in the acceptance of ticket 05.
+>
+> Decided without the owner (to confirm): the Atlassian site comparison is left unverified (6).

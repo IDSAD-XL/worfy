@@ -1,7 +1,8 @@
 # 01 — Spike: Integration через worfy в Claude Code и Codex, один refresh пакета MCP SDK и что нужно сервисам
 
 Type: spike
-Status: claimed 2026-11-20T23:55Z
+Status: done 2026-11-21T01:19Z
+PR: #2108
 Branch: worfy-integrations/01
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 1; «Волны», Wave 1; «Факты», 3в, 7 и 8; «Решения по реализации» → Proxy,
@@ -90,6 +91,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 1; «Волны», Wave 1; «Фа�
 - [ ] Scrub probe-а пройден: новые fixture-ы и записка не держат token-ов, адресов site-ов владельца и e-mail-ов;
       `--rescrub` чистит новые fixture-ы.
   - evidence: test-run pass · `node scripts/check-personal.mjs` exit 0 (in pnpm lint) and `probe.ts --rescrub test/fixtures/sdk-messages` exit 0 with no change · mac - · 4b516d1611426663c83dd7cb9da533b468754f6b
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44842259267/job/136658694291 · ci - · 95f9a1d31a7d29813f5ed4048c064d412d58ed8e
 
 ## Где в коде
 
