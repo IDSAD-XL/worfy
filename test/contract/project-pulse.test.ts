@@ -272,6 +272,26 @@ describe('projectPulse.changed', () => {
     expect(second.sent.length).toBe(first.sent.length)
   })
 
+  it('on a loaded machine, where a read of the registry outlasts two polls, still reads it once per change', async () => {
+    // Load slows the listing and the reads of the registry files past `pollMs`; here every read of the Sessions takes
+    // three polls. A poll that came while the read of the change ran saw the new stamp before the read had kept it, and
+    // folded one more read behind it: two reads of one change, the gate's «expected 2 to be 1».
+    const { ProjectPulseHub } = await import('../../src/main/claude-home/pulse')
+    hub.close()
+    hub = makeHub(ProjectPulseHub, 60_000, { live: async () => (await new Promise((resolve) => setTimeout(resolve, 150)), registry.liveAll()) })
+    const first = makeWindow(1)
+    const second = makeWindow(2)
+    await pulse(first)
+    await pulse(second)
+    const reads = hub.reads
+    writeLive(202, 'beta-new', join(scratch, 'beta'), 'busy')
+    await vi.waitFor(() => expect(sessionsOf(first.sent.at(-1), BETA)).toEqual(['beta-root', 'beta-new']), { timeout: ms(2000), interval: 20 })
+    await vi.waitFor(() => expect(sessionsOf(second.sent.at(-1), BETA)).toEqual(['beta-root', 'beta-new']), { timeout: ms(2000), interval: 20 })
+    // Polls that came during the read are over before the next change could be seen.
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(hub.reads - reads).toBe(1)
+  })
+
   it('reaches the windows after a change of a PR inbox, of the Stages and of the Project list; nothing while nothing changed', async () => {
     const window = makeWindow(1)
     await pulse(window)

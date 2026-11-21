@@ -7,15 +7,15 @@
 // for; a Codex Session goes on through thread/resume with one message. The transcripts lie in a temporary Claude
 // home, which the continuation only reads.
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
-import { readdir, readFile } from 'node:fs/promises'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { mkdir as mkdirAsync, readdir, readFile, rename as renameAsync, rm as rmAsync, writeFile as writeFileAsync } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { claudeTranscript, Continuity, type ContinuityDeps } from '../../src/main/agent/continuity'
 import { fakeQueryFactory } from '../../src/main/agent/fake-query'
-import { LiveSessions } from '../../src/main/agent/live-sessions'
+import { LiveSessions, type LiveSessionsFs } from '../../src/main/agent/live-sessions'
 import { NodeSessions } from '../../src/main/agent/node-sessions'
 import { clockText } from '../../src/main/agent/orchestrator-continue'
 import { SessionRegistry, STATIC_CLAUDE_PARTS } from '../../src/main/agent/session'
@@ -51,7 +51,7 @@ let scratch: string
 let repo: string
 let dataDir: string
 let claudeHome: string
-let registries: SessionRegistry[] = []
+const registries: SessionRegistry[] = []
 const children: ChildProcess[] = []
 
 beforeEach(() => {
@@ -67,8 +67,7 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
-  for (const registry of registries) registry.closeAll()
-  registries = []
+  await closeApps()
   for (const child of children.splice(0)) {
     if (child.pid === undefined || hasExited(child)) continue
     const exited = new Promise<void>((done) => child.once('exit', () => done()))
@@ -138,8 +137,26 @@ function savedNode(data: Record<string, unknown> = { origin: 'worfy', vendor: 'c
 
 const textOf = async (path: string): Promise<string | null> => readFile(path, 'utf8').catch(() => null)
 
+/** The runs of the app the test started: the Layout store and the record of live Sessions of each. */
+const apps: { layout: LayoutStore; live: LiveSessions }[] = []
+
+/**
+ * Ends every run of the app the test started before its folder is removed: the Sessions closed, the record of live
+ * Sessions stopped and its writes under way ended, the Layout written. A write of the record runs off the main thread
+ * (fs.promises); under load the one a Session's last event started was still under way when the folder was removed,
+ * and its temporary file, created in the middle of the removal, failed it with ENOTEMPTY.
+ */
+async function closeApps(): Promise<void> {
+  for (const registry of registries.splice(0)) registry.closeAll()
+  for (const { layout, live } of apps.splice(0)) {
+    live.stop()
+    await live.settled()
+    layout.flushAll()
+  }
+}
+
 /** A Layout store, a registry on the fake agent playing `script`, the Node Sessions and the record of live Sessions. */
-function app(script: string, history: { sessionId: string; cwd: string }[] = []) {
+function app(script: string, history: { sessionId: string; cwd: string }[] = [], fs?: LiveSessionsFs) {
   const layout = new LayoutStore((projectId) => join(scratch, 'data', projectId), { delayMs: 0 })
   const registry = new SessionRegistry(fakeQueryFactory({ scriptsDir, script }))
   registries.push(registry)
@@ -161,7 +178,9 @@ function app(script: string, history: { sessionId: string; cwd: string }[] = [])
     },
     // This test's folder, not the next test's: a watcher a failed test left running writes nowhere else.
     dirOf: ((dir: string) => () => dir)(dataDir),
+    fs,
   })
+  apps.push({ layout, live })
   const broadcast: AgentEventEnvelope[] = []
   const sessions = new NodeSessions({
     layout,
@@ -454,6 +473,33 @@ describe('what the continuation leaves alone or waits for', () => {
     const foreign = continuity(other, { previous: () => Promise.resolve({ pid: 77, orphan: false }) })
     expect(await foreign.run()).toMatchObject([{ outcome: 'interrupted', reason: 'it runs in another program (pid 77)' }])
     expect(other.requests).toEqual([])
+  })
+})
+
+describe('on a loaded machine', () => {
+  it('the test folder is removed only after the record of live Sessions has ended its writes', async () => {
+    // Load holds a write of the record off the main thread; here its mkdir waits 100 ms. Removed while the write was
+    // under way, the folder lost the race either way: in the gate the temporary file came in the middle of the removal
+    // (ENOTEMPTY); here the write comes after it, and the folder is back.
+    let writing = false
+    const slow: LiveSessionsFs = {
+      mkdir: async (dir) => {
+        writing = true
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        return mkdirAsync(dir, { recursive: true })
+      },
+      writeFile: (file, text) => writeFileAsync(file, text),
+      rename: (from, to) => renameAsync(from, to),
+      rm: (file) => rmAsync(file, { force: true }),
+    }
+    const h = app('interrupt', [], slow)
+    const created = h.sessions.create(PROJECT)
+    h.registry.get(created.sessionId).send('build the feature')
+    await vi.waitFor(() => expect(writing).toBe(true), UNTIL)
+    await closeApps()
+    removeTestTree(scratch)
+    await h.live.settled()
+    expect(existsSync(scratch)).toBe(false)
   })
 })
 
