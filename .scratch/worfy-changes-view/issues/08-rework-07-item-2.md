@@ -1,7 +1,8 @@
 # 08: Rework of worfy-changes-view 07, item 2
 
 Type: task
-Status: claimed 2026-11-21T00:07Z
+Status: done 2026-11-21T01:58Z
+PR: #2124
 Blocked by: None — can start immediately
 Source: owner-check fail 2026-11-21 of worfy-changes-view 07, item 2 — 07-приёмка-владельцем.md
 
@@ -99,6 +100,7 @@ Source: owner-check fail 2026-11-21 of worfy-changes-view 07, item 2 — 07-пр
       `CONTEXT.md` описывают вид; `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `pnpm lint` exit 0 (check-feature-docs ok) · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44848715127/job/136688321593 · ci - · fb19066c19098e159cd70ccbd28e6ce10689fef9
 - [ ] (manual) Mac Stable: кнопка Changes на карточке открывает Node с diff-ом ветки.
   - needs: mac stable
 
