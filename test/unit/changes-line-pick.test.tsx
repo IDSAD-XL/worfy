@@ -84,6 +84,8 @@ describe('the drag of «+»', () => {
     fireEvent.mouseMove(codeOf(A, 4))
     expect(pickedLines(A)).toEqual(['new2', 'new3', 'new4'])
     expect(open).not.toHaveBeenCalled()
+    // No hint while the drag is on: it would push the lines under the pointer down.
+    expect(hints()).toEqual([])
     fireEvent.mouseUp(codeOf(A, 4))
     expect(open).toHaveBeenCalledTimes(1)
     expect(open).toHaveBeenCalledWith(A.key, 'new', 2, 4)

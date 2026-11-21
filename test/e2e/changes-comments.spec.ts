@@ -111,6 +111,7 @@ const row = (node: Locator, path: string, line: number, side: 'old' | 'new' = 'n
 
 /** Presses «+» of line `from` and lets go over line `to`, as a person drags it down the gutter. */
 async function dragPlus(window: Page, from: Locator, to: Locator): Promise<void> {
+  await to.scrollIntoViewIfNeeded()
   await from.hover()
   const plus = await from.getByTestId('changes-line-plus').boundingBox()
   const end = await to.locator('.w-changes__code').boundingBox()

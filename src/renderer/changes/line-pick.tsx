@@ -11,8 +11,8 @@
 //   picks the line alone.
 // - A click on a line picks it, a click with Shift stretches the pick, a selection of text across lines picks those
 //   lines; the key `c` opens the comment of the lines picked.
-// - While lines are picked and no comment is open, «Comment on lines 95–102 (c)» stands under the last of them (one
-//   line: «Comment on line 95 (c)»); a click on it opens the comment, as `c` does. Escape takes the pick away.
+// - While lines are picked, no comment is open and no drag is on, «Comment on lines 95–102 (c)» stands under the last
+//   of them (one line: «Comment on line 95 (c)»); a click on it opens the comment, as `c` does. Escape takes the pick away.
 // - A keyboard press of a focused «+» (Enter, Space: a click with no pointer) opens the comment as before.
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import type { DiffLine } from '../../shared/changes/types'
@@ -95,6 +95,8 @@ interface Drag {
 export function useLinePick(options: LinePickOptions): LinePick {
   const { enabled, commenting, toastKey } = options
   const [picked, setPicked] = useState<Picked | null>(null)
+  // A drag of «+» is on: the hint waits for it to end, or it would push the lines under the pointer down.
+  const [dragging, setDragging] = useState(false)
   const latest = useRef({ options, picked })
   useEffect(() => {
     latest.current = { options, picked }
@@ -142,10 +144,12 @@ export function useLinePick(options: LinePickOptions): LinePick {
     }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
+    setDragging(true)
     stop.current = () => {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
       stop.current = null
+      setDragging(false)
     }
   }
 
@@ -186,7 +190,7 @@ export function useLinePick(options: LinePickOptions): LinePick {
 
   const hint = (line: DiffLine, side: LineSide, entry: FileEntry): ReactNode => {
     const number = lineNumber(line, side)
-    if (!enabled || commenting || picked === null || picked.key !== entry.key || picked.side !== side || number !== pickRange(picked).to) return null
+    if (!enabled || commenting || dragging || picked === null || picked.key !== entry.key || picked.side !== side || number !== pickRange(picked).to) return null
     const { from, to } = pickRange(picked)
     return (
       <button type="button" className="w-cl-hint nodrag" data-testid="changes-pick-hint" onClick={() => latest.current.options.open(picked.key, picked.side, from, to)}>

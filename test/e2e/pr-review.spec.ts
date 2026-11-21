@@ -510,6 +510,7 @@ test('comments on lines: «+», Suggest change, a range by dragging «+»; Pendi
     await expect(first).toHaveAttribute('data-by', 'person')
 
     // A range: «+» of line 5 dragged down to line 6, as on GitHub (worfy-changes-view ticket 09).
+    await diffLine(window, 'src/net/retry.ts', 6).scrollIntoViewIfNeeded()
     await diffLine(window, 'src/net/retry.ts', 5).hover()
     const plus = await diffLine(window, 'src/net/retry.ts', 5).getByTestId('changes-line-plus').boundingBox()
     const end = await diffLine(window, 'src/net/retry.ts', 6).locator('.w-changes__code').boundingBox()
