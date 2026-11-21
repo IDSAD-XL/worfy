@@ -22,6 +22,12 @@
 // answer of the client is answered 202. No Mcp-Session-Id is given and no server-to-client stream is
 // opened: a GET is answered 405, which the transport allows. Methods: initialize, ping, tools/list and
 // tools/call; any other request gets "method not found".
+//
+// worfy-integrations ticket 07: a server whose tools come from elsewhere — an Integration's server of the proxy
+// (src/main/integrations/proxy.ts), the same McpServer the Claude driver serves — answers tools/list with its
+// listTools(), whose list the Project's tools filter cut and whose descriptions lead with the label, and a tools/call
+// goes to the tool of that name in that list: a tool the filter cut is refused here, before the service. A rejected
+// listTools() («Sign-in needed: …», with no list known) is a JSON-RPC error with its message.
 import { createHash, randomBytes } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -41,6 +47,7 @@ const PARSE_ERROR = -32700
 const INVALID_REQUEST = -32600
 const METHOD_NOT_FOUND = -32601
 const INVALID_PARAMS = -32602
+const INTERNAL_ERROR = -32603
 
 /** What a Session got: its token and the URL of each of its servers. */
 export interface McpGrant {
@@ -83,10 +90,13 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 const answer = (id: JsonRpcId, result: unknown): JsonRpcAnswer => ({ jsonrpc: '2.0', id, result })
 const failure = (id: JsonRpcId, code: number, message: string): JsonRpcAnswer => ({ jsonrpc: '2.0', id, error: { code, message } })
 
-/** A tool as tools/list gives it: the zod shape of its arguments as JSON Schema. */
-function listed(tool: McpTool): { name: string; description: string; inputSchema: unknown } {
-  return { name: tool.name, description: tool.description, inputSchema: mcpInputSchema(tool) }
+/** A tool as tools/list gives it: its arguments as JSON Schema, and MCP's hints a service gave it. */
+function listed(tool: McpTool): { name: string; description: string; inputSchema: unknown; annotations?: unknown } {
+  return { name: tool.name, description: tool.description, inputSchema: mcpInputSchema(tool), ...(tool.annotations === undefined ? {} : { annotations: tool.annotations }) }
 }
+
+/** The tools of `server`: its listTools() when it has one (an Integration's), else its own. */
+const toolsOf = (server: McpServer): Promise<readonly McpTool[]> => (server.listTools === undefined ? Promise.resolve(server.tools) : server.listTools())
 
 /** One tool call; a tool that throws, which it should not, is answered as a refusal the agent reads. */
 async function called(tool: McpTool, args: unknown): Promise<McpToolResult> {
@@ -120,9 +130,15 @@ async function reply(server: McpServer, message: unknown): Promise<JsonRpcAnswer
     case 'ping':
       return answer(id, {})
     case 'tools/list':
-      return answer(id, { tools: server.tools.map(listed) })
     case 'tools/call': {
-      const tool = server.tools.find((each) => each.name === params.name)
+      let tools: readonly McpTool[]
+      try {
+        tools = await toolsOf(server)
+      } catch (error) {
+        return failure(id, INTERNAL_ERROR, error instanceof Error ? error.message : String(error))
+      }
+      if (message.method === 'tools/list') return answer(id, { tools: tools.map(listed) })
+      const tool = tools.find((each) => each.name === params.name)
       if (tool === undefined) return failure(id, INVALID_PARAMS, `Unknown tool: ${String(params.name)}`)
       return answer(id, await called(tool, params.arguments))
     }
