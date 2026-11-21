@@ -21,7 +21,7 @@ import { dirname, join, relative } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { gitProbe } from '../../src/main/changes/base'
 import { changesGitRunner, refusal, type ChangesGit } from '../../src/main/changes/git'
-import { fileDiff, type ChangesContext } from '../../src/main/changes/scopes'
+import { fileDiff, listChanges, type ChangesContext } from '../../src/main/changes/scopes'
 import { nativePath, ticketSubjects } from '../../src/main/changes/subjects'
 import { changesHandlers, type ChangesDeps } from '../../src/main/ipc/changes'
 import type { InvokeHandler } from '../../src/main/ipc/index'
@@ -217,6 +217,27 @@ describe('a Ticket with a worktree', () => {
     expect(one!.files.every((file) => file.uncommitted === false)).toBe(true)
     // The read wrote nothing: the index of the worktree is as it was.
     expect(snapshot(join(repo, '.git')).indexes).toEqual(before.indexes)
+  })
+
+  // Review round 2: the answer names the head the worktree list read; the files are told against that head, not against
+  // a HEAD an agent's commit moved between the two reads.
+  it('uncommitted is told against the head the answer names, not against a HEAD that moved after it was read', async () => {
+    const [subject] = await ticketSubjects([{ name: 'repo', path: repo }], ticket, git)
+    expect(subject!.headSha).toBe(secondOnBranch)
+    const asked: string[][] = []
+    const watched: ChangesGit = (cwd, args, options) => {
+      asked.push([...args])
+      return git(cwd, args, options)
+    }
+    // The worktree list was read at the first commit; HEAD is the second one now.
+    const context: ChangesContext = { subject: { ...subject!, headSha: firstOnBranch }, git: watched, facts: { mainBranch: 'origin/main', finish: 'pr-green-ci' }, workflowPrefix: null }
+    const changes = await listChanges(context, { kind: 'all' })
+    expect(changes.error).toBeNull()
+    expect(changes.headSha).toBe(firstOnBranch)
+    expect(asked.find((args) => args.includes('--name-only'))).toContain(firstOnBranch)
+    // b c.txt came with the second commit: against the first one it is not committed.
+    expect(changes.files.find((file) => file.path === 'b c.txt')!.uncommitted).toBe(true)
+    expect(changes.files.find((file) => file.path === 'crlf.txt')!.uncommitted).toBe(false)
   })
 
   it('a file of All changes: its hunks with the numbers of both sides; CRLF, a binary file, a folded one, a new file', async () => {

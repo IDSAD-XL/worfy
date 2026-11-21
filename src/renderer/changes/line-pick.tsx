@@ -5,8 +5,9 @@
 // - «+» in the gutter, as on GitHub: pressing it starts a pick on its line, moving the pointer up or down over lines of
 //   the same file and side stretches it (`mousemove` and `mouseup` on the window until the button is let go; the line is
 //   the one under the pointer, by its cell's `data-side` / `data-line`), and letting go opens the comment of the whole
-//   range. A line of another file or side does not change the pick. Let go on the line it was pressed on, «+» opens the
-//   range picked when its line is in it, else its line alone.
+//   range. A line of another file or side, or of another hunk of the file, does not change the pick; the window losing
+//   the focus, or a move with no button held (let go outside the window), ends the drag and opens nothing. Let go on
+//   the line it was pressed on, «+» opens the range picked when its line is in it, else its line alone.
 // - Shift with «+» stretches the pick to that line (same file and side) and opens nothing; with nothing picked there it
 //   picks the line alone.
 // - A click on a line picks it, a click with Shift stretches the pick, a selection of text across lines picks those
@@ -29,6 +30,12 @@ export interface Picked {
 }
 
 export const pickRange = (pick: Picked): { from: number; to: number } => ({ from: Math.min(pick.start, pick.end), to: Math.max(pick.start, pick.end) })
+
+/** The hunk block (`changes-hunk`) an event target is in; null off one. */
+const hunkOf = (target: EventTarget | null): Element | null => {
+  const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null
+  return element?.closest('[data-testid="changes-hunk"]') ?? null
+}
 
 const inPick = (pick: Picked | null, key: string, side: LineSide, line: number): boolean => pick !== null && pick.key === key && pick.side === side && line >= pickRange(pick).from && line <= pickRange(pick).to
 
@@ -85,6 +92,8 @@ export interface LinePick {
 
 /** The drag of «+» in progress: where it was pressed, the line under the pointer, and whether it has left the first. */
 interface Drag {
+  /** The hunk «+» was pressed in: the drag stays in it, as a comment covers lines of one hunk. */
+  hunk: Element | null
   key: string
   side: LineSide
   line: number
@@ -122,12 +131,18 @@ export function useLinePick(options: LinePickOptions): LinePick {
   // ── the drag of «+» ──
   const stop = useRef<(() => void) | null>(null)
   useEffect(() => () => stop.current?.(), [])
-  const press = (key: string, side: LineSide, line: number) => {
+  const press = (hunk: Element | null, key: string, side: LineSide, line: number) => {
     stop.current?.()
-    const drag: Drag = { key, side, line, end: line, moved: false }
+    const drag: Drag = { hunk, key, side, line, end: line, moved: false }
     const onMove = (event: MouseEvent) => {
+      // No button held: it was let go where the window did not hear it (outside it). The drag ends, opening nothing.
+      if (event.buttons === 0) {
+        stop.current?.()
+        return
+      }
       const at = lineAt(event.target)
-      if (at === null || at.key !== drag.key || at.side !== drag.side) return
+      // A line of another hunk of the same file is not taken: the comment would not get the lines between them.
+      if (at === null || at.key !== drag.key || at.side !== drag.side || hunkOf(event.target) !== drag.hunk) return
       if (at.line === drag.line && !drag.moved) return
       drag.moved = true
       drag.end = at.line
@@ -142,12 +157,16 @@ export function useLinePick(options: LinePickOptions): LinePick {
       const { from, to } = pickRange({ key: drag.key, side: drag.side, start: drag.line, end: drag.end })
       latest.current.options.open(drag.key, drag.side, from, to)
     }
+    // The window lost the focus (⌘-Tab) with the button held: its mouseup may never come here.
+    const onBlur = () => stop.current?.()
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
+    window.addEventListener('blur', onBlur)
     setDragging(true)
     stop.current = () => {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
+      window.removeEventListener('blur', onBlur)
       stop.current = null
       setDragging(false)
     }
@@ -168,7 +187,7 @@ export function useLinePick(options: LinePickOptions): LinePick {
           event.preventDefault()
           event.stopPropagation()
           if (event.shiftKey) stretch(entry.key, side, number)
-          else if (!latest.current.options.held()) press(entry.key, side, number)
+          else if (!latest.current.options.held()) press(hunkOf(event.currentTarget), entry.key, side, number)
         }}
         onClick={(event) => {
           event.stopPropagation()

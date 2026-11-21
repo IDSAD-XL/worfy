@@ -19,6 +19,7 @@ import type { DiffPaneHandle, DiffPaneProps, FileReadOf, LineSide } from './Diff
 import { lineNumber, type FileEntry } from './diff-window'
 import { LineCommentBox, LineCommentPopover, SentLineBox, type LinePopover } from './LineComment'
 import { lineAt, pickRange, useLinePick } from './line-pick'
+import { addSeenHeads, seenHead, seenHeadsKey } from './seen-heads'
 import { lineRequestFor, useLineRequests, type ChangesSubject } from './open'
 import type { RepoList, RepoScopes } from './ScopeBar'
 import { addSentLines, sentLinesKey, useSentLines, type SentLine } from './sent-lines'
@@ -240,12 +241,16 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
   /** Whether a comment is on a file of this entry: its repository (or the repository's name) and its path. */
   const onEntry = useCallback((comment: Pick<CodeComment, 'repository' | 'path'>, entry: FileEntry) => comment.path === entry.file.path && (comment.repository === entry.repo || comment.repository === facts(entry.repo).repository), [facts])
 
-  // The heads of the repositories this view has read: a comment on one of them is on lines of this Ticket's work tree, and
-  // after the agent commits again it is looked for in the new read (onFileRead).
-  const heads = useRef(new Set<string>())
+  // The heads of the repositories this view has read, kept per Ticket across a restart (seen-heads.ts): a comment on one
+  // of them is on lines of this Ticket's work tree, and after the agent commits again it is looked for in the new read
+  // (onFileRead).
+  const headsKey = seenHeadsKey(projectId, subject.epic, subject.num)
   useEffect(() => {
-    for (const each of lists ?? []) if (hex(each.headSha) !== null) heads.current.add(`${each.repo}\u0000${each.headSha}`)
-  }, [lists])
+    addSeenHeads(
+      headsKey,
+      (lists ?? []).flatMap((each) => (hex(each.headSha) === null ? [] : [{ repo: each.repo, sha: each.headSha }])),
+    )
+  }, [lists, headsKey])
 
   // ── the lines picked ──────────────────────────────────────────────────────────────────────
   const [popover, setPopover] = useState<LinePopover | null>(null)
@@ -509,13 +514,13 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
   // whitespace, shows other hunks and, in another scope, other line numbers.
   const [refreshedIn, setRefreshedIn] = useState({ generation, view: viewOf(scope, hideWhitespace) })
   if (refreshedIn.generation !== generation) setRefreshedIn({ generation, view: viewOf(scope, hideWhitespace) })
-  const latest = useRef({ mine, storeKey, refreshedIn, onEntry, scopes, lists })
+  const latest = useRef({ mine, storeKey, refreshedIn, onEntry, scopes, lists, headsKey })
   useEffect(() => {
-    latest.current = { mine, storeKey, refreshedIn, onEntry, scopes, lists }
+    latest.current = { mine, storeKey, refreshedIn, onEntry, scopes, lists, headsKey }
   })
   const onFileRead = useCallback((entry: FileEntry, diff: FileDiff, readOf: FileReadOf) => {
     read.current.set(entry.key, diff)
-    const { mine: drafts, storeKey: key, refreshedIn: refresh, onEntry: isOn, scopes: scoped, lists: listed } = latest.current
+    const { mine: drafts, storeKey: key, refreshedIn: refresh, onEntry: isOn, scopes: scoped, lists: listed, headsKey: seen } = latest.current
     if (refresh.generation === 0 || readOf.generation !== refresh.generation || viewOf(readOf.scope, readOf.hideWhitespace) !== refresh.view) return
     if (key === null || diff.kind !== 'hunks') return
     const scopesOf = scoped.find((each) => each.repo === entry.repo)
@@ -528,7 +533,7 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
       // on the work tree or on a head of this Ticket read before follows the file: the agent committed it, or edited it
       // again, after the comment was made; it takes the commit of this read.
       const now = commitOf(readOf.scope, comment.side, entry.file, scopesOf, listOf)
-      const follows = comment.side === 'new' && (readOf.scope.kind === 'all' || readOf.scope.kind === 'compare') && (comment.commit === null || heads.current.has(`${entry.repo}\u0000${comment.commit}`))
+      const follows = comment.side === 'new' && (readOf.scope.kind === 'all' || readOf.scope.kind === 'compare') && (comment.commit === null || seenHead(seen, entry.repo, comment.commit))
       if (comment.commit !== now && !follows) continue
       const lines = sideLines(diff.hunks, comment.side)
       const at = anchorLines(sideText(diff.hunks, comment.side), comment)

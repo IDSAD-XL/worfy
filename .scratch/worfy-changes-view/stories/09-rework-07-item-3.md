@@ -12,15 +12,21 @@ Kind: pr · Epic: worfy-changes-view · Ticket: 09 · PR: - · Language: ru
 
 ## 2. Перетаскивание «+» — один hook на два экрана
 
-Code: `src/renderer/changes/line-pick.tsx:125-154` · key lines: 130, 131, 136, 138, 143, 145, 148
+Code: `src/renderer/changes/line-pick.tsx:134-173` · key lines: 139, 145, 151, 153, 158, 160, 163
 
 ```tsx
-  const press = (key: string, side: LineSide, line: number) => {
+  const press = (hunk: Element | null, key: string, side: LineSide, line: number) => {
     stop.current?.()
-    const drag: Drag = { key, side, line, end: line, moved: false }
+    const drag: Drag = { hunk, key, side, line, end: line, moved: false }
     const onMove = (event: MouseEvent) => {
+      // No button held: it was let go where the window did not hear it (outside it). The drag ends, opening nothing.
+      if (event.buttons === 0) {
+        stop.current?.()
+        return
+      }
       const at = lineAt(event.target)
-      if (at === null || at.key !== drag.key || at.side !== drag.side) return
+      // A line of another hunk of the same file is not taken: the comment would not get the lines between them.
+      if (at === null || at.key !== drag.key || at.side !== drag.side || hunkOf(event.target) !== drag.hunk) return
       if (at.line === drag.line && !drag.moved) return
       drag.moved = true
       drag.end = at.line
@@ -35,21 +41,27 @@ Code: `src/renderer/changes/line-pick.tsx:125-154` · key lines: 130, 131, 136, 
       const { from, to } = pickRange({ key: drag.key, side: drag.side, start: drag.line, end: drag.end })
       latest.current.options.open(drag.key, drag.side, from, to)
     }
+    // The window lost the focus (⌘-Tab) with the button held: its mouseup may never come here.
+    const onBlur = () => stop.current?.()
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
+    window.addEventListener('blur', onBlur)
     setDragging(true)
     stop.current = () => {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
+      window.removeEventListener('blur', onBlur)
       stop.current = null
       setDragging(false)
     }
   }
 ```
 
-- Что делает: нажатие на «+» вешает `mousemove` и `mouseup` на окно; движение по строкам того же файла и стороны
-  растягивает выбор, отпускание открывает popover на весь диапазон, а без движения — прежний путь `openOn` (строка или
-  выбранный диапазон, если строка в нём). Отпускание снимает оба слушателя.
+- Что делает: нажатие на «+» вешает `mousemove`, `mouseup` и `blur` на окно; движение по строкам того же hunk-а и
+  стороны растягивает выбор, отпускание открывает popover на весь диапазон, а без движения — прежний путь `openOn`
+  (строка или выбранный диапазон, если строка в нём). Потеря фокуса окном или движение без нажатой кнопки кончают
+  перетаскивание без popover-а (ревью, раунд 2: иначе следующий mouseup где угодно открывал popover на старой строке).
+  Строка другого hunk-а не берётся (раунд 2: подсказка обещала строки, которых комментарий не получал).
 - Почему здесь: Ticket, пункты 1 и 2 — общий hook для Changes и Review mode PR, слушатели на `window`, строка по
   `data-side`/`data-line`; решение 6 «Решено без владельца» — `DiffPane.tsx` не трогать, его правит Ticket 10. Файл
   `.tsx`, а не `.ts`, как в Ticket-е: hook рисует «+» и подсказку.
@@ -60,7 +72,7 @@ Code: `src/renderer/changes/line-pick.tsx:125-154` · key lines: 130, 131, 136, 
 
 ## 3. Подсказка под последней выбранной строкой
 
-Code: `src/renderer/changes/line-pick.tsx:191-200` · key lines: 193, 196, 197
+Code: `src/renderer/changes/line-pick.tsx:210-219` · key lines: 212, 215, 216
 
 ```tsx
   const hint = (line: DiffLine, side: LineSide, entry: FileEntry): ReactNode => {
@@ -86,18 +98,21 @@ Code: `src/renderer/changes/line-pick.tsx:191-200` · key lines: 193, 196, 197
 
 ## 4. Main говорит, у каких файлов есть незакоммиченные правки
 
-Code: `src/main/changes/scopes.ts:221-225` · key lines: 222, 223, 224
+Code: `src/main/changes/scopes.ts:223-228` · key lines: 224, 225, 226
 
 ```ts
 async function uncommittedPaths(context: ChangesContext): Promise<Set<string>> {
-  const read = await context.git(context.subject.cwd, ['diff', '--name-only', '--no-renames', '-z', 'HEAD', '--'])
-  if (read.code !== 0) throw failed('git diff --name-only HEAD', read)
+  const head = SHA.test(context.subject.headSha) ? context.subject.headSha : 'HEAD'
+  const read = await context.git(context.subject.cwd, ['diff', '--name-only', '--no-renames', '-z', head, '--'])
+  if (read.code !== 0) throw failed(`git diff --name-only ${head}`, read)
   return new Set(splitZ(read.stdout).filter((path) => path !== ''))
 }
 ```
 
-- Что делает: одной командой на репозиторий читает пути, которые отличаются от HEAD в index или рабочем дереве; файл
-  ответа `changes.list` получает `uncommitted`. Неудачное чтение — ошибка всего списка, а не догадка.
+- Что делает: одной командой на репозиторий читает пути, которые отличаются от head-а ответа (`headSha`) в index или
+  рабочем дереве; файл ответа `changes.list` получает `uncommitted`. Неудачное чтение — ошибка всего списка, а не
+  догадка. Против `headSha`, а не живого HEAD (раунд 2): commit агента между чтением списка worktree и этим чтением
+  назвал бы файл против другого commit-а, чем тот, что в ответе.
 - Почему здесь: Ticket, пункт 6 — `git diff --name-only -z HEAD` в `src/main/changes/scopes.ts`, только чтение через
   runner ADR-0110. `--no-renames` добавлен, чтобы переименованный и не закоммиченный файл попал в список своим новым
   путём.
@@ -108,23 +123,25 @@ async function uncommittedPaths(context: ChangesContext): Promise<Set<string>> {
 
 ## 5. Commit комментария — по файлу; после Refresh комментарий идёт за файлом
 
-Code: `src/renderer/changes/line-comments.tsx:530-532` · key lines: 530, 531, 532
+Code: `src/renderer/changes/line-comments.tsx:535-537` · key lines: 535, 536, 537
 
 ```tsx
       const now = commitOf(readOf.scope, comment.side, entry.file, scopesOf, listOf)
-      const follows = comment.side === 'new' && (readOf.scope.kind === 'all' || readOf.scope.kind === 'compare') && (comment.commit === null || heads.current.has(`${entry.repo}\u0000${comment.commit}`))
+      const follows = comment.side === 'new' && (readOf.scope.kind === 'all' || readOf.scope.kind === 'compare') && (comment.commit === null || seenHead(seen, entry.repo, comment.commit))
       if (comment.commit !== now && !follows) continue
 ```
 
 - Что делает: `commitOf` даёт новой стороне файла без незакоммиченных правок commit HEAD, файлу с ними — `null`. После
   Refresh неотправленный комментарий новой стороны All changes или Compare against ищется заново, если его commit —
   `null` или head Ticket-а, который этот вид уже читал, и получает commit нового чтения.
-- Почему здесь: Ticket, пункты 7 и 8. Набор прочитанных head-ов живёт в памяти окна, а не в комментарии: формат
-  комментария не меняется (решение 1 «Решено без владельца»).
+- Почему здесь: Ticket, пункты 7 и 8. Прочитанные head-ы хранятся по Ticket-у в localStorage окна
+  (`src/renderer/changes/seen-heads.ts`), рядом с комментариями, а не в комментарии: формат комментария не меняется
+  (решение 1 «Решено без владельца»). В первом раунде они жили в памяти вида и терялись при открытии другого Ticket-а и
+  перезапуске (ревью, раунд 2).
 - Без него: после commit-а агента комментарий с `null` больше не совпадал с commit-ом чтения и выпадал из поиска строк.
 - Требование: [Что делаем, пункты 7–8](../issues/09-rework-07-item-3.md#что-делаем)
-- Риски и пробелы test-ов: после перезапуска worfy набор head-ов пуст — комментарий на старом HEAD остаётся на своих
-  строках и не переезжает; комментарий с `null` переезжает и тогда.
+- Риски и пробелы test-ов: комментарий на head-е, который этот вид не читал (сделан до этого PR), не переезжает и
+  остаётся на своих строках; хранится 100 новейших head-ов на Ticket.
 
 ## 6. Что сознательно не меняли
 
@@ -135,19 +152,19 @@ Code: `src/renderer/changes/line-comments.tsx:530-532` · key lines: 530, 531, 5
 
 - `pnpm lint`, `pnpm typecheck` — exit 0; 20 файлов unit и contract test-ов модулей changes, pr-review, quote — exit 0.
 - `pnpm test:e2e test/e2e/changes.spec.ts test/e2e/changes-comments.spec.ts test/e2e/pr-review.spec.ts` — exit 0, 7 passed.
-- 22 мутанта (перетаскивание, Shift, подсказка, Esc, `uncommitted` в main, `commitOf`, Refresh) — каждый даёт exit 1
-  своего test-а.
+- 22 мутанта (перетаскивание, Shift, подсказка, Esc, `uncommitted` в main, `commitOf`, Refresh) и 6 мутантов раунда 2
+  (head-ы в хранилище, hunk, blur, кнопка, `headSha`) — каждый даёт exit 1 своего test-а.
 
 ## Проверить себя
 
 1. Почему во время перетаскивания подсказки нет?
    - Ответ: она встаёт под последней выбранной строкой и сдвигает строки ниже, так что указатель попадал бы не на ту
      строку.
-   - Строки: `src/renderer/changes/line-pick.tsx:193`
+   - Строки: `src/renderer/changes/line-pick.tsx:212`
 2. Что вернёт «+», если отпустить его на той же строке внутри выбранного диапазона?
    - Ответ: popover на весь диапазон: без движения `onUp` идёт в `openOn`, который берёт диапазон, если строка в нём.
-   - Строки: `src/renderer/changes/line-pick.tsx:138-140`
+   - Строки: `src/renderer/changes/line-pick.tsx:153-155`
 3. Почему комментарий не теряет строки, когда агент закоммитил файл после него?
    - Ответ: на новой стороне All changes комментарий с `null` или с прочитанным head-ом ищется заново и получает commit
      нового чтения.
-   - Строки: `src/renderer/changes/line-comments.tsx:531-532`
+   - Строки: `src/renderer/changes/line-comments.tsx:536-537`

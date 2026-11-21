@@ -214,13 +214,16 @@ function runPool<T>(items: readonly T[], limit: number, task: (item: T) => Promi
 }
 
 /**
- * The paths that differ from HEAD in the index or in the work tree (`git diff --name-only HEAD`; worfy-changes-view
- * ticket 09): the files whose lines on the work tree's side are not all committed. Renames come as the old and the new
- * path (`--no-renames`), so a file moved and not committed is one of them by its new path.
+ * The paths that differ from the head in the index or in the work tree (`git diff --name-only <head>`;
+ * worfy-changes-view ticket 09): the files whose lines on the work tree's side are not all committed. The head is the
+ * one the answer names (`headSha`, read with the worktree list), not HEAD as it is now: an agent's commit between the
+ * two reads would otherwise tell a file against another commit than the answer names. Renames come as the old and the
+ * new path (`--no-renames`), so a file moved and not committed is one of them by its new path.
  */
 async function uncommittedPaths(context: ChangesContext): Promise<Set<string>> {
-  const read = await context.git(context.subject.cwd, ['diff', '--name-only', '--no-renames', '-z', 'HEAD', '--'])
-  if (read.code !== 0) throw failed('git diff --name-only HEAD', read)
+  const head = SHA.test(context.subject.headSha) ? context.subject.headSha : 'HEAD'
+  const read = await context.git(context.subject.cwd, ['diff', '--name-only', '--no-renames', '-z', head, '--'])
+  if (read.code !== 0) throw failed(`git diff --name-only ${head}`, read)
   return new Set(splitZ(read.stdout).filter((path) => path !== ''))
 }
 

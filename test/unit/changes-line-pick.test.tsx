@@ -17,11 +17,20 @@ import type { FileEntry } from '../../src/renderer/changes/diff-window'
 const entry = (path: string): FileEntry => ({ key: `repo\u0000${path}`, repo: 'repo', file: { path, oldPath: null, status: 'M', additions: 3, deletions: 1, binary: false, oldMode: null, newMode: null, oldBlob: null, newBlob: null, untracked: false, workflow: false, fold: null } })
 const A = entry('src/a.ts')
 const B = entry('src/b.ts')
+/** A file of two hunks: new lines 1–5, then 10–11. */
+const C = entry('src/c.ts')
+/** A move of the pointer with its main button held: a drag of «+». */
+const PRESSED = { buttons: 1 }
 
 /** Lines 1–5 of the new side and line 1 of the old side, as Side by side names its cells. */
-const LINES: { line: DiffLine; side: 'old' | 'new' }[] = [
-  { line: { kind: 'del', text: 'old one', oldLine: 1, newLine: null, crlf: false, noNewline: false }, side: 'old' },
-  ...[1, 2, 3, 4, 5].map((at) => ({ line: { kind: 'add' as const, text: `line ${at}`, oldLine: null, newLine: at, crlf: false, noNewline: false }, side: 'new' as const })),
+const added = (numbers: number[]) => numbers.map((at) => ({ line: { kind: 'add' as const, text: `line ${at}`, oldLine: null, newLine: at, crlf: false, noNewline: false }, side: 'new' as const }))
+const LINES: { line: DiffLine; side: 'old' | 'new' }[] = [{ line: { kind: 'del', text: 'old one', oldLine: 1, newLine: null, crlf: false, noNewline: false }, side: 'old' }, ...added([1, 2, 3, 4, 5])]
+/** The hunks drawn, as DiffPane draws them: one block per hunk, each with its file's key. */
+const BLOCKS: { file: FileEntry; lines: typeof LINES }[] = [
+  { file: A, lines: LINES },
+  { file: B, lines: LINES },
+  { file: C, lines: added([1, 2, 3, 4, 5]) },
+  { file: C, lines: added([10, 11]) },
 ]
 
 let pick: LinePick
@@ -37,9 +46,9 @@ function Harness({ open }: { open: (key: string, side: string, from: number, to:
   const pick = own
   return (
     <div {...pick.lineEvents}>
-      {[A, B].map((file) => (
-        <div key={file.key} data-testid="changes-hunk" data-key={file.key} data-path={file.file.path}>
-          {LINES.map(({ line, side }) => {
+      {BLOCKS.map(({ file, lines }, index) => (
+        <div key={index} data-testid="changes-hunk" data-key={file.key} data-path={file.file.path}>
+          {lines.map(({ line, side }) => {
             const at = side === 'old' ? line.oldLine : line.newLine
             return (
               <div key={`${side}${at}`}>
@@ -80,8 +89,8 @@ describe('the drag of «+»', () => {
   it('pressing «+» and moving over lines picks a range; letting go opens the comment of the whole range', () => {
     const { open } = mount()
     fireEvent.mouseDown(plusOf(A, 2))
-    fireEvent.mouseMove(codeOf(A, 3))
-    fireEvent.mouseMove(codeOf(A, 4))
+    fireEvent.mouseMove(codeOf(A, 3), PRESSED)
+    fireEvent.mouseMove(codeOf(A, 4), PRESSED)
     expect(pickedLines(A)).toEqual(['new2', 'new3', 'new4'])
     expect(open).not.toHaveBeenCalled()
     // No hint while the drag is on: it would push the lines under the pointer down.
@@ -94,7 +103,7 @@ describe('the drag of «+»', () => {
   it('upwards too: the range runs from the line let go on to the line pressed', () => {
     const { open } = mount()
     fireEvent.mouseDown(plusOf(A, 4))
-    fireEvent.mouseMove(codeOf(A, 2))
+    fireEvent.mouseMove(codeOf(A, 2), PRESSED)
     fireEvent.mouseUp(codeOf(A, 2))
     expect(open).toHaveBeenCalledWith(A.key, 'new', 2, 4)
   })
@@ -102,9 +111,9 @@ describe('the drag of «+»', () => {
   it('a line of another file or of the other side does not change the pick', () => {
     const { open } = mount()
     fireEvent.mouseDown(plusOf(A, 2))
-    fireEvent.mouseMove(codeOf(A, 3))
-    fireEvent.mouseMove(codeOf(B, 5))
-    fireEvent.mouseMove(codeOf(A, 1, 'old'))
+    fireEvent.mouseMove(codeOf(A, 3), PRESSED)
+    fireEvent.mouseMove(codeOf(B, 5), PRESSED)
+    fireEvent.mouseMove(codeOf(A, 1, 'old'), PRESSED)
     expect(pickedLines(A)).toEqual(['new2', 'new3'])
     expect(pickedLines(B)).toEqual([])
     fireEvent.mouseUp(codeOf(B, 5))
@@ -118,7 +127,7 @@ describe('the drag of «+»', () => {
     expect(open).toHaveBeenCalledWith(A.key, 'new', 3, 3)
     expect(pickedLines(A)).toEqual(['new3'])
     open.mockClear()
-    fireEvent.mouseMove(codeOf(A, 5))
+    fireEvent.mouseMove(codeOf(A, 5), PRESSED)
     fireEvent.mouseUp(codeOf(A, 5))
     expect(open).not.toHaveBeenCalled()
     expect(pickedLines(A)).toEqual(['new3'])
@@ -127,7 +136,7 @@ describe('the drag of «+»', () => {
   it('a press inside the range picked, let go there, opens the range', () => {
     const { open } = mount()
     fireEvent.mouseDown(plusOf(A, 2))
-    fireEvent.mouseMove(codeOf(A, 4))
+    fireEvent.mouseMove(codeOf(A, 4), PRESSED)
     fireEvent.mouseUp(codeOf(A, 4))
     open.mockClear()
     fireEvent.mouseDown(plusOf(A, 3))
@@ -139,7 +148,7 @@ describe('the drag of «+»', () => {
     const { open } = mount()
     held = true
     fireEvent.mouseDown(plusOf(A, 2))
-    fireEvent.mouseMove(codeOf(A, 4))
+    fireEvent.mouseMove(codeOf(A, 4), PRESSED)
     fireEvent.mouseUp(codeOf(A, 4))
     expect(open).not.toHaveBeenCalled()
     expect(pickedLines(A)).toEqual([])
@@ -148,10 +157,47 @@ describe('the drag of «+»', () => {
   it('the right button starts no drag', () => {
     const { open } = mount()
     fireEvent.mouseDown(plusOf(A, 2), { button: 2 })
-    fireEvent.mouseMove(codeOf(A, 4))
+    fireEvent.mouseMove(codeOf(A, 4), PRESSED)
     fireEvent.mouseUp(codeOf(A, 4))
     expect(open).not.toHaveBeenCalled()
     expect(pickedLines(A)).toEqual([])
+  })
+})
+
+describe('the drag of «+» ends', () => {
+  // Review round 2: a drag took lines of the file's next hunk, and the hint promised lines the comment did not get.
+  it('within the hunk it began in: a line of the same file\'s next hunk does not change the pick', () => {
+    const { open } = mount()
+    fireEvent.mouseDown(plusOf(C, 4))
+    fireEvent.mouseMove(codeOf(C, 5), PRESSED)
+    fireEvent.mouseMove(codeOf(C, 10), PRESSED)
+    fireEvent.mouseMove(codeOf(C, 11), PRESSED)
+    expect(pickedLines(C)).toEqual(['new4', 'new5'])
+    fireEvent.mouseUp(codeOf(C, 11))
+    expect(open).toHaveBeenCalledWith(C.key, 'new', 4, 5)
+    expect(hints().map((each) => each.textContent)).toEqual(['Comment on lines 4–5 (c)'])
+  })
+
+  // Review round 2: the button let go outside the window (⌘-Tab) left the drag on until the next mouseup anywhere.
+  it('when the window loses the focus: the next mouseup opens nothing, and the hint is back', () => {
+    const { open } = mount()
+    fireEvent.mouseDown(plusOf(A, 2))
+    fireEvent.mouseMove(codeOf(A, 3), PRESSED)
+    expect(hints()).toEqual([])
+    fireEvent.blur(window)
+    expect(hints().map((each) => each.textContent)).toEqual(['Comment on lines 2–3 (c)'])
+    fireEvent.mouseUp(codeOf(A, 3))
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  it('when a move comes with no button held: the button was let go where the window did not hear it', () => {
+    const { open } = mount()
+    fireEvent.mouseDown(plusOf(A, 2))
+    fireEvent.mouseMove(codeOf(A, 3), PRESSED)
+    fireEvent.mouseMove(codeOf(A, 5), { buttons: 0 })
+    expect(pickedLines(A)).toEqual(['new2', 'new3'])
+    fireEvent.mouseUp(codeOf(A, 5))
+    expect(open).not.toHaveBeenCalled()
   })
 })
 

@@ -23,6 +23,8 @@ import type { PrInboxRow } from '../../src/shared/ipc/pr-inbox'
 import type { ReviewComment, ReviewDraft } from '../../src/shared/ipc/pr-review'
 
 const PROJECT = 'web-00000001'
+/** A move of the pointer with its main button held: a drag of «+». */
+const PRESSED = { buttons: 1 }
 const REPO = 'example-org/web'
 const NUMBER = 77
 const HEAD = '3f2a9c1e5b7d4a6c8e0f1a2b3c4d5e6f7a8b9c0d'
@@ -335,8 +337,8 @@ describe('a comment on a line of the PR', () => {
     preload()
     const { mode } = await mountReview()
     fireEvent.mouseDown(within(line(1)).getByTestId('changes-line-plus'))
-    fireEvent.mouseMove(line(2).querySelector('.w-changes__code')!)
-    fireEvent.mouseMove(line(3).querySelector('.w-changes__code')!)
+    fireEvent.mouseMove(line(2).querySelector('.w-changes__code')!, PRESSED)
+    fireEvent.mouseMove(line(3).querySelector('.w-changes__code')!, PRESSED)
     fireEvent.mouseUp(line(3).querySelector('.w-changes__code')!)
     expect(within(await screen.findByTestId('changes-comment-popover')).getByTestId('changes-comment-where').textContent).toBe(`${RETRY}:1–3 · new side`)
     // While the popover is open the hint stands aside.

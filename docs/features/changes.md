@@ -261,8 +261,9 @@ with Edit and Delete. Delete offers Undo for six seconds.
 #### Picking a range
 
 As on GitHub: press **«+»** of the first line, drag up or down over the lines of the same file and side, and let go.
-The lines light up as the pointer passes them; letting go opens the popover on the whole range. A line of another file
-or of the other side does not change the range. Letting go on the line pressed comments on that line alone, or on the
+The lines light up as the pointer passes them; letting go opens the popover on the whole range. A line of another file,
+of the other side or of another hunk does not change the range: a comment covers lines of one hunk. The window losing
+the focus with the button held ends the drag and opens nothing. Letting go on the line pressed comments on that line alone, or on the
 range picked when the line is in it. **Shift** with a click on «+» stretches the lines picked to its line and opens
 nothing; with nothing picked in that file and side it picks the line alone.
 
@@ -312,7 +313,8 @@ Each comment not sent yet is looked for again in its file's lines and moves with
 the scope and Hide whitespace the Refresh was pressed in, and only for a comment on the commit those reads show on its
 side (the work tree for uncommitted lines): a comment made in another scope keeps its lines, true at its commit. On the
 new side of All changes and Compare against, a comment made on uncommitted lines or on a head of the Ticket this view
-read before is looked for too: the agent committed its file after the comment, or edited it again. It takes the commit
+read before is looked for too: the agent committed its file after the comment, or edited it again. The heads read are
+kept per Ticket next to the comments, so this holds after another Ticket was opened or worfy restarted. It takes the commit
 the new read shows, so it is not left behind by the agent's commit. One
 whose lines the read shows and which are gone keeps its place, is marked «Line changed» on the line and in the tray,
 and is sent as it was written; lines the read does not show are no news.
@@ -328,7 +330,7 @@ folder: nothing is written into the repository. The comments that went are kept 
 stay dim after a restart. The commit of a comment is the head of the scope it was made in: the work tree for the lines of
 a file with uncommitted edits, HEAD for the other files of a worktree and for a branch, the commit of a Commit scope,
 the merge-base for the old side. Which files have uncommitted edits main reads once per list with
-`git diff --name-only --no-renames -z HEAD` (read only, as every read of this page), and gives each file of the answer of
+`git diff --name-only --no-renames -z <head>` against the head the answer names (read only, as every read of this page), and gives each file of the answer of
 `changes.list` the field `uncommitted`: true for those files and the new ones git does not track, false on a branch
 checked out nowhere and in a Commit scope, true for every file of Uncommitted.
 
@@ -341,6 +343,7 @@ Picking the lines is one hook, `useLinePick`, for this view and Review mode of a
 - `src/renderer/changes/line-comments.tsx` — what the diff, the popover, the tray and «To» do together; Send.
 - `src/renderer/changes/line-pick.tsx` — picking lines: «+» and its drag, Shift, the clicks and the selection, the hint,
   `c` and Esc; shared with `src/renderer/pr-review/review-comments.tsx`.
+- `src/renderer/changes/seen-heads.ts` — the heads of a Ticket the view has read, in the window's storage.
 - `src/main/changes/scopes.ts` — `uncommitted` of each file (`listChanges`).
 - `src/renderer/changes/LineComment.tsx` — the popover and the boxes under the lines; `src/renderer/changes/Tray.tsx` —
   the tray; `src/renderer/changes/sent-lines.ts` — the comments that went.

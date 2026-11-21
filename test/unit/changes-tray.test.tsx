@@ -11,6 +11,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChangesView } from '../../src/renderer/changes/ChangesView'
+import { forgetSeenHeadsInMemory } from '../../src/renderer/changes/seen-heads'
 import { forgetSentLinesInMemory } from '../../src/renderer/changes/sent-lines'
 import type { CodeComment, MessageComment } from '../../src/renderer/session/quote-comments'
 import { setView, useNavigation } from '../../src/renderer/session/navigation'
@@ -21,6 +22,8 @@ import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 
 let readOnly: string | null = null
+/** A move of the pointer with its main button held: a drag of «+». */
+const PRESSED = { buttons: 1 }
 vi.mock('../../src/renderer/projects/useProjects', async (original) => ({ ...(await original<typeof import('../../src/renderer/projects/useProjects')>()), useReadOnly: () => readOnly }))
 
 const ROOT = '/Users/test/projects/demo'
@@ -145,6 +148,7 @@ beforeEach(() => {
   globalThis.localStorage.clear()
   forgetQuotesInMemory()
   forgetSentLinesInMemory()
+  forgetSeenHeadsInMemory()
   ;(globalThis as { worfy?: WorfyBridge }).worfy = {
     invoke: (channel: string, input: Record<string, unknown>) => {
       calls.push({ channel, input })
@@ -273,8 +277,8 @@ describe('a comment on lines', () => {
   it('dragging «+» over lines opens the popover on the range; the hint stands under its last line; Esc takes the pick, the next Esc goes back', async () => {
     await open()
     fireEvent.mouseDown(within(row(2)).getByTestId('changes-line-plus'))
-    fireEvent.mouseMove(row(3).querySelector('.w-changes__code')!)
-    fireEvent.mouseMove(row(4).querySelector('.w-changes__code')!)
+    fireEvent.mouseMove(row(3).querySelector('.w-changes__code')!, PRESSED)
+    fireEvent.mouseMove(row(4).querySelector('.w-changes__code')!, PRESSED)
     fireEvent.mouseUp(row(4).querySelector('.w-changes__code')!)
     const popover = await screen.findByTestId('changes-comment-popover')
     expect(within(popover).getByTestId('changes-comment-where').textContent).toBe(`${PATH}:2–4 · new side`)
@@ -585,6 +589,25 @@ describe('after a Refresh', () => {
     fileDiff = () => MOVED_DIFF
     await refresh()
     expect(readQuotes(KEY_A).drafts).toMatchObject([{ id: 'c-old', startLine: 4, commit: 'c0ffee2' }])
+  })
+
+  // Review round 2: the heads read were kept only while the view was mounted.
+  it('after another Ticket was opened or worfy restarted, a comment on the HEAD read then follows the agent\'s next commit', async () => {
+    listed = () => [{ ...changed(PATH), uncommitted: false }]
+    await open()
+    fireEvent.click(within(row(3)).getByTestId('changes-line-plus'))
+    await writeAndSave('Why 0.5?')
+    expect(readQuotes(KEY_A).drafts).toMatchObject([{ startLine: 3, commit: 'c0ffee1' }])
+    cleanup()
+    // A restart: what memory holds is read again from the window's storage.
+    forgetQuotesInMemory()
+    forgetSeenHeadsInMemory()
+    head = 'c0ffee2'
+    fileDiff = () => MOVED_DIFF
+    await open()
+    await refresh()
+    expect(readQuotes(KEY_A).drafts).toMatchObject([{ startLine: 4, endLine: 4, commit: 'c0ffee2' }])
+    expect(chipText()).not.toContain('Line changed')
   })
 
   it('a comment on the HEAD the file was committed at is on no commit once the file has uncommitted edits again', async () => {
