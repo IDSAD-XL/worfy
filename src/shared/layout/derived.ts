@@ -22,6 +22,11 @@ export const TICKET_KIND = 'ticket'
 export const SUBAGENT_KIND = 'subagent'
 export const SUBAGENT_TREE_KIND = 'subagent-tree'
 /**
+ * The Changes Node of a Ticket (worfy-changes-view ticket 03) kept the Ticket and its scope; since ticket 08 the Changes
+ * open over the whole window, and main removes such a Node when it reads a Layout (src/main/layout/upgrade.ts).
+ */
+export const CHANGES_KIND = 'changes'
+/**
  * The order of the Epic frames and their number of columns, one record per Project (ADR-0075,
  * src/renderer/canvas/epic-arrangement.ts): an invisible locked Node, not on the plane. It is an
  * internal layout record, not an Epic frame or a Ticket: the canvas tools of the MCP server say so

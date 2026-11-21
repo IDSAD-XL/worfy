@@ -1,4 +1,4 @@
-// The head of the Changes screen (worfy-changes-view ticket 03): two rows under the Node's title. The first — the menu
+// The head of the Changes screen (worfy-changes-view ticket 03): two rows under the view's title. The first — the menu
 // of scopes, built from the answer of `changes.scopes` (a Ticket without a worktree has no Uncommitted; the commits of
 // the Ticket are its Commit items), the base and the head with the merge-base, the number of files and the lines
 // added and deleted, and Refresh. The second — Inline | Side by side, Wrap, Hide whitespace, and Compare against, the

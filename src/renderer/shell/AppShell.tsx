@@ -1,5 +1,6 @@
 import { Component, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { StartAutopilotModal } from '../autopilot/StartAutopilotModal'
+import { ChangesScreen } from '../changes/ChangesView'
 import { underFocusCover } from '../focus/cover'
 import { setFocusSlot } from '../focus/focus-state'
 import { GettingStartedPanel } from '../getting-started/GettingStartedPanel'
@@ -74,7 +75,7 @@ class SidebarFocusKeeper extends Component<{ visible: boolean; shell: RefObject<
   }
 }
 
-/** The name of the main area for each view, as its tab in the toolbar says it (Run history and Code story have no tab). */
+/** The name of the main area for each view, as its tab in the toolbar says it (Run history, Code story and Changes have no tab). */
 const VIEW_NAMES: Record<ShellView, string> = {
   canvas: 'Canvas',
   session: 'Session',
@@ -82,6 +83,7 @@ const VIEW_NAMES: Record<ShellView, string> = {
   history: 'Run history',
   'pull-requests': 'Pull requests',
   story: 'Code story',
+  changes: 'Changes',
 }
 
 /** The window of design F: sidebar, unified toolbar and the main area under it. */
@@ -135,6 +137,10 @@ export function AppShell({ project, canvas, session, pipeline, history, view: co
           {/* A Code story (worfy-code-stories ticket 09): openStory (stories/open.ts) opens it, Esc leaves it. */}
           <div className="w-shell__view" data-view="story" hidden={view !== 'story'}>
             <StoryScreen activeProjectId={project?.id} />
+          </div>
+          {/* The Changes of a Ticket (worfy-changes-view ticket 08): openChanges (changes/open.ts) opens it, «← Canvas» and Esc leave it. */}
+          <div className="w-shell__view" data-view="changes" hidden={view !== 'changes'}>
+            <ChangesScreen activeProjectId={project?.id} />
           </div>
         </main>
       </div>

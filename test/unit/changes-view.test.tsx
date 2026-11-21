@@ -1,20 +1,18 @@
-// The Changes screen (worfy-changes-view ticket 03): the Node src/renderer/canvas/nodes/ChangesNode.tsx with its head
+// The Changes screen (worfy-changes-view tickets 03 and 08): the view src/renderer/changes/ChangesView.tsx with its head
 // (ScopeBar.tsx), its tree (FileTree.tsx) and its diff (DiffPane.tsx), over a bridge that answers the `changes.*`
 // channels of ticket 02 as main would. What is checked is what the user sees: the scope menu built from the answer of
 // `changes.scopes`, Inline and Side by side, Wrap, Hide whitespace, a large file folded and a binary file's sizes, the
 // group Workflow files, the filter, the folders of a Ticket of more than 300 files, and the window of the diff.
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { ReactFlowProvider } from '@xyflow/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import ChangesNode from '../../src/renderer/canvas/nodes/ChangesNode'
-import type { CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
-import { LayoutOpsContext, type LayoutOps } from '../../src/renderer/canvas/useLayout'
+import { ChangesScreen, ChangesView } from '../../src/renderer/changes/ChangesView'
+import { openChanges, setChangesScope, useChangesView, type ChangesSubject } from '../../src/renderer/changes/open'
+import { setView, useNavigation } from '../../src/renderer/session/navigation'
 import { DiffPane, type ChangesThread, type DiffPaneProps } from '../../src/renderer/changes/DiffPane'
 import { FileTree } from '../../src/renderer/changes/FileTree'
 import { fileKey, sideBySideRows, windowOf } from '../../src/renderer/changes/diff-window'
-import type { ChangedFile, DiffLine, FileDiff } from '../../src/shared/changes/types'
+import type { ChangedFile, ChangesScope, DiffLine, FileDiff } from '../../src/shared/changes/types'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
-import type { LayoutOpInput } from '../../src/shared/layout/types'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 
 const ROOT = '/Users/test/projects/demo'
@@ -64,7 +62,6 @@ const CART_DIFF: FileDiff = {
 let files: ChangedFile[]
 let scopesOf: ('all' | 'uncommitted' | 'commit' | 'compare')[]
 let calls: { channel: string; input: Record<string, unknown> }[]
-let sent: LayoutOpInput[]
 /** Holds an answer of the bridge until it is released (holdOnce); undefined — answered at once. */
 let gate: ((channel: string, input: Record<string, unknown>) => Promise<void> | undefined) | null
 
@@ -132,8 +129,9 @@ function answer(channel: string, input: Record<string, unknown>): unknown {
 
 beforeEach(() => {
   calls = []
-  sent = []
   gate = null
+  useChangesView.setState({ projectId: null, subject: null, back: 'canvas', opened: 0, scopes: {} })
+  setView('canvas')
   scopesOf = ['all', 'uncommitted', 'commit', 'compare']
   files = [
     changed('src/orders/cart.ts', { additions: 2, deletions: 1 }),
@@ -163,26 +161,13 @@ afterEach(() => {
   delete (globalThis as { worfy?: WorfyBridge }).worfy
 })
 
-const ops: LayoutOps = {
-  apply(op) {
-    sent.push(op)
-    return Promise.resolve()
-  },
+function view(subject: ChangesSubject = { epic: 'demo', num: 3 }) {
+  return <ChangesView projectId={PROJECT} root={ROOT} subject={subject} back="canvas" active />
 }
 
-function node(data: Record<string, unknown>) {
-  const props = { id: 'changes:demo/3', data: { node: { data } }, selected: false } as unknown as CanvasNodeProps
-  return (
-    <ReactFlowProvider>
-      <LayoutOpsContext.Provider value={ops}>
-        <ChangesNode {...props} />
-      </LayoutOpsContext.Provider>
-    </ReactFlowProvider>
-  )
-}
-
-async function open(data: Record<string, unknown> = { ticket: { epic: 'demo', num: 3 } }) {
-  render(node(data))
+async function open(scope?: ChangesScope) {
+  if (scope !== undefined) setChangesScope(PROJECT, { epic: 'demo', num: 3 }, scope)
+  render(view())
   await screen.findAllByTestId('changes-line')
 }
 
@@ -212,15 +197,17 @@ describe('the head', () => {
     expect(items.map((item) => item.getAttribute('data-scope'))).toEqual(['all', 'commit', 'commit'])
   })
 
-  it('a picked commit becomes the Node’s scope, and the files are read for it', async () => {
+  it('a picked commit becomes the view’s scope of the Ticket, and the files are read for it', async () => {
     await open()
     fireEvent.click(screen.getByTestId('changes-scope'))
     fireEvent.click(await screen.findByRole('menuitemradio', { name: /7e1d0a2/u }))
-    expect(sent).toEqual([{ op: 'patchData', id: 'changes:demo/3', data: { scope: { kind: 'commit', repo: 'demo', sha: '7e1d0a2bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' } } }])
+    const commit = { kind: 'commit', repo: 'demo', sha: '7e1d0a2bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' }
+    expect(useChangesView.getState().scopes).toEqual({ [`${PROJECT}:demo/3`]: commit })
+    await vi.waitFor(() => expect(calls.filter((call) => call.channel === 'changes.list').at(-1)?.input.scope).toEqual(commit))
   })
 
-  it('reads the scope the Node keeps, and Compare against lists the branches of the answer', async () => {
-    await open({ ticket: { epic: 'demo', num: 3 }, scope: { kind: 'compare', repo: 'demo', ref: 'release/1.4' } })
+  it('reads the scope the view keeps for the Ticket, and Compare against lists the branches of the answer', async () => {
+    await open({ kind: 'compare', repo: 'demo', ref: 'release/1.4' })
     const lists = calls.filter((call) => call.channel === 'changes.list')
     expect(lists.at(-1)?.input.scope).toEqual({ kind: 'compare', repo: 'demo', ref: 'release/1.4' })
     expect(screen.getByTestId('changes-scope').textContent).toBe('Compare against release/1.4')
@@ -358,7 +345,7 @@ describe('the tree', () => {
     expect(current()).toBe('src/orders/cart.ts')
     fireEvent.click(screen.getAllByTestId('changes-tree-file')[2]!)
     expect(current()).toBe('assets/logo.png')
-    // Typing in the filter is typing, not a key of the Node.
+    // Typing in the filter is typing, not a key of the view.
     fireEvent.keyDown(screen.getByTestId('changes-filter'), { key: 'j' })
     expect(current()).toBe('assets/logo.png')
   })
@@ -381,9 +368,9 @@ describe('a late answer of a read gone by (round 1 of the review)', () => {
 
   it('the scopes read for another Ticket that answers after this Ticket’s is dropped, not shown as «Reading…»', async () => {
     const release = holdOnce('changes.scopes')
-    const { rerender } = render(node({ ticket: { epic: 'demo', num: 3 } }))
+    const { rerender } = render(view({ epic: 'demo', num: 3 }))
     await vi.waitFor(() => expect(calls.some((call) => call.channel === 'changes.scopes')).toBe(true))
-    rerender(node({ ticket: { epic: 'demo', num: 4 } }))
+    rerender(view({ epic: 'demo', num: 4 }))
     await screen.findAllByTestId('changes-line')
     await release()
     expect(screen.queryByText(/Reading the changes/u)).toBeNull()
@@ -392,9 +379,9 @@ describe('a late answer of a read gone by (round 1 of the review)', () => {
 
   it('the commits read for another Ticket that answer after this Ticket’s are dropped, and the menu keeps its commits', async () => {
     const release = holdOnce('changes.commits')
-    const { rerender } = render(node({ ticket: { epic: 'demo', num: 3 } }))
+    const { rerender } = render(view({ epic: 'demo', num: 3 }))
     await vi.waitFor(() => expect(calls.some((call) => call.channel === 'changes.commits')).toBe(true))
-    rerender(node({ ticket: { epic: 'demo', num: 4 } }))
+    rerender(view({ epic: 'demo', num: 4 }))
     await screen.findAllByTestId('changes-line')
     await release()
     fireEvent.click(screen.getByTestId('changes-scope'))
@@ -635,11 +622,121 @@ describe('the diff of a pull request', () => {
     expect(screen.queryByTestId('changes-truncated')).toBeNull()
   })
 
-  it('the Node of a Ticket asks `changes.*` with the Ticket as its subject', async () => {
-    render(node({ ticket: { epic: 'demo', num: 3 } }))
+  it('the view of a Ticket asks `changes.*` with the Ticket as its subject', async () => {
+    render(view())
     await settle()
     const list = calls.find((each) => each.channel === 'changes.list')
     expect(list?.input.subject).toMatchObject({ kind: 'ticket', epic: 'demo', num: 3 })
     expect(list?.input).not.toHaveProperty('ticket')
+  })
+})
+
+// worfy-changes-view ticket 08: the Changes of a Ticket over the whole window, with one button back.
+describe('the view over the window', () => {
+  const screenOf = (activeProjectId: string = PROJECT) => <ChangesScreen activeProjectId={activeProjectId} />
+
+  it('draws the head of scopes, the tree and the diff of the Ticket under «← Canvas»', async () => {
+    openChanges(PROJECT, { epic: 'demo', num: 3 })
+    render(screenOf())
+    await screen.findAllByTestId('changes-line')
+    const shown = screen.getByTestId('changes-view')
+    expect(shown.getAttribute('data-ticket')).toBe('demo/03')
+    expect(screen.getByTestId('changes-back').textContent).toBe('← Canvas')
+    expect(screen.getByTestId('changes-meta').textContent).toBe('origin/main ← demo/03 · base 4f9c2e1 · 4 files + 2 workflow · +1269 −3')
+    expect(screen.getAllByTestId('changes-tree-file').map((row) => row.getAttribute('data-path'))).toEqual(['src/orders/cart.ts', 'src/orders/discount.ts', 'assets/logo.png', 'data/catalog.json'])
+    // The focus is on the view at its opening, so its keys work at once.
+    expect(document.activeElement).toBe(screen.getByTestId('changes-body'))
+  })
+
+  it('«← Canvas» goes back to the Canvas', async () => {
+    openChanges(PROJECT, { epic: 'demo', num: 3 })
+    render(screenOf())
+    await screen.findAllByTestId('changes-line')
+    expect(useNavigation.getState().view).toBe('changes')
+    fireEvent.click(screen.getByTestId('changes-back'))
+    expect(useNavigation.getState().view).toBe('canvas')
+  })
+
+  it('Esc goes back to the Canvas; not while the focus is in a text field', async () => {
+    openChanges(PROJECT, { epic: 'demo', num: 3 })
+    render(screenOf())
+    await screen.findAllByTestId('changes-line')
+    fireEvent.keyDown(screen.getByTestId('changes-filter'), { key: 'Escape' })
+    expect(useNavigation.getState().view).toBe('changes')
+    fireEvent.keyDown(screen.getByTestId('changes-body'), { key: 'Escape' })
+    expect(useNavigation.getState().view).toBe('canvas')
+  })
+
+  it('Esc with a menu open closes only the menu; the next Esc goes back', async () => {
+    openChanges(PROJECT, { epic: 'demo', num: 3 })
+    render(screenOf())
+    await screen.findAllByTestId('changes-line')
+    fireEvent.click(screen.getByTestId('changes-scope'))
+    const item = (await screen.findAllByRole('menuitemradio'))[0]!
+    fireEvent.keyDown(item, { key: 'Escape' })
+    await vi.waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+    expect(useNavigation.getState().view).toBe('changes')
+    fireEvent.keyDown(screen.getByTestId('changes-body'), { key: 'Escape' })
+    expect(useNavigation.getState().view).toBe('canvas')
+  })
+
+  it('takes no keys while another view is shown', async () => {
+    openChanges(PROJECT, { epic: 'demo', num: 3 })
+    render(screenOf())
+    await screen.findAllByTestId('changes-line')
+    setView('session')
+    await settle()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.keyDown(window, { key: 'n' })
+    expect(useNavigation.getState().view).toBe('session')
+    expect(diff().scrollTop).toBe(0)
+  })
+
+  it('another Project picked in the sidebar goes back to the Canvas', async () => {
+    openChanges(PROJECT, { epic: 'demo', num: 3 })
+    const { rerender } = render(screenOf())
+    await screen.findAllByTestId('changes-line')
+    rerender(screenOf('other-0000000e'))
+    expect(useNavigation.getState().view).toBe('canvas')
+  })
+
+  it('opened from a message of the Session view at a line: «← Session» goes back there, and the line is brought into view', async () => {
+    const { openChangesAtLine } = await import('../../src/renderer/changes/open')
+    setView('session')
+    openChangesAtLine(PROJECT, { epic: 'demo', num: 3 }, { path: 'src/orders/discount.ts', side: 'new', line: 2 })
+    expect(useNavigation.getState().view).toBe('changes')
+    render(screenOf())
+    await screen.findAllByTestId('changes-line')
+    // The header of cart.ts, its hunk and the gap under it come first: the line of discount.ts is past them.
+    await vi.waitFor(() => expect(diff().scrollTop).toBeGreaterThanOrEqual(34 + 122 + 12))
+    expect(screen.getByTestId('changes-back').textContent).toBe('← Session')
+    fireEvent.click(screen.getByTestId('changes-back'))
+    expect(useNavigation.getState().view).toBe('session')
+  })
+
+  it('keeps the scope picked for each Ticket while the window lives', async () => {
+    openChanges(PROJECT, { epic: 'demo', num: 3 })
+    const { unmount } = render(screenOf())
+    await screen.findAllByTestId('changes-line')
+    fireEvent.click(screen.getByTestId('changes-scope'))
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: /Uncommitted/u }))
+    unmount()
+    openChanges(PROJECT, { epic: 'demo', num: 4 })
+    render(screenOf())
+    await screen.findAllByTestId('changes-line')
+    expect(screen.getByTestId('changes-view').getAttribute('data-scope')).toBe('all')
+    openChanges(PROJECT, { epic: 'demo', num: 3 })
+    await vi.waitFor(() => expect(screen.getByTestId('changes-view').getAttribute('data-ticket')).toBe('demo/03'))
+    expect(screen.getByTestId('changes-view').getAttribute('data-scope')).toBe('uncommitted')
+  })
+})
+
+describe('the line asked for by a message', () => {
+  it('another opening of the view drops it, so the view does not jump to an old line', async () => {
+    const { lineRequestFor, openChangesAtLine, useLineRequests } = await import('../../src/renderer/changes/open')
+    openChangesAtLine(PROJECT, { epic: 'demo', num: 3 }, { path: 'src/orders/cart.ts', side: 'new', line: 2 })
+    expect(lineRequestFor(useLineRequests.getState().request, PROJECT, { epic: 'demo', num: 3 })).toMatchObject({ path: 'src/orders/cart.ts', line: 2 })
+    openChanges(PROJECT, { epic: 'demo', num: 3 })
+    expect(lineRequestFor(useLineRequests.getState().request, PROJECT, { epic: 'demo', num: 3 })).toBeNull()
   })
 })

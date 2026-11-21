@@ -63,7 +63,7 @@ Node и всё, что с ним связано Binding-ом и деревом S
 _Avoid_: кластер, группа (как синоним Family)
 
 **Changes**:
-Node с diff-ом Ticket-а против базы — от merge-base с базовой веткой: commit-ы Ticket-а, ещё не закоммиченные правки и новые файлы, прочитанные из git без единой записи в репозиторий ([ADR-0110](docs/adr/0110-changes-reads-git-writes-nothing.md)), — и с комментариями к строкам, которые по Send уходят Session из списка «To» одним сообщением. У Ticket-а один Changes Node; его открывает кнопка Changes на карточке Ticket-а или Open changes в Command palette ([Changes](docs/features/changes.md)).
+Вид окна с diff-ом Ticket-а против базы — от merge-base с базовой веткой: commit-ы Ticket-а, ещё не закоммиченные правки и новые файлы, прочитанные из git без единой записи в репозиторий ([ADR-0110](docs/adr/0110-changes-reads-git-writes-nothing.md)), — и с комментариями к строкам, которые по Send уходят Session из списка «To» одним сообщением. Открывается во весь размер окна, как вид Pull requests, и показывает тот же экран diff-а, что Review mode PR; его открывают кнопка Changes на карточке Ticket-а, Open changes в Command palette и блок комментария к коду в чате, а «← Canvas» и Esc возвращают на Canvas ([Changes](docs/features/changes.md)). Node-а Changes на Canvas больше нет (worfy-changes-view 08).
 _Avoid_: diff view, Review pane, Files changed
 
 ## Workflow

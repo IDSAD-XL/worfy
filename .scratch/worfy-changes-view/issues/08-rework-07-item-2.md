@@ -1,7 +1,7 @@
 # 08: Rework of worfy-changes-view 07, item 2
 
 Type: task
-Status: open
+Status: claimed 2026-11-21T00:07Z
 Blocked by: None — can start immediately
 Source: owner-check fail 2026-11-21 of worfy-changes-view 07, item 2 — 07-приёмка-владельцем.md
 

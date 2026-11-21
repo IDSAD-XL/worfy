@@ -5,7 +5,7 @@ import { chipWords, linesLabel, type CodeComment, type QuoteComment } from '../s
 import { matches as matchesShortcut } from '../shortcuts/match'
 import { Menu, MenuRadioGroup, MenuRadioItem } from '../theme/kit/Menu'
 
-// The tray at the bottom of the Changes Node (worfy-changes-view ticket 05; the screen of the spec): the comments of
+// The tray at the bottom of the Changes view (worfy-changes-view tickets 05 and 08; the screen of the spec): the comments of
 // the Session picked in «To» — the same ones its input field lists (session/QuoteComments.tsx), from its store
 // (quote-store.ts, quoteKey) — as chips: a comment on lines goes to its line, × removes it. Clear removes them all.
 // Under them the general text, «To» and Send ⌘↵, which sends them as that Session's Send does: one message. While Send
@@ -46,7 +46,7 @@ export function Tray({ comments, changed, targets, target, onTarget, autopilot, 
   const [open, setOpen] = useState(false)
   const empty = comments.length === 0 && general.trim() === ''
   const onKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
-    // The Node's own keys (j, k, n, p, c) are not for the tray's field.
+    // The view's own keys (j, k, n, p, c) are not for the tray's field.
     event.stopPropagation()
     if (matchesShortcut(event.nativeEvent, SHORTCUTS.quoteSave)) {
       event.preventDefault()

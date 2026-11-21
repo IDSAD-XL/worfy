@@ -1142,13 +1142,12 @@ describe('Changes (worfy-changes-view ticket 03)', () => {
     }
   })
 
-  it('puts the Node right of the strip of Epic frames at the Ticket’s height, and goes to it on the second click', async () => {
-    const { ReactFlowProvider } = await import('@xyflow/react')
+  it('opens the Changes view of the Ticket over the window and sends no operation of the Layout (worfy-changes-view ticket 08)', async () => {
+    const { LayoutOpsContext } = await import('../../src/renderer/canvas/useLayout')
+    const { useChangesView } = await import('../../src/renderer/changes/open')
+    const { setView, useNavigation } = await import('../../src/renderer/session/navigation')
     const { default: Changes } = await import('../../src/renderer/canvas/actions/Changes')
-    const { LayoutOpsContext, acceptLayoutState } = await import('../../src/renderer/canvas/useLayout')
-    const { useCanvasRequests } = await import('../../src/renderer/find/canvas-requests')
-    const frame = { id: 'epic:demo', type: 'epic-frame', position: { x: 0, y: 0 }, width: 600, height: 500, data: { node: { data: { epic: { epic: 'demo' }, auto: { x: 0, y: 0 } } } } }
-    const card = { id: 'ticket:demo/11', type: 'ticket', position: { x: 40, y: 320.4 }, width: 220, height: 80, data: { node: { data: { ticket: { epic: 'demo', num: 11 } } } } }
+    setView('canvas')
     const applied: unknown[] = []
     const ops = {
       apply: (op: unknown) => {
@@ -1157,29 +1156,15 @@ describe('Changes (worfy-changes-view ticket 03)', () => {
       },
     }
     render(
-      <ReactFlowProvider initialNodes={[frame, card]}>
-        <LayoutOpsContext.Provider value={ops}>
-          <Changes subject={ticketSubject(11)} />
-        </LayoutOpsContext.Provider>
-      </ReactFlowProvider>,
+      <LayoutOpsContext.Provider value={ops}>
+        <Changes subject={ticketSubject(11)} />
+      </LayoutOpsContext.Provider>,
     )
-    const button = await screen.findByRole('button', { name: 'Changes' })
-    fireEvent.click(button)
-    await vi.waitFor(() =>
-      expect(applied).toEqual([{ op: 'create', node: { id: 'changes:demo/11', kind: 'changes', x: 600 + 48, y: 320, w: 960, h: 640, data: { ticket: { epic: 'demo', num: 11 } } } }]),
-    )
-    await vi.waitFor(() => expect(useCanvasRequests.getState().focus).toMatchObject({ projectId: PROJECT, nodeId: 'changes:demo/11' }))
-
-    // main has the Node now: the next click goes to it and creates none.
-    acceptLayoutState({
-      projectId: PROJECT,
-      revision: 2,
-      layout: { viewport: { x: 0, y: 0, zoom: 1 }, nodes: [{ id: 'changes:demo/11', kind: 'changes', x: 648, y: 320, w: 960, h: 640, hidden: false, locked: false, pinned: false, tags: [], data: { ticket: { epic: 'demo', num: 11 } } }] },
-    })
-    const seq = useCanvasRequests.getState().focus?.seq ?? 0
-    fireEvent.click(button)
-    await vi.waitFor(() => expect(useCanvasRequests.getState().focus?.seq).toBe(seq + 1))
-    expect(applied).toHaveLength(1)
+    fireEvent.click(await screen.findByRole('button', { name: 'Changes' }))
+    await vi.waitFor(() => expect(useNavigation.getState().view).toBe('changes'))
+    expect(useChangesView.getState()).toMatchObject({ projectId: PROJECT, subject: { epic: 'demo', num: 11 }, back: 'canvas' })
+    expect(applied).toEqual([])
+    expect(calls.filter((call) => call.channel === 'layout.apply')).toEqual([])
   })
 })
 
@@ -1313,6 +1298,26 @@ describe('on the screen of a Linked machine that shares its Projects read-only (
     expect(screen.getByRole('menuitem', { name: 'Run history' }).getAttribute('aria-disabled')).toBe('false')
     fireEvent.click(force)
     expect(calls.filter((call) => call.channel === 'autopilot.stop' || call.channel === 'autopilot.forceStop')).toEqual([])
+  })
+
+  it('Changes is active: the view only reads git (worfy-changes-view ticket 08)', async () => {
+    const { useNavigation } = await import('../../src/renderer/session/navigation')
+    const { default: Changes } = await import('../../src/renderer/canvas/actions/Changes')
+    const { default: TicketActions } = await import('../../src/renderer/canvas/actions/TicketActions')
+    render(
+      <>
+        <TicketActions subject={ticketSubject(8)} />
+        <Changes subject={ticketSubject(11)} />
+      </>,
+    )
+    // The screen is read-only once Ship ticket says so; Changes stays active then.
+    const ship = await screen.findByRole('button', { name: 'Ship ticket' })
+    await vi.waitFor(() => expect(ship.getAttribute('title')).toBe(HINT))
+    const button = screen.getByRole('button', { name: 'Changes' })
+    expect(button.getAttribute('aria-disabled')).toBe('false')
+    expect(button.getAttribute('title')).toBe('Open the changes of demo/11: its diff against the base')
+    fireEvent.click(button)
+    await vi.waitFor(() => expect(useNavigation.getState().view).toBe('changes'))
   })
 
   it('with Full access the same buttons are active and Ship ticket goes to the Machine', async () => {

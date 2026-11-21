@@ -90,7 +90,7 @@ export function LineCommentPopover({
     return false
   }
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    // The Node's own keys (j, k, n, p, c) are not for it while the popover is open.
+    // The view's own keys (j, k, n, p, c) are not for it while the popover is open.
     event.stopPropagation()
     // The kit closes its popup on an Esc pressed in it whatever the place says; an Esc marked handled here keeps it
     // (worfy-polish 136).

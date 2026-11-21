@@ -3,23 +3,23 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFil
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { expect, test, type Locator, type Page } from '@playwright/test'
-import { canvasReady, flowPositionsInOnePass, launchApp } from './helpers'
-import { WHOLLY_IN_VIEW } from './px'
+import { expect, test, type Page } from '@playwright/test'
+import { canvasReady, launchApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
 import { ms } from '../time-scale'
 
-// The Changes Node (worfy-changes-view ticket 03) in the built app, over a git repository the test builds in a
+// The Changes view (worfy-changes-view tickets 03 and 08) in the built app, over a git repository the test builds in a
 // temporary folder: Epic demo-cart with Ticket 04, whose branch changes, adds and deletes a few files, and Ticket 05,
 // whose branch adds 300 files in 30 folders and a file of 2 100 lines. Both branches are checked out nowhere, so
 // Changes reads each branch against its merge-base with the local main (the Project has no Profile). The workflow
 // comes from an `epic-status` script under the temporary Claude home that prints a fixed answer; the fake agent
 // (WORFY_AGENT=fake, as every e2e run) is never asked: the screen only reads git.
 //
-// The button Changes on the card of Ticket 04 puts the Node next to the card, and its files and lines are those of
-// `git diff <merge-base>`; a second click goes to the same Node. Open changes of the Command palette opens Ticket 05's
-// Node: its folders come folded, and the file of 2 100 lines comes folded as «Large diff».
+// The Layout saved by an older version holds a Changes Node: main drops it when it reads the Layout. The button Changes
+// on the card of Ticket 04 opens the Changes view over the whole main area, and its files and lines are those of
+// `git diff <merge-base>`; «← Canvas» goes back to the Canvas. Open changes of the Command palette opens Ticket 05's
+// view: its folders come folded, and the file of 2 100 lines comes folded as «Large diff».
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 const PROJECT = 'demo-cart-000003c0'
@@ -108,7 +108,9 @@ function prepare(): { env: Record<string, string>; repo: string } {
 
   mkdirSync(join(dataDir, PROJECT), { recursive: true })
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'demo-cart', path: repo }], activeId: PROJECT }))
-  writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes: [], viewport: { x: 20, y: 20, zoom: 0.7 } }))
+  // A Changes Node an older version saved (ticket 03): this one drops it on reading the Layout (ticket 08).
+  const oldNode = { id: `changes:${EPIC}/4`, kind: 'changes', x: 2000, y: 0, w: 960, h: 640, hidden: false, locked: false, pinned: false, tags: [], data: { ticket: { epic: EPIC, num: 4 } } }
+  writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes: [oldNode], viewport: { x: 20, y: 20, zoom: 0.7 } }))
   return { env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome }, repo }
 }
 
@@ -119,7 +121,7 @@ function gitLines(repo: string, mergeBase: string, branch: string, path: string)
     .filter((line) => /^[+-]/u.test(line) && !/^(\+\+\+|---) /u.test(line))
 }
 
-/** The added and deleted lines the Node shows for `path`, Inline, as `+text` and `-text`. */
+/** The added and deleted lines the view shows for `path`, Inline, as `+text` and `-text`. */
 async function shownLines(node: ReturnType<Page['locator']>, path: string): Promise<string[]> {
   return node.locator(`[data-testid="changes-hunk"][data-path="${path}"] [data-testid="changes-line"]`).evaluateAll((rows) =>
     rows.flatMap((row) => {
@@ -130,11 +132,8 @@ async function shownLines(node: ReturnType<Page['locator']>, path: string): Prom
   )
 }
 
-/**
- * The ids of the Changes Nodes in the Layout main saved, sorted: React Flow draws only the Nodes in sight, so the
- * screen alone cannot count them.
- */
-function savedChanges(env: Record<string, string>): string[] {
+/** The ids of the Changes Nodes in the Layout main saved, sorted; null while the file does not read whole. */
+function savedChanges(env: Record<string, string>): string[] | null {
   try {
     const layout = JSON.parse(readFileSync(join(env.WORFY_DATA_DIR!, PROJECT, 'layout.json'), 'utf8')) as { nodes: { id: string; kind: string }[] }
     return layout.nodes
@@ -143,23 +142,11 @@ function savedChanges(env: Record<string, string>): string[] {
       .sort()
   } catch {
     // Read while main writes it: the next poll reads it whole.
-    return []
+    return null
   }
 }
 
-/**
- * How far the element's middle is from the Canvas's middle, in screen pixels; infinitely far when React Flow does not
- * draw it (out of sight).
- */
-async function offCenter(window: Page, element: Locator): Promise<number> {
-  if ((await element.count()) === 0) return Number.POSITIVE_INFINITY
-  const canvas = await window.getByTestId('canvas').boundingBox()
-  const box = await element.boundingBox({ timeout: ms(5_000) })
-  if (!canvas || !box) return Number.POSITIVE_INFINITY
-  return Math.hypot(box.x + box.width / 2 - (canvas.x + canvas.width / 2), box.y + box.height / 2 - (canvas.y + canvas.height / 2))
-}
-
-test('Changes on the card puts the Node next to it with the files and lines of git diff <merge-base>; a second click goes to it; Open changes of the palette opens a Ticket of 300 files folded', async () => {
+test('Changes on the card opens the view over the window with the files and lines of git diff <merge-base>; «← Canvas» goes back; Open changes of the palette opens a Ticket of 300 files folded; the old Changes Node is gone from the Layout', async () => {
   test.setTimeout(ms(150_000))
   const { env, repo } = prepare()
   const launched = await launchApp({ env })
@@ -167,71 +154,61 @@ test('Changes on the card puts the Node next to it with the files and lines of g
     const { window } = launched
     const frame = window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
     await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: [frame] })
+    // main read the Layout an older version saved and dropped its Changes Node.
+    await expect.poll(() => savedChanges(env), { timeout: ms(15_000) }).toEqual([])
 
     // The card of Ticket 04 → Changes.
     const card = window.locator('[data-testid="ticket-node"][data-ticket="4"]')
     const button = card.getByTestId('action-changes')
     await expect(button).toHaveAttribute('aria-disabled', 'false', { timeout: ms(15_000) })
-    // The card's place and size on the Canvas, read while it is drawn: the Canvas then centers on the Node, and React
-    // Flow does not draw a card out of sight.
-    const cardId = `ticket:${EPIC}/4`
-    const cardPlace = (await flowPositionsInOnePass(window, [cardId]))[cardId]
-    const cardSize = await window.locator(`[data-testid="rf__node-${cardId}"]`).evaluate((element) => {
-      const { offsetWidth, offsetHeight } = element as unknown as { offsetWidth: number; offsetHeight: number }
-      return { width: offsetWidth, height: offsetHeight }
-    })
-    expect(cardSize.width).toBeGreaterThan(0)
     // The Ticket card with the Changes button, on the line of actions the layout gives it room for (ticket-card.ts).
-    await snapshotThemes(window, 'changes-node-card')
+    await snapshotThemes(window, 'changes-view-card')
     await button.click()
-    const node = window.locator(`[data-testid="changes-node"][data-ticket="${EPIC}/04"]`)
-    await expect(node).toBeVisible({ timeout: ms(15_000) })
-    // The Canvas went to the Node: all of it is in the window.
-    await expect(node).toBeInViewport({ ...WHOLLY_IN_VIEW, timeout: ms(15_000) })
-
-    // Next to the card on the Canvas: right of it, at its height (right of the strip of frames, sessionSpot).
-    const nodeId = `changes:${EPIC}/4`
-    const nodePlace = (await flowPositionsInOnePass(window, [nodeId]))[nodeId]
-    expect(nodePlace.x).toBeGreaterThan(cardPlace.x + cardSize.width)
-    expect(Math.abs(nodePlace.y - cardPlace.y)).toBeLessThan(8)
+    const view = window.locator(`[data-testid="changes-view"][data-ticket="${EPIC}/04"]`)
+    await expect(view).toBeVisible({ timeout: ms(15_000) })
+    // Over the whole main area: the Canvas is hidden, and the view fills the place of the views under the toolbar.
+    await expect(window.locator('.w-shell__view[data-view="canvas"]')).toBeHidden()
+    const area = await window.locator('.w-shell__content').boundingBox()
+    const box = await view.boundingBox()
+    expect(area).not.toBeNull()
+    expect(box).not.toBeNull()
+    expect(Math.abs(box!.width - area!.width)).toBeLessThan(2)
+    expect(Math.abs(box!.height - area!.height)).toBeLessThan(2)
 
     // The files and lines are those of git diff against the merge-base with main.
     const mergeBase = git(repo, 'merge-base', 'main', `${EPIC}/04`)
     const expected = git(repo, 'diff', '--name-only', mergeBase, `${EPIC}/04`).split('\n').sort()
-    const tree = node.getByTestId('changes-tree-file')
+    const tree = view.getByTestId('changes-tree-file')
     await expect(tree).toHaveCount(expected.length, { timeout: ms(15_000) })
     expect((await tree.evaluateAll((rows) => rows.map((row) => row.getAttribute('data-path') ?? ''))).sort()).toEqual(expected)
-    await expect(node.getByTestId('changes-meta')).toContainText(`main ← ${EPIC}/04 · base ${mergeBase.slice(0, 7)} · 3 files`)
+    await expect(view.getByTestId('changes-meta')).toContainText(`main ← ${EPIC}/04 · base ${mergeBase.slice(0, 7)} · 3 files`)
     for (const path of ['src/cart.ts', 'src/discount.ts', 'src/legacy-tax.ts']) {
-      await expect(node.locator(`[data-testid="changes-hunk"][data-path="${path}"]`).first()).toBeVisible({ timeout: ms(15_000) })
-      expect(await shownLines(node, path)).toEqual(gitLines(repo, mergeBase, `${EPIC}/04`, path))
+      await expect(view.locator(`[data-testid="changes-hunk"][data-path="${path}"]`).first()).toBeVisible({ timeout: ms(15_000) })
+      expect(await shownLines(view, path)).toEqual(gitLines(repo, mergeBase, `${EPIC}/04`, path))
     }
-    await snapshotThemes(window, 'changes-node-inline')
-    await node.getByTestId('changes-side-by-side').click()
-    await expect(node.getByTestId('changes-diff')).toHaveAttribute('data-layout', 'side-by-side')
-    await snapshotThemes(window, 'changes-node-side-by-side')
-    await node.getByTestId('changes-inline').click()
+    await snapshotThemes(window, 'changes-view-inline')
+    await view.getByTestId('changes-side-by-side').click()
+    await expect(view.getByTestId('changes-diff')).toHaveAttribute('data-layout', 'side-by-side')
+    await snapshotThemes(window, 'changes-view-side-by-side')
+    await view.getByTestId('changes-inline').click()
 
-    // A second click goes to the Node already there. "Go to" of the palette centers the card first, so the Canvas has
-    // to move for the Node to be in the middle again.
-    await window.keyboard.press('ControlOrMeta+k')
-    await window.getByTestId('palette-input').fill(`${EPIC}/04`)
-    await window.locator(`[data-testid="palette-option"][data-command="ticket:${EPIC}/04"]`).click()
-    await expect(button).toBeVisible({ timeout: ms(15_000) })
-    expect(await offCenter(window, node)).toBeGreaterThan(100)
-    await button.click()
-    await expect.poll(() => offCenter(window, node), { timeout: ms(15_000) }).toBeLessThan(8)
-    await expect(node).toBeInViewport(WHOLLY_IN_VIEW)
-    await expect.poll(() => savedChanges(env), { timeout: ms(15_000) }).toEqual([`changes:${EPIC}/4`])
+    // Opening it put nothing into the Layout.
+    expect(savedChanges(env)).toEqual([])
+
+    // «← Canvas» goes back to the Canvas, the card where it was.
+    await expect(view.getByTestId('changes-back')).toHaveText('← Canvas')
+    await view.getByTestId('changes-back').click()
+    await expect(window.locator('.w-shell__view[data-view="canvas"]')).toBeVisible()
+    await expect(view).toBeHidden()
+    await expect(button).toBeVisible()
 
     // Open changes of the Command palette, for Ticket 05.
     await window.keyboard.press('ControlOrMeta+k')
     await window.getByTestId('palette-input').fill(`open changes ${EPIC}/05`)
     await expect(window.locator(`[data-testid="palette-option"][data-command="changes:${EPIC}/05"]`)).toHaveAttribute('data-active', 'true')
     await window.keyboard.press('Enter')
-    const big = window.locator(`[data-testid="changes-node"][data-ticket="${EPIC}/05"]`)
+    const big = window.locator(`[data-testid="changes-view"][data-ticket="${EPIC}/05"]`)
     await expect(big).toBeVisible({ timeout: ms(20_000) })
-    await expect.poll(() => savedChanges(env), { timeout: ms(15_000) }).toEqual([`changes:${EPIC}/4`, `changes:${EPIC}/5`])
 
     // 301 files: the folders come folded; the diff draws only a window of the files.
     await expect(big.getByTestId('changes-file-count')).toHaveText('301', { timeout: ms(20_000) })
@@ -246,7 +223,16 @@ test('Changes on the card puts the Node next to it with the files and lines of g
     await expect(big.getByTestId('changes-filter-count')).toHaveText('1 of 301 files')
     await expect(big.getByTestId('changes-tree-file')).toHaveCount(1)
     await expect(big.locator('[data-testid="changes-note"][data-path="data/catalog.json"]')).toContainText('Large diff · 2100 lines · Show')
-    await snapshotThemes(window, 'changes-node-large')
+    await snapshotThemes(window, 'changes-view-large')
+
+    // Esc in the filter is the field's; on the view it goes back to the Canvas.
+    await big.getByTestId('changes-filter').press('Escape')
+    await expect(big).toBeVisible()
+    // A click on the title takes the focus out of the field.
+    await big.locator('.w-changes__title').click()
+    await window.keyboard.press('Escape')
+    await expect(window.locator('.w-shell__view[data-view="canvas"]')).toBeVisible()
+    expect(savedChanges(env)).toEqual([])
   } finally {
     await launched.close()
   }

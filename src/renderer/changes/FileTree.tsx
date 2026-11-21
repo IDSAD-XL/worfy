@@ -3,7 +3,7 @@
 // the top level. The files of the workflow (under the Tickets root, `.scratch/`) stand last, as the group Workflow
 // files, folded until it is opened. Over MANY_FILES files the folders come folded. The filter narrows the tree to the
 // files whose path holds its text, opens every folder that keeps one, and says how many of how many are left; the diff
-// beside it shows the same files (ChangesNode.tsx). The diff of a pull request read from GitHub may name fewer files
+// beside it shows the same files (DiffScreen.tsx). The diff of a pull request read from GitHub may name fewer files
 // than it has (worfy-pr-review ticket 06): `truncatedAt` puts «GitHub lists the first 3,000 files» over the tree.
 import type { ReactNode } from 'react'
 import type { ChangedFile } from '../../shared/changes/types'

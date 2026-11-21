@@ -1,7 +1,8 @@
 /*
- * The Changes screen (worfy-changes-view ticket 03): the Node canvas/nodes/ChangesNode.tsx and its parts in this
- * folder, built after the prototype Card of ticket 01. Only roles of tokens.css: added lines take ready, deleted lines
- * blocked (as harness/MigrationForm.tsx), no syntax colours. The Node's kind has no colour of its own (ADR-0077).
+ * The Changes screen (worfy-changes-view tickets 03 and 08): the view ChangesView.tsx over the whole main area and its
+ * parts in this folder, built after the prototype Card of ticket 01; Review mode of a PR (pr-review/ReviewMode.tsx)
+ * draws the same tree and diff (DiffScreen.tsx). Only roles of tokens.css: added lines take ready, deleted lines
+ * blocked (as harness/MigrationForm.tsx), no syntax colours.
  * A line of code is LINE_HEIGHT (diff-window.ts) tall without Wrap: the window of the diff counts on it.
  */
 .w-changes {
@@ -25,7 +26,6 @@
   padding: 0 var(--space-3);
   border-bottom: 1px solid var(--border);
   background: var(--toolbar);
-  cursor: grab;
 }
 .w-changes__title {
   font-size: var(--text-13);
@@ -38,6 +38,11 @@
   font-weight: 500;
 }
 
+/* The view of the shell (ticket 08): over the whole main area, as the Story view. */
+.w-changes-holder {
+  position: absolute;
+  inset: 0;
+}
 .w-changes__body {
   flex: 1;
   min-height: 0;
@@ -166,6 +171,14 @@
   flex: 1;
   min-height: 0;
   display: flex;
+}
+/* The column of the diff (DiffScreen.tsx): what stands above the diff, then the diff. */
+.w-changes__column {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .w-changes__tree {
   flex: none;

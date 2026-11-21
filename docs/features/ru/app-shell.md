@@ -161,8 +161,8 @@ Command palette. Settings, открытые поверх неё по ⌘,, ле�
   ждущих PR и возраст самого старого.
 - Run wave и Ship ticket: только там, где у Epic frame или Ticket-а есть эта кнопка.
 - Open changes `<epic>/<NN>`: для Ticket-а с веткой worktree, строкой `Branch:` или в работе, с Ticket-ом в подробностях.
-  Строка открывает [Changes Node](changes.md#the-changes-node) Ticket-а рядом с его карточкой или переходит к тому, что уже
-  там. На экране только для чтения она неактивна, пока этого Node-а нет.
+  Строка открывает [вид Changes](changes.md#the-changes-view) Ticket-а во всё окно, как кнопка Changes карточки;
+  **← Canvas** и Esc возвращают назад. Она только читает git, поэтому на экране только для чтения активна.
 - Resolve conflicts, Fix checks и Address comments `<owner>/<repo>#<N>`: по строке на каждое действие, которое предлагают
   кнопка Ticket-а и её «▾», с Ticket-ом в подробностях. Неактивная строка называет ту же причину, что и кнопка. Если действие
   выбрано из Command palette, новый Session Node встаёт туда, куда встаёт любой новый Node.
