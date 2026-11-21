@@ -202,3 +202,22 @@ Code: `src/renderer/changes/line-comments.tsx:538-540` · key lines: 538, 539, 5
    - Ответ: на новой стороне All changes комментарий с `null` или с прочитанным head-ом ищется заново и получает commit
      нового чтения.
    - Строки: `src/renderer/changes/line-comments.tsx:539-540`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED — worfy-changes-view 09 (rework of 07 item 3: picking a range of diff lines by dragging «+», and the commit a line comment names), head 57663a9e5528d927d842c5106da63bc7df6aa5e6
+>
+> Gate (depth medium, four rounds — the fourth approved by the owner on 2026-11-21 for one case): verifier (lens: implementer's claims, sonnet) — MERGE on round 1, all seven claims CONFIRMED, eight own mutants caught; reviewer (correctness) — round 1 FIX (one med, three lows), round 2 FIX (the one-hunk rule only half applied), round 3 FIX (one med: a pick survived a re-read of the diff), round 4 MERGE.
+>
+> - What the user sees: dragging «+» over lines picks a range and letting go opens the comment; Shift with «+» or a Shift-click stretches the pick; a hint «Comment on lines N–M (c)» stands under the pick; every way of picking stays within one hunk (a line of another hunk becomes the pick alone); a new read of the diff (Refresh, Hide whitespace, another scope, a new PR head) clears the pick; the first Esc clears the pick, the next leaves the screen; the same in PR Review mode. A comment on a committed file names its commit, «uncommitted» only for a file with changes not committed; an unsent comment follows the agent's new commit after Refresh, also after reopening the view or restarting worfy (the heads read are kept per Ticket in the window's storage).
+> - Evidence: changes-line-pick, changes-tray, review-comments, changes-view, contract changes-read red-before/green-after; 22 changes/pr-review/quote unit+contract files 569 tests EXIT=0; e2e changes.spec.ts, changes-comments.spec.ts, pr-review.spec.ts whole 10 passed (round 3); mutants: 22 + 6 + 6 + 3 over the rounds, each red on its own test; pnpm lint, typecheck EXIT=0; gate fast green EXIT=0 (second run; the first was red on continuity.test.ts and project-pulse.test.ts under load, untouched by this PR, sent to a separate fix).
+> - Debt (low): the Changes view's re-read key uses the subject {epic, num}, while the diff is read by the ticket reference with branch and repos — a Branch:/Repo: line edited while Changes is open re-reads the diff without clearing the pick (src/renderer/changes/line-comments.tsx:301); a comment on a head this view never read (made before this PR) does not follow the agent's commit; ACROSS_HUNKS stays in review-comments.tsx:242 for Move to line.
+> - Not verified: real mouseup outside the window / Cmd-Tab mid-drag on macOS. Item 9 (owner on Mac Stable) waits for the owner.
+>
+> Decided without the owner (to confirm): the hook lives in line-pick.tsx; the first Esc clears the pick; no hint while a popover is open or «+» is dragged; a click outside the pick picks that line; `uncommitted` optional in the channel schema (an older Linked machine build reads as before); `--no-renames` in git diff --name-only; the read heads kept per Ticket in localStorage (100 newest) instead of deciding from the comment, because a comment does not record its scope; a text selection over several hunks picks the line it ended on; in Changes a line can be picked by click without a Session (as on main), «+», the hint and `c` need one; the Review mode re-read key is its listFor.
+
+Code: `src/renderer/changes/line-comments.tsx:301-301` · key lines: 301
+
+```tsx
+    view: JSON.stringify([subject, viewOf(scope, hideWhitespace), generation]),
+```

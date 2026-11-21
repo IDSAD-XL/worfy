@@ -1,7 +1,8 @@
 # 09: Rework of worfy-changes-view 07, item 3
 
 Type: task
-Status: claimed 2026-11-21T02:06Z
+Status: done 2026-11-21T17:19Z
+PR: #2130
 Blocked by: 08
 Source: owner-check fail 2026-11-21 of worfy-changes-view 07, item 3 — 07-приёмка-владельцем.md
 
@@ -96,6 +97,7 @@ Blocked by 08: те же файлы — лоток и клавиши, котор
       `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 (in `pnpm lint`) · mac - · 159692900
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44923290094/job/136921795205 · ci - · 57663a9e5528d927d842c5106da63bc7df6aa5e6
 - [ ] (manual) Mac Stable: комментарии к строке и диапазону уходят агенту одним сообщением с путями, строками и кодом.
   - needs: mac stable
 
