@@ -83,7 +83,7 @@ export function joinedIntegrationRows(facts: IntegrationRowFacts, have: { names:
 
 ## 5. Codex: заменённый сервер config.toml и Restart
 
-Code: `src/main/vendors/codex/mcp.ts:470-480` · key lines: 476, 477, 479
+Code: `src/main/vendors/codex/mcp.ts:484-494` · key lines: 490, 491, 493
 
 ```ts
     const replaced = new Set(userServers)

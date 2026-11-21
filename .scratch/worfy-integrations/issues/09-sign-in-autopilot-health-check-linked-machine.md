@@ -68,10 +68,14 @@ Source: [spec.md](../spec.md), «Ticket-ы», 9; «Волны», Wave 5; «Ре�
       Restart у Integration, включённой на ходу.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/mcp-chip.test.tsx` exit 0 · mac - · e15625d08956845ce54c49f5195e0f12890fad7d
 - [ ] e2e `test/e2e/integrations.spec.ts`: Sign in в окне worfy на OAuth-stub-е `test/fixtures/integrations/` → строка
-      `signed-in` с аккаунтом; после неудачного refresh — «Sign-in needed» в строке, в chip-е и в Settings → Health.
+      `signed-in` ~~с аккаунтом~~ с аккаунтом или адресом сервиса, когда аккаунт неизвестен (account is not in the
+      OAuth token answer — Orchestrator 2026-11-22); после неудачного refresh — «Sign-in needed» в строке, в chip-е и в
+      Settings → Health.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/integrations.spec.ts` exit 0 · mac - · 0e9a36ee7cab4690e0d487d3cb36f90046eb7aa3
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:e2e test/e2e/integrations.spec.ts` — exit 0; `ci-ok`
       зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · e15625d08956845ce54c49f5195e0f12890fad7d
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 0e9a36ee7cab4690e0d487d3cb36f90046eb7aa3
 
 ## Где в коде
 
@@ -107,8 +111,10 @@ Source: [spec.md](../spec.md), «Ticket-ы», 9; «Волны», Wave 5; «Ре�
 - Autopilot: набор читается на старте и в Wave не меняется (нет строки «not started», Restart отказан); отказ входа —
   ответ tool-а «Sign-in needed», строка Health check, окна нет.
 - Health check: строка `integration` (non-critical) на пару Project + Integration в `needs-sign-in` или `error`,
-  заголовок «Integration: <метка>», причина «<метка>: sign-in needed», у OAuth — Sign in; после входа строка
-  уходит в OK (proxy сообщает каждую смену статуса, `clearStatus` после нового входа).
+  заголовок — причина «<метка>: sign-in needed», у OAuth — Sign in; после входа строка уходит в OK (proxy сообщает
+  каждую смену статуса, `clearStatus` после нового входа). Включение и выключение в Project-е заново сообщает
+  последний статус (`retell`): строка появляется и уходит вместе с ним; Remove убирает строку, даже когда Sign out
+  упал.
 - Долги ревью 05/07/08: окно входа выпало из всех списков окон приложения (`dialogOwner`, меню, broadcast, link,
   linked) — structural test в `test/unit/sign-in-windows.test.ts`; Sign out и Remove OAuth Integration — revocation,
   `<id>:*`, partition; строка Codex отмечает заменённый сервер `config.toml`; строка Claude показывает
@@ -119,12 +125,14 @@ Source: [spec.md](../spec.md), «Ticket-ы», 9; «Волны», Wave 5; «Ре�
 входа: «expected 'sign-in' to be 'app'»). `integrations-linked-machine.test.ts` был зелёным сразу: уровни доступа
 каналов есть с Ticket-а 03, test их закрепляет.
 
-Mutation testing: 22 мутанта, по одному на поведение, в копии под `mktemp -d` — все убиты. Привязка
+Mutation testing: 22 мутанта, по одному на поведение, в копии под `mktemp -d` — все убиты. Раунд ревью 2:
+7 мутантов (retell в setEnabled, clearStatus в Remove, три формы `config.toml`, заголовок строки Health, окно входа
+в фокусе) — все убиты; каждый новый test был красным до правки. Привязка
 `onStatus: integrationHealth(...)` в `integrationProxy()` приложения покрыта только e2e.
 
 Решено без владельца — в отчёте PR и ниже:
 - Аккаунта в строке нет: вход OAuth (`oauth.ts`, только чтение) пишет `account: null`, `site: null`; строка
-  показывает адрес сервера. «С аккаунтом» из пункта e2e не выполнено.
+  показывает адрес сервера. Пункт e2e переписан Orchestrator-ом 2026-11-22: «с аккаунтом или адресом сервиса».
 - По умолчанию в Add integration выбран token, OAuth — второй вариант (Q10: token первым).
 - Предупреждение о сервере `config.toml` — строка под строкой chip-а (`note`), не notice.
 - Restart Integration, включённой на ходу, — только для Session с человеком.
