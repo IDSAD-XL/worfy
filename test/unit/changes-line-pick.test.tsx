@@ -40,13 +40,13 @@ const expose = (now: LinePick): void => {
   pick = now
 }
 
-function Harness({ open }: { open: (key: string, side: string, from: number, to: number) => void }) {
-  const own = useLinePick({ enabled: true, commenting, open, held: () => held, ownControls: 'button', toastKey: 'test-pick', plusLabel: (line, path) => `Comment on line ${line} of ${path}` })
+function Harness({ open, blocks = BLOCKS, view = 'read 1' }: { open: (key: string, side: string, from: number, to: number) => void; blocks?: typeof BLOCKS; view?: string }) {
+  const own = useLinePick({ enabled: true, view, commenting, open, held: () => held, ownControls: 'button', toastKey: 'test-pick', plusLabel: (line, path) => `Comment on line ${line} of ${path}` })
   useEffect(() => expose(own))
   const pick = own
   return (
     <div {...pick.lineEvents}>
-      {BLOCKS.map(({ file, lines }, index) => (
+      {blocks.map(({ file, lines }, index) => (
         <div key={index} data-block={`${file.key}\u0000hunk${index}`} data-testid="changes-hunk" data-key={file.key} data-path={file.file.path}>
           {lines.map(({ line, side }) => {
             const at = side === 'old' ? line.oldLine : line.newLine
@@ -271,6 +271,25 @@ describe('a pick stays in the hunk it began in', () => {
     select(codeOf(C, 3), codeOf(C, 10))
     expect(pickedLines(C)).toEqual(['new10'])
     expect(hints().map((each) => each.textContent)).toEqual(['Comment on line 10 (c)'])
+  })
+})
+
+// Review round 4: a hunk is known by its place among the file's hunks, and a pick outlived a read that changed them.
+describe('a new read of the diff', () => {
+  it('takes the pick away: a hunk known by its place is another hunk after Hide whitespace or Refresh', () => {
+    const D = entry('src/d.ts')
+    const three = [{ file: D, lines: added([1, 2]) }, { file: D, lines: added([10, 11]) }, { file: D, lines: added([20, 21]) }]
+    const two = three.slice(1)
+    const { view, open } = mount()
+    view.rerender(<Harness open={open} blocks={three} />)
+    fireEvent.click(codeOf(D, 10))
+    expect(pickedLines(D)).toEqual(['new10'])
+    // The first hunk is gone from the new read: 10–11 is now the first hunk and 20–21 the second.
+    view.rerender(<Harness open={open} blocks={two} view="read 2" />)
+    expect(pickedLines(D)).toEqual([])
+    expect(hints()).toEqual([])
+    fireEvent.click(codeOf(D, 21), { shiftKey: true })
+    expect(hints().map((each) => each.textContent)).toEqual(['Comment on line 21 (c)'])
   })
 })
 

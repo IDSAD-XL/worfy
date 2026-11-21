@@ -302,7 +302,7 @@ lines the comment would not get.
 
 While lines are picked and no popover is open, a hint stands under the last of them: «Comment on lines 95–102 (c)», or
 «Comment on line 95 (c)» for one line. A click on it opens the popover, as `c` does. A click on a line outside the range
-picks that line instead; Esc takes the pick and the hint away. Without a line picked, `c` says «Click a line first, then
+picks that line instead; Esc takes the pick and the hint away, and so does a new read of the diff (Refresh, Hide whitespace, another scope). Without a line picked, `c` says «Click a line first, then
 press c». The same picking, hint included, is in Review mode of a pull request ([Pull requests](pr-inbox.md)).
 
 #### The tray and «To»

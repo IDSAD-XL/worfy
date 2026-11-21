@@ -15,7 +15,8 @@
 // - Every way of stretching keeps a pick in the hunk it began in (`Picked.block`), as a comment covers lines of one hunk
 //   (GitHub refuses a range across hunks): a line of another hunk is picked alone (a selection: the line it ended on).
 // - While lines are picked, no comment is open and no drag is on, «Comment on lines 95–102 (c)» stands under the last
-//   of them (one line: «Comment on line 95 (c)»); a click on it opens the comment, as `c` does. Escape takes the pick away.
+//   of them (one line: «Comment on line 95 (c)»); a click on it opens the comment, as `c` does. Escape takes the pick away,
+//   and so does a new read of the diff (`view`).
 // - A keyboard press of a focused «+» (Enter, Space: a click with no pointer) opens the comment as before.
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import type { DiffLine } from '../../shared/changes/types'
@@ -76,6 +77,9 @@ export interface LinePickOptions {
   enabled: boolean
   /** Lines may be picked by a click or a selection of text, even with nowhere to send a comment yet; `enabled` when absent. */
   pickable?: boolean
+  /** The read of the diff the lines are of (subject, scope, Hide whitespace, Refresh): a new one takes the pick away, as
+   *  a hunk is known by its place among the file's hunks (DiffPane's `data-block`) and the new read may have others. */
+  view: string
   /** A comment is open: the hint stands aside. */
   commenting: boolean
   /** The comment of lines `from`…`to` of a side of a file. */
@@ -122,6 +126,11 @@ export function useLinePick(options: LinePickOptions): LinePick {
   const { enabled, commenting, toastKey } = options
   const pickable = options.pickable ?? enabled
   const [picked, setPicked] = useState<Picked | null>(null)
+  const [pickedIn, setPickedIn] = useState(options.view)
+  if (pickedIn !== options.view) {
+    setPickedIn(options.view)
+    setPicked(null)
+  }
   // A drag of «+» is on: the hint waits for it to end, or it would push the lines under the pointer down.
   const [dragging, setDragging] = useState(false)
   const latest = useRef({ options, picked })

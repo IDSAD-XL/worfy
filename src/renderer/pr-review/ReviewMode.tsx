@@ -214,6 +214,7 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh, viewer = null 
     entries: allEntries,
     filesRead,
     generation,
+    diffView: listFor,
     body: root,
     onAnswer: takeAnswer,
     onNotice: setNotice,

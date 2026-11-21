@@ -12,7 +12,7 @@ Kind: pr · Epic: worfy-changes-view · Ticket: 09 · PR: - · Language: ru
 
 ## 2. Перетаскивание «+» — один hook на два экрана
 
-Code: `src/renderer/changes/line-pick.tsx:152-192` · key lines: 158, 164, 170, 172, 177, 180, 181
+Code: `src/renderer/changes/line-pick.tsx:161-201` · key lines: 167, 173, 179, 181, 186, 189, 190
 
 ```tsx
   const press = (start: LineAt) => {
@@ -73,7 +73,7 @@ Code: `src/renderer/changes/line-pick.tsx:152-192` · key lines: 158, 164, 170, 
 
 ## 3. Любой способ растянуть выбор держит его в одном hunk-е
 
-Code: `src/renderer/changes/line-pick.tsx:46-48` · key lines: 47, 48
+Code: `src/renderer/changes/line-pick.tsx:47-49` · key lines: 48, 49
 
 ```tsx
 /** The pick stretched to a line: from the same start when the line is of its file, side and hunk, else the line alone. */
@@ -92,11 +92,13 @@ const stretched = (pick: Picked | null, at: LineAt): Picked =>
 - Без него: подсказка называла строки, которых комментарий не получал.
 - Требование: [Что делаем, пункты 3 и 5](../issues/09-rework-07-item-3.md#что-делаем)
 - Риски и пробелы test-ов: hunk узнаётся по `data-block` блока `changes-hunk`; без атрибута у обеих строк (`null`)
-  они считаются одним hunk-ом. DiffPane ставит его у каждого блока (`DiffPane.tsx:730`).
+  они считаются одним hunk-ом. DiffPane ставит его у каждого блока. `data-block` — место hunk-а среди hunk-ов файла, а
+  новое чтение diff-а (Refresh, Hide whitespace, другой scope, новый head PR) может дать другие hunk-и на тех же местах:
+  поэтому новое чтение снимает выбор (опция `view` hook-а; ревью, раунд 4).
 
 ## 4. Подсказка под последней выбранной строкой
 
-Code: `src/renderer/changes/line-pick.tsx:230-239` · key lines: 232, 235, 236
+Code: `src/renderer/changes/line-pick.tsx:239-248` · key lines: 241, 244, 245
 
 ```tsx
   const hint = (line: DiffLine, side: LineSide, entry: FileEntry): ReactNode => {
@@ -147,7 +149,7 @@ async function uncommittedPaths(context: ChangesContext): Promise<Set<string>> {
 
 ## 6. Commit комментария — по файлу; после Refresh комментарий идёт за файлом
 
-Code: `src/renderer/changes/line-comments.tsx:537-539` · key lines: 537, 538, 539
+Code: `src/renderer/changes/line-comments.tsx:538-540` · key lines: 538, 539, 540
 
 ```tsx
       const now = commitOf(readOf.scope, comment.side, entry.file, scopesOf, listOf)
@@ -183,17 +185,20 @@ Code: `src/renderer/changes/line-comments.tsx:537-539` · key lines: 537, 538, 5
 - После слияния с Ticket-ом 10 (подсветка синтаксиса) его test «щелчок по цветному слову выбирает строку» показал, что
   hook требовал Session и для выбора строки щелчком; на main выбор щелчком нужен только вне read only. Опция `pickable`
   вернула это: «+», подсказка и `c` по-прежнему ждут Session.
+- Раунд 4: новое чтение diff-а снимает выбор — test-ы в `changes-line-pick` (hunk-и 1–2, 10–11, 20–21, затем 10–11 и
+  20–21, Shift-щелчок по 21), `changes-view` и `review-comments` (Hide whitespace); 3 мутанта (hook, проводка Changes,
+  проводка Review mode) — каждый даёт exit 1 своего test-а.
 
 ## Проверить себя
 
 1. Почему во время перетаскивания подсказки нет?
    - Ответ: она встаёт под последней выбранной строкой и сдвигает строки ниже, так что указатель попадал бы не на ту
      строку.
-   - Строки: `src/renderer/changes/line-pick.tsx:232`
+   - Строки: `src/renderer/changes/line-pick.tsx:241`
 2. Что вернёт «+», если отпустить его на той же строке внутри выбранного диапазона?
    - Ответ: popover на весь диапазон: без движения `onUp` идёт в `openOn`, который берёт диапазон, если строка в нём.
-   - Строки: `src/renderer/changes/line-pick.tsx:172-174`
+   - Строки: `src/renderer/changes/line-pick.tsx:181-183`
 3. Почему комментарий не теряет строки, когда агент закоммитил файл после него?
    - Ответ: на новой стороне All changes комментарий с `null` или с прочитанным head-ом ищется заново и получает commit
      нового чтения.
-   - Строки: `src/renderer/changes/line-comments.tsx:538-539`
+   - Строки: `src/renderer/changes/line-comments.tsx:539-540`

@@ -298,6 +298,7 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
     enabled: canComment,
     // A click picks a line on any view that is not read only, as before the hook; «+», the hint and `c` need a Session.
     pickable: readOnly === null,
+    view: JSON.stringify([subject, viewOf(scope, hideWhitespace), generation]),
     commenting: popover !== null,
     open: openNew,
     held: keepsOpen,

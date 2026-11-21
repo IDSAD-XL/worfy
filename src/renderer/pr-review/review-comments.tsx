@@ -98,6 +98,8 @@ export interface ReviewCommentsOptions {
   /** The files were read without an error: a comment on a file not among them is not on a changed line. */
   filesRead: boolean
   generation: number
+  /** The read of the diff shown (head, scope, Hide whitespace, Refresh): a new one takes the lines picked away. */
+  diffView: string
   /** Where the rows of the diff and the comments are looked for. */
   body: RefObject<HTMLElement | null>
   /** The draft main answered with after a change. */
@@ -311,6 +313,7 @@ export function useReviewComments(options: ReviewCommentsOptions): ReviewComment
 
   const pick = useLinePick({
     enabled: canAdd,
+    view: options.diffView,
     commenting: popover !== null,
     open: (key, side, from, to) => void openNew(key, side, from, to),
     held: () => false,

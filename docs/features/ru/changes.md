@@ -299,7 +299,7 @@ popover и оставляет изменённый. Изменённый popover
 
 Пока строки выбраны и popover не открыт, под последней из них стоит подсказка «Comment on lines 95–102 (c)», для одной
 строки — «Comment on line 95 (c)». Щелчок по ней открывает popover, как `c`. Щелчок по строке вне диапазона выбирает эту
-строку; Esc убирает выбор и подсказку. Без выбранной строки `c` говорит «Click a line first, then press c». Тот же выбор,
+строку; Esc убирает выбор и подсказку, как и новое чтение diff-а (Refresh, Hide whitespace, другой scope). Без выбранной строки `c` говорит «Click a line first, then press c». Тот же выбор,
 вместе с подсказкой, — в Review mode pull request-а ([Pull requests](pr-inbox.md)).
 
 #### The tray and «To»

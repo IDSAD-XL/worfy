@@ -594,6 +594,19 @@ describe('the lines a comment stands on', () => {
     expect(await toastTexts()).not.toContain('A comment covers lines of one hunk: GitHub refuses a range across hunks. Pick lines of one hunk.')
     expect(writes()).toEqual([])
   })
+
+  // Review round 4: a hunk is known by its place among the file's hunks; a pick that outlived Hide whitespace could
+  // stretch into another hunk that now had its old place.
+  it('Hide whitespace reads the diff again and takes the pick away', async () => {
+    preload({ answers: { 'changes.file': (input) => ({ ok: true, value: { file: input.path === RETRY ? twoHunks(RETRY) : hunks(input.path as string) } }) } })
+    await mountReview()
+    fireEvent.click(line(20).querySelector('.w-changes__code')!)
+    expect(screen.getByTestId('changes-pick-hint').textContent).toBe('Comment on line 20 (c)')
+    fireEvent.click(screen.getByLabelText('Hide whitespace'))
+    await waitFor(() => expect(line(20)).toBeTruthy())
+    await settle()
+    expect(screen.queryByTestId('changes-pick-hint')).toBeNull()
+  })
 })
 
 describe('the bar Your review', () => {
