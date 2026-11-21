@@ -14,6 +14,10 @@ import { fileKey, sideBySideRows, windowOf } from '../../src/renderer/changes/di
 import type { ChangedFile, ChangesScope, DiffLine, FileDiff } from '../../src/shared/changes/types'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
+import { ms } from '../time-scale'
+
+/** The first hunk of a language waits for Shiki and its grammar to load (ticket 10). */
+const GRAMMAR_WAIT = ms(5_000)
 
 // The tokens of a hunk come from highlight.ts as they would; while `held.on`, a request waits until `held.release()`
 // (ticket 10: the line is plain text until its tokens are there).
@@ -830,7 +834,7 @@ describe('the syntax colours (ticket 10)', () => {
   it('the code of a .ts file is coloured, Inline and Side by side; the text of every line stays its own text', async () => {
     files = [changed('src/orders/cart.ts')]
     await open()
-    await vi.waitFor(() => expect(lit()).toHaveLength(5), { timeout: 5_000 })
+    await vi.waitFor(() => expect(lit()).toHaveLength(5), { timeout: GRAMMAR_WAIT })
     expect(codes().map((code) => code.textContent)).toEqual(texts)
     // The keyword of the first line: the keyword red of github.com, light and dark.
     const keyword = Array.from(codes()[0]!.querySelectorAll<HTMLElement>('.w-hl')).find((token) => token.textContent === 'import')!
@@ -842,7 +846,7 @@ describe('the syntax colours (ticket 10)', () => {
 
     fireEvent.click(screen.getByTestId('changes-side-by-side'))
     // Side by side: the context lines on both sides, the deleted one on the old, the added ones on the new.
-    await vi.waitFor(() => expect(lit()).toHaveLength(7), { timeout: 5_000 })
+    await vi.waitFor(() => expect(lit()).toHaveLength(7), { timeout: GRAMMAR_WAIT })
     const rows = within(diff()).getAllByTestId('changes-row').slice(0, 4)
     expect(rows[1]!.textContent).toBe('2−  taxRate: number2+  discount?: Discount')
   })
@@ -850,7 +854,7 @@ describe('the syntax colours (ticket 10)', () => {
   it('a click on a coloured word picks its line, as a click on the plain line did', async () => {
     files = [changed('src/orders/cart.ts')]
     await open()
-    await vi.waitFor(() => expect(lit()).toHaveLength(5), { timeout: 5_000 })
+    await vi.waitFor(() => expect(lit()).toHaveLength(5), { timeout: GRAMMAR_WAIT })
     const row = within(diff()).getAllByTestId('changes-line')[3]!
     fireEvent.click(row.querySelector('.w-hl')!)
     expect(row.classList.contains('is-picked')).toBe(true)
@@ -869,14 +873,14 @@ describe('the syntax colours (ticket 10)', () => {
       [null, '}', null],
     ])
     held.release()
-    await vi.waitFor(() => expect(code().every((each) => each.dataset.highlighted === 'true')).toBe(true), { timeout: 5_000 })
+    await vi.waitFor(() => expect(code().every((each) => each.dataset.highlighted === 'true')).toBe(true), { timeout: GRAMMAR_WAIT })
     expect(code().map((each) => each.textContent)).toEqual(['export function held() {', '  return 1', '}'])
   })
 
   it('a file of a language it does not know stays plain text', async () => {
     files = [changed('src/orders/cart.xyz'), changed('src/orders/cart.ts')]
     await open()
-    await vi.waitFor(() => expect(lit()).toHaveLength(5), { timeout: 5_000 })
+    await vi.waitFor(() => expect(lit()).toHaveLength(5), { timeout: GRAMMAR_WAIT })
     const other = Array.from(diff().querySelectorAll<HTMLElement>('[data-path="src/orders/cart.xyz"] .w-changes__code'))
     expect(other.map((each) => each.textContent)).toEqual(texts)
     expect(other.some((each) => each.dataset.highlighted !== undefined || each.querySelector('.w-hl') !== null)).toBe(false)
