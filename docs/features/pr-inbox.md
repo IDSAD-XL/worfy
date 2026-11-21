@@ -195,7 +195,7 @@ and number, and **← Inbox** (or **← Results** for a search) on top gives the
 Review mode and selects that PR. The head of the screen: `owner/repo#N` and the title, `main ← branch`, the head commit,
 "N files · +a −d", the approvals chip, "Viewed N/M", **Refresh** and **Close**. Under it: **Inline** | **Side by side**,
 **Wrap**, **Hide whitespace**, then the tree and the diff of [Changes](changes.md) for the PR, with the review threads
-of GitHub on their lines. A file in the tree shows how many open threads and comments of the draft it has, and ✓ when
+of GitHub on their lines and the code in the syntax colours of GitHub ([Syntax colours](changes.md#syntax-colours)). A file in the tree shows how many open threads and comments of the draft it has, and ✓ when
 it is Viewed. **j** / **k** and **↓** / **↑** move along the files (not along the PRs), **n** / **p** along the hunks, **v**
 marks the file Viewed or takes the mark off, **c** comments on the lines picked. **Escape** closes an open menu or comment first; the next one closes Review mode. The
 draft stays. Another tab and back keeps the PR, its file and Show new commits. A PR that leaves the list (it left

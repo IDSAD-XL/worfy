@@ -158,8 +158,8 @@ The scope picked is kept for each Ticket while the window is open, and a restart
 Wrap, Hide whitespace and the filter belong to this screen only. Refresh reads the scopes, the files and the patches again: the screen does not refresh by
 itself.
 
-Counts are digits alone, without a separator of thousands (`+1243`). Added lines take the colours of ready, deleted
-lines those of blocked; there is no syntax highlighting.
+Counts are digits alone, without a separator of thousands (`+1243`). Added lines take the background of ready, deleted
+lines that of blocked; the code on them takes syntax colours ([Syntax colours](#syntax-colours)).
 
 #### The tree
 
@@ -182,6 +182,23 @@ Hide whitespace reads the files and the patches again without changes of spaces 
 A large file, a lock file and a generated file come folded: «Large diff · N lines · Show» (or «Lock file», «Generated
 file»), and Show reads the whole patch. A binary file shows the sizes of its two sides: «Binary file · 12 KB → 14 KB».
 A file whose text did not change shows its change of mode.
+
+#### Syntax colours
+
+The code of the diff is coloured as on GitHub: the colours of the GitHub themes `github-light-default` and
+`github-dark-default`, the one of the window's theme (it follows the system's). Added and deleted lines keep their
+background. The colours come a moment after a hunk is drawn; until then the hunk is plain text of the same width.
+
+- The language comes from the file's extension or its name (`Dockerfile`, `Makefile`, `.zshrc`): TypeScript and TSX,
+  JavaScript and JSX, JSON, Markdown, CSS, HTML, YAML, TOML, shell, Python, Go, Rust, Swift, Kotlin, Java, C, C++, C#,
+  Ruby, PHP, SQL, Vue, Svelte and a few more. A file of any other language stays plain text.
+- Each side of a hunk is coloured as one text: the old side (context and deleted lines) and the new side (context and
+  added lines). A comment or a string of several lines inside a hunk is coloured on each of its lines; a hunk that
+  starts inside such a comment is coloured as if it did not.
+- Plain text, too: a line longer than 400 characters, a side of a hunk of more than 100 000 characters and a hunk of
+  more than 2 000 lines. A folded file (large, lock, generated) is coloured only after Show, and a binary file never.
+- The colours change no text: selection, Copy line, a comment's lines and the message to the agent hold the text of
+  the line as `git diff` gives it. There is no switch to turn the colours off.
 
 #### Keys
 
@@ -216,6 +233,15 @@ the Project; the comments not sent yet are drafts of their Session and stay.
 The diff is drawn by windows, without a library: each block has the height its rows give until it is drawn, and its
 measured height after.
 
+The syntax colours are Shiki's (ADR-0113) with its JavaScript engine of regular expressions: no WebAssembly, so the
+renderer's Content-Security-Policy stays as it is. Shiki, both themes and each grammar are chunks of their own, loaded
+with `import()` on the first hunk that needs them: the window starts without them. A hunk is coloured only while it is
+drawn, one hunk at a time: each side is read in steps of about 2 000 characters, each step a task of the event loop of
+its own, the state of the grammar carried from step to step. A hunk scrolled out of the window stops at its next step.
+The tokens of a hunk are kept by language and text for the next time it is drawn, up to 1 000 000 characters of hunks,
+the oldest dropped first. Each token carries its colours of both
+themes as CSS variables, and `prefers-color-scheme` picks one.
+
 ### Implementation
 
 - `src/renderer/changes/ChangesView.tsx` — the view: the reads, the head with the button back, Esc, the focus.
@@ -223,6 +249,8 @@ measured height after.
   `src/renderer/changes/diff-keys.ts` — the keys of the view.
 - `src/renderer/changes/ScopeBar.tsx`, `src/renderer/changes/FileTree.tsx`, `src/renderer/changes/DiffPane.tsx` — the
   head, the tree and the diff; `src/renderer/changes/changes.css` — their look.
+- `src/renderer/changes/highlight.ts` — the syntax colours: the language of a file, the tokens of a hunk side by side,
+  the limits, the cache and the queue; `src/renderer/changes/highlight.css` — the colour of the window's theme.
 - `src/renderer/changes/diff-window.ts` — the window of the diff, the rows of Side by side, the order of the tree, the
   words of sizes and counts.
 - `src/renderer/changes/open.ts` — opening the view, the view to go back to, the scope of each Ticket.
@@ -233,9 +261,11 @@ Tests: `test/unit/changes-view.test.tsx` (the head and its scope menu from the a
 Hide whitespace, a folded large file and a binary file, Workflow files, the filter, the folders of 301 files, the keys,
 the window, ← Canvas and Esc, a menu's Esc, the scope of each Ticket), `test/unit/canvas-actions.test.tsx` (where the
 button is, the view it opens, the read-only screen), `test/unit/palette-commands.test.tsx` (Open changes and the
-read-only screen), `test/contract/layout-store.test.ts` (the old Nodes removed once), `test/e2e/changes.spec.ts` (the
-card, the view over the window, the files and lines against `git diff <merge-base>`, ← Canvas, the palette, 300 files
-and a file of 2 100 lines folded).
+read-only screen), `test/contract/layout-store.test.ts` (the old Nodes removed once),
+`test/unit/changes-highlight.test.ts` (the language of a file, the colours of both themes, each side on its own, a
+comment of several lines, the limits, the cache, a cancelled request), `test/e2e/changes.spec.ts` (the card, the view
+over the window, the files and lines against `git diff <merge-base>`, the colour of a keyword in both themes, ← Canvas,
+the palette, 300 files scrolled to the end and a file of 2 100 lines folded).
 
 ## Comments on lines
 
