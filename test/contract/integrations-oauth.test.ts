@@ -7,7 +7,7 @@
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, relative } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -433,13 +433,13 @@ describe('two Integrations on one address', () => {
   })
 })
 
-/** Every file under `dir` but the secrets file, with its text. */
+/** Every file under `dir` but the secrets file, with its text, keyed by its path with '/' on every platform. */
 function filesOf(dir: string): Record<string, string> {
   const out: Record<string, string> = {}
   for (const entry of readdirSync(dir, { recursive: true, withFileTypes: true })) {
     if (!entry.isFile() || entry.name === INTEGRATION_SECRETS_FILE) continue
     const path = join(entry.parentPath, entry.name)
-    out[relative(dir, path)] = readFileSync(path, 'utf8')
+    out[relative(dir, path).split(sep).join('/')] = readFileSync(path, 'utf8')
   }
   return out
 }
