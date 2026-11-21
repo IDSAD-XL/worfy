@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { QueryHandle } from '../../src/main/agent/session/types'
-import { claudeMcpStatus } from '../../src/main/vendors/claude/mcp'
+import { claudeMcpStatus, labelIntegrations } from '../../src/main/vendors/claude/mcp'
 import { isWorfyOwnServer, MCP_SERVER_SOURCES, mcpServerRowSchema, mcpShownName, mcpSourceOf, WORFY_SERVER_NAMES } from '../../src/shared/agent/mcp-status'
 import { initMcpServers, mcpServerRowsOf } from '../../src/shared/vendors/claude/events'
 
@@ -55,8 +55,8 @@ describe('the source of a server', () => {
     expect(mcpServerRowsOf([withSource(undefined)])).toEqual([expect.objectContaining({ source: 'user', sourceWord: null })])
   })
 
-  it('every source a row can have is one of the four', () => {
-    expect(MCP_SERVER_SOURCES).toEqual(['claudeai', 'user', 'project', 'worfy'])
+  it('every source a row can have is one of the five', () => {
+    expect(MCP_SERVER_SOURCES).toEqual(['claudeai', 'user', 'project', 'worfy', 'integration'])
   })
 })
 
@@ -178,5 +178,46 @@ describe('the name a row shows (mcpShownName)', () => {
     // A server of another source named so keeps its name: the source column would not say claude.ai.
     expect(mcpShownName({ name: 'claude.ai example-local', source: 'user' })).toBe('claude.ai example-local')
     expect(mcpShownName({ name: 'example-notes', source: 'user' })).toBe('example-notes')
+  })
+})
+
+// worfy-integrations ticket 06: an Integration is an SDK server of worfy's in the Session (source `sdk`), but its row has
+// the source `integration` and the Integration's label, which the popover shows as its name; it is not one of worfy's
+// own servers, so a connected one offers Turn off for this Session.
+describe('the row of an Integration', () => {
+  const answer = [
+    { name: 'worfy-canvas', status: 'connected', source: 'sdk', tools: [{ name: 'create_card' }] },
+    { name: 'jira-client-a', status: 'connected', source: 'sdk', tools: [{ name: 'whoami' }, { name: 'list_items' }] },
+    { name: 'linear', status: 'failed', source: 'sdk', error: 'gone' },
+  ]
+
+  it('has the source integration and the label; worfy-canvas stays worfy’s own', async () => {
+    const query = { mcpServerStatus: () => Promise.resolve(answer) } as unknown as QueryHandle
+    labelIntegrations(query, [
+      { name: 'jira-client-a', label: 'Jira — client A' },
+      { name: 'linear', label: 'Linear' },
+    ])
+    const rows = await claudeMcpStatus(query, null, 'test', { attended: true, pickUp: false })
+    expect(rows).toEqual([
+      { name: 'worfy-canvas', status: 'connected', tools: 1, error: null, source: 'worfy', sourceWord: null, actions: [] },
+      { name: 'jira-client-a', status: 'connected', tools: 2, error: null, source: 'integration', sourceWord: null, label: 'Jira — client A', actions: ['turn-off'] },
+      { name: 'linear', status: 'failed', tools: null, error: 'gone', source: 'integration', sourceWord: null, label: 'Linear', actions: ['reconnect'] },
+    ])
+    for (const row of rows ?? []) expect(mcpServerRowSchema.parse(row)).toEqual(row)
+    expect(mcpShownName({ name: 'jira-client-a', source: 'integration', label: 'Jira — client A' })).toBe('Jira — client A')
+  })
+
+  it('a server of another query keeps its source: the labels go with the query they were given for', async () => {
+    const query = { mcpServerStatus: () => Promise.resolve(answer) } as unknown as QueryHandle
+    const rows = await claudeMcpStatus(query, null, 'test', { attended: true, pickUp: false })
+    expect(rows?.find((row) => row.name === 'jira-client-a')).toMatchObject({ source: 'worfy', actions: ['turn-off'] })
+    expect(rows?.find((row) => row.name === 'jira-client-a')).not.toHaveProperty('label')
+  })
+
+  it('the rows of a system/init are labelled too', async () => {
+    const query = {} as unknown as QueryHandle
+    labelIntegrations(query, [{ name: 'jira-client-a', label: 'Jira — client A' }])
+    const init = [{ name: 'jira-client-a', status: 'connected' as const, tools: null, error: null, source: 'worfy' as const, sourceWord: null, actions: [] }]
+    expect(await claudeMcpStatus(query, init, 'test', { attended: false, pickUp: false })).toEqual([{ ...init[0], source: 'integration', label: 'Jira — client A' }])
   })
 })

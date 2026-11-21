@@ -7,7 +7,9 @@
 // to sign in needs is `needs-sign-in`; one that signs in with a token over http is `signed-in` only after the
 // service's `initialize` let that token in (ticket 04, src/main/integrations/auth/tokens.ts), and `error` with the
 // service's text when the last check said so; any other is `signed-in` with its secrets kept. `integrations.setSecret`
-// runs that check and answers the status, never the secret. The proxy (ticket 06) adds `checking`.
+// runs that check and answers the status, never the secret. The proxy (ticket 06) adds `checking`. Removing an
+// Integration closes the proxy's connection to its service, and the app's quit closes every one (ticket 06), so no
+// stdio server worfy started outlives them.
 import type { Integration, IntegrationSecretPart, IntegrationStatus, ProjectIntegration } from '../../shared/integrations/types'
 import { newProjectIntegration } from '../../shared/integrations/types'
 import {
@@ -21,7 +23,9 @@ import {
   integrationsSetTools,
   integrationsStatus,
 } from '../../shared/ipc/integrations'
+import { app } from 'electron'
 import { checkSignIn, checksToken, isCurrentToken, verifyTokenSignIn, type SignInCheck } from '../integrations/auth/tokens'
+import { closeIntegrationConnections } from '../integrations/proxy'
 import { integrationStore, type IntegrationStore } from '../integrations/store'
 import { readProjectIntegrations, writeProjectIntegrations } from '../projects/settings'
 import { projectStore } from '../projects/store'
@@ -40,6 +44,10 @@ export interface IntegrationsHandlersOptions {
   projects?: IntegrationProjects
   /** The check of a token with the service's `initialize`; checkSignIn when absent. */
   check?: SignInCheck
+  /** Closes the proxy's connection of an Integration, or every one with no id; closeIntegrationConnections when absent. */
+  closeConnections?: (id?: string) => Promise<void>
+  /** Where the handlers learn that the app quits; none when absent (the module's default export: will-quit). */
+  onQuit?: (listener: () => void) => void
 }
 
 /** The secrets an Integration needs before it can be used: its token, and every secret variable of a stdio server. */
@@ -65,6 +73,11 @@ export function integrationsHandlers(options: IntegrationsHandlersOptions = {}):
   // (no answer, 429, 5xx) or was refused shows needs-sign-in, one whose same token could not be re-checked shows
   // signed-in; keep the error in integrations.json if the proxy (ticket 06) needs it across restarts.
   const errors = new Map<string, string>()
+  const closeConnections = options.closeConnections ?? closeIntegrationConnections
+  const closeQuietly = (id?: string): void => {
+    void closeConnections(id).catch((error: unknown) => console.warn('[integrations] closing a connection failed', error instanceof Error ? error.name : 'an error'))
+  }
+  options.onQuit?.(() => closeQuietly())
   // Looked up on each call: the module's default export is made when main loads it.
   const projectsOf = (): IntegrationProjects => options.projects ?? projectStore()
 
@@ -142,6 +155,7 @@ export function integrationsHandlers(options: IntegrationsHandlersOptions = {}):
       if (using.length > 0 && confirmed !== true) return { status: 'confirm' as const, projects: using.map((project) => project.name) }
       store().remove(id)
       errors.delete(id)
+      closeQuietly(id)
       for (const project of projects.list()) {
         const dataDir = projects.dataDir(project.id)
         const entries = readProjectIntegrations(dataDir)
@@ -152,4 +166,4 @@ export function integrationsHandlers(options: IntegrationsHandlersOptions = {}):
   ]
 }
 
-export default integrationsHandlers()
+export default integrationsHandlers({ onQuit: (listener) => app.on('will-quit', listener) })

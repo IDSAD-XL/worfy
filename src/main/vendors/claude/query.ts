@@ -22,6 +22,11 @@
 // other one for any other Session — so a change reaches the next start, never a running process.
 // A window the person never chose gives way to `autoCompactWindow` of the user's settings.json,
 // read at the same moment (worfy-polish ticket 29, autoCompactWindowSource).
+//
+// The Integrations of the Project (worfy-integrations ticket 06, ADR-0111) go with the canvas too: each enabled entry
+// of the Project's `integrations` (its settings.json) the Machine's store still has — an id it lost is skipped — is the
+// SDK server of the proxy (src/main/integrations/proxy.ts) under its server name; an unattended Session gets only those
+// «Available to Autopilot». The query handed on carries their labels for the rows of the chip (labelIntegrations).
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -38,8 +43,11 @@ import { currentHarness } from '../../harness/locate'
 import { browserForSession, type BrowserResolver, type BrowserSession } from '../../mcp/browser-server'
 import { canvasForSession, projectForCwd, type CanvasResolver, type CanvasSession } from '../../mcp/canvas-server'
 import { mindMapForSession, type MindMapResolver, type MindMapSession } from '../../mcp/mind-map-server'
+import type { SecretSource } from '../../integrations/auth/tokens'
+import { integrationProxy, sessionIntegrations, type IntegrationProxy, type SessionIntegration } from '../../integrations/proxy'
+import { integrationStore } from '../../integrations/store'
 import { privateFolder, reviewerSkill } from '../../projects/review-offer'
-import { addProductWriteFolder, readProjectSettings } from '../../projects/settings'
+import { addProductWriteFolder, readProjectIntegrations, readProjectSettings } from '../../projects/settings'
 import { projectStore, type ProjectStore } from '../../projects/store'
 import { harnessScriptEnv } from '../../harness/script-env'
 import { appSettingsStore } from '../../settings/store'
@@ -47,7 +55,8 @@ import { claudeHome, dataRoot, harnessHome } from '../../storage/paths'
 import { assistDir } from '../../terminal-ai/options'
 import { projectLayouts, type ProjectLayout } from '../../workflow/folder'
 import { readMcpAllowlist, readProfileFolder, readSkillsAllowlist, type ProfileFolder, type ReadProfileOptions } from '../../workflow/profile'
-import type { InventoryQueryStarter } from './mcp-inventory'
+import { claudeMcpServer, labelIntegrations, type ClaudeMcpServer } from './mcp'
+import { inventoryServerNames, type InventoryQueryStarter } from './mcp-inventory'
 import { inventoryOptions, productGuard, sessionHarnessPlugin, sessionOptions, toolUseHooks, userExtensions, withBrowserServer, withMindMapServer, type ProductWrites } from './options'
 import { projectLocalMcp } from './project-mcp'
 
@@ -78,6 +87,60 @@ async function mindMapOrNull(mindMap: MindMapResolver, cwd: string, productFolde
   } catch (error) {
     console.warn(`[agent] no Mind map tools for ${cwd}`, error)
     return null
+  }
+}
+
+/** The Integrations a Session in the Project at `cwd` gets (worfy-integrations ticket 06); asked only with the canvas. */
+export type IntegrationsResolver = (request: { cwd: string; unattended: boolean }) => Promise<readonly SessionIntegration[]>
+
+/** Where the Integrations of a Session come from: its Project's settings, the Machine's store, the proxy, Claude Code's names. */
+export interface ProjectIntegrationsDeps {
+  /** The data folder of the Project holding `cwd`; null outside every Project. */
+  dataDirOf: (cwd: string) => string | null
+  store: Pick<SecretSource, 'get'>
+  proxy: Pick<IntegrationProxy, 'sessionServer'>
+  /** The servers of Claude Code in the Project of `cwd` (the MCP inventory's last answer). */
+  taken: (cwd: string) => readonly string[]
+}
+
+/** The Integrations of the Project's settings (readProjectIntegrations) through `deps` (sessionIntegrations). */
+export function projectIntegrationsResolver(deps: ProjectIntegrationsDeps): IntegrationsResolver {
+  return async ({ cwd, unattended }) => {
+    const dir = deps.dataDirOf(cwd)
+    if (dir === null) return []
+    return sessionIntegrations({ entries: readProjectIntegrations(dir), store: deps.store, proxy: deps.proxy, unattended, taken: deps.taken(cwd) })
+  }
+}
+
+/** The app's: the Project of the app's list, this Machine's store and proxy, the app's MCP inventory. */
+const appIntegrations: IntegrationsResolver = (request) => {
+  const projects = projectStore()
+  return projectIntegrationsResolver({
+    dataDirOf: (cwd) => {
+      const project = projectForCwd(projects.list(), cwd)
+      return project === undefined ? null : projects.dataDir(project.id)
+    },
+    store: integrationStore(),
+    proxy: integrationProxy(),
+    taken: inventoryServerNames,
+  })(request)
+}
+
+/** An Integration as the Session's options take it: its server name, label and SDK server. */
+interface ClaudeIntegration {
+  name: string
+  label: string
+  server: ClaudeMcpServer
+}
+
+/** The Integrations of a Session as SDK servers; a failure leaves the Session without them rather than without a Session. */
+async function integrationsOrNone(integrations: IntegrationsResolver, request: QueryRequest): Promise<ClaudeIntegration[]> {
+  try {
+    const found = await integrations({ cwd: request.cwd, unattended: request.unattended === true })
+    return await Promise.all(found.map(async ({ name, label, server }) => ({ name, label, server: await claudeMcpServer(server) })))
+  } catch (error) {
+    console.warn(`[agent] no Integrations for ${request.cwd}: ${error instanceof Error ? error.name : 'an error'}`)
+    return []
   }
 }
 
@@ -293,6 +356,8 @@ export interface SdkQueryFactoryOptions {
   privateSkills?: PrivateSkillsResolver
   /** The list «Product Session may also write here» of a Product Session's Project; its Project settings by default. Never asked for another Session. */
   productWriteList?: ProductWriteListResolver
+  /** The Integrations of a Session in a Project; the Project's settings through this Machine's proxy by default. */
+  integrations?: IntegrationsResolver
 }
 
 /**
@@ -319,6 +384,7 @@ export function sdkQueryFactory(
     mindMap = mindMapForSession,
     privateSkills = privateSkillsFolder,
     productWriteList = projectProductWriteList,
+    integrations = appIntegrations,
   }: SdkQueryFactoryOptions = {},
 ): QueryFactory {
   return async (request) => {
@@ -337,9 +403,11 @@ export function sdkQueryFactory(
     const mapping = attached && product ? mindMapOrNull(mindMap, request.cwd, folder) : Promise.resolve(null)
     // The Project's private skills go with the canvas too, and only to a Session a person is at (ADR-0102).
     const privately = attached && request.unattended !== true ? privateSkillsOrNull(privateSkills, request.cwd, environment.env) : Promise.resolve(null)
-    const [listed, browserSession, skillsAllowlist, mindMapSession, privateSkillsDir] = attached
-      ? await Promise.all([mcpAllowlist(request.cwd, environment.env), browsing, skills(request.cwd, environment.env), mapping, privately])
-      : [null, null, null, null, null]
+    // The Integrations go with the canvas too (worfy-integrations ticket 06).
+    const integrating = attached ? integrationsOrNone(integrations, request) : Promise.resolve([])
+    const [listed, browserSession, skillsAllowlist, mindMapSession, privateSkillsDir, sessionIntegrated] = attached
+      ? await Promise.all([mcpAllowlist(request.cwd, environment.env), browsing, skills(request.cwd, environment.env), mapping, privately, integrating])
+      : [null, null, null, null, null, []]
     // worfy-browser joins the Profile's list only with the server it names: not when the Browser
     // server could not be made. worfy-mind-map likewise, whatever the list names.
     const withBrowser = listed !== null && browserSession !== null ? withBrowserServer(listed) : listed
@@ -358,6 +426,7 @@ export function sdkQueryFactory(
       privateSkills: privateSkillsDir,
       browser: browserSession?.attachment,
       mindMap: mindMapSession?.attachment,
+      integrations: sessionIntegrated.map(({ name, server }) => ({ name, server })),
       settings: request.settings,
       canUseTool: request.canUseTool,
       unattended: request.unattended,
@@ -385,7 +454,10 @@ export function sdkQueryFactory(
     const handle = query({ prompt: request.prompt, options }) as QueryHandle
     const observed = attached ? attached.observe(handle) : handle
     const browsed = browserSession ? browserSession.observe(observed) : observed
-    return mindMapSession ? mindMapSession.observe(browsed) : browsed
+    const mapped = mindMapSession ? mindMapSession.observe(browsed) : browsed
+    // The rows of the Integrations' servers say so, with their labels (claudeMcpStatus).
+    labelIntegrations(mapped, sessionIntegrated)
+    return mapped
   }
 }
 

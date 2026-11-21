@@ -78,6 +78,8 @@ const SOURCE_LABELS: Readonly<Record<McpServerSource, string>> = {
   user: 'user config',
   project: 'Project',
   worfy: 'worfy',
+  // An Integration of the Project (worfy-integrations ticket 06); the row shows its label as the name.
+  integration: 'worfy integration',
 }
 
 /** The button of each action. */

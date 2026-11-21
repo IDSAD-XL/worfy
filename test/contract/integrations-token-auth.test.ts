@@ -24,6 +24,9 @@ import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 import { ms } from '../time-scale'
 
+// The module's default export subscribes to the app's quit (ticket 06): Electron's app, which a test has not.
+vi.mock('electron', () => ({ app: { on: () => undefined } }))
+
 const ALPHA = 'tok-ALPHA-SECRET-0123456789'
 const BETA = 'tok-BETA-SECRET-9876543210'
 const WRONG = 'tok-WRONG-SECRET-5555555555'
