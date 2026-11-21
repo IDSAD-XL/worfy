@@ -196,7 +196,6 @@ export async function listenLoopback(request: { id: string; state: string; timeo
   outcome.catch(() => undefined)
   let port = 0
   let open = true
-  let timer: ReturnType<typeof setTimeout> | undefined
   const server: Server = createServer((incoming, response) => {
     const found = redirectOutcome(`http://127.0.0.1:${port}${incoming.url ?? '/'}`, request.id, request.state, port)
     if (found === null) {
@@ -221,7 +220,8 @@ export async function listenLoopback(request: { id: string; state: string; timeo
     server.listen(0, '127.0.0.1', () => resolve())
   })
   port = (server.address() as AddressInfo).port
-  timer = setTimeout(() => end(new Error('The sign-in did not finish in 10 minutes.')), request.timeoutMs)
+  // Declared after the listen: no request comes before this line runs.
+  const timer = setTimeout(() => end(new Error('The sign-in did not finish in 10 minutes.')), request.timeoutMs)
   return { redirectUrl: redirectUrlOf(request.id, port), outcome, close: () => end(new Error('The sign-in was ended.')), listening: () => open }
 }
 
@@ -586,7 +586,7 @@ export class IntegrationOAuth {
     } catch (error) {
       // The package's errors may quote an answer of the service; the tokens are never in them, the verifier stays here.
       const message = error instanceof Error ? error.message : String(error)
-      throw new Error(message.startsWith(integration.label) ? message : `${integration.label}: ${scrubServiceText(message, [])}`)
+      throw new Error(message.startsWith(integration.label) ? message : `${integration.label}: ${scrubServiceText(message, [])}`, { cause: error })
     } finally {
       wait?.close()
       this.running.delete(id)
