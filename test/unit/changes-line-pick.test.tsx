@@ -47,7 +47,7 @@ function Harness({ open }: { open: (key: string, side: string, from: number, to:
   return (
     <div {...pick.lineEvents}>
       {BLOCKS.map(({ file, lines }, index) => (
-        <div key={index} data-testid="changes-hunk" data-key={file.key} data-path={file.file.path}>
+        <div key={index} data-block={`${file.key}\u0000hunk${index}`} data-testid="changes-hunk" data-key={file.key} data-path={file.file.path}>
           {lines.map(({ line, side }) => {
             const at = side === 'old' ? line.oldLine : line.newLine
             return (
@@ -225,6 +225,52 @@ describe('Shift with «+»', () => {
     fireEvent.click(plusOf(A, 3), { shiftKey: true })
     expect(pickedLines(A)).toEqual(['new1', 'new2', 'new3'])
     expect(open).not.toHaveBeenCalled()
+  })
+})
+
+// Review round 3: Shift with «+», a click with Shift and a selection of text took lines of the file's next hunk, and the
+// hint promised lines the comment did not get (Changes cut the range, Review mode refused it).
+describe('a pick stays in the hunk it began in', () => {
+  it('Shift with «+» on a line of the next hunk picks that line alone', () => {
+    const { open } = mount()
+    fireEvent.click(codeOf(C, 3))
+    fireEvent.mouseDown(plusOf(C, 10), { shiftKey: true })
+    expect(pickedLines(C)).toEqual(['new10'])
+    expect(hints().map((each) => each.textContent)).toEqual(['Comment on line 10 (c)'])
+    fireEvent.click(plusOf(C, 11), { shiftKey: true })
+    expect(pickedLines(C)).toEqual(['new10', 'new11'])
+    fireEvent.click(plusOf(C, 2), { shiftKey: true })
+    expect(pickedLines(C)).toEqual(['new2'])
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  it('a click with Shift on a line of the next hunk picks that line alone', () => {
+    mount()
+    fireEvent.click(codeOf(C, 3))
+    fireEvent.click(codeOf(C, 10), { shiftKey: true })
+    expect(pickedLines(C)).toEqual(['new10'])
+    expect(hints().map((each) => each.textContent)).toEqual(['Comment on line 10 (c)'])
+    fireEvent.click(codeOf(C, 11), { shiftKey: true })
+    expect(pickedLines(C)).toEqual(['new10', 'new11'])
+  })
+
+  it('a selection of text across hunks picks the line it ended on alone', () => {
+    const { view } = mount()
+    const select = (from: HTMLElement, to: HTMLElement) => {
+      const range = document.createRange()
+      range.setStart(from.firstChild!, 1)
+      range.setEnd(to.firstChild!, 2)
+      const chosen = document.getSelection()!
+      chosen.removeAllRanges()
+      chosen.addRange(range)
+      fireEvent.mouseUp(view.container.firstElementChild!)
+      chosen.removeAllRanges()
+    }
+    select(codeOf(C, 2), codeOf(C, 4))
+    expect(pickedLines(C)).toEqual(['new2', 'new3', 'new4'])
+    select(codeOf(C, 3), codeOf(C, 10))
+    expect(pickedLines(C)).toEqual(['new10'])
+    expect(hints().map((each) => each.textContent)).toEqual(['Comment on line 10 (c)'])
   })
 })
 

@@ -576,18 +576,22 @@ describe('the lines a comment stands on', () => {
     expect(off.textContent).not.toContain('Within.')
   })
 
-  it('a range picked across hunks is refused with a message: `c` and «+» open no popover, nothing is saved', async () => {
+  // Review round 3 of worfy-changes-view 09: a click with Shift or Shift with «+» on a line of another hunk picked across
+  // hunks, the hint promised that range, and `c` refused it. A pick now stays in the hunk it began in.
+  it('a click with Shift or Shift with «+» on a line of another hunk picks that line alone; `c` opens it, with no refusal', async () => {
     preload({ answers: { 'changes.file': (input) => ({ ok: true, value: { file: input.path === RETRY ? twoHunks(RETRY) : hunks(input.path as string) } }) } })
     await mountReview()
     fireEvent.click(line(3).querySelector('.w-changes__code')!)
     fireEvent.click(line(20).querySelector('.w-changes__code')!, { shiftKey: true })
+    expect(screen.getByTestId('changes-pick-hint').textContent).toBe('Comment on line 20 (c)')
+    fireEvent.click(line(2).querySelector('.w-changes__code')!)
+    fireEvent.mouseDown(within(line(21)).getByTestId('changes-line-plus'), { shiftKey: true })
+    expect(screen.getByTestId('changes-pick-hint').textContent).toBe('Comment on line 21 (c)')
+    fireEvent.mouseDown(within(line(20)).getByTestId('changes-line-plus'), { shiftKey: true })
+    expect(screen.getByTestId('changes-pick-hint').textContent).toBe('Comment on lines 20–21 (c)')
     fireEvent.keyDown(document.body, { key: 'c' })
-    await settle()
-    expect(screen.queryByTestId('changes-comment-popover')).toBeNull()
-    expect(await toastTexts()).toContain('A comment covers lines of one hunk: GitHub refuses a range across hunks. Pick lines of one hunk.')
-    fireEvent.click(within(line(20)).getByTestId('changes-line-plus'))
-    await settle()
-    expect(screen.queryByTestId('changes-comment-popover')).toBeNull()
+    expect(within(await screen.findByTestId('changes-comment-popover')).getByTestId('changes-comment-where').textContent).toBe(`${RETRY}:20–21 · new side`)
+    expect(await toastTexts()).not.toContain('A comment covers lines of one hunk: GitHub refuses a range across hunks. Pick lines of one hunk.')
     expect(writes()).toEqual([])
   })
 })

@@ -265,7 +265,10 @@ The lines light up as the pointer passes them; letting go opens the popover on t
 of the other side or of another hunk does not change the range: a comment covers lines of one hunk. The window losing
 the focus with the button held ends the drag and opens nothing. Letting go on the line pressed comments on that line alone, or on the
 range picked when the line is in it. **Shift** with a click on «+» stretches the lines picked to its line and opens
-nothing; with nothing picked in that file and side it picks the line alone.
+nothing; with nothing picked in that file, side and hunk it picks the line alone. Every way of stretching a pick (the
+drag, Shift with «+», a click with Shift on a line, a selection of text across lines) keeps it in the hunk it began in:
+a line of another hunk is picked alone (a selection across hunks picks the line it ended on), so the hint never names
+lines the comment would not get.
 
 While lines are picked and no popover is open, a hint stands under the last of them: «Comment on lines 95–102 (c)», or
 «Comment on line 95 (c)» for one line. A click on it opens the popover, as `c` does. A click on a line outside the range

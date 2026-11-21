@@ -254,7 +254,7 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
 
   // ── the lines picked ──────────────────────────────────────────────────────────────────────
   const [popover, setPopover] = useState<LinePopover | null>(null)
-  const [menu, setMenu] = useState<{ x: number; y: number; key: string; side: LineSide; line: number; text: string | null } | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; key: string; side: LineSide; block: string | null; line: number; text: string | null } | null>(null)
   const [changed, setChanged] = useState<ReadonlySet<string>>(new Set())
   // Send is on its way: «To», the tray's field, Edit and removing a comment wait for it (Send below).
   const [sending, setSending] = useState(false)
@@ -603,7 +603,7 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
       const at = lineAt(event.target)
       if (at === null || (event.target as Element).closest?.('.w-cl, .w-cl-hint')) return
       event.preventDefault()
-      if (canComment && !(picked !== null && picked.key === at.key && picked.side === at.side && at.line >= pickRange(picked).from && at.line <= pickRange(picked).to)) setPicked({ key: at.key, side: at.side, start: at.line, end: at.line })
+      if (canComment && !(picked !== null && picked.key === at.key && picked.side === at.side && at.line >= pickRange(picked).from && at.line <= pickRange(picked).to)) setPicked({ key: at.key, side: at.side, block: at.block, start: at.line, end: at.line })
       const diff = read.current.get(at.key)
       setMenu({ x: event.clientX, y: event.clientY, ...at, text: diff?.kind === 'hunks' ? (sideLines(diff.hunks, at.side).get(at.line) ?? null) : null })
     },
@@ -624,7 +624,7 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
     <>
       <ContextMenu at={menu === null ? null : { x: menu.x, y: menu.y }} onClose={() => setMenu(null)} label="Line" testId="changes-line-menu" inNode>
         {canComment && menu !== null ? (
-          <MenuItem testId="changes-menu-comment" onClick={() => openOn(menu.key, menu.side, menu.line)}>
+          <MenuItem testId="changes-menu-comment" onClick={() => openOn(menu.key, menu.side, menu.line, menu.block)}>
             Comment
           </MenuItem>
         ) : null}

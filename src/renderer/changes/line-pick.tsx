@@ -3,15 +3,17 @@
 // of 2026-11-21, D2). A pick is lines of one file and one side.
 //
 // - «+» in the gutter, as on GitHub: pressing it starts a pick on its line, moving the pointer up or down over lines of
-//   the same file and side stretches it (`mousemove` and `mouseup` on the window until the button is let go; the line is
+//   the same file, side and hunk stretches it (`mousemove` and `mouseup` on the window until the button is let go; the line is
 //   the one under the pointer, by its cell's `data-side` / `data-line`), and letting go opens the comment of the whole
 //   range. A line of another file or side, or of another hunk of the file, does not change the pick; the window losing
 //   the focus, or a move with no button held (let go outside the window), ends the drag and opens nothing. Let go on
 //   the line it was pressed on, «+» opens the range picked when its line is in it, else its line alone.
-// - Shift with «+» stretches the pick to that line (same file and side) and opens nothing; with nothing picked there it
+// - Shift with «+» stretches the pick to that line and opens nothing; with nothing picked in that file, side and hunk it
 //   picks the line alone.
 // - A click on a line picks it, a click with Shift stretches the pick, a selection of text across lines picks those
 //   lines; the key `c` opens the comment of the lines picked.
+// - Every way of stretching keeps a pick in the hunk it began in (`Picked.block`), as a comment covers lines of one hunk
+//   (GitHub refuses a range across hunks): a line of another hunk is picked alone (a selection: the line it ended on).
 // - While lines are picked, no comment is open and no drag is on, «Comment on lines 95–102 (c)» stands under the last
 //   of them (one line: «Comment on line 95 (c)»); a click on it opens the comment, as `c` does. Escape takes the pick away.
 // - A keyboard press of a focused «+» (Enter, Space: a click with no pointer) opens the comment as before.
@@ -21,34 +23,47 @@ import { showToast } from '../toast/toasts'
 import type { LineSide } from './DiffPane'
 import { lineNumber, type FileEntry } from './diff-window'
 
-/** The lines picked for a comment: one file, one side, `start` where the pick began. */
+/** The lines picked for a comment: one file, one side, one hunk, `start` where the pick began. */
 export interface Picked {
   key: string
   side: LineSide
+  /** The hunk block the pick began in (DiffPane's `data-block`): a pick stretches only over its lines. */
+  block: string | null
   start: number
   end: number
 }
 
+/** A line of the diff: its file, side, hunk block and number. */
+export interface LineAt {
+  key: string
+  side: LineSide
+  block: string | null
+  line: number
+}
+
 export const pickRange = (pick: Picked): { from: number; to: number } => ({ from: Math.min(pick.start, pick.end), to: Math.max(pick.start, pick.end) })
 
-/** The hunk block (`changes-hunk`) an event target is in; null off one. */
-const hunkOf = (target: EventTarget | null): Element | null => {
-  const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null
-  return element?.closest('[data-testid="changes-hunk"]') ?? null
-}
+/** The pick stretched to a line: from the same start when the line is of its file, side and hunk, else the line alone. */
+const stretched = (pick: Picked | null, at: LineAt): Picked =>
+  pick !== null && pick.key === at.key && pick.side === at.side && pick.block === at.block ? { ...pick, end: at.line } : { key: at.key, side: at.side, block: at.block, start: at.line, end: at.line }
+
+const elementOf = (target: EventTarget | null): Element | null => (target instanceof Element ? target : target instanceof Node ? target.parentElement : null)
 
 const inPick = (pick: Picked | null, key: string, side: LineSide, line: number): boolean => pick !== null && pick.key === key && pick.side === side && line >= pickRange(pick).from && line <= pickRange(pick).to
 
-/** The line a pointer event is on: the file of its hunk, its side and number; null off a line. */
-export function lineAt(target: EventTarget | null): { key: string; side: LineSide; line: number } | null {
-  const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null
-  const cell = element?.closest<HTMLElement>('[data-line][data-side]')
-  const key = cell?.closest<HTMLElement>('[data-testid="changes-hunk"]')?.dataset.key
+/** The line a pointer event is on: the file of its hunk, its side, hunk block and number; null off a line. */
+export function lineAt(target: EventTarget | null): LineAt | null {
+  const cell = elementOf(target)?.closest<HTMLElement>('[data-line][data-side]')
+  const hunk = cell?.closest<HTMLElement>('[data-testid="changes-hunk"]')
+  const key = hunk?.dataset.key
   const line = Number(cell?.dataset.line)
   const side = cell?.dataset.side
   if (key === undefined || !Number.isInteger(line) || line < 1 || (side !== 'old' && side !== 'new')) return null
-  return { key, side, line }
+  return { key, side, block: hunk?.dataset.block ?? null, line }
 }
+
+/** The hunk block an element is in (DiffPane's `data-block` of `changes-hunk`); null off one. */
+const blockOf = (target: EventTarget | null): string | null => elementOf(target)?.closest<HTMLElement>('[data-testid="changes-hunk"]')?.dataset.block ?? null
 
 /** The words of the hint: «Comment on lines 95–102 (c)», «Comment on line 95 (c)». */
 export const hintText = (pick: Picked): string => {
@@ -77,7 +92,7 @@ export interface LinePick {
   picked: Picked | null
   setPicked: (next: Picked | null) => void
   /** «+» of a line or Comment of the menu: the range picked when the line is in it, else the line alone. */
-  openOn: (key: string, side: LineSide, line: number) => void
+  openOn: (key: string, side: LineSide, line: number, block: string | null) => void
   isPicked: (line: DiffLine, side: LineSide, entry: FileEntry) => boolean
   /** «+» of a line, for the gutter. */
   plus: (line: DiffLine, side: LineSide, entry: FileEntry) => ReactNode
@@ -92,10 +107,10 @@ export interface LinePick {
 
 /** The drag of «+» in progress: where it was pressed, the line under the pointer, and whether it has left the first. */
 interface Drag {
-  /** The hunk «+» was pressed in: the drag stays in it, as a comment covers lines of one hunk. */
-  hunk: Element | null
   key: string
   side: LineSide
+  /** The hunk «+» was pressed in: the drag stays in it, as a comment covers lines of one hunk. */
+  block: string | null
   line: number
   end: number
   moved: boolean
@@ -111,7 +126,7 @@ export function useLinePick(options: LinePickOptions): LinePick {
     latest.current = { options, picked }
   })
 
-  const openOn = useCallback((key: string, side: LineSide, line: number) => {
+  const openOn = useCallback((key: string, side: LineSide, line: number, block: string | null) => {
     const { options: now, picked: pick } = latest.current
     if (!now.enabled || now.held()) return
     if (inPick(pick, key, side, line)) {
@@ -119,21 +134,22 @@ export function useLinePick(options: LinePickOptions): LinePick {
       now.open(key, side, from, to)
       return
     }
-    setPicked({ key, side, start: line, end: line })
+    setPicked({ key, side, block, start: line, end: line })
     now.open(key, side, line, line)
   }, [])
 
   /** Shift with «+»: the pick stretches to the line, or the line alone is picked. */
-  const stretch = (key: string, side: LineSide, line: number) => {
-    setPicked((pick) => (pick !== null && pick.key === key && pick.side === side ? { ...pick, end: line } : { key, side, start: line, end: line }))
+  const stretch = (at: LineAt) => {
+    setPicked((pick) => stretched(pick, at))
   }
 
   // ── the drag of «+» ──
   const stop = useRef<(() => void) | null>(null)
   useEffect(() => () => stop.current?.(), [])
-  const press = (hunk: Element | null, key: string, side: LineSide, line: number) => {
+  const press = (start: LineAt) => {
     stop.current?.()
-    const drag: Drag = { hunk, key, side, line, end: line, moved: false }
+    const { key, side, block, line } = start
+    const drag: Drag = { key, side, block, line, end: line, moved: false }
     const onMove = (event: MouseEvent) => {
       // No button held: it was let go where the window did not hear it (outside it). The drag ends, opening nothing.
       if (event.buttons === 0) {
@@ -142,19 +158,19 @@ export function useLinePick(options: LinePickOptions): LinePick {
       }
       const at = lineAt(event.target)
       // A line of another hunk of the same file is not taken: the comment would not get the lines between them.
-      if (at === null || at.key !== drag.key || at.side !== drag.side || hunkOf(event.target) !== drag.hunk) return
+      if (at === null || at.key !== drag.key || at.side !== drag.side || at.block !== drag.block) return
       if (at.line === drag.line && !drag.moved) return
       drag.moved = true
       drag.end = at.line
-      setPicked({ key: drag.key, side: drag.side, start: drag.line, end: at.line })
+      setPicked({ key: drag.key, side: drag.side, block: drag.block, start: drag.line, end: at.line })
     }
     const onUp = () => {
       stop.current?.()
       if (!drag.moved) {
-        openOn(drag.key, drag.side, drag.line)
+        openOn(drag.key, drag.side, drag.line, drag.block)
         return
       }
-      const { from, to } = pickRange({ key: drag.key, side: drag.side, start: drag.line, end: drag.end })
+      const { from, to } = pickRange({ ...drag, start: drag.line })
       latest.current.options.open(drag.key, drag.side, from, to)
     }
     // The window lost the focus (⌘-Tab) with the button held: its mouseup may never come here.
@@ -186,15 +202,16 @@ export function useLinePick(options: LinePickOptions): LinePick {
           // No selection of text starts under the drag, and the line under it is not picked by its own click.
           event.preventDefault()
           event.stopPropagation()
-          if (event.shiftKey) stretch(entry.key, side, number)
-          else if (!latest.current.options.held()) press(hunkOf(event.currentTarget), entry.key, side, number)
+          const at: LineAt = { key: entry.key, side, block: blockOf(event.currentTarget), line: number }
+          if (event.shiftKey) stretch(at)
+          else if (!latest.current.options.held()) press(at)
         }}
         onClick={(event) => {
           event.stopPropagation()
           // A press of the pointer was taken by mousedown and mouseup; a click with no pointer is the keyboard's.
           if (event.detail !== 0) return
-          if (event.shiftKey) stretch(entry.key, side, number)
-          else openOn(entry.key, side, number)
+          if (event.shiftKey) stretch({ key: entry.key, side, block: blockOf(event.currentTarget), line: number })
+          else openOn(entry.key, side, number, blockOf(event.currentTarget))
         }}
       >
         +
@@ -225,8 +242,7 @@ export function useLinePick(options: LinePickOptions): LinePick {
       if (globalThis.getSelection?.()?.isCollapsed === false) return
       const at = lineAt(event.target)
       if (at === null) return
-      if (event.shiftKey && picked !== null && picked.key === at.key && picked.side === at.side) setPicked({ ...picked, end: at.line })
-      else setPicked({ key: at.key, side: at.side, start: at.line, end: at.line })
+      setPicked(event.shiftKey ? stretched(picked, at) : stretched(null, at))
     },
     onMouseUp: () => {
       if (!enabled) return
@@ -235,7 +251,8 @@ export function useLinePick(options: LinePickOptions): LinePick {
       const from = lineAt(selection.anchorNode)
       const to = lineAt(selection.focusNode)
       if (from === null || to === null || from.key !== to.key || from.side !== to.side || from.line === to.line) return
-      setPicked({ key: from.key, side: from.side, start: from.line, end: to.line })
+      // Across hunks the lines between are not the comment's: the line the selection ended on is picked alone.
+      setPicked(stretched({ key: from.key, side: from.side, block: from.block, start: from.line, end: from.line }, to))
     },
   }
 

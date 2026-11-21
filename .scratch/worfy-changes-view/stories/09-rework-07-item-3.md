@@ -12,12 +12,13 @@ Kind: pr · Epic: worfy-changes-view · Ticket: 09 · PR: - · Language: ru
 
 ## 2. Перетаскивание «+» — один hook на два экрана
 
-Code: `src/renderer/changes/line-pick.tsx:134-173` · key lines: 139, 145, 151, 153, 158, 160, 163
+Code: `src/renderer/changes/line-pick.tsx:149-189` · key lines: 155, 161, 167, 169, 174, 177, 178
 
 ```tsx
-  const press = (hunk: Element | null, key: string, side: LineSide, line: number) => {
+  const press = (start: LineAt) => {
     stop.current?.()
-    const drag: Drag = { hunk, key, side, line, end: line, moved: false }
+    const { key, side, block, line } = start
+    const drag: Drag = { key, side, block, line, end: line, moved: false }
     const onMove = (event: MouseEvent) => {
       // No button held: it was let go where the window did not hear it (outside it). The drag ends, opening nothing.
       if (event.buttons === 0) {
@@ -26,19 +27,19 @@ Code: `src/renderer/changes/line-pick.tsx:134-173` · key lines: 139, 145, 151, 
       }
       const at = lineAt(event.target)
       // A line of another hunk of the same file is not taken: the comment would not get the lines between them.
-      if (at === null || at.key !== drag.key || at.side !== drag.side || hunkOf(event.target) !== drag.hunk) return
+      if (at === null || at.key !== drag.key || at.side !== drag.side || at.block !== drag.block) return
       if (at.line === drag.line && !drag.moved) return
       drag.moved = true
       drag.end = at.line
-      setPicked({ key: drag.key, side: drag.side, start: drag.line, end: at.line })
+      setPicked({ key: drag.key, side: drag.side, block: drag.block, start: drag.line, end: at.line })
     }
     const onUp = () => {
       stop.current?.()
       if (!drag.moved) {
-        openOn(drag.key, drag.side, drag.line)
+        openOn(drag.key, drag.side, drag.line, drag.block)
         return
       }
-      const { from, to } = pickRange({ key: drag.key, side: drag.side, start: drag.line, end: drag.end })
+      const { from, to } = pickRange({ ...drag, start: drag.line })
       latest.current.options.open(drag.key, drag.side, from, to)
     }
     // The window lost the focus (⌘-Tab) with the button held: its mouseup may never come here.
@@ -70,9 +71,32 @@ Code: `src/renderer/changes/line-pick.tsx:134-173` · key lines: 139, 145, 151, 
 - Риски и пробелы test-ов: jsdom не считает раскладку, поэтому unit test-ы шлют `mousemove` прямо на строку; реальное
   движение мыши проверяют e2e test-ы в Changes и в Review mode. Перетаскивание за край прокрутки не прокручивает diff.
 
-## 3. Подсказка под последней выбранной строкой
+## 3. Любой способ растянуть выбор держит его в одном hunk-е
 
-Code: `src/renderer/changes/line-pick.tsx:210-219` · key lines: 212, 215, 216
+Code: `src/renderer/changes/line-pick.tsx:45-47` · key lines: 46, 47
+
+```tsx
+
+/** The pick stretched to a line: from the same start when the line is of its file, side and hunk, else the line alone. */
+const stretched = (pick: Picked | null, at: LineAt): Picked =>
+```
+
+- Что делает: Shift с «+» (мышью и клавиатурой), щелчок с Shift по строке и выделение текста через строки растягивают
+  выбор через `stretched`: строка того же файла, стороны и hunk-а (`data-block` блока DiffPane) растягивает его, строка
+  другого hunk-а выбирается одна; выделение через hunk-и выбирает строку, где оно кончилось. Перетаскивание сравнивает
+  тот же `block`.
+- Почему здесь: ревью, раунд 3 — правило одного hunk-а было только у перетаскивания. Щелчок по строке 3, затем Shift с
+  «+» на строке 10 следующего hunk-а подсвечивал 3, 4, 5, 10 и обещал «Comment on lines 3–10 (c)», а `c` в Changes
+  молча открывал 3–5, в Review mode — toast о hunk-ах. Комментарий покрывает строки одного hunk-а (GitHub отказывает
+  диапазону через hunk-и), поэтому выбор не выходит из hunk-а, где начат.
+- Без него: подсказка называла строки, которых комментарий не получал.
+- Требование: [Что делаем, пункты 3 и 5](../issues/09-rework-07-item-3.md#что-делаем)
+- Риски и пробелы test-ов: hunk узнаётся по `data-block` блока `changes-hunk`; без атрибута у обеих строк (`null`)
+  они считаются одним hunk-ом. DiffPane ставит его у каждого блока (`DiffPane.tsx:730`).
+
+## 4. Подсказка под последней выбранной строкой
+
+Code: `src/renderer/changes/line-pick.tsx:227-236` · key lines: 229, 232, 233
 
 ```tsx
   const hint = (line: DiffLine, side: LineSide, entry: FileEntry): ReactNode => {
@@ -96,7 +120,7 @@ Code: `src/renderer/changes/line-pick.tsx:210-219` · key lines: 212, 215, 216
 - Риски и пробелы test-ов: Esc сначала снимает выбор, а вид закрывает только второй Esc (Changes и Review mode); это
   решение без владельца, проверено unit test-ами обоих экранов.
 
-## 4. Main говорит, у каких файлов есть незакоммиченные правки
+## 5. Main говорит, у каких файлов есть незакоммиченные правки
 
 Code: `src/main/changes/scopes.ts:223-228` · key lines: 224, 225, 226
 
@@ -121,7 +145,7 @@ async function uncommittedPaths(context: ChangesContext): Promise<Set<string>> {
 - Риски и пробелы test-ов: contract test сравнивает `.git` до и после чтения; поле в схеме канала необязательное — ответ
   сборки до Ticket-а 09 (Linked machine) читается как раньше, «uncommitted».
 
-## 5. Commit комментария — по файлу; после Refresh комментарий идёт за файлом
+## 6. Commit комментария — по файлу; после Refresh комментарий идёт за файлом
 
 Code: `src/renderer/changes/line-comments.tsx:535-537` · key lines: 535, 536, 537
 
@@ -143,27 +167,29 @@ Code: `src/renderer/changes/line-comments.tsx:535-537` · key lines: 535, 536, 5
 - Риски и пробелы test-ов: комментарий на head-е, который этот вид не читал (сделан до этого PR), не переезжает и
   остаётся на своих строках; хранится 100 новейших head-ов на Ticket.
 
-## 6. Что сознательно не меняли
+## 7. Что сознательно не меняли
 
 `DiffPane.tsx` и рендер строк — Ticket 10 (подсветка синтаксиса). Формат строки агенту (`quote-comments.ts`). Меню
 правого щелчка в Review mode. Русский перевод `pr-inbox.md` не описывает комментарии Review mode и не правился.
 
-## 7. Как проверено
+## 8. Как проверено
 
 - `pnpm lint`, `pnpm typecheck` — exit 0; 20 файлов unit и contract test-ов модулей changes, pr-review, quote — exit 0.
 - `pnpm test:e2e test/e2e/changes.spec.ts test/e2e/changes-comments.spec.ts test/e2e/pr-review.spec.ts` — exit 0, 7 passed.
 - 22 мутанта (перетаскивание, Shift, подсказка, Esc, `uncommitted` в main, `commitOf`, Refresh) и 6 мутантов раунда 2
   (head-ы в хранилище, hunk, blur, кнопка, `headSha`) — каждый даёт exit 1 своего test-а.
+- Раунд 3: 5 мутантов, по одному на путь растяжения (Shift с «+» мышью и клавиатурой, щелчок с Shift, выделение,
+  перетаскивание) без проверки hunk-а — каждый даёт exit 1 своего test-а.
 
 ## Проверить себя
 
 1. Почему во время перетаскивания подсказки нет?
    - Ответ: она встаёт под последней выбранной строкой и сдвигает строки ниже, так что указатель попадал бы не на ту
      строку.
-   - Строки: `src/renderer/changes/line-pick.tsx:212`
+   - Строки: `src/renderer/changes/line-pick.tsx:229`
 2. Что вернёт «+», если отпустить его на той же строке внутри выбранного диапазона?
    - Ответ: popover на весь диапазон: без движения `onUp` идёт в `openOn`, который берёт диапазон, если строка в нём.
-   - Строки: `src/renderer/changes/line-pick.tsx:153-155`
+   - Строки: `src/renderer/changes/line-pick.tsx:169-171`
 3. Почему комментарий не теряет строки, когда агент закоммитил файл после него?
    - Ответ: на новой стороне All changes комментарий с `null` или с прочитанным head-ом ищется заново и получает commit
      нового чтения.

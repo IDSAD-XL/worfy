@@ -215,7 +215,7 @@ line, dragged over lines for a range, or **c** or the hint «Comment on lines N�
 a line; a click with Shift on a line or its **+**, or a selection across lines, picks a range), opens it, as in
 [Changes](changes.md#picking-a-range); the text is Markdown, **Suggest change** (new side only) adds a `suggestion` block with the text of the lines
 picked, **⌘↵** saves. Images are not taken. A range covers lines of one hunk: GitHub refuses a range across hunks, so
-such a pick shows a message and opens nothing. The lines are read without Hide whitespace and unfolded (a lock,
+a pick stays in the hunk it began in, and a line of another hunk is picked alone. The lines are read without Hide whitespace and unfolded (a lock,
 generated or too large file too). A popover with text not saved stays open on **Escape** and on a click outside; **Cancel**
 closes it. A comment stands under its last line: "Pending · Edit · Delete", or "Written by the agent · Edit · Delete" for
 the agent's; an edit makes the comment the person's. New comments are made only while the diff shows All changes of the
