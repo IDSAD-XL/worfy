@@ -424,6 +424,29 @@ describe('the tree', () => {
     await settle()
   })
 
+  // Review of #2144: the reads that ended after the view closed started more, of the files drawn last, for no view.
+  it('no read starts after the view closes, and the reads that end then change nothing', async () => {
+    files = Array.from({ length: 301 }, (_, index) => changed(`pkg/m${String(index % 30).padStart(2, '0')}/file-${String(index).padStart(3, '0')}.ts`))
+    const held: (() => void)[] = []
+    gate = (channel) => (channel === 'changes.file' ? new Promise<void>((done) => held.push(done)) : undefined)
+    const reads = () => calls.filter((call) => call.channel === 'changes.file')
+    const shown = render(view())
+    await screen.findAllByTestId('changes-file')
+    await settle()
+    for (let step = 0; step < 40; step += 1) {
+      diff().scrollTop += 800
+      fireEvent.scroll(diff())
+      await settle()
+    }
+    expect(reads()).toHaveLength(READS_AT_ONCE)
+    shown.unmount()
+    for (let round = 0; round < 5; round += 1) {
+      for (const release of held.splice(0)) release()
+      await settle()
+    }
+    expect(reads()).toHaveLength(READS_AT_ONCE)
+  })
+
   it('j and k walk the files, and a file picked in the tree is the selected one of the diff', async () => {
     await open()
     const body = screen.getByTestId('changes-body')
