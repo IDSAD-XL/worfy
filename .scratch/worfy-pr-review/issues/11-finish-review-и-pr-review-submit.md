@@ -57,14 +57,20 @@ Source: [spec.md](../spec.md), «Ticket-ы», 11; «Решение», 4 и 6; «
       сдвинулся — комментарии на `startedOn`; ровно один POST с телом байт в байт как показанный `payload`; свой PR;
       сбой и повтор без второго POST; `submitting` после обрыва; stand-in валит test на любой записи, кроме одного
       POST Submit-а, и на POST без щелчка. Красный до правки — в «Итог».
+  - evidence: test-run pass · `pnpm test test/contract/pr-review-submit.test.ts` exit 0 · mac - · 587a0c6c779655983a37e7e526f9d7d8f13cb5aa
 - [x] Тот же contract: черновик Agent review — `event` в POST тот, что выбрал человек, а не `suggestedEvent`;
       убранный в диалоге комментарий агента в POST не попал.
+  - evidence: test-run pass · `pnpm test test/contract/pr-review-submit.test.ts` exit 0 · mac - · 587a0c6c779655983a37e7e526f9d7d8f13cb5aa
 - [x] Unit `test/unit/finish-review-dialog.test.tsx` (новый): переключатель начинается с Comment; «The agent suggests»;
       неактивные события на своём PR и без текста; Enter не отправляет.
+  - evidence: test-run pass · `pnpm test test/unit/finish-review-dialog.test.tsx` exit 0 · mac - · 587a0c6c779655983a37e7e526f9d7d8f13cb5aa
 - [x] `test/contract/harness-review-draft-lint.test.ts`: обычный режим без `--rules`.
+  - evidence: test-run pass · `pnpm test test/contract/harness-review-draft-lint.test.ts` exit 0 · mac - · 587a0c6c779655983a37e7e526f9d7d8f13cb5aa
 - [x] e2e `test/e2e/pr-review.spec.ts`: полный путь A (поиск → Review myself → комментарий → Submit → stand-in получил
       один POST) и C (head сдвинулся); путь E (Agent review → правка → Submit); chip `1/2` → `2/2`.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-review.spec.ts test/e2e/pr-inbox.spec.ts` exit 0 · mac dev · 587a0c6c779655983a37e7e526f9d7d8f13cb5aa
 - [x] Новый ADR и Amendment-ы ADR-0105 и ADR-0002 влиты в этом PR.
+  - evidence: commit pass · worfy-pr-review/11: ADR-0112, Amendments of ADR-0105 and ADR-0002, feature page, ticket result · - - · 587a0c6c779655983a37e7e526f9d7d8f13cb5aa
 - [ ] Ревью ступени `max` (skill `worfy:max-review`) — вердикт в «Итог».
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job-ы Windows CI зелёные
       (платформенный PR).
