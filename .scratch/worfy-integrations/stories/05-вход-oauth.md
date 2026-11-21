@@ -13,7 +13,7 @@ Integration с входом `oauth` после Ticket-ов 03, 04 и 06 войт
 
 ## 2. Замок refresh в `fetch` transport-а
 
-Code: `src/main/integrations/auth/oauth.ts:479-512` · key lines: 485, 491, 492, 494, 497
+Code: `src/main/integrations/auth/oauth.ts:489-536` · key lines: 501, 506, 515, 516, 520, 531
 
 ```ts
     return async (input, init) => {
@@ -22,8 +22,21 @@ Code: `src/main/integrations/auth/oauth.ts:479-512` · key lines: 485, 491, 492,
       if (spent === null) {
         const sent = bearerOf(init)
         const response = await base(input, init)
-        if (response.status === 401 && sent !== null) state.refused.add(sent)
-        return response
+        if (response.status !== 401 || sent === null) return response
+        // A 401 to a token another call has refreshed since this one went out: sent again, once, with the kept token.
+        // The SDK's transport, which has just finished a sign-in for that other call, would take it for a refusal of
+        // the new token and give up («Server returned 401 after successful authentication»).
+        const kept = keptOf(this.store, id).access
+        if (kept === undefined || kept === sent || state.refused.has(kept)) {
+          state.refused.add(sent)
+          return response
+        }
+        await response.body?.cancel()
+        const headers = new Headers(init?.headers)
+        headers.set('authorization', `Bearer ${kept}`)
+        const again = await base(input, { ...init, headers })
+        if (again.status === 401) state.refused.add(kept)
+        return again
       }
       const kept = keptOf(this.store, id)
       const last = state.last
@@ -43,8 +56,9 @@ Code: `src/main/integrations/auth/oauth.ts:479-512` · key lines: 485, 491, 492,
       }
       try {
         const captured = await answer
-        // A refusal (invalid_grant) stays the answer to this token; a failure of the service lets a later refresh try again.
-        if (captured.status >= 500) forget()
+        // A refusal (invalid_grant) stays the answer to this token; a failure of the service — a 5xx, or a 2xx with no
+        // access token, such as an error page — lets a later refresh try again.
+        if (captured.status >= 500 || (captured.status < 300 && !carriesAccessToken(captured.body))) forget()
         else if (captured.status >= 300) current.pending = false
         return replay(captured)
       } catch (error) {
@@ -52,10 +66,13 @@ Code: `src/main/integrations/auth/oauth.ts:479-512` · key lines: 485, 491, 492,
         throw error
 ```
 
-- Что делает: обычный запрос идёт как есть, и 401 запоминается против access token-а, который он нёс. Запрос refresh:
+- Что делает: обычный запрос идёт как есть, и 401 запоминается против access token-а, который он нёс; 401 на token,
+  который другой вызов уже обновил, уходит ещё раз, один, с хранимым token-ом — до transport-а пакета он не доходит
+  (тот после только что законченного входа принял бы его за отказ нового token-а). Запрос refresh:
   идущий или уже сделанный refresh этим же token-ом отдаёт копию своего ответа; отработанный refresh token (хранимый
   уже другой) к сервису не уходит — ответ хранимыми token-ами; хранимый access token ещё не отказан — тоже хранимые
-  token-ы. Только refresh хранимым token-ом после отказа его access token-а идёт к сервису, один.
+  token-ы. Только refresh хранимым token-ом после отказа его access token-а идёт к сервису, один. Ответ сервиса 5xx или
+  2xx без access token-а (страница ошибки) забывается: следующий refresh снова идёт к сервису.
 - Почему здесь: spike 01, шаг 5 — «место — `fetch` transport-а»: у `OAuthClientProvider` нет места вокруг refresh.
   Ticket, «Что делаем», пункт 1 — замок по выводу записки.
 - Без него: десять вызовов после истечения дают десять refresh одним token-ом, сервис с ротацией отвечает
@@ -63,7 +80,8 @@ Code: `src/main/integrations/auth/oauth.ts:479-512` · key lines: 485, 491, 492,
 - Требование: [Готово, когда, пункт 2](../issues/05-вход-oauth.md#готово-когда)
 - Риски и пробелы test-ов: замок живёт в памяти процесса: два процесса worfy на одной Machine его не делят. Зазор
   «ответ refresh пришёл, token-ы ещё не сохранены» закрыт флагом `pending`; его mutant убит contract-ом, но саму гонку
-  test не воспроизводит по времени.
+  test не воспроизводит по времени. Гонку «401 второго вызова пришёл после refresh первого» test воспроизводит
+  задержками stub-а.
 
 ## 3. Provider proxy не регистрирует клиента и не открывает окно
 
@@ -125,11 +143,13 @@ Code: `src/main/integrations/auth/oauth.ts:160-165` · key lines: 161, 162, 163
 - Требование: [Готово, когда, пункт 5](../issues/05-вход-oauth.md#готово-когда)
 - Риски и пробелы test-ов: настоящий `BrowserWindow` в test-ах не открывается — unit и contract идут через stand-in
   Electron; на живом сервисе окно проверит приёмка (Ticket 11). Стену навигации main для этого окна снимает
-  `allowSignInNavigation` (`src/main/window.ts`): без неё форма входа сервиса не ушла бы дальше первой страницы.
+  `allowSignInNavigation` (`src/main/window.ts`): без неё форма входа сервиса не ушла бы дальше первой страницы. Окно
+  входа не считается окном worfy (`src/main/sign-in-windows.ts`): иконка Dock, второй запуск и щелчок по notification
+  открывают главное окно, а не поднимают окно входа.
 
 ## 5. Scope — явный, из каталога
 
-Code: `src/main/integrations/auth/oauth.ts:554-569` · key lines: 554, 555, 569
+Code: `src/main/integrations/auth/oauth.ts:578-593` · key lines: 578, 579, 593
 
 ```ts
       const scopes = (this.options.scopes ?? ((each: Integration) => catalogueEntry(each.service)?.scopes ?? []))(integration)
@@ -185,11 +205,15 @@ Code: `src/main/integrations/proxy.ts:513-517` · key lines: 515
 - `src/main/integrations/store.ts` — только чтение: удалить одну часть секрета нельзя, поэтому `keepOnly` стирает все
   ключи Integration-а и возвращает нужные.
 - Кнопка Sign in на экране и запрет окна для Autopilot — Ticket 09; канал Sign out — Ticket 08.
+- `integrations.remove` не отзывает token-ы OAuth-Integration и не чистит её partition — долг Ticket-а 08 или 09.
 
 ## 8. Как проверено
 
 - `node scripts/vitest-electron.mjs test/contract/integrations-oauth.test.ts test/unit/integrations-oauth-redirect.test.ts test/contract/web-policy.test.ts` — exit 1 на коде `origin/main`, exit 0 после правки.
-- Mutation testing: 26 mutant-ов `oauth.ts`, `proxy.ts`, канала и `window.ts` — все убиты.
+- Mutation testing: 32 mutant-а `oauth.ts`, `proxy.ts`, канала, `window.ts`, `index.ts`, `notify.ts` и
+  `sign-in-windows.ts` — все убиты.
+- Второй круг ревью: три новых test-а (повтор 401 после refresh, refresh с ответом 200 без token-ов, окно входа не
+  считается окном worfy) — exit 1 до правки, exit 0 после.
 - Все unit и contract test-ы затронутых модулей (30 файлов) — exit 0; `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 
 ## Проверить себя
@@ -197,12 +221,12 @@ Code: `src/main/integrations/proxy.ts:513-517` · key lines: 515
 1. Почему замок стоит в `fetch` transport-а, а не в provider-е?
    - Ответ: у `OAuthClientProvider` нет места вокруг refresh — пакет сам шлёт запрос token-а через `fetch`, который
      получает transport; там видны и 401 обычных запросов, и тело запроса refresh.
-   - Строки: `src/main/integrations/auth/oauth.ts:479-497`
+   - Строки: `src/main/integrations/auth/oauth.ts:489-520`
 
 2. Что получает вызов, чей 401 пришёл уже после того, как другой вызов обновил token-ы?
-   - Ответ: хранимые token-ы без запроса к сервису: его refresh token уже не хранимый (или хранимый access token не
-     отказан), и отработанный token второй раз не уходит.
-   - Строки: `src/main/integrations/auth/oauth.ts:492-497`
+   - Ответ: его запрос уходит ещё раз с хранимым token-ом, до transport-а пакета 401 не доходит; а refresh такого
+     вызова получает хранимые token-ы без запроса к сервису — отработанный token второй раз не уходит.
+   - Строки: `src/main/integrations/auth/oauth.ts:497-520`
 
 3. Почему Session без человека не открывает окно входа, даже если refresh отказан?
    - Ответ: provider proxy не отдаёт и не сохраняет нового клиента и ничего не делает в `redirectToAuthorization`, так

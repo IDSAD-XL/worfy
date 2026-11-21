@@ -139,3 +139,23 @@ contract test-ы затронутых модулей (30 файлов) — exit 
 5. Аккаунт и site во входе — `null`: стандартного способа узнать их из ответа token-а нет.
 6. «Open in system browser» — значение `via: 'browser'` канала; ссылку на экране ставит Ticket 09 рядом с Sign in.
 7. Sign out — функция main (`signOut`), канал для экрана — Ticket 08, как Sign out token-а Ticket-а 04.
+
+Второй круг ревью (FIX, три находки):
+1. Ложный «Sign-in needed» во время refresh: 401 вызова B, ушедшего со старым token-ом, приходил после refresh вызова A,
+   и transport пакета (`_hasCompletedAuthFlow`) бросал `Server returned 401 after successful authentication`. Теперь
+   `fetch` замка шлёт такой запрос ещё раз, один, с хранимым token-ом. Test — та же раскладка времени задержками stub-а:
+   оба вызова отвечают, один refresh, статус `signed-in`.
+2. Ответ refresh 200 без access token-а (страница ошибки) больше не запирает Integration: он забывается, как 5xx, и
+   следующий refresh снова идёт к сервису (`stub.refreshes()` — 2, вызов проходит). Механизм отличается от
+   предложенного ревью («снимать `pending`, когда ответ отдан»): снятие `pending` для хорошего ответа открыло бы гонку
+   refresh-а, пришедшего до `saveTokens`, — он ушёл бы к сервису с отработанным refresh token-ом.
+3. Окно входа считалось окном worfy: `src/main/sign-in-windows.ts` (`markSignInWindow`, `appWindows`); `activate`
+   (иконка Dock), `second-instance` (второй запуск, та же ошибка в `index.ts`) и `openNote` (щелчок по notification)
+   пропускают окна входа.
+
+Красный до правки: три новых test-а (`integrations-oauth.test.ts` — 2, `startup-failure.test.ts` и `notify.test.ts` —
+по одному) — exit 1 на 383e23125, exit 0 после правки. Mutation testing — 6 новых mutant-ов (без повтора 401, без
+забывания ответа без token-ов, `activate`, `second-instance`, `openNote`, `appWindows` без фильтра; старые mutant-ы
+`401 не запомнен` и стены навигации — по новому коду), все убиты; весь набор — 32 mutant-а.
+
+Долг: `integrations.remove` не отзывает token-ы OAuth-Integration и не чистит её partition — Ticket 08 или 09.
