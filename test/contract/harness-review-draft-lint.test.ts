@@ -228,8 +228,57 @@ describe('review-draft-lint', () => {
     expect(tier.stderr).toContain('blocker')
     const count = lint([file({ ...CLEAN, tiers: ['nit'] }), '--rules', rules], outside)
     expect(count.status, count.stdout + count.stderr).toBe(2)
-    const noRules = lint([file(CLEAN)], outside)
-    expect(noRules.status, noRules.stdout + noRules.stderr).toBe(2)
+    const half = lint([file({ payload: { body: 'Fine.', comments: [] }, body_tier: 'approve' }), '--rules', rules], outside)
+    expect(half.status, half.stdout + half.stderr).toBe(0)
+    const missing = lint([file({ payload: { body: '', comments: [{ path: 'a.ts', line: 1, side: 'RIGHT', body: 'x' }] }, body_tier: 'approve' }), '--rules', rules], outside)
+    expect(missing.status, missing.stdout + missing.stderr).toBe(2)
+  })
+
+  it("without --rules (worfy's Submit review): the template's lint.json, one length for every text, tiers not read", { timeout: ms(30_000) }, () => {
+    // The template's largest tier is 1200 characters (skills/human-review-setup/template/lint.json).
+    const fits = 'This retry runs without a cap. '.repeat(38)
+    const run = lint([file({ payload: { event: 'COMMENT', body: fits, comments: [{ path: 'src/cart.ts', line: 3, side: 'RIGHT', body: fits }] } }), '-C', repo])
+    expect(run.status, run.stdout + run.stderr).toBe(0)
+    expect(run.stdout).toContain('clean (2 texts)')
+    // Tiers a Team reviewer names are not the template's: without --rules they are not read.
+    const tiered = lint([file(CLEAN)], outside)
+    expect(tiered.status, tiered.stdout + tiered.stderr).toBe(0)
+    const long = 'x'.repeat(1201)
+    const over = lint([file({ payload: { event: 'APPROVE', body: long, comments: [{ path: 'src/cart.ts', line: 3, side: 'RIGHT', body: long }] } })], outside)
+    expect(over.status, over.stdout + over.stderr).toBe(1)
+    expect(over.stdout.trim().split('\n')).toEqual(['body: length 1201 chars, over 1200 of the template', 'comments[0] src/cart.ts:3: length 1201 chars, over 1200 of the template'])
+    // The other rules hold as with --rules: a trace of the workflow, an AI signature.
+    const traced = lint([file({ payload: { event: 'COMMENT', body: 'As an AI, I think this is fine.', comments: [{ path: 'src/cart.ts', line: 3, side: 'RIGHT', body: 'See checkout-flow/05.' }] } }), '-C', repo])
+    expect(traced.status, traced.stdout + traced.stderr).toBe(1)
+    expect(traced.stdout).toContain('body: AI authorship "As an AI"')
+    expect(traced.stdout).toContain('epic/NN "checkout-flow/05"')
+    // The draft from stdin, as worfy gives it.
+    const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, USERPROFILE: home, HARNESS_HOME: harnessHome, EVAL_HARNESS_HOME: '' }
+    for (const name of ['CLAUDE_GATE_CONFIG', 'CLAUDE_GATE_RESOLVE', 'CLAUDE_PROFILES_DIR', 'CLAUDE_PROFILE_BIN', 'CLAUDE_TICKET_BIN']) delete env[name]
+    const piped = spawnSync(scriptNode(), [CLI, '-', '-C', outside], { cwd: outside, encoding: 'utf8', input: JSON.stringify({ payload: { event: 'COMMENT', body: 'Fine.', comments: [] } }), env })
+    expect(piped.status, piped.stdout + piped.stderr).toBe(0)
+  })
+
+  it('--rules with a draft without tiers is refused as before; --untiered holds every text to the largest max_chars of --rules', { timeout: ms(30_000) }, () => {
+    const rules = file(RULES, 'lint.json')
+    const fits = 'y'.repeat(1200)
+    const untiered = { payload: { event: 'COMMENT', body: fits, comments: [{ path: 'src/cart.ts', line: 3, side: 'RIGHT', body: fits }] } }
+    // A Team reviewer's draft must name its tiers: without them the lint refuses (exit 2), never passes.
+    const refused = lint([file(untiered), '--rules', rules], outside)
+    expect(refused.status, refused.stdout + refused.stderr).toBe(2)
+    expect(refused.stderr).toContain('"tiers" must be a list')
+    // worfy's Submit of a draft the person wrote: --untiered.
+    const run = lint([file(untiered), '--rules', rules, '--untiered'], outside)
+    expect(run.status, run.stdout + run.stderr).toBe(0)
+    const tiered = lint([file(CLEAN), '--rules', rules, '--untiered'], outside)
+    expect(tiered.status, tiered.stdout + tiered.stderr).toBe(0)
+    const over = lint([file({ payload: { event: 'COMMENT', body: 'Fine.', comments: [{ path: 'src/cart.ts', line: 3, side: 'RIGHT', body: `${fits}y` }] } }), '--rules', rules, '--untiered'], outside)
+    expect(over.status, over.stdout + over.stderr).toBe(1)
+    expect(over.stdout).toContain('comments[0] src/cart.ts:3: length 1201 chars, over 1200 of lint.json')
+    expect(over.stdout).not.toContain('body:')
+    const word = lint([file({ payload: { event: 'COMMENT', body: 'This blammo of a function.', comments: [] } }), '--rules', rules, '--untiered'], outside)
+    expect(word.status, word.stdout + word.stderr).toBe(1)
+    expect(word.stdout).toContain('forbidden "blammo"')
   })
 
   it('finds every kind of trace and AI authorship line, each by its rule', { timeout: ms(30_000) }, () => {

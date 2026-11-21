@@ -1,9 +1,11 @@
 // The row of an MCP server of a Codex Session (worfy-mcp-live ticket 06, src/main/vendors/codex/mcp.ts):
 // a server of mcpServerStatus/list (codexMcpRow) and a mcpServer/startupStatus/updated notification over
 // the row before it (codexStartupRow). The forms are those of the pinned Codex 0.166.0
-// (src/main/vendors/codex/protocol/ts/v2/); the names are made up.
+// (src/main/vendors/codex/protocol/ts/v2/); the names are made up. worfy-integrations ticket 07: the row of an
+// Integration's server over the row Codex gave (codexIntegrationRow).
 import { describe, expect, it } from 'vitest'
-import { codexMcpRow, codexStartupRow, worfyServerNames } from '../../src/main/vendors/codex/mcp'
+import { codexIntegrationRow, codexMcpRow, codexStartupRow, worfyServerNames } from '../../src/main/vendors/codex/mcp'
+import { mcpServerRowSchema } from '../../src/shared/agent/mcp-status'
 import type { McpServerStatus } from '../../src/main/vendors/codex/protocol/ts/v2/McpServerStatus'
 import type { McpServerStatusUpdatedNotification } from '../../src/main/vendors/codex/protocol/ts/v2/McpServerStatusUpdatedNotification'
 
@@ -95,5 +97,31 @@ describe('codexStartupRow: mcpServer/startupStatus/updated over the row before',
 describe('worfyServerNames', () => {
   it('names the servers of the `mcp_servers.<name>` keys of a Session\'s config, nothing else', () => {
     expect(worfyServerNames({ 'mcp_servers.worfy-canvas': {}, 'mcp_servers.worfy-browser': {}, 'shell_environment_policy.include_only': [] })).toEqual(['worfy-canvas', 'worfy-browser'])
+  })
+})
+
+describe('codexIntegrationRow: the row of an Integration`s server', () => {
+  const SIGN_IN = 'Sign-in needed: Jira — client A. Ask the user to sign in in worfy.'
+  const given = codexMcpRow(server({ name: 'jira-client-a', httpOrigin: 'http://127.0.0.1:4100', authStatus: 'bearerToken' }), ['jira-client-a'])
+
+  it('has the source integration and the label, whatever source Codex`s row had', () => {
+    const row = codexIntegrationRow(given, 'Jira — client A', null)
+    expect(row).toEqual({ name: 'jira-client-a', status: 'connected', tools: 1, error: null, source: 'integration', sourceWord: null, label: 'Jira — client A', actions: [] })
+    expect(mcpServerRowSchema.parse(row)).toEqual(row)
+    expect(codexIntegrationRow({ ...given, source: 'user', sourceWord: 'plugin' }, 'Jira — client A', null)).toMatchObject({ source: 'integration', sourceWord: null })
+  })
+
+  it('a refused sign-in of the proxy is needs-auth with its text, and offers Reconnect only', () => {
+    expect(codexIntegrationRow(given, 'Jira — client A', SIGN_IN)).toMatchObject({ status: 'needs-auth', tools: 1, error: SIGN_IN, actions: ['reconnect'] })
+    // A server Codex has not started yet, or one turned off, stays as Codex says.
+    expect(codexIntegrationRow({ ...given, status: 'pending', tools: null }, 'Jira — client A', SIGN_IN)).toMatchObject({ status: 'pending', error: null, actions: [] })
+    expect(codexIntegrationRow({ ...given, status: 'disabled' }, 'Jira — client A', SIGN_IN)).toMatchObject({ status: 'disabled', error: null, actions: [] })
+  })
+
+  it('never offers Codex`s own Sign in: it would sign in to worfy`s endpoint, not to the service', () => {
+    const waiting = codexMcpRow(server({ name: 'jira-client-a', runtimeStatus: 'authenticationRequired', httpOrigin: 'http://127.0.0.1:4100' }), ['jira-client-a'])
+    expect(waiting.actions).toEqual(['sign-in'])
+    expect(codexIntegrationRow(waiting, 'Jira — client A', null)).toMatchObject({ status: 'needs-auth', actions: ['reconnect'] })
+    expect(codexIntegrationRow({ ...given, status: 'failed', error: 'connection refused', actions: ['reconnect'] }, 'Jira — client A', null)).toMatchObject({ status: 'failed', actions: ['reconnect'] })
   })
 })

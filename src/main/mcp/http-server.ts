@@ -22,6 +22,18 @@
 // answer of the client is answered 202. No Mcp-Session-Id is given and no server-to-client stream is
 // opened: a GET is answered 405, which the transport allows. Methods: initialize, ping, tools/list and
 // tools/call; any other request gets "method not found".
+//
+// worfy-integrations ticket 07: a server whose tools come from elsewhere — an Integration's server of the proxy
+// (src/main/integrations/proxy.ts), the same McpServer the Claude driver serves — answers tools/list with its
+// listTools(), whose list the Project's tools filter cut and whose descriptions lead with the label, and a tools/call
+// goes to the tool of that name in that list: a tool the filter cut is refused here, before the service. A rejected
+// listTools() («Sign-in needed: …», with no list known) is a JSON-RPC error with its message.
+//
+// The agent's cancel reaches the call (the review of ticket 07): each tools/call gets a signal, as a Claude Session's
+// does (src/main/vendors/claude/mcp.ts), aborted when the request's connection closes before its answer — Codex gave
+// up on it: Stop, the Session closed, its own time limit — or when the same Session sends notifications/cancelled
+// with the call's id to the same server. The proxy hands the signal to the service, so a call the agent abandoned is
+// not done after the agent got its error.
 import { createHash, randomBytes } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -41,6 +53,7 @@ const PARSE_ERROR = -32700
 const INVALID_REQUEST = -32600
 const METHOD_NOT_FOUND = -32601
 const INVALID_PARAMS = -32602
+const INTERNAL_ERROR = -32603
 
 /** What a Session got: its token and the URL of each of its servers. */
 export interface McpGrant {
@@ -83,22 +96,33 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 const answer = (id: JsonRpcId, result: unknown): JsonRpcAnswer => ({ jsonrpc: '2.0', id, result })
 const failure = (id: JsonRpcId, code: number, message: string): JsonRpcAnswer => ({ jsonrpc: '2.0', id, error: { code, message } })
 
-/** A tool as tools/list gives it: the zod shape of its arguments as JSON Schema. */
-function listed(tool: McpTool): { name: string; description: string; inputSchema: unknown } {
-  return { name: tool.name, description: tool.description, inputSchema: mcpInputSchema(tool) }
+/** A tool as tools/list gives it: its arguments as JSON Schema, and MCP's hints a service gave it. */
+function listed(tool: McpTool): { name: string; description: string; inputSchema: unknown; annotations?: unknown } {
+  return { name: tool.name, description: tool.description, inputSchema: mcpInputSchema(tool), ...(tool.annotations === undefined ? {} : { annotations: tool.annotations }) }
 }
 
-/** One tool call; a tool that throws, which it should not, is answered as a refusal the agent reads. */
-async function called(tool: McpTool, args: unknown): Promise<McpToolResult> {
+/** The tools of `server`: its listTools() when it has one (an Integration's), else its own. */
+const toolsOf = (server: McpServer): Promise<readonly McpTool[]> => (server.listTools === undefined ? Promise.resolve(server.tools) : server.listTools())
+
+/** One tool call, with the agent's cancel; a tool that throws, which it should not, is answered as a refusal the agent reads. */
+async function called(tool: McpTool, args: unknown, signal: AbortSignal): Promise<McpToolResult> {
   try {
-    return await tool.call(args ?? {})
+    return await tool.call(args ?? {}, { signal })
   } catch (error) {
     return { content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }], isError: true }
   }
 }
 
+/** The tools/call requests of one Session's server running now, by their JSON-RPC id: what notifications/cancelled finds. */
+interface RunningCalls {
+  /** The call `id` starts: its signal, aborted by its cancel or when the request's connection closes, and its end. */
+  start(id: string | number): { signal: AbortSignal; end(): void }
+  /** notifications/cancelled of the request `id`; an id no call has does nothing. */
+  cancel(id: unknown): void
+}
+
 /** The answer to one JSON-RPC message for `server`; null for a notification or a client's answer. */
-async function reply(server: McpServer, message: unknown): Promise<JsonRpcAnswer | null> {
+async function reply(server: McpServer, message: unknown, calls: RunningCalls): Promise<JsonRpcAnswer | null> {
   if (!isRecord(message)) return failure(null, INVALID_REQUEST, 'Not a JSON-RPC message')
   const id = message.id
   const hasId = typeof id === 'string' || typeof id === 'number'
@@ -106,8 +130,11 @@ async function reply(server: McpServer, message: unknown): Promise<JsonRpcAnswer
     // An answer of the client: this endpoint never asks it anything, so there is nothing to match it to.
     return 'result' in message || 'error' in message ? null : failure(hasId ? id : null, INVALID_REQUEST, 'Not a JSON-RPC message')
   }
-  if (!hasId) return null
   const params = isRecord(message.params) ? message.params : {}
+  if (!hasId) {
+    if (message.method === 'notifications/cancelled') calls.cancel(params.requestId)
+    return null
+  }
   switch (message.method) {
     case 'initialize': {
       const asked = params.protocolVersion
@@ -120,11 +147,22 @@ async function reply(server: McpServer, message: unknown): Promise<JsonRpcAnswer
     case 'ping':
       return answer(id, {})
     case 'tools/list':
-      return answer(id, { tools: server.tools.map(listed) })
     case 'tools/call': {
-      const tool = server.tools.find((each) => each.name === params.name)
+      let tools: readonly McpTool[]
+      try {
+        tools = await toolsOf(server)
+      } catch (error) {
+        return failure(id, INTERNAL_ERROR, error instanceof Error ? error.message : String(error))
+      }
+      if (message.method === 'tools/list') return answer(id, { tools: tools.map(listed) })
+      const tool = tools.find((each) => each.name === params.name)
       if (tool === undefined) return failure(id, INVALID_PARAMS, `Unknown tool: ${String(params.name)}`)
-      return answer(id, await called(tool, params.arguments))
+      const call = calls.start(id)
+      try {
+        return answer(id, await called(tool, params.arguments, call.signal))
+      } finally {
+        call.end()
+      }
     }
     default:
       return failure(id, METHOD_NOT_FOUND, `Method not found: ${message.method}`)
@@ -156,6 +194,9 @@ function send(response: ServerResponse, status: number, body?: unknown, headers:
 export async function startMcpHttpEndpoint(): Promise<McpHttpEndpoint> {
   /** The servers of each live token, by the token's digest. */
   const grants = new Map<string, ReadonlyMap<string, McpServer>>()
+  /** The cancels of the tools/call requests running now, by the token's digest, the server and the JSON-RPC id. */
+  const running = new Map<string, AbortController>()
+  const runningKey = (grant: string, server: string, id: string | number): string => JSON.stringify([grant, server, id])
 
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     if (request.headers.origin !== undefined) {
@@ -163,7 +204,8 @@ export async function startMcpHttpEndpoint(): Promise<McpHttpEndpoint> {
       return send(response, 403, failure(null, INVALID_REQUEST, 'Forbidden'))
     }
     const token = bearerOf(request)
-    const servers = token === null ? undefined : grants.get(digest(token))
+    const grant = token === null ? null : digest(token)
+    const servers = grant === null ? undefined : grants.get(grant)
     if (servers === undefined) {
       // The body is not read: an unknown caller only learns that it needs a token.
       request.resume()
@@ -192,7 +234,27 @@ export async function startMcpHttpEndpoint(): Promise<McpHttpEndpoint> {
     }
     const batch = Array.isArray(parsed)
     const messages: unknown[] = batch ? (parsed as unknown[]) : [parsed]
-    const answers = (await Promise.all(messages.map((message) => reply(server, message)))).filter((each) => each !== null)
+    // Codex gave up on the request: the connection closed before its answer went out.
+    const abandoned = new AbortController()
+    response.once('close', () => {
+      if (!response.writableFinished) abandoned.abort()
+    })
+    const key = (id: string | number): string => runningKey(grant!, server.name, id)
+    const calls: RunningCalls = {
+      start: (id) => {
+        const cancel = new AbortController()
+        running.set(key(id), cancel)
+        return {
+          signal: AbortSignal.any([cancel.signal, abandoned.signal]),
+          // shortcut: a reused id leaves only the newer call cancellable, redo when a client reuses ids (JSON-RPC forbids it).
+          end: () => void running.delete(key(id)),
+        }
+      },
+      cancel: (id) => {
+        if (typeof id === 'string' || typeof id === 'number') running.get(key(id))?.abort()
+      },
+    }
+    const answers = (await Promise.all(messages.map((message) => reply(server, message, calls)))).filter((each) => each !== null)
     if (answers.length === 0) return send(response, 202)
     send(response, 200, batch ? answers : answers[0])
   }

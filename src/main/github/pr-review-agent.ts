@@ -20,7 +20,7 @@
 // Nothing here reaches GitHub; the Session's own writes there are refused by the skill's text and the guard hook.
 import { existsSync } from 'node:fs'
 import type { SessionState } from '../../shared/agent/events'
-import type { PrReviewDraftAnswer, ReviewDraft } from '../../shared/ipc/pr-review'
+import { submitPending, TEXTS_LOCKED, type PrReviewDraftAnswer, type ReviewDraft } from '../../shared/ipc/pr-review'
 import { AGENT_REVIEW_VENDOR, agentReviewText } from '../../shared/projects/action-templates'
 import type { VendorId } from '../../shared/vendors/vendor'
 import type { Session } from '../agent/session'
@@ -90,6 +90,8 @@ export class PrReviewAgent {
       if (current.draft === null && current.problem !== null) throw new Error(current.problem)
       const draft = current.draft
       if (draft !== null && draft.state !== 'draft') throw new Error(`This review is ${draft.state}: it is not changed any more`)
+      // A Submit that may be on GitHub keeps the texts that went: the agent would change them.
+      if (draft !== null && submitPending(draft)) throw new Error(TEXTS_LOCKED)
       if (draft?.agent?.state === 'writing' && this.live(draft.agent.sessionId)) throw new Error(`Agent review is writing the review of ${repo}#${number} already: Stop it first`)
       if (fill === 'new' && draft !== null && (draft.payload.comments.length > 0 || draft.payload.body !== '')) throw new Error('This pull request has a review draft already: Ask the agent to add comments to it')
       const teamReviewer = await this.teamReviewer(root)

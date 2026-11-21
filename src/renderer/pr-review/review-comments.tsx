@@ -429,6 +429,7 @@ export function useReviewComments(options: ReviewCommentsOptions): ReviewComment
       onEdit={canChange ? () => openEdit(placed) : null}
       onDelete={canChange ? () => remove(placed) : null}
       onMove={canAdd && offSet.has(placed.index) ? () => setMoving(placed) : null}
+      submitted={draft?.state === 'submitted'}
     />
   )
   const renderGutter = (line: DiffLine, side: LineSide, entry: FileEntry): ReactNode => {
@@ -454,7 +455,7 @@ export function useReviewComments(options: ReviewCommentsOptions): ReviewComment
     const here = comments.filter(({ comment, index }) => !offSet.has(index) && comment.path === entry.file.path && commentOnLine(comment, line, side, layout))
     if (here.length === 0) return null
     return here.map((placed) => (
-      <DraftComment key={placed.index} placed={placed} repo={repo} onEdit={canChange ? () => openEdit(placed) : null} onDelete={canChange ? () => remove(placed) : null} />
+      <DraftComment key={placed.index} placed={placed} repo={repo} onEdit={canChange ? () => openEdit(placed) : null} onDelete={canChange ? () => remove(placed) : null} submitted={draft?.state === 'submitted'} />
     ))
   }
   const isPicked = (line: DiffLine, side: LineSide, entry: FileEntry): boolean => {

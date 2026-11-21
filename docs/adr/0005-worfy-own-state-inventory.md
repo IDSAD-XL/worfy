@@ -64,3 +64,7 @@ worfy ничего не пишет в репозитории Project-ов — н
   файл не пишутся. Два встроенных поиска («Review requested from me · All of GitHub», «Reviewed by me · open») в файле
   не хранятся и не удаляются. Пишут файл только каналы `prSearch.save` и `prSearch.forget` (`'project', 'write'`):
   Linked machine с доступом Read only их не вызовет, `prSearch.saved` (`'project', 'read'`) ей открыт.
+- 2026-11-21 — Epic `worfy-pr-review`, Ticket 11 (ADR-0112): в черновике ревью чужого PR новое поле `submittingAt` —
+  время отметки `submitting`, ISO 8601. Оно остаётся после Submit-а, который GitHub не подтвердил: следующий Submit ищет
+  ревью, данное не раньше него, и первые 5 минут после него не отправляет ревью снова. Заменяет его только отметка
+  следующего POST; 4xx его удаляет. Пишет main (`src/main/github/pr-review-submit.ts`).

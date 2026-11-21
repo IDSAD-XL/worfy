@@ -1,10 +1,11 @@
 // The state of Review mode and of Start review outside their components (worfy-pr-review ticket 09): which PR Review mode
 // is open on, its file and Show new commits — in the store of the view, so another tab and back keeps them — the
 // Project's last choice of who writes the review, and the small rules both screens and their tests share.
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type MouseEvent } from 'react'
 import { create } from 'zustand'
 import '../../shared/ipc/pr-review'
-import type { PrReviewDraftRow, ReviewDraft } from '../../shared/ipc/pr-review'
+import type { PrReviewDraftRow, ReviewDraft, ReviewEvent } from '../../shared/ipc/pr-review'
+import '../../shared/ipc/shell'
 import type { FileEntry } from '../changes/diff-window'
 import { invoke, subscribe, windowMachine } from '../ipc'
 
@@ -144,4 +145,17 @@ export function useReviewDrafts(projectId: string): ReadonlyMap<string, PrReview
     }
   }, [away, projectId, seq, changed])
   return read?.of === projectId ? read.drafts : NO_DRAFTS
+}
+
+// ── Finish review (worfy-pr-review ticket 11) ──
+
+/** The verdicts as the Finish review dialog and the bar name them. */
+export const EVENT_WORDS: Readonly<Record<ReviewEvent, string>> = { COMMENT: 'Comment', APPROVE: 'Approve', REQUEST_CHANGES: 'Request changes' }
+
+/** Opens `url` in the system's browser, never in the window. */
+export function openOutside(event: MouseEvent<HTMLAnchorElement>, url: string): void {
+  event.preventDefault()
+  void invoke('shell.openExternal', { url }).then((result) => {
+    if (!result.ok) console.error('shell.openExternal failed:', result.error)
+  })
 }
