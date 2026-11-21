@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChangesScreen, ChangesView } from '../../src/renderer/changes/ChangesView'
 import { openChanges, setChangesScope, useChangesView, type ChangesSubject } from '../../src/renderer/changes/open'
 import { setView, useNavigation } from '../../src/renderer/session/navigation'
-import { DiffPane, type ChangesThread, type DiffPaneProps } from '../../src/renderer/changes/DiffPane'
+import { DiffPane, READS_AT_ONCE, type ChangesThread, type DiffPaneProps } from '../../src/renderer/changes/DiffPane'
 import { FileTree } from '../../src/renderer/changes/FileTree'
 import { fileKey, sideBySideRows, windowOf } from '../../src/renderer/changes/diff-window'
 import type { ChangedFile, ChangesScope, DiffLine, FileDiff } from '../../src/shared/changes/types'
@@ -89,6 +89,13 @@ const CART_DIFF: FileDiff = {
 /** A diff of its own text: no other test has its tokens in the cache of highlight.ts. */
 const HELD_DIFF: FileDiff = { ...CART_DIFF, path: 'src/orders/held.ts', hunks: [{ ...CART_DIFF.hunks[0]!, lines: [line('context', 'export function held() {', 1, 1), line('add', '  return 1', null, 2), line('context', '}', 2, 3)] }] }
 
+/** A patch as tall as its file was before it was read (2 lines added, 1 deleted: 9 rows): its read moves nothing. */
+const steady = (path: string): FileDiff => ({
+  ...CART_DIFF,
+  path,
+  hunks: [{ ...CART_DIFF.hunks[0]!, lines: Array.from({ length: 9 }, (_, index) => line('context', `const v${index} = ${index}`, index + 1, index + 1)) }],
+})
+
 let files: ChangedFile[]
 let scopesOf: ('all' | 'uncommitted' | 'commit' | 'compare')[]
 let calls: { channel: string; input: Record<string, unknown> }[]
@@ -151,6 +158,7 @@ function answer(channel: string, input: Record<string, unknown>): unknown {
       if (path === 'data/big.json') return { file: { kind: 'no-patch', path, url: 'https://github.com/acme/api/blob/b0b/data/big.json' } }
       if (path === 'src/orders/cart.ts') return { file: CART_DIFF }
       if (path === 'src/orders/held.ts') return { file: HELD_DIFF }
+      if (path.startsWith('pkg/')) return { file: steady(path) }
       return { file: { ...CART_DIFF, path } }
     }
     default:
@@ -379,6 +387,41 @@ describe('the tree', () => {
     expect(drawn).toBeGreaterThan(0)
     expect(drawn).toBeLessThan(301)
     expect(calls.filter((call) => call.channel === 'changes.file').length).toBeLessThan(301)
+  })
+
+  // CI Windows (main after #2130): scrolled to the end of 301 files, the last file was drawn 35–45 s later. Every file
+  // the window passed was asked for at once, each read a handful of git processes, and the last screen waited behind
+  // them all. A few reads run at a time; a read waiting starts only if its file is still in the window.
+  it('a scroll over hundreds of files reads a few at a time, and only what is still drawn when a read ends', async () => {
+    files = Array.from({ length: 301 }, (_, index) => changed(`pkg/m${String(index % 30).padStart(2, '0')}/file-${String(index).padStart(3, '0')}.ts`))
+    const held: (() => void)[] = []
+    gate = (channel) => (channel === 'changes.file' ? new Promise<void>((done) => held.push(done)) : undefined)
+    const reads = () => calls.filter((call) => call.channel === 'changes.file')
+    const last = 'pkg/m29/file-299.ts'
+    render(view())
+    await screen.findAllByTestId('changes-file')
+    await settle()
+    expect(reads().length).toBeGreaterThan(0)
+    expect(reads().length).toBeLessThanOrEqual(READS_AT_ONCE)
+    // Screen by screen to the end, with no read answered: none more starts.
+    for (let step = 0; step < 400 && within(diff()).queryAllByTestId('changes-file').every((head) => head.dataset.path !== last); step += 1) {
+      diff().scrollTop += 800
+      fireEvent.scroll(diff())
+      await settle()
+    }
+    expect(within(diff()).getAllByTestId('changes-file').some((head) => head.dataset.path === last)).toBe(true)
+    expect(reads().length).toBeLessThanOrEqual(READS_AT_ONCE)
+    // The reads end (their files, far above, keep their height: the window stays): each one that ends starts the next,
+    // of the files drawn at the end, the last one among them.
+    const passed = reads().length
+    for (let round = 0; round < 10 && fileCalls(last).length === 0; round += 1) {
+      for (const release of held.splice(0)) release()
+      await settle()
+    }
+    expect(fileCalls(last)).toHaveLength(1)
+    expect(reads().length - passed).toBeLessThan(within(diff()).getAllByTestId('changes-file').length + READS_AT_ONCE)
+    for (const release of held.splice(0)) release()
+    await settle()
   })
 
   it('j and k walk the files, and a file picked in the tree is the selected one of the diff', async () => {
