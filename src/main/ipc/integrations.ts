@@ -254,9 +254,10 @@ export function integrationsHandlers(options: IntegrationsHandlersOptions = {}):
     }),
     defineHandler(integrationsMachine, () => {
       const machine = store()
-      // A list not known whole (its file damaged and set aside, or missing) would make every entry an orphan.
+      const integrations = machine.list()
+      // A list not known whole (its file damaged and set aside, or missing) would make every entry an orphan: the
+      // Integrations of the new list still show, only the orphans wait.
       const whole = machine.wholeList()
-      const integrations = whole ?? []
       const projects = projectsOf()
       const entries = projects.list().map((project) => ({ project, used: readProjectIntegrations(projects.dataDir(project.id)) }))
       const items = integrations.map((integration) => ({

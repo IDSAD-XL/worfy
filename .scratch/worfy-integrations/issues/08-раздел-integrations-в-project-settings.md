@@ -141,6 +141,11 @@ test-а: сироты против непрочитанного списка, Cl
 link, ipc, mcp и profile (90 файлов) — exit 0; `pnpm test:e2e test/e2e/integrations.spec.ts` под замком — exit 0;
 `pnpm lint`, `pnpm typecheck` — exit 0; gate fast — exit 0, `[gate] green (fast)`.
 
+Раунд 3 review: `integrations.machine` снова строит `items` из `list()`, `wholeList()` — только для сирот и Clean up:
+после отложенного файла новая Integration видна в Settings → Integrations и в «Use in this Project» (test exit 1 до
+правки, exit 0 после; mutant `items` из `wholeList()` — exit 1). Test окна Linked machine нажимает Allow: повторное
+чтение и запись Profile-а идут в мост этой Machine (mutant с `invoke` в повторном чтении — exit 1).
+
 Решено без владельца:
 1. Цена tools («41 tools · ~9k tokens», с фильтром «12 of 41 tools · ~3k tokens») считается после фильтра Tools
    Project-а: proxy режет `tools/list` тем же фильтром, это и получает Session в каждом запросе. Префикс метки в

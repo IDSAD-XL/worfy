@@ -364,10 +364,18 @@ describe('a window of a Linked machine with a Project of this Machine', () => {
     main.answers['integrations.setEnabled'] = { ok: true, value: { project: entry(other.id) } }
     main.answers['integrations.add'] = (input) => ({ ok: true, value: { integration: integration('ffff0007', (input as { label: string }).label), project: entry('ffff0007') } })
     main.answers['integrations.setSecret'] = { ok: true, value: { status: { state: 'signed-in' } } }
+    main.answers['profileEdit.write'] = { ok: true, value: { status: 'saved', fingerprint: 'f3', warning: null } }
+    main.rows = [{ name: 'linear', status: 'connected', tools: 3, error: null, source: 'user', sourceWord: null, actions: [] }]
     await open({ machine: null, path: true })
     const through = (channel: string): (string | null | undefined)[] => main.calls.filter((call) => call.channel === channel).map((call) => call.machine)
     expect(through('profileEdit.read').length).toBeGreaterThan(0)
     expect(new Set(through('profileEdit.read'))).toEqual(new Set([null]))
+    // Allow reads the list again and writes it, both on this Machine.
+    const reads = through('profileEdit.read').length
+    fireEvent.click(within(screen.getAllByTestId('claude-server').find((each) => each.dataset.name === 'linear')!).getByRole('button', { name: 'Allow' }))
+    await flush()
+    expect(through('profileEdit.read').slice(reads)).toEqual([null, null])
+    expect(through('profileEdit.write')).toEqual([null])
 
     fireEvent.click(screen.getByTestId('integrations-add'))
     fireEvent.click(within(screen.getByTestId('add-integration-reuse')).getByRole('button', { name: 'Use in this Project' }))

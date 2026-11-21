@@ -71,7 +71,7 @@ Code: `src/main/ipc/integrations.ts:228-246` · key lines: 231, 233, 236, 240
 
 ## 4. Сироты: записи Project-а без Integration-ы Machine
 
-Code: `src/main/ipc/integrations.ts:270-291` · key lines: 270, 279, 286
+Code: `src/main/ipc/integrations.ts:271-293` · key lines: 271, 280, 287
 
 ```ts
       const dangling = (whole === null ? [] : entries).flatMap(({ project, used }) => {
@@ -96,6 +96,7 @@ Code: `src/main/ipc/integrations.ts:270-291` · key lines: 270, 279, 286
         removed += entries.length - kept.length
       }
       return { removed }
+    }),
 ```
 
 - Что делает: `integrations.machine` называет Project-ы, которые ещё хранят записи Integration-ов, которых на Machine
@@ -103,7 +104,8 @@ Code: `src/main/ipc/integrations.ts:270-291` · key lines: 270, 279, 286
   удаляет только такие записи. Integration, которую не использует ни один Project, показана «Not used in any Project»
   с Remove. Пока список Machine не известен целиком (`integrations.json` повреждён или другой версии и отложен в
   сторону, или его нет), сирот нет и Clean up ничего не стирает: иначе каждая запись Project-а выглядела бы удалённой,
-  и один щелчок стёр бы их навсегда (`IntegrationStore.wholeList`, раунд 2 review).
+  и один щелчок стёр бы их навсегда (`IntegrationStore.wholeList`, раунд 2 review). Список Integration-ов Machine
+  при этом виден целиком: новые Integration-ы с Sign out и Remove (раунд 3).
 - Почему здесь: brief оркестратора просил показать и убрать сирот (низкая находка Ticket-а 03); Ticket, «Что делаем»,
   пункт 4, называет Settings → Integrations.
 - Без него: оборванный Remove оставлял бы в Project-е запись, которую не видно и не убрать.
@@ -210,7 +212,7 @@ Code: `src/main/agent/fake-query.ts:544-550` · key lines: 546, 549
 2. Что увидит пользователь, если Remove из Settings оборвался после удаления Integration-ы, но до записи Project-ов?
    - Ответ: строку «… still name(s) Integrations no longer on this Machine» с Clean up; Clean up удалит только записи
      без Integration-ы на Machine.
-   - Строки: `src/main/ipc/integrations.ts:270`, `src/main/ipc/integrations.ts:286`
+   - Строки: `src/main/ipc/integrations.ts:271`, `src/main/ipc/integrations.ts:287`
 3. Почему предупреждение о двух наборах tools не говорит об экономии контекста?
    - Ответ: выключение сервера Claude Code через `disallowedTools` не убирает MCP-tool из контекста модели; риск — два
      аккаунта одного сервиса рядом.

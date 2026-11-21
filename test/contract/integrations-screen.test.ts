@@ -212,8 +212,11 @@ describe('the Machine’s Integrations: where each is used, and orphans', () => 
     writeFileSync(join(root, 'worfy-data', 'integrations', 'integrations.json'), '{"version": 1, "integrations": [')
     await call('integrations.machine')
     // A new list is written beside the one set aside.
-    await added(call, 'Stub — B', TOKEN_B, 'p1')
-    expect(((await call('integrations.machine')) as { dangling: unknown[] }).dangling).toEqual([])
+    const fresh = await added(call, 'Stub — B', TOKEN_B, 'p1')
+    const machine = (await call('integrations.machine')) as { items: { integration: { id: string; label: string } }[]; dangling: unknown[] }
+    // The Machine's Integrations still show, with Sign out and Remove: only the orphans wait for the old list.
+    expect(machine.items.map((item) => [item.integration.id, item.integration.label])).toEqual([[fresh, 'Stub — B']])
+    expect(machine.dangling).toEqual([])
     expect(await call('integrations.cleanUp')).toEqual({ removed: 0 })
     expect(readProjectIntegrations(dataDir('p1')).map((entry) => entry.id)).toContain(id)
   })
