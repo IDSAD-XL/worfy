@@ -658,19 +658,22 @@ Ticket-е 07 и в Ticket-ах 08 и 09). На три вопроса Orchestrato
   - копии файлов Last turn хранятся за последние 20 ходов Session и удаляются, когда Session уходит в Archive
     (ADR-0076 — авто-архив законченных Session-ов); на Project — не больше 256 MB, старые уходят первыми;
   - поправка к ADR-0005 записывает `changes.json` и `changes/pre/`.
-- **PR.**
-  - Кнопка Changes в панели выбранного PR рядом с Open on GitHub (`src/renderer/pr-inbox/PrInboxView.tsx`).
-  - Запрос деталей получает `baseRefName` и `baseRefOid`.
-  - Если оба commit-а есть локально (`git cat-file -e`), diff считается локально. Иначе —
-    `gh api repos/<owner>/<repo>/pulls/<N>` с заголовком `Accept: application/vnd.github.diff`: это GET без
-    `--method` (ADR-0105 — публикация в PR только по щелчку пользователя). Ответ кэшируется в памяти по head commit-у;
-    отказ GitHub на очень большой diff даёт «Open on GitHub».
-  - Нити ревью стоят на своих строках (`path`, `line`, `isOutdated`); outdated — списком над файлом. Add to comments
-    кладёт последний комментарий нити в лоток как комментарий для агента.
-  - Since my last look у PR — уже существующий `seenHeadOid` из `pr-inbox.json`
+- ~~**PR.**~~ Вычеркнуто: пункт взял Epic `worfy-pr-review` (`.scratch/worfy-pr-review/spec.md`, «Решения по
+  реализации», 2 и 4; Ticket-ы 04, 06 и 09). Diff PR открывает Review mode вкладки Pull requests, не кнопка Changes
+  в панели PR; вместо Since my last look у PR — scope Since my review (head против commit-а черновика ревью).
+  Текст черновика оставлен для истории:
+  - ~~Кнопка Changes в панели выбранного PR рядом с Open on GitHub (`src/renderer/pr-inbox/PrInboxView.tsx`).~~
+  - ~~Запрос деталей получает `baseRefName` и `baseRefOid`.~~
+  - ~~Если оба commit-а есть локально (`git cat-file -e`), diff считается локально. Иначе — `gh api
+    repos/<owner>/<repo>/pulls/<N>` с заголовком `Accept: application/vnd.github.diff`: это GET без `--method` (ADR-0105
+    — публикация в PR только по щелчку пользователя). Ответ кэшируется в памяти по head commit-у; отказ GitHub на очень
+    большой diff даёт «Open on GitHub».~~
+  - ~~Нити ревью стоят на своих строках (`path`, `line`, `isOutdated`); outdated — списком над файлом. Add to comments
+    кладёт последний комментарий нити в лоток как комментарий для агента.~~
+  - ~~Since my last look у PR — уже существующий `seenHeadOid` из `pr-inbox.json`
     (`src/main/projects/pr-inbox-state.ts:18-25`), а Mark seen в Changes и в Pull requests — одно действие
-    (`prInbox.markSeen`, `src/main/github/inbox.ts:423`).
-  - Код и слова коллег остаются в памяти main, на диск не пишутся.
+    (`prInbox.markSeen`, `src/main/github/inbox.ts:423`).~~
+  - ~~Код и слова коллег остаются в памяти main, на диск не пишутся.~~
 - **Живое обновление.** `changes.updated` приходит, когда сдвинулся head ветки (watcher workflow уже следит за refs
   веток Ticket-ов, `src/main/workflow/watch.ts:9-13`), кончился ход Session, чья папка в этом worktree, пришёл
   результат `Edit`, `Write`, `Bash`, `fileChange` или `commandExecution` такой Session — с паузой 1 s, Node стал видимым
@@ -702,18 +705,21 @@ Ticket-е 07 и в Ticket-ах 08 и 09). На три вопроса Orchestrato
 - Живое обновление: `changes.updated`; после Last turn обоих Vendor-ов.
 - Входы Session и счётчик (возражение 2): предмет Session, badge, блок rail, preset Main + side, chip `+N −M`;
   после живого обновления.
-- PR в Changes с Since my last look для PR (возражение 1): после Ticket-а Viewed и Ticket-а 05 части 1; Amendment к ADR
-  Ticket-а 02 о чтении GitHub.
+- ~~PR в Changes с Since my last look для PR (возражение 1): после Ticket-а Viewed и Ticket-а 05 части 1; Amendment к
+  ADR Ticket-а 02 о чтении GitHub.~~ Вычеркнуто: взял Epic `worfy-pr-review` (Ticket-ы 04, 06 и 09; Amendment
+  ADR-0110 от 2026-11-20).
 - Review changes на Stage Human review и на доске Pipeline.
 - Документы части 2 и приёмка.
 
 ### Вопросы части 2 (открыты)
 
-1. **Q3. Что делать с комментариями к PR коллеги?**
-   - (а) Только агенту — например, Session с Team reviewer пишет из них черновик ревью голосом команды; на GitHub не
-     уходит ничего, Start review остаётся ссылкой на GitHub. Рекомендация.
-   - (б) Добавить Submit review: комментарии уходят на GitHub ревью по щелчку, путём ADR-0105, с lint-ом Silent mode.
-     Это новая запись в GitHub.
+1. ~~**Q3. Что делать с комментариями к PR коллеги?**~~ Снят: вопрос решил Epic `worfy-pr-review` — владелец 2026-11-20
+   выбрал Submit review из worfy (Q2 (а) его spec-а, `.scratch/worfy-pr-review/spec.md`; ADR-0112), а Start review
+   стал кнопкой worfy с Review myself и Agent review. Варианты черновика — для истории:
+   - ~~(а) Только агенту — например, Session с Team reviewer пишет из них черновик ревью голосом команды; на GitHub не
+     уходит ничего, Start review остаётся ссылкой на GitHub. Рекомендация.~~
+   - ~~(б) Добавить Submit review: комментарии уходят на GitHub ревью по щелчку, путём ADR-0105, с lint-ом Silent mode.
+     Это новая запись в GitHub.~~
 2. **Q4. Как считать Last turn у Claude?**
    - (а) Копии файлов перед первой правкой хода через PreToolUse hook. Точно для правок tool-ами, с Subagent-ами в
      любых worktree; правки командами не видны; диск — только тронутые файлы. Рекомендация.
