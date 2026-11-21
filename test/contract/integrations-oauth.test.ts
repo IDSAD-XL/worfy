@@ -244,6 +244,47 @@ describe('an expired access token, through the proxy', () => {
     expect(stub.initializes()).toBe(1)
   })
 
+  it('a 401 that comes back after another call refreshed is sent again with the new token, not answered «Sign-in needed»', async () => {
+    // Calls A and B go out with the expired token. A's 401 comes at once: A refreshes and sends again, and that answer
+    // waits; B's 401 comes after the refresh, while A's answer still waits — the MCP SDK's transport, mid-flow, would
+    // take it for a refusal after a successful sign-in.
+    const timing = { armed: false, refusals: 0, answers: 0 }
+    await stub.close()
+    stub = await startOAuthStub({
+      mcpDelay: ({ method, authorized }) => {
+        if (!timing.armed || method !== 'tools/call') return 0
+        if (!authorized) return timing.refusals++ === 0 ? 0 : 250
+        return timing.answers++ === 0 ? 600 : 0
+      },
+    })
+    const id = addOAuth('Acme — client A')
+    await oauth.signIn(id)
+    const client = await session(id, 'acme-client-a')
+    expect(textOf(await whoami(client))).toBe('dataset client-1')
+    stub.expireAccessTokens()
+    timing.armed = true
+    const [a, b] = await Promise.all([whoami(client), whoami(client)])
+    expect([textOf(a), textOf(b)]).toEqual(['dataset client-1', 'dataset client-1'])
+    expect(timing.refusals).toBe(2)
+    expect(stub.refreshes()).toBe(1)
+    expect(proxy.status(id)?.status).toEqual({ state: 'signed-in' })
+  })
+
+  it('a refresh answered 200 without tokens does not lock the Integration out: the next call refreshes again', async () => {
+    await stub.close()
+    stub = await startOAuthStub({ badRefreshes: 1 })
+    const id = addOAuth('Acme — client A')
+    await oauth.signIn(id)
+    const client = await session(id, 'acme-client-a')
+    expect(textOf(await whoami(client))).toBe('dataset client-1')
+    stub.expireAccessTokens()
+    expect((await whoami(client)).isError).toBe(true)
+    expect(stub.refreshes()).toBe(1)
+    const again = await whoami(client)
+    expect(textOf(again)).toBe('dataset client-1')
+    expect(stub.refreshes()).toBe(2)
+  })
+
   it('keeps the refresh token a service does not rotate', async () => {
     await stub.close()
     stub = await startOAuthStub({ rotate: false })

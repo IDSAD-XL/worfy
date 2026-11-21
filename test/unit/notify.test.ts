@@ -137,6 +137,7 @@ function withQuietWindows(value: string | undefined, body: () => void): void {
   }
 }
 const { PENDING_OPEN_MS, PendingOpens } = await import('../../src/main/notify-pending')
+const { markSignInWindow } = await import('../../src/main/sign-in-windows')
 const { WaitsNotices, installWaitsNotifications, waitKey } = await import('../../src/main/workflow/waits-notify')
 const { originKey, projectMatchKey, readProjectMatchKey, remoteHasHost } = await import('../../src/main/autopilot/origin')
 const { StageHub } = await import('../../src/main/workflow/stages')
@@ -687,6 +688,22 @@ describe('a click on a notification', () => {
     expect(pending.take(7)).toEqual({ sessionId: 's1', projectRoot: '/Users/test/alpha' })
     // Taken once.
     expect(pending.take(7)).toBeNull()
+  })
+
+  it("passes an Integration's sign-in window by: with only it open, opens the main window and leaves it alone", () => {
+    const pending = new PendingOpens()
+    const signIn = fakeWindow(8)
+    markSignInWindow(signIn.window.webContents)
+    const created = fakeWindow(9)
+    electron.windows = [signIn.window]
+    const create = vi.fn(() => created.window)
+    openNote(note, pending, create as never, NORMAL_WINDOWS)
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(signIn.calls).toEqual([])
+    expect(signIn.sent).toEqual([])
+    expect(pending.take(8)).toBeNull()
+    expect(pending.take(9)).toEqual({ sessionId: 's1', projectRoot: null })
+    electron.windows = []
   })
 
   it('keeps the latest note of a window, and forgets it when the window goes away', () => {

@@ -90,6 +90,7 @@ import { workflowHub } from './ipc/workflow'
 import { pendingOpens, type PendingOpens } from './notify-pending'
 import { projectStore } from './projects/store'
 import { quietWindows, type QuietWindows } from './quiet-windows'
+import { appWindows } from './sign-in-windows'
 import { createMainWindow } from './window'
 import { installWaitsNotifications, type WaitsHub } from './workflow/waits-notify'
 
@@ -829,7 +830,8 @@ export function openNote(
   createWindow: () => BrowserWindow = createMainWindow,
   quiet: QuietWindows = quietWindows(),
 ): void {
-  const existing = BrowserWindow.getAllWindows().find((each) => !each.isDestroyed())
+  // An Integration's sign-in window is not the window a note opens in.
+  const existing = appWindows(BrowserWindow.getAllWindows()).find((each) => !each.isDestroyed())
   // A new window shows itself once its page is ready (window.ts).
   const window = existing ?? createWindow()
   if (existing !== undefined) {

@@ -355,6 +355,16 @@ interface Captured {
 
 const replay = (answer: Captured): Response => new Response(answer.body, { status: answer.status, headers: answer.headers })
 
+/** Whether a token endpoint's answer carries an access token: a 200 with an HTML page or an empty body does not. */
+function carriesAccessToken(body: string): boolean {
+  try {
+    const parsed = JSON.parse(body) as { access_token?: unknown } | null
+    return typeof parsed?.access_token === 'string' && parsed.access_token !== ''
+  } catch {
+    return false
+  }
+}
+
 const jsonAnswer = (status: number, body: unknown): Response => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 
 /** The refresh token of a token request with grant_type=refresh_token; null for any other request. */
@@ -482,8 +492,21 @@ export class IntegrationOAuth {
       if (spent === null) {
         const sent = bearerOf(init)
         const response = await base(input, init)
-        if (response.status === 401 && sent !== null) state.refused.add(sent)
-        return response
+        if (response.status !== 401 || sent === null) return response
+        // A 401 to a token another call has refreshed since this one went out: sent again, once, with the kept token.
+        // The SDK's transport, which has just finished a sign-in for that other call, would take it for a refusal of
+        // the new token and give up («Server returned 401 after successful authentication»).
+        const kept = keptOf(this.store, id).access
+        if (kept === undefined || kept === sent || state.refused.has(kept)) {
+          state.refused.add(sent)
+          return response
+        }
+        await response.body?.cancel()
+        const headers = new Headers(init?.headers)
+        headers.set('authorization', `Bearer ${kept}`)
+        const again = await base(input, { ...init, headers })
+        if (again.status === 401) state.refused.add(kept)
+        return again
       }
       const kept = keptOf(this.store, id)
       const last = state.last
@@ -503,8 +526,9 @@ export class IntegrationOAuth {
       }
       try {
         const captured = await answer
-        // A refusal (invalid_grant) stays the answer to this token; a failure of the service lets a later refresh try again.
-        if (captured.status >= 500) forget()
+        // A refusal (invalid_grant) stays the answer to this token; a failure of the service — a 5xx, or a 2xx with no
+        // access token, such as an error page — lets a later refresh try again.
+        if (captured.status >= 500 || (captured.status < 300 && !carriesAccessToken(captured.body))) forget()
         else if (captured.status >= 300) current.pending = false
         return replay(captured)
       } catch (error) {

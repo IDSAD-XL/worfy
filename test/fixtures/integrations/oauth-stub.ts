@@ -28,6 +28,13 @@ export interface OAuthStubOptions {
   revocation?: boolean
   /** Whether a refresh gives a new refresh token and ends the old one; true by default, as Atlassian and Linear do. */
   rotate?: boolean
+  /** How many refreshes, first, get 200 with an HTML page instead of tokens, the refresh token not spent; none by default. */
+  badRefreshes?: number
+  /**
+   * How long the answer to a POST to /mcp waits, by its JSON-RPC method and whether its token was honoured: lets a test
+   * order two calls' answers around a refresh. No wait by default.
+   */
+  mcpDelay?: (request: { method: string; authorized: boolean }) => number
 }
 
 /** What one request to /authorize carried. */
@@ -119,6 +126,8 @@ export async function startOAuthStub(options: OAuthStubOptions = {}): Promise<OA
   const revocations: { hint: string | null; known: boolean }[] = []
   const calls: string[] = []
   let initializes = 0
+  let badRefreshes = options.badRefreshes ?? 0
+  const wait = (delay: number): Promise<void> => (delay > 0 ? new Promise((resolve) => setTimeout(resolve, delay)) : Promise.resolve())
   /** code → what it was given for. */
   const codes = new Map<string, { clientId: string; challenge: string; redirectUri: string; resource: string | null }>()
   /** access token → dataset, refresh token → client id: the live ones. */
@@ -207,6 +216,12 @@ export async function startOAuthStub(options: OAuthStubOptions = {}): Promise<OA
           await new Promise((resolve) => setTimeout(resolve, options.refreshDelayMs ?? 100))
           const old = form.get('refresh_token') ?? ''
           const clientId = refresh.get(old)
+          if (clientId !== undefined && badRefreshes > 0) {
+            badRefreshes--
+            tokenRequests.push({ grant, resource, outcome: 'refused' })
+            response.writeHead(200, { 'content-type': 'text/html' })
+            return response.end('<html><body>Service temporarily unavailable</body></html>')
+          }
           tokenRequests.push({ grant, resource, outcome: clientId === undefined ? 'refused' : 'issued' })
           if (clientId === undefined) return json(response, 400, { error: 'invalid_grant', error_description: 'The refresh token is not valid' })
           if (options.rotate === false) {
@@ -233,7 +248,8 @@ export async function startOAuthStub(options: OAuthStubOptions = {}): Promise<OA
       const bearer = /^Bearer (.+)$/u.exec(request.headers.authorization ?? '')?.[1]
       const dataset = bearer === undefined ? undefined : access.get(bearer)
       if (dataset === undefined) {
-        await bodyOf(request)
+        const body = await bodyOf(request)
+        if (request.method === 'POST') await wait(options.mcpDelay?.({ method: (JSON.parse(body) as { method: string }).method, authorized: false }) ?? 0)
         return json(response, 401, { error: 'invalid_token' }, { 'www-authenticate': `Bearer error="invalid_token", resource_metadata="${origin()}/.well-known/oauth-protected-resource/mcp"` })
       }
       if (request.method === 'GET') return json(response, 405, { error: 'method not allowed' })
@@ -244,6 +260,7 @@ export async function startOAuthStub(options: OAuthStubOptions = {}): Promise<OA
         return response.end()
       }
       const message = JSON.parse(await bodyOf(request)) as { id?: number | string; method: string; params?: { name?: string } }
+      await wait(options.mcpDelay?.({ method: message.method, authorized: true }) ?? 0)
       if (message.id === undefined) {
         response.writeHead(202)
         return response.end()
