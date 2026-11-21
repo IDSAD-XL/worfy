@@ -1,7 +1,8 @@
 # 11 — Finish review и `pr-review-submit.ts`: диалог с каждым комментарием ровно, lint, проверка head, один POST ревью по Submit человека, новый ADR
 
 Type: task
-Status: claimed 2026-11-20T23:02Z
+Status: done 2026-11-21T03:35Z
+PR: #2122
 Blocked by: 10
 Source: [spec.md](../spec.md), «Ticket-ы», 11; «Решение», 4 и 6; «Как пользователь идёт по экрану», A (шаги 7–8), C и E
 (шаг 4); «Факты GitHub API» → «Отправка ревью»; «Решения по реализации», 7, 10 и 13; «Риски», «Новая запись на GitHub»,
@@ -75,6 +76,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 11; «Решение», 4 и 6; «
   - evidence: review pass · max review on 52f0db464 (PR #2122 comment 7054192719): MAX-REVIEW REJECTED, four findings A-D, sceptics refuted none; treated as review round 1; fixed in rounds 2-3, correctness re-review MERGE on e288c26e4 · - - · e288c26e455272ccc8933feb1d8de7ed66ab6055
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job-ы Windows CI зелёные
       (платформенный PR).
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44856075954/job/136716060712 · ci - · f170ea1b33cc08732469e5c122b75c2117061f68
 
 ## Где в коде
 

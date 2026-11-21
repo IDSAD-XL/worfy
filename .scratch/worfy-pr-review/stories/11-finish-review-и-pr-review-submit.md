@@ -277,3 +277,39 @@ Code: `src/main/ipc/pr-review.ts:72-81` · key lines: 73, 75, 78
 4. На каком commit-е стоят комментарии, если человек перенёс черновик на новый head?
    Строки: `src/main/github/pr-review-submit.ts:68-68`
    Ответ: `draftCommitOf` — `anchoredOn`, если он есть, иначе `startedOn`: строки комментариев — строки того commit-а.
+
+## 12. Что нашёл review и что осталось
+
+> VERIFIED — worfy-pr-review 11 (Finish review and pr-review-submit.ts: a dialog with every comment exactly, lint, head check, one POST of a review on the person's Submit, new ADR-0112), head f170ea1b33cc08732469e5c122b75c2117061f68
+>
+> Gate (depth max, three rounds): verifier (lens: implementer's claims, sonnet) — MERGE, all eight claims CONFIRMED, five mutants caught; max review on 52f0db464 (correctness and simplification, each on two models, four sceptics) — MAX-REVIEW REJECTED with four findings, none refuted, taken as round 1; reviewer (correctness) — round 2 MERGE (A–D fixed, three lows sent to round 3 because they touch «never a second review»), round 3 MERGE.
+>
+> - What the user sees: Finish review (or ⌘⇧↵) opens a dialog — Summary, Comment / Approve / Request changes starting on Comment, «The agent suggests», every comment as it will be posted with Remove, the lint result; Submit only by click or ⌘↵; one POST /pulls/{n}/reviews with commit_id = the draft's commit; then a toast, the approvals chip counts it, and Review mode shows «You reviewed this pull request».
+> - «Never a second review»: after a Submit GitHub did not confirm, texts and verdict stay locked in the renderer and in main (saveComment, deleteComment, Agent review refused); the next Submit first looks the review up (account, commit, body, any state, not earlier than the mark minus 2 minutes, the same line comments); «not found» within 5 minutes of the mark refuses and keeps the mark; only the next POST's mark replaces it. A 4xx refusal gives the draft back every comment removed in the dialog. Discard of an unconfirmed draft is allowed with a warning. review-draft-lint --rules without tiers refuses again; Submit passes --untiered.
+> - Evidence: contract pr-review-submit 24 tests, pr-review-draft, pr-review-agent, review-comments 95 passed EXIT=0; 23 mutants over rounds 2–3 each red on its own test; e2e pr-review.spec.ts + pr-inbox.spec.ts whole 18 passed EXIT=0; harness/bin e2e specs 53 + packaged 11 passed EXIT=0; plugin-neutral, harness-home, agents-text EXIT=0; pnpm lint, typecheck, test (20216) EXIT=0; story-check, evidence-check EXIT=0; gate fast green EXIT=0.
+> - Debt (low): the agent's script harness/bin/pr-review-draft:183-184 does not refuse an unconfirmed draft (a live Agent review Session could add a comment after a 502, then the lookup misses the landed review); clocks ahead of GitHub by more than 2 minutes, or set back, delay or miss the lookup (src/main/github/pr-review-submit.ts:291, src/shared/ipc/pr-review.ts:119-122); duplicated helpers (draftCommitOf, OWN_PULL, whereOf, sameText, keyed queue) to share via src/shared/ipc/pr-review.ts.
+> - Not verified: item 8 sandbox — what GitHub answers to the POST while a pending review started on github.com exists (no real GitHub in tests); at the owner's acceptance (ticket 13).
+>
+> Decided without the owner (to confirm): the changed lines are checked against GitHub's diff on the comments' commit; 4xx is a refusal, 5xx / network / timeout «not confirmed»; Remove acts on this Submit only; Summary lives in the window's memory; PR inbox re-reads the PR after Submit; the lint without --rules takes the template's largest max_chars; a 2-minute clock allowance; comments compared by path and text; the --untiered flag; a 5-minute wait before «not found» frees the draft; a mark without time counts as old; the max review REJECTED taken as review round 1 instead of blocking the ticket.
+
+Code: `harness/bin/pr-review-draft:183-184` · key lines: 183
+
+```
+    if (draft.state !== "draft") die(1, `the review is ${draft.state}: nothing written`)
+    if (isObject(draft.agent) && draft.agent.state === "stopped") die(1, "Agent review was stopped in worfy (Stop or Take over): nothing written")
+```
+
+Code: `src/main/github/pr-review-submit.ts:291-291` · key lines: 291
+
+```ts
+    const since = draft.submittingAt === undefined ? Number.NaN : Date.parse(draft.submittingAt) - CLOCK_SKEW_MS
+```
+
+Code: `src/shared/ipc/pr-review.ts:119-122` · key lines: 119
+
+```ts
+export const markAge = (draft: Pick<ReviewDraft, 'submittingAt'>, now: number = Date.now()): number => {
+  const at = draft.submittingAt === undefined ? Number.NaN : Date.parse(draft.submittingAt)
+  return Number.isNaN(at) ? Infinity : now - at
+}
+```
