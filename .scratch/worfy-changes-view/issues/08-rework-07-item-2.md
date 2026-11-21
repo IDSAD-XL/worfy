@@ -76,20 +76,28 @@ Source: owner-check fail 2026-11-21 of worfy-changes-view 07, item 2 — 07-пр
 
 - [ ] Unit test (`test/unit/canvas-actions.test.tsx`): кнопка Changes открывает вид `changes` с этим Ticket-ом и не шлёт
       операции Layout-а; на экране Read only она активна.
+  - evidence: test-run pass · `pnpm test -- test/unit/canvas-actions.test.tsx` exit 0 · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
 - [ ] Unit test (`test/unit/palette-commands.test.tsx`): Open changes открывает вид `changes`, без `readOnly`.
+  - evidence: test-run pass · `pnpm test -- test/unit/palette-commands.test.tsx` exit 0 · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
 - [ ] Unit test (`test/unit/changes-view.test.tsx`): вид рисует шапку scope-ов, дерево и diff Ticket-а; «← Canvas» и
       Escape возвращают на Canvas; Escape при открытом popover закрывает только popover.
+  - evidence: test-run pass · `pnpm test -- test/unit/changes-view.test.tsx test/unit/changes-tray.test.tsx` exit 0 · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
 - [ ] Contract test (`test/contract/layout-store.test.ts`): Layout с Node-ом `changes` читается без него, строка log-а
       одна; второе чтение ничего не пишет.
+  - evidence: test-run pass · `pnpm test -- test/contract/layout-store.test.ts` exit 0 · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
 - [ ] e2e test (`test/e2e/changes.spec.ts`, fake agent, временный репозиторий): карточка → Changes → вид `changes` во всё
       окно, файлы и строки совпадают с `git diff <merge-base>`; в сохранённом Layout-е нет Node-а `changes`; «← Canvas»
       возвращает на Canvas; Open changes из palette; репозиторий на 300 файлов открывается свёрнутым; снимки вида в
       светлой и тёмной теме.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/changes.spec.ts` exit 0 · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
 - [ ] e2e test (`test/e2e/changes-comments.spec.ts`): два комментария к строке и диапазону уходят одним сообщением из
       вида; блок в пузыре открывает вид на строке.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/changes-comments.spec.ts` exit 0 · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
 - [ ] e2e test-ы `test/e2e/pr-review.spec.ts` зелёные без правки ожиданий: экран PR не изменился.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-review.spec.ts` exit 0 · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
 - [ ] Страницы `docs/features/changes.md`, `app-shell.md`, `workflow.md`, их переводы в `docs/features/ru/` и термин в
       `CONTEXT.md` описывают вид; `node scripts/check-feature-docs.mjs` — exit 0.
+  - evidence: test-run pass · `pnpm lint` exit 0 (check-feature-docs ok) · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 - [ ] (manual) Mac Stable: кнопка Changes на карточке открывает Node с diff-ом ветки.
   - needs: mac stable
