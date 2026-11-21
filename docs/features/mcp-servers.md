@@ -158,6 +158,11 @@ A Codex Session has the same chip and popover, with these differences:
   sign-in shows Codex's words; one not over in 10 minutes fails. A server that needs a sign-in and is not HTTP gets Reconnect.
 - There is no Turn off and no Turn on: Codex has no way to turn a server off for one thread only. Opening the popover only
   reads the list; worfy takes in nothing.
+- An Integration of the Project (one account of a service worfy signs in to) reaches Codex through the same endpoint
+  on `127.0.0.1` as `worfy-canvas`, under its server name; the service's token stays in worfy. Its row shows the
+  Integration's label as the name, the server name in the tooltip, and the source `worfy integration`. When the service refused the sign-in the row needs a
+  sign-in and says "Sign-in needed: <label>"; it offers Reconnect only, never Codex's Sign in, which would sign in to
+  worfy's endpoint rather than to the service. An unattended Session gets only the Integrations «Available to Autopilot».
 
 #### In Project settings
 
@@ -244,7 +249,7 @@ and `agent.mcpAllowAll` write channels, so read-only access on a Linked machine 
 | `test/unit/mcp-chip.test.tsx` | The count of the chip, its warning, the popover's rows and groups, the buttons, "Allow all", the not started group and its "Restart Session", names shown whole, the popover opening upward, the ask with `pickUp` on opening. |
 | `test/unit/session-view.test.tsx` | The chip in the bar under the input field, not in the header, and none in a Product Session. |
 | `test/unit/edit-profile.test.tsx` | The status beside each name of the MCP servers list in Edit profile, none without a Session, none for a Project of a Linked machine. |
-| `test/unit/codex-mcp-row.test.ts` | The rows of Codex: each status, Sign in only for an HTTP server, the tools, the source, never not allowed. |
+| `test/unit/codex-mcp-row.test.ts` | The rows of Codex: each status, Sign in only for an HTTP server, the tools, the source, never not allowed; an Integration's row with its label, a refused sign-in, no Sign in. |
 | `test/contract/claude-mcp-status.test.ts` | The `mcp` event of a Claude Code Session over the fake agent, `agent.mcp`, Reconnect and the order of answers. |
 | `test/contract/claude-mcp-pickup.test.ts` | Taking in a new server between turns only, and nothing in an Autopilot Session. |
 | `test/contract/claude-mcp-turn-off.test.ts` | Restart with the same conversation after the old process exits, Turn off and Turn on, no Turn off of worfy's own server, Restart before the first turn. |
@@ -255,5 +260,6 @@ and `agent.mcpAllowAll` write channels, so read-only access on a Linked machine 
 | `test/contract/claude-mcp-allow.test.ts` | Allow and Allow all through a stub `bin/profile-set`: two Allows at once, a list changed in between, a refused write, a server the restarted process does not have, the queue key of a worktree, a Turn off of worfy-canvas refused over IPC. |
 | `test/contract/claude-mcp-sign-in.test.ts` | Sign in, the claude.ai connector, nothing logged, a Claude Code without the sign-in. |
 | `test/contract/codex-mcp-status.test.ts` | A Codex Session on the fake app-server: notifications, the list, Reconnect, Sign in, the refused actions. |
+| `test/contract/integrations-codex.test.ts` | The Integrations of a Codex Session on the fake app-server: their keys in `thread/start`, two on one address answering each with its own data, the tools filter on `tools/list` and `tools/call` of the endpoint, Autopilot, outside a Project, their rows, the service's token nowhere Codex or a log sees it. |
 | `test/contract/sdk-compat.test.ts` | The SDK still has the sign-in method worfy calls. |
 | `test/e2e/session-mcp.spec.ts` | The chip under the input field and the popover above it in the built app, Reconnect, Allow in the same Session, the not started group with its Restart Session; shots of the popover in both themes. |
