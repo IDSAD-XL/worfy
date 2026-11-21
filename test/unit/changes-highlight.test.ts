@@ -146,6 +146,8 @@ describe('requestHunkTokens', () => {
     await done
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(answered).toEqual(['const kept = 1'])
+    // Not read at all: its tokens are not in the cache.
+    expect(peekHunkTokens('src/k.ts', dropped)).toBeUndefined()
   })
 })
 
