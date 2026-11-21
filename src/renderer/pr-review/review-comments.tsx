@@ -412,6 +412,7 @@ export function useReviewComments(options: ReviewCommentsOptions): ReviewComment
       onEdit={canChange ? () => openEdit(placed) : null}
       onDelete={canChange ? () => remove(placed) : null}
       onMove={canAdd && offSet.has(placed.index) ? () => setMoving(placed) : null}
+      submitted={draft?.state === 'submitted'}
     />
   )
   const renderGutter = pick.plus
@@ -424,7 +425,7 @@ export function useReviewComments(options: ReviewCommentsOptions): ReviewComment
       <>
         {hint}
         {here.map((placed) => (
-          <DraftComment key={placed.index} placed={placed} repo={repo} onEdit={canChange ? () => openEdit(placed) : null} onDelete={canChange ? () => remove(placed) : null} />
+          <DraftComment key={placed.index} placed={placed} repo={repo} onEdit={canChange ? () => openEdit(placed) : null} onDelete={canChange ? () => remove(placed) : null} submitted={draft?.state === 'submitted'} />
         ))}
       </>
     )

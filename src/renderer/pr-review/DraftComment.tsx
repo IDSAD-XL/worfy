@@ -1,6 +1,6 @@
 // A comment of the review draft of a PR as Review mode shows it (worfy-pr-review ticket 10; review-comments.tsx places
 // it): who wrote it last — «Pending» for the person, «Written by the agent» — its Markdown, and Edit, Move to line and
-// Delete where the draft may be changed.
+// Delete where the draft may be changed; «Submitted» and «on GitHub» once the review is (ticket 11).
 import type { ReviewComment } from '../../shared/ipc/pr-review'
 import { CommentBody } from '../pr-inbox/CommentBody'
 
@@ -19,6 +19,7 @@ export function DraftComment({
   onEdit,
   onDelete,
   onMove,
+  submitted = false,
 }: {
   placed: PlacedComment
   repo: string
@@ -27,15 +28,23 @@ export function DraftComment({
   onEdit: (() => void) | null
   onDelete: (() => void) | null
   onMove?: (() => void) | null
+  /** The review went to GitHub with this comment in it. */
+  submitted?: boolean
 }) {
   const { comment, by, index } = placed
   return (
     <div className={`w-pr-review-comment${by === 'agent' ? ' is-agent' : ''}`} data-testid="pr-review-comment" data-index={index} data-by={by} data-path={comment.path} data-line={comment.line}>
       <div className="w-pr-review-comment__head">
-        {by === 'agent' ? <span className="w-pr-review-flag w-pr-review-flag--agent">Written by the agent</span> : <span className="w-pr-review-flag">Pending</span>}
+        {submitted ? (
+          <span className="w-pr-review-flag">Submitted</span>
+        ) : by === 'agent' ? (
+          <span className="w-pr-review-flag w-pr-review-flag--agent">Written by the agent</span>
+        ) : (
+          <span className="w-pr-review-flag">Pending</span>
+        )}
         {where !== undefined ? <span className="w-mono">{where}</span> : comment.start_line !== undefined ? <span className="w-mono w-changes__muted">lines {comment.start_line}–{comment.line}</span> : null}
         <span className="w-changes__spacer" />
-        <span className="w-changes__muted">not on GitHub yet</span>
+        <span className="w-changes__muted">{submitted ? 'on GitHub' : 'not on GitHub yet'}</span>
       </div>
       <CommentBody body={comment.body} repo={repo} />
       {onEdit !== null || onDelete !== null || (onMove ?? null) !== null ? (

@@ -152,7 +152,9 @@ no row, so a user who never chose Codex gets no warning for it. The row never op
 
 **worfy's tools in Codex.** A Codex Session in a Project gets the same MCP servers as a Claude Code Session, `worfy-canvas`
 (Canvas, and Cards with `worfy.ask`) and `worfy-browser`, over HTTP on `127.0.0.1` with a token of its own process. The
-details are in [Cards](cards.md) and [Browser](browser.md).
+details are in [Cards](cards.md) and [Browser](browser.md). The enabled Integrations of the Project come the same way,
+each under its server name, with the Project's tools filter; the service's token stays in worfy
+([MCP servers of a Session](mcp-servers.md#codex)).
 
 **MCP servers in Codex.** A Codex Session has the same chip «MCP n/m» and popover as a Claude Code Session, with
 Reconnect and Sign in. The user's own servers are shown as they are: the Profile's list is not applied to them in Codex,

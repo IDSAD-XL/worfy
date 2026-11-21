@@ -24,7 +24,7 @@ import { prReviewHandlers } from '../../src/main/ipc/pr-review'
 import { createLinkIpc, LinkPeer } from '../../src/main/link/ipc-adapter'
 import { privateFolder, reviewerSkill } from '../../src/main/projects/review-offer'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import { prReviewAgentReview, prReviewChanged, prReviewStopAgent, type PrReviewDraftAnswer, type ReviewDraft } from '../../src/shared/ipc/pr-review'
+import { prReviewAgentReview, prReviewChanged, prReviewStopAgent, TEXTS_LOCKED, UNCONFIRMED, type PrReviewDraftAnswer, type ReviewDraft } from '../../src/shared/ipc/pr-review'
 import type { VendorId } from '../../src/shared/vendors/vendor'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
@@ -231,6 +231,18 @@ describe('prReview.agentReview', () => {
       error: `prReview.agentReview failed: Agent review is writing the review of ${API}#${PR} already: Stop it first`,
     })
     expect(s.vendors).toEqual(['claude'])
+  })
+
+  it('a draft whose Submit GitHub did not confirm: the agent is not started, its texts stay as they went', async () => {
+    const s = await setup()
+    ok(await s.call('prReview.saveComment', { ...pull, head: HEAD, comment: { path: 'src/upload.ts', line: 12, side: 'RIGHT', body: 'Why three tries?' }, anchor: 'line 12' }))
+    const locked = { ...s.onDisk(), error: `${UNCONFIRMED}: gh: Bad Gateway (HTTP 502)`, submittingAt: new Date().toISOString() }
+    writeFileSync(s.file, JSON.stringify(locked))
+    const answer = await s.call('prReview.agentReview', { ...pull, head: HEAD, fill: 'add' })
+    expect(answer.ok).toBe(false)
+    expect(answer.ok ? '' : answer.error).toContain(TEXTS_LOCKED)
+    expect(s.vendors).toEqual([])
+    expect(s.onDisk()).toEqual(locked)
   })
 
   it('sends prReview.changed while the agent writes the file; done ends the watch', { timeout: ms(30_000) }, async () => {

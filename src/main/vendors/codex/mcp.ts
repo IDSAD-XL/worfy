@@ -26,10 +26,22 @@
 // system browser, over by `mcpServer/oauthLogin/completed`. The protocol has no way to turn a server
 // off for one thread only (`config/value/write` would change the user's config.toml for every
 // Session), so a Codex row offers no Turn off.
+//
+// worfy-integrations ticket 07 (ADR-0111 item 1; spec, Q8): the enabled Integrations of the Project go with the canvas
+// too, through the same endpoint, each under its server name (proxy.ts, integrationServerNames) as a key
+// `mcp_servers.<name>` with the endpoint's URL and MCP_TOKEN_ENV: the service's token stays in worfy main, with the
+// proxy, and Codex never gets it. The endpoint serves the proxy's server (listTools): the Project's tools filter and
+// the label in each description. An unattended Session gets only those «Available to Autopilot»; one outside every
+// Project, or whose canvas failed, none. Their rows (codexIntegrationRow, put on the way out of the handle, so the
+// rows the Session keeps stay as Codex gave them) have the source `integration` and the label, a sign-in the proxy
+// found refused is `needs-auth` with its text, and Codex's own Sign in (mcpServer/oauth/login) is never offered or
+// done for them: it would sign in to worfy's endpoint, not to the service. Codex keeps its own OAuth unused.
 import { BROWSER_SERVER_NAME } from '../../../shared/browser/tools'
 import { CANVAS_SERVER_NAME } from '../../../shared/canvas/tools'
 import type { AgentEvent } from '../../../shared/agent/events'
 import type { McpServerAction, McpServerRow } from '../../../shared/agent/mcp-status'
+import type { SecretSource } from '../../integrations/auth/tokens'
+import type { IntegrationProxy, SessionIntegration } from '../../integrations/proxy'
 import type { BrowserBinding } from '../../mcp/browser-server'
 import type { CanvasBinding } from '../../mcp/canvas-server'
 import type { McpHttpEndpoint } from '../../mcp/http-server'
@@ -69,6 +81,8 @@ export const codexMcp: McpPart = {
   async act(session, name, action) {
     // Turn off, Turn on, Allow and Restart are not Codex's (see above); Restart comes with the shared path of ticket 03.
     if (action !== 'reconnect' && action !== 'sign-in') throw new McpActionRefused(action)
+    // An Integration signs in in worfy, never through Codex (codexIntegrationRow).
+    if (action === 'sign-in' && integrationNamesOf(session).has(name)) throw new McpActionRefused(action)
     const live = mcpLive(session)
     if (live === null) throw new PartNotWired('codex', 'mcp.act', NOT_OURS)
     if (action === 'reconnect') await live.codexMcpReload()
@@ -160,6 +174,79 @@ export function codexStartupRow(previous: McpServerRow | undefined, update: McpS
   }
 }
 
+/**
+ * The row of an Integration's server over the row Codex gave (`row`): the source `integration` and the label; with
+ * `signInError` — the proxy found its sign-in refused — `needs-auth` with that text, unless Codex has not started the
+ * server or turned it off. It offers Reconnect when it failed or needs a sign-in, never Codex's Sign in.
+ */
+export function codexIntegrationRow(row: McpServerRow, label: string, signInError: string | null): McpServerRow {
+  const refused = signInError !== null && row.status !== 'pending' && row.status !== 'disabled'
+  const status = refused ? 'needs-auth' : row.status
+  return {
+    ...row,
+    status,
+    error: refused ? signInError : row.error,
+    source: 'integration',
+    sourceWord: null,
+    label,
+    actions: status === 'failed' || status === 'needs-auth' ? ['reconnect'] : [],
+  }
+}
+
+/** An Integration of the Project as a Codex Session gets it: its server name, label and server, and its sign-in. */
+export interface CodexIntegration extends SessionIntegration {
+  /** The text of a refused sign-in («Sign-in needed: <label>…») when the proxy found one, else null; asked for each row. */
+  signInError(): string | null
+}
+
+/** The Integrations a Codex Session at `cwd` gets; never asked outside a Project's canvas. */
+export type CodexIntegrationsResolver = (request: { cwd: string; unattended: boolean }) => Promise<readonly CodexIntegration[]>
+
+/** Where the Integrations of a Codex Session come from: as for a Claude Session (src/main/vendors/claude/query.ts). */
+export interface CodexIntegrationsDeps {
+  /** The data folder of the Project holding `cwd`; null outside every Project. */
+  dataDirOf: (cwd: string) => string | null
+  store: Pick<SecretSource, 'get'>
+  proxy: Pick<IntegrationProxy, 'sessionServer' | 'status'>
+  /** The names no Integration takes: the servers of Claude Code, so a Project's names are the same for both Vendors. */
+  taken: (cwd: string) => readonly string[]
+}
+
+/**
+ * The enabled Integrations of the Project's settings (readProjectIntegrations) through `deps`, as sessionIntegrations
+ * gives them a Claude Session, each with its sign-in by the proxy's status. The modules are loaded on first use.
+ */
+export function codexIntegrations(deps: CodexIntegrationsDeps): CodexIntegrationsResolver {
+  return async ({ cwd, unattended }) => {
+    const dir = deps.dataDirOf(cwd)
+    if (dir === null) return []
+    const [{ readProjectIntegrations }, { sessionIntegrations, signInNeeded }] = await Promise.all([import('../../projects/settings'), import('../../integrations/proxy')])
+    // The id of each server name, as the proxy is asked for it: what its status is read by.
+    const ids = new Map<string, string>()
+    const proxy = {
+      sessionServer: (entry: Parameters<IntegrationProxy['sessionServer']>[0]) => {
+        ids.set(entry.name, entry.id)
+        return deps.proxy.sessionServer(entry)
+      },
+    }
+    return sessionIntegrations({ entries: readProjectIntegrations(dir), store: deps.store, proxy, unattended, taken: deps.taken(cwd) }).map((each) => ({
+      ...each,
+      signInError: () => {
+        const id = ids.get(each.name)
+        return id !== undefined && deps.proxy.status(id)?.status.state === 'needs-sign-in' ? signInNeeded(deps.store.get(id)?.label ?? each.label) : null
+      },
+    }))
+  }
+}
+
+/** Where the observed handle of a Session keeps the names of its Integrations' servers (codexMcp.act). */
+const INTEGRATION_NAMES: unique symbol = Symbol('worfy.codexIntegrationNames')
+
+/** The names of the Integrations' servers of `session`; none for a handle the mcp part did not observe. */
+function integrationNamesOf(session: SessionHandle): ReadonlySet<string> {
+  return (session as SessionHandle & Partial<Record<typeof INTEGRATION_NAMES, ReadonlySet<string>>>)[INTEGRATION_NAMES] ?? new Set()
+}
+
 /** The environment variable of the app-server that carries the Session's token (`bearer_token_env_var`). */
 export const MCP_TOKEN_ENV = 'WORFY_MCP_TOKEN'
 
@@ -167,8 +254,11 @@ export const MCP_TOKEN_ENV = 'WORFY_MCP_TOKEN'
 export interface CodexMcpSession {
   /** Keys of `config` for thread/start and thread/resume: `mcp_servers.<name>` with its URL and MCP_TOKEN_ENV. */
   config: Record<string, JsonValue>
-  /** The instructions of the servers given (the Cards folder, the Browser), for `developerInstructions`. */
-  developerInstructions: string
+  /**
+   * The instructions of the servers given (the Cards folder, the Browser), for `developerInstructions`; null when only
+   * Integrations are given, which have none: Codex then keeps the developer instructions of its own config.
+   */
+  developerInstructions: string | null
   /** The app-server's environment over `base`: the token under MCP_TOKEN_ENV, and the endpoint reached past any proxy (directToLoopback). */
   env(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv
   /** The handle with the Session's events watched; its close() also ends the token. */
@@ -186,6 +276,8 @@ export interface CodexMcpDeps {
   /** The MCP servers the Profile of the Project at `cwd` lists (readMcpAllowlist); never rejects. */
   allowlist(cwd: string): Promise<readonly string[]>
   endpoint(): Promise<McpHttpEndpoint>
+  /** The Integrations of the Project at `cwd` (codexIntegrations); none when absent. A failure gives none, not no Session. */
+  integrations?: CodexIntegrationsResolver
 }
 
 /** The hosts the endpoint's URLs may name; the URLs name MCP_HTTP_HOST (src/main/mcp/http-server.ts). */
@@ -218,8 +310,11 @@ function writtenPaths(event: Extract<AgentEvent, { type: 'tool_use' }>): string[
   return Array.isArray(changes) ? changes.flatMap((change: unknown) => (typeof (change as { path?: unknown } | null)?.path === 'string' ? [(change as { path: string }).path] : [])) : []
 }
 
-/** `handle`, with `onEvent` called for every event it gives and `onClose` before its close(). */
-function watched(handle: SessionHandle, onEvent: (event: AgentEvent) => void, onClose: () => void): SessionHandle {
+/**
+ * `handle`, with `onEvent` called for every event it gives and `onClose` before its close(); the rows of its `mcp`
+ * events and of its codexMcpStatus() pass `rows`, and the property INTEGRATION_NAMES is `integrations`.
+ */
+function watched(handle: SessionHandle, onEvent: (event: AgentEvent) => void, onClose: () => void, integrations: ReadonlySet<string>, rows: (rows: McpServerRow[]) => McpServerRow[]): SessionHandle {
   const source = handle.events
   const events: AsyncIterable<AgentEvent> = {
     [Symbol.asyncIterator]: () => {
@@ -233,6 +328,8 @@ function watched(handle: SessionHandle, onEvent: (event: AgentEvent) => void, on
             } catch (error) {
               console.warn('[codex] an event observer of the MCP servers threw', error)
             }
+            const event = result.value
+            if (event.type === 'mcp' && event.servers !== null) return { ...result, value: { ...event, servers: rows(event.servers) } }
           }
           return result
         },
@@ -245,6 +342,13 @@ function watched(handle: SessionHandle, onEvent: (event: AgentEvent) => void, on
   return new Proxy(handle, {
     get(target, property) {
       if (property === 'events') return events
+      if (property === INTEGRATION_NAMES) return integrations
+      if (property === 'codexMcpStatus' && typeof (target as Partial<CodexMcpLive>).codexMcpStatus === 'function') {
+        return async () => {
+          const got = await (target as SessionHandle & CodexMcpLive).codexMcpStatus()
+          return got === null ? null : rows(got)
+        }
+      }
       if (property === 'close') {
         return () => {
           onClose()
@@ -255,6 +359,17 @@ function watched(handle: SessionHandle, onEvent: (event: AgentEvent) => void, on
       return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value
     },
   })
+}
+
+/** The Integrations of a Session; a failure leaves the Session without them, logged by its kind only. */
+async function integrationsOrNone(deps: CodexMcpDeps, request: { cwd: string; unattended: boolean }): Promise<readonly CodexIntegration[]> {
+  if (deps.integrations === undefined) return []
+  try {
+    return await deps.integrations({ cwd: request.cwd, unattended: request.unattended })
+  } catch (error) {
+    console.warn(`[codex] no Integrations for ${request.cwd}: ${error instanceof Error ? error.name : 'an error'}`)
+    return []
+  }
 }
 
 async function orNull<T>(what: string, cwd: string, make: () => Promise<T | null>): Promise<T | null> {
@@ -278,20 +393,28 @@ export function codexMcpSessions(deps: CodexMcpDeps): CodexMcpResolver {
     const given: { server: McpServer; instructions: string }[] = []
     if (listed.includes(CANVAS_SERVER_NAME)) given.push(canvas)
     if (browser !== null && (listed.includes(BROWSER_SERVER_NAME) || listed.includes(CANVAS_SERVER_NAME))) given.push(browser)
-    if (given.length === 0) return null
+    const integrations = await integrationsOrNone(deps, request)
+    if (given.length === 0 && integrations.length === 0) return null
     const endpoint = await orNull('MCP endpoint', request.cwd, () => deps.endpoint())
     if (endpoint === null) return null
-    const grant = endpoint.grant(given.map((each) => each.server))
+    const servers = [...given.map((each) => each.server), ...integrations.map((each) => each.server)]
+    const grant = endpoint.grant(servers)
     const config: Record<string, JsonValue> = {}
     // One key per server, not the whole `mcp_servers` table: the user's own servers stay as they are.
-    for (const { server } of given) config[`mcp_servers.${server.name}`] = { url: grant.urls[server.name]!, bearer_token_env_var: MCP_TOKEN_ENV }
+    for (const server of servers) config[`mcp_servers.${server.name}`] = { url: grant.urls[server.name]!, bearer_token_env_var: MCP_TOKEN_ENV }
+    const byName = new Map(integrations.map((each) => [each.name, each]))
+    const labelled = (rows: McpServerRow[]): McpServerRow[] =>
+      rows.map((row) => {
+        const integration = byName.get(row.name)
+        return integration === undefined ? row : codexIntegrationRow(row, integration.label, integration.signInError())
+      })
     const sessionId = (id: string): void => {
       canvas.setSessionId(id)
       browser?.setSessionId(id)
     }
     return {
       config,
-      developerInstructions: given.map((each) => each.instructions).join('\n\n'),
+      developerInstructions: given.length === 0 ? null : given.map((each) => each.instructions).join('\n\n'),
       env: (base) => ({ ...directToLoopback(base), [MCP_TOKEN_ENV]: grant.token }),
       observe: (handle) =>
         watched(
@@ -304,20 +427,27 @@ export function codexMcpSessions(deps: CodexMcpDeps): CodexMcpResolver {
             }
           },
           grant.revoke,
+          new Set(byName.keys()),
+          labelled,
         ),
       close: grant.revoke,
     }
   }
 }
 
-/** The app's: the Project's canvas and Browser, the Profile's list, and the app's endpoint (loaded on first use). */
+/** The app's: the Project's canvas and Browser, the Profile's list, the Project's Integrations and the app's endpoint (loaded on first use). */
 export const appCodexMcp: CodexMcpResolver = (request) =>
   orNull('MCP servers', request.cwd, async () => {
-    const [{ canvasBindingForSession }, { browserBindingForSession }, { appMcpHttpEndpoint }] = await Promise.all([
+    const [{ canvasBindingForSession, projectForCwd }, { browserBindingForSession }, { appMcpHttpEndpoint }, { projectStore }, { integrationStore }, { integrationProxy }, { inventoryServerNames }] = await Promise.all([
       import('../../mcp/canvas-server'),
       import('../../mcp/browser-server'),
       import('../../mcp/http-server'),
+      import('../../projects/store'),
+      import('../../integrations/store'),
+      import('../../integrations/proxy'),
+      import('../claude/mcp-inventory'),
     ])
+    const projects = projectStore()
     return codexMcpSessions({
       canvas: (each) => canvasBindingForSession(each),
       browser: (each) => browserBindingForSession(each),
@@ -327,5 +457,14 @@ export const appCodexMcp: CodexMcpResolver = (request) =>
         return (await readMcpAllowlist({ root: cwd, claudeHome: claudeHome(), env: (await agentEnv()).env })).servers
       },
       endpoint: appMcpHttpEndpoint,
+      integrations: codexIntegrations({
+        dataDirOf: (cwd) => {
+          const project = projectForCwd(projects.list(), cwd)
+          return project === undefined ? null : projects.dataDir(project.id)
+        },
+        store: integrationStore(),
+        proxy: integrationProxy(),
+        taken: inventoryServerNames,
+      }),
     })(request)
   })

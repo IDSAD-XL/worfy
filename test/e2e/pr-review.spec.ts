@@ -25,6 +25,11 @@ import { ms } from '../time-scale'
 //   ticket 09), ⌘↵; they stand on their lines, Pending; the bar counts them; worfy quits and starts again — the draft is there, and the row of the PR has the
 //   chip `Review draft`; Discard asks first and removes it; the agent's comment edited is the person's; screenshots in
 //   both themes; nothing written to GitHub.
+// - Finish review and Submit (worfy-pr-review ticket 11), with reviews.json in the stub, so that the one POST of a
+//   review is understood: path A — the search, Review myself, a comment, the dialog, Enter on Submit posts nothing, a
+//   click posts once, the body byte for byte as shown, the approvals chip 1/2 → 2/2, the bar «You reviewed…»; path C —
+//   the head moved: the dialog says so and Submit on <a> posts on the commit the comments were written on; path E — an
+//   Agent review: the agent suggests Request changes, the person edits one comment, removes the other, approves.
 // Every name, login, sha and text is invented.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
@@ -41,6 +46,7 @@ const headOf = (number: number): string => `${String(number).padStart(4, '0')}a1
 
 const PROFILE = join(import.meta.dirname, '..', '..', 'harness', 'bin', 'profile')
 const PR_REVIEW_DRAFT = join(import.meta.dirname, '..', '..', 'harness', 'bin', 'pr-review-draft')
+const REVIEW_DRAFT_LINT = join(import.meta.dirname, '..', '..', 'harness', 'bin', 'review-draft-lint')
 
 /** Where the screenshots go for the review of ticket 09: beside Playwright's own output, which each run empties. */
 const SCREENS = join(import.meta.dirname, '..', '..', 'test-results', 'worfy-pr-review-09-screens')
@@ -170,15 +176,25 @@ const launch = (env: Record<string, string> = {}): Promise<LaunchedApp> => launc
 
 const ghCalls = (log: string): string[][] => (existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line) as string[]) : [])
 
-/** No call that could write to GitHub: no method but GET, no GraphQL mutation, no body from a file, no `gh pr`/`gh issue` that writes. */
-function expectNoWrite(log: string): void {
-  const writes = ghCalls(log).filter((args) => {
+/** The calls that could write to GitHub: a method but GET, a GraphQL mutation, a body from a file, a `gh pr`/`gh issue` that writes. */
+const writesOf = (log: string): string[][] =>
+  ghCalls(log).filter((args) => {
     const method = args.find((arg, index) => args[index - 1] === '-X' || args[index - 1] === '--method' || arg.startsWith('--method='))
     if (method !== undefined && method.replace('--method=', '').toUpperCase() !== 'GET') return true
     if (args.some((arg) => /\bmutation\b/u.test(arg) || arg === '--input')) return true
     return (args[0] === 'pr' || args[0] === 'issue') && ['comment', 'review', 'merge', 'edit', 'create', 'close', 'ready'].includes(args[1] ?? '')
   })
-  expect(writes).toEqual([])
+
+/** No call that could write to GitHub. */
+function expectNoWrite(log: string): void {
+  expect(writesOf(log)).toEqual([])
+}
+
+/** The one write: the POST of the review of PR `number` (worfy-pr-review ticket 11), its body from a file. */
+function expectOnlyReviewPost(log: string, number: number): void {
+  const writes = writesOf(log)
+  expect(writes).toHaveLength(1)
+  expect(writes[0]!.slice(0, 5)).toEqual(['api', '--method', 'POST', `repos/${WEB_REPO}/pulls/${number}/reviews`, '--input'])
 }
 
 /** The reads of the files Viewed on github.com (`viewerViewedState`). */
@@ -198,19 +214,22 @@ function harnessForWeb(): string {
   writeFileSync(join(profileDir, 'profile.json'), `${JSON.stringify({ schema: 2, name: 'web', mode: 'full', github: { account: ME } }, null, 2)}\n`)
   writeFileSync(join(ghDir, 'tokens.json'), JSON.stringify({ [ME]: 'tok-me' }))
   const env = { HARNESS_HOME: harnessHome, HOME: home, USERPROFILE: home }
-  const stand = join(claudeHome, 'bin', 'profile')
-  writeFileSync(
-    stand,
-    [
-      "const { spawnSync } = require('node:child_process')",
-      `const env = { ...process.env, ...${JSON.stringify(env)} }`,
-      'for (const name of ["CLAUDE_GATE_CONFIG", "CLAUDE_GATE_RESOLVE", "CLAUDE_PROFILES_DIR", "CLAUDE_PROFILE_BIN", "CLAUDE_TICKET_BIN", "EVAL_HARNESS_HOME"]) delete env[name]',
-      `const run = spawnSync(process.execPath, [${JSON.stringify(PROFILE)}, ...process.argv.slice(2)], { stdio: 'inherit', env })`,
-      'process.exit(run.status ?? 1)',
-      '',
-    ].join('\n'),
-  )
-  return stand
+  for (const [name, script] of [
+    ['profile', PROFILE],
+    ['review-draft-lint', REVIEW_DRAFT_LINT],
+  ] as const)
+    writeFileSync(
+      join(claudeHome, 'bin', name),
+      [
+        "const { spawnSync } = require('node:child_process')",
+        `const env = { ...process.env, ...${JSON.stringify(env)} }`,
+        'for (const name of ["CLAUDE_GATE_CONFIG", "CLAUDE_GATE_RESOLVE", "CLAUDE_PROFILES_DIR", "CLAUDE_PROFILE_BIN", "CLAUDE_TICKET_BIN", "EVAL_HARNESS_HOME"]) delete env[name]',
+        `const run = spawnSync(process.execPath, [${JSON.stringify(script)}, ...process.argv.slice(2)], { stdio: 'inherit', env })`,
+        'process.exit(run.status ?? 1)',
+        '',
+      ].join('\n'),
+    )
+  return join(claudeHome, 'bin', 'profile')
 }
 
 const pane = (window: Page): Locator => window.getByTestId('pr-inbox-pane')
@@ -525,9 +544,7 @@ test('comments on lines: «+», Suggest change, a range by dragging «+»; Pendi
     const second = review(window).locator('[data-testid="pr-review-comment"][data-line="6"]')
     await expect(second).toContainText('lines 5–6', { timeout: ms(15_000) })
     await expect(review(window).getByTestId('pr-review-bar-count')).toHaveText('2 pending comments on 1 file')
-    const finish = review(window).getByTestId('pr-review-finish')
-    await expect(finish).toHaveAttribute('aria-disabled', 'true')
-    await expect(finish).toHaveAttribute('title', 'Coming next')
+    await expect(review(window).getByTestId('pr-review-finish')).toHaveAttribute('aria-disabled', 'false')
     await noToasts(window)
     await first.scrollIntoViewIfNeeded()
     await shoot(window, 'comments-1280')
@@ -563,6 +580,227 @@ test('comments on lines: «+», Suggest change, a range by dragging «+»; Pendi
     await expect(review(window)).toHaveCount(0)
     await expect(chip).toHaveCount(0, { timeout: ms(15_000) })
     expectNoWrite(ghLog)
+  } finally {
+    await launched.close()
+  }
+})
+
+/**
+ * A world where worfy may submit a review: reviews.json (the stub then understands the one POST of a review) and each
+ * PR as `api repos/<o>/<r>/pulls/<n>` gives it — its head `heads[n]` when given, else the head of graphql.json.
+ */
+function submitWorld(heads: Record<number, string> = {}): void {
+  writeFileSync(join(ghDir, 'reviews.json'), '{}')
+  const rest = JSON.parse(readFileSync(join(ghDir, 'rest.json'), 'utf8')) as Record<string, unknown>
+  for (const pull of PULLS)
+    rest[`repos/${WEB_REPO}/pulls/${pull.number}`] = { number: pull.number, state: 'open', user: { login: pull.pull.author.login }, head: { sha: heads[pull.number] ?? headOf(pull.number) }, base: { sha: BASE } }
+  writeFileSync(join(ghDir, 'rest.json'), JSON.stringify(rest))
+}
+
+/** The reviews the stub took: the account and the bytes of the body worfy sent. */
+const postedReviews = (): { repo: string; pr: number; login: string; raw: string }[] =>
+  existsSync(join(ghDir, 'posted-reviews.json')) ? (JSON.parse(readFileSync(join(ghDir, 'posted-reviews.json'), 'utf8')) as { repo: string; pr: number; login: string; raw: string }[]) : []
+
+/** The body of the POST as worfy builds it: the keys in this order, nothing else. */
+const reviewBody = (commit: string, event: string, body: string, comments: { line: number; body: string }[]): string =>
+  JSON.stringify({ commit_id: commit, event, body, comments: comments.map((each) => ({ path: 'src/net/retry.ts', line: each.line, side: 'RIGHT', body: each.body })) })
+
+/** «+» on line `line` of retry.ts, `text`, ⌘↵: a Pending comment of the person on that line. */
+async function commentOn(window: Page, line: number, text: string): Promise<void> {
+  await diffLine(window, 'src/net/retry.ts', line).hover()
+  await diffLine(window, 'src/net/retry.ts', line).getByTestId('changes-line-plus').click()
+  const popover = window.getByTestId('changes-comment-popover')
+  await popover.getByTestId('changes-comment-text').fill(text)
+  await popover.getByTestId('changes-comment-text').press('ControlOrMeta+Enter')
+  await expect(popover).toHaveCount(0)
+  await expect(review(window).locator(`[data-testid="pr-review-comment"][data-line="${line}"]`)).toContainText('Pending', { timeout: ms(15_000) })
+}
+
+/** Finish review: the dialog, its texts checked by review-draft-lint. */
+async function openFinish(window: Page): Promise<Locator> {
+  await review(window).getByTestId('pr-review-finish').click()
+  const dialog = window.getByTestId('pr-review-finish-dialog')
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByTestId('pr-review-dialog-lint')).toHaveClass(/is-clean/u, { timeout: ms(15_000) })
+  return dialog
+}
+
+test('path A: the search, Review myself, a comment, Finish review; Enter on Submit posts nothing, the click posts once, byte for byte; the chip 1/2 → 2/2; «You reviewed this pull request»', async () => {
+  test.setTimeout(ms(240_000))
+  harnessForWeb()
+  submitWorld()
+  // PR 77 asks for two approvals and has one, by dev-ana.
+  const rules = { nodes: [{ ...pullRule, parameters: { ...pullRule.parameters, requiredApprovingReviewCount: 2 } }] }
+  const approved = { nodes: [{ author: { login: ANA }, state: 'APPROVED', submittedAt: at(1), authorCanPushToRepository: true, commit: { oid: headOf(77) } }] }
+  const pulls = PULLS.map((each) => (each.number === 77 ? { ...each, pull: { ...each.pull, baseRef: { ...each.pull.baseRef, rules }, latestOpinionatedReviews: approved } } : each))
+  writeFileSync(join(ghDir, 'graphql.json'), JSON.stringify({ viewer: ME, pulls }))
+  const launched = await launch()
+  try {
+    const { window } = launched
+    await window.setViewportSize({ width: 1280, height: 800 })
+    await openView(window)
+    await noToasts(window)
+    const field = window.getByRole('searchbox', { name: 'Search pull requests' })
+    await field.fill('retry')
+    await field.press('Enter')
+    const result = window.getByTestId('pr-search-results').locator('[data-testid="pr-inbox-row"][data-number="77"]')
+    await expect(result).toBeVisible({ timeout: ms(30_000) })
+    await expect(pane(window)).toHaveAttribute('data-number', '77')
+    await expect(pane(window).getByTestId('approvals-chip').first()).toContainText('1/2', { timeout: ms(15_000) })
+    await result.locator('button.w-pr-inbox-item').focus()
+    await window.keyboard.press('Enter')
+    await expect(review(window)).toHaveAttribute('data-number', '77')
+    await expect(diffLine(window, 'src/net/retry.ts', 3)).toBeVisible({ timeout: ms(30_000) })
+    await expect(review(window).getByTestId('pr-review-bar')).toHaveAttribute('data-state', 'person', { timeout: ms(15_000) })
+    await commentOn(window, 3, 'Read the delay from the config.')
+
+    // The dialog: Comment first, the comment exactly as it goes, on the head the draft started on.
+    const dialog = await openFinish(window)
+    await expect(dialog.getByTestId('pr-review-event-COMMENT')).toHaveAttribute('aria-checked', 'true')
+    await expect(dialog.getByTestId('pr-review-dialog-count')).toHaveText(`1 comment will be posted on ${headOf(77).slice(0, 7)}, exactly as below`)
+    await expect(dialog.getByTestId('pr-review-dialog-where')).toHaveText('src/net/retry.ts:3')
+    await expect(dialog.getByTestId('pr-review-dialog-body')).toHaveText('Read the delay from the config.')
+    await dialog.getByTestId('pr-review-summary').fill('Looks right to me.')
+    await dialog.getByTestId('pr-review-event-APPROVE').click()
+    await expect(dialog.getByTestId('pr-review-event-APPROVE')).toHaveAttribute('aria-checked', 'true')
+    await expect(dialog.getByTestId('pr-review-dialog-lint')).toHaveClass(/is-clean/u, { timeout: ms(15_000) })
+    await noToasts(window)
+    await shoot(window, 'finish-1280')
+
+    // Enter on the focused Submit is not a click: nothing goes.
+    await dialog.getByTestId('pr-review-submit').focus()
+    await window.keyboard.press('Enter')
+    await window.waitForTimeout(ms(1_000))
+    await expect(dialog).toBeVisible()
+    expectNoWrite(ghLog)
+
+    // The click: one POST, the body byte for byte as the dialog showed it; a toast; Review mode closes.
+    await dialog.getByTestId('pr-review-submit').click()
+    await expect(dialog).toHaveCount(0, { timeout: ms(30_000) })
+    await expect(review(window)).toHaveCount(0)
+    await expect(window.getByTestId('toasts')).toContainText(`Review sent to ${WEB_REPO}#77 · Approve · 1 comment`)
+    expect(postedReviews()).toEqual([
+      expect.objectContaining({ repo: WEB_REPO, pr: 77, login: ME, raw: reviewBody(headOf(77), 'APPROVE', 'Looks right to me.', [{ line: 3, body: 'Read the delay from the config.' }]) }),
+    ])
+    // The PR read again: GitHub counts the approval.
+    await expect(pane(window).getByTestId('approvals-chip').first()).toContainText('2/2', { timeout: ms(30_000) })
+    await noToasts(window)
+    await shoot(window, 'submitted-pane-1280')
+
+    // Review mode again: the review is on GitHub, «You reviewed this pull request · Approve», the link, Start a new review.
+    await result.locator('button.w-pr-inbox-item').focus()
+    await window.keyboard.press('Enter')
+    const bar = review(window).getByTestId('pr-review-bar')
+    await expect(bar).toHaveAttribute('data-state', 'submitted', { timeout: ms(15_000) })
+    await expect(bar).toContainText('You reviewed this pull request · Approve')
+    await expect(bar.getByTestId('pr-review-open-review')).toHaveAttribute('href', `https://github.com/${WEB_REPO}/pull/77#pullrequestreview-7001`)
+    await expect(bar.getByTestId('pr-review-new')).toBeVisible()
+    await expect(review(window).locator('[data-testid="pr-review-comment"][data-line="3"]')).toContainText('Submitted')
+    await noToasts(window)
+    await shoot(window, 'submitted-bar-1280')
+    expectOnlyReviewPost(ghLog, 77)
+  } finally {
+    await launched.close()
+  }
+})
+
+test('path C: the head moved since the draft started — the dialog says so, Submit on <a> posts once on the commit the comments are on', async () => {
+  test.setTimeout(ms(240_000))
+  const moved = 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00'
+  harnessForWeb()
+  submitWorld({ 41: moved })
+  // The lines of the draft's commit, which GitHub gives as the compare of the base with it.
+  const rest = JSON.parse(readFileSync(join(ghDir, 'rest.json'), 'utf8')) as Record<string, unknown>
+  rest[`repos/${WEB_REPO}/compare/${BASE}...${headOf(41)}`] = { files: rest[`repos/${WEB_REPO}/pulls/41/files?per_page=100&page=1`] }
+  writeFileSync(join(ghDir, 'rest.json'), JSON.stringify(rest))
+  const launched = await launch()
+  try {
+    const { window } = launched
+    await window.setViewportSize({ width: 1280, height: 800 })
+    await openView(window)
+    await noToasts(window)
+    await selectRow(window, 41)
+    await startReview(window, 'myself')
+    await expect(diffLine(window, 'src/net/retry.ts', 3)).toBeVisible({ timeout: ms(30_000) })
+    await expect(review(window).getByTestId('pr-review-bar')).toHaveAttribute('data-state', 'person', { timeout: ms(15_000) })
+    await commentOn(window, 3, 'Read the delay from the config.')
+    const dialog = await openFinish(window)
+    const submit = dialog.getByTestId('pr-review-submit')
+    await expect(submit).toHaveText('Submit review')
+
+    // The first click finds the head moved: nothing posted, the dialog names both commits.
+    await submit.click()
+    await expect(dialog.getByTestId('pr-review-dialog-moved')).toContainText(`Your comments are on ${headOf(41).slice(0, 7)}; the head is ${moved.slice(0, 7)}.`, { timeout: ms(30_000) })
+    await expect(submit).toHaveText(`Submit on ${headOf(41).slice(0, 7)}`)
+    expectNoWrite(ghLog)
+    await noToasts(window)
+    await shoot(window, 'finish-moved-1280')
+
+    await submit.click()
+    await expect(dialog).toHaveCount(0, { timeout: ms(30_000) })
+    expect(postedReviews().map((each) => each.raw)).toEqual([reviewBody(headOf(41), 'COMMENT', '', [{ line: 3, body: 'Read the delay from the config.' }])])
+    expectOnlyReviewPost(ghLog, 41)
+  } finally {
+    await launched.close()
+  }
+})
+
+test('path E: an Agent review suggests Request changes; the person edits one comment, removes the other in the dialog and approves — the POST has the event and the comment the person chose', async () => {
+  test.setTimeout(ms(240_000))
+  const profile = harnessForWeb()
+  submitWorld()
+  const launched = await launch({ WORFY_AGENT_SCRIPT: 'pr-review-agent-turn' })
+  try {
+    const { app, window } = launched
+    await window.setViewportSize({ width: 1280, height: 800 })
+    await openView(window)
+    await noToasts(window)
+    await selectRow(window, 41)
+    await expect(pane(window).getByTestId('approvals-chip').first()).toContainText('0/1', { timeout: ms(15_000) })
+    await startReview(window, 'agent')
+    const bar = review(window).getByTestId('pr-review-bar')
+    await expect(bar).toHaveAttribute('data-state', 'writing', { timeout: ms(30_000) })
+    await expect(treeFile(window, 'src/net/retry.ts')).toBeVisible({ timeout: ms(30_000) })
+    // Finish review waits while the agent writes.
+    await expect(review(window).getByTestId('pr-review-finish')).toHaveAttribute('aria-disabled', 'true')
+
+    const draft = (...args: string[]): string =>
+      execFileSync(process.execPath, [PR_REVIEW_DRAFT, '-C', join(scratch, 'web'), `${WEB_REPO}#41`, ...args], { env: { ...process.env, CLAUDE_PROFILE_BIN: profile }, encoding: 'utf8' })
+    draft('comment', 'src/net/retry.ts', '3', 'Two hundred ms is a guess: read the delay from the config.')
+    draft('comment', 'src/net/retry.ts', '5', 'The wait comes before the first try too.')
+    draft('verdict', 'request_changes')
+    await app.evaluate(() => (globalThis as { worfyFakeRelease?: (name: string) => void }).worfyFakeRelease?.('end'))
+    await expect(bar).toHaveAttribute('data-state', 'agent', { timeout: ms(30_000) })
+    await expect(review(window).getByTestId('pr-review-bar-count')).toHaveText('2 comments (2 by the agent) on 1 file')
+
+    // The person edits the comment on line 3: it is the person's.
+    const three = review(window).locator('[data-testid="pr-review-comment"][data-line="3"]')
+    await three.getByTestId('pr-review-comment-edit').click()
+    const field = window.getByTestId('changes-comment-popover').getByTestId('changes-comment-text')
+    await field.fill('Two hundred ms is a guess: read the delay from the config, as the client does.')
+    await field.press('ControlOrMeta+Enter')
+    await expect(three).toHaveAttribute('data-by', 'person', { timeout: ms(15_000) })
+
+    // The dialog: Comment first whatever the agent suggests; the agent's comment flagged, with Remove.
+    const dialog = await openFinish(window)
+    await expect(dialog.getByTestId('pr-review-event-COMMENT')).toHaveAttribute('aria-checked', 'true')
+    await expect(dialog.getByTestId('pr-review-dialog-suggests')).toContainText('The agent suggests: Request changes')
+    const agents = dialog.getByTestId('pr-review-dialog-comment').filter({ hasText: 'by the agent' })
+    await expect(agents).toHaveCount(1)
+    await expect(agents).toContainText('src/net/retry.ts:5')
+    await noToasts(window)
+    await shoot(window, 'finish-agent-1280')
+    await agents.getByRole('button', { name: 'Remove' }).click()
+    await expect(dialog.getByTestId('pr-review-dialog-comment')).toHaveCount(1)
+    await expect(dialog.getByTestId('pr-review-dialog-count')).toHaveText(`1 comment will be posted on ${headOf(41).slice(0, 7)}, exactly as below`)
+    await dialog.getByTestId('pr-review-event-APPROVE').click()
+    await expect(dialog.getByTestId('pr-review-dialog-lint')).toHaveClass(/is-clean/u, { timeout: ms(15_000) })
+    await dialog.getByTestId('pr-review-submit').click()
+    await expect(dialog).toHaveCount(0, { timeout: ms(30_000) })
+
+    expect(postedReviews().map((each) => each.raw)).toEqual([reviewBody(headOf(41), 'APPROVE', '', [{ line: 3, body: 'Two hundred ms is a guess: read the delay from the config, as the client does.' }])])
+    await expect(pane(window).getByTestId('approvals-chip').first()).toContainText('1/1', { timeout: ms(30_000) })
+    expectOnlyReviewPost(ghLog, 41)
   } finally {
     await launched.close()
   }

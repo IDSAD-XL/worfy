@@ -9,7 +9,7 @@
 // - a comment on a line the diff of the PR lacks stands in «Not on a changed line» above the diff, with Move to line
 //   and Delete;
 // - the bar: «N pending comments on M files», «(K by the agent)»; Discard asks «Discard N pending comments?» first;
-//   Finish review is inactive («Coming next»), and inactive while the Session of an Agent review writes;
+//   Finish review opens the dialog of Submit review (ticket 11), and is inactive while the Session of an Agent review writes;
 // - the keys: `c` is not taken in a field the person types in, and is taken from a checkbox; Escape keeps a changed
 //   popover and does not close Review mode under it;
 // - nothing is written while the draft could not be read, and a Linked machine gets no «+»;
@@ -20,7 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChangedFile, FileDiff } from '../../src/shared/changes/types'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import type { PrInboxRow } from '../../src/shared/ipc/pr-inbox'
-import type { ReviewComment, ReviewDraft } from '../../src/shared/ipc/pr-review'
+import { UNCONFIRMED, type ReviewComment, type ReviewDraft } from '../../src/shared/ipc/pr-review'
 
 const PROJECT = 'web-00000001'
 /** A move of the pointer with its main button held: a drag of «+». */
@@ -593,17 +593,103 @@ describe('the lines a comment stands on', () => {
 })
 
 describe('the bar Your review', () => {
-  it('«N pending comments on M files», «(K by the agent)»; Finish review inactive with «Coming next»', async () => {
+  it('«N pending comments on M files», «(K by the agent)»; Finish review opens the dialog of Submit review, ⌘⇧↵ too', async () => {
     preload({ draft: withComments([{ comment: on(2, 'A.'), by: 'person' }, { comment: on(1, 'B.', 'src/net/backoff.ts'), by: 'person' }]) })
     await mountReview()
     await waitFor(() => expect(screen.getByTestId('pr-review-bar-count').textContent).toBe('2 pending comments on 2 files'))
     const finish = screen.getByTestId('pr-review-finish')
-    expect(finish.getAttribute('aria-disabled')).toBe('true')
-    expect(finish.getAttribute('title')).toBe('Coming next')
+    expect(finish.getAttribute('aria-disabled')).toBe('false')
+    fireEvent.click(finish)
+    const dialog = await screen.findByTestId('pr-review-finish-dialog')
+    expect(within(dialog).getAllByTestId('pr-review-dialog-comment')).toHaveLength(2)
+    fireEvent.click(within(dialog).getByTestId('pr-review-dialog-cancel'))
+    await waitFor(() => expect(screen.queryByTestId('pr-review-finish-dialog')).toBeNull())
+    fireEvent.keyDown(document.body, { key: 'Enter', metaKey: true, shiftKey: true })
+    await screen.findByTestId('pr-review-finish-dialog')
+    expect(calls('prReview.submit')).toEqual([])
     cleanup()
     preload({ draft: withComments([{ comment: on(2, 'A.'), by: 'agent' }, { comment: on(3, 'B.'), by: 'person' }], { agent: { sessionId: 's-1', state: 'done' } }) })
     await mountReview({ how: 'agent' })
     await waitFor(() => expect(screen.getByTestId('pr-review-bar-count').textContent).toBe('2 comments (1 by the agent) on 1 file'))
+  })
+
+  it('Submit review that GitHub took: a toast, the PR read again, Review mode closes; the commit is the one the draft is numbered on', async () => {
+    const anchored = '9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b'
+    const draft = withComments([{ comment: on(2, 'A.'), by: 'person' }], { anchoredOn: anchored })
+    preload({
+      draft,
+      answers: {
+        'prReview.check': () => ({ ok: true, value: { findings: [], reason: null } }),
+        'prReview.submit': () => ({ ok: true, value: { outcome: 'submitted', reason: null, reviewUrl: `https://github.com/${REPO}/pull/${NUMBER}#pullrequestreview-1`, head: null, draft: { ...draft, state: 'submitted' } } }),
+      },
+    })
+    const mode = { ...(await import('../../src/renderer/pr-review/ReviewMode')), ...(await import('../../src/renderer/pr-review/review-store')) }
+    mode.openReviewMode({ projectId: PROJECT, repo: REPO, number: NUMBER }, 'myself', false)
+    const onRefresh = vi.fn()
+    render(<mode.ReviewMode projectId={PROJECT} row={row({ headRefOid: anchored })} readOnly={null} onRefresh={onRefresh} viewer="dev-me" />)
+    fireEvent.click(await screen.findByTestId('pr-review-finish'))
+    const dialog = await screen.findByTestId('pr-review-finish-dialog')
+    await waitFor(() => expect(calls('prReview.check').length).toBeGreaterThan(0))
+    onRefresh.mockClear()
+    fireEvent.click(within(dialog).getByTestId('pr-review-submit'))
+    await waitFor(() => expect(mode.useReviewMode.getState().open).toBeNull())
+    expect(calls('prReview.submit')).toEqual([{ projectId: PROJECT, repo: REPO, number: NUMBER, event: 'COMMENT', body: '', comments: [on(2, 'A.')], commit: anchored, head: anchored }])
+    expect(onRefresh).toHaveBeenCalled()
+    const toasts = (await import('../../src/renderer/toast/toasts')).toasts.getState().toasts.map((toast) => toast.text)
+    expect(toasts).toContain(`Review sent to ${REPO}#${NUMBER} · Comment · 1 comment`)
+  })
+
+  it('a submitted review: the bar says so with its link and offers Start a new review, no Finish review', async () => {
+    preload({ draft: withComments([{ comment: on(2, 'A.'), by: 'person' }], { state: 'submitted', payload: { event: 'APPROVE', body: '', comments: [on(2, 'A.')] }, reviewUrl: 'https://github.com/example-org/web/pull/77#pullrequestreview-1' }) })
+    await mountReview()
+    const bar = screen.getByTestId('pr-review-bar')
+    expect(bar.dataset.state).toBe('submitted')
+    expect(bar.textContent).toContain('You reviewed this pull request · Approve')
+    expect(within(bar).getByTestId('pr-review-open-review').getAttribute('href')).toBe('https://github.com/example-org/web/pull/77#pullrequestreview-1')
+    expect(within(bar).queryByTestId('pr-review-finish')).toBeNull()
+    // Its comments are on GitHub: not Pending any more.
+    const posted = await screen.findByTestId('pr-review-comment')
+    expect(posted.textContent).toContain('Submitted')
+    expect(posted.textContent).toContain('on GitHub')
+    expect(posted.textContent).not.toContain('Pending')
+    expect(posted.textContent).not.toContain('not on GitHub yet')
+    fireEvent.click(within(bar).getByTestId('pr-review-new'))
+    await waitFor(() => expect(calls('prReview.discard')).toHaveLength(1))
+    await waitFor(() => expect(screen.getByTestId('pr-review-bar').dataset.state).toBe('person'))
+  })
+
+  it('the reason a Submit failed stays on the bar', async () => {
+    preload({ draft: withComments([{ comment: on(2, 'A.'), by: 'person' }], { error: 'GitHub did not confirm the review: gh: Server Error (HTTP 502)' }) })
+    await mountReview()
+    expect(screen.getByTestId('pr-review-bar-error').textContent).toBe('GitHub did not confirm the review: gh: Server Error (HTTP 502)')
+  })
+
+  it('Discard of a draft whose Submit GitHub did not confirm warns that the review may be on GitHub already', async () => {
+    preload({ draft: withComments([], { error: `${UNCONFIRMED}: gh: Not Found (HTTP 404)`, payload: { event: 'APPROVE', body: 'Ship it.', comments: [] } }) })
+    await mountReview()
+    const discard = screen.getByTestId('pr-review-discard')
+    expect(discard.hasAttribute('disabled')).toBe(false)
+    fireEvent.click(discard)
+    const ask = await screen.findByTestId('pr-review-discard-confirm')
+    expect(within(ask).getByRole('heading').textContent).toBe('Discard this review?')
+    expect(within(ask).getByTestId('pr-review-discard-text').textContent).toContain('may be on GitHub already')
+    fireEvent.click(within(ask).getByTestId('pr-review-discard-ok'))
+    await waitFor(() => expect(calls('prReview.discard')).toEqual([{ projectId: PROJECT, repo: REPO, number: NUMBER }]))
+  })
+
+  it('a draft whose Submit GitHub did not confirm keeps the texts that went: no Edit, no Delete, no «+», no agent; Finish review submits them again', async () => {
+    preload({ draft: withComments([{ comment: on(2, 'A.'), by: 'person' }], { error: `${UNCONFIRMED}: gh: Server Error (HTTP 502)` }) })
+    await mountReview()
+    const bar = screen.getByTestId('pr-review-bar')
+    expect(bar.dataset.state).toBe('unconfirmed')
+    expect(screen.getByTestId('pr-review-bar-count').textContent).toContain('worfy first looks whether GitHub has it already')
+    const shown = await screen.findByTestId('pr-review-comment')
+    expect(within(shown).queryByTestId('pr-review-comment-edit')).toBeNull()
+    expect(within(shown).queryByTestId('pr-review-comment-delete')).toBeNull()
+    expect(screen.queryByTestId('changes-line-plus')).toBeNull()
+    expect(within(bar).queryByTestId('pr-review-ask-agent')).toBeNull()
+    expect(within(bar).queryByTestId('pr-review-take-over')).toBeNull()
+    expect(screen.getByTestId('pr-review-finish').getAttribute('aria-disabled')).toBe('false')
   })
 
   it('while the Session of an Agent review writes: Finish review inactive with its reason, and no Discard', async () => {

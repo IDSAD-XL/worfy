@@ -24,7 +24,7 @@ import { appUrlMatcher, registerIpc, type IpcMainLike, type ModuleLoader } from 
 import { prReviewHandlers } from '../../src/main/ipc/pr-review'
 import { createLinkIpc, LinkPeer } from '../../src/main/link/ipc-adapter'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import { prReviewDeleteComment, prReviewDiscard, prReviewDraft, prReviewDrafts, prReviewSaveComment, prReviewSetViewed, prReviewStart, type PrReviewDraftAnswer, type ReviewDraft } from '../../src/shared/ipc/pr-review'
+import { LISTING_WAIT_MS, prReviewDeleteComment, prReviewDiscard, prReviewDraft, prReviewDrafts, prReviewSaveComment, prReviewSetViewed, prReviewStart, TEXTS_LOCKED, UNCONFIRMED, type PrReviewDraftAnswer, type ReviewDraft } from '../../src/shared/ipc/pr-review'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
 import { ms } from '../time-scale'
@@ -332,9 +332,23 @@ describe('Discard', () => {
   it('a review being submitted is not discarded', async () => {
     const s = await setup()
     ok(await s.call('prReview.saveComment', save(12, 'First.')))
-    writeFileSync(s.file, JSON.stringify({ ...s.onDisk()!, state: 'submitting' }))
+    writeFileSync(s.file, JSON.stringify({ ...s.onDisk()!, state: 'submitting', submittingAt: new Date().toISOString() }))
     expect(await s.call('prReview.discard', pull)).toEqual({ ok: false, error: 'prReview.discard failed: This review is being submitted: it is not discarded' })
     expect(existsSync(s.file)).toBe(true)
+  })
+
+  it('a Submit GitHub did not confirm, or a mark `submitting` older than the wait (worfy quit while it ran), is discarded: the lookup may fail for good', async () => {
+    const s = await setup()
+    ok(await s.call('prReview.saveComment', save(12, 'First.')))
+    const draft = s.onDisk()!
+    writeFileSync(s.file, JSON.stringify({ ...draft, error: `${UNCONFIRMED}: gh: Not Found (HTTP 404)`, submittingAt: new Date().toISOString() }))
+    expect(ok(await s.call<PrReviewDraftAnswer>('prReview.discard', pull)).draft).toBeNull()
+    expect(existsSync(s.file)).toBe(false)
+    const t = await setup()
+    ok(await t.call('prReview.saveComment', save(12, 'First.')))
+    writeFileSync(t.file, JSON.stringify({ ...t.onDisk()!, state: 'submitting', submittingAt: new Date(Date.now() - LISTING_WAIT_MS - 60_000).toISOString() }))
+    expect(ok(await t.call<PrReviewDraftAnswer>('prReview.discard', pull)).draft).toBeNull()
+    expect(existsSync(t.file)).toBe(false)
   })
 
   it.each([
@@ -378,6 +392,27 @@ describe('a submitted draft is kept 30 days', () => {
     const answer = ok(await s.call<{ drafts: { pr: number }[] }>('prReview.drafts', { projectId: PROJECT }))
     expect(answer.drafts.map((row) => row.pr)).toEqual([2, 4])
     expect([old, recent, byFileTime, openOld].map((file) => existsSync(file))).toEqual([false, true, false, true])
+  })
+})
+
+describe('a Submit GitHub did not confirm keeps its texts in main too', () => {
+  it('saveComment and deleteComment are refused; the file stays as it is', async () => {
+    let now = 0
+    const s = await setup({ now: () => now })
+    ok(await s.call('prReview.saveComment', save(12, 'First.')))
+    const locked = { ...s.onDisk()!, error: `${UNCONFIRMED}: gh: Bad Gateway (HTTP 502)`, submittingAt: new Date().toISOString() }
+    writeFileSync(s.file, JSON.stringify(locked))
+    for (const [channel, input] of [
+      ['prReview.saveComment', save(30, 'Another.')],
+      ['prReview.saveComment', { ...save(12, 'Changed.'), ref: { index: 0, path: 'src/upload.ts', body: 'First.' } }],
+      ['prReview.deleteComment', { ...pull, ref: { index: 0, path: 'src/upload.ts', body: 'First.' } }],
+    ] as const) {
+      now += WRITE_INTERVAL_MS
+      const answer = await s.call(channel, input)
+      expect(answer.ok).toBe(false)
+      expect(answer.ok ? '' : answer.error).toContain(TEXTS_LOCKED)
+    }
+    expect(s.onDisk()).toEqual(locked)
   })
 })
 

@@ -21,8 +21,11 @@
 //   ReviewBar.tsx: the count of comments, Discard, Finish review (ticket 10).
 // - Comments on lines (ticket 10, review-comments.tsx): «+» in the gutter, `c` on the lines picked, the popover of the
 //   Changes screen; they go into the draft, never to GitHub before Submit (ticket 11).
+// - Finish review (ticket 11, FinishReviewDialog.tsx): the dialog of the texts as they go, and Submit review — one
+//   POST on the person's click. GitHub took it: a toast, the PR read again (its approvals chip), Review mode closes.
+//   Inactive while the agent writes, and on a draft already submitted (the bar offers Start a new review then).
 // - Keys: j / k and ↓ / ↑ — the next and the previous file, n / p — hunks, v — Viewed of the file, c — a comment on the
-//   lines picked; Escape closes a menu or a popover first (the kit marks it handled), then Review mode.
+//   lines picked, ⌘⇧↵ — Finish review; Escape closes a menu or a popover first (the kit marks it handled), then Review mode.
 // - A Linked machine (read-only access or not): the draft lives on the Machine of the Project, so Review mode shows the
 //   diff and the threads only — no Viewed, no draft, no bar.
 // - Which PR, its file and Show new commits live in the store of the view (useReviewMode): another tab and back keeps them.
@@ -33,7 +36,7 @@ import { failureReason } from '../../shared/ipc/channels'
 import '../../shared/ipc/changes'
 import type { PrInboxRow } from '../../shared/ipc/pr-inbox'
 import '../../shared/ipc/pr-review'
-import { REVIEW_FILES_MAX, type PrReviewDraftAnswer, type ReviewDraft } from '../../shared/ipc/pr-review'
+import { REVIEW_FILES_MAX, submitPending, type PrReviewDraftAnswer, type PrReviewSubmitAnswer, type ReviewDraft, type ReviewEvent } from '../../shared/ipc/pr-review'
 import { type DiffPaneHandle } from '../changes/DiffPane'
 import { DiffScreen } from '../changes/DiffScreen'
 import { orderedFiles, toggledWith, type DiffLayout, type FileEntry, type RepoFiles } from '../changes/diff-window'
@@ -43,9 +46,10 @@ import { ApprovalsChip } from '../pr-inbox/ApprovalsChip'
 import { layerOf } from '../theme/open-layers'
 import { ToggleGroup, ToggleGroupItem } from '../theme/kit/ToggleGroup'
 import { showToast } from '../toast/toasts'
-import { ReviewBar } from './ReviewBar'
+import { FinishReviewDialog } from './FinishReviewDialog'
+import { FINISH_WAITS, ReviewBar } from './ReviewBar'
 import { useReviewComments } from './review-comments'
-import { closeReviewMode, draftChanged, draftCommitOf, isViewed, plural, REVIEW_REFRESH_MS, REVIEW_STALE_MS, reviewOpenOn, sameCommit, short, useReviewMode, viewedBlobOf } from './review-store'
+import { closeReviewMode, draftChanged, draftCommitOf, EVENT_WORDS, isViewed, plural, REVIEW_REFRESH_MS, REVIEW_STALE_MS, reviewOpenOn, sameCommit, short, useReviewMode, viewedBlobOf } from './review-store'
 import './pr-review.css'
 
 /** Input types that take no text: a key pressed on one (Viewed, Wrap, Hide whitespace) is Review mode's. */
@@ -67,9 +71,11 @@ export interface ReviewModeProps {
   readOnly: string | null
   /** Reads the PR again (its head, threads, approvals). */
   onRefresh: () => void
+  /** The login the PRs are read as: on the person's own PR Finish review offers no Approve and no Request changes. */
+  viewer?: string | null
 }
 
-export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModeProps) {
+export function ReviewMode({ projectId, row, readOnly, onRefresh, viewer = null }: ReviewModeProps) {
   const open = useReviewMode((store) => store.open)
   const chosen = useReviewMode((store) => store.file)
   const since = useReviewMode((store) => store.since)
@@ -193,7 +199,8 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
   // They stand on their lines while the diff shown is All changes of the commit the draft is numbered on; new ones are
   // made only then, so each is numbered on that commit.
   const onLines = scope.kind === 'all' && !moved
-  const canChange = local && subject !== null && draft !== null && draft.state === 'draft'
+  // A draft whose Submit GitHub did not confirm keeps the texts that went until the next Submit looks on GitHub.
+  const canChange = local && subject !== null && draft !== null && draft.state === 'draft' && !submitPending(draft)
   const lineComments = useReviewComments({
     projectId,
     repo,
@@ -237,18 +244,66 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
     [local, subject, draft, projectId, repo, number],
   )
 
-  const latest = useRef({ entries, chosen, select, toggleViewed, commentKey: lineComments.commentKey, clearPick: lineComments.clearPick })
+  // ── Finish review (ticket 11) ──
+  /** The draft as Finish review found it: the dialog keeps its texts. Null while the dialog is closed. */
+  const [finishing, setFinishing] = useState<ReviewDraft | null>(null)
+  const finishWhy =
+    draft === null || subject === null
+      ? 'Reading the draft…'
+      : draft.agent?.state === 'writing'
+        ? FINISH_WAITS
+        : draft.state === 'submitted'
+          ? 'Submitted already'
+          : null
+  const finish = (): boolean => {
+    if (finishWhy !== null || draft === null) return false
+    setNotice(null)
+    setFinishing(draft)
+    return true
+  }
+  const submitted = (answer: PrReviewSubmitAnswer, event: ReviewEvent, posted: number): void => {
+    setFinishing(null)
+    if (answer.draft !== null) setDraftRead({ draft: answer.draft, problem: null })
+    draftChanged()
+    const text =
+      answer.outcome === 'already-submitted'
+        ? `GitHub had this review of ${repo}#${number} already: it is marked submitted, nothing was posted again`
+        : `Review sent to ${repo}#${number} · ${EVENT_WORDS[event]} · ${plural(posted, 'comment')}`
+    showToast({ kind: 'success', key: `pr-review-submitted:${repo}#${number}`, text })
+    refreshNow()
+    closeReviewMode()
+  }
+  /** Start a new review of a PR whose review is submitted: the submitted draft goes, Start review makes a new one. */
+  const newReview = (): void => {
+    void invoke('prReview.discard', { projectId, repo, number }).then((answer) => {
+      if (!answer.ok) {
+        setNotice(failureReason('prReview.discard', answer.error))
+        return
+      }
+      takeAnswer(answer.value)
+      draftChanged()
+      started.current = false
+      setGeneration((value) => value + 1)
+    })
+  }
+
+  const latest = useRef({ entries, chosen, select, toggleViewed, commentKey: lineComments.commentKey, clearPick: lineComments.clearPick, finish })
   useEffect(() => {
-    latest.current = { entries, chosen, select, toggleViewed, commentKey: lineComments.commentKey, clearPick: lineComments.clearPick }
+    latest.current = { entries, chosen, select, toggleViewed, commentKey: lineComments.commentKey, clearPick: lineComments.clearPick, finish }
   })
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return
+      const finishKey = event.key === 'Enter' && (event.metaKey || event.ctrlKey) && event.shiftKey
+      if (event.defaultPrevented || event.altKey || ((event.ctrlKey || event.metaKey) && !finishKey)) return
       const frame = root.current
       // The views of the shell stay mounted and hidden: only the shown one takes keys.
       if (frame === null || frame.closest('[hidden]') !== null) return
       const target = event.target
       if (target instanceof HTMLElement && (typingIn(target) || layerOf(target) !== null)) return
+      if (finishKey) {
+        if (latest.current.finish()) event.preventDefault()
+        return
+      }
       const { entries: files, chosen: at, select: go, toggleViewed: mark, commentKey, clearPick } = latest.current
       if (event.key === 'Escape') {
         event.preventDefault()
@@ -361,7 +416,8 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
   }
 
   const discard = (): void => {
-    if (!canChange) return
+    // A draft whose Submit may be on GitHub is discarded too, after the bar's warning: the lookup can fail for good.
+    if (!canChange && !(local && draft !== null && submitPending(draft))) return
     setNotice(null)
     void invoke('prReview.discard', { projectId, repo, number }).then((answer) => {
       if (!answer.ok) {
@@ -376,7 +432,24 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
   }
 
   const bar: ReactNode =
-    local && draft !== null ? <ReviewBar draft={draft} count={count} canChange={canChange} onStop={() => callAgent('stop')} onAsk={() => callAgent('add')} onDiscard={discard} /> : null
+    local && draft !== null ? (
+      <ReviewBar
+        draft={draft}
+        count={count}
+        canChange={canChange}
+        finishWhy={finishWhy}
+        onStop={() => callAgent('stop')}
+        onAsk={() => callAgent('add')}
+        onDiscard={discard}
+        onFinish={() => void finish()}
+        onNewReview={newReview}
+      />
+    ) : null
+  const mine = row.author !== null && viewer !== null && row.author.toLowerCase() === viewer.toLowerCase()
+  const dialog: ReactNode =
+    finishing !== null && subject !== null ? (
+      <FinishReviewDialog projectId={projectId} repo={repo} number={number} draft={finishing} head={subject.headOid} mine={mine} off={offIndexes} onClose={() => setFinishing(null)} onSubmitted={submitted} />
+    ) : null
 
   const value = list?.value
   const files = allEntries.length
@@ -504,6 +577,7 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
       {body}
       {bar}
       {lineComments.overlay}
+      {dialog}
     </section>
   )
 }
