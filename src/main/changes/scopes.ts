@@ -213,10 +213,22 @@ function runPool<T>(items: readonly T[], limit: number, task: (item: T) => Promi
   return Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker)).then(() => undefined)
 }
 
-function changedFile(context: ChangesContext, listed: ListedFile, generated: Set<string>, untracked: boolean): ChangedFile {
+/**
+ * The paths that differ from HEAD in the index or in the work tree (`git diff --name-only HEAD`; worfy-changes-view
+ * ticket 09): the files whose lines on the work tree's side are not all committed. Renames come as the old and the new
+ * path (`--no-renames`), so a file moved and not committed is one of them by its new path.
+ */
+async function uncommittedPaths(context: ChangesContext): Promise<Set<string>> {
+  const read = await context.git(context.subject.cwd, ['diff', '--name-only', '--no-renames', '-z', 'HEAD', '--'])
+  if (read.code !== 0) throw failed('git diff --name-only HEAD', read)
+  return new Set(splitZ(read.stdout).filter((path) => path !== ''))
+}
+
+function changedFile(context: ChangesContext, listed: ListedFile, generated: Set<string>, untracked: boolean, uncommitted: boolean): ChangedFile {
   return {
     ...listed,
     untracked,
+    uncommitted,
     workflow: isWorkflowPath(listed.path, context.workflowPrefix),
     fold: foldOf({ ...listed, generated: generated.has(listed.path) }),
   }
@@ -258,7 +270,11 @@ export async function listChanges(context: ChangesContext, scope: ChangesScope, 
       }
     }
     const generated = await generatedPaths(context, [...tracked, ...fresh].map((file) => file.path), attributeSource(context, range))
-    const files = [...tracked.map((file) => changedFile(context, file, generated, false)), ...fresh.map((file) => changedFile(context, file, generated, true))].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+    // Which files hold what HEAD does not: every file of Uncommitted; of All changes and Compare against on a worktree,
+    // the ones git lists against HEAD and the new ones; none of a branch or a commit (no work tree is read there).
+    const dirty = range.workTree && scope.kind !== 'uncommitted' ? await uncommittedPaths(context) : null
+    const isUncommitted = (path: string, untracked: boolean): boolean => range.workTree && (untracked || dirty === null || dirty.has(path))
+    const files = [...tracked.map((file) => changedFile(context, file, generated, false, isUncommitted(file.path, false))), ...fresh.map((file) => changedFile(context, file, generated, true, isUncommitted(file.path, true)))].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
     return answer({
       base: range.base,
       workTree: range.workTree,

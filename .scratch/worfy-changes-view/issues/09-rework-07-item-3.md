@@ -1,7 +1,7 @@
 # 09: Rework of worfy-changes-view 07, item 3
 
 Type: task
-Status: open
+Status: claimed 2026-11-21T02:06Z
 Blocked by: 08
 Source: owner-check fail 2026-11-21 of worfy-changes-view 07, item 3 — 07-приёмка-владельцем.md
 

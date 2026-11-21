@@ -237,9 +237,9 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
     [local, subject, draft, projectId, repo, number],
   )
 
-  const latest = useRef({ entries, chosen, select, toggleViewed, commentKey: lineComments.commentKey })
+  const latest = useRef({ entries, chosen, select, toggleViewed, commentKey: lineComments.commentKey, clearPick: lineComments.clearPick })
   useEffect(() => {
-    latest.current = { entries, chosen, select, toggleViewed, commentKey: lineComments.commentKey }
+    latest.current = { entries, chosen, select, toggleViewed, commentKey: lineComments.commentKey, clearPick: lineComments.clearPick }
   })
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -249,10 +249,11 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh }: ReviewModePr
       if (frame === null || frame.closest('[hidden]') !== null) return
       const target = event.target
       if (target instanceof HTMLElement && (typingIn(target) || layerOf(target) !== null)) return
-      const { entries: files, chosen: at, select: go, toggleViewed: mark, commentKey } = latest.current
+      const { entries: files, chosen: at, select: go, toggleViewed: mark, commentKey, clearPick } = latest.current
       if (event.key === 'Escape') {
         event.preventDefault()
-        closeReviewMode()
+        // The lines picked go first (worfy-changes-view ticket 09), then Review mode.
+        if (!clearPick()) closeReviewMode()
         return
       }
       if (event.shiftKey) return
