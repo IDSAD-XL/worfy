@@ -169,12 +169,62 @@ Code: `src/renderer/changes/line-comments.tsx:538-540` · key lines: 538, 539, 5
 - Риски и пробелы test-ов: комментарий на head-е, который этот вид не читал (сделан до этого PR), не переезжает и
   остаётся на своих строках; хранится 100 новейших head-ов на Ticket.
 
-## 7. Что сознательно не меняли
+## 7. Повторная выкладка: patch-и читаются по шесть, и только у файлов, которые ещё на экране
+
+Code: `src/renderer/changes/DiffPane.tsx:518-546` · key lines: 522, 523, 526, 539, 546
+
+```tsx
+    startReads.current = () => {
+      if (asked.current.of !== readFor) asked.current = { of: readFor, keys: new Set(), running: 0 }
+      const of = readFor
+      const now = asked.current
+      for (const [key, entry] of wanted) {
+        if (now.running >= READS_AT_ONCE) return
+        if (now.keys.has(key)) continue
+        now.keys.add(key)
+        now.running += 1
+        const { file } = entry
+        void invoke('changes.file', {
+          projectId,
+          subject,
+          repo: entry.repo,
+          scope,
+          path: file.path,
+          oldPath: file.oldPath,
+          untracked: file.untracked,
+          ...(key.endsWith('\u0000expand') ? { expand: true } : {}),
+          hideWhitespace,
+        }).then((result) => {
+          now.running -= 1
+          // An answer for a `readFor` gone by is dropped: it would replace the patches of the current one, which are
+          // already asked for and so not asked again.
+          if (asked.current.of !== of) return
+          const state: FileState = result.ok ? { kind: 'ready', diff: result.value.file } : { kind: 'error', message: failureReason('changes.file', result.error) }
+          setFiles((previous) => ({ of, map: new Map(previous.of === of ? previous.map : []).set(key, state) }))
+          if (result.ok) readListener.current?.(entry, result.value.file, { scope, hideWhitespace, generation })
+          startReads.current()
+```
+
+- Что делает: не больше `READS_AT_ONCE` (6) чтений `changes.file` идут одновременно. Когда чтение кончается, следующее
+  берётся из файлов, нарисованных сейчас (`wanted` этого render-а), поэтому файл, который прокрутка миновала до начала
+  его чтения, не читается.
+- Почему здесь: после merge-а #2130 main стал красным на CI Windows: в e2e test-е `test/e2e/changes.spec.ts`
+  последний файл diff-а из 301 файла не появлялся за 45 с. Так и на commit-ах до #2130: 38,9 с (e9b02e95c) и 41,7 с
+  (b846c8a06), почти у предела. На PR #2130 — 35,5 с. DiffPane просил patch каждого файла, мимо которого проходило
+  окно, все сразу. Каждое чтение — несколько процессов git, и файлы последнего экрана ждали их все. Кода выбора строк
+  (#2130) в этом пути нет. Почему предел именно 6 — не записано.
+- Без него: прокрутка по сотням файлов запускает сотни чтений сразу, и последний экран ждёт десятки секунд на Windows.
+- Требование: [Готово, когда, пункт 8](../issues/09-rework-07-item-3.md#готово-когда) — `ci-ok` зелёный, а в нём e2e
+  Windows.
+- Риски и пробелы test-ов: unit test держит ответы и считает запросы, но не время. Время на Windows видно только в CI
+  (`lastDrawnAfter` в log-е e2e test-а). На этом Mac было 3,6 с, стало 1,3 с.
+
+## 8. Что сознательно не меняли
 
 `DiffPane.tsx` и рендер строк — Ticket 10 (подсветка синтаксиса). Формат строки агенту (`quote-comments.ts`). Меню
 правого щелчка в Review mode. Русский перевод `pr-inbox.md` не описывает комментарии Review mode и не правился.
 
-## 8. Как проверено
+## 9. Как проверено
 
 - `pnpm lint`, `pnpm typecheck` — exit 0; 20 файлов unit и contract test-ов модулей changes, pr-review, quote — exit 0.
 - `pnpm test:e2e test/e2e/changes.spec.ts test/e2e/changes-comments.spec.ts test/e2e/pr-review.spec.ts` — exit 0, 7 passed.
@@ -203,7 +253,7 @@ Code: `src/renderer/changes/line-comments.tsx:538-540` · key lines: 538, 539, 5
      нового чтения.
    - Строки: `src/renderer/changes/line-comments.tsx:539-540`
 
-## 9. Что нашёл review и что осталось
+## 10. Что нашёл review и что осталось
 
 > VERIFIED — worfy-changes-view 09 (rework of 07 item 3: picking a range of diff lines by dragging «+», and the commit a line comment names), head 57663a9e5528d927d842c5106da63bc7df6aa5e6
 >

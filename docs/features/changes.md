@@ -209,7 +209,9 @@ nothing while typing in a field or while a menu or a popover is open.
 
 #### Size
 
-A file's patch is read only when the file comes within reach of the screen. The diff draws only the blocks — a
+A file's patch is read only when the file comes within reach of the screen, six at a time; a file the scroll has
+passed before its read could start is not read, so the files of the last screen do not wait behind every file scrolled
+over. The diff draws only the blocks — a
 file's header, a hunk, a note — on the screen and two screens above and below it; the rest stand as empty space of
 their height, so a Ticket of 300 files or a file of 2 000 lines draws a few screens.
 

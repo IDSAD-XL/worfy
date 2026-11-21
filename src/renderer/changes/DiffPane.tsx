@@ -1,6 +1,7 @@
 // The diff of the Changes screen (worfy-changes-view ticket 03): the files of the tree one under the other, each with its
 // header and its hunks, Inline or Side by side, with Wrap or without. A file's patch is read (`changes.file`) only when
-// the file comes within the window of the diff (diff-window.ts): the blocks on screen and two screens above and below.
+// the file comes within the window of the diff (diff-window.ts): the blocks on screen and two screens above and below;
+// READS_AT_ONCE at a time, and a file the window has left before its read could start is not read.
 // A large, lock or generated file comes folded, «Large diff · N lines · Show»; a binary file shows its sizes, «Binary
 // file · 12 KB → 14 KB». Added lines take the colours of ready, deleted lines those of blocked, as the migration form
 // does (harness/MigrationForm.tsx). The code of a hunk on screen takes the syntax colours of the GitHub themes once its
@@ -108,6 +109,8 @@ type Note =
 
 /** In a test the scroll box has no height: the window is then as tall as a screen of this many px. */
 const FALLBACK_VIEWPORT = 800
+/** The patches read at a time (`changes.file`): a read is several git processes, slow to start on Windows. */
+export const READS_AT_ONCE = 6
 
 const FOLD_WORDS = { large: 'Large diff', lock: 'Lock file', generated: 'Generated file' } as const
 
@@ -502,40 +505,52 @@ export function DiffPane({ projectId, subject, scope, hideWhitespace, layout, wr
     if (needsRead(block.entry, current.get(key), open)) wanted.set(key, block.entry)
   }
   const wantedKeys = [...wanted.keys()].join('\n')
-  const asked = useRef<{ of: string; keys: Set<string> }>({ of: readFor, keys: new Set() })
+  // What was asked for this `readFor`, and how many of its reads run now: at most READS_AT_ONCE. A scroll over hundreds
+  // of files passes each of them; were each asked for at once, the files of the last screen would wait behind them all.
+  const asked = useRef<{ of: string; keys: Set<string>; running: number }>({ of: readFor, keys: new Set(), running: 0 })
   // The listener of reads, as it is now: the read's answer comes after the render that asked for it.
   const readListener = useRef(onFileRead)
+  // Starts reads of the files drawn now, up to READS_AT_ONCE; set each render, so a read that ends starts what is drawn
+  // then, not what was drawn when it began.
+  const startReads = useRef<() => void>(() => undefined)
   useEffect(() => {
     readListener.current = onFileRead
+    startReads.current = () => {
+      if (asked.current.of !== readFor) asked.current = { of: readFor, keys: new Set(), running: 0 }
+      const of = readFor
+      const now = asked.current
+      for (const [key, entry] of wanted) {
+        if (now.running >= READS_AT_ONCE) return
+        if (now.keys.has(key)) continue
+        now.keys.add(key)
+        now.running += 1
+        const { file } = entry
+        void invoke('changes.file', {
+          projectId,
+          subject,
+          repo: entry.repo,
+          scope,
+          path: file.path,
+          oldPath: file.oldPath,
+          untracked: file.untracked,
+          ...(key.endsWith('\u0000expand') ? { expand: true } : {}),
+          hideWhitespace,
+        }).then((result) => {
+          now.running -= 1
+          // An answer for a `readFor` gone by is dropped: it would replace the patches of the current one, which are
+          // already asked for and so not asked again.
+          if (asked.current.of !== of) return
+          const state: FileState = result.ok ? { kind: 'ready', diff: result.value.file } : { kind: 'error', message: failureReason('changes.file', result.error) }
+          setFiles((previous) => ({ of, map: new Map(previous.of === of ? previous.map : []).set(key, state) }))
+          if (result.ok) readListener.current?.(entry, result.value.file, { scope, hideWhitespace, generation })
+          startReads.current()
+        })
+      }
+    }
   })
   useEffect(() => {
-    if (asked.current.of !== readFor) asked.current = { of: readFor, keys: new Set() }
-    const of = readFor
-    for (const [key, entry] of wanted) {
-      if (asked.current.keys.has(key)) continue
-      asked.current.keys.add(key)
-      const { file } = entry
-      void invoke('changes.file', {
-        projectId,
-        subject,
-        repo: entry.repo,
-        scope,
-        path: file.path,
-        oldPath: file.oldPath,
-        untracked: file.untracked,
-        ...(key.endsWith('\u0000expand') ? { expand: true } : {}),
-        hideWhitespace,
-      }).then((result) => {
-        // An answer for a `readFor` gone by is dropped: it would replace the patches of the current one, which are
-        // already asked for and so not asked again.
-        if (asked.current.of !== of) return
-        const state: FileState = result.ok ? { kind: 'ready', diff: result.value.file } : { kind: 'error', message: failureReason('changes.file', result.error) }
-        setFiles((previous) => ({ of, map: new Map(previous.of === of ? previous.map : []).set(key, state) }))
-        if (result.ok) readListener.current?.(entry, result.value.file, { scope, hideWhitespace, generation })
-      })
-    }
+    startReads.current()
     // `wanted` is a new Map each render; its keys, with what they are read for, are what starts a read.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wantedKeys, readFor])
 
   // Follow the scroll and the height of the box.
