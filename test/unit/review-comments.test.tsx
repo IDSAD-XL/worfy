@@ -23,8 +23,6 @@ import type { PrInboxRow } from '../../src/shared/ipc/pr-inbox'
 import { UNCONFIRMED, type ReviewComment, type ReviewDraft } from '../../src/shared/ipc/pr-review'
 
 const PROJECT = 'web-00000001'
-/** A move of the pointer with its main button held: a drag of «+». */
-const PRESSED = { buttons: 1 }
 const REPO = 'example-org/web'
 const NUMBER = 77
 const HEAD = '3f2a9c1e5b7d4a6c8e0f1a2b3c4d5e6f7a8b9c0d'
@@ -332,45 +330,6 @@ describe('a comment on a line of the PR', () => {
     expect(within(await screen.findByTestId('changes-comment-popover')).getByTestId('changes-comment-where').textContent).toBe(`${RETRY}:3 · new side`)
   })
 
-  // worfy-changes-view ticket 09 (D2): the range is picked as on GitHub, by dragging «+», and a hint says how to comment.
-  it('dragging «+» over lines picks a range and opens the popover on it; the hint «Comment on lines N–M (c)» opens it too; Escape takes the pick first', async () => {
-    preload()
-    const { mode } = await mountReview()
-    fireEvent.mouseDown(within(line(1)).getByTestId('changes-line-plus'))
-    fireEvent.mouseMove(line(2).querySelector('.w-changes__code')!, PRESSED)
-    fireEvent.mouseMove(line(3).querySelector('.w-changes__code')!, PRESSED)
-    fireEvent.mouseUp(line(3).querySelector('.w-changes__code')!)
-    expect(within(await screen.findByTestId('changes-comment-popover')).getByTestId('changes-comment-where').textContent).toBe(`${RETRY}:1–3 · new side`)
-    // While the popover is open the hint stands aside.
-    expect(screen.queryByTestId('changes-pick-hint')).toBeNull()
-    fireEvent.click(within(popover()).getByTestId('changes-comment-cancel'))
-    await waitFor(() => expect(screen.queryByTestId('changes-comment-popover')).toBeNull())
-
-    const hint = screen.getByTestId('changes-pick-hint')
-    expect(hint.textContent).toBe('Comment on lines 1–3 (c)')
-    // Under the last line picked.
-    expect(line(3).compareDocumentPosition(hint) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(line(2).compareDocumentPosition(hint) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    fireEvent.click(hint)
-    expect(within(await screen.findByTestId('changes-comment-popover')).getByTestId('changes-comment-where').textContent).toBe(`${RETRY}:1–3 · new side`)
-    fireEvent.change(field(), { target: { value: 'One block' } })
-    saveKey()
-    await waitFor(() => expect(calls('prReview.saveComment')).toHaveLength(1))
-    expect(calls('prReview.saveComment')[0]).toMatchObject({ comment: { path: RETRY, line: 3, side: 'RIGHT', start_line: 1, start_side: 'RIGHT', body: 'One block' } })
-    await waitFor(() => expect(screen.queryByTestId('changes-comment-popover')).toBeNull())
-
-    // Shift with «+» stretches a pick without a popover; Escape takes the pick away and leaves Review mode open, the next closes it.
-    fireEvent.click(line(1).querySelector('.w-changes__code')!)
-    fireEvent.mouseDown(within(line(2)).getByTestId('changes-line-plus'), { shiftKey: true })
-    expect(screen.queryByTestId('changes-comment-popover')).toBeNull()
-    expect(screen.getByTestId('changes-pick-hint').textContent).toBe('Comment on lines 1–2 (c)')
-    fireEvent.keyDown(document.body, { key: 'Escape' })
-    expect(screen.queryByTestId('changes-pick-hint')).toBeNull()
-    expect(mode.useReviewMode.getState().open).not.toBeNull()
-    fireEvent.keyDown(document.body, { key: 'Escape' })
-    expect(mode.useReviewMode.getState().open).toBeNull()
-  })
-
   it('Escape keeps a changed popover and does not close Review mode under it; on an unchanged one it closes the popover only', async () => {
     preload()
     const { mode } = await mountReview()
@@ -576,36 +535,19 @@ describe('the lines a comment stands on', () => {
     expect(off.textContent).not.toContain('Within.')
   })
 
-  // Review round 3 of worfy-changes-view 09: a click with Shift or Shift with «+» on a line of another hunk picked across
-  // hunks, the hint promised that range, and `c` refused it. A pick now stays in the hunk it began in.
-  it('a click with Shift or Shift with «+» on a line of another hunk picks that line alone; `c` opens it, with no refusal', async () => {
+  it('a range picked across hunks is refused with a message: `c` and «+» open no popover, nothing is saved', async () => {
     preload({ answers: { 'changes.file': (input) => ({ ok: true, value: { file: input.path === RETRY ? twoHunks(RETRY) : hunks(input.path as string) } }) } })
     await mountReview()
     fireEvent.click(line(3).querySelector('.w-changes__code')!)
     fireEvent.click(line(20).querySelector('.w-changes__code')!, { shiftKey: true })
-    expect(screen.getByTestId('changes-pick-hint').textContent).toBe('Comment on line 20 (c)')
-    fireEvent.click(line(2).querySelector('.w-changes__code')!)
-    fireEvent.mouseDown(within(line(21)).getByTestId('changes-line-plus'), { shiftKey: true })
-    expect(screen.getByTestId('changes-pick-hint').textContent).toBe('Comment on line 21 (c)')
-    fireEvent.mouseDown(within(line(20)).getByTestId('changes-line-plus'), { shiftKey: true })
-    expect(screen.getByTestId('changes-pick-hint').textContent).toBe('Comment on lines 20–21 (c)')
     fireEvent.keyDown(document.body, { key: 'c' })
-    expect(within(await screen.findByTestId('changes-comment-popover')).getByTestId('changes-comment-where').textContent).toBe(`${RETRY}:20–21 · new side`)
-    expect(await toastTexts()).not.toContain('A comment covers lines of one hunk: GitHub refuses a range across hunks. Pick lines of one hunk.')
-    expect(writes()).toEqual([])
-  })
-
-  // Review round 4: a hunk is known by its place among the file's hunks; a pick that outlived Hide whitespace could
-  // stretch into another hunk that now had its old place.
-  it('Hide whitespace reads the diff again and takes the pick away', async () => {
-    preload({ answers: { 'changes.file': (input) => ({ ok: true, value: { file: input.path === RETRY ? twoHunks(RETRY) : hunks(input.path as string) } }) } })
-    await mountReview()
-    fireEvent.click(line(20).querySelector('.w-changes__code')!)
-    expect(screen.getByTestId('changes-pick-hint').textContent).toBe('Comment on line 20 (c)')
-    fireEvent.click(screen.getByLabelText('Hide whitespace'))
-    await waitFor(() => expect(line(20)).toBeTruthy())
     await settle()
-    expect(screen.queryByTestId('changes-pick-hint')).toBeNull()
+    expect(screen.queryByTestId('changes-comment-popover')).toBeNull()
+    expect(await toastTexts()).toContain('A comment covers lines of one hunk: GitHub refuses a range across hunks. Pick lines of one hunk.')
+    fireEvent.click(within(line(20)).getByTestId('changes-line-plus'))
+    await settle()
+    expect(screen.queryByTestId('changes-comment-popover')).toBeNull()
+    expect(writes()).toEqual([])
   })
 })
 

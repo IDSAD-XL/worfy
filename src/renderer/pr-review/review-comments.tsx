@@ -2,11 +2,10 @@
 // decisions, 7): the popover and the keys of the comments of the Changes screen (changes/LineComment.tsx, worfy-changes-view
 // ticket 05), but the comment goes into the review draft of the PR (`prReview.saveComment`), never to a Session.
 //
-// - A comment is made on a line or a range of one file and one side, picked as on the Changes screen
-//   (changes/line-pick.tsx, worfy-changes-view ticket 09): «+» in the gutter, dragged over lines for a range; the key `c`
-//   or the hint under the lines picked (a click picks a line, a click with Shift, Shift with «+» or a selection across
-//   lines picks a range). ⌘↵ saves it. Suggest change puts a `suggestion` block with the text of the lines picked into
-//   the field. No images: GitHub takes none in a review comment.
+// - A comment is made on a line or a range of one file and one side: «+» in the gutter, or the key `c` on the lines
+//   picked (a click picks a line, a click with Shift or a selection across lines picks a range). ⌘↵ saves it. Suggest
+//   change puts a `suggestion` block with the text of the lines picked into the field. No images: GitHub takes none in
+//   a review comment.
 // - New comments are numbered on the commit of the draft (draftCommitOf), so they are made only while the diff shown is
 //   that commit's: All changes on a head the draft is on. A head past it lists the comments above the diff (ReviewMode).
 // - A comment stands under its last line: «Pending · Edit · Delete», the agent's «Written by the agent · Edit · Delete».
@@ -17,7 +16,7 @@
 //   which main keeps in memory per head).
 // - A popover with text not saved yet stays open: «+», `c` and Edit do not replace it, and Escape keeps it (the rule of
 //   the Changes screen, worfy-polish 136).
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from 'react'
 import type { ChangesPrRef, DiffHunk, DiffLine, FileDiff } from '../../shared/changes/types'
 import { failureReason } from '../../shared/ipc/channels'
 import '../../shared/ipc/changes'
@@ -27,7 +26,6 @@ import { SHORTCUTS } from '../../shared/shortcuts'
 import type { DiffPaneProps, FileReadOf, LineSide } from '../changes/DiffPane'
 import { lineNumber, type DiffLayout, type FileEntry } from '../changes/diff-window'
 import { LineCommentPopover, type LinePopover } from '../changes/LineComment'
-import { useLinePick } from '../changes/line-pick'
 import { invoke } from '../ipc'
 import { label as shortcutLabel } from '../shortcuts/match'
 import { showToast } from '../toast/toasts'
@@ -75,6 +73,27 @@ type LinesOf = { ok: true; code: string } | { ok: false; why: string }
 
 const ACROSS_HUNKS = 'A comment covers lines of one hunk: GitHub refuses a range across hunks. Pick lines of one hunk.'
 
+/** The lines picked for a comment: one file, one side, `start` where the pick began. */
+interface Picked {
+  key: string
+  side: LineSide
+  start: number
+  end: number
+}
+
+const range = (pick: Picked): { from: number; to: number } => ({ from: Math.min(pick.start, pick.end), to: Math.max(pick.start, pick.end) })
+
+/** The line a pointer event is on: the file of its hunk, its side and number; null off a line. */
+function lineAt(target: EventTarget | null): { key: string; side: LineSide; line: number } | null {
+  const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null
+  const cell = element?.closest<HTMLElement>('[data-line][data-side]')
+  const key = cell?.closest<HTMLElement>('[data-testid="changes-hunk"]')?.dataset.key
+  const line = Number(cell?.dataset.line)
+  const side = cell?.dataset.side
+  if (key === undefined || !Number.isInteger(line) || line < 1 || (side !== 'old' && side !== 'new')) return null
+  return { key, side, line }
+}
+
 /** A click on these is theirs, not a pick of the line. */
 const OWN_CONTROLS = 'button, a, input, textarea, .w-cl, .w-pr-review-comment'
 
@@ -98,8 +117,6 @@ export interface ReviewCommentsOptions {
   /** The files were read without an error: a comment on a file not among them is not on a changed line. */
   filesRead: boolean
   generation: number
-  /** The read of the diff shown (head, scope, Hide whitespace, Refresh): a new one takes the lines picked away. */
-  diffView: string
   /** Where the rows of the diff and the comments are looked for. */
   body: RefObject<HTMLElement | null>
   /** The draft main answered with after a change. */
@@ -111,8 +128,6 @@ export interface ReviewCommentsLayer {
   diff: Pick<DiffPaneProps, 'renderGutter' | 'renderBelow' | 'isPicked' | 'lineEvents' | 'onFileRead'>
   /** The key `c`: the comment of the lines picked; false when it is not Review mode's to take. */
   commentKey: () => boolean
-  /** Escape: true when it took the lines picked away (Review mode stays then). */
-  clearPick: () => boolean
   /** The comments of the draft, in its order. */
   comments: readonly PlacedComment[]
   /** The comments on lines the diff of the PR lacks, known so far. */
@@ -212,6 +227,7 @@ export function useReviewComments(options: ReviewCommentsOptions): ReviewComment
   const offLines = onLines ? comments.filter(({ comment }) => isOff(comment)) : []
 
   // ── the popover ──
+  const [picked, setPicked] = useState<Picked | null>(null)
   const [popover, setPopover] = useState<LinePopover | null>(null)
   const popoverNow = useRef<LinePopover | null>(null)
   const putPopover = useCallback((next: LinePopover | null | ((open: LinePopover | null) => LinePopover | null)) => {
@@ -311,17 +327,15 @@ export function useReviewComments(options: ReviewCommentsOptions): ReviewComment
     putPopover({ id: null, key, path: entry.file.path, side, startLine: from, endLine: to, code: lines.code, text: '', images: [], reading: 0, error: null, was: { text: '', images: 0 } })
   }
 
-  const pick = useLinePick({
-    enabled: canAdd,
-    view: options.diffView,
-    commenting: popover !== null,
-    open: (key, side, from, to) => void openNew(key, side, from, to),
-    held: () => false,
-    ownControls: OWN_CONTROLS,
-    toastKey: 'pr-review-pick-hint',
-    plusLabel: (at, path) => `${moving === null ? 'Comment on' : 'Move the comment to'} line ${at} of ${path}`,
-  })
-  const { setPicked } = pick
+  /** «+» of a line: the range picked when the line is in it, else the line alone. */
+  const openOn = (key: string, side: LineSide, line: number) => {
+    if (!canAdd) return
+    if (picked !== null && picked.key === key && picked.side === side && line >= range(picked).from && line <= range(picked).to) void openNew(key, side, range(picked).from, range(picked).to)
+    else {
+      setPicked({ key, side, start: line, end: line })
+      void openNew(key, side, line, line)
+    }
+  }
 
   /** The lines of a comment as it stands: from its file's diff, when that has them all in one hunk. */
   const codeOfComment = (comment: ReviewComment, key: string): string | null => {
@@ -418,22 +432,67 @@ export function useReviewComments(options: ReviewCommentsOptions): ReviewComment
       submitted={draft?.state === 'submitted'}
     />
   )
-  const renderGutter = pick.plus
-  const renderBelow = (line: DiffLine, side: LineSide, entry: FileEntry): ReactNode => {
-    if (!onLines) return null
-    const hint = pick.hint(line, side, entry)
-    const here = comments.filter(({ comment, index }) => !offSet.has(index) && comment.path === entry.file.path && commentOnLine(comment, line, side, layout))
-    if (here.length === 0) return hint
+  const renderGutter = (line: DiffLine, side: LineSide, entry: FileEntry): ReactNode => {
+    const at = lineNumber(line, side)
+    if (!canAdd || at === null) return null
     return (
-      <>
-        {hint}
-        {here.map((placed) => (
-          <DraftComment key={placed.index} placed={placed} repo={repo} onEdit={canChange ? () => openEdit(placed) : null} onDelete={canChange ? () => remove(placed) : null} submitted={draft?.state === 'submitted'} />
-        ))}
-      </>
+      <button
+        type="button"
+        className="w-cl__plus nodrag"
+        aria-label={`${moving === null ? 'Comment on' : 'Move the comment to'} line ${at} of ${entry.file.path}`}
+        data-testid="changes-line-plus"
+        onClick={(event) => {
+          event.stopPropagation()
+          openOn(entry.key, side, at)
+        }}
+      >
+        +
+      </button>
     )
   }
-  const { isPicked, lineEvents } = pick
+  const renderBelow = (line: DiffLine, side: LineSide, entry: FileEntry): ReactNode => {
+    if (!onLines) return null
+    const here = comments.filter(({ comment, index }) => !offSet.has(index) && comment.path === entry.file.path && commentOnLine(comment, line, side, layout))
+    if (here.length === 0) return null
+    return here.map((placed) => (
+      <DraftComment key={placed.index} placed={placed} repo={repo} onEdit={canChange ? () => openEdit(placed) : null} onDelete={canChange ? () => remove(placed) : null} submitted={draft?.state === 'submitted'} />
+    ))
+  }
+  const isPicked = (line: DiffLine, side: LineSide, entry: FileEntry): boolean => {
+    if (picked === null || picked.key !== entry.key || picked.side !== side) return false
+    const at = lineNumber(line, side)
+    return at !== null && at >= range(picked).from && at <= range(picked).to
+  }
+  const lineEvents: ReviewCommentsLayer['diff']['lineEvents'] = {
+    onClick: (event: ReactMouseEvent<HTMLDivElement>) => {
+      if (!canAdd || (event.target as Element).closest?.(OWN_CONTROLS)) return
+      // A drag that selected text is a pick of its own (onMouseUp).
+      if (globalThis.getSelection?.()?.isCollapsed === false) return
+      const at = lineAt(event.target)
+      if (at === null) return
+      if (event.shiftKey && picked !== null && picked.key === at.key && picked.side === at.side) setPicked({ ...picked, end: at.line })
+      else setPicked({ key: at.key, side: at.side, start: at.line, end: at.line })
+    },
+    onMouseUp: () => {
+      if (!canAdd) return
+      const selection = globalThis.getSelection?.()
+      if (selection == null || selection.isCollapsed) return
+      const from = lineAt(selection.anchorNode)
+      const to = lineAt(selection.focusNode)
+      if (from === null || to === null || from.key !== to.key || from.side !== to.side || from.line === to.line) return
+      setPicked({ key: from.key, side: from.side, start: from.line, end: to.line })
+    },
+  }
+
+  const commentKey = (): boolean => {
+    if (!canAdd) return false
+    if (picked === null) {
+      showToast({ kind: 'info', key: 'pr-review-pick-hint', text: 'Click a line first, then press c' })
+      return true
+    }
+    void openNew(picked.key, picked.side, range(picked).from, range(picked).to)
+    return true
+  }
 
   // ── drawing ──
   const anchorOf = (open: LinePopover): Element | null => {
@@ -485,5 +544,5 @@ export function useReviewComments(options: ReviewCommentsOptions): ReviewComment
       </section>
     )
 
-  return { diff: { renderGutter, renderBelow, isPicked, lineEvents, onFileRead }, commentKey: pick.commentKey, clearPick: pick.clear, comments, offLines, offList, listed, overlay }
+  return { diff: { renderGutter, renderBelow, isPicked, lineEvents, onFileRead }, commentKey, comments, offLines, offList, listed, overlay }
 }

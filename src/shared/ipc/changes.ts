@@ -88,8 +88,6 @@ export const changedFileSchema = z.object({
   oldBlob: text.nullable(),
   newBlob: text.nullable(),
   untracked: z.boolean(),
-  /** Absent in an answer of a build before worfy-changes-view ticket 09, and in the diff of a PR read from GitHub. */
-  uncommitted: z.boolean().optional(),
   workflow: z.boolean(),
   fold: z.enum(FOLD_REASONS).nullable(),
   url: text.optional(),

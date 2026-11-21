@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from 'react'
 import type { z } from 'zod'
 import type { Attachment } from '../../shared/agent/attachments'
-import type { ChangedFile, ChangesScope, DiffHunk, DiffLine, FileDiff } from '../../shared/changes/types'
+import type { ChangesScope, DiffHunk, DiffLine, FileDiff } from '../../shared/changes/types'
 import type { changesTargetSchema } from '../../shared/ipc/changes'
 // The channels Send starts a Session with must be declared in this window too (ipc.ts).
 import '../../shared/ipc/orchestrator'
@@ -18,8 +18,6 @@ import { dismissToast, showToast } from '../toast/toasts'
 import type { DiffPaneHandle, DiffPaneProps, FileReadOf, LineSide } from './DiffPane'
 import { lineNumber, type FileEntry } from './diff-window'
 import { LineCommentBox, LineCommentPopover, SentLineBox, type LinePopover } from './LineComment'
-import { lineAt, pickRange, useLinePick } from './line-pick'
-import { addSeenHeads, seenHead, seenHeadsKey } from './seen-heads'
 import { lineRequestFor, useLineRequests, type ChangesSubject } from './open'
 import type { RepoList, RepoScopes } from './ScopeBar'
 import { addSentLines, sentLinesKey, useSentLines, type SentLine } from './sent-lines'
@@ -28,10 +26,9 @@ import { Tray } from './Tray'
 // The comments on lines of the Changes view (worfy-changes-view tickets 05 and 08; the spec's part on comments on lines): what
 // the diff, the popover, the tray and the list «To» do together.
 //
-// - A comment is made on a line or a range of one file and one side (line-pick.tsx, ticket 09): «+» in the gutter of a
-//   line under the pointer, dragged over lines for a range; the key `c` or the hint under the lines picked (a click picks
-//   a line, a click with Shift, Shift with «+» or a selection across lines picks a range); or Comment in the right
-//   click's menu. The popover takes its text and images; it goes into the store of the Session
+// - A comment is made on a line or a range of one file and one side: «+» in the gutter of a line under the pointer, the
+//   key `c` on the lines picked (a click picks a line, a click with Shift or a selection across lines picks a range),
+//   or Comment in the right click's menu. The popover takes its text and images; it goes into the store of the Session
 //   in «To» (session/quote-store.ts, quoteKey), the store that Session's input field lists too.
 // - «To» is main's list (`changes.targets`, src/main/changes/targets.ts): the Sessions bound to the Ticket and the
 //   Orchestrator; its default is main's (Q2) until the Session shown holds comments or takes a Send: «To» keeps it
@@ -44,9 +41,7 @@ import { Tray } from './Tray'
 //   tray's field, Edit and removing a comment are locked.
 // - After a Refresh each comment not sent yet is looked for again in its file's lines (anchorLines), in the reads of
 //   the scope and Hide whitespace the Refresh was pressed in, and only a comment on the commit that read shows on its
-//   side (the work tree for null); one whose lines are gone is marked «Line changed» and stays in the tray. On the new
-//   side of All changes and Compare against a comment on no commit or on a head of the Ticket this view has read is
-//   looked for too, and takes the commit of the new read: the agent committed its file, or edited it again (ticket 09).
+//   side (the work tree for null); one whose lines are gone is marked «Line changed» and stays in the tray.
 // - A popover with text or images not saved yet stays open: «+», `c`, Comment and Edit do not replace it.
 // - A read-only screen (a Linked machine with Read only, ADR-0066) shows no «+», no `c`, no Comment and no tray: the diff
 //   reads as it is.
@@ -78,6 +73,16 @@ function copy(text: string): void {
   void globalThis.navigator?.clipboard?.writeText(text).catch((error: unknown) => console.error('[changes] copy failed', error))
 }
 
+/** The lines picked for a comment: one file, one side, `start` where the pick began. */
+interface Picked {
+  key: string
+  side: LineSide
+  start: number
+  end: number
+}
+
+const range = (pick: Picked): { from: number; to: number } => ({ from: Math.min(pick.start, pick.end), to: Math.max(pick.start, pick.end) })
+
 /** The text of each line of a side in a file's hunks, by its number. */
 function sideLines(hunks: readonly DiffHunk[], side: LineSide): Map<number, string> {
   const lines = new Map<number, string>()
@@ -105,23 +110,20 @@ interface RepoFacts {
   repository: string
   worktree: string
   branch: string
-  commit: (side: LineSide, file: Pick<ChangedFile, 'uncommitted'>) => string | null
+  commit: (side: LineSide) => string | null
 }
 
-const hex = (sha: string | null | undefined): string | null => (typeof sha === 'string' && /^[0-9a-f]{4,64}$/u.test(sha) ? sha : null)
-
 /**
- * The commit the lines of a side of a file were read at, for the scope: null for the work tree, not committed yet.
- * All changes and Compare against: the new side of a file with uncommitted edits in a worktree is the work tree, of
- * any other file the head (`headSha`; worfy-changes-view ticket 09, D3: in a clean worktree every line is in HEAD);
- * the old side is the base. Uncommitted: the work tree against HEAD. Commit: that commit, on both sides. A file of an
- * answer that does not say (a build before ticket 09) is taken as uncommitted in a worktree, as before.
+ * The commit the lines of a side were read at, for the scope: null for the work tree, not committed yet. All changes
+ * and Compare against: the new side is the work tree of a worktree, else the branch's head; the old side is the base.
+ * Uncommitted: the work tree against HEAD. Commit: that commit, on both sides.
  */
-function commitOf(scope: ChangesScope, side: LineSide, file: Pick<ChangedFile, 'uncommitted'>, scopes: RepoScopes | undefined, list: RepoList | undefined): string | null {
+function commitOf(scope: ChangesScope, side: LineSide, scopes: RepoScopes | undefined, list: RepoList | undefined): string | null {
   const head = list?.headSha ?? scopes?.headSha ?? null
+  const hex = (sha: string | null | undefined): string | null => (typeof sha === 'string' && /^[0-9a-f]{4,64}$/u.test(sha) ? sha : null)
   if (scope.kind === 'commit') return hex(scope.sha)
   if (scope.kind === 'uncommitted') return side === 'new' ? null : hex(head)
-  if (side === 'new') return list?.workTree === true && file.uncommitted !== false ? null : hex(head)
+  if (side === 'new') return list?.workTree === true ? null : hex(head)
   return hex(list?.base?.mergeBase ?? scopes?.base?.mergeBase) ?? hex(head)
 }
 
@@ -150,12 +152,21 @@ export interface LineCommentsLayer {
   diff: Pick<DiffPaneProps, 'renderGutter' | 'renderBelow' | 'isPicked' | 'lineEvents' | 'onFileRead'>
   /** The key `c`: the comment of the lines picked; false when it is not the view's to take. */
   commentKey: () => boolean
-  /** Escape: true when it took the lines picked away (the view stays then). */
-  clearPick: () => boolean
   /** The tray at the bottom of the view; null on a read-only screen and without a Session to send to. */
   tray: ReactNode
   /** The popover and the menu of a line. */
   overlay: ReactNode
+}
+
+/** The line a pointer event is on: the file of its hunk, its side and number; null off a line. */
+function lineAt(target: EventTarget | null): { key: string; side: LineSide; line: number } | null {
+  const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null
+  const cell = element?.closest<HTMLElement>('[data-line][data-side]')
+  const key = cell?.closest<HTMLElement>('[data-testid="changes-hunk"]')?.dataset.key
+  const line = Number(cell?.dataset.line)
+  const side = cell?.dataset.side
+  if (key === undefined || !Number.isInteger(line) || line < 1 || (side !== 'old' && side !== 'new')) return null
+  return { key, side, line }
 }
 
 /** A click on these is theirs, not a pick of the line. */
@@ -232,7 +243,7 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
         repository: scoped?.checkout ?? repo,
         worktree: scoped?.worktree ?? '',
         branch: list?.branch ?? scoped?.branch ?? '',
-        commit: (side, file) => commitOf(scope, side, file, scoped, list),
+        commit: (side) => commitOf(scope, side, scoped, list),
       }
     },
     [scopes, lists, scope],
@@ -241,20 +252,10 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
   /** Whether a comment is on a file of this entry: its repository (or the repository's name) and its path. */
   const onEntry = useCallback((comment: Pick<CodeComment, 'repository' | 'path'>, entry: FileEntry) => comment.path === entry.file.path && (comment.repository === entry.repo || comment.repository === facts(entry.repo).repository), [facts])
 
-  // The heads of the repositories this view has read, kept per Ticket across a restart (seen-heads.ts): a comment on one
-  // of them is on lines of this Ticket's work tree, and after the agent commits again it is looked for in the new read
-  // (onFileRead).
-  const headsKey = seenHeadsKey(projectId, subject.epic, subject.num)
-  useEffect(() => {
-    addSeenHeads(
-      headsKey,
-      (lists ?? []).flatMap((each) => (hex(each.headSha) === null ? [] : [{ repo: each.repo, sha: each.headSha }])),
-    )
-  }, [lists, headsKey])
-
   // ── the lines picked ──────────────────────────────────────────────────────────────────────
+  const [picked, setPicked] = useState<Picked | null>(null)
   const [popover, setPopover] = useState<LinePopover | null>(null)
-  const [menu, setMenu] = useState<{ x: number; y: number; key: string; side: LineSide; block: string | null; line: number; text: string | null } | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; key: string; side: LineSide; line: number; text: string | null } | null>(null)
   const [changed, setChanged] = useState<ReadonlySet<string>>(new Set())
   // Send is on its way: «To», the tray's field, Edit and removing a comment wait for it (Send below).
   const [sending, setSending] = useState(false)
@@ -294,19 +295,15 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
     putPopover({ id: null, key, path: entry.file.path, side, startLine: from, endLine: end, code: code.join('\n'), text: '', images: [], reading: 0, error: null, was: { text: '', images: 0 } })
   }
 
-  const pick = useLinePick({
-    enabled: canComment,
-    // A click picks a line on any view that is not read only, as before the hook; «+», the hint and `c` need a Session.
-    pickable: readOnly === null,
-    view: JSON.stringify([subject, viewOf(scope, hideWhitespace), generation]),
-    commenting: popover !== null,
-    open: openNew,
-    held: keepsOpen,
-    ownControls: OWN_CONTROLS,
-    toastKey: 'changes-pick-hint',
-    plusLabel: (line, path) => `Comment on line ${line} of ${path}`,
-  })
-  const { picked, setPicked, openOn } = pick
+  /** The comment of a line: of the range picked when the line is in it, else of the line alone. */
+  const openOn = (key: string, side: LineSide, line: number) => {
+    if (!canComment || keepsOpen()) return
+    if (picked !== null && picked.key === key && picked.side === side && line >= range(picked).from && line <= range(picked).to) openNew(key, side, range(picked).from, range(picked).to)
+    else {
+      setPicked({ key, side, start: line, end: line })
+      openNew(key, side, line, line)
+    }
+  }
 
   const openEdit = (comment: CodeComment) => {
     // A comment is not edited while Send takes it: the message would go with the text it had.
@@ -370,7 +367,7 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
       startLine: open.startLine,
       endLine: open.endLine,
       code: open.code,
-      commit: repo.commit(open.side, entry.file),
+      commit: repo.commit(open.side),
       subject: { kind: 'ticket', epic: subject.epic, number: nn(subject.num) },
       worktree: repo.worktree,
       branch: repo.branch,
@@ -517,13 +514,13 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
   // whitespace, shows other hunks and, in another scope, other line numbers.
   const [refreshedIn, setRefreshedIn] = useState({ generation, view: viewOf(scope, hideWhitespace) })
   if (refreshedIn.generation !== generation) setRefreshedIn({ generation, view: viewOf(scope, hideWhitespace) })
-  const latest = useRef({ mine, storeKey, refreshedIn, onEntry, scopes, lists, headsKey })
+  const latest = useRef({ mine, storeKey, refreshedIn, onEntry, scopes, lists })
   useEffect(() => {
-    latest.current = { mine, storeKey, refreshedIn, onEntry, scopes, lists, headsKey }
+    latest.current = { mine, storeKey, refreshedIn, onEntry, scopes, lists }
   })
   const onFileRead = useCallback((entry: FileEntry, diff: FileDiff, readOf: FileReadOf) => {
     read.current.set(entry.key, diff)
-    const { mine: drafts, storeKey: key, refreshedIn: refresh, onEntry: isOn, scopes: scoped, lists: listed, headsKey: seen } = latest.current
+    const { mine: drafts, storeKey: key, refreshedIn: refresh, onEntry: isOn, scopes: scoped, lists: listed } = latest.current
     if (refresh.generation === 0 || readOf.generation !== refresh.generation || viewOf(readOf.scope, readOf.hideWhitespace) !== refresh.view) return
     if (key === null || diff.kind !== 'hunks') return
     const scopesOf = scoped.find((each) => each.repo === entry.repo)
@@ -532,12 +529,8 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
     for (const comment of drafts) {
       if (!isOn(comment, entry)) continue
       // A comment on lines of another commit than the one this read shows on its side belongs to another scope: its
-      // lines are true at its commit, and stay as they are. On the new side of All changes and Compare against a comment
-      // on the work tree or on a head of this Ticket read before follows the file: the agent committed it, or edited it
-      // again, after the comment was made; it takes the commit of this read.
-      const now = commitOf(readOf.scope, comment.side, entry.file, scopesOf, listOf)
-      const follows = comment.side === 'new' && (readOf.scope.kind === 'all' || readOf.scope.kind === 'compare') && (comment.commit === null || seenHead(seen, entry.repo, comment.commit))
-      if (comment.commit !== now && !follows) continue
+      // lines are true at its commit, and stay as they are.
+      if (comment.commit !== commitOf(readOf.scope, comment.side, scopesOf, listOf)) continue
       const lines = sideLines(diff.hunks, comment.side)
       const at = anchorLines(sideText(diff.hunks, comment.side), comment)
       if ('mark' in at && at.mark === LINE_CHANGED) {
@@ -548,8 +541,7 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
         continue
       }
       ids.found.push(comment.id)
-      const moved = 'startLine' in at && at.startLine !== comment.startLine ? { startLine: at.startLine, endLine: at.endLine } : null
-      if (moved !== null || comment.commit !== now) addDraft(key, { ...comment, ...moved, commit: now })
+      if ('startLine' in at && at.startLine !== comment.startLine) addDraft(key, { ...comment, startLine: at.startLine, endLine: at.endLine })
     }
     if (ids.lost.length === 0 && ids.found.length === 0) return
     setChanged((was) => {
@@ -579,17 +571,32 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
   }
 
   // ── the diff's parts ──────────────────────────────────────────────────────────────────────
-  const renderGutter = pick.plus
+  const renderGutter = (line: DiffLine, side: LineSide, entry: FileEntry): ReactNode => {
+    const number = lineNumber(line, side)
+    if (!canComment || number === null) return null
+    return (
+      <button
+        type="button"
+        className="w-cl__plus nodrag"
+        aria-label={`Comment on line ${number} of ${entry.file.path}`}
+        data-testid="changes-line-plus"
+        onClick={(event) => {
+          event.stopPropagation()
+          openOn(entry.key, side, number)
+        }}
+      >
+        +
+      </button>
+    )
+  }
   const renderBelow = (line: DiffLine, side: LineSide, entry: FileEntry): ReactNode => {
     const number = lineNumber(line, side)
     if (readOnly !== null || number === null) return null
     const drafts = mine.filter((each) => each.side === side && each.endLine === number && onEntry(each, entry))
     const gone = sent.filter((each) => each.side === side && each.endLine === number && onEntry(each, entry) && !drafts.some((draft) => draft.id === each.id))
-    const hint = pick.hint(line, side, entry)
-    if (drafts.length === 0 && gone.length === 0 && hint === null) return null
+    if (drafts.length === 0 && gone.length === 0) return null
     return (
       <>
-        {hint}
         {gone.map((each) => (
           <SentLineBox key={each.id} text={each.text} imageCount={each.images} to={each.to} />
         ))}
@@ -599,19 +606,49 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
       </>
     )
   }
-  const isPicked = pick.isPicked
+  const isPicked = (line: DiffLine, side: LineSide, entry: FileEntry): boolean => {
+    if (picked === null || picked.key !== entry.key || picked.side !== side) return false
+    const number = lineNumber(line, side)
+    return number !== null && number >= range(picked).from && number <= range(picked).to
+  }
   const lineEvents: LineCommentsLayer['diff']['lineEvents'] = {
-    ...pick.lineEvents,
+    onClick: (event: ReactMouseEvent<HTMLDivElement>) => {
+      if (readOnly !== null || (event.target as Element).closest?.(OWN_CONTROLS)) return
+      // A drag that selected text is a pick of its own (onMouseUp).
+      if (globalThis.getSelection?.()?.isCollapsed === false) return
+      const at = lineAt(event.target)
+      if (at === null) return
+      if (event.shiftKey && picked !== null && picked.key === at.key && picked.side === at.side) setPicked({ ...picked, end: at.line })
+      else setPicked({ key: at.key, side: at.side, start: at.line, end: at.line })
+    },
+    onMouseUp: () => {
+      if (readOnly !== null) return
+      const selection = globalThis.getSelection?.()
+      if (selection == null || selection.isCollapsed) return
+      const from = lineAt(selection.anchorNode)
+      const to = lineAt(selection.focusNode)
+      if (from === null || to === null || from.key !== to.key || from.side !== to.side || from.line === to.line) return
+      setPicked({ key: from.key, side: from.side, start: from.line, end: to.line })
+    },
     onContextMenu: (event: ReactMouseEvent<HTMLDivElement>) => {
       const at = lineAt(event.target)
-      if (at === null || (event.target as Element).closest?.('.w-cl, .w-cl-hint')) return
+      if (at === null || (event.target as Element).closest?.('.w-cl')) return
       event.preventDefault()
-      if (canComment && !(picked !== null && picked.key === at.key && picked.side === at.side && at.line >= pickRange(picked).from && at.line <= pickRange(picked).to)) setPicked({ key: at.key, side: at.side, block: at.block, start: at.line, end: at.line })
+      if (canComment && !(picked !== null && picked.key === at.key && picked.side === at.side && at.line >= range(picked).from && at.line <= range(picked).to)) setPicked({ key: at.key, side: at.side, start: at.line, end: at.line })
       const diff = read.current.get(at.key)
       setMenu({ x: event.clientX, y: event.clientY, ...at, text: diff?.kind === 'hunks' ? (sideLines(diff.hunks, at.side).get(at.line) ?? null) : null })
     },
   }
 
+  const commentKey = (): boolean => {
+    if (!canComment) return false
+    if (picked === null) {
+      showToast({ kind: 'info', key: 'changes-pick-hint', text: 'Click a line first, then press c' })
+      return true
+    }
+    openNew(picked.key, picked.side, range(picked).from, range(picked).to)
+    return true
+  }
 
   // ── drawing ───────────────────────────────────────────────────────────────────────────────
   const rowOf = (key: string, side: LineSide, line: number): Element | null => {
@@ -627,7 +664,7 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
     <>
       <ContextMenu at={menu === null ? null : { x: menu.x, y: menu.y }} onClose={() => setMenu(null)} label="Line" testId="changes-line-menu" inNode>
         {canComment && menu !== null ? (
-          <MenuItem testId="changes-menu-comment" onClick={() => openOn(menu.key, menu.side, menu.line, menu.block)}>
+          <MenuItem testId="changes-menu-comment" onClick={() => openOn(menu.key, menu.side, menu.line)}>
             Comment
           </MenuItem>
         ) : null}
@@ -672,5 +709,5 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
       />
     )
 
-  return { diff: { renderGutter, renderBelow, isPicked, lineEvents, onFileRead }, commentKey: pick.commentKey, clearPick: pick.clear, tray, overlay }
+  return { diff: { renderGutter, renderBelow, isPicked, lineEvents, onFileRead }, commentKey, tray, overlay }
 }

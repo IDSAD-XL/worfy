@@ -214,7 +214,6 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh, viewer = null 
     entries: allEntries,
     filesRead,
     generation,
-    diffView: listFor,
     body: root,
     onAnswer: takeAnswer,
     onNotice: setNotice,
@@ -288,9 +287,9 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh, viewer = null 
     })
   }
 
-  const latest = useRef({ entries, chosen, select, toggleViewed, commentKey: lineComments.commentKey, clearPick: lineComments.clearPick, finish })
+  const latest = useRef({ entries, chosen, select, toggleViewed, commentKey: lineComments.commentKey, finish })
   useEffect(() => {
-    latest.current = { entries, chosen, select, toggleViewed, commentKey: lineComments.commentKey, clearPick: lineComments.clearPick, finish }
+    latest.current = { entries, chosen, select, toggleViewed, commentKey: lineComments.commentKey, finish }
   })
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -305,11 +304,10 @@ export function ReviewMode({ projectId, row, readOnly, onRefresh, viewer = null 
         if (latest.current.finish()) event.preventDefault()
         return
       }
-      const { entries: files, chosen: at, select: go, toggleViewed: mark, commentKey, clearPick } = latest.current
+      const { entries: files, chosen: at, select: go, toggleViewed: mark, commentKey } = latest.current
       if (event.key === 'Escape') {
         event.preventDefault()
-        // The lines picked go first (worfy-changes-view ticket 09), then Review mode.
-        if (!clearPick()) closeReviewMode()
+        closeReviewMode()
         return
       }
       if (event.shiftKey) return

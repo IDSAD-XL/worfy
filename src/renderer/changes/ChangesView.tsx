@@ -134,8 +134,7 @@ export function ChangesView({ projectId, root, subject, back, active }: ChangesV
     setChosen(key)
     pane.current?.scrollToFile(key)
   }
-  // Esc takes the lines picked away first (worfy-changes-view ticket 09), then goes back.
-  useDiffKeys({ active, frame, entries, chosen, select, pane, commentKey: comments.commentKey, onEscape: () => comments.clearPick() || closeChanges() })
+  useDiffKeys({ active, frame, entries, chosen, select, pane, commentKey: comments.commentKey, onEscape: closeChanges })
 
   const ref = `${subject.epic}/${nn(subject.num)}`
   let content

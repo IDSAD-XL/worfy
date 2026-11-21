@@ -46,13 +46,6 @@ export interface ChangedFile {
   newBlob: string | null
   /** A new file git does not track yet (`ls-files --others --exclude-standard`). */
   untracked: boolean
-  /**
-   * The file holds what HEAD does not, in the index or the work tree, or git does not track it (worfy-changes-view
-   * ticket 09): the lines of its work tree's side are on no commit yet. False for a branch checked out nowhere and for a
-   * commit; true for every file of Uncommitted. Absent in an answer of a build before that ticket (a Linked machine)
-   * and in the diff of a PR read from GitHub.
-   */
-  uncommitted?: boolean
   /** A file of the workflow (under the Tickets root of a Project in Full mode): the group Workflow files. */
   workflow: boolean
   /** Why its patch comes folded; null when it comes whole. */

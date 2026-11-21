@@ -612,25 +612,3 @@
   margin: 0;
   color: var(--blocked-text);
 }
-
-/* The hint under the last line picked (line-pick.tsx, worfy-changes-view ticket 09): «Comment on lines 95–102 (c)»; a
-   click on it opens the comment, as the key c does. */
-.w-cl-hint {
-  display: inline-flex;
-  align-items: center;
-  margin: 2px var(--space-3) 4px 110px;
-  padding: 2px 8px;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
-  color: var(--text);
-  font-family: var(--font-ui);
-  font-size: var(--text-11);
-  line-height: 1.4;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.w-cl-hint:hover,
-.w-cl-hint:focus-visible {
-  background: color-mix(in srgb, var(--accent) 22%, var(--surface));
-}

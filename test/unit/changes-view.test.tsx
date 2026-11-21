@@ -293,20 +293,6 @@ describe('the diff', () => {
     expect(fileCalls('src/orders/cart.ts').map((call) => call.input.hideWhitespace)).toEqual([false, true])
   })
 
-  // worfy-changes-view 09, review round 4: a hunk is known by its place among the file's hunks, and a pick that outlived
-  // a new read could stretch into another hunk that now had its old place.
-  it('Hide whitespace takes the lines picked away', async () => {
-    await open()
-    const picked = () => within(diff()).getAllByTestId('changes-line').filter((row) => row.classList.contains('is-picked'))
-    fireEvent.click(within(diff()).getAllByTestId('changes-line')[3]!.querySelector('.w-changes__code')!)
-    expect(picked()).toHaveLength(1)
-    fireEvent.click(screen.getByTestId('changes-hide-whitespace'))
-    await act(async () => {
-      await new Promise((done) => setTimeout(done, 20))
-    })
-    expect(picked()).toEqual([])
-  })
-
   it('a large file comes folded without a read of its patch; Show reads it in full', async () => {
     await open()
     const folded = screen.getByTestId('changes-folded')
