@@ -19,6 +19,11 @@ import { ms } from '../time-scale'
 // again shows them; Send gives the fake agent one message with the section «Comments on lines of the diff (2)», the
 // paths, the lines and the code; the comments stay dim on their lines; the block of the message in the Orchestrator's
 // chat opens the view on its line, and «← Session» goes back to the chat.
+//
+// The Ticket on its checkout (worfy-changes-view ticket 09; spec, the owner's answers of 2026-11-21, D2 and D3): the branch is
+// checked out with src/cart.ts committed and src/discount.ts edited and not committed. A range picked by dragging «+»,
+// and the hint «Comment on lines N–M (c)» under it (screenshots in the light and the dark theme); Send gives one
+// message where the committed file's line is on the commit HEAD and the edited file's lines are uncommitted.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 const PROJECT = 'demo-cart-000003c0'
@@ -48,8 +53,11 @@ function write(repo: string, path: string, text: string): void {
 
 const lines = (count: number, make: (index: number) => string): string => `${Array.from({ length: count }, (_, index) => make(index)).join('\n')}\n`
 
-/** The repository and Ticket 04's branch, the Claude home whose epic-status prints the Epic, and the data folder. */
-function prepare(): { env: Record<string, string>; repo: string } {
+/**
+ * The repository and Ticket 04's branch, the Claude home whose epic-status prints the Epic, and the data folder. With
+ * `checkedOut`, the branch stays checked out in the repository and src/discount.ts gets an edit not committed.
+ */
+function prepare(options: { checkedOut?: boolean } = {}): { env: Record<string, string>; repo: string } {
   const dataDir = join(scratch, 'data')
   const claudeHome = join(scratch, 'claude-home')
   const repo = join(scratch, 'demo-cart')
@@ -65,7 +73,8 @@ function prepare(): { env: Record<string, string>; repo: string } {
   write(repo, 'src/discount.ts', lines(4, (index) => `export const discount${index} = ${index}`))
   git(repo, 'add', '.')
   git(repo, 'commit', '-q', '-m', 'discounts')
-  git(repo, 'checkout', '-q', 'main')
+  if (options.checkedOut === true) write(repo, 'src/discount.ts', lines(4, (index) => (index === 1 ? 'export const discount1 = 10' : `export const discount${index} = ${index}`)))
+  else git(repo, 'checkout', '-q', 'main')
 
   mkdirSync(join(claudeHome, 'bin'), { recursive: true })
   mkdirSync(join(claudeHome, 'sessions'), { recursive: true })
@@ -99,6 +108,19 @@ const messages = (): Call[] =>
 
 /** The row of a line of `path` on a side, in the view's Inline diff. */
 const row = (node: Locator, path: string, line: number, side: 'old' | 'new' = 'new'): Locator => node.locator(`[data-testid="changes-hunk"][data-path="${path}"] [data-testid="changes-line"][data-side="${side}"][data-line="${line}"]`)
+
+/** Presses «+» of line `from` and lets go over line `to`, as a person drags it down the gutter. */
+async function dragPlus(window: Page, from: Locator, to: Locator): Promise<void> {
+  await to.scrollIntoViewIfNeeded()
+  await from.hover()
+  const plus = await from.getByTestId('changes-line-plus').boundingBox()
+  const end = await to.locator('.w-changes__code').boundingBox()
+  if (plus === null || end === null) throw new Error('the lines to drag over are not on the screen')
+  await window.mouse.move(plus.x + plus.width / 2, plus.y + plus.height / 2)
+  await window.mouse.down()
+  await window.mouse.move(end.x + 20, end.y + end.height / 2, { steps: 6 })
+  await window.mouse.up()
+}
 
 async function openView(window: Page): Promise<Locator> {
   const button = window.locator('[data-testid="ticket-node"][data-ticket="4"]').getByTestId('action-changes')
@@ -202,6 +224,68 @@ test('two comments — on a line and on a range — go to the Orchestrator as on
     await again.getByTestId('changes-back').click()
     await expect(block).toBeVisible()
     await expect(again).toBeHidden()
+  } finally {
+    await app.close()
+  }
+})
+
+test('on the Ticket\'s checkout: a range by dragging «+» with its hint, and a line; Send names the commit HEAD for the committed file and «uncommitted» for the edited one', async () => {
+  test.setTimeout(ms(150_000))
+  const { env, repo } = prepare({ checkedOut: true })
+  const head = git(repo, 'rev-parse', 'HEAD')
+  const app = await launchApp({ env })
+  try {
+    const { window } = app
+    const frame = window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
+    await canvasReady(app, { size: { width: 1600, height: 1000 }, visible: [frame] })
+    const node = await openView(window)
+    const tray = node.getByTestId('changes-tray')
+    await expect(tray.getByTestId('changes-to')).toHaveText('Orchestrator', { timeout: ms(15_000) })
+
+    // A range of the edited file, by dragging «+» from line 1 down to line 3: the popover opens on the three lines.
+    await expect(row(node, 'src/discount.ts', 3)).toBeVisible({ timeout: ms(15_000) })
+    await dragPlus(window, row(node, 'src/discount.ts', 1), row(node, 'src/discount.ts', 3))
+    const popover = window.getByTestId('changes-comment-popover')
+    await expect(popover.getByTestId('changes-comment-where')).toHaveText('src/discount.ts:1–3 · new side')
+    await popover.getByTestId('changes-comment-text').fill('One table instead of three constants.')
+    await popover.getByTestId('changes-comment-save').click()
+    await expect(popover).toHaveCount(0)
+
+    // The hint under the last line of a range picked (a click, Shift with «+»); screenshots in both themes, for the result.
+    await row(node, 'src/cart.ts', 11).locator('.w-changes__code').click()
+    await row(node, 'src/cart.ts', 13).hover()
+    await row(node, 'src/cart.ts', 13).getByTestId('changes-line-plus').click({ modifiers: ['Shift'] })
+    await expect(popover).toHaveCount(0)
+    const hint = node.getByTestId('changes-pick-hint')
+    await expect(hint).toHaveText('Comment on lines 11–13 (c)')
+    await hint.scrollIntoViewIfNeeded()
+    for (const scheme of ['light', 'dark'] as const) {
+      await window.emulateMedia({ colorScheme: scheme })
+      await node.screenshot({ path: test.info().outputPath(`changes-pick-hint-${scheme}.png`) })
+    }
+    await window.emulateMedia({ colorScheme: null })
+    // Esc takes the pick away and the view stays.
+    await window.keyboard.press('Escape')
+    await expect(hint).toHaveCount(0)
+    await expect(node).toBeVisible()
+
+    // A line of the committed file, by «+».
+    await row(node, 'src/cart.ts', 13).hover()
+    await row(node, 'src/cart.ts', 13).getByTestId('changes-line-plus').click()
+    await expect(popover.getByTestId('changes-comment-where')).toHaveText('src/cart.ts:13 · new side')
+    await popover.getByTestId('changes-comment-text').fill('Name the share in the config.')
+    await popover.getByTestId('changes-comment-save').click()
+    await expect(popover).toHaveCount(0)
+    await expect(tray.getByTestId('changes-tray-count')).toHaveText('2 comments on 2 files')
+
+    await tray.getByTestId('changes-tray-send').click()
+    await expect.poll(() => messages().length, { timeout: ms(20_000) }).toBe(1)
+    const text = messages()[0]!.text ?? ''
+    expect(text).toContain(`src/cart.ts:13 (new side, commit ${head.slice(0, 7)})\n   > const MAX_DISCOUNT_SHARE = 0.5\n   Name the share in the config.`)
+    expect(text).toContain('src/discount.ts:1–3 (new side, uncommitted)\n   > export const discount0 = 0\n   > export const discount1 = 10\n   > export const discount2 = 2\n   One table instead of three constants.')
+    // The diff only read: the edit stays uncommitted, HEAD where it was.
+    expect(git(repo, 'rev-parse', 'HEAD')).toBe(head)
+    expect(git(repo, 'status', '--porcelain')).toBe('M src/discount.ts')
   } finally {
     await app.close()
   }

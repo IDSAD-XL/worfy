@@ -21,8 +21,8 @@ import { ms } from '../time-scale'
 //   gives the suggested verdict and Take over, which makes the draft the person's;
 // - a window on a Linked machine with Read only: Start review inactive with «Review on the machine of the Project»;
 //   View changes opens Review mode read only — the diff and the threads, no Viewed, no bar, no «+».
-// - comments on lines (worfy-pr-review ticket 10): «+» and Suggest change, a range and `c`, ⌘↵; they stand on their
-//   lines, Pending; the bar counts them; worfy quits and starts again — the draft is there, and the row of the PR has the
+// - comments on lines (worfy-pr-review ticket 10): «+» and Suggest change, a range by dragging «+» (worfy-changes-view
+//   ticket 09), ⌘↵; they stand on their lines, Pending; the bar counts them; worfy quits and starts again — the draft is there, and the row of the PR has the
 //   chip `Review draft`; Discard asks first and removes it; the agent's comment edited is the person's; screenshots in
 //   both themes; nothing written to GitHub.
 // - Finish review and Submit (worfy-pr-review ticket 11), with reviews.json in the stub, so that the one POST of a
@@ -499,7 +499,7 @@ test('a window on a Linked machine with Read only: Start review inactive with it
 const diffLine = (window: Page, path: string, line: number): Locator =>
   review(window).locator(`[data-testid="changes-hunk"][data-path="${path}"] [data-testid="changes-line"][data-side="new"][data-line="${line}"]`)
 
-test('comments on lines: «+», Suggest change, a range and `c`; Pending on their lines; worfy again — the draft and the chip Review draft; Discard', async () => {
+test('comments on lines: «+», Suggest change, a range by dragging «+»; Pending on their lines; worfy again — the draft and the chip Review draft; Discard', async () => {
   test.setTimeout(ms(240_000))
   harnessForWeb()
   let launched = await launch()
@@ -528,10 +528,16 @@ test('comments on lines: «+», Suggest change, a range and `c`; Pending on thei
     await expect(first).toContainText('Pending', { timeout: ms(15_000) })
     await expect(first).toHaveAttribute('data-by', 'person')
 
-    // A range: a click on line 5, Shift and a click on line 6, then `c`.
-    await diffLine(window, 'src/net/retry.ts', 5).locator('.w-changes__code').click()
-    await diffLine(window, 'src/net/retry.ts', 6).locator('.w-changes__code').click({ modifiers: ['Shift'] })
-    await window.keyboard.press('c')
+    // A range: «+» of line 5 dragged down to line 6, as on GitHub (worfy-changes-view ticket 09).
+    await diffLine(window, 'src/net/retry.ts', 6).scrollIntoViewIfNeeded()
+    await diffLine(window, 'src/net/retry.ts', 5).hover()
+    const plus = await diffLine(window, 'src/net/retry.ts', 5).getByTestId('changes-line-plus').boundingBox()
+    const end = await diffLine(window, 'src/net/retry.ts', 6).locator('.w-changes__code').boundingBox()
+    if (plus === null || end === null) throw new Error('lines 5 and 6 of retry.ts are not on the screen')
+    await window.mouse.move(plus.x + plus.width / 2, plus.y + plus.height / 2)
+    await window.mouse.down()
+    await window.mouse.move(end.x + 20, end.y + end.height / 2, { steps: 6 })
+    await window.mouse.up()
     await expect(popover.getByTestId('changes-comment-where')).toHaveText('src/net/retry.ts:5–6 · new side')
     await popover.getByTestId('changes-comment-text').fill('The wait comes before the first try too.')
     await popover.getByTestId('changes-comment-text').press('ControlOrMeta+Enter')

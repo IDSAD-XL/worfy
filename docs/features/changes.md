@@ -204,8 +204,8 @@ background. The colours come a moment after a hunk is drawn; until then the hunk
 
 While the view is shown: `j` and `k` (or `↓` and `↑`) select the next and the previous file and scroll to it, `n` and
 `p` scroll to the next and the previous hunk, `c` comments on the lines picked ([Comments on
-lines](#comments-on-lines)), Esc goes back. The keys do nothing while typing in a field or while a menu or a popover
-is open.
+lines](#comments-on-lines)), Esc takes the lines picked away first and goes back when none are picked. The keys do
+nothing while typing in a field or while a menu or a popover is open.
 
 #### Size
 
@@ -275,9 +275,10 @@ the palette, 300 files scrolled to the end and a file of 2 100 lines folded).
 
 A comment is made on one line or on a range of lines of one file and one side of the diff:
 
-- **«+»** in the gutter of the line under the pointer;
-- the key **`c`** on the lines picked: a click on a line picks it, a click with Shift or a selection across lines picks
-  a range;
+- **«+»** in the gutter of the line under the pointer; dragged up or down over lines, it comments on the range
+  ([Picking a range](#picking-a-range));
+- the key **`c`**, or the hint under them, on the lines picked: a click on a line picks it; a click with Shift on a
+  line or on its «+», or a selection across lines, picks a range;
 - **Comment** in the menu of a right click on a line, next to **Copy line**.
 
 A popover opens over the line. It names the place (`src/cart.ts:13 · new side`), shows the code of the lines and takes
@@ -286,6 +287,23 @@ the text and up to three images, pasted or added, as a comment on a quote does
 closes an unchanged popover and keeps a changed one. A changed popover also stays when «+», `c`, Comment or Edit is
 used elsewhere: worfy asks to save or cancel it first. The comment then stands under its last line, marked «not sent»,
 with Edit and Delete. Delete offers Undo for six seconds.
+
+#### Picking a range
+
+As on GitHub: press **«+»** of the first line, drag up or down over the lines of the same file and side, and let go.
+The lines light up as the pointer passes them; letting go opens the popover on the whole range. A line of another file,
+of the other side or of another hunk does not change the range: a comment covers lines of one hunk. The window losing
+the focus with the button held ends the drag and opens nothing. Letting go on the line pressed comments on that line alone, or on the
+range picked when the line is in it. **Shift** with a click on «+» stretches the lines picked to its line and opens
+nothing; with nothing picked in that file, side and hunk it picks the line alone. Every way of stretching a pick (the
+drag, Shift with «+», a click with Shift on a line, a selection of text across lines) keeps it in the hunk it began in:
+a line of another hunk is picked alone (a selection across hunks picks the line it ended on), so the hint never names
+lines the comment would not get.
+
+While lines are picked and no popover is open, a hint stands under the last of them: «Comment on lines 95–102 (c)», or
+«Comment on line 95 (c)» for one line. A click on it opens the popover, as `c` does. A click on a line outside the range
+picks that line instead; Esc takes the pick and the hint away, and so does a new read of the diff (Refresh, Hide whitespace, another scope). Without a line picked, `c` says «Click a line first, then
+press c». The same picking, hint included, is in Review mode of a pull request ([Pull requests](pr-inbox.md)).
 
 #### The tray and «To»
 
@@ -309,7 +327,10 @@ The comments not sent yet survive a reload of the window and a restart of worfy.
 Send sends one message to the Session in «To»: the section «Comments on lines of the diff (N)» with the worktree and the
 branch (a section per worktree and branch), then for
 each comment its path and lines, its side and commit, its code quoted and its text, then «General:» and the text of the
-field. It is the message the Session's own Send would make from the same drafts, comments on its messages included. A
+field. The side and commit read `(new side, commit f3bcb3e16)` or `(new side, uncommitted)`: «uncommitted» only when the
+file has edits not committed (in the index or the work tree) or git does not track it, otherwise the commit HEAD — in a
+clean worktree every comment names HEAD. A file that has uncommitted edits makes all its lines on the new side
+«uncommitted», even those already in HEAD. It is the message the Session's own Send would make from the same drafts, comments on its messages included. A
 Session that runs no more is started first; one in the middle of a turn keeps the message in its queue. The comments
 that went stay dim on their lines, «sent to <Session>». While Send runs, «To», the field, × and Clear in the tray, and
 Edit and Delete under a line wait for it: the message goes to the Session it was sent to, with the comments as they
@@ -323,7 +344,11 @@ Changes view of the Ticket and scrolls to the line, which flashes; from the Sess
 
 Each comment not sent yet is looked for again in its file's lines and moves with them. This happens in the reads of
 the scope and Hide whitespace the Refresh was pressed in, and only for a comment on the commit those reads show on its
-side (the work tree for uncommitted lines): a comment made in another scope keeps its lines, true at its commit. One
+side (the work tree for uncommitted lines): a comment made in another scope keeps its lines, true at its commit. On the
+new side of All changes and Compare against, a comment made on uncommitted lines or on a head of the Ticket this view
+read before is looked for too: the agent committed its file after the comment, or edited it again. The heads read are
+kept per Ticket next to the comments, so this holds after another Ticket was opened or worfy restarted. It takes the commit
+the new read shows, so it is not left behind by the agent's commit. One
 whose lines the read shows and which are gone keeps its place, is marked «Line changed» on the line and in the tray,
 and is sent as it was written; lines the read does not show are no news.
 
@@ -335,12 +360,24 @@ reported its id yet keeps its comments under a placeholder; they move to its id 
 
 The comments are kept in the store of comments on quotes, in this window's localStorage, which lives in worfy's data
 folder: nothing is written into the repository. The comments that went are kept per Ticket, the newest 200, so they
-stay dim after a restart. The commit of a comment is the head of the scope it was made in: the worktree for its
-uncommitted lines, the commit of a Commit scope, the merge-base for the old side.
+stay dim after a restart. The commit of a comment is the head of the scope it was made in: the work tree for the lines of
+a file with uncommitted edits, HEAD for the other files of a worktree and for a branch, the commit of a Commit scope,
+the merge-base for the old side. Which files have uncommitted edits main reads once per list with
+`git diff --name-only --no-renames -z <head>` against the head the answer names (read only, as every read of this page), and gives each file of the answer of
+`changes.list` the field `uncommitted`: true for those files and the new ones git does not track, false on a branch
+checked out nowhere and in a Commit scope, true for every file of Uncommitted.
+
+Picking the lines is one hook, `useLinePick`, for this view and Review mode of a pull request. Pressing «+» listens to
+`mousemove` and `mouseup` on the window until the button is let go and takes the line under the pointer by the
+`data-side` and `data-line` of its cell. A press of a focused «+» from the keyboard opens its line, as before.
 
 ### Implementation
 
 - `src/renderer/changes/line-comments.tsx` — what the diff, the popover, the tray and «To» do together; Send.
+- `src/renderer/changes/line-pick.tsx` — picking lines: «+» and its drag, Shift, the clicks and the selection, the hint,
+  `c` and Esc; shared with `src/renderer/pr-review/review-comments.tsx`.
+- `src/renderer/changes/seen-heads.ts` — the heads of a Ticket the view has read, in the window's storage.
+- `src/main/changes/scopes.ts` — `uncommitted` of each file (`listChanges`).
 - `src/renderer/changes/LineComment.tsx` — the popover and the boxes under the lines; `src/renderer/changes/Tray.tsx` —
   the tray; `src/renderer/changes/sent-lines.ts` — the comments that went.
 - `src/renderer/changes/DiffPane.tsx` — the gutter, the lines picked, the boxes under the lines, the scroll to a line.
@@ -348,11 +385,15 @@ uncommitted lines, the commit of a Commit scope, the merge-base for the old side
   the block of a comment in the chat.
 - `src/main/changes/targets.ts` and `src/main/ipc/changes.ts` — the list «To»; `src/shared/ipc/changes.ts` — its channel.
 
-Tests: `test/unit/changes-tray.test.tsx` («+», `c` and a range open the popover, the tray of the Session in «To»,
+Tests: `test/unit/changes-line-pick.test.tsx` (the drag of «+», Shift with «+», the hint, the keyboard),
+`test/unit/changes-tray.test.tsx` («+», `c`, a range and the drag open the popover, the hint and Esc, the commit HEAD of a
+committed file, the tray of the Session in «To»,
 another Session takes the comments, «To» keeps a Session with comments, the locks while Send runs, a Refresh in the
-comment's own scope, a changed popover stays, Read only), `test/contract/changes-targets.test.ts` (who is in «To» and the
-default), `test/e2e/changes-comments.spec.ts` (two comments, a reload, one message to the fake agent, the block in the
-chat opens the view on its line).
+comment's own scope and after the agent's commit, a changed popover stays, Read only), `test/contract/changes-read.test.ts`
+(`uncommitted` of a file committed, edited, staged, new, on a branch), `test/contract/changes-targets.test.ts` (who is
+in «To» and the default), `test/e2e/changes-comments.spec.ts` (two comments, a reload, one message to the fake agent, the
+block in the chat opens the view on its line; on the Ticket's checkout a range by dragging «+», the hint, the commit HEAD
+and «uncommitted» in the message).
 
 ## A pull request
 
