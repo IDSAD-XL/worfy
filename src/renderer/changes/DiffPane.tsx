@@ -3,7 +3,8 @@
 // the file comes within the window of the diff (diff-window.ts): the blocks on screen and two screens above and below.
 // A large, lock or generated file comes folded, «Large diff · N lines · Show»; a binary file shows its sizes, «Binary
 // file · 12 KB → 14 KB». Added lines take the colours of ready, deleted lines those of blocked, as the migration form
-// does (harness/MigrationForm.tsx); there are no syntax colours (spec, Q5).
+// does (harness/MigrationForm.tsx). The code of a hunk on screen takes the syntax colours of the GitHub themes once its
+// tokens are read (ticket 10, highlight.ts); until then, and for a file of no known language, it is plain text.
 //
 // The gutter of a line (the sign cell) is where ticket 05 puts its «+»: `renderGutter` draws into it. The comments on
 // lines (ticket 05, LineComment.tsx) stand under their last line (`renderBelow`); the lines picked for a comment are lit
@@ -17,13 +18,15 @@
 // own). An outdated thread, one without a line, and one whose line the scope or the hunks do not show stand in a list
 // under the file's header, each with where it was. A file GitHub sent without its patch reads «Large diff · Open on GitHub»; a file
 // of a diff read from GitHub has «View file on GitHub» in its header (no context past the hunks GitHub sent).
-import { Fragment, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type HTMLAttributes, type ReactNode, type Ref } from 'react'
+import { Fragment, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type HTMLAttributes, type ReactNode, type Ref } from 'react'
 import type { ChangesScope, ChangesSubjectRef, DiffHunk, DiffLine, FileDiff } from '../../shared/changes/types'
 import { failureReason } from '../../shared/ipc/channels'
 import type { PrInboxThread } from '../../shared/ipc/pr-inbox'
 import { invoke } from '../ipc'
 import { FILE_GAP, FILE_HEADER_HEIGHT, NOTE_HEIGHT, count, lineNumber, hunkHeight, offsetsOf, sideBySideRows, sizeLabel, unreadHeight, windowOf, type DiffLayout, type FileEntry } from './diff-window'
 import { FileStats, StatusLetter } from './FileTree'
+import { peekHunkTokens, requestHunkTokens, type HunkTokens, type LineTokens } from './highlight'
+import './highlight.css'
 
 /** A review thread of GitHub on the diff of a pull request, as the PR inbox reads it (worfy-pr-review ticket 06). */
 export type ChangesThread = PrInboxThread
@@ -241,11 +244,22 @@ interface CellAt {
   mark?: string
 }
 
-function Code({ line, at }: { line: DiffLine; at?: CellAt }) {
+/** A token's colours in both themes, as CSS variables: highlight.css picks the one of the window's theme. */
+const tokenStyle = (light: string | null, dark: string | null): CSSProperties => ({ '--hl-light': light ?? undefined, '--hl-dark': dark ?? undefined }) as CSSProperties
+
+/** The code of a line: its tokens in their colours once they are read, its plain text until then. Either way its text is the line's. */
+function Code({ line, at, tokens }: { line: DiffLine; at?: CellAt; tokens?: LineTokens | null }) {
   const { mark = '', ...data } = at ?? {}
+  const lit = tokens != null
   return (
-    <span className={`w-changes__code${lineClass(line.kind)}${mark}`} {...data}>
-      {line.text}
+    <span className={`w-changes__code${lineClass(line.kind)}${mark}`} data-highlighted={lit ? 'true' : undefined} {...data}>
+      {lit
+        ? tokens.map((token, index) => (
+            <span key={index} className={`w-hl${token.bold ? ' w-hl--bold' : ''}${token.italic ? ' w-hl--italic' : ''}`} style={tokenStyle(token.light, token.dark)}>
+              {token.text}
+            </span>
+          ))
+        : line.text}
       {line.noNewline ? (
         <span className="w-changes__eol" title="No newline at end of file">
           {' '}
@@ -268,7 +282,30 @@ interface RowsProps {
   onReply: DiffPaneProps['onReply']
 }
 
+/**
+ * The tokens of a hunk drawn: at once when they are known, else asked for (one hunk per task, highlight.ts) and drawn
+ * when they come; a hunk no longer drawn cancels its request. Null — plain text, for now or for good.
+ */
+function useHunkTokens(path: string, hunk: DiffHunk): HunkTokens | null {
+  const known = peekHunkTokens(path, hunk)
+  const [read, setRead] = useState<{ path: string; hunk: DiffHunk; tokens: HunkTokens | null } | null>(null)
+  const unknown = known === undefined
+  useEffect(() => {
+    if (!unknown) return
+    return requestHunkTokens(path, hunk, (tokens) => setRead({ path, hunk, tokens }))
+  }, [path, hunk, unknown])
+  if (known !== undefined) return known
+  return read !== null && read.path === path && read.hunk === hunk ? read.tokens : null
+}
+
 function HunkRows({ hunk, entry, layout, renderGutter, renderBelow, isPicked, threads, onReply }: RowsProps) {
+  const tokens = useHunkTokens(entry.file.path, hunk)
+  const indexOf = useMemo(() => new Map(hunk.lines.map((line, index) => [line, index])), [hunk])
+  /** The tokens of a line on its side: an added or a context line on the new side, a deleted one on the old. */
+  const tokensOf = (line: DiffLine, side: LineSide): LineTokens | null => {
+    const index = indexOf.get(line)
+    return tokens === null || index === undefined ? null : (tokens[side][index] ?? null)
+  }
   const gutter = (line: DiffLine, side: LineSide) => renderGutter?.(line, side, entry) ?? null
   const below = (line: DiffLine, side: LineSide) => {
     const own = renderBelow?.(line, side, entry) ?? null
@@ -302,7 +339,7 @@ function HunkRows({ hunk, entry, layout, renderGutter, renderBelow, isPicked, th
               {sign(line.kind)}
               {gutter(line, side)}
             </span>
-            <Code line={line} />
+            <Code line={line} tokens={tokensOf(line, side)} />
           </div>
           {under}
         </Fragment>
@@ -325,7 +362,7 @@ function HunkRows({ hunk, entry, layout, renderGutter, renderBelow, isPicked, th
           {sign(line.kind)}
           {gutter(line, side)}
         </span>,
-        <Code key={`${side}-code`} line={line} at={{ ...data, mark }} />,
+        <Code key={`${side}-code`} line={line} at={{ ...data, mark }} tokens={tokensOf(line, side)} />,
       ]
     }
     const kind = row.old?.kind === 'context' ? 'context' : row.old !== null && row.new !== null ? 'change' : row.old !== null ? 'del' : 'add'

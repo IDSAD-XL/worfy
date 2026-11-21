@@ -15,6 +15,29 @@ import type { ChangedFile, ChangesScope, DiffLine, FileDiff } from '../../src/sh
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 
+// The tokens of a hunk come from highlight.ts as they would; while `held.on`, a request waits until `held.release()`
+// (ticket 10: the line is plain text until its tokens are there).
+const held = vi.hoisted(() => ({ on: false, waiting: [] as (() => void)[], release(): void {} }))
+vi.mock('../../src/renderer/changes/highlight', async (original) => {
+  const real = await original<typeof import('../../src/renderer/changes/highlight')>()
+  held.release = () => held.waiting.splice(0).forEach((go) => go())
+  return {
+    ...real,
+    requestHunkTokens: (...args: Parameters<typeof real.requestHunkTokens>) => {
+      if (!held.on) return real.requestHunkTokens(...args)
+      let cancel: (() => void) | null = null
+      let cancelled = false
+      held.waiting.push(() => {
+        if (!cancelled) cancel = real.requestHunkTokens(...args)
+      })
+      return () => {
+        cancelled = true
+        cancel?.()
+      }
+    },
+  }
+})
+
 const ROOT = '/Users/test/projects/demo'
 const PROJECT = 'demo-0000000d'
 
@@ -58,6 +81,9 @@ const CART_DIFF: FileDiff = {
     },
   ],
 }
+
+/** A diff of its own text: no other test has its tokens in the cache of highlight.ts. */
+const HELD_DIFF: FileDiff = { ...CART_DIFF, path: 'src/orders/held.ts', hunks: [{ ...CART_DIFF.hunks[0]!, lines: [line('context', 'export function held() {', 1, 1), line('add', '  return 1', null, 2), line('context', '}', 2, 3)] }] }
 
 let files: ChangedFile[]
 let scopesOf: ('all' | 'uncommitted' | 'commit' | 'compare')[]
@@ -120,6 +146,7 @@ function answer(channel: string, input: Record<string, unknown>): unknown {
       if (path === 'data/catalog.json' && input.expand !== true) return { file: { kind: 'folded', path, reason: 'large', lines: 2100 } }
       if (path === 'data/big.json') return { file: { kind: 'no-patch', path, url: 'https://github.com/acme/api/blob/b0b/data/big.json' } }
       if (path === 'src/orders/cart.ts') return { file: CART_DIFF }
+      if (path === 'src/orders/held.ts') return { file: HELD_DIFF }
       return { file: { ...CART_DIFF, path } }
     }
     default:
@@ -130,6 +157,8 @@ function answer(channel: string, input: Record<string, unknown>): unknown {
 beforeEach(() => {
   calls = []
   gate = null
+  held.on = false
+  held.waiting = []
   useChangesView.setState({ projectId: null, subject: null, back: 'canvas', opened: 0, scopes: {} })
   setView('canvas')
   scopesOf = ['all', 'uncommitted', 'commit', 'compare']
@@ -790,5 +819,66 @@ describe('the line asked for by a message', () => {
     expect(lineRequestFor(useLineRequests.getState().request, PROJECT, { epic: 'demo', num: 3 })).toMatchObject({ path: 'src/orders/cart.ts', line: 2 })
     openChanges(PROJECT, { epic: 'demo', num: 3 })
     expect(lineRequestFor(useLineRequests.getState().request, PROJECT, { epic: 'demo', num: 3 })).toBeNull()
+  })
+})
+
+describe('the syntax colours (ticket 10)', () => {
+  const codes = (scope: HTMLElement = diff()) => Array.from(scope.querySelectorAll<HTMLElement>('[data-path="src/orders/cart.ts"] .w-changes__code:not(.w-changes__cell--empty)'))
+  const lit = (scope?: HTMLElement) => codes(scope).filter((code) => code.dataset.highlighted === 'true')
+  const texts = CART_DIFF.hunks[0]!.lines.map((each) => each.text)
+
+  it('the code of a .ts file is coloured, Inline and Side by side; the text of every line stays its own text', async () => {
+    files = [changed('src/orders/cart.ts')]
+    await open()
+    await vi.waitFor(() => expect(lit()).toHaveLength(5), { timeout: 5_000 })
+    expect(codes().map((code) => code.textContent)).toEqual(texts)
+    // The keyword of the first line: the keyword red of github.com, light and dark.
+    const keyword = Array.from(codes()[0]!.querySelectorAll<HTMLElement>('.w-hl')).find((token) => token.textContent === 'import')!
+    expect(keyword.style.getPropertyValue('--hl-light')).toBe('#CF222E')
+    expect(keyword.style.getPropertyValue('--hl-dark')).toBe('#FF7B72')
+    // The added and deleted lines keep their marks: their background stays.
+    expect(codes()[1]!.classList.contains('w-changes__cell--del')).toBe(true)
+    expect(codes()[2]!.classList.contains('w-changes__cell--add')).toBe(true)
+
+    fireEvent.click(screen.getByTestId('changes-side-by-side'))
+    // Side by side: the context lines on both sides, the deleted one on the old, the added ones on the new.
+    await vi.waitFor(() => expect(lit()).toHaveLength(7), { timeout: 5_000 })
+    const rows = within(diff()).getAllByTestId('changes-row').slice(0, 4)
+    expect(rows[1]!.textContent).toBe('2−  taxRate: number2+  discount?: Discount')
+  })
+
+  it('a click on a coloured word picks its line, as a click on the plain line did', async () => {
+    files = [changed('src/orders/cart.ts')]
+    await open()
+    await vi.waitFor(() => expect(lit()).toHaveLength(5), { timeout: 5_000 })
+    const row = within(diff()).getAllByTestId('changes-line')[3]!
+    fireEvent.click(row.querySelector('.w-hl')!)
+    expect(row.classList.contains('is-picked')).toBe(true)
+  })
+
+  it('until its tokens are there a line is its plain text, and then it is coloured', async () => {
+    held.on = true
+    files = [changed('src/orders/held.ts')]
+    render(view())
+    await screen.findAllByTestId('changes-line')
+    await settle()
+    const code = () => Array.from(diff().querySelectorAll<HTMLElement>('[data-path="src/orders/held.ts"] .w-changes__code'))
+    expect(code().map((each) => [each.dataset.highlighted ?? null, each.textContent, each.querySelector('.w-hl')])).toEqual([
+      [null, 'export function held() {', null],
+      [null, '  return 1', null],
+      [null, '}', null],
+    ])
+    held.release()
+    await vi.waitFor(() => expect(code().every((each) => each.dataset.highlighted === 'true')).toBe(true), { timeout: 5_000 })
+    expect(code().map((each) => each.textContent)).toEqual(['export function held() {', '  return 1', '}'])
+  })
+
+  it('a file of a language it does not know stays plain text', async () => {
+    files = [changed('src/orders/cart.xyz'), changed('src/orders/cart.ts')]
+    await open()
+    await vi.waitFor(() => expect(lit()).toHaveLength(5), { timeout: 5_000 })
+    const other = Array.from(diff().querySelectorAll<HTMLElement>('[data-path="src/orders/cart.xyz"] .w-changes__code'))
+    expect(other.map((each) => each.textContent)).toEqual(texts)
+    expect(other.some((each) => each.dataset.highlighted !== undefined || each.querySelector('.w-hl') !== null)).toBe(false)
   })
 })

@@ -1,0 +1,17 @@
+/* The syntax colours of the diff (worfy-changes-view ticket 10, ADR-0113): each token carries its colour of the light
+   and of the dark GitHub theme as CSS variables (DiffPane.tsx, highlight.ts); the theme of the window picks one, as
+   tokens.css follows prefers-color-scheme. The background of an added or a deleted line stays its own. */
+.w-hl {
+  color: var(--hl-light);
+}
+.w-hl--bold {
+  font-weight: 600;
+}
+.w-hl--italic {
+  font-style: italic;
+}
+@media (prefers-color-scheme: dark) {
+  .w-hl {
+    color: var(--hl-dark);
+  }
+}
