@@ -549,6 +549,21 @@ describe('Settings…', () => {
     expect(electron.sent).toEqual([])
   })
 
+  it('a sign-in window of an Integration gets no command, held or sent, whether it came with the click or has the focus', async () => {
+    // worfy-integrations ticket 09: the service's page in that window is not worfy's renderer (src/main/sign-in-windows.ts).
+    const { settings } = await templateFor('darwin')
+    const { markSignInWindow } = await import('../../src/main/sign-in-windows')
+    const signIn = new electron.FakeBrowserWindow('sign-in')
+    markSignInWindow(signIn.webContents)
+    await pageFollows(electron.window)
+    settings.click?.({ checked: false }, signIn)
+    electron.FakeBrowserWindow.focused = signIn
+    settings.click?.({ checked: false }, undefined)
+    // A command waiting for that page would go out once it said it follows: it never waited.
+    await pageFollows(signIn)
+    expect(electron.sent).toEqual([])
+  })
+
   it('the installed menu carries it too', async () => {
     const { template } = await load()
     expect(items(template).filter((item) => item.label === 'Settings…')).toHaveLength(1)

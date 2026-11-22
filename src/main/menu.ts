@@ -38,6 +38,7 @@ import { menuKeys, SHORTCUTS } from '../shared/shortcuts'
 import { deliverMenuCommand } from './ipc/menu'
 import { setViewState, viewState } from './ipc/view'
 import { canGrow, canShrink, interfaceScale, resetInterfaceScale, stepInterfaceScale } from './settings/interface-scale'
+import { isSignInContents } from './sign-in-windows'
 import { appSettingsStore } from './settings/store'
 
 /** The id of View ▸ Show Minimap, for tests that click it. */
@@ -59,11 +60,12 @@ export const GUIDE_MENU_ITEM_ID = 'help.guide'
  * Tells one window's renderer to carry out `command`: the window the item was clicked for, else the
  * focused one, else nobody. The window comes from the click handler: a test that clicks the item
  * without one would otherwise depend on which window has the focus. Until the window's page follows
- * the command, main holds it (deliverMenuCommand).
+ * the command, main holds it (deliverMenuCommand). An Integration's sign-in window gets nothing, held or
+ * sent: its page is a service's, not worfy's renderer (src/main/sign-in-windows.ts).
  */
 export function sendMenuCommand(command: MenuCommand, window: BaseWindow | undefined): void {
   const target = window instanceof BrowserWindow ? window : BrowserWindow.getFocusedWindow()
-  if (target === null || target.isDestroyed()) return
+  if (target === null || target.isDestroyed() || isSignInContents(target.webContents)) return
   deliverMenuCommand(target.webContents, command)
 }
 

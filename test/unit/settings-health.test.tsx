@@ -456,6 +456,32 @@ describe('Settings → Health: actions', () => {
     expect(within(health).getByRole('alert').textContent).toContain('there is no build log yet')
   })
 
+  // worfy-integrations ticket 09: a row per Integration of a Project whose sign-in the service refused; Sign in of an
+  // OAuth one opens its sign-in window through integrations.signIn — not an action of firstRun.run — and checks again.
+  it('two Integrations of one Project are two rows; Sign in of one asks integrations.signIn for it, then the checks again', async () => {
+    const refused = report()
+    const project = { id: 'alpha-1', name: 'alpha' }
+    refused.checks.push(
+      check('integration', 'Projects', 'Integration', { status: 'fail', project, subject: { id: 'int-jira', label: 'Jira — client A' }, detail: 'Jira — client A: sign-in needed', actions: [{ id: 'integration-sign-in', label: 'Sign in', integration: 'int-jira' }], opensFirstRun: false }),
+      check('integration', 'Projects', 'Integration', { status: 'fail', project, subject: { id: 'int-linear', label: 'Linear' }, detail: 'Linear: sign-in needed', opensFirstRun: false }),
+    )
+    handlers['firstRun.checks'] = () => ({ ok: true, value: refused })
+    handlers['integrations.signIn'] = () => ({ ok: true, value: { signIn: { account: null, site: null, at: '2026-11-22T10:00:00.000Z' } } })
+    renderApp()
+    const health = await openHealth()
+    const rows = [...health.querySelectorAll<HTMLElement>('[data-check="integration"]')]
+    expect(rows.map((each) => each.textContent?.includes('Jira — client A: sign-in needed') ?? false)).toContain(true)
+    expect(rows).toHaveLength(2)
+    const jira = rows.find((each) => each.textContent?.includes('Jira — client A') === true)!
+    const checksBefore = callsOf('firstRun.checks').length
+    fireEvent.click(within(jira).getByRole('button', { name: 'Sign in' }))
+    await flush()
+    await flush()
+    expect(callsOf('integrations.signIn')).toEqual([{ projectId: 'alpha-1', id: 'int-jira' }])
+    expect(callsOf('firstRun.run')).toEqual([])
+    expect(callsOf('firstRun.checks').length).toBeGreaterThan(checksBefore)
+  })
+
   it('without a Project the GitHub sign-in is a command to copy, as in First run', async () => {
     renderApp()
     const health = await openHealth()

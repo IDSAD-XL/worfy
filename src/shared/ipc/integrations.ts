@@ -158,12 +158,18 @@ export type MachineIntegration = z.infer<typeof machineIntegrationSchema>
 
 /**
  * Every Integration of the Machine and where it is used. `dangling` — the Projects whose settings still name an
- * Integration the Machine no longer has (a Remove cut short), with how many; integrations.cleanUp drops them. Writes nothing.
+ * Integration the Machine no longer has (a Remove cut short), with how many; integrations.cleanUp drops them. Writes nothing
+ * but what reading the list does: a damaged file is set aside, and `setAside` names it.
  */
 export const integrationsMachine = invokeChannel(
   'integrations.machine',
   z.void(),
-  z.object({ items: z.array(machineIntegrationSchema), dangling: z.array(z.object({ projectId: projectIdSchema, name: z.string(), count: z.number().int().positive() })) }),
+  z.object({
+    items: z.array(machineIntegrationSchema),
+    dangling: z.array(z.object({ projectId: projectIdSchema, name: z.string(), count: z.number().int().positive() })),
+    /** The file of the list set aside as unreadable (`integrations.json.unreadable-…`), while it is there; Clean up waits for it (ticket 09). */
+    setAside: z.string().nullable(),
+  }),
   'local',
 )
 

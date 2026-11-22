@@ -11,6 +11,10 @@
 // A Linked machine (spec, decided without the owner, 3; ADR-0111, 8): with read-only access the list and the statuses
 // show and nothing can be changed; with full access the ticks, the filter and Rename work, while Add integration, a
 // token, Sign out and Remove — the `local` channels — are off with «on the Project's machine only».
+//
+// worfy-integrations ticket 09: an Integration that signs in with OAuth has Sign in on its row while it needs one, and
+// Re-sign in in «…» — integrations.signIn, whose window opens on the Project's Machine, so a Linked machine with full
+// access may press it too; the row reads checking meanwhile, then the site of the sign-in and the tools.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { catalogueEntry } from '../../shared/integrations/catalogue'
 import type { Integration, IntegrationStatus, IntegrationTools, ProjectIntegration } from '../../shared/integrations/types'
@@ -143,6 +147,21 @@ export function IntegrationsSection({ project, machine, readOnly }: Integrations
   const setAutopilot = (id: string, autopilot: boolean): Promise<void> => change(id, () => call('integrations.setAutopilot', { projectId: project.id, id, autopilot }))
   const setFilter = (id: string, filter: IntegrationTools): Promise<void> => change(id, () => call('integrations.setTools', { projectId: project.id, id, tools: filter }))
 
+  /** OAuth sign-in of Integration `id` in worfy's window (ticket 09): checking meanwhile, then its tools are asked. */
+  const signIn = async (id: string): Promise<void> => {
+    setTools((was) => ({ ...was, [id]: { state: 'checking' } }))
+    const result = await call('integrations.signIn', { projectId: project.id, id })
+    if (!result.ok) {
+      setProblem(result.error)
+      setTools((was) => Object.fromEntries(Object.entries(was).filter(([key]) => key !== id)))
+      return
+    }
+    setProblem(undefined)
+    setItems((was) => was?.map((item) => (item.integration.id === id ? { ...item, integration: { ...item.integration, signIn: result.value.signIn } } : item)))
+    setStatuses((was) => ({ ...was, [id]: { state: 'signed-in' } }))
+    void test(id)
+  }
+
   const signOut = async (id: string): Promise<void> => {
     const result = await invoke('integrations.signOut', { id })
     if (!result.ok) return setProblem(result.error)
@@ -241,14 +260,20 @@ export function IntegrationsSection({ project, machine, readOnly }: Integrations
                     {status.state === 'checking' ? 'counting…' : list === null ? '—' : costText(list, entry.tools)}
                   </span>
                   {status.state === 'needs-sign-in' ? (
-                    <Button
-                      disabled={locked || remote || !usesToken(integration)}
-                      title={remote ? ONLY_ON_PROJECT_MACHINE : usesToken(integration) ? undefined : 'Sign-in through the service’s page is not available yet.'}
-                      onClick={() => setOpen({ kind: 'token', id })}
-                      data-testid="integration-sign-in"
-                    >
-                      Sign in
-                    </Button>
+                    integration.auth === 'oauth' ? (
+                      <Button disabled={locked} title="Opens the service’s sign-in page in a worfy window on the Project’s Machine." onClick={() => void signIn(id)} data-testid="integration-sign-in">
+                        Sign in
+                      </Button>
+                    ) : (
+                      <Button
+                        disabled={locked || remote || !usesToken(integration)}
+                        title={remote ? ONLY_ON_PROJECT_MACHINE : usesToken(integration) ? undefined : 'This Integration has no sign-in worfy can do.'}
+                        onClick={() => setOpen({ kind: 'token', id })}
+                        data-testid="integration-sign-in"
+                      >
+                        Sign in
+                      </Button>
+                    )
                   ) : (
                     <Menu
                       open={menu?.kind === 'filter' && menu.id === id}
@@ -325,6 +350,11 @@ export function IntegrationsSection({ project, machine, readOnly }: Integrations
                     <MenuItem disabled={locked} onClick={() => setOpen({ kind: 'rename', id })} testId="integration-rename">
                       Rename
                     </MenuItem>
+                    {integration.auth === 'oauth' ? (
+                      <MenuItem disabled={locked || statusOf(id).state === 'checking'} onClick={() => void signIn(id)} testId="integration-re-sign-in">
+                        Re-sign in
+                      </MenuItem>
+                    ) : null}
                     <MenuItem disabled={locked || remote || statuses[id]?.state === 'needs-sign-in'} onClick={() => void signOut(id)} testId="integration-sign-out">
                       Sign out
                     </MenuItem>

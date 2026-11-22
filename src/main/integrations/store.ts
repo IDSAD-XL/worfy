@@ -92,8 +92,18 @@ export class IntegrationStore {
   wholeList(): Integration[] | null {
     const integrations = this.list()
     if (!existsSync(this.file)) return null
-    const setAside = readdirSync(this.dir).some((name) => name.startsWith(`${INTEGRATIONS_FILE}.unreadable-`))
-    return setAside ? null : integrations
+    return this.setAsideFile() === null ? integrations : null
+  }
+
+  /**
+   * The name of a copy of the list set aside as unreadable (`integrations.json.unreadable-…`), the newest when there are
+   * several; null when there is none. While one is there, Clean up waits (worfy-integrations ticket 09: Settings says so).
+   */
+  setAsideFile(): string | null {
+    this.list()
+    if (!existsSync(this.dir)) return null
+    const names = readdirSync(this.dir).filter((name) => name.startsWith(`${INTEGRATIONS_FILE}.unreadable-`)).sort()
+    return names.at(-1) ?? null
   }
 
   get(id: string): Integration | undefined {

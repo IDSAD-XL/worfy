@@ -425,3 +425,74 @@ describe('a Linked machine', () => {
   })
 })
 
+
+// worfy-integrations ticket 09: an Integration that signs in with OAuth signs in from its row — Sign in, and Re-sign in
+// in «…» — through integrations.signIn, whose window opens on the Project's Machine; the row reads checking, then the
+// service's answer. A Linked machine with full access may sign in there too; read-only access may not.
+describe('Sign in with OAuth', () => {
+  const O = integration('oooo0005', 'Jira — client A', { service: 'atlassian', auth: 'oauth', transport: { kind: 'http', url: 'https://mcp.atlassian.com/v1/mcp' }, signIn: null })
+  const signedIn = { ok: true as const, value: { signIn: { account: null, site: 'client-a.atlassian.net', at: '2026-11-22T10:00:00.000Z' } } }
+
+  it('Sign in of a row that needs it asks integrations.signIn, shows checking, then the status and the site', async () => {
+    project([{ integration: O, project: entry(O.id), status: { state: 'needs-sign-in' } }])
+    let release: (answer: Answer) => void = () => undefined
+    main.answers['integrations.signIn'] = () => new Promise<Answer>((resolve) => (release = resolve))
+    await open()
+    const button = within(row(O.id)).getByTestId('integration-sign-in') as HTMLButtonElement
+    expect(button.disabled).toBe(false)
+    fireEvent.click(button)
+    await flush()
+    expect(asked('integrations.signIn')).toEqual([{ projectId: PROJECT.id, id: O.id }])
+    expect(row(O.id).dataset.status).toBe('checking')
+    // main after the sign-in: the service answers its tools.
+    main.answers['integrations.tools'] = { ok: true, value: { status: { state: 'signed-in' }, tools: TOOLS, hidden: [] } }
+    release(signedIn)
+    await flush()
+    await flush()
+    expect(row(O.id).dataset.status).toBe('signed-in')
+    expect(within(row(O.id)).getByTestId('integration-sub').textContent).toContain('client-a.atlassian.net')
+    expect(asked('integrations.tools')).toContainEqual({ projectId: PROJECT.id, id: O.id })
+  })
+
+  it('a sign-in that fails shows why, and the row still offers Sign in', async () => {
+    project([{ integration: O, project: entry(O.id), status: { state: 'needs-sign-in' } }])
+    main.answers['integrations.signIn'] = { ok: false, error: 'Jira — client A: the service did not sign you in: access_denied' }
+    await open()
+    fireEvent.click(within(row(O.id)).getByTestId('integration-sign-in'))
+    await flush()
+    expect(screen.getByTestId('integrations-problem').textContent).toContain('access_denied')
+    expect(row(O.id).dataset.status).toBe('needs-sign-in')
+  })
+
+  it('Re-sign in in «…» signs a signed-in Integration in again', async () => {
+    project([{ integration: { ...O, signIn: signedIn.value.signIn }, project: entry(O.id), status: { state: 'signed-in' } }])
+    main.answers['integrations.signIn'] = signedIn
+    await open()
+    fireEvent.click(within(row(O.id)).getByTestId('integration-more'))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Re-sign in' }))
+    await flush()
+    expect(asked('integrations.signIn')).toEqual([{ projectId: PROJECT.id, id: O.id }])
+  })
+
+  it('a token Integration has no Re-sign in: its Sign in takes a token', async () => {
+    project([{ integration: A, project: entry(A.id), status: { state: 'signed-in' } }])
+    await open()
+    fireEvent.click(within(row(A.id)).getByTestId('integration-more'))
+    await screen.findByRole('menuitem', { name: 'Sign out' })
+    expect(screen.queryByRole('menuitem', { name: 'Re-sign in' })).toBeNull()
+  })
+
+  it('a Linked machine with full access signs in on the Project’s machine; read-only access cannot', async () => {
+    project([{ integration: O, project: entry(O.id), status: { state: 'needs-sign-in' } }])
+    main.answers['integrations.signIn'] = signedIn
+    await open({ machine: 'mac-b' })
+    fireEvent.click(within(row(O.id)).getByTestId('integration-sign-in'))
+    await flush()
+    expect(main.calls.filter((call) => call.channel === 'integrations.signIn').map((call) => call.machine)).toEqual(['mac-b'])
+    cleanup()
+    main.calls.length = 0
+    main.readOnly['mac-b'] = 'Shared read-only by mac-b.'
+    await open({ machine: 'mac-b' })
+    expect((within(row(O.id)).getByTestId('integration-sign-in') as HTMLButtonElement).disabled).toBe(true)
+  })
+})

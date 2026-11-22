@@ -113,12 +113,18 @@ function notStartedReason(count: number): string {
 }
 
 /**
+ * The heading of a group «not started» of Integrations only (worfy-integrations ticket 09): the Project turned them on
+ * after the Session started — the words of their rows (INTEGRATION_JOINED, src/main/integrations/rows.ts).
+ */
+const INTEGRATIONS_JOINED = 'Enabled in this Project after this Session started.'
+
+/**
  * Whether a row of the group «not started» shows its reason under its name: only when a Restart would not start it
  * (main gave it none, worfy-mcp-live ticket 12: a server Claude Code can allow neither by its name nor by an address)
  * and the reason is not the heading's own words. A row Restart helps leaves its reason to the heading's Restart Session.
  */
 function ownReason(row: McpServerRow): boolean {
-  return !row.actions.includes('restart') && row.error !== notStartedReason(1)
+  return !row.actions.includes('restart') && row.error !== notStartedReason(1) && row.error !== INTEGRATIONS_JOINED
 }
 
 /** The gap between the chip and its popover. */
@@ -186,7 +192,8 @@ interface RowProps {
 
 function ServerRow({ row, autopilot, running, failure, readOnly, onAction, grouped = false }: RowProps) {
   const source = SOURCE_LABELS[row.source]
-  const note = autopilot && row.actions.includes('allow') ? 'Allow takes effect from the next Wave' : null
+  // An Integration's own line (ticket 09: it replaces a server of the user's config.toml) comes before Autopilot's.
+  const note = row.note ?? (autopilot && row.actions.includes('allow') ? 'Allow takes effect from the next Wave' : null)
   return (
     <li className="w-mcp__row" data-testid="mcp-row" data-name={row.name} data-status={row.status}>
       <div className="w-mcp__line">
@@ -328,10 +335,12 @@ export interface McpChipProps {
   rows: readonly McpServerRow[] | null
   /** The Session runs for Autopilot: an Allow takes effect from the next Wave. */
   autopilot: boolean
+  /** The Project of the Session: an Integration's Sign in goes through it (worfy-integrations ticket 09); absent or empty: none. */
+  projectId?: string | null
 }
 
 /** The chip and its popover; nothing without rows. */
-export function McpChip({ sessionId, rows, autopilot }: McpChipProps) {
+export function McpChip({ sessionId, rows, autopilot, projectId = null }: McpChipProps) {
   const readOnly = useReadOnly()
   /** Where the open popover stands; null while it is closed. */
   const [place, setPlace] = useState<CSSProperties | null>(null)
@@ -395,12 +404,25 @@ export function McpChip({ sessionId, rows, autopilot }: McpChipProps) {
       })
       if (reason !== null) showToast({ kind: 'error', key: `mcp:${sessionId}:${row.name}`, testId: 'mcp-action-error', text: `${ACTION_LABELS[action]} ${row.name}: ${reason}` })
     }
-    void invoke('agent.mcpAction', { sessionId, name: row.name, action })
-      .then((result) => {
-        if (!result.ok) return failed(failureReason('agent.mcpAction', result.error))
-        if (result.value.servers !== null) acceptMcpServers(sessionId, result.value.servers)
-        failed(result.value.error)
-      })
+    // An Integration's Sign in is worfy's own sign-in window (integrations.signIn, worfy-integrations ticket 09), never
+    // the Vendor's: then the rows are read again, the proxy having forgotten the refusal.
+    const integration = action === 'sign-in' && row.source === 'integration' ? (row.integrationId ?? null) : null
+    const done =
+      integration !== null
+        ? projectId === null || projectId === ''
+          ? Promise.resolve(failed('this Session has no Project to sign in through'))
+          : invoke('integrations.signIn', { projectId, id: integration }).then(async (result) => {
+              if (!result.ok) return failed(failureReason('integrations.signIn', result.error))
+              const rows = await invoke('agent.mcp', { sessionId })
+              if (rows.ok && rows.value.servers !== null) acceptMcpServers(sessionId, rows.value.servers)
+              failed(null)
+            })
+        : invoke('agent.mcpAction', { sessionId, name: row.name, action }).then((result) => {
+            if (!result.ok) return failed(failureReason('agent.mcpAction', result.error))
+            if (result.value.servers !== null) acceptMcpServers(sessionId, result.value.servers)
+            failed(result.value.error)
+          })
+    void done
       .catch((error: unknown) => failed(error instanceof Error ? error.message : String(error)))
       .finally(() => {
         runningNow.current.delete(row.name)
@@ -519,7 +541,7 @@ export function McpChip({ sessionId, rows, autopilot }: McpChipProps) {
               {notStarted.length === 0 ? null : (
                 <section className="w-mcp__group" data-testid="mcp-not-started" aria-label="Not started in this Session">
                   <div className="w-mcp__group-head">
-                    <h2 className="w-mcp__heading w-mcp__heading--reason">{notStartedReason(notStarted.length)}</h2>
+                    <h2 className="w-mcp__heading w-mcp__heading--reason">{notStarted.every((row) => row.source === 'integration') ? INTEGRATIONS_JOINED : notStartedReason(notStarted.length)}</h2>
                     {restartable === undefined ? null : (
                       <RestartButton
                         name={restartable.name}
@@ -596,7 +618,7 @@ export function SessionMcpChip({ sessionId, projectId, orchestrator }: { session
   const autopilot = useAutopilotRuns(orchestrator && rows !== null && rows.some((row) => row.actions.includes('allow')) ? projectId : null)
   // Keyed by the Session: the view shows another Session in the same panel, and an action running on a
   // server of the one before must not hold the button of a server of the same name here, nor its popover stay open.
-  return <McpChip key={sessionId ?? ''} sessionId={sessionId} rows={rows} autopilot={autopilot} />
+  return <McpChip key={sessionId ?? ''} sessionId={sessionId} rows={rows} autopilot={autopilot} projectId={projectId} />
 }
 
 /**

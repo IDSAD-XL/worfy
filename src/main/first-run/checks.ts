@@ -222,7 +222,7 @@ const action = (id: FirstRunAction, label: string): Check['actions'][number] => 
  * of a Project (05), the Codex sign-in (08), and those only a feature's message makes
  * (src/main/first-run/health-reports.ts).
  */
-type MachineCheckId = Exclude<CheckId, 'github-access' | 'codex-login' | 'browser-profile' | 'linked-machine'>
+type MachineCheckId = Exclude<CheckId, 'github-access' | 'codex-login' | 'browser-profile' | 'linked-machine' | 'integration'>
 
 /** The checks in the order the screen shows them, with their group and title; `windows` — on Windows only. */
 const CHECKS: readonly { id: MachineCheckId; group: CheckGroup; title: string; windows?: true }[] = [

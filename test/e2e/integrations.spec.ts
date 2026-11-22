@@ -4,6 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { startOAuthStub } from '../fixtures/integrations/oauth-stub'
 import { STUB_TOOLS, startServiceStub, type ServiceStub } from '../fixtures/integrations/service-stub'
 import { launchApp } from './helpers'
 
@@ -16,6 +17,10 @@ import { launchApp } from './helpers'
 // same address with the second token signs in on its own: the stub answered each sign-in from its own dataset, and
 // neither token is in the files worfy keeps outside its secret store. The section is shot in the light and the dark
 // theme; with WORFY_EVIDENCE_DIR set, the shots are copied there.
+//
+// worfy-integrations ticket 09: Sign in with OAuth in worfy's own window against the OAuth stub
+// (test/fixtures/integrations/oauth-stub.ts), an Integration turned on while a Session runs reaching it on Restart, and
+// a refused refresh read as «Sign-in needed» in the row, in the chip «MCP n/m» and in Settings → Health.
 
 const EVIDENCE_DIR = process.env.WORFY_EVIDENCE_DIR
 
@@ -84,8 +89,8 @@ async function addCustom(window: Page, settings: Locator, label: string, token: 
   await expect(dialog).toHaveCount(0)
 }
 
-/** The section in both themes, as <test output>/integrations/<name>-<scheme>.png, copied to the evidence folder. */
-async function shoot(window: Page, section: Locator, name: string): Promise<void> {
+/** The section in both themes, as <test output>/integrations/<name>-<scheme>.png, copied to the evidence folder as <ticket>-<name>-<scheme>.png. */
+async function shoot(window: Page, section: Locator, name: string, ticket = '08'): Promise<void> {
   const folder = join(test.info().project.outputDir, 'snapshots', 'integrations')
   mkdirSync(folder, { recursive: true })
   try {
@@ -95,7 +100,7 @@ async function shoot(window: Page, section: Locator, name: string): Promise<void
       await section.screenshot({ path, animations: 'disabled', style: VIBRANCY_BACKDROP })
       if (EVIDENCE_DIR !== undefined) {
         mkdirSync(EVIDENCE_DIR, { recursive: true })
-        copyFileSync(path, join(EVIDENCE_DIR, `08-${name}-${scheme}.png`))
+        copyFileSync(path, join(EVIDENCE_DIR, `${ticket}-${name}-${scheme}.png`))
       }
     }
   } finally {
@@ -178,5 +183,97 @@ test('Add integration signs in to a custom server, a second Project signs in to 
     expect(new Set(listed(before))).toEqual(new Set(['alpha']))
   } finally {
     await again.close()
+  }
+})
+
+test('Sign in with OAuth in worfy`s window; Restart gives the Integration to the running Session; a refused refresh is «Sign-in needed» in the row, the chip and Settings → Health', async () => {
+  const oauth = await startOAuthStub()
+  const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'session-mcp' }
+  const app = await launchApp({ env })
+  try {
+    const { window } = app
+    // A Session of alpha runs before the Integration is added.
+    const node = window.getByTestId('orchestrator-node')
+    await expect(node.getByTestId('orchestrator-state')).toHaveText('idle')
+    await node.locator('.w-orchestrator__header').dblclick()
+    const view = window.locator('.w-shell__view[data-view="session"]').getByTestId('session-view')
+    await expect(view.getByTestId('session-state')).toHaveText('idle')
+    const input = view.getByRole('textbox', { name: 'Message Orchestrator' })
+    await input.fill('check the servers')
+    await input.press('Enter')
+    await expect(view.getByTestId('transcript-turn-done')).toHaveCount(1)
+
+    // Add integration → Custom server → «Sign in with the server»: the service's page in worfy's window, which the stub
+    // approves at once; then the tools, as after a token.
+    const settings = await openIntegrations(window, 'alpha')
+    await settings.getByTestId('integrations-add').click()
+    const dialog = window.getByTestId('add-integration')
+    await dialog.getByTestId('add-integration-catalogue').getByText('Custom server').click()
+    const form = dialog.getByTestId('add-integration-form')
+    await form.getByLabel('Label', { exact: true }).fill('Tracker A')
+    await form.getByLabel('Address', { exact: true }).fill(oauth.url)
+    await form.getByRole('radio', { name: 'Sign in with the server', exact: true }).check()
+    await expect(form.getByLabel('API token', { exact: true })).toHaveCount(0)
+    await expect(dialog.getByTestId('add-integration-save')).toHaveText('Sign in with the server')
+    await dialog.getByTestId('add-integration-save').click()
+    await expect(dialog.getByTestId('add-integration-result-status')).toHaveText(/^Signed in · \d+ tools? · ~\d+ tokens$/u)
+    expect(oauth.registrations).toHaveLength(1)
+    expect(oauth.authorizations).toHaveLength(1)
+    await dialog.getByTestId('add-integration-done').click()
+    const row = settings.getByTestId('integration-row')
+    await expect(row).toHaveAttribute('data-status', 'signed-in')
+    // The sign-in names no account or site: the row shows where the server is.
+    await expect(row.getByTestId('integration-sub')).toContainText(new URL(oauth.url).host)
+    await shoot(window, settings, 'oauth-signed-in', '09')
+    await settings.getByRole('button', { name: 'Close' }).click()
+    await expect(settings).toHaveCount(0)
+
+    // The running Session: the Integration is «not started» until Restart, with the same conversation, gives it.
+    const chip = view.getByTestId('message-input').getByTestId('session-mcp')
+    await chip.click()
+    const popover = window.getByRole('dialog', { name: 'MCP servers' })
+    const group = popover.getByTestId('mcp-not-started')
+    await expect(group.getByRole('heading')).toHaveText('Enabled in this Project after this Session started.')
+    await expect(group.locator('[data-testid="mcp-row"][data-name="tracker-a"]').getByTestId('mcp-row-name')).toHaveText('Tracker A')
+    await shoot(window, popover, 'chip-not-started', '09')
+    await group.getByTestId('mcp-restart').click()
+    const tracker = popover.locator('[data-testid="mcp-row"][data-name="tracker-a"]')
+    await expect(tracker.getByTestId('mcp-row-status')).toHaveText('connected')
+    await popover.press('Escape')
+    await expect(popover).toHaveCount(0)
+
+    // The service ends every token: the next check's refresh is refused.
+    oauth.expireAccessTokens()
+    oauth.expireRefreshTokens()
+    const again = await openIntegrations(window, 'alpha')
+    const refused = again.getByTestId('integration-row')
+    await expect(refused).toHaveAttribute('data-status', 'needs-sign-in')
+    await expect(refused.getByTestId('integration-status')).toHaveText('Sign-in needed')
+    await expect(refused.getByTestId('integration-sign-in')).toBeEnabled()
+    await shoot(window, again, 'oauth-sign-in-needed', '09')
+    await again.getByRole('button', { name: 'Close' }).click()
+    await expect(again).toHaveCount(0)
+
+    // The chip says so, and its Sign in is worfy's window, not Claude Code's.
+    await chip.click()
+    await expect(tracker.getByTestId('mcp-row-status')).toHaveText('needs auth')
+    await expect(tracker.getByTestId('mcp-row-error')).toHaveText('Sign-in needed: Tracker A. Ask the user to sign in in worfy.')
+    await expect(tracker.getByRole('button', { name: 'Sign in' })).toBeVisible()
+    await shoot(window, popover, 'chip-sign-in-needed', '09')
+    await popover.press('Escape')
+
+    // Settings → Health: a non-critical row of alpha with Sign in.
+    await window.getByRole('navigation', { name: 'Sidebar' }).getByRole('button', { name: 'Health check', exact: true }).click()
+    const settingsWindow = window.getByRole('dialog', { name: 'Settings' })
+    await expect(settingsWindow.getByRole('heading', { level: 2 })).toHaveText('Health')
+    const health = settingsWindow.getByTestId('settings-health').locator('[data-check="integration"]')
+    await expect(health).toHaveCount(1)
+    await expect(health).toContainText('Tracker A: sign-in needed')
+    await expect(health).not.toHaveAttribute('data-status', 'ok')
+    await expect(health.getByRole('button', { name: 'Sign in' })).toBeVisible()
+    await shoot(window, health, 'health-row', '09')
+  } finally {
+    await app.close()
+    await oauth.close()
   }
 })

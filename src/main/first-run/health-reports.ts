@@ -14,6 +14,9 @@
 // - On the focus of a worfy window (Q8) only rows not in `ok`, last checked over 5 minutes ago, are
 //   checked again, each through its registered re-check. No timer, no polling.
 //
+// - A row may have a `subject` (worfy-integrations ticket 09: an Integration): one id and Project then
+//   hold a row per subject, each kept and taken back to `ok` on its own.
+//
 // The reason and the step of a message pass through redactSecrets(): a token a feature let slip
 // does not reach the report. This module logs neither of them. No Electron here: the features of
 // main import it, and contract tests run it as it is.
@@ -27,6 +30,7 @@ export const REPORTED_ROWS = {
   'codex-login': { group: 'Codex', title: 'Codex sign-in' },
   'browser-profile': { group: 'Projects', title: 'Browser profile' },
   'linked-machine': { group: 'Linked machines', title: 'Linked machine' },
+  integration: { group: 'Projects', title: 'Integration' },
 } as const satisfies Partial<Record<CheckId, { group: CheckGroup; title: string }>>
 export type ReportedCheckId = keyof typeof REPORTED_ROWS
 
@@ -38,9 +42,13 @@ export const RECHECK_AFTER_FAILURE_MS = 60_000
 /** On the focus of a window, a row not in `ok` is checked again only when its last check is older (Q8). */
 export const RECHECK_ON_FOCUS_MS = 5 * 60_000
 
+/** What a row is about when one id and Project hold several: an Integration (Check.subject). */
+export type CheckSubject = NonNullable<Check['subject']>
+
 interface Message {
   id: ReportedCheckId
   project: CheckProject | undefined
+  subject: CheckSubject | undefined
   reason: string
   step: string
   /** The buttons of the row the message makes; none given — those of the checked row, or none. */
@@ -55,8 +63,8 @@ interface Stored {
   from?: 'network' | 'recheck'
 }
 
-const keyOf = (id: CheckId, project: CheckProject | undefined): string => `${id}\u0000${project?.id ?? ''}`
-const keyOfCheck = (check: Check): string => keyOf(check.id, check.project)
+const keyOf = (id: CheckId, project: CheckProject | undefined, subject?: CheckSubject): string => `${id}\u0000${project?.id ?? ''}${subject === undefined ? '' : `\u0000${subject.id}`}`
+const keyOfCheck = (check: Check): string => keyOf(check.id, check.project, check.subject)
 /** The Machine's rows share one re-check budget, as if they were one Project. */
 const budgetOf = (project: CheckProject | undefined): string => project?.id ?? ''
 
@@ -93,10 +101,13 @@ export class HealthReports {
     this.networkSources.push(source)
   }
 
-  /** A feature failed on its row: the row is out of `ok` now, and one re-check of that Project follows. */
-  reportFailure(id: ReportedCheckId, project: CheckProject | undefined, reason: string, step: string, actions?: Check['actions']): void {
+  /**
+   * A feature failed on its row: the row is out of `ok` now, and one re-check of that Project follows. `subject` — the
+   * row of one Integration among several of the same Project (worfy-integrations ticket 09).
+   */
+  reportFailure(id: ReportedCheckId, project: CheckProject | undefined, reason: string, step: string, actions?: Check['actions'], subject?: CheckSubject): void {
     const at = this.now()
-    this.messages.set(keyOf(id, project), { id, project, reason: redactSecrets(reason), step: redactSecrets(step), actions, at })
+    this.messages.set(keyOf(id, project, subject), { id, project, subject, reason: redactSecrets(reason), step: redactSecrets(step), actions, at })
     this.changed()
     const recheck = this.rechecks.get(id)
     const budget = budgetOf(project)
@@ -107,8 +118,8 @@ export class HealthReports {
   }
 
   /** The feature worked on its row again: the message goes, and the row is `ok` without a check. */
-  reportOk(id: ReportedCheckId, project: CheckProject | undefined): void {
-    const key = keyOf(id, project)
+  reportOk(id: ReportedCheckId, project: CheckProject | undefined, subject?: CheckSubject): void {
+    const key = keyOf(id, project, subject)
     this.messages.delete(key)
     const stored = this.storedAt(key)
     if (stored !== undefined && stored.check.status !== 'ok') {
@@ -252,7 +263,17 @@ export class HealthReports {
 
 /** The row a failure message makes, over the checked row of the same id and Project when there is one. */
 function fromMessage(message: Message, checked: Check | undefined): Check {
-  const base = checked ?? { id: message.id, ...REPORTED_ROWS[message.id], command: null, actions: [], ...(message.project === undefined ? {} : { project: message.project }) }
+  const base = checked ?? {
+    id: message.id,
+    ...REPORTED_ROWS[message.id],
+    command: null,
+    actions: [],
+    ...(message.project === undefined ? {} : { project: message.project }),
+    // A row per subject (worfy-integrations ticket 09: an Integration) is named by its reason, which starts with the
+    // subject's label — «Jira — client A: sign-in needed», read whole, as the prototype has it; two rows of one Project
+    // read apart.
+    ...(message.subject === undefined ? {} : { subject: message.subject, title: message.reason }),
+  }
   // A feature that reports a GitHub failure works with GitHub: gh counts as needed.
   const severity = checked !== undefined && checked.status !== 'unknown' ? checked.severity : severityOf({ id: message.id, status: 'fail' }, { githubProject: true })
   return { ...base, status: 'fail', severity, detail: message.reason, hint: message.step, actions: message.actions ?? base.actions, opensFirstRun: false }

@@ -955,11 +955,13 @@ export interface FakeQueryOptions {
    */
   integrations?: ((request: QueryRequest) => Promise<readonly FakeIntegration[]>) | undefined
   /** Marks the rows of the Integrations of `query` (src/main/vendors/claude/mcp.ts, labelIntegrations). */
-  labelIntegrations?: ((query: QueryHandle, servers: readonly FakeIntegration[]) => void) | undefined
+  labelIntegrations?: ((query: QueryHandle, servers: readonly FakeIntegration[], request: QueryRequest) => void) | undefined
 }
 
 /** An Integration as the fake agent lists it: its server name, its label and the names of the tools its proxy gave. */
 export interface FakeIntegration {
+  /** The Integration's id, for its row (worfy-integrations ticket 09); absent in a script's own list. */
+  id?: string | undefined
   name: string
   label: string
   tools: readonly string[]
@@ -991,7 +993,7 @@ export function fakeQueryFactory(options: FakeQueryOptions): QueryFactory {
     request.mcpListed?.(listed)
     const integrations = options.integrations === undefined ? [] : await options.integrations(request).catch(() => [])
     const query = new FakeQuery(join(options.scriptsDir, `${name}.jsonl`), request, record, options.settingsHome ?? null, shared, options.registryHome ?? null, options.preToolUse, listed, false, integrations)
-    options.labelIntegrations?.(query, integrations)
+    options.labelIntegrations?.(query, integrations, request)
     return query
   }
 }

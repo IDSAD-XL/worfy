@@ -35,6 +35,8 @@ describe('the level table (spec: the levels table)', () => {
     ['codex-login', 'non-critical'],
     ['browser-profile', 'non-critical'],
     ['linked-machine', 'non-critical'],
+    // An Integration whose sign-in the service refused (worfy-integrations ticket 09).
+    ['integration', 'non-critical'],
   ]
 
   it('names every row id of the Epic', () => {

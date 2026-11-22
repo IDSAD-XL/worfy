@@ -217,6 +217,8 @@ describe('the Machine’s Integrations: where each is used, and orphans', () => 
     // The Machine's Integrations still show, with Sign out and Remove: only the orphans wait for the old list.
     expect(machine.items.map((item) => [item.integration.id, item.integration.label])).toEqual([[fresh, 'Stub — B']])
     expect(machine.dangling).toEqual([])
+    // Why Clean up waits (worfy-integrations ticket 09): the file set aside, by its name.
+    expect((machine as unknown as { setAside: string | null }).setAside).toMatch(/^integrations\.json\.unreadable-/u)
     expect(await call('integrations.cleanUp')).toEqual({ removed: 0 })
     expect(readProjectIntegrations(dataDir('p1')).map((entry) => entry.id)).toContain(id)
   })
@@ -225,6 +227,8 @@ describe('the Machine’s Integrations: where each is used, and orphans', () => 
     const call = handlers()
     writeProjectIntegrations(dataDir('p1'), [{ id: 'gone0001', enabled: true, tools: 'all', autopilot: false }])
     expect(((await call('integrations.machine')) as { dangling: unknown[] }).dangling).toEqual([])
+    // Nothing was set aside: no line about one.
+    expect(((await call('integrations.machine')) as { setAside: string | null }).setAside).toBeNull()
     expect(await call('integrations.cleanUp')).toEqual({ removed: 0 })
     expect(readProjectIntegrations(dataDir('p1')).map((entry) => entry.id)).toEqual(['gone0001'])
   })

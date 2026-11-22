@@ -27,9 +27,9 @@ import { IntegrationProxy } from '../../src/main/integrations/proxy'
 import { IntegrationStore } from '../../src/main/integrations/store'
 import type { CanvasBinding } from '../../src/main/mcp/canvas-server'
 import { startMcpHttpEndpoint, type McpHttpEndpoint } from '../../src/main/mcp/http-server'
-import { writeProjectIntegrations } from '../../src/main/projects/settings'
+import { readProjectIntegrations, writeProjectIntegrations } from '../../src/main/projects/settings'
 import type { CodexRuntime } from '../../src/main/vendors/codex/binary'
-import { codexIntegrations, codexMcp, codexMcpSessions, MCP_TOKEN_ENV, type CodexMcpResolver } from '../../src/main/vendors/codex/mcp'
+import { codexConfigServerNames, codexIntegrations, codexMcp, codexMcpSessions, configReplacedNote, INTEGRATION_JOINED, MCP_TOKEN_ENV, type CodexMcpResolver } from '../../src/main/vendors/codex/mcp'
 import { codexSessions } from '../../src/main/vendors/codex/session'
 import { McpActionRefused, type McpCallExtra, type McpServer } from '../../src/main/vendors/mcp'
 import type { SessionHandle, SessionPart, SessionStart } from '../../src/main/vendors/session'
@@ -125,13 +125,14 @@ const canvas = (): CanvasBinding => ({
 })
 
 /** The resolver of a Session's servers: `project: false` — the canvas finds no Project; `listed` — the Profile's list. */
-function resolver(input: { project?: boolean; listed?: readonly string[] } = {}): CodexMcpResolver {
+function resolver(input: { project?: boolean; listed?: readonly string[]; userServers?: readonly string[] } = {}): CodexMcpResolver {
   return codexMcpSessions({
     canvas: () => Promise.resolve(input.project === false ? null : canvas()),
     browser: () => Promise.resolve(null),
     allowlist: () => Promise.resolve(input.listed ?? [CANVAS_SERVER_NAME]),
     endpoint: () => Promise.resolve(endpoint),
     integrations: codexIntegrations({ dataDirOf: () => (input.project === false ? null : projectData), store, proxy, taken: () => [] }),
+    userServers: () => Promise.resolve(input.userServers ?? []),
   })
 }
 
@@ -304,7 +305,7 @@ describe('the rows of a Codex Session`s Integrations in the chip', () => {
     const session = await startSession(resolver())
     const rows = await codexMcp.status!(session.handle)
     const row = rows?.find((each) => each.name === 'jira-client-a')
-    expect(row).toEqual({ name: 'jira-client-a', status: 'connected', tools: 6, error: null, source: 'integration', sourceWord: null, label: 'Jira — client A', actions: [] })
+    expect(row).toEqual({ name: 'jira-client-a', status: 'connected', tools: 6, error: null, source: 'integration', sourceWord: null, label: 'Jira — client A', integrationId: expect.any(String), actions: [] })
     expect(mcpServerRowSchema.parse(row)).toEqual(row)
     expect(row === undefined ? null : mcpShownName(row)).toBe('Jira — client A')
     expect(rows?.find((each) => each.name === CANVAS_SERVER_NAME)).toMatchObject({ source: 'worfy', actions: [] })
@@ -437,4 +438,74 @@ describe('the token of a service', () => {
     expect(leaks(JSON.stringify(session.events))).toEqual([])
     expect(leaks([...lines, ...session.mainLog].join('\n'))).toEqual([])
   }, ms(20_000))
+})
+
+// worfy-integrations ticket 09 (the review of ticket 07): an Integration whose server name is a server of the user's
+// config.toml replaces it in the Session — its row says so — and an Integration turned on while the Session runs is a
+// row «not started» whose Restart, with the same conversation, gives it to the Session in thread/resume.
+describe('the rows of a Codex Session`s Integrations, ticket 09', () => {
+  it('a server of the user`s config.toml with an Integration`s name is replaced in the Session, and its row says so', async () => {
+    const session = await startSession(resolver({ userServers: ['jira-client-a', 'notes'] }))
+    const rows = await codexMcp.status!(session.handle)
+    expect(rows?.find((each) => each.name === 'jira-client-a')).toMatchObject({ source: 'integration', note: configReplacedNote('jira-client-a') })
+    expect(rows?.find((each) => each.name === 'jira-client-b')?.note).toBeUndefined()
+  })
+
+  it('an Integration turned on while the Session runs is «not started» with Restart; the next start gets it', async () => {
+    const session = await startSession(resolver())
+    const entries = readProjectIntegrations(projectData)
+    writeProjectIntegrations(
+      projectData,
+      entries.map((entry) => (entry.enabled ? entry : { ...entry, enabled: true })),
+    )
+    const rows = await codexMcp.status!(session.handle)
+    expect(rows?.find((each) => each.name === 'notion')).toMatchObject({ status: 'not-started', source: 'integration', label: 'Notion', error: INTEGRATION_JOINED, actions: ['restart'] })
+    expect(codexMcp.restarts).toBe(true)
+    const again = await resolver()({ cwd: scratch, resume: 'thread-1', unattended: false })
+    expect(Object.keys(again?.config ?? {})).toContain('mcp_servers.notion')
+    again?.close()
+  })
+
+  it('an unattended Session shows no Integration turned on in the middle of its Wave', async () => {
+    const session = await startSession(resolver(), true)
+    writeProjectIntegrations(
+      projectData,
+      readProjectIntegrations(projectData).map((entry) => ({ ...entry, enabled: true })),
+    )
+    const rows = await codexMcp.status!(session.handle)
+    expect(rows?.some((each) => each.status === 'not-started')).toBe(false)
+  })
+})
+
+describe('the names of the MCP servers of a config.toml', () => {
+  it('reads the tables [mcp_servers.<name>], quoted or bare, and their dotted keys, nothing else', () => {
+    const text = [
+      'model = "o4"',
+      // A dotted key at the top, before any table, is a server.
+      'mcp_servers.dotted.command = "npx"',
+      '[mcp_servers.jira-client-a]',
+      'url = "https://example.com/mcp"',
+      '[mcp_servers."two words"]',
+      "[mcp_servers.'single'.env]",
+      'A = "1"',
+      '  [ mcp_servers.spaced ]',
+      '[profiles.mcp_servers]',
+      '# [mcp_servers.commented]',
+    ].join('\n')
+    expect(codexConfigServerNames(text)).toEqual(['dotted', 'jira-client-a', 'two words', 'single', 'spaced'])
+  })
+
+  it('reads a server given as an inline table at the top: mcp_servers.<name> = { … }', () => {
+    expect(codexConfigServerNames(['mcp_servers.inline = { url = "https://example.com/mcp" }', 'mcp_servers."quoted one" = { command = "npx" }'].join('\n'))).toEqual(['inline', 'quoted one'])
+  })
+
+  it('reads the keys of the table [mcp_servers], until the next table', () => {
+    const text = ['[mcp_servers]', 'linear = { url = "https://mcp.linear.app/mcp" }', '"two words".command = "npx"', '', '[profiles.work]', 'model = "o4"'].join('\n')
+    expect(codexConfigServerNames(text)).toEqual(['linear', 'two words'])
+  })
+
+  it('does not take a dotted key of another table for a server: [profiles.work] mcp_servers.foo.enabled = false', () => {
+    const text = ['[mcp_servers.real]', 'url = "https://example.com/mcp"', '[profiles.work]', 'mcp_servers.foo.enabled = false'].join('\n')
+    expect(codexConfigServerNames(text)).toEqual(['real'])
+  })
 })

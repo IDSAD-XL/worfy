@@ -22,6 +22,7 @@ import { autoApprovalDebugRefusal, autoApprovalSet } from '../../shared/ipc/auto
 import { handlerFailure, IPC_CHANNEL_PREFIX, type InvokeInput, type InvokeName, type IpcResult } from '../../shared/ipc/channels'
 import { linkedChanged, linkedEvent, linkedInvoke, linkedOpen, linkedState, type LinkedState } from '../../shared/ipc/linked'
 import { onNewDocument, type Client, type NavigatingClient } from '../clients'
+import { appWindows } from '../sign-in-windows'
 import { appRemoteCalls, type RemoteCalls } from '../link/remote-calls'
 import { appLinkProblem, onAppLinkStart } from '../link/service'
 import { debugAccess } from '../settings/store'
@@ -74,7 +75,8 @@ function changed(): void {
 async function toWindows(send: (target: Client) => void): Promise<void> {
   try {
     const { BrowserWindow } = await import('electron')
-    for (const window of BrowserWindow.getAllWindows()) {
+    // An Integration's sign-in window holds a service's page: no state of the link goes into it (src/main/sign-in-windows.ts).
+    for (const window of appWindows(BrowserWindow.getAllWindows())) {
       if (window.isDestroyed() || window.webContents.isDestroyed()) continue
       send(window.webContents)
     }

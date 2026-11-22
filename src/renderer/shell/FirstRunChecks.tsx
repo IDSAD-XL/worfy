@@ -104,6 +104,7 @@ const BUSY_LABEL: Record<FirstRunAction, string> = {
   'codex-sign-in': 'Signing in…',
   'open-browser': 'Opening…',
   'link-machine': 'Opening…',
+  'integration-sign-in': 'Signing in…',
 }
 const busyLabel = (action: Check['actions'][number]): string => (action.id === 'harness-install' && action.label === 'Update' ? 'Updating…' : BUSY_LABEL[action.id])
 
@@ -354,7 +355,7 @@ const useAction = create<{
 const idle = { running: null, row: null, since: null }
 
 /** A row among the rows: its id, and the Project of a row of the group Projects (worfy-auth-check ticket 05). */
-const rowKey = (check: Pick<Check, 'id' | 'project'>): string => `${check.id}:${check.project?.id ?? ''}`
+const rowKey = (check: Pick<Check, 'id' | 'project' | 'subject'>): string => `${check.id}:${check.project?.id ?? ''}:${check.subject?.id ?? ''}`
 
 /** Starts `action` pressed on `row`: the lock of every button and the clock of its progress line. */
 const startAction = (action: FirstRunAction, row: string): void => useAction.setState({ running: action, row, since: Date.now() })
@@ -502,6 +503,21 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, children
       }
       return
     }
+    // "Sign in" of an Integration's row (worfy-integrations ticket 09): its sign-in window, through the Project of the
+    // row; only a person presses it. Like the Codex sign-in it may take minutes and holds no lock.
+    if (action === 'integration-sign-in') {
+      const integration = check.actions.find((each) => each.id === 'integration-sign-in')?.integration
+      const target = check.project
+      if (integration === undefined || target === undefined) return
+      setMessage({ error: false, text: 'Sign in in the window worfy opened' })
+      const result = await invoke('integrations.signIn', { projectId: target.id, id: integration })
+      if (!result.ok) setMessage({ error: true, text: failureReason('integrations.signIn', result.error) })
+      else {
+        setMessage(null)
+        void checkAgain()
+      }
+      return
+    }
     startAction(action, row)
     // "Show log" of a failed Update build (worfy-update ticket 08): main opens build.log, no dialog.
     if (action === 'update-log') {
@@ -572,7 +588,7 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, children
               <ul style={styles.list}>
                 {rows.map((each) => (
                   <CheckRow
-                    key={`${each.id}:${each.project?.id ?? ''}`}
+                    key={rowKey(each)}
                     check={each}
                     busy={rowAction(each)}
                     since={since}
