@@ -243,13 +243,36 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
 })
 
-/** Waits until `condition` holds, polling every 10 ms; throws after `limit` ms (times the run's multiplier). */
-export async function until(condition: () => boolean | Promise<boolean>, what: string, limit = 5000): Promise<void> {
-  const end = Date.now() + ms(limit)
+/**
+ * Waits until `condition` holds, polling every 10 ms; throws after `limit` ms (times the run's multiplier).
+ * `detail`, read when the wait times out, goes into the error after a new line: a faultRun's untilRun and
+ * stopped give the run's journal (journalLine), so a failure shows which Wave stood and since when.
+ */
+export async function until(condition: () => boolean | Promise<boolean>, what: string, limit = 5000, detail?: () => string): Promise<void> {
+  const started = Date.now()
+  const end = started + ms(limit)
   while (!(await condition())) {
-    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`)
+    if (Date.now() > end) {
+      const head = `timed out waiting for ${what} (${Date.now() - started} ms)`
+      throw new Error(detail === undefined ? head : `${head}\n${detail()}`)
+    }
     await new Promise((done) => setTimeout(done, 10))
   }
+}
+
+/**
+ * The events of a run's journal, one `<at> <kind>` per line, with the Wave of a wave-started and the Ticket and
+ * state of a ticket-status: what a timed-out wait puts into its error.
+ */
+export function journalLine(events: readonly JournalEvent[]): string {
+  if (events.length === 0) return 'the journal: no events'
+  const what = (event: JournalEvent): string => {
+    if (event.kind === 'wave-started') return ` wave ${event.wave} [${event.tickets.join(', ')}]`
+    if (event.kind === 'ticket-status') return ` ${event.epic}/${event.ticket} ${event.state}`
+    if (event.kind === 'run-stopped') return ` ${event.reason}`
+    return ''
+  }
+  return ['the journal:', ...events.map((event) => `  ${event.at} ${event.kind}${what(event)}`)].join('\n')
 }
 
 // ── the Project ──────────────────────────────────────────────────────────────
@@ -727,8 +750,10 @@ export function faultRun(options: FaultRunOptions = {}) {
     restart = await start()
     return restart
   }
-  const stopped = (n: number): Promise<void> =>
-    until(() => journal(n).some((event) => event.kind === 'run-stopped') && state().status === 'stopped', `run ${n} to stop`)
+  /** until() over run `n`: a time-out puts the run's journal and its state into the error. */
+  const untilRun = (n: number, condition: () => boolean | Promise<boolean>, what: string, limit?: number): Promise<void> =>
+    until(condition, what, limit, () => `${journalLine(journal(n))}\nthe state: ${JSON.stringify(state())}`)
+  const stopped = (n: number): Promise<void> => untilRun(n, () => journal(n).some((event) => event.kind === 'run-stopped') && state().status === 'stopped', `run ${n} to stop`)
   /** What checkRecovery needs, read now. */
   const recovery = (expect: RecoveryExpect): RecoveryInput => ({
     journals: journals(),
@@ -779,6 +804,7 @@ export function faultRun(options: FaultRunOptions = {}) {
     journals,
     journal,
     kinds,
+    untilRun,
     messages,
     queries: queriesOf,
     state,
