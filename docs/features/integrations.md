@@ -133,7 +133,7 @@ row. A sign-in that works again, or a Remove, takes the rows away.
 
 #### On a Linked machine
 
-- With read-only access the section shows the list and the status, and every control is inactive.
+- With read-only access the section shows the list and the status, and every control but Test in «…» is inactive (Test only reads the server's tools).
 - With full access the ticks Enabled and Autopilot, the Tools filter, Rename and Sign in work. The sign-in window opens
   on the Project's machine, where the person signs in.
 - Add integration, a token, Sign out and Remove stay on the Project's machine: «On the Project's machine only: a token
@@ -144,7 +144,7 @@ row. A sign-in that works again, or a Remove, takes the rows away.
 - **worfy stands between the Session and the service.** An Integration is an MCP server of worfy's whose tools are the
   service's. worfy main keeps the connection to the service — streamable HTTP, or the stdio of a process worfy starts
   itself — one per Integration and Machine, shared by every Session that uses it. A Claude Code Session gets the server
-  inside worfy's process, as `worfy-canvas`; a Codex Session reaches it on worfy's endpoint on `127.0.0.1` with the
+  inside worfy's process, like `worfy-canvas`; a Codex Session reaches it on worfy's endpoint on `127.0.0.1` with the
   Session's token. The service's token never reaches the agent's process: not its arguments, not its environment, not
   the files of Claude Code or Codex. Two accounts on one address are two servers with two names, so the limit of one
   connector per service and account does not apply. While worfy is closed, the tools of the Integrations do not work.

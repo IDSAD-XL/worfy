@@ -133,7 +133,7 @@ Run идёт дальше по своим правилам ошибок.
 
 #### On a Linked machine
 
-- С доступом только на чтение раздел показывает список и статус, все элементы управления неактивны.
+- С доступом только на чтение раздел показывает список и статус, все элементы управления, кроме Test в «…», неактивны (Test только читает tools сервера).
 - С полным доступом работают галочки Enabled и Autopilot, фильтр Tools, Rename и Sign in. Окно входа открывается на
   Machine Project-а, и входит человек там.
 - Add integration, token, Sign out и Remove остаются на Machine Project-а: «On the Project's machine only: a token never
