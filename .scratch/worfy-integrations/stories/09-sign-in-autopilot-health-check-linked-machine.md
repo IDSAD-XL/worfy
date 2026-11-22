@@ -223,3 +223,17 @@ export function dialogOwner(windows: LocalWindows = BrowserWindow): BrowserWindo
 3. Почему Session без человека не видит «not started» Integration, включённую посреди Wave?
    - Ответ: набор Autopilot фиксирован на Wave; строки «not started» строятся только для Session с человеком.
    - Строки: `src/main/integrations/rows.ts:52`
+
+## 11. Что нашёл review и что осталось
+
+> VERIFIED — worfy-integrations 09 (Sign in on the screen and in the chip, Restart for an Integration turned on mid-Session, Autopilot fixed per Wave, Health check rows, Linked machine rights), head be9bfd39bfbf2780edd18e6420255894103f338b (3b649b1a5 + merge of main with #2148, the autopilot-faults-ladder test fix; no change to the PR's own files)
+>
+> Gate (depth medium, two rounds): verifier (lens: implementer's claims, sonnet) — MERGE; reviewer (correctness) — round 1 FIX (one med: Health check rows not rebuilt when an Integration is turned on or off; four lows), round 2 MERGE.
+>
+> - What the user sees: an OAuth Integration has Sign in on its row while it needs one and Re-sign in in «…»; the row reads Checking, then Signed in with the site or the service's address; Add integration offers «Sign in with <service>» beside the token, Figma becomes addable; the chip «MCP n/m» shows «Sign-in needed: <label>» with Sign in through worfy's window; an Integration turned on after a Session with a person started is a «not started» row with Restart Session (Codex too); Autopilot's set stays fixed for the Wave, a refused sign-in makes a Health check row and opens no window; Health check has one row per Project and Integration («<label>: sign-in needed») that goes back to OK after a new sign-in and follows turning the Integration on or off; Sign out and Remove revoke the tokens and clear the sign-in partition; the sign-in window is no app window for the menu, broadcast, link, Autopilot dialog.
+> - Fixed in round 2: setEnabled re-tells the last status (rows appear and go with the checkbox, no duplicates); Remove after a failing sign-out leaves no row; config.toml server names read with the current table (dotted keys, [mcp_servers] table, quoted names, [[…]], comments); Health row title «<label>: sign-in needed»; notify treats the sign-in window as worfy's own focus; ticket item 5 reworded (account or service address).
+> - Evidence: 13 test files red-before/green-after; 92 unit+contract files EXIT=0; reviewer round 2: 38 files 1129 tests EXIT=0, own mutants killed; 22 implementer mutants each red on its own test; e2e integrations.spec.ts whole EXIT=0 (OAuth on the stub, Restart, refused refresh in row, chip and Settings → Health, shots in both themes); pnpm lint, typecheck, test EXIT=0; gate fast green.
+> - Debt (low): proxy.ts:296-303 the JSDoc of clearStatus now sits above retell; codex/mcp.ts:249-250 a line starting with «[» inside a multi-line array resets the table, so a server below it loses the «replaces» note (the shortcut comment does not name it).
+> - Not verified: sign-in against a real service (by rule); e2e of round 2 (round 2 touched main-process code covered by unit tests).
+>
+> Decided without the owner (to confirm): the OAuth sign-in names no account, the row shows the site or the service's address (item 5 reworded); the token stays the default way in Add integration, OAuth beside it; the config.toml replacement is a line under the chip row, not a notice; Restart for an Integration turned on mid-Session only for a Session with a person.
