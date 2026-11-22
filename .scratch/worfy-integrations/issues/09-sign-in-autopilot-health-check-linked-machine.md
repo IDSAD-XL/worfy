@@ -1,7 +1,8 @@
 # 09 — Sign in на экране и в chip-е, Restart для Integration, включённой на ходу, Autopilot только с флажком, строки Health check, права Linked machine
 
 Type: task
-Status: claimed 2026-11-21T22:05Z
+Status: done 2026-11-22T01:33Z
+PR: #2147
 Blocked by: 05, 07, 08
 Source: [spec.md](../spec.md), «Ticket-ы», 9; «Волны», Wave 5; «Решение», 3 и 5; «Как пользователь идёт по экранам»,
 4, 8 и 9; «Решения по реализации» → Статус, Health check, Autopilot, Linked machine; «Решения по test-ам» (e2e);
@@ -76,6 +77,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 9; «Волны», Wave 5; «Ре�
       зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · e15625d08956845ce54c49f5195e0f12890fad7d
   - evidence: gate pass · `gate fast` exit 0 · mac - · 0e9a36ee7cab4690e0d487d3cb36f90046eb7aa3
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44968815078/job/137052828271 · ci - · be9bfd39bfbf2780edd18e6420255894103f338b
 
 ## Где в коде
 
