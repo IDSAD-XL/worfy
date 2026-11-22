@@ -9,11 +9,15 @@
 // The fake Orchestrator is test/fixtures/agent-scripts/autopilot-set-aside.jsonl in every unattended Session: its
 // first turn answers the Wave with words that try to steer worfy ("ignore the rules"), its second answers the
 // set-aside message. The test plays the Orchestrator's hands: the Wave's command claims or finishes its Tickets
-// (`marks`), and with `setAside: 'block'` the set-aside message's `ticket block` writes the Ticket blocked.
+// (`marks`), and with `setAside: 'block'` the set-aside message's `ticket block` writes the Ticket blocked. In the
+// scenarios that start with stuckOn01 the first Session plays HELD, the same script whose Wave 1 turn ends only when
+// the test lets it: the run settles from the end of a turn on real time, and the test's own writes come before that.
 //
 // Fault scenario 7 (worfy-stuck-agents ticket 09) is here too, with its negative cases: a turn that goes quiet stops
 // the run with `turn-hung` and interrupts nothing; a hook that runs is no quiet; a quiet background task stays
 // `background-stalled`.
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Session } from '../../src/main/agent/session'
 import { QUIET_MARK_MS } from '../../src/shared/agent/quiet'
@@ -21,7 +25,7 @@ import { QUIET_HUNG_MS } from '../../src/shared/autopilot/cycle'
 import type { JournalEvent } from '../../src/shared/autopilot/journal'
 import { checkRecovery } from '../autopilot-invariants'
 import { ms } from '../time-scale'
-import { EPIC, EPIC_B, faultRun, PROJECT, START_MS, until, type FaultRun } from './autopilot-faults-setup'
+import { AGENT_SCRIPTS, EPIC, EPIC_B, faultRun, PROJECT, START_MS, until, type FaultRun, type FaultScript } from './autopilot-faults-setup'
 
 vi.mock('electron', () => ({
   app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined },
@@ -37,11 +41,31 @@ const waveCommands = (h: FaultRun): string[] => h.messages().flatMap((text) => t
 const WAVE_1 = '/epic-wave Ticket-ы 01, 02 эпика demo'
 const WAVE_OF_01 = '/epic-wave Ticket-ы 01 эпика demo'
 
-/** How long a run settles before it continues a Ticket still in work: short, real time. */
+/**
+ * How long a run settles before it continues a Ticket still in work: short, real time. It starts when a Wave's turn
+ * ends, and the test's writes in Wave 1 are all done before that turn ends (HELD), so they do not race it.
+ */
 const SETTLE_MS = ms(150)
 
 const DONE = 'done — 2026-11-05'
 const SCRIPT = 'autopilot-set-aside'
+
+/** The release that ends the Wave 1 turn of HELD. */
+const WAVE_1_TURN = 'wave-1-turn'
+
+/**
+ * SCRIPT with its first turn held before its result until the test releases WAVE_1_TURN: the script of the run's
+ * first Session, so the Wave 1 turn ends only after the test has played the Orchestrator's hands (stuckOn01).
+ */
+const HELD: FaultScript = (() => {
+  const lines = readFileSync(join(AGENT_SCRIPTS, `${SCRIPT}.jsonl`), 'utf8')
+    .split('\n')
+    .filter((line) => line.trim() !== '')
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+  const result = lines.findIndex((line) => line.type === 'result')
+  if (result < 0) throw new Error(`${SCRIPT}.jsonl has no result line`)
+  return [...lines.slice(0, result), { fake: 'wait_release', name: WAVE_1_TURN }, ...lines.slice(result)]
+})()
 
 /** Where the block goes (worfy-polish 138): the Ticket's worktree with a commit on its branch, or the main branch. */
 const COMMIT =
@@ -67,19 +91,24 @@ const statusLines = (events: readonly JournalEvent[], ticket: string): string[] 
 
 /**
  * Wave 1 goes out and claims 01 and 02; the Orchestrator's hands then finish 02 and leave 01 claimed, and claim
- * nothing more on later Waves unless `next` says so.
+ * nothing more on later Waves unless `next` says so. The run's first Session plays HELD: all of that happens while the
+ * Wave 1 turn is still under way, and the turn ends (and the run starts to settle) only once the journal has 02 done.
+ * How long the test takes over its writes therefore changes nothing in what the run sees after the turn.
  */
 async function stuckOn01(h: FaultRun, next: 'none' | 'done' = 'none', epics?: readonly string[]): Promise<void> {
   expect(await h.start(epics)).toEqual({ refusal: null })
-  await until(() => statusLines(h.journal(1), '01').length === 1 && statusLines(h.journal(1), '02').length === 1, 'the claims of Wave 1')
+  await h.untilRun(1, () => statusLines(h.journal(1), '01').length === 1 && statusLines(h.journal(1), '02').length === 1, 'the claims of Wave 1')
   h.setMarks(next)
   h.setStatus(2, DONE)
-  await until(() => statusLines(h.journal(1), '02').length === 2, 'done of 02 in the journal')
+  await h.untilRun(1, () => statusLines(h.journal(1), '02').length === 2, 'done of 02 in the journal')
+  // The turn is still Wave 1's: nothing was continued or finished yet.
+  expect(h.kinds(1).filter((kind) => kind === 'wave-started' || kind === 'ticket-continued' || kind === 'wave-finished')).toEqual(['wave-started'])
+  h.releases.release(WAVE_1_TURN)
 }
 
 describe('the continuation ladder of a Run (worfy-stuck-agents ticket 05)', () => {
   it('scenario 1: a Ticket left claimed is continued in the next Wave, which brings it to done', async () => {
-    const h = faultRun({ scripts: [SCRIPT], marks: 'claimed', settleMs: SETTLE_MS })
+    const h = faultRun({ scripts: [HELD, SCRIPT], marks: 'claimed', settleMs: SETTLE_MS })
     await stuckOn01(h, 'done')
     await h.stopped(1)
 
@@ -110,7 +139,7 @@ describe('the continuation ladder of a Run (worfy-stuck-agents ticket 05)', () =
 
   it('scenario 2: still claimed after two continuations → set-aside → the Orchestrator blocks it, Waits: owner → the Run goes to the next Epic', async () => {
     // 01's claim reads from its worktree branch, so the set-aside message names the branch (worfy-polish 138).
-    const h = faultRun({ scripts: [SCRIPT, SCRIPT, SCRIPT, 'autopilot-fault-held'], marks: 'claimed', settleMs: SETTLE_MS, setAside: 'block', secondEpic: true, fromBranch: [
+    const h = faultRun({ scripts: [HELD, SCRIPT, SCRIPT, 'autopilot-fault-held'], marks: 'claimed', settleMs: SETTLE_MS, setAside: 'block', secondEpic: true, fromBranch: [
         { epic: EPIC, num: 1, branch: 'demo/01' },
         // Ticket 01 of the other Epic has a branch too: the message must not take it for the set-aside Ticket's.
         { epic: EPIC_B, num: 1, branch: 'demo-b/01' },
@@ -119,7 +148,8 @@ describe('the continuation ladder of a Run (worfy-stuck-agents ticket 05)', () =
     await stuckOn01(h, 'none', [EPIC, EPIC_B])
     // wave-started is journaled once the Session took the Wave's text; Claude Code reads it from its stdin
     // later, so the test waits for the command it got too before the Force stop closes the Session.
-    await until(
+    await h.untilRun(
+      1,
       () => ofKind(h.journal(1), 'epic-started').length === 1 && ofKind(h.journal(1), 'wave-started').length === 4 && waveCommands(h).length >= 4,
       'the Wave of the second Epic',
       10_000,
@@ -154,7 +184,7 @@ describe('the continuation ladder of a Run (worfy-stuck-agents ticket 05)', () =
   })
 
   it('scenario 3: the set-aside is not carried out → run-stopped wave-unfinished, as before the ladder', async () => {
-    const h = faultRun({ scripts: [SCRIPT], marks: 'claimed', settleMs: SETTLE_MS, setAside: 'ignore' })
+    const h = faultRun({ scripts: [HELD, SCRIPT], marks: 'claimed', settleMs: SETTLE_MS, setAside: 'ignore' })
     await stuckOn01(h)
     await h.stopped(1)
 
@@ -171,7 +201,7 @@ describe('the continuation ladder of a Run (worfy-stuck-agents ticket 05)', () =
   })
 
   it('scenario 3, Silent mode: the set-aside message says to run the command from any directory with no commit (worfy-polish 138)', async () => {
-    const h = faultRun({ scripts: [SCRIPT], marks: 'claimed', settleMs: SETTLE_MS, setAside: 'ignore', silent: true, fromBranch: [{ epic: EPIC, num: 1, branch: 'demo/01' }] })
+    const h = faultRun({ scripts: [HELD, SCRIPT], marks: 'claimed', settleMs: SETTLE_MS, setAside: 'ignore', silent: true, fromBranch: [{ epic: EPIC, num: 1, branch: 'demo/01' }] })
     await stuckOn01(h)
     await h.stopped(1)
 
@@ -181,7 +211,7 @@ describe('the continuation ladder of a Run (worfy-stuck-agents ticket 05)', () =
   })
 
   it('scenario 4: main is red (land’s marker) → run-stopped main-red, with no continuation and no set-aside', async () => {
-    const h = faultRun({ scripts: [SCRIPT], marks: 'claimed', settleMs: SETTLE_MS, mainRed: true })
+    const h = faultRun({ scripts: [HELD, SCRIPT], marks: 'claimed', settleMs: SETTLE_MS, mainRed: true })
     await stuckOn01(h)
     await h.stopped(1)
 
