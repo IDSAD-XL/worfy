@@ -415,6 +415,7 @@ they stay above the window.
 | Machines | The switches of the link and the access level of each Linked machine: see [Link](link.md) |
 | Terminal AI | The switches and models of Terminal AI: see [Terminal](terminal.md) |
 | Sessions | The autocompact window of Sessions |
+| Integrations | Every Integration of the Machine, its status and the Projects that use it, with Sign in, Sign out, Remove and Clean up: see [Integrations](integrations.md#settings--integrations) |
 | Canvas | The automatic archive of finished Sessions |
 | Pull requests | The notifications and the morning digest of the PR inbox, both on by default: see [Notifications](notifications.md#the-morning-digest) |
 | Browser | When a Live Browser goes to sleep |

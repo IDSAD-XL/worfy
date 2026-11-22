@@ -4,7 +4,7 @@ One Feature. The **MCP servers of a Session** are the servers whose tools the ag
 user's own (from the user's config, a Project's `.mcp.json` or claude.ai connectors) and worfy's (`worfy-canvas`,
 `worfy-browser`, `worfy-mind-map` and the Harness plugin's server). This page covers the chip «MCP n/m» in the bar under
 a Session's input field, its popover, the actions on a server, taking in a server added while the Session runs, the servers the Project
-does not allow, the same status in Project settings, and the Integrations a Project turns on there. Which servers a Session gets at its start is on
+does not allow, the same status in Project settings, and the rows of the [Integrations](integrations.md) a Project turns on. Which servers a Session gets at its start is on
 [Sessions](sessions.md#how-it-works); Claude Code and Codex are on [Vendors](vendors.md). New to the terms: start with
 [Concepts](concepts.md).
 
@@ -163,7 +163,7 @@ A Codex Session has the same chip and popover, with these differences:
   Integration's label as the name, the server name in the tooltip, and the source `worfy integration`. When the service refused the sign-in the row needs a
   sign-in and says "Sign-in needed: <label>"; it offers Reconnect, never Codex's Sign in, which would sign in to
   worfy's endpoint rather than to the service. An Integration that signs in through the service's page also offers
-  worfy's own Sign in (see Integrations below). An Integration whose server name is a server of the user's `config.toml`
+  worfy's own Sign in ([Integrations](integrations.md)). An Integration whose server name is a server of the user's `config.toml`
   replaces that server in the Session, and its row says so under it. An unattended Session gets only the Integrations
   «Available to Autopilot».
 
@@ -176,60 +176,17 @@ have shows without a status; with no Session, nothing shows. The form is on [Pro
 #### Integrations
 
 An **Integration** is an account of a service (Jira and Confluence, Linear, GitHub, a custom MCP server…) that worfy
-signs in to and keeps on this Machine; the Sessions of a Project that turns it on get it as a server of worfy's, whose
-row in the chip shows its label and the source `worfy integration`. Claude Code and Codex never see the token.
+signs in to and keeps on this Machine; the whole Feature is on [Integrations](integrations.md). In a Session's chip:
 
-- **Project settings → Integrations** (a tab beside General) lists the Project's Integrations under «worfy
-  integrations»: the label, the service and the site, the status (`Signed in`, `Sign-in needed` with Sign in, `Error`
-  with the service's text, `Checking`), the tools and their size, the Tools filter, the ticks Enabled and Autopilot, and
-  a «…» menu with Test, Rename, Re-sign in (for an Integration that signs in through the service's page), Sign out,
-  Disable in this Project and Remove from Machine. Changes go to main at once; the tab has Close, not Save.
-- **Sign in** of an Integration that signs in through the service's page (OAuth) opens the service's sign-in page in a
-  worfy window; the row reads `Checking`, then `Signed in` with the site (or the server's address: the sign-in names no
-  account), its tools and their size. A sign-in that does not finish leaves the row needing one, with the reason under
-  the section.
-- **The size of the tools** («12 of 41 tools · ~3k tokens») is counted after the Project's Tools filter: worfy's
-  server lists only the tools the filter lets through, so that is what each request of the Project's Sessions carries.
-- **Tools filter**: All (the default), Read only (the tools the service marks read-only; not offered for a service that
-  marks none, with the reason), or Choose… for a list of names.
-- **Available to Autopilot** is off for a new Integration.
-- **Add integration** opens the catalogue (no Slack); an Integration of this Machine the Project does not use yet shows
-  on top as «Use in this Project», which turns it on without a second sign-in. A service's form takes a Label unique on
-  the Machine and its token (Atlassian: the e-mail and the API token; GitHub: a token or the one of the Project's gh
-  account, with its scopes shown). A custom server takes an `https://` address (`http://` only on this computer) or a
-  command worfy starts, whose variables marked Secret go to the secret store. After the token worfy checks the sign-in
-  and lists the tools. A service that signs in through its page (Atlassian, Linear, Notion, Sentry, Figma, a custom server that can)
-  also offers «Sign in with <service>»: no token field; saving adds the Integration and opens the sign-in window, then
-  lists the tools. The token is the way picked when the form opens; Figma has the sign-in page only.
-- **From Claude Code** under it lists the servers and claude.ai connectors of Claude Code, as Edit profile does, with
-  Allow; a Profile with no list shows the default one (`plugin_worfy_qmd`, `worfy-canvas`) as allowed, as Sessions get
-  it. When one of them is a service of the catalogue whose Integration this Project has on, the row warns that the
-  Sessions get two tool sets of it, possibly of different accounts, and offers to turn the server off in this Project.
-  «Add as integration» opens Add integration on that service; the Profile's list does not change by itself.
-- **Settings → Integrations** lists every Integration of the Machine, its status and the Projects that use it, with
-  Sign out and Remove; an Integration that signs in through the service's page and needs a sign-in has Sign in too,
-  through the first Project that uses it. Sign out of such an Integration also asks the service to revoke its tokens and
-  clears its sign-in window's cookies; Remove signs it out first. One no Project uses shows «Not used in any Project».
-  Entries a Project still keeps of an Integration the Machine no longer has (a Remove cut short) are named in one line
-  with Clean up. When the Machine's list could not be read (its file damaged or of another version, and set aside) a
-  line names the set-aside file and says Clean up waits: every entry would look removed.
-- **In the chip** of a running Session an Integration's row says what worfy found: when the service refused the sign-in
-  it needs a sign-in with «Sign-in needed: <label>», and Sign in of an Integration that signs in through the service's
-  page opens worfy's sign-in window — never Claude Code's or Codex's sign-in. An Integration the Project turned on after
-  the Session started stands in the group «Enabled in this Project after this Session started.», whose Restart Session
-  restarts the Session with the same conversation and gives it the Integration.
-- **Autopilot**: an unattended Session gets only the Integrations «Available to Autopilot», read when it starts; a
-  change of the Project during the Wave does not reach it, and its rows offer no Restart. A refused sign-in is never
-  mended by Autopilot: the tool answers «Sign-in needed: <label>…», no sign-in window opens, and Health check gets a row.
-- **Health check** has a non-critical row per enabled Integration of each Project whose sign-in the service refused or
-  that failed, named by its reason: «<label>: sign-in needed» (or «<label>: <the service's text>», tokens hidden), with
-  Sign in for one that signs in through the service's page and where to put a new token for the others. Turning the
-  Integration off in a Project takes that Project's row away at once, and turning it on in another gives that one a row.
-  A sign-in that works again, or a Remove, takes the rows away.
-- **On a Linked machine** with read-only access the section shows the list and the status, and every control is
-  inactive. With full access the ticks, the filter, Rename and Sign in work — the sign-in window opens on the Project's
-  machine; Add integration, the token, Sign out and Remove stay on the Project's machine, because a token never crosses
-  the link.
+- An enabled Integration of the Project is a server of worfy's: its row shows the label as the name, the server name in
+  the tooltip, and the source `worfy integration`. Claude Code and Codex never see its token.
+- When the service refused the sign-in the row needs a sign-in and says «Sign-in needed: <label>…». Sign in of an
+  Integration that signs in through the service's page opens worfy's sign-in window — never Claude Code's or Codex's
+  sign-in; one that signs in with a token gets its new token in Project settings → Integrations.
+- An Integration the Project turned on after the Session started stands in the group «Enabled in this Project after this
+  Session started.», whose Restart Session restarts the Session with the same conversation and gives it the
+  Integration. Only a Session a person is at has that group.
+- An unattended Session gets only the Integrations «Available to Autopilot», read when it starts, and no Restart.
 
 #### On a Linked machine
 
@@ -294,8 +251,7 @@ row in the chip shows its label and the source `worfy integration`. Claude Code 
 | The chip, the popover, the status in Edit profile | `src/renderer/session/McpChip.tsx`, `src/renderer/session/mcp-chip.css`, `src/renderer/session/header-facts.ts`, `src/renderer/session/store.ts`, `src/renderer/projects/EditProfile.tsx` |
 | The chip's place in the bar under the input field | `src/renderer/session/composer/McpServers.tsx`, `src/renderer/session/product-session.ts` |
 | The test agent's MCP answers | `src/main/agent/fake-query.ts` |
-| Integrations in Project settings and in Settings | `src/renderer/integrations/IntegrationsSection.tsx`, `src/renderer/integrations/AddIntegrationDialog.tsx`, `src/renderer/integrations/ClaudeServers.tsx`, `src/renderer/integrations/cost.ts`, `src/renderer/settings/IntegrationsSection.tsx` |
-| Their channels | `src/shared/ipc/integrations.ts`, `src/main/ipc/integrations.ts` |
+| The rows of an Integration, Claude Code and Codex alike (the rest is on [Integrations](integrations.md#implementation)) | `src/main/integrations/rows.ts` |
 
 **Data flow.** The driver of the Session's Vendor sends its rows as an `mcp` event. The Session adds the rows of the
 servers turned off for it and sends only a change on `agent.event`; the renderer store keeps the latest rows of each
@@ -326,12 +282,4 @@ and `agent.mcpAllowAll` write channels, so read-only access on a Linked machine 
 | `test/contract/integrations-codex.test.ts` | The Integrations of a Codex Session on the fake app-server: their keys in `thread/start`, two on one address answering each with its own data, the tools filter on `tools/list` and `tools/call` of the endpoint, Autopilot, outside a Project, their rows, the service's token nowhere Codex or a log sees it. |
 | `test/contract/sdk-compat.test.ts` | The SDK still has the sign-in method worfy calls. |
 | `test/e2e/session-mcp.spec.ts` | The chip under the input field and the popover above it in the built app, Reconnect, Allow in the same Session, the not started group with its Restart Session; shots of the popover in both themes. |
-| `test/unit/integrations-section.test.tsx` | The rows of each status, the Tools filter and its price, the ticks, the «…» menu, Remove's confirmation, «two tool sets» and «Add as integration», a Linked machine. |
-| `test/unit/add-integration-dialog.test.tsx` | The catalogue without Slack, «Use in this Project», the unique Label, the token fields, a custom server over http and stdio. |
-| `test/contract/integrations-screen.test.ts` | The channels of the screen: the tools before the filter and the price after it, Sign out, the Machine's list with orphans and Clean up, Remove from Settings, the gh account's token. |
 | `test/e2e/integrations.spec.ts` | Add integration on a stub server in the built app, the row signed in, two Projects on one address each with its own data, the Integration in the chip of a new Session; Sign in with OAuth in worfy's window on the OAuth stub, Restart giving a running Session the Integration, and a refused refresh as «Sign-in needed» in the row, the chip and Settings → Health; shots in both themes. |
-| `test/contract/integrations-autopilot.test.ts` | Autopilot gets only the Integrations «Available to Autopilot», its set fixed for the Wave; a refused sign-in answers «Sign-in needed», makes the Health check row and opens no window. |
-| `test/contract/integrations-health.test.ts` | The Health check rows of the Integrations: non-critical, one per Integration of each Project that has it on, Sign in for OAuth, no token in the text, back to OK after a sign-in. |
-| `test/contract/integrations-linked-machine.test.ts` | What a Linked machine may do with the Integrations: read only, full access with Sign in on the Project's machine, and the channels never open to it. |
-| `test/unit/settings-integrations.test.tsx` | Settings → Integrations: the line of a set-aside list, Sign in through a Project that uses the Integration. |
-| `test/unit/sign-in-windows.test.ts` | An Autopilot confirmation and the app's events go to worfy's windows, never to a sign-in window; every list of windows in main leaves the sign-in windows out. |

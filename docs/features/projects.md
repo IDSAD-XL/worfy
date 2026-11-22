@@ -376,6 +376,11 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
   The Project's [Orchestrator](sessions.md) runs on it from its next start: "New Orchestrator Session", or the next start of
   worfy. "Ship ticket" runs on Claude Code whatever is chosen. A Linked machine on a build without the field saves without it, and
   the saved value stays.
+- "Project settings…" has two tabs. General holds everything on this list and is saved with Save. Integrations lists the
+  accounts of services (Jira, Linear, Notion, GitHub, a custom MCP server…) worfy has signed in to on this Machine that
+  the Project turns on, with Add integration, and under them the servers of Claude Code with Allow; its changes go to
+  main at once, and it has Close, not Save. Which Integrations the Project uses is the field `integrations` of the
+  Project's settings, not the Profile's. The whole Feature: [Integrations](integrations.md).
 - "Team reviewer" in "Project settings…" shows the Project's reviewer in its team's voice: `Not built`,
   `Built <date>, <N> PRs`, or `Too little history: <N> of 30`. Its files live in the private folder of the Profile,
   `<Profile folder>/state/human-review/`. The reviewer is built when its skill, `.claude/skills/human-review/SKILL.md`, is
@@ -513,7 +518,8 @@ it is refused.
 - `src/main/projects/store.ts`: `ProjectStore`, the list in `<data root>/projects.json`, the branch through `git`, and
   `onChange`, the event for "the active Project switched". `states()` gives the list for this Machine's windows and for a
   Linked machine.
-- `src/main/projects/settings.ts`, `src/shared/projects/action-templates.ts`: the settings of a Project.
+- `src/main/projects/settings.ts`, `src/shared/projects/action-templates.ts`: the settings of a Project, its
+  Integrations (`readProjectIntegrations`, `writeProjectIntegrations`) among them.
   `src/main/projects/review-offer.ts`: the team reviewer offer after an add, the reminder to update it (`refreshDue`), and
   the state and "Delete" of "Team reviewer"; `src/renderer/projects/review-offer.ts`: their toasts, the reminder asked on
   each activation through `followActiveProject` (`src/renderer/projects/useProjects.ts`). `ActionLauncher.buildTeamReviewer` (`src/main/actions/launch.ts`)
@@ -530,7 +536,7 @@ it is refused.
 - `src/renderer/projects/useProjects.ts`: the renderer's copy, `openProject` as the one way to open a Project, `groupProjects`
   for the Machines, and `useReadOnly`.
 - `src/renderer/shell/sidebar/ProjectsSection.tsx`: the section and the menu. `src/renderer/shell/ProjectSettings.tsx`: the
-  settings dialog. `src/renderer/projects/read-only.ts`: how an inactive write action looks.
+  settings dialog and its tabs General and Integrations. `src/renderer/projects/read-only.ts`: how an inactive write action looks.
 - `src/renderer/projects/EditProfile.tsx`: "Edit profile". `src/renderer/projects/ProfileFields.tsx` and
   `src/renderer/projects/profile-fields.ts`: the fields it shares with the Review step of "Add project".
   `src/main/ipc/profile-edit.ts`, `src/shared/ipc/profile-edit.ts`: `profileEdit.read`, `profileEdit.check` and

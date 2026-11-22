@@ -336,8 +336,8 @@ _Avoid_: парковка, отложенный запрос, hold
 _Avoid_: автоповтор, replay, retry loop
 
 **Integration**:
-Один подключённый аккаунт одного внешнего сервиса (Jira, Linear, Notion…) с меткой, например «Jira — client A». worfy сам добавляет его, сам входит (окно входа сервиса или token) и сам хранит вход на Machine; Session-ы Project-а, где Integration включена, получают её tools, но входа не видят. Одного сервиса может быть несколько Integration-ов — по одной на аккаунт; Autopilot пользуется Integration только если пользователь это разрешил. Это не сервер MCP, который пользователь добавил в Claude Code сам, и не connector claude.ai ([spec worfy-integrations](.scratch/worfy-integrations/spec.md)).
-_Avoid_: интеграция как общее слово, connector (это claude.ai), MCP-сервер worfy, аккаунт
+Один подключённый аккаунт одного внешнего сервиса (Jira and Confluence, Linear, Notion, Sentry, GitHub, Figma или свой сервер MCP — Custom server) с меткой, например «Jira — client A». worfy сам добавляет его (Add integration на вкладке Integrations окна «Project settings…»), сам входит (token или страница входа сервиса в окне worfy) и сам хранит вход на Machine. Integration принадлежит Machine и включается в Project галочкой Enabled: другой Project той же Machine берёт её без второго входа («Use in this Project»). Session-ы Project-а, где Integration включена, получают её tools как сервер worfy — в chip-е «MCP n/m» у неё источник «worfy integration», — но входа не видят. Одного сервиса может быть несколько Integration-ов — по одной на аккаунт; Autopilot пользуется Integration только с галочкой «Available to Autopilot». Все Integration-ы Machine — в Settings → Integrations. Это не сервер MCP, который пользователь добавил в Claude Code сам, и не connector claude.ai: они — группа «From Claude Code» той же вкладки, по списку `mcp.allowed` Profile-а ([ADR-0111](docs/adr/0111-integrations-mcp-servers-worfy-runs.md)).
+_Avoid_: интеграция как общее слово, connector (это claude.ai), MCP-сервер worfy (это `worfy-canvas` и соседи), аккаунт, подключение
 
 ## App
 
