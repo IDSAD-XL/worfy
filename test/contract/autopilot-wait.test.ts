@@ -651,13 +651,16 @@ describe('a run accepted while the Orchestrator is busy waits for it (worfy-auto
   })
 
   it('"Start anyway" on a waiting run: the run of the same Epic elsewhere does not refuse it when the Orchestrator is free', async () => {
+    // The Wave's turn holds: with the plain script the run goes on to its continuations (and may stop with
+    // no-progress) before the check below reads the run's messages.
+    holdWaveTurn()
     const linked: LinkedRuns[] = [{ machine: 'Studio', runs: [{ epic: EPIC, origin: ORIGIN }] }]
-    const h = harness({ linked })
+    const h = harness({ linked, unattended: 'autopilot-waves-held' })
     await personInTurn(h)
     await expect(h.autopilot.start(PROJECT, EPIC)).rejects.toThrow(runningElsewhere(EPIC, 'Studio'))
     expect(await h.autopilot.start(PROJECT, EPIC, { override: true })).toMatchObject({ status: 'waiting', waitingFor: 'orchestrator' })
     h.releases.release('turn')
-    await until(async () => ((await h.kinds()).includes('wave-started') && h.messages(true).length > 0) || h.state().status === 'stopped', 'Wave 1 in the run\'s Session, or the end of the run')
+    await waveOne(h)
     expect((await h.kinds()).slice(0, 4)).toEqual(['run-started', 'orchestrator-busy', 'orchestrator-free', 'wave-started'])
     expect((await h.journal())[0]).toMatchObject({ kind: 'run-started', override: true })
     expect(h.messages(true)).toEqual([WAVE_1])
@@ -667,7 +670,9 @@ describe('a run accepted while the Orchestrator is busy waits for it (worfy-auto
     // At the click the clock is half an hour before the window opens; the turn ends inside it.
     const click = new Date(2026, 10, 6, 10, 30).getTime()
     let now = click
-    const h = harness({ window: { from: 11, to: 13, now: () => now } })
+    // The Wave's turn holds, so the run's continuations cannot reach the Session before the check below.
+    holdWaveTurn()
+    const h = harness({ window: { from: 11, to: 13, now: () => now }, unattended: 'autopilot-waves-held' })
     await personInTurn(h)
     expect(await h.autopilot.start(PROJECT, EPIC)).toMatchObject({ status: 'waiting', waitingFor: 'orchestrator' })
     now = click + 40 * 60_000
