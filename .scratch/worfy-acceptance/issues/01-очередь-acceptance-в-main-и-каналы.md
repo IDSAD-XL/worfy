@@ -1,7 +1,7 @@
 # 01 — Очередь Acceptance в main и каналы: правило «ждёт владельца», группы, хранилище «Sent», `acceptance.get` и `acceptance.changed`
 
 Type: task
-Status: claimed 2026-11-23T20:14Z
+Status: done 2026-11-23T22:58Z
 PR: #2153
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 1; «Решения по реализации» → «Одно правило «ждёт владельца»», «Группы»,
@@ -74,6 +74,7 @@ worfy с `(manual)`.
   - evidence: gate pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0; `gate fast` exit 0 · mac - · 612b46128
   - evidence: gate pass · `pnpm lint` exit 0, `pnpm typecheck` exit 0, `gate fast` exit 0 (lint, typecheck, test) · mac - · 42992858d
   - evidence: gate pass · `pnpm lint` exit 0, `pnpm typecheck` exit 0, `gate fast` exit 0 (lint, typecheck, test) · mac - · 1d05ee5b6
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45278879144/job/138076027002 · ci - · 2c2d4b51b9c1f5cf32b2b3a946c4989b92119b54
 
 ## Где в коде
 
