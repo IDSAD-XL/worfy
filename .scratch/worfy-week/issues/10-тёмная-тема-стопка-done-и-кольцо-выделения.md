@@ -48,6 +48,7 @@ ADR не нужен.
 - [x] Снимки в светлой и тёмной теме (helper `test/e2e/snapshots.ts`): рамка Epic-а со свёрнутой стопкой done и выделенным Ticket-ом, выделенный Node пользователя. Сверены с F-SPEC и макетом `F-canvas-dark.dc.html:205-207`: в тёмной теме стопка со второй карточкой, кольцо выделения видно, теней нет. Ссылка из «Итог» — `../evidence/10-тёмная-тема.png`.
 - [ ] (вручную) Stable copy после влития, тёмная тема: стопка done со второй карточкой, у выделенного Node-а и Ticket-а кольцо акцента. Как проверить: окно приложения. После этого можно отметить пункт «Снимки в светлой и тёмной теме сверены с F-SPEC» Ticket-а 11 `worfy-daily` (`11-заголовки-и-chip-ы-без-обрезки.md:57`).
   не проверено: окно Stable copy смотрит владелец после влития; исполнитель приложение напрямую не запускает (это подняло бы Orchestrator на настоящем Claude Code).
+  - evidence: screenshot pass · agent over CDP 2026-11-24, dark theme, Project CanvasForAI: folded done stack of worfy-neutral draws the second card (box-shadow 4px 4px, --shadow-node is 0 0 #0000); a Ticket and a user Node given the selected class show the 1px accent ring #c8f25a; screenshots kept locally, not committed · mac stable · 5a08e27ca6
 
 ## Тесты
 
