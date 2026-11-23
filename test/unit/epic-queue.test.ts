@@ -4,7 +4,7 @@
 // standing all night, so every case of the rule has a row here.
 import { describe, expect, it } from 'vitest'
 import { AUTOPILOT_STOP_REASONS, type AutopilotStopReason } from '../../src/shared/autopilot/cycle'
-import { epicOutcome, MAX_QUEUE_EPICS, nextEpic, type EpicFinish } from '../../src/shared/autopilot/epic-queue'
+import { epicOutcome, MAX_QUEUE_EPICS, nextEpic, ownersOwn, type EpicFinish } from '../../src/shared/autopilot/epic-queue'
 import type { Ticket } from '../../src/shared/workflow/types'
 
 const EPIC = 'demo'
@@ -151,6 +151,19 @@ describe('nextEpic', () => {
 
   it('is null when every Epic left has an outcome', () => {
     expect(nextEpic(queue, 0, new Map<string, EpicFinish>([['b', 'elsewhere'], ['c', 'removed']]))).toBeNull()
+  })
+})
+
+describe('ownersOwn', () => {
+  // The one rule of a Ticket that waits for the owner by itself, shared with the Acceptance queue (worfy-acceptance ticket 01).
+  it('is a blocked Ticket with Waits: owner (any case, spaces around), or one with no status', () => {
+    expect(ownersOwn(t(1, 'blocked', [], owner))).toBe(true)
+    expect(ownersOwn(t(1, 'blocked', [], { waits: ' Owner ' }))).toBe(true)
+    expect(ownersOwn(t(1, 'none'))).toBe(true)
+    expect(ownersOwn(t(1, 'blocked', [], { waits: 'team' }))).toBe(false)
+    expect(ownersOwn(t(1, 'blocked'))).toBe(false)
+    expect(ownersOwn(t(1, 'open', [], owner))).toBe(false)
+    expect(ownersOwn(t(1, 'done', [], owner))).toBe(false)
   })
 })
 

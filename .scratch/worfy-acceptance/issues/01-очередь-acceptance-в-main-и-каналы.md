@@ -1,7 +1,8 @@
 # 01 — Очередь Acceptance в main и каналы: правило «ждёт владельца», группы, хранилище «Sent», `acceptance.get` и `acceptance.changed`
 
 Type: task
-Status: open
+Status: claimed 2026-11-23T20:14Z
+PR: #2153
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 1; «Решения по реализации» → «Одно правило «ждёт владельца»», «Группы»,
 «Служба в main», ««Sent» — отправлено, но ещё не записано»; «Решения по test-ам», Seam 1 и 2; «Вопросы владельцу», Q1 и
@@ -54,13 +55,25 @@ worfy с `(manual)`.
       `verified` — нет; неручной — нет; `blocked` + `Waits: owner` без ждущих пунктов — Waits for you; последняя строка
       `fail` — Failed; не влит — In work; закрыт больше 14 дней назад — Older; порядок групп и внутри группы. Красный до
       правки — в «Итог».
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/acceptance-queue.test.ts` exit 0, red before the change (module missing); 11 mutants of the queue each red · mac - · 612b46128
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/acceptance-queue.test.ts` exit 0 after round 2: status-less Ticket In work (red before), 15-day Older row; mutants R4, R5 red · mac - · 42992858d
 - [ ] `test/unit/epic-queue.test.ts` зелёный с общей функцией `ownersOwn`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/epic-queue.test.ts` exit 0 with the exported ownersOwn; red before (ownersOwn is not a function) · mac - · 612b46128
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/epic-queue.test.ts` exit 0, ownersOwn unchanged in round 2 · mac - · 42992858d
 - [ ] Contract test (`test/contract/acceptance-service.test.ts`, новый): служба над двумя временными Project-ами с
       Ticket-файлами отдаёт снимок по обоим; правка Ticket-файла даёт `acceptance.changed`; «Sent» переживает новый
       экземпляр службы и уходит, когда в файле появилась строка `owner-check` с тем же вердиктом.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/acceptance-service.test.ts` exit 0; 8 mutants of the service, store and channel each red · mac - · 612b46128
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/acceptance-service.test.ts test/unit/acceptance-service-timers.test.ts` exit 0: Linked machine filter, no gh, 24 h switch, clamped timer (red before); mutants R1a, R1b, R2, R3 red · mac - · 42992858d
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/acceptance-service.test.ts` exit 0 x3 with the order of first reads forced (red x3 before the fix, as on CI); mutants R1a, R1b red · mac - · 1d05ee5b6
 - [ ] Английская страница `docs/features/acceptance.md` описывает правило, группы и «Sent»;
       `node scripts/check-feature-docs.mjs` — exit 0.
+  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 (39 pages) · mac - · 612b46128
+  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 (page says Waits for you needs blocked) · mac - · 42992858d
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0; `gate fast` exit 0 · mac - · 612b46128
+  - evidence: gate pass · `pnpm lint` exit 0, `pnpm typecheck` exit 0, `gate fast` exit 0 (lint, typecheck, test) · mac - · 42992858d
+  - evidence: gate pass · `pnpm lint` exit 0, `pnpm typecheck` exit 0, `gate fast` exit 0 (lint, typecheck, test) · mac - · 1d05ee5b6
 
 ## Где в коде
 
@@ -78,3 +91,27 @@ worfy с `(manual)`.
 
 - Строка Stable copy и группа Update first по-настоящему — Ticket 02; канал решения — Ticket 03; UI — Ticket 05.
 - Метка `(manual)` — `worfy-polish` 132.
+
+## Итог
+
+- Красный до правки: `node scripts/vitest-electron.mjs run test/unit/acceptance-queue.test.ts test/unit/epic-queue.test.ts
+  test/contract/acceptance-service.test.ts` — exit 1: `Cannot find module '../../src/shared/acceptance/queue'`,
+  `Cannot find module '/src/main/acceptance/service'` (5 contract test-ов), `ownersOwn is not a function` в
+  `epic-queue.test.ts`.
+- Mutants по одному на поведение (20) в копии под `mktemp -d`: каждый красный на своём test-е — правило пункта
+  (`[x]`, `verified`, ручной), строка Waits for you, Failed, Ticket владельца в Ready to check, `done` только в ветке,
+  порог Older, Update first, порядок, неручные пункты, `ownersOwn` с `trim`/регистром, изменение модели не доходит,
+  «Sent» снимается старой строкой или не снимается вовсе, 24 часа, перезапуск теряет «Sent», отметка неждущего пункта,
+  нет `acceptance.changed`, текст пункта в файле «Sent».
+- Решено без владельца: «влит» читается из модели без gh — Ticket `done` в checkout-е main-ветки (ADR-0107) и не
+  только в своей ветке; запись «Sent» помнит число строк `owner-check` того же вердикта при отправке и уходит, когда их
+  стало больше (повторный Fail на уже проваленном пункте не снимается старой строкой); запись уходит и когда пункт
+  переписан или больше не ждёт владельца; Waits for you и Ready to check Ticket-а владельца требуют `blocked` с `Waits: owner`: `ownersOwn` общая и
+  не менялась, но Ticket без статуса (`none`), который Autopilot тоже оставляет владельцу, очередь не показывает ждущим
+  (round 2); порядок «по Project-у» — порядок списка Project-ов, как у `projectPulse`.
+- Вне следа: `test/unit/link-access.test.ts` (канал `acceptance.get` в списке `read`) и
+  `test/contract/windows-tests-workflow.test.ts` (выборка 13 файлов пропускает имена с запрещённым словом: новый
+  `acceptance-queue.test.ts` встал первым по алфавиту).
+- docs PR разбора 2026-11-06 на `main` не влит: у `worfy-week` 05, 08–12, 15, 17, 18 и `worfy-harness` 18, 19, 21, 24,
+  25 ручные пункты по-прежнему без `[x]` и без строк Evidence (на `7553f9dd5`). Код это не блокирует; до этого PR
+  очередь покажет владельцу эти пункты.

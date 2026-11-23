@@ -372,7 +372,8 @@ describe('scripts/windows-test-list.mjs', () => {
   /** Test files of this repository, in a stable order. */
   const realFiles = (count: number): string[] =>
     readdirSync(join(REPO, 'test', 'unit'))
-      .filter((name) => /^[a-z0-9-]+\.test\.ts$/.test(name))
+      // A name with a forbidden word is refused by its own rule (test/unit/acceptance-queue.test.ts sorts first).
+      .filter((name) => /^[a-z0-9-]+\.test\.ts$/.test(name) && !/e2e|packaged|acceptance/i.test(name))
       .sort()
       .slice(0, count)
       .map((name) => `test/unit/${name}`)
