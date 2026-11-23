@@ -65,6 +65,7 @@ worfy с `(manual)`.
       экземпляр службы и уходит, когда в файле появилась строка `owner-check` с тем же вердиктом.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/acceptance-service.test.ts` exit 0; 8 mutants of the service, store and channel each red · mac - · 612b46128
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/acceptance-service.test.ts test/unit/acceptance-service-timers.test.ts` exit 0: Linked machine filter, no gh, 24 h switch, clamped timer (red before); mutants R1a, R1b, R2, R3 red · mac - · 42992858d
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/acceptance-service.test.ts` exit 0 x3 with the order of first reads forced (red x3 before the fix, as on CI); mutants R1a, R1b red · mac - · 1d05ee5b6
 - [ ] Английская страница `docs/features/acceptance.md` описывает правило, группы и «Sent»;
       `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 (39 pages) · mac - · 612b46128
@@ -72,6 +73,7 @@ worfy с `(manual)`.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0; `gate fast` exit 0 · mac - · 612b46128
   - evidence: gate pass · `pnpm lint` exit 0, `pnpm typecheck` exit 0, `gate fast` exit 0 (lint, typecheck, test) · mac - · 42992858d
+  - evidence: gate pass · `pnpm lint` exit 0, `pnpm typecheck` exit 0, `gate fast` exit 0 (lint, typecheck, test) · mac - · 1d05ee5b6
 
 ## Где в коде
 
