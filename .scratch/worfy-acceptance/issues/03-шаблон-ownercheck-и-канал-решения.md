@@ -38,11 +38,16 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решения по реал�
 
 - [ ] Unit test `test/unit/action-templates.test.ts`: render `ownerCheck` с новыми placeholders и абзацем «Owner's
       words:»; текст владельца не попадает внутрь команды; пустой шаблон при старом Harness. Красный до правки — в «Итог».
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/action-templates.test.ts` exit 0 · mac - · e8a1224b113781f167e464d3cf86cbfaccaa18a3
 - [ ] Contract test (`test/contract/actions-owner-check.test.ts`, новый, образец `test/contract/actions.test.ts`):
       `actions.ownerCheck` кладёт текст в очередь fake Orchestrator-а (`WORFY_AGENT=fake`) и пишет «Sent»; при Autopilot —
       отказ с `AUTOPILOT_RUNNING_HINT`; неверный `verdict` отклоняет схема.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/actions-owner-check.test.ts` exit 0 · mac - · e8a1224b113781f167e464d3cf86cbfaccaa18a3
 - [ ] `docs/features/projects.md` называет шаблон «Record owner check»; `node scripts/check-feature-docs.mjs` — exit 0.
+  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · e8a1224b113781f167e464d3cf86cbfaccaa18a3
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · e8a1224b113781f167e464d3cf86cbfaccaa18a3
+  - evidence: gate pass · `gate fast` exit 0 · mac - · e8a1224b113781f167e464d3cf86cbfaccaa18a3
 
 ## Где в коде
 
