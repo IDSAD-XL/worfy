@@ -51,6 +51,9 @@ export const NOT_RECORDED_AFTER_MS = 24 * 60 * 60 * 1000
 
 const SUBSCRIBER_ID = 'acceptance'
 
+/** The longest delay setTimeout keeps; a longer one fires at once. */
+const MAX_TIMER_MS = 2 ** 31 - 1
+
 const ACCEPTANCE_TIMING: AcceptanceTiming = { now: () => Date.now(), tickMs: 60_000 }
 
 const EMPTY: AcceptanceState = { groups: ACCEPTANCE_GROUPS.map((group) => ({ group, rows: [] })) }
@@ -290,7 +293,9 @@ export class AcceptanceService {
       .map((decision) => Date.parse(decision.at) + NOT_RECORDED_AFTER_MS)
       .filter((at) => at > now)
     if (due.length === 0 || this.timer === null) return
-    this.recheck = setTimeout(() => this.compute(), Math.min(...due) - now)
+    // A delay past the most setTimeout takes (about 24.8 days: a decision dated ahead by a skewed clock) would fire at
+    // once, again and again; the longest delay fires and simply sets the next one.
+    this.recheck = setTimeout(() => this.compute(), Math.min(Math.min(...due) - now, MAX_TIMER_MS))
     this.recheck.unref?.()
   }
 }

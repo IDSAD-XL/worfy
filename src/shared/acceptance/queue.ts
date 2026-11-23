@@ -3,8 +3,9 @@
 // Pure functions: no Node, no DOM. main runs them over the workflow hub's models (src/main/acceptance/service.ts).
 //
 // - A manual item waits for the owner while it has no `[x]` and is not verified (EvidenceItem, types.ts).
-// - A Ticket waits for the owner by itself when Autopilot's Epic queue says so (`ownersOwn`: blocked with
-//   `Waits: owner`, or no status): the one rule, shared.
+// - A Ticket waits for the owner by itself when it is blocked and Autopilot's Epic queue says so (`ownersOwn`,
+//   the one rule, shared): `blocked` with `Waits: owner`. A Ticket with no status, which Autopilot also leaves to
+//   the owner, is not an acceptance here.
 // - "Merged" is read from the model alone, with no gh or git: the model is read from the Project's main branch
 //   (ADR-0107), so a Ticket `done` there, and not done only in its worktree branch, has its change merged. A Ticket
 //   done without a PR (Silent mode, `local-green`) reads the same.
@@ -48,13 +49,19 @@ function statusTime(at: string | null | undefined): number | null {
   return Number.isNaN(time) ? null : time
 }
 
+/**
+ * A blocked Ticket that waits for the owner by itself: Autopilot's rule (`ownersOwn`), which also counts a Ticket with
+ * no status; the spec's Waits for you and an acceptance Ticket are only `blocked` with `Waits: owner`.
+ */
+const blockedOnOwner = (ticket: Ticket): boolean => ticket.state === 'blocked' && ownersOwn(ticket)
+
 /** A Ticket done in the checkout: its change is merged. */
 const merged = (ticket: Ticket): boolean => ticket.state === 'done' && !doneOnlyInBranch(ticket)
 
 /** The group of an item that waits. */
 function groupOf(project: QueueProject, ticket: Ticket, item: EvidenceItem, options: QueueOptions): AcceptanceGroupName {
   if (item.state === 'failed') return 'failed'
-  if (!merged(ticket) && !ownersOwn(ticket)) return 'work'
+  if (!merged(ticket) && !blockedOnOwner(ticket)) return 'work'
   if (merged(ticket)) {
     const closed = statusTime(ticket.statusAt)
     if (closed !== null && options.now - closed > OLDER_AFTER_DAYS * DAY_MS) return 'older'
@@ -84,7 +91,7 @@ export function acceptanceQueue(projects: readonly QueueProject[], options: Queu
       const items = ticket.evidence ?? []
       const waiting = items.filter(itemWaitsForOwner)
       if (waiting.length === 0) {
-        if (ownersOwn(ticket)) rows.get('waits')!.push({ order: [at, ticket.epic, ticket.num, 0], row: { kind: 'ticket', ticket: ticketOf(project, ticket) } })
+        if (blockedOnOwner(ticket)) rows.get('waits')!.push({ order: [at, ticket.epic, ticket.num, 0], row: { kind: 'ticket', ticket: ticketOf(project, ticket) } })
         continue
       }
       const prepared = items.filter((item) => !item.manual)

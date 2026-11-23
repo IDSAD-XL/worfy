@@ -17,8 +17,9 @@ nothing into a Ticket for it ([ADR-0002](../adr/0002-worfy-is-a-view-over-the-wo
   that has no `[x]` and is not verified. "Verified" is the state the item's Evidence lines give it: for a manual item,
   an `owner-check`, `screenshot` or `video` line with `pass`, on the platform and copy its `needs:` line names. An item
   whose last Evidence line is `fail` still waits.
-- A Ticket that waits for the owner by itself: `blocked` with `Waits: owner`, or a Ticket with no status Autopilot can
-  take. This is the same rule Autopilot's queue of Epics uses to tell the owner's Tickets apart, one function for both.
+- A Ticket that waits for the owner by itself: `blocked` with `Waits: owner`. The check of `Waits: owner` is the one
+  Autopilot's queue of Epics uses to tell the owner's Tickets apart, one function for both; Autopilot also leaves a
+  Ticket with no status to the owner, the queue does not show one as waiting.
 - An item that is not manual never waits for the owner. It is shown next to the manual items of its Ticket as what the
   agents and the Orchestrator prepared.
 

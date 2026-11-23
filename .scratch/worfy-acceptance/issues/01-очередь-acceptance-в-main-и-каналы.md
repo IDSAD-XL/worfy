@@ -99,8 +99,9 @@ worfy с `(manual)`.
 - Решено без владельца: «влит» читается из модели без gh — Ticket `done` в checkout-е main-ветки (ADR-0107) и не
   только в своей ветке; запись «Sent» помнит число строк `owner-check` того же вердикта при отправке и уходит, когда их
   стало больше (повторный Fail на уже проваленном пункте не снимается старой строкой); запись уходит и когда пункт
-  переписан или больше не ждёт владельца; `ownersOwn` взята как есть, поэтому Ticket без статуса (`none`) тоже стоит в
-  Waits for you (на `main` таких нет); порядок «по Project-у» — порядок списка Project-ов, как у `projectPulse`.
+  переписан или больше не ждёт владельца; Waits for you и Ready to check Ticket-а владельца требуют `blocked` с `Waits: owner`: `ownersOwn` общая и
+  не менялась, но Ticket без статуса (`none`), который Autopilot тоже оставляет владельцу, очередь не показывает ждущим
+  (round 2); порядок «по Project-у» — порядок списка Project-ов, как у `projectPulse`.
 - Вне следа: `test/unit/link-access.test.ts` (канал `acceptance.get` в списке `read`) и
   `test/contract/windows-tests-workflow.test.ts` (выборка 13 файлов пропускает имена с запрещённым словом: новый
   `acceptance-queue.test.ts` встал первым по алфавиту).

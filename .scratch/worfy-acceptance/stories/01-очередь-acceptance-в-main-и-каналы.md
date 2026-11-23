@@ -25,17 +25,18 @@ export const ownersOwn = (ticket: Pick<Ticket, 'state'> & Partial<Pick<Ticket, '
   копии.
 - Без него: два правила разошлись бы при первой правке одного из них.
 - Требование: [Что делаем, п. 1](../issues/01-очередь-acceptance-в-main-и-каналы.md#что-делаем)
-- Риски и пробелы test-ов: правило считает ждущим и Ticket без статуса (`none`); на `main` таких сейчас нет, но
-  такой Ticket попадёт в Waits for you.
+- Риски и пробелы test-ов: Autopilot считает владельца и Ticket без статуса (`none`); очередь Acceptance берёт только
+  `blocked` с `Waits: owner` (`blockedOnOwner` в `src/shared/acceptance/queue.ts`), test «a Ticket with no status is not
+  Waits for you».
 
 ## 3. Пункт ждёт владельца и его группа
 
-Code: `src/shared/acceptance/queue.ts:55-63` · key lines: 56, 57, 60, 62
+Code: `src/shared/acceptance/queue.ts:62-70` · key lines: 63, 64, 67, 69
 
 ```ts
 function groupOf(project: QueueProject, ticket: Ticket, item: EvidenceItem, options: QueueOptions): AcceptanceGroupName {
   if (item.state === 'failed') return 'failed'
-  if (!merged(ticket) && !ownersOwn(ticket)) return 'work'
+  if (!merged(ticket) && !blockedOnOwner(ticket)) return 'work'
   if (merged(ticket)) {
     const closed = statusTime(ticket.statusAt)
     if (closed !== null && options.now - closed > OLDER_AFTER_DAYS * DAY_MS) return 'older'
@@ -57,7 +58,7 @@ function groupOf(project: QueueProject, ticket: Ticket, item: EvidenceItem, opti
 
 ## 4. Служба считает очередь только по изменению модели
 
-Code: `src/main/acceptance/service.ts:220-225` · key lines: 221, 224
+Code: `src/main/acceptance/service.ts:223-228` · key lines: 224, 227
 
 ```ts
       send: () =>
@@ -79,7 +80,7 @@ Code: `src/main/acceptance/service.ts:220-225` · key lines: 221, 224
 
 ## 5. «Sent» уходит только с новой строкой того же вердикта
 
-Code: `src/main/acceptance/service.ts:74-79` · key lines: 78
+Code: `src/main/acceptance/service.ts:77-82` · key lines: 81
 
 ```ts
 function settled(model: WorkflowModel, decision: SentDecision): boolean {
@@ -110,7 +111,7 @@ function settled(model: WorkflowModel, decision: SentDecision): boolean {
 1. Почему Ticket `done` только в своей ветке стоит в In work, а не в Ready to check?
    - Ответ: «влит» — это `done` в checkout-е main-ветки; `done` только в ветке значит, что PR ещё не влит, и смотреть
      в Stable copy нечего.
-   - Строки: `src/shared/acceptance/queue.ts:57`
+   - Строки: `src/shared/acceptance/queue.ts:64`
 2. Владелец второй раз шлёт Fail на пункт, у которого уже есть строка `owner-check fail`. Когда уйдёт «Sent»?
    - Ответ: когда у пункта станет больше строк `owner-check fail`, чем было при отправке, то есть с новой строкой.
-   - Строки: `src/main/acceptance/service.ts:78`
+   - Строки: `src/main/acceptance/service.ts:81`

@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AcceptanceService } from '../../src/main/acceptance/service'
@@ -33,14 +33,15 @@ const HOUR = 60 * 60 * 1000
 type Listener = (event: IpcMainInvokeEvent, input: unknown) => unknown
 
 interface FakeWindow {
-  id: number
+  /** A string id is a Linked machine's client (src/main/link/caller.ts, isRemoteCall). */
+  id: number | string
   sent: AcceptanceState[]
   send: (channel: string, payload: unknown) => void
   once: (event: string, listener: () => void) => void
   isDestroyed: () => boolean
 }
 
-function makeWindow(id: number): FakeWindow {
+function makeWindow(id: number | string): FakeWindow {
   const sent: AcceptanceState[] = []
   return {
     id,
@@ -98,6 +99,11 @@ let data: string
 let now: number
 let hub: WorkflowHub
 let services: AcceptanceService[]
+/** The Projects kept on this Machine only. */
+let localOnly: Set<string>
+/** Every gh call of the run, one line each: a stand-in first on PATH. */
+let ghLog: string
+let savedPath: string | undefined
 let handlers: Map<string, Listener>
 let Service: typeof import('../../src/main/acceptance/service').AcceptanceService
 
@@ -118,7 +124,7 @@ async function register(service: AcceptanceService): Promise<void> {
   handlers = new Map()
   await registerIpc(
     { handle: (channel, listener) => handlers.set(channel, listener as Listener) },
-    { modules: { './acceptance.ts': () => Promise.resolve(module.acceptanceHandlers(() => service, () => new Set())) }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) },
+    { modules: { './acceptance.ts': () => Promise.resolve(module.acceptanceHandlers(() => service, () => localOnly)) }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) },
   )
 }
 
@@ -148,6 +154,15 @@ beforeEach(async () => {
   symlinkSync(join(WORKFLOW_STUB, 'epic-status'), join(home, 'bin', 'epic-status'))
   process.env.STUB_LOG = join(scratch, 'stub-calls.log')
   writeFileSync(process.env.STUB_LOG, '')
+  // A gh that only logs: the service must never start one.
+  const bin = join(scratch, 'bin')
+  mkdirSync(bin)
+  ghLog = join(scratch, 'gh-calls.log')
+  writeFileSync(ghLog, '')
+  writeFileSync(join(bin, 'gh'), `#!/bin/sh\necho "$*" >> '${ghLog}'\nexit 1\n`, { mode: 0o755 })
+  savedPath = process.env.PATH
+  process.env.PATH = `${bin}${delimiter}${process.env.PATH ?? ''}`
+  localOnly = new Set()
   makeProject(alpha, {
     '01-first.md': ticketText(1, 'done 2026-11-22T10:00Z', ['- [ ] (manual) The chip shows the server.', '- [x] Unit test green.']),
     '02-second.md': ticketText(2, 'claimed 2026-11-22T10:00Z', ['- [ ] (manual) Not merged yet.']),
@@ -168,6 +183,7 @@ afterEach(async () => {
   for (const service of services) await service.stop()
   await hub.closeAll()
   delete process.env.STUB_LOG
+  process.env.PATH = savedPath
   removeTestTree(scratch)
 })
 
@@ -190,6 +206,15 @@ describe('acceptance.get', () => {
     expect(ready).toMatchObject({ kind: 'item', ticket: { projectId: ALPHA, epic: 'demo', num: 1, state: 'done' }, sent: null, stable: null })
     if (ready?.kind === 'item') expect(ready.prepared.map((item) => item.text)).toEqual(['Unit test green.'])
     expect([treeState(alpha), treeState(beta)]).toEqual(before)
+    // One epic-status read of each working tree by the hub's watcher, none with --ref; asking again and marking a
+    // decision read nothing more, and no gh ever runs.
+    const reads = () => readFileSync(process.env.STUB_LOG!, 'utf8').split('\n').filter(Boolean)
+    expect(reads()).toEqual(['.', '.'])
+    await get(makeWindow(2))
+    service.markSent(ALPHA, { epic: 'demo', num: 1, item: 1, verdict: 'pass' })
+    await get(makeWindow(3))
+    expect(reads()).toEqual(['.', '.'])
+    expect(readFileSync(ghLog, 'utf8')).toBe('')
   })
 
   it('an edit of a Ticket file gives acceptance.changed with the new queue', async () => {
@@ -201,6 +226,29 @@ describe('acceptance.get', () => {
     writeFileSync(file, readFileSync(file, 'utf8').replace('- [ ] (manual) The chip', '- [x] (manual) The chip'))
     await vi.waitFor(() => expect(shape(window.sent.at(-1)).ready).toEqual([]), { timeout: ms(15_000), interval: 50 })
     expect(shape(window.sent.at(-1)).work).toEqual(['Alpha 02.1'])
+  })
+})
+
+describe('a Linked machine', () => {
+  it('gets no row of a Project kept on this Machine only, neither in the answer nor in acceptance.changed', async () => {
+    localOnly = new Set([BETA])
+    const service = makeService()
+    await register(service)
+    const linked = makeWindow('link:machine-b/1')
+    const window = makeWindow(1)
+    const projectsOf = (state: AcceptanceState | undefined) => [...new Set(state?.groups.flatMap((group) => group.rows.map((row) => row.ticket.projectId)))].sort()
+    expect(projectsOf(await get(linked))).toEqual([ALPHA])
+    // A window of this Machine sees it.
+    expect(projectsOf(await get(window))).toEqual([ALPHA, BETA])
+
+    const betaFile = join(beta, '.scratch', 'demo', 'issues', '02-failed.md')
+    writeFileSync(betaFile, readFileSync(betaFile, 'utf8').replace('# 02 — Ticket 2', '# 02 — Ticket two'))
+    await vi.waitFor(() => expect(rowOf(window.sent.at(-1), 'Beta 02.1')?.ticket.title).toContain('Ticket two'), { timeout: ms(15_000), interval: 50 })
+    const alphaFile = join(alpha, '.scratch', 'demo', 'issues', '01-first.md')
+    writeFileSync(alphaFile, readFileSync(alphaFile, 'utf8').replace('- [ ] (manual) The chip', '- [x] (manual) The chip'))
+    await vi.waitFor(() => expect(shape(linked.sent.at(-1)).ready).toEqual([]), { timeout: ms(15_000), interval: 50 })
+    expect(linked.sent.length).toBeGreaterThan(0)
+    for (const state of linked.sent) expect(projectsOf(state)).toEqual([ALPHA])
   })
 })
 

@@ -129,6 +129,13 @@ describe('acceptanceQueue', () => {
     expect(row).toMatchObject({ kind: 'ticket', ticket: { blockedReason: 'choose a name' } })
   })
 
+  it('a Ticket with no status is not Waits for you: its waiting item is In work, and without one it is not shown', () => {
+    const groups = queue([project('p', [ticket('e', 1, 'none', [item(1)], { statusRaw: null }), ticket('e', 2, 'none', [], { statusRaw: null, waits: 'owner' })])])
+    expect(shape(groups).work).toEqual(['p e 01.1'])
+    expect(shape(groups).waits).toEqual([])
+    expect(shape(groups).ready).toEqual([])
+  })
+
   it('an item whose last Evidence line is fail is Failed, whatever its Ticket', () => {
     const failed = { state: 'failed' as const, reason: null, evidence: [line('owner-check', 'pass', 1), line('owner-check', 'fail', 2)] }
     const groups = queue([
@@ -148,13 +155,16 @@ describe('acceptanceQueue', () => {
       project('p', [
         ticket('e', 1, 'done', [item(1)], { statusAt: at(OLDER_AFTER_DAYS + 1) }),
         ticket('e', 2, 'done', [item(1)], { statusAt: '2026-10-07' }),
+        // 15 days before NOW: Older with a threshold of 14, not with a longer one.
+        ticket('e', 6, 'done', [item(1)], { statusAt: '2026-11-08T12:00Z' }),
         ticket('e', 3, 'done', [item(1)], { statusAt: at(OLDER_AFTER_DAYS) }),
         ticket('e', 4, 'done', [item(1)], { statusAt: null }),
         // Blocked for the owner long ago: not closed, so not Older.
         ticket('e', 5, 'blocked', [item(1)], { waits: 'owner', statusAt: at(60) }),
       ]),
     ])
-    expect(shape(groups).older).toEqual(['p e 01.1', 'p e 02.1'])
+    expect(OLDER_AFTER_DAYS).toBe(14)
+    expect(shape(groups).older).toEqual(['p e 01.1', 'p e 02.1', 'p e 06.1'])
     expect(shape(groups).ready).toEqual(['p e 03.1', 'p e 04.1', 'p e 05.1'])
   })
 
