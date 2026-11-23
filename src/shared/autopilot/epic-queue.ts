@@ -34,8 +34,11 @@ const EPIC_ENDS: ReadonlySet<AutopilotStopReason> = new Set<AutopilotStopReason>
 
 const doneInCheckout = (ticket: QueueTicket): boolean => ticket.state === 'done' && !doneOnlyInBranch(ticket)
 
-/** Waits for the owner by itself: `Waits: owner` on a blocked Ticket, or no status Autopilot can take. */
-const ownersOwn = (ticket: QueueTicket): boolean =>
+/**
+ * Waits for the owner by itself: `Waits: owner` on a blocked Ticket, or no status Autopilot can take. The one rule of
+ * a Ticket that waits for the owner: the Acceptance queue (src/shared/acceptance/queue.ts) takes it too.
+ */
+export const ownersOwn = (ticket: Pick<Ticket, 'state'> & Partial<Pick<Ticket, 'waits'>>): boolean =>
   ticket.state === 'none' || (ticket.state === 'blocked' && ticket.waits?.trim().toLowerCase() === 'owner')
 
 /**

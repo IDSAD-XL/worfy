@@ -24,6 +24,7 @@ import { installDevDockIcon } from './dock-icon'
 import { installImageProtocol } from './images/protocol'
 import { appImageStore } from './images/stores'
 import { bundledHarnessVersion } from './harness/bundled'
+import { appAcceptance } from './ipc/acceptance'
 import { continueCutOffRuns, existingAutopilot } from './ipc/autopilot'
 import { liveSessionListeners, type LiveSessionsListener } from './ipc/claude-home'
 import { sharedGateQueue } from './ipc/gate-queue'
@@ -234,6 +235,16 @@ function start(): void {
         app.on('will-quit', startGettingStarted())
       } catch (error) {
         console.error('[getting-started] Getting started did not start', error)
+      }
+      // The Acceptance queue (worfy-acceptance ticket 01): main follows the Tickets of every Project for it from the
+      // start, over the workflow hub, so a Sent decision whose line came meanwhile is dropped and the first window gets
+      // the queue at once. Not a startup step: worfy runs without it.
+      try {
+        const acceptance = appAcceptance()
+        acceptance.start()
+        app.on('will-quit', () => void acceptance.stop())
+      } catch (error) {
+        console.error('[acceptance] the Acceptance queue did not start', error)
       }
       // The Update checks of the Stable copy (worfy-update ticket 01, ADR-0089): GitHub without
       // sign-in, 10 s after the start and then every hour; in any other build nothing runs. Not a

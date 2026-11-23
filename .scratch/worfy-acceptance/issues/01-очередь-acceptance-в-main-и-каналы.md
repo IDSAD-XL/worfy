@@ -1,7 +1,7 @@
 # 01 — Очередь Acceptance в main и каналы: правило «ждёт владельца», группы, хранилище «Sent», `acceptance.get` и `acceptance.changed`
 
 Type: task
-Status: open
+Status: claimed 2026-11-23T20:14Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 1; «Решения по реализации» → «Одно правило «ждёт владельца»», «Группы»,
 «Служба в main», ««Sent» — отправлено, но ещё не записано»; «Решения по test-ам», Seam 1 и 2; «Вопросы владельцу», Q1 и
