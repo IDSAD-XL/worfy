@@ -14,26 +14,26 @@ const BLOCKER_MERGE = sha('b')
 const STABLE = sha('c')
 const UNKNOWN = sha('d')
 
-/** Each commit of the stand-in clone: its number (`rev-list --count`) and the version of its package.json. */
+/** Each commit of the stand-in repository: its number (`rev-list --count`) and the version of its package.json. */
 const COMMITS = new Map([
   [MERGE, { count: 2093, version: '0.4.0' }],
   [BLOCKER_MERGE, { count: 2088, version: '0.4.0' }],
   [STABLE, { count: 2101, version: '0.4.0' }],
 ])
 
-interface Clone {
+interface History {
   /** `merge-base --is-ancestor <a> <b>` answers 0 for these pairs `a b`, 1 for the other pairs of known commits. */
   ancestors: Set<string>
 }
 
-function git(clone: Clone, calls: string[]): NonNullable<StableLineSources['git']> {
+function git(history: History, calls: string[]): NonNullable<StableLineSources['git']> {
   return async (_cwd, args) => {
     calls.push(args.join(' '))
     const [command, ...rest] = args
     if (command === 'merge-base') {
       const [, a, b] = rest
       if (!COMMITS.has(a!) || !COMMITS.has(b!)) return { code: 128, stdout: '' }
-      return { code: clone.ancestors.has(`${a} ${b}`) ? 0 : 1, stdout: '' }
+      return { code: history.ancestors.has(`${a} ${b}`) ? 0 : 1, stdout: '' }
     }
     if (command === 'cat-file') return { code: COMMITS.has(rest[1]!.replace('^{commit}', '')) ? 0 : 128, stdout: '' }
     if (command === 'rev-list') {
