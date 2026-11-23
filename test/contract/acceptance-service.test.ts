@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AcceptanceService } from '../../src/main/acceptance/service'
+import type { AcceptanceHub, AcceptanceService } from '../../src/main/acceptance/service'
 import type { WorkflowHub } from '../../src/main/workflow/watch'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import type { AcceptanceRow, AcceptanceState } from '../../src/shared/ipc/acceptance'
@@ -112,8 +112,8 @@ const projects = () => [
   { id: BETA, name: 'Beta', path: beta },
 ]
 
-function makeService(): AcceptanceService {
-  const service = new Service({ hub, projects, dataDir: (id) => join(data, id) }, { now: () => now, tickMs: ms(60_000) })
+function makeService(over: AcceptanceHub = hub): AcceptanceService {
+  const service = new Service({ hub: over, projects, dataDir: (id) => join(data, id) }, { now: () => now, tickMs: ms(60_000) })
   services.push(service)
   return service
 }
@@ -232,7 +232,25 @@ describe('acceptance.get', () => {
 describe('a Linked machine', () => {
   it('gets no row of a Project kept on this Machine only, neither in the answer nor in acceptance.changed', async () => {
     localOnly = new Set([BETA])
-    const service = makeService()
+    // Beta's first read ends before Alpha's, as it may on a loaded machine: the queue the service computes in between
+    // has Beta's rows only, and a Linked machine gets it without them.
+    let betaOpened: Promise<unknown> = Promise.resolve()
+    const service = makeService({
+      open: (root, subscriber) => {
+        const opened = hub.open(root, subscriber)
+        if (root === beta) {
+          betaOpened = opened
+          return opened
+        }
+        return opened.then(async (model) => {
+          await betaOpened
+          await new Promise((settle) => setTimeout(settle, 0))
+          return model
+        })
+      },
+      close: (root, id) => hub.close(root, id),
+      model: (root) => hub.model(root),
+    })
     await register(service)
     const linked = makeWindow('link:machine-b/1')
     const window = makeWindow(1)
@@ -247,8 +265,10 @@ describe('a Linked machine', () => {
     const alphaFile = join(alpha, '.scratch', 'demo', 'issues', '01-first.md')
     writeFileSync(alphaFile, readFileSync(alphaFile, 'utf8').replace('- [ ] (manual) The chip', '- [x] (manual) The chip'))
     await vi.waitFor(() => expect(shape(linked.sent.at(-1)).ready).toEqual([]), { timeout: ms(15_000), interval: 50 })
-    expect(linked.sent.length).toBeGreaterThan(0)
-    for (const state of linked.sent) expect(projectsOf(state)).toEqual([ALPHA])
+    expect(projectsOf(linked.sent.at(-1))).toEqual([ALPHA])
+    // Every event, a partial one from the first reads too: none carries a row of Beta.
+    expect(linked.sent.length).toBeGreaterThan(1)
+    for (const state of linked.sent) expect(projectsOf(state)).not.toContain(BETA)
   })
 })
 
