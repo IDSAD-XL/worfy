@@ -495,8 +495,6 @@ export class ActionLauncher {
     const view = await this.deps.orchestrators.open(projectId)
     if (view.sessionId === null) throw new Error('The Orchestrator has no Session')
     const session = this.deps.registry.get(view.sessionId)
-    // Autopilot may have started while the Orchestrator opened.
-    if (this.autopilot?.running(projectId) === true) throw new Error(OWNER_CHECK_AUTOPILOT_HINT)
     await acceptance.markSent(projectId, { epic: decision.epic, num: decision.num, item: decision.item, verdict: decision.verdict })
     const delivery = session.send(state.text)
     return { sessionId: view.sessionId, text: state.text, delivery }
