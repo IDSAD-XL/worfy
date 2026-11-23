@@ -58,9 +58,10 @@
 // - Record owner check (worfy-acceptance ticket 03): the Project's template filled in with the owner's decision on one
 //   manual item, then the owner's words as a quote (ownerCheckState), goes to the Project's Orchestrator — into its queue
 //   while a turn runs, as "Run wave" does. The skill owner-check writes the line (ADR-0002). Refused while Autopilot
-//   runs in the Project (spec Q6 (a)): the Orchestrator is the run's then. The Acceptance service keeps the decision as
-//   "Sent" (src/main/acceptance/service.ts, markSent) before the text goes: it refuses an item that is not a manual item
-//   waiting for the owner, and then nothing is sent.
+//   runs in the Project (spec Q6 (a)): the Orchestrator is the run's then; asked again after the last await, right
+//   before the send. The Acceptance service (src/main/acceptance/service.ts) first checks the item — a manual item
+//   waiting for the owner, its text still the one the owner saw — and refuses otherwise, nothing sent; it keeps the
+//   decision as "Sent" (markSent) only once the text has gone.
 //
 // The agent is then bound to what it was launched for, with source `launch` (resolve.ts): once
 // Claude Code has reported the session id that names its transcript, the Binding goes into
@@ -139,7 +140,11 @@ export interface LaunchDeps {
    * `owner-check` line comes; throws, with the reason, for an item that is not a manual item waiting for the owner.
    * Without it "Record owner check" is refused.
    */
-  acceptance?: { markSent(projectId: string, decision: Pick<OwnerCheckDecision, 'epic' | 'num' | 'item' | 'verdict'>): void | Promise<void> }
+  acceptance?: {
+    /** Throws, with the reason, when the item is not a manual item waiting for the owner or its text is not `itemText`. */
+    check(projectId: string, decision: Pick<SeenOwnerCheck, 'epic' | 'num' | 'item' | 'itemText' | 'verdict'>): void | Promise<void>
+    markSent(projectId: string, decision: Pick<OwnerCheckDecision, 'epic' | 'num' | 'item' | 'verdict'>): void | Promise<void>
+  }
   /** The clock, in ms: the age of a transcript's last record. Date.now by default. */
   now?(): number
 }
@@ -253,6 +258,9 @@ export function gateQueueRoleHint(role: 'request' | null): string {
 
 /** Why "Record owner check" is refused while Autopilot runs in the Project (spec Q6 (a)). */
 export const OWNER_CHECK_AUTOPILOT_HINT = 'Autopilot is running in this Project: stop it to record an owner check'
+
+/** A decision of "Record owner check" with the item's text the owner saw (src/shared/ipc/actions.ts, ownerCheckDecisionSchema). */
+export type SeenOwnerCheck = OwnerCheckDecision & { itemText: string }
 
 export interface OwnerCheckResult {
   sessionId: string
@@ -483,10 +491,12 @@ export class ActionLauncher {
   /**
    * "Record owner check": the owner's decision on one manual item to the Project's Orchestrator. Refused, with the
    * reason and nothing sent, while Autopilot runs in the Project, when the template is empty or does not render, and
-   * when the Acceptance service does not take the decision (the item is not a manual item waiting for the owner). The
-   * decision is kept as "Sent" just before the text goes, once the Orchestrator's Session is known.
+   * when the Acceptance service does not take the decision (the item is not a manual item waiting for the owner, or its
+   * text changed since the owner saw it). Autopilot is asked again after the last await: a Run may start meanwhile. The
+   * decision is kept as "Sent" only after the send: a Session closed meanwhile (a relaunch, a Stop) throws, and the item
+   * does not read "Sent" for a decision that never went.
    */
-  async ownerCheck(projectId: string, decision: OwnerCheckDecision): Promise<OwnerCheckResult> {
+  async ownerCheck(projectId: string, decision: SeenOwnerCheck): Promise<OwnerCheckResult> {
     if (this.autopilot?.running(projectId) === true) throw new Error(OWNER_CHECK_AUTOPILOT_HINT)
     const acceptance = this.deps.acceptance
     if (acceptance === undefined) throw new Error('The Acceptance queue is not running: the decision has nowhere to be kept')
@@ -495,8 +505,16 @@ export class ActionLauncher {
     const view = await this.deps.orchestrators.open(projectId)
     if (view.sessionId === null) throw new Error('The Orchestrator has no Session')
     const session = this.deps.registry.get(view.sessionId)
-    await acceptance.markSent(projectId, { epic: decision.epic, num: decision.num, item: decision.item, verdict: decision.verdict })
+    const { epic, num, item, itemText, verdict } = decision
+    await acceptance.check(projectId, { epic, num, item, itemText, verdict })
+    if (this.autopilot?.running(projectId) === true) throw new Error(OWNER_CHECK_AUTOPILOT_HINT)
     const delivery = session.send(state.text)
+    try {
+      await acceptance.markSent(projectId, { epic, num, item, verdict })
+    } catch (error) {
+      // The text has gone: the skill writes the line whatever the mark. Without the mark the row shows no "Sent".
+      console.warn(`[actions] ${projectId}: ${epic} ${ticketNumber(num)} item ${item} sent, but not kept as Sent`, error)
+    }
     return { sessionId: view.sessionId, text: state.text, delivery }
   }
 

@@ -102,7 +102,10 @@ export function sharedLauncher(): ActionLauncher {
     onLaunchesChange: broadcast,
     prFollow: appPrFollow,
     // Loaded at the call, as the PR inbox is: the Acceptance service stays out of this module's imports.
-    acceptance: { markSent: async (projectId, decision) => (await import('./acceptance')).appAcceptance().markSent(projectId, decision) },
+    acceptance: {
+      check: async (projectId, decision) => (await import('./acceptance')).appAcceptance().checkDecision(projectId, decision),
+      markSent: async (projectId, decision) => (await import('./acceptance')).appAcceptance().markSent(projectId, decision),
+    },
     now: appNow,
   })
   return shared

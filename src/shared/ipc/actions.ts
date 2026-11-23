@@ -142,12 +142,15 @@ export const OWNER_WORDS_MAX = 10_000
  * The decision "Record owner check" sends (worfy-acceptance ticket 03): each word of the skill owner-check checked here,
  * as githubRepoSchema checks a repository, since the text goes to the Orchestrator, a Session in bypassPermissions.
  * `words`, the owner's comment, is free text: it never fills a placeholder, it follows the command as a quote
- * (src/shared/actions/render-template.ts, ownerCheckState).
+ * (src/shared/actions/render-template.ts, ownerCheckState). `itemText`: the item's text as the owner saw it (the
+ * Acceptance row's `item.text`); main refuses the decision when item `item` of the Ticket file has another text now —
+ * an item added above, the item rewritten — so it never lands on another item. Never sent to the Orchestrator.
  */
 export const ownerCheckDecisionSchema = z.object({
   epic: epicNameSchema,
   num: ticketNumSchema,
   item: z.number().int().positive(),
+  itemText: z.string().min(1).max(OWNER_WORDS_MAX),
   verdict: z.enum(OWNER_CHECK_VERDICTS),
   platform: z.enum(OWNER_CHECK_PLATFORMS),
   copy: z.enum(OWNER_CHECK_COPIES),
@@ -161,8 +164,9 @@ export const ownerCheckDecisionSchema = z.object({
  * words:" goes to the Project's Orchestrator — into its queue while a turn runs, as "Run wave" does. The skill writes
  * the `owner-check` line; worfy only sends the text (ADR-0002). Once sent, main keeps the decision as "Sent" until the
  * line comes (src/main/acceptance/sent-store.ts). Refused, with the reason and nothing sent, while Autopilot runs in the
- * Project (spec Q6), when the template is empty or does not render, or when the item is not a manual item of the
- * Ticket that waits for the owner. `write`: a Linked machine with read-only access is refused.
+ * Project (spec Q6), when the template is empty or does not render, when the item is not a manual item of the Ticket
+ * that waits for the owner, or when its text is no longer `itemText`. An error of the send itself reaches the caller,
+ * and nothing is kept as "Sent". `write`: a Linked machine with read-only access is refused.
  */
 export const actionsOwnerCheck = invokeChannel(
   'actions.ownerCheck',

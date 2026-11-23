@@ -46,6 +46,14 @@ export interface OwnerDecision {
   verdict: 'pass' | 'fail'
 }
 
+/**
+ * A decision as the owner made it on what they saw (worfy-acceptance ticket 03): with the item's text then, so a Ticket
+ * file edited meanwhile — an item added above, the item rewritten — does not take the decision for another item.
+ */
+export interface SeenDecision extends OwnerDecision {
+  itemText: string
+}
+
 /** After this long without its `owner-check` line a Sent decision reads "Not recorded yet". */
 export const NOT_RECORDED_AFTER_MS = 24 * 60 * 60 * 1000
 
@@ -157,14 +165,7 @@ export class AcceptanceService {
    * Project is not read yet or the item is not such an item.
    */
   markSent(projectId: string, decision: OwnerDecision): void {
-    const model = this.followed.get(projectId)?.model
-    if (!model) throw new Error(`acceptance: the Project ${projectId} is not read yet`)
-    const ticket = model.tickets.find((each) => each.epic === decision.epic && each.num === decision.num)
-    if (ticket === undefined) throw new Error(`acceptance: no Ticket ${decision.epic} ${nn(decision.num)} in ${projectId}`)
-    const item = ticket.evidence?.find((each) => each.index === decision.item)
-    if (item === undefined || !itemWaitsForOwner(item)) {
-      throw new Error(`acceptance: item ${decision.item} of ${decision.epic} ${nn(decision.num)} is not a manual item that waits for the owner`)
-    }
+    const item = this.waitingItem(projectId, decision)
     const kept: SentDecision = {
       projectId,
       epic: decision.epic,
@@ -178,6 +179,31 @@ export class AcceptanceService {
     const others = (this.sent.get(projectId) ?? []).filter((each) => !(each.epic === kept.epic && each.num === kept.num && each.item === kept.item))
     this.keep(projectId, [...others, kept])
     this.compute()
+  }
+
+  /**
+   * Checks, keeping nothing, that a decision the owner made may go (worfy-acceptance ticket 03): the item is a manual item
+   * that waits for the owner, and its text is still the one the owner saw. Throws, with the reason, otherwise.
+   */
+  checkDecision(projectId: string, decision: SeenDecision): void {
+    const item = this.followed.get(projectId)?.model?.tickets.find((each) => each.epic === decision.epic && each.num === decision.num)?.evidence?.find((each) => each.index === decision.item)
+    if (item !== undefined && item.text !== decision.itemText) {
+      throw new Error(`Item ${decision.item} of ${decision.epic} ${nn(decision.num)} has changed since you looked at it: reload the Acceptance view`)
+    }
+    this.waitingItem(projectId, decision)
+  }
+
+  /** The item a decision is on, when it is a manual item that waits for the owner; throws, with the reason, otherwise. */
+  private waitingItem(projectId: string, decision: OwnerDecision): EvidenceItem {
+    const model = this.followed.get(projectId)?.model
+    if (!model) throw new Error(`acceptance: the Project ${projectId} is not read yet`)
+    const ticket = model.tickets.find((each) => each.epic === decision.epic && each.num === decision.num)
+    if (ticket === undefined) throw new Error(`acceptance: no Ticket ${decision.epic} ${nn(decision.num)} in ${projectId}`)
+    const item = ticket.evidence?.find((each) => each.index === decision.item)
+    if (item === undefined || !itemWaitsForOwner(item)) {
+      throw new Error(`acceptance: item ${decision.item} of ${decision.epic} ${nn(decision.num)} is not a manual item that waits for the owner`)
+    }
+    return item
   }
 
   /** Writes a Project's decisions and keeps them. */

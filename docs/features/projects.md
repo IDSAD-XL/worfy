@@ -377,9 +377,10 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
   `{sha}` the commit of that copy, 7 to 40 hex characters, or `-` when it is not known. A value out of these is refused.
   The owner's comment is no placeholder: it follows the command after a blank line as the paragraph `Owner's words:`,
   each of its lines a quote (`> …`), so no template puts it inside the command. The text goes to the Project's
-  Orchestrator, into its queue while a turn runs, and the decision shows as "Sent" until its line comes. The click is
-  refused, with the reason and nothing sent, when the template is empty, Autopilot runs in the Project, the item is not
-  a manual item that waits for the owner, or the screen is read-only. "Reset to default" puts in the defaults of the Harness found on the Machine now. On Windows
+  Orchestrator, into its queue while a turn runs, and once it has gone the decision shows as "Sent" until its line
+  comes. The click is refused, with the reason and nothing sent, when the template is empty, Autopilot runs in the
+  Project, the item is not a manual item that waits for the owner, its text is no longer the one the owner saw (the
+  Ticket file was edited meanwhile: reload the Acceptance view), or the screen is read-only. "Reset to default" puts in the defaults of the Harness found on the Machine now. On Windows
   the dialog also has the [Terminal shell](terminal.md). "Default vendor" (`defaultVendor` in the settings) is the Vendor
   "New session" lists first and a [Session](sessions.md) started without a pick runs on: None (Claude Code), Claude Code or
   Codex. "None" clears a saved one, and Claude Code is then the default. A value this build does not know reads as absent.
