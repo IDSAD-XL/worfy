@@ -1,7 +1,7 @@
 # 02 — Строка Stable copy пункта и группа Update first: есть ли изменение в Stable copy владельца
 
 Type: task
-Status: open
+Status: claimed 2026-11-23T23:09Z
 Blocked by: 01
 Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реализации» → «Stable copy пункта»; «Решения по test-ам», Seam 1
 и 2; «Риски», «Commit-а Stable copy нет в checkout-е» и «Лимит gh»

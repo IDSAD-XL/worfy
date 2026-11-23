@@ -3,10 +3,16 @@
 // workflow hub. A window subscribes with its first `acceptance.get` and stays subscribed until it is gone; a Linked
 // machine's client the same way, as `projectPulse.get` (src/main/ipc/project-pulse.ts).
 //
+// The Stable copy line (worfy-acceptance ticket 02) asks gh through the app's PR tracker, as the Project's GitHub
+// account, and reads the Available update of the app's Update service; both modules are loaded when first needed.
+//
 // A Linked machine sees no Project kept on this Machine only (`localOnly`), as in `projects.list`: neither in the answer
 // nor in any event after it. The link's own event filter looks at the top of a payload only, so the filter is here.
+import { app } from 'electron'
 import { acceptanceChanged, acceptanceGet, type AcceptanceState } from '../../shared/ipc/acceptance'
 import { AcceptanceService } from '../acceptance/service'
+import { stableCopyCommit, type StableLineSources } from '../acceptance/stable-line'
+import { runsFromStableCopy } from '../update/stable-copy'
 import { isRemoteCall } from '../link/caller'
 import { ClientHolders, clientOf } from '../clients'
 import { projectStore } from '../projects/store'
@@ -45,6 +51,26 @@ export function acceptanceHandlers(service: () => Pick<AcceptanceService, 'subsc
 
 let shared: AcceptanceService | undefined
 
+/** The app's Update module once loaded: its snapshot holds the Available update and the commit of this run. */
+let update: typeof import('./update') | undefined
+
+/**
+ * What the Stable copy line reads in the app: gh as the Project's account (the PR tracker's), the commit of the file next
+ * to the Stable copy, else the commit Update gives this run when it is the Stable copy, and Update's Available update.
+ */
+function appStableSources(): StableLineSources {
+  void import('./update').then(
+    (module) => (update = module),
+    (error: unknown) => console.warn('[acceptance] the Update service did not load: no Available update for Update first', error),
+  )
+  const thisRunIsStable = (): boolean => runsFromStableCopy({ packaged: app.isPackaged, execPath: process.execPath, env: process.env })
+  return {
+    gh: async (root, args) => (await import('./checks')).sharedPrTracker().gh(root, args),
+    stableCommit: () => stableCopyCommit() ?? (thisRunIsStable() ? update?.appUpdate().snapshot().running?.commit || null : null),
+    available: () => update?.appUpdate().snapshot().available ?? null,
+  }
+}
+
 /** The app's one service over the workflow hub and the Project list, made at the first call. */
 export function appAcceptance(): AcceptanceService {
   shared ??= new AcceptanceService({
@@ -52,6 +78,7 @@ export function appAcceptance(): AcceptanceService {
     projects: () => projectStore().list(),
     dataDir: (projectId) => projectStore().dataDir(projectId),
     onProjectsChange: (listener) => projectStore().onChange(() => listener()),
+    stable: appStableSources(),
   })
   return shared
 }
