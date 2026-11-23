@@ -347,8 +347,9 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
 **The context menu of a row.**
 
 - "Project settings…" holds the message templates of "Ship ticket", "Run wave", "Process gate queue", "Draft replies",
-  "Fix checks", "Resolve conflicts" and "Address comments", with the placeholders `{epic}`, `{NN}`, `{wave}`, `{slug}`,
-  `{branch}`, `{tickets}`, `{repo}`, `{pr}` and `{sha}`. An unknown
+  "Fix checks", "Resolve conflicts", "Address comments" and "Record owner check", with the placeholders `{epic}`, `{NN}`,
+  `{wave}`, `{slug}`, `{branch}`, `{tickets}`, `{repo}`, `{pr}`, `{sha}`, `{item}`, `{verdict}`, `{platform}` and
+  `{copy}`. An unknown
   placeholder shows an error under the field and turns off Save. "Draft replies" (`/worfy:pr-reply {repo}#{pr}` with the
   plugin, empty with the old Harness) is the first message of a new Session on Claude Code for one pull request,
   `{repo}` its `owner/name` and `{pr}` its number; a placeholder it has no value for, or an empty template, refuses it.
@@ -369,7 +370,16 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
   model does not see. Otherwise a new Session Node
   on Claude Code starts with the text as its first message, bound by launch to the Ticket when there is one. The order
   of the reasons on a button is a conflict (`DIRTY`), then failing CI, then changes requested or threads that wait for
-  the user's answer. "Reset to default" puts in the defaults of the Harness found on the Machine now. On Windows
+  the user's answer. "Record owner check" (`/worfy:owner-check {epic} {NN} {item} {verdict} {platform} {copy} {sha}`
+  with the plugin, empty with the old Harness) sends the owner's decision on one manual item of a Ticket to the skill
+  owner-check, which writes the `owner-check` Evidence line: `{item}` is the item's number in the done section,
+  `{verdict}` `pass` or `fail`, `{platform}` `mac`, `windows` or `linux`, `{copy}` `stable`, `installed` or `dev`, and
+  `{sha}` the commit of that copy, 7 to 40 hex characters, or `-` when it is not known. A value out of these is refused.
+  The owner's comment is no placeholder: it follows the command after a blank line as the paragraph `Owner's words:`,
+  each of its lines a quote (`> …`), so no template puts it inside the command. The text goes to the Project's
+  Orchestrator, into its queue while a turn runs, and the decision shows as "Sent" until its line comes. The click is
+  refused, with the reason and nothing sent, when the template is empty, Autopilot runs in the Project, the item is not
+  a manual item that waits for the owner, or the screen is read-only. "Reset to default" puts in the defaults of the Harness found on the Machine now. On Windows
   the dialog also has the [Terminal shell](terminal.md). "Default vendor" (`defaultVendor` in the settings) is the Vendor
   "New session" lists first and a [Session](sessions.md) started without a pick runs on: None (Claude Code), Claude Code or
   Codex. "None" clears a saved one, and Claude Code is then the default. A value this build does not know reads as absent.

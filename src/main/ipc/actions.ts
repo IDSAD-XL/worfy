@@ -1,10 +1,10 @@
 // Handlers of the `actions` domain (src/shared/ipc/actions.ts): "Ship ticket", "Run wave",
 // "Process gate queue" (this Machine's role from the app's gate queue reader, ./gate-queue.ts), "Draft replies", "Fix
 // checks", "Resolve conflicts" and "Address comments" (the app's PR inbox, Layouts, Bindings, Claude home, Orchestrators
-// and Session Nodes), and the Tickets "Ship ticket" has a live Session for. The work itself is src/main/actions/launch.ts;
+// and Session Nodes), "Record owner check" (the app's Acceptance service, ./acceptance.ts, keeps it as "Sent"), and the Tickets "Ship ticket" has a live Session for. The work itself is src/main/actions/launch.ts;
 // here it is wired to the app's Projects, Sessions, Orchestrators and Bindings, and its changes go
 // to every client.
-import { actionsGateQueue, actionsLaunches, actionsLaunchesChanged, actionsPrFollow, actionsPrReply, actionsRunWave, actionsShipTicket, type LaunchesSnapshot } from '../../shared/ipc/actions'
+import { actionsGateQueue, actionsLaunches, actionsLaunchesChanged, actionsOwnerCheck, actionsPrFollow, actionsPrReply, actionsRunWave, actionsShipTicket, type LaunchesSnapshot } from '../../shared/ipc/actions'
 import { ActionLauncher, type PrFollowDeps } from '../actions/launch'
 import { sharedNodeSessions } from '../agent/app-node-sessions'
 import { sharedOrchestrators } from '../agent/app-orchestrators'
@@ -24,7 +24,7 @@ import { sharedGateQueue } from './gate-queue'
 import { defineHandler, emit, type HandlerModule } from './index'
 
 /** The handlers over a launcher; tests pass their own. */
-export function actionsHandlers(launcher: () => Pick<ActionLauncher, 'shipTicket' | 'runWave' | 'gateQueue' | 'prReply' | 'prFollow' | 'launched'>): HandlerModule {
+export function actionsHandlers(launcher: () => Pick<ActionLauncher, 'shipTicket' | 'runWave' | 'gateQueue' | 'prReply' | 'prFollow' | 'ownerCheck' | 'launched'>): HandlerModule {
   return [
     defineHandler(actionsShipTicket, ({ projectId, epic, num, near }) =>
       near ? launcher().shipTicket(projectId, epic, num, near) : launcher().shipTicket(projectId, epic, num),
@@ -33,6 +33,7 @@ export function actionsHandlers(launcher: () => Pick<ActionLauncher, 'shipTicket
     defineHandler(actionsGateQueue, ({ projectId }) => launcher().gateQueue(projectId)),
     defineHandler(actionsPrReply, ({ projectId, repo, pr }) => launcher().prReply(projectId, repo, pr)),
     defineHandler(actionsPrFollow, ({ projectId, repo, pr, action, near }) => (near ? launcher().prFollow(projectId, repo, pr, action, near) : launcher().prFollow(projectId, repo, pr, action))),
+    defineHandler(actionsOwnerCheck, ({ projectId, ...decision }) => launcher().ownerCheck(projectId, decision)),
     defineHandler(actionsLaunches, ({ projectId }) => launcher().launched(projectId)),
   ]
 }
@@ -100,6 +101,8 @@ export function sharedLauncher(): ActionLauncher {
     gateRole: (root) => sharedGateQueue().role(root),
     onLaunchesChange: broadcast,
     prFollow: appPrFollow,
+    // Loaded at the call, as the PR inbox is: the Acceptance service stays out of this module's imports.
+    acceptance: { markSent: async (projectId, decision) => (await import('./acceptance')).appAcceptance().markSent(projectId, decision) },
     now: appNow,
   })
   return shared

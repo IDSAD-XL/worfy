@@ -47,6 +47,9 @@ async function register(options: { devServerUrl?: string } = {}) {
       calls.push(['prFollow', ...args])
       return { nodeId: 'n3', sessionId: 'live-3', text: '/worfy:pr-fix checks example-org/app#118 ' + 'a'.repeat(40), delivery: 'new' as const, cwd: '/secret' }
     },
+    ownerCheck: async () => {
+      throw new Error('not here: test/contract/actions-owner-check.test.ts')
+    },
     launched: (projectId: string) => {
       calls.push(['launched', projectId])
       return { projectId, revision: 3, tickets: [{ epic: 'e', num: 7, sessionId: 'secret' }], extra: true }
@@ -377,6 +380,7 @@ describe('actions.prReply (worfy-pr-inbox ticket 04)', () => {
         gateQueue: async () => { throw new Error('not here') },
         launched: () => { throw new Error('not here') },
         prFollow: async () => { throw new Error('not here') },
+        ownerCheck: async () => { throw new Error('not here') },
         prReply: (...args: [string, string, number]) => {
           calls.push(args)
           return { nodeId: 'n2', sessionId: 'pending-2', text: '/worfy:pr-reply example-org/app#118' }
@@ -820,6 +824,7 @@ describe('actions.prFollow (worfy-pr-follow ticket 01)', () => {
         gateQueue: async () => { throw new Error('not here') },
         launched: () => { throw new Error('not here') },
         prReply: () => { throw new Error('not here') },
+        ownerCheck: async () => { throw new Error('not here') },
         prFollow: async (...args: [string, string, number, string]) => {
           calls.push(args)
           return { nodeId: 'n3', sessionId: 'live-3', text: TEXT, delivery: 'new' as const }

@@ -1,7 +1,7 @@
 // The `actions` domain (ticket 23): "Ship ticket" and "Run wave" from the Canvas, "Process gate
 // queue" from the palette and the Project menu (worfy-windows ticket 17), "Draft replies" on a pull
-// request (worfy-pr-inbox ticket 04), and "Fix checks", "Resolve conflicts" and "Address comments" on a pull
-// request (worfy-pr-follow ticket 01). worfy starts the
+// request (worfy-pr-inbox ticket 04), "Fix checks", "Resolve conflicts" and "Address comments" on a pull
+// request (worfy-pr-follow ticket 01), and "Record owner check" on a manual item (worfy-acceptance ticket 03). worfy starts the
 // work with the same skills the terminal does and never writes a Ticket's status itself (ADR 0002):
 // main reads the Project's action template, fills it in (src/shared/actions/render-template.ts)
 // and sends the text — to a new Session in the Project's root, or to the Project's Orchestrator.
@@ -9,7 +9,7 @@
 // no channel of its own: it is `shell.openExternal`.
 import { z } from 'zod'
 import { epicNameSchema, ticketNumSchema } from '../binding/resolve'
-import { PR_FOLLOW_ACTIONS } from '../projects/action-templates'
+import { OWNER_CHECK_COPIES, OWNER_CHECK_PLATFORMS, OWNER_CHECK_SHA, OWNER_CHECK_VERDICTS, PR_FOLLOW_ACTIONS } from '../projects/action-templates'
 import { eventChannel, invokeChannel } from './channels'
 
 const projectId = z.string().min(1)
@@ -135,6 +135,47 @@ export const actionsPrFollow = invokeChannel(
   'write',
 )
 
+/** The longest comment of the owner "Record owner check" takes. */
+export const OWNER_WORDS_MAX = 10_000
+
+/**
+ * The decision "Record owner check" sends (worfy-acceptance ticket 03): each word of the skill owner-check checked here,
+ * as githubRepoSchema checks a repository, since the text goes to the Orchestrator, a Session in bypassPermissions.
+ * `words`, the owner's comment, is free text: it never fills a placeholder, it follows the command as a quote
+ * (src/shared/actions/render-template.ts, ownerCheckState).
+ */
+export const ownerCheckDecisionSchema = z.object({
+  epic: epicNameSchema,
+  num: ticketNumSchema,
+  item: z.number().int().positive(),
+  verdict: z.enum(OWNER_CHECK_VERDICTS),
+  platform: z.enum(OWNER_CHECK_PLATFORMS),
+  copy: z.enum(OWNER_CHECK_COPIES),
+  sha: z.string().regex(OWNER_CHECK_SHA),
+  words: z.string().max(OWNER_WORDS_MAX),
+})
+
+/**
+ * "Record owner check" (worfy-acceptance ticket 03): the Project's template filled in with the decision
+ * (`/worfy:owner-check {epic} {NN} {item} {verdict} {platform} {copy} {sha}` by default) and the paragraph "Owner's
+ * words:" goes to the Project's Orchestrator — into its queue while a turn runs, as "Run wave" does. The skill writes
+ * the `owner-check` line; worfy only sends the text (ADR-0002). Once sent, main keeps the decision as "Sent" until the
+ * line comes (src/main/acceptance/sent-store.ts). Refused, with the reason and nothing sent, while Autopilot runs in the
+ * Project (spec Q6), when the template is empty or does not render, or when the item is not a manual item of the
+ * Ticket that waits for the owner. `write`: a Linked machine with read-only access is refused.
+ */
+export const actionsOwnerCheck = invokeChannel(
+  'actions.ownerCheck',
+  ownerCheckDecisionSchema.extend({ projectId }),
+  z.object({
+    sessionId: z.string().min(1),
+    text: z.string().min(1),
+    delivery: z.enum(['sent', 'queued']),
+  }),
+  'project',
+  'write',
+)
+
 /**
  * The Tickets of a Project that "Ship ticket" has a live Session for. Main keeps them from the
  * launch until that Session closes: the Ticket stays open until the launched agent runs
@@ -160,6 +201,7 @@ declare module './channels' {
     'actions.gateQueue': typeof actionsGateQueue
     'actions.prReply': typeof actionsPrReply
     'actions.prFollow': typeof actionsPrFollow
+    'actions.ownerCheck': typeof actionsOwnerCheck
     'actions.launches': typeof actionsLaunches
     'actions.launches.changed': typeof actionsLaunchesChanged
   }
