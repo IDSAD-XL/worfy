@@ -71,13 +71,14 @@ Code: `src/shared/actions/render-template.ts:63-65` · key lines: 63, 64
 
 ## 5. Схема канала проверяет каждое слово
 
-Code: `src/shared/ipc/actions.ts:147-156` · key lines: 151, 154, 155
+Code: `src/shared/ipc/actions.ts:149-159` · key lines: 153, 154, 157, 158
 
 ```ts
 export const ownerCheckDecisionSchema = z.object({
   epic: epicNameSchema,
   num: ticketNumSchema,
   item: z.number().int().positive(),
+  itemText: z.string().min(1).max(OWNER_WORDS_MAX),
   verdict: z.enum(OWNER_CHECK_VERDICTS),
   platform: z.enum(OWNER_CHECK_PLATFORMS),
   copy: z.enum(OWNER_CHECK_COPIES),
@@ -88,19 +89,22 @@ export const ownerCheckDecisionSchema = z.object({
 
 - Что делает: `actions.ownerCheck` (`'project', 'write'`) принимает только значения skill-а: вердикт `pass`/`fail`,
   платформа `mac`/`windows`/`linux`, копия `stable`/`installed`/`dev`, commit или `-`; слова — свободный текст до
-  10 000 символов. Неверное значение отказывает до launcher-а.
+  10 000 символов. `itemText` — текст пункта, который видел владелец (строка очереди его показывает); Orchestrator-у он
+  не уходит. Неверное значение отказывает до launcher-а.
 - Почему здесь: Ticket, п. 3: «Значения placeholders проверяют схемы (как `githubRepoSchema`)»; текст уходит Session-у
-  в bypassPermissions.
-- Без него: `verdict: 'passed'` дошёл бы до шаблона (mutant M4).
+  в bypassPermissions. `itemText` — раунд 2 ревью PR #2157: пункт адресован только номером, и пункт, добавленный выше,
+  забрал бы решение.
+- Без него: `verdict: 'passed'` дошёл бы до шаблона (mutant M4); Pass ушёл бы на чужой пункт (mutant B раунда 2).
 - Требование: [Что делаем, п. 3–4](../issues/03-шаблон-ownercheck-и-канал-решения.md#что-делаем)
-- Риски и пробелы test-ов: предел 10 000 символов на слова выбран без владельца.
+- Риски и пробелы test-ов: предел 10 000 символов выбран без владельца; текст вместо hash-а — тоже: hash-а в строке
+  очереди нет, а `itemTextHash` считает `node:crypto`.
 
-## 6. Отказ при Autopilot, «Sent» до отправки текста
+## 6. Проверка пункта и Autopilot до отправки, «Sent» после неё
 
-Code: `src/main/actions/launch.ts:489-501` · key lines: 490, 498, 499
+Code: `src/main/actions/launch.ts:499-518` · key lines: 500, 509, 510, 511, 513
 
 ```ts
-  async ownerCheck(projectId: string, decision: OwnerCheckDecision): Promise<OwnerCheckResult> {
+  async ownerCheck(projectId: string, decision: SeenOwnerCheck): Promise<OwnerCheckResult> {
     if (this.autopilot?.running(projectId) === true) throw new Error(OWNER_CHECK_AUTOPILOT_HINT)
     const acceptance = this.deps.acceptance
     if (acceptance === undefined) throw new Error('The Acceptance queue is not running: the decision has nowhere to be kept')
@@ -109,29 +113,38 @@ Code: `src/main/actions/launch.ts:489-501` · key lines: 490, 498, 499
     const view = await this.deps.orchestrators.open(projectId)
     if (view.sessionId === null) throw new Error('The Orchestrator has no Session')
     const session = this.deps.registry.get(view.sessionId)
-    await acceptance.markSent(projectId, { epic: decision.epic, num: decision.num, item: decision.item, verdict: decision.verdict })
+    const { epic, num, item, itemText, verdict } = decision
+    await acceptance.check(projectId, { epic, num, item, itemText, verdict })
+    if (this.autopilot?.running(projectId) === true) throw new Error(OWNER_CHECK_AUTOPILOT_HINT)
     const delivery = session.send(state.text)
+    try {
+      await acceptance.markSent(projectId, { epic, num, item, verdict })
+    } catch (error) {
+      // The text has gone: the skill writes the line whatever the mark. Without the mark the row shows no "Sent".
+      console.warn(`[actions] ${projectId}: ${epic} ${ticketNumber(num)} item ${item} sent, but not kept as Sent`, error)
+    }
     return { sessionId: view.sessionId, text: state.text, delivery }
-  }
 ```
 
-- Что делает: пока идёт Autopilot — отказ с причиной; иначе текст уходит Orchestrator-у Project-а, в его очередь, пока
-  идёт ход (`delivery: 'queued'`). Перед отправкой служба Acceptance (`markSent`, Ticket 01) записывает «Sent»; для
-  пункта, который не ручной или не ждёт владельца, она бросает ошибку — и текст не уходит.
-- Почему здесь: spec называет обработчиком `ActionLauncher` и путь Run wave; Q6 (а) — отказ при Autopilot.
-- Без него: решение шло бы в Orchestrator во время Run-а Autopilot (mutant M2), или «Sent» не появлялось бы (mutant
-  M3), или текст ушёл бы по пункту, который не ждёт владельца (mutant M6).
+- Что делает: пока идёт Autopilot — отказ с причиной; служба Acceptance проверяет пункт (`checkDecision`: ручной, ждёт
+  владельца, текст тот, что видел владелец) и иначе отказывает, ничего не отправив; Autopilot спрашивается ещё раз после
+  последнего `await`; текст уходит Orchestrator-у, в его очередь, пока идёт ход; «Sent» пишется только после `send`.
+- Почему здесь: spec называет обработчиком `ActionLauncher` и путь Run wave; Q6 (а) — отказ при Autopilot. Порядок
+  «проверка — отправка — Sent» — раунд 2 ревью PR #2157.
+- Без него: решение шло бы в Orchestrator во время Run-а, начатого, пока Orchestrator открывался (mutant C); Session,
+  закрытая перед отправкой, оставила бы «Sent» на 24 часа (mutant A); пункт, который не ждёт владельца, получил бы текст
+  (mutant M6).
 - Требование: [Что делаем, п. 4](../issues/03-шаблон-ownercheck-и-канал-решения.md#что-делаем)
-- Риски и пробелы test-ов: причина отказа — своя, `OWNER_CHECK_AUTOPILOT_HINT`, а не `AUTOPILOT_RUNNING_HINT` из
-  Ticket-а: текст той говорит про Wave. Если `send` бросит после `markSent`, «Sent» останется без отправки и через 24 часа
-  станет «Not recorded yet» с Send again.
+- Риски и пробелы test-ов: причина отказа — своя, `OWNER_CHECK_AUTOPILOT_HINT`. Если `markSent` бросит после отправки
+  (Ticket-файл изменился в тот же миг), текст уже ушёл, а «Sent» нет — только предупреждение в log. Второе решение по
+  тому же пункту, пока первое в очереди, тоже уходит: это для UI Ticket-а 05.
 
 ## 7. Как проверено
 
 `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `node scripts/check-feature-docs.mjs` — exit 0; gate fast — exit
 0. Contract test `test/contract/actions-owner-check.test.ts` идёт через настоящие `ActionLauncher`, `Orchestrators` и
-Session registry на fake agent и настоящую службу Acceptance. Mutants M1–M7 по одному на поведение в копии под
-`mktemp -d`, все красные.
+Session registry на fake agent и настоящую службу Acceptance. Mutants M1–M7 и A–C раунда 2 по одному на поведение в
+копии под `mktemp -d`, все красные.
 
 ## Проверить себя
 
@@ -140,5 +153,5 @@ Session registry на fake agent и настоящую службу Acceptance. 
      держит свободный текст вне её, и ни одна его строка не начинается с `/`.
    - Строки: `src/shared/actions/render-template.ts:209`
 2. Владелец нажал Pass по пункту, который в это время уже отметили `[x]`. Что уйдёт Orchestrator-у?
-   - Ответ: ничего: `markSent` бросает до `send`, канал отвечает отказом с причиной.
-   - Строки: `src/main/actions/launch.ts:498-499`
+   - Ответ: ничего: `checkDecision` службы бросает до `send`, канал отвечает отказом с причиной, «Sent» не пишется.
+   - Строки: `src/main/actions/launch.ts:509-511`
