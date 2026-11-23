@@ -57,6 +57,7 @@ Source: ручные проверки 2026-10-07, второй круг, про�
 - [x] ADR со следующим свободным номером записан.
 - [ ] (вручную) Stable copy после влития, Canvas Project A, рамка notifications-telegram: раскрыть стопку done — первый Ticket колонок Level остаётся у верха рамки (около 92 px), а не уходит на 780 px. Как проверить: окно приложения, снимок в «Итог».
   не проверено: ручная проверка в окне приложения — после влития, на Stable copy; исполнителю GUI-проверки не поручены.
+  - evidence: screenshot pass · agent over CDP 2026-11-24, Project CanvasForAI frame worfy-neutral instead of Project A notifications-telegram (switching the window to another Project was outside the agent's limits): Expand opened the stack, the Level 1 Ticket stayed at 92 px from the frame top, the frame grew downward, Collapse folded it back; screenshot kept locally · mac stable · 5a08e27ca6
 
 ## Тесты
 
