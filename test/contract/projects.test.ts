@@ -162,8 +162,8 @@ function stubProfile(answer: { code: number; workspace: string | null; old?: boo
   return calls
 }
 
-const LEGACY_TEMPLATES = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' }
-const PLUGIN_TEMPLATES = { shipTicket: '/worfy:ship-ticket {epic} {NN}', runWave: '/worfy:epic-wave tickets {tickets} of epic {epic}', gateQueue: '/worfy:gate-queue', prReply: '/worfy:pr-reply {repo}#{pr}', fixChecks: '/worfy:pr-fix checks {repo}#{pr} {sha}', resolveConflicts: '/worfy:pr-fix conflicts {repo}#{pr} {sha}', addressComments: '/worfy:pr-fix comments {repo}#{pr} {sha}' }
+const LEGACY_TEMPLATES = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '', ownerCheck: '' }
+const PLUGIN_TEMPLATES = { shipTicket: '/worfy:ship-ticket {epic} {NN}', runWave: '/worfy:epic-wave tickets {tickets} of epic {epic}', gateQueue: '/worfy:gate-queue', prReply: '/worfy:pr-reply {repo}#{pr}', fixChecks: '/worfy:pr-fix checks {repo}#{pr} {sha}', resolveConflicts: '/worfy:pr-fix conflicts {repo}#{pr} {sha}', addressComments: '/worfy:pr-fix comments {repo}#{pr} {sha}', ownerCheck: '/worfy:owner-check {epic} {NN} {item} {verdict} {platform} {copy} {sha}' }
 
 beforeEach(async () => {
   scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-projects-')))
@@ -206,7 +206,7 @@ describe('projects.add', () => {
     const gitRoot = git(repo, 'rev-parse', '--show-toplevel')
     expect(project.id).toBe(`auberge-${createHash('sha256').update(gitRoot).digest('hex').slice(0, 8)}`)
     const settings = JSON.parse(readFileSync(join(dataDir, project.id, 'settings.json'), 'utf8')) as unknown
-    expect(settings).toStrictEqual({ actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' } })
+    expect(settings).toStrictEqual({ actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '', ownerCheck: '' } })
     expect(existsSync(join(dataDir, 'projects.json'))).toBe(true)
   })
 
@@ -356,7 +356,7 @@ describe('projects.add', () => {
   it('keeps the settings of a repository that is added again', async () => {
     const repo = makeRepo('auberge')
     const { project } = await addOk(repo)
-    const changed = { actionTemplates: { shipTicket: '/ship {epic}/{NN}', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' } }
+    const changed = { actionTemplates: { shipTicket: '/ship {epic}/{NN}', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '', ownerCheck: '' } }
     await value('projects.settings.set', { id: project.id, settings: changed })
     await addOk(repo)
     expect(await value('projects.settings.get', { id: project.id })).toStrictEqual(changed)
@@ -467,9 +467,9 @@ describe('projects.settings', () => {
   it('gives a new Project the default templates and keeps a change across a restart', async () => {
     const { project } = await addOk(makeRepo('auberge'))
     expect(await value('projects.settings.get', { id: project.id })).toStrictEqual({
-      actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' },
+      actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '', ownerCheck: '' },
     })
-    const changed = { actionTemplates: { shipTicket: '/ship {epic}/{NN} on {branch}', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' } }
+    const changed = { actionTemplates: { shipTicket: '/ship {epic}/{NN} on {branch}', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '', ownerCheck: '' } }
     expect(await value('projects.settings.set', { id: project.id, settings: changed })).toStrictEqual(changed)
 
     await start()
@@ -484,12 +484,12 @@ describe('projects.settings', () => {
     writeFileSync(file, old)
     await start()
     expect(await value('projects.settings.get', { id: project.id })).toStrictEqual({
-      actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' },
+      actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '', ownerCheck: '' },
     })
     // Reading does not write: the file stays as the stable copy left it.
     expect(readFileSync(file, 'utf8')).toBe(old)
 
-    const own = { actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave wave {wave} of {epic}', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' } }
+    const own = { actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave wave {wave} of {epic}', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '', ownerCheck: '' } }
     writeFileSync(file, JSON.stringify(own))
     expect(await value('projects.settings.get', { id: project.id })).toStrictEqual(own)
   })
@@ -497,7 +497,7 @@ describe('projects.settings', () => {
   it('prInbox: false survives a save that does not send it; true turns the PR inbox on again (worfy-pr-inbox ticket 02)', async () => {
     const { project } = await addOk(makeRepo('auberge'))
     const file = join(dataDir, project.id, 'settings.json')
-    const templates = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' }
+    const templates = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '', ownerCheck: '' }
     expect(await value('projects.settings.set', { id: project.id, settings: { actionTemplates: templates, prInbox: false } })).toStrictEqual({ actionTemplates: templates, prInbox: false })
     // "Save" of Project settings sends no prInbox: the switch stays off.
     await value('projects.settings.set', { id: project.id, settings: { actionTemplates: templates } })
@@ -512,22 +512,22 @@ describe('projects.settings', () => {
   it('a save without gateQueue, prReply or the three of pr-follow (a Linked machine on an older build) keeps the saved templates (worfy-windows ticket 17, worfy-pr-inbox ticket 04, worfy-pr-follow ticket 01)', async () => {
     const { project } = await addOk(makeRepo('auberge'))
     const file = join(dataDir, project.id, 'settings.json')
-    const own = { actionTemplates: { shipTicket: '/x {NN}', runWave: '', gateQueue: '/my-gate-queue', prReply: '/my-replies {repo}#{pr}', fixChecks: '/my-fix {sha}', resolveConflicts: '/my-rebase {sha}', addressComments: '/my-comments {sha}' } }
+    const own = { actionTemplates: { shipTicket: '/x {NN}', runWave: '', gateQueue: '/my-gate-queue', prReply: '/my-replies {repo}#{pr}', fixChecks: '/my-fix {sha}', resolveConflicts: '/my-rebase {sha}', addressComments: '/my-comments {sha}', ownerCheck: '' } }
     expect(await value('projects.settings.set', { id: project.id, settings: own })).toStrictEqual(own)
     const older = { actionTemplates: { shipTicket: '/y {NN}', runWave: '' } }
-    const kept = { actionTemplates: { shipTicket: '/y {NN}', runWave: '', gateQueue: '/my-gate-queue', prReply: '/my-replies {repo}#{pr}', fixChecks: '/my-fix {sha}', resolveConflicts: '/my-rebase {sha}', addressComments: '/my-comments {sha}' } }
+    const kept = { actionTemplates: { shipTicket: '/y {NN}', runWave: '', gateQueue: '/my-gate-queue', prReply: '/my-replies {repo}#{pr}', fixChecks: '/my-fix {sha}', resolveConflicts: '/my-rebase {sha}', addressComments: '/my-comments {sha}', ownerCheck: '' } }
     expect(await value('projects.settings.set', { id: project.id, settings: older })).toStrictEqual(kept)
     expect(JSON.parse(readFileSync(file, 'utf8'))).toStrictEqual(kept)
     // No saved gateQueue either (a file of a build from before it): the default of the Harness found now.
     writeFileSync(file, JSON.stringify(older))
-    expect(await value('projects.settings.set', { id: project.id, settings: older })).toStrictEqual({ actionTemplates: { ...older.actionTemplates, gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' } })
+    expect(await value('projects.settings.set', { id: project.id, settings: older })).toStrictEqual({ actionTemplates: { ...older.actionTemplates, gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '', ownerCheck: '' } })
   })
 
   it('does not save a template with an unknown placeholder', async () => {
     const { project } = await addOk(makeRepo('auberge'))
     const file = join(dataDir, project.id, 'settings.json')
     const before = readFileSync(file, 'utf8')
-    const result = await call('projects.settings.set', { id: project.id, settings: { actionTemplates: { shipTicket: '/ship-ticket {foo}', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' } } })
+    const result = await call('projects.settings.set', { id: project.id, settings: { actionTemplates: { shipTicket: '/ship-ticket {foo}', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '', ownerCheck: '' } } })
     expect(result.ok).toBe(false)
     expect(!result.ok && result.error).toMatch(/Unknown placeholder \{foo\}/)
     expect(readFileSync(file, 'utf8')).toBe(before)
@@ -553,7 +553,7 @@ describe('projects.settings', () => {
     expect(await value('projects.settings.get', { id: project.id })).toStrictEqual({ actionTemplates: PLUGIN_TEMPLATES })
     expect(readFileSync(file, 'utf8')).toBe(saved)
 
-    const own = { actionTemplates: { shipTicket: 'my ship {NN}', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' } }
+    const own = { actionTemplates: { shipTicket: 'my ship {NN}', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '', ownerCheck: '' } }
     writeFileSync(file, JSON.stringify(own))
     expect(await value('projects.settings.get', { id: project.id })).toStrictEqual(own)
   })
@@ -574,7 +574,7 @@ describe('projects.settings', () => {
     const { project } = await addOk(makeRepo('auberge'))
     await value('projects.settings.get', { id: project.id })
     await value('projects.settings.defaults')
-    await value('projects.settings.set', { id: project.id, settings: { actionTemplates: { shipTicket: '/x {NN}', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' } } })
+    await value('projects.settings.set', { id: project.id, settings: { actionTemplates: { shipTicket: '/x {NN}', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '', ownerCheck: '' } } })
     expect(listing(claudeHome)).toEqual(before)
   })
 
@@ -585,7 +585,7 @@ describe('projects.settings', () => {
     expect(await value('projects.settings.get', { id: project.id })).not.toHaveProperty('terminalShell')
     expect(JSON.parse(readFileSync(file, 'utf8'))).not.toHaveProperty('terminalShell')
 
-    const chosen = { actionTemplates: { shipTicket: '/x {NN}', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' }, terminalShell: 'git-bash' }
+    const chosen = { actionTemplates: { shipTicket: '/x {NN}', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '', ownerCheck: '' }, terminalShell: 'git-bash' }
     expect(await value('projects.settings.set', { id: project.id, settings: chosen })).toStrictEqual(chosen)
     expect(JSON.parse(readFileSync(file, 'utf8'))).toStrictEqual(chosen)
     expect(await value('projects.settings.get', { id: project.id })).toStrictEqual(chosen)
@@ -601,9 +601,9 @@ describe('projects.settings', () => {
     const result = await value('projects.settings.set', {
       id: project.id,
       junk: 1,
-      settings: { actionTemplates: { shipTicket: '', runWave: '', smuggled: 'x', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' }, other: 'y' },
+      settings: { actionTemplates: { shipTicket: '', runWave: '', smuggled: 'x', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '', ownerCheck: '' }, other: 'y' },
     })
-    expect(result).toStrictEqual({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' } })
+    expect(result).toStrictEqual({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '', ownerCheck: '' } })
     const stored = readFileSync(join(dataDir, project.id, 'settings.json'), 'utf8')
     expect(stored).not.toContain('smuggled')
     expect(stored).not.toContain('other')
@@ -620,7 +620,7 @@ describe('the repository of a Project', () => {
     const { project } = await addOk(join(repo))
     await addOk(other)
     await value('projects.select', { id: project.id })
-    await value('projects.settings.set', { id: project.id, settings: { actionTemplates: { shipTicket: '/x {NN}', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' } } })
+    await value('projects.settings.set', { id: project.id, settings: { actionTemplates: { shipTicket: '/x {NN}', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '', ownerCheck: '' } } })
     await value('projects.list')
     await value('projects.remove', { id: project.id })
 

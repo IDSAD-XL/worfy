@@ -1280,7 +1280,7 @@ describe('selecting a PR', () => {
   it('the switch of Project settings turned off: the view says so without waiting for a search', async () => {
     await view()
     main.inbox['web-00000001'] = snapshotOf('web-00000001', { enabled: false, groups: [], nextSearchAt: null })
-    await act(async () => main.emit('projects.settings.changed', { id: 'web-00000001', settings: { actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' }, prInbox: false } }))
+    await act(async () => main.emit('projects.settings.changed', { id: 'web-00000001', settings: { actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '', ownerCheck: '' }, prInbox: false } }))
     await waitFor(() => expect(screen.getByTestId('pr-inbox-off')).toBeTruthy())
     expect(screen.queryAllByTestId('pr-inbox-row')).toHaveLength(0)
     expect(screen.queryByTestId('pr-inbox-pane')).toBeNull()
@@ -1478,7 +1478,7 @@ describe('Fix checks, Resolve conflicts and Address comments in the pane (worfy-
     prReply: '/worfy:pr-reply {repo}#{pr}',
     fixChecks: '/worfy:pr-fix checks {repo}#{pr} {sha}',
     resolveConflicts: '/worfy:pr-fix conflicts {repo}#{pr} {sha}',
-    addressComments: '/worfy:pr-fix comments {repo}#{pr} {sha}',
+    addressComments: '/worfy:pr-fix comments {repo}#{pr} {sha}', ownerCheck: '/worfy:owner-check {epic} {NN} {item} {verdict} {platform} {copy} {sha}',
   }
   /** web#40 of demo 03: in conflict with its base and red, mine. */
   const CONFLICT = row(WEB, 40, { title: 'Fix the date picker', headRefOid: HEAD, ci: 'failing', mergeStateStatus: 'DIRTY' })
@@ -1644,7 +1644,7 @@ describe('on a read-only screen of a Linked machine', () => {
     const snapshot = snapshotOf('web-00000001', { groups: [{ group: 'needs-fix', rows: [row(WEB, 40, { headRefOid: head, ci: 'failing' })] }] })
     preload({
       inbox: { 'web-00000001': snapshot },
-      answers: { 'projects.settings.get': () => ({ ok: true, value: { actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '', fixChecks: '/worfy:pr-fix checks {repo}#{pr} {sha}', resolveConflicts: '', addressComments: '' }, prInbox: true } }) },
+      answers: { 'projects.settings.get': () => ({ ok: true, value: { actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '', fixChecks: '/worfy:pr-fix checks {repo}#{pr} {sha}', resolveConflicts: '', addressComments: '', ownerCheck: '' }, prInbox: true } }) },
     })
     await body(snapshot)
     const button = within(pane()).getByTestId('pr-inbox-follow')
@@ -1685,7 +1685,7 @@ describe('on a read-only screen of a Linked machine', () => {
     preload({
       inbox: {},
       answers: {
-        'projects.settings.get': () => ({ ok: true, value: { actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' } } }),
+        'projects.settings.get': () => ({ ok: true, value: { actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '', ownerCheck: '' } } }),
         'terminal.shells': () => ({ ok: true, value: [] }),
       },
     })
@@ -1792,7 +1792,7 @@ describe('the entries of the view', () => {
 })
 
 describe('"Read pull requests from GitHub" in Project settings', () => {
-  const TEMPLATES = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' }
+  const TEMPLATES = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '', ownerCheck: '' }
 
   async function settings(saved: Record<string, unknown>) {
     const sets: unknown[] = []
