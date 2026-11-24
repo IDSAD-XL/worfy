@@ -61,7 +61,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Наб
 - [ ] Английская страница `docs/features/acceptance.md` описывает вид; `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 58c96fa3a
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
-  - evidence: gate pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0; `gate fast` exit 0 · mac - · 58c96fa3a
+  - evidence: gate pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0; `gate fast` exit 0 · mac - · bcf9d49d5
 
 ## Где в коде
 
