@@ -109,3 +109,18 @@ done
 2. Чем подготовка Orchestrator-а отличается от шага владельца в Ticket-е?
    Answer: это пункт того же Ticket-а без ручной метки, и стоит он перед шагом, которому служит.
    Lines: `harness/skills/ship-ticket/step-6-manual-gui-checks.md:59-61`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED — worfy-acceptance 08 (owner acceptance steps as manual items in the tickets, the guides file pointer, the manual-item rule in the Harness skills), head ddc98ecb65fe817d17124e3ce17992b152d5f83d
+>
+> Gate (depth medium, one round): verifier (lens: implementer's claims, sonnet) — MERGE, five claims CONFIRMED, about 150 moved items in 31 tickets compared with their guides; reviewer (correctness) — FIX (one med, three lows); round 1 checked by the Orchestrator.
+>
+> - What it gives: every open owner acceptance has its steps as manual items «Сделай → Должно быть» with a `needs:` line at the end of its done section, preparation as unmarked «Orchestrator:» items, old items unchanged and in place; the guides file opens with a pointer to the tickets and the Acceptance view; ship-ticket step 6 and to-tickets state the rule (one step per manual item, a `needs:` line, preparation without the mark), held by agents-text.test.sh; to-tickets' sha256 pin and THIRD_PARTY.md updated; docs/features/workflow.md describes the manual acceptance item.
+> - The med (the texts name the Acceptance view before ticket 05 builds it) is solved by order: this PR lands after #2166 (ticket 05).
+> - Fixed in round 1: `needs: mac` on the 55 items that confirm decisions made without the owner; step 6 keeps the guides file until the owner accepts the Acceptance view (owner decision Q5); items for guide steps 7 and 11 of code-stories 17 and step 4 of stuck-agents 11; the moot minimap decision of changes-view 07 reworded; the guides file's changes-view 07 section points at rework tickets 08 and 09.
+> - Evidence: agents-text.test.sh exit 0 (527) and a mutant without a rule sentence exit 1; harness-third-party-skills contract exit 0; `ticket evidence` parses all 31 tickets, no manual step without `needs:`; evidence-check --changed exit 0 (33 files); check-feature-docs, check-handoff, story-check, pnpm lint, typecheck exit 0; acceptance queue/service/evidence unit files exit 0 (706).
+> - Debt (low): per-block Pass/Fail criteria, «Время» lines and some «Known, not a question» notes of the guides were not carried into the tickets; rework tickets changes-view 08/09 keep their own «decided without the owner» sections outside the guides.
+> - Not verified: each of the ~190 steps against its guide (about 150 compared); Windows CI jobs until the land.
+>
+> Decided without the owner (to confirm): step labels `Do: … → Expect: …` in the Harness text, «Сделай → Должно быть» in Russian tickets; new steps appended after the old items (their numbers are referenced by Source: and Evidence lines); items that confirm decisions made without the owner carry `needs: mac`; the «yes» to a Stable update is an Orchestrator preparation item, not a manual item; changes-view steps split by behaviour after the rework (Node and diff → 08, comments → 09), decisions 1, 3, 16, 18, 19 not carried (closed by D1/D4 of 2026-11-21); the shared product-session preparation lives in ticket 08 of that Epic.

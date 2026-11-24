@@ -1,7 +1,7 @@
 # 08 — Шаги приёмки в Ticket-ах: правило Harness для ручных пунктов, перенос гайдов, файл гайдов до приёмки владельцем
 
 Type: task
-Status: claimed 2026-11-24T03:02Z
+Status: done 2026-11-24T06:11Z
 PR: #2165
 Branch: worfy-acceptance/08
 Blocked by: 04, 05
@@ -44,6 +44,7 @@ CI. Глубина ревью — `medium`.
 - [ ] `docs/features/workflow.md` описывает ручной пункт приёмки; `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac dev · a121c0ffb633a08d408f5eb916250f9153398338
 - [ ] `pnpm lint`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job-ы Windows CI зелёные (платформенный PR).
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45325311406/job/138217501602 · ci - · ddc98ecb65fe817d17124e3ce17992b152d5f83d
 
 ## Где в коде
 
