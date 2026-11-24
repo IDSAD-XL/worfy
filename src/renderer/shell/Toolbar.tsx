@@ -3,6 +3,7 @@ import { SegmentedControl, type SegmentOption } from '../theme/primitives'
 import { CommandPalette } from '../palette/CommandPalette'
 import { SidebarToggle } from './sidebar-visibility'
 import { openRunHistory } from '../flight-recorder/open'
+import { useReadyCount } from '../acceptance/useAcceptance'
 
 // Each toolbar item is its own file, src/renderer/shell/toolbar/<Name>.tsx, with a
 // default-exported component and `export const order = <number>`. Items sit between the view
@@ -14,11 +15,13 @@ const items = collectExtensions(import.meta.glob('./toolbar/*.tsx', { eager: tru
  * (flight-recorder/RunHistoryView.tsx) — has the `Runs` tab here, which opens it at the active
  * Project's newest Run (openRunHistory); its other entries open it too, Esc leaves it.
  * `pull-requests` — the PR inbox of the active Project (pr-inbox/PrInboxView.tsx) — is the fifth tab.
+ * `acceptance` — the checks that wait for the owner in every Project (acceptance/AcceptanceView.tsx) — is the sixth,
+ * with the count of Ready to check; it needs no open Project.
  * `story` — a Code story (stories/StoryView.tsx) — has no tab: openStory (stories/open.ts) opens it, Esc leaves it.
  * `changes` — the Changes of a Ticket (changes/ChangesView.tsx) — has no tab either: without a Ticket it has nothing to
  * show; openChanges (changes/open.ts) opens it, its button back and Esc leave it.
  */
-export type ShellView = 'canvas' | 'session' | 'pipeline' | 'history' | 'pull-requests' | 'story' | 'changes'
+export type ShellView = 'canvas' | 'session' | 'pipeline' | 'history' | 'pull-requests' | 'acceptance' | 'story' | 'changes'
 
 /** The Project the window shows. Until Projects exist (ticket 04) the toolbar shows none. */
 export interface ToolbarProject {
@@ -28,7 +31,7 @@ export interface ToolbarProject {
   branch: string
 }
 
-function viewOptions(project: ToolbarProject | undefined): readonly SegmentOption<ShellView>[] {
+function viewOptions(project: ToolbarProject | undefined, ready: number): readonly SegmentOption<ShellView>[] {
   return [
     {
       value: 'canvas',
@@ -91,6 +94,28 @@ function viewOptions(project: ToolbarProject | undefined): readonly SegmentOptio
       disabled: project === undefined,
       title: project === undefined ? 'Open a Project to see its pull requests' : 'Pull requests',
     },
+    {
+      // The checks that wait for the owner (acceptance/AcceptanceView.tsx, worfy-acceptance ticket 05): a checked box.
+      // The count of Ready to check follows the label: the wrapper of the icon lets it out (shell.css has none of it,
+      // acceptance.css places it), and with the label hidden in a narrow window it stays next to the icon.
+      value: 'acceptance',
+      label: 'Acceptance',
+      icon: (
+        <span className="w-acc-tab">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="2.5" y="2.5" width="11" height="11" rx="2" />
+            <path d="M5.5 8.2l1.8 1.8 3.4-3.8" />
+          </svg>
+          {ready > 0 ? (
+            <span className="w-acc-tab__count" data-testid="acceptance-tab-count">
+              {ready}
+            </span>
+          ) : null}
+        </span>
+      ),
+      title: 'Checks that wait for you',
+      testId: 'acceptance-tab',
+    },
   ]
 }
 
@@ -107,6 +132,7 @@ export function ToolbarView({ items, project, view, onViewChange, sidebarVisible
   // The sidebar's strip carries the wordmark «worfy» (worfy-polish ticket 94): next to it the title names the Project
   // alone, so «worfy» is not said twice side by side. With the sidebar hidden the title says it, as before.
   const title = sidebarVisible ? (project?.name ?? 'No Project open') : project ? `worfy — ${project.name}` : 'worfy'
+  const ready = useReadyCount()
   return (
     <header className="w-toolbar" data-toast-keep-out="" data-sidebar={sidebarVisible ? 'visible' : 'hidden'}>
       {/* Shows the hidden sidebar; View ▸ Toggle Sidebar (Cmd/Ctrl+B) does the same. While the sidebar is
@@ -138,7 +164,7 @@ export function ToolbarView({ items, project, view, onViewChange, sidebarVisible
 
       <SegmentedControl
         label="View"
-        options={viewOptions(project)}
+        options={viewOptions(project, ready)}
         value={view}
         // `Runs` opens the screen through the Run history entry, which also shows the newest Run.
         onChange={(next) => {

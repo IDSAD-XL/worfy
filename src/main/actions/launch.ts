@@ -68,7 +68,7 @@
 // `<Project data folder>/bindings.json` (src/main/layout/bindings.ts), so it outlives a restart.
 // The Ticket's status is changed by the agent and the `ticket` script inside the skill, never here;
 // worfy sees the change through its watch on `.scratch` (ticket 10).
-import { emptyTemplateHint, ownerCheckState, prFollowState, prReplyState, runWaveState, shipTicketState, ticketNumber, type OwnerCheckDecision } from '../../shared/actions/render-template'
+import { emptyTemplateHint, OWNER_CHECK_AUTOPILOT_HINT, ownerCheckState, prFollowState, prReplyState, runWaveState, shipTicketState, ticketNumber, type OwnerCheckDecision } from '../../shared/actions/render-template'
 import type { SkippedTicket } from '../../shared/workflow/waves'
 import { waveWithContinuation } from '../../shared/autopilot/continuation'
 import type { BindingTarget } from '../../shared/binding/resolve'
@@ -256,8 +256,8 @@ export function gateQueueRoleHint(role: 'request' | null): string {
     : 'The Profile of this machine has no cross_machine_gate: there is no gate queue'
 }
 
-/** Why "Record owner check" is refused while Autopilot runs in the Project (spec Q6 (a)). */
-export const OWNER_CHECK_AUTOPILOT_HINT = 'Autopilot is running in this Project: stop it to record an owner check'
+// Why "Record owner check" is refused while Autopilot runs in the Project (spec Q6 (a)): shared with the Acceptance view.
+export { OWNER_CHECK_AUTOPILOT_HINT }
 
 /** A decision of "Record owner check" with the item's text the owner saw (src/shared/ipc/actions.ts, ownerCheckDecisionSchema). */
 export type SeenOwnerCheck = OwnerCheckDecision & { itemText: string }

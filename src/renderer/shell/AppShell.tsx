@@ -1,4 +1,5 @@
 import { Component, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { AcceptanceView } from '../acceptance/AcceptanceView'
 import { StartAutopilotModal } from '../autopilot/StartAutopilotModal'
 import { ChangesScreen } from '../changes/ChangesView'
 import { underFocusCover } from '../focus/cover'
@@ -82,6 +83,7 @@ const VIEW_NAMES: Record<ShellView, string> = {
   pipeline: 'Pipeline',
   history: 'Run history',
   'pull-requests': 'Pull requests',
+  acceptance: 'Acceptance',
   story: 'Code story',
   changes: 'Changes',
 }
@@ -133,6 +135,10 @@ export function AppShell({ project, canvas, session, pipeline, history, view: co
           {/* The PR inbox of the active Project (worfy-pr-inbox ticket 03): the view finds the Project itself. */}
           <div className="w-shell__view" data-view="pull-requests" hidden={view !== 'pull-requests'}>
             <PullRequestsView />
+          </div>
+          {/* The checks that wait for the owner in every Project (worfy-acceptance ticket 05): no Project needed. */}
+          <div className="w-shell__view" data-view="acceptance" hidden={view !== 'acceptance'}>
+            <AcceptanceView />
           </div>
           {/* A Code story (worfy-code-stories ticket 09): openStory (stories/open.ts) opens it, Esc leaves it. */}
           <div className="w-shell__view" data-view="story" hidden={view !== 'story'}>

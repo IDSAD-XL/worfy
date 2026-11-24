@@ -1,7 +1,7 @@
 # 05 — Вкладка Acceptance: две панели, группы, пункт с Evidence вне focus mode, строка Stable copy, Pass и Fail
 
 Type: task
-Status: open
+Status: claimed 2026-11-24T02:21Z
 Blocked by: 01, 02, 03
 Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Набросок функции» («Путь владельца», «Экран»); «Решения по
 реализации» → «Вид», «Платформа, копия и commit строки»; «Решения по test-ам», Seam 3; «Риски», «Размер 05»; «Вопросы
