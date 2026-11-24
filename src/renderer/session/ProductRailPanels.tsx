@@ -8,6 +8,7 @@ import { Markdown } from '../markdown/Markdown'
 import {
   criticWriteOf,
   fileNameOf,
+  ideasSkillRunOf,
   isCritic,
   isIdeaGenerator,
   lastAnswerOf,
@@ -26,8 +27,8 @@ import {
 //   (product-agents.ts, criticWriteOf), as the agents list counts its objections. A review the orchestrator's
 //   critic wrote into `docs/product/critic/` outside this Session is not here: the renderer reads no file of
 //   that folder (`docs.read` serves HANDOFF.md and ADRs only).
-// - Idea generator — the last answer of the Session's last `product-ideas` agent, from its own transcript, and
-//   its state.
+// - Idea generator — the last run of `product-ideas`, its task, state and answer: a Subagent's from its own
+//   transcript, or the advisor's own run of the skill in a turn of this chat (ticket 36), whichever started later.
 // - Drafts — the advisor's drafts this Session's chat wrote (product-agents.ts, draftsOf).
 //
 // A Write or an Edit counts only once its tool_result says it ended well: a refused or failed call changed no file.
@@ -85,7 +86,7 @@ function Empty({ testId, children }: { testId: string; children: string }) {
 }
 
 /** The name, the task and the state line of the agent a panel shows, as a row of the agents list has them. */
-function AgentLine({ agent, objections }: { agent: SubagentInfo; objections?: number | undefined }) {
+function AgentLine({ agent, objections }: { agent: Pick<SubagentInfo, 'description' | 'status' | 'startedAt' | 'durationMs'>; objections?: number | undefined }) {
   const now = useNow()
   return (
     <div className="w-product__rail-agent" data-status={agent.status}>
@@ -131,11 +132,40 @@ export function CriticPanel({ projectId, agents, root, session }: AgentPanelProp
   )
 }
 
-/** The Idea generator button's panel: the last idea generator's state and last answer. */
-export function IdeasPanel({ projectId, agents, root, session }: AgentPanelProps) {
-  const generator = latestAgent(agents, isIdeaGenerator)
-  const { events, error } = useAgentEvents(root, session, generator)
+interface IdeasPanelProps extends AgentPanelProps {
+  /** The chat's events: the advisor's own runs of the skill are in them. */
+  chat: readonly AgentEvent[]
+  /** The Session's turn is running. */
+  busy: boolean
+}
+
+/**
+ * The Idea generator button's panel: the last idea generator's task, state and last answer — an idea generator
+ * Subagent, or the run of the skill in the chat (ideasSkillRunOf), whichever started later; a run with no start time
+ * only when neither has one.
+ */
+export function IdeasPanel({ projectId, agents, root, session, chat, busy }: IdeasPanelProps) {
+  const subagent = latestAgent(agents, isIdeaGenerator)
+  const run = ideasSkillRunOf(chat, busy)
+  const inChat = run !== undefined && (subagent === undefined || (run.startedAt ?? Number.NEGATIVE_INFINITY) >= (subagent.startedAt ?? Number.NEGATIVE_INFINITY))
+  const generator = inChat ? undefined : subagent
+  const read = useAgentEvents(root, session, generator)
+  if (inChat) {
+    return (
+      <div className="w-product__rail-body" data-testid="product-ideas">
+        <AgentLine agent={run} />
+        {run.answer !== undefined ? (
+          <div className="w-product__rail-text" data-testid="product-ideas-answer">
+            <Markdown text={run.answer} projectId={projectId} breaks />
+          </div>
+        ) : (
+          <Empty testId="product-ideas-no-answer">No ideas written yet</Empty>
+        )}
+      </div>
+    )
+  }
   if (generator === undefined) return <Empty testId="product-ideas-empty">No idea generator in this Session yet</Empty>
+  const { events, error } = read
   const answer = events === undefined ? undefined : lastAnswerOf(events)
   return (
     <div className="w-product__rail-body" data-testid="product-ideas">

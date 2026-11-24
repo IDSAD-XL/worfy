@@ -1,7 +1,8 @@
 # 36: Rework of worfy-product-session 27, item 9
 
 Type: task
-Status: open
+Status: claimed 2026-11-24T23:43Z
+Branch: worfy-product-session/36
 Blocked by: None — can start immediately
 Source: owner-check fail 2026-11-24 of worfy-product-session 27, item 9 — 27-кнопки-полосы-и-шапка-как-в-прототипе.md
 
@@ -17,7 +18,29 @@ Source: owner-check fail 2026-11-24 of worfy-product-session 27, item 9 — 27-�
 
 Панели rail Product Session (Agents, Critic, Idea generator, Drafts): `src/renderer/product/` — обработчик Esc панели и источник списка запусков idea generator.
 
+Уточнено при работе (2026-11-25): код панелей лежит не в `src/renderer/product/`, а в `src/renderer/session/`:
+
+- `src/renderer/session/ProductSessionPanel.tsx` — Esc принимается на всей полосе (`<aside>`), а не только внутри панели:
+  кнопка полосы после щелчка держит фокус, и Esc после «›» и повторного Agents шёл мимо панели.
+- `src/renderer/session/product-agents.ts` (`ideasSkillRunOf`), `src/renderer/session/ProductRailPanels.tsx`
+  (`IdeasPanel`), `src/renderer/session/SessionView.tsx` (`busy`) — советник запускает skill `worfy:product-ideas` в
+  своём ходе (`harness/hooks/rules/product.md`), а не как Subagent; панель искала только Subagent-ы.
+- `test/unit/product-session-panel.test.tsx`, `test/e2e/product-session.spec.ts`,
+  `test/fixtures/agent-scripts/product-ideas-skill.jsonl`, `docs/features/product-session.md`,
+  `.scratch/worfy-product-session/evidence/36-*.png`.
+
 ## Готово, когда
+
+- [ ] Unit test: Esc с кнопки полосы, которая открыла панель (после «›» и повторного Agents), закрывает панель и
+  оставляет фокус на кнопке; без открытой панели Esc уходит дальше.
+- [ ] Unit test-ы: Idea generator показывает запуск skill `worfy:product-ideas` в ходе советника — задание (аргументы
+  skill-а или вопрос хода), состояние (working, пока ход идёт; done, error, interrupted) и последний ответ хода;
+  `/worfy:product-ideas` владельца тоже считается; отказанный вызов Skill и другой skill — нет; из Subagent-а и запуска
+  в чате показан более поздний.
+- [ ] e2e test (`test/e2e/product-session.spec.ts`, фейковый агент `product-ideas-skill.jsonl`): в окне 1160 px панель
+  Idea generator показывает задание, «working», затем «done» и ответ; Agents, «›», снова Agents и Escape — панель
+  закрыта, фокус на Agents.
+- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test`, e2e `test/e2e/product-session.spec.ts`, gate fast — exit 0.
 
 - [ ] (вручную) Сделай: нажми по очереди Critic, Idea generator, Drafts, щёлкни черновик, потом ещё раз Drafts; затем Agents, «›», снова Agents и Escape → Должно быть: каждая кнопка открывает свою панель в колонке 300 px, чат сужается, но не закрыт; Critic — строка состояния с числом возражений, имя файла и отзыв; Idea generator — задание, состояние, ответ; Drafts — черновик хода, по щелчку его текст; повторный щелчок, «›» и Escape сворачивают; открыта одна панель.
   - needs: mac stable

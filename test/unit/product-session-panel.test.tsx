@@ -14,7 +14,7 @@ import { adviceShare, type AdviceShare } from '../../src/shared/product/share'
 import { defaultAppSettings, PRODUCT_SESSION_SPLIT_MIN, type AppSettings } from '../../src/shared/settings/app-settings'
 import type { SubagentInfo } from '../../src/shared/transcript/subagents'
 import { MIN_SHARE } from '../../src/renderer/focus/split-tree'
-import { draftsOf, lastAnswerOf, latestAgent, isCritic, productAgentState, productAgentTime } from '../../src/renderer/session/product-agents'
+import { draftsOf, ideasSkillRunOf, lastAnswerOf, latestAgent, isCritic, productAgentState, productAgentTime } from '../../src/renderer/session/product-agents'
 
 const subagents = vi.hoisted(() => ({ tree: [] as unknown[], hidden: {} as Record<string, string[]> }))
 
@@ -131,10 +131,10 @@ afterEach(() => {
   localStorage.clear()
 })
 
-async function mount(events?: readonly AgentEvent[]) {
+async function mount(events?: readonly AgentEvent[], busy = false) {
   const { ProductSessionPanel } = await import('../../src/renderer/session/ProductSessionPanel')
   render(
-    <ProductSessionPanel projectId="alpha" nodeId="node-1" sessionId="live-1" events={events}>
+    <ProductSessionPanel projectId="alpha" nodeId="node-1" sessionId="live-1" events={events} busy={busy}>
       <section aria-label="Session">chat</section>
     </ProductSessionPanel>,
   )
@@ -645,6 +645,124 @@ describe('the Critic, Idea generator and Drafts buttons of the strip', () => {
     fireEvent.click(screen.getByTestId('product-rail-ideas'))
     fireEvent.keyDown(screen.getByTestId('product-rail-ideas-panel'), { key: 'Escape' })
     expect(openPanels()).toEqual([])
+  })
+
+  // Ticket 36 (rework of 27, item 9): the strip button keeps the focus after a click, so Escape comes from the strip,
+  // not from inside the panel — as after «›» and a click on Agents again.
+  it('Escape closes the open panel from the strip button that opened it; with none open it passes on', async () => {
+    await mount()
+    const toggle = screen.getByTestId('product-agents-toggle')
+    const outside = vi.fn()
+    document.addEventListener('keydown', outside)
+    try {
+      fireEvent.click(toggle)
+      fireEvent.click(screen.getByTestId('product-agents-close'))
+      expect(document.activeElement).toBe(toggle)
+      fireEvent.click(toggle)
+      expect(openPanels()).toEqual(['agents'])
+      fireEvent.keyDown(toggle, { key: 'Escape' })
+      expect(openPanels()).toEqual([])
+      expect(document.activeElement).toBe(toggle)
+      expect(outside).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByTestId('product-rail-critic'))
+      fireEvent.keyDown(screen.getByTestId('product-rail-critic'), { key: 'Escape' })
+      expect(openPanels()).toEqual([])
+      // Nothing open: Escape is not the strip's to take.
+      fireEvent.keyDown(toggle, { key: 'Escape' })
+      expect(outside).toHaveBeenCalledTimes(1)
+    } finally {
+      document.removeEventListener('keydown', outside)
+    }
+  })
+
+  // Ticket 36: the advisor runs the skill `worfy:product-ideas` in its own turn (harness/hooks/rules/product.md), not
+  // as a Subagent: the panel shows that run from the chat — its task, its state and the advisor's answer of that turn.
+  const IDEAS_PROMPT: AgentEvent = { type: 'prompt', text: 'What should we build next?', at: 1_000 }
+  const skillCall = (id: string, input: Record<string, unknown>, at: number): AgentEvent => ({ type: 'tool_use', id, name: 'Skill', input, parentToolUseId: null, at })
+  const turnEnd = (at: number, isError = false): AgentEvent =>
+    ({ type: 'result', subtype: isError ? 'error_during_execution' : 'success', isError, error: isError ? 'stopped' : null, text: null, costUsd: 0, durationMs: 1, numTurns: 1, usage: { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }, at }) as unknown as AgentEvent
+  const ideasTurn = (input: Record<string, unknown> = { skill: 'worfy:product-ideas' }): AgentEvent[] => [
+    IDEAS_PROMPT,
+    skillCall('skill-1', input, 2_000),
+    result('skill-1'),
+    text('m1', 'Reading the roadmap first.'),
+    { type: 'text', text: 'A Subagent’s own words', messageId: 'sub-1', parentToolUseId: 'agent-1', synthetic: false },
+    text('m3', '1. **Team plan** for small teams'),
+    text('m3', '2. A free tier'),
+  ]
+  const ideasPanel = () => screen.getByTestId('product-rail-ideas-panel')
+
+  it('Idea generator shows the skill run of the advisor’s own turn: the asked task, its state and the turn’s answer', async () => {
+    await mount([...ideasTurn(), turnEnd(62_000)])
+    fireEvent.click(screen.getByTestId('product-rail-ideas'))
+    const panel = ideasPanel()
+    expect(within(panel).queryByTestId('product-ideas-empty')).toBeNull()
+    expect(within(panel).getByTestId('product-ideas-answer').textContent).toContain('Team plan')
+    expect(within(panel).getByTestId('product-ideas-answer').textContent).toContain('A free tier')
+    expect(within(panel).getByTestId('product-ideas-answer').textContent).not.toContain('Reading the roadmap')
+    expect(within(panel).getByTestId('product-ideas-answer').textContent).not.toContain('Subagent’s own words')
+    expect(within(panel).getByTestId('product-rail-state').textContent).toMatch(/^\s*done ·/u)
+    // No args: the task is what the owner asked in that turn.
+    expect(within(panel).getByText('What should we build next?')).toBeTruthy()
+    // No Subagent transcript is read for it.
+    expect(asked.some((each) => each.channel === 'claudeHome.subagentTranscript')).toBe(false)
+    cleanup()
+    await mount([...ideasTurn({ skill: 'product-ideas', args: 'Ideas for small teams' }), turnEnd(62_000)])
+    fireEvent.click(screen.getByTestId('product-rail-ideas'))
+    expect(within(ideasPanel()).getByText('Ideas for small teams')).toBeTruthy()
+  })
+
+  it('Idea generator: a skill run still in its turn is working; the next turn or a turn that failed ends it', async () => {
+    await mount(ideasTurn().slice(0, 3), true)
+    fireEvent.click(screen.getByTestId('product-rail-ideas'))
+    expect(within(ideasPanel()).getByTestId('product-rail-state').textContent).toMatch(/^\s*working ·/u)
+    expect(within(ideasPanel()).getByTestId('product-ideas-no-answer').textContent).toBe('No ideas written yet')
+    cleanup()
+    // Read back from the transcript file: no turn result, but the owner wrote again.
+    await mount([...ideasTurn(), { type: 'notice', kind: 'user', text: 'Thanks', at: 90_000 } as AgentEvent, text('m4', 'You are welcome.')], true)
+    fireEvent.click(screen.getByTestId('product-rail-ideas'))
+    expect(within(ideasPanel()).getByTestId('product-rail-state').textContent).toMatch(/^\s*done ·/u)
+    expect(within(ideasPanel()).getByTestId('product-ideas-answer').textContent).toContain('A free tier')
+    cleanup()
+    await mount([...ideasTurn(), turnEnd(62_000, true)])
+    fireEvent.click(screen.getByTestId('product-rail-ideas'))
+    expect(within(ideasPanel()).getByTestId('product-rail-state').textContent).toMatch(/^\s*error ·/u)
+  })
+
+  it('Idea generator: the owner’s own /worfy:product-ideas counts; a refused Skill call and another skill do not', async () => {
+    await mount([{ type: 'command', name: '/worfy:product-ideas', args: 'for small teams', at: 1_000 } as AgentEvent, text('m1', '1. A team plan'), turnEnd(5_000)])
+    fireEvent.click(screen.getByTestId('product-rail-ideas'))
+    expect(within(ideasPanel()).getByText('for small teams')).toBeTruthy()
+    expect(within(ideasPanel()).getByTestId('product-ideas-answer').textContent).toContain('A team plan')
+    cleanup()
+    await mount([IDEAS_PROMPT, skillCall('s1', { skill: 'worfy:product-ideas' }, 2_000), result('s1', true), skillCall('s2', { skill: 'worfy:ship-ticket' }, 3_000), result('s2'), text('m1', 'No ideas'), turnEnd(5_000)])
+    fireEvent.click(screen.getByTestId('product-rail-ideas'))
+    expect(screen.getByTestId('product-ideas-empty').textContent).toBe('No idea generator in this Session yet')
+  })
+
+  it('ideasSkillRunOf times a run from its Skill call to its turn’s end; a running one has no duration', () => {
+    expect(ideasSkillRunOf([...ideasTurn(), turnEnd(62_000)], false)).toMatchObject({ status: 'done', startedAt: 2_000, durationMs: 60_000, description: 'What should we build next?' })
+    expect(ideasSkillRunOf(ideasTurn(), true)).toMatchObject({ status: 'running', startedAt: 2_000, durationMs: null })
+    // Not busy and no result: the turn is over (a transcript read back), it lasted to its last event.
+    expect(ideasSkillRunOf(ideasTurn(), false)).toMatchObject({ status: 'done', durationMs: null })
+    const interrupted = { ...(turnEnd(9_000, true) as object), interrupted: true } as AgentEvent
+    expect(ideasSkillRunOf([...ideasTurn(), interrupted], false)?.status).toBe('interrupted')
+    expect(ideasSkillRunOf([IDEAS_PROMPT, text('m1', 'no skill')], false)).toBeUndefined()
+  })
+
+  it('Idea generator shows the later of a skill run and an idea generator Subagent', async () => {
+    subagents.tree = [agent('ideas-old', 'worfy:product-ideas', { status: 'done', startedAt: 500, durationMs: 10, description: 'Older ideas' })]
+    transcripts = { 'ideas-old': settled([text('o1', 'Old answer')]) }
+    await mount([...ideasTurn(), turnEnd(62_000)])
+    fireEvent.click(screen.getByTestId('product-rail-ideas'))
+    expect(within(ideasPanel()).getByTestId('product-ideas-answer').textContent).toContain('Team plan')
+    cleanup()
+    subagents.tree = [agent('ideas-new', 'worfy:product-ideas', { status: 'done', startedAt: 100_000, durationMs: 10, description: 'Newer ideas' })]
+    transcripts = { 'ideas-new': settled([text('n1', 'New answer')]) }
+    await mount([...ideasTurn(), turnEnd(62_000)])
+    fireEvent.click(screen.getByTestId('product-rail-ideas'))
+    await vi.waitFor(() => expect(within(ideasPanel()).getByTestId('product-ideas-answer').textContent).toContain('New answer'))
+    expect(within(ideasPanel()).getByText('Newer ideas')).toBeTruthy()
   })
 
   it('draftsOf keeps one entry per draft, its last whole text and whether an Edit came after it; other files are no drafts', () => {

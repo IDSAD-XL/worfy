@@ -58,13 +58,17 @@ heading, so Interrupt stays in sight down to the smallest window. Its body is th
   its parent. Escape or "›" closes the list. The rail blocks of a plain Session are not shown: a
   Product Session is bound to no Ticket and no Epic.
 - The other three buttons open their own panel in the same 300 px column. One panel is open at a time: another button
-  switches to its panel, the same button, "›" or Escape closes it.
+  switches to its panel, the same button, "›" or Escape closes it. Escape works with the focus anywhere in the strip
+  or the open panel, the strip button just clicked included.
   - Critic shows the review the Session's last critic wrote: its state line with the number of objections, the file
     name and the review, from its last Write that ended well. It is read from the critic's own transcript, so a
     review written outside this Session (by the Orchestrator's critic, or edited by hand) is not shown. With no critic it reads "No critic in this Session yet";
     before the review, "No review written yet".
-  - Idea generator shows the Session's last `worfy:product-ideas` agent: its task, its state line and its last answer.
-    With none it reads "No idea generator in this Session yet"; before an answer, "No ideas written yet".
+  - Idea generator shows the Session's last run of `worfy:product-ideas`: its task, its state line and its last answer.
+    The advisor usually runs the skill in its own turn; that run's task is the skill's arguments, else what the owner
+    asked in that turn, it is "working" while the turn runs, and its answer is the advisor's last message of that
+    turn. A run as a Subagent shows the agent's own task, state and answer. When both kinds exist, the later started
+    one is shown. With none it reads "No idea generator in this Session yet"; before an answer, "No ideas written yet".
   - Drafts lists the advisor's drafts (`<topic>/drafts/*.md`) that the loaded part of the chat wrote or edited, the
     last written first, each with its topic and how many times it was written. A click shows the text of its last
     Write, with a note when an Edit came after it. Only a Write or Edit whose result says it ended well counts: a call

@@ -1171,3 +1171,65 @@ test('the live summary shows under the status line while the advisor works and g
     await launched.close()
   }
 })
+
+// Ticket 36 (rework of ticket 27, item 9): the advisor runs the skill `worfy:product-ideas` in its own turn, not as a
+// Subagent, and the Idea generator panel shows that run — its task (the skill's arguments), «working» while the turn
+// runs, with the advisor's last words so far, and «done» with the turn's answer after it. The fake script product-ideas-skill.jsonl holds the turn after the
+// Skill call («ideas»). Escape closes the Agents panel opened again after «›»: the clicked button keeps the focus,
+// so the key comes from the strip. The screenshots (dark and light) go to the test's output folder.
+test('the Idea generator panel shows the advisor’s own run of the skill; Escape closes Agents opened again after «›»', async () => {
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'product-ideas-skill' } })
+  try {
+    const { app, window } = launched
+    await canvasReady(launched, { size: { width: 1440, height: 900 }, visible: [window.getByTestId('orchestrator-node')] })
+    await window.emulateMedia({ colorScheme: 'dark' })
+    await window.keyboard.press('ControlOrMeta+k')
+    await window.getByTestId('palette-input').fill('new product session')
+    await expect(window.locator('[data-testid="palette-option"][data-command="new:product-session"]')).toHaveAttribute('data-active', 'true')
+    await window.keyboard.press('Enter')
+    const view = sessionView(window)
+    await expect(view).toBeVisible()
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1160, 860))
+    await expect.poll(() => window.evaluate(() => (globalThis as unknown as { innerWidth: number }).innerWidth)).toBe(1160)
+    const field = view.getByRole('textbox', { name: /^Message / })
+    await expect(field).toBeEnabled()
+    await field.fill('What should we build next?')
+    await field.press('Enter')
+    await expect(view.getByTestId('transcript-text').last()).toContainText('Reading the roadmap')
+
+    // While the turn runs: the task, «working» and the advisor's last words so far, as a Subagent's panel has them.
+    await view.getByTestId('product-rail-ideas').click()
+    const ideas = view.getByTestId('product-rail-ideas-panel')
+    await expect(ideas.getByTestId('product-ideas-empty')).toHaveCount(0)
+    await expect(ideas).toContainText('Ideas for a calmer week')
+    await expect(ideas.getByTestId('product-rail-state')).toContainText('working')
+    await expect(ideas.getByTestId('product-ideas-answer')).toContainText('Reading the roadmap')
+    await app.evaluate((_, step) => (globalThis as unknown as { worfyFakeRelease: (name: string) => void }).worfyFakeRelease(step), 'ideas')
+
+    // The turn's answer and «done».
+    await expect(view.getByTestId('session-state')).toHaveText('idle')
+    await expect(ideas.getByTestId('product-ideas-answer')).toContainText('A team plan')
+    await expect(ideas.getByTestId('product-ideas-answer')).not.toContainText('Reading the roadmap')
+    await expect(ideas.getByTestId('product-rail-state')).toContainText('done')
+    await expect.poll(async () => Math.round((await view.getByTestId('product-agents').boundingBox())!.width)).toBe(300)
+    await view.screenshot({ path: test.info().outputPath('36-ideas-panel-1160-dark.png') })
+    await window.emulateMedia({ colorScheme: 'light' })
+    await view.screenshot({ path: test.info().outputPath('36-ideas-panel-1160-light.png') })
+    await window.emulateMedia({ colorScheme: 'dark' })
+
+    // Agents, «›», Agents again and Escape: the panel closes, the focus stays on Agents.
+    const toggle = view.getByTestId('product-agents-toggle')
+    await toggle.click()
+    await expect(view.getByTestId('product-agents-panel')).toBeVisible()
+    await view.getByTestId('product-agents-close').click()
+    await expect(view.locator('.w-product__agents-panel')).toHaveCount(0)
+    await toggle.click()
+    await expect(view.getByTestId('product-agents-panel')).toBeVisible()
+    await window.keyboard.press('Escape')
+    await expect(view.locator('.w-product__agents-panel')).toHaveCount(0)
+    await expect(toggle).toBeFocused()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  } finally {
+    await launched.close()
+  }
+})
