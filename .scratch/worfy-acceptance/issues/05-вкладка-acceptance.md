@@ -1,7 +1,7 @@
 # 05 — Вкладка Acceptance: две панели, группы, пункт с Evidence вне focus mode, строка Stable copy, Pass и Fail
 
 Type: task
-Status: claimed 2026-11-24T02:21Z
+Status: done 2026-11-24T06:05Z
 PR: #2166
 Blocked by: 01, 02, 03
 Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Набросок функции» («Путь владельца», «Экран»); «Решения по
@@ -62,6 +62,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Наб
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 58c96fa3a
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0; `gate fast` exit 0 · mac - · bcf9d49d5
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45334303688/job/138253916213 · ci - · 335193573cfd4d733db0d458a0be0910c416b28d
 
 ## Где в коде
 
