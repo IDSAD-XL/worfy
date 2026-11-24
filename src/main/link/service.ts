@@ -50,12 +50,14 @@ import {
   CONNECT_PATH,
   helloMessage,
   LINK_PROTOCOL_VERSION,
+  linkPlatform,
   MAX_ACCEPTS,
   MessageRegistry,
   PAIR_PATH,
   revokedMessage,
   type Frame,
   type LinkMessage,
+  type LinkPlatform,
   type MessageHandler,
 } from './messages'
 import {
@@ -122,8 +124,18 @@ export interface LinkServiceEvents {
    * receiver keeps one connection's (remote-calls.ts, worfy-link ticket 09).
    */
   'ipc-event': [{ machineId: string; channel: string; payload: unknown; connection: LinkConnection }]
+  /** A connection's Machine said who it is in a `hello` (its build and platform: announced()). */
+  hello: [{ id: string }]
   /** The link settings changed (settings.ts). */
   settings: [LinkSettingsValue]
+}
+
+/** What a Linked machine said of itself in the last `hello` of a connection (worfy-acceptance ticket 07). */
+export interface Announced {
+  /** Its build version, `<semver>+<SHA>[.dirty]`. */
+  build: string
+  /** Its platform; absent for a build before ticket 07. */
+  platform?: LinkPlatform
 }
 
 /** A pause of linking: how many attempts failed within the hour, from which addresses, and until when. */
@@ -139,6 +151,8 @@ export interface LinkServiceOptions {
   buildKind: BuildKind
   /** The build version, `<semver>+<SHA>[.dirty]`, sent in `hello` and named in a protocol mismatch. */
   buildVersion: string
+  /** The platform `hello` names (worfy-acceptance ticket 07); this process's by default. Tests stand a PC in. */
+  platform?: LinkPlatform
   /** Where the server listens: every interface by default; tests pass 127.0.0.1. */
   listenHost?: string
   hostname?: () => string
@@ -242,6 +256,8 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
   private readonly connections = new Map<string, Set<LinkConnection>>()
   /** What each connection's Machine accepts, from its last `hello` (ADR-0079): in memory, gone with the connection. */
   private readonly accepted = new WeakMap<LinkConnection, ReadonlySet<string>>()
+  /** The build and platform each connection's Machine said in its last `hello` (worfy-acceptance ticket 07); gone with the connection. */
+  private readonly announcedBy = new WeakMap<LinkConnection, Announced>()
   /** The clients of every open connection (ipc-adapter.ts); they follow the access switch. */
   private readonly peers = new Set<LinkPeer>()
   private readonly certificateChanged = new Set<string>()
@@ -667,6 +683,15 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     return connection !== undefined && (this.accepted.get(connection)?.has(message.name) ?? false)
   }
 
+  /**
+   * The build and platform Linked machine `machineId` said in the last `hello` of `connection` (the one sendMessage
+   * would use by default); undefined while it is not connected or has not said it yet. `platform` is absent for a build
+   * before worfy-acceptance ticket 07.
+   */
+  announced(machineId: string, connection: LinkConnection | undefined = this.openConnection(machineId)): Announced | undefined {
+    return connection === undefined || connection.machineId !== machineId || !connection.isOpen ? undefined : this.announcedBy.get(connection)
+  }
+
   /** Sends a service message to Linked machine `machineId`; throws when it is not connected. */
   sendMessage<S extends z.ZodType>(machineId: string, message: LinkMessage<S>, payload: z.input<S>): void {
     const parsed = this.messages.outgoing(message, payload)
@@ -859,7 +884,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
 
   /** `hello` of a connection: who this Machine is and the service messages it accepts (ADR-0079). Pairing's `hello` carries no list. */
   private sendHello(connection: LinkConnection): void {
-    const hello: Hello = { ...this.hello(), accepts: this.messages.names().slice(0, MAX_ACCEPTS) }
+    const hello: Hello = { ...this.hello(), accepts: this.messages.names().slice(0, MAX_ACCEPTS), platform: this.options.platform ?? linkPlatform() }
     connection.send({ t: 'msg', name: helloMessage.name, payload: this.messages.outgoing(helloMessage, hello) })
   }
 
@@ -874,9 +899,14 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
         if (frame.name === helloMessage.name) {
           // Each `hello` on a connection replaces what it accepts; one without `accepts` names nothing.
           const hello = helloMessage.schema.safeParse(frame.payload)
-          if (hello.success) this.accepted.set(connection, new Set(hello.data.accepts ?? []))
+          if (hello.success) {
+            this.accepted.set(connection, new Set(hello.data.accepts ?? []))
+            const { build, platform } = hello.data
+            this.announcedBy.set(connection, platform === undefined ? { build } : { build, platform })
+          }
         }
         await this.messages.dispatch(frame.name, frame.payload, { machineId: connection.machineId }, this.warn)
+        if (frame.name === helloMessage.name && this.announcedBy.has(connection)) this.emit('hello', { id: connection.machineId })
         return
       case 'call': {
         const result = await this.ipcAdapter().then(

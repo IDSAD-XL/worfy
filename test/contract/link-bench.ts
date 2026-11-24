@@ -24,6 +24,9 @@ export interface BenchMachine {
   readonly pairingFailures: string[]
 }
 
+/** What one bench machine says of itself unlike the others. */
+export type MachineOverrides = Partial<Pick<LinkServiceOptions, 'buildVersion' | 'platform'>>
+
 const CONSOLE_METHODS = ['log', 'info', 'warn', 'error', 'debug'] as const
 
 export interface BenchOptions {
@@ -77,6 +80,7 @@ export class LinkBench {
   }
 
   private serviceOptions(label: string, dataDir: string): LinkServiceOptions {
+    const own = this.overrides.get(label) ?? {}
     const peer = this.options.peerAddresses
     const peerLocal = peer?.local
     return {
@@ -96,8 +100,12 @@ export class LinkBench {
       ...(this.options.pingIntervalMs === undefined ? {} : { pingIntervalMs: this.options.pingIntervalMs }),
       ...(this.options.pairingStepTimeoutMs === undefined ? {} : { pairingStepTimeoutMs: this.options.pairingStepTimeoutMs }),
       ...(this.options.addClient === undefined ? {} : { addClient: this.options.addClient }),
+      ...own,
     }
   }
+
+  /** What a machine says of itself unlike the others (its build, its platform), by label; kept across restart(). */
+  private readonly overrides = new Map<string, MachineOverrides>()
 
   private watch(machine: BenchMachine): void {
     machine.service.on('pairing-code', () => {
@@ -107,8 +115,9 @@ export class LinkBench {
     machine.service.on('pairing-failed', ({ message }) => machine.pairingFailures.push(message))
   }
 
-  /** A new Machine over a fresh data folder. */
-  async machine(label: string): Promise<BenchMachine> {
+  /** A new Machine over a fresh data folder; `overrides` set its build or platform (all share '0.2.0+bench' and the host's). */
+  async machine(label: string, overrides: MachineOverrides = {}): Promise<BenchMachine> {
+    this.overrides.set(label, overrides)
     const dataDir = join(this.root, label)
     const service = await LinkService.start(this.serviceOptions(label, dataDir))
     const machine: BenchMachine = { label, dataDir, service, pairingFailures: [] }

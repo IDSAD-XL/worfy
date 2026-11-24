@@ -50,10 +50,13 @@ check is selected; when the selected row leaves the queue, the row that now stan
   mode a line under the field says that the words go into the repository with the `owner-check` line;
 - **Checked in:** the platform and the copy, each a choice. The platform is the one of the window's Machine; the copy
   is the one the item's `needs:` line names, else `stable` when the change is in the Stable copy, else `installed`.
-  With the copy `stable` on the platform of the window's Machine, the decision carries the commit of this Machine's
-  Stable copy — the one its Stable copy line reads, which main sends with the queue — and the row shows its version
-  when the window is that copy, else its short commit; otherwise the commit is `-` and the skill writes the line
-  without one. A window on a Linked machine always sends `-`: the queue it reads, with its commit, is that Machine's;
+  On the platform of a Linked machine — the window's Machine, or a connected one of the platform chosen — the
+  decision carries the commit of the build that Machine runs, and the row shows that build (see
+  [On a Linked machine](#on-a-linked-machine)). Otherwise, with the copy `stable` on the platform of this Machine, it
+  carries the commit of this Machine's Stable copy — the one its Stable copy line reads, which main sends with the
+  queue — and the row shows its version when the window is that copy, else its short commit; otherwise the commit is
+  `-` and the skill writes the line without one. A window on a Linked machine sends `-` there: the queue it reads,
+  with its commit, is that Machine's;
 - **Pass** and **Fail**. A click sends "Record owner check" ([Projects](projects.md), "Project settings…"): the
   Project's template with the item, the verdict, the platform, the copy and the commit, and the owner's words after it,
   to the Project's Orchestrator. The item's text as the view shows it goes too: main refuses a decision on an item
@@ -91,13 +94,16 @@ pane draws it as Markdown.
 - `src/renderer/acceptance/acceptance.css`; the tab is in `src/renderer/shell/Toolbar.tsx`, the view is mounted in
   `src/renderer/shell/AppShell.tsx`.
 - Tests: `test/unit/acceptance-view.test.tsx` (the groups, the tab, ↑ ↓, every kind of Stable copy line, Fail without a
-  comment, Autopilot, Pass, Sent and Not recorded yet, a refusal, Waits for you), `test/e2e/acceptance.spec.ts` (the
-  built app on the fake agent: an item with a screenshot and a clip, Pass reaching the Orchestrator, the line written
-  into the Ticket taking the item away, ↑ ↓, screenshots at 1280 and 1600 px in both themes);
+  comment, Autopilot, Pass, Sent and Not recorded yet, a refusal, Waits for you, a window on a Linked machine),
+  `test/e2e/acceptance.spec.ts` (the built app on the fake agent: an item with a screenshot and a clip, Pass reaching
+  the Orchestrator, the line written into the Ticket taking the item away, ↑ ↓, screenshots at 1280 and 1600 px in both
+  themes), `test/e2e/linked-acceptance.spec.ts` (two built worfy: the queue of the other Machine, Read only);
   `test/unit/acceptance-section.test.tsx` (counts by Project, the rail badge, a click), the "where a Manual check row
   leads" cases of `test/unit/palette-manual-check-row.test.tsx`, `test/unit/notification-ticket-click.test.tsx` (the
-  click on an "is waiting for you" notification), and `test/e2e/sidebar-rail.spec.ts` (the badge on the rail and the way into the
-  view in the built app).
+  click on an "is waiting for you" notification), and `test/e2e/sidebar-rail.spec.ts` (the badge on the rail and the way
+  into the view in the built app).
+- `src/shared/acceptance/linked-build.ts`: the build of a Linked machine for an item, the commit of a decision checked
+  there, and "Update worfy on <name>".
 
 ## The queue
 
@@ -157,6 +163,14 @@ the item's text, the verdict and the time. The owner's words and the item's text
 A Linked machine reads the queue of this Machine's Projects while "Linked machines can work with my Projects" is on,
 as it reads the other live state of the Projects. A Project kept on this Machine only is left out of the answer and of
 every change sent after it.
+
+The Acceptance tab of a window on a Linked machine is that Machine's queue: `acceptance.get` and `acceptance.changed`
+go there by their access mark. With Read only, Pass and Fail are inactive with the read-only tooltip. With Full access,
+the decision goes to the Orchestrator of the Project on that Machine. "Checked in" starts at that Machine's platform,
+and the commit is the one of the build it runs, from its `hello`. An item whose `needs:` names another platform than
+this Machine's shows the build of the Linked machine of that platform, or `PC not connected`. A worfy over there without
+the view makes it say `Update worfy on <name>`, and its Update first line says the same in place of Update worfy. See
+[Link](link.md), "On a Linked machine".
 
 ## Stable copy
 

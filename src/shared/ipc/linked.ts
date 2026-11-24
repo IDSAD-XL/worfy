@@ -8,9 +8,11 @@
 // `desktop` channels; `local` and `link` ones stay on this Machine.
 //
 // Every channel here is `local`: they are this Machine's screen talking to its own main, and a
-// Linked machine never calls them. The renderer learns a Linked machine's id and nothing else of
-// it: no token, certificate or address appears in this contract.
+// Linked machine never calls them. The renderer learns a Linked machine's id, and the build and
+// platform it announces (worfy-acceptance ticket 07); no token, certificate or address appears in
+// this contract.
 import { z } from 'zod'
+import { OWNER_CHECK_PLATFORMS } from '../projects/action-templates'
 import { eventChannel, invokeChannel } from './channels'
 
 /**
@@ -50,6 +52,14 @@ export const linkedMachineSchema = z.object({
    * this Machine loads again then.
    */
   epoch: z.number().int().nonnegative(),
+  /**
+   * Its build version, `<semver>+<SHA>[.dirty]`, as its `hello` over the connection the calls use says it
+   * (worfy-acceptance ticket 07): the Acceptance view names the build of a Linked machine an item is checked on.
+   * Absent while it is offline.
+   */
+  build: z.string().min(1).max(200).optional(),
+  /** Its platform, from the same `hello`; absent while it is offline, and for a build before ticket 07. */
+  platform: z.enum(OWNER_CHECK_PLATFORMS).optional(),
 })
 export type LinkedMachineInfo = z.output<typeof linkedMachineSchema>
 

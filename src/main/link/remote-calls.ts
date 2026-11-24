@@ -105,6 +105,10 @@ export class RemoteCalls extends EventEmitter<RemoteCallsEvents> {
       this.tellAccess(id)
     })
     service.on('disconnected', ({ id }) => this.follow(id))
+    // Its build and platform came (or changed): machines() says them.
+    service.on('hello', ({ id }) => {
+      if (service.isLinked(id)) this.emit('changed')
+    })
     service.on('unlinked', ({ id }) => {
       if (this.tracked.delete(id)) this.emit('changed')
     })
@@ -136,12 +140,18 @@ export class RemoteCalls extends EventEmitter<RemoteCallsEvents> {
   machines(): LinkedMachineInfo[] {
     return this.service.linkedMachines().map((machine) => {
       const tracked = this.track(machine.id)
+      const connection = this.current(machine.id)
+      // What it said in the `hello` of the connection the calls use (worfy-acceptance ticket 07).
+      // No connection: offline, and nothing it said counts (announced() would fall back to another connection).
+      const announced = connection === undefined ? undefined : this.service.announced(machine.id, connection)
       return {
         id: machine.id,
-        online: this.current(machine.id) !== undefined,
+        online: connection !== undefined,
         sharing: tracked.sharing,
         readOnly: tracked.sharing === 'yes' && tracked.level === 'read',
         epoch: tracked.epoch,
+        ...(announced === undefined ? {} : { build: announced.build }),
+        ...(announced?.platform === undefined ? {} : { platform: announced.platform }),
       }
     })
   }
