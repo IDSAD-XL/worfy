@@ -88,6 +88,18 @@
   color: var(--primary-text);
   box-shadow: var(--shadow-primary), var(--hover-shadow);
 }
+/* An inactive primary drops its fill and its shadow, as an inactive action button of F-SPEC ("Autopilot": transparent
+   fill, border, muted text), and stays dimmed by the rule above: a dimmed fill still reads as an active primary in the
+   dark theme. */
+.w-button--primary:disabled,
+.w-button--primary[aria-disabled='true'],
+.w-primary:disabled {
+  border-color: var(--border-strong);
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 400;
+  box-shadow: none;
+}
 /* The compact primary buttons of the send bar, quote comments and the PR inbox: grey while disabled. */
 :is(.w-composer__send:not(.w-composer__send--text), .w-qbtn.w-qbtn--primary, .w-pr-inbox-button.w-pr-inbox-button--primary):disabled {
   border-color: var(--border-strong);

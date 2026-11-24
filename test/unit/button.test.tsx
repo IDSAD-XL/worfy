@@ -218,6 +218,16 @@ describe('an inactive Button (F-SPEC, "Read only": dimmed to 50 %)', () => {
     expect(bodyFor('.w-button:disabled', 'opacity')).toMatch(/opacity:\s*0\.5;/)
   })
 
+  it('an inactive primary drops its fill and its shadow: dimmed, a filled primary would still read as active in the dark theme', () => {
+    for (const selector of ['.w-button--primary:disabled', ".w-button--primary[aria-disabled='true']", '.w-primary:disabled']) {
+      const body = bodyFor(selector, 'background')
+      expect(body, selector).toMatch(/background:\s*transparent;/)
+      expect(body, selector).toMatch(/border-color:\s*var\(--border-strong\);/)
+      expect(body, selector).toMatch(/color:\s*var\(--text-muted\);/)
+      expect(body, selector).toMatch(/box-shadow:\s*none;/)
+    }
+  })
+
   it('no rule of button.css undoes the dimming of a read-only write action', () => {
     for (const rule of rules(css)) expect(rule.body, rule.selectors.join(', ')).not.toMatch(/opacity:\s*(1|1\.0+|100%)\s*;/)
   })
