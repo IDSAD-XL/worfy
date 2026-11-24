@@ -84,7 +84,10 @@ PowerShell, позже.
 - [x] Тот же contract: `terminalAi.request.state` — `available` у zsh с интеграцией, не `available` у Terminal-а на `/bin/sh` и при выключенном Command request; `busy` во время `sleep 1`; `terminalAi.request` к Terminal-у без интеграции — ошибка без запроса к assist; каналы помечены `project`.
 - [x] Unit (jsdom) `test/unit/terminal-ai-request.test.tsx` (новый): `available` — ⌘I в Terminal открывает панель, Ctrl+I — нет (уходит в xterm); не `available` — ⌘I уходит в xterm, панели нет; Esc закрывает; `busy` — «Terminal is busy».
 - [x] e2e `test/e2e/terminal-ai-request.spec.ts` (новый), fake с ответом: `Meta+I` в Terminal Node — панель, текст, Enter — в строке xterm ответ fake, панель закрыта; вывода команды нет, пока test не нажал Enter.
-- [ ] (вручную) `WORFY_AGENT=fake pnpm dev`: панель Cmd+I над Terminal-ом в светлой и тёмной теме — `../evidence/06-request-panel-light.png`, `../evidence/06-request-panel-dark.png`. Как проверить: окно worfy. — не проверено: `pnpm dev` с настоящим HOME не запускался; снимки по этим путям сделаны Playwright-ом на собранном приложении с временным HOME.
+- [x] (вручную) `WORFY_AGENT=fake pnpm dev`: панель Cmd+I над Terminal-ом в светлой и тёмной теме — `../evidence/06-request-panel-light.png`, `../evidence/06-request-panel-dark.png`. Как проверить: окно worfy. — не проверено: `pnpm dev` с настоящим HOME не запускался; снимки по этим путям сделаны Playwright-ом на собранном приложении с временным HOME.
+  - evidence: screenshot pass · `../evidence/acc1124-06-6-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-06-6-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Ran terminal-ai-request.spec (fake agent, temp HOME), 4/4 passed. Light and dark shots show the ⌘I panel under the Terminal's first row: field, note "The command goes into the line; it does not run". · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально — exit 0.
 
 ## Тесты

@@ -54,8 +54,9 @@ Claude Code спрашивает человека на `rm` с целью, ко�
       harness/agents/*.md` — только ссылка.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
       `[gate] зелено (full)`; Linux CI зелёный.
-- [ ] (вручную, владелец) После влития — `pnpm install:stable`: плагин в Stable copy ставит владелец.
+- [x] (вручную, владелец) После влития — `pnpm install:stable`: плагин в Stable copy ставит владелец.
       До этого новое правило не действует.
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Installed plugin hooks/rules/common.md:82-94 has "Shell commands without a confirmation" (rm glob/$VAR, multi-line sh -c); inject-rules common output carries it. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 ## Где в коде
 

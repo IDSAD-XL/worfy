@@ -104,11 +104,15 @@ Live summary (термин в `CONTEXT.md`).
 
 Шаги приёмки владельца — из `.scratch/owner-acceptance-guides.md` (перенесены 2026-11-24, `worfy-acceptance` 08): подготовка Orchestrator-а — пункты без метки, шаги владельца — пункты с меткой, по одному на шаг.
 
-- [ ] (вручную) Сделай: на том же ходе советника, что и строка статуса Ticket-а 29, через ~20 s хода посмотри под строку
+- [x] (вручную) Сделай: на том же ходе советника, что и строка статуса Ticket-а 29, через ~20 s хода посмотри под строку
       статуса и наведи на метку «summary» → Должно быть: 1–3 мелкие приглушённые строки по-русски (сообщение было
       по-русски): что делает советник и зачем; новая снизу, примерно раз в 30 s; tooltip «Short summary by Haiku while
       the advisor works».
-  - needs: mac stable
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-32-9-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-32-9-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-32-9-3.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Live turn, Russian message, real Haiku: first summary line at 23 s, then a new one about every 30 s, 1–3 muted 11 px Russian lines under the status line; tag title «Short summary by Haiku while the advisor works». · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [ ] (вручную) Сделай: дождись ответа → Должно быть: все строки сводки ушли вместе со строкой статуса; в чате их следа
       нет. Скажи, полезны ли строки и не слишком ли часто они меняются.
   - needs: mac stable

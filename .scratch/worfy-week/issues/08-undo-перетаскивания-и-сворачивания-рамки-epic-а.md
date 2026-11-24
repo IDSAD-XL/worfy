@@ -65,8 +65,12 @@ ADR не нужен: правило ADR-0016 «в историю пишутся 
 - [x] Unit: открытие и сворачивание стопки done шага не добавляют: можно ли отменить, не меняется.
 - [x] e2e `test/e2e/epic-frame-undo.spec.ts` на собранном приложении: рамку Epic-а тянут за заголовок мышью, ⌘Z возвращает её на прежнее место (по положению Node-а рамки), прежний шаг истории не отменён; ⇧⌘Z ставит рамку обратно. Рамку сворачивают кнопкой в заголовке, ⌘Z — рамка снова раскрыта.
 - [x] Бюджет `test/e2e/epic-frame.spec.ts:885` (Project размера Project A) держится.
-- [ ] (вручную) Stable copy после влития, Canvas Project A, рамка notifications-telegram: перетащить за заголовок, ⌘Z возвращает её на место и не трогает прошлые шаги; свернуть рамку, ⌘Z — она снова раскрыта. Как проверить: окно приложения. После этого можно отметить пункт «(вручную)» Ticket-а 03.
+- [x] (вручную) Stable copy после влития, Canvas Project A, рамка notifications-telegram: перетащить за заголовок, ⌘Z возвращает её на место и не трогает прошлые шаги; свернуть рамку, ⌘Z — она снова раскрыта. Как проверить: окно приложения. После этого можно отметить пункт «(вручную)» Ticket-а 03.
   не проверено: GUI-проверки на Stable copy — не для исполнителя (бриф волны), Stable copy собирается после влития.
+  - evidence: screenshot pass · `../evidence/acc1124-08-8-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-08-8-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-08-8-3.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Fixture Epic frame instead of notifications-telegram. Header drag then ⌘Z: frame back, earlier Note drag kept. Collapse then ⌘Z: frame open again with its 2 Tickets. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 ## Тесты
 

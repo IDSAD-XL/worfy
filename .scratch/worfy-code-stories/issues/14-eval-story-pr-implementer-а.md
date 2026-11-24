@@ -67,8 +67,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения 
   - evidence: test-run pass · `pnpm eval:harness -- --case implementer-story --dry-run` exit 0 · mac - · 46aeed216d862b4a4b7733018455991317e2bb32
   - evidence: test-run pass · `pnpm eval:harness -- --case implementer-story --dry-run` exit 0 · mac - · cd5efde2783f2e34ba6cc95e0d8efc779aaf277c
   - evidence: test-run pass · `pnpm eval:harness -- --case implementer-story --dry-run` exit 0 · mac - · ab699c3ba626053e81850f9d6a4c33a6e118463a
-- [ ] (manual) Платный run руками с `--max-cost-usd` ниже 100: graders зелёные; цена и число run-ов в «Итог».
+- [x] (manual) Платный run руками с `--max-cost-usd` ниже 100: graders зелёные; цена и число run-ов в «Итог».
   - evidence: test-run pass · paid run pnpm eval:harness --case implementer-story: score 0.83 over 3 runs (threshold 0.8), 2.67 USD; run 1 wrote no story (no GitHub in the fixture) · mac - · d15b37c1c4373f40bc1830429730f67336cfb8ea
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Dry run exit 0, then pnpm eval:harness --case implementer-story --max-cost-usd 10 on 2e96e91ac: exit 0, case passed 0.92 over 3 runs, 3.14 USD; runs 1-2 all graders green, run 3 no-invented-reason red. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [ ] Сценарий не входит ни в один workflow CI и ни в gate (grep по `.github/workflows` и `harness/hooks/gate.mjs`
       пустой).
   - evidence: test-run pass · `grep -rn implementer-story .github/workflows harness/hooks/gate.mjs` exit 1 (no match) · mac - · b1bb184b224bfcecaf69deda07ce4fee2d615f33

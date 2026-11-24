@@ -38,7 +38,11 @@ Source: решения владельца 2026-10-31, пункты 5 (акцен
 - [x] e2e `update-toolbar.spec.ts` (`WORFY_UPDATE=1`, `test/update-stub.ts`, Stable copy во временной папке,
       подменная сборка Ticket-а 03): точка появилась, меню, «Update worfy» — подсказка «Building…», потом
       «Restart now».
-- [ ] (вручную) снимки toolbar в светлой и тёмной теме: точка видна, высота toolbar не изменилась.
+- [x] (вручную) снимки toolbar в светлой и тёмной теме: точка видна, высота toolbar не изменилась.
+  - evidence: screenshot pass · `../evidence/acc1124-06-4-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-06-4-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-06-4-3.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: update-toolbar.spec passed: dot visible on the version chip in both themes; spec asserts toolbar and chip heights unchanged; shots with and without dot are equal height. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
 
 ## Тесты

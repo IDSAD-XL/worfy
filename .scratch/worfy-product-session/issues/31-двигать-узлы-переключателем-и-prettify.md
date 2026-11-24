@@ -83,21 +83,31 @@ Source: владелец 2026-11-09, дословно: «возможность 
 Шаги приёмки владельца — из `.scratch/owner-acceptance-guides.md` (перенесены 2026-11-24, `worfy-acceptance` 08): подготовка Orchestrator-а — пункты без метки, шаги владельца — пункты с меткой, по одному на шаг.
 
 - [ ] Orchestrator: вернёт «Tree».
-- [ ] (вручную) Сделай: наведи на «Move nodes» и «Prettify», потом протащи любой узел → Должно быть: «Move nodes» (иконка
+- [x] (вручную) Сделай: наведи на «Move nodes» и «Prettify», потом протащи любой узел → Должно быть: «Move nodes» (иконка
       руки) не нажат, tooltip «Turn on to drag nodes to new places. Off: a drag on a node pans the map»; «Prettify»
       (иконка искры) неактивна, tooltip «No node was moved by hand in this view»; drag по узлу двигает всю карту, узел на
       месте; щелчок по узлу открывает карточку.
-  - needs: mac stable
-- [ ] (вручную) Сделай: нажми «Move nodes», перетащи узел «Как выглядит Mind map при сотне узлов…» в сторону → Должно
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-31-8-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-31-8-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: «Move nodes» (hand icon) aria-pressed false, title exact; «Prettify» (sparkle) disabled, title «No node was moved by hand in this view»; drag on a node panned the map, node place unchanged; click opened the card. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (вручную) Сделай: нажми «Move nodes», перетащи узел «Как выглядит Mind map при сотне узлов…» в сторону → Должно
       быть: узел встал, куда отпустил; «Prettify» активна.
-  - needs: mac stable
-- [ ] (вручную) Сделай: нажми «Prettify», потом Escape; снова «Prettify» и в вопросе «Prettify» → Должно быть: в строке
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-31-9-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Move nodes on; dragged «Как выглядит Mind map…» : node stayed where released (written to mind-map.json, placed 2); Prettify enabled. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (вручную) Сделай: нажми «Prettify», потом Escape; снова «Prettify» и в вопросе «Prettify» → Должно быть: в строке
       инструментов «Drop 1 moved place?» с «Prettify» и «Cancel», фокус на «Cancel»; Escape закрыл вопрос, узел на месте;
       после подтверждения узел вернулся в раскладку, карта вписана, «Prettify» снова неактивна.
-  - needs: mac stable
-- [ ] (вручную) Сделай: переключи на «Graph» («Move nodes» остаётся нажатым), перетащи узел, нажми «Prettify» → Должно
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-31-10-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-31-10-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Prettify → «Drop 1 moved place?» with Prettify and Cancel, focus on Cancel; Escape closed it, node stayed; confirm returned node to layout, map fit, Prettify disabled again. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (вручную) Сделай: переключи на «Graph» («Move nodes» остаётся нажатым), перетащи узел, нажми «Prettify» → Должно
       быть: узел вернулся сразу, без вопроса.
-  - needs: mac stable
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-31-11-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Graph with Move nodes still pressed: dragged a node, Prettify returned it at once to its layout place, no question shown. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [ ] (вручную) Сделай: подтверди решение без владельца — Ticket 31, «Решено без владельца»: «Состояние «Move nodes» не
       запоминается». Переключатель выключен при каждом открытии карты и смене темы; смена «Tree · Graph» его не
       сбрасывает → Должно быть: Pass — «подтверждаю», Fail — «в Ticket».

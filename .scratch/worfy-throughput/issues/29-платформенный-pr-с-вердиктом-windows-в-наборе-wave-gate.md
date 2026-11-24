@@ -42,8 +42,9 @@ Windows: runner `full`.
 - [ ] ADR в `docs/adr/`, раздел `## Amendments` в ADR-0065 — одной датированной строкой.
 - [ ] Текст skill-а; `harness/bin/tests/epic-wave-ship-ticket.test.sh` — exit 0.
 - [ ] Shell test-ы Harness — exit 0; вердикт Windows — runner `full`; условие merge — `ci-ok` (Ticket 35; до него — gate full Orchestrator-а).
-- [ ] (вручную) Первая Wave с платформенным PR в наборе и зелёный `windows-full` на `main` после неё — ссылки в
+- [x] (вручную) Первая Wave с платформенным PR в наборе и зелёный `windows-full` на `main` после неё — ссылки в
       «Итог».
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Platform PR #1020 (scope pc, Terminal) merged 2026-10-29 with check/windows success; main CI run 40938293043 after it: windows full-suite 5/5 success. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 ## Где в коде
 

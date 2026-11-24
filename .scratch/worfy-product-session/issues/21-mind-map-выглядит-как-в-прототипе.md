@@ -52,23 +52,31 @@ Card «Прототип: Product Session + Mind map» (`card-2dffdc46`)
 
 Шаги приёмки владельца — из `.scratch/owner-acceptance-guides.md` (перенесены 2026-11-24, `worfy-acceptance` 08): подготовка Orchestrator-а — пункты без метки, шаги владельца — пункты с меткой, по одному на шаг.
 
-- [ ] (manual) Сделай: сравни «Tree» с картой прототипа рядом → Должно быть: форма по виду — Idea капсула, Question
+- [x] (manual) Сделай: сравни «Tree» с картой прототипа рядом → Должно быть: форма по виду — Idea капсула, Question
       шестиугольник с пунктиром, Objection скошенный прямоугольник, Decision прямоугольник с малыми углами; цвета — Idea
       голубая, Question янтарная, Decision лаймовая, Objection розовая, отклонённое серое; у принятого Decision контур
       толще. Отличия от прототипа, которые оставлены решениями (не Fail): текст «Tree» 15 px и «Graph» 12 px против
       12,5 px (решение 06 spec-а); панель инструментов — полоса над картой, а не поверх неё; метки сворачивания «−» /
       «+N» есть только в приложении.
-  - needs: mac stable
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-21-6-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Shapes by data-shape: Idea pill, Question hexagon dashed, Objection slant, Decision box. Strokes: Idea sky blue, Question amber, Decision lime, Objection rose, rejected grey; accepted Decision 2 px vs 1.4 px. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [ ] (manual) Сделай: посмотри на связи → Должно быть: «выросло из» — кривая с серой стрелкой у ребёнка; «Replaces» —
       красный пунктир с красной стрелкой от «Mind map 60 / чат 40…» к отклонённому Решению, как в прототипе.
   - needs: mac stable
-- [ ] (manual) Сделай: найди легенду внизу слева и щёлкни её заголовок → Должно быть: заголовок «Legend · click a node
+  - evidence: owner-check fail · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); the Orchestrator saw on a dev build of 2e96e91ac: Grew-from: grey curves with grey arrowheads, fine. Replaces in Tree: the split node sits right under the rejected Decision, so it is an 11 px path: just a tiny red arrowhead, no visible dashed line. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (manual) Сделай: найди легенду внизу слева и щёлкни её заголовок → Должно быть: заголовок «Legend · click a node
       for details», строки «Idea — what could be done», «Question — not decided», «Decision accepted», «Decision
       rejected», «Objection», «Grew from», «Replaces» с образцами; щелчок сворачивает и разворачивает. Фон карты в точках.
-  - needs: mac stable
-- [ ] (manual) Сделай: щёлкни узел, потом наведи на другой → Должно быть: выбранный — толстый контур и свечение цветом
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-21-8-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-21-8-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Legend at bottom left: header «Legend - click a node for details» (CSS uppercase), 7 rows with 7 samples; header click collapses (0 rows) and expands (7); dotted background pattern present. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (manual) Сделай: щёлкни узел, потом наведи на другой → Должно быть: выбранный — толстый контур и свечение цветом
       вида; наведённый — контур толще.
-  - needs: mac stable
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-21-9-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Clicked Decision: class selected, stroke 2.6 px, drop-shadow glow in lime; hovered Question stroke 2.4 px vs 1.4 px plain. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [ ] (manual) Сделай: попроси Orchestrator-а включить светлую тему и посмотри ту же карту → Должно быть: цвета видов
       различимы, текст отклонённого Решения читается (серый, но не бледный). Прототипа в светлой теме нет — суди на глаз.
   - needs: mac stable

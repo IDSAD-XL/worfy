@@ -104,7 +104,8 @@ EXIT не срабатывает при SIGKILL). Замок снимет сле
 - [x] `grep -n "interrupts the Orchestrator" docs/design/F-SPEC.md src/renderer/canvas/actions/AutopilotAction.tsx` находит обе строки.
 - [x] ADR со следующим свободным номером записан.
 - [x] `~/.claude/hooks/gate.sh fast` — exit 0, строка `[gate]` говорит green.
-- [ ] (вручную) Stable copy после влития: Autopilot над Wave с implementer-ом, Stop — за 15 s Orchestrator не начинает нового хода, процесса implementer-а нет (`ps`), в журнале `run-stopped`, `tasks-killed`, `orchestrator-returned`; повторный Autopilot берёт прерванный Ticket первым. Как проверить: окно приложения и журнал `~/Library/Application Support/worfy/autopilot/`.
+- [x] (вручную) Stable copy после влития: Autopilot над Wave с implementer-ом, Stop — за 15 s Orchestrator не начинает нового хода, процесса implementer-а нет (`ps`), в журнале `run-stopped`, `tasks-killed`, `orchestrator-returned`; повторный Autopilot берёт прерванный Ticket первым. Как проверить: окно приложения и журнал `~/Library/Application Support/worfy/autopilot/`.
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); superseded, nothing left to check: Plain Stop is graceful since worfy-week 18 (PR #129), run.ts:43-50; killing implementer moved to Force stop, run.ts:51-58. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 ## Тесты
 

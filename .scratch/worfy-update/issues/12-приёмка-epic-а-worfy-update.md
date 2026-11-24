@@ -35,9 +35,12 @@ Source: «Готово, когда» Epic-а worfy-update ([spec.md](../spec.md)
 
 - [ ] (вручную) При старте Stable copy: точка на version chip-е, Settings → Health — красная строка
       «worfy version»; без сети (Wi-Fi выключен) — ни ошибок, ни toast-ов.
-- [ ] (вручную) «Update automatically» включено: сборка идёт в фоне (подсказка «Building…»), потом toast
+- [x] (вручную) «Update automatically» включено: сборка идёт в фоне (подсказка «Building…»), потом toast
       «worfy <version> ready · Restart now · Later». В `~/Library/Application Support/worfy/update/` —
       `repo/` и `build.log`.
+  - evidence: screenshot pass · `../evidence/acc1124-12-2-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-12-2-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Update automatically on by default. Check now started a background build: "Building worfy 0.9.0+…", chip "Updating - 2/3"; then toast "ready" with Restart now and Later; temp userData update/ held repo/ and build.log. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [ ] (вручную) Session в ходе — в toast-е «Restart when idle»; после нажатия и конца хода worfy
       перезапустился сам.
 - [x] (вручную) После перезапуска: новая версия в chip-е, toast «worfy updated to…», Harness новой копии
@@ -46,12 +49,21 @@ Source: «Готово, когда» Epic-а worfy-update ([spec.md](../spec.md)
 - [ ] (вручную) `~/Applications/worfy-stable.previous` есть; Settings → General → Updates «Roll back to
       previous version» — подтверждение, перезапуск, прежняя версия; автоматический Update молчит;
       «Check now» снова показывает новую.
-- [ ] (вручную) «What's new» — заголовки PR между двумя версиями.
-- [ ] (вручную) Сбой сборки (например, `pnpm` убран из `PATH` запуска): «Update failed · Show log»,
+- [x] (вручную) «What's new» — заголовки PR между двумя версиями.
+  - evidence: screenshot pass · `../evidence/acc1124-12-6-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: update-toolbar.spec: "What's new" listed PR titles of the version comparison, newest first, linked #1130 and #1124; a push with no PR left out. Data from the local GitHub stub, not real GitHub. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (вручную) Сбой сборки (например, `pnpm` убран из `PATH` запуска): «Update failed · Show log»,
       строка Health называет `pnpm`, Stable copy работает прежняя.
+  - evidence: screenshot pass · `../evidence/acc1124-12-7-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-12-7-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Launch PATH without pnpm: toast "Update failed: … pnpm was not found" with Show log; Health "worfy version" Failed, "pnpm not found"; app kept answering; temp Stable copy untouched. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [ ] (вручную) Отстаёт только Harness (поставить Harness старше руками): акцентная кнопка Harness с
       точкой, toast «Harness out of date», «Update Harness» с диалогом согласия.
-- [ ] (вручную) dev-сборка (`pnpm dev`): нет точки, нет блока «Updates», нет команды «Update worfy».
+- [x] (вручную) dev-сборка (`pnpm dev`): нет точки, нет блока «Updates», нет команды «Update worfy».
+  - evidence: screenshot pass · `../evidence/acc1124-12-9-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-12-9-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-12-9-3.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Unpackaged build without WORFY_UPDATE: version chip has no dot; Settings → General has no Updates block; palette search "update" offers no "Update worfy". · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 Остальные пункты Mac отдельно не проходились: владелец принял приёмку 2026-11-02 по обновлению из приложения, без них. Не проверено: пункты выше без отметки.
 

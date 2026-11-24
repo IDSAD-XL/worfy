@@ -56,12 +56,14 @@ Source: [spec.md](../spec.md), решение владельца 2026-10-16, п�
 
 ## Готово, когда
 
-- [ ] (вручную) `worfy-windows` 53, 51 и 14 — `done`; PR — в «Итог».
+- [x] (вручную) `worfy-windows` 53, 51 и 14 — `done`; PR — в «Итог».
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: epic-status: worfy-windows 14 done (PR #1058), 51 done (#389), 53 done (#387); gh shows all three MERGED. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [ ] (вручную) На ПК `node harness/hooks/gate.mjs full` без `CLAUDE_GATE_CONFIG` находит запись
       `worfy`; вывод с кодом — в «Итог».
-- [ ] (вручную) Платформенный PR (первый после 14, например `worfy-polish` 19, PR #365) получил вердикт
+- [x] (вручную) Платформенный PR (первый после 14, например `worfy-polish` 19, PR #365) получил вердикт
       Windows — gate full на ПК, код 0 и `[gate] зелено (full)` — без сверки списков; время от запроса
       до вердикта — в «Итог».
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); superseded, nothing left to check: ADR-0056 Amendment 2026-10-29 (ADR-0086) and rules-merge.md:42-52: platform PR merges on green ci-ok + review, no PC gate full on its head. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 ## Тесты
 

@@ -42,10 +42,11 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 - [x] Тексты skill-а и `orchestrator.md` — фразы об остановке в конце Wave и о чтении сводкой;
       `skill-blocks.test.sh` / `agents-text.test.sh` — exit 0.
 - [x] Shell test-ы Harness — exit 0; вердикт Windows — runner `full`; условие merge — `ci-ok` (Ticket 35; до него — gate full Orchestrator-а).
-- [ ] (вручную) Две Wave-ы в свежих Session-ах; средний контекст на вызов Orchestrator-а до и после — по
+- [x] (вручную) Две Wave-ы в свежих Session-ах; средний контекст на вызов Orchestrator-а до и после — по
       Ticket-у 19, в «Итог».
       Не проверено: нужны настоящие Wave после merge; под Autopilot Wave-ы идут в одной Session
       (`src/main/autopilot/run.ts:4-6`) — свежая Session на Wave требует отдельного Ticket-а.
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Autopilot now starts a new session per Wave (run.ts:14). Fresh one-Wave sessions: 15, avg 180.6k per call (e.g. 11-17 177.0k, 142.9k) vs base 228.3k (ticket 19). · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 ## Где в коде
 

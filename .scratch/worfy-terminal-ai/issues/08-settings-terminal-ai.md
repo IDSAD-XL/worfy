@@ -45,7 +45,10 @@ Source: решения владельца 2026-10-09: пункт 2 (всё вы�
 
 - [x] Unit (jsdom) `test/unit/terminal-ai-settings.test.tsx` (новый): переключатели показывают значения из `terminalAi.state`; клик зовёт `terminalAi.setSettings` с одним изменённым полем; «Terminal AI» выключен — подчинённые неактивны; статус `paused` — строка «Paused by Limits until …» с временем сброса.
 - [x] e2e `test/e2e/terminal-ai-settings.spec.ts` (новый), fake: «Suggestion» выключен — после команды с уникальной меткой набран её префикс, серого текста нет; включён снова — есть. «Terminal AI» выключен — серого текста нет и из истории. Если Ticket 06 к claim влит: «Terminal AI» выключен — строка `# …` + Enter не даёт запроса (журнал fake пуст). — Ticket 06 к claim не влит: проверка строки `# …` остаётся приёмке (Ticket 09).
-- [ ] (вручную) `WORFY_AGENT=fake pnpm dev`: раздел «Terminal AI» в светлой и тёмной теме — `../evidence/08-settings-light.png`, `../evidence/08-settings-dark.png`. Как проверить: окно Settings worfy. — не проверено: `pnpm dev` с настоящим HOME не запускался; снимки по этим путям сделаны Playwright-ом на собранном приложении с временным `HOME` (e2e этого Ticket-а).
+- [x] (вручную) `WORFY_AGENT=fake pnpm dev`: раздел «Terminal AI» в светлой и тёмной теме — `../evidence/08-settings-light.png`, `../evidence/08-settings-dark.png`. Как проверить: окно Settings worfy. — не проверено: `pnpm dev` с настоящим HOME не запускался; снимки по этим путям сделаны Playwright-ом на собранном приложении с временным `HOME` (e2e этого Ticket-а).
+  - evidence: screenshot pass · `../evidence/acc1124-08-3-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-08-3-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Ran terminal-ai-settings.spec, 3/3 passed. Settings → Terminal AI shows Suggestion, "Ask Claude…", Next command with model picker (Sonnet), Command request and Fix, readable in both themes. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально — exit 0.
 
 ## Тесты

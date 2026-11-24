@@ -144,11 +144,13 @@ Source: [spec.md](../spec.md), решение владельца 2026-10-16, п�
 - [ ] `profile --field workflow.merge_gate` читает `"wave"`, `"each"`, `null`;
       `profile --field workflow.e2e_lock` — путь или `null`; другое значение — Profile сломан (exit 1).
 - [ ] Блоки skill `epic-wave` о наборе проходят под bash и zsh (как `harness/bin/tests/skill-blocks.test.sh`).
-- [ ] (вручную) Вердикт Windows по ADR-0056, пункт 2: на Windows-ПК — shell test-ы `wave-gate` и
+- [x] (вручную) Вердикт Windows по ADR-0056, пункт 2: на Windows-ПК — shell test-ы `wave-gate` и
       `profile` через Git Bash и gate full; код и строка вердикта — в «Итог». Пока `worfy-windows` 14 не
       `done` — правило «Последствий» ADR-0056 (`:73-77`).
-- [ ] (вручную) Первая Wave после обновления Harness на Mac влита по новой процедуре: число gate full,
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); superseded, nothing left to check: ADR-0056 Amendments 2026-10-28 (ADR-0083) and 2026-10-29 (ADR-0086), docs/adr/0056:112-118: Windows verdict = CI job windows/full-suite; no PC gate full per PR. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (вручную) Первая Wave после обновления Harness на Mac влита по новой процедуре: число gate full,
       время от последнего готового PR до последнего мержа — в «Итог».
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); superseded, nothing left to check: ADR-0083 point 4 (docs/adr/0083:49-52): no local gate full for any PR, profile workflow.merge_gate null; merges go through bin/land (throughput 27). · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; shell test-ы Harness — exit 0; gate full —
       шаг Orchestrator-а перед merge (по старой схеме); Linux CI зелёный.
 

@@ -73,8 +73,9 @@ Source: [spec.md](../spec.md), решение владельца 2026-10-16, п�
 - [x] Test: `wave-gate check` и `wave-gate merge` со stub-ом `caffeinate` в `PATH` зовут его с
       `-d -w <pid самой команды>`; после выхода команды процесса stub-а нет; без `caffeinate` в `PATH`
       команды идут без него.
-- [ ] (вручную) На Mac: во время `wave-gate check` `pmset -g assertions` показывает
+- [x] (вручную) На Mac: во время `wave-gate check` `pmset -g assertions` показывает
       `PreventUserIdleDisplaySleep` от `caffeinate`, после выхода — нет. Вывод — в «Итог».
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: wave-gate check on a temp world (stub gate 8 s): pmset showed caffeinate PreventUserIdleDisplaySleep "on behalf of" the wave-gate pid during run; gone after exit 0 (green). · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [x] (вручную) Вердикт Windows по ADR-0056, пункт 2: на Windows-ПК — shell test-ы `wave-gate` через Git
       Bash и gate full; код и строка вердикта — в «Итог». Пока `worfy-windows` 14 не `done` — правило
       «Последствий» ADR-0056 (`:73-77`).

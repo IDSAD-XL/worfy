@@ -253,11 +253,12 @@ Ticket 17 (qmd ставится вместе с Harness, закрыт) уже з
       выражение принимает и словарь с содержимым; строка `collections: {}` остаётся в файле, блоки
       дописаны под ней; текст отказа без описания блочной записи; текст отказа разбит на несколько
       строк.
-- [ ] (вручную, во временном `HOME`, с настоящим qmd 2.8.3) `qmd update` на пустом `HOME` создаёт
+- [x] (вручную, во временном `HOME`, с настоящим qmd 2.8.3) `qmd update` на пустом `HOME` создаёт
       `index.yml` с первой строкой `collections: {}`; после `qmd-collections <project>` команда
       `qmd collection list` называет коллекции Project-а, `qmd update` — exit code 0. Вывод — в
       «Итог». Модели для этого не нужны: `qmd update` их не качает
       (`harness/bin/qmd-refresh:42-44`).
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Temp HOME, real qmd 2.8.3: qmd update exit 0, index.yml first line "collections: {}"; qmd-collections y exit 0; collection list shows 3 (y-docs, y-tickets…); second qmd update exit 0. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit code 0; gate full на Mac зелёный.
 
 ## Тесты

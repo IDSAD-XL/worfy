@@ -64,8 +64,9 @@ Windows.
 
 - [ ] Stub-ы gate и `gh` запускаются на Windows: Node-скрипты (или другой путь — с причиной в «Итог»).
 - [ ] `bash harness/bin/tests/wave-gate.test.sh` — exit 0 на Mac.
-- [ ] (вручную, владелец или Session на Windows-ПК) тот же test в Git Bash на Windows-ПК — exit 0;
+- [x] (вручную, владелец или Session на Windows-ПК) тот же test в Git Bash на Windows-ПК — exit 0;
       пропущенные блоки названы в выводе.
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Windows runner (Git Bash bash.EXE), main run 45362173673 job 138334896788: wave-gate*.test.sh pass, skips named (screen, SIGTERM, zsh). Runner, not owner's PC (ADR-0083 verdict). · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [ ] Мутанты: override `.mjs` идёт без `process.execPath` — test красный на Mac; блок экрана на macOS
       не пропускается (мутант «пропуск всегда» — красный).
 - [ ] `harness/bin/tests/profile.test.sh` — exit 0, не изменён.

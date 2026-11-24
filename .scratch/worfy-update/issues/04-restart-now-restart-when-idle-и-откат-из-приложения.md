@@ -50,12 +50,14 @@ Source: решения владельца 2026-10-31, пункты 4 (нажат
 - [x] Contract test: `rollback()` с ответом диалога «Cancel» — ничего; «Roll back» — `--rollback`.
 - [x] Contract test: `result.json` при старте даёт `lastRestart` и удаляется; отказ скрипта — `ok: false`
       с причиной.
-- [ ] (вручную) dev-сборка с `WORFY_UPDATE=1`, Stable copy во временной папке: «Restart now» — worfy
+- [x] (вручную) dev-сборка с `WORFY_UPDATE=1`, Stable copy во временной папке: «Restart now» — worfy
       закрылся, копия заменена, `worfy-stable.previous` есть, копия запустилась.
       Не проверено: агент запущен изнутри worfy и не видит экран; ручная проверка требует собрать
       `.app`, запустить его и нажать кнопку, которой в UI до Ticket-ов 06/09 нет (только канал IPC).
       Detached запуск системного `node` с аргументами и папкой проверяет contract test «The helper
       process» (настоящий `spawn`, подменный helper).
+  - evidence: screenshot pass · `../evidence/acc1124-04-6-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Dev build WORFY_UPDATE=1, temp Stable copy, real install-stable helper, launchable stand-in app. "Restart now": worfy exited, copy replaced (marker NEW), worfy-stable.previous holds OLD, new copy started via open. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [ ] Платформенный PR (ADR-0056, пункт 2; ADR-0086; процесс detached и запуск копии на Windows): вердикт
       Windows по `scripts/windows-verdict-scope.mjs`.
       `windows-verdict-scope.mjs origin/main worfy-update/04` → `runner` (exit 0): вердикт — job-ы Windows

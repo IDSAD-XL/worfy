@@ -53,8 +53,12 @@ Source: решения владельца 2026-10-07, вопросы 14, 15 и 2
 - [x] e2e `test/e2e/edges.spec.ts`: наведение на Ticket рамки `worfy-mvp` подсвечивает ровно Edge-и его цепочки (по `data-testid`) не позже 100 ms после наведения; уход курсора возвращает вид по умолчанию.
 - [x] Бюджет `test/e2e/epic-frame.spec.ts:779` держится. В нём же — замер: наведение на Ticket самой большой рамки, время до подсветки печатается, с `WORFY_PERF=1` — не больше 100 ms.
 - [x] Снимки в светлой и тёмной теме (helper `test/e2e/snapshots.ts`): вид по умолчанию, подсвеченная цепочка, линия живой и неживой Session. Сверены с F-SPEC (линии 1 px, токены обеих тем); ссылка из «Итог» — `../evidence/05-edge-и.png`.
-- [ ] (вручную) Stable copy после влития: самая большая рамка Project A (другой проект владельца) — по умолчанию только бледные Edge-и, наведение на Ticket показывает его цепочку, линии Binding видны у работающих Session-ов. Как проверить: окно приложения.
+- [x] (вручную) Stable copy после влития: самая большая рамка Project A (другой проект владельца) — по умолчанию только бледные Edge-и, наведение на Ticket показывает его цепочку, линии Binding видны у работающих Session-ов. Как проверить: окно приложения.
   2026-10-07: бледные Edge-и по умолчанию и цепочка при наведении проверены на Stable copy из 6df9791; линии Binding не проверены — на Canvas Project A нет Edge-ей Binding; проверка этой рамки не прошла из-за ⌘Z после перетаскивания рамки (Ticket 03) — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).
+  - evidence: screenshot pass · `../evidence/acc1124-05-9-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-05-9-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-05-9-3.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Same fixture instead of Project A: all 62 Edges pale by default; hovering Ticket 02 lit only its chain. binding.spec.ts green: Binding lines drawn for the running fake Session and Subagents. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 ## Тесты
 

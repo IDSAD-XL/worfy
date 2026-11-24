@@ -60,8 +60,11 @@ Source: решения владельца 2026-10-26, пункты 2 (шаг «O
       нет; причина в ответе.
 - [ ] Нет автора git — отказ с командой `git config --global user.name …`.
 - [ ] Повторный вызов при живом demo — тот же Project, без второй папки.
-- [ ] (вручную) dev-сборка над временной папкой данных: «Create demo project» (кнопка — Ticket 07; до
+- [x] (вручную) dev-сборка над временной папкой данных: «Create demo project» (кнопка — Ticket 07; до
       него — вызов канала из DevTools) создаёт Project, Canvas показывает Epic `todo` и Ticket `01`.
+  - evidence: screenshot pass · `../evidence/acc1124-05-7-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-05-7-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Ran the built app with temp data and a temp HOME that has a git author. Clicked Getting started «Create demo project»: worfy-demo was added and opened. Its Canvas shows Epic frame `todo` with Ticket 01. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [ ] Платформенный PR (ADR-0056, пункт 2; пути и папки Windows): вердикт Windows — gate full на ПК,
       код 0 и строка `[gate] green (full)`; на ПК demo создаётся в `C:\Users\<имя>\worfy-demo`.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка

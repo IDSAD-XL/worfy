@@ -56,7 +56,8 @@ Source: [spec.md](../spec.md), решение владельца 2026-10-16, п�
       проверяет его (фраза о `commands.e2e` и «only the e2e files the ticket touches»).
 - [x] Правило не задевает Project без `commands.e2e`: test текста — абзац условный («if the profile
       sets `commands.e2e`»).
-- [ ] (вручную, Orchestrator) правка `rules.md` Profile-а — diff в «Итог». Не проверено: шаг оркестратора.
+- [x] (вручную, Orchestrator) правка `rules.md` Profile-а — diff в «Итог». Не проверено: шаг оркестратора.
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Итог holds the rules.md diff; current rule in rules-local-e2e.md:6-12: implementer runs only its own e2e specs under the lock, whole suite via ci-ok. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; shell test-ы Harness — exit 0; gate full —
       шаг Orchestrator-а перед merge; Linux CI зелёный.
 

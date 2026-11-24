@@ -41,9 +41,10 @@ Source: решение владельца 2026-10-16 по Ticket-у [03](03-сб
       только в `harness/`, `HANDOFF.md`, «Риски и долги»); gate full — exit 0 и строка
       `[gate] зелено (full)` (оркестратор перед merge); Linux CI зелёный.
 - [ ] После мержа — `pnpm install:stable` (Orchestrator, вне прогона Autopilot).
-- [ ] (вручную) Первый `retro` после мержа на настоящем сбое — класс и вывод в уроке или «no lesson».
+- [x] (вручную) Первый `retro` после мержа на настоящем сбое — класс и вывод в уроке или «no lesson».
       Шаг Orchestrator-а или владельца; поведение модели eval-ом проверяется только после
       `worfy-harness` 27–29.
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); superseded, nothing left to check: harness/skills/retro/SKILL.md is now Matt Pocock's retro (THIRD_PARTY.md:26, PR #1598 worfy-skills 02); no Classify/Filter hard/no-lesson steps (grep count 0). · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 ## Тесты
 

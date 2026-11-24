@@ -144,12 +144,13 @@ Source: решение владельца 2026-10-10 по второму воп�
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0. Ни один test не запускает настоящий Claude
   Code, не обращается к модели и не пишет в `~/.claude`.
 - [ ] `gate.sh fast` на ветке — код 0 и строка `[gate] зелено (…)`.
-- [ ] (вручную, владелец или Orchestrator вне PR) В `~/.claude/worfy-harness/projects/worfy/rules.md`
+- [x] (вручную, владелец или Orchestrator вне PR) В `~/.claude/worfy-harness/projects/worfy/rules.md`
   рядом со строкой про полный Gate — строка: PR, который правит файлы правил Harness, перед мержем
   проходит `pnpm eval:harness -- --changed origin/main`, строки `eval:harness …` — в описании PR;
   подробности — `harness/README.md`, раздел «Evals». Правило записано 2026-10-22 словами Q-H29 («Платный
   `eval --changed` …», см. «Итог»), слова `eval:harness` в нём нет. Как проверить:
   `harness/bin/profile -C <репозиторий worfy> --rules | grep -c 'eval --changed'` — не 0 (2026-10-22: 1).
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: harness/bin/profile -C repo --rules: grep -c 'eval --changed' = 1 (rules.md line 16 points to rules-merge.md:59 paid eval --changed rule). · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 ## Тесты
 

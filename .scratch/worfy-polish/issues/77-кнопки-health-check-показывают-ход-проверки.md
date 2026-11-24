@@ -68,12 +68,15 @@ Health check — один компонент `FirstRunChecks` (`src/renderer/she
 - [ ] Orchestrator: через CDP сверит то же в окне First run (один компонент).
 - [ ] Orchestrator: отложит файл ответа о моделях qmd (`~/.claude/worfy-harness/qmd-models`), чтобы у строки qmd models
   появилась кнопка «Download…», и нажмёт «Check again».
-- [ ] (вручную) Сделай: открой Settings → Health (кнопка с сердцем на rail над Machines или Command palette → «Health
+- [x] (вручную) Сделай: открой Settings → Health (кнопка с сердцем на rail над Machines или Command palette → «Health
   check») и сразу нажми «Check again» → Должно быть: на кнопке крутится spinner и «Checking…»; chip сводки слева —
   «Checking…» в Stable `5d1efe69`, а после обновления Stable с `worfy-polish` 134 его во время проверки нет (это
   верно); chip каждой строки — «Checking…»; остальные кнопки приглушены, tooltip «Another check is running». Через
   секунды (вход Claude Code — до минуты) всё как было.
-  - needs: mac stable
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-77-7-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-77-7-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Same run: during check button "Checking…" with spinner, all 15 row chips "Checking…", other buttons disabled with title "Another check is running", no summary chip (post-134 behaviour). Afterwards results and buttons returned. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [ ] (вручную) Сделай: у строки qmd models нажми «Download…» и посмотри на окно, пока открыт вопрос «Download the qmd
   models (<размер>)?» → Должно быть: на кнопке spinner и «Downloading…», chip строки «Running…», под строкой
   «Downloading models… 0:05», секунды идут; остальные кнопки приглушены.

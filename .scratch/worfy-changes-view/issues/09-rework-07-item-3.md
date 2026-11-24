@@ -98,8 +98,12 @@ Blocked by 08: те же файлы — лоток и клавиши, котор
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 (in `pnpm lint`) · mac - · 159692900
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44923290094/job/136921795205 · ci - · 57663a9e5528d927d842c5106da63bc7df6aa5e6
-- [ ] (manual) Mac Stable: комментарии к строке и диапазону уходят агенту одним сообщением с путями, строками и кодом.
-  - needs: mac stable
+- [x] (manual) Mac Stable: комментарии к строке и диапазону уходят агенту одним сообщением с путями, строками и кодом.
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-09-9-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-09-9-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-09-9-3.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Summary of items 13–19. A line comment and a range comment went to the bound fake-agent Session as one message with paths, lines, side, commit and code. Agent log verified. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 Пункт (manual) выше записан owner-check-ом дословно из Ticket-а 07. Владелец проверяет по нему и то, что решил в D2 и
 D3: диапазон выбирается перетаскиванием «+», подсказка видна, а закоммиченный файл в тексте агенту назван commit-ом HEAD.
@@ -111,41 +115,65 @@ D3: диапазон выбирается перетаскиванием «+», 
 - [ ] Orchestrator: завести в `worfy-sandbox` Ticket с worktree (ветка с commit-ами, закоммиченный файл и файл с
       правкой без commit-а) — тот же, что для шагов Ticket-а 08.
 - [ ] Orchestrator: привязать к этому Ticket-у Session (Binding).
-- [ ] (manual) Сделай: в виде Changes Ticket-а наведи на строку diff-а и щёлкни **«+»** в gutter; напиши текст и нажми
+- [x] (manual) Сделай: в виде Changes Ticket-а наведи на строку diff-а и щёлкни **«+»** в gutter; напиши текст и нажми
       Save (⌘↵) → Должно быть: popover называл место (`<path>:<строка> · new side`) и код строки; после Save
       комментарий стоит под строкой с меткой «not sent», Edit и Delete; в лотке внизу — «1 comment on 1 file».
-  - needs: mac stable
-- [ ] (manual) Сделай: нажми **«+»** у строки и, не отпуская, протяни вниз через несколько строк того же hunk-а,
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-09-13-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-09-13-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Click «+» on cart.ts:50. Popover reads «src/cart.ts:50 - new side» with the line's code. After ⌘↵ the comment sits under the line with «not sent», Edit and Delete. Tray reads «1 comment on 1 file». · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (manual) Сделай: нажми **«+»** у строки и, не отпуская, протяни вниз через несколько строк того же hunk-а,
       отпусти → Должно быть: строки подсвечиваются, пока по ним идёт указатель; после отпускания popover открыт на весь
       диапазон.
-  - needs: mac stable
-- [ ] (manual) Сделай: закрой этот popover «Cancel»; щёлкни строку, потом Shift+щелчок по «+» строки ниже → Должно
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-09-14-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-09-14-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Mouse down on «+» of line 3 and drag down: mid-drag lines 3–5 carry is-picked (blue in screenshot), 3–7 by the end. On release the popover opens with «src/cart.ts:3–7 - new side». · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (manual) Сделай: закрой этот popover «Cancel»; щёлкни строку, потом Shift+щелчок по «+» строки ниже → Должно
       быть: выбор растянулся до неё, popover не открылся; под последней выбранной строкой подсказка «Comment on lines
       N–M (c)».
-  - needs: mac stable
-- [ ] (manual) Сделай: щёлкни подсказку (или нажми `c`); добавь в popover картинку (вставь из буфера или «Add
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-09-15-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Cancel, then click discount.ts line 1 and Shift+click «+» on line 3. Lines 1–3 picked, no popover. «Comment on lines 1–3 (c)» appears under line 3. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (manual) Сделай: щёлкни подсказку (или нажми `c`); добавь в popover картинку (вставь из буфера или «Add
       image»), напиши текст и Save → Должно быть: второй комментарий под последней строкой диапазона; в лотке «2
       comments on …» и chip на каждый.
-  - needs: mac stable
-- [ ] (manual) Сделай: открой ещё один комментарий, набери текст и нажми Esc → Должно быть: popover с изменённым текстом
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-09-16-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-09-16-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: c opens the popover on 1–3. A synthetic paste of a PNG adds an image chip. After Save the second comment sits under line 3 with «1 image». Tray: «2 comments on 2 files», one chip each. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (manual) Сделай: открой ещё один комментарий, набери текст и нажми Esc → Должно быть: popover с изменённым текстом
       остаётся открытым (исправлено `worfy-polish` 136, #2072, `0b3abe8e6` — нужен Stable с этим commit-ом). Закрой
       popover «Cancel».
-  - needs: mac stable
-- [ ] (manual) Сделай: посмотри «To» в лотке → Должно быть: выбрана Session, привязанная к Ticket-у (без неё —
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-09-17-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Opened a popover on cart.ts:5, typed text, pressed Esc. Popover stayed open with the text after 500 ms; Cancel closed it and still 2 comments. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (manual) Сделай: посмотри «To» в лотке → Должно быть: выбрана Session, привязанная к Ticket-у (без неё —
       Orchestrator).
-  - needs: mac stable
-- [ ] (manual) Сделай: напиши общий текст в поле лотка и нажми **Send** → Должно быть: оба комментария стали тусклыми,
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-09-18-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-09-18-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: With a worfy Session node bound to Ticket 04 (bindings.json), «To» shows «Session b0b0b0b0». Without a binding (first run) «To» shows «Orchestrator». · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (manual) Сделай: напиши общий текст в поле лотка и нажми **Send** → Должно быть: оба комментария стали тусклыми,
       «sent to <Session>»; в чате Session одно сообщение: раздел «Comments on lines of the diff (2)» с worktree и
       веткой, у каждого комментария путь, строки, сторона и commit, код и текст, потом «General:» и твой текст; у
       строки закоммиченного файла — `(new side, commit <HEAD>)`, у файла с правкой без commit-а — `(new side,
       uncommitted)`; агент отвечает на всё сразу.
-  - needs: mac stable
-- [ ] (manual) Сделай: в чате Session щёлкни путь в блоке комментария → Должно быть: открылся вид Changes этого
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-09-19-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-09-19-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Both comments dim (opacity 0.55) with «sent to Session b0b0b0b0». The agent got one message: worktree, branch, commit 51d7b66, «uncommitted», code, image, «General:». The chat bubble shows paths, code, texts and the general text. Fake agent reply only. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (manual) Сделай: в чате Session щёлкни путь в блоке комментария → Должно быть: открылся вид Changes этого
       Ticket-а и прокрутился к строке, строка мигнула; кнопка возврата читается **← Session** и ведёт в чат.
-  - needs: mac stable
-- [ ] (manual) Сделай: оставь один комментарий неотправленным и попроси Orchestrator-а перезапустить Stable → Должно
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-09-20-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Clicking src/discount.ts:1–3 in the Session chat opens the Changes view on that line (data-flash=true, in viewport). Back button reads «← Session» and returns to the chat. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (manual) Сделай: оставь один комментарий неотправленным и попроси Orchestrator-а перезапустить Stable → Должно
       быть: после перезапуска комментарий «not sent» на месте и в лотке.
-  - needs: mac stable
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-09-21-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-09-21-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Left one comment on cart.ts:5 unsent, closed Electron, relaunched with the same data dir. After reopening, the comment shows «not sent» with its text, tray «1 comment on 1 file». The first try failed in my script, not the app. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 ## Где в коде
 

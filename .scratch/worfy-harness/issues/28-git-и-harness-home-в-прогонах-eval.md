@@ -150,12 +150,13 @@ Ticket 27); сам полный прогон набора — Ticket 27; пра�
 - [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0; ни один test не запускает настоящий Claude
   Code, не обращается к модели и не пишет в `~/.claude` (все `HOME` — временные папки).
 - [x] `gate.sh fast` на ветке — код 0 и строка `[gate] зелено (…)`.
-- [ ] (вручную, платно) `pnpm eval:harness -- --case epic-wave-tickets --runs 1` — код 0 или 1, не 2;
+- [x] (вручную, платно) `pnpm eval:harness -- --case epic-wave-tickets --runs 1` — код 0 или 1, не 2;
   в транскрипте нет «not a git repository», `preflight` дошёл до последней строки; цена и ответ — в
   «Итог». Снимки `~/.claude` (список `projects`, хэши `settings.json` и `installed_plugins.json`) до и
   после совпали.
   Не проверено: по брифу Orchestrator-а платный run здесь не запускался — его делает Ticket 27 первым
   платным run-ом.
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: pnpm eval:harness --case epic-wave-tickets --runs 1 (cap 10): exit 0, case passed 0.83 (grader no-agent-for-unnamed red), 2.15 USD; trace: 0 "not a git repository", preflight ends GO EXIT=0; settings/installed_plugins hashes equal, no eval project dirs added. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [x] Ticket 27: `Blocked by` и «Итог» обновлены (шаг 6). `Blocked by: 05, 06, 07, 11, 28` и статус `open`
   там уже стояли; в «Итог» добавлен раздел «Ticket 28».
 

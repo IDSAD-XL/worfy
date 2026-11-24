@@ -58,9 +58,10 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 - [x] Ни один шаг не вливает PR, если `wave-gate check` не `green` или gate вернул 3, 127 или код сигнала.
 - [x] Shell test-ы Harness — exit 0; `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; вердикт Windows —
       runner `full`; условие merge — `ci-ok` (Ticket 35; до него — gate full Orchestrator-а).
-- [ ] (вручную, после обновления Stable copy) Одна настоящая Wave влита через `land`; число вызовов модели
+- [x] (вручную, после обновления Stable copy) Одна настоящая Wave влита через `land`; число вызовов модели
       Orchestrator-а на merge до и после — по Ticket-у 19, в «Итог».
       Не проверено: ждёт обновления Stable copy и первой Wave через `land`.
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: land used for all Waves (e.g. #2175). agent-cost: Orchestrator 7626 calls/318 merged PRs = 24.0 per merge (10-20..27) vs 3668/218 = 16.8 (11-17..23); all main sessions counted. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [x] `harness/skills/epic-wave/SKILL.md`, `harness/skills/ship-ticket/SKILL.md` (`:50`, `:678`, `:743`) и
       `harness/agents/implementer.md` (`:202`) называют условием merge `ci-ok`, а не gate full (расхождение из
       «Итог» Ticket-а 35).
