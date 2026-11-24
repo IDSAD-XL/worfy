@@ -38,12 +38,16 @@ Source: замечание владельца 2026-11-20 по снимку эк�
       с собой; слово чипа состояния — в своём элементе, текст `session-state` прежний, у чипа tooltip kit со словом, а
       при ошибке Session — с ошибкой. Красный до правки. Саму ширину jsdom не видит: её проверяет e2e (пункт 2).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/unit/session-view.test.tsx test/unit/session-state-chip.test.tsx test/unit/session-back.test.tsx test/unit/product-session-panel.test.tsx test/unit/session-picker.test.tsx` exit 0 · mac - · dd2b2476e36b4134750e7d4836596ac27c4a720b
+  - evidence: review pass · PR #2076 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] e2e (`test/e2e/product-session.spec.ts`) при узком окне: ширина выбора Session ≥ 140 px (с точностью до полпикселя), имя в нём видно; доля
       советов обрезана или скрыта раньше, чем выбор Session сжимается; чип — только иконка, текст `busy` у него есть.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 · mac dev · dd2b2476e36b4134750e7d4836596ac27c4a720b
+  - evidence: review pass · PR #2076 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Снимки Playwright шапки, широкой и узкой, в светлой и тёмной теме — в scratchpad, названы в «Итог».
+  - evidence: review pass · PR #2076 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `docs/features/product-session.md` — если страница описывает шапку.
   - evidence: commit pass · worfy-polish/137: Product Session header — the picker keeps its name, the advice share gives way first · - - · 52bcdad43
+  - evidence: review pass · PR #2076 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44699740578/job/136197456783 · ci - · b7956490f1a3931b593cf851bb1c9162f7afd53c
 

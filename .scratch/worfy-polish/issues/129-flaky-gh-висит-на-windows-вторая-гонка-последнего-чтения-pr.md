@@ -63,10 +63,13 @@ Source: красный push run 44471611202 на `main` eb669a653 (#2030, worfy-
 - [ ] В «Причина» этого Ticket-а записано, какое условие ожидания не выполнялось и почему, с воспроизведением на Mac
       временной правкой (не в PR): до исправления красный, после — зелёный.
   - evidence: test-run pass · `pnpm test test/contract/autopilot-faults-github.test.ts -t "gh hangs the whole Run"` exit 0 with the first gh call answering 0/200/1000/3000 ms after its stand-in died (temporary delay edit, reverted); exit 1 with 200/1000 ms before the fix · mac - · c6045e2a968d7db01e9a92cf7ff9586c1c806a51
+  - evidence: review pass · PR #2094 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Все test-ы `test/contract/autopilot-faults-*.test.ts` зелёные; `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
   - evidence: test-run pass · `pnpm test test/contract/autopilot-faults-*.test.ts test/contract/test-timeout-scale.test.ts` exit 0 in 5 of 5 runs (57 tests) · mac - · c6045e2a968d7db01e9a92cf7ff9586c1c806a51
   - evidence: test-run pass · `pnpm lint` exit 0, `pnpm typecheck` exit 0 · mac - · c6045e2a968d7db01e9a92cf7ff9586c1c806a51
+  - evidence: review pass · PR #2094 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Job-ы `windows / full-suite` PR-а зелёные, test в них запускается (не skipped).
+  - evidence: review pass · PR #2094 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Записи `test/quarantine/autopilot-faults-gh-hangs-whole-run.json` нет; test объявлен через `it(`.
   - evidence: commit pass · worfy-polish/129: wait for the hung Run's first PR read to settle, not only its gh to die · - - · c6045e2a968d7db01e9a92cf7ff9586c1c806a51
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44740166839/job/136328887136 · ci - · 1c236a0f84f2a576448f6a39a36b338f0e6bc82e

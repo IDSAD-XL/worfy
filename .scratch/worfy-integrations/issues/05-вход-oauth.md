@@ -59,21 +59,27 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Волны», Wave 4; «Ре�
       PKCE S256 и `resource` в запросах авторизации и token-а; token-ы ложатся в `SecretStore` под ключами `<id>:…`.
       Красный до правки — в «Итог».
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/integrations-oauth.test.ts` exit 0 · mac - · 404167efa
+  - evidence: review pass · PR #2129 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Тот же contract: истёкший access token обновляется без Restart Session — следующий `tools/call` через proxy
       проходит; 10 параллельных вызовов дают один запрос refresh на stub-е; неудачный refresh → `needs-sign-in` и ответ
       tool-а `isError` «Sign-in needed: <метка>…».
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/integrations-oauth.test.ts` exit 0 · mac - · 404167efa
+  - evidence: review pass · PR #2129 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Тот же contract: две Integration-ы на одном адресе stub-а — два разных client id, два partition, у каждой свои
       token-ы.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/integrations-oauth.test.ts` exit 0 · mac - · 404167efa
+  - evidence: review pass · PR #2129 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Тот же contract: Sign out зовёт revocation endpoint stub-а, удаляет ключи `<id>:*` и чистит partition; token не
       появляется в `integrations.json`, в логе main, в Journal и в Flight recorder.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/integrations-oauth.test.ts` exit 0 · mac - · 404167efa
+  - evidence: review pass · PR #2129 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Unit `test/unit/integrations-oauth-redirect.test.ts` (новый): перехват `http://127.0.0.1/worfy-oauth/<id>` только
       для своего `<id>` и `state`; loopback listener закрывается после ответа и через 10 минут.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/integrations-oauth-redirect.test.ts` exit 0 · mac - · 404167efa
+  - evidence: review pass · PR #2129 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `integrations.signIn` с Linked machine Read only — отказ; Full access — разрешён (тот же contract).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/integrations-oauth.test.ts` exit 0 · mac - · 404167efa
+  - evidence: review pass · PR #2129 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44919213738/job/136902391695 · ci - · 15649bf4240c5e0f21391dbf7e5268f39f237332
 

@@ -57,19 +57,23 @@ worfy с `(manual)`.
       правки — в «Итог».
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/acceptance-queue.test.ts` exit 0, red before the change (module missing); 11 mutants of the queue each red · mac - · 612b46128
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/acceptance-queue.test.ts` exit 0 after round 2: status-less Ticket In work (red before), 15-day Older row; mutants R4, R5 red · mac - · 42992858d
+  - evidence: review pass · PR #2153 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `test/unit/epic-queue.test.ts` зелёный с общей функцией `ownersOwn`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/epic-queue.test.ts` exit 0 with the exported ownersOwn; red before (ownersOwn is not a function) · mac - · 612b46128
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/epic-queue.test.ts` exit 0, ownersOwn unchanged in round 2 · mac - · 42992858d
+  - evidence: review pass · PR #2153 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract test (`test/contract/acceptance-service.test.ts`, новый): служба над двумя временными Project-ами с
       Ticket-файлами отдаёт снимок по обоим; правка Ticket-файла даёт `acceptance.changed`; «Sent» переживает новый
       экземпляр службы и уходит, когда в файле появилась строка `owner-check` с тем же вердиктом.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/acceptance-service.test.ts` exit 0; 8 mutants of the service, store and channel each red · mac - · 612b46128
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/acceptance-service.test.ts test/unit/acceptance-service-timers.test.ts` exit 0: Linked machine filter, no gh, 24 h switch, clamped timer (red before); mutants R1a, R1b, R2, R3 red · mac - · 42992858d
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/acceptance-service.test.ts` exit 0 x3 with the order of first reads forced (red x3 before the fix, as on CI); mutants R1a, R1b red · mac - · 1d05ee5b6
+  - evidence: review pass · PR #2153 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Английская страница `docs/features/acceptance.md` описывает правило, группы и «Sent»;
       `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 (39 pages) · mac - · 612b46128
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 (page says Waits for you needs blocked) · mac - · 42992858d
+  - evidence: review pass · PR #2153 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0; `gate fast` exit 0 · mac - · 612b46128
   - evidence: gate pass · `pnpm lint` exit 0, `pnpm typecheck` exit 0, `gate fast` exit 0 (lint, typecheck, test) · mac - · 42992858d

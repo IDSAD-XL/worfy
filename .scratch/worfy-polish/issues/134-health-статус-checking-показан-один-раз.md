@@ -31,9 +31,12 @@ Source: скриншот и слова владельца 2026-11-20 «В health
 - [ ] Unit test `test/unit/settings-health.test.tsx`: пока идёт проверка, chip-а `first-run-summary` нет ни в Health, ни
       в First run, кнопка — «Checking…» со spinner-ом; после ответа chip показывает итог. Красный до правки.
   - evidence: test-run pass · `pnpm test test/unit/settings-health.test.tsx test/unit/first-run-dialog.test.tsx` exit 0 · mac - · 5f00066f5
+  - evidence: review pass · PR #2056 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Снимки Playwright Health в светлой и тёмной теме — во время проверки и после неё (в scratchpad, названы в «Итог»).
+  - evidence: review pass · PR #2056 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `docs/features/onboarding.md` и `docs/features/ru/onboarding.md` описывают chip-итог без «Checking…».
   - evidence: commit pass · fix(health): show the running check once, on the Check again button · - - · 5f00066f5
+  - evidence: review pass · PR #2056 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44665681668/job/136066421949 · ci - · 8b3ab410d3a490f1c4fe55970bda5345967ac22d
 
@@ -42,7 +45,9 @@ Source: скриншот и слова владельца 2026-11-20 «В health
 
 - [ ] Orchestrator: обновить Mac Stable до `main` после «да» владельца и сверить версию (общий шаг с
       `worfy-changes-view` 07).
+  - evidence: review pass · PR #2056 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Orchestrator: через CDP сверить то же в окне First run (один компонент).
+  - evidence: review pass · PR #2056 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [x] (вручную) Сделай: открой Settings → Health и нажми «Check again», смотри на верх раздела → Должно быть: пока
       идёт проверка, слева под заголовком chip-а нет; справа кнопка со spinner-ом «Checking…». После — chip итога
       («Everything is ready» или «N failed · M warnings») и кнопка «Check again».

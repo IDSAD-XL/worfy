@@ -46,14 +46,17 @@ Source: [spec.md](../spec.md), «Ticket-ы», 7; «Решения по реал�
   - evidence: test-run pass · `pnpm test` (test/unit/pr-review-draft-format.test.ts, 16 tests) exit 0 · mac - · ac8ebab4b
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-review-draft-format.test.ts test/contract/pr-review-draft.test.ts` (19 unit) exit 0 · mac - · 2b0e9436a2af78dd037bba64411ccb2346cba070
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-review-draft-format.test.ts test/contract/pr-review-draft.test.ts` (20 unit) exit 0 · mac - · 7fe051346e95d8047d56e7655db7f82c77dab2a4
+  - evidence: review pass · PR #2061 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract `test/contract/pr-review-draft.test.ts` (новый): запись через rename (нет полузаписанного файла при
       обрыве), 500 ms, Discard, 30 дней, отказ Linked machine на каждом `prReview.*`. Без test-а гонки с
       `bin/pr-review-draft` — он в Ticket-е 08.
   - evidence: test-run pass · `pnpm test` (test/contract/pr-review-draft.test.ts, 13 tests) exit 0 · mac - · ac8ebab4b
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-review-draft-format.test.ts test/contract/pr-review-draft.test.ts` (17 contract) exit 0 · mac - · 2b0e9436a2af78dd037bba64411ccb2346cba070
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-review-draft-format.test.ts test/contract/pr-review-draft.test.ts` (18 contract) exit 0 · mac - · 7fe051346e95d8047d56e7655db7f82c77dab2a4
+  - evidence: review pass · PR #2061 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Amendment ADR-0005 влит в этом PR.
   - evidence: commit pass · worfy-pr-review/07: the review draft in main — state/pr-review/ file, prReview.* local channels · - - · ac8ebab4b
+  - evidence: review pass · PR #2061 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · ac8ebab4b
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44680171080/job/136131606679 · ci - · 8f642554ac3817f945789583049c76de981504d1

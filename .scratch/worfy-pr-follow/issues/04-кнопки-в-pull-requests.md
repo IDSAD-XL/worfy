@@ -46,13 +46,18 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решение» → «Пот
       checks, Open checks — ссылка; только красный CI — Fix checks; только `CHANGES_REQUESTED` — Address comments; в
       Needs my answer — Address comments рядом с Draft replies.
   - evidence: test-run pass · `pnpm test` exit 0 · mac - · bb7549a9a330fb9fb30fe01f178f4141a1583946
+  - evidence: review pass · PR #2010 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Unit test: пустой шаблон и экран read-only — кнопка неактивна, tooltip с причиной.
   - evidence: test-run pass · `pnpm test` exit 0 · mac - · bb7549a9a330fb9fb30fe01f178f4141a1583946
+  - evidence: review pass · PR #2010 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] e2e test (`test/e2e/pr-inbox.spec.ts`, gh stub): Fix checks создаёт Session Node, её первое сообщение —
       `/worfy:pr-fix checks owner/web#118 <sha>` с head из stub-а.
+  - evidence: review pass · PR #2010 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Снимок экрана полосы с кнопками — в «Итог» (снимок ревью — в scratchpad, в репозиторий не кладётся).
+  - evidence: review pass · PR #2010 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Английская страница `docs/features/pr-inbox.md` описывает кнопки.
   - evidence: commit pass · worfy-pr-follow/04: Resolve conflicts, Fix checks and Address comments in Pull requests · - - · bb7549a9a330fb9fb30fe01f178f4141a1583946
+  - evidence: review pass · PR #2010 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44367113149/job/135061041916 · ci - · db344cac2282b839c07091d287da991f9bf8fa09
 

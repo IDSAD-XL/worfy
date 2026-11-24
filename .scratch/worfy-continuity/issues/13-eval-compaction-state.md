@@ -32,11 +32,14 @@ Source: [spec.md](../spec.md), «Ticket-ы», 13; «Решения по реал
 ## Готово, когда
 
 - [ ] Кейс `harness/evals/compaction-state` влит; в CI он не запускается.
+  - evidence: review pass · PR #1996 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `--dry-run` прошёл, его вывод и оценка цены — в «Итог».
   - evidence: test-run pass · `node scripts/eval-harness.mjs --case compaction-state --dry-run` exit 0 · mac - · 4aef7eeef8da7f0a4ec606e1e69bc883d8de3d12
+  - evidence: review pass · PR #1996 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] «Итог» — числа по каждому probe без hook-а и с ним; с hook-ом probes о Ticket-е, пунктах «Готово, когда» и
       следующем шаге отвечены лучше, или «Итог» называет, почему нет.
   - evidence: test-run pass · `pnpm eval:harness -- --case compaction-state --max-cost-usd 3`, with hook and with HARNESS_DIR=baseline copy: exit 1 and 1, overallScore 0.64 and 0.73, casesPassed 0 of 1 each, 1.66 + 1.38 USD; Итог names why the hook is not better on the ticket and next-step probes · mac - · 98a0cc68d
+  - evidence: review pass · PR #1996 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44306723233/job/134814610512 · ci - · bc6da010575cb2d11b1002ec48f3f605b957d1f8
 

@@ -34,14 +34,19 @@ Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решения по реал�
 - [ ] Unit test `from-journal.ts`: Journal с `run-suspended {cause: update}` и `run-continued` — один Run, Span `restart`
       с причиной `update` и длительностью.
   - evidence: test-run pass · `pnpm test test/unit/flight-recorder-journal.test.ts` exit 0 · mac - · cc7daa4476f5fbf5d5e2f40bf5a66e19003e1a2e
+  - evidence: review pass · PR #1981 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Unit test: Journal после падения (без `run-suspended`, с `run-continued {after: crash}`) — Span от последнего
       события до `run-continued`.
   - evidence: test-run pass · `pnpm test test/unit/flight-recorder-journal.test.ts` exit 0 · mac - · cc7daa4476f5fbf5d5e2f40bf5a66e19003e1a2e
+  - evidence: review pass · PR #1981 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Unit test: `run-suspended` без `run-continued` — исход `cut-off`, как сейчас.
   - evidence: test-run pass · `pnpm test test/unit/flight-recorder-journal.test.ts` exit 0 · mac - · cc7daa4476f5fbf5d5e2f40bf5a66e19003e1a2e
+  - evidence: review pass · PR #1981 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Unit test подписи: «restart (update) · 3 min».
+  - evidence: review pass · PR #1981 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Английские страницы `flight-recorder.md` и `work-track.md` называют Wait `restart`.
   - evidence: commit pass · worfy-continuity/09: a restart Wait in Run history and Work track · - - · cc7daa4476f5fbf5d5e2f40bf5a66e19003e1a2e
+  - evidence: review pass · PR #1981 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · cc7daa4476f5fbf5d5e2f40bf5a66e19003e1a2e
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44246274849/job/134619375323 · ci - · 743c81036c9ff1d0ac921398bf58b27d125c7b9d

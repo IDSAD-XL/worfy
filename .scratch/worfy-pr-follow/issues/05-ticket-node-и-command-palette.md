@@ -48,17 +48,22 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Пот
       меню Fix checks; PR без причин — кнопки нет; PR inbox выключен — кнопки нет.
   - evidence: test-run pass · `pnpm test test/unit/canvas-actions.test.tsx test/unit/pr-follow-choices.test.tsx` exit 0 · mac - · 208de743da7ac3ac4e1385230cb8090e40c6cbb6
   - evidence: test-run pass · `pnpm test test/unit/canvas-actions.test.tsx test/unit/pr-follow-choices.test.tsx` exit 0 · mac - · 5bd4948c6f615c9794b01a3417e4b0719daf2c83
+  - evidence: review pass · PR #2009 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Unit test (`test/unit/palette-commands.test.tsx`): строки palette совпадают с кнопкой — те же действия и те же
       причины отказа.
   - evidence: test-run pass · `pnpm test test/unit/palette-commands.test.tsx` exit 0 · mac - · 208de743da7ac3ac4e1385230cb8090e40c6cbb6
   - evidence: test-run pass · `pnpm test test/unit/palette-commands.test.tsx` exit 0 · mac - · 5bd4948c6f615c9794b01a3417e4b0719daf2c83
+  - evidence: review pass · PR #2009 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] e2e test рядом с `test/e2e/ship-ticket.spec.ts` (gh stub): у Ticket-а нет Session с Binding-ом; щелчок Resolve
       conflicts на Ticket Node создаёт новую Session Node у Ticket-а, её первое сообщение —
       `/worfy:pr-fix conflicts <repo>#<N> <sha>` с head из stub-а. Путь в Session с Binding-ом проверяет contract test
       Ticket-а 01.
+  - evidence: review pass · PR #2009 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Снимок экрана Ticket Node с меню — в «Итог» (снимок ревью — в scratchpad).
+  - evidence: review pass · PR #2009 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Английские страницы `docs/features/workflow.md` и `docs/features/app-shell.md` описывают действие.
   - evidence: commit pass · worfy-pr-follow/05: pull request actions on the Ticket Node and in the Command palette · - - · 208de743da7ac3ac4e1385230cb8090e40c6cbb6
+  - evidence: review pass · PR #2009 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44365821923/job/135040635296 · ci - · 21caee9f33b91d696e035d75637aef06bfb0758e
 

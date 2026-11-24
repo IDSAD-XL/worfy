@@ -72,12 +72,15 @@ scope (`macos-package` у #1898)».
       (вывод run-а до правки).
   - evidence: test-run pass · `pnpm test test/contract/ci-workflow.test.ts -t "PR #1898"` exit 0 (exit 1 before the change of scripts/ci-scope.mjs) · mac - · b9a18aae18ee6bfca99d6723cb5063f32f0f66bc
   - evidence: test-run pass · `pnpm test test/contract/ci-workflow.test.ts -t "ackage"` exit 0 (review round 1) · mac - · 107e82c81f7b255aadff9548fae49801902f8d98
+  - evidence: review pass · PR #1938 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract test: каждая строка новой таблицы указывает на существующий путь, и у неё есть `why`.
   - evidence: test-run pass · `pnpm test test/contract/ci-workflow.test.ts -t "PACKAGED_PATHS"` exit 0 · mac - · b9a18aae18ee6bfca99d6723cb5063f32f0f66bc
   - evidence: test-run pass · `pnpm test test/contract/ci-workflow.test.ts -t "ackage"` exit 0; mutants that drop a row or a path are killed · mac - · 107e82c81f7b255aadff9548fae49801902f8d98
+  - evidence: review pass · PR #1938 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract test: PR без пути таблицы и без build input-а по-прежнему без `macos-package` (случай `:1036`
       остаётся или явно изменён).
   - evidence: test-run pass · `pnpm test test/contract/ci-workflow.test.ts -t "no packaged path"` exit 0 · mac - · b9a18aae18ee6bfca99d6723cb5063f32f0f66bc
+  - evidence: review pass · PR #1938 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Все unit- и contract-test-ы модуля зелёные: `test/contract/ci-workflow.test.ts`,
       `test/contract/ci-scope-e2e.test.ts`, `test/unit/affected-tests.test.ts`; gate fast — exit 0; `ci-ok` на PR
       зелёный (и `macos-package` на этом PR идёт, если PR трогает `ci.yml`).
@@ -87,6 +90,7 @@ scope (`macos-package` у #1898)».
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/43991815819/job/133737051471 · ci - · 8e3222206484aceea26f749ffab0ec60277feb40
 - [ ] В описании PR: сколько PR окна Ticket-а 66 (2026-11-09…16, PR с кодом) попросили бы `macos-package` по новой
       таблице — оценка цены в macOS-минутах.
+  - evidence: review pass · PR #1938 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 
 ## Где в коде
 

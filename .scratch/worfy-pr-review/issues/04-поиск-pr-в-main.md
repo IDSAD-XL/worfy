@@ -58,19 +58,23 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Факты GitHub API» → �
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-search-query.test.ts` exit 0 · mac - · b63f39113812ecffbdcb0dbf30f1ea8f521393e3
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-search-query.test.ts` exit 0 · mac - · c5292719c3746a1189dec7a2b0befbb9006589ba
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-search-query.test.ts` exit 0 · mac - · 30dae5114
+  - evidence: review pass · PR #2074 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract `test/contract/pr-search.test.ts` (новый) на gh stand-in (`WORFY_GH`): строка запроса каждой области,
       cursor и «Load more», 1 000, rate limit, 403 SSO и `partial-results`, 422, 404; строка из inbox не читается
       дважды; stand-in валит test на любом `--method` и `mutation` — ни одной записи на GitHub.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-search.test.ts` exit 0 · mac - · b63f39113812ecffbdcb0dbf30f1ea8f521393e3
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-search.test.ts` exit 0 · mac - · c5292719c3746a1189dec7a2b0befbb9006589ba
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-search.test.ts` exit 0 · mac - · 30dae5114
+  - evidence: review pass · PR #2074 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Тот же contract: `prSearch.save` с Linked machine Read only — отказ; `prSearch.run` — разрешён; больше 20
       сохранённых — отказ; встроенные не удаляются.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-search.test.ts` exit 0 · mac - · b63f39113812ecffbdcb0dbf30f1ea8f521393e3
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-search.test.ts` exit 0 · mac - · c5292719c3746a1189dec7a2b0befbb9006589ba
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-search.test.ts` exit 0 · mac - · 30dae5114
+  - evidence: review pass · PR #2074 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Amendment-ы ADR-0105 (пункт 1) и ADR-0005 влиты в этом PR.
   - evidence: commit pass · worfy-pr-review/04: PR search in main — query builder, three scopes, prSearch.run/pull, saved searches · - - · b63f39113812ecffbdcb0dbf30f1ea8f521393e3
+  - evidence: review pass · PR #2074 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44699716703/job/136193437838 · ci - · 96a6c1a1ea57517cb41a332b65223a8570755dab
 

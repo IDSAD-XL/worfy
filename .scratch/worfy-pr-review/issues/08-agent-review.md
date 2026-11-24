@@ -57,20 +57,26 @@ skill-а, guard hook и eval.
       `by: 'person'` и итоговый текст человека; отказ на `submitting` / `submitted` и без черновика. Красный до правки —
       в «Итог».
   - evidence: test-run pass · `pnpm test test/contract/harness-pr-review-draft.test.ts` exit 0 (12 tests, a rename refused as on Windows among them) · mac - · 2f4fff13c0d7e293ee31a4a900a6acb34358899a
+  - evidence: review pass · PR #2085 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Тот же contract — test гонки: main (`prReview.saveComment` Ticket-а 07) и `bin/pr-review-draft` пишут в один файл
       одновременно 200 раз; ни одна запись не потеряна, файл всегда разбирается.
   - evidence: test-run pass · `pnpm test test/contract/harness-pr-review-draft.test.ts` exit 0 (races main: 200 + 200 writes; quit lock: own, own taken over, other, stale) · mac - · 2f4fff13c0d7e293ee31a4a900a6acb34358899a
+  - evidence: review pass · PR #2085 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract `test/contract/pr-review-agent.test.ts` (новый) на `WORFY_AGENT=fake`: `prReview.agentReview` запускает
       Session с `/human-review …` при Team reviewer-е и с `/worfy:code-review` без него; `fill: 'add'`;
       `prReview.stopAgent`; `prReview.changed` при записи; отказ Linked machine.
   - evidence: test-run pass · `pnpm test test/contract/pr-review-agent.test.ts` exit 0 (14 tests, the agent writing while main reads as on Windows among them) · mac - · 2f4fff13c0d7e293ee31a4a900a6acb34358899a
+  - evidence: review pass · PR #2085 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `test/unit/action-templates.test.ts`: шаблон «Agent review» и его Vendor.
   - evidence: test-run pass · `pnpm test test/unit/action-templates.test.ts` exit 0 · mac - · 2f4fff13c0d7e293ee31a4a900a6acb34358899a
+  - evidence: review pass · PR #2085 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Eval `harness/evals/agent-review-guards/` — pass; результат и цена — в «Итог».
   - evidence: test-run pass · `pnpm eval:harness -- --case agent-review-guards --max-cost-usd 5` exit 0, score 1.00, 2 of 2 runs, 1.20 USD · mac - · d710dde5dbde0b5de1e0d670bc312def26f7983e
+  - evidence: review pass · PR #2085 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `harness/bin/tests/agents-text.test.sh`: текст раздела держит «только через `bin/pr-review-draft`» и «вердикт —
       только предложение»; mutant (фраза убрана) — красный. `test/contract/codex-parity.test.ts` зелёный.
   - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 (514 passed); `pnpm test test/contract/codex-parity.test.ts` exit 0 · mac - · 2f4fff13c0d7e293ee31a4a900a6acb34358899a
+  - evidence: review pass · PR #2085 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job-ы Windows CI зелёные
       (платформенный PR).
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44735668795/job/136426153572 · ci - · c8c38b96a54d023dd1a07cfa95be7d8e0a820790

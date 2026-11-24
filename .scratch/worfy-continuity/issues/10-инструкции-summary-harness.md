@@ -39,11 +39,15 @@ Source: [spec.md](../spec.md), «Ticket-ы», 10; «Решения по реал
 - [ ] `harness/hooks/tests/rules-hooks.test.sh`: `compaction.md` вставляется и укладывается в предел 10 000 знаков
       вместе с правилами роли.
   - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 · mac - · b7e5f01bf97d5f4b5909c5e93554704ce089a6b1
+  - evidence: review pass · PR #1976 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Shell test: запасная строка `common.md` есть в выводе hook-а у каждой роли.
   - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 · mac - · b7e5f01bf97d5f4b5909c5e93554704ce089a6b1
+  - evidence: review pass · PR #1976 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Английская страница `skills-agents-and-hooks.md` называет `compaction.md`.
   - evidence: commit pass · worfy-continuity/10: summary instructions for compaction through PreCompact · - - · b7e5f01bf97d5f4b5909c5e93554704ce089a6b1
+  - evidence: review pass · PR #1976 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Платформенный PR (ADR-0056, пункт 2; ADR-0071): job Windows в составе `ci-ok` зелёный на head PR до merge.
+  - evidence: review pass · PR #1976 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44221265677/job/134527446960 · ci - · 7e817a6dc8709c9572b2cb144263863c87f84bd4
 

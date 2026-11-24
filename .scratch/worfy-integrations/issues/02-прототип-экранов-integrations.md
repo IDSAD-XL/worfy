@@ -49,10 +49,13 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Волны», Wave 1; «Ре�
 
 - [ ] Card «Prototype: Integrations» открывается на Canvas Project-а и показывает все состояния из «Что делаем», 2–7,
       в светлой и тёмной теме; в консоли Card-а нет ошибок.
+  - evidence: review pass · PR #2104 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Данные выдуманы: `grep -inE "canvasforai|idsad|src/main|src/renderer" <card>/index.html` не находит
       настоящих путей, имён и адресов.
   - evidence: test-run pass · `grep -inE "canvasforai|idsad|src/main|src/renderer" <card>/index.html` exit 1, no match · mac - · c7281b1184707db2be304e0eab0d74443d1d2433
+  - evidence: review pass · PR #2104 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] В каталоге Card-а нет Slack (Q6): `grep -ic slack <card>/index.html` — 0.
+  - evidence: review pass · PR #2104 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] В «Итог» — id Card-а и состояния; брифы Ticket-ов 08 и 09 ссылаются на него.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44786702132/job/136465948723 · ci - · 8b5f9aa963ffce09f8462291f066a644fd2d7dcb
 

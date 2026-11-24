@@ -37,11 +37,14 @@ Source: [spec.md](../spec.md), «Ticket-ы», 7; «Решения по реал�
       `actions.ownerCheck`; Full access кладёт текст в очередь Orchestrator-а другой Machine; `needs: windows` берёт
       сборку из `hello.build`. Красный до правки — в «Итог».
   - evidence: test-run pass · `pnpm test test/contract/acceptance-linked.test.ts` exit 0 · mac - · 7c60d49fc
+  - evidence: review pass · PR #2171 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] e2e test (`test/e2e/linked-acceptance.spec.ts`, новый, образец `test/e2e/linked-read-only.spec.ts`): окно Linked
       machine показывает очередь, Read only — кнопки неактивны с подсказкой.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/linked-acceptance.spec.ts test/e2e/acceptance.spec.ts test/e2e/linked-read-only.spec.ts test/e2e/sidebar-rail.spec.ts` exit 0 · mac dev · 7c60d49fc
+  - evidence: review pass · PR #2171 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `docs/features/link.md` описывает Acceptance на Linked machine; `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 7c60d49fc
+  - evidence: review pass · PR #2171 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `pnpm lint` exit 0; `pnpm typecheck` exit 0; `gate fast` exit 0 (lint, typecheck, test) · mac - · 7c60d49fc
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45348009013/job/138299943591 · ci - · ebe8bf69e22ebad642cdf63d722f3cfae6d34670

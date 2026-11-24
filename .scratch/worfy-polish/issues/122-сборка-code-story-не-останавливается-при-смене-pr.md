@@ -62,19 +62,23 @@ Source: баг-репорт владельца 2026-11-17 (Pull requests, кно
       свою сборку.
   - evidence: test-run pass · `pnpm test test/contract/story-by-button.test.ts test/contract/stories-handler.test.ts` exit 0 · mac - · a64866be4d71a7d5c6b5b4689c6f36f5a673dcf1
   - evidence: test-run pass · `pnpm test test/contract/story-by-button.test.ts test/contract/stories-handler.test.ts` exit 0 · mac - · 930bf9a80d2d65eadaa936d553a6e99a7a634127
+  - evidence: review pass · PR #1940 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Unit test-ы кнопки (сначала красные): размонтирование не зовёт `stories.stop`; монтирование при идущей сборке
       своего ключа показывает бар; идущая сборка другого ключа не показывается.
   - evidence: test-run pass · `pnpm test test/unit/story-build-button.test.tsx` exit 0 · mac - · a64866be4d71a7d5c6b5b4689c6f36f5a673dcf1
   - evidence: test-run pass · `pnpm test test/unit/story-build-button.test.tsx` exit 0 · mac - · 930bf9a80d2d65eadaa936d553a6e99a7a634127
+  - evidence: review pass · PR #1940 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] e2e в `test/e2e/code-story.spec.ts` (fake agent; локальный e2e запрещён, CI его прогоняет): сборка на PR A,
       переход на B (B без бара), обратно на A (бар на месте), конец → story открыта и сохранена у A; reload — если
       выполнимо.
+  - evidence: review pass · PR #1940 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Все unit- и contract-test-ы модуля stories, `pnpm lint`, `pnpm typecheck`, gate fast — exit 0; `ci-ok` на PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · a64866be4d71a7d5c6b5b4689c6f36f5a673dcf1
   - evidence: gate pass · `gate fast` exit 0 · mac - · 930bf9a80d2d65eadaa936d553a6e99a7a634127
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44004855517/job/133795843818 · ci - · aa6f1fbdeaea10713e5dccf81d7735fadead73db
 - [ ] `docs/features/code-stories.md` описывает новое поведение.
   - evidence: commit pass · Keep a Code story build by the button running when its PR or view is left (worfy-polish 122) · - - · a64866be4d71a7d5c6b5b4689c6f36f5a673dcf1
+  - evidence: review pass · PR #1940 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 
 ## Где в коде
 

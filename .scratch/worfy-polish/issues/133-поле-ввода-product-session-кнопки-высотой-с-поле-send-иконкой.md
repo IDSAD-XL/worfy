@@ -39,12 +39,16 @@ Source: просьба владельца 2026-11-20 в чате Orchestrator-а
       шапке есть `session-interrupt`; Esc в поле прерывает ход; Send — кнопка с именем `Send` без текста, с
       подсказкой клавиши; Return отправляет, во время хода — в очередь. Красный до правки.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/unit/session-view.test.tsx` exit 0 · mac - · 15ef693b7
+  - evidence: review pass · PR #2060 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Поле обычной Session: Interrupt и «Queue message» / «Send message» как раньше (существующие test-ы зелёные).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/unit/session-view.test.tsx` exit 0 · mac - · 15ef693b7
+  - evidence: review pass · PR #2060 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] e2e (`test/e2e/product-session.spec.ts`): «+», Send и поле одной высоты, низ кнопок совпадает с низом поля, и
       так же после трёх строк текста.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 · mac dev · 15ef693b7
+  - evidence: review pass · PR #2060 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Снимки Playwright строки ввода в светлой и тёмной теме, без хода и во время хода — в scratchpad, названы в «Итог».
+  - evidence: review pass · PR #2060 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44667859730/job/136084734438 · ci - · 71666a3cd708cfd60cd8eaf0d41318d8f69645f6
 

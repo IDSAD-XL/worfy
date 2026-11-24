@@ -40,20 +40,26 @@ Source: [spec.md](../spec.md), «Ticket-ы», 7; «Решения по реал�
       в Journal-е `unknown-side-effects` с Ticket-ом и командой.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/autopilot-faults-restart.test.ts` exit 0 · mac - · e89b0af45c6d411e2f70c6f5c76bedf78078736a
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-faults-restart.test.ts` exit 0 · mac - · 1d92b3ae1516f67d186b593bda6ffb81a3579f51
+  - evidence: review pass · PR #1994 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract test: «Checked, include» → Ticket в `resumable`, следующая Wave берёт его как продолженный.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/autopilot-faults-restart.test.ts` exit 0 · mac - · e89b0af45c6d411e2f70c6f5c76bedf78078736a
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-faults-restart.test.ts` exit 0 · mac - · 1d92b3ae1516f67d186b593bda6ffb81a3579f51
+  - evidence: review pass · PR #1994 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract test: Subagent держит `gh pr merge` без результата → выход ждёт его, не дольше 60 с по часам test-а.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/autopilot-faults-quit.test.ts` exit 0 · mac - · e89b0af45c6d411e2f70c6f5c76bedf78078736a
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-faults-quit.test.ts` exit 0 · mac - · 1d92b3ae1516f67d186b593bda6ffb81a3579f51
+  - evidence: review pass · PR #1994 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Unit test checkpoint-а: `unknown-side-effects` в Journal-е — Ticket не `resumable`, пока нет «Checked, include».
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/unit/autopilot-checkpoint.test.ts` exit 0 · mac - · e89b0af45c6d411e2f70c6f5c76bedf78078736a
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/autopilot-checkpoint.test.ts` exit 0 · mac - · 1d92b3ae1516f67d186b593bda6ffb81a3579f51
+  - evidence: review pass · PR #1994 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] e2e test: метка на Ticket-е в рамке Epic-а, tooltip с командой, toast и «Checked, include» (рядом с
       `test/e2e/autopilot-faults.spec.ts`).
+  - evidence: review pass · PR #1994 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Английская страница `autopilot-faults.md` описывает метку и «Checked, include».
   - evidence: commit pass · worfy-continuity/07: mark Tickets with unknown side effects, toast with "Checked, include" · - - · e89b0af45c6d411e2f70c6f5c76bedf78078736a
   - evidence: commit pass · worfy-continuity/07: I10 on the feature page, Code story steps for Discard and the marks after a restart · - - · 1d92b3ae1516f67d186b593bda6ffb81a3579f51
+  - evidence: review pass · PR #1994 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44294158989/job/134785912709 · ci - · 8d92616cd7e88be9af86c6d8259f1d8640c9272c
 

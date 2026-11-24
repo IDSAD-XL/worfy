@@ -58,21 +58,26 @@ Source: [spec.md](../spec.md), «Ticket-ы», 9; «Волны», Wave 5; «Ре�
       `needs-sign-in` — ответ tool-а «Sign-in needed», строка Health check, `integrations.signIn` не вызван, окно не
       создано. Красный до правки — в «Итог».
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/integrations-autopilot.test.ts` exit 0 · mac - · e15625d08956845ce54c49f5195e0f12890fad7d
+  - evidence: review pass · PR #2147 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract `test/contract/integrations-health.test.ts` (новый): строка Health check на Integration в
       `needs-sign-in` — non-critical, с действием Sign in; token в тексте строки нет.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/integrations-health.test.ts` exit 0 · mac - · e15625d08956845ce54c49f5195e0f12890fad7d
+  - evidence: review pass · PR #2147 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Тот же contract или `test/contract/integrations-linked-machine.test.ts` (новый): Read only — `list` и `status`;
       Full access — `setEnabled`, `setTools`, `setAutopilot`, `signIn` (окно — на Machine Project-а); `add`,
       `setSecret`, `remove` — отказ при любом уровне.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/integrations-linked-machine.test.ts` exit 0 · mac - · e15625d08956845ce54c49f5195e0f12890fad7d
+  - evidence: review pass · PR #2147 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `test/unit/mcp-chip.test.tsx`: Sign in у строки Integration зовёт `integrations.signIn`, а не `mcpAuthenticate`;
       Restart у Integration, включённой на ходу.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/mcp-chip.test.tsx` exit 0 · mac - · e15625d08956845ce54c49f5195e0f12890fad7d
+  - evidence: review pass · PR #2147 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] e2e `test/e2e/integrations.spec.ts`: Sign in в окне worfy на OAuth-stub-е `test/fixtures/integrations/` → строка
       `signed-in` ~~с аккаунтом~~ с аккаунтом или адресом сервиса, когда аккаунт неизвестен (account is not in the
       OAuth token answer — Orchestrator 2026-11-22); после неудачного refresh — «Sign-in needed» в строке, в chip-е и в
       Settings → Health.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/integrations.spec.ts` exit 0 · mac - · 0e9a36ee7cab4690e0d487d3cb36f90046eb7aa3
+  - evidence: review pass · PR #2147 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:e2e test/e2e/integrations.spec.ts` — exit 0; `ci-ok`
       зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · e15625d08956845ce54c49f5195e0f12890fad7d

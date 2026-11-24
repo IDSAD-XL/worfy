@@ -78,27 +78,35 @@ Source: owner-check fail 2026-11-21 of worfy-changes-view 07, item 2 — 07-пр
 - [ ] Unit test (`test/unit/canvas-actions.test.tsx`): кнопка Changes открывает вид `changes` с этим Ticket-ом и не шлёт
       операции Layout-а; на экране Read only она активна.
   - evidence: test-run pass · `pnpm test -- test/unit/canvas-actions.test.tsx` exit 0 · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
+  - evidence: review pass · PR #2124 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Unit test (`test/unit/palette-commands.test.tsx`): Open changes открывает вид `changes`, без `readOnly`.
   - evidence: test-run pass · `pnpm test -- test/unit/palette-commands.test.tsx` exit 0 · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
+  - evidence: review pass · PR #2124 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Unit test (`test/unit/changes-view.test.tsx`): вид рисует шапку scope-ов, дерево и diff Ticket-а; «← Canvas» и
       Escape возвращают на Canvas; Escape при открытом popover закрывает только popover.
   - evidence: test-run pass · `pnpm test -- test/unit/changes-view.test.tsx test/unit/changes-tray.test.tsx` exit 0 · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
+  - evidence: review pass · PR #2124 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract test (`test/contract/layout-store.test.ts`): Layout с Node-ом `changes` читается без него, строка log-а
       одна; второе чтение ничего не пишет.
   - evidence: test-run pass · `pnpm test -- test/contract/layout-store.test.ts` exit 0 · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
+  - evidence: review pass · PR #2124 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] e2e test (`test/e2e/changes.spec.ts`, fake agent, временный репозиторий): карточка → Changes → вид `changes` во всё
       окно, файлы и строки совпадают с `git diff <merge-base>`; в сохранённом Layout-е нет Node-а `changes`; «← Canvas»
       возвращает на Canvas; Open changes из palette; репозиторий на 300 файлов открывается свёрнутым; снимки вида в
       светлой и тёмной теме.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/changes.spec.ts` exit 0 · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
+  - evidence: review pass · PR #2124 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] e2e test (`test/e2e/changes-comments.spec.ts`): два комментария к строке и диапазону уходят одним сообщением из
       вида; блок в пузыре открывает вид на строке.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/changes-comments.spec.ts` exit 0 · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
+  - evidence: review pass · PR #2124 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] e2e test-ы `test/e2e/pr-review.spec.ts` зелёные без правки ожиданий: экран PR не изменился.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-review.spec.ts` exit 0 · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
+  - evidence: review pass · PR #2124 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Страницы `docs/features/changes.md`, `app-shell.md`, `workflow.md`, их переводы в `docs/features/ru/` и термин в
       `CONTEXT.md` описывают вид; `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `pnpm lint` exit 0 (check-feature-docs ok) · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
+  - evidence: review pass · PR #2124 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44848715127/job/136688321593 · ci - · fb19066c19098e159cd70ccbd28e6ce10689fef9
 - [x] (manual) Mac Stable: кнопка Changes на карточке открывает Node с diff-ом ветки.
@@ -115,10 +123,14 @@ Source: owner-check fail 2026-11-21 of worfy-changes-view 07, item 2 — 07-пр
 подготовка Orchestrator-а — пункты без метки, шаги владельца — пункты с меткой, по одному на шаг.
 
 - [ ] Orchestrator: обновить Mac Stable до `main` после «да» владельца и сверить версию.
+  - evidence: review pass · PR #2124 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Orchestrator: завести в `worfy-sandbox` Ticket с worktree: ветка с 2–3 commit-ами, изменённый файл без commit-а,
       новый файл, rename, lock-файл, binary-файл, файл в `.scratch/`.
+  - evidence: review pass · PR #2124 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Orchestrator: привязать к этому Ticket-у Session (Binding).
+  - evidence: review pass · PR #2124 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Orchestrator: через CDP проверить Linked machine с Read only (diff виден, «+» и лотка нет).
+  - evidence: review pass · PR #2124 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [x] (manual) Сделай: на Canvas `worfy-sandbox` на карточке названного Ticket-а нажми **Changes** → Должно быть:
       открылся вид Changes во всё окно (как Pull requests), Canvas скрыт под ним; в заголовке **← Canvas** и
       `Changes · Ticket NN · <epic>`. В первой строке — меню scope «All changes», `origin/main ← <ветка>`, merge-base,

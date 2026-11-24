@@ -58,23 +58,32 @@ Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решения по реал�
 - [ ] Contract test (`faultRun()`): выход посреди Wave, старт → тот же id, `run-continued`, одна новая команда Wave с
       продолженными Ticket-ами; команда оборванной Wave снова не ушла.
   - evidence: test-run pass · `pnpm test test/contract/autopilot-faults-restart.test.ts` exit 0 · mac - · f3d1184508c0a837cf969601f0adaae9d8dc4f5c
+  - evidence: review pass · PR #1988 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract test: падение без `run-suspended` → то же, `run-continued {after: crash}`.
   - evidence: test-run pass · `pnpm test test/contract/autopilot-faults-restart.test.ts` exit 0 · mac - · f3d1184508c0a837cf969601f0adaae9d8dc4f5c
+  - evidence: review pass · PR #1988 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract test: выход в Wait Limits → после старта Wait идёт до своего `until`, команда раньше не уходит.
   - evidence: test-run pass · `pnpm test test/contract/autopilot-faults-restart.test.ts` exit 0 · mac - · f3d1184508c0a837cf969601f0adaae9d8dc4f5c
+  - evidence: review pass · PR #1988 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract test: третий старт за час → продолжения нет, строка `cut off by restart`; Resume продолжает, Discard
       пишет `run-stopped` с `discarded`.
   - evidence: test-run pass · `pnpm test test/contract/autopilot-faults-restart.test.ts` exit 0 · mac - · f3d1184508c0a837cf969601f0adaae9d8dc4f5c
+  - evidence: review pass · PR #1988 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract test: implementer Ticket-а держал `gh pr merge` без результата → после старта Ticket не в Wave.
   - evidence: test-run pass · `pnpm test test/contract/autopilot-faults-restart.test.ts` exit 0 · mac - · f3d1184508c0a837cf969601f0adaae9d8dc4f5c
+  - evidence: review pass · PR #1988 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract test: Read only на Linked machine — кнопок Resume и Discard нет.
   - evidence: test-run pass · `pnpm test test/unit/autopilot-cut-off-line.test.tsx test/unit/link-access.test.ts` exit 0 · mac - · f3d1184508c0a837cf969601f0adaae9d8dc4f5c
+  - evidence: review pass · PR #1988 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Recovery invariants И1, И4, И6 обновлены и зелёные во всех Fault scenario-ах.
   - evidence: test-run pass · `pnpm test test/unit/autopilot-invariants.test.ts test/contract/autopilot-faults-restart.test.ts test/contract/autopilot-faults-quit.test.ts` exit 0 · mac - · f3d1184508c0a837cf969601f0adaae9d8dc4f5c
+  - evidence: review pass · PR #1988 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] e2e test `test/e2e/autopilot-faults.spec.ts:36` меняет ожидание: после SIGKILL и старта уходит ровно одна новая
       команда Wave — 01 как продолженный и 02.
+  - evidence: review pass · PR #1988 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Английские страницы `autopilot.md` и `autopilot-faults.md` описывают продолжение Run-а.
   - evidence: commit pass · worfy-continuity/06: continue an Autopilot Run after a restart of worfy · - - · f3d1184508c0a837cf969601f0adaae9d8dc4f5c
+  - evidence: review pass · PR #1988 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44266944495/job/134689393925 · ci - · b0f3f8d1bdd9de46e5a9f0e34b082074a0a29fde
 

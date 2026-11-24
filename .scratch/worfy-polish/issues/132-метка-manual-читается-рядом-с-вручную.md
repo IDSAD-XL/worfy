@@ -63,16 +63,21 @@ Windows в CI.
 - [ ] Unit test-ы `test/unit/evidence.test.ts` и `test/unit/manual-checks.test.ts`: пункт `(manual)` при Profile-е с
       `вручную` — ручной, `(вручную)` при Profile-е с `manual` — ручной; красные до правки.
   - evidence: test-run pass · `pnpm test` exit 0 (red before the fix) · mac - · 3ba43f182a9a5c93d626b3b4f694cfac05ed36d2
+  - evidence: review pass · PR #2050 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract test `test/contract/evidence-rules-agree.test.ts` с fixture-Ticket-ом
       `harness/bin/tests/fixtures/evidence/ru/03-manual-marks.md`: обе копии дают одинаковые пункты с `manualMark`
       по умолчанию и `вручную`.
   - evidence: test-run pass · `pnpm test` exit 0 (test/contract/evidence-rules-agree.test.ts) · mac - · 3ba43f182a9a5c93d626b3b4f694cfac05ed36d2
+  - evidence: review pass · PR #2050 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `harness/bin/tests/ticket-evidence.test.sh` — новый случай Profile-а с `вручную` зелёный; весь файл — exit 0.
   - evidence: test-run pass · `bash harness/bin/tests/ticket-evidence.test.sh` exit 0 · mac - · 3ba43f182a9a5c93d626b3b4f694cfac05ed36d2
+  - evidence: review pass · PR #2050 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] После merge `ticket evidence worfy-mcp-live 08` на main показывает пункт 2 ручным (вывод в «Итог»).
+  - evidence: review pass · PR #2050 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `docs/features/workflow.md` и `docs/features/ru/workflow.md` описывают правило меток;
       `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 3ba43f182a9a5c93d626b3b4f694cfac05ed36d2
+  - evidence: review pass · PR #2050 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job-ы Windows CI зелёные
       (платформенный PR).
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44655063359/job/136033490788 · ci - · 04372db24e622662b76a65cd4f2cb8fb84f83291

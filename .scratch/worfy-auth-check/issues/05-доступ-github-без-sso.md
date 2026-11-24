@@ -68,9 +68,11 @@ Windows — job Windows в составе `ci-ok` (ADR-0071). Глубина р�
       `GH_TOKEN`, `GITHUB_TOKEN`; 200, 401, 404, 5xx → `unknown`.
   - evidence: test-run pass · `pnpm test test/unit/auth-diagnosis.test.ts` exit 0 · mac - · fb5e44b1a13fe981ebdb4fa303b78d173c3305c6
   - evidence: test-run pass · `pnpm test test/unit/auth-diagnosis.test.ts` exit 0 (rate-limit 403 too) · mac - · 549f9b9b7629b4e065f986a8882e90d685eda4a2
+  - evidence: review pass · PR #2023 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Unit test (`test/unit/gh-auth-text.test.ts`): запись `(GH_TOKEN)` читается как источник с состоянием; разбор
       логинов gh до 2.40 и после не изменился.
   - evidence: test-run pass · `pnpm test test/unit/gh-auth-text.test.ts` exit 0 · mac - · fb5e44b1a13fe981ebdb4fa303b78d173c3305c6
+  - evidence: review pass · PR #2023 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract test (новый `test/contract/health-github-access.test.ts`) на stand-in gh (`test/fixtures/gh/gh-stub.mjs`,
       `WORFY_GH`): нет аккаунта и один login с push → fixable с «Use <login>»; два login-а с push → needs-user без
       кнопки; аккаунт без gh login → critical с Sign in…; 401; 404; stand-in падает без сети → `unknown`.
@@ -78,14 +80,17 @@ Windows — job Windows в составе `ci-ok` (ADR-0071). Глубина р�
   - evidence: test-run pass · `pnpm test test/contract/health-github-access.test.ts` exit 0 (EMU login, two repositories) · mac - · 549f9b9b7629b4e065f986a8882e90d685eda4a2
   - evidence: test-run pass · `pnpm test test/contract/health-github-access.test.ts` exit 0 (a managed login named in the hint) · mac - · 535218371beea24104e2b7fa3350efa76277677f
   - evidence: test-run pass · `pnpm test test/contract/health-github-access.test.ts` exit 0 (two repositories, Windows folder path in the git stand-in) · mac - · f550bae7a6fb5cc263bd46ff0edc5f94b1fe8368
+  - evidence: review pass · PR #2023 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract test: «Use <login>» зовёт `profile-set --field github.account` с этим login-ом, следующая проверка
       строки — `ok`; `gh-auth` с `(GH_TOKEN)` называет переменную.
   - evidence: test-run pass · `pnpm test test/contract/health-github-access.test.ts test/unit/settings-health.test.tsx` exit 0 · mac - · fb5e44b1a13fe981ebdb4fa303b78d173c3305c6
   - evidence: test-run pass · `pnpm test test/contract/health-github-access.test.ts test/unit/settings-health.test.tsx` exit 0 · mac - · 549f9b9b7629b4e065f986a8882e90d685eda4a2
+  - evidence: review pass · PR #2023 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Test, что ни одна строка, log и текст ошибки не содержат значение токена: stand-in gh печатает известный токен
       (в `gh auth token` и в теле ответа), test ищет его во всём выводе — в отчёте Health check, в log и в ошибках.
   - evidence: test-run pass · `pnpm test test/contract/health-github-access.test.ts` exit 0 (the leak test) · mac - · fb5e44b1a13fe981ebdb4fa303b78d173c3305c6
   - evidence: test-run pass · `pnpm test test/contract/health-github-access.test.ts` exit 0 (the leak test, gh ended by its time limit too) · mac - · 549f9b9b7629b4e065f986a8882e90d685eda4a2
+  - evidence: review pass · PR #2023 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Все unit и contract test-ы модуля зелёные: `test/unit/gh-auth-text.test.ts`, `test/contract/first-run-checks.test.ts`,
       `test/contract/github-prs.test.ts`, `test/contract/github-accounts.test.ts`, `test/contract/gh-stand-in.test.ts`,
       `test/contract/workflow-profile.test.ts`, `test/contract/health-reports.test.ts`.
@@ -93,9 +98,11 @@ Windows — job Windows в составе `ci-ok` (ADR-0071). Глубина р�
   - evidence: test-run pass · `pnpm test` of the 14 module files exit 0 · mac - · 549f9b9b7629b4e065f986a8882e90d685eda4a2
   - evidence: test-run pass · `pnpm test` of the 12 module files exit 0 · mac - · 535218371beea24104e2b7fa3350efa76277677f
   - evidence: test-run pass · `pnpm test` of the 4 module files exit 0 · mac - · f550bae7a6fb5cc263bd46ff0edc5f94b1fe8368
+  - evidence: review pass · PR #2023 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Английские страницы `gate-and-github.md` и `projects.md` описывают источник токена и строку GitHub access.
   - evidence: commit pass · worfy-auth-check/05: GitHub access row, honest gh-auth, Use <login> · - - · fb5e44b1a13fe981ebdb4fa303b78d173c3305c6
   - evidence: commit pass · worfy-auth-check/05: review round 2 — a managed login: the page and the row say worfy does not take it yet · - - · 535218371beea24104e2b7fa3350efa76277677f
+  - evidence: review pass · PR #2023 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · fb5e44b1a13fe981ebdb4fa303b78d173c3305c6
   - evidence: gate pass · `gate fast` exit 0 · mac - · fb5e44b1a13fe981ebdb4fa303b78d173c3305c6
@@ -106,6 +113,7 @@ Windows — job Windows в составе `ci-ok` (ADR-0071). Глубина р�
   - evidence: gate pass · `gate fast` exit 0 · mac - · f550bae7a6fb5cc263bd46ff0edc5f94b1fe8368
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44434820280/job/135274336122 · ci - · ae188c864c2052a6f5a9db19de979b51a2348a0d
 - [ ] Платформенный PR (ADR-0056, пункт 2; ADR-0071): job Windows в составе `ci-ok` зелёный на head PR до merge.
+  - evidence: review pass · PR #2023 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 
 ## Где в коде
 

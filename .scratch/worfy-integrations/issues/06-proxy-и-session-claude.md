@@ -75,29 +75,35 @@ tool-а длиннее предела); «Вопросы владельцу», Q
   - evidence: test-run pass · `pnpm test test/contract/integrations-proxy.test.ts` exit 0 · mac - · 84a21e9b894597e4024e3e9f28c35578dee9e047
   - evidence: test-run pass · `pnpm test test/contract/integrations-proxy.test.ts` exit 0 · mac - · 53ce8d2b0701dab0b7b236846045db0de6b049ff
   - evidence: test-run pass · `pnpm test test/contract/integrations-proxy.test.ts` exit 0 · mac - · 43e3154e1eab45058dbbe155e4880b06c1bab875
+  - evidence: review pass · PR #2119 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Тот же contract: фильтр `read-only` и список режут `tools/list` и `tools/call` (вызов отфильтрованного tool-а —
       отказ); метка в описании tool-а; 401 → ответ `isError` «Sign-in needed: <метка>…» и статус `needs-sign-in`;
       размер tools — длина JSON / 4.
   - evidence: test-run pass · `pnpm test test/contract/integrations-proxy.test.ts` exit 0 · mac - · 84a21e9b894597e4024e3e9f28c35578dee9e047
   - evidence: test-run pass · `pnpm test test/contract/integrations-proxy.test.ts` exit 0 · mac - · 53ce8d2b0701dab0b7b236846045db0de6b049ff
   - evidence: test-run pass · `pnpm test test/contract/integrations-proxy.test.ts` exit 0 · mac - · 43e3154e1eab45058dbbe155e4880b06c1bab875
+  - evidence: review pass · PR #2119 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract `test/contract/integrations-claude-session.test.ts` (новый) на fake query
       (`src/main/agent/fake-query.ts`): Session Project-а получает в `mcpServers` ровно его включённые Integration-ы
       рядом с `worfy-canvas`; `managedSettings` и `mcp.allowed` не изменились; Session вне Project-а их не получает;
       Turn off — Restart без неё.
   - evidence: test-run pass · `pnpm test test/contract/integrations-claude-session.test.ts` exit 0 · mac - · 84a21e9b894597e4024e3e9f28c35578dee9e047
   - evidence: test-run pass · `pnpm test test/contract/integrations-claude-session.test.ts` exit 0 · mac - · 53ce8d2b0701dab0b7b236846045db0de6b049ff
+  - evidence: review pass · PR #2119 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Тот же contract: значение token-а не появляется в аргументах процесса Claude Code (`--mcp-config`), в логе main, в
       Journal и в Flight recorder.
   - evidence: test-run pass · `pnpm test test/contract/integrations-claude-session.test.ts` exit 0 · mac - · 84a21e9b894597e4024e3e9f28c35578dee9e047
   - evidence: test-run pass · `pnpm test test/contract/integrations-claude-session.test.ts` exit 0 · mac - · 53ce8d2b0701dab0b7b236846045db0de6b049ff
+  - evidence: review pass · PR #2119 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Unit `test/unit/integration-server-name.test.ts` (новый): slug, предел длины, суффикс `-2` при совпадении с
       сервером Claude Code из инвентаря и с префиксом `worfy-`.
   - evidence: test-run pass · `pnpm test test/unit/integration-server-name.test.ts` exit 0 · mac - · 84a21e9b894597e4024e3e9f28c35578dee9e047
   - evidence: test-run pass · `pnpm test test/unit/integration-server-name.test.ts` exit 0 · mac - · 53ce8d2b0701dab0b7b236846045db0de6b049ff
+  - evidence: review pass · PR #2119 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `test/unit/mcp-status-row.test.ts`: строка с источником `integration` и меткой.
   - evidence: test-run pass · `pnpm test test/unit/mcp-status-row.test.ts` exit 0 · mac - · 84a21e9b894597e4024e3e9f28c35578dee9e047
   - evidence: test-run pass · `pnpm test test/unit/mcp-status-row.test.ts` exit 0 · mac - · 53ce8d2b0701dab0b7b236846045db0de6b049ff
+  - evidence: review pass · PR #2119 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job-ы Windows CI зелёные
       (платформенный PR).
   - evidence: gate pass · `gate fast` exit 0 · mac - · 84a21e9b894597e4024e3e9f28c35578dee9e047
