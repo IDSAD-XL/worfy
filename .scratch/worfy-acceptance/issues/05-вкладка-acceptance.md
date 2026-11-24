@@ -98,9 +98,15 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Наб
   - пустые группы в списке не показываются, как в Pull requests;
   - метка ручного пункта в начале текста (`(manual)`) в виде не показывается — строка «Item N · manual» говорит это сама;
     `itemText` уходит в main как есть, с меткой;
-  - строка пункта — «Item N» без «of M»: в снимке очереди нет числа ручных пунктов Ticket-а;
-  - commit копии (`sha`) известен, только когда окно — сама Stable copy, копия `stable` и платформа этой Machine; тогда
-    рядом показана её версия; иначе `-`;
+  - строка пункта — «Item N of M», M — пункты с флажком Ticket-а из модели его Project-а (ревью, раунд 1);
+  - текст пункта в строке списка, в матрице Evidence и в «Prepared by the Orchestrator» — простой текст: без разметки
+    Markdown и без метки `(manual)`; панель пункта рисует его через `Markdown.tsx`;
+  - `sha` решения — commit Stable copy, который называет снимок очереди (`stableCommit`, тот же источник, что строка
+    Stable copy в main: свой commit запуска, иначе файл рядом с копией), когда копия `stable` и платформа этой Machine;
+    иначе `-`. Рядом показана версия, когда окно — сама Stable copy, иначе короткий commit (ревью, раунд 1);
+  - Evidence пункта — `EvidenceMatrix` и `EvidencePreview` (полоса contact sheet и клип в `<video>`), а не кнопки
+    `[light] [dark] [▶ clip]` наброска: текст Ticket-а («Что происходит», «Что делаем», 3) и spec-а («Вид») называет
+    именно эти компоненты, кнопки есть только на рисунке;
   - «Not recorded yet» снова делает Pass и Fail активными; Send again шлёт тот же вердикт с текущим комментарием (Fail —
     только с комментарием);
   - Open Ticket — карточка Ticket-а на Canvas его Project-а (Project выбирается сначала); Open Orchestrator — вид Session
@@ -108,4 +114,13 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Наб
   - окно Linked machine с Read only: Pass и Fail неактивны с причиной `useReadOnly` (остальное — Ticket 07).
 - Вне следа: `OWNER_CHECK_AUTOPILOT_HINT` переехал в `src/shared/actions/render-template.ts` (renderer не импортирует
   `src/main`), `src/main/actions/launch.ts` его реэкспортирует; списки вкладок в `test/unit/pr-inbox-view.test.tsx` и
-  `test/unit/toolbar-runs.test.tsx` дополнены «Acceptance».
+  `test/unit/toolbar-runs.test.tsx` дополнены «Acceptance». Ревью, раунд 1: снимок очереди получил поле `stableCommit`
+  (`src/shared/ipc/acceptance.ts`, `src/main/acceptance/stable-line.ts`, `src/main/acceptance/service.ts`,
+  `src/main/ipc/acceptance.ts`, проверка в `test/contract/acceptance-stable-copy.test.ts`).
+- Ревью, раунд 1 (9 замечаний): модель Project-а открыта одна на вид и только пока вид показан (↑ ↓ не переоткрывают её,
+  скрытый вид не держит fetch); `sha` из `stableCommit`; фокус клавиатуры идёт за выбором; счёт вкладки без Sent;
+  «Item N of M»; простой текст пункта; test на двойной `sendDecision`. Каждое — test в `describe('review round 1')`
+  `test/unit/acceptance-view.test.tsx` и contract test `stableCommit`; шесть из них красные до правки, test двойного
+  `sendDecision` зелёный и до правки (защита уже была) и убивает мутанта без неё. Mutation testing: 9 мутантов, 8 убиты;
+  выжил `pane-keyed` (ключ на панели пункта) — эквивалентный: модель теперь живёт в `AcceptanceView`, ключ панели её не
+  переоткрывает. Строка evidence пункта 5 не заявляет `ci-ok` — его пишет land.

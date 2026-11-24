@@ -46,7 +46,7 @@ Code: `src/renderer/shell/Toolbar.tsx:101-117` · key lines: 101, 109, 116
 
 ## 3. Решение уходит с текстом пункта, а кнопки ждут ответа main
 
-Code: `src/renderer/acceptance/useAcceptance.ts:163-178` · key lines: 166, 169, 172, 176
+Code: `src/renderer/acceptance/useAcceptance.ts:164-179` · key lines: 167, 170, 173, 177
 
 ```ts
 export async function sendDecision(row: AcceptanceItemRow, verdict: OwnerCheckVerdict, where: CheckedIn, words: string): Promise<void> {
@@ -79,14 +79,15 @@ export async function sendDecision(row: AcceptanceItemRow, verdict: OwnerCheckVe
 
 ## 4. Когда Pass и Fail неактивны и почему
 
-Code: `src/renderer/acceptance/AcceptanceView.tsx:160-170` · key lines: 162, 165, 166, 167
+Code: `src/renderer/acceptance/AcceptanceView.tsx:168-179` · key lines: 171, 172, 174, 175
 
 ```tsx
   const sent = sentOf(row, sentHere)
-  // The commit of the copy: known only for the Stable copy when this window is it, on this Machine's platform.
-  const here = update?.enabled === true && copy === 'stable' && platform === currentPlatform()
-  const commit = here ? (update.running?.commit ?? null) : null
-  const version = here ? (update.current?.version ?? update.running?.version ?? null) : null
+  // The commit of the copy: known for this Machine's Stable copy, the one the Stable copy line reads (main's snapshot);
+  // its version when this window is that copy.
+  const here = copy === 'stable' && platform === currentPlatform()
+  const commit = here ? (state?.stableCommit ?? null) : null
+  const version = here ? (update?.enabled === true ? (update.current?.version ?? null) : commit?.slice(0, 7) ?? null) : null
   const where: CheckedIn = { platform, copy, sha: commit !== null && OWNER_CHECK_SHA.test(commit) ? commit : '-' }
   const blocked = readOnly ?? (autopilot ? OWNER_CHECK_AUTOPILOT_HINT : sending[key] !== undefined ? 'Sending…' : sent?.state === 'sent' ? 'Sent: the decision waits for its line in the Ticket' : null)
   const reason = (verdict: OwnerCheckVerdict): string | null => blocked ?? (verdict === 'fail' && words.trim() === '' ? FAIL_NEEDS_WORDS : null)
@@ -97,8 +98,10 @@ Code: `src/renderer/acceptance/AcceptanceView.tsx:160-170` · key lines: 162, 16
 
 - Что делает: одна причина на обе кнопки: Read only окна, Autopilot в Project-е пункта (текст
   `OWNER_CHECK_AUTOPILOT_HINT`, тот же, что у отказа main), решение в пути, пункт «Sent». Fail вдобавок требует
-  комментарий. `sha` — commit копии, только когда окно само Stable copy, копия `stable` и платформа этой Machine; иначе
-  `-`.
+  комментарий. `sha` — commit Stable copy из снимка очереди (`stableCommit`: main берёт его так же, как для строки
+  Stable copy — свой commit запуска, иначе файл рядом с копией), когда копия `stable` и платформа этой Machine; иначе
+  `-`. Commit последней проверки обновлений не годится: её ответ приходит через секунды после старта, и Pass сразу после
+  обновления записал бы прошлую копию.
 - Почему здесь: spec, Q6 (а): «Pass и Fail неактивны с причиной, как Run wave»; «Платформа, копия и commit строки».
   `OWNER_CHECK_AUTOPILOT_HINT` переехал в `src/shared/actions/render-template.ts`: renderer не импортирует `src/main`.
 - Без него: при Autopilot кнопка жала бы впустую до отказа main; Fail ушёл бы без слов, которые skill пишет в ref.
@@ -108,17 +111,23 @@ Code: `src/renderer/acceptance/AcceptanceView.tsx:160-170` · key lines: 162, 16
 
 ## 5. Метка ручного пункта не показывается, но уходит
 
-Code: `src/renderer/acceptance/AcceptanceView.tsx:64-67` · key lines: 66
+Code: `src/renderer/acceptance/AcceptanceView.tsx:67-75` · key lines: 69, 74
 
 ```tsx
 /** The item's text without the manual mark it starts with: the pane says "manual" itself. Sent as it is, never so. */
 function shownText(item: EvidenceItem): string {
   return item.manual ? item.text.replace(/^\([^)]*\)\s*/, '') : item.text
 }
+
+/** The item as plain text, without the manual mark and the markdown markers: the list row and the Evidence matrix. */
+function plainText(item: EvidenceItem): string {
+  return markdownText(shownText(item)).replace(/\s+/g, ' ').trim()
+}
 ```
 
-- Что делает: в панели и в строке списка текст пункта без ведущего `(manual)`; строка «Item N · manual» говорит это
-  сама. В `actions.ownerCheck` уходит `row.item.text` как есть.
+- Что делает: в панели и в строке списка текст пункта без ведущего `(manual)`; строка «Item N of M · manual» говорит
+  это сама. Строка списка, матрица Evidence и «Prepared by the Orchestrator» показывают простой текст, без `**` и других
+  знаков Markdown; панель рисует текст через `Markdown.tsx`. В `actions.ownerCheck` уходит `row.item.text` как есть.
 - Почему здесь: not recorded — решено без владельца; метка зависит от Profile-а (`manual` или старая русская), поэтому
   срезается первая скобка ручного пункта, а не слово.
 - Без него: каждый пункт начинался бы с «(manual)»; срезанный текст в `itemText` main отказал бы как изменённый пункт.
@@ -127,7 +136,7 @@ function shownText(item: EvidenceItem): string {
 
 ## 6. Строка Stable copy, как её рисует spec
 
-Code: `src/renderer/acceptance/AcceptanceView.tsx:123-141` · key lines: 127, 132
+Code: `src/renderer/acceptance/AcceptanceView.tsx:131-149` · key lines: 135, 140
 
 ```tsx
 export function StableLine({ stable }: { stable: AcceptanceStable }) {
@@ -170,11 +179,11 @@ export function StableLine({ stable }: { stable: AcceptanceStable }) {
 
 1. Почему кнопки неактивны и после ответа main, хотя очередь ещё не пометила пункт «Sent»?
    - Ответ: ответ main кладёт пункт в `sentHere`, и строка читает «Sent» до прихода метки очереди — второго решения нет.
-   - Строки: `src/renderer/acceptance/useAcceptance.ts:176`
+   - Строки: `src/renderer/acceptance/useAcceptance.ts:177`
 2. Что получит main в `itemText`, если пункт начинается с `(manual)`?
    - Ответ: текст с меткой, `row.item.text`; срезанный вариант только рисуется, иначе main отказал бы как изменённому
      пункту.
-   - Строки: `src/renderer/acceptance/useAcceptance.ts:169`
+   - Строки: `src/renderer/acceptance/useAcceptance.ts:170`
 3. Когда решение несёт настоящий commit, а не `-`?
-   - Ответ: когда окно — сама Stable copy (Update включён), выбрана копия `stable` и платформа этой Machine.
-   - Строки: `src/renderer/acceptance/AcceptanceView.tsx:162-165`
+   - Ответ: когда выбрана копия `stable` на платформе этой Machine и снимок очереди назвал её commit (`stableCommit`).
+   - Строки: `src/renderer/acceptance/AcceptanceView.tsx:171-174`
