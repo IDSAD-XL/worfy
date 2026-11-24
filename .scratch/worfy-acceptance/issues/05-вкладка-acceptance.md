@@ -103,8 +103,8 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Наб
   - текст пункта в строке списка, в матрице Evidence и в «Prepared by the Orchestrator» — простой текст: без разметки
     Markdown и без метки `(manual)`; панель пункта рисует его через `Markdown.tsx`;
   - `sha` решения — commit Stable copy, который называет снимок очереди (`stableCommit`, тот же источник, что строка
-    Stable copy в main: свой commit запуска, иначе файл рядом с копией), когда копия `stable` и платформа этой Machine;
-    иначе `-`. Рядом показана версия, когда окно — сама Stable copy, иначе короткий commit (ревью, раунд 1);
+    Stable copy в main: свой commit запуска, иначе файл рядом с копией), когда окно — этой Machine, копия `stable` и
+    платформа этой Machine; иначе `-` (в окне Linked machine тоже `-`, ревью, раунд 2). Рядом показана версия, когда окно — сама Stable copy, иначе короткий commit (ревью, раунд 1);
   - Evidence пункта — `EvidenceMatrix` и `EvidencePreview` (полоса contact sheet и клип в `<video>`), а не кнопки
     `[light] [dark] [▶ clip]` наброска: текст Ticket-а («Что происходит», «Что делаем», 3) и spec-а («Вид») называет
     именно эти компоненты, кнопки есть только на рисунке;
@@ -126,3 +126,10 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Наб
   выжил `pane-keyed` (ключ на панели пункта) — эквивалентный: модель теперь живёт в `AcceptanceView`, ключ панели её не
   переоткрывает. e2e указывает `WORFY_UPDATE_STABLE` на пустую папку: `sha` решения там `-`, какая бы Stable copy ни стояла
   на машине. Строка evidence пункта 5 не заявляет `ci-ok` — его пишет land.
+- Ревью, раунд 2 (3 замечания): окно Linked machine шлёт `sha` `-` (его `stableCommit` — той Machine); пункт «Not
+  recorded yet» снова в счёте вкладки; неактивная primary-кнопка (`src/renderer/theme/button.css`, вне следа, по
+  замечанию ревью) теряет заливку и тень — прозрачный фон, рамка, приглушённый текст, как неактивная кнопка действия
+  F-SPEC; в тёмной теме приглушённая заливка читалась как активный Pass. Test-ы: «a window on a Linked machine sends
+  sha "-"…», «the tab counts an item in "Not recorded yet"…» (`test/unit/acceptance-view.test.tsx`), «an inactive
+  primary drops its fill and its shadow…» (`test/unit/button.test.tsx`); все три красные до правки. 4 мутанта — все
+  убиты. e2e снимает ещё Sent-пункт с неактивными Pass и Fail: `acceptance-sent-light.png`, `acceptance-sent-dark.png`.

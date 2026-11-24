@@ -12,7 +12,7 @@ Ticket for it ([ADR-0002](../adr/0002-worfy-is-a-view-over-the-workflow.md)). Te
 ### Behaviour
 
 **The tab.** **Acceptance** is the sixth tab of the toolbar, after Pull requests. It carries the count of the items of
-Ready to check that are not Sent, and its tooltip says "Checks that wait for you". It works without an open Project: the view is over every Project
+Ready to check that are not Sent (an item whose decision is "Not recorded yet" counts again), and its tooltip says "Checks that wait for you". It works without an open Project: the view is over every Project
 of the Machine.
 
 **Two panes**, as in [Pull requests](pr-inbox.md). On the left, the groups that hold a row, each with its count;
@@ -46,7 +46,7 @@ check is selected; when the selected row leaves the queue, the row that now stan
   With the copy `stable` on the platform of the window's Machine, the decision carries the commit of this Machine's
   Stable copy — the one its Stable copy line reads, which main sends with the queue — and the row shows its version
   when the window is that copy, else its short commit; otherwise the commit is `-` and the skill writes the line
-  without one;
+  without one. A window on a Linked machine always sends `-`: the queue it reads, with its commit, is that Machine's;
 - **Pass** and **Fail**. A click sends "Record owner check" ([Projects](projects.md), "Project settings…"): the
   Project's template with the item, the verdict, the platform, the copy and the commit, and the owner's words after it,
   to the Project's Orchestrator. The item's text as the view shows it goes too: main refuses a decision on an item

@@ -46,7 +46,7 @@ Code: `src/renderer/shell/Toolbar.tsx:101-117` · key lines: 101, 109, 116
 
 ## 3. Решение уходит с текстом пункта, а кнопки ждут ответа main
 
-Code: `src/renderer/acceptance/useAcceptance.ts:164-179` · key lines: 167, 170, 173, 177
+Code: `src/renderer/acceptance/useAcceptance.ts:167-182` · key lines: 170, 173, 176, 180
 
 ```ts
 export async function sendDecision(row: AcceptanceItemRow, verdict: OwnerCheckVerdict, where: CheckedIn, words: string): Promise<void> {
@@ -79,13 +79,14 @@ export async function sendDecision(row: AcceptanceItemRow, verdict: OwnerCheckVe
 
 ## 4. Когда Pass и Fail неактивны и почему
 
-Code: `src/renderer/acceptance/AcceptanceView.tsx:168-179` · key lines: 171, 172, 174, 175
+Code: `src/renderer/acceptance/AcceptanceView.tsx:168-180` · key lines: 172, 173, 175, 176
 
 ```tsx
   const sent = sentOf(row, sentHere)
   // The commit of the copy: known for this Machine's Stable copy, the one the Stable copy line reads (main's snapshot);
-  // its version when this window is that copy.
-  const here = copy === 'stable' && platform === currentPlatform()
+  // its version when this window is that copy. A window on a Linked machine reads that Machine's queue, whose commit is
+  // not this computer's Stable copy: there the sha stays `-`.
+  const here = copy === 'stable' && platform === currentPlatform() && windowMachine() === null
   const commit = here ? (state?.stableCommit ?? null) : null
   const version = here ? (update?.enabled === true ? (update.current?.version ?? null) : commit?.slice(0, 7) ?? null) : null
   const where: CheckedIn = { platform, copy, sha: commit !== null && OWNER_CHECK_SHA.test(commit) ? commit : '-' }
@@ -101,7 +102,8 @@ Code: `src/renderer/acceptance/AcceptanceView.tsx:168-179` · key lines: 171, 17
   комментарий. `sha` — commit Stable copy из снимка очереди (`stableCommit`: main берёт его так же, как для строки
   Stable copy — свой commit запуска, иначе файл рядом с копией), когда копия `stable` и платформа этой Machine; иначе
   `-`. Commit последней проверки обновлений не годится: её ответ приходит через секунды после старта, и Pass сразу после
-  обновления записал бы прошлую копию.
+  обновления записал бы прошлую копию. В окне Linked machine очередь и её `stableCommit` — той Machine, поэтому там
+  `sha` всегда `-` (commit сборки Linked machine даст Ticket 07).
 - Почему здесь: spec, Q6 (а): «Pass и Fail неактивны с причиной, как Run wave»; «Платформа, копия и commit строки».
   `OWNER_CHECK_AUTOPILOT_HINT` переехал в `src/shared/actions/render-template.ts`: renderer не импортирует `src/main`.
 - Без него: при Autopilot кнопка жала бы впустую до отказа main; Fail ушёл бы без слов, которые skill пишет в ref.
@@ -180,11 +182,12 @@ export function StableLine({ stable }: { stable: AcceptanceStable }) {
 
 1. Почему кнопки неактивны и после ответа main, хотя очередь ещё не пометила пункт «Sent»?
    - Ответ: ответ main кладёт пункт в `sentHere`, и строка читает «Sent» до прихода метки очереди — второго решения нет.
-   - Строки: `src/renderer/acceptance/useAcceptance.ts:177`
+   - Строки: `src/renderer/acceptance/useAcceptance.ts:180`
 2. Что получит main в `itemText`, если пункт начинается с `(manual)`?
    - Ответ: текст с меткой, `row.item.text`; срезанный вариант только рисуется, иначе main отказал бы как изменённому
      пункту.
-   - Строки: `src/renderer/acceptance/useAcceptance.ts:170`
+   - Строки: `src/renderer/acceptance/useAcceptance.ts:173`
 3. Когда решение несёт настоящий commit, а не `-`?
-   - Ответ: когда выбрана копия `stable` на платформе этой Machine и снимок очереди назвал её commit (`stableCommit`).
-   - Строки: `src/renderer/acceptance/AcceptanceView.tsx:171-174`
+   - Ответ: когда окно — этой Machine, выбрана копия `stable` на её платформе и снимок очереди назвал её commit
+     (`stableCommit`).
+   - Строки: `src/renderer/acceptance/AcceptanceView.tsx:172-175`
