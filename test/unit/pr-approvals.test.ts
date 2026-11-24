@@ -79,6 +79,7 @@ describe('how many approvals the base branch asks for', () => {
       lastPushNeedsOther: false,
       moreRules: false,
       decision: null,
+      decidedBy: 'worfy',
       reviewers: [{ login: ANA, kind: 'user', state: 'approved', counts: true, codeOwner: false }],
     })
   })
@@ -101,6 +102,12 @@ describe('how many approvals count', () => {
   it('without a decision from GitHub the count decides', () => {
     expect(approvalsOf(input({ rules: [rule(2)], reviews: [approved(ANA), approved(BO)] }))).toMatchObject({ have: 2, need: 2, decision: 'approved' })
     expect(approvalsOf(input({ rules: [rule(2)], reviews: [approved(ANA)] }))).toMatchObject({ have: 1, need: 2, decision: 'review-required' })
+  })
+
+  it('says who decided: GitHub when it gives a decision, worfy when its own count does', () => {
+    expect(approvalsOf(input({ rules: [rule(2)], reviews: [approved(ANA), approved(BO)] }))).toMatchObject({ decision: 'approved', decidedBy: 'worfy' })
+    expect(approvalsOf(input({ rules: [rule(2)], reviewDecision: 'APPROVED', reviews: [approved(ANA), approved(BO)] }))).toMatchObject({ decision: 'approved', decidedBy: 'github' })
+    expect(approvalsOf(input({ rules: [rule(2)], reviewDecision: 'REVIEW_REQUIRED', reviews: [approved(ANA)] }))).toMatchObject({ decidedBy: 'github' })
   })
 
   it('an approval of a reviewer without push access does not count, nor one whose access GitHub does not tell', () => {

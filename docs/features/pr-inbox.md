@@ -59,7 +59,8 @@ looked" is the tooltip), and the approvals chip.
   cannot count — and `✓ 2` when GitHub
   approves a PR whose rule the account cannot see; `✕ 1/2` is orange on changes requested; `1/?` is grey and dashed when the rule is not visible to the
   account; a clock marks a count that is reached while code owners still hold it. A rule that asks for no approvals
-  while GitHub still wants a review shows `review required`, never `0/0`. The tooltip says who approved, which code
+  while GitHub still wants a review shows `review required`, never `0/0`. The tooltip says who approved, who decided
+  the green (`GitHub says: approved`, or `approved by worfy's count — GitHub gives no review decision`), which code
   owners are waited for, the approvals given before the last push that the rule drops (stale), and, when the count is reached but GitHub still holds
   the PR, GitHub's word (`GitHub says: review required`, or `more rules apply — GitHub decides` when the branch has a
   rule worfy does not count). The accessible name says the chip in words (`1 of 2 required approvals`, `1 approval,
@@ -110,7 +111,7 @@ chooses again only when the selected PR leaves the inbox. With one PR, that PR i
   settings`), a read-only screen, a PR from a fork, not the user's or whose reason is gone. The buttons write nothing to
   GitHub: the Session asks before it pushes;
 - four cells: **CI**; **Approvals** — the approvals chip, what it comes to (`of 2 required`, `changes requested`,
-  `waiting for code owners`, `rule not visible to your account`, `GitHub says: approved`), and every reviewer with the
+  `waiting for code owners`, `rule not visible to your account`, `GitHub says: approved` or `approved by worfy's count`), and every reviewer with the
   state of their review: Approved, Changes requested, Commented, Requested (with `code owner` when asked as one),
   Dismissed, `Approved · stale` (before the last push, when the rule drops such approvals) and a grey `Approved · does
   not count` for a reviewer without write access; a code-owner team the account cannot see is listed as `code owners

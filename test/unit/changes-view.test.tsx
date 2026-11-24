@@ -99,6 +99,8 @@ const steady = (path: string): FileDiff => ({
 let files: ChangedFile[]
 let scopesOf: ('all' | 'uncommitted' | 'commit' | 'compare')[]
 let calls: { channel: string; input: Record<string, unknown> }[]
+/** The handler of each event the renderer subscribed to: a subscription is made once per file, so they outlive a test. */
+const events = new Map<string, (payload: unknown) => void>()
 /** Holds an answer of the bridge until it is released (holdOnce); undefined — answered at once. */
 let gate: ((channel: string, input: Record<string, unknown>) => Promise<void> | undefined) | null
 
@@ -189,7 +191,10 @@ beforeEach(() => {
       const wait = gate?.(channel, input)
       return wait === undefined ? Promise.resolve(result) : wait.then(() => result)
     },
-    on: () => 1,
+    on: (channel: string, handler: (payload: unknown) => void) => {
+      events.set(channel, handler)
+      return 1
+    },
     off: () => undefined,
   } as unknown as WorfyBridge
   ;(globalThis as { worfy?: WorfyBridge }).worfy = bridge
@@ -312,6 +317,21 @@ describe('the diff', () => {
     await act(async () => {
       await new Promise((done) => setTimeout(done, 20))
     })
+    expect(picked()).toEqual([])
+  })
+
+  // Debt sweep after worfy-changes-view: the pick was kept by the Ticket's epic and number, while the diff is read by
+  // its `Branch:` and `Repo:` lines too, so an edit of those lines read another diff under the old pick.
+  it('a Branch: line edited while the view is open reads the diff again and takes the lines picked away', async () => {
+    await open()
+    const picked = () => within(diff()).getAllByTestId('changes-line').filter((row) => row.classList.contains('is-picked'))
+    fireEvent.click(within(diff()).getAllByTestId('changes-line')[3]!.querySelector('.w-changes__code')!)
+    expect(picked()).toHaveLength(1)
+    const edited: Ticket = { ...TICKET, branch: 'demo/03-retry' }
+    await act(async () => events.get('workflow.changed')?.({ root: ROOT, epics: [], tickets: [edited], removedEpics: [], removedTickets: [], error: null, branchErrors: [] }))
+    await settle()
+    expect(calls.filter((call) => call.channel === 'changes.scopes').at(-1)?.input.subject).toMatchObject({ branch: 'demo/03-retry' })
+    await screen.findAllByTestId('changes-line')
     expect(picked()).toEqual([])
   })
 

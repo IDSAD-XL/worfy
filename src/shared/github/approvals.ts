@@ -102,8 +102,8 @@ export function approvalsOf(input: ApprovalsInput): PrApprovals {
   const lastPushNeedsOther =
     lastPush && have > 0 && !counted.some((review) => !same(review.author, input.lastPusher) && (input.headRefOid === null || review.commit === null || review.commit === input.headRefOid))
 
-  const decision = decisionOf(input.reviewDecision, have, need, codeOwnersPending, lastPushNeedsOther, moreRules)
-  return { have, need, source, codeOwnersPending, stale, lastPushNeedsOther, moreRules, decision, reviewers: reviewersOf(input, (review) => counted.includes(review), isStale, requests) }
+  const { decision, decidedBy } = decisionOf(input.reviewDecision, have, need, codeOwnersPending, lastPushNeedsOther, moreRules)
+  return { have, need, source, codeOwnersPending, stale, lastPushNeedsOther, moreRules, decision, decidedBy, reviewers: reviewersOf(input, (review) => counted.includes(review), isStale, requests) }
 }
 
 const REVIEW_STATE: Readonly<Record<string, PrReviewer['state']>> = { APPROVED: 'approved', CHANGES_REQUESTED: 'changes-requested', COMMENTED: 'commented', DISMISSED: 'dismissed' }
@@ -126,11 +126,12 @@ function reviewersOf(input: ApprovalsInput, counts: (review: ApprovalReview) => 
   return reviewers
 }
 
-function decisionOf(reviewDecision: string | null, have: number, need: number | null, codeOwnersPending: readonly string[], lastPushNeedsOther: boolean, moreRules: boolean): PrApprovals['decision'] {
-  if (reviewDecision === 'APPROVED') return 'approved'
-  if (reviewDecision === 'CHANGES_REQUESTED') return 'changes-requested'
-  if (reviewDecision === 'REVIEW_REQUIRED') return 'review-required'
+const GITHUB_DECISIONS: Readonly<Record<string, NonNullable<PrApprovals['decision']>>> = { APPROVED: 'approved', CHANGES_REQUESTED: 'changes-requested', REVIEW_REQUIRED: 'review-required' }
+
+function decisionOf(reviewDecision: string | null, have: number, need: number | null, codeOwnersPending: readonly string[], lastPushNeedsOther: boolean, moreRules: boolean): Pick<PrApprovals, 'decision' | 'decidedBy'> {
+  const github = reviewDecision === null ? undefined : GITHUB_DECISIONS[reviewDecision]
+  if (github !== undefined) return { decision: github, decidedBy: 'github' }
   // GitHub gives no decision: worfy's count decides, and green only when nothing it cannot count applies.
-  if (need === null || need === 0) return null
-  return have >= need && codeOwnersPending.length === 0 && !lastPushNeedsOther && !moreRules ? 'approved' : 'review-required'
+  if (need === null || need === 0) return { decision: null, decidedBy: 'worfy' }
+  return { decision: have >= need && codeOwnersPending.length === 0 && !lastPushNeedsOther && !moreRules ? 'approved' : 'review-required', decidedBy: 'worfy' }
 }

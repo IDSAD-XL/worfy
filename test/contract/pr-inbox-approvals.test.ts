@@ -148,6 +148,7 @@ describe('the approvals of a row of the PR inbox', () => {
       lastPushNeedsOther: false,
       moreRules: false,
       decision: 'review-required',
+      decidedBy: 'github',
       reviewers: [
         { login: ANA, kind: 'user', state: 'approved', counts: true, codeOwner: false },
         { login: BO, kind: 'user', state: 'stale', counts: false, codeOwner: false },
@@ -223,6 +224,7 @@ describe('the approvals of a row of the PR inbox', () => {
       lastPushNeedsOther: false,
       moreRules: false,
       decision: null,
+      decidedBy: 'worfy',
       reviewers: [{ login: ANA, kind: 'user', state: 'approved', counts: false, codeOwner: false }],
     })
     expect(row.reviewDecision).toBe('APPROVED')
