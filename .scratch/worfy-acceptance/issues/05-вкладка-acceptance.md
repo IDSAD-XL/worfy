@@ -73,3 +73,34 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Наб
 
 - Секция боковой панели, бейдж rail-а, палитра и уведомление — Ticket 06. Окно Linked machine — Ticket 07.
 - Комментарий к области снимка; снимки Stable copy из вида (spec, «Не в этом Epic-е»).
+
+## Итог
+
+- Вкладка Acceptance — шестая в `ShellView` (`src/renderer/shell/Toolbar.tsx`), со счётом Ready to check и tooltip
+  «Checks that wait for you», активна без Project-а; вид смонтирован в `src/renderer/shell/AppShell.tsx`. Код вида —
+  `src/renderer/acceptance/` (`AcceptanceView.tsx`, `useAcceptance.ts`, `open.ts`, `acceptance.css`): 463 строки
+  TypeScript без комментариев и пустых строк, меньше порога ~600 — Ticket не делится.
+- Красный до правки: `pnpm exec vitest run test/unit/acceptance-view.test.tsx` на коде без `src/renderer/acceptance/` и
+  без правки вкладок — exit 1 («Failed to resolve import "../../src/renderer/acceptance/AcceptanceView"»). После правки
+  — 17 test-ов, exit 0. Mutation testing: 12 мутантов, по одному на поведение (Fail без комментария, Autopilot, `itemText`,
+  кнопки во время отправки, «Sent», In work свёрнута, Update worfy, счёт вкладки, ↑ ↓, следующий пункт после Pass, отказ
+  main, `Blocked reason:`), все убиты.
+- Снимки двух панелей (e2e `test/e2e/acceptance.spec.ts`, в репозиторий не кладутся):
+  `test-results/worfy-acceptance-05-screens/acceptance-1280-light.png`, `acceptance-1280-dark.png`,
+  `acceptance-1600-light.png`, `acceptance-1600-dark.png`.
+- Решено без владельца:
+  - счёт на вкладке стоит после подписи: обёртка иконки — `display: contents`, примитив `SegmentedControl` не меняется;
+  - пустые группы в списке не показываются, как в Pull requests;
+  - метка ручного пункта в начале текста (`(manual)`) в виде не показывается — строка «Item N · manual» говорит это сама;
+    `itemText` уходит в main как есть, с меткой;
+  - строка пункта — «Item N» без «of M»: в снимке очереди нет числа ручных пунктов Ticket-а;
+  - commit копии (`sha`) известен, только когда окно — сама Stable copy, копия `stable` и платформа этой Machine; тогда
+    рядом показана её версия; иначе `-`;
+  - «Not recorded yet» снова делает Pass и Fail активными; Send again шлёт тот же вердикт с текущим комментарием (Fail —
+    только с комментарием);
+  - Open Ticket — карточка Ticket-а на Canvas его Project-а (Project выбирается сначала); Open Orchestrator — вид Session
+    Orchestrator-а;
+  - окно Linked machine с Read only: Pass и Fail неактивны с причиной `useReadOnly` (остальное — Ticket 07).
+- Вне следа: `OWNER_CHECK_AUTOPILOT_HINT` переехал в `src/shared/actions/render-template.ts` (renderer не импортирует
+  `src/main`), `src/main/actions/launch.ts` его реэкспортирует; списки вкладок в `test/unit/pr-inbox-view.test.tsx` и
+  `test/unit/toolbar-runs.test.tsx` дополнены «Acceptance».
