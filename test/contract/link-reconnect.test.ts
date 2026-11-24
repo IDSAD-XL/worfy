@@ -859,8 +859,10 @@ describe('checking the open connections after a change of network', () => {
 })
 
 describe('stopping the link', () => {
-  it('stops the journal last, after the service, and gives console its own methods back', async () => {
+  it('stops the journal last, after the service, and gives console its own methods back; the disconnections of the stop are in it', async () => {
     const a = await bench.machine('a')
+    const b = await bench.machine('b')
+    await bench.link(a, b)
     const before = { log: console.log, warn: console.warn }
     const undo = teeLinkConsole(new LinkLogFile({ dir: join(a.dataDir, 'link') }))
     expect(console.warn).not.toBe(before.warn)
@@ -874,6 +876,7 @@ describe('stopping the link', () => {
         },
       },
     })
+    await until(() => online(a, b))
     console.warn('[link] before the stop')
     await stopLink(link)
     expect(serviceStopped).toBe(true)
@@ -881,6 +884,9 @@ describe('stopping the link', () => {
     console.warn('[link] after the stop')
     const text = readFileSync(join(a.dataDir, 'link', 'link.log'), 'utf8')
     expect(text).toContain('[link] before the stop')
+    // The connections the stop cut have closed before it settled: their line is in the journal, and
+    // nothing of them comes after the stop.
+    expect(text).toContain(`[link] Machine ${b.service.machine.id} (b) is disconnected`)
     expect(text).not.toContain('after the stop')
   })
 })

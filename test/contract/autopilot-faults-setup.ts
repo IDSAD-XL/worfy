@@ -372,9 +372,12 @@ export function faultRun(options: FaultRunOptions = {}) {
   // folder under it failed with ENOTEMPTY (worfy-polish ticket 90). A read settles only once each of
   // its gh processes has exited (ghRunner answers on the process's close), so the folder goes after
   // the last of them.
+  // The same for the workflow reads of the run (Autopilot's readAndFeed): one still reading when the folder
+  // went answered "Project folder not found" and logged it after the file's last test.
   const prReads = new Set<Promise<unknown>>()
+  const workflowReads = new Set<Promise<unknown>>()
   cleanups.push(async () => {
-    while (prReads.size > 0) await Promise.allSettled([...prReads])
+    while (prReads.size > 0 || workflowReads.size > 0) await Promise.allSettled([...prReads, ...workflowReads])
     removeTestTree(scratch)
   })
   const repo = join(scratch, 'repo')
@@ -612,7 +615,14 @@ export function faultRun(options: FaultRunOptions = {}) {
   const deps: AutopilotDeps = {
     projectRoot: () => repo,
     selfRefusal: () => Promise.resolve(null),
-    workflow,
+    // Each read is kept in workflowReads until it settles.
+    workflow: (root) => {
+      const read = workflow(root)
+      workflowReads.add(read)
+      const settled = (): void => void workflowReads.delete(read)
+      read.then(settled, settled)
+      return read
+    },
     watchWorkflow: (_root, onChange) => {
       watchers.add(onChange)
       return Promise.resolve(() => {
