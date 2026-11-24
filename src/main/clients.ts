@@ -85,6 +85,27 @@ export function clientOf(event: { readonly sender?: unknown }): Client | undefin
   return (event.sender ?? undefined) as Client | undefined
 }
 
+/** What runs when a client held by some hub is destroyed: each hub's callback, under one listener of the client. */
+const goneCallbacks = new WeakMap<object, Set<() => void>>()
+
+/**
+ * Runs `callback` once `client` is destroyed. All callbacks of one client object share one `destroyed` listener of it:
+ * a window is held by a dozen hubs, and Node warns at the 11th listener of one event of one emitter.
+ */
+function whenGone(client: Pick<Client, 'once'>, callback: () => void): void {
+  let callbacks = goneCallbacks.get(client)
+  if (callbacks === undefined) {
+    const own = new Set<() => void>()
+    callbacks = own
+    goneCallbacks.set(client, own)
+    client.once('destroyed', () => {
+      goneCallbacks.delete(client)
+      for (const each of own) each()
+    })
+  }
+  callbacks.add(callback)
+}
+
 /**
  * Which client object holds each id in one hub. A client without a window may come back under the
  * id of an old one whose `destroyed` has not arrived yet (the old connection is closed, its event is
@@ -94,7 +115,7 @@ export function clientOf(event: { readonly sender?: unknown }): Client | undefin
  * `destroyed`, and when another client object takes the id over: what is under the id then belongs
  * to the old object. Call `hold` before subscribing; `leave` must remove the subscriptions before it
  * returns (closing them may finish later). A window's webContents id is never reused, so a window
- * is held from its first subscription to its `destroyed`, with one listener.
+ * is held from its first subscription to its `destroyed`; every hub's holders of one client share one listener.
  */
 export class ClientHolders {
   private readonly holders = new Map<ClientId, Pick<Client, 'id' | 'once' | 'isDestroyed'>>()
@@ -113,7 +134,7 @@ export class ClientHolders {
     if (held === client) return true
     if (held !== undefined) this.leave(id)
     this.holders.set(id, client)
-    client.once('destroyed', () => {
+    whenGone(client, () => {
       if (this.holders.get(id) !== client) return
       this.holders.delete(id)
       this.leave(id)
