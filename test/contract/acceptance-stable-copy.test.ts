@@ -50,6 +50,8 @@ let ghCalls: string[]
 let savedStable: string | undefined
 /** The merge commit of each PR, as GitHub would give it. */
 let merges: Map<number, string>
+/** The commit the Stable copy runs (the file next to it names it). */
+let stableSha: string
 let Service: typeof import('../../src/main/acceptance/service').AcceptanceService
 
 const standInGh: GhRunner = async (args) => {
@@ -122,6 +124,7 @@ beforeEach(async () => {
   process.env.WORFY_UPDATE_STABLE = join(scratch, 'Applications', 'worfy-stable.app')
   mkdirSync(stableCopyPath(), { recursive: true })
   writeFileSync(stableMetadataPath(process.platform, stableCopyPath()), JSON.stringify({ commit: second, builtAt: '2026-11-23T10:00:00Z' }))
+  stableSha = second
   ghCalls = []
   services = []
   vi.resetModules()
@@ -151,6 +154,8 @@ describe('the Stable copy line of the Acceptance queue', () => {
       text: `Stable copy not checked: the merge commit ${NOT_IN_CLONE.slice(0, 7)} is not in this checkout`,
       update: null,
     })
+    // The snapshot names the Stable copy's commit: the `sha` of a decision checked in it (worfy-acceptance ticket 05).
+    expect(state.stableCommit).toBe(stableSha)
     // Nothing is fetched or written in the Project: its working tree is as the test left it.
     expect(git(root, 'status', '--porcelain')).toBe('')
   })
