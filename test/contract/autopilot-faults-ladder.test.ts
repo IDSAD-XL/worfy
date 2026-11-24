@@ -21,7 +21,9 @@
 //
 // Fault scenario 7 (worfy-stuck-agents ticket 09) is here too, with its negative cases: a turn that goes quiet stops
 // the run with `turn-hung` and interrupts nothing; a hook that runs is no quiet; a quiet background task stays
-// `background-stalled`.
+// `background-stalled`. These run without PR reads for the same reason: the run stops right after the test's last move
+// of the clock, so the END_READ_MS limit of the stop's PR read never fires and the stop waited for the gh stand-in
+// itself; on a loaded Windows runner scenario 7 timed out with the journal ending at background-tasks.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -282,7 +284,7 @@ describe('a quiet turn of the Orchestrator (worfy-stuck-agents ticket 09)', () =
     const halt = vi.spyOn(Session.prototype, 'halt')
     try {
       // test/fixtures/agent-scripts/autopilot-quiet-turn.jsonl: the Wave's turn starts an implementer and then says nothing.
-      const h = faultRun({ scripts: ['autopilot-quiet-turn'], marks: 'claimed', quietHungMs: QUIET_HUNG_MS })
+      const h = faultRun({ scripts: ['autopilot-quiet-turn'], marks: 'claimed', quietHungMs: QUIET_HUNG_MS, prs: false })
       expect(await h.start()).toEqual({ refusal: null })
       await until(() => (busySession(h)?.backgroundTasks().length ?? 0) === 1 && h.kinds(1).includes('wave-started'), 'the quiet turn of Wave 1')
       const session = busySession(h)!
@@ -329,7 +331,7 @@ describe('a quiet turn of the Orchestrator (worfy-stuck-agents ticket 09)', () =
 
   it('a hook that runs past the limit is no quiet: no turn-hung while it runs; the quiet counts from its end', async () => {
     // test/fixtures/agent-scripts/autopilot-quiet-hook.jsonl: the Wave's turn starts a hook that runs until the test ends it.
-    const h = faultRun({ scripts: ['autopilot-quiet-hook'], marks: 'claimed', quietHungMs: QUIET_HUNG_MS })
+    const h = faultRun({ scripts: ['autopilot-quiet-hook'], marks: 'claimed', quietHungMs: QUIET_HUNG_MS, prs: false })
     const deltas: string[] = []
     h.registry.observe((_sessionId, event) => {
       if (event.type === 'delta') deltas.push(event.text)
@@ -365,7 +367,7 @@ describe('a quiet turn of the Orchestrator (worfy-stuck-agents ticket 09)', () =
 
   it('the silence of a background implementer after the turn stays background-stalled, not turn-hung', async () => {
     // test/fixtures/agent-scripts/autopilot-background.jsonl: the Wave's turn ends with two implementers alive, which then say nothing.
-    const h = faultRun({ scripts: ['autopilot-background'], marks: 'claimed', quietHungMs: QUIET_HUNG_MS, backgroundStallMs: 60 * 60_000 })
+    const h = faultRun({ scripts: ['autopilot-background'], marks: 'claimed', quietHungMs: QUIET_HUNG_MS, prs: false, backgroundStallMs: 60 * 60_000 })
     expect(await h.start()).toEqual({ refusal: null })
     await until(() => h.kinds(1).includes('background-tasks') && h.registry.list().every((each) => each.state !== 'busy'), 'the end of the Wave turn with live tasks')
 
