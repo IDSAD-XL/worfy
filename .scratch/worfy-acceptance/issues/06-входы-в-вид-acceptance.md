@@ -1,7 +1,8 @@
 # 06 — Входы в вид Acceptance: секция боковой панели, бейдж rail-а, строка палитры, ручные проверки и уведомление ведут на пункт
 
 Type: task
-Status: claimed 2026-11-24T02:57Z
+Status: done 2026-11-24T07:02Z
+PR: #2170
 Blocked by: 05
 Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решения по реализации» → «Входы»; «Решение», путь владельца, шаг 1
 
@@ -44,6 +45,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решения по реал�
       `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 218371e06
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45340690590/job/138276197601 · ci - · 1c629449143e47ef2bf84d9d6689b2f51262452e
 
 ## Где в коде
 
