@@ -155,3 +155,17 @@ Session registry на fake agent и настоящую службу Acceptance. 
 2. Владелец нажал Pass по пункту, который в это время уже отметили `[x]`. Что уйдёт Orchestrator-у?
    - Ответ: ничего: `checkDecision` службы бросает до `send`, канал отвечает отказом с причиной, «Sent» не пишется.
    - Строки: `src/main/actions/launch.ts:509-511`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED — worfy-acceptance 03 (the ownerCheck action template «Record owner check» and the channel actions.ownerCheck: the owner's decision goes to the Orchestrator), head 6162fcc512458ed6d51e31e14c96098de8c81396 (e3dcbbcac + merge of main: tickets 02, #2159 ladder fix, #2160–#2162; no change to the PR's own files)
+>
+> Gate (depth medium, two rounds): verifier (lens: implementer's claims, sonnet) — FIX on one low only (item 2 named the other Autopilot constant), all claims CONFIRMED, 9 of 9 own mutants red, no command injection found (newlines, backticks, $( ), a line starting with /, unicode line separators); reviewer (correctness) — MERGE with four lows, all sent to round 2; round 2 (about 70 lines of src) checked by the Orchestrator.
+>
+> - What it gives: the Project action «Record owner check» renders `/worfy:owner-check {epic} {NN} {item} {verdict} {platform} {copy} {sha}` from the plugin template (empty, with a refusal, for an old Harness); the owner's words follow as a quoted «Owner's words:» paragraph and never enter the command line; the channel actions.ownerCheck (project, write; a read-only Linked machine is refused) checks every word, refuses while Autopilot runs in the Project (its own reason, asked again right before the send), refuses an item that is not a manual item waiting for the owner or whose text changed since the owner saw it («reload the Acceptance view»), sends the text to the Orchestrator and keeps «Sent» only after the send.
+> - Fixed in round 2: «Sent» written only after a successful send (a Session closed meanwhile → error, no Sent); the decision carries the item text the owner saw (itemText, not a hash: the renderer has no node:crypto) and a changed item is refused; Autopilot re-checked after the last await; ticket item 2 reworded to OWNER_CHECK_AUTOPILOT_HINT.
+> - Evidence: action-templates 16 tests red before; three round-2 contract tests red before (5 failures); 7 + 3 implementer mutants and 9 verifier mutants each red; 7 touched files 201 tests EXIT=0; verifier 22 files 975 tests EXIT=0; reviewer 26 files 1043 tests EXIT=0; pnpm lint, typecheck EXIT=0; gate fast green with the full pnpm test; check-feature-docs, story-check EXIT=0.
+> - Debt (low): a second decision on the same item while the first is queued also reaches the Orchestrator (Pass then Fail → [x] and a rework ticket) — noted in the ticket's Итог for ticket 05's UI; if markSent throws after a successful send (the item stopped waiting in between), the text is gone but the caller sees an error.
+> - Not verified: how a live Claude or Codex Orchestrator reads the command with the «Owner's words:» paragraph (no live agents run); the Project settings field drawn from ACTIONS not opened in the GUI.
+>
+> Decided without the owner (to confirm): the Autopilot refusal uses its own text OWNER_CHECK_AUTOPILOT_HINT (the general one says «run a Wave by hand»); «Sent» only after the send; the item matched by its text the owner saw; with no words the paragraph is only the heading «Owner's words:»; the words limit 10 000 characters; {sha} 7–40 hex or «-» for this action only (PR actions keep 40).

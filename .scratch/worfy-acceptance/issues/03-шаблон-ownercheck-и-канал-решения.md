@@ -1,7 +1,8 @@
 # 03 — Шаблон действия `ownerCheck` и канал `actions.ownerCheck`: решение владельца уходит Orchestrator-у
 
 Type: task
-Status: open
+Status: done 2026-11-24T03:23Z
+PR: #2157
 Blocked by: 01
 Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решения по реализации» → «Решение — шаблон действия», ««Sent» — отправлено,
 но ещё не записано», «Платформа, копия и commit строки»; «Вопросы владельцу», Q6
@@ -49,6 +50,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решения по реал�
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck` exit 0 · mac - · a971bdc766fafe7f397c8f4d5a3690ec9d2ab419
   - evidence: gate pass · `gate fast` exit 0 · mac - · a971bdc766fafe7f397c8f4d5a3690ec9d2ab419
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45312055656/job/138191610388 · ci - · 6162fcc512458ed6d51e31e14c96098de8c81396
 
 ## Где в коде
 
