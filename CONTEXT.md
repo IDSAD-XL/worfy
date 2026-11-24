@@ -172,6 +172,10 @@ _Avoid_: AI review, LLM review, ревью ллмкой, auto review, human revi
 Вид ручных пунктов Ticket-ов всех Project-ов Machine, которые ждут проверки владельца, и Ticket-ов, которые ждут его решения, с их Evidence и Stable copy; решение Pass или Fail уходит Orchestrator-у Project-а, и строку `owner-check` в Ticket пишет skill `owner-check` Harness-а, не worfy. Вкладка Acceptance окна, её tooltip — «Checks that wait for you». Не Human review: та Stage ждёт решения ревью на GitHub до merge, Acceptance читает Evidence ручных пунктов, обычно после merge ([страница Feature](docs/features/acceptance.md)).
 _Avoid_: приёмка (как имя вида), review queue, inbox; accepted (так говорят о принятом владельцем spec-е Epic-а)
 
+**Delegated check**:
+Строка `owner-check` под ручным пунктом Ticket-а, которую Orchestrator пишет по поручению владельца после своей проверки; в самой строке сказано, что проверку поручил владелец, на какой копии и что именно проверено. Отличает её от проверки владельца только этот текст: вид Acceptance показывает её так же.
+_Avoid_: автоприёмка, самоприёмка, auto-accept
+
 **Flight Recorder**:
 Часть worfy, которая собирает факты Run-а из журнала Autopilot-а, транскриптов, GitHub и логов gate (у Project-а без PR — из файла отметок и git) и строит Run history; своего хранилища нет.
 _Avoid_: бортовой самописец, logger

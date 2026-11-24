@@ -107,7 +107,8 @@ ADR не нужен: выбор между А и Б записан в ADR-0048.
   - без аккаунта — без `GH_TOKEN`;
   - при сбое — без `GH_TOKEN`, строка лога без значения токена.
 - [x] test-ы hooks идут в CI worfy на Linux вместе с остальными (Ticket 02). CI PR-а зелёный.
-- [ ] (вручную, после влития и `pnpm install:stable`, машина владельца уже на plugin) `gh auth status` показывает активным личный аккаунт GitHub владельца. При этом `gh api user --jq .login` даёт `IDSAD-XL` в двух местах:
+- [x] (вручную, после влития и `pnpm install:stable`, машина владельца уже на plugin) `gh auth status` показывает активным личный аккаунт GitHub владельца. При этом `gh api user --jq .login` даёт `IDSAD-XL` в двух местах:
+  - evidence: owner-check pass · 2026-11-25: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»), the global gh account switched back by the owner's yes of 2026-11-25; checked by the Orchestrator on Mac Stable: gh auth status without GH_TOKEN shows <private>-O-<private> active; gh api user --jq .login in this worfy Session of Project worfy gives IDSAD-XL; the terminal claude Session gets the same plugin hook and was not started separately. · mac stable · 61111661c1c832ac74077e3c914d8a6f66e4c590
   - в Session `claude` из терминала в `~/Stuff/CanvasForAI`;
   - в Session worfy Project-а worfy.
 
