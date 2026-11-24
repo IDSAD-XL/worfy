@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import type { AcceptanceGroupName, AcceptanceRow, AcceptanceState } from '../../../shared/ipc/acceptance'
 import type { OwnerCheckVerdict } from '../../../shared/projects/action-templates'
 import { openAcceptance } from '../../acceptance/open'
-import { GROUP_TITLES, sentOf, useAcceptance } from '../../acceptance/useAcceptance'
+import { GROUP_TITLES, useAcceptance, waitsForOwner } from '../../acceptance/useAcceptance'
 import { activeProject, useProjects } from '../../projects/useProjects'
 import { projectsInScope, setRailBadge, useSidebarScope } from '../sidebar-scope'
 import { SidebarSection } from '../SidebarSection'
@@ -39,11 +39,12 @@ interface ProjectCounts {
 
 /**
  * The counted groups of each Project of `projectIds`, in that order; a Project without one is left out. Ready to check
- * leaves out the items already Sent, as the tab's count does (readyCount): they wait for the line, not for the owner.
+ * leaves out the items already Sent, as the tab's count does (readyCount): they wait for the line, not for the owner;
+ * one whose decision was not recorded in time counts again.
  */
 function countsByProject(state: AcceptanceState | null, sentHere: Readonly<Record<string, OwnerCheckVerdict>>, projectIds: readonly string[]): ProjectCounts[] {
   const groups = state?.groups ?? []
-  const counts = (group: AcceptanceGroupName, row: AcceptanceRow): boolean => group !== 'ready' || row.kind !== 'item' || sentOf(row, sentHere) === null
+  const counts = (group: AcceptanceGroupName, row: AcceptanceRow): boolean => group !== 'ready' || waitsForOwner(row, sentHere)
   return projectIds.flatMap((projectId) => {
     const counted = COUNTED.flatMap((group) => {
       const rows = groups.find((each) => each.group === group)?.rows.filter((row) => row.ticket.projectId === projectId && counts(group, row)) ?? []

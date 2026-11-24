@@ -77,7 +77,8 @@ Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решения по реал�
   проверка в main потребовала бы нового поля заметки и видела бы очередь на момент показа, а не клика. Test-ы — в `test/unit/notification-ticket-click.test.tsx` вместе с прежними test-ами этого клика
   (вынесены из `test/unit/pipeline-board.test.tsx`, перешедшего 1000 строк), а не в `test/unit/notify.test.ts` (там
   test-ы main).
-- Ready to check в секции и бейдж не считают пункты с отметкой Sent — как счёт вкладки после ревью 05.
+- Ready to check в секции и бейдж не считают пункты с отметкой Sent и снова считают «Not recorded yet» — одно правило с
+  вкладкой (`waitsForOwner`, `src/renderer/acceptance/useAcceptance.ts`).
 - Решено без владельца: секция и её бейдж следуют переключателю Project-ов боковой панели, как Pull requests. Это
   отступление от spec.md:94 («На rail-е и на вкладке — бейдж «3»», одно число): при «All Projects» числа совпадают, при
   одном Project-е бейдж rail-а считает только его.

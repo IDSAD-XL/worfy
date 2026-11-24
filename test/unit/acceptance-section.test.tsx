@@ -157,6 +157,13 @@ describe('the Acceptance section of the sidebar', () => {
     expect(badge()).toEqual({ tone: 'working', count: 1, label: '1 check ready to check' })
   })
 
+  it('an item whose decision was not recorded in time counts again, as on the tab', async () => {
+    const late: AcceptanceItemRow = { ...item(SHOP, 'cart', 4, 1), sent: { verdict: 'pass', at: '2026-11-22T08:00:00.000Z', state: 'not-recorded' } }
+    await section(queue({ ready: [item(SHOP, 'cart', 3, 2), late] }))
+    await waitFor(() => expect(rows()).toEqual([`${SHOP}: Ready to check2`]))
+    expect(badge()).toEqual({ tone: 'working', count: 2, label: '2 checks ready to check' })
+  })
+
   it('under one Project, the section and the badge show that Project alone', async () => {
     localStorage.setItem('worfy.sidebar.scope', 'project')
     await section(FULL)

@@ -32,7 +32,7 @@ export function openAcceptance(target?: { projectId: string; epic: string; num: 
 
 ## 3. Секция Acceptance и бейдж rail-а
 
-Code: `src/renderer/shell/sidebar/AcceptanceSection.tsx:58-67` · key lines: 61, 63, 65
+Code: `src/renderer/shell/sidebar/AcceptanceSection.tsx:59-68` · key lines: 62, 64, 66
 
 ```tsx
 export default function AcceptanceSection() {
@@ -49,7 +49,8 @@ export default function AcceptanceSection() {
 
 - Что делает: секция читает ту же очередь, что вкладка (`useAcceptance`), и Project-ы переключателя боковой панели;
   считает по Project-у группы Ready to check, Update first, Waits for you, Failed; бейдж rail-а — сумма Ready to check.
-  Ready to check не считает пункты с отметкой Sent — то же правило, что у счёта вкладки (`readyCount`).
+  Ready to check не считает пункты с отметкой Sent, а «Not recorded yet» считает снова — общее с вкладкой правило
+  `waitsForOwner` (`useAcceptance.ts`).
 - Почему здесь: секция — новый файл в `src/renderer/shell/sidebar/`, его находит `import.meta.glob` (`Sidebar.tsx`
   не менялся); образец `PullRequestsSection.tsx` назван в Ticket-е. Почему без In work и Older — not recorded:
   решено без владельца, они свёрнуты и в самом виде.
@@ -151,4 +152,4 @@ Code: `src/renderer/canvas/overlays/NotificationTarget.tsx:103-125` · key lines
    - Строки: `src/renderer/palette/commands.ts:692-693`
 3. Почему бейдж rail-а может быть меньше счёта на вкладке?
    - Ответ: секция и её бейдж следуют переключателю боковой панели, а вкладка считает все Project-ы.
-   - Строки: `src/renderer/shell/sidebar/AcceptanceSection.tsx:61-63`
+   - Строки: `src/renderer/shell/sidebar/AcceptanceSection.tsx:62-64`

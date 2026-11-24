@@ -58,7 +58,12 @@ export function shownRows(state: AcceptanceState | null, open: Readonly<Record<A
  */
 export function readyCount(state: AcceptanceState | null, sentHere: Readonly<Record<string, OwnerCheckVerdict>>): number {
   const rows = state?.groups.find((group) => group.group === 'ready')?.rows ?? []
-  return rows.filter((row) => row.kind !== 'item' || sentOf(row, sentHere)?.state !== 'sent').length
+  return rows.filter((row) => waitsForOwner(row, sentHere)).length
+}
+
+/** Whether a row of Ready to check is counted on the tab and in the sidebar section: not Sent and waiting for the line. */
+export function waitsForOwner(row: AcceptanceRow, sentHere: Readonly<Record<string, OwnerCheckVerdict>>): boolean {
+  return row.kind !== 'item' || sentOf(row, sentHere)?.state !== 'sent'
 }
 
 /** The Sent mark a row shows: main's, else one this window has just sent. */
