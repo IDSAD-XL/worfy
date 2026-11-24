@@ -33,3 +33,5 @@ Source: owner-check fail 2026-11-24 of worfy-resource-planner 12, item 4 — 12-
       `test/e2e/limits.spec.ts`.
 - [x] Страница `docs/features/transcripts-and-usage.md` (раздел Limits) описывает окно, которого нет в плане.
 - [ ] (вручную) без окна `five_hour` в Limits ничего о нём не говорится и ничего его не ждёт.
+  - evidence: screenshot pass · `../evidence/13/limits-no-five-hour-light.png` · mac dev · d62dc93f4ab8824d4fe49d834a70b54d34535f54 · scrub: 2026-11-25
+  - evidence: screenshot pass · `../evidence/13/limits-no-five-hour-dark.png` · mac dev · d62dc93f4ab8824d4fe49d834a70b54d34535f54 · scrub: 2026-11-25
