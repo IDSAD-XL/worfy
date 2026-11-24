@@ -47,7 +47,10 @@ Source: решение владельца 2026-10-17, grilling о Pipeline, пу
       строке секции открывает доску.
 - [x] `pnpm test:e2e test/e2e/sidebar-sections.spec.ts` — exit 0 (новая секция не ломает порядок).
 - [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0. gate full — шаг Orchestrator-а перед merge.
-- [ ] (вручную) Stable copy после мержа: доска worfy во время Wave — снимок в `../evidence/04-доска.png`.
+- [x] (вручную) Stable copy после мержа: доска worfy во время Wave — снимок в `../evidence/04-доска.png`.
+  - evidence: screenshot pass · `../evidence/acc1124-04-5-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-04-5-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Fixture Project as a Wave in progress, not the worfy repo. Pipeline board: 01 Queued, 02 Implementing, 06 blocked with reason and «Waits: owner», 04 on CI, 05 on Agent review; Done folded. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 ## Тесты
 

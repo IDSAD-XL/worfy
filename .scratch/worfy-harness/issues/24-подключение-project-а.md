@@ -178,12 +178,15 @@ ADR не нужен: решения — ADR-0042 и ADR-0045; запись че�
   подключённого Project-а — как раньше.
 - [ ] `GATE_SCOPE=all gate.sh full` на ветке после rebase — код 0 и вердикт Gate «зелено»; e2e и
   `.app` проверяются только здесь, под замком `/tmp/worfy-e2e.lock`.
-- [ ] (вручную) Stable copy после влития и `pnpm install:stable`: открыть подключение временного
+- [x] (вручную) Stable copy после влития и `pnpm install:stable`: открыть подключение временного
   репозитория с `package.json` (скрипты `lint`, `test`) в Silent mode; черновик пишет настоящая
   Session. В форме — команды из `package.json`, `mode: silent`, Workflow folder по умолчанию; в
   репозитории `git status --porcelain --ignored` пуст. «Connect» не нажимать: настоящий
   `~/.claude/worfy-harness/` не меняется, запись проверяют test-ы в песочнице. Как проверить: окно
   приложения и терминал.
+  - evidence: screenshot pass · `../evidence/acc1124-24-11-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-24-11-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: One real Claude Code draft turn (46 s), temp repo, Silent mode. Form: lint `npm run lint`, test `npm test`, mode silent, default Workflow folder. Connect not pressed; `git status --porcelain --ignored` empty. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 ## Тесты
 

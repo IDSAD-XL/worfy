@@ -39,7 +39,10 @@ Source: решения владельца 2026-10-31, пункты 6 (Settings �
 - [ ] e2e `update-settings.spec.ts` (`WORFY_UPDATE=1`, заглушка): «Check now» — строка «worfy <version> is
       available.»; переключатель выключен — сборка сама не идёт; откат с «Cancel» в диалоге (подменённый
       диалог) — ничего.
-- [ ] (вручную) снимки блока в светлой и тёмной теме.
+- [x] (вручную) снимки блока в светлой и тёмной теме.
+  - evidence: screenshot pass · `../evidence/acc1124-09-4-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-09-4-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: update-settings.spec passed. Settings → General → Updates block in both themes: "worfy 9.9.9+… is available.", Check now, Update worfy, Update automatically switch, Roll back. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
 
 ## Тесты

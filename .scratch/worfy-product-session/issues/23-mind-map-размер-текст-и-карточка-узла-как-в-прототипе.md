@@ -81,21 +81,33 @@ Source: сравнение собранного экрана с прототип
 - [ ] (manual) Сделай: найди узел «Очень длинный текст узла…» и наведи на него → Должно быть: в узле 4 строки и «…», ни
       одна буква не выходит за контур; tooltip — полный текст. У других узлов текст целиком, без обрезки.
   - needs: mac stable
-- [ ] (manual) Сделай: потяни разделитель между картой и чатом вправо и влево → Должно быть: карта каждый раз
+  - evidence: owner-check fail · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); the Orchestrator saw on a dev build of 2e96e91ac: Very long node: 4 lines + «…», inside, title = full text. But short nodes «Отдельный экран продуктовой работы…» and «Файл в docs/product/ правит tool…» are cut with «…» too (both have fold marks). · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (manual) Сделай: потяни разделитель между картой и чатом вправо и влево → Должно быть: карта каждый раз
       вписывается заново в новую ширину.
-  - needs: mac stable
-- [ ] (manual) Сделай: нажми «+», потом снова потяни разделитель; затем «Fit» → Должно быть: после «+» карта держит твой
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-23-11-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-23-11-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Divider dragged right (map 77 %, zoom 34→44 %) and left (43 %, 24 %): map refit each time, all nodes inside the pane. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (manual) Сделай: нажми «+», потом снова потяни разделитель; затем «Fit» → Должно быть: после «+» карта держит твой
       zoom и не вписывается сама; «Fit» снова вписывает. Двойной щелчок по разделителю — назад к 60 / 40.
-  - needs: mac stable
-- [ ] (manual) Сделай: открой карточки узлов у левого края, в середине и у правого края карты, затем протащи фон при
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-23-12-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: After «+» (29 %) a divider drag kept 29 %; «Fit» refit to 38 % with all nodes in; divider double-click returned map to 60 %. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (manual) Сделай: открой карточки узлов у левого края, в середине и у правого края карты, затем протащи фон при
       открытой карточке → Должно быть: карточка справа от узла, без места — слева, без места с обеих сторон — под
       узлом; всегда внутри карты; при pan едет вместе с узлом.
-  - needs: mac stable
-- [ ] (manual) Сделай: открой карточку отклонённого Решения → Должно быть: плашка вида с рамкой, серая и зачёркнутая;
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-23-13-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-23-13-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-23-13-3.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Left node (Ticket 01) card on the right, middle node card below (no room either side), right node card on the left; all inside the map; on pan the card follows its node (re-placed beside it). · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (manual) Сделай: открой карточку отклонённого Решения → Должно быть: плашка вида с рамкой, серая и зачёркнутая;
       History — два шага «accepted — дешевле начать без экрана», «rejected — экран Mind map и есть суть…», второй
       красный; ссылки синие, подчёркнуты только при наведении; Message и Changed by — «Show in the chat» (сообщений
       fixture-темы нет в этом чате, поэтому без цитаты и без «step N»).
-  - needs: mac stable
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-23-14-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Rejected card: bordered grey struck pill; History «accepted — дешевле начать без экрана», «rejected — экран Mind map и есть суть…» (second red); links blue, underline only on hover; Message and Changed by «Show in the chat». · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 ## Тесты
 

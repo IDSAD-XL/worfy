@@ -47,8 +47,9 @@ full на ПК, main `fc9279cf` (раньше в worfy-polish 47). Платфо�
       (сейчас — нет). Был красным на старом коде; по решению Orchestrator-а после ревью заменён, см. «Итог».
 - [x] Test: stand-in kill.exe, который не выходит вовсе, — helper отвечает в своём пределе, и kill.exe не держит ответ
       (поведение, ради которого вводили предел 500 ms).
-- [ ] (вручную, ПК) Тот же замер, 120 закрытий под нагрузкой: 0 закрытий без `.bash_history`; `terminal.close` не дольше
+- [x] (вручную, ПК) Тот же замер, 120 закрытий под нагрузкой: 0 закрытий без `.bash_history`; `terminal.close` не дольше
       `WINDOWS_CLOSE_BOUND_MS`; таблица — в «Итог». **НЕ выполнен: 2 из 120 без history.** `terminal.close` в пределе.
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); superseded, nothing left to check: Replaced by worfy-windows 118 (history -a per command, PR #1182, src/main/terminal/pty.ts:127) and 117 Windows exception (PR #1143). · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [ ] `test/contract/terminal-git-bash-close.test.ts` зелёный в gate full на ПК.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
 

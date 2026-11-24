@@ -55,6 +55,7 @@ Source: решения владельца 2026-10-19, Q2, Q3 ([spec.md](../spec.
 - [ ] `grep -n 'Writing in Russian\|## Terms' harness/hooks/rules/common.md harness/agents/*.md` — пусто.
 - [ ] (вручную) После `pnpm install:stable` новая Session владельца отвечает по-русски, а её Subagent получает
       правило о терминах (виден в `SubagentStart` hook output).
+  - evidence: owner-check fail · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); the Orchestrator saw on a dev build of 2e96e91ac: SubagentStart (inject-rules common) has Terms rule, profile reports=ru; but hook names language.reports without value, and two live English-prompt turns in the repo answered in English. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0. gate full — шаг Orchestrator-а перед merge.
 
 ## Тесты

@@ -52,9 +52,10 @@ Claude Code подставляет аргументы вызова skill-а в �
       который возвращает `$1` в любую функцию `F`.
 - [ ] Блоки, которые проверяет `skill-blocks.test.sh`, дают прежний результат под bash и zsh — и на
       исходном тексте, и после имитации подстановки аргументов.
-- [ ] (вручную, после `pnpm install:stable`) `/worfy:ship-ticket <epic> <NN>` в Session: в загруженном
+- [x] (вручную, после `pnpm install:stable`) `/worfy:ship-ticket <epic> <NN>` в Session: в загруженном
       тексте шага 11 нет имени Epic-а и номера Ticket-а на месте параметров; команда и вывод — в
       «Итог».
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Installed plugin ship-ticket SKILL.md and step-11-close.md: no $N/$ARGUMENTS tokens (count 0); step 11 keeps <epic> <NN>; SKILL.md byte-identical to main. Static check, not a live /worfy:ship-ticket load. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0; gate full на Mac зелёный.
 
 ## Где в коде

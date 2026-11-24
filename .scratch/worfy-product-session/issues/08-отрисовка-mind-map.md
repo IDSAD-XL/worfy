@@ -45,8 +45,12 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
   - evidence: test-run pass · `vitest run test/unit/mind-map-view.test.tsx` exit 0 · mac - · 5a04a9e9c16a2ebab38ff26fc89940f6b32da188
 - [ ] Unit test раскладки: `replaces` не создаёт цикла в дереве; 150 узлов раскладываются, время записано в «Итог».
   - evidence: test-run pass · `vitest run test/unit/mind-map-layout.test.ts` exit 0 · mac - · 5a04a9e9c16a2ebab38ff26fc89940f6b32da188
-- [ ] (manual) Экран на Mac Stable с fixture-темой: виды, зачёркнутые, zoom и pan — снимок с проверкой пикселей.
-  - needs: mac stable
+- [x] (manual) Экран на Mac Stable с fixture-темой: виды, зачёркнутые, zoom и pan — снимок с проверкой пикселей.
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-08-6-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-08-6-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-08-6-3.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Dev build 2e96e91ac, fixture topic (LONG_MAP + 2 map Tickets), dark 1440: kinds and struck rejected Decision drawn; wheel zoom 44→67 %, background drag pans; screenshots differ pixel-wise before/after each. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 5a04a9e9c16a2ebab38ff26fc89940f6b32da188
   - evidence: gate pass · `gate fast` exit 0 · mac - · 5a04a9e9c16a2ebab38ff26fc89940f6b32da188
@@ -65,25 +69,37 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
       папке Card-ов Project-а worfy; у него только тёмная тема) в окне браузера слева и проиграет его разговор до конца
       («▶ Проиграть разговор»).
 - [ ] Orchestrator: проверит, что Settings → Sessions → «Live summary while the advisor works» включён.
-- [ ] (manual) Сделай: посмотри на карту слева → Должно быть: выбран «Tree»; тема у левого края, два Ticket-а карты —
+- [x] (manual) Сделай: посмотри на карту слева → Должно быть: выбран «Tree»; тема у левого края, два Ticket-а карты —
       крупные узлы с номером; у каждого узла значок вида в круге; Решение «Сначала проверить советника в Harness…»
       серое, зачёркнутое, с пунктирным контуром.
-  - needs: mac stable
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-08-13-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Tree pressed; topic is the leftmost node; two Ticket nodes 17 px bold with number capsule; every kind node has its icon in a 999px circle; rejected Decision grey, <s> struck, dashed 4 3 outline. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [ ] (manual) Сделай: над картой прокрути двумя пальцами и сведи-разведи пальцы на trackpad, потом протащи пустой фон
       → Должно быть: zoom плавный, процент между «−» и «+» меняется и держится в 10–250 %; карта едет за пальцем.
   - needs: mac stable
-- [ ] (manual) Сделай: нажми «−», «+», затем «Fit» → Должно быть: «−» и «+» меняют процент шагом; после «Fit» все узлы
+- [x] (manual) Сделай: нажми «−», «+», затем «Fit» → Должно быть: «−» и «+» меняют процент шагом; после «Fit» все узлы
       в панели.
-  - needs: mac stable
-- [ ] (manual) Сделай: нажми «Hide rejected», потом ещё раз → Должно быть: отклонённое Решение и красная стрелка к нему
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-08-15-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: «−»/«+» step the percent 44→37→31→37→44→53 %; «Fit» → 44 %, every node box inside the map pane. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (manual) Сделай: нажми «Hide rejected», потом ещё раз → Должно быть: отклонённое Решение и красная стрелка к нему
       пропали; второй щелчок их вернул.
-  - needs: mac stable
-- [ ] (manual) Сделай: щёлкни узел-Решение → Должно быть: карточка с плашкой вида и статуса, текстом, Reason, History,
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-08-16-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: «Hide rejected»: rejected Decision and the red Replaces edge go (0/0); second click brings both back (1/1). · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (manual) Сделай: щёлкни узел-Решение → Должно быть: карточка с плашкой вида и статуса, текстом, Reason, History,
       Grew from, Message; у Objection вместо Reason — Source.
-  - needs: mac stable
-- [ ] (manual) Сделай: щёлкни по карте, затем Tab несколько раз, Enter, Escape → Должно быть: фокус идёт по узлам с
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-08-17-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-08-17-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-08-17-3.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Rejected Decision card: kind-status pill, text, Reason, History, Grew from, Message. Objection card shows Source, no Reason. Accepted Decision without history shows no History row (by design). · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (manual) Сделай: щёлкни по карте, затем Tab несколько раз, Enter, Escape → Должно быть: фокус идёт по узлам с
       видимой обводкой; Enter открывает карточку; Escape закрывает её и возвращает фокус на тот же узел.
-  - needs: mac stable
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-08-18-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Click on empty map, Tab walks topic→Tickets→nodes, each :focus-visible with 2 px outline; Enter opened the card, Escape closed it, focus back on the same node. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 ## Тесты
 

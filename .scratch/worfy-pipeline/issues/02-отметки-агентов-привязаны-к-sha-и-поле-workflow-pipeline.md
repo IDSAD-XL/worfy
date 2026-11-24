@@ -86,9 +86,10 @@ Source: решение владельца 2026-10-17, grilling о Pipeline, пу
       `[gate] зелено (full)`. Не проверено: шаг Orchestrator-а (запрос на ПК) перед merge.
 - [ ] (вручную, Orchestrator со словом владельца, до установки Harness с этим PR) rules.md:46: `rmdir "$L"` →
       `rm -f "$L/holder.json"; rmdir "$L"`. Не проверено: шаг Orchestrator-а.
-- [ ] (вручную, Orchestrator после мержа и `pnpm install:stable`) первый PR следующей Wave показывает
+- [x] (вручную, Orchestrator после мержа и `pnpm install:stable`) первый PR следующей Wave показывает
       `review` в списке check-ов GitHub; `profile.json` worfy получает `workflow.pipeline` (Check
       «windows», Deploy); diff — в «Итог». Не проверено: шаг Orchestrator-а после merge.
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: gh: PRs #2175/#2171 heads carry commit status review=success and check/windows, review in statusCheckRollup. profile.json workflow.pipeline has check "windows"; no deploy stage (07 Итог advises leaving it off without install:stable per Wave). · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 ## Тесты
 

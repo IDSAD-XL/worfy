@@ -83,7 +83,9 @@ ADR не нужен: решение уже принято в ADR-0047.
 - [x] Unit test `test/unit/canvas-actions.test.tsx`: при `harnessBehind` действие Autopilot показывает chip `autopilot-harness-behind`, его `title` называет число коммитов и `pnpm install:stable`; при `null` chip-а нет.
 - [x] e2e `@packaged` в `test/e2e/packaged.spec.ts`: установленная копия; Project — `git clone --shared` репозитория worfy во временную папку, где `origin/main` указывает на коммит в `harness/` поверх коммита сборки, — chip виден; клон, где `origin/main` — сам коммит сборки, — chip-а нет. Идёт в `pnpm test:package`, то есть в локальном `gate full`.
 - [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0; локальный `gate full` под замком `/tmp/worfy-e2e.lock` (правила Profile worfy) — код 0 и вердикт «зелено».
-- [ ] (вручную) Stable copy, собранная до влития PR в `harness/`: после влития на рамке Epic-а worfy виден chip; после `pnpm install:stable` и перезапуска копии chip-а нет. Как проверить: окно приложения.
+- [x] (вручную) Stable copy, собранная до влития PR в `harness/`: после влития на рамке Epic-а worfy виден chip; после `pnpm install:stable` и перезапуска копии chip-а нет. Как проверить: окно приложения.
+  - evidence: screenshot pass · `../evidence/acc1124-21-8-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: `pnpm package` in worktree, @packaged drift e2e on a temp-folder copy: clone with later harness/ commit shows chip "Harness in main is newer than the Stable copy"; clone at build commit shows none; no fetch. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 Ручной пункт агент проверяет, только если может посмотреть окно Stable copy. Если не может —
 «не проверено: …» в «Итог» и пункт в HANDOFF, раздел «Ждёт владельца».

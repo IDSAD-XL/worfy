@@ -60,13 +60,18 @@ Source: владелец 2026-11-09, worfy на ПК с Windows: Product Session
 - [ ] Orchestrator: попросит советника задать один вопрос с вариантами (AskUserQuestion).
 - [ ] Orchestrator: когда карточка появится, перезагрузит окно (View ▸ Reload) и прочитает Badge Node-а (должно быть
       «Waits for answer», не «Needs permission»).
-- [ ] (вручную) Сделай: посмотри на чат после перезагрузки → Должно быть: карточка вопроса есть; варианты, «Other»,
+- [x] (вручную) Сделай: посмотри на чат после перезагрузки → Должно быть: карточка вопроса есть; варианты, «Other»,
       «Submit» и «Decline» внутри колонки чата над полем ввода, ничего не обрезано. Только строка «The Session waits for
       an answer this window cannot show. Interrupt refuses the request.» без карточки — не то.
-  - needs: mac stable
-- [ ] (вручную) Сделай: выбери вариант и нажми «Submit» → Должно быть: советник продолжает, и его ответ опирается на твой
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-30-9-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-30-9-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: 1160 px, Agents open, question card pending; after reload the card is in the chat; options, Other, Submit, Decline inside the chat column above input, none clipped; no «cannot show» line. Fake and live runs both. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (вручную) Сделай: выбери вариант и нажми «Submit» → Должно быть: советник продолжает, и его ответ опирается на твой
       выбор.
-  - needs: mac stable
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-30-10-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Live turn on local login: picked «Одиночки», Submit; advisor replied «Ты выбрал «Одиночки». Это совпадает с ответом в Ticket 01…» — builds on the choice. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 ## Тесты
 

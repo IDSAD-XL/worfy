@@ -101,8 +101,12 @@ Source: owner-check fail 2026-11-21 of worfy-changes-view 07, item 2 — 07-пр
   - evidence: test-run pass · `pnpm lint` exit 0 (check-feature-docs ok) · mac - · e19a60127d0cc3bdbc8a5d8e6d3a825d103ed3f5
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44848715127/job/136688321593 · ci - · fb19066c19098e159cd70ccbd28e6ce10689fef9
-- [ ] (manual) Mac Stable: кнопка Changes на карточке открывает Node с diff-ом ветки.
-  - needs: mac stable
+- [x] (manual) Mac Stable: кнопка Changes на карточке открывает Node с diff-ом ветки.
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-08-10-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-08-10-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-08-10-3.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Summary of items 15–17, all passed on 2e96e91ac. The card's Changes button opens the full-window Changes view with the branch diff. No changes Node is left in the Layout. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 Пункт (manual) выше записан owner-check-ом дословно из Ticket-а 07. После этого Ticket-а владелец проверяет по нему то,
 что решил в D1: кнопка Changes открывает вид Changes во всё окно с diff-ом ветки, «← Canvas» возвращает на Canvas.
@@ -115,32 +119,48 @@ Source: owner-check fail 2026-11-21 of worfy-changes-view 07, item 2 — 07-пр
       новый файл, rename, lock-файл, binary-файл, файл в `.scratch/`.
 - [ ] Orchestrator: привязать к этому Ticket-у Session (Binding).
 - [ ] Orchestrator: через CDP проверить Linked machine с Read only (diff виден, «+» и лотка нет).
-- [ ] (manual) Сделай: на Canvas `worfy-sandbox` на карточке названного Ticket-а нажми **Changes** → Должно быть:
+- [x] (manual) Сделай: на Canvas `worfy-sandbox` на карточке названного Ticket-а нажми **Changes** → Должно быть:
       открылся вид Changes во всё окно (как Pull requests), Canvas скрыт под ним; в заголовке **← Canvas** и
       `Changes · Ticket NN · <epic>`. В первой строке — меню scope «All changes», `origin/main ← <ветка>`, merge-base,
       число файлов, `+N −M` и Refresh.
-  - needs: mac stable
-- [ ] (manual) Сделай: посмотри дерево файлов слева и diff справа → Должно быть: файлы, которых ты ждёшь от ветки, с
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-08-15-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Temp repo with origin and a Ticket worktree. Card Changes opens a view that fills the main area (1336x948) and hides the Canvas. Header shows «← Canvas» and «Changes - Ticket 04 - demo-cart». Meta row: «origin/main ← demo-cart/04 - base 42eea9e - 8 files + 2 workflow - +18 −10». All changes and Refresh present. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (manual) Сделай: посмотри дерево файлов слева и diff справа → Должно быть: файлы, которых ты ждёшь от ветки, с
       буквами A, M, D, R и числами строк; новый файл без commit-а тоже есть; группа **Workflow files (N)** — последней
       и свёрнута; lock-файл свёрнут («Lock file … Show»), binary — «Binary file · … → …». Совпадение с
       `git diff <merge-base>` сверит Orchestrator.
-  - needs: mac stable
-- [ ] (manual) Сделай: нажми **← Canvas**, потом снова **Changes** на карточке, потом Esc; затем ⌘K → «Open changes» →
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-08-16-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Tree letters and paths equal git diff --name-status -M <merge-base> plus untracked files (A/M/D/R; new file without a commit is listed). Workflow files (2) is last and collapsed. Shows «Lock file - 1 lines - Show» and «Binary file - 362 B → 462 B». cart.ts lines equal git diff. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (manual) Сделай: нажми **← Canvas**, потом снова **Changes** на карточке, потом Esc; затем ⌘K → «Open changes» →
       строка этого Ticket-а → Должно быть: ← Canvas и Esc возвращают на Canvas; оба входа открывают вид Changes того
       же Ticket-а; на Canvas нет Node-а Changes.
-  - needs: mac stable
-- [ ] (manual) Сделай: во второй строке вида переключи Inline ↔ Side by side, включи Wrap и Hide whitespace → Должно
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-08-17-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: ← Canvas goes back to the Canvas. Changes again and Esc (focus in the view) go back too. ⌘K «Open changes» row demo-cart/04 opens the same Ticket. Canvas has no changes Node; saved layout.json has none. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (manual) Сделай: во второй строке вида переключи Inline ↔ Side by side, включи Wrap и Hide whitespace → Должно
       быть: Side by side — старая сторона слева, новая справа; Wrap переносит длинные строки; Hide whitespace убирает
       правки пробелов.
-  - needs: mac stable
-- [ ] (manual) Сделай: в меню scope выбери Uncommitted, потом один commit под Commit; затем в Compare выбери другую
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-08-18-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-08-18-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-08-18-3.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Side by side: old code left (x 604), new right (x 1129). Wrap: the 300-char line's row grows from 20 to 60 px. Hide whitespace: the whitespace-only re-indent disappears, leaving 1 added line, same as git diff -w. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (manual) Сделай: в меню scope выбери Uncommitted, потом один commit под Commit; затем в Compare выбери другую
       ветку → Должно быть: Uncommitted — только правки без commit-а и новый файл; Commit — правки одного commit-а;
       Compare — All changes против выбранной ветки.
-  - needs: mac stable
-- [ ] (manual) Сделай: щёлкни в diff-е и пройди `j`, `k`, `n`, `p`; набери часть имени файла в фильтре дерева →
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-08-19-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-08-19-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-08-19-3.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Uncommitted shows only discount.ts and helper.ts, same as git diff HEAD plus untracked. Commit «rename and format» equals git show of that commit. Compare release/1.2 shows base b6467d8, files equal git diff against that merge-base plus untracked. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
+- [x] (manual) Сделай: щёлкни в diff-е и пройди `j`, `k`, `n`, `p`; набери часть имени файла в фильтре дерева →
       Должно быть: `j`/`k` — следующий и прошлый файл, `n`/`p` — следующий и прошлый hunk; фильтр пишет «N of M
       files», diff показывает те же файлы.
-  - needs: mac stable
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-08-20-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: j/j/j/k moves the selected tree file 1→2→3→2. n/n/n/p scrolls the diff 91→216→398→627→398, one hunk each. Filter «cart» shows «3 of 10 files»; the diff shows the same 3 files as the tree. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 ## Где в коде
 

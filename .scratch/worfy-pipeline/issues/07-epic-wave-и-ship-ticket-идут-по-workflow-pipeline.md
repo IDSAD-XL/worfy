@@ -49,9 +49,10 @@ Source: решение владельца 2026-10-17, grilling о Pipeline, пу
 - [x] `bash harness/bin/tests/agents-text.test.sh` — exit 0 (текст skills без ссылки на ADR-0056 как на
       правило ожидания).
 - [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0. gate full — шаг Orchestrator-а перед merge.
-- [ ] (вручную, Orchestrator) первая Wave после `pnpm install:stable`: платформенный PR ждёт
+- [x] (вручную, Orchestrator) первая Wave после `pnpm install:stable`: платформенный PR ждёт
       `check/windows`, обычный — `skipped`; номера PR — в «Итог».
       не проверено: шаг Orchestrator-а после merge, правки Profile-а и `pnpm install:stable`.
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); superseded, nothing left to check: rules-merge.md:42-48 (ADR-0083/0086): every PR gets check/windows success from ci-ok, none skipped; docs PR #2175 also has check/windows success. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 ## Тесты
 

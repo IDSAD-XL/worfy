@@ -78,8 +78,9 @@ Ticket 45 не называет. Этот Ticket это не дублирует:
       пределом времени), с ними — `ok` (вывод в «Итог»).
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
       `[gate] зелено (full)`; Linux CI зелёный.
-- [ ] (вручную, владелец) После влития — `pnpm install:stable`: плагин в Stable copy ставит владелец.
+- [x] (вручную, владелец) После влития — `pnpm install:stable`: плагин в Stable copy ставит владелец.
       До этого новые брифы не действуют.
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Installed plugin: epic-wave SKILL.md has "Temporary HOME" brief line and eval-env.cjs harness-home recipe; reviewer.md same; implementer.md:128 points to skills/ship-ticket/implementer-temporary-home.md. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 ## Где в коде
 

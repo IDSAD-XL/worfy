@@ -85,7 +85,8 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 - [ ] `test/unit/windows-run-verdict.test.ts` со stub-ом `gh`: зелёный run — `success`; run в очереди —
       `pending`; красный — `failure`; run-а нет — `none`; ошибка `gh` — код 2.
 - [ ] ADR и `## Amendments` в ADR-0056 и ADR-0071.
-- [ ] (вручную, после merge) Первый docs-PR не запустил run; первый PR с кодом — запустил; ссылки в «Итог».
+- [x] (вручную, после merge) Первый docs-PR не запустил run; первый PR с кодом — запустил; ссылки в «Итог».
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: First docs PR after close: #997 (windows job SKIPPED, run 40883189262); first code PR: #996 (windows full-suite ran, run 40893006150). · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; условие merge — `ci-ok` (Ticket 35; до него — gate full Orchestrator-а); вердикт
       Windows — по `scripts/windows-verdict-scope.mjs` на head (`pc`, если меняется файл workflow).
 

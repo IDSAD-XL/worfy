@@ -45,8 +45,11 @@ Source: решение владельца 2026-10-17, grilling о Pipeline, пу
       в stub-е `gh`).
 - [ ] `grep -rn "verdictOf" src/main/github` — пусто (exit 1).
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0. gate full — шаг Orchestrator-а перед merge.
-- [ ] (вручную) Stable copy после мержа: Card Ticket-а на CI и на Agent review — снимок в
+- [x] (вручную) Stable copy после мержа: Card Ticket-а на CI и на Agent review — снимок в
       `../evidence/05-stepper.png`.
+  - evidence: screenshot pass · `../evidence/acc1124-05-6-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-05-6-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Fixture with a stand-in gh. Ticket Card 06 with PR on CI: stepper «CI», 3/9 dots. Card 07 with CI green: «Agent review», 4/9 dots. No status word, nothing cut. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 ## Тесты
 

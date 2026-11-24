@@ -43,7 +43,8 @@ Source: [spec.md](../spec.md), кандидат R1 и решение 2; журн
       сказано, с причиной.
 - [x] По каждой предложенной правке сказано, где она: Harness (`harness/`), Profile worfy, worfy (`src/`).
       Правки Harness и Profile — только предложение: их делают по слову владельца.
-- [ ] (вручную) Владелец прочёл отчёт и решил по правкам; решение — в «Итог».
+- [x] (вручную) Владелец прочёл отчёт и решил по правкам; решение — в «Итог».
+  - evidence: owner-check pass · 2026-11-24: The owner's own acceptance, recorded in the ticket's result section, written as a line on 2026-11-24: Итог line 64: «Решения владельца 2026-10-15 по «Предложениям» отчёта: 1 — Ticket 26; 2 — worfy-harness 48; 3 (guard) — отложен». · mac stable · 4cf2dc5a2d039f565d61d7469a390217fa00070b
 
 ## Где в коде
 

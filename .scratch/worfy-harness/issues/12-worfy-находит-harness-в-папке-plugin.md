@@ -116,7 +116,8 @@ Ticket 10.
 - [x] `@packaged` (`test/e2e/packaged.spec.ts`): в собранном `.app` есть `Contents/Resources/harness/.claude-plugin/plugin.json` с `"name": "worfy"`.
 - [x] Новый ADR об отступлении от ADR-0040, пункт 2: вторая строка «Дата: … Статус: принят.», раздел `## Considered Options`; ADR говорит, что уточняет ADR-0040, и называет условие, при котором отступление кончается.
 - [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0; CI на PR зелёный. `GATE_SCOPE=all bash ~/.claude/hooks/gate.sh full` на ветке после rebase — код 0 и строка `[gate] зелено` (e2e и `@packaged` идут здесь).
-- [ ] (вручную) Stable copy после влития, машина владельца до Ticket-а 16: Canvas Project-а worfy показывает Epic-и и бейджи Gate, как до Ticket-а (найден `legacy`); «Run wave» шлёт прежний текст. Как проверить: окно приложения. — Не проверено: окно Stable copy агент не открывал; пункт в HANDOFF, «Ждёт владельца».
+- [x] (вручную) Stable copy после влития, машина владельца до Ticket-а 16: Canvas Project-а worfy показывает Epic-и и бейджи Gate, как до Ticket-а (найден `legacy`); «Run wave» шлёт прежний текст. Как проверить: окно приложения. — Не проверено: окно Stable copy агент не открывал; пункт в HANDOFF, «Ждёт владельца».
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); superseded, nothing left to check: Owner's machine is on the plugin (harness 16 done 2026-10-08; no ~/.claude/bin/epic-status); legacy branch src/main/harness/locate.ts:7,67-71 covered by test/unit/harness-locate.test.ts. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 Ручной пункт агент проверяет, только если может посмотреть окно Stable copy. Если не может —
 «не проверено: …» в «Итог» и пункт в HANDOFF, раздел «Ждёт владельца».

@@ -76,8 +76,9 @@ Source: решение владельца 2026-10-17, grilling о Pipeline, пу
 - [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0. gate full — шаг Orchestrator-а перед merge.
 - [ ] Платформенный PR (ADR-0056, пункт 2): вердикт Windows — gate full на ПК, код 0 и
       `[gate] зелено (full)`.
-- [ ] (вручную, Orchestrator после мержа) PR миграции worfy: `epic-status --json` до и после —
+- [x] (вручную, Orchestrator после мержа) PR миграции worfy: `epic-status --json` до и после —
       расхождений `state` ноль; список `blocked` с `Waits:` — в «Итог».
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: archived 501e92a0e^ and 501e92a0e; old reader (650492105) vs new epic-status --json: 305 tickets, only state diff pipeline/01 work->done (closed by that commit); 5 blocked, all with Waits: link16, terminal-ai09, throughput04/05 (agent), ui12. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 ## Тесты
 

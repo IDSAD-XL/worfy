@@ -34,8 +34,9 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 - [ ] Шаблон брифа доработки — блок в skill-е; test проверяет, что в нём есть строки Ticket, PR, Branch, Head,
       Findings, Verifier report.
 - [ ] Shell test-ы Harness — exit 0; условие merge — `ci-ok` (Ticket 35; до него — gate full Orchestrator-а).
-- [ ] (вручную, после обновления Stable copy) Первые три круга доработки — свежим агентом; число кругов и
+- [x] (вручную, после обновления Stable copy) Первые три круга доработки — свежим агентом; число кругов и
       стоимость круга до и после — по Ticket-у 19, в «Итог».
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Transcripts: first three rework rounds were fresh agents (feature-docs 05/04/03, 2026-10-30, $2.03/$2.02/$2.07); 41 fresh rework agents since 10-29, median $2.58. Cost of old SendMessage rounds not separable. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 ## Где в коде
 

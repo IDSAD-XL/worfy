@@ -90,7 +90,11 @@ Source: решения владельца 2026-10-07, вопросы 14–17, 28
 - [x] ELK считает в worker-е: e2e против собранного приложения видит запущенный worker раскладки (`page.on('worker')`), и рамки получают места ELK. Unit-test с медленным подменённым ELK: после смены статуса Ticket-а и до ответа места прежние, после ответа — новые, промежуточных нет.
 - [x] Бюджет `test/e2e/epic-frame.spec.ts:814` держится: interactive ≤ 3 с; с `WORFY_PERF=1` на Mac — медиана ≥ 55 fps, самый долгий кадр ≤ 100 ms. Цифры до и после — в «Итог».
 - [x] Снимки рамки Epic-а `worfy-mvp` из e2e `test/e2e/epic-frame.spec.ts:209` в светлой и тёмной теме (helper `test/e2e/snapshots.ts`) сверены с F-SPEC: маршруты Edge-ей, скругления, chip-ы ready. Ссылка из «Итог» — `../evidence/03-рамка-elk.png`.
-- [ ] (вручную) Stable copy, обновлённая после влития: Canvas Project-а Project A (другой проект владельца), самая большая рамка — ни один Edge не проходит через Ticket, Ticket не тянется, рамка тянется целиком. Как проверить: окно приложения, снимок в «Итог». 2026-10-07: все три условия выполнены, но после перетаскивания рамки ⌘Z её не возвращает, а отменяет прошлый шаг истории — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).
+- [x] (вручную) Stable copy, обновлённая после влития: Canvas Project-а Project A (другой проект владельца), самая большая рамка — ни один Edge не проходит через Ticket, Ticket не тянется, рамка тянется целиком. Как проверить: окно приложения, снимок в «Итог». 2026-10-07: все три условия выполнены, но после перетаскивания рамки ⌘Z её не возвращает, а отменяет прошлый шаг истории — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).
+  - evidence: screenshot pass · `../evidence/acc1124-03-13-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-03-13-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-03-13-3.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Project A unavailable; biggest fixture frame (worfy-mvp, 33 Tickets, 62 Edges). DOM sampling of Edge paths vs Ticket boxes: 0 crossings. Dragged Ticket stayed; header drag moved frame and all Tickets by one offset. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 ## Тесты
 

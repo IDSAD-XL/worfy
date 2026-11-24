@@ -52,8 +52,9 @@ Source: [spec.md](../spec.md), «Модель» («Кто пишет какие 
       где читать строки в Silent mode.
   - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 · mac - · e044edbad9553fa3aa6f241cb6e33dc50eb82c83
   - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 · mac - · bbcc60082de844e454d9dad6b179c96266b99f40
-- [ ] (вручную) Одна Wave другого Epic-а после merge: у Ticket-ов есть строки `test-run` от implementer-а и `review`/`ci-check` из `land`;
+- [x] (вручную) Одна Wave другого Epic-а после merge: у Ticket-ов есть строки `test-run` от implementer-а и `review`/`ci-check` из `land`;
       новые снимки — со `scrub:`.
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: changes-view Wave 02-04 (Nov 19): test-run, review, ci-check lines; pr-review 03/09 screenshots carry scrub:. Drift: acceptance, integrations, changes-view 05+ (since ~11-20) have no review evidence lines. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [ ] `bash harness/bin/tests/agents-text.test.sh`, `plugin-neutral.test.sh`, `skill-blocks.test.sh` — exit 0; CI PR зелёный.
   - evidence: test-run pass · `bash harness/bin/tests/skill-blocks.test.sh` exit 0 · mac - · e044edbad9553fa3aa6f241cb6e33dc50eb82c83
   - evidence: gate pass · `gate fast` exit 0 · mac - · e044edbad9553fa3aa6f241cb6e33dc50eb82c83

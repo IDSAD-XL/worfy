@@ -48,8 +48,11 @@ ADR не нужен.
 - [x] e2e: Card уменьшают за угол так, что курсор уходит на её iframe, — изменение размера кончается на отпускании, новый размер записан в `layout.json`.
 - [x] e2e: после каждого жеста щелчок по странице Card доходит до неё.
 - [x] Unit: `NodeResizeClamp` ставит признак изменения размера в начале жеста и снимает его в конце.
-- [ ] (вручную) Stable copy после влития: быстрый рывок Card за заголовок мышью не зависает, Card после этого кликабельна. Как проверить: окно приложения.
+- [x] (вручную) Stable copy после влития: быстрый рывок Card за заголовок мышью не зависает, Card после этого кликабельна. Как проверить: окно приложения.
   не проверено: проверка идёт на Stable copy после влития, а влияет оркестратор; до влития Stable copy этого кода не содержит.
+  - evidence: screenshot pass · `../evidence/acc1124-09-6-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-09-6-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Fast mouse jerk of a Card by its header (steps of the old hanging check): drag ended on release, Card did not follow the pointer; two clicks inside the Card page both arrived. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 ## Тесты
 

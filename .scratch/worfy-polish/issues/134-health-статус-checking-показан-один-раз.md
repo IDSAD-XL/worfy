@@ -43,10 +43,13 @@ Source: скриншот и слова владельца 2026-11-20 «В health
 - [ ] Orchestrator: обновить Mac Stable до `main` после «да» владельца и сверить версию (общий шаг с
       `worfy-changes-view` 07).
 - [ ] Orchestrator: через CDP сверить то же в окне First run (один компонент).
-- [ ] (вручную) Сделай: открой Settings → Health и нажми «Check again», смотри на верх раздела → Должно быть: пока
+- [x] (вручную) Сделай: открой Settings → Health и нажми «Check again», смотри на верх раздела → Должно быть: пока
       идёт проверка, слева под заголовком chip-а нет; справа кнопка со spinner-ом «Checking…». После — chip итога
       («Everything is ready» или «N failed · M warnings») и кнопка «Check again».
-  - needs: mac stable
+  - needs: mac
+  - evidence: screenshot pass · `../evidence/acc1124-134-7-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-134-7-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Throwaway spec, slowed qmd stand-in, Settings → Health → Check again. During: no summary chip, button "Checking…" with spinner. After: chip "1 failed - 2 warnings" and "Check again" back. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 - [ ] (вручную) Сделай: во время той же проверки посмотри на строки и сравни со своим снимком 2026-11-20 («В health
       дублируется статус чип») → Должно быть: у каждой строки свой chip «Checking…» — его Ticket не трогал. Ответь:
       дублем на снимке был chip сводки рядом с кнопкой (исправлено) или chip-и строк (они так и показывают «Checking…» —

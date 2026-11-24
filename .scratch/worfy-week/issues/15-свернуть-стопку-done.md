@@ -87,7 +87,11 @@ Source: замечание владельца 2026-10-07 («я разверну�
 - [x] `grep -rnw Fold src/renderer` и `grep -rn w-epic__link src/renderer` ничего не находят (сейчас первый находит `EpicFrameNode.tsx:94`).
 - [x] `grep -n "Done stack (Epic frame)" docs/design/F-SPEC.md` находит раздел.
 - [x] `pnpm lint`, `pnpm typecheck` и `pnpm test` — exit 0.
-- [ ] (вручную) Снимки сверены с разделом F-SPEC «Done stack (Epic frame)»: вид `.w-action`, токены обеих тем. Как проверить: снимки из `test-results`.
+- [x] (вручную) Снимки сверены с разделом F-SPEC «Done stack (Epic frame)»: вид `.w-action`, токены обеих тем. Как проверить: снимки из `test-results`.
+  - evidence: screenshot pass · `../evidence/acc1124-15-10-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-15-10-2.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: screenshot pass · `../evidence/acc1124-15-10-3.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
+  - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Compared both themes with F-SPEC «Done stack (Epic frame)»: toggle is `.w-action` (20px, 1px border, radius 6, raised fill, 12px text), hover/focus colours match, dashed 8px outline. Doc nit: folded card 240×120, F-SPEC says 204×120. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
 
 ## Тесты
 
