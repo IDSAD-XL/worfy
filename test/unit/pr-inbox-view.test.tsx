@@ -1767,7 +1767,7 @@ describe('the entries of the view', () => {
     const onViewChange = vi.fn()
     render(<ToolbarView items={[]} project={{ id: 'web-00000001', name: 'web', branch: 'main' }} view="canvas" onViewChange={onViewChange} sidebarVisible onToggleSidebar={() => {}} />)
     const tabs = within(screen.getByRole('group', { name: 'View' }))
-    expect(tabs.getAllByRole('button').map((tab) => tab.getAttribute('aria-label'))).toEqual(['Canvas', 'Session', 'Pipeline', 'Runs', 'Pull requests'])
+    expect(tabs.getAllByRole('button').map((tab) => tab.getAttribute('aria-label'))).toEqual(['Canvas', 'Session', 'Pipeline', 'Runs', 'Pull requests', 'Acceptance'])
     fireEvent.click(tabs.getByRole('button', { name: 'Pull requests' }))
     expect(onViewChange).toHaveBeenCalledWith('pull-requests')
     cleanup()

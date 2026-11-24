@@ -237,7 +237,7 @@ test('the toolbar, the sidebar and the palette open the view; a click and ↑ / 
 
     // The toolbar: the fifth tab opens the view of the active Project.
     const views = window.getByRole('group', { name: 'View', exact: true })
-    await expect(views.getByRole('button')).toHaveText(['Canvas', 'Session', 'Pipeline', 'Runs', 'Pull requests'])
+    await expect(views.getByRole('button')).toHaveText(['Canvas', 'Session', 'Pipeline', 'Runs', 'Pull requests', 'Acceptance'])
     await views.getByRole('button', { name: 'Pull requests' }).click()
     await expect(views.getByRole('button', { name: 'Pull requests' })).toHaveAttribute('aria-pressed', 'true')
     await expect(window.getByRole('main', { name: 'Pull requests' })).toBeVisible()

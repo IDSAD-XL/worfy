@@ -28,7 +28,7 @@ function appLocalOnly(): ReadonlySet<string> {
 /** The queue without the rows of the Projects of `hidden`. */
 function without(state: AcceptanceState, hidden: ReadonlySet<string>): AcceptanceState {
   if (hidden.size === 0) return state
-  return { groups: state.groups.map(({ group, rows }) => ({ group, rows: rows.filter((row) => !hidden.has(row.ticket.projectId)) })) }
+  return { ...state, groups: state.groups.map(({ group, rows }) => ({ group, rows: rows.filter((row) => !hidden.has(row.ticket.projectId)) })) }
 }
 
 /** The handlers over a service; tests pass their own service and list of local-only Projects. */

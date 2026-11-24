@@ -210,6 +210,12 @@ export function ownerWordsParagraph(words: string): string {
 }
 
 /**
+ * Why "Record owner check" is refused while Autopilot runs in the Project (spec Q6 (a)): main's refusal
+ * (src/main/actions/launch.ts) and the reason the Acceptance view gives its inactive Pass and Fail.
+ */
+export const OWNER_CHECK_AUTOPILOT_HINT = 'Autopilot is running in this Project: stop it to record an owner check'
+
+/**
  * "Record owner check" (worfy-acceptance ticket 03): the Project's template with the decision's values
  * (`/worfy:owner-check {epic} {NN} {item} {verdict} {platform} {copy} {sha}` by default), trimmed, then a blank line and
  * the owner's words (ownerWordsParagraph). The words are no placeholder, so a template never puts them inside the

@@ -164,6 +164,12 @@ export class StableLine {
     this.builds = new Kept(now, onChange)
   }
 
+  /** The commit of this Machine's Stable copy now; null when none is known. */
+  stableCommit(): string | null {
+    const stable = (this.sources.stableCommit ?? stableCopyCommit)()
+    return stable !== null && SHA.test(stable) ? stable : null
+  }
+
   /** The line of `ticket` now; null while an answer it needs has not come yet (`onChange` is called when it does). */
   line(project: StableProject, ticket: Ticket): AcceptanceStable | null {
     if (!isWorfyRepo(project.repoUrl)) return mergedLine(ticket)

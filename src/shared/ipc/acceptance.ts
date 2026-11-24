@@ -106,6 +106,12 @@ export type AcceptanceGroup = z.infer<typeof acceptanceGroupSchema>
 export const acceptanceStateSchema = z.object({
   /** Every group of ACCEPTANCE_GROUPS, in that order, an empty one too; its count is the number of its rows. */
   groups: z.array(acceptanceGroupSchema),
+  /**
+   * The commit of this Machine's Stable copy, as the Stable copy line reads it (stableSources): this run's own commit when
+   * it is the Stable copy, else the file next to the copy. The `sha` of a decision checked in the Stable copy (ticket 05).
+   * Absent without a Stable copy line, from an older worfy, and while no commit is known.
+   */
+  stableCommit: z.string().min(1).optional(),
 })
 export type AcceptanceState = z.infer<typeof acceptanceStateSchema>
 

@@ -320,7 +320,11 @@ export class AcceptanceService {
             const model = models.get(projectId)!
             return line.line({ projectId, root: model.root, repoUrl: model.repoUrl, tickets: model.tickets }, ticket)
           }
-    const next: AcceptanceState = { groups: acceptanceQueue(projects, { now, sent: sentOf, ...(stableOf === undefined ? {} : { stable: stableOf }) }) }
+    const stableCommit = line?.stableCommit() ?? null
+    const next: AcceptanceState = {
+      groups: acceptanceQueue(projects, { now, sent: sentOf, ...(stableOf === undefined ? {} : { stable: stableOf }) }),
+      ...(stableCommit === null ? {} : { stableCommit }),
+    }
     this.recheckAt(now)
     const stamp = JSON.stringify(next)
     if (stamp === this.stamp) return

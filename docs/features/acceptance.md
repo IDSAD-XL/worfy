@@ -2,10 +2,88 @@
 
 **Acceptance** is the list of checks that wait for the owner in every Project of the Machine: the manual items of
 Tickets that nobody has proved yet, and the Tickets that wait for the owner's decision. worfy keeps this queue in the
-main process, in groups, with the Evidence of each item and a "Sent" mark for a decision that is on its way. The view
-that draws the queue is not in the app yet: today the queue is served to the renderer over IPC only. worfy writes
-nothing into a Ticket for it ([ADR-0002](../adr/0002-worfy-is-a-view-over-the-workflow.md)). Terms are explained in
+main process, in groups, with the Evidence of each item and a "Sent" mark for a decision that is on its way; the
+**Acceptance** tab of the window shows it, and the owner passes or fails each item there. worfy writes nothing into a
+Ticket for it ([ADR-0002](../adr/0002-worfy-is-a-view-over-the-workflow.md)). Terms are explained in
 [Concepts](concepts.md); Evidence lines and manual items are on [Evidence](evidence.md).
+
+## The view
+
+### Behaviour
+
+**The tab.** **Acceptance** is the sixth tab of the toolbar, after Pull requests. It carries the count of the items of
+Ready to check that are not Sent (an item whose decision is "Not recorded yet" counts again), and its tooltip says "Checks that wait for you". It works without an open Project: the view is over every Project
+of the Machine.
+
+**Two panes**, as in [Pull requests](pr-inbox.md). On the left, the groups that hold a row, each with its count;
+**In work** and **Older** are closed until the owner opens them by their title. A row shows the Ticket and the item's
+number, the platform its `needs:` line names (or "Sent" while a decision waits), the start of the item's text as plain text, without its manual mark and markdown markers — for a
+row of Failed, the words of its last `fail` line; for a row of Waits for you, its `Blocked reason:` — and the Project.
+A click selects a row; **↑** and **↓** move the selection along the open groups from anywhere in the view except a text
+field, a menu or a dialog, and stop at its ends. No other key is new. Before the owner chooses, the first row of Ready to
+check is selected; when the selected row leaves the queue, the row that now stands in its place is.
+
+**The selected item**, on the right:
+
+- the Project, the Epic, the Ticket and its title; "Item N of M · manual · needs <platform> <copy>", M the checkbox items of the Ticket;
+- the Stable copy line of an item of Ready to check or Update first (see [Stable copy](#stable-copy)), with **Update
+  worfy** when an Available update has the change, or the sentence that says why there is none;
+- the item's text, drawn as Markdown;
+- the item's Evidence: the matrix of this one item, with the thumbnail of a screenshot that opens over the window and
+  a clip that plays in place, with its contact sheet ([Evidence](evidence.md)). The view is the first place outside
+  focus mode where they show;
+- **Prepared by the Orchestrator · n of m verified**: the items of the same Ticket that are not manual, each with ✓ for
+  verified, ✕ for failed and ○ for not yet;
+- **Open Ticket** (the Ticket's card on the Canvas of its Project, which the view selects first) and **Open PR #N**
+  when the Ticket has a `PR:` line and the repository's page is known.
+
+**The decision row**, under the item:
+
+- a comment field. Fail needs a comment: without one it is inactive, and its tooltip says so. In a Project in Full
+  mode a line under the field says that the words go into the repository with the `owner-check` line;
+- **Checked in:** the platform and the copy, each a choice. The platform is the one of the window's Machine; the copy
+  is the one the item's `needs:` line names, else `stable` when the change is in the Stable copy, else `installed`.
+  With the copy `stable` on the platform of the window's Machine, the decision carries the commit of this Machine's
+  Stable copy — the one its Stable copy line reads, which main sends with the queue — and the row shows its version
+  when the window is that copy, else its short commit; otherwise the commit is `-` and the skill writes the line
+  without one. A window on a Linked machine always sends `-`: the queue it reads, with its commit, is that Machine's;
+- **Pass** and **Fail**. A click sends "Record owner check" ([Projects](projects.md), "Project settings…"): the
+  Project's template with the item, the verdict, the platform, the copy and the commit, and the owner's words after it,
+  to the Project's Orchestrator. The item's text as the view shows it goes too: main refuses a decision on an item
+  whose text has changed since ("reload the Acceptance view"). Until main answers, both buttons are inactive; once it
+  has, the row reads **Sent · waits for the line** and the next row is selected. While the item is Sent, its Pass and
+  Fail stay inactive, so a second decision is never sent by mistake. 24 hours without the line, the row reads **Not
+  recorded yet**, with **Send again** and Pass and Fail active again. A refusal of main stays under the buttons.
+- While Autopilot runs in the item's Project, Pass and Fail are inactive, and the row says why: "Autopilot is running in
+  this Project: stop it to record an owner check".
+
+**A Ticket of Waits for you** shows its `Blocked reason:`, **Open Ticket** and **Open Orchestrator** (the Session view
+of the Project's Orchestrator); it has no Pass and no Fail: it waits for a decision, not a check.
+
+### How it works
+
+The window reads the queue once with `acceptance.get` and then takes every `acceptance.changed`; the tab's count reads
+the same copy, so the window asks main once whatever shows it. The view only draws: the groups, the Stable copy line
+and the Sent marks come from main. What the window keeps itself is the selection, which groups are open, the decisions
+main has not answered yet, and those it answered before the queue marks them Sent. Whether Autopilot runs comes from
+`autopilot.state` and `autopilot.changed` for the selected row's Project; the Project's mode from `checks.repos`; the
+Evidence links and previews take the Project's workflow model and the Ticket file's folder, as focus mode does. The view
+opens that model only while it is on screen, and keeps it while the selection moves among the rows of one Project: an
+open model fetches the Project's main branch ([ADR-0107](../adr/0107-workflow-read-from-main-branch.md)). The keyboard
+focus in the list follows the selection. The item's text in the list row and in the Evidence matrix is plain text; the
+pane draws it as Markdown.
+
+### Implementation
+
+- `src/renderer/acceptance/AcceptanceView.tsx`: the view, its two panes and the decision row.
+- `src/renderer/acceptance/useAcceptance.ts`: the queue in the window, the selection, `sendDecision`.
+- `src/renderer/acceptance/open.ts`: opening the view on a row, Open Ticket and Open Orchestrator.
+- `src/renderer/acceptance/acceptance.css`; the tab is in `src/renderer/shell/Toolbar.tsx`, the view is mounted in
+  `src/renderer/shell/AppShell.tsx`.
+- Tests: `test/unit/acceptance-view.test.tsx` (the groups, the tab, ↑ ↓, every kind of Stable copy line, Fail without a
+  comment, Autopilot, Pass, Sent and Not recorded yet, a refusal, Waits for you), `test/e2e/acceptance.spec.ts` (the
+  built app on the fake agent: an item with a screenshot and a clip, Pass reaching the Orchestrator, the line written
+  into the Ticket taking the item away, ↑ ↓, screenshots at 1280 and 1600 px in both themes).
 
 ## The queue
 
@@ -93,7 +171,8 @@ line says only **merged #N** (or **merged** for a Ticket done without a PR) or *
 
 - The commit of the Stable copy: when this window is the Stable copy, this run's own commit, read once at start (not
   the one the last update check saved, which right after a restart into an Update still names the copy before);
-  otherwise the one the file next to the copy names (`worfy-stable.json`, written by the install).
+  otherwise the one the file next to the copy names (`worfy-stable.json`, written by the install). The queue names this
+  commit too (`stableCommit`): the commit of a decision the owner checked in the Stable copy.
 - The merge commit is the one of the Ticket's `PR:` line, else of the merged PR of its branch, asked of gh as the
   Project's GitHub account. A Ticket that waits for the owner without a PR of its own takes the merges of its blockers
   that are done. gh is asked once per merged PR, only for the items of Ready to check and Update first, and the answer

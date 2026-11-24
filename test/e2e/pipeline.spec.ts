@@ -117,7 +117,7 @@ test('the Pipeline tab shows the board, a claim moves a card without a reload, a
   try {
     const { window } = launched
     const views = window.getByRole('group', { name: 'View', exact: true })
-    await expect(views.getByRole('button')).toHaveText(['Canvas', 'Session', 'Pipeline', 'Runs', 'Pull requests'])
+    await expect(views.getByRole('button')).toHaveText(['Canvas', 'Session', 'Pipeline', 'Runs', 'Pull requests', 'Acceptance'])
     await expect(views.getByRole('button', { name: 'Canvas' })).toHaveAttribute('aria-pressed', 'true')
     const board = window.getByTestId('pipeline-board')
     await expect(board).toBeHidden()
@@ -182,8 +182,8 @@ test('the View switch shows its icons alone in a window under 1400 px and keeps 
   try {
     const { app, window } = launched
     const views = window.getByRole('group', { name: 'View', exact: true })
-    // Five segments: Pull requests (worfy-pr-inbox ticket 03) comes last.
-    const names = ['Canvas', 'Session', 'Pipeline', 'Runs', 'Pull requests']
+    // Six segments: Pull requests (worfy-pr-inbox ticket 03), then Acceptance (worfy-acceptance ticket 05) last.
+    const names = ['Canvas', 'Session', 'Pipeline', 'Runs', 'Pull requests', 'Acceptance']
     await expect(views.getByRole('button')).toHaveCount(names.length)
     const sizes = [
       { width: 1280, labels: false },
@@ -200,8 +200,8 @@ test('the View switch shows its icons alone in a window under 1400 px and keeps 
       for (const name of names) {
         const segment = views.getByRole('button', { name, exact: true })
         await expect(segment).toHaveAttribute('aria-label', name)
-        // Runs and Pull requests without a Project say in their tooltip to open one.
-        await expect(segment).toHaveAttribute('title', new RegExp(`^(?:${name}|Open a Project to see its (?:Runs|pull requests))$`, 'u'))
+        // Runs and Pull requests without a Project say in their tooltip to open one; Acceptance says what it holds.
+        await expect(segment).toHaveAttribute('title', new RegExp(`^(?:${name}|Open a Project to see its (?:Runs|pull requests)|Checks that wait for you)$`, 'u'))
         await expect(segment.locator('.w-segmented__label'))[labels ? 'toBeVisible' : 'toBeHidden']()
       }
       for (const scheme of ['light', 'dark'] as const) {
