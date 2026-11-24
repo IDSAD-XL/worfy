@@ -106,3 +106,18 @@ Code: `docs/adr/0005-worfy-own-state-inventory.md:71-79` · key lines: 72, 74, 7
 3. Когда запись в `acceptance-sent.json` удаляется, кроме прихода строки `owner-check`?
    - Ответ: когда пункт больше не ждёт владельца или его текст переписан.
    - Строки: `docs/adr/0005-worfy-own-state-inventory.md:77-78`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED — worfy-acceptance 09 (Acceptance documentation: the Feature page in English and Russian, the neighbouring pages, the term in CONTEXT.md, the ADR-0005 inventory), head e2acde9dbbbafdff86a20dfbde9b5baa40402c17
+>
+> Gate (depth low, one round): reviewer (lens: documentation accuracy) — MERGE with lows; the two lows fixed by the Orchestrator (e2acde9db).
+>
+> - What it gives: docs/features/acceptance.md as one text for the whole Epic (queue and groups, the Stable copy line and its reasons, Pass and Fail with Sent / Not recorded yet / Send again, the owner-check line, the Linked machine rules, the ways in: sidebar section, rail badge, palette rows, notification click with the Pipeline fallback); a new docs/features/ru/acceptance.md; the Russian pages projects, evidence, app-shell, notifications, link and workflow brought fully up to date with their English pages; the Acceptance row in both README indexes; the term Acceptance in CONTEXT.md; a dated amendment of ADR-0005 (acceptance-sent.json written through a temporary file and rename, the Sent mark kept only after the send).
+> - Reviewer: 30 claims of the English page checked against the code at c4023c2f9, all hold (exact UI strings, the Stable copy kinds and reasons, 24 h / 60 s / 5 min / 14 days, the acceptance-sent.json fields, the Linked machine rules, the refusals); the Russian page matches the English one section by section, UI names in exact English text, no banned metaphors; three sections of each of the six other Russian pages match their English pages.
+> - Fixed by the Orchestrator: a Linked build with uncommitted changes gives no commit (`-`) — en and ru pages; the CONTEXT.md term also names the Tickets that wait for the owner's decision; the story fragments follow.
+> - Evidence: check-feature-docs EXIT=0; feature-docs-lag EXIT=0 (none of the seven pages behind); story-check EXIT=0; evidence-check --changed EXIT=0; pnpm lint EXIT=0 (implementer); gate fast «nothing ran» on the documents-only diff — not counted as green; full pnpm test EXIT=0 before the rebase.
+> - Debt (low): docs/features/ru/README.md translation header names an older commit (feature-docs-lag lists 15 other translations behind).
+> - Not verified: screenshots or a run of the app (documents only).
+>
+> Decided without the owner (to confirm): the ADR-0005 amendment written by the implementer (the file is in the ticket's list); docs/features/workflow.md corrected outside the ticket's file list (after ticket 06 a Manual check row opens the Acceptance view); the term Acceptance placed after Agent review in CONTEXT.md, «accepted» added to Avoid; the README index rows added.
