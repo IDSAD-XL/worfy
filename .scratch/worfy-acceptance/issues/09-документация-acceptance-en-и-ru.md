@@ -1,7 +1,8 @@
 # 09 — Документация Acceptance: страница Feature en и ru, правки соседних страниц, термин в CONTEXT.md, инвентарь ADR-0005
 
 Type: task
-Status: claimed 2026-11-24T06:29Z
+Status: done 2026-11-24T09:25Z
+PR: #2175
 Blocked by: 06, 07, 08
 Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решения по реализации» → «ADR не нужен новый», «Термин в CONTEXT.md»
 
@@ -34,6 +35,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решения по реал�
 - [ ] Термин Acceptance в `CONTEXT.md`; поправка в `docs/adr/0005-worfy-own-state-inventory.md`.
   - evidence: commit pass · worfy-acceptance/09: Acceptance docs in English and Russian, the term in CONTEXT.md, the Sent store in ADR-0005 · - - · 16985bb08a93314e55e185a39b2c8c9df6202e5c
 - [ ] `pnpm lint` (с `evidence-check`) — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45363964622/job/138343113644 · ci - · e2acde9dbbbafdff86a20dfbde9b5baa40402c17
 
 ## Где в коде
 
