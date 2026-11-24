@@ -30,7 +30,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решения по реал�
 
 - [ ] `docs/features/acceptance.md` и `docs/features/ru/acceptance.md` есть; переводы правленых страниц совпадают с
       английскими; `node scripts/check-feature-docs.mjs` — exit 0.
+  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0, `node scripts/feature-docs-lag.mjs` lists none of the 7 pages · mac - · 4ce8d8c95a31dfebd74f9f4dfabd26ead9d0e896
 - [ ] Термин Acceptance в `CONTEXT.md`; поправка в `docs/adr/0005-worfy-own-state-inventory.md`.
+  - evidence: commit pass · worfy-acceptance/09: Acceptance docs in English and Russian, the term in CONTEXT.md, the Sent store in ADR-0005 · - - · 16985bb08a93314e55e185a39b2c8c9df6202e5c
 - [ ] `pnpm lint` (с `evidence-check`) — exit 0; `ci-ok` зелёный на head PR.
 
 ## Где в коде
