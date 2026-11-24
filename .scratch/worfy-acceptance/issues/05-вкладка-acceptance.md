@@ -133,3 +133,11 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Наб
   sha "-"…», «the tab counts an item in "Not recorded yet"…» (`test/unit/acceptance-view.test.tsx`), «an inactive
   primary drops its fill and its shadow…» (`test/unit/button.test.tsx`); все три красные до правки. 4 мутанта — все
   убиты. e2e снимает ещё Sent-пункт с неактивными Pass и Fail: `acceptance-sent-light.png`, `acceptance-sent-dark.png`.
+- CI PR #2166 (run 45328133350), красные e2e на macOS и Windows:
+  - `flight-recorder.spec.ts:408`, `pipeline.spec.ts:115` и `:180`, `pr-inbox.spec.ts:226` перечисляли пять вкладок
+    View switch: новая шестая вкладка Acceptance — законное изменение, test-ы дописаны (`pipeline.spec.ts:180` ещё
+    принимает tooltip вкладки «Checks that wait for you»);
+  - `two-windows.spec.ts:130` (Windows) — поломка продукта: счёт вкладки подписывает каждое окно на `acceptance.get`,
+    и это одиннадцатый `ClientHolders` со своим слушателем `destroyed` на webContents окна; Node печатал
+    `MaxListenersExceededWarning`. Теперь все `ClientHolders` одного клиента делят один слушатель
+    (`src/main/clients.ts`, вне следа); test `test/unit/client-holders.test.ts` (новый) красный до правки.
