@@ -860,9 +860,16 @@ describe("main's own wiring", () => {
       })
       expect(orchestratorOf('other-0000000e')[0]?.data).not.toHaveProperty('settings')
 
+      // Both Sessions, taken before the removal closes the first: a close returns while the start of
+      // its process is still under way, and that start logs on after the close. Unawaited, it logged
+      // after the file's last test, and vitest failed the CI job with EnvironmentTeardownError.
+      const sessions = sharedRegistry()
+        .list()
+        .map((session) => sharedRegistry().get(session.sessionId))
       projectStore().remove(PROJECT)
       expect(sharedRegistry().list().map((session) => session.cwd)).toEqual([other])
       sharedRegistry().closeAll()
+      await Promise.all(sessions.map((session) => session.exited()))
       layoutStore().flushAll()
       // ADR 0005: the Projects' repositories and the Claude home stay as they were.
       expect(readdirSync(repo)).toEqual([])

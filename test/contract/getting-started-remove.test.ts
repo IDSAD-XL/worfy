@@ -65,6 +65,18 @@ beforeEach(() => {
   writeFileSync(gitConfig, '[user]\n\tname = Demo Tester\n\temail = demo@example.com\n')
 })
 
+/**
+ * Closes every Session of `registry` and waits for each to end (Session.exited). A close returns while
+ * the start of a Session's process is still under way, and that start logs on after the close:
+ * unawaited, it logged after the file's last test, and vitest failed the CI job with
+ * EnvironmentTeardownError ("Closing rpc while onUserConsoleLog was pending").
+ */
+async function closeSessions(registry: SessionRegistry): Promise<void> {
+  const sessions = registry.list().map((session) => registry.get(session.sessionId))
+  registry.closeAll()
+  await Promise.all(sessions.map((session) => session.exited()))
+}
+
 afterEach(async () => {
   const pending = cleanups
   cleanups = []
@@ -189,7 +201,7 @@ async function app(options: Options = {}) {
     platform: 'darwin',
   })
   cleanups.push(
-    () => registry.closeAll(),
+    () => closeSessions(registry),
     () => terminals.closeAll(),
   )
   const state = new GettingStartedState(data)
@@ -765,7 +777,7 @@ describe('a held Orchestrator is not opened', () => {
       const { projectHolds } = await import('../../src/main/projects/holds')
       const { orchestratorHandlers } = await import('../../src/main/ipc/orchestrator')
       const { registerIpc } = await import('../../src/main/ipc/index')
-      cleanups.push(() => sharedRegistry().closeAll(), saveLayoutNow)
+      cleanups.push(() => closeSessions(sharedRegistry()), saveLayoutNow)
       const handlers = new Map<string, (event: IpcMainInvokeEvent, input: unknown) => unknown>()
       await registerIpc(
         { handle: (name, listener) => handlers.set(name, listener) },
