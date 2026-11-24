@@ -362,9 +362,12 @@ describe('a change on one Machine shows on the other at once (Q18)', () => {
   it("a write from A reaches B's window, and one in B's window reaches A, with full and with read-only access", async () => {
     setAccess('all')
     const { fingerprint } = await ecoOnB()
-    await onB('autoContinue.set', { projectId: PROJECT, on: true })
-    await onB('autoApproval.set', { projectId: PROJECT, mode: 'shadow' })
+    // Each answer first: a handler sends its `*.changed` to every client before it answers, and only for a write
+    // that went through, so a missing event after a refused write is the refusal, and its answer says why.
+    expect(await onB('autoContinue.set', { projectId: PROJECT, on: true })).toEqual({ ok: true, value: { on: true } })
+    expect(await onB('autoApproval.set', { projectId: PROJECT, mode: 'shadow' })).toMatchObject({ ok: true, value: { saved: 'shadow' } })
     const eco = await onB('ecoMode.set', { root: repo, on: true, expected: fingerprint })
+    expect(eco, JSON.stringify(eco)).toMatchObject({ ok: true, value: { status: 'saved', on: true } })
     const written = (eco as { value: { fingerprint: string } }).value.fingerprint
     expect(bWindow.last('autoContinue.changed')).toEqual({ projectId: PROJECT, on: true })
     expect(bWindow.last('autoApproval.changed')).toEqual({ projectId: PROJECT, state: { mode: 'shadow', saved: 'shadow', blocked: null } })
@@ -375,9 +378,10 @@ describe('a change on one Machine shows on the other at once (Q18)', () => {
 
     setAccess('read')
     aHeard.length = 0
-    await bWindowCall('autoContinue.set', { projectId: PROJECT, on: false })
-    await bWindowCall('autoApproval.set', { projectId: PROJECT, mode: 'off' })
-    await bWindowCall('ecoMode.set', { root: repo, on: false, expected: written })
+    expect(await bWindowCall('autoContinue.set', { projectId: PROJECT, on: false })).toEqual({ on: false })
+    expect(await bWindowCall('autoApproval.set', { projectId: PROJECT, mode: 'off' })).toMatchObject({ saved: 'off' })
+    const ecoOff = await bWindowCall('ecoMode.set', { root: repo, on: false, expected: written })
+    expect(ecoOff, JSON.stringify(ecoOff)).toMatchObject({ status: 'saved', on: false })
     await until(() => lastOnA('ecoMode.changed') !== undefined && lastOnA('autoApproval.changed') !== undefined && lastOnA('autoContinue.changed') !== undefined)
     expect(lastOnA('autoContinue.changed')).toEqual({ projectId: PROJECT, on: false })
     expect(lastOnA('autoApproval.changed')).toEqual({ projectId: PROJECT, state: { mode: 'off', saved: 'off', blocked: null } })
