@@ -12,7 +12,7 @@
 // - Waits for you: the Blocked reason, Open Ticket and Open Orchestrator, no Pass and Fail.
 // Every Project, Epic and text is invented.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AcceptanceGroupName, AcceptanceItemRow, AcceptanceRow, AcceptanceStable, AcceptanceState } from '../../src/shared/ipc/acceptance'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import type { ProjectsState } from '../../src/shared/ipc/projects'
@@ -143,6 +143,13 @@ function preload(state: AcceptanceState, answers: Answers = {}): void {
   main = fake
   ;(globalThis as { worfy?: WorfyBridge }).worfy = bridge
 }
+
+// The first import of the view and the toolbar transforms their whole module graph (about 5 s alone, past the 15 s
+// test timeout when the whole suite runs at once): it is paid here, with its own timeout, not in the first test.
+beforeAll(async () => {
+  await import('../../src/renderer/acceptance/AcceptanceView')
+  await import('../../src/renderer/shell/Toolbar')
+}, 120_000)
 
 beforeEach(() => {
   // The queue's store lives in a module: every test starts with a fresh one.
