@@ -32,14 +32,14 @@ export function openAcceptance(target?: { projectId: string; epic: string; num: 
 
 ## 3. Секция Acceptance и бейдж rail-а
 
-Code: `src/renderer/shell/sidebar/AcceptanceSection.tsx:53-62` · key lines: 56, 58, 60
+Code: `src/renderer/shell/sidebar/AcceptanceSection.tsx:58-67` · key lines: 61, 63, 65
 
 ```tsx
 export default function AcceptanceSection() {
-  const { state, error } = useAcceptance()
+  const { state, error, sentHere } = useAcceptance()
   const projectsState = useProjects()
   const projects = projectsInScope(projectsState?.projects ?? [], useSidebarScope((store) => store.scope), activeProject(projectsState)?.id)
-  const counts = countsByProject(state, projects.map((project) => project.id))
+  const counts = countsByProject(state, sentHere, projects.map((project) => project.id))
   const ready = counts.reduce((sum, each) => sum + (each.groups.find((group) => group.group === 'ready')?.count ?? 0), 0)
   useEffect(() => {
     setRailBadge('AcceptanceSection', ready > 0 ? { tone: 'working', count: ready, label: badgeLabel(ready) } : undefined)
@@ -49,6 +49,7 @@ export default function AcceptanceSection() {
 
 - Что делает: секция читает ту же очередь, что вкладка (`useAcceptance`), и Project-ы переключателя боковой панели;
   считает по Project-у группы Ready to check, Update first, Waits for you, Failed; бейдж rail-а — сумма Ready to check.
+  Ready to check не считает пункты с отметкой Sent — то же правило, что у счёта вкладки (`readyCount`).
 - Почему здесь: секция — новый файл в `src/renderer/shell/sidebar/`, его находит `import.meta.glob` (`Sidebar.tsx`
   не менялся); образец `PullRequestsSection.tsx` назван в Ticket-е. Почему без In work и Older — not recorded:
   решено без владельца, они свёрнуты и в самом виде.
@@ -118,12 +119,13 @@ Code: `src/renderer/canvas/overlays/NotificationTarget.tsx:103-116` · key lines
 - Без него: клик всегда открывал бы доску Pipeline.
 - Требование: [Что делаем, п. 4](../issues/06-входы-в-вид-acceptance.md#что-делаем)
 - Риски и пробелы test-ов: если `acceptance.get` не ответит вовсе, заметка истечёт, как заметка Project-а, которого
-  ещё нет; test-ы — в `test/unit/pipeline-board.test.tsx` рядом со старыми test-ами этого клика.
+  ещё нет; test-ы — в `test/unit/notification-ticket-click.test.tsx` вместе со старыми test-ами этого клика.
 
 ## 6. Как проверено
 
 - `pnpm exec vitest run test/unit/acceptance-section.test.tsx test/unit/palette-manual-check-row.test.tsx test/unit/pipeline-board.test.tsx` —
-  exit 1 до правки (4 test-а и файл секции), exit 0 после.
+  exit 1 до правки (4 test-а и файл секции), exit 0 после; test-ы клика уведомления потом вынесены в
+  `test/unit/notification-ticket-click.test.tsx`. Test «leave out an item already Sent» — exit 1 на секции до правила Sent.
 - `pnpm test:e2e test/e2e/sidebar-rail.spec.ts test/e2e/sidebar-sections.spec.ts` — exit 0 (9 test-ов), снимки секции
   и вида при 1280 px в обеих темах.
 - `pnpm lint`, `pnpm typecheck`, `node scripts/check-feature-docs.mjs` — exit 0.
@@ -138,4 +140,4 @@ Code: `src/renderer/canvas/overlays/NotificationTarget.tsx:103-116` · key lines
    - Строки: `src/renderer/palette/commands.ts:692-693`
 3. Почему бейдж rail-а может быть меньше счёта на вкладке?
    - Ответ: секция и её бейдж следуют переключателю боковой панели, а вкладка считает все Project-ы.
-   - Строки: `src/renderer/shell/sidebar/AcceptanceSection.tsx:56-58`
+   - Строки: `src/renderer/shell/sidebar/AcceptanceSection.tsx:61-63`

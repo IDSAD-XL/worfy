@@ -31,18 +31,13 @@ Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решения по реал�
 
 - [ ] Unit test (`test/unit/acceptance-section.test.tsx`, новый): счёт по Project-ам и бейдж = Ready to check. Красный до
       правки — в «Итог».
-  - evidence: test-run pass · `pnpm exec vitest run test/unit/acceptance-section.test.tsx` exit 0 · mac - · 01a8873e14e32ae05d80c37040e4c462512934c7
 - [ ] Unit test `test/unit/palette-manual-check-row.test.tsx`: строка ручной проверки открывает вид на пункте; пункта
       нет в очереди — Ticket.
-  - evidence: test-run pass · `pnpm exec vitest run test/unit/palette-manual-check-row.test.tsx test/unit/palette-commands.test.tsx` exit 0 · mac - · 01a8873e14e32ae05d80c37040e4c462512934c7
 - [ ] Unit test `test/unit/notify.test.ts`: клик уведомления ждущего Ticket-а открывает вид, без Ticket-а в очереди —
       Pipeline.
-  - evidence: test-run pass · `pnpm exec vitest run test/unit/pipeline-board.test.tsx` exit 0 · mac - · 01a8873e14e32ae05d80c37040e4c462512934c7
 - [ ] e2e test `test/e2e/sidebar-rail.spec.ts`: бейдж Acceptance на rail-е и переход в вид.
-  - evidence: test-run pass · `pnpm test:e2e test/e2e/sidebar-rail.spec.ts test/e2e/sidebar-sections.spec.ts` exit 0 · mac dev · 01a8873e14e32ae05d80c37040e4c462512934c7
 - [ ] `docs/features/app-shell.md` и `docs/features/notifications.md` описывают входы;
       `node scripts/check-feature-docs.mjs` — exit 0.
-  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 01a8873e14e32ae05d80c37040e4c462512934c7
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Где в коде
@@ -72,8 +67,10 @@ Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решения по реал�
   очереди, иначе карточку Ticket-а. `openAcceptance` с целью, которой нет в очереди, больше не переключает вид.
 - Клик «is waiting for you»: окно ждёт первый ответ очереди и открывает вид на Ticket-е или, как раньше, доску Pipeline
   (`src/renderer/canvas/overlays/NotificationTarget.tsx`). `src/main/workflow/waits-notify.ts` не менялся: очередь знает
-  окно, а не main; test-ы — в `test/unit/pipeline-board.test.tsx`, рядом с прежними test-ами этого клика, а не в
-  `test/unit/notify.test.ts` (там test-ы main).
+  окно, а не main; test-ы — в `test/unit/notification-ticket-click.test.tsx` вместе с прежними test-ами этого клика
+  (вынесены из `test/unit/pipeline-board.test.tsx`, перешедшего 1000 строк), а не в `test/unit/notify.test.ts` (там
+  test-ы main).
+- Ready to check в секции и бейдж не считают пункты с отметкой Sent — как счёт вкладки после ревью 05.
 - Красный до правки: `pnpm exec vitest run test/unit/acceptance-section.test.tsx test/unit/palette-manual-check-row.test.tsx
   test/unit/pipeline-board.test.tsx` — exit 1: файла секции нет («Failed to resolve import …/AcceptanceSection»), строка
   палитры вела к Ticket-у, строки «Acceptance» не было, клик уведомления открывал Pipeline. После правки — exit 0.

@@ -95,8 +95,8 @@ pane draws it as Markdown.
   built app on the fake agent: an item with a screenshot and a clip, Pass reaching the Orchestrator, the line written
   into the Ticket taking the item away, ↑ ↓, screenshots at 1280 and 1600 px in both themes);
   `test/unit/acceptance-section.test.tsx` (counts by Project, the rail badge, a click), the "where a Manual check row
-  leads" cases of `test/unit/palette-manual-check-row.test.tsx`, the notification cases of
-  `test/unit/pipeline-board.test.tsx`, and `test/e2e/sidebar-rail.spec.ts` (the badge on the rail and the way into the
+  leads" cases of `test/unit/palette-manual-check-row.test.tsx`, `test/unit/notification-ticket-click.test.tsx` (the
+  click on an "is waiting for you" notification), and `test/e2e/sidebar-rail.spec.ts` (the badge on the rail and the way into the
   view in the built app).
 
 ## The queue

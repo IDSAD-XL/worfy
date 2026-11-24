@@ -1,7 +1,8 @@
 import { useEffect } from 'react'
 import type { AcceptanceGroupName, AcceptanceRow, AcceptanceState } from '../../../shared/ipc/acceptance'
+import type { OwnerCheckVerdict } from '../../../shared/projects/action-templates'
 import { openAcceptance } from '../../acceptance/open'
-import { GROUP_TITLES, useAcceptance } from '../../acceptance/useAcceptance'
+import { GROUP_TITLES, sentOf, useAcceptance } from '../../acceptance/useAcceptance'
 import { activeProject, useProjects } from '../../projects/useProjects'
 import { projectsInScope, setRailBadge, useSidebarScope } from '../sidebar-scope'
 import { SidebarSection } from '../SidebarSection'
@@ -36,12 +37,16 @@ interface ProjectCounts {
   groups: { group: AcceptanceGroupName; first: AcceptanceRow; count: number }[]
 }
 
-/** The counted groups of each Project of `projectIds`, in that order; a Project without one is left out. */
-function countsByProject(state: AcceptanceState | null, projectIds: readonly string[]): ProjectCounts[] {
+/**
+ * The counted groups of each Project of `projectIds`, in that order; a Project without one is left out. Ready to check
+ * leaves out the items already Sent, as the tab's count does (readyCount): they wait for the line, not for the owner.
+ */
+function countsByProject(state: AcceptanceState | null, sentHere: Readonly<Record<string, OwnerCheckVerdict>>, projectIds: readonly string[]): ProjectCounts[] {
   const groups = state?.groups ?? []
+  const counts = (group: AcceptanceGroupName, row: AcceptanceRow): boolean => group !== 'ready' || row.kind !== 'item' || sentOf(row, sentHere) === null
   return projectIds.flatMap((projectId) => {
     const counted = COUNTED.flatMap((group) => {
-      const rows = groups.find((each) => each.group === group)?.rows.filter((row) => row.ticket.projectId === projectId) ?? []
+      const rows = groups.find((each) => each.group === group)?.rows.filter((row) => row.ticket.projectId === projectId && counts(group, row)) ?? []
       return rows.length === 0 ? [] : [{ group, first: rows[0]!, count: rows.length }]
     })
     return counted.length === 0 ? [] : [{ projectId, groups: counted }]
@@ -51,10 +56,10 @@ function countsByProject(state: AcceptanceState | null, projectIds: readonly str
 const badgeLabel = (count: number): string => (count === 1 ? '1 check ready to check' : `${count} checks ready to check`)
 
 export default function AcceptanceSection() {
-  const { state, error } = useAcceptance()
+  const { state, error, sentHere } = useAcceptance()
   const projectsState = useProjects()
   const projects = projectsInScope(projectsState?.projects ?? [], useSidebarScope((store) => store.scope), activeProject(projectsState)?.id)
-  const counts = countsByProject(state, projects.map((project) => project.id))
+  const counts = countsByProject(state, sentHere, projects.map((project) => project.id))
   const ready = counts.reduce((sum, each) => sum + (each.groups.find((group) => group.group === 'ready')?.count ?? 0), 0)
   useEffect(() => {
     setRailBadge('AcceptanceSection', ready > 0 ? { tone: 'working', count: ready, label: badgeLabel(ready) } : undefined)
