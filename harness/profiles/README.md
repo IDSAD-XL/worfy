@@ -62,7 +62,9 @@ $HARNESS_HOME/user/rules.md    the user's own rules, in prose
 - **`user.json`, field `language.reports`** — the language of agent reports and messages to the
   user: `"en"`, `"ru"` or another language code. `bin/profile --field language.reports` answers
   from it first, then (for one more release) from the profile's own `language.reports`, then `en`;
-  the summary and `--json` show the same resolved value. Other fields of the file are ignored:
+  the summary and `--json` show the same resolved value. `hooks/inject-rules.mjs` names that value
+  in the part `common` (section "Language of this session"), in `SessionStart` and in
+  `SubagentStart`; in a folder no profile covers it names the value of this file alone. Other fields of the file are ignored:
   `language.team` and `language.docs` stay in the profile. A file that is not JSON, not an object,
   or has a `language.reports` that is not a non-empty string is one line on stderr and is skipped;
   `bin/profile` still answers with exit 0.

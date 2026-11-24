@@ -439,6 +439,93 @@ process.exit(r.status === 0 && !r.signal ? 0 : 1)' "$INJECT" \
     && ok "user rules with 300000 spaces before the last character: done within 10 s" || bad "user rules with 300000 spaces: the hook took over 10 s or failed"
 rm -f "$USER_RULES"
 
+# --- 3c. The language of reports as a value ---------------------------------------------------------
+# The part "common" names the value of language.reports for the session's folder, not only the setting:
+# a session that saw only the setting's name answered in the language of the question.
+# The value is what bin/profile of the plugin resolves (the user's user.json first, then the profile); in a
+# folder no profile covers, the user's own setting alone; with neither, the part as it is. A state folder
+# and a registry of their own: project lang (a git repository) with reports ru, and a plain folder.
+LH="$T/hh-lang"
+mkdir -p "$LH/profiles/lang" "$T/lang-repo" "$T/lang-plain"
+git -C "$T/lang-repo" init -q
+nat_dir() { (cd "$1" && { pwd -W 2>/dev/null || pwd -P; }); }
+LREPO="$(nat_dir "$T/lang-repo")" LPLAIN="$(nat_dir "$T/lang-plain")"
+echo '{"schema":1,"name":"lang","language":{"reports":"ru","team":"en","docs":"ru"}}' >"$LH/profiles/lang/profile.json"
+printf '{"repos":[{"key":"lang","match":"%s","profile":"lang"}]}\n' "$LREPO" >"$LH/registry.json"
+# lang_inject <cwd> <event> [VAR=value…]: the part common for a session in <cwd>, with this state folder.
+lang_inject() {
+    local cwd="$1" ev="$2"; shift 2
+    run_inject common "{\"hook_event_name\":\"$ev\",\"cwd\":\"$cwd\"}" CLAUDE_PLUGIN_ROOT=/opt/worfy-plugin HARNESS_HOME="$LH" \
+        CLAUDE_GATE_CONFIG="$LH/registry.json" CLAUDE_PROFILES_DIR="$LH/profiles" "$@"
+}
+LANG_HEAD=$'\n\n## Language of this session\n\nReports and messages to the user: '
+PROJECT_TAIL=$', the `language.reports` that `bin/profile` resolves for project lang (the user\'s own setting first, then the profile). Write them in this language even when the user writes in another one. Team-facing text — commits, PRs, review comments, code comments — follows `language.team`: English (`en`).'
+USER_TAIL=$', the user\'s own setting (`language.reports` in `user.json` of the Harness state folder); no project profile covers this folder. Write them in this language even when the user writes in another one.'
+
+for ev in SessionStart SubagentStart; do
+    lang_inject "$LREPO" "$ev"
+    want="$(part_with_root common)${LANG_HEAD}Russian (\`ru\`)${PROJECT_TAIL}"
+    [ "$rc" -eq 0 ] && [ "$(event)" = "$ev" ] && [ "$(ctx)" = "$want" ] && [ ! -s "$T/err" ] \
+        && ok "$ev/common in a project with reports ru: the part, then the value Russian (\`ru\`) and the team language" \
+        || bad "$ev/common in a project with reports ru: rc=$rc, tail '$(ctx | tail -n 2 | tr '\n' '|')', stderr '$(head -c 200 "$T/err")'"
+done
+
+# The user's own setting comes first, as bin/profile resolves it.
+echo '{"language":{"reports":"de"}}' >"$LH/user.json"
+lang_inject "$LREPO" SubagentStart
+[ "$(ctx)" = "$(part_with_root common)${LANG_HEAD}German (\`de\`)${PROJECT_TAIL}" ] \
+    && ok "user.json reports de over the profile's ru: the part names German (\`de\`)" || bad "user.json over the profile: tail '$(ctx | tail -n 2 | tr '\n' '|')'"
+
+# A folder no profile covers: the user's own setting alone, without a team language.
+echo '{"language":{"reports":"ru"}}' >"$LH/user.json"
+for ev in SessionStart SubagentStart; do
+    lang_inject "$LPLAIN" "$ev"
+    [ "$rc" -eq 0 ] && [ "$(ctx)" = "$(part_with_root common)${LANG_HEAD}Russian (\`ru\`)${USER_TAIL}" ] && [ ! -s "$T/err" ] \
+        && ok "$ev/common outside any project, user.json reports ru: the part names Russian (\`ru\`) as the user's setting" \
+        || bad "$ev/common outside any project with user.json: rc=$rc, tail '$(ctx | tail -n 2 | tr '\n' '|')'"
+done
+# A byte order mark in front (Windows PowerShell 5 writes one), as bin/profile reads it.
+printf '\357\273\277{"language":{"reports":"ru"}}' >"$LH/user.json"
+lang_inject "$LPLAIN" SessionStart
+[ "$(ctx)" = "$(part_with_root common)${LANG_HEAD}Russian (\`ru\`)${USER_TAIL}" ] \
+    && ok "user.json with a byte order mark: the part names Russian (\`ru\`)" || bad "user.json with a byte order mark: tail '$(ctx | tail -n 2 | tr '\n' '|')'"
+echo '{"language":{"reports":"ru"}}' >"$LH/user.json"
+# bin/profile that fails (a missing script) is the same as no profile: the user's own setting alone.
+lang_inject "$LREPO" SessionStart CLAUDE_PROFILE_BIN="$T/no-such-profile"
+[ "$rc" -eq 0 ] && [ "$(ctx)" = "$(part_with_root common)${LANG_HEAD}Russian (\`ru\`)${USER_TAIL}" ] \
+    && ok "bin/profile fails: the part names the user's own setting" || bad "bin/profile fails: rc=$rc, tail '$(ctx | tail -n 2 | tr '\n' '|')'"
+
+# The user rules come after the language section.
+mkdir -p "$LH/user" && printf 'Keep it short.\n' >"$LH/user/rules.md"
+lang_inject "$LREPO" SubagentStart
+[ "$(ctx)" = "$(part_with_root common)${LANG_HEAD}Russian (\`ru\`)${PROJECT_TAIL}"$'\n\n## User rules\n\nKeep it short.' ] \
+    && ok "user rules: after the language section" || bad "user rules with the language section: tail '$(ctx | tail -n 4 | tr '\n' '|')'"
+rm -f "$LH/user/rules.md"
+
+# Neither a profile nor the user's setting, or a user.json that is broken or sets no language: the part as it is,
+# and nothing on stderr (bin/profile is the one that reports a broken file).
+for body in '' '{}' 'not json' '{"language":{"reports":" "}}' '{"language":"ru"}'; do
+    printf '%s' "$body" >"$LH/user.json"
+    lang_inject "$LPLAIN" SessionStart
+    [ "$rc" -eq 0 ] && [ "$(ctx)" = "$(part_with_root common)" ] && [ ! -s "$T/err" ] \
+        && ok "outside any project, user.json '$body': the part as it is, nothing on stderr" \
+        || bad "outside any project, user.json '$body': rc=$rc, tail '$(ctx | tail -n 2 | tr '\n' '|')', stderr '$(head -c 200 "$T/err")'"
+done
+rm -f "$LH/user.json"
+
+# bin/profile that hangs: the part goes without the language after its wait (5 s), well inside the
+# 10 s hooks.json gives the hook, with one line on stderr.
+printf 'setTimeout(() => {}, 60000)\n' >"$T/hung-profile.js"
+lang_inject "$LREPO" SessionStart CLAUDE_PROFILE_BIN="$(nat_dir "$T")/hung-profile.js"
+lines="$(wc -l <"$T/err" | tr -d ' ')"
+[ "$rc" -eq 0 ] && [ "$(ctx)" = "$(part_with_root common)" ] && [ "$lines" = 1 ] \
+    && ok "bin/profile hangs: the part as it is, one line on stderr" || bad "bin/profile hangs: rc=$rc, $lines stderr lines, tail '$(ctx | tail -n 2 | tr '\n' '|')'"
+
+# The orchestrator part names no language: only common carries it.
+run_inject orchestrator "{\"hook_event_name\":\"SessionStart\",\"cwd\":\"$LREPO\"}" CLAUDE_PLUGIN_ROOT=/opt/worfy-plugin HARNESS_HOME="$LH" \
+    CLAUDE_GATE_CONFIG="$LH/registry.json" CLAUDE_PROFILES_DIR="$LH/profiles"
+[ "$(ctx)" = "$(part_with_root orchestrator)" ] && ok "orchestrator part: no language section" || bad "orchestrator part: changed by the language section"
+
 # --- 4. Paths and names inside the parts -------------------------------------------------------
 
 all="$T/all.md"

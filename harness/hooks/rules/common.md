@@ -39,10 +39,11 @@ Scope: all of this governs work — reports, tickets, ADRs, commits, PRs, code c
 chat, jokes or a personal message drafted for someone may match that conversation's tone.
 
 **Which language.** Reports to the user follow `language.reports` as `bin/profile` prints it (the
-user's own setting comes first). Everything the team sees — commits, PRs, review comments, code
-comments — follows `language.team`. With no profile: reports in the language the user writes in,
-team-facing text in the language the repo already uses. Personal language rules, if any, come
-from the user's rules file.
+user's own setting comes first); when it is known, the section "Language of this session" of this
+part names its value. Everything the team sees — commits, PRs, review comments, code comments —
+follows `language.team`. With no profile and no such section: reports in the language the user
+writes in, team-facing text in the language the repo already uses. Personal language rules, if
+any, come from the user's rules file.
 
 ## Evidence before "green"
 
