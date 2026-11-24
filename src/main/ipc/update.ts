@@ -260,7 +260,7 @@ export class UpdateService {
  * The copy that runs: the commit of the file next to the Stable copy when this run is that copy (or
  * names one for a test), else the build version's; and the build number of this build (ticket 14).
  */
-function appRunning(): UpdateRunning {
+export function appRunning(): UpdateRunning {
   const version = bundledHarnessVersion() ?? app.getVersion()
   const copy = stableCopyPath()
   const named = runsFromStableCopy({ packaged: app.isPackaged, execPath: process.execPath, env: process.env }) || Boolean(process.env.WORFY_UPDATE_STABLE)
