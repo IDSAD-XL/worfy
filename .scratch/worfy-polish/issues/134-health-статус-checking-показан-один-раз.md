@@ -37,6 +37,26 @@ Source: скриншот и слова владельца 2026-11-20 «В health
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44665681668/job/136066421949 · ci - · 8b3ab410d3a490f1c4fe55970bda5345967ac22d
 
+Шаги приёмки владельца — из `.scratch/owner-acceptance-guides.md` (перенесены 2026-11-24, `worfy-acceptance` 08):
+подготовка Orchestrator-а — пункты без метки, шаги владельца — пункты с меткой, по одному на шаг.
+
+- [ ] Orchestrator: обновить Mac Stable до `main` после «да» владельца и сверить версию (общий шаг с
+      `worfy-changes-view` 07).
+- [ ] Orchestrator: через CDP сверить то же в окне First run (один компонент).
+- [ ] (вручную) Сделай: открой Settings → Health и нажми «Check again», смотри на верх раздела → Должно быть: пока
+      идёт проверка, слева под заголовком chip-а нет; справа кнопка со spinner-ом «Checking…». После — chip итога
+      («Everything is ready» или «N failed · M warnings») и кнопка «Check again».
+  - needs: mac stable
+- [ ] (вручную) Сделай: во время той же проверки посмотри на строки и сравни со своим снимком 2026-11-20 («В health
+      дублируется статус чип») → Должно быть: у каждой строки свой chip «Checking…» — его Ticket не трогал. Ответь:
+      дублем на снимке был chip сводки рядом с кнопкой (исправлено) или chip-и строк (они так и показывают «Checking…» —
+      тогда Orchestrator заведёт новый Ticket polish)?
+  - needs: mac stable
+- [ ] (вручную) Сделай: подтверди решение без владельца — Ticket 134, «Итог»: «единственный знак идущей проверки —
+      кнопка «Check again» … пока проверка идёт, chip-а нет совсем — прошлый результат тоже не показан, он устарел» →
+      Должно быть: Pass — «подтверждаю», Fail — «в Ticket».
+  - needs: mac
+
 ## Где в коде
 
 - `src/renderer/shell/FirstRunChecks.tsx` (`summary`, `FIRST_RUN_CHIP`, кнопка `checkAgain`)

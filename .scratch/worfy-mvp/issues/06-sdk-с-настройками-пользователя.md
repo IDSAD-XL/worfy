@@ -54,6 +54,16 @@ Source: [ADR-0002](../../../docs/adr/0002-worfy-is-a-view-over-the-workflow.md),
 - [x] Перечислены поля сообщений SDK, на которые опирается тикет 07, с версией SDK и Claude Code.
 - [x] Если вывод противоречит spec или ADR — записан ADR-0007 или следующий свободный, и в «Итог» названы затронутые тикеты.
 
+Шаги приёмки владельца — из `.scratch/owner-acceptance-guides.md` (перенесены 2026-11-24, `worfy-acceptance` 08):
+подготовка Orchestrator-а — пункты без метки, шаги владельца — пункты с меткой, по одному на шаг.
+
+- [ ] Orchestrator: запустить Stable worfy на Mac.
+- [ ] (вручную) Сделай: по желанию (подтверждено владельцем 2026-11-06; без fish Ticket закрывается как
+      непроверяемый) — `brew install fish`, fish — login shell, в Stable — «New session» с запросом выполнить в Bash
+      `echo $PATH; which gh jq; echo $SSH_AUTH_SOCK` → Должно быть: `gh` и `jq` найдены, `SSH_AUTH_SOCK` не пуст.
+      Потом вернуть прежний login shell.
+  - needs: mac stable
+
 ## Тесты
 
 - Test-ов нет: результат — знание. Фрагменты реальных сообщений SDK сохраняются в `test/fixtures/sdk-messages/` для contract test-ов тикета 07 (без текста промптов и путей, которые нельзя публиковать).

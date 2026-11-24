@@ -40,6 +40,43 @@ Source: [spec.md](../spec.md), «Что видит пользователь», �
   - evidence: commit pass · Evidence of the fixture run of a ticket over two repositories · - - · e9ead1b5df286705d14ac20be4b33bdda045516a
 - [ ] `ci-ok` на PR зелёный.
 
+Шаги приёмки владельца — из `.scratch/owner-acceptance-guides.md` (перенесены 2026-11-24, `worfy-acceptance` 08): подготовка Orchestrator-а — пункты без метки, шаги владельца — пункты с меткой, по одному на шаг.
+
+- [ ] Orchestrator: сверит Profile рабочего Project-а — оба репозитория должны быть в его списке репозиториев.
+- [ ] Orchestrator: в `workflow.pipeline` нет стадии `release` (прочитано 2026-11-20), без неё карточка не покажет
+      «waits for release …»; спросит одной строкой, добавить ли её через `profile-set` (место в списке — по
+      `harness/profiles/README.md`).
+- [ ] Orchestrator: проверит, что Session рабочего Project-а в Mac Stable видит новый `ticket` CLI (`ticket pr`,
+      `ticket release`).
+- [ ] (вручную) Сделай: выбери настоящую правку через библиотеку и её потребителя и скажи Orchestrator-у рабочего
+      Project-а записать её одним Ticket-ом с двумя строками `Repo:`, библиотека первой → Должно быть: на Ticket Node
+      chip называет оба репозитория в порядке строк `Repo:`.
+  - needs: mac stable
+- [ ] (вручную) Сделай: после ревью агентов открой Pipeline board (View switch в toolbar → «Pipeline») → Должно быть:
+      одна карточка Ticket-а, по строке на репозиторий: `<библиотека> #N · open`, `<потребитель> #M · open`. На Ticket
+      Node «Open PR» — меню с двумя пунктами.
+  - needs: mac stable
+- [ ] (вручную) Сделай: открой оба PR на GitHub → Должно быть: PR ничего не говорят друг о друге; PR потребителя —
+      draft, в нём подъём версии библиотеки.
+  - needs: mac stable
+- [ ] (вручную) Сделай: когда коллеги вольют PR библиотеки, посмотри на карточку → Должно быть: `1/2 merged`, строка
+      `waits for release <версия>`; Ticket ещё в работе. Красный CI потребителя до release карточку не красит.
+  - needs: mac stable
+- [ ] (вручную) Сделай: когда команда выпустит версию, посмотри снова → Должно быть: строка `waits for release …`
+      ушла; PR потребителя вышел из draft. Если вместо неё `release <версия> not checked` — worfy не смог спросить
+      remote или registry; скажи Orchestrator-у.
+  - needs: mac stable
+- [ ] (вручную) Сделай: когда коллеги вольют PR потребителя → Должно быть: `2/2 merged`, Ticket `done`.
+  - needs: mac stable
+- [ ] Orchestrator: после `done` заполнит раздел «Настоящий Ticket» в [evidence](../evidence/08-fixture.md): только
+      роли (библиотека, потребитель) и номера PR, без имён репозиториев, хостов и людей. Снимки — с затёртыми именами.
+- [ ] (вручную) Сделай: подтверди решение без владельца — Ticket 05 (стадия `release`;
+      [Ticket](../issues/05-стадия-release.md), «Итог»): «ошибка `npm view` с E404 (пакета ещё нет вовсе) — тоже `not
+      checked`, а не `waiting`: частная registry без доступа отвечает так же». Пакет, который ни разу не публиковали,
+      карточка покажет как `release <версия> not checked`, а не `waits for release` → Должно быть: Pass —
+      «подтверждаю», Fail — «в Ticket».
+  - needs: mac
+
 ## Тесты
 
 - Fixture test-ы Harness-а над `harness/bin/tests/fixtures/multi-repo/` (stub `gh`, `npm`).

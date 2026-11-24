@@ -1101,5 +1101,45 @@ done
 grep -qF '`### When worfy runs you for Agent review`' "$SK/human-review-setup/refresh.md" \
     && ok "human-review-setup refresh.md: Refresh adds the Agent review section" || bad "human-review-setup refresh.md: Refresh does not add the Agent review section"
 
+# --- A manual item is one step for the owner ---------------------------------------------------
+# The steps of an acceptance live in its ticket: a manual item is written for the
+# owner, one step per item in the form "Do → Expect", with its needs: line; what the orchestrator
+# prepares is items of the same ticket without the manual mark. The ticket template (to-tickets) and the
+# manual checks of ship-ticket (step 6) carry the same sentences; a copy without any one of them fails.
+MR_SENTENCES='**A manual item is written for the owner.**
+One step per item: `Do: <what the owner does> → Expect: <what the owner should see>`, the two labels in the language of the project'"'"'s documents.
+Under it goes a `needs: <platform> [<copy>]` line that names where the owner checks it.
+A longer check is several such items, one per step, never one item with a list of steps.
+What the orchestrator prepares before the owner'"'"'s steps (a sandbox, a fixture, an update of the stable copy) is not a manual item: it goes into the same ticket as items without the manual mark, before the step it serves.'
+# manual_rule_ok FILE: 0 when FILE, its line breaks read as spaces, holds every sentence of MR_SENTENCES.
+manual_rule_ok() {
+    local s
+    while IFS= read -r s; do
+        [ -z "$s" ] && continue
+        flat_has "$1" "$s" || return 1
+    done <<EOF
+$MR_SENTENCES
+EOF
+}
+for f in "$SK/to-tickets/SKILL.md" "$GUI"; do
+    name="${f#"$SK/"}"
+    manual_rule_ok "$f" && ok "$name: a manual item is one Do → Expect step with needs:, the preparation items without the mark" \
+        || bad "$name: no rule that a manual item is one Do → Expect step with needs: and the preparation is items without the mark"
+    tr '\r\n' '  ' <"$f" | tr -s ' ' >"$T/manual-rule-flat.md"
+    while IFS= read -r s; do
+        [ -z "$s" ] && continue
+        strip "$T/manual-rule-flat.md" "$s" >"$T/manual-rule-mutant.md"
+        manual_rule_ok "$T/manual-rule-mutant.md" && bad "$name: a copy without '$s' still passes" || ok "$name: a copy without '$s' fails"
+    done <<EOF
+$MR_SENTENCES
+EOF
+done
+# The ticket template shows such an item with its needs: line under the done section.
+awk '/^<local-ticket-template>$/ { s = 1 } s { print } /^<\/local-ticket-template>$/ { exit }' "$SK/to-tickets/SKILL.md" >"$T/ticket-template.md"
+grep -qF -- '- [ ] (manual) Do: <what the owner does> → Expect: <what the owner should see>' "$T/ticket-template.md" \
+    && grep -qF -- '  - needs: mac stable' "$T/ticket-template.md" \
+    && ok "to-tickets: the local ticket template shows a manual item with its needs: line" \
+    || bad "to-tickets: the local ticket template shows no manual Do → Expect item with a needs: line"
+
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]

@@ -80,6 +80,45 @@ Source: владелец 2026-11-09, дословно: «возможность 
   - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 · mac dev · 6635a8f3b
   - evidence: gate pass · `gate fast` exit 0 · mac - · 59a4434dd
 
+Шаги приёмки владельца — из `.scratch/owner-acceptance-guides.md` (перенесены 2026-11-24, `worfy-acceptance` 08): подготовка Orchestrator-а — пункты без метки, шаги владельца — пункты с меткой, по одному на шаг.
+
+- [ ] Orchestrator: вернёт «Tree».
+- [ ] (вручную) Сделай: наведи на «Move nodes» и «Prettify», потом протащи любой узел → Должно быть: «Move nodes» (иконка
+      руки) не нажат, tooltip «Turn on to drag nodes to new places. Off: a drag on a node pans the map»; «Prettify»
+      (иконка искры) неактивна, tooltip «No node was moved by hand in this view»; drag по узлу двигает всю карту, узел на
+      месте; щелчок по узлу открывает карточку.
+  - needs: mac stable
+- [ ] (вручную) Сделай: нажми «Move nodes», перетащи узел «Как выглядит Mind map при сотне узлов…» в сторону → Должно
+      быть: узел встал, куда отпустил; «Prettify» активна.
+  - needs: mac stable
+- [ ] (вручную) Сделай: нажми «Prettify», потом Escape; снова «Prettify» и в вопросе «Prettify» → Должно быть: в строке
+      инструментов «Drop 1 moved place?» с «Prettify» и «Cancel», фокус на «Cancel»; Escape закрыл вопрос, узел на месте;
+      после подтверждения узел вернулся в раскладку, карта вписана, «Prettify» снова неактивна.
+  - needs: mac stable
+- [ ] (вручную) Сделай: переключи на «Graph» («Move nodes» остаётся нажатым), перетащи узел, нажми «Prettify» → Должно
+      быть: узел вернулся сразу, без вопроса.
+  - needs: mac stable
+- [ ] (вручную) Сделай: подтверди решение без владельца — Ticket 31, «Решено без владельца»: «Состояние «Move nodes» не
+      запоминается». Переключатель выключен при каждом открытии карты и смене темы; смена «Tree · Graph» его не
+      сбрасывает → Должно быть: Pass — «подтверждаю», Fail — «в Ticket».
+  - needs: mac
+- [ ] (вручную) Сделай: подтверди решение без владельца — Ticket 31, «Решено без владельца»: «Отмены у Mind map нет…
+      «Prettify» в «Tree»… спрашивает коротко прямо в строке инструментов». В «Graph» без вопроса: там сдвиги и так живут
+      до следующей раскладки и в файл не пишутся → Должно быть: Pass — «подтверждаю», Fail — «в Ticket».
+  - needs: mac
+- [ ] (вручную) Сделай: подтверди решение без владельца — Ticket 31, «Решено без владельца»: «Подписи, иконки, tooltip» —
+      иконка руки у «Move nodes», иконка искры у «Prettify» и тексты tooltip из шагов приёмки с «Move nodes» и
+      «Prettify» выбраны исполнителем → Должно быть: Pass — «подтверждаю», Fail — «в Ticket».
+  - needs: mac
+- [ ] (вручную) Сделай: подтверди решение без владельца — Ticket 31, «Решено без владельца»: «Пока запись main не
+      вернулась, экран уже рисует автоматическую раскладку; отказ main возвращает места». Ошибка записи — строка «Could
+      not save the change: …», как при drag → Должно быть: Pass — «подтверждаю», Fail — «в Ticket».
+  - needs: mac
+- [ ] (вручную) Сделай: подтверди решение без владельца — Ticket 31, «Решено без владельца»: «„Prettify“ снимает места
+      всех узлов файла». И узлов, скрытых «Hide rejected» или свёрнутой веткой → Должно быть: Pass — «подтверждаю», Fail
+      — «в Ticket».
+  - needs: mac
+
 ## Тесты
 
 - `test/unit/mind-map-hand.test.tsx`, `test/unit/mind-map*.test.tsx`, `test/unit/mind-map-layout.test.ts`,

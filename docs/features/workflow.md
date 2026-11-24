@@ -80,6 +80,15 @@ General: Never, 3, 7 or 30 days, 7 days by default; Never keeps every Epic in th
 card it centres the frame. Each unchecked manual check of a Ticket (an item of its done section with the Profile's manual
 mark) is a palette row found only by typing. Picking it goes to the Ticket. worfy does not tick these items.
 
+**A manual item is one step for the owner.** An acceptance keeps its steps in its Ticket: each manual item is one step,
+`Do: … → Expect: …` in the language of the Project's documents (in a Russian Ticket, «Сделай: … → Должно быть: …»),
+with a `needs: <platform> [<copy>]` line under it that names where the owner checks it. A longer check is several such
+items, never one item with a list of steps. What the Orchestrator prepares before the owner's steps — a sandbox
+Project, a fixture, an update of the Stable copy — is items of the same Ticket without the manual mark, before the step
+they serve. The rule is the Harness's: the ticket template of `harness/skills/to-tickets/SKILL.md` and the manual checks
+of `harness/skills/ship-ticket/step-6-manual-gui-checks.md`. The [Acceptance](acceptance.md) view shows each such item
+with the prepared items of its Ticket, and the owner passes or fails it there.
+
 **The ready Wave** is computed for each Epic and stored nowhere. A Ticket is in it when:
 
 - It is `open`.

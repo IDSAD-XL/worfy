@@ -54,6 +54,20 @@ Source: владелец 2026-11-09, worfy на ПК с Windows: Product Session
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (gate fast, all unit tests) · mac - · 7b16e63db513633cbc13410c808ad3eda1221c7b
   - evidence: gate pass · `gate fast` exit 0 · mac - · 7b16e63db513633cbc13410c808ad3eda1221c7b
 
+Шаги приёмки владельца — из `.scratch/owner-acceptance-guides.md` (перенесены 2026-11-24, `worfy-acceptance` 08): подготовка Orchestrator-а — пункты без метки, шаги владельца — пункты с меткой, по одному на шаг.
+
+- [ ] Orchestrator: сузит окно до 1160 px и откроет список Agents.
+- [ ] Orchestrator: попросит советника задать один вопрос с вариантами (AskUserQuestion).
+- [ ] Orchestrator: когда карточка появится, перезагрузит окно (View ▸ Reload) и прочитает Badge Node-а (должно быть
+      «Waits for answer», не «Needs permission»).
+- [ ] (вручную) Сделай: посмотри на чат после перезагрузки → Должно быть: карточка вопроса есть; варианты, «Other»,
+      «Submit» и «Decline» внутри колонки чата над полем ввода, ничего не обрезано. Только строка «The Session waits for
+      an answer this window cannot show. Interrupt refuses the request.» без карточки — не то.
+  - needs: mac stable
+- [ ] (вручную) Сделай: выбери вариант и нажми «Submit» → Должно быть: советник продолжает, и его ответ опирается на твой
+      выбор.
+  - needs: mac stable
+
 ## Тесты
 
 - `test/e2e/product-session.spec.ts`; `test/contract/permissions.test.ts`; `test/unit/waiting-requests.test.tsx`;

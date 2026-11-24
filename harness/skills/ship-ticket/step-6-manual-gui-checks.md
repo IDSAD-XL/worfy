@@ -52,6 +52,16 @@ checked (for a screenshot, the screenshot itself): no Machine, host or user name
 that must not be public. For a clip of such a fixture build that check may be the agent's own; a
 screenshot, and a clip of anything else, waits for a person, as below.
 
+**A manual item is written for the owner.** One step per item:
+`Do: <what the owner does> → Expect: <what the owner should see>`, the two labels in the language of
+the project's documents. Under it goes a `needs: <platform> [<copy>]` line that names where the owner
+checks it. A longer check is several such items, one per step, never one item with a list of steps.
+What the orchestrator prepares before the owner's steps (a sandbox, a fixture, an update of the stable
+copy) is not a manual item: it goes into the same ticket as items without the manual mark, before the
+step it serves. The owner reads the steps in the ticket itself, in the order of its items; worfy's
+Acceptance view shows each manual item with the prepared items of its ticket, and a separate file of
+steps is not kept once the owner has accepted the Acceptance view.
+
 **Evidence of a manual item.** A manual item (`F tickets.manual_mark`) is proved only by a person:
 the owner's word or a screenshot a person has checked. An agent's own look is no such proof, with one
 exception: a clip of the fixture build whose every contact sheet frame the agent itself has checked

@@ -41,6 +41,18 @@ xterm.js. В `src/renderer/canvas/nodes/TerminalNode.tsx` её никто не �
 - [x] Ввод и вывод в Terminal после focus mode работают: существующий `terminal.spec.ts` зелёный.
 - [x] Снимки Terminal на Canvas и в focus mode в светлой и тёмной теме сверены с F-SPEC.
 
+Шаги приёмки владельца — из `.scratch/owner-acceptance-guides.md` (перенесены 2026-11-24, `worfy-acceptance` 08):
+подготовка Orchestrator-а — пункты без метки, шаги владельца — пункты с меткой, по одному на шаг.
+
+- [ ] Orchestrator: запустить Stable worfy на Mac.
+- [ ] (вручную) Сделай: в Terminal Node набери `echo ABCDEFGHIJ`, при масштабе Canvas около 50 % выдели `ABCDEFGHIJ`
+      касанием и перетаскиванием тремя пальцами и нажми ⌘C → Должно быть: в буфере ровно `ABCDEFGHIJ`.
+  - needs: mac stable
+- [ ] (вручную) Сделай: выдели `ABCDEFGHIJ` в том же Terminal Node так же, тремя пальцами, при масштабе Canvas около
+      150 % (⌘=), нажми ⌘C и сделай один force click → Должно быть: в буфере `ABCDEFGHIJ`, force click ничего не
+      ломает.
+  - needs: mac stable
+
 ## Тесты
 
 - `test/e2e/terminal.spec.ts` — выделение при масштабе.

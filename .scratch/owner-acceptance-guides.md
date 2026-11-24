@@ -1,5 +1,12 @@
 # Приёмки и ручные проверки владельца — пошаговые гайды
 
+**Шаги — в Ticket-ах, вид Acceptance.** С 2026-11-24 (`worfy-acceptance` 08) шаги каждой приёмки ниже — ручные пункты
+её Ticket-а: один пункт «Сделай: … → Должно быть: …» на шаг, со строкой `needs:`; подготовка Orchestrator-а — пункты того
+же Ticket-а без метки. Решения без владельца — тоже ручные пункты: Pass — «подтверждаю», Fail — «в Ticket». Пункты видно
+во вкладке Acceptance worfy ([страница](../docs/features/acceptance.md)), решение Pass или Fail уходит оттуда
+Orchestrator-у. Файл остаётся, пока владелец не принял вид в Ticket-е `worfy-acceptance` 10 (решение Q5 2026-11-20), и
+Orchestrator до тех пор держит его в согласии с Ticket-ами; после приёмки файл удаляется.
+
 Собрано 2026-11-06 по просьбе владельца: «приёмки оформи в виде списка пошаговых гайдов по каждому нужному эпику, исключи
 все действия которые можешь сделать сам». Заменяет прежний список ручных проверок (`owner-manual-checks.md`). Обновлено
 2026-11-20: владелец решил, что файл остаётся и Orchestrator держит его свежим, пока его не заменит вкладка Acceptance
@@ -941,6 +948,10 @@ SSO не проверить, пока нет Ticket-а 06 (он ждёт выв�
 Результат — в Ticket `worfy-auth-check` 10, «Итог»; Status spec-а.
 
 ## worfy-changes-view 07
+
+**Устарело после D1 (2026-11-21):** шаги 1–14 ниже описывают Node на Canvas. Их заменяют шаги Ticket-ов доработки
+[08](worfy-changes-view/issues/08-rework-07-item-2.md) и [09](worfy-changes-view/issues/09-rework-07-item-3.md): вид
+Changes во всё окно.
 
 Приёмка части 1 Epic-а «экран Changes» ([Ticket](worfy-changes-view/issues/07-приёмка-владельцем.md),
 [spec](worfy-changes-view/spec.md), страница Feature [changes.md](../docs/features/changes.md), перевод

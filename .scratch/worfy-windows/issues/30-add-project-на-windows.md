@@ -72,6 +72,17 @@ Source: ручная проверка владельца на Windows-ПК 2026-
       записанный в `projects.json` руками.
 - [ ] `gate full` зелёный на Mac.
 
+Шаги приёмки владельца — из `.scratch/owner-acceptance-guides.md` (перенесены 2026-11-24, `worfy-acceptance` 08):
+подготовка Orchestrator-а — пункты без метки, шаги владельца — пункты с меткой, по одному на шаг.
+
+- [ ] Orchestrator: на ПК — запустить Stable copy и завести новую папку с git-репозиторием для «Add project».
+- [ ] (вручную) Сделай: «Add project» для новой папки от Orchestrator-а → Должно быть: форма доходит до «Review», пишет
+      Profile, Project в списке.
+  - needs: windows stable
+- [ ] (вручную) Сделай: «Add project» для папки worfy (Harness её знает) → Должно быть: на шаге «Folder» папка сразу в
+      списке. Пункт 3 этого Ticket-а держит contract test `projects-connect` в CI.
+  - needs: windows stable
+
 ## Тесты
 
 - Contract: `connectScript` с подменённым `spawn` — команда `node`, первый аргумент — путь скрипта.
