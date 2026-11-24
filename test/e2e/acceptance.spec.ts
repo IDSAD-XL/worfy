@@ -15,7 +15,8 @@ import { snapshotThemes } from './snapshots'
 // - the tab carries the count of Ready to check and opens the view; two panes: the groups on the left, the selected
 //   item on the right with its Evidence — a screenshot whose thumbnail loads and a clip of test/fixtures/evidence-clip/
 //   that loads in place, with its contact sheet;
-// - ↑ and ↓ move between the two items;
+// - ↑ and ↓ move between the two items; the second has an item text far wider than the pane, and at 1280 px its
+//   Evidence row keeps the state chip's words whole on at most two lines (screenshots in test-results/evidence-chip-screens);
 // - Pass sends the Project's "Record owner check" template to the Orchestrator (the fake agent's log), the item reads
 //   "Sent" and the next one is selected; the Harness's own `ticket evidence` then writes the `owner-check` line into
 //   the Ticket file, and the item leaves the queue without a restart;
@@ -33,6 +34,10 @@ const SCREENS = join(repoRoot, 'test-results', 'worfy-acceptance-05-screens')
 // Not the plugin's default word for word: without the plugin Harness a saved default reads back as the old Harness's
 // default, which is empty (migrateProjectSettings).
 const TEMPLATE = '/owner-check {epic} {NN} {item} {verdict} {platform} {copy} {sha}'
+const CHIP_SCREENS = join(repoRoot, 'test-results', 'evidence-chip-screens')
+/** An item text far wider than the pane: its Evidence row must still show the state chip with whole words. */
+const LONG_ITEM =
+  'Do: type a common message into the field of the tray and press Send → Expect: the message reaches every agent of the Session, each one answers in its own tile, the tray keeps the text until all of them have it, and nothing is lost on the way back'
 /** The platform the window's Machine has: the one a decision names at first. */
 const PLATFORM = process.platform === 'darwin' ? 'mac' : process.platform === 'win32' ? 'windows' : 'linux'
 
@@ -83,6 +88,33 @@ function messages(log: string): string[] {
     .map((call) => call.text ?? '')
 }
 
+/** How a chip lays out its words: the words split across two lines, and the number of lines the text takes. */
+function chipLayout(chip: Locator): Promise<{ broken: string[]; lines: number }> {
+  return chip.evaluate((node) => {
+    type Rect = { top: number; width: number }
+    type TextNode = { textContent: string | null }
+    type Range = { setStart(at: TextNode, offset: number): void; setEnd(at: TextNode, offset: number): void; getClientRects(): ArrayLike<Rect> }
+    type Doc = { createRange(): Range; createTreeWalker(root: unknown, show: number): { nextNode(): TextNode | null } }
+    const doc = (globalThis as unknown as { document: Doc }).document
+    const SHOW_TEXT = 4
+    const walker = doc.createTreeWalker(node, SHOW_TEXT)
+    const broken: string[] = []
+    const tops: number[] = []
+    for (let text = walker.nextNode(); text !== null; text = walker.nextNode()) {
+      for (const word of (text.textContent ?? '').matchAll(/\S+/g)) {
+        const range = doc.createRange()
+        range.setStart(text, word.index ?? 0)
+        range.setEnd(text, (word.index ?? 0) + word[0].length)
+        const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0)
+        if (rects.length > 1) broken.push(word[0])
+        tops.push(...rects.map((rect) => rect.top))
+      }
+    }
+    const lines = [...tops].sort((a, b) => a - b).filter((top, at, all) => at === 0 || top - (all[at - 1] ?? top) > 4).length
+    return { broken, lines }
+  })
+}
+
 const bridgeCall = (window: Page, channel: string, input?: unknown) =>
   window.evaluate(([name, value]) => (globalThis as unknown as { worfy: Bridge }).worfy.invoke(name as string, value), [channel, input] as const)
 
@@ -111,7 +143,7 @@ test('the Acceptance tab: groups, an item with its screenshot and clip, ↑ ↓,
       line('video', '`../evidence/03-clip.webm`'),
     ]),
   )
-  writeFileSync(join(issues, '04-ticket-4.md'), ticketFile(4, 'Search by code', ['- [ ] (manual) Search finds a product by its code', '  - needs: mac stable']))
+  writeFileSync(join(issues, '04-ticket-4.md'), ticketFile(4, 'Search by code', [`- [ ] (manual) ${LONG_ITEM}`, '  - needs: mac stable']))
   writeFileSync(join(repo, '.gitignore'), '.claude/\n')
   git(repo, 'init', '-q')
   git(repo, 'remote', 'add', 'origin', 'https://github.com/example/shop.git')
@@ -194,6 +226,20 @@ test('the Acceptance tab: groups, an item with its screenshot and clip, ↑ ↓,
     await window.keyboard.press('ArrowDown')
     await expect(rows.nth(1)).toHaveAttribute('data-selected', 'true')
     await expect(pane).toContainText('shop 04 — Search by code')
+
+    // 04's item text is far wider than the pane: the text yields and ends in an ellipsis, the state chip keeps its
+    // words whole on at most two lines (it was squeezed to a letter or two per line).
+    await window.setViewportSize({ width: 1280, height: 800 })
+    const longState = pane.getByTestId('evidence-state')
+    await expect(longState).toHaveText(/^Not verified: /)
+    const layout = await chipLayout(longState.locator('.w-chip'))
+    expect(layout.broken, 'no word of the state chip is split across lines').toEqual([])
+    expect(layout.lines, 'the state chip takes at most two lines').toBeLessThanOrEqual(2)
+    mkdirSync(CHIP_SCREENS, { recursive: true })
+    const chipShots = await snapshotThemes(window, 'evidence-chip-1280')
+    for (const scheme of ['light', 'dark'] as const) copyFileSync(chipShots[scheme], join(CHIP_SCREENS, `acceptance-1280-${scheme}.png`))
+    await window.setViewportSize({ width: 1600, height: 800 })
+
     await window.keyboard.press('ArrowUp')
     await expect(rows.nth(0)).toHaveAttribute('data-selected', 'true')
 

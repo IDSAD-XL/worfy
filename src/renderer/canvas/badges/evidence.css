@@ -58,25 +58,28 @@
   min-width: 16px;
   color: var(--text-secondary);
 }
-/* The start of the item's text on one line; the whole text is its tooltip and the Ticket's text below. */
+/* The start of the item's text on one line; the whole text is its tooltip and the Ticket's text below.
+   Its basis is 0: the text takes only the room the chip leaves, so a long text yields before the chip. */
 .w-evidence__text {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-/* The state's chip carries the reason too, so it may wrap; it is never cut. */
+/* The state's chip carries the reason too, so a long reason wraps between its words, within 60 % of the row;
+   it is never cut. No narrower than its longest word (the flex item's automatic minimum width), and a word
+   breaks only when it alone is wider than that cap. */
 .w-evidence__state {
   flex: 0 1 auto;
-  min-width: 0;
+  max-width: 60%;
   display: inline-flex;
 }
 .w-evidence__state .w-chip {
   height: auto;
   min-height: 18px;
   white-space: normal;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 .w-evidence__lines {
   margin: 2px 0 0 22px;
