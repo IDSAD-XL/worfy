@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-24T03:02Z
+PR: #2165
 Branch: worfy-acceptance/08
 Blocked by: 04, 05
 Source: [spec.md](../spec.md), «Ticket-ы», 8; «Решения по реализации» → «Шаги приёмки — ручные пункты Ticket-а»; «Вопросы
