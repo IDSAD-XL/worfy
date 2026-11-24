@@ -79,6 +79,9 @@ function queue(rows: Partial<Record<AcceptanceGroupName, AcceptanceRow[]>>): Acc
   return { groups: order.map((group) => ({ group, rows: rows[group] ?? [] })) }
 }
 
+/** The model's Ticket 03: three checkbox items, of which the cart is the second. */
+const MODEL_TICKETS = [{ epic: 'shop', num: 3, slug: 'ticket-3', title: '03 — Ticket 3', evidence: [evidenceItem(1, 'a', { manual: false }), evidenceItem(2, 'b'), evidenceItem(3, 'c', { manual: false })] }]
+
 const FULL = queue({ ready: [ROWS.cart, ROWS.search], update: [ROWS.checkout], waits: [ROWS.colour], failed: [ROWS.refund], work: [ROWS.wishlist], older: [ROWS.login] })
 
 type Answers = Record<string, (input: unknown) => IpcResult<unknown> | Promise<IpcResult<unknown>>>
@@ -112,7 +115,9 @@ function preload(state: AcceptanceState, answers: Answers = {}): void {
       case 'checks.repos':
         return { ok: true, value: { mode: 'full', repos: [] } }
       case 'workflow.open':
-        return { ok: true, value: { root: (input as { root: string }).root, epics: [], tickets: [], error: null, branchErrors: [], repoUrl: 'https://github.com/example/shop' } }
+        return { ok: true, value: { root: (input as { root: string }).root, epics: [], tickets: MODEL_TICKETS, error: null, branchErrors: [], repoUrl: 'https://github.com/example/shop' } }
+      case 'tickets.read':
+        return { ok: true, value: { path: '/projects/demo/.scratch/shop/issues/03-ticket-3.md', relative: '.scratch/shop/issues/03-ticket-3.md', text: '' } }
       case 'update.state':
         return { ok: true, value: { enabled: false, checking: false, available: null, running: null, build: { phase: 'idle' } } }
       case 'actions.ownerCheck':
@@ -149,8 +154,10 @@ afterEach(() => {
   delete (globalThis as { worfy?: WorfyBridge }).worfy
 })
 
-async function view(state: AcceptanceState, answers: Answers = {}): Promise<void> {
+async function view(state: AcceptanceState, answers: Answers = {}, shown = true): Promise<void> {
   preload(state, answers)
+  // The shell keeps every view mounted; the Acceptance view is the one on screen unless a test says otherwise.
+  if (shown) (await import('../../src/renderer/session/navigation')).setView('acceptance')
   const { AcceptanceView } = await import('../../src/renderer/acceptance/AcceptanceView')
   render(<AcceptanceView />)
   await screen.findAllByTestId('acceptance-group')
@@ -210,7 +217,7 @@ describe('the pane of an item', () => {
     await view(FULL)
     await waitFor(() => expect(pane().dataset.key).toBe(key(3, 2)))
     expect(textOf(pane())).toContain('demo · shop 03 — Ticket 3')
-    expect(textOf(pane())).toContain('Item 2 · manual · needs mac stable')
+    expect(textOf(pane())).toContain('Item 2 of 3 · manual · needs mac stable')
     expect(textOf(screen.getByTestId('acceptance-stable'))).toContain(IN.text)
     // The manual mark the item starts with is left out: the line above says "manual".
     expect(textOf(screen.getByTestId('acceptance-text'))).toBe('Add an item to the cart → the badge shows 1')
@@ -327,5 +334,74 @@ describe('Waits for you', () => {
     expect(screen.queryByTestId('acceptance-pass')).toBeNull()
     expect(screen.queryByTestId('acceptance-fail')).toBeNull()
     expect(screen.queryByTestId('acceptance-decision')).toBeNull()
+  })
+})
+
+describe('review round 1', () => {
+  const opens = () => main.calls.filter((call) => call.channel === 'workflow.open').length
+
+  it('↑ ↓ between two items of one Project open its model once; a hidden view opens none', async () => {
+    await view(queue({ ready: [ROWS.cart, ROWS.search] }), {}, false)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(opens()).toBe(0)
+    const { setView } = await import('../../src/renderer/session/navigation')
+    act(() => setView('acceptance'))
+    await waitFor(() => expect(opens()).toBe(1))
+    fireEvent.keyDown(window, { key: 'ArrowDown' })
+    await waitFor(() => expect(pane().dataset.key).toBe(key(4, 1)))
+    fireEvent.keyDown(window, { key: 'ArrowUp' })
+    await waitFor(() => expect(pane().dataset.key).toBe(key(3, 2)))
+    expect(opens()).toBe(1)
+  })
+
+  it('a decision in the Stable copy carries the commit main names for it, not the last update check\'s', async () => {
+    const stableCommit = 'abcdef1234567'
+    await view({ ...queue({ ready: [ROWS.cart] }), stableCommit }, { 'update.state': () => ({ ok: true, value: { enabled: true, checking: false, available: null, running: { commit: 'ffffffffffffffffffffffffffffffffffffffff', version: '0.4.1' }, build: { phase: 'idle' } } }) })
+    await waitFor(() => expect(pane().dataset.key).toBe(key(3, 2)))
+    fireEvent.click(screen.getByTestId('acceptance-pass'))
+    await waitFor(() => expect(ownerChecks()).toEqual([expect.objectContaining({ copy: 'stable', sha: stableCommit })]))
+  })
+
+  it('the keyboard focus follows the selection along the list', async () => {
+    await view(FULL)
+    const first = screen.getAllByTestId('acceptance-row')[0]!
+    first.focus()
+    fireEvent.keyDown(first, { key: 'ArrowDown' })
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' })
+    await waitFor(() => expect(pane().dataset.key).toBe(key(5, 1)))
+    expect((document.activeElement as HTMLElement).dataset.key).toBe(key(5, 1))
+  })
+
+  it('sendDecision twice before a render sends one decision', async () => {
+    await view(queue({ ready: [ROWS.cart] }))
+    const { sendDecision } = await import('../../src/renderer/acceptance/useAcceptance')
+    const where = { platform: 'mac', copy: 'stable', sha: '-' } as const
+    await act(async () => {
+      await Promise.all([sendDecision(ROWS.cart, 'pass', where, ''), sendDecision(ROWS.cart, 'pass', where, '')])
+    })
+    expect(ownerChecks()).toHaveLength(1)
+  })
+
+  it('the pane says "Item N of M", M the checkbox items of the Ticket', async () => {
+    await view(FULL)
+    await waitFor(() => expect(textOf(pane())).toContain('Item 2 of 3 · manual · needs mac stable'))
+  })
+
+  it('the tab counts the items of Ready to check that are not Sent', async () => {
+    const sent = { ...ROWS.cart, sent: { verdict: 'pass' as const, at: '2026-11-20T10:00:00.000Z', state: 'sent' as const } }
+    preload(queue({ ready: [sent, ROWS.search] }))
+    const { ToolbarView } = await import('../../src/renderer/shell/Toolbar')
+    render(<ToolbarView items={[]} view="canvas" onViewChange={() => {}} sidebarVisible onToggleSidebar={() => {}} />)
+    await waitFor(() => expect(textOf(screen.queryByTestId('acceptance-tab-count'))).toBe('1'))
+  })
+
+  it('the list row and the Evidence matrix show the item as text: no markdown markers, no manual mark', async () => {
+    const bold = item(3, 2, '(manual) The badge shows **1** in `Cart`', { stable: IN })
+    await view(queue({ ready: [bold] }))
+    expect(textOf(screen.getAllByTestId('acceptance-row')[0])).toContain('The badge shows 1 in Cart')
+    expect(textOf(screen.getAllByTestId('acceptance-row')[0])).not.toMatch(/\*\*|`|\(manual\)/)
+    const shown = within(pane()).getByTestId('evidence-item')
+    expect(textOf(shown)).toContain('The badge shows 1 in Cart')
+    expect(textOf(shown)).not.toMatch(/\*\*|`|\(manual\)/)
   })
 })

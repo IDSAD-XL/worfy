@@ -42,9 +42,10 @@ export function shownRows(state: AcceptanceState | null, open: Readonly<Record<A
   return (state?.groups ?? []).flatMap((group) => (open[group.group] ? group.rows : []))
 }
 
-/** The count of Ready to check: the number on the tab. */
-export function readyCount(state: AcceptanceState | null): number {
-  return state?.groups.find((group) => group.group === 'ready')?.rows.length ?? 0
+/** The number on the tab: the items of Ready to check not Sent yet, by main's mark or by this window. */
+export function readyCount(state: AcceptanceState | null, sentHere: Readonly<Record<string, OwnerCheckVerdict>>): number {
+  const rows = state?.groups.find((group) => group.group === 'ready')?.rows ?? []
+  return rows.filter((row) => row.kind !== 'item' || sentOf(row, sentHere) === null).length
 }
 
 /** The Sent mark a row shows: main's, else one this window has just sent. */
@@ -111,7 +112,7 @@ export function useAcceptance(): AcceptanceStore {
 /** The count of Ready to check, for the tab; starts the reading too. */
 export function useReadyCount(): number {
   useEffect(start, [])
-  return useAcceptanceStore((store) => readyCount(store.state))
+  return useAcceptanceStore((store) => readyCount(store.state, store.sentHere))
 }
 
 export function selectRow(key: string): void {

@@ -10,6 +10,8 @@ import { OWNER_CHECK_AUTOPILOT_HINT } from '../../shared/actions/render-template
 import { MAIN_WAITS_FOR_CI, NO_UPDATE_CHECK, UPDATE_NOT_HERE, type AcceptanceGroupName, type AcceptanceItemRow, type AcceptanceRow, type AcceptanceSent, type AcceptanceStable, type AcceptanceTicket } from '../../shared/ipc/acceptance'
 import { OWNER_CHECK_COPIES, OWNER_CHECK_PLATFORMS, OWNER_CHECK_SHA, type OwnerCheckCopy, type OwnerCheckPlatform, type OwnerCheckVerdict } from '../../shared/projects/action-templates'
 import type { EvidenceItem } from '../../shared/workflow/types'
+import { markdownText } from '../../shared/markdown/visible-text'
+import type { WorkflowModel } from '../../shared/workflow/types'
 import { ticketTitle } from '../canvas/epic-layout'
 import { EvidenceMatrix } from '../canvas/nodes/EvidenceMatrix'
 import { linkFolderOf, useTicketText } from '../canvas/nodes/ticket-text'
@@ -17,6 +19,7 @@ import { invoke } from '../ipc'
 import { Markdown } from '../markdown/Markdown'
 import { currentPlatform } from '../platform'
 import { useProjects, useReadOnly } from '../projects/useProjects'
+import { useNavigation } from '../session/navigation'
 import { Button } from '../theme/Button'
 import { layerOf } from '../theme/open-layers'
 import { Select } from '../theme/Select'
@@ -66,11 +69,16 @@ function shownText(item: EvidenceItem): string {
   return item.manual ? item.text.replace(/^\([^)]*\)\s*/, '') : item.text
 }
 
+/** The item as plain text, without the manual mark and the markdown markers: the list row and the Evidence matrix. */
+function plainText(item: EvidenceItem): string {
+  return markdownText(shownText(item)).replace(/\s+/g, ' ').trim()
+}
+
 /** The short line under a row of the list: the item's text, the Ticket's reason, or the words of the last fail. */
 function rowDetail(group: AcceptanceGroupName, row: AcceptanceRow): string {
   if (row.kind === 'ticket') return row.ticket.blockedReason ?? 'Waits for you'
   const fail = group === 'failed' ? row.item.evidence.findLast((line) => line.verdict === 'fail') : undefined
-  return fail?.ref ?? shownText(row.item)
+  return fail?.ref ?? plainText(row.item)
 }
 
 function ListRow({ group, row, selected, sent }: { group: AcceptanceGroupName; row: AcceptanceRow; selected: boolean; sent: AcceptanceSent | null }) {
@@ -148,7 +156,7 @@ function firstCopy(row: AcceptanceItemRow): OwnerCheckCopy {
 
 /** The decision row: the comment, "Checked in", Pass and Fail, and what became of the decision. */
 function DecisionRow({ row, root }: { row: AcceptanceItemRow; root: string | undefined }) {
-  const { sending, sentHere, refused } = useAcceptance()
+  const { sending, sentHere, refused, state } = useAcceptance()
   const key = rowKey(row)
   const [words, setWords] = useState('')
   const [platform, setPlatform] = useState<OwnerCheckPlatform>(currentPlatform())
@@ -158,10 +166,11 @@ function DecisionRow({ row, root }: { row: AcceptanceItemRow; root: string | und
   const readOnly = useReadOnly()
   const mode = useProjectMode(root)
   const sent = sentOf(row, sentHere)
-  // The commit of the copy: known only for the Stable copy when this window is it, on this Machine's platform.
-  const here = update?.enabled === true && copy === 'stable' && platform === currentPlatform()
-  const commit = here ? (update.running?.commit ?? null) : null
-  const version = here ? (update.current?.version ?? update.running?.version ?? null) : null
+  // The commit of the copy: known for this Machine's Stable copy, the one the Stable copy line reads (main's snapshot);
+  // its version when this window is that copy.
+  const here = copy === 'stable' && platform === currentPlatform()
+  const commit = here ? (state?.stableCommit ?? null) : null
+  const version = here ? (update?.enabled === true ? (update.current?.version ?? null) : commit?.slice(0, 7) ?? null) : null
   const where: CheckedIn = { platform, copy, sha: commit !== null && OWNER_CHECK_SHA.test(commit) ? commit : '-' }
   const blocked = readOnly ?? (autopilot ? OWNER_CHECK_AUTOPILOT_HINT : sending[key] !== undefined ? 'Sending…' : sent?.state === 'sent' ? 'Sent: the decision waits for its line in the Ticket' : null)
   const reason = (verdict: OwnerCheckVerdict): string | null => blocked ?? (verdict === 'fail' && words.trim() === '' ? FAIL_NEEDS_WORDS : null)
@@ -204,10 +213,8 @@ function DecisionRow({ row, root }: { row: AcceptanceItemRow; root: string | und
 }
 
 /** The right pane of an item: what to check, where, its Evidence and what was prepared, and the decision. */
-function ItemPane({ row }: { row: AcceptanceItemRow }) {
+function ItemPane({ row, root, model }: { row: AcceptanceItemRow; root: string | undefined; model: WorkflowModel | undefined }) {
   const { ticket, item } = row
-  const root = useProjects()?.projects.find((project) => project.id === ticket.projectId)?.path
-  const { model } = useWorkflow(root)
   const full = model?.tickets.find((each) => each.epic === ticket.epic && each.num === ticket.num)
   const text = useTicketText(full === undefined ? null : { projectId: ticket.projectId, ticket: full })
   const baseDir = linkFolderOf(text)
@@ -219,12 +226,12 @@ function ItemPane({ row }: { row: AcceptanceItemRow }) {
       <h2 className="w-acc-pane__title">
         {ticket.projectName} · {ref(ticket)} — {ticketTitle({ ...ticket, slug: '' })}
       </h2>
-      <p className="w-acc-muted">{[`Item ${item.index}`, 'manual', needs].filter(Boolean).join(' · ')}</p>
+      <p className="w-acc-muted">{[full?.evidence === undefined ? `Item ${item.index}` : `Item ${item.index} of ${full.evidence.length}`, 'manual', needs].filter(Boolean).join(' · ')}</p>
       {row.stable !== null ? <StableLine stable={row.stable} /> : null}
       <div className="w-acc-pane__text" data-testid="acceptance-text">
         <Markdown text={shownText(item)} projectId={ticket.projectId} baseDir={baseDir} />
       </div>
-      <EvidenceMatrix projectId={ticket.projectId} epic={ticket.epic} items={[item]} repoUrl={repoUrl} baseDir={baseDir} />
+      <EvidenceMatrix projectId={ticket.projectId} epic={ticket.epic} items={[{ ...item, text: plainText(item) }]} repoUrl={repoUrl} baseDir={baseDir} />
       {row.prepared.length > 0 ? (
         <section className="w-acc-prepared" data-testid="acceptance-prepared">
           <h3 className="w-acc-pane__subtitle">
@@ -233,7 +240,7 @@ function ItemPane({ row }: { row: AcceptanceItemRow }) {
           <ul>
             {row.prepared.map((each) => (
               <li key={each.index} data-state={each.state}>
-                <span aria-hidden="true">{each.state === 'verified' ? '✓' : each.state === 'failed' ? '✕' : '○'}</span> {each.text}
+                <span aria-hidden="true">{each.state === 'verified' ? '✓' : each.state === 'failed' ? '✕' : '○'}</span> {plainText(each)}
               </li>
             ))}
           </ul>
@@ -278,6 +285,12 @@ function TicketPane({ ticket }: { ticket: AcceptanceTicket }) {
 export function AcceptanceView() {
   const { state, error, selected } = useAcceptance()
   const frame = useRef<HTMLDivElement>(null)
+  const row = (state?.groups ?? []).flatMap((group) => group.rows).find((each) => rowKey(each) === selected)
+  // The model of the selected row's Project, kept while the rows of that Project are walked, and open only while the view
+  // is on screen: an open model fetches the Project's main branch (src/main/workflow/watch.ts).
+  const shown = useNavigation((navigation) => navigation.view === 'acceptance')
+  const root = useProjects()?.projects.find((project) => project.id === row?.ticket.projectId)?.path
+  const { model } = useWorkflow(shown ? root : undefined)
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       const step = listKey(event, frame.current)
@@ -289,9 +302,11 @@ export function AcceptanceView() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
   useEffect(() => {
-    frame.current?.querySelector('[data-testid="acceptance-row"][data-selected="true"]')?.scrollIntoView?.({ block: 'nearest' })
+    const item = frame.current?.querySelector<HTMLElement>('[data-testid="acceptance-row"][data-selected="true"]')
+    item?.scrollIntoView?.({ block: 'nearest' })
+    // The focus in the list follows the selection, so Enter on it never selects the row left behind.
+    if (document.activeElement instanceof HTMLElement && document.activeElement.closest('.w-acc-list') !== null) item?.focus()
   }, [selected])
-  const row = (state?.groups ?? []).flatMap((group) => group.rows).find((each) => rowKey(each) === selected)
   const empty = state !== null && state.groups.every((group) => group.rows.length === 0)
   return (
     <div ref={frame} className="w-acc" data-testid="acceptance-view">
@@ -302,7 +317,7 @@ export function AcceptanceView() {
       {state !== null && !empty ? (
         <div className="w-acc__panes">
           <GroupList selected={selected} />
-          {row === undefined ? <p className="w-acc-muted w-acc-pane">Select a check</p> : row.kind === 'item' ? <ItemPane key={rowKey(row)} row={row} /> : <TicketPane ticket={row.ticket} />}
+          {row === undefined ? <p className="w-acc-muted w-acc-pane">Select a check</p> : row.kind === 'item' ? <ItemPane row={row} root={root} model={model} /> : <TicketPane ticket={row.ticket} />}
         </div>
       ) : null}
     </div>
