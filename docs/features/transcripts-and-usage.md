@@ -187,7 +187,8 @@ opens a stopped sampler gets a sample at once. A reload drops the old page's ope
 The toolbar shows "Limits" with a section per Vendor, the same for every Project. The Session view does not repeat them. Before
 any data arrives it says "no data yet". A window without data says "no data".
 
-- **Claude Code** comes first, with two bars, 5-hour and 7-day.
+- **Claude Code** comes first, with a bar per window of the plan: 5-hour and 7-day. A plan without the 5-hour window shows the
+  7-day bar alone; a plan that has the window but no data for it yet shows its bar with "no data".
 - **Codex** has a section only while the user is signed in to it. Its bars are the windows its plan reports, shortest first, each
   labelled by its length (`5h`, `weekly`). A plan that reports no windows shows "No limits reported".
 - **Short labels.** The toolbar shows a window's label in its short form: `5h` for Claude Code's 5-hour window and `7d` for its
@@ -227,6 +228,10 @@ any data arrives it says "no data yet". A window without data says "no data".
   [ADR-0047](../adr/0047-harness-lessons-by-pr-early-owner-switch.md)). The user's status line keeps its output and exit code.
 - **One merge rule.** A newer update replaces the older one of the same window. An update without a reset time keeps a known reset
   still ahead, and one without a status keeps the known status within the same window: resets at most an hour apart.
+- **A window the plan does not have.** Only the usage request lists the plan's windows: a window its answer leaves out or gives as
+  null is one the plan does not have, and `limits.json` keeps that in `absent`. The other two sources leave out a window they have
+  no data for, so it stays "no data". The newer word wins: the answer removes a window known before it, and data received after it
+  brings the window back.
 - **Codex's windows.** Two sources, both full lists that replace what was known: a background poll at the start and every 30 minutes
   (it asks the account first and forgets the windows once the user is signed out), and the `account/rateLimits/updated` notification
   during a Codex Session's turn. They are kept in memory only; `limits.json` keeps Claude's form.

@@ -26,6 +26,15 @@ describe('LimitsMeterView', () => {
     expect(screen.queryByRole('meter')).toBeNull()
   })
 
+  // worfy-resource-planner ticket 13: a plan without the 5-hour window draws no bar for it.
+  it('draws only the windows the plan has: no 5-hour bar for a plan without that window', () => {
+    const weekOnly: LimitsView = { claude: { windows: { seven_day: claude.windows.seven_day! }, absent: { five_hour: AT } }, vendors: {} }
+    render(<LimitsMeterView state={weekOnly} now={AT} timeZone={TZ} />)
+    expect(screen.queryByTestId('limit-five_hour')).toBeNull()
+    expect([...screen.getByTestId('limits-claude-stack').children].map((bar) => bar.getAttribute('data-testid'))).toEqual(['limit-seven_day'])
+    expect(screen.getByRole('group', { name: 'Limits' }).textContent).not.toContain('5h')
+  })
+
   it('draws a meter with the share and reset time, and the status in words without a share', () => {
     render(<LimitsMeterView state={state} now={AT} timeZone={TZ} />)
     const fiveHour = screen.getByTestId('limit-five_hour')
