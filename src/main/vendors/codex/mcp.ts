@@ -227,7 +227,9 @@ export const configReplacedNote = (name: string): string => `Replaces the server
  * keys `mcp_servers.<name>.… = …` and `mcp_servers.<name> = { … }`. A key is bare or quoted. A dotted key under another
  * table (`[profiles.work]`, `mcp_servers.foo.enabled = false`) is that table's, not a server. Comments are skipped.
  * shortcut: a line scan, not a TOML parser — a server declared as `mcp_servers = { … }` at the top or under a multi-line
- * string is not found, and its row then lacks the note; the Session itself is the same either way.
+ * string is not found, and its row then lacks the note; a line starting with `[` inside a multi-line array (a nested
+ * array such as `  [1, 2],`) is read as a table header, so the table the lines were in ends there and a server declared
+ * after it up to the next real header is not found either. The Session itself is the same either way.
  */
 export function codexConfigServerNames(text: string): string[] {
   const names: string[] = []
