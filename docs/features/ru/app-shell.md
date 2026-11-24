@@ -1,6 +1,6 @@
 # App shell
 
-> Перевод [английской версии](../app-shell.md), commit `1147879d`.
+> Перевод [английской версии](../app-shell.md), commit `640978d0`.
 
 То, что окружает Canvas в каждом окне и на каждом Project-е. Семь Feature: **Sidebar**, **Command palette**, **Shortcuts**,
 **Menu**, **Settings**, **worfy Guide** и **Theme**. У восьмой, [Notifications](notifications.md), своя страница. Термины
@@ -22,10 +22,11 @@ Runs и Pull requests неактивны без Project-а. Каждый вид 
   кнопка, которая скрывает sidebar (⌘B, Ctrl+B на Windows). Перетаскивание полосы двигает окно.
 - **Project switcher** — отдельная строка под полосой, шириной с sidebar: название того, что показывает sidebar, и шеврон на
   её правом конце. Длинному имени Project-а отдана вся строка.
-- **Rail** — колонка иконок, по одной на секцию: Projects, Sessions, Pull requests, Pipeline, Epics, ADR, а внизу Health check, Machines
-  и Settings. У выбранной секции акцентная полоса. На иконке секции есть badge, который виден, пока открыта другая секция:
-  число занятых Session-ов в Project-ах, которые показывает switcher, цветом работы; число pull request-ов, которым нужны вы
-  (review, ответ или исправление); точка, пока Ticket в работе заблокирован или кого-то ждёт; и точка Linked machine-ов.
+- **Rail** — колонка иконок, по одной на секцию: Projects, Sessions, Pull requests, Acceptance, Pipeline, Epics, ADR, а внизу
+  Health check, Machines и Settings. У выбранной секции акцентная полоса. На иконке секции есть badge, который виден, пока
+  открыта другая секция: число занятых Session-ов в Project-ах, которые показывает switcher, цветом работы; число pull
+  request-ов, которым нужны вы (review, ответ или исправление); число проверок в Ready to check вида
+  [Acceptance](acceptance.md), цветом работы; точка, пока Ticket в работе заблокирован или кого-то ждёт; и точка Linked machine-ов.
 - **Панель** рядом с rail. Она показывает одну секцию: её название, какие Project-ы она показывает, её собственные кнопки и её
   список, который прокручивается сам по себе.
 
@@ -51,7 +52,7 @@ Rail — одна позиция в порядке Tab. ↑ и ↓ ходят п
 
 **Project switcher** отвечает «All Projects» или одним Project-ом Machine окна:
 
-- **All Projects** смешивает Project-ы в Sessions, Pull requests, Pipeline, Epics и ADR. Каждая из Sessions, Epics и ADR
+- **All Projects** смешивает Project-ы в Sessions, Pull requests, Acceptance, Pipeline, Epics и ADR. Каждая из Sessions, Epics и ADR
   сначала показывает список открытого Project-а, затем список каждого другого Project-а, у которого он есть, каждый под его
   именем. Клик по Epic-у другого Project-а открывает этот Project и центрирует Epic на его Canvas. Клик по Session другого
   Project-а открывает этот Project, а затем Session так же, как клик в её собственном списке, когда её Node появится на Canvas
@@ -72,6 +73,13 @@ Rail — одна позиция в порядке Tab. ↑ и ↓ ходят п
 растёт вместе с ней. У каждой части есть tooltip, который говорит, что она считает: busy — Session-ы, у которых идёт turn;
 PR need you — pull request-ы, которым нужны ваш review, ответ или исправление; waits — Ticket-ы, которые заблокированы или
 ждут человека, а не агента. Project Linked machine сохраняет одну строку.
+
+**Секция Acceptance** показывает очередь [Acceptance](acceptance.md) по Project-ам: имя каждого Project-а, затем по строке на
+каждую группу, в которой есть проверка этого Project-а, — Ready to check, Update first, Waits for you, Failed — с её счётом.
+У In work и Older там строки нет. Клик открывает вид Acceptance на первой строке этой группы у этого Project-а; вид — по всем
+Project-ам, поэтому клик не открывает Project. Когда ни в одной из этих групп нет строки, секция пишет «Nothing to check».
+Badge её rail — число Ready to check в Project-ах, которые показывает switcher: при «All Projects» это число на вкладке
+toolbar-а.
 
 В группе другого Project-а Session показывает имя, которое ей даёт Claude Code, иначе «Session <id>», и «terminal» или
 «desktop». Canvas того Project-а не читается, поэтому его Session-ы worfy там не помечены «worfy». «New session», «Product
@@ -119,7 +127,7 @@ Project, который хранится только на этой Machine. Pul
 | Секции | `src/renderer/shell/sidebar/` |
 | Записи секций в rail | `src/renderer/shell/registry.ts` |
 
-Главные test-ы: `test/unit/sidebar-scope.test.tsx`, `test/unit/sidebar-section.test.tsx`, `test/unit/health-rail-button.test.tsx`, `test/e2e/sidebar-rail.spec.ts`,
+Главные test-ы: `test/unit/sidebar-scope.test.tsx`, `test/unit/sidebar-section.test.tsx`, `test/unit/health-rail-button.test.tsx`, `test/unit/acceptance-section.test.tsx`, `test/e2e/sidebar-rail.spec.ts`,
 `test/e2e/sidebar-sections.spec.ts`.
 
 ## Command palette
@@ -146,7 +154,7 @@ Command palette. Settings, открытые поверх неё по ⌘,, ле�
 | Группа | Строки |
 |---|---|
 | Action | New session; New Product Session; «New …» на каждый пункт меню Canvas; Tidy up; Arrange by Epic; Re-pack; Archive finished sessions now; Process gate queue; Run wave `<epic>`; Ship ticket `<epic>/<NN>`; Open changes `<epic>/<NN>`; Resolve conflicts, Fix checks и Address comments `<owner>/<repo>#<N>`; Reconnect machine…; Remove machine…; Update worfy |
-| View | Switch to Canvas; Switch to Session; Pull requests, при открытом Project-е; First-run checks; Health check; Getting started; Settings…; Keyboard shortcuts; worfy Guide; Guide: `<Topic>` на каждый Topic; Show only tag `<tag>`; Show all Nodes |
+| View | Switch to Canvas; Switch to Session; Pull requests, при открытом Project-е; Acceptance; First-run checks; Health check; Getting started; Settings…; Keyboard shortcuts; worfy Guide; Guide: `<Topic>` на каждый Topic; Show only tag `<tag>`; Show all Nodes |
 | Project | Switch to project `<name>` на каждый другой Project |
 | Go to | Orchestrator; каждый Epic, Ticket и ADR; каждый Node из Layout, кроме тех, что worfy рисует из workflow, и binding anchor-ов |
 | Manual check | Каждая неотмеченная ручная проверка Ticket-а. Эти строки появляются только после ввода |
@@ -176,7 +184,8 @@ Command palette. Settings, открытые поверх неё по ⌘,, ле�
 Строка «Go to» показывает Canvas и центрирует его на Node-е. Архивный или скрытый Node сначала возвращается. Ticket в свёрнутом
 frame центрирует этот frame. Строка ADR открывает этот ADR только для чтения и не двигает Canvas. При скрытом sidebar ADR
 откроется, когда sidebar покажут. Строка Orchestrator открывает Session view и запускает Orchestrator, если он не работает.
-Строка Manual check ведёт к своему Ticket-у и ничего не отмечает. Выбор строки «In transcripts» открывает эту Session в Session
+«Acceptance» открывает вид [Acceptance](acceptance.md), с Project-ом и без. Строка Manual check открывает вид Acceptance на
+своём пункте, когда пункт есть в его очереди, а иначе ведёт к своему Ticket-у; она ничего не отмечает. Выбор строки «In transcripts» открывает эту Session в Session
 view.
 
 **Ранжирование.** Точный ключ бьёт любой заголовок, например номер Ticket-а (`07`, `7`, `worfy-mvp/07`) или номер ADR. Дальше по
@@ -412,6 +421,7 @@ Tab идёт по кругу по элементам окна. Пока оно �
 | Machines | Переключатели связи и уровень доступа каждой Linked machine: см. [Link](link.md) |
 | Terminal AI | Переключатели и модели Terminal AI: см. [Terminal](terminal.md) |
 | Sessions | Окно autocompact для Session-ов |
+| Integrations | Все Integration-ы Machine, их состояние и Project-ы, которые их используют, с Sign in, Sign out, Remove и Clean up: см. [Integrations](integrations.md#settings--integrations) |
 | Canvas | Автоматический архив завершённых Session-ов |
 | Pull requests | Уведомления и утренний дайджест PR inbox, оба по умолчанию включены: см. [Notifications](notifications.md#утренний-дайджест) |
 | Browser | Когда Live Browser засыпает |

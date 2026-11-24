@@ -1,7 +1,7 @@
 # 09 — Документация Acceptance: страница Feature en и ru, правки соседних страниц, термин в CONTEXT.md, инвентарь ADR-0005
 
 Type: task
-Status: open
+Status: claimed 2026-11-24T06:29Z
 Blocked by: 06, 07, 08
 Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решения по реализации» → «ADR не нужен новый», «Термин в CONTEXT.md»
 

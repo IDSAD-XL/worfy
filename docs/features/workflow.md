@@ -78,7 +78,8 @@ by last work, newest first. An Epic with no Ticket in work and no work for longe
 click opens it, and the fold is kept for each Project. The threshold is "Fold Epics without work after" in Settings →
 General: Never, 3, 7 or 30 days, 7 days by default; Never keeps every Epic in the list. The Command palette has a "Go to" row for each Epic and Ticket, and for a Ticket with no
 card it centres the frame. Each unchecked manual check of a Ticket (an item of its done section with the Profile's manual
-mark) is a palette row found only by typing. Picking it goes to the Ticket. worfy does not tick these items.
+mark) is a palette row found only by typing. Picking it opens the [Acceptance](acceptance.md) view on that item when
+its queue holds it, else goes to the Ticket. worfy does not tick these items.
 
 **A manual item is one step for the owner.** An acceptance keeps its steps in its Ticket: each manual item is one step,
 `Do: … → Expect: …` in the language of the Project's documents (in a Russian Ticket, «Сделай: … → Должно быть: …»),

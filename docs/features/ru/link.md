@@ -1,6 +1,6 @@
 # Link
 
-> Перевод [английской версии](../link.md), commit `5d1efe69`.
+> Перевод [английской версии](../link.md), commit `555be01f`.
 
 Две Feature. **Machine** — это данный worfy так, как его знает link: id, имя, ключ и сертификат, привязанные к одной
 папке данных. **Linked machine** — другая Machine, соединённая с этой по шестизначному коду. Её Project-ы можно открыть
@@ -310,6 +310,17 @@ read-only access`. Действия записи остаются на экра�
 виден под указателем и когда фокус клавиатуры на действии; Esc его прячет, а screen reader слышит его как описание действия. Node
 не двигаются и не меняют размер. Node с Terminal показывает замену, его shell не запускается, а его вывод не отправляется.
 
+**Acceptance.** Вкладка Acceptance окна на Linked machine показывает очередь Project-ов той Machine, как Pull requests
+показывает её pull request-ы ([Acceptance](acceptance.md)). При Read only Pass и Fail неактивны с tooltip-ом только для
+чтения, и та Machine всё равно отклонит решение. При Full access решение уходит Orchestrator-у Project-а на его Machine.
+«Checked in» начинается с платформы Machine окна, и решение называет commit сборки, которую та Machine запускает. Пункт, чья
+строка `needs:` называет не платформу этой Machine, показывает сборку Linked machine этой платформы: `PC build: <build>
+(<name>)` на Mac, пока ПК подключён, иначе `PC not connected` — так же, пока соединение открыто, но его `hello` ещё не пришёл.
+Такое решение тоже называет commit этой сборки, когда выбрана её платформа. worfy на той стороне без вида Acceptance
+заставляет вид сказать `Update worfy on <name>`; так же — Machine окна, когда её `hello` называет её сборку, но не платформу.
+Другая Linked machine без платформы может оказаться и Mac-ом и не считается. Неизвестное значение платформы в `hello`
+отбрасывается, а остальное в нём сохраняется. Снимки и клипы по связи не передаются, как на странице [Evidence](evidence.md).
+
 #### Windows
 
 Строка Machine без соединения получает подсказку, пока Bonjour ищет и Machine не отвечала на поиск последние 30 секунд.
@@ -365,7 +376,10 @@ Tailscale CLI ищется в Path, затем в папке Tailscale внут�
   `autopilot-runs-ask` и `autopilot-runs` принадлежат самому link, и каждое разбирается схемой при получении. Каждый `hello`
   перечисляет, что принимает эта сборка, а сообщение, добавленное позже, например `ticket-note`, идёт только той Machine, которая
   его назвала, поэтому более старая сборка продолжает работать
-  ([ADR-0079](../../adr/0079-link-machines-announce-accepted-messages.md)).
+  ([ADR-0079](../../adr/0079-link-machines-announce-accepted-messages.md)). `hello` несёт ещё версию сборки и, начиная с
+  Ticket-а 07 Epic-а worfy-acceptance, платформу (`mac`, `windows` или `linux`). Main держит обе для соединения, которым
+  пользуются вызовы, пока оно открыто, а окна получают их с `linked.state`. Более старая сборка платформу не шлёт, а
+  получатель отбрасывает это поле.
 - **Ответ новой формы падает на старой сборке.** Вызывающая сторона проверяет ответ вызова по output schema канала
   (`src/main/link/remote-calls.ts`). Когда новая сборка расширяет ответ, окно старой сборки получает для этого вызова
   «answered outside the contract»; сам вызов выполнен. Версия протокола остаётся прежней: остальной link работает. Пример:
@@ -408,6 +422,7 @@ Tailscale CLI ищется в Path, затем в папке Tailscale внут�
 | Удержание Project-а для экрана; просмотр папок; сохранённая камера | `src/main/projects/holds.ts`, `src/main/projects/browse.ts`, `src/main/layout/viewports.ts` |
 | Обработчики и контракт состояния link | `src/main/ipc/link.ts`, `src/shared/ipc/link.ts` |
 | Обработчики и контракт для окна на Linked machine | `src/main/ipc/linked.ts`, `src/shared/ipc/linked.ts` |
+| Сборка Linked machine для пункта Acceptance; «Update worfy on» | `src/shared/acceptance/linked-build.ts`, `src/renderer/acceptance/AcceptanceView.tsx` |
 | Отметки доступа; маршрут канала из окна | `src/shared/ipc/channels.ts`, `src/renderer/ipc.ts` |
 | Группы в sidebar, перезагрузка при новой epoch, уровень read-only | `src/renderer/projects/useProjects.ts`, `src/renderer/projects/read-only.ts` |
 | Состояние link в renderer; строки доступа | `src/renderer/machines/useMachines.ts` |
@@ -430,9 +445,11 @@ Tailscale CLI ищется в Path, затем в папке Tailscale внут�
 - Contract: `test/contract/link-pairing.test.ts` (векторы RFC 9382, pairing), `test/contract/link-server.test.ts` (сертификат,
   проверки до рукопожатия, отзыв, heartbeat, лимиты размера), `test/contract/link-connections.test.ts` (удержание соединения,
   переключатели, Bonjour, тайминг повторов, выход), `test/contract/link-access.test.ts` (уровни и отказы),
-  `test/contract/link-reconnect.test.ts` (dial, имена, подсказка про Windows firewall), `test/contract/linked-ipc.test.ts`.
+  `test/contract/link-reconnect.test.ts` (dial, имена, подсказка про Windows firewall), `test/contract/linked-ipc.test.ts`,
+  `test/contract/acceptance-linked.test.ts` (очередь и решение по связи, сборка из `hello`).
 - Unit: `test/unit/link-checks.test.ts` (диапазоны адресов, `Host`), `test/unit/link-discovery.test.ts`,
-  `test/unit/link-caller.test.ts`, `test/unit/link-tailscale.test.ts`, `test/unit/linked-read-only.test.tsx`.
+  `test/unit/link-caller.test.ts`, `test/unit/link-tailscale.test.ts`, `test/unit/linked-read-only.test.tsx`,
+  `test/unit/acceptance-linked-build.test.ts`.
 - e2e: `test/e2e/linked-machines.spec.ts` (соединение, отзыв, Settings, открытие Project-а),
   `test/e2e/linked-reconnect.spec.ts`, `test/e2e/linked-read-only.spec.ts`, `test/e2e/linked-sleep.spec.ts`,
-  `test/e2e/linked-system-actions.spec.ts`.
+  `test/e2e/linked-system-actions.spec.ts`, `test/e2e/linked-acceptance.spec.ts`.
