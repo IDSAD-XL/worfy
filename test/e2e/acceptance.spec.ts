@@ -19,7 +19,8 @@ import { snapshotThemes } from './snapshots'
 // - Pass sends the Project's "Record owner check" template to the Orchestrator (the fake agent's log), the item reads
 //   "Sent" and the next one is selected; the Harness's own `ticket evidence` then writes the `owner-check` line into
 //   the Ticket file, and the item leaves the queue without a restart;
-// - screenshots of the two panes at 1280 and 1600 px in both themes (test-results/worfy-acceptance-05-screens).
+// - screenshots of the two panes at 1280 and 1600 px in both themes, and of a Sent item with Pass and Fail inactive
+//   (test-results/worfy-acceptance-05-screens).
 // Every name and text is invented.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
@@ -203,6 +204,11 @@ test('the Acceptance tab: groups, an item with its screenshot and clip, ↑ ↓,
     await expect.poll(() => messages(log).find((text) => text.startsWith(sent)), { timeout: ms(30_000) }).toContain('The badge shows 1')
     await expect(rows.nth(0)).toContainText('Sent')
     await expect(rows.nth(1)).toHaveAttribute('data-selected', 'true')
+    // The Sent item again: Pass and Fail inactive, a screenshot in both themes of how an inactive Pass looks.
+    await rows.nth(0).click()
+    await expect(pane.getByTestId('acceptance-pass')).toHaveAttribute('aria-disabled', 'true')
+    const inactive = await snapshotThemes(window, 'acceptance-sent')
+    for (const scheme of ['light', 'dark'] as const) copyFileSync(inactive[scheme], join(SCREENS, `acceptance-sent-${scheme}.png`))
 
     // The skill's line, written by the Harness's own script: the item leaves the queue without a restart.
     const written = spawnSync(
