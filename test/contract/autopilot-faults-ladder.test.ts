@@ -13,6 +13,12 @@
 // scenarios that start with stuckOn01 the first Session plays HELD, the same script whose Wave 1 turn ends only when
 // the test lets it: the run settles from the end of a turn on real time, and the test's own writes come before that.
 //
+// The ladder scenarios run without PR reads (`prs: false`): the ladder reads no PR, and with them the run's stop
+// waited for its last PR read, which joins the read Wave 1 started (PrTracker runs one read at a time) and whose
+// END_READ_MS limit is on the test's clock, which these scenarios never move. On a loaded Windows runner each call of
+// the gh stand-in took 4-6 s, so scenario 5, whose wait for the stop covers the whole run, timed out with the journal
+// ending at wave-finished. PR reads and I2 are checked in autopilot-faults-github.test.ts.
+//
 // Fault scenario 7 (worfy-stuck-agents ticket 09) is here too, with its negative cases: a turn that goes quiet stops
 // the run with `turn-hung` and interrupts nothing; a hook that runs is no quiet; a quiet background task stays
 // `background-stalled`.
@@ -108,7 +114,7 @@ async function stuckOn01(h: FaultRun, next: 'none' | 'done' = 'none', epics?: re
 
 describe('the continuation ladder of a Run (worfy-stuck-agents ticket 05)', () => {
   it('scenario 1: a Ticket left claimed is continued in the next Wave, which brings it to done', async () => {
-    const h = faultRun({ scripts: [HELD, SCRIPT], marks: 'claimed', settleMs: SETTLE_MS })
+    const h = faultRun({ scripts: [HELD, SCRIPT], marks: 'claimed', settleMs: SETTLE_MS, prs: false })
     await stuckOn01(h, 'done')
     await h.stopped(1)
 
@@ -139,7 +145,7 @@ describe('the continuation ladder of a Run (worfy-stuck-agents ticket 05)', () =
 
   it('scenario 2: still claimed after two continuations → set-aside → the Orchestrator blocks it, Waits: owner → the Run goes to the next Epic', async () => {
     // 01's claim reads from its worktree branch, so the set-aside message names the branch (worfy-polish 138).
-    const h = faultRun({ scripts: [HELD, SCRIPT, SCRIPT, 'autopilot-fault-held'], marks: 'claimed', settleMs: SETTLE_MS, setAside: 'block', secondEpic: true, fromBranch: [
+    const h = faultRun({ scripts: [HELD, SCRIPT, SCRIPT, 'autopilot-fault-held'], marks: 'claimed', settleMs: SETTLE_MS, prs: false, setAside: 'block', secondEpic: true, fromBranch: [
         { epic: EPIC, num: 1, branch: 'demo/01' },
         // Ticket 01 of the other Epic has a branch too: the message must not take it for the set-aside Ticket's.
         { epic: EPIC_B, num: 1, branch: 'demo-b/01' },
@@ -184,7 +190,7 @@ describe('the continuation ladder of a Run (worfy-stuck-agents ticket 05)', () =
   })
 
   it('scenario 3: the set-aside is not carried out → run-stopped wave-unfinished, as before the ladder', async () => {
-    const h = faultRun({ scripts: [HELD, SCRIPT], marks: 'claimed', settleMs: SETTLE_MS, setAside: 'ignore' })
+    const h = faultRun({ scripts: [HELD, SCRIPT], marks: 'claimed', settleMs: SETTLE_MS, setAside: 'ignore', prs: false })
     await stuckOn01(h)
     await h.stopped(1)
 
@@ -201,7 +207,7 @@ describe('the continuation ladder of a Run (worfy-stuck-agents ticket 05)', () =
   })
 
   it('scenario 3, Silent mode: the set-aside message says to run the command from any directory with no commit (worfy-polish 138)', async () => {
-    const h = faultRun({ scripts: [HELD, SCRIPT], marks: 'claimed', settleMs: SETTLE_MS, setAside: 'ignore', silent: true, fromBranch: [{ epic: EPIC, num: 1, branch: 'demo/01' }] })
+    const h = faultRun({ scripts: [HELD, SCRIPT], marks: 'claimed', settleMs: SETTLE_MS, setAside: 'ignore', prs: false, silent: true, fromBranch: [{ epic: EPIC, num: 1, branch: 'demo/01' }] })
     await stuckOn01(h)
     await h.stopped(1)
 
@@ -211,7 +217,7 @@ describe('the continuation ladder of a Run (worfy-stuck-agents ticket 05)', () =
   })
 
   it('scenario 4: main is red (land’s marker) → run-stopped main-red, with no continuation and no set-aside', async () => {
-    const h = faultRun({ scripts: [HELD, SCRIPT], marks: 'claimed', settleMs: SETTLE_MS, mainRed: true })
+    const h = faultRun({ scripts: [HELD, SCRIPT], marks: 'claimed', settleMs: SETTLE_MS, mainRed: true, prs: false })
     await stuckOn01(h)
     await h.stopped(1)
 
@@ -227,7 +233,7 @@ describe('the continuation ladder of a Run (worfy-stuck-agents ticket 05)', () =
   })
 
   it('scenario 5: no-progress goes the same ladder — the same Wave is sent twice more, then set-aside, then the old stop', async () => {
-    const h = faultRun({ scripts: [SCRIPT], marks: 'none', settleMs: SETTLE_MS, setAside: 'ignore' })
+    const h = faultRun({ scripts: [SCRIPT], marks: 'none', settleMs: SETTLE_MS, setAside: 'ignore', prs: false })
     expect(await h.start()).toEqual({ refusal: null })
     await h.stopped(1)
 

@@ -10,7 +10,7 @@
 //   (ADR-0107), so a Ticket `done` there, and not done only in its worktree branch, has its change merged. A Ticket
 //   done without a PR (Silent mode, `local-green`) reads the same.
 import { ownersOwn } from '../autopilot/epic-queue'
-import type { AcceptanceGroup, AcceptanceGroupName, AcceptanceRow, AcceptanceSent, AcceptanceTicket } from '../ipc/acceptance'
+import type { AcceptanceGroup, AcceptanceGroupName, AcceptanceRow, AcceptanceSent, AcceptanceStable, AcceptanceTicket } from '../ipc/acceptance'
 import { ACCEPTANCE_GROUPS } from '../ipc/acceptance'
 import type { EvidenceItem, Ticket, WorkflowModel } from '../workflow/types'
 import { doneOnlyInBranch } from '../workflow/waves'
@@ -31,10 +31,11 @@ export interface QueueOptions {
   /** Now, in ms since the epoch: the Older threshold is measured from it. */
   now: number
   /**
-   * Whether the change of a merged Ticket is in the Stable copy: false puts its items in Update first; true or null
-   * (not known, or the Project has no Stable copy) leaves them in Ready to check. Ticket 02 answers it.
+   * The Stable copy line of a Ticket whose items are in Ready to check or Update first (src/main/acceptance/stable-line.ts),
+   * asked only for those and once per Ticket: `out` puts its items in Update first; any other line, or null (not known
+   * yet), leaves them in Ready to check. The rows of the other groups carry no line.
    */
-  inStable?: (projectId: string, ticket: Ticket) => boolean | null
+  stable?: (projectId: string, ticket: Ticket) => AcceptanceStable | null
   /** The decision sent for an item and not recorded yet (src/main/acceptance/sent-store.ts); none by default. */
   sent?: (projectId: string, ticket: Ticket, item: EvidenceItem) => AcceptanceSent | null
 }
@@ -58,15 +59,15 @@ const blockedOnOwner = (ticket: Ticket): boolean => ticket.state === 'blocked' &
 /** A Ticket done in the checkout: its change is merged. */
 const merged = (ticket: Ticket): boolean => ticket.state === 'done' && !doneOnlyInBranch(ticket)
 
-/** The group of an item that waits. */
-function groupOf(project: QueueProject, ticket: Ticket, item: EvidenceItem, options: QueueOptions): AcceptanceGroupName {
+/** The group of an item that waits; `stable` gives its Ticket's Stable copy line, asked only for the last choice. */
+function groupOf(ticket: Ticket, item: EvidenceItem, now: number, stable: () => AcceptanceStable | null): AcceptanceGroupName {
   if (item.state === 'failed') return 'failed'
   if (!merged(ticket) && !blockedOnOwner(ticket)) return 'work'
   if (merged(ticket)) {
     const closed = statusTime(ticket.statusAt)
-    if (closed !== null && options.now - closed > OLDER_AFTER_DAYS * DAY_MS) return 'older'
+    if (closed !== null && now - closed > OLDER_AFTER_DAYS * DAY_MS) return 'older'
   }
-  return options.inStable?.(project.projectId, ticket) === false ? 'update' : 'ready'
+  return stable()?.state === 'out' ? 'update' : 'ready'
 }
 
 const ticketOf = (project: QueueProject, ticket: Ticket): AcceptanceTicket => ({
@@ -95,9 +96,19 @@ export function acceptanceQueue(projects: readonly QueueProject[], options: Queu
         continue
       }
       const prepared = items.filter((item) => !item.manual)
+      let line: AcceptanceStable | null | undefined
+      const stable = (): AcceptanceStable | null => (line === undefined ? (line = options.stable?.(project.projectId, ticket) ?? null) : line)
       for (const item of waiting) {
-        const row: AcceptanceRow = { kind: 'item', ticket: ticketOf(project, ticket), item, prepared, sent: options.sent?.(project.projectId, ticket, item) ?? null, stable: null }
-        rows.get(groupOf(project, ticket, item, options))!.push({ order: [at, ticket.epic, ticket.num, item.index], row })
+        const group = groupOf(ticket, item, options.now, stable)
+        const row: AcceptanceRow = {
+          kind: 'item',
+          ticket: ticketOf(project, ticket),
+          item,
+          prepared,
+          sent: options.sent?.(project.projectId, ticket, item) ?? null,
+          stable: group === 'ready' || group === 'update' ? stable() : null,
+        }
+        rows.get(group)!.push({ order: [at, ticket.epic, ticket.num, item.index], row })
       }
     }
   })

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from 'react'
 import type { z } from 'zod'
 import type { Attachment } from '../../shared/agent/attachments'
-import type { ChangedFile, ChangesScope, DiffHunk, DiffLine, FileDiff } from '../../shared/changes/types'
+import type { ChangedFile, ChangesScope, ChangesTicketRef, DiffHunk, DiffLine, FileDiff } from '../../shared/changes/types'
 import type { changesTargetSchema } from '../../shared/ipc/changes'
 // The channels Send starts a Session with must be declared in this window too (ipc.ts).
 import '../../shared/ipc/orchestrator'
@@ -128,6 +128,8 @@ function commitOf(scope: ChangesScope, side: LineSide, file: Pick<ChangedFile, '
 export interface LineCommentsOptions {
   projectId: string
   subject: ChangesSubject
+  /** What the diff is read by: the Ticket with its `Branch:` and `Repo:` lines, so an edit of them is another view. */
+  ticket: ChangesTicketRef
   scope: ChangesScope
   /** The answer of `changes.scopes` and of `changes.list`, per repository. */
   scopes: readonly RepoScopes[]
@@ -161,7 +163,7 @@ export interface LineCommentsLayer {
 /** A click on these is theirs, not a pick of the line. */
 const OWN_CONTROLS = 'button, a, input, textarea, .w-cl'
 
-export function useLineComments({ projectId, subject, scope, scopes, lists, entries, readOnly, pane, body, hideWhitespace, generation }: LineCommentsOptions): LineCommentsLayer {
+export function useLineComments({ projectId, subject, ticket, scope, scopes, lists, entries, readOnly, pane, body, hideWhitespace, generation }: LineCommentsOptions): LineCommentsLayer {
   const saveKeys = shortcutLabel(SHORTCUTS.quoteSave)
 
   // ── «To» ──────────────────────────────────────────────────────────────────────────────────
@@ -298,7 +300,8 @@ export function useLineComments({ projectId, subject, scope, scopes, lists, entr
     enabled: canComment,
     // A click picks a line on any view that is not read only, as before the hook; «+», the hint and `c` need a Session.
     pickable: readOnly === null,
-    view: JSON.stringify([subject, viewOf(scope, hideWhitespace), generation]),
+    // Keyed by what the diff is read by: a `Branch:` or `Repo:` line edited while the view is open reads another diff.
+    view: JSON.stringify([ticket, viewOf(scope, hideWhitespace), generation]),
     commenting: popover !== null,
     open: openNew,
     held: keepsOpen,

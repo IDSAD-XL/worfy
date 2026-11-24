@@ -294,10 +294,6 @@ export class IntegrationProxy {
   }
 
   /**
-   * Forgets what the proxy knew of Integration `id`'s sign-in: a person signed it in again (integrations.signIn), so a
-   * refusal it remembered is not the Integration's any more; the next call or list finds out anew.
-   */
-  /**
    * Tells the listeners the status of Integration `id` it knows now, unchanged (worfy-integrations ticket 09, round 2):
    * a Project turned it on or off, and the Health check rows follow the Projects that have it on.
    */
@@ -305,6 +301,10 @@ export class IntegrationProxy {
     this.tell(id, this.statuses.get(id)?.status ?? null)
   }
 
+  /**
+   * Forgets what the proxy knew of Integration `id`'s sign-in: a person signed it in again (integrations.signIn), so a
+   * refusal it remembered is not the Integration's any more; the next call or list finds out anew.
+   */
   clearStatus(id: string): void {
     if (!this.statuses.delete(id)) return
     this.tell(id, null)

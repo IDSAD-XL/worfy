@@ -10,7 +10,7 @@ import { eventChannel, invokeChannel } from './channels'
 /**
  * The groups, in the order the owner sees them (spec, "Groups"):
  *   ready   — Ready to check: the item waits and its change can be looked at (merged, or the Ticket waits for the owner);
- *   update  — Update first: the same, but the Stable copy is older than the change (ticket 02 answers that);
+ *   update  — Update first: the same, but the Stable copy is older than the change (the row's `stable` line says so);
  *   waits   — Waits for you: a Ticket blocked with `Waits: owner` and no item waiting: a decision, not a check;
  *   failed  — Failed: a manual item whose last Evidence line is `fail`;
  *   work    — In work: the item waits, and the change is not merged;
@@ -29,6 +29,38 @@ export const acceptanceSentSchema = z.object({
   state: z.enum(['sent', 'not-recorded']),
 })
 export type AcceptanceSent = z.infer<typeof acceptanceSentSchema>
+
+/**
+ * The Stable copy line of an item (worfy-acceptance ticket 02, src/main/acceptance/stable-line.ts), for a Ticket of
+ * Ready to check or Update first. In a Project whose repository is worfy's own:
+ *   in          — the merge is in the Stable copy: "In your Stable copy 0.4.N — the change is there since 0.4.M";
+ *   out         — it is not yet: "Not in your Stable copy yet: it runs 0.4.K, the change is in 0.4.M"; the item is in Update first;
+ *   not-checked — no answer: a commit not in the checkout (worfy never fetches), no Stable copy, or GitHub refused.
+ * Any other Project has no Stable copy: `merged` ("merged #N") or `not-merged`.
+ */
+export const acceptanceStableSchema = z.object({
+  state: z.enum(['in', 'out', 'not-checked', 'merged', 'not-merged']),
+  /** The line as the view shows it. */
+  text: z.string(),
+  /**
+   * Only for `out`: `available` — an Available update has the change, the view offers Update worfy; `waits-ci` — none
+   * has it yet, the view says MAIN_WAITS_FOR_CI; `no-update-check` — this copy does not check for updates (a dev run:
+   * Update is on only in the Stable copy), so it cannot know, and the view says NO_UPDATE_CHECK; `update-not-here` — the
+   * Available update's commit is not in this checkout, so whether it has the change is not known (UPDATE_NOT_HERE).
+   * Null for the other states.
+   */
+  update: z.enum(['available', 'waits-ci', 'no-update-check', 'update-not-here']).nullable(),
+})
+export type AcceptanceStable = z.infer<typeof acceptanceStableSchema>
+
+/** What Update first says of an item whose change no Available update has yet. */
+export const MAIN_WAITS_FOR_CI = '`main` waits for a green CI'
+
+/** What Update first says in a copy that does not check for updates: whether one is there is not known here. */
+export const NO_UPDATE_CHECK = 'This copy does not check for updates: update from your Stable copy'
+
+/** What Update first says when the Available update's commit is not in this checkout (worfy never fetches). */
+export const UPDATE_NOT_HERE = "The update's commit is not in this checkout: fetch to check"
 
 /** The Ticket a row belongs to, and its Project. */
 export const acceptanceTicketSchema = z.object({
@@ -54,8 +86,8 @@ export const acceptanceItemRowSchema = z.object({
   prepared: z.array(evidenceItemSchema),
   /** The decision sent and not recorded yet; null when none is. */
   sent: acceptanceSentSchema.nullable(),
-  /** The Stable copy line of the item: always null until worfy-acceptance ticket 02 fills it. */
-  stable: z.null(),
+  /** The Stable copy line of the item in Ready to check and Update first; null in the other groups, and while not known yet. */
+  stable: acceptanceStableSchema.nullable(),
 })
 
 export const acceptanceTicketRowSchema = z.object({

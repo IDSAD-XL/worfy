@@ -32,8 +32,9 @@
   У connector-а claude.ai из имени убрана приставка «claude.ai »: колонка источника уже её говорит («claude.ai Example
   Notebook» показан как «Example Notebook»); полное имя — в tooltip-е имени, у каждой строки.
 - Серверы, которые не запустились, стоят отдельной группой под серверами Session. Её заголовок один раз говорит почему:
-  «Allowed in this Project, but Claude Code did not start them in this Session.» («it» для одного сервера), и справа в
-  нём одна кнопка «Restart Session»; её tooltip говорит, что разговор сохраняется. В строках группы — имя, статус и
+  «Allowed in this Project, but Claude Code did not start them in this Session.» («it» для одного сервера),
+  и справа в нём одна кнопка «Restart Session»; её tooltip говорит, что разговор
+  сохраняется, и называет Vendor-а Session, который запустится снова. В строках группы — имя, статус и
   источник, без кнопок и без строки ошибки.
 - Серверы, не разрешённые в Project, стоят ниже отдельной группой «Not allowed in this Project».
 - Пока в этой группе две строки с Allow или больше, справа в её заголовке стоит «Allow all». При одной такой строке «Allow
@@ -57,7 +58,7 @@
 | Turn on | выключенный для этой Session | Перезапускает Session с тем же разговором, вернув сервер. |
 | Allow | not allowed, Claude Code | Пишет сервер в список Profile и перезапускает Session с тем же разговором. |
 | Allow all | заголовок «Not allowed in this Project», пока строк с Allow две или больше | Пишет все серверы группы в список Profile одной записью и перезапускает Session один раз. |
-| Restart Session | заголовок группы not started, Claude Code, Session, за которой человек | Перезапускает Session с тем же разговором, один раз на всю группу, чтобы Claude Code запустился снова со списком. |
+| Restart Session | заголовок группы not started, Session, за которой человек (Claude Code или Codex) | Перезапускает Session с тем же разговором, один раз на всю группу, чтобы Vendor Session запустился снова со списком. |
 
 - **Перезапуск с тем же разговором.** Turn off, Turn on, Allow, Allow all и Restart Session завершают процесс Session и запускают новый, который
   продолжает тот же разговор, в той же Session. Идущий ход сначала прерывается, как Interrupt, и очередь придерживается.

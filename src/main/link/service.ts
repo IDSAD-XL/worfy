@@ -693,7 +693,15 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
   /** Closes everything: connections, the server, linking. The files stay. */
   async stop(): Promise<void> {
     this.stopped = true
-    for (const set of this.connections.values()) for (const connection of set) connection.terminate()
+    // A cut connection closes on a later turn of the event loop, and its close prints `disconnected`:
+    // the stop settles after those closes, so the journal stopped after it (stopLink) still gets the lines.
+    const closed: Promise<void>[] = []
+    for (const set of this.connections.values()) {
+      for (const connection of set) {
+        closed.push(new Promise((done) => connection.once('close', () => done())))
+        connection.terminate()
+      }
+    }
     this.connections.clear()
     for (const ws of this.pairingSockets) ws.terminate()
     this.pairingSockets.clear()
@@ -701,6 +709,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     this.reasons.clear()
     this.updateReasons()
     await this.listenChain
+    await Promise.all(closed)
   }
 
   // ---- internals -------------------------------------------------------------------------------

@@ -3,13 +3,16 @@
 // list through the workflow hub, as the "is waiting for you" notifications do (src/main/workflow/waits-notify.ts): the
 // hub watches the Ticket files, so no gh, git or `bin/profile` runs while nothing changes, and the queue is computed
 // again only when a model, the Project list or a Sent mark changes. The rule and the groups are
-// src/shared/acceptance/queue.ts; the decisions sent and not recorded yet are src/main/acceptance/sent-store.ts.
+// src/shared/acceptance/queue.ts; the decisions sent and not recorded yet are src/main/acceptance/sent-store.ts; the
+// Stable copy line of the items of Ready to check and Update first (ticket 02) is src/main/acceptance/stable-line.ts,
+// whose answers come later and compute the queue again, as does each tick, so a line asked again in time is seen.
 import { acceptanceQueue, itemWaitsForOwner, type QueueProject } from '../../shared/acceptance/queue'
 import { ACCEPTANCE_GROUPS, type AcceptanceSent, type AcceptanceState } from '../../shared/ipc/acceptance'
 import type { EvidenceItem, Ticket, WorkflowModel } from '../../shared/workflow/types'
 import { MAX_INTERVAL_MS } from '../github/prs'
 import type { WorkflowHub, WorkflowSubscriber } from '../workflow/watch'
 import { itemTextHash, readSentDecisions, writeSentDecisions, type SentDecision } from './sent-store'
+import { StableLine, type StableLineSources } from './stable-line'
 
 /** What of the workflow hub (src/main/ipc/workflow.ts, workflowHub) the service follows. */
 export type AcceptanceHub = Pick<WorkflowHub, 'open' | 'close' | 'model'>
@@ -29,6 +32,8 @@ export interface AcceptanceSources {
   dataDir: (projectId: string) => string
   /** Calls the listener whenever the Project list changed; returns the unsubscribe. */
   onProjectsChange?: (listener: () => void) => () => void
+  /** What the Stable copy line asks (worfy-acceptance ticket 02); without it no row has a line. */
+  stable?: StableLineSources
   log?: (message: string, error: unknown) => void
 }
 
@@ -110,11 +115,14 @@ export class AcceptanceService {
   /** Computes the queue again when the oldest Sent decision turns "Not recorded yet". */
   private recheck: ReturnType<typeof setTimeout> | null = null
   private stopProjects: (() => void) | null = null
+  private readonly stableLine: StableLine | null
 
   constructor(
     private readonly sources: AcceptanceSources,
     private readonly timing: AcceptanceTiming = ACCEPTANCE_TIMING,
-  ) {}
+  ) {
+    this.stableLine = sources.stable === undefined ? null : new StableLine({ now: timing.now, ...sources.stable }, () => this.compute())
+  }
 
   /** Starts following the Projects of the list; a second call does nothing. */
   start(): void {
@@ -232,7 +240,8 @@ export class AcceptanceService {
       this.sent.delete(id)
       void this.sources.hub.close(entry.root, SUBSCRIBER_ID).catch(() => false)
     }
-    if (left) this.compute()
+    // A Stable copy line asks again after a while (a commit fetched since, an Update installed): each tick looks.
+    if (left || this.stableLine !== null) this.compute()
   }
 
   private follow(project: AcceptanceProject): void {
@@ -282,9 +291,11 @@ export class AcceptanceService {
   private compute(): void {
     const now = this.timing.now()
     const projects: QueueProject[] = []
+    const models = new Map<string, WorkflowModel>()
     for (const project of this.sources.projects()) {
       const model = this.followed.get(project.id)?.model
       if (!model) continue
+      models.set(project.id, model)
       const decisions = this.sent.get(project.id) ?? []
       // A model that failed has no Tickets: it settles nothing.
       if (model.error === null && decisions.some((decision) => settled(model, decision))) {
@@ -301,7 +312,15 @@ export class AcceptanceService {
       const state = now - Date.parse(decision.at) >= NOT_RECORDED_AFTER_MS ? 'not-recorded' : 'sent'
       return { verdict: decision.verdict, at: decision.at, state }
     }
-    const next: AcceptanceState = { groups: acceptanceQueue(projects, { now, sent: sentOf }) }
+    const line = this.stableLine
+    const stableOf =
+      line === null
+        ? undefined
+        : (projectId: string, ticket: Ticket) => {
+            const model = models.get(projectId)!
+            return line.line({ projectId, root: model.root, repoUrl: model.repoUrl, tickets: model.tickets }, ticket)
+          }
+    const next: AcceptanceState = { groups: acceptanceQueue(projects, { now, sent: sentOf, ...(stableOf === undefined ? {} : { stable: stableOf }) }) }
     this.recheckAt(now)
     const stamp = JSON.stringify(next)
     if (stamp === this.stamp) return

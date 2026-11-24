@@ -41,6 +41,8 @@ vi.mock('../../src/renderer/toast/toasts', () => ({
 const { ALLOW_ALL_LABEL, CONNECTOR_HINT, McpChip, SessionMcpChip } = await import('../../src/renderer/session/McpChip')
 const { mcpCount } = await import('../../src/renderer/session/header-facts')
 const { acceptAgentEvent, useSessionLogs } = await import('../../src/renderer/session/store')
+const { acceptSessionNodeView } = await import('../../src/renderer/session/node-sessions')
+const { default: McpServers } = await import('../../src/renderer/session/composer/McpServers')
 
 const row = (name: string, overrides: Partial<McpServerRow> = {}): McpServerRow => ({
   name,
@@ -425,6 +427,25 @@ describe('the group «not started»', () => {
       expect(order).toEqual(['example-notes', ...FOUR.slice(0, count).map((each) => each.name), 'example-wiki'])
       unmount()
     }
+  })
+
+  // Debt sweep after worfy-mcp-live: the heading and the tooltip named Claude Code in a Codex Session too.
+  it('the heading and the tooltip of Restart Session name the Session\'s Vendor: Claude Code or Codex', () => {
+    for (const [vendor, name] of [['claude', 'Claude Code'], ['codex', 'Codex']] as const) {
+      const { unmount } = render(<McpChip sessionId="v" rows={rows} autopilot={false} vendor={vendor} />)
+      const group = groupOf(open())
+      expect(within(group).getByRole('heading').textContent, vendor).toBe(`Allowed in this Project, but ${name} did not start them in this Session.`)
+      expect(within(group).getByRole('button', { name: 'Restart Session' }).getAttribute('aria-description'), vendor).toBe(`Restarts the Session with the same conversation, so ${name} starts again with the list`)
+      unmount()
+    }
+  })
+
+  it('the chip under the input field takes the Vendor of its Session Node', () => {
+    acceptSessionNodeView({ projectId: 'beta-00000002', nodeId: 'codex-node', vendor: 'codex', sessionId: 'codex-1', sdkSessionId: null, state: 'idle', error: null, cwd: '/tmp/beta', model: null, version: 1 })
+    acceptAgentEvent({ sessionId: 'codex-1', event: { type: 'mcp', servers: rows } })
+    render(<McpServers sessionId="codex-1" busy={false} text="" setText={() => undefined} />)
+    const group = groupOf(open())
+    expect(within(group).getByRole('button', { name: 'Restart Session' }).getAttribute('aria-description')).toBe('Restarts the Session with the same conversation, so Codex starts again with the list')
   })
 
   it('Restart Session sends the same Restart as a row\'s did, once; it waits while it runs and says in its tooltip that the conversation stays', async () => {

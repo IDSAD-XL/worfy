@@ -26,7 +26,14 @@ import process from 'node:process'
 
 const MAX_FILES = 12
 const FOLDERS = ['test/unit', 'test/contract']
-const FORBIDDEN_WORDS = ['e2e', 'packaged', 'acceptance']
+// Words that mark an e2e or packaged-app test anywhere in the path.
+const FORBIDDEN_WORDS = ['e2e', 'packaged']
+// "acceptance" is also the name of a feature (the Acceptance queue, Epic worfy-acceptance), whose unit and
+// contract tests lead with it (test/unit/acceptance-queue.test.ts) and run here. As the mark of a kind of test
+// it is a folder (test/unit/acceptance/x.test.ts) or the last word of the name (run_acceptance.test.ts,
+// flow-acceptance.test.ts, app.acceptance.test.ts): those are refused. The acceptance tests themselves live in
+// test/acceptance/ as *.spec.ts and are refused by the folder rule first.
+const ACCEPTANCE_TEST = /(?:^|\/)acceptance\/|[/._-]acceptance\.test\.tsx?$/
 // Test files longer than the job's 10 minutes on Windows, and what they run instead of the runner.
 // The Harness shell tests are split across four files (test/harness-shell-tests.ts, HARNESS_SCRIPTS_FILES).
 const RUNS_ON_THE_PC = new Map(
@@ -68,7 +75,7 @@ function refusal(element, onDisk) {
   if (!FOLDERS.some((folder) => element.startsWith(`${folder}/`))) return 'is not under test/unit/ or test/contract/'
   if (!/\.test\.tsx?$/.test(element)) return 'is not a *.test.ts or *.test.tsx file'
   const lower = element.toLowerCase()
-  const word = FORBIDDEN_WORDS.find((forbidden) => lower.includes(forbidden))
+  const word = FORBIDDEN_WORDS.find((forbidden) => lower.includes(forbidden)) ?? (ACCEPTANCE_TEST.test(lower) ? 'acceptance' : undefined)
   if (word) return `has "${word}" in its name: e2e, packaged-app and acceptance tests do not run here`
   // The exact spelling of a path found by walking the two folders: no "..", no ".", no doubled
   // slash, no other letter case, nothing reached through a symbolic link.

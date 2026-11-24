@@ -99,6 +99,11 @@ export const prApprovalsSchema = z.object({
    */
   decision: z.enum(['approved', 'changes-requested', 'review-required']).nullable(),
   /**
+   * Who `decision` is from: GitHub's `reviewDecision`, or worfy's own count when GitHub gives none. Absent in a snapshot
+   * of a Project machine that does not say yet: read as GitHub's.
+   */
+  decidedBy: z.enum(['github', 'worfy']).optional(),
+  /**
    * Each reviewer once, the reviews first, then the review requests still open (worfy-pr-review ticket 03). Absent in a
    * snapshot of a Project machine that does not list them yet.
    */

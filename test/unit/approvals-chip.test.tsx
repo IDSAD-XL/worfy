@@ -8,7 +8,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { PrApprovals, PrReviewer } from '../../src/shared/ipc/pr-inbox'
 import { ApprovalsChip } from '../../src/renderer/pr-inbox/ApprovalsChip'
-import { approvalsChip, approvalsShort } from '../../src/renderer/pr-inbox/usePrInbox'
+import { approvalsChip, approvalsNote, approvalsShort } from '../../src/renderer/pr-inbox/usePrInbox'
 
 afterEach(cleanup)
 
@@ -54,6 +54,21 @@ describe('the texts of the chip', () => {
     expect(approvalsChip(approvals({ have: 2, need: null, source: 'hidden', decision: 'approved' }))).toMatchObject({ tone: 'ready', text: '✓ 2', label: '2 approvals, approved' })
     // A count short of the rule GitHub still approves: green, the count as it is.
     expect(approvalsChip(approvals({ have: 1, decision: 'approved' }))).toMatchObject({ tone: 'ready', text: '✓ 1/2' })
+  })
+
+  // Debt sweep after worfy-pr-review: GitHub gave no decision and worfy's own count approved, so neither the tooltip
+  // nor the Approvals cell may put the word in GitHub's mouth.
+  it("approved by worfy's count, not GitHub: the tooltip and the Approvals cell say so", () => {
+    const counted = approvals({ have: 2, decision: 'approved', decidedBy: 'worfy', reviewers: [approver(ANA), approver(BO)] })
+    expect(approvalsChip(counted)).toMatchObject({
+      tone: 'ready',
+      text: '✓ 2/2',
+      tooltip: "2 of 2 required approvals · approved by @dev-ana and @dev-bo · approved by worfy's count — GitHub gives no review decision",
+    })
+    expect(approvalsNote(counted)).toBe("approved by worfy's count")
+    expect(approvalsNote(approvals({ have: 2, decision: 'approved', decidedBy: 'github' }))).toBe('GitHub says: approved')
+    // A snapshot of an older Project machine names nobody: GitHub's word, as before.
+    expect(approvalsNote(approvals({ have: 2, decision: 'approved' }))).toBe('GitHub says: approved')
   })
 
   it('1/?: the rule is not visible to the account, muted, GitHub’s word in the tooltip', () => {

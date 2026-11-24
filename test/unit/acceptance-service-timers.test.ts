@@ -8,7 +8,9 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AcceptanceService, NOT_RECORDED_AFTER_MS, type AcceptanceHub } from '../../src/main/acceptance/service'
 import { itemTextHash, writeSentDecisions } from '../../src/main/acceptance/sent-store'
+import { RETRY_MS } from '../../src/main/acceptance/stable-line'
 import type { AcceptanceState } from '../../src/shared/ipc/acceptance'
+import { UPDATE_REPO_PAGE } from '../../src/shared/ipc/update'
 import type { EvidenceItem, Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import { removeTestTree } from '../remove'
 
@@ -97,6 +99,41 @@ describe('the Sent timer of a running service', () => {
     // Shorter than the tick of the Project list (60 s): only the Sent timer could compute here.
     vi.advanceTimersByTime(1000)
     expect(projectReads - before).toBeLessThanOrEqual(1)
+    await service.stop()
+  })
+})
+
+describe('the Stable copy line of a running service', () => {
+  it('asks again on a tick RETRY_MS after GitHub refused, with no change of the model', async () => {
+    const worfy: WorkflowModel = { ...model, repoUrl: UPDATE_REPO_PAGE }
+    const still: AcceptanceHub = { open: () => Promise.resolve(worfy), close: () => Promise.resolve(true), model: () => Promise.resolve(worfy) }
+    let asked = 0
+    const service = new AcceptanceService(
+      {
+        hub: still,
+        projects: () => [{ id: PROJECT, name: 'Alpha', path: '/p/alpha' }],
+        dataDir: (id) => join(data, id),
+        stable: {
+          gh: () => {
+            asked += 1
+            return Promise.reject(new Error('HTTP 502'))
+          },
+          git: () => Promise.resolve({ code: 1, stdout: '' }),
+          stableCommit: () => 'c'.repeat(40),
+        },
+      },
+      { now: () => Date.now(), tickMs: 60_000 },
+    )
+    const sent: AcceptanceState[] = []
+    await service.subscribe('w', (state) => sent.push(state))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(asked).toBe(1)
+    expect(sentOf(sent.at(-1))).toMatchObject({ stable: { state: 'not-checked', text: 'Stable copy not checked: GitHub did not answer' } })
+    await vi.advanceTimersByTimeAsync(RETRY_MS - 60_000)
+    expect(asked).toBe(1)
+    // The tick after RETRY_MS computes the queue again, and the expired refusal is asked again.
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(asked).toBe(2)
     await service.stop()
   })
 })

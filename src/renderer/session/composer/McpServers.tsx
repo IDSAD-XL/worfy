@@ -1,3 +1,4 @@
+import { UNNAMED_VENDOR } from '../../../shared/vendors/vendor'
 import { useOrchestratorViews } from '../../canvas/nodes/orchestrator-view'
 import { SessionMcpChip } from '../McpChip'
 import { useSessionNodeViews } from '../node-sessions'
@@ -23,5 +24,7 @@ export default function McpServers({ sessionId }: ComposerItemProps) {
   // A Session Node's Project too: an Integration's Sign in goes through it (worfy-integrations ticket 09).
   const nodes = useSessionNodeViews()
   const node = sessionId === null ? undefined : Object.values(nodes).find((each) => each.sessionId === sessionId)
-  return <SessionMcpChip sessionId={sessionId} projectId={orchestrator?.projectId ?? node?.projectId ?? ''} orchestrator={orchestrator !== undefined} />
+  // The Vendor the popover names as what starts the servers: the Session's, Claude Code for a view saved without one.
+  const vendor = orchestrator?.vendor ?? node?.vendor ?? UNNAMED_VENDOR
+  return <SessionMcpChip sessionId={sessionId} projectId={orchestrator?.projectId ?? node?.projectId ?? ''} orchestrator={orchestrator !== undefined} vendor={vendor} />
 }

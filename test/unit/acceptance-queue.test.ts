@@ -5,7 +5,7 @@
 // and inside a group the rows go by Project, Epic, Ticket number and item number.
 import { describe, expect, it } from 'vitest'
 import { acceptanceQueue, itemWaitsForOwner, OLDER_AFTER_DAYS, type QueueProject } from '../../src/shared/acceptance/queue'
-import { ACCEPTANCE_GROUPS, type AcceptanceGroup, type AcceptanceRow } from '../../src/shared/ipc/acceptance'
+import { ACCEPTANCE_GROUPS, type AcceptanceGroup, type AcceptanceRow, type AcceptanceStable } from '../../src/shared/ipc/acceptance'
 import type { EvidenceItem, EvidenceLine, Ticket } from '../../src/shared/workflow/types'
 
 const NOW = Date.parse('2026-11-23T12:00:00Z')
@@ -168,21 +168,46 @@ describe('acceptanceQueue', () => {
     expect(shape(groups).ready).toEqual(['p e 03.1', 'p e 04.1', 'p e 05.1'])
   })
 
-  it('Update first takes the items whose change is not in the Stable copy yet; an unknown answer leaves them Ready to check', () => {
+  it('Update first takes the items whose change is not in the Stable copy yet; any other answer leaves them Ready to check', () => {
     const asked: string[] = []
+    const lines: Record<number, AcceptanceStable | null> = {
+      1: { state: 'out', text: 'Not in your Stable copy yet: it runs 0.4.2, the change is in 0.4.3', update: 'waits-ci' },
+      2: { state: 'in', text: 'In your Stable copy 0.4.3 — the change is there since 0.4.3', update: null },
+      3: null,
+      5: { state: 'not-checked', text: 'Stable copy not checked: no Stable copy found', update: null },
+    }
     const groups = queue(
-      [project('p', [ticket('e', 1, 'done', [item(1)]), ticket('e', 2, 'done', [item(1)]), ticket('e', 3, 'done', [item(1)]), ticket('e', 4, 'work', [item(1)])])],
+      [
+        project('p', [
+          ticket('e', 1, 'done', [item(1), item(2)]),
+          ticket('e', 2, 'done', [item(1)]),
+          ticket('e', 3, 'done', [item(1)]),
+          ticket('e', 4, 'work', [item(1)]),
+          ticket('e', 5, 'done', [item(1)]),
+          ticket('e', 6, 'done', [item(1, { evidence: [line('owner-check', 'fail')], state: 'failed' })]),
+        ]),
+      ],
       {
-        inStable: (projectId, t) => {
+        stable: (projectId, t) => {
           asked.push(`${projectId} ${t.num}`)
-          return t.num === 1 ? false : t.num === 2 ? true : null
+          return lines[t.num] ?? null
         },
       },
     )
-    expect(shape(groups).update).toEqual(['p e 01.1'])
-    expect(shape(groups).ready).toEqual(['p e 02.1', 'p e 03.1'])
-    // A Ticket in work is not asked: its change is not merged.
-    expect(asked).not.toContain('p 4')
+    expect(shape(groups).update).toEqual(['p e 01.1', 'p e 01.2'])
+    expect(shape(groups).ready).toEqual(['p e 02.1', 'p e 03.1', 'p e 05.1'])
+    // Each row of Ready to check and Update first carries its Ticket's line.
+    const lineOf = (group: number, at: number) => {
+      const row = groups[group]!.rows[at]!
+      return row.kind === 'item' ? row.stable : undefined
+    }
+    expect(lineOf(1, 0)).toEqual(lines[1])
+    expect(lineOf(0, 0)).toEqual(lines[2])
+    expect(lineOf(0, 1)).toBeNull()
+    // Only the groups Ready to check and Update first ask, once per Ticket: not a Ticket in work, not a failed item.
+    expect(asked).toEqual(['p 1', 'p 2', 'p 3', 'p 5'])
+    const failed = groups.find((group) => group.group === 'failed')!.rows[0]!
+    expect(failed.kind === 'item' && failed.stable).toBeNull()
   })
 
   it('orders a group by Project (in the order of the list), Epic, Ticket number and item number', () => {

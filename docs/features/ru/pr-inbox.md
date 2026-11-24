@@ -60,7 +60,8 @@ chip-а). `#N` и текст CI остаются целыми, и ничто н�
   GitHub одобряет PR, правило которого аккаунт не видит; `✕ 1/2` оранжевый при запрошенных правках; `1/?` серый и
   пунктирный, когда правило аккаунту не видно; часы помечают счёт, который набран, пока code owner-ы ещё держат PR.
   Правило, которое не просит одобрений, пока GitHub всё ещё хочет ревью, показывает `review required`, никогда `0/0`.
-  Tooltip говорит, кто одобрил, каких code owner-ов ждут, какие одобрения даны до последнего push-а и правило их снимает (stale), и, когда
+  Tooltip говорит, кто одобрил, чьё это решение (`GitHub says: approved` или `approved by worfy's count — GitHub gives no
+  review decision`), каких code owner-ов ждут, какие одобрения даны до последнего push-а и правило их снимает (stale), и, когда
   счёт набран, но GitHub всё ещё держит PR, — слово GitHub (`GitHub says: review required` или `more rules apply — GitHub
   decides`, когда у ветки есть правило, которое worfy не считает). Accessible name называет chip словами (`1 of 2
   required approvals`, `1 approval, rule not visible`). У ветки без правила ревью chip-а нет.
@@ -108,7 +109,7 @@ chip-а). `#N` и текст CI остаются целыми, и ничто н�
   settings`), экран только для чтения, PR из fork-а, PR не пользователя или PR, у которого причины больше нет. Кнопки
   ничего не пишут на GitHub: Session спрашивает, прежде чем push-ить;
 - четыре ячейки: **CI**; **Approvals** — chip одобрений, к чему он сводится (`of 2 required`, `changes requested`,
-  `waiting for code owners`, `rule not visible to your account`, `GitHub says: approved`), и каждый ревьюер с состоянием
+  `waiting for code owners`, `rule not visible to your account`, `GitHub says: approved` или `approved by worfy's count`), и каждый ревьюер с состоянием
   его ревью: Approved, Changes requested, Commented, Requested (с `code owner`, когда его просили как code owner-а),
   Dismissed, `Approved · stale` (до последнего push-а, когда правило сбрасывает такие одобрения) и серый `Approved · does
   not count` у ревьюера без права записи; команда code owner-ов, которую аккаунт не видит, указана как `code owners
