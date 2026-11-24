@@ -96,7 +96,7 @@ export function linkedBuildLine(needsPlatform: string, here: OwnerCheckPlatform,
 
 ## 5. «Checked in» на Linked machine: её платформа и commit её сборки
 
-Code: `src/renderer/acceptance/AcceptanceView.tsx:214-222` · key lines: 218, 219, 220
+Code: `src/renderer/acceptance/AcceptanceView.tsx:205-213` · key lines: 209, 210, 211
 
 ```tsx
   // The commit of the copy: on a Linked machine's platform the commit of its build (its `hello`, worfy-acceptance ticket
@@ -136,7 +136,7 @@ Code: `src/renderer/acceptance/AcceptanceView.tsx:214-222` · key lines: 218, 21
 1. Почему вид в окне Mac на ПК не показывает кнопку Update worfy у пункта Update first?
    - Ответ: строка Stable copy пришла от ПК и говорит о его копии; кнопка обновила бы эту Machine, поэтому вместо неё —
      «Update worfy on <name>».
-   - Строки: `src/renderer/acceptance/AcceptanceView.tsx:168-171`
+   - Строки: `src/renderer/acceptance/AcceptanceView.tsx:159-162`
 2. Откуда Mac знает, что подключённая Linked machine — ПК, и что он покажет, если она этого не говорит?
    - Ответ: из поля `platform` её `hello`, которое сервис хранит на соединение. Без поля «Update worfy on <name>» —
      только для Machine окна; в окне этой Machine строка «PC not connected».
