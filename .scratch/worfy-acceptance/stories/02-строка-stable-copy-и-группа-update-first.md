@@ -203,3 +203,23 @@ Code: `src/main/acceptance/stable-line.ts:208-219` · key lines: 210, 212, 217, 
    - Ответ: изменение Ticket-а с несколькими merge-ами целиком есть только в сборке, где есть все они: `since` — сборка
      с наибольшим номером.
    - Строки: `src/main/acceptance/stable-line.ts:168-199`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED — worfy-acceptance 02 (the item's Stable copy line and the Update first group: is the change in the owner's Stable copy), head 4666459b8b11c2d1e5cf25bffc95f5eeefd65941
+>
+> Gate (depth medium, three rounds): verifier (lens: implementer's claims, sonnet) — MERGE, all five claims CONFIRMED, 8 of 10 own mutants red, the two survivors sent to round 2; git/gh starts counted within the stated caches; reviewer (correctness) — round 1 FIX (one med: a made-up build number in a shallow clone; two lows), round 2 re-review FIX (one med introduced by the round: the saved update-state commit right after a restart), round 3 (about 20 lines of src) checked by the Orchestrator.
+>
+> - What it gives: each waiting manual item has a Stable copy line — in (→ Ready to check), out (→ Update first, with «Update worfy» when the Available update holds the merge, «main waits for a green CI», or «the update's commit is not in this checkout: fetch to check»), not checked with the reason; a dev copy says «This copy does not check for updates: update from your Stable copy»; a Project that is not worfy's repository shows merged #N or not merged; the version is major.minor from that commit's package.json plus git rev-list --count, and no number in a shallow clone (the short SHA instead, «Update worfy» decided by merge-base --is-ancestor); the commit is this run's own when the window is the Stable copy, else the file next to the copy; a merged PR's merge commit and git yes/no answers are kept until quit, answers that may change are asked again after 5 minutes; the per-minute tick starts no process by itself.
+> - Fixed in rounds 2–3: shallow clone; equal numbers; source order; the per-minute recompute tested; an OPEN PR with a mergeCommit is not merged; the dev copy line; this run's own commit instead of the saved update state; the update commit missing from the checkout worded as not known.
+> - Evidence: new tests red before each round; 12 + 7 + 3 implementer mutants and 8 verifier mutants each red; 6 acceptance unit+contract files EXIT=0 after each round; pnpm lint, typecheck, test (903 files) EXIT=0; gate fast green; check-feature-docs, story-check, evidence-check EXIT=0.
+> - Debt (low): src/main/ipc/update.ts:263 appRunning exported for this (outside the ticket's files); the wiring in the app (gh PR tracker, the Update service, the file next to the copy) is covered by typecheck and unit tests of stableSources, not by an e2e.
+> - Not verified: a real restart of the Stable copy, real gh, Windows paths.
+>
+> Decided without the owner (to confirm): major.minor from the commit's package.json, the short SHA without it; «Update worfy» only when the Available update holds the merge (by number, or by git when a number is missing); with no number and the update commit not in the checkout, no «Update worfy»; caches 5 minutes / until quit; the dev copy line; this run's own commit, read once, when the window is the Stable copy.
+
+Code: `src/main/ipc/update.ts:263-263` · key lines: 263
+
+```ts
+export function appRunning(): UpdateRunning {
+```

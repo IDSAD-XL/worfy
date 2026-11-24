@@ -1,7 +1,8 @@
 # 02 — Строка Stable copy пункта и группа Update first: есть ли изменение в Stable copy владельца
 
 Type: task
-Status: claimed 2026-11-23T23:09Z
+Status: done 2026-11-24T02:11Z
+PR: #2158
 Blocked by: 01
 Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реализации» → «Stable copy пункта»; «Решения по test-ам», Seam 1
 и 2; «Риски», «Commit-а Stable copy нет в checkout-е» и «Лимит gh»
@@ -60,6 +61,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реал�
   - evidence: gate pass · `gate fast` exit 0 · mac - · 277ad9de81bfb03ca5f17aacdea858b0d98ac661
   - evidence: gate pass · `gate fast` exit 0 · mac - · bcc89692818c6204e8c19c9139d6e832c2dd12af
   - evidence: gate pass · `gate fast` exit 0 · mac - · 901285564b72ec5b1e0f9e2a08ac369d8825f76c
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45296552466/job/138133556564 · ci - · 4666459b8b11c2d1e5cf25bffc95f5eeefd65941
 
 ## Где в коде
 
