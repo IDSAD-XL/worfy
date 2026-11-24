@@ -42,16 +42,20 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реал�
 - [ ] Unit test (`test/unit/acceptance-stable-line.test.ts`, новый): текст строки для «есть», «нет», «not checked», для
       Project-а не worfy; номер версии из числа commit-ов. Красный до правки — в «Итог».
   - evidence: test-run pass · `pnpm test test/unit/acceptance-stable-line.test.ts` exit 0 · mac - · 277ad9de81bfb03ca5f17aacdea858b0d98ac661
+  - evidence: test-run pass · `pnpm test test/unit/acceptance-stable-line.test.ts test/unit/acceptance-stable-sources.test.ts test/unit/acceptance-service-timers.test.ts` exit 0 · mac - · bcc89692818c6204e8c19c9139d6e832c2dd12af
 - [ ] Contract test (`test/contract/acceptance-stable-copy.test.ts`, новый): временный репозиторий и Stable copy через
       `WORFY_UPDATE_STABLE` с `worfy-stable.json`; stand-in `GhRunner` даёт `mergeCommit`; merge — предок → Ready to
       check, не предок → Update first, commit-а нет → «not checked»; второй снимок не спрашивает gh второй раз.
   - evidence: test-run pass · `pnpm test test/contract/acceptance-stable-copy.test.ts` exit 0 · mac - · 277ad9de81bfb03ca5f17aacdea858b0d98ac661
+  - evidence: test-run pass · `pnpm test test/contract/acceptance-stable-copy.test.ts test/contract/acceptance-service.test.ts` exit 0 · mac - · bcc89692818c6204e8c19c9139d6e832c2dd12af
 - [ ] Английская страница `docs/features/acceptance.md` описывает строку Stable copy и Update first;
       `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 277ad9de81bfb03ca5f17aacdea858b0d98ac661
+  - evidence: test-run pass · `pnpm lint` exit 0 (check-feature-docs ok) · mac - · bcc89692818c6204e8c19c9139d6e832c2dd12af
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 277ad9de81bfb03ca5f17aacdea858b0d98ac661
   - evidence: gate pass · `gate fast` exit 0 · mac - · 277ad9de81bfb03ca5f17aacdea858b0d98ac661
+  - evidence: gate pass · `gate fast` exit 0 · mac - · bcc89692818c6204e8c19c9139d6e832c2dd12af
 
 ## Где в коде
 
