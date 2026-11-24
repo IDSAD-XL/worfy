@@ -31,8 +31,8 @@ does not allow, the same status in Project settings, and the rows of the [Integr
   error. A claude.ai connector's name drops the leading "claude.ai " that its source already says ("claude.ai Example
   Notebook" shows as "Example Notebook"); the full name is the name's tooltip, for every row.
 - The servers that were not started stand in a group of their own under the Session's servers. Its heading says once
-  why: "Allowed in this Project, but Claude Code did not start them in this Session." ("it" for one server; a Codex
-  Session's heading names Codex), and has one "Restart Session" at the right end, whose tooltip says that it keeps the
+  why: "Allowed in this Project, but Claude Code did not start them in this Session." ("it" for one server),
+  and has one "Restart Session" at the right end, whose tooltip says that it keeps the
   conversation and names the Session's Vendor as what starts again. The group's rows have
   their name, status and source, and no button. A row has no error line either, unless a Restart would not start it:
   then its own reason stands under it (see "Servers not allowed in the Project" below).
@@ -59,7 +59,7 @@ does not allow, the same status in Project settings, and the rows of the [Integr
 | Turn on | turned off for this Session | Restarts the Session with the same conversation with the server back. |
 | Allow | not allowed, Claude Code | Puts the server on the Profile's list and restarts the Session with the same conversation. |
 | Allow all | the heading of "Not allowed in this Project", while two rows or more offer Allow | Puts every server of the group on the Profile's list with one write and restarts the Session once. |
-| Restart Session | the heading of the not started group, Claude Code, a person at the Session | Restarts the Session with the same conversation, once for the whole group, so the Session's Vendor starts again with the list. |
+| Restart Session | the heading of the not started group, a person at the Session (Claude Code or Codex) | Restarts the Session with the same conversation, once for the whole group, so the Session's Vendor starts again with the list. |
 
 - **Restart with the same conversation.** Turn off, Turn on, Allow, Allow all and Restart Session end the Session's process and start a new one that
   resumes the same conversation, in the same Session. A turn that runs is interrupted first, as Interrupt does, and the
