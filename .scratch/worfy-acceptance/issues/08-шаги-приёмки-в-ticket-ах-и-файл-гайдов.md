@@ -35,15 +35,14 @@ CI. Глубина ревью — `medium`.
 
 - [ ] `harness/bin/tests/agents-text.test.sh`: текст to-tickets и step-6 требует «Сделай → Должно быть» и `needs:` для
       ручного пункта; mutant (фраза убрана) — красный; весь файл — exit 0.
-  - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 (527 passed); mutant without the sentence in step 6 and in to-tickets exit 1 · mac dev · 10e29e89ae1589ed8822d3c4b3dfcdc7b6a6493e
+  - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 (527 passed); mutant without the sentence in step 6 and in to-tickets exit 1 · mac dev · a121c0ffb633a08d408f5eb916250f9153398338
 - [ ] Шаги каждой открытой приёмки — ручные пункты своих Ticket-ов; `evidence-check --changed` — exit 0 на PR.
-  - evidence: test-run pass · `node harness/bin/evidence-check --changed --root .scratch` exit 0 (37 files) · mac dev · 10e29e89ae1589ed8822d3c4b3dfcdc7b6a6493e
+  - evidence: test-run pass · `node harness/bin/evidence-check --changed --root .scratch` exit 0 (33 files) · mac dev · a121c0ffb633a08d408f5eb916250f9153398338
 - [ ] Файл гайдов на месте и ссылается на вид; `node scripts/check-handoff.mjs` — exit 0.
-  - evidence: test-run pass · `node scripts/check-handoff.mjs` exit 0 · mac dev · 10e29e89ae1589ed8822d3c4b3dfcdc7b6a6493e
+  - evidence: test-run pass · `node scripts/check-handoff.mjs` exit 0 · mac dev · a121c0ffb633a08d408f5eb916250f9153398338
 - [ ] `docs/features/workflow.md` описывает ручной пункт приёмки; `node scripts/check-feature-docs.mjs` — exit 0.
-  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac dev · 10e29e89ae1589ed8822d3c4b3dfcdc7b6a6493e
+  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac dev · a121c0ffb633a08d408f5eb916250f9153398338
 - [ ] `pnpm lint`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job-ы Windows CI зелёные (платформенный PR).
-  - evidence: gate pass · `gate.mjs fast` exit 0, green: lint typecheck test · mac dev · 10e29e89ae1589ed8822d3c4b3dfcdc7b6a6493e
 
 ## Где в коде
 
@@ -95,7 +94,8 @@ CI. Глубина ревью — `medium`.
 - Пример ручного пункта в шаблоне `to-tickets` — с буквальной меткой `(manual)` и `needs: mac stable`, чтобы разбор
   Evidence читал его без ошибок, как `## Done when` шаблона.
 
-Проверки: `pnpm lint`, `pnpm typecheck` — exit 0; gate fast — exit 0, green (lint, typecheck, test). Отдельный прогон
-`pnpm test` до gate — exit 1: два timeout-а в файлах вне диффа (`land.test.sh` через `harness-scripts-2`, убит через 360 s;
-`test/unit/pr-inbox-view.test.tsx:292`, 15 s) под нагрузкой четырёх параллельных агентов и mutant-ов; не перезапускался,
-затем test-шаг gate fast прошёл. `ci-ok` и job-ы Windows — после PR, его Orchestrator открывает сам.
+Проверки после rebase на `origin/main` (Ticket не зависит от кода 05): `agents-text.test.sh`, contract test
+`harness-third-party-skills`, `evidence-check --changed --root .scratch`, `pnpm lint`, `pnpm typecheck` — exit 0. Gate fast —
+exit 2, red: один test вне диффа, `test/contract/modes-linked.test.ts:362` — событие `ecoMode.changed` окна B
+проверяется без ожидания (`undefined`); этот PR не трогает ни `src/`, ни этот test. Не перезапускался. До rebase gate fast
+был green. `ci-ok` и job-ы Windows — на PR.
