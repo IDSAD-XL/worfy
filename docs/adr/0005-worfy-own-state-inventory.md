@@ -68,3 +68,12 @@ worfy ничего не пишет в репозитории Project-ов — н
   время отметки `submitting`, ISO 8601. Оно остаётся после Submit-а, который GitHub не подтвердил: следующий Submit ищет
   ревью, данное не раньше него, и первые 5 минут после него не отправляет ревью снова. Заменяет его только отметка
   следующего POST; 4xx его удаляет. Пишет main (`src/main/github/pr-review-submit.ts`).
+- 2026-11-24 — Epic `worfy-acceptance`, Ticket 09 (место добавил Ticket 01, запись в него — Ticket 03): отметки «Sent»
+  вида Acceptance, `<Project data folder>/acceptance-sent.json` в `WORFY_DATA_DIR`, рядом с `pr-inbox.json`. Одна
+  запись на пункт: Project, Epic, номер Ticket-а, номер пункта, hash его текста (16 знаков SHA-256), вердикт `pass` или
+  `fail`, время отправки и число строк `owner-check` с этим вердиктом у пункта в тот момент. Слов владельца и текста
+  пункта там нет. Пишет main (`src/main/acceptance/sent-store.ts`) через временный файл и rename: запись появляется,
+  когда текст решения ушёл Orchestrator-у по каналу `actions.ownerCheck` (`'project', 'write'`), второе решение на тот
+  же пункт заменяет первое, а запись удаляется, когда в checkout-е появилась новая строка `owner-check` с тем же
+  вердиктом, пункт больше не ждёт владельца или его текст переписан. В Ticket и в репозиторий Project-а worfy ничего
+  не пишет: строку пишет skill `owner-check` Harness-а (ADR-0002).

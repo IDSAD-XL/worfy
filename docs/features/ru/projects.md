@@ -1,6 +1,6 @@
 # Projects
 
-> Перевод [английской версии](../projects.md), commit `5d1efe69`.
+> Перевод [английской версии](../projects.md), commit `c17e0a8e`.
 
 Три Feature, которые относятся к Project-у целиком. **Full mode и Silent mode** решают, где лежат файлы workflow. **Project
 switcher** — это список Project-ов и выбор того, который показывает окно. **ADR и HANDOFF** — view только для чтения над двумя
@@ -332,8 +332,8 @@ Project Machine этого окна. Строка секции Pipeline или n
 **Контекстное меню строки.**
 
 - «Project settings…» содержит шаблоны сообщений «Ship ticket», «Run wave», «Process gate queue», «Draft replies», «Fix
-  checks», «Resolve conflicts» и «Address comments» с подстановками `{epic}`, `{NN}`, `{wave}`, `{slug}`, `{branch}`,
-  `{tickets}`, `{repo}`, `{pr}` и `{sha}`. Неизвестная подстановка показывает ошибку под полем и выключает Save. «Draft
+  checks», «Resolve conflicts», «Address comments» и «Record owner check» с подстановками `{epic}`, `{NN}`, `{wave}`,
+  `{slug}`, `{branch}`, `{tickets}`, `{repo}`, `{pr}`, `{sha}`, `{item}`, `{verdict}`, `{platform}` и `{copy}`. Неизвестная подстановка показывает ошибку под полем и выключает Save. «Draft
   replies» (`/worfy:pr-reply {repo}#{pr}` с плагином, пустой со старым Harness) — первое сообщение новой Session на Claude Code
   для одного pull request-а: `{repo}` — его `owner/name`, `{pr}` — его номер; подстановка, для которой нет значения, или пустой
   шаблон дают отказ. «Fix checks», «Resolve conflicts» и «Address comments» передают один pull request пользователя Session
@@ -351,6 +351,16 @@ Project Machine этого окна. Строка секции Pipeline или n
   модель не видит. Иначе запускается новый Session
   Node на Claude Code с текстом как первым сообщением, привязанный через launch к Ticket-у, если он есть. Порядок причин на
   кнопке: конфликт (`DIRTY`), затем красный CI, затем запрошенные изменения или thread-ы, которые ждут ответа пользователя.
+  «Record owner check» (`/worfy:owner-check {epic} {NN} {item} {verdict} {platform} {copy} {sha}` с плагином, пустой со
+  старым Harness) передаёт решение владельца по одному ручному пункту Ticket-а skill-у owner-check, который пишет строку
+  Evidence `owner-check`: `{item}` — номер пункта в разделе «готово, когда», `{verdict}` — `pass` или `fail`, `{platform}` —
+  `mac`, `windows` или `linux`, `{copy}` — `stable`, `installed` или `dev`, `{sha}` — commit этой копии, от 7 до 40
+  hex-символов, или `-`, когда он не известен. Значение вне этих отклоняется. Комментарий владельца — не подстановка: он
+  идёт после команды, через пустую строку, абзацем `Owner's words:`, каждая его строка — цитата (`> …`), так что ни один
+  шаблон не вставит его внутрь команды. Текст уходит Orchestrator-у Project-а, в его очередь, пока идёт ход, и после
+  отправки решение помечено «Sent», пока не придёт его строка. Клик отклоняется с причиной, и ничего не уходит, когда шаблон
+  пуст, в Project-е работает Autopilot, пункт — не ручной пункт, который ждёт владельца, его текст уже не тот, что видел
+  владелец (файл Ticket-а за это время правили: «reload the Acceptance view»), или экран только для чтения.
   «Reset to default» ставит значения по умолчанию из Harness, который сейчас найден на Machine. На Windows в диалоге есть ещё
   [Terminal shell](terminal.md). «Default vendor» (`defaultVendor` в настройках) — Vendor, который «New session» показывает
   первым и на котором работает [Session](sessions.md), запущенная без выбора: None (Claude Code), Claude Code или Codex.
@@ -358,6 +368,11 @@ Project Machine этого окна. Строка секции Pipeline или n
   отсутствующее. [Orchestrator](sessions.md) Project-а работает на нём со следующего запуска: «New Orchestrator Session» или
   следующий запуск worfy. «Ship ticket» работает на Claude Code, что бы ни было выбрано. Linked machine на сборке без этого поля
   сохраняет без него, и сохранённое значение остаётся.
+- В «Project settings…» две вкладки. General держит всё из этого списка и сохраняется по Save. Integrations перечисляет
+  учётные записи сервисов (Jira, Linear, Notion, GitHub, свой MCP server…), в которые worfy вошёл на этой Machine и
+  которые Project включает, с Add integration, а под ними — серверы Claude Code с Allow; её изменения сразу уходят в main,
+  и у неё Close, а не Save. Какие Integration-ы использует Project — поле `integrations` настроек Project-а, не Profile-а.
+  Feature целиком: [Integrations](integrations.md).
 - «Team reviewer» в «Project settings…» показывает ревьюера Project-а голосом его команды: `Not built`,
   `Built <date>, <N> PRs` или `Too little history: <N> of 30`. Его файлы лежат в приватной папке Profile-а,
   `<папка Profile-а>/state/human-review/`. Ревьюер собран, когда там есть его skill, `.claude/skills/human-review/SKILL.md`.
@@ -489,7 +504,8 @@ Project, отмеченный как локальный для своей Machin
 
 - `src/main/projects/store.ts`: `ProjectStore`, список в `<data root>/projects.json`, ветка через `git` и `onChange`, событие
   «активный Project переключился». `states()` даёт список для окон этой Machine и для Linked machine.
-- `src/main/projects/settings.ts`, `src/shared/projects/action-templates.ts`: настройки Project-а.
+- `src/main/projects/settings.ts`, `src/shared/projects/action-templates.ts`: настройки Project-а, среди них его
+  Integration-ы (`readProjectIntegrations`, `writeProjectIntegrations`).
   `src/main/projects/review-offer.ts`: предложение Team reviewer после добавления, напоминание обновить его (`refreshDue`) и
   состояние и «Delete» в «Team reviewer»; `src/renderer/projects/review-offer.ts`: их toast-ы и напоминание, которое
   запрашивается при каждой активации через `followActiveProject` (`src/renderer/projects/useProjects.ts`).
@@ -506,7 +522,8 @@ Project, отмеченный как локальный для своей Machin
 - `src/main/agent/app-orchestrators.ts`: следует за `onChange` и удержаниями и закрывает Orchestrator удалённого Project-а.
 - `src/renderer/projects/useProjects.ts`: копия renderer-а, `openProject` как единственный способ открыть Project, `groupProjects`
   для Machine и `useReadOnly`.
-- `src/renderer/shell/sidebar/ProjectsSection.tsx`: секция и меню. `src/renderer/shell/ProjectSettings.tsx`: диалог настроек.
+- `src/renderer/shell/sidebar/ProjectsSection.tsx`: секция и меню. `src/renderer/shell/ProjectSettings.tsx`: диалог
+  настроек и его вкладки General и Integrations.
   `src/renderer/projects/read-only.ts`: как выглядит неактивное действие записи.
 - `src/renderer/projects/EditProfile.tsx`: «Edit profile». `src/renderer/projects/ProfileFields.tsx` и
   `src/renderer/projects/profile-fields.ts`: поля, общие с шагом Review из «Add project».

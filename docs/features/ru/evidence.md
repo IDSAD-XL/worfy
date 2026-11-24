@@ -1,6 +1,6 @@
 # Evidence
 
-> Перевод [английской версии](../evidence.md), commit `same-pr`.
+> Перевод [английской версии](../evidence.md), commit `d983b95a`.
 
 Три близких Feature. **Evidence** — строка под пунктом раздела «готово» Ticket-а: чем пункт доказан и где проверен; worfy
 показывает состояние каждого пункта на карточке и в Focus mode. **Privacy check** не пускает личные данные в то, что ветка
@@ -83,11 +83,18 @@ Profile-а (`## Done when` без Profile-а), ручная пометка — `
 | `test-run`, `gate`, `commit` | Implementer | В своей ветке, вместе с кодом, до PR: строки попадают в diff PR и в ревью. Только `pass` и только для пунктов, которые доказали его проверки |
 | `review` | Orchestrator | При закрытии: `pass` при `VERIFIED`, `fail` при `REJECTED`, ref `PR #N` |
 | `ci-check` | Orchestrator | При закрытии: URL run-а итоговой проверки CI на head PR, платформа `ci` |
-| `owner-check` | Orchestrator, со слов владельца | Ref — дата и слово владельца; копия — та, в которой смотрел владелец |
+| `owner-check` | Skill `owner-check` Harness-а, который Orchestrator запускает по слову владельца: действие worfy «Record owner check» или собственное сообщение владельца | Ref — дата и слова владельца, личные данные в них заменены подстановкой; платформа и копия — где смотрел владелец; Pass отмечает пункт, Fail заводит Ticket доработки |
 | `screenshot` | Тот, кто снимал | После того как человек проверил пиксели: дата этой проверки идёт в `scrub:` |
 | `video` | Тот, кто записал | После проверки каждого кадра contact sheet. У клипа fixture-сборки эту проверку может сделать сам агент, а владелец смотрит такие клипы выборочно; любой другой клип ждёт человека |
 
-Implementer не пишет строк под ручным пунктом, кроме той строки `video` клипа fixture-сборки. Ревьюер строк не пишет: он
+Implementer не пишет строк под ручным пунктом, кроме той строки `video` клипа fixture-сборки. Skill `owner-check`
+(`/worfy:owner-check <epic> <NN> <item> <pass|fail> <platform> <copy> <sha|->`, комментарий владельца — абзацем «Owner's
+words:» после команды) отказывает, если пункт — не ручной пункт этого Ticket-а, и никогда не пишет строку, которую владелец
+не дал. То же решение, отправленное снова, второй строки не добавляет. При Pass он отмечает пункт `[x]`. При Fail он
+заводит Ticket доработки в том же Epic-е, без блокеров: его строка `Source:` называет Epic, Ticket, пункт и дату, а раздел
+«готово, когда» — тот же ручной пункт со строкой `needs:`. Pass на этом пункте записывает `owner-check pass` и пункту,
+который он дорабатывает, и отмечает его. В Full mode строки одного дня идут в один documents PR, после `evidence-check
+--changed`; в Silent mode — в Workflow folder. Ревьюер строк не пишет: он
 проверяет, что каждый ref существует, SHA есть в ветке и `needs` совпадает.
 
 `review` и `ci-check` пишутся при закрытии, а не в ветке: строка в ветке после CI дала бы новый head и ещё один CI run. В Full
@@ -124,7 +131,7 @@ worfy не сверяет строку с источником. Он не спр
 | Грамматика и правила состояния, копия Harness | `harness/lib/evidence.cjs` |
 | `ticket evidence`, предупреждение `ticket done` | `harness/bin/ticket`; описание для людей — `harness/bin/TICKETS.md`, «Evidence» |
 | Строки закрытия, `prs[].evidence` | `harness/bin/land` |
-| Кто пишет какую строку | `harness/skills/ship-ticket/implementer-finish.md`, `harness/skills/ship-ticket/step-6-manual-gui-checks.md`, `harness/skills/ship-ticket/step-9-merge.md`, `harness/skills/epic-wave/SKILL.md`, `harness/agents/reviewer.md` |
+| Кто пишет какую строку | `harness/skills/ship-ticket/implementer-finish.md`, `harness/skills/ship-ticket/step-6-manual-gui-checks.md`, `harness/skills/ship-ticket/step-9-merge.md`, `harness/skills/epic-wave/SKILL.md`, `harness/agents/reviewer.md`, `harness/skills/owner-check/SKILL.md` |
 | Грамматика и правила состояния, копия worfy; модель | `src/shared/workflow/evidence.ts`, `src/shared/workflow/types.ts` |
 | Чтение пунктов вместе с Ticket-ом | `src/main/workflow/reader.ts` |
 | Chip и матрица | `src/renderer/canvas/badges/Evidence.tsx`, `src/renderer/canvas/nodes/EvidenceMatrix.tsx` |
@@ -137,6 +144,8 @@ worfy не сверяет строку с источником. Он не спр
 - `harness/bin/tests/ticket-evidence.test.sh`: матрица, запись строки, каждый отказ, состояния, `ticket done`, заголовки.
 - `harness/bin/tests/land.test.sh`: строки `prs[].evidence` и проверка до push.
 - `harness/bin/tests/agents-text.test.sh`: тексты агентов и skills держат правила, кто пишет какую строку.
+- `harness/bin/tests/owner-check.test.sh`: блок skill-а `owner-check` на временных Ticket-ах: одна строка на решение,
+  отметка `[x]`, отказ для пункта, который не ручной, Ticket доработки, подстановки в словах владельца.
 - `test/unit/evidence.test.ts` и `test/contract/evidence-rules-agree.test.ts` (на общих случаях
   `harness/bin/tests/fixtures/evidence/grammar.json`): копия worfy и её согласие с копией Harness.
 - `test/unit/evidence-matrix.test.tsx`, `test/e2e/ticket-evidence.spec.ts`: chip, матрица и куда ведут её ссылки.
