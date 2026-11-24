@@ -13,7 +13,7 @@ Ticket-ы 01–08 дописывали английскую страницу `do
 
 ## 2. Строка решения на английской странице сверена с кодом
 
-Code: `docs/features/acceptance.md:78-86` · key lines: 81, 82, 83, 85
+Code: `docs/features/acceptance.md:79-87` · key lines: 82, 83, 84, 86
 
 ```markdown
 - **Pass** and **Fail**. A click sends "Record owner check" ([Projects](projects.md), "Project settings…"): the
@@ -43,7 +43,7 @@ Code: `CONTEXT.md:171-173` · key lines: 172, 173
 
 ```markdown
 **Acceptance**:
-Вид ручных пунктов Ticket-ов всех Project-ов Machine, которые ждут проверки владельца, с их Evidence и Stable copy; решение Pass или Fail уходит Orchestrator-у Project-а, и строку `owner-check` в Ticket пишет skill `owner-check` Harness-а, не worfy. Вкладка Acceptance окна, её tooltip — «Checks that wait for you». Не Human review: та Stage ждёт решения ревью на GitHub до merge, Acceptance читает Evidence ручных пунктов, обычно после merge ([страница Feature](docs/features/acceptance.md)).
+Вид ручных пунктов Ticket-ов всех Project-ов Machine, которые ждут проверки владельца, и Ticket-ов, которые ждут его решения, с их Evidence и Stable copy; решение Pass или Fail уходит Orchestrator-у Project-а, и строку `owner-check` в Ticket пишет skill `owner-check` Harness-а, не worfy. Вкладка Acceptance окна, её tooltip — «Checks that wait for you». Не Human review: та Stage ждёт решения ревью на GitHub до merge, Acceptance читает Evidence ручных пунктов, обычно после merge ([страница Feature](docs/features/acceptance.md)).
 _Avoid_: приёмка (как имя вида), review queue, inbox; accepted (так говорят о принятом владельцем spec-е Epic-а)
 ```
 
