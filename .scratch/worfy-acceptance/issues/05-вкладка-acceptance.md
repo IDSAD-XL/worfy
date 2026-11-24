@@ -49,18 +49,18 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Наб
 - [ ] Unit test (`test/unit/acceptance-view.test.tsx`, новый): группы и счёт, Fail без комментария неактивен, при
       Autopilot кнопки неактивны с причиной, Waits for you без Pass и Fail, «Sent» и «Not recorded yet». Красный до
       правки — в «Итог».
-  - evidence: test-run pass · `pnpm exec vitest run test/unit/acceptance-view.test.tsx` exit 0 · mac - · 6588d01b3
+  - evidence: test-run pass · `pnpm exec vitest run test/unit/acceptance-view.test.tsx` exit 0 · mac - · 2a02c1367
 - [ ] e2e test (`test/e2e/acceptance.spec.ts`, новый, fake agent): пункт со снимком и клипом из
       `test/fixtures/evidence-clip/`; Pass → текст в очереди fake Orchestrator-а; test дописывает строку `owner-check` в
       Ticket-файл → пункт уходит; ↑ ↓ выбирают пункты.
-  - evidence: test-run pass · `pnpm test:e2e test/e2e/acceptance.spec.ts` exit 0 · mac dev · 6588d01b3
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/acceptance.spec.ts` exit 0 · mac dev · 2a02c1367
 - [ ] e2e test: снимки двух панелей при 1280 и 1600 px в обеих темах, как `test/e2e/pr-inbox.spec.ts` (в «Итог», в
       репозиторий не кладутся).
-  - evidence: test-run pass · `pnpm test:e2e test/e2e/acceptance.spec.ts` exit 0 (snapshots acceptance-1280 and acceptance-1600, both themes) · mac dev · 6588d01b3
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/acceptance.spec.ts` exit 0 (snapshots acceptance-1280 and acceptance-1600, both themes) · mac dev · 2a02c1367
 - [ ] Английская страница `docs/features/acceptance.md` описывает вид; `node scripts/check-feature-docs.mjs` — exit 0.
-  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 6588d01b3
+  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 2a02c1367
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
-  - evidence: gate pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0; `gate fast` exit 0 · mac - · 6588d01b3
+  - evidence: gate pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0; `gate fast` exit 0 · mac - · 2a02c1367
 
 ## Где в коде
 
@@ -123,4 +123,5 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Наб
   `test/unit/acceptance-view.test.tsx` и contract test `stableCommit`; шесть из них красные до правки, test двойного
   `sendDecision` зелёный и до правки (защита уже была) и убивает мутанта без неё. Mutation testing: 9 мутантов, 8 убиты;
   выжил `pane-keyed` (ключ на панели пункта) — эквивалентный: модель теперь живёт в `AcceptanceView`, ключ панели её не
-  переоткрывает. Строка evidence пункта 5 не заявляет `ci-ok` — его пишет land.
+  переоткрывает. e2e указывает `WORFY_UPDATE_STABLE` на пустую папку: `sha` решения там `-`, какая бы Stable copy ни стояла
+  на машине. Строка evidence пункта 5 не заявляет `ci-ok` — его пишет land.

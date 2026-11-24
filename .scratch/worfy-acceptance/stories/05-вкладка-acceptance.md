@@ -170,10 +170,11 @@ export function StableLine({ stable }: { stable: AcceptanceStable }) {
 
 ## 7. Как проверено
 
-- `pnpm exec vitest run test/unit/acceptance-view.test.tsx` — exit 0 (17 test-ов); до правки — exit 1.
+- `pnpm exec vitest run test/unit/acceptance-view.test.tsx` — exit 0 (24 test-а); до правки — exit 1.
 - `pnpm test:e2e test/e2e/acceptance.spec.ts` — exit 0: снимок и клип пункта, ↑ ↓, Pass в лог fake Orchestrator-а,
   строка `owner-check` от `ticket evidence` уводит пункт; снимки 1280 и 1600 px в обеих темах.
-- `pnpm lint && pnpm typecheck && pnpm test` — exit 0; `gate fast` — exit 0; 12 мутантов — все убиты.
+- `pnpm lint && pnpm typecheck && pnpm test` — exit 0; `gate fast` — exit 0; 12 мутантов первого прохода и 9 раунда ревью —
+  все убиты, кроме одного эквивалентного (ключ на панели пункта).
 
 ## Проверить себя
 
