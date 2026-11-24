@@ -492,7 +492,8 @@ test('the Acceptance section: the rail badge counts Ready to check, the section 
     await expect(window.locator('[data-testid="acceptance-row"][data-selected="true"]')).toHaveAttribute('data-key', `${HARBOR}\nharbor-docks\n1\n2`)
     await expect(window.getByTestId('acceptance-pane')).toContainText('Book a dock')
     await expect(window.locator('.w-toolbar__name')).toHaveText('orchard')
-    await parkPointer(window)
+    // The Canvas is hidden now (parkPointer needs it): the pointer goes to the empty foot of the item pane.
+    await window.mouse.move(SIZE.width - 8, SIZE.height - 8)
     const view = await snapshotThemes(window, 'acceptance-06-view-1280')
     for (const scheme of ['light', 'dark'] as const) copyFileSync(view[scheme], join(screens, `sidebar-acceptance-view-1280-${scheme}.png`))
   } finally {
