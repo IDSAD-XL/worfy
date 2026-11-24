@@ -35,14 +35,14 @@ Source: [spec.md](../spec.md), «Ticket-ы», 7; «Решения по реал�
 - [ ] Contract test (`test/contract/acceptance-linked.test.ts`, новый): Read only получает снимок и получает отказ на
       `actions.ownerCheck`; Full access кладёт текст в очередь Orchestrator-а другой Machine; `needs: windows` берёт
       сборку из `hello.build`. Красный до правки — в «Итог».
-  - evidence: test-run pass · `pnpm test test/contract/acceptance-linked.test.ts` exit 0 · mac - · 555be01f7
+  - evidence: test-run pass · `pnpm test test/contract/acceptance-linked.test.ts` exit 0 · mac - · 7c60d49fc
 - [ ] e2e test (`test/e2e/linked-acceptance.spec.ts`, новый, образец `test/e2e/linked-read-only.spec.ts`): окно Linked
       machine показывает очередь, Read only — кнопки неактивны с подсказкой.
-  - evidence: test-run pass · `pnpm test:e2e test/e2e/linked-acceptance.spec.ts test/e2e/acceptance.spec.ts test/e2e/linked-read-only.spec.ts` exit 0 · mac dev · 555be01f7
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/linked-acceptance.spec.ts test/e2e/acceptance.spec.ts test/e2e/linked-read-only.spec.ts test/e2e/sidebar-rail.spec.ts` exit 0 · mac dev · 7c60d49fc
 - [ ] `docs/features/link.md` описывает Acceptance на Linked machine; `node scripts/check-feature-docs.mjs` — exit 0.
-  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 555be01f7
+  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 7c60d49fc
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
-  - evidence: gate pass · `pnpm lint` exit 0; `pnpm typecheck` exit 0; `gate fast` exit 0 (lint, typecheck, test) · mac - · 555be01f7
+  - evidence: gate pass · `pnpm lint` exit 0; `pnpm typecheck` exit 0; `gate fast` exit 0 (lint, typecheck, test) · mac - · 7c60d49fc
 
 ## Где в коде
 
