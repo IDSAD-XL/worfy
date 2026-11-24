@@ -132,7 +132,17 @@ test('the Acceptance tab: groups, an item with its screenshot and clip, ↑ ↓,
   const log = join(scratch, 'agent.jsonl')
 
   const launched = await launchApp({
-    env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_HARNESS_HOME: harnessHome, HARNESS_HOME: harnessHome, WORFY_AGENT_SCRIPT: 'orchestrator', WORFY_AGENT_LOG: log },
+    env: {
+      WORFY_DATA_DIR: dataDir,
+      WORFY_CLAUDE_HOME: claudeHome,
+      WORFY_HARNESS_HOME: harnessHome,
+      HARNESS_HOME: harnessHome,
+      WORFY_AGENT_SCRIPT: 'orchestrator',
+      WORFY_AGENT_LOG: log,
+      // No Stable copy on this test's Machine: the queue names no commit for it, so the decision's sha is `-`, whatever
+      // copy the machine running the test has installed.
+      WORFY_UPDATE_STABLE: join(scratch, 'stable', process.platform === 'win32' ? 'worfy-stable' : 'worfy-stable.app'),
+    },
   })
   try {
     const { window } = launched
@@ -154,7 +164,7 @@ test('the Acceptance tab: groups, an item with its screenshot and clip, ↑ ↓,
     const rows = view.getByTestId('acceptance-row')
     await expect(rows.nth(0)).toHaveAttribute('data-selected', 'true')
     await expect(pane).toContainText('shop · shop 03 — The cart badge')
-    await expect(pane).toContainText('Item 2 · manual · needs mac stable')
+    await expect(pane).toContainText('Item 2 of 2 · manual · needs mac stable')
     await expect(pane.getByTestId('acceptance-stable')).toHaveText('merged')
     await expect(pane.getByTestId('acceptance-text').locator('strong')).toHaveText('1')
     await expect(pane.getByTestId('acceptance-prepared')).toContainText('Prepared by the Orchestrator · 1 of 1 verified')
