@@ -71,7 +71,8 @@ view says "Reading the Tickets…"; with no row in any group it says "No check w
 - **Checked in:** the platform and the copy, each a choice. The platform starts at the one of the window's Machine; the
   copy at the one the item's `needs:` line names, else `stable` when the change is in the Stable copy, else
   `installed`. On the platform of a Linked machine (the window's Machine, or a connected one of the platform chosen),
-  the decision carries the commit of the build that Machine runs, and the row shows that build. Otherwise, with the
+  the decision carries the commit of the build that Machine runs (none, `-`, for a build with uncommitted changes), and
+  the row shows that build. Otherwise, with the
   copy `stable` on the platform of this Machine, it carries the commit of this Machine's Stable copy (the one its Stable
   copy line reads, which main sends with the queue), and the row shows its version when the window is that copy, else
   its short commit. In every other case the commit is `-`, and the skill writes the line without one;
