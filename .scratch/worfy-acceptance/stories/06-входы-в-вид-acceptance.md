@@ -92,34 +92,45 @@ Code: `src/renderer/palette/commands.ts:680-695` · key lines: 682, 685, 692
 
 ## 5. Клик уведомления ждёт очередь и выбирает вид или Pipeline
 
-Code: `src/renderer/canvas/overlays/NotificationTarget.tsx:103-116` · key lines: 107, 111
+Code: `src/renderer/canvas/overlays/NotificationTarget.tsx:103-125` · key lines: 114, 119, 123
 
 ```tsx
     // A Ticket that waits for the owner (worfy-pipeline ticket 06): the Acceptance view on it when the queue holds it
     // (worfy-acceptance ticket 06), else the Pipeline board of its Project, once this window knows its Projects and
-    // the queue. The view is over every Project, so it selects none.
+    // the queue. The view is over every Project, so it selects none. A queue that has not answered when the note's
+    // wait ends (a Linked machine's, or one main is still building at the start) gives the Pipeline board, as before
+    // ticket 06; without the Projects the note goes.
     if ('view' in note) {
-      if (projects !== undefined && acceptanceKnown) {
+      const open = (queueKnown: boolean): void => {
+        if (projects === undefined) return
         dropNote(pending)
         const target = pipelineProjectOf(note, projects.projects)
         if (target === undefined) console.warn(`a notification of ${note.epic} ${note.num}: ${note.projectRoot ?? note.projectId} is no longer in the list of Projects`)
-        else if (!openAcceptance({ projectId: target.id, epic: note.epic, num: note.num }))
+        else if (!queueKnown || !openAcceptance({ projectId: target.id, epic: note.epic, num: note.num }))
           void openPipelineOf(target.id, projects.activeId ?? undefined).then((problem) => {
             if (problem !== undefined) console.error('a notification could not open the Pipeline of its Project:', problem)
           })
+      }
+      if (projects !== undefined && acceptanceKnown) {
+        open(true)
         return
       }
+      const timer = setTimeout(() => (projects === undefined ? dropNote(pending) : open(false)), Math.max(0, pending.until - Date.now()))
+      return () => clearTimeout(timer)
+    }
 ```
 
 - Что делает: заметка ждущего Ticket-а ждёт и список Project-ов, и первый ответ очереди (`useAcceptanceKnown`); есть
-  строка Ticket-а — вид на ней без выбора Project-а, нет или очередь не прочитана с ошибкой — доска Pipeline.
-- Почему здесь: Ticket называет `src/main/workflow/waits-notify.ts` и `test/unit/notify.test.ts`, но очередь
-  Acceptance знает окно, а main решает только, что заметку держать (`notify.pending`); выбор перенесён в окно, где
-  клик и так открывает Pipeline. Это расхождение с Ticket-ом — в отчёте implementer-а.
+  строка Ticket-а — вид на ней без выбора Project-а, нет или очередь не прочитана с ошибкой — доска Pipeline. Очередь
+  не ответила, пока заметка ждёт (10 s), а Project-ы известны — тоже доска Pipeline, как до Ticket-а 06.
+- Почему здесь: Ticket называет `src/main/workflow/waits-notify.ts` и `test/unit/notify.test.ts`. Очередь есть и в
+  main, но окно читает очередь своей Machine в момент клика (перезагруженное на Linked machine окно — очередь той
+  Machine); проверка в main потребовала бы нового поля заметки и видела бы очередь на момент показа. Это расхождение с
+  Ticket-ом — в отчёте implementer-а.
 - Без него: клик всегда открывал бы доску Pipeline.
 - Требование: [Что делаем, п. 4](../issues/06-входы-в-вид-acceptance.md#что-делаем)
-- Риски и пробелы test-ов: если `acceptance.get` не ответит вовсе, заметка истечёт, как заметка Project-а, которого
-  ещё нет; test-ы — в `test/unit/notification-ticket-click.test.tsx` вместе со старыми test-ами этого клика.
+- Риски и пробелы test-ов: `acceptance.get` без ответа за 10 s — доска Pipeline, даже если Ticket в очереди; test
+  с fake timers проверяет этот путь; test-ы — в `test/unit/notification-ticket-click.test.tsx` вместе со старыми test-ами этого клика.
 
 ## 6. Как проверено
 
@@ -132,9 +143,9 @@ Code: `src/renderer/canvas/overlays/NotificationTarget.tsx:103-116` · key lines
 
 ## Проверить себя
 
-1. Почему клик уведомления не решает, куда вести, сразу при взятии заметки?
-   - Ответ: очередь окна может быть ещё не прочитана; без её первого ответа Ticket из очереди ушёл бы на Pipeline.
-   - Строки: `src/renderer/canvas/overlays/NotificationTarget.tsx:107`
+1. Что откроет клик уведомления, если очередь окна не ответила, пока заметка ждёт?
+   - Ответ: доску Pipeline Project-а, как до Ticket-а 06; без списка Project-ов заметка просто уходит.
+   - Строки: `src/renderer/canvas/overlays/NotificationTarget.tsx:123`
 2. Что сделает строка ручной проверки, если очередь не содержит её пункт?
    - Ответ: `openAcceptance` вернёт `false`, вид не переключится, и строка уйдёт к карточке Ticket-а.
    - Строки: `src/renderer/palette/commands.ts:692-693`

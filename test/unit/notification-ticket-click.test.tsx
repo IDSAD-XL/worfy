@@ -197,4 +197,34 @@ describe('a click on a notification of a Ticket that waits for the owner (worfy-
     answerQueue({ ok: false, error: 'the service stopped' })
     await waitFor(() => expect(useNavigation.getState().view).toBe('pipeline'))
   })
+
+  it('opens the Pipeline board when the Acceptance queue does not answer while the note waits', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      preload({
+        projects: PROJECTS,
+        pipelines: {},
+        models: {},
+        answers: {
+          'sessions.views': () => ({ views: [] }),
+          // A Linked machine's queue, or one main is still building at the start: no answer within the note's wait.
+          'acceptance.get': () => new Promise(() => undefined),
+          'notify.pending': () => ({ note: { view: 'pipeline', projectRoot: ATALAYA_ROOT, epic: 'atalaya', num: 3 } }),
+        },
+      })
+      const { default: NotificationTarget } = await import('../../src/renderer/canvas/overlays/NotificationTarget')
+      const { useNavigation } = await import('../../src/renderer/session/navigation')
+      const { usePendingNote } = await import('../../src/renderer/session/notification-target')
+      render(<NotificationTarget />)
+      await waitFor(() => expect(usePendingNote.getState().pending).not.toBeNull())
+      await waitFor(() => expect(main.calls.some((call) => call.channel === 'projects.list')).toBe(true))
+      expect(useNavigation.getState().view).toBe('canvas')
+      await vi.advanceTimersByTimeAsync(11_000)
+      await waitFor(() => expect(useNavigation.getState().view).toBe('pipeline'))
+      expect(usePendingNote.getState().pending).toBeNull()
+      expect(main.calls).toContainEqual({ channel: 'projects.select', input: { id: 'atalaya-00000002' } })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

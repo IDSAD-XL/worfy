@@ -102,19 +102,25 @@ export default function NotificationTarget() {
     }
     // A Ticket that waits for the owner (worfy-pipeline ticket 06): the Acceptance view on it when the queue holds it
     // (worfy-acceptance ticket 06), else the Pipeline board of its Project, once this window knows its Projects and
-    // the queue. The view is over every Project, so it selects none.
+    // the queue. The view is over every Project, so it selects none. A queue that has not answered when the note's
+    // wait ends (a Linked machine's, or one main is still building at the start) gives the Pipeline board, as before
+    // ticket 06; without the Projects the note goes.
     if ('view' in note) {
-      if (projects !== undefined && acceptanceKnown) {
+      const open = (queueKnown: boolean): void => {
+        if (projects === undefined) return
         dropNote(pending)
         const target = pipelineProjectOf(note, projects.projects)
         if (target === undefined) console.warn(`a notification of ${note.epic} ${note.num}: ${note.projectRoot ?? note.projectId} is no longer in the list of Projects`)
-        else if (!openAcceptance({ projectId: target.id, epic: note.epic, num: note.num }))
+        else if (!queueKnown || !openAcceptance({ projectId: target.id, epic: note.epic, num: note.num }))
           void openPipelineOf(target.id, projects.activeId ?? undefined).then((problem) => {
             if (problem !== undefined) console.error('a notification could not open the Pipeline of its Project:', problem)
           })
+      }
+      if (projects !== undefined && acceptanceKnown) {
+        open(true)
         return
       }
-      const timer = setTimeout(() => dropNote(pending), Math.max(0, pending.until - Date.now()))
+      const timer = setTimeout(() => (projects === undefined ? dropNote(pending) : open(false)), Math.max(0, pending.until - Date.now()))
       return () => clearTimeout(timer)
     }
     // A Session from the registry is looked for in the Project of its root, whichever is active.

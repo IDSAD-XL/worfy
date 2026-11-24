@@ -71,11 +71,16 @@ Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решения по реал�
 - Палитра: «Acceptance» в группе View (с Project-ом и без); строка ручной проверки открывает вид на пункте, если он в
   очереди, иначе карточку Ticket-а. `openAcceptance` с целью, которой нет в очереди, больше не переключает вид.
 - Клик «is waiting for you»: окно ждёт первый ответ очереди и открывает вид на Ticket-е или, как раньше, доску Pipeline
-  (`src/renderer/canvas/overlays/NotificationTarget.tsx`). `src/main/workflow/waits-notify.ts` не менялся: очередь знает
-  окно, а не main; test-ы — в `test/unit/notification-ticket-click.test.tsx` вместе с прежними test-ами этого клика
+  (`src/renderer/canvas/overlays/NotificationTarget.tsx`); не дождалось ответа очереди за время жизни заметки (10 s) —
+  доска Pipeline. `src/main/workflow/waits-notify.ts` не менялся: очередь есть и в main (`src/main/acceptance/service.ts`),
+  но окно читает очередь своей Machine в момент клика (окно, перезагруженное на Linked machine, — очередь той Machine);
+  проверка в main потребовала бы нового поля заметки и видела бы очередь на момент показа, а не клика. Test-ы — в `test/unit/notification-ticket-click.test.tsx` вместе с прежними test-ами этого клика
   (вынесены из `test/unit/pipeline-board.test.tsx`, перешедшего 1000 строк), а не в `test/unit/notify.test.ts` (там
   test-ы main).
 - Ready to check в секции и бейдж не считают пункты с отметкой Sent — как счёт вкладки после ревью 05.
+- Решено без владельца: секция и её бейдж следуют переключателю Project-ов боковой панели, как Pull requests. Это
+  отступление от spec.md:94 («На rail-е и на вкладке — бейдж «3»», одно число): при «All Projects» числа совпадают, при
+  одном Project-е бейдж rail-а считает только его.
 - Красный до правки: `pnpm exec vitest run test/unit/acceptance-section.test.tsx test/unit/palette-manual-check-row.test.tsx
   test/unit/pipeline-board.test.tsx` — exit 1: файла секции нет («Failed to resolve import …/AcceptanceSection»), строка
   палитры вела к Ticket-у, строки «Acceptance» не было, клик уведомления открывал Pipeline. После правки — exit 0.
