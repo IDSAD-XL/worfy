@@ -372,8 +372,8 @@ describe('scripts/windows-test-list.mjs', () => {
   /** Test files of this repository, in a stable order. */
   const realFiles = (count: number): string[] =>
     readdirSync(join(REPO, 'test', 'unit'))
-      // A name with a forbidden word is refused by its own rule (test/unit/acceptance-queue.test.ts sorts first).
-      .filter((name) => /^[a-z0-9-]+\.test\.ts$/.test(name) && !/e2e|packaged|acceptance/i.test(name))
+      // A name with a forbidden word is refused by its own rule.
+      .filter((name) => /^[a-z0-9-]+\.test\.ts$/.test(name) && !/e2e|packaged|[._-]acceptance\.test/i.test(name))
       .sort()
       .slice(0, count)
       .map((name) => `test/unit/${name}`)
@@ -395,7 +395,14 @@ describe('scripts/windows-test-list.mjs', () => {
       'test/unit/x_e2e.test.ts',
       'test/unit/app.packaged.test.ts',
       'test/unit/run_acceptance.test.ts',
+      'test/unit/flow-acceptance.test.ts',
+      'test/unit/app.acceptance.test.tsx',
+      'test/unit/acceptance.test.ts',
       'test/unit/e2e/inner.test.ts',
+      'test/contract/Acceptance/inner.test.ts',
+      // "acceptance" leading a name: the Acceptance queue's own tests, accepted.
+      'test/unit/acceptance-queue.test.ts',
+      'test/unit/acceptance_run.test.ts',
       ...HARNESS_SCRIPTS_FILES,
       'test/unit/helper.ts',
       'test/unit/notes.test.js',
@@ -495,11 +502,15 @@ describe('scripts/windows-test-list.mjs', () => {
     ['a name with e2e', 'test/unit/e2e-flow.test.ts', /has "e2e" in its name/, ''],
     ['a name with E2E in capitals', 'test/unit/E2E-upper.test.ts', /has "e2e" in its name/, ''],
     ['a name with packaged', 'test/unit/packaged-app.test.ts', /has "packaged" in its name/, ''],
-    ['a name with acceptance', 'test/contract/acceptance-run.test.ts', /has "acceptance" in its name/, ''],
     ['a name with e2e after -', 'test/unit/flow-e2e.test.ts', /has "e2e" in its name/, ''],
     ['a name with e2e after _', 'test/unit/x_e2e.test.ts', /has "e2e" in its name/, ''],
     ['a name with packaged between dots', 'test/unit/app.packaged.test.ts', /has "packaged" in its name/, ''],
     ['a name with acceptance after _', 'test/unit/run_acceptance.test.ts', /has "acceptance" in its name/, ''],
+    ['a name with acceptance after -', 'test/unit/flow-acceptance.test.ts', /has "acceptance" in its name/, ''],
+    ['a name with acceptance between dots', 'test/unit/app.acceptance.test.tsx', /has "acceptance" in its name/, ''],
+    ['a name that is acceptance alone', 'test/unit/acceptance.test.ts', /has "acceptance" in its name/, ''],
+    ['a file in a folder named Acceptance', 'test/contract/Acceptance/inner.test.ts', /has "acceptance" in its name/, ''],
+    ['an acceptance test of this repository', 'test/acceptance/e3.spec.ts', /is not under test\/unit\/ or test\/contract\//, REPO],
     ['a file in a folder named e2e', 'test/unit/e2e/inner.test.ts', /has "e2e" in its name/, ''],
     // The Harness shell tests: about 26 minutes on Windows together, past the job's 10.
     ...HARNESS_SCRIPTS_FILES.map((file): [string, string, RegExp, string] => [`the Harness shell tests of ${file}`, file, /together they run longer than this job's 10 minutes.*on the owner's Windows PC/, '']),
@@ -532,6 +543,15 @@ describe('scripts/windows-test-list.mjs', () => {
     // A POSIX path fails on the folder, a Windows one already on `:` and `\`.
     expect(result.stderr).toMatch(/is not under test\/unit\/ or test\/contract\/|has a character other than/)
     expect(result.output).toBe('')
+  })
+
+  it('accepts names that lead with acceptance: the tests of the Acceptance queue, not acceptance tests', () => {
+    const list = ['test/contract/acceptance-run.test.ts', 'test/unit/acceptance-queue.test.ts', 'test/unit/acceptance_run.test.ts']
+    const result = check(list.join(' '), tree)
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.output).toBe(`files=${list.join(' ')}\n`)
+    const real = check('test/unit/acceptance-queue.test.ts test/contract/acceptance-service.test.ts')
+    expect(real.status, real.stderr).toBe(0)
   })
 
   it('accepts the longer name of a pair that vitest tells apart', () => {
@@ -576,7 +596,7 @@ describe('scripts/windows-test-list.mjs', () => {
     const all = ['test/unit', 'test/contract'].flatMap((folder) =>
       readdirSync(join(REPO, folder), { recursive: true, encoding: 'utf8' })
         .map((name) => `${folder}/${name.split('\\').join('/')}`)
-        .filter((name) => /\.test\.tsx?$/.test(name) && !/e2e|packaged|acceptance/i.test(name) && !HARNESS_SCRIPTS_FILES.includes(name)),
+        .filter((name) => /\.test\.tsx?$/.test(name) && !/e2e|packaged|(^|\/)acceptance\/|[/._-]acceptance\.test/i.test(name) && !HARNESS_SCRIPTS_FILES.includes(name)),
     )
     expect(all.length).toBeGreaterThan(100)
     for (let at = 0; at < all.length; at += 12) {
