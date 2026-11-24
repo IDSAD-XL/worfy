@@ -50,6 +50,29 @@ Card «Прототип: Product Session + Mind map» (`card-2dffdc46`)
   - needs: mac stable
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
 
+Шаги приёмки владельца — из `.scratch/owner-acceptance-guides.md` (перенесены 2026-11-24, `worfy-acceptance` 08): подготовка Orchestrator-а — пункты без метки, шаги владельца — пункты с меткой, по одному на шаг.
+
+- [ ] (manual) Сделай: сравни «Tree» с картой прототипа рядом → Должно быть: форма по виду — Idea капсула, Question
+      шестиугольник с пунктиром, Objection скошенный прямоугольник, Decision прямоугольник с малыми углами; цвета — Idea
+      голубая, Question янтарная, Decision лаймовая, Objection розовая, отклонённое серое; у принятого Decision контур
+      толще. Отличия от прототипа, которые оставлены решениями (не Fail): текст «Tree» 15 px и «Graph» 12 px против
+      12,5 px (решение 06 spec-а); панель инструментов — полоса над картой, а не поверх неё; метки сворачивания «−» /
+      «+N» есть только в приложении.
+  - needs: mac stable
+- [ ] (manual) Сделай: посмотри на связи → Должно быть: «выросло из» — кривая с серой стрелкой у ребёнка; «Replaces» —
+      красный пунктир с красной стрелкой от «Mind map 60 / чат 40…» к отклонённому Решению, как в прототипе.
+  - needs: mac stable
+- [ ] (manual) Сделай: найди легенду внизу слева и щёлкни её заголовок → Должно быть: заголовок «Legend · click a node
+      for details», строки «Idea — what could be done», «Question — not decided», «Decision accepted», «Decision
+      rejected», «Objection», «Grew from», «Replaces» с образцами; щелчок сворачивает и разворачивает. Фон карты в точках.
+  - needs: mac stable
+- [ ] (manual) Сделай: щёлкни узел, потом наведи на другой → Должно быть: выбранный — толстый контур и свечение цветом
+      вида; наведённый — контур толще.
+  - needs: mac stable
+- [ ] (manual) Сделай: попроси Orchestrator-а включить светлую тему и посмотри ту же карту → Должно быть: цвета видов
+      различимы, текст отклонённого Решения читается (серый, но не бледный). Прототипа в светлой теме нет — суди на глаз.
+  - needs: mac stable
+
 ## Тесты
 
 - Unit test-ы Mind map (`test/unit/mind-map-view.test.tsx`, `mind-map-hand.test.tsx`, `mind-map-layout.test.ts`, `product-session-panel.test.tsx`),

@@ -107,6 +107,41 @@ Source: owner-check fail 2026-11-21 of worfy-changes-view 07, item 2 — 07-пр
 Пункт (manual) выше записан owner-check-ом дословно из Ticket-а 07. После этого Ticket-а владелец проверяет по нему то,
 что решил в D1: кнопка Changes открывает вид Changes во всё окно с diff-ом ветки, «← Canvas» возвращает на Canvas.
 
+Шаги приёмки владельца — из `.scratch/owner-acceptance-guides.md` (перенесены 2026-11-24, `worfy-acceptance` 08):
+подготовка Orchestrator-а — пункты без метки, шаги владельца — пункты с меткой, по одному на шаг.
+
+- [ ] Orchestrator: обновить Mac Stable до `main` после «да» владельца и сверить версию.
+- [ ] Orchestrator: завести в `worfy-sandbox` Ticket с worktree: ветка с 2–3 commit-ами, изменённый файл без commit-а,
+      новый файл, rename, lock-файл, binary-файл, файл в `.scratch/`.
+- [ ] Orchestrator: привязать к этому Ticket-у Session (Binding).
+- [ ] Orchestrator: через CDP проверить Linked machine с Read only (diff виден, «+» и лотка нет).
+- [ ] (manual) Сделай: на Canvas `worfy-sandbox` на карточке названного Ticket-а нажми **Changes** → Должно быть:
+      открылся вид Changes во всё окно (как Pull requests), Canvas скрыт под ним; в заголовке **← Canvas** и
+      `Changes · Ticket NN · <epic>`. В первой строке — меню scope «All changes», `origin/main ← <ветка>`, merge-base,
+      число файлов, `+N −M` и Refresh.
+  - needs: mac stable
+- [ ] (manual) Сделай: посмотри дерево файлов слева и diff справа → Должно быть: файлы, которых ты ждёшь от ветки, с
+      буквами A, M, D, R и числами строк; новый файл без commit-а тоже есть; группа **Workflow files (N)** — последней
+      и свёрнута; lock-файл свёрнут («Lock file … Show»), binary — «Binary file · … → …». Совпадение с
+      `git diff <merge-base>` сверит Orchestrator.
+  - needs: mac stable
+- [ ] (manual) Сделай: нажми **← Canvas**, потом снова **Changes** на карточке, потом Esc; затем ⌘K → «Open changes» →
+      строка этого Ticket-а → Должно быть: ← Canvas и Esc возвращают на Canvas; оба входа открывают вид Changes того
+      же Ticket-а; на Canvas нет Node-а Changes.
+  - needs: mac stable
+- [ ] (manual) Сделай: во второй строке вида переключи Inline ↔ Side by side, включи Wrap и Hide whitespace → Должно
+      быть: Side by side — старая сторона слева, новая справа; Wrap переносит длинные строки; Hide whitespace убирает
+      правки пробелов.
+  - needs: mac stable
+- [ ] (manual) Сделай: в меню scope выбери Uncommitted, потом один commit под Commit; затем в Compare выбери другую
+      ветку → Должно быть: Uncommitted — только правки без commit-а и новый файл; Commit — правки одного commit-а;
+      Compare — All changes против выбранной ветки.
+  - needs: mac stable
+- [ ] (manual) Сделай: щёлкни в diff-е и пройди `j`, `k`, `n`, `p`; набери часть имени файла в фильтре дерева →
+      Должно быть: `j`/`k` — следующий и прошлый файл, `n`/`p` — следующий и прошлый hunk; фильтр пишет «N of M
+      files», diff показывает те же файлы.
+  - needs: mac stable
+
 ## Где в коде
 
 - `src/renderer/shell/Toolbar.tsx:19`, `src/renderer/shell/AppShell.tsx:120-138`, `src/renderer/session/navigation.ts:46`

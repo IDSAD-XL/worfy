@@ -51,6 +51,40 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 5a04a9e9c16a2ebab38ff26fc89940f6b32da188
   - evidence: gate pass · `gate fast` exit 0 · mac - · 5a04a9e9c16a2ebab38ff26fc89940f6b32da188
 
+Шаги приёмки владельца — из `.scratch/owner-acceptance-guides.md` (перенесены 2026-11-24, `worfy-acceptance` 08): подготовка Orchestrator-а — пункты без метки, шаги владельца — пункты с меткой, по одному на шаг.
+
+- [ ] Orchestrator: проверит CI и evidence всех десяти PR приёмки (Ticket-ы 08, 21, 23, 26–32) и что unit/e2e test-ы
+      Ticket-ов есть на `main`.
+- [ ] Orchestrator: положит в `worfy-sandbox` тему `acceptance-demo` (папка Product Session Project-а): узлы `LONG_MAP` из
+      `test/e2e/product-session.spec.ts` (все четыре вида узлов, отклонённое Решение с историей, стрелка «Replaces»,
+      очень длинный текст, совет без решения) и два Ticket-а карты из `test/fixtures/product-topic`.
+- [ ] Orchestrator: через CDP (Chrome DevTools Protocol: Orchestrator сам щёлкает и читает экран Stable) откроет Command
+      palette → «New Product Session», тронет файл темы, чтобы карта показала её, поставит окно Stable 1440 px в тёмной
+      теме, «Tree».
+- [ ] Orchestrator: откроет `index.html` прототипа (Card «Прототип: Product Session + Mind map», `card-2dffdc46`, в
+      папке Card-ов Project-а worfy; у него только тёмная тема) в окне браузера слева и проиграет его разговор до конца
+      («▶ Проиграть разговор»).
+- [ ] Orchestrator: проверит, что Settings → Sessions → «Live summary while the advisor works» включён.
+- [ ] (manual) Сделай: посмотри на карту слева → Должно быть: выбран «Tree»; тема у левого края, два Ticket-а карты —
+      крупные узлы с номером; у каждого узла значок вида в круге; Решение «Сначала проверить советника в Harness…»
+      серое, зачёркнутое, с пунктирным контуром.
+  - needs: mac stable
+- [ ] (manual) Сделай: над картой прокрути двумя пальцами и сведи-разведи пальцы на trackpad, потом протащи пустой фон
+      → Должно быть: zoom плавный, процент между «−» и «+» меняется и держится в 10–250 %; карта едет за пальцем.
+  - needs: mac stable
+- [ ] (manual) Сделай: нажми «−», «+», затем «Fit» → Должно быть: «−» и «+» меняют процент шагом; после «Fit» все узлы
+      в панели.
+  - needs: mac stable
+- [ ] (manual) Сделай: нажми «Hide rejected», потом ещё раз → Должно быть: отклонённое Решение и красная стрелка к нему
+      пропали; второй щелчок их вернул.
+  - needs: mac stable
+- [ ] (manual) Сделай: щёлкни узел-Решение → Должно быть: карточка с плашкой вида и статуса, текстом, Reason, History,
+      Grew from, Message; у Objection вместо Reason — Source.
+  - needs: mac stable
+- [ ] (manual) Сделай: щёлкни по карте, затем Tab несколько раз, Enter, Escape → Должно быть: фокус идёт по узлам с
+      видимой обводкой; Enter открывает карточку; Escape закрывает её и возвращает фокус на тот же узел.
+  - needs: mac stable
+
 ## Тесты
 
 - Unit `test/unit/mind-map-view.test.tsx`, `test/unit/mind-map-layout.test.ts` (новые).

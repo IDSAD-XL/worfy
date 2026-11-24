@@ -63,6 +63,29 @@ Health check — один компонент `FirstRunChecks` (`src/renderer/she
 - [ ] Строка «Health» в `docs/features/app-shell.md:278` (и перевод в `docs/features/ru/`) говорит, что нажатая
   кнопка показывает ход проверки.
 
+Шаги приёмки владельца — из `.scratch/owner-acceptance-guides.md` (перенесены 2026-11-24, `worfy-acceptance` 08): подготовка Orchestrator-а — пункты без метки, шаги владельца — пункты с меткой, по одному на шаг.
+
+- [ ] Orchestrator: через CDP сверит то же в окне First run (один компонент).
+- [ ] Orchestrator: отложит файл ответа о моделях qmd (`~/.claude/worfy-harness/qmd-models`), чтобы у строки qmd models
+  появилась кнопка «Download…», и нажмёт «Check again».
+- [ ] (вручную) Сделай: открой Settings → Health (кнопка с сердцем на rail над Machines или Command palette → «Health
+  check») и сразу нажми «Check again» → Должно быть: на кнопке крутится spinner и «Checking…»; chip сводки слева —
+  «Checking…» в Stable `5d1efe69`, а после обновления Stable с `worfy-polish` 134 его во время проверки нет (это
+  верно); chip каждой строки — «Checking…»; остальные кнопки приглушены, tooltip «Another check is running». Через
+  секунды (вход Claude Code — до минуты) всё как было.
+  - needs: mac stable
+- [ ] (вручную) Сделай: у строки qmd models нажми «Download…» и посмотри на окно, пока открыт вопрос «Download the qmd
+  models (<размер>)?» → Должно быть: на кнопке spinner и «Downloading…», chip строки «Running…», под строкой
+  «Downloading models… 0:05», секунды идут; остальные кнопки приглушены.
+  - needs: mac stable
+- [ ] (вручную) Сделай: нажми «Confirm» (модели уже в кэше qmd — недолго; если нет, сотни MB) → Должно быть: время под
+  строкой идёт до конца; потом кнопка ушла, строка `ok`. Отказ показывает причину в строке, кнопка возвращает подпись.
+  - needs: mac stable
+- [ ] Orchestrator: после шага с «Confirm» сверит, что файл ответа о моделях qmd на месте.
+- [ ] (вручную) Сделай: подтверди решение без владельца — Ticket 77 («Итог», «Отступления от тикета»): «Кнопки
+  выключены через `aria-disabled` … а не атрибутом `disabled`». Выключенная кнопка приглушена и молча игнорирует
+  щелчок; так фокус клавиатуры не теряется → Должно быть: Pass — «подтверждаю», Fail — «в Ticket».
+
 ## Тесты
 
 - unit (jsdom): `test/unit/settings-health.test.tsx` или новый рядом — busy state «Check again» и действия строки при

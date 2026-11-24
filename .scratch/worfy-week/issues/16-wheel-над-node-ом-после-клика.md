@@ -103,6 +103,18 @@ Canvas двигается wheel-ом и свайпом двумя пальцам
 - [x] `pnpm lint`, `pnpm typecheck` и `pnpm test` — exit 0.
 - [ ] (вручную) Stable copy после влития, trackpad: свайп двумя пальцами над Orchestrator, HANDOFF, Card и Terminal двигает Canvas до клика и прокручивает содержимое после (Orchestrator — двигает и после); pinch зумит Canvas над любым Node-ом, кроме активной Card. Как проверить: окно приложения.
 
+Шаги приёмки владельца — из `.scratch/owner-acceptance-guides.md` (перенесены 2026-11-24, `worfy-acceptance` 08):
+подготовка Orchestrator-а — пункты без метки, шаги владельца — пункты с меткой, по одному на шаг.
+
+- [ ] Orchestrator: запустить Stable worfy на Mac.
+- [ ] (вручную) Сделай: свайп двумя пальцами над Orchestrator, HANDOFF, Card и Terminal до клика и после клика по
+      Node-у → Должно быть: до клика двигается Canvas, после — прокручивается содержимое (Orchestrator двигает Canvas и
+      после клика).
+  - needs: mac stable
+- [ ] (вручную) Сделай: pinch над каждым из Node-ов Orchestrator, HANDOFF, Card и Terminal → Должно быть: зумится
+      Canvas, кроме активной Card.
+  - needs: mac stable
+
 ## Тесты
 
 Сначала падающий test — `test/e2e/wheel-over-nodes.spec.ts`: на нынешнем main шаг «до клика wheel

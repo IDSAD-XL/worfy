@@ -1,7 +1,8 @@
 # 08 — Шаги приёмки в Ticket-ах: правило Harness для ручных пунктов, перенос гайдов, файл гайдов до приёмки владельцем
 
 Type: task
-Status: open
+Status: claimed 2026-11-24T03:02Z
+Branch: worfy-acceptance/08
 Blocked by: 04, 05
 Source: [spec.md](../spec.md), «Ticket-ы», 8; «Решения по реализации» → «Шаги приёмки — ручные пункты Ticket-а»; «Вопросы
 владельцу», Q5 (решено владельцем 2026-11-20)

@@ -62,6 +62,16 @@ Publish the approved tickets. **How** depends on the tracker `/worfy:connect-pro
 - **Local files** → write one file per ticket under `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01` in dependency order (blockers first). Each file's `Blocked by:` line lists the numbers of the tickets it depends on (`Blocked by: 01, 03`), or says `None — can start immediately`. Use the per-ticket file template below: one ticket per file, never a single combined file; its `## Done when` heading is the heading `tickets.done_section` of the profile (`"${CLAUDE_PLUGIN_ROOT}/bin/profile" --field tickets.done_section`).
 - **A real issue tracker (GitHub, Linear, …)** → publish one issue per ticket in dependency order (blockers first) so each ticket's blocking edges can reference real identifiers. Use the platform's native blocking relationship where it has one; otherwise set each ticket's "Blocked by" to the blocking issues. If the source was an existing issue, make each ticket its sub-issue (tracker doc's operation). The tickets carry no label; they are agent-grabbable by construction.
 
+**A manual item is written for the owner.** One step per item:
+`Do: <what the owner does> → Expect: <what the owner should see>`, the two labels in the language of
+the project's documents. Under it goes a `needs: <platform> [<copy>]` line that names where the owner
+checks it. A longer check is several such items, one per step, never one item with a list of steps.
+What the orchestrator prepares before the owner's steps (a sandbox, a fixture, an update of the stable
+copy) is not a manual item: it goes into the same ticket as items without the manual mark, before the
+step it serves. A manual item is one the owner checks by hand; its mark is `tickets.manual_mark` of the
+profile (`"${CLAUDE_PLUGIN_ROOT}/bin/profile" --field tickets.manual_mark`), in parentheses after the
+checkbox. The format of `needs:` is in `${CLAUDE_PLUGIN_ROOT}/bin/TICKETS.md`, "Evidence".
+
 Work the **frontier**: any ticket whose blockers are all done. For a purely linear chain that means top to bottom.
 
 Do NOT close or modify any parent issue.
@@ -80,6 +90,8 @@ Blocked by: None — can start immediately
 
 - [ ] Acceptance criterion 1
 - [ ] Acceptance criterion 2
+- [ ] (<manual mark>) Do: <what the owner does> → Expect: <what the owner should see>
+  - needs: <platform> [<copy>]
 
 </local-ticket-template>
 

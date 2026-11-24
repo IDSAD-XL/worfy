@@ -54,6 +54,23 @@ desktop, она называет terminal, и внизу пишет «Read-only:
 - [ ] Страница `docs/features/transcripts-and-usage.md` (и перевод в `docs/features/ru/`) говорит об этом.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · c635b902bc8d9d14b7dd3c2f1e5fa4f41ebc76f8
 
+Шаги приёмки владельца — из `.scratch/owner-acceptance-guides.md` (перенесены 2026-11-24, `worfy-acceptance` 08): подготовка Orchestrator-а — пункты без метки, шаги владельца — пункты с меткой, по одному на шаг.
+
+- [ ] Orchestrator: через CDP откроет в `worfy-sandbox` Product Session (как в жалобе), отправит сообщение с условным
+      словом и дождётся ответа.
+- [ ] Orchestrator: перезапустит Stable, когда Session не в ходе (такую Session перезапуск не продолжает сам).
+- [ ] Orchestrator: сверит через CDP, что Session из terminal по-прежнему пишет «Read-only: started in terminal».
+- [ ] (вручную) Сделай: в sidebar, раздел Sessions, щёлкни строку этой Product Session → Должно быть: Session view; в
+      заголовке источник «worfy · <папка>», не «terminal · …»; внизу строка «Not running — Resume to continue» и
+      кнопка Resume.
+  - needs: mac stable
+- [ ] (вручную) Сделай: нажми Resume → Должно быть: на кнопке «Resuming…», потом view стал живым: внизу поле ввода,
+      строки «Not running…» нет. Если Resume отказан, причина видна рядом с кнопкой — тогда назови её.
+  - needs: mac stable
+- [ ] (вручную) Сделай: напиши в Session «какое слово я просил запомнить?» → Должно быть: агент называет слово — это
+      тот же разговор, и это всё ещё Product Session (Orchestrator сверит `kind: 'product'` у Node).
+  - needs: mac stable
+
 ## Тесты
 
 - `test/unit/session-read-only-resume.test.tsx` — новый: выбор строки (worfy не запущен → Resume; terminal; desktop;
