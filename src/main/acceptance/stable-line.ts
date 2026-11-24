@@ -12,7 +12,10 @@
 //   kept for good once git says yes or no. worfy never fetches (ADR-0005): a commit this checkout does not have, a
 //   refusal of GitHub and no Stable copy at all read "Stable copy not checked", and are asked again RETRY_MS later.
 // - Versions: `git rev-list --count <commit>`, the build number (scripts/build-version.ts, buildNumber), with the
-//   major and minor of that commit's package.json, as numberedVersion writes them.
+//   major and minor of that commit's package.json, as numberedVersion writes them. As buildNumber, a shallow clone has
+//   no honest count: no number, and the line names the commit by its short SHA.
+// - Update first offers Update worfy when the Available update has the change: by the build numbers when both are
+//   known, else by `merge-base --is-ancestor <merge> <its commit>`; a copy that does not check for updates says so.
 // Nothing is waited for: `line` answers what is known now and asks for the rest; when an answer comes, `onChange` is
 // called and the caller asks again. Read-only: no gh command but `pr view` and `pr list`, no git command that writes.
 import { z } from 'zod'
@@ -39,8 +42,11 @@ export interface StableLineSources {
   git?: GitRunner
   /** The commit the Stable copy of this Machine runs; null without one. stableCopyCommit by default. */
   stableCommit?: () => string | null
-  /** The Available update of the Stable copy (src/shared/ipc/update.ts); none by default. */
-  available?: () => AvailableUpdate | null
+  /**
+   * Whether this copy checks for updates (its Update service is on: the Stable copy, or WORFY_UPDATE=1) and its
+   * Available update (src/shared/ipc/update.ts). By default it does not check: a dev run has no Available update to know.
+   */
+  update?: () => { checks: boolean; available: AvailableUpdate | null }
   now?: () => number
 }
 
@@ -188,14 +194,25 @@ export class StableLine {
     // The first build with the whole change: the one of its latest merge.
     const since = facts.map((fact) => fact.build!).reduce((a, b) => ((b.number ?? -1) > (a.number ?? -1) ? b : a))
     if (facts.every((fact) => fact.ancestry === 'in')) return lineOf('in', `In your Stable copy ${running.label} — the change is there since ${since.label}`)
-    return lineOf('out', `Not in your Stable copy yet: it runs ${running.label}, the change is in ${since.label}`, this.updateFor(since))
+    const update = this.updateFor(root, shas, since)
+    if (update === undefined) return null
+    return lineOf('out', `Not in your Stable copy yet: it runs ${running.label}, the change is in ${since.label}`, update)
   }
 
-  /** Update worfy when an Available update has the change (by its number; one without a number is taken to), else `main` waits. */
-  private updateFor(since: Build): 'available' | 'waits-ci' {
-    const available = this.sources.available?.() ?? null
+  /**
+   * What Update first offers: Update worfy when the Available update has every merge — by the build numbers when both
+   * are known, else by git, and only when git says so; `main` waits for a green CI otherwise; nothing to offer in a copy
+   * that does not check for updates. undefined while git has not answered.
+   */
+  private updateFor(root: string, shas: readonly string[], since: Build): NonNullable<AcceptanceStable['update']> | undefined {
+    const { checks, available } = this.sources.update?.() ?? { checks: false, available: null }
+    if (!checks) return 'no-update-check'
     if (available === null) return 'waits-ci'
-    return available.number === undefined || since.number === null || available.number >= since.number ? 'available' : 'waits-ci'
+    if (available.number !== undefined && since.number !== null) return available.number >= since.number ? 'available' : 'waits-ci'
+    if (!SHA.test(available.sha)) return 'waits-ci'
+    const answers = shas.map((sha) => this.ancestry.get(`${root}\n${sha}\n${available.sha}`, () => this.askAncestry(root, sha, available.sha)))
+    if (answers.some((answer) => answer === undefined)) return undefined
+    return answers.every((answer) => answer === 'in') ? 'available' : 'waits-ci'
   }
 
   private async askMerge(root: string, ref: MergeRef): Promise<{ value: Merge; final: boolean }> {
@@ -226,8 +243,14 @@ export class StableLine {
   }
 
   private async askBuild(root: string, sha: string): Promise<{ value: Build; final: boolean }> {
-    const [count, file] = await Promise.all([this.git(root, ['rev-list', '--count', sha]), this.git(root, ['show', `${sha}:package.json`])])
-    const number = count.code === 0 ? Number(count.stdout.trim()) : NaN
+    const [shallow, count, file] = await Promise.all([
+      this.git(root, ['rev-parse', '--is-shallow-repository']),
+      this.git(root, ['rev-list', '--count', sha]),
+      this.git(root, ['show', `${sha}:package.json`]),
+    ])
+    // A shallow clone (`--depth`) counts only the commits it has: its number would be made up, so there is none.
+    const whole = shallow.code === 0 && shallow.stdout.trim() === 'false'
+    const number = whole && count.code === 0 ? Number(count.stdout.trim()) : NaN
     let version: string | null
     try {
       version = file.code === 0 ? packageSchema.parse(JSON.parse(file.stdout)).version : null

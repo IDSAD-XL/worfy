@@ -13,17 +13,22 @@ const MERGE = sha('a')
 const BLOCKER_MERGE = sha('b')
 const STABLE = sha('c')
 const UNKNOWN = sha('d')
+/** The commit of an Available update that this checkout has. */
+const AVAILABLE = sha('e')
 
 /** Each commit of the stand-in repository: its number (`rev-list --count`) and the version of its package.json. */
 const COMMITS = new Map([
   [MERGE, { count: 2093, version: '0.4.0' }],
   [BLOCKER_MERGE, { count: 2088, version: '0.4.0' }],
   [STABLE, { count: 2101, version: '0.4.0' }],
+  [AVAILABLE, { count: 2110, version: '0.4.0' }],
 ])
 
 interface History {
   /** `merge-base --is-ancestor <a> <b>` answers 0 for these pairs `a b`, 1 for the other pairs of known commits. */
   ancestors: Set<string>
+  /** `rev-parse --is-shallow-repository` answers true: a `--depth` clone, whose counts are cut short. */
+  shallow: boolean
 }
 
 function git(history: History, calls: string[]): NonNullable<StableLineSources['git']> {
@@ -34,6 +39,11 @@ function git(history: History, calls: string[]): NonNullable<StableLineSources['
       const [, a, b] = rest
       if (!COMMITS.has(a!) || !COMMITS.has(b!)) return { code: 128, stdout: '' }
       return { code: history.ancestors.has(`${a} ${b}`) ? 0 : 1, stdout: '' }
+    }
+    if (command === 'rev-parse' && rest[0] === '--is-shallow-repository') return { code: 0, stdout: `${history.shallow}\n` }
+    if (command === 'rev-list' && history.shallow) {
+      // A shallow clone counts only the commits it has: a made-up small number.
+      return COMMITS.has(rest[1]!) ? { code: 0, stdout: '50\n' } : { code: 128, stdout: '' }
     }
     if (command === 'cat-file') return { code: COMMITS.has(rest[1]!.replace('^{commit}', '')) ? 0 : 128, stdout: '' }
     if (command === 'rev-list') {
@@ -52,13 +62,15 @@ interface Pr {
   number: number
   head: string
   merge: string | null
+  /** gh's `state`; by default MERGED with a merge commit, OPEN without one. */
+  state?: string
 }
 
 function gh(prs: Pr[], calls: string[], refuse = false): StableLineSources['gh'] {
   return async (_root, args) => {
     calls.push(args.join(' '))
     if (refuse) throw new Error('HTTP 403: API rate limit exceeded')
-    const view = (pr: Pr) => ({ number: pr.number, state: pr.merge === null ? 'OPEN' : 'MERGED', mergeCommit: pr.merge === null ? null : { oid: pr.merge } })
+    const view = (pr: Pr) => ({ number: pr.number, state: pr.state ?? (pr.merge === null ? 'OPEN' : 'MERGED'), mergeCommit: pr.merge === null ? null : { oid: pr.merge } })
     if (args[0] === 'pr' && args[1] === 'view') {
       const pr = prs.find((each) => each.number === Number(args[2]))
       if (!pr) throw new Error('no pull requests found')
@@ -100,21 +112,24 @@ interface Setup {
   ancestors?: string[]
   stable?: string | null
   available?: AvailableUpdate | null
+  /** Whether this copy checks for updates (its Update service is on); true by default. */
+  checks?: boolean
+  shallow?: boolean
   refuse?: boolean
   /** Now, in ms; Date.now by default. */
   now?: () => number
 }
 
-function setup({ prs = [], ancestors = [], stable = STABLE, available = null, refuse = false, now = Date.now }: Setup = {}) {
+function setup({ prs = [], ancestors = [], stable = STABLE, available = null, checks = true, shallow = false, refuse = false, now = Date.now }: Setup = {}) {
   const gitCalls: string[] = []
   const ghCalls: string[] = []
   const changed = vi.fn()
   const line = new StableLine(
     {
       gh: gh(prs, ghCalls, refuse),
-      git: git({ ancestors: new Set(ancestors) }, gitCalls),
+      git: git({ ancestors: new Set(ancestors), shallow }, gitCalls),
       stableCommit: () => stable,
-      available: () => available,
+      update: () => ({ checks, available }),
       now,
     },
     changed,
@@ -142,7 +157,7 @@ describe('the Stable copy line', () => {
   it('says the change is not in the Stable copy yet, with Update worfy when an Available update has it', async () => {
     const t = ticket(1, { pr: 42 })
     const prs = [{ number: 42, head: 'demo/01', merge: MERGE }]
-    const later: AvailableUpdate = { sha: sha('e').slice(0, 40), version: '0.4.0+eeeeeee', quiet: false, number: 2110 }
+    const later: AvailableUpdate = { sha: AVAILABLE, version: '0.4.0+eeeeeee', quiet: false, number: 2110 }
     expect(await setup({ prs, available: later }).answer(worfy([t]), t)).toEqual({
       state: 'out',
       text: 'Not in your Stable copy yet: it runs 0.4.2101, the change is in 0.4.2093',
@@ -151,8 +166,28 @@ describe('the Stable copy line', () => {
     // No Available update, or one older than the change: `main` waits for a green CI.
     expect((await setup({ prs }).answer(worfy([t]), t)).update).toBe('waits-ci')
     expect((await setup({ prs, available: { ...later, number: 2090 } }).answer(worfy([t]), t)).update).toBe('waits-ci')
-    // An Available update without a number is taken to have it.
-    expect((await setup({ prs, available: { sha: later.sha, version: later.version, quiet: false } }).answer(worfy([t]), t)).update).toBe('available')
+    // The build of the merge itself has the change.
+    expect((await setup({ prs, available: { ...later, number: 2093 } }).answer(worfy([t]), t)).update).toBe('available')
+    // Without a number, git says whether the Available update's commit has the merge.
+    const unnumbered: AvailableUpdate = { sha: AVAILABLE, version: later.version, quiet: false }
+    expect((await setup({ prs, available: unnumbered, ancestors: [`${MERGE} ${AVAILABLE}`] }).answer(worfy([t]), t)).update).toBe('available')
+    expect((await setup({ prs, available: unnumbered }).answer(worfy([t]), t)).update).toBe('waits-ci')
+  })
+
+  it('in a copy that does not check for updates, does not say `main` waits for a green CI', async () => {
+    const t = ticket(1, { pr: 42 })
+    const line = await setup({ prs: [{ number: 42, head: 'demo/01', merge: MERGE }], checks: false }).answer(worfy([t]), t)
+    expect(line).toEqual({ state: 'out', text: 'Not in your Stable copy yet: it runs 0.4.2101, the change is in 0.4.2093', update: 'no-update-check' })
+  })
+
+  it('in a shallow clone gives no build numbers, and asks git whether an Available update has the merge', async () => {
+    const t = ticket(1, { pr: 42 })
+    const prs = [{ number: 42, head: 'demo/01', merge: MERGE }]
+    // GitHub's number of the Available update is above the clone's cut count of the merge (50), yet it lacks the merge.
+    const older: AvailableUpdate = { sha: AVAILABLE, version: '0.4.0+eeeeeee', quiet: false, number: 2090 }
+    const shallow = await setup({ prs, available: older, shallow: true }).answer(worfy([t]), t)
+    expect(shallow).toEqual({ state: 'out', text: `Not in your Stable copy yet: it runs ${STABLE.slice(0, 7)}, the change is in ${MERGE.slice(0, 7)}`, update: 'waits-ci' })
+    expect((await setup({ prs, available: older, shallow: true, ancestors: [`${MERGE} ${AVAILABLE}`] }).answer(worfy([t]), t)).update).toBe('available')
   })
 
   it('says "Stable copy not checked" when a commit is not in the checkout, there is no Stable copy, or GitHub refuses', async () => {
@@ -167,6 +202,10 @@ describe('the Stable copy line', () => {
     expect(none.ghCalls).toEqual([])
     expect((await setup({ prs: [{ number: 42, head: 'demo/01', merge: MERGE }], refuse: true }).answer(worfy([t]), t)).text).toBe(
       'Stable copy not checked: GitHub did not answer',
+    )
+    // A PR that is not merged gives no merge commit, even when gh names one (a PR's test merge).
+    expect((await setup({ prs: [{ number: 42, head: 'demo/01', merge: MERGE, state: 'OPEN' }] }).answer(worfy([t]), t)).text).toBe(
+      'Stable copy not checked: no merged PR found',
     )
   })
 

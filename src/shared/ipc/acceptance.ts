@@ -44,14 +44,18 @@ export const acceptanceStableSchema = z.object({
   text: z.string(),
   /**
    * Only for `out`: `available` — an Available update has the change, the view offers Update worfy; `waits-ci` — none
-   * has it yet, the view says MAIN_WAITS_FOR_CI. Null for the other states.
+   * has it yet, the view says MAIN_WAITS_FOR_CI; `no-update-check` — this copy does not check for updates (a dev run:
+   * Update is on only in the Stable copy), so it cannot know, and the view says NO_UPDATE_CHECK. Null for the other states.
    */
-  update: z.enum(['available', 'waits-ci']).nullable(),
+  update: z.enum(['available', 'waits-ci', 'no-update-check']).nullable(),
 })
 export type AcceptanceStable = z.infer<typeof acceptanceStableSchema>
 
 /** What Update first says of an item whose change no Available update has yet. */
 export const MAIN_WAITS_FOR_CI = '`main` waits for a green CI'
+
+/** What Update first says in a copy that does not check for updates: whether one is there is not known here. */
+export const NO_UPDATE_CHECK = 'This copy does not check for updates: update from your Stable copy'
 
 /** The Ticket a row belongs to, and its Project. */
 export const acceptanceTicketSchema = z.object({

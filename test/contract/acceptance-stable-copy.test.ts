@@ -63,7 +63,7 @@ const standInGh: GhRunner = async (args) => {
 function makeService(): AcceptanceService {
   const tracker = new PrTracker({ run: standInGh })
   const service = new Service(
-    { hub, projects: () => [{ id: PROJECT, name: 'worfy', path: root }], dataDir: (id) => join(scratch, 'data', id), stable: { gh: (at, args) => tracker.gh(at, args) } },
+    { hub, projects: () => [{ id: PROJECT, name: 'worfy', path: root }], dataDir: (id) => join(scratch, 'data', id), stable: { gh: (at, args) => tracker.gh(at, args), update: () => ({ checks: true, available: null }) } },
     { now: () => Date.parse('2026-11-23T12:00:00Z'), tickMs: ms(60_000) },
   )
   services.push(service)

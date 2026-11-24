@@ -10,6 +10,7 @@
 // nor in any event after it. The link's own event filter looks at the top of a payload only, so the filter is here.
 import { app } from 'electron'
 import { acceptanceChanged, acceptanceGet, type AcceptanceState } from '../../shared/ipc/acceptance'
+import type { UpdateSnapshot } from '../../shared/ipc/update'
 import { AcceptanceService } from '../acceptance/service'
 import { stableCopyCommit, type StableLineSources } from '../acceptance/stable-line'
 import { runsFromStableCopy } from '../update/stable-copy'
@@ -54,21 +55,45 @@ let shared: AcceptanceService | undefined
 /** The app's Update module once loaded: its snapshot holds the Available update and the commit of this run. */
 let update: typeof import('./update') | undefined
 
+/** What the Stable copy line reads in the app, each part replaceable in tests. */
+export interface StableSourceParts {
+  gh: StableLineSources['gh']
+  /** This run is the packaged Stable copy (runsFromStableCopy). */
+  thisRunIsStable: () => boolean
+  /** The Update snapshot of this run; null while its module is not loaded. */
+  snapshot: () => Pick<UpdateSnapshot, 'enabled' | 'available' | 'running'> | null
+  /** The commit the file next to the Stable copy names (stableCopyCommit). */
+  fileCommit: () => string | null
+}
+
 /**
- * What the Stable copy line reads in the app: gh as the Project's account (the PR tracker's), the commit of the file next
- * to the Stable copy, else the commit Update gives this run when it is the Stable copy, and Update's Available update.
+ * The sources of the Stable copy line (spec, "Stable copy of an item"): the commit is `running` of the Update service
+ * when this run is the Stable copy, else the file next to the copy; whether this copy checks for updates and its
+ * Available update come from the same snapshot.
  */
+export function stableSources(parts: StableSourceParts): StableLineSources {
+  return {
+    gh: parts.gh,
+    stableCommit: () => (parts.thisRunIsStable() ? parts.snapshot()?.running?.commit || null : null) ?? parts.fileCommit(),
+    update: () => {
+      const snapshot = parts.snapshot()
+      return { checks: snapshot?.enabled ?? false, available: snapshot?.available ?? null }
+    },
+  }
+}
+
+/** The app's sources: gh as the Project's account (the PR tracker's) and the app's Update service, loaded when first needed. */
 function appStableSources(): StableLineSources {
   void import('./update').then(
     (module) => (update = module),
     (error: unknown) => console.warn('[acceptance] the Update service did not load: no Available update for Update first', error),
   )
-  const thisRunIsStable = (): boolean => runsFromStableCopy({ packaged: app.isPackaged, execPath: process.execPath, env: process.env })
-  return {
+  return stableSources({
     gh: async (root, args) => (await import('./checks')).sharedPrTracker().gh(root, args),
-    stableCommit: () => stableCopyCommit() ?? (thisRunIsStable() ? update?.appUpdate().snapshot().running?.commit || null : null),
-    available: () => update?.appUpdate().snapshot().available ?? null,
-  }
+    thisRunIsStable: () => runsFromStableCopy({ packaged: app.isPackaged, execPath: process.execPath, env: process.env }),
+    snapshot: () => update?.appUpdate().snapshot() ?? null,
+    fileCommit: () => stableCopyCommit(),
+  })
 }
 
 /** The app's one service over the workflow hub and the Project list, made at the first call. */
