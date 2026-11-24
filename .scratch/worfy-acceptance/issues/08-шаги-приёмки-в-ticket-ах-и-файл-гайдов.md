@@ -52,3 +52,40 @@ CI. Глубина ревью — `medium`.
 ## Вне скоупа
 
 - Удаление файла гайдов — после приёмки владельцем (Ticket 10).
+
+## Итог
+
+Платформенный PR: да — правка текстов skill-ов Harness-а (`to-tickets`, `ship-ticket`, шаг 6) и его test-а (ADR-0056);
+вердикт Windows — job-ы Windows в CI на head PR.
+
+- Правило Harness-а — в `harness/skills/ship-ticket/step-6-manual-gui-checks.md` и `harness/skills/to-tickets/SKILL.md`
+  (с пунктом в шаблоне Ticket-а). `harness/bin/tests/agents-text.test.sh` держит пять фраз правила в обоих файлах и для
+  каждой фразы проверяет копию без неё. До правки текста — exit 1 (3 failed), после — exit 0.
+- `to-tickets` — копия mattpocock-skills 1.3.1: правка записана в `harness/skills/THIRD_PARTY.md`, новый sha256 и
+  третий пункт шаблона — в `test/contract/harness-third-party-skills.test.ts`. Этих двух файлов нет в «Где в коде»: без
+  них contract test красный.
+- Шаги открытых приёмок перенесены в 31 Ticket: `worfy-multi-vendor` 43; `worfy-product-session` 08, 21, 23, 26–32;
+  `worfy-polish` 75, 77, 134; `worfy-multi-repo-ticket` 08; `worfy-mcp-live` 08; `worfy-stuck-agents` 11;
+  `worfy-code-stories` 17; `worfy-auth-check` 10; `worfy-changes-view` 07, 08, 09; ручные проверки вне приёмок —
+  `worfy-daily` 13, 31; `worfy-mvp` 06, 21; `worfy-week` 16; `worfy-guide` 20; `worfy-ui` 03; `worfy-windows` 30.
+- Файл гайдов на месте, в начале — ссылка «шаги — в Ticket-ах, вид Acceptance». `HANDOFF.md` не правился: ссылку «Ждёт
+  владельца» на вид ставит Orchestrator (пункт 4 «Что делаем»).
+
+Решено без владельца:
+
+- Метки шага в тексте Harness-а — `Do: … → Expect: …`, на языке документов Project-а; в русских Ticket-ах — «Сделай: … →
+  Должно быть: …».
+- Шаги дописаны после существующих пунктов «Готово, когда», под абзацем «Шаги приёмки владельца — из …»; старые пункты
+  (текст, номера, строки Evidence) не тронуты: на номера ссылаются `Source:` Ticket-ов доработки (`worfy-changes-view` 09
+  → 07, пункт 3) и строки Evidence. Цена: общий ручной пункт («Mac Stable: …») остаётся рядом со своими шагами, и
+  владелец закрывает его после них.
+- Решения без владельца из файла гайдов — тоже ручные пункты без `needs:`: Pass — «подтверждаю», Fail — «в Ticket»
+  (Fail заводит Ticket доработки, как «в Ticket»).
+- Согласие владельца на обновление Stable в `worfy-changes-view` 07–09 и `worfy-polish` 134 — пункт подготовки
+  Orchestrator-а «обновить Mac Stable до `main` после «да» владельца», а не ручной пункт.
+- Шаги `worfy-changes-view` части 1 разнесены по Ticket-ам доработки: «Node и diff» — в 08, «комментарии» — в 09, по их
+  поведению после доработки (вид Changes во всё окно, диапазон перетаскиванием «+»); решения 1, 3, 16, 18, 19 из гайда
+  не перенесены — их сняли ответы владельца D1, D4 2026-11-21 и доработка 08.
+- Общая подготовка блока `worfy-product-session` — в Ticket 08 этого Epic-а, подготовка раздела — в его Ticket.
+- Пример ручного пункта в шаблоне `to-tickets` — с буквальной меткой `(manual)` и `needs: mac stable`, чтобы разбор
+  Evidence читал его без ошибок, как `## Done when` шаблона.

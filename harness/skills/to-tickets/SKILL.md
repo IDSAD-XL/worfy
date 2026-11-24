@@ -90,8 +90,8 @@ Blocked by: None — can start immediately
 
 - [ ] Acceptance criterion 1
 - [ ] Acceptance criterion 2
-- [ ] (<manual mark>) Do: <what the owner does> → Expect: <what the owner should see>
-  - needs: <platform> [<copy>]
+- [ ] (manual) Do: <what the owner does> → Expect: <what the owner should see>
+  - needs: mac stable
 
 </local-ticket-template>
 

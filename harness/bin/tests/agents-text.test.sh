@@ -1136,8 +1136,8 @@ EOF
 done
 # The ticket template shows such an item with its needs: line under the done section.
 awk '/^<local-ticket-template>$/ { s = 1 } s { print } /^<\/local-ticket-template>$/ { exit }' "$SK/to-tickets/SKILL.md" >"$T/ticket-template.md"
-grep -qF -- '- [ ] (<manual mark>) Do: <what the owner does> → Expect: <what the owner should see>' "$T/ticket-template.md" \
-    && grep -qF -- '  - needs: <platform> [<copy>]' "$T/ticket-template.md" \
+grep -qF -- '- [ ] (manual) Do: <what the owner does> → Expect: <what the owner should see>' "$T/ticket-template.md" \
+    && grep -qF -- '  - needs: mac stable' "$T/ticket-template.md" \
     && ok "to-tickets: the local ticket template shows a manual item with its needs: line" \
     || bad "to-tickets: the local ticket template shows no manual Do → Expect item with a needs: line"
 

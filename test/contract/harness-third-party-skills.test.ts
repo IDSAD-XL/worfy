@@ -90,7 +90,7 @@ const EDITED: Record<string, string> = {
   'tdd/SKILL.md': '6c5b6da52ffe622f30c3deba006811e3e7e0532ae1e539a0bc3578d8dbf8eaf2',
   'teach/SKILL.md': '04c70a169b35aae5f8e10861250aedd81a3b7d4f859a1248d8e94f327f5cc5bc',
   'to-spec/SKILL.md': '8f9c899397afb0fcbbf6e65d5a80746e7d9dec532cd7c8867b6ae33ef80e3f2e',
-  'to-tickets/SKILL.md': 'f86ca820e96422dc4dde977bb84d03497c51d2c347a5b9e0065027dc3afe0ee7',
+  'to-tickets/SKILL.md': '241bff3422692a80dd92b39a8e8c0a29ea7dc5df3bc29299b3e1adc04c74b162',
   'wayfinder/SKILL.md': 'e0bc29e391256cb08b00d8c754ff826daf6f40e9a553d5351234083c8c1f3801',
 }
 
@@ -353,11 +353,24 @@ describe('the copied skills write where worfy reads', () => {
   // without one); the local ticket template of to-tickets put its criteria under no heading, so none was found.
   it('to-tickets puts the criteria of a local ticket under the done section, where Evidence finds them', () => {
     const evidence = createRequire(join(REPO, 'package.json'))('./harness/lib/evidence.cjs') as {
-      parseDoneSection: (markdown: string, headings?: { doneSection?: string }) => { text: string }[]
+      parseDoneSection: (
+        markdown: string,
+        headings?: { doneSection?: string },
+      ) => { text: string; manual: boolean; needs: { platform: string; copy: string | null } | null; errors: string[] }[]
     }
     const text = readFileSync(join(SKILLS, 'to-tickets', 'SKILL.md'), 'utf8')
     const template = /<local-ticket-template>\n([\s\S]*?)<\/local-ticket-template>/.exec(text)?.[1] ?? ''
-    expect(evidence.parseDoneSection(template).map((item) => item.text)).toEqual(['Acceptance criterion 1', 'Acceptance criterion 2'])
+    // The third item is a manual one, written for the owner as one step with its needs: line (worfy-acceptance 08).
+    expect(evidence.parseDoneSection(template).map(({ text, manual, needs, errors }) => ({ text, manual, needs, errors }))).toEqual([
+      { text: 'Acceptance criterion 1', manual: false, needs: null, errors: [] },
+      { text: 'Acceptance criterion 2', manual: false, needs: null, errors: [] },
+      {
+        text: '(manual) Do: <what the owner does> → Expect: <what the owner should see>',
+        manual: true,
+        needs: { platform: 'mac', copy: 'stable' },
+        errors: [],
+      },
+    ])
     expect(text.replaceAll(/\s+/g, ' ')).toContain('its `## Done when` heading is the heading `tickets.done_section` of the profile')
   })
 })

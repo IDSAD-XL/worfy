@@ -38,7 +38,7 @@ these folders alone: upstream links the files of a skill relatively, not through
 ## Reference edits
 
 Every file is the 1.3.1 file byte for byte, except the references, the ticket header, the two
-pointers to the profile and the Agent review section of `code-review` below. Nothing else in the text changed: words such as issue, label,
+pointers to the profile, the Agent review section of `code-review` and the manual-item rule of `to-tickets` below. Nothing else in the text changed: words such as issue, label,
 `resolved` and `GLOSSARY.md` stay upstream's, and `bin/TICKETS.md`, section "Wayfinding operations", reads them in worfy's terms.
 
 - A call of the Skill tool names the skill `worfy:<name>` instead of `<name>`.
@@ -58,6 +58,10 @@ pointers to the profile and the Agent review section of `code-review` below. Not
 - The local ticket template of `to-tickets` puts its acceptance criteria under `## Done when`, the
   heading `tickets.done_section` of the profile: Evidence (`bin/ticket evidence`) attaches only to
   the items of that section.
+- `to-tickets` says how a manual item is written: one step for the owner, `Do: … → Expect: …`, with its
+  `needs:` line, and what the orchestrator prepares as items of the same ticket without the manual
+  mark; its local ticket template shows such an item. The Acceptance view of worfy reads the steps
+  from the ticket itself.
 - `code-review` has a section of worfy's own, "When worfy runs you for Agent review", before "Why
   two axes": run over a pull request for worfy's Agent review, it writes its findings as a review
   draft through `bin/pr-review-draft`, suggests the verdict only, and posts nothing to GitHub.
@@ -85,8 +89,10 @@ pointers to the profile and the Agent review section of `code-review` below. Not
 | `skills/to-tickets/SKILL.md` | 60 | the tracker `/worfy:connect-project` configured |
 | `skills/to-tickets/SKILL.md` | 62 | the `Blocked by:` line of the header; the `## Done when` heading |
 | `skills/to-tickets/SKILL.md` | 63 | no triage label |
-| `skills/to-tickets/SKILL.md` | 73-77 | ticket header: `Type: task`, `Status: open`, `Blocked by:` |
-| `skills/to-tickets/SKILL.md` | 79 | `## Done when` above the acceptance criteria |
+| `skills/to-tickets/SKILL.md` | 65-73 | the rule for a manual item: one owner step, `needs:`, preparation without the mark |
+| `skills/to-tickets/SKILL.md` | 83-87 | ticket header: `Type: task`, `Status: open`, `Blocked by:` |
+| `skills/to-tickets/SKILL.md` | 89 | `## Done when` above the acceptance criteria |
+| `skills/to-tickets/SKILL.md` | 93-94 | a manual item with its `needs:` line in the template |
 | `skills/wayfinder/SKILL.md` | 25 | tracker sentence |
 | `skills/wayfinder/SKILL.md` | 77, 115 | Skill tool: `"worfy:research"` |
 | `skills/wayfinder/SKILL.md` | 78 | Skill tool: `"worfy:prototype"` |
