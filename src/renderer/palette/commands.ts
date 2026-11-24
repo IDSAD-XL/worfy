@@ -13,7 +13,10 @@
 // `actions.prFollow`) are a row per action a Ticket's PR in the PR inbox has a reason for: the same list the
 // button on the Ticket Node draws (canvas/actions/PrFollow.tsx), and the same state (usePrFollowState).
 // The unchecked manual checks (the profile's manual mark) of every Ticket (shared/workflow/manual-checks.ts) are rows of
-// their own group, found by typing only; picking one goes to its Ticket. They are read, never ticked.
+// their own group, found by typing only; picking one opens the Acceptance view on that item when its queue holds it
+// (worfy-acceptance ticket 06, acceptance/open.ts), else goes to its Ticket. They are read, never ticked.
+// "Acceptance" (worfy-acceptance ticket 06) opens the Acceptance view, with or without a Project: it is over every
+// Project of the window's Machine.
 // Nothing here writes a Ticket's status or anything in the Project (ADR-0002, ADR-0005).
 // "Process gate queue" (worfy-windows ticket 17, `actions.gateQueue`) is there only on the machine
 // whose Profile gives it the role `serve` of the cross-machine gate; its detail counts the waiting PRs.
@@ -67,6 +70,7 @@ import { epicNodeId, shownOnCanvas, SOURCE_NODE_KINDS, ticketNodeId } from '../.
 import type { LayoutNode } from '../../shared/layout/types'
 import { SHORTCUTS } from '../../shared/shortcuts'
 import type { Ticket, WorkflowModel } from '../../shared/workflow/types'
+import { openAcceptance } from '../acceptance/open'
 import { runAllAccepted } from '../autopilot/start-modal'
 import { hasRunWave, hasShipTicket } from '../canvas/actions/gates'
 import { prFollowChoices, prFollowTitle } from '../canvas/actions/pr-follow-choices'
@@ -405,6 +409,18 @@ function viewCommands({ view, project, projects, layoutNodes, tagFilter }: Comma
       return undefined
     },
   }))
+  // The checks that wait for the owner in every Project (worfy-acceptance ticket 06): with or without a Project.
+  commands.push({
+    id: 'view:acceptance',
+    group: 'View',
+    title: 'Acceptance',
+    detail: view === 'acceptance' ? 'shown now' : 'Checks that wait for you',
+    keys: ['acceptance', 'owner checks', 'manual checks', 'checks that wait for you', 'pass', 'fail'],
+    run: () => {
+      openAcceptance()
+      return undefined
+    },
+  })
   // The first-run screen (worfy-harness ticket 19): always here, with or without a Project.
   commands.push({
     id: 'first-run',
@@ -651,8 +667,9 @@ function goToCommands({ project, model, layoutNodes, history, adrs, readOnly }: 
 
 /**
  * A row per unchecked manual check of every Ticket of the Project: "<epic> NN · <text>".
- * Picking it goes to the Ticket's Node, as the Ticket's own "Go to" row does. Rows only for a query:
- * dozens of open checks would bury the other commands of the empty palette.
+ * Picking it opens the Acceptance view on that item when its queue holds it (worfy-acceptance ticket 06), else goes to
+ * the Ticket's Node, as the Ticket's own "Go to" row does. Rows only for a query: dozens of open checks would bury the
+ * other commands of the empty palette.
  */
 function manualCheckCommands({ project, model }: CommandContext): PaletteCommand[] {
   if (!project || !model || model.error !== null) return []
@@ -660,14 +677,21 @@ function manualCheckCommands({ project, model }: CommandContext): PaletteCommand
   const commands: PaletteCommand[] = []
   for (const ticket of model.tickets) {
     const ref = `${ticket.epic}/${nn(ticket.num)}`
+    // The manual checks and the manual items of the Evidence are the same items in the same file order: the n-th
+    // check is the n-th manual item, whose number the Acceptance queue knows it by. Absent from an older model.
+    const manualItems = (ticket.evidence ?? []).filter((item) => item.manual)
     ;(ticket.manualChecks ?? []).forEach((check, index) => {
       if (check.checked) return
+      const item = manualItems[index]?.index
       commands.push({
         id: `manual-check:${ref}:${index}`,
         group: 'Manual check',
         title: `${ticket.epic} ${nn(ticket.num)} · ${check.text}`,
         queryOnly: true,
-        run: () => goToNode(projectId, { id: ticketNodeId(ticket.epic, ticket.num), hidden: false }, epicNodeId(ticket.epic)),
+        run: () => {
+          if (item !== undefined && openAcceptance({ projectId, epic: ticket.epic, num: ticket.num, item })) return undefined
+          return goToNode(projectId, { id: ticketNodeId(ticket.epic, ticket.num), hidden: false }, epicNodeId(ticket.epic))
+        },
       })
     })
   }

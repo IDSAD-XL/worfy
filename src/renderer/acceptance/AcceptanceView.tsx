@@ -27,17 +27,8 @@ import { showToast } from '../toast/toasts'
 import { installUpdateTelling, useUpdate } from '../update/store'
 import { useWorkflow } from '../workflow/useWorkflow'
 import { openAcceptanceOrchestrator, openAcceptanceTicket } from './open'
-import { moveSelection, rowKey, selectRow, sendDecision, sentOf, toggleGroup, useAcceptance, useAutopilotRuns, useProjectMode, type CheckedIn } from './useAcceptance'
+import { GROUP_TITLES, moveSelection, rowKey, selectRow, sendDecision, sentOf, toggleGroup, useAcceptance, useAutopilotRuns, useProjectMode, type CheckedIn } from './useAcceptance'
 import './acceptance.css'
-
-const GROUP_TITLES: Record<AcceptanceGroupName, string> = {
-  ready: 'Ready to check',
-  update: 'Update first',
-  waits: 'Waits for you',
-  failed: 'Failed',
-  work: 'In work',
-  older: 'Older',
-}
 
 /** Why Fail is inactive with an empty comment. */
 const FAIL_NEEDS_WORDS = 'Write what is wrong: Fail needs a comment'

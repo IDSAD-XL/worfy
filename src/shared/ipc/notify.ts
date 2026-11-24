@@ -27,7 +27,8 @@ export type SessionOpen = z.output<typeof sessionOpenSchema>
 
 /**
  * A Ticket that came to wait for the owner (worfy-pipeline ticket 06, src/main/workflow/waits-notify.ts):
- * the window opens the Pipeline board of its Project. A Ticket of this Machine names its Project by
+ * the window opens the Pipeline board of its Project, or the Acceptance view on the Ticket when its Acceptance queue
+ * holds it (worfy-acceptance ticket 06). A Ticket of this Machine names its Project by
  * root; one of a Linked machine (worfy-pipeline ticket 10) names that Machine and its Project's id
  * there, and the window opens the board among that Machine's Projects, as for a Session.
  */

@@ -15,6 +15,13 @@ Ticket for it ([ADR-0002](../adr/0002-worfy-is-a-view-over-the-workflow.md)). Te
 Ready to check that are not Sent (an item whose decision is "Not recorded yet" counts again), and its tooltip says "Checks that wait for you". It works without an open Project: the view is over every Project
 of the Machine.
 
+**Other ways in.** The **Acceptance** section of the sidebar counts the queue by Project, and its rail button carries
+the count of Ready to check ([App shell](app-shell.md#sidebar)); a click opens the view on that Project's first row of
+the group. The Command palette has **Acceptance** in its View group, and a Manual check row of the palette opens the view
+on its item when the item is in the queue, else goes to its Ticket. A click on an "is waiting for you" notification
+opens the view on that Ticket when the queue holds it, else the Pipeline board of its Project
+([Notifications](notifications.md)).
+
 **Two panes**, as in [Pull requests](pr-inbox.md). On the left, the groups that hold a row, each with its count;
 **In work** and **Older** are closed until the owner opens them by their title. A row shows the Ticket and the item's
 number, the platform its `needs:` line names (or "Sent" while a decision waits), the start of the item's text as plain text, without its manual mark and markdown markers — for a
@@ -78,12 +85,19 @@ pane draws it as Markdown.
 - `src/renderer/acceptance/AcceptanceView.tsx`: the view, its two panes and the decision row.
 - `src/renderer/acceptance/useAcceptance.ts`: the queue in the window, the selection, `sendDecision`.
 - `src/renderer/acceptance/open.ts`: opening the view on a row, Open Ticket and Open Orchestrator.
+- The ways in: `src/renderer/shell/sidebar/AcceptanceSection.tsx` (the section and its rail badge),
+  `src/renderer/palette/commands.ts` (Acceptance and the Manual check rows),
+  `src/renderer/canvas/overlays/NotificationTarget.tsx` (the click on an "is waiting for you" notification).
 - `src/renderer/acceptance/acceptance.css`; the tab is in `src/renderer/shell/Toolbar.tsx`, the view is mounted in
   `src/renderer/shell/AppShell.tsx`.
 - Tests: `test/unit/acceptance-view.test.tsx` (the groups, the tab, ↑ ↓, every kind of Stable copy line, Fail without a
   comment, Autopilot, Pass, Sent and Not recorded yet, a refusal, Waits for you), `test/e2e/acceptance.spec.ts` (the
   built app on the fake agent: an item with a screenshot and a clip, Pass reaching the Orchestrator, the line written
-  into the Ticket taking the item away, ↑ ↓, screenshots at 1280 and 1600 px in both themes).
+  into the Ticket taking the item away, ↑ ↓, screenshots at 1280 and 1600 px in both themes);
+  `test/unit/acceptance-section.test.tsx` (counts by Project, the rail badge, a click), the "where a Manual check row
+  leads" cases of `test/unit/palette-manual-check-row.test.tsx`, the notification cases of
+  `test/unit/pipeline-board.test.tsx`, and `test/e2e/sidebar-rail.spec.ts` (the badge on the rail and the way into the
+  view in the built app).
 
 ## The queue
 

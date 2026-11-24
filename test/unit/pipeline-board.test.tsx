@@ -167,10 +167,14 @@ function preload(options: { projects: ProjectsState; pipelines: Record<string, P
       for (const each of handlers.values()) if (each.channel === channel) each.handler(payload)
     },
   }
-  const answer = (channel: string, input: unknown): IpcResult<unknown> => {
+  const answer = (channel: string, input: unknown): IpcResult<unknown> | Promise<IpcResult<unknown>> => {
     const root = (input as { root?: string } | undefined)?.root ?? ''
     const own = options.answers?.[channel]
-    if (own !== undefined) return { ok: true, value: own() }
+    if (own !== undefined) {
+      // A promise is the whole answer, given later by the test: `{ ok, value }` or `{ ok: false, error }`.
+      const value = own()
+      return value instanceof Promise ? (value as Promise<IpcResult<unknown>>) : { ok: true, value }
+    }
     switch (channel) {
       case 'projects.list':
         return { ok: true, value: projects }
@@ -183,6 +187,9 @@ function preload(options: { projects: ProjectsState; pipelines: Record<string, P
         return options.pipelines[root] ? { ok: true, value: options.pipelines[root] } : { ok: false, error: `no Project at ${root}` }
       case 'workflow.open':
         return options.models[root] ? { ok: true, value: options.models[root] } : { ok: false, error: `no Project at ${root}` }
+      case 'acceptance.get':
+        // An empty Acceptance queue: a Ticket's notification opens the Pipeline board (worfy-acceptance ticket 06).
+        return { ok: true, value: { groups: [] } }
       default:
         return { ok: true, value: { closed: true } }
     }
@@ -596,6 +603,80 @@ describe('a click on a notification of a Ticket that waits for the owner (worfy-
     expect(usePendingNote.getState().pending).toBeNull()
     expect(useNavigation.getState().view).toBe('canvas')
     expect(main.calls.filter((call) => call.channel === 'projects.select')).toEqual([])
+  })
+
+  // worfy-acceptance ticket 06: the Acceptance view on the Ticket when its queue holds it, else the Pipeline board.
+  const queueWith = (projectId: string, epic: string, num: number) => ({
+    groups: [
+      {
+        group: 'waits',
+        rows: [{ kind: 'ticket', ticket: { projectId, projectName: 'atalaya', epic, num, title: `${num} — T`, state: 'blocked', pr: null, blockedReason: 'Pick a colour' } }],
+      },
+      ...['ready', 'update', 'failed', 'work', 'older'].map((group) => ({ group, rows: [] })),
+    ],
+  })
+
+  it('of a Ticket in the Acceptance queue: the Acceptance view on that Ticket, no Project selected, no Pipeline', async () => {
+    preload({
+      projects: PROJECTS,
+      pipelines: {},
+      models: {},
+      answers: {
+        'sessions.views': () => ({ views: [] }),
+        'acceptance.get': () => queueWith('atalaya-00000002', 'atalaya', 3),
+        'notify.pending': () => ({ note: { view: 'pipeline', projectRoot: ATALAYA_ROOT, epic: 'atalaya', num: 3 } }),
+      },
+    })
+    const { default: NotificationTarget } = await import('../../src/renderer/canvas/overlays/NotificationTarget')
+    const { useNavigation } = await import('../../src/renderer/session/navigation')
+    const { useAcceptanceStore } = await import('../../src/renderer/acceptance/useAcceptance')
+    const { usePendingNote } = await import('../../src/renderer/session/notification-target')
+    render(<NotificationTarget />)
+    await waitFor(() => expect(useNavigation.getState().view).toBe('acceptance'))
+    expect(useAcceptanceStore.getState().selected).toBe('atalaya-00000002\natalaya\n3')
+    expect(usePendingNote.getState().pending).toBeNull()
+    expect(main.calls.filter((call) => call.channel === 'projects.select')).toEqual([])
+  })
+
+  it('of a Ticket the Acceptance queue does not hold: the Pipeline board, as before', async () => {
+    preload({
+      projects: PROJECTS,
+      pipelines: {},
+      models: {},
+      answers: {
+        'sessions.views': () => ({ views: [] }),
+        // The queue holds the same Epic and number of the other Project: not this Ticket.
+        'acceptance.get': () => queueWith('worfy-00000001', 'atalaya', 3),
+        'notify.pending': () => ({ note: { view: 'pipeline', projectRoot: ATALAYA_ROOT, epic: 'atalaya', num: 3 } }),
+      },
+    })
+    const { default: NotificationTarget } = await import('../../src/renderer/canvas/overlays/NotificationTarget')
+    const { useNavigation } = await import('../../src/renderer/session/navigation')
+    render(<NotificationTarget />)
+    await waitFor(() => expect(useNavigation.getState().view).toBe('pipeline'))
+    expect(main.calls).toContainEqual({ channel: 'projects.select', input: { id: 'atalaya-00000002' } })
+  })
+
+  it('waits for the Acceptance queue before it chooses, and opens the Pipeline board when the queue cannot be read', async () => {
+    let answerQueue: (value: unknown) => void = () => undefined
+    preload({
+      projects: PROJECTS,
+      pipelines: {},
+      models: {},
+      answers: {
+        'sessions.views': () => ({ views: [] }),
+        'acceptance.get': () => new Promise((resolve) => (answerQueue = resolve)),
+        'notify.pending': () => ({ note: { view: 'pipeline', projectRoot: WORFY_ROOT, epic: 'worfy-pipeline', num: 4 } }),
+      },
+    })
+    const { default: NotificationTarget } = await import('../../src/renderer/canvas/overlays/NotificationTarget')
+    const { useNavigation } = await import('../../src/renderer/session/navigation')
+    render(<NotificationTarget />)
+    await waitFor(() => expect(main.calls.some((call) => call.channel === 'acceptance.get')).toBe(true))
+    await waitFor(() => expect(main.calls.some((call) => call.channel === 'projects.list')).toBe(true))
+    expect(useNavigation.getState().view).toBe('canvas')
+    answerQueue({ ok: false, error: 'the service stopped' })
+    await waitFor(() => expect(useNavigation.getState().view).toBe('pipeline'))
   })
 })
 

@@ -51,7 +51,8 @@
 // A Ticket that comes to wait for the owner (worfy-pipeline tickets 06 and 09,
 // src/main/workflow/waits-notify.ts; read from the workflow model, so it runs no gh, git or
 // `bin/profile` of its own) gets one note of no Session, a TicketNote: shown by NoteDisplay's rules, counted by Project
-// and Ticket. A click opens the Pipeline board of its Project. Whom it reaches (worfy-pipeline
+// and Ticket. A click opens the Pipeline board of its Project, or the Acceptance view on the Ticket when the window's
+// Acceptance queue holds it: the window chooses (worfy-acceptance ticket 06, NotificationTarget.tsx). Whom it reaches (worfy-pipeline
 // ticket 10, Q14 and Q15; TicketNotes): `Waits: owner` — this Machine and every Linked machine that
 // may see its Projects and accepts the message (src/main/link/notes.ts); `Waits: <Machine name>` —
 // only that Machine; `team` and `agent` — no one. The Machine of the Project decides; a Linked

@@ -26,6 +26,16 @@ export interface AcceptanceStore {
   refused: Readonly<Record<string, string>>
 }
 
+/** The name of each group, as the view and the sidebar section say it. */
+export const GROUP_TITLES: Readonly<Record<AcceptanceGroupName, string>> = {
+  ready: 'Ready to check',
+  update: 'Update first',
+  waits: 'Waits for you',
+  failed: 'Failed',
+  work: 'In work',
+  older: 'Older',
+}
+
 /** In work and Older stay closed until the owner opens them (spec, "Groups"). */
 const OPEN: Readonly<Record<AcceptanceGroupName, boolean>> = { ready: true, update: true, waits: true, failed: true, work: false, older: false }
 
@@ -116,6 +126,15 @@ export function useAcceptance(): AcceptanceStore {
 export function useReadyCount(): number {
   useEffect(start, [])
   return useAcceptanceStore((store) => readyCount(store.state, store.sentHere))
+}
+
+/**
+ * Whether main has answered the queue once, with it or with why it could not be read; starts the reading too. A click
+ * on an "is waiting for you" notification waits for it before it chooses between this view and the Pipeline board.
+ */
+export function useAcceptanceKnown(): boolean {
+  useEffect(start, [])
+  return useAcceptanceStore((store) => store.state !== null || store.error !== null)
 }
 
 export function selectRow(key: string): void {

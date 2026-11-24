@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { sameProjectRoot } from '../../../shared/paths'
+import { openAcceptance } from '../../acceptance/open'
+import { useAcceptanceKnown } from '../../acceptance/useAcceptance'
 import { invoke, subscribe, windowMachine } from '../../ipc'
 import { activeProject, addressFor, navigation, openProject, useProjects } from '../../projects/useProjects'
 import { openPipelineOf } from '../../pipeline/open'
@@ -26,8 +28,10 @@ import { useOrchestratorViews } from '../nodes/orchestrator-view'
 // `notify.pending` when it mounts and again on each `notify.open` signal, so a signal sent before it
 // mounted loses nothing. The note then waits until this window knows the Session's Node
 // (session/notification-target.ts). Draws nothing. A note of a Ticket that waits for the owner
-// (worfy-pipeline ticket 06) opens the Pipeline board of its Project instead of a Session; one of a
-// Linked machine's Ticket (worfy-pipeline ticket 10) opens it among that Machine's Projects, read only. A note of
+// (worfy-pipeline ticket 06) opens the Acceptance view on that Ticket when the window's Acceptance queue holds it
+// (worfy-acceptance ticket 06), else the Pipeline board of its Project, instead of a Session; the window waits for the
+// queue's first answer before it chooses. One of a Linked machine's Ticket (worfy-pipeline ticket 10) opens either among
+// that Machine's Projects, read only: the window on that Machine reads that Machine's queue. A note of
 // a PR of the PR inbox (worfy-pr-inbox ticket 07) opens the Pull requests view of its Project on that PR.
 // A Session of this Machine is looked for in each of its Projects, and one in another Project than the
 // active one selects that Project before it opens (worfy-polish ticket 127).
@@ -44,6 +48,8 @@ export default function NotificationTarget() {
   const projects = useProjects()
   const project = activeProject(projects)
   const pending = usePendingNote((store) => store.pending)
+  // Whether the Acceptance queue has answered once: a Ticket's note chooses between the view and the Pipeline then.
+  const acceptanceKnown = useAcceptanceKnown()
   // Read only so the lookup below runs again when views arrive.
   const sessionViews = useSessionNodeViews()
   const orchestratorViews = useOrchestratorViews()
@@ -94,14 +100,15 @@ export default function NotificationTarget() {
       const timer = setTimeout(() => dropNote(pending), Math.max(0, pending.until - Date.now()))
       return () => clearTimeout(timer)
     }
-    // A Ticket that waits for the owner (worfy-pipeline ticket 06): the Pipeline board of its
-    // Project, once this window knows its Projects.
+    // A Ticket that waits for the owner (worfy-pipeline ticket 06): the Acceptance view on it when the queue holds it
+    // (worfy-acceptance ticket 06), else the Pipeline board of its Project, once this window knows its Projects and
+    // the queue. The view is over every Project, so it selects none.
     if ('view' in note) {
-      if (projects !== undefined) {
+      if (projects !== undefined && acceptanceKnown) {
         dropNote(pending)
         const target = pipelineProjectOf(note, projects.projects)
         if (target === undefined) console.warn(`a notification of ${note.epic} ${note.num}: ${note.projectRoot ?? note.projectId} is no longer in the list of Projects`)
-        else
+        else if (!openAcceptance({ projectId: target.id, epic: note.epic, num: note.num }))
           void openPipelineOf(target.id, projects.activeId ?? undefined).then((problem) => {
             if (problem !== undefined) console.error('a notification could not open the Pipeline of its Project:', problem)
           })
@@ -134,6 +141,6 @@ export default function NotificationTarget() {
     for (const each of projects?.projects ?? []) ensureProject(each.id)
     const timer = setTimeout(() => dropNote(pending), Math.max(0, pending.until - Date.now()))
     return () => clearTimeout(timer)
-  }, [pending, projects, project, sessionViews, orchestratorViews])
+  }, [pending, projects, project, sessionViews, orchestratorViews, acceptanceKnown])
   return null
 }

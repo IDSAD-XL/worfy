@@ -20,10 +20,11 @@ The column on the left of the window, 264 pixels wide. From the top:
   at the right edge, the button that hides the sidebar (⌘B, Ctrl+B on Windows). Dragging the strip moves the window.
 - **The Project switcher**, a row of its own under the strip, as wide as the sidebar: the name of what the sidebar shows
   and a chevron at its right end. A long Project name has the whole row.
-- **The rail**, a column of icons, one per section: Projects, Sessions, Pull requests, Pipeline, Epics, ADR, and at its
-  foot Health check, Machines and Settings. The chosen section has an accent bar. A section's icon carries a badge that shows while
+- **The rail**, a column of icons, one per section: Projects, Sessions, Pull requests, Acceptance, Pipeline, Epics, ADR,
+  and at its foot Health check, Machines and Settings. The chosen section has an accent bar. A section's icon carries a badge that shows while
   another section is open: the number of busy Sessions of the Projects the switcher shows, in the colour of work, the
-  number of pull requests that need you (review, answer or fix), a dot while a Ticket in work is blocked or waits for
+  number of pull requests that need you (review, answer or fix), the number of checks in Ready to check of
+  [Acceptance](acceptance.md), in the colour of work, a dot while a Ticket in work is blocked or waits for
   someone, and the dot of the Linked machines.
 - **The panel**, next to the rail. It shows one section: its name, which Projects it shows, its own buttons, and its list,
   which scrolls by itself.
@@ -50,7 +51,7 @@ about a new red row: only the dot.
 
 **The Project switcher** answers "All Projects" or one Project of the window's Machine:
 
-- **All Projects** mixes the Projects in Sessions, Pull requests, Pipeline, Epics and ADR. Each of Sessions, Epics and
+- **All Projects** mixes the Projects in Sessions, Pull requests, Acceptance, Pipeline, Epics and ADR. Each of Sessions, Epics and
   ADR shows the open Project's list first, then the list of every other Project that has one, each under its name. A
   click on an Epic of another Project opens that Project and centres the Epic on its Canvas. A click on a Session of
   another Project opens that Project, then the Session as a click in its own list does, once its Node is on the Canvas
@@ -71,6 +72,13 @@ Projects" does. No part of the live line is cut: a part that does not fit moves 
 " · " before it, and the card grows with it. Each part has a tooltip that says what it counts: busy — the Sessions in a
 turn; PR need you — the pull requests that need your review, answer or fix; waits — the Tickets that are blocked, or wait
 for a person, not an agent. A Project of a Linked machine keeps its single line.
+
+**The Acceptance section** shows the [Acceptance](acceptance.md) queue by Project: each Project's name, then a row per
+group that holds a check of that Project — Ready to check, Update first, Waits for you, Failed — with its count. In work
+and Older have no row there. A click opens the Acceptance view on that Project's first row of that group; the view is
+over every Project, so the click opens no Project. With no row in any of those groups the section says "Nothing to
+check". Its rail badge is the number of Ready to check of the Projects the switcher shows: under "All Projects" it is
+the number on the toolbar tab.
 
 In another Project's group, a Session shows the name Claude Code gives it, else "Session <id>", and "terminal" or
 "desktop". That Project's Canvas is not read, so its worfy Sessions are not marked "worfy" there. "New session", "Product
@@ -119,7 +127,7 @@ watcher. Only the open Project's documents are watched.
 | Sections | `src/renderer/shell/sidebar/` |
 | Rail entries of the sections | `src/renderer/shell/registry.ts` |
 
-Main tests: `test/unit/sidebar-scope.test.tsx`, `test/unit/sidebar-section.test.tsx`, `test/unit/health-rail-button.test.tsx`, `test/e2e/sidebar-rail.spec.ts`,
+Main tests: `test/unit/sidebar-scope.test.tsx`, `test/unit/sidebar-section.test.tsx`, `test/unit/health-rail-button.test.tsx`, `test/unit/acceptance-section.test.tsx`, `test/e2e/sidebar-rail.spec.ts`,
 `test/e2e/sidebar-sections.spec.ts`.
 
 ## Command palette
@@ -145,7 +153,7 @@ next typing or pick. While a command runs, another pick does nothing.
 | Group | Rows |
 |---|---|
 | Action | New session; New Product Session; a "New …" for each item of the Canvas menu; Tidy up; Arrange by Epic; Re-pack; Archive finished sessions now; Process gate queue; Run wave `<epic>`; Ship ticket `<epic>/<NN>`; Open changes `<epic>/<NN>`; Resolve conflicts, Fix checks and Address comments `<owner>/<repo>#<N>`; Reconnect machine…; Remove machine…; Update worfy |
-| View | Switch to Canvas; Switch to Session; Pull requests, with a Project; First-run checks; Health check; Getting started; Settings…; Keyboard shortcuts; worfy Guide; Guide: `<Topic>`, for each Topic; Show only tag `<tag>`; Show all Nodes |
+| View | Switch to Canvas; Switch to Session; Pull requests, with a Project; Acceptance; First-run checks; Health check; Getting started; Settings…; Keyboard shortcuts; worfy Guide; Guide: `<Topic>`, for each Topic; Show only tag `<tag>`; Show all Nodes |
 | Project | Switch to project `<name>`, for each other Project |
 | Go to | Orchestrator; each Epic, Ticket and ADR; each Node of the Layout, except those worfy draws from the workflow and binding anchors |
 | Manual check | Each unchecked manual check of a Ticket. These rows appear only after typing |
@@ -174,8 +182,9 @@ Some rows exist only in some states:
 
 A "Go to" row shows the Canvas and centers it on the Node. An archived or hidden Node is brought back first. A Ticket of a
 collapsed frame centers its frame. An ADR row opens that ADR read-only and does not move the Canvas. With the sidebar hidden, the ADR opens when the sidebar is shown. The Orchestrator row
-opens the Session view and starts the Orchestrator if it does not run. A Manual check row goes to its Ticket and ticks
-nothing. Picking an "In transcripts" row opens that Session in the Session view.
+opens the Session view and starts the Orchestrator if it does not run. "Acceptance" opens the
+[Acceptance](acceptance.md) view, with or without a Project. A Manual check row opens the Acceptance view on that item
+when the item is in its queue, and otherwise goes to its Ticket; it ticks nothing. Picking an "In transcripts" row opens that Session in the Session view.
 
 **Ranking.** An exact key beats every title, for example a Ticket number (`07`, `7`, `worfy-mvp/07`) or an ADR number. Then
 come, in order: the start of the title, the start of a word in the title, anywhere in the title, the detail, all the words of
