@@ -43,7 +43,7 @@ Code: `src/shared/acceptance/queue.ts:99-110` · key lines: 100, 102, 109
 
 ## 3. Какие merge-и составляют изменение Ticket-а
 
-Code: `src/main/acceptance/stable-line.ts:87-93` · key lines: 88, 91
+Code: `src/main/acceptance/stable-line.ts:93-99` · key lines: 94, 97
 
 ```ts
 function refsOf(ticket: Ticket, tickets: readonly Ticket[]): MergeRef[] {
@@ -66,7 +66,7 @@ function refsOf(ticket: Ticket, tickets: readonly Ticket[]): MergeRef[] {
 
 ## 4. Строка из того, что уже известно
 
-Code: `src/main/acceptance/stable-line.ts:162-192` · key lines: 163, 165, 175, 182, 189, 191
+Code: `src/main/acceptance/stable-line.ts:168-199` · key lines: 169, 171, 181, 188, 195, 197
 
 ```ts
   line(project: StableProject, ticket: Ticket): AcceptanceStable | null {
@@ -98,8 +98,9 @@ Code: `src/main/acceptance/stable-line.ts:162-192` · key lines: 163, 165, 175, 
     // The first build with the whole change: the one of its latest merge.
     const since = facts.map((fact) => fact.build!).reduce((a, b) => ((b.number ?? -1) > (a.number ?? -1) ? b : a))
     if (facts.every((fact) => fact.ancestry === 'in')) return lineOf('in', `In your Stable copy ${running.label} — the change is there since ${since.label}`)
-    return lineOf('out', `Not in your Stable copy yet: it runs ${running.label}, the change is in ${since.label}`, this.updateFor(since))
-  }
+    const update = this.updateFor(root, shas, since)
+    if (update === undefined) return null
+    return lineOf('out', `Not in your Stable copy yet: it runs ${running.label}, the change is in ${since.label}`, update)
 ```
 
 - Что делает: синхронно собирает строку из сохранённых ответов (merge commit от gh, «предок или нет» и номер версии от
@@ -114,7 +115,7 @@ Code: `src/main/acceptance/stable-line.ts:162-192` · key lines: 163, 165, 175, 
 
 ## 5. Один вопрос gh на влитой PR
 
-Code: `src/main/acceptance/stable-line.ts:126-140` · key lines: 128, 133
+Code: `src/main/acceptance/stable-line.ts:132-146` · key lines: 134, 139
 
 ```ts
   get(key: string, ask: () => Promise<{ value: T; final: boolean }>): T | undefined {
@@ -145,7 +146,34 @@ Code: `src/main/acceptance/stable-line.ts:126-140` · key lines: 128, 133
 - Риски и пробелы test-ов: память не ограничена по размеру: по ключу на PR и на пару commit-ов, что для одного Project-а
   worfy — сотни записей.
 
-## 6. Как проверено
+## 6. Update worfy — только когда доказано
+
+Code: `src/main/acceptance/stable-line.ts:207-216` · key lines: 209, 211, 214, 216
+
+```ts
+  private updateFor(root: string, shas: readonly string[], since: Build): NonNullable<AcceptanceStable['update']> | undefined {
+    const { checks, available } = this.sources.update?.() ?? { checks: false, available: null }
+    if (!checks) return 'no-update-check'
+    if (available === null) return 'waits-ci'
+    if (available.number !== undefined && since.number !== null) return available.number >= since.number ? 'available' : 'waits-ci'
+    if (!SHA.test(available.sha)) return 'waits-ci'
+    const answers = shas.map((sha) => this.ancestry.get(`${root}\n${sha}\n${available.sha}`, () => this.askAncestry(root, sha, available.sha)))
+    if (answers.some((answer) => answer === undefined)) return undefined
+    return answers.every((answer) => answer === 'in') ? 'available' : 'waits-ci'
+  }
+```
+
+- Что делает: копия, которая не проверяет обновления (dev-запуск), говорит `no-update-check`; при обоих известных номерах
+  сборки Update worfy предлагается, если номер Available update не меньше номера merge; если номера нет (shallow clone,
+  где `askBuild` не даёт номер, как `buildNumber`), решает `git merge-base --is-ancestor <merge> <commit Available
+  update>`, и Update worfy — только при «да».
+- Почему здесь: раунд 2 ревью #2158 — придуманный номер shallow clone предлагал Update worfy без изменения; dev-запуск
+  говорил «`main` waits for a green CI», не зная этого.
+- Без него: владелец обновлял бы Stable copy до сборки без проверяемого изменения.
+- Требование: [Что делаем, п. 4](../issues/02-строка-stable-copy-и-группа-update-first.md#что-делаем)
+- Риски и пробелы test-ов: commit Available update, которого нет в checkout-е, даёт `waits-ci` — решено без владельца.
+
+## 7. Как проверено
 
 - `pnpm test test/unit/acceptance-stable-line.test.ts test/unit/acceptance-queue.test.ts test/contract/acceptance-stable-copy.test.ts`
   до правки — exit 1, после — exit 0.
@@ -154,6 +182,8 @@ Code: `src/main/acceptance/stable-line.ts:126-140` · key lines: 128, 133
   отсутствующего commit-а, влитой PR не хранится, обратное сравнение с Available update, точное сравнение адреса
   репозитория, блокеры не `done`, номер версии +1, нет «no Stable copy found», строка во всех группах, отказ хранится
   навсегда, служба не передаёт строку) — все убиты.
+- Раунд 2: 7 mutant-ов (нет проверки shallow, ancestry-ветка всегда `available`, `>=` → `>`, файл раньше `running`,
+  нет пересчёта по тику, OPEN считается влитым, нет `no-update-check`) — все убиты.
 
 ## Проверить себя
 
@@ -165,8 +195,8 @@ Code: `src/main/acceptance/stable-line.ts:126-140` · key lines: 128, 133
    снова?
    - Ответ: «Stable copy not checked: the merge commit … is not in this checkout»; ответ `missing-merge` не
      окончательный, его спросят снова через `RETRY_MS`, когда checkout получит commit сам — worfy его не fetch-ит.
-   - Строки: `src/main/acceptance/stable-line.ts:162-192`, `src/main/acceptance/stable-line.ts:126-140`
+   - Строки: `src/main/acceptance/stable-line.ts:168-199`, `src/main/acceptance/stable-line.ts:132-146`
 3. Почему в строке `out` указан номер последнего merge, а не первого?
    - Ответ: изменение Ticket-а с несколькими merge-ами целиком есть только в сборке, где есть все они: `since` — сборка
      с наибольшим номером.
-   - Строки: `src/main/acceptance/stable-line.ts:162-192`
+   - Строки: `src/main/acceptance/stable-line.ts:168-199`

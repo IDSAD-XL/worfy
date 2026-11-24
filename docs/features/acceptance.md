@@ -76,26 +76,31 @@ copy, the copy of worfy the owner checks in:
 - **In your Stable copy 0.4.N — the change is there since 0.4.M.** The item stays in Ready to check.
 - **Not in your Stable copy yet: it runs 0.4.K, the change is in 0.4.M.** The item goes to Update first. When an
   Available update has the change, the row offers **Update worfy**; otherwise it says that `main` waits for a green CI.
+  A copy that does not check for updates (a dev run: Update is on only in the Stable copy) cannot know either, and the
+  row says so: "This copy does not check for updates: update from your Stable copy".
 - **Stable copy not checked**, with the reason: a commit this checkout does not have (worfy never fetches the
   Project's repository for it), no Stable copy on this Machine, or GitHub did not answer. The item stays in Ready to
   check, and the line is asked again a few minutes later.
 
 The numbers are build numbers, as worfy shows its own version: `0.4.N` is the major and minor of the commit's
-`package.json` and the count of commits up to it. `0.4.M` is the first build with the change.
+`package.json` and the count of commits up to it. `0.4.M` is the first build with the change. A shallow clone has no
+honest count, so there the line names the commits by their short SHA instead.
 
 Only a Project whose repository is worfy's own (`origin` is `IDSAD-XL/worfy`) has a Stable copy. Any other Project's
 line says only **merged #N** (or **merged** for a Ticket done without a PR) or **not merged**.
 
 ### How it works
 
-- The commit of the Stable copy is the one the file next to the copy names (`worfy-stable.json`, written by the
-  install); when that file is missing and this window is the Stable copy, the commit Update gives this run.
+- The commit of the Stable copy: when this window is the Stable copy, the commit Update gives this run; otherwise the
+  one the file next to the copy names (`worfy-stable.json`, written by the install).
 - The merge commit is the one of the Ticket's `PR:` line, else of the merged PR of its branch, asked of gh as the
   Project's GitHub account. A Ticket that waits for the owner without a PR of its own takes the merges of its blockers
   that are done. gh is asked once per merged PR, only for the items of Ready to check and Update first, and the answer
   is kept for the rest of the run: a merged PR's merge commit does not change.
 - Whether the change is there: `git merge-base --is-ancestor <merge> <Stable copy commit>` in the Project's checkout.
-  The version numbers come from `git rev-list --count` and the commit's `package.json`.
+  The version numbers come from `git rev-list --count` and the commit's `package.json`, none in a shallow clone.
+- Whether the Available update has the change: by the build numbers when both are known, else by
+  `git merge-base --is-ancestor <merge> <its commit>`; Update worfy is offered only when one of them says yes.
 - Nothing is written to the Project or to GitHub, and nothing is waited for: a line not known yet is empty, and the
   queue is sent again when it comes.
 

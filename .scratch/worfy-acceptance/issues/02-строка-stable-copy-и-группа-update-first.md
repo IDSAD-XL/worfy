@@ -81,3 +81,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реал�
   и «PR ещё не влит» спрашиваются снова через 5 минут, влитой merge commit хранится до конца работы приложения.
 - Вне следа: `src/shared/acceptance/queue.ts` (опция `inStable` стала `stable`, строка кладётся в строку пункта) и
   `src/main/ipc/acceptance.ts` (источники строки в приложении: gh PR tracker-а, Available update службы Update).
+- Раунд 2 ревью #2158: в shallow clone номера сборки нет (`rev-parse --is-shallow-repository`, как `buildNumber`), строка
+  называет commit-ы коротким SHA, а Update worfy решает `merge-base --is-ancestor <merge> <commit Available update>`;
+  равные номера — Update worfy; commit Stable copy — `running` службы Update, когда окно — сама Stable copy, иначе файл
+  рядом с копией; копия без проверки обновлений (dev-запуск) — `update: no-update-check` с текстом «This copy does not
+  check for updates: update from your Stable copy» вместо «`main` waits for a green CI». Решено без владельца: без
+  ответа git (commit-а Available update нет в checkout-е) Update worfy не предлагается.
