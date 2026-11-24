@@ -91,3 +91,8 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реал�
   рядом с копией; копия без проверки обновлений (dev-запуск) — `update: no-update-check` с текстом «This copy does not
   check for updates: update from your Stable copy» вместо «`main` waits for a green CI». Решено без владельца: без
   ответа git (commit-а Available update нет в checkout-е) Update worfy не предлагается.
+- Раунд 3 ревью #2158: когда окно — сама Stable copy, commit — собственный commit этого запуска (`appRunning`, читается
+  один раз), а не `running` файла состояния Update, который после рестарта в Update ещё называет прежнюю копию; commit
+  Available update, которого нет в checkout-е, — `update: update-not-here` («The update's commit is not in this
+  checkout: fetch to check») вместо «`main` waits for a green CI». Правка вне следа: `export` у `appRunning`
+  (`src/main/ipc/update.ts`).

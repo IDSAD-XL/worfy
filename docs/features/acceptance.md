@@ -91,8 +91,9 @@ line says only **merged #N** (or **merged** for a Ticket done without a PR) or *
 
 ### How it works
 
-- The commit of the Stable copy: when this window is the Stable copy, the commit Update gives this run; otherwise the
-  one the file next to the copy names (`worfy-stable.json`, written by the install).
+- The commit of the Stable copy: when this window is the Stable copy, this run's own commit, read once at start (not
+  the one the last update check saved, which right after a restart into an Update still names the copy before);
+  otherwise the one the file next to the copy names (`worfy-stable.json`, written by the install).
 - The merge commit is the one of the Ticket's `PR:` line, else of the merged PR of its branch, asked of gh as the
   Project's GitHub account. A Ticket that waits for the owner without a PR of its own takes the merges of its blockers
   that are done. gh is asked once per merged PR, only for the items of Ready to check and Update first, and the answer
@@ -100,7 +101,8 @@ line says only **merged #N** (or **merged** for a Ticket done without a PR) or *
 - Whether the change is there: `git merge-base --is-ancestor <merge> <Stable copy commit>` in the Project's checkout.
   The version numbers come from `git rev-list --count` and the commit's `package.json`, none in a shallow clone.
 - Whether the Available update has the change: by the build numbers when both are known, else by
-  `git merge-base --is-ancestor <merge> <its commit>`; Update worfy is offered only when one of them says yes.
+  `git merge-base --is-ancestor <merge> <its commit>`; Update worfy is offered only when one of them says yes. When
+  that commit is not in the checkout, the row says so: "The update's commit is not in this checkout: fetch to check".
 - Nothing is written to the Project or to GitHub, and nothing is waited for: a line not known yet is empty, and the
   queue is sent again when it comes.
 

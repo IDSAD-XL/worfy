@@ -148,7 +148,7 @@ Code: `src/main/acceptance/stable-line.ts:132-146` · key lines: 134, 139
 
 ## 6. Update worfy — только когда доказано
 
-Code: `src/main/acceptance/stable-line.ts:207-216` · key lines: 209, 211, 214, 216
+Code: `src/main/acceptance/stable-line.ts:208-219` · key lines: 210, 212, 217, 218
 
 ```ts
   private updateFor(root: string, shas: readonly string[], since: Build): NonNullable<AcceptanceStable['update']> | undefined {
@@ -159,6 +159,8 @@ Code: `src/main/acceptance/stable-line.ts:207-216` · key lines: 209, 211, 214, 
     if (!SHA.test(available.sha)) return 'waits-ci'
     const answers = shas.map((sha) => this.ancestry.get(`${root}\n${sha}\n${available.sha}`, () => this.askAncestry(root, sha, available.sha)))
     if (answers.some((answer) => answer === undefined)) return undefined
+    // A commit git does not have (worfy never fetches): whether the update has the change is not known here.
+    if (answers.some((answer) => answer !== 'in' && answer !== 'out')) return 'update-not-here'
     return answers.every((answer) => answer === 'in') ? 'available' : 'waits-ci'
   }
 ```
@@ -171,7 +173,8 @@ Code: `src/main/acceptance/stable-line.ts:207-216` · key lines: 209, 211, 214, 
   говорил «`main` waits for a green CI», не зная этого.
 - Без него: владелец обновлял бы Stable copy до сборки без проверяемого изменения.
 - Требование: [Что делаем, п. 4](../issues/02-строка-stable-copy-и-группа-update-first.md#что-делаем)
-- Риски и пробелы test-ов: commit Available update, которого нет в checkout-е, даёт `waits-ci` — решено без владельца.
+- Риски и пробелы test-ов: commit Available update, которого нет в checkout-е, даёт `update-not-here` («fetch to
+  check»): worfy не fetch-ит, и ответа здесь нет.
 
 ## 7. Как проверено
 
