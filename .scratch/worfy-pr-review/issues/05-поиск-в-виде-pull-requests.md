@@ -42,16 +42,20 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение», 1 и 2; «�
       Красный до правки — в «Итог».
   - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 pnpm exec vitest run test/unit/pr-search-view.test.tsx test/unit/pr-inbox-view.test.tsx` exit 0 · mac - · 592c6239627d4575da34e3754d52f1968646fbfa
   - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 pnpm exec vitest run test/unit/pr-search-view.test.tsx test/unit/pr-inbox-view.test.tsx` exit 0 · mac - · 4973a527eb20afe574122618af6deecf9d8e8a0b
+  - evidence: review pass · PR #2084 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] e2e `test/e2e/pr-search.spec.ts` (новый) на gh stand-in: поиск → результаты со chip-ами → выбор → панель PR с
       полосой «Review this pull request» → Clear → inbox; сохранённый поиск; 422 и SSO-notice; снимки в светлой и
       тёмной теме на 1280 и 1600 px.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-search.spec.ts test/e2e/pr-inbox.spec.ts` exit 0 · mac - · 592c6239627d4575da34e3754d52f1968646fbfa
   - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-search.spec.ts test/e2e/pr-inbox.spec.ts` exit 0 · mac - · 4973a527eb20afe574122618af6deecf9d8e8a0b
+  - evidence: review pass · PR #2084 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `test/unit/pr-inbox-view.test.tsx` и `test/e2e/pr-inbox.spec.ts` зелёные: inbox без поиска не изменился.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-search.spec.ts test/e2e/pr-inbox.spec.ts` exit 0 · mac - · 592c6239627d4575da34e3754d52f1968646fbfa
   - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-search.spec.ts test/e2e/pr-inbox.spec.ts` exit 0 · mac - · 4973a527eb20afe574122618af6deecf9d8e8a0b
+  - evidence: review pass · PR #2084 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 592c6239627d4575da34e3754d52f1968646fbfa
+  - evidence: review pass · PR #2084 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44724315407/job/136264213789 · ci - · d00f2626c703ff3471596d487ee3407372edc9fa
 

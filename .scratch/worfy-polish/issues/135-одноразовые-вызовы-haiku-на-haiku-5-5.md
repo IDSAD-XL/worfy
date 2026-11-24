@@ -53,12 +53,15 @@ Source: слова владельца 2026-11-20 через Product Session, т�
       ответ, а не отмену; текст thinking не попадает в Suggestion; `option_not_applied` не отменяет Suggestion. Красный до
       правки.
   - evidence: test-run pass · `pnpm test test/contract/terminal-ai-assist.test.ts` exit 0 · mac - · 63268e2fe849c4f53edb711f7983dc2a6bf484f9
+  - evidence: review pass · PR #2063 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Unit test-ы `test/unit/terminal-ai-options.test.ts` и `test/unit/narrator-options.test.ts` закрепляют ID
       `claude-haiku-5-5`, effort `low`, отсутствие `maxThinkingTokens` и `thinking: disabled`.
   - evidence: test-run pass · `pnpm test test/unit/terminal-ai-options.test.ts test/unit/narrator-options.test.ts` exit 0 · mac - · 63268e2fe849c4f53edb711f7983dc2a6bf484f9
+  - evidence: review pass · PR #2063 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] ADR-0058 несёт Amendment 2026-11-20; `docs/features/terminal.md` и `docs/features/product-session.md` описывают
       новую модель и правило; `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 63268e2fe849c4f53edb711f7983dc2a6bf484f9
+  - evidence: review pass · PR #2063 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44671216496/job/136100815607 · ci - · 7c0f47492b5ebab92a69ce04977bccdc86822dc6
 

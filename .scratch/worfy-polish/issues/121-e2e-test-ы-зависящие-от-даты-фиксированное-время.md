@@ -104,24 +104,29 @@ Source: решение владельца 2026-11-17; `worfy-throughput` 66, «�
 - [ ] Оба test-а берут время из фиксированной даты, а не из часов машины: в `new-product-session.spec.ts` и
       `limits-vendors.spec.ts` нет `Date.now()` и `new Date()` без аргументов для данных fixture-а.
   - evidence: commit pass · Pin the date of date-dependent e2e tests: main's clock from WORFY_NOW (worfy-polish 121) · - - · 00b7ab38f
+  - evidence: review pass · PR #1939 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Unit- или contract-test источника «сейчас» main процесса: заданное значение доходит до автоархива и до Limits;
       без него — часы машины. Сначала красный.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/main-clock.test.ts test/unit/codex-limits.test.ts` exit 0 (main-clock red first: no module, then this.deps.now is not a function) · mac - · 00b7ab38f
+  - evidence: review pass · PR #1939 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Оба test-а зелёные при часах машины, сдвинутых вперёд, — без локального e2e (локальный e2e запрещён): CI run с
       шагом, который сдвигает часы runner-а вперёд (например, на 8 дней и на пятницу UTC) перед
       `pnpm test:e2e test/e2e/new-product-session.spec.ts test/e2e/limits-vendors.spec.ts`; run — в Evidence.
       Если сдвинуть часы runner-а нельзя — unit-test из пункта выше с датой «через 8 дней» и обычный CI e2e, и строка
       в «Итог», почему.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/43986230457 (clock-shift-121, macOS, runner clock moved to 2026-11-27 10:00 UTC and 2026-12-01 10:00 UTC, 16 passed each) · ci dev · 87c46a09a
+  - evidence: review pass · PR #1939 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] CI e2e (`macos-e2e`, `windows-e2e`) зелёный на PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/43987987519/job/133730778008 · ci - · 3930e29c5fb7151320d567989836b8c623c0bdf1
 - [ ] В `test/e2e` не осталось e2e, зависящих от даты с риском «real» из обхода выше, или каждый назван в «Итог» с
       причиной.
   - evidence: commit pass · Pin the date of date-dependent e2e tests: main's clock from WORFY_NOW (worfy-polish 121) · - - · 00b7ab38f
+  - evidence: review pass · PR #1939 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Все unit- и contract-test-ы затронутых модулей зелёные (`test/contract/ci-workflow.test.ts`, test-ы
       `src/main/layout/archive.ts` и `src/main/agent/limits.ts`); gate fast — exit 0; `ci-ok` на PR зелёный.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · c4c116e16
   - evidence: gate pass · `gate fast` exit 0 · mac - · c4c116e16
+  - evidence: review pass · PR #1939 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 
 ## Где в коде
 

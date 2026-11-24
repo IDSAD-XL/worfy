@@ -77,25 +77,32 @@ Blocked by 08: те же файлы — лоток и клавиши, котор
       «+» растягивает выбранное без popover-а; подсказка «Comment on lines N–M (c)» видна, пока строки выбраны, и
       щелчок по ней открывает popover.
   - evidence: test-run pass · `pnpm test test/unit/changes-line-pick.test.tsx` exit 0 · mac - · 159692900
+  - evidence: review pass · PR #2130 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Unit test (`test/unit/review-comments.test.tsx`): то же перетаскивание и подсказка в Review mode PR.
   - evidence: test-run pass · `pnpm test test/unit/review-comments.test.tsx` exit 0 · mac - · 159692900
+  - evidence: review pass · PR #2130 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Unit test (`test/unit/changes-tray.test.tsx`): в чистом worktree комментарий новой стороны All changes несёт
       `headSha`; у файла с `uncommitted` — `null`; после Refresh, где файл стал закоммиченным, неотправленный комментарий
       найден на строке и несёт новый HEAD.
   - evidence: test-run pass · `pnpm test test/unit/changes-tray.test.tsx` exit 0 · mac - · 159692900
+  - evidence: review pass · PR #2130 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract test (`test/contract/changes-read.test.ts`): `uncommitted` у файла, изменённого только commit-ом Ticket-а, —
       `false`; у правленного в рабочем дереве, в index и у нового неотслеживаемого — `true`; `.git/index` не тронут.
   - evidence: test-run pass · `pnpm test test/contract/changes-read.test.ts` exit 0 · mac - · 159692900
+  - evidence: review pass · PR #2130 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] e2e test (`test/e2e/changes-comments.spec.ts`, fake agent, временный репозиторий с закоммиченной и незакоммиченной
       правкой): диапазон перетаскиванием «+» и комментарий к строке → Send → одно сообщение; у строки закоммиченного файла
       — `(new side, commit <HEAD>)`, у незакоммиченного — `(new side, uncommitted)`; снимок подсказки в светлой и тёмной
       теме.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/changes.spec.ts test/e2e/changes-comments.spec.ts test/e2e/pr-review.spec.ts` exit 0 · mac dev · 159692900
+  - evidence: review pass · PR #2130 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] e2e test (`test/e2e/pr-review.spec.ts`, тест «comments on lines»): диапазон перетаскиванием «+» в Review mode.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/changes.spec.ts test/e2e/changes-comments.spec.ts test/e2e/pr-review.spec.ts` exit 0 · mac dev · 159692900
+  - evidence: review pass · PR #2130 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Страница `docs/features/changes.md` и перевод описывают выбор диапазона и строку commit-а;
       `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 (in `pnpm lint`) · mac - · 159692900
+  - evidence: review pass · PR #2130 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44923290094/job/136921795205 · ci - · 57663a9e5528d927d842c5106da63bc7df6aa5e6
 - [x] (manual) Mac Stable: комментарии к строке и диапазону уходят агенту одним сообщением с путями, строками и кодом.
@@ -112,9 +119,12 @@ D3: диапазон выбирается перетаскиванием «+», 
 подготовка Orchestrator-а — пункты без метки, шаги владельца — пункты с меткой, по одному на шаг.
 
 - [ ] Orchestrator: обновить Mac Stable до `main` после «да» владельца и сверить версию.
+  - evidence: review pass · PR #2130 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Orchestrator: завести в `worfy-sandbox` Ticket с worktree (ветка с commit-ами, закоммиченный файл и файл с
       правкой без commit-а) — тот же, что для шагов Ticket-а 08.
+  - evidence: review pass · PR #2130 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Orchestrator: привязать к этому Ticket-у Session (Binding).
+  - evidence: review pass · PR #2130 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [x] (manual) Сделай: в виде Changes Ticket-а наведи на строку diff-а и щёлкни **«+»** в gutter; напиши текст и нажми
       Save (⌘↵) → Должно быть: popover называл место (`<path>:<строка> · new side`) и код строки; после Save
       комментарий стоит под строкой с меткой «not sent», Edit и Delete; в лотке внизу — «1 comment on 1 file».

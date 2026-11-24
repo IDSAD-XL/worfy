@@ -53,12 +53,15 @@ Source: владелец 2026-11-19 во время приёмки worfy-pr-foll
 - [ ] «Open» toast-а вопроса Session другого Project-а переключает Project и открывает её чат.
   - evidence: test-run pass · `pnpm test test/unit/question-card.test.tsx test/unit/permission-card.test.tsx` exit 0 · mac - · 799539bb46395fc4a7b0749b85339a68142f78c5
   - evidence: test-run pass · `pnpm test test/unit/question-card.test.tsx test/unit/permission-card.test.tsx` exit 0 · mac - · aa197d7e6694bd1bede012e4f7ea0c0106646a0e
+  - evidence: review pass · PR #2087 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Щелчок по уведомлению ОС о Session другого Project-а на своей машине делает то же.
   - evidence: test-run pass · `pnpm test test/unit/question-card.test.tsx test/unit/permission-card.test.tsx` exit 0 · mac - · 799539bb46395fc4a7b0749b85339a68142f78c5
   - evidence: test-run pass · `pnpm test test/unit/question-card.test.tsx test/unit/permission-card.test.tsx` exit 0 · mac - · aa197d7e6694bd1bede012e4f7ea0c0106646a0e
+  - evidence: review pass · PR #2087 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Session активного Project-а открывается как сегодня, без лишнего `openProject`.
   - evidence: test-run pass · `pnpm test test/unit/question-card.test.tsx test/unit/permission-card.test.tsx` exit 0 · mac - · 799539bb46395fc4a7b0749b85339a68142f78c5
   - evidence: test-run pass · `pnpm test test/unit/question-card.test.tsx test/unit/permission-card.test.tsx` exit 0 · mac - · aa197d7e6694bd1bede012e4f7ea0c0106646a0e
+  - evidence: review pass · PR #2087 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Unit test-ы на оба пути зелёные; CI зелёный.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44727572617/job/136277413013 · ci - · e0518be58db068e0be4ff9f8e18795ad17e165a8
 

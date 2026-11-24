@@ -43,10 +43,13 @@ Source: решение владельца 2026-11-20, Q9. В Changes то же �
 - [ ] Unit test `test/unit/quote-comments-ui.test.tsx`: изменённый + Esc — popover и текст на месте; неизменённый + Esc
       — закрыт; изменённый + Cancel — закрыт. Красный до правки.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/quote-comments-ui.test.tsx` exit 0 (46 passed), exit 1 before the fix (changed + Esc lost the popover) · mac - · b22bcc2dd0d5464f19a9748629aa01cc29df6637
+  - evidence: review pass · PR #2101 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Mutation: без условия `changed` — test красный.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/quote-comments-ui.test.tsx` exit 1 with the fix reverted and exit 1 with the changed check negated; with the check removed exit 0, an equivalent mutant: onOutside closes an unchanged popover itself · mac - · b22bcc2dd0d5464f19a9748629aa01cc29df6637
+  - evidence: review pass · PR #2101 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Подсказка `onOutside` и `docs/features/sessions.md` не называют Esc способом выбросить изменённый комментарий.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/quote-comments-ui.test.tsx` exit 0 asserts the hint Save (...) or Cancel first.; docs/features/sessions.md:224 rewritten, `node scripts/check-feature-docs.mjs` exit 0 · mac - · b22bcc2dd0d5464f19a9748629aa01cc29df6637
+  - evidence: review pass · PR #2101 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44780418742/job/136460614614 · ci - · 3f54b8b7a02428c009c349fab2e0010158f3db5a
 

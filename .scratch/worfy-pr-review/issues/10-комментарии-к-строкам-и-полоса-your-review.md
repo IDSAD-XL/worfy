@@ -46,17 +46,21 @@ Source: [spec.md](../spec.md), «Ticket-ы», 10; «Как пользовате�
       подтверждением; Finish review неактивна, пока Session пишет. Красный до правки — в «Итог».
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/review-comments.test.tsx` exit 0 (15 tests; red before the change: 13 of 15) · mac - · 6596e039faad61ed85ea970b941d5ead06a6410a
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/review-comments.test.tsx` exit 0 (24 tests; red before: 13 of 15, round 2: 7 of 8) · mac - · 39e5b64cd5ca8d510bdb88c8c1380e902022f437
+  - evidence: review pass · PR #2115 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] e2e `test/e2e/pr-review.spec.ts`: комментарий → перезапуск worfy → черновик на месте; chip `Review draft` в
       строке; на `WORFY_AGENT=fake` — правка комментария агента; снимки обеих тем.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-review.spec.ts test/e2e/changes.spec.ts test/e2e/pr-inbox.spec.ts test/e2e/pr-search.spec.ts` exit 0 (18 passed, screenshots of both themes) · mac - · 6596e039faad61ed85ea970b941d5ead06a6410a
   - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-review.spec.ts test/e2e/changes.spec.ts test/e2e/pr-inbox.spec.ts test/e2e/pr-search.spec.ts` exit 0 (18 passed, screenshots of both themes) · mac - · 39e5b64cd5ca8d510bdb88c8c1380e902022f437
+  - evidence: review pass · PR #2115 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract `test/contract/pr-review-draft.test.ts` и `test/contract/pr-search.test.ts`: ни одной записи на GitHub от
       комментариев, Discard и открытого Review mode.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-review-draft.test.ts test/contract/pr-search.test.ts` exit 0 · mac - · 6596e039faad61ed85ea970b941d5ead06a6410a
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-review-draft.test.ts test/contract/pr-search.test.ts` exit 0 · mac - · 39e5b64cd5ca8d510bdb88c8c1380e902022f437
+  - evidence: review pass · PR #2115 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `test/unit/changes-view.test.tsx` и `test/e2e/changes.spec.ts` зелёные: комментарии Changes не изменились.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/changes-view.test.tsx test/unit/changes-tray.test.tsx` exit 0 and `pnpm test:e2e test/e2e/changes.spec.ts` exit 0 · mac - · 6596e039faad61ed85ea970b941d5ead06a6410a
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/changes-view.test.tsx test/unit/changes-tray.test.tsx` exit 0 and `pnpm test:e2e test/e2e/changes.spec.ts` exit 0 · mac - · 39e5b64cd5ca8d510bdb88c8c1380e902022f437
+  - evidence: review pass · PR #2115 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44821710627/job/136601480838 · ci - · 27849a3684178e2caf5ca061c568019a5b16cbf9
 

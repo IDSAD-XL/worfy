@@ -47,13 +47,16 @@ Windows — job-ы Windows в CI.
   - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` exit 0 (634 passed: the owner-stop paragraph of section 2 and the unchanged section 0 sentence on human-review and awaiting-merge) · mac - · 6587ed776acbdecf9af41c4057a61365456891c9
   - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` exit 0 (640 passed: the block runs in the ticket worktree, committed on its branch; section 0 sentence on human-review and awaiting-merge unchanged) · mac - · ecdf2cd3d2d7d5397adb758c24d4d1045b6ce6b7
   - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` exit 0 (650 passed: block after the implementer turn, ticket file only, main branch re-claim, Silent mode; human-review and awaiting-merge unchanged) · mac - · 11f2c3f6cd8ade57c37f25dd8d89fd75c83ff713
+  - evidence: review pass · PR #2086 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Проверка в `epic-wave-ship-ticket.test.sh` зелёная, mutant (фраза убрана) — красный; весь файл — exit 0.
   - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` exit 0; exit 1 before the text change (10 failed); exit 1 on the mutant without the ticket block command (1 failed) · mac - · 6587ed776acbdecf9af41c4057a61365456891c9
   - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` exit 0; review round 1 checks exit 1 before the text change (6 failed); exit 1 on the mutant with the block from its own tree (1 failed) · mac - · ecdf2cd3d2d7d5397adb758c24d4d1045b6ce6b7
   - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` exit 0; review round 2 checks exit 1 before the text change (16 failed); exit 1 on each of two mutants (1 failed) · mac - · 11f2c3f6cd8ade57c37f25dd8d89fd75c83ff713
   - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` exit 0 (650 passed) and `bash harness/bin/tests/plugin-neutral.test.sh` exit 0 after the test comments were made project-neutral · mac - · 7cb7d77c5a3914a6345628707a223cf7f001f880
+  - evidence: review pass · PR #2086 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Eval-случай добавлен и прогнан (exit code и счёт в «Итог»), или в «Итог» записано, почему его нет.
   - evidence: commit pass · worfy-polish/131: result section and evidence · - - · 3390cc7ab5f080b178ab52475daa279f3c8e1523
+  - evidence: review pass · PR #2086 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Job-ы Windows CI на PR зелёные (платформенный PR).
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44731177907/job/136282089715 · ci - · 6a3fac24abdb9db83e9b5cee34d63049ec31548c
 

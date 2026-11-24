@@ -46,12 +46,16 @@ Source: идея владельца 2026-11-19 во время приёмки pr
 - [ ] Открытие вкладки Pull requests читает Project-ы окна сразу; review comment, оставленный перед открытием, виден
   без ожидания таймера.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-inbox.spec.ts test/e2e/pr-search.spec.ts` exit 0 · mac dev · 3eee7de269263dbe5f99e5e6017a715a5813de5b
+  - evidence: review pass · PR #2092 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Два открытия за 30 с дают одно чтение; чтение во время паузы по лимиту не идёт; выключенный Project не читается.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 3eee7de269263dbe5f99e5e6017a715a5813de5b
+  - evidence: review pass · PR #2092 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Следующий тик таймера идёт через 5 минут после чтения по открытию.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 3eee7de269263dbe5f99e5e6017a715a5813de5b
+  - evidence: review pass · PR #2092 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract test-ы на каждое правило выше и unit test на вызов при открытии зелёные; CI зелёный.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/actions.test.ts test/contract/pr-inbox-approvals.test.ts test/contract/pr-inbox-notifications.test.ts test/contract/pr-inbox-send.test.ts test/contract/pr-inbox.test.ts test/contract/pr-search.test.ts test/contract/project-pulse.test.ts test/contract/stories-handler.test.ts test/contract/test-timeout-scale.test.ts test/unit/approvals-chip.test.tsx test/unit/canvas-actions.test.tsx test/unit/draft-thread.test.tsx test/unit/palette-commands.test.tsx test/unit/pipeline-board.test.tsx test/unit/pr-follow-choices.test.tsx test/unit/pr-follow-state.test.tsx test/unit/pr-follow.test.ts test/unit/pr-inbox-digest-toast.test.tsx test/unit/pr-inbox-notices.test.ts test/unit/pr-inbox-open.test.tsx test/unit/pr-inbox-view.test.tsx test/unit/pr-search-view.test.tsx test/unit/review-threads-badge.test.tsx test/unit/sidebar-section.test.tsx test/unit/pr-inbox-groups.test.ts` exit 0 · mac - · 3eee7de269263dbe5f99e5e6017a715a5813de5b
+  - evidence: review pass · PR #2092 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Страница Feature `pr-inbox` (en и ru) говорит о чтении при открытии.
   - evidence: commit pass · worfy-polish/125: the Pull requests view reads GitHub at once when it is opened · - - · 3eee7de269263dbe5f99e5e6017a715a5813de5b
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44734684242/job/136333569048 · ci - · 903e7a0a647ba0688e6d6f4c23b9862d18410e99

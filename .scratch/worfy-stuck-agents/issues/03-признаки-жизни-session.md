@@ -48,19 +48,24 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решения по реал�
       ноль; e2e lock с живым holder-ом — ноль, с мёртвым — не ноль.
   - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx vitest run test/unit/session-quiet.test.ts` exit 0 · mac - · a1d1c61599c9b34a6836dcb240d8f05b41254758
   - evidence: test-run pass · `pnpm test` (gate fast) exit 0 · mac - · b70dce1896e53978b3031970b91e2f2b3f0a61b8
+  - evidence: review pass · PR #1948 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Unit test `test/unit/claude-events.test.ts`: `hook_started`, `hook_progress`, `thinking_tokens` дают признак
       жизни и не дают строки транскрипта.
   - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx vitest run test/unit/claude-events.test.ts` exit 0 · mac - · a1d1c61599c9b34a6836dcb240d8f05b41254758
   - evidence: test-run pass · `pnpm test` (gate fast) exit 0 · mac - · b70dce1896e53978b3031970b91e2f2b3f0a61b8
+  - evidence: review pass · PR #1948 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Unit test `test/unit/codex-items.test.ts`: hook run не-Stop hook-а даёт признак жизни.
   - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx vitest run test/unit/codex-items.test.ts` exit 0 · mac - · a1d1c61599c9b34a6836dcb240d8f05b41254758
+  - evidence: review pass · PR #1948 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract test `test/contract/agent-session.test.ts`: Session на fake agent, ход молчит дольше порога test-а —
       `quietSince` приходит в renderer-канал; событие агента его сбрасывает в `null`.
   - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx vitest run test/contract/agent-session.test.ts` exit 0 · mac - · a1d1c61599c9b34a6836dcb240d8f05b41254758
   - evidence: test-run pass · `pnpm test` (gate fast) exit 0 · mac - · b70dce1896e53978b3031970b91e2f2b3f0a61b8
+  - evidence: review pass · PR #1948 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract test `test/contract/codex-session.test.ts`: то же на fake app-server Codex.
   - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx vitest run test/contract/codex-session.test.ts` exit 0 · mac - · a1d1c61599c9b34a6836dcb240d8f05b41254758
   - evidence: test-run pass · `pnpm test` (gate fast) exit 0 · mac - · b70dce1896e53978b3031970b91e2f2b3f0a61b8
+  - evidence: review pass · PR #1948 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · a1d1c61599c9b34a6836dcb240d8f05b41254758
   - evidence: gate pass · `gate fast` exit 0 · mac - · b70dce1896e53978b3031970b91e2f2b3f0a61b8

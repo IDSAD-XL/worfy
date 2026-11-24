@@ -51,21 +51,25 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Волны», Wave 2; «Ре�
   - evidence: test-run pass · `pnpm test test/unit/integrations-auth-headers.test.ts` exit 0 · mac - · 4d9e700c21965ab5415b10c974e3534cb2335635
   - evidence: test-run pass · `pnpm test test/unit/integrations-auth-headers.test.ts` exit 0 · mac - · c682407014956b3a46d259f67b568affb5a97421
   - evidence: test-run pass · `pnpm test test/unit/integrations-auth-headers.test.ts` exit 0 · mac - · 849ecfffb5dd4e723767e567dbdf1a23b10582be
+  - evidence: review pass · PR #2113 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract `test/contract/integrations-token-auth.test.ts` (новый) на stub-е: верный token → `signed-in` и
       `initialize` прошёл; неверный → `needs-sign-in`; 403 с текстом → `error` с этим текстом; две Integration-ы на
       одном адресе stub-а с разными token-ами проверяются каждая своим token-ом; Sign out удаляет ключи `<id>:*`.
   - evidence: test-run pass · `pnpm test test/contract/integrations-token-auth.test.ts` exit 0 · mac - · 4d9e700c21965ab5415b10c974e3534cb2335635
   - evidence: test-run pass · `pnpm test test/contract/integrations-token-auth.test.ts` exit 0 · mac - · c682407014956b3a46d259f67b568affb5a97421
   - evidence: test-run pass · `pnpm test test/contract/integrations-token-auth.test.ts` exit 0 · mac - · 849ecfffb5dd4e723767e567dbdf1a23b10582be
+  - evidence: review pass · PR #2113 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Тот же contract: token не появляется в `integrations.json`, в ответе канала, в логе main и в Journal (поиск
       значения token-а — пусто).
   - evidence: test-run pass · `pnpm test test/contract/integrations-token-auth.test.ts` exit 0 · mac - · 4d9e700c21965ab5415b10c974e3534cb2335635
   - evidence: test-run pass · `pnpm test test/contract/integrations-token-auth.test.ts` exit 0 · mac - · c682407014956b3a46d259f67b568affb5a97421
   - evidence: test-run pass · `pnpm test test/contract/integrations-token-auth.test.ts` exit 0 · mac - · 849ecfffb5dd4e723767e567dbdf1a23b10582be
+  - evidence: review pass · PR #2113 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Тот же contract: `integrations.setSecret` с Linked machine (любой уровень доступа) — отказ.
   - evidence: test-run pass · `pnpm test test/contract/integrations-token-auth.test.ts` exit 0 · mac - · 4d9e700c21965ab5415b10c974e3534cb2335635
   - evidence: test-run pass · `pnpm test test/contract/integrations-token-auth.test.ts` exit 0 · mac - · c682407014956b3a46d259f67b568affb5a97421
   - evidence: test-run pass · `pnpm test test/contract/integrations-token-auth.test.ts` exit 0 · mac - · 849ecfffb5dd4e723767e567dbdf1a23b10582be
+  - evidence: review pass · PR #2113 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 4d9e700c21965ab5415b10c974e3534cb2335635
   - evidence: gate pass · `gate fast` exit 0 · mac - · c682407014956b3a46d259f67b568affb5a97421

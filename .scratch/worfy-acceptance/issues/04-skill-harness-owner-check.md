@@ -47,13 +47,17 @@ Source: [spec.md](../spec.md), «Ticket-ы», 4; «Решения по реал�
       правки — в «Итог».
   - evidence: test-run pass · `bash harness/bin/tests/owner-check.test.sh` exit 0 · mac - · 1b9ec6366e495c6b8d0a93a02aedd665a229451e
   - evidence: test-run pass · `bash harness/bin/tests/owner-check.test.sh` exit 0 · mac - · 124c0b1327e4e9321cbf580c2ab446f22f77a1e8
+  - evidence: review pass · PR #2051 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `harness/bin/tests/agents-text.test.sh`: текст skill-а держит правило «без слова владельца не отмечать» и «на Fail
       не писать pass»; mutant (фраза убрана) — красный.
   - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 · mac - · 1b9ec6366e495c6b8d0a93a02aedd665a229451e
+  - evidence: review pass · PR #2051 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `test/contract/codex-parity.test.ts` зелёный с новым skill-ом.
   - evidence: test-run pass · `pnpm exec vitest run test/contract/codex-parity.test.ts` exit 0 · mac - · 1b9ec6366e495c6b8d0a93a02aedd665a229451e
+  - evidence: review pass · PR #2051 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `docs/features/evidence.md` называет skill `owner-check`; `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 1b9ec6366e495c6b8d0a93a02aedd665a229451e
+  - evidence: review pass · PR #2051 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job-ы Windows CI зелёные
       (платформенный PR).
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44664848110/job/136054714026 · ci - · aab14e0ebd04c348e18b222ec7a549037087d36f

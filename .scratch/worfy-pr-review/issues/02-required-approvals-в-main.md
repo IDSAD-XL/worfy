@@ -48,12 +48,15 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Факты GitHub API» → �
       `need = null`, нет правил → `none`, `APPROVED` главнее счёта, `CHANGES_REQUESTED`, stale при dismiss stale, отзыв
       без права записи не считается, code owners ждут, last push approval. Красный до правки — в «Итог».
   - evidence: gate pass · `gate fast` exit 0 · mac - · bb9444923fe946f705cbb68e6f563bb3b078e92d
+  - evidence: review pass · PR #2058 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract `test/contract/pr-inbox-approvals.test.ts` (новый) на gh stand-in (`WORFY_GH`): ruleset-ы репозитория и
       организации, classic protection видимая (admin) и `null`, поле `approvals` в строке inbox; `rateLimit.cost` до и
       после записан в «Итог».
   - evidence: gate pass · `gate fast` exit 0 · mac - · bb9444923fe946f705cbb68e6f563bb3b078e92d
+  - evidence: review pass · PR #2058 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `test/contract/pr-inbox.test.ts` и `test/unit/pr-inbox-groups.test.ts` зелёные без правки ожиданий группировки.
   - evidence: gate pass · `gate fast` exit 0 · mac - · bb9444923fe946f705cbb68e6f563bb3b078e92d
+  - evidence: review pass · PR #2058 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44667289013/job/136070139589 · ci - · a88b47db866acab25911ea55be2e0dc027001ff5
 

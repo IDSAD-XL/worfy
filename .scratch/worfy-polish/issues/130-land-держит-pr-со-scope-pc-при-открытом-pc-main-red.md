@@ -41,16 +41,21 @@ Windows — job-ы Windows в CI.
 
 - [ ] При открытом issue с меткой из настройки PR со scope `pc` ждёт; строка `#N waits:` называет issue (номер и URL).
   - evidence: test-run pass · `bash harness/bin/tests/land.test.sh` exit 0 · mac - · 99b2018718af8184109bbe8e0ad915a53eea6bd0
+  - evidence: review pass · PR #2088 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] PR со scope `runner`, PR только с документами и PR с `main_fix: true` вливаются при открытом issue.
   - evidence: test-run pass · `bash harness/bin/tests/land.test.sh` exit 0 · mac - · 99b2018718af8184109bbe8e0ad915a53eea6bd0
+  - evidence: review pass · PR #2088 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Ошибка `gh issue list` или команды scope — PR ждёт, `LAND=unverified` (exit 3), не merge.
   - evidence: test-run pass · `bash harness/bin/tests/land.test.sh` exit 0 · mac - · 99b2018718af8184109bbe8e0ad915a53eea6bd0
+  - evidence: review pass · PR #2088 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Без настройки поведение `land` не меняется: прежние test-ы `harness/bin/tests/land.test.sh` зелёные без правок
       ожиданий.
   - evidence: test-run pass · `bash harness/bin/tests/land.test.sh` exit 0 · mac - · 99b2018718af8184109bbe8e0ad915a53eea6bd0
+  - evidence: review pass · PR #2088 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Новые случаи — в `harness/bin/tests/land.test.sh` (stand-in gh из `land-world.sh`); mutant «не читать issue» —
       красный.
   - evidence: test-run pass · `bash harness/bin/tests/land.test.sh` exit 0 · mac - · 99b2018718af8184109bbe8e0ad915a53eea6bd0
+  - evidence: review pass · PR #2088 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Job-ы Windows CI на PR зелёные (платформенный PR).
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44731319509/job/136286038407 · ci - · 020f0d9572a48402bfca1bf5abc367630ac01621
 

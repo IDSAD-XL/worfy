@@ -44,12 +44,17 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решения по реал�
 
 - [ ] Eval `pr-fix-conflicts`, Full mode: rebase в worktree; вопрос о push называет `--force-with-lease`; на «Not now» —
       ни одного `git push`; на «Push» — только `--force-with-lease`, ни одного `--force` без lease.
+  - evidence: review pass · PR #2011 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Eval `pr-fix-conflicts`, Silent mode: merge commit, ни одного rebase и force-push; checkout человека не тронут.
+  - evidence: review pass · PR #2011 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Числа eval-а (pass и цена) — в «Итог» Ticket-а.
+  - evidence: review pass · PR #2011 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `harness/evals/lib/coverage.json` называет кейс; contract test-ы evals зелёные.
   - evidence: test-run pass · `vitest run test/contract/harness-evals*.test.ts test/contract/harness-migrate.test.ts` exit 0 (coverage map: test/contract/harness-evals-run.test.ts:635) · mac - · 833915dadd659d33ec322bedd53ffdb23b389232
+  - evidence: review pass · PR #2011 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Английские страницы `docs/features/skills-agents-and-hooks.md` и `docs/features/harness.md` описывают режим.
   - evidence: commit pass · worfy-pr-follow/03: pr-fix mode conflicts, rebase with lease in Full mode, merge commit in Silent mode, evals · - - · b8eddf74b
+  - evidence: review pass · PR #2011 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 833915dadd659d33ec322bedd53ffdb23b389232
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44364743832/job/135021912874 · ci - · 61b4b2e9b01e8f12a3efce06f7a63341bedda275

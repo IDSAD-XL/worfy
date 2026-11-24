@@ -72,22 +72,27 @@ Source: [spec.md](../spec.md), «Ticket-ы», 1; «Волны», Wave 1; «Фа�
 - [ ] Сценарий `integrations` в `scripts/spikes/harness-plugin/probe.ts`: sandbox, без входа, без модели;
       `pnpm exec electron scripts/spikes/harness-plugin/probe.ts integrations` — exit 0, итог — в записке.
   - evidence: test-run pass · `pnpm exec electron scripts/spikes/harness-plugin/probe.ts integrations --fixtures test/fixtures/sdk-messages` exit 0 · mac - · 4b516d1611426663c83dd7cb9da533b468754f6b
+  - evidence: review pass · PR #2108 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Записка: две Integration-ы на одном адресе рядом с записями `serverUrl` — обе connected, каждая со своим
       token-ом; `disallowedTools` убирает tool из `system/init`; `--mcp-config` на 0.3.322 и нет ли в нём token-а;
       предел длины имени tool-а — числом.
   - evidence: test-run pass · `probe.ts integrations` exit 0, facts claude, claude_fake_api, claude_serverurl_only in summary.json; note sections 3.1-3.5 · mac - · 4b516d1611426663c83dd7cb9da533b468754f6b
+  - evidence: review pass · PR #2108 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Записка: Codex по схеме и на fake app-server-е — две Integration-ы на одном адресе через `bearer_token_env_var`;
       настоящий Codex не запускался.
   - evidence: test-run pass · `probe.ts integrations` exit 0, fact codex (ajv schema 0.166.0, fake app-server); note section step 4 · mac - · 4b516d1611426663c83dd7cb9da533b468754f6b
+  - evidence: review pass · PR #2108 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Записка: число запросов refresh на stub-е при 10 параллельных вызовах и вывод для Ticket-а 05 (нужен ли замок в
       provider-е).
   - evidence: test-run pass · `probe.ts integrations` exit 0, fact refresh (10 parallel: 10, 0 with rotation, 1 with single-flight fetch); note section step 5 · mac - · 4b516d1611426663c83dd7cb9da533b468754f6b
+  - evidence: review pass · PR #2108 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [x] (вручную) Владелец вошёл из окна spike-а в Atlassian (два site-а) и Linear; в записке — `capabilities`, число
       tools, срок access token-а и refresh каждого сервера.
   - needs: mac
   - evidence: owner-check pass · 2026-11-21: 1 /var/folders/<tmp>/worfy-harness-probe/2026-11-20T23-30-08-619Z — 1 ок · mac dev · 5a00e0a59c23797e5c92fdababab5666425827a1
 - [ ] Записка кончается решением «tools-only proxy достаточен: да/нет» с выводами для Ticket-ов 03, 05 и 06.
   - evidence: commit pass · f91f809f4: note ends with «tools-only proxy достаточен: да», conclusions for tickets 03, 05, 06 · - - · f91f809f4943ad2a2c13de7ef62de07b73881d3a
+  - evidence: review pass · PR #2108 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Scrub probe-а пройден: новые fixture-ы и записка не держат token-ов, адресов site-ов владельца и e-mail-ов;
       `--rescrub` чистит новые fixture-ы.
   - evidence: test-run pass · `node scripts/check-personal.mjs` exit 0 (in pnpm lint) and `probe.ts --rescrub test/fixtures/sdk-messages` exit 0 with no change · mac - · 4b516d1611426663c83dd7cb9da533b468754f6b

@@ -60,17 +60,22 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реал�
 - [ ] Eval `pr-fix-checks`: упавший check починен в worktree, checkout человека не тронут; на «Not now» нет ни одного
       `git push`; check, красный и на базе, не тронут; ни одной записи в GitHub.
   - evidence: test-run pass · eval pr-fix-checks 0.93 / 0.93, casesPassed 1 of 1, exit 0, 0.75 USD (grader reply 3/3 failed in both runs); previous run fe2c22b9b 1.00 / 1.00, 0.66 USD · mac - · dbd7199ae49543555816dc5365d1ba1ecb9ac24d
+  - evidence: review pass · PR #2004 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Eval `pr-fix-comments`: правка по замечанию, ответы только через `pr-reply-draft`; нет `gh pr comment`,
       `gh pr review`, записей `gh api`; push только после «Push».
   - evidence: test-run pass · eval pr-fix-comments 1.00 / 1.00, casesPassed 1 of 1, exit 0, 1.20 USD; previous run fe2c22b9b 1.00 / 1.00, 1.10 USD · mac - · dbd7199ae49543555816dc5365d1ba1ecb9ac24d
+  - evidence: review pass · PR #2004 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Числа обоих evals (pass и цена) — в «Итог» Ticket-а.
   - evidence: commit pass · Итог: dbd7199ae pr-fix-checks 0.93 / 0.93, 0.75 USD; pr-fix-comments 1.00 / 1.00, 1.20 USD; previous run fe2c22b9b · - - · dbd7199ae49543555816dc5365d1ba1ecb9ac24d
+  - evidence: review pass · PR #2004 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `harness/evals/lib/coverage.json` называет `skills/pr-fix/SKILL.md`; contract test-ы evals
       (`test/contract/harness-evals-run.test.ts`) зелёные.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs harness-evals` exit 0, `node scripts/eval-harness-coverage.mjs` exit 0 · mac - · d72f6897fda8013ab32b7b043444b51b25f066ea
+  - evidence: review pass · PR #2004 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Английские страницы `docs/features/skills-agents-and-hooks.md` и `docs/features/harness.md` называют skill и
       evals.
   - evidence: commit pass · worfy-pr-follow/02: skill pr-fix, modes checks and comments, with evals · - - · d72f6897fda8013ab32b7b043444b51b25f066ea
+  - evidence: review pass · PR #2004 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · d72f6897fda8013ab32b7b043444b51b25f066ea
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44336373252/job/134921159346 · ci - · 3fafff5813dc8eaed56cb53e0b8901bda5c7d823

@@ -40,13 +40,18 @@ Source: [spec.md](../spec.md), «Ticket-ы», 11; «Решения по реал
 - [ ] `harness/hooks/tests/session-hooks.test.sh`: ветка `compact` — Orchestrator получает `wave-brief`; implementer —
       свой Ticket и `git status`; вне worfy hook молчит; обычный старт (`source: startup`) не меняется.
   - evidence: test-run pass · `bash harness/hooks/tests/session-hooks.test.sh` exit 0 · mac - · 5050b0bf04ec9df4817e6f952c95b0b891ccff96
+  - evidence: review pass · PR #1982 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Shell test: Epic из ветки, когда `WORFY_EPIC` нет; вывод длиннее предела режется, Stage-строка остаётся.
   - evidence: test-run pass · `bash harness/hooks/tests/session-hooks.test.sh` exit 0 · mac - · 5050b0bf04ec9df4817e6f952c95b0b891ccff96
+  - evidence: review pass · PR #1982 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Shell test: Codex `sessionStart` с compaction даёт тот же вывод.
   - evidence: test-run pass · `bash harness/hooks/tests/session-hooks.test.sh` exit 0 · mac - · 5050b0bf04ec9df4817e6f952c95b0b891ccff96
+  - evidence: review pass · PR #1982 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Английская страница `skills-agents-and-hooks.md` называет hook ветки `compact`.
   - evidence: commit pass · harness: SessionStart hook of the compact branch hands the agent its state back · - - · 5050b0bf04ec9df4817e6f952c95b0b891ccff96
+  - evidence: review pass · PR #1982 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Платформенный PR (ADR-0056, пункт 2; ADR-0071): job Windows в составе `ci-ok` зелёный на head PR до merge.
+  - evidence: review pass · PR #1982 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44237072505/job/134580774030 · ci - · 0c2b36f6285e8a24f3cc9b20175bcffd82b41763
 

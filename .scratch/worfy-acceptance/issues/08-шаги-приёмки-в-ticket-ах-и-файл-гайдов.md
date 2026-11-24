@@ -37,12 +37,16 @@ CI. Глубина ревью — `medium`.
 - [ ] `harness/bin/tests/agents-text.test.sh`: текст to-tickets и step-6 требует «Сделай → Должно быть» и `needs:` для
       ручного пункта; mutant (фраза убрана) — красный; весь файл — exit 0.
   - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 (527 passed); mutant without the sentence in step 6 and in to-tickets exit 1 · mac dev · a121c0ffb633a08d408f5eb916250f9153398338
+  - evidence: review pass · PR #2165 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Шаги каждой открытой приёмки — ручные пункты своих Ticket-ов; `evidence-check --changed` — exit 0 на PR.
   - evidence: test-run pass · `node harness/bin/evidence-check --changed --root .scratch` exit 0 (33 files) · mac dev · a121c0ffb633a08d408f5eb916250f9153398338
+  - evidence: review pass · PR #2165 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Файл гайдов на месте и ссылается на вид; `node scripts/check-handoff.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-handoff.mjs` exit 0 · mac dev · a121c0ffb633a08d408f5eb916250f9153398338
+  - evidence: review pass · PR #2165 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `docs/features/workflow.md` описывает ручной пункт приёмки; `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac dev · a121c0ffb633a08d408f5eb916250f9153398338
+  - evidence: review pass · PR #2165 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job-ы Windows CI зелёные (платформенный PR).
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45325311406/job/138217501602 · ci - · ddc98ecb65fe817d17124e3ce17992b152d5f83d
 

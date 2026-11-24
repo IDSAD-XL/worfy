@@ -39,10 +39,13 @@ Source: [spec.md](../spec.md), «Ticket-ы», 14; «Готово, когда», 
 
 - [ ] Восемь страниц `docs/features/ru/` совпадают по смыслу с английскими на `main` (review по каждой).
   - evidence: commit pass · worfy-continuity/14: Russian Feature pages, ADR-0108, ADR-0050/0010 amendments, CONTEXT terms · - - · efe0448851b833de7ab8933e3a0580d39547f095
+  - evidence: review pass · PR #1999 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Amendment к ADR-0050 и новый ADR влиты; ADR-0010 сверен, итог — в ADR.
   - evidence: commit pass · worfy-continuity/14: Russian Feature pages, ADR-0108, ADR-0050/0010 amendments, CONTEXT terms · - - · efe0448851b833de7ab8933e3a0580d39547f095
+  - evidence: review pass · PR #1999 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] CONTEXT.md называет причину Wait-а `restart` и «unknown side effects».
   - evidence: commit pass · worfy-continuity/14: Russian Feature pages, ADR-0108, ADR-0050/0010 amendments, CONTEXT terms · - - · efe0448851b833de7ab8933e3a0580d39547f095
+  - evidence: review pass · PR #1999 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `node scripts/check-personal.mjs` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `node scripts/check-personal.mjs` exit 0 · mac - · deb9d782af184b237a9fa6c381a691904d9b0578
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44304990854/job/134805990333 · ci - · 7706e900726027326719249f16fd678831c1fa4a

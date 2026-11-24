@@ -42,17 +42,22 @@ Source: [spec.md](../spec.md), «Ticket-ы», 3; «Решение», 5; «Как
 - [ ] Unit `test/unit/approvals-chip.test.tsx` (новый): тексты, `aria-label`, классы цвета для `0/2`, `1/2`, `✓ 2/2`,
       `✓ 2` при `APPROVED` и `need = null`, `1/?`, changes requested, code owners; красный до правки — в «Итог».
   - evidence: test-run pass · `pnpm test test/unit/approvals-chip.test.tsx` exit 0 · mac - · f10e9e808
+  - evidence: review pass · PR #2073 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `test/unit/pr-inbox-view.test.tsx`: chip в строке и ячейка Approvals со списком reviewer-ов.
   - evidence: test-run pass · `pnpm test test/unit/pr-inbox-view.test.tsx` exit 0 · mac - · f10e9e808
+  - evidence: review pass · PR #2073 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `test/unit/pipeline-board.test.tsx`: `Waits: team · 1/2 approvals` на Stage Human review; нет chip-а, когда
       одобрений хватает.
   - evidence: test-run pass · `pnpm test test/unit/pipeline-board.test.tsx` exit 0 · mac - · f10e9e808
+  - evidence: review pass · PR #2073 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `test/unit/ticket-card.test.tsx`: chip на карточке при открытом PR и нехватке одобрений; нет — при `✓`.
   - evidence: test-run pass · `pnpm test test/unit/ticket-card.test.tsx test/unit/review-threads-badge.test.tsx` exit 0 · mac - · f10e9e808
+  - evidence: review pass · PR #2073 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] e2e `test/e2e/pr-inbox.spec.ts`: снимок строки и ячейки Approvals в светлой и тёмной теме на 1280 px.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-inbox.spec.ts -g "approvals chip"` exit 0 · mac - · 794a964a6
   - evidence: screenshot pass · `../evidence/03-approvals-1280-light.png` `../evidence/03-approvals-1280-dark.png` · mac dev · 794a964a6 · scrub: 2026-11-20
   - evidence: screenshot pass · `../evidence/03-approvals-1280-dark.png` dark theme · mac dev · 794a964a6 · scrub: 2026-11-20
+  - evidence: review pass · PR #2073 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44688597250/job/136160365251 · ci - · 44bda4d975f876d517221a37dbeb71e771a6b90e
 

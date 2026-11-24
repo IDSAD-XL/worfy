@@ -46,20 +46,27 @@ Source: [spec.md](../spec.md), «Ticket-ы», 2; «Решения по реал�
 - [ ] Shell test `harness/bin/tests/land.test.sh`: последний завершённый push-run main красный — `land` пишет
       `main-red-<key>.json` с sha, PR-виновником и URL run-а.
   - evidence: test-run pass · `pnpm test` exit 0 (harness/bin/tests/land.test.sh in harness-scripts-4) · mac - · ddea8f7d51c3ac32a71929ac864d13a7cc45151f
+  - evidence: review pass · PR #1946 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Shell test: следующий запуск `land` видит зелёный main — файл удалён.
   - evidence: test-run pass · `pnpm test` exit 0 (harness/bin/tests/land.test.sh in harness-scripts-4) · mac - · ddea8f7d51c3ac32a71929ac864d13a7cc45151f
+  - evidence: review pass · PR #1946 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Shell test: gh не ответил — файл, который был, остался.
   - evidence: test-run pass · `pnpm test` exit 0 (harness/bin/tests/land.test.sh in harness-scripts-4) · mac - · ddea8f7d51c3ac32a71929ac864d13a7cc45151f
+  - evidence: review pass · PR #1946 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Shell test: маркер есть, новейший push run main не завершён и идёт с `attempt: 2` — файл остался; после зелёного
       вердикта этого run-а — удалён.
   - evidence: test-run pass · `pnpm test` exit 0 (harness/bin/tests/land.test.sh in harness-scripts-4) · mac - · ddea8f7d51c3ac32a71929ac864d13a7cc45151f
+  - evidence: review pass · PR #1946 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Unit test `test/unit/gate-state.test.ts`: маркер есть — поля прочитаны; нет файла или битый JSON — `null`; чтение
       ничего не пишет в папку состояния.
   - evidence: test-run pass · `pnpm test` exit 0 (test/unit/gate-state.test.ts) · mac - · ddea8f7d51c3ac32a71929ac864d13a7cc45151f
+  - evidence: review pass · PR #1946 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `docs/features/gate-and-github.md` называет маркер `main-red-<key>.json`, его писателя и читателя и когда он
       снимается.
   - evidence: commit pass · land writes the main-red marker main-red-<key>.json; worfy reads it (worfy-stuck-agents 02) · - - · ddea8f7d51c3ac32a71929ac864d13a7cc45151f
+  - evidence: review pass · PR #1946 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Платформенный PR (ADR-0056, пункт 2; ADR-0071): вердикт Windows до merge.
+  - evidence: review pass · PR #1946 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Все `harness/bin/tests/*.test.sh` зелёные; `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на
       head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44020809563/job/133840304340 · ci - · ec619916b26c565d726436e6ca0cdb86641965d2

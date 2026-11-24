@@ -33,17 +33,22 @@ Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решения по реал�
 - [ ] Unit test (`test/unit/acceptance-section.test.tsx`, новый): счёт по Project-ам и бейдж = Ready to check. Красный до
       правки — в «Итог».
   - evidence: test-run pass · `pnpm exec vitest run test/unit/acceptance-section.test.tsx` exit 0 · mac - · 218371e06
+  - evidence: review pass · PR #2170 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Unit test `test/unit/palette-manual-check-row.test.tsx`: строка ручной проверки открывает вид на пункте; пункта
       нет в очереди — Ticket.
   - evidence: test-run pass · `pnpm exec vitest run test/unit/palette-manual-check-row.test.tsx test/unit/palette-commands.test.tsx` exit 0 · mac - · 218371e06
+  - evidence: review pass · PR #2170 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Unit test `test/unit/notify.test.ts`: клик уведомления ждущего Ticket-а открывает вид, без Ticket-а в очереди —
       Pipeline.
   - evidence: test-run pass · `pnpm exec vitest run test/unit/notification-ticket-click.test.tsx` exit 0 · mac - · 218371e06
+  - evidence: review pass · PR #2170 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] e2e test `test/e2e/sidebar-rail.spec.ts`: бейдж Acceptance на rail-е и переход в вид.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/sidebar-rail.spec.ts test/e2e/sidebar-sections.spec.ts` exit 0 · mac dev · 218371e06
+  - evidence: review pass · PR #2170 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `docs/features/app-shell.md` и `docs/features/notifications.md` описывают входы;
       `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 218371e06
+  - evidence: review pass · PR #2170 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45340690590/job/138276197601 · ci - · 1c629449143e47ef2bf84d9d6689b2f51262452e
 

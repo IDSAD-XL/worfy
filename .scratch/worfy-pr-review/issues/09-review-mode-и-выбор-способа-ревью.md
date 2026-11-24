@@ -52,9 +52,11 @@ Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решение», 3 и 6; «�
       over вызывают нужные каналы; Read only без «+». Красный до правки — в «Итог».
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/review-mode.test.tsx` exit 0 (red before: exit 1) · mac - · 34f5fdbad919d13b5ee22e4b5102b243557883e8
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/review-mode.test.tsx` exit 0 (review round 1; red before: exit 1) · mac - · 7e15f6cc115e2eccc209920119258bdfc1c065bb
+  - evidence: review pass · PR #2109 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract `test/contract/pr-review-draft.test.ts`: отметки Viewed с github.com берутся один раз и только чтением —
       stand-in валит test на любом `--method` и `mutation`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-review-draft.test.ts` exit 0 (red before: exit 1, 6 failed) · mac - · 34f5fdbad919d13b5ee22e4b5102b243557883e8
+  - evidence: review pass · PR #2109 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] e2e `test/e2e/pr-review.spec.ts` (новый) на gh stand-in и `WORFY_AGENT=fake`: Start review → Review myself из inbox
       и из поиска; Start review → Agent review — комментарии агента появляются на строках; Escape и возврат; Linked
       machine Read only; снимки в светлой и тёмной теме на 1280 и 1600 px.
@@ -65,10 +67,12 @@ Source: [spec.md](../spec.md), «Ticket-ы», 9; «Решение», 3 и 6; «�
   - evidence: screenshot pass · `../evidence/09-agent-done-1280-dark.png` Agent review done, dark theme · mac dev · 34f5fdbad919d13b5ee22e4b5102b243557883e8 · scrub: 2026-11-20
   - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-review.spec.ts test/e2e/pr-inbox.spec.ts test/e2e/pr-search.spec.ts` exit 0 (review round 1) · mac dev · 7e15f6cc115e2eccc209920119258bdfc1c065bb
   - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-review.spec.ts test/e2e/pr-inbox.spec.ts test/e2e/pr-search.spec.ts` exit 0 (review round 2) · mac dev · 710375236450688756825e8b378326f1ff680f11
+  - evidence: review pass · PR #2109 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `test/unit/pr-inbox-view.test.tsx`, `test/e2e/pr-inbox.spec.ts`, `test/e2e/pr-search.spec.ts` зелёные.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-inbox-view.test.tsx` exit 0; `pnpm test:e2e test/e2e/pr-inbox.spec.ts test/e2e/pr-search.spec.ts` exit 0 · mac dev · 34f5fdbad919d13b5ee22e4b5102b243557883e8
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-inbox-view.test.tsx test/unit/pr-search-view.test.tsx` exit 0 (review round 1; red before: exit 1) · mac - · 7e15f6cc115e2eccc209920119258bdfc1c065bb
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-inbox-view.test.tsx test/unit/pr-search-view.test.tsx` exit 0 (review round 2; red before and on three mutants: exit 1) · mac - · 710375236450688756825e8b378326f1ff680f11
+  - evidence: review pass · PR #2109 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint` exit 0; `pnpm typecheck` exit 0; `pnpm test` exit 0 (ci-ok not read yet) · mac - · 34f5fdbad919d13b5ee22e4b5102b243557883e8
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44798982658/job/136540476762 · ci - · 0111e46962431fed2982ff5d4f5aa395b66f740f

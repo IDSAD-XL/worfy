@@ -32,10 +32,13 @@ Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решено без влад�
 
 - [ ] Пять файлов `docs/features/ru/` совпадают по смыслу с английскими на `main` (review по каждому).
   - evidence: commit pass · worfy-changes-view/06: Russian Feature pages of Changes, the Changes term in CONTEXT.md · - - · 02ad3f292
+  - evidence: review pass · PR #2065 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `CONTEXT.md` называет Changes, с _Avoid_.
   - evidence: commit pass · worfy-changes-view/06: Russian Feature pages of Changes, the Changes term in CONTEXT.md · - - · 02ad3f292
+  - evidence: review pass · PR #2065 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] В «Итог» — список решений без владельца части 1.
   - evidence: commit pass · worfy-changes-view/06: Russian Feature pages of Changes, the Changes term in CONTEXT.md · - - · 02ad3f292
+  - evidence: review pass · PR #2065 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `node scripts/check-personal.mjs` и `node scripts/check-feature-docs.mjs` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `node scripts/check-personal.mjs && node scripts/check-feature-docs.mjs` exit 0 · mac - · 02ad3f292
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44671629548/job/136075001924 · ci - · fff49a87a029f053d3894ec037519cd54b84524d

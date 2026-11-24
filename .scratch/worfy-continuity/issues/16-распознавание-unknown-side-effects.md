@@ -39,14 +39,18 @@ Source: [spec.md](../spec.md), «Ticket-ы», 16; «Решения по реал
 - [ ] Unit test: Session с `git push` без `tool_result` — вызов найден; с результатом — нет; чтение файла без
       результата — не внешний вызов.
   - evidence: test-run pass · `pnpm test test/unit/unknown-side-effects.test.ts test/unit/continue-plan.test.ts` exit 0 · mac - · a7222c62f
+  - evidence: review pass · PR #1977 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Unit test: Subagent с `gh pr merge 1234` без результата в своём транскрипте — найден и привязан к Ticket-у его
       Binding-а; Subagent без Binding-а — вызов найден, Ticket `null`.
   - evidence: test-run pass · `pnpm test test/unit/unknown-side-effects.test.ts test/unit/continue-plan.test.ts` exit 0 · mac - · a7222c62f
+  - evidence: review pass · PR #1977 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Unit test: рваная последняя строка транскрипта не роняет функцию; вызов из неё не теряется, если `tool_use`
       прочитан.
   - evidence: test-run pass · `pnpm test test/unit/unknown-side-effects.test.ts test/unit/continue-plan.test.ts` exit 0 · mac - · a7222c62f
+  - evidence: review pass · PR #1977 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Unit test: классификация совпадает с `externalActions` на fixture-ах `test/unit/continue-plan.test.ts`.
   - evidence: test-run pass · `pnpm test test/unit/unknown-side-effects.test.ts test/unit/continue-plan.test.ts` exit 0 · mac - · a7222c62f
+  - evidence: review pass · PR #1977 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/44222183289/job/134538143947 · ci - · 92292b416a8da116e4084bb1a314eec1af9f6b35
 

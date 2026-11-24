@@ -59,19 +59,25 @@ Source: [spec.md](../spec.md), «Ticket-ы», 11; «Решение», 4 и 6; «
       сбой и повтор без второго POST; `submitting` после обрыва; stand-in валит test на любой записи, кроме одного
       POST Submit-а, и на POST без щелчка. Красный до правки — в «Итог».
   - evidence: test-run pass · `pnpm test test/contract/pr-review-submit.test.ts` exit 0 · mac - · ada0008aef92b3967da4debf6472e746cc6fec78
+  - evidence: review pass · PR #2122 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [x] Тот же contract: черновик Agent review — `event` в POST тот, что выбрал человек, а не `suggestedEvent`;
       убранный в диалоге комментарий агента в POST не попал.
   - evidence: test-run pass · `pnpm test test/contract/pr-review-submit.test.ts` exit 0 · mac - · ada0008aef92b3967da4debf6472e746cc6fec78
+  - evidence: review pass · PR #2122 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [x] Unit `test/unit/finish-review-dialog.test.tsx` (новый): переключатель начинается с Comment; «The agent suggests»;
       неактивные события на своём PR и без текста; Enter не отправляет.
   - evidence: test-run pass · `pnpm test test/unit/finish-review-dialog.test.tsx` exit 0 · mac - · ada0008aef92b3967da4debf6472e746cc6fec78
+  - evidence: review pass · PR #2122 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [x] `test/contract/harness-review-draft-lint.test.ts`: обычный режим без `--rules`.
   - evidence: test-run pass · `pnpm test test/contract/harness-review-draft-lint.test.ts` exit 0 · mac - · ada0008aef92b3967da4debf6472e746cc6fec78
+  - evidence: review pass · PR #2122 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [x] e2e `test/e2e/pr-review.spec.ts`: полный путь A (поиск → Review myself → комментарий → Submit → stand-in получил
       один POST) и C (head сдвинулся); путь E (Agent review → правка → Submit); chip `1/2` → `2/2`.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-review.spec.ts test/e2e/pr-inbox.spec.ts` exit 0 · mac dev · ada0008aef92b3967da4debf6472e746cc6fec78
+  - evidence: review pass · PR #2122 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [x] Новый ADR и Amendment-ы ADR-0105 и ADR-0002 влиты в этом PR.
   - evidence: commit pass · worfy-pr-review/11: ADR-0112, Amendments of ADR-0105 and ADR-0002, feature page, ticket result · - - · ada0008aef92b3967da4debf6472e746cc6fec78
+  - evidence: review pass · PR #2122 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Ревью ступени `max` (skill `worfy:max-review`) — вердикт в «Итог».
   - evidence: review pass · max review on 52f0db464 (PR #2122 comment 7054192719): MAX-REVIEW REJECTED, four findings A-D, sceptics refuted none; treated as review round 1; fixed in rounds 2-3, correctness re-review MERGE on e288c26e4 · - - · e288c26e455272ccc8933feb1d8de7ed66ab6055
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job-ы Windows CI зелёные

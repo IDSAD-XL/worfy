@@ -42,14 +42,18 @@ Source: [spec.md](../spec.md), «Ticket-ы», 7; «Волны», Wave 4; «Ре�
       включённой Integration-ы с `bearer_token_env_var`; две Integration-ы на одном адресе сервиса — два имени, каждая
       отвечает своими данными через stub `test/fixtures/integrations/`. Красный до правки — в «Итог».
   - evidence: test-run pass · `pnpm test test/unit/codex-mcp-row.test.ts test/contract/integrations-codex.test.ts` exit 0 · mac - · 0789154c9
+  - evidence: review pass · PR #2128 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Тот же contract: значение token-а сервиса не появляется в аргументах процесса Codex, в `config` `thread/start`, в
       логе main, в Journal и в Flight recorder; фильтр tools режет `tools/list` и `tools/call` endpoint-а.
   - evidence: test-run pass · `pnpm test test/contract/integrations-codex.test.ts` exit 0 · mac - · 0789154c9
   - evidence: test-run pass · `pnpm test test/contract/integrations-codex.test.ts` exit 0 · mac - · b9685624d
+  - evidence: review pass · PR #2128 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `test/unit/codex-mcp-row.test.ts`: строка Integration с источником `integration` и меткой.
   - evidence: test-run pass · `pnpm test test/unit/codex-mcp-row.test.ts` exit 0 · mac - · 0789154c9
+  - evidence: review pass · PR #2128 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Настоящий binary Codex test-ы не запускают (`grep` по новым test-ам: только fake app-server).
   - evidence: commit pass · worfy-integrations/07: Integrations in the Codex Session through worfy's endpoint · - - · 0789154c9
+  - evidence: review pass · PR #2128 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 0789154c9
   - evidence: gate pass · `gate fast` exit 0 · mac - · 0789154c9

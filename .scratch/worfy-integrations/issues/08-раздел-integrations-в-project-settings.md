@@ -56,20 +56,26 @@ machine; «Решения по test-ам» (e2e); «Вопросы владел�
       `readOnlyHint`), галочки, меню «…», подтверждение Remove; предупреждение «two Jira tool sets» и «Add as
       integration». Красный до правки — в «Итог».
   - evidence: test-run pass · `pnpm exec vitest run test/unit/integrations-section.test.tsx` exit 0 · mac - · 76dd3b85e
+  - evidence: review pass · PR #2133 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `test/unit/add-integration-dialog.test.tsx` (новый): каталог без Slack (Q6), строка «Use in this Project», Label
       уникальна, поля token-а, Custom server http и stdio с флажком Secret.
   - evidence: test-run pass · `pnpm exec vitest run test/unit/add-integration-dialog.test.tsx` exit 0 · mac - · 76dd3b85e
+  - evidence: review pass · PR #2133 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `test/unit/project-settings-shell.test.tsx`: раздел Integrations в Project settings; Settings → Integrations
       показывает Integration-ы Machine и где они используются.
   - evidence: test-run pass · `pnpm exec vitest run test/unit/project-settings-shell.test.tsx` exit 0 · mac - · 76dd3b85e
+  - evidence: review pass · PR #2133 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] e2e `test/e2e/integrations.spec.ts` (новый): Add integration — Custom server на stub-е `test/fixtures/integrations/`
       с token-ом → строка `signed-in` с числом tools; новая Session Project-а — строка Integration в chip-е «MCP n/m»
       (fake query); вторая Integration на том же адресе во втором Project-е — каждая отвечает своими данными.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/integrations.spec.ts` exit 0 · mac - · 76dd3b85e
+  - evidence: review pass · PR #2133 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Linked machine Read only: Add integration и галочки неактивны (тот же unit-test раздела).
   - evidence: test-run pass · `pnpm exec vitest run test/unit/integrations-section.test.tsx` exit 0 · mac - · 76dd3b85e
+  - evidence: review pass · PR #2133 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Снимок экрана раздела в светлой и тёмной теме — в «Итог» (scratchpad, не в репозитории).
   - evidence: test-run pass · `pnpm test:e2e test/e2e/integrations.spec.ts` exit 0 (shots in /tmp/worfy-integrations-08-shots) · mac - · 76dd3b85e
+  - evidence: review pass · PR #2133 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:e2e test/e2e/integrations.spec.ts` — exit 0; `ci-ok`
       зелёный на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 76dd3b85e

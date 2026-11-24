@@ -54,21 +54,27 @@ Source: [spec.md](../spec.md), «Ticket-ы», 5; «Решение» → «Как
       комментарии выбранной Session; смена «To» переносит комментарии к коду; Read only — без «+» и лотка.
   - evidence: test-run pass · `pnpm test` exit 0 (test/unit/changes-tray.test.tsx) · mac - · 8d4712631278dd4d90184936eac4f7d1d928075d
   - evidence: test-run pass · `pnpm test` exit 0 (test/unit/changes-tray.test.tsx, 20 tests) · mac - · 229bf46b987096ae3467b33254d1dbbf6ffa2002
+  - evidence: review pass · PR #2049 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Contract test (`test/contract/changes-targets.test.ts`): Session с Binding-ом на Ticket — в списке, Session другого
       Ticket-а — нет, Orchestrator — есть; значение по умолчанию по Q2.
   - evidence: test-run pass · `pnpm test` exit 0 (test/contract/changes-targets.test.ts) · mac - · 8d4712631278dd4d90184936eac4f7d1d928075d
   - evidence: test-run pass · `pnpm test` exit 0 (test/contract/changes-targets.test.ts) · mac - · 229bf46b987096ae3467b33254d1dbbf6ffa2002
+  - evidence: review pass · PR #2049 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] e2e test (`test/e2e/changes-comments.spec.ts`, fake agent): карточка → Changes → два комментария к строке и
       диапазону → Send: fake agent получил одно сообщение с разделом «Comments on lines of the diff (2)», путями,
       строками и кодом; блок в пузыре открывает Changes на строке.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/changes-comments.spec.ts` exit 0 · mac dev · 8d4712631278dd4d90184936eac4f7d1d928075d
+  - evidence: review pass · PR #2049 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] e2e test: неотправленный комментарий переживает перезапуск окна.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/changes-comments.spec.ts` exit 0 (window.reload) · mac dev · 8d4712631278dd4d90184936eac4f7d1d928075d
+  - evidence: review pass · PR #2049 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Снимок экрана лотка с «To» — в «Итог» (в scratchpad, в репозиторий не кладётся).
   - evidence: screenshot pass · changes-tray-light.png and changes-tray-dark.png in the scratchpad, named in «Итог» · mac dev · 8d4712631278dd4d90184936eac4f7d1d928075d
+  - evidence: review pass · PR #2049 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] Английская страница `docs/features/changes.md` описывает комментарии; `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 8d4712631278dd4d90184936eac4f7d1d928075d
   - evidence: test-run pass · `pnpm lint` exit 0 (runs node scripts/check-feature-docs.mjs) · mac - · 229bf46b987096ae3467b33254d1dbbf6ffa2002
+  - evidence: review pass · PR #2049 · - - · 61111661c1c832ac74077e3c914d8a6f66e4c590
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 8d4712631278dd4d90184936eac4f7d1d928075d
   - evidence: gate pass · `gate fast` exit 0 · mac - · 229bf46b987096ae3467b33254d1dbbf6ffa2002
