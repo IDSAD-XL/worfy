@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { createPortal } from 'react-dom'
 import { mcpShownName, type McpServerAction, type McpServerRow, type McpServerSource } from '../../shared/agent/mcp-status'
 import { failureReason, type IpcResult } from '../../shared/ipc/channels'
+import { UNNAMED_VENDOR, vendorLabel } from '../../shared/vendors/vendor'
 import { useOrchestratorViews } from '../canvas/nodes/orchestrator-view'
 import { invoke, subscribe } from '../ipc'
 import { writeAction } from '../projects/read-only'
@@ -101,15 +102,15 @@ export const CONNECTOR_HINT = 'A claude.ai connector missing here: add its name 
 /** The button in the heading of the group «Not allowed in this Project» (ticket 09). */
 export const ALLOW_ALL_LABEL = 'Allow all'
 
-/** The tooltip of «Restart Session» in the heading of the group «not started» (ticket 10). */
-export const RESTART_HINT = 'Restarts the Session with the same conversation, so Claude Code starts again with the list'
+/** The tooltip of «Restart Session» in the heading of the group «not started» (ticket 10): the Session's Vendor starts again. */
+const restartHint = (vendor: string): string => `Restarts the Session with the same conversation, so ${vendorLabel(vendor)} starts again with the list`
 
 /** The tooltip of a group's button while another action of the popover runs. */
 const WAIT_HINT = 'Wait for the action that runs now'
 
-/** The heading of the group «not started» (ticket 10): why its `count` servers are there. */
-function notStartedReason(count: number): string {
-  return `Allowed in this Project, but Claude Code did not start ${count === 1 ? 'it' : 'them'} in this Session.`
+/** The heading of the group «not started» (ticket 10): why its `count` servers are there, naming the Session's Vendor. */
+function notStartedReason(count: number, vendor: string): string {
+  return `Allowed in this Project, but ${vendorLabel(vendor)} did not start ${count === 1 ? 'it' : 'them'} in this Session.`
 }
 
 /**
@@ -124,7 +125,8 @@ const INTEGRATIONS_JOINED = 'Enabled in this Project after this Session started.
  * and the reason is not the heading's own words. A row Restart helps leaves its reason to the heading's Restart Session.
  */
 function ownReason(row: McpServerRow): boolean {
-  return !row.actions.includes('restart') && row.error !== notStartedReason(1) && row.error !== INTEGRATIONS_JOINED
+  // The reason Claude Code's inventory gives a row (MCP_NOT_STARTED, src/main/vendors/claude/mcp-inventory.ts): no other Vendor's does.
+  return !row.actions.includes('restart') && row.error !== notStartedReason(1, 'claude') && row.error !== INTEGRATIONS_JOINED
 }
 
 /** The gap between the chip and its popover. */
@@ -292,6 +294,8 @@ interface RestartProps {
   /** An action of the popover runs now: the button waits. */
   waiting: boolean
   readOnly: string | null
+  /** The Session's Vendor, which the tooltip says starts again. */
+  vendor: string
   onRestart: (name: string) => void
 }
 
@@ -299,7 +303,7 @@ interface RestartProps {
  * «Restart Session» in the heading of the group «not started» (ticket 10): the secondary Button, its tooltip the
  * kit's. On a read-only screen the tooltip is writeAction's hint of why it is inactive, as on every write action.
  */
-function RestartButton({ name, running, waiting, readOnly, onRestart }: RestartProps) {
+function RestartButton({ name, running, waiting, readOnly, vendor, onRestart }: RestartProps) {
   const button = (
     <Button
       className="w-mcp__group-button"
@@ -311,7 +315,7 @@ function RestartButton({ name, running, waiting, readOnly, onRestart }: RestartP
     </Button>
   )
   if (readOnly !== null && !waiting) return button
-  return <Tooltip label={running ? `${ACTION_LABELS.restart}…` : waiting ? WAIT_HINT : RESTART_HINT}>{button}</Tooltip>
+  return <Tooltip label={running ? `${ACTION_LABELS.restart}…` : waiting ? WAIT_HINT : restartHint(vendor)}>{button}</Tooltip>
 }
 
 /** What a group's heading runs (McpChip, runGroup). */
@@ -337,10 +341,12 @@ export interface McpChipProps {
   autopilot: boolean
   /** The Project of the Session: an Integration's Sign in goes through it (worfy-integrations ticket 09); absent or empty: none. */
   projectId?: string | null
+  /** The Vendor whose agent runs the Session, named where the popover says what starts the servers; absent: Claude Code. */
+  vendor?: string
 }
 
 /** The chip and its popover; nothing without rows. */
-export function McpChip({ sessionId, rows, autopilot, projectId = null }: McpChipProps) {
+export function McpChip({ sessionId, rows, autopilot, projectId = null, vendor = UNNAMED_VENDOR }: McpChipProps) {
   const readOnly = useReadOnly()
   /** Where the open popover stands; null while it is closed. */
   const [place, setPlace] = useState<CSSProperties | null>(null)
@@ -541,13 +547,14 @@ export function McpChip({ sessionId, rows, autopilot, projectId = null }: McpChi
               {notStarted.length === 0 ? null : (
                 <section className="w-mcp__group" data-testid="mcp-not-started" aria-label="Not started in this Session">
                   <div className="w-mcp__group-head">
-                    <h2 className="w-mcp__heading w-mcp__heading--reason">{notStarted.every((row) => row.source === 'integration') ? INTEGRATIONS_JOINED : notStartedReason(notStarted.length)}</h2>
+                    <h2 className="w-mcp__heading w-mcp__heading--reason">{notStarted.every((row) => row.source === 'integration') ? INTEGRATIONS_JOINED : notStartedReason(notStarted.length, vendor)}</h2>
                     {restartable === undefined ? null : (
                       <RestartButton
                         name={restartable.name}
                         running={notStartedNames.every((name) => running[name] === 'restart')}
                         waiting={busy}
                         readOnly={readOnly}
+                        vendor={vendor}
                         onRestart={(name) => restartAll(notStartedNames, name)}
                       />
                     )}
@@ -612,13 +619,13 @@ function useAutopilotRuns(projectId: string | null): boolean {
   return state !== null && state.projectId === projectId && state.runs
 }
 
-/** The chip of a Session view: its rows from the store; `orchestrator` — the Session Autopilot runs in. */
-export function SessionMcpChip({ sessionId, projectId, orchestrator }: { sessionId: string | null; projectId: string; orchestrator: boolean }) {
+/** The chip of a Session view: its rows from the store; `orchestrator` — the Session Autopilot runs in; `vendor` — whose agent runs it. */
+export function SessionMcpChip({ sessionId, projectId, orchestrator, vendor }: { sessionId: string | null; projectId: string; orchestrator: boolean; vendor?: string }) {
   const rows = useSessionMcp(sessionId)
   const autopilot = useAutopilotRuns(orchestrator && rows !== null && rows.some((row) => row.actions.includes('allow')) ? projectId : null)
   // Keyed by the Session: the view shows another Session in the same panel, and an action running on a
   // server of the one before must not hold the button of a server of the same name here, nor its popover stay open.
-  return <McpChip key={sessionId ?? ''} sessionId={sessionId} rows={rows} autopilot={autopilot} projectId={projectId} />
+  return <McpChip key={sessionId ?? ''} sessionId={sessionId} rows={rows} autopilot={autopilot} projectId={projectId} vendor={vendor} />
 }
 
 /**

@@ -290,6 +290,9 @@ function namesText(names: readonly string[]): string {
 /** A reviewer as the tooltip names them: `@login`, `@org/team`; a team the account cannot see under worfy's name for it. */
 const handleOf = (name: string): string => (/\s/u.test(name) ? name : `@${name}`)
 
+/** A PR approved by worfy's own count, GitHub having given no decision (src/shared/github/approvals.ts). */
+const COUNT_APPROVED = "approved by worfy's count"
+
 /**
  * The chip of a PR's approvals (the spec's implementation decision 3; the prototype of ticket 01, state `chips`); null
  * when nothing asks for reviews or main has not read approvals. GitHub's decision wins over the count: green only by
@@ -304,8 +307,12 @@ export function approvalsChip(approvals: PrApprovals | undefined): ApprovalsChip
   const ratio = need === null ? `${have}/?` : need === 0 ? `${have}` : `${have}/${need}`
   const approvers = reviewers.filter((each) => each.state === 'approved' && each.counts).map((each) => handleOf(each.login))
   const by = approvers.length === 0 ? [] : [`approved by ${namesText(approvers)}`]
-  // Approved by GitHub over a rule the account cannot see: `✓ 2`, no «?» (Q6 (a)).
-  if (decision === 'approved') return { tone: 'ready', text: `✓ ${counted ? have : ratio}`, label: `${of}, approved`, tooltip: [of, ...by, 'GitHub says: approved'].join(' · '), owners: false, count: true }
+  // Approved by GitHub over a rule the account cannot see: `✓ 2`, no «?» (Q6 (a)). Approved by worfy's own count when
+  // GitHub gives no decision: the tooltip says so, not GitHub's word.
+  if (decision === 'approved') {
+    const who = approvals.decidedBy === 'worfy' ? `${COUNT_APPROVED} — GitHub gives no review decision` : 'GitHub says: approved'
+    return { tone: 'ready', text: `✓ ${counted ? have : ratio}`, label: `${of}, approved`, tooltip: [of, ...by, who].join(' · '), owners: false, count: true }
+  }
   if (decision === 'changes-requested') {
     const asked = reviewers.filter((each) => each.state === 'changes-requested').map((each) => handleOf(each.login))
     const changes = asked.length === 0 ? 'changes requested' : `changes requested by ${namesText(asked)}`
@@ -364,7 +371,7 @@ export function approvalsNote(approvals: PrApprovals): string {
   const chip = approvalsChip(approvals)
   if (chip === null) return `No review rule · ${countOf(approvals.have, 'approval')}`
   if (approvals.need === null) return 'rule not visible to your account'
-  if (approvals.decision === 'approved') return 'GitHub says: approved'
+  if (approvals.decision === 'approved') return approvals.decidedBy === 'worfy' ? COUNT_APPROVED : 'GitHub says: approved'
   if (approvals.decision === 'changes-requested') return 'changes requested'
   if (approvals.need === 0) return `${countOf(approvals.have, 'approval')} · GitHub decides`
   if (chip.owners) return 'waiting for code owners'

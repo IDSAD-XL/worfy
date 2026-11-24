@@ -129,7 +129,7 @@ export function ChangesView({ projectId, root, subject, back, active }: ChangesV
   const pane = useRef<DiffPaneHandle>(null)
   const frame = useRef<HTMLElement>(null)
   const body = useRef<HTMLDivElement>(null)
-  const comments = useLineComments({ projectId, subject, scope, scopes: scopes?.value ?? [], lists: list?.value ?? undefined, entries, readOnly, pane, body, hideWhitespace, generation })
+  const comments = useLineComments({ projectId, subject, ticket, scope, scopes: scopes?.value ?? [], lists: list?.value ?? undefined, entries, readOnly, pane, body, hideWhitespace, generation })
   const select = (key: string) => {
     setChosen(key)
     pane.current?.scrollToFile(key)
