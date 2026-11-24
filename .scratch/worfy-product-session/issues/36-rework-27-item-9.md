@@ -44,3 +44,5 @@ Source: owner-check fail 2026-11-24 of worfy-product-session 27, item 9 — 27-�
 
 - [ ] (вручную) Сделай: нажми по очереди Critic, Idea generator, Drafts, щёлкни черновик, потом ещё раз Drafts; затем Agents, «›», снова Agents и Escape → Должно быть: каждая кнопка открывает свою панель в колонке 300 px, чат сужается, но не закрыт; Critic — строка состояния с числом возражений, имя файла и отзыв; Idea generator — задание, состояние, ответ; Drafts — черновик хода, по щелчку его текст; повторный щелчок, «›» и Escape сворачивают; открыта одна панель.
   - needs: mac stable
+  - evidence: screenshot pass · `../evidence/36-ideas-panel-1160-dark.png` · mac dev · 847a8677d · scrub: 2026-11-25
+  - evidence: screenshot pass · `../evidence/36-ideas-panel-1160-light.png` · mac dev · 847a8677d · scrub: 2026-11-25
