@@ -1,7 +1,8 @@
 # 07 — Acceptance на Linked machine и пункты Windows: Read only смотрит, Full access решает, сборка ПК из `hello.build`
 
 Type: task
-Status: claimed 2026-11-24T03:36Z
+Status: done 2026-11-24T09:07Z
+PR: #2171
 Branch: worfy-acceptance/07
 Blocked by: 02, 05
 Source: [spec.md](../spec.md), «Ticket-ы», 7; «Решения по реализации» → «Linked machine», «Платформа, копия и commit
@@ -43,6 +44,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 7; «Решения по реал�
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 7c60d49fc
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `pnpm lint` exit 0; `pnpm typecheck` exit 0; `gate fast` exit 0 (lint, typecheck, test) · mac - · 7c60d49fc
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45348009013/job/138299943591 · ci - · ebe8bf69e22ebad642cdf63d722f3cfae6d34670
 
 ## Где в коде
 
