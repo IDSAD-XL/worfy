@@ -60,7 +60,7 @@ What the orchestrator prepares before the owner's steps (a sandbox, a fixture, a
 copy) is not a manual item: it goes into the same ticket as items without the manual mark, before the
 step it serves. The owner reads the steps in the ticket itself, in the order of its items; worfy's
 Acceptance view shows each manual item with the prepared items of its ticket, and a separate file of
-steps is not kept.
+steps is not kept once the owner has accepted the Acceptance view.
 
 **Evidence of a manual item.** A manual item (`F tickets.manual_mark`) is proved only by a person:
 the owner's word or a screenshot a person has checked. An agent's own look is no such proof, with one

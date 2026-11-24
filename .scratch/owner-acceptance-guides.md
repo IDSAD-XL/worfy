@@ -949,6 +949,10 @@ SSO не проверить, пока нет Ticket-а 06 (он ждёт выв�
 
 ## worfy-changes-view 07
 
+**Устарело после D1 (2026-11-21):** шаги 1–14 ниже описывают Node на Canvas. Их заменяют шаги Ticket-ов доработки
+[08](worfy-changes-view/issues/08-rework-07-item-2.md) и [09](worfy-changes-view/issues/09-rework-07-item-3.md): вид
+Changes во всё окно.
+
 Приёмка части 1 Epic-а «экран Changes» ([Ticket](worfy-changes-view/issues/07-приёмка-владельцем.md),
 [spec](worfy-changes-view/spec.md), страница Feature [changes.md](../docs/features/changes.md), перевод
 [ru/changes.md](../docs/features/ru/changes.md)). Changes — Node на Canvas рядом с карточкой Ticket-а: diff всего, что

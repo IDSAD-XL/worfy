@@ -75,6 +75,7 @@ Source: [spec.md](../spec.md), «Что видит пользователь», �
       checked`, а не `waiting`: частная registry без доступа отвечает так же». Пакет, который ни разу не публиковали,
       карточка покажет как `release <версия> not checked`, а не `waits for release` → Должно быть: Pass —
       «подтверждаю», Fail — «в Ticket».
+  - needs: mac
 
 ## Тесты
 
