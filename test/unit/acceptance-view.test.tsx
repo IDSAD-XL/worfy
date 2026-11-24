@@ -17,6 +17,7 @@ import type { AcceptanceGroupName, AcceptanceItemRow, AcceptanceRow, AcceptanceS
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import type { ProjectsState } from '../../src/shared/ipc/projects'
 import type { EvidenceItem } from '../../src/shared/workflow/types'
+import { ms } from '../time-scale'
 
 const DEMO = 'demo-0000000d'
 const PROJECTS: ProjectsState = { projects: [{ id: DEMO, name: 'demo', path: '/projects/demo', branch: 'main' }], activeId: null, revision: 1 }
@@ -149,7 +150,7 @@ function preload(state: AcceptanceState, answers: Answers = {}): void {
 beforeAll(async () => {
   await import('../../src/renderer/acceptance/AcceptanceView')
   await import('../../src/renderer/shell/Toolbar')
-}, 120_000)
+}, ms(120_000))
 
 beforeEach(() => {
   // The queue's store lives in a module: every test starts with a fresh one.
