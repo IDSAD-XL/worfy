@@ -141,3 +141,25 @@ Code: `src/renderer/acceptance/AcceptanceView.tsx:205-213` · key lines: 209, 21
    - Ответ: из поля `platform` её `hello`, которое сервис хранит на соединение. Без поля «Update worfy on <name>» —
      только для Machine окна; в окне этой Machine строка «PC not connected».
    - Строки: `src/shared/acceptance/linked-build.ts:68-70`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED — worfy-acceptance 07 (Acceptance on a Linked machine and Windows items), head ebe8bf69e22ebad642cdf63d722f3cfae6d34670
+>
+> Gate (depth medium, one round): verifier (lens: implementer's claims, sonnet) — MERGE, every claim CONFIRMED, 5 of 6 mutants red (the survivor sent to round 1), e2e linked-acceptance + acceptance + linked-read-only EXIT=0; reviewer (correctness) — MERGE with lows (link compatibility both ways, build/platform per open connection, Read only checked in main at src/main/link/ipc-adapter.ts:243); round 1 checked by the Orchestrator; the move onto main after #2166 checked by the Orchestrator (every file but AcceptanceView.tsx and its unit test byte-equal to the reviewed diff; the merged decision-sha branch read).
+>
+> - What the user sees: a window on a Linked machine shows that Machine's Acceptance queue; with Read only Pass and Fail are inactive with the read-only hint, with Full access Pass reaches that Machine's Orchestrator; «Checked in» there names its platform and the commit of its build (a .dirty build → `-`); an item whose `needs:` names another platform shows «PC build: <build> (<name>)», «PC not connected», or «Update worfy on <name>» when the window's Machine runs a build that names no platform; Update first in a Linked window says «Update worfy on <name>» instead of the button; an old worfy there without the view is told to be updated.
+> - Protocol: hello carries an optional `platform` (mac|windows|linux); an old build drops the key, a new build accepts a hello without it, an unknown value is dropped and the rest of the hello still counts; LinkService keeps build and platform per open connection, gone after a disconnect.
+> - Fixed in round 1: «old» only for the window's Machine whose build is known and platform is not (no flash right after `connected`, no update offered on an unrelated old Mac); `.catch(undefined)` on an unknown platform; machines() gives no build/platform without a connection; a test where the connection opens before the hello (the surviving mutant now red); the Full access test described as guarding the existing path.
+> - Evidence: new tests red before; 19 unit+contract files EXIT=0 (343); pnpm lint, typecheck EXIT=0; gate fast green; e2e linked-acceptance + acceptance + linked-read-only whole EXIT=0 with Read only screenshots in both themes; check-feature-docs, story-check, evidence-check EXIT=0.
+> - Rebase onto main after #2170 (06), checked by the Orchestrator: one conflict, the test list in docs/features/acceptance.md (both kept); every src and test file byte-equal to the reviewed diff; 22 unit+contract files (with 06's three) EXIT=0, e2e linked-acceptance + acceptance + linked-read-only + sidebar-rail whole EXIT=0, gate fast green.
+> - Debt (low): items 1–2 (Read only gets the queue, refusal of actions.ownerCheck) worked before 07 through the channel marks of tickets 01–03; only the `needs: windows` build line was red on the old code.
+> - Not verified: two real machines with different builds; an old build on the other side (read from the schema at the base commit, not run).
+>
+> Decided without the owner (to confirm): `platform` is a new optional hello field; «PC» = the connected Linked machine with platform windows — the window's Machine first, else the first in the list (the same for needs mac/linux); no build line when `needs:` is this Machine's platform; the decision sha = the Linked build's commit whatever copy runs there (the link does not say which copy); an old worfy → «Update worfy on <name>» on a «not open» refusal and in the build line, but only in that Machine's own window — in this Machine's window an old PC (no platform) reads «PC not connected»; without a platform in hello «Checked in» takes the platform from `needs:`; linked-acceptance.spec added to the link rule of scripts/e2e-specs.table.json.
+
+Code: `src/main/link/ipc-adapter.ts:243-243` · key lines: 243
+
+```ts
+      if (sender.readOnly && entry.use !== 'read') {
+```
