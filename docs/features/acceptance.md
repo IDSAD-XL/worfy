@@ -123,7 +123,9 @@ item's text in the list row and in the Evidence matrix is plain text; the pane d
 
 A window on a Linked machine sends `acceptance.get`, `acceptance.changed` and `actions.ownerCheck` to that Machine by
 their access marks, as any other channel ([Link](link.md)). The build and platform of each Linked machine come from its
-`hello`, which main keeps while the connection is open and gives to the windows with `linked.state`.
+`hello`, which main keeps while the connection is open and gives to the windows with `linked.state`. A platform value
+this build does not know is dropped and the rest of the `hello` kept, so such a Machine reads as one without a
+platform.
 
 ### Implementation
 

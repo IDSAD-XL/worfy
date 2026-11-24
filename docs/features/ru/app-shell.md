@@ -1,6 +1,6 @@
 # App shell
 
-> Перевод [английской версии](../app-shell.md), commit `640978d0`.
+> Перевод [английской версии](../app-shell.md), commit `11a23113`.
 
 То, что окружает Canvas в каждом окне и на каждом Project-е. Семь Feature: **Sidebar**, **Command palette**, **Shortcuts**,
 **Menu**, **Settings**, **worfy Guide** и **Theme**. У восьмой, [Notifications](notifications.md), своя страница. Термины

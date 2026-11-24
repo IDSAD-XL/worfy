@@ -43,6 +43,7 @@ the [ADRs](../adr/) and in Tickets, and a page links to them.
 | [Transcripts and usage](transcripts-and-usage.md) | Transcript, Claude home, Memory, Limits |
 | [Gate and GitHub](gate-and-github.md) | Gate, Gate full, Failure records, PR and CI badges |
 | [Pull requests](pr-inbox.md) | PR inbox: the user's open PRs and review requests of a Project, review threads, the sidebar section |
+| [Acceptance](acceptance.md) | Acceptance: the manual items of every Project that wait for the owner, their Evidence and Stable copy line, Pass and Fail, the ways in, a Linked machine |
 | [Browser](browser.md) | Browser, Browser profile |
 | [Link](link.md) | Machine, Linked machine |
 | [App shell](app-shell.md) | Sidebar, Command palette, shortcuts, menu, Settings, theme |

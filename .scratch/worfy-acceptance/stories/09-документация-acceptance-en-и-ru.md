@@ -82,8 +82,8 @@ Code: `docs/adr/0005-worfy-own-state-inventory.md:71-79` · key lines: 72, 74, 7
 
 ## 5. Что сознательно не меняли
 
-- Индекс страниц `docs/features/README.md` и `docs/features/ru/README.md`: Ticket их не называет, а строки Acceptance там
-  нет; вопрос передан Orchestrator-у.
+- Заголовок перевода `docs/features/ru/README.md`: в индексы обоих языков добавлена только строка Acceptance (по просьбе
+  Orchestrator-а), а прежнее отставание русского индекса от английского этот PR не догоняет.
 - Английские страницы app-shell, notifications, link, projects и evidence: их абзацы об Acceptance написали Ticket-ы
   03, 04, 06 и 07; этот Ticket только переводит их. Исключение — `docs/features/workflow.md`: строка Manual check там
   ещё говорила «Picking it goes to the Ticket», а после Ticket-а 06 она открывает вид Acceptance.

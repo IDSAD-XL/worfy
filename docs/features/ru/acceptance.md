@@ -119,7 +119,8 @@ Evidence берут модель workflow Project-а и папку файла Ti
 
 Окно на Linked machine отправляет `acceptance.get`, `acceptance.changed` и `actions.ownerCheck` той Machine по их отметкам
 доступа, как любой другой канал ([Link](link.md)). Сборка и платформа каждой Linked machine приходят из её `hello`, которое
-main держит, пока соединение открыто, и отдаёт окнам с `linked.state`.
+main держит, пока соединение открыто, и отдаёт окнам с `linked.state`. Значение платформы, которого эта сборка не знает,
+отбрасывается, а остальное в `hello` сохраняется, так что такая Machine читается как Machine без платформы.
 
 ### Implementation
 
