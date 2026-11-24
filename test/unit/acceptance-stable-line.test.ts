@@ -172,6 +172,8 @@ describe('the Stable copy line', () => {
     const unnumbered: AvailableUpdate = { sha: AVAILABLE, version: later.version, quiet: false }
     expect((await setup({ prs, available: unnumbered, ancestors: [`${MERGE} ${AVAILABLE}`] }).answer(worfy([t]), t)).update).toBe('available')
     expect((await setup({ prs, available: unnumbered }).answer(worfy([t]), t)).update).toBe('waits-ci')
+    // An Available update whose commit this checkout does not have: not known, not "waits for a green CI".
+    expect((await setup({ prs, available: { ...unnumbered, sha: UNKNOWN } }).answer(worfy([t]), t)).update).toBe('update-not-here')
   })
 
   it('in a copy that does not check for updates, does not say `main` waits for a green CI', async () => {

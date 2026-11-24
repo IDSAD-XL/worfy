@@ -201,8 +201,9 @@ export class StableLine {
 
   /**
    * What Update first offers: Update worfy when the Available update has every merge — by the build numbers when both
-   * are known, else by git, and only when git says so; `main` waits for a green CI otherwise; nothing to offer in a copy
-   * that does not check for updates. undefined while git has not answered.
+   * are known, else by git, and only when git says so; `main` waits for a green CI otherwise; not known when git does not
+   * have a commit to compare; nothing to offer in a copy that does not check for updates. undefined while git has not
+   * answered.
    */
   private updateFor(root: string, shas: readonly string[], since: Build): NonNullable<AcceptanceStable['update']> | undefined {
     const { checks, available } = this.sources.update?.() ?? { checks: false, available: null }
@@ -212,6 +213,8 @@ export class StableLine {
     if (!SHA.test(available.sha)) return 'waits-ci'
     const answers = shas.map((sha) => this.ancestry.get(`${root}\n${sha}\n${available.sha}`, () => this.askAncestry(root, sha, available.sha)))
     if (answers.some((answer) => answer === undefined)) return undefined
+    // A commit git does not have (worfy never fetches): whether the update has the change is not known here.
+    if (answers.some((answer) => answer !== 'in' && answer !== 'out')) return 'update-not-here'
     return answers.every((answer) => answer === 'in') ? 'available' : 'waits-ci'
   }
 

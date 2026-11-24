@@ -61,20 +61,28 @@ export interface StableSourceParts {
   /** This run is the packaged Stable copy (runsFromStableCopy). */
   thisRunIsStable: () => boolean
   /** The Update snapshot of this run; null while its module is not loaded. */
-  snapshot: () => Pick<UpdateSnapshot, 'enabled' | 'available' | 'running'> | null
+  snapshot: () => Pick<UpdateSnapshot, 'enabled' | 'available'> | null
+  /** This run's own commit (appRunning); undefined while not known yet, null when it names none. Read once. */
+  ownCommit: () => string | null | undefined
   /** The commit the file next to the Stable copy names (stableCopyCommit). */
   fileCommit: () => string | null
 }
 
 /**
- * The sources of the Stable copy line (spec, "Stable copy of an item"): the commit is `running` of the Update service
- * when this run is the Stable copy, else the file next to the copy; whether this copy checks for updates and its
- * Available update come from the same snapshot.
+ * The sources of the Stable copy line (spec, "Stable copy of an item"): when this run is the Stable copy, its own commit,
+ * read once — not the `running` of the update state, which an update check writes only once it ends, so right after a
+ * restart into an Update it still names the copy before; else, and until this run's commit is known, the file next to
+ * the copy. Whether this copy checks for updates and its Available update come from the Update snapshot.
  */
 export function stableSources(parts: StableSourceParts): StableLineSources {
+  let own: string | null | undefined
+  const ownCommit = (): string | null => {
+    if (own === undefined) own = parts.ownCommit()
+    return own ?? null
+  }
   return {
     gh: parts.gh,
-    stableCommit: () => (parts.thisRunIsStable() ? parts.snapshot()?.running?.commit || null : null) ?? parts.fileCommit(),
+    stableCommit: () => (parts.thisRunIsStable() ? ownCommit() : null) ?? parts.fileCommit(),
     update: () => {
       const snapshot = parts.snapshot()
       return { checks: snapshot?.enabled ?? false, available: snapshot?.available ?? null }
@@ -92,6 +100,7 @@ function appStableSources(): StableLineSources {
     gh: async (root, args) => (await import('./checks')).sharedPrTracker().gh(root, args),
     thisRunIsStable: () => runsFromStableCopy({ packaged: app.isPackaged, execPath: process.execPath, env: process.env }),
     snapshot: () => update?.appUpdate().snapshot() ?? null,
+    ownCommit: () => (update === undefined ? undefined : update.appRunning().commit || null),
     fileCommit: () => stableCopyCommit(),
   })
 }

@@ -1,32 +1,42 @@
 // What the Stable copy line reads in the app (src/main/ipc/acceptance.ts, stableSources; worfy-acceptance ticket 02): the
-// commit of the Stable copy is the one Update gives this run when this run is the Stable copy, else the one the file
-// next to the copy names; whether this copy checks for updates and its Available update come from the Update snapshot.
+// commit of the Stable copy is this run's own commit (read once) when this run is the Stable copy — never the `running`
+// an earlier update check saved, which is the copy before a restart into an Update — else the one the file next to the
+// copy names; whether this copy checks for updates and its Available update come from the Update snapshot.
 import { describe, expect, it, vi } from 'vitest'
 import type { UpdateSnapshot } from '../../src/shared/ipc/update'
 
 vi.mock('electron', () => ({ app: { on: () => undefined, getPath: () => '/tmp', isPackaged: false }, BrowserWindow: { getAllWindows: () => [] } }))
 
-const RUNNING = 'a'.repeat(40)
+const OWN = 'a'.repeat(40)
+const SAVED = 'd'.repeat(40)
 const FILE = 'b'.repeat(40)
 
 type Snapshot = Pick<UpdateSnapshot, 'enabled' | 'available' | 'running'>
 
-async function sources(thisRunIsStable: boolean, snapshot: Snapshot | null) {
+const on: Snapshot = { enabled: true, available: { sha: 'c'.repeat(40), version: '0.4.0+ccccccc', quiet: false }, running: { commit: SAVED, version: '0.4.0+ddddddd' } }
+
+async function sources(thisRunIsStable: boolean, snapshot: Snapshot | null, ownCommit: () => string | null | undefined = () => OWN) {
   const { stableSources } = await import('../../src/main/ipc/acceptance')
-  return stableSources({ gh: () => Promise.resolve(''), thisRunIsStable: () => thisRunIsStable, snapshot: () => snapshot, fileCommit: () => FILE })
+  return stableSources({ gh: () => Promise.resolve(''), thisRunIsStable: () => thisRunIsStable, snapshot: () => snapshot, ownCommit, fileCommit: () => FILE })
 }
 
-const on: Snapshot = { enabled: true, available: { sha: 'c'.repeat(40), version: '0.4.0+ccccccc', quiet: false }, running: { commit: RUNNING, version: '0.4.0+aaaaaaa' } }
-
 describe('stableSources', () => {
-  it('takes the commit Update gives this run when this run is the Stable copy, before the file next to the copy', async () => {
-    expect((await sources(true, on)).stableCommit!()).toBe(RUNNING)
+  it('takes this run\'s own commit when this run is the Stable copy, not the `running` an earlier check saved', async () => {
+    expect((await sources(true, on)).stableCommit!()).toBe(OWN)
   })
 
-  it('takes the file next to the copy in any other run, and when Update has no commit yet', async () => {
+  it('reads this run\'s commit once, and takes the file next to the copy until it is known', async () => {
+    const own = vi.fn<() => string | null | undefined>().mockReturnValueOnce(undefined).mockReturnValue(OWN)
+    const read = await sources(true, on, own)
+    expect(read.stableCommit!()).toBe(FILE)
+    expect(read.stableCommit!()).toBe(OWN)
+    expect(read.stableCommit!()).toBe(OWN)
+    expect(own).toHaveBeenCalledTimes(2)
+  })
+
+  it('takes the file next to the copy in any other run', async () => {
     expect((await sources(false, on)).stableCommit!()).toBe(FILE)
-    expect((await sources(true, { ...on, running: null })).stableCommit!()).toBe(FILE)
-    expect((await sources(true, null)).stableCommit!()).toBe(FILE)
+    expect((await sources(true, on, () => null)).stableCommit!()).toBe(FILE)
   })
 
   it('says whether this copy checks for updates, with its Available update', async () => {
