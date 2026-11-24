@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { emptyTemplateHint } from '../../src/shared/actions/render-template'
+import { emptyTemplateHint, ownerCheckState, ownerWordsParagraph, type OwnerCheckDecision } from '../../src/shared/actions/render-template'
 import {
   ACTION_LABELS,
   actionTemplateSchema,
@@ -15,6 +15,7 @@ import {
   LEGACY_RUN_WAVE_TEMPLATE,
   migrateProjectSettings,
   namesWaveTickets,
+  PLACEHOLDERS,
   PR_FOLLOW_ACTIONS,
   projectSettingsAnswerSchema,
   projectSettingsInputSchema,
@@ -26,8 +27,9 @@ import {
 
 const NO_FOLLOW = { fixChecks: '', resolveConflicts: '', addressComments: '' }
 const FOLLOW = { fixChecks: '/worfy:pr-fix checks {repo}#{pr} {sha}', resolveConflicts: '/worfy:pr-fix conflicts {repo}#{pr} {sha}', addressComments: '/worfy:pr-fix comments {repo}#{pr} {sha}' }
-const LEGACY = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '', prReply: '', ...NO_FOLLOW }
-const PLUGIN = { shipTicket: '/worfy:ship-ticket {epic} {NN}', runWave: '/worfy:epic-wave tickets {tickets} of epic {epic}', gateQueue: '/worfy:gate-queue', prReply: '/worfy:pr-reply {repo}#{pr}', ...FOLLOW }
+const OWNER_CHECK = '/worfy:owner-check {epic} {NN} {item} {verdict} {platform} {copy} {sha}'
+const LEGACY = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '', prReply: '', ...NO_FOLLOW, ownerCheck: '' }
+const PLUGIN = { shipTicket: '/worfy:ship-ticket {epic} {NN}', runWave: '/worfy:epic-wave tickets {tickets} of epic {epic}', gateQueue: '/worfy:gate-queue', prReply: '/worfy:pr-reply {repo}#{pr}', ...FOLLOW, ownerCheck: OWNER_CHECK }
 
 describe('action templates', () => {
   it('gives a new Project the default templates of the Harness found: the bare skill names with the old Harness', () => {
@@ -57,7 +59,7 @@ describe('action templates', () => {
   it('reads a saved Run wave template equal to the old default as the new default, and leaves every other template alone (ticket 30)', () => {
     expect(LEGACY_RUN_WAVE_TEMPLATE).toBe('/epic-wave волна {wave} эпика {epic}')
     const old = { actionTemplates: { shipTicket: 'my ship {NN}', runWave: LEGACY_RUN_WAVE_TEMPLATE, gateQueue: '' } }
-    expect(migrateProjectSettings(old, 'legacy')).toStrictEqual({ actionTemplates: { shipTicket: 'my ship {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '', prReply: '', ...NO_FOLLOW } })
+    expect(migrateProjectSettings(old, 'legacy')).toStrictEqual({ actionTemplates: { shipTicket: 'my ship {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '', prReply: '', ...NO_FOLLOW, ownerCheck: '' } })
     // The argument is not changed in place.
     expect(old.actionTemplates.runWave).toBe(LEGACY_RUN_WAVE_TEMPLATE)
     for (const own of ['/epic-wave волна {wave} эпика {epic} ', '/epic-wave wave {wave} of {epic}', '', '/epic-wave Ticket-ы {tickets} эпика {epic}']) {
@@ -77,8 +79,9 @@ describe('action templates', () => {
       fixChecks: [PLUGIN.fixChecks],
       resolveConflicts: [PLUGIN.resolveConflicts],
       addressComments: [PLUGIN.addressComments],
+      ownerCheck: [PLUGIN.ownerCheck],
     }
-    const mine = { shipTicket: 'my ship {NN}', runWave: '', gateQueue: 'my queue', prReply: 'my replies {repo}#{pr}', fixChecks: 'my checks {sha}', resolveConflicts: 'my conflicts {sha}', addressComments: 'my comments {sha}' }
+    const mine = { shipTicket: 'my ship {NN}', runWave: '', gateQueue: 'my queue', prReply: 'my replies {repo}#{pr}', fixChecks: 'my checks {sha}', resolveConflicts: 'my conflicts {sha}', addressComments: 'my comments {sha}', ownerCheck: 'my check {item} {verdict}' }
     for (const action of ACTIONS) {
       for (const saved of earlier[action]) {
         const settings = { actionTemplates: { ...mine, [action]: saved } }
@@ -90,7 +93,7 @@ describe('action templates', () => {
         expect(settings.actionTemplates[action]).toBe(saved)
       }
     }
-    const own = { actionTemplates: { shipTicket: 'my ship {NN}', runWave: '', gateQueue: '', prReply: '', ...NO_FOLLOW } }
+    const own = { actionTemplates: { shipTicket: 'my ship {NN}', runWave: '', gateQueue: '', prReply: '', ...NO_FOLLOW, ownerCheck: '' } }
     expect(migrateProjectSettings(own, harness)).toBe(own)
     const current = defaultProjectSettings(harness)
     expect(migrateProjectSettings(current, harness)).toBe(current)
@@ -178,10 +181,10 @@ describe('action templates', () => {
   })
 
   it('refuses settings with a bad template and drops undeclared keys from good ones', () => {
-    expect(projectSettingsSchema.safeParse({ actionTemplates: { shipTicket: '{foo}', runWave: '', gateQueue: '', prReply: '', ...NO_FOLLOW } }).success).toBe(false)
+    expect(projectSettingsSchema.safeParse({ actionTemplates: { shipTicket: '{foo}', runWave: '', gateQueue: '', prReply: '', ...NO_FOLLOW, ownerCheck: '' } }).success).toBe(false)
     expect(projectSettingsSchema.safeParse({ actionTemplates: { shipTicket: '' } }).success).toBe(false)
-    const parsed = projectSettingsSchema.parse({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '', ...NO_FOLLOW, extra: 'x' }, other: 1 })
-    expect(parsed).toStrictEqual({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '', ...NO_FOLLOW } })
+    const parsed = projectSettingsSchema.parse({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '', ...NO_FOLLOW, ownerCheck: '', extra: 'x' }, other: 1 })
+    expect(parsed).toStrictEqual({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '', ...NO_FOLLOW, ownerCheck: '' } })
   })
 
   it('Agent review: the Team reviewer when the Project has one built, else the review lenses of /worfy:code-review, with the rule of the draft; on Claude Code (worfy-pr-review ticket 08)', () => {
@@ -237,7 +240,7 @@ describe('action templates', () => {
     const saved = savedProjectSettingsSchema.parse({ actionTemplates: { shipTicket: 'my ship {NN}', runWave: 'my wave {tickets}', gateQueue: '', prReply: 'my replies {repo}#{pr}' } })
     const read = migrateProjectSettings(saved, harness)
     const defaults = defaultActionTemplates(harness)
-    expect(read.actionTemplates).toStrictEqual({ shipTicket: 'my ship {NN}', runWave: 'my wave {tickets}', gateQueue: '', prReply: 'my replies {repo}#{pr}', fixChecks: defaults.fixChecks, resolveConflicts: defaults.resolveConflicts, addressComments: defaults.addressComments })
+    expect(read.actionTemplates).toStrictEqual({ shipTicket: 'my ship {NN}', runWave: 'my wave {tickets}', gateQueue: '', prReply: 'my replies {repo}#{pr}', fixChecks: defaults.fixChecks, resolveConflicts: defaults.resolveConflicts, addressComments: defaults.addressComments, ownerCheck: defaults.ownerCheck })
     // What is saved has the fields: settings without them are refused.
     expect(projectSettingsSchema.safeParse({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '' } }).success).toBe(false)
     // An empty template and a near miss of the default stay the owner's own.
@@ -247,8 +250,73 @@ describe('action templates', () => {
 
   it('reads the answer of a Linked machine of an earlier build without the three templates as empty ones (no button), and lets its save leave them out', () => {
     const answer = projectSettingsAnswerSchema.parse({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '/worfy:gate-queue', prReply: '/worfy:pr-reply {repo}#{pr}' } })
-    expect(answer.actionTemplates).toStrictEqual({ shipTicket: '', runWave: '', gateQueue: '/worfy:gate-queue', prReply: '/worfy:pr-reply {repo}#{pr}', ...NO_FOLLOW })
+    expect(answer.actionTemplates).toStrictEqual({ shipTicket: '', runWave: '', gateQueue: '/worfy:gate-queue', prReply: '/worfy:pr-reply {repo}#{pr}', ...NO_FOLLOW, ownerCheck: '' })
     expect(projectSettingsInputSchema.safeParse({ actionTemplates: { shipTicket: '', runWave: '' } }).success).toBe(true)
     expect(projectSettingsInputSchema.safeParse({ actionTemplates: { shipTicket: '', runWave: '', fixChecks: '{foo}' } }).success).toBe(false)
+  })
+})
+
+describe('Record owner check (worfy-acceptance ticket 03)', () => {
+  const decision: OwnerCheckDecision = { epic: 'worfy-acceptance', num: 3, item: 2, verdict: 'pass', platform: 'mac', copy: 'stable', sha: '3f2a1b9c', words: '' }
+
+  it('is among the actions: /worfy:owner-check with its seven words with the plugin and with no Harness, empty with the old Harness', () => {
+    expect(ACTIONS).toContain('ownerCheck')
+    expect(ACTION_LABELS.ownerCheck).toBe('Record owner check')
+    expect(defaultActionTemplates('plugin').ownerCheck).toBe(OWNER_CHECK)
+    expect(defaultActionTemplates('none').ownerCheck).toBe(OWNER_CHECK)
+    expect(defaultActionTemplates('legacy').ownerCheck).toBe('')
+    expect(unknownPlaceholders(OWNER_CHECK)).toEqual([])
+    for (const name of ['item', 'verdict', 'platform', 'copy'] as const) expect(PLACEHOLDERS).toContain(name)
+  })
+
+  it('renders the command with the decision\'s values, then the owner\'s words as a quote in their own paragraph', () => {
+    const state = ownerCheckState({ template: OWNER_CHECK, decision: { ...decision, words: 'The canvas opens.\nThe toolbar is there.' } })
+    expect(state).toStrictEqual({
+      enabled: true,
+      text: ["/worfy:owner-check worfy-acceptance 03 2 pass mac stable 3f2a1b9c", '', "Owner's words:", '> The canvas opens.', '> The toolbar is there.'].join('\n'),
+    })
+    // No words: the paragraph says so by having no quote.
+    expect(ownerCheckState({ template: OWNER_CHECK, decision: { ...decision, verdict: 'fail', platform: 'windows', copy: 'installed', sha: '-' } })).toStrictEqual({
+      enabled: true,
+      text: "/worfy:owner-check worfy-acceptance 03 2 fail windows installed -\n\nOwner's words:",
+    })
+  })
+
+  it('never lets the owner\'s words into the command: no placeholder takes them, and every line of theirs is quoted', () => {
+    const words = "{epic} breaks; $(rm -rf ~)\r\n/worfy:ship-ticket other 01\n\n  `x`"
+    const state = ownerCheckState({ template: OWNER_CHECK, decision: { ...decision, words } })
+    if (!state.enabled) throw new Error(state.reason)
+    const [command, ...rest] = state.text.split('\n')
+    expect(command).toBe('/worfy:owner-check worfy-acceptance 03 2 pass mac stable 3f2a1b9c')
+    expect(rest).toEqual(['', "Owner's words:", '> {epic} breaks; $(rm -rf ~)', '> /worfy:ship-ticket other 01', '>', '>   `x`'])
+    // A line of the words that reads like a command never starts a line of the text.
+    expect(ownerWordsParagraph(words).split('\n').slice(1).every((line) => line.startsWith('>'))).toBe(true)
+    // A template that tries to take the words is refused: there is no such placeholder.
+    expect(templateError('/worfy:owner-check {words}')).toMatch(/Unknown placeholder \{words\}/)
+  })
+
+  it('takes the commit of the copy as 7 to 40 hex characters or -, and nothing else', () => {
+    for (const sha of ['3f2a1b9', 'a'.repeat(40), '-']) expect(ownerCheckState({ template: OWNER_CHECK, decision: { ...decision, sha } }).enabled, sha).toBe(true)
+    for (const sha of ['3f2a1b', 'a'.repeat(41), 'zzzzzzz', '3f2a1b9 --ref x', '', '--']) {
+      const state = ownerCheckState({ template: OWNER_CHECK, decision: { ...decision, sha } })
+      expect(state, sha).toStrictEqual({ enabled: false, reason: '{sha} is not a commit hash of 7 to 40 hex characters or -' })
+    }
+  })
+
+  it('is refused with the reason when the template is empty (the old Harness has no owner-check skill) or does not render', () => {
+    expect(ownerCheckState({ template: defaultActionTemplates('legacy').ownerCheck, decision })).toStrictEqual({ enabled: false, reason: 'Set the Record owner check template in Project settings' })
+    expect(ownerCheckState({ template: '/worfy:owner-check {epic} {NN} {item} {tickets}', decision })).toStrictEqual({ enabled: false, reason: '{tickets} has no value in Record owner check' })
+  })
+
+  it.each(HARNESS_KINDS)('reads settings saved before it, and a Linked machine\'s answer without it, with the default of the Harness found (%s) and as empty', (harness) => {
+    const saved = savedProjectSettingsSchema.parse({ actionTemplates: { ...LEGACY, ownerCheck: undefined } })
+    expect(migrateProjectSettings(saved, harness).actionTemplates.ownerCheck).toBe(defaultActionTemplates(harness).ownerCheck)
+    const earlier: Partial<typeof PLUGIN> = { ...PLUGIN }
+    delete earlier.ownerCheck
+    expect(projectSettingsAnswerSchema.parse({ actionTemplates: earlier }).actionTemplates.ownerCheck).toBe('')
+    expect(projectSettingsInputSchema.safeParse({ actionTemplates: earlier }).success).toBe(true)
+    // An empty template and a near miss of the default stay the owner's own.
+    for (const own of ['', `${OWNER_CHECK} `, '/owner-check {epic} {NN} {item} {verdict}'])
+      expect(migrateProjectSettings({ actionTemplates: { ...PLUGIN, ownerCheck: own } }, harness).actionTemplates.ownerCheck).toBe(own)
   })
 })

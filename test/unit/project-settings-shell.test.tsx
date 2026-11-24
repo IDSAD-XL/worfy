@@ -33,7 +33,7 @@ vi.mock('../../src/renderer/projects/useProjects', () => ({
   useReadOnly: (machine: string | null) => main.readOnly[machine ?? ''] ?? null,
 }))
 
-const TEMPLATES = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '' }
+const TEMPLATES = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '', gateQueue: '', prReply: '', fixChecks: '', resolveConflicts: '', addressComments: '', ownerCheck: '' }
 const WINDOWS_SHELLS = [
   { id: 'powershell', label: 'PowerShell (pwsh)', found: true },
   { id: 'git-bash', label: 'Git Bash', found: true },
@@ -86,7 +86,7 @@ beforeEach(() => {
 })
 
 describe('the templates of Fix checks, Resolve conflicts and Address comments in Project settings (worfy-pr-follow ticket 01)', () => {
-  const FOLLOW = { fixChecks: '/worfy:pr-fix checks {repo}#{pr} {sha}', resolveConflicts: '/worfy:pr-fix conflicts {repo}#{pr} {sha}', addressComments: '/worfy:pr-fix comments {repo}#{pr} {sha}' }
+  const FOLLOW = { fixChecks: '/worfy:pr-fix checks {repo}#{pr} {sha}', resolveConflicts: '/worfy:pr-fix conflicts {repo}#{pr} {sha}', addressComments: '/worfy:pr-fix comments {repo}#{pr} {sha}', ownerCheck: '/worfy:owner-check {epic} {NN} {item} {verdict} {platform} {copy} {sha}' }
 
   it('shows the three fields with the saved templates, names {sha} among the placeholders, and saves an edit of one', async () => {
     main.answers['terminal.shells'] = { ok: true, value: [] }

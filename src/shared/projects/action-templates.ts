@@ -1,13 +1,13 @@
 // Action templates: the text of the message that the "Ship ticket", "Run wave", "Process gate
-// queue", "Draft replies", "Fix checks", "Resolve conflicts" and "Address comments" actions send (ticket 23;
-// worfy-windows ticket 17; worfy-pr-inbox ticket 04; worfy-pr-follow ticket 01). Each Project runs its own process, so the text is a Project setting. worfy does not
+// queue", "Draft replies", "Fix checks", "Resolve conflicts", "Address comments" and "Record owner check" actions send (ticket 23;
+// worfy-windows ticket 17; worfy-pr-inbox ticket 04; worfy-pr-follow ticket 01; worfy-acceptance ticket 03). Each Project runs its own process, so the text is a Project setting. worfy does not
 // know what the skill does: it keeps the string and ticket 23 fills in the placeholders.
 import { z } from 'zod'
 import { projectIntegrationSchema } from '../integrations/types'
 import { vendorIdSchema, type VendorId } from '../vendors/vendor'
 
 /** The placeholders a template may contain, written as `{name}`. */
-export const PLACEHOLDERS = ['epic', 'NN', 'wave', 'slug', 'branch', 'tickets', 'repo', 'pr', 'sha'] as const
+export const PLACEHOLDERS = ['epic', 'NN', 'wave', 'slug', 'branch', 'tickets', 'repo', 'pr', 'sha', 'item', 'verdict', 'platform', 'copy'] as const
 export type Placeholder = (typeof PLACEHOLDERS)[number]
 
 export const PLACEHOLDER_DESCRIPTIONS: Readonly<Record<Placeholder, string>> = {
@@ -19,10 +19,14 @@ export const PLACEHOLDER_DESCRIPTIONS: Readonly<Record<Placeholder, string>> = {
   tickets: "the wave's ticket numbers",
   repo: "the pull request's repository, owner/name",
   pr: 'pull request number',
-  sha: "the pull request's head commit, 40 hex characters",
+  sha: "the pull request's head commit, 40 hex characters; in Record owner check, the commit of the copy checked, or -",
+  item: "the manual item's number in the ticket's done section, from 1",
+  verdict: "the owner's verdict, pass or fail",
+  platform: 'the machine the owner checked on: mac, windows or linux',
+  copy: 'the copy of the app the owner checked: stable, installed or dev',
 }
 
-export const ACTIONS = ['shipTicket', 'runWave', 'gateQueue', 'prReply', 'fixChecks', 'resolveConflicts', 'addressComments'] as const
+export const ACTIONS = ['shipTicket', 'runWave', 'gateQueue', 'prReply', 'fixChecks', 'resolveConflicts', 'addressComments', 'ownerCheck'] as const
 export type Action = (typeof ACTIONS)[number]
 
 /** UI names of the actions (docs/design/BRIEF.md). */
@@ -34,6 +38,7 @@ export const ACTION_LABELS: Readonly<Record<Action, string>> = {
   fixChecks: 'Fix checks',
   resolveConflicts: 'Resolve conflicts',
   addressComments: 'Address comments',
+  ownerCheck: 'Record owner check',
 }
 
 /**
@@ -49,7 +54,21 @@ export type PrFollowAction = (typeof PR_FOLLOW_ACTIONS)[number]
  * send or answer: each came after the first templates. A file without one reads with its default; an answer
  * without one reads as an empty template (no button).
  */
-export const LATER_ACTIONS = ['gateQueue', 'prReply', ...PR_FOLLOW_ACTIONS] as const satisfies readonly Action[]
+export const LATER_ACTIONS = ['gateQueue', 'prReply', ...PR_FOLLOW_ACTIONS, 'ownerCheck'] as const satisfies readonly Action[]
+
+/**
+ * The values of the words of "Record owner check" (harness/skills/owner-check/SKILL.md, section 1): what the owner
+ * decided, on which machine and on which copy of the app. An `owner-check` line never names CI (src/shared/workflow/evidence.ts,
+ * PLATFORMS and COPIES): a person looks at the app.
+ */
+export const OWNER_CHECK_VERDICTS = ['pass', 'fail'] as const
+export type OwnerCheckVerdict = (typeof OWNER_CHECK_VERDICTS)[number]
+export const OWNER_CHECK_PLATFORMS = ['mac', 'windows', 'linux'] as const
+export type OwnerCheckPlatform = (typeof OWNER_CHECK_PLATFORMS)[number]
+export const OWNER_CHECK_COPIES = ['stable', 'installed', 'dev'] as const
+export type OwnerCheckCopy = (typeof OWNER_CHECK_COPIES)[number]
+/** `{sha}` of "Record owner check": the commit of the copy, 7 to 40 hex characters, or `-` when it is not known. */
+export const OWNER_CHECK_SHA = /^(?:[0-9a-fA-F]{7,40}|-)$/
 
 /**
  * Which Harness is on the machine (src/main/harness/locate.ts, worfy-harness ticket 12): the plugin
@@ -62,9 +81,9 @@ export type HarnessKind = (typeof HARNESS_KINDS)[number]
  * The defaults with the old Harness in ~/.claude: its skills go by their bare names. "Run wave"
  * names the Wave's Tickets, not the number of the Wave in the plan (ADR-0033): the number depended
  * on the spec's table and on Tickets that should not be in the Wave. The old Harness has no skill
- * for the gate queue, for drafting replies or for following a pull request (pr-fix), so "Process gate queue",
- * "Draft replies", "Fix checks", "Resolve conflicts" and "Address comments" are not configured with it: their
- * buttons stay inactive.
+ * for the gate queue, for drafting replies, for following a pull request (pr-fix) or for recording an owner check
+ * (owner-check), so "Process gate queue", "Draft replies", "Fix checks", "Resolve conflicts", "Address comments" and
+ * "Record owner check" are not configured with it: their buttons stay inactive.
  */
 export const LEGACY_HARNESS_TEMPLATES: Readonly<Record<Action, string>> = {
   shipTicket: '/ship-ticket {epic} {NN}',
@@ -77,6 +96,7 @@ export const LEGACY_HARNESS_TEMPLATES: Readonly<Record<Action, string>> = {
   fixChecks: '',
   resolveConflicts: '',
   addressComments: '',
+  ownerCheck: '',
 }
 
 /**
@@ -87,6 +107,9 @@ export const LEGACY_HARNESS_TEMPLATES: Readonly<Record<Action, string>> = {
  * harness/skills/pr-reply/SKILL.md over one pull request, `owner/name#N` (worfy-pr-inbox ticket 04). "Fix checks",
  * "Resolve conflicts" and "Address comments" are harness/skills/pr-fix/SKILL.md in its three modes over one pull
  * request at the head worfy read, `{sha}` (worfy-pr-follow ticket 01): the skill checks the head again itself.
+ * "Record owner check" is harness/skills/owner-check/SKILL.md with its seven words (worfy-acceptance ticket 03); the
+ * owner's words are not a placeholder: they follow the command as a quote (src/shared/actions/render-template.ts,
+ * ownerCheckState), so no template puts free text inside the command.
  */
 export const PLUGIN_HARNESS_TEMPLATES: Readonly<Record<Action, string>> = {
   shipTicket: '/worfy:ship-ticket {epic} {NN}',
@@ -96,6 +119,7 @@ export const PLUGIN_HARNESS_TEMPLATES: Readonly<Record<Action, string>> = {
   fixChecks: '/worfy:pr-fix checks {repo}#{pr} {sha}',
   resolveConflicts: '/worfy:pr-fix conflicts {repo}#{pr} {sha}',
   addressComments: '/worfy:pr-fix comments {repo}#{pr} {sha}',
+  ownerCheck: '/worfy:owner-check {epic} {NN} {item} {verdict} {platform} {copy} {sha}',
 }
 
 /**
@@ -130,6 +154,7 @@ const KNOWN_DEFAULTS: Readonly<Record<Action, ReadonlySet<string>>> = {
   fixChecks: new Set([PLUGIN_HARNESS_TEMPLATES.fixChecks]),
   resolveConflicts: new Set([PLUGIN_HARNESS_TEMPLATES.resolveConflicts]),
   addressComments: new Set([PLUGIN_HARNESS_TEMPLATES.addressComments]),
+  ownerCheck: new Set([PLUGIN_HARNESS_TEMPLATES.ownerCheck]),
 }
 
 /** Why Autopilot does not run with a "Run wave" template that does not name the Wave's Tickets (ADR-0033). */
@@ -174,6 +199,7 @@ export const actionTemplatesSchema = z.object({
   fixChecks: actionTemplateSchema,
   resolveConflicts: actionTemplateSchema,
   addressComments: actionTemplateSchema,
+  ownerCheck: actionTemplateSchema,
 })
 export type ActionTemplates = z.output<typeof actionTemplatesSchema>
 
@@ -305,6 +331,7 @@ const optionalLater = {
   fixChecks: actionTemplateSchema.optional(),
   resolveConflicts: actionTemplateSchema.optional(),
   addressComments: actionTemplateSchema.optional(),
+  ownerCheck: actionTemplateSchema.optional(),
 } satisfies Record<(typeof LATER_ACTIONS)[number], unknown>
 
 /** The templates of LATER_ACTIONS, each one empty when absent. */
@@ -314,6 +341,7 @@ const emptyLater = {
   fixChecks: actionTemplateSchema.default(''),
   resolveConflicts: actionTemplateSchema.default(''),
   addressComments: actionTemplateSchema.default(''),
+  ownerCheck: actionTemplateSchema.default(''),
 } satisfies Record<(typeof LATER_ACTIONS)[number], unknown>
 
 export const savedProjectSettingsSchema = projectSettingsSchema.extend({

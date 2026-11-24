@@ -14,11 +14,29 @@
 //   {repo}    the repository of the pull request of "Draft replies", `owner/name` (worfy-pr-inbox ticket 04)
 //   {pr}      the number of that pull request (of "Fix checks", "Resolve conflicts" and "Address comments" too)
 //   {sha}     the head commit of the pull request of those three as worfy read it, 40 hex characters and nothing
-//             else (worfy-pr-follow ticket 01): the text goes to a Session in bypassPermissions, as {repo} does
+//             else (worfy-pr-follow ticket 01): the text goes to a Session in bypassPermissions, as {repo} does;
+//             in "Record owner check", the commit of the copy the owner checked, 7 to 40 hex characters, or `-`
+//   {item}, {verdict}, {platform}, {copy}
+//             the manual item, the owner's verdict and where it was checked, of "Record owner check"
+//             (worfy-acceptance ticket 03); the owner's words are no placeholder (ownerCheckState)
 //
 // A placeholder the action has no value for (`{NN}` in "Run wave") fails the render rather than
 // turning into an empty string: the agent would get a command with a hole in it.
-import { ACTION_LABELS, AUTOPILOT_TEMPLATE_HINT, isActionConfigured, namesWaveTickets, PLACEHOLDERS, unknownPlaceholders, type Action, type Placeholder, type PrFollowAction } from '../projects/action-templates'
+import {
+  ACTION_LABELS,
+  AUTOPILOT_TEMPLATE_HINT,
+  isActionConfigured,
+  namesWaveTickets,
+  OWNER_CHECK_SHA,
+  PLACEHOLDERS,
+  unknownPlaceholders,
+  type Action,
+  type OwnerCheckCopy,
+  type OwnerCheckPlatform,
+  type OwnerCheckVerdict,
+  type Placeholder,
+  type PrFollowAction,
+} from '../projects/action-templates'
 import { prFollowBlock, type PrFollowRow } from './pr-follow'
 import type { Ticket } from '../workflow/types'
 import { doneOnlyInBranch, inWork, readyWave, waveNumbers, type SkippedTicket } from '../workflow/waves'
@@ -42,7 +60,9 @@ export function renderTemplate(template: string, values: TemplateValues, action?
     const where = action === undefined ? '' : ` in ${ACTION_LABELS[action]}`
     return { ok: false, error: `${missing.map((name) => `{${name}}`).join(', ')} has no value${where}` }
   }
-  if (values.sha !== undefined && !SHA.test(values.sha)) return { ok: false, error: '{sha} is not a commit hash of 40 hex characters' }
+  if (values.sha !== undefined && action === 'ownerCheck') {
+    if (!OWNER_CHECK_SHA.test(values.sha)) return { ok: false, error: '{sha} is not a commit hash of 7 to 40 hex characters or -' }
+  } else if (values.sha !== undefined && !SHA.test(values.sha)) return { ok: false, error: '{sha} is not a commit hash of 40 hex characters' }
   return { ok: true, text: template.replace(/\{([^{}]*)\}/g, (_match, name: string) => values[name as Placeholder]!) }
 }
 
@@ -161,6 +181,55 @@ export function prReplyState(input: { template: string; repo: string; pr: number
   if (!isActionConfigured(template)) return { enabled: false, reason: emptyTemplateHint('prReply') }
   const rendered = renderTemplate(template, { repo, pr: String(pr) }, 'prReply')
   return rendered.ok ? { enabled: true, text: rendered.text.trim() } : { enabled: false, reason: rendered.error }
+}
+
+/** The owner's decision on one manual item, as "Record owner check" sends it (worfy-acceptance ticket 03). */
+export interface OwnerCheckDecision {
+  epic: string
+  num: number
+  /** The item's number in the Ticket's done section, from 1. */
+  item: number
+  verdict: OwnerCheckVerdict
+  platform: OwnerCheckPlatform
+  copy: OwnerCheckCopy
+  /** The commit of the copy checked, or `-` when it is not known. */
+  sha: string
+  /** The owner's comment, as typed; may be empty. */
+  words: string
+}
+
+/**
+ * The paragraph of the owner's words after the command: `Owner's words:`, then each line of theirs as a quote (`> …`,
+ * a blank line `>`). No line of the words starts a line of the text, so none reads as a command of its own; blank lines
+ * around the words are dropped. No words: the heading alone.
+ */
+export function ownerWordsParagraph(words: string): string {
+  if (words.trim() === '') return "Owner's words:"
+  const lines = words.replace(/\r\n?/g, '\n').replace(/^(?:[ \t]*\n)+|(?:\n[ \t]*)+$/g, '').split('\n')
+  return ["Owner's words:", ...lines.map((line) => (line.trim() === '' ? '>' : `> ${line}`))].join('\n')
+}
+
+/**
+ * "Record owner check" (worfy-acceptance ticket 03): the Project's template with the decision's values
+ * (`/worfy:owner-check {epic} {NN} {item} {verdict} {platform} {copy} {sha}` by default), trimmed, then a blank line and
+ * the owner's words (ownerWordsParagraph). The words are no placeholder, so a template never puts them inside the
+ * command. Refused, with the reason, when the template is empty (the old Harness has no owner-check skill) or does not
+ * render, a `{sha}` that is neither a commit hash nor `-` among them.
+ */
+export function ownerCheckState(input: { template: string; decision: OwnerCheckDecision }): ActionState {
+  const { template, decision } = input
+  if (!isActionConfigured(template)) return { enabled: false, reason: emptyTemplateHint('ownerCheck') }
+  const values: TemplateValues = {
+    epic: decision.epic,
+    NN: ticketNumber(decision.num),
+    item: String(decision.item),
+    verdict: decision.verdict,
+    platform: decision.platform,
+    copy: decision.copy,
+    sha: decision.sha,
+  }
+  const rendered = renderTemplate(template, values, 'ownerCheck')
+  return rendered.ok ? { enabled: true, text: `${rendered.text.trim()}\n\n${ownerWordsParagraph(decision.words)}` } : { enabled: false, reason: rendered.error }
 }
 
 /**
