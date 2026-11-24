@@ -123,6 +123,14 @@ function preload(state: AcceptanceState, answers: Answers = {}): void {
         return { ok: true, value: { enabled: false, checking: false, available: null, running: null, build: { phase: 'idle' } } }
       case 'actions.ownerCheck':
         return { ok: true, value: { sessionId: 's-1', text: '/worfy:owner-check', delivery: 'sent' } }
+      // A window on a Linked machine: its `project` channels reach that Machine through this one's main.
+      case 'linked.invoke': {
+        const call = input as { channel: string; input: unknown }
+        fake.calls.push(call)
+        return Promise.resolve(answer(call.channel, call.input)).then((value) => ({ ok: true, value }))
+      }
+      case 'linked.state':
+        return { ok: true, value: { revision: 1, machines: [{ id: LINKED, online: true, sharing: 'yes', readOnly: false, epoch: 1 }] } }
       default:
         return { ok: true, value: null }
     }
@@ -170,6 +178,9 @@ async function view(state: AcceptanceState, answers: Answers = {}, shown = true)
   render(<AcceptanceView />)
   await screen.findAllByTestId('acceptance-group')
 }
+
+/** The Linked machine a window of the review-round-2 test shows. */
+const LINKED = 'machine-pc'
 
 const textOf = (element: Element | null | undefined): string => element?.textContent ?? ''
 const attrOf = (element: Element | null | undefined, name: string): string | null => element?.getAttribute(name) ?? null
@@ -411,5 +422,30 @@ describe('review round 1', () => {
     const shown = within(pane()).getByTestId('evidence-item')
     expect(textOf(shown)).toContain('The badge shows 1 in Cart')
     expect(textOf(shown)).not.toMatch(/\*\*|`|\(manual\)/)
+  })
+})
+
+describe('review round 2', () => {
+  afterEach(() => {
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('a window on a Linked machine sends sha "-": the Stable copy commit of its queue is that Machine\'s, not this computer\'s', async () => {
+    window.history.replaceState(null, '', `/?machine=${LINKED}`)
+    await view({ ...queue({ ready: [ROWS.cart] }), stableCommit: 'abcdef1234567' })
+    await waitFor(() => expect(pane().dataset.key).toBe(key(3, 2)))
+    await waitFor(() => expect(attrOf(screen.getByTestId('acceptance-pass'), 'aria-disabled')).toBe('false'))
+    fireEvent.click(screen.getByTestId('acceptance-pass'))
+    await waitFor(() => expect(ownerChecks()).toEqual([expect.objectContaining({ copy: 'stable', sha: '-' })]))
+  })
+
+  it('the tab counts an item in "Not recorded yet": the owner has to send it again', async () => {
+    const at = '2026-11-20T10:00:00.000Z'
+    const lost = { ...ROWS.cart, sent: { verdict: 'pass' as const, at, state: 'not-recorded' as const } }
+    const sent = { ...ROWS.search, sent: { verdict: 'pass' as const, at, state: 'sent' as const } }
+    preload(queue({ ready: [lost, sent] }))
+    const { ToolbarView } = await import('../../src/renderer/shell/Toolbar')
+    render(<ToolbarView items={[]} view="canvas" onViewChange={() => {}} sidebarVisible onToggleSidebar={() => {}} />)
+    await waitFor(() => expect(textOf(screen.queryByTestId('acceptance-tab-count'))).toBe('1'))
   })
 })

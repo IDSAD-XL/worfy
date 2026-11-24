@@ -42,10 +42,13 @@ export function shownRows(state: AcceptanceState | null, open: Readonly<Record<A
   return (state?.groups ?? []).flatMap((group) => (open[group.group] ? group.rows : []))
 }
 
-/** The number on the tab: the items of Ready to check not Sent yet, by main's mark or by this window. */
+/**
+ * The number on the tab: the items of Ready to check not Sent yet, by main's mark or by this window. An item whose
+ * decision was not recorded in time ("Not recorded yet") counts again: the owner has to send it again.
+ */
 export function readyCount(state: AcceptanceState | null, sentHere: Readonly<Record<string, OwnerCheckVerdict>>): number {
   const rows = state?.groups.find((group) => group.group === 'ready')?.rows ?? []
-  return rows.filter((row) => row.kind !== 'item' || sentOf(row, sentHere) === null).length
+  return rows.filter((row) => row.kind !== 'item' || sentOf(row, sentHere)?.state !== 'sent').length
 }
 
 /** The Sent mark a row shows: main's, else one this window has just sent. */

@@ -15,7 +15,7 @@ import type { WorkflowModel } from '../../shared/workflow/types'
 import { ticketTitle } from '../canvas/epic-layout'
 import { EvidenceMatrix } from '../canvas/nodes/EvidenceMatrix'
 import { linkFolderOf, useTicketText } from '../canvas/nodes/ticket-text'
-import { invoke } from '../ipc'
+import { invoke, windowMachine } from '../ipc'
 import { Markdown } from '../markdown/Markdown'
 import { currentPlatform } from '../platform'
 import { useProjects, useReadOnly } from '../projects/useProjects'
@@ -167,8 +167,9 @@ function DecisionRow({ row, root }: { row: AcceptanceItemRow; root: string | und
   const mode = useProjectMode(root)
   const sent = sentOf(row, sentHere)
   // The commit of the copy: known for this Machine's Stable copy, the one the Stable copy line reads (main's snapshot);
-  // its version when this window is that copy.
-  const here = copy === 'stable' && platform === currentPlatform()
+  // its version when this window is that copy. A window on a Linked machine reads that Machine's queue, whose commit is
+  // not this computer's Stable copy: there the sha stays `-`.
+  const here = copy === 'stable' && platform === currentPlatform() && windowMachine() === null
   const commit = here ? (state?.stableCommit ?? null) : null
   const version = here ? (update?.enabled === true ? (update.current?.version ?? null) : commit?.slice(0, 7) ?? null) : null
   const where: CheckedIn = { platform, copy, sha: commit !== null && OWNER_CHECK_SHA.test(commit) ? commit : '-' }
