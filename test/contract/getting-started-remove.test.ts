@@ -771,9 +771,11 @@ describe('a held Orchestrator is not opened', () => {
     vi.stubEnv('WORFY_AGENT_SCRIPT', 'orchestrator')
     electron.listeners.clear()
     vi.resetModules()
+    let registry: SessionRegistry | undefined
     try {
       const { BEING_REMOVED, keepClosed, sharedOrchestrators, startOrchestrators } = await import('../../src/main/agent/app-orchestrators')
       const { sharedRegistry } = await import('../../src/main/agent/app-registry')
+      registry = sharedRegistry()
       const { projectHolds } = await import('../../src/main/projects/holds')
       const { orchestratorHandlers } = await import('../../src/main/ipc/orchestrator')
       const { registerIpc } = await import('../../src/main/ipc/index')
@@ -811,6 +813,9 @@ describe('a held Orchestrator is not opened', () => {
       expect(opened.ok).toBe(true)
       expect(sharedRegistry().list().map((session) => session.cwd)).toEqual([repo])
     } finally {
+      // Closed and waited for while WORFY_AGENT still says fake: the app's agent reads it when a process
+      // starts, and a start that outlived the stub started the real Claude Code in the data folder.
+      if (registry !== undefined) await closeSessions(registry)
       vi.unstubAllEnvs()
     }
   })
