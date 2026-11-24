@@ -5,7 +5,15 @@
 // prepared, and the decision row — a comment, where it was checked, Pass and Fail; for a Ticket of Waits for you, its
 // `Blocked reason:` with Open Ticket and Open Orchestrator, no Pass and Fail. ↑ and ↓ move along the list as in Pull
 // requests. Pass and Fail send `actions.ownerCheck`; worfy writes nothing into the Ticket (ADR-0002).
+//
+// In a window on a Linked machine (worfy-acceptance ticket 07) the queue is that Machine's: `acceptance.get` and
+// `acceptance.changed` go there by their access mark (src/renderer/ipc.ts), and so does the decision, to the Orchestrator
+// of the Project on its Machine. With read-only access Pass and Fail are inactive with the read-only hint. The decision
+// names the platform of the window's Machine and the commit of its build, from its `hello` (`linked.state`); an item
+// whose `needs:` names another platform shows the build of the Linked machine of that platform, or that none is
+// connected (src/shared/acceptance/linked-build.ts). A worfy there without the Acceptance view is told to be updated.
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { linkedBuildLine, linkedCommit, olderWorfyText, type BuildMachine } from '../../shared/acceptance/linked-build'
 import { OWNER_CHECK_AUTOPILOT_HINT } from '../../shared/actions/render-template'
 import { MAIN_WAITS_FOR_CI, NO_UPDATE_CHECK, UPDATE_NOT_HERE, type AcceptanceGroupName, type AcceptanceItemRow, type AcceptanceRow, type AcceptanceSent, type AcceptanceStable, type AcceptanceTicket } from '../../shared/ipc/acceptance'
 import { OWNER_CHECK_COPIES, OWNER_CHECK_PLATFORMS, OWNER_CHECK_SHA, type OwnerCheckCopy, type OwnerCheckPlatform, type OwnerCheckVerdict } from '../../shared/projects/action-templates'
@@ -16,9 +24,10 @@ import { ticketTitle } from '../canvas/epic-layout'
 import { EvidenceMatrix } from '../canvas/nodes/EvidenceMatrix'
 import { linkFolderOf, useTicketText } from '../canvas/nodes/ticket-text'
 import { invoke, windowMachine } from '../ipc'
+import { useMachines } from '../machines/useMachines'
 import { Markdown } from '../markdown/Markdown'
 import { currentPlatform } from '../platform'
-import { useProjects, useReadOnly } from '../projects/useProjects'
+import { useLinked, useProjects, useReadOnly } from '../projects/useProjects'
 import { useNavigation } from '../session/navigation'
 import { Button } from '../theme/Button'
 import { layerOf } from '../theme/open-layers'
@@ -118,11 +127,40 @@ function GroupList({ selected }: { selected: string | null }) {
   )
 }
 
+/** The Linked machines as the view reads them: what main knows of each (online, build, platform) with its name. */
+function useBuildMachines(): BuildMachine[] {
+  const linked = useLinked()
+  const names = useMachines()?.linked
+  return (linked?.machines ?? []).map(({ id, online, build, platform }) => ({ id, name: names?.find((machine) => machine.id === id)?.name ?? 'the Linked machine', online, build, platform }))
+}
+
+/** The name of the window's Machine when it is a Linked machine; null in a window of this Machine. */
+function useWindowMachineName(): string | null {
+  const machine = windowMachine()
+  const name = useMachines()?.linked.find((each) => each.id === machine)?.name
+  return machine === null ? null : (name ?? 'the Linked machine')
+}
+
+/** The build of the Linked machine an item is checked on, when its `needs:` names another platform than this Machine's. */
+function LinkedBuild({ platform }: { platform: string }) {
+  const line = linkedBuildLine(platform, currentPlatform(), windowMachine(), useBuildMachines())
+  if (line === null) return null
+  return (
+    <p className="w-acc-stable" data-testid="acceptance-linked-build" data-state={line.state}>
+      <span className="w-acc-stable__dot" aria-hidden="true" />
+      <span>{line.text}</span>
+    </p>
+  )
+}
+
 /** The Stable copy line as the spec draws it: the line, and in Update first what the owner can do about it. */
 export function StableLine({ stable }: { stable: AcceptanceStable }) {
   const update = useUpdate()
+  // In a window on a Linked machine the line is that Machine's Stable copy: Update worfy here would update this one.
+  const elsewhere = useWindowMachineName()
   let after: ReactNode = null
-  if (stable.update === 'available')
+  if (stable.update === 'available' && elsewhere !== null) after = <span className="w-acc-muted">Update worfy on {elsewhere}</span>
+  else if (stable.update === 'available')
     after = (
       <Button variant="secondary" onClick={() => void installUpdateTelling(update)} data-testid="acceptance-update">
         Update worfy
@@ -150,20 +188,31 @@ function DecisionRow({ row, root }: { row: AcceptanceItemRow; root: string | und
   const { sending, sentHere, refused, state } = useAcceptance()
   const key = rowKey(row)
   const [words, setWords] = useState('')
-  const [platform, setPlatform] = useState<OwnerCheckPlatform>(currentPlatform())
+  const machines = useBuildMachines()
+  const shownOn = windowMachine()
+  // The platform of the window's Machine: on a Linked machine, the one its `hello` names; one whose build names none
+  // (before worfy-acceptance ticket 07) — the item's `needs:` platform, else this Machine's.
+  const needed = OWNER_CHECK_PLATFORMS.find((each) => each === row.item.needs?.platform)
+  const windowPlatform = shownOn === null ? currentPlatform() : (machines.find((machine) => machine.id === shownOn)?.platform ?? needed ?? currentPlatform())
+  const [chosen, setPlatform] = useState<OwnerCheckPlatform | null>(null)
+  const platform = chosen ?? windowPlatform
   const [copy, setCopy] = useState<OwnerCheckCopy>(() => firstCopy(row))
   const update = useUpdate()
   const autopilot = useAutopilotRuns(row.ticket.projectId)
   const readOnly = useReadOnly()
   const mode = useProjectMode(root)
   const sent = sentOf(row, sentHere)
-  // The commit of the copy: known for this Machine's Stable copy, the one the Stable copy line reads (main's snapshot);
-  // its version when this window is that copy. A window on a Linked machine reads that Machine's queue, whose commit is
-  // not this computer's Stable copy: there the sha stays `-`.
-  const here = copy === 'stable' && platform === currentPlatform() && windowMachine() === null
-  const commit = here ? (state?.stableCommit ?? null) : null
-  const version = here ? (update?.enabled === true ? (update.current?.version ?? null) : commit?.slice(0, 7) ?? null) : null
+  // The commit of the copy: on a Linked machine's platform the commit of its build (its `hello`, worfy-acceptance ticket
+  // 07), which wins; else, in a window of this Machine, known for its Stable copy, the one the Stable copy line reads
+  // (main's snapshot), with its version when this window is that copy. In a window on a Linked machine the snapshot's
+  // `stableCommit` is that Machine's, so a decision on this Machine's platform names none.
+  const linked = linkedCommit(platform, currentPlatform(), shownOn, machines)
+  const here = linked === null && shownOn === null && copy === 'stable' && platform === currentPlatform()
+  const commit = linked?.sha ?? (here ? (state?.stableCommit ?? null) : null)
+  const version = linked?.build ?? (here ? (update?.enabled === true ? (update.current?.version ?? null) : commit?.slice(0, 7) ?? null) : null)
   const where: CheckedIn = { platform, copy, sha: commit !== null && OWNER_CHECK_SHA.test(commit) ? commit : '-' }
+  const elsewhere = useWindowMachineName()
+  const refusal = refused[key] === undefined ? undefined : elsewhere === null ? refused[key] : (olderWorfyText('actions.ownerCheck', refused[key], elsewhere) ?? refused[key])
   const blocked = readOnly ?? (autopilot ? OWNER_CHECK_AUTOPILOT_HINT : sending[key] !== undefined ? 'Sending…' : sent?.state === 'sent' ? 'Sent: the decision waits for its line in the Ticket' : null)
   const reason = (verdict: OwnerCheckVerdict): string | null => blocked ?? (verdict === 'fail' && words.trim() === '' ? FAIL_NEEDS_WORDS : null)
   const decide = (verdict: OwnerCheckVerdict) => {
@@ -198,7 +247,7 @@ function DecisionRow({ row, root }: { row: AcceptanceItemRow; root: string | und
             </Button>
           </>
         ) : null}
-        {refused[key] !== undefined ? <span className="w-acc-error">{refused[key]}</span> : null}
+        {refusal !== undefined ? <span className="w-acc-error">{refusal}</span> : null}
       </p>
     </section>
   )
@@ -220,6 +269,7 @@ function ItemPane({ row, root, model }: { row: AcceptanceItemRow; root: string |
       </h2>
       <p className="w-acc-muted">{[full?.evidence === undefined ? `Item ${item.index}` : `Item ${item.index} of ${full.evidence.length}`, 'manual', needs].filter(Boolean).join(' · ')}</p>
       {row.stable !== null ? <StableLine stable={row.stable} /> : null}
+      {item.needs !== null ? <LinkedBuild platform={item.needs.platform} /> : null}
       <div className="w-acc-pane__text" data-testid="acceptance-text">
         <Markdown text={shownText(item)} projectId={ticket.projectId} baseDir={baseDir} />
       </div>
@@ -275,7 +325,10 @@ function TicketPane({ ticket }: { ticket: AcceptanceTicket }) {
 }
 
 export function AcceptanceView() {
-  const { state, error, selected } = useAcceptance()
+  const { state, error: failed, selected } = useAcceptance()
+  const elsewhere = useWindowMachineName()
+  // A worfy on the window's Linked machine older than the view has no `acceptance.get`: say to update it there.
+  const error = failed === null || elsewhere === null ? failed : (olderWorfyText('acceptance.get', failed, elsewhere) ?? failed)
   const frame = useRef<HTMLDivElement>(null)
   const row = (state?.groups ?? []).flatMap((group) => group.rows).find((each) => rowKey(each) === selected)
   // The model of the selected row's Project, kept while the rows of that Project are walked, and open only while the view

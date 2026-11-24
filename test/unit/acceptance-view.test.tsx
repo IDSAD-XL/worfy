@@ -10,6 +10,10 @@
 //   item reads "Sent" with both buttons inactive until main answers and after; a refusal of main shows under them;
 // - "Sent · waits for the line" and "Not recorded yet" with Send again from main's mark;
 // - Waits for you: the Blocked reason, Open Ticket and Open Orchestrator, no Pass and Fail.
+// On a Linked machine (worfy-acceptance ticket 07): in a window on the PC the queue and the decision go to the PC; read
+// only — Pass and Fail inactive with the read-only hint; the decision names the PC's platform and the commit of its
+// build; in this Machine's window an item for Windows shows the PC's build, or "PC not connected"; a worfy on the PC
+// without the view is told to be updated; the Stable copy line there offers no Update of this Machine.
 // Every Project, Epic and text is invented.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -85,10 +89,16 @@ const MODEL_TICKETS = [{ epic: 'shop', num: 3, slug: 'ticket-3', title: '03 — 
 
 const FULL = queue({ ready: [ROWS.cart, ROWS.search], update: [ROWS.checkout], waits: [ROWS.colour], failed: [ROWS.refund], work: [ROWS.wishlist], older: [ROWS.login] })
 
+/** The link state as main sends it, with the Linked machines `linked` (only what the view reads matters here). */
+function linkState(linked: { id: string; name: string }[]): unknown {
+  return { revision: 1, machine: null, problem: null, listening: false, addresses: [], bonjour: false, linking: { open: false, code: null, expiresAt: null, linked: null, failure: null }, linked: linked.map((machine) => ({ ...machine, state: 'online', certificateChanged: false, access: 'off' })), discovered: [] }
+}
+
 type Answers = Record<string, (input: unknown) => IpcResult<unknown> | Promise<IpcResult<unknown>>>
 
 interface FakeMain {
-  calls: { channel: string; input: unknown }[]
+  /** `machine`: the Linked machine a window on it called through `linked.invoke`. */
+  calls: { channel: string; input: unknown; machine?: string }[]
   emit: (channel: string, payload: unknown) => void
 }
 
@@ -123,20 +133,23 @@ function preload(state: AcceptanceState, answers: Answers = {}): void {
         return { ok: true, value: { enabled: false, checking: false, available: null, running: null, build: { phase: 'idle' } } }
       case 'actions.ownerCheck':
         return { ok: true, value: { sessionId: 's-1', text: '/worfy:owner-check', delivery: 'sent' } }
-      // A window on a Linked machine: its `project` channels reach that Machine through this one's main.
-      case 'linked.invoke': {
-        const call = input as { channel: string; input: unknown }
-        fake.calls.push(call)
-        return Promise.resolve(answer(call.channel, call.input)).then((value) => ({ ok: true, value }))
-      }
+      // A window on a Linked machine: `linked.invoke` is answered by the bridge itself, with the Machine it calls.
       case 'linked.state':
         return { ok: true, value: { revision: 1, machines: [{ id: LINKED, online: true, sharing: 'yes', readOnly: false, epoch: 1 }] } }
+      case 'link.state':
+        return { ok: true, value: linkState([]) }
       default:
         return { ok: true, value: null }
     }
   }
   const bridge: WorfyBridge = {
-    invoke: (channel, input) => {
+    invoke: async (channel, input) => {
+      // A window on a Linked machine calls its channels through this Machine's main (src/renderer/ipc.ts, machineBridge).
+      if (channel === 'linked.invoke') {
+        const call = input as { machine: string; channel: string; input: unknown }
+        fake.calls.push({ channel: call.channel, input: call.input, machine: call.machine })
+        return { ok: true, value: await answer(call.channel, call.input) }
+      }
       fake.calls.push({ channel, input })
       return Promise.resolve(answer(channel, input) as never)
     },
@@ -168,6 +181,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   delete (globalThis as { worfy?: WorfyBridge }).worfy
+  window.history.replaceState(null, '', '/')
 })
 
 async function view(state: AcceptanceState, answers: Answers = {}, shown = true): Promise<void> {
@@ -447,5 +461,80 @@ describe('review round 2', () => {
     const { ToolbarView } = await import('../../src/renderer/shell/Toolbar')
     render(<ToolbarView items={[]} view="canvas" onViewChange={() => {}} sidebarVisible onToggleSidebar={() => {}} />)
     await waitFor(() => expect(textOf(screen.queryByTestId('acceptance-tab-count'))).toBe('1'))
+  })
+})
+
+describe('on a Linked machine (worfy-acceptance ticket 07)', () => {
+  const PC = '0b7c4a52-3c1e-4f6e-9a4b-6d2f0c1e8a11'
+  const BUILD = '0.4.2101+3f2a1b9c'
+  const WINDOWS_ITEM = item(9, 1, '(manual) Open the Acceptance tab on the PC → the queue shows', { item: evidenceItem(1, '(manual) Open the Acceptance tab on the PC → the queue shows', { needs: { platform: 'windows', copy: 'stable' } }), ticket: ticket(9) })
+  /** What main knows of the PC: online or not, read-only or not, the build and platform of its `hello`. */
+  const pc = (over: Record<string, unknown> = {}) => ({ id: PC, online: true, sharing: 'yes', readOnly: false, epoch: 1, build: BUILD, platform: 'windows', ...over })
+  const onPc = (over: Record<string, unknown> = {}): Answers => ({
+    'linked.state': () => ({ ok: true, value: { revision: 2, machines: [pc(over)] } }),
+    'link.state': () => ({ ok: true, value: linkState([{ id: PC, name: 'Studio PC' }]) }),
+  })
+  const windowOnPc = (): void => window.history.replaceState(null, '', `/?machine=${PC}`)
+
+  it("a window on the PC with read-only access: the PC's queue, and Pass and Fail inactive with the read-only hint", async () => {
+    windowOnPc()
+    await view(queue({ ready: [WINDOWS_ITEM] }), onPc({ readOnly: true }))
+    expect(main.calls.find((call) => call.channel === 'acceptance.get')?.machine).toBe(PC)
+    await waitFor(() => expect(attrOf(screen.getByTestId('acceptance-pass'), 'title')).toBe('Studio PC gives this Machine read-only access'))
+    for (const verdict of ['pass', 'fail']) expect(attrOf(screen.getByTestId(`acceptance-${verdict}`), 'aria-disabled')).toBe('true')
+    fireEvent.click(screen.getByTestId('acceptance-pass'))
+    expect(ownerChecks()).toEqual([])
+  })
+
+  it("a window on the PC with full access: the decision goes to the PC with its platform and the commit of its build, not this Machine's Stable copy", async () => {
+    windowOnPc()
+    await view({ ...queue({ ready: [WINDOWS_ITEM] }), stableCommit: 'abcdef1234567' }, onPc())
+    await waitFor(() => expect(textOf(screen.getByTestId('acceptance-platform'))).toContain('windows'))
+    expect(textOf(screen.getByTestId('acceptance-decision'))).toContain(BUILD)
+    // The item names the PC's build too: it is checked on the window's Machine.
+    expect(textOf(screen.getByTestId('acceptance-linked-build'))).toBe(`PC build: ${BUILD} (Studio PC)`)
+    await waitFor(() => expect(attrOf(screen.getByTestId('acceptance-pass'), 'aria-disabled')).toBe('false'))
+    fireEvent.click(screen.getByTestId('acceptance-pass'))
+    await waitFor(() => expect(main.calls.filter((call) => call.channel === 'actions.ownerCheck')).toHaveLength(1))
+    const sent = main.calls.find((call) => call.channel === 'actions.ownerCheck')!
+    expect(sent.machine).toBe(PC)
+    expect(sent.input).toMatchObject({ projectId: DEMO, epic: 'shop', num: 9, item: 1, verdict: 'pass', platform: 'windows', copy: 'stable', sha: '3f2a1b9c' })
+  })
+
+  it("a window on the PC, the platform set to this computer's: the snapshot's Stable copy commit is the PC's, so `-`", async () => {
+    windowOnPc()
+    await view({ ...queue({ ready: [WINDOWS_ITEM] }), stableCommit: 'abcdef1234567' }, onPc())
+    await waitFor(() => expect(textOf(screen.getByTestId('acceptance-platform'))).toContain('windows'))
+    const { currentPlatform } = await import('../../src/renderer/platform')
+    fireEvent.click(screen.getByTestId('acceptance-platform'))
+    fireEvent.click(await screen.findByRole('option', { name: currentPlatform() }))
+    await waitFor(() => expect(textOf(screen.getByTestId('acceptance-platform'))).toContain(currentPlatform()))
+    fireEvent.click(screen.getByTestId('acceptance-pass'))
+    await waitFor(() => expect(ownerChecks()).toEqual([expect.objectContaining({ platform: currentPlatform(), copy: 'stable', sha: '-' })]))
+  })
+
+  it("this Machine's window: an item for Windows shows the PC's build while it is online, else \"PC not connected\"", async () => {
+    await view(queue({ ready: [WINDOWS_ITEM] }), onPc())
+    await waitFor(() => expect(textOf(screen.getByTestId('acceptance-linked-build'))).toBe(`PC build: ${BUILD} (Studio PC)`))
+    expect(attrOf(screen.getByTestId('acceptance-linked-build'), 'data-state')).toBe('online')
+    act(() => main.emit('linked.changed', { revision: 3, machines: [pc({ online: false, build: undefined, platform: undefined })] }))
+    await waitFor(() => expect(textOf(screen.getByTestId('acceptance-linked-build'))).toBe('PC not connected'))
+    // The queue itself is this Machine's.
+    expect(main.calls.find((call) => call.channel === 'acceptance.get')?.machine).toBeUndefined()
+  })
+
+  it('a worfy on the PC without the Acceptance view: the view says to update worfy there', async () => {
+    windowOnPc()
+    preload(queue({}), { ...onPc(), 'acceptance.get': () => ({ ok: false, error: 'acceptance.get: not open to Linked machines' }) })
+    const { AcceptanceView } = await import('../../src/renderer/acceptance/AcceptanceView')
+    render(<AcceptanceView />)
+    expect(await screen.findByText('Update worfy on Studio PC: its worfy has no Acceptance view yet')).toBeTruthy()
+  })
+
+  it("the Stable copy line in a window on the PC offers no Update of this Machine: it says to update worfy there", async () => {
+    windowOnPc()
+    await view(queue({ update: [{ ...WINDOWS_ITEM, stable: out('available') }] }), onPc())
+    await waitFor(() => expect(textOf(screen.getByTestId('acceptance-stable'))).toContain('Update worfy on Studio PC'))
+    expect(screen.queryByTestId('acceptance-update')).toBeNull()
   })
 })

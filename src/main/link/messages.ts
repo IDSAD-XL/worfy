@@ -9,6 +9,7 @@
 // Machine whose `hello` names it in `accepts` (LinkService.accepts). Service messages are not IPC channels
 // and are not in the list of channels open to Linked machines (ipc-adapter.ts).
 import { z } from 'zod'
+import { OWNER_CHECK_PLATFORMS, type OwnerCheckPlatform } from '../../shared/projects/action-templates'
 
 /**
  * The version of the link protocol; a peer that speaks another one is refused before the handshake.
@@ -55,6 +56,15 @@ export function defineLinkMessage<S extends z.ZodType>(name: string, schema: S):
   return { name, schema }
 }
 
+/** The platforms `hello` names: the words of the owner-check line (src/shared/projects/action-templates.ts). */
+export const LINK_PLATFORMS = OWNER_CHECK_PLATFORMS
+export type LinkPlatform = OwnerCheckPlatform
+
+/** The platform `hello` names for a Node.js `process.platform`. */
+export function linkPlatform(platform: NodeJS.Platform = process.platform): LinkPlatform {
+  return platform === 'darwin' ? 'mac' : platform === 'win32' ? 'windows' : 'linux'
+}
+
 /** The most names `accepts` of `hello` carries (ADR-0079, point 1). */
 export const MAX_ACCEPTS = 200
 
@@ -73,6 +83,12 @@ export const helloMessage = defineLinkMessage(
      * Absent from a build before it: such a Machine gets only the messages that were there before.
      */
     accepts: z.array(z.string().min(1).max(200)).max(MAX_ACCEPTS).optional(),
+    /**
+     * The platform this Machine runs on (worfy-acceptance ticket 07): the Acceptance view of a Mac shows the build of
+     * the PC for an item checked on Windows. Absent from a build before it; a build before it drops the field. A value
+     * this build does not know is dropped too, so the rest of the `hello` still counts.
+     */
+    platform: z.enum(LINK_PLATFORMS).optional().catch(undefined),
   }),
 )
 

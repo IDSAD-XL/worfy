@@ -61,6 +61,7 @@
         "test/e2e/controls.spec.ts",
         "test/e2e/family.spec.ts",
         "test/e2e/focus-sidebar.spec.ts",
+        "test/e2e/linked-acceptance.spec.ts",
         "test/e2e/linked-add-project.spec.ts",
         "test/e2e/linked-autopilot.spec.ts",
         "test/e2e/linked-browser.spec.ts",

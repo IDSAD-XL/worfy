@@ -311,6 +311,19 @@ anyway. The tooltip shows under the pointer and when the keyboard focuses the ac
 reader hears it as the action's description. Nodes do not move and do not resize. A Terminal Node shows a stand-in, its shell does not start, and its
 output is not sent.
 
+**Acceptance.** The Acceptance tab of a window on a Linked machine shows the queue of that Machine's Projects, as Pull
+requests shows its pull requests ([Acceptance](acceptance.md)). With Read only, Pass and Fail are inactive with the
+read-only tooltip, and that Machine refuses the decision anyway. With Full access, a decision goes to the Orchestrator
+of the Project on its Machine. "Checked in" starts at the platform of the window's Machine, and the decision names the
+commit of the build that Machine runs. An item whose `needs:` line names another platform than this Machine's shows
+the build of the Linked machine of that platform: `PC build: <build> (<name>)` on a Mac while the PC is connected, `PC
+not connected` otherwise, also while a connection is open but its `hello` has not come yet. Such a decision names that
+build's commit too when its platform is chosen. A worfy over there without the Acceptance view makes the view say
+`Update worfy on <name>`; so does the window's Machine when its `hello` names its build but no platform. Another
+Linked machine without a platform may as well be a Mac, and is not counted. An unknown platform value in a `hello` is
+dropped and the rest of it kept.
+Screenshots and clips are not sent over the link, as on [Evidence](evidence.md).
+
 #### Windows
 
 The row of a Machine without a connection gets a hint while Bonjour searches and the Machine has not answered the
@@ -368,7 +381,10 @@ The Tailscale CLI is looked for on the Path, then in the Tailscale folder under 
   `ticket-note`, `autopilot-runs-ask` and `autopilot-runs` are the link's own, each parsed with a schema on arrival.
   Each `hello` lists what that build accepts, and a message added later, such as `ticket-note`, goes only to a Machine
   that named it, so an older build keeps working
-  ([ADR-0079](../adr/0079-link-machines-announce-accepted-messages.md)).
+  ([ADR-0079](../adr/0079-link-machines-announce-accepted-messages.md)). `hello` also carries the build version and,
+  since worfy-acceptance ticket 07, the platform (`mac`, `windows` or `linux`). Main keeps both for the connection the
+  calls use while it is open, and windows get them with `linked.state`. An older build sends no platform, and its
+  receiver drops the field.
 - **An answer of a newer shape fails on an older build.** The calling side checks a call's answer against the
   channel's output schema (`src/main/link/remote-calls.ts`). When a newer build widens an answer, a window of an older
   build gets "answered outside the contract" for that call; the call itself has run. The protocol version stays: the
@@ -413,6 +429,7 @@ per retry.
 | Holding a Project for a screen; browsing folders; the saved camera | `src/main/projects/holds.ts`, `src/main/projects/browse.ts`, `src/main/layout/viewports.ts` |
 | Handlers and contract of the link state | `src/main/ipc/link.ts`, `src/shared/ipc/link.ts` |
 | Handlers and contract for a window on a Linked machine | `src/main/ipc/linked.ts`, `src/shared/ipc/linked.ts` |
+| The build of a Linked machine for an Acceptance item; "Update worfy on" | `src/shared/acceptance/linked-build.ts`, `src/renderer/acceptance/AcceptanceView.tsx` |
 | Access marks; routing a channel from a window | `src/shared/ipc/channels.ts`, `src/renderer/ipc.ts` |
 | Groups in the sidebar, reload on a new epoch, read-only level | `src/renderer/projects/useProjects.ts`, `src/renderer/projects/read-only.ts` |
 | The link state in the renderer; access lines | `src/renderer/machines/useMachines.ts` |
@@ -437,9 +454,11 @@ for all of them: the close goes to M only when the last window lets go.
   certificate, the checks before the handshake, revoke, the heartbeat, size limits),
   `test/contract/link-connections.test.ts` (keeping the connection, the switches, Bonjour, retry timing, quit),
   `test/contract/link-access.test.ts` (levels and refusals), `test/contract/link-reconnect.test.ts` (dials, names, the
-  Windows firewall hint), `test/contract/linked-ipc.test.ts`.
+  Windows firewall hint), `test/contract/linked-ipc.test.ts`, `test/contract/acceptance-linked.test.ts` (the queue and
+  the decision over the link, the build from `hello`).
 - Unit: `test/unit/link-checks.test.ts` (address ranges, `Host`), `test/unit/link-discovery.test.ts`,
-  `test/unit/link-caller.test.ts`, `test/unit/link-tailscale.test.ts`, `test/unit/linked-read-only.test.tsx`.
+  `test/unit/link-caller.test.ts`, `test/unit/link-tailscale.test.ts`, `test/unit/linked-read-only.test.tsx`,
+  `test/unit/acceptance-linked-build.test.ts`.
 - e2e: `test/e2e/linked-machines.spec.ts` (linking, revoke, Settings, opening a Project),
   `test/e2e/linked-reconnect.spec.ts`, `test/e2e/linked-read-only.spec.ts`, `test/e2e/linked-sleep.spec.ts`,
-  `test/e2e/linked-system-actions.spec.ts`.
+  `test/e2e/linked-system-actions.spec.ts`, `test/e2e/linked-acceptance.spec.ts`.
