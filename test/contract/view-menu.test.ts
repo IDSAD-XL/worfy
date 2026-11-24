@@ -82,9 +82,18 @@ const electron = vi.hoisted(() => {
     }
     destroyed = false
     isDestroyed = () => this.destroyed
-    // What createMainWindow asks of a window besides its web contents.
+    // What createMainWindow asks of a window besides its web contents. Its 'closed' listeners are kept:
+    // close() fires them, as Electron does.
     on(): void {}
-    once(): void {}
+    readonly closedListeners: (() => void)[] = []
+    once(event: string, listener: () => void): void {
+      if (event === 'closed') this.closedListeners.push(listener)
+    }
+    /** Destroys the window and fires 'closed'. */
+    close(): void {
+      this.destroyed = true
+      for (const listener of this.closedListeners.splice(0)) listener()
+    }
     getBounds = (): { x: number; y: number; width: number; height: number } => ({ x: 0, y: 0, width: 1280, height: 800 })
     setBounds(): void {}
     loadFile = (): Promise<void> => Promise.resolve()
@@ -437,9 +446,10 @@ describe('the interface scale as the zoom of the windows', () => {
   it('createMainWindow makes the window at the scale of the settings, and follows it from then on', async () => {
     const { store } = await loadScale(1.3)
     vi.stubEnv('ELECTRON_RENDERER_URL', '')
+    let made: InstanceType<typeof electron.FakeBrowserWindow> | undefined
     try {
       const { createMainWindow } = await import('../../src/main/window')
-      const made = createMainWindow() as unknown as InstanceType<typeof electron.FakeBrowserWindow>
+      made = createMainWindow() as unknown as InstanceType<typeof electron.FakeBrowserWindow>
       // The first paint is at the scale: no load at 100 % that jumps afterwards.
       expect(made.options?.webPreferences).toMatchObject({ zoomFactor: 1.3, sandbox: true, contextIsolation: true })
       expect(electron.zooms).toEqual([])
@@ -449,6 +459,9 @@ describe('the interface scale as the zoom of the windows', () => {
       store.set({ interfaceScale: 0.9 })
       expect(electron.zooms.at(-1)).toEqual({ to: 'made by main', factor: 0.9 })
     } finally {
+      // The load started the show's fallback timer (window-show.ts): closing the window clears it, as in
+      // the app. Left running, it fired after the file had ended and threw on a window without show().
+      made?.close()
       vi.unstubAllEnvs()
     }
   })
