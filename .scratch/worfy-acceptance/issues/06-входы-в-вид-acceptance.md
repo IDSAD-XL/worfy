@@ -1,7 +1,7 @@
 # 06 — Входы в вид Acceptance: секция боковой панели, бейдж rail-а, строка палитры, ручные проверки и уведомление ведут на пункт
 
 Type: task
-Status: open
+Status: claimed 2026-11-24T02:57Z
 Blocked by: 05
 Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решения по реализации» → «Входы»; «Решение», путь владельца, шаг 1
 
@@ -31,13 +31,18 @@ Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решения по реал�
 
 - [ ] Unit test (`test/unit/acceptance-section.test.tsx`, новый): счёт по Project-ам и бейдж = Ready to check. Красный до
       правки — в «Итог».
+  - evidence: test-run pass · `pnpm exec vitest run test/unit/acceptance-section.test.tsx` exit 0 · mac - · 218371e06
 - [ ] Unit test `test/unit/palette-manual-check-row.test.tsx`: строка ручной проверки открывает вид на пункте; пункта
       нет в очереди — Ticket.
+  - evidence: test-run pass · `pnpm exec vitest run test/unit/palette-manual-check-row.test.tsx test/unit/palette-commands.test.tsx` exit 0 · mac - · 218371e06
 - [ ] Unit test `test/unit/notify.test.ts`: клик уведомления ждущего Ticket-а открывает вид, без Ticket-а в очереди —
       Pipeline.
+  - evidence: test-run pass · `pnpm exec vitest run test/unit/notification-ticket-click.test.tsx` exit 0 · mac - · 218371e06
 - [ ] e2e test `test/e2e/sidebar-rail.spec.ts`: бейдж Acceptance на rail-е и переход в вид.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/sidebar-rail.spec.ts test/e2e/sidebar-sections.spec.ts` exit 0 · mac dev · 218371e06
 - [ ] `docs/features/app-shell.md` и `docs/features/notifications.md` описывают входы;
       `node scripts/check-feature-docs.mjs` — exit 0.
+  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 218371e06
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Где в коде
@@ -56,3 +61,30 @@ Source: [spec.md](../spec.md), «Ticket-ы», 6; «Решения по реал�
 ## Вне скоупа
 
 - Уведомление «N checks wait for you» и утренняя сводка (spec, «Не в этом Epic-е»).
+
+## Итог
+
+- Секция `src/renderer/shell/sidebar/AcceptanceSection.tsx` (rail: после Pull requests): по Project-у — строки Ready to
+  check, Update first, Waits for you, Failed со счётом; клик — вид на первой строке Project-а в этой группе, Project не
+  открывается. Бейдж rail-а — число Ready to check Project-ов переключателя. `Sidebar.tsx`, `registry.ts` и
+  `sidebar-scope.ts` не менялись: секцию находит `import.meta.glob`.
+- Палитра: «Acceptance» в группе View (с Project-ом и без); строка ручной проверки открывает вид на пункте, если он в
+  очереди, иначе карточку Ticket-а. `openAcceptance` с целью, которой нет в очереди, больше не переключает вид.
+- Клик «is waiting for you»: окно ждёт первый ответ очереди и открывает вид на Ticket-е или, как раньше, доску Pipeline
+  (`src/renderer/canvas/overlays/NotificationTarget.tsx`); не дождалось ответа очереди за время жизни заметки (10 s) —
+  доска Pipeline. `src/main/workflow/waits-notify.ts` не менялся: очередь есть и в main (`src/main/acceptance/service.ts`),
+  но окно читает очередь своей Machine в момент клика (окно, перезагруженное на Linked machine, — очередь той Machine);
+  проверка в main потребовала бы нового поля заметки и видела бы очередь на момент показа, а не клика. Test-ы — в `test/unit/notification-ticket-click.test.tsx` вместе с прежними test-ами этого клика
+  (вынесены из `test/unit/pipeline-board.test.tsx`, перешедшего 1000 строк), а не в `test/unit/notify.test.ts` (там
+  test-ы main).
+- Ready to check в секции и бейдж не считают пункты с отметкой Sent и снова считают «Not recorded yet» — одно правило с
+  вкладкой (`waitsForOwner`, `src/renderer/acceptance/useAcceptance.ts`).
+- Решено без владельца: секция и её бейдж следуют переключателю Project-ов боковой панели, как Pull requests. Это
+  отступление от spec.md:94 («На rail-е и на вкладке — бейдж «3»», одно число): при «All Projects» числа совпадают, при
+  одном Project-е бейдж rail-а считает только его.
+- Красный до правки: `pnpm exec vitest run test/unit/acceptance-section.test.tsx test/unit/palette-manual-check-row.test.tsx
+  test/unit/pipeline-board.test.tsx` — exit 1: файла секции нет («Failed to resolve import …/AcceptanceSection»), строка
+  палитры вела к Ticket-у, строки «Acceptance» не было, клик уведомления открывал Pipeline. После правки — exit 0.
+- Снимки (e2e `test/e2e/sidebar-rail.spec.ts`, в репозиторий не кладутся):
+  `test-results/worfy-acceptance-06-screens/sidebar-acceptance-1280-{light,dark}.png` и
+  `sidebar-acceptance-view-1280-{light,dark}.png`.

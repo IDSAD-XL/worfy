@@ -391,6 +391,8 @@ describe('palette commands', () => {
     expect(ids(context({ project: undefined, model: undefined, layoutNodes: [], adrs: [], createItems: [] }))).toEqual([
       'view:canvas',
       'view:session',
+      // The Acceptance view is over every Project (worfy-acceptance ticket 06).
+      'view:acceptance',
       'first-run',
       'health-check',
       'getting-started',

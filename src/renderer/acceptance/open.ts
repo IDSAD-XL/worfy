@@ -1,5 +1,7 @@
-// Opening the Acceptance view (worfy-acceptance ticket 05) and the places a row of it leads to. The toolbar tab opens
-// it; the sidebar section, the palette and the notification of ticket 06 come through openAcceptance with a target.
+// Opening the Acceptance view (worfy-acceptance ticket 05) and the places a row of it leads to. The toolbar tab and the
+// palette's "Acceptance" open it; the sidebar section, a Manual check row of the palette and a click on an "is waiting
+// for you" notification (worfy-acceptance ticket 06) open it on a row through openAcceptance with a target, and go
+// where they went before when the queue has no such row.
 // The view is over every Project of the window's Machine, so it opens without a Project; Open Ticket and Open
 // Orchestrator select the row's Project first, as openPrInboxOf does for another Project's PR.
 import { epicNodeId, ticketNodeId } from '../../shared/layout/derived'
@@ -9,10 +11,14 @@ import { openProject, projectsNow } from '../projects/useProjects'
 import { openOrchestrator, setView } from '../session/navigation'
 import { focusAcceptance } from './useAcceptance'
 
-/** Opens the view; with `target`, on that Ticket's item (or its first row). False when the queue has no such row. */
+/**
+ * Opens the view; with `target`, on that Ticket's item (or its first row). With a target the queue has no row of (or
+ * while the queue is not read yet), it opens nothing and answers false: the caller goes where it went before.
+ */
 export function openAcceptance(target?: { projectId: string; epic: string; num: number; item?: number }): boolean {
+  if (target !== undefined && !focusAcceptance(target)) return false
   setView('acceptance')
-  return target === undefined ? true : focusAcceptance(target)
+  return true
 }
 
 /** Selects Project `projectId` when it is not the active one; the reason when it could not be. */

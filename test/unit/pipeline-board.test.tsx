@@ -549,56 +549,6 @@ describe('stuck Tickets on the board and in the section (worfy-pipeline ticket 0
   })
 })
 
-describe('a click on a notification of a Ticket that waits for the owner (worfy-pipeline ticket 06)', () => {
-  it('opens the Pipeline board of its Project: another Project is selected first', async () => {
-    preload({
-      projects: PROJECTS,
-      pipelines: {},
-      models: {},
-      answers: { 'sessions.views': () => ({ views: [] }), 'notify.pending': () => ({ note: { view: 'pipeline', projectRoot: ATALAYA_ROOT, epic: 'atalaya', num: 3 } }) },
-    })
-    const { default: NotificationTarget } = await import('../../src/renderer/canvas/overlays/NotificationTarget')
-    const { useNavigation } = await import('../../src/renderer/session/navigation')
-    expect(useNavigation.getState().view).toBe('canvas')
-    render(<NotificationTarget />)
-    await waitFor(() => expect(useNavigation.getState().view).toBe('pipeline'))
-    expect(main.calls).toContainEqual({ channel: 'projects.select', input: { id: 'atalaya-00000002' } })
-  })
-
-  it('of the active Project: only the view changes', async () => {
-    preload({
-      projects: PROJECTS,
-      pipelines: {},
-      models: {},
-      answers: { 'sessions.views': () => ({ views: [] }), 'notify.pending': () => ({ note: { view: 'pipeline', projectRoot: WORFY_ROOT, epic: 'worfy-pipeline', num: 4 } }) },
-    })
-    const { default: NotificationTarget } = await import('../../src/renderer/canvas/overlays/NotificationTarget')
-    const { useNavigation } = await import('../../src/renderer/session/navigation')
-    render(<NotificationTarget />)
-    await waitFor(() => expect(useNavigation.getState().view).toBe('pipeline'))
-    expect(main.calls.filter((call) => call.channel === 'projects.select')).toEqual([])
-  })
-
-  it('of a Project no longer in the list: nothing opens', async () => {
-    preload({
-      projects: PROJECTS,
-      pipelines: {},
-      models: {},
-      answers: { 'sessions.views': () => ({ views: [] }), 'notify.pending': () => ({ note: { view: 'pipeline', projectRoot: '/projects/gone', epic: 'e', num: 1 } }) },
-    })
-    const error = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const { default: NotificationTarget } = await import('../../src/renderer/canvas/overlays/NotificationTarget')
-    const { useNavigation } = await import('../../src/renderer/session/navigation')
-    const { usePendingNote } = await import('../../src/renderer/session/notification-target')
-    render(<NotificationTarget />)
-    await waitFor(() => expect(main.calls.some((call) => call.channel === 'projects.list')).toBe(true))
-    await waitFor(() => expect(error).toHaveBeenCalled())
-    expect(usePendingNote.getState().pending).toBeNull()
-    expect(useNavigation.getState().view).toBe('canvas')
-    expect(main.calls.filter((call) => call.channel === 'projects.select')).toEqual([])
-  })
-})
-
 describe('one card for a Ticket over several repositories (worfy-multi-repo-ticket 06, ADR-0104)', () => {
   /** A Silent Project whose consumer waits for the library's release: Release stands before Awaiting merge. */
   const TEAM: PipelineStage[] = [

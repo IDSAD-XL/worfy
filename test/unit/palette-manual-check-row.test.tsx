@@ -6,7 +6,11 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
-import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
+import type { AcceptanceState } from '../../src/shared/ipc/acceptance'
+import type { EvidenceItem, Ticket, WorkflowModel } from '../../src/shared/workflow/types'
+import { useAcceptanceStore } from '../../src/renderer/acceptance/useAcceptance'
+import { useCanvasRequests } from '../../src/renderer/find/canvas-requests'
+import { useNavigation } from '../../src/renderer/session/navigation'
 import { PaletteBody } from '../../src/renderer/palette/CommandPalette'
 import { buildCommands, type CommandContext, type CommandGroup, type PaletteCommand } from '../../src/renderer/palette/commands'
 
@@ -258,5 +262,86 @@ describe('the title of other palette rows', () => {
     expect(row.getAttribute('aria-disabled')).toBe('true')
     expect(row.getAttribute('title')).toBe('Reading the Project settings…')
     expect(within(row).getByTestId('palette-option-note').textContent).toBe('Reading the Project settings…')
+  })
+})
+
+/** A checkbox item of a done section with its Evidence state, as the workflow model carries it. */
+const evidenceItem = (index: number, text: string, manual: boolean): EvidenceItem => ({
+  index,
+  text,
+  checked: false,
+  manual,
+  needs: null,
+  evidence: [],
+  errors: [],
+  line: 10 + index,
+  state: 'not-verified',
+  reason: 'no evidence',
+})
+
+describe('where a Manual check row leads (worfy-acceptance ticket 06)', () => {
+  // Ticket e/02: item 1 is not manual, items 2 and 3 are its manual checks; the Acceptance queue holds item 3 only.
+  const withItems: Ticket = {
+    ...ticket(2, [
+      { text: 'Open the cart', checked: false },
+      { text: 'Pay with a test card', checked: false },
+    ]),
+    state: 'done',
+    evidence: [evidenceItem(1, 'Unit test', false), evidenceItem(2, '(manual) Open the cart', true), evidenceItem(3, '(manual) Pay with a test card', true)],
+  }
+  const QUEUE: AcceptanceState = {
+    groups: [
+      {
+        group: 'ready',
+        rows: [
+          {
+            kind: 'item',
+            ticket: { projectId: 'p1', projectName: 'one', epic: 'e', num: 2, title: '02 — Ticket 2', state: 'done', pr: null, blockedReason: null },
+            item: evidenceItem(3, '(manual) Pay with a test card', true),
+            prepared: [],
+            sent: null,
+            stable: null,
+          },
+        ],
+      },
+      ...(['update', 'waits', 'failed', 'work', 'older'] as const).map((group) => ({ group, rows: [] })),
+    ],
+  }
+  const run = (id: string) => buildCommands(context([withItems])).find((each) => each.id === id)!.run()
+
+  beforeEach(() => {
+    useNavigation.setState({ view: 'canvas' })
+    useAcceptanceStore.setState({ state: QUEUE, selected: null })
+    useCanvasRequests.setState({ focus: null })
+  })
+
+  it('opens the Acceptance view on the item when the queue has it', () => {
+    run('manual-check:e/02:1')
+    expect(useNavigation.getState().view).toBe('acceptance')
+    expect(useAcceptanceStore.getState().selected).toBe('p1\ne\n2\n3')
+    expect(useCanvasRequests.getState().focus).toBeNull()
+  })
+
+  it('goes to the Ticket, as before, when the queue does not have the item', () => {
+    run('manual-check:e/02:0')
+    expect(useNavigation.getState().view).toBe('canvas')
+    expect(useCanvasRequests.getState().focus).toMatchObject({ projectId: 'p1', nodeId: 'ticket:e/2' })
+    expect(useAcceptanceStore.getState().selected).toBeNull()
+  })
+
+  it('goes to the Ticket while the queue is not read yet', () => {
+    useAcceptanceStore.setState({ state: null })
+    run('manual-check:e/02:1')
+    expect(useNavigation.getState().view).toBe('canvas')
+    expect(useCanvasRequests.getState().focus).toMatchObject({ projectId: 'p1' })
+  })
+
+  it('the View group has "Acceptance", with or without a Project, and it opens the view', () => {
+    const without = buildCommands({ ...context([]), project: undefined, model: undefined }).find((each) => each.id === 'view:acceptance')
+    expect(without).toMatchObject({ group: 'View', title: 'Acceptance', detail: 'Checks that wait for you' })
+    const shown = buildCommands({ ...context([]), view: 'acceptance' }).find((each) => each.id === 'view:acceptance')
+    expect(shown?.detail).toBe('shown now')
+    without!.run()
+    expect(useNavigation.getState().view).toBe('acceptance')
   })
 })

@@ -15,7 +15,7 @@ of its own because of its length. Terms are explained in [Concepts](concepts.md)
 | Its Autopilot run parked a permission request for the owner (Auto-approval On) | Its folder name | "Parked: `<tool>` in `<folder name>`", without the command | The Session |
 | It asks a question | Its folder name | "Asks: `<first question>`" | The Session |
 | A Session of a terminal or Claude Desktop went from busy to idle | Its name, else its folder name | "Finished its turn" | The Session |
-| A Ticket came to wait for the owner or this Machine | `<epic> NN` is waiting for you | Its Blocked reason, else `<epic> NN — <title>` | The Pipeline board of its Project |
+| A Ticket came to wait for the owner or this Machine | `<epic> NN` is waiting for you | Its Blocked reason, else `<epic> NN — <title>` | The [Acceptance](acceptance.md) view on that Ticket when its queue holds it, else the Pipeline board of its Project |
 | A PR with the cross-machine gate's label waited over an hour | The Project's name | The PR and what to do next | Nothing: it raises the window |
 | The [PR inbox](pr-inbox.md) has a new review request for the user | The Project's name | "Review requested: `owner/name#N` `<PR title>`" | The Pull requests view on that PR |
 | Someone else replied in an unresolved thread of the user's own PR | The Project's name | "New reply: `owner/name#N` `<PR title>`" | The Pull requests view on that PR |
@@ -123,8 +123,9 @@ The Machine of a Project decides what to notify about and hands each note to two
 - A Ticket waiting for `owner` reaches this Machine and every Linked machine that has access and accepts the message. A wait for a
   Machine's name reaches only that Machine, by the whole name as Settings → Machines shows it. The Machine of the Project decides.
 - A Linked machine drops a Ticket's note when its own list has a Project of the same repository, because it notified of it
-  itself. It shows the others with the sender's name in the title, and a click opens the Pipeline board of that Project on that
-  Machine, read-only.
+  itself. It shows the others with the sender's name in the title, and a click opens the Acceptance view on that Ticket among
+  the Projects of that Machine when that Machine's queue holds it, else the Pipeline board of that Project on that Machine,
+  read-only.
 - The pairing pause and the notes of the gate queue and of the PR inbox stay on their own Machine.
 - Toasts belong to their window and do not travel.
 

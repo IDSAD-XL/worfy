@@ -26,6 +26,16 @@ export interface AcceptanceStore {
   refused: Readonly<Record<string, string>>
 }
 
+/** The name of each group, as the view and the sidebar section say it. */
+export const GROUP_TITLES: Readonly<Record<AcceptanceGroupName, string>> = {
+  ready: 'Ready to check',
+  update: 'Update first',
+  waits: 'Waits for you',
+  failed: 'Failed',
+  work: 'In work',
+  older: 'Older',
+}
+
 /** In work and Older stay closed until the owner opens them (spec, "Groups"). */
 const OPEN: Readonly<Record<AcceptanceGroupName, boolean>> = { ready: true, update: true, waits: true, failed: true, work: false, older: false }
 
@@ -48,7 +58,12 @@ export function shownRows(state: AcceptanceState | null, open: Readonly<Record<A
  */
 export function readyCount(state: AcceptanceState | null, sentHere: Readonly<Record<string, OwnerCheckVerdict>>): number {
   const rows = state?.groups.find((group) => group.group === 'ready')?.rows ?? []
-  return rows.filter((row) => row.kind !== 'item' || sentOf(row, sentHere)?.state !== 'sent').length
+  return rows.filter((row) => waitsForOwner(row, sentHere)).length
+}
+
+/** Whether a row of Ready to check is counted on the tab and in the sidebar section: not Sent and waiting for the line. */
+export function waitsForOwner(row: AcceptanceRow, sentHere: Readonly<Record<string, OwnerCheckVerdict>>): boolean {
+  return row.kind !== 'item' || sentOf(row, sentHere)?.state !== 'sent'
 }
 
 /** The Sent mark a row shows: main's, else one this window has just sent. */
@@ -116,6 +131,15 @@ export function useAcceptance(): AcceptanceStore {
 export function useReadyCount(): number {
   useEffect(start, [])
   return useAcceptanceStore((store) => readyCount(store.state, store.sentHere))
+}
+
+/**
+ * Whether main has answered the queue once, with it or with why it could not be read; starts the reading too. A click
+ * on an "is waiting for you" notification waits for it before it chooses between this view and the Pipeline board.
+ */
+export function useAcceptanceKnown(): boolean {
+  useEffect(start, [])
+  return useAcceptanceStore((store) => store.state !== null || store.error !== null)
 }
 
 export function selectRow(key: string): void {

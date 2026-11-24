@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp, parkPointer, type LaunchedApp } from './helpers'
+import { launchApp, parkPointer, repoRoot, type LaunchedApp } from './helpers'
 import { clickMenuItem } from './menu'
 import { snapshotThemes } from './snapshots'
 import { nodeScript } from '../harness-node'
@@ -21,6 +21,9 @@ import { nodeScript } from '../harness-node'
 // Claude home, ADRs in both. A Ticket of «harbor» is blocked, so its card reads «1 busy · 1 waits»: in a narrow sidebar
 // the second part moves whole to the next line, without the « · » before it, and each part has a tooltip that says
 // what it counts (worfy-polish ticket 113).
+// The Acceptance section (worfy-acceptance ticket 06): Tickets done an hour ago with an unchecked manual item are Ready
+// to check; the rail button counts them, the section counts them by Project, and a click opens the Acceptance view on
+// the item; its screenshots at 1280 px in both themes go to test-results/worfy-acceptance-06-screens.
 // WORFY_SNAPSHOT_DIR, when set, also gets the screenshots of the tickets, each dark and light: the Epics under «All» and
 // under one Project, the Sessions, the Projects with the long name in the pill, the open menu (94); the Projects as
 // cards, the Sessions and the ADRs of both Projects under «All» (99); the wrapped live line of a card (113).
@@ -133,7 +136,7 @@ test('one section at a time on the rail; the switcher mixes the Projects or show
   try {
     const { window } = first
     await setWindowSize(first, SIZE)
-    expect(await rail(window).getByRole('tab').evaluateAll((all) => all.map((each) => each.getAttribute('aria-label')))).toEqual(['Projects', 'Sessions', 'Pull requests', 'Pipeline', 'Epics', 'ADR', 'Machines'])
+    expect(await rail(window).getByRole('tab').evaluateAll((all) => all.map((each) => each.getAttribute('aria-label')))).toEqual(['Projects', 'Sessions', 'Pull requests', 'Acceptance', 'Pipeline', 'Epics', 'ADR', 'Machines'])
     // The first section is shown, the others are hidden.
     await expect(tab(window, 'Projects')).toHaveAttribute('aria-selected', 'true')
     await expect(window.getByRole('region', { name: 'Projects', exact: true })).toBeVisible()
@@ -447,6 +450,52 @@ test('«All Projects» lists the Sessions and the ADRs of both Projects, each un
     await pick(window, 'orchard')
     await expect(sessions.getByTestId('sidebar-session')).toHaveCount(1)
     await expect(badge).toHaveText('1')
+  } finally {
+    await launched.close()
+  }
+})
+
+/** A Ticket file of `epic` 01 (slug `t1`, as epic-status answers it), done, with one unchecked manual item. */
+function manualTicket(project: string, epic: string, check: string): void {
+  writeFileSync(
+    join(scratch, project, '.scratch', epic, 'issues', '01-t1.md'),
+    ['# 01 — Ticket 1', '', 'Type: task', `Status: done ${stamp(HOUR)}`, 'Blocked by: —', '', '## Done when', '', '- [x] Unit test', `- [ ] (manual) ${check}`, '', '## Result', '', 'text', ''].join('\n'),
+  )
+}
+
+test('the Acceptance section: the rail badge counts Ready to check, the section counts by Project, a click opens the view on the item', async () => {
+  manualTicket('orchard', 'orchard-billing', 'Pay an invoice twice → the second is refused')
+  manualTicket('harbor', 'harbor-docks', 'Book a dock → the calendar shows it')
+  const launched = await launch()
+  try {
+    const { window } = launched
+    await setWindowSize(launched, SIZE)
+    // The badge shows while another section is open: two checks, one in each Project.
+    await expect(tab(window, 'Projects')).toHaveAttribute('aria-selected', 'true')
+    await expect(tab(window, 'Acceptance').getByTestId('sidebar-rail-badge')).toHaveText('2')
+    await expect(tab(window, 'Acceptance')).toHaveAttribute('aria-description', '2 checks ready to check')
+
+    await tab(window, 'Acceptance').click()
+    const section = window.getByRole('region', { name: 'Acceptance', exact: true })
+    await expect(section.getByTestId('acceptance-section-project')).toHaveText(['orchard', 'harbor'])
+    const rows = section.getByTestId('acceptance-section-row')
+    await expect(rows).toHaveText([/Ready to check\s*1/, /Ready to check\s*1/])
+    await parkPointer(window)
+    const screens = join(repoRoot, 'test-results', 'worfy-acceptance-06-screens')
+    mkdirSync(screens, { recursive: true })
+    const shots = await snapshotThemes(window, 'acceptance-06-section-1280')
+    for (const scheme of ['light', 'dark'] as const) copyFileSync(shots[scheme], join(screens, `sidebar-acceptance-1280-${scheme}.png`))
+
+    // A click on harbor's row: the view, on harbor's item, with the open Project left as it was.
+    await rows.nth(1).click()
+    await expect(window.locator('[data-view="acceptance"]')).toBeVisible()
+    await expect(window.locator('[data-testid="acceptance-row"][data-selected="true"]')).toHaveAttribute('data-key', `${HARBOR}\nharbor-docks\n1\n2`)
+    await expect(window.getByTestId('acceptance-pane')).toContainText('Book a dock')
+    await expect(window.locator('.w-toolbar__name')).toHaveText('orchard')
+    // The Canvas is hidden now (parkPointer needs it): the pointer goes to the empty foot of the item pane.
+    await window.mouse.move(SIZE.width - 8, SIZE.height - 8)
+    const view = await snapshotThemes(window, 'acceptance-06-view-1280')
+    for (const scheme of ['light', 'dark'] as const) copyFileSync(view[scheme], join(screens, `sidebar-acceptance-view-1280-${scheme}.png`))
   } finally {
     await launched.close()
   }
