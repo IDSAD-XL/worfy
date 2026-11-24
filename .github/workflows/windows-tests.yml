@@ -25,8 +25,8 @@ name: Windows tests
 #   only under its own value; two jobs, no matrix;
 # - mode files, $0.10 at most: the input "files" is an explicit list of 1 to 12 test files, and an
 #   empty list is refused; every element is an existing *.test.ts or *.test.tsx file under
-#   test/unit/ or test/contract/; a name with "e2e", "packaged" or "acceptance", a pattern, a folder
-#   and an option are refused; the job runs `node scripts/vitest-electron.mjs <files>` and never
+#   test/unit/ or test/contract/; a name with "e2e" or "packaged", an "acceptance" folder or a name
+#   whose last word is "acceptance", a pattern, a folder and an option are refused; the job runs `node scripts/vitest-electron.mjs <files>` and never
 #   `pnpm test`; stopped after 10 minutes;
 # - mode full, $0.60 at most: a list of files is refused, not ignored; the job runs `pnpm test` and
 #   nothing else of the suite (no `test:e2e`, `test:package` or acceptance), with `--shard` only
