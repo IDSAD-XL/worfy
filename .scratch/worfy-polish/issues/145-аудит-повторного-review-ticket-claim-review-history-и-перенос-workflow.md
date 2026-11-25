@@ -1,7 +1,7 @@
 # 145 — Аудит повторного review: ticket claim, review-history и перенос workflow
 
 Type: bug
-Status: claimed 2026-11-25T16:45Z
+Status: done 2026-11-25T19:11Z
 PR: #2223
 Branch: worfy-polish/145
 Blocked by: none
@@ -63,21 +63,25 @@ PR (ADR-0056): вердикт Windows — job-ы Windows в CI.
   - evidence: test-run pass · `bash harness/bin/tests/review-history.test.sh` exit 0; mutants without readOn for reviewThreads, comments, thread comments each exit 1 · mac - · fb1591375c55906323f3b1e1570ebe050f000436
   - evidence: test-run pass · `bash harness/bin/tests/review-history.test.sh` exit 0 (review round 1 head) · mac - · af6a038cd17648c1a706c91b16868a0d33349bdc
   - evidence: test-run pass · `pnpm test` exit 0 inside gate fast, review-history.test.sh in the harness shell suite (review round 2 head) · mac - · 24480d05e80bb293b532d0e1537205d92e7ef0fe
+  - evidence: review pass · PR #2223 · - - · 0f78e9a2c4bc38819b1199ff10a5add06901feb2
 - [ ] 97: test в `harness/bin/tests/ticket-header.test.sh` — второй `claim` с другой `--branch` — exit 1, Status и
       `Branch:` не изменились; с `--force` — перезаписаны; с той же `--branch` — разрешён. Красный на origin/main.
   - evidence: test-run pass · `bash harness/bin/tests/ticket-header.test.sh` exit 0; on origin/main code 4 new cases FAIL · mac - · fb1591375c55906323f3b1e1570ebe050f000436
   - evidence: test-run pass · `bash harness/bin/tests/ticket-header.test.sh` exit 0; the branch read as epic-status reads it (review round 1) · mac - · af6a038cd17648c1a706c91b16868a0d33349bdc
   - evidence: test-run pass · `bash harness/bin/tests/ticket-header.test.sh` exit 0 (review round 2 head) · mac - · 24480d05e80bb293b532d0e1537205d92e7ef0fe
+  - evidence: review pass · PR #2223 · - - · 0f78e9a2c4bc38819b1199ff10a5add06901feb2
 - [ ] 113: test в `harness/bin/tests/profile-set-move.test.sh` — stand-in `$PROFILE_SET_GH` печатает полученный
       `GH_TOKEN`; при `github.account` в profile это token этого аккаунта. Красный на origin/main.
   - evidence: test-run pass · `bash harness/bin/tests/profile-set-move.test.sh` exit 0; on origin/main code the github.account token cases FAIL · mac - · fb1591375c55906323f3b1e1570ebe050f000436
   - evidence: test-run pass · `bash harness/bin/tests/profile-set-move.test.sh` exit 0 (review round 1 head) · mac - · af6a038cd17648c1a706c91b16868a0d33349bdc
   - evidence: test-run pass · `pnpm test` exit 0 inside gate fast, profile-set-move.test.sh in the harness shell suite (review round 2 head) · mac - · 24480d05e80bb293b532d0e1537205d92e7ef0fe
+  - evidence: review pass · PR #2223 · - - · 0f78e9a2c4bc38819b1199ff10a5add06901feb2
 - [ ] 114: test в `harness/bin/tests/profile-set-move.test.sh` — перенос Full → Silent переносит `docs/product/` в
       `<Workflow folder>/product/`, обратный — назад; откат при сбое возвращает её. Красный на origin/main.
   - evidence: test-run pass · `bash harness/bin/tests/profile-set-move.test.sh` exit 0 and `bash harness/bin/tests/profile-set-move-recover.test.sh` exit 0; on origin/main code both FAIL · mac - · fb1591375c55906323f3b1e1570ebe050f000436
   - evidence: test-run pass · `bash harness/bin/tests/profile-set-move.test.sh` exit 0 and `bash harness/bin/tests/profile-set-move-recover.test.sh` exit 0; overlap and product-already-there mutants exit 1 · mac - · af6a038cd17648c1a706c91b16868a0d33349bdc
   - evidence: test-run pass · `pnpm test` exit 0 inside gate fast, profile-set-move and profile-set-move-recover in the harness shell suite (review round 2 head) · mac - · 24480d05e80bb293b532d0e1537205d92e7ef0fe
+  - evidence: review pass · PR #2223 · - - · 0f78e9a2c4bc38819b1199ff10a5add06901feb2
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `bash harness/bin/tests/review-history.test.sh`,
       `ticket-header.test.sh`, `profile-set-move.test.sh`, `profile-set-move-recover.test.sh` — exit 0; `ci-ok`
       зелёный на head PR, job-ы Windows CI зелёные (платформенный PR).
@@ -87,6 +91,7 @@ PR (ADR-0056): вердикт Windows — job-ы Windows в CI.
   - evidence: gate pass · `gate fast` exit 0 (review round 1 head) · mac - · af6a038cd17648c1a706c91b16868a0d33349bdc
   - evidence: test-run pass · `pnpm lint && pnpm typecheck` exit 0; binding, edit-profile, bindings, codex-binding tests exit 0 (review round 2 head) · mac - · 24480d05e80bb293b532d0e1537205d92e7ef0fe
   - evidence: gate pass · `gate fast` exit 0 (review round 2 head) · mac - · 24480d05e80bb293b532d0e1537205d92e7ef0fe
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45675434362/job/139446849347 · ci - · 0f78e9a2c4bc38819b1199ff10a5add06901feb2
 
 ## Где в коде
 

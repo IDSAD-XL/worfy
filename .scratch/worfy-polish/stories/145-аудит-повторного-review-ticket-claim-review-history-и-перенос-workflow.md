@@ -239,3 +239,16 @@ Code: `src/shared/binding/signals.ts:122-140` · key lines: 126, 138, 139
 3. Под каким аккаунтом спросит `gh pr list`, если `gh auth token -u <account>` упал?
    - Ответ: под GH_TOKEN или аккаунтом gh вызывающего — `env.GH_TOKEN` не меняется, как без аккаунта в profile.
    - Строки: `harness/lib/workflow-move.cjs:251-252`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 145 (audit re-review findings 21, 97, 113, 114: review-history reads on to second pages, ticket claim refuses another branch's claimed ticket, the workflow move checks PRs under github.account and moves the Product Session folder), head 0f78e9a2c4bc38819b1199ff10a5add06901feb2
+>
+> Gate (depth medium, three rounds): reviewer (lens: correctness) — MERGE with five lows, all sent back because they touched live flows (claim read Branch: unlike epic-status; docs examples and ship-ticket step 1 without --branch; the move confirmation without the Product Session folder; Binding kept a refused claim); a narrow reviewer on round 1 — FIX (high: the new Binding rollback used the whole command's isError — replayed over 13 037 real transcripts, 41 of 1 403 claims changed); a narrow reviewer on round 2 — MERGE with three lows.
+>
+> - What it does: ticket claim on a ticket claimed with a Branch: line refuses another or a missing --branch (exit 1, naming the holding branch and time; --force overrides), reading the branch as epic-status does; ship-ticket step 1, TICKETS.md and the --repo hint pass --branch; review-history's paging pinned by tests; the Full ↔ Silent workflow move asks gh under the profile's github.account token (never printed) and moves docs/product ↔ product with the same refusal, rollback and recovery; the move confirmation names the Product Session folder; a Session's Binding drops a claim only on the exact refusal line ticket prints for that ticket (replay: 1 of 1 406 real claims changes vs origin/main — a genuine refusal).
+> - Evidence: harness shell tests ticket-header, review-history, profile-set-move, profile-set-move-recover, multi-repo, silent-mode, tickets-root, wave-brief, worktree-lock-prune, skill-blocks, epic-wave-ship-ticket and others EXIT=0; binding, edit-profile, bindings, codex-binding tests EXIT=0; pnpm lint, typecheck, test EXIT=0; gate fast green on 24480d05e; story-check ok; regex timing 3–6 ms on 2–2.6 MB output.
+> - Not verified: a real gh auth token -u (stand-in); Windows (CI decides, platform PR).
+> - Noted (low, three-round cap reached): claim after a refused one in `a && b` still binds; four regex parts and the claim order have no test (mutants survive: leading zeros, optional time, drive letter, backslash); a research-triage symlinked ticket path is not recognised; the Codex Binding still ignores the result.
+>
+> Decided without the owner (to confirm): --force only with claim; a refusal is exit 1; open, blocked or done tickets are claimed without --force; Silent mode's first claim goes without --branch; with no gh login under github.account the move asks under the caller's account; a workflow path holding docs/product moves it as it is; only the «already claimed by another branch» refusal unbinds a claim.
