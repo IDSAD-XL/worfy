@@ -14,6 +14,7 @@ import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channel
 import type { MindMapNode } from '../../src/shared/product/mind-map'
 import { adviceShare, adviceTotals, criticAdvice, fromCriticReview, mindMapAdvice, type AdviceShare } from '../../src/shared/product/share'
 import { APP_URL, INDEX_HTML } from '../app-url'
+import { fakeProductSystem, reads } from './product-fake-fs'
 import { removeTestTree } from '../remove'
 
 const where = vi.hoisted(() => ({ root: '', mode: 'full' as 'full' | 'silent', workflowFolder: '' }))
@@ -253,5 +254,58 @@ describe('product.share', () => {
     expect(((await call({ projectId: 'p1' })) as { ok: true; value: AdviceShare }).value.mindMap).toEqual({ accepted: 1, rejected: 0, pending: 1 })
     writeMap('pricing', PRICING.map((node) => (node.id === 'o-2' ? { ...node, kind: 'decision', status: 'rejected', reason: 'two weeks is enough' } : node)))
     expect(((await call({ projectId: 'p1' })) as { ok: true; value: AdviceShare }).value.mindMap).toEqual({ accepted: 1, rejected: 1, pending: 0 })
+  })
+})
+
+// worfy-polish ticket 146 (audit findings 59 and 80): on Windows a read through a symlink to
+// `\\host\share\…` hands that host the user's credentials. The Product Session folder is checked before
+// it is listed, and each critic's review before it is read; the path rules are path.win32 and the file
+// system is replaced, so this runs on any machine.
+describe('readAdviceShare and a link that leads to another host (Windows rules)', () => {
+  const ROOT = 'C:\\p\\repo'
+  const DIR = ['docs', 'product']
+  const PRODUCT = 'C:\\p\\repo\\docs\\product'
+  const NONE = { accepted: 0, rejected: 0, pending: 0 }
+
+  it('lists nothing of a Product Session folder that is a link to a share: no topic, no review, no readdir', async () => {
+    const { readAdviceShare } = await import('../../src/main/ipc/product')
+    const system = fakeProductSystem({ files: { 'C:\\p\\repo\\docs\\README.md': '# docs' }, links: { [PRODUCT]: '\\\\evil.example\\share\\product' } })
+
+    expect(await readAdviceShare(ROOT, DIR, system.options)).toEqual({ mindMap: NONE, critic: NONE, skipped: [] })
+    // The link is looked at with lstat and readlink; nothing reads through it.
+    expect(system.calls).toContain(`readlink ${PRODUCT}`)
+    expect(reads(system.calls).filter((call) => !call.startsWith('realpath '))).toEqual([])
+  })
+
+  it('lists no review of a critic folder that is a link to a share: no readdir of it; the topics still count', async () => {
+    const { readAdviceShare } = await import('../../src/main/ipc/product')
+    const system = fakeProductSystem({
+      files: { [`${PRODUCT}\\roadmap\\map.md`]: '# roadmap\n', [`${PRODUCT}\\roadmap\\mind-map.json`]: JSON.stringify({ version: 1, nodes: ROADMAP }) },
+      links: { [`${PRODUCT}\\critic`]: '\\\\evil.example\\share\\critic' },
+    })
+
+    expect(await readAdviceShare(ROOT, DIR, system.options)).toEqual({ mindMap: { accepted: 1, rejected: 1, pending: 1 }, critic: NONE, skipped: [] })
+    expect(system.calls).toContain(`readlink ${PRODUCT}\\critic`)
+    expect(system.calls).not.toContain(`readdir ${PRODUCT}\\critic`)
+  })
+
+  it('reads no review that is a link to a share and names it among the files left out; the other review counts', async () => {
+    const { readAdviceShare } = await import('../../src/main/ipc/product')
+    const system = fakeProductSystem({
+      files: {
+        [`${PRODUCT}\\roadmap\\map.md`]: '# roadmap\n',
+        [`${PRODUCT}\\roadmap\\mind-map.json`]: JSON.stringify({ version: 1, nodes: ROADMAP }),
+        [`${PRODUCT}\\critic\\worfy-pricing-2026-11-08.md`]: REVIEW,
+      },
+      links: { [`${PRODUCT}\\critic\\worfy-other-2026-11-09.md`]: '\\\\evil.example\\share\\review.md' },
+    })
+
+    const share = await readAdviceShare(ROOT, DIR, system.options)
+
+    expect(share.mindMap).toEqual({ accepted: 1, rejected: 1, pending: 1 })
+    expect(share.critic).toEqual({ accepted: 1, rejected: 1, pending: 1 })
+    expect(share.skipped).toEqual([{ file: 'critic/worfy-other-2026-11-09.md', message: expect.stringMatching(/another host/) as unknown }])
+    expect(system.calls).toContain(`readFile ${PRODUCT}\\critic\\worfy-pricing-2026-11-08.md`)
+    expect(system.calls).not.toContain(`readFile ${PRODUCT}\\critic\\worfy-other-2026-11-09.md`)
   })
 })

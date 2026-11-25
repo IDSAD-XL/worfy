@@ -115,6 +115,33 @@ describe('sdkQueryFactory', () => {
     expect(told[0]).toMatchObject({ ...LOGIN_ENV, TMPDIR: '/tmp/run-tmp' })
   })
 
+  // worfy-polish ticket 146 (audit finding 93): the guard sdkQueryFactory gives Claude Code reads the Project's
+  // list of folders a Product Session may also write, and asks the person at the Session about another one.
+  it("gives a Product Session's guard its productWrites: a listed folder outside its own is written, another is asked about and refused", async () => {
+    const { fakePreToolUse } = await import('../../src/main/vendors/claude/query')
+    const top = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-product-writes-')))
+    try {
+      const project = join(top, 'alpha')
+      mkdirSync(join(project, 'docs', 'product'), { recursive: true })
+      const listed = join(project, 'context')
+      const asked: string[] = []
+      await sdkQueryFactory(undefined, undefined, {
+        productFolder: () => Promise.resolve(join(project, 'docs', 'product')),
+        productWriteList: () => ({ read: () => [listed], add: () => undefined }),
+        mindMap: () => Promise.resolve(null),
+      })({ ...request(), cwd: project, kind: 'product', askProductWrite: (question) => (asked.push(question.target.path), Promise.resolve('deny')) })
+      const run = fakePreToolUse(sdkOptions().hooks as Parameters<typeof fakePreToolUse>[0])
+      const write = (path: string) => run?.({ toolName: 'Write', toolUseId: 't', input: { file_path: path }, cwd: project }, new AbortController().signal)
+
+      expect((await write(join(listed, 'brief.md')))?.decision).not.toBe('deny')
+      expect(asked).toEqual([])
+      expect((await write(join(project, 'notes', 'plan.md')))?.decision).toBe('deny')
+      expect(asked).toEqual([join(project, 'notes', 'plan.md')])
+    } finally {
+      removeTestTree(top)
+    }
+  })
+
   it('adds no hook and no variable to a Session without them', async () => {
     await sdkQueryFactory()(request())
     expect(sdkOptions()).not.toHaveProperty('hooks')

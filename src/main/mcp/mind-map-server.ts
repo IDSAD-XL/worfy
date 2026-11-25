@@ -24,8 +24,7 @@
 // Session's messages showed it before the call reached the handler (mindMapForSession); otherwise none.
 import { randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
-import { readdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import * as nativePath from 'node:path'
 import { z } from 'zod'
 import { checkMindMap, MIND_MAP_PLACED, MIND_MAP_VERSION, mindMapSchema, type MindMap, type MindMapNode } from '../../shared/product/mind-map'
 import { CRITIC_DIR, isProductTopicName, MIND_MAP_FILE, productTopicFolder } from '../../shared/product/paths'
@@ -42,12 +41,13 @@ import {
 import { sdkMessageToEvents } from '../../shared/vendors/claude/events'
 import { productToolDecision } from '../agent/product-guard'
 import { retriedOnWindows } from '../harness/install'
-import { readTopic, type ProductTopic } from '../product/topic'
+import { linkRefusal, nodeProductFs, projectFolders, readTopic, type ProductReadOptions, type ProductTopic } from '../product/topic'
 import { appSaveSignal, saveAnswer } from '../product/save-signal'
 import { writeJsonFile } from '../storage/json-file'
 import { claudeMcpServer, type ClaudeMcpServer } from '../vendors/claude/mcp'
 import type { McpServer, McpToolResult } from '../vendors/mcp'
 import { projectStore, type StoredProject } from '../projects/store'
+import { cachedLinks } from '../remote-links'
 import { observeMessages, projectForCwd, repositoryRoot } from './canvas-server'
 import instructions from './agent-instructions-mind-map.md?raw'
 
@@ -79,6 +79,8 @@ export interface MindMapWriterOptions {
   /** The system the retries are judged for (retriedOnWindows); this process's by default. The guard always judges this one. */
   platform?: NodeJS.Platform
   retryMs?: number
+  /** The path rules, links and file calls the topic is read and checked with: the platform's and Node's by default; replaced in tests. */
+  files?: ProductReadOptions
 }
 
 /** A change of one topic's map: the new map and what to answer. Throws ToolError to refuse. */
@@ -95,19 +97,23 @@ export class MindMapWriter {
    * writes it, after every earlier change of the same file. Rejects with the reason, and writes nothing,
    * for a topic name that is not one, a target outside the folder, a file that does not pass the check,
    * a refused change and a changed map that does not pass the check.
+   *
+   * `root` is the root of the Project's documents (docsSource of src/main/ipc/docs.ts): on Windows the links on
+   * the way to the file are checked from there before anything follows them, and a way that leads to another
+   * host is refused (worfy-polish ticket 146). Without it they are checked from the Product Session folder.
    */
-  update<T>(productFolder: string, topic: string, change: MindMapChange<T>): Promise<T> {
+  update<T>(productFolder: string, topic: string, change: MindMapChange<T>, root?: string): Promise<T> {
     const platform = process.platform
     let file: string
     try {
-      file = join(productTopicFolder(productFolder, topic), MIND_MAP_FILE)
+      file = (this.options.files?.paths ?? nativePath).join(productTopicFolder(productFolder, topic), MIND_MAP_FILE)
     } catch (error) {
       return Promise.reject(new ToolError(error instanceof Error ? error.message : String(error)))
     }
     // The disks of macOS and Windows ignore case by default: `Roadmap` and `roadmap` are one file.
     const key = platform === 'linux' ? file : file.toLowerCase()
     const before = this.chains.get(key) ?? Promise.resolve()
-    const next = before.then(() => this.apply(productFolder, file, platform, change))
+    const next = before.then(() => this.apply(productFolder, file, platform, change, root ?? productFolder))
     const settled = next.catch(() => undefined)
     this.chains.set(key, settled)
     void settled.then(() => {
@@ -116,10 +122,14 @@ export class MindMapWriter {
     return next
   }
 
-  private async apply<T>(productFolder: string, file: string, platform: NodeJS.Platform, change: MindMapChange<T>): Promise<T> {
+  private async apply<T>(productFolder: string, file: string, platform: NodeJS.Platform, change: MindMapChange<T>, root: string): Promise<T> {
+    // Before the guard: it resolves the real path of the file, which follows a link to a share.
+    const files = await checkedFrom(root, this.options.files)
+    const refused = await linkRefusal(file, files.allowed, files)
+    if (refused !== null) throw new ToolError(`The Mind map is not written: ${file} ${refused}.`)
     const place = productToolDecision('Write', { file_path: file }, { productDir: productFolder, cwd: null }, platform)
     if (!place.allow) throw new ToolError(`The Mind map is not written: ${place.reason}`)
-    const topic = await readTopic(join(file, '..'))
+    const topic = await readTopic(files.paths.dirname(file), files)
     const broken = topic.errors.filter((error) => error.file === MIND_MAP_FILE)
     if (broken.length > 0) throw new ToolError(`${MIND_MAP_FILE} of topic ${topic.name} has errors; mend them first, nothing was written:\n${broken.map((error) => `- ${error.message}`).join('\n')}`)
     const tickets = topic.tickets.map((ticket) => ticket.number)
@@ -149,13 +159,25 @@ export class MindMapWriter {
   }
 }
 
+/**
+ * The read options of one call that reads or writes topics: one answer per link for all its walks, and the
+ * folders they start from — `root` as written and as its real path (projectFolders), or `root` alone when that
+ * real path cannot be found.
+ */
+async function checkedFrom(root: string, files: ProductReadOptions = {}): Promise<Required<Pick<ProductReadOptions, 'paths' | 'links'>> & ProductReadOptions & { allowed: readonly string[] }> {
+  const paths = files.paths ?? nativePath
+  const allowed = (await projectFolders(root, { paths, fs: files.fs ?? nodeProductFs })) ?? [root]
+  return { ...files, paths, links: cachedLinks(files.links), allowed }
+}
+
 let sharedWriter: MindMapWriter | null = null
 
 /** The app's one writer of Mind map files: the tools of every Product Session, and the screen (ticket 09). */
 export const mindMapWriter = (): MindMapWriter => (sharedWriter ??= new MindMapWriter())
 
 /** Applies a change to a topic's Mind map through the app's one writer: the tools' writes and the screen's moves (ticket 09). */
-export const updateMindMap = <T>(productFolder: string, topic: string, change: MindMapChange<T>): Promise<T> => mindMapWriter().update(productFolder, topic, change)
+export const updateMindMap = <T>(productFolder: string, topic: string, change: MindMapChange<T>, root?: string): Promise<T> =>
+  mindMapWriter().update(productFolder, topic, change, root)
 
 /** What the owner changes of a node by hand (`product.layout`): its place, and whether its branch is folded. */
 export interface MindMapLayout {
@@ -215,6 +237,15 @@ export interface MindMapContext {
   writer?: MindMapWriter
   /** A new node id; a short random one by default. */
   newId?: () => string
+  /**
+   * The root of the Project's documents — the Project root in Full mode, the Workflow folder in Silent mode
+   * (docsSource of src/main/ipc/docs.ts): on Windows each topic file the tools read or write is checked for a
+   * link to another host from there and from its real path (readTopic; worfy-polish ticket 146), so a share
+   * the root lies on is the Project's own. Without it the check starts at the Product Session folder.
+   */
+  root?: string
+  /** The path rules, links and file calls the topics are read with: the platform's and Node's by default; replaced in tests. */
+  files?: ProductReadOptions
 }
 
 const NO_FOLDER = 'The Product Session folder of this Project could not be found (its profile did not answer): the Mind map cannot be read or changed now.'
@@ -252,6 +283,8 @@ function handlers(context: MindMapContext): Handlers {
     if (context.productFolder === null) throw new ToolError(NO_FOLDER)
     return context.productFolder
   }
+  /** A change of a topic's Mind map, checked from the root of the Project's documents. */
+  const update = <T>(topic: string, change: MindMapChange<T>): Promise<T> => writer.update(folder(), topic, change, context.root)
   const stamp = (message: string | null): { message?: string } => (message === null ? {} : { message })
   /** `node` as changed in chat message `message`: a change whose message is not known leaves none, not the old one. */
   const restamped = (node: MindMapNode, message: string | null): MindMapNode => {
@@ -263,14 +296,16 @@ function handlers(context: MindMapContext): Handlers {
   return {
     mind_map_read: async ({ topic }) => {
       const root = folder()
+      // One answer per link for every walk of this call, and each file checked before it is read.
+      const files = await checkedFrom(context.root ?? root, context.files)
       if (topic !== undefined) {
-        const names = await topicNames(root)
+        const names = await topicNames(root, files)
         if (!names.includes(topic)) throw new ToolError(`There is no topic ${topic} yet. Topics: ${names.length === 0 ? '(none)' : names.join(', ')}.`)
-        return topicAnswer(await readTopic(productTopicFolder(root, topic)))
+        return topicAnswer(await readTopic(productTopicFolder(root, topic), files))
       }
       const topics = []
-      for (const name of await topicNames(root)) {
-        const read = await readTopic(productTopicFolder(root, name))
+      for (const name of await topicNames(root, files)) {
+        const read = await readTopic(productTopicFolder(root, name), files)
         topics.push({ topic: name, title: read.title, tickets: read.tickets.length, nodes: read.nodes.length, errors: read.errors.length })
       }
       return { topics }
@@ -278,9 +313,9 @@ function handlers(context: MindMapContext): Handlers {
 
     mind_map_add: async (args, message) => {
       // A misspelled topic would make a stray folder: a topic begins with its map, made with Write.
-      const names = await topicNames(folder())
+      const names = await topicNames(folder(), await checkedFrom(context.root ?? folder(), context.files))
       if (!names.includes(args.topic)) throw new ToolError(`There is no topic ${args.topic} yet: write its map.md first. Topics: ${names.length === 0 ? '(none)' : names.join(', ')}.`)
-      return writer.update(folder(), args.topic, (map) => {
+      return update(args.topic, (map) => {
         if (args.kind !== 'decision' && (args.status !== undefined || args.reason !== undefined || args.replaces !== undefined)) {
           throw new ToolError('status, reason and replaces belong to a decision: add it with kind "decision", or decide the node later with mind_map_decide.')
         }
@@ -295,7 +330,7 @@ function handlers(context: MindMapContext): Handlers {
     },
 
     mind_map_update: (args, message) =>
-      writer.update(folder(), args.topic, (map) => {
+      update(args.topic, (map) => {
         const node = nodeOf(map, args.id)
         if (args.text === undefined && args.kind === undefined && args.source === undefined && args.advice === undefined) throw new ToolError('Nothing to change: give text, kind, source or advice.')
         if (node.kind === 'decision' && args.kind !== undefined && args.kind !== 'decision') throw new ToolError('A Decision stays a Decision: change its status and reason with mind_map_decide.')
@@ -318,7 +353,7 @@ function handlers(context: MindMapContext): Handlers {
       }),
 
     mind_map_decide: (args, message) =>
-      writer.update(folder(), args.topic, (map) => {
+      update(args.topic, (map) => {
         const node = nodeOf(map, args.id)
         const history =
           node.kind === 'decision' && node.status !== undefined && node.reason !== undefined
@@ -339,7 +374,7 @@ function handlers(context: MindMapContext): Handlers {
       }),
 
     mind_map_remove: (args) =>
-      writer.update(folder(), args.topic, (map) => {
+      update(args.topic, (map) => {
         const node = nodeOf(map, args.id)
         if (node.kind === 'decision') throw new ToolError('A Decision is never removed: it stays as the record of what was decided. Reject it with mind_map_decide instead.')
         const children = map.nodes.filter((each) => each.from === node.id || each.replaces === node.id)
@@ -351,11 +386,16 @@ function handlers(context: MindMapContext): Handlers {
   }
 }
 
-/** The topic folders of the Product Session folder, by name; none when it does not exist yet. */
-async function topicNames(root: string): Promise<string[]> {
+/**
+ * The topic folders of the Product Session folder, by name; none when it does not exist yet. On Windows a
+ * folder whose way leads to another host through a link is refused before it is listed (worfy-polish ticket 146).
+ */
+async function topicNames(root: string, files: ProductReadOptions & { allowed?: readonly string[] } = {}): Promise<string[]> {
+  const refused = await linkRefusal(root, files.allowed ?? [root], { paths: files.paths ?? nativePath, links: files.links })
+  if (refused !== null) throw new ToolError(`The Product Session folder ${root} ${refused}.`)
   let entries
   try {
-    entries = await readdir(root, { withFileTypes: true })
+    entries = await (files.fs ?? nodeProductFs).readdir(root)
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return []
     throw error
@@ -462,9 +502,18 @@ export interface MindMapDeps {
   repositoryRoot?: (folder: string) => Promise<string | null>
   /** The save signal's answer for Project `projectId`; the app's save signal by default. */
   save?: (projectId: string) => Promise<string>
+  /** The root of the documents of the Project at `path` (docsRoot of src/main/ipc/docs.ts) by default. */
+  documentsRoot?: (path: string) => Promise<string>
+  /** The path rules, links and file calls of the topics; replaced in tests. */
+  files?: ProductReadOptions
+  /** The writer of the tools; the app's one writer by default. */
+  writer?: MindMapWriter
 }
 
 const appMindMapDeps = (): MindMapDeps => ({ projects: () => projectStore().list() })
+
+/** docsRoot, imported at call time: src/main/ipc/docs.ts keeps the app's documents watcher. */
+const appDocumentsRoot = async (path: string): Promise<string> => (await import('../ipc/docs')).docsRoot(path)
 
 /** The Mind map server of a Product Session starting in `cwd`; null outside every Project. */
 export async function mindMapForSession(request: MindMapRequest, deps: MindMapDeps = appMindMapDeps()): Promise<MindMapSession | null> {
@@ -477,9 +526,17 @@ export async function mindMapForSession(request: MindMapRequest, deps: MindMapDe
   const projectId = project.id
   const save = deps.save ?? (async (id: string) => saveAnswer(await appSaveSignal().signal(id)))
   const messages = new CallMessages()
+  // The same root the screen reads the topics from (product.topic): the Workflow folder in Silent mode.
+  const root = await (deps.documentsRoot ?? appDocumentsRoot)(project.path).catch((error: unknown) => {
+    console.warn(`[mind-map] no documents root for ${project.path}; the links are checked from the Project root`, error)
+    return project.path
+  })
   const server = await claudeMcpServer(
     mindMapServer({
       productFolder: request.productFolder,
+      root,
+      ...(deps.files === undefined ? {} : { files: deps.files }),
+      ...(deps.writer === undefined ? {} : { writer: deps.writer }),
       messageOf: (name, args) => messages.take(name, args),
       save: () => save(projectId),
     }),

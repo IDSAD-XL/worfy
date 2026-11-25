@@ -6,11 +6,81 @@
 // screen shows the error and the node it is about instead of an empty map. Nothing here writes. In
 // particular mind-map.json is not read with readJsonFile (src/main/storage/json-file.ts): that one
 // renames a file it cannot parse, and this file belongs to the Project, edited by hand or by an agent.
-import { readdir, readFile } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+//
+// On Windows a read through a symlink to `\\host\share\…` makes the system hand that host the user's
+// credentials (worfy-windows tickets 18 and 19), and a topic is read as soon as its Product Session
+// is open, with no click. So each file and folder of the topic is checked for such a link
+// (walkLinks of src/main/remote-links.ts) before it is read; one that leads there is not read, and the
+// topic names it among its errors (worfy-polish ticket 146).
+import { readdir, readFile, realpath, stat } from 'node:fs/promises'
+import * as nativePath from 'node:path'
 import { checkMindMap, type MindMapNode } from '../../shared/product/mind-map'
 import { MAP_FILE, MAP_ISSUES_DIR, MIND_MAP_FILE } from '../../shared/product/paths'
+import { cachedLinks, UNCHECKED, walkLinks, type LinkFs, type PathRules } from '../remote-links'
 import { firstHeading, issueKey } from '../workflow/reader'
+
+/** What is asked of the file system for the Product Session files; each call follows links. */
+export interface ProductFs {
+  /** The text of a file. */
+  readFile: (path: string) => Promise<string>
+  /** The entries of a folder; one that is a link is no folder here. */
+  readdir: (dir: string) => Promise<{ name: string; isDirectory: () => boolean }[]>
+  realpath: (path: string) => Promise<string>
+  /** Whether there is a folder at the path. */
+  isFolder: (path: string) => Promise<boolean>
+}
+
+export const nodeProductFs: ProductFs = {
+  readFile: (path) => readFile(path, 'utf8'),
+  readdir: (dir) => readdir(dir, { withFileTypes: true }),
+  realpath: (path) => realpath(path),
+  isFolder: (path) =>
+    stat(path).then(
+      (stats) => stats.isDirectory(),
+      () => false,
+    ),
+}
+
+/** How the Product Session files are read: the platform's rules and Node by default; path.win32 and replaced calls in tests. */
+export interface ProductReadOptions {
+  paths?: PathRules
+  /** lstat and readlink for the links on the way to a file (remote-links.ts). */
+  links?: LinkFs
+  fs?: ProductFs
+}
+
+export interface TopicReadOptions extends ProductReadOptions {
+  /**
+   * The folders the topic's files may lie in on a share — the Project root as written and as its real
+   * path — from which the walk of each file starts (walkLinks). The topic folder by default: the walk
+   * then starts there, and a link above it is not looked for.
+   */
+  allowed?: readonly string[]
+}
+
+/**
+ * The folders the walks of a Product Session file start from (walkLinks): `root` — the root of the Project's
+ * documents, the Workflow folder in Silent mode (docsSource of src/main/ipc/docs.ts) — as written and, under
+ * Windows rules, as its real path, so that a root on the user's own share, or reached through a link to one,
+ * is the Project's own. Null when that real path cannot be found.
+ */
+export async function projectFolders(root: string, options: { paths: PathRules; fs: Pick<ProductFs, 'realpath'> }): Promise<string[] | null> {
+  if (options.paths.sep !== '\\') return [root]
+  const base = await options.fs.realpath(root).catch(() => null)
+  return base === null ? null : [root, base]
+}
+
+/** What a topic error says of a file whose way leads to another host. */
+export const LEADS_TO_ANOTHER_HOST = 'leads to another host through a link: not read'
+
+/**
+ * Why `path` must not be read under Windows rules: a link on the way to it leads to another host, or a
+ * link could not be read; null to read it. Under any other rules null at once, with nothing asked.
+ */
+export async function linkRefusal(path: string, allowed: readonly string[], options: { paths: PathRules; links?: LinkFs | undefined }): Promise<string | null> {
+  const verdict = await walkLinks(path, allowed, options)
+  return verdict === 'remote' ? LEADS_TO_ANOTHER_HOST : verdict === 'unchecked' ? UNCHECKED : null
+}
 
 /** The word of a Ticket's `Status:` line (harness/bin/TICKETS.md, "Header"); `none` without a line or with an unknown word. */
 export type MapTicketStatus = 'open' | 'claimed' | 'blocked' | 'done' | 'none'
@@ -59,9 +129,19 @@ const STATUS_WORDS = new Set<MapTicketStatus>(['open', 'claimed', 'blocked', 'do
 /** What reading a file gave: its text, null when it is not there, or the reason it could not be read. */
 type Read = { text: string } | { missing: true } | { error: string }
 
-async function readText(path: string): Promise<Read> {
+/** The calls of one topic read and the check before each of them. */
+interface Reader {
+  paths: PathRules
+  fs: ProductFs
+  /** Why the path is not read (linkRefusal); null to read it. */
+  refusal: (path: string) => Promise<string | null>
+}
+
+async function readText(reader: Reader, path: string): Promise<Read> {
+  const refused = await reader.refusal(path)
+  if (refused !== null) return { error: refused }
   try {
-    return { text: await readFile(path, 'utf8') }
+    return { text: await reader.fs.readFile(path) }
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return { missing: true }
     return { error: error instanceof Error ? error.message : String(error) }
@@ -111,10 +191,16 @@ export function ticketStatus(markdown: string): MapTicketStatus {
   return 'none'
 }
 
-async function readTickets(folder: string, errors: TopicError[]): Promise<MapTicket[]> {
+async function readTickets(reader: Reader, folder: string, errors: TopicError[]): Promise<MapTicket[]> {
+  const issues = reader.paths.join(folder, MAP_ISSUES_DIR)
+  const refused = await reader.refusal(issues)
+  if (refused !== null) {
+    errors.push({ file: MAP_ISSUES_DIR, id: null, message: refused })
+    return []
+  }
   let names: string[]
   try {
-    names = await readdir(join(folder, MAP_ISSUES_DIR))
+    names = (await reader.fs.readdir(issues)).map((entry) => entry.name)
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return []
     errors.push({ file: MAP_ISSUES_DIR, id: null, message: error instanceof Error ? error.message : String(error) })
@@ -124,7 +210,7 @@ async function readTickets(folder: string, errors: TopicError[]): Promise<MapTic
   for (const file of names) {
     const key = issueKey(file)
     if (key === null) continue
-    const read = await readText(join(folder, MAP_ISSUES_DIR, file))
+    const read = await readText(reader, reader.paths.join(issues, file))
     if ('error' in read) errors.push({ file: `${MAP_ISSUES_DIR}/${file}`, id: null, message: read.error })
     if (!('text' in read)) continue
     const colon = key.indexOf(':')
@@ -140,11 +226,15 @@ async function readTickets(folder: string, errors: TopicError[]): Promise<MapTic
 }
 
 /** Reads the topic in `folder`. Never throws for the topic's files: what is wrong with them is in `errors`. */
-export async function readTopic(folder: string): Promise<ProductTopic> {
+export async function readTopic(folder: string, options: TopicReadOptions = {}): Promise<ProductTopic> {
+  const paths = options.paths ?? nativePath
+  const links = cachedLinks(options.links)
+  const allowed = options.allowed ?? [folder]
+  const reader: Reader = { paths, fs: options.fs ?? nodeProductFs, refusal: (path) => linkRefusal(path, allowed, { paths, links }) }
   const errors: TopicError[] = []
-  const topic: ProductTopic = { name: basename(folder), folder, title: null, sections: [], tickets: [], nodes: [], errors }
+  const topic: ProductTopic = { name: paths.parse(folder).base, folder, title: null, sections: [], tickets: [], nodes: [], errors }
 
-  const map = await readText(join(folder, MAP_FILE))
+  const map = await readText(reader, paths.join(folder, MAP_FILE))
   if ('text' in map) {
     topic.title = firstHeading(map.text)
     topic.sections = mapSections(map.text)
@@ -152,9 +242,9 @@ export async function readTopic(folder: string): Promise<ProductTopic> {
     errors.push({ file: MAP_FILE, id: null, message: 'missing' in map ? 'the topic has no map.md' : map.error })
   }
 
-  topic.tickets = await readTickets(folder, errors)
+  topic.tickets = await readTickets(reader, folder, errors)
 
-  const mindMap = await readText(join(folder, MIND_MAP_FILE))
+  const mindMap = await readText(reader, paths.join(folder, MIND_MAP_FILE))
   if ('error' in mindMap) errors.push({ file: MIND_MAP_FILE, id: null, message: mindMap.error })
   if (!('text' in mindMap)) return topic
   let value: unknown
