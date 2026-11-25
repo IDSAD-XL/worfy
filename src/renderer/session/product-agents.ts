@@ -2,6 +2,7 @@ import type { AgentEvent } from '../../shared/agent/events'
 import { DRAFTS_DIR, isProductTopicName, PRODUCT_SILENT_DIR } from '../../shared/product/paths'
 import { linesOutsideCodeBlocks } from '../../shared/product/share'
 import { harnessName } from '../../shared/agent/subagent-type'
+import { INTERRUPT_NOTICE } from '../../shared/transcript/parse'
 import type { SubagentInfo, SubagentStatus } from '../../shared/transcript/subagents'
 
 // The words of the agents list of a Product Session (ProductAgentsList.tsx, worfy-product-session
@@ -146,6 +147,81 @@ export function lastAnswerOf(events: readonly AgentEvent[]): string | undefined 
   }
   const text = parts.join('\n\n').trim()
   return text === '' ? undefined : text
+}
+
+/**
+ * A run of the Idea generator in the chat itself (ticket 36): the advisor runs the skill `worfy:product-ideas` in its
+ * own turn (harness/hooks/rules/product.md), not as a Subagent, so it has no transcript of its own. Its task, a state
+ * and times as a Subagent has them (productAgentState, productAgentTime), and the answer of that turn.
+ */
+export interface IdeasSkillRun {
+  description: string | null
+  status: SubagentStatus
+  startedAt: number | null
+  durationMs: number | null
+  answer: string | undefined
+}
+
+const IDEAS_SKILL = 'product-ideas'
+
+/** `worfy:product-ideas` or the bare `product-ideas`, with or without the `/` of a typed command. */
+const isIdeasSkill = (name: unknown): boolean => typeof name === 'string' && harnessName(name.replace(/^\//u, '')) === IDEAS_SKILL
+
+/** The `user` notice Claude Code writes when the owner stops a turn: no message of the owner, it closes the turn. */
+const isInterruptNotice = (event: AgentEvent): boolean => event.type === 'notice' && event.kind === 'user' && INTERRUPT_NOTICE.test(event.text)
+
+/**
+ * What the owner typed to start a turn: a prompt, a command, or a prompt read back from the transcript file — not the
+ * interrupt notice, which the rest of the chat does not take for a message either (history.ts, fold.ts).
+ */
+function turnStart(event: AgentEvent): string | undefined {
+  if (event.type === 'prompt' || (event.type === 'notice' && event.kind === 'user' && !isInterruptNotice(event))) return event.text
+  if (event.type === 'command') return `${event.name} ${event.args}`.trim()
+  return undefined
+}
+
+/**
+ * The last run of the Idea generator skill in the chat's `events`: a Skill call of `worfy:product-ideas` that was not
+ * refused, or the owner's own `/worfy:product-ideas`. Its task is the skill's arguments, else what the owner asked in
+ * that turn. It works while its turn runs — the last turn of a `busy` Session; it ends with the turn's result, or
+ * with the next turn the owner started (a transcript read back from its file holds no result): «interrupted» when the
+ * owner stopped it, «error» when the Session's process died in it; its end is the turn's last event. Its answer is the last
+ * message the advisor wrote in that turn, not a Subagent's. Undefined when the chat ran none.
+ */
+export function ideasSkillRunOf(events: readonly AgentEvent[], busy: boolean): IdeasSkillRun | undefined {
+  const refused = new Set<string>()
+  for (const event of events) if (event.type === 'tool_result' && event.isError) refused.add(event.toolUseId)
+  let asked: string | undefined
+  let run: { index: number; task: string | undefined; at: number | undefined } | undefined
+  events.forEach((event, index) => {
+    const typed = turnStart(event)
+    if (typed !== undefined) asked = typed
+    // The advisor's own call: a Subagent that runs the skill answers inside its own transcript, not in this turn.
+    if (event.type === 'tool_use' && event.name === 'Skill' && event.parentToolUseId === null && isObject(event.input) && isIdeasSkill(event.input.skill) && !refused.has(event.id)) {
+      const args = typeof event.input.args === 'string' ? event.input.args.trim() : ''
+      run = { index, task: args !== '' ? args : asked, at: event.at }
+    } else if (event.type === 'command' && isIdeasSkill(event.name)) run = { index, task: event.args.trim() || undefined, at: event.at }
+    else if (event.type === 'prompt') {
+      const typedCommand = /^\/(\S+)(?:\s+([\s\S]*))?$/u.exec(event.text.trim())
+      if (typedCommand !== null && isIdeasSkill(typedCommand[1])) run = { index, task: typedCommand[2]?.trim() || undefined, at: event.at }
+    }
+  })
+  if (run === undefined) return undefined
+  const after = events.slice(run.index + 1)
+  const next = after.findIndex((event) => turnStart(event) !== undefined)
+  const turn = next < 0 ? after : after.slice(0, next)
+  const end = turn.find((event): event is Extract<AgentEvent, { type: 'result' }> => event.type === 'result')
+  // A turn read back from its file has no result: the owner's stop leaves the interrupt notice, and a live Session
+  // whose process died leaves only its error state.
+  const died = turn.some((event) => event.type === 'state' && event.state === 'error')
+  const status: SubagentStatus =
+    end !== undefined ? (end.interrupted ? 'interrupted' : end.isError ? 'error' : 'done') : turn.some(isInterruptNotice) ? 'interrupted' : died ? 'error' : next < 0 && busy ? 'running' : 'done'
+  // The turn's own last event with a time: the owner's next message may come hours later.
+  const endAt = end?.at ?? turn.findLast((event) => event.at !== undefined)?.at
+  const startedAt = run.at ?? null
+  const durationMs = status === 'running' || startedAt === null || endAt === undefined ? null : Math.max(0, endAt - startedAt)
+  const answer = lastAnswerOf(turn.filter((event) => event.type !== 'text' || event.parentToolUseId === null))
+  return { description: run.task ?? null, status, startedAt, durationMs, answer }
 }
 
 /**

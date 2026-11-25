@@ -428,7 +428,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
         <Interrupt testId="session-interrupt" disabled={!busy} onClick={interrupt} />
       </header>
       {product ? (
-        <ProductSessionPanel projectId={projectId} nodeId={nodeId} sessionId={sessionId} events={events}>
+        <ProductSessionPanel projectId={projectId} nodeId={nodeId} sessionId={sessionId} events={events} busy={busy}>
           {chat}
         </ProductSessionPanel>
       ) : (

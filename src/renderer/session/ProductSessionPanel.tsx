@@ -51,6 +51,8 @@ export interface ProductSessionPanelProps extends RailBlockProps {
   children: ReactNode
   /** The chat's events, the loaded transcript and the live ones: the Drafts panel lists the drafts they wrote. */
   events?: readonly AgentEvent[] | undefined
+  /** The Session's turn is running: the Idea generator panel tells a run of the skill in it as working. */
+  busy?: boolean | undefined
 }
 
 /**
@@ -260,6 +262,8 @@ const ICONS: Readonly<Record<RailPanel, ReactNode>> = {
   ),
 }
 
+const NO_EVENTS: readonly AgentEvent[] = []
+
 /** The panels of the strip, in its order (ticket 27, Q2 of 2026-11-09): one is open at a time. */
 type RailPanel = 'agents' | 'critic' | 'ideas' | 'drafts'
 const PANELS: readonly RailPanel[] = ['agents', 'critic', 'ideas', 'drafts']
@@ -271,14 +275,18 @@ interface AgentsStripProps {
   root: string | undefined
   session: string | null
   drafts: readonly ProductDraft[]
+  chat: readonly AgentEvent[]
+  busy: boolean
 }
 
 /**
  * The strip at the right edge: Agents, Critic, Idea generator and Drafts (ticket 27). A button opens its panel
  * in the column to its right, the column widening and the chat narrowing (ticket 22); another button switches to
- * its panel, the same one, «›» and Escape close it. The numbers are the agents and the drafts.
+ * its panel, the same one, «›» and Escape close it. Escape is taken anywhere in the strip and its panel: a clicked
+ * button keeps the focus, so after «›» and a click on Agents again the key comes from the strip (ticket 36). With no
+ * panel open the key passes on. The numbers are the agents and the drafts.
  */
-function AgentsStrip({ projectId, agents, root, session, drafts }: AgentsStripProps) {
+function AgentsStrip({ projectId, agents, root, session, drafts, chat, busy }: AgentsStripProps) {
   const [open, setOpen] = useState<RailPanel | null>(null)
   const panelId = useId()
   const buttons = useRef(new Map<RailPanel, HTMLButtonElement>())
@@ -287,19 +295,20 @@ function AgentsStrip({ projectId, agents, root, session, drafts }: AgentsStripPr
     if (open !== null) buttons.current.get(open)?.focus()
     setOpen(null)
   }
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== 'Escape') return
+  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Escape' || open === null) return
     event.stopPropagation()
     close()
   }
   const panel = (shown: RailPanel): ReactNode => {
     if (shown === 'agents') return <ProductAgentsList agents={agents} root={root} session={session} />
     if (shown === 'critic') return <CriticPanel projectId={projectId} agents={agents} root={root} session={session} />
-    if (shown === 'ideas') return <IdeasPanel projectId={projectId} agents={agents} root={root} session={session} />
+    if (shown === 'ideas') return <IdeasPanel projectId={projectId} agents={agents} root={root} session={session} chat={chat} busy={busy} />
     return <DraftsPanel projectId={projectId} drafts={drafts} />
   }
   return (
-    <aside className="w-product__agents" aria-label="Agents" data-testid="product-agents" data-open={open !== null || undefined}>
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Esc collapses the open panel: the keys come up from the strip's buttons and the panel's controls; it is not a control itself.
+    <aside className="w-product__agents" aria-label="Agents" data-testid="product-agents" data-open={open !== null || undefined} onKeyDown={onKeyDown}>
       <div className="w-product__agents-strip">
         {PANELS.map((each) => {
           const count = counts[each]
@@ -332,7 +341,6 @@ function AgentsStrip({ projectId, agents, root, session, drafts }: AgentsStripPr
         })}
       </div>
       {open !== null ? (
-        // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Esc collapses the panel: the keys come up from the focused controls inside; it is not a control itself.
         <div
           key={open}
           id={panelId}
@@ -341,7 +349,6 @@ function AgentsStrip({ projectId, agents, root, session, drafts }: AgentsStripPr
           aria-label={TITLES[open]}
           data-testid={open === 'agents' ? 'product-agents-panel' : `product-rail-${open}-panel`}
           data-panel={open}
-          onKeyDown={onKeyDown}
         >
           <div className="w-product__agents-head">
             {TITLES[open]}
@@ -357,7 +364,7 @@ function AgentsStrip({ projectId, agents, root, session, drafts }: AgentsStripPr
   )
 }
 
-export function ProductSessionPanel({ children, events, ...rail }: ProductSessionPanelProps) {
+export function ProductSessionPanel({ children, events, busy = false, ...rail }: ProductSessionPanelProps) {
   const { share, move, commit } = useSplit()
   const session = rail.claudeSessionId ?? rail.sessionId
   const { agents, root } = useSessionAgents(rail.projectId, session)
@@ -391,7 +398,7 @@ export function ProductSessionPanel({ children, events, ...rail }: ProductSessio
         />
         <ProductSessionContext value={true}>{children}</ProductSessionContext>
       </div>
-      <AgentsStrip projectId={rail.projectId} agents={agents} root={root} session={session} drafts={drafts} />
+      <AgentsStrip projectId={rail.projectId} agents={agents} root={root} session={session} drafts={drafts} chat={events ?? NO_EVENTS} busy={busy} />
     </div>
   )
 }
