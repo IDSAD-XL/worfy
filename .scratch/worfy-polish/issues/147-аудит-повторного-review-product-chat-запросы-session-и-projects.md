@@ -58,23 +58,30 @@ sidebar-а. Каждое проверено на main b0e073620: все пять
 - [ ] 65: unit test `test/unit/product-session-panel.test.tsx` — история с `tool_use` `AskUserQuestion` и его
       `tool_result`: в чате видны вопрос и выбранный вариант. Красный на origin/main.
   - evidence: test-run pass · `pnpm test test/unit/product-transcript.test.tsx` exit 0 (the chat is drawn by Transcript, so the test lives there; red on origin/main) · mac - · 555bb7e0f1aeb78367bc5fdea96305711d54143f
+  - evidence: test-run pass · `pnpm test test/unit/product-transcript.test.tsx` exit 0 (round 1: an answer with a quote and comma inside is read whole; kills the first-separator mutant) · mac - · 24abd29356c2958535c41cfebb4ecd699930e38c
 - [ ] 184: unit test `test/unit/waiting-requests.test.tsx` — Session `idle`, journal без запросов: через
       `ASK_OPEN_REQUESTS_AFTER_MS` один вызов `agent.requests`; второй render без смены state — без вызова. Красный на
       origin/main.
   - evidence: test-run pass · `pnpm test test/unit/waiting-requests.test.tsx test/unit/session-view.test.tsx` exit 0 (red on origin/main) · mac - · 555bb7e0f1aeb78367bc5fdea96305711d54143f
+  - evidence: test-run pass · `pnpm test test/unit/waiting-requests.test.tsx test/unit/session-view.test.tsx` exit 0 (round 1: a closed Session asks nothing, red before the fix) · mac - · 24abd29356c2958535c41cfebb4ecd699930e38c
 - [ ] 63: unit test `test/unit/node-chips.test.tsx` (или `test/unit/product-session-panel.test.tsx`) — открыта тема
       A, клик по chip node-а темы B: карта показывает тему B и этот node выбран. Красный на origin/main.
   - evidence: test-run pass · `pnpm test test/unit/product-session-panel.test.tsx` exit 0 (red on origin/main) · mac - · 555bb7e0f1aeb78367bc5fdea96305711d54143f
+  - evidence: test-run pass · `pnpm test test/unit/product-session-panel.test.tsx` exit 0 · mac - · 24abd29356c2958535c41cfebb4ecd699930e38c
 - [ ] 145: unit test `test/unit/project-pulse-line.test.tsx` — доступное описание кнопки карточки содержит текст
       подсказок частей («2 busy»…). Красный на origin/main.
   - evidence: test-run pass · `pnpm test test/unit/project-pulse-line.test.tsx` exit 0 (red on origin/main) · mac - · 555bb7e0f1aeb78367bc5fdea96305711d54143f
+  - evidence: test-run pass · `pnpm test test/unit/project-pulse-line.test.tsx` exit 0 · mac - · 24abd29356c2958535c41cfebb4ecd699930e38c
 - [ ] 130: test `test/contract/projects-remove.test.ts` рядом со случаем вложенного Project-а с общим Profile — вложенный
       Project со своим Profile: его Session не закрыта, его Orchestrator не остановлен, `alsoListed` пуст. Красный на
       origin/main.
   - evidence: test-run pass · `pnpm test test/contract/projects-remove.test.ts` exit 0 (red on origin/main) · mac - · 555bb7e0f1aeb78367bc5fdea96305711d54143f
+  - evidence: test-run pass · `pnpm test test/contract/projects-remove.test.ts` exit 0 (round 1: a nested Project whose Profile cannot be told counts as sharing it; kills the independent mutant) · mac - · 24abd29356c2958535c41cfebb4ecd699930e38c
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (924 files, 20867 tests passed) · mac - · 555bb7e0f1aeb78367bc5fdea96305711d54143f
   - evidence: gate pass · `gate fast` exit 0 · mac - · 555bb7e0f1aeb78367bc5fdea96305711d54143f
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck` exit 0 · mac - · 24abd29356c2958535c41cfebb4ecd699930e38c
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 24abd29356c2958535c41cfebb4ecd699930e38c
 
 ## Где в коде
 

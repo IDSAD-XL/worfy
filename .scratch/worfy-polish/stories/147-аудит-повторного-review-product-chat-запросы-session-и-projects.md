@@ -40,12 +40,13 @@ export function productChatItems(items: readonly TranscriptItem[]): TranscriptIt
 
 ## 3. Окно спрашивает об открытых запросах один раз при монтировании
 
-Code: `src/renderer/session/open-requests.ts:66-80` · key lines: 68, 70, 71, 75, 77
+Code: `src/renderer/session/open-requests.ts:66-81` · key lines: 69, 71, 72, 76, 78
 
 ```ts
   const checked = useRef<string | null>(null)
   useEffect(() => {
-    if (sessionId === null || checked.current === sessionId) return
+    // A closed Session has no live requests, and main refuses to be asked about it.
+    if (sessionId === null || state === 'closed' || checked.current === sessionId) return
     // At needs_permission the stretch's own ask below is the one.
     if (missing) return
     if (!none) {
@@ -57,10 +58,10 @@ Code: `src/renderer/session/open-requests.ts:66-80` · key lines: 68, 70, 71, 75
       void loadOpenRequests(sessionId)
     }, ASK_OPEN_REQUESTS_AFTER_MS)
     return () => clearTimeout(timer)
-  }, [sessionId, missing, none])
+  }, [sessionId, state, missing, none])
 ```
 
-- Что делает: один раз на Session и монтирование, через `ASK_OPEN_REQUESTS_AFTER_MS`, вызывает `loadOpenRequests`, если в окне нет открытых запросов; state не важен. При `needs_permission` спрашивает прежний эффект, и `checked` не даёт спросить второй раз.
+- Что делает: один раз на Session и монтирование, через `ASK_OPEN_REQUESTS_AFTER_MS`, вызывает `loadOpenRequests`, если в окне нет открытых запросов; state любой, кроме `closed` (у закрытой Session живых запросов нет, main отвечает ошибкой «No live Session», а badge на холсте монтируется часто — review round 1). При `needs_permission` спрашивает прежний эффект, и `checked` не даёт спросить второй раз.
 - Почему здесь: Ticket называет `open-requests.ts:45-75`.
 - Без него: запрос background task при `idle` Session не виден в новом окне и истекает через 60 минут.
 - Требование: [Что делаем, п. 2](../issues/147-аудит-повторного-review-product-chat-запросы-session-и-projects.md#что-делаем)
@@ -123,7 +124,7 @@ Code: `src/renderer/shell/sidebar/ProjectsSection.tsx:380-389` · key lines: 381
 
 ## 6. Вложенный Project со своим Profile не входит в удаление
 
-Code: `src/main/projects/remove.ts:142-154` · key lines: 143, 147, 149, 153
+Code: `src/main/projects/remove.ts:146-158` · key lines: 147, 151, 153, 157
 
 ```ts
 async function listedInside(deps: Pick<ProjectRemovalDeps, 'projects' | 'profileDir'>, project: ListedProject, profileDir: string): Promise<{ sharing: ListedProject[]; own: ListedProject[] }> {
@@ -145,7 +146,7 @@ async function listedInside(deps: Pick<ProjectRemovalDeps, 'projects' | 'profile
 - Почему здесь: Ticket называет `remove.ts:137-139`, `:180-186`, `:225-265`.
 - Без него: удаление monorepo закрывает Session-ы и Orchestrator отдельного repository внутри него.
 - Требование: [Что делаем, п. 5](../issues/147-аудит-повторного-review-product-chat-запросы-session-и-projects.md#что-делаем)
-- Риски и пробелы test-ов: на каждый вложенный Project — один вызов `bin/profile`; contract test идёт через настоящие `bin/profile` и `bin/project-connect`.
+- Риски и пробелы test-ов: на каждый вложенный Project — один вызов `bin/profile`; contract test-ы идут через настоящие `bin/profile` и `bin/project-connect`, а случай «Profile не определить» — через `profileDir`, который отказывает для вложенной папки.
 
 ## 7. Что сознательно не меняли
 
@@ -155,7 +156,9 @@ async function listedInside(deps: Pick<ProjectRemovalDeps, 'projects' | 'profile
 ## 8. Как проверено
 
 - `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (924 files, 20867 tests passed).
-- `gate fast` — exit 0.
+- `gate fast` — exit 0, на первом head и на head review round 1.
+- Round 1: `pnpm lint`, `pnpm typecheck` и 7 test-файлов review (waiting-requests, product-transcript, session-view, question-card, product-session-panel, project-pulse-line, projects-remove) — exit 0.
+- Review round 1: test закрытой Session красный до правки; test ответа с `", ` внутри и test неизвестного Profile ловят свои мутанты (конец первого ответа на первом `", `; вложенный Project при ошибке `bin/profile` считается независимым).
 - Новые test-ы красные на origin/main: `product-transcript`, `waiting-requests`, `product-session-panel`, `project-pulse-line`, `projects-remove`.
 
 ## Проверить себя
@@ -168,4 +171,4 @@ async function listedInside(deps: Pick<ProjectRemovalDeps, 'projects' | 'profile
    - Строки: `src/renderer/session/ProductSessionPanel.tsx:158-163`
 3. Что будет с Session-ом вложенного Project-а, Profile которого `bin/profile` не смог определить?
    - Ответ: он считается общим с удаляемым: его Orchestrator останавливается, Session закрывается, как до изменения.
-   - Строки: `src/main/projects/remove.ts:146-150`
+   - Строки: `src/main/projects/remove.ts:150-154`
