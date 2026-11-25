@@ -1,8 +1,9 @@
 // A Project's settings (`<Project data folder>/settings.json`): the action templates, for
 // Windows the shell of the Terminals, the Default vendor, the answer to the team reviewer's
 // offer (worfy-human-review ticket 09), the date of the last reminder to update it (ticket 10),
-// the folders a Product Session may also write in (worfy-polish ticket 82) and the Integrations of
-// the Machine the Project uses (worfy-integrations ticket 03).
+// the folders a Product Session may also write in (worfy-polish ticket 82), the Integrations of
+// the Machine the Project uses (worfy-integrations ticket 03) and the Assistant's rules of the Project
+// (worfy-assistant ticket 07).
 // The schema and the defaults live in src/shared/projects/action-templates.ts. The defaults are
 // those of the Harness found on the machine (src/main/harness/locate.ts, worfy-harness ticket 12),
 // looked up again on every call unless the caller names it.
@@ -19,6 +20,7 @@ import {
   type ProjectSettings,
   type ProjectSettingsInput,
 } from '../../shared/projects/action-templates'
+import type { ProjectRule } from '../../shared/assistant/duties'
 import type { ProjectIntegration } from '../../shared/integrations/types'
 import { currentHarness } from '../harness/locate'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
@@ -50,7 +52,8 @@ export function readProjectSettings(projectDataDir: string, harness: HarnessKind
  * `productWriteFoldersRemoved` leave it: "Save" sends the folders removed in the dialog, so one «Always
  * allow» added meanwhile stays. Settings without `prInbox` keep the saved one too (worfy-pr-inbox ticket 02):
  * a save that does not know the switch does not turn the PR inbox back on. The Integrations the Project uses (`integrations`, worfy-integrations ticket 03) always
- * stay as saved: only writeProjectIntegrations changes them.
+ * stay as saved: only writeProjectIntegrations changes them. So do the Assistant's rules (`assistantRules`, worfy-assistant
+ * ticket 07): only writeProjectAssistantRules changes them.
  */
 export function writeProjectSettings(projectDataDir: string, settings: ProjectSettingsInput, harness: HarnessKind = currentHarness().kind): ProjectSettings {
   let saved: ProjectSettings | undefined
@@ -66,6 +69,8 @@ export function writeProjectSettings(projectDataDir: string, settings: ProjectSe
   const integrations = read().integrations
   writeJsonFile(settingsPath(projectDataDir), projectSettingsSchema, {
     ...others,
+    // `assistantRules` of the input is never written here either: only writeProjectAssistantRules changes the field.
+    assistantRules: read().assistantRules,
     ...(defaultVendor === undefined ? {} : { defaultVendor }),
     ...(humanReview === undefined ? {} : { humanReview }),
     ...(productWriteFolders === undefined ? {} : { productWriteFolders }),
@@ -93,6 +98,21 @@ export function writeProjectIntegrations(projectDataDir: string, integrations: r
   const current = readProjectSettings(projectDataDir, harness)
   writeJsonFile(settingsPath(projectDataDir), projectSettingsSchema, { ...current, integrations: [...integrations] })
   return readProjectIntegrations(projectDataDir, harness)
+}
+
+/** The Assistant's rules of this Project (worfy-assistant ticket 07): empty for a file saved before the field. */
+export function readProjectAssistantRules(projectDataDir: string, harness: HarnessKind = currentHarness().kind): ProjectRule[] {
+  return readProjectSettings(projectDataDir, harness).assistantRules ?? []
+}
+
+/**
+ * Writes the Assistant's rules of this Project and keeps every other setting as it is saved. Only the Project's
+ * settings.json in worfy's data folder is written, never the repository. Returns the rules as saved.
+ */
+export function writeProjectAssistantRules(projectDataDir: string, rules: readonly ProjectRule[], harness: HarnessKind = currentHarness().kind): ProjectRule[] {
+  const current = readProjectSettings(projectDataDir, harness)
+  writeJsonFile(settingsPath(projectDataDir), projectSettingsSchema, { ...current, assistantRules: [...rules] })
+  return readProjectAssistantRules(projectDataDir, harness)
 }
 
 /**

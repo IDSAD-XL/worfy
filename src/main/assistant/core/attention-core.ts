@@ -14,7 +14,8 @@
 //   comes back as a new item at the next read of its source.
 //
 // Input: events, the clock, the settings (the time zone of the day) and the Limits (as events of their source).
-// Output: items. Waking the model is ticket 06; the duty of an item is ticket 07.
+// Output: items. Waking the model is ticket 06. The duty of an item (ticket 07) is the one its event names, else
+// the one `dutyOf` answers (src/main/assistant/duties/); the duties listen to the items taken (onItem).
 import { OPEN_STATES, type AttentionEvent, type AttentionItem, type AttentionSource, type AttentionState, type AttentionSubject } from '../../../shared/assistant/attention'
 import type { AttentionCondition, AttentionFile, AttentionStore } from './store'
 
@@ -48,6 +49,8 @@ export interface AttentionCoreOptions {
   projects: () => readonly string[]
   /** Where a Project whose file failed in tick() is told of; console.warn when absent. */
   log?: (message: string, error: unknown) => void
+  /** The duty of an event that names none; every item's duty is null when absent. */
+  dutyOf?: (event: Omit<AttentionEvent, 'at'>) => string | null
 }
 
 export type AttentionListener = (scope: string | null, items: readonly AttentionItem[]) => void
@@ -70,6 +73,7 @@ export function dayOf(at: number, timeZone: string): string {
 export class AttentionCore {
   private readonly scopes = new Map<string | null, AttentionFile>()
   private readonly listeners = new Set<AttentionListener>()
+  private readonly takers = new Set<(item: AttentionItem) => void>()
 
   constructor(private readonly options: AttentionCoreOptions) {}
 
@@ -115,6 +119,12 @@ export class AttentionCore {
     return () => this.listeners.delete(listener)
   }
 
+  /** Called with the item each event taken made or was glued into (not with a repeat, nor a «nothing happened» item). */
+  onItem(listener: (item: AttentionItem) => void): () => void {
+    this.takers.add(listener)
+    return () => this.takers.delete(listener)
+  }
+
   /** Takes one event: a new item, the item it was glued into, or null for a repeat. */
   ingest(event: AttentionEvent): AttentionItem | null {
     const file = this.load(event.projectId)
@@ -129,7 +139,8 @@ export class AttentionCore {
     const glued = file.items.find((item) => item.condition === undefined && sameSubject(item.subject, event.subject) && dayOf(item.startedAt, this.timeZone()) === day)
     let item: AttentionItem
     if (glued !== undefined) {
-      Object.assign(glued, { source: event.source, kind: event.kind, text: event.text, revision: event.revision, updatedAt: now, events: glued.events + 1 })
+      Object.assign(glued, { source: event.source, kind: event.kind, text: event.text, revision: event.revision, updatedAt: now, events: glued.events + 1, duty: this.dutyOf(event) })
+      if (event.pr !== undefined) glued.pr = event.pr
       // A dismissed or snoozed item stays so; a seen, closed or stale one asks again.
       if (glued.state === 'seen' || glued.state === 'closed' || glued.state === 'stale') glued.state = 'new'
       item = glued
@@ -138,6 +149,7 @@ export class AttentionCore {
       file.items.push(item)
     }
     this.save(event.projectId, file)
+    for (const taker of this.takers) taker(item)
     return item
   }
 
@@ -192,9 +204,26 @@ export class AttentionCore {
     this.save(scope, file)
   }
 
+  private dutyOf(event: Omit<AttentionEvent, 'at'>): string | null {
+    return event.duty ?? this.options.dutyOf?.(event) ?? null
+  }
+
   private fresh(event: Omit<AttentionEvent, 'at'>, at: number, now: number): Omit<AttentionItem, 'events'> {
     const id = [event.projectId ?? 'machine', event.subject.kind, event.subject.id, event.kind, at].join('|')
-    return { id, source: event.source, projectId: event.projectId, subject: event.subject, kind: event.kind, text: event.text, startedAt: at, updatedAt: now, revision: event.revision, state: 'new', duty: null }
+    return {
+      id,
+      source: event.source,
+      projectId: event.projectId,
+      subject: event.subject,
+      kind: event.kind,
+      text: event.text,
+      startedAt: at,
+      updatedAt: now,
+      revision: event.revision,
+      state: 'new',
+      duty: this.dutyOf(event),
+      ...(event.pr === undefined ? {} : { pr: event.pr }),
+    }
   }
 
   /** Ends the subject's pending conditions and puts its open items (only «nothing happened» ones for `stale`) in `state`. */

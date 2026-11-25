@@ -90,3 +90,13 @@ worfy ничего не пишет в репозитории Project-ов — н
   - `<WORFY_DATA_DIR>/assistant/usage.json` — журнал расхода Assistant-а (Ticket 05,
     `src/main/assistant/budget/ledger.ts`): его вызовы с `usage` и `costUsd`, его автоматические пробуждения и цена
     остальных ходов worfy, чтобы оценить долю Assistant-а. Записи старше 8 дней удаляются.
+- 2026-11-25 — Epic `worfy-assistant`, Ticket 07 (ADR-0114): два новых места состояния Assistant-а, оба в
+  `WORFY_DATA_DIR`, вне репозиториев Project-а. Пишет только main, через `src/main/storage/json-file.ts`.
+  - `<WORFY_DATA_DIR>/assistant/memory.json` — файл памяти Assistant-а (`src/main/assistant/duties/memory.ts`):
+    обязанности, как их настроил пользователь (режим каждого действия, Project-ы, порог, включена ли), их счётчики
+    (показано, принято, отклонено, проигнорировано, like, dislike) и пауза; правила, выведенные из dislike; и какие
+    пункты счётчики уже учли. Учтённый пункт старше 14 дней удаляется. Файла нет, пока ни одна обязанность не
+    менялась и ни один пункт не показан.
+  - Поле `assistantRules` в `<Project data folder>/settings.json` — правила Assistant-а для процесса этого Project-а
+    (например «land закончился, а Orchestrator спит»). Пишет только `writeProjectAssistantRules`
+    (`src/main/projects/settings.ts`); Save диалога настроек Project-а это поле сохраняет как было.
