@@ -51,6 +51,7 @@ Project-а пишет `assistant-items.json` синхронно и с прове
 - [ ] Если записи заметны — одно сохранение на scope за tick, test на ядро это проверяет; иначе в «Итог» — почему
       код не тронут.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-attention-core.test.ts test/unit/assistant-attention-sources.test.ts` exit 0 (36 passed) · mac - · b1e938b20b23d52d6d8577e39dfc29078c2d8d88
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-*.test.ts test/contract/assistant-*.test.ts` exit 0 (197 passed); a mutant deferring onItem to the end of a batch fails the batch test · mac - · 5d5808db4c4e3f10fe96f31cb1947446b605b489
 - [ ] Предел Auberge-test-а на CI зависит от замеренной базы, не от потолка; `START_MS` = 3000 не поднят;
       `test/unit/e2e-start-budget.test.ts` проверяет новое правило.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/e2e-start-budget.test.ts` exit 0 (6 passed) · mac - · b1e938b20b23d52d6d8577e39dfc29078c2d8d88
