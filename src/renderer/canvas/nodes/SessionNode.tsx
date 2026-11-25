@@ -102,10 +102,15 @@ const styles = {
   title: { flex: 1, minWidth: 0, fontSize: 'var(--text-13)', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   body: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-1)', padding: 'var(--space-2) var(--space-3)' },
   line: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', minWidth: 0, fontSize: 'var(--text-12)', color: 'var(--text-secondary)' },
-  source: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  // From a zero basis: the source takes the room left on its line and gives it all up before the label beside it.
+  source: { flex: '1 1 0', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   // The label of a Product Session: an outlined tag, as the Vendor badge beside it is a filled one.
+  // It gives way after the source, so Archive at the end of its line stays whole on a 240 px Node.
   kindLabel: {
-    flex: 'none',
+    flex: '0 1 auto',
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
     padding: '0 6px',
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius-button)',

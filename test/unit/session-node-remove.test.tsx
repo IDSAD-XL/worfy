@@ -1,7 +1,8 @@
 // The Hide and Remove hints of a read-only Session Node (worfy-week ticket 12,
 // src/renderer/canvas/nodes/SessionNode.tsx). Hiding or removing the Node leaves the Session
 // alone: while it runs in a terminal or in Claude desktop, it goes on; once it has finished, what
-// stays is its transcript. The hint says whichever is true now.
+// stays is its transcript. The hint says whichever is true now. Its Archive (worfy-product-session
+// ticket 37) is active once the Session has finished, and inactive, saying why, while it runs.
 import { render, screen } from '@testing-library/react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -41,7 +42,7 @@ afterEach(() => {
 })
 
 /** Renders the read-only Node of SESSION and waits until its status chip says `status`. */
-async function mount(status: string): Promise<{ hide: HTMLElement; remove: HTMLElement }> {
+async function mount(status: string): Promise<{ hide: HTMLElement; remove: HTMLElement; archive: HTMLButtonElement }> {
   const { default: SessionNode } = await import('../../src/renderer/canvas/nodes/SessionNode')
   const data = { node: { id: `session-${SESSION}`, kind: 'session', data: { origin: 'external', sessionId: SESSION, source: 'terminal', cwd: ROOT } } }
   const props = { id: `session-${SESSION}`, data, selected: false } as unknown as CanvasNodeProps
@@ -52,7 +53,7 @@ async function mount(status: string): Promise<{ hide: HTMLElement; remove: HTMLE
   )
   const node = await screen.findByTestId('session-node')
   await vi.waitFor(() => expect(node.getAttribute('data-status')).toBe(status))
-  return { hide: screen.getByRole('button', { name: 'Hide' }), remove: screen.getByRole('button', { name: 'Remove' }) }
+  return { hide: screen.getByRole('button', { name: 'Hide' }), remove: screen.getByRole('button', { name: 'Remove' }), archive: screen.getByTestId<HTMLButtonElement>('session-node-archive') }
 }
 
 describe('read-only Session Node: Hide and Remove hints', () => {
@@ -67,5 +68,20 @@ describe('read-only Session Node: Hide and Remove hints', () => {
     const { hide, remove } = await mount('idle')
     expect(hide.getAttribute('title')).toBe('Hide the Node; the Session goes on')
     expect(remove.getAttribute('title')).toBe('Remove the Node; the Session goes on')
+  })
+})
+
+describe('read-only Session Node: Archive', () => {
+  it('a finished Session: active, with what it does', async () => {
+    const { archive } = await mount('finished')
+    expect(archive.disabled).toBe(false)
+    expect(archive.getAttribute('title')).toMatch(/nothing is deleted/)
+  })
+
+  it('a Session that still runs in the registry: inactive, saying why', async () => {
+    live = [{ pid: 100, sessionId: SESSION, cwd: ROOT, status: 'idle', entrypoint: 'cli' }]
+    const { archive } = await mount('idle')
+    expect(archive.disabled).toBe(true)
+    expect(archive.getAttribute('title')).toBe('The Session still runs; archive its Node once it ends')
   })
 })

@@ -122,11 +122,13 @@ test('a Codex Session from a terminal: its Node with the Codex badge and its tra
     await expect(node.getByTestId('session-node-source')).toHaveText(`terminal · ${projectPath}`)
     await expect(node.getByTestId('session-node-read-only')).toBeVisible()
     // Every action of the Node is there and the title keeps room: Archive in the header once left it none
-    // on this 300 px Node (worfy-product-session ticket 37), so it sits on the line under the header.
+    // on this 300 px Node on Windows (worfy-product-session ticket 37), so it sits on the line under the
+    // header. The header is as on main: its chip, Keep, Hide and Remove leave the title about 0.12 of the
+    // Node on a Mac, so a share of 0.3 cannot be asked for without changing the header itself.
     await expect(node.getByTestId('session-node-archive')).toBeVisible()
     await expect(node.getByTestId('session-node-title')).toBeVisible()
     const [title, whole] = [await node.getByTestId('session-node-title').boundingBox(), await node.boundingBox()]
-    expect((title?.width ?? 0) / (whole?.width ?? 1), 'the share of the Node\'s width its title keeps').toBeGreaterThan(0.05)
+    expect((title?.width ?? 0) / (whole?.width ?? 1), 'the share of the Node\'s width its title keeps').toBeGreaterThan(0.08)
     await snapshotThemes(window, '37-codex-session-node')
     // Neither the thread of another folder nor the old one gets a Node by itself.
     await expect(window.locator(`[data-testid="session-node"][data-session-id="${FOREIGN_THREAD}"]`)).toHaveCount(0)

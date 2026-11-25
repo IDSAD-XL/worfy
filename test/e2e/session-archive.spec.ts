@@ -30,6 +30,8 @@ const KEPT = 'cccccccc-0808-4808-8808-000000000003'
 const FRESH = 'dddddddd-0808-4808-8808-000000000004'
 const LIVE = 'eeeeeeee-0808-4808-8808-000000000005'
 const PRODUCT = 'ffffffff-0808-4808-8808-000000000006'
+/** Another Product Session, at the narrowest a live Node may be (240 px): the line under its header is the fullest. */
+const NARROW = 'ffffffff-0808-4808-8808-000000000007'
 const HOUR = 3_600_000
 
 let scratch: string
@@ -74,6 +76,7 @@ function makeProject(): void {
   transcript(FRESH, HOUR)
   transcript(LIVE, 30 * HOUR)
   transcript(PRODUCT, 30 * HOUR, 'Plan the roadmap')
+  transcript(NARROW, 30 * HOUR, 'Narrow plan')
   // LIVE's Claude Code: a process the registry sees alive, with the record Claude Code writes for it.
   claude = spawn('sleep', ['600'], { stdio: 'ignore' })
   mkdirSync(join(claudeHome, 'sessions'), { recursive: true })
@@ -88,7 +91,8 @@ function makeProject(): void {
   writeFileSync(join(dataDir, 'app-settings.json'), JSON.stringify({ sessionArchive: { after: 'never' } }))
   // A Product Session's Node as main writes it (src/main/agent/node-sessions.ts); nothing runs it in this test.
   const product = { ...sessionNode(PRODUCT, 0), y: 300, w: 340, h: 220, data: { origin: 'worfy', vendor: 'claude', kind: 'product', sessionId: PRODUCT } }
-  const nodes = [sessionNode(OLD_A, 0), sessionNode(OLD_B, 400), sessionNode(KEPT, 800, { keep: true }), sessionNode(FRESH, 1200), sessionNode(LIVE, 1600), product]
+  const narrow = { ...product, id: `session:${NARROW}`, x: 800, w: 240, data: { ...product.data, sessionId: NARROW } }
+  const nodes = [sessionNode(OLD_A, 0), sessionNode(OLD_B, 400), sessionNode(KEPT, 800, { keep: true }), sessionNode(FRESH, 1200), sessionNode(LIVE, 1600), product, narrow]
   writeFileSync(join(project, 'layout.json'), JSON.stringify({ nodes, viewport: { x: 40, y: 40, zoom: 0.6 } }))
 }
 
@@ -149,16 +153,25 @@ test('«Never» archives nothing on a fast timer; Settings → Canvas offers the
     const started = Date.now()
     await expect(window.getByTestId('canvas')).toHaveAttribute('data-project-id', PROJECT_ID)
     await canvasReady(launched, { size: { width: 1400, height: 900 }, timeout: ms(20_000) })
-    for (const id of [OLD_A, OLD_B, KEPT, FRESH, LIVE, PRODUCT]) await expect(nodeOf(window, id)).toBeVisible({ timeout: ms(20_000) })
-    // Every Node, 300 px read-only ones and the 340 px Product Session, shows Archive and keeps its title
-    // visible. A finished worfy Node's header (Resume, Keep, Hide, Remove) leaves its title the least: about
-    // a tenth of the Node, as before Archive; Archive in that header once left a Codex Node's title none.
-    for (const id of [OLD_A, OLD_B, KEPT, FRESH, LIVE, PRODUCT]) {
-      await expect(nodeOf(window, id).getByTestId('session-node-archive')).toBeVisible()
-      await expect(nodeOf(window, id).getByTestId('session-node-title')).toBeVisible()
-      const [title, whole] = [await nodeOf(window, id).getByTestId('session-node-title').boundingBox(), await nodeOf(window, id).boundingBox()]
-      expect((title?.width ?? 0) / (whole?.width ?? 1), `the share of ${id}'s width its title keeps`).toBeGreaterThan(0.05)
+    for (const id of [OLD_A, OLD_B, KEPT, FRESH, LIVE, PRODUCT, NARROW]) await expect(nodeOf(window, id)).toBeVisible({ timeout: ms(20_000) })
+    // Every Node shows Archive whole, within its line: on the line under the header the source gives way, then
+    // the «Product Session» label, down to the narrowest live Node (NARROW, 240 px, with the label and the badge).
+    for (const id of [OLD_A, OLD_B, KEPT, FRESH, LIVE, PRODUCT, NARROW]) {
+      const node = nodeOf(window, id)
+      await expect(node.getByTestId('session-node-archive')).toBeVisible()
+      const [line, archive] = [await node.getByTestId('session-node-source').locator('..').boundingBox(), await node.getByTestId('session-node-archive').boundingBox()]
+      expect(archive!.x + archive!.width, `${id}: Archive ends within its line`).toBeLessThanOrEqual(line!.x + line!.width + 0.5)
     }
+    // At the default 340 px the source gives way first: the «Product Session» label is whole, not cut.
+    expect(await nodeOf(window, PRODUCT).getByTestId('session-node-kind').evaluate((label) => label.scrollWidth <= label.clientWidth)).toBe(true)
+    // The title keeps its share of the header, which this PR leaves as on main: about 0.14 of a 300 px read-only
+    // Node (chip, Keep, Hide, Remove) and 0.09 of a 340 px finished worfy Node (Resume as well), measured on a
+    // Mac. Archive in the header once left a 300 px Codex Node's title none on Windows. At 240 px main's header
+    // already leaves a finished worfy Node's title nothing, so NARROW is not checked here.
+    const titleShare = async (id: string): Promise<number> =>
+      ((await nodeOf(window, id).getByTestId('session-node-title').boundingBox())?.width ?? 0) / ((await nodeOf(window, id).boundingBox())?.width ?? 1)
+    for (const id of [OLD_A, OLD_B, KEPT, FRESH, LIVE]) expect(await titleShare(id), `the share of ${id}'s width its title keeps`).toBeGreaterThan(0.08)
+    expect(await titleShare(PRODUCT), 'the share of the Product Session\'s width its title keeps').toBeGreaterThan(0.05)
     await snapshotThemes(window, '37-session-nodes-archive')
     await expect(nodeOf(window, KEPT).getByTestId('session-node-keep')).toHaveAttribute('aria-pressed', 'true')
     await expect(nodeOf(window, FRESH).getByTestId('session-node-keep')).toHaveAttribute('aria-pressed', 'false')

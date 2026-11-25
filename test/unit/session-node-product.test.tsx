@@ -143,11 +143,20 @@ describe('Archive on a Session Node (worfy-product-session ticket 37)', () => {
     expect(applied).toEqual([])
   })
 
-  it('a kept or a pinned Node offers it inactive, as main would drop it from the archive', async () => {
+  it('a kept Node offers it inactive, as main would drop it from the archive; Keep is named first', async () => {
     await mount({ origin: 'worfy', kind: 'product', sessionId: SAVED }, 'finished', { keep: true, pinned: true })
     const kept = screen.getByTestId('session-node-archive') as HTMLButtonElement
     expect(kept.disabled).toBe(true)
     expect(kept.getAttribute('title')).toBe('Kept on the Canvas: press Kept to let it go first')
+  })
+
+  it('a pinned Node without Keep offers it inactive too, saying it is pinned', async () => {
+    await mount({ origin: 'worfy', kind: 'product', sessionId: SAVED }, 'finished', { pinned: true })
+    const pinned = screen.getByTestId('session-node-archive') as HTMLButtonElement
+    expect(pinned.disabled).toBe(true)
+    expect(pinned.getAttribute('title')).toBe('Pinned to the screen: unpin it first')
+    fireEvent.click(pinned)
+    expect(applied).toEqual([])
   })
 
   it('a Session that has not started offers it inactive, saying why', async () => {
