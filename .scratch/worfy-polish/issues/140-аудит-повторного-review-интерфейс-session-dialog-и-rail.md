@@ -52,10 +52,13 @@ renderer и все ещё в коде на main 3c9c06e8c:
       контрастом не ниже 4.5:1 в обеих темах; сообщение в очереди остаётся приглушённым. Красный на origin/main.
       E2e `test/e2e/product-session.spec.ts` снимает сообщение «queued» и «not sent» в обеих темах.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/contrast.test.ts` exit 0 (120 passed), exit 1 on origin/main source (4 failed: --danger-text contrast 1.0-1.08) · mac - · 749675fe1bbd50c8ee08b68f1edd19ab94fcf39d
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/contrast.test.ts` exit 0 (120 passed); exit 1 with the session.css of 95bac09cc (5 failed: opacity 0.55, contrast 2.7-2.9) · mac - · e860af3116296a492d9bfd90dbaddcf5387943ed
+  - evidence: screenshot pass · 4 shots of the message, queued and not sent, light and dark, from the e2e build by test/e2e/product-session.spec.ts (13 passed, exit 0): test-results/e2e/product-session-a-queued-m-*/140-{queued,not-sent}-{light,dark}.png in the PR worktree; the implementer looked at all four, fixture text only · mac dev · e860af3116296a492d9bfd90dbaddcf5387943ed
 - [ ] 141: unit test `test/unit/kit-dialog.test.tsx` — первое окно, закрытое под вторым, оставляет focus во втором;
       окно, действие которого поставило focus на элемент страницы (finding 142), оставляет его там; окно, закрытое
       одно, возвращает focus открывшему. Красный на origin/main.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/kit-dialog.test.tsx` exit 0 (24 passed), exit 1 on origin/main source (focus went to the opener); mutant without the closing-window check exit 1 (3 failed) · mac - · 749675fe1bbd50c8ee08b68f1edd19ab94fcf39d
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/kit-dialog.test.tsx` exit 0 (25 passed); exit 1 with the Dialog.tsx of origin/main (2 failed: second window, focus moved to the page by an action) · mac - · e860af3116296a492d9bfd90dbaddcf5387943ed
 - [ ] 189: unit test `test/unit/composer-popovers.test.tsx` — список Queued закрывается, когда очередь пустеет; следующее
       сообщение показывает chip, не список, focus остаётся в поле ввода. Красный на origin/main.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/composer-popovers.test.tsx` exit 0 (7 passed), exit 1 on origin/main source (the list reopened, aria-expanded true) · mac - · 749675fe1bbd50c8ee08b68f1edd19ab94fcf39d
