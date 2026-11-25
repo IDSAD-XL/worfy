@@ -200,15 +200,15 @@ Only scripts that exist in the package run. "Add project" shows the `root` lists
 worfy's own repository is on the second row, with `ci-ok` as the final check. There Gate full stays a tool for the implementer
 and for analysing a failure.
 
-**A red main branch holds the merge.** The Harness script `land`, which merges the Orchestrator's ready PRs one by one, reads the CI push runs
-of the main branch before it merges a PR. While the newest run with a verdict is red, a PR with code waits, with a reason that
-names the red commit, the PR that broke the branch, when the run finished and the deadline of a fix forward: one hour, then
-revert that PR. A run still queued or in progress, a cancelled run and the run of a commit that changed documents only are
-passed over; a red run whose failed jobs were rerun and passed counts as green, and while the newest run is being rerun code
-PRs wait for its verdict. Two kinds of PR merge while the branch is red: the fix or the revert, marked `main_fix`, and a PR
-with documents only. When `gh` cannot read the runs, the PR waits as not verified. `land` reruns and reverts nothing: the
-pause ends at the first pass that finds the newest verdict green, and the next PR merges then. Each reading keeps the
-`main-red-<key>.json` marker above.
+**A red main branch holds the merge.** The Harness script `land`, which merges the Orchestrator's ready PRs one by one,
+reads the CI push runs of the main branch before it merges a PR. While the newest run with a verdict is red, a PR with code
+waits, with a reason that names the red commit, the PR that broke the branch, when the run finished and the deadline of a
+fix forward: one hour, then revert that PR. A run still queued or in progress, a cancelled run and the run of a commit that
+changed documents only are passed over; a red run whose failed jobs were rerun and passed counts as green, and while the
+newest run is being rerun code PRs wait for its verdict. Two kinds of PR merge while the branch is red: the fix or the
+revert, marked `main_fix`, and a PR with documents only. When `gh` cannot read the runs, the PR waits as not verified.
+`land` reruns and reverts nothing: the pause ends at the first pass that finds the newest verdict green, and the next PR
+merges then. Each reading keeps the `main-red-<key>.json` marker above.
 
 **The e2e lock.** With `workflow.e2e_lock` in the Profile, `wave-gate`, the skills and the Project's rules take that folder as a
 lock for each local e2e run and Gate full. The Gate itself does not take it, so a bare `node gate.mjs full` holds nothing, and CI
