@@ -65,6 +65,11 @@ export const attentionItemSchema = z.object({
   text: z.string(),
   /** When its first event happened (the event's own time). */
   startedAt: z.number(),
+  /**
+   * When its latest event happened (the event's own time; ticket 07): a duty counts how long a Session waits from it.
+   * Absent in a file written before the field, which reads as `startedAt`.
+   */
+  lastAt: z.number().optional(),
   /** When the core last took an event into it, by the core's clock: an item that takes none for 14 days is dropped. */
   updatedAt: z.number(),
   /** The revision of the latest event glued into the item. */

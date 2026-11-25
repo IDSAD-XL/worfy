@@ -32,7 +32,7 @@ import {
   type ShownItem,
 } from '../../../shared/assistant/duties'
 import { ATTENTION_KEEP_DAYS } from '../core/attention-core'
-import type { AssistantMemory, DutyState, MemoryStore } from './memory'
+import { assistantMemorySchema, type AssistantMemory, type DutyState, type MemoryStore } from './memory'
 
 const MIN = 60_000
 const DAY = 24 * 60 * MIN
@@ -159,29 +159,42 @@ export class Duties {
       if (!(action in definition.actions)) throw new Error(`The duty ${id} has no action ${action}`)
       dutyActionModeSchema.parse(mode)
     }
-    if (choice.thresholdMinutes !== undefined && (!Number.isInteger(choice.thresholdMinutes) || choice.thresholdMinutes < 1)) throw new Error(`A threshold is whole minutes, at least 1: ${choice.thresholdMinutes}`)
-    const state = this.state(id)
-    if (choice.modes !== undefined) state.modes = { ...state.modes, ...choice.modes }
-    if (choice.projects === 'all') delete state.projects
-    else if (choice.projects !== undefined) state.projects = [...choice.projects]
-    if (choice.thresholdMinutes !== undefined) state.thresholdMinutes = choice.thresholdMinutes
-    if (choice.enabled !== undefined) state.enabled = choice.enabled
-    this.save()
+    // A threshold out of the bounds of the memory file (assistantMemorySchema) throws in change(), before anything changes.
+    this.change((memory) => {
+      const state = (memory.duties[id] ??= { counters: zero(), streak: 0 })
+      if (choice.modes !== undefined) state.modes = { ...state.modes, ...choice.modes }
+      if (choice.projects === 'all') delete state.projects
+      else if (choice.projects !== undefined) state.projects = [...choice.projects]
+      if (choice.thresholdMinutes !== undefined) state.thresholdMinutes = choice.thresholdMinutes
+      if (choice.enabled !== undefined) state.enabled = choice.enabled
+    })
   }
 
-  /** How many ignored proposals or dislikes in a row pause a duty. */
+  /** How many ignored proposals or dislikes in a row pause a duty; a number the memory file refuses throws, and nothing changes. */
   setPauseAfter(count: number): void {
-    if (!Number.isInteger(count) || count < 1) throw new Error(`The pause comes after a whole number of at least 1: ${count}`)
-    this.load().pauseAfter = count
-    this.save()
+    this.change((memory) => {
+      memory.pauseAfter = count
+    })
   }
 
   /** Ends the pause of a duty; its run of ignored proposals and dislikes starts again from none. */
   resume(id: string): void {
-    const state = this.state(id)
-    delete state.paused
-    state.streak = 0
-    this.save()
+    this.change((memory) => {
+      const state = (memory.duties[id] ??= { counters: zero(), streak: 0 })
+      delete state.paused
+      state.streak = 0
+    })
+  }
+
+  /**
+   * A choice of the user: made on a copy, checked by the schema of the memory file and written, and only then taken.
+   * A value the file refuses — or a write that fails — throws and leaves the memory as it was.
+   */
+  private change(edit: (memory: AssistantMemory) => void): void {
+    const next = structuredClone(this.load())
+    edit(next)
+    this.options.store.write(assistantMemorySchema.parse(next))
+    this.memory = next
   }
 
   /** The rules drawn from dislikes, oldest first. */
@@ -238,7 +251,8 @@ export class Duties {
     const memory = this.load()
     const state = this.state(duty)
     let counted = memory.items[itemId]
-    if (counted === undefined) {
+    // An item glued into another duty (attention-core.ts) is a new item for that duty's counters.
+    if (counted === undefined || counted.duty !== duty) {
       counted = memory.items[itemId] = { duty, shownAt: this.options.now() }
       state.counters.shown += 1
     }
@@ -269,17 +283,19 @@ export class Duties {
       const id = duty.definition.id
       const state = memory.duties[id]
       if (item.state === 'dismissed') {
-        // Dismiss is a reaction: it turns the proposal down.
-        if (memory.items[item.id] !== undefined) changed = this.settle(id, item.id, 'declined') || changed
+        // Dismiss is a reaction: it turns down the proposal of the duty that showed it.
+        const shownBy = memory.items[item.id]?.duty
+        if (shownBy !== undefined) changed = this.settle(shownBy, item.id, 'declined') || changed
         continue
       }
       if (item.state !== 'new' && item.state !== 'seen') continue
       if (state?.enabled === false || state?.paused !== undefined) continue
       if (state?.projects !== undefined && (item.projectId === null || !state.projects.includes(item.projectId))) continue
-      if (item.source === 'session' && WAITED_KINDS.has(item.kind) && now - item.startedAt < this.thresholdMs(id)) continue
+      // From the latest event glued into the item: a question at noon after a turn-end at ten waits from noon.
+      if (item.source === 'session' && WAITED_KINDS.has(item.kind) && now - (item.lastAt ?? item.startedAt) < this.thresholdMs(id)) continue
       if (memory.rules.some((rule) => rule.duty === id && rule.projectId === item.projectId && rule.source === item.source && rule.kind === item.kind)) continue
       const counted = memory.items[item.id]
-      if (counted === undefined) {
+      if (counted === undefined || counted.duty !== id) {
         memory.items[item.id] = { duty: id, shownAt: now }
         this.state(id).counters.shown += 1
         changed = true
