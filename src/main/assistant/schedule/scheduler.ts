@@ -249,7 +249,7 @@ export class CheckScheduler {
 /** The system's sleep and wake, as Electron's powerMonitor gives them. */
 export interface PowerEvents {
   on(event: 'suspend' | 'resume', listener: () => void): unknown
-  removeListener(event: 'suspend' | 'resume', listener: () => void): unknown
+  removeListener?(event: 'suspend' | 'resume', listener: () => void): unknown
 }
 
 /** Passes the system's `suspend` and `resume` to `scheduler`; answers a function that stops it. */
@@ -259,7 +259,9 @@ export function followPower(scheduler: CheckScheduler, power: PowerEvents): () =
   power.on('suspend', suspend)
   power.on('resume', resume)
   return () => {
-    power.removeListener('suspend', suspend)
-    power.removeListener('resume', resume)
+    // A stand-in without removeListener (a test's mock of powerMonitor) keeps the two listeners; they do
+    // nothing once the scheduler is stopped, and the stop must not throw inside a will-quit listener.
+    power.removeListener?.('suspend', suspend)
+    power.removeListener?.('resume', resume)
   }
 }
