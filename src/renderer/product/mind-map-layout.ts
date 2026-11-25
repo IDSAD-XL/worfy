@@ -494,7 +494,8 @@ function crosses(ax: number, ay: number, bx: number, by: number, left: number, t
  * moving. Unlike the prototype's (ticket 35), a deep leaf gets a larger share of the circle, the rounds pull
  * the map round the topic where it has two branches or more, and the last rounds move boxes off the arrows
  * that run over them: a map whose nodes mostly hang from one deep branch still has the topic in its middle,
- * and no arrow crosses a box on its way. The prototype's pushes test every pair; here a grid of cells as
+ * and few arrows cross a box on their way (on a small map none; the clearing rounds stop above
+ * RADIAL_CLEAR_MOST nodes). The prototype's pushes test every pair; here a grid of cells as
  * large as the largest box finds the pairs near enough to touch, so a large map stays quick. A last pass makes sure no two boxes overlap: in
  * the tree's order each node keeps its place or moves straight away from the root until it is clear of
  * those placed before it. No randomness: the same graph always gets the same places.

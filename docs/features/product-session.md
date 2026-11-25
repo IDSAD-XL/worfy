@@ -311,7 +311,7 @@ and the reason.
   the node's card shows it whole.
 - "Tree" is the default: a tidy tree with text of 15 px that grows left to right, the topic at the left, each node to
   the right of the node it grew from. "Graph" is radial, with text of 12 px: the topic in the middle, the branches
-  around it, straight "grew from" arrows, no node over another and no arrow over a node; the same map always gets the same layout. The view is
+  around it, straight "grew from" arrows, no node over another and, on a small map, no arrow over a node (a large map keeps a few); the same map always gets the same layout. The view is
   remembered per topic on this Machine.
 - "Hide rejected" hides the rejected Decisions and the branches under them while the map is open. The file does not
   change.
