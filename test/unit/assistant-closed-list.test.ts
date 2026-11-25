@@ -15,9 +15,9 @@ import type { LimitsState } from '../../src/shared/agent/limits'
 import { CLOSED_ACTIONS, CONTINUE_SESSION_TEXT, continueSessionText, WAKE_ORCHESTRATOR_TEXT, type ActionRequest } from '../../src/shared/assistant/actions'
 import type { DutyActionMode, ShownItem } from '../../src/shared/assistant/duties'
 import { RESUME_MARGIN_MS } from '../../src/shared/autopilot/resume-at'
-import { AUTO_LOOK_MS, runClosedListAuto, WAKES_PER_DAY, type ClosedListAuto } from '../../src/main/assistant/actions/auto'
-import { ClosedList, type ActionTarget } from '../../src/main/assistant/actions/closed-list'
-import { actionJournalFile, actionJournalPath } from '../../src/main/assistant/actions/journal'
+import { AUTO_LOOK_MS, runClosedListAuto, type ClosedListAuto } from '../../src/main/assistant/actions/auto'
+import { ClosedList, WAKES_PER_DAY, type ActionTarget } from '../../src/main/assistant/actions/closed-list'
+import { actionJournalFile, actionJournalPath, type ActionJournal } from '../../src/main/assistant/actions/journal'
 import { LimitsWaits } from '../../src/main/assistant/actions/limits-waits'
 import { AttentionCore } from '../../src/main/assistant/core/attention-core'
 import { sessionAttention } from '../../src/main/assistant/core/sources'
@@ -48,6 +48,9 @@ interface FakeSession extends ActionTarget {
   tasks: string[]
   sent: string[]
   notices: string[]
+  /** Set: the Session queues what it gets, as Session.send does while worfy quits or holds it back. */
+  queueing: boolean
+  queue: { id: string; text: string }[]
   notice(text: string): void
 }
 
@@ -58,11 +61,24 @@ const fakeSession = (): FakeSession => {
     tasks: [],
     sent: [],
     notices: [],
+    queueing: false,
+    queue: [],
     backgroundTasks: () => session.tasks,
     send: (text: string) => {
+      if (session.queueing) {
+        session.queue.push({ id: `q${session.queue.length}`, text })
+        return 'queued'
+      }
       // A Session takes a message into a turn at once (Session.send → deliver).
       session.sent.push(text)
       session.state = 'busy'
+      return 'sent'
+    },
+    queued: () => ({ items: session.queue.map((each) => ({ ...each })), paused: false }),
+    removeQueued: (id: string) => {
+      const before = session.queue.length
+      session.queue = session.queue.filter((each) => each.id !== id)
+      return session.queue.length < before
     },
     notice: (text: string) => void session.notices.push(text),
   }
@@ -71,7 +87,7 @@ const fakeSession = (): FakeSession => {
 
 let roots = 0
 /** One Machine: the attention core and the duties over a data root of their own, the fake Sessions, the closed list over them. */
-function world(start = REFUSED_AT - 30 * MIN) {
+function world(start = REFUSED_AT - 30 * MIN, options: { journal?: ActionJournal } = {}) {
   let at = start
   const now = (): number => at
   const root = join(temp, `root-${roots++}`)
@@ -99,8 +115,21 @@ function world(start = REFUSED_AT - 30 * MIN) {
   }
   const waits = new LimitsWaits({ observe, isOrchestrator: (id) => id === ORCH, session: (id) => sessions.get(id) ?? null, limits: () => limits, now, schedule })
   const escalated: string[] = []
-  const journal = actionJournalFile(actionJournalPath(root), now)
+  const journal = options.journal ?? actionJournalFile(actionJournalPath(root), now)
   const shown = (): readonly ShownItem[] => duties.look([...core.items(null), ...core.items(PROJECT)]).shown
+  /** A closed list over this Machine, as after a restart of worfy: the same journal, nothing in memory. */
+  const makeList = (): ClosedList =>
+    new ClosedList({
+      now,
+      shown,
+      orchestratorOf: (projectId) => (projectId === PROJECT ? ORCH : null),
+      session: (id) => sessions.get(id) ?? null,
+      limits: () => limits,
+      continuing: () => continuing,
+      waits,
+      journal,
+      escalate: (id) => void escalated.push(id),
+    })
   const list = new ClosedList({
     now,
     shown,
@@ -143,6 +172,7 @@ function world(start = REFUSED_AT - 30 * MIN) {
     session: (id: string) => sessions.get(id)!,
     waits,
     list,
+    makeList,
     journal,
     escalated,
     shown,
@@ -468,6 +498,88 @@ describe('continue a Session on the Canvas after the reset of the Limits', () =>
     w.open(CANVAS)
     w.refuse(CANVAS)
     expect(w.waits.wait(CANVAS)).toBeNull()
+  })
+})
+
+describe('the door holds its own limits (review round 1)', () => {
+  /** One stop of the Orchestrator: its turn ended, and it stays silent past the threshold of «work stands». */
+  const stall = (w: World): string => {
+    w.endTurn(ORCH)
+    w.add(16 * MIN)
+    w.core.tick()
+    return w.itemOf(ORCH)!.id
+  }
+
+  it("the Assistant's wakes count with main's: past WAKES_PER_DAY in 24 hours act() refuses it (cap) and says so in the journal; the user's click still goes", () => {
+    const w = world()
+    w.mode('wake-orchestrator', 'self')
+    w.open(ORCH)
+    for (let round = 0; round < WAKES_PER_DAY; round += 1) {
+      expect(w.list.act({ action: 'wake-orchestrator', itemId: stall(w), by: round % 2 === 0 ? 'assistant' : 'main' }).ok).toBe(true)
+      w.took(ORCH, WAKE_ORCHESTRATOR_TEXT)
+    }
+    const itemId = stall(w)
+    expect(w.list.act({ action: 'wake-orchestrator', itemId, by: 'assistant' })).toMatchObject({ ok: false, reason: 'cap' })
+    expect(w.list.check({ action: 'wake-orchestrator', itemId, by: 'main' })).toBe('cap')
+    expect(w.journal.lines().at(-1)).toMatchObject({ action: 'wake-orchestrator', by: 'assistant', outcome: 'refused', reason: 'cap' })
+    expect(w.session(ORCH).sent).toHaveLength(WAKES_PER_DAY)
+    expect(w.list.act({ action: 'wake-orchestrator', itemId, by: 'user' }).ok).toBe(true)
+    // Read back from the journal after a restart: the cap still holds; 24 hours after the first wake it lets one go again.
+    w.took(ORCH, WAKE_ORCHESTRATOR_TEXT)
+    const again = stall(w)
+    const restarted = w.makeList()
+    expect(restarted.check({ action: 'wake-orchestrator', itemId: again, by: 'assistant' })).toBe('cap')
+    w.add(24 * 60 * MIN)
+    expect(restarted.check({ action: 'wake-orchestrator', itemId: again, by: 'assistant' })).toBeNull()
+  })
+
+  it('a journal that cannot be written: the cap and «escalate once» still hold, counted in memory', () => {
+    const broken: ActionJournal = {
+      append: () => {
+        throw new Error('EACCES')
+      },
+      lines: () => [],
+    }
+    const w = world(REFUSED_AT - 30 * MIN, { journal: broken })
+    w.mode('wake-orchestrator', 'self')
+    const loop = auto(w)
+    w.open(ORCH)
+    for (let round = 0; round < WAKES_PER_DAY + 1; round += 1) {
+      stall(w)
+      loop.look()
+      loop.look()
+      w.took(ORCH, WAKE_ORCHESTRATOR_TEXT)
+      w.emit(ORCH, { type: 'subagent', phase: 'started', taskId: `t${round}`, toolUseId: null, description: 'implementer', subagentType: null, status: null })
+    }
+    expect(w.session(ORCH).sent).toHaveLength(WAKES_PER_DAY)
+    expect(w.escalated).toHaveLength(1)
+    stall(w)
+    loop.look()
+    loop.look()
+    expect(w.escalated).toHaveLength(2)
+    expect(new Set(w.escalated).size).toBe(2)
+  })
+
+  it('a Session that queues the message (worfy quits, or holds it back) is not acted on: the message is taken back, the line says busy, the wait stays', () => {
+    const w = world()
+    w.mode('wake-orchestrator', 'self')
+    w.mode('continue-session', 'self')
+    w.open(ORCH)
+    const itemId = stall(w)
+    w.session(ORCH).queueing = true
+    expect(w.list.act({ action: 'wake-orchestrator', itemId, by: 'main' })).toMatchObject({ ok: false, reason: 'busy' })
+    expect(w.session(ORCH).queue).toEqual([])
+    expect(w.journal.lines().at(-1)).toMatchObject({ action: 'wake-orchestrator', outcome: 'refused', reason: 'busy' })
+    w.open(CANVAS)
+    w.set(REFUSED_AT)
+    w.refuse(CANVAS)
+    w.set(RESET_MS + RESUME_MARGIN_MS)
+    w.runTimers()
+    w.session(CANVAS).queueing = true
+    const canvasItem = w.itemOf(CANVAS)!.id
+    expect(w.list.act({ action: 'continue-session', itemId: canvasItem, by: 'main' })).toMatchObject({ ok: false, reason: 'busy' })
+    expect(w.session(CANVAS).queue).toEqual([])
+    expect(w.waits.wait(CANVAS)).not.toBeNull()
   })
 })
 

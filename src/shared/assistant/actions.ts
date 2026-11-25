@@ -53,11 +53,14 @@ export type ActionActor = (typeof ACTION_ACTORS)[number]
  * - `mode` — the mode of the action does not let this actor do it (`hand-over`; `ask` for anyone but the user);
  * - `no-target` — the Session the action is for is not running, or the item is not about the Session it acts on;
  * - `run-owns` — an Autopilot run owns the Session;
- * - `busy` — the Session is in a turn, or a background task of it is alive, or Auto-continue waits to continue it;
+ * - `busy` — the Session is in a turn, or a background task of it is alive, or Auto-continue waits to continue it, or
+ *   it queued the message (worfy quits, a turn is held back) and the message was taken back;
  * - `limits` — the Limits still refuse: for continue-session, the wait for their reset is not over;
+ * - `cap` — the Orchestrator was woken WAKES_PER_DAY times in 24 hours (src/main/assistant/actions/closed-list.ts); only
+ *   the user may wake it again;
  * - `failed` — the Session did not take the message.
  */
-export const ACTION_REFUSALS = ['not-in-list', 'no-item', 'not-proposed', 'mode', 'no-target', 'run-owns', 'busy', 'limits', 'failed'] as const
+export const ACTION_REFUSALS = ['not-in-list', 'no-item', 'not-proposed', 'mode', 'no-target', 'run-owns', 'busy', 'limits', 'cap', 'failed'] as const
 export type ActionRefusal = (typeof ACTION_REFUSALS)[number]
 
 /**

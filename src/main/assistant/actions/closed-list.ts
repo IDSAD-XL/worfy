@@ -10,10 +10,13 @@
 //    `hand-over` — no one;
 // 4. the Session the action is for is there and may take a message: no Autopilot run owns it, it is idle, and for an
 //    Orchestrator no background task of it is alive; the Limits allow work (wake), or the wait for their reset is over
-//    (continue).
+//    (continue);
+// 5. a wake asked by main or the Assistant is within WAKES_PER_DAY wakes of that Orchestrator in 24 hours (`cap`).
 // Then main sends its own text (WAKE_ORCHESTRATOR_TEXT, continueSessionText()), never one the caller gives, and every
 // call — done or refused — is a line of the Assistant's journal with the item that caused it. check() answers the same
 // verdict without acting and without a line: auto.ts asks it so a condition that does not hold yet fills no journal.
+// A Session that queues the message (Session.send answers `queued`) gets it taken back, and the line says `busy`: a
+// queued message would go out later — after a restart — with no fresh look at the Session or the Limits.
 import type { LimitsState } from '../../../shared/agent/limits'
 import type { SessionState } from '../../../shared/agent/events'
 import {
@@ -39,8 +42,21 @@ export interface ActionTarget {
   readonly unattended: boolean
   /** Its live background tasks (Subagents, background commands). */
   backgroundTasks(): readonly unknown[]
-  send(text: string): unknown
+  /** `queued`: the Session holds it for later (worfy quits, a turn is held back) — the closed list takes it back. */
+  send(text: string): 'sent' | 'queued'
+  /** Its queue (Session.queued) and the removal of one message from it (Session.removeQueued). */
+  queued(): { items: readonly { id: string; text: string }[] }
+  removeQueued(id: string): boolean
 }
+
+/**
+ * The most wakes of one Orchestrator in 24 hours by main and by the Assistant together; past it act() refuses them
+ * (`cap`), and main's pass escalates the item instead (auto.ts). The user's click is not counted against it. Six: one
+ * per 5-hour window of a day and night with one to spare. Decided without the owner (ticket 08, result section).
+ */
+export const WAKES_PER_DAY = 6
+
+const DAY_MS = 24 * 60 * 60_000
 
 export interface ClosedListDeps {
   now(): number
@@ -79,7 +95,34 @@ export function modeAllows(mode: DutyActionMode, by: ActionActor): boolean {
 }
 
 export class ClosedList {
+  /**
+   * The wakes done (by Session) and the items escalated, kept in memory: a journal that cannot be written loses its
+   * lines, not these counts. The journal only restores them after a restart (restore()).
+   */
+  private wakes: { sessionId: string; at: number }[] | null = null
+  private readonly escalated = new Set<string>()
+
   constructor(private readonly deps: ClosedListDeps) {}
+
+  /** The counts of an earlier run of worfy, read back once from the journal; an unreadable journal restores none. */
+  private restore(): { sessionId: string; at: number }[] {
+    if (this.wakes !== null) return this.wakes
+    this.wakes = []
+    try {
+      for (const line of this.deps.journal.lines()) {
+        if (line.outcome === 'escalated') this.escalated.add(line.item)
+        else if (line.action === 'wake-orchestrator' && line.outcome === 'done' && line.sessionId !== null) this.wakes.push({ sessionId: line.sessionId, at: line.at })
+      }
+    } catch (error) {
+      console.warn('[assistant] the journal of actions could not be read back', error)
+    }
+    return this.wakes
+  }
+
+  /** The wakes of the Orchestrator `sessionId` in the 24 hours before `now`, by any actor. */
+  private wakesWithinDay(sessionId: string, now: number): number {
+    return this.restore().filter((wake) => wake.sessionId === sessionId && wake.at > now - DAY_MS).length
+  }
 
   /** The verdict act() would give now; nothing is sent and nothing is written. */
   check(request: ActionRequest): ActionRefusal | null {
@@ -94,21 +137,31 @@ export class ClosedList {
     const sessionId = verdict.sessionId as string
     const now = this.deps.now()
     const text = action === 'wake-orchestrator' ? WAKE_ORCHESTRATOR_TEXT : continueSessionText((verdict.wait as SessionLimitsWait).since, now)
+    const session = this.deps.session(sessionId)
     try {
-      this.deps.session(sessionId)?.send(text)
+      if (session?.send(text) === 'queued') {
+        // It would go out later — after a restart, say — with no fresh look at the Session or the Limits: taken back.
+        const queued = session.queued().items.findLast((each) => each.text === text)
+        if (queued !== undefined) session.removeQueued(queued.id)
+        return this.refused(request, verdict, 'busy')
+      }
     } catch {
       return this.refused(request, verdict, 'failed')
     }
     if (action === 'continue-session') this.deps.waits.resume(sessionId)
+    else this.restore().push({ sessionId, at: now })
     const line = this.write(this.line(request, verdict, { outcome: 'done', text }))
     return { ok: true, line }
   }
 
   /**
    * The closed list did not help with item `itemId`: a line `escalated`, and the model of the Assistant is woken for it
-   * (ticket 06). Answers the line.
+   * (ticket 06). Once per item: a second call does nothing and answers null.
    */
-  escalate(itemId: string, by: ActionActor = 'main'): ActionJournalLine {
+  escalate(itemId: string, by: ActionActor = 'main'): ActionJournalLine | null {
+    this.restore()
+    if (this.escalated.has(itemId)) return null
+    this.escalated.add(itemId)
     const shown = this.deps.shown().find((each) => each.item.id === itemId) ?? null
     const request: ActionRequest = { action: 'wake-orchestrator', itemId, by }
     const line = this.write(this.line(request, { refusal: null, shown, mode: null, sessionId: shown?.item.subject.id ?? null, wait: null }, { outcome: 'escalated' }))
@@ -145,6 +198,7 @@ export class ClosedList {
     if (request.action === 'wake-orchestrator') {
       if (session.backgroundTasks().length > 0 || this.deps.continuing?.(item.projectId) === true) return refuse('busy')
       if (!limitsCheck(this.deps.limits(), 'on-demand', now).ok) return refuse('limits')
+      if (request.by !== 'user' && this.wakesWithinDay(item.subject.id, now) >= WAKES_PER_DAY) return refuse('cap')
       return verdict
     }
     verdict.wait = this.deps.waits.wait(item.subject.id)

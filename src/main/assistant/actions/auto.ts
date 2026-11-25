@@ -6,8 +6,9 @@
 // - continue-session: a Session on the Canvas whose wait for the Limits is due (limits-waits.ts) is continued.
 // - wake-orchestrator: an idle Orchestrator, with no background task alive and the Limits free, is woken once. The wake
 //   helped when the Orchestrator starts a Subagent after it, or a person writes to it: its next stop is a new one. When
-//   it stands again with neither — or after WAKES_PER_DAY wakes in 24 hours — the closed list did not help: the item
-//   is escalated once (the model of the Assistant wakes for it, ticket 06), and no further wake goes.
+//   it stands again with neither — or the closed list refuses the wake by its cap (WAKES_PER_DAY wakes in 24 hours,
+//   closed-list.ts) — the closed list did not help: the item is escalated (the model of the Assistant wakes for it,
+//   ticket 06; the closed list escalates an item once), and no further wake goes.
 //
 // A look runs after each change of what main follows (the items, the Limits, the waits, the Mac's wake) and every
 // AUTO_LOOK_MS: the reset of the Limits comes by the clock, with no event.
@@ -20,16 +21,8 @@ import type { ClosedList } from './closed-list'
 /** How often a look runs without a change: once a minute. Decided without the owner (ticket 08, result section). */
 export const AUTO_LOOK_MS = 60_000
 
-/**
- * The most wakes of one Orchestrator in 24 hours; past it the item is escalated instead. Six: one per 5-hour window of
- * a day and night with one to spare. Decided without the owner (ticket 08, result section).
- */
-export const WAKES_PER_DAY = 6
-
-const DAY_MS = 24 * 60 * 60_000
-
 export interface ClosedListAutoDeps {
-  list: Pick<ClosedList, 'check' | 'act' | 'escalate' | 'journal'>
+  list: Pick<ClosedList, 'check' | 'act' | 'escalate'>
   /** What the duties show now (Duties.look over every item of the attention core). */
   shown(): readonly ShownItem[]
   /** Every event of every Session (SessionRegistry.observe): what an Orchestrator did after its wake. */
@@ -65,27 +58,23 @@ export function runClosedListAuto(deps: ClosedListAutoDeps): ClosedListAuto {
     if (person || started) woken.delete(sessionId)
   }
 
-  const wakesToday = (sessionId: string, now: number): number =>
-    deps.list.journal().filter((line) => line.action === 'wake-orchestrator' && line.outcome === 'done' && line.sessionId === sessionId && line.at > now - DAY_MS).length
-
-  const escalatedBefore = (itemId: string): boolean => deps.list.journal().some((line) => line.outcome === 'escalated' && line.item === itemId)
-
   const pass = (): void => {
     for (const shown of deps.shown()) {
       for (const proposal of shown.proposals) {
         if (!isClosedAction(proposal.action) || (proposal.mode !== 'self' && proposal.mode !== 'pre-approved')) continue
         const request: ActionRequest = { action: proposal.action, itemId: shown.item.id, by: 'main' }
-        if (deps.list.check(request) !== null) continue
+        const refusal = deps.list.check(request)
         if (proposal.action === 'continue-session') {
-          deps.list.act(request)
+          if (refusal === null) deps.list.act(request)
           continue
         }
         const target = shown.item.subject.id
-        if (woken.has(target) || wakesToday(target, deps.now()) >= WAKES_PER_DAY) {
-          if (!escalatedBefore(shown.item.id)) deps.list.escalate(shown.item.id)
+        // It stands again, and every other check holds: the closed list did not help.
+        if (refusal === 'cap' || (refusal === null && woken.has(target))) {
+          deps.list.escalate(shown.item.id)
           continue
         }
-        if (deps.list.act(request).ok) woken.add(target)
+        if (refusal === null && deps.list.act(request).ok) woken.add(target)
       }
     }
   }
