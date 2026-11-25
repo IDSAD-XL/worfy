@@ -1,7 +1,8 @@
 # 140 — Аудит повторного review: интерфейс Session, Dialog и rail
 
 Type: bug
-Status: claimed 2026-11-25T08:06Z
+Status: done 2026-11-25T11:33Z
+PR: #2198
 Blocked by: none
 Source: audit-pr-rereview-2026-11-13, triage.md «Чинить сейчас»; checked open on main 3c9c06e8c 2026-11-25
 
@@ -54,22 +55,28 @@ renderer и все ещё в коде на main 3c9c06e8c:
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/contrast.test.ts` exit 0 (120 passed), exit 1 on origin/main source (4 failed: --danger-text contrast 1.0-1.08) · mac - · 749675fe1bbd50c8ee08b68f1edd19ab94fcf39d
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/contrast.test.ts` exit 0 (120 passed); exit 1 with the session.css of 95bac09cc (5 failed: opacity 0.55, contrast 2.7-2.9) · mac - · e860af3116296a492d9bfd90dbaddcf5387943ed
   - evidence: screenshot pass · 4 shots of the message, queued and not sent, light and dark, from the e2e build by test/e2e/product-session.spec.ts (13 passed, exit 0): test-results/e2e/product-session-a-queued-m-*/140-{queued,not-sent}-{light,dark}.png in the PR worktree; the implementer looked at all four, fixture text only · mac dev · e860af3116296a492d9bfd90dbaddcf5387943ed
+  - evidence: review pass · PR #2198 · - - · f45d193e2d7bd8a3242b709c10b4cb865859d040
 - [ ] 141: unit test `test/unit/kit-dialog.test.tsx` — первое окно, закрытое под вторым, оставляет focus во втором;
       окно, действие которого поставило focus на элемент страницы (finding 142), оставляет его там; окно, закрытое
       одно, возвращает focus открывшему. Красный на origin/main.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/kit-dialog.test.tsx` exit 0 (24 passed), exit 1 on origin/main source (focus went to the opener); mutant without the closing-window check exit 1 (3 failed) · mac - · 749675fe1bbd50c8ee08b68f1edd19ab94fcf39d
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/kit-dialog.test.tsx` exit 0 (25 passed); exit 1 with the Dialog.tsx of origin/main (2 failed: second window, focus moved to the page by an action) · mac - · e860af3116296a492d9bfd90dbaddcf5387943ed
+  - evidence: review pass · PR #2198 · - - · f45d193e2d7bd8a3242b709c10b4cb865859d040
 - [ ] 189: unit test `test/unit/composer-popovers.test.tsx` — список Queued закрывается, когда очередь пустеет; следующее
       сообщение показывает chip, не список, focus остаётся в поле ввода. Красный на origin/main.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/composer-popovers.test.tsx` exit 0 (7 passed), exit 1 on origin/main source (the list reopened, aria-expanded true) · mac - · 749675fe1bbd50c8ee08b68f1edd19ab94fcf39d
+  - evidence: review pass · PR #2198 · - - · f45d193e2d7bd8a3242b709c10b4cb865859d040
 - [ ] 187: unit test `test/unit/quote-comments-ui.test.tsx` — после замены обрезанной цитаты полной появляется
       «Show all». Красный на origin/main.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/quote-comments-ui.test.tsx` exit 0 (47 passed), exit 1 on origin/main source (no Show all after the whole quote replaced the cut one) · mac - · 749675fe1bbd50c8ee08b68f1edd19ab94fcf39d
+  - evidence: review pass · PR #2198 · - - · f45d193e2d7bd8a3242b709c10b4cb865859d040
 - [ ] 133: unit test `test/unit/pipeline-board.test.tsx` — точка rail считает только Ticket-ы, которые ждут человека;
       `docs/features/workflow.md` говорит то же. Красный на origin/main.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pipeline-board.test.tsx` exit 0 (42 passed), exit 1 on origin/main source (the dot counted 4 Tickets, not 2) · mac - · 749675fe1bbd50c8ee08b68f1edd19ab94fcf39d
+  - evidence: review pass · PR #2198 · - - · f45d193e2d7bd8a3242b709c10b4cb865859d040
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (914 files, 20690 tests passed) · mac - · 749675fe1bbd50c8ee08b68f1edd19ab94fcf39d
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45594047525/job/139174988366 · ci - · f45d193e2d7bd8a3242b709c10b4cb865859d040
 
 ## Где в коде
 
