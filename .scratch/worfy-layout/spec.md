@@ -14,7 +14,7 @@ Stable copy, Update, Available update, Harness, Machine, Linked machine, Health 
 ([ADR-0106](../../docs/adr/0106-base-ui-kit.md)); [worfy-update](../worfy-update/spec.md) — chip версии, toast-ы
 Update; [worfy-acceptance](../worfy-acceptance/spec.md) — вид Acceptance и его счёт Ready to check (Ticket 10 приёмки
 этот Epic не держит, Q8); [worfy-link](../worfy-link/spec.md) — маршрут каналов `local`.
-Ticket-ы: Epic `worfy-layout`, 8 Ticket-ов в 6 Wave-ах, нумерация с `01`; файлов Ticket-ов ещё нет.
+Ticket-ы: Epic `worfy-layout`, 8 Ticket-ов в 6 Wave-ах, нумерация с `01`; файлы — `.scratch/worfy-layout/issues/`.
 
 ## Проблема
 
@@ -49,7 +49,8 @@ Ticket-ы: Epic `worfy-layout`, 8 Ticket-ов в 6 Wave-ах, нумерация
 **Путь владельца.**
 
 1. Владелец обновил Stable copy. В header — заголовок Project-а, Canvas и Session с подписями, Limits, поиск. На rail
-   под секциями — тонкая черта и две кнопки: Pull requests, Acceptance с бейджем. Внизу — footer: слева Pipeline и Runs,
+   под секциями — тонкая черта и две кнопки: Pull requests, Acceptance с меткой «окно» в углу иконки; бейдж
+   — у одноимённых секций над чертой (решение B). Внизу — footer: слева Pipeline и Runs,
    справа `v0.4.N` с янтарной точкой.
 2. Владелец тянет Runs из footer в header. Пока он тянет, все три зоны подсвечены, а между Canvas и Session горит
    маркер вставки. Он отпускает — Runs стоит между ними, и в другом окне worfy тоже.
@@ -366,8 +367,8 @@ footer:  ╔[▥ Pipeline] [◷ Runs]╗                                        
     `limits-meter`, `harness-status`, `update-chip`, `acceptance-view`, `pr-inbox-view`, `focus-mode`, `kit-tooltip`, а
     также `app-memory`, `settings-pipeline`, `version-number-screen`, `whats-new-view`, `kit-groups`, `session-view`.
 - **Какие e2e запускает PR.** `src/renderer/shell/`, `src/shared/settings/` и `src/main/settings/` не описаны в
-  `scripts/e2e-specs.table.json`, поэтому PR Ticket-а кода запускает все spec-файлы e2e. Docs PR (Ticket 07 без
-  `src/`) — без e2e.
+  `scripts/e2e-specs.table.json`, поэтому PR Ticket-а кода запускает все spec-файлы e2e. Ticket 07 правит тексты тем Guide в
+  `src/renderer/guide/topics/`, поэтому его PR запускает e2e по той же таблице.
 - **Сначала падающий test** в каждом Ticket-е кода: красный на старом поведении, это пишется в «Итог».
 - Платных eval-ов нет; настоящие Claude и Codex test-ы не запускают.
 
@@ -510,7 +511,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 - [ ] Окно Linked machine показывает расстановку этого компьютера (`linked-opening.spec.ts`).
 - [ ] Страницы Feature en и ru, термины View button и Footer в `CONTEXT.md`.
 - [ ] (вручную) Сделай: обнови Stable и открой worfy → Должно быть: в header Canvas и Session с подписями; на rail под
-      чертой Pull requests и Acceptance с бейджем; в footer слева Pipeline и Runs, справа chip версии.
+      чертой Pull requests и Acceptance с меткой «окно», бейдж — у секций над чертой; в footer слева Pipeline и Runs, справа chip версии.
   - needs: mac stable
 - [ ] (вручную) Сделай: перетащи Runs из footer в header между Canvas и Session → Должно быть: пока тянешь, три зоны
       подсвечены и между Canvas и Session виден маркер; после drop Runs стоит там и после перезапуска worfy.
