@@ -13,6 +13,7 @@ import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, ty
 import { create } from 'zustand'
 import type { PrInboxComment, PrReplyDrafts, PrReplyItem, PrReplyRef, PrReplySendResult } from '../../shared/ipc/pr-inbox'
 import { hasPreloadBridge, invoke, readableReason, windowMachine } from '../ipc'
+import { useNavigation } from '../session/navigation'
 import { Dialog } from '../theme/kit/Dialog'
 import { CommentBody } from './CommentBody'
 
@@ -123,7 +124,9 @@ interface PrReplyDraftsState {
 
 /**
  * The drafts of `repo`#`number` of the Project: read now, every DRAFTS_POLL_MS and when the window gets the focus, as
- * long as the caller is mounted. A field the user typed in keeps the typed text over a new read.
+ * long as the caller is mounted and the Pull requests view is shown. The shell keeps a hidden view mounted
+ * (AppShell.tsx), so a hidden one reads nothing; shown again, it reads at once. A field the user typed in keeps the
+ * typed text over a new read.
  */
 function usePrReplyDrafts(projectId: string, repo: string, number: number): PrReplyDraftsState {
   const [drafts, setDrafts] = useState<PrReplyDrafts | undefined>(undefined)
@@ -132,6 +135,7 @@ function usePrReplyDrafts(projectId: string, repo: string, number: number): PrRe
   const [busy, setBusy] = useState(false)
   const [said, setSaid] = useState<readonly Said[]>([])
   const session = useDraftSessions((store) => store.byPr[prKey(projectId, repo, number)] ?? null)
+  const shown = useNavigation((store) => store.view === 'pull-requests')
   const live = useRef(true)
   const pull = { projectId, repo, number }
   const items = drafts?.items ?? []
@@ -154,17 +158,24 @@ function usePrReplyDrafts(projectId: string, repo: string, number: number): PrRe
     })
   }, [projectId, repo, number, take])
 
+  // Another PR or Project: what a read of the earlier one brings later is dropped.
   useEffect(() => {
     live.current = true
+    return () => {
+      live.current = false
+    }
+  }, [load])
+
+  useEffect(() => {
+    if (!shown) return
     load()
     const timer = setInterval(load, DRAFTS_POLL_MS)
     window.addEventListener('focus', load)
     return () => {
-      live.current = false
       clearInterval(timer)
       window.removeEventListener('focus', load)
     }
-  }, [load])
+  }, [load, shown])
 
   const typedOf = (item: PrReplyItem): Typed | undefined => typed.find((each) => holder(typedNote(each), items) === item)
   const textOf = (item: PrReplyItem): string => typedOf(item)?.text ?? item.body

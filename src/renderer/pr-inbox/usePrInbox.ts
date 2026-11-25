@@ -13,7 +13,7 @@ import type { PrSearchNotice, PrSearchResult, SavedSearch } from '../../shared/i
 import type { PrSearchScope } from '../../shared/pr-search/query'
 import { prFollowReasons } from '../../shared/actions/pr-follow'
 import type { PrFollowAction } from '../../shared/projects/action-templates'
-import { sameLogin, sameRepo, ticketOfRow } from '../../shared/pr-inbox/rows'
+import { sameLogin, sameRepo, ticketOfRow, waitingThreads } from '../../shared/pr-inbox/rows'
 import { invoke, readableReason, subscribe } from '../ipc'
 
 // Moved to src/shared, where main reads them too (worfy-pr-follow ticket 01); the view and its tests still take them from here.
@@ -508,10 +508,12 @@ export function nextStep(group: PrInboxGroup, row: PrInboxRow, now: number, draf
         action: { kind: 'start-review' },
         more: [],
       }
-    case 'needs-answer':
+    case 'needs-answer': {
+      // Only the threads where the move is the user's (main's rule for this group): on a colleague's PR not every open one.
+      const waiting = waitingThreads(row, viewer)
       return {
         tone: 'answer',
-        title: open > 0 ? `Answer ${plural(open, 'open thread', 'open threads')}` : 'Your answer is awaited',
+        title: waiting > 0 ? `Answer ${plural(waiting, 'open thread', 'open threads')}` : 'Your answer is awaited',
         // One draft: its Send stays under its thread, beside the text it posts; the strip points there.
         text:
           drafts > 1
@@ -525,6 +527,7 @@ export function nextStep(group: PrInboxGroup, row: PrInboxRow, now: number, draf
         // Only the user's own PR: a colleague's is not the user's to push to, and the verdict would refuse it anyway.
         more: viewer !== null && sameLogin(row.author, viewer) ? prFollowReasons(row, viewer).map(follow) : [],
       }
+    }
     case 'needs-fix': {
       const checks: NextAction = { kind: 'link', label: 'Open checks', url: `${row.url}/checks` }
       const [first, ...rest] = prFollowReasons(row, viewer)

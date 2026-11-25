@@ -1945,7 +1945,19 @@ describe('harness/evals: pr-reply', () => {
     expect(skill).toContain('Only `bin/pr-reply-draft` (step 6)\nwrites it: never write or create anything in the profile folder yourself')
     expect(skill).not.toMatch(/mkdir -p/)
     expect(skill).toContain('rewrite or shorten each item it names and run it again, until\nexit 0.')
-    expect(skill).toContain("A review thread** waits when `isResolved` is false and its last comment is not the viewer's.")
+    // Which review threads wait, by worfy's rule for "Needs my answer" (owesAnswer, src/main/github/inbox-groups.ts):
+    // on a colleague's pull request only a thread the viewer wrote in, not every unresolved one (worfy-polish 141).
+    const thread = (/\*\*A review thread\*\*[\s\S]*?(?=\n- \*\*A comment in the conversation\*\*)/.exec(skill)?.[0] ?? '').replaceAll(/\s+/g, ' ')
+    for (const rule of [
+      "waits when `isResolved` is false, its last comment is not the viewer's, and the viewer owes the answer",
+      "on the viewer's own pull request (its `author.login` is the viewer) every such thread",
+      "on someone else's pull request only a thread the viewer wrote in, one with a comment of the viewer's in `comments`",
+      'the rule of worfy\'s "Needs my answer" group',
+      'the one in `latest`, never the last of `comments`',
+      "a thread on someone else's pull request the viewer never wrote in get no draft",
+    ])
+      expect(thread, rule).toContain(rule)
+    expect(skill).toContain('`viewer.login`, the person; and `author.login` of the pull request')
     expect(skill).toContain('Nothing waits: run step 6 with an empty `items` list')
     for (const label of ['**needs code change**', '**needs answer**', '**FYI**', '**resolved by push**']) expect(skill, label).toContain(label)
     // What does not exist yet is not promised: no view of pull requests, no Send button.

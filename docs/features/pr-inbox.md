@@ -90,7 +90,8 @@ chooses again only when the selected PR leaves the inbox. With one PR, that PR i
 - the title, `owner/repo#N`, the Ticket chip, `Draft` for a draft PR, "via team" when the review is asked only of a team
   the user is in, the author, the branch, and "N new since you looked";
 - **what to do next**, one strip in the colour of the PR's group, from the group, CI, review and drafts, with its main
-  button: "Your review is asked" with **Start review ▾** ([Review mode](#review-mode)); "Answer N open threads" with
+  button: "Your review is asked" with **Start review ▾** ([Review mode](#review-mode)); "Answer N open threads", where N
+  counts only the threads that wait for the user's answer (on a colleague's PR, those the user wrote in), with
   **Send all (N)** when two draft replies or more are ready below (it opens the dialog of Send all, below), with
   **Draft replies** when there is none yet, and with no button for one draft, whose **Send** is under its thread;
   "CI failing", "Changes requested", "Merge conflict" or several of them ("Merge conflict and CI failing") with the
@@ -295,7 +296,8 @@ answer into a file on this machine, in the Profile folder (`state/pr-inbox/draft
 "A Session drafts the replies: they appear under their threads", or why the Session did not start.
 
 **A draft under its thread.** The selected PR's drafts are read when it is selected, every 5 seconds while it stays
-selected, and when the window gets the focus; no other PR's drafts are read. Each draft reply shows under its thread, or under **Conversation** for a reply in the PR's
+selected, and when the window gets the focus, all only while the Pull requests view is shown: a hidden view reads none,
+and shown again it reads at once. No other PR's drafts are read. Each draft reply shows under its thread, or under **Conversation** for a reply in the PR's
 conversation: its label (Needs code change, Needs answer, FYI, Resolved by push), `Edited` once the user changed it,
 and the text in a field the user edits. A reply whose thread the PR does not list shows under "Replies to threads not
 shown here". A plan for a code change, when the skill wrote one, shows under the field; it is never posted. Buttons:

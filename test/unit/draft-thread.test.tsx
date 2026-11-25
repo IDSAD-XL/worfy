@@ -101,8 +101,17 @@ async function reread(items: PrReplyItem[]): Promise<void> {
 
 const sends = (): unknown[] => main.calls.filter((call) => call.channel === 'prInbox.send').map((call) => call.input)
 
+/** The shell shows the Pull requests view: PrDrafts reads the drafts only then (worfy-polish 141). */
+async function showView(view: 'pull-requests' | 'canvas' = 'pull-requests'): Promise<void> {
+  const { setView } = await import('../../src/renderer/session/navigation')
+  await act(async () => setView(view))
+}
+
+const draftReads = (): number => main.calls.filter((call) => call.channel === 'prInbox.drafts').length
+
 async function drafts(items: PrReplyItem[], readOnly: string | null = null): Promise<void> {
   preload(draftsOf(items))
+  await showView()
   const { PrDrafts } = await import('../../src/renderer/pr-inbox/DraftThread')
   render(
     <PrDrafts projectId={PROJECT} repo={API} number={118} readOnly={readOnly} threads={[0, 1, 2].map((index) => ({ id: `T${index}`, path: `src/f${index}.ts`, line: index }))}>
@@ -196,6 +205,42 @@ describe('the drafts of a PR', () => {
     expect(sends()).toEqual([])
   })
 
+  it('reads no drafts while the Pull requests view is hidden, on its timer or on the focus of the window; reads them at once when it is shown (worfy-polish 141)', async () => {
+    // Only the interval is fake: waitFor keeps its real setTimeout.
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    try {
+      preload(draftsOf([item(0)]))
+      await showView('canvas')
+      const { PrDrafts } = await import('../../src/renderer/pr-inbox/DraftThread')
+      render(
+        <PrDrafts projectId={PROJECT} repo={API} number={118} readOnly={null} threads={[{ id: 'T0', path: 'src/a.ts', line: 1 }]}>
+          {(renderItem, list) => <div>{renderItem === null ? null : list.map(renderItem)}</div>}
+        </PrDrafts>,
+      )
+      const idle = async (): Promise<void> =>
+        act(async () => {
+          vi.advanceTimersByTime(15_000)
+          window.dispatchEvent(new Event('focus'))
+        })
+      await idle()
+      expect(draftReads()).toBe(0)
+      // Shown: one read at once, then one each 5 seconds.
+      await showView()
+      await waitFor(() => expect(screen.getAllByTestId('pr-draft')).toHaveLength(1))
+      expect(draftReads()).toBe(1)
+      await act(async () => {
+        vi.advanceTimersByTime(5_000)
+      })
+      expect(draftReads()).toBe(2)
+      // Hidden again: the timer and the focus read nothing.
+      await showView('canvas')
+      await idle()
+      expect(draftReads()).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('Send on one reply sends the text in its field, once; the reply then shows as sent', async () => {
     await drafts([item(0), item(1)])
     fireEvent.change(field(0), { target: { value: 'Edited text\nwith a second line' } })
@@ -262,6 +307,7 @@ describe('the drafts of a PR', () => {
       main.drafts = draftsOf([item(0, { error: reason })])
       return Promise.resolve({ ok: true, value: { results: [{ index: 0, outcome: 'refused', reason, sentUrl: null }], drafts: main.drafts } })
     }) as WorfyBridge['invoke']
+    await showView()
     const { PrDrafts } = await import('../../src/renderer/pr-inbox/DraftThread')
     render(
       <PrDrafts projectId={PROJECT} repo={API} number={118} readOnly={null} threads={[{ id: 'T0', path: 'src/a.ts', line: 1 }]}>
@@ -335,6 +381,7 @@ describe('the drafts of a PR', () => {
       }
       return invoke(channel as never, input as never)
     }) as WorfyBridge['invoke']
+    await showView()
     const { DraftRepliesButton, PrDrafts } = await import('../../src/renderer/pr-inbox/DraftThread')
     // Both threads sit on the same line of the same file.
     const samePlace = [
