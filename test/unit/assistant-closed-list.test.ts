@@ -533,6 +533,27 @@ describe('the door holds its own limits (review round 1)', () => {
     expect(restarted.check({ action: 'wake-orchestrator', itemId: again, by: 'assistant' })).toBeNull()
   })
 
+  it("the user's wakes are not counted: two clicks before main's six leave main all six, in memory and read back after a restart", () => {
+    const w = world()
+    w.mode('wake-orchestrator', 'self')
+    w.open(ORCH)
+    const wake = (by: 'user' | 'main'): void => {
+      expect(w.list.act({ action: 'wake-orchestrator', itemId: stall(w), by }).ok).toBe(true)
+      w.took(ORCH, WAKE_ORCHESTRATOR_TEXT)
+    }
+    wake('user')
+    wake('user')
+    for (let round = 0; round < WAKES_PER_DAY - 1; round += 1) wake('main')
+    // A restart reads the journal back: two user wakes and five of main's leave main one more.
+    const restarted = w.makeList()
+    const itemId = stall(w)
+    expect(restarted.check({ action: 'wake-orchestrator', itemId, by: 'main' })).toBeNull()
+    expect(w.list.check({ action: 'wake-orchestrator', itemId, by: 'main' })).toBeNull()
+    expect(w.list.act({ action: 'wake-orchestrator', itemId, by: 'main' }).ok).toBe(true)
+    w.took(ORCH, WAKE_ORCHESTRATOR_TEXT)
+    expect(w.list.check({ action: 'wake-orchestrator', itemId: stall(w), by: 'main' })).toBe('cap')
+  })
+
   it('a journal that cannot be written: the cap and «escalate once» still hold, counted in memory', () => {
     const broken: ActionJournal = {
       append: () => {

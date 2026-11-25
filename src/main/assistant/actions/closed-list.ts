@@ -96,8 +96,9 @@ export function modeAllows(mode: DutyActionMode, by: ActionActor): boolean {
 
 export class ClosedList {
   /**
-   * The wakes done (by Session) and the items escalated, kept in memory: a journal that cannot be written loses its
-   * lines, not these counts. The journal only restores them after a restart (restore()).
+   * The wakes done by main and the Assistant (by Session; the user's are not counted) and the items escalated, kept in
+   * memory: a journal that cannot be written loses its lines, not these counts. The journal only restores them after a
+   * restart (restore()).
    */
   private wakes: { sessionId: string; at: number }[] | null = null
   private readonly escalated = new Set<string>()
@@ -111,7 +112,7 @@ export class ClosedList {
     try {
       for (const line of this.deps.journal.lines()) {
         if (line.outcome === 'escalated') this.escalated.add(line.item)
-        else if (line.action === 'wake-orchestrator' && line.outcome === 'done' && line.sessionId !== null) this.wakes.push({ sessionId: line.sessionId, at: line.at })
+        else if (line.action === 'wake-orchestrator' && line.outcome === 'done' && line.by !== 'user' && line.sessionId !== null) this.wakes.push({ sessionId: line.sessionId, at: line.at })
       }
     } catch (error) {
       console.warn('[assistant] the journal of actions could not be read back', error)
@@ -119,7 +120,7 @@ export class ClosedList {
     return this.wakes
   }
 
-  /** The wakes of the Orchestrator `sessionId` in the 24 hours before `now`, by any actor. */
+  /** The wakes of the Orchestrator `sessionId` in the 24 hours before `now` by main and the Assistant; the user's are not kept. */
   private wakesWithinDay(sessionId: string, now: number): number {
     return this.restore().filter((wake) => wake.sessionId === sessionId && wake.at > now - DAY_MS).length
   }
@@ -149,7 +150,7 @@ export class ClosedList {
       return this.refused(request, verdict, 'failed')
     }
     if (action === 'continue-session') this.deps.waits.resume(sessionId)
-    else this.restore().push({ sessionId, at: now })
+    else if (request.by !== 'user') this.restore().push({ sessionId, at: now })
     const line = this.write(this.line(request, verdict, { outcome: 'done', text }))
     return { ok: true, line }
   }
