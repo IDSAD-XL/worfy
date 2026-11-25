@@ -12,7 +12,7 @@ Kind: pr · Epic: worfy-product-session · Ticket: 33 · PR: - · Language: ru
 
 ## 2. Стрелка «Replaces» в Tree огибает колонку справа
 
-Code: `src/renderer/product/mind-map-layout.ts:809-819` · key lines: 810, 811, 814, 815, 816, 817
+Code: `src/renderer/product/mind-map-layout.ts:810-820` · key lines: 811, 812, 815, 816, 817, 818
 
 ```ts
 export function treeReplacesPath(from: ScreenBox, to: ScreenBox): string {

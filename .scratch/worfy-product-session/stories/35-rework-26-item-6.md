@@ -12,7 +12,7 @@ Kind: pr · Epic: worfy-product-session · Ticket: 35 · PR: - · Language: ru
 
 ## 2. Доля круга у листа — по его глубине
 
-Code: `src/renderer/product/mind-map-layout.ts:538-543` · key lines: 538, 541
+Code: `src/renderer/product/mind-map-layout.ts:539-544` · key lines: 539, 542
 
 ```ts
   const share = leaves.map((leaf) => Math.max(1, depth[leaf]!))
@@ -33,7 +33,7 @@ Code: `src/renderer/product/mind-map-layout.ts:538-543` · key lines: 538, 541
 
 ## 3. Каждый шаг подтягивает карту к теме
 
-Code: `src/renderer/product/mind-map-layout.ts:581-595` · key lines: 581, 590, 592, 593
+Code: `src/renderer/product/mind-map-layout.ts:582-596` · key lines: 582, 591, 593, 594
 
 ```ts
   const centred = children[0]!.length > 1
@@ -65,7 +65,7 @@ Code: `src/renderer/product/mind-map-layout.ts:581-595` · key lines: 581, 590, 
 
 ## 4. Последние шаги убирают узлы с пути стрелок
 
-Code: `src/renderer/product/mind-map-layout.ts:599-633` · key lines: 611, 619, 620
+Code: `src/renderer/product/mind-map-layout.ts:600-634` · key lines: 612, 620, 621
 
 ```ts
   /** Moves boxes off the "grew from" arrows that run over them (the last rounds, see there); `grid` finds the boxes near an arrow. */
@@ -118,7 +118,7 @@ Code: `src/renderer/product/mind-map-layout.ts:599-633` · key lines: 611, 619, 
 
 ## 5. Красная кривая «Replaces» изгибается туда, где меньше узлов
 
-Code: `src/renderer/product/mind-map-layout.ts:786-791` · key lines: 786, 789, 790
+Code: `src/renderer/product/mind-map-layout.ts:787-792` · key lines: 787, 790, 791
 
 ```ts
     let [bend, least] = [bends[0]!, others.length === 0 ? 0 : over(bends[0]!)]
