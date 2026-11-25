@@ -614,6 +614,16 @@ describe('Auto-continue of a manual turn: turns without a prompt, the guards at 
     expect(h.continuer.wait(PROJECT)).toBeNull()
     expect(h.continuer.wait(PROJECT_B)).toEqual(waitB)
   })
+
+  it("sessionOf names each Project's Orchestrator Session, for the closed list of the Assistant (worfy-assistant ticket 08)", async () => {
+    const h = harness({ script: 'orchestrator-continue-overloaded' })
+    expect(h.continuer.sessionOf(PROJECT)).toBeNull()
+    await h.open(PROJECT)
+    await h.open(PROJECT_B)
+    expect(h.continuer.sessionOf(PROJECT)).toBe(h.sessionId(PROJECT))
+    expect(h.continuer.sessionOf(PROJECT_B)).toBe(h.sessionId(PROJECT_B))
+    expect(h.continuer.sessionOf(PROJECT)).not.toBe(h.continuer.sessionOf(PROJECT_B))
+  })
 })
 
 // ── the countdown's buttons ──────────────────────────────────────────────────

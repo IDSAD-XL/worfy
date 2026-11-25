@@ -12,6 +12,7 @@
 //   (still open IGNORED_AFTER_MS after it was first shown). Ignored proposals and dislikes in a row pause the duty after
 //   `pauseAfter` (DEFAULT_PAUSE_AFTER); a paused duty shows nothing until resume().
 import { randomUUID } from 'node:crypto'
+import { CONTINUE_SESSION_TEXT, WAKE_ORCHESTRATOR_TEXT } from '../../../shared/assistant/actions'
 import type { AttentionEvent, AttentionItem } from '../../../shared/assistant/attention'
 import {
   BUILTIN_DUTIES,
@@ -82,10 +83,11 @@ function proposalText(action: DutyAction, item: AttentionItem): string | null {
   switch (action) {
     case 'open':
       return `Open ${item.subject.label}`
+    // The texts of the closed list (ticket 08): the proposal shows what main will send.
     case 'wake-orchestrator':
-      return item.subject.kind === 'session' ? 'Check the Subagents that stopped and continue them.' : null
+      return item.subject.kind === 'session' ? WAKE_ORCHESTRATOR_TEXT : null
     case 'continue-session':
-      return item.subject.kind === 'session' ? 'Continue' : null
+      return item.subject.kind === 'session' ? CONTINUE_SESSION_TEXT : null
     case 'fix-session':
       return item.source === 'ci' ? fixText(item) : null
     case 'summary':
