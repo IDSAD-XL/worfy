@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-25T19:53Z
+PR: #2238
 Branch: worfy-assistant/13
 Blocked by: 04, 11
 Source: [spec.md](../spec.md), «Ticket-ы», строка 13; «Решения владельца», 5 и 19; «Решения по реализации» → «Проверка
