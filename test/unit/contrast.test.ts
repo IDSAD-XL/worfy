@@ -14,16 +14,16 @@ function tokensIn(block: string): Record<string, string> {
   return tokens
 }
 
-function blockAfter(marker: string, from = 0): string {
-  const start = css.indexOf(marker, from)
-  if (start < 0) throw new Error(`tokens.css has no "${marker}"`)
-  const open = css.indexOf('{', start + marker.length - 1)
+function blockAfter(marker: string, from = 0, source = css): string {
+  const start = source.indexOf(marker, from)
+  if (start < 0) throw new Error(`the stylesheet has no "${marker}"`)
+  const open = source.indexOf('{', start + marker.length - 1)
   let depth = 0
-  for (let index = open; index < css.length; index += 1) {
-    if (css[index] === '{') depth += 1
-    if (css[index] === '}') {
+  for (let index = open; index < source.length; index += 1) {
+    if (source[index] === '{') depth += 1
+    if (source[index] === '}') {
       depth -= 1
-      if (depth === 0) return css.slice(open + 1, index)
+      if (depth === 0) return source.slice(open + 1, index)
     }
   }
   throw new Error(`unbalanced block after "${marker}"`)
@@ -140,3 +140,31 @@ for (const [scheme, veil] of [
     })
   })
 }
+
+// The «not sent» label of a queued message in a Product Session's chat (session/session.css, worfy-polish
+// ticket 140): red text on the chat's ground in both themes. Its colour is a token of tokens.css or of
+// autopilot/autopilot-modal.css, where `--danger` lives; the rule is read from the stylesheet the app ships.
+describe('the «not sent» label of a queued message', () => {
+  const read = (path: string): string => readFileSync(join(import.meta.dirname, '../../src/renderer', path), 'utf8')
+  const session = read('session/session.css')
+  const modal = read('autopilot/autopilot-modal.css')
+  const selector = ".w-pmsg--queued[data-status='not-sent'] .w-pmsg__queued"
+  const rule = blockAfter(`${selector} {`, 0, session)
+  const token = /color\s*:\s*var\((--[\w-]+)\)/.exec(rule)?.[1]
+  const schemes = {
+    light: { ...light, ...tokensIn(blockAfter(':root {', 0, modal)) },
+    dark: { ...dark, ...tokensIn(blockAfter(':root {', 0, modal)), ...tokensIn(blockAfter('@media (prefers-color-scheme: dark)', 0, modal)) },
+  }
+
+  it('takes its colour from a token', () => {
+    expect(token, rule).toBeDefined()
+  })
+
+  for (const [scheme, tokens] of Object.entries(schemes)) {
+    it.each(['--bg', '--surface'])(`${scheme} theme: reads on %s at a contrast of at least 4.5:1`, (ground) => {
+      const colour = tokens[token ?? ''] ?? ''
+      expect(colour, `${token} in the ${scheme} theme`).toMatch(/^#[0-9a-f]{6}$/i)
+      expect(contrast(colour, tokens[ground] ?? ''), `${token} ${colour} on ${ground} ${tokens[ground]}`).toBeGreaterThanOrEqual(4.5)
+    })
+  }
+})

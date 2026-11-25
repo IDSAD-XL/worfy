@@ -119,6 +119,25 @@ describe('Esc in a popover of the composer while the agent works', () => {
     expect(onInterrupt).not.toHaveBeenCalled()
   })
 
+  it('Queued messages: the list closes when the queue empties; the next queued message shows the chip, not the list, and the field keeps the focus (worfy-polish ticket 140)', async () => {
+    const { field } = await mountBusy()
+    press(screen.getByTestId('queue-chip'))
+    await settle()
+    expect(screen.getByRole('dialog', { name: 'Queued messages' })).toBeTruthy()
+
+    emit({ type: 'queue', items: [], paused: false })
+    await settle()
+    expect(screen.queryByTestId('queue-chip')).toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'Queued messages' })).toBeNull()
+
+    act(() => field.focus())
+    emit({ type: 'queue', items: [{ id: 'q3', text: 'third' }], paused: false })
+    await settle()
+    expect(screen.getByTestId('queue-chip').getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByRole('dialog', { name: 'Queued messages' })).toBeNull()
+    expect(document.activeElement).toBe(field)
+  })
+
   it('Effort: Esc on the slider closes the popover and gives the focus back to the button, the turn goes on; the next Esc in the field interrupts', async () => {
     const { field, onInterrupt } = await mountBusy()
     const button = screen.getByTestId<HTMLButtonElement>('picker-effort')

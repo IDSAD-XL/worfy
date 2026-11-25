@@ -26,7 +26,11 @@ export default function Queue({ sessionId }: ComposerItemProps) {
   const { queue } = useSessionControls(sessionId)
   const [open, setOpen] = useState(false)
   const readOnly = useReadOnly()
-  if (sessionId === null || queue === null || queue.items.length === 0) return null
+  const empty = sessionId === null || queue === null || queue.items.length === 0
+  // The list closes with the queue's last message: the next message queued shows the chip, and the list
+  // does not open by itself and take the focus from the message field (worfy-polish ticket 140).
+  if (empty && open) setOpen(false)
+  if (empty) return null
 
   // Taken out before it was sent: the comments it carried go back to the tray (queue-removals.ts).
   const remove = (id: string, text: string) => removeQueuedMessage(sessionId, id, text)

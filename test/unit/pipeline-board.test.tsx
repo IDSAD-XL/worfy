@@ -405,6 +405,31 @@ describe('the Pipeline section of the sidebar', () => {
     expect(screen.queryByText('Nothing in work')).toBeNull()
   })
 
+  it('lights the dot of its rail button for the Tickets that wait for a person, not for those an agent works on (worfy-polish ticket 140)', async () => {
+    preload({ projects: PROJECTS, pipelines: { [WORFY_ROOT]: worfySnapshot(), [ATALAYA_ROOT]: atalayaSnapshot() }, models: { [WORFY_ROOT]: worfyModel(), [ATALAYA_ROOT]: atalayaModel() } })
+    const { default: PipelineSection } = await import('../../src/renderer/shell/sidebar/PipelineSection')
+    const { useRailBadge } = await import('../../src/renderer/shell/sidebar-scope')
+    let badge: ReturnType<typeof useRailBadge>
+    function Badge() {
+      badge = useRailBadge('PipelineSection')
+      return null
+    }
+    render(
+      <>
+        <PipelineSection />
+        <Badge />
+      </>,
+    )
+    await waitFor(() => expect(screen.getAllByTestId('pipeline-row')).toHaveLength(4))
+    // worfy-pipeline 04 is blocked and waits for the owner, atalaya 03 for the team; 05 and 06 for an agent.
+    await waitFor(() => expect(badge).toEqual({ tone: 'blocked', label: '2 Tickets wait' }))
+
+    // atalaya's Ticket for the team gives way to one an agent works on: only worfy-pipeline 04 counts.
+    const agentsOnly = snapshotOf(ATALAYA_ROOT, ATALAYA, [ticket('atalaya', 9, ATALAYA, { mode: 'silent', status: 'work' })])
+    act(() => main.emit('pipeline.changed', agentsOnly))
+    await waitFor(() => expect(badge).toEqual({ tone: 'blocked', label: '1 Ticket waits' }))
+  })
+
   it('says "Nothing in work" when no Project has a Ticket in work', async () => {
     const idle = snapshotOf(WORFY_ROOT, WORFY, [ticket('worfy-pipeline', 1, WORFY, { status: 'done' }), ticket('worfy-pipeline', 2, WORFY)])
     const idleAtalaya = snapshotOf(ATALAYA_ROOT, ATALAYA, [ticket('atalaya', 9, ATALAYA, { mode: 'silent' })])

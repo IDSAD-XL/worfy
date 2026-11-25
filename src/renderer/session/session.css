@@ -899,8 +899,9 @@ body.w-split-dragging * {
   font-style: italic;
 }
 
+/* Red text on the chat's ground: --danger, not --danger-text, the text on a danger fill (test/unit/contrast.test.ts) */
 .w-pmsg--queued[data-status='not-sent'] .w-pmsg__queued {
-  color: var(--danger-text);
+  color: var(--danger);
   font-style: normal;
 }
 

@@ -8,7 +8,7 @@
  * - Base UI's focus trap: Tab and Shift+Tab go round the window's controls; the page behind is hidden
  *   from a screen reader and a press on it does not reach it;
  * - the focus goes into the window on opening (`initialFocus`, else the window itself) and back to
- *   what had it before on closing, if that is still on the page;
+ *   what had it before on closing, if that is still on the page and no newer window took the focus;
  * - Esc closes the window and is marked handled (theme/kit/layer.ts): a layer above it (the open list
  *   of a Select, a menu of the kit) closes on its Esc first, and the window stays;
  * - a press on the backdrop closes it, unless `closeOnBackdrop` is false; a press on the toasts
@@ -87,7 +87,10 @@ export function Dialog(props: DialogProps) {
   // before the focus moves into the window; given back in a passive one, after the commit that
   // closes: Base UI keeps the closing window in the DOM for that commit, and React gives the focus
   // back to the element that had it when the commit began — the window — at its end.
+  // Only when the focus is lost — still in this window, fallen to the page, or on an element gone from it:
+  // a newer window that took the focus keeps it (worfy-polish ticket 140).
   const previous = useRef<HTMLElement | null>(null)
+  const shownPopup = useRef<HTMLElement | null>(null)
   useLayoutEffect(() => {
     if (open) previous.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
   }, [open])
@@ -95,9 +98,12 @@ export function Dialog(props: DialogProps) {
     if (!open) return
     return () => {
       const back = previous.current
+      const closing = shownPopup.current
       previous.current = null
+      const focused = document.activeElement
+      const lost = focused === null || focused === document.body || !focused.isConnected || closing?.contains(focused) === true
       // Without scrolling: a transcript scrolled away from the opener stays where it is.
-      if (back?.isConnected === true) back.focus({ preventScroll: true })
+      if (lost && back?.isConnected === true) back.focus({ preventScroll: true })
     }
   }, [open])
 
@@ -106,6 +112,7 @@ export function Dialog(props: DialogProps) {
     if (!open || popup === null) return
     const shown: OpenDialog = { element: popup, close: () => closeNow(), takeKey: (event) => takeKey(event), layer: LAYERS[layer] }
     openDialogs.push(shown)
+    shownPopup.current = popup
     firstFocus(popup).focus()
     return () => {
       openDialogs.splice(openDialogs.indexOf(shown), 1)
