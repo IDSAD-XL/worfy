@@ -192,6 +192,28 @@ describe('«nothing happened»', () => {
     expect(core.items(PROJECT).map((item) => item.kind)).toEqual(['error'])
   })
 
+  it('disarm drops only the named condition of the scope: another one there still raises its item', () => {
+    const time = clock('2026-11-13T09:00:00Z')
+    const core = coreOver(dataRoot(), time.now)
+    core.expect(waiting('turn-1'))
+    core.expect({
+      source: 'ci',
+      id: 'ci:acme/app@main',
+      revision: 'c1',
+      projectId: PROJECT,
+      subject: { kind: 'check', id: 'ci:acme/app@main', label: 'CI of main · acme/app' },
+      kind: 'main-red',
+      text: 'The CI of main is red',
+      quietMs: 30 * MIN,
+    })
+    core.disarm(PROJECT, 'ci:acme/app@main')
+    // Disarming a condition the scope does not hold changes nothing.
+    core.disarm(PROJECT, 'ci:acme/other@main')
+    time.add(HOUR)
+    core.tick()
+    expect(core.items(PROJECT).map((item) => item.condition)).toEqual(['s-1:waiting'])
+  })
+
   it('a sleep of the Mac: the first tick after the wake gives the one item, dated when the condition came due', () => {
     const time = clock('2026-11-13T22:00:00Z')
     const core = coreOver(dataRoot(), time.now)
