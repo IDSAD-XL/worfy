@@ -137,3 +137,37 @@ Code: `src/main/agent/limits-usage.ts:215-223` · key lines: 218, 219
 2. Что будет с полосой 5-hour, если после «окна нет» придёт `rate_limit_event` с `five_hour`, полученный позже ответа?
    - Ответ: окно вернётся и запись в `absent` снимется: данные новее слова «окна нет» побеждают.
    - Строки: `src/shared/agent/limits.ts:292-296`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED — worfy-resource-planner 13 (rework of resource-planner 12 item 4: the Limits meter draws only the windows of the account's plan), head a9e783cccb472a8cfd82a3de15b9ded2ab423af5
+>
+> Gate (depth medium, two rounds): reviewer (lens: correctness) — FIX in round 1 (one med: a window missing from the usage answer was taken for a window the plan lacks, which could hide the owner's real five_hour bar after a 429; one low: an absence that removed no known window was dropped); round 1 checked by the Orchestrator against the diff a15e4598d..a9e783ccc.
+>
+> - What the user sees: an account whose plan has no five_hour window gets one 7-day bar, no «5h · no data»; an account that has the window keeps its bar, also when the usage endpoint fails and Claude Code leaves the key out; a plan without the window no longer sends a usage request every 30 minutes and before every Wave line while its 7-day window is fresh.
+> - Fixed in round 1: only an explicit `null` in the usage answer means absent (src/shared/agent/limits.ts:249); a missing key or `rate_limits: {}` says nothing; an absence is recorded even when no known window goes away (:279, :298); LimitsRefresher.fresh() does not wait for an absent window (src/main/agent/limits-usage.ts:215-223).
+> - Evidence: three new tests red on a15e4598d, green after; limits unit + contract files 680 passed on 809cf964e; pnpm lint, typecheck EXIT=0; e2e test/e2e/limits.spec.ts whole 2/2 EXIT=0 on 809cf964e; reviewer's 132 files on the first head 3704 tests EXIT=0; screenshots of the one-bar meter in both themes.
+> - Local gate fast and full pnpm test red on 809cf964e only in file-watcher contract tests (fseventsd at 102–109 % CPU, load 81) — the known Mac blocker, not this change; the merge waits for green ci-ok.
+> - Not verified: a live usage answer of an account without five_hour (the rule follows the SDK typings and Claude Code's own /usage handling, written in the ticket's result section).
+>
+> Decided without the owner (to confirm): a newer absence removes a known window with its status and reset time; with every window absent the refresher still asks.
+
+Code: `src/shared/agent/limits.ts:249-249` · key lines: 249
+
+```ts
+    if (given[window] === null) return [{ window, absentAt: receivedAt }]
+```
+
+Code: `src/main/agent/limits-usage.ts:215-223` · key lines: 215
+
+```ts
+  private fresh(passiveOnly: boolean, maxAgeMs: number): boolean {
+    const { windows, absent } = this.options.limits.snapshot()
+    const since = this.now() - maxAgeMs
+    const shown = LIMIT_WINDOWS.filter((id) => windows[id] !== undefined || absent?.[id] === undefined)
+    return shown.length > 0 && shown.every((id) => {
+      const known = windows[id]
+      return known !== undefined && known.utilization !== null && known.receivedAt > since && !(passiveOnly && known.source === 'usage')
+    })
+  }
+```
