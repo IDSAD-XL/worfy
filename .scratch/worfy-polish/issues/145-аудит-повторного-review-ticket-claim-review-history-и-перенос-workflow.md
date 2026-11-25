@@ -2,6 +2,7 @@
 
 Type: bug
 Status: claimed 2026-11-25T16:45Z
+PR: #2223
 Branch: worfy-polish/145
 Blocked by: none
 Source: audit-pr-rereview-2026-11-13, triage.md «В Ticket-ы»; checked open on main b0e073620 2026-11-25
