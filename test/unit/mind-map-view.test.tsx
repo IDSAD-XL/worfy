@@ -433,6 +433,18 @@ describe('MindMap look', () => {
     }
     expect(head(replaces.querySelector('path.react-flow__edge-path')!)?.classList.contains('w-mind__arrowhead--replaces')).toBe(true)
     expect(head(grew.querySelector('path.react-flow__edge-path')!)?.classList.contains('w-mind__arrowhead--from')).toBe(true)
+    // Both Decisions grew from Ticket 2, so they stand in one column, one under the other (ticket 33): the
+    // arrow leaves the later one's right side and bows round into the overturned one's right side, not a
+    // few px between the sides that face each other.
+    const placement = layoutSync(buildMindMapGraph(topic(), { hideRejected: false }), 'tree')
+    const [later, overturned] = [placement.get('map-split')!, placement.get('harness-first')!]
+    expect(later.x < overturned.x + overturned.width && overturned.x < later.x + later.width).toBe(true)
+    const numbers = (replaces.querySelector('path.react-flow__edge-path')!.getAttribute('d') ?? '').match(/-?[\d.]+/g)!.map(Number)
+    const [startX, endX] = [numbers[0]!, numbers.at(-2)!]
+    expect(startX).toBeCloseTo(later.x + later.width, 0)
+    expect(endX - (overturned.x + overturned.width)).toBeGreaterThanOrEqual(0)
+    expect(endX - (overturned.x + overturned.width)).toBeLessThanOrEqual(8)
+    expect(Math.max(...numbers.filter((_, index) => index % 2 === 0))).toBeGreaterThan(Math.max(later.x + later.width, overturned.x + overturned.width) + 20)
   })
 
   it('names in the legend each kind by a sample of its shape, and both arrows', () => {

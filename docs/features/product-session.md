@@ -296,7 +296,8 @@ four kinds, and an arrow leads to it from the node it grew from:
 | Objection | ! | Slanted box | A source: the fact it rests on, such as a path, a Ticket, a PR or a URL |
 
 A rejected Decision stays on the map, struck through, grey and faded, with a dashed outline. A Decision that overturned
-an earlier one has a red dashed "Replaces" arrow to it. The legend under the map shows each kind's shape and both arrows.
+an earlier one has a red dashed "Replaces" arrow to it. In "Tree", where the two often stand one under the other, the
+arrow loops out past their right side; in "Graph" it bends to the side that runs over the fewest other nodes. The legend under the map shows each kind's shape and both arrows.
 
 **Which topic shows.** A Product Session is bound to no topic. While the Session view is open, the Mind map follows the topic
 of the Project whose files changed last; that following is live in this window only. The last topic is remembered per Node
@@ -310,11 +311,12 @@ and the reason.
   percent, "+" (zoom in) and "Fit". It stays one row: a narrow map tightens its gaps, and a row that still does not fit scrolls sideways. The wheel zooms, from 10 % to 250 %, and a drag of the background pans.
 - When the map's area changes size (the window, the divider beside the chat), the map fits into it again. After the
   owner zooms or pans by hand, the map keeps that view instead; "Fit", or another topic or view, fits it again.
-- A node is as tall as its text needs, measured in the app's font, up to four lines; a longer text ends in "…", and
+- A node is as tall as its text needs, measured in the app's font, up to four lines. A text that needs a fifth line
+  gets a wider node, up to 120 px wider, when that fits it into four; only a text too long for that ends in "…", and
   the node's card shows it whole.
 - "Tree" is the default: a tidy tree with text of 15 px that grows left to right, the topic at the left, each node to
   the right of the node it grew from. "Graph" is radial, with text of 12 px: the topic in the middle, the branches
-  around it, straight "grew from" arrows, no node over another; the same map always gets the same layout. The view is
+  around it, straight "grew from" arrows, no node over another and, on a small map, no arrow over a node (a large map keeps a few); the same map always gets the same layout. The view is
   remembered per topic on this Machine.
 - "Hide rejected" hides the rejected Decisions and the branches under them while the map is open. The file does not
   change.
@@ -407,8 +409,10 @@ last event; the screen gets `product.changed`. The watch is described on [Projec
 
 **Layout.** The Mind map is drawn with React Flow. ELK lays out "Tree" in the window's Web Worker with `mrtree`; until
 ELK answers, a quick tree layout draws it. "Graph" is laid out at once in the window by the prototype's algorithm: the
-leaves spread round the topic, each parent at the mean direction of its children, then springs on the arrows and
-pushes between boxes, and a last pass that moves a node straight away from the topic until it overlaps no other; it
+leaves spread round the topic, each with a share of the circle as large as its depth, each parent at the mean direction
+of its children, then springs on the arrows and pushes between boxes. When the map has two or more leaves, each
+round also pulls the map a little so the topic stays in the middle of it, and the last rounds move a node off any
+"grew from" arrow that runs over it. A last pass that moves a node straight away from the topic until it overlaps no other; it
 runs once per change of what it reads (the nodes, their parents, texts, kinds and fold marks). In "Tree" a node with `x`
 and `y` in the file stands where the file says; a place written before the Tree grew left to right (without `"placed": 2`) is ignored and the node is laid
 out again.

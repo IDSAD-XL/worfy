@@ -321,9 +321,58 @@ test('the Mind map keeps long texts inside their nodes, opens the card beside it
     // it takes more than the four lines a node shows (the measure never counts fewer lines than the browser
     // draws), as the longest one does.
     await expect.poll(async () => (await texts()).filter((each) => !each.inside).map((each) => each.id)).toEqual([])
+    // Only the longest text is cut (ticket 34): a text that fits four lines of a somewhat wider box gets one.
     const clamped = (await texts()).filter((each) => each.clamped)
-    expect(clamped.map((each) => each.id)).toContain('very-long')
+    expect(clamped.map((each) => each.id)).toEqual(['very-long'])
     expect(clamped.filter((each) => each.lines !== 4).map((each) => each.id)).toEqual([])
+    // The accepted Decision `split` sits right under the one it overturned (ticket 33): its red dashed
+    // arrow bows round their right side, long enough to be seen as a dashed line and not only an arrowhead.
+    const replacesPath = map.locator('.react-flow__edge.w-mind__edge--replaces path.react-flow__edge-path')
+    await expect(replacesPath).toHaveCount(1)
+    expect(await replacesPath.evaluate((path) => (path as unknown as { getTotalLength(): number }).getTotalLength())).toBeGreaterThan(60)
+    await expect(replacesPath).toHaveCSS('stroke-dasharray', /\d/)
+    for (const scheme of ['light', 'dark'] as const) {
+      await window.emulateMedia({ colorScheme: scheme })
+      await view.screenshot({ path: test.info().outputPath(`33-34-tree-${scheme}.png`) })
+    }
+
+    // The same map in the Graph (tickets 34 and 35): still only the longest text cut, the topic in the middle
+    // of the map both ways, and no arrow over another node.
+    const graphButton = map.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Graph' })
+    await graphButton.click()
+    await expect(graphButton).toHaveAttribute('aria-pressed', 'true')
+    await expect.poll(async () => (await texts()).filter((each) => !each.inside).map((each) => each.id)).toEqual([])
+    expect((await texts()).filter((each) => each.clamped).map((each) => each.id)).toEqual(['very-long'])
+    const boxes = await nodes.evaluateAll((elements) =>
+      elements.map((element) => {
+        const { left, top, right, bottom } = element.getBoundingClientRect()
+        return { id: (element as unknown as { dataset: { id: string } }).dataset.id, left, top, right, bottom }
+      }),
+    )
+    const topicBox = boxes.find((each) => each.id === '@topic')!
+    const [mapLeft, mapRight] = [Math.min(...boxes.map((each) => each.left)), Math.max(...boxes.map((each) => each.right))]
+    const [mapTop, mapBottom] = [Math.min(...boxes.map((each) => each.top)), Math.max(...boxes.map((each) => each.bottom))]
+    const across = ((topicBox.left + topicBox.right) / 2 - mapLeft) / (mapRight - mapLeft)
+    const down = ((topicBox.top + topicBox.bottom) / 2 - mapTop) / (mapBottom - mapTop)
+    expect(across).toBeGreaterThan(0.4)
+    expect(across).toBeLessThan(0.6)
+    expect(down).toBeGreaterThan(0.4)
+    expect(down).toBeLessThan(0.6)
+    // The red curve bows away from the topic, never over its box.
+    const overTopic = await replacesPath.evaluate((path, box) => {
+      const curve = path as unknown as { getTotalLength(): number; getPointAtLength(at: number): { x: number; y: number }; getScreenCTM(): { a: number; b: number; c: number; d: number; e: number; f: number } }
+      const [length, matrix] = [curve.getTotalLength(), curve.getScreenCTM()]
+      return Array.from({ length: 41 }, (_, step) => curve.getPointAtLength((length * step) / 40))
+        .map((point) => ({ x: matrix.a * point.x + matrix.c * point.y + matrix.e, y: matrix.b * point.x + matrix.d * point.y + matrix.f }))
+        .filter((point) => point.x > box.left + 1 && point.x < box.right - 1 && point.y > box.top + 1 && point.y < box.bottom - 1).length
+    }, topicBox)
+    expect(overTopic).toBe(0)
+    for (const scheme of ['light', 'dark'] as const) {
+      await window.emulateMedia({ colorScheme: scheme })
+      await view.screenshot({ path: test.info().outputPath(`35-graph-${scheme}.png`) })
+    }
+    await window.emulateMedia({ colorScheme: 'dark' })
+    await map.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Tree' }).click()
     await map.locator('[data-testid="mind-node"][data-id="very-long"]').click()
     await expect(map.getByRole('region', { name: 'Node' })).toContainText('и то, из чего оно выросло')
     await map.getByRole('button', { name: 'Close the card' }).click()
