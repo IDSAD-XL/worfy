@@ -21,11 +21,12 @@
 // $HARNESS_HOME/user.json first, then the profile); in a folder no profile covers, the user's own setting
 // alone. With neither, or when bin/profile cannot answer, the part goes as it is.
 //
-// The kind of Session decides two parts. worfy starts a Product Session with WORFY_SESSION_KIND=product in
-// its environment, which Claude Code hands on to its hooks: there "product" prints rules/product.md and
-// "orchestrator" prints nothing. In any other Session (no variable, or another value) "orchestrator"
-// prints its part and "product" prints nothing. A part that is not for this Session prints nothing on
-// stdout or stderr: that is not a failure.
+// The kind of Session decides three parts. worfy starts a Product Session with WORFY_SESSION_KIND=product
+// and the Session of the Assistant with WORFY_SESSION_KIND=assistant in its environment, which Claude Code
+// hands on to its hooks: there "product" or "assistant" prints rules/<kind>.md and "orchestrator" prints
+// nothing. In any other Session (no variable, or another value) "orchestrator" prints its part and
+// "product" and "assistant" print nothing. A part that is not for this Session prints nothing on stdout or
+// stderr: that is not a failure.
 //
 // Always exits 0: a broken hook must not break the session. When it cannot do its job (no part
 // file, empty or unreadable stdin, stdin that is not JSON, an internal error) it prints nothing on
@@ -44,15 +45,19 @@ const TOKEN = "${CLAUDE_PLUGIN_ROOT}"
 const LIMIT = 10000
 // The event whose hook output is plain text that joins the instructions of the compaction summary.
 const PRE_COMPACT = "PreCompact"
-// The variable and its one value that make a Session a Product Session (SessionKind of worfy).
+// The variable and its values that make a Session a Product Session or the Session of the Assistant (the kinds
+// of Session worfy starts).
 const KIND_VARIABLE = "WORFY_SESSION_KIND"
-const PRODUCT = "product"
+const KINDS = ["product", "assistant"]
 
-/** Whether `part` is for a Session of this kind: product only in a Product Session, orchestrator only outside one. */
+/**
+ * Whether `part` is for a Session of this kind: product and assistant only in a Session of their kind,
+ * orchestrator only in a Session of neither.
+ */
 function forThisSession(part) {
-    const product = process.env[KIND_VARIABLE] === PRODUCT
-    if (part === "product") return product
-    if (part === "orchestrator") return !product
+    const kind = process.env[KIND_VARIABLE]
+    if (KINDS.includes(part)) return kind === part
+    if (part === "orchestrator") return !KINDS.includes(kind)
     return true
 }
 

@@ -86,6 +86,11 @@ export const actionJournalLineSchema = z.object({
   reason: z.enum(ACTION_REFUSALS).optional(),
   /** The text sent: only main's own. */
   text: z.string().optional(),
+  /**
+   * What main's own function answered for an action outside the closed list that the Assistant asked for through
+   * `worfy-app` (pr-follow, autopilot-start; ticket 10): what it did, or why it refused.
+   */
+  detail: z.string().optional(),
 })
 export type ActionJournalLine = z.infer<typeof actionJournalLineSchema>
 

@@ -1,16 +1,28 @@
-// The open proposals of the Assistant in main (worfy-assistant ticket 09): the Assistant creates, updates and removes them
-// through `worfy-app`; the window reads them and is told of each change (ticket 14).
+// The open proposals of the Assistant in main (worfy-assistant tickets 09 and 10): the Assistant creates, updates and
+// removes them through `worfy-app`; the window reads them and is told of each change (ticket 14).
 //
-// shortcut: kept in memory only, so a restart of worfy forgets them; the Assistant's state file keeps its open
-// proposals (ADR-0114, point 2), and ticket 10, which writes it, gives them back here at the start of its Session.
+// They live in the Assistant's memory file (ADR-0114, point 2; src/main/assistant/duties/memory.ts, its part
+// `proposals`), so a restart of worfy keeps them and each new Session of the Assistant reads them there. The book reads
+// the file once, at its first use, and writes it before it takes a change: a change the file refuses throws and changes
+// nothing.
 import { randomUUID } from 'node:crypto'
 import type { AssistantProposal, PreparedSession } from '../../../shared/assistant/proposals'
 import { appNow } from '../../clock'
+import { dataRoot } from '../../storage/paths'
+import { assistantMemoryPath, sessionMemoryStore } from '../duties/memory'
+
+/** Where the book keeps its proposals; absent: in memory only. */
+export interface ProposalStore {
+  read(): AssistantProposal[]
+  /** Throws when it cannot write. */
+  write(proposals: readonly AssistantProposal[]): void
+}
 
 export interface ProposalBookOptions {
   now: () => number
   /** A new proposal's id; a random UUID by default. */
   id?: () => string
+  store?: ProposalStore
 }
 
 export interface ProposalDraft {
@@ -25,14 +37,14 @@ export type ProposalChange = Partial<ProposalDraft>
 export type ProposalListener = (proposals: readonly AssistantProposal[]) => void
 
 export class ProposalBook {
-  private readonly proposals = new Map<string, AssistantProposal>()
+  private proposals: Map<string, AssistantProposal> | null = null
   private readonly listeners = new Set<ProposalListener>()
 
   constructor(private readonly options: ProposalBookOptions) {}
 
   /** Every open proposal, oldest first. */
   list(): AssistantProposal[] {
-    return [...this.proposals.values()].map((each) => ({ ...each }))
+    return [...this.kept().values()].map((each) => ({ ...each }))
   }
 
   /** Told of every change, with the whole list; answers the function that stops it. */
@@ -44,8 +56,7 @@ export class ProposalBook {
   create(draft: ProposalDraft): AssistantProposal {
     const at = this.options.now()
     const proposal: AssistantProposal = { id: (this.options.id ?? randomUUID)(), ...draft, createdAt: at, updatedAt: at }
-    this.proposals.set(proposal.id, proposal)
-    this.changed()
+    this.commit(new Map([...this.kept(), [proposal.id, proposal]]))
     return { ...proposal }
   }
 
@@ -53,34 +64,51 @@ export class ProposalBook {
   update(id: string, change: ProposalChange): AssistantProposal {
     const before = this.get(id)
     const next: AssistantProposal = { ...before, ...Object.fromEntries(Object.entries(change).filter(([, value]) => value !== undefined)), updatedAt: this.options.now() }
-    this.proposals.set(id, next)
-    this.changed()
+    this.commit(new Map([...this.kept(), [id, next]]))
     return { ...next }
   }
 
   /** Throws for an unknown id. */
   remove(id: string): void {
     this.get(id)
-    this.proposals.delete(id)
-    this.changed()
+    const next = new Map(this.kept())
+    next.delete(id)
+    this.commit(next)
+  }
+
+  private kept(): Map<string, AssistantProposal> {
+    this.proposals ??= new Map((this.options.store?.read() ?? []).map((proposal) => [proposal.id, proposal]))
+    return this.proposals
   }
 
   private get(id: string): AssistantProposal {
-    const found = this.proposals.get(id)
+    const found = this.kept().get(id)
     if (found === undefined) throw new Error(`No open proposal ${id}`)
     return found
   }
 
-  private changed(): void {
+  /** Writes `next` first, then takes it and tells the listeners. */
+  private commit(next: Map<string, AssistantProposal>): void {
+    this.options.store?.write([...next.values()])
+    this.proposals = next
     const list = this.list()
     for (const listener of this.listeners) listener(list)
   }
 }
 
+/** The proposals of the memory file `file`: the Assistant's part of it, the rest kept as the file has it. */
+export function memoryProposalStore(file: string): ProposalStore {
+  const store = sessionMemoryStore(file)
+  return {
+    read: () => store.read().proposals ?? [],
+    write: (proposals) => store.write({ ...store.read(), proposals: [...proposals] }),
+  }
+}
+
 let shared: ProposalBook | undefined
 
-/** The proposals of the running app: `worfy-app` writes them, the window reads them (ticket 14). */
+/** The proposals of the running app, in the Assistant's memory file: `worfy-app` writes them, the window reads them (ticket 14). */
 export function appProposals(): ProposalBook {
-  shared ??= new ProposalBook({ now: appNow })
+  shared ??= new ProposalBook({ now: appNow, store: memoryProposalStore(assistantMemoryPath(dataRoot())) })
   return shared
 }

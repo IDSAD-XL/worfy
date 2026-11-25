@@ -413,8 +413,18 @@ export interface SessionOptionsInput {
   epic?: string | undefined
 }
 
-/** The variable a Product Session's Claude Code, its hooks and its shell commands see (read by the rules hook, ticket 10). */
+/**
+ * The variable a Product Session's Claude Code, its hooks and its shell commands see (read by the rules hook,
+ * harness/hooks/inject-rules.mjs, worfy-product-session ticket 10): `product`, or ASSISTANT_SESSION_KIND.
+ */
 export const SESSION_KIND_VARIABLE = 'WORFY_SESSION_KIND'
+
+/**
+ * The third kind of Session for the Harness (worfy-assistant ticket 10; ADR-0114, point 2): the Session of the
+ * Assistant, which the rules hook gives harness/hooks/rules/assistant.md. It is not a SessionKind of a Session Node:
+ * the Assistant's Session is on no Canvas; its options are src/main/vendors/claude/assistant-session.ts.
+ */
+export const ASSISTANT_SESSION_KIND = 'assistant'
 
 /**
  * The line appended to the system prompt of a Session that runs a Wave of `epic`. It names the Epic only:

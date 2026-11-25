@@ -115,3 +115,16 @@ worfy ничего не пишет в репозитории Project-ов — н
   причиной, передано модели) и точный текст, который ушёл. Строки старше 14 дней удаляются при следующей записи. В
   репозиторий Project-а и в Session-ы файл не пишется; ожидание сброса Limits у Session-ов на Canvas живёт только в
   памяти main.
+- 2026-11-26 — Epic `worfy-assistant`, Ticket 10 (ADR-0114): Session Assistant-а и её память, всё в `WORFY_DATA_DIR`,
+  вне репозиториев Project-а.
+  - `<WORFY_DATA_DIR>/assistant/memory.json` (файл Ticket-а 07) теперь хранит и часть Session Assistant-а: открытые
+    предложения (`proposals`, пишет `src/main/assistant/proposals/book.ts`), обязательства Assistant-а
+    (`commitments`, не больше 50) и ответы пользователя (`answers`, по одному на тему, не больше 100) — их пишет
+    `src/main/assistant/session/memory.ts` по tools `memory_note` и `memory_forget` сервера `worfy-app`. Два писателя
+    одного файла: каждая запись читает файл и оставляет часть другого писателя как есть (`memoryFileStore` и
+    `sessionMemoryStore` в `src/main/assistant/duties/memory.ts`). Каждая новая Session Assistant-а получает файл в
+    первом сообщении.
+  - `<WORFY_DATA_DIR>/assistant/session/` — пустая папка, cwd каждой Session Assistant-а
+    (`src/main/vendors/claude/assistant-session.ts`): вне всех Project-ов, без файлов настроек. worfy в неё ничего не
+    пишет; транскрипта Claude Code этой Session не хранит (`persistSession: false`), так что и в `~/.claude/projects`
+    она ничего не оставляет.

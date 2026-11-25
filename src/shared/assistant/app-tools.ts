@@ -1,6 +1,7 @@
 // The tools of the MCP server `worfy-app` (worfy-assistant ticket 09; ADR-0114, point 3; spec, the MCP server
-// `worfy-app`): the only tools of the Assistant's Session (boundary 1). Reading, proposals, and the actions its duty's
-// mode allows, each through main's own function with its own checks. No tool sends anything out of worfy: a reply to a
+// `worfy-app`): the only tools of the Assistant's Session (boundary 1). Reading, proposals, the actions its duty's
+// mode allows, each through main's own function with its own checks, and its memory (ticket 10): the commitments and
+// the user's answers the next Session must know. No tool sends anything out of worfy: a reply to a
 // PR goes only by the user's Send (boundary 4). This is a public contract between the agent and the app; change it
 // together with the agent instructions (src/main/mcp/agent-instructions-app.md).
 //
@@ -8,6 +9,7 @@
 // arguments again with the same shapes.
 import { z } from 'zod'
 import { PR_FOLLOW_ACTIONS } from '../projects/action-templates'
+import { answerTopicSchema, ANSWER_TEXT_MAX, COMMITMENT_TEXT_MAX } from './memory'
 import { preparedSessionSchema, proposalTitleSchema, proposalWhySchema } from './proposals'
 
 export const WORFY_APP_SERVER_NAME = 'worfy-app'
@@ -45,6 +47,13 @@ export const appToolShapes = {
   proposal_update: { id, title: proposalTitleSchema.optional(), why: proposalWhySchema.optional(), prepare: preparedSessionSchema.nullable().optional() },
   proposal_remove: { id },
   action_run: { item: id, action: z.enum(APP_ACTIONS), follow: z.enum(PR_FOLLOW_ACTIONS).optional(), epic: z.string().regex(EPIC_NAME).optional() },
+  memory_note: {
+    kind: z.enum(['commitment', 'answer']),
+    text: z.string().min(1).max(Math.max(COMMITMENT_TEXT_MAX, ANSWER_TEXT_MAX)),
+    topic: answerTopicSchema.optional(),
+    due: z.iso.datetime({ offset: true }).optional(),
+  },
+  memory_forget: { id },
 } satisfies Record<string, z.ZodRawShape>
 
 export type AppToolName = keyof typeof appToolShapes
@@ -82,4 +91,7 @@ export const appToolDescriptions: Record<AppToolName, string> = {
   proposal_remove: 'Remove a proposal that no longer holds.',
   action_run:
     'Do an action on an item, only when its duty\'s mode is self or pre-approved; with ask, propose it instead; with hand-over, leave it to the user. wake-orchestrator and continue-session send the text main sets; pr-follow (follow: fixChecks | resolveConflicts | addressComments) on a PR item; autopilot-start (epic) on a Project\'s item only opens the Start Autopilot dialog for the user.',
+  memory_note:
+    'Keep in your memory what your next Session must know: a commitment (kind commitment: what you said you would do or look at again, with due, ISO 8601, when you named a time), or an answer of the user (kind answer: the topic you asked about and the answer in the user\'s words; a new answer on a topic replaces the old one). Answers the entry with its id.',
+  memory_forget: 'Drop a commitment that is done or an answer that no longer holds, by its id.',
 }

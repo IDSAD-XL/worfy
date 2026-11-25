@@ -1,7 +1,8 @@
 # 10 — Session Assistant-а: cwd вне Project-ов, третий вид Session в Harness, только tools `worfy-app`, файл памяти
 
 Type: task
-Status: open
+Status: claimed 2026-11-25T22:32Z
+Branch: worfy-assistant/10
 Blocked by: 06, 09
 Source: [spec.md](../spec.md), «Ticket-ы», строка 10; «Решение», слой 2; «Решения владельца», 2 и 11; «Решения по
 реализации» → «Session Assistant-а»; «Границы», 1; «Решения по test-ам», В; «Волны», Wave 4
