@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-25T18:12Z
+PR: #2227
 Branch: worfy-polish/150
 Blocked by: none
 Source: бриф Orchestrator-а 2026-11-25: CI run 45657771792 PR #2218 (worfy-assistant 11) красный в job-е `macos-e2e`
