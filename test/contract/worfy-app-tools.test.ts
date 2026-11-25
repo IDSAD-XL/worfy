@@ -95,6 +95,29 @@ const RUNS = [
   ],
 ] as unknown as JournalEvent[][]
 
+/** The build version the links of a feature page name the commit of. */
+const BUILD = '0.4.0+0a1b2c3d'
+/** The most characters of a page one features_read answers. */
+const PAGE_MAX = 40_000
+
+/**
+ * The feature pages of the build (worfy-assistant ticket 17): English, a Russian translation of two of them, the index,
+ * and a page too long for one answer. A page carries a token: no answer may.
+ */
+const PAGES = [
+  { name: 'README', language: 'en', text: '# worfy feature documentation\n\n| [Epic frames](epic-frames.md) | Epic frame, Done shelf |\n' },
+  {
+    name: 'epic-frames',
+    language: 'en',
+    text: `# Epic frames\n\nThe frames of the Canvas.\n\n## Epic frame\n\nA frame holds the Tickets of an Epic.\n\n## Done shelf\n\nThe Done shelf keeps the Tickets that are done. Example token: ${GH_TOKEN}\n\n### On a Linked machine\n\nThe shelf is read-only there.\n`,
+  },
+  { name: 'epic-frames', language: 'ru', text: '# Epic frames\n\n> Перевод английской версии.\n\n## Epic frame\n\nРамка держит Ticket-ы Epic-а.\n\n## Done shelf\n\nПолка готового хранит Ticket-ы, которые сделаны.\n' },
+  { name: 'gate-and-github', language: 'en', text: '# Gate and GitHub\n\n## The gate\n\nThe gate runs lint, typecheck and the tests.\n\n## CI badges\n\nA badge shows the CI of a PR.\n' },
+  { name: 'gate-and-github', language: 'ru', text: '# Gate и GitHub\n\n## Gate\n\nGate запускает lint, typecheck и test-ы.\n\n## Значки CI\n\nЗначок показывает CI PR-а.\n' },
+  { name: 'autopilot', language: 'en', text: '# Autopilot\n\nAutopilot runs the Waves of an Epic and waits for the gate of each Ticket.\n' },
+  { name: 'long-page', language: 'en', text: `# Long page\n\n## First\n\n${'word '.repeat(PAGE_MAX / 5)}\n\n## Second\n\nThe end of the long page.\n` },
+] as const
+
 /**
  * A message of Slack or Jira as the check of ticket 11 gives it (sourceEventOf): its id in the source — what the Haiku
  * check wrote, free text — is in the event's id and in its subject's id.
@@ -209,7 +232,7 @@ function split(value: unknown): { outside: Outside[]; rest: string[] } {
 let proposalIds = 0
 
 /** The server over a real attention core and real duties holding the fixture items, and stand-ins of main's other parts. */
-async function world(options: { autopilotRunning?: boolean; confirm?: 'cancel' | 'budget-aware' } = {}) {
+async function world(options: { autopilotRunning?: boolean; confirm?: 'cancel' | 'budget-aware'; language?: 'en' | 'ru'; version?: string | null } = {}) {
   const [{ AttentionCore }, { Duties }, { ProposalBook }, { ActionLauncher }, { autopilotStarter }, { claudeMcpServer }, app] = await Promise.all([
     import('../../src/main/assistant/core/attention-core'),
     import('../../src/main/assistant/duties/duties'),
@@ -277,6 +300,9 @@ async function world(options: { autopilotRunning?: boolean; confirm?: 'cancel' |
     autopilotStart,
     sessionId: () => 'assistant-session',
     journal,
+    featurePages: () => Promise.resolve(PAGES),
+    guideLanguage: () => options.language ?? ('en' as const),
+    buildVersion: () => (options.version === undefined ? BUILD : options.version),
   }
   const config = (await claudeMcpServer(app.worfyAppServer(deps))) as unknown as ServerConfig
   return { rpc: await connectTo(config), duties, core, itemOf, closedList, refuseClosed, journal, confirm, startFromChat, proposals, deps, app }
@@ -533,6 +559,142 @@ describe('worfy-app: outside text and secrets', () => {
   })
 })
 
+describe('worfy-app: help about worfy, from the feature pages of the build', () => {
+  interface Hit {
+    page: string
+    language: string
+    title: string
+    path: string
+    url: string
+    sections: string[]
+  }
+  interface Page {
+    page: string
+    language: string
+    guideLanguage: string
+    title: string
+    path: string
+    url: string
+    guideTopics: { id: string; title: string }[]
+    sections: string[]
+    section: string | null
+    truncated: boolean
+    text: string
+  }
+
+  it('a search finds the page, with its path and its link at the commit of the build', async () => {
+    const { rpc } = await world()
+    const found = json<{ guideLanguage: string; results: Hit[] }>(await rpc.call('features_search', { query: 'Done shelf' }))
+    expect(found).toEqual({
+      guideLanguage: 'en',
+      results: [
+        {
+          page: 'epic-frames',
+          language: 'en',
+          title: 'Epic frames',
+          path: 'docs/features/epic-frames.md',
+          url: 'https://github.com/IDSAD-XL/worfy/blob/0a1b2c3d/docs/features/epic-frames.md',
+          sections: ['Done shelf', 'On a Linked machine'],
+        },
+      ],
+    })
+  })
+
+  it('reading a page gives its text, its link and the Guide topics that cover it', async () => {
+    const { rpc } = await world()
+    const page = json<Page>(await rpc.call('features_read', { page: 'epic-frames' }))
+    expect(page).toMatchObject({
+      page: 'epic-frames',
+      language: 'en',
+      guideLanguage: 'en',
+      title: 'Epic frames',
+      path: 'docs/features/epic-frames.md',
+      url: 'https://github.com/IDSAD-XL/worfy/blob/0a1b2c3d/docs/features/epic-frames.md',
+      sections: ['Epic frame', 'Done shelf', 'On a Linked machine'],
+      section: null,
+      truncated: false,
+    })
+    expect(page.text).toBe(PAGES[1].text.replace(GH_TOKEN, '[redacted]'))
+    // The topics whose topic.json lists the page, in the order of the Guide's list.
+    expect(page.guideTopics).toEqual([
+      { id: 'map-of-worfy', title: 'Map of worfy' },
+      { id: 'canvas', title: 'Canvas' },
+    ])
+  })
+
+  it('a build without its commit links the page at main', async () => {
+    const { rpc } = await world({ version: null })
+    expect(json<Page>(await rpc.call('features_read', { page: 'autopilot' })).url).toBe('https://github.com/IDSAD-XL/worfy/blob/main/docs/features/autopilot.md')
+  })
+
+  it('reads one section of a page, and a page too long for one answer in part, with its outline', async () => {
+    const { rpc } = await world()
+    const section = json<Page>(await rpc.call('features_read', { page: 'epic-frames', section: 'done shelf' }))
+    expect(section.section).toBe('Done shelf')
+    expect(section.text).toBe('## Done shelf\n\nThe Done shelf keeps the Tickets that are done. Example token: [redacted]\n\n### On a Linked machine\n\nThe shelf is read-only there.\n')
+    const long = json<Page>(await rpc.call('features_read', { page: 'long-page' }))
+    expect(long.truncated).toBe(true)
+    expect(long.text.length).toBeLessThanOrEqual(PAGE_MAX)
+    expect(long.sections).toEqual(['First', 'Second'])
+    expect(json<Page>(await rpc.call('features_read', { page: 'long-page', section: 'Second' })).text).toContain('The end of the long page.')
+    expect(textOf(await rpc.call('features_read', { page: 'epic-frames', section: 'Espresso' }))).toMatch(/no section .*Espresso.*Epic frame, Done shelf, On a Linked machine/isu)
+  })
+
+  it('a search without a fitting page answers empty, not another page', async () => {
+    const { rpc } = await world()
+    expect(json(await rpc.call('features_search', { query: 'espresso descaling' }))).toEqual({ guideLanguage: 'en', results: [] })
+    // One word fits a page, the other none: still no page — a page that is only near the question is not an answer.
+    expect(json(await rpc.call('features_search', { query: 'shelf espresso' }))).toEqual({ guideLanguage: 'en', results: [] })
+    // The index names every page: it is never a search result.
+    expect(json<{ results: Hit[] }>(await rpc.call('features_search', { query: 'feature documentation' })).results).toEqual([])
+    const missing = await rpc.call('features_read', { page: 'espresso' })
+    expect(missing.isError).toBe(true)
+    expect(textOf(missing)).toMatch(/no feature page espresso.*features_search/isu)
+  })
+
+  it('ranks the page whose title and headings carry the words first', async () => {
+    const { rpc } = await world()
+    const { results } = json<{ results: Hit[] }>(await rpc.call('features_search', { query: 'gate' }))
+    expect(results.map((hit) => hit.page)).toEqual(['gate-and-github', 'autopilot'])
+    expect(json<{ results: Hit[] }>(await rpc.call('features_search', { query: 'gate', limit: 1 })).results.map((hit) => hit.page)).toEqual(['gate-and-github'])
+  })
+
+  it('with the Guide in Russian: the Russian pages, found by Russian or English words, linked under ru/', async () => {
+    const { rpc } = await world({ language: 'ru' })
+    const byRussian = json<{ guideLanguage: string; results: Hit[] }>(await rpc.call('features_search', { query: 'полка готового' }))
+    expect(byRussian).toEqual({
+      guideLanguage: 'ru',
+      results: [{ page: 'epic-frames', language: 'ru', title: 'Epic frames', path: 'docs/features/ru/epic-frames.md', url: 'https://github.com/IDSAD-XL/worfy/blob/0a1b2c3d/docs/features/ru/epic-frames.md', sections: ['Done shelf'] }],
+    })
+    // A word of the English page finds the page too: the answer is its translation.
+    expect(json<{ results: Hit[] }>(await rpc.call('features_search', { query: 'badge' })).results.map((hit) => [hit.page, hit.path])).toEqual([['gate-and-github', 'docs/features/ru/gate-and-github.md']])
+    const page = json<Page>(await rpc.call('features_read', { page: 'gate-and-github' }))
+    expect(page).toMatchObject({ language: 'ru', guideLanguage: 'ru', title: 'Gate и GitHub', path: 'docs/features/ru/gate-and-github.md', guideTopics: [{ id: 'gate-and-github', title: 'Gate и GitHub' }] })
+    expect(page.text).toBe(PAGES[4].text)
+    // A page with no translation yet answers in English, and says so.
+    expect(json<Page>(await rpc.call('features_read', { page: 'autopilot' }))).toMatchObject({ language: 'en', guideLanguage: 'ru', path: 'docs/features/autopilot.md' })
+  })
+
+  it('carries no secret of a page', async () => {
+    const { rpc } = await world()
+    for (const result of [await rpc.call('features_read', { page: 'epic-frames' }), await rpc.call('features_search', { query: 'token' })]) {
+      for (const secret of SECRETS) expect(textOf(result)).not.toContain(secret)
+    }
+  })
+
+  it('the Session\'s rules: answer with the page\'s link, else say you do not know, in the language of the Guide', async () => {
+    const w = await world({ language: 'ru' })
+    const russian = (await w.app.worfyAppForSession({ sessionId: 'assistant-session' }, w.deps)).instructions
+    expect(russian).toMatch(/features_search/)
+    expect(russian).toMatch(/link/i)
+    expect(russian).toMatch(/do not know/i)
+    expect(russian).toMatch(/never answer .*from memory/i)
+    expect(russian).toMatch(/Speak Russian/)
+    expect((await w.app.worfyAppForSession({ sessionId: 'assistant-session' }, { ...w.deps, guideLanguage: () => 'en' as const })).instructions).toMatch(/Speak English/)
+    expect(w.app.worfyAppInstructions()).toMatch(/Speak English/)
+  })
+})
+
 describe('worfy-app: nothing goes out', () => {
   it('has exactly the reading, proposal and action tools: no reply to a PR, no send, no post', async () => {
     const { rpc } = await world()
@@ -541,6 +703,8 @@ describe('worfy-app: nothing goes out', () => {
       [
         'action_run',
         'autopilot_runs_read',
+        'features_read',
+        'features_search',
         'items_list',
         'limits_read',
         'pr_threads_read',

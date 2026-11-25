@@ -1,7 +1,8 @@
 # 17 — Помощь по worfy: описания функций в сборке, поиск и чтение через `worfy-app`, ответ со ссылкой, язык Guide
 
 Type: task
-Status: open
+Status: claimed 2026-11-25T22:32Z
+Branch: worfy-assistant/17
 Blocked by: 09
 Source: [spec.md](../spec.md), «Ticket-ы», строка 17; «Решения владельца», 12; «Решения по реализации» → «MCP-сервер
 `worfy-app`» («Чтение»), «Знакомство и помощь»; «Решения по test-ам», Б; истории 31, 32 и 38; «Волны», Wave 4
