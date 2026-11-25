@@ -203,7 +203,8 @@ and for analysing a failure.
 **A red main branch holds the merge.** The Harness script `land`, which merges the Orchestrator's ready PRs one by one,
 reads the CI push runs of the main branch before it merges a PR. While the newest run with a verdict is red, a PR with code
 waits, with a reason that names the red commit, the PR that broke the branch, when the run finished and the deadline of a
-fix forward: one hour, then revert that PR. A run still queued or in progress, a cancelled run and the run of a commit that
+fix forward: one hour, then revert that PR (when none of the newest 50 push runs is green, the reason names
+no PR and no deadline: the culprit is older, found by hand). A run still queued or in progress, a cancelled run and the run of a commit that
 changed documents only are passed over; a red run whose failed jobs were rerun and passed counts as green, and while the
 newest run is being rerun code PRs wait for its verdict. Two kinds of PR merge while the branch is red: the fix or the
 revert, marked `main_fix`, and a PR with documents only. When `gh` cannot read the runs, the PR waits as not verified.
