@@ -37,13 +37,19 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 13; «Решения 
 
 - [ ] Рецепт Jira задаёт поиск изменений в задачах пользователя и список разрешённых read tools.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-jira-recipe.test.ts` exit 0 · mac - · 275781a43
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs <14 unit and contract tests of src/main/assistant and src/shared/assistant>` exit 0 · mac - · 737062ead
 - [ ] Unit test на записанном ответе: из ответа вызова получаются пункты об изменениях в задачах пользователя.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-jira-recipe.test.ts` exit 0 · mac - · 275781a43
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs <14 unit and contract tests of src/main/assistant and src/shared/assistant>` exit 0 · mac - · 737062ead
 - [ ] Проверка Jira зарегистрирована в планировщике Ticket-а 04 с интервалом раз в час по умолчанию.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-jira-recipe.test.ts` exit 0 · mac - · 275781a43
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs <14 unit and contract tests of src/main/assistant and src/shared/assistant>` exit 0 · mac - · 737062ead
 - [ ] Записанные ответы лежат как fixture-ы; test-ы не вызывают модель и не ходят в сеть.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-jira-recipe.test.ts` exit 0 · mac - · 275781a43
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs <14 unit and contract tests of src/main/assistant and src/shared/assistant>` exit 0 · mac - · 737062ead
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: test-run pass · `pnpm lint` exit 0, `pnpm typecheck` exit 0 · mac - · 737062ead
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 737062ead
 
 ## Итог
 
