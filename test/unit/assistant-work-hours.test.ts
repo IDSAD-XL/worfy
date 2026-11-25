@@ -3,7 +3,7 @@
 // the zone's offset written out, so each case reads the wall clock of the zone it names, the nights the
 // clocks change included (Europe/Kyiv: 2026-03-29 03:00 → 04:00, 2026-10-25 04:00 → 03:00).
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { DEFAULT_WORK_HOURS, inWorkHours, nextWorkHoursStart, workHoursSchema, type WorkHours } from '../../src/shared/assistant/schedule/work-hours'
+import { DEFAULT_WORK_HOURS, inWorkHours, nextWorkHoursStart, workHoursSchema, workWindowStartOf, type WorkHours } from '../../src/shared/assistant/schedule/work-hours'
 
 const KYIV = 'Europe/Kyiv'
 
@@ -115,6 +115,21 @@ describe('nextWorkHoursStart', () => {
     const early: WorkHours = { ...EVERY_DAY, windows: [{ from: at(3, 30), to: at(5) }] }
     // 03:30 comes at 00:30 UTC (summer time) and again at 01:30 UTC (winter time).
     expect(nextWorkHoursStart(utc(2026, 10, 24, 17, 0), early)).toBe(utc(2026, 10, 25, 0, 30))
+  })
+})
+
+describe('workWindowStartOf', () => {
+  it('the start of the window a moment is in; the day before for a window across midnight; null outside', () => {
+    expect(workWindowStartOf(utc(2026, 11, 25, 9, 30), OFFICE)).toBe(utc(2026, 11, 25, 7, 0))
+    const night: WorkHours = { days: ['fri'], windows: [{ from: at(22), to: at(2) }], timeZone: KYIV }
+    expect(workWindowStartOf(utc(2026, 11, 27, 23, 30), night)).toBe(utc(2026, 11, 27, 20, 0)) // Saturday 01:30
+    expect(workWindowStartOf(utc(2026, 11, 28, 10, 0), OFFICE)).toBeNull()
+    // Overlapping windows: the earliest start.
+    const overlap: WorkHours = { ...OFFICE, windows: [{ from: at(10), to: at(18) }, { from: at(9), to: at(12) }] }
+    expect(workWindowStartOf(utc(2026, 11, 25, 9, 0), overlap)).toBe(utc(2026, 11, 25, 7, 0))
+    // A start the clocks skip: the jump.
+    const early: WorkHours = { ...EVERY_DAY, windows: [{ from: at(3, 30), to: at(5) }] }
+    expect(workWindowStartOf(utc(2026, 3, 29, 1, 30), early)).toBe(utc(2026, 3, 29, 1, 0))
   })
 })
 

@@ -138,6 +138,27 @@ function momentOfWall(wall: number, zone: string): number {
   return high
 }
 
+/**
+ * The start of the window `moment` is in — the earliest, when windows overlap; a window across midnight
+ * starts the day before — or null outside work hours.
+ */
+export function workWindowStartOf(moment: number, hours: WorkHours): number | null {
+  if (!inWorkHours(moment, hours)) return null
+  const zone = zoneOf(hours)
+  const wall = wallOf(moment, zone)
+  const midnight = wall - (((wall % DAY_MS) + DAY_MS) % DAY_MS)
+  let best: number | null = null
+  for (const day of [midnight - DAY_MS, midnight]) {
+    if (!hours.days.includes(weekdayOfWall(day))) continue
+    for (const window of hours.windows) {
+      const start = momentOfWall(day + window.from * MINUTE_MS, zone)
+      const end = momentOfWall(day + (window.to > window.from ? 0 : DAY_MS) + window.to * MINUTE_MS, zone)
+      if (start <= moment && moment < end && (best === null || start < best)) best = start
+    }
+  }
+  return best
+}
+
 /** The start of the work hours `moment` is in, `moment` itself; else the next start after it. */
 export function nextWorkHoursStart(moment: number, hours: WorkHours): number {
   if (inWorkHours(moment, hours)) return moment

@@ -123,10 +123,16 @@ describe('the scheduler in the running app', () => {
       power.emit('resume')
       await expect.poll(() => checkScheduler().running('slack')).toBe(false)
       expect(checkScheduler().runNow('slack')).toBe(true)
+      await expect.poll(() => checkScheduler().running('slack')).toBe(false)
     } finally {
       stop()
-      unregister()
     }
+    // Stopped: nothing starts, runNow included; the settings and the system no longer reach it.
+    expect(checkScheduler().runNow('slack')).toBe(false)
+    appSettingsStore().set({ assistantSchedule: { checks: { slack: { intervalMinutes: 5 } } } })
+    power.emit('resume')
+    expect(checkScheduler().running('slack')).toBe(false)
+    unregister()
     expect(power.listenerCount('suspend') + power.listenerCount('resume')).toBe(0)
     expect(appSettingsStore().listenerCount('changed')).toBe(settingsListeners)
   })

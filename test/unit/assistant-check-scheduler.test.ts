@@ -5,7 +5,7 @@
 // (UTC+2 in winter, UTC+3 in summer).
 import { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { CheckScheduler, followPower, memoryCheckMarks, SCHEDULE_JITTER, type CheckMarksStore, type CheckRunContext } from '../../src/main/assistant/schedule/scheduler'
+import { CHECK_RUN_TIMEOUT_MS, CheckScheduler, followPower, MAX_TIMER_MS, memoryCheckMarks, SCHEDULE_JITTER, type CheckMarksStore, type CheckRunContext } from '../../src/main/assistant/schedule/scheduler'
 import type { AssistantScheduleChoice, AssistantScheduleSettings } from '../../src/shared/assistant/schedule/settings'
 import type { WorkHours } from '../../src/shared/assistant/schedule/work-hours'
 
@@ -17,6 +17,12 @@ const utc = (year: number, month: number, day: number, hour: number, minute = 0)
 
 const OFFICE: WorkHours = { days: ['mon', 'tue', 'wed', 'thu', 'fri'], windows: [{ from: 9 * 60, to: 18 * 60 }], timeZone: KYIV }
 const EVERY_DAY: WorkHours = { ...OFFICE, days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] }
+
+/**
+ * How long after the start of work hours a sleeping check of `minutes` goes with the draw of the middle
+ * (0.5, the default here): half of the spread of SCHEDULE_JITTER of its interval.
+ */
+const startDelay = (minutes: number): number => (SCHEDULE_JITTER / 2) * minutes * MINUTE
 
 /** A run that records its context and ends at once. */
 function recorder(): { runs: CheckRunContext[]; run: (context: CheckRunContext) => Promise<void> } {
@@ -50,9 +56,9 @@ afterEach(() => {
 })
 
 describe('the registry', () => {
-  it('a check that is still running is not started a second time, by its timer or by runNow', async () => {
+  it('a check that is still running is not started a second time: not by its timer, a change of settings, a wake-up, another kind\'s timer or runNow', async () => {
     vi.setSystemTime(utc(2026, 11, 25, 8, 0))
-    choose({ checks: { slack: { enabled: true, intervalMinutes: 10, sleepOutsideWorkHours: false } } })
+    choose({ checks: { slack: { enabled: true, intervalMinutes: 5, sleepOutsideWorkHours: false }, jira: { enabled: true, intervalMinutes: 5, sleepOutsideWorkHours: false } } })
     let finish: () => void = () => undefined
     let started = 0
     const checks = scheduler()
@@ -60,13 +66,21 @@ describe('the registry', () => {
       started += 1
       return new Promise<void>((resolve) => (finish = resolve))
     })
+    const jira = recorder()
+    checks.register('jira', jira.run)
     checks.start()
     await vi.advanceTimersByTimeAsync(0)
     expect(started).toBe(1)
     expect(checks.running('slack')).toBe(true)
 
-    // Two and a half intervals go by while the first run hangs.
-    await vi.advanceTimersByTimeAsync(25 * MINUTE)
+    // Past Slack's due time, short of the run time limit, while its first run hangs: its own timer and
+    // Jira's both fire, the settings change, the Mac sleeps and wakes.
+    await vi.advanceTimersByTimeAsync(8 * MINUTE)
+    expect(jira.runs).toHaveLength(2)
+    checks.reschedule()
+    checks.suspend()
+    checks.resume()
+    await vi.advanceTimersByTimeAsync(0)
     expect(started).toBe(1)
     expect(checks.runNow('slack')).toBe(false)
     expect(started).toBe(1)
@@ -134,7 +148,7 @@ describe('each kind of check', () => {
     // Slack sleeps through the weekend; Jira, not marked to sleep, goes every 30 minutes.
     expect(slack.runs).toHaveLength(0)
     expect(jira.runs).toHaveLength(5)
-    expect(checks.nextRun('slack')).toBe(utc(2026, 11, 30, 7, 0))
+    expect(checks.nextRun('slack')).toBe(utc(2026, 11, 30, 7, 0) + startDelay(10))
 
     // Jira turned off, Slack set not to sleep: from the next plan on.
     choose({ workHours: OFFICE, checks: { slack: { enabled: true, intervalMinutes: 10, sleepOutsideWorkHours: false }, jira: { enabled: false, intervalMinutes: 30, sleepOutsideWorkHours: false } } })
@@ -192,7 +206,7 @@ describe('the clock', () => {
     await vi.advanceTimersByTimeAsync(3 * HOUR)
     // 23:10, 23:40, 00:10, 00:40; 01:10 is outside.
     expect(slack.runs.map((run) => run.now)).toEqual([utc(2026, 11, 27, 21, 10), utc(2026, 11, 27, 21, 40), utc(2026, 11, 27, 22, 10), utc(2026, 11, 27, 22, 40)])
-    expect(checks.nextRun('slack')).toBe(utc(2026, 12, 4, 20, 0))
+    expect(checks.nextRun('slack')).toBe(utc(2026, 12, 4, 20, 0) + startDelay(30))
   })
 
   it('the night the clocks go forward: an hourly check waits one real hour, and a sleeping one wakes at 09:00 summer time', async () => {
@@ -208,9 +222,9 @@ describe('the clock', () => {
     checks.start()
     await vi.advanceTimersByTimeAsync(0)
     expect(checks.nextRun('jira')).toBe(utc(2026, 3, 29, 1, 30)) // 04:30 EEST
-    expect(checks.nextRun('slack')).toBe(utc(2026, 3, 29, 6, 0)) // 09:00 EEST
+    expect(checks.nextRun('slack')).toBe(utc(2026, 3, 29, 6, 0) + startDelay(60)) // 09:00 EEST and the spread
     await vi.advanceTimersByTimeAsync(6 * HOUR)
-    expect(slack.runs).toEqual([{ kind: 'slack', since: utc(2026, 3, 28, 15, 30), now: utc(2026, 3, 29, 6, 0) }])
+    expect(slack.runs).toEqual([{ kind: 'slack', since: utc(2026, 3, 28, 15, 30), now: utc(2026, 3, 29, 6, 0) + startDelay(60) }])
   })
 
   it('the night the clocks go back: a sleeping check wakes at 09:00 winter time', async () => {
@@ -221,7 +235,117 @@ describe('the clock', () => {
     checks.register('slack', recorder().run)
     checks.start()
     await vi.advanceTimersByTimeAsync(0)
-    expect(checks.nextRun('slack')).toBe(utc(2026, 10, 25, 7, 0))
+    expect(checks.nextRun('slack')).toBe(utc(2026, 10, 25, 7, 0) + startDelay(60))
+  })
+})
+
+describe('the clock moves', () => {
+  it('the system clock jumps forward while the timer waits: the check goes within MAX_TIMER_MS, not at the end of the old wait', async () => {
+    expect(MAX_TIMER_MS).toBe(HOUR)
+    const start = utc(2026, 11, 25, 8, 0)
+    vi.setSystemTime(start)
+    choose({ checks: { jira: { enabled: true, intervalMinutes: 180, sleepOutsideWorkHours: false } } })
+    const checks = scheduler()
+    const jira = recorder()
+    checks.register('jira', jira.run)
+    checks.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(jira.runs).toHaveLength(1)
+    // The wall clock jumps three hours ahead; the timers do not move.
+    vi.setSystemTime(start + 3 * HOUR)
+    await vi.advanceTimersByTimeAsync(HOUR)
+    expect(jira.runs).toHaveLength(2)
+  })
+
+  it('a last start in the future — the clock was moved back — counts as now: the check waits one interval, not the gap', async () => {
+    const now = utc(2026, 11, 25, 8, 0)
+    vi.setSystemTime(now)
+    marks.write({ slack: { startedAt: now + 5 * HOUR, succeededAt: now + 5 * HOUR } })
+    choose({ checks: { slack: { enabled: true, intervalMinutes: 10, sleepOutsideWorkHours: false } } })
+    const checks = scheduler()
+    const slack = recorder()
+    checks.register('slack', slack.run)
+    checks.start()
+    expect(checks.nextRun('slack')).toBe(now + 10 * MINUTE)
+    await vi.advanceTimersByTimeAsync(10 * MINUTE)
+    expect(slack.runs).toHaveLength(1)
+  })
+
+  it('sleeping checks do not all go at the first millisecond of work hours: each goes within the spread after their start, and never outside them', async () => {
+    // Saturday noon; office hours start on Monday at 09:00 (07:00 UTC).
+    const monday = utc(2026, 11, 30, 7, 0)
+    for (const [draw, delay] of [
+      [0, 0],
+      [0.5, 3 * MINUTE],
+      [1, 6 * MINUTE],
+    ] as const) {
+      vi.setSystemTime(utc(2026, 11, 28, 10, 0))
+      choose({ workHours: OFFICE, checks: { jira: { enabled: true, intervalMinutes: 60 } } })
+      const checks = scheduler({ random: () => draw, marks: memoryCheckMarks() })
+      checks.register('jira', recorder().run)
+      checks.start()
+      expect(checks.nextRun('jira'), String(draw)).toBe(monday + delay)
+      checks.stop()
+    }
+
+    // A window shorter than the spread: the check goes at its start rather than after its end.
+    vi.setSystemTime(utc(2026, 11, 28, 10, 0))
+    choose({ workHours: { ...OFFICE, windows: [{ from: 9 * 60, to: 9 * 60 + 5 }] }, checks: { jira: { enabled: true, intervalMinutes: 1440 } } })
+    const short = scheduler({ random: () => 1, marks: memoryCheckMarks() })
+    const jira = recorder()
+    short.register('jira', jira.run)
+    short.start()
+    expect(short.nextRun('jira')).toBe(monday)
+    // A plan made inside work hours before the check's moment (another kind's timer, a change of settings)
+    // does not cut the spread short.
+    vi.setSystemTime(monday - MINUTE)
+    choose({ workHours: OFFICE, checks: { jira: { enabled: true, intervalMinutes: 60 } } })
+    short.reschedule()
+    await vi.advanceTimersByTimeAsync(2 * MINUTE)
+    short.reschedule()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(jira.runs).toHaveLength(0)
+    await vi.advanceTimersByTimeAsync(5 * MINUTE)
+    expect(jira.runs.map((run) => run.now)).toEqual([monday + 6 * MINUTE])
+  })
+})
+
+describe('a run that never ends', () => {
+  it(`counts as failed after CHECK_RUN_TIMEOUT_MS: the kind goes again, \`since\` stays at the last success, and a late answer of the old run changes nothing`, async () => {
+    expect(CHECK_RUN_TIMEOUT_MS).toBe(10 * MINUTE)
+    const start = utc(2026, 11, 25, 8, 0)
+    vi.setSystemTime(start)
+    choose({ checks: { slack: { enabled: true, intervalMinutes: 30, sleepOutsideWorkHours: false } } })
+    const contexts: CheckRunContext[] = []
+    const answers: (() => void)[] = []
+    let hang = false
+    const checks = scheduler()
+    checks.register('slack', (context) => {
+      contexts.push(context)
+      return hang ? new Promise<void>((resolve) => answers.push(resolve)) : Promise.resolve()
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    checks.start()
+    await vi.advanceTimersByTimeAsync(0)
+    hang = true
+    await vi.advanceTimersByTimeAsync(30 * MINUTE)
+    expect(contexts).toHaveLength(2)
+    expect(checks.running('slack')).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(CHECK_RUN_TIMEOUT_MS - 1)
+    expect(checks.running('slack')).toBe(true)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(checks.running('slack')).toBe(false)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('the slack check did not end in 10 minutes'))
+
+    // The old run answers late: no success is written, nothing is planned twice.
+    answers[0]?.()
+    hang = false
+    await vi.advanceTimersByTimeAsync(0)
+    expect(contexts).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(20 * MINUTE)
+    expect(contexts.map((context) => context.since)).toEqual([null, start, start])
+    warn.mockRestore()
   })
 })
 
@@ -328,9 +452,9 @@ describe('the Mac sleeps, worfy restarts', () => {
     const slack = recorder()
     checks.register('slack', slack.run)
     checks.start()
-    await vi.advanceTimersByTimeAsync(2 * HOUR - MINUTE)
+    await vi.advanceTimersByTimeAsync(2 * HOUR + startDelay(30) - MINUTE)
     expect(slack.runs).toHaveLength(0)
     await vi.advanceTimersByTimeAsync(MINUTE)
-    expect(slack.runs).toEqual([{ kind: 'slack', since: evening, now: utc(2026, 11, 26, 7, 0) }])
+    expect(slack.runs).toEqual([{ kind: 'slack', since: evening, now: utc(2026, 11, 26, 7, 0) + startDelay(30) }])
   })
 })
