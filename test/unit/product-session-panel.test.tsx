@@ -47,6 +47,8 @@ const asked: { channel: string; input: unknown }[] = []
 let settings: AppSettings
 /** Why `product.topic` fails, when the test makes it fail. */
 let topicFails: string | undefined
+/** What `product.topic` answers for a topic other than TOPIC, by its name; null — no such topic. */
+let otherTopics: Record<string, ProductTopicState | null>
 /** What `product.share` answers: main counts it from the files each time it is asked. */
 let share: () => AdviceShare | { error: string }
 /** The events of each Subagent's transcript (`claudeHome.subagentTranscript`), by agent id; none — the read fails. */
@@ -73,6 +75,7 @@ beforeEach(() => {
   asked.length = 0
   listeners.clear()
   topicFails = undefined
+  otherTopics = {}
   share = () => adviceShare({ topics: [], reviews: [] })
   subagents.tree = []
   subagents.hidden = {}
@@ -103,7 +106,9 @@ beforeEach(() => {
         return Promise.resolve('error' in answer ? { ok: false, error: answer.error } : { ok: true, value: answer })
       }
       if (channel === 'product.topic') {
-        return Promise.resolve(topicFails === undefined ? { ok: true, value: { projectId: 'alpha', name: 'demo-roadmap', topic: TOPIC } } : { ok: false, error: topicFails })
+        const { name } = input as { name: string }
+        const topic = Object.hasOwn(otherTopics, name) ? otherTopics[name] : TOPIC
+        return Promise.resolve(topicFails === undefined ? { ok: true, value: { projectId: 'alpha', name, topic } } : { ok: false, error: topicFails })
       }
       return Promise.resolve({ ok: false, error: `no ${channel}` })
     },
@@ -960,6 +965,40 @@ describe('the Mind map pane of a Product Session', () => {
     expect(alert.textContent).toBe('Could not read the Mind map: EACCES: permission denied')
     expect(screen.queryByTestId('product-session-map-empty')).toBeNull()
     expect(screen.queryByTestId('mind-map')).toBeNull()
+  })
+
+  // worfy-polish ticket 147 (audit finding 63): a chip of the chat names a node of another topic than the one
+  // the map shows. Its click switches the map to that topic and selects the node; a topic that is gone says so.
+  const PRICING: ProductTopicState = { ...TOPIC, name: 'pricing', folder: '/demo/docs/product/pricing', title: 'Pricing', nodes: [{ id: 'per-seat', kind: 'idea', text: 'Charge per seat', from: null }] }
+
+  it('a chip of a node of another topic switches the map to that topic, and the node is selected', async () => {
+    otherTopics = { pricing: PRICING }
+    await mount()
+    act(() => {
+      emit('product.changed', { projectId: 'alpha', name: 'demo-roadmap', topic: TOPIC })
+    })
+    expect(within(await screen.findByTestId('mind-map')).getByText('Sell to small teams')).toBeTruthy()
+    const { pickNode } = await import('../../src/renderer/product/node-chips')
+    // What a chip's click does (NodeChips.tsx).
+    act(() => pickNode({ projectId: 'alpha', topic: 'pricing', id: 'per-seat' }))
+    const node = () => document.querySelector('[data-testid="mind-node"][data-id="per-seat"]')
+    await vi.waitFor(() => expect(node()?.className).toContain('w-mind__node--selected'))
+    expect(within(screen.getByRole('region', { name: 'Node' })).getByText('Charge per seat')).toBeTruthy()
+    expect(within(screen.getByTestId('mind-map')).queryByText('Sell to small teams')).toBeNull()
+  })
+
+  it('a chip of a topic that is gone keeps the map and says so in a toast with the topic’s name', async () => {
+    otherTopics = { archived: null }
+    const { toasts } = await import('../../src/renderer/toast/toasts')
+    await mount()
+    act(() => {
+      emit('product.changed', { projectId: 'alpha', name: 'demo-roadmap', topic: TOPIC })
+    })
+    expect(within(await screen.findByTestId('mind-map')).getByText('Sell to small teams')).toBeTruthy()
+    const { pickNode } = await import('../../src/renderer/product/node-chips')
+    act(() => pickNode({ projectId: 'alpha', topic: 'archived', id: 'old-node' }))
+    await vi.waitFor(() => expect(toasts.getState().toasts.map((toast) => toast.text)).toEqual([expect.stringContaining('archived')]))
+    expect(within(await screen.findByTestId('mind-map')).getByText('Sell to small teams')).toBeTruthy()
   })
 })
 

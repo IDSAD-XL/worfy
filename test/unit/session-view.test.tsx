@@ -832,13 +832,16 @@ describe('SessionPanel', () => {
     expect(screen.queryByTestId('session-request-unseen')).toBeNull()
   })
 
-  it('a Session that waits for no answer asks main for no request and shows no such line', async () => {
-    // Fake timers from before the mount: an ask would be a timer of ASK_OPEN_REQUESTS_AFTER_MS the panel starts as it mounts.
+  // worfy-polish ticket 147: a background task can wait for an answer while the Session is not at needs_permission,
+  // so the window asks main once as it mounts, whatever the state; it shows no line without needs_permission.
+  it('a Session that is not at needs_permission asks main once as the panel mounts, and shows no such line', async () => {
+    // Fake timers from before the mount: the ask is a timer of ASK_OPEN_REQUESTS_AFTER_MS the panel starts as it mounts.
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], now: new Date('2026-11-16T09:00:00Z') })
     try {
       await mountPanel({}, { fakeClock: true })
       await act(() => vi.advanceTimersByTimeAsync(ASK_OPEN_REQUESTS_AFTER_MS * 2))
-      expect(asked.some((each) => each.channel === 'agent.requests')).toBe(false)
+      await act(() => vi.advanceTimersByTimeAsync(ASK_OPEN_REQUESTS_AFTER_MS * 2))
+      expect(asked.filter((each) => each.channel === 'agent.requests')).toHaveLength(1)
       expect(screen.queryByTestId('session-request-unseen')).toBeNull()
     } finally {
       vi.useRealTimers()

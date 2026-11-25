@@ -1,14 +1,18 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { create } from 'zustand'
 import type { AgentEvent } from '../../shared/agent/events'
+import type { ProductTopicState } from '../../shared/ipc/product'
 import { PRODUCT_SESSION_SPLIT_DEFAULT, PRODUCT_SESSION_SPLIT_MIN, productSessionSplitOf } from '../../shared/settings/app-settings'
 import { adviceTotals, type AdviceShare } from '../../shared/product/share'
 import { flattenSubagents, type SubagentInfo } from '../../shared/transcript/subagents'
 import { hiddenIdsOf, useHiddenSubagents, useSubagentTree, withoutHidden } from '../claude-home/subagents'
 import { invoke, showSubscribeError, subscribe } from '../ipc'
 import { MindMap } from '../product/MindMap'
+import { pickNode, useMindMapFocus, type NodeRef } from '../product/node-chips'
 import { useMindMap } from '../product/useMindMap'
 import { useProjects } from '../projects/useProjects'
 import { setAppSettings, useAppSettings } from '../settings/useAppSettings'
+import { showToast } from '../toast/toasts'
 import { ProductAgentsList } from './ProductAgentsList'
 import { draftsOf, productAgentOrder, type ProductDraft } from './product-agents'
 import { CriticPanel, DraftsPanel, IdeasPanel } from './ProductRailPanels'
@@ -78,31 +82,94 @@ function readTopicName(key: string): string | undefined {
   }
 }
 
+/** The topic each Node's Mind map follows, by `<projectId>:<nodeId>`: the pane and the header show the same one. */
+const useFollowedTopics = create<Readonly<Record<string, string>>>(() => ({}))
+
+/** Makes `name` the topic the Node's Mind map shows, here and at the next start. */
+function followTopic(key: string, name: string): void {
+  if (useFollowedTopics.getState()[key] !== name) useFollowedTopics.setState({ [key]: name })
+  try {
+    globalThis.localStorage.setItem(TOPIC_PREFIX + key, name)
+  } catch (error) {
+    console.error('[product-session] could not keep the topic of the Mind map', error)
+  }
+}
+
 /**
  * The topic the Node's Mind map shows: the last one of the Project reported by `product.changed` while
- * the pane is open, else the one it showed before.
+ * the pane is open, or the one a chip of another topic switched it to (useTopicOfChip), else the one it showed before.
  */
 function useShownTopic(projectId: string, nodeId: string): string | undefined {
   const key = `${projectId}:${nodeId}`
-  const [followed, setFollowed] = useState<{ key: string; name: string } | null>(null)
+  const followed = useFollowedTopics((topics) => topics[key])
   useEffect(() => {
     let unsubscribe: (() => void) | undefined
     try {
       unsubscribe = subscribe('product.changed', (change) => {
         if (change.projectId !== projectId || change.topic === null) return
-        setFollowed((was) => (was?.key === key && was.name === change.name ? was : { key, name: change.name }))
-        try {
-          globalThis.localStorage.setItem(TOPIC_PREFIX + key, change.name)
-        } catch (error) {
-          console.error('[product-session] could not keep the topic of the Mind map', error)
-        }
+        followTopic(key, change.name)
       })
     } catch (error) {
       showSubscribeError('product.changed', error)
     }
     return () => unsubscribe?.()
   }, [projectId, key])
-  return followed?.key === key ? followed.name : readTopicName(key)
+  return followed ?? readTopicName(key)
+}
+
+/** The node of a chip whose topic the Node's Mind map is switching to, by `<projectId>:<nodeId>` (useTopicOfChip). */
+const useChipTopics = create<Readonly<Record<string, NodeRef>>>(() => ({}))
+
+function wantTopic(key: string, ref: NodeRef | null): void {
+  useChipTopics.setState((all) => {
+    const rest = { ...all }
+    if (ref === null) delete rest[key]
+    else rest[key] = ref
+    return rest
+  }, true)
+}
+
+/**
+ * A chip of the chat names a node of a topic the map does not show (worfy-polish ticket 147, audit finding 63): the
+ * Mind map of `shown` acts only on its own nodes. This reads the chip's topic; once it is read the map follows it,
+ * and once that map is drawn the node is picked again on it, which selects it and brings it into view. A topic that
+ * is gone or cannot be read says so in a toast, and the map stays as it was.
+ */
+function useTopicOfChip(projectId: string, nodeId: string, shown: ProductTopicState | null | undefined): void {
+  const key = `${projectId}:${nodeId}`
+  const wanted = useChipTopics((all) => all[key]) ?? null
+  const latest = useRef(shown?.name)
+  useEffect(() => {
+    latest.current = shown?.name
+  })
+  useEffect(
+    () =>
+      useMindMapFocus.subscribe((state, before) => {
+        const asked = state.picked
+        if (asked === before.picked || asked === null || asked.projectId !== projectId || asked.topic === latest.current) return
+        wantTopic(key, { projectId: asked.projectId, topic: asked.topic, id: asked.id })
+      }),
+    [projectId, key],
+  )
+  // Held until the map of the chip's topic is drawn, so the copy the map reads is never let go in between.
+  const { topic, error } = useMindMap(projectId, wanted?.topic)
+  useEffect(() => {
+    if (wanted === null) return
+    if (shown?.name === wanted.topic) {
+      // Its map is drawn and listens now (MindMap.tsx): the pick acts on it.
+      pickNode(wanted)
+      wantTopic(key, null)
+    } else if (topic !== undefined && topic !== null) {
+      followTopic(key, wanted.topic)
+    } else if (topic === null || error !== undefined) {
+      showToast({
+        kind: 'error',
+        key: `mind-map-topic:${wanted.topic}`,
+        text: error === undefined ? `The Mind map has no topic "${wanted.topic}"` : `Could not read the Mind map topic "${wanted.topic}": ${error}`,
+      })
+      wantTopic(key, null)
+    }
+  }, [key, shown, wanted, topic, error])
 }
 
 /**
@@ -370,6 +437,7 @@ export function ProductSessionPanel({ children, events, busy = false, ...rail }:
   const { agents, root } = useSessionAgents(rail.projectId, session)
   const drafts = useMemo(() => draftsOf(events ?? [], root), [events, root])
   const { topic, error } = useMindMap(rail.projectId, useShownTopic(rail.projectId, rail.nodeId))
+  useTopicOfChip(rail.projectId, rail.nodeId, topic)
   return (
     <div className="w-product" data-testid="product-session-panel">
       <div className="w-product__split">

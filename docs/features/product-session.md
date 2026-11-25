@@ -87,7 +87,9 @@ The input field keeps about 126 px in a chat as narrow as the agents list leaves
   loaded. The chips of Mind map nodes stand under the message that made them.
 - A turn that failed shows its error, an interrupted turn shows "Interrupted", and an error of the Session shows too.
   Permission requests and questions with options, the advisor's own and its Subagents', are cards in the chat, as in
-  any Session. They stay inside the narrowest chat, and a window that reloaded while one was open draws it again.
+  any Session. They stay inside the narrowest chat, and a window that reloaded while one was open draws it again. A
+  question the owner answered stays after Resume or a restart: the chat draws it from the Session's file, with the
+  option chosen. A question declined or left unanswered then is not drawn.
 - Thinking, tool calls and their output (a failed call too), Subagents, hooks, Claude Code's notices and the messages it
   adds, "Turn finished" and slash commands are not shown. The whole log is in the Flight Recorder.
 - While a turn runs, one status line stands at the end of the chat: what the advisor is doing right now and how long this
@@ -365,7 +367,9 @@ starts in its tool calls) shows its chips under the next message, or at the end 
 small square of the node's kind colour and a muted line that names the kind: "+ Idea: …", "+ Question: …",
 "+ Decision ✓: …", "+ Decision ✕: …", "+ Objection: …" for a node the call added, the same without "+" for a node it
 changed. A `mind_map_decide` that turned a Decision's status the other way shows a red chip, "↺ “…” → rejected". A chip is never wider than the chat: a text that does not fit ends in "…". A click on a chip selects the node on the
-Mind map, brings it into view and rings the message the chip stands under; the chat does not move. A
+Mind map, brings it into view and rings the message the chip stands under; the chat does not move. A chip of a node of
+another topic switches the map to that topic first; a topic that is gone, or cannot be read, says so in a toast
+with its name, and the map stays as it was. A
 hidden node is shown first: "Hide rejected" is turned off and the folded branches above it unfold. Pointing at a chip or
 focusing it lights its node; pointing at a message lights the nodes of all its chips. "Show in the chat" on a card
 scrolls the chat to the message that carries the node's chip.

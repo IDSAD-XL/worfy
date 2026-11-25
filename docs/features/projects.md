@@ -475,7 +475,9 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
   Terminals or programs working in it should be closed before trying again. Its "no profile"
   counts as done only when no registry entry of that Profile is left. Another listed Project inside the removed one's
   folder shares its Profile: its Orchestrator is held closed during the removal, and it stays in the list without a
-  Profile, which the dialog and the notice after the removal say. qmd collections that stay (qmd not installed, or another
+  Profile, which the dialog and the notice after the removal say. A listed Project inside the folder that has a Profile
+of its own (a repository registered on its own inside a monorepo) is not part of the removal: its Sessions stay open,
+its Orchestrator runs on, and neither the dialog nor the notice names it. qmd collections that stay (qmd not installed, or another
   Profile names them) are named in that notice. Moving a Project between Full and Silent mode is not part of it.
 
 **A broken list.** A `projects.json` with broken JSON or the wrong shape is set aside, and the app starts with an empty list. A saved active

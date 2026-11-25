@@ -362,6 +362,51 @@ describe('Remove project of a Full mode repository', () => {
     expect(store.list().map((each) => each.id)).toStrictEqual([inner.id])
   })
 
+  // worfy-polish ticket 147 (audit finding 130): a repository inside the removed one, registered with a Profile of
+  // its own, is not part of the removal: its Sessions stay open, its Orchestrator runs on, the notice does not name it.
+  it('a listed Project inside the folder with a Profile of its own is left alone: Sessions, Orchestrator, notes', async () => {
+    const mono = makeRepo(join(scratch, 'mono'))
+    const inner = makeRepo(join(mono, 'packages', 'inner'))
+    await connect('mono', 'full', null, [mono])
+    await connect('inner', 'full', null, [inner])
+    const project = await listed(mono)
+    const own = await listed(inner)
+    const preview = await removalPreview(deps(), project.id)
+    expect(preview.status === 'ready' && [preview.profile, preview.alsoListed]).toStrictEqual(['mono', []])
+
+    const sessions = [
+      { sessionId: 'mono-session', cwd: join(mono, 'src') },
+      { sessionId: 'inner-session', cwd: join(inner, '.claude', 'worktrees', '03') },
+    ]
+    expect(await removeProject(deps(sessions), project.id)).toStrictEqual({ status: 'removed', notes: [] })
+    expect(log).toStrictEqual(['stop mono', 'close mono-session', 'hold watches mono', 'project-connect --remove mono', 'list remove mono', 'release', 'watch again'])
+    expect(store.list().map((each) => each.id)).toStrictEqual([own.id])
+    expect(existsSync(join(harnessHome, 'projects', 'inner', 'profile.json'))).toBe(true)
+  })
+
+  it('a listed Project inside the folder whose Profile cannot be told counts as sharing it: held, its Sessions closed, named', async () => {
+    const mono = makeRepo(join(scratch, 'mono'))
+    const inner = makeRepo(join(mono, 'packages', 'inner'))
+    await connect('mono', 'full', null, [mono])
+    await connect('inner', 'full', null, [inner])
+    const project = await listed(mono)
+    await listed(inner)
+    const sessions = [
+      { sessionId: 'mono-session', cwd: join(mono, 'src') },
+      { sessionId: 'inner-session', cwd: inner },
+    ]
+    const base = deps(sessions)
+    // bin/profile fails for the inner folder only: the removal cannot tell whose Profile it has.
+    const unsure: ProjectRemovalDeps = { ...base, profileDir: (root) => (root === inner ? Promise.reject(new Error('bin/profile: exit code 1')) : base.profileDir(root)) }
+    const preview = await removalPreview(unsure, project.id)
+    expect(preview.status === 'ready' && preview.alsoListed).toStrictEqual([`inner (${inner})`])
+    expect(await removeProject(unsure, project.id)).toStrictEqual({
+      status: 'removed',
+      notes: ['inner stays in the list without a Profile: Remove from list takes it out, or Add project connects its folder again.'],
+    })
+    expect(log).toStrictEqual(['stop mono inner', 'close mono-session', 'close inner-session', 'hold watches mono inner', 'project-connect --remove mono', 'list remove mono', 'release', 'watch again'])
+  })
+
   it('a folder the Harness does not know is refused before anything is asked', async () => {
     // A Harness with a registry that does not name the folder: bin/profile answers exit 3.
     await connect('other', 'full', null, [makeRepo(join(scratch, 'other'))])

@@ -371,25 +371,45 @@ function ProjectRows({ group, onSelect, onMenu }: RowsProps) {
   )
 }
 
-/** A Project's row: its name and branch, and its live state under them when it is known. */
+/**
+ * A Project's row: its name and branch, and its live state under them when it is known. The focus is only ever
+ * on the button, never on a part of the live line, so the parts' tooltips are its description as well: a
+ * keyboard user and a screen reader get them too (worfy-polish ticket 147).
+ */
 function ProjectCard({ project, selected, pulse, onSelect }: { project: ProjectView; selected: boolean; pulse: ProjectPulse | undefined; onSelect: () => void }) {
+  const describedBy = useId()
+  const hints = pulse === undefined ? [] : pulseParts(pulse).map((part) => `${part.hint}.`)
   return (
-    <button type="button" className="w-row" style={pulse === undefined ? undefined : styles.card} aria-current={selected ? 'true' : undefined} onClick={onSelect}>
-      <span style={styles.cardLine}>
-        <span className="w-row__icon" aria-hidden="true">
-          {folderIcon}
-        </span>
-        <span className="w-row__label" style={{ fontWeight: 600 }}>
-          {project.name}
-        </span>
-        <span className="w-row__trailing" style={styles.branchBox}>
-          <span className="w-mono" style={styles.branch} title={project.branch ?? undefined}>
-            {project.branch ?? '—'}
+    <>
+      <button
+        type="button"
+        className="w-row"
+        style={pulse === undefined ? undefined : styles.card}
+        aria-current={selected ? 'true' : undefined}
+        aria-describedby={hints.length === 0 ? undefined : describedBy}
+        onClick={onSelect}
+      >
+        <span style={styles.cardLine}>
+          <span className="w-row__icon" aria-hidden="true">
+            {folderIcon}
+          </span>
+          <span className="w-row__label" style={{ fontWeight: 600 }}>
+            {project.name}
+          </span>
+          <span className="w-row__trailing" style={styles.branchBox}>
+            <span className="w-mono" style={styles.branch} title={project.branch ?? undefined}>
+              {project.branch ?? '—'}
+            </span>
           </span>
         </span>
-      </span>
-      {pulse === undefined ? null : <PulseLine pulse={pulse} />}
-    </button>
+        {pulse === undefined ? null : <PulseLine pulse={pulse} />}
+      </button>
+      {hints.length === 0 ? null : (
+        <span id={describedBy} hidden>
+          {hints.join(' ')}
+        </span>
+      )}
+    </>
   )
 }
 

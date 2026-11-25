@@ -13,7 +13,8 @@ import { Narration } from './Narration'
 import { DRAW_ALL_UP_TO, FIRST_DRAWN, foldTranscript, ROW_ESTIMATE, rowFor, rowOrder, rowWindow, spanOf, stepOf, toolSegments, type SubagentRun, type ToolCall, type TranscriptItem } from './fold'
 import { formatDuration } from './format'
 import { MessageAttachments } from './MessageAttachments'
-import { ProductSessionContext, shownInProductChat, type ChatQueue } from './product-session'
+import { answeredQuestion, ProductSessionContext, productChatItems, shownInProductChat, type ChatQueue } from './product-session'
+import { ResolvedQuestions } from './QuestionCard'
 import { QueuedRows } from './QueuedMessages'
 import { parseQuoted } from './quote-comments'
 import { QuotedPrompt } from './QuotedPrompt'
@@ -34,7 +35,8 @@ import { clearMatches, extensionTypes, paintMatches, partId, scrollToMatch, type
 // (ProductSessionContext, worfy-product-session ticket 09) a message carries the chips of the Mind map
 // nodes the `mind_map_*` calls after it wrote (../product/node-chips.ts, ticket 22), and a node card's «Show
 // in the chat» scrolls to the row with the chip of the call its message came in, marked with `data-shown`.
-// That chat draws only the conversation (ticket 19, product-session.ts, shownInProductChat): the messages
+// That chat draws only the conversation (ticket 19, product-session.ts, productChatItems), with the questions
+// answered before Resume as their answered cards (worfy-polish ticket 147): the messages
 // are bubbles with the role, the time and their number, as in the owner's prototype; the pointer on a
 // message lights the nodes of its chips; while a turn runs, a status line at the end says what the advisor does
 // now (advisor-status.ts, ticket 29).
@@ -509,6 +511,17 @@ function Item({ item, props, product, number }: { item: TranscriptItem; props: T
       </Message>
     )
   }
+  if (product && item.kind === 'tools') {
+    // productChatItems keeps only the questions answered before Resume (worfy-polish ticket 147): each as its answered card.
+    return (
+      <>
+        {item.calls.map((call) => {
+          const asked = answeredQuestion(call)
+          return asked === null ? null : <ResolvedQuestions key={call.id} requestId={asked.toolUseId} questions={asked.questions} answers={asked.answers} outcome="answered" />
+        })}
+      </>
+    )
+  }
   if (product && item.kind === 'text') {
     return (
       <Message who="advisor" at={item.at} number={number} testId="transcript-text">
@@ -750,7 +763,7 @@ export function Transcript(props: TranscriptProps) {
   const inProduct = useContext(ProductSessionContext)
   const folded = useMemo(() => foldTranscript(events, extensionTypes, firstIndex), [events, firstIndex])
   // A Product Session's chat draws the conversation only; the rows are folded as for any Session.
-  const items = useMemo(() => (inProduct ? folded.filter(shownInProductChat) : folded), [inProduct, folded])
+  const items = useMemo(() => (inProduct ? productChatItems(folded) : folded), [inProduct, folded])
   const index = useMemo(() => new Map(items.map((item, at) => [item.key, at])), [items])
   // The chips of a Product Session's chat, from all its rows; none in any other.
   const product = inProduct && props.projectId !== undefined ? props.projectId : null

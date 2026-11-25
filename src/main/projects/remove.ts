@@ -18,16 +18,20 @@
 //      must all be the folder or inside it: a Profile that also covers paths outside it (the folder is
 //      one repository of a Project over several) is refused, since removing it would take the others;
 //   2. a default Workflow folder that holds files or commits is refused here, before anything closes;
-//   3. the Orchestrators of the Project and of every other listed Project inside its folder (they share
-//      the Profile) stop and stay closed, and every Session whose folder is inside the Project's is
-//      closed and waited for; then worfy's own watches of those Projects (Tickets, documents) close
+//   3. the Orchestrators of the Project and of every other listed Project inside its folder that shares
+//      its Profile (one whose Profile cannot be told counts as sharing it) stop and stay closed, and every
+//      Session whose folder is inside the Project's is closed and waited for — except the Sessions inside a
+//      listed Project with a Profile of its own (a repository registered on its own inside a monorepo,
+//      worfy-polish ticket 147), which the removal leaves alone; then worfy's own watches of the Projects
+//      that go or share the Profile (Tickets, documents) close
 //      until the end: a Silent Project's Workflow folder lies in the Profile folder, and Windows
 //      refuses the script's rename of a folder while a watch holds a handle inside it (EPERM);
 //   4. `project-connect --remove <profile>`; a refusal or a failure leaves the Project in the list, with
 //      the script's words. "No such profile" counts as done only when no registry entry of the Profile
 //      is left: otherwise nothing was freed;
 //   5. the Project leaves worfy's list (its data folder stays, as with "Remove from list"); the other
-//      listed Projects inside its folder stay, without a Profile, and the answer says so;
+//      listed Projects inside its folder that shared its Profile stay, without a Profile, and the answer
+//      says so; one with a Profile of its own stays as it was, and the answer does not name it;
 //   6. whatever the answer, the Orchestrators are let go and the watches are made again.
 //
 // Everything that reaches outside comes in through ProjectRemovalDeps (src/main/ipc/projects.ts wires
@@ -134,9 +138,24 @@ function workflowFolderOf(profile: Record<string, unknown>, profileDir: string):
 
 const LIST_ONLY = '"Remove from list" takes it out of worfy\'s list only.'
 
-/** The other listed Projects inside the folder of `project`: they resolve to its Profile. */
-const listedInside = (deps: Pick<ProjectRemovalDeps, 'projects'>, project: ListedProject): ListedProject[] =>
-  deps.projects.list().filter((other) => other.id !== project.id && within(other.path, project.path))
+/**
+ * The other listed Projects inside the folder of `project` that resolve to its Profile `profileDir`, and the ones
+ * inside it that resolve to a Profile of their own (a repository registered on its own inside a monorepo,
+ * worfy-polish ticket 147): the removal leaves those alone. One whose Profile cannot be told counts as sharing it.
+ */
+async function listedInside(deps: Pick<ProjectRemovalDeps, 'projects' | 'profileDir'>, project: ListedProject, profileDir: string): Promise<{ sharing: ListedProject[]; own: ListedProject[] }> {
+  const inside = deps.projects.list().filter((other) => other.id !== project.id && within(other.path, project.path))
+  const owns = await Promise.all(
+    inside.map(async (other) => {
+      try {
+        return !sameFolder(await deps.profileDir(other.path), profileDir)
+      } catch {
+        return false
+      }
+    }),
+  )
+  return { sharing: inside.filter((_, index) => !owns[index]), own: inside.filter((_, index) => owns[index]) }
+}
 
 /** What "Remove project…" would remove for the Project `id`, or why it cannot. Never throws. */
 export async function removalPreview(deps: Pick<ProjectRemovalDeps, 'projects' | 'harnessHome' | 'profileDir' | 'registeredRepos'>, id: string): Promise<RemovalPreview> {
@@ -181,7 +200,7 @@ export async function removalPreview(deps: Pick<ProjectRemovalDeps, 'projects' |
       qmd,
       mode: stored.mode === 'silent' ? 'silent' : 'full',
       workflowFolder: workflowFolderOf(stored, profileDir),
-      alsoListed: listedInside(deps, project).map((other) => `${other.name} (${other.path})`),
+      alsoListed: (await listedInside(deps, project, profileDir)).sharing.map((other) => `${other.name} (${other.path})`),
     }
   } catch (error) {
     return { status: 'refused', reason: messageOf(error) }
@@ -224,11 +243,11 @@ function notesOf(run: ScriptRun): string[] {
 
 const UPDATE_HARNESS = "This Harness's project-connect does not know --remove. Update the Harness plugin in the first-run checks (Command palette: First-run checks), then try again."
 
-/** Closes every Session whose folder is inside `folder`, and waits for them. */
-async function closeInside(deps: ProjectRemovalDeps, folder: string): Promise<void> {
+/** Closes every Session whose folder is inside `folder` and not inside one of `kept`, and waits for them. */
+async function closeInside(deps: ProjectRemovalDeps, folder: string, kept: readonly string[]): Promise<void> {
   const closing = deps.sessions
     .list()
-    .filter((session) => within(session.cwd, folder))
+    .filter((session) => within(session.cwd, folder) && !kept.some((path) => within(session.cwd, path)))
     .map((session) => deps.sessions.close(session.sessionId))
   for (const result of await Promise.allSettled(closing)) {
     // Gone already: nothing holds the Profile then.
@@ -249,17 +268,18 @@ export async function removeProject(deps: ProjectRemovalDeps, id: string): Promi
     }
   }
   let project: ListedProject
-  let others: ListedProject[]
+  let inside: { sharing: ListedProject[]; own: ListedProject[] }
   try {
     project = deps.projects.get(id)
-    others = listedInside(deps, project)
+    inside = await listedInside(deps, project, preview.profileDir)
   } catch (error) {
     return { status: 'refused', reason: messageOf(error), workflowFolder: null }
   }
+  const others = inside.sharing
   const release = deps.stopOrchestrators([project.id, ...others.map((other) => other.id)])
   let watchAgain: () => Promise<void> = () => Promise.resolve()
   try {
-    await closeInside(deps, project.path)
+    await closeInside(deps, project.path, inside.own.map((other) => other.path))
     watchAgain = await deps.holdWatches([project, ...others])
     let run: ScriptRun
     try {
