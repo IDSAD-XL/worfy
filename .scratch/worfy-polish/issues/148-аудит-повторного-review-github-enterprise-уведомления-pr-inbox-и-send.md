@@ -1,7 +1,8 @@
 # 148 — Аудит повторного review: GitHub Enterprise, уведомления PR inbox и Send
 
 Type: bug
-Status: open
+Status: claimed 2026-11-25T19:13Z
+Branch: worfy-polish/148
 Blocked by: none
 Source: audit-pr-rereview-2026-11-13, triage.md «В Ticket-ы»; checked open on main b0e073620 2026-11-25
 
@@ -48,14 +49,52 @@ Source: audit-pr-rereview-2026-11-13, triage.md «В Ticket-ы»; checked open o
 
 - [ ] 158: test `test/contract/github-prs.test.ts` (stand-in `gh` из `test/contract/gh-world.ts`) — аккаунт на
       `ghe.example.com`: `gh auth token` получает `--hostname ghe.example.com`. Красный на origin/main.
+  - evidence: test-run pass · `pnpm test test/contract/github-prs.test.ts` exit 0; the new Enterprise test exit 1 on origin/main sources · mac - · 53def3d1f
 - [ ] 157: test `test/contract/github-accounts.test.ts` — проверка записи для repository на `ghe.example.com` идёт с
       `GH_ENTERPRISE_TOKEN` аккаунта Project-а; для github.com — с `GH_TOKEN`, как сейчас. Красный на origin/main.
+  - evidence: test-run pass · `pnpm test test/contract/github-accounts.test.ts` exit 0; the two-account Enterprise test exit 1 on origin/main sources · mac - · 53def3d1f
 - [ ] 165: test `test/contract/pr-inbox-notifications.test.ts` — первое чтение с паузой rate limit посреди details (часть
       PR без строк), следующее полное: уведомлений о старых PR нет. Красный на origin/main.
+  - evidence: test-run pass · `pnpm test test/contract/pr-inbox-notifications.test.ts` exit 0; the rate-limit baseline test exit 1 on origin/main sources · mac - · 53def3d1f
 - [ ] 181: test `test/contract/pr-inbox-send.test.ts` рядом с `:582` — запись отметки in-flight падает: исход `refused`
       с «could not be marked before the post», stand-in `gh` не получил POST, draft не помечен отправленным; mutant «post
       после неудачной отметки» — красный.
+  - evidence: test-run pass · `pnpm test test/contract/pr-inbox-send.test.ts` exit 0; mutant that posts after a failed mark exit 1 · mac - · 53def3d1f
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 53def3d1f
+
+## Итог
+
+- 158 и 157: у `accountAuth` (`src/main/github/prs.ts`) появилось поле `host`. Для host-а не github.com token берётся
+  как `gh auth token -u <account> --hostname <host>` и отдаётся в `GH_ENTERPRISE_TOKEN` (`tokenVariable`); для
+  github.com и `*.ghe.com` — как раньше, без `--hostname`, в `GH_TOKEN`. Шаг аккаунтов (`accounts.ts`) передаёт host
+  аккаунта, и проверка записи на Enterprise идёт с `GH_ENTERPRISE_TOKEN` своего аккаунта, а не под активным.
+  Stand-in `gh` (`test/fixtures/gh/gh-stub.mjs`) теперь отвечает на `api repos/<o>/<r> --hostname <h>` так, как
+  берёт token настоящий gh: `GH_TOKEN` для github.com, `GH_ENTERPRISE_TOKEN` для Enterprise, без него — активный
+  аккаунт host-а. Поэтому старый test worfy-polish 71 на один Enterprise-аккаунт проходил и при ошибке.
+- 158, часть сценария не подтвердилась. В шаге аккаунтов `--hostname` у `gh auth token` был и до этого Ticket-а: runner
+  с `--hostname` (origin/main `src/main/github/accounts.ts:187`, worfy-polish 71). PR inbox читает только repository на
+  github.com (`src/main/github/inbox.ts:910-916`, shortcut `remoteRepos`), поэтому для Project-а на Enterprise он
+  выключен и `accountAuth` не зовёт — «no gh login» там не появляется. Work track зовёт `gh api` и `gh search` без
+  `--hostname` (`src/main/work-track/github.ts:255`, `:272`), то есть всё равно идёт на github.com. Остальные вызовы
+  `accountAuth` (`src/main/ipc/checks.ts:198`, `src/main/github/inbox.ts:705`, Send, review submit, pr-search,
+  changes) host не передают и работают с github.com, как раньше. Подключить к ним host origin-а — вне следа этого
+  Ticket-а: это поддержка Enterprise в PR checks и Work track, отдельная работа.
+- 165: `PrInboxNotices.read` (`src/main/notify.ts`) не берёт за первый baseline snapshot с `error`. Baseline — первое
+  чтение без ошибки. После baseline чтение с ошибкой сравнивается, как раньше.
+- 181: код не менялся, добавлен test. Mutant «post после неудачной отметки» — красный.
+- Страницы `docs/features/projects.md` (token Enterprise) и `docs/features/notifications.md` (первое чтение с ошибкой)
+  дополнены; русский перевод не правился (ADR-0088).
+
+## Решено без владельца (подтвердить)
+
+- `*.ghe.com` (GitHub Enterprise Cloud с data residency) получает `GH_TOKEN`, как его читает gh; `GH_ENTERPRISE_TOKEN` —
+  только Enterprise Server.
+- Для github.com `--hostname github.com` не добавляется: вызов тот же, что раньше.
+- Подсказка при отсутствии login-а для Enterprise-аккаунта: `gh auth login --hostname <host>`; начало текста «no gh
+  login for» прежнее, его ищет Health check (`src/main/github/github-health.ts:24`).
+- 165: чтение с ошибкой не становится baseline, даже если ошибка — не пауза (например, details прочитаны, но упал
+  поздний шаг): правило «первое чтение без ошибки», как в Ticket-е.
 
 ## Где в коде
 

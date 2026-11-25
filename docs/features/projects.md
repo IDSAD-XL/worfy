@@ -161,7 +161,9 @@ no `gh auth token -u`, so the step fails with its version and the command that u
 `winget upgrade GitHub.cli`); so does a text that names no account while gh exits with 0, asking for gh 2.81 or later.
 Without gh at all the step names `brew install gh`, on Windows `winget install GitHub.cli`.
 
-The write access of each account is asked with that account's own token. A `GH_TOKEN` or `GITHUB_TOKEN` in the login
+The write access of each account is asked with that account's own token. For a repository on a GitHub Enterprise Server
+host the token goes to gh as `GH_ENTERPRISE_TOKEN`: gh reads `GH_TOKEN` only for github.com, and without it would ask
+as the host's active account. A `GH_TOKEN` or `GITHUB_TOKEN` in the login
 shell's environment (on Windows, in the user's variables) still reaches gh here. With one set, "Sign in with gh" starts
 nothing: gh would take the variable over any account it signs in, and `gh auth login` refuses while it is set. The box names
 the variable, never its value, says why, and shows the command that removes it, with **Copy**: `launchctl unsetenv GH_TOKEN`

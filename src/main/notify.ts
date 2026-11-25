@@ -655,7 +655,7 @@ function prInboxEvents(snapshot: PrInboxSnapshot): { row: PrInboxRow; kind: PrIn
  * (src/main/github/inbox.ts): one per PR and event — a new review request, a new reply of someone else in a thread
  * of the user's PR — and only while no worfy window has focus. An event is one PR's, by `repo#N` and its kind, so
  * two Projects of this Machine that read the same repository notify it once: it is new only when no Project's last
- * read holds it. What the first read of a Project holds is not new; neither is an event seen while a window had
+ * read holds it. What the first read of a Project without an error holds is not new; neither is an event seen while a window had
  * focus or while `prInboxNotify` was off: it never comes later. A snapshot not read yet changes nothing; one of a
  * reader that is off (the reader tells of it when it goes off) forgets the Project, so a reader on again starts
  * from its next read.
@@ -676,8 +676,11 @@ export class PrInboxNotices {
       return
     }
     if (snapshot.readAt === null || snapshot.viewer === null) return
-    const events = prInboxEvents(snapshot)
     const before = this.seen.get(project.id)
+    // A first read that stopped part way (a rate-limit pause between pages of details) lacks the rows of the PRs it
+    // did not reach: as the baseline, the next full read would tell of those old PRs as new (worfy-polish 148).
+    if (before === undefined && snapshot.error !== null) return
+    const events = prInboxEvents(snapshot)
     // What the other Projects of this Machine see now: a repository two Projects read gives one note per event.
     const elsewhere = [...this.seen].filter(([id]) => id !== project.id).map(([, keys]) => keys)
     // An event that left the snapshot (a review given, a reply answered) is forgotten: a new one notifies again.

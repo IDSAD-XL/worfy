@@ -38,7 +38,8 @@ The rules:
   thread on the user's own PR when that comment is someone else's. The user's own reply gives nothing. Replies in several threads
   of one PR in one read give one note. Two Projects of this Machine that read the same repository notify an event once. What
   the first read of a Project holds gives nothing, and a Project whose inbox was switched off starts again from such a first
-  read. An event that came while a window had focus or while the switch was off gives nothing either: it never comes later. A request asked again after the user's review notifies
+  read. A first read that ended with an error — a GitHub rate-limit pause between pages of PRs — does not count as that
+  first read: the next read without one does, so PRs the cut-short read did not reach give nothing either. An event that came while a window had focus or while the switch was off gives nothing either: it never comes later. A request asked again after the user's review notifies
   again. The text never carries a word of a comment, only the kind of event, `owner/name#N` and the PR's title, cut to 80
   characters.
 - **Settings → Pull requests** has two switches of this Machine, both on by default: "Notify about new review requests and

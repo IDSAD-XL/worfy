@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GateReader, type Worktree } from '../../src/main/gate/state'
-import { accountAuth, checksOf, ciOf, ghRunner, MARK_CONTEXTS, narrowOf, narrowRoundsOf, parsePrList, PrTracker, type GhRunner } from '../../src/main/github/prs'
+import { accountAuth, checksOf, ciOf, ghRunner, MARK_CONTEXTS, narrowOf, narrowRoundsOf, parsePrList, PrTracker, tokenVariable, type GhRunner } from '../../src/main/github/prs'
 import { appPrOptions, appPrTracker, checksHandlers, type ChecksScope } from '../../src/main/ipc/checks'
 import { fullLayout, type ProjectLayout } from '../../src/main/workflow/folder'
 import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
@@ -14,7 +14,7 @@ import { pullOfTicket, worktreeOfTicket, type ChecksSnapshot } from '../../src/s
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { NODE_DIR, scriptsEnv } from '../harness-node'
-import { STUB_COMMAND } from './gh-world'
+import { ghWorld, STUB_COMMAND } from './gh-world'
 import { scriptNode } from '../script-node'
 
 // Pull requests and CI from `gh` (ticket 17), against the stub of test/fixtures/gh (STUB_COMMAND):
@@ -881,6 +881,29 @@ describe("gh with the Project's GitHub account", () => {
     const auth = accountAuth({ account: () => Promise.resolve(null), run: () => ((count += 1), Promise.resolve(TOKEN)) })
     expect(await auth('/r')).toEqual({})
     expect(count).toBe(0)
+  })
+
+  it('an account on a GitHub Enterprise Server host: its token is asked of that host and goes in GH_ENTERPRISE_TOKEN; github.com stays GH_TOKEN (worfy-polish 148)', async () => {
+    const corp = { login: 'corp', host: 'ghe.example.com', token: 'gho_corp_SECRET_0003' }
+    const world = ghWorld(join(await tempDir(), 'gh'), { accounts: [corp, { login: ACCOUNT, token: TOKEN }] })
+    const onHost = (host: string | null) => accountAuth({ account: () => Promise.resolve(host === 'ghe.example.com' ? corp.login : ACCOUNT), host: () => Promise.resolve(host), run: world.run })
+    expect(await onHost('ghe.example.com')(world.dir)).toEqual({ GH_ENTERPRISE_TOKEN: corp.token })
+    expect(await onHost('github.com')(world.dir)).toEqual({ GH_TOKEN: TOKEN })
+    expect(await onHost(null)(world.dir)).toEqual({ GH_TOKEN: TOKEN })
+    expect(world.calls()).toEqual([
+      ['auth', 'token', '-u', 'corp', '--hostname', 'ghe.example.com'],
+      ['auth', 'token', '-u', ACCOUNT],
+      ['auth', 'token', '-u', ACCOUNT],
+    ])
+    // A data residency host (`*.ghe.com`) takes GH_TOKEN, as gh reads it there.
+    expect(tokenVariable('octo.ghe.com')).toBe('GH_TOKEN')
+    // No login for the account on the Enterprise host: the reason says how to sign in there.
+    const missing = await accountAuth({ account: () => Promise.resolve(ACCOUNT), host: () => Promise.resolve('ghe.example.com'), run: world.run })(world.dir).then(
+      () => null,
+      (error: unknown) => (error as Error).message,
+    )
+    expect(missing).toContain(`no gh login for ${ACCOUNT}`)
+    expect(missing).toContain(`gh auth login --hostname ghe.example.com`)
   })
 
   it('an account name that is not a GitHub login is not passed to gh', async () => {
