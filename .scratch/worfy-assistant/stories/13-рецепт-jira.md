@@ -111,7 +111,7 @@ Code: `src/main/assistant/sources/jira.ts:68-75` · key lines: 68, 70, 73, 75
 
 ## 6. Регистрация в планировщике: раз в час по умолчанию
 
-Code: `src/main/index.ts:250-256` · key lines: 253
+Code: `src/main/index.ts:257-263` · key lines: 260
 
 ```ts
       // The Jira check (worfy-assistant ticket 13): changes in the user's issues through their claude.ai connector, once
