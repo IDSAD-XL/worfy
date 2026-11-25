@@ -30,7 +30,7 @@ Code: `harness/hooks/inject-rules.mjs:107-107` · key lines: 107
 
 ## 3. Значение берётся у bin/profile, вне профиля — из user.json
 
-Code: `harness/hooks/inject-rules.mjs:117-144` · key lines: 120, 123, 133, 141
+Code: `harness/hooks/inject-rules.mjs:117-146` · key lines: 120, 123, 133, 141
 
 ```js
 function withLanguage(base, cwd, here) {
@@ -59,7 +59,9 @@ function withLanguage(base, cwd, here) {
     }
     const own = userReports(cwd)
     if (!own) return base
-    return `${base}\n\n## Language of this session\n\nReports and messages to the user: ${languageName(own)}, the user's own setting (\`language.reports\` in \`user.json\` of the Harness state folder); no project profile covers this folder. ${tail}`
+    // Exit 3 is "no profile covers this folder"; any other failure is a profile that could not be read.
+    const why = run.status === 3 ? "no project profile covers this folder" : "the project profile could not be read"
+    return `${base}\n\n## Language of this session\n\nReports and messages to the user: ${languageName(own)}, the user's own setting (\`language.reports\` in \`user.json\` of the Harness state folder); ${why}. ${tail}`
 }
 ```
 
