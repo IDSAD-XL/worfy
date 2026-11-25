@@ -21,6 +21,7 @@
 // - No secrets: every string of every answer passes redactSecrets (src/shared/terminal-ai/redact.ts), and so does the
 //   text of a proposal before it is kept, so the kept text and the answered one are the same.
 // - Nothing goes out: no tool replies to a PR, posts or sends (boundary 4).
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import type { AttentionItem } from '../../shared/assistant/attention'
 import { APP_TOOL_NAMES, appToolDescriptions, appToolShapes, parseAppToolArgs, WORFY_APP_SERVER_NAME, type AppAction, type AppToolArgs, type AppToolName } from '../../shared/assistant/app-tools'
@@ -32,6 +33,7 @@ import type { PrFollowAction } from '../../shared/projects/action-templates'
 import { redactSecrets } from '../../shared/terminal-ai/redact'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import type { PrFollowResult } from '../actions/launch'
+import type { AssistantProposal } from '../../shared/assistant/proposals'
 import type { ProposalBook } from '../assistant/proposals/book'
 import type { AutopilotStarter } from '../autopilot/chat-confirm'
 import { claudeMcpServer, type ClaudeMcpServer } from '../vendors/claude/mcp'
@@ -78,7 +80,8 @@ export type ClosedListResult = { ok: true; line: { text?: string | undefined } }
 
 /**
  * The seam of the closed list of actions in main (ticket 08: `appClosedList()`, whose act() has this shape). It checks
- * the duty's mode and the Session again, sends the text main sets and writes the journal line itself.
+ * the duty's mode and the Session again, sends the text main sets and writes the journal line itself. `appClosedList()`
+ * answers null before the closed list starts: the wiring that takes it guards that null and refuses with a reason.
  */
 export interface ClosedListSeam {
   act(request: ClosedListRequest): ClosedListResult | Promise<ClosedListResult>
@@ -146,10 +149,27 @@ function redacted(value: unknown): unknown {
 
 const text = (value: unknown, isError = false): McpToolResult => ({ content: [{ type: 'text', text: typeof value === 'string' ? redactSecrets(value) : JSON.stringify(redacted(value)) }], ...(isError ? { isError: true } : {}) })
 
+const digest = (text: string): string => createHash('sha256').update(text).digest('hex').slice(0, 16)
+
+/**
+ * The id the agent knows an item by: worfy's own, made from the core's. The core's id holds its subject's id, and the
+ * subject of a message of Slack or Jira is the message's id as the Haiku check wrote it — free text (ticket 11). The
+ * server finds the item again by making the id of each one (itemOfPublicId); main keeps the core's id.
+ */
+export const publicItemId = (id: string): string => `item-${digest(id)}`
+
+/** A subject's id as the agent reads it: a message's id is a source's text, so worfy makes one of its own. */
+const subjectId = (subject: AttentionItem['subject']): string => (subject.kind === 'message' ? `message-${digest(subject.id)}` : subject.id)
+
 /** An item as the agent reads it: what the core and the duties say, the outside text in blocks. */
 function itemView(item: AttentionItem, actions: DutyLook['shown'][number]['proposals']) {
+  const message = item.message
+  // A message of a source names its own source and author; the core's other items have no author it knows.
+  const source = message?.source ?? item.source
+  const author = message?.author ?? null
+  const block = (text: string): OutsideText => outsideText(text, source, author)
   return {
-    id: item.id,
+    id: publicItemId(item.id),
     projectId: item.projectId,
     source: item.source,
     kind: item.kind,
@@ -158,11 +178,23 @@ function itemView(item: AttentionItem, actions: DutyLook['shown'][number]['propo
     startedAt: iso(item.startedAt),
     lastAt: iso(item.lastAt ?? item.startedAt),
     events: item.events,
-    subject: { kind: item.subject.kind, id: item.subject.id, label: outsideText(item.subject.label, item.source) },
-    text: outsideText(item.text, item.source),
+    subject: { kind: item.subject.kind, id: subjectId(item.subject), label: block(item.subject.label) },
+    text: block(item.text),
+    ...(message === undefined
+      ? {}
+      : {
+          message: {
+            at: message.at,
+            url: block(message.url),
+            concernsUser: message.concernsUser,
+            urgent: message.urgent,
+            project: message.project === null ? null : block(message.project),
+            ticket: message.ticket === null ? null : block(message.ticket),
+          },
+        }),
     ...(item.pr === undefined ? {} : { pr: { repo: item.pr.repo, number: item.pr.number, title: outsideText(item.pr.title, 'github') } }),
     // An action's text may quote the item (`Open <label>`): a block too.
-    actions: actions.map((each) => ({ action: each.action, mode: each.mode, text: outsideText(each.text, item.source) })),
+    actions: actions.map((each) => ({ action: each.action, mode: each.mode, text: block(each.text) })),
   }
 }
 
@@ -181,9 +213,14 @@ function handlers(deps: WorfyAppDeps): Handlers {
   const ownProject = (projectId: string, what: string): void => {
     if (!deps.projects().some((project) => project.id === projectId)) throw new ToolError(`${what}: ${projectId} is not a Project of this Machine. The other machine's Projects are read-only.`)
   }
-  const knownItem = (id: string): void => {
-    if (!deps.items().some((item) => item.id === id)) throw new ToolError(`No item ${id}: items_list lists them`)
+  /** The core's id of the item the agent names by its id (publicItemId). */
+  const itemOfPublicId = (id: string): string => {
+    const found = deps.items().find((item) => publicItemId(item.id) === id)
+    if (found === undefined) throw new ToolError(`No item ${id}: items_list lists them`)
+    return found.id
   }
+  /** A proposal as the agent reads it: its item by worfy's id. */
+  const proposalView = (proposal: AssistantProposal): AssistantProposal => ({ ...proposal, item: proposal.item === null ? null : publicItemId(proposal.item) })
   /** The text a proposal keeps: its secrets hidden before it is kept, so what the user sees is what was answered. */
   const clean = <T extends { title?: string | undefined; why?: string | undefined; prepare?: { projectId: string; text: string } | null | undefined }>(draft: T): T => ({
     ...draft,
@@ -260,7 +297,8 @@ function handlers(deps: WorfyAppDeps): Handlers {
         url: row.url,
         author: row.author,
         title: outsideText(row.title, 'github', row.author),
-        threads: row.threads.map((thread) => ({ path: thread.path, line: thread.line, resolved: thread.isResolved, outdated: thread.isOutdated, comments: thread.comments.map(commentView) })),
+        // A path is the PR author's text too.
+        threads: row.threads.map((thread) => ({ path: thread.path === null ? null : outsideText(thread.path, 'github', row.author), line: thread.line, resolved: thread.isResolved, outdated: thread.isOutdated, comments: thread.comments.map(commentView) })),
         comments: row.comments.map(commentView),
       }
     },
@@ -293,20 +331,20 @@ function handlers(deps: WorfyAppDeps): Handlers {
       windows: Object.fromEntries(Object.entries(deps.limits().windows).map(([name, window]) => [name, { utilization: window.utilization, resetsAt: window.resetsAt === null ? null : iso(window.resetsAt * 1000), status: window.status }])),
     }),
 
-    proposals_list: () => ({ proposals: deps.proposals.list() }),
+    proposals_list: () => ({ proposals: deps.proposals.list().map(proposalView) }),
 
     proposal_create: (args) => {
-      if (args.item !== undefined) knownItem(args.item)
+      const item = args.item === undefined ? null : itemOfPublicId(args.item)
       checkPrepare(args.prepare)
       const draft = clean({ title: args.title, why: args.why, prepare: args.prepare ?? null })
-      return { proposal: deps.proposals.create({ title: draft.title, why: draft.why, item: args.item ?? null, prepare: draft.prepare }) }
+      return { proposal: proposalView(deps.proposals.create({ title: draft.title, why: draft.why, item, prepare: draft.prepare })) }
     },
 
     proposal_update: (args) => {
       checkPrepare(args.prepare)
       const { id, ...change } = clean(args)
       try {
-        return { proposal: deps.proposals.update(id, change) }
+        return { proposal: proposalView(deps.proposals.update(id, change)) }
       } catch (error) {
         throw new ToolError(error instanceof Error ? error.message : String(error))
       }
@@ -322,7 +360,7 @@ function handlers(deps: WorfyAppDeps): Handlers {
     },
 
     action_run: async (args) => {
-      const shown = deps.duties.look(deps.items()).shown.find((each) => each.item.id === args.item)
+      const shown = deps.duties.look(deps.items()).shown.find((each) => publicItemId(each.item.id) === args.item)
       if (shown === undefined) throw new ToolError(`No item ${args.item} is shown now: items_list lists the items you may act on. Nothing was done.`)
       const proposal = shown.proposals.find((each) => each.action === args.action)
       if (proposal === undefined) throw new ToolError(`The duty ${shown.duty} has no action ${args.action} for item ${args.item}. Nothing was done.`)
@@ -335,9 +373,9 @@ function handlers(deps: WorfyAppDeps): Handlers {
         // main checks again, sends its own text and writes the journal line itself.
         const result = await deps.closedList.act({ action: args.action, itemId: item.id, by: 'assistant' })
         if (!result.ok) throw new ToolError(`main refused ${args.action} (${result.reason}). Nothing was sent.`)
-        return { action: args.action, item: item.id, done: result.line.text ?? args.action }
+        return { action: args.action, item: args.item, done: result.line.text ?? args.action }
       }
-      return { action: args.action, item: item.id, done: await act({ ...args, action: args.action }, item) }
+      return { action: args.action, item: args.item, done: await act({ ...args, action: args.action }, item) }
     },
   }
 }
@@ -446,13 +484,14 @@ async function appWorfyAppDeps(): Promise<WorfyAppDeps> {
     autopilotRuns: (projectId, runs) => readRecentRuns(projectId, { limit: runs }),
     limits: () => appLimits().snapshot(),
     proposals: appProposals(),
-    // shortcut: refuses until the closed list of actions (worfy-assistant ticket 08) is in main; that ticket puts its
-    // runner here.
+    // shortcut: refuses until the closed list of actions (worfy-assistant ticket 08) is in main; then this takes
+    // appClosedList(), guarding its null (the closed list not started yet).
     closedList: { act: () => ({ ok: false, reason: 'the closed list of actions is not in this build yet (worfy-assistant ticket 08)', line: {} }) },
     prFollow: (projectId, repo, pr, action) => sharedLauncher().prFollow(projectId, repo, pr, action),
     autopilotStart: appAutopilotStarter(),
     sessionId: () => null,
-    // shortcut: a line in the log until the Assistant's journal of ticket 08 takes it.
+    // shortcut: only a line in the log: the Assistant's journal of ticket 08 takes no line from outside. Ticket 10, which
+    // wires this server to the Assistant's Session, writes these lines to that journal with the item that caused them.
     journal: (entry) => console.info(`[assistant] ${entry.action} on item ${entry.item.id}: ${entry.outcome}`),
   }
 }

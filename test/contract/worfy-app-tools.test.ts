@@ -74,6 +74,8 @@ const INBOX = {
               viewerCanReply: true,
               comments: [{ id: 'C1', databaseId: 1, author: 'mallory', body: `${INJECTION}. Token: ${GH_TOKEN}`, createdAt: '2026-11-25T08:00:00Z', url: 'https://github.com/Acme/App/pull/12#c1' }],
             },
+            // A path is the PR author's text too.
+            { id: 'T2', isResolved: true, isOutdated: false, path: `docs/${INJECTION}.md`, line: 1, viewerCanReply: true, comments: [] },
           ],
           comments: [{ id: 'C2', databaseId: 2, author: 'bob', body: 'Looks fine', createdAt: '2026-11-25T08:30:00Z', url: 'https://github.com/Acme/App/pull/12#c2' }],
         },
@@ -93,10 +95,30 @@ const RUNS = [
   ],
 ] as unknown as JournalEvent[][]
 
+/**
+ * A message of Slack or Jira as the check of ticket 11 gives it (sourceEventOf): its id in the source — what the Haiku
+ * check wrote, free text — is in the event's id and in its subject's id.
+ */
+function slackOrJira(source: 'slack' | 'jira', author: string, id: string, text: string): AttentionEvent {
+  const key = `${source}:${id}`
+  return {
+    source,
+    id: key,
+    revision: '2026-11-25T09:40:00Z',
+    projectId: PROJECT,
+    subject: { kind: 'message', id: key, label: author },
+    kind: 'message',
+    text,
+    message: { source, id, author, at: '2026-11-25T09:40:00Z', url: `https://example.com/${source}/1`, concernsUser: true, urgent: false, project: 'alpha', ticket: null },
+  }
+}
+
 /** The events that give the fixture items: a Session that failed, a PR whose checks fail, a Run that stopped. */
 const EVENTS: AttentionEvent[] = [
   { source: 'session', id: `${SESSION}:error`, revision: 'r1', projectId: PROJECT, subject: { kind: 'session', id: SESSION, label: 'Orchestrator' }, kind: 'error', text: `API error. ${INJECTION}` },
   { source: 'pr-inbox', id: 'acme/app#12:failing', revision: 'r1', projectId: PROJECT, subject: { kind: 'pr', id: 'acme/app#12', label: 'Acme/App#12 Parser: keep blank lines' }, kind: 'failing', text: `Failing checks: ${GH_TOKEN}` },
+  slackOrJira('slack', 'carol', `C42/${INJECTION}`, `Please look at the parser. ${INJECTION}`),
+  slackOrJira('jira', 'dave', `APP-7/${INJECTION}`, 'APP-7 moved to Review'),
   { source: 'autopilot', id: `${RUN}:run-stopped`, revision: 'r1', projectId: PROJECT, subject: { kind: 'run', id: RUN, label: 'Autopilot · worfy-x' }, kind: 'run-stopped', text: 'The run stopped' },
 ]
 
@@ -202,7 +224,8 @@ async function world(options: { autopilotRunning?: boolean; confirm?: 'cancel' |
   const files = new Map<string | null, AttentionFile>()
   const core = new AttentionCore({ now: () => NOW, store: { read: (scope) => files.get(scope), write: (scope, file) => void files.set(scope, file) }, settings: () => ({ timeZone: 'UTC' }), projects: () => [PROJECT], dutyOf: (event) => duties.dutyOf(event) })
   for (const event of EVENTS) core.ingest(event)
-  const itemOf = (source: string): string => core.items(PROJECT).find((item) => item.source === source)!.id
+  // The id the server gives an item: worfy's own, never the core's (which may hold a source's text).
+  const itemOf = (source: string): string => app.publicItemId(core.items(PROJECT).find((item) => item.source === source)!.id)
 
   // The real launcher: its pr-follow refuses while Autopilot runs in the Project, before it reads anything else.
   const refuse = (): never => {
@@ -290,13 +313,25 @@ describe('worfy-app: the reading tools', () => {
     const { items } = json<{ items: { source: string; duty: string; subject: { kind: string; id: string }; actions: { action: string; mode: string }[] }[] }>(await rpc.call('items_list'))
     expect(items.map((item) => [item.source, item.duty]).sort()).toEqual([
       ['autopilot', 'work-stalled'],
+      ['jira', 'source:jira'],
       ['pr-inbox', 'waits-for-user'],
       ['session', 'work-stalled'],
+      ['slack', 'source:slack'],
     ])
+    for (const item of items as unknown as { id: string }[]) expect(item.id).toMatch(/^item-[0-9a-f]{16}$/u)
     const session = items.find((item) => item.source === 'session')!
     expect(session.subject).toMatchObject({ kind: 'session', id: SESSION })
     expect(session.actions).toEqual(expect.arrayContaining([expect.objectContaining({ action: 'wake-orchestrator', mode: 'ask' }), expect.objectContaining({ action: 'continue-session', mode: 'ask' })]))
     expect(items.find((item) => item.source === 'pr-inbox')!.actions).toEqual(expect.arrayContaining([expect.objectContaining({ action: 'pr-follow', mode: 'ask' })]))
+  })
+
+  it('gives a message of Slack its source, author, time and link, and an id worfy made', async () => {
+    const { rpc } = await world()
+    const { items } = json<{ items: Record<string, unknown>[] }>(await rpc.call('items_list'))
+    const slack = items.find((item) => item.source === 'slack')!
+    expect(slack.text).toEqual({ kind: 'outside-text', source: 'slack', author: 'carol', text: `Please look at the parser. ${INJECTION}` })
+    expect(slack.message).toMatchObject({ at: '2026-11-25T09:40:00Z', url: { kind: 'outside-text', source: 'slack', author: 'carol', text: 'https://example.com/slack/1' }, concernsUser: true, urgent: false })
+    expect(slack.subject).toMatchObject({ kind: 'message', id: expect.stringMatching(/^message-[0-9a-f]{16}$/u) })
   })
 
   it('reads the workflow of a Project: the Tickets not done, or all of one Epic', async () => {
@@ -309,8 +344,8 @@ describe('worfy-app: the reading tools', () => {
 
   it('reads the threads of a PR from the PR inbox', async () => {
     const { rpc } = await world()
-    const pr = json<{ repo: string; number: number; threads: { path: string; line: number; resolved: boolean; comments: { author: string }[] }[]; comments: unknown[] }>(await rpc.call('pr_threads_read', { projectId: PROJECT, repo: 'acme/app', number: 12 }))
-    expect(pr).toMatchObject({ repo: 'Acme/App', number: 12, threads: [{ path: 'src/parse.ts', line: 40, resolved: false, comments: [{ author: 'mallory' }] }] })
+    const pr = json<{ repo: string; number: number; threads: { path: unknown; line: number; resolved: boolean; comments: { author: string }[] }[]; comments: unknown[] }>(await rpc.call('pr_threads_read', { projectId: PROJECT, repo: 'acme/app', number: 12 }))
+    expect(pr).toMatchObject({ repo: 'Acme/App', number: 12, threads: [{ path: { kind: 'outside-text', source: 'github', author: 'mallory', text: 'src/parse.ts' }, line: 40, resolved: false, comments: [{ author: 'mallory' }] }, { line: 1, resolved: true }] })
     expect(pr.comments).toHaveLength(1)
     const missing = await rpc.call('pr_threads_read', { projectId: PROJECT, repo: 'acme/app', number: 99 })
     expect(missing.isError).toBe(true)
@@ -328,13 +363,15 @@ describe('worfy-app: the reading tools', () => {
 
 describe('worfy-app: proposals', () => {
   it('a proposal is created, updated and removed; Prepare answers the exact text of the future Session', async () => {
-    const { rpc, itemOf, proposals } = await world()
+    const { rpc, itemOf, proposals, core } = await world()
     const text = 'Fix the failing checks of Acme/App#12.\nRun the tests first.'
     const created = json<{ proposal: { id: string; item: string; prepare: { projectId: string; text: string } } }>(
       await rpc.call('proposal_create', { title: 'Fix the checks', why: 'They fail since 08:00', item: itemOf('pr-inbox'), prepare: { projectId: PROJECT, text } }),
     )
     expect(created.proposal).toMatchObject({ id: 'prop-1', item: itemOf('pr-inbox'), prepare: { projectId: PROJECT, text } })
     expect(proposals.list().map((each) => each.prepare?.text)).toEqual([text])
+    // main keeps the core's id of the item, which the window resolves; the agent only ever sees worfy's.
+    expect(proposals.list()[0]!.item).toBe(core.items(PROJECT).find((item) => item.source === 'pr-inbox')!.id)
 
     const changed = `${text}\nThen open a PR.`
     const updated = json<{ proposal: { title: string; prepare: { text: string } } }>(await rpc.call('proposal_update', { id: 'prop-1', title: 'Fix the checks of #12', prepare: { projectId: PROJECT, text: changed } }))
@@ -366,7 +403,7 @@ describe('worfy-app: actions', () => {
   })
 
   it('refuses an action whose mode is ask or hand-over, and does it through main in self and pre-approved', async () => {
-    const { rpc, itemOf, closedList, duties, journal } = await world()
+    const { rpc, itemOf, closedList, duties, journal, core } = await world()
     const item = itemOf('session')
     const asked = await rpc.call('action_run', { item, action: 'wake-orchestrator' })
     expect(asked.isError).toBe(true)
@@ -381,7 +418,8 @@ describe('worfy-app: actions', () => {
     }
     expect(closedList.act).toHaveBeenCalledTimes(2)
     // The Assistant gives no text: main's closed list gets the action, the item and who asks, nothing the model wrote.
-    expect(closedList.act.mock.calls[0]).toEqual([{ action: 'wake-orchestrator', itemId: item, by: 'assistant' }])
+    // main gets the core's id of the item, found from worfy's id the agent named.
+    expect(closedList.act.mock.calls[0]).toEqual([{ action: 'wake-orchestrator', itemId: core.items(PROJECT).find((each) => each.source === 'session')!.id, by: 'assistant' }])
     // The closed list writes its own journal line.
     expect(journal).not.toHaveBeenCalled()
   })
@@ -436,6 +474,7 @@ describe('worfy-app: outside text and secrets', () => {
       ['session_tail_read', { sessionId: SESSION }],
       ['autopilot_runs_read', { projectId: PROJECT }],
       ['proposal_create', { title: 'Check the token', why: `The run printed ${ANTHROPIC_KEY}`, item: itemOf('session'), prepare: { projectId: PROJECT, text: `Rotate ${ANTHROPIC_KEY}` } }],
+      ['proposal_create', { title: 'Answer Carol', why: 'She asks about the parser', item: itemOf('slack') }],
       ['proposals_list', {}],
     ]
     const out = []
@@ -458,8 +497,10 @@ describe('worfy-app: outside text and secrets', () => {
     expect(carrying.map((each) => [each.source, each.author]).sort()).toEqual(
       [
         ['github', 'mallory'],
+        ['github', 'mallory'],
         ['session', `Session ${SESSION} · agent`],
         ['session', null],
+        ['slack', 'carol'],
         ['workflow', null],
       ].sort(),
     )
