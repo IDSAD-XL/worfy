@@ -43,6 +43,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 01; «Решения 
 - [ ] Новый ADR в `docs/adr/` записывает: Assistant — Session приложения; `worfy-app`; шесть границ; закрытый список
       действий; где хранятся пункты; проверку источников через connectors claude.ai одноразовым вызовом Haiku 5.5 только
       с read tools.
+  - evidence: commit pass · docs: ADR 0114 — Assistant as an app Session with worfy-app and six bounds · - - · d000cc4f11c7ea2fb7dbbc6964a67be3f903c1e8
 - [ ] ADR называет, что ADR-0105 не меняется, а решение 3 worfy-retry меняется для Session-ов на Canvas (Ticket 08).
+  - evidence: commit pass · docs: ADR 0114 — Assistant as an app Session with worfy-app and six bounds · - - · d000cc4f11c7ea2fb7dbbc6964a67be3f903c1e8
 - [ ] ADR-0105 в diff-е PR не правится.
+  - evidence: test-run pass · `git diff --name-only origin/main...HEAD` exit 0, no 0105 file in the list · mac - · d000cc4f11c7ea2fb7dbbc6964a67be3f903c1e8
 - [ ] `ci-ok` зелёный на head PR.
