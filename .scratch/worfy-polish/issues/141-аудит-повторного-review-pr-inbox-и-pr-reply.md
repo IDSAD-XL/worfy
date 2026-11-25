@@ -1,7 +1,7 @@
 # 141 — Аудит повторного review: PR inbox и pr-reply
 
 Type: bug
-Status: claimed 2026-11-25T08:05Z
+Status: done 2026-11-25T11:39Z
 PR: #2200
 Blocked by: none
 Source: audit-pr-rereview-2026-11-13, triage.md «Чинить сейчас»; checked open on main 3c9c06e8c 2026-11-25
@@ -50,16 +50,21 @@ Source: audit-pr-rereview-2026-11-13, triage.md «Чинить сейчас»; c
       — раздел 3 skill-а `pr-reply` требует для review thread на чужом PR комментарий viewer-а в thread-е, как
       `owesAnswer`. Красный на origin/main.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-evals.test.ts` exit 0 (243 passed), exit 1 with the SKILL.md of origin/main (the pr-reply text case) · mac - · c0d412261ce975c1215d76f99f3761e9248a46ee
+  - evidence: review pass · PR #2200 · - - · e385f406c745a5f95ddae91de273e053345a1d4f
 - [ ] 169: unit test `test/unit/pr-inbox-view.test.tsx` — PR коллеги в «Needs my answer» с двумя нерешёнными
       threads, из которых пользователь писал в одном: заголовок «Answer 1 open thread». Красный на origin/main.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-inbox-view.test.tsx` exit 0, exit 1 before the fix (Answer 2 open threads on a colleague PR) · mac - · c0d412261ce975c1215d76f99f3761e9248a46ee
+  - evidence: review pass · PR #2200 · - - · e385f406c745a5f95ddae91de273e053345a1d4f
 - [ ] 168: unit test `test/unit/draft-thread.test.tsx` — пока вид Pull requests скрыт, ни таймер, ни focus окна не
       зовут `prInbox.drafts`; при показе вида — одно чтение. Красный на origin/main.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/draft-thread.test.tsx` exit 0, exit 1 before the fix (5 drafts reads while the view was hidden) · mac - · c0d412261ce975c1215d76f99f3761e9248a46ee
+  - evidence: review pass · PR #2200 · - - · e385f406c745a5f95ddae91de273e053345a1d4f
 - [ ] 171: unit test `test/unit/pr-inbox-comment-body.test.tsx` — render родителя с тем же `body` и `repo` не рисует
       markdown заново; другой `body` рисует. Красный на origin/main.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-inbox-comment-body.test.tsx` exit 0, exit 1 before the fix (markdown drawn 5 times for one text) · mac - · c0d412261ce975c1215d76f99f3761e9248a46ee
+  - evidence: review pass · PR #2200 · - - · e385f406c745a5f95ddae91de273e053345a1d4f
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45593855505/job/139175432979 · ci - · e385f406c745a5f95ddae91de273e053345a1d4f
 
 ## Где в коде
 

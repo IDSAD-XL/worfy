@@ -200,3 +200,14 @@ e2e — 22 passed, exit 0.
 3. Где число открытых threads осталось прежним и почему?
    - Ответ: в группе `needs-review` — там пользователя просят о review, и текст называет threads других людей.
    - Строки: `src/renderer/pr-inbox/usePrInbox.ts:500-503`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 141 (audit findings 162, 169, 168, 171: the pr-reply skill drafts only threads the viewer owes, «Answer N open threads» counts them, drafts are not polled while the Pull requests view is hidden, a comment body is not redrawn on every inbox update), head e385f406c745a5f95ddae91de273e053345a1d4f
+>
+> Gate (depth medium, one round): reviewer (lens: correctness) — MERGE with one low; the Orchestrator fixed it (e385f406c with the Code story) and ran the paid Harness evals of the skill.
+>
+> - What the user sees: on a colleague's PR /worfy:pr-reply drafts only threads the user wrote in (on the user's own PR every unresolved thread whose last comment is not theirs, as before); the «Answer N open threads» button counts the same threads (a colleague's PR with none of them shows «Your answer is awaited»); the hidden Pull requests view reads no drafts (no 5 s timer, no focus handler) and reads them once when shown; a comment's markdown is drawn again only when its text or repo changes.
+> - Fixed by the Orchestrator: the skill says worfy's group looks for the user's comment among the last three comments of a thread only, so on a long thread the button's count can be lower than the drafts.
+> - Evidence: every new test red on origin/main; reviewer 5 of 5 mutants caught; the three PR files 662 passed; e2e pr-inbox, pr-inbox-digest, pr-search, pr-review, pr-follow-ticket whole 22 passed (implementer); harness-evals contract 789 passed EXIT=0 on e385f406c; paid evals pr-reply-three-threads 2/2 score 1.00 ($0.68), pr-reply-guards score 1.00 ($0.66); gate fast green on aba37e865; story-check ok.
+> - Not verified: nothing beyond ci-ok, which land waits for.
