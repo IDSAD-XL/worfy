@@ -2,12 +2,13 @@
 // src/shared/assistant/budget.ts): the tokens of every call — the Assistant's Sessions and the
 // checks of sources — for the day and the week, by source, by wake and for the conversation, and
 // the estimate of the Assistant's share of the Limits windows.
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { mkdtempSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { LimitWindowState, LimitsState } from '../../src/shared/agent/limits'
 import type { UsageCallInput } from '../../src/shared/assistant/budget'
+import { removeTestTree } from '../remove'
 import { AssistantUsageLedger, USAGE_FILE } from '../../src/main/assistant/budget/ledger'
 
 // 12:00 in Kyiv (UTC+2 in November).
@@ -30,7 +31,7 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'worfy-assistant-usage-'))
 })
 afterEach(() => {
-  rmSync(dir, { recursive: true, force: true })
+  removeTestTree(dir)
 })
 
 /** A call with `input` input tokens, a tenth of them as output, and a cost of input / 1000 USD. */

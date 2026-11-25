@@ -1,12 +1,13 @@
 // The check before an automatic wake of the Assistant (src/main/assistant/budget/wake-gate.ts): the
 // Limits, by the check Terminal AI uses (src/main/agent/limits-gate.ts), and the daily limit of
 // automatic wakes, counted by the usage ledger (src/main/assistant/budget/ledger.ts) per local day.
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { LimitWindowState, LimitsState } from '../../src/shared/agent/limits'
 import { ASSISTANT_DAILY_WAKE_LIMIT } from '../../src/shared/assistant/budget'
+import { removeTestTree } from '../remove'
 import { AssistantUsageLedger } from '../../src/main/assistant/budget/ledger'
 import { assistantWakeGate } from '../../src/main/assistant/budget/wake-gate'
 
@@ -91,7 +92,7 @@ describe('the daily count of the usage ledger', () => {
     dir = mkdtempSync(join(tmpdir(), 'worfy-assistant-wakes-'))
   })
   afterEach(() => {
-    rmSync(dir, { recursive: true, force: true })
+    removeTestTree(dir)
   })
 
   it('counts the automatic wakes of the local day, survives a restart and starts anew after midnight', () => {
