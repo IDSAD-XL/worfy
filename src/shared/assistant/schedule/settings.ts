@@ -11,8 +11,15 @@
 import { z } from 'zod'
 import { DEFAULT_WORK_HOURS, workHoursSchema, type WorkHours } from './work-hours'
 
-/** The kinds of checks of sources, in the order Settings shows them. A new source adds its kind here. */
-export const CHECK_KINDS = ['slack', 'jira'] as const
+/** The outside sources whose messages the Assistant reads; each has its duty (`source:<kind>`, src/shared/assistant/duties.ts). */
+export const SOURCE_CHECK_KINDS = ['slack', 'jira'] as const
+export type SourceCheckKind = (typeof SOURCE_CHECK_KINDS)[number]
+
+/**
+ * The kinds of checks of sources, in the order Settings shows them. A new source adds its kind here. `main-ci` reads
+ * the CI of each Project's main branch for the duty «CI of the main branch is red» (worfy-assistant ticket 21).
+ */
+export const CHECK_KINDS = [...SOURCE_CHECK_KINDS, 'main-ci'] as const
 export const checkKindSchema = z.enum(CHECK_KINDS)
 export type CheckKind = z.output<typeof checkKindSchema>
 
@@ -35,15 +42,19 @@ export type CheckSettings = { [K in keyof CheckChoice]-?: NonNullable<CheckChoic
 /**
  * The checks of a person who chose nothing. Slack about every 10 minutes and Jira once an hour (owner's
  * decision 5); each off until the person turns its source on (owner's decision 10: every outside source is
- * turned on on its own); both asleep outside work hours (decision 5: at night some checks sleep).
+ * turned on on its own); both asleep outside work hours (decision 5: at night some checks sleep). The CI of the
+ * main branch — decided without the owner (ticket 21, result section): every 10 minutes, so with the duty's
+ * threshold of 30 minutes the item comes 30 to 40 minutes after the branch went red; off until turned on, as
+ * GitHub is a source outside worfy; awake at night, as a red branch then holds up the agents working overnight.
  */
 export const ASSISTANT_CHECK_DEFAULTS: Readonly<Record<CheckKind, Readonly<CheckSettings>>> = Object.freeze({
   slack: Object.freeze({ enabled: false, intervalMinutes: 10, sleepOutsideWorkHours: true }),
   jira: Object.freeze({ enabled: false, intervalMinutes: 60, sleepOutsideWorkHours: true }),
+  'main-ci': Object.freeze({ enabled: false, intervalMinutes: 10, sleepOutsideWorkHours: false }),
 })
 
 /** The choices for the kinds of checks: a kind not chosen is absent. */
-export const checkChoicesSchema = z.object({ slack: checkChoiceSchema.optional(), jira: checkChoiceSchema.optional() }).strict()
+export const checkChoicesSchema = z.object({ slack: checkChoiceSchema.optional(), jira: checkChoiceSchema.optional(), 'main-ci': checkChoiceSchema.optional() }).strict()
 
 /** What the person chose for the Assistant's checks; also the form of a change (`appSettings.set`). */
 export const assistantScheduleChoiceSchema = z.object({ workHours: workHoursSchema.optional(), checks: checkChoicesSchema.optional() })
@@ -67,7 +78,7 @@ const lenientCheck = z
 export const assistantScheduleFileSchema = z
   .object({
     workHours: workHoursSchema.optional().catch(undefined),
-    checks: z.object({ slack: lenientCheck, jira: lenientCheck }).optional().catch(undefined),
+    checks: z.object({ slack: lenientCheck, jira: lenientCheck, 'main-ci': lenientCheck }).optional().catch(undefined),
   })
   .optional()
   .catch(undefined)

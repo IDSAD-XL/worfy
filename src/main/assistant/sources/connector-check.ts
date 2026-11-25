@@ -16,7 +16,7 @@
 // item, and the run says so (CheckRunResult), so the next run asks from there. A usage ledger that cannot be written
 // costs a log line, not the items of a paid answer.
 import type { AttentionEvent } from '../../../shared/assistant/attention'
-import type { CheckKind } from '../../../shared/assistant/schedule/settings'
+import type { SourceCheckKind } from '../../../shared/assistant/schedule/settings'
 import { SOURCE_ITEMS_MAX, sourceAnswerJsonSchema, sourceItemsOf, type SourceItem } from '../../../shared/assistant/source-items'
 import { readToolsOf, type Connector, type ConnectorCallEnd, type ConnectorCallSpec } from '../../vendors/claude/connector-check'
 import type { AssistantUsageLedger } from '../budget/ledger'
@@ -28,7 +28,7 @@ export const FIRST_CHECK_LOOKBACK_MS = 24 * 60 * 60_000
 
 /** What a source's check asks its call (tickets 12 and 13 write one per source). */
 export interface ConnectorRecipe {
-  kind: CheckKind
+  kind: SourceCheckKind
   /** Whether the claude.ai connector named `name` (`claude.ai Slack`) is this source's. */
   isConnector(name: string): boolean
   /** The connector's read tools the call may use; a tool the connector marks as writing is left out anyway. */
@@ -66,7 +66,7 @@ function messageOf(recipe: ConnectorRecipe, since: number, now: number, projects
 }
 
 /** The event of the attention core an item of the check of `kind` is: a message of its source, in the scope of the Project it names. */
-export function sourceEventOf(item: SourceItem, kind: CheckKind, projects: readonly { id: string; name: string }[]): AttentionEvent {
+export function sourceEventOf(item: SourceItem, kind: SourceCheckKind, projects: readonly { id: string; name: string }[]): AttentionEvent {
   const named = item.project?.toLowerCase()
   const project = named === undefined ? undefined : projects.find((each) => each.name.toLowerCase() === named)
   const key = `${kind}:${item.id}`

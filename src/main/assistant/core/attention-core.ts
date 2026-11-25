@@ -179,6 +179,15 @@ export class AttentionCore {
     this.save(condition.projectId, file)
   }
 
+  /** Drops the pending «nothing happened» condition `id` of `scope`; the items it already raised stay as they are. */
+  disarm(scope: string | null, id: string): void {
+    const file = this.load(scope)
+    const pending = file.conditions.filter((each) => each.id !== id)
+    if (pending.length === file.conditions.length) return
+    file.conditions = pending
+    this.save(scope, file)
+  }
+
   /** Raises the conditions that are due: after a sleep of the Mac or a restart, each gives its one item. */
   tick(): void {
     const now = this.options.now()

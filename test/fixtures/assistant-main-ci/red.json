@@ -1,0 +1,80 @@
+{
+  "data": {
+    "repository": {
+      "defaultBranchRef": {
+        "name": "main",
+        "target": {
+          "history": {
+            "nodes": [
+              {
+                "oid": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+                "committedDate": "2026-11-25T09:55:00Z",
+                "statusCheckRollup": {
+                  "contexts": {
+                    "nodes": [
+                      { "__typename": "CheckRun", "name": "lint", "status": "COMPLETED", "conclusion": "SUCCESS", "startedAt": "2026-11-25T09:55:10Z", "completedAt": "2026-11-25T09:57:00Z" },
+                      { "__typename": "CheckRun", "name": "test", "status": "IN_PROGRESS", "conclusion": null, "startedAt": "2026-11-25T09:55:10Z", "completedAt": null }
+                    ]
+                  }
+                },
+                "associatedPullRequests": {
+                  "nodes": [{ "number": 12, "title": "Try to fix the parser", "state": "MERGED", "baseRefName": "main", "mergeCommit": { "oid": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3" } }]
+                }
+              },
+              {
+                "oid": "c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2",
+                "committedDate": "2026-11-25T09:30:00Z",
+                "statusCheckRollup": {
+                  "contexts": {
+                    "nodes": [
+                      { "__typename": "CheckRun", "name": "lint", "status": "COMPLETED", "conclusion": "SUCCESS", "startedAt": "2026-11-25T09:30:10Z", "completedAt": "2026-11-25T09:32:00Z" },
+                      { "__typename": "CheckRun", "name": "test", "status": "COMPLETED", "conclusion": "FAILURE", "startedAt": "2026-11-25T09:30:10Z", "completedAt": "2026-11-25T09:44:00Z" }
+                    ]
+                  }
+                },
+                "associatedPullRequests": {
+                  "nodes": [{ "number": 11, "title": "Rename the parser options", "state": "MERGED", "baseRefName": "main", "mergeCommit": { "oid": "c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2" } }]
+                }
+              },
+              {
+                "oid": "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1",
+                "committedDate": "2026-11-25T09:00:00Z",
+                "statusCheckRollup": {
+                  "contexts": {
+                    "nodes": [
+                      { "__typename": "CheckRun", "name": "lint", "status": "COMPLETED", "conclusion": "SUCCESS", "startedAt": "2026-11-25T09:00:10Z", "completedAt": "2026-11-25T09:02:00Z" },
+                      { "__typename": "CheckRun", "name": "test", "status": "COMPLETED", "conclusion": "FAILURE", "startedAt": "2026-11-25T09:00:10Z", "completedAt": "2026-11-25T09:20:00Z" },
+                      { "__typename": "StatusContext", "context": "ci/legacy", "state": "ERROR", "createdAt": "2026-11-25T09:25:00Z" }
+                    ]
+                  }
+                },
+                "associatedPullRequests": {
+                  "nodes": [
+                    { "number": 14, "title": "Draft: more parser work", "state": "OPEN", "baseRefName": "main", "mergeCommit": null },
+                    { "number": 10, "title": "Add the parser", "state": "MERGED", "baseRefName": "main", "mergeCommit": { "oid": "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1" } }
+                  ]
+                }
+              },
+              {
+                "oid": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0",
+                "committedDate": "2026-11-25T08:00:00Z",
+                "statusCheckRollup": {
+                  "contexts": {
+                    "nodes": [
+                      { "__typename": "CheckRun", "name": "lint", "status": "COMPLETED", "conclusion": "SUCCESS", "startedAt": "2026-11-25T08:00:10Z", "completedAt": "2026-11-25T08:02:00Z" },
+                      { "__typename": "CheckRun", "name": "test", "status": "COMPLETED", "conclusion": "SUCCESS", "startedAt": "2026-11-25T08:00:10Z", "completedAt": "2026-11-25T08:15:00Z" },
+                      { "__typename": "StatusContext", "context": "review", "state": "FAILURE", "createdAt": "2026-11-25T08:20:00Z" }
+                    ]
+                  }
+                },
+                "associatedPullRequests": {
+                  "nodes": [{ "number": 9, "title": "Tidy the README", "state": "MERGED", "baseRefName": "main", "mergeCommit": { "oid": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0" } }]
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

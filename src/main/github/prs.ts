@@ -246,7 +246,8 @@ const PENDING_STATES = new Set(['PENDING', 'EXPECTED'])
  */
 export const MARK_CONTEXTS = ['review', 'check/*', 'deploy'] as const
 
-const isMark = (context: string | null | undefined): boolean =>
+/** Whether a commit status context is one of the agents' marks (MARK_CONTEXTS): `review`, `check/<name>`, `deploy`. */
+export const isMark = (context: string | null | undefined): boolean =>
   context != null && MARK_CONTEXTS.some((mark) => (mark.endsWith('/*') ? context.startsWith(mark.slice(0, -1)) && context.length > mark.length - 1 : context === mark))
 
 /**

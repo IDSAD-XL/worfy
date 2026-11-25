@@ -2,14 +2,15 @@
 // in the Projects of this Machine, kept as items, not counters. main builds them (src/main/assistant/core/); the
 // window and the Assistant read them later (tickets 09 and 14).
 import { z } from 'zod'
-import { CHECK_KINDS } from './schedule/settings'
+import { SOURCE_CHECK_KINDS } from './schedule/settings'
 
 /**
  * Where an item came from: the seven sources the core follows in main, the CI of a Project's main branch (`ci`) and a
  * rule of a Project's settings (`rule`) — the last two given by the duties (worfy-assistant ticket 07) — and the outside
- * sources the checks read through claude.ai connectors (ticket 11), one per kind of check.
+ * sources the checks read through claude.ai connectors (ticket 11), one per kind of check of a source
+ * (SOURCE_CHECK_KINDS; the check `main-ci` gives `ci` items, ticket 21).
  */
-export const ATTENTION_SOURCES = ['session', 'ticket-waits', 'pr-inbox', 'workflow', 'autopilot', 'health', 'limits', 'ci', 'rule', ...CHECK_KINDS] as const
+export const ATTENTION_SOURCES = ['session', 'ticket-waits', 'pr-inbox', 'workflow', 'autopilot', 'health', 'limits', 'ci', 'rule', ...SOURCE_CHECK_KINDS] as const
 export const attentionSourceSchema = z.enum(ATTENTION_SOURCES)
 export type AttentionSource = z.infer<typeof attentionSourceSchema>
 

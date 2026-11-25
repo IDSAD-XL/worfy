@@ -9,7 +9,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { AttentionEvent, AttentionItem } from '../../src/shared/assistant/attention'
 import { BUILTIN_DUTIES, DUTY_ACTION_MODES, DUTY_COUNTERS, projectRuleDutyId, sourceDutyId, type DutyLook } from '../../src/shared/assistant/duties'
-import { CHECK_KINDS } from '../../src/shared/assistant/schedule/settings'
+import { SOURCE_CHECK_KINDS } from '../../src/shared/assistant/schedule/settings'
 import { AttentionCore } from '../../src/main/assistant/core/attention-core'
 import { sessionAttention } from '../../src/main/assistant/core/sources'
 import { attentionFileStore, attentionPaths } from '../../src/main/assistant/core/store'
@@ -99,7 +99,9 @@ describe('a duty', () => {
 
 describe('the built-in duties', () => {
   it('are the general ones: work stands, CI of the main branch is red, waits for the user, the morning summary, one per outside source', () => {
-    expect(BUILTIN_DUTIES.map((duty) => duty.id)).toEqual(['work-stalled', 'main-ci-red', 'waits-for-user', 'morning-summary', ...CHECK_KINDS.map(sourceDutyId)])
+    expect(BUILTIN_DUTIES.map((duty) => duty.id)).toEqual(['work-stalled', 'main-ci-red', 'waits-for-user', 'morning-summary', ...SOURCE_CHECK_KINDS.map(sourceDutyId)])
+    // The check of the main branch's CI (ticket 21) feeds «CI of the main branch is red»: no duty of a source of its own.
+    expect(BUILTIN_DUTIES.map((duty) => duty.id)).not.toContain('source:main-ci')
   })
 
   it('none of them names land, pc-main-red or gate', () => {

@@ -101,6 +101,7 @@ function proposalText(action: DutyAction, item: AttentionItem): string | null {
 
 export class Duties {
   private memory: AssistantMemory | undefined
+  private readonly listeners = new Set<() => void>()
 
   constructor(private readonly options: DutiesOptions) {}
 
@@ -158,6 +159,17 @@ export class Duties {
     return (chosen ?? BUILTIN_DUTIES.find((duty) => duty.id === id)?.thresholdMinutes ?? 0) * MIN
   }
 
+  /** Whether the user left the duty enabled; a duty is enabled until turned off. */
+  enabled(id: string): boolean {
+    return this.load().duties[id]?.enabled ?? true
+  }
+
+  /** Follows the user's choices of the duties (configure, setPauseAfter, resume); answers the function that stops it. */
+  onChange(listener: () => void): () => void {
+    this.listeners.add(listener)
+    return () => void this.listeners.delete(listener)
+  }
+
   /** Changes what the user chose of a duty; a mode or an action the duty does not know throws, and nothing changes. */
   configure(id: string, choice: DutyChoice): void {
     const definition = this.definition(id)
@@ -201,6 +213,7 @@ export class Duties {
     edit(next)
     this.options.store.write(assistantMemorySchema.parse(next))
     this.memory = next
+    for (const listener of [...this.listeners]) listener()
   }
 
   /** The rules drawn from dislikes, oldest first. */

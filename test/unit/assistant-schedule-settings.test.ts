@@ -18,11 +18,12 @@ import { DEFAULT_WORK_HOURS, type WorkHours } from '../../src/shared/assistant/s
 const EVENINGS: WorkHours = { days: ['sat', 'sun'], windows: [{ from: 18 * 60, to: 23 * 60 }], timeZone: 'Europe/Kyiv' }
 
 describe('the defaults', () => {
-  it('Slack every 10 minutes and Jira every hour, both off and both asleep outside work hours', () => {
-    expect(CHECK_KINDS).toEqual(['slack', 'jira'])
+  it('Slack every 10 minutes and Jira every hour, both off and both asleep outside work hours; the CI of the main branch every 10 minutes, off, awake at night', () => {
+    expect(CHECK_KINDS).toEqual(['slack', 'jira', 'main-ci'])
     expect(ASSISTANT_CHECK_DEFAULTS).toEqual({
       slack: { enabled: false, intervalMinutes: 10, sleepOutsideWorkHours: true },
       jira: { enabled: false, intervalMinutes: 60, sleepOutsideWorkHours: true },
+      'main-ci': { enabled: false, intervalMinutes: 10, sleepOutsideWorkHours: false },
     })
     expect(checkSettingsOf({}, 'slack')).toEqual(ASSISTANT_CHECK_DEFAULTS.slack)
     expect(workHoursOf({})).toEqual(DEFAULT_WORK_HOURS)

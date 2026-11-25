@@ -24,9 +24,12 @@ export type MainCiObservation = {
   | { state: 'green' }
 )
 
+/** The id of the subject, and of the condition, of a main branch in the core: `ci:<owner/name>@<branch>`. */
+export const mainCiId = (repo: string, branch: string): string => `ci:${repo}@${branch}`
+
 /** Gives one read of the main branch to the core; the item comes `thresholdMs` after the branch went red. */
 export function mainCiAttention(core: Pick<AttentionCore, 'expect' | 'resolve'>, read: MainCiObservation, thresholdMs: number): void {
-  const id = `ci:${read.repo}@${read.branch}`
+  const id = mainCiId(read.repo, read.branch)
   const subject = { kind: 'check' as const, id, label: `CI of ${read.branch} · ${read.repo}` }
   if (read.state === 'green') {
     core.resolve(read.projectId, subject)
