@@ -1,0 +1,22 @@
+{
+  "categories": [
+    { "id": "system_prompt", "name": "System prompt", "tokens": 1400, "color": "promptBorder", "kind": "used" },
+    { "id": "system_tools", "name": "System tools", "tokens": 310, "color": "inactive", "kind": "used" },
+    { "id": "mcp_tools", "name": "MCP tools", "tokens": 2650, "color": "cyan_FOR_SUBAGENTS_ONLY", "kind": "used" },
+    { "id": "free_space", "name": "Free space", "tokens": 195640, "color": "promptBorder", "kind": "free" }
+  ],
+  "totalTokens": 4360,
+  "maxTokens": 200000,
+  "rawMaxTokens": 200000,
+  "percentage": 2,
+  "gridRows": [],
+  "model": "claude-haiku-5-5",
+  "memoryFiles": [],
+  "mcpTools": [
+    { "name": "mcp__claude_ai_Slack__slack_search_public_and_private", "serverName": "claude_ai_Slack", "tokens": 1250, "isLoaded": true },
+    { "name": "mcp__claude_ai_Slack__slack_read_thread", "serverName": "claude_ai_Slack", "tokens": 820, "isLoaded": true },
+    { "name": "mcp__claude_ai_Slack__slack_read_user_profile", "serverName": "claude_ai_Slack", "tokens": 580, "isLoaded": true }
+  ],
+  "systemTools": [{ "name": "StructuredOutput", "tokens": 310 }],
+  "agents": []
+}

@@ -9,7 +9,8 @@
 // the next start of work hours (nextWorkHoursStart), plus up to SCHEDULE_JITTER of its interval by its draw,
 // so the sleeping checks do not all go at the first millisecond. A due time that has passed — the Mac slept,
 // worfy was closed — gives one run at once, not one per missed interval; the run is told `since`, the start
-// of the last run that succeeded, so it covers the whole gap. A last start in the future (the clock was
+// of the last run that succeeded (or how far it covered, when it says so: CheckRunResult), so it covers the whole
+// gap. A last start in the future (the clock was
 // moved back) counts as now.
 //
 // One run of a kind at a time: a check still running is not started again, by any plan or by runNow; when
@@ -46,13 +47,21 @@ const MINUTE_MS = 60_000
 /** What a run of a check is told. */
 export interface CheckRunContext {
   kind: CheckKind
-  /** The start of the last run of this kind that succeeded; null when none has. */
+  /** The start of the last run of this kind that succeeded, or how far it covered (CheckRunResult); null when none has. */
   since: number | null
   /** The start of this run, by the scheduler's clock. */
   now: number
 }
 
-export type CheckRun = (context: CheckRunContext) => Promise<void>
+/**
+ * What a run that succeeded may say: it covered its source only up to `coveredUntil` (ms since the epoch), not up to
+ * its start — an answer at its cap (worfy-assistant ticket 11). The next run is then told that as `since`.
+ */
+export interface CheckRunResult {
+  coveredUntil?: number
+}
+
+export type CheckRun = (context: CheckRunContext) => Promise<void | CheckRunResult>
 
 /** When a kind last started a run, and when the last run that succeeded started. */
 export const checkMarkSchema = z.object({ startedAt: z.number().optional(), succeededAt: z.number().optional() })
@@ -222,11 +231,12 @@ export class CheckScheduler {
     this.mark(kind, { startedAt: now })
     // The run ends once: by its answer or by the time limit, whichever comes first; the other is ignored.
     let ended = false
-    const end = (succeeded: boolean): void => {
+    const end = (succeeded: boolean, coveredUntil?: number): void => {
       if (ended) return
       ended = true
       this.clearTimer(limit)
-      if (succeeded) this.mark(kind, { succeededAt: now })
+      // A run that covered only part of its time moves `since` that far, never past its own start.
+      if (succeeded) this.mark(kind, { succeededAt: coveredUntil === undefined ? now : Math.min(now, coveredUntil) })
       entry.running = false
       entry.spread = this.draw()
       this.plan()
@@ -235,14 +245,14 @@ export class CheckScheduler {
       console.warn(`[assistant] the ${kind} check did not end in ${CHECK_RUN_TIMEOUT_MS / MINUTE_MS} minutes: counted as failed`)
       end(false)
     }, CHECK_RUN_TIMEOUT_MS)
-    let result: Promise<void>
+    let result: Promise<void | CheckRunResult>
     try {
       result = Promise.resolve(entry.run({ kind, since, now }))
     } catch (error) {
       result = Promise.reject(error instanceof Error ? error : new Error(String(error)))
     }
     void result.then(
-      () => end(true),
+      (answer) => end(true, answer?.coveredUntil),
       (error: unknown) => {
         if (!ended) console.warn(`[assistant] the ${kind} check failed: ${error instanceof Error ? error.message : String(error)}`)
         end(false)

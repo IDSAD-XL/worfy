@@ -1,7 +1,8 @@
 # 11 — Проверка источника через connector claude.ai: одноразовый вызов Haiku 5.5 только с read tools одного connector-а
 
 Type: task
-Status: open
+Status: claimed 2026-11-25T14:09Z
+PR: #2218
 Blocked by: 03
 Source: [spec.md](../spec.md), «Ticket-ы», строка 11; «Решения владельца», 2, 13 и 19; «Решения по реализации» →
 «Проверка источников через connectors claude.ai (решение владельца, вариант В)»; «Риски» («Connectors claude.ai»,
@@ -57,10 +58,102 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 11; «Решения 
 
 - [ ] В «Итог» — результат первого шага: можно ли оставить в вызове один connector и только его read tools, и сколько
       места в контексте занимают tools connector-а. Если нельзя — Ticket в `blocked` с `Waits: owner` и вариантами.
+  - evidence: commit pass · Check a source through one claude.ai connector with Haiku 5.5 and its read tools (worfy-assistant 11) · - - · 7f1043387
+  - evidence: commit pass · Source check: a capped answer covers up to its newest item; allow list of built-ins; note lost calls (worfy-assistant 11, review round 1) · - - · 13f6b3c55faa7618f9992a23c240fcf2ff405877
 - [ ] Unit test: список подключённых connectors main берёт из списка MCP-серверов Claude Code без вызова модели.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/connector-check-options.test.ts` exit 0 · mac - · 5749a9b71c634ae3f3fe41fb47efd5b9fafde82d
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/connector-check-options.test.ts` exit 0 · mac - · 13f6b3c55faa7618f9992a23c240fcf2ff405877
 - [ ] Unit test опций: вызов — Haiku 5.5, один connector, только его read tools; нет tools Claude Code, `worfy-app` и
       настроек Project-а.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/connector-check-options.test.ts` exit 0 · mac - · 5749a9b71c634ae3f3fe41fb47efd5b9fafde82d
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/connector-check-options.test.ts test/contract/vendor-sdk-imports.test.ts` exit 0 · mac - · 13f6b3c55faa7618f9992a23c240fcf2ff405877
 - [ ] Unit test на записанных ответах: правильный ответ даёт пункты со всеми полями из «Что строить», 5; ответ неверной
       формы пунктом не становится и пишется в журнал.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-source-check.test.ts` exit 0 · mac - · 5749a9b71c634ae3f3fe41fb47efd5b9fafde82d
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-source-check.test.ts test/unit/assistant-check-scheduler.test.ts` exit 0 · mac - · 13f6b3c55faa7618f9992a23c240fcf2ff405877
 - [ ] Test-ы не вызывают модель и не ходят в сеть.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/connector-check-options.test.ts test/unit/assistant-source-check.test.ts` exit 0 · mac - · 5749a9b71c634ae3f3fe41fb47efd5b9fafde82d
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/connector-check-options.test.ts test/unit/assistant-source-check.test.ts` exit 0 · mac - · 13f6b3c55faa7618f9992a23c240fcf2ff405877
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 5749a9b71c634ae3f3fe41fb47efd5b9fafde82d
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 5749a9b71c634ae3f3fe41fb47efd5b9fafde82d
+  - evidence: test-run pass · `pnpm lint` exit 0, `pnpm typecheck` exit 0 · mac - · 13f6b3c55faa7618f9992a23c240fcf2ff405877
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 13f6b3c55faa7618f9992a23c240fcf2ff405877
+
+## Итог
+
+- Красный до правки: `node scripts/vitest-electron.mjs test/unit/connector-check-options.test.ts
+  test/unit/assistant-source-check.test.ts` — exit 1, оба файла не грузятся: нет
+  `src/main/vendors/claude/connector-check.ts`, `src/main/assistant/sources/connector-check.ts` и
+  `src/shared/assistant/source-items.ts`.
+- **Первый шаг — ответ: ограничить можно**, решено по типам и документации SDK 0.3.322 (`sdk.d.ts`) и коду worfy, без
+  живого вызова:
+  - один connector — policy tier с одной записью `allowedMcpServers: [{ serverUrl: <адрес connector-а> }]` и
+    `allowManagedMcpServersOnly: true`; так Session-ы пропускают connector-ы с worfy-mcp-live 12 (`mcp-addresses.ts`).
+    Других серверов нет: `settingSources: []`, `mcpServers: {}`, без plugin-ов. `strictMcpConfig` не годится: с
+    `--strict-mcp-config` Claude Code не грузит ни одного connector-а claude.ai (spike worfy-mcp-live 11, причина
+    `restricted`);
+  - только read tools — `tools: ['StructuredOutput']` (из встроенных только structured answer), `disallowedTools` —
+    `ONE_SHOT_DISALLOWED_TOOLS` и все остальные tools connector-а («removed from the model's context», `sdk.d.ts`),
+    `allowedTools` — read tools под `permissionMode: 'dontAsk'`, `canUseTool` отказывает всему остальному. Имена tools —
+    `mcp__<ключ сервера>__<tool>`, ключ connector-а — как в Claude Code 2.1.322 (`claude.ai Slack` →
+    `claude_ai_Slack`, строка функции нормализации в бинарнике SDK);
+  - место в контексте: в вызове только read tools одного connector-а, а не 634 tools (ADR-0021). Точное число зависит от
+    схем tools connector-а, их `mcpServerStatus()` не отдаёт, поэтому worfy меряет его на каждом вызове: до отправки
+    сообщения `getContextUsage({ detail: 'summary' })` (локальная оценка Claude Code, без вызова модели) называет tools в
+    контексте и их token-ы. Потолок — `CONNECTOR_TOOLS_MAX_TOKENS` = 20 000 token-ов; выше — вызов отказан;
+  - проверка перед моделью (`askConnector`): сообщение держится, пока `mcpServerStatus()` не покажет один этот connector
+    в `connected`, а `getContextUsage()` — только его read tools, без Bash, записи и сети, не выше потолка. Иначе Claude
+    Code закрывается без сообщения: модель не вызвана, расхода нет, строка в журнале.
+- Какие connectors подключены — `listConnectors`: query инвентаря MCP (`sdkInventoryStarter`, настройки пользователя,
+  ни одного сообщения — модели нет), `mcpServerStatus()` → `connectorsOf`: серверы со scope `claudeai`, их адрес, статус
+  и tools с аннотациями `readOnly` и `destructive`.
+- Вызов — `connectorCheckOptions` (чистая функция, unit test читает ровно то, что уходит в SDK): Haiku 5.5 по id
+  (`claude-haiku-5-5`), без переключателя thinking, папка `<WORFY_DATA_DIR>/assistant-sources` вне Project-ов, без
+  transcript-а, без API-ключей, `maxTurns` 8, `CLAUDE_CODE_MAX_OUTPUT_TOKENS` 8192, ответ — `outputFormat` со схемой
+  пунктов. Код — `src/main/vendors/claude/connector-check.ts`.
+- Выход и проверка формы — `src/shared/assistant/source-items.ts`: пункт — источник, id, автор, время ISO 8601 со
+  смещением, https-ссылка, короткий текст, касается ли пользователя, срочно ли, Project и Ticket (или null); не больше
+  30 пунктов. Ответ вне формы целиком — ни одного пункта, строка в журнале, проверка падает (планировщик оставляет
+  `since` на прошлом успехе). Пункт неверной формы или от другого источника — не пункт, строка в журнале с номером и
+  полями, без текста источника; остальные пункты идут.
+- Пункты — в ядро внимания (`src/main/assistant/sources/connector-check.ts`, `sourceCheckRun` — `CheckRun`
+  планировщика Ticket-а 04): событие источника `slack` или `jira` (виды проверок Ticket-а 04 добавлены в
+  `ATTENTION_SOURCES`), предмет `message` с автором, вид `message` или `urgent-message`, ревизия — время сообщения; поля
+  сообщения лежат в пункте как `message` (`sourceMessageSchema`, `src/shared/assistant/attention.ts`). Project — по
+  имени из ответа среди Project-ов машины, иначе пункт машины. Вызов, дошедший до модели, — `noteCall` журнала расхода
+  Ticket-а 05 (`source-check`, источник, модель, `usage`, `costUsd`), и когда ответа не было.
+- Регистрация в приложении — `appSourceCheck(recipe)` в `src/main/assistant/sources/app.ts`; Ticket-ы 12 и 13
+  регистрируют рецепт: `checkScheduler().register(kind, appSourceCheck(recipe))`. Под `WORFY_AGENT=fake` проверка не
+  запускается. `src/main/index.ts` не менялся.
+- Решено без владельца (подтвердить):
+  - read tool — tool, который назвал рецепт, есть у connector-а и не помечен как пишущий (`readOnly: false` или
+    `destructive: true`); tool без аннотаций, названный рецептом, разрешён — список рецепта и есть решение;
+  - потолок tools connector-а в контексте — 20 000 token-ов; `maxTurns` 8; предел ответа 8192 token-а с thinking; не
+    больше 30 пунктов в ответе;
+  - первая проверка вида без прошлого успеха смотрит на сутки назад;
+  - журнал отказов до журнала Assistant-а (Ticket 08) — лог main (`console.warn`, строки `[assistant] the <kind>
+    check: …`), без текста сообщений;
+  - нет connector-а, connector ждёт входа в claude.ai, вызов отказан, без ответа или ответ вне формы — проверка
+    падает, следующая покрывает то же время;
+  - `src/main/index.ts` не трогается: проверку регистрирует рецепт (Ticket-ы 12 и 13).
+- Не проверено вживую (первый настоящий вызов — приёмка Ticket-а 12): что `getContextUsage({ detail: 'summary' })`
+  отвечает до первого сообщения; что запись `serverUrl` пропускает настоящий connector (тот же открытый ручной пункт
+  worfy-mcp-live 12 / 08); сколько token-ов занимают read tools настоящего connector-а Slack.
+- Раунд 1 review (PR #2218), каждая правка — красный test до неё:
+  - ответ на пределе в 30 пунктов больше не теряет сообщения: вызов просят дать 30 самых старых, main берёт 30 самых
+    старых из прошедших проверку, и проверка говорит планировщику, докуда она дошла (`CheckRunResult.coveredUntil`,
+    `src/main/assistant/schedule/scheduler.ts`): `since` следующей проверки — время самого нового взятого пункта, не
+    позже старта проверки;
+  - fake Claude Code в test-е читает вход с самого старта, как SDK (`streamInput`): mutant «сообщение до проверки»
+    теперь красный;
+  - проверка до модели — список разрешённых встроенных tools: только `StructuredOutput`, и в `systemTools`, и в
+    `deferredBuiltinTools`;
+  - вызов, после сообщения упавший или кончившийся без `result`, записывается в журнал расхода с нулевым `usage`;
+  - журнал расхода, который не пишется, — строка в логе, пункты оплаченного ответа сохраняются;
+  - из `errors` результата в лог идёт только их число: повтор structured answer может цитировать текст источника;
+  - test-ы на склейку пункта с новым `message`, на предел 30 и на имя Project-а без учёта регистра; три mutant-а
+    красные.
+  - Решено без владельца (подтвердить): ответ, где все 30 записей не прошли проверку, — проверка падает; при больше
+    30 сообщениях с одним и тем же временем проверка будет читать одни и те же 30 (повторы ядро отбрасывает) — не
+    исправлялось как маловероятное.

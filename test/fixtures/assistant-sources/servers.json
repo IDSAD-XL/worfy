@@ -1,0 +1,41 @@
+[
+  {
+    "name": "claude.ai Slack",
+    "status": "connected",
+    "scope": "claudeai",
+    "source": "claudeai",
+    "serverInfo": { "name": "slack", "version": "1.0.0" },
+    "config": { "type": "claudeai-proxy", "url": "https://mcp.slack.example/mcp", "id": "mcpsrv_01slackmadeup" },
+    "tools": [
+      { "name": "slack_search_public_and_private", "description": "Search messages", "annotations": { "readOnly": true, "openWorld": true } },
+      { "name": "slack_read_thread", "description": "Read a thread", "annotations": { "readOnly": true } },
+      { "name": "slack_read_user_profile", "description": "Read a profile" },
+      { "name": "slack_send_message", "description": "Send a message", "annotations": { "readOnly": false, "destructive": false } },
+      { "name": "slack_schedule_message", "description": "Schedule a message", "annotations": { "readOnly": true, "destructive": true } },
+      { "name": "slack_create_canvas", "description": "Create a canvas", "annotations": { "readOnly": false } }
+    ]
+  },
+  {
+    "name": "claude.ai Atlassian",
+    "status": "needs-auth",
+    "scope": "claudeai",
+    "source": "claudeai",
+    "config": { "type": "claudeai-proxy", "url": "https://mcp.atlassian.example/v1/sse", "id": "mcpsrv_01atlassianmadeup" }
+  },
+  {
+    "name": "github",
+    "status": "connected",
+    "scope": "user",
+    "source": "user",
+    "config": { "type": "stdio", "command": "github-mcp" },
+    "tools": [{ "name": "create_issue" }, { "name": "search_issues", "annotations": { "readOnly": true } }]
+  },
+  {
+    "name": "remote-notes",
+    "status": "connected",
+    "scope": "user",
+    "source": "user",
+    "config": { "type": "http", "url": "https://notes.example/mcp" },
+    "tools": [{ "name": "read_note", "annotations": { "readOnly": true } }]
+  }
+]
