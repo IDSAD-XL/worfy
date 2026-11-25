@@ -542,13 +542,14 @@ button.w-wt-toggle {
 .w-wt-mark--blocked {
   background: var(--blocked-ring);
 }
-/* Marks that would lie on one another: one mark with their count (worfy-polish ticket 149). */
+/* Marks that would lie on one another: one mark with their count (worfy-polish ticket 149). Its width and, for a
+   status group, its centring are set inline from groupPx (src/shared/work-track/lanes.ts), as the grouping counts. */
 .w-wt-mark--group {
   top: 2px;
   bottom: 2px;
-  width: auto;
   min-width: 14px;
   padding: 0 3px;
+  overflow: hidden;
   border-radius: 7px;
   color: var(--surface);
   font-size: 9px;
@@ -556,9 +557,6 @@ button.w-wt-toggle {
   line-height: 14px;
   text-align: center;
   font-variant-numeric: tabular-nums;
-}
-.w-wt-mark--status.w-wt-mark--group {
-  transform: translateX(-7px);
 }
 
 .w-wt-month-day {

@@ -17,7 +17,7 @@ import { agentSubkind } from '../../shared/flight-recorder/spans'
 import type { WorkTrackView } from '../../shared/ipc/work-track'
 import { vendorLabel } from '../../shared/vendors/vendor'
 import { WORK_SOURCE_LABELS, type WorkFact } from '../../shared/work-track/facts'
-import { lanesByEpic, lanesBySession, markGroups, markRows, offLaneSpans, periodBounds, periodDays, type Lane, type LaneGap, type MarkGroup, type MarkRow, type WorkSpan } from '../../shared/work-track/lanes'
+import { groupPx, lanesByEpic, lanesBySession, markGroups, markRows, offLaneSpans, periodBounds, periodDays, type Lane, type LaneGap, type MarkGroup, type MarkRow, type WorkSpan } from '../../shared/work-track/lanes'
 import { formatClock, formatDuration, formatLocal } from '../flight-recorder/store'
 import { MonthAxis, MonthCells } from './MonthGrid'
 import { dayName, hoursText, monthScale, openDay, startOfDay, toggleSession, type Density, type LaneMode } from './store'
@@ -301,10 +301,12 @@ function MarkRows({ rows, scale, width, facts }: { rows: readonly MarkRow[]; sca
               const count = group.marks.length
               const many = count > 1
               const key = group.marks[0]!.id
+              // A group is as wide as markGroups counts it (groupPx); a status group is centred on its first change.
+              const size = groupPx(count)
               const common = {
                 'data-span-id': span.id,
                 title: groupTip(row, group, facts),
-                ...(many ? { 'aria-label': `${count} ${ROW_NOUNS[row.id]}`, 'data-count': count } : {}),
+                ...(many ? { role: 'img', 'aria-label': `${count} ${ROW_NOUNS[row.id]}`, 'data-count': count } : {}),
               }
               return row.id === 'ci' ? (
                 <span
@@ -312,7 +314,7 @@ function MarkRows({ rows, scale, width, facts }: { rows: readonly MarkRow[]; sca
                   key={key}
                   className={`w-wt-mark w-wt-mark--ci w-wt-mark--${ciColour(span)}${many ? ' w-wt-mark--group' : ''}`}
                   data-testid="work-track-ci"
-                  style={stretch(group.start, group.end, scale)}
+                  style={many ? { ...stretch(group.start, group.end, scale), minWidth: `${size}px` } : stretch(group.start, group.end, scale)}
                 >
                   {many ? count : null}
                 </span>
@@ -322,7 +324,7 @@ function MarkRows({ rows, scale, width, facts }: { rows: readonly MarkRow[]; sca
                   key={key}
                   className={`w-wt-mark w-wt-mark--status${span.outcome === 'blocked' ? ' w-wt-mark--blocked' : ''}${many ? ' w-wt-mark--group' : ''}`}
                   data-testid="work-track-status"
-                  style={{ left: `${percent(group.start, scale)}%` }}
+                  style={many ? { left: `${percent(group.start, scale)}%`, width: `${size}px`, transform: `translateX(-${size / 2}px)` } : { left: `${percent(group.start, scale)}%` }}
                 >
                   {many ? count : null}
                 </span>

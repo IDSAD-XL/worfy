@@ -74,22 +74,28 @@ Code: `src/shared/workflow/pipeline.ts:393-399` · key lines: 394, 397
 
 ## 4. Группы marks в Work track
 
-Code: `src/shared/work-track/lanes.ts:220-237` · key lines: 225, 227, 231
+Code: `src/shared/work-track/lanes.ts:231-254` · key lines: 236, 243, 249
 
 ```ts
 export function markGroups(row: MarkRow, bounds: { start: number; end: number }, widthPx: number): MarkGroup[] {
   const width = widthPx > 0 ? widthPx : UNMEASURED_TRACK_PX
   const px = (time: number): number => ((Math.min(Math.max(time, bounds.start), bounds.end) - bounds.start) / (bounds.end - bounds.start)) * width
+  const dot = row.id === 'ticket-status'
+  /** The left and right edges of a drawn mark `size` wide at `start` (a dot: centred), reaching at least to `end`. */
+  const edges = (start: number, end: number, size: number): [number, number] => {
+    const left = dot ? px(start) - size / 2 : px(start)
+    return [left, Math.max(px(end), left + size)]
+  }
   const groups: { group: MarkGroup; right: number }[] = []
   for (const span of [...row.marks].sort((a, b) => a.start - b.start)) {
-    const right = Math.max(px(span.end), px(span.start) + MARK_PX[row.id])
+    const [left, right] = edges(span.start, span.end, MARK_PX[row.id])
     const last = groups.at(-1)
-    if (last !== undefined && px(span.start) < last.right) {
+    if (last !== undefined && left < last.right) {
       const { group } = last
       group.marks.push(span)
       group.end = Math.max(group.end, span.end)
       if (badness(row.id, span) >= badness(row.id, group.lead)) group.lead = span
-      last.right = Math.max(last.right, right)
+      last.right = Math.max(last.right, right, edges(group.start, group.end, groupPx(group.marks.length))[1])
     } else {
       groups.push({ group: { marks: [span], start: span.start, end: span.end, lead: span }, right })
     }
@@ -97,16 +103,20 @@ export function markGroups(row: MarkRow, bounds: { start: number; end: number },
   return groups.map(({ group }) => group)
 ```
 
-- Что делает: marks строки в порядке начала; mark, который начинается левее правого края предыдущих (их конец или
-  начало плюс ширина mark-а: 4 px у CI, 8 px у статуса), входит в их группу. `lead` — mark с худшим исходом, при
-  равенстве — более поздний: его цвет у группы и его панель по клику. `MarkRows` в `Lanes.tsx` рисует группу одной
-  mark-ой со счётчиком, tooltip — счётчик и строка на каждый mark.
+- Что делает: marks строки в порядке начала, с краями так, как их рисует экран (`edges`): CI run от начала, не
+  уже 4 px; точка статуса 8 px по центру; группа — счётчик `groupPx(n)` (14, 18, 24 px), у статусов по центру. Mark,
+  левый край которого левее правого края группы перед ним, входит в неё, и правый край группы пересчитывается по
+  ширине её счётчика. `lead` — mark с худшим исходом, при равенстве более поздний: его цвет у группы и его панель по
+  клику. `MarkRows` в `Lanes.tsx` ставит ту же ширину inline и `role="img"` с `aria-label`.
 - Почему здесь: Ticket называет `Lanes.tsx` и unit test `test/unit/work-track-lanes.test.ts`, который проверяет модель
   `src/shared/work-track/lanes.ts`; расчёт чистый и проверяется без DOM.
 - Без него: 17 смен статуса за минуту — одна точка, красный CI run под зелёными не виден.
 - Требование: [Что делаем, п. 5](../issues/149-аудит-повторного-review-autopilot-pipeline-и-work-track.md#что-делаем)
-- Риски и пробелы test-ов: до замера трека (и в test DOM) ширина берётся 1000 px; счётчик шире mark-а и может задеть
-  соседнюю группу ближе 14 px. Вид в живом приложении не снимался.
+- Риски и пробелы test-ов: до замера трека (и в test DOM) ширина берётся 1000 px. Review round 1 нашёл, что прежняя
+  группировка по 4/8 px оставляла соседа поверх счётчика шириной 14 px; unit test с двумя раскладками review (run в
+  5 px за группой CI, `blocked`-точка в 8 px за группой статусов) это ловит. Вид проверен на статичной странице с CSS
+  PR-а в chromium, не в живом приложении. Группа статусов, выросшая до трёх цифр, сдвигает левый край влево и может
+  задеть группу перед ней.
 
 ## 5. Test возврата Session человеку посреди turn-а
 
@@ -138,8 +148,9 @@ Code: `test/contract/orchestrator-continue.test.ts:585-600` · key lines: 589, 5
 - Без него: mutant `if (!owned) entry.retry.observe(event)` в `orchestrator-continue.ts` выживал, и Autopilot мог бы
   повторить незавершённый push.
 - Требование: [Готово, когда — 53](../issues/149-аудит-повторного-review-autopilot-pipeline-и-work-track.md#готово-когда)
-- Риски и пробелы test-ов: код модуля не менялся. Test 55 (`test/contract/autopilot-queue.test.ts`) так же закрывает
-  mutant `return effect` в `run.ts`.
+- Риски и пробелы test-ов: код модуля не менялся. Test 55 (`test/contract/autopilot-queue.test.ts`) закрывает случай в
+  середине очереди: mutant `if (!last) return effect` сразу после `run.ts:1760`. Mutant `return effect` на месте
+  `waits-owner` убивали и старые test-ы последнего Epic-а очереди.
 
 ## 6. Что сознательно не меняли
 
@@ -164,4 +175,4 @@ Code: `test/contract/orchestrator-continue.test.ts:585-600` · key lines: 589, 5
    - Строки: `src/shared/workflow/pipeline.ts:309-309`
 3. Какой mark откроет клик по группе из зелёных CI run-ов с одним красным?
    - Ответ: красный: `lead` — mark с худшим исходом, при равенстве более поздний.
-   - Строки: `src/shared/work-track/lanes.ts:231-231`
+   - Строки: `src/shared/work-track/lanes.ts:248-248`

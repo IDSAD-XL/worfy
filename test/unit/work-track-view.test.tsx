@@ -340,6 +340,9 @@ describe('the Work track view', () => {
     expect(crowd.className).toContain('w-wt-mark--failed')
     expect(crowd.dataset.spanId).toBe('ci-many-7')
     expect(crowd.getAttribute('aria-label')).toBe('17 CI runs')
+    // A screen reader announces the count: the mark is an image with that name.
+    expect(within(row('ci')).getByRole('img', { name: '17 CI runs' })).toBe(crowd)
+    expect(crowd.style.minWidth).toBe('18px')
     expect(crowd.title.split('\n')[0]).toBe('17 CI runs')
     expect(crowd.title.split('\n')).toHaveLength(18)
     expect(crowd.title).toContain('PR #1607')
@@ -347,6 +350,8 @@ describe('the Work track view', () => {
     expect(status).toHaveLength(2)
     const changes = status.find((mark) => mark.textContent === '17')!
     expect(changes.title.split('\n')[0]).toBe('17 Ticket status changes')
+    expect(within(row('ticket-status')).getByRole('img', { name: '17 Ticket status changes' })).toBe(changes)
+    expect([changes.style.width, changes.style.transform]).toEqual(['18px', 'translateX(-9px)'])
     expect(changes.title).toContain('18 open → claimed')
 
     await act(async () => {

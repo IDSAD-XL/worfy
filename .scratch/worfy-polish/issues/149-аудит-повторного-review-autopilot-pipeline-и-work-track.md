@@ -117,10 +117,16 @@ origin/main 2af5f760e.
   первым не ждёт строк `lib`: ожидание test-а заменено на `human-review` с пройденным `release`. Файла нет в «Где в
   коде»; правка — прямое следствие пункта 4 «Что делаем».
 - **212.** `markGroups` в `src/shared/work-track/lanes.ts` и `MarkRows` в `src/renderer/work-track/Lanes.tsx`:
-  mark, который начинается раньше, чем кончается предыдущий (его конец или начало плюс ширина mark-а — 4 px у
-  CI, 8 px у статуса), входит в его группу. Группа рисуется одной mark-ой со счётчиком, в цвете худшего mark-а,
-  tooltip — счётчик и строка на каждый mark, клик открывает худший (самый поздний из худших). Стиль —
-  `.w-wt-mark--group` в `work-track.css`.
+  группировка идёт по тому, что рисует экран. CI run — от начала до конца, не уже 4 px; смена статуса — точка 8 px
+  по центру своего времени; группа — счётчик шириной `groupPx(n)` (14 px, 18 px для двух цифр, 24 px для трёх) от
+  первого run-а или по центру первой смены. Mark, левый край которого левее правого края группы перед ним, входит в
+  неё. `Lanes.tsx` ставит ту же ширину inline (CI — `min-width`, статус — `width` и `translateX(-n/2)`), так что
+  счётчик не закрывает соседей. Группа рисуется одной mark-ой со счётчиком, в цвете худшего mark-а, `role="img"` с
+  `aria-label` («17 CI runs»), tooltip — счётчик и строка на каждый mark, клик открывает худший (самый поздний из
+  худших). Стиль — `.w-wt-mark--group` в `work-track.css`. Review round 1: прежняя группировка по 4/8 px оставляла
+  run в 5 px за группой CI и `blocked`-точку в 8 px за группой статусов поверх счётчика; unit test с этими двумя
+  раскладками красный на прежнем коде (`[17, 1]` вместо `[18]`). Снимки статичной страницы с CSS PR-а (chromium,
+  светлая и тёмная тема) — в scratchpad, в репозиторий не кладутся.
 - Feature pages: `docs/features/workflow.md` (порядок строк `Repo:` для Stage `release`, время входа в Stage),
   `docs/features/work-track.md` (группы marks).
 
@@ -141,8 +147,10 @@ origin/main 2af5f760e.
 ### Проверки
 
 - Mutant-ы: в `orchestrator-continue.ts` `if (!owned) entry.retry.observe(event)` — test 53 красный (таймер
-  retry есть); в `run.ts` `return effect` вместо `{ reason: 'waits-owner', … }` — test 55 красный (`run-stopped`
-  `blocked-tickets`). Оба файла восстановлены.
+  retry есть). Finding 55 в описании Ticket-а неточен: mutant `return effect` вместо `{ reason: 'waits-owner', … }`
+  (`run.ts:1763`) убивают и старые test-ы `autopilot-queue.test.ts:383` и `:417` (последний Epic очереди ждёт
+  владельца). Без test-а оставался случай в середине очереди: mutant `if (!last) return effect` сразу после
+  `run.ts:1760` убивает только новый test `:534` (1 failed из 39 в файле). Оба файла восстановлены.
 - Test-ы 206, 209 и оба test-а 212 красные на origin/main до правки (`enteredAt` 10:00 вместо 13:00; Stage
   `release` вместо `ci` `failing`; `markGroups is not a function`; 19 mark-ов CI вместо 3).
 - Полный `pnpm lint && pnpm typecheck && pnpm test` на dacdf30f7: exit 1, один красный —

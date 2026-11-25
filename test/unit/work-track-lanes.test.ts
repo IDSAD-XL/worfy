@@ -6,7 +6,7 @@
 // The facts are literals in local time, so the test reads the same in every time zone.
 import { describe, expect, it } from 'vitest'
 import type { SessionInfo, SourceGap, WorkFact, WorkTrackInput } from '../../src/shared/work-track/facts'
-import { buildSpans, lanesByEpic, lanesBySession, markGroups, markRows, NO_EPIC, offLaneSpans, periodBounds, type Lane } from '../../src/shared/work-track/lanes'
+import { buildSpans, groupPx, lanesByEpic, lanesBySession, markGroups, markRows, NO_EPIC, offLaneSpans, periodBounds, type Lane, type MarkRow, type WorkSpan } from '../../src/shared/work-track/lanes'
 
 /** A local time on a day of November 2026 (no change of daylight saving time in the days used). */
 const at = (day: number, hh: number, mm = 0): string => new Date(2026, 10, day, hh, mm).toISOString()
@@ -194,6 +194,40 @@ describe('the rows of CI runs and Ticket status changes (worfy-work-track ticket
     const [apartCi] = markRows(apart)
     expect(markGroups(apartCi!, bounds, 4000).map((group) => group.lead.id)).toEqual(['ci-a', 'ci-b'])
     expect(markGroups(apartCi!, bounds, 300).map((group) => [group.lead.id, group.marks.length])).toEqual([['ci-b', 2]])
+  })
+
+  it('takes the drawn width of a group\'s counter: a run 5 px after a CI group and a blocked dot 8 px after a status group join it', () => {
+    // A track 1000 px wide over 1000 ms: a pixel is a millisecond.
+    const bounds = { start: 0, end: 1000 }
+    const span = (id: string, kind: 'ci' | 'ticket-status', start: number, outcome: WorkSpan['outcome'] = 'ok'): WorkSpan => ({
+      id,
+      kind,
+      start,
+      end: start,
+      open: false,
+      clippedStart: false,
+      clippedEnd: false,
+      epic: null,
+      outcome,
+      session: null,
+      source: kind === 'ci' ? 'github' : 'git',
+      title: id,
+    })
+    const row = (id: MarkRow['id'], marks: WorkSpan[]): MarkRow => ({ id, title: id, source: id === 'ci' ? 'github' : 'git', marks, gaps: [] })
+    const seventeen = (kind: 'ci' | 'ticket-status', at: number, red: number) =>
+      Array.from({ length: 17 }, (_, index) => span(`${kind}-${index}`, kind, at, index === red ? (kind === 'ci' ? 'failed' : 'ok') : 'ok'))
+    // The two layouts of the review: a CI counter 18 px wide from 300 px (300–318), a status counter centred on 600 px
+    // (591–609); a lone run 5 px after the first, a blocked dot 8 px after the second.
+    expect(groupPx(17)).toBe(18)
+    const ci = markGroups(row('ci', [...seventeen('ci', 300, 4), span('ci-next', 'ci', 305)]), bounds, 1000)
+    expect(ci.map((group) => group.marks.length)).toEqual([18])
+    expect(ci[0]!.lead.id).toBe('ci-4')
+    const status = markGroups(row('ticket-status', [...seventeen('ticket-status', 600, -1), span('st-next', 'ticket-status', 608, 'blocked')]), bounds, 1000)
+    expect(status.map((group) => group.marks.length)).toEqual([18])
+    expect(status[0]!.lead).toMatchObject({ id: 'st-next', outcome: 'blocked' })
+    // Past the counter's right edge a mark stands on its own: a run at 318 px, a dot at 613 px (its left edge at 609 px).
+    expect(markGroups(row('ci', [...seventeen('ci', 300, 4), span('ci-far', 'ci', 318)]), bounds, 1000).map((group) => group.marks.length)).toEqual([17, 1])
+    expect(markGroups(row('ticket-status', [...seventeen('ticket-status', 600, -1), span('st-far', 'ticket-status', 613)]), bounds, 1000).map((group) => group.marks.length)).toEqual([17, 1])
   })
 
   it('leaves the GitHub and git gaps off every lane', () => {
