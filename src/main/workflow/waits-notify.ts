@@ -119,10 +119,28 @@ export function installWaitsNotifications(
   log: (message: string, error: unknown) => void = (message, error) => console.warn(message, error),
 ): () => void {
   const notices = new WaitsNotices(display)
+  return followWorkflows(hub, projects, { id: SUBSCRIBER_ID }, { read: (root, read) => notices.read(root, read), forget: (root) => notices.forget(root) }, intervalMs, log)
+}
+
+/**
+ * Follows the workflow model of every Project of `projects()` for `reader` as subscriber `subscriber` of the hub (the
+ * notes of the waits above; the attention core, src/main/assistant/core/install.ts): the model of each Project once it
+ * is open, then its changes, in order; `forget` when the Project left the list. The list is read again each
+ * `intervalMs`; a Project whose model could not be read is tried again after a pause that doubles from `intervalMs` up
+ * to MAX_INTERVAL_MS. Answers the function that stops it.
+ */
+export function followWorkflows(
+  hub: WaitsHub,
+  projects: () => readonly { readonly path: string }[],
+  subscriber: Pick<WorkflowSubscriber, 'id' | 'fieldsOnly'>,
+  reader: { read(root: string, read: WorkflowModel | WorkflowDelta): void; forget(root: string): void },
+  intervalMs = WAITS_TICK_MS,
+  log: (message: string, error: unknown) => void = (message, error) => console.warn(message, error),
+): () => void {
   /**
    * The Projects followed, by root. Until the hub answers the open, a Project's changes wait in
    * `early`: they are read after the model, as changes of it. One the model already holds names
-   * waits seen at the start, and gives nothing.
+   * waits seen at the start, and gives nothing (to the notes of the waits).
    */
   const followed = new Map<string, { early: WorkflowDelta[] | null }>()
   /** The Projects whose model could not be read: the pause in ticks, and the ticks still to wait. */
@@ -135,37 +153,37 @@ export function installWaitsNotifications(
     followed.set(root, state)
     // The Project left the list (and maybe came back) meanwhile, or the notes stopped: no one's.
     const current = (): boolean => !stopped && followed.get(root) === state
-    const subscriber: WorkflowSubscriber = {
-      id: SUBSCRIBER_ID,
+    const follower: WorkflowSubscriber = {
+      ...subscriber,
       send: (delta) => {
         if (!current()) return
         if (state.early !== null) state.early.push(delta)
-        else notices.read(root, delta)
+        else reader.read(root, delta)
       },
     }
-    hub.open(root, subscriber).then(
+    hub.open(root, follower).then(
       (model) => {
         if (!current()) return
         const early = state.early ?? []
         state.early = null
-        notices.read(root, model)
-        for (const delta of early) notices.read(root, delta)
+        reader.read(root, model)
+        for (const delta of early) reader.read(root, delta)
       },
       (error: unknown) => {
         if (!current()) return
         const pause = Math.min(maxPause, (retries.get(root)?.pause ?? 0.5) * 2)
         retries.set(root, { pause, left: pause })
-        log(`[waits-notify] ${root}: the workflow model could not be read; tried again in ${Math.round((pause * intervalMs) / 1000)} s`, error)
+        log(`[${String(subscriber.id)}] ${root}: the workflow model could not be read; tried again in ${Math.round((pause * intervalMs) / 1000)} s`, error)
         followed.delete(root)
-        void hub.close(root, SUBSCRIBER_ID).catch(() => undefined)
+        void hub.close(root, subscriber.id).catch(() => undefined)
       },
     )
   }
 
   const unfollow = (root: string): void => {
     followed.delete(root)
-    notices.forget(root)
-    void hub.close(root, SUBSCRIBER_ID).catch(() => undefined)
+    reader.forget(root)
+    void hub.close(root, subscriber.id).catch(() => undefined)
   }
 
   const tick = (): void => {
