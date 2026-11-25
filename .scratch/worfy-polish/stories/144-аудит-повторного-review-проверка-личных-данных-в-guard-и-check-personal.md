@@ -269,3 +269,16 @@ Review round 1: шесть новых test-ов guard — красные до п
 3. Какую форму хеширует исключение для finding-а в косвенном падеже?
    - Ответ: слово как оно стоит в тексте, с окончанием — ключ finding-а `word`, не найденная форма записи.
    - Строки: `scripts/check-personal.mjs:197`
+
+## 12. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 144 (audit re-review findings 95, 121, 196: the Bash guard checks the text a payload file has when gh api sends it; a test for --input without -X; check-personal finds a Cyrillic deny-list word in its other cases), head 13239775e3bd3551d34a8b3e31fcfddb26c05841
+>
+> Gate (depth medium, two rounds): reviewer (lens: correctness) — FIX in round 1 (med: «named earlier» measured from the first gh api of the whole command, so a read-only gh api first let a rewritten payload through; med: adjective-type surnames not found in oblique cases while the comment said they were; low: file names compared as raw text; low: 4-letter entries' bare stem gave false positives); a narrow reviewer on round 1, including every other use of the guard's lexer — MERGE with one low.
+>
+> - What it does: in a project whose texts the guard checks (Silent mode or attribution off), a command that names a payload file before the gh api call that sends it (writes or only reads it) is refused with «Write the file in one command, then send it in the next one»; measured from that gh api call's own command, with paths compared after resolving (./p.json, absolute, quotes, redirect targets); check-personal strips a Russian case ending, restores a nominative one (-, а, я, й, ь, ий, ый, ой) and hashes again, the bare stem only for entries of 5+ letters.
+> - Evidence: round 1: 6 guard tests and 2 check-personal tests red first; guard-silent 203, rules-hooks 346, gh-token-env 108, gate-scope 30 passed EXIT=0; check-personal 29 passed; the narrow reviewer ran 18 commands on the old and the new guard — only the intended one changed plus one low; pnpm lint, typecheck, test EXIT=0 (923 files); check-personal over the repository: no findings; story-check ok.
+> - Not verified: gate fast red on this Mac at load 50–80 on tests this PR does not touch (land.test.sh killed at 360 s, land-story.test.sh, review-mode.test.tsx — all green in pnpm test just before); whether the new rule catches the owner's real deny-list entries (values not read); Windows (CI decides, platform PR).
+> - Noted (low, no fix): one unchanged file sent by two gh api calls in one command is now refused (the message says to split it); check-personal ~27 % more CPU under load (8.7 → 11.1 s).
+>
+> Decided without the owner (to confirm): finding 196 by option (б) — strip the ending and hash again, with the nominative endings restored and the bare stem only from 5 letters.
