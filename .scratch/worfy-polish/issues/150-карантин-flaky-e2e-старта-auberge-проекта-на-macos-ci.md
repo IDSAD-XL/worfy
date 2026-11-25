@@ -1,7 +1,7 @@
 # 150 — Quarantine of the flaky epic-frame Auberge performance e2e on macOS CI
 
 Type: task
-Status: claimed 2026-11-25T18:12Z
+Status: done 2026-11-25T19:05Z
 PR: #2227
 Branch: worfy-polish/150
 Blocked by: none
@@ -77,12 +77,16 @@ worfy-polish 151 (замер ядра, запись одним сохранен�
       owner `worfy-polish 151`, срок в пределах 14 дней; test помечен `quarantined('<id>')`;
       `test/unit/quarantine.test.ts` зелёный; список Playwright показывает test пропущенным.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/quarantine.test.ts test/unit/quarantine-suggest.test.ts test/unit/e2e-start-budget.test.ts` exit 0 (55 passed); `npx playwright test --list --reporter=json test/e2e/epic-frame.spec.ts` exit 0, the Auberge test expectedStatus skipped · mac - · a45d95c209c0ed84dff4598b7483b97696df1db2
+  - evidence: review pass · PR #2227 · - - · 3e6c98cd0d62668b382ba2f663e1badfe5cc0f27
 - [ ] Таблица evidence выше: run-ы, job-ы и числа 84 job-ов `macos-e2e`.
   - evidence: commit pass · worfy-polish/150: quarantine the flaky Auberge start e2e on the macOS runner (no budget raised) · - - · a45d95c209c0ed84dff4598b7483b97696df1db2
+  - evidence: review pass · PR #2227 · - - · 3e6c98cd0d62668b382ba2f663e1badfe5cc0f27
 - [ ] Предел не поднят: `test/e2e/start-budget.ts` и `src/` не изменены.
   - evidence: commit pass · worfy-polish/150: quarantine the flaky Auberge start e2e on the macOS runner (no budget raised) · - - · a45d95c209c0ed84dff4598b7483b97696df1db2
+  - evidence: review pass · PR #2227 · - - · 3e6c98cd0d62668b382ba2f663e1badfe5cc0f27
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · a45d95c209c0ed84dff4598b7483b97696df1db2
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45675925626/job/139441697202 · ci - · 3e6c98cd0d62668b382ba2f663e1badfe5cc0f27
 
 ## Где в коде
 
