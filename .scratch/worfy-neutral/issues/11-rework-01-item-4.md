@@ -1,7 +1,7 @@
 # 11: Rework of worfy-neutral 01, item 4
 
 Type: task
-Status: claimed 2026-11-24T23:39Z
+Status: done 2026-11-25T00:48Z
 PR: #2184
 Branch: worfy-neutral/11
 Blocked by: None — can start immediately
@@ -25,8 +25,10 @@ Hook inject-rules Harness (`harness/hooks/`), сборка текста прав
 - [ ] Часть `common` hook-а `inject-rules` в папке зарегистрированного проекта называет значение `language.reports`, а не только имя настройки (для worfy — Russian (`ru`)), и язык команды, в `SessionStart` и в `SubagentStart`. Значение — то, что резолвит `bin/profile`: сначала `user.json` пользователя, потом профиль. Текст Harness — английский (ADR-0074); правила пользователя идут после раздела о языке.
   - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 · mac - · 8fdd7db10
   - evidence: gate pass · `gate fast` exit 0 · mac - · 8fdd7db10
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45519241729/job/138891207379 · ci - · ee705b2d82bde71dfd0767c7b9e6e4a3fcf14044
 - [ ] В папке без профиля часть называет значение из `user.json` пользователя. Без профиля и без настройки, со сломанным `user.json`, с упавшим или зависшим `bin/profile` часть приходит как была, hook выходит с кодом 0.
   - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 · mac - · 8fdd7db10
+  - evidence: review pass · PR #2184 · - - · ee705b2d82bde71dfd0767c7b9e6e4a3fcf14044
 
 ## Итог
 

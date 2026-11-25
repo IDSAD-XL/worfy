@@ -115,3 +115,23 @@ any, come from the user's rules file.
    Ответ: через 5 s процесс убит, hook пишет одну строку на stderr и берёт значение из `user.json`; нет его —
    часть приходит как была, и hook укладывается в свои 10 s.
    Строки: `harness/hooks/inject-rules.mjs:123-142`
+
+## 6. Что нашёл review и что осталось
+
+> VERIFIED — worfy-neutral 11 (rework of neutral 01 item 4: the rules a new Session gets name the report language as a value), head ee705b2d82bde71dfd0767c7b9e6e4a3fcf14044
+>
+> Gate (depth medium, one round): reviewer (lens: correctness) — MERGE with two lows; the Orchestrator fixed one (cea6dcaeb; the story fragment follows in ee705b2d8) and ran the paid Harness evals.
+>
+> - What the user sees: a Session (and its Subagents) started in a registered project gets a section «Language of this session» that names the report language as a value — «Russian (`ru`)» in this repo — and the team language; outside a profile the user's own `user.json` setting is named; a broken, missing or hung `bin/profile` never blocks the start (the section from user.json alone, or none).
+> - Fixed by the Orchestrator: the fallback says «the project profile could not be read» unless `bin/profile` exited 3 (no profile covers the folder); the test of a missing profile script follows.
+> - Evidence: rules-hooks.test.sh red before (8 FAIL), 346/346 after (EXIT=0, also after the Orchestrator's fix); plugin-neutral.test.sh 37/37, start-context.test.sh 126/126 (reviewer); pnpm lint, typecheck, test EXIT=0; gate fast green; paid evals: status-block 3/3 score 1.00 ($0.45), compaction-state 3/3 score 1.00 ($1.16).
+> - Debt (low): start-context counts the new ~170-token section as the user's rules, outside the 15 000-token total (harness/bin/start-context:179, :287); the implementer measures 14 258 tokens, ~570 below the limit with it.
+> - Not verified: a native Windows and Git Bash run of the hook (Windows CI jobs); a live turn answering in Russian (the manual item, after merge and Stable update).
+>
+> Decided without the owner (to confirm): the hook spawns `bin/profile` once per SessionStart/SubagentStart with a 5 s wait (~70–110 ms on Mac); with no profile, a set `user.json` language now wins over the language the user writes in.
+
+Code: `harness/bin/start-context:179-179` · key lines: 179
+
+```
+    return { common: spellRoot(common, COUNTED_ROOT), user: injected.startsWith(asInjected) ? injected.slice(asInjected.length) : "" }
+```
