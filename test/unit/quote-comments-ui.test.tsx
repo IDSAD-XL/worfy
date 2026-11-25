@@ -777,6 +777,29 @@ describe('the bubble of a sent message', () => {
     expect(showQuote).toHaveBeenCalledWith('q1')
   })
 
+  it('measures the quote again when the whole quote this window sent replaces the cut one: «Show all» appears (worfy-polish ticket 140)', () => {
+    const long = `${'start '.repeat(40)}and the end`
+    const text = agentText([{ quote: long, text: 'c', images: 0, time: null }], '')
+    const sent = { id: 'q1', round: 'r1', anchor: 'm1#0', start: 0, end: long.length, quote: long, text: 'c', images: 0, number: 1 }
+    // Three lines hold 48 px; the quote grows past them only in its whole form.
+    const tall = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      return (this.textContent ?? '').length > 200 ? 80 : 40
+    })
+    const lines = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(48)
+    const bubble = (sentIn: (message: string) => Map<number, typeof sent> | undefined) => (
+      <SentQuotesContext.Provider value={{ sentIn, showQuote: () => undefined }}>
+        <QuotedPrompt text={text} parsed={parseQuoted(text)!} attachments={[]} assistant="claude" find="f" />
+      </SentQuotesContext.Provider>
+    )
+    const { rerender } = render(bubble(() => undefined))
+    expect(screen.queryByTestId('quoted-prompt-more')).toBeNull()
+    rerender(bubble((message) => (message === text ? new Map([[1, sent]]) : undefined)))
+    expect(screen.getByTestId('quoted-prompt-quote').textContent).toBe(long.trim())
+    expect(screen.getByTestId('quoted-prompt-more').textContent).toBe('Show all')
+    tall.mockRestore()
+    lines.mockRestore()
+  })
+
   it('draws a block per comment on code after the quote blocks — its file and lines, the code, the comment and its images — from the text alone', () => {
     const items = agentItems([
       { kind: 'code', id: 'k', path: 'src/renderer/changes/DiffPane.tsx', repository: '/repo', side: 'new', startLine: 40, endLine: 48, code: ['l1', 'l2', 'l3', 'l4', 'l5', 'l6', 'l7', 'l8', 'l9'].join('\n'), commit: '9f8e7d6aa', subject: { kind: 'ticket', epic: 'e', number: '03' }, worktree: 'w', branch: 'b', text: 'Split it.', images: [keptImage('two.png')], at: 1 },

@@ -895,6 +895,65 @@ test('a message sent while the advisor works shows last in the chat as queued, a
   }
 })
 
+// worfy-polish ticket 140 (audit finding 70): a message still queued is dimmed with its grey «queued»; once the
+// Session closes with it still in the queue it is «not sent» — an error the user must see, so neither the message
+// nor its red label is dimmed. The fake script product-not-sent.jsonl holds the first turn until the test lets it
+// go, then Claude Code exits quietly. The screenshots of both, light and dark, go to the test's output folder.
+test('a queued message is dimmed; one left in the queue of a closed Session is «not sent», red and not dimmed', async () => {
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'product-not-sent' } })
+  try {
+    const { app, window } = launched
+    await canvasReady(launched, { size: { width: 1440, height: 900 }, visible: [window.getByTestId('orchestrator-node')] })
+    await window.keyboard.press('ControlOrMeta+k')
+    await window.getByTestId('palette-input').fill('new product session')
+    await expect(window.locator('[data-testid="palette-option"][data-command="new:product-session"]')).toHaveAttribute('data-active', 'true')
+    await window.keyboard.press('Enter')
+    const view = sessionView(window)
+    await expect(view).toBeVisible()
+    const field = view.getByRole('textbox', { name: /^Message / })
+    await expect(field).toBeEnabled()
+    await field.fill('What could we sell?')
+    await field.press('Enter')
+    await expect(view.getByTestId('transcript-text').last()).toContainText('Reading the market notes first.')
+    await field.fill('And for solo founders?')
+    await field.press('Enter')
+    const queued = view.getByTestId('product-queued')
+    const label = queued.getByTestId('product-queued-label')
+    await expect(label).toHaveText('queued')
+    /** The opacity the label is drawn with: its own times that of every element around it. */
+    const drawnOpacity = () =>
+      label.evaluate((element) => {
+        const style = globalThis as unknown as { getComputedStyle(of: unknown): { opacity: string } }
+        let opacity = 1
+        for (let node: typeof element | null = element; node !== null; node = node.parentElement) opacity *= Number(style.getComputedStyle(node).opacity)
+        return opacity
+      })
+    expect(await drawnOpacity()).toBeLessThan(1)
+    for (const scheme of ['light', 'dark'] as const) {
+      await window.emulateMedia({ colorScheme: scheme })
+      await queued.screenshot({ path: test.info().outputPath(`140-queued-${scheme}.png`) })
+    }
+
+    // Claude Code exits with the message still queued: the queue is held. The Session is then closed, as the
+    // Close of its Node does (sessions.close): the message is not sent.
+    await app.evaluate(() => (globalThis as unknown as { worfyFakeRelease: (name: string) => void }).worfyFakeRelease('turn'))
+    await expect(label).toHaveText('queued · held')
+    const nodeId = await view.getAttribute('data-node-id')
+    await window.evaluate((id) => (globalThis as unknown as { worfy: { invoke: (channel: string, input: unknown) => Promise<unknown> } }).worfy.invoke('sessions.close', { nodeId: id }), nodeId)
+    await expect(label).toHaveText('not sent')
+    await expect(queued).toHaveAttribute('data-status', 'not-sent')
+    expect(await drawnOpacity()).toBe(1)
+    for (const scheme of ['light', 'dark'] as const) {
+      await window.emulateMedia({ colorScheme: scheme })
+      // --danger of the theme (autopilot/autopilot-modal.css): #d70015 light, #ff6b5e dark.
+      await expect(label).toHaveCSS('color', scheme === 'light' ? 'rgb(215, 0, 21)' : 'rgb(255, 107, 94)')
+      await queued.screenshot({ path: test.info().outputPath(`140-not-sent-${scheme}.png`) })
+    }
+  } finally {
+    await launched.close()
+  }
+})
+
 // worfy-polish ticket 133 (owner, 2026-11-20): the input line of a Product Session — attach and an icon Send —
 // is as tall as the one-line field, and its buttons stay at the field's bottom edge as the field grows. During a
 // turn the line has no Interrupt: the header's stops the turn. The fake script product-queued.jsonl holds the first

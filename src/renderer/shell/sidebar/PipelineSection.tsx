@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { waitsForPerson } from '../../../shared/ipc/project-pulse'
 import type { ProjectView } from '../../../shared/ipc/projects'
 import { readableReason } from '../../ipc'
 import { useNow } from '../../limits/useLimits'
@@ -16,7 +17,7 @@ import '../../pipeline/pipeline.css'
  * The Tickets in work of the Projects of the window's Machine the Project switcher shows (all, or the
  * open one; sidebar-scope.ts) — neither Queued nor Done — with the Stage they stand on and who they
  * wait for (worfy-pipeline ticket 04). A click opens the Pipeline board of that Project. Its rail
- * button has a dot while a Ticket is blocked or waits for someone.
+ * button has a dot while a Ticket is blocked or waits for a person, not an agent.
  */
 export const order = 16
 export const railTitle = 'Pipeline'
@@ -35,7 +36,7 @@ interface ProjectInWorkProps {
   project: ProjectView
   /**
    * Says whether this Project shows anything (a row, or why its Pipeline could not be read), once it
-   * knows, and how many of its Tickets wait (blocked, or waiting for someone).
+   * knows, and how many of its Tickets wait (blocked, or waiting for a person: waitsForPerson).
    */
   onShown: (projectId: string, shown: boolean, waiting: number) => void
   onOpen: (project: ProjectView) => void
@@ -49,7 +50,8 @@ function ProjectInWork({ project, onShown, onOpen }: ProjectInWorkProps) {
   const tickets = snapshot?.tickets.filter(inWork) ?? []
   const known = error !== undefined || snapshot !== undefined
   const shown = error !== undefined || tickets.length > 0
-  const waiting = tickets.filter((ticket) => ticket.blocked !== null || ticket.waits !== null).length
+  // A Ticket an agent works on calls nobody: the dot counts those that wait for a person (worfy-polish ticket 140).
+  const waiting = tickets.filter(waitsForPerson).length
   useEffect(() => {
     if (known) onShown(project.id, shown, waiting)
   }, [known, shown, waiting, project.id, onShown])

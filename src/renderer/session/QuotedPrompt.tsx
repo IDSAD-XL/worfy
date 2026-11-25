@@ -104,12 +104,14 @@ function QuoteBlock({ number, quote, time, text, images, assistant, sent, onShow
   const quoteRef = useRef<HTMLQuoteElement>(null)
   const [open, setOpen] = useState(false)
   const [clamped, setClamped] = useState(false)
-  // «Show all» only when the three lines hide something.
+  // The whole quote this window sent, once it is known, replaces the one the agent got cut.
+  const shown = squash(sent?.quote ?? quote)
+  // «Show all» only when the three lines hide something; measured again when the whole quote replaces the cut one.
   useLayoutEffect(() => {
     const element = quoteRef.current
     if (element === null || open) return
     setClamped(element.scrollHeight > element.clientHeight + 1)
-  }, [quote, open])
+  }, [shown, open])
   const source = `${assistant}${time === null ? '' : ` · ${time}`}`
   return (
     <div className="w-qprompt__block" data-testid="quoted-prompt-block" data-quote-number={number} data-quote-id={sent?.id} tabIndex={-1}>
@@ -126,7 +128,7 @@ function QuoteBlock({ number, quote, time, text, images, assistant, sent, onShow
         </span>
       )}
       <blockquote ref={quoteRef} className={`w-qprompt__quote${open ? ' w-qprompt__quote--open' : ''}`} data-testid="quoted-prompt-quote">
-        {squash(sent?.quote ?? quote)}
+        {shown}
       </blockquote>
       {clamped || open ? (
         <button type="button" className="w-qprompt__more" aria-expanded={open} data-testid="quoted-prompt-more" onClick={() => setOpen((was) => !was)}>

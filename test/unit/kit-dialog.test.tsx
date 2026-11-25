@@ -516,3 +516,101 @@ describe('the layers a kit window yields to', () => {
     expect(screen.getByRole('dialog', { name: 'Outer window' })).not.toBeNull()
   })
 })
+
+// A window that takes the place of another (worfy-polish ticket 140): the closing one gives the focus
+// back to its opener only when the focus is lost — still in the closing window or fallen to the page —
+// never when the newer window already holds it.
+describe('one kit window replacing another', () => {
+  /** An opener, a first window and a second one; the second opens with the first still open or in its place. */
+  function Replacing() {
+    const [first, setFirst] = useState(false)
+    const [second, setSecond] = useState(false)
+    return (
+      <>
+        <button type="button" onClick={() => setFirst(true)}>
+          opener
+        </button>
+        {/* A panel of the page that is no window, as Getting started: a command focuses its heading. */}
+        <h2 tabIndex={-1}>Panel heading</h2>
+        <Dialog open={first} onClose={() => setFirst(false)} label="First window" className="probe">
+          <button type="button" onClick={() => setSecond(true)}>
+            Open second
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              document.querySelector<HTMLElement>('h2')?.focus()
+              setFirst(false)
+            }}
+          >
+            Focus the panel
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setFirst(false)
+              setSecond(true)
+            }}
+          >
+            Swap
+          </button>
+        </Dialog>
+        <Dialog open={second} onClose={() => setSecond(false)} label="Second window" className="probe">
+          <button type="button" onClick={() => setFirst(false)}>
+            Close first
+          </button>
+          <button type="button">Second last</button>
+        </Dialog>
+      </>
+    )
+  }
+
+  async function openFirst(): Promise<HTMLElement> {
+    render(<Replacing />)
+    const opener = screen.getByRole('button', { name: 'opener' })
+    opener.focus()
+    fireEvent.click(opener)
+    await flush()
+    return opener
+  }
+
+  it('the first window closing under the second leaves the focus in the second', async () => {
+    await openFirst()
+    fireEvent.click(screen.getByRole('button', { name: 'Open second' }))
+    await flush()
+    const second = screen.getByRole('dialog', { name: 'Second window' })
+    const closeFirst = within(second).getByRole('button', { name: 'Close first' })
+    act(() => closeFirst.focus())
+    fireEvent.click(closeFirst)
+    await flush()
+    expect(screen.queryByRole('dialog', { name: 'First window' })).toBeNull()
+    expect(document.activeElement).toBe(closeFirst)
+  })
+
+  it('a window swapped for another in one update leaves the focus in the new one', async () => {
+    await openFirst()
+    fireEvent.click(screen.getByRole('button', { name: 'Swap' }))
+    await flush()
+    expect(screen.queryByRole('dialog', { name: 'First window' })).toBeNull()
+    const second = screen.getByRole('dialog', { name: 'Second window' })
+    expect(second.contains(document.activeElement)).toBe(true)
+  })
+
+  // Audit finding 142: the Command palette is a kit window, and its command «Getting started» focuses the
+  // heading of a panel of the page; the palette closing must leave the focus there.
+  it('a window whose action put the focus on the page before it closed leaves the focus there', async () => {
+    await openFirst()
+    fireEvent.click(screen.getByRole('button', { name: 'Focus the panel' }))
+    await flush()
+    expect(screen.queryByRole('dialog', { name: 'First window' })).toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Panel heading' }))
+  })
+
+  it('a window closing alone still gives the focus back to its opener', async () => {
+    const opener = await openFirst()
+    pressKey(document.activeElement!, { key: 'Escape' })
+    await flush()
+    expect(screen.queryByRole('dialog', { name: 'First window' })).toBeNull()
+    expect(document.activeElement).toBe(opener)
+  })
+})

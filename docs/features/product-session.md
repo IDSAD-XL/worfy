@@ -122,8 +122,8 @@ The input field keeps about 126 px in a chat as narrow as the agents list leaves
   becomes an ordinary message with its number. "×" takes a queued message out before it is sent.
 - Interrupt, or a crash of the agent's process, holds the queue: its messages say "queued · held", and "Send queued"
   under the last of them lets the queue go again. A message sent after Interrupt goes at once and does not free the
-  held ones. When the Session is closed, its queued messages are never sent: they stay last in the chat, marked
-  "not sent".
+  held ones. When the Session is closed, its queued messages are never sent: they stay last in the chat, no longer
+  dimmed, marked "not sent" in red.
 
 **What it may not do.** A Product Session changes no code, takes no Tickets, starts no Autopilot and never changes the repository with git.
 Three layers hold this, all for Claude Code:
