@@ -22,13 +22,12 @@ Source: owner-check fail 2026-11-24 of worfy-product-session 26, item 6 — 26-�
 
 - [ ] (вручную) Сделай: переключи «Tree · Graph» на «Graph» и сравни с «граф» прототипа → Должно быть: тема в центре, ветки расходятся в разные стороны, узлы не накрывают друг друга; стрелки «выросло из» прямые; «Replaces» — красная пунктирная кривая; текст мельче, чем в «Tree».
   - needs: mac stable
-  - evidence: screenshot pass · `../evidence/35-graph-light.png` · mac dev · ba1ccadc0f1072cd6eb502f4e1bb0e3a694e5ab8 · scrub: 2026-11-25
-  - evidence: screenshot pass · `../evidence/35-graph-dark.png` · mac dev · ba1ccadc0f1072cd6eb502f4e1bb0e3a694e5ab8 · scrub: 2026-11-25
-- [ ] Unit test (`test/unit/mind-map-graph-centre.test.ts`): в Graph карты LONG_MAP (и с Hide rejected) центр темы в пределах 0,4–0,6 рамки всех узлов по обеим осям, с каждой стороны темы не меньше трети узлов; ни одна стрелка «grew from» не идёт поверх узла (LONG_MAP, Hide rejected, карта с пятью ветками); красная кривая «Replaces» не идёт поверх темы и накрывает не больше узлов, чем изгиб прототипа; одна ветка остаётся цепочкой без пересечений. На коде origin/main test красный.
-  - evidence: test-run pass · `pnpm test test/unit/mind-map-graph-centre.test.ts` exit 0 · mac - · ba1ccadc0f1072cd6eb502f4e1bb0e3a694e5ab8
+  - evidence: screenshot pass · `../evidence/35-graph-light.png` · mac dev · b33198b6ad1f97c529104050a81cb5888e74b450 · scrub: 2026-11-25
+  - evidence: screenshot pass · `../evidence/35-graph-dark.png` · mac dev · b33198b6ad1f97c529104050a81cb5888e74b450 · scrub: 2026-11-25
+- [ ] Unit test (`test/unit/mind-map-graph-centre.test.ts`): в Graph карты LONG_MAP (и с Hide rejected) центр темы в пределах 0,4–0,6 рамки всех узлов по обеим осям, с каждой стороны темы не меньше трети узлов; ни одна стрелка «grew from» не идёт поверх узла (LONG_MAP, Hide rejected, карта с пятью ветками); красная кривая «Replaces» не идёт поверх темы и накрывает не больше узлов, чем изгиб прототипа; тема в середине и без стрелок поверх узлов при ширине текста от ×0,8 до ×1,25, на карте с Ticket-ами и без них (как в e2e); одна ветка остаётся цепочкой без пересечений. На коде origin/main test красный.
+  - evidence: test-run pass · `pnpm test test/unit/mind-map-graph-centre.test.ts` exit 0 · mac - · b33198b6ad1f97c529104050a81cb5888e74b450
 - [ ] Unit test (`test/unit/mind-map-layout.test.ts`): прежние свойства радиальной раскладки держатся — без наложений, детерминированно, 150 узлов во всех четырёх четвертях, глубже — дальше от темы, цепочка в 4000 узлов раскладывается сразу.
-  - evidence: test-run pass · `pnpm test test/unit/mind-map-layout.test.ts` exit 0 · mac - · ba1ccadc0f1072cd6eb502f4e1bb0e3a694e5ab8
+  - evidence: test-run pass · `pnpm test test/unit/mind-map-layout.test.ts` exit 0 · mac - · b33198b6ad1f97c529104050a81cb5888e74b450
 - [ ] e2e test (`test/e2e/product-session.spec.ts`, карта LONG_MAP): в Graph центр темы в пределах 0,4–0,6 по обеим осям, кривая «Replaces» не заходит в тему; снимки Graph в светлой и тёмной теме.
-  - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 · mac dev · ba1ccadc0f1072cd6eb502f4e1bb0e3a694e5ab8
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 · mac dev · b33198b6ad1f97c529104050a81cb5888e74b450
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный.
-  - evidence: gate pass · `gate fast` exit 0 · mac - · ba1ccadc0f1072cd6eb502f4e1bb0e3a694e5ab8
