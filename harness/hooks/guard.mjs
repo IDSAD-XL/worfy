@@ -270,7 +270,13 @@ const silentCheck = () => {
     })
     const checks = [] // {dir, what, command, texts: [], diff: []}
     let dir = base
+    // The paths the commands before the current one name (their words and redirection targets, resolved against the
+    // directory each ran in), and the raw text before it: a file a gh api call sends that an earlier command names may
+    // be one that command writes.
+    const named = new Set()
     for (const words of lex(flat)) {
+        const before = { text: flat.slice(0, words.at), paths: new Set(named) }
+        for (const x of [...words, ...words.redirects]) for (const p of namedPaths(x, dir)) named.add(p)
         let w = words
         // `T=/x` alone or `export T=/x` sets a variable a later file path may name; `T=/x cmd` sets it for cmd only.
         if (words.every((x) => /^[A-Za-z_][A-Za-z0-9_]*=/.test(x))) words.forEach(setShellVar)
@@ -284,7 +290,7 @@ const silentCheck = () => {
             continue
         }
         if (prog === "git") gitCommand(w.slice(1), dir, checks, bodies, flat)
-        else if (prog === "gh") ghCommand(w.slice(1), dir, checks, bodies, flat)
+        else if (prog === "gh") ghCommand(w.slice(1), dir, checks, bodies, before)
     }
     const deadline = Date.now() + 2 * SILENT_TRY_MS
     for (const c of checks) {
@@ -334,6 +340,22 @@ const silentCheck = () => {
                     `the check for workflow traces (bin/silent-check) failed (${r.error.code || "error"}: ${r.error.message}), ` +
                     `so nothing tells whether ${lowerFirst(c.what)} carries traces. Run the same command again; ` +
                     `if it fails the same way, run the check by hand and fix what it reports: ${byHand}.`
+            )
+        // A file read with its old text: refused only where the project checks texts at all (a clean verdict), not
+        // where silent-check had nothing to check (a Full project with attribution on, a folder outside a project).
+        const stale = c.stale || []
+        if (r.status === 0 && stale.length && /^silent-check: clean\b/m.test(r.stdout || ""))
+            deny(
+                notRun +
+                    stale
+                        .map(
+                            (u) =>
+                                `an earlier part of this same command names \`${u.written}\`, a file it sends: the guard reads that file before any ` +
+                                "part of the command runs, so it checked the text the file had before, not the one that part may write into it, " +
+                                "and running the same command again ends the same way. "
+                        )
+                        .join("") +
+                    "Nothing was published. Write the file in one command, then send it in the next one."
             )
         if (r.status === 0) continue
         if (r.status === 2 && /^silent-check: profile not read\b/m.test(r.stderr || "")) continue
@@ -399,26 +421,37 @@ const capLines = (text, max) => {
 }
 
 // A shell lexer good enough for the commands above: words with quotes removed, commands split on ; & | && ||
-// newlines and parentheses, `$( … )` and backticks kept as raw text inside a word, redirections dropped.
+// newlines and parentheses, `$( … )` and backticks kept as raw text inside a word, redirections left out of the
+// words. Each command also carries `redirects`, the targets of its redirections, and `at`, the offset in `src`
+// where it starts.
 function lex(src) {
     const cmds = []
     let words = []
+    let redirects = []
+    let at = null
     let cur = null
     let dropNext = false
     const pushWord = () => {
         if (cur !== null) {
-            if (dropNext) dropNext = false
-            else words.push(cur)
+            if (dropNext) {
+                dropNext = false
+                redirects.push(cur)
+            } else words.push(cur)
             cur = null
         }
     }
     const endCmd = () => {
         pushWord()
         dropNext = false
-        if (words.length) cmds.push(words)
+        if (words.length || redirects.length) cmds.push(Object.assign(words, { redirects, at: at ?? src.length }))
         words = []
+        redirects = []
+        at = null
     }
-    const add = (t) => (cur = (cur ?? "") + t)
+    const add = (t) => {
+        at ??= i
+        cur = (cur ?? "") + t
+    }
     const skipSubst = (i) => {
         let depth = 1
         while (i < src.length) {
@@ -492,6 +525,7 @@ function lex(src) {
         } else if (c === "<" || c === ">" || (c === "&" && src[i + 1] === ">")) {
             if (cur !== null && /^\d+$/.test(cur)) cur = null // the fd of 2>
             pushWord()
+            at ??= i
             while (i < src.length && "<>&".includes(src[i])) i++
             dropNext = true
         } else if (";&|\n()".includes(c)) {
@@ -572,8 +606,8 @@ function gitCommand(w, dir, checks, bodies, flat) {
     if (name) checks.push({ dir, what: `The branch name "${name}"`, command: sub === "worktree" ? "git worktree add" : `git ${sub}`, texts: [name], diff: [] })
 }
 
-function ghCommand(w, dir, checks, bodies, flat) {
-    if (w[0] === "api") return ghApi(w.slice(1), dir, checks, bodies, flat)
+function ghCommand(w, dir, checks, bodies, before) {
+    if (w[0] === "api") return ghApi(w.slice(1), dir, checks, bodies, before)
     if (w[0] !== "pr" || !["create", "edit", "comment", "review", "merge"].includes(w[1])) return
     const texts = []
     const args = w.slice(2)
@@ -606,7 +640,7 @@ const GH_API_TEXT_KEYS = new Set(["body", "title", "commit_title", "commit_messa
 const GH_API_VALUE = new Set(["--method", "--raw-field", "--field", "--header", "--jq", "--template", "--input", "--cache", "--preview", "--hostname"])
 const GH_API_SHORT = { X: "--method", f: "--raw-field", F: "--field", H: "--header", q: "--jq", t: "--template", p: "--preview" }
 
-function ghApi(args, dir, checks, bodies, flat) {
+function ghApi(args, dir, checks, bodies, before) {
     let endpoint
     let method
     let input
@@ -649,6 +683,12 @@ function ghApi(args, dir, checks, bodies, flat) {
 
     const texts = []
     const unread = []
+    const read = [] // the files read from disk: {written, abs}
+    const send = (f) => {
+        const t = fileText(f, dir, unread)
+        if (t.length) read.push({ written: f, abs: path.resolve(dir, expandPath(f)) })
+        return t
+    }
     for (const [flag, kv] of fields) {
         const eq = kv.indexOf("=")
         if (eq === -1) continue
@@ -656,24 +696,24 @@ function ghApi(args, dir, checks, bodies, flat) {
         if (!graphql && !GH_API_TEXT_KEYS.has(kv.slice(0, eq).match(/([^[\]]*)\]?$/)[1])) continue
         const value = kv.slice(eq + 1)
         // --field reads `@<file>` (`@-` is stdin, a heredoc body taken below); --raw-field takes the value as it is.
-        if (flag === "--field" && value.startsWith("@")) texts.push(...fileText(value.slice(1), dir, unread))
+        if (flag === "--field" && value.startsWith("@")) texts.push(...send(value.slice(1)))
         else texts.push(value)
     }
     // A JSON payload of a REST write counts by its text fields, from a file or from the heredoc of `--input -`.
     // Any other heredoc (`-F body=@-`, `-f body="$(cat <<EOF …)"`) is published as it is.
     const payload = (t) => (graphql ? t : payloadText(t))
-    if (input !== undefined) texts.push(...fileText(input, dir, unread).map(payload))
+    if (input !== undefined) texts.push(...send(input).map(payload))
     const all = [...texts, ...(input === "-" ? bodies.map(payload) : bodies)]
     // A GraphQL query only reads; a mutation the guard cannot see in full (an unread file) is checked all the same.
     if (graphql && !unread.length && !all.some((t) => /\bmutation\b/.test(t))) return
     if (!all.length && !unread.length) return
-    // A file named in an earlier part of the same command may be one that part writes: it does not exist yet when
-    // the guard reads it, before anything of the command runs.
-    const start = flat.search(/(^|[^\w-])gh\s+api\b/)
-    for (const u of unread) {
-        const at = flat.indexOf(u.written)
-        u.earlier = at !== -1 && at < start
-    }
+    // A file named in an earlier part of the same command may be one that part writes: the guard reads it before
+    // anything of the command runs, so it either does not exist yet or still has its old text. Earlier is before this
+    // gh api call; named is the same path in any spelling (./x, the absolute path, a quoted part), or the path as
+    // written anywhere in the text before the call (inside a script: node -e '…writeFileSync("p.json")').
+    const earlier = (u) => before.paths.has(u.abs) || before.text.includes(u.written)
+    for (const u of unread) u.earlier = earlier(u)
+    const stale = read.filter(earlier)
     // The text lands in the repository the endpoint names, so that repository's project decides. A GraphQL mutation
     // and an endpoint the guard cannot resolve (a shell variable, gh's {owner}, a repository no checkout has) name
     // none: sent from the common folder above a project's repositories (its workspace), they are checked from every
@@ -691,6 +731,7 @@ function ghApi(args, dir, checks, bodies, flat) {
             texts: all,
             diff: [],
             unread,
+            stale,
         })
 }
 
@@ -817,6 +858,15 @@ function expandPath(f) {
     if (process.platform === "win32")
         p = p.replace(/^\/tmp(?=\/|$)/, os.tmpdir().replace(/\\/g, "/")).replace(/^\/([A-Za-z])(?=\/|$)/, (_m, d) => `${d.toUpperCase()}:`)
     return p
+}
+
+// The paths a word of a command may name, resolved the way fileText resolves a path: the word itself, the value of a
+// --flag=value word and of a key=@file field.
+function namedPaths(word, dir) {
+    const out = []
+    for (const x of [word, word.replace(/^--?[\w-]+=/, ""), word.replace(/^[^=@]*=?@/, "")])
+        if (x && !/^-/.test(x)) out.push(path.resolve(dir, expandPath(x)))
+    return out
 }
 
 // The text of a file a command sends (git commit -F, gh pr --body-file, gh api --input and -F key=@file), read from

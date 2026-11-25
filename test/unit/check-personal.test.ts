@@ -236,6 +236,73 @@ describe('check-personal: the hash list of words', () => {
     expect(stdout.toLowerCase()).not.toContain(CYRILLIC)
   })
 
+  it('finds a Cyrillic word of one word and at least four letters in an oblique case: one case ending off, the nominative ending back', () => {
+    // Invented words: a surname-like one ending in a consonant, one ending in -a, one ending in -y, and a short one.
+    const A = ['брюм', 'зов'].join('')
+    const B = ['жмур', 'ница'].join('')
+    const C = ['прыв', 'лей'].join('')
+    const SHORT = ['жы', 'р'].join('')
+    const lines = [
+      `письмо от ${CYRILLIC}а`, // -a
+      `вместе с ${CYRILLIC.toUpperCase()}ЫМ`, // -ym, upper case
+      `у ${A}ых`, // -ykh
+      `с ${B.slice(0, -1)}ей`, // -ey in place of -a
+      `к ${C.slice(0, -1)}ю`, // -yu in place of -y
+      `${CYRILLIC}ович`, // not a case ending: another word
+      `${SHORT}а`, // an entry of three letters: only the word itself
+      `${CYRILLIC}`,
+      '',
+    ]
+    const root = repo({ 'docs/ru.md': lines.join('\n') }, [CYRILLIC, A, B, C, SHORT])
+    const { status, stdout } = run(['--root', root])
+    expect(status).toBe(1)
+    expect(findings(stdout)).toEqual([
+      `docs/ru.md:1: deny-word: ${mask(`${CYRILLIC}а`)}`,
+      `docs/ru.md:2: deny-word: ${mask(`${CYRILLIC.toUpperCase()}ЫМ`)}`,
+      `docs/ru.md:3: deny-word: ${mask(`${A}ых`)}`,
+      `docs/ru.md:4: deny-word: ${mask(`${B.slice(0, -1)}ей`)}`,
+      `docs/ru.md:5: deny-word: ${mask(`${C.slice(0, -1)}ю`)}`,
+      `docs/ru.md:8: deny-word: ${mask(CYRILLIC)}`,
+    ])
+    expect(stdout.toLowerCase()).not.toContain(CYRILLIC.slice(0, 4))
+    // An exception hashes the word as it stands in the text, ending and all.
+    const allowed = repo({ 'docs/ru.md': `${CYRILLIC}ым\n` }, [CYRILLIC], [{ path: 'docs/ru.md', rule: 'deny-word', sha256: sha(`${CYRILLIC}ым`) }])
+    expect(run(['--root', allowed]).status).toBe(0)
+  })
+
+  it('finds an adjective-type Cyrillic entry (-iy, -yy, -oy) in an oblique case', () => {
+    // Invented surname-like adjectives: -skiy, -tskiy, -oy, -nyy.
+    const SKIY = ['брюм', 'ский'].join('')
+    const TSKIY = ['жмы', 'цкий'].join('')
+    const OY = ['прыв', 'той'].join('')
+    const YY = ['хрыз', 'ный'].join('')
+    const lines = [`у ${SKIY.slice(0, -2)}ого`, `к ${TSKIY.slice(0, -2)}ому`, `у ${OY.slice(0, -2)}ого`, `с ${YY.slice(0, -2)}ым`, '']
+    const root = repo({ 'docs/ru.md': lines.join('\n') }, [SKIY, TSKIY, OY, YY])
+    const { status, stdout } = run(['--root', root])
+    expect(status).toBe(1)
+    expect(findings(stdout)).toEqual([
+      `docs/ru.md:1: deny-word: ${mask(`${SKIY.slice(0, -2)}ого`)}`,
+      `docs/ru.md:2: deny-word: ${mask(`${TSKIY.slice(0, -2)}ому`)}`,
+      `docs/ru.md:3: deny-word: ${mask(`${OY.slice(0, -2)}ого`)}`,
+      `docs/ru.md:4: deny-word: ${mask(`${YY.slice(0, -2)}ым`)}`,
+    ])
+  })
+
+  it('an entry of four letters is not the bare stem of a longer word, but is found with its own ending changed', () => {
+    // Invented four-letter entries: one ending in a consonant, one ending in -a.
+    const BARE = ['бр', 'ык'].join('')
+    const WITH_A = ['жу', 'ха'].join('')
+    const lines = [`${BARE}а`, `${BARE}ом`, `${WITH_A.slice(0, -1)}ой`, `${WITH_A.slice(0, -1)}и`, BARE, '']
+    const root = repo({ 'docs/ru.md': lines.join('\n') }, [BARE, WITH_A])
+    const { status, stdout } = run(['--root', root])
+    expect(status).toBe(1)
+    expect(findings(stdout)).toEqual([
+      `docs/ru.md:3: deny-word: ${mask(`${WITH_A.slice(0, -1)}ой`)}`,
+      `docs/ru.md:4: deny-word: ${mask(`${WITH_A.slice(0, -1)}и`)}`,
+      `docs/ru.md:5: deny-word: ${mask(BARE)}`,
+    ])
+  })
+
   it('finds a word of the list in a path', () => {
     const root = repo({ 'docs/Vex_Moor/plan.md': 'nothing here\n' })
     expect(findings(run(['--root', root]).stdout)).toEqual([`docs/${mask('Vex_Moor')}/plan.md:name: deny-word: ${mask('Vex_Moor')}`])
