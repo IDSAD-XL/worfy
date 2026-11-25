@@ -72,6 +72,12 @@ describe('Settings → Canvas', () => {
     expect(ticketDone().getAttribute('aria-checked')).toBe('true')
   })
 
+  it('says under the threshold that a Product Session never leaves by itself, whatever is chosen (worfy-product-session ticket 37)', async () => {
+    await mount(settings(1, { after: '6h' }))
+    await waitFor(() => expect(threshold().textContent).toContain('6 h'))
+    expect(within(screen.getByTestId('settings-archive-after-row')).getByText(/A Product Session never leaves by itself: archive it from its Node\./)).toBeTruthy()
+  })
+
   it('offers the five thresholds in order; a pick goes to main as the threshold alone and shows once main answers', async () => {
     const main = await mount(settings(1, { after: '24h' }))
     await waitFor(() => expect(threshold().textContent).toContain('24 h'))

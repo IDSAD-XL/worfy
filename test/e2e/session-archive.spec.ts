@@ -18,6 +18,9 @@ import { ms } from '../time-scale'
 // Keep on FRESH is a step of ⌘Z. «Archive finished sessions now» takes OLD_A and OLD_B — 24 h under
 // «Never» — and leaves KEPT, FRESH and LIVE; one ⌘Z brings both back. Last, LIVE's process ends and
 // the person picks 24 h: the next run of the timer takes LIVE alone (the others were touched or kept).
+// PRODUCT, a finished Product Session as old, is never taken — not by the command, not by the timer
+// (worfy-product-session ticket 37). Its own Archive takes it off the Canvas, and Restore in the
+// Archive brings it back; LIVE's Archive is inactive while its Claude Code runs.
 
 const PROJECT_ID = 'archive-0000c008'
 const TICK_MS = 250
@@ -26,6 +29,7 @@ const OLD_B = 'bbbbbbbb-0808-4808-8808-000000000002'
 const KEPT = 'cccccccc-0808-4808-8808-000000000003'
 const FRESH = 'dddddddd-0808-4808-8808-000000000004'
 const LIVE = 'eeeeeeee-0808-4808-8808-000000000005'
+const PRODUCT = 'ffffffff-0808-4808-8808-000000000006'
 const HOUR = 3_600_000
 
 let scratch: string
@@ -39,11 +43,11 @@ const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, for
 /** SETTINGS_MENU_ITEM_ID of src/main/menu.ts; that module needs Electron, so it is not imported here. */
 const SETTINGS_MENU_ITEM_ID = 'app.settings'
 
-/** A transcript in the Claude home whose only record is `ago` ms old. */
-function transcript(sessionId: string, ago: number): void {
+/** A transcript in the Claude home whose only record, the person's `text`, is `ago` ms old. */
+function transcript(sessionId: string, ago: number, text = 'hello'): void {
   const dir = join(claudeHome, 'projects', repo.normalize('NFC').replace(/[^a-zA-Z0-9]/g, '-'))
   mkdirSync(dir, { recursive: true })
-  const record = { type: 'user', uuid: `${sessionId}-1`, sessionId, isSidechain: false, cwd: repo, timestamp: new Date(Date.now() - ago).toISOString(), message: { role: 'user', content: 'hello' } }
+  const record = { type: 'user', uuid: `${sessionId}-1`, sessionId, isSidechain: false, cwd: repo, timestamp: new Date(Date.now() - ago).toISOString(), message: { role: 'user', content: text } }
   writeFileSync(join(dir, `${sessionId}.jsonl`), `${JSON.stringify(record)}\n`)
 }
 
@@ -69,6 +73,7 @@ function makeProject(): void {
   transcript(KEPT, 30 * HOUR)
   transcript(FRESH, HOUR)
   transcript(LIVE, 30 * HOUR)
+  transcript(PRODUCT, 30 * HOUR, 'Plan the roadmap')
   // LIVE's Claude Code: a process the registry sees alive, with the record Claude Code writes for it.
   claude = spawn('sleep', ['600'], { stdio: 'ignore' })
   mkdirSync(join(claudeHome, 'sessions'), { recursive: true })
@@ -81,7 +86,9 @@ function makeProject(): void {
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT_ID, name: 'demo', path: repo }], activeId: PROJECT_ID }))
   // «Never», chosen by the person: the choice outlives the 24 h default (APP_SETTINGS_FILE of src/main/settings/store.ts).
   writeFileSync(join(dataDir, 'app-settings.json'), JSON.stringify({ sessionArchive: { after: 'never' } }))
-  const nodes = [sessionNode(OLD_A, 0), sessionNode(OLD_B, 400), sessionNode(KEPT, 800, { keep: true }), sessionNode(FRESH, 1200), sessionNode(LIVE, 1600)]
+  // A Product Session's Node as main writes it (src/main/agent/node-sessions.ts); nothing runs it in this test.
+  const product = { ...sessionNode(PRODUCT, 0), y: 300, w: 340, h: 220, data: { origin: 'worfy', vendor: 'claude', kind: 'product', sessionId: PRODUCT } }
+  const nodes = [sessionNode(OLD_A, 0), sessionNode(OLD_B, 400), sessionNode(KEPT, 800, { keep: true }), sessionNode(FRESH, 1200), sessionNode(LIVE, 1600), product]
   writeFileSync(join(project, 'layout.json'), JSON.stringify({ nodes, viewport: { x: 40, y: 40, zoom: 0.6 } }))
 }
 
@@ -142,14 +149,18 @@ test('«Never» archives nothing on a fast timer; Settings → Canvas offers the
     const started = Date.now()
     await expect(window.getByTestId('canvas')).toHaveAttribute('data-project-id', PROJECT_ID)
     await canvasReady(launched, { size: { width: 1400, height: 900 }, timeout: ms(20_000) })
-    for (const id of [OLD_A, OLD_B, KEPT, FRESH, LIVE]) await expect(nodeOf(window, id)).toBeVisible({ timeout: ms(20_000) })
+    for (const id of [OLD_A, OLD_B, KEPT, FRESH, LIVE, PRODUCT]) await expect(nodeOf(window, id)).toBeVisible({ timeout: ms(20_000) })
     await expect(nodeOf(window, KEPT).getByTestId('session-node-keep')).toHaveAttribute('aria-pressed', 'true')
     await expect(nodeOf(window, FRESH).getByTestId('session-node-keep')).toHaveAttribute('aria-pressed', 'false')
+    // Archive on a Node: inactive while its Session runs, saying why.
+    await expect(nodeOf(window, LIVE).getByTestId('session-node-archive')).toBeDisabled()
+    await expect(nodeOf(window, LIVE).getByTestId('session-node-archive')).toHaveAttribute('title', /still runs/)
 
     // Settings → Canvas: «Never» as chosen, the switch's default, the five thresholds, a snapshot in both themes. The timer runs meanwhile.
     let dialog = await openCanvasSettings(launched)
     const threshold = dialog.getByRole('combobox', { name: 'Archive finished sessions after' })
     await expect(threshold).toContainText('Never')
+    await expect(dialog.getByTestId('settings-archive-after-row')).toContainText('A Product Session never leaves by itself')
     await expect(dialog.getByRole('switch', { name: '…and when their Ticket is done' })).toHaveAttribute('aria-checked', 'true')
     await threshold.click()
     await expect(window.getByRole('listbox', { name: 'Archive finished sessions after' }).getByRole('option')).toHaveText(['Never', '6 h', '24 h', '3 days', '7 days'])
@@ -206,6 +217,23 @@ test('«Never» archives nothing on a fast timer; Settings → Canvas offers the
     await closeSettings(window)
     await expect.poll(() => archivedIds(window), { timeout: ms(15_000) }).toEqual([`session:${LIVE}`])
     await expect(nodeOf(window, LIVE)).toHaveCount(0)
+    await expect(nodeOf(window, PRODUCT)).toBeVisible()
+
+    // PRODUCT's own Archive: off the Canvas, into the Archive; Restore brings it back, and the timer leaves it.
+    const archiveAction = nodeOf(window, PRODUCT).getByTestId('session-node-archive')
+    await expect(archiveAction).toBeEnabled()
+    await archiveAction.click()
+    await expect.poll(() => archivedIds(window)).toEqual([`session:${LIVE}`, `session:${PRODUCT}`])
+    await expect(nodeOf(window, PRODUCT)).toHaveCount(0)
+    await window.getByTestId('archive-button').click()
+    const popover = window.getByRole('dialog', { name: 'Archive' })
+    await expect(popover.getByTestId('archive-row')).toHaveCount(2)
+    await popover.getByTestId('archive-row').filter({ hasText: 'Plan the roadmap' }).getByRole('button', { name: /^Restore / }).click()
+    await expect.poll(() => archivedIds(window)).toEqual([`session:${LIVE}`])
+    await expect(nodeOf(window, PRODUCT)).toBeVisible()
+    const restored = Date.now()
+    await expect.poll(() => Date.now() - restored, { timeout: ms(10_000) }).toBeGreaterThan(4 * TICK_MS)
+    expect(await archivedIds(window)).toEqual([`session:${LIVE}`])
   } finally {
     await launched.close()
   }

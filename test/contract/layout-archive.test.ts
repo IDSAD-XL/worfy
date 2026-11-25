@@ -1017,6 +1017,32 @@ describe('a Product Session leaves the Canvas only by the user (worfy-product-se
     expect(await archiver().run({ id: PROJECT, path: repo })).toBe(0)
     expect(isArchived(nodeOf('session:p')!)).toBe(false)
   })
+
+  it('Archive on a Session Node (archiveSessionNode) archives that Node alone, as one step of ⌘Z; a live Session is refused with the reason', async () => {
+    const { historyOf, resetHistories } = await import('../../src/renderer/canvas/history')
+    const { archiveSessionNode } = await import('../../src/renderer/canvas/archive-node')
+    resetHistories()
+    appArchiver()
+    apply(productNode('p'))
+    apply(sessionNode('w', 400, 0))
+    apply(sessionNode('live', 800, 0))
+    world.history = transcripts(['p', HOUR], ['w', HOUR], ['live', HOUR])
+
+    expect(await archiveSessionNode(PROJECT, 'session:p', ipcChannel())).toBeUndefined()
+    expect(nodes().filter(isArchived).map((node) => node.id)).toEqual(['session:p'])
+    expect(historyOf(PROJECT).size).toBe(1)
+    expect(await historyOf(PROJECT).undo()).toBe(true)
+    expect(nodes().filter(isArchived)).toEqual([])
+    expect(nodeOf('session:p')).toMatchObject({ x: 0, y: 0 })
+
+    // A plain Session, fresh: the user's Archive does not wait for the threshold.
+    expect(await archiveSessionNode(PROJECT, 'session:w', ipcChannel())).toBeUndefined()
+    expect(nodes().filter(isArchived).map((node) => node.id)).toEqual(['session:w'])
+
+    world.live = () => Promise.resolve([{ sessionId: 'live', status: 'busy' }])
+    expect(await archiveSessionNode(PROJECT, 'session:live', ipcChannel())).toMatch(/nothing to archive/)
+    expect(isArchived(nodeOf('session:live')!)).toBe(false)
+  })
 })
 
 /** The layout.archived events window `window` got. */

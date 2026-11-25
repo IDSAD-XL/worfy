@@ -166,8 +166,8 @@ outline in the topic folder, and write an Epic draft with `worfy:to-spec` into `
 
 **Saving.** A Product Session's files are new or changed files in the Project's working tree until someone commits them,
 and the Product Session never does. Three events give the save signal: the owner says "save" and the agent calls
-`product_save`, the user closes the Node, or the user archives the Node. The automatic archive never takes a Product
-Session's Node, at any threshold of Settings → Canvas.
+`product_save`, the user closes the Node, or the user archives the Node with Archive in its header. The automatic
+archive never takes a Product Session's Node, at any threshold of Settings → Canvas.
 
 | Situation | What happens | `product_save` answers |
 |---|---|---|

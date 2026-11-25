@@ -31,13 +31,14 @@
 // - «Archive finished sessions now» (point 9) asks main for the candidates of one Project
 //   (AutoArchiver.candidatesNow, channel `layout.archiveCandidates`) by the same rule, with 24 h
 //   under «Never»; the screen archives them itself, as one step of its undo history.
-// - Every `archive` that comes over IPC — that command, its redo, the undo of a Restore — goes
+// - Every `archive` that comes over IPC — that command, Archive on a Session Node, a redo, the undo of a Restore — goes
 //   through archiveFromScreen(): main drops the Nodes the rule never takes as they are at the write
 //   (Keep, pinned, a live Session), so no screen archives a kept or running Session (points 2 and 6).
 // - A Product Session's Node (isProductSessionNode) leaves the Canvas only by the user: the rule never
 //   takes it — not the timer at any threshold, not the ticket-done rule, not «Archive finished sessions
-//   now» — and starts no clock for it. A screen's own `archive` of it (the undo of a Restore) still
-//   goes through, and Restore brings it back (worfy-product-session ticket 37; ADR-0076, Amendments).
+//   now» — and starts no clock for it. Archive on its Node (src/renderer/canvas/archive-node.ts,
+//   archiveSessionNode) and the undo of a Restore archive it through archiveFromScreen, and Restore
+//   brings it back (worfy-product-session ticket 37; ADR-0076, Amendments).
 import { resolve } from 'node:path'
 import type { AgentSignals, BindingTarget, BindingWorkflow } from '../../shared/binding/resolve'
 import { resolveBinding } from '../../shared/binding/resolve'
@@ -368,8 +369,8 @@ export class AutoArchiver {
   }
 
   /**
-   * An `archive` a screen sent over IPC («Archive finished sessions now», its redo, the undo of a
-   * Restore): the live Sessions are read again, then, with no wait before the write, the Nodes the
+   * An `archive` a screen sent over IPC («Archive finished sessions now», Archive on a Session Node,
+   * a redo, the undo of a Restore): the live Sessions are read again, then, with no wait before the write, the Nodes the
    * rule never takes are dropped — not a Session Node, already archived, pinned, with Keep, or
    * naming a Session that is live now (by the registry or run by worfy). The touch rule does not
    * apply: the user asks for these Nodes — a Product Session's too, which the rule itself never

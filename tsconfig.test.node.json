@@ -19,6 +19,7 @@
     "src/renderer/canvas/arrange-by-epic.ts",
     "src/renderer/canvas/tidy-items.ts",
     "src/renderer/canvas/archive-list.ts",
+    "src/renderer/canvas/archive-node.ts",
     "src/renderer/canvas/layout-ops.ts",
     "src/renderer/canvas/show-ops.ts",
     "src/renderer/focus/split-tree.ts",

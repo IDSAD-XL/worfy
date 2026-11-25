@@ -36,6 +36,23 @@ Product Session, простоявшая дольше порога «Archive fini
   Product Session автоматическим.
 - Test-ы: `test/unit/archive-rule.test.ts`, `test/contract/layout-archive.test.ts`.
 
+Добавлено по решению Orchestrator-а (2026-11-25, PR #2194): слова владельца «пока пользователь сам ее не кинет в архив»
+значат, что у пользователя должно быть действие Archive на Node.
+
+- `src/renderer/canvas/nodes/SessionNode.tsx` — кнопка Archive в шапке каждого Session Node (рядом с Keep, Hide, Remove:
+  своего контекстного меню у Session Node нет). Неактивна с причиной в tooltip, пока Session работает или ещё не
+  начиналась; на read-only экране — как прочие действия записи.
+- `src/renderer/canvas/archive-node.ts` (новый; в `tsconfig.test.node.json`, чтобы его грузил contract test) —
+  `archiveSessionNode`: `archive` одного Node-а с экрана через `applyRecorded` (шаг ⌘Z), main проверяет его в
+  `archiveFromScreen` и не берёт Node с Keep или закреплённый — кнопка тогда неактивна. Правило в записи — `idle`:
+  новое значение старый worfy не прочитал бы и начал бы с пустого Layout-а.
+- `src/renderer/settings/CanvasSection.tsx` — подсказка под порогом: Product Session сама не уходит, её архивирует Archive
+  на её Node.
+- Строки «Archive session» в Command palette нет: у palette нет строк для выбранного Node-а. Toast-а нет: toast архива —
+  про партии таймера с Undo мимо ⌘Z, а Archive на Node отменяет ⌘Z.
+- Test-ы: `test/unit/session-node-product.test.tsx`, `test/unit/settings-canvas.test.tsx`,
+  `test/contract/layout-archive.test.ts`, `test/e2e/session-archive.spec.ts`.
+
 ## Готово, когда
 
 - [ ] archiveCandidates никогда не возвращает Node Product Session — при любом пороге, при правиле ticket-done и в
@@ -46,8 +63,15 @@ Product Session, простоявшая дольше порога «Archive fini
 - [ ] Комментарий в `archive.ts`, ADR-0076 Amendment (дата 2026-11-25, одна-две фразы) и страница `docs/features`,
   которая описывает автоархив (en и ru), говорят, что Product Session не уходит в архив сама.
   - evidence: commit pass · worfy-product-session/37: the automatic archive never takes a Product Session · - - · 98c52342d
+- [ ] Кнопка Archive в шапке Session Node (любого, не только Product Session) отправляет в архив этот Node одним шагом ⌘Z
+  через `archive` с экрана; пока Session работает или ещё не начиналась, кнопка неактивна и tooltip говорит почему.
+  Unit и contract test-ы красные на origin/main; e2e `test/e2e/session-archive.spec.ts`: Archive на Product Session
+  убирает её с Canvas, Restore в Archive возвращает, таймер её не берёт.
+- [ ] Settings → Canvas под порогом «Archive finished sessions after» говорит, что Product Session сама в архив не уходит;
+  unit test.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 98c52342d
   - evidence: gate pass · `gate fast` exit 0 · mac - · 98c52342d
-- [ ] (вручную) На Mac Stable Product Session, простоявшая дольше порога, остаётся на Canvas.
+- [ ] (вручную) На Mac Stable Product Session, простоявшая дольше порога, остаётся на Canvas; Archive в её меню убирает
+  её в архив.
   - needs: mac stable
