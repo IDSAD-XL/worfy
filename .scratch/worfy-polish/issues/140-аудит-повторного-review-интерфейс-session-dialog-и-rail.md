@@ -44,15 +44,21 @@ renderer и все ещё в коде на main 3c9c06e8c:
 
 - [ ] 70: unit test `test/unit/contrast.test.ts` — цвет правила «not sent» в `session.css` читается на `--bg` и
       `--surface` с контрастом не ниже 4.5:1 в обеих темах. Красный на origin/main.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/contrast.test.ts` exit 0 (120 passed), exit 1 on origin/main source (4 failed: --danger-text contrast 1.0-1.08) · mac - · 749675fe1bbd50c8ee08b68f1edd19ab94fcf39d
 - [ ] 141: unit test `test/unit/kit-dialog.test.tsx` — первое окно, закрытое под вторым, оставляет focus во втором;
       окно, закрытое одно, возвращает focus открывшему. Красный на origin/main.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/kit-dialog.test.tsx` exit 0 (24 passed), exit 1 on origin/main source (focus went to the opener); mutant without the closing-window check exit 1 (3 failed) · mac - · 749675fe1bbd50c8ee08b68f1edd19ab94fcf39d
 - [ ] 189: unit test `test/unit/composer-popovers.test.tsx` — список Queued закрывается, когда очередь пустеет; следующее
       сообщение показывает chip, не список, focus остаётся в поле ввода. Красный на origin/main.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/composer-popovers.test.tsx` exit 0 (7 passed), exit 1 on origin/main source (the list reopened, aria-expanded true) · mac - · 749675fe1bbd50c8ee08b68f1edd19ab94fcf39d
 - [ ] 187: unit test `test/unit/quote-comments-ui.test.tsx` — после замены обрезанной цитаты полной появляется
       «Show all». Красный на origin/main.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/quote-comments-ui.test.tsx` exit 0 (47 passed), exit 1 on origin/main source (no Show all after the whole quote replaced the cut one) · mac - · 749675fe1bbd50c8ee08b68f1edd19ab94fcf39d
 - [ ] 133: unit test `test/unit/pipeline-board.test.tsx` — точка rail считает только Ticket-ы, которые ждут человека;
       `docs/features/workflow.md` говорит то же. Красный на origin/main.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pipeline-board.test.tsx` exit 0 (42 passed), exit 1 on origin/main source (the dot counted 4 Tickets, not 2) · mac - · 749675fe1bbd50c8ee08b68f1edd19ab94fcf39d
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (914 files, 20690 tests passed) · mac - · 749675fe1bbd50c8ee08b68f1edd19ab94fcf39d
 
 ## Где в коде
 
