@@ -337,7 +337,8 @@ Implementing, CI, Agent review, Gate & merge, Closing, Done.
   three at most and the rest counted.
 - **The Pipeline section of the sidebar:** the Tickets of every Project of the window's Machine that are neither on Queued
   nor on Done; of the active Project alone while the sidebar's Project switcher is on one Project. Its rail icon has a dot
-  while one of them is blocked or waits for a person (the owner, the team, a named one), not while it waits for an agent. A click opens the board of that Project. With no such Ticket it says "Nothing in work".
+  while one of them is blocked or waits for a person (the owner, the team, a named one), not while it waits for an agent.
+  A click opens the board of that Project. With no such Ticket it says "Nothing in work".
 
 **The rule.** The Stages go in Pipeline order, and a Ticket stands on the first one not passed. Status `done` passes every
 Stage but Done, and a merged PR passes every Stage up to and including the merge. A Ticket that is `open` or has no status
