@@ -456,7 +456,9 @@ export interface WorfyAppRequest {
  */
 export async function worfyAppForSession(request: WorfyAppRequest, deps?: WorfyAppDeps): Promise<{ server: ClaudeMcpServer; instructions: string }> {
   const base = deps ?? (await appWorfyAppDeps())
-  return { server: await claudeMcpServer(worfyAppServer({ ...base, sessionId: () => request.sessionId })), instructions: worfyAppInstructions(base.guideLanguage()) }
+  // The Session's language, taken once: its rules and its tools' pages stay in it, whatever the Guide switches to.
+  const language = base.guideLanguage()
+  return { server: await claudeMcpServer(worfyAppServer({ ...base, sessionId: () => request.sessionId, guideLanguage: () => language })), instructions: worfyAppInstructions(language) }
 }
 
 /**

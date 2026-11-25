@@ -114,7 +114,7 @@ const PAGES = [
   { name: 'epic-frames', language: 'ru', text: '# Epic frames\n\n> Перевод английской версии.\n\n## Epic frame\n\nРамка держит Ticket-ы Epic-а.\n\n## Done shelf\n\nПолка готового хранит Ticket-ы, которые сделаны.\n' },
   { name: 'gate-and-github', language: 'en', text: '# Gate and GitHub\n\n## The gate\n\nThe gate runs lint, typecheck and the tests.\n\n## CI badges\n\nA badge shows the CI of a PR.\n' },
   { name: 'gate-and-github', language: 'ru', text: '# Gate и GitHub\n\n## Gate\n\nGate запускает lint, typecheck и test-ы.\n\n## Значки CI\n\nЗначок показывает CI PR-а.\n' },
-  { name: 'autopilot', language: 'en', text: '# Autopilot\n\nAutopilot runs the Waves of an Epic and waits for the gate of each Ticket.\n' },
+  { name: 'autopilot', language: 'en', text: '# Autopilot\n\nAutopilot runs the Waves of an Epic.\n\n## The gate of a Ticket\n\nAutopilot waits for it. The end of a Wave is a gate too: no gate of an Epic is skipped.\n\n## Stop\n\nIt stops at the gate.\n' },
   { name: 'long-page', language: 'en', text: `# Long page\n\n## First\n\n${'word '.repeat(PAGE_MAX / 5)}\n\n## Second\n\nThe end of the long page.\n` },
 ] as const
 
@@ -667,7 +667,10 @@ describe('worfy-app: help about worfy, from the feature pages of the build', () 
       results: [{ page: 'epic-frames', language: 'ru', title: 'Epic frames', path: 'docs/features/ru/epic-frames.md', url: 'https://github.com/IDSAD-XL/worfy/blob/0a1b2c3d/docs/features/ru/epic-frames.md', sections: ['Done shelf'] }],
     })
     // A word of the English page finds the page too: the answer is its translation.
-    expect(json<{ results: Hit[] }>(await rpc.call('features_search', { query: 'badge' })).results.map((hit) => [hit.page, hit.path])).toEqual([['gate-and-github', 'docs/features/ru/gate-and-github.md']])
+    // The sections are named as the Russian page names them: the same place in its outline.
+    expect(json<{ results: Hit[] }>(await rpc.call('features_search', { query: 'badge' })).results.map((hit) => [hit.page, hit.path, hit.sections])).toEqual([['gate-and-github', 'docs/features/ru/gate-and-github.md', ['Значки CI']]])
+    // A section named as the English page names it reads the same section of the translation.
+    expect(json<Page>(await rpc.call('features_read', { page: 'gate-and-github', section: 'CI badges' }))).toMatchObject({ language: 'ru', section: 'Значки CI', text: '## Значки CI\n\nЗначок показывает CI PR-а.\n' })
     const page = json<Page>(await rpc.call('features_read', { page: 'gate-and-github' }))
     expect(page).toMatchObject({ language: 'ru', guideLanguage: 'ru', title: 'Gate и GitHub', path: 'docs/features/ru/gate-and-github.md', guideTopics: [{ id: 'gate-and-github', title: 'Gate и GitHub' }] })
     expect(page.text).toBe(PAGES[4].text)
@@ -677,7 +680,7 @@ describe('worfy-app: help about worfy, from the feature pages of the build', () 
 
   it('carries no secret of a page', async () => {
     const { rpc } = await world()
-    for (const result of [await rpc.call('features_read', { page: 'epic-frames' }), await rpc.call('features_search', { query: 'token' })]) {
+    for (const result of [await rpc.call('features_read', { page: 'epic-frames' }), await rpc.call('features_search', { query: 'Done shelf' })]) {
       for (const secret of SECRETS) expect(textOf(result)).not.toContain(secret)
     }
   })
@@ -692,6 +695,27 @@ describe('worfy-app: help about worfy, from the feature pages of the build', () 
     expect(russian).toMatch(/Speak Russian/)
     expect((await w.app.worfyAppForSession({ sessionId: 'assistant-session' }, { ...w.deps, guideLanguage: () => 'en' as const })).instructions).toMatch(/Speak English/)
     expect(w.app.worfyAppInstructions()).toMatch(/Speak English/)
+  })
+
+  it('a word mentioned once in passing is not what a page is about; every word of a question in one section is', async () => {
+    const { rpc } = await world()
+    // «token» is said once, in the body of a section about something else.
+    expect(json<{ results: Hit[] }>(await rpc.call('features_search', { query: 'token' })).results).toEqual([])
+    // «holds» and «read-only» are both on the page, in two different sections: no section is about both.
+    expect(json<{ results: Hit[] }>(await rpc.call('features_search', { query: 'holds read-only' })).results).toEqual([])
+    expect(json<{ results: Hit[] }>(await rpc.call('features_search', { query: 'shelf linked machine' })).results.map((hit) => [hit.page, hit.sections])).toEqual([['epic-frames', ['On a Linked machine']]])
+  })
+
+  it('keeps the language of the Session it was given, for the rules and the pages alike', async () => {
+    const w = await world()
+    let chosen: 'en' | 'ru' = 'ru'
+    const found = await w.app.worfyAppForSession({ sessionId: 'assistant-session' }, { ...w.deps, guideLanguage: () => chosen })
+    expect(found.instructions).toMatch(/Speak Russian/)
+    // The person switches the Guide to EN in the middle of the Session: its tools still answer in Russian.
+    chosen = 'en'
+    const rpc = await connectTo(found.server as unknown as ServerConfig)
+    expect(json(await rpc.call('features_read', { page: 'epic-frames' }))).toMatchObject({ language: 'ru', guideLanguage: 'ru', path: 'docs/features/ru/epic-frames.md' })
+    expect(json(await rpc.call('features_search', { query: 'Done shelf' }))).toMatchObject({ guideLanguage: 'ru' })
   })
 })
 

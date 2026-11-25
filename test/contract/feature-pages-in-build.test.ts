@@ -84,4 +84,23 @@ describe('the feature pages in the packaged build', () => {
       expect(searchFeaturePages(files, 'espresso descaling', 5, options)).toEqual([])
     }
   })
+
+  it('finds the page a question is about, in English and in Russian, with the Cyrillic yo or ye', async () => {
+    const { readFeaturePages, searchFeaturePages } = await import('../../src/main/assistant/help/feature-pages')
+    const files = await readFeaturePages(join(REPO, 'docs', 'features'))
+    const pages = (query: string, language: 'en' | 'ru'): string[] => searchFeaturePages(files, query, 5, { language, version: null }).map((hit) => hit.page)
+    expect(pages('dark theme', 'en')).toContain('app-shell')
+    // The Russian page writes the dark theme with the letter yo; a question typed with ye, and a short word in another
+    // case, find it.
+    expect(pages('темная тема', 'ru')).toContain('app-shell')
+    expect(pages('тёмная тема', 'ru')).toContain('app-shell')
+  })
+
+  // Questions about what worfy does not have. Each word of them is somewhere in the pages — «a team's voice», «input»,
+  // «spelling», «dark», «mode», «an emoji» — but no section is about it: an answer would be another feature's page.
+  it.each(['voice input', 'spell check', 'dark mode', 'emoji'])('a search over the real pages for %s answers empty', async (query) => {
+    const { readFeaturePages, searchFeaturePages } = await import('../../src/main/assistant/help/feature-pages')
+    const files = await readFeaturePages(join(REPO, 'docs', 'features'))
+    for (const language of ['en', 'ru'] as const) expect(searchFeaturePages(files, query, 5, { language, version: null }).map((hit) => hit.page)).toEqual([])
+  })
 })
