@@ -2,19 +2,21 @@
 // the rules of each Project's settings, and the rules of the Projects armed from the Sessions' events and the items the
 // attention core takes; the check of the CI of the main branches (ticket 21) in the scheduler of checks while its duty
 // is enabled. startAttentionCore (src/main/assistant/core/app.ts) starts them with the core.
+import { checkSettingsOf } from '../../../shared/assistant/schedule/settings'
 import { sharedRegistry } from '../../agent/app-registry'
 import { appNow } from '../../clock'
 import { remoteRepos } from '../../github/inbox'
 import { sharedPrTracker } from '../../ipc/checks'
 import { readProjectAssistantRules } from '../../projects/settings'
 import { projectStore } from '../../projects/store'
+import { appSettingsStore } from '../../settings/store'
 import { dataRoot } from '../../storage/paths'
 import { projectLayouts } from '../../workflow/folder'
 import type { AttentionCore } from '../core/attention-core'
 import { projectOfPath } from '../core/sources'
 import { checkScheduler } from '../schedule/app'
 import { Duties } from './duties'
-import { followMainCiDuty, MAIN_CI_DUTY, mainCiCheck } from './main-ci-check'
+import { followMainCiDuty, MAIN_CI_DUTY, MAIN_CI_KIND, mainCiCheck } from './main-ci-check'
 import { assistantMemoryPath, memoryFileStore } from './memory'
 import { projectRuleAttention } from './rules'
 
@@ -42,7 +44,7 @@ async function repoFolders(root: string): Promise<string[]> {
  * enabled. gh goes through the app's PR tracker, as the account the Project's PR badges are read with.
  */
 function startMainCiCheck(core: AttentionCore, duties: Duties): () => void {
-  const run = mainCiCheck({
+  const check = mainCiCheck({
     projects: () => projectStore().list().map((project) => ({ id: project.id, root: project.path })),
     repos: async (root) => remoteRepos(await repoFolders(root)),
     gh: (root, args) => sharedPrTracker().gh(root, args),
@@ -50,7 +52,15 @@ function startMainCiCheck(core: AttentionCore, duties: Duties): () => void {
     thresholdMs: () => duties.thresholdMs(MAIN_CI_DUTY),
     now: appNow,
   })
-  return followMainCiDuty(checkScheduler(), duties, run)
+  const settings = appSettingsStore()
+  const setting = {
+    enabled: () => checkSettingsOf(settings.get(), MAIN_CI_KIND).enabled,
+    onChange: (listener: () => void) => {
+      settings.on('changed', listener)
+      return () => void settings.off('changed', listener)
+    },
+  }
+  return followMainCiDuty(checkScheduler(), duties, check, setting)
 }
 
 /** Arms the rules of the Projects and the check of the main branches' CI over `core`; answers the function that stops it. */

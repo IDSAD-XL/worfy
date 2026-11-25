@@ -14,7 +14,8 @@ import { assistantMemoryPath, memoryFileStore } from '../../src/main/assistant/d
 import { CheckScheduler, memoryCheckMarks, type CheckRun } from '../../src/main/assistant/schedule/scheduler'
 import { MAIN_CI_HISTORY, readMainBranchCi } from '../../src/main/github/main-ci'
 import { removeTree } from '../../src/main/storage/remove'
-import { ASSISTANT_CHECK_DEFAULTS, type AssistantScheduleSettings, type CheckKind } from '../../src/shared/assistant/schedule/settings'
+import { ASSISTANT_CHECK_DEFAULTS, SOURCE_CHECK_KINDS, type AssistantScheduleSettings, type CheckKind } from '../../src/shared/assistant/schedule/settings'
+import { ATTENTION_SOURCES, attentionSourceSchema } from '../../src/shared/assistant/attention'
 
 const temp = mkdtempSync(join(tmpdir(), 'worfy-main-ci-'))
 afterAll(() => removeTree(temp))
@@ -47,7 +48,7 @@ function world(start = '2026-11-25T09:58:00Z') {
 function check(w: ReturnType<typeof world>, answer: () => Promise<string>, options: Partial<MainCiCheckOptions> = {}) {
   const calls: { root: string; args: readonly string[] }[] = []
   const logged: string[] = []
-  const run = mainCiCheck({
+  const made = mainCiCheck({
     projects: () => [{ id: PROJECT, root: ROOT }],
     repos: async () => ['acme/app'],
     gh: async (root, args) => {
@@ -59,9 +60,29 @@ function check(w: ReturnType<typeof world>, answer: () => Promise<string>, optio
     log: (message) => void logged.push(message),
     ...options,
   })
-  const go = (): Promise<void> => run({ kind: MAIN_CI_KIND, since: null, now: w.now() })
-  return { go, calls, logged }
+  const go = (): ReturnType<CheckRun> => made.run({ kind: MAIN_CI_KIND, since: null, now: w.now() })
+  return { go, calls, logged, check: made }
 }
+
+type Check = { name: string; status?: string; conclusion?: string | null; completedAt?: string | null } | { context: string; state: string; createdAt?: string }
+
+/** A commit of the history as gh gives it: its checks (none: CI skipped it) and the PR merged as it. */
+function commit(oid: string, checks: readonly Check[] | null, pr?: { number: number; title: string }): Record<string, unknown> {
+  return {
+    oid,
+    committedDate: '2026-11-25T08:00:00Z',
+    statusCheckRollup: checks === null ? null : { contexts: { nodes: checks.map((each) => ('context' in each ? { __typename: 'StatusContext', ...each } : { __typename: 'CheckRun', status: 'COMPLETED', ...each })) } },
+    associatedPullRequests: { nodes: pr === undefined ? [] : [{ ...pr, state: 'MERGED', baseRefName: 'main', mergeCommit: { oid } }] },
+  }
+}
+
+/** A gh answer with the history `nodes`, newest first. */
+const history = (...nodes: Record<string, unknown>[]): string => JSON.stringify({ data: { repository: { defaultBranchRef: { name: 'main', target: { history: { nodes } } } } } })
+
+const passed = (name = 'test'): Check => ({ name, conclusion: 'SUCCESS', completedAt: '2026-11-25T08:10:00Z' })
+const failed = (at: string, name = 'test'): Check => ({ name, conclusion: 'FAILURE', completedAt: at })
+const cancelled = (name = 'test'): Check => ({ name, conclusion: 'CANCELLED', completedAt: '2026-11-25T09:05:00Z' })
+const running = (name = 'test'): Check => ({ name, status: 'IN_PROGRESS', conclusion: null, completedAt: null })
 
 describe('the read of the main branch from a recorded gh answer', () => {
   it('a red branch gives its first red commit, when it went red and the PR merged as that commit', async () => {
@@ -106,6 +127,150 @@ describe('the read of the main branch from a recorded gh answer', () => {
       data.data.repository.defaultBranchRef = null
     })
     expect(await readMainBranchCi(async () => empty, 'acme/app')).toBeNull()
+  })
+})
+
+describe('a run cancelled by a newer one, and the agents’ marks', () => {
+  const read = (answer: string) => readMainBranchCi(async () => answer, 'acme/app')
+
+  it('a commit whose only failures are cancelled runs says nothing: the commit before it decides', async () => {
+    // green c0 → c1 cancelled by c2 (concurrency: cancel-in-progress) → c2 still running: green, not «red since PR #10».
+    expect(await read(history(commit('c2', [running()]), commit('c1', [passed('lint'), cancelled()], { number: 10, title: 'Add the parser' }), commit('c0', [passed()])))).toEqual({
+      repo: 'acme/app',
+      branch: 'main',
+      state: 'green',
+    })
+    // Only cancelled runs among the newest: nothing to say yet.
+    expect(await read(history(commit('c1', [cancelled()]), commit('c0', [cancelled()])))).toBeNull()
+  })
+
+  it('a cancelled commit inside a red run neither ends it nor starts it; a real failure beside a cancelled run is red', async () => {
+    const answer = history(
+      commit('c3', [cancelled()]),
+      commit('c2', [failed('2026-11-25T09:40:00Z')], { number: 11, title: 'Rename' }),
+      commit('c1', [failed('2026-11-25T09:20:00Z'), cancelled('lint')], { number: 10, title: 'Add the parser' }),
+      commit('c0', [passed()]),
+    )
+    expect(await read(answer)).toMatchObject({ state: 'red', commit: 'c1', redSince: Date.parse('2026-11-25T09:20:00Z'), pr: { number: 10 } })
+  })
+
+  it('the time the branch went red leaves the agents’ marks out: a failed `check/windows` or `review` before the CI failure does not count', async () => {
+    const answer = history(
+      commit('c1', [failed('2026-11-25T09:20:00Z'), { context: 'check/windows', state: 'FAILURE', createdAt: '2026-11-25T09:01:00Z' }, { context: 'review', state: 'FAILURE', createdAt: '2026-11-25T09:02:00Z' }]),
+      commit('c0', [passed()]),
+    )
+    expect(await read(answer)).toMatchObject({ state: 'red', commit: 'c1', redSince: Date.parse('2026-11-25T09:20:00Z') })
+  })
+})
+
+describe('the sources of the attention core', () => {
+  it('main-ci is a kind of check, not a source of items: its items come from `ci`', () => {
+    expect(ATTENTION_SOURCES).toContain('ci')
+    expect(ATTENTION_SOURCES).not.toContain('main-ci')
+    expect(attentionSourceSchema.safeParse('main-ci').success).toBe(false)
+    for (const kind of SOURCE_CHECK_KINDS) expect(ATTENTION_SOURCES).toContain(kind)
+  })
+})
+
+describe('a red condition without later reads', () => {
+  it('a failed read disarms the pending red condition; the next red read arms it again for the same moment', async () => {
+    const w = world()
+    w.duties.configure('main-ci-red', { thresholdMinutes: 45 })
+    let fail = false
+    const { go } = check(w, async () => {
+      if (fail) throw new Error('HTTP 502: Bad Gateway')
+      return fixture('red')
+    })
+    await go()
+    fail = true
+    await go()
+    // Due at 10:05 by the first read; the failed read left nothing armed.
+    w.add(10 * MIN)
+    w.core.tick()
+    expect(w.shown()).toEqual([])
+    fail = false
+    await go()
+    w.core.tick()
+    expect(w.shown().map((each) => each.item.pr?.number)).toEqual([10])
+  })
+
+  it('a failed read keeps an item already raised: only the pending condition goes', async () => {
+    const w = world()
+    let fail = false
+    const { go } = check(w, async () => {
+      if (fail) throw new Error('HTTP 502: Bad Gateway')
+      return fixture('red')
+    })
+    await go()
+    w.core.tick()
+    expect(w.shown()).toHaveLength(1)
+    fail = true
+    await go()
+    w.core.tick()
+    expect(w.shown()).toHaveLength(1)
+  })
+
+  it('a disarm while a run still reads: what the run armed before goes, and what it reads after arms nothing', async () => {
+    const w = world()
+    const pending: ((answer: string) => void)[] = []
+    const { go, check: made, calls } = check(
+      w,
+      async () => {
+        if (calls.length === 1) return fixture('red')
+        return new Promise<string>((resolve) => void pending.push(resolve))
+      },
+      { repos: async () => ['acme/app', 'acme/lib', 'acme/tool'] },
+    )
+    const reading = go()
+    await vi.waitFor(() => expect(calls).toHaveLength(2))
+    made.disarm()
+    pending[0]!(fixture('red'))
+    // The read of acme/lib, answered after the disarm, arms nothing even for a moment: a tick now raises nothing.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    w.core.tick()
+    expect(w.core.items(PROJECT)).toEqual([])
+    for (const answer of pending.slice(1)) answer(fixture('red'))
+    await reading
+    expect(calls).toHaveLength(2)
+    w.add(24 * 60 * MIN)
+    w.core.tick()
+    expect(w.core.items(PROJECT)).toEqual([])
+  })
+
+  it('a repository gone from the Project: its pending red condition goes with the next run', async () => {
+    const w = world()
+    w.duties.configure('main-ci-red', { thresholdMinutes: 45 })
+    let repos = ['acme/app']
+    const { go } = check(w, async () => fixture('red'), { repos: async () => repos })
+    await go()
+    repos = []
+    await go()
+    w.add(24 * 60 * MIN)
+    w.core.tick()
+    expect(w.core.items(PROJECT)).toEqual([])
+  })
+
+  it('disabling the duty, stopping, or turning the check off disarms what the check armed', async () => {
+    for (const how of ['duty', 'stop', 'setting'] as const) {
+      const w = world()
+      w.duties.configure('main-ci-red', { thresholdMinutes: 45 })
+      const { go, check: made } = check(w, async () => fixture('red'))
+      let on = true
+      const listeners = new Set<() => void>()
+      const setting = { enabled: () => on, onChange: (listener: () => void) => (listeners.add(listener), () => void listeners.delete(listener)) }
+      const stop = followMainCiDuty({ register: () => () => undefined }, w.duties, made, setting)
+      await go()
+      if (how === 'duty') w.duties.configure('main-ci-red', { enabled: false })
+      if (how === 'stop') stop()
+      if (how === 'setting') {
+        on = false
+        for (const listener of listeners) listener()
+      }
+      w.add(60 * MIN)
+      w.core.tick()
+      expect(w.core.items(PROJECT), how).toEqual([])
+      stop()
+    }
   })
 })
 
@@ -229,7 +394,7 @@ describe('the schedule of the check', () => {
         return () => void registered.splice(registered.indexOf(kind), 1)
       },
     }
-    const run: CheckRun = async () => undefined
+    const run = { run: (async () => undefined) satisfies CheckRun, disarm: () => undefined }
     const stop = followMainCiDuty(fake, w.duties, run)
     expect(registered).toEqual([MAIN_CI_KIND])
     w.duties.configure('main-ci-red', { enabled: false })

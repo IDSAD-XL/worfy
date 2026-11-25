@@ -6,13 +6,14 @@
 //
 // - The state of the branch is that of its newest settled commit: a commit whose checks still run, or that has none (a
 //   push CI skipped), says nothing, and the one before it decides. The agents' marks (`review`, `check/*`, `deploy`,
-//   MARK_CONTEXTS) are left out, as ciOf leaves them out for a PR.
+//   MARK_CONTEXTS) are left out, as ciOf leaves them out for a PR, from the state and from the time alike. A commit whose
+//   failures are all cancelled runs says nothing either: a run displaced by a newer one is not red (ADR-0068).
 // - A red run starts at the oldest red commit after the newest green one; it went red when the first of that commit's
 //   checks failed (its committer date when no check says).
 // - The PR of a commit is the one merged as it (its merge commit); else a merged PR into the branch that holds it (a
 //   rebase merge); none for a push without a PR.
 import { z } from 'zod'
-import { ciOf } from './prs'
+import { ciOf, isMark } from './prs'
 
 /** How many of the newest commits of the branch one read looks at. */
 export const MAIN_CI_HISTORY = 20
@@ -102,19 +103,35 @@ const MAIN_CI_QUERY = `query($owner: String!, $name: String!) {
 
 const FAILED = new Set(['FAILURE', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE', 'ERROR'])
 
-const checksOf = (commit: Commit) => (commit.statusCheckRollup?.contexts.nodes ?? []).filter((check) => check !== null)
+type Check = z.output<typeof checkSchema>
 
-/** A commit's CI: failing, passing, or null while it says nothing yet (checks running, or none). */
+/** A commit's CI checks: the agents' marks (commit statuses of MARK_CONTEXTS) left out, as ciOf leaves them out. */
+const checksOf = (commit: Commit): Check[] =>
+  (commit.statusCheckRollup?.contexts.nodes ?? []).filter((check): check is Check => check !== null && !(check.status == null && check.state != null && isMark(check.context)))
+
+/** A check run's conclusion or a commit status's state that fails. */
+const failureOf = (check: Check): string | null => {
+  const outcome = check.status == null && check.state != null ? check.state : check.conclusion
+  return outcome != null && FAILED.has(outcome) ? outcome : null
+}
+
+/**
+ * A commit's CI: failing, passing, or null while it says nothing yet — checks running, none, or failures that are all
+ * cancelled runs: a run displaced by a newer one (`concurrency: cancel-in-progress`) is not red (ADR-0068).
+ */
 function stateOf(commit: Commit): 'failing' | 'passing' | null {
-  const state = ciOf(checksOf(commit))
+  const checks = checksOf(commit)
+  const state = ciOf(checks)
+  if (state === 'failing' && checks.every((check) => (failureOf(check) ?? 'CANCELLED') === 'CANCELLED')) return null
   return state === 'failing' || state === 'passing' ? state : null
 }
 
-/** When the first check of a red commit failed; its committer date when no failed check gives a time. */
+/** When the first CI check of a red commit failed; its committer date when no failed check gives a time. */
 function failedAt(commit: Commit): number | null {
   const times = checksOf(commit).flatMap((check) => {
-    const failed = (check.conclusion != null && FAILED.has(check.conclusion)) || (check.status == null && check.state != null && FAILED.has(check.state))
-    const at = failed ? Date.parse(check.completedAt ?? check.createdAt ?? '') : Number.NaN
+    const failure = failureOf(check)
+    // A cancelled run beside a real failure is not when the branch went red.
+    const at = failure === null || failure === 'CANCELLED' ? Number.NaN : Date.parse(check.completedAt ?? check.createdAt ?? '')
     return Number.isNaN(at) ? [] : [at]
   })
   if (times.length > 0) return Math.min(...times)
