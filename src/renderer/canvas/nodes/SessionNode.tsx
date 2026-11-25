@@ -73,7 +73,7 @@ import type { CanvasNodeProps } from './index'
 //   its place (`sessions.resume`). Codex does not say whether the thread still runs in its terminal,
 //   so Resume of a thread worfy did not start asks first: «This Session may be open in a terminal».
 //
-// Every kind has Archive in its header (worfy-product-session ticket 37): the user's own archive of
+// Every kind has Archive on the line under its header (worfy-product-session ticket 37): the user's own archive of
 // the Node, inactive while its Session runs; a Product Session leaves the Canvas for the Archive only so.
 //
 // The registry (index.ts) needs the kind and size here as literals; `satisfies` fails the
@@ -129,6 +129,20 @@ const styles = {
   questionText: { flexBasis: '100%', whiteSpace: 'normal' },
   tools: { flex: 'none', display: 'flex', gap: 2 },
   tool: {
+    padding: '0 4px',
+    border: 0,
+    borderRadius: 'var(--radius-button)',
+    background: 'transparent',
+    color: 'var(--text-muted)',
+    font: 'inherit',
+    fontSize: 'var(--text-11)',
+  },
+  // Archive sits at the end of the line under the header, not in the header: there the chip and the
+  // other buttons leave the title no room for one more (a 300 px Codex Node, worfy-product-session
+  // ticket 37). The source on that line gives way instead.
+  archive: {
+    flex: 'none',
+    marginLeft: 'auto',
     padding: '0 4px',
     border: 0,
     borderRadius: 'var(--radius-button)',
@@ -288,7 +302,8 @@ function ArchiveButton({ projectId, id, blocked, readOnly, onProblem }: { projec
   return (
     <button
       type="button"
-      style={styles.tool}
+      className="nodrag"
+      style={styles.archive}
       data-testid="session-node-archive"
       disabled={blocked !== null}
       {...writeAction(readOnly, archive, blocked ?? 'Archive this Session: it leaves the Canvas, nothing is deleted; Restore in the Archive brings it back')}
@@ -531,13 +546,6 @@ function LiveSessionNode({
             </button>
           ) : null}
           <KeepButton id={id} keep={keep} readOnly={readOnly} />
-          <ArchiveButton
-            projectId={project.id}
-            id={id}
-            blocked={archiveBlock({ keep, pinned }, running ? 'Close the Session before archiving its Node' : saved === undefined ? 'Nothing to archive yet: the Session has not started' : null)}
-            readOnly={readOnly}
-            onProblem={setProblem}
-          />
           <button type="button" style={styles.tool} {...writeAction(readOnly, () => void ops.apply({ op: 'hide', id, hidden: true }), 'Hide the Node; the Session goes on')}>
             Hide
           </button>
@@ -564,6 +572,13 @@ function LiveSessionNode({
           <span className="w-mono" style={styles.source} data-testid="session-node-source" title={cwd}>
             worfy · {cwd}
           </span>
+            <ArchiveButton
+              projectId={project.id}
+              id={id}
+              blocked={archiveBlock({ keep, pinned }, running ? 'Close the Session before archiving its Node' : saved === undefined ? 'Nothing to archive yet: the Session has not started' : null)}
+              readOnly={readOnly}
+              onProblem={setProblem}
+            />
         </div>
         {answer !== null ? (
           <pre className="w-mono nodrag nowheel" style={styles.answer} data-testid="session-node-answer">
@@ -693,13 +708,6 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
         </span>
         <span className="nodrag" style={styles.tools}>
           <KeepButton id={id} keep={data.node.keep === true} readOnly={readOnly} />
-          <ArchiveButton
-            projectId={project.id}
-            id={id}
-            blocked={archiveBlock({ keep: data.node.keep === true, pinned: data.node.pinned === true }, session !== undefined ? 'The Session still runs; archive its Node once it ends' : null)}
-            readOnly={readOnly}
-            onProblem={setResumeProblem}
-          />
           <button type="button" style={styles.tool} {...writeAction(readOnly, () => void ops.apply({ op: 'hide', id, hidden: true }), `Hide the Node; ${leaves}`)}>
             Hide
           </button>
@@ -717,6 +725,13 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
           <span className="w-mono" style={styles.source} data-testid="session-node-source" title={sessionSourceLabel(info)}>
             {sessionSourceLabel(info)}
           </span>
+            <ArchiveButton
+              projectId={project.id}
+              id={id}
+              blocked={archiveBlock({ keep: data.node.keep === true, pinned: data.node.pinned === true }, session !== undefined ? 'The Session still runs; archive its Node once it ends' : null)}
+              readOnly={readOnly}
+              onProblem={setResumeProblem}
+            />
         </div>
         {codex && !asking ? (
           <div className="nodrag" style={styles.question}>

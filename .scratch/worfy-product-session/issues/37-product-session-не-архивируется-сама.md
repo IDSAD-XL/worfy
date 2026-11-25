@@ -39,9 +39,10 @@ Product Session, простоявшая дольше порога «Archive fini
 Добавлено по решению Orchestrator-а (2026-11-25, PR #2194): слова владельца «пока пользователь сам ее не кинет в архив»
 значат, что у пользователя должно быть действие Archive на Node.
 
-- `src/renderer/canvas/nodes/SessionNode.tsx` — кнопка Archive в шапке каждого Session Node (рядом с Keep, Hide, Remove:
-  своего контекстного меню у Session Node нет). Неактивна с причиной в tooltip, пока Session работает или ещё не
-  начиналась; на read-only экране — как прочие действия записи.
+- `src/renderer/canvas/nodes/SessionNode.tsx` — кнопка Archive у каждого Session Node, в конце строки под шапкой (своего
+  контекстного меню у Session Node нет; в шапке рядом с Keep, Hide, Remove она отнимала у заголовка всё место — CI
+  windows-e2e, `codex-sessions-on-canvas.spec.ts`, Node Codex шириной 300 px). Неактивна с причиной в tooltip, пока
+  Session работает или ещё не начиналась; на read-only экране — как прочие действия записи.
 - `src/renderer/canvas/archive-node.ts` (новый; в `tsconfig.test.node.json`, чтобы его грузил contract test) —
   `archiveSessionNode`: `archive` одного Node-а с экрана через `applyRecorded` (шаг ⌘Z), main проверяет его в
   `archiveFromScreen` и не берёт Node с Keep или закреплённый — кнопка тогда неактивна. Правило в записи — `idle`:
@@ -63,7 +64,7 @@ Product Session, простоявшая дольше порога «Archive fini
 - [ ] Комментарий в `archive.ts`, ADR-0076 Amendment (дата 2026-11-25, одна-две фразы) и страница `docs/features`,
   которая описывает автоархив (en и ru), говорят, что Product Session не уходит в архив сама.
   - evidence: commit pass · worfy-product-session/37: the automatic archive never takes a Product Session · - - · 98c52342d
-- [ ] Кнопка Archive в шапке Session Node (любого, не только Product Session) отправляет в архив этот Node одним шагом ⌘Z
+- [ ] Кнопка Archive под шапкой Session Node (любого, не только Product Session) отправляет в архив этот Node одним шагом ⌘Z
   через `archive` с экрана; пока Session работает или ещё не начиналась, кнопка неактивна и tooltip говорит почему.
   Unit и contract test-ы красные на origin/main; e2e `test/e2e/session-archive.spec.ts`: Archive на Product Session
   убирает её с Canvas, Restore в Archive возвращает, таймер её не берёт.

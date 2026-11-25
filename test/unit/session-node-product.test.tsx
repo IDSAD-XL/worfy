@@ -120,6 +120,8 @@ describe('Archive on a Session Node (worfy-product-session ticket 37)', () => {
     expect(archive.textContent).toBe('Archive')
     expect((archive as HTMLButtonElement).disabled).toBe(false)
     expect(archive.getAttribute('title')).toMatch(/nothing is deleted/)
+    // Not in the header beside the title: there it left a 300 px Node's title no room (CI windows-e2e of PR #2194).
+    expect(screen.getByTestId('session-node-title').parentElement!.contains(archive)).toBe(false)
     fireEvent.click(archive)
     await vi.waitFor(() => expect(applied).toHaveLength(1))
     expect(applied[0]).toMatchObject({ projectId: PROJECT.id, op: { op: 'archive', nodes: [{ id: NODE }] } })

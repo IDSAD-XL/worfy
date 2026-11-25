@@ -150,6 +150,13 @@ test('«Never» archives nothing on a fast timer; Settings → Canvas offers the
     await expect(window.getByTestId('canvas')).toHaveAttribute('data-project-id', PROJECT_ID)
     await canvasReady(launched, { size: { width: 1400, height: 900 }, timeout: ms(20_000) })
     for (const id of [OLD_A, OLD_B, KEPT, FRESH, LIVE, PRODUCT]) await expect(nodeOf(window, id)).toBeVisible({ timeout: ms(20_000) })
+    // Every Node, 300 px read-only ones and the 340 px Product Session, shows Archive and keeps room for its title.
+    for (const id of [OLD_A, OLD_B, KEPT, FRESH, LIVE, PRODUCT]) {
+      await expect(nodeOf(window, id).getByTestId('session-node-archive')).toBeVisible()
+      const [title, whole] = [await nodeOf(window, id).getByTestId('session-node-title').boundingBox(), await nodeOf(window, id).boundingBox()]
+      expect((title?.width ?? 0) / (whole?.width ?? 1), `the share of ${id}'s width its title keeps`).toBeGreaterThan(0.12)
+    }
+    await snapshotThemes(window, '37-session-nodes-archive')
     await expect(nodeOf(window, KEPT).getByTestId('session-node-keep')).toHaveAttribute('aria-pressed', 'true')
     await expect(nodeOf(window, FRESH).getByTestId('session-node-keep')).toHaveAttribute('aria-pressed', 'false')
     // Archive on a Node: inactive while its Session runs, saying why.

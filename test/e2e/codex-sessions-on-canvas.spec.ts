@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { canvasReady, launchApp, repoRoot } from './helpers'
+import { snapshotThemes } from './snapshots'
 
 // The Codex Sessions of a Project on the Canvas (worfy-multi-vendor ticket 27), against the built app with
 // Codex on the fake app-server (WORFY_CODEX=fake, which every launch sets; the real Codex never starts).
@@ -120,6 +121,12 @@ test('a Codex Session from a terminal: its Node with the Codex badge and its tra
     await expect(node.getByTestId('session-node-vendor')).toHaveText('Codex')
     await expect(node.getByTestId('session-node-source')).toHaveText(`terminal · ${projectPath}`)
     await expect(node.getByTestId('session-node-read-only')).toBeVisible()
+    // Every action of the Node is there and the title keeps room: Archive in the header once left it none
+    // on this 300 px Node (worfy-product-session ticket 37), so it sits on the line under the header.
+    await expect(node.getByTestId('session-node-archive')).toBeVisible()
+    const [title, whole] = [await node.getByTestId('session-node-title').boundingBox(), await node.boundingBox()]
+    expect((title?.width ?? 0) / (whole?.width ?? 1), 'the share of the Node\'s width its title keeps').toBeGreaterThan(0.12)
+    await snapshotThemes(window, '37-codex-session-node')
     // Neither the thread of another folder nor the old one gets a Node by itself.
     await expect(window.locator(`[data-testid="session-node"][data-session-id="${FOREIGN_THREAD}"]`)).toHaveCount(0)
     await expect(window.locator(`[data-testid="session-node"][data-session-id="${OLD_THREAD}"]`)).toHaveCount(0)
