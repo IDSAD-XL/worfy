@@ -305,8 +305,9 @@ of the Project whose files changed last; that following is live in this window o
 on this Machine and shows again when the Session is opened once more. Until then it says "The Mind map
 appears once the advisor adds its first node". When the topic cannot be read, it says "Could not read the Mind map:"
 and the reason. On Windows, a file or folder of the topic (`map.md`, `mind-map.json`, `issues/` or a Ticket in it)
-that is a link leading to another host is never read, by the screen or by `mind_map_read`: reading it would hand that
-host the user's credentials. The topic names such a file among its errors, as it does one that cannot be read; a
+that is a link leading to another host is never read, by the screen or by `mind_map_read`, and `mind-map.json` is
+never written through such a link: either would hand that host the user's credentials. The links are checked from the
+root of the Project's documents, the Workflow folder in Silent mode, so a root on the user's own share is read as before. The topic names such a file among its errors, as it does one that cannot be read; a
 critic's review behind such a link is left out of the share of accepted advice and named there.
 
 **Looking at it.**

@@ -184,6 +184,20 @@ describe('readProductTopic and a link inside the topic folder that leads to anot
     expect(reads(system.calls)).toEqual([`realpath ${ROOT}`, `isFolder ${FOLDER}`])
   })
 
+  it('reads no file whose way cannot be checked (lstat refused on a link) and names it with that reason', async () => {
+    const system = fakeProductSystem({
+      files: { [`${FOLDER}\\map.md`]: MAP, [`${FOLDER}\\${MIND_MAP_FILE}`]: MIND_MAP, [`${FOLDER}\\issues\\02-share.md`]: TICKET },
+      denied: [`${FOLDER}\\map.md`],
+    })
+
+    const topic = await readProductTopic(ROOT, DIR, 'roadmap', system.options)
+
+    expect(topic?.errors).toEqual([{ file: 'map.md', id: null, message: expect.stringMatching(/cannot be checked/) as unknown }])
+    expect(topic?.title).toBeNull()
+    expect(topic?.nodes.map((node) => node.id)).toEqual(['idea-1'])
+    expect(system.calls).not.toContain(`readFile ${FOLDER}\\map.md`)
+  })
+
   it('leaves out a Ticket that is a link to a share and names it; the other Ticket is read', async () => {
     const system = fakeProductSystem({
       files: { [`${FOLDER}\\map.md`]: MAP, [`${FOLDER}\\issues\\02-share.md`]: TICKET },

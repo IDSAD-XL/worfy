@@ -15,7 +15,7 @@ import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
 
 const where = vi.hoisted(() => ({ root: '' }))
-const update = vi.hoisted(() => ({ calls: 0 }))
+const update = vi.hoisted(() => ({ calls: 0, roots: [] as (string | undefined)[] }))
 
 vi.mock('electron', () => ({ app: { on: () => undefined, isPackaged: false, getAppPath: () => '/nowhere' }, BrowserWindow: { getAllWindows: () => [] } }))
 vi.mock('../../src/main/projects/store', () => ({ projectStore: () => ({ get: () => ({ id: 'p1', path: where.root }) }) }))
@@ -31,6 +31,7 @@ vi.mock('../../src/main/mcp/mind-map-server', async (importOriginal) => {
     ...real,
     updateMindMap: (...args: Parameters<typeof real.updateMindMap>) => {
       update.calls += 1
+      update.roots.push(args[3])
       return real.updateMindMap(...args)
     },
   }
@@ -69,6 +70,7 @@ beforeEach(async () => {
   mapFile = join(topicDir, 'mind-map.json')
   writeFileSync(mapFile, `${JSON.stringify(FIXTURE, null, 2)}\n`)
   update.calls = 0
+  update.roots = []
   handlers = new Map()
   const { registerIpc, appUrlMatcher } = await import('../../src/main/ipc/index')
   const module = (await import('../../src/main/ipc/product')).default
@@ -82,6 +84,8 @@ describe('product.layout', () => {
     const result = await call({ projectId: 'p1', name: 'roadmap', id: 'q-1', x: 120, y: -40.5 })
     expect(result).toEqual({ ok: true, value: null })
     expect(update.calls).toBe(1)
+    // The root of the Project's documents goes with it: on Windows the writer checks the links from there (worfy-polish ticket 146).
+    expect(update.roots).toEqual([where.root])
     expect(read()).toEqual({ ...FIXTURE, nodes: [FIXTURE.nodes[0], { ...FIXTURE.nodes[1], x: 120, y: -40.5, placed: 2 }, FIXTURE.nodes[2]] })
   })
 

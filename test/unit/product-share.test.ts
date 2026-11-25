@@ -277,6 +277,18 @@ describe('readAdviceShare and a link that leads to another host (Windows rules)'
     expect(reads(system.calls).filter((call) => !call.startsWith('realpath '))).toEqual([])
   })
 
+  it('lists no review of a critic folder that is a link to a share: no readdir of it; the topics still count', async () => {
+    const { readAdviceShare } = await import('../../src/main/ipc/product')
+    const system = fakeProductSystem({
+      files: { [`${PRODUCT}\\roadmap\\map.md`]: '# roadmap\n', [`${PRODUCT}\\roadmap\\mind-map.json`]: JSON.stringify({ version: 1, nodes: ROADMAP }) },
+      links: { [`${PRODUCT}\\critic`]: '\\\\evil.example\\share\\critic' },
+    })
+
+    expect(await readAdviceShare(ROOT, DIR, system.options)).toEqual({ mindMap: { accepted: 1, rejected: 1, pending: 1 }, critic: NONE, skipped: [] })
+    expect(system.calls).toContain(`readlink ${PRODUCT}\\critic`)
+    expect(system.calls).not.toContain(`readdir ${PRODUCT}\\critic`)
+  })
+
   it('reads no review that is a link to a share and names it among the files left out; the other review counts', async () => {
     const { readAdviceShare } = await import('../../src/main/ipc/product')
     const system = fakeProductSystem({

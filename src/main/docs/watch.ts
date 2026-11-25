@@ -24,7 +24,7 @@ import { ADR_DIR, ADR_FILE_PATTERN, HANDOFF_FILE, type AdrEntry, type DocsState 
 import type { ProductTopicChange } from '../../shared/ipc/product'
 import { isProductTopicName } from '../../shared/product/paths'
 import { accepted, DEFAULT_DOC_HEADINGS, escapeRegExp, OLD_DOC_HEADINGS } from '../../shared/workflow/doc-headings'
-import { nodeProductFs, readTopic, type ProductReadOptions, type ProductTopic } from '../product/topic'
+import { nodeProductFs, projectFolders, readTopic, type ProductReadOptions, type ProductTopic } from '../product/topic'
 import { refTree, resolveSource, type RefGitRunner, type RepoTree, type SourceLayout } from '../workflow/main-ref'
 import { cachedLinks, isInside, leadsToRemote, leavesFolder, UNCHECKED, walkLinks, type LinkFs, type PathRules } from '../remote-links'
 import { namesTheFolder, notThere, watchWithNode } from '../watch-gone'
@@ -256,12 +256,8 @@ export async function readProductTopic(root: string, dir: readonly string[], nam
   // The walks of the folder and of each file share their first segments: each link is asked about once.
   const links = cachedLinks(options.links)
   const folder = paths.join(root, ...dir, name)
-  let allowed: readonly string[] = [root]
-  if (paths.sep === '\\') {
-    const base = await fs.realpath(root).catch(() => null)
-    if (base === null || (await leadsToRemote(folder, [root, base], { paths, links }))) return null
-    allowed = [root, base]
-  }
+  const allowed = await projectFolders(root, { paths, fs })
+  if (allowed === null || (await leadsToRemote(folder, allowed, { paths, links }))) return null
   return (await fs.isFolder(folder)) ? readTopic(folder, { paths, links, fs, allowed }) : null
 }
 

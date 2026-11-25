@@ -14,6 +14,10 @@ export interface FakeTree {
   folders?: readonly string[]
   /** A link and its target as written. */
   links?: Record<string, string>
+  /** What realpath answers for a path that is not itself; any other path there is its own real path. */
+  reals?: Record<string, string>
+  /** Paths lstat is refused for (EACCES): a link on the way that cannot be read. */
+  denied?: readonly string[]
 }
 
 const key = (path: string): string => path.toLowerCase()
@@ -36,6 +40,8 @@ export function fakeProductSystem(tree: FakeTree) {
       fs: {
         realpath: async (path: string): Promise<string> => {
           calls.push(`realpath ${path}`)
+          const real = Object.entries(tree.reals ?? {}).find(([from]) => key(from) === key(path))
+          if (real !== undefined) return real[1]
           if (!there(path)) throw failure('ENOENT', path)
           return path
         },
@@ -66,6 +72,7 @@ export function fakeProductSystem(tree: FakeTree) {
       links: {
         isLink: async (path: string): Promise<boolean | null> => {
           calls.push(`lstat ${path}`)
+          if ((tree.denied ?? []).some((each) => key(each) === key(path))) throw failure('EACCES', path)
           return links.has(key(path)) ? true : there(path) ? false : null
         },
         readlink: async (path: string): Promise<string> => {

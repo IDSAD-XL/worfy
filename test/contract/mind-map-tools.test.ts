@@ -124,7 +124,7 @@ async function session(overrides: { productFolder?: string | null; save?: (proje
   const { mindMapForSession } = await server()
   const found = await mindMapForSession(
     { cwd: repo, productFolder: overrides.productFolder === undefined ? product : overrides.productFolder },
-    { projects: () => [{ id: PROJECT, name: 'demo', path: repo }], save: overrides.save ?? (() => Promise.resolve('nothing to save')) },
+    { projects: () => [{ id: PROJECT, name: 'demo', path: repo }], documentsRoot: () => Promise.resolve(repo), save: overrides.save ?? (() => Promise.resolve('nothing to save')) },
   )
   if (found === null) throw new Error('no Mind map server for the fixture Project')
   return { found, rpc: await connectTo(found.attachment.server as unknown as ServerConfig) }
@@ -351,6 +351,42 @@ describe('mind_map_read and a link that leads to another host (Windows rules)', 
     for (const behind of [`${FOLDER}\\map.md`, `${FOLDER}\\mind-map.json`]) expect(system.calls.filter((each) => each.endsWith(behind) && !/^(lstat|readlink) /u.test(each))).toEqual([])
   })
 
+  it('mindMapForSession checks from the root of the Project\'s documents, as written and as its real path: a Workflow folder on the user\'s own share is read', async () => {
+    const { mindMapForSession, MindMapWriter } = await server()
+    // Silent mode: the Workflow folder C:\\Work is a link to the user's share \\\\nas\\work, and the Product Session folder is in it.
+    const work = 'C:\\Work'
+    const roadmap = `${work}\\product\\${TOPIC}`
+    const system = fakeProductSystem({
+      files: {
+        [`${roadmap}\\map.md`]: '# Roadmap of worfy\n',
+        [`${roadmap}\\issues\\02-share.md`]: '# Share of accepted advice\n\nStatus: open\n',
+        [`${roadmap}\\mind-map.json`]: JSON.stringify(FIXTURE),
+      },
+      links: { [work]: '\\\\nas\\work' },
+      reals: { [work]: '\\\\nas\\work' },
+    })
+    const asked: string[] = []
+    const found = await mindMapForSession(
+      { cwd: repo, productFolder: `${work}\\product` },
+      {
+        projects: () => [{ id: PROJECT, name: 'demo', path: repo }],
+        documentsRoot: (path) => (asked.push(path), Promise.resolve(work)),
+        files: system.options,
+        writer: new MindMapWriter({ files: system.options, write: () => undefined }),
+        save: () => Promise.resolve('nothing to save'),
+      },
+    )
+    const rpc = await connectTo(found?.attachment.server as unknown as ServerConfig)
+
+    expect(asked).toEqual([repo])
+    const read = json<{ title: string; errors: unknown[]; nodes: unknown[] }>(await rpc.call('mind_map_read', { topic: TOPIC }))
+    expect(read).toMatchObject({ title: 'Roadmap of worfy', errors: [] })
+    expect(read.nodes).toHaveLength(3)
+    // The writer checks from the same folders: the share is not what refuses a change. (Past that check the guard of
+    // the write looks at this machine's real disk, so whether it then allows the write differs by machine.)
+    expect(textOf(await rpc.call('mind_map_update', { topic: TOPIC, id: 'q-1', text: 'Per Project, or per topic?' }))).not.toMatch(/another host/)
+  })
+
   it('lists no topic of a Product Session folder that is a link to a share', async () => {
     const { mindMapToolCaller } = await server()
     const system = fakeProductSystem({ files: { 'C:\\p\\repo\\docs\\README.md': '# docs' }, links: { [PRODUCT]: '\\\\evil.example\\share\\product' } })
@@ -360,6 +396,25 @@ describe('mind_map_read and a link that leads to another host (Windows rules)', 
     expect(answer.isError).toBe(true)
     expect(textOf(answer)).toMatch(/another host/)
     expect(system.calls.filter((each) => each.startsWith('readdir '))).toEqual([])
+  })
+})
+
+describe('the writer of mind-map.json and a link that leads to another host (Windows rules)', () => {
+  it('writes nothing, and reads nothing, through a link above the topic folder to a share: docs\\product → \\\\other\\share', async () => {
+    const { MindMapWriter, layoutChange } = await server()
+    const root = 'C:\\p\\repo'
+    const productDir = `${root}\\docs\\product`
+    const system = fakeProductSystem({
+      files: { [`${root}\\README.md`]: '# repo' },
+      folders: [`${root}\\docs`],
+      links: { [productDir]: '\\\\other\\share\\product' },
+    })
+    const written: string[] = []
+    const writer = new MindMapWriter({ files: system.options, write: (file) => void written.push(file) })
+
+    await expect(writer.update(productDir, TOPIC, layoutChange('q-1', { x: 1, y: 2 }), root)).rejects.toThrow(/another host/)
+    expect(written).toEqual([])
+    expect(system.calls.filter((each) => /^(readFile|readdir|isFolder) /u.test(each))).toEqual([])
   })
 })
 
@@ -451,7 +506,7 @@ describe('who gets worfy-mind-map', () => {
       productFolder: () => Promise.resolve(product),
       mindMap: (input) => {
         asked.push(input)
-        return mindMapForSession(input, { projects: () => [{ id: PROJECT, name: 'demo', path: repo }], save: () => Promise.resolve('nothing to save') })
+        return mindMapForSession(input, { projects: () => [{ id: PROJECT, name: 'demo', path: repo }], documentsRoot: () => Promise.resolve(repo), save: () => Promise.resolve('nothing to save') })
       },
     })
 

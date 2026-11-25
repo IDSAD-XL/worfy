@@ -4,7 +4,7 @@ import { CRITIC_DIR, isProductTopicName } from '../../shared/product/paths'
 import { adviceShare, type AdviceShare, type ShareReview } from '../../shared/product/share'
 import { readProductTopic } from '../docs/watch'
 import { layoutChange, placesCleared, updateMindMap } from '../mcp/mind-map-server'
-import { linkRefusal, nodeProductFs, type ProductFs, type ProductReadOptions } from '../product/topic'
+import { linkRefusal, nodeProductFs, projectFolders, type ProductFs, type ProductReadOptions } from '../product/topic'
 import { projectStore } from '../projects/store'
 import { cachedLinks, type LinkFs, type PathRules } from '../remote-links'
 import { docsHub, docsSource } from './docs'
@@ -39,16 +39,6 @@ interface ShareRead {
 }
 
 /**
- * The folders the walks start from under Windows rules — the root as written and as its real path — or
- * null when the root's real path cannot be found and nothing is read; the root alone under other rules.
- */
-async function allowedFolders(root: string, read: ShareRead): Promise<string[] | null> {
-  if (read.paths.sep !== '\\') return [root]
-  const base = await read.fs.realpath(root).catch(() => null)
-  return base === null ? null : [root, base]
-}
-
-/**
  * The critic's reviews, `critic/*.md` of the Product Session folder `dir` (segments under `root`). On
  * Windows a way to that folder through a link to another host is treated as no folder, as
  * readProductTopic treats a topic's: reading it would hand that host the user's credentials. A review
@@ -57,7 +47,7 @@ async function allowedFolders(root: string, read: ShareRead): Promise<string[] |
 async function readReviews(root: string, dir: readonly string[], read: ShareRead): Promise<ShareReview[]> {
   const { paths, fs, links } = read
   const folder = paths.join(root, ...dir, CRITIC_DIR)
-  const allowed = await allowedFolders(root, read)
+  const allowed = await projectFolders(root, read)
   if (allowed === null || (await linkRefusal(folder, allowed, { paths, links })) !== null) return []
   const reviews: ShareReview[] = []
   for (const file of (await names(fs, folder)).filter((name) => name.endsWith('.md')).sort()) {
@@ -84,7 +74,7 @@ async function readReviews(root: string, dir: readonly string[], read: ShareRead
 export async function readAdviceShare(root: string, dir: readonly string[], options: ProductReadOptions = {}): Promise<AdviceShare> {
   const read: ShareRead = { paths: options.paths ?? nativePath, fs: options.fs ?? nodeProductFs, links: cachedLinks(options.links) }
   const folder = read.paths.join(root, ...dir)
-  const allowed = await allowedFolders(root, read)
+  const allowed = await projectFolders(root, read)
   if (allowed === null || (await linkRefusal(folder, allowed, read)) !== null) return adviceShare({ topics: [], reviews: [] })
   const topics = []
   // `critic` and hidden names are no topic names; a file (README.md) reads as no topic.
@@ -112,7 +102,7 @@ export default [
     if (productDir === undefined) throw new Error(`product.layout: the Product Session folder of ${projectId} is not under its root`)
     // The schema lets an input without `id` through only with `clearPlaces`.
     const change = clearPlaces === true || id === undefined ? placesCleared() : layoutChange(id, { x, y, collapsed })
-    return updateMindMap(nativePath.join(root, ...productDir), name, change)
+    return updateMindMap(nativePath.join(root, ...productDir), name, change, root)
   }),
   defineHandler(productShare, async ({ projectId }) => {
     const { root, productDir } = await docsSource(projectStore().get(projectId).path)

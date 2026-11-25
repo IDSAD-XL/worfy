@@ -58,6 +58,18 @@ export interface TopicReadOptions extends ProductReadOptions {
   allowed?: readonly string[]
 }
 
+/**
+ * The folders the walks of a Product Session file start from (walkLinks): `root` — the root of the Project's
+ * documents, the Workflow folder in Silent mode (docsSource of src/main/ipc/docs.ts) — as written and, under
+ * Windows rules, as its real path, so that a root on the user's own share, or reached through a link to one,
+ * is the Project's own. Null when that real path cannot be found.
+ */
+export async function projectFolders(root: string, options: { paths: PathRules; fs: Pick<ProductFs, 'realpath'> }): Promise<string[] | null> {
+  if (options.paths.sep !== '\\') return [root]
+  const base = await options.fs.realpath(root).catch(() => null)
+  return base === null ? null : [root, base]
+}
+
 /** What a topic error says of a file whose way leads to another host. */
 export const LEADS_TO_ANOTHER_HOST = 'leads to another host through a link: not read'
 
