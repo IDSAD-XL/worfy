@@ -120,13 +120,20 @@ const CLAUDE_WINDOW_KINDS: readonly { prefix: string; minutes: number; label: st
   { prefix: 'seven_day', minutes: 7 * 24 * 60, label: '7-day' },
 ]
 
+const claudeWindowKind = (id: string) => CLAUDE_WINDOW_KINDS.find(({ prefix }) => id === prefix || id.startsWith(`${prefix}_`))
+
+/** The length of a Claude window in minutes by the start of its name (`seven_day_opus` → 7 days); null for one it does not tell (`overage`). */
+export function claudeWindowMinutes(id: string): number | null {
+  return claudeWindowKind(id)?.minutes ?? null
+}
+
 /**
  * One stored Claude window in the neutral view. The length comes from the name (`five_hour`,
  * `seven_day` and the SDK's other `seven_day_*` windows) and is null for one it does not tell
  * (`overage`); the share becomes a percentage, rounded to hundredths so that 0.62 reads 62.
  */
 function limitWindowOf(vendor: string, id: string, known: LimitWindowState): LimitWindow {
-  const kind = CLAUDE_WINDOW_KINDS.find(({ prefix }) => id === prefix || id.startsWith(`${prefix}_`))
+  const kind = claudeWindowKind(id)
   const rest = kind === undefined ? id : id.slice(kind.prefix.length + 1)
   const label = kind === undefined ? id.replaceAll('_', ' ') : [kind.label, ...rest.split('_')].filter(Boolean).join(' ')
   return {

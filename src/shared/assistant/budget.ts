@@ -6,26 +6,27 @@
 //   Assistant woke for by itself, or the `conversation` the user started) and every `source-check`.
 // - The summary covers the local day (since the local midnight) and the week (the local day and the
 //   six before it, counted by calendar dates, so a day of 23 or 25 hours is one day). It breaks the
-//   tokens down by source, by wake and for the conversation.
+//   tokens down by source, by wake and for the conversation. The calls of a wake count on the day of
+//   the wake, so a wake at 23:59 and its call at 00:05 stay together; a `wake` call whose wake the
+//   ledger does not hold (no id, or dropped after USAGE_KEEP_MS) counts at its own time, in
+//   `wakes.total` but in no `byWake` entry.
 // - The share of a Limits window is an estimate: worfy sees only the share of the whole window, never
 //   that of one call. Method `cost-share`: the window's share times the Assistant's part of the cost
 //   of all turns worfy saw since the window began — the Assistant's calls plus every other turn noted
 //   with noteOtherTurn. The cost (the SDK's `total_cost_usd`) weighs a model and the cache the way
 //   the price does, closer to what a window counts than a plain sum of tokens. Claude used outside
-//   worfy is not seen, so the estimate errs high; with no other turn noted it is the whole window.
+//   worfy is not seen and only adds to the window, so for the turns counted the estimate errs high;
+//   with no other turn noted it is the whole window. Other turns are kept by the hour, so both sides
+//   are counted from the start of the hour the window began in: up to an hour of turns from before
+//   the window, the Assistant's and the others' alike.
 import { z } from 'zod'
+import { claudeWindowMinutes } from '../agent/limits'
 
 /** Automatic wakes of the Assistant a local day allows by default; the user's own calls are not counted. */
 export const ASSISTANT_DAILY_WAKE_LIMIT = 20
 
 /** The calls, wakes and other turns older than this are dropped from the ledger: the week and a day of margin. */
 export const USAGE_KEEP_MS = 8 * 24 * 60 * 60_000
-
-/** The length of each Limits window the share is estimated for. */
-export const LIMIT_WINDOW_LENGTH_MS: Readonly<Record<string, number>> = {
-  five_hour: 5 * 60 * 60_000,
-  seven_day: 7 * 24 * 60 * 60_000,
-}
 
 const tokens = z.number().nonnegative()
 
@@ -156,13 +157,19 @@ function add(totals: TokenTotals, call: UsageCall): void {
   totals.costUsd += call.costUsd
 }
 
-function period(ledger: UsageLedger, from: number, now: number): UsagePeriod {
-  const inPeriod = (at: number): boolean => at >= from && at <= now
-  const wakes = ledger.wakes.filter((wake) => inPeriod(wake.at))
+/** When a call counts: a `wake` call at the time of its wake when the ledger holds it, any other at its own time. */
+function countedAt(call: UsageCall, wakeTimes: ReadonlyMap<string, number>): number {
+  return (call.kind === 'wake' && call.wakeId !== null ? wakeTimes.get(call.wakeId) : undefined) ?? call.at
+}
+
+// Nothing here has an upper bound at `now`: a note stamped later than now (the clock went back) still counts.
+function period(ledger: UsageLedger, from: number): UsagePeriod {
+  const wakeTimes = new Map(ledger.wakes.map((wake) => [wake.id, wake.at]))
+  const wakes = ledger.wakes.filter((wake) => wake.at >= from)
   const byWake = new Map(wakes.map((wake) => [wake.id, { ...wake, total: noTokens() }]))
   const out: UsagePeriod = { from, total: noTokens(), sources: {}, wakes: { count: wakes.length, total: noTokens(), byWake: [] }, conversation: noTokens() }
   for (const call of ledger.calls) {
-    if (!inPeriod(call.at)) continue
+    if (countedAt(call, wakeTimes) < from) continue
     add(out.total, call)
     if (call.kind === 'conversation') add(out.conversation, call)
     else if (call.kind === 'source-check') add((out.sources[call.source ?? 'unknown'] ??= noTokens()), call)
@@ -178,28 +185,28 @@ function period(ledger: UsageLedger, from: number, now: number): UsagePeriod {
 
 /** The tokens of the local day and of the week, at `now`. */
 export function usageSummary(ledger: UsageLedger, now: number): UsageSummary {
-  return { day: period(ledger, localMidnight(now), now), week: period(ledger, localMidnight(now, 6), now) }
+  return { day: period(ledger, localMidnight(now)), week: period(ledger, localMidnight(now, 6)) }
 }
 
-/** The automatic wakes since the local midnight of `now`. */
+/** The automatic wakes since the local midnight of `now`, a wake stamped after `now` included. */
 export function automaticWakesToday(ledger: UsageLedger, now: number): number {
   const from = localMidnight(now)
-  return ledger.wakes.filter((wake) => wake.at >= from && wake.at <= now).length
+  return ledger.wakes.filter((wake) => wake.at >= from).length
 }
 
-/** The Assistant's estimated share of each Limits window in force whose share and reset are known. */
+/** The Assistant's estimated share of each Limits window in force whose share, reset and length are known. */
 export function limitsShare(ledger: UsageLedger, windows: Readonly<Record<string, { utilization: number | null; resetsAt: number | null }>>, now: number): LimitsShareEstimate[] {
   const out: LimitsShareEstimate[] = []
   for (const [window, state] of Object.entries(windows)) {
-    const length = LIMIT_WINDOW_LENGTH_MS[window]
-    if (length === undefined || state.utilization === null || state.resetsAt === null || state.resetsAt * 1000 <= now) continue
-    const since = state.resetsAt * 1000 - length
+    const minutes = claudeWindowMinutes(window)
+    if (minutes === null || state.utilization === null || state.resetsAt === null || state.resetsAt * 1000 <= now) continue
+    const since = state.resetsAt * 1000 - minutes * 60_000
+    // Both sides from the start of the hour the window began in: the other turns are kept by the hour.
+    const from = Number(hourKey(since))
     let assistant = 0
-    for (const call of ledger.calls) if (call.at >= since && call.at <= now) assistant += call.costUsd
-    // An hour that began before the window is counted whole: the turns are kept by the hour.
+    for (const call of ledger.calls) if (call.at >= from) assistant += call.costUsd
     let other = 0
-    const firstHour = Number(hourKey(since))
-    for (const [hour, cost] of Object.entries(ledger.otherCost)) if (Number(hour) >= firstHour && Number(hour) <= now) other += cost
+    for (const [hour, cost] of Object.entries(ledger.otherCost)) if (Number(hour) >= from) other += cost
     const all = assistant + other
     out.push({ window, estimate: true, method: 'cost-share', utilization: state.utilization, share: all > 0 ? (state.utilization * assistant) / all : 0, since })
   }

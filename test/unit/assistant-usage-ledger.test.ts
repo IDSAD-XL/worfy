@@ -2,10 +2,10 @@
 // src/shared/assistant/budget.ts): the tokens of every call — the Assistant's Sessions and the
 // checks of sources — for the day and the week, by source, by wake and for the conversation, and
 // the estimate of the Assistant's share of the Limits windows.
-import { mkdtempSync, readdirSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LimitWindowState, LimitsState } from '../../src/shared/agent/limits'
 import type { UsageCallInput } from '../../src/shared/assistant/budget'
 import { removeTestTree } from '../remove'
@@ -167,5 +167,84 @@ describe('the share of the Limits windows, an estimate', () => {
     expect(ledger.limitsShare(state({ five_hour: resetsInTwoHours(0.4) }))).toEqual([
       { window: 'five_hour', estimate: true, method: 'cost-share', utilization: 0.4, share: 0, since: NOW - 3 * HOUR },
     ])
+  })
+
+  it('counts the Assistant and the other turns from the same start: the hour the window began in', () => {
+    // The window began at NOW - 2:30; its hour at NOW - 3:00. Both turns of NOW - 2:45 are in it.
+    let clock = NOW - 2 * HOUR - 45 * 60_000
+    const ledger = new AssistantUsageLedger({ dataDir: dir, now: () => clock })
+    ledger.noteCall(call({ kind: 'conversation' }, 1000))
+    ledger.noteOtherTurn(3)
+    clock = NOW
+    const window = { ...resetsInTwoHours(0.4), resetsAt: (NOW + 2 * HOUR + 30 * 60_000) / 1000 }
+    expect(ledger.limitsShare(state({ five_hour: window }))).toEqual([
+      { window: 'five_hour', estimate: true, method: 'cost-share', utilization: 0.4, share: expect.closeTo(0.4 * (1 / 4)), since: NOW - 2 * HOUR - 30 * 60_000 },
+    ])
+  })
+
+  it('estimates the other 7-day windows of the SDK too, by the start of their name', () => {
+    const ledger = new AssistantUsageLedger({ dataDir: dir, now: () => NOW })
+    ledger.noteCall(call({ kind: 'conversation' }, 1000))
+    const opus = { ...resetsInTwoHours(0.3), resetsAt: (NOW + 3 * DAY) / 1000 }
+    expect(ledger.limitsShare(state({ seven_day_opus: opus, overage: resetsInTwoHours(0.5) }))).toEqual([
+      { window: 'seven_day_opus', estimate: true, method: 'cost-share', utilization: 0.3, share: 0.3, since: NOW - 4 * DAY },
+    ])
+  })
+})
+
+describe('a note that cannot be kept', () => {
+  it('drops a call with a cost or tokens out of range with a warning, and the next notes still reach the file', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const ledger = new AssistantUsageLedger({ dataDir: dir, now: () => NOW })
+      ledger.noteCall({ ...call({ kind: 'conversation' }, 100), costUsd: Number.NaN })
+      ledger.noteCall(call({ kind: 'source-check', source: 'slack' }, -5))
+      ledger.noteOtherTurn(Number.POSITIVE_INFINITY)
+      expect(warn).toHaveBeenCalledTimes(3)
+
+      ledger.noteWake('w1', false)
+      ledger.noteCall(call({ kind: 'wake', wakeId: 'w1' }, 100))
+      const onDisk = JSON.parse(readFileSync(join(dir, USAGE_FILE), 'utf8'))
+      expect(onDisk.wakes.map((wake: { id: string }) => wake.id)).toEqual(['w1'])
+      expect(onDisk.calls).toHaveLength(1)
+      expect(onDisk.otherCost).toEqual({})
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('keeps the ledger in memory as it was when the file cannot be written', () => {
+    const ledger = new AssistantUsageLedger({ dataDir: dir, now: () => NOW })
+    // A file where the folder `assistant` should be: the write fails.
+    writeFileSync(join(dir, 'assistant'), '')
+    expect(() => ledger.noteWake('w1', false)).toThrow()
+    expect(ledger.snapshot().wakes).toEqual([])
+    expect(ledger.automaticWakesToday()).toBe(0)
+  })
+})
+
+describe('the days of a wake', () => {
+  it('counts the calls of a wake on the day of the wake, so the wakes and their total agree', () => {
+    let clock = Date.UTC(2026, 10, 24, 21, 59) // 23:59 in Kyiv, yesterday
+    const ledger = new AssistantUsageLedger({ dataDir: dir, now: () => clock })
+    ledger.noteWake('late', false)
+    clock = Date.UTC(2026, 10, 24, 22, 5) // 00:05 today
+    ledger.noteCall(call({ kind: 'wake', wakeId: 'late' }, 500))
+    clock = NOW
+
+    const { day, week } = ledger.summary()
+    expect(day.wakes).toEqual({ count: 0, total: expect.objectContaining({ calls: 0 }), byWake: [] })
+    expect(day.total.calls).toBe(0)
+    expect(week.wakes.count).toBe(1)
+    expect(week.wakes.total.inputTokens).toBe(500)
+    expect(week.wakes.byWake[0]!.total.inputTokens).toBe(500)
+  })
+
+  it('counts a wake stamped after now, after the clock went back, against the day', () => {
+    let clock = NOW + HOUR
+    const ledger = new AssistantUsageLedger({ dataDir: dir, now: () => clock })
+    ledger.noteWake('ahead', false)
+    clock = NOW
+    expect(ledger.automaticWakesToday()).toBe(1)
   })
 })
