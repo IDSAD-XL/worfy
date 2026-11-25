@@ -252,7 +252,6 @@ export type ConnectorCallEnd =
   /** `detail`: the result's subtype and its errors. */
   | { kind: 'no-answer'; detail: string; usage: CallUsage; costUsd: number; model: string; toolTokens: number }
 
-const DENIED_BUILT_INS: ReadonlySet<string> = new Set(ONE_SHOT_DISALLOWED_TOOLS)
 
 /**
  * Why the call `spec` may not go on: another server than its connector, a connector not connected, a tool in the
@@ -275,9 +274,10 @@ function limitOf(spec: ConnectorCallSpec, status: unknown, usage: unknown): { re
     if (!allowed.has(full)) return { reason: `the context holds ${full}, which is not a read tool of ${spec.connector.name}` }
     tokens += typeof tool.tokens === 'number' ? tool.tokens : 0
   }
-  const builtIns = Array.isArray(usage.systemTools) ? usage.systemTools.filter(isRecord).map((tool) => String(tool.name)) : []
-  const denied = builtIns.filter((name) => DENIED_BUILT_INS.has(name))
-  if (denied.length > 0) return { reason: `the context holds ${denied.join(', ')}` }
+  // An allow list: the structured answer is the one built-in tool, in the context or loadable on demand.
+  const builtIns = [usage.systemTools, usage.deferredBuiltinTools].flatMap((tools) => (Array.isArray(tools) ? tools : []))
+  const extra = builtIns.map((tool) => (isRecord(tool) ? String(tool.name) : String(tool))).filter((name) => name !== STRUCTURED_OUTPUT_TOOL)
+  if (extra.length > 0) return { reason: `the context holds ${extra.join(', ')}` }
   if (tokens > CONNECTOR_TOOLS_MAX_TOKENS) return { reason: `the tools of ${spec.connector.name} take ${tokens} tokens, over ${CONNECTOR_TOOLS_MAX_TOKENS}` }
   return { tokens }
 }
@@ -291,11 +291,16 @@ function heldMessage(text: string, released: Promise<boolean>): AsyncIterable<SD
   }
 }
 
+/** The usage of a call that reached the model but gave no result to read it from: unknown, so zero. */
+const NO_USAGE: CallUsage = { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }
+
 /**
  * One call over `start`: Claude Code starts with the options of `spec`, and the message `text` goes only once its
  * servers and its context show the connector alone with its read tools (limitOf); otherwise the call is refused with
- * no message sent. Then reads up to the result. Claude Code is closed in every case. Rejects when Claude Code fails or
- * ends before a result.
+ * no message sent. Then reads up to the result. Once the message went, the call ends as an answer or a `no-answer` —
+ * Claude Code failing or ending without a result too, with zero usage — so the caller notes what was spent. Of the
+ * result's errors only their count is told: a retry of the structured answer may quote what the source wrote. Claude
+ * Code is closed in every case. Rejects when it fails before the message.
  */
 export async function askConnector(start: ConnectorQueryStarter, spec: ConnectorCallSpec, text: string, timing: ConnectorTiming = CONNECTOR_TIMING): Promise<ConnectorCallEnd> {
   let release: (go: boolean) => void = () => undefined
@@ -308,16 +313,22 @@ export async function askConnector(start: ConnectorQueryStarter, spec: Connector
     const limit = limitOf(spec, status, await asked.getContextUsage({ detail: 'summary' }))
     if ('reason' in limit) return { kind: 'refused', reason: limit.reason }
     release(true)
-    for await (const message of asked) {
-      if (!isRecord(message) || message.type !== 'result') continue
-      const [event] = sdkMessageToEvents(message)
-      if (event?.type !== 'result') break
-      const cost = { usage: event.usage, costUsd: event.costUsd, model: CONNECTOR_CHECK_MODEL, toolTokens: limit.tokens }
-      if (message.subtype === 'success' && message.is_error !== true && message.structured_output !== undefined) return { kind: 'answer', structured: message.structured_output, ...cost }
-      const errors = Array.isArray(message.errors) ? `: ${message.errors.map(String).join('; ')}` : ''
-      return { kind: 'no-answer', detail: `${String(message.subtype)}${errors}`, ...cost }
+    const lost = (detail: string): ConnectorCallEnd => ({ kind: 'no-answer', detail, usage: NO_USAGE, costUsd: 0, model: CONNECTOR_CHECK_MODEL, toolTokens: limit.tokens })
+    try {
+      for await (const message of asked) {
+        if (!isRecord(message) || message.type !== 'result') continue
+        const [event] = sdkMessageToEvents(message)
+        if (event?.type !== 'result') break
+        const cost = { usage: event.usage, costUsd: event.costUsd, model: CONNECTOR_CHECK_MODEL, toolTokens: limit.tokens }
+        if (message.subtype === 'success' && message.is_error !== true && message.structured_output !== undefined) return { kind: 'answer', structured: message.structured_output, ...cost }
+        const errors = Array.isArray(message.errors) && message.errors.length > 0 ? `, ${message.errors.length} errors` : ''
+        return { kind: 'no-answer', detail: `${String(message.subtype)}${errors}`, ...cost }
+      }
+    } catch (error) {
+      // The kind alone: Claude Code's message may carry what the source wrote.
+      return lost(`Claude Code failed after the message: ${error instanceof Error ? error.name : 'an error'}`)
     }
-    throw new Error('Claude Code ended before the answer')
+    return lost('Claude Code ended before the result')
   } finally {
     release(false)
     query?.close()

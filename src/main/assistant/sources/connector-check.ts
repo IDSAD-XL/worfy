@@ -12,14 +12,16 @@
 //
 // A run that could not read its source — no connector, one waiting for a sign-in in claude.ai, a call refused or
 // without an answer, an answer outside the form — throws, so the scheduler keeps `since` at the last success and the
-// next run covers the same time again.
+// next run covers the same time again. An answer at its cap (SOURCE_ITEMS_MAX) covers the time only up to its newest
+// item, and the run says so (CheckRunResult), so the next run asks from there. A usage ledger that cannot be written
+// costs a log line, not the items of a paid answer.
 import type { AttentionEvent } from '../../../shared/assistant/attention'
 import type { CheckKind } from '../../../shared/assistant/schedule/settings'
-import { sourceAnswerJsonSchema, sourceItemsOf, type SourceItem } from '../../../shared/assistant/source-items'
+import { SOURCE_ITEMS_MAX, sourceAnswerJsonSchema, sourceItemsOf, type SourceItem } from '../../../shared/assistant/source-items'
 import { readToolsOf, type Connector, type ConnectorCallEnd, type ConnectorCallSpec } from '../../vendors/claude/connector-check'
 import type { AssistantUsageLedger } from '../budget/ledger'
 import type { AttentionCore } from '../core/attention-core'
-import type { CheckRun } from '../schedule/scheduler'
+import type { CheckRun, CheckRunResult } from '../schedule/scheduler'
 
 /** How far back the first check of a kind reads, when no run has succeeded yet: a day. Decided without the owner. */
 export const FIRST_CHECK_LOOKBACK_MS = 24 * 60 * 60_000
@@ -48,10 +50,14 @@ export interface SourceCheckDeps {
   log(line: string): void
 }
 
-/** The message of one call: the recipe's task, then the user's Projects by name. */
+/** The message of one call: the recipe's task, the cap of the answer, then the user's Projects by name. */
 function messageOf(recipe: ConnectorRecipe, since: number, now: number, projects: readonly { name: string }[]): string {
   const names = projects.map((project) => project.name)
-  return [recipe.task({ since, now }), names.length === 0 ? 'The user has no Projects.' : `The user's Projects: ${names.join(', ')}.`].join('\n\n')
+  return [
+    recipe.task({ since, now }),
+    `Report at most ${SOURCE_ITEMS_MAX} messages: when more came, report the ${SOURCE_ITEMS_MAX} oldest; the next check reads the rest.`,
+    names.length === 0 ? 'The user has no Projects.' : `The user's Projects: ${names.join(', ')}.`,
+  ].join('\n\n')
 }
 
 /** The event of the attention core an item of the check of `kind` is: a message of its source, in the scope of the Project it names. */
@@ -89,11 +95,21 @@ export function sourceCheckRun(recipe: ConnectorRecipe, deps: SourceCheckDeps): 
     const projects = deps.projects()
     const end = await deps.ask({ connector, readTools, outputSchema: sourceAnswerJsonSchema() }, messageOf(recipe, since ?? now - FIRST_CHECK_LOOKBACK_MS, now, projects))
     if (end.kind === 'refused') return fail(`the call was refused before the model: ${end.reason}`)
-    deps.ledger.noteCall({ kind: 'source-check', source: recipe.kind, wakeId: null, model: end.model, usage: end.usage, costUsd: end.costUsd })
+    try {
+      deps.ledger.noteCall({ kind: 'source-check', source: recipe.kind, wakeId: null, model: end.model, usage: end.usage, costUsd: end.costUsd })
+    } catch (error) {
+      // The answer is paid for already: losing its items to a full disk would cost a second call.
+      deps.log(`[assistant] the ${recipe.kind} check: the usage ledger could not note the call: ${error instanceof Error ? error.message : String(error)}`)
+    }
     if (end.kind === 'no-answer') return fail(`the call gave no answer (${end.detail})`)
     const check = sourceItemsOf(end.structured, recipe.kind)
     if (check === null) return fail('the answer is not in the form of items')
     for (const refused of check.refused) deps.log(`[assistant] the ${recipe.kind} check: ${refused}`)
     for (const item of check.items) deps.core.ingest(sourceEventOf(item, recipe.kind, projects))
+    if (!check.full) return undefined
+    // At its cap the answer covers the time only up to its newest item: the next check asks from there.
+    const newest = check.items.at(-1)
+    if (newest === undefined) return fail('the answer is full of entries that fail the form')
+    return { coveredUntil: Date.parse(newest.at) } satisfies CheckRunResult
   }
 }

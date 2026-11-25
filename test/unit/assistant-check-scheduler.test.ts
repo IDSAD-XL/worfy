@@ -193,6 +193,26 @@ describe('each kind of check', () => {
     expect(contexts.map((context) => context.since)).toEqual([null, start, start])
     warn.mockRestore()
   })
+
+  it('a run that covered only part of its time (an answer at its cap) moves `since` only as far as it covered, never past its start', async () => {
+    const start = utc(2026, 11, 25, 8, 0)
+    vi.setSystemTime(start)
+    choose({ checks: { slack: { enabled: true, sleepOutsideWorkHours: false } } })
+    const contexts: CheckRunContext[] = []
+    const covered = [start - 30 * MINUTE, start + HOUR, undefined]
+    const checks = scheduler()
+    checks.register('slack', async (context) => {
+      contexts.push(context)
+      const until = covered[contexts.length - 1]
+      return until === undefined ? undefined : { coveredUntil: until }
+    })
+    checks.start()
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(10 * MINUTE)
+    await vi.advanceTimersByTimeAsync(10 * MINUTE)
+    // The first run covered up to half an hour before its start; the second claims past its start, which counts as its start.
+    expect(contexts.map((context) => context.since)).toEqual([null, start - 30 * MINUTE, start + 10 * MINUTE])
+  })
 })
 
 describe('the clock', () => {

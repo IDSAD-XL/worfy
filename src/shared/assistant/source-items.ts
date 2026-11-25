@@ -5,7 +5,11 @@
 // data.
 import { z } from 'zod'
 
-/** The most items one answer may carry: the rest of a busy hour waits for the next check. Decided without the owner. */
+/**
+ * The most items one answer may carry. When more came, the call reports the oldest ones, the check covers its time only
+ * up to the newest of them (SourceItemsCheck.full, CheckRunResult), and the next check reads the rest. Decided
+ * without the owner.
+ */
 export const SOURCE_ITEMS_MAX = 30
 
 const line = (max: number) => z.string().trim().min(1).max(max)
@@ -44,9 +48,15 @@ export function sourceAnswerJsonSchema(): Record<string, unknown> {
 
 /** What main takes from an answer: the items that passed, and why each other entry did not. */
 export interface SourceItemsCheck {
+  /** Oldest first; at most SOURCE_ITEMS_MAX. */
   items: SourceItem[]
   /** One line per entry refused: its number from 1 and the fields that failed; never the entry's text. */
   refused: string[]
+  /**
+   * The answer reached SOURCE_ITEMS_MAX entries: more may have come than it carried, so it covers its time only up to
+   * its newest item taken.
+   */
+  full: boolean
 }
 
 const envelopeSchema = z.object({ items: z.array(z.unknown()) }).strict()
@@ -57,19 +67,21 @@ const fieldsOf = (error: z.ZodError): string => [...new Set(error.issues.map((is
 /**
  * Checks the form of an answer of the check of `source`. An answer outside the envelope gives null: no item of it is
  * taken. Inside, each entry is checked alone, and one from another source is refused: a message cannot speak for a
- * source it was not read from. Entries past SOURCE_ITEMS_MAX are refused too.
+ * source it was not read from. Of the entries that pass, the SOURCE_ITEMS_MAX oldest are taken, oldest first: an
+ * answer past the cap the schema sets leaves its newer messages to the next check, not lost.
  */
 export function sourceItemsOf(answer: unknown, source: string): SourceItemsCheck | null {
   const envelope = envelopeSchema.safeParse(answer)
   if (!envelope.success) return null
-  const check: SourceItemsCheck = { items: [], refused: [] }
+  const passed: SourceItem[] = []
+  const refused: string[] = []
   envelope.data.items.forEach((entry, index) => {
     const number = index + 1
-    if (index >= SOURCE_ITEMS_MAX) return void check.refused.push(`item ${number} is past the ${SOURCE_ITEMS_MAX} an answer may carry`)
     const item = sourceItemSchema.safeParse(entry)
-    if (!item.success) return void check.refused.push(`item ${number} fails the form: ${fieldsOf(item.error)}`)
-    if (item.data.source !== source) return void check.refused.push(`item ${number} names another source than ${source}`)
-    check.items.push(item.data)
+    if (!item.success) return void refused.push(`item ${number} fails the form: ${fieldsOf(item.error)}`)
+    if (item.data.source !== source) return void refused.push(`item ${number} names another source than ${source}`)
+    passed.push(item.data)
   })
-  return check
+  passed.sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
+  return { items: passed.slice(0, SOURCE_ITEMS_MAX), refused, full: envelope.data.items.length >= SOURCE_ITEMS_MAX }
 }

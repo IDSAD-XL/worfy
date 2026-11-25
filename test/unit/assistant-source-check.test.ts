@@ -45,12 +45,23 @@ interface Fake {
   specs: Parameters<ConnectorQueryStarter>[0][]
 }
 
-/** Claude Code that answers with the recorded `answer` once a message comes, and lists `status` and `usage` before. */
-function fakeClaude(answer: string, over: { status?: unknown; usage?: unknown } = {}): Fake {
+/**
+ * Claude Code that answers with `answer` (a recorded fixture, or the messages themselves) once a message comes, and
+ * lists `status` and `usage` before. Like the SDK, it reads its input from the start, whether or not anyone reads its
+ * messages yet: a message sent before the check would reach it. `fail` makes it throw after the message.
+ */
+function fakeClaude(answer: string | unknown[], over: { status?: unknown; usage?: unknown; fail?: boolean } = {}): Fake {
   const fake: Fake = { prompts: [], closed: 0, specs: [], start: async () => Promise.reject(new Error('unset')) }
   fake.start = (spec, prompt) => {
     fake.specs.push(spec)
-    const messages = jsonl(answer)
+    const messages = typeof answer === 'string' ? jsonl(answer) : answer
+    const sent = (async () => {
+      for await (const message of prompt as AsyncIterable<SDKUserMessage>) {
+        fake.prompts.push(String(message.message.content))
+        return true
+      }
+      return false
+    })()
     const query: ConnectorQuery = {
       close: () => {
         fake.closed += 1
@@ -58,11 +69,8 @@ function fakeClaude(answer: string, over: { status?: unknown; usage?: unknown } 
       mcpServerStatus: () => Promise.resolve(over.status ?? SLACK_STATUS),
       getContextUsage: () => Promise.resolve(over.usage ?? CONTEXT),
       async *[Symbol.asyncIterator]() {
-        for await (const message of prompt as AsyncIterable<SDKUserMessage>) {
-          fake.prompts.push(String(message.message.content))
-          break
-        }
-        if (fake.prompts.length === 0) return
+        if (!(await sent)) return
+        if (over.fail === true) throw new Error('Claude Code exited with code 1')
         for (const message of messages) yield message
       },
     }
@@ -70,6 +78,33 @@ function fakeClaude(answer: string, over: { status?: unknown; usage?: unknown } 
   }
   return fake
 }
+
+const RESULT_USAGE = { input_tokens: 4000, output_tokens: 500, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }
+/** A result of Claude Code with `items` as its structured answer. */
+const resultOf = (items: unknown[], over: Record<string, unknown> = {}): unknown => ({
+  type: 'result',
+  subtype: 'success',
+  is_error: false,
+  result: '',
+  total_cost_usd: 0.003,
+  usage: RESULT_USAGE,
+  structured_output: { items },
+  ...over,
+})
+/** A right entry, written `n` seconds after 12:00. */
+const entry = (n: number, over: Record<string, unknown> = {}): Record<string, unknown> => ({
+  source: 'slack',
+  id: `C01MADEUP/${n}`,
+  author: 'Dana Example',
+  at: new Date(Date.parse('2026-11-25T12:00:00Z') + n * 1000).toISOString(),
+  url: `https://example.slack.com/archives/C01MADEUP/p${n}`,
+  text: `Message ${n}`,
+  concernsUser: true,
+  urgent: false,
+  project: null,
+  ticket: null,
+  ...over,
+})
 
 /** The attention core's files in memory. */
 function memoryStore(): AttentionStore & { files: Map<string | null, AttentionFile> } {
@@ -275,5 +310,108 @@ describe('a source without its connector', () => {
     const { deps } = setup(fake)
     await expect(sourceCheckRun({ ...RECIPE, readTools: ['slack_send_message'] }, deps)({ kind: 'slack', since: SINCE, now: NOW })).rejects.toThrow(/read tool/u)
     expect(fake.specs).toEqual([])
+  })
+})
+
+describe('only the structured answer among the tools of Claude Code', () => {
+  const refusedBy = async (usage: unknown, pattern: RegExp) => {
+    const fake = fakeClaude('answer-good.jsonl', { usage })
+    const { ledger, run } = setup(fake)
+    await expect(run()).rejects.toThrow(pattern)
+    expect(fake.prompts).toEqual([])
+    expect(ledger.snapshot().calls).toEqual([])
+  }
+
+  it('refuses any other built-in tool in the context, not only the ones that write', async () => {
+    await refusedBy({ ...CONTEXT, systemTools: [...CONTEXT.systemTools, { name: 'ToolSearch', tokens: 200 }] }, /ToolSearch/u)
+  })
+
+  it('refuses a built-in tool left out of the context but loadable on demand', async () => {
+    await refusedBy({ ...CONTEXT, deferredBuiltinTools: [{ name: 'Bash', tokens: 900, isLoaded: false }] }, /Bash/u)
+  })
+
+  it('takes the structured answer among the deferred ones', async () => {
+    const fake = fakeClaude('answer-good.jsonl', { usage: { ...CONTEXT, deferredBuiltinTools: [{ name: 'StructuredOutput', tokens: 300, isLoaded: false }] } })
+    await setup(fake).run()
+    expect(fake.prompts).toHaveLength(1)
+  })
+})
+
+describe('an answer at its cap', () => {
+  it('takes the oldest 30 entries and covers only up to the last of them, so the next check reads the rest', async () => {
+    // 45 entries, newest first, past the cap the schema asks for.
+    const entries = Array.from({ length: 45 }, (_, index) => entry(45 - index))
+    const fake = fakeClaude([resultOf(entries)])
+    const { core, run } = setup(fake)
+    await expect(run()).resolves.toEqual({ coveredUntil: Date.parse(String(entry(30).at)) })
+    expect(core.items(null).map((item) => item.subject.id)).toEqual(Array.from({ length: 30 }, (_, index) => `slack:C01MADEUP/${index + 1}`))
+  })
+
+  it('covers its whole time when the answer is under the cap', async () => {
+    const { run } = setup(fakeClaude([resultOf([entry(1), entry(2)])]))
+    await expect(run()).resolves.toBeUndefined()
+  })
+
+  it('asks the call to report the oldest messages when more came than it may carry', async () => {
+    const fake = fakeClaude('answer-good.jsonl')
+    await setup(fake).run()
+    expect(fake.prompts[0]).toMatch(/at most 30 .*oldest/u)
+  })
+})
+
+describe('the Project of an item', () => {
+  it('is found by its name in any case', async () => {
+    const { core, run } = setup(fakeClaude([resultOf([entry(1, { project: 'OTHER' })])]))
+    await run()
+    expect(core.items('p-other').map((item) => item.subject.id)).toEqual(['slack:C01MADEUP/1'])
+  })
+})
+
+describe('a message read again', () => {
+  it('glued into its item on the same day carries the newer message', async () => {
+    const { core, run } = setup(fakeClaude([resultOf([entry(1)])]))
+    await run()
+    const again = setup(fakeClaude([resultOf([entry(1, { at: '2026-11-25T12:30:00Z', author: 'Dana Edited' })])]), { core })
+    await again.run()
+    expect(core.items(null)).toEqual([expect.objectContaining({ events: 2, message: expect.objectContaining({ at: '2026-11-25T12:30:00Z', author: 'Dana Edited' }) })])
+  })
+})
+
+describe('a call that reached the model and was lost', () => {
+  it('notes the call when Claude Code ends without a result after the message', async () => {
+    const fake = fakeClaude([])
+    const { ledger, run } = setup(fake)
+    await expect(run()).rejects.toThrow(/no answer/u)
+    expect(fake.prompts).toHaveLength(1)
+    expect(ledger.snapshot().calls).toEqual([expect.objectContaining({ kind: 'source-check', source: 'slack', costUsd: 0 })])
+  })
+
+  it('notes the call when Claude Code fails after the message', async () => {
+    const fake = fakeClaude('answer-good.jsonl', { fail: true })
+    const { ledger, run } = setup(fake)
+    await expect(run()).rejects.toThrow(/no answer/u)
+    expect(fake.closed).toBe(1)
+    expect(ledger.snapshot().calls).toEqual([expect.objectContaining({ kind: 'source-check', source: 'slack', costUsd: 0 })])
+  })
+
+  it('keeps the items of a paid answer when the usage ledger cannot be written', async () => {
+    const { core, journal, run } = setup(fakeClaude('answer-good.jsonl'), {
+      ledger: {
+        noteCall: () => {
+          throw new Error('EACCES: the disk refused')
+        },
+      },
+    })
+    await run()
+    expect(core.items('p-worfy')).toHaveLength(1)
+    expect(journal.join('\n')).toMatch(/usage ledger/u)
+  })
+
+  it('writes only the count of the result’s errors to the journal, never their text', async () => {
+    const errors = ['Output does not match the schema: "text": "Secret plan from Mallory Example"', 'Reached maximum number of turns (8)']
+    const { journal, run } = setup(fakeClaude([resultOf([], { subtype: 'error_max_turns', is_error: true, structured_output: undefined, errors })]))
+    await expect(run()).rejects.toThrow(/error_max_turns/u)
+    expect(journal.join('\n')).toMatch(/2 errors/u)
+    expect(journal.join('\n')).not.toContain('Mallory')
   })
 })
