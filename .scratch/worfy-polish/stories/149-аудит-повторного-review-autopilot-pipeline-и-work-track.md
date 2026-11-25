@@ -176,3 +176,23 @@ Code: `test/contract/orchestrator-continue.test.ts:585-600` · key lines: 589, 5
 3. Какой mark откроет клик по группе из зелёных CI run-ов с одним красным?
    - Ответ: красный: `lead` — mark с худшим исходом, при равенстве более поздний.
    - Строки: `src/shared/work-track/lanes.ts:248-248`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 149 (audit findings 53, 55, 206, 209, 212: Autopilot continue after a hand-back and a queue stop reason, Pipeline enteredAt and the release rule of a multi-repository Ticket, Work track mark groups), head a0693e460748c885b0797d44352cde3c2b37af36
+>
+> Gate (depth medium, two rounds): reviewer (lens: correctness) — FIX in round 1 (med: mark groups computed with 4/8 px but drawn at least 14 px, so a neighbour covered the counter, measured in chromium; low: aria-label on a span with no role; the ticket's text about mutant 55 was wrong); round 2 checked by the Orchestrator against the diff 0cf57a82c..a0693e460 and the screenshots.
+>
+> - What it does:
+>   - Findings 53 and 55 are proved by new tests; the code is unchanged.
+>   - 206: a multi-repository Ticket entered its Stage when the last of its repositories reached it.
+>   - 209: a repository waits only for the `Release:` lines of repositories listed before it in `Repo:` (ticket item 4, ADR-0104 item 1: the library first); the contract test «app listed first» expects human-review.
+>   - 212: CI and status marks that would cover one another or a counter are drawn once as a group with a count (role img, «17 CI runs»), in the colour of the worst; the grouping uses the drawn edges (groupPx 14/18/24 px, a status group centred on its first change).
+> - Evidence:
+>   - The new tests are red on origin/main (pipeline 206/209, the release contract, the lanes and view tests).
+>   - Round 2: the two reviewer layouts give one group of 18 (red [17, 1] before); a mutant without role turns the view test red; the mid-queue mutant of 55 is killed only by the new test :534.
+>   - 8 test files, 225 tests: EXIT=0. lint and typecheck: EXIT=0. gate fast green on 86071e2ec. story-check ok.
+>   - Chromium shots of a static page with the PR's CSS (light, dark), looked at by the Orchestrator: the counter «18» stays clear, the neighbours sit right of it.
+> - Not verified: the groups in the running app (no local Electron or e2e by the owner's rule); a group growing to three digits may touch the group before it (no test).
+>
+> Decided without the owner (to confirm): the counter width max(14, 6 + 6 × digits) px; a status group centred on its first change; enteredAt is the time a repository entered the Stage, not passed it; a library's `Release:` lines outside `Repo:` are still waited for by every repository.

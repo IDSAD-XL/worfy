@@ -1,7 +1,8 @@
 # 149 — Аудит повторного review: Autopilot, Pipeline и Work track
 
 Type: bug
-Status: claimed 2026-11-25T19:13Z
+Status: done 2026-11-25T22:59Z
+PR: #2235
 Branch: worfy-polish/149
 Blocked by: none
 Source: audit-pr-rereview-2026-11-13, triage.md «В Ticket-ы»; checked open on main b0e073620 2026-11-25
@@ -58,23 +59,29 @@ Source: audit-pr-rereview-2026-11-13, triage.md «В Ticket-ы»; checked open o
       посреди turn-а с `git push` без результата, turn падает с 529: «continue» нет; mutant «не звать
       `entry.retry.observe` для `tool_use`» — красный.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-release.test.ts test/unit/pipeline.test.ts test/unit/work-track-lanes.test.ts test/unit/work-track-view.test.tsx test/unit/work-track-panel.test.tsx test/contract/orchestrator-continue.test.ts test/contract/autopilot-queue.test.ts` exit 0 (224 passed); mutant if (!owned) entry.retry.observe red · mac - · 0cf57a82c6c299cde2f7f7f473d0d77a9e20c302
+  - evidence: review pass · PR #2235 · - - · a0693e460748c885b0797d44352cde3c2b37af36
 - [ ] 55: test `test/contract/autopilot-queue.test.ts` рядом с `:358` и `:495` — alpha ждёт владельца, beta и gamma
       `elsewhere`: `run-stopped` с причиной `waits-owner` и Ticket-ом alpha; mutant «вернуть `effect` вместо
       `waits-owner`» (`run.ts:1762`) — красный.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-release.test.ts test/unit/pipeline.test.ts test/unit/work-track-lanes.test.ts test/unit/work-track-view.test.tsx test/unit/work-track-panel.test.tsx test/contract/orchestrator-continue.test.ts test/contract/autopilot-queue.test.ts` exit 0 (224 passed); mutant return effect in moveOn red · mac - · 0cf57a82c6c299cde2f7f7f473d0d77a9e20c302
+  - evidence: review pass · PR #2235 · - - · a0693e460748c885b0797d44352cde3c2b37af36
 - [ ] 206: unit test `test/unit/pipeline.test.ts` в `describe('stageOf: a Ticket over several repositories')` — `lib`
       вошёл в Stage в 10:00, `app` прошёл его в 13:00 и ушёл вперёд: `enteredAt` = 13:00. Красный на origin/main.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-release.test.ts test/unit/pipeline.test.ts test/unit/work-track-lanes.test.ts test/unit/work-track-view.test.tsx test/unit/work-track-panel.test.tsx test/contract/orchestrator-continue.test.ts test/contract/autopilot-queue.test.ts` exit 0 (224 passed); red on origin/main (enteredAt 10:00) · mac - · 0cf57a82c6c299cde2f7f7f473d0d77a9e20c302
+  - evidence: review pass · PR #2235 · - - · a0693e460748c885b0797d44352cde3c2b37af36
 - [ ] 209: unit test `test/unit/pipeline.test.ts` — три repository, `lib-a` первый в `Repo:`, строка `Release:`
       `lib-b` не выполнена, CI PR-а `lib-a` красный: Ticket на Stage CI с красным, а не на `release`. Красный на
       origin/main.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-release.test.ts test/unit/pipeline.test.ts test/unit/work-track-lanes.test.ts test/unit/work-track-view.test.tsx test/unit/work-track-panel.test.tsx test/contract/orchestrator-continue.test.ts test/contract/autopilot-queue.test.ts` exit 0 (224 passed); red on origin/main (Stage release) · mac - · 0cf57a82c6c299cde2f7f7f473d0d77a9e20c302
+  - evidence: review pass · PR #2235 · - - · a0693e460748c885b0797d44352cde3c2b37af36
 - [ ] 212: unit test `test/unit/work-track-lanes.test.ts` — 17 marks в одну минуту дают одну группу со счётчиком 17, с
       красным CI цвет группы красный; render-test (`test/unit/work-track-panel.test.tsx` или
       `work-track-view.test.tsx`) видит счётчик. Красный на origin/main.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-release.test.ts test/unit/pipeline.test.ts test/unit/work-track-lanes.test.ts test/unit/work-track-view.test.tsx test/unit/work-track-panel.test.tsx test/contract/orchestrator-continue.test.ts test/contract/autopilot-queue.test.ts` exit 0 (224 passed); red on origin/main (markGroups missing, 19 CI marks) · mac - · 0cf57a82c6c299cde2f7f7f473d0d77a9e20c302
   - evidence: test-run pass · `node scripts/vitest-electron.mjs <7 touched test files>` exit 0 (225 passed); review round 1 layouts red on the 4/8 px grouping ([17, 1]), role img red without it · mac - · 86071e2ec6a14f60777e719a9aefa8a8f6af3fc8
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45701071965/job/139567377116 · ci - · a0693e460748c885b0797d44352cde3c2b37af36
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: review pass · PR #2235 · - - · a0693e460748c885b0797d44352cde3c2b37af36
 
 ## Где в коде
 
