@@ -405,7 +405,7 @@ last event; the screen gets `product.changed`. The watch is described on [Projec
 **Layout.** The Mind map is drawn with React Flow. ELK lays out "Tree" in the window's Web Worker with `mrtree`; until
 ELK answers, a quick tree layout draws it. "Graph" is laid out at once in the window by the prototype's algorithm: the
 leaves spread round the topic, each with a share of the circle as large as its depth, each parent at the mean direction
-of its children, then springs on the arrows and pushes between boxes. When the topic has two or more branches, each
+of its children, then springs on the arrows and pushes between boxes. When the map has two or more leaves, each
 round also pulls the map a little so the topic stays in the middle of it, and the last rounds move a node off any
 "grew from" arrow that runs over it. A last pass that moves a node straight away from the topic until it overlaps no other; it
 runs once per change of what it reads (the nodes, their parents, texts, kinds and fold marks). In "Tree" a node with `x`

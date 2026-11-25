@@ -12,7 +12,7 @@ Kind: pr · Epic: worfy-product-session · Ticket: 33 · PR: - · Language: ru
 
 ## 2. Стрелка «Replaces» в Tree огибает колонку справа
 
-Code: `src/renderer/product/mind-map-layout.ts:810-820` · key lines: 811, 812, 815, 816, 817, 818
+Code: `src/renderer/product/mind-map-layout.ts:812-822` · key lines: 813, 814, 817, 818, 819, 820
 
 ```ts
 export function treeReplacesPath(from: ScreenBox, to: ScreenBox): string {
@@ -85,7 +85,7 @@ Code: `src/renderer/product/MindMap.tsx:480-495` · key lines: 488, 489
 1. Почему стрелка входит в отклонённое Решение справа, а не сверху?
    - Ответ: оба Решения в одной колонке, одно под другим; между верхней и нижней сторонами остаётся несколько px, а
      справа путь можно увести за колонку и сделать длинным.
-   - Строки: `src/renderer/product/mind-map-layout.ts:810-817`
+   - Строки: `src/renderer/product/mind-map-layout.ts:812-819`
 2. Что получит стрелка между Решениями из разных колонок?
    - Ответ: кривую прототипа — тот же путь, что в Graph.
-   - Строки: `src/renderer/product/mind-map-layout.ts:810-811`
+   - Строки: `src/renderer/product/mind-map-layout.ts:812-813`

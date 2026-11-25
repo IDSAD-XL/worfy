@@ -3,6 +3,7 @@
 // belongs in the middle, and no arrow may run over a node on the way.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { MindMapNode } from '../../src/shared/product/mind-map'
+import type { ProductTopicState } from '../../src/shared/ipc/product'
 import { buildMindMapGraph, graphEdgePath, layoutRadial, ROOT_ID, setTextMeasure, type Placement } from '../../src/renderer/product/mind-map-layout'
 import { fontLike, inside, LONG_MAP, middle, pathPoints, topic } from './mind-map-long-map'
 
@@ -94,6 +95,33 @@ describe('the radial Graph keeps the topic in the middle (ticket 35)', () => {
     const chosen = crossed(graphEdgePath('replaces', later2, overturned2, others.map(([, box]) => box)))
     expect(chosen).not.toContain(ROOT_ID)
     expect(chosen.length).toBeLessThanOrEqual(crossed(graphEdgePath('replaces', later2, overturned2)).length)
+  })
+
+  it('keeps the topic in the middle whatever the font makes of the texts, with the Tickets and without them as the e2e test draws the map', () => {
+    // The CI run on Windows (Segoe UI) measured the texts other than the Mac does, and the topic of the map
+    // without Tickets, whose topic has one branch, stood 0.33 across: its place hung on the text widths.
+    const maps: [string, ProductTopicState][] = [
+      ['with Tickets', topic()],
+      ['without Tickets', { ...topic(), title: 'Roadmap of alpha', tickets: [] }],
+    ]
+    const off: string[] = []
+    for (const scale of [0.8, 0.9, 1, 1.1, 1.25]) {
+      setTextMeasure((text, size, bold) => fontLike(text, size, bold) * scale)
+      for (const [name, state] of maps) {
+        for (const hideRejected of [false, true]) {
+          const graph = buildMindMapGraph(state, { hideRejected })
+          const placement = layoutRadial(graph)
+          const at = balance(placement)
+          const label = `${name}, texts ×${scale}, hideRejected ${hideRejected}`
+          if (at.across <= 0.4 || at.across >= 0.6 || at.down <= 0.4 || at.down >= 0.6) off.push(`${label}: ${at.across.toFixed(3)} across, ${at.down.toFixed(3)} down`)
+          for (const edge of graph.edges.filter((each) => each.kind === 'from')) {
+            const points = pathPoints(graphEdgePath('from', placement.get(edge.source)!, placement.get(edge.target)!))
+            for (const [id, box] of placement) if (id !== edge.source && id !== edge.target && points.some((point) => inside(point, box))) off.push(`${label}: ${edge.id} over ${id}`)
+          }
+        }
+      }
+    }
+    expect(off).toEqual([])
   })
 
   it('leaves a single branch from the topic as the prototype lays it out, a line that never crosses itself', () => {

@@ -492,7 +492,7 @@ function crosses(ax: number, ay: number, bx: number, by: number, left: number, t
  * the order of the tree, each parent at the mean direction of its children, each depth one ring further out;
  * then rounds of springs on the "grew from" arrows and pushes between boxes that touch, the root never
  * moving. Unlike the prototype's (ticket 35), a deep leaf gets a larger share of the circle, the rounds pull
- * the map round the topic where it has two branches or more, and the last rounds move boxes off the arrows
+ * the map round the topic wherever it has two leaves or more, and the last rounds move boxes off the arrows
  * that run over them: a map whose nodes mostly hang from one deep branch still has the topic in its middle,
  * and few arrows cross a box on their way (on a small map none; the clearing rounds stop above
  * RADIAL_CLEAR_MOST nodes). The prototype's pushes test every pair; here a grid of cells as
@@ -577,9 +577,11 @@ export function layoutRadial(graph: MapGraph): Placement {
 
   // The topic in the middle (ticket 35): each round every node but the root moves together by RADIAL_PULL of
   // the way from the middle of the box round them to the topic, so the map settles round the topic rather
-  // than hanging to one side of it. Only where the topic has two branches or more: a single branch has
-  // nothing to balance, and pulled round the topic it would cross itself.
-  const centred = children[0]!.length > 1
+  // than hanging to one side of it. Wherever the map has two leaves or more, the topic's single branch too (a
+  // map without Tickets): left out, where the topic stood hung on the text widths, 0.33 across with the
+  // Windows font. Only a chain, one leaf, is left alone: it has nothing to balance, and pulled round the topic
+  // it would cross itself.
+  const centred = leaves.length > 1
   const towardsRoot = (): void => {
     let [left, right, top, bottom] = [Infinity, -Infinity, Infinity, -Infinity]
     for (let index = 1; index < count; index += 1) {
