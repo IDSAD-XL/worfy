@@ -302,6 +302,60 @@ describe('the Work track view', () => {
     expect(screen.getAllByTestId('work-track-month-day')[3]!.getAttribute('title')).toMatch(/1 PR merged/u)
   })
 
+  it('draws marks that would lie on one another as one mark with their count: red if any CI run is red, the tooltip lists them all; a click opens the red one', async () => {
+    // 17 CI runs and 17 status changes in one minute of Wednesday, one run red.
+    extraFacts = [
+      ...Array.from({ length: 17 }, (_, index): WorkFact => ({
+        id: `ci-many-${index}`,
+        kind: 'ci',
+        start: at(4, 16, 0),
+        end: at(4, 16, 1),
+        outcome: index === 7 ? 'failed' : 'ok',
+        session: null,
+        pr: 1600 + index,
+        source: 'github',
+        title: 'ci',
+      })),
+      ...Array.from({ length: 17 }, (_, index): WorkFact => ({
+        id: `status-many-${index}`,
+        kind: 'ticket-status',
+        start: at(4, 16, 0),
+        end: at(4, 16, 0),
+        outcome: 'ok',
+        session: null,
+        epic: 'worfy-alpha',
+        ticket: String(index + 2).padStart(2, '0'),
+        source: 'git',
+        title: `${String(index + 2).padStart(2, '0')} open → claimed`,
+      })),
+    ]
+    fakeMain()
+    render(<RunsView activeProjectId="p-1" />)
+    await openWorkTrack()
+    const row = (id: string): HTMLElement => document.querySelector<HTMLElement>(`[data-testid="work-track-mark-row"][data-row-id="${id}"]`)!
+    const ci = within(row('ci')).getAllByTestId('work-track-ci')
+    // ci-1 and ci-2 stand apart; the 17 of Wednesday 16:00 are one mark.
+    expect(ci).toHaveLength(3)
+    const crowd = ci.find((mark) => mark.textContent === '17')!
+    expect(crowd.className).toContain('w-wt-mark--failed')
+    expect(crowd.dataset.spanId).toBe('ci-many-7')
+    expect(crowd.getAttribute('aria-label')).toBe('17 CI runs')
+    expect(crowd.title.split('\n')[0]).toBe('17 CI runs')
+    expect(crowd.title.split('\n')).toHaveLength(18)
+    expect(crowd.title).toContain('PR #1607')
+    const status = within(row('ticket-status')).getAllByTestId('work-track-status')
+    expect(status).toHaveLength(2)
+    const changes = status.find((mark) => mark.textContent === '17')!
+    expect(changes.title.split('\n')[0]).toBe('17 Ticket status changes')
+    expect(changes.title).toContain('18 open → claimed')
+
+    await act(async () => {
+      fireEvent.click(crowd)
+    })
+    await settle()
+    expect(within(screen.getByTestId('work-track-panel')).getByTestId('work-track-panel-what').textContent).toBe('CI run')
+  })
+
   it('hatches a GitHub gap on the row of CI runs and a git gap on the row of status changes, each with its source and why (ticket 13)', async () => {
     fakeMain({
       gaps: [

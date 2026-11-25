@@ -542,6 +542,24 @@ button.w-wt-toggle {
 .w-wt-mark--blocked {
   background: var(--blocked-ring);
 }
+/* Marks that would lie on one another: one mark with their count (worfy-polish ticket 149). */
+.w-wt-mark--group {
+  top: 2px;
+  bottom: 2px;
+  width: auto;
+  min-width: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  color: var(--surface);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.w-wt-mark--status.w-wt-mark--group {
+  transform: translateX(-7px);
+}
 
 .w-wt-month-day {
   position: absolute;

@@ -1,7 +1,8 @@
 # 149 — Аудит повторного review: Autopilot, Pipeline и Work track
 
 Type: bug
-Status: open
+Status: claimed 2026-11-25T19:13Z
+Branch: worfy-polish/149
 Blocked by: none
 Source: audit-pr-rereview-2026-11-13, triage.md «В Ticket-ы»; checked open on main b0e073620 2026-11-25
 
@@ -83,3 +84,55 @@ Source: audit-pr-rereview-2026-11-13, triage.md «В Ticket-ы»; checked open o
 
 - Остальные находки `triage.md`.
 - Другие строки Work track (deploy, gate): группировка только для строк CI и статусов.
+
+## Итог
+
+Реализовано в ветке `worfy-polish/149` (PR — в отчёте исполнителя). Все пять finding-ов подтвердились на
+origin/main 2af5f760e.
+
+- **53.** Contract test «a Session given back to the person mid-turn keeps the calls…» в
+  `test/contract/orchestrator-continue.test.ts`, новый fake-скрипт
+  `test/fixtures/agent-scripts/orchestrator-continue-handback-push.jsonl` (`git push` без `tool_result`, ожидание
+  release `handback`, затем 529). Run владеет Session (`setUnattended(true)`) при старте turn-а и во время push-а;
+  до 529 Session возвращается человеку. Итог: таймера нет, «continue» не отправлен, в transcript строка
+  `not retried: git push … may or may not have run`. Код модуля не менялся: поведение было верным, не хватало test-а.
+- **55.** Contract test «an Epic that waits for the owner, then every Epic left runs on another Machine…» в
+  `test/contract/autopilot-queue.test.ts`: alpha ждёт владельца (Ticket 02), beta и gamma на ПК — `epic-finished`
+  alpha `waits-owner 02`, beta и gamma `elsewhere`, `run-stopped` `waits-owner` с Ticket-ом `02`. Код `run.ts` не
+  менялся.
+- **206.** `stageOf` (`src/shared/workflow/pipeline.ts`): `enteredAt` Ticket-а на нескольких repository — самый
+  поздний момент, когда какой-либо repository дошёл до Stage-а Ticket-а: у стоящего на нём — его `enteredAt` (с
+  rework), у ушедшего вперёд — момент, когда он вошёл в этот Stage (`reached[index]`, самое позднее время Stage-ей,
+  пройденных до него). `stageOfOne` теперь отдаёт ещё массив `reached`.
+- **209.** `awaited` в `stageOf`: repository ждёт строки `Release:` repository, стоящих раньше него в строках
+  `Repo:`, и строки библиотек, которых нет среди repository Ticket-а; свою и более поздних — нет. Ticket одного
+  repository — как прежде, ждёт всё, кроме своей.
+- **212.** `markGroups` в `src/shared/work-track/lanes.ts` и `MarkRows` в `src/renderer/work-track/Lanes.tsx`:
+  mark, который начинается раньше, чем кончается предыдущий (его конец или начало плюс ширина mark-а — 4 px у
+  CI, 8 px у статуса), входит в его группу. Группа рисуется одной mark-ой со счётчиком, в цвете худшего mark-а,
+  tooltip — счётчик и строка на каждый mark, клик открывает худший (самый поздний из худших). Стиль —
+  `.w-wt-mark--group` в `work-track.css`.
+- Feature pages: `docs/features/workflow.md` (порядок строк `Repo:` для Stage `release`, время входа в Stage),
+  `docs/features/work-track.md` (группы marks).
+
+### Решено без владельца (подтвердить)
+
+- **206: «вошёл» — не «прошёл».** Ticket просил брать момент, когда repository «вошёл в Stage или прошёл его».
+  Взят момент входа в Stage и для ушедшего вперёд repository: Ticket вошёл в Stage, когда последний repository
+  прошёл предыдущий Stage (сценарий «Что происходит»). Время прохождения Stage-а ушедшим repository сдвинуло бы
+  «на CI с» на момент зелёного CI `app`, позже реального входа. В test-е `app` вошёл в CI в 13:00 и прошёл его в
+  13:20, ожидается 13:00.
+- **209: строки `Release:` чужой библиотеки.** Строку библиотеки, которой нет среди `Repo:` Ticket-а, ждут все
+  его repository, как до правки. Строгое «только строки repository раньше него» сняло бы ожидание внешнего
+  release совсем.
+- **212: ширина трека до замера.** Пока трек не измерен (и в test DOM), группировка считает его шириной 1000 px
+  (`UNMEASURED_TRACK_PX`). Клик по группе открывает панель худшего mark-а, а не список; порядок худшего у CI:
+  `failed`/`rejected`, потом `stopped`/прочие, потом идущий, потом `ok`; у статусов — `blocked`.
+
+### Проверки
+
+- Mutant-ы: в `orchestrator-continue.ts` `if (!owned) entry.retry.observe(event)` — test 53 красный (таймер
+  retry есть); в `run.ts` `return effect` вместо `{ reason: 'waits-owner', … }` — test 55 красный (`run-stopped`
+  `blocked-tickets`). Оба файла восстановлены.
+- Test-ы 206, 209 и оба test-а 212 красные на origin/main до правки (`enteredAt` 10:00 вместо 13:00; Stage
+  `release` вместо `ci` `failing`; `markGroups is not a function`; 19 mark-ов CI вместо 3).

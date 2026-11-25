@@ -6,7 +6,7 @@
 // The facts are literals in local time, so the test reads the same in every time zone.
 import { describe, expect, it } from 'vitest'
 import type { SessionInfo, SourceGap, WorkFact, WorkTrackInput } from '../../src/shared/work-track/facts'
-import { buildSpans, lanesByEpic, lanesBySession, markRows, NO_EPIC, offLaneSpans, periodBounds, type Lane } from '../../src/shared/work-track/lanes'
+import { buildSpans, lanesByEpic, lanesBySession, markGroups, markRows, NO_EPIC, offLaneSpans, periodBounds, type Lane } from '../../src/shared/work-track/lanes'
 
 /** A local time on a day of November 2026 (no change of daylight saving time in the days used). */
 const at = (day: number, hh: number, mm = 0): string => new Date(2026, 10, day, hh, mm).toISOString()
@@ -154,6 +154,46 @@ describe('the rows of CI runs and Ticket status changes (worfy-work-track ticket
     // the git gap is cut to the period
     const { start } = periodBounds(period)
     expect(status!.gaps).toEqual([{ source: 'git', start, end: Date.parse(at(9, 3)), why: 'The Project is not a git repository' }])
+  })
+
+  it('draws marks closer than a mark\'s width as one group with their count, coloured by the worst of them', () => {
+    // 17 CI runs and 17 status changes in one minute of Tuesday, one of the runs red, one change blocked.
+    const crowd: WorkTrackInput = {
+      ...input,
+      facts: [
+        ...Array.from({ length: 17 }, (_, index) =>
+          fact({ id: `ci-${index}`, kind: 'ci', start: at(10, 9, 40), end: at(10, 9, 41), outcome: index === 5 ? 'failed' : 'ok', source: 'github', title: 'ci' }),
+        ),
+        ...Array.from({ length: 17 }, (_, index) =>
+          fact({ id: `st-${index}`, kind: 'ticket-status', start: at(10, 9, 40), end: at(10, 9, 40), outcome: index === 3 ? 'blocked' : 'ok', source: 'git', title: `status ${index}` }),
+        ),
+        // A day later: a mark of its own.
+        fact({ id: 'ci-later', kind: 'ci', start: at(11, 9, 40), end: at(11, 9, 41), source: 'github', title: 'ci' }),
+      ],
+    }
+    const bounds = periodBounds(period)
+    const [ci, status] = markRows(crowd)
+    for (const width of [1200, 0]) {
+      const ciGroups = markGroups(ci!, bounds, width)
+      expect(ciGroups.map((group) => group.marks.length)).toEqual([17, 1])
+      expect(ciGroups[0]!.lead.id).toBe('ci-5')
+      expect(ciGroups[0]!.lead.outcome).toBe('failed')
+      expect(ciGroups[1]!.lead.id).toBe('ci-later')
+      const statusGroups = markGroups(status!, bounds, width)
+      expect(statusGroups.map((group) => group.marks.length)).toEqual([17])
+      expect(statusGroups[0]!.lead).toMatchObject({ id: 'st-3', outcome: 'blocked' })
+    }
+    // Two runs an hour apart on a wide Week track stay apart; on a narrow one they share a group.
+    const apart: WorkTrackInput = {
+      ...input,
+      facts: [
+        fact({ id: 'ci-a', kind: 'ci', start: at(10, 9), end: at(10, 9, 1), source: 'github', title: 'ci' }),
+        fact({ id: 'ci-b', kind: 'ci', start: at(10, 10), end: at(10, 10, 1), outcome: 'failed', source: 'github', title: 'ci' }),
+      ],
+    }
+    const [apartCi] = markRows(apart)
+    expect(markGroups(apartCi!, bounds, 4000).map((group) => group.lead.id)).toEqual(['ci-a', 'ci-b'])
+    expect(markGroups(apartCi!, bounds, 300).map((group) => [group.lead.id, group.marks.length])).toEqual([['ci-b', 2]])
   })
 
   it('leaves the GitHub and git gaps off every lane', () => {

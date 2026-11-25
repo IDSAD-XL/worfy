@@ -444,7 +444,8 @@ list, because it notified of it itself. A click on a Linked machine's note opens
   head of its branch there, found by the pair (repo, branch), and the PR of that branch there. Each repository is judged on
   its own facts, and the Ticket stands on the earliest of their Stages. So a `review` mark counts only once it is on the head
   of every branch, a new head of any branch takes the verdict off the whole Ticket, red CI of any PR is red CI of the Ticket,
-  and with one PR merged the Ticket stands where the other PR stands. Its Stage then carries `merged`: how many of its
+  and with one PR merged the Ticket stands where the other PR stands. The Ticket entered its Stage when the last of its
+  repositories reached that Stage, a repository that has gone past it since included. Its Stage then carries `merged`: how many of its
   repositories have their PR merged, of how many. A Ticket of one repository has no `merged`. A repository whose folder is not
   the top level of its own git repository gives no branch heads and no PRs, so neither git nor `gh` reports a parent
   repository's branches or PRs; the snapshot says "<folder> is not the top level of its repository, its PRs are not read".
@@ -462,8 +463,11 @@ list, because it notified of it itself. A click on a Linked machine's note opens
   `1.4.0+b1`) give "not checked", never released, and a line in the snapshot's reasons. The Stages never wait for these
   commands: all lines are asked at the same time in the background, a read takes the last answer, or "not checked" before
   the first, and an answer that changes what was known computes the Stages again. An answer is asked again after 5
-  minutes, a release once seen is kept. Each repository waits only for the lines of the other repositories, a Ticket of one
-  repository not for its own, so the library goes on to its review and merge while the consumer waits. While a repository waits, its CI
+  minutes, a release once seen is kept. The order of the `Repo:` lines is the order of the merges, the library first: each
+  repository waits only for the lines of the repositories before it and of libraries that are none of the Ticket's
+  repositories, never for its own or a later one's; a Ticket of one repository waits for every line but its own. So the
+  library goes on to its review and merge while the consumer waits, and in a chain of three the first repository's red CI
+  stays visible while the second waits for it. While a repository waits, its CI
   is not judged: the consumer's red CI before the release does not mark the Ticket `failing`; after the release red CI is
   red again. The Ticket's Stage carries `release`, each line with `released`, `waiting` or `not checked`, for the board. A
   Project without Release in its Pipeline sees no such Stage, its `Release:` lines change nothing, and nothing is asked.

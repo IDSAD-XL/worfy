@@ -582,6 +582,25 @@ describe('Auto-continue of a manual turn: turns without a prompt, the guards at 
     expect(h.messages()).toEqual([PERSON])
   })
 
+  it('a Session given back to the person mid-turn keeps the calls the turn made while a run had it: a push without its result is not retried after a 529', async () => {
+    const h = harness({ script: 'orchestrator-continue-handback-push' })
+    await h.open()
+    // A run owns the Session when the turn starts and while the turn runs `git push`.
+    h.setUnattended(true)
+    h.write(PERSON)
+    await until(() => h.windowEvents.some((event) => event.type === 'tool_use'), 'the push of the turn')
+    await tick()
+    // The person takes the Session back before the push's result; the turn then ends with a 529.
+    h.setUnattended(false)
+    h.releases.release('handback')
+    await until(() => h.results().length === 1, 'the turn with the error')
+    await tick(200)
+    expect(h.timers.all).toEqual([])
+    expect(h.continuer.wait(PROJECT)).toBeNull()
+    expect(h.notices()).toEqual(['worfy: not retried: `git push origin demo/01` may or may not have run'])
+    expect(h.messages()).toEqual([PERSON])
+  })
+
   it('two Projects: each Orchestrator waits on its own refusal, with its own Limits status, and gets only its own continuation', async () => {
     // limits.json stays empty: a refusal without a window of its own has no reset time to wait for.
     const h = harness({ script: (request) => (request.cwd === repoB ? 'orchestrator-continue-limits' : 'orchestrator-continue-limits-text'), feedLimits: false })

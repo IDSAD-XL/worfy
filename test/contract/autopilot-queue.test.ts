@@ -531,6 +531,46 @@ describe('a Run over a queue of Epics on the fake agent', () => {
     ])
   })
 
+  it('an Epic that waits for the owner, then every Epic left runs on another Machine: run-stopped waits-owner with the owner\'s Ticket, not blocked-tickets', async () => {
+    writeEpic('alpha', [
+      { num: 1, status: 'open' },
+      { num: 2, status: 'blocked — 2026-11-25', waits: 'owner' },
+    ])
+    writeEpic('beta')
+    writeEpic('gamma')
+    let busy: string[] = []
+    const h = harness({
+      linkedRuns: () => Promise.resolve([{ machine: 'PC', runs: busy.map((epic) => ({ epic, origin: ORIGIN })) }]),
+      // While Epic alpha's Wave runs, the PC starts Epics beta and gamma of the same repository.
+      onWave: (epic) => {
+        if (epic === 'alpha') busy = ['beta', 'gamma']
+      },
+    })
+    await h.autopilot.start(PROJECT, 'alpha', { epics: ['alpha', 'beta', 'gamma'] })
+    await h.stopped()
+    expect(await h.story()).toEqual([
+      ['run-started', 'alpha', ['alpha', 'beta', 'gamma']],
+      ['wave-started', 'alpha', '01'],
+      ['wave-finished', 'alpha', '01'],
+      ['epic-finished', 'alpha', 'waits-owner 02'],
+      ['epic-finished', 'beta', 'elsewhere'],
+      ['epic-finished', 'gamma', 'elsewhere'],
+      ['run-stopped', 'alpha', 'waits-owner'],
+    ])
+    expect((await h.journal()).at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'waits-owner', tickets: ['02'] })
+    expect(h.prompts.some((text) => text.includes('эпика beta') || text.includes('эпика gamma'))).toBe(false)
+    expect(h.autopilot.state(PROJECT)).toMatchObject({
+      status: 'stopped',
+      reason: 'waits-owner',
+      epic: 'alpha',
+      queue: [
+        { epic: 'alpha', status: 'waits-owner' },
+        { epic: 'beta', status: 'elsewhere' },
+        { epic: 'gamma', status: 'elsewhere' },
+      ],
+    })
+  })
+
   it('an Epic of the queue that runs elsewhere at the start refuses the start; "Start anyway" goes, and does not pass that Epic later', async () => {
     writeEpic('alpha')
     writeEpic('beta')

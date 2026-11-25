@@ -17,7 +17,7 @@ import { agentSubkind } from '../../shared/flight-recorder/spans'
 import type { WorkTrackView } from '../../shared/ipc/work-track'
 import { vendorLabel } from '../../shared/vendors/vendor'
 import { WORK_SOURCE_LABELS, type WorkFact } from '../../shared/work-track/facts'
-import { lanesByEpic, lanesBySession, markRows, offLaneSpans, periodBounds, periodDays, type Lane, type LaneGap, type MarkRow, type WorkSpan } from '../../shared/work-track/lanes'
+import { lanesByEpic, lanesBySession, markGroups, markRows, offLaneSpans, periodBounds, periodDays, type Lane, type LaneGap, type MarkGroup, type MarkRow, type WorkSpan } from '../../shared/work-track/lanes'
 import { formatClock, formatDuration, formatLocal } from '../flight-recorder/store'
 import { MonthAxis, MonthCells } from './MonthGrid'
 import { dayName, hoursText, monthScale, openDay, startOfDay, toggleSession, type Density, type LaneMode } from './store'
@@ -269,9 +269,19 @@ function ciColour(span: WorkSpan): string {
 
 const ROW_SOURCES: Readonly<Record<MarkRow['id'], string>> = { ci: '· GitHub', 'ticket-status': '· git log' }
 
+const ROW_NOUNS: Readonly<Record<MarkRow['id'], string>> = { ci: 'CI runs', 'ticket-status': 'Ticket status changes' }
+
+/** The tooltip of a group of marks: their count, then a line per mark. */
+function groupTip(row: MarkRow, group: MarkGroup, facts: ReadonlyMap<string, WorkFact>): string {
+  if (group.marks.length === 1) return spanTip(group.lead, facts.get(group.lead.id))
+  return [`${group.marks.length} ${ROW_NOUNS[row.id]}`, ...group.marks.map((span) => spanTip(span, facts.get(span.id)).split('\n').join(' · '))].join('\n')
+}
+
 /**
  * The rows under the axis of a Day or a Week (ticket 13): a mark per CI run, as long as the run and coloured by
- * its outcome, and a mark per Ticket status change; «no data» of GitHub and of the git log hatched on them.
+ * its outcome, and a mark per Ticket status change; «no data» of GitHub and of the git log hatched on them. Marks
+ * that would lie on one another at the scale are one mark with their count, coloured by the worst of them, its
+ * tooltip listing them all; a click opens that worst one (markGroups, worfy-polish ticket 149).
  */
 function MarkRows({ rows, scale, width, facts }: { rows: readonly MarkRow[]; scale: Scale; width: number; facts: ReadonlyMap<string, WorkFact> }) {
   return (
@@ -286,27 +296,38 @@ function MarkRows({ rows, scale, width, facts }: { rows: readonly MarkRow[]; sca
           </div>
           <div className="w-wt-track">
             <Gaps gaps={row.gaps} scale={scale} width={width} />
-            {row.marks.map((span) =>
-              row.id === 'ci' ? (
+            {markGroups(row, scale, width).map((group) => {
+              const span = group.lead
+              const count = group.marks.length
+              const many = count > 1
+              const key = group.marks[0]!.id
+              const common = {
+                'data-span-id': span.id,
+                title: groupTip(row, group, facts),
+                ...(many ? { 'aria-label': `${count} ${ROW_NOUNS[row.id]}`, 'data-count': count } : {}),
+              }
+              return row.id === 'ci' ? (
                 <span
-                  key={span.id}
-                  className={`w-wt-mark w-wt-mark--ci w-wt-mark--${ciColour(span)}`}
+                  {...common}
+                  key={key}
+                  className={`w-wt-mark w-wt-mark--ci w-wt-mark--${ciColour(span)}${many ? ' w-wt-mark--group' : ''}`}
                   data-testid="work-track-ci"
-                  data-span-id={span.id}
-                  title={spanTip(span, facts.get(span.id))}
-                  style={stretch(span.start, span.end, scale)}
-                />
+                  style={stretch(group.start, group.end, scale)}
+                >
+                  {many ? count : null}
+                </span>
               ) : (
                 <span
-                  key={span.id}
-                  className={`w-wt-mark w-wt-mark--status${span.outcome === 'blocked' ? ' w-wt-mark--blocked' : ''}`}
+                  {...common}
+                  key={key}
+                  className={`w-wt-mark w-wt-mark--status${span.outcome === 'blocked' ? ' w-wt-mark--blocked' : ''}${many ? ' w-wt-mark--group' : ''}`}
                   data-testid="work-track-status"
-                  data-span-id={span.id}
-                  title={spanTip(span, facts.get(span.id))}
-                  style={{ left: `${percent(span.start, scale)}%` }}
-                />
-              ),
-            )}
+                  style={{ left: `${percent(group.start, scale)}%` }}
+                >
+                  {many ? count : null}
+                </span>
+              )
+            })}
           </div>
         </div>
       ))}

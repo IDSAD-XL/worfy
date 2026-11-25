@@ -395,6 +395,20 @@ describe('stageOf: a Ticket over several repositories', () => {
     expect(stageOf(both({ pr: libMerged }, { pr: appMerged }, { mode: 'full' }), DEFAULT_PIPELINE)).toMatchObject({ stage: 'closing', merged: { count: 2, of: 2 }, enteredAt: '2026-10-18T12:00:00.000Z' })
   })
 
+  it('the Ticket entered its Stage when the last of its repositories reached it, also one that has gone on since', () => {
+    // lib reached CI at 10:00 and waits on it; app reached CI at 13:00, its CI went green at 13:20, and it went on.
+    const libMarks = [mark('review', 'success', LIB, '2026-10-17T10:00:00Z')]
+    const appMarks = [mark('review', 'success', APP, '2026-10-17T13:00:00Z')]
+    const libPr = pr({ number: 41, headSha: LIB, checks: [{ ...running, startedAt: '2026-10-17T10:05:00Z' }] })
+    const appPr = pr({ number: 118, headSha: APP, checks: [{ ...green, startedAt: '2026-10-17T13:05:00Z', completedAt: '2026-10-17T13:20:00Z' }] })
+    const stage = stageOf(both({ marks: libMarks, pr: libPr }, { marks: appMarks, pr: appPr }), ATALAYA)
+    expect(stage.prs?.map((each) => each.stage)).toEqual(['ci', 'human-review'])
+    expect(stage).toMatchObject({ stage: 'ci', enteredAt: '2026-10-17T13:00:00.000Z' })
+    // The order of the Repo: lines does not matter.
+    const swapped = facts({ mode: 'silent', headSha: null, repos: [repo('app', APP, { marks: appMarks, pr: appPr }), repo('lib', LIB, { marks: libMarks, pr: libPr })] })
+    expect(stageOf(swapped, ATALAYA)).toMatchObject({ stage: 'ci', enteredAt: '2026-10-17T13:00:00.000Z' })
+  })
+
   it('a repository with no branch yet keeps the Ticket on Implementing', () => {
     const marks = [mark('review', 'success', LIB)]
     expect(stageOf(both({ marks }, { headSha: null, marks }), ATALAYA)).toMatchObject({ stage: 'implementing', merged: { count: 0, of: 2 } })
@@ -495,6 +509,34 @@ describe('stageOf: the Stage release', () => {
     })
     // Red CI of the library is the library's own red: the Ticket is on CI, failing.
     expect(stageOf(input, WITH_RELEASE)).toMatchObject({ stage: 'ci', sub: 'failing' })
+  })
+
+  it('three repositories: each waits only for the lines of the repositories before it in the Repo: lines, so red CI of the first is not hidden', () => {
+    const LIB_B = '2'.repeat(40)
+    const marks = [...reviewed, mark('review', 'success', LIB_B)]
+    const libB = (state: ReleaseFact['state']): ReleaseFact => ({ repo: 'lib-b', kind: 'tag', ref: 'lib-b-v2.0.0', state })
+    const three = (releases: ReleaseFact[]): StageFacts =>
+      facts({
+        mode: 'silent',
+        headSha: null,
+        repos: [
+          repo('lib-a', LIB, { marks, pr: pr({ number: 41, headSha: LIB, checks: [red] }) }),
+          repo('lib-b', LIB_B, { marks, pr: pr({ number: 42, headSha: LIB_B, checks: [green] }) }),
+          repo('app', APP, { marks, pr: pr({ number: 118, headSha: APP, checks: [green] }) }),
+        ],
+        releases,
+      })
+    // lib-b depends on lib-a, app on lib-b: lib-a waits for no release of lib-b, and its red CI is the Ticket's.
+    const stage = stageOf(three([libB('waiting')]), WITH_RELEASE)
+    expect(stage).toMatchObject({ stage: 'ci', sub: 'failing' })
+    expect(stage.prs?.map((each) => [each.repo, each.stage, each.sub])).toEqual([
+      ['lib-a', 'ci', 'failing'],
+      ['lib-b', 'human-review', null],
+      ['app', 'release', null],
+    ])
+    // A line of a library that is none of the Ticket's repositories holds every repository, as before.
+    const outside: ReleaseFact = { repo: 'vendor-lib', kind: 'tag', ref: 'v9.0.0', state: 'waiting' }
+    expect(stageOf(three([outside]), WITH_RELEASE).prs?.map((each) => each.stage)).toEqual(['release', 'release', 'release'])
   })
 
   it("red CI of the consumer before the release does not paint the Ticket; after the release it is the usual red", () => {
