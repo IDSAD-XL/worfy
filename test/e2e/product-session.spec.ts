@@ -925,7 +925,7 @@ test('a queued message is dimmed; one left in the queue of a closed Session is Â
       label.evaluate((element) => {
         const style = globalThis as unknown as { getComputedStyle(of: unknown): { opacity: string } }
         let opacity = 1
-        for (let node: Element | null = element; node !== null; node = node.parentElement) opacity *= Number(style.getComputedStyle(node).opacity)
+        for (let node: typeof element | null = element; node !== null; node = node.parentElement) opacity *= Number(style.getComputedStyle(node).opacity)
         return opacity
       })
     expect(await drawnOpacity()).toBeLessThan(1)

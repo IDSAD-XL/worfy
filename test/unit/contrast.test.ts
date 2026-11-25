@@ -148,6 +148,12 @@ for (const [scheme, veil] of [
 // the stylesheet the app ships; the colour is a token of tokens.css or of autopilot/autopilot-modal.css, where
 // `--danger` lives.
 describe('the «not sent» label of a queued message', () => {
+  /** The part of an element of jsdom's page this check uses: the file is type-checked without the DOM library. */
+  interface PageElement {
+    matches(selector: string): boolean
+    readonly parentElement: PageElement | null
+  }
+  const page = (globalThis as unknown as { document: { body: { innerHTML: string }; querySelector(selector: string): PageElement | null } }).document
   const read = (path: string): string => readFileSync(join(import.meta.dirname, '../../src/renderer', path), 'utf8')
   const modal = read('autopilot/autopilot-modal.css')
   // Every rule of session.css with its selectors, in source order; a rule inside @media counts as applying.
@@ -156,7 +162,7 @@ describe('the «not sent» label of a queued message', () => {
     body,
   }))
   /** The value of `property` the last rule matching `element` declares: source order, as the rules of these elements do not compete by specificity. */
-  const declared = (element: Element, property: string): string | undefined => {
+  const declared = (element: PageElement, property: string): string | undefined => {
     let value: string | undefined
     for (const rule of rules) {
       const found = new RegExp(`(?:^|[;\\s])${property}\\s*:\\s*([^;]+)`).exec(rule.body)?.[1]?.trim()
@@ -173,14 +179,14 @@ describe('the «not sent» label of a queued message', () => {
     return value
   }
   /** The label of a queued message as session/QueuedMessages.tsx draws it, with its `status`. */
-  const labelOf = (status: string): Element => {
-    document.body.innerHTML = `<div class="w-pmsg w-pmsg--you w-pmsg--queued" data-status="${status}"><div class="w-pmsg__meta"><span class="w-pmsg__queued">${status}</span></div><div class="w-pmsg__bubble"></div></div>`
-    return document.querySelector('.w-pmsg__queued')!
+  const labelOf = (status: string): PageElement => {
+    page.body.innerHTML = `<div class="w-pmsg w-pmsg--you w-pmsg--queued" data-status="${status}"><div class="w-pmsg__meta"><span class="w-pmsg__queued">${status}</span></div><div class="w-pmsg__bubble"></div></div>`
+    return page.querySelector('.w-pmsg__queued')!
   }
   /** The opacity the label is drawn with: its own times that of every element around it. */
-  const opacityOf = (label: Element): number => {
+  const opacityOf = (label: PageElement): number => {
     let opacity = 1
-    for (let element: Element | null = label; element !== null; element = element.parentElement) opacity *= Number(declared(element, 'opacity') ?? 1)
+    for (let element: PageElement | null = label; element !== null; element = element.parentElement) opacity *= Number(declared(element, 'opacity') ?? 1)
     return opacity
   }
   const schemes = {
