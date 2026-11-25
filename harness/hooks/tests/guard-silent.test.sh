@@ -116,6 +116,10 @@ expect "silent: gh api POST …/reviews --input <payload>, a trace in comments[]
 # The file path a review comment sits on is not published text: an epic is often named after the code area it changes.
 expect "silent: gh api --input <payload>, clean bodies, the epic name only in comments[].path -> allow" allow "$R" \
     "gh api --method POST repos/o/r/pulls/7/reviews --input $T/review-clean.json"
+# gh sends POST when --input is given and no method is: the payload of such a write is checked too.
+printf '{"body":"See Ticket 05"}\n' >"$T/p.json"
+expect "silent: gh api, implicit POST (--input only, no -X) on issues/7/comments -> deny" deny "$R" \
+    "gh api repos/o/r/issues/7/comments --input $T/p.json" 'Ticket 05'
 expect "silent: gh api --input <a file that does not exist> -> deny with the reason" deny "$R" \
     "gh api --method POST repos/o/r/pulls/7/reviews --input $T/no-such-review.json" 'could not be read'
 [[ "$got" == *'no-such-review.json'* && "$got" == *'`gh api repos/o/r/pulls/7/reviews` was not run'* ]] \
@@ -268,6 +272,40 @@ expect "silent: write the payload and post it in one command -> deny, telling to
 [[ "$got" != *'then run the same command again'* ]] && ok "write then post in one command: the refusal does not ask to run the same command again" \
     || bad "write then post in one command asks for the same command again: ${got:0:400}"
 expect "silent: post a missing payload, then remove it -> deny, check the path" deny "$R" "$POST $T/payload-8.json && rm $T/payload-8.json" 'Check the path'
+# The same when the payload already exists: the guard would read its old text, not the one the earlier part writes.
+printf '{"body":"Looks right."}\n' >"$T/payload.json"
+printf '{"body":"See Ticket 05"}\n' >"$T/draft.json"
+COPY_THEN_POST="cp \"$T/draft.json\" \"$T/payload.json\" && gh api -X POST repos/o/r/issues/7/comments --input \"$T/payload.json\""
+expect "silent: overwrite an existing clean payload and post it in one command -> deny, telling to split it" deny "$R" "$COPY_THEN_POST" \
+    'Write the file in one command, then send it in the next one'
+[[ "$got" == *'payload.json'* && "$got" != *'then run the same command again'* ]] && ok "overwrite then post: the refusal names the file, not a rerun" \
+    || bad "overwrite then post: ${got:0:400}"
+expect "silent: post an existing clean payload the command does not name earlier -> allow" allow "$R" \
+    "echo start && gh api -X POST repos/o/r/issues/7/comments --input \"$T/payload.json\""
+# "Earlier" counts from the gh api call that sends the file, not from the first gh api of the command.
+COMMENTS='gh api -X POST repos/o/r/issues/7/comments --input'
+expect "silent: a gh api read, then overwrite the payload, then post it -> deny" deny "$R" \
+    "gh api repos/o/r/pulls/7 --jq .title >/dev/null && cp \"$T/draft.json\" \"$T/payload.json\" && $COMMENTS \"$T/payload.json\"" \
+    'Write the file in one command, then send it in the next one'
+expect "silent: post the payload, overwrite it, post it again -> deny" deny "$R" \
+    "$COMMENTS \"$T/payload.json\" && cp \"$T/draft.json\" \"$T/payload.json\" && $COMMENTS \"$T/payload.json\"" \
+    'Write the file in one command, then send it in the next one'
+expect "silent: a gh api read, then write a missing payload, then post it -> deny, telling to split it" deny "$R" \
+    "gh api repos/o/r/pulls/7 --jq .title >/dev/null && cp \"$T/draft.json\" \"$T/payload-7.json\" && $COMMENTS \"$T/payload-7.json\"" \
+    'Write the file in one command, then send it in the next one'
+expect "silent: a gh api read that names no file, then post an existing payload -> allow" allow "$R" \
+    "gh api repos/o/r/pulls/7 --jq .title && $COMMENTS \"$T/payload.json\""
+# The same file under another spelling: ./<name> against <name>, a relative path against the absolute one, a quoted part.
+printf '{"body":"Looks right."}\n' >"$R/payload-144.json"
+expect "silent: overwrite ./<payload>, post it by its absolute path -> deny" deny "$R" \
+    "cp \"$T/draft.json\" ./payload-144.json && $COMMENTS \"$R/payload-144.json\"" 'Write the file in one command, then send it in the next one'
+expect "silent: overwrite <payload> by its absolute path, post ./<payload> -> deny" deny "$R" \
+    "cp \"$T/draft.json\" \"$R/payload-144.json\" && $COMMENTS ./payload-144.json" 'Write the file in one command, then send it in the next one'
+expect "silent: overwrite \"pay\"load.json (a quoted part), post payload.json -> deny" deny "$R" \
+    "cp \"$T/draft.json\" \"$T/pay\"load.json && $COMMENTS \"$T/payload.json\"" 'Write the file in one command, then send it in the next one'
+expect "silent: write the payload by a redirect, then post it -> deny" deny "$R" \
+    "cat \"$T/draft.json\" > ./payload-144.json && $COMMENTS payload-144.json" 'Write the file in one command, then send it in the next one'
+rm -f "$R/payload-144.json"
 
 # --- Full project, attribution on: everything passes as before -------------------------------
 for c in 'git commit -m "Fix the button, Ticket 05"' 'git switch -c checkout-flow/05' 'gh pr create --title "x" --body "Follows ADR-0042"' \
@@ -280,6 +318,7 @@ full_api "implicit POST …/issues/7/comments with ADR-0042" "gh api repos/o/r/i
 full_api "POST …/reviews --input <payload with Ticket 05>" "gh api --method POST repos/o/r/pulls/7/reviews --input $T/review.json"
 full_api "POST …/reviews --input <a file that does not exist>" "gh api --method POST repos/o/r/pulls/7/reviews --input $T/no-such-review.json"
 full_api "write the payload and post it in one command" "$WRITE_THEN_POST"
+full_api "overwrite an existing payload and post it in one command" "$COPY_THEN_POST"
 full_api "graphql mutation with ADR-0042" "gh api graphql -f query='mutation { addComment(input: {subjectId: \"I1\", body: \"Follows ADR-0042\"}) { clientMutationId } }'"
 expect "full: git reset --hard is still refused" deny "$FR" 'git reset --hard' 'reset --hard'
 expect "full: a pipe that eats the exit code is still refused" deny "$FR" 'pnpm test | tail -5' 'pipe eats the exit code'
