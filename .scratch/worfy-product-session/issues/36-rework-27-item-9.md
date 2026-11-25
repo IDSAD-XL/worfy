@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-24T23:43Z
+PR: #2185
 Branch: worfy-product-session/36
 Blocked by: None — can start immediately
 Source: owner-check fail 2026-11-24 of worfy-product-session 27, item 9 — 27-кнопки-полосы-и-шапка-как-в-прототипе.md
