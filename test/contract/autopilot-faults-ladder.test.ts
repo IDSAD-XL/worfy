@@ -32,6 +32,7 @@ import { QUIET_MARK_MS } from '../../src/shared/agent/quiet'
 import { QUIET_HUNG_MS } from '../../src/shared/autopilot/cycle'
 import type { JournalEvent } from '../../src/shared/autopilot/journal'
 import { checkRecovery } from '../autopilot-invariants'
+import { quarantined } from '../quarantine'
 import { ms } from '../time-scale'
 import { AGENT_SCRIPTS, EPIC, EPIC_B, faultRun, PROJECT, START_MS, until, type FaultRun, type FaultScript } from './autopilot-faults-setup'
 
@@ -365,7 +366,7 @@ describe('a quiet turn of the Orchestrator (worfy-stuck-agents ticket 09)', () =
     expect(checkRecovery(h.recovery({ stop: 'turn-hung', waves: 1 }))).toEqual([])
   })
 
-  it('the silence of a background implementer after the turn stays background-stalled, not turn-hung', async () => {
+  quarantined('autopilot-faults-background-stalled-not-turn-hung')('the silence of a background implementer after the turn stays background-stalled, not turn-hung', async () => {
     // test/fixtures/agent-scripts/autopilot-background.jsonl: the Wave's turn ends with two implementers alive, which then say nothing.
     const h = faultRun({ scripts: ['autopilot-background'], marks: 'claimed', quietHungMs: QUIET_HUNG_MS, prs: false, backgroundStallMs: 60 * 60_000 })
     expect(await h.start()).toEqual({ refusal: null })

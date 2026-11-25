@@ -1,0 +1,13 @@
+{
+  "kind": "windows-exception",
+  "runner": "vitest",
+  "file": "test/contract/terminal-windows.test.ts",
+  "test": "closing a Terminal on Windows, on a real pty > endDescendants ends what is under the shell and leaves the shell",
+  "reason": "Red on Windows only, once in 44 Windows full-suite jobs of 119 CI runs 2026-11-23T21:14Z..2026-11-25T11:51Z: PR run 45598235951 on worfy-product-session/37 4247c8669, job 139150176756 (windows (1/3) / full-suite), red on its CI retry too, 14925 ms. The helper's PowerShell (Get-CimInstance Win32_Process) ended with 'Command failed' and no stderr, which is what the execFile timeout DESCENDANTS_TIMEOUT_MS = 3000 (src/main/terminal/windows-pty.ts:12, :237) gives when it kills the helper (hypothesis: the log does not print the signal). Passed in the other 43 jobs (0.57-2.78 s), main included (runs 45356382266, 45520869001, 45536490791), and on the same PR's previous head 403b2b5da (run 45575408703, job 139072124203). The red job was loaded: this file took 45765 ms there against 3.9-23.5 s in the 43 green ones. The PR touched neither src/main/terminal nor this file. Same family as terminal-windows-close-no-console-host. Neither bound is raised.",
+  "platforms": [
+    "win32"
+  ],
+  "owner": "worfy-windows 117",
+  "since": "2026-11-25",
+  "until": "2027-01-09"
+}
