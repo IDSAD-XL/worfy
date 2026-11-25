@@ -161,3 +161,60 @@ Code: `src/main/index.ts:257-263` · key lines: 260
    - Ответ: у вызова только read tools Jira: пишущие tools connector-а убраны из контекста и отказаны в `canUseTool`
      (Ticket 11); строка рецепта о данных — лишь вторая линия.
    - Строки: `src/main/assistant/sources/jira.ts:18`, `src/main/assistant/sources/jira.ts:75`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED — worfy-assistant 13 (the Jira recipe: the Assistant's check of the user's Jira issues through the claude.ai Atlassian connector, four read tools, registered hourly), head bd532403010207a8c7e469a1235ef777cfc7351e
+>
+> Gate (depth medium, two rounds):
+> - Round 1, reviewer (lens: correctness) — FIX:
+>   - med: the recipe asked for calls one after another, which takes N+5 turns against the shared cap of 8. A busy day ended in error_max_turns, the failed call was paid for, `since` stayed put, and the hourly check failed the same way again;
+>   - low, ticket 11's shared code: an answer whose every entry fails the form counts as a success and moves `since`.
+> - Round 2: checked by the Orchestrator against the recipe text.
+>
+> - What it does (off by default: the jira check kind is disabled until the user turns it on, and with it off nothing runs and nothing is spent):
+>   - JIRA_RECIPE uses a claude.ai connector named Atlassian or Jira, with exactly four read tools: atlassianUserInfo, getAccessibleAtlassianResources, searchJiraIssuesUsingJql, getJiraIssue. No Rovo search, no Confluence. Write tools are in disallowedTools and refused by canUseTool.
+>   - A 5-turn plan:
+>     - the lookups together;
+>     - both searches together, with fields including comment and expand changelog;
+>     - the next pages together;
+>     - at most 5 getJiraIssue reads in one turn;
+>     - the answer.
+>   - The window is `since` minus 5 minutes, in minutes before the run. Changes the user made are left out.
+>   - The items are a status change, an urgent comment and a new issue, each with author, link, the issue key as Ticket, and the Project.
+>   - Jira text reaches the model only as data.
+> - Evidence:
+>   - The new tests are red first, in both rounds. A mutant with sequential lookups and a search without comment is caught.
+>   - A recorded busy day (12 issues, 14 changes) fits the plan.
+>   - gate fast green on 737062ead.
+>   - The Orchestrator rebased onto origin/main after ticket 12 (#2239) landed. The one conflict was src/main/index.ts (the imports and the neighbouring Slack and Jira registration blocks); both blocks are kept. range-diff: only the first commit changed.
+>   - On f8f668610: typecheck and lint EXIT=0; 780 assistant tests EXIT=0.
+>   - The story fragment of the registration moved to src/main/index.ts:257-263; story-check ok on bd5324030.
+> - Not verified, all against the live service (first real call at the owner's acceptance, ticket 20):
+>   - the real connector's tool names, and whether its search takes fields and expand;
+>   - whether Haiku 5.5 makes the calls together in one turn;
+>   - whether `comment ~ "accountid:…"` works.
+> - Noted, for a ticket of its own (ticket 11's shared code): a source check that fails again and again keeps paying with no backoff, and an answer whose every entry fails the form counts as a success.
+>
+> Decided without the owner (to confirm):
+> - the four read tools;
+> - the connector known by «Atlassian» or «Jira» in its name;
+> - a 5-minute overlap;
+> - the window in minutes, not a date;
+> - the user's own changes are not reported;
+> - what «urgent» means;
+> - the mentions search;
+> - the item id scheme;
+> - a 5-turn plan, at most 5 issue reads, a search page of 50.
+
+Code: `src/main/index.ts:257-263` · key lines: 257
+
+```ts
+      // The Jira check (worfy-assistant ticket 13): changes in the user's issues through their claude.ai connector, once
+      // an hour by default and only once the person turns it on. Not a startup step: worfy runs without it.
+      try {
+        app.on('will-quit', registerJiraCheck(checkScheduler(), (recipe) => appSourceCheck(recipe)))
+      } catch (error) {
+        console.error('[assistant] the Jira check was not registered', error)
+      }
+```

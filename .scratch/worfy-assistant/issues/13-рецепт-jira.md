@@ -1,7 +1,7 @@
 # 13 — Рецепт Jira: изменения в задачах пользователя
 
 Type: task
-Status: claimed 2026-11-25T19:53Z
+Status: done 2026-11-25T23:37Z
 PR: #2238
 Branch: worfy-assistant/13
 Blocked by: 04, 11
@@ -38,18 +38,23 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 13; «Решения 
 - [ ] Рецепт Jira задаёт поиск изменений в задачах пользователя и список разрешённых read tools.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-jira-recipe.test.ts` exit 0 · mac - · 275781a43
   - evidence: test-run pass · `node scripts/vitest-electron.mjs <14 unit and contract tests of src/main/assistant and src/shared/assistant>` exit 0 · mac - · 737062ead
+  - evidence: review pass · PR #2238 · - - · bd532403010207a8c7e469a1235ef777cfc7351e
 - [ ] Unit test на записанном ответе: из ответа вызова получаются пункты об изменениях в задачах пользователя.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-jira-recipe.test.ts` exit 0 · mac - · 275781a43
   - evidence: test-run pass · `node scripts/vitest-electron.mjs <14 unit and contract tests of src/main/assistant and src/shared/assistant>` exit 0 · mac - · 737062ead
+  - evidence: review pass · PR #2238 · - - · bd532403010207a8c7e469a1235ef777cfc7351e
 - [ ] Проверка Jira зарегистрирована в планировщике Ticket-а 04 с интервалом раз в час по умолчанию.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-jira-recipe.test.ts` exit 0 · mac - · 275781a43
   - evidence: test-run pass · `node scripts/vitest-electron.mjs <14 unit and contract tests of src/main/assistant and src/shared/assistant>` exit 0 · mac - · 737062ead
+  - evidence: review pass · PR #2238 · - - · bd532403010207a8c7e469a1235ef777cfc7351e
 - [ ] Записанные ответы лежат как fixture-ы; test-ы не вызывают модель и не ходят в сеть.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-jira-recipe.test.ts` exit 0 · mac - · 275781a43
   - evidence: test-run pass · `node scripts/vitest-electron.mjs <14 unit and contract tests of src/main/assistant and src/shared/assistant>` exit 0 · mac - · 737062ead
+  - evidence: review pass · PR #2238 · - - · bd532403010207a8c7e469a1235ef777cfc7351e
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint` exit 0, `pnpm typecheck` exit 0 · mac - · 737062ead
   - evidence: gate pass · `gate fast` exit 0 · mac - · 737062ead
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45711696836/job/139583795475 · ci - · bd532403010207a8c7e469a1235ef777cfc7351e
 
 ## Итог
 
