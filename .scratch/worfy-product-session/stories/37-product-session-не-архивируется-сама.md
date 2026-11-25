@@ -184,3 +184,17 @@ Code: `src/renderer/canvas/nodes/SessionNode.tsx:145-158` · key lines: 149, 150
 3. Почему кнопка Archive неактивна на Node с Keep, хотя Keep говорит только об автоархиве?
    - Ответ: кнопка идёт через `archiveFromScreen`, а он отбрасывает Node с Keep; активная кнопка получила бы отказ.
    - Строки: `src/renderer/canvas/nodes/SessionNode.tsx:299-300`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED — worfy-product-session 37 (owner 2026-11-25: a Product Session never leaves the Canvas by the automatic archive, only when the user archives it), head 5eae90d104cf4930c8b854173a5824b9251a290b
+>
+> Gate (depth medium, two rounds): reviewer (lens: correctness) — MERGE with six lows; the Orchestrator sent five back; round 1 checked by the Orchestrator against the implementer's report and the head. Before review: the Orchestrator added the manual Archive (none existed) and sent back a CI windows-e2e red (the Archive button in the header left a Codex Node's title zero width).
+>
+> - What the user sees: the automatic archive (any threshold, the ticket-done rule, «Archive finished sessions now») never takes a Product Session's Node and starts no clock for it; every Session Node has an Archive button at the end of the line under its header (one ⌘Z step; disabled with a tooltip while its Session runs or has not started, and on a Kept or pinned Node); Restore brings it back and the next timer run leaves it; Settings → Canvas says a Product Session never leaves by itself; the header is as on main, the source path and then the «Product Session» label shrink so Archive stays whole at the 240 px minimum.
+> - Evidence: new tests red on origin/main (5 unit + 3 contract, then the Archive tests); reviewer 3 of 5 mutants caught, both survivors covered in round 1 (pinned-only, live read-only); 127 tests of archive and session-node EXIT=0; e2e session-archive.spec.ts and codex-sessions-on-canvas.spec.ts whole EXIT=0; pnpm lint, typecheck, test EXIT=0 and gate fast green on 0645247f7; story-check ok; screenshots at 240/300/340 px in both themes looked at by the Orchestrator.
+> - Not verified: the manual item on Mac Stable; the title share on Windows (CI decides).
+> - Out of this ticket (main's header): a finished worfy Session Node's header (Resume, Keep, Hide, Remove) leaves its title about a tenth of a 340 px Node («Pl…»), none at 240 px.
+>
+> Decided without the owner (to confirm): a Product Session that ended without Close gives its save signal only on Archive, Close or product_save, no longer after the archive threshold; a manual archive is recorded with rule 'idle' (a new value would make layout.json unreadable for an older worfy); no Command palette row and no toast for the button.
+> - Rebased by the Orchestrator onto origin/main after worfy-polish 143 (#2208: Windows exceptions for the three contract tests red only on Windows CI, which this PR does not touch) landed: no conflict, range-diff — all 11 commits unchanged; typecheck EXIT=0 on 5eae90d104cf4930c8b854173a5824b9251a290b.
