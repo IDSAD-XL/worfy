@@ -221,3 +221,47 @@ PR. Mutant-ы в своём worktree: без проверки режима `ask`
 4. Почему сервер пишет строку журнала для pr-follow, но не для `wake-orchestrator`?
    - Ответ: закрытый список Ticket-а 08 сам пишет строку каждого своего действия; pr-follow идёт мимо него, и строку пишет сервер.
    - Lines: `src/main/mcp/app-server.ts:372-374`, `src/main/mcp/app-server.ts:255-258`
+
+## 10. Что нашёл review и что осталось
+
+> VERIFIED — worfy-assistant 09 (the MCP server worfy-app that the Assistant's model drives: reading, proposals, actions by the duty's mode, outside text as data; seam B), head 3bb2cd3a08653717b7c5a0794f714aaddaeb2aa1
+>
+> Gate (depth medium, two rounds):
+> - Round 1, reviewer (lens: correctness, security weight) — FIX:
+>   - med: items_list returned Slack and Jira message ids, free text from the Haiku check, outside the outside-text blocks (ADR-0114 boundary 2); a probe confirmed it;
+>   - low: message items had no author;
+>   - low: a PR thread's path was not wrapped;
+>   - low: no ticket owned the journal lines of pr-follow and autopilot-start.
+> - Round 2, narrow reviewer — MERGE, no findings; it walked every field of every tool answer.
+>
+> - What it does (nothing runs in the app until ticket 10 connects the server to the Assistant Session):
+>   - 12 tools.
+>   - Reading: Projects and machines (the second one read-only), items, workflow, PR threads, a Session's tail, Autopilot runs, Limits.
+>   - Proposals: create, update and withdraw a proposal; Prepare returns the exact text of a future Session and sends nothing.
+>   - action_run: goes through an injected closed-list seam shaped like ticket 08's act(). It is refused in modes ask and hand-over and for actions off the list.
+>   - pr-follow goes through the real launcher and is refused while Autopilot runs. autopilot-start goes through the real starter and only opens the owner's Start Autopilot dialog.
+>   - Outside text comes only in outside-text blocks with source and author. Item ids given to the model are made by worfy: item-<16 hex> of SHA-256, message-<16 hex>.
+>   - redactSecrets runs on every answer line and on proposal text before it is stored.
+>   - No tool sends anything out.
+> - Evidence:
+>   - The new tests are red first.
+>   - The implementer's mutants are caught: 4 in round 0 (ask check removed, a bare Ticket title, redactSecrets off, the Prepare Project check removed) and 4 in round 1 (the core id instead of the worfy id, a raw message subject id, an unwrapped thread path, a message without its author).
+>   - The narrow reviewer's run of 757 tests (worfy-app tools, assistant) and typecheck: EXIT=0.
+>   - The implementer's run of 680 assistant and MCP tests, lint and typecheck: EXIT=0.
+>   - gate fast green on 3bb2cd3a0; story-check ok.
+> - Not verified:
+>   - A real Session with a cwd outside every Project (ticket 10).
+>   - The seam against ticket 08's ClosedList was checked by reading, not by compiling; the later wiring must guard appClosedList() returning null.
+>   - Whether the tool call stays open the 10 minutes the Start Autopilot dialog waits.
+>
+> Decided without the owner (to confirm):
+> - pr-follow and autopilot-start are duty actions, ask by default;
+> - pre-approved acts as self;
+> - outside text is a JSON block outside-text, with author null where unknown;
+> - proposals live in main's memory until ticket 10;
+> - a Session's tail: 20 lines (max 50); Autopilot runs: 1 (max 5), 40 events each;
+> - a Linked machine waits for ticket 18;
+> - the journal lines of pr-follow and autopilot-start belong to ticket 10;
+> - the model's item id is 16 hex of the core id's SHA-256.
+>
+> Owner question: in mode self, pr-follow becomes an action the Assistant takes by itself outside the closed list (ADR-0114 point 4).

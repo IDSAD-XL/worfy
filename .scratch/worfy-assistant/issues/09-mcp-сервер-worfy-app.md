@@ -1,7 +1,7 @@
 # 09 — MCP-сервер `worfy-app`: чтение, предложения, действия по режимам, чужой текст как данные
 
 Type: task
-Status: claimed 2026-11-25T19:11Z
+Status: done 2026-11-25T22:26Z
 PR: #2240
 Branch: worfy-assistant/09
 Blocked by: 03, 07
@@ -50,23 +50,32 @@ MCP-сервер `worfy-app` — единственный набор tools Sessi
 
 - [ ] `worfy-app` работает у Session, cwd которой вне всех Project-ов.
   - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 9e8a44265326a4be8260c1a1613bbe239445e59c
+  - evidence: review pass · PR #2240 · - - · 3bb2cd3a08653717b7c5a0794f714aaddaeb2aa1
 - [ ] Contract test: tools чтения отвечают — Project-ы и машины, пункты журнала, workflow Project-а, нити PR, хвост
       Session, Run Autopilot-а, Limits.
   - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 9e8a44265326a4be8260c1a1613bbe239445e59c
+  - evidence: review pass · PR #2240 · - - · 3bb2cd3a08653717b7c5a0794f714aaddaeb2aa1
 - [ ] Contract test: предложение создаётся, обновляется и снимается; у Prepare в ответе — точный текст будущей Session.
   - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 9e8a44265326a4be8260c1a1613bbe239445e59c
+  - evidence: review pass · PR #2240 · - - · 3bb2cd3a08653717b7c5a0794f714aaddaeb2aa1
 - [ ] Contract test: действие вне закрытого списка или вне режима обязанности отклоняется.
   - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 9e8a44265326a4be8260c1a1613bbe239445e59c
+  - evidence: review pass · PR #2240 · - - · 3bb2cd3a08653717b7c5a0794f714aaddaeb2aa1
 - [ ] Contract test: действие идёт через функцию main с её проверками — pr-follow отказывает, пока идёт Autopilot;
       `autopilot_start` открывает диалог, а не запускает Run.
   - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 9e8a44265326a4be8260c1a1613bbe239445e59c
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45703607531/job/139551775088 · ci - · 3bb2cd3a08653717b7c5a0794f714aaddaeb2aa1
 - [ ] Contract test: чужой текст в ответе помечен как данные, с источником и автором.
   - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 9e8a44265326a4be8260c1a1613bbe239445e59c
+  - evidence: review pass · PR #2240 · - - · 3bb2cd3a08653717b7c5a0794f714aaddaeb2aa1
 - [ ] Contract test: в ответах нет секретов.
   - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 9e8a44265326a4be8260c1a1613bbe239445e59c
+  - evidence: review pass · PR #2240 · - - · 3bb2cd3a08653717b7c5a0794f714aaddaeb2aa1
 - [ ] Ни один tool `worfy-app` не отправляет ничего вовне: ответа в PR среди tools нет.
   - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 9e8a44265326a4be8260c1a1613bbe239445e59c
+  - evidence: review pass · PR #2240 · - - · 3bb2cd3a08653717b7c5a0794f714aaddaeb2aa1
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: review pass · PR #2240 · - - · 3bb2cd3a08653717b7c5a0794f714aaddaeb2aa1
 
 ## Итог
 
