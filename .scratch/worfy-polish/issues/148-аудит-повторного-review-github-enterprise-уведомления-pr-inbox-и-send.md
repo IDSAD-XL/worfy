@@ -49,14 +49,19 @@ Source: audit-pr-rereview-2026-11-13, triage.md «В Ticket-ы»; checked open o
 
 - [ ] 158: test `test/contract/github-prs.test.ts` (stand-in `gh` из `test/contract/gh-world.ts`) — аккаунт на
       `ghe.example.com`: `gh auth token` получает `--hostname ghe.example.com`. Красный на origin/main.
+  - evidence: test-run pass · `pnpm test test/contract/github-prs.test.ts` exit 0; the new Enterprise test exit 1 on origin/main sources · mac - · 53def3d1f
 - [ ] 157: test `test/contract/github-accounts.test.ts` — проверка записи для repository на `ghe.example.com` идёт с
       `GH_ENTERPRISE_TOKEN` аккаунта Project-а; для github.com — с `GH_TOKEN`, как сейчас. Красный на origin/main.
+  - evidence: test-run pass · `pnpm test test/contract/github-accounts.test.ts` exit 0; the two-account Enterprise test exit 1 on origin/main sources · mac - · 53def3d1f
 - [ ] 165: test `test/contract/pr-inbox-notifications.test.ts` — первое чтение с паузой rate limit посреди details (часть
       PR без строк), следующее полное: уведомлений о старых PR нет. Красный на origin/main.
+  - evidence: test-run pass · `pnpm test test/contract/pr-inbox-notifications.test.ts` exit 0; the rate-limit baseline test exit 1 on origin/main sources · mac - · 53def3d1f
 - [ ] 181: test `test/contract/pr-inbox-send.test.ts` рядом с `:582` — запись отметки in-flight падает: исход `refused`
       с «could not be marked before the post», stand-in `gh` не получил POST, draft не помечен отправленным; mutant «post
       после неудачной отметки» — красный.
+  - evidence: test-run pass · `pnpm test test/contract/pr-inbox-send.test.ts` exit 0; mutant that posts after a failed mark exit 1 · mac - · 53def3d1f
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 53def3d1f
 
 ## Итог
 
