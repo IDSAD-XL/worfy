@@ -282,6 +282,30 @@ expect "silent: overwrite an existing clean payload and post it in one command -
     || bad "overwrite then post: ${got:0:400}"
 expect "silent: post an existing clean payload the command does not name earlier -> allow" allow "$R" \
     "echo start && gh api -X POST repos/o/r/issues/7/comments --input \"$T/payload.json\""
+# "Earlier" counts from the gh api call that sends the file, not from the first gh api of the command.
+COMMENTS='gh api -X POST repos/o/r/issues/7/comments --input'
+expect "silent: a gh api read, then overwrite the payload, then post it -> deny" deny "$R" \
+    "gh api repos/o/r/pulls/7 --jq .title >/dev/null && cp \"$T/draft.json\" \"$T/payload.json\" && $COMMENTS \"$T/payload.json\"" \
+    'Write the file in one command, then send it in the next one'
+expect "silent: post the payload, overwrite it, post it again -> deny" deny "$R" \
+    "$COMMENTS \"$T/payload.json\" && cp \"$T/draft.json\" \"$T/payload.json\" && $COMMENTS \"$T/payload.json\"" \
+    'Write the file in one command, then send it in the next one'
+expect "silent: a gh api read, then write a missing payload, then post it -> deny, telling to split it" deny "$R" \
+    "gh api repos/o/r/pulls/7 --jq .title >/dev/null && cp \"$T/draft.json\" \"$T/payload-7.json\" && $COMMENTS \"$T/payload-7.json\"" \
+    'Write the file in one command, then send it in the next one'
+expect "silent: a gh api read that names no file, then post an existing payload -> allow" allow "$R" \
+    "gh api repos/o/r/pulls/7 --jq .title && $COMMENTS \"$T/payload.json\""
+# The same file under another spelling: ./<name> against <name>, a relative path against the absolute one, a quoted part.
+printf '{"body":"Looks right."}\n' >"$R/payload-144.json"
+expect "silent: overwrite ./<payload>, post it by its absolute path -> deny" deny "$R" \
+    "cp \"$T/draft.json\" ./payload-144.json && $COMMENTS \"$R/payload-144.json\"" 'Write the file in one command, then send it in the next one'
+expect "silent: overwrite <payload> by its absolute path, post ./<payload> -> deny" deny "$R" \
+    "cp \"$T/draft.json\" \"$R/payload-144.json\" && $COMMENTS ./payload-144.json" 'Write the file in one command, then send it in the next one'
+expect "silent: overwrite \"pay\"load.json (a quoted part), post payload.json -> deny" deny "$R" \
+    "cp \"$T/draft.json\" \"$T/pay\"load.json && $COMMENTS \"$T/payload.json\"" 'Write the file in one command, then send it in the next one'
+expect "silent: write the payload by a redirect, then post it -> deny" deny "$R" \
+    "cat \"$T/draft.json\" > ./payload-144.json && $COMMENTS payload-144.json" 'Write the file in one command, then send it in the next one'
+rm -f "$R/payload-144.json"
 
 # --- Full project, attribution on: everything passes as before -------------------------------
 for c in 'git commit -m "Fix the button, Ticket 05"' 'git switch -c checkout-flow/05' 'gh pr create --title "x" --body "Follows ADR-0042"' \

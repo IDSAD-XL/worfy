@@ -30,12 +30,14 @@
 //     An entry of the list is cut the second way, so `foo-bar`, `foo.bar` and `foo bar` are the two
 //     words foo and bar, and a Cyrillic entry is a word. A Cyrillic entry of one word and at least four
 //     letters is found in its oblique cases too: a Cyrillic word of the text with a Russian case
-//     ending is also hashed without it, with each nominative ending put back (CASE_ENDINGS below).
+//     ending is also hashed without it, with each nominative ending put back (-a, -ya, -y, the soft
+//     sign, -iy, -yy, -oy; none only for an entry of five letters or more: CASE_ENDINGS below).
 //     What is not caught: a Latin entry glued to a Latin letter or digit (foobar for foo, a plural
-//     foos); any other non-Latin entry glued to a letter, mark or digit, and a Cyrillic one glued to
-//     more than one case ending (a suffix such as -ovich) or with a stem that changes (a vowel lost in the
-//     oblique cases); an entry with a letter of another case form than its
-//     lower case (dotted I, Kelvin sign) where it stands inside the entry; an entry in another spelling
+//     foos); any other non-Latin entry glued to a letter, mark or digit; a Cyrillic entry glued to
+//     more than one case ending (a suffix such as -ovich), with a stem that changes (a vowel lost in
+//     the oblique cases), of three letters or less, or of four letters ending in a consonant, in its
+//     oblique cases; an entry with a letter of another case form than its lower case (dotted I,
+//     Kelvin sign) where it stands inside the entry; an entry in another spelling
 //     or split by other characters than those between words. An empty report is not proof that nothing
 //     personal is left.
 //     The hash list: {"sha256": [the entries], "first": [...]}. "first" holds the first four hex
@@ -116,16 +118,19 @@ function normalWord(word) {
 // -ym -im -ykh -ikh -am -yam -akh -yakh -uyu -yuyu -aya -yaya -oe -ee -a -ya -u -yu -e -y -i -o. The hash
 // list keeps no word, so the guard cannot take the stem of an entry; it takes the ending off a Cyrillic
 // word of the text instead, puts back each ending a nominative may have (none, -a, -ya, -y, the soft
-// sign) and hashes the result again: a surname in -ov is found with -a or -ym after it, a name in -a
-// with -oy or -u in its place, a name in -y with -ya or -em in its place.
+// sign, and the adjective endings -iy, -yy, -oy) and hashes the result again: a surname in -ov is found
+// with -a or -ym after it, a name in -a with -oy or -u in its place, a name in -y with -ya or -em in its
+// place, an adjective-type surname in -skiy, -tskiy or -oy with -ogo or -omu in its place.
 // shortcut: one ending off, Russian only (no Ukrainian endings, no stem that loses a vowel in its oblique
 // cases, no suffix such as -ovich); redo when a deny-list entry is found missed in a form this does not
 // reach, or when the list holds names of another Cyrillic language.
 const CASE_ENDINGS = '\u0430\u043c\u0438 \u044f\u043c\u0438 \u043e\u0433\u043e \u0435\u0433\u043e \u043e\u043c\u0443 \u0435\u043c\u0443 \u044b\u043c\u0438 \u0438\u043c\u0438 \u043e\u0432 \u0435\u0432 \u043e\u043c \u0435\u043c \u043e\u0439 \u0435\u0439 \u044b\u043c \u0438\u043c \u044b\u0445 \u0438\u0445 \u0430\u043c \u044f\u043c \u0430\u0445 \u044f\u0445 \u0443\u044e \u044e\u044e \u0430\u044f \u044f\u044f \u043e\u0435 \u0435\u0435 \u0430 \u044f \u0443 \u044e \u0435 \u044b \u0438 \u043e'.split(' ')
-const NOMINATIVE_ENDINGS = ['', '\u0430', '\u044f', '\u0439', '\u044c']
+const NOMINATIVE_ENDINGS = ['', '\u0430', '\u044f', '\u0439', '\u044c', '\u0438\u0439', '\u044b\u0439', '\u043e\u0439']
 // The stemming applies to entries of one word and at least four letters: a shorter one would match too many
-// unrelated words.
+// unrelated words. A bare stem (no nominative ending put back) counts from five letters: a four-letter entry
+// that ends in a consonant is too often the stem of an unrelated word (a name inside a common noun).
 const MIN_STEMMED = 4
+const MIN_BARE_STEM = 5
 const CYRILLIC_WORD = /^\p{Script=Cyrillic}+$/u
 
 /** The forms of a Cyrillic word of the text that may be the nominative of a list entry it declines. */
@@ -137,7 +142,7 @@ function nominatives(word) {
     const stem = word.slice(0, -ending.length)
     for (const back of NOMINATIVE_ENDINGS) {
       const form = stem + back
-      if (form !== word && [...form].length >= MIN_STEMMED) out.add(form)
+      if (form !== word && [...form].length >= (back ? MIN_STEMMED : MIN_BARE_STEM)) out.add(form)
     }
   }
   return out
