@@ -354,10 +354,11 @@ describe('a batch of changes', () => {
       expect(writes.size).toBe(0)
       expect(told).toEqual([])
       expect(core.items(PROJECT)).toHaveLength(40)
+      // Each item is still handed to the takers one by one, as it is taken, before the batch ends.
+      expect(taken).toHaveLength(41)
     })
     expect(Object.fromEntries(writes)).toEqual({ [PROJECT]: 1, null: 1 })
     expect(told.sort()).toEqual([null, PROJECT].sort())
-    // Each item is still handed to the takers one by one, as it is taken.
     expect(taken).toHaveLength(41)
 
     // The same items as without a batch: a restart reads them back, and the condition is pending.
@@ -410,6 +411,26 @@ describe('a batch of changes', () => {
       }),
     ).toThrow('ENOSPC')
     expect(existsSync(join(root.root, 'assistant', 'items.json'))).toBe(true)
+  })
+
+  it('a batch whose source throws and whose write then fails throws the source’s error; the write failure is logged', () => {
+    const root = dataRoot()
+    const files = attentionFileStore(attentionPaths(root.projectDir, root.root))
+    const store = {
+      read: files.read,
+      write: () => {
+        throw new Error('ENOSPC: no space left on device')
+      },
+    }
+    const logs: [string, unknown][] = []
+    const core = new AttentionCore({ now: clock('2026-11-13T09:00:00Z').now, store, settings: () => ({ timeZone: 'Europe/Berlin' }), projects: () => [PROJECT], log: (message, error) => logs.push([message, error]) })
+    expect(() =>
+      core.batch(() => {
+        core.ingest(waits(1, 'r1'))
+        throw new Error('the source broke')
+      }),
+    ).toThrow('the source broke')
+    expect(logs).toEqual([[expect.stringContaining('could not write'), expect.objectContaining({ message: expect.stringContaining('ENOSPC') })]])
   })
 
   it('without a batch each change is written at once, as before', () => {

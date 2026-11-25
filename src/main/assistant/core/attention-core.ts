@@ -85,16 +85,28 @@ export class AttentionCore {
    * one); the listeners are told once per scope then. A source that hands over many events at once (the first read of
    * a Project's workflow) runs in a batch: the file is written once, not once per item (worfy-polish 151). Inside the
    * batch the core answers at once from memory, and each item still goes to the takers (onItem) as it is taken.
-   * What `take` changed before it threw is written too; the throw goes on to the caller.
+   * What `take` changed before it threw is written too; the throw goes on to the caller, and a write that fails then
+   * is logged, so it does not hide the source's error.
    */
   batch<T>(take: () => T): T {
     this.batching += 1
+    let result: T
     try {
-      return take()
-    } finally {
+      result = take()
+    } catch (error) {
       this.batching -= 1
-      if (this.batching === 0) this.flush()
+      if (this.batching === 0) {
+        try {
+          this.flush()
+        } catch (writeError) {
+          ;(this.options.log ?? ((message, cause) => console.warn(message, cause)))('[assistant] the attention core could not write a batch whose source failed', writeError)
+        }
+      }
+      throw error
     }
+    this.batching -= 1
+    if (this.batching === 0) this.flush()
+    return result
   }
 
   /** Writes every scope a batch changed; a scope whose write fails costs only itself, and the first failure is thrown after the rest. */
@@ -203,6 +215,10 @@ export class AttentionCore {
       file.items.push(item)
     }
     this.save(event.projectId, file)
+    // Inside a batch the takers run before the file is written. If that write fails, the event's key is not on disk,
+    // and after a restart the event is taken again and handed to the takers again. That is safe while every taker is
+    // idempotent: the only one, a Project's rules (duties/app.ts), names a condition by the rule, subject and
+    // revision, and expect() replaces a condition of the same id and never re-arms a raised one.
     for (const taker of this.takers) taker(item)
     return item
   }

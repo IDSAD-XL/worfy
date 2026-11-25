@@ -14,17 +14,28 @@ Project e2e test-а — 682 Ticket-а, 96 из них `blocked`; ядро дел
 
 ## 2. Одна запись на scope за batch
 
-Code: `src/main/assistant/core/attention-core.ts:90-114` · key lines: 91, 96, 104, 108, 113
+Code: `src/main/assistant/core/attention-core.ts:91-126` · key lines: 92, 102, 105, 108, 116, 125
 
 ```ts
   batch<T>(take: () => T): T {
     this.batching += 1
+    let result: T
     try {
-      return take()
-    } finally {
+      result = take()
+    } catch (error) {
       this.batching -= 1
-      if (this.batching === 0) this.flush()
+      if (this.batching === 0) {
+        try {
+          this.flush()
+        } catch (writeError) {
+          ;(this.options.log ?? ((message, cause) => console.warn(message, cause)))('[assistant] the attention core could not write a batch whose source failed', writeError)
+        }
+      }
+      throw error
     }
+    this.batching -= 1
+    if (this.batching === 0) this.flush()
+    return result
   }
 
   /** Writes every scope a batch changed; a scope whose write fails costs only itself, and the first failure is thrown after the rest. */
@@ -46,7 +57,8 @@ Code: `src/main/assistant/core/attention-core.ts:90-114` · key lines: 91, 96, 1
 
 - Что делает: `batch(take)` поднимает счётчик; пока он больше нуля, `save` и запись нового scope в `load` только
   помечают scope в `dirty`. Когда внешний batch кончается, `flush` пишет каждый помеченный scope один раз и один раз
-  зовёт слушателей `subscribe`. Ошибка записи одного scope не мешает остальным, первая бросается после всех.
+  зовёт слушателей `subscribe`. Ошибка записи одного scope не мешает остальным, первая бросается после всех. Если
+  бросил сам источник, его ошибка идёт дальше, а ошибка записи после неё — в log.
 - Почему здесь: Ticket называет `attention-core.ts` в «Где в коде» и просит «одно сохранение на scope за tick»;
   синхронный batch вместо `queueMicrotask`/`setImmediate` выбран, чтобы запись не терялась при выходе (`will-quit`) и
   источник видел ошибку записи в том же вызове, как раньше (см. «Итог» Ticket-а).
@@ -58,7 +70,7 @@ Code: `src/main/assistant/core/attention-core.ts:90-114` · key lines: 91, 96, 1
 
 ## 3. Без batch всё как раньше
 
-Code: `src/main/assistant/core/attention-core.ts:135-138` · key lines: 136
+Code: `src/main/assistant/core/attention-core.ts:147-150` · key lines: 148
 
 ```ts
   private save(scope: string | null, file: AttentionFile): void {
@@ -157,9 +169,9 @@ test('an Auberge-sized Project is interactive within 3 s and pans and zooms smoo
 ## Проверить себя
 
 1. Почему batch синхронный, а не отложенная запись через `setImmediate`?
-   - Ответ: запись идёт в `finally` того же вызова — она не теряется при выходе, и ошибка записи доходит до источника,
-     как раньше.
-   - Строки: `src/main/assistant/core/attention-core.ts:90-98`
+   - Ответ: запись идёт в конце того же вызова `batch` — она не теряется при выходе, и ошибка записи доходит до
+     источника, как раньше.
+   - Строки: `src/main/assistant/core/attention-core.ts:91-109`
 2. Что теряет CI с удалением потолка 7300 ms?
    - Ответ: задержку, одинаково добавленную к каждому старту: она поднимает базу вместе со стартом, и ловит её только
      3 s вне CI.
@@ -167,4 +179,4 @@ test('an Auberge-sized Project is interactive within 3 s and pans and zooms smoo
 3. Что видит слушатель `onItem` внутри batch, а что слушатель `subscribe`?
    - Ответ: `onItem` получает каждый item сразу, как он взят; `subscribe` — один раз на scope, когда `flush` записал
      файл.
-   - Строки: `src/main/assistant/core/attention-core.ts:101-114`
+   - Строки: `src/main/assistant/core/attention-core.ts:113-126`
