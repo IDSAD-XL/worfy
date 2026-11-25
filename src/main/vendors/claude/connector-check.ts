@@ -198,8 +198,11 @@ export interface ConnectorQuery extends AsyncIterable<unknown> {
   getContextUsage(opts: { detail: 'summary' }): Promise<unknown>
 }
 
-/** Starts the Claude Code of one check with `prompt` as its input: claudeConnectorQuery, or a fake one in tests. */
-export type ConnectorQueryStarter = (spec: ConnectorCallSpec, prompt: AsyncIterable<SDKUserMessage>) => Promise<ConnectorQuery>
+/**
+ * Starts the Claude Code of one check with `prompt` as its input (user messages of the SDK; typed `unknown` so no SDK
+ * type leaves the driver): claudeConnectorQuery, or a fake one in tests.
+ */
+export type ConnectorQueryStarter = (spec: ConnectorCallSpec, prompt: AsyncIterable<unknown>) => Promise<ConnectorQuery>
 
 /** How long a check waits for its servers to leave `pending`, and how often it asks meanwhile. */
 export interface ConnectorTiming {
@@ -338,5 +341,6 @@ export const claudeConnectorQuery: ConnectorQueryStarter = async (spec, prompt) 
     cwd,
     spec,
   })
-  return query({ prompt, options })
+  // heldMessage, the one input askConnector passes, yields only SDK user messages.
+  return query({ prompt: prompt as AsyncIterable<SDKUserMessage>, options })
 }
