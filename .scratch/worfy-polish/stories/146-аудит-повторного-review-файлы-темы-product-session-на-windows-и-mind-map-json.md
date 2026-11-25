@@ -214,3 +214,15 @@ Code: `test/unit/product-topic.test.ts:167-184` · key lines: 168, 177, 180, 184
    - Ответ: тема читается, но без заголовка и разделов; `map.md` назван в её ошибках с причиной «leads to another host
      through a link: not read». Сам файл не читается.
    - Строки: `src/main/product/topic.ts:141-142`
+
+## 11. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 146 (audit re-review findings 58 with 59/78/80, 79, 93: Product Session topic files on Windows behind a link to another host, an unreadable mind-map.json, productWrites pinned), head 335d015a48fb7e620854558bef06ded1945ee5e1
+>
+> Gate (depth medium, two rounds): reviewer (lens: correctness) — FIX in round 1 (med: mind_map_read allowed only the Project path, so a Silent-mode Workflow folder on the user's own share was refused for reading while still written; low: the critic/ folder check and the 'unchecked' branch untested; included: MindMapWriter.apply wrote mind-map.json through a link above the topic folder); round 1 checked by the Orchestrator against the diff of e6c221a0f.
+>
+> - What the user sees: on Windows, a map.md, mind-map.json, issues/ file, critic review or Product Session folder behind a link to another host is not read (the topic names the error, the review goes to skipped); the Mind map tools and the screen's map moves no longer write mind-map.json through such a link; links are checked from the Project's documents root as the screen reads it (the Workflow folder in Silent mode, as written and as its real path); an unreadable mind-map.json is named in the topic's errors instead of an empty map; an unknown Status word gives none. macOS and Linux unchanged (the link walk answers 'local' without file system calls).
+> - Evidence: reviewer 8 of 10 mutants caught; round 1: 3 new tests red first, 5 mutants killed; 23 product/mind-map/docs/query-factory/remote-links test files EXIT=0 (465 passed); lint and typecheck EXIT=0; gate fast green on e6c221a0f; story-check ok; en and ru feature pages updated.
+> - Not verified: a real symlink to a share on Windows (path.win32 rules with a fake lstat/readlink/realpath; Windows CI runs the same logic).
+>
+> Decided without the owner (to confirm): the refusal text «leads to another host through a link: not read»; a Product Session folder behind such a link gives an empty accepted-advice share; reads and writes of the Mind map are checked from the documents root; when that root cannot be found the tools check from the Project root with a warning.
