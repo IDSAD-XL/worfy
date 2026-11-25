@@ -86,9 +86,9 @@ export function archiveSessionNode(projectId: string, nodeId: string, channel: L
 - Риски и пробелы test-ов: запись не отличает ручной архив от архива по порогу — оба `idle`. В UI правило архива
   нигде не показывается.
 
-## 5. Кнопка Archive в шапке Session Node
+## 5. Кнопка Archive на каждом Session Node
 
-Code: `src/renderer/canvas/nodes/SessionNode.tsx:280-299` · key lines: 281, 285, 293
+Code: `src/renderer/canvas/nodes/SessionNode.tsx:294-314` · key lines: 295, 299, 307
 
 ```tsx
 const archiveBlock = (node: { keep: boolean; pinned: boolean }, session: string | null): string | null =>
@@ -102,7 +102,8 @@ function ArchiveButton({ projectId, id, blocked, readOnly, onProblem }: { projec
   return (
     <button
       type="button"
-      style={styles.tool}
+      className="nodrag"
+      style={styles.archive}
       data-testid="session-node-archive"
       disabled={blocked !== null}
       {...writeAction(readOnly, archive, blocked ?? 'Archive this Session: it leaves the Canvas, nothing is deleted; Restore in the Archive brings it back')}
@@ -113,25 +114,58 @@ function ArchiveButton({ projectId, id, blocked, readOnly, onProblem }: { projec
 }
 ```
 
-- Что делает: кнопка Archive рядом с Keep, Hide и Remove у каждого Session Node — и у того, что запускает worfy, и у
-  read-only. Неактивна, и tooltip говорит почему, когда main всё равно отказал бы: Keep, закреплённый Node, Session
-  работает или ещё не начиналась. Отказ main при записи уходит в строку ошибки Node-а.
-- Почему здесь: своего контекстного меню у Session Node нет; действия над Node-ом — кнопки в его шапке. Строки в Command
-  palette нет: у palette нет строк для выбранного Node-а.
+- Что делает: кнопка Archive у каждого Session Node — и у того, что запускает worfy, и у read-only. Неактивна, и
+  tooltip говорит почему, когда main всё равно отказал бы: Keep, закреплённый Node, Session работает или ещё не
+  начиналась. Отказ main при записи уходит в строку ошибки Node-а.
+- Почему здесь: своего контекстного меню у Session Node нет; действия над Node-ом — кнопки на самом Node-е. Строки в
+  Command palette нет: у palette нет строк для выбранного Node-а.
 - Без него: пользователь нажимал бы Archive на работающей Session и получал бы отказ без объяснения.
 - Требование: [Готово, когда](../issues/37-product-session-не-архивируется-сама.md#готово-когда)
-- Риски и пробелы test-ов: в шапке узкого Node-а стало на одну кнопку больше; вид шапки на снимке не проверялся.
-  Unit test-ы проверяют кнопку у Node-а, который запускает worfy; у read-only Node-а её проверяет e2e (живая Session
-  `LIVE` — неактивна).
+- Риски и пробелы test-ов: unit test-ы проверяют кнопку у Node-а, который запускает worfy; у read-only Node-а её
+  проверяет e2e (живая Session `LIVE` — неактивна).
 
-## 6. Как проверено
+## 6. Archive — под шапкой, не в ней
+
+Code: `src/renderer/canvas/nodes/SessionNode.tsx:140-153` · key lines: 144, 145
+
+```tsx
+  // Archive sits at the end of the line under the header, not in the header: there the chip and the
+  // other buttons leave the title no room for one more (a 300 px Codex Node, worfy-product-session
+  // ticket 37). The source on that line gives way instead.
+  archive: {
+    flex: 'none',
+    marginLeft: 'auto',
+    padding: '0 4px',
+    border: 0,
+    borderRadius: 'var(--radius-button)',
+    background: 'transparent',
+    color: 'var(--text-muted)',
+    font: 'inherit',
+    fontSize: 'var(--text-11)',
+  },
+```
+
+- Что делает: кнопка стоит в конце строки под шапкой (метка Product Session, badge Vendor-а, источник), прижата вправо
+  и не сжимается; сжимается источник, у которого есть многоточие.
+- Почему здесь: в шапке рядом с chip-ом, Keep, Hide и Remove кнопка не оставила заголовку Node-а Codex шириной 300 px
+  места совсем: CI windows-e2e упал в `codex-sessions-on-canvas.spec.ts`, двойной щелчок по заголовку нашёл его
+  невидимым. Метка Product Session и Resume Node-а Codex уже вынесены под шапку по той же причине (комментарии в
+  `SessionNode.tsx`). Шапка теперь такая же, как до этого PR.
+- Без него: на узком Node-е заголовок пропадает, и двойной щелчок по нему не открывает Session.
+- Требование: [Где в коде](../issues/37-product-session-не-архивируется-сама.md#где-в-коде)
+- Риски и пробелы test-ов: e2e проверяют, что заголовок видим и занимает больше 5% ширины Node-а. Заголовок
+  законченного Node-а worfy (Resume, Keep, Hide, Remove) и до этого PR был узким, около десятой части Node-а; этот PR его
+  не меняет. Что новый test красный с кнопкой в шапке, проверено только на Windows в CI, локально не проверялось.
+
+## 7. Как проверено
 
 - `pnpm test test/unit/archive-rule.test.ts test/contract/layout-archive.test.ts`: пять новых unit test-ов и три
   contract test-а красные до правки `archive.ts`, зелёные после.
 - `test/unit/session-node-product.test.tsx` (кнопка), `test/unit/settings-canvas.test.tsx` (подсказка под порогом),
   contract test `archiveSessionNode` — красные до правки, зелёные после.
-- `pnpm test:e2e test/e2e/session-archive.spec.ts` — exit 0: «Archive finished sessions now» и таймер на 24 h Product
-  Session не берут, её Archive убирает её с Canvas, Restore в Archive возвращает.
+- `pnpm test:e2e test/e2e/session-archive.spec.ts test/e2e/codex-sessions-on-canvas.spec.ts` — exit 0: «Archive finished
+  sessions now» и таймер на 24 h Product Session не берут, её Archive убирает её с Canvas, Restore в Archive возвращает;
+  у каждого Node-а, Codex 300 px тоже, Archive виден и заголовок видим.
 - `pnpm lint && pnpm typecheck && pnpm test` — exit 0; gate fast — exit 0.
 
 ## Проверить себя
@@ -146,4 +180,4 @@ function ArchiveButton({ projectId, id, blocked, readOnly, onProblem }: { projec
    - Строки: `src/main/layout/archive.ts:386-388`
 3. Почему кнопка Archive неактивна на Node с Keep, хотя Keep говорит только об автоархиве?
    - Ответ: кнопка идёт через `archiveFromScreen`, а он отбрасывает Node с Keep; активная кнопка получила бы отказ.
-   - Строки: `src/renderer/canvas/nodes/SessionNode.tsx:280-281`
+   - Строки: `src/renderer/canvas/nodes/SessionNode.tsx:294-295`

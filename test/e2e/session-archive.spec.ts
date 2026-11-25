@@ -150,11 +150,14 @@ test('«Never» archives nothing on a fast timer; Settings → Canvas offers the
     await expect(window.getByTestId('canvas')).toHaveAttribute('data-project-id', PROJECT_ID)
     await canvasReady(launched, { size: { width: 1400, height: 900 }, timeout: ms(20_000) })
     for (const id of [OLD_A, OLD_B, KEPT, FRESH, LIVE, PRODUCT]) await expect(nodeOf(window, id)).toBeVisible({ timeout: ms(20_000) })
-    // Every Node, 300 px read-only ones and the 340 px Product Session, shows Archive and keeps room for its title.
+    // Every Node, 300 px read-only ones and the 340 px Product Session, shows Archive and keeps its title
+    // visible. A finished worfy Node's header (Resume, Keep, Hide, Remove) leaves its title the least: about
+    // a tenth of the Node, as before Archive; Archive in that header once left a Codex Node's title none.
     for (const id of [OLD_A, OLD_B, KEPT, FRESH, LIVE, PRODUCT]) {
       await expect(nodeOf(window, id).getByTestId('session-node-archive')).toBeVisible()
+      await expect(nodeOf(window, id).getByTestId('session-node-title')).toBeVisible()
       const [title, whole] = [await nodeOf(window, id).getByTestId('session-node-title').boundingBox(), await nodeOf(window, id).boundingBox()]
-      expect((title?.width ?? 0) / (whole?.width ?? 1), `the share of ${id}'s width its title keeps`).toBeGreaterThan(0.12)
+      expect((title?.width ?? 0) / (whole?.width ?? 1), `the share of ${id}'s width its title keeps`).toBeGreaterThan(0.05)
     }
     await snapshotThemes(window, '37-session-nodes-archive')
     await expect(nodeOf(window, KEPT).getByTestId('session-node-keep')).toHaveAttribute('aria-pressed', 'true')
