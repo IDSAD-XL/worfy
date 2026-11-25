@@ -1,0 +1,22 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "reviewThreads": {
+          "pageInfo": { "hasNextPage": false, "endCursor": "t3" },
+          "nodes": [
+            {
+              "id": "T2", "path": "src/cache.js", "line": 9, "isResolved": true, "isOutdated": false,
+              "comments": {
+                "pageInfo": { "hasNextPage": false, "endCursor": "x" },
+                "nodes": [
+                  { "id": "C3", "url": "https://github.com/acme/shop/pull/51#discussion_r3", "body": "SECOND-PAGE-THREAD-TEXT evict the oldest entry, not the newest", "createdAt": "2026-05-19T10:20:00Z", "authorAssociation": "COLLABORATOR", "author": { "__typename": "User", "login": "tomas-k" }, "path": "src/cache.js", "line": 9, "originalLine": 9, "diffHunk": "@@ -6,2 +6,4 @@\n+evict(newest)", "replyTo": null, "originalCommit": { "oid": "c1" } }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

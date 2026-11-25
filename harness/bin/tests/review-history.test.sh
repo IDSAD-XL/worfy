@@ -6,7 +6,8 @@
 # Covered: the filter (a Bot, a [bot] login, a service User and an agent's report from ignore.json, the author of the
 # pull request — dropped; authors outside the team — context; a person's reply to a bot — kept); the window
 # (older than 12 months and the 501st pull request are not read, a silent approval counts, --since reads only the
-# new and keeps the history's counts and the cursor in meta.json); the voice threshold (29 and 30); probe stops at
+# new and keeps the history's counts and the cursor in meta.json); review threads, conversation comments and the comments of
+# one thread past their first page are read on into raw/; the voice threshold (29 and 30); probe stops at
 # the 30th substantive comment and writes no file; a plain approval of any length is not substantive and has a line of
 # its own in the estimate; a rate limit is retried only after retry-after has passed and
 # gives up after three retries with raw/ untouched, and never makes the page smaller; GitHub's failures a retry may
@@ -134,7 +135,7 @@ project() { # project <name> <origin url or "">
     mkdir -p "$HH/projects/$1" && printf '{"schema":2,"name":"%s","mode":"full"}\n' "$1" >"$HH/projects/$1/profile.json"
     entries="$entries${entries:+,}{\"key\":\"$1\",\"match\":\"$TN/r/$1\",\"profile\":\"$1\"}"
 }
-for p in filt v29 v30 chars cap since probe probe2 rl rlmid rlsec rlpri deny nogh clean upg upgnone upgbad trbase tr504 trtrunc trshrink trfloor tr502 tr502b tr503 trempty tr400 trrl trrlpage trrlmix tron; do project "$p" "git@github.com:acme/$p.git"; done
+for p in filt readon v29 v30 chars cap since probe probe2 rl rlmid rlsec rlpri deny nogh clean upg upgnone upgbad trbase tr504 trtrunc trshrink trfloor tr502 tr502b tr503 trempty tr400 trrl trrlpage trrlmix tron; do project "$p" "git@github.com:acme/$p.git"; done
 project local "$T/elsewhere.git"
 printf '{"repos":[%s]}\n' "$entries" >"$HH/gate/config.json"
 state() { echo "$HH/projects/$1/state/human-review"; }
@@ -177,6 +178,18 @@ process.stdout.write([r("EXTERNAL-CONTEXT-TEXT"), r("NONE-CONTEXT-TEXT"), r("TEA
 [ "$roles" = "context context team 41,40,37" ] && ok "fetch: CONTRIBUTOR and NONE kept as context, the team as team; PRs 41, 40 (approved without comments), 37" \
     || bad "fetch roles and PRs: $roles"
 grep -q "op=ReviewHistoryReviews cursor=r2" "$T/gh-filt.log" && ok "fetch: a PR with more than 30 reviews is read on by a request of its own" || bad "overflow request: $(cat "$T/gh-filt.log")"
+# A pull request whose review threads, conversation comments and comments of one thread each run past their first
+# page: the text of every second page reaches raw/.
+rh readon "$FIX/read-on" fetch; rc=$?
+[ "$rc" -eq 0 ] && raw_has readon "FIRST-PAGE-THREAD-TEXT" && raw_has readon "FIRST-PAGE-COMMENT-TEXT" \
+    && ok "fetch read-on: exit 0, the first pages are in raw/" || bad "fetch read-on: exit $rc $(cat "$T/err")"
+for kind in "SECOND-PAGE-THREAD-TEXT|ReviewHistoryThreads cursor=t2|a review thread on the second page of threads" \
+    "SECOND-PAGE-COMMENT-TEXT|ReviewHistoryComments cursor=k2|a conversation comment on the second page of comments" \
+    "SECOND-PAGE-THREAD-REPLY-TEXT|ReviewHistoryThreadComments cursor=c2|a reply on the second page of a thread's comments"; do
+    text="${kind%%|*}" rest="${kind#*|}"
+    raw_has readon "$text" && grep -q "op=${rest%%|*}" "$T/gh-readon.log" && ok "fetch reads on ${rest#*|}" \
+        || bad "fetch reads on ${rest#*|}: missing in raw/ or not requested $(cat "$T/gh-readon.log")"
+done
 [ "$(grep -c "op=ReviewHistoryPage" "$T/gh-filt.log")" = 1 ] && ok "fetch: a PR older than the window ends the walk, the next page is not requested" \
     || bad "window end: $(cat "$T/gh-filt.log")"
 rh filt "$FIX/filter" estimate --json; rc=$?
