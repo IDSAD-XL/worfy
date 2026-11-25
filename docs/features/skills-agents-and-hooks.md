@@ -242,13 +242,13 @@ Claude Code runs these commands on its events. The limit is in seconds.
 | Event | Command | Limit | What it does |
 |---|---|---|---|
 | `SessionStart` | `inject-rules.mjs orchestrator` | 10 | The rules of a main Session; nothing in a Product Session |
-| `SessionStart` | `inject-rules.mjs common` | 10 | The common rules and the user's rules |
+| `SessionStart` | `inject-rules.mjs common` | 10 | The common rules, the language of reports and the user's rules |
 | `SessionStart` | `inject-rules.mjs product` | 10 | The rules of a Product Session; nothing in any other Session |
 | `SessionStart` | `session-start.mjs` | 15 | The context of the Project |
 | `SessionStart` on `compact` | `after-compact.mjs` | 30 | After a compaction, the state of the work from the files: `wave-brief` of the Epic in the main checkout, the Ticket file and `git status --short` in an implementer's worktree. Nothing at the start of a Session, outside a Project that keeps Tickets, or without a Ticket or an Epic |
 | `SessionStart` | `gh-token-env.mjs` | 10 | `GH_TOKEN` of the Project's account |
 | `SessionStart` | `worktree-lock claim` | 10 | Registers in the tree, and says who is already there; once a day removes the registry files of deleted trees |
-| `SubagentStart` | `inject-rules.mjs common` | 10 | The common rules and the user's rules |
+| `SubagentStart` | `inject-rules.mjs common` | 10 | The common rules, the language of reports and the user's rules |
 | `PreCompact` | `inject-rules.mjs compaction` | 10 | The instructions for the compaction summary, as plain text, in a main Session and in a Subagent; nothing on Codex |
 | `UserPromptSubmit` | `stage-lines.mjs` | 10 | In a Project that keeps Tickets, the `epic-status` lines of the Epics in play, for the Stage line of the status block: the Epic of the current branch (its line names the branch), then Epics with a claimed Ticket, then Epics of local Ticket branches, newest first, whose Ticket is not done; three lines at most. With none of these, the Epics that are not closed, those whose next Ticket is blocked last. Nothing in a Product Session or for a Subagent. When `bin/profile` or `epic-status` fails or takes over 2.5 s, nothing and one line on stderr; the slow one is killed |
 | `PreToolUse` on `Bash\|apply_patch` | `guard.mjs` | 30 | The Bash guard. `apply_patch` is Codex's file edit, which Claude Code does not have: on Codex the guard refuses it to `worfy-reviewer` and `worfy-scout` |
@@ -266,7 +266,10 @@ its verdict by exit code, and `stop.mjs` holds a turn with code 2. The guard exi
 
 **Rules.** `orchestrator` reaches a main Session, and `common` reaches a main Session and every Subagent. `orchestrator`
 holds the default loop, delegation and the report. `common` holds plain language, evidence before "green", context
-hygiene and the shell commands that need a person's confirmation. Claude Code cuts one such text above 10,000 characters
+hygiene and the shell commands that need a person's confirmation. `common` also names the language of reports as a
+value: the section "Language of this session" holds what `bin/profile` resolves for the Session's folder (the user's
+`user.json` first, then the Profile), and in a folder no Profile covers, the user's own setting alone; with neither, the
+section is left out. Claude Code cuts one such text above 10,000 characters
 to a preview, so `common` with the user's rules stays within that limit: a longer rules file is cut after a whole line,
 and a closing line names the file. A file that cannot be read costs one line on stderr, and the part arrives without it.
 `common` also says what to do after a compaction: re-read the Ticket (an Orchestrator runs `epic-status` of its Epic)
