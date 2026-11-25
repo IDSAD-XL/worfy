@@ -50,6 +50,10 @@ GitHub через `gh api` и в публичный repository через `pnpm 
 Рекомендация: (б), только для записей из одного слова длиной от 4 букв. Если владелец не ответит до начала работы,
 агент делает (б) и пишет это в PR.
 
+Решено без владельца (подтвердить), 2026-11-25: сделан путь (б). Дополнение к (б): после снятия окончания script
+ставит на место окончание именительного (нет, -а, -я, -й, -ь), иначе запись на -а или -й в косвенном падеже не
+находится. Цена: `check-personal` на всём repository 5.5 s → 6.3 s.
+
 ## Что делаем
 
 1. 95: guard отклоняет отправку файла, который назван в более ранней части той же команды, и когда файл уже есть, — тем
@@ -64,10 +68,13 @@ GitHub через `gh api` и в публичный repository через `pnpm 
 - [ ] 95: test в `harness/hooks/tests/guard-silent.test.sh` рядом с `:267` — `payload.json` уже есть с чистым текстом,
       команда `cp <файл с deny-словом> payload.json && gh api -X POST … --input payload.json` — deny. Красный на
       origin/main.
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0 (passed 195; on origin/main code exit 1, 2 failed: overwrite then post) · mac - · a8a8d5260460332c373e13a8c0a0712837709865
 - [ ] 121: test в `harness/hooks/tests/guard-silent.test.sh` рядом с `:114` — `gh api <REST endpoint> --input p.json`
       без метода, в файле deny-слово — deny; mutant «убрать `|| input !== undefined`» (`guard.mjs:647`) — красный.
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0; mutant without input in the implicit POST rule exit 1 (the --input only test failed) · mac - · a8a8d5260460332c373e13a8c0a0712837709865
 - [ ] 196: unit test `test/unit/check-personal.test.ts` — запись на кириллице находится в косвенном падеже («…а»,
       «…ым»), по выбранному пути (при (а) — форма, вписанная в список). Красный на origin/main.
+  - evidence: test-run pass · `vitest run test/unit/check-personal.test.ts` exit 0 (27 passed; the oblique-case test failed before the change) · mac - · a8a8d5260460332c373e13a8c0a0712837709865
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `bash harness/hooks/tests/guard-silent.test.sh` — exit 0;
       `ci-ok` зелёный на head PR, job-ы Windows CI зелёные (платформенный PR).
 
