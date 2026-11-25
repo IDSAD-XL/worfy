@@ -88,3 +88,13 @@ test/e2e/epic-frame.spec.ts` — exit 0, у Auberge-test-а `expectedStatus` `sk
    - Ответ: Playwright записывает место того вызова, который объявил test; вызов в spec-файле сохраняет
      `epic-frame.spec.ts:1116` в отчётах и для `file:line`.
    - Строки: `test/e2e/epic-frame.spec.ts:1116-1116`
+
+## 6. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 150 (quarantine of the flaky macOS e2e «an Auberge-sized Project is interactive within 3 s…»: the 7300 ms cap, set by the runner's speed, reddened ci-ok on PRs that do not touch its path), head 3e6c98cd0d62668b382ba2f663e1badfe5cc0f27
+>
+> Gate (depth medium, one round): checked by the Orchestrator against the diff — the same mechanical change as worfy-polish 143 (a test/quarantine record and the quarantined('<id>') label, body untouched), after a separate diagnosis agent read 84 macos-e2e jobs.
+>
+> - What it does: test/quarantine/epic-frame-auberge-start-macos-ci.json (kind quarantine, runner playwright, platforms darwin, owner worfy-polish 151, 2026-11-25 to 2026-12-09 — the 14-day limit) and the test labelled quarantined; ticket 151 (open, blocked by 150) owns the fix: measure the attention core's start cost on a 155-Ticket Project, one save per scope per tick if it matters, a budget from a measured baseline, then lift the quarantine. Neither the 3 s target nor the 7300 ms cap is raised; no src/ change.
+> - Evidence: 4 red first attempts of 84 (one on a branch without the attention core), N median 4963 ms, N/R 1.83–5.19, the cap deciding in 58 of 84 jobs; quarantine and quarantine-suggest tests EXIT=0 (55 passed); playwright --list shows the test skipped, and passed with WORFY_QUARANTINE=run; pnpm lint, typecheck, test EXIT=0; gate fast green; story-check ok.
+> - Not verified: a real e2e run (the list only); while the record holds, a start-time or pan/zoom regression on a big Epic is not caught on macOS.
