@@ -94,10 +94,10 @@ const ACTION_LABELS: Readonly<Record<McpServerAction, string>> = {
 }
 
 /**
- * Under the servers not allowed (worfy-mcp-live ticket 05; spec, Q11): main finds them with a query of Claude
- * Code that may not list the claude.ai connectors, so a connector missing here is allowed by its name.
+ * Under the servers not allowed (worfy-mcp-live ticket 05; worfy-polish 142): Claude Code drops a name with a dot or a space
+ * from its list (mcp-addresses.ts), so a connector's name on it does nothing; the inventory runs each time the popover opens.
  */
-export const CONNECTOR_HINT = 'A claude.ai connector missing here: add its name to MCP servers in Project settings (Edit profile).'
+export const CONNECTOR_HINT = 'A claude.ai connector missing here cannot be allowed by its name: connect it on claude.ai, then open this list again.'
 
 /** The button in the heading of the group «Not allowed in this Project» (ticket 09). */
 export const ALLOW_ALL_LABEL = 'Allow all'

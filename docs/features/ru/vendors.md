@@ -55,7 +55,9 @@ Vendor-а, `claude` или `codex`; у Orchestrator-а остаётся `orch`.
 Закрытие, падение и Resume ведут себя как у Claude Code; Resume продолжает тот же thread Codex. Размышления Codex видны в виде
 сводки, которую даёт сам Codex. Ход заканчивается, когда Codex говорит, что он завершён, в любом статусе, или сообщает об ошибке,
 которую не повторяет; Session тогда idle. После ответа ход ждёт Stop hook-ов Codex, а под Codex Stop hook Harness запускает gate,
-что может занять минуты: пока идёт Stop hook, transcript после ответа показывает строку «Stop hook» со spinner-ом. Запуск hook-а,
+что может занять минуты: пока идёт Stop hook, transcript после ответа показывает строку «Stop hook» со spinner-ом. Исключение —
+Session в main checkout репозитория, не в linked worktree, например Orchestrator: её Stop gate не запускает и только
+задерживается, пока лежит red-метка прошлого run-а; остановка Subagent-а там gate по-прежнему запускает. Запуск hook-а,
 который закончился молча, убирает свою строку; тот, что заблокировал, упал или что-то сказал, остаётся, как hook Claude Code.
 
 **Model, effort и permissions Session Codex.** Три пикера под полем ввода предлагают то, что предлагает Codex.

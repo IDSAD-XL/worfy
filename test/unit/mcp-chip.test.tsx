@@ -128,8 +128,11 @@ describe('the popover', () => {
     const group = within(popover).getByTestId('mcp-not-allowed')
     expect(within(group).getByText('Not allowed in this Project')).toBeTruthy()
     expect(within(group).getAllByTestId('mcp-row').map((each) => each.dataset.name)).toEqual(['example-wiki'])
-    // Under them, how to allow a claude.ai connector the inventory may not list (ticket 05).
+    // Under them, what helps a claude.ai connector the inventory did not list (ticket 05): never its name on the
+    // Project's list, which Claude Code drops (a dot and a space), but the inventory of the next opening (worfy-polish 142).
     expect(within(group).getByTestId('mcp-connector-hint').textContent).toBe(CONNECTOR_HINT)
+    expect(CONNECTOR_HINT).not.toMatch(/add its name|MCP servers in Project settings/u)
+    expect(CONNECTOR_HINT).toMatch(/connect it on claude\.ai, then open this list again/u)
 
     const tracker = rowOf(popover, 'example-tracker')
     expect(tracker.dataset.status).toBe('failed')

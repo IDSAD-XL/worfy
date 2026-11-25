@@ -623,7 +623,9 @@ describe('Autopilot continues after a temporary API error (worfy-retry ticket 04
     await untilRetry(h)
     const timer = h.live()[0]!
     h.releases.release('tasks')
-    await until(async () => (await h.kinds()).includes('waiting-until'), 'the wait for the Limits')
+    // The state, not the journal: `waiting-until` is written before the wait is set (run.ts waitForLimits).
+    await until(() => h.state().status === 'waiting' && h.state().waitingFor === 'limits', 'the wait for the Limits')
+    expect(await h.kinds()).toContain('waiting-until')
     expect(timer.cancelled).toBe(true)
     expect(h.state()).toMatchObject({ status: 'waiting', waitingFor: 'limits' })
     expect(h.state()).not.toHaveProperty('retry')

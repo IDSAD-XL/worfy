@@ -636,7 +636,8 @@ manager or cancel. Any other link (`javascript:`, `file:`, `data:`, `mailto:`) i
 guillemet after it (`).`, `»`, `”`, `…`) stay outside the link, and an address inside a code span or a code block is not a
 link. A link stands out from the text: the link / accent colour (`#0062CC` light, `#C8F25A` dark), medium weight, a thin
 underline at 45 % of that colour that turns solid under the pointer and on keyboard focus, and the shared accent focus ring.
-The same renderer draws Claude's answers in the Session view and on the Canvas, so their links look and open the same way.
+The same renderer draws Claude's answers in the Session view, so their links look and open the same way. A Session Node on
+the Canvas shows its last answer as plain monospaced text (`<pre>`): no markdown and no links.
 
 **Limits.** A file over 1 MiB is refused and read as absent: an ADR leaves the list, and a `HANDOFF.md` of that size hides the
 Node. A file that cannot be read is left out the same way. A symbolic link counts only when it leads to HANDOFF or an ADR of

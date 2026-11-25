@@ -54,7 +54,9 @@ turn. Closing, a crash and Resume behave as for Claude Code; Resume continues th
 thinking shows as the summary Codex gives of it. A turn ends when Codex says it completed, in any status, or reports
 an error it does not retry; the Session is then idle. A turn waits for Codex's Stop hooks after the
 answer, and under Codex the Harness's Stop hook runs the gate, which may take minutes: while a Stop hook runs, the
-transcript shows a "Stop hook" row with a spinner after the answer. A hook run that ends silently takes its row away;
+transcript shows a "Stop hook" row with a spinner after the answer. The exception is a Session in the main checkout of the
+repository, not in a linked worktree, such as the Orchestrator: its Stop runs no gate and is only held while a red marker
+of an earlier run is there; a Subagent's stop there still runs it. A hook run that ends silently takes its row away;
 one that blocked, failed or said something stays, as a hook of Claude Code does.
 
 **Model, effort and permissions of a Codex Session.** The three pickers under the input field offer what Codex offers.

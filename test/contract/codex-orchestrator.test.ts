@@ -865,9 +865,11 @@ describe('the Limits of a Run on Codex and the gate queue\'s turn (worfy-multi-v
     const far = plus(100, 64).map((each) => (each.id === 'primary' ? { ...each, resetsAt: farReset } : each))
     const h = harness({ vendor: () => 'codex', scripts: ['turn', 'usage-limit-window', 'resume'], hooksApproved: true, limitsClock: CLOCK, fires: 1, reads: [plus(12, 40), far], autoContinue: true })
     await h.autopilot.start(PROJECT, EPIC)
-    await until(async () => (await h.journal()).filter((event) => event.kind === 'waiting-until').length === 2, 'the second wait')
+    // The state, not the journal: `waiting-until` is written before the wait is set (run.ts waitForLimits).
+    await until(() => h.autopilot.state(PROJECT).resumesAt === farReset * 1000 + RESUME_MARGIN_MS, 'the second wait')
     expect(h.autopilot.state(PROJECT)).toMatchObject({ status: 'waiting', waitingFor: 'limits', limitsWindow: 'primary', resumesAt: farReset * 1000 + RESUME_MARGIN_MS })
     const events = await h.journal()
+    expect(events.filter((event) => event.kind === 'waiting-until')).toHaveLength(2)
     expect(events.filter((event) => event.kind === 'waiting-until').at(-1)).toMatchObject({ until: new Date(farReset * 1000 + RESUME_MARGIN_MS).toISOString() })
     expect(events.map((event) => event.kind)).not.toContain('run-stopped')
     expect(events.map((event) => event.kind)).not.toContain('resumed')
