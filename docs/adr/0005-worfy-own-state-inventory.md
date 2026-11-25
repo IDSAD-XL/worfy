@@ -77,3 +77,16 @@ worfy ничего не пишет в репозитории Project-ов — н
   же пункт заменяет первое, а запись удаляется, когда в checkout-е появилась новая строка `owner-check` с тем же
   вердиктом, пункт больше не ждёт владельца или его текст переписан. В Ticket и в репозиторий Project-а worfy ничего
   не пишет: строку пишет skill `owner-check` Harness-а (ADR-0002).
+- 2026-11-25 — Epic `worfy-assistant`, Ticket-ы 03, 04 и 05 (ADR-0114): четыре места состояния Assistant-а, все в
+  `WORFY_DATA_DIR`, вне репозиториев Project-а. Пишет только main, через `src/main/storage/json-file.ts`.
+  - `<Project data folder>/assistant-items.json` — пункты ядра внимания одного Project-а (Ticket 03,
+    `src/main/assistant/core/store.ts`): источник, Project, предмет, вид, начало, ревизия, состояние, обязанность.
+    Пункт, по которому 14 дней не было события, удаляется, открытый тоже.
+  - `<WORFY_DATA_DIR>/assistant/items.json` — такие же пункты, но не одного Project-а, а всей машины: Limits,
+    строка Health check.
+  - `<WORFY_DATA_DIR>/assistant-check-marks.json` — отметки планировщика проверок (Ticket 04,
+    `src/main/assistant/schedule/app.ts`): по виду проверки (Slack, Jira) время последнего старта и последнего
+    успеха. Файла нет, пока ни одна проверка не включена.
+  - `<WORFY_DATA_DIR>/assistant/usage.json` — журнал расхода Assistant-а (Ticket 05,
+    `src/main/assistant/budget/ledger.ts`): его вызовы с `usage` и `costUsd`, его автоматические пробуждения и цена
+    остальных ходов worfy, чтобы оценить долю Assistant-а. Записи старше 8 дней удаляются.
