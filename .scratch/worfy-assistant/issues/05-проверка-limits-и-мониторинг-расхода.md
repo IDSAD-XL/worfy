@@ -42,12 +42,17 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 05; «Решения 
 
 - [ ] Unit test: при занятом больше чем на 80 % 5-часовом окне проверка не пускает несрочное пробуждение; при 80 % и ниже
       — пускает.
+  - evidence: test-run pass · `pnpm test test/unit/assistant-wake-gate.test.ts` exit 0 · mac - · 2fa4a5519c5c61eaf7880667b4bc5c1d5fb8fbad
 - [ ] Unit test: дневной предел автоматических пробуждений — пробуждение сверх предела не идёт; в новый день счёт
       начинается заново.
+  - evidence: test-run pass · `pnpm test test/unit/assistant-wake-gate.test.ts` exit 0 · mac - · 2fa4a5519c5c61eaf7880667b4bc5c1d5fb8fbad
 - [ ] Token-ы пишутся по каждому вызову — Session Assistant-а и проверки источника; unit test: сумма за день и за неделю,
       разбивка по источникам, по пробуждениям и по разговору.
+  - evidence: test-run pass · `pnpm test test/unit/assistant-usage-ledger.test.ts` exit 0 · mac - · 2fa4a5519c5c61eaf7880667b4bc5c1d5fb8fbad
 - [ ] Доля Assistant-а в окнах Limits отдаётся с пометкой, что это оценка; способ оценки записан в «Итог».
+  - evidence: test-run pass · `pnpm test test/unit/assistant-usage-ledger.test.ts` exit 0 · mac - · 2fa4a5519c5c61eaf7880667b4bc5c1d5fb8fbad
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 2fa4a5519c5c61eaf7880667b4bc5c1d5fb8fbad
 
 ## Итог
 
