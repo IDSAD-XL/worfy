@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-24T23:32Z
+PR: #2186
 Blocked by: None — can start immediately
 Source: owner-check fail 2026-11-24 of worfy-resource-planner 12, item 4 — 12-приёмка-с-владельцем.md
 
