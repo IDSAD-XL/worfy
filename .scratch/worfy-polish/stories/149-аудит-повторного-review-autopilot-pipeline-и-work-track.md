@@ -44,7 +44,10 @@ Code: `src/shared/workflow/pipeline.ts:303-316` · key lines: 305, 309, 316
   часа раньше; `lib-a` ждёт release `lib-b`, который сам ждёт `lib-a`, и красный CI `lib-a` не виден.
 - Требование: [Что делаем, п. 3 и 4](../issues/149-аудит-повторного-review-autopilot-pipeline-и-work-track.md#что-делаем)
 - Риски и пробелы test-ов: строки `Release:` библиотеки, которой нет среди `Repo:`, по-прежнему ждут все repository
-  (решено без владельца); test проверяет это одной строкой.
+  (решено без владельца); test проверяет это одной строкой. Contract test «both PRs open, app listed first» в
+  `test/contract/workflow-release.test.ts` ждал Stage `release` при `app` первым в строках `Repo:`; по новому правилу
+  `app` первым не ждёт строк `lib`, и ожидание test-а стало `human-review`. Ticket с библиотекой не первой в строках
+  `Repo:` теперь проходит `release` без её tag-а: правило полагается на порядок, который требует ADR-0104.
 
 ## 3. Когда repository дошёл до каждого Stage-а
 

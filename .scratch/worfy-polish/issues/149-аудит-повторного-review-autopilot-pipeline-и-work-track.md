@@ -106,7 +106,11 @@ origin/main 2af5f760e.
   пройденных до него). `stageOfOne` теперь отдаёт ещё массив `reached`.
 - **209.** `awaited` в `stageOf`: repository ждёт строки `Release:` repository, стоящих раньше него в строках
   `Repo:`, и строки библиотек, которых нет среди repository Ticket-а; свою и более поздних — нет. Ticket одного
-  repository — как прежде, ждёт всё, кроме своей.
+  repository — как прежде, ждёт всё, кроме своей. Contract test `test/contract/workflow-release.test.ts` («both PRs
+  open, app listed first») утверждал обратное — «порядок строк `Repo:` не важен», Ticket ждёт на `release` из-за
+  `app`, стоящего первым. По правилу этого Ticket-а и ADR-0104, пункт 1 (порядок строк — порядок merge-ей) `app`
+  первым не ждёт строк `lib`: ожидание test-а заменено на `human-review` с пройденным `release`. Файла нет в «Где в
+  коде»; правка — прямое следствие пункта 4 «Что делаем».
 - **212.** `markGroups` в `src/shared/work-track/lanes.ts` и `MarkRows` в `src/renderer/work-track/Lanes.tsx`:
   mark, который начинается раньше, чем кончается предыдущий (его конец или начало плюс ширина mark-а — 4 px у
   CI, 8 px у статуса), входит в его группу. Группа рисуется одной mark-ой со счётчиком, в цвете худшего mark-а,
